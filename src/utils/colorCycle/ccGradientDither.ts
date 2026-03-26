@@ -515,11 +515,11 @@ export const fillCcGradientDither = async ({
         const scaled = (cellCoverage[cellIdx] / 255) * (clampedLevels - 1);
         const lower = Math.max(0, Math.min(clampedLevels - 1, Math.floor(scaled)));
         const frac = scaled - lower;
-        const adj = frac + (errCurr[cx] || 0);
+        const adj = clamp01(frac + (errCurr[cx] || 0));
         const thr = 0.5 + (noiseAt(cx, cy) - 0.5) * thresholdJitter;
         const chooseUpper = lower < clampedLevels - 1 && adj >= thr;
         const q = chooseUpper ? 1 : 0;
-        const err = frac - q;
+        const err = adj - q;
 
         if (!serpentine) {
           if (cx + 1 < gridW) errCurr[cx + 1] += err * 0.5;

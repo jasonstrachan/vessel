@@ -50,7 +50,7 @@ describe('colorCycleFillController', () => {
     expect(renderBrushToLayerCanvas).toHaveBeenCalledWith(brush, 'layer-1');
   });
 
-  it('keeps flat-mode dither for single-band cc-gradient fills', async () => {
+  it('allows 1 dither color level for cc-gradient fills', async () => {
     const brush = createBrush();
 
     await fillColorCycleLinear({
@@ -79,13 +79,12 @@ describe('colorCycleFillController', () => {
     expect(brush.fillShapeDispatch).toHaveBeenCalledWith(expect.objectContaining({
       options: expect.objectContaining({
         ditherLevels: 1,
-        ditherPairBandCount: 0,
         ditherBackgroundFill: false,
       }),
     }));
   });
 
-  it('uses full CC levels with pair-band dithering for multi-band cc-gradient fills', async () => {
+  it('uses quantized dither levels for multi-band cc-gradient fills', async () => {
     const brush = createBrush();
 
     await fillColorCycleLinear({
@@ -113,8 +112,7 @@ describe('colorCycleFillController', () => {
 
     expect(brush.fillShapeDispatch).toHaveBeenCalledWith(expect.objectContaining({
       options: expect.objectContaining({
-        ditherLevels: 254,
-        ditherPairBandCount: 4,
+        ditherLevels: 5,
       }),
     }));
   });

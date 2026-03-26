@@ -1,6 +1,4 @@
-import { FULL_CC_DITHER_LEVELS } from '@/constants/colorCycle';
 import { BrushShape, type BrushSettings } from '@/types';
-import { resolveCcDitherBandMode } from '@/utils/colorCycle/ccDitherRenderPalette';
 import type { ColorCycleBrushImplementation } from './ColorCycleBrushMigration';
 import type { GradientDitherOptions, Point2D } from './shapeTypes';
 
@@ -86,19 +84,17 @@ const resolveFillSettings = ({
   const ccGradientMode = isCCGradientActiveLayer;
   const wantDither = ccGradientMode && !!brushSettings.ditherEnabled;
   const bands = ccGradientMode ? 254 : brushSettings.gradientBands || 12;
-  const ccDitherMode = resolveCcDitherBandMode(brushSettings.gradientBands ?? 16);
   const spacing = clampColorCycleBandSpacing(
     useShapeSpacing
       ? brushSettings.colorCycleBandSpacingPx ?? brushSettings.spacing ?? defaultBandSpacing
       : brushSettings.spacing ?? defaultBandSpacing
   );
   const ditherLevels = wantDither
-    ? (ccDitherMode.pairBandCount > 0 ? FULL_CC_DITHER_LEVELS : ccDitherMode.quantLevels)
+    ? Math.max(1, Math.min(16, Math.round(brushSettings.gradientBands ?? 16)))
     : undefined;
-  const ditherPairBandCount = wantDither ? ccDitherMode.pairBandCount : undefined;
   const ditherBackgroundFill = brushSettings.ditherGradBgFill ?? brushSettings.ditherBackgroundFill;
 
-  return { ccGradientMode, wantDither, bands, spacing, ditherLevels, ditherPairBandCount, ditherBackgroundFill };
+  return { ccGradientMode, wantDither, bands, spacing, ditherLevels, ditherBackgroundFill };
 };
 
 export const fillColorCycleLinear = async ({
@@ -132,7 +128,7 @@ export const fillColorCycleLinear = async ({
     });
 
     const useShapeSpacing = brushSettings.brushShape === BrushShape.COLOR_CYCLE_SHAPE;
-    const { ccGradientMode, wantDither, bands, spacing, ditherLevels, ditherPairBandCount, ditherBackgroundFill } = resolveFillSettings({
+    const { ccGradientMode, wantDither, bands, spacing, ditherLevels, ditherBackgroundFill } = resolveFillSettings({
       isCCGradientActiveLayer,
       brushSettings,
       defaultBandSpacing,
@@ -157,9 +153,9 @@ export const fillColorCycleLinear = async ({
           spacing,
           continuous: ccGradientMode,
           ccGradient: ccGradientMode,
-          ditherLevels,
+          ditherLevels: options?.ditherLevels ?? ditherLevels,
           ditherPixelSize: options?.ditherPixelSize,
-          ditherPairBandCount: options?.ditherPairBandCount ?? ditherPairBandCount,
+          ditherPairBandCount: options?.ditherPairBandCount,
           ditherBackgroundFill,
           roi: options?.roi,
           lostEdge: brushSettings.lostEdge,
@@ -202,7 +198,7 @@ export const fillColorCycleConcentric = async ({
       flushGradientApply,
     });
 
-    const { ccGradientMode, wantDither, bands, ditherLevels, ditherPairBandCount, ditherBackgroundFill } = resolveFillSettings({
+    const { ccGradientMode, wantDither, bands, ditherLevels, ditherBackgroundFill } = resolveFillSettings({
       isCCGradientActiveLayer,
       brushSettings,
       defaultBandSpacing,
@@ -228,9 +224,9 @@ export const fillColorCycleConcentric = async ({
         options: {
           spacing,
           ccGradient: ccGradientMode,
-          ditherLevels,
+          ditherLevels: options?.ditherLevels ?? ditherLevels,
           ditherPixelSize: options?.ditherPixelSize,
-          ditherPairBandCount: options?.ditherPairBandCount ?? ditherPairBandCount,
+          ditherPairBandCount: options?.ditherPairBandCount,
           ditherBackgroundFill,
           roi: options?.roi,
           lostEdge: brushSettings.lostEdge,

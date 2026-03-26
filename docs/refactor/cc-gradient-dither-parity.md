@@ -12,6 +12,8 @@ Observed failures:
 - Multi-color finalized fills could look like random noise.
 - After the noise fix, finalized fills could collapse into flat dithering because explicit quantized levels were ignored.
 - Recoloring def-bound CC shapes could lose the dithered runtime palette.
+- Long-lived projects could keep finalizing into noise even after the codepath was fixed, because persisted def-slot state remained stale.
+- `sierra-lite` could reintroduce visible banding even when other dither algorithms stayed smooth.
 
 ## Root Causes
 
@@ -33,6 +35,15 @@ Observed failures:
 5. Def-bound gradient recolors were updating slot palettes without rebuilding the matching def runtime stops.
    - Existing def-bound CC content could lose its dithered runtime palette after color edits.
 
+6. Persisted def-slot bindings could survive a broken build with a stale slot palette attached to an otherwise correct gradient def hash.
+   - Preview used the live mark session and looked correct.
+   - Finalize reused the persisted def binding and rendered with the stale slot palette, so long-lived projects/origins stayed noisy while a clean origin behaved normally.
+
+7. The CC `sierra-lite` multi-level diffusion branch was not conserving error correctly.
+   - The branch used the adjusted fractional value to choose the next level.
+   - But it diffused the outgoing error from the pre-adjustment fraction instead of the adjusted value.
+   - That collapsed smooth ramps into repeating row bands that did not appear with the other error-diffusion algorithms.
+
 ## Fixes
 
 - `src/utils/colorCycle/ccDitherRenderPalette.ts`
@@ -50,6 +61,12 @@ Observed failures:
 - `src/hooks/brushEngine/ccGradientController.ts`
   - Recolor edits for def-bound CC slots rebuild dither runtime stops and update matching def-store hashes.
 
+- `src/utils/colorCycleGradientDefs.ts`
+  - Reusing an existing gradient def hash now heals the bound slot palette if the stored palette is stale, instead of leaving corrupted persisted runtime state in place.
+
+- `src/utils/colorCycle/ccGradientDither.ts`
+  - The `sierra-lite` multi-level branch now diffuses error from the adjusted fractional value, which restores smooth ramps instead of repeating row bands.
+
 - `src/components/panels/AnimationControlsPanel.tsx`
   - Play/Pause now uses `toggleGlobalColorCyclePlayback()` so the button updates store state and kicks the registered CC runtime handlers.
 
@@ -66,9 +83,16 @@ Observed failures:
 
 - `src/hooks/canvas/handlers/colorCycle/__tests__/colorCycleShapeFill.transparencyLock.test.ts`
   - Locks shape-finalize dither options to preview-parity quantized levels.
+  - Verifies linear shape finalize repairs stale def-bound slot palettes before rendering.
 
 - `src/hooks/brushEngine/__tests__/ColorCycleBrushCanvas2D.test.ts`
   - Verifies explicit `ditherLevels` reach `fillCcGradientDither()` without pair-band mode.
+
+- `src/utils/__tests__/colorCycleGradientDefs.test.ts`
+  - Verifies def reuse heals stale slot palettes for long-lived persisted CC state.
+
+- `src/utils/colorCycle/__tests__/ccGradientDither.test.ts`
+  - Verifies `sierra-lite` multi-level fills do not collapse into a repeating-row band pattern.
 
 - `src/hooks/brushEngine/__tests__/ccGradientController.test.ts`
   - Verifies recolor edits rebuild def-bound runtime dither stops.

@@ -1476,6 +1476,7 @@ export const useBrushEngineSimplified = () => {
     vertices: Array<{ x: number; y: number }>,
     direction: { x: number; y: number },
     options?: {
+      ditherLevels?: number;
       ditherPixelSize?: number;
       ditherPairBandCount?: number;
       roi?: { x: number; y: number; width: number; height: number };
@@ -1509,6 +1510,7 @@ export const useBrushEngineSimplified = () => {
   const fillCcGradientConcentric = useCallback(async (
     vertices: Array<{ x: number; y: number }>,
     options?: {
+      ditherLevels?: number;
       ditherPixelSize?: number;
       ditherPairBandCount?: number;
       roi?: { x: number; y: number; width: number; height: number };

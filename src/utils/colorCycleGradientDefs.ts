@@ -212,21 +212,29 @@ export const ensureGradientDefForStops = (params: {
     }
 
     const existingPalette = slotPalettes.find((entry) => entry.slot === slot);
-    if (existingPalette) {
-      const existingSig = signatureForStops(existingPalette.stops);
-      const nextSig = signatureForStops(frozenStops);
-      if (existingSig !== nextSig) {
-        if (process.env.NODE_ENV !== 'production') {
-          throw new Error(
-            `[CC] Slot overwrite blocked: slot ${slot} has different palette (layer ${params.layerId})`
-          );
-        }
-        return { result: null };
+    const nextSig = signatureForStops(frozenStops);
+    const existingSig = existingPalette ? signatureForStops(existingPalette.stops) : null;
+    const canHealExistingDefPalette =
+      Boolean(existing) &&
+      existing?.slot === slot &&
+      existing?.hash === hash &&
+      existingSig !== null &&
+      existingSig !== nextSig;
+    if (existingPalette && existingSig !== nextSig && !canHealExistingDefPalette) {
+      if (process.env.NODE_ENV !== 'production') {
+        throw new Error(
+          `[CC] Slot overwrite blocked: slot ${slot} has different palette (layer ${params.layerId})`
+        );
       }
+      return { result: null };
     }
     const hasSlotPalette = Boolean(existingPalette);
     const nextSlotPalettes = hasSlotPalette
-      ? slotPalettes
+      ? slotPalettes.map((entry) =>
+          entry.slot === slot
+            ? { slot, stops: cloneStops(frozenStops) }
+            : entry
+        )
       : [...slotPalettes, { slot, stops: cloneStops(frozenStops) }];
 
     state.updateLayer(layer.id, {

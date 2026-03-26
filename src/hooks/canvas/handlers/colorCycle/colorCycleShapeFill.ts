@@ -7,7 +7,7 @@ import { ensureForegroundGradientSlot } from '@/utils/colorCycleGradients';
 import { buildCcDitherRenderPalette, resolveCcDitherBandMode } from '@/utils/colorCycle/ccDitherRenderPalette';
 import { applyRuntimeToBrush, flushGradientApply, requestGradientApply } from '@/hooks/brushEngine/ccGradientApplyScheduler';
 import type { MarkGradientSession } from '@/hooks/canvas/utils/colorCycleMarkSession';
-import { FULL_CC_DITHER_LEVELS, TEMP_SAMPLE_SLOT } from '@/constants/colorCycle';
+import { TEMP_SAMPLE_SLOT } from '@/constants/colorCycle';
 import { ensureGradientDefForStops } from '@/utils/colorCycleGradientDefs';
 
 type ColorCycleBrush = ColorCycleBrushImplementation;
@@ -237,17 +237,13 @@ const resolveShapeFinalizeDitherOptions = (
 ): {
   ditherPixelSize: number | undefined;
   ditherLevels?: number;
-  ditherPairBandCount?: number;
   roi: DeferredSaveWithStateArgs['roi'] | undefined;
   skipPostRender: true;
 } => {
   const ccDitherMode = resolveCcDitherBandMode(brushSettings.gradientBands ?? 16);
   return {
     ditherPixelSize,
-    ditherLevels: brushSettings.ditherEnabled
-      ? (ccDitherMode.pairBandCount > 0 ? FULL_CC_DITHER_LEVELS : ccDitherMode.quantLevels)
-      : undefined,
-    ditherPairBandCount: brushSettings.ditherEnabled ? ccDitherMode.pairBandCount : undefined,
+    ditherLevels: brushSettings.ditherEnabled ? ccDitherMode.quantLevels : undefined,
     roi,
     skipPostRender: true,
   };
