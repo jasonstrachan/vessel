@@ -4,11 +4,21 @@ This page summarizes how the Goblet viewer resolves viewport sizing and layer-le
 
 ## Viewport Modes
 
-The viewer normalizes every `metadata.viewport.mode` token to one of three modes before sizing the canvas (`public/goblet/goblet.js:2222`).
+The viewer normalizes every `metadata.viewport.mode` token to one of four modes before sizing the canvas.
 
 - **fill** – Expands the backing canvas to the current window size on every resize. Horizontal and vertical scale values are computed independently from the window-to-design ratio, so the document will stretch to eliminate letterboxing. Overrides multiply into those base scales (`public/goblet/goblet.js:2242-2256`, `public/goblet/goblet.js:2305-2309`).
 - **fit** – Preserves aspect ratio by using the smaller of the width/height scale ratios, letterboxing as needed. The resolved uniform scale feeds both the viewport mapping and optional overrides, and offsets center the artwork inside the canvas (`public/goblet/goblet.js:2259-2271`, `public/goblet/goblet.js:834-842`).
+- **cover** – Preserves aspect ratio by using the larger of the width/height scale ratios, filling the viewport without gutters while allowing edge cropping. This mode remains available in the viewer runtime, but Embed export uses fixed composition coordinates plus cover-style scaling to avoid per-layer layout drift.
 - **fixed** – Keeps the canvas at the design-time pixel dimensions until callers supply an explicit scale override. No automatic window-based scaling occurs (`public/goblet/goblet.js:2274-2292`).
+
+## Embed Presets
+
+The export modal now splits embed behavior into two viewer-side presets while keeping the underlying composition in fixed document coordinates.
+
+- **embed-fill** – Uses `max(viewportWidth / designWidth, viewportHeight / designHeight)`, preserving proportions and filling the host container with composition-level cropping.
+- **embed-fit** – Uses `min(viewportWidth / designWidth, viewportHeight / designHeight)`, preserving proportions and keeping the whole composition visible inside the host container.
+
+Both presets avoid the old per-layer relayout bug because only the final composition is scaled in the viewer.
 
 ## Layer Fit Modes
 

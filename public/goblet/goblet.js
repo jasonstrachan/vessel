@@ -1207,7 +1207,7 @@ const applyDesignLayout = (metadata) => normalizeLayerSpatialMetadata(metadata);
 const computeViewportMapping = (viewport, canvasWidth, canvasHeight) => {
   const designWidth = Math.max(1, toNum(viewport?.designWidth, canvasWidth || 1));
   const designHeight = Math.max(1, toNum(viewport?.designHeight, canvasHeight || 1));
-  const mode = viewport?.mode === 'fill' || viewport?.mode === 'fit' ? viewport.mode : 'fixed';
+  const mode = viewport?.mode === 'fill' || viewport?.mode === 'fit' || viewport?.mode === 'cover' ? viewport.mode : 'fixed';
 
   let scaleX = canvasWidth / designWidth;
   let scaleY = canvasHeight / designHeight;
@@ -1223,6 +1223,14 @@ const computeViewportMapping = (viewport, canvasWidth, canvasHeight) => {
 
   if (mode === 'fit') {
     const uniform = Math.min(scaleX, scaleY);
+    const contentWidth = designWidth * uniform;
+    const contentHeight = designHeight * uniform;
+    offsetX = (canvasWidth - contentWidth) / 2;
+    offsetY = (canvasHeight - contentHeight) / 2;
+    scaleX = uniform;
+    scaleY = uniform;
+  } else if (mode === 'cover') {
+    const uniform = Math.max(scaleX, scaleY);
     const contentWidth = designWidth * uniform;
     const contentHeight = designHeight * uniform;
     offsetX = (canvasWidth - contentWidth) / 2;
@@ -1407,6 +1415,7 @@ const PROPERTY_UNMINIFY_MAP = {
   smax: 'speedMax',
   si: 'stackIndex',
   bf: 'bundleFormat',
+  vpp: 'viewportPreset',
   ihl: 'includeHiddenLayers',
   ecf: 'embedCanvasFallback',
   mo: 'minifyOutput',
@@ -1628,7 +1637,7 @@ const validateMetadata = (metadata) => {
   }
   viewport.designWidth = designWidth;
   viewport.designHeight = designHeight;
-  viewport.mode = viewport.mode === 'fill' || viewport.mode === 'fit' ? viewport.mode : 'fixed';
+  viewport.mode = viewport.mode === 'fill' || viewport.mode === 'fit' || viewport.mode === 'cover' ? viewport.mode : 'fixed';
   if (!Array.isArray(metadata.layers)) {
     throw new Error('Layers array missing or invalid');
   }
@@ -3554,7 +3563,7 @@ const computeWindowSize = (fallbackWidth, fallbackHeight) => {
 
 const createCanvasStrategy = (metadata, initialOverride) => {
   const viewport = metadata?.viewport ?? {};
-  const viewportMode = viewport.mode === 'fill' || viewport.mode === 'fit' ? viewport.mode : 'fixed';
+  const viewportMode = viewport.mode === 'fill' || viewport.mode === 'fit' || viewport.mode === 'cover' ? viewport.mode : 'fixed';
   const baseWidth = sanitizeCanvasDimension(viewport.designWidth || viewport.width || 1, 1);
   const baseHeight = sanitizeCanvasDimension(viewport.designHeight || viewport.height || 1, 1);
 
@@ -3604,6 +3613,21 @@ const createCanvasStrategy = (metadata, initialOverride) => {
     };
   };
 
+  const resolveCoverState = (nextOverride) => {
+    if (nextOverride) {
+      scaleOverride = normalizeScaleOption(nextOverride);
+    }
+    const override = getOverride();
+    const windowSize = computeWindowSize(baseWidth, baseHeight);
+    const uniform = clampScaleValue(Math.max(windowSize.width / baseWidth, windowSize.height / baseHeight));
+    const baseScale = { x: uniform, y: uniform };
+    const scale = applyOverride(baseScale, override);
+    return {
+      scale,
+      canvasSize: windowSize
+    };
+  };
+
   const resolveFixedState = (nextOverride) => {
     if (nextOverride) {
       scaleOverride = normalizeScaleOption(nextOverride);
@@ -3621,6 +3645,8 @@ const createCanvasStrategy = (metadata, initialOverride) => {
         return resolveFillState(scaleOption ?? null);
       case 'fit':
         return resolveFitState(scaleOption ?? null);
+      case 'cover':
+        return resolveCoverState(scaleOption ?? null);
       default:
         return resolveFixedState(scaleOption ?? null);
     }
@@ -3635,7 +3661,7 @@ const createCanvasStrategy = (metadata, initialOverride) => {
       return resolveByMode(scaleOption ?? null);
     },
     getCanvasSize(scale) {
-      if (viewportMode === 'fill') {
+      if (viewportMode === 'fill' || viewportMode === 'cover') {
         return computeWindowSize(baseWidth, baseHeight);
       }
       const effectiveScale = scale ? normalizeScaleOption(scale) : getOverride();

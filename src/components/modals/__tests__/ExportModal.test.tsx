@@ -89,7 +89,7 @@ const makeStore = () => ({
     enableGobletDiagnostics: false,
     htmlTitle: 'Goblet',
     htmlBackgroundColor: '#000000',
-    viewportPreset: 'fill' as const,
+    viewportPreset: 'default' as const,
     designScalePercent: 100,
   },
   updateWebglExportSettings: jest.fn(),
@@ -249,6 +249,60 @@ describe('ExportModal', () => {
     expect(store.updateWebglExportSettings).toHaveBeenCalledWith({
       bundleFormat: 'zip',
     });
+  });
+
+  it('maps embed fill preset to cover viewport mode for direct Goblet rendering', async () => {
+    (store as any).webglExportSettings = {
+      ...store.webglExportSettings,
+      viewportPreset: 'embed-fill',
+    };
+
+    render(<ExportModal isOpen onClose={jest.fn()} />);
+    act(() => {
+      jest.runAllTimers();
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: /Embed fill/i }));
+    expect(store.updateWebglExportSettings).toHaveBeenCalledWith({
+      viewportPreset: 'embed-fill',
+    });
+    fireEvent.click(screen.getByRole('button', { name: /^Export$/i }));
+
+    await waitFor(() => {
+      expect(runExportMock).toHaveBeenCalled();
+    });
+
+    const request = runExportMock.mock.calls[0]?.[0];
+    expect(request.options.request.viewport.mode).toBe('cover');
+    expect(request.options.request.viewportPreset).toBe('embed-fill');
+    expect(request.options.request.pixelPerfectStack).toBe(false);
+  });
+
+  it('maps embed fit preset to fit viewport mode for direct Goblet rendering', async () => {
+    (store as any).webglExportSettings = {
+      ...store.webglExportSettings,
+      viewportPreset: 'embed-fit',
+    };
+
+    render(<ExportModal isOpen onClose={jest.fn()} />);
+    act(() => {
+      jest.runAllTimers();
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: /Embed fit/i }));
+    expect(store.updateWebglExportSettings).toHaveBeenCalledWith({
+      viewportPreset: 'embed-fit',
+    });
+    fireEvent.click(screen.getByRole('button', { name: /^Export$/i }));
+
+    await waitFor(() => {
+      expect(runExportMock).toHaveBeenCalled();
+    });
+
+    const request = runExportMock.mock.calls[0]?.[0];
+    expect(request.options.request.viewport.mode).toBe('fit');
+    expect(request.options.request.viewportPreset).toBe('embed-fit');
+    expect(request.options.request.pixelPerfectStack).toBe(false);
   });
 
   it('updates minify setting from checkbox', () => {

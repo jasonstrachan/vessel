@@ -34,7 +34,7 @@ const sampleSettings: WebGLExportSettings = {
   enableGobletDiagnostics: false,
   htmlTitle: 'Goblet',
   htmlBackgroundColor: '#123456',
-  viewportPreset: 'fixed',
+  viewportPreset: 'default',
   designScalePercent: 150,
 };
 
@@ -71,7 +71,7 @@ describe('webglExportSettingsStorage', () => {
       enableGobletDiagnostics: true,
       htmlTitle: '  My Title  ',
       htmlBackgroundColor: '#ABC',
-      viewportPreset: 'fill',
+      viewportPreset: 'embed-fill',
       designScalePercent: 820,
       ignoredField: 'x',
     }));
@@ -85,8 +85,18 @@ describe('webglExportSettingsStorage', () => {
       enableGobletDiagnostics: true,
       htmlTitle: 'My Title',
       htmlBackgroundColor: '#abc',
-      viewportPreset: 'fill',
+      viewportPreset: 'embed-fill',
       designScalePercent: 800,
+    });
+  });
+
+  it('migrates legacy fill viewport presets to embed-fill', () => {
+    storage.setItem('vessel:webgl-export-settings', JSON.stringify({
+      viewportPreset: 'fill',
+    }));
+
+    expect(loadWebglExportSettings()).toEqual({
+      viewportPreset: 'embed-fill',
     });
   });
 });

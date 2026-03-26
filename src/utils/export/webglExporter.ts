@@ -116,7 +116,7 @@ const loadJSZip = async (): Promise<JSZipConstructor> => {
   return jszipCtorPromise;
 };
 
-type WebGLViewportMode = 'fixed' | 'fill' | 'fit';
+type WebGLViewportMode = 'fixed' | 'fill' | 'fit' | 'cover';
 
 interface WebGLViewport {
   mode: WebGLViewportMode;
@@ -272,6 +272,7 @@ const PROPERTY_MINIFY_MAP = {
   speedMin: 'smin',
   speedMax: 'smax',
   bundleFormat: 'bf',
+  viewportPreset: 'vpp',
   includeHiddenLayers: 'ihl',
   embedCanvasFallback: 'ecf',
   minifyOutput: 'mo',
@@ -482,6 +483,7 @@ export interface WebGLExportMetadata {
     pixelPerfectStack: boolean;
     perfectLoop: boolean;
     bundleFormat: WebGLExportBundleFormat;
+    viewportPreset?: 'default' | 'embed-fill' | 'embed-fit' | 'fixed';
     htmlTitle: string;
     htmlBackgroundColor: string;
   };
@@ -520,6 +522,7 @@ export interface WebGLExportRequest {
   compositeLayersToCanvas?: (targetCanvas: HTMLCanvasElement) => void;
   htmlTitle?: string;
   htmlBackgroundColor?: string;
+  viewportPreset?: 'default' | 'embed-fill' | 'embed-fit' | 'fixed';
 }
 
 const isHTMLCanvas = (canvas: unknown): canvas is HTMLCanvasElement => {
@@ -3996,7 +3999,14 @@ const appendZipAutoloadSnippet = (
         } else {
           delete document.body.dataset.viewportMode;
         }
-        const opts = normalizedMetadata?.viewport?.mode === 'fixed' ? {} : { scale };
+        if (normalizedMetadata?.settings?.viewportPreset) {
+          document.body.dataset.viewportPreset = normalizedMetadata.settings.viewportPreset;
+        } else {
+          delete document.body.dataset.viewportPreset;
+        }
+        const opts = normalizedMetadata?.viewport?.mode === 'fixed'
+          ? {}
+          : { scale };
         const renderResult = await renderVesselWebGL(normalizedMetadata, canvas, opts);
         summarizeMetadata(normalizedMetadata, renderResult);
         lastMetadata = normalizedMetadata;
@@ -4212,7 +4222,14 @@ const buildSingleFileRenderSnippet = (metadataJson: string, diagnosticsEnabled: 
           if (enableDiagnostics) {
             emitLog('[goblet] Computed scale:', scale);
           }
-          const opts = packagedMetadata?.viewport?.mode === 'fixed' ? {} : { scale };
+          if (packagedMetadata?.settings?.viewportPreset) {
+            document.body.dataset.viewportPreset = packagedMetadata.settings.viewportPreset;
+          } else {
+            delete document.body.dataset.viewportPreset;
+          }
+          const opts = packagedMetadata?.viewport?.mode === 'fixed'
+            ? {}
+            : { scale };
           const renderResult = await renderVesselWebGL(packagedMetadata, canvas, opts);
           if (enableDiagnostics) {
             emitLog('[goblet] Render complete:', renderResult);
@@ -4420,6 +4437,9 @@ export const exportProjectAsWebGL = async (
     }
     if (mode === 'fit') {
       return 'fit';
+    }
+    if (mode === 'cover') {
+      return 'cover';
     }
     return 'fixed';
   };
@@ -4831,6 +4851,7 @@ export const exportProjectAsWebGL = async (
       pixelPerfectStack,
       perfectLoop: options.perfectLoop,
       bundleFormat,
+      viewportPreset: options.viewportPreset,
       htmlTitle: resolvedHtmlTitle,
       htmlBackgroundColor: resolvedHtmlBackgroundColor
     },

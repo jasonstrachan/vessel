@@ -80,7 +80,7 @@ export interface WebGLExportSettings {
   enableGobletDiagnostics: boolean;
   htmlTitle: string;
   htmlBackgroundColor: string;
-  viewportPreset: 'fill' | 'fixed';
+  viewportPreset: 'default' | 'embed-fill' | 'embed-fit' | 'fixed';
   designScalePercent: number;
 }
 
@@ -376,6 +376,14 @@ export interface Layer {
      * Persisted buffer of per-pixel gradient def ids (Uint16Array at runtime).
      */
     gradientDefIdBuffer?: ArrayBuffer;
+    /**
+     * Persisted buffer of per-pixel smooth gradient phase (Uint16Array at runtime).
+     */
+    smoothPhaseBuffer?: ArrayBuffer;
+    /**
+     * Persisted buffer of per-pixel smooth-mode flags (Uint8Array at runtime).
+     */
+    smoothFlagsBuffer?: ArrayBuffer;
     /**
      * Immutable gradient definitions (def-bound).
      */
@@ -1099,6 +1107,9 @@ export interface ColorCycleSnapshot {
     gradientIdBuffer?: ArrayBuffer;
     gradientDefIdBuffer?: ArrayBuffer;
     speedBuffer?: ArrayBuffer;
+    flowBuffer?: ArrayBuffer;
+    smoothPhaseBuffer?: ArrayBuffer;
+    smoothFlagsBuffer?: ArrayBuffer;
     hasContent: boolean;
     strokeCounter: number;
     strokeLength: number;

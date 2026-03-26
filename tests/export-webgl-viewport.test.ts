@@ -57,13 +57,13 @@ const layout: ExportContainerLayout = {
 };
 
 describe('exportProjectAsWebGL viewport smoke test', () => {
-  it('preserves fill viewport mode in metadata', async () => {
+  it('preserves fit viewport mode in metadata for default exports', async () => {
     const project = createProject();
     const metadata = await exportProjectAsWebGL({
       project,
       layers: [],
       layout,
-      viewport: { designWidth: project.width, designHeight: project.height, mode: 'fill' },
+      viewport: { designWidth: project.width, designHeight: project.height, mode: 'fit' },
       fps: 24,
       totalFrames: 1,
       durationSeconds: 1,
@@ -78,7 +78,32 @@ describe('exportProjectAsWebGL viewport smoke test', () => {
     expect(metadata.viewport).toMatchObject({
       designWidth: project.width,
       designHeight: project.height,
-      mode: 'fill',
+      mode: 'fit',
+    });
+  });
+
+  it('preserves cover viewport mode in metadata for embed exports', async () => {
+    const project = createProject();
+    const metadata = await exportProjectAsWebGL({
+      project,
+      layers: [],
+      layout,
+      viewport: { designWidth: project.width, designHeight: project.height, mode: 'cover' },
+      fps: 24,
+      totalFrames: 1,
+      durationSeconds: 1,
+      perfectLoop: false,
+      includeHiddenLayers: true,
+      embedCanvasFallback: false,
+      minify: false,
+      filenameBase: 'viewport-cover-test',
+      bundleFormat: 'json',
+    });
+
+    expect(metadata.viewport).toMatchObject({
+      designWidth: project.width,
+      designHeight: project.height,
+      mode: 'cover',
     });
   });
 
