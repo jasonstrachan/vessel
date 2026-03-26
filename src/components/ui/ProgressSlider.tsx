@@ -9,6 +9,7 @@ interface ProgressSliderProps {
   step?: number;
   onChange: (value: number) => void;
   onCommit?: () => void;
+  formatValue?: (value: number) => string;
   'aria-label'?: string;
   className?: string;
   disabled?: boolean;
@@ -21,6 +22,7 @@ const ProgressSlider: React.FC<ProgressSliderProps> = ({
   step = 1,
   onChange,
   onCommit,
+  formatValue,
   disabled = false,
   'aria-label': ariaLabel,
   className = ''
@@ -65,7 +67,11 @@ const ProgressSlider: React.FC<ProgressSliderProps> = ({
   }, [commitDrag]);
 
   // Format value for display - show decimals only if step < 1
-  const displayValue = step < 1 ? value.toFixed(2) : Math.round(value).toString();
+  const displayValue = formatValue
+    ? formatValue(value)
+    : step < 1
+      ? value.toFixed(2)
+      : Math.round(value).toString();
 
   const sliderStyle = React.useMemo(
     () => ({

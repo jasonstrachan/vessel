@@ -58,6 +58,7 @@ import { useAppStore } from '@/stores/useAppStore';
 import type { AppState } from '@/stores/useAppStore';
 import type { BrushSettings } from '@/types';
 import * as colorCycleGradients from '@/utils/colorCycleGradients';
+import { sliderPositionToBrushColorCycleSpeed } from '@/utils/colorCycleSpeed';
 
 // Lightweight mocks to keep the test focused on wiring
 jest.mock('@/components/ui/ProgressSlider', () => ({
@@ -404,10 +405,14 @@ describe('BrushControls – Color Cycle stroke essentials', () => {
     render(<BrushControls />);
 
     const speedInput = screen.getByLabelText('Speed');
-    fireEvent.change(speedInput, { target: { value: '0.5' } });
+    fireEvent.change(speedInput, { target: { value: '0.2' } });
     fireEvent.blur(speedInput);
 
-    expect(useAppStore.getState().tools.brushSettings.colorCycleSpeed).toBeCloseTo(0.5);
+    expect(useAppStore.getState().tools.brushSettings.colorCycleSpeed).toBeCloseTo(
+      sliderPositionToBrushColorCycleSpeed(0.2),
+      4,
+    );
+    expect(useAppStore.getState().tools.brushSettings.colorCycleSpeed).toBeLessThan(0.1);
     expect(updateLayer).not.toHaveBeenCalled();
   });
 

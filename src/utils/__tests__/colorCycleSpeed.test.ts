@@ -1,6 +1,9 @@
 import {
+  brushColorCycleSpeedToSliderPosition,
   decodeColorCycleSpeedByte,
   encodeColorCycleSpeedByte,
+  formatBrushColorCycleSpeedLabel,
+  sliderPositionToBrushColorCycleSpeed,
 } from '@/utils/colorCycleSpeed';
 
 describe('colorCycleSpeed encoding', () => {
@@ -35,5 +38,30 @@ describe('colorCycleSpeed encoding', () => {
         expect(decoded[i]).toBeGreaterThanOrEqual(decoded[i - 1]);
       }
     }
+  });
+
+  it('round-trips brush slider positions through the curved speed mapping', () => {
+    const positions = [0, 0.1, 0.25, 0.5, 0.75, 1];
+
+    positions.forEach((position) => {
+      const speed = sliderPositionToBrushColorCycleSpeed(position);
+      const roundTrip = brushColorCycleSpeedToSliderPosition(speed);
+      expect(roundTrip).toBeCloseTo(position, 3);
+    });
+  });
+
+  it('biases slider resolution toward the low end of brush color cycle speeds', () => {
+    const lowStart = sliderPositionToBrushColorCycleSpeed(0.1);
+    const lowEnd = sliderPositionToBrushColorCycleSpeed(0.2);
+    const highStart = sliderPositionToBrushColorCycleSpeed(0.8);
+    const highEnd = sliderPositionToBrushColorCycleSpeed(0.9);
+
+    expect(lowEnd - lowStart).toBeLessThan(highEnd - highStart);
+    expect(lowEnd - lowStart).toBeLessThan(0.1);
+  });
+
+  it('formats low brush color cycle speeds with extra precision', () => {
+    expect(formatBrushColorCycleSpeedLabel(0.025)).toBe('0.025');
+    expect(formatBrushColorCycleSpeedLabel(0.25)).toBe('0.25');
   });
 });
