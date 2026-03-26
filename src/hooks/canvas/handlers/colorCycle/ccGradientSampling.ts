@@ -1,5 +1,4 @@
 import type React from 'react';
-import type { BrushSettings } from '@/types';
 import { TEMP_SAMPLE_SLOT } from '@/constants/colorCycle';
 import type { AutoSampleStops } from '@/hooks/canvas/handlers/shapes/ShapeFinalizeHandler';
 import { computeAutoSampleStops } from '@/hooks/canvas/handlers/brushSampling';
@@ -61,22 +60,6 @@ export const resetCcGradientSampleState = ({
   lastUpdateRef.current = 0;
   sampleCountRef.current = 0;
   sampleCountLastUpdateRef.current = 0;
-};
-
-export const shouldSampleCcGradient = (
-  settings: BrushSettings,
-  brushPresetId: string | null | undefined
-): boolean => {
-  if (settings.brushShape !== 'color_cycle_shape') {
-    return false;
-  }
-  if (brushPresetId !== 'color-cycle-gradient') {
-    return false;
-  }
-  if (settings.colorCycleUseForegroundGradient) {
-    return false;
-  }
-  return Boolean(settings.ccGradientSamplePerShape);
 };
 
 export const updateCcGradientSampleSession = ({

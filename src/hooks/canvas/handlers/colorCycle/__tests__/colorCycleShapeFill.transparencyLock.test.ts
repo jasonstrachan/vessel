@@ -323,10 +323,6 @@ describe('colorCycleShapeFill transparency lock', () => {
       }
     );
 
-    const linearCall = brushEngine.fillCcGradientLinear.mock.calls[0] as unknown as
-      | [Array<{ x: number; y: number }>, { x: number; y: number }, Record<string, unknown>]
-      | undefined;
-    const linearOptions = linearCall?.[2];
     expect(brushEngine.fillCcGradientLinear).toHaveBeenCalledWith(
       expect.any(Array),
       { x: 1, y: 0 },
@@ -402,10 +398,6 @@ describe('colorCycleShapeFill transparency lock', () => {
       }
     );
 
-    const concentricCall = brushEngine.fillCcGradientConcentric.mock.calls[0] as unknown as
-      | [Array<{ x: number; y: number }>, Record<string, unknown>]
-      | undefined;
-    const concentricOptions = concentricCall?.[1];
     expect(brushEngine.fillCcGradientConcentric).toHaveBeenCalledWith(
       expect.any(Array),
       expect.objectContaining({

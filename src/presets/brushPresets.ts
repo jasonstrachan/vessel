@@ -200,7 +200,6 @@ export const defaultBrushSettings: BrushSettings = {
   // Auto-sample gradient for color cycle brushes (off by default)
   autoSampleGradient: false,
   autoSampleGradientRealtime: false,
-  ccGradientSamplePerShape: false,
   colorCycleGradientVersion: 0,
   gradientLength: 100,
   fillResolution: 1,

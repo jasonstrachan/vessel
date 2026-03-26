@@ -1,28 +1,11 @@
-import { BrushShape, type BrushSettings } from '@/types';
 import { TEMP_SAMPLE_SLOT } from '@/constants/colorCycle';
 import {
   createCcGradientSampleSession,
   isTempSampleSlotAvailable,
-  shouldSampleCcGradient,
   updateCcGradientSampleSession,
 } from '../ccGradientSampling';
 
-const makeSettings = (overrides: Partial<BrushSettings>): BrushSettings => ({
-  brushShape: 'color_cycle_shape',
-  colorCycleUseForegroundGradient: false,
-  ccGradientSamplePerShape: true,
-  ...overrides,
-} as BrushSettings);
-
 describe('ccGradientSampling', () => {
-  it('shouldSampleCcGradient gates by preset, shape, and FG mode', () => {
-    const settings = makeSettings({ ccGradientSamplePerShape: true });
-    expect(shouldSampleCcGradient(settings, 'color-cycle-gradient')).toBe(true);
-    expect(shouldSampleCcGradient(settings, 'color-cycle-stroke')).toBe(false);
-    expect(shouldSampleCcGradient({ ...settings, brushShape: BrushShape.SQUARE }, 'color-cycle-gradient')).toBe(false);
-    expect(shouldSampleCcGradient({ ...settings, colorCycleUseForegroundGradient: true }, 'color-cycle-gradient')).toBe(false);
-  });
-
   it('updateCcGradientSampleSession stores sampled stops and hash', () => {
     const session = createCcGradientSampleSession();
     const lastUpdateRef = { current: 0 };
