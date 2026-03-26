@@ -808,10 +808,10 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
                     mode: (
                       webglViewportPreset === 'fixed'
                         ? 'fixed'
-                        : webglViewportPreset === 'embed-fill'
-                          ? 'cover'
+                        : webglViewportPreset === 'embed-fill' || webglViewportPreset === 'embed-fit'
+                          ? 'fixed'
                           : 'fit'
-                    ) as 'fit' | 'fixed' | 'cover'
+                    ) as 'fit' | 'fixed'
                   },
                   fps: Math.max(1, Math.floor(webglFps)),
                   totalFrames: webglTotalFrames,

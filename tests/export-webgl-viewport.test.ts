@@ -107,6 +107,33 @@ describe('exportProjectAsWebGL viewport smoke test', () => {
     });
   });
 
+  it('preserves fixed viewport mode plus embed-fit preset metadata', async () => {
+    const project = createProject();
+    const metadata = await exportProjectAsWebGL({
+      project,
+      layers: [],
+      layout,
+      viewport: { designWidth: project.width, designHeight: project.height, mode: 'fixed' },
+      fps: 24,
+      totalFrames: 1,
+      durationSeconds: 1,
+      perfectLoop: false,
+      includeHiddenLayers: true,
+      embedCanvasFallback: false,
+      minify: false,
+      filenameBase: 'viewport-embed-fit-test',
+      bundleFormat: 'json',
+      viewportPreset: 'embed-fit',
+    });
+
+    expect(metadata.viewport).toMatchObject({
+      designWidth: project.width,
+      designHeight: project.height,
+      mode: 'fixed',
+    });
+    expect(metadata.settings.viewportPreset).toBe('embed-fit');
+  });
+
   it('falls back to project mode when unspecified', async () => {
     const project = createProject();
     const metadata = await exportProjectAsWebGL({
