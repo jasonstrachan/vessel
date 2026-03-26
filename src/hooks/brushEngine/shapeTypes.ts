@@ -15,6 +15,7 @@ export type RoiRect = {
 };
 
 export type GradientDitherOptions = {
+  ditherLevels?: number;
   ditherPixelSize?: number;
   ditherPairBandCount?: number;
   roi?: RoiRect;

@@ -70,7 +70,7 @@ describe('colorCycleGradientDefs', () => {
     errorSpy.mockRestore();
   });
 
-  it('throws when a slot palette exists with mismatched stops', () => {
+  it('heals a mismatched slot palette when reusing the same gradient def', () => {
     const defHash = hashStops(baseStops, 'linear');
     const layer = createLayer({
       colorCycleData: {
@@ -93,14 +93,18 @@ describe('colorCycleGradientDefs', () => {
 
     useAppStore.setState({ layers: [layer], activeLayerId: layer.id });
 
-    expect(() =>
-      ensureGradientDefForStops({
-        layerId: layer.id,
-        kind: 'linear',
-        stops: baseStops,
-        source: 'manual',
-      })
-    ).toThrow(/Slot overwrite blocked/);
+    const result = ensureGradientDefForStops({
+      layerId: layer.id,
+      kind: 'linear',
+      stops: baseStops,
+      source: 'manual',
+    });
+
+    expect(result?.slot).toBe(2);
+    const healedLayer = useAppStore.getState().layers.find((entry) => entry.id === layer.id);
+    expect(healedLayer?.colorCycleData?.slotPalettes).toEqual([
+      { slot: 2, stops: baseStops },
+    ]);
   });
 
   it('rebuilds slots on allocation failure and succeeds', () => {

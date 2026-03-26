@@ -238,6 +238,40 @@ describe('fillCcGradientDither', () => {
     expect(transitions2).toBeLessThan(transitions1);
   });
 
+  it('does not collapse sierra-lite multi-level diffusion into a repeating row band pattern', async () => {
+    const width = 16;
+    const height = 16;
+    const out = new Uint8Array(width * height);
+
+    await fillCcGradientDither({
+      vertices: [
+        { x: 0, y: 0 },
+        { x: 15, y: 0 },
+        { x: 15, y: 15 },
+        { x: 0, y: 15 },
+      ],
+      minX: 0,
+      minY: 0,
+      maxX: 15,
+      maxY: 15,
+      pixelSize: 1,
+      levels: 8,
+      baseOffset: 0,
+      algorithm: 'sierra-lite',
+      sampleNormalized: () => 0.22,
+      writeIndex: (x, y, index) => {
+        out[y * width + x] = index;
+      },
+    });
+
+    const uniqueRows = new Set<string>();
+    for (let y = 0; y < height; y += 1) {
+      uniqueRows.add(Array.from(out.slice(y * width, (y + 1) * width)).join(','));
+    }
+
+    expect(uniqueRows.size).toBeGreaterThanOrEqual(8);
+  });
+
   it('clears pattern holes only when fillBackground is false', async () => {
     const writesBgOn: number[] = [];
     await fillCcGradientDither({

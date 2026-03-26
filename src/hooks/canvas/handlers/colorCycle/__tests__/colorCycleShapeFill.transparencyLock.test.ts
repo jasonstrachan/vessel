@@ -3,8 +3,19 @@ import {
   finalizeColorCycleShapeFillConcentric,
   finalizeColorCycleShapeFillLinear,
 } from '@/hooks/canvas/handlers/colorCycle/colorCycleShapeFill';
+import { buildCcDitherRenderPalette, resolveCcDitherBandMode } from '@/utils/colorCycle/ccDitherRenderPalette';
+import { hashStops, type StoredStop } from '@/utils/colorCycleGradientDefs';
+import type { MarkGradientSession } from '@/hooks/canvas/utils/colorCycleMarkSession';
+import { createDefaultLayerAlignment } from '@/utils/layoutDefaults';
 
 describe('colorCycleShapeFill transparency lock', () => {
+  const initialState = useAppStore.getState();
+
+  afterEach(() => {
+    jest.restoreAllMocks();
+    useAppStore.setState(initialState, true);
+  });
+
   it('masks CC shape finalize output to pre-existing alpha when transparency is locked', async () => {
     const getStateSpy = jest.spyOn(useAppStore, 'getState');
     getStateSpy.mockReturnValue({
@@ -261,7 +272,7 @@ describe('colorCycleShapeFill transparency lock', () => {
     getStateSpy.mockRestore();
   });
 
-  it('uses band-pair CC dither settings for linear CC dither finalize', async () => {
+  it('uses preview-parity quantized levels for linear CC dither finalize', async () => {
     const getStateSpy = jest.spyOn(useAppStore, 'getState');
     getStateSpy.mockReturnValue({
       layers: [
@@ -323,21 +334,25 @@ describe('colorCycleShapeFill transparency lock', () => {
       }
     );
 
+    const linearCall = brushEngine.fillCcGradientLinear.mock.calls[0] as unknown as
+      | [Array<{ x: number; y: number }>, { x: number; y: number }, Record<string, unknown>]
+      | undefined;
+    const linearOptions = linearCall?.[2];
     expect(brushEngine.fillCcGradientLinear).toHaveBeenCalledWith(
       expect.any(Array),
       { x: 1, y: 0 },
       expect.objectContaining({
         ditherPixelSize: 3,
-        ditherLevels: 254,
-        ditherPairBandCount: 4,
+        ditherLevels: 5,
         skipPostRender: true,
       })
     );
+    expect(linearOptions).not.toHaveProperty('ditherPairBandCount');
 
     getStateSpy.mockRestore();
   });
 
-  it('uses band-pair CC dither settings for concentric CC dither finalize', async () => {
+  it('uses preview-parity quantized levels for concentric CC dither finalize', async () => {
     const getStateSpy = jest.spyOn(useAppStore, 'getState');
     getStateSpy.mockReturnValue({
       layers: [
@@ -398,16 +413,143 @@ describe('colorCycleShapeFill transparency lock', () => {
       }
     );
 
+    const concentricCall = brushEngine.fillCcGradientConcentric.mock.calls[0] as unknown as
+      | [Array<{ x: number; y: number }>, Record<string, unknown>]
+      | undefined;
+    const concentricOptions = concentricCall?.[1];
     expect(brushEngine.fillCcGradientConcentric).toHaveBeenCalledWith(
       expect.any(Array),
       expect.objectContaining({
         ditherPixelSize: 2,
-        ditherLevels: 254,
-        ditherPairBandCount: 5,
+        ditherLevels: 6,
         skipPostRender: true,
       })
     );
+    expect(concentricOptions).not.toHaveProperty('ditherPairBandCount');
 
     getStateSpy.mockRestore();
+  });
+
+  it('heals stale def-bound slot palettes before linear CC dither finalize', async () => {
+    const baseStops: StoredStop[] = [
+      { position: 0, color: '#000000' },
+      { position: 0.5, color: '#00ff00' },
+      { position: 1, color: '#ffffff' },
+    ];
+    const staleStops: StoredStop[] = [
+      { position: 0, color: '#ff00ff' },
+      { position: 1, color: '#00ffff' },
+    ];
+    const gradientBands = 3;
+    const renderStops = buildCcDitherRenderPalette({
+      baseStops,
+      bands: resolveCcDitherBandMode(gradientBands).pairBandCount,
+      spread: 0,
+    }).renderStops;
+    const renderHash = hashStops(renderStops, 'linear');
+    const updateLayer = initialState.updateLayer;
+
+    useAppStore.setState((state) => ({
+      ...state,
+      activeLayerId: 'layer-1',
+      layers: [{
+        id: 'layer-1',
+        name: 'Layer 1',
+        visible: true,
+        opacity: 1,
+        blendMode: 'source-over',
+        locked: false,
+        transparencyLocked: false,
+        order: 0,
+        imageData: null,
+        framebuffer: document.createElement('canvas'),
+        alignment: createDefaultLayerAlignment(),
+        layerType: 'color-cycle',
+        colorCycleData: {
+          gradientDefs: [],
+          slotPalettes: [{ slot: 7, stops: staleStops }],
+          gradientDefStore: [{
+            id: 11,
+            kind: 'linear',
+            stops: renderStops,
+            hash: renderHash,
+            source: 'manual',
+            createdAtMs: 0,
+            slot: 7,
+          }],
+          nextGradientDefId: 12,
+        },
+        version: 1,
+      }],
+      tools: {
+        ...state.tools,
+        brushSettings: {
+          ...state.tools.brushSettings,
+          colorCycleUseForegroundGradient: false,
+          ditherEnabled: true,
+          gradientBands,
+          ditherPaletteSpread: 0,
+        },
+      },
+      updateLayer,
+    }));
+
+    const canvas = document.createElement('canvas');
+    canvas.width = 3;
+    canvas.height = 3;
+
+    const brushEngine = {
+      fillCcGradientLinear: jest.fn(async () => undefined),
+      updateColorCycleTexture: jest.fn(),
+    };
+    const session: MarkGradientSession = {
+      markId: 'mark-1',
+      layerId: 'layer-1',
+      markKind: 'shape',
+      gradientKind: 'linear',
+      source: 'manual',
+      seamProfile: 'hard',
+      frozenStopsStored: baseStops,
+      frozenHash: hashStops(baseStops, 'linear'),
+      binding: { kind: 'def', defId: 11, slot: 7 },
+      speedCps: null,
+    };
+
+    await finalizeColorCycleShapeFillLinear(
+      {
+        session,
+        shapePoints: [
+          { x: 0, y: 0 },
+          { x: 2, y: 0 },
+          { x: 0, y: 2 },
+        ],
+        direction: { x: 1, y: 0 },
+        activeLayerId: 'layer-1',
+        activeLayerCanvas: canvas,
+        overlayCanvas: null,
+        overlayCtx: null,
+        fallbackBlendMode: 'source-over',
+        fallbackOpacity: 1,
+        shapeLayerId: 'layer-1',
+        beforeColorState: null,
+        tool: 'brush',
+        ditherPixelSize: 2,
+      },
+      {
+        brushEngine: brushEngine as never,
+        getColorCycleBrushManager: () => ({ getBrush: () => null }),
+        bindBrushToCanvas: jest.fn(),
+        timeAsync: async (_label, task) => task(),
+        timeSync: (_label, task) => task(),
+        ccLog: jest.fn(),
+        scheduleDeferredColorCycleSaveWithState: jest.fn(async () => undefined),
+        logError: jest.fn(),
+      }
+    );
+
+    expect(brushEngine.fillCcGradientLinear).toHaveBeenCalled();
+    expect(useAppStore.getState().layers[0]?.colorCycleData?.slotPalettes).toEqual([
+      { slot: 7, stops: renderStops },
+    ]);
   });
 });
