@@ -9,4 +9,5 @@ export const NON_ACTIVE_COLOR_CYCLE_FPS = 24;
 export const MIN_CC_LAYER_SPEED_SCALE = 0.0005;
 export const MAX_CC_LAYER_SPEED_SCALE = 3;
 export const CC_LAYER_SPEED_SCALE_STEP = 0.0005;
+export const FULL_CC_DITHER_LEVELS = 254;
 export const TEMP_SAMPLE_SLOT = 254;

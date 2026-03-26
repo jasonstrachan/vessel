@@ -50,7 +50,7 @@ describe('colorCycleFillController', () => {
     expect(renderBrushToLayerCanvas).toHaveBeenCalledWith(brush, 'layer-1');
   });
 
-  it('allows 1 dither color level for cc-gradient fills', async () => {
+  it('keeps flat-mode dither for single-band cc-gradient fills', async () => {
     const brush = createBrush();
 
     await fillColorCycleLinear({
@@ -79,7 +79,42 @@ describe('colorCycleFillController', () => {
     expect(brush.fillShapeDispatch).toHaveBeenCalledWith(expect.objectContaining({
       options: expect.objectContaining({
         ditherLevels: 1,
+        ditherPairBandCount: 0,
         ditherBackgroundFill: false,
+      }),
+    }));
+  });
+
+  it('uses full CC levels with pair-band dithering for multi-band cc-gradient fills', async () => {
+    const brush = createBrush();
+
+    await fillColorCycleLinear({
+      vertices: [{ x: 0, y: 0 }, { x: 2, y: 0 }, { x: 2, y: 2 }],
+      direction: { x: 1, y: 0 },
+      initializeColorCycleBrush: () => brush as unknown as ColorCycleBrushImplementation,
+      activeLayerId: 'layer-1',
+      isCCGradientActiveLayer: true,
+      brushSettings: {
+        ditherEnabled: true,
+        gradientBands: 5,
+        brushShape: BrushShape.COLOR_CYCLE_SHAPE,
+        colorCycleBandSpacingPx: 10,
+        spacing: 6,
+        lostEdge: 0,
+        ditherBackgroundFill: true,
+        ditherGradBgFill: true,
+      },
+      defaultBandSpacing: 12,
+      clampColorCycleBandSpacing: (value) => value ?? 12,
+      requestGradientApply: jest.fn(),
+      flushGradientApply: jest.fn(),
+      renderBrushToLayerCanvas: jest.fn(),
+    });
+
+    expect(brush.fillShapeDispatch).toHaveBeenCalledWith(expect.objectContaining({
+      options: expect.objectContaining({
+        ditherLevels: 254,
+        ditherPairBandCount: 4,
       }),
     }));
   });

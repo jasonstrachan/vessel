@@ -34,6 +34,7 @@ import {
   clampForegroundDerivedBands,
   deriveForegroundGradientStops,
 } from '@/utils/colorCycleGradients';
+import { FULL_CC_DITHER_LEVELS } from '@/constants/colorCycle';
 import { buildCcDitherRenderPalette, resolveCcDitherBandMode } from '@/utils/colorCycle/ccDitherRenderPalette';
 import { fillCcGradientDither } from '@/utils/colorCycle/ccGradientDither';
 import { getPreviewGradientForActiveMark } from '@/hooks/canvas/utils/colorCycleMarkSession';
@@ -2999,7 +3000,8 @@ export const createShapeToolHandler = (
                           basePixelSize)
                         : basePixelSize;
                       const pixelSize = Math.max(1, Math.round(pressurePixelSize || basePixelSize));
-                      const levels = Math.max(1, Math.min(16, Math.round(brushNow.gradientBands ?? 16)));
+                      const ccDitherMode = resolveCcDitherBandMode(brushNow.gradientBands ?? 16);
+                      const levels = ccDitherMode.pairBandCount > 0 ? FULL_CC_DITHER_LEVELS : ccDitherMode.quantLevels;
                       const fillAlgorithm = brushNow.ditherAlgorithm ?? 'sierra-lite';
                       const fillPatternStyle = brushNow.patternStyle ?? 'dots';
                       const fillBackground = (brushNow.ditherGradBgFill ?? brushNow.ditherBackgroundFill) !== false;
@@ -3030,6 +3032,7 @@ export const createShapeToolHandler = (
                               maxY: h - 1,
                               pixelSize,
                               levels,
+                              pairBandCount: ccDitherMode.pairBandCount,
                               baseOffset: 0,
                               algorithm: fillAlgorithm,
                               patternStyle: fillPatternStyle,
@@ -3041,7 +3044,7 @@ export const createShapeToolHandler = (
                               },
                               writeIndex: (x, y, index) => {
                                 if (index <= 0) return;
-                                const t = (index - 1) / 254;
+                                const t = (index - 1) / FULL_CC_DITHER_LEVELS;
                                 const [r, g, b, a] = sampleGradient(t);
                                 const px = (y * w + x) * 4;
                                 data[px] = Math.round(r);
