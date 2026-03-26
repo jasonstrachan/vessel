@@ -15,7 +15,7 @@ type TestRunnerResults = Partial<FullSuiteResults>;
 
 type TestSelection = 'all' | 'parity' | 'performance' | 'visual' | 'memory';
 
-export const TestRunner: React.FC = () => {
+const TestRunner: React.FC = () => {
   const [isRunning, setIsRunning] = useState(false);
   const [currentTest, setCurrentTest] = useState('');
   const [progress, setProgress] = useState(0);

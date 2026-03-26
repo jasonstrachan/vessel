@@ -317,7 +317,7 @@ const dropIndicator = useMemo(() => {
         onClick={() => setIsOpen(!isOpen)}
         className="w-full bg-transparent border border-[#d9d9d9] text-[#D9D9D9] px-2 py-1 text-xs outline-none focus:outline-none flex items-center justify-between"
       >
-        <span className="flex-1 min-w-0 mr-2">
+        <span className="flex-1 min-w-0 mr-2 truncate whitespace-nowrap text-left">
           {renderValue ? renderValue(selectedOption || null) : (selectedOption ? selectedOption.label : placeholder)}
         </span>
         <svg
@@ -369,7 +369,13 @@ const dropIndicator = useMemo(() => {
                 aria-selected={isSelected}
                 data-draggable={isReorderable ? 'true' : 'false'}
               >
-                {renderOption ? renderOption(option, isSelected, closeDropdown) : option.label}
+                {renderOption ? (
+                  renderOption(option, isSelected, closeDropdown)
+                ) : (
+                  <span className="block min-w-0 truncate whitespace-nowrap">
+                    {option.label}
+                  </span>
+                )}
               </div>
             );
           })}
