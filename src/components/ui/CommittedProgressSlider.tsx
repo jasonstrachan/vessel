@@ -11,6 +11,7 @@ interface CommittedProgressSliderProps {
   step?: number;
   onChange: (value: number) => void;
   onCommit?: () => void;
+  formatValue?: (value: number) => string;
   'aria-label'?: string;
   className?: string;
   disabled?: boolean;
@@ -23,6 +24,7 @@ const CommittedProgressSlider: React.FC<CommittedProgressSliderProps> = ({
   step = 1,
   onChange,
   onCommit,
+  formatValue,
   'aria-label': ariaLabel,
   className = '',
   disabled = false,
@@ -64,6 +66,7 @@ const CommittedProgressSlider: React.FC<CommittedProgressSliderProps> = ({
         setLocalValue(next);
       }}
       onCommit={handleCommit}
+      formatValue={formatValue}
       aria-label={ariaLabel}
       className={className}
       disabled={disabled}

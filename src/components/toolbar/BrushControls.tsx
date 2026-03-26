@@ -57,11 +57,14 @@ import {
 } from '@/utils/pressureSettings';
 import {
   DEFAULT_BRUSH_COLOR_CYCLE_SPEED,
-  MIN_ANIMATED_BRUSH_COLOR_CYCLE_SPEED,
   MAX_BRUSH_COLOR_CYCLE_SPEED,
-  COLOR_CYCLE_SPEED_STEP,
 } from '@/constants/colorCycle';
-import { sanitizeBrushColorCycleSpeed } from '@/utils/colorCycleSpeed';
+import {
+  brushColorCycleSpeedToSliderPosition,
+  formatBrushColorCycleSpeedLabel,
+  sanitizeBrushColorCycleSpeed,
+  sliderPositionToBrushColorCycleSpeed,
+} from '@/utils/colorCycleSpeed';
 import ShapeFillControls from "./ShapeFillControls";
 import DitherControls, { DITHER_OPTIONS, PATTERN_STYLES } from './DitherControls';
 import { getPresetCapabilities, type BrushCapabilities } from '@/presets/brushPresets';
@@ -72,6 +75,9 @@ const CONTROL_LABEL_CLASS = 'text-[#D9D9D9] w-16';
 const CONTROL_LABEL_STYLE: React.CSSProperties = { fontSize: '14px' };
 type SliderComponent = React.ComponentType<React.ComponentProps<typeof ProgressSlider>>;
 const PREVIEW_PALETTE_SIZE = 256;
+const BRUSH_COLOR_CYCLE_SLIDER_MIN = 0;
+const BRUSH_COLOR_CYCLE_SLIDER_MAX = 1;
+const BRUSH_COLOR_CYCLE_SLIDER_STEP = 0.001;
 
 type RisoControlsProps = {
   settings: BrushSettings;
@@ -671,8 +677,10 @@ const BrushControls = () => {
   }, [setActiveSettings]);
 
   const speedSlider = useCommittedSliderValue(
-    activeSettings.colorCycleSpeed ?? DEFAULT_BRUSH_COLOR_CYCLE_SPEED,
-    setColorCycleSpeed
+    brushColorCycleSpeedToSliderPosition(
+      activeSettings.colorCycleSpeed ?? DEFAULT_BRUSH_COLOR_CYCLE_SPEED
+    ),
+    (nextPosition) => setColorCycleSpeed(sliderPositionToBrushColorCycleSpeed(nextPosition))
   );
   const bandsSlider = useCommittedSliderValue(activeSettings.gradientBands ?? 12, (nextRaw) => {
     const next = Math.max(2, Math.min(128, Math.round(nextRaw)));
@@ -1382,16 +1390,21 @@ const BrushControls = () => {
             </label>
               <NonCcSlider
                 value={speedSlider.value}
-                min={MIN_ANIMATED_BRUSH_COLOR_CYCLE_SPEED}
-                max={MAX_BRUSH_COLOR_CYCLE_SPEED}
-                step={COLOR_CYCLE_SPEED_STEP}
+                min={BRUSH_COLOR_CYCLE_SLIDER_MIN}
+                max={BRUSH_COLOR_CYCLE_SLIDER_MAX}
+                step={BRUSH_COLOR_CYCLE_SLIDER_STEP}
                 onChange={(value) => {
-                  speedSlider.onChange(sanitizeBrushColorCycleSpeed(Number(value)));
+                  speedSlider.onChange(Number(value));
                 }}
-              onCommit={speedSlider.onCommit}
-              aria-label="Speed"
-              className="flex-1"
-            />
+                onCommit={speedSlider.onCommit}
+                formatValue={() =>
+                  formatBrushColorCycleSpeedLabel(
+                    sliderPositionToBrushColorCycleSpeed(speedSlider.value)
+                  )
+                }
+                aria-label="Speed"
+                className="flex-1"
+              />
             <VelocityLinkToggle
               id="velocity-animation-speed-cc"
               checked={Boolean(activeSettings.velocityAnimationSpeedEnabled)}
@@ -3535,14 +3548,21 @@ const BrushControls = () => {
                   Speed
                 </label>
                 <NonCcSlider
-                  value={activeSettings.colorCycleSpeed ?? DEFAULT_BRUSH_COLOR_CYCLE_SPEED}
-                  min={MIN_ANIMATED_BRUSH_COLOR_CYCLE_SPEED}
-                  max={MAX_BRUSH_COLOR_CYCLE_SPEED}
-                  step={COLOR_CYCLE_SPEED_STEP}
+                  value={brushColorCycleSpeedToSliderPosition(
+                    activeSettings.colorCycleSpeed ?? DEFAULT_BRUSH_COLOR_CYCLE_SPEED
+                  )}
+                  min={BRUSH_COLOR_CYCLE_SLIDER_MIN}
+                  max={BRUSH_COLOR_CYCLE_SLIDER_MAX}
+                  step={BRUSH_COLOR_CYCLE_SLIDER_STEP}
                   onChange={(value) =>
                     setActiveSettings({
-                      colorCycleSpeed: sanitizeBrushColorCycleSpeed(Number(value)),
+                      colorCycleSpeed: sliderPositionToBrushColorCycleSpeed(Number(value)),
                     })
+                  }
+                  formatValue={(value) =>
+                    formatBrushColorCycleSpeedLabel(
+                      sliderPositionToBrushColorCycleSpeed(value)
+                    )
                   }
                   aria-label="Custom Brush Color Cycle Speed"
                   className="flex-1"
