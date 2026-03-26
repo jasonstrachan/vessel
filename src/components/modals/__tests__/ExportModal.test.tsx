@@ -251,7 +251,7 @@ describe('ExportModal', () => {
     });
   });
 
-  it('maps embed fill preset to cover viewport mode for direct Goblet rendering', async () => {
+  it('maps embed fill preset to fixed viewport mode with embed presentation metadata', async () => {
     (store as any).webglExportSettings = {
       ...store.webglExportSettings,
       viewportPreset: 'embed-fill',
@@ -273,12 +273,12 @@ describe('ExportModal', () => {
     });
 
     const request = runExportMock.mock.calls[0]?.[0];
-    expect(request.options.request.viewport.mode).toBe('cover');
+    expect(request.options.request.viewport.mode).toBe('fixed');
     expect(request.options.request.viewportPreset).toBe('embed-fill');
     expect(request.options.request.pixelPerfectStack).toBe(false);
   });
 
-  it('maps embed fit preset to fit viewport mode for direct Goblet rendering', async () => {
+  it('maps embed fit preset to fixed viewport mode with embed presentation metadata', async () => {
     (store as any).webglExportSettings = {
       ...store.webglExportSettings,
       viewportPreset: 'embed-fit',
@@ -300,7 +300,7 @@ describe('ExportModal', () => {
     });
 
     const request = runExportMock.mock.calls[0]?.[0];
-    expect(request.options.request.viewport.mode).toBe('fit');
+    expect(request.options.request.viewport.mode).toBe('fixed');
     expect(request.options.request.viewportPreset).toBe('embed-fit');
     expect(request.options.request.pixelPerfectStack).toBe(false);
   });

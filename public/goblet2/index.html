@@ -181,7 +181,10 @@
             } else {
               delete document.body.dataset.viewportPreset;
             }
-            const summary = await renderVesselWebGL(current, canvas, { scale });
+            const opts = current?.viewport?.mode === 'fixed'
+              ? {}
+              : { scale };
+            const summary = await renderVesselWebGL(current, canvas, opts);
             debugLog('[DEBUG] drawMetadata render summary', summary);
             lastMetadata = current;
           } catch (error) {

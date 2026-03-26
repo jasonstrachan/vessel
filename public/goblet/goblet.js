@@ -3564,6 +3564,7 @@ const computeWindowSize = (fallbackWidth, fallbackHeight) => {
 const createCanvasStrategy = (metadata, initialOverride) => {
   const viewport = metadata?.viewport ?? {};
   const viewportMode = viewport.mode === 'fill' || viewport.mode === 'fit' || viewport.mode === 'cover' ? viewport.mode : 'fixed';
+  const viewportPreset = metadata?.settings?.viewportPreset;
   const baseWidth = sanitizeCanvasDimension(viewport.designWidth || viewport.width || 1, 1);
   const baseHeight = sanitizeCanvasDimension(viewport.designHeight || viewport.height || 1, 1);
 
@@ -3633,6 +3634,18 @@ const createCanvasStrategy = (metadata, initialOverride) => {
       scaleOverride = normalizeScaleOption(nextOverride);
     }
     const override = getOverride();
+    if (viewportPreset === 'embed-fill' || viewportPreset === 'embed-fit') {
+      const windowSize = computeWindowSize(baseWidth, baseHeight);
+      const uniform = viewportPreset === 'embed-fill'
+        ? clampScaleValue(Math.max(windowSize.width / baseWidth, windowSize.height / baseHeight))
+        : clampScaleValue(Math.min(windowSize.width / baseWidth, windowSize.height / baseHeight));
+      const baseScale = { x: uniform, y: uniform };
+      const scale = applyOverride(baseScale, override);
+      return {
+        scale,
+        canvasSize: windowSize
+      };
+    }
     return {
       scale: override,
       canvasSize: computeCanvasSizeForScale(override)
