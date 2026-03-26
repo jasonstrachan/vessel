@@ -44,7 +44,10 @@ const sanitizeGobletVersion = (value: unknown): WebGLExportSettings['gobletVersi
 };
 
 const sanitizeViewportPreset = (value: unknown): WebGLExportSettings['viewportPreset'] | undefined => {
-  if (value === 'fill' || value === 'fixed') {
+  if (value === 'fill') {
+    return 'embed-fill';
+  }
+  if (value === 'default' || value === 'embed-fill' || value === 'embed-fit' || value === 'fixed') {
     return value;
   }
   return undefined;

@@ -21,6 +21,10 @@
         cursor: default;
         user-select: none;
       }
+      body[data-viewport-preset='embed-fill'],
+      body[data-viewport-preset='embed-fit'] {
+        overflow: hidden;
+      }
       canvas {
         display: block;
         background: #000;
@@ -114,6 +118,7 @@
 
       const computeScale = (metadata) => {
         const viewport = metadata?.viewport ?? {};
+        const viewportPreset = metadata?.settings?.viewportPreset;
         const width = Number(viewport.designWidth ?? viewport.width) || 0;
         const height = Number(viewport.designHeight ?? viewport.height) || 0;
         if (!width || !height) {
@@ -129,8 +134,18 @@
           return 1;
         }
 
-        if (viewport.mode === 'fill' || viewport.mode === 'fit') {
+        if (viewport.mode === 'fill' || viewport.mode === 'fit' || viewport.mode === 'cover') {
           return 1;
+        }
+
+        if (viewportPreset === 'embed-fill') {
+          const baseScale = Math.max(widthRatio, heightRatio);
+          return baseScale > 0 ? baseScale : 1;
+        }
+
+        if (viewportPreset === 'embed-fit') {
+          const baseScale = Math.min(widthRatio, heightRatio);
+          return baseScale > 0 ? baseScale : 1;
         }
 
         const baseScale = Math.min(widthRatio, heightRatio, 1);
@@ -160,6 +175,11 @@
               document.body.dataset.viewportMode = current.viewport.mode;
             } else {
               delete document.body.dataset.viewportMode;
+            }
+            if (current?.settings?.viewportPreset) {
+              document.body.dataset.viewportPreset = current.settings.viewportPreset;
+            } else {
+              delete document.body.dataset.viewportPreset;
             }
             const summary = await renderVesselWebGL(current, canvas, { scale });
             debugLog('[DEBUG] drawMetadata render summary', summary);

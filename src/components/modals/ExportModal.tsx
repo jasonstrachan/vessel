@@ -40,7 +40,9 @@ const INLINE_FIELD_CLASS = 'bg-[#4a4a4a] border border-[#343434] text-sm text-[#
 const INPUT_OVERRIDE_CLASS = '!bg-[#4a4a4a] !border-[#343434] !text-[#E5E5E5] !px-3 !py-2 !h-9 focus:!border-[#D9D9D9] focus:!ring-0 focus:!outline-none disabled:!text-[#5C5C5C] disabled:!bg-[#151515]';
 
 const WEBGL_VIEWPORT_PRESETS = [
-  { value: 'fill', label: 'Fill window' },
+  { value: 'default', label: 'Default export' },
+  { value: 'embed-fill', label: 'Embed fill' },
+  { value: 'embed-fit', label: 'Embed fit' },
   { value: 'fixed', label: 'Fixed canvas' }
 ] as const;
 
@@ -264,9 +266,13 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
   const webglEnableDiagnostics = webglExportSettings.enableGobletDiagnostics;
   const webglHtmlTitle = webglExportSettings.htmlTitle ?? 'Goblet';
   const webglHtmlBackgroundColor = normalizeWebglHtmlBackgroundColor(webglExportSettings.htmlBackgroundColor ?? '#000000');
-  const webglViewportPreset: WebglViewportPreset = webglExportSettings.viewportPreset === 'fixed'
-    ? 'fixed'
-    : 'fill';
+  const webglViewportPreset: WebglViewportPreset = webglExportSettings.viewportPreset === 'embed-fill'
+    ? 'embed-fill'
+    : webglExportSettings.viewportPreset === 'embed-fit'
+      ? 'embed-fit'
+    : webglExportSettings.viewportPreset === 'fixed'
+      ? 'fixed'
+      : 'default';
   const webglDesignScalePercent = clampWebglDesignScalePercent(webglExportSettings.designScalePercent ?? 100);
 
   const applyGoblet2SingleHtmlProductionPreset = useCallback(() => {
@@ -442,7 +448,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
     const fallbackHeight = Math.max(1, Math.round(project?.height ?? 1024));
     const scalePercent = clampWebglDesignScalePercent(webglDesignScalePercent);
 
-    if (webglViewportPreset === 'fill') {
+    if (webglViewportPreset !== 'fixed') {
       return {
         designWidth: fallbackWidth,
         designHeight: fallbackHeight,
@@ -799,7 +805,13 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
                   viewport: {
                     designWidth: resolvedWebglViewport.designWidth,
                     designHeight: resolvedWebglViewport.designHeight,
-                    mode: (webglViewportPreset === 'fill' ? 'fill' : 'fixed') as 'fill' | 'fixed'
+                    mode: (
+                      webglViewportPreset === 'fixed'
+                        ? 'fixed'
+                        : webglViewportPreset === 'embed-fill'
+                          ? 'cover'
+                          : 'fit'
+                    ) as 'fit' | 'fixed' | 'cover'
                   },
                   fps: Math.max(1, Math.floor(webglFps)),
                   totalFrames: webglTotalFrames,
@@ -814,6 +826,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
                   gobletVersion: webglGobletVersion,
                   enableGobletDiagnostics: webglEnableDiagnostics,
                   compositeLayersToCanvas,
+                  viewportPreset: webglViewportPreset,
                   htmlTitle: webglHtmlTitle,
                   htmlBackgroundColor: webglHtmlBackgroundColor
                 },
@@ -1147,6 +1160,15 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
                       </button>
                     ))}
                   </div>
+                  <p className={`${MODAL_TEXT_SECONDARY} text-xs mt-3`}>
+                    {webglViewportPreset === 'embed-fill'
+                      ? 'Fills the host container using the larger viewport ratio. Cropping is allowed to avoid gutters.'
+                      : webglViewportPreset === 'embed-fit'
+                        ? 'Fits to the shorter viewport edge using the smaller ratio. Full composition stays visible.'
+                      : webglViewportPreset === 'fixed'
+                        ? 'Keeps a fixed design canvas for explicit pixel-scaled exports.'
+                        : 'Preserves the full composition with fit-style scaling for standalone-safe playback.'}
+                  </p>
                 </div>
                 {webglViewportPreset === 'fixed' && (
                   <div className="space-y-2">

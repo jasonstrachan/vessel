@@ -10,6 +10,15 @@ The **Packaging** selector inside the Goblet export tab controls how the runtime
 - **Single Goblet HTML (self-contained)** — writes a single `*.html` file with the runtime and bundle inlined. Ideal for drag-and-drop demos or quick email shares. The Goblet UI still accepts dropped JSON bundles for comparison.
 - **Goblet JSON only** — matches the legacy behaviour and saves `<project>-goblet.json` without any Goblet assets.
 
+### Viewport Presets
+
+Goblet exports expose four viewport intents:
+
+- **Default export** — maps to Goblet `fit` mode. The full composition stays visible and centered, which is the safest standalone presentation.
+- **Embed fill** — preserves the authored composition and uses cover-style viewer scaling so the host container fills without side gutters. Cropping happens at the composition level rather than by re-laying out individual layers.
+- **Embed fit** — preserves the authored composition and uses contain-style viewer scaling so the whole composition remains visible inside the host container.
+- **Fixed canvas** — preserves an explicit design canvas size for pixel-perfect or manually scaled embeds.
+
 ### Zip Contents
 
 When using the Goblet bundle format the archive contains:

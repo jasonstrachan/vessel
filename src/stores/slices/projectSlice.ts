@@ -992,7 +992,7 @@ export const createProjectSlice =
         enableGobletDiagnostics: process.env.NEXT_PUBLIC_VESSEL_GOBLET_DEBUG === 'true',
         htmlTitle: 'Goblet',
         htmlBackgroundColor: '#000000',
-        viewportPreset: 'fill',
+        viewportPreset: 'default',
         designScalePercent: 100,
       },
       setProject,
@@ -1018,7 +1018,10 @@ export const createProjectSlice =
         const normalizedDesignScalePercent = Number.isFinite(rest.designScalePercent)
           ? Math.max(25, Math.min(800, Math.round(rest.designScalePercent as number)))
           : undefined;
-        const normalizedViewportPreset = rest.viewportPreset === 'fixed' || rest.viewportPreset === 'fill'
+        const normalizedViewportPreset = rest.viewportPreset === 'default'
+          || rest.viewportPreset === 'embed-fill'
+          || rest.viewportPreset === 'embed-fit'
+          || rest.viewportPreset === 'fixed'
           ? rest.viewportPreset
           : undefined;
         const normalizedHtmlBackgroundColor = typeof rest.htmlBackgroundColor === 'string'
