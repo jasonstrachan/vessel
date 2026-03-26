@@ -402,6 +402,75 @@ describe('ColorCycleBrushCanvas2D regression tests', () => {
     expect(afterNewStroke[secondIndex]).toBe(secondExpectedByte);
   });
 
+  it('normalizes CC gradient fill speed when gradient stop count increases', async () => {
+    const canvas = makeCanvas(16, 8);
+    const brush = new ColorCycleBrushCanvas2D(canvas, { forceCanvas2D: true });
+    const baseSpeed = 0.2;
+    const rect = [
+      { x: 0, y: 0 },
+      { x: canvas.width - 1, y: 0 },
+      { x: canvas.width - 1, y: canvas.height - 1 },
+      { x: 0, y: canvas.height - 1 },
+    ];
+
+    brush.setSpeed(baseSpeed);
+
+    const twoStopLayer = 'layer-cc-gradient-2';
+    brush.setGradient([
+      { position: 0, color: '#000000' },
+      { position: 1, color: '#ffffff' },
+    ], twoStopLayer);
+    await brush.fillShapeDispatch({
+      mode: 'linear',
+      vertices: rect,
+      layerId: twoStopLayer,
+      direction: { x: 1, y: 0 },
+      options: { ccGradient: true, continuous: true, spacing: 1 },
+    });
+
+    const twoStopAnimator = (brush as unknown as {
+      animators: Map<string, { getIndexBuffers: () => { spd?: Uint8Array } }>;
+    }).animators.get(twoStopLayer);
+    if (!twoStopAnimator) {
+      throw new Error('Missing animator for two-stop CC gradient speed test');
+    }
+    const twoStopSpeed = twoStopAnimator.getIndexBuffers().spd?.find((value) => value > 0);
+    if (!twoStopSpeed) {
+      throw new Error('Missing speed byte for two-stop CC gradient speed test');
+    }
+
+    const fiveStopLayer = 'layer-cc-gradient-5';
+    brush.setGradient([
+      { position: 0, color: '#000000' },
+      { position: 0.25, color: '#ff0000' },
+      { position: 0.5, color: '#00ff00' },
+      { position: 0.75, color: '#0000ff' },
+      { position: 1, color: '#ffffff' },
+    ], fiveStopLayer);
+    await brush.fillShapeDispatch({
+      mode: 'linear',
+      vertices: rect,
+      layerId: fiveStopLayer,
+      direction: { x: 1, y: 0 },
+      options: { ccGradient: true, continuous: true, spacing: 1 },
+    });
+
+    const fiveStopAnimator = (brush as unknown as {
+      animators: Map<string, { getIndexBuffers: () => { spd?: Uint8Array } }>;
+    }).animators.get(fiveStopLayer);
+    if (!fiveStopAnimator) {
+      throw new Error('Missing animator for five-stop CC gradient speed test');
+    }
+    const fiveStopSpeed = fiveStopAnimator.getIndexBuffers().spd?.find((value) => value > 0);
+    if (!fiveStopSpeed) {
+      throw new Error('Missing speed byte for five-stop CC gradient speed test');
+    }
+
+    expect(decodeColorCycleSpeedByte(twoStopSpeed)).toBeCloseTo(baseSpeed, 2);
+    expect(decodeColorCycleSpeedByte(fiveStopSpeed)).toBeCloseTo(baseSpeed / 4, 2);
+    expect(fiveStopSpeed).toBeLessThan(twoStopSpeed);
+  });
+
   it('keeps write-speed bytes stable while velocity influences phase progression', () => {
     const state = useAppStore.getState();
     state.tools.brushSettings.velocityAnimationSpeedEnabled = true;
