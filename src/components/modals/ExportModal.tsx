@@ -213,6 +213,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
 
   const project = useAppStore((s) => s.project);
   const compositeLayersToCanvas = useAppStore((s) => s.compositeLayersToCanvas);
+  const compositeLayersToCanvasSync = useAppStore((s) => s.compositeLayersToCanvasSync);
   const layers = useAppStore((s) => s.layers);
   const activeLayerId = useAppStore((s) => s.activeLayerId);
   const setActiveLayer = useAppStore((s) => s.setActiveLayer);
@@ -826,6 +827,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
                   gobletVersion: webglGobletVersion,
                   enableGobletDiagnostics: webglEnableDiagnostics,
                   compositeLayersToCanvas,
+                  compositeLayersToCanvasSync,
                   viewportPreset: webglViewportPreset,
                   htmlTitle: webglHtmlTitle,
                   htmlBackgroundColor: webglHtmlBackgroundColor

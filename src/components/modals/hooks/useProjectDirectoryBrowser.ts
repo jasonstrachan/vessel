@@ -450,11 +450,9 @@ export function useProjectDirectoryBrowser({
         const handleWithPerms = handle as DirectoryHandleWithPermissions;
         if (handleWithPerms.queryPermission) {
           try {
-            let status = await handleWithPerms.queryPermission({ mode: 'read' });
-            if (status === 'prompt' && handleWithPerms.requestPermission) {
-              status = await handleWithPerms.requestPermission({ mode: 'read' });
-            }
+            const status = await handleWithPerms.queryPermission({ mode: 'read' });
             if (status !== 'granted') {
+              setDirectoryError('Folder access expired. Choose the folder again to restore project browsing.');
               return;
             }
           } catch (error) {
@@ -490,12 +488,7 @@ export function useProjectDirectoryBrowser({
       if (handleWithPerms.queryPermission) {
         try {
           const status = await handleWithPerms.queryPermission({ mode: 'read' });
-          if (status === 'prompt' && handleWithPerms.requestPermission) {
-            const requestStatus = await handleWithPerms.requestPermission({ mode: 'read' });
-            hasPermission = requestStatus === 'granted';
-          } else {
-            hasPermission = status === 'granted';
-          }
+          hasPermission = status === 'granted';
         } catch (error) {
           console.warn('[LoadProjectModal] Failed to query directory permission', error);
           hasPermission = true;
@@ -503,6 +496,8 @@ export function useProjectDirectoryBrowser({
       }
       if (!cancelled && hasPermission) {
         await scanDirectoryForProjects(directoryHandle);
+      } else if (!cancelled) {
+        setDirectoryError('Folder access expired. Choose the folder again to restore project browsing.');
       }
     })();
 

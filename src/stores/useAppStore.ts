@@ -685,6 +685,7 @@ export interface AppState {
   exportProject: (format: 'png', options?: { quality?: number; scale?: number }) => Promise<void>;
   newProject: (width: number, height: number, name?: string) => void;
   compositeLayersToCanvas: (targetCanvas: HTMLCanvasElement) => void;
+  compositeLayersToCanvasSync: (targetCanvas: HTMLCanvasElement) => boolean;
   captureCanvasToActiveLayer: (
     sourceCanvas?: HTMLCanvasElement,
     roi?: CaptureROI,

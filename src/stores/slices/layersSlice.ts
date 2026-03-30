@@ -1166,6 +1166,7 @@ export interface LayersSlice {
   cleanupColorCycleForLayer: (layerId: string) => void;
   getLayerColorCycleBrush: (layerId: string) => ColorCycleBrushImplementation | null;
   compositeLayersToCanvas: (targetCanvas: HTMLCanvasElement) => void;
+  compositeLayersToCanvasSync: (targetCanvas: HTMLCanvasElement) => boolean;
   renderStaticComposite: (
     targetCanvas: HTMLCanvasElement,
     options?: { captureBitmap?: boolean }
@@ -1398,6 +1399,118 @@ export const createLayersSlice = (
       ctx.globalCompositeOperation = 'source-over';
       ctx.globalAlpha = 1;
       return drewLayer;
+    };
+
+    const drawAllLayersInOrder = (
+      ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D,
+      sortedLayers: Layer[],
+      project: Project,
+      manager: ColorCycleBrushManager | null,
+      frameIndex: number
+    ): void => {
+      ctx.clearRect(0, 0, project.width, project.height);
+      if (project.backgroundColor && project.backgroundColor !== 'transparent') {
+        ctx.fillStyle = project.backgroundColor;
+        ctx.fillRect(0, 0, project.width, project.height);
+      }
+
+      const brushManager = manager ?? getColorCycleBrushManager();
+
+      for (const layer of sortedLayers) {
+        if (!layer.visible) {
+          continue;
+        }
+
+        if (layer.layerType === 'sequential' && layer.sequentialData) {
+          const source = getSequentialLayerRenderCanvas({
+            layer,
+            width: project.width,
+            height: project.height,
+            frameIndex,
+          });
+          if (!source) {
+            continue;
+          }
+
+          try {
+            ctx.globalCompositeOperation = layer.blendMode;
+            ctx.globalAlpha = layer.opacity;
+            ctx.drawImage(source as CanvasImageSource, 0, 0);
+          } catch {
+            // ignore transient draw failures
+          }
+          continue;
+        }
+
+        if (layer.layerType === 'color-cycle' && layer.colorCycleData) {
+          const canvas = layer.colorCycleData.canvas;
+          if (!canvas) {
+            continue;
+          }
+
+          if (layer.colorCycleData.mode !== 'recolor') {
+            const brush = brushManager?.getBrush(layer.id);
+            if (brush) {
+              try {
+                const wantPlaying = Boolean(layer.colorCycleData.isAnimating);
+                const isPlaying = typeof brush.isPlaying === 'function' ? brush.isPlaying() : false;
+                if (wantPlaying && !isPlaying) {
+                  brush.startAnimation?.();
+                } else if (!wantPlaying && isPlaying) {
+                  brush.stopAnimation?.();
+                }
+                if (wantPlaying) {
+                  brush.updateAnimation?.();
+                }
+                brush.renderDirectToCanvas?.(canvas, layer.id);
+              } catch (error) {
+                logError('[compose] CC advance/render failed', error);
+              }
+            }
+          }
+
+          applyColorCycleEraseMask(layer, canvas);
+
+          try {
+            ctx.globalCompositeOperation = layer.blendMode;
+            ctx.globalAlpha = layer.opacity;
+            ctx.drawImage(canvas, 0, 0);
+          } catch (error) {
+            logError('[compose] Layer compose error', error);
+          }
+          continue;
+        }
+
+        let source: CanvasImageSource | null = null;
+        if (hasValidFramebuffer(layer.framebuffer)) {
+          source = layer.framebuffer as CanvasImageSource;
+        } else if (layer.imageData) {
+          const layerCanvas = createLayerTransferCanvas(layer.imageData.width, layer.imageData.height);
+          if (!layerCanvas) {
+            continue;
+          }
+          const layerCtx = layerCanvas.getContext(
+            '2d',
+            { willReadFrequently: true } as CanvasRenderingContext2DSettings
+          ) as CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D | null;
+          if (!layerCtx) {
+            continue;
+          }
+          layerCtx.putImageData(layer.imageData, 0, 0);
+          source = layerCanvas as CanvasImageSource;
+        }
+
+        if (!source) {
+          continue;
+        }
+
+        ctx.globalCompositeOperation = layer.blendMode;
+        ctx.globalAlpha = layer.opacity;
+        ctx.drawImage(source, 0, 0);
+      }
+
+      ctx.globalCompositeOperation = 'source-over';
+      ctx.globalAlpha = 1;
     };
 
     const drawColorCycleLayers = (
@@ -3602,12 +3715,11 @@ export const createLayersSlice = (
         if ('imageSmoothingEnabled' in ctx) {
           (ctx as CanvasRenderingContext2D).imageSmoothingEnabled = !isPixelBrush;
         }
-        drawStaticLayers(ctx, sortedLayers, state.project!);
-        drawColorCycleLayers(ctx, sortedLayers, state.project!, colorCycleBrushManager, { clear: false });
-        drawSequentialLayers(
+        drawAllLayersInOrder(
           ctx,
           sortedLayers,
           state.project!,
+          colorCycleBrushManager,
           get().sequentialRecord.currentFrame
         );
         const stats = getSequentialLayerRendererStats();
@@ -3651,6 +3763,63 @@ export const createLayersSlice = (
     } catch (error) {
       logError('[compose] Failed to composite layers', error);
       get().setCurrentCompositeBitmap(null);
+    }
+  },
+
+  compositeLayersToCanvasSync: (targetCanvas) => {
+    const state = get();
+
+    try {
+      if (!state.project || !state.layers.length) {
+        get().setCurrentCompositeBitmap(null);
+        return false;
+      }
+
+      const expectedWidth = state.project.width;
+      const expectedHeight = state.project.height;
+
+      if (targetCanvas.width !== expectedWidth || targetCanvas.height !== expectedHeight) {
+        targetCanvas.width = expectedWidth;
+        targetCanvas.height = expectedHeight;
+      }
+
+      const ctx = targetCanvas.getContext(
+        '2d',
+        { willReadFrequently: true } as CanvasRenderingContext2DSettings
+      ) as CanvasRenderingContext2D | null;
+      if (!ctx) {
+        get().setCurrentCompositeBitmap(null);
+        return false;
+      }
+
+      const currentState = get();
+      const isPixelBrush =
+        currentState.tools.brushSettings.brushShape === 'pixel_round' ||
+        (currentState.tools.brushSettings.brushShape === 'square' &&
+          !currentState.tools.brushSettings.antialiasing);
+      ctx.imageSmoothingEnabled = !isPixelBrush;
+
+      const sortedLayers = [...state.layers].sort((a, b) => a.order - b.order);
+      drawAllLayersInOrder(
+        ctx,
+        sortedLayers,
+        state.project,
+        colorCycleBrushManager,
+        get().sequentialRecord.currentFrame
+      );
+
+      const stats = getSequentialLayerRendererStats();
+      get().setSequentialFrameCacheStats({
+        frameCacheEntries: stats.entries,
+        frameCacheHits: stats.hits,
+        frameCacheMisses: stats.misses,
+      });
+      get().setCurrentCompositeBitmap(null);
+      return true;
+    } catch (error) {
+      logError('[compose] Failed to synchronously composite layers', error);
+      get().setCurrentCompositeBitmap(null);
+      return false;
     }
   },
 
