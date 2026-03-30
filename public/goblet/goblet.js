@@ -3546,22 +3546,64 @@ const sanitizeCanvasDimension = (value, fallback = 1) => {
   return sanitized;
 };
 
-const computeWindowSize = (fallbackWidth, fallbackHeight) => {
+const hasInlineConstraint = (element, axis) => {
+  if (!element || !(element instanceof HTMLElement)) {
+    return false;
+  }
+  if (axis === 'width') {
+    return Boolean(element.style.width || element.style.minWidth || element.style.maxWidth);
+  }
+  return Boolean(element.style.height || element.style.minHeight || element.style.maxHeight);
+};
+
+const axisUsesClipping = (computedStyle, axis) => {
+  const overflowValue = axis === 'width' ? computedStyle.overflowX : computedStyle.overflowY;
+  return overflowValue === 'hidden' || overflowValue === 'clip' || overflowValue === 'scroll' || overflowValue === 'auto';
+};
+
+const resolveConstrainedAxisSize = (canvas, axis, fallbackSize) => {
+  if (!(canvas instanceof HTMLElement)) {
+    return sanitizeCanvasDimension(fallbackSize, 1);
+  }
+
+  const canvasRect = canvas.getBoundingClientRect?.();
+  const canvasSize = axis === 'width'
+    ? sanitizeCanvasDimension(canvasRect?.width || fallbackSize, fallbackSize)
+    : sanitizeCanvasDimension(canvasRect?.height || fallbackSize, fallbackSize);
+
+  let current = canvas.parentElement;
+  while (current && current !== document.body && current !== document.documentElement) {
+    const rect = current.getBoundingClientRect?.();
+    const rawSize = axis === 'width' ? rect?.width : rect?.height;
+    if (rawSize && rawSize > 0) {
+      const size = sanitizeCanvasDimension(rawSize, fallbackSize);
+      const computedStyle = window.getComputedStyle(current);
+      const differsFromCanvas = Math.abs(size - canvasSize) > 1;
+      const hasConstraint = hasInlineConstraint(current, axis) || axisUsesClipping(computedStyle, axis);
+      if (differsFromCanvas || hasConstraint) {
+        return size;
+      }
+    }
+    current = current.parentElement;
+  }
+
+  return sanitizeCanvasDimension(axis === 'width' ? (window.innerWidth || fallbackSize) : (window.innerHeight || fallbackSize), fallbackSize);
+};
+
+const computeViewportSize = (canvas, fallbackWidth, fallbackHeight) => {
   if (typeof window === 'undefined') {
     return {
       width: sanitizeCanvasDimension(fallbackWidth, 1),
       height: sanitizeCanvasDimension(fallbackHeight, 1)
     };
   }
-  const width = window.innerWidth || fallbackWidth;
-  const height = window.innerHeight || fallbackHeight;
   return {
-    width: sanitizeCanvasDimension(width, fallbackWidth),
-    height: sanitizeCanvasDimension(height, fallbackHeight)
+    width: resolveConstrainedAxisSize(canvas, 'width', fallbackWidth),
+    height: resolveConstrainedAxisSize(canvas, 'height', fallbackHeight)
   };
 };
 
-const createCanvasStrategy = (metadata, initialOverride) => {
+const createCanvasStrategy = (metadata, canvas, initialOverride) => {
   const viewport = metadata?.viewport ?? {};
   const viewportMode = viewport.mode === 'fill' || viewport.mode === 'fit' || viewport.mode === 'cover' ? viewport.mode : 'fixed';
   const viewportPreset = metadata?.settings?.viewportPreset;
@@ -3587,7 +3629,7 @@ const createCanvasStrategy = (metadata, initialOverride) => {
       scaleOverride = normalizeScaleOption(nextOverride);
     }
     const override = getOverride();
-    const windowSize = computeWindowSize(baseWidth, baseHeight);
+    const windowSize = computeViewportSize(canvas, baseWidth, baseHeight);
     const baseScale = {
       x: clampScaleValue(windowSize.width / baseWidth),
       y: clampScaleValue(windowSize.height / baseHeight)
@@ -3604,7 +3646,7 @@ const createCanvasStrategy = (metadata, initialOverride) => {
       scaleOverride = normalizeScaleOption(nextOverride);
     }
     const override = getOverride();
-    const windowSize = computeWindowSize(baseWidth, baseHeight);
+    const windowSize = computeViewportSize(canvas, baseWidth, baseHeight);
     const uniform = clampScaleValue(Math.min(windowSize.width / baseWidth, windowSize.height / baseHeight));
     const baseScale = { x: uniform, y: uniform };
     const scale = applyOverride(baseScale, override);
@@ -3619,7 +3661,7 @@ const createCanvasStrategy = (metadata, initialOverride) => {
       scaleOverride = normalizeScaleOption(nextOverride);
     }
     const override = getOverride();
-    const windowSize = computeWindowSize(baseWidth, baseHeight);
+    const windowSize = computeViewportSize(canvas, baseWidth, baseHeight);
     const uniform = clampScaleValue(Math.max(windowSize.width / baseWidth, windowSize.height / baseHeight));
     const baseScale = { x: uniform, y: uniform };
     const scale = applyOverride(baseScale, override);
@@ -3635,7 +3677,7 @@ const createCanvasStrategy = (metadata, initialOverride) => {
     }
     const override = getOverride();
     if (viewportPreset === 'embed-fill' || viewportPreset === 'embed-fit') {
-      const windowSize = computeWindowSize(baseWidth, baseHeight);
+      const windowSize = computeViewportSize(canvas, baseWidth, baseHeight);
       const uniform = viewportPreset === 'embed-fill'
         ? clampScaleValue(Math.max(windowSize.width / baseWidth, windowSize.height / baseHeight))
         : clampScaleValue(Math.min(windowSize.width / baseWidth, windowSize.height / baseHeight));
@@ -3675,7 +3717,7 @@ const createCanvasStrategy = (metadata, initialOverride) => {
     },
     getCanvasSize(scale) {
       if (viewportMode === 'fill' || viewportMode === 'cover') {
-        return computeWindowSize(baseWidth, baseHeight);
+        return computeViewportSize(canvas, baseWidth, baseHeight);
       }
       const effectiveScale = scale ? normalizeScaleOption(scale) : getOverride();
       return computeCanvasSizeForScale(effectiveScale);
@@ -3689,7 +3731,7 @@ class VesselGoblet {
     this.sourceMetadata = sourceMetadata ?? metadata;
     this.canvas = canvas;
     this.options = options ?? {};
-    this.canvasStrategy = createCanvasStrategy(metadata, this.options.scale ?? null);
+    this.canvasStrategy = createCanvasStrategy(metadata, canvas, this.options.scale ?? null);
     const initialState = this.canvasStrategy.getInitialState();
     this.scale = { ...initialState.scale };
 

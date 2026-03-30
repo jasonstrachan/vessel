@@ -116,6 +116,21 @@
 
       const summarizeMetadata = () => {};
 
+      const getViewportBox = () => {
+        const hostRect = canvas?.parentElement?.getBoundingClientRect?.();
+        if (hostRect && hostRect.width > 0 && hostRect.height > 0) {
+          return { width: hostRect.width, height: hostRect.height };
+        }
+        const canvasRect = canvas?.getBoundingClientRect?.();
+        if (canvasRect && canvasRect.width > 0 && canvasRect.height > 0) {
+          return { width: canvasRect.width, height: canvasRect.height };
+        }
+        return {
+          width: window.innerWidth || 0,
+          height: window.innerHeight || 0
+        };
+      };
+
       const computeScale = (metadata) => {
         const viewport = metadata?.viewport ?? {};
         const viewportPreset = metadata?.settings?.viewportPreset;
@@ -125,8 +140,9 @@
           return 1;
         }
 
-        const viewportWidth = window.innerWidth || width;
-        const viewportHeight = window.innerHeight || height;
+        const viewportBox = getViewportBox();
+        const viewportWidth = viewportBox.width || width;
+        const viewportHeight = viewportBox.height || height;
         const widthRatio = viewportWidth / width;
         const heightRatio = viewportHeight / height;
 
@@ -169,7 +185,7 @@
             debugLog('[DEBUG] drawMetadata computed scale', {
               scale,
               viewport: current?.viewport,
-              windowSize: { width: window.innerWidth, height: window.innerHeight }
+              viewportBox: getViewportBox()
             });
             if (current?.viewport?.mode) {
               document.body.dataset.viewportMode = current.viewport.mode;

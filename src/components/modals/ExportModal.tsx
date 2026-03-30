@@ -1166,7 +1166,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
                       : webglViewportPreset === 'embed-fit'
                         ? 'Fits to the shorter viewport edge using the smaller ratio. Full composition stays visible.'
                       : webglViewportPreset === 'fixed'
-                        ? 'Keeps a fixed design canvas for explicit pixel-scaled exports.'
+                        ? 'Keeps a fixed non-responsive design canvas for pixel-perfect standalone exports.'
                         : 'Preserves the full composition with fit-style scaling for standalone-safe playback.'}
                   </p>
                 </div>
