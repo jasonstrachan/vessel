@@ -96,6 +96,19 @@ const createSourceCanvas = (width: number, height: number) => {
   return { canvas, ctx, imageData };
 };
 
+const createFilledDomCanvas = (width: number, height: number, color: string): HTMLCanvasElement => {
+  const canvas = document.createElement('canvas');
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) {
+    throw new Error('Expected 2D context for test canvas');
+  }
+  ctx.fillStyle = color;
+  ctx.fillRect(0, 0, width, height);
+  return canvas;
+};
+
 beforeEach(() => {
   Object.values(mockBrush).forEach((fn) => {
     if (typeof fn === 'function') {
@@ -904,6 +917,66 @@ describe('layers slice integration', () => {
     expect(layerCanvasCtx.drawImage).toHaveBeenCalledWith(eraseMaskCanvas, 0, 0);
     expect(layerCanvasCtx.restore).toHaveBeenCalledTimes(1);
     expect(targetCtx.drawImage).toHaveBeenCalledWith(layerCanvas, 0, 0);
+  });
+
+  it('respects interleaved layer ordering across normal and color-cycle layers during composite', () => {
+    useAppStore.setState((state) => ({
+      project: state.project ?? {
+        id: 'proj-ordering-composite',
+        name: 'Ordering Composite',
+        width: 4,
+        height: 4,
+        layers: [],
+        backgroundColor: 'transparent',
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        customBrushes: [],
+      },
+    }));
+
+    const bottomFramebuffer = createFilledDomCanvas(4, 4, '#0000ff');
+    const middleColorCycleCanvas = createFilledDomCanvas(4, 4, '#ff0000');
+    const topFramebuffer = createFilledDomCanvas(4, 4, '#00ff00');
+
+    const store = useAppStore.getState();
+    store.addLayer({
+      ...createNormalLayerInput('Bottom Normal'),
+      imageData: null,
+      framebuffer: bottomFramebuffer,
+    });
+    store.addLayer({
+      ...createColorCycleLayerInput('Middle CC'),
+      imageData: null,
+      framebuffer: middleColorCycleCanvas,
+      colorCycleData: {
+        gradient: [{ position: 0, color: '#000' }, { position: 1, color: '#fff' }],
+        isAnimating: false,
+        mode: 'recolor',
+        canvas: middleColorCycleCanvas,
+      },
+    });
+    store.addLayer({
+      ...createNormalLayerInput('Top Normal'),
+      imageData: null,
+      framebuffer: topFramebuffer,
+    });
+
+    const targetCanvas = document.createElement('canvas');
+    targetCanvas.width = 4;
+    targetCanvas.height = 4;
+    const targetCtx = targetCanvas.getContext('2d', { willReadFrequently: true });
+    if (!targetCtx) {
+      throw new Error('Expected target canvas context');
+    }
+    const drawImageSpy = jest.spyOn(targetCtx, 'drawImage');
+
+    const didComposite = useAppStore.getState().compositeLayersToCanvasSync(targetCanvas);
+    expect(didComposite).toBe(true);
+    expect(drawImageSpy.mock.calls.map((call) => call[0])).toEqual([
+      bottomFramebuffer,
+      middleColorCycleCanvas,
+      topFramebuffer,
+    ]);
   });
 
   it('ignores stale async composite bitmap results from older renders', async () => {

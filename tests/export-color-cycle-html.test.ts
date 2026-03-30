@@ -985,6 +985,166 @@ describe('exportProjectAsWebGL color cycle integration', () => {
     expect(exportedLayer.source.height).toBe(exportedLayer.contentBounds.height);
   });
 
+  it('embeds a preview thumbnail from the composite export path without requiring full fallback data', async () => {
+    const canvas = document.createElement('canvas');
+    canvas.width = 128;
+    canvas.height = 64;
+
+    const layer = createColorCycleLayer(canvas);
+    const project: Project = {
+      ...createProject(layer),
+      width: 128,
+      height: 64,
+      layers: [layer]
+    };
+    const layout = createDefaultExportLayout();
+
+    const compositeLayersToCanvas = (targetCanvas: HTMLCanvasElement) => {
+      targetCanvas.width = project.width;
+      targetCanvas.height = project.height;
+      const ctx = targetCanvas.getContext('2d');
+      if (!ctx) {
+        throw new Error('Missing 2D context in composite test');
+      }
+      ctx.fillStyle = '#223344';
+      ctx.fillRect(0, 0, targetCanvas.width, targetCanvas.height);
+      ctx.fillStyle = '#ff8800';
+      ctx.fillRect(8, 8, 32, 24);
+    };
+
+    const metadata = await exportProjectAsWebGL({
+      project,
+      layers: [layer],
+      layout,
+      viewport: { designWidth: project.width, designHeight: project.height, mode: 'fixed' },
+      fps: 24,
+      totalFrames: 24,
+      durationSeconds: 1,
+      perfectLoop: false,
+      includeHiddenLayers: true,
+      embedCanvasFallback: false,
+      minify: false,
+      filenameBase: 'color-cycle-preview-only',
+      bundleFormat: 'json',
+      compositeLayersToCanvas
+    });
+
+    expect(metadata.preview?.dataUrl).toMatch(/^data:image\//);
+    expect(metadata.preview?.width).toBe(128);
+    expect(metadata.preview?.height).toBe(64);
+    expect(metadata.fallback).toBeUndefined();
+  });
+
+  it('prefers the synchronous compositor for embedded previews when both compositors are available', async () => {
+    const canvas = document.createElement('canvas');
+    canvas.width = 64;
+    canvas.height = 64;
+
+    const layer = createColorCycleLayer(canvas);
+    const project = createProject(layer);
+    const layout = createDefaultExportLayout();
+    const asyncComposite = jest.fn();
+    const syncComposite = jest.fn((targetCanvas: HTMLCanvasElement) => {
+      targetCanvas.width = project.width;
+      targetCanvas.height = project.height;
+      const ctx = targetCanvas.getContext('2d');
+      if (!ctx) {
+        throw new Error('Missing 2D context in sync composite test');
+      }
+      ctx.fillStyle = '#44aa88';
+      ctx.fillRect(0, 0, targetCanvas.width, targetCanvas.height);
+      return true;
+    });
+
+    const metadata = await exportProjectAsWebGL({
+      project,
+      layers: [layer],
+      layout,
+      viewport: { designWidth: project.width, designHeight: project.height, mode: 'fixed' },
+      fps: 24,
+      totalFrames: 24,
+      durationSeconds: 1,
+      perfectLoop: false,
+      includeHiddenLayers: true,
+      embedCanvasFallback: false,
+      minify: false,
+      filenameBase: 'color-cycle-preview-sync',
+      bundleFormat: 'json',
+      compositeLayersToCanvas: asyncComposite,
+      compositeLayersToCanvasSync: syncComposite,
+    });
+
+    expect(syncComposite).toHaveBeenCalledTimes(1);
+    expect(asyncComposite).not.toHaveBeenCalled();
+    expect(metadata.preview?.dataUrl).toMatch(/^data:image\//);
+  });
+
+  it('uses the actual encoded preview mime when the browser falls back from avif to png', async () => {
+    const originalToBlob = HTMLCanvasElement.prototype.toBlob;
+    const toBlobSpy = jest
+      .spyOn(HTMLCanvasElement.prototype, 'toBlob')
+      .mockImplementation(function mockToBlob(callback: BlobCallback, type?: string): void {
+        const mime = type === 'image/avif' ? 'image/png' : (type ?? 'image/png');
+        const blob = new Blob(['preview'], { type: mime });
+        setTimeout(() => callback(blob), 0);
+      });
+
+    try {
+      const canvas = document.createElement('canvas');
+      canvas.width = 128;
+      canvas.height = 64;
+
+      const layer = createColorCycleLayer(canvas);
+      const project: Project = {
+        ...createProject(layer),
+        width: 128,
+        height: 64,
+        layers: [layer]
+      };
+      const layout = createDefaultExportLayout();
+
+      const compositeLayersToCanvasSync = (targetCanvas: HTMLCanvasElement) => {
+        targetCanvas.width = project.width;
+        targetCanvas.height = project.height;
+        const ctx = targetCanvas.getContext('2d');
+        if (!ctx) {
+          throw new Error('Missing 2D context in preview mime test');
+        }
+        ctx.fillStyle = '#335577';
+        ctx.fillRect(0, 0, targetCanvas.width, targetCanvas.height);
+      };
+
+      const metadata = await exportProjectAsWebGL({
+        project,
+        layers: [layer],
+        layout,
+        viewport: { designWidth: project.width, designHeight: project.height, mode: 'fixed' },
+        fps: 24,
+        totalFrames: 24,
+        durationSeconds: 1,
+        perfectLoop: false,
+        includeHiddenLayers: true,
+        embedCanvasFallback: true,
+        minify: false,
+        filenameBase: 'color-cycle-preview-mime-fallback',
+        bundleFormat: 'json',
+        compositeLayersToCanvasSync
+      });
+
+      expect(metadata.preview?.type).toBe('image/png');
+      expect(metadata.preview?.dataUrl).toMatch(/^data:image\/png;base64,/);
+      expect(metadata.fallback?.type).toBe('image/png');
+      expect(metadata.fallback?.dataUrl).toMatch(/^data:image\/png;base64,/);
+    } finally {
+      toBlobSpy.mockRestore();
+      Object.defineProperty(HTMLCanvasElement.prototype, 'toBlob', {
+        configurable: true,
+        writable: true,
+        value: originalToBlob
+      });
+    }
+  });
+
   it('shrinks brush coverage and layout bounds after applying erase masks', async () => {
     const canvas = document.createElement('canvas');
     canvas.width = 128;

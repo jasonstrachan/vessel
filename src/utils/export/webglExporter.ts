@@ -134,6 +134,8 @@ type LayerExportMetrics = LayerContentMetrics;
 
 type CanvasExportMimeType = 'image/avif' | 'image/webp' | 'image/png';
 
+const DEFAULT_GOBLET_PREVIEW_MAX_SIZE = 500;
+
 type SerializedGradientStops = Array<{ position: number; color: string }>;
 type SerializedSlotPalette = {
   slot: number;
@@ -489,6 +491,12 @@ export interface WebGLExportMetadata {
   };
   layers: WebGLLayerMetadata[];
   gradients?: SerializedGradientStops[];
+  preview?: {
+    type: CanvasExportMimeType;
+    width: number;
+    height: number;
+    dataUrl: string;
+  };
   fallback?: {
     type: CanvasExportMimeType;
     dataUrl: string;
@@ -520,6 +528,7 @@ export interface WebGLExportRequest {
   enableGobletDiagnostics?: boolean;
   assetPrefix?: string;
   compositeLayersToCanvas?: (targetCanvas: HTMLCanvasElement) => void;
+  compositeLayersToCanvasSync?: (targetCanvas: HTMLCanvasElement) => boolean;
   htmlTitle?: string;
   htmlBackgroundColor?: string;
   viewportPreset?: 'default' | 'embed-fill' | 'embed-fit' | 'fixed';
@@ -623,6 +632,28 @@ const normalizeCanvasSurfaceForExport = (
 };
 
 const IMAGE_DATA_URL_PATTERN = /^data:image\/[a-z0-9.+-]+;base64,/i;
+
+const normalizeCanvasExportMimeType = (value: unknown): CanvasExportMimeType | undefined => {
+  if (typeof value !== 'string') {
+    return undefined;
+  }
+  const normalized = value.trim().toLowerCase();
+  if (normalized === 'image/avif' || normalized === 'image/webp' || normalized === 'image/png') {
+    return normalized;
+  }
+  return undefined;
+};
+
+const extractCanvasExportMimeTypeFromDataUrl = (dataUrl: unknown): CanvasExportMimeType | undefined => {
+  if (typeof dataUrl !== 'string') {
+    return undefined;
+  }
+  const match = dataUrl.trim().match(/^data:(image\/[a-z0-9.+-]+);base64,/i);
+  if (!match) {
+    return undefined;
+  }
+  return normalizeCanvasExportMimeType(match[1]);
+};
 
 const normalizeImageDataUrl = (dataUrl: unknown): string | undefined => {
   if (typeof dataUrl !== 'string') {
@@ -955,7 +986,11 @@ const canvasToDataURL = async (
         continue;
       }
       const dataUrl = await blobToDataURL(blob);
-      return { dataUrl, format: format.type };
+      const actualFormat =
+        normalizeCanvasExportMimeType(blob.type) ??
+        extractCanvasExportMimeTypeFromDataUrl(dataUrl) ??
+        format.type;
+      return { dataUrl, format: actualFormat };
     } catch (error) {
       console.debug(`[webglExporter] Failed to encode canvas as ${format.type}`, error);
     }
@@ -987,6 +1022,33 @@ const imageDataToDataURL = async (imageData: ImageData): Promise<string> => {
   ctx.putImageData(imageData, 0, 0);
   const { dataUrl } = await canvasToDataURL(canvas);
   return dataUrl;
+};
+
+const createExportPreviewCanvas = (
+  sourceCanvas: HTMLCanvasElement,
+  maxSize = DEFAULT_GOBLET_PREVIEW_MAX_SIZE
+): HTMLCanvasElement => {
+  const sourceWidth = Math.max(1, Math.round(sourceCanvas.width));
+  const sourceHeight = Math.max(1, Math.round(sourceCanvas.height));
+  const longestEdge = Math.max(sourceWidth, sourceHeight);
+  const scale = longestEdge > maxSize ? maxSize / longestEdge : 1;
+  const width = Math.max(1, Math.round(sourceWidth * scale));
+  const height = Math.max(1, Math.round(sourceHeight * scale));
+
+  const previewCanvas = document.createElement('canvas');
+  previewCanvas.width = width;
+  previewCanvas.height = height;
+
+  const previewCtx = previewCanvas.getContext('2d', { colorSpace: 'srgb' });
+  if (!previewCtx) {
+    throw new Error('Unable to obtain 2D context for Goblet preview');
+  }
+
+  previewCtx.imageSmoothingEnabled = true;
+  previewCtx.imageSmoothingQuality = 'high';
+  previewCtx.drawImage(sourceCanvas, 0, 0, sourceWidth, sourceHeight, 0, 0, width, height);
+
+  return previewCanvas;
 };
 
 const computeLayerExportMetrics = (layer: Layer, project: Project): LayerExportMetrics =>
@@ -4794,25 +4856,50 @@ export const exportProjectAsWebGL = async (
     });
   }
 
+  let preview: WebGLExportMetadata['preview'];
   let fallback: WebGLExportMetadata['fallback'];
-  if (options.embedCanvasFallback && typeof document !== 'undefined' && options.compositeLayersToCanvas) {
+  if (
+    typeof document !== 'undefined' &&
+    (options.compositeLayersToCanvasSync || options.compositeLayersToCanvas)
+  ) {
     try {
-      const fallbackCanvas = document.createElement('canvas');
-      fallbackCanvas.width = Math.max(1, options.project.width);
-      fallbackCanvas.height = Math.max(1, options.project.height);
-      options.compositeLayersToCanvas(fallbackCanvas);
-      const { dataUrl, format } = await canvasToDataURL(fallbackCanvas);
-      const normalized = normalizeImageDataUrl(dataUrl);
-      if (!normalized) {
-        console.error(`[webglExporter] Invalid data URL generated for ${format} fallback`);
+      const compositeCanvas = document.createElement('canvas');
+      compositeCanvas.width = Math.max(1, options.project.width);
+      compositeCanvas.height = Math.max(1, options.project.height);
+      if (options.compositeLayersToCanvasSync) {
+        options.compositeLayersToCanvasSync(compositeCanvas);
       } else {
-        fallback = {
-          type: format,
-          dataUrl: normalized
+        options.compositeLayersToCanvas?.(compositeCanvas);
+      }
+
+      const previewCanvas = createExportPreviewCanvas(compositeCanvas);
+      const { dataUrl: previewDataUrl, format: previewFormat } = await canvasToDataURL(previewCanvas);
+      const normalizedPreview = normalizeImageDataUrl(previewDataUrl);
+      if (!normalizedPreview) {
+        console.error(`[webglExporter] Invalid data URL generated for ${previewFormat} preview`);
+      } else {
+        preview = {
+          type: previewFormat,
+          width: previewCanvas.width,
+          height: previewCanvas.height,
+          dataUrl: normalizedPreview
         };
       }
+
+      if (options.embedCanvasFallback) {
+        const { dataUrl, format } = await canvasToDataURL(compositeCanvas);
+        const normalized = normalizeImageDataUrl(dataUrl);
+        if (!normalized) {
+          console.error(`[webglExporter] Invalid data URL generated for ${format} fallback`);
+        } else {
+          fallback = {
+            type: format,
+            dataUrl: normalized
+          };
+        }
+      }
     } catch (error) {
-      console.warn('[webglExporter] Failed to capture Canvas2D fallback', error);
+      console.warn('[webglExporter] Failed to capture Goblet preview or fallback', error);
     }
   }
 
@@ -4857,6 +4944,10 @@ export const exportProjectAsWebGL = async (
     },
     layers: metadataLayers
   };
+
+  if (preview) {
+    metadata.preview = preview;
+  }
 
   if (fallback) {
     metadata.fallback = fallback;

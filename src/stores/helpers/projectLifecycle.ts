@@ -445,7 +445,7 @@ export const createProjectLifecycle = ({
       const nextFileHandle = fileHandle ?? state.projectFileHandle ?? null;
       if (nextFileHandle) {
         fileBackupService.setFileHandle(nextFileHandle);
-        await fileBackupService.ensureFileWritePermission(nextFileHandle);
+        await fileBackupService.ensureFileWritePermission(nextFileHandle, { requestIfNeeded: true });
       }
 
       const savedAt = new Date();

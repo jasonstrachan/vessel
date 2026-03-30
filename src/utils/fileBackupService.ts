@@ -202,9 +202,13 @@ export class FileBackupService {
     }
   }
 
-  async ensureFileWritePermission(handle?: FileSystemFileHandle | null): Promise<boolean> {
+  async ensureFileWritePermission(
+    handle?: FileSystemFileHandle | null,
+    options?: { requestIfNeeded?: boolean }
+  ): Promise<boolean> {
     const target = handle ?? this.fileHandle;
     if (!target) return false;
+    const requestIfNeeded = options?.requestIfNeeded === true;
 
     const permissionHandle = target as FileSystemFileHandle & {
       queryPermission?: (options?: { mode?: 'read' | 'readwrite' }) => Promise<PermissionState>;
@@ -217,7 +221,7 @@ export class FileBackupService {
         if (current === 'granted') {
           return true;
         }
-        if (permissionHandle.requestPermission) {
+        if (requestIfNeeded && permissionHandle.requestPermission) {
           const requested = await permissionHandle.requestPermission({ mode: 'readwrite' });
           return requested === 'granted';
         }
@@ -230,9 +234,13 @@ export class FileBackupService {
     }
   }
 
-  async ensureDirectoryWritePermission(handle?: FileSystemDirectoryHandle | null): Promise<boolean> {
+  async ensureDirectoryWritePermission(
+    handle?: FileSystemDirectoryHandle | null,
+    options?: { requestIfNeeded?: boolean }
+  ): Promise<boolean> {
     const target = handle ?? this.directoryHandle;
     if (!target) return false;
+    const requestIfNeeded = options?.requestIfNeeded === true;
 
     const permissionHandle = target as FileSystemDirectoryHandle & {
       queryPermission?: (options?: { mode?: 'read' | 'readwrite' }) => Promise<PermissionState>;
@@ -245,7 +253,7 @@ export class FileBackupService {
         if (current === 'granted') {
           return true;
         }
-        if (permissionHandle.requestPermission) {
+        if (requestIfNeeded && permissionHandle.requestPermission) {
           const requested = await permissionHandle.requestPermission({ mode: 'readwrite' });
           return requested === 'granted';
         }
