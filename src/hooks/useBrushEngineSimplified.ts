@@ -212,6 +212,7 @@ export const useBrushEngineSimplified = () => {
   });
   const mirrorScheduledRef = useRef(false);
   const firstStampImmediateRef = useRef(true);
+  const colorCycleGridSnapStrokePointRef = useRef<{ x: number; y: number } | null>(null);
 
   const getActiveLayerBitmapCanvas = useCallback((): HTMLCanvasElement | OffscreenCanvas | null => {
     return getActiveLayerBitmapCanvasController({
@@ -1110,6 +1111,8 @@ export const useBrushEngineSimplified = () => {
     size: tools.brushSettings.size,
     brushShape: tools.brushSettings.brushShape,
     colorCycleStampShape: tools.brushSettings.colorCycleStampShape,
+    gridSnapEnabled: tools.brushSettings.gridSnapEnabled,
+    gridSnapSize: tools.brushSettings.gridSnapSize,
     pressureEnabled: tools.brushSettings.pressureEnabled,
     minPressure: tools.brushSettings.minPressure,
     maxPressure: tools.brushSettings.maxPressure,
@@ -1117,6 +1120,8 @@ export const useBrushEngineSimplified = () => {
     tools.brushSettings.size,
     tools.brushSettings.brushShape,
     tools.brushSettings.colorCycleStampShape,
+    tools.brushSettings.gridSnapEnabled,
+    tools.brushSettings.gridSnapSize,
     tools.brushSettings.pressureEnabled,
     tools.brushSettings.minPressure,
     tools.brushSettings.maxPressure,
@@ -1126,6 +1131,8 @@ export const useBrushEngineSimplified = () => {
     ditherEnabled: tools.brushSettings.ditherEnabled,
     gradientBands: tools.brushSettings.gradientBands,
     brushShape: tools.brushSettings.brushShape,
+    gridSnapEnabled: tools.brushSettings.gridSnapEnabled,
+    gridSnapSize: tools.brushSettings.gridSnapSize,
     colorCycleBandSpacingPx: tools.brushSettings.colorCycleBandSpacingPx,
     spacing: tools.brushSettings.spacing,
     lostEdge: tools.brushSettings.lostEdge,
@@ -1135,6 +1142,8 @@ export const useBrushEngineSimplified = () => {
     tools.brushSettings.ditherEnabled,
     tools.brushSettings.gradientBands,
     tools.brushSettings.brushShape,
+    tools.brushSettings.gridSnapEnabled,
+    tools.brushSettings.gridSnapSize,
     tools.brushSettings.colorCycleBandSpacingPx,
     tools.brushSettings.spacing,
     tools.brushSettings.lostEdge,
@@ -1433,6 +1442,7 @@ export const useBrushEngineSimplified = () => {
       renderColorCycle,
       firstStampImmediateRef,
       mirrorScheduledRef,
+      gridSnapStrokePointRef: colorCycleGridSnapStrokePointRef,
     });
   }, [
     drawColorCycleSettings,
@@ -1440,13 +1450,15 @@ export const useBrushEngineSimplified = () => {
     getActiveLayerColorCycleBrush,
     getActiveLayerBitmapCanvas,
     renderColorCycle,
-    activeLayerTransparencyLock
+    activeLayerTransparencyLock,
+    colorCycleGridSnapStrokePointRef
   ]);
   
   /**
    * Reset Color Cycle - starts a new stroke with the existing brush
    */
   const resetColorCycle = useCallback((clearBuffer: boolean = false, options?: { skipGradientReinit?: boolean }) => {
+    colorCycleGridSnapStrokePointRef.current = null;
     resetColorCycleStroke({
       clearBuffer,
       options,
@@ -1463,6 +1475,7 @@ export const useBrushEngineSimplified = () => {
    * End color cycle stroke
    */
   const endColorCycleStroke = useCallback(() => {
+    colorCycleGridSnapStrokePointRef.current = null;
     endColorCycleStrokeForLayer({
       activeLayerId,
       getActiveLayerColorCycleBrush,

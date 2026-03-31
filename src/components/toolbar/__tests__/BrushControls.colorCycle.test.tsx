@@ -396,8 +396,27 @@ describe('BrushControls – Color Cycle stroke essentials', () => {
     render(<BrushControls />);
 
     expect(screen.getByTestId('gradient-editor')).toBeInTheDocument();
+    expect(screen.getByRole('checkbox', { name: 'Grid Snap' })).toBeInTheDocument();
     expect(screen.getByLabelText('Speed')).toBeInTheDocument();
     expect(screen.getByLabelText('Gradient Bands')).toBeInTheDocument();
+  });
+
+  it('toggles grid snap for color cycle stroke', async () => {
+    const user = userEvent.setup();
+    render(<BrushControls />);
+
+    await user.click(screen.getByRole('checkbox', { name: 'Grid Snap' }));
+
+    expect(useAppStore.getState().tools.brushSettings.gridSnapEnabled).toBe(true);
+  });
+
+  it('updates grid snap size for color cycle stroke', () => {
+    render(<BrushControls />);
+
+    const input = screen.getByTitle('Grid size in pixels') as HTMLInputElement;
+    fireEvent.change(input, { target: { value: '24' } });
+
+    expect(useAppStore.getState().tools.brushSettings.gridSnapSize).toBe(24);
   });
 
   it('updates brush speed without mutating the active layer CC base speed', async () => {
@@ -690,7 +709,30 @@ describe('BrushControls – Color Cycle gradient fill mode', () => {
     }));
 
     render(<BrushControls />);
+    expect(screen.getByRole('checkbox', { name: 'Grid Snap' })).toBeInTheDocument();
     expect(screen.getByLabelText('Dither Palette Spread')).toBeInTheDocument();
     expect(screen.getByText('Sprd')).toBeInTheDocument();
+  });
+
+  it('toggles grid snap for color cycle gradient', async () => {
+    const user = userEvent.setup();
+    useAppStore.setState((state) => ({
+      ...state,
+      tools: {
+        ...state.tools,
+        brushSettings: {
+          ...state.tools.brushSettings,
+          brushShape: 'color_cycle_shape' as BrushSettings['brushShape'],
+          gridSnapEnabled: false,
+        },
+      },
+      brushPresets: [{ id: 'color-cycle-gradient', name: 'CC Gradient' } as AppState['brushPresets'][number]],
+      currentBrushPreset: { id: 'color-cycle-gradient', name: 'CC Gradient' } as AppState['currentBrushPreset'],
+    }));
+
+    render(<BrushControls />);
+    await user.click(screen.getByRole('checkbox', { name: 'Grid Snap' }));
+
+    expect(useAppStore.getState().tools.brushSettings.gridSnapEnabled).toBe(true);
   });
 });

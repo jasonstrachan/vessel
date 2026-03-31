@@ -2,6 +2,11 @@ import { BrushShape, type BrushSettings } from '@/types';
 import type { CustomBrushStrokeData } from './BrushEngineFacade';
 import type { ColorCycleBrushImplementation } from './ColorCycleBrushMigration';
 import {
+  getColorCycleGridSnapSpacing,
+  rasterizeGridLinePoints,
+  snapPointToColorCycleGrid,
+} from './colorCycleGridSnap';
+import {
   quantizeToRasterPoint,
   resolveColorCycleRasterAnchor,
 } from '@/hooks/canvas/utils/strokeRasterPolicy';
@@ -198,6 +203,8 @@ type DrawColorCycleArgs = {
     | 'size'
     | 'brushShape'
     | 'colorCycleStampShape'
+    | 'gridSnapEnabled'
+    | 'gridSnapSize'
     | 'pressureEnabled'
     | 'minPressure'
     | 'maxPressure'
@@ -222,6 +229,7 @@ type DrawColorCycleArgs = {
   renderColorCycle: (ctx: CanvasRenderingContext2D, applyOpacity?: boolean, options?: { withOverlay?: boolean }) => void;
   firstStampImmediateRef: { current: boolean };
   mirrorScheduledRef: { current: boolean };
+  gridSnapStrokePointRef: { current: { x: number; y: number } | null };
 };
 
 export const drawColorCycleStroke = ({
@@ -243,6 +251,7 @@ export const drawColorCycleStroke = ({
   renderColorCycle,
   firstStampImmediateRef,
   mirrorScheduledRef,
+  gridSnapStrokePointRef,
 }: DrawColorCycleArgs): void => {
   const baseBrushSize = Math.max(1, Math.round(brushSettings.size || 1));
   const pressureRange = resolveBrushPressureRange(brushSettings as BrushSettings);
@@ -351,14 +360,18 @@ export const drawColorCycleStroke = ({
 
     const scaleX = internalCanvas.width / (ctx.canvas.width || 1);
     const scaleY = internalCanvas.height / (ctx.canvas.height || 1);
-    const paintPoint = quantizeToRasterPoint(x, y, scaleX, scaleY, rasterAnchor);
-    const paintX = paintPoint.x;
-    const paintY = paintPoint.y;
+    const paintStrokePoint = (canvasX: number, canvasY: number) => {
+      const paintPoint = quantizeToRasterPoint(canvasX, canvasY, scaleX, scaleY, rasterAnchor);
+      const paintX = paintPoint.x;
+      const paintY = paintPoint.y;
 
-    if (
-      paintX >= 0 && paintX < internalCanvas.width &&
-      paintY >= 0 && paintY < internalCanvas.height
-    ) {
+      if (
+        paintX < 0 || paintX >= internalCanvas.width ||
+        paintY < 0 || paintY >= internalCanvas.height
+      ) {
+        return;
+      }
+
       if (options?.customStamp && typeof colorCycleBrush.paintCustomStamp === 'function') {
         if (Number.isFinite(options.speedSamplePxPerMs)) {
           colorCycleBrush.paintCustomStamp(
@@ -380,20 +393,40 @@ export const drawColorCycleStroke = ({
             rotation
           );
         }
-      } else {
-        if (Number.isFinite(options?.speedSamplePxPerMs)) {
-          colorCycleBrush.paint(
-            paintX,
-            paintY,
-            layerId,
-            pressure,
-            rotation,
-            options?.speedSamplePxPerMs
-          );
-        } else {
-          colorCycleBrush.paint(paintX, paintY, layerId, pressure, rotation);
-        }
+        return;
       }
+
+      if (Number.isFinite(options?.speedSamplePxPerMs)) {
+        colorCycleBrush.paint(
+          paintX,
+          paintY,
+          layerId,
+          pressure,
+          rotation,
+          options?.speedSamplePxPerMs
+        );
+      } else {
+        colorCycleBrush.paint(paintX, paintY, layerId, pressure, rotation);
+      }
+    };
+
+    if (brushSettings.gridSnapEnabled) {
+      const snappedPoint = snapPointToColorCycleGrid(
+        { x, y },
+        getColorCycleGridSnapSpacing(brushSettings.gridSnapSize),
+      );
+      const previousPoint = gridSnapStrokePointRef.current;
+      const pathPoints = previousPoint
+        ? rasterizeGridLinePoints(previousPoint, snappedPoint).slice(1)
+        : [snappedPoint];
+
+      for (const point of pathPoints) {
+        paintStrokePoint(point.x, point.y);
+      }
+
+      gridSnapStrokePointRef.current = snappedPoint;
+    } else {
+      paintStrokePoint(x, y);
     }
 
     if (firstStampImmediateRef.current) {

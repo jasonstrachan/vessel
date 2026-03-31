@@ -15,6 +15,10 @@ import {
   finalizeMarkGradientSession,
   type MarkGradientSession,
 } from '@/hooks/canvas/utils/colorCycleMarkSession';
+import {
+  dedupeSequentialPoints,
+  isColorCycleGradientShapePreset,
+} from '@/hooks/brushEngine/colorCycleGridSnap';
 import { resolveActiveColorCycleGradient } from '@/hooks/canvas/utils/colorCycleHelpers';
 import { hashStops, type GradientDefSource } from '@/utils/colorCycleGradientDefs';
 import { debugLog, isDebugEnabled } from '@/utils/debug';
@@ -131,20 +135,54 @@ const buildFallbackMarkSession = (
   };
 };
 
+const shouldSnapShapePreviewToGrid = (state: AppState): boolean => {
+  const presetId = state.currentBrushPreset?.id ?? null;
+  const { brushSettings } = state.tools;
+  if (brushSettings.gridSnapEnabled !== true) {
+    return false;
+  }
+
+  const isDitherPreset = presetId === 'dither-stroke' || presetId === 'dither-shape';
+  if (isDitherPreset) {
+    return true;
+  }
+
+  return isColorCycleGradientShapePreset(presetId, brushSettings.brushShape);
+};
+
 const resolveDitherGridSnapPoint = (
   worldPos: { x: number; y: number },
   state: AppState,
   pressure?: number
 ): { x: number; y: number } => {
-  const presetId = state.currentBrushPreset?.id ?? null;
-  const isDitherPreset = presetId === 'dither-stroke' || presetId === 'dither-shape';
   const { brushSettings } = state.tools;
-  if (!isDitherPreset || brushSettings.gridSnapEnabled !== true) {
+  if (!shouldSnapShapePreviewToGrid(state)) {
     return worldPos;
   }
 
   const gridSpacing = calculatePressureAwareGridSpacing(brushSettings, pressure);
   return snapToGridPure(worldPos.x, worldPos.y, gridSpacing);
+};
+
+const normalizeSnappedShapePoints = (
+  points: Array<{ x: number; y: number }>,
+  state: AppState,
+  pressure?: number
+): Array<{ x: number; y: number }> => {
+  if (
+    points.length <= 1 ||
+    !isColorCycleGradientShapePreset(
+      state.currentBrushPreset?.id,
+      state.tools.brushSettings.brushShape,
+    ) ||
+    state.tools.brushSettings.gridSnapEnabled !== true
+  ) {
+    return points;
+  }
+
+  return dedupeSequentialPoints(
+    points.map((point) => resolveDitherGridSnapPoint(point, state, pressure)),
+  );
 };
 
 type ShapeDrawingDeps = {
@@ -699,6 +737,11 @@ export const continueShapeDrawing = (
       0.25,
       0.6
     );
+    refs.shapePointsRef.current = normalizeSnappedShapePoints(
+      refs.shapePointsRef.current,
+      store,
+      pressure
+    );
     if (added > 0 || refs.shapeDragMovedRef.current) {
       deps.seedManualStrokeBoundingBox(refs.shapePointsRef.current, 2);
       if (renderPreview) {
@@ -1240,4 +1283,5 @@ export const __TESTING__ = {
   resolveColorCycleDitherPixelSize,
   resolveColorCycleFillMode,
   resolveDitherGridSnapPoint,
+  normalizeSnappedShapePoints,
 };
