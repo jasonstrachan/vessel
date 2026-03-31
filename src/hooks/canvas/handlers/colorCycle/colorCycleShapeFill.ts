@@ -12,6 +12,17 @@ import { ensureGradientDefForStops } from '@/utils/colorCycleGradientDefs';
 
 type ColorCycleBrush = ColorCycleBrushImplementation;
 type SnapshotCapableBrush = ColorCycleBrush & {
+  commitCommittedLayerState?: (options: {
+    layerId: string;
+    targetCanvas?: HTMLCanvasElement | null;
+    opacity?: number;
+    binding?: {
+      defId: number;
+      slot: number;
+      bbox?: { minX: number; minY: number; width: number; height: number };
+      previewSlot?: number | null;
+    };
+  }) => void;
   getLayerSnapshot?: (layerId: string) => {
     paintBuffer: ArrayBuffer;
     gradientIdBuffer?: ArrayBuffer;
@@ -422,10 +433,6 @@ export const finalizeColorCycleShapeFillLinear = async (
       return resolvedRenderSession;
     });
 
-    deps.timeSync('cc:shape:texture', () => {
-      deps.brushEngine.updateColorCycleTexture();
-    });
-
     const colorCycleBrush = initialBrush ?? deps.getColorCycleBrushManager().getBrush(args.activeLayerId);
     if (colorCycleBrush) {
       const st = useAppStore.getState();
@@ -450,7 +457,26 @@ export const finalizeColorCycleShapeFillLinear = async (
         flushGradientApply(args.activeLayerId);
       }
       deps.bindBrushToCanvas(colorCycleBrush, args.activeLayerCanvas);
-      deps.timeSync('cc:shape:render', () => {
+      const binding = renderSession?.binding
+        ? {
+            defId: renderSession.binding.defId,
+            slot: renderSession.binding.slot,
+            bbox: args.roi
+              ? { minX: args.roi.x, minY: args.roi.y, width: args.roi.width, height: args.roi.height }
+              : undefined,
+            previewSlot: renderSession.source === 'sampled' ? TEMP_SAMPLE_SLOT : null,
+          }
+        : undefined;
+      deps.timeSync('cc:shape:commit', () => {
+        if (typeof colorCycleBrush.commitCommittedLayerState === 'function') {
+          colorCycleBrush.commitCommittedLayerState({
+            layerId: args.activeLayerId,
+            targetCanvas: args.activeLayerCanvas,
+            binding,
+          });
+          return;
+        }
+        deps.brushEngine.updateColorCycleTexture();
         colorCycleBrush.renderDirectToCanvas?.(args.activeLayerCanvas, args.activeLayerId);
       });
     } else {
@@ -467,47 +493,6 @@ export const finalizeColorCycleShapeFillLinear = async (
     }
 
     try {
-      let shouldRenderCommittedState = false;
-      if (
-        renderSession &&
-        renderSession.binding &&
-        colorCycleBrush &&
-        typeof colorCycleBrush.bindGradientDefIdToSlot === 'function'
-      ) {
-        const binding = renderSession.binding;
-        const bbox = args.roi
-          ? { minX: args.roi.x, minY: args.roi.y, width: args.roi.width, height: args.roi.height }
-          : undefined;
-        const previewSlot = renderSession.source === 'sampled' ? TEMP_SAMPLE_SLOT : null;
-        colorCycleBrush.bindGradientDefIdToSlot(
-          args.activeLayerId,
-          binding.defId,
-          binding.slot,
-          bbox,
-          previewSlot
-        );
-        shouldRenderCommittedState = true;
-        if (typeof colorCycleBrush.getLayerSnapshot === 'function') {
-          const snapshot = colorCycleBrush.getLayerSnapshot(args.activeLayerId);
-          if (snapshot?.gradientDefIdBuffer) {
-            const state = useAppStore.getState();
-            const layer = state.layers.find((entry) => entry.id === args.activeLayerId);
-            if (layer?.colorCycleData) {
-              state.updateLayer(args.activeLayerId, {
-                colorCycleData: {
-                  ...layer.colorCycleData,
-                  gradientDefIdBuffer: snapshot.gradientDefIdBuffer,
-                },
-              });
-            }
-          }
-        }
-      }
-      if (shouldRenderCommittedState) {
-        deps.timeSync('cc:shape:render(committed)', () => {
-          colorCycleBrush?.renderDirectToCanvas?.(args.activeLayerCanvas, args.activeLayerId);
-        });
-      }
       if (renderSession?.source === 'sampled') {
         try {
           useAppStore.getState().setCcGradientSampleCount(0);
@@ -631,10 +616,6 @@ export const finalizeColorCycleShapeFillConcentric = async (
       return resolvedRenderSession;
     });
 
-    deps.timeSync('cc:shape:texture', () => {
-      deps.brushEngine.updateColorCycleTexture();
-    });
-
     const colorCycleBrush = initialBrush ?? deps.getColorCycleBrushManager().getBrush(args.activeLayerId);
     if (colorCycleBrush) {
       const st = useAppStore.getState();
@@ -659,53 +640,31 @@ export const finalizeColorCycleShapeFillConcentric = async (
         flushGradientApply(args.activeLayerId);
       }
       deps.bindBrushToCanvas(colorCycleBrush, args.activeLayerCanvas);
-      deps.timeSync('cc:shape:render', () => {
+      const binding = renderSession?.binding
+        ? {
+            defId: renderSession.binding.defId,
+            slot: renderSession.binding.slot,
+            bbox: args.roi
+              ? { minX: args.roi.x, minY: args.roi.y, width: args.roi.width, height: args.roi.height }
+              : undefined,
+            previewSlot: renderSession.source === 'sampled' ? TEMP_SAMPLE_SLOT : null,
+          }
+        : undefined;
+      deps.timeSync('cc:shape:commit', () => {
+        if (typeof colorCycleBrush.commitCommittedLayerState === 'function') {
+          colorCycleBrush.commitCommittedLayerState({
+            layerId: args.activeLayerId,
+            targetCanvas: args.activeLayerCanvas,
+            binding,
+          });
+          return;
+        }
+        deps.brushEngine.updateColorCycleTexture();
         colorCycleBrush.renderDirectToCanvas?.(args.activeLayerCanvas, args.activeLayerId);
       });
     }
 
     try {
-      let shouldRenderCommittedState = false;
-      if (
-        renderSession &&
-        renderSession.binding &&
-        colorCycleBrush &&
-        typeof colorCycleBrush.bindGradientDefIdToSlot === 'function'
-      ) {
-        const binding = renderSession.binding;
-        const bbox = args.roi
-          ? { minX: args.roi.x, minY: args.roi.y, width: args.roi.width, height: args.roi.height }
-          : undefined;
-        const previewSlot = renderSession.source === 'sampled' ? TEMP_SAMPLE_SLOT : null;
-        colorCycleBrush.bindGradientDefIdToSlot(
-          args.activeLayerId,
-          binding.defId,
-          binding.slot,
-          bbox,
-          previewSlot
-        );
-        shouldRenderCommittedState = true;
-        if (typeof colorCycleBrush.getLayerSnapshot === 'function') {
-          const snapshot = colorCycleBrush.getLayerSnapshot(args.activeLayerId);
-          if (snapshot?.gradientDefIdBuffer) {
-            const state = useAppStore.getState();
-            const layer = state.layers.find((entry) => entry.id === args.activeLayerId);
-            if (layer?.colorCycleData) {
-              state.updateLayer(args.activeLayerId, {
-                colorCycleData: {
-                  ...layer.colorCycleData,
-                  gradientDefIdBuffer: snapshot.gradientDefIdBuffer,
-                },
-              });
-            }
-          }
-        }
-      }
-      if (shouldRenderCommittedState) {
-        deps.timeSync('cc:shape:render(committed)', () => {
-          colorCycleBrush?.renderDirectToCanvas?.(args.activeLayerCanvas, args.activeLayerId);
-        });
-      }
       if (renderSession?.source === 'sampled') {
         try {
           useAppStore.getState().setCcGradientSampleCount(0);

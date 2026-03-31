@@ -97,6 +97,17 @@ export type ManagedColorCycleBrush = ColorCycleBrushImplementation & {
   commitCurrentStroke?: (layerId?: string) => void;
   finalizeCurrentStroke?: (layerId?: string) => void;
   commitToLayer?: (canvas: HTMLCanvasElement, layerId: string, opacity?: number) => void;
+  commitCommittedLayerState?: (options: {
+    layerId: string;
+    targetCanvas?: HTMLCanvasElement | null;
+    opacity?: number;
+    binding?: {
+      defId: number;
+      slot: number;
+      bbox?: { minX: number; minY: number; width: number; height: number };
+      previewSlot?: number | null;
+    };
+  }) => void;
   renderDirectToCanvas?: (canvas: HTMLCanvasElement, layerId: string) => void;
   clearPaintBuffer?: (layerId?: string) => void;
   flush?: (layerId?: string) => void;
@@ -487,94 +498,81 @@ export const commitColorCycleLayerStroke = async (
         );
       }
 
-      brush.updateColorCycleTexture?.();
+      const binding = session?.binding
+        ? {
+            defId: session.binding.defId,
+            slot: session.binding.slot,
+            bbox: strokeCaptureRoi
+              ? {
+                  minX: strokeCaptureRoi.x,
+                  minY: strokeCaptureRoi.y,
+                  width: strokeCaptureRoi.width,
+                  height: strokeCaptureRoi.height,
+                }
+              : undefined,
+            previewSlot: session.source === 'sampled' ? TEMP_SAMPLE_SLOT : null,
+          }
+        : undefined;
 
-      if (typeof brush.commitToLayer === 'function') {
-        brush.commitToLayer(layerCanvas, targetLayerId, args.brushSettings.opacity ?? 1);
+      if (typeof brush.commitCommittedLayerState === 'function') {
+        brush.commitCommittedLayerState({
+          layerId: targetLayerId,
+          targetCanvas: layerCanvas,
+          opacity: args.brushSettings.opacity ?? 1,
+          binding,
+        });
       } else {
-        brush.renderDirectToCanvas?.(layerCanvas, targetLayerId);
+        brush.updateColorCycleTexture?.();
+        if (typeof brush.commitToLayer === 'function') {
+          brush.commitToLayer(layerCanvas, targetLayerId, args.brushSettings.opacity ?? 1);
+        } else {
+          brush.renderDirectToCanvas?.(layerCanvas, targetLayerId);
+        }
       }
 
       deps.markLayerHasContent(targetLayerId);
       brushForCleanup = brush;
 
       try {
-        if (session?.binding && typeof brush.bindGradientDefIdToSlot === 'function') {
-          const bbox = strokeCaptureRoi
-            ? {
-                minX: strokeCaptureRoi.x,
-                minY: strokeCaptureRoi.y,
-                width: strokeCaptureRoi.width,
-                height: strokeCaptureRoi.height,
-              }
-            : undefined;
-          const previewSlot = session.source === 'sampled' ? TEMP_SAMPLE_SLOT : null;
-          brush.bindGradientDefIdToSlot(
-            targetLayerId,
-            session.binding.defId,
-            session.binding.slot,
-            bbox,
-            previewSlot
+        if (binding && session?.binding && process.env.NODE_ENV !== 'production') {
+          logCommittedSlotsInRoi('after-bind', binding.bbox);
+
+          const state = useAppStore.getState();
+          const layer = state.layers.find((entry) => entry.id === targetLayerId);
+          let def = layer?.colorCycleData?.gradientDefStore?.find(
+            (entry) => Number(entry.id) === session.binding?.defId
           );
-
-          if (process.env.NODE_ENV !== 'production') {
-            logCommittedSlotsInRoi('after-bind', bbox);
+          if (!def && layer?.colorCycleData) {
+            const nextDef = {
+              id: session.binding.defId,
+              kind: session.gradientKind,
+              stops: session.frozenStopsStored,
+              hash: session.frozenHash,
+              source: session.source,
+              seamProfile: session.seamProfile,
+              createdAtMs: Date.now(),
+              slot: session.binding.slot,
+              speedCps: session.speedCps ?? undefined,
+            };
+            const existing = layer.colorCycleData.gradientDefStore ?? [];
+            const nextStore = [...existing, nextDef];
+            state.updateLayer(targetLayerId, {
+              colorCycleData: {
+                ...layer.colorCycleData,
+                gradientDefStore: nextStore,
+                nextGradientDefId: Math.max(
+                  layer.colorCycleData.nextGradientDefId ?? 0,
+                  session.binding.defId + 1
+                ),
+              },
+            });
+            def = nextDef;
           }
-
-          if (typeof brush.getLayerSnapshot === 'function') {
-            const snapshot = brush.getLayerSnapshot(targetLayerId);
-            if (snapshot?.gradientDefIdBuffer) {
-              const state = useAppStore.getState();
-              const layer = state.layers.find((entry) => entry.id === targetLayerId);
-              if (layer?.colorCycleData) {
-                state.updateLayer(targetLayerId, {
-                  colorCycleData: {
-                    ...layer.colorCycleData,
-                    gradientDefIdBuffer: snapshot.gradientDefIdBuffer,
-                  },
-                });
-              }
-            }
-          }
-
-          if (process.env.NODE_ENV !== 'production') {
-            const state = useAppStore.getState();
-            const layer = state.layers.find((entry) => entry.id === targetLayerId);
-            let def = layer?.colorCycleData?.gradientDefStore?.find(
-              (entry) => Number(entry.id) === session.binding?.defId
-            );
-            if (!def && layer?.colorCycleData) {
-              const nextDef = {
-                id: session.binding.defId,
-                kind: session.gradientKind,
-                stops: session.frozenStopsStored,
-                hash: session.frozenHash,
-                source: session.source,
-                seamProfile: session.seamProfile,
-                createdAtMs: Date.now(),
-                slot: session.binding.slot,
-                speedCps: session.speedCps ?? undefined,
-              };
-              const existing = layer.colorCycleData.gradientDefStore ?? [];
-              const nextStore = [...existing, nextDef];
-              state.updateLayer(targetLayerId, {
-                colorCycleData: {
-                  ...layer.colorCycleData,
-                  gradientDefStore: nextStore,
-                  nextGradientDefId: Math.max(
-                    layer.colorCycleData.nextGradientDefId ?? 0,
-                    session.binding.defId + 1
-                  ),
-                },
-              });
-              def = nextDef;
-            }
-            console.assert(
-              Boolean(def && def.hash === session.frozenHash),
-              '[CC] Commit parity failed (def hash mismatch)',
-              { layerId: targetLayerId, defId: session.binding.defId, frozenHash: session.frozenHash, defHash: def?.hash }
-            );
-          }
+          console.assert(
+            Boolean(def && def.hash === session.frozenHash),
+            '[CC] Commit parity failed (def hash mismatch)',
+            { layerId: targetLayerId, defId: session.binding.defId, frozenHash: session.frozenHash, defHash: def?.hash }
+          );
         }
         if (process.env.NODE_ENV !== 'production') {
           const layer = useAppStore.getState().layers.find((entry) => entry.id === targetLayerId);

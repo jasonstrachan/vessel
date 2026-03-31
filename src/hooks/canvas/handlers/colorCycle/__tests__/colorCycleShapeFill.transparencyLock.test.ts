@@ -311,20 +311,10 @@ describe('colorCycleShapeFill transparency lock', () => {
     canvas.height = 2;
 
     const renderDirectToCanvas = jest.fn();
-    const bindGradientDefIdToSlot = jest.fn();
-    const getLayerSnapshot = jest.fn(() => ({
-      paintBuffer: new Uint8Array([1, 1, 1, 1]).buffer,
-      gradientIdBuffer: new Uint8Array([7, 7, 7, 7]).buffer,
-      gradientDefIdBuffer: new Uint16Array([11, 11, 11, 11]).buffer,
-      speedBuffer: new Uint8Array([6, 6, 6, 6]).buffer,
-      flowBuffer: new Uint8Array([1, 1, 1, 1]).buffer,
-      hasContent: true,
-      strokeCounter: 1,
-    }));
+    const commitCommittedLayerState = jest.fn();
     const ccBrush = {
       renderDirectToCanvas,
-      bindGradientDefIdToSlot,
-      getLayerSnapshot,
+      commitCommittedLayerState,
     };
 
     await finalizeColorCycleShapeFillLinear(
@@ -374,14 +364,17 @@ describe('colorCycleShapeFill transparency lock', () => {
       }
     );
 
-    expect(bindGradientDefIdToSlot).toHaveBeenCalledWith(
-      'layer-1',
-      11,
-      7,
-      undefined,
-      null,
-    );
-    expect(renderDirectToCanvas).toHaveBeenCalledTimes(2);
+    expect(commitCommittedLayerState).toHaveBeenCalledWith({
+      layerId: 'layer-1',
+      targetCanvas: canvas,
+      binding: {
+        defId: 11,
+        slot: 7,
+        bbox: undefined,
+        previewSlot: null,
+      },
+    });
+    expect(renderDirectToCanvas).not.toHaveBeenCalled();
 
     getStateSpy.mockRestore();
   });
