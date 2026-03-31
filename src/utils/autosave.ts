@@ -7,6 +7,11 @@ import type { AppState } from '@/stores/useAppStore';
 import { backgroundStorageService } from './backgroundStorage';
 import { fileBackupService } from './fileBackupService';
 import { devLog } from './devLog';
+import {
+  waitForAllPendingColorCycleSaves,
+  waitForFinalizeQueueIdle,
+} from '@/stores/pendingColorCycleSaves';
+import { flushPendingToolWork } from '@/utils/toolFlushRegistry';
 
 const autosaveLog = devLog.scope('AUTOSAVE');
 
@@ -136,6 +141,10 @@ class AutosaveService {
     store.setSaveStatus('saving', 'autosave', 'Autosaving...');
 
     try {
+      await flushPendingToolWork();
+      await waitForFinalizeQueueIdle();
+      await waitForAllPendingColorCycleSaves();
+
       autosaveLog.debug('Autosave capture setup', {
         activeLayerId: store.activeLayerId ?? store.layers[0]?.id ?? null,
         activeLayerType:
