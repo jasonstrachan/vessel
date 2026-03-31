@@ -203,6 +203,25 @@ interface StrokeDataSnapshot {
   strokeCounter: number;
 }
 
+type GradientBindingRegion = {
+  minX: number;
+  minY: number;
+  width: number;
+  height: number;
+};
+
+type CommitCommittedLayerStateOptions = {
+  layerId: string;
+  targetCanvas?: HTMLCanvasElement | null;
+  opacity?: number;
+  binding?: {
+    defId: number;
+    slot: number;
+    bbox?: GradientBindingRegion;
+    previewSlot?: number | null;
+  };
+};
+
 interface SerializedLayerState {
   layerId: string;
   data: AnimatorSerializedState;
@@ -1038,6 +1057,28 @@ export class ColorCycleBrushCanvas2D {
       return 0;
     }
     return encodeColorCycleSpeedByte(baseSpeed);
+  }
+
+  private getFlowByteForMode(flowMode: FlowMode = this.flowMode): number {
+    if (flowMode === 'reverse') {
+      return 2;
+    }
+    if (flowMode === 'pingpong') {
+      return 3;
+    }
+    return 1;
+  }
+
+  private resolveShapeAnimationBytes(
+    strokeData?: LayerStrokeState | null,
+    options?: { ccGradient?: boolean }
+  ): { speedByte: number; flowByte: number } {
+    return {
+      speedByte: options?.ccGradient
+        ? this.getCcGradientFillSpeedByte(strokeData)
+        : this.getWriteSpeedByte(strokeData),
+      flowByte: this.getFlowByteForMode(),
+    };
   }
 
   private logSetIndexSample(layerId: string, x: number, y: number) {
@@ -1954,6 +1995,52 @@ export class ColorCycleBrushCanvas2D {
       }),
       gradientDefIdBuffer: defBuffer.slice().buffer,
     };
+  }
+
+  private syncGradientDefBufferToLayerStore(layerId: string): void {
+    if (typeof this.getLayerSnapshot !== 'function') {
+      return;
+    }
+    const snapshot = this.getLayerSnapshot(layerId);
+    if (!snapshot?.gradientDefIdBuffer) {
+      return;
+    }
+    const state = useAppStore.getState();
+    const layer = state.layers.find((entry) => entry.id === layerId);
+    if (!layer?.colorCycleData) {
+      return;
+    }
+    state.updateLayer(layerId, {
+      colorCycleData: {
+        ...layer.colorCycleData,
+        gradientDefIdBuffer: snapshot.gradientDefIdBuffer,
+      },
+    });
+  }
+
+  commitCommittedLayerState(options: CommitCommittedLayerStateOptions): void {
+    const { layerId, targetCanvas = null, opacity = 1, binding } = options;
+    if (binding) {
+      this.bindGradientDefIdToSlot(
+        layerId,
+        binding.defId,
+        binding.slot,
+        binding.bbox,
+        binding.previewSlot
+      );
+      this.syncGradientDefBufferToLayerStore(layerId);
+    }
+
+    if (!targetCanvas) {
+      return;
+    }
+
+    if (opacity !== 1) {
+      this.commitToLayer(targetCanvas, layerId, opacity);
+      return;
+    }
+
+    this.renderDirectToCanvas(targetCanvas, layerId);
   }
 
   getCommittedIndexData(layerId: string): Uint8Array | null {
@@ -2940,10 +3027,7 @@ export class ColorCycleBrushCanvas2D {
       ? Math.max(1, Math.min(254, Math.floor(options?.ditherLevels as number)))
       : null;
     const baseOffset = this.stampCounter % 255;
-    const speedByte = ccGradient
-      ? this.getCcGradientFillSpeedByte(strokeData)
-      : this.getWriteSpeedByte(strokeData);
-    const flowByte = this.flowMode === 'reverse' ? 2 : this.flowMode === 'pingpong' ? 3 : 1;
+    const { speedByte, flowByte } = this.resolveShapeAnimationBytes(strokeData, { ccGradient });
     if (logCcFill) {
       debugLog('cc-fill', '[CC fill] linear path flags', {
         hasGL: (() => {
@@ -3848,10 +3932,7 @@ export class ColorCycleBrushCanvas2D {
     const baseOffset = this.stampCounter % 255;
     const numBands = this.deriveBandCountFromDistance(maxDist, spacingValue);
     const stepPerBand = numBands > 1 ? 254 / (numBands - 1) : 254;
-    const speedByte = ccGradient
-      ? this.getCcGradientFillSpeedByte(strokeData)
-      : this.getWriteSpeedByte(strokeData);
-    const flowByte = this.flowMode === 'reverse' ? 2 : this.flowMode === 'pingpong' ? 3 : 1;
+    const { speedByte, flowByte } = this.resolveShapeAnimationBytes(strokeData, { ccGradient });
 
     // Attempt GPU path first so most shapes stay off the CPU.
     if (!this.perceptualDither) {
@@ -6084,12 +6165,7 @@ export class ColorCycleBrushCanvas2D {
           layer?.colorCycleData?.flowMode
             ?? this.flowMode
             ?? 'forward';
-        const flowByte =
-          flowMode === 'reverse'
-            ? 2
-            : flowMode === 'pingpong'
-              ? 3
-              : 1;
+        const flowByte = this.getFlowByteForMode(flowMode);
         for (let i = 0; i < strokeData.buffers.paint.length; i += 1) {
           strokeData.buffers.flow[i] = strokeData.buffers.paint[i] === 0 ? 0 : flowByte;
         }
