@@ -116,6 +116,25 @@ export const buildColorAdjustSessionTargets = <ColorCycleSnapshot>({
   ) => Rectangle | null;
   captureColorCycleRuntimeSnapshot: (state: AppState, layer: Layer) => ColorCycleSnapshot | null;
 }): ColorAdjustSessionTargets => {
+  const resolveLayerSelectionBounds = (layer: Layer): Rectangle | null => {
+    const width =
+      layer.imageData?.width ??
+      layer.framebuffer?.width ??
+      state.project?.width ??
+      0;
+    const height =
+      layer.imageData?.height ??
+      layer.framebuffer?.height ??
+      state.project?.height ??
+      0;
+
+    if (width <= 0 || height <= 0) {
+      return null;
+    }
+
+    return resolveSelectionBounds(state, width, height);
+  };
+
   const targetLayerIds = resolveColorAdjustTargetLayerIds(state.activeLayerId, state.selectedLayerIds);
   const targetLayers = targetLayerIds
     .map((layerId) => state.layers.find((layer) => layer.id === layerId))
@@ -158,7 +177,7 @@ export const buildColorAdjustSessionTargets = <ColorCycleSnapshot>({
         firstLayerId = layer.id;
         firstLayerType = layer.layerType;
         firstOriginalGradient = originalGradient;
-        firstSelectionBounds = null;
+        firstSelectionBounds = resolveLayerSelectionBounds(layer);
       }
       continue;
     }
@@ -180,11 +199,7 @@ export const buildColorAdjustSessionTargets = <ColorCycleSnapshot>({
       firstLayerId = layer.id;
       firstLayerType = layer.layerType;
       firstOriginalImageData = originalImageData;
-      firstSelectionBounds = resolveSelectionBounds(
-        state,
-        originalImageData.width,
-        originalImageData.height
-      );
+      firstSelectionBounds = resolveLayerSelectionBounds(layer);
     }
   }
 

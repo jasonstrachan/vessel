@@ -110,9 +110,7 @@ const ColorAdjustToolPanel: React.FC = () => {
 
   const scopeLabel = targetCount > 1
     ? 'Layers'
-    : session.targetLayerType === 'color-cycle'
-      ? 'Gradient'
-      : (session.selectionBounds ? 'Selection' : 'Layer');
+    : (session.selectionBounds ? 'Selection' : 'Layer');
 
   useEffect(() => {
     if (!session.active && hasValidLayer) {

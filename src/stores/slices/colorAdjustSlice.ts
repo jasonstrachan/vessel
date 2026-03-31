@@ -231,6 +231,30 @@ const resolveColorCycleGradient = (layer: Layer): Array<{ position: number; colo
   return null;
 };
 
+const resolveSlotStopsFromColorCycleData = (
+  data: NonNullable<Layer['colorCycleData']>,
+  slot: number
+): Array<{ position: number; color: string }> | null => {
+  const paletteStops = data.slotPalettes?.find((entry) => entry.slot === slot)?.stops;
+  if (paletteStops?.length) {
+    return cloneGradientStops(paletteStops);
+  }
+
+  const defStops = data.gradientDefStore?.find((entry) => entry.slot === slot)?.stops;
+  if (defStops?.length) {
+    return cloneGradientStops(defStops);
+  }
+
+  const activeDef = data.gradientDefs?.find((entry) => entry.id === data.activeGradientId)
+    ?? data.gradientDefs?.[0];
+  const isPrimarySlot = slot === data.paintSlot || slot === activeDef?.currentSlot || slot === data.fgActiveSlot;
+  if (isPrimarySlot && data.gradient?.length) {
+    return cloneGradientStops(data.gradient);
+  }
+
+  return null;
+};
+
 const colorToCss = (r: number, g: number, b: number, a: number): string => {
   if (a >= 255) {
     return `rgb(${r}, ${g}, ${b})`;
@@ -585,8 +609,8 @@ const previewSelectedColorCycleRegion = (
       continue;
     }
 
-    const sourcePalette = nextSlotPalettes.find((entry) => entry.slot === sourceSlot);
-    if (!sourcePalette) {
+    const sourcePaletteStops = resolveSlotStopsFromColorCycleData(originalData, sourceSlot);
+    if (!sourcePaletteStops?.length) {
       if (process.env.NODE_ENV !== 'production') {
         console.warn('[colorAdjust] Missing CC slot palette for selected slot', {
           layerId: layer.id,
@@ -605,7 +629,7 @@ const previewSelectedColorCycleRegion = (
     slotRemap.set(sourceSlot, nextSlot);
     nextSlotPalettes.push({
       slot: nextSlot,
-      stops: applyColorAdjustmentsToGradient(sourcePalette.stops, params),
+      stops: applyColorAdjustmentsToGradient(sourcePaletteStops, params),
     });
   }
 
@@ -631,21 +655,19 @@ const previewSelectedColorCycleRegion = (
       let remappedSlot = typeof sourceDef.slot === 'number'
         ? slotRemap.get(sourceDefSlot!)
         : undefined;
-      if (typeof sourceDef.slot === 'number' && remappedSlot === undefined) {
-        const sourcePalette = nextSlotPalettes.find(
-          (entry) => entry.slot === sourceDefSlot
-        );
-        if (sourcePalette) {
+      if (typeof sourceDefSlot === 'number' && remappedSlot === undefined) {
+        const sourcePaletteStops = resolveSlotStopsFromColorCycleData(originalData, sourceDefSlot);
+        if (sourcePaletteStops?.length) {
           const nextSlot = pickAvailableColorCycleSlot(usedSlots);
           if (nextSlot === null) {
             return false;
           }
           usedSlots.add(nextSlot);
           remappedSlot = nextSlot;
-          slotRemap.set(sourceDefSlot!, nextSlot);
+          slotRemap.set(sourceDefSlot, nextSlot);
           nextSlotPalettes.push({
             slot: nextSlot,
-            stops: applyColorAdjustmentsToGradient(sourcePalette.stops, params),
+            stops: applyColorAdjustmentsToGradient(sourcePaletteStops, params),
           });
         }
       }

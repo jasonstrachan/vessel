@@ -645,6 +645,29 @@ describe('colorAdjustSlice preview performance path', () => {
     expect(updatedGradientIds[1]).toBe(0);
   });
 
+  it('captures selection bounds for color-cycle sessions', () => {
+    const layer = createColorCycleLayer('cc-selection-session-layer', [
+      { position: 0, color: 'rgb(255, 0, 0)' },
+      { position: 1, color: 'rgb(255, 255, 0)' },
+    ]);
+    installProjectWithLayer(layer);
+
+    useAppStore.setState({
+      selectionStart: { x: 0, y: 0 },
+      selectionEnd: { x: 1, y: 1 },
+    });
+
+    const store = useAppStore.getState();
+    store.startColorAdjustSession();
+
+    expect(useAppStore.getState().colorAdjust.selectionBounds).toEqual({
+      x: 0,
+      y: 0,
+      width: 1,
+      height: 1,
+    });
+  });
+
   it('limits color-cycle preview adjustments to selected def-bound pixels by remapping def ids', () => {
     const layer = createColorCycleLayer('cc-selection-def-layer', [
       { position: 0, color: 'rgb(255, 0, 0)' },
@@ -779,6 +802,60 @@ describe('colorAdjustSlice preview performance path', () => {
     const updatedDefIds = new Uint16Array(updatedLayer?.colorCycleData?.gradientDefIdBuffer ?? new ArrayBuffer(0));
     expect(updatedDefIds[0]).toBe(adjustedDef?.id ?? 0);
     expect(brush.syncGradientDefRuntime).toHaveBeenCalledWith('cc-selection-def-only-layer');
+  });
+
+  it('adjusts selected slot-bound pixels when the slot palette is missing but a def store entry owns the slot', () => {
+    const layer = createColorCycleLayerWithDefStoreOnly('cc-selection-slot-fallback-layer', [
+      { position: 0, color: 'rgb(255, 0, 0)' },
+      { position: 1, color: 'rgb(255, 255, 0)' },
+    ]);
+    installProjectWithLayer(layer);
+
+    const currentSnapshot = {
+      paintBuffer: new Uint8Array([1, 1]).buffer,
+      gradientIdBuffer: new Uint8Array([7, 7]).buffer,
+      hasContent: true,
+      strokeCounter: 0,
+    };
+    const applyLayerSnapshot = jest.fn((_: string, payload: typeof currentSnapshot) => {
+      currentSnapshot.paintBuffer = payload.paintBuffer.slice(0);
+      currentSnapshot.gradientIdBuffer = payload.gradientIdBuffer?.slice(0) ?? new ArrayBuffer(0);
+      currentSnapshot.hasContent = payload.hasContent;
+      currentSnapshot.strokeCounter = payload.strokeCounter;
+    });
+    const brush = {
+      getLayerSnapshot: jest.fn(() => ({
+        paintBuffer: currentSnapshot.paintBuffer.slice(0),
+        gradientIdBuffer: currentSnapshot.gradientIdBuffer.slice(0),
+        hasContent: currentSnapshot.hasContent,
+        strokeCounter: currentSnapshot.strokeCounter,
+      })),
+      applyLayerSnapshot,
+      renderDirectToCanvas: jest.fn(),
+      getCanvas: jest.fn(() => layer.framebuffer),
+      syncGradientDefRuntime: jest.fn(),
+    };
+    useAppStore.setState({
+      getLayerColorCycleBrush: jest.fn(() => brush) as unknown as StoreState['getLayerColorCycleBrush'],
+      selectionStart: { x: 0, y: 0 },
+      selectionEnd: { x: 1, y: 1 },
+    });
+
+    const store = useAppStore.getState();
+    store.startColorAdjustSession();
+    store.updateColorAdjustParams({ saturation: -100 });
+    store.previewColorAdjust();
+
+    const updatedLayer = useAppStore.getState().layers[0];
+    const slotPalettes = updatedLayer?.colorCycleData?.slotPalettes ?? [];
+    const adjustedSlot = slotPalettes.find((entry) => entry.slot !== 7);
+
+    expect(adjustedSlot).toBeDefined();
+    expect(parseCssColor(adjustedSlot?.stops[0]?.color ?? '#000000')).toMatchObject({ r: 128, g: 128, b: 128 });
+
+    const updatedGradientIds = new Uint8Array(updatedLayer?.colorCycleData?.gradientIdBuffer ?? new ArrayBuffer(0));
+    expect(updatedGradientIds[0]).toBe(adjustedSlot?.slot ?? 255);
+    expect(brush.syncGradientDefRuntime).toHaveBeenCalledWith('cc-selection-slot-fallback-layer');
   });
 
   it('restores original color-cycle gradients on cancel', () => {
