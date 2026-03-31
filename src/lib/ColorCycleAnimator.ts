@@ -466,7 +466,9 @@ export class ColorCycleAnimator implements CCIndexSurface {
   gpuFillShape(
     vertices: Array<{ x: number; y: number }>,
     options: GPUFillOptions,
-    gradientSlot: number = 0
+    gradientSlot: number = 0,
+    speedByte: number = 0,
+    flowByte: number = 0,
   ): boolean {
     if (this.forceCanvas2D || !this.glRenderer || vertices.length < 3) {
       return false;
@@ -502,9 +504,13 @@ export class ColorCycleAnimator implements CCIndexSurface {
 
       const data = this.indexBuffer.getDirectData();
       const gradientId = this.indexBuffer.getDirectGradientIdData();
+      const speedData = this.indexBuffer.getDirectSpeedData();
+      const flowData = this.indexBuffer.getDirectFlowData();
       const width = canvas.width;
       const { minX, minY, width: bw, height: bh } = options.bbox;
       const clampedSlot = Math.max(0, Math.min(255, Math.round(gradientSlot)));
+      const clampedSpeed = Math.max(0, Math.min(255, Math.round(speedByte)));
+      const clampedFlow = Math.max(0, Math.min(255, Math.round(flowByte)));
 
       // Blit rows into the index buffer
       // WebGL readPixels returns rows bottom-to-top; flip vertically to top-left origin
@@ -517,6 +523,8 @@ export class ColorCycleAnimator implements CCIndexSurface {
         for (let x = 0; x < bw; x++) {
           const value = result[srcStart + x];
           gradientId[destStart + x] = value === 0 ? 0 : clampedSlot;
+          speedData[destStart + x] = value === 0 ? 0 : clampedSpeed;
+          flowData[destStart + x] = value === 0 ? 0 : clampedFlow;
           if (value !== 0) {
             wroteNonZero = true;
           }

@@ -402,7 +402,7 @@ describe('ColorCycleBrushCanvas2D regression tests', () => {
     expect(afterNewStroke[secondIndex]).toBe(secondExpectedByte);
   });
 
-  it('normalizes CC gradient fill speed when gradient stop count increases', async () => {
+  it('keeps CC gradient fill speed aligned with the slider across stop counts', async () => {
     const canvas = makeCanvas(16, 8);
     const brush = new ColorCycleBrushCanvas2D(canvas, { forceCanvas2D: true });
     const baseSpeed = 0.2;
@@ -467,8 +467,8 @@ describe('ColorCycleBrushCanvas2D regression tests', () => {
     }
 
     expect(decodeColorCycleSpeedByte(twoStopSpeed)).toBeCloseTo(baseSpeed, 2);
-    expect(decodeColorCycleSpeedByte(fiveStopSpeed)).toBeCloseTo(baseSpeed / 4, 2);
-    expect(fiveStopSpeed).toBeLessThan(twoStopSpeed);
+    expect(decodeColorCycleSpeedByte(fiveStopSpeed)).toBeCloseTo(baseSpeed, 2);
+    expect(fiveStopSpeed).toBeCloseTo(twoStopSpeed, 0);
   });
 
   it('keeps write-speed bytes stable while velocity influences phase progression', () => {

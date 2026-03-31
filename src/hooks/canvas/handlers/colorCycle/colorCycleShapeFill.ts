@@ -467,6 +467,7 @@ export const finalizeColorCycleShapeFillLinear = async (
     }
 
     try {
+      let shouldRenderCommittedState = false;
       if (
         renderSession &&
         renderSession.binding &&
@@ -485,6 +486,7 @@ export const finalizeColorCycleShapeFillLinear = async (
           bbox,
           previewSlot
         );
+        shouldRenderCommittedState = true;
         if (typeof colorCycleBrush.getLayerSnapshot === 'function') {
           const snapshot = colorCycleBrush.getLayerSnapshot(args.activeLayerId);
           if (snapshot?.gradientDefIdBuffer) {
@@ -500,6 +502,11 @@ export const finalizeColorCycleShapeFillLinear = async (
             }
           }
         }
+      }
+      if (shouldRenderCommittedState) {
+        deps.timeSync('cc:shape:render(committed)', () => {
+          colorCycleBrush?.renderDirectToCanvas?.(args.activeLayerCanvas, args.activeLayerId);
+        });
       }
       if (renderSession?.source === 'sampled') {
         try {
@@ -658,6 +665,7 @@ export const finalizeColorCycleShapeFillConcentric = async (
     }
 
     try {
+      let shouldRenderCommittedState = false;
       if (
         renderSession &&
         renderSession.binding &&
@@ -676,6 +684,7 @@ export const finalizeColorCycleShapeFillConcentric = async (
           bbox,
           previewSlot
         );
+        shouldRenderCommittedState = true;
         if (typeof colorCycleBrush.getLayerSnapshot === 'function') {
           const snapshot = colorCycleBrush.getLayerSnapshot(args.activeLayerId);
           if (snapshot?.gradientDefIdBuffer) {
@@ -691,6 +700,11 @@ export const finalizeColorCycleShapeFillConcentric = async (
             }
           }
         }
+      }
+      if (shouldRenderCommittedState) {
+        deps.timeSync('cc:shape:render(committed)', () => {
+          colorCycleBrush?.renderDirectToCanvas?.(args.activeLayerCanvas, args.activeLayerId);
+        });
       }
       if (renderSession?.source === 'sampled') {
         try {
