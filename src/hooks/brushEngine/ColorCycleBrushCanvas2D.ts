@@ -22,7 +22,6 @@ import {
   resolveStampDitherCoverage,
   scheduleStampDitherRecompose,
   STAMP_DITHER_BUCKETS,
-  STAMP_DITHER_FINALIZE_ERROR_DIFFUSION_ALGOS,
   type StampDitherAlgorithm,
   type StampDitherConfig,
   type StampDitherState,
@@ -2599,31 +2598,28 @@ export class ColorCycleBrushCanvas2D {
 
     if (strokeData && this.stampDitherEnabled && !skipStampFinalize) {
       const algo = this.stampDitherAlgorithm ?? 'sierra-lite';
-      // Only run finalize overwrite for algorithms explicitly meant to be finalize-only.
-      if (STAMP_DITHER_FINALIZE_ERROR_DIFFUSION_ALGOS.has(algo)) {
-        const finalizeStart = perf ? nowMs() : 0;
-        const activeSlot = strokeData.flow.activeSlot ?? this.activeGradientSlots.get(id) ?? 0;
-        const flowSlot = this.resolveFlowSlot(strokeData, activeSlot);
-        finalizeStampDither({
-          animator,
-          state: this.getStampDitherStrokeData(strokeData),
-          config: {
-            algorithm: algo,
-            pixelSize: this.stampDitherPixelSize,
-            patternStyle: this.stampDitherPatternStyle,
-            bgFill: this.stampDitherBgFill,
-            pressureLinked: this.stampDitherPressureLinked,
-            seed: strokeData.stampDither?.stampDitherSeed ?? 0,
-          },
-          width: this.width,
-          height: this.height,
-          flowSlot,
-          cycleSpeed: this.getWriteCycleSpeed(strokeData),
-          ditherStrength: this.ditherStrength,
-        });
-        if (perf) {
-          perf.durations.endStrokeFinalizeMs += Math.max(0, nowMs() - finalizeStart);
-        }
+      const finalizeStart = perf ? nowMs() : 0;
+      const activeSlot = strokeData.flow.activeSlot ?? this.activeGradientSlots.get(id) ?? 0;
+      const flowSlot = this.resolveFlowSlot(strokeData, activeSlot);
+      finalizeStampDither({
+        animator,
+        state: this.getStampDitherStrokeData(strokeData),
+        config: {
+          algorithm: algo,
+          pixelSize: this.stampDitherPixelSize,
+          patternStyle: this.stampDitherPatternStyle,
+          bgFill: this.stampDitherBgFill,
+          pressureLinked: this.stampDitherPressureLinked,
+          seed: strokeData.stampDither?.stampDitherSeed ?? 0,
+        },
+        width: this.width,
+        height: this.height,
+        flowSlot,
+        cycleSpeed: this.getWriteCycleSpeed(strokeData),
+        ditherStrength: this.ditherStrength,
+      });
+      if (perf) {
+        perf.durations.endStrokeFinalizeMs += Math.max(0, nowMs() - finalizeStart);
       }
     }
     if (strokeData?.stampDither?.stampDitherFillHandle) {
