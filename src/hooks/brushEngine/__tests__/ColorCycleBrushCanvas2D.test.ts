@@ -431,6 +431,29 @@ describe('ColorCycleBrushCanvas2D', () => {
     expect(finalizeSpy).toHaveBeenCalled();
   });
 
+  it.each(['bayer', 'blue-noise', 'void-and-cluster', 'pattern'] as const)(
+    'finalizes %s stamp dithering on endStroke',
+    (algorithm) => {
+      const canvas = makeCanvas();
+      const brush = new ColorCycleBrushCanvas2D(canvas, { brushSize: 4, fps: 60 });
+      const finalizeSpy = jest.spyOn(stampDither, 'finalizeStampDither');
+
+      brush.setStampDitherEnabled(true);
+      brush.setStampDitherAlgorithm(algorithm);
+      brush.setStampDitherPixelSize(2);
+      brush.setStampDitherBgFill(false);
+      if (algorithm === 'pattern') {
+        brush.setStampDitherPatternStyle('crosshatch');
+      }
+
+      brush.startStroke('layer-1');
+      brush.endStroke('layer-1');
+
+      expect(finalizeSpy).toHaveBeenCalled();
+      expect(finalizeSpy.mock.calls.at(-1)?.[0].config.algorithm).toBe(algorithm);
+    }
+  );
+
 
   it('rebuilds animator from index snapshot via deserialize', () => {
     const canvas = makeCanvas();

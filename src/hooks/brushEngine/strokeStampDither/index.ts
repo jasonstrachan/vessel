@@ -138,6 +138,18 @@ export const STAMP_DITHER_FINALIZE_ERROR_DIFFUSION_ALGOS: ReadonlySet<StampDithe
   'atkinson',
 ]);
 
+const isTileMaskAlgorithm = (algo?: StampDitherAlgorithm): boolean => {
+  switch (algo) {
+    case 'bayer':
+    case 'blue-noise':
+    case 'void-and-cluster':
+    case 'pattern':
+      return true;
+    default:
+      return false;
+  }
+};
+
 const nowMs = () => (typeof performance !== 'undefined' ? performance.now() : Date.now());
 
 const resolveStampDitherPressure = (state: StampDitherState, pressure: number): number => {
@@ -1313,9 +1325,8 @@ export const scheduleStampDitherRecompose = (args: {
 
 /**
  * finalizeStampDither:
- * Runs ONLY for finalize-only algorithms.
- * Must NEVER run for the live mask algorithm ('sierra-lite' / SierraLiteTile),
- * because it overwrites the live preview look on mouseup.
+ * Rewrites the completed stroke using the selected algorithm so mouse-up is authoritative,
+ * even when the live preview used a lighter-weight approximation.
  */
 export const finalizeStampDither = (args: {
   animator: ColorCycleAnimator;
@@ -1343,7 +1354,9 @@ export const finalizeStampDither = (args: {
   if (!bounds || !tag || !primary) return false;
 
   const algo = config.algorithm ?? 'sierra-lite';
-  if (!isErrorDiffusionAlgorithm(algo)) return false;
+  const isErrorDiffusion = isErrorDiffusionAlgorithm(algo);
+  const isTileMask = isTileMaskAlgorithm(algo);
+  if (!isErrorDiffusion && !isTileMask) return false;
 
   const fallbackScale = Math.max(1, state.stampDitherStrokeScale ?? config.pixelSize);
   const lut = buildStampSeqToTileScale(state, fallbackScale);
@@ -1387,85 +1400,132 @@ export const finalizeStampDither = (args: {
 
   const bucket = state.stampDitherLockedBucket ?? 1;
   const coverage = bucket / Math.max(1, STAMP_DITHER_BUCKETS - 1);
-  const kernel = getErrorDiffusionKernel(algo);
-  const effectiveStrength = ditherStrength > 0 ? ditherStrength : 1;
-  const errorIntensity = Math.max(0, Math.min(1, effectiveStrength)) * kernel.errorScale;
-  const jitterScale = 0.1 * errorIntensity;
   const seed = config.seed ?? 0;
 
-  for (const [scale, scaleBound] of scaleBounds) {
-    const cellSize = Math.max(1, Math.max(1, scale));
-    const minCellX = Math.floor(scaleBound.minX / cellSize);
-    const maxCellX = Math.floor(scaleBound.maxX / cellSize);
-    const minCellY = Math.floor(scaleBound.minY / cellSize);
-    const maxCellY = Math.floor(scaleBound.maxY / cellSize);
-    const gridW = Math.max(1, maxCellX - minCellX + 1);
-    const gridH = Math.max(1, maxCellY - minCellY + 1);
-    const cellCount = gridW * gridH;
+  if (isErrorDiffusion) {
+    const kernel = getErrorDiffusionKernel(algo);
+    const effectiveStrength = ditherStrength > 0 ? ditherStrength : 1;
+    const errorIntensity = Math.max(0, Math.min(1, effectiveStrength)) * kernel.errorScale;
+    const jitterScale = 0.1 * errorIntensity;
 
-    const cellMask = new Uint8Array(cellCount);
-    for (let y = scaleBound.minY; y <= scaleBound.maxY; y += 1) {
-      const row = y * width;
-      const cellY = Math.floor(y / cellSize) - minCellY;
-      for (let x = scaleBound.minX; x <= scaleBound.maxX; x += 1) {
-        const idx = row + x;
-        const tagValue = tag[idx];
-        if ((tagValue >>> 16) !== strokeEpoch) continue;
-        const seq = tagValue & 0xffff;
-        if (seq === 0) continue;
-        const seqScale = lut[seq] || fallbackScale;
-        if (seqScale !== scale) continue;
-        const cellX = Math.floor(x / cellSize) - minCellX;
-        const cellIdx = cellY * gridW + cellX;
-        cellMask[cellIdx] = 1;
+    for (const [scale, scaleBound] of scaleBounds) {
+      const cellSize = Math.max(1, scale);
+      const minCellX = Math.floor(scaleBound.minX / cellSize);
+      const maxCellX = Math.floor(scaleBound.maxX / cellSize);
+      const minCellY = Math.floor(scaleBound.minY / cellSize);
+      const maxCellY = Math.floor(scaleBound.maxY / cellSize);
+      const gridW = Math.max(1, maxCellX - minCellX + 1);
+      const gridH = Math.max(1, maxCellY - minCellY + 1);
+      const cellCount = gridW * gridH;
+
+      const cellMask = new Uint8Array(cellCount);
+      for (let y = scaleBound.minY; y <= scaleBound.maxY; y += 1) {
+        const row = y * width;
+        const cellY = Math.floor(y / cellSize) - minCellY;
+        for (let x = scaleBound.minX; x <= scaleBound.maxX; x += 1) {
+          const idx = row + x;
+          const tagValue = tag[idx];
+          if ((tagValue >>> 16) !== strokeEpoch) continue;
+          const seq = tagValue & 0xffff;
+          if (seq === 0) continue;
+          const seqScale = lut[seq] || fallbackScale;
+          if (seqScale !== scale) continue;
+          const cellX = Math.floor(x / cellSize) - minCellX;
+          const cellIdx = cellY * gridW + cellX;
+          cellMask[cellIdx] = 1;
+        }
       }
-    }
 
-    const cellChoice = new Uint8Array(cellCount);
-    const errBuf = new Float32Array(cellCount);
+      const cellChoice = new Uint8Array(cellCount);
+      const errBuf = new Float32Array(cellCount);
 
-    for (let cy = 0; cy < gridH; cy += 1) {
-      const leftToRight = kernel.serpentine ? (cy & 1) === 0 : true;
-      const xStart = leftToRight ? 0 : gridW - 1;
-      const xEnd = leftToRight ? gridW : -1;
-      const xStep = leftToRight ? 1 : -1;
+      for (let cy = 0; cy < gridH; cy += 1) {
+        const leftToRight = kernel.serpentine ? (cy & 1) === 0 : true;
+        const xStart = leftToRight ? 0 : gridW - 1;
+        const xEnd = leftToRight ? gridW : -1;
+        const xStep = leftToRight ? 1 : -1;
 
-      for (let cx = xStart; cx !== xEnd; cx += xStep) {
-        const cellIdx = cy * gridW + cx;
-        if (cellMask[cellIdx] === 0) continue;
-        const globalCellX = cx + minCellX;
-        const globalCellY = cy + minCellY;
-        const jitter = jitterScale > 0 ? (hashCellNoise(seed, globalCellX, globalCellY) - 0.5) * 2 * jitterScale : 0;
-        const value = Math.max(0, Math.min(1, coverage + errBuf[cellIdx] + jitter));
-        const quant = value >= 0.5 ? 1 : 0;
-        cellChoice[cellIdx] = quant;
-        const error = (value - quant) * errorIntensity;
-        if (error === 0) continue;
-        for (const tap of kernel.taps) {
-          const nx = cx + (leftToRight ? tap.dx : -tap.dx);
-          const ny = cy + tap.dy;
-          if (nx < 0 || nx >= gridW || ny < 0 || ny >= gridH) continue;
-          const nIdx = ny * gridW + nx;
-          if (cellMask[nIdx] === 0) continue;
-          errBuf[nIdx] += (error * tap.weight) / kernel.divisor;
+        for (let cx = xStart; cx !== xEnd; cx += xStep) {
+          const cellIdx = cy * gridW + cx;
+          if (cellMask[cellIdx] === 0) continue;
+          const globalCellX = cx + minCellX;
+          const globalCellY = cy + minCellY;
+          const jitter = jitterScale > 0 ? (hashCellNoise(seed, globalCellX, globalCellY) - 0.5) * 2 * jitterScale : 0;
+          const value = Math.max(0, Math.min(1, coverage + errBuf[cellIdx] + jitter));
+          const quant = value >= 0.5 ? 1 : 0;
+          cellChoice[cellIdx] = quant;
+          const error = (value - quant) * errorIntensity;
+          if (error === 0) continue;
+          for (const tap of kernel.taps) {
+            const nx = cx + (leftToRight ? tap.dx : -tap.dx);
+            const ny = cy + tap.dy;
+            if (nx < 0 || nx >= gridW || ny < 0 || ny >= gridH) continue;
+            const nIdx = ny * gridW + nx;
+            if (cellMask[nIdx] === 0) continue;
+            errBuf[nIdx] += (error * tap.weight) / kernel.divisor;
+          }
+        }
+      }
+
+      for (let y = scaleBound.minY; y <= scaleBound.maxY; y += 1) {
+        const row = y * width;
+        const cellY = Math.floor(y / cellSize) - minCellY;
+        for (let x = scaleBound.minX; x <= scaleBound.maxX; x += 1) {
+          const idx = row + x;
+          const tagValue = tag[idx];
+          if ((tagValue >>> 16) !== strokeEpoch) continue;
+          const seq = tagValue & 0xffff;
+          if (seq === 0) continue;
+          const seqScale = lut[seq] || fallbackScale;
+          if (seqScale !== scale) continue;
+          const cellX = Math.floor(x / cellSize) - minCellX;
+          const cellIdx = cellY * gridW + cellX;
+          choice[idx] = cellChoice[cellIdx];
         }
       }
     }
+  } else {
+    const tileCache = new Map<number, { tile: Uint8Array; tileClamp: number; originX: number; originY: number }>();
+    const coverageByte = Math.max(0, Math.min(255, Math.round(coverage * 255)));
 
-    for (let y = scaleBound.minY; y <= scaleBound.maxY; y += 1) {
+    for (let y = minY; y <= maxY; y += 1) {
       const row = y * width;
-      const cellY = Math.floor(y / cellSize) - minCellY;
-      for (let x = scaleBound.minX; x <= scaleBound.maxX; x += 1) {
+      for (let x = minX; x <= maxX; x += 1) {
         const idx = row + x;
         const tagValue = tag[idx];
         if ((tagValue >>> 16) !== strokeEpoch) continue;
         const seq = tagValue & 0xffff;
         if (seq === 0) continue;
         const seqScale = lut[seq] || fallbackScale;
-        if (seqScale !== scale) continue;
-        const cellX = Math.floor(x / cellSize) - minCellX;
-        const cellIdx = cellY * gridW + cellX;
-        choice[idx] = cellChoice[cellIdx];
+        let tileEntry = tileCache.get(seqScale);
+        if (!tileEntry) {
+          const baseSize = resolveStampDitherBaseSize(seqScale);
+          const originU = {
+            x: (seed % baseSize) | 0,
+            y: ((seed >>> 16) % baseSize) | 0,
+          };
+          const originX = -originU.x * seqScale;
+          const originY = -originU.y * seqScale;
+          const tileClamp = baseSize * seqScale;
+          const tile = getStampDitherTile(
+            replayStampDitherRuntime,
+            bucket,
+            seqScale,
+            baseSize,
+            algo,
+            config.patternStyle ?? 'dots'
+          );
+          tileEntry = { tile, tileClamp, originX, originY };
+          tileCache.set(seqScale, tileEntry);
+        }
+
+        const localY = ((y - tileEntry.originY) % tileEntry.tileClamp + tileEntry.tileClamp) % tileEntry.tileClamp;
+        const tileRow = localY * tileEntry.tileClamp;
+        const localX = ((x - tileEntry.originX) % tileEntry.tileClamp + tileEntry.tileClamp) % tileEntry.tileClamp;
+        const tileValue = tileEntry.tile[tileRow + localX];
+        choice[idx] = algo === 'pattern'
+          ? (tileValue === 1 ? 1 : 0)
+          : (tileValue <= coverageByte ? 1 : 0);
       }
     }
   }
@@ -1514,6 +1574,7 @@ export const finalizeStampDither = (args: {
       const secondary = resolveStampDitherSecondaryIndex(primaryIndex);
       data[idx] = secondary;
       gid[idx] = secondary === 0 ? 0 : flowSlot;
+      spd[idx] = secondary === 0 ? 0 : speedByte;
     }
   }
 

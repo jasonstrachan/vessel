@@ -320,4 +320,65 @@ describe('strokeStampDither', () => {
 
     expect(state.stampDitherStrokeScale).toBeLessThanOrEqual(64);
   });
+
+  it('finalize uses the selected ordered or pattern algorithm on mouse-up', () => {
+    const width = 16;
+    const height = 16;
+    const stateFactory = () => {
+      const size = width * height;
+      const tag = new Uint32Array(size);
+      for (let i = 0; i < size; i += 1) {
+        tag[i] = (1 << 16) | 1;
+      }
+      return {
+        paintBuffer: new Uint8Array(size),
+        gradientIdBuffer: new Uint8Array(size),
+        speedBuffer: new Uint8Array(size),
+        stampDitherPrimaryBuffer: new Uint8Array(size).fill(11),
+        stampDitherTag: tag,
+        stampDitherBounds: { minX: 0, minY: 0, maxX: width - 1, maxY: height - 1 },
+        stampDitherStrokeEpoch: 1,
+        stampDitherStampSeq: 1,
+        stampDitherStrokeScale: 1,
+        stampDitherLockedBucket: Math.floor(stampDither.STAMP_DITHER_BUCKETS / 2),
+      };
+    };
+
+    const runFinalize = (algorithm: 'bayer' | 'blue-noise' | 'void-and-cluster' | 'pattern') => {
+      const animator = buildAnimator(width, height);
+      const state = stateFactory();
+      const didFinalize = stampDither.finalizeStampDither({
+        animator: animator as unknown as Parameters<typeof stampDither.finalizeStampDither>[0]['animator'],
+        state,
+        config: {
+          algorithm,
+          pixelSize: 1,
+          patternStyle: algorithm === 'pattern' ? 'crosshatch' : 'dots',
+          bgFill: true,
+          pressureLinked: false,
+          seed: 17,
+        },
+        width,
+        height,
+        flowSlot: 3,
+        cycleSpeed: 1,
+        ditherStrength: 1,
+      });
+
+      expect(didFinalize).toBe(true);
+      expect(animator.handle.data.some((value) => value === 11)).toBe(true);
+      expect(animator.handle.data.some((value) => value === stampDither.resolveStampDitherSecondaryIndex(11))).toBe(true);
+
+      return Array.from(animator.handle.data);
+    };
+
+    const bayer = runFinalize('bayer');
+    const blueNoise = runFinalize('blue-noise');
+    const voidAndCluster = runFinalize('void-and-cluster');
+    const pattern = runFinalize('pattern');
+
+    expect(bayer).not.toEqual(blueNoise);
+    expect(bayer).not.toEqual(voidAndCluster);
+    expect(bayer).not.toEqual(pattern);
+  });
 });
