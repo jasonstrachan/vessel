@@ -289,4 +289,51 @@ describe('colorCycleSlotGC', () => {
     expect(result?.missingDefLayers?.length).toBe(1);
     expect(result?.missingDefLayers?.[0]?.missingDefIds).toContain(42);
   });
+
+  it('keeps slot palettes that are still referenced by non-def gradient ids', () => {
+    const liveStops = [
+      { position: 0, color: '#101010' },
+      { position: 1, color: '#f0f0f0' },
+    ];
+    const deadStops = [
+      { position: 0, color: '#330000' },
+      { position: 1, color: '#ff0000' },
+    ];
+    const layer = createLayer({
+      colorCycleData: {
+        gradientDefs: [],
+        slotPalettes: [
+          { slot: 89, stops: liveStops },
+          { slot: 7, stops: deadStops },
+        ],
+        gradientDefStore: [
+          {
+            id: 7,
+            kind: 'linear',
+            stops: deadStops,
+            hash: 'linear:dead',
+            source: 'manual',
+            createdAtMs: 0,
+            slot: 7,
+          },
+        ],
+        gradientIdBuffer: new Uint8Array([89, 89, 0, 0]).buffer,
+        gradientDefIdBuffer: new Uint16Array([0, 0, 0, 0]).buffer,
+      },
+    });
+
+    const result = rebuildGradientSlotUsageAndGC({
+      layers: [layer],
+      scope: 'layer',
+      layerId: layer.id,
+    });
+
+    const updated = result?.updates[0]?.colorCycleData;
+    const paletteSlots = (updated?.slotPalettes ?? []).map((entry) => entry.slot);
+    const deadDef = updated?.gradientDefStore?.find((entry) => entry.id === 7);
+
+    expect(deadDef?.slot).toBeUndefined();
+    expect(paletteSlots).toContain(89);
+    expect(paletteSlots).not.toContain(7);
+  });
 });
