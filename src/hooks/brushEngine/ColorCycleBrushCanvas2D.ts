@@ -56,6 +56,7 @@ import {
 import { ensurePalette } from '@/lib/colorCycle/paletteService';
 import { resolveVelocitySpacingStrength } from '@/utils/velocitySpacing';
 import { resolveLayerColorCycleBaseSpeedFromLayer } from '@/utils/colorCycleLayerSpeed';
+import type { CommitCommittedLayerStateOptions } from '@/hooks/brushEngine/colorCycleCommittedState';
 
 type CcCustomStampPerfStats = {
   sourceHit: number;
@@ -202,25 +203,6 @@ interface StrokeDataSnapshot {
   hasContent: boolean;
   strokeCounter: number;
 }
-
-type GradientBindingRegion = {
-  minX: number;
-  minY: number;
-  width: number;
-  height: number;
-};
-
-type CommitCommittedLayerStateOptions = {
-  layerId: string;
-  targetCanvas?: HTMLCanvasElement | null;
-  opacity?: number;
-  binding?: {
-    defId: number;
-    slot: number;
-    bbox?: GradientBindingRegion;
-    previewSlot?: number | null;
-  };
-};
 
 interface SerializedLayerState {
   layerId: string;

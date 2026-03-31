@@ -6,6 +6,10 @@ import {
   type CaptureRegion,
 } from '@/hooks/canvas/utils/captureRegions';
 import type { ColorCycleBrushImplementation } from '@/hooks/brushEngine/ColorCycleBrushMigration';
+import type {
+  ColorCycleCommittedStateBrush,
+  CommitCommittedLayerStateOptions,
+} from '@/hooks/brushEngine/colorCycleCommittedState';
 import type { DeferredColorCycleSaveOptions } from '@/hooks/canvas/handlers/colorCycle/colorCycleHistory';
 import type { BrushSettings, CanvasSnapshot, Layer } from '@/types';
 import { finalizeMarkGradientSession } from '@/hooks/canvas/utils/colorCycleMarkSession';
@@ -94,20 +98,10 @@ export type DeferredSaveWithStateDeps = {
 };
 
 export type ManagedColorCycleBrush = ColorCycleBrushImplementation & {
+  commitCommittedLayerState?: ColorCycleCommittedStateBrush['commitCommittedLayerState'];
   commitCurrentStroke?: (layerId?: string) => void;
   finalizeCurrentStroke?: (layerId?: string) => void;
   commitToLayer?: (canvas: HTMLCanvasElement, layerId: string, opacity?: number) => void;
-  commitCommittedLayerState?: (options: {
-    layerId: string;
-    targetCanvas?: HTMLCanvasElement | null;
-    opacity?: number;
-    binding?: {
-      defId: number;
-      slot: number;
-      bbox?: { minX: number; minY: number; width: number; height: number };
-      previewSlot?: number | null;
-    };
-  }) => void;
   renderDirectToCanvas?: (canvas: HTMLCanvasElement, layerId: string) => void;
   clearPaintBuffer?: (layerId?: string) => void;
   flush?: (layerId?: string) => void;
@@ -498,7 +492,7 @@ export const commitColorCycleLayerStroke = async (
         );
       }
 
-      const binding = session?.binding
+      const binding: CommitCommittedLayerStateOptions['binding'] = session?.binding
         ? {
             defId: session.binding.defId,
             slot: session.binding.slot,
