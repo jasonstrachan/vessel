@@ -431,6 +431,81 @@ describe('sequential color-cycle routing', () => {
     expect(events[0].brush.brushShape).toBe(BrushShape.COLOR_CYCLE);
   });
 
+  it('forwards velocity samples to color-cycle stroke batches', () => {
+    createSequentialState();
+    const drawCtx = document.createElement('canvas').getContext('2d');
+    if (!drawCtx) {
+      throw new Error('2d context unavailable');
+    }
+
+    const drawColorCycle = jest.fn();
+    const args: ProcessBatchedStrokesArgs = {
+      strokeBatchRef: {
+        current: [
+          { pos: { x: 8, y: 0 }, pressure: 1, timestampMs: 1010 },
+        ],
+      },
+      strokeBatchTimerRef: { current: 1 },
+      drawingCtxRef: { current: drawCtx },
+      lastDrawPosRef: { current: { x: 0, y: 0 } },
+      lastDrawTimestampRef: { current: 1000 },
+      brushSamplingPreviewActiveRef: { current: false },
+      autoSamplePointsRef: { current: [] },
+      ccSampledPointsRef: { current: [] },
+      resamplerBrushDataRef: { current: undefined },
+      stampCounterRef: { current: 0 },
+      colorCyclePixelQueueRef: { current: null },
+      colorCycleDistanceRef: { current: 0 },
+      colorCycleLastPosRef: { current: { x: 0, y: 0 } },
+      colorCycleLastRotationRef: { current: 0 },
+      eraserToolRef: { current: null },
+      eraserRoiRef: { current: null },
+    };
+
+    const deps: ProcessBatchedStrokesDeps = {
+      storeRef: { current: useAppStore.getState() },
+      project: { width: 32, height: 32 },
+      brushEngine: {
+        drawBrush: jest.fn(),
+        consumeRecentStamps: jest.fn(() => []),
+        drawColorCycle,
+      },
+      userBrushEngine: {
+        isUserBrush: () => false,
+        continueStroke: jest.fn(),
+      },
+      drawEraserSegment: jest.fn(),
+      updateAutoSampledGradient: jest.fn(),
+      updateCcSampledGradient: jest.fn(),
+      renderBrushSamplingPreview: jest.fn(),
+      getCCStampTargetCtx: () => null,
+      scheduleRecompose: jest.fn(),
+      extendMaskHealingStroke: jest.fn(),
+      createPixelQueue,
+      getColorCycleBrushManager: () => ({ getBrush: () => null }),
+      ensureActiveColorCycleGradientSlot: jest.fn(),
+      resolveActiveCustomBrushData: () => undefined,
+      getColorCycleBrushFlags: () => ({ isAny: true, isCustom: false }),
+      selectEffectiveColorCyclePlaying: () => true,
+      shouldPixelAlignBrush: () => false,
+      alignPointToPixel: (point) => point,
+      clipLineSegment: (start, end) => [start, end],
+      shouldDrawStamp: () => true,
+      shouldApplyGridSnapPure: () => false,
+      calculateGridSpacing: () => 1,
+      snapToGridPure: (x, y) => ({ x, y }),
+      resolveBrushRotation: () => ({ rotation: 0, nextRotation: 0 }),
+      captureBrushFromCanvas: jest.fn(() => null),
+      isEraserV2: false,
+    };
+
+    processBatchedStrokes(args, deps);
+
+    expect(drawColorCycle).toHaveBeenCalled();
+    const forwardedOptions = drawColorCycle.mock.calls[0]?.[5];
+    expect(forwardedOptions?.speedSamplePxPerMs).toBeCloseTo(0.8, 3);
+  });
+
   it('keeps custom sequential stamps painting when live custom brush lookup temporarily drops', () => {
     createSequentialState();
     useAppStore.setState((state) => ({

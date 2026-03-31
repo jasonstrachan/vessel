@@ -309,6 +309,8 @@ const STAMP_MASK_ROTATION_TOLERANCE = Math.PI / 180; // ~1°
 const STAMP_MASK_CACHE_LIMIT = 80;
 const COLOR_CYCLE_FILL_WORKER_AREA = 240_000; // pixels
 const MAX_PHASE_ADVANCE_PER_STAMP = 3;
+const MIN_PHASE_ADVANCE_PER_STAMP = 0.35;
+const VELOCITY_PHASE_ADVANCE_CURVE = 0.7;
 const nowMs = () => (typeof performance !== 'undefined' ? performance.now() : Date.now());
 
 const createYieldController = () => {
@@ -995,7 +997,8 @@ export class ColorCycleBrushCanvas2D {
       enabled: true,
       speedPxPerMs: speedSamplePxPerMs,
     });
-    return MAX_PHASE_ADVANCE_PER_STAMP - strength * (MAX_PHASE_ADVANCE_PER_STAMP - 1);
+    const easedStrength = Math.pow(strength, VELOCITY_PHASE_ADVANCE_CURVE);
+    return MAX_PHASE_ADVANCE_PER_STAMP - easedStrength * (MAX_PHASE_ADVANCE_PER_STAMP - MIN_PHASE_ADVANCE_PER_STAMP);
   }
 
   private getWriteCycleSpeed(strokeData?: LayerStrokeState | null): number {
