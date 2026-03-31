@@ -272,6 +272,120 @@ describe('colorCycleShapeFill transparency lock', () => {
     getStateSpy.mockRestore();
   });
 
+  it('re-renders the committed CC shape state after binding gradient defs', async () => {
+    const updateLayer = jest.fn();
+    const getStateSpy = jest.spyOn(useAppStore, 'getState');
+    getStateSpy.mockReturnValue({
+      layers: [
+        {
+          id: 'layer-1',
+          transparencyLocked: false,
+          colorCycleData: {
+            gradientDefStore: [
+              {
+                id: 11,
+                kind: 'linear',
+                slot: 7,
+                stops: [
+                  { position: 0, color: '#111111' },
+                  { position: 1, color: '#eeeeee' },
+                ],
+                hash: 'hash-11',
+              },
+            ],
+          },
+        },
+      ],
+      tools: {
+        brushSettings: {
+          colorCycleUseForegroundGradient: false,
+          ditherEnabled: false,
+        },
+      },
+      setCcGradientSampleCount: jest.fn(),
+      updateLayer,
+    } as unknown as ReturnType<typeof useAppStore.getState>);
+
+    const canvas = document.createElement('canvas');
+    canvas.width = 2;
+    canvas.height = 2;
+
+    const renderDirectToCanvas = jest.fn();
+    const bindGradientDefIdToSlot = jest.fn();
+    const getLayerSnapshot = jest.fn(() => ({
+      paintBuffer: new Uint8Array([1, 1, 1, 1]).buffer,
+      gradientIdBuffer: new Uint8Array([7, 7, 7, 7]).buffer,
+      gradientDefIdBuffer: new Uint16Array([11, 11, 11, 11]).buffer,
+      speedBuffer: new Uint8Array([6, 6, 6, 6]).buffer,
+      flowBuffer: new Uint8Array([1, 1, 1, 1]).buffer,
+      hasContent: true,
+      strokeCounter: 1,
+    }));
+    const ccBrush = {
+      renderDirectToCanvas,
+      bindGradientDefIdToSlot,
+      getLayerSnapshot,
+    };
+
+    await finalizeColorCycleShapeFillLinear(
+      {
+        session: {
+          markId: 'mark-1',
+          layerId: 'layer-1',
+          markKind: 'shape',
+          gradientKind: 'linear',
+          source: 'manual',
+          frozenStopsStored: [
+            { position: 0, color: '#111111' },
+            { position: 1, color: '#eeeeee' },
+          ],
+          frozenHash: 'hash-11',
+          binding: { kind: 'def', defId: 11, slot: 7 },
+          speedCps: 0.3,
+        },
+        shapePoints: [
+          { x: 0, y: 0 },
+          { x: 1, y: 0 },
+          { x: 0, y: 1 },
+        ],
+        direction: { x: 1, y: 0 },
+        activeLayerId: 'layer-1',
+        activeLayerCanvas: canvas,
+        overlayCanvas: null,
+        overlayCtx: null,
+        fallbackBlendMode: 'source-over',
+        fallbackOpacity: 1,
+        shapeLayerId: 'layer-1',
+        beforeColorState: null,
+        tool: 'brush',
+      },
+      {
+        brushEngine: {
+          fillCcGradientLinear: jest.fn(async () => undefined),
+          updateColorCycleTexture: jest.fn(),
+        } as never,
+        getColorCycleBrushManager: () => ({ getBrush: () => ccBrush as never }),
+        bindBrushToCanvas: jest.fn(),
+        timeAsync: async (_label, task) => task(),
+        timeSync: (_label, task) => task(),
+        ccLog: jest.fn(),
+        scheduleDeferredColorCycleSaveWithState: jest.fn(async () => undefined),
+        logError: jest.fn(),
+      }
+    );
+
+    expect(bindGradientDefIdToSlot).toHaveBeenCalledWith(
+      'layer-1',
+      11,
+      7,
+      undefined,
+      null,
+    );
+    expect(renderDirectToCanvas).toHaveBeenCalledTimes(2);
+
+    getStateSpy.mockRestore();
+  });
+
   it('uses preview-parity quantized levels for linear CC dither finalize', async () => {
     const getStateSpy = jest.spyOn(useAppStore, 'getState');
     getStateSpy.mockReturnValue({

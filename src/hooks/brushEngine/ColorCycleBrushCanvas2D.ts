@@ -1032,34 +1032,12 @@ export class ColorCycleBrushCanvas2D {
     return encodeColorCycleSpeedByte(this.getWriteCycleSpeed(strokeData));
   }
 
-  private getGradientStopCountForLayerSlot(layerId: string, slot: number): number {
-    const clampedSlot = Math.max(0, Math.min(FLOW_SLOT_MASK, Math.round(slot)));
-    const slotStops = this.gradientSlotsByLayer.get(layerId)?.get(clampedSlot);
-    if (slotStops && slotStops.length > 0) {
-      return slotStops.length;
-    }
-    if (this.currentGradientStops.length > 0) {
-      return this.currentGradientStops.length;
-    }
-    return 2;
-  }
-
-  private getCcGradientFillSpeedByte(
-    layerId: string,
-    slot: number,
-    strokeData?: LayerStrokeState | null,
-  ): number {
+  private getCcGradientFillSpeedByte(strokeData?: LayerStrokeState | null): number {
     const baseSpeed = this.getWriteCycleSpeed(strokeData);
     if (!Number.isFinite(baseSpeed) || baseSpeed <= 0) {
       return 0;
     }
-
-    const stopCount = Math.max(2, this.getGradientStopCountForLayerSlot(layerId, slot));
-    const normalizedSpeed = stopCount > 2
-      ? baseSpeed / Math.max(1, stopCount - 1)
-      : baseSpeed;
-
-    return encodeColorCycleSpeedByte(normalizedSpeed);
+    return encodeColorCycleSpeedByte(baseSpeed);
   }
 
   private logSetIndexSample(layerId: string, x: number, y: number) {
@@ -2962,6 +2940,10 @@ export class ColorCycleBrushCanvas2D {
       ? Math.max(1, Math.min(254, Math.floor(options?.ditherLevels as number)))
       : null;
     const baseOffset = this.stampCounter % 255;
+    const speedByte = ccGradient
+      ? this.getCcGradientFillSpeedByte(strokeData)
+      : this.getWriteSpeedByte(strokeData);
+    const flowByte = this.flowMode === 'reverse' ? 2 : this.flowMode === 'pingpong' ? 3 : 1;
     if (logCcFill) {
       debugLog('cc-fill', '[CC fill] linear path flags', {
         hasGL: (() => {
@@ -3047,7 +3029,7 @@ export class ColorCycleBrushCanvas2D {
             ditherStrength,
             ditherPixelSize,
             noiseSeed,
-          }, flowSlot);
+          }, flowSlot, speedByte, flowByte);
           if (ok) {
             if (logCcFill) {
               debugLog('cc-fill', '[CC fill] linear USED GPU', { bbox, bands: numBands });
@@ -3082,13 +3064,9 @@ export class ColorCycleBrushCanvas2D {
     if (logCcFill) {
       debugLog('cc-fill', '[CC fill] linear USED CPU', { bbox, bands: numBands });
     }
-    const speedByte = ccGradient
-      ? this.getCcGradientFillSpeedByte(id, activeSlot, strokeData)
-      : this.getWriteSpeedByte(strokeData);
     if (ccGradient && typeof animator.setStrokeSpeedByte === 'function') {
       animator.setStrokeSpeedByte(speedByte);
     }
-    const flowByte = this.flowMode === 'reverse' ? 2 : this.flowMode === 'pingpong' ? 3 : 1;
     if (activeSlot !== 0) {
       animator.markGradientSlotUsed(activeSlot);
     }
@@ -3870,6 +3848,10 @@ export class ColorCycleBrushCanvas2D {
     const baseOffset = this.stampCounter % 255;
     const numBands = this.deriveBandCountFromDistance(maxDist, spacingValue);
     const stepPerBand = numBands > 1 ? 254 / (numBands - 1) : 254;
+    const speedByte = ccGradient
+      ? this.getCcGradientFillSpeedByte(strokeData)
+      : this.getWriteSpeedByte(strokeData);
+    const flowByte = this.flowMode === 'reverse' ? 2 : this.flowMode === 'pingpong' ? 3 : 1;
 
     // Attempt GPU path first so most shapes stay off the CPU.
     if (!this.perceptualDither) {
@@ -3910,7 +3892,7 @@ export class ColorCycleBrushCanvas2D {
               ditherStrength: ditherStrengthGpu,
               ditherPixelSize: ditherPixelSizeGpu,
               noiseSeed,
-        }, flowSlot);
+        }, flowSlot, speedByte, flowByte);
         if (ok) {
           this.stampCounter += numBands;
           if (strokeData) strokeData.stampCounter = this.stampCounter;
@@ -3952,13 +3934,9 @@ export class ColorCycleBrushCanvas2D {
     };
 
     const directConcentricHandle = animator.beginDirectFill();
-    const speedByte = ccGradient
-      ? this.getCcGradientFillSpeedByte(id, activeSlot, strokeData)
-      : this.getWriteSpeedByte(strokeData);
     if (ccGradient && typeof animator.setStrokeSpeedByte === 'function') {
       animator.setStrokeSpeedByte(speedByte);
     }
-    const flowByte = this.flowMode === 'reverse' ? 2 : this.flowMode === 'pingpong' ? 3 : 1;
     if (activeSlot !== 0) {
       animator.markGradientSlotUsed(activeSlot);
     }
