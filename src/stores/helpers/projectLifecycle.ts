@@ -29,6 +29,10 @@ import { devLog } from '@/utils/devLog';
 import { backgroundStorageService } from '@/utils/backgroundStorage';
 import { updateToolsWithPalette } from './paletteState';
 import { flushPendingToolWork } from '@/utils/toolFlushRegistry';
+import {
+  waitForAllPendingColorCycleSaves,
+  waitForFinalizeQueueIdle,
+} from '@/stores/pendingColorCycleSaves';
 
 type AppState = import('../useAppStore').AppState;
 
@@ -361,6 +365,8 @@ export const createProjectLifecycle = ({
     try {
       state.setSaveStatus('saving', 'manual', 'Saving project...');
       await flushPendingToolWork();
+      await waitForFinalizeQueueIdle();
+      await waitForAllPendingColorCycleSaves();
 
       const freshState = get();
       const requestOptions =

@@ -3,6 +3,11 @@ import { useAppStore } from '@/stores/useAppStore';
 import type { AppState } from '@/stores/useAppStore';
 import { backgroundStorageService } from '../backgroundStorage';
 import { fileBackupService } from '../fileBackupService';
+import {
+  waitForAllPendingColorCycleSaves,
+  waitForFinalizeQueueIdle,
+} from '@/stores/pendingColorCycleSaves';
+import { flushPendingToolWork } from '@/utils/toolFlushRegistry';
 
 jest.mock('@/stores/useAppStore', () => {
   type Listener = (state: unknown, prevState: unknown) => void;
@@ -74,6 +79,17 @@ jest.mock('@/stores/useAppStore', () => {
     }),
   };
 });
+
+jest.mock('@/stores/pendingColorCycleSaves', () => ({
+  __esModule: true,
+  waitForAllPendingColorCycleSaves: jest.fn().mockResolvedValue(undefined),
+  waitForFinalizeQueueIdle: jest.fn().mockResolvedValue(undefined),
+}));
+
+jest.mock('@/utils/toolFlushRegistry', () => ({
+  __esModule: true,
+  flushPendingToolWork: jest.fn().mockResolvedValue(undefined),
+}));
 
 type MockedStoreApi = typeof useAppStore & {
   __setMockState: (state: unknown) => void;
@@ -208,6 +224,9 @@ describe('AutosaveService', () => {
 
     await autosaveService.triggerAutosave();
 
+    expect(flushPendingToolWork).toHaveBeenCalledTimes(1);
+    expect(waitForFinalizeQueueIdle).toHaveBeenCalledTimes(1);
+    expect(waitForAllPendingColorCycleSaves).toHaveBeenCalledTimes(1);
     expect(backgroundStorageService.saveProjectInBackground).toHaveBeenCalledWith(
       expect.objectContaining({ palette: store.palette, referenceLayerId: store.referenceLayerId }),
       store.layers

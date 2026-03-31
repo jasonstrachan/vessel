@@ -5,6 +5,10 @@ import type { AppState } from '@/stores/useAppStore';
 import { exportProjectAsPNG, saveProjectToFile } from '@/utils/projectIO';
 import { backgroundStorageService } from '@/utils/backgroundStorage';
 import { flushPendingToolWork } from '@/utils/toolFlushRegistry';
+import {
+  waitForAllPendingColorCycleSaves,
+  waitForFinalizeQueueIdle,
+} from '@/stores/pendingColorCycleSaves';
 
 jest.mock('@/utils/projectIO', () => ({
   __esModule: true as const,
@@ -32,6 +36,12 @@ jest.mock('@/utils/backgroundStorage', () => ({
   backgroundStorageService: {
     updateSession: jest.fn().mockResolvedValue(undefined),
   },
+}));
+
+jest.mock('@/stores/pendingColorCycleSaves', () => ({
+  __esModule: true as const,
+  waitForAllPendingColorCycleSaves: jest.fn().mockResolvedValue(undefined),
+  waitForFinalizeQueueIdle: jest.fn().mockResolvedValue(undefined),
 }));
 
 const mockBrush = {
@@ -190,6 +200,8 @@ describe('project slice lifecycle flows', () => {
     await useAppStore.getState().saveProject('poster.vessel');
 
     expect(flushPendingToolWork).toHaveBeenCalledTimes(1);
+    expect(waitForFinalizeQueueIdle).toHaveBeenCalledTimes(1);
+    expect(waitForAllPendingColorCycleSaves).toHaveBeenCalledTimes(1);
     expect(captureSpy).not.toHaveBeenCalled();
     expect(saveProjectToFile).toHaveBeenCalledTimes(1);
     const [projectPayload, preferredName, layersArg] = (saveProjectToFile as jest.Mock).mock.calls[0];

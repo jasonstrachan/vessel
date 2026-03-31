@@ -4,6 +4,7 @@
 import { backgroundStorageService } from './backgroundStorage';
 import { useAppStore } from '../stores/useAppStore';
 import type { Project, Layer } from '../types';
+import { restoreColorCycleBrushes } from './projectIO';
 
 interface RecoveryData {
   project: Project;
@@ -49,11 +50,13 @@ export class CrashRecoveryService {
     const store = useAppStore.getState();
     
     try {
+      const restoredLayers = await restoreColorCycleBrushes(recoveryData.layers);
+
       // Restore the project to the store
       store.setProject(recoveryData.project);
 
       // Route through store actions so layer normalization/sanitization runs.
-      store.setLayers(recoveryData.layers);
+      store.setLayers(restoredLayers);
       const recoveredLayers = useAppStore.getState().layers;
       const nextActiveLayerId = recoveredLayers[0]?.id ?? null;
       if (nextActiveLayerId) {
