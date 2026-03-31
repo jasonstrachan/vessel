@@ -51,6 +51,35 @@ const scanDefIds = (buffer?: ArrayBuffer | null): { usedDefIds: Set<number>; pix
   return { usedDefIds, pixelsScanned: view.length };
 };
 
+const scanLiveNonDefGradientSlots = (
+  gradientIdBuffer?: ArrayBuffer | null,
+  gradientDefIdBuffer?: ArrayBuffer | null
+): Set<number> => {
+  if (!gradientIdBuffer || gradientIdBuffer.byteLength === 0) {
+    return new Set<number>();
+  }
+
+  const gradientIds = new Uint8Array(gradientIdBuffer);
+  const defIds =
+    gradientDefIdBuffer && gradientDefIdBuffer.byteLength > 0
+      ? new Uint16Array(gradientDefIdBuffer)
+      : null;
+
+  const used = new Set<number>();
+  const length = defIds
+    ? Math.min(gradientIds.length, defIds.length)
+    : gradientIds.length;
+
+  for (let i = 0; i < length; i += 1) {
+    if ((defIds?.[i] ?? 0) !== 0) {
+      continue;
+    }
+    used.add(clampSlot(gradientIds[i] ?? 0));
+  }
+
+  return used;
+};
+
 const collectNonDefSlots = (data: Layer['colorCycleData'] | undefined | null): Set<number> => {
   const used = new Set<number>();
   if (!data) {
@@ -65,6 +94,7 @@ const collectNonDefSlots = (data: Layer['colorCycleData'] | undefined | null): S
   if (typeof data.fgActiveSlot === 'number') {
     used.add(clampSlot(data.fgActiveSlot));
   }
+  scanLiveNonDefGradientSlots(data.gradientIdBuffer, data.gradientDefIdBuffer).forEach((slot) => used.add(slot));
   return used;
 };
 
