@@ -2,6 +2,7 @@ import {
   clampMarqueeDragRectToBounds,
   clampSelectionBounds,
   copyRegionIntoTarget,
+  hasVisibleSelectionMask,
 } from '@/stores/helpers/selectionRoi';
 
 const createImageData = (width: number, height: number, fill = 0): ImageData => {
@@ -47,5 +48,18 @@ describe('copyRegionIntoTarget', () => {
     expect(readPixel(target, 1, 1)).toEqual(Uint8ClampedArray.from([255, 64, 32, 255]));
     expect(readPixel(target, 2, 2)).toEqual(Uint8ClampedArray.from([255, 64, 32, 255]));
     expect(readPixel(target, 0, 0)).toEqual(Uint8ClampedArray.from([0, 0, 0, 0]));
+  });
+});
+
+describe('hasVisibleSelectionMask', () => {
+  it('returns false when the mask has no selected pixels', () => {
+    expect(hasVisibleSelectionMask(createImageData(2, 2))).toBe(false);
+  });
+
+  it('returns true when the mask contains selected pixels', () => {
+    const mask = createImageData(2, 2);
+    mask.data[3] = 255;
+
+    expect(hasVisibleSelectionMask(mask)).toBe(true);
   });
 });

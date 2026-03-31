@@ -2,6 +2,10 @@
 
 import React from 'react';
 
+import {
+  clampSelectionBounds,
+  hasVisibleSelectionMask,
+} from '@/stores/helpers/selectionRoi';
 import { useAppStore } from '@/stores/useAppStore';
 
 const CONSTRAINED_TOOLS = new Set(['brush', 'eraser', 'fill', 'color-adjust']);
@@ -12,10 +16,22 @@ const SelectionConstraintStrip: React.FC = () => {
   const selectionEnd = useAppStore((state) => state.selectionEnd);
   const selectionMask = useAppStore((state) => state.selectionMask);
   const selectionMaskBounds = useAppStore((state) => state.selectionMaskBounds);
+  const project = useAppStore((state) => state.project);
 
-  const hasSelection = Boolean(
-    (selectionStart && selectionEnd) || (selectionMask && selectionMaskBounds)
+  const hasRectSelection = Boolean(
+    project &&
+      selectionStart &&
+      selectionEnd &&
+      Math.abs(selectionEnd.x - selectionStart.x) > 0 &&
+      Math.abs(selectionEnd.y - selectionStart.y) > 0,
   );
+  const hasMaskSelection = Boolean(
+    project &&
+      selectionMask &&
+      hasVisibleSelectionMask(selectionMask) &&
+      clampSelectionBounds(selectionMaskBounds, project.width, project.height),
+  );
+  const hasSelection = hasRectSelection || hasMaskSelection;
 
   if (!hasSelection || !CONSTRAINED_TOOLS.has(currentTool)) {
     return null;

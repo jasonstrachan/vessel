@@ -69,4 +69,36 @@ describe('SelectionConstraintStrip', () => {
 
     expect(screen.queryByText('Selection active: paint output constrained to selected area')).not.toBeInTheDocument();
   });
+
+  it('does not render for zero-area marquee selections', () => {
+    act(() => {
+      useAppStore.setState((state) => ({
+        tools: { ...state.tools, currentTool: 'brush' },
+        selectionStart: { x: 8, y: 8 },
+        selectionEnd: { x: 8, y: 32 },
+        selectionMask: null,
+        selectionMaskBounds: null,
+      }));
+    });
+
+    render(<SelectionConstraintStrip />);
+
+    expect(screen.queryByText('Selection active: paint output constrained to selected area')).not.toBeInTheDocument();
+  });
+
+  it('does not render for empty selection masks', () => {
+    act(() => {
+      useAppStore.setState((state) => ({
+        tools: { ...state.tools, currentTool: 'fill' },
+        selectionStart: null,
+        selectionEnd: null,
+        selectionMask: new ImageData(2, 2),
+        selectionMaskBounds: { x: 0, y: 0, width: 2, height: 2 },
+      }));
+    });
+
+    render(<SelectionConstraintStrip />);
+
+    expect(screen.queryByText('Selection active: paint output constrained to selected area')).not.toBeInTheDocument();
+  });
 });

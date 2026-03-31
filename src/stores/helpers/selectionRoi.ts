@@ -13,6 +13,20 @@ export interface SelectionRasterScope {
   selectionMaskBounds: Rectangle | null;
 }
 
+export const hasVisibleSelectionMask = (selectionMask: ImageData | null): boolean => {
+  if (!selectionMask) {
+    return false;
+  }
+
+  for (let index = 3; index < selectionMask.data.length; index += 4) {
+    if ((selectionMask.data[index] ?? 0) > 0) {
+      return true;
+    }
+  }
+
+  return false;
+};
+
 export const clampMarqueeDragRectToBounds = (
   start: { x: number; y: number } | null,
   end: { x: number; y: number } | null,
