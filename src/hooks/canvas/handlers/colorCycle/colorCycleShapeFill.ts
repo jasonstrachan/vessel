@@ -1,5 +1,9 @@
 import type { BrushEngine } from '@/hooks/useBrushEngineSimplified';
 import type { ColorCycleBrushImplementation } from '@/hooks/brushEngine/ColorCycleBrushMigration';
+import type {
+  ColorCycleCommittedStateBrush,
+  CommitCommittedLayerStateOptions,
+} from '@/hooks/brushEngine/colorCycleCommittedState';
 import type { DeferredSaveWithStateArgs } from '@/hooks/canvas/handlers/colorCycle/colorCycleCommit';
 import { clearColorCycleEraseMaskInRegion } from '@/hooks/canvas/handlers/colorCycle/colorCycleStrokeCommit';
 import { useAppStore } from '@/stores/useAppStore';
@@ -11,18 +15,7 @@ import { TEMP_SAMPLE_SLOT } from '@/constants/colorCycle';
 import { ensureGradientDefForStops } from '@/utils/colorCycleGradientDefs';
 
 type ColorCycleBrush = ColorCycleBrushImplementation;
-type SnapshotCapableBrush = ColorCycleBrush & {
-  commitCommittedLayerState?: (options: {
-    layerId: string;
-    targetCanvas?: HTMLCanvasElement | null;
-    opacity?: number;
-    binding?: {
-      defId: number;
-      slot: number;
-      bbox?: { minX: number; minY: number; width: number; height: number };
-      previewSlot?: number | null;
-    };
-  }) => void;
+type SnapshotCapableBrush = ColorCycleBrush & ColorCycleCommittedStateBrush & {
   getLayerSnapshot?: (layerId: string) => {
     paintBuffer: ArrayBuffer;
     gradientIdBuffer?: ArrayBuffer;
@@ -457,7 +450,7 @@ export const finalizeColorCycleShapeFillLinear = async (
         flushGradientApply(args.activeLayerId);
       }
       deps.bindBrushToCanvas(colorCycleBrush, args.activeLayerCanvas);
-      const binding = renderSession?.binding
+      const binding: CommitCommittedLayerStateOptions['binding'] = renderSession?.binding
         ? {
             defId: renderSession.binding.defId,
             slot: renderSession.binding.slot,
@@ -640,7 +633,7 @@ export const finalizeColorCycleShapeFillConcentric = async (
         flushGradientApply(args.activeLayerId);
       }
       deps.bindBrushToCanvas(colorCycleBrush, args.activeLayerCanvas);
-      const binding = renderSession?.binding
+      const binding: CommitCommittedLayerStateOptions['binding'] = renderSession?.binding
         ? {
             defId: renderSession.binding.defId,
             slot: renderSession.binding.slot,
