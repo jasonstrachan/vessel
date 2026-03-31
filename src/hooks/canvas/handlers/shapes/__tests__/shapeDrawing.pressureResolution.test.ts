@@ -8,6 +8,7 @@ describe('shapeDrawing pressure-linked dither resolution', () => {
     resolveColorCycleDitherPixelSize,
     resolveColorCycleFillMode,
     resolveDitherGridSnapPoint,
+    normalizeSnappedShapePoints,
   } = __TESTING__;
 
   it('uses pressure-linked resolution when pressure is valid', () => {
@@ -138,5 +139,45 @@ describe('shapeDrawing pressure-linked dither resolution', () => {
 
     expect(resolveDitherGridSnapPoint({ x: 9, y: 23 }, gridOffState)).toEqual({ x: 9, y: 23 });
     expect(resolveDitherGridSnapPoint({ x: 9, y: 23 }, nonDitherState)).toEqual({ x: 9, y: 23 });
+  });
+
+  it('snaps points to grid for the cc gradient shape preset when enabled', () => {
+    const ccGradientState = {
+      currentBrushPreset: { id: 'color-cycle-gradient' },
+      tools: {
+        brushSettings: {
+          gridSnapEnabled: true,
+          gridSnapSize: 8,
+          brushShape: BrushShape.COLOR_CYCLE_SHAPE,
+        },
+      },
+    } as unknown as AppState;
+
+    expect(resolveDitherGridSnapPoint({ x: 9, y: 23 }, ccGradientState)).toEqual({ x: 8, y: 24 });
+  });
+
+  it('normalizes cc gradient preview points onto the snapped grid', () => {
+    const ccGradientState = {
+      currentBrushPreset: { id: 'color-cycle-gradient' },
+      tools: {
+        brushSettings: {
+          gridSnapEnabled: true,
+          gridSnapSize: 8,
+          brushShape: BrushShape.COLOR_CYCLE_SHAPE,
+        },
+      },
+    } as unknown as AppState;
+
+    expect(normalizeSnappedShapePoints([
+      { x: 1, y: 1 },
+      { x: 7, y: 7 },
+      { x: 9, y: 9 },
+      { x: 15, y: 15 },
+      { x: 17, y: 17 },
+    ], ccGradientState)).toEqual([
+      { x: 0, y: 0 },
+      { x: 8, y: 8 },
+      { x: 16, y: 16 },
+    ]);
   });
 });

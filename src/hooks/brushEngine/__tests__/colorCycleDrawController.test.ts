@@ -117,6 +117,8 @@ describe('colorCycleDrawController', () => {
         size: 8,
         brushShape: BrushShape.COLOR_CYCLE,
         colorCycleStampShape: 'square',
+        gridSnapEnabled: false,
+        gridSnapSize: 8,
         pressureEnabled: false,
         minPressure: 0,
         maxPressure: 100,
@@ -132,6 +134,7 @@ describe('colorCycleDrawController', () => {
       renderColorCycle,
       firstStampImmediateRef,
       mirrorScheduledRef,
+      gridSnapStrokePointRef: { current: null },
     });
 
     expect(brush.paint).toHaveBeenCalled();
@@ -151,6 +154,8 @@ describe('colorCycleDrawController', () => {
         size: 1,
         brushShape: BrushShape.COLOR_CYCLE,
         colorCycleStampShape: 'round',
+        gridSnapEnabled: false,
+        gridSnapSize: 8,
         pressureEnabled: false,
         minPressure: 0,
         maxPressure: 100,
@@ -166,6 +171,7 @@ describe('colorCycleDrawController', () => {
       renderColorCycle: jest.fn(),
       firstStampImmediateRef: { current: false },
       mirrorScheduledRef: { current: false },
+      gridSnapStrokePointRef: { current: null },
     });
 
     expect(brush.paint).toHaveBeenCalledWith(10.5, 12.5, 'layer-1', 1, 0);
@@ -180,6 +186,8 @@ describe('colorCycleDrawController', () => {
         size: 1,
         brushShape: BrushShape.COLOR_CYCLE,
         colorCycleStampShape: 'square',
+        gridSnapEnabled: false,
+        gridSnapSize: 8,
         pressureEnabled: false,
         minPressure: 0,
         maxPressure: 100,
@@ -195,8 +203,116 @@ describe('colorCycleDrawController', () => {
       renderColorCycle: jest.fn(),
       firstStampImmediateRef: { current: false },
       mirrorScheduledRef: { current: false },
+      gridSnapStrokePointRef: { current: null },
     });
 
     expect(brush.paint).toHaveBeenCalledWith(11, 12, 'layer-1', 1, 0);
+  });
+
+  it('rasterizes a continuous snapped line for color-cycle stroke grid snap', () => {
+    const ctx = createCtx();
+    const brush = createBrush();
+    const gridSnapStrokePointRef = { current: null as { x: number; y: number } | null };
+
+    const baseArgs = {
+      ctx,
+      activeLayerId: 'layer-1',
+      activeLayerTransparencyLock: false,
+      getActiveLayerColorCycleBrush: () => brush as unknown as ColorCycleBrushImplementation,
+      getActiveLayerBitmapCanvas: () => null,
+      maskHasAlphaNear: jest.fn(() => true),
+      resolveBrushPressureRange: () => ({ enabled: false, minPercent: 100, maxPercent: 100 }),
+      requestGradientApply: jest.fn(),
+      flushGradientApply: jest.fn(),
+      renderColorCycle: jest.fn(),
+      firstStampImmediateRef: { current: false },
+      mirrorScheduledRef: { current: false },
+      gridSnapStrokePointRef,
+      brushSettings: {
+        size: 1,
+        brushShape: BrushShape.COLOR_CYCLE,
+        colorCycleStampShape: 'square' as const,
+        gridSnapEnabled: true,
+        gridSnapSize: 8,
+        pressureEnabled: false,
+        minPressure: 0,
+        maxPressure: 100,
+      },
+    };
+
+    drawColorCycleStroke({
+      ...baseArgs,
+      x: 1,
+      y: 1,
+    });
+
+    drawColorCycleStroke({
+      ...baseArgs,
+      x: 25,
+      y: 1,
+    });
+
+    const paintedPoints = (brush.paint as jest.Mock).mock.calls.map((call) => [call[0], call[1]]);
+    expect(paintedPoints[0]).toEqual([0, 0]);
+    expect(paintedPoints[paintedPoints.length - 1]).toEqual([24, 0]);
+    expect(paintedPoints).toContainEqual([12, 0]);
+    expect(paintedPoints).toContainEqual([20, 0]);
+    expect(paintedPoints.length).toBe(25);
+  });
+
+  it('does not connect a new snapped stroke to the previous stroke after reset', () => {
+    const ctx = createCtx();
+    const brush = createBrush();
+    const gridSnapStrokePointRef = { current: null as { x: number; y: number } | null };
+
+    const baseArgs = {
+      ctx,
+      activeLayerId: 'layer-1',
+      activeLayerTransparencyLock: false,
+      getActiveLayerColorCycleBrush: () => brush as unknown as ColorCycleBrushImplementation,
+      getActiveLayerBitmapCanvas: () => null,
+      maskHasAlphaNear: jest.fn(() => true),
+      resolveBrushPressureRange: () => ({ enabled: false, minPercent: 100, maxPercent: 100 }),
+      requestGradientApply: jest.fn(),
+      flushGradientApply: jest.fn(),
+      renderColorCycle: jest.fn(),
+      firstStampImmediateRef: { current: false },
+      mirrorScheduledRef: { current: false },
+      gridSnapStrokePointRef,
+      brushSettings: {
+        size: 1,
+        brushShape: BrushShape.COLOR_CYCLE,
+        colorCycleStampShape: 'square' as const,
+        gridSnapEnabled: true,
+        gridSnapSize: 8,
+        pressureEnabled: false,
+        minPressure: 0,
+        maxPressure: 100,
+      },
+    };
+
+    drawColorCycleStroke({
+      ...baseArgs,
+      x: 1,
+      y: 1,
+    });
+    drawColorCycleStroke({
+      ...baseArgs,
+      x: 25,
+      y: 1,
+    });
+
+    gridSnapStrokePointRef.current = null;
+    (brush.paint as jest.Mock).mockClear();
+
+    drawColorCycleStroke({
+      ...baseArgs,
+      x: 1,
+      y: 17,
+    });
+
+    expect((brush.paint as jest.Mock).mock.calls.map((call) => [call[0], call[1]])).toEqual([
+      [0, 16],
+    ]);
   });
 });

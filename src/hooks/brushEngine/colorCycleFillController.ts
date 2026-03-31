@@ -1,6 +1,10 @@
 import { BrushShape, type BrushSettings } from '@/types';
 import type { ColorCycleBrushImplementation } from './ColorCycleBrushMigration';
 import type { GradientDitherOptions, Point2D } from './shapeTypes';
+import {
+  snapVerticesToColorCycleGrid,
+  type ColorCycleGridSnapSettings,
+} from './colorCycleGridSnap';
 
 type FillBrush = ColorCycleBrushImplementation & {
   setLayerId?: (layerId: string) => void;
@@ -33,6 +37,8 @@ type SharedArgs = {
     | 'ditherEnabled'
     | 'gradientBands'
     | 'brushShape'
+    | 'gridSnapEnabled'
+    | 'gridSnapSize'
     | 'colorCycleBandSpacingPx'
     | 'spacing'
     | 'lostEdge'
@@ -44,6 +50,13 @@ type SharedArgs = {
   requestGradientApply: (layerId: string, reason: string) => void;
   flushGradientApply: (layerId: string) => void;
   renderBrushToLayerCanvas: (brush: ColorCycleBrushImplementation, layerId: string) => void;
+};
+
+const snapFillVertices = (
+  vertices: Point2D[],
+  brushSettings: ColorCycleGridSnapSettings
+): Point2D[] => {
+  return snapVerticesToColorCycleGrid(vertices, brushSettings);
 };
 
 const prepareFillContext = ({
@@ -117,6 +130,7 @@ export const fillColorCycleLinear = async ({
 }): Promise<void> => {
   const brush = initializeColorCycleBrush() as FillBrush | null;
   const layerId = activeLayerId;
+  const snappedVertices = snapFillVertices(vertices, brushSettings);
 
   if (brush && layerId) {
     prepareFillContext({
@@ -146,7 +160,7 @@ export const fillColorCycleLinear = async ({
     await Promise.resolve(
       brush.fillShapeDispatch?.({
         mode: 'linear',
-        vertices,
+        vertices: snappedVertices,
         layerId,
         direction,
         options: {
@@ -188,6 +202,7 @@ export const fillColorCycleConcentric = async ({
 }): Promise<void> => {
   const brush = initializeColorCycleBrush() as FillBrush | null;
   const layerId = activeLayerId;
+  const snappedVertices = snapFillVertices(vertices, brushSettings);
 
   if (brush && layerId) {
     prepareFillContext({
@@ -219,7 +234,7 @@ export const fillColorCycleConcentric = async ({
     await Promise.resolve(
       brush.fillShapeDispatch?.({
         mode: 'concentric',
-        vertices,
+        vertices: snappedVertices,
         layerId,
         options: {
           spacing,
