@@ -499,16 +499,19 @@ describe('ColorCycleBrushCanvas2D regression tests', () => {
     if (!spd) {
       throw new Error('Missing speed buffer for velocity animation speed test');
     }
-    const idx = animator.getIndexBuffers().data;
-    if (!idx) {
-      throw new Error('Missing index buffer for velocity animation speed test');
-    }
-
     const firstIndex = 2 + 2 * canvas.width;
     const secondIndex = 14 + 2 * canvas.width;
     expect(spd[firstIndex]).toBe(baseSpeedByte);
     expect(spd[secondIndex]).toBe(baseSpeedByte);
-    expect(idx[secondIndex]).toBeGreaterThan(idx[firstIndex]);
+
+    const strokeState = (brush as unknown as {
+      layerStrokes: Map<string, { strokePhaseUnits: number }>;
+    }).layerStrokes.get(layerId);
+    if (!strokeState) {
+      throw new Error('Missing stroke state for velocity animation speed test');
+    }
+    expect(strokeState.strokePhaseUnits).toBeGreaterThan(1);
+    expect(strokeState.strokePhaseUnits).toBeLessThan(2);
 
     state.tools.brushSettings.velocityAnimationSpeedEnabled = false;
   });
@@ -528,6 +531,8 @@ describe('ColorCycleBrushCanvas2D regression tests', () => {
     }).resolvePhaseAdvancePerStamp(2.5);
 
     expect(lowSpeedAdvance).toBeGreaterThan(highSpeedAdvance);
+    expect(highSpeedAdvance).toBeLessThan(1);
+    expect(lowSpeedAdvance - highSpeedAdvance).toBeGreaterThan(1);
     state.tools.brushSettings.velocityAnimationSpeedEnabled = false;
   });
 
