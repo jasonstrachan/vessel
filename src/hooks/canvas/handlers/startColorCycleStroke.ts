@@ -4,6 +4,7 @@ import type { CustomBrushStrokeData } from '@/hooks/brushEngine/BrushEngineFacad
 import type { ColorCycleBrushFlags } from '@/hooks/canvas/utils/colorCycleBrushFlags';
 import type { AppState } from '@/stores/useAppStore';
 import type { ColorCycleBrushImplementation } from '@/hooks/brushEngine/ColorCycleBrushMigration';
+import type { CcFlowVelocityState } from '@/utils/colorCycleFlowVelocity';
 import { configureStartColorCycleStroke } from '@/hooks/canvas/handlers/startColorCycleStrokeConfig';
 import { prepareColorCycleStrokeQueue } from '@/hooks/canvas/handlers/startColorCycleStrokeQueue';
 import { startColorCycleStrokeStamp } from '@/hooks/canvas/handlers/startColorCycleStrokeStamp';
@@ -34,6 +35,7 @@ export const startColorCycleStroke = ({
   colorCycleLastPosRef,
   colorCycleDistanceRef,
   colorCycleLastRotationRef,
+  ccFlowVelocityRef,
   getCCStampTargetCtx,
   brushEngine,
   resolveBrushRotation,
@@ -53,6 +55,7 @@ export const startColorCycleStroke = ({
   colorCycleLastPosRef: React.MutableRefObject<Point | null>;
   colorCycleDistanceRef: React.MutableRefObject<number>;
   colorCycleLastRotationRef: React.MutableRefObject<number | undefined>;
+  ccFlowVelocityRef: React.MutableRefObject<CcFlowVelocityState>;
   getCCStampTargetCtx: () => CanvasRenderingContext2D | null;
   brushEngine: ColorCycleBrushEngine;
   resolveBrushRotation: (
@@ -68,6 +71,7 @@ export const startColorCycleStroke = ({
   debugLog: (message: string, payload?: Record<string, unknown>) => void;
   beginMaskHealingStroke: (layerId: string, worldPos: Point, pressure: number) => void;
 }): 'handled' | 'abort' => {
+  ccFlowVelocityRef.current.smoothedPxPerMs = 0;
   const activeLayer = currentState.layers.find((layer) => layer.id === currentState.activeLayerId);
   const isColorCycleLayer = activeLayer?.layerType === 'color-cycle';
   if (!isColorCycleLayer) {

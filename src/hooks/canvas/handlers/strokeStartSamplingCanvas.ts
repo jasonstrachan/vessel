@@ -6,6 +6,7 @@ import { prepareStrokeStartColorCycleState } from '@/hooks/canvas/handlers/strok
 import type { PixelQueue } from '@/hooks/brushEngine/types';
 import { initializeStrokeStartCanvasState } from '@/hooks/canvas/handlers/strokeStartCanvas';
 import { syncStrokeStartPalette } from '@/hooks/canvas/handlers/strokeStartPalette';
+import type { CcFlowVelocityState } from '@/utils/colorCycleFlowVelocity';
 
 type Point = { x: number; y: number };
 
@@ -27,6 +28,7 @@ export const prepareStrokeStartSamplingCanvas = ({
   colorCycleDistanceRef,
   colorCycleLastPosRef,
   colorCycleLastRotationRef,
+  ccFlowVelocityRef,
   colorCyclePixelQueueRef,
   createPixelQueue,
   brushEngine,
@@ -58,6 +60,7 @@ export const prepareStrokeStartSamplingCanvas = ({
   colorCycleDistanceRef: React.MutableRefObject<number>;
   colorCycleLastPosRef: React.MutableRefObject<Point | null>;
   colorCycleLastRotationRef: React.MutableRefObject<number | undefined>;
+  ccFlowVelocityRef: React.MutableRefObject<CcFlowVelocityState>;
   colorCyclePixelQueueRef: React.MutableRefObject<PixelQueue | null>;
   createPixelQueue: () => PixelQueue;
   brushEngine: { resetStroke?: () => void; resetColorCycle: () => void } | null;
@@ -99,6 +102,7 @@ export const prepareStrokeStartSamplingCanvas = ({
     colorCycleDistanceRef,
     colorCycleLastPosRef,
     colorCycleLastRotationRef,
+    ccFlowVelocityRef,
     colorCyclePixelQueueRef,
     createPixelQueue,
     brushEngine,

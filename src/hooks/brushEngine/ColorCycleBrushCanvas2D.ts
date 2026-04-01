@@ -47,13 +47,13 @@ import {
   encodeColorCycleSpeedByte,
   sanitizeBrushColorCycleSpeed,
 } from '@/utils/colorCycleSpeed';
+import { resolveCcFlowSpeedMultiplier } from '@/utils/colorCycleFlowVelocity';
 import {
   appendGradientSeamProfileSignature,
   normalizeGradientSeamProfile,
   type GradientSeamProfile,
 } from '@/lib/colorCycle/gradientSeamProfile';
 import { ensurePalette } from '@/lib/colorCycle/paletteService';
-import { resolveVelocitySpacingStrength } from '@/utils/velocitySpacing';
 import { resolveLayerColorCycleBaseSpeedFromLayer } from '@/utils/colorCycleLayerSpeed';
 import type { CommitCommittedLayerStateOptions } from '@/hooks/brushEngine/colorCycleCommittedState';
 
@@ -308,9 +308,6 @@ interface StampMaskCacheEntry {
 const STAMP_MASK_ROTATION_TOLERANCE = Math.PI / 180; // ~1°
 const STAMP_MASK_CACHE_LIMIT = 80;
 const COLOR_CYCLE_FILL_WORKER_AREA = 240_000; // pixels
-const MAX_PHASE_ADVANCE_PER_STAMP = 3;
-const MIN_PHASE_ADVANCE_PER_STAMP = 0.35;
-const VELOCITY_PHASE_ADVANCE_CURVE = 0.7;
 const nowMs = () => (typeof performance !== 'undefined' ? performance.now() : Date.now());
 
 const createYieldController = () => {
@@ -979,26 +976,8 @@ export class ColorCycleBrushCanvas2D {
     return { id, animator, strokeData };
   }
 
-  private resolvePhaseAdvancePerStamp(speedSamplePxPerMs?: number): number {
-    let velocityAnimationSpeedEnabled = false;
-    try {
-      velocityAnimationSpeedEnabled = Boolean(
-        useAppStore.getState().tools?.brushSettings?.velocityAnimationSpeedEnabled
-      );
-    } catch {
-      velocityAnimationSpeedEnabled = false;
-    }
-
-    if (!velocityAnimationSpeedEnabled || !Number.isFinite(speedSamplePxPerMs)) {
-      return 1;
-    }
-
-    const strength = resolveVelocitySpacingStrength({
-      enabled: true,
-      speedPxPerMs: speedSamplePxPerMs,
-    });
-    const easedStrength = Math.pow(strength, VELOCITY_PHASE_ADVANCE_CURVE);
-    return MAX_PHASE_ADVANCE_PER_STAMP - easedStrength * (MAX_PHASE_ADVANCE_PER_STAMP - MIN_PHASE_ADVANCE_PER_STAMP);
+  private resolvePhaseAdvancePerStamp(): number {
+    return 1;
   }
 
   private getWriteCycleSpeed(strokeData?: LayerStrokeState | null): number {
@@ -1093,8 +1072,27 @@ export class ColorCycleBrushCanvas2D {
     return this.computeColorBandIndex(strokeData);
   }
 
-  private advanceStrokePhase(strokeData: LayerStrokeState, speedSamplePxPerMs?: number): void {
-    const advance = this.resolvePhaseAdvancePerStamp(speedSamplePxPerMs);
+  private resolveStrokeFlowCycleSpeed(speedSamplePxPerMs?: number): number {
+    const baseSpeed = this.getResolvedWriteCycleSpeed();
+    const speedMultiplier = resolveCcFlowSpeedMultiplier(speedSamplePxPerMs);
+    if (speedMultiplier <= 1) {
+      return baseSpeed;
+    }
+
+    return sanitizeBrushColorCycleSpeed(
+      baseSpeed * speedMultiplier,
+      baseSpeed
+    );
+  }
+
+  private applyStrokeFlowSpeed(strokeData: LayerStrokeState, speedSamplePxPerMs?: number): void {
+    const resolvedSpeed = this.resolveStrokeFlowCycleSpeed(speedSamplePxPerMs);
+    strokeData.strokeCycleSpeed = resolvedSpeed;
+    strokeData.strokeSpeedByte = encodeColorCycleSpeedByte(resolvedSpeed);
+  }
+
+  private advanceStrokePhase(strokeData: LayerStrokeState): void {
+    const advance = this.resolvePhaseAdvancePerStamp();
     strokeData.strokePhaseUnits = (strokeData.strokePhaseUnits + advance) % 255;
   }
 
@@ -1274,7 +1272,8 @@ export class ColorCycleBrushCanvas2D {
     const { id, animator, strokeData } = this.prepareStrokeContext(targetLayerId);
 
     if (strokeData) {
-      this.advanceStrokePhase(strokeData, speedSamplePxPerMs);
+      this.applyStrokeFlowSpeed(strokeData, speedSamplePxPerMs);
+      this.advanceStrokePhase(strokeData);
       const colorIndex = this.computeColorBandIndex(strokeData);
       const activeSlot = strokeData.flow.activeSlot ?? this.activeGradientSlots.get(id) ?? 0;
       const flowSlot = this.resolveFlowSlot(strokeData, activeSlot);
@@ -1508,7 +1507,8 @@ export class ColorCycleBrushCanvas2D {
 
     const targetLayerId = layerId || this.activeLayerId || 'default';
     const { id, animator, strokeData } = this.prepareStrokeContext(targetLayerId);
-    this.advanceStrokePhase(strokeData, speedSamplePxPerMs);
+    this.applyStrokeFlowSpeed(strokeData, speedSamplePxPerMs);
+    this.advanceStrokePhase(strokeData);
     const colorIndex = this.computeColorBandIndexPerStamp(strokeData);
     const speedByte = this.getWriteSpeedByte(strokeData);
     if (typeof (animator as { setStrokeSpeedByte?: (value: number) => void }).setStrokeSpeedByte === 'function') {

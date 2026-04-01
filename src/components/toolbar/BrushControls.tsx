@@ -1406,14 +1406,6 @@ const BrushControls = () => {
                 aria-label="Speed"
                 className="flex-1"
               />
-            <VelocityLinkToggle
-              id="velocity-animation-speed-cc"
-              checked={Boolean(activeSettings.velocityAnimationSpeedEnabled)}
-              onChange={(checked) =>
-                setActiveSettings({ velocityAnimationSpeedEnabled: checked })
-              }
-              title="Link animation speed to cursor speed"
-            />
           </div>
         </div>
 
@@ -3624,14 +3616,6 @@ const BrushControls = () => {
                   }
                   aria-label="Custom Brush Color Cycle Speed"
                   className="flex-1"
-                />
-                <VelocityLinkToggle
-                  id="velocity-animation-speed-custom"
-                  checked={Boolean(activeSettings.velocityAnimationSpeedEnabled)}
-                  onChange={(checked) =>
-                    setActiveSettings({ velocityAnimationSpeedEnabled: checked })
-                  }
-                  title="Link animation speed to cursor speed"
                 />
               </div>
             </div>

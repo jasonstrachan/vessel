@@ -1359,48 +1359,6 @@ export const createLayersSlice = (
       ctx.globalAlpha = 1;
     };
 
-    const drawSequentialLayers = (
-      ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D,
-      sortedLayers: Layer[],
-      project: Project,
-      frameIndex: number
-    ): boolean => {
-      let drewLayer = false;
-
-      for (const layer of sortedLayers) {
-        if (
-          !layer.visible ||
-          layer.layerType !== 'sequential' ||
-          !layer.sequentialData
-        ) {
-          continue;
-        }
-
-        const source = getSequentialLayerRenderCanvas({
-          layer,
-          width: project.width,
-          height: project.height,
-          frameIndex,
-        });
-        if (!source) {
-          continue;
-        }
-
-        try {
-          ctx.globalCompositeOperation = layer.blendMode;
-          ctx.globalAlpha = layer.opacity;
-          ctx.drawImage(source as CanvasImageSource, 0, 0);
-          drewLayer = true;
-        } catch {
-          // ignore transient draw failures
-        }
-      }
-
-      ctx.globalCompositeOperation = 'source-over';
-      ctx.globalAlpha = 1;
-      return drewLayer;
-    };
-
     const drawAllLayersInOrder = (
       ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D,
       sortedLayers: Layer[],

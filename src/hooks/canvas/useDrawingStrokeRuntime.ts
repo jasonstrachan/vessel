@@ -76,6 +76,7 @@ export const useDrawingStrokeRuntime = ({
       colorCycleDistanceRef: refs.colorCycleDistanceRef,
       colorCycleLastPosRef: refs.colorCycleLastPosRef,
       colorCycleLastRotationRef: refs.colorCycleLastRotationRef,
+      ccFlowVelocityRef: refs.ccFlowVelocityRef,
       eraserToolRef: refs.eraserToolRef,
       eraserRoiRef: refs.eraserRoiRef,
     },
