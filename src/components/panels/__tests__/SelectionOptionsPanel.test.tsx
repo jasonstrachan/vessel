@@ -90,6 +90,10 @@ describe('SelectionOptionsPanel', () => {
     expect(screen.getByRole('button', { name: 'Flip V' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Invert' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Crop' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Inset' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Expand' })).toBeInTheDocument();
+    expect(screen.getByRole('spinbutton', { name: 'Inset pixels' })).toBeInTheDocument();
+    expect(screen.getByRole('spinbutton', { name: 'Expand pixels' })).toBeInTheDocument();
   });
 
   it('enters crop mode from marquee settings using the current selection bounds', () => {
@@ -198,6 +202,102 @@ describe('SelectionOptionsPanel', () => {
     const state = useAppStore.getState();
     expect(state.selectionMask).toBeTruthy();
     expect(state.selectionMaskBounds).toEqual({ x: 0, y: 0, width: 4, height: 3 });
+  });
+
+  it('expands the current marquee selection from the panel control', () => {
+    act(() => {
+      useAppStore.setState((state) => ({
+        ...state,
+        tools: { ...state.tools, currentTool: 'selection', selectionMode: 'marquee' },
+        project: {
+          id: 'selection-expand-project',
+          name: 'Selection Expand Project',
+          width: 10,
+          height: 10,
+          layers: [],
+          backgroundColor: '#000000',
+          createdAt: new Date(),
+          updatedAt: new Date(),
+          customBrushes: [],
+        },
+        selectionStart: { x: 2, y: 3 },
+        selectionEnd: { x: 6, y: 7 },
+      }));
+    });
+
+    render(<BrushSettingsPanel />);
+    fireEvent.change(screen.getByRole('spinbutton', { name: 'Expand pixels' }), {
+      target: { value: '2' },
+    });
+    fireEvent.blur(screen.getByRole('spinbutton', { name: 'Expand pixels' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Expand' }));
+
+    const state = useAppStore.getState();
+    expect(state.selectionStart).toEqual({ x: 0, y: 1 });
+    expect(state.selectionEnd).toEqual({ x: 8, y: 9 });
+  });
+
+  it('insets the current marquee selection from the panel control', () => {
+    act(() => {
+      useAppStore.setState((state) => ({
+        ...state,
+        tools: { ...state.tools, currentTool: 'selection', selectionMode: 'marquee' },
+        project: {
+          id: 'selection-inset-project',
+          name: 'Selection Inset Project',
+          width: 12,
+          height: 12,
+          layers: [],
+          backgroundColor: '#000000',
+          createdAt: new Date(),
+          updatedAt: new Date(),
+          customBrushes: [],
+        },
+        selectionStart: { x: 1, y: 1 },
+        selectionEnd: { x: 9, y: 8 },
+      }));
+    });
+
+    render(<BrushSettingsPanel />);
+    fireEvent.change(screen.getByRole('spinbutton', { name: 'Inset pixels' }), {
+      target: { value: '2' },
+    });
+    fireEvent.blur(screen.getByRole('spinbutton', { name: 'Inset pixels' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Inset' }));
+
+    const state = useAppStore.getState();
+    expect(state.selectionStart).toEqual({ x: 3, y: 3 });
+    expect(state.selectionEnd).toEqual({ x: 7, y: 6 });
+  });
+
+  it('disables inset when the requested amount would collapse the marquee', () => {
+    act(() => {
+      useAppStore.setState((state) => ({
+        ...state,
+        tools: { ...state.tools, currentTool: 'selection', selectionMode: 'marquee' },
+        project: {
+          id: 'selection-collapse-project',
+          name: 'Selection Collapse Project',
+          width: 10,
+          height: 10,
+          layers: [],
+          backgroundColor: '#000000',
+          createdAt: new Date(),
+          updatedAt: new Date(),
+          customBrushes: [],
+        },
+        selectionStart: { x: 2, y: 2 },
+        selectionEnd: { x: 6, y: 5 },
+      }));
+    });
+
+    render(<BrushSettingsPanel />);
+    fireEvent.change(screen.getByRole('spinbutton', { name: 'Inset pixels' }), {
+      target: { value: '2' },
+    });
+    fireEvent.blur(screen.getByRole('spinbutton', { name: 'Inset pixels' }));
+
+    expect(screen.getByRole('button', { name: 'Inset' })).toBeDisabled();
   });
 
   it('flips floating selection horizontally from the panel control', () => {

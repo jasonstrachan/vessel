@@ -404,6 +404,7 @@ export interface AppState {
     layerId?: string | null;
   }) => void;
   clearSelection: () => void;
+  adjustMarqueeSelection: (delta: number) => void;
   selectAllActiveLayerPixels: () => void;
   selectLayerAlpha: (layerId?: string | null) => void;
   invertSelection: () => void;

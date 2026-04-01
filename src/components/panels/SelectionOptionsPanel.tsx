@@ -2,6 +2,7 @@
 
 import React from 'react';
 import ButtonGroup from '@/components/ui/ButtonGroup';
+import CommittedNumberInput from '@/components/ui/CommittedNumberInput';
 import MagicWandControls from '@/components/toolbar/MagicWandControls';
 import { clampMarqueeDragRectToBounds } from '@/stores/helpers/selectionRoi';
 import { useAppStore } from '@/stores/useAppStore';
@@ -21,6 +22,9 @@ const HELP_TEXT: Record<SelectionMode, string> = {
   'click-line': 'Click points. Double-click or click near start to close.',
   'magic-wand': 'Click pixels to select matching areas on regular or color-cycle layers.',
 };
+
+const ACTION_BUTTON_CLASS_NAME =
+  'h-7 px-2 text-[11px] rounded border border-[#3B3B3B] bg-[#262626] text-[#E2E8F0] transition-colors hover:bg-[#313131] disabled:cursor-not-allowed disabled:opacity-50';
 
 const deriveSelectionRect = (
   selectionStart: { x: number; y: number } | null,
@@ -46,7 +50,10 @@ const SelectionOptionsPanel: React.FC = () => {
   const flipFloatingPasteHorizontal = useAppStore((state) => state.flipFloatingPasteHorizontal);
   const flipFloatingPasteVertical = useAppStore((state) => state.flipFloatingPasteVertical);
   const invertSelection = useAppStore((state) => state.invertSelection);
+  const adjustMarqueeSelection = useAppStore((state) => state.adjustMarqueeSelection);
   const setCropState = useAppStore((state) => state.setCropState);
+  const [insetAmount, setInsetAmount] = React.useState(1);
+  const [expandAmount, setExpandAmount] = React.useState(1);
 
   const hasSelectionBounds = Boolean(selectionStart && selectionEnd);
   const hasSelectionMask = Boolean(selectionMask && selectionMaskBounds);
@@ -57,6 +64,13 @@ const SelectionOptionsPanel: React.FC = () => {
     [project?.height, project?.width, selectionEnd, selectionStart],
   );
   const canCropSelection = selectionMode === 'marquee' && Boolean(marqueeSelectionRect);
+  const canAdjustMarquee = selectionMode === 'marquee' && Boolean(marqueeSelectionRect);
+  const canInsetMarquee = Boolean(
+    marqueeSelectionRect &&
+    insetAmount > 0 &&
+    marqueeSelectionRect.width > insetAmount * 2 &&
+    marqueeSelectionRect.height > insetAmount * 2,
+  );
 
   const handleFlipHorizontal = React.useCallback(() => {
     if (!floatingPaste) {
@@ -92,6 +106,22 @@ const SelectionOptionsPanel: React.FC = () => {
     setCurrentTool('crop');
   }, [marqueeSelectionRect, setCropState, setCurrentTool]);
 
+  const handleInsetMarquee = React.useCallback(() => {
+    if (!canInsetMarquee) {
+      return;
+    }
+
+    adjustMarqueeSelection(-insetAmount);
+  }, [adjustMarqueeSelection, canInsetMarquee, insetAmount]);
+
+  const handleExpandMarquee = React.useCallback(() => {
+    if (!canAdjustMarquee || expandAmount <= 0) {
+      return;
+    }
+
+    adjustMarqueeSelection(expandAmount);
+  }, [adjustMarqueeSelection, canAdjustMarquee, expandAmount]);
+
   if (currentTool !== 'selection') {
     return null;
   }
@@ -108,7 +138,7 @@ const SelectionOptionsPanel: React.FC = () => {
       <div className="mt-3 grid grid-cols-2 gap-2">
         <button
           type="button"
-          className="h-7 px-2 text-[11px] rounded border border-[#3B3B3B] bg-[#262626] text-[#E2E8F0] transition-colors hover:bg-[#313131] disabled:cursor-not-allowed disabled:opacity-50"
+          className={ACTION_BUTTON_CLASS_NAME}
           onClick={handleFlipHorizontal}
           disabled={!canFlipSelection}
         >
@@ -116,16 +146,60 @@ const SelectionOptionsPanel: React.FC = () => {
         </button>
         <button
           type="button"
-          className="h-7 px-2 text-[11px] rounded border border-[#3B3B3B] bg-[#262626] text-[#E2E8F0] transition-colors hover:bg-[#313131] disabled:cursor-not-allowed disabled:opacity-50"
+          className={ACTION_BUTTON_CLASS_NAME}
           onClick={handleFlipVertical}
           disabled={!canFlipSelection}
         >
           Flip V
         </button>
       </div>
+      {selectionMode === 'marquee' && (
+        <div className="mt-2 space-y-2">
+          <div className="grid grid-cols-[1fr_64px] gap-2">
+            <button
+              type="button"
+              className={ACTION_BUTTON_CLASS_NAME}
+              onClick={handleInsetMarquee}
+              disabled={!canInsetMarquee}
+            >
+              Inset
+            </button>
+            <CommittedNumberInput
+              value={insetAmount}
+              onCommit={setInsetAmount}
+              min={1}
+              step={1}
+              title="Inset pixels"
+              ariaLabel="Inset pixels"
+              className="h-7 text-[11px]"
+              disabled={!canAdjustMarquee}
+            />
+          </div>
+          <div className="grid grid-cols-[1fr_64px] gap-2">
+            <button
+              type="button"
+              className={ACTION_BUTTON_CLASS_NAME}
+              onClick={handleExpandMarquee}
+              disabled={!canAdjustMarquee || expandAmount <= 0}
+            >
+              Expand
+            </button>
+            <CommittedNumberInput
+              value={expandAmount}
+              onCommit={setExpandAmount}
+              min={1}
+              step={1}
+              title="Expand pixels"
+              ariaLabel="Expand pixels"
+              className="h-7 text-[11px]"
+              disabled={!canAdjustMarquee}
+            />
+          </div>
+        </div>
+      )}
       <button
         type="button"
-        className="mt-2 h-7 w-full px-2 text-[11px] rounded border border-[#3B3B3B] bg-[#262626] text-[#E2E8F0] transition-colors hover:bg-[#313131] disabled:cursor-not-allowed disabled:opacity-50"
+        className={`mt-2 w-full ${ACTION_BUTTON_CLASS_NAME}`}
         onClick={invertSelection}
         disabled={!canInvertSelection}
       >
@@ -134,7 +208,7 @@ const SelectionOptionsPanel: React.FC = () => {
       {selectionMode === 'marquee' && (
         <button
           type="button"
-          className="mt-2 h-7 w-full px-2 text-[11px] rounded border border-[#3B3B3B] bg-[#262626] text-[#E2E8F0] transition-colors hover:bg-[#313131] disabled:cursor-not-allowed disabled:opacity-50"
+          className={`mt-2 w-full ${ACTION_BUTTON_CLASS_NAME}`}
           onClick={handleCropSelection}
           disabled={!canCropSelection}
         >

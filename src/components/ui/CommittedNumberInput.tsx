@@ -12,6 +12,7 @@ interface CommittedNumberInputProps {
   step?: number;
   className?: string;
   title?: string;
+  ariaLabel?: string;
   variant?: 'compact' | 'hex';
   disabled?: boolean;
 }
@@ -24,6 +25,7 @@ const CommittedNumberInput: React.FC<CommittedNumberInputProps> = ({
   step = 1,
   className,
   title,
+  ariaLabel,
   variant = 'compact',
   disabled = false,
 }) => {
@@ -89,6 +91,7 @@ const CommittedNumberInput: React.FC<CommittedNumberInputProps> = ({
       step={step}
       className={className}
       title={title}
+      aria-label={ariaLabel}
       disabled={disabled}
     />
   );
