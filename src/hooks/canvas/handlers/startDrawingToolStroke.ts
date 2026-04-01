@@ -34,6 +34,7 @@ export const startDrawingToolStroke = ({
   colorCycleLastPosRef,
   colorCycleDistanceRef,
   colorCycleLastRotationRef,
+  ccFlowVelocityRef,
   getCCStampTargetCtx,
   resolveBrushRotation,
   getColorCycleBrushManager,
@@ -67,6 +68,7 @@ export const startDrawingToolStroke = ({
   colorCycleLastPosRef: StartBrushToolStrokeArgs['colorCycleLastPosRef'];
   colorCycleDistanceRef: StartBrushToolStrokeArgs['colorCycleDistanceRef'];
   colorCycleLastRotationRef: StartBrushToolStrokeArgs['colorCycleLastRotationRef'];
+  ccFlowVelocityRef: StartBrushToolStrokeArgs['ccFlowVelocityRef'];
   getCCStampTargetCtx: StartBrushToolStrokeArgs['getCCStampTargetCtx'];
   resolveBrushRotation: StartBrushToolStrokeArgs['resolveBrushRotation'];
   getColorCycleBrushManager: StartBrushToolStrokeArgs['getColorCycleBrushManager'];
@@ -112,12 +114,13 @@ export const startDrawingToolStroke = ({
     scheduleRecompose,
     colorCycleLastPosRef,
     colorCycleDistanceRef,
-      colorCycleLastRotationRef,
-      getCCStampTargetCtx,
-      resolveBrushRotation,
-      getColorCycleBrushManager,
-      debugLog,
-      beginMaskHealingStroke,
-    });
+    colorCycleLastRotationRef,
+    ccFlowVelocityRef,
+    getCCStampTargetCtx,
+    resolveBrushRotation,
+    getColorCycleBrushManager,
+    debugLog,
+    beginMaskHealingStroke,
+  });
   return true;
 };

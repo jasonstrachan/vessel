@@ -8,6 +8,7 @@ import type { BrushStrokeSession } from '@/hooks/canvas/handlers/strokeSession';
 import type { BoundingBox } from '@/hooks/canvas/utils/captureRegions';
 import { EraserTool } from '@/tools/EraserTool';
 import { createPixelQueue } from '@/hooks/brushEngine/strokeProcessor';
+import type { CcFlowVelocityState } from '@/utils/colorCycleFlowVelocity';
 
 export const useDrawingHandlerRefs = () => {
   const feedbackMessageRef = useRef<((message: string) => void) | null>(null);
@@ -69,6 +70,7 @@ export const useDrawingHandlerRefs = () => {
   const colorCycleDistanceRef = useRef<number>(0);
   const colorCycleLastPosRef = useRef<{ x: number; y: number } | null>(null);
   const colorCycleLastRotationRef = useRef<number | undefined>(undefined);
+  const ccFlowVelocityRef = useRef<CcFlowVelocityState>({ smoothedPxPerMs: 0 });
   const colorCyclePixelQueue = useRef<PixelQueue | null>(createPixelQueue());
   const continuousColorCycleAnimationRef = useRef<number | null>(null);
   const continuousColorCycleAnimationActiveRef = useRef(false);
@@ -145,6 +147,7 @@ export const useDrawingHandlerRefs = () => {
     colorCycleDistanceRef,
     colorCycleLastPosRef,
     colorCycleLastRotationRef,
+    ccFlowVelocityRef,
     colorCyclePixelQueue,
     continuousColorCycleAnimationRef,
     continuousColorCycleAnimationActiveRef,

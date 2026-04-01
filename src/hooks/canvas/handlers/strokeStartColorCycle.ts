@@ -1,6 +1,7 @@
 import type React from 'react';
 import type { AppState } from '@/stores/useAppStore';
 import type { PixelQueue } from '@/hooks/brushEngine/types';
+import type { CcFlowVelocityState } from '@/utils/colorCycleFlowVelocity';
 import { resetColorCyclePixelQueue as resetColorCyclePixelQueueExternal } from '@/hooks/canvas/handlers/strokeBatching';
 
 export const prepareStrokeStartColorCycleState = ({
@@ -11,6 +12,7 @@ export const prepareStrokeStartColorCycleState = ({
   colorCycleDistanceRef,
   colorCycleLastPosRef,
   colorCycleLastRotationRef,
+  ccFlowVelocityRef,
   colorCyclePixelQueueRef,
   createPixelQueue,
   brushEngine,
@@ -23,6 +25,7 @@ export const prepareStrokeStartColorCycleState = ({
   colorCycleDistanceRef: React.MutableRefObject<number>;
   colorCycleLastPosRef: React.MutableRefObject<{ x: number; y: number } | null>;
   colorCycleLastRotationRef: React.MutableRefObject<number | undefined>;
+  ccFlowVelocityRef: React.MutableRefObject<CcFlowVelocityState>;
   colorCyclePixelQueueRef: React.MutableRefObject<PixelQueue | null>;
   createPixelQueue: () => PixelQueue;
   brushEngine: { resetColorCycle: () => void } | null;
@@ -44,6 +47,7 @@ export const prepareStrokeStartColorCycleState = ({
   colorCycleDistanceRef.current = 0;
   colorCycleLastPosRef.current = null;
   colorCycleLastRotationRef.current = undefined;
+  ccFlowVelocityRef.current.smoothedPxPerMs = 0;
 
   resetColorCyclePixelQueueExternal(colorCyclePixelQueueRef, { createPixelQueue });
 

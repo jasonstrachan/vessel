@@ -10,6 +10,10 @@ import {
   captureSequentialStampsForActiveLayer,
   createFallbackSequentialStamp,
 } from '@/hooks/canvas/handlers/sequential/sequentialCapture';
+import {
+  resolveCcFlowVelocitySignal,
+  type CcFlowVelocityState,
+} from '@/utils/colorCycleFlowVelocity';
 
 type BrushEngine = {
   drawBrush: (
@@ -67,6 +71,7 @@ export type ProcessBatchedStrokesArgs = {
   colorCycleDistanceRef: React.MutableRefObject<number>;
   colorCycleLastPosRef: React.MutableRefObject<{ x: number; y: number } | null>;
   colorCycleLastRotationRef: React.MutableRefObject<number | undefined>;
+  ccFlowVelocityRef: React.MutableRefObject<CcFlowVelocityState>;
   eraserToolRef: React.MutableRefObject<{
     move: (to: { x: number; y: number }, pressure: number, from: { x: number; y: number }) => void;
     getROI: () => { x: number; y: number; width: number; height: number } | null;
@@ -280,6 +285,10 @@ export const processBatchedStrokes = (
       const velocityPxPerMs = deltaMs !== null
         ? Math.max(0, Math.min(4, segmentDistance / deltaMs))
         : undefined;
+      const ccFlowVelocityPxPerMs = resolveCcFlowVelocitySignal(
+        args.ccFlowVelocityRef.current,
+        velocityPxPerMs
+      );
 
       if (currentTool === 'eraser') {
         if (deps.isEraserV2) {
@@ -468,7 +477,7 @@ export const processBatchedStrokes = (
                     y: sy,
                     pressure: sPressure,
                     rotation: sRotation,
-                    speedSamplePxPerMs: velocityPxPerMs,
+                    speedSamplePxPerMs: ccFlowVelocityPxPerMs,
                     customStamp: usingCustomStamp ? stampData : undefined
                   });
 

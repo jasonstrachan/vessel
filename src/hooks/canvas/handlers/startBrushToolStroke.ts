@@ -12,6 +12,7 @@ import {
 } from '@/hooks/canvas/handlers/sequential/sequentialCapture';
 import type { PixelQueue } from '@/hooks/brushEngine/types';
 import type { ColorCycleBrushImplementation } from '@/hooks/brushEngine/ColorCycleBrushMigration';
+import type { CcFlowVelocityState } from '@/utils/colorCycleFlowVelocity';
 
 type Point = { x: number; y: number };
 
@@ -54,6 +55,7 @@ export const startBrushToolStroke = ({
   colorCycleLastPosRef,
   colorCycleDistanceRef,
   colorCycleLastRotationRef,
+  ccFlowVelocityRef,
   getCCStampTargetCtx,
   resolveBrushRotation,
   getColorCycleBrushManager,
@@ -85,6 +87,7 @@ export const startBrushToolStroke = ({
   colorCycleLastPosRef: React.MutableRefObject<Point | null>;
   colorCycleDistanceRef: React.MutableRefObject<number>;
   colorCycleLastRotationRef: React.MutableRefObject<number | undefined>;
+  ccFlowVelocityRef: React.MutableRefObject<CcFlowVelocityState>;
   getCCStampTargetCtx: () => CanvasRenderingContext2D | null;
   resolveBrushRotation: (
     rotationEnabled: boolean,
@@ -160,6 +163,7 @@ export const startBrushToolStroke = ({
       colorCycleLastPosRef.current = worldPos;
       colorCycleDistanceRef.current = 0;
       colorCycleLastRotationRef.current = 0;
+      ccFlowVelocityRef.current.smoothedPxPerMs = 0;
       const captureState = useAppStore.getState();
       captureSequentialStampsForActiveLayer({
         state: captureState,
@@ -182,6 +186,7 @@ export const startBrushToolStroke = ({
       colorCycleLastPosRef,
       colorCycleDistanceRef,
       colorCycleLastRotationRef,
+      ccFlowVelocityRef,
       getCCStampTargetCtx,
       brushEngine,
       resolveBrushRotation,

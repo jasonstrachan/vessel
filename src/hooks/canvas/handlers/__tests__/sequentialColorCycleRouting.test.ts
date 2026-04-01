@@ -191,6 +191,93 @@ const createColorCycleState = (): AppState => {
   return useAppStore.getState();
 };
 
+const createColorCycleBatchHarness = (options?: {
+  batch?: Array<{ pos: { x: number; y: number }; pressure: number; timestampMs?: number }>;
+  lastDrawPos?: { x: number; y: number };
+  lastDrawTimestampMs?: number | null;
+  spacing?: number;
+  shouldDrawStamp?: ProcessBatchedStrokesDeps['shouldDrawStamp'];
+}) => {
+  createSequentialState();
+  const spacing = options?.spacing ?? 8;
+  useAppStore.setState((state) => ({
+    tools: {
+      ...state.tools,
+      brushSettings: {
+        ...state.tools.brushSettings,
+        spacing,
+      },
+    },
+  }));
+
+  const drawCtx = document.createElement('canvas').getContext('2d');
+  if (!drawCtx) {
+    throw new Error('2d context unavailable');
+  }
+
+  const drawColorCycle = jest.fn();
+  const args: ProcessBatchedStrokesArgs = {
+    strokeBatchRef: {
+      current: options?.batch ?? [{ pos: { x: spacing, y: 0 }, pressure: 1, timestampMs: 1010 }],
+    },
+    strokeBatchTimerRef: { current: 1 },
+    drawingCtxRef: { current: drawCtx },
+    lastDrawPosRef: { current: options?.lastDrawPos ?? { x: 0, y: 0 } },
+    lastDrawTimestampRef: { current: options?.lastDrawTimestampMs ?? 1000 },
+    brushSamplingPreviewActiveRef: { current: false },
+    autoSamplePointsRef: { current: [] },
+    ccSampledPointsRef: { current: [] },
+    resamplerBrushDataRef: { current: undefined },
+    stampCounterRef: { current: 0 },
+    colorCyclePixelQueueRef: { current: null },
+    colorCycleDistanceRef: { current: 0 },
+    colorCycleLastPosRef: { current: options?.lastDrawPos ?? { x: 0, y: 0 } },
+    colorCycleLastRotationRef: { current: 0 },
+    ccFlowVelocityRef: { current: { smoothedPxPerMs: 0 } },
+    eraserToolRef: { current: null },
+    eraserRoiRef: { current: null },
+  };
+
+  const deps: ProcessBatchedStrokesDeps = {
+    storeRef: { current: useAppStore.getState() },
+    project: { width: 32, height: 32 },
+    brushEngine: {
+      drawBrush: jest.fn(),
+      consumeRecentStamps: jest.fn(() => []),
+      drawColorCycle,
+    },
+    userBrushEngine: {
+      isUserBrush: () => false,
+      continueStroke: jest.fn(),
+    },
+    drawEraserSegment: jest.fn(),
+    updateAutoSampledGradient: jest.fn(),
+    updateCcSampledGradient: jest.fn(),
+    renderBrushSamplingPreview: jest.fn(),
+    getCCStampTargetCtx: () => null,
+    scheduleRecompose: jest.fn(),
+    extendMaskHealingStroke: jest.fn(),
+    createPixelQueue,
+    getColorCycleBrushManager: () => ({ getBrush: () => null }),
+    ensureActiveColorCycleGradientSlot: jest.fn(),
+    resolveActiveCustomBrushData: () => undefined,
+    getColorCycleBrushFlags: () => ({ isAny: true, isCustom: false }),
+    selectEffectiveColorCyclePlaying: () => true,
+    shouldPixelAlignBrush: () => false,
+    alignPointToPixel: (point) => point,
+    clipLineSegment: (start, end) => [start, end],
+    shouldDrawStamp: options?.shouldDrawStamp ?? (() => true),
+    shouldApplyGridSnapPure: () => false,
+    calculateGridSpacing: () => 1,
+    snapToGridPure: (x, y) => ({ x, y }),
+    resolveBrushRotation: () => ({ rotation: 0, nextRotation: 0 }),
+    captureBrushFromCanvas: jest.fn(() => null),
+    isEraserV2: false,
+  };
+
+  return { args, deps, drawColorCycle };
+};
+
 describe('sequential color-cycle routing', () => {
   beforeEach(() => {
     sequentialCaptureTesting.resetDefaultRuntime();
@@ -212,6 +299,7 @@ describe('sequential color-cycle routing', () => {
     const colorCycleLastPosRef = { current: null as { x: number; y: number } | null };
     const colorCycleDistanceRef = { current: 0 };
     const colorCycleLastRotationRef = { current: undefined as number | undefined };
+    const ccFlowVelocityRef = { current: { smoothedPxPerMs: 0 } };
 
     startBrushToolStroke({
       currentState,
@@ -237,6 +325,7 @@ describe('sequential color-cycle routing', () => {
       colorCycleLastPosRef,
       colorCycleDistanceRef,
       colorCycleLastRotationRef,
+      ccFlowVelocityRef,
       getCCStampTargetCtx: () => null,
       resolveBrushRotation: () => ({ rotation: 0, nextRotation: 0 }),
       getColorCycleBrushManager: () => ({ getBrush: () => null }),
@@ -287,6 +376,7 @@ describe('sequential color-cycle routing', () => {
       colorCycleLastPosRef: { current: null },
       colorCycleDistanceRef: { current: 0 },
       colorCycleLastRotationRef: { current: undefined },
+      ccFlowVelocityRef: { current: { smoothedPxPerMs: 0 } },
       getCCStampTargetCtx: () => null,
       resolveBrushRotation: () => ({ rotation: 0, nextRotation: 0 }),
       getColorCycleBrushManager: () => ({ getBrush: () => null }),
@@ -340,6 +430,7 @@ describe('sequential color-cycle routing', () => {
       colorCycleLastPosRef: { current: null },
       colorCycleDistanceRef: { current: 0 },
       colorCycleLastRotationRef: { current: undefined },
+      ccFlowVelocityRef: { current: { smoothedPxPerMs: 0 } },
       getCCStampTargetCtx: () => null,
       resolveBrushRotation: () => ({ rotation: 0, nextRotation: 0 }),
       getColorCycleBrushManager: () => ({ getBrush: () => null }),
@@ -380,6 +471,7 @@ describe('sequential color-cycle routing', () => {
       colorCycleDistanceRef: { current: 0 },
       colorCycleLastPosRef: { current: { x: 0, y: 0 } },
       colorCycleLastRotationRef: { current: 0 },
+      ccFlowVelocityRef: { current: { smoothedPxPerMs: 0 } },
       eraserToolRef: { current: null },
       eraserRoiRef: { current: null },
     };
@@ -431,79 +523,73 @@ describe('sequential color-cycle routing', () => {
     expect(events[0].brush.brushShape).toBe(BrushShape.COLOR_CYCLE);
   });
 
-  it('forwards velocity samples to color-cycle stroke batches', () => {
-    createSequentialState();
-    const drawCtx = document.createElement('canvas').getContext('2d');
-    if (!drawCtx) {
-      throw new Error('2d context unavailable');
-    }
-
-    const drawColorCycle = jest.fn();
-    const args: ProcessBatchedStrokesArgs = {
-      strokeBatchRef: {
-        current: [
-          { pos: { x: 8, y: 0 }, pressure: 1, timestampMs: 1010 },
-        ],
-      },
-      strokeBatchTimerRef: { current: 1 },
-      drawingCtxRef: { current: drawCtx },
-      lastDrawPosRef: { current: { x: 0, y: 0 } },
-      lastDrawTimestampRef: { current: 1000 },
-      brushSamplingPreviewActiveRef: { current: false },
-      autoSamplePointsRef: { current: [] },
-      ccSampledPointsRef: { current: [] },
-      resamplerBrushDataRef: { current: undefined },
-      stampCounterRef: { current: 0 },
-      colorCyclePixelQueueRef: { current: null },
-      colorCycleDistanceRef: { current: 0 },
-      colorCycleLastPosRef: { current: { x: 0, y: 0 } },
-      colorCycleLastRotationRef: { current: 0 },
-      eraserToolRef: { current: null },
-      eraserRoiRef: { current: null },
-    };
-
-    const deps: ProcessBatchedStrokesDeps = {
-      storeRef: { current: useAppStore.getState() },
-      project: { width: 32, height: 32 },
-      brushEngine: {
-        drawBrush: jest.fn(),
-        consumeRecentStamps: jest.fn(() => []),
-        drawColorCycle,
-      },
-      userBrushEngine: {
-        isUserBrush: () => false,
-        continueStroke: jest.fn(),
-      },
-      drawEraserSegment: jest.fn(),
-      updateAutoSampledGradient: jest.fn(),
-      updateCcSampledGradient: jest.fn(),
-      renderBrushSamplingPreview: jest.fn(),
-      getCCStampTargetCtx: () => null,
-      scheduleRecompose: jest.fn(),
-      extendMaskHealingStroke: jest.fn(),
-      createPixelQueue,
-      getColorCycleBrushManager: () => ({ getBrush: () => null }),
-      ensureActiveColorCycleGradientSlot: jest.fn(),
-      resolveActiveCustomBrushData: () => undefined,
-      getColorCycleBrushFlags: () => ({ isAny: true, isCustom: false }),
-      selectEffectiveColorCyclePlaying: () => true,
-      shouldPixelAlignBrush: () => false,
-      alignPointToPixel: (point) => point,
-      clipLineSegment: (start, end) => [start, end],
-      shouldDrawStamp: () => true,
-      shouldApplyGridSnapPure: () => false,
-      calculateGridSpacing: () => 1,
-      snapToGridPure: (x, y) => ({ x, y }),
-      resolveBrushRotation: () => ({ rotation: 0, nextRotation: 0 }),
-      captureBrushFromCanvas: jest.fn(() => null),
-      isEraserV2: false,
-    };
+  it('keeps low-speed flow samples near base speed', () => {
+    const { args, deps, drawColorCycle } = createColorCycleBatchHarness({
+      batch: [{ pos: { x: 8, y: 0 }, pressure: 1, timestampMs: 1400 }],
+    });
 
     processBatchedStrokes(args, deps);
 
-    expect(drawColorCycle).toHaveBeenCalled();
+    expect(drawColorCycle).toHaveBeenCalledTimes(1);
     const forwardedOptions = drawColorCycle.mock.calls[0]?.[5];
-    expect(forwardedOptions?.speedSamplePxPerMs).toBeCloseTo(0.8, 3);
+    expect(forwardedOptions?.speedSamplePxPerMs ?? 0).toBeCloseTo(0, 4);
+  });
+
+  it('keeps noisy timestamps from creating alternating speed pockets', () => {
+    const { args, deps, drawColorCycle } = createColorCycleBatchHarness({
+      batch: [
+        { pos: { x: 8, y: 0 }, pressure: 1, timestampMs: 1016 },
+        { pos: { x: 16, y: 0 }, pressure: 1, timestampMs: 1029 },
+        { pos: { x: 24, y: 0 }, pressure: 1, timestampMs: 1047 },
+      ],
+    });
+
+    processBatchedStrokes(args, deps);
+
+    const forwardedSamples = drawColorCycle.mock.calls
+      .map((call) => call[5]?.speedSamplePxPerMs ?? 0);
+    expect(forwardedSamples).toHaveLength(3);
+    expect(forwardedSamples[0]).toBeLessThan(forwardedSamples[1]);
+    expect(forwardedSamples[1]).toBeLessThan(forwardedSamples[2]);
+    expect(forwardedSamples[2] - forwardedSamples[0]).toBeLessThan(0.12);
+  });
+
+  it('ramps higher sustained speed smoothly through the CC flow signal', () => {
+    const { args, deps, drawColorCycle } = createColorCycleBatchHarness({
+      batch: [
+        { pos: { x: 8, y: 0 }, pressure: 1, timestampMs: 1004 },
+        { pos: { x: 16, y: 0 }, pressure: 1, timestampMs: 1008 },
+        { pos: { x: 24, y: 0 }, pressure: 1, timestampMs: 1012 },
+      ],
+    });
+
+    processBatchedStrokes(args, deps);
+
+    const forwardedSamples = drawColorCycle.mock.calls
+      .map((call) => call[5]?.speedSamplePxPerMs ?? 0);
+    expect(forwardedSamples).toHaveLength(3);
+    expect(forwardedSamples[0]).toBeGreaterThan(0);
+    expect(forwardedSamples[1]).toBeGreaterThan(forwardedSamples[0]);
+    expect(forwardedSamples[2]).toBeGreaterThan(forwardedSamples[1]);
+    expect(forwardedSamples[2]).toBeLessThanOrEqual(1.4);
+  });
+
+  it('keeps CC stamp placement unchanged across velocity profiles', () => {
+    const fast = createColorCycleBatchHarness({
+      batch: [{ pos: { x: 24, y: 0 }, pressure: 1, timestampMs: 1006 }],
+      spacing: 6,
+    });
+    processBatchedStrokes(fast.args, fast.deps);
+
+    const slow = createColorCycleBatchHarness({
+      batch: [{ pos: { x: 24, y: 0 }, pressure: 1, timestampMs: 1240 }],
+      spacing: 6,
+    });
+    processBatchedStrokes(slow.args, slow.deps);
+
+    const fastStampPositions = fast.drawColorCycle.mock.calls.map((call) => [call[1], call[2]]);
+    const slowStampPositions = slow.drawColorCycle.mock.calls.map((call) => [call[1], call[2]]);
+    expect(slowStampPositions).toEqual(fastStampPositions);
   });
 
   it('keeps custom sequential stamps painting when live custom brush lookup temporarily drops', () => {
@@ -565,6 +651,7 @@ describe('sequential color-cycle routing', () => {
       colorCycleDistanceRef: { current: 0 },
       colorCycleLastPosRef: { current: { x: 2, y: 2 } },
       colorCycleLastRotationRef: { current: 0 },
+      ccFlowVelocityRef: { current: { smoothedPxPerMs: 0 } },
       eraserToolRef: { current: null },
       eraserRoiRef: { current: null },
     };
@@ -648,6 +735,7 @@ describe('sequential color-cycle routing', () => {
       colorCycleDistanceRef: { current: 0 },
       colorCycleLastPosRef: { current: { x: 1, y: 1 } },
       colorCycleLastRotationRef: { current: 0 },
+      ccFlowVelocityRef: { current: { smoothedPxPerMs: 0 } },
       eraserToolRef: { current: null },
       eraserRoiRef: { current: null },
     };
@@ -723,6 +811,7 @@ describe('sequential color-cycle routing', () => {
       colorCycleDistanceRef: { current: 0 },
       colorCycleLastPosRef: { current: { x: 3, y: 3 } },
       colorCycleLastRotationRef: { current: 0 },
+      ccFlowVelocityRef: { current: { smoothedPxPerMs: 0 } },
       eraserToolRef: { current: null },
       eraserRoiRef: { current: null },
     };
@@ -799,6 +888,7 @@ describe('sequential color-cycle routing', () => {
       colorCycleDistanceRef: { current: 0 },
       colorCycleLastPosRef: { current: { x: 0, y: 0 } },
       colorCycleLastRotationRef: { current: 0 },
+      ccFlowVelocityRef: { current: { smoothedPxPerMs: 0 } },
       eraserToolRef: { current: null },
       eraserRoiRef: { current: null },
     };
@@ -895,6 +985,7 @@ describe('sequential color-cycle routing', () => {
       colorCycleDistanceRef: { current: 0 },
       colorCycleLastPosRef: { current: { x: 2, y: 2 } },
       colorCycleLastRotationRef: { current: 0 },
+      ccFlowVelocityRef: { current: { smoothedPxPerMs: 0 } },
       eraserToolRef: { current: null },
       eraserRoiRef: { current: null },
     };

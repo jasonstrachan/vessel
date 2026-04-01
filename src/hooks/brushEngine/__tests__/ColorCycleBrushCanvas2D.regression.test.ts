@@ -1,7 +1,6 @@
 import { pointInPolygon } from '@/shapeFill/utils/geometry';
 import { ColorCycleBrushCanvas2D } from '../ColorCycleBrushCanvas2D';
 import { decodeColorCycleSpeedByte, encodeColorCycleSpeedByte } from '@/utils/colorCycleSpeed';
-import { useAppStore } from '@/stores/useAppStore';
 
 type MockContext = CanvasRenderingContext2D & {
   _lastImageData?: ImageData;
@@ -471,10 +470,7 @@ describe('ColorCycleBrushCanvas2D regression tests', () => {
     expect(fiveStopSpeed).toBeCloseTo(twoStopSpeed, 0);
   });
 
-  it('keeps write-speed bytes stable while velocity influences phase progression', () => {
-    const state = useAppStore.getState();
-    state.tools.brushSettings.velocityAnimationSpeedEnabled = true;
-
+  it('writes boosted speed bytes while keeping phase progression constant', () => {
     const canvas = makeCanvas(16, 16);
     const brush = new ColorCycleBrushCanvas2D(canvas, { forceCanvas2D: true });
     const layerId = 'layer-velocity-animation';
@@ -502,7 +498,7 @@ describe('ColorCycleBrushCanvas2D regression tests', () => {
     const firstIndex = 2 + 2 * canvas.width;
     const secondIndex = 14 + 2 * canvas.width;
     expect(spd[firstIndex]).toBe(baseSpeedByte);
-    expect(spd[secondIndex]).toBe(baseSpeedByte);
+    expect(spd[secondIndex]).toBeGreaterThan(baseSpeedByte);
 
     const strokeState = (brush as unknown as {
       layerStrokes: Map<string, { strokePhaseUnits: number }>;
@@ -510,16 +506,11 @@ describe('ColorCycleBrushCanvas2D regression tests', () => {
     if (!strokeState) {
       throw new Error('Missing stroke state for velocity animation speed test');
     }
-    expect(strokeState.strokePhaseUnits).toBeGreaterThan(1);
-    expect(strokeState.strokePhaseUnits).toBeLessThan(2);
+    expect(strokeState.strokePhaseUnits).toBe(2);
 
-    state.tools.brushSettings.velocityAnimationSpeedEnabled = false;
   });
 
-  it('reduces phase advance at higher velocity when velocity animation toggle is enabled', () => {
-    const state = useAppStore.getState();
-    state.tools.brushSettings.velocityAnimationSpeedEnabled = true;
-
+  it('keeps phase advance fixed regardless of flow velocity input', () => {
     const canvas = makeCanvas(16, 16);
     const brush = new ColorCycleBrushCanvas2D(canvas, { forceCanvas2D: true });
 
@@ -530,16 +521,11 @@ describe('ColorCycleBrushCanvas2D regression tests', () => {
       resolvePhaseAdvancePerStamp: (speedSamplePxPerMs?: number) => number;
     }).resolvePhaseAdvancePerStamp(2.5);
 
-    expect(lowSpeedAdvance).toBeGreaterThan(highSpeedAdvance);
-    expect(highSpeedAdvance).toBeLessThan(1);
-    expect(lowSpeedAdvance - highSpeedAdvance).toBeGreaterThan(1);
-    state.tools.brushSettings.velocityAnimationSpeedEnabled = false;
+    expect(lowSpeedAdvance).toBe(1);
+    expect(highSpeedAdvance).toBe(1);
   });
 
-  it('applies velocity-linked phase advance for custom captured-data stamps', () => {
-    const state = useAppStore.getState();
-    state.tools.brushSettings.velocityAnimationSpeedEnabled = true;
-
+  it('keeps custom captured-data stamp phase progression independent from flow velocity', () => {
     const layerId = 'layer-custom-captured-velocity';
     const makeBrush = () => {
       const canvas = makeCanvas(16, 16);
@@ -583,8 +569,7 @@ describe('ColorCycleBrushCanvas2D regression tests', () => {
       throw new Error('Missing high-speed stroke data');
     }
 
-    expect(lowStroke.strokePhaseUnits).toBeGreaterThan(highStroke.strokePhaseUnits);
-    state.tools.brushSettings.velocityAnimationSpeedEnabled = false;
+    expect(lowStroke.strokePhaseUnits).toBe(highStroke.strokePhaseUnits);
   });
 
   it('keeps 1px color-cycle square strokes to a single pixel per stamp', () => {
