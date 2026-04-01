@@ -434,6 +434,13 @@ export const drawColorCycleStroke = ({
         getColorCycleGridSnapSpacing(brushSettings.gridSnapSize),
       );
       const previousPoint = gridSnapStrokePointRef.current;
+      if (
+        previousPoint &&
+        previousPoint.x === snappedPoint.x &&
+        previousPoint.y === snappedPoint.y
+      ) {
+        return;
+      }
       let pathPoints = previousPoint
         ? rasterizeGridLinePoints(previousPoint, snappedPoint).slice(1)
         : [snappedPoint];
