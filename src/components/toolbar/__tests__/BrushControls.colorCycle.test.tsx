@@ -187,6 +187,8 @@ jest.mock('@/stores/useAppStore', () => {
     useSwatchColor: false,
     flow: 1,
     gridSnapEnabled: false,
+    roundedCornersEnabled: false,
+    cornerRadiusPx: 8,
     shapeEnabled: false,
     hueShift: 0,
     lightnessAdjust: 0,
@@ -417,6 +419,31 @@ describe('BrushControls – Color Cycle stroke essentials', () => {
     fireEvent.change(input, { target: { value: '24' } });
 
     expect(useAppStore.getState().tools.brushSettings.gridSnapSize).toBe(24);
+  });
+
+  it('renders rounded corner controls under grid snap for color cycle stroke', () => {
+    render(<BrushControls />);
+
+    expect(screen.getByRole('checkbox', { name: 'rounded' })).toBeInTheDocument();
+    expect(screen.getByTitle('Rounded corner radius in pixels')).toBeInTheDocument();
+  });
+
+  it('toggles rounded corners for color cycle stroke', async () => {
+    const user = userEvent.setup();
+    render(<BrushControls />);
+
+    await user.click(screen.getByRole('checkbox', { name: 'rounded' }));
+
+    expect(useAppStore.getState().tools.brushSettings.roundedCornersEnabled).toBe(true);
+  });
+
+  it('updates corner radius for color cycle stroke', () => {
+    render(<BrushControls />);
+
+    const input = screen.getByTitle('Rounded corner radius in pixels') as HTMLInputElement;
+    fireEvent.change(input, { target: { value: '18' } });
+
+    expect(useAppStore.getState().tools.brushSettings.cornerRadiusPx).toBe(18);
   });
 
   it('updates brush speed without mutating the active layer CC base speed', async () => {

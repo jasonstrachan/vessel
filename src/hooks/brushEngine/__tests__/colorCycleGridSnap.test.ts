@@ -1,9 +1,13 @@
 import { BrushShape } from '@/types';
 import {
+  buildOrthogonalVertexPath,
+  buildRoundedGridStrokePath,
   dedupeSequentialPoints,
   getColorCycleGridSnapSpacing,
   isColorCycleGradientShapePreset,
+  rasterizeOrthogonalGridPath,
   rasterizeGridLinePoints,
+  rasterizeRoundedOrthogonalGridPath,
   snapPointToColorCycleGrid,
   snapVerticesToColorCycleGrid,
 } from '../colorCycleGridSnap';
@@ -48,6 +52,72 @@ describe('colorCycleGridSnap', () => {
       { x: 3, y: 0 },
       { x: 4, y: 0 },
     ]);
+  });
+
+  it('decomposes diagonal snapped moves into an orthogonal path', () => {
+    expect(rasterizeOrthogonalGridPath(
+      { x: 0, y: 0 },
+      { x: 4, y: 4 },
+      'horizontal',
+    )).toEqual({
+      pathPoints: [
+        { x: 0, y: 0 },
+        { x: 1, y: 0 },
+        { x: 2, y: 0 },
+        { x: 3, y: 0 },
+        { x: 4, y: 0 },
+        { x: 4, y: 1 },
+        { x: 4, y: 2 },
+        { x: 4, y: 3 },
+        { x: 4, y: 4 },
+      ],
+      finalAxis: 'vertical',
+    });
+  });
+
+  it('rounds orthogonal diagonal transitions with an arc path', () => {
+    const result = rasterizeRoundedOrthogonalGridPath(
+      { x: 0, y: 0 },
+      { x: 8, y: 8 },
+      2,
+      'horizontal',
+    );
+
+    expect(result.finalAxis).toBe('vertical');
+    expect(result.pathPoints[0]).toEqual({ x: 0, y: 0 });
+    expect(result.pathPoints[result.pathPoints.length - 1]).toEqual({ x: 8, y: 8 });
+    expect(result.pathPoints).not.toContainEqual({ x: 8, y: 0 });
+    expect(result.pathPoints).toContainEqual({ x: 7, y: 1 });
+  });
+
+  it('builds orthogonal vertices from mixed anchor directions', () => {
+    expect(buildOrthogonalVertexPath([
+      { x: 0, y: 0 },
+      { x: 8, y: 0 },
+      { x: 8, y: 8 },
+      { x: 0, y: 8 },
+    ])).toEqual([
+      { x: 0, y: 0 },
+      { x: 8, y: 0 },
+      { x: 8, y: 8 },
+      { x: 0, y: 8 },
+    ]);
+  });
+
+  it('rounds each interior corner of a multi-segment orthogonal path', () => {
+    const path = buildRoundedGridStrokePath([
+      { x: 0, y: 0 },
+      { x: 8, y: 0 },
+      { x: 8, y: 8 },
+      { x: 0, y: 8 },
+    ], 2);
+
+    expect(path[0]).toEqual({ x: 0, y: 0 });
+    expect(path[path.length - 1]).toEqual({ x: 0, y: 8 });
+    expect(path).not.toContainEqual({ x: 8, y: 0 });
+    expect(path).not.toContainEqual({ x: 8, y: 8 });
+    expect(path).toContainEqual({ x: 7, y: 1 });
+    expect(path).toContainEqual({ x: 7, y: 7 });
   });
 
   it('dedupes sequential duplicate points', () => {

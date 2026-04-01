@@ -828,6 +828,8 @@ export interface BrushSettings {
   // Grid snap settings
   gridSnapEnabled: boolean;
   gridSnapSize?: number;
+  roundedCornersEnabled?: boolean;
+  cornerRadiusPx?: number;
   // Shape brush settings
   shapeEnabled: boolean;
   /** Global transparency lock flag mirrored into brush engine for masking */

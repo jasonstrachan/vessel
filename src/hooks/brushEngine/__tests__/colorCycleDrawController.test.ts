@@ -24,6 +24,13 @@ const createCtx = () => {
 
 const createBrush = () => ({
   renderDirectToCanvas: jest.fn(),
+  startStroke: jest.fn(),
+  getLayerSnapshot: jest.fn(() => ({
+    paintBuffer: new ArrayBuffer(0),
+    hasContent: false,
+    strokeCounter: 0,
+  })),
+  applyLayerSnapshot: jest.fn(),
   setPressureEnabled: jest.fn(),
   setMinPressure: jest.fn(),
   setMaxPressure: jest.fn(),
@@ -135,6 +142,8 @@ describe('colorCycleDrawController', () => {
       firstStampImmediateRef,
       mirrorScheduledRef,
       gridSnapStrokePointRef: { current: null },
+      roundedCornerAnchorsRef: { current: [] },
+      roundedCornerBaselineSnapshotRef: { current: null },
     });
 
     expect(brush.paint).toHaveBeenCalled();
@@ -172,6 +181,8 @@ describe('colorCycleDrawController', () => {
       firstStampImmediateRef: { current: false },
       mirrorScheduledRef: { current: false },
       gridSnapStrokePointRef: { current: null },
+      roundedCornerAnchorsRef: { current: [] },
+      roundedCornerBaselineSnapshotRef: { current: null },
     });
 
     expect(brush.paint).toHaveBeenCalledWith(10.5, 12.5, 'layer-1', 1, 0);
@@ -204,6 +215,8 @@ describe('colorCycleDrawController', () => {
       firstStampImmediateRef: { current: false },
       mirrorScheduledRef: { current: false },
       gridSnapStrokePointRef: { current: null },
+      roundedCornerAnchorsRef: { current: [] },
+      roundedCornerBaselineSnapshotRef: { current: null },
     });
 
     expect(brush.paint).toHaveBeenCalledWith(11, 12, 'layer-1', 1, 0);
@@ -213,6 +226,16 @@ describe('colorCycleDrawController', () => {
     const ctx = createCtx();
     const brush = createBrush();
     const gridSnapStrokePointRef = { current: null as { x: number; y: number } | null };
+    const roundedCornerAnchorsRef = { current: [] as Array<{ x: number; y: number }> };
+    const roundedCornerBaselineSnapshotRef = { current: null as {
+      paintBuffer: ArrayBuffer;
+      gradientIdBuffer?: ArrayBuffer;
+      gradientDefIdBuffer?: ArrayBuffer;
+      speedBuffer?: ArrayBuffer;
+      flowBuffer?: ArrayBuffer;
+      hasContent: boolean;
+      strokeCounter: number;
+    } | null };
 
     const baseArgs = {
       ctx,
@@ -225,15 +248,19 @@ describe('colorCycleDrawController', () => {
       requestGradientApply: jest.fn(),
       flushGradientApply: jest.fn(),
       renderColorCycle: jest.fn(),
-      firstStampImmediateRef: { current: false },
+      firstStampImmediateRef: { current: true },
       mirrorScheduledRef: { current: false },
       gridSnapStrokePointRef,
+      roundedCornerAnchorsRef,
+      roundedCornerBaselineSnapshotRef,
       brushSettings: {
         size: 1,
         brushShape: BrushShape.COLOR_CYCLE,
         colorCycleStampShape: 'square' as const,
         gridSnapEnabled: true,
         gridSnapSize: 8,
+        roundedCornersEnabled: false,
+        cornerRadiusPx: 8,
         pressureEnabled: false,
         minPressure: 0,
         maxPressure: 100,
@@ -264,6 +291,16 @@ describe('colorCycleDrawController', () => {
     const ctx = createCtx();
     const brush = createBrush();
     const gridSnapStrokePointRef = { current: null as { x: number; y: number } | null };
+    const roundedCornerAnchorsRef = { current: [] as Array<{ x: number; y: number }> };
+    const roundedCornerBaselineSnapshotRef = { current: null as {
+      paintBuffer: ArrayBuffer;
+      gradientIdBuffer?: ArrayBuffer;
+      gradientDefIdBuffer?: ArrayBuffer;
+      speedBuffer?: ArrayBuffer;
+      flowBuffer?: ArrayBuffer;
+      hasContent: boolean;
+      strokeCounter: number;
+    } | null };
 
     const baseArgs = {
       ctx,
@@ -279,12 +316,16 @@ describe('colorCycleDrawController', () => {
       firstStampImmediateRef: { current: false },
       mirrorScheduledRef: { current: false },
       gridSnapStrokePointRef,
+      roundedCornerAnchorsRef,
+      roundedCornerBaselineSnapshotRef,
       brushSettings: {
         size: 1,
         brushShape: BrushShape.COLOR_CYCLE,
         colorCycleStampShape: 'square' as const,
         gridSnapEnabled: true,
         gridSnapSize: 8,
+        roundedCornersEnabled: false,
+        cornerRadiusPx: 8,
         pressureEnabled: false,
         minPressure: 0,
         maxPressure: 100,
@@ -314,5 +355,178 @@ describe('colorCycleDrawController', () => {
     expect((brush.paint as jest.Mock).mock.calls.map((call) => [call[0], call[1]])).toEqual([
       [0, 16],
     ]);
+  });
+
+  it('uses rounded grid path points when rounded corners are enabled', () => {
+    const ctx = createCtx();
+    const brush = createBrush();
+    const gridSnapStrokePointRef = { current: { x: 0, y: 0 } };
+    const roundedCornerAnchorsRef = { current: [{ x: 0, y: 0 }] as Array<{ x: number; y: number }> };
+    const roundedCornerBaselineSnapshotRef = { current: null as {
+      paintBuffer: ArrayBuffer;
+      gradientIdBuffer?: ArrayBuffer;
+      gradientDefIdBuffer?: ArrayBuffer;
+      speedBuffer?: ArrayBuffer;
+      flowBuffer?: ArrayBuffer;
+      hasContent: boolean;
+      strokeCounter: number;
+    } | null };
+
+    drawColorCycleStroke({
+      ctx,
+      x: 17,
+      y: 17,
+      brushSettings: {
+        size: 1,
+        brushShape: BrushShape.COLOR_CYCLE,
+        colorCycleStampShape: 'square',
+        gridSnapEnabled: true,
+        gridSnapSize: 8,
+        roundedCornersEnabled: true,
+        cornerRadiusPx: 2,
+        pressureEnabled: false,
+        minPressure: 0,
+        maxPressure: 100,
+      },
+      activeLayerId: 'layer-1',
+      activeLayerTransparencyLock: false,
+      getActiveLayerColorCycleBrush: () => brush as unknown as ColorCycleBrushImplementation,
+      getActiveLayerBitmapCanvas: () => null,
+      maskHasAlphaNear: jest.fn(() => true),
+      resolveBrushPressureRange: () => ({ enabled: false, minPercent: 100, maxPercent: 100 }),
+      requestGradientApply: jest.fn(),
+      flushGradientApply: jest.fn(),
+      renderColorCycle: jest.fn(),
+      firstStampImmediateRef: { current: false },
+      mirrorScheduledRef: { current: false },
+      gridSnapStrokePointRef,
+      roundedCornerAnchorsRef,
+      roundedCornerBaselineSnapshotRef,
+    });
+
+    const paintedPoints = (brush.paint as jest.Mock).mock.calls.map((call) => [call[0], call[1]]);
+    expect(paintedPoints).not.toContainEqual([16, 0]);
+    expect(paintedPoints).toContainEqual([15, 1]);
+    expect(brush.applyLayerSnapshot).toHaveBeenCalledWith('layer-1', expect.objectContaining({ hasContent: false }));
+    expect(brush.startStroke).toHaveBeenCalledWith('layer-1', false);
+  });
+
+  it('rebuilds the full rounded path so multiple corners stay rounded', () => {
+    const ctx = createCtx();
+    const brush = createBrush();
+    const gridSnapStrokePointRef = { current: null as { x: number; y: number } | null };
+    const roundedCornerAnchorsRef = { current: [] as Array<{ x: number; y: number }> };
+    const roundedCornerBaselineSnapshotRef = { current: null as {
+      paintBuffer: ArrayBuffer;
+      gradientIdBuffer?: ArrayBuffer;
+      gradientDefIdBuffer?: ArrayBuffer;
+      speedBuffer?: ArrayBuffer;
+      flowBuffer?: ArrayBuffer;
+      hasContent: boolean;
+      strokeCounter: number;
+    } | null };
+
+    const baseArgs = {
+      ctx,
+      activeLayerId: 'layer-1',
+      activeLayerTransparencyLock: false,
+      getActiveLayerColorCycleBrush: () => brush as unknown as ColorCycleBrushImplementation,
+      getActiveLayerBitmapCanvas: () => null,
+      maskHasAlphaNear: jest.fn(() => true),
+      resolveBrushPressureRange: () => ({ enabled: false, minPercent: 100, maxPercent: 100 }),
+      requestGradientApply: jest.fn(),
+      flushGradientApply: jest.fn(),
+      renderColorCycle: jest.fn(),
+      firstStampImmediateRef: { current: false },
+      mirrorScheduledRef: { current: false },
+      gridSnapStrokePointRef,
+      roundedCornerAnchorsRef,
+      roundedCornerBaselineSnapshotRef,
+      brushSettings: {
+        size: 1,
+        brushShape: BrushShape.COLOR_CYCLE,
+        colorCycleStampShape: 'square' as const,
+        gridSnapEnabled: true,
+        gridSnapSize: 8,
+        roundedCornersEnabled: true,
+        cornerRadiusPx: 2,
+        pressureEnabled: false,
+        minPressure: 0,
+        maxPressure: 100,
+      },
+    };
+
+    drawColorCycleStroke({ ...baseArgs, x: 1, y: 1 });
+    drawColorCycleStroke({ ...baseArgs, x: 9, y: 1 });
+    drawColorCycleStroke({ ...baseArgs, x: 9, y: 9 });
+    (brush.paint as jest.Mock).mockClear();
+    drawColorCycleStroke({ ...baseArgs, x: 1, y: 9 });
+
+    const paintedPoints = (brush.paint as jest.Mock).mock.calls.map((call) => [call[0], call[1]]);
+    expect(paintedPoints).not.toContainEqual([8, 0]);
+    expect(paintedPoints).not.toContainEqual([8, 8]);
+    expect(paintedPoints).toContainEqual([7, 1]);
+    expect(paintedPoints).toContainEqual([7, 7]);
+  });
+
+  it('restores the baseline snapshot before rounded rebuilds so older strokes are preserved', () => {
+    const ctx = createCtx();
+    const brush = createBrush();
+    const baselineSnapshot = {
+      paintBuffer: new Uint8Array([1, 2, 3]).buffer,
+      gradientIdBuffer: new Uint8Array([4, 5, 6]).buffer,
+      hasContent: true,
+      strokeCounter: 12,
+    };
+    brush.getLayerSnapshot.mockReturnValue(baselineSnapshot);
+
+    const gridSnapStrokePointRef = { current: { x: 0, y: 0 } };
+    const roundedCornerAnchorsRef = { current: [{ x: 0, y: 0 }] as Array<{ x: number; y: number }> };
+    const roundedCornerBaselineSnapshotRef = { current: null as {
+      paintBuffer: ArrayBuffer;
+      gradientIdBuffer?: ArrayBuffer;
+      gradientDefIdBuffer?: ArrayBuffer;
+      speedBuffer?: ArrayBuffer;
+      flowBuffer?: ArrayBuffer;
+      hasContent: boolean;
+      strokeCounter: number;
+    } | null };
+
+    drawColorCycleStroke({
+      ctx,
+      x: 17,
+      y: 17,
+      brushSettings: {
+        size: 1,
+        brushShape: BrushShape.COLOR_CYCLE,
+        colorCycleStampShape: 'square',
+        gridSnapEnabled: true,
+        gridSnapSize: 8,
+        roundedCornersEnabled: true,
+        cornerRadiusPx: 2,
+        pressureEnabled: false,
+        minPressure: 0,
+        maxPressure: 100,
+      },
+      activeLayerId: 'layer-1',
+      activeLayerTransparencyLock: false,
+      getActiveLayerColorCycleBrush: () => brush as unknown as ColorCycleBrushImplementation,
+      getActiveLayerBitmapCanvas: () => null,
+      maskHasAlphaNear: jest.fn(() => true),
+      resolveBrushPressureRange: () => ({ enabled: false, minPercent: 100, maxPercent: 100 }),
+      requestGradientApply: jest.fn(),
+      flushGradientApply: jest.fn(),
+      renderColorCycle: jest.fn(),
+      firstStampImmediateRef: { current: false },
+      mirrorScheduledRef: { current: false },
+      gridSnapStrokePointRef,
+      roundedCornerAnchorsRef,
+      roundedCornerBaselineSnapshotRef,
+    });
+
+    expect(roundedCornerBaselineSnapshotRef.current).toBe(baselineSnapshot);
+    expect(brush.applyLayerSnapshot).toHaveBeenCalledWith('layer-1', baselineSnapshot);
+    expect(brush.startStroke).toHaveBeenCalledWith('layer-1', false);
+    expect(brush.startStroke).not.toHaveBeenCalledWith('layer-1', true);
   });
 });

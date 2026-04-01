@@ -213,6 +213,16 @@ export const useBrushEngineSimplified = () => {
   const mirrorScheduledRef = useRef(false);
   const firstStampImmediateRef = useRef(true);
   const colorCycleGridSnapStrokePointRef = useRef<{ x: number; y: number } | null>(null);
+  const colorCycleRoundedCornerAnchorsRef = useRef<Array<{ x: number; y: number }>>([]);
+  const colorCycleRoundedCornerBaselineSnapshotRef = useRef<{
+    paintBuffer: ArrayBuffer;
+    gradientIdBuffer?: ArrayBuffer;
+    gradientDefIdBuffer?: ArrayBuffer;
+    speedBuffer?: ArrayBuffer;
+    flowBuffer?: ArrayBuffer;
+    hasContent: boolean;
+    strokeCounter: number;
+  } | null>(null);
 
   const getActiveLayerBitmapCanvas = useCallback((): HTMLCanvasElement | OffscreenCanvas | null => {
     return getActiveLayerBitmapCanvasController({
@@ -1113,6 +1123,8 @@ export const useBrushEngineSimplified = () => {
     colorCycleStampShape: tools.brushSettings.colorCycleStampShape,
     gridSnapEnabled: tools.brushSettings.gridSnapEnabled,
     gridSnapSize: tools.brushSettings.gridSnapSize,
+    roundedCornersEnabled: tools.brushSettings.roundedCornersEnabled,
+    cornerRadiusPx: tools.brushSettings.cornerRadiusPx,
     pressureEnabled: tools.brushSettings.pressureEnabled,
     minPressure: tools.brushSettings.minPressure,
     maxPressure: tools.brushSettings.maxPressure,
@@ -1122,6 +1134,8 @@ export const useBrushEngineSimplified = () => {
     tools.brushSettings.colorCycleStampShape,
     tools.brushSettings.gridSnapEnabled,
     tools.brushSettings.gridSnapSize,
+    tools.brushSettings.roundedCornersEnabled,
+    tools.brushSettings.cornerRadiusPx,
     tools.brushSettings.pressureEnabled,
     tools.brushSettings.minPressure,
     tools.brushSettings.maxPressure,
@@ -1443,6 +1457,8 @@ export const useBrushEngineSimplified = () => {
       firstStampImmediateRef,
       mirrorScheduledRef,
       gridSnapStrokePointRef: colorCycleGridSnapStrokePointRef,
+      roundedCornerAnchorsRef: colorCycleRoundedCornerAnchorsRef,
+      roundedCornerBaselineSnapshotRef: colorCycleRoundedCornerBaselineSnapshotRef,
     });
   }, [
     drawColorCycleSettings,
@@ -1459,6 +1475,8 @@ export const useBrushEngineSimplified = () => {
    */
   const resetColorCycle = useCallback((clearBuffer: boolean = false, options?: { skipGradientReinit?: boolean }) => {
     colorCycleGridSnapStrokePointRef.current = null;
+    colorCycleRoundedCornerAnchorsRef.current = [];
+    colorCycleRoundedCornerBaselineSnapshotRef.current = null;
     resetColorCycleStroke({
       clearBuffer,
       options,
@@ -1476,6 +1494,8 @@ export const useBrushEngineSimplified = () => {
    */
   const endColorCycleStroke = useCallback(() => {
     colorCycleGridSnapStrokePointRef.current = null;
+    colorCycleRoundedCornerAnchorsRef.current = [];
+    colorCycleRoundedCornerBaselineSnapshotRef.current = null;
     endColorCycleStrokeForLayer({
       activeLayerId,
       getActiveLayerColorCycleBrush,
