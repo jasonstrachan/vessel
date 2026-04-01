@@ -5,6 +5,11 @@ import {
   type DitherAlgorithm,
   type PatternStyle,
 } from '@/utils/ditherAlgorithms';
+import {
+  fillFlatPatternMode,
+  resolveFlatInkCountForBand,
+  resolveToneBand,
+} from '@/utils/colorCycle/ccFlatModePatterns';
 
 type Point = { x: number; y: number };
 
@@ -35,6 +40,25 @@ const noiseAt = (x: number, y: number): number => {
   n = (n ^ (n >>> 13)) * 1274126177;
   n = (n ^ (n >>> 16)) >>> 0;
   return (n & 0xffff) / 65536;
+};
+
+const resolveFlatModeGlobalTone = (
+  cellCoverage: Uint8Array,
+  activeMask: Uint8Array
+): number => {
+  let total = 0;
+  let count = 0;
+  for (let i = 0; i < cellCoverage.length; i += 1) {
+    if (!activeMask[i]) {
+      continue;
+    }
+    total += cellCoverage[i];
+    count += 1;
+  }
+  if (count <= 0) {
+    return 0.5;
+  }
+  return clamp01(total / (count * 255));
 };
 
 const indexFromNormalized = (pos: number, baseOffset: number): number => {
@@ -418,74 +442,27 @@ export const fillCcGradientDither = async ({
       }
     }
   } else if (clampedLevels === 1) {
-    const lowIndex = indexFromNormalized(0, baseOffset);
-    const highIndex = indexFromNormalized(0.5, baseOffset);
+    const tone = resolveFlatModeGlobalTone(cellCoverage, activeMask);
+    const toneBand = resolveToneBand(tone);
     const phaseX = Math.floor(minX / Math.max(1, cellSize));
     const phaseY = Math.floor(minY / Math.max(1, cellSize));
-    const tone = 0.5;
-    if (algorithm in ERROR_DIFFUSION_KERNELS) {
-      const kernel = ERROR_DIFFUSION_KERNELS[algorithm as keyof typeof ERROR_DIFFUSION_KERNELS];
-      const profile = ERROR_DIFFUSION_PROFILES[algorithm as keyof typeof ERROR_DIFFUSION_PROFILES];
-      const errBuf = new Float32Array(gridW * gridH);
-      const jitterScale = profile.jitterBase * 0.25;
+    const inkCount = resolveFlatInkCountForBand(toneBand);
 
-      for (let cy = 0; cy < gridH; cy += 1) {
-        const activeRow = activeCellsByRow[cy];
-        if (!activeRow.length) continue;
-
-        const useSerpentine = kernel.serpentine !== false;
-        const leftToRight = useSerpentine ? (cy & 1) === 0 : true;
-        const start = leftToRight ? 0 : activeRow.length - 1;
-        const end = leftToRight ? activeRow.length : -1;
-        const step = leftToRight ? 1 : -1;
-
-        for (let i = start; i !== end; i += step) {
-          const cx = activeRow[i];
-          const cellIdx = cy * gridW + cx;
-          let value = tone + (errBuf[cellIdx] || 0);
-          if (jitterScale > 0) {
-            value += (noiseAt(cx, cy) - 0.5) * jitterScale;
-          }
-          value = clamp01(value);
-
-          const usePrimary = value >= profile.threshold;
-          const out = usePrimary ? highIndex : (fillBackground ? lowIndex : 0);
-          cellIndices[cellIdx] = out;
-
-          const quant = usePrimary ? 1 : 0;
-          const err = value - quant;
-          if (err !== 0) {
-            const norm = 1 / Math.max(1, kernel.divisor);
-            for (let k = 0; k < kernel.taps.length; k += 1) {
-              const tap = kernel.taps[k];
-              const nx = cx + (leftToRight ? tap.dx : -tap.dx);
-              const ny = cy + tap.dy;
-              if (nx < 0 || nx >= gridW || ny < 0 || ny >= gridH) continue;
-              const nIdx = ny * gridW + nx;
-              if (!activeMask[nIdx]) continue;
-              errBuf[nIdx] += err * tap.weight * norm;
-            }
-          }
-        }
-      }
-    } else {
-      for (let cy = 0; cy < gridH; cy += 1) {
-        const activeRow = activeCellsByRow[cy];
-        if (!activeRow.length) continue;
-        const rowOffset = cy * gridW;
-        for (let i = 0; i < activeRow.length; i += 1) {
-          const cx = activeRow[i];
-          const threshold = resolveOrderedThreshold(
-            algorithm,
-            patternStyle,
-            cx + phaseX,
-            cy + phaseY
-          );
-          const usePrimary = tone >= threshold;
-          cellIndices[rowOffset + cx] = usePrimary ? highIndex : (fillBackground ? lowIndex : 0);
-        }
-      }
-    }
+    fillFlatPatternMode({
+      algorithm,
+      patternStyle,
+      tone,
+      gridW,
+      gridH,
+      fillBackground,
+      baseOffset,
+      phaseX,
+      phaseY,
+      inkCount,
+      writeCellIndex: (cellIdx, index) => {
+        cellIndices[cellIdx] = index;
+      },
+    });
   } else if (algorithm === 'sierra-lite') {
     let errCurr = new Float32Array(gridW);
     let errNext = new Float32Array(gridW);
