@@ -411,6 +411,59 @@ describe('colorCycleDrawController', () => {
     expect(brush.startStroke).toHaveBeenCalledWith('layer-1', false);
   });
 
+  it('skips rounded rebuild work when the pointer stays in the same snapped cell', () => {
+    const ctx = createCtx();
+    const brush = createBrush();
+    const gridSnapStrokePointRef = { current: { x: 16, y: 16 } };
+    const roundedCornerAnchorsRef = { current: [{ x: 16, y: 16 }] as Array<{ x: number; y: number }> };
+    const roundedCornerBaselineSnapshotRef = { current: null as {
+      paintBuffer: ArrayBuffer;
+      gradientIdBuffer?: ArrayBuffer;
+      gradientDefIdBuffer?: ArrayBuffer;
+      speedBuffer?: ArrayBuffer;
+      flowBuffer?: ArrayBuffer;
+      hasContent: boolean;
+      strokeCounter: number;
+    } | null };
+
+    drawColorCycleStroke({
+      ctx,
+      x: 17,
+      y: 17,
+      brushSettings: {
+        size: 1,
+        brushShape: BrushShape.COLOR_CYCLE,
+        colorCycleStampShape: 'square',
+        gridSnapEnabled: true,
+        gridSnapSize: 8,
+        roundedCornersEnabled: true,
+        cornerRadiusPx: 2,
+        pressureEnabled: false,
+        minPressure: 0,
+        maxPressure: 100,
+      },
+      activeLayerId: 'layer-1',
+      activeLayerTransparencyLock: false,
+      getActiveLayerColorCycleBrush: () => brush as unknown as ColorCycleBrushImplementation,
+      getActiveLayerBitmapCanvas: () => null,
+      maskHasAlphaNear: jest.fn(() => true),
+      resolveBrushPressureRange: () => ({ enabled: false, minPercent: 100, maxPercent: 100 }),
+      requestGradientApply: jest.fn(),
+      flushGradientApply: jest.fn(),
+      renderColorCycle: jest.fn(),
+      firstStampImmediateRef: { current: false },
+      mirrorScheduledRef: { current: false },
+      gridSnapStrokePointRef,
+      roundedCornerAnchorsRef,
+      roundedCornerBaselineSnapshotRef,
+    });
+
+    expect(brush.paint).not.toHaveBeenCalled();
+    expect(brush.getLayerSnapshot).not.toHaveBeenCalled();
+    expect(brush.applyLayerSnapshot).not.toHaveBeenCalled();
+    expect(brush.startStroke).not.toHaveBeenCalled();
+  });
+
   it('rebuilds the full rounded path so multiple corners stay rounded', () => {
     const ctx = createCtx();
     const brush = createBrush();
@@ -460,7 +513,7 @@ describe('colorCycleDrawController', () => {
     drawColorCycleStroke({ ...baseArgs, x: 9, y: 1 });
     drawColorCycleStroke({ ...baseArgs, x: 9, y: 9 });
     (brush.paint as jest.Mock).mockClear();
-    drawColorCycleStroke({ ...baseArgs, x: 1, y: 9 });
+    drawColorCycleStroke({ ...baseArgs, x: 0, y: 9 });
 
     const paintedPoints = (brush.paint as jest.Mock).mock.calls.map((call) => [call[0], call[1]]);
     expect(paintedPoints).not.toContainEqual([8, 0]);
