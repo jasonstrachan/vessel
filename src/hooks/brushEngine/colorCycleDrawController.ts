@@ -2,9 +2,11 @@ import { BrushShape, type BrushSettings } from '@/types';
 import type { CustomBrushStrokeData } from './BrushEngineFacade';
 import type { ColorCycleBrushImplementation } from './ColorCycleBrushMigration';
 import {
+  buildRoundedGridStrokePath,
   getColorCycleGridSnapSpacing,
   rasterizeGridLinePoints,
   snapPointToColorCycleGrid,
+  type GridSnapPoint,
 } from './colorCycleGridSnap';
 import {
   quantizeToRasterPoint,
@@ -14,6 +16,16 @@ import {
 type DrawColorCycleOptions = {
   customStamp?: CustomBrushStrokeData;
   speedSamplePxPerMs?: number;
+};
+
+type ColorCycleLayerSnapshot = {
+  paintBuffer: ArrayBuffer;
+  gradientIdBuffer?: ArrayBuffer;
+  gradientDefIdBuffer?: ArrayBuffer;
+  speedBuffer?: ArrayBuffer;
+  flowBuffer?: ArrayBuffer;
+  hasContent: boolean;
+  strokeCounter: number;
 };
 
 type RenderColorCycleArgs = {
@@ -205,6 +217,8 @@ type DrawColorCycleArgs = {
     | 'colorCycleStampShape'
     | 'gridSnapEnabled'
     | 'gridSnapSize'
+    | 'roundedCornersEnabled'
+    | 'cornerRadiusPx'
     | 'pressureEnabled'
     | 'minPressure'
     | 'maxPressure'
@@ -230,6 +244,8 @@ type DrawColorCycleArgs = {
   firstStampImmediateRef: { current: boolean };
   mirrorScheduledRef: { current: boolean };
   gridSnapStrokePointRef: { current: { x: number; y: number } | null };
+  roundedCornerAnchorsRef: { current: GridSnapPoint[] };
+  roundedCornerBaselineSnapshotRef: { current: ColorCycleLayerSnapshot | null };
 };
 
 export const drawColorCycleStroke = ({
@@ -252,6 +268,8 @@ export const drawColorCycleStroke = ({
   firstStampImmediateRef,
   mirrorScheduledRef,
   gridSnapStrokePointRef,
+  roundedCornerAnchorsRef,
+  roundedCornerBaselineSnapshotRef,
 }: DrawColorCycleArgs): void => {
   const baseBrushSize = Math.max(1, Math.round(brushSettings.size || 1));
   const pressureRange = resolveBrushPressureRange(brushSettings as BrushSettings);
@@ -416,9 +434,45 @@ export const drawColorCycleStroke = ({
         getColorCycleGridSnapSpacing(brushSettings.gridSnapSize),
       );
       const previousPoint = gridSnapStrokePointRef.current;
-      const pathPoints = previousPoint
+      let pathPoints = previousPoint
         ? rasterizeGridLinePoints(previousPoint, snappedPoint).slice(1)
         : [snappedPoint];
+
+      if (brushSettings.roundedCornersEnabled) {
+        const colorCycleBrushLifecycle = colorCycleBrush as ColorCycleBrushImplementation & {
+          startStroke?: (layerId: string, clearBuffer?: boolean) => void;
+          getLayerSnapshot?: (layerId: string) => ColorCycleLayerSnapshot | null;
+          applyLayerSnapshot?: (layerId: string, snapshot: ColorCycleLayerSnapshot) => void;
+        };
+        if (!roundedCornerBaselineSnapshotRef.current) {
+          roundedCornerBaselineSnapshotRef.current = colorCycleBrushLifecycle.getLayerSnapshot?.(layerId) ?? {
+            paintBuffer: new ArrayBuffer(0),
+            gradientIdBuffer: undefined,
+            gradientDefIdBuffer: undefined,
+            speedBuffer: undefined,
+            flowBuffer: undefined,
+            hasContent: false,
+            strokeCounter: 0,
+          };
+        }
+        const anchors = roundedCornerAnchorsRef.current;
+        const lastAnchor = anchors[anchors.length - 1];
+        if (!lastAnchor || lastAnchor.x !== snappedPoint.x || lastAnchor.y !== snappedPoint.y) {
+          roundedCornerAnchorsRef.current = [...anchors, snappedPoint];
+        }
+        const roundedPath = buildRoundedGridStrokePath(
+          roundedCornerAnchorsRef.current,
+          Math.max(1, Math.round(brushSettings.cornerRadiusPx ?? 8)),
+        );
+        pathPoints = roundedPath;
+        if (roundedCornerBaselineSnapshotRef.current) {
+          colorCycleBrushLifecycle.applyLayerSnapshot?.(layerId, roundedCornerBaselineSnapshotRef.current);
+        }
+        colorCycleBrushLifecycle.startStroke?.(layerId, false);
+      } else {
+        roundedCornerAnchorsRef.current = [snappedPoint];
+        roundedCornerBaselineSnapshotRef.current = null;
+      }
 
       for (const point of pathPoints) {
         paintStrokePoint(point.x, point.y);
