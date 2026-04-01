@@ -1,7 +1,9 @@
 import { BrushShape } from '@/types';
 import {
+  buildColorCycleGridPreviewPath,
   buildOrthogonalVertexPath,
   buildRoundedGridStrokePath,
+  constrainPointToOrthogonalGridPreview,
   dedupeSequentialPoints,
   getColorCycleGridSnapSpacing,
   isColorCycleGradientShapePreset,
@@ -118,6 +120,45 @@ describe('colorCycleGridSnap', () => {
     expect(path).not.toContainEqual({ x: 8, y: 8 });
     expect(path).toContainEqual({ x: 7, y: 1 });
     expect(path).toContainEqual({ x: 7, y: 7 });
+  });
+
+  it('constrains the live preview point to the dominant orthogonal axis', () => {
+    expect(constrainPointToOrthogonalGridPreview(
+      { x: 8, y: 8 },
+      { x: 19, y: 12 },
+    )).toEqual({ x: 19, y: 8 });
+
+    expect(constrainPointToOrthogonalGridPreview(
+      { x: 8, y: 8 },
+      { x: 11, y: 19 },
+    )).toEqual({ x: 8, y: 19 });
+  });
+
+  it('builds a live grid preview path that reaches the current cursor position', () => {
+    const path = buildColorCycleGridPreviewPath({
+      anchors: [{ x: 0, y: 0 }, { x: 8, y: 0 }],
+      point: { x: 13, y: 5 },
+      rounded: false,
+      radiusPx: 2,
+    });
+
+    expect(path[0]).toEqual({ x: 0, y: 0 });
+    expect(path[path.length - 1]).toEqual({ x: 13, y: 0 });
+    expect(path).toContainEqual({ x: 10, y: 0 });
+  });
+
+  it('builds a rounded live grid preview path without square elbows', () => {
+    const path = buildColorCycleGridPreviewPath({
+      anchors: [{ x: 0, y: 0 }, { x: 8, y: 0 }],
+      point: { x: 11, y: 15 },
+      rounded: true,
+      radiusPx: 2,
+    });
+
+    expect(path[0]).toEqual({ x: 0, y: 0 });
+    expect(path[path.length - 1]).toEqual({ x: 8, y: 15 });
+    expect(path).not.toContainEqual({ x: 8, y: 0 });
+    expect(path).toContainEqual({ x: 7, y: 1 });
   });
 
   it('dedupes sequential duplicate points', () => {

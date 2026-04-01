@@ -12,15 +12,30 @@ const createCtx = () => {
 
   const ctx: Partial<CanvasRenderingContext2D> = {
     canvas,
+    clearRect: jest.fn(),
     drawImage: jest.fn(),
+    fill: jest.fn(),
+    fillRect: jest.fn(),
+    beginPath: jest.fn(),
+    closePath: jest.fn(),
+    moveTo: jest.fn(),
+    lineTo: jest.fn(),
+    arc: jest.fn(),
     save: jest.fn(),
     restore: jest.fn(),
+    fillStyle: '#000000',
+    strokeStyle: '#000000',
     globalAlpha: 1,
     globalCompositeOperation: 'source-over',
     imageSmoothingEnabled: true,
   };
   return ctx as CanvasRenderingContext2D;
 };
+
+const previewGradient = [
+  { position: 0, color: '#ff0000' },
+  { position: 1, color: '#00ff00' },
+];
 
 const createBrush = () => ({
   renderDirectToCanvas: jest.fn(),
@@ -47,6 +62,19 @@ const createBrush = () => ({
 });
 
 describe('colorCycleDrawController', () => {
+  const originalRequestAnimationFrame = global.requestAnimationFrame;
+
+  beforeEach(() => {
+    global.requestAnimationFrame = ((callback: FrameRequestCallback) => {
+      callback(0);
+      return 1;
+    }) as typeof requestAnimationFrame;
+  });
+
+  afterAll(() => {
+    global.requestAnimationFrame = originalRequestAnimationFrame;
+  });
+
   it('renderColorCycleToContext returns early without active layer', () => {
     const ctx = createCtx();
     const brush = createBrush();
@@ -124,6 +152,8 @@ describe('colorCycleDrawController', () => {
         size: 8,
         brushShape: BrushShape.COLOR_CYCLE,
         colorCycleStampShape: 'square',
+        color: '#ff0000',
+        colorCycleGradient: previewGradient,
         gridSnapEnabled: false,
         gridSnapSize: 8,
         pressureEnabled: false,
@@ -163,6 +193,8 @@ describe('colorCycleDrawController', () => {
         size: 1,
         brushShape: BrushShape.COLOR_CYCLE,
         colorCycleStampShape: 'round',
+        color: '#ff0000',
+        colorCycleGradient: previewGradient,
         gridSnapEnabled: false,
         gridSnapSize: 8,
         pressureEnabled: false,
@@ -197,6 +229,8 @@ describe('colorCycleDrawController', () => {
         size: 1,
         brushShape: BrushShape.COLOR_CYCLE,
         colorCycleStampShape: 'square',
+        color: '#ff0000',
+        colorCycleGradient: previewGradient,
         gridSnapEnabled: false,
         gridSnapSize: 8,
         pressureEnabled: false,
@@ -257,6 +291,8 @@ describe('colorCycleDrawController', () => {
         size: 1,
         brushShape: BrushShape.COLOR_CYCLE,
         colorCycleStampShape: 'square' as const,
+        color: '#ff0000',
+        colorCycleGradient: previewGradient,
         gridSnapEnabled: true,
         gridSnapSize: 8,
         roundedCornersEnabled: false,
@@ -322,6 +358,8 @@ describe('colorCycleDrawController', () => {
         size: 1,
         brushShape: BrushShape.COLOR_CYCLE,
         colorCycleStampShape: 'square' as const,
+        color: '#ff0000',
+        colorCycleGradient: previewGradient,
         gridSnapEnabled: true,
         gridSnapSize: 8,
         roundedCornersEnabled: false,
@@ -380,6 +418,8 @@ describe('colorCycleDrawController', () => {
         size: 1,
         brushShape: BrushShape.COLOR_CYCLE,
         colorCycleStampShape: 'square',
+        color: '#ff0000',
+        colorCycleGradient: previewGradient,
         gridSnapEnabled: true,
         gridSnapSize: 8,
         roundedCornersEnabled: true,
@@ -434,6 +474,8 @@ describe('colorCycleDrawController', () => {
         size: 1,
         brushShape: BrushShape.COLOR_CYCLE,
         colorCycleStampShape: 'square',
+        color: '#ff0000',
+        colorCycleGradient: previewGradient,
         gridSnapEnabled: true,
         gridSnapSize: 8,
         roundedCornersEnabled: true,
@@ -462,6 +504,52 @@ describe('colorCycleDrawController', () => {
     expect(brush.getLayerSnapshot).not.toHaveBeenCalled();
     expect(brush.applyLayerSnapshot).not.toHaveBeenCalled();
     expect(brush.startStroke).not.toHaveBeenCalled();
+  });
+
+  it('still re-renders grid snap preview when the cursor moves inside the same snapped cell', () => {
+    const ctx = createCtx();
+    const brush = createBrush();
+    const renderColorCycle = jest.fn();
+    const gridSnapStrokePointRef = { current: { x: 16, y: 16 } };
+    const roundedCornerAnchorsRef = { current: [{ x: 16, y: 16 }] as Array<{ x: number; y: number }> };
+
+    drawColorCycleStroke({
+      ctx,
+      x: 19,
+      y: 18,
+      brushSettings: {
+        size: 2,
+        brushShape: BrushShape.COLOR_CYCLE,
+        colorCycleStampShape: 'square',
+        color: '#ff0000',
+        colorCycleGradient: previewGradient,
+        gridSnapEnabled: true,
+        gridSnapSize: 8,
+        roundedCornersEnabled: false,
+        cornerRadiusPx: 2,
+        pressureEnabled: false,
+        minPressure: 0,
+        maxPressure: 100,
+      },
+      activeLayerId: 'layer-1',
+      activeLayerTransparencyLock: false,
+      getActiveLayerColorCycleBrush: () => brush as unknown as ColorCycleBrushImplementation,
+      getActiveLayerBitmapCanvas: () => null,
+      maskHasAlphaNear: jest.fn(() => true),
+      resolveBrushPressureRange: () => ({ enabled: false, minPercent: 100, maxPercent: 100 }),
+      requestGradientApply: jest.fn(),
+      flushGradientApply: jest.fn(),
+      renderColorCycle,
+      firstStampImmediateRef: { current: false },
+      mirrorScheduledRef: { current: false },
+      gridSnapStrokePointRef,
+      roundedCornerAnchorsRef,
+      roundedCornerBaselineSnapshotRef: { current: null },
+    });
+
+    expect(brush.paint).not.toHaveBeenCalled();
+    expect(renderColorCycle).toHaveBeenCalledWith(ctx, true, { withOverlay: false });
+    expect((ctx.fillRect as jest.Mock)).toHaveBeenCalled();
   });
 
   it('rebuilds the full rounded path so multiple corners stay rounded', () => {
@@ -499,6 +587,8 @@ describe('colorCycleDrawController', () => {
         size: 1,
         brushShape: BrushShape.COLOR_CYCLE,
         colorCycleStampShape: 'square' as const,
+        color: '#ff0000',
+        colorCycleGradient: previewGradient,
         gridSnapEnabled: true,
         gridSnapSize: 8,
         roundedCornersEnabled: true,
@@ -553,6 +643,8 @@ describe('colorCycleDrawController', () => {
         size: 1,
         brushShape: BrushShape.COLOR_CYCLE,
         colorCycleStampShape: 'square',
+        color: '#ff0000',
+        colorCycleGradient: previewGradient,
         gridSnapEnabled: true,
         gridSnapSize: 8,
         roundedCornersEnabled: true,

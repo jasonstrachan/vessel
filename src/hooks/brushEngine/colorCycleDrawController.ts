@@ -2,6 +2,7 @@ import { BrushShape, type BrushSettings } from '@/types';
 import type { CustomBrushStrokeData } from './BrushEngineFacade';
 import type { ColorCycleBrushImplementation } from './ColorCycleBrushMigration';
 import {
+  buildColorCycleGridPreviewPath,
   buildRoundedGridStrokePath,
   getColorCycleGridSnapSpacing,
   rasterizeGridLinePoints,
@@ -215,6 +216,8 @@ type DrawColorCycleArgs = {
     | 'size'
     | 'brushShape'
     | 'colorCycleStampShape'
+    | 'color'
+    | 'colorCycleGradient'
     | 'gridSnapEnabled'
     | 'gridSnapSize'
     | 'roundedCornersEnabled'
@@ -246,6 +249,92 @@ type DrawColorCycleArgs = {
   gridSnapStrokePointRef: { current: { x: number; y: number } | null };
   roundedCornerAnchorsRef: { current: GridSnapPoint[] };
   roundedCornerBaselineSnapshotRef: { current: ColorCycleLayerSnapshot | null };
+};
+
+const resolvePreviewStrokeColor = (
+  brushSettings: Pick<BrushSettings, 'color' | 'colorCycleGradient'>
+): string => (
+  brushSettings.colorCycleGradient?.[0]?.color ||
+  brushSettings.color ||
+  '#ffffff'
+);
+
+const drawPreviewStamp = (
+  ctx: CanvasRenderingContext2D,
+  point: GridSnapPoint,
+  brushSize: number,
+  stampShape: 'square' | 'round' | 'triangle'
+) => {
+  const radius = Math.max(0.5, brushSize / 2);
+  if (stampShape === 'round') {
+    ctx.beginPath();
+    ctx.arc(point.x, point.y, radius, 0, Math.PI * 2);
+    ctx.fill();
+    return;
+  }
+
+  if (stampShape === 'triangle') {
+    ctx.beginPath();
+    ctx.moveTo(point.x, point.y - radius);
+    ctx.lineTo(point.x + radius, point.y + radius);
+    ctx.lineTo(point.x - radius, point.y + radius);
+    ctx.closePath();
+    ctx.fill();
+    return;
+  }
+
+  ctx.fillRect(
+    Math.round(point.x - radius),
+    Math.round(point.y - radius),
+    Math.max(1, Math.round(brushSize)),
+    Math.max(1, Math.round(brushSize)),
+  );
+};
+
+const drawGridSnapPreviewOverlay = ({
+  ctx,
+  points,
+  brushSize,
+  stampShape,
+  color,
+}: {
+  ctx: CanvasRenderingContext2D;
+  points: GridSnapPoint[];
+  brushSize: number;
+  stampShape: 'square' | 'round' | 'triangle';
+  color: string;
+}): void => {
+  if (points.length === 0) {
+    return;
+  }
+
+  ctx.save();
+  ctx.globalCompositeOperation = 'source-over';
+  ctx.globalAlpha = 0.75;
+  ctx.fillStyle = color;
+  ctx.strokeStyle = color;
+  ctx.imageSmoothingEnabled = false;
+
+  for (const point of points) {
+    drawPreviewStamp(ctx, point, brushSize, stampShape);
+  }
+
+  ctx.restore();
+};
+
+const resolvePreviewStampShape = (
+  brushShape: BrushSettings['brushShape'],
+  stampShape: BrushSettings['colorCycleStampShape']
+): 'square' | 'round' | 'triangle' => {
+  if (brushShape === BrushShape.COLOR_CYCLE_TRIANGLE) {
+    return 'triangle';
+  }
+
+  if (stampShape === 'round') {
+    return 'round';
+  }
+
+  return 'square';
 };
 
 export const drawColorCycleStroke = ({
@@ -434,16 +523,16 @@ export const drawColorCycleStroke = ({
         getColorCycleGridSnapSpacing(brushSettings.gridSnapSize),
       );
       const previousPoint = gridSnapStrokePointRef.current;
-      if (
+      const hasAdvancedAnchor = !(
         previousPoint &&
         previousPoint.x === snappedPoint.x &&
         previousPoint.y === snappedPoint.y
-      ) {
-        return;
-      }
-      let pathPoints = previousPoint
-        ? rasterizeGridLinePoints(previousPoint, snappedPoint).slice(1)
-        : [snappedPoint];
+      );
+      let pathPoints: GridSnapPoint[] = hasAdvancedAnchor
+        ? (previousPoint
+          ? rasterizeGridLinePoints(previousPoint, snappedPoint).slice(1)
+          : [snappedPoint])
+        : [];
 
       if (brushSettings.roundedCornersEnabled) {
         const colorCycleBrushLifecycle = colorCycleBrush as ColorCycleBrushImplementation & {
@@ -451,7 +540,7 @@ export const drawColorCycleStroke = ({
           getLayerSnapshot?: (layerId: string) => ColorCycleLayerSnapshot | null;
           applyLayerSnapshot?: (layerId: string, snapshot: ColorCycleLayerSnapshot) => void;
         };
-        if (!roundedCornerBaselineSnapshotRef.current) {
+        if (hasAdvancedAnchor && !roundedCornerBaselineSnapshotRef.current) {
           roundedCornerBaselineSnapshotRef.current = colorCycleBrushLifecycle.getLayerSnapshot?.(layerId) ?? {
             paintBuffer: new ArrayBuffer(0),
             gradientIdBuffer: undefined,
@@ -464,28 +553,85 @@ export const drawColorCycleStroke = ({
         }
         const anchors = roundedCornerAnchorsRef.current;
         const lastAnchor = anchors[anchors.length - 1];
-        if (!lastAnchor || lastAnchor.x !== snappedPoint.x || lastAnchor.y !== snappedPoint.y) {
+        if (
+          hasAdvancedAnchor &&
+          (!lastAnchor || lastAnchor.x !== snappedPoint.x || lastAnchor.y !== snappedPoint.y)
+        ) {
           roundedCornerAnchorsRef.current = [...anchors, snappedPoint];
         }
-        const roundedPath = buildRoundedGridStrokePath(
-          roundedCornerAnchorsRef.current,
-          Math.max(1, Math.round(brushSettings.cornerRadiusPx ?? 8)),
-        );
-        pathPoints = roundedPath;
-        if (roundedCornerBaselineSnapshotRef.current) {
-          colorCycleBrushLifecycle.applyLayerSnapshot?.(layerId, roundedCornerBaselineSnapshotRef.current);
+        if (hasAdvancedAnchor) {
+          const roundedPath = buildRoundedGridStrokePath(
+            roundedCornerAnchorsRef.current,
+            Math.max(1, Math.round(brushSettings.cornerRadiusPx ?? 8)),
+          );
+          pathPoints = roundedPath;
+          if (roundedCornerBaselineSnapshotRef.current) {
+            colorCycleBrushLifecycle.applyLayerSnapshot?.(layerId, roundedCornerBaselineSnapshotRef.current);
+          }
+          colorCycleBrushLifecycle.startStroke?.(layerId, false);
         }
-        colorCycleBrushLifecycle.startStroke?.(layerId, false);
       } else {
-        roundedCornerAnchorsRef.current = [snappedPoint];
+        const anchors = roundedCornerAnchorsRef.current;
+        const lastAnchor = anchors[anchors.length - 1];
+        if (
+          hasAdvancedAnchor &&
+          (!lastAnchor || lastAnchor.x !== snappedPoint.x || lastAnchor.y !== snappedPoint.y)
+        ) {
+          roundedCornerAnchorsRef.current = [...anchors, snappedPoint];
+        } else if (anchors.length === 0) {
+          roundedCornerAnchorsRef.current = [snappedPoint];
+        }
         roundedCornerBaselineSnapshotRef.current = null;
       }
 
-      for (const point of pathPoints) {
-        paintStrokePoint(point.x, point.y);
+      if (hasAdvancedAnchor) {
+        for (const point of pathPoints) {
+          paintStrokePoint(point.x, point.y);
+        }
+        gridSnapStrokePointRef.current = snappedPoint;
       }
 
-      gridSnapStrokePointRef.current = snappedPoint;
+      const previewPath = buildColorCycleGridPreviewPath({
+        anchors: roundedCornerAnchorsRef.current,
+        point: { x: Math.round(x), y: Math.round(y) },
+        rounded: Boolean(brushSettings.roundedCornersEnabled),
+        radiusPx: Math.max(1, Math.round(brushSettings.cornerRadiusPx ?? 8)),
+      });
+      const previewStampShape = resolvePreviewStampShape(
+        brushSettings.brushShape,
+        brushSettings.colorCycleStampShape,
+      );
+      const previewColor = resolvePreviewStrokeColor({
+        color: brushSettings.color,
+        colorCycleGradient: brushSettings.colorCycleGradient,
+      });
+
+      const renderGridSnapPreview = () => {
+        mirrorScheduledRef.current = false;
+        ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
+        renderColorCycle(ctx, true, { withOverlay: false });
+        drawGridSnapPreviewOverlay({
+          ctx,
+          points: previewPath,
+          brushSize: brushSizeSetting,
+          stampShape: previewStampShape,
+          color: previewColor,
+        });
+      };
+
+      if (firstStampImmediateRef.current) {
+        firstStampImmediateRef.current = false;
+        renderGridSnapPreview();
+      } else if (!mirrorScheduledRef.current) {
+        mirrorScheduledRef.current = true;
+        if (typeof requestAnimationFrame === 'function') {
+          requestAnimationFrame(renderGridSnapPreview);
+        } else {
+          renderGridSnapPreview();
+        }
+      }
+
+      return;
     } else {
       paintStrokePoint(x, y);
     }
