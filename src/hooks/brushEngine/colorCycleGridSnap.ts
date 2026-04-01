@@ -355,6 +355,66 @@ export const buildRoundedGridStrokePath = (
   return dedupeSequentialPoints(pathPoints);
 };
 
+export const constrainPointToOrthogonalGridPreview = (
+  anchor: GridSnapPoint,
+  point: GridSnapPoint
+): GridSnapPoint => {
+  const deltaX = Math.abs(point.x - anchor.x);
+  const deltaY = Math.abs(point.y - anchor.y);
+
+  if (deltaX >= deltaY) {
+    return { x: point.x, y: anchor.y };
+  }
+
+  return { x: anchor.x, y: point.y };
+};
+
+const rasterizeOrthogonalVertexPath = (
+  vertices: GridSnapPoint[]
+): GridSnapPoint[] => {
+  if (vertices.length === 0) {
+    return [];
+  }
+
+  const pathPoints: GridSnapPoint[] = [vertices[0]];
+  for (let index = 1; index < vertices.length; index += 1) {
+    const leg = rasterizeGridLinePoints(pathPoints[pathPoints.length - 1], vertices[index]).slice(1);
+    pathPoints.push(...leg);
+  }
+
+  return dedupeSequentialPoints(pathPoints);
+};
+
+export const buildColorCycleGridPreviewPath = ({
+  anchors,
+  point,
+  rounded,
+  radiusPx,
+}: {
+  anchors: GridSnapPoint[];
+  point: GridSnapPoint;
+  rounded: boolean;
+  radiusPx: number;
+}): GridSnapPoint[] => {
+  if (anchors.length === 0) {
+    return [point];
+  }
+
+  const lastAnchor = anchors[anchors.length - 1];
+  const previewPoint = constrainPointToOrthogonalGridPreview(lastAnchor, point);
+  const previewAnchors = (
+    previewPoint.x === lastAnchor.x && previewPoint.y === lastAnchor.y
+  )
+    ? anchors
+    : [...anchors, previewPoint];
+
+  if (rounded) {
+    return buildRoundedGridStrokePath(previewAnchors, radiusPx);
+  }
+
+  return rasterizeOrthogonalVertexPath(buildOrthogonalVertexPath(previewAnchors));
+};
+
 export const dedupeSequentialPoints = (
   points: Array<{ x: number; y: number }>
 ): Array<{ x: number; y: number }> => {
