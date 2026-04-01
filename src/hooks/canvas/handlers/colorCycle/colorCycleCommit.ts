@@ -492,11 +492,15 @@ export const commitColorCycleLayerStroke = async (
         );
       }
 
+      const sampledCommitNeedsFullRebind = session?.source === 'sampled';
       const binding: CommitCommittedLayerStateOptions['binding'] = session?.binding
         ? {
             defId: session.binding.defId,
             slot: session.binding.slot,
-            bbox: strokeCaptureRoi
+            // Sampled strokes preview through TEMP_SAMPLE_SLOT. If ROI capture misses any finalized
+            // pixels, those pixels remain bound to the temp slot and will mutate on the next sampled
+            // stroke. Rebinding sampled commits across the full layer avoids temp-slot leakage.
+            bbox: !sampledCommitNeedsFullRebind && strokeCaptureRoi
               ? {
                   minX: strokeCaptureRoi.x,
                   minY: strokeCaptureRoi.y,
@@ -504,7 +508,7 @@ export const commitColorCycleLayerStroke = async (
                   height: strokeCaptureRoi.height,
                 }
               : undefined,
-            previewSlot: session.source === 'sampled' ? TEMP_SAMPLE_SLOT : null,
+            previewSlot: sampledCommitNeedsFullRebind ? TEMP_SAMPLE_SLOT : null,
           }
         : undefined;
 

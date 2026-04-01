@@ -2,6 +2,7 @@ import {
   commitColorCycleLayerStroke,
   commitRasterOverlay,
 } from '@/hooks/canvas/handlers/colorCycle/colorCycleCommit';
+import { TEMP_SAMPLE_SLOT } from '@/constants/colorCycle';
 import { setOverlaySeededFromLayer } from '@/hooks/canvas/utils/overlaySeedState';
 import { finalizeMarkGradientSession } from '@/hooks/canvas/utils/colorCycleMarkSession';
 import { useAppStore } from '@/stores/useAppStore';
@@ -236,6 +237,96 @@ describe('commitRasterOverlay', () => {
       },
     });
     expect(setCcGradientSampleCount).not.toHaveBeenCalled();
+
+    getStateSpy.mockRestore();
+  });
+
+  it('rebinds sampled stroke commits across the full layer to prevent temp-slot leakage', async () => {
+    const layer = createLayer();
+    const canvas = document.createElement('canvas');
+    canvas.width = 8;
+    canvas.height = 8;
+    layer.layerType = 'color-cycle';
+    layer.colorCycleData = {
+      canvas,
+      hasContent: true,
+      gradient: [],
+      gradientDefStore: [],
+    } as Layer['colorCycleData'];
+
+    const updateLayer = jest.fn();
+    const setCcGradientSampleCount = jest.fn();
+    const getStateSpy = jest.spyOn(useAppStore, 'getState');
+    getStateSpy.mockReturnValue({
+      layers: [layer],
+      updateLayer,
+      setCcGradientSampleCount,
+    } as unknown as ReturnType<typeof useAppStore.getState>);
+
+    (finalizeMarkGradientSession as jest.Mock).mockReturnValue({
+      markId: 'mark-sampled',
+      layerId: layer.id,
+      markKind: 'stroke',
+      gradientKind: 'linear',
+      source: 'sampled',
+      frozenStopsStored: [
+        { position: 0, color: '#102030' },
+        { position: 1, color: '#90a0b0' },
+      ],
+      frozenHash: 'hash-sampled',
+      binding: { kind: 'def', defId: 22, slot: 6 },
+      speedCps: 0.3,
+    });
+
+    const commitCommittedLayerState = jest.fn();
+    const brush = {
+      commitCurrentStroke: jest.fn(),
+      setGradientSlotStops: jest.fn(),
+      commitCommittedLayerState,
+      getCommittedDimensions: jest.fn(() => ({ width: 8, height: 8 })),
+      getCommittedIndexData: jest.fn(() => new Uint8Array(64).fill(1)),
+      getCommittedGradientIdData: jest.fn(() => new Uint8Array(64).fill(6)),
+      getCommittedPaletteRGBABySlot: jest.fn(() => []),
+    };
+
+    await commitColorCycleLayerStroke(
+      {
+        layer,
+        drawingCanvas: canvas,
+        brushSettings: {
+          opacity: 1,
+        } as never,
+        project: { width: 8, height: 8 },
+        strokeBoundingBox: null,
+        captureRoi: { x: 2, y: 3, width: 2, height: 2 },
+        strokeCapturePadding: 0,
+        roiPadding: 0,
+        enableCaptureRoi: true,
+      },
+      {
+        getBrushForLayer: () => brush as never,
+        bindBrushToCanvas: jest.fn(),
+        markLayerHasContent: jest.fn(),
+        perfMark: jest.fn(),
+        perfMeasure: jest.fn(),
+        startFinalizeVisibleTimer: jest.fn(),
+        endFinalizeVisibleTimer: jest.fn(),
+        dispatchFrameUpdate: jest.fn(),
+      }
+    );
+
+    expect(commitCommittedLayerState).toHaveBeenCalledWith({
+      layerId: layer.id,
+      targetCanvas: canvas,
+      opacity: 1,
+      binding: {
+        defId: 22,
+        slot: 6,
+        bbox: undefined,
+        previewSlot: TEMP_SAMPLE_SLOT,
+      },
+    });
+    expect(setCcGradientSampleCount).toHaveBeenCalledWith(0);
 
     getStateSpy.mockRestore();
   });
