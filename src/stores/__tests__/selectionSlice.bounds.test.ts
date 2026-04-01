@@ -246,4 +246,76 @@ describe('selection slice bounds helpers', () => {
     expect(state.selectionMaskBounds).toBeNull();
     expect(state.selectionMaskLayerId).toBeNull();
   });
+
+  it('adjustMarqueeSelection expands a rectangular selection and clamps to project bounds', () => {
+    const layer = createLayer('layer-expand', 10, 8);
+    const project = createProject(layer);
+
+    useAppStore.setState({
+      project,
+      layers: [layer],
+      activeLayerId: layer.id,
+      selectionStart: { x: 2, y: 2 },
+      selectionEnd: { x: 6, y: 5 },
+      selectionMask: null,
+      selectionMaskBounds: null,
+      selectionMaskLayerId: null,
+    });
+
+    useAppStore.getState().adjustMarqueeSelection(3);
+
+    const state = useAppStore.getState();
+    expect(state.selectionStart).toEqual({ x: 0, y: 0 });
+    expect(state.selectionEnd).toEqual({ x: 9, y: 8 });
+    expect(state.selectionMask).toBeNull();
+    expect(state.selectionMaskBounds).toBeNull();
+  });
+
+  it('adjustMarqueeSelection insets a rectangular selection when enough room remains', () => {
+    const layer = createLayer('layer-inset', 12, 12);
+    const project = createProject(layer);
+
+    useAppStore.setState({
+      project,
+      layers: [layer],
+      activeLayerId: layer.id,
+      selectionStart: { x: 1, y: 2 },
+      selectionEnd: { x: 11, y: 10 },
+      selectionMask: null,
+      selectionMaskBounds: null,
+      selectionMaskLayerId: null,
+    });
+
+    useAppStore.getState().adjustMarqueeSelection(-2);
+
+    const state = useAppStore.getState();
+    expect(state.selectionStart).toEqual({ x: 3, y: 4 });
+    expect(state.selectionEnd).toEqual({ x: 9, y: 8 });
+    expect(state.selectionMask).toBeNull();
+    expect(state.selectionMaskBounds).toBeNull();
+  });
+
+  it('adjustMarqueeSelection leaves the selection unchanged when inset would collapse it', () => {
+    const layer = createLayer('layer-collapse', 6, 6);
+    const project = createProject(layer);
+
+    useAppStore.setState({
+      project,
+      layers: [layer],
+      activeLayerId: layer.id,
+      selectionStart: { x: 1, y: 1 },
+      selectionEnd: { x: 5, y: 4 },
+      selectionMask: null,
+      selectionMaskBounds: null,
+      selectionMaskLayerId: null,
+    });
+
+    useAppStore.getState().adjustMarqueeSelection(-2);
+
+    const state = useAppStore.getState();
+    expect(state.selectionStart).toEqual({ x: 1, y: 1 });
+    expect(state.selectionEnd).toEqual({ x: 5, y: 4 });
+    expect(state.selectionMask).toBeNull();
+    expect(state.selectionMaskBounds).toBeNull();
+  });
 });

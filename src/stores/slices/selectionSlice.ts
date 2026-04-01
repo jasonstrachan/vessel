@@ -72,6 +72,7 @@ export interface SelectionSlice {
     layerId?: string | null;
   }) => void;
   clearSelection: () => void;
+  adjustMarqueeSelection: (delta: number) => void;
   selectAllActiveLayerPixels: () => void;
   selectLayerAlpha: (layerId?: string | null) => void;
   invertSelection: () => void;
@@ -358,6 +359,35 @@ const resolveSelectionInvertDimensions = (state: Pick<
     activeLayer?.framebuffer?.height ??
     state.project?.height ??
     maskMaxY ??
+    state.selectionEnd?.y;
+
+  const width = Math.max(0, Math.floor(resolvedWidth ?? 0));
+  const height = Math.max(0, Math.floor(resolvedHeight ?? 0));
+
+  if (!width || !height) {
+    return null;
+  }
+
+  return { width, height };
+};
+
+const resolveSelectionBoundsLimits = (state: Pick<
+  AppState,
+  'project' | 'layers' | 'activeLayerId' | 'selectionEnd'
+>): { width: number; height: number } | null => {
+  const activeLayer = state.activeLayerId
+    ? state.layers.find((layer) => layer.id === state.activeLayerId) ?? null
+    : null;
+
+  const resolvedWidth =
+    activeLayer?.imageData?.width ??
+    activeLayer?.framebuffer?.width ??
+    state.project?.width ??
+    state.selectionEnd?.x;
+  const resolvedHeight =
+    activeLayer?.imageData?.height ??
+    activeLayer?.framebuffer?.height ??
+    state.project?.height ??
     state.selectionEnd?.y;
 
   const width = Math.max(0, Math.floor(resolvedWidth ?? 0));
@@ -764,6 +794,62 @@ export const createSelectionSlice: StateCreator<AppState, [], [], SelectionSlice
         selectionMask: null,
         selectionMaskBounds: null,
         selectionMaskLayerId: null,
+      }),
+    adjustMarqueeSelection: (delta) =>
+      set((state) => {
+        if (!Number.isFinite(delta) || delta === 0) {
+          return state;
+        }
+
+        if (!state.selectionStart || !state.selectionEnd || state.selectionMask || state.selectionMaskBounds) {
+          return state;
+        }
+
+        const currentBounds = normalizeSelectionRect(
+          computeBoundsFromSelection(state.selectionStart, state.selectionEnd),
+        );
+        if (!currentBounds) {
+          return state;
+        }
+
+        const limits = resolveSelectionBoundsLimits(state);
+        if (!limits) {
+          return state;
+        }
+
+        const amount = Math.floor(Math.abs(delta));
+        if (amount === 0) {
+          return state;
+        }
+
+        const currentRight = currentBounds.x + currentBounds.width;
+        const currentBottom = currentBounds.y + currentBounds.height;
+        const nextLeft = delta > 0 ? Math.max(0, currentBounds.x - amount) : currentBounds.x + amount;
+        const nextTop = delta > 0 ? Math.max(0, currentBounds.y - amount) : currentBounds.y + amount;
+        const nextRight = delta > 0 ? Math.min(limits.width, currentRight + amount) : currentRight - amount;
+        const nextBottom = delta > 0 ? Math.min(limits.height, currentBottom + amount) : currentBottom - amount;
+        const nextBounds = normalizeSelectionRect({
+          x: nextLeft,
+          y: nextTop,
+          width: nextRight - nextLeft,
+          height: nextBottom - nextTop,
+        });
+
+        if (!nextBounds) {
+          return state;
+        }
+
+        return {
+          selectionStart: { x: nextBounds.x, y: nextBounds.y },
+          selectionEnd: {
+            x: nextBounds.x + nextBounds.width,
+            y: nextBounds.y + nextBounds.height,
+          },
+          selectionVectorPath: null,
+          selectionMask: null,
+          selectionMaskBounds: null,
+          selectionMaskLayerId: null,
+        };
       }),
     selectAllActiveLayerPixels: () => {
       const state = get();
