@@ -12,6 +12,7 @@ import type { LayerHistoryPayload } from '@/history/helpers/layerHistory';
 import type { BrushEngine } from '@/hooks/useBrushEngineSimplified';
 import {
   beginMarkGradientSession,
+  captureFrozenCcDitherRenderConfig,
   finalizeMarkGradientSession,
   type MarkGradientSession,
 } from '@/hooks/canvas/utils/colorCycleMarkSession';
@@ -132,6 +133,7 @@ const buildFallbackMarkSession = (
     frozenHash: hashStops(resolved.activeStops, gradientKind),
     binding: null,
     speedCps: state.tools.brushSettings.colorCycleSpeed,
+    ditherRenderConfig: captureFrozenCcDitherRenderConfig(),
   };
 };
 

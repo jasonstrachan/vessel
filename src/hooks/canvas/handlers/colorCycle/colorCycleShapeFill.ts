@@ -8,9 +8,10 @@ import type { DeferredSaveWithStateArgs } from '@/hooks/canvas/handlers/colorCyc
 import { clearColorCycleEraseMaskInRegion } from '@/hooks/canvas/handlers/colorCycle/colorCycleStrokeCommit';
 import { useAppStore } from '@/stores/useAppStore';
 import { ensureForegroundGradientSlot } from '@/utils/colorCycleGradients';
-import { buildCcDitherRenderPalette, resolveCcDitherBandMode } from '@/utils/colorCycle/ccDitherRenderPalette';
+import { buildCcDitherRuntimePalette, resolveCcDitherBandMode } from '@/utils/colorCycle/ccDitherRenderPalette';
 import { applyRuntimeToBrush, flushGradientApply, requestGradientApply } from '@/hooks/brushEngine/ccGradientApplyScheduler';
 import type { MarkGradientSession } from '@/hooks/canvas/utils/colorCycleMarkSession';
+import { resolveMarkSessionRuntimeStops } from '@/hooks/canvas/utils/colorCycleMarkSession';
 import { TEMP_SAMPLE_SLOT } from '@/constants/colorCycle';
 import { ensureGradientDefForStops } from '@/utils/colorCycleGradientDefs';
 
@@ -267,11 +268,13 @@ const resolveDitherRenderSession = ({
   session: MarkGradientSession | null;
   brushSettings: ReturnType<typeof useAppStore.getState>['tools']['brushSettings'];
 }): CcDitherRenderSession | null => {
-  if (!session?.frozenStopsStored?.length || !brushSettings.ditherEnabled) {
+  const shouldUseSessionDither =
+    Boolean(session?.ditherRenderConfig?.enabled) || (!session?.ditherRenderConfig && brushSettings.ditherEnabled);
+  if (!session?.frozenStopsStored?.length || !shouldUseSessionDither) {
     return session
       ? {
           binding: session.binding,
-          frozenStopsStored: session.frozenStopsStored,
+          frozenStopsStored: resolveMarkSessionRuntimeStops(session, session.frozenStopsStored),
           frozenHash: session.frozenHash,
           source: session.source,
           gradientKind: session.gradientKind,
@@ -280,10 +283,12 @@ const resolveDitherRenderSession = ({
       : null;
   }
 
-  const renderPalette = buildCcDitherRenderPalette({
+  const renderPalette = buildCcDitherRuntimePalette({
     baseStops: session.frozenStopsStored,
-    bands: resolveCcDitherBandMode(brushSettings.gradientBands ?? 16).pairBandCount,
-    spread: brushSettings.ditherPaletteSpread,
+    bands: session.ditherRenderConfig?.pairBandCount ??
+      resolveCcDitherBandMode(brushSettings.gradientBands ?? 16).pairBandCount,
+    spread: session.ditherRenderConfig?.spread ?? brushSettings.ditherPaletteSpread,
+    algorithm: session.ditherRenderConfig?.algorithm ?? brushSettings.ditherAlgorithm,
   });
   const renderDef = ensureGradientDefForStops({
     layerId,

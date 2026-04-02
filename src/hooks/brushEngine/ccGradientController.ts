@@ -1,7 +1,7 @@
 import { FLOW_SLOT_MASK } from '@/lib/colorCycle/flowEncoding';
 import { useAppStore } from '@/stores/useAppStore';
 import type { Layer } from '@/types';
-import { buildCcDitherRenderPalette, resolveCcDitherBandMode } from '@/utils/colorCycle/ccDitherRenderPalette';
+import { buildCcDitherRuntimePalette, resolveCcDitherBandMode } from '@/utils/colorCycle/ccDitherRenderPalette';
 import { hashStops } from '@/utils/colorCycleGradientDefs';
 import { requestGradientApply } from './ccGradientApplyScheduler';
 import { TEMP_SAMPLE_SLOT } from '@/constants/colorCycle';
@@ -87,10 +87,11 @@ const resolveRuntimeStopsForEdit = ({
   const brushSettings = useAppStore.getState().tools.brushSettings;
   const shouldUseDitherRuntime = Boolean(brushSettings.ditherEnabled);
   const runtimeStops = shouldUseDitherRuntime
-    ? buildCcDitherRenderPalette({
+    ? buildCcDitherRuntimePalette({
         baseStops,
         bands: resolveCcDitherBandMode(brushSettings.gradientBands ?? 16).pairBandCount,
         spread: brushSettings.ditherPaletteSpread,
+        algorithm: brushSettings.ditherAlgorithm,
       }).renderStops
     : baseStops;
 

@@ -142,6 +142,7 @@ type FillOptions = {
   ccGradient?: boolean;
   ditherPixelSize?: number;
   ditherPairBandCount?: number;
+  ditherPaletteSpread?: number;
   ditherBackgroundFill?: boolean;
   roi?: { x: number; y: number; width: number; height: number };
   spacing?: number;
@@ -547,7 +548,7 @@ export class ColorCycleBrushCanvas2D {
     this.cycleSpeed = 0.1;
     this.layerBaseSpeed = 1;
     this.playbackSpeedScale = 1;
-    this.fps = options.fps || 30;
+    this.fps = options.fps || 60;
     this.pressureEnabled = false;
     this.minPressure = 1;
     this.maxPressure = 200; // Default to 2x size at max pressure
@@ -3186,6 +3187,7 @@ export class ColorCycleBrushCanvas2D {
         const pairBandCount = Math.max(0, Math.floor(options?.ditherPairBandCount ?? 0));
         const quantLevels = ditherLevels ?? (pairBandCount > 0 ? Math.max(2, numBands) : 1);
         const pixelSize = Math.max(1, Math.floor(options?.ditherPixelSize ?? this.ditherPixelSize));
+        const flatPairSpread = options?.ditherPaletteSpread ?? useAppStore.getState().tools.brushSettings.ditherPaletteSpread;
         await fillCcGradientDither({
           vertices,
           minX: fillMinX,
@@ -3196,6 +3198,7 @@ export class ColorCycleBrushCanvas2D {
           levels: quantLevels,
           pairBandCount,
           baseOffset,
+          flatPairSpread,
           algorithm: fillAlgorithm,
           patternStyle: fillPatternStyle,
           fillBackground: options?.ditherBackgroundFill !== false,
@@ -4086,6 +4089,7 @@ export class ColorCycleBrushCanvas2D {
         const pairBandCount = Math.max(0, Math.floor(options?.ditherPairBandCount ?? 0));
         const quantLevels = ditherLevels ?? (pairBandCount > 0 ? Math.max(2, numBands) : 1);
         const pixelSize = Math.max(1, Math.floor(options?.ditherPixelSize ?? this.ditherPixelSize));
+        const flatPairSpread = options?.ditherPaletteSpread ?? useAppStore.getState().tools.brushSettings.ditherPaletteSpread;
         const edges = new Array(vertices.length);
         for (let i = 0; i < vertices.length; i += 1) {
           const v1 = vertices[i];
@@ -4105,6 +4109,7 @@ export class ColorCycleBrushCanvas2D {
           levels: quantLevels,
           pairBandCount,
           baseOffset,
+          flatPairSpread,
           algorithm: fillAlgorithm,
           patternStyle: fillPatternStyle,
           fillBackground: options?.ditherBackgroundFill !== false,
@@ -4730,7 +4735,7 @@ export class ColorCycleBrushCanvas2D {
    * Start animation (API compatible)
    */
   private frameIntervalMs(): number {
-    const frameFps = Math.max(1, Math.min(120, this.fps || 30));
+    const frameFps = Math.max(1, Math.min(120, this.fps || 60));
     return 1000 / frameFps;
   }
 

@@ -1,6 +1,7 @@
 import {
   updateColorCycleBandSpacingForLayer,
   updateColorCycleDitherSettings,
+  updateColorCycleDitherPaletteSpreadForLayer,
   updateColorCycleFillDitherPixelSize,
   updateColorCycleGradientBandsForLayer,
   updateColorCycleStampDitherPixelSize,
@@ -60,6 +61,21 @@ describe('colorCycleBrushSettingsController', () => {
     });
 
     expect(brush.setBandSpacing).toHaveBeenCalledWith(9);
+  });
+
+  it('re-renders the active color-cycle layer when dither spread changes', () => {
+    const brush = makeBrush();
+    const renderBrushToLayerCanvas = jest.fn();
+
+    updateColorCycleDitherPaletteSpreadForLayer({
+      activeLayerId: 'layer-1',
+      getLayers: () => [{ id: 'layer-1', layerType: 'color-cycle' }],
+      getActiveLayerColorCycleBrush: () => brush as unknown as ColorCycleBrushImplementation,
+      initializeColorCycleBrush: () => null,
+      renderBrushToLayerCanvas,
+    });
+
+    expect(renderBrushToLayerCanvas).toHaveBeenCalledWith(brush, 'layer-1');
   });
 
   it('updates dither toggles and derived bg fill', () => {
