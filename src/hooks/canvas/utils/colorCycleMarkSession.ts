@@ -136,13 +136,15 @@ export const resolveMarkSessionRuntimeStops = (
   const algorithm = liveOverrides?.algorithm ?? config?.algorithm;
   const preserveSourceStops =
     bands <= 0 &&
-    algorithm === 'sierra-lite';
+    algorithm === 'sierra-lite' &&
+    session?.source !== 'sampled';
   const runtimeStops = buildCcDitherRuntimePalette({
     baseStops: clonedStops,
     bands,
     spread,
     algorithm,
     preserveSourceStops,
+    debugContext: session?.source === 'sampled' ? 'runtime-snapshot-sampled' : undefined,
   }).renderStops;
   ccLog('runtime stops rebuild', {
     enabled,
