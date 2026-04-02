@@ -80,6 +80,45 @@ describe('fillCcGradientDither', () => {
     );
   });
 
+  it('does not snap flat levels=1 output to the legacy fixed-band pair when the sampled position falls between band centers', async () => {
+    const width = 12;
+    const height = 12;
+    const sampledTone = 0.24;
+    const out = new Uint8Array(width * height);
+
+    await fillCcGradientDither({
+      vertices: [
+        { x: 0, y: 0 },
+        { x: width - 1, y: 0 },
+        { x: width - 1, y: height - 1 },
+        { x: 0, y: height - 1 },
+      ],
+      minX: 0,
+      minY: 0,
+      maxX: width - 1,
+      maxY: height - 1,
+      pixelSize: 1,
+      levels: 1,
+      baseOffset: 0,
+      algorithm: 'sierra-lite',
+      sampleNormalized: () => sampledTone,
+      writeIndex: (x, y, index) => {
+        out[y * width + x] = index;
+      },
+    });
+
+    const usedPair = Array.from(new Set(out)).filter((value) => value > 0).sort((a, b) => a - b);
+    const sampledPair = resolveFlatInkSetForPosition(
+      Math.round(sampledTone * 255) / 255,
+      2,
+      0
+    ).indices;
+    const legacyBandPair = resolveFlatInkSetForBand(1, 2, 0).indices;
+
+    expect(usedPair).toEqual(sampledPair);
+    expect(usedPair).not.toEqual(legacyBandPair);
+  });
+
   it('uses band-local ink pairs when pairBandCount is provided', async () => {
     const width = 8;
     const height = 4;
