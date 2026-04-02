@@ -4,6 +4,7 @@ import {
   buildCcDitherRuntimePalette,
   resolveCcDitherBandMode,
 } from '@/utils/colorCycle/ccDitherRenderPalette';
+import { resolveFlatInkSetForPosition } from '@/utils/colorCycle/ccFlatModePatterns';
 
 describe('resolveCcDitherBandMode', () => {
   it('treats 1 color as flat dither and shifts gradient bands up by one', () => {
@@ -174,7 +175,7 @@ describe('buildCcDitherRenderPalette', () => {
 });
 
 describe('buildCcDitherRuntimePalette', () => {
-  it('keeps raw flat Sierra stops when pair bands are zero', () => {
+  it('uses contrast-forward flat Sierra palette stops when pair bands are zero', () => {
     const runtime = buildCcDitherRuntimePalette({
       baseStops: [
         { position: 0, color: '#446688' },
@@ -186,10 +187,14 @@ describe('buildCcDitherRuntimePalette', () => {
     });
 
     expect(runtime.bandCount).toBe(0);
-    expect(runtime.renderStops).toEqual([
-      { position: 0, color: '#446688' },
-      { position: 1, color: '#88aacc' },
-    ]);
+    expect(runtime.renderStops).toHaveLength(10);
+    expect(runtime.renderStops.map((stop) => stop.position)).toEqual(
+      [0.1, 0.3, 0.5, 0.7, 0.9].flatMap((position) =>
+        resolveFlatInkSetForPosition(position, 2, 0, 100).indices.map((index) => (index - 1) / 254)
+      )
+    );
+    const uniqueColors = new Set(runtime.renderStops.map((stop) => stop.color));
+    expect(uniqueColors.size).toBeGreaterThanOrEqual(8);
   });
 
   it('keeps legacy flat palette behavior for non-Sierra algorithms', () => {
