@@ -5,6 +5,10 @@ import {
   spreadPaletteColors,
 } from '@/hooks/brushEngine/engineShared';
 import type { BrushSettings } from '@/types';
+import {
+  resolveFlatInkSetForBand,
+  resolveFlatPairContrastStrength,
+} from '@/utils/colorCycle/ccFlatModePatterns';
 import type { StoredStop } from '@/utils/colorCycleGradientDefs';
 
 const clamp01 = (value: number): number => Math.max(0, Math.min(1, value));
@@ -60,6 +64,96 @@ const sampleGradientColor = (stops: StoredStop[], position: number): [number, nu
   }
 
   return parseColor(last.color);
+};
+
+const dotRgb = (
+  a: [number, number, number],
+  b: [number, number, number]
+): number => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+
+const subtractRgb = (
+  a: [number, number, number],
+  b: [number, number, number]
+): [number, number, number] => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
+
+export const resolveFlatSierraMixByBand = ({
+  stops,
+  targetColor,
+  baseOffset,
+  spread,
+}: {
+  stops: StoredStop[];
+  targetColor?: string;
+  baseOffset: number;
+  spread?: number;
+}): number[] => {
+  if (!stops.length) {
+    return [];
+  }
+  const globalTarget = targetColor ? parseColor(targetColor) : null;
+  const mixes: number[] = [];
+  for (let band = 0; band < 5; band += 1) {
+    const [lowIndex, highIndex] = resolveFlatInkSetForBand(band, 2, baseOffset, spread).indices;
+    const low = sampleGradientColor(stops, clamp01((lowIndex - 1) / 254));
+    const high = sampleGradientColor(stops, clamp01((highIndex - 1) / 254));
+    const centerPos = clamp01((((lowIndex - 1) / 254) + ((highIndex - 1) / 254)) * 0.5);
+    const target = globalTarget ?? sampleGradientColor(stops, centerPos);
+    const span = subtractRgb(high, low);
+    const toTarget = subtractRgb(target, low);
+    const denom = dotRgb(span, span);
+    if (denom <= 1e-6) {
+      mixes.push(0.5);
+      continue;
+    }
+    mixes.push(clamp01(dotRgb(toTarget, span) / denom));
+  }
+  return mixes;
+};
+
+export const resolveFlatSierraBestBandForTarget = ({
+  stops,
+  targetColor,
+  baseOffset,
+  spread,
+}: {
+  stops: StoredStop[];
+  targetColor: string;
+  baseOffset: number;
+  spread?: number;
+}): number => {
+  if (!stops.length) {
+    return 2;
+  }
+  const target = parseColor(targetColor);
+  const mixes = resolveFlatSierraMixByBand({
+    stops,
+    targetColor,
+    baseOffset,
+    spread,
+  });
+
+  let bestBand = 0;
+  let bestError = Number.POSITIVE_INFINITY;
+  for (let band = 0; band < 5; band += 1) {
+    const [lowIndex, highIndex] = resolveFlatInkSetForBand(band, 2, baseOffset, spread).indices;
+    const low = sampleGradientColor(stops, clamp01((lowIndex - 1) / 254));
+    const high = sampleGradientColor(stops, clamp01((highIndex - 1) / 254));
+    const amount = clamp01(mixes[band] ?? 0.5);
+    const mixed: [number, number, number] = [
+      Math.round(low[0] + (high[0] - low[0]) * amount),
+      Math.round(low[1] + (high[1] - low[1]) * amount),
+      Math.round(low[2] + (high[2] - low[2]) * amount),
+    ];
+    const dr = target[0] - mixed[0];
+    const dg = target[1] - mixed[1];
+    const db = target[2] - mixed[2];
+    const error = dr * dr + dg * dg + db * db;
+    if (error < bestError) {
+      bestError = error;
+      bestBand = band;
+    }
+  }
+  return bestBand;
 };
 
 const pickInkPair = (
@@ -319,4 +413,92 @@ export const buildCcDitherRenderPalette = ({
   }
 
   return { bandCount, renderStops };
+};
+
+const SIERRA_FLAT_BANDS = 5;
+const clampColorChannel = (value: number): number => Math.max(0, Math.min(255, Math.round(value)));
+
+const mixChannel = (from: number, to: number, amount: number): number => from + (to - from) * clamp01(amount);
+
+const toPalettePosition = (index: number): number => clamp01((index - 1) / 254);
+
+const buildContrastInkPairForTarget = ({
+  target,
+  spreadDistance,
+}: {
+  target: [number, number, number];
+  spreadDistance: number;
+}): { low: [number, number, number]; high: [number, number, number] } => {
+  const spreadStrength = resolveFlatPairContrastStrength(spreadDistance);
+  const contrast = 10 + Math.round(Math.pow(spreadStrength, 0.85) * 90);
+
+  const low: [number, number, number] = [
+    clampColorChannel(target[0] - contrast),
+    clampColorChannel(target[1] - contrast),
+    clampColorChannel(target[2] - contrast),
+  ];
+
+  const high: [number, number, number] = [
+    clampColorChannel(target[0] + contrast),
+    clampColorChannel(target[1] + contrast),
+    clampColorChannel(target[2] + contrast),
+  ];
+  const lowLum = luminance(low);
+  const highLum = luminance(high);
+  return lowLum <= highLum ? { low, high } : { low: high, high: low };
+};
+
+export const buildCcFlatSierraContrastRenderPalette = ({
+  baseStops,
+  spread,
+}: {
+  baseStops: StoredStop[];
+  spread: Pick<BrushSettings, 'ditherPaletteSpread'>['ditherPaletteSpread'];
+}): CcDitherRenderPalette => {
+  if (!baseStops.length) {
+    return { bandCount: 0, renderStops: [] };
+  }
+  const renderStops: StoredStop[] = [];
+  for (let band = 0; band < SIERRA_FLAT_BANDS; band += 1) {
+    const indices = resolveFlatInkSetForBand(band, 2, 0, spread).indices;
+    const centerIndex = Math.round((indices[0] + indices[1]) * 0.5);
+    const centerPos = toPalettePosition(centerIndex);
+    const targetRgb = sampleGradientColor(baseStops, centerPos);
+    const { low, high } = buildContrastInkPairForTarget({
+      target: targetRgb,
+      spreadDistance: Math.max(1, indices[1] - indices[0]),
+    });
+    renderStops.push(
+      { position: toPalettePosition(indices[0]), color: formatRgb(low) },
+      { position: toPalettePosition(indices[1]), color: formatRgb(high) }
+    );
+  }
+  renderStops.sort((a, b) => a.position - b.position);
+  return { bandCount: 0, renderStops };
+};
+
+export const buildCcDitherRuntimePalette = ({
+  baseStops,
+  bands,
+  spread,
+  algorithm,
+}: {
+  baseStops: StoredStop[];
+  bands: number;
+  spread: Pick<BrushSettings, 'ditherPaletteSpread'>['ditherPaletteSpread'];
+  algorithm?: BrushSettings['ditherAlgorithm'];
+}): CcDitherRenderPalette => {
+  const normalizedBandCount = Math.max(0, Math.floor(bands || 0));
+  const resolvedAlgorithm = algorithm ?? 'sierra-lite';
+  if (normalizedBandCount <= 0 && resolvedAlgorithm === 'sierra-lite') {
+    return buildCcFlatSierraContrastRenderPalette({
+      baseStops,
+      spread,
+    });
+  }
+  return buildCcDitherRenderPalette({
+    baseStops,
+    bands: normalizedBandCount,
+    spread,
+  });
 };

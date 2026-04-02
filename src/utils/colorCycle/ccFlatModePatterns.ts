@@ -6,48 +6,95 @@ import {
   type PatternStyle,
 } from '@/utils/ditherAlgorithms';
 
-export type FlatInkCount = 2 | 3 | 4;
-
-type BinaryTile = {
-  width: number;
-  height: number;
-  data: Uint8Array;
-};
-
-type SierraLiteTileBank = {
-  toneBands: BinaryTile[];
-};
+export type FlatInkCount = 2;
 
 type FlatInkSet = {
-  indices: number[];
+  indices: [number, number];
 };
 
 export type FlatPatternFillOptions = {
   algorithm: DitherAlgorithm;
   patternStyle?: PatternStyle;
   tone: number;
+  toneByCell?: Uint8Array;
+  flatMixByBand?: readonly number[];
+  flatBandOverride?: number;
+  spread?: number;
   gridW: number;
   gridH: number;
+  activeMask?: Uint8Array;
   fillBackground: boolean;
   baseOffset: number;
   phaseX: number;
   phaseY: number;
-  inkCount: FlatInkCount;
   writeCellIndex: (cellIdx: number, index: number) => void;
 };
 
-const SIERRA_LITE_TILE_SOURCE_SIZE = 48;
-const SIERRA_LITE_TILE_SIZE = 12;
+const SIERRA_LITE_TONE_BANDS = 5;
 const SIERRA_LITE_THRESHOLD = 0.5;
-
-export const SIERRA_LITE_TONE_BANDS = 5;
+const FLAT_BAND_CENTERS: [number, number, number, number, number] = [26, 77, 128, 179, 230];
+const DEFAULT_FLAT_PAIR_HALF_SPREAD = 4;
+const MIN_FLAT_PAIR_HALF_SPREAD = 1;
+const MAX_FLAT_PAIR_HALF_SPREAD = 24;
+const MIN_FLAT_PAIR_DISTANCE = MIN_FLAT_PAIR_HALF_SPREAD * 2;
+const MAX_FLAT_PAIR_DISTANCE = MAX_FLAT_PAIR_HALF_SPREAD * 2;
 
 const clamp01 = (value: number): number => Math.max(0, Math.min(1, value));
 
-const indexFromNormalized = (pos: number, baseOffset: number): number => {
-  const raw = Math.round(clamp01(pos) * 254);
-  const shifted = (raw + baseOffset) % 255;
+const shiftPaletteIndex = (index: number, baseOffset: number): number => {
+  const zeroBased = Math.max(0, Math.min(254, index - 1));
+  const shifted = (zeroBased + baseOffset) % 255;
   return Math.max(1, Math.min(255, shifted + 1));
+};
+
+export const resolveToneBand = (tone: number): number => {
+  const clamped = clamp01(tone);
+  return Math.min(SIERRA_LITE_TONE_BANDS - 1, Math.floor(clamped * SIERRA_LITE_TONE_BANDS));
+};
+
+export const resolveFlatInkCountForBand = (band?: number): FlatInkCount => {
+  void band;
+  return 2;
+};
+
+const resolveFlatPairHalfSpread = (spreadPercent?: number): number => {
+  if (!Number.isFinite(spreadPercent)) {
+    return DEFAULT_FLAT_PAIR_HALF_SPREAD;
+  }
+  const clamped = Math.max(0, Math.min(100, spreadPercent ?? 0));
+  return MIN_FLAT_PAIR_HALF_SPREAD + Math.round(
+    (clamped / 100) * (MAX_FLAT_PAIR_HALF_SPREAD - MIN_FLAT_PAIR_HALF_SPREAD)
+  );
+};
+
+export const resolveFlatInkSetForBand = (
+  band: number,
+  _inkCount: FlatInkCount,
+  baseOffset: number,
+  spreadPercent?: number
+): FlatInkSet => {
+  const clampedBand = Math.max(0, Math.min(FLAT_BAND_CENTERS.length - 1, band | 0));
+  const center = FLAT_BAND_CENTERS[clampedBand];
+  const half = resolveFlatPairHalfSpread(spreadPercent);
+  const low = shiftPaletteIndex(Math.max(1, center - half), baseOffset);
+  const high = shiftPaletteIndex(Math.min(255, center + half), baseOffset);
+
+  return {
+    indices: [low, high],
+  };
+};
+
+export const resolveFlatPairDistance = (band: number, spreadPercent?: number): number => {
+  const [low, high] = resolveFlatInkSetForBand(band, 2, 0, spreadPercent).indices;
+  return Math.max(1, high - low);
+};
+
+export const resolveFlatPairContrastStrength = (distance: number): number => {
+  const clampedDistance = Math.max(MIN_FLAT_PAIR_DISTANCE, Math.min(MAX_FLAT_PAIR_DISTANCE, distance));
+  return clamp01(
+    (clampedDistance - MIN_FLAT_PAIR_DISTANCE) /
+    Math.max(1, MAX_FLAT_PAIR_DISTANCE - MIN_FLAT_PAIR_DISTANCE)
+  );
 };
 
 const resolveOrderedThreshold = (
@@ -86,229 +133,153 @@ const resolveOrderedThreshold = (
   }
 };
 
-export const resolveToneBand = (tone: number): number => {
-  const clamped = Math.max(0, Math.min(1, tone));
-  return Math.min(4, Math.floor(clamped * SIERRA_LITE_TONE_BANDS));
-};
-
-export const resolveFlatInkCountForBand = (band: number): FlatInkCount => {
-  if (band <= 0 || band >= SIERRA_LITE_TONE_BANDS - 1) {
-    return 2;
-  }
-  if (band === 2) {
-    return 4;
-  }
-  return 3;
-};
-
-const buildFlatAnchorIndices = (baseOffset: number): number[] => [
-  indexFromNormalized(0, baseOffset),
-  indexFromNormalized(0.25, baseOffset),
-  indexFromNormalized(0.5, baseOffset),
-  indexFromNormalized(0.75, baseOffset),
-  indexFromNormalized(254 / 255, baseOffset),
-];
-
-export const resolveFlatInkSetForBand = (
-  band: number,
-  inkCount: FlatInkCount,
-  baseOffset: number
-): FlatInkSet => {
-  const anchors = buildFlatAnchorIndices(baseOffset);
-  const clampedBand = Math.max(0, Math.min(anchors.length - 1, band | 0));
-  const maxStart = anchors.length - inkCount;
-  const centeredStart = Math.round(clampedBand - ((inkCount - 1) / 2));
-  const start = Math.max(0, Math.min(maxStart, centeredStart));
-  return {
-    indices: anchors.slice(start, start + inkCount),
-  };
-};
-
-const stableSelector = (x: number, y: number, band: number): number => {
-  const sx = x >> 1;
-  const sy = y >> 1;
-  let hash = (sx * 73856093) ^ (sy * 19349663) ^ (band * 83492791);
-  hash ^= hash >>> 13;
-  return hash >>> 0;
-};
-
-const sampleTile = (
-  tile: BinaryTile,
-  x: number,
-  y: number,
-  phaseX: number,
-  phaseY: number
-): 0 | 1 => {
-  const tx = ((x + phaseX) % tile.width + tile.width) % tile.width;
-  const ty = ((y + phaseY) % tile.height + tile.height) % tile.height;
-  return tile.data[ty * tile.width + tx] as 0 | 1;
-};
-
-export const resolveFlatInkIndex = (
-  bit: 0 | 1,
-  x: number,
-  y: number,
-  band: number,
-  inkSet: FlatInkSet
+const resolveCellTone = (
+  tone: number,
+  toneByCell: Uint8Array | undefined,
+  cellIdx: number
 ): number => {
-  const { indices } = inkSet;
-  if (indices.length <= 1) {
-    return indices[0] ?? 0;
+  if (!toneByCell) {
+    return clamp01(tone);
   }
-  if (indices.length === 2) {
-    return bit === 0 ? indices[0] : indices[1];
-  }
-
-  const selector = stableSelector(x, y, band);
-  if (indices.length === 3) {
-    const candidates = bit === 0 ? indices.slice(0, 2) : indices.slice(1);
-    return candidates[selector % candidates.length];
-  }
-
-  const candidates = bit === 0 ? indices.slice(0, 2) : indices.slice(2);
-  return candidates[selector % candidates.length];
+  return clamp01((toneByCell[cellIdx] ?? 0) / 255);
 };
 
-const cropCenterTile = (source: Uint8Array, sourceSize: number, tileSize: number): BinaryTile => {
-  const start = Math.floor((sourceSize - tileSize) / 2);
-  const data = new Uint8Array(tileSize * tileSize);
-  for (let y = 0; y < tileSize; y += 1) {
-    const srcOffset = (start + y) * sourceSize + start;
-    data.set(source.subarray(srcOffset, srcOffset + tileSize), y * tileSize);
+const resolveBandMixAmount = (
+  band: number,
+  fallbackTone: number,
+  flatMixByBand?: readonly number[]
+): number => {
+  if (!flatMixByBand || flatMixByBand.length <= 0) {
+    return clamp01(fallbackTone);
   }
-  return {
-    width: tileSize,
-    height: tileSize,
-    data,
-  };
-};
-
-const buildSierraLiteTile = (tone: number): BinaryTile => {
-  const size = SIERRA_LITE_TILE_SOURCE_SIZE;
-  const values = new Uint8Array(size * size);
-  const errors = new Float32Array(size * size);
-
-  for (let y = 0; y < size; y += 1) {
-    const serpentine = (y & 1) === 1;
-    const start = serpentine ? size - 1 : 0;
-    const end = serpentine ? -1 : size;
-    const step = serpentine ? -1 : 1;
-
-    for (let x = start; x !== end; x += step) {
-      const idx = y * size + x;
-      const value = clamp01(tone + errors[idx]);
-      const bit = value >= SIERRA_LITE_THRESHOLD ? 1 : 0;
-      values[idx] = bit;
-      const err = value - bit;
-      if (err === 0) {
-        continue;
-      }
-
-      if (!serpentine) {
-        if (x + 1 < size) {
-          errors[idx + 1] += err * 0.5;
-        }
-        if (y + 1 < size) {
-          if (x - 1 >= 0) {
-            errors[idx + size - 1] += err * 0.25;
-          }
-          errors[idx + size] += err * 0.25;
-        }
-      } else {
-        if (x - 1 >= 0) {
-          errors[idx - 1] += err * 0.5;
-        }
-        if (y + 1 < size) {
-          if (x + 1 < size) {
-            errors[idx + size + 1] += err * 0.25;
-          }
-          errors[idx + size] += err * 0.25;
-        }
-      }
-    }
-  }
-
-  return cropCenterTile(values, size, SIERRA_LITE_TILE_SIZE);
-};
-
-const buildSierraLiteTileBank = (): SierraLiteTileBank => ({
-  toneBands: [
-    buildSierraLiteTile(0.10),
-    buildSierraLiteTile(0.30),
-    buildSierraLiteTile(0.50),
-    buildSierraLiteTile(0.70),
-    buildSierraLiteTile(0.90),
-  ],
-});
-
-let cachedSierraLiteTileBank: SierraLiteTileBank | null = null;
-
-export const getSierraLiteTileBank = (): SierraLiteTileBank => {
-  if (!cachedSierraLiteTileBank) {
-    cachedSierraLiteTileBank = buildSierraLiteTileBank();
-  }
-  return cachedSierraLiteTileBank;
-};
-
-const fillSierraLiteFlatPatternMode = ({
-  tone,
-  gridW,
-  gridH,
-  fillBackground,
-  baseOffset,
-  phaseX,
-  phaseY,
-  inkCount,
-  writeCellIndex,
-}: Omit<FlatPatternFillOptions, 'algorithm' | 'patternStyle'>): void => {
-  const band = resolveToneBand(tone);
-  const tile = getSierraLiteTileBank().toneBands[band];
-  const inkSet = resolveFlatInkSetForBand(band, inkCount, baseOffset);
-
-  for (let y = 0; y < gridH; y += 1) {
-    const rowOffset = y * gridW;
-    for (let x = 0; x < gridW; x += 1) {
-      const bit = sampleTile(tile, x, y, phaseX, phaseY);
-      const index = !fillBackground && bit === 0
-        ? 0
-        : resolveFlatInkIndex(bit, x, y, band, inkSet);
-      writeCellIndex(rowOffset + x, index);
-    }
-  }
+  const clampedBand = Math.max(0, Math.min(flatMixByBand.length - 1, band | 0));
+  return clamp01(flatMixByBand[clampedBand] ?? fallbackTone);
 };
 
 const fillOrderedFlatPatternMode = ({
   algorithm,
   patternStyle,
   tone,
+  toneByCell,
+  spread,
   gridW,
   gridH,
+  activeMask,
   fillBackground,
   baseOffset,
   phaseX,
   phaseY,
-  inkCount,
   writeCellIndex,
 }: FlatPatternFillOptions): void => {
-  const band = resolveToneBand(tone);
-  const inkSet = resolveFlatInkSetForBand(band, inkCount, baseOffset);
-
   for (let y = 0; y < gridH; y += 1) {
     const rowOffset = y * gridW;
     for (let x = 0; x < gridW; x += 1) {
-      const bit = tone >= resolveOrderedThreshold(algorithm, patternStyle, x + phaseX, y + phaseY) ? 1 : 0;
+      const cellIdx = rowOffset + x;
+      if (activeMask && !activeMask[cellIdx]) {
+        continue;
+      }
+      const cellTone = resolveCellTone(tone, toneByCell, cellIdx);
+      const band = resolveToneBand(cellTone);
+      const inkSet = resolveFlatInkSetForBand(band, 2, baseOffset, spread);
+      const bit =
+        cellTone >= resolveOrderedThreshold(algorithm, patternStyle, x + phaseX, y + phaseY) ? 1 : 0;
       const index = !fillBackground && bit === 0
         ? 0
-        : resolveFlatInkIndex(bit, x, y, band, inkSet);
-      writeCellIndex(rowOffset + x, index);
+        : (bit === 0 ? inkSet.indices[0] : inkSet.indices[1]);
+      writeCellIndex(cellIdx, index);
+    }
+  }
+};
+
+const fillSierraLiteFlatPatternMode = ({
+  tone,
+  toneByCell,
+  flatMixByBand,
+  flatBandOverride,
+  spread,
+  gridW,
+  gridH,
+  activeMask,
+  fillBackground,
+  baseOffset,
+  writeCellIndex,
+}: Omit<FlatPatternFillOptions, 'algorithm' | 'patternStyle' | 'phaseX' | 'phaseY'>): void => {
+  const errors = new Float32Array(gridW * gridH);
+
+  for (let y = 0; y < gridH; y += 1) {
+    const serpentine = (y & 1) === 1;
+    const start = serpentine ? gridW - 1 : 0;
+    const end = serpentine ? -1 : gridW;
+    const step = serpentine ? -1 : 1;
+
+    for (let x = start; x !== end; x += step) {
+      const idx = y * gridW + x;
+      if (activeMask && !activeMask[idx]) {
+        continue;
+      }
+
+      const baseTone = resolveCellTone(tone, toneByCell, idx);
+      const band = Number.isFinite(flatBandOverride)
+        ? Math.max(0, Math.min(SIERRA_LITE_TONE_BANDS - 1, Math.floor(flatBandOverride as number)))
+        : resolveToneBand(baseTone);
+      const inkSet = resolveFlatInkSetForBand(band, 2, baseOffset, spread);
+      const mixAmount = resolveBandMixAmount(band, baseTone, flatMixByBand);
+      const value = clamp01(mixAmount + errors[idx]);
+      const bit: 0 | 1 = value >= SIERRA_LITE_THRESHOLD ? 1 : 0;
+      const qErr = value - bit;
+
+      const index = !fillBackground && bit === 0
+        ? 0
+        : (bit === 0 ? inkSet.indices[0] : inkSet.indices[1]);
+
+      writeCellIndex(idx, index);
+
+      if (!serpentine) {
+        if (x + 1 < gridW && (!activeMask || activeMask[idx + 1])) {
+          errors[idx + 1] += qErr * 0.5;
+        }
+        if (y + 1 < gridH) {
+          if (x - 1 >= 0 && (!activeMask || activeMask[idx + gridW - 1])) {
+            errors[idx + gridW - 1] += qErr * 0.25;
+          }
+          if (!activeMask || activeMask[idx + gridW]) {
+            errors[idx + gridW] += qErr * 0.25;
+          }
+        }
+      } else {
+        if (x - 1 >= 0 && (!activeMask || activeMask[idx - 1])) {
+          errors[idx - 1] += qErr * 0.5;
+        }
+        if (y + 1 < gridH) {
+          if (x + 1 < gridW && (!activeMask || activeMask[idx + gridW + 1])) {
+            errors[idx + gridW + 1] += qErr * 0.25;
+          }
+          if (!activeMask || activeMask[idx + gridW]) {
+            errors[idx + gridW] += qErr * 0.25;
+          }
+        }
+      }
     }
   }
 };
 
 export const fillFlatPatternMode = (options: FlatPatternFillOptions): void => {
   if (options.algorithm === 'sierra-lite') {
-    fillSierraLiteFlatPatternMode(options);
+    fillSierraLiteFlatPatternMode({
+      tone: options.tone,
+      toneByCell: options.toneByCell,
+      flatMixByBand: options.flatMixByBand,
+      flatBandOverride: options.flatBandOverride,
+      spread: options.spread,
+      gridW: options.gridW,
+      gridH: options.gridH,
+      activeMask: options.activeMask,
+      fillBackground: options.fillBackground,
+      baseOffset: options.baseOffset,
+      writeCellIndex: options.writeCellIndex,
+    });
     return;
   }
+
   fillOrderedFlatPatternMode(options);
 };
