@@ -7,9 +7,12 @@ import {
 } from '@/utils/ditherAlgorithms';
 import {
   fillFlatPatternMode,
+  resolveToneBand,
 } from '@/utils/colorCycle/ccFlatModePatterns';
 import { resolveFlatSierraBandMixInfo } from '@/utils/colorCycle/ccDitherRenderPalette';
 import { ccLog } from '@/utils/colorCycle/ccDebug';
+import { getActiveMarkGradientSession } from '@/hooks/canvas/utils/colorCycleMarkSession';
+import type { StoredStop } from '@/utils/colorCycleGradientDefs';
 import { useAppStore } from '@/stores/useAppStore';
 
 type Point = { x: number; y: number };
@@ -83,6 +86,147 @@ const resolveAverageActiveTone = (
   }
 
   return clamp01(totalCoverage / (activeCount * 255));
+};
+
+const sampleStoredGradientColor = (
+  stops: StoredStop[],
+  position: number
+): [number, number, number] => {
+  const sorted = [...stops].sort((a, b) => a.position - b.position);
+  if (sorted.length === 0) {
+    return [0, 0, 0];
+  }
+  if (sorted.length === 1 || position <= sorted[0].position) {
+    return parseCssRgb(sorted[0].color);
+  }
+  const last = sorted[sorted.length - 1];
+  if (position >= last.position) {
+    return parseCssRgb(last.color);
+  }
+
+  for (let index = 0; index < sorted.length - 1; index += 1) {
+    const left = sorted[index];
+    const right = sorted[index + 1];
+    if (position < left.position || position > right.position) {
+      continue;
+    }
+    const leftRgb = parseCssRgb(left.color);
+    const rightRgb = parseCssRgb(right.color);
+    const mix = (position - left.position) / Math.max(1e-6, right.position - left.position);
+    return [
+      Math.round(leftRgb[0] + (rightRgb[0] - leftRgb[0]) * mix),
+      Math.round(leftRgb[1] + (rightRgb[1] - leftRgb[1]) * mix),
+      Math.round(leftRgb[2] + (rightRgb[2] - leftRgb[2]) * mix),
+    ];
+  }
+
+  return parseCssRgb(last.color);
+};
+
+const parseCssRgb = (color: string): [number, number, number] => {
+  if (color.startsWith('#')) {
+    const hex = color.slice(1);
+    if (hex.length === 3) {
+      return [
+        Number.parseInt(hex[0] + hex[0], 16),
+        Number.parseInt(hex[1] + hex[1], 16),
+        Number.parseInt(hex[2] + hex[2], 16),
+      ];
+    }
+    if (hex.length >= 6) {
+      return [
+        Number.parseInt(hex.slice(0, 2), 16),
+        Number.parseInt(hex.slice(2, 4), 16),
+        Number.parseInt(hex.slice(4, 6), 16),
+      ];
+    }
+  }
+  const match = color.match(/rgba?\(([^)]+)\)/i);
+  if (match) {
+    const parts = match[1].split(',').slice(0, 3).map((part) => Number.parseFloat(part.trim()));
+    if (parts.length === 3 && parts.every((part) => Number.isFinite(part))) {
+      return [parts[0] ?? 0, parts[1] ?? 0, parts[2] ?? 0];
+    }
+  }
+  return [0, 0, 0];
+};
+
+const rgbToCss = (rgb: [number, number, number]): string =>
+  `rgb(${rgb[0]}, ${rgb[1]}, ${rgb[2]})`;
+
+export const resolveSampledFlatBandMix = ({
+  stops,
+  flatPosition,
+  baseOffset = 0,
+  spread,
+}: {
+  stops: StoredStop[];
+  flatPosition: number;
+  baseOffset?: number;
+  spread?: number;
+}): { band: number; mix: number; targetColor: string; mixByBand: number[] } | null => {
+  if (!stops.length) {
+    return null;
+  }
+  const clampedPosition = clamp01(flatPosition);
+  const targetRgb = sampleStoredGradientColor(stops, clampedPosition);
+  const targetColor = rgbToCss(targetRgb);
+  const bandMixInfo = resolveFlatSierraBandMixInfo({
+    stops,
+    targetColor,
+    baseOffset,
+    spread,
+  });
+  if (!bandMixInfo.length) {
+    return null;
+  }
+  const positionBand = resolveToneBand(clampedPosition);
+  const candidateInfo = bandMixInfo.filter((entry) => Math.abs(entry.band - positionBand) <= 1);
+  const eligibleInfo = candidateInfo.length > 0 ? candidateInfo : bandMixInfo;
+
+  let bestBand = eligibleInfo[0]?.band ?? positionBand;
+  let bestMix = eligibleInfo[0]?.mix ?? 0.5;
+  let bestError = Number.POSITIVE_INFINITY;
+
+  for (const entry of eligibleInfo) {
+    const mixed: [number, number, number] = [
+      Math.round(entry.low[0] + (entry.high[0] - entry.low[0]) * entry.mix),
+      Math.round(entry.low[1] + (entry.high[1] - entry.low[1]) * entry.mix),
+      Math.round(entry.low[2] + (entry.high[2] - entry.low[2]) * entry.mix),
+    ];
+    const dr = targetRgb[0] - mixed[0];
+    const dg = targetRgb[1] - mixed[1];
+    const db = targetRgb[2] - mixed[2];
+    const error = dr * dr + dg * dg + db * db;
+    if (error < bestError) {
+      bestError = error;
+      bestBand = entry.band;
+      bestMix = entry.mix;
+    }
+  }
+
+  return {
+    band: bestBand,
+    mix: bestMix,
+    targetColor,
+    mixByBand: bandMixInfo.map((entry) => entry.mix),
+  };
+};
+
+const resolveActiveSampledStops = (): StoredStop[] | null => {
+  const layerId = useAppStore.getState().activeLayerId;
+  if (!layerId) {
+    return null;
+  }
+  const session = getActiveMarkGradientSession(layerId);
+  if (!session || session.source !== 'sampled') {
+    return null;
+  }
+  const sampledStops =
+    session.previewStopsStored && session.previewStopsStored.length >= 2
+      ? session.previewStopsStored
+      : (session.fallbackStopsStored?.length ? session.fallbackStopsStored : session.frozenStopsStored);
+  return sampledStops?.length ? sampledStops : null;
 };
 
 const resolveRuntimeFlatMixByBand = (
@@ -551,15 +695,25 @@ export const fillCcGradientDither = async ({
     const phaseY = Math.floor(minY / Math.max(1, cellSize));
     const flatPosition = resolveAverageActiveTone(cellCoverage, activeMask);
     const brushSettings = useAppStore.getState().tools?.brushSettings;
-    const preferSampledFlatPosition =
+    const preferSampledFlatSolver =
       algorithm === 'sierra-lite' &&
       !flatMixByBand &&
       useAppStore.getState().tools?.ccGradientSource === 'sampled' &&
       !brushSettings?.colorCycleUseForegroundGradient;
+    const sampledFlatSolver = preferSampledFlatSolver
+      ? resolveSampledFlatBandMix({
+          stops: resolveActiveSampledStops() ?? [],
+          flatPosition,
+          baseOffset,
+          spread: flatPairSpread,
+        })
+      : null;
     const runtimeFlat = algorithm === 'sierra-lite'
       ? resolveRuntimeFlatMixByBand(0, flatPairSpread)
       : {};
-    const resolvedFlatMixByBand = preferSampledFlatPosition
+    const resolvedFlatMixByBand = sampledFlatSolver
+      ? undefined
+      : preferSampledFlatSolver
       ? undefined
       : (flatMixByBand ?? runtimeFlat.mixByBand);
 
@@ -568,7 +722,8 @@ export const fillCcGradientDither = async ({
       flatPosition,
       baseOffset,
       flatPairSpread,
-      preferSampledFlatPosition,
+      preferSampledFlatSolver,
+      sampledFlatSolver,
       resolvedFlatMixByBand,
       activeCellCount: activeMask.reduce((count, value) => count + (value ? 1 : 0), 0),
     });
@@ -577,7 +732,9 @@ export const fillCcGradientDither = async ({
       algorithm,
       patternStyle,
       tone: flatPosition,
-      flatPosition,
+      flatPosition: sampledFlatSolver ? undefined : flatPosition,
+      flatBand: sampledFlatSolver?.band,
+      flatMix: sampledFlatSolver?.mix,
       flatMixByBand: resolvedFlatMixByBand,
       flatSeed,
       spread: flatPairSpread,

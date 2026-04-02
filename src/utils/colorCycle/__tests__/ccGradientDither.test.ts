@@ -1,4 +1,7 @@
-import { fillCcGradientDither } from '@/utils/colorCycle/ccGradientDither';
+import {
+  fillCcGradientDither,
+  resolveSampledFlatBandMix,
+} from '@/utils/colorCycle/ccGradientDither';
 import {
   resolveFlatInkSetForBand,
   resolveFlatInkSetForPosition,
@@ -117,6 +120,53 @@ describe('fillCcGradientDither', () => {
 
     expect(usedPair).toEqual(sampledPair);
     expect(usedPair).not.toEqual(legacyBandPair);
+  });
+
+  it('solves sampled flat band/mix from sampled stops instead of only using flat position', () => {
+    const warmStops = [
+      { position: 0, color: '#201010' },
+      { position: 0.5, color: '#ffb347' },
+      { position: 1, color: '#fff2cc' },
+    ];
+    const coolStops = [
+      { position: 0, color: '#081018' },
+      { position: 0.5, color: '#4fd1ff' },
+      { position: 1, color: '#d9f3ff' },
+    ];
+
+    const warm = resolveSampledFlatBandMix({
+      stops: warmStops,
+      flatPosition: 0.5,
+      spread: 84,
+    });
+    const cool = resolveSampledFlatBandMix({
+      stops: coolStops,
+      flatPosition: 0.5,
+      spread: 84,
+    });
+
+    expect(warm).not.toBeNull();
+    expect(cool).not.toBeNull();
+    expect(warm?.targetColor).not.toEqual(cool?.targetColor);
+    expect(warm?.band).toBeGreaterThanOrEqual(1);
+    expect(cool?.band).toBeGreaterThanOrEqual(1);
+    expect(warm?.mix).toBeGreaterThan(0);
+    expect(cool?.mix).toBeGreaterThan(0);
+  });
+
+  it('does not let sampled flat solving jump to a far-away extreme band', () => {
+    const solved = resolveSampledFlatBandMix({
+      stops: [
+        { position: 0, color: '#0d0a08' },
+        { position: 1, color: '#f7c66e' },
+      ],
+      flatPosition: 0.74,
+      baseOffset: 0,
+      spread: 98,
+    });
+
+    expect(solved).not.toBeNull();
+    expect(solved?.band).toBeGreaterThanOrEqual(2);
   });
 
   it('uses band-local ink pairs when pairBandCount is provided', async () => {

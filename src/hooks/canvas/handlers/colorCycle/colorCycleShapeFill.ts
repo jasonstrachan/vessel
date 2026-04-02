@@ -13,7 +13,9 @@ import { applyRuntimeToBrush, flushGradientApply, requestGradientApply } from '@
 import type { MarkGradientSession } from '@/hooks/canvas/utils/colorCycleMarkSession';
 import { resolveMarkSessionRuntimeStops } from '@/hooks/canvas/utils/colorCycleMarkSession';
 import { TEMP_SAMPLE_SLOT } from '@/constants/colorCycle';
+import { ccLog } from '@/debug/ccDebug';
 import { ensureGradientDefForStops } from '@/utils/colorCycleGradientDefs';
+import type { GradientStop } from '@/hooks/brushEngine/ccGradientRuntime';
 
 type ColorCycleBrush = ColorCycleBrushImplementation;
 type SnapshotCapableBrush = ColorCycleBrush & ColorCycleCommittedStateBrush & {
@@ -55,6 +57,60 @@ const launchDeferredColorCycleShapeSave = (
   deps.scheduleDeferredColorCycleSaveWithState(args).catch((error) => {
     deps.logError('Deferred color cycle shape save failed', error);
   });
+};
+
+const persistCommittedSampledSlot = (
+  layerId: string,
+  slot: number,
+  stops: GradientStop[]
+): void => {
+  const state = useAppStore.getState();
+  const layer = state.layers.find((candidate) => candidate.id === layerId);
+  if (!layer || layer.layerType !== 'color-cycle' || !layer.colorCycleData) {
+    return;
+  }
+
+  const nextStops = stops.map((stop) => ({
+    position: stop.position,
+    color: stop.color,
+    opacity: stop.opacity,
+  }));
+  const slotPalettes = layer.colorCycleData.slotPalettes ?? [];
+  const hasSlot = slotPalettes.some((entry) => entry.slot === slot);
+  const nextSlotPalettes = hasSlot
+    ? slotPalettes.map((entry) =>
+        entry.slot === slot
+          ? { slot, stops: nextStops }
+          : entry
+      )
+    : [...slotPalettes, { slot, stops: nextStops }];
+
+  state.updateLayer(layerId, {
+    colorCycleData: {
+      ...layer.colorCycleData,
+      paintSlot: slot,
+      paintStops: nextStops,
+      slotPalettes: nextSlotPalettes,
+      gradient: nextStops,
+    },
+  });
+  const nextState = useAppStore.getState();
+  const nextLayer = nextState.layers.find((candidate) => candidate.id === layerId);
+  const activeSlotPaletteStopCount =
+    nextLayer?.layerType === 'color-cycle' && nextLayer.colorCycleData
+      ? (nextLayer.colorCycleData.slotPalettes?.find((entry) => entry.slot === slot)?.stops?.length ?? 0)
+      : 0;
+  ccLog('persist committed sampled slot', {
+    paintSlot: slot,
+    'paintStops.length': nextStops.length,
+    'gradient.length':
+      nextLayer?.layerType === 'color-cycle' && nextLayer.colorCycleData
+        ? (nextLayer.colorCycleData.gradient?.length ?? 0)
+        : 0,
+    'active slot palette stop count': activeSlotPaletteStopCount,
+  });
+  requestGradientApply(layerId, 'shape-commit-sampled-slot');
+  flushGradientApply(layerId);
 };
 
 export const clearColorCycleShapeEraseMask = (
@@ -268,19 +324,20 @@ const resolveDitherRenderSession = ({
   session: MarkGradientSession | null;
   brushSettings: ReturnType<typeof useAppStore.getState>['tools']['brushSettings'];
 }): CcDitherRenderSession | null => {
+  if (!session) {
+    return null;
+  }
   const shouldUseSessionDither =
-    Boolean(session?.ditherRenderConfig?.enabled) || (!session?.ditherRenderConfig && brushSettings.ditherEnabled);
-  if (!session?.frozenStopsStored?.length || !shouldUseSessionDither) {
-    return session
-      ? {
-          binding: session.binding,
-          frozenStopsStored: resolveMarkSessionRuntimeStops(session, session.frozenStopsStored),
-          frozenHash: session.frozenHash,
-          source: session.source,
-          gradientKind: session.gradientKind,
-          speedCps: session.speedCps,
-        }
-      : null;
+    Boolean(session.ditherRenderConfig?.enabled) || (!session.ditherRenderConfig && brushSettings.ditherEnabled);
+  if (!session.frozenStopsStored?.length || !shouldUseSessionDither) {
+    return {
+      binding: session.binding,
+      frozenStopsStored: resolveMarkSessionRuntimeStops(session, session.frozenStopsStored),
+      frozenHash: session.frozenHash,
+      source: session.source,
+      gradientKind: session.gradientKind,
+      speedCps: session.speedCps,
+    };
   }
 
   const renderPalette = buildCcDitherRuntimePalette({
@@ -482,6 +539,13 @@ export const finalizeColorCycleShapeFillLinear = async (
         deps.brushEngine.updateColorCycleTexture();
         colorCycleBrush.renderDirectToCanvas?.(args.activeLayerCanvas, args.activeLayerId);
       });
+      if (renderSession?.source === 'sampled' && renderSession.binding?.slot !== undefined) {
+        persistCommittedSampledSlot(
+          args.activeLayerId,
+          renderSession.binding.slot,
+          renderSession.frozenStopsStored
+        );
+      }
     } else {
       deps.timeSync('cc:shape:render(fallback)', () => {
         const targetCtx = args.activeLayerCanvas.getContext('2d', { willReadFrequently: true });
@@ -665,6 +729,13 @@ export const finalizeColorCycleShapeFillConcentric = async (
         deps.brushEngine.updateColorCycleTexture();
         colorCycleBrush.renderDirectToCanvas?.(args.activeLayerCanvas, args.activeLayerId);
       });
+      if (renderSession?.source === 'sampled' && renderSession.binding?.slot !== undefined) {
+        persistCommittedSampledSlot(
+          args.activeLayerId,
+          renderSession.binding.slot,
+          renderSession.frozenStopsStored
+        );
+      }
     }
 
     try {
