@@ -301,6 +301,10 @@ export interface Layer {
      */
     gradient?: Array<{ position: number; color: string }>;
     /**
+     * Canonical paint stops for the current paint slot.
+     */
+    paintStops?: Array<{ position: number; color: string; opacity?: number }>;
+    /**
      * @deprecated Legacy gradient list (id + slot + stops). Prefer gradientDefs + slotPalettes.
      */
     gradients?: Array<{

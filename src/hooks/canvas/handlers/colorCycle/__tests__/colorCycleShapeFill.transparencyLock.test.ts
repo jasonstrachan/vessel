@@ -659,4 +659,5 @@ describe('colorCycleShapeFill transparency lock', () => {
       { slot: 7, stops: renderStops },
     ]);
   });
+
 });
