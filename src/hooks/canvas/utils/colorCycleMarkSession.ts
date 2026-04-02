@@ -135,7 +135,6 @@ export const resolveMarkSessionRuntimeStops = (
   const spread = liveOverrides?.spread ?? config?.spread;
   const algorithm = liveOverrides?.algorithm ?? config?.algorithm;
   const preserveSourceStops =
-    session?.source !== 'sampled' &&
     bands <= 0 &&
     algorithm === 'sierra-lite';
   const runtimeStops = buildCcDitherRuntimePalette({

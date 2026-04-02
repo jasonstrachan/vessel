@@ -163,10 +163,7 @@ describe('ccGradientRuntime', () => {
     const snapshot = buildRuntimeSnapshot(layer, brushSettings);
 
     expect(snapshot.paintSlot).toBe(TEMP_SAMPLE_SLOT);
-    expect(snapshot.slotPalettes[0]?.stops).toHaveLength(10);
-    expect(snapshot.slotPalettes[0]?.stops.map((stop) => stop.color)).not.toEqual(
-      session.previewStopsStored?.map((stop) => stop.color)
-    );
+    expect(snapshot.slotPalettes[0]?.stops).toEqual(session.previewStopsStored);
   });
 
   it('preserves flat FG source stops for active bound sessions', () => {

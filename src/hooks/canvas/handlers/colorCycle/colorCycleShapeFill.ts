@@ -289,6 +289,11 @@ const resolveDitherRenderSession = ({
       resolveCcDitherBandMode(brushSettings.gradientBands ?? 16).pairBandCount,
     spread: session.ditherRenderConfig?.spread ?? brushSettings.ditherPaletteSpread,
     algorithm: session.ditherRenderConfig?.algorithm ?? brushSettings.ditherAlgorithm,
+    preserveSourceStops:
+      session.source === 'sampled' &&
+      (session.ditherRenderConfig?.pairBandCount ??
+        resolveCcDitherBandMode(brushSettings.gradientBands ?? 16).pairBandCount) <= 0 &&
+      (session.ditherRenderConfig?.algorithm ?? brushSettings.ditherAlgorithm ?? 'sierra-lite') === 'sierra-lite',
   });
   const renderDef = ensureGradientDefForStops({
     layerId,
