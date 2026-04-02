@@ -8,6 +8,8 @@ import {
 import type { BrushSettings } from '@/types';
 import {
   resolveFlatInkSetForBand,
+  resolveFlatInkSetForPosition,
+  resolveFlatPairContrastStrength,
 } from '@/utils/colorCycle/ccFlatModePatterns';
 import type { StoredStop } from '@/utils/colorCycleGradientDefs';
 
@@ -437,6 +439,65 @@ export const buildCcDitherRenderPalette = ({
   }
 
   return { bandCount, renderStops };
+};
+
+const SIERRA_FLAT_BANDS = 5;
+const clampColorChannel = (value: number): number => Math.max(0, Math.min(255, Math.round(value)));
+
+const toPalettePosition = (index: number): number => clamp01((index - 1) / 254);
+
+const buildContrastInkPairForTarget = ({
+  target,
+  spreadDistance,
+}: {
+  target: [number, number, number];
+  spreadDistance: number;
+}): { low: [number, number, number]; high: [number, number, number] } => {
+  const spreadStrength = resolveFlatPairContrastStrength(spreadDistance);
+  const contrast = 10 + Math.round(Math.pow(spreadStrength, 0.85) * 90);
+
+  const low: [number, number, number] = [
+    clampColorChannel(target[0] - contrast),
+    clampColorChannel(target[1] - contrast),
+    clampColorChannel(target[2] - contrast),
+  ];
+
+  const high: [number, number, number] = [
+    clampColorChannel(target[0] + contrast),
+    clampColorChannel(target[1] + contrast),
+    clampColorChannel(target[2] + contrast),
+  ];
+  const lowLum = luminance(low);
+  const highLum = luminance(high);
+  return lowLum <= highLum ? { low, high } : { low: high, high: low };
+};
+
+export const buildCcFlatSierraContrastRenderPalette = ({
+  baseStops,
+  spread,
+}: {
+  baseStops: StoredStop[];
+  spread: Pick<BrushSettings, 'ditherPaletteSpread'>['ditherPaletteSpread'];
+}): CcDitherRenderPalette => {
+  if (!baseStops.length) {
+    return { bandCount: 0, renderStops: [] };
+  }
+  const renderStops: StoredStop[] = [];
+  for (let band = 0; band < SIERRA_FLAT_BANDS; band += 1) {
+    const centerPos = clamp01((band + 0.5) / SIERRA_FLAT_BANDS);
+    const indices = resolveFlatInkSetForPosition(centerPos, 2, 0, spread).indices;
+    const targetRgb = sampleGradientColor(baseStops, centerPos);
+    const { low, high } = buildContrastInkPairForTarget({
+      target: targetRgb,
+      spreadDistance: Math.max(1, indices[1] - indices[0]),
+    });
+    renderStops.push(
+      { position: toPalettePosition(indices[0]), color: formatRgb(low) },
+      { position: toPalettePosition(indices[1]), color: formatRgb(high) }
+    );
+  }
+  renderStops.sort((a, b) => a.position - b.position);
+  return { bandCount: 0, renderStops };
 };
 
 export const buildCcDitherRuntimePalette = ({
