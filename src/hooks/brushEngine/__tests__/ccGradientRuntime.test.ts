@@ -122,7 +122,7 @@ describe('ccGradientRuntime', () => {
     );
   });
 
-  it('keeps raw sampled stops for flat active session runtime palettes while editing', () => {
+  it('uses live dither spread for active session runtime palettes while editing', () => {
     const layer = makeLayer();
     const brushSettings = makeBrushSettings({
       ditherEnabled: true,
@@ -163,6 +163,9 @@ describe('ccGradientRuntime', () => {
     const snapshot = buildRuntimeSnapshot(layer, brushSettings);
 
     expect(snapshot.paintSlot).toBe(TEMP_SAMPLE_SLOT);
-    expect(snapshot.slotPalettes[0]?.stops).toEqual(session.previewStopsStored);
+    expect(snapshot.slotPalettes[0]?.stops).toHaveLength(10);
+    expect(snapshot.slotPalettes[0]?.stops.map((stop) => stop.color)).not.toEqual(
+      session.previewStopsStored?.map((stop) => stop.color)
+    );
   });
 });
