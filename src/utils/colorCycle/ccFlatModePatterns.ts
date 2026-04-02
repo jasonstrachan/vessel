@@ -16,6 +16,7 @@ export type FlatPatternFillOptions = {
   algorithm: DitherAlgorithm;
   patternStyle?: PatternStyle;
   tone: number;
+  flatPosition?: number;
   flatBand?: number;
   flatMix?: number;
   flatMixByBand?: readonly number[];
@@ -55,7 +56,7 @@ export const resolveToneBand = (tone: number): number => {
   return Math.min(SIERRA_LITE_TONE_BANDS - 1, Math.floor(clamped * SIERRA_LITE_TONE_BANDS));
 };
 
-export const resolveFlatInkCountForBand = (_band?: number): FlatInkCount => 2;
+export const resolveFlatInkCountForBand = (): FlatInkCount => 2;
 
 const resolveFlatPairHalfSpread = (spreadPercent?: number): number => {
   if (!Number.isFinite(spreadPercent)) {
@@ -75,6 +76,23 @@ export const resolveFlatInkSetForBand = (
 ): FlatInkSet => {
   const clampedBand = Math.max(0, Math.min(FLAT_BAND_CENTERS.length - 1, band | 0));
   const center = FLAT_BAND_CENTERS[clampedBand];
+  const half = resolveFlatPairHalfSpread(spreadPercent);
+  const low = shiftPaletteIndex(Math.max(1, center - half), baseOffset);
+  const high = shiftPaletteIndex(Math.min(255, center + half), baseOffset);
+
+  return {
+    indices: [low, high],
+  };
+};
+
+export const resolveFlatInkSetForPosition = (
+  position: number,
+  _inkCount: FlatInkCount,
+  baseOffset: number,
+  spreadPercent?: number
+): FlatInkSet => {
+  const clampedPosition = clamp01(position);
+  const center = Math.max(1, Math.min(255, Math.round(clampedPosition * 254) + 1));
   const half = resolveFlatPairHalfSpread(spreadPercent);
   const low = shiftPaletteIndex(Math.max(1, center - half), baseOffset);
   const high = shiftPaletteIndex(Math.min(255, center + half), baseOffset);
@@ -135,19 +153,32 @@ const resolveOrderedThreshold = (
 
 const resolveBandMixAmount = (
   band: number,
+  flatPosition: number | undefined,
   flatMix: number | undefined,
-  flatMixByBand?: readonly number[]
+  flatMixByBand?: readonly number[],
+  spreadPercent?: number
 ): number => {
   if (Number.isFinite(flatMix)) {
     const raw = clamp01(flatMix as number);
     return Math.max(SIERRA_LITE_MIN_MIX, Math.min(SIERRA_LITE_MAX_MIX, raw));
   }
-  if (!flatMixByBand || flatMixByBand.length <= 0) {
-    return 0.5;
+  if (flatMixByBand && flatMixByBand.length > 0) {
+    const clampedBand = Math.max(0, Math.min(flatMixByBand.length - 1, band | 0));
+    const raw = clamp01(flatMixByBand[clampedBand] ?? 0.5);
+    return Math.max(SIERRA_LITE_MIN_MIX, Math.min(SIERRA_LITE_MAX_MIX, raw));
   }
-  const clampedBand = Math.max(0, Math.min(flatMixByBand.length - 1, band | 0));
-  const raw = clamp01(flatMixByBand[clampedBand] ?? 0.5);
-  return Math.max(SIERRA_LITE_MIN_MIX, Math.min(SIERRA_LITE_MAX_MIX, raw));
+  if (Number.isFinite(flatPosition)) {
+    const clampedPosition = clamp01(flatPosition as number);
+    const sampledIndex = 1 + clampedPosition * 254;
+    const center = Math.max(1, Math.min(255, Math.round(clampedPosition * 254) + 1));
+    const half = resolveFlatPairHalfSpread(spreadPercent);
+    const low = Math.max(1, center - half);
+    const high = Math.min(255, center + half);
+    const span = Math.max(1, high - low);
+    const raw = clamp01((sampledIndex - low) / span);
+    return Math.max(SIERRA_LITE_MIN_MIX, Math.min(SIERRA_LITE_MAX_MIX, raw));
+  }
+  return 0.5;
 };
 
 const hash32 = (a: number, b: number, c: number, d: number): number => {
@@ -236,6 +267,7 @@ const fillOrderedFlatPatternMode = ({
   algorithm,
   patternStyle,
   tone,
+  flatPosition,
   flatBand,
   spread,
   gridW,
@@ -249,8 +281,17 @@ const fillOrderedFlatPatternMode = ({
 }: FlatPatternFillOptions): void => {
   const band = Number.isFinite(flatBand)
     ? Math.max(0, Math.min(SIERRA_LITE_TONE_BANDS - 1, Math.floor(flatBand as number)))
-    : resolveToneBand(tone);
-  const inkSet = resolveFlatInkSetForBand(band, 2, baseOffset, spread);
+    : resolveToneBand(Number.isFinite(flatPosition) ? (flatPosition as number) : tone);
+  const inkSet = Number.isFinite(flatPosition)
+    ? resolveFlatInkSetForPosition(flatPosition as number, 2, baseOffset, spread)
+    : resolveFlatInkSetForBand(band, 2, baseOffset, spread);
+  const orderedMix = resolveBandMixAmount(
+    band,
+    flatPosition,
+    undefined,
+    undefined,
+    spread
+  );
 
   for (let y = 0; y < gridH; y += 1) {
     const rowOffset = y * gridW;
@@ -260,7 +301,7 @@ const fillOrderedFlatPatternMode = ({
         continue;
       }
       const bit =
-        tone >= resolveOrderedThreshold(algorithm, patternStyle, x + phaseX, y + phaseY) ? 1 : 0;
+        orderedMix >= resolveOrderedThreshold(algorithm, patternStyle, x + phaseX, y + phaseY) ? 1 : 0;
       const index = !fillBackground && bit === 0
         ? 0
         : (bit === 0 ? inkSet.indices[0] : inkSet.indices[1]);
@@ -271,6 +312,7 @@ const fillOrderedFlatPatternMode = ({
 
 const fillSierraLiteFlatPatternMode = ({
   tone,
+  flatPosition,
   flatBand,
   flatMix,
   flatMixByBand,
@@ -288,10 +330,12 @@ const fillSierraLiteFlatPatternMode = ({
   const errors = new Float32Array(gridW * gridH);
   const band = Number.isFinite(flatBand)
     ? Math.max(0, Math.min(SIERRA_LITE_TONE_BANDS - 1, Math.floor(flatBand as number)))
-    : resolveToneBand(tone);
+    : resolveToneBand(Number.isFinite(flatPosition) ? (flatPosition as number) : tone);
 
-  const inkSet = resolveFlatInkSetForBand(band, 2, baseOffset, spread);
-  const baseMix = resolveBandMixAmount(band, flatMix, flatMixByBand);
+  const inkSet = Number.isFinite(flatPosition)
+    ? resolveFlatInkSetForPosition(flatPosition as number, 2, baseOffset, spread)
+    : resolveFlatInkSetForBand(band, 2, baseOffset, spread);
+  const baseMix = resolveBandMixAmount(band, flatPosition, flatMix, flatMixByBand, spread);
   const mixKey = Math.round(baseMix * 255) & 255;
   const lowIdx = inkSet.indices[0] & 255;
   const highIdx = inkSet.indices[1] & 255;
@@ -355,6 +399,7 @@ export const fillFlatPatternMode = (options: FlatPatternFillOptions): void => {
   if (options.algorithm === 'sierra-lite') {
     fillSierraLiteFlatPatternMode({
       tone: options.tone,
+      flatPosition: options.flatPosition,
       flatBand: options.flatBand,
       flatMix: options.flatMix,
       flatMixByBand: options.flatMixByBand,
