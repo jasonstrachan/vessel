@@ -55,8 +55,10 @@ import {
 } from '@/lib/colorCycle/gradientSeamProfile';
 import { ensurePalette } from '@/lib/colorCycle/paletteService';
 import { resolveLayerColorCycleBaseSpeedFromLayer } from '@/utils/colorCycleLayerSpeed';
+import type { StoredStop } from '@/utils/colorCycleGradientDefs';
 import { hashNumbers } from '@/utils/risographTexture';
 import type { CommitCommittedLayerStateOptions } from '@/hooks/brushEngine/colorCycleCommittedState';
+import { getActiveMarkGradientSession } from '@/hooks/canvas/utils/colorCycleMarkSession';
 
 type CcCustomStampPerfStats = {
   sourceHit: number;
@@ -81,6 +83,13 @@ const getBrushProfileNow = (): number =>
   typeof performance !== 'undefined' && typeof performance.now === 'function'
     ? performance.now()
     : Date.now();
+
+const summarizeCcDebugStops = (
+  stops: Array<{ position: number; color: string; opacity?: number }> | null | undefined
+) => (stops ?? []).slice(0, 8).map((stop) => ({
+  p: Number(stop.position.toFixed(3)),
+  c: stop.color,
+}));
 
 const getCcCustomStampProfile = (): CcCustomStampPerfStats | null => {
   if (typeof window === 'undefined') {
@@ -145,10 +154,19 @@ type FillOptions = {
   ditherPairBandCount?: number;
   ditherPaletteSpread?: number;
   ditherBackgroundFill?: boolean;
+  ditherSampledStops?: StoredStop[];
+  ditherBaseOffsetOverride?: number;
+  paintSlotOverride?: number;
   roi?: { x: number; y: number; width: number; height: number };
   spacing?: number;
   lostEdge?: number;
 };
+
+const summarizeStoredStopsForDebug = (stops: StoredStop[] | null | undefined) =>
+  (stops ?? []).slice(0, 8).map((stop) => ({
+    p: Number(stop.position.toFixed(3)),
+    c: stop.color,
+  }));
 
 type LayerStrokeState = {
   hasContent: boolean;
@@ -2912,7 +2930,9 @@ export class ColorCycleBrushCanvas2D {
       } catch {}
     }
     // quiet
-    const activeSlot = strokeData?.flow.activeSlot ?? this.activeGradientSlots.get(id) ?? 0;
+    const activeSlot = Number.isFinite(options?.paintSlotOverride)
+      ? Math.max(0, Math.round(options?.paintSlotOverride as number))
+      : strokeData?.flow.activeSlot ?? this.activeGradientSlots.get(id) ?? 0;
     if (strokeData) {
       strokeData.flow.activeSlot = activeSlot;
       strokeData.flow.mode = this.flowMode;
@@ -3009,7 +3029,9 @@ export class ColorCycleBrushCanvas2D {
     const ditherLevels = Number.isFinite(options?.ditherLevels)
       ? Math.max(1, Math.min(254, Math.floor(options?.ditherLevels as number)))
       : null;
-    const baseOffset = this.stampCounter % 255;
+    const baseOffset = Number.isFinite(options?.ditherBaseOffsetOverride)
+      ? Math.max(0, Math.min(254, Math.round(options?.ditherBaseOffsetOverride as number)))
+      : this.stampCounter % 255;
     const { speedByte, flowByte } = this.resolveShapeAnimationBytes(strokeData, { ccGradient });
     if (logCcFill) {
       debugLog('cc-fill', '[CC fill] linear path flags', {
@@ -3189,6 +3211,13 @@ export class ColorCycleBrushCanvas2D {
         const quantLevels = ditherLevels ?? (pairBandCount > 0 ? Math.max(2, numBands) : 1);
         const pixelSize = Math.max(1, Math.floor(options?.ditherPixelSize ?? this.ditherPixelSize));
         const flatPairSpread = options?.ditherPaletteSpread ?? useAppStore.getState().tools.brushSettings.ditherPaletteSpread;
+        const activeSession = getActiveMarkGradientSession(id);
+        const sampledStopsOverride = options?.ditherSampledStops?.length ? options.ditherSampledStops : null;
+        const paintSlot = useAppStore.getState().layers.find((layer) => layer.id === id)?.colorCycleData?.paintSlot ?? null;
+        const modeChosen =
+          pairBandCount <= 0 && fillAlgorithm === 'sierra-lite'
+            ? 'flat-sierra'
+            : 'banded';
         const flatSeed = hashNumbers(
           strokeData?.stampCounter ?? this.stampCounter,
           bbox.minX,
@@ -3197,6 +3226,24 @@ export class ColorCycleBrushCanvas2D {
           bbox.height,
           baseOffset
         );
+        ccLog('shape fill linear preview dither', {
+          markId: activeSession?.markId ?? null,
+          layerId: id,
+          source: sampledStopsOverride ? 'sampled-override' : (activeSession?.source ?? null),
+          previewStopsLen: activeSession?.previewStopsStored?.length ?? 0,
+          previewStops: summarizeCcDebugStops(activeSession?.previewStopsStored),
+          sampledStopsOverrideLen: sampledStopsOverride?.length ?? 0,
+          sampledStopsOverride: summarizeStoredStopsForDebug(sampledStopsOverride),
+          pairBandCount,
+          spread: flatPairSpread ?? null,
+          algorithm: fillAlgorithm,
+          baseOffset,
+          ditherBaseOffsetOverride: options?.ditherBaseOffsetOverride ?? null,
+          paintSlotOverride: options?.paintSlotOverride ?? null,
+          paintSlot,
+          activeSlot,
+          modeChosen,
+        });
         await fillCcGradientDither({
           vertices,
           minX: fillMinX,
@@ -3211,6 +3258,7 @@ export class ColorCycleBrushCanvas2D {
           flatSeed,
           algorithm: fillAlgorithm,
           patternStyle: fillPatternStyle,
+          sampledStopsOverride: sampledStopsOverride ?? undefined,
           fillBackground: options?.ditherBackgroundFill !== false,
           pxlEdge: this.pxlEdgeEnabled,
           sampleNormalized: (x, y) => {

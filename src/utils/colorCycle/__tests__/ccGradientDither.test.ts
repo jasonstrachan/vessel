@@ -154,6 +154,53 @@ describe('fillCcGradientDither', () => {
     expect(cool?.mix).toBeGreaterThan(0);
   });
 
+  it('uses sampledStopsOverride for flat sampled solving when no active sampled session exists', async () => {
+    const width = 12;
+    const height = 12;
+    const out = new Uint8Array(width * height);
+    const warmStops = [
+      { position: 0, color: '#201010' },
+      { position: 0.5, color: '#ffb347' },
+      { position: 1, color: '#fff2cc' },
+    ];
+    const expectedPair = (() => {
+      const solved = resolveSampledFlatBandMix({
+        stops: warmStops,
+        flatPosition: 0.5,
+        spread: 84,
+      });
+      const band = solved?.band ?? 2;
+      return resolveFlatInkSetForBand(band, 2, 0, 84).indices;
+    })();
+
+    await fillCcGradientDither({
+      vertices: [
+        { x: 0, y: 0 },
+        { x: width - 1, y: 0 },
+        { x: width - 1, y: height - 1 },
+        { x: 0, y: height - 1 },
+      ],
+      minX: 0,
+      minY: 0,
+      maxX: width - 1,
+      maxY: height - 1,
+      pixelSize: 1,
+      levels: 1,
+      baseOffset: 0,
+      flatPairSpread: 84,
+      algorithm: 'sierra-lite',
+      sampledStopsOverride: warmStops,
+      sampleNormalized: () => 0.5,
+      writeIndex: (x, y, index) => {
+        out[y * width + x] = index;
+      },
+    });
+
+    expect(
+      Array.from(new Set(out)).filter((value) => value > 0).sort((a, b) => a - b)
+    ).toEqual(expectedPair);
+  });
+
   it('does not let sampled flat solving jump to a far-away extreme band', () => {
     const solved = resolveSampledFlatBandMix({
       stops: [

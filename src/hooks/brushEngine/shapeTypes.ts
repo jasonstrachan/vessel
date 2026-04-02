@@ -1,4 +1,5 @@
 import type { BrushSettings } from '@/types';
+import type { StoredStop } from '@/utils/colorCycleGradientDefs';
 
 export type Point2D = { x: number; y: number };
 
@@ -19,6 +20,9 @@ export type GradientDitherOptions = {
   ditherPixelSize?: number;
   ditherPairBandCount?: number;
   ditherPaletteSpread?: number;
+  ditherSampledStops?: StoredStop[];
+  ditherBaseOffsetOverride?: number;
+  paintSlotOverride?: number;
   roi?: RoiRect;
 };
 
