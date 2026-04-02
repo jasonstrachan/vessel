@@ -35,10 +35,12 @@ import {
   deriveForegroundGradientStops,
 } from '@/utils/colorCycleGradients';
 import { buildCcDitherRuntimePalette, resolveCcDitherBandMode } from '@/utils/colorCycle/ccDitherRenderPalette';
+import { ccLog } from '@/utils/colorCycle/ccDebug';
 import { fillCcGradientDither } from '@/utils/colorCycle/ccGradientDither';
 import { getPreviewGradientForActiveMark } from '@/hooks/canvas/utils/colorCycleMarkSession';
 import { parseCssColorToRgba } from '@/hooks/canvas/utils/colorCycleHelpers';
 import { applyPolygonMaskToCanvasContext } from '@/hooks/canvas/handlers/shapes/shapePreviewMask';
+import { hashNumbers } from '@/utils/risographTexture';
 
 const SHAPE_PREVIEW_OPACITY = 0.6;
 
@@ -2989,6 +2991,23 @@ export const createShapeToolHandler = (
                 const fillAlgorithm = brushNow.ditherAlgorithm ?? 'sierra-lite';
                 const fillPatternStyle = brushNow.patternStyle ?? 'dots';
                 const fillBackground = (brushNow.ditherGradBgFill ?? brushNow.ditherBackgroundFill) !== false;
+                const flatSeedValues = [w, h, pixelSize, levels, minProj, maxProj];
+                for (let i = 0; i < localVertices.length; i += 1) {
+                  flatSeedValues.push(localVertices[i].x, localVertices[i].y);
+                }
+                const flatSeed = hashNumbers(...flatSeedValues);
+                const previewStore = useAppStore.getState();
+                const previewLayerId = previewStore.activeLayerId ?? null;
+                const previewActiveSlot =
+                  previewLayerId
+                    ? (previewStore.layers?.find((layer) => layer.id === previewLayerId)?.colorCycleData?.paintSlot ?? null)
+                    : null;
+                const previewFgColor =
+                  previewStore.palette?.foregroundColor ??
+                  previewStore.tools?.brushSettings?.color ??
+                  null;
+                const phaseX = Math.floor(0 / Math.max(1, pixelSize));
+                const phaseY = Math.floor(0 / Math.max(1, pixelSize));
                 const tempCanvas = canvasPool.acquire(w, h);
                 const tempCtx = tempCanvas.getContext(
                   '2d',
@@ -3008,6 +3027,23 @@ export const createShapeToolHandler = (
                   const yieldIfNeeded = createPreviewYieldController();
                   (async () => {
                     try {
+                      ccLog('fillCcGradientDither preview call', {
+                        flatSeed,
+                        flatPairSpread: brushNow.ditherPaletteSpread,
+                        flatMixByBand: undefined,
+                        levels,
+                        algorithm: fillAlgorithm,
+                        bbox: { minX: 0, minY: 0, maxX: w - 1, maxY: h - 1 },
+                        minX: 0,
+                        minY: 0,
+                        maxX: w - 1,
+                        maxY: h - 1,
+                        phaseX,
+                        phaseY,
+                        fgColor: previewFgColor,
+                        activeSlot: previewActiveSlot,
+                        layerId: previewLayerId,
+                      });
                       await fillCcGradientDither({
                         vertices: localVertices,
                         minX: 0,
@@ -3018,6 +3054,7 @@ export const createShapeToolHandler = (
                         levels,
                         baseOffset: 0,
                         flatPairSpread: brushNow.ditherPaletteSpread,
+                        flatSeed,
                         algorithm: fillAlgorithm,
                         patternStyle: fillPatternStyle,
                         fillBackground,

@@ -55,6 +55,7 @@ import {
 } from '@/lib/colorCycle/gradientSeamProfile';
 import { ensurePalette } from '@/lib/colorCycle/paletteService';
 import { resolveLayerColorCycleBaseSpeedFromLayer } from '@/utils/colorCycleLayerSpeed';
+import { hashNumbers } from '@/utils/risographTexture';
 import type { CommitCommittedLayerStateOptions } from '@/hooks/brushEngine/colorCycleCommittedState';
 
 type CcCustomStampPerfStats = {
@@ -3188,6 +3189,35 @@ export class ColorCycleBrushCanvas2D {
         const quantLevels = ditherLevels ?? (pairBandCount > 0 ? Math.max(2, numBands) : 1);
         const pixelSize = Math.max(1, Math.floor(options?.ditherPixelSize ?? this.ditherPixelSize));
         const flatPairSpread = options?.ditherPaletteSpread ?? useAppStore.getState().tools.brushSettings.ditherPaletteSpread;
+        const phaseX = Math.floor(fillMinX / Math.max(1, pixelSize));
+        const phaseY = Math.floor(fillMinY / Math.max(1, pixelSize));
+        const runtimeStore = useAppStore.getState();
+        const runtimeFgColor = runtimeStore.palette?.foregroundColor ?? runtimeStore.tools?.brushSettings?.color ?? null;
+        const flatSeed = hashNumbers(
+          strokeData?.stampCounter ?? this.stampCounter,
+          bbox.minX,
+          bbox.minY,
+          bbox.width,
+          bbox.height,
+          baseOffset
+        );
+        ccLog('fillCcGradientDither runtime linear call', {
+          flatSeed,
+          flatPairSpread,
+          flatMixByBand: undefined,
+          levels: quantLevels,
+          algorithm: fillAlgorithm,
+          bbox,
+          minX: fillMinX,
+          minY: fillMinY,
+          maxX: fillMaxX,
+          maxY: fillMaxY,
+          phaseX,
+          phaseY,
+          fgColor: runtimeFgColor,
+          activeSlot,
+          layerId: id,
+        });
         await fillCcGradientDither({
           vertices,
           minX: fillMinX,
@@ -3199,6 +3229,7 @@ export class ColorCycleBrushCanvas2D {
           pairBandCount,
           baseOffset,
           flatPairSpread,
+          flatSeed,
           algorithm: fillAlgorithm,
           patternStyle: fillPatternStyle,
           fillBackground: options?.ditherBackgroundFill !== false,
@@ -4090,6 +4121,36 @@ export class ColorCycleBrushCanvas2D {
         const quantLevels = ditherLevels ?? (pairBandCount > 0 ? Math.max(2, numBands) : 1);
         const pixelSize = Math.max(1, Math.floor(options?.ditherPixelSize ?? this.ditherPixelSize));
         const flatPairSpread = options?.ditherPaletteSpread ?? useAppStore.getState().tools.brushSettings.ditherPaletteSpread;
+        const phaseX = Math.floor(bbox.minX / Math.max(1, pixelSize));
+        const phaseY = Math.floor(bbox.minY / Math.max(1, pixelSize));
+        const runtimeStore = useAppStore.getState();
+        const runtimeFgColor = runtimeStore.palette?.foregroundColor ?? runtimeStore.tools?.brushSettings?.color ?? null;
+        const flatSeed = hashNumbers(
+          strokeData?.stampCounter ?? this.stampCounter,
+          bbox.minX,
+          bbox.minY,
+          bbox.width,
+          bbox.height,
+          maxDist,
+          baseOffset
+        );
+        ccLog('fillCcGradientDither runtime concentric call', {
+          flatSeed,
+          flatPairSpread,
+          flatMixByBand: undefined,
+          levels: quantLevels,
+          algorithm: fillAlgorithm,
+          bbox,
+          minX: bbox.minX,
+          minY: bbox.minY,
+          maxX: bbox.minX + bbox.width - 1,
+          maxY: bbox.minY + bbox.height - 1,
+          phaseX,
+          phaseY,
+          fgColor: runtimeFgColor,
+          activeSlot,
+          layerId: id,
+        });
         const edges = new Array(vertices.length);
         for (let i = 0; i < vertices.length; i += 1) {
           const v1 = vertices[i];
@@ -4110,6 +4171,7 @@ export class ColorCycleBrushCanvas2D {
           pairBandCount,
           baseOffset,
           flatPairSpread,
+          flatSeed,
           algorithm: fillAlgorithm,
           patternStyle: fillPatternStyle,
           fillBackground: options?.ditherBackgroundFill !== false,

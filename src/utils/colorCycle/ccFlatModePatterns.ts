@@ -5,6 +5,7 @@ import {
   type DitherAlgorithm,
   type PatternStyle,
 } from '@/utils/ditherAlgorithms';
+import { ccLog } from '@/utils/colorCycle/ccDebug';
 
 export type FlatInkCount = 2;
 
@@ -16,9 +17,10 @@ export type FlatPatternFillOptions = {
   algorithm: DitherAlgorithm;
   patternStyle?: PatternStyle;
   tone: number;
-  toneByCell?: Uint8Array;
+  flatBand?: number;
+  flatMix?: number;
   flatMixByBand?: readonly number[];
-  flatBandOverride?: number;
+  flatSeed?: number;
   spread?: number;
   gridW: number;
   gridH: number;
@@ -32,6 +34,8 @@ export type FlatPatternFillOptions = {
 
 const SIERRA_LITE_TONE_BANDS = 5;
 const SIERRA_LITE_THRESHOLD = 0.5;
+const SIERRA_LITE_MIN_MIX = 0.08;
+const SIERRA_LITE_MAX_MIX = 0.92;
 const FLAT_BAND_CENTERS: [number, number, number, number, number] = [26, 77, 128, 179, 230];
 const DEFAULT_FLAT_PAIR_HALF_SPREAD = 4;
 const MIN_FLAT_PAIR_HALF_SPREAD = 1;
@@ -52,10 +56,7 @@ export const resolveToneBand = (tone: number): number => {
   return Math.min(SIERRA_LITE_TONE_BANDS - 1, Math.floor(clamped * SIERRA_LITE_TONE_BANDS));
 };
 
-export const resolveFlatInkCountForBand = (band?: number): FlatInkCount => {
-  void band;
-  return 2;
-};
+export const resolveFlatInkCountForBand = (_band?: number): FlatInkCount => 2;
 
 const resolveFlatPairHalfSpread = (spreadPercent?: number): number => {
   if (!Number.isFinite(spreadPercent)) {
@@ -133,34 +134,110 @@ const resolveOrderedThreshold = (
   }
 };
 
-const resolveCellTone = (
-  tone: number,
-  toneByCell: Uint8Array | undefined,
-  cellIdx: number
-): number => {
-  if (!toneByCell) {
-    return clamp01(tone);
-  }
-  return clamp01((toneByCell[cellIdx] ?? 0) / 255);
-};
-
 const resolveBandMixAmount = (
   band: number,
-  fallbackTone: number,
+  flatMix: number | undefined,
   flatMixByBand?: readonly number[]
 ): number => {
+  if (Number.isFinite(flatMix)) {
+    const raw = clamp01(flatMix as number);
+    return Math.max(SIERRA_LITE_MIN_MIX, Math.min(SIERRA_LITE_MAX_MIX, raw));
+  }
   if (!flatMixByBand || flatMixByBand.length <= 0) {
-    return clamp01(fallbackTone);
+    return 0.5;
   }
   const clampedBand = Math.max(0, Math.min(flatMixByBand.length - 1, band | 0));
-  return clamp01(flatMixByBand[clampedBand] ?? fallbackTone);
+  const raw = clamp01(flatMixByBand[clampedBand] ?? 0.5);
+  return Math.max(SIERRA_LITE_MIN_MIX, Math.min(SIERRA_LITE_MAX_MIX, raw));
+};
+
+const hash32 = (a: number, b: number, c: number, d: number): number => {
+  let n =
+    Math.imul((a | 0) ^ 0x9e3779b9, 374761393) +
+    Math.imul((b | 0) ^ 0x85ebca6b, 668265263) +
+    Math.imul((c | 0) ^ 0xc2b2ae35, 1274126177) +
+    Math.imul((d | 0) ^ 0x27d4eb2d, 1597334677);
+  n = (n ^ (n >>> 13)) >>> 0;
+  n = Math.imul(n, 1274126177) >>> 0;
+  n = (n ^ (n >>> 16)) >>> 0;
+  return n >>> 0;
+};
+
+const variantNoise01 = (
+  x: number,
+  y: number,
+  band: number,
+  flatSeed: number,
+  variant: number,
+  patternKey: number
+): number => {
+  const h = hash32(x + variant * 17, y + variant * 31, band ^ flatSeed, patternKey ^ (variant << 24));
+  return (h & 1023) / 1023;
+};
+
+const resolvePatternVariant = (flatSeed = 0, patternKey = 0): number => {
+  return hash32(flatSeed, patternKey, flatSeed ^ patternKey, 0x51f15e) & 7;
+};
+
+const resolveSeededThreshold = (
+  x: number,
+  y: number,
+  band: number,
+  flatSeed: number,
+  variant: number,
+  patternKey: number
+): number => {
+  const n = variantNoise01(x, y, band, flatSeed, variant, patternKey);
+  const amp =
+    variant === 0 ? 0.03 :
+    variant === 1 ? 0.045 :
+    variant === 2 ? 0.035 :
+    variant === 3 ? 0.05 :
+    variant === 4 ? 0.04 :
+    variant === 5 ? 0.055 :
+    variant === 6 ? 0.038 :
+    0.048;
+  return SIERRA_LITE_THRESHOLD + (n - 0.5) * amp;
+};
+
+const resolveInitialError = (
+  x: number,
+  y: number,
+  band: number,
+  flatSeed: number,
+  variant: number,
+  patternKey: number
+): number => {
+  const n0 = variantNoise01(x, y, band, flatSeed, variant, patternKey);
+  const n1 = variantNoise01(x + 37, y - 19, band ^ 11, flatSeed ^ 23, variant ^ 3, patternKey ^ 0x5a5a);
+  const centered0 = n0 - 0.5;
+  const centered1 = n1 - 0.5;
+
+  switch (variant) {
+    case 0:
+      return centered0 * 0.06;
+    case 1:
+      return (((x + y) & 1) === 0 ? 1 : -1) * 0.035 + centered0 * 0.025;
+    case 2:
+      return (((x & 1) === 0 ? 1 : -1) * 0.03) + centered0 * 0.02;
+    case 3:
+      return ((((x + y) & 3) - 1.5) / 1.5) * 0.03 + centered0 * 0.02;
+    case 4:
+      return centered0 * 0.03 + centered1 * 0.03;
+    case 5:
+      return (((y & 1) === 0 ? 1 : -1) * 0.03) + centered0 * 0.025;
+    case 6:
+      return ((((x - y) & 3) - 1.5) / 1.5) * 0.028 + centered0 * 0.022;
+    default:
+      return centered0 * 0.025 + centered1 * 0.035;
+  }
 };
 
 const fillOrderedFlatPatternMode = ({
   algorithm,
   patternStyle,
   tone,
-  toneByCell,
+  flatBand,
   spread,
   gridW,
   gridH,
@@ -171,6 +248,11 @@ const fillOrderedFlatPatternMode = ({
   phaseY,
   writeCellIndex,
 }: FlatPatternFillOptions): void => {
+  const band = Number.isFinite(flatBand)
+    ? Math.max(0, Math.min(SIERRA_LITE_TONE_BANDS - 1, Math.floor(flatBand as number)))
+    : resolveToneBand(tone);
+  const inkSet = resolveFlatInkSetForBand(band, 2, baseOffset, spread);
+
   for (let y = 0; y < gridH; y += 1) {
     const rowOffset = y * gridW;
     for (let x = 0; x < gridW; x += 1) {
@@ -178,11 +260,8 @@ const fillOrderedFlatPatternMode = ({
       if (activeMask && !activeMask[cellIdx]) {
         continue;
       }
-      const cellTone = resolveCellTone(tone, toneByCell, cellIdx);
-      const band = resolveToneBand(cellTone);
-      const inkSet = resolveFlatInkSetForBand(band, 2, baseOffset, spread);
       const bit =
-        cellTone >= resolveOrderedThreshold(algorithm, patternStyle, x + phaseX, y + phaseY) ? 1 : 0;
+        tone >= resolveOrderedThreshold(algorithm, patternStyle, x + phaseX, y + phaseY) ? 1 : 0;
       const index = !fillBackground && bit === 0
         ? 0
         : (bit === 0 ? inkSet.indices[0] : inkSet.indices[1]);
@@ -193,18 +272,43 @@ const fillOrderedFlatPatternMode = ({
 
 const fillSierraLiteFlatPatternMode = ({
   tone,
-  toneByCell,
+  flatBand,
+  flatMix,
   flatMixByBand,
-  flatBandOverride,
+  flatSeed,
   spread,
   gridW,
   gridH,
   activeMask,
   fillBackground,
   baseOffset,
+  phaseX,
+  phaseY,
   writeCellIndex,
-}: Omit<FlatPatternFillOptions, 'algorithm' | 'patternStyle' | 'phaseX' | 'phaseY'>): void => {
+}: Omit<FlatPatternFillOptions, 'algorithm' | 'patternStyle'>): void => {
   const errors = new Float32Array(gridW * gridH);
+  const band = Number.isFinite(flatBand)
+    ? Math.max(0, Math.min(SIERRA_LITE_TONE_BANDS - 1, Math.floor(flatBand as number)))
+    : resolveToneBand(tone);
+
+  const inkSet = resolveFlatInkSetForBand(band, 2, baseOffset, spread);
+  const baseMix = resolveBandMixAmount(band, flatMix, flatMixByBand);
+  const mixKey = Math.round(baseMix * 255) & 255;
+  const lowIdx = inkSet.indices[0] & 255;
+  const highIdx = inkSet.indices[1] & 255;
+  const patternKey = (mixKey << 16) ^ (lowIdx << 8) ^ highIdx;
+  const variant = resolvePatternVariant(flatSeed, patternKey);
+
+  ccLog('ccFlatModePatterns sierra flat family', {
+    band,
+    baseMix,
+    mixKey,
+    lowIdx,
+    highIdx,
+    patternKey,
+    flatSeed,
+    variant,
+  });
 
   for (let y = 0; y < gridH; y += 1) {
     const serpentine = (y & 1) === 1;
@@ -218,14 +322,10 @@ const fillSierraLiteFlatPatternMode = ({
         continue;
       }
 
-      const baseTone = resolveCellTone(tone, toneByCell, idx);
-      const band = Number.isFinite(flatBandOverride)
-        ? Math.max(0, Math.min(SIERRA_LITE_TONE_BANDS - 1, Math.floor(flatBandOverride as number)))
-        : resolveToneBand(baseTone);
-      const inkSet = resolveFlatInkSetForBand(band, 2, baseOffset, spread);
-      const mixAmount = resolveBandMixAmount(band, baseTone, flatMixByBand);
-      const value = clamp01(mixAmount + errors[idx]);
-      const bit: 0 | 1 = value >= SIERRA_LITE_THRESHOLD ? 1 : 0;
+      const initialErr = resolveInitialError(x + phaseX, y + phaseY, band, flatSeed ?? 0, variant, patternKey);
+      const value = clamp01(baseMix + initialErr + errors[idx]);
+      const threshold = resolveSeededThreshold(x + phaseX, y + phaseY, band, flatSeed ?? 0, variant, patternKey);
+      const bit: 0 | 1 = value >= threshold ? 1 : 0;
       const qErr = value - bit;
 
       const index = !fillBackground && bit === 0
@@ -267,15 +367,18 @@ export const fillFlatPatternMode = (options: FlatPatternFillOptions): void => {
   if (options.algorithm === 'sierra-lite') {
     fillSierraLiteFlatPatternMode({
       tone: options.tone,
-      toneByCell: options.toneByCell,
+      flatBand: options.flatBand,
+      flatMix: options.flatMix,
       flatMixByBand: options.flatMixByBand,
-      flatBandOverride: options.flatBandOverride,
+      flatSeed: options.flatSeed,
       spread: options.spread,
       gridW: options.gridW,
       gridH: options.gridH,
       activeMask: options.activeMask,
       fillBackground: options.fillBackground,
       baseOffset: options.baseOffset,
+      phaseX: options.phaseX,
+      phaseY: options.phaseY,
       writeCellIndex: options.writeCellIndex,
     });
     return;

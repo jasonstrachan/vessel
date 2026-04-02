@@ -117,7 +117,7 @@ describe('fillCcGradientDither', () => {
     expect(Array.from(values).some((value) => value >= 128)).toBe(true);
   });
 
-  it('adapts Sierra Lite flat mode ink pairs to local tone in levels=1 mode', async () => {
+  it('keeps a single Sierra Lite flat ink pair across the shape in levels=1 mode', async () => {
     const width = 8;
     const height = 4;
     const out = new Uint8Array(width * height);
@@ -155,7 +155,7 @@ describe('fillCcGradientDither', () => {
       }
     }
 
-    expect(Array.from(left).sort((a, b) => a - b)).not.toEqual(
+    expect(Array.from(left).sort((a, b) => a - b)).toEqual(
       Array.from(right).sort((a, b) => a - b)
     );
     expect(left.size).toBe(2);
@@ -218,6 +218,7 @@ describe('fillCcGradientDither', () => {
         pixelSize: 1,
         levels: 1,
         baseOffset: 0,
+        flatSeed: 7,
         algorithm: 'sierra-lite',
         sampleNormalized: () => 0.5,
         flatMixByBand: [mix, mix, mix, mix, mix],
@@ -225,47 +226,59 @@ describe('fillCcGradientDither', () => {
           out[y * width + x] = index;
         },
       });
-      return Array.from(new Set(out)).filter((value) => value > 0).sort((a, b) => a - b);
+      return out;
     };
 
     const low = await run(0);
     const high = await run(1);
+    const lowValues = Array.from(new Set(low)).filter((value) => value > 0).sort((a, b) => a - b);
+    const highValues = Array.from(new Set(high)).filter((value) => value > 0).sort((a, b) => a - b);
 
-    expect(low).toHaveLength(1);
-    expect(high).toHaveLength(1);
-    expect(low[0]).not.toBe(high[0]);
+    expect(lowValues).toHaveLength(2);
+    expect(highValues).toHaveLength(2);
+    expect(lowValues).toEqual(highValues);
+    expect(Array.from(low)).not.toEqual(Array.from(high));
   });
 
-  it('keeps a single flat Sierra band when flatBandOverride is provided', async () => {
-    const width = 8;
-    const height = 4;
-    const out = new Uint8Array(width * height);
+  it('varies Sierra Lite flat arrangement when flatSeed changes', async () => {
+    const width = 12;
+    const height = 12;
+    const run = async (flatSeed: number) => {
+      const out = new Uint8Array(width * height);
+      await fillCcGradientDither({
+        vertices: [
+          { x: 0, y: 0 },
+          { x: width - 1, y: 0 },
+          { x: width - 1, y: height - 1 },
+          { x: 0, y: height - 1 },
+        ],
+        minX: 0,
+        minY: 0,
+        maxX: width - 1,
+        maxY: height - 1,
+        pixelSize: 1,
+        levels: 1,
+        baseOffset: 0,
+        flatSeed,
+        algorithm: 'sierra-lite',
+        sampleNormalized: () => 0.5,
+        flatMixByBand: [0.52, 0.52, 0.52, 0.52, 0.52],
+        writeIndex: (x, y, index) => {
+          out[y * width + x] = index;
+        },
+      });
+      return out;
+    };
 
-    await fillCcGradientDither({
-      vertices: [
-        { x: 0, y: 0 },
-        { x: width - 1, y: 0 },
-        { x: width - 1, y: height - 1 },
-        { x: 0, y: height - 1 },
-      ],
-      minX: 0,
-      minY: 0,
-      maxX: width - 1,
-      maxY: height - 1,
-      pixelSize: 1,
-      levels: 1,
-      baseOffset: 0,
-      algorithm: 'sierra-lite',
-      flatBandOverride: 2,
-      flatMixByBand: [0.5, 0.5, 0.5, 0.5, 0.5],
-      sampleNormalized: (x) => (x < width / 2 ? 0.2 : 0.8),
-      writeIndex: (x, y, index) => {
-        out[y * width + x] = index;
-      },
-    });
+    const seedA = await run(1);
+    const seedB = await run(2);
+    const valuesA = Array.from(new Set(seedA)).filter((value) => value > 0).sort((a, b) => a - b);
+    const valuesB = Array.from(new Set(seedB)).filter((value) => value > 0).sort((a, b) => a - b);
 
-    const values = Array.from(new Set(out)).filter((value) => value > 0).sort((a, b) => a - b);
-    expect(values).toEqual([124, 132]);
+    expect(valuesA).toHaveLength(2);
+    expect(valuesB).toHaveLength(2);
+    expect(valuesA).toEqual(valuesB);
+    expect(Array.from(seedA)).not.toEqual(Array.from(seedB));
   });
 
   it('uses two separated inks for each Sierra Lite flat tone band', () => {

@@ -9,9 +9,9 @@ import {
   fillFlatPatternMode,
 } from '@/utils/colorCycle/ccFlatModePatterns';
 import {
-  resolveFlatSierraBestBandForTarget,
-  resolveFlatSierraMixByBand,
+  resolveFlatSierraBandMixInfo,
 } from '@/utils/colorCycle/ccDitherRenderPalette';
+import { ccLog } from '@/utils/colorCycle/ccDebug';
 import { useAppStore } from '@/stores/useAppStore';
 
 type Point = { x: number; y: number };
@@ -27,7 +27,7 @@ export type CcGradientDitherOptions = {
   baseOffset: number;
   flatPairSpread?: number;
   flatMixByBand?: readonly number[];
-  flatBandOverride?: number;
+  flatSeed?: number;
   algorithm?: DitherAlgorithm;
   patternStyle?: PatternStyle;
   pairBandCount?: number;
@@ -63,6 +63,28 @@ const levelToCyclePos = (level: number, levels: number): number => {
   // Color-cycle gradients are periodic, so avoid sampling the duplicated 1.0 endpoint.
   // This keeps low slice counts (especially 2) from collapsing to a single color.
   return clampedLevel / safeLevels;
+};
+
+const resolveAverageActiveTone = (
+  cellCoverage: Uint8Array,
+  activeMask: Uint8Array
+): number => {
+  let totalCoverage = 0;
+  let activeCount = 0;
+
+  for (let i = 0; i < activeMask.length; i += 1) {
+    if (!activeMask[i]) {
+      continue;
+    }
+    totalCoverage += cellCoverage[i] ?? 0;
+    activeCount += 1;
+  }
+
+  if (activeCount <= 0) {
+    return 0.5;
+  }
+
+  return clamp01(totalCoverage / (activeCount * 255));
 };
 
 type ErrorDiffusionTap = { dx: number; dy: number; weight: number };
@@ -239,7 +261,7 @@ const resolveOrderedThreshold = (
 const resolveRuntimeFlatMixByBand = (
   baseOffset: number,
   spread?: number
-): { mixByBand?: number[]; bandOverride?: number } => {
+): { mixByBand?: number[] } => {
   try {
     const state = useAppStore.getState();
     const tools = state.tools?.brushSettings;
@@ -254,31 +276,48 @@ const resolveRuntimeFlatMixByBand = (
     const slot = useForegroundGradient
       ? (layer?.colorCycleData?.fgActiveSlot ?? layer?.colorCycleData?.paintSlot ?? activeDef?.currentSlot ?? 0)
       : (layer?.colorCycleData?.paintSlot ?? activeDef?.currentSlot ?? 0);
+    ccLog('flat runtime slot inputs', {
+      useForegroundGradient,
+      fgActiveSlot: layer?.colorCycleData?.fgActiveSlot,
+      paintSlot: layer?.colorCycleData?.paintSlot,
+      activeDefCurrentSlot: activeDef?.currentSlot,
+      chosenSlot: slot,
+    });
     const slotPalettes = layer?.colorCycleData?.slotPalettes ?? [];
     const slotStops = slotPalettes.find((entry) => entry.slot === slot)?.stops;
     const fallbackStops = layer?.colorCycleData?.gradient ?? tools?.colorCycleGradient;
-    const stops = (slotStops?.length ? slotStops : fallbackStops) ?? [];
+    const stops = useForegroundGradient
+      ? ((fallbackStops?.length ? fallbackStops : slotStops) ?? [])
+      : ((slotStops?.length ? slotStops : fallbackStops) ?? []);
+    ccLog('flat runtime stop source', {
+      layerId,
+      slot,
+      useForegroundGradient,
+      slotStopsLen: slotStops?.length ?? 0,
+      fallbackStopsLen: fallbackStops?.length ?? 0,
+      chosenStopsLen: stops?.length ?? 0,
+      slotStops,
+      fallbackStops,
+    });
     if (!stops.length) {
       return {};
     }
 
-    const mixes = resolveFlatSierraMixByBand({
+    const bandMixInfo = resolveFlatSierraBandMixInfo({
       stops,
       targetColor: fgColor,
       baseOffset,
       spread,
     });
-    const bandOverride = fgColor
-      ? resolveFlatSierraBestBandForTarget({
-          stops,
-          targetColor: fgColor,
-          baseOffset,
-          spread,
-        })
-      : undefined;
+    ccLog('resolveFlatSierraBandMixInfo raw', {
+      targetColor: fgColor,
+      baseOffset,
+      spread,
+      stops,
+      bandMixInfo,
+    });
     return {
-      mixByBand: mixes.length === 5 ? mixes : undefined,
-      bandOverride,
+      mixByBand: bandMixInfo.length === 5 ? bandMixInfo.map((entry) => entry.mix) : undefined,
     };
   } catch {
     return {};
@@ -296,7 +335,7 @@ export const fillCcGradientDither = async ({
   baseOffset,
   flatPairSpread,
   flatMixByBand,
-  flatBandOverride,
+  flatSeed,
   algorithm = 'sierra-lite',
   patternStyle = 'dots',
   pairBandCount,
@@ -483,19 +522,47 @@ export const fillCcGradientDither = async ({
   } else if (clampedLevels === 1) {
     const phaseX = Math.floor(minX / Math.max(1, cellSize));
     const phaseY = Math.floor(minY / Math.max(1, cellSize));
+    const flatTone = resolveAverageActiveTone(cellCoverage, activeMask);
     const runtimeFlat = algorithm === 'sierra-lite'
-      ? resolveRuntimeFlatMixByBand(baseOffset, flatPairSpread)
+      ? resolveRuntimeFlatMixByBand(0, flatPairSpread)
       : {};
     const resolvedFlatMixByBand = flatMixByBand ?? runtimeFlat.mixByBand;
-    const resolvedFlatBandOverride = flatBandOverride ?? runtimeFlat.bandOverride;
+    let resolvedFlatBand: number | undefined;
+    let resolvedFlatMix: number | undefined;
+
+    if (algorithm === 'sierra-lite' && resolvedFlatMixByBand && resolvedFlatMixByBand.length > 0) {
+      let bestBand = 0;
+      let bestDistance = Number.POSITIVE_INFINITY;
+
+      for (let band = 0; band < resolvedFlatMixByBand.length; band += 1) {
+        const mix = resolvedFlatMixByBand[band];
+        const distance = Math.abs(mix - flatTone);
+        if (distance < bestDistance) {
+          bestDistance = distance;
+          bestBand = band;
+        }
+      }
+
+      resolvedFlatBand = bestBand;
+      resolvedFlatMix = resolvedFlatMixByBand[bestBand];
+    }
+
+    ccLog('ccGradientDither flat recipe', {
+      flatTone,
+      resolvedFlatMixByBand,
+      resolvedFlatBand,
+      resolvedFlatMix,
+      flatSeed,
+    });
 
     fillFlatPatternMode({
       algorithm,
       patternStyle,
-      tone: 0.5,
-      toneByCell: cellCoverage,
+      tone: flatTone,
+      flatBand: resolvedFlatBand,
+      flatMix: resolvedFlatMix,
       flatMixByBand: resolvedFlatMixByBand,
-      flatBandOverride: resolvedFlatBandOverride,
+      flatSeed,
       spread: flatPairSpread,
       gridW,
       gridH,
