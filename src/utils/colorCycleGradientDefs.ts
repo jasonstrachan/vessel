@@ -13,6 +13,7 @@ import {
   rebuildOnDemandAndRetryAllocate,
   buildDefaultReservedSlots,
 } from '@/utils/colorCycleSlotGC';
+import { ccLog } from '@/utils/colorCycle/ccDebug';
 
 export type StoredStop = { position: number; color: string; opacity?: number };
 
@@ -31,6 +32,12 @@ export type ColorCycleGradientDefStore = {
 };
 
 const EDITOR_SLOT = 255;
+
+const summarizeStopsForDebug = (stops: StoredStop[] | null | undefined) =>
+  (stops ?? []).slice(0, 8).map((stop) => ({
+    p: Number(stop.position.toFixed(3)),
+    c: stop.color,
+  }));
 
 const clampSlot = (slot: number): number => Math.max(0, Math.min(FLOW_SLOT_MASK, Math.round(slot)));
 
@@ -244,6 +251,22 @@ export const ensureGradientDefForStops = (params: {
         nextGradientDefId: nextId,
         slotPalettes: nextSlotPalettes,
       },
+    });
+
+    ccLog('ensure gradient def', {
+      layerId: params.layerId,
+      kind: params.kind,
+      source: params.source,
+      preferredSlot: params.preferredSlot ?? null,
+      incomingSpeed: params.speedCps ?? null,
+      seamProfile: incomingSeamProfile,
+      existingDefId: existing?.id ?? null,
+      defId: def.id,
+      slot,
+      created: !existing,
+      healedPalette: canHealExistingDefPalette,
+      stopCount: frozenStops.length,
+      stops: summarizeStopsForDebug(frozenStops),
     });
 
     return { result: { def, slot, hash } };

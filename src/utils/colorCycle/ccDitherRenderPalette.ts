@@ -10,6 +10,7 @@ import {
   resolveFlatInkSetForPosition,
   resolveFlatPairContrastStrength,
 } from '@/utils/colorCycle/ccFlatModePatterns';
+import { ccLog } from '@/utils/colorCycle/ccDebug';
 import type { StoredStop } from '@/utils/colorCycleGradientDefs';
 
 const clamp01 = (value: number): number => Math.max(0, Math.min(1, value));
@@ -504,23 +505,85 @@ export const buildCcDitherRuntimePalette = ({
   bands,
   spread,
   algorithm,
+  preserveSourceStops = false,
 }: {
   baseStops: StoredStop[];
   bands: number;
   spread: Pick<BrushSettings, 'ditherPaletteSpread'>['ditherPaletteSpread'];
   algorithm?: BrushSettings['ditherAlgorithm'];
+  preserveSourceStops?: boolean;
 }): CcDitherRenderPalette => {
   const normalizedBandCount = Math.max(0, Math.floor(bands || 0));
   const resolvedAlgorithm = algorithm ?? 'sierra-lite';
   if (normalizedBandCount <= 0 && resolvedAlgorithm === 'sierra-lite') {
-    return buildCcFlatSierraContrastRenderPalette({
+    if (preserveSourceStops) {
+      const runtimePalette = {
+        bandCount: 0,
+        renderStops: baseStops.slice(),
+      };
+      ccLog('build dither runtime palette', {
+        bands,
+        normalizedBandCount,
+        spread,
+        algorithm: resolvedAlgorithm,
+        mode: 'flat-source',
+        baseCount: baseStops.length,
+        renderCount: runtimePalette.renderStops.length,
+        baseStops: baseStops.slice(0, 8).map((stop) => ({
+          p: Number(stop.position.toFixed(3)),
+          c: stop.color,
+        })),
+        renderStops: runtimePalette.renderStops.slice(0, 8).map((stop) => ({
+          p: Number(stop.position.toFixed(3)),
+          c: stop.color,
+        })),
+      });
+      return runtimePalette;
+    }
+    const runtimePalette = buildCcFlatSierraContrastRenderPalette({
       baseStops,
       spread,
     });
+    ccLog('build dither runtime palette', {
+      bands,
+      normalizedBandCount,
+      spread,
+      algorithm: resolvedAlgorithm,
+      mode: 'flat-sierra',
+      baseCount: baseStops.length,
+      renderCount: runtimePalette.renderStops.length,
+      baseStops: baseStops.slice(0, 8).map((stop) => ({
+        p: Number(stop.position.toFixed(3)),
+        c: stop.color,
+      })),
+      renderStops: runtimePalette.renderStops.slice(0, 8).map((stop) => ({
+        p: Number(stop.position.toFixed(3)),
+        c: stop.color,
+      })),
+    });
+    return runtimePalette;
   }
-  return buildCcDitherRenderPalette({
+  const runtimePalette = buildCcDitherRenderPalette({
     baseStops,
     bands: normalizedBandCount,
     spread,
   });
+  ccLog('build dither runtime palette', {
+    bands,
+    normalizedBandCount,
+    spread,
+    algorithm: resolvedAlgorithm,
+    mode: 'banded',
+    baseCount: baseStops.length,
+    renderCount: runtimePalette.renderStops.length,
+    baseStops: baseStops.slice(0, 8).map((stop) => ({
+      p: Number(stop.position.toFixed(3)),
+      c: stop.color,
+    })),
+    renderStops: runtimePalette.renderStops.slice(0, 8).map((stop) => ({
+      p: Number(stop.position.toFixed(3)),
+      c: stop.color,
+    })),
+  });
+  return runtimePalette;
 };

@@ -168,4 +168,59 @@ describe('ccGradientRuntime', () => {
       session.previewStopsStored?.map((stop) => stop.color)
     );
   });
+
+  it('preserves flat FG source stops for active bound sessions', () => {
+    const layer = makeLayer({
+      colorCycleData: {
+        gradientDefs: [{ id: 'g0', currentSlot: 1 }],
+        activeGradientId: 'g0',
+        paintSlot: 1,
+        fgActiveSlot: 2,
+        slotPalettes: [
+          {
+            slot: 1,
+            stops: [
+              { position: 0, color: '#101010' },
+              { position: 0.5, color: '#505050' },
+              { position: 1, color: '#f0f0f0' },
+            ],
+          },
+        ],
+      },
+    } as Partial<Layer>);
+    const brushSettings = makeBrushSettings({
+      colorCycleUseForegroundGradient: true,
+      ditherEnabled: true,
+      gradientBands: 1,
+      ditherAlgorithm: 'sierra-lite',
+      ditherPaletteSpread: 75,
+    });
+    const session: MarkGradientSession = {
+      markId: 'session-fg',
+      layerId: layer.id,
+      markKind: 'shape',
+      gradientKind: 'linear',
+      source: 'fg',
+      frozenStopsStored: [
+        { position: 0, color: '#112233' },
+        { position: 0.5, color: '#445566' },
+        { position: 1, color: '#778899' },
+      ],
+      frozenHash: '',
+      binding: { kind: 'def', defId: 2, slot: 1 },
+      ditherRenderConfig: {
+        enabled: true,
+        pairBandCount: 0,
+        spread: 75,
+        algorithm: 'sierra-lite',
+      },
+    };
+
+    __setActiveMarkSessionGetterForTests(() => session);
+
+    const snapshot = buildRuntimeSnapshot(layer, brushSettings);
+
+    expect(snapshot.paintSlot).toBe(1);
+    expect(snapshot.slotPalettes[0]?.stops).toEqual(session.frozenStopsStored);
+  });
 });

@@ -8,6 +8,8 @@ import {
 import {
   fillFlatPatternMode,
 } from '@/utils/colorCycle/ccFlatModePatterns';
+import { resolveFlatSierraBandMixInfo } from '@/utils/colorCycle/ccDitherRenderPalette';
+import { useAppStore } from '@/stores/useAppStore';
 
 type Point = { x: number; y: number };
 
@@ -80,6 +82,48 @@ const resolveAverageActiveTone = (
   }
 
   return clamp01(totalCoverage / (activeCount * 255));
+};
+
+const resolveRuntimeFlatMixByBand = (
+  baseOffset: number,
+  spread?: number
+): { mixByBand?: number[] } => {
+  try {
+    const state = useAppStore.getState();
+    const tools = state.tools?.brushSettings;
+    const layerId = state.activeLayerId;
+    const layer = state.layers?.find((entry) => entry.id === layerId);
+    const fgColor = state.palette?.foregroundColor ?? tools?.color;
+
+    const useForegroundGradient = Boolean(tools?.colorCycleUseForegroundGradient);
+    const defs = layer?.colorCycleData?.gradientDefs ?? [];
+    const activeId = layer?.colorCycleData?.activeGradientId ?? defs[0]?.id;
+    const activeDef = defs.find((entry) => entry.id === activeId) ?? defs[0];
+    const slot = useForegroundGradient
+      ? (layer?.colorCycleData?.fgActiveSlot ?? layer?.colorCycleData?.paintSlot ?? activeDef?.currentSlot ?? 0)
+      : (layer?.colorCycleData?.paintSlot ?? activeDef?.currentSlot ?? 0);
+    const slotPalettes = layer?.colorCycleData?.slotPalettes ?? [];
+    const slotStops = slotPalettes.find((entry) => entry.slot === slot)?.stops;
+    const fallbackStops = layer?.colorCycleData?.gradient ?? tools?.colorCycleGradient;
+    const stops = useForegroundGradient
+      ? ((fallbackStops?.length ? fallbackStops : slotStops) ?? [])
+      : ((slotStops?.length ? slotStops : fallbackStops) ?? []);
+    if (!stops.length) {
+      return {};
+    }
+
+    const bandMixInfo = resolveFlatSierraBandMixInfo({
+      stops,
+      targetColor: fgColor,
+      baseOffset,
+      spread,
+    });
+    return {
+      mixByBand: bandMixInfo.length === 5 ? bandMixInfo.map((entry) => entry.mix) : undefined,
+    };
+  } catch {
+    return {};
+  }
 };
 
 type ErrorDiffusionTap = { dx: number; dy: number; weight: number };
@@ -452,13 +496,17 @@ export const fillCcGradientDither = async ({
     const phaseX = Math.floor(minX / Math.max(1, cellSize));
     const phaseY = Math.floor(minY / Math.max(1, cellSize));
     const flatPosition = resolveAverageActiveTone(cellCoverage, activeMask);
+    const runtimeFlat = algorithm === 'sierra-lite'
+      ? resolveRuntimeFlatMixByBand(0, flatPairSpread)
+      : {};
+    const resolvedFlatMixByBand = flatMixByBand ?? runtimeFlat.mixByBand;
 
     fillFlatPatternMode({
       algorithm,
       patternStyle,
       tone: flatPosition,
       flatPosition,
-      flatMixByBand,
+      flatMixByBand: resolvedFlatMixByBand,
       flatSeed,
       spread: flatPairSpread,
       gridW,

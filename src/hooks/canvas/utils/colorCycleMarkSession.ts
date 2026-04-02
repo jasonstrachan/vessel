@@ -50,6 +50,12 @@ export type PreviewGradientResult = {
   defIdPlanned?: number;
 };
 
+const summarizeStopsForDebug = (stops: StoredStop[] | null | undefined) =>
+  (stops ?? []).slice(0, 8).map((stop) => ({
+    p: Number(stop.position.toFixed(3)),
+    c: stop.color,
+  }));
+
 const sessionsByLayer = new Map<string, MarkGradientSession>();
 let markSessionPointerDownRef: { current: boolean } | null = null;
 let isFinalizingSession = false;
@@ -105,7 +111,7 @@ export const captureFrozenCcDitherRenderConfig = (): FrozenCcDitherRenderConfig 
 };
 
 export const resolveMarkSessionRuntimeStops = (
-  session: Pick<MarkGradientSession, 'ditherRenderConfig'> | null | undefined,
+  session: Pick<MarkGradientSession, 'ditherRenderConfig' | 'source'> | null | undefined,
   stops: StoredStop[],
   liveOverrides?: {
     enabled?: boolean;
@@ -118,14 +124,40 @@ export const resolveMarkSessionRuntimeStops = (
   const config = session?.ditherRenderConfig;
   const enabled = liveOverrides?.enabled ?? config?.enabled ?? false;
   if (!enabled) {
+    ccLog('runtime stops bypass dither', {
+      enabled,
+      inCount: clonedStops.length,
+      inStops: summarizeStopsForDebug(clonedStops),
+    });
     return clonedStops;
   }
-  return buildCcDitherRuntimePalette({
+  const bands = liveOverrides?.pairBandCount ?? config?.pairBandCount ?? 0;
+  const spread = liveOverrides?.spread ?? config?.spread;
+  const algorithm = liveOverrides?.algorithm ?? config?.algorithm;
+  const preserveSourceStops =
+    session?.source !== 'sampled' &&
+    bands <= 0 &&
+    algorithm === 'sierra-lite';
+  const runtimeStops = buildCcDitherRuntimePalette({
     baseStops: clonedStops,
-    bands: liveOverrides?.pairBandCount ?? config?.pairBandCount ?? 0,
-    spread: liveOverrides?.spread ?? config?.spread,
-    algorithm: liveOverrides?.algorithm ?? config?.algorithm,
+    bands,
+    spread,
+    algorithm,
+    preserveSourceStops,
   }).renderStops;
+  ccLog('runtime stops rebuild', {
+    enabled,
+    bands,
+    spread,
+    algorithm,
+    source: session?.source ?? null,
+    preserveSourceStops,
+    inCount: clonedStops.length,
+    outCount: runtimeStops.length,
+    inStops: summarizeStopsForDebug(clonedStops),
+    outStops: summarizeStopsForDebug(runtimeStops),
+  });
+  return runtimeStops;
 };
 
 export const beginMarkGradientSession = (params: {
@@ -175,6 +207,8 @@ export const beginMarkGradientSession = (params: {
       source: params.source,
       kind: params.gradientKind,
       stopsLen: params.stops?.length ?? 0,
+      ditherRenderConfig,
+      stops: summarizeStopsForDebug(frozenStops),
     });
     ccLog('mark slot (during)', {
       layerId: params.layerId,
@@ -188,7 +222,7 @@ export const beginMarkGradientSession = (params: {
   }
 
   const runtimeStops = resolveMarkSessionRuntimeStops(
-    { ditherRenderConfig },
+    { ditherRenderConfig, source: params.source },
     frozenStops,
   );
   const defResult = ensureGradientDefForStops({
