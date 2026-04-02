@@ -1,8 +1,8 @@
 import { fillCcGradientDither } from '@/utils/colorCycle/ccGradientDither';
 import {
   resolveFlatInkSetForBand,
+  resolveFlatInkSetForPosition,
   resolveFlatInkCountForBand,
-  resolveToneBand,
 } from '@/utils/colorCycle/ccFlatModePatterns';
 
 describe('fillCcGradientDither', () => {
@@ -44,11 +44,11 @@ describe('fillCcGradientDither', () => {
     expect(values.has(255)).toBe(false);
   });
 
-  it('resolves Sierra Lite flat tones into the five global tone bands', async () => {
+  it('resolves Sierra Lite flat tones into local ink pairs centered on the sampled position', async () => {
     const width = 16;
     const height = 16;
     const tones = [0.1, 0.3, 0.5, 0.7, 0.9];
-    const outputs: string[] = [];
+    const outputs: number[][] = [];
 
     for (const tone of tones) {
       const out = new Uint8Array(width * height);
@@ -72,11 +72,12 @@ describe('fillCcGradientDither', () => {
           out[y * width + x] = index;
         },
       });
-      outputs.push(Array.from(new Set(out)).sort((a, b) => a - b).join(','));
+      outputs.push(Array.from(new Set(out)).filter((value) => value > 0).sort((a, b) => a - b));
     }
 
-    expect(tones.map((tone) => resolveToneBand(tone))).toEqual([0, 1, 2, 3, 4]);
-    expect(new Set(outputs).size).toBe(5);
+    expect(outputs).toEqual(
+      tones.map((tone) => resolveFlatInkSetForPosition(Math.round(tone * 255) / 255, 2, 0).indices)
+    );
   });
 
   it('uses band-local ink pairs when pairBandCount is provided', async () => {
@@ -286,7 +287,7 @@ describe('fillCcGradientDither', () => {
       const indices = resolveFlatInkSetForBand(band, 2, 0).indices;
       expect(indices).toHaveLength(2);
       expect(indices[1] - indices[0]).toBe(8);
-      expect(resolveFlatInkCountForBand(band)).toBe(2);
+      expect(resolveFlatInkCountForBand()).toBe(2);
     }
   });
 
@@ -312,6 +313,37 @@ describe('fillCcGradientDither', () => {
     expect(tight[1] - tight[0]).toBeLessThan(medium[1] - medium[0]);
     expect(medium[1] - medium[0]).toBeLessThan(wide[1] - wide[0]);
     expect(wide).toEqual([104, 152]);
+  });
+
+  it('shifts local flat ink pairs with baseOffset while keeping them centered on the sampled position', async () => {
+    const width = 10;
+    const height = 6;
+    const out = new Uint8Array(width * height);
+
+    await fillCcGradientDither({
+      vertices: [
+        { x: 0, y: 0 },
+        { x: width - 1, y: 0 },
+        { x: width - 1, y: height - 1 },
+        { x: 0, y: height - 1 },
+      ],
+      minX: 0,
+      minY: 0,
+      maxX: width - 1,
+      maxY: height - 1,
+      pixelSize: 1,
+      levels: 1,
+      baseOffset: 23,
+      algorithm: 'sierra-lite',
+      sampleNormalized: () => 0.5,
+      writeIndex: (_x, _y, index) => {
+        out[_y * width + _x] = index;
+      },
+    });
+
+    expect(
+      Array.from(new Set(out)).filter((value) => value > 0).sort((a, b) => a - b)
+    ).toEqual(resolveFlatInkSetForPosition(0.5, 2, 23).indices);
   });
 
   it('preserves existing behavior when clampedLevels > 1', async () => {

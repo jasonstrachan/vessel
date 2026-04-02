@@ -8,10 +8,6 @@ import {
 import {
   fillFlatPatternMode,
 } from '@/utils/colorCycle/ccFlatModePatterns';
-import {
-  resolveFlatSierraBandMixInfo,
-} from '@/utils/colorCycle/ccDitherRenderPalette';
-import { useAppStore } from '@/stores/useAppStore';
 
 type Point = { x: number; y: number };
 
@@ -257,48 +253,6 @@ const resolveOrderedThreshold = (
   }
 };
 
-const resolveRuntimeFlatMixByBand = (
-  baseOffset: number,
-  spread?: number
-): { mixByBand?: number[] } => {
-  try {
-    const state = useAppStore.getState();
-    const tools = state.tools?.brushSettings;
-    const layerId = state.activeLayerId;
-    const layer = state.layers?.find((entry) => entry.id === layerId);
-    const fgColor = state.palette?.foregroundColor ?? tools?.color;
-
-    const useForegroundGradient = Boolean(tools?.colorCycleUseForegroundGradient);
-    const defs = layer?.colorCycleData?.gradientDefs ?? [];
-    const activeId = layer?.colorCycleData?.activeGradientId ?? defs[0]?.id;
-    const activeDef = defs.find((entry) => entry.id === activeId) ?? defs[0];
-    const slot = useForegroundGradient
-      ? (layer?.colorCycleData?.fgActiveSlot ?? layer?.colorCycleData?.paintSlot ?? activeDef?.currentSlot ?? 0)
-      : (layer?.colorCycleData?.paintSlot ?? activeDef?.currentSlot ?? 0);
-    const slotPalettes = layer?.colorCycleData?.slotPalettes ?? [];
-    const slotStops = slotPalettes.find((entry) => entry.slot === slot)?.stops;
-    const fallbackStops = layer?.colorCycleData?.gradient ?? tools?.colorCycleGradient;
-    const stops = useForegroundGradient
-      ? ((fallbackStops?.length ? fallbackStops : slotStops) ?? [])
-      : ((slotStops?.length ? slotStops : fallbackStops) ?? []);
-    if (!stops.length) {
-      return {};
-    }
-
-    const bandMixInfo = resolveFlatSierraBandMixInfo({
-      stops,
-      targetColor: fgColor,
-      baseOffset,
-      spread,
-    });
-    return {
-      mixByBand: bandMixInfo.length === 5 ? bandMixInfo.map((entry) => entry.mix) : undefined,
-    };
-  } catch {
-    return {};
-  }
-};
-
 export const fillCcGradientDither = async ({
   vertices,
   minX,
@@ -497,38 +451,14 @@ export const fillCcGradientDither = async ({
   } else if (clampedLevels === 1) {
     const phaseX = Math.floor(minX / Math.max(1, cellSize));
     const phaseY = Math.floor(minY / Math.max(1, cellSize));
-    const flatTone = resolveAverageActiveTone(cellCoverage, activeMask);
-    const runtimeFlat = algorithm === 'sierra-lite'
-      ? resolveRuntimeFlatMixByBand(0, flatPairSpread)
-      : {};
-    const resolvedFlatMixByBand = flatMixByBand ?? runtimeFlat.mixByBand;
-    let resolvedFlatBand: number | undefined;
-    let resolvedFlatMix: number | undefined;
-
-    if (algorithm === 'sierra-lite' && resolvedFlatMixByBand && resolvedFlatMixByBand.length > 0) {
-      let bestBand = 0;
-      let bestDistance = Number.POSITIVE_INFINITY;
-
-      for (let band = 0; band < resolvedFlatMixByBand.length; band += 1) {
-        const mix = resolvedFlatMixByBand[band];
-        const distance = Math.abs(mix - flatTone);
-        if (distance < bestDistance) {
-          bestDistance = distance;
-          bestBand = band;
-        }
-      }
-
-      resolvedFlatBand = bestBand;
-      resolvedFlatMix = resolvedFlatMixByBand[bestBand];
-    }
+    const flatPosition = resolveAverageActiveTone(cellCoverage, activeMask);
 
     fillFlatPatternMode({
       algorithm,
       patternStyle,
-      tone: flatTone,
-      flatBand: resolvedFlatBand,
-      flatMix: resolvedFlatMix,
-      flatMixByBand: resolvedFlatMixByBand,
+      tone: flatPosition,
+      flatPosition,
+      flatMixByBand,
       flatSeed,
       spread: flatPairSpread,
       gridW,

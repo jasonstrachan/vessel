@@ -7,6 +7,7 @@ import {
 import type { BrushSettings } from '@/types';
 import {
   resolveFlatInkSetForBand,
+  resolveFlatInkSetForPosition,
   resolveFlatPairContrastStrength,
 } from '@/utils/colorCycle/ccFlatModePatterns';
 import type { StoredStop } from '@/utils/colorCycleGradientDefs';
@@ -442,8 +443,6 @@ export const buildCcDitherRenderPalette = ({
 const SIERRA_FLAT_BANDS = 5;
 const clampColorChannel = (value: number): number => Math.max(0, Math.min(255, Math.round(value)));
 
-const mixChannel = (from: number, to: number, amount: number): number => from + (to - from) * clamp01(amount);
-
 const toPalettePosition = (index: number): number => clamp01((index - 1) / 254);
 
 const buildContrastInkPairForTarget = ({
@@ -484,9 +483,8 @@ export const buildCcFlatSierraContrastRenderPalette = ({
   }
   const renderStops: StoredStop[] = [];
   for (let band = 0; band < SIERRA_FLAT_BANDS; band += 1) {
-    const indices = resolveFlatInkSetForBand(band, 2, 0, spread).indices;
-    const centerIndex = Math.round((indices[0] + indices[1]) * 0.5);
-    const centerPos = toPalettePosition(centerIndex);
+    const centerPos = clamp01((band + 0.5) / SIERRA_FLAT_BANDS);
+    const indices = resolveFlatInkSetForPosition(centerPos, 2, 0, spread).indices;
     const targetRgb = sampleGradientColor(baseStops, centerPos);
     const { low, high } = buildContrastInkPairForTarget({
       target: targetRgb,
