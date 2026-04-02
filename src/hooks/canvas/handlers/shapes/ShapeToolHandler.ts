@@ -36,7 +36,7 @@ import {
 } from '@/utils/colorCycleGradients';
 import { buildCcDitherRuntimePalette, resolveCcDitherBandMode } from '@/utils/colorCycle/ccDitherRenderPalette';
 import { fillCcGradientDither } from '@/utils/colorCycle/ccGradientDither';
-import { getPreviewGradientForActiveMark } from '@/hooks/canvas/utils/colorCycleMarkSession';
+import { getActiveMarkGradientSession, getPreviewGradientForActiveMark } from '@/hooks/canvas/utils/colorCycleMarkSession';
 import { parseCssColorToRgba } from '@/hooks/canvas/utils/colorCycleHelpers';
 import { applyPolygonMaskToCanvasContext } from '@/hooks/canvas/handlers/shapes/shapePreviewMask';
 import { hashNumbers } from '@/utils/risographTexture';
@@ -2883,6 +2883,7 @@ export const createShapeToolHandler = (
                     ccPreview?.source === 'sampled' &&
                     resolveCcDitherBandMode(brushNow.gradientBands ?? 16).pairBandCount <= 0 &&
                     (brushNow.ditherAlgorithm ?? 'sierra-lite') === 'sierra-lite',
+                  debugContext: 'preview-fill-linear',
                 }).renderStops
               : stops;
             if (shouldDitherPreview) {
@@ -3018,6 +3019,17 @@ export const createShapeToolHandler = (
                   const yieldIfNeeded = createPreviewYieldController();
                   (async () => {
                     try {
+                      const liveState = useAppStore.getState();
+                      const liveLayerId = liveState.activeLayerId;
+                      const liveSession = liveLayerId ? getActiveMarkGradientSession(liveLayerId) : null;
+                      const shouldSkipSampledPreviewReplay =
+                        liveState.tools.ccGradientSource === 'sampled' &&
+                        !drawingHandlers.isDrawingShapeRef.current &&
+                        !liveSession;
+                      if (shouldSkipSampledPreviewReplay) {
+                        canvasPool.release(tempCanvas);
+                        return;
+                      }
                       await fillCcGradientDither({
                         vertices: localVertices,
                         minX: 0,

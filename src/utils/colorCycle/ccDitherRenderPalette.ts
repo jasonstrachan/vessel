@@ -506,12 +506,14 @@ export const buildCcDitherRuntimePalette = ({
   spread,
   algorithm,
   preserveSourceStops = false,
+  debugContext,
 }: {
   baseStops: StoredStop[];
   bands: number;
   spread: Pick<BrushSettings, 'ditherPaletteSpread'>['ditherPaletteSpread'];
   algorithm?: BrushSettings['ditherAlgorithm'];
   preserveSourceStops?: boolean;
+  debugContext?: string;
 }): CcDitherRenderPalette => {
   const normalizedBandCount = Math.max(0, Math.floor(bands || 0));
   const resolvedAlgorithm = algorithm ?? 'sierra-lite';
@@ -522,6 +524,7 @@ export const buildCcDitherRuntimePalette = ({
         renderStops: baseStops.slice(),
       };
       ccLog('build dither runtime palette', {
+        debugContext,
         bands,
         normalizedBandCount,
         spread,
@@ -545,6 +548,7 @@ export const buildCcDitherRuntimePalette = ({
       spread,
     });
     ccLog('build dither runtime palette', {
+      debugContext,
       bands,
       normalizedBandCount,
       spread,
@@ -569,6 +573,7 @@ export const buildCcDitherRuntimePalette = ({
     spread,
   });
   ccLog('build dither runtime palette', {
+    debugContext,
     bands,
     normalizedBandCount,
     spread,
