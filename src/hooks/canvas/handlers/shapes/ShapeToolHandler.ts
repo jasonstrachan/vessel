@@ -2879,6 +2879,10 @@ export const createShapeToolHandler = (
                   bands: resolveCcDitherBandMode(brushNow.gradientBands ?? 16).pairBandCount,
                   spread: brushNow.ditherPaletteSpread,
                   algorithm: brushNow.ditherAlgorithm,
+                  preserveSourceStops:
+                    ccPreview?.source === 'sampled' &&
+                    resolveCcDitherBandMode(brushNow.gradientBands ?? 16).pairBandCount <= 0 &&
+                    (brushNow.ditherAlgorithm ?? 'sierra-lite') === 'sierra-lite',
                 }).renderStops
               : stops;
             if (shouldDitherPreview) {

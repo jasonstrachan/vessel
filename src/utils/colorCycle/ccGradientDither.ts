@@ -9,6 +9,7 @@ import {
   fillFlatPatternMode,
 } from '@/utils/colorCycle/ccFlatModePatterns';
 import { resolveFlatSierraBandMixInfo } from '@/utils/colorCycle/ccDitherRenderPalette';
+import { ccLog } from '@/utils/colorCycle/ccDebug';
 import { useAppStore } from '@/stores/useAppStore';
 
 type Point = { x: number; y: number };
@@ -496,10 +497,28 @@ export const fillCcGradientDither = async ({
     const phaseX = Math.floor(minX / Math.max(1, cellSize));
     const phaseY = Math.floor(minY / Math.max(1, cellSize));
     const flatPosition = resolveAverageActiveTone(cellCoverage, activeMask);
+    const brushSettings = useAppStore.getState().tools?.brushSettings;
+    const preferSampledFlatPosition =
+      algorithm === 'sierra-lite' &&
+      !flatMixByBand &&
+      useAppStore.getState().tools?.ccGradientSource === 'sampled' &&
+      !brushSettings?.colorCycleUseForegroundGradient;
     const runtimeFlat = algorithm === 'sierra-lite'
       ? resolveRuntimeFlatMixByBand(0, flatPairSpread)
       : {};
-    const resolvedFlatMixByBand = flatMixByBand ?? runtimeFlat.mixByBand;
+    const resolvedFlatMixByBand = preferSampledFlatPosition
+      ? undefined
+      : (flatMixByBand ?? runtimeFlat.mixByBand);
+
+    ccLog('flat recipe inputs', {
+      algorithm,
+      flatPosition,
+      baseOffset,
+      flatPairSpread,
+      preferSampledFlatPosition,
+      resolvedFlatMixByBand,
+      activeCellCount: activeMask.reduce((count, value) => count + (value ? 1 : 0), 0),
+    });
 
     fillFlatPatternMode({
       algorithm,
