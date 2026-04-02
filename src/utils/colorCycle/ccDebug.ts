@@ -24,8 +24,8 @@ const readLocalStorageFlag = (key: string): boolean => {
 
 const resolveDebugOn = (): boolean => {
   const scope = globalThis as { CC_DEBUG?: { on?: boolean } };
-  if (typeof scope.CC_DEBUG?.on === 'boolean') {
-    return scope.CC_DEBUG.on;
+  if (scope.CC_DEBUG?.on === true) {
+    return true;
   }
 
   if (typeof window === 'undefined') {
@@ -41,8 +41,8 @@ const resolveDebugOn = (): boolean => {
 
 const resolveVerboseOn = (legacyDebugOn: boolean): boolean => {
   const scope = globalThis as { CC_DEBUG?: { verbose?: boolean } };
-  if (typeof scope.CC_DEBUG?.verbose === 'boolean') {
-    return scope.CC_DEBUG.verbose;
+  if (scope.CC_DEBUG?.verbose === true) {
+    return true;
   }
 
   if (typeof window === 'undefined') {
@@ -58,6 +58,15 @@ const resolveVerboseOn = (legacyDebugOn: boolean): boolean => {
 };
 
 export const ccDebugOn = (): boolean => {
+  const debugOn = resolveDebugOn();
+  if (!debugOn) {
+    return false;
+  }
+
+  return true;
+};
+
+export const ccDebugVerboseOn = (): boolean => {
   const debugOn = resolveDebugOn();
   if (!debugOn) {
     return false;
