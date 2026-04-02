@@ -11,7 +11,6 @@ import {
 import {
   resolveFlatSierraBandMixInfo,
 } from '@/utils/colorCycle/ccDitherRenderPalette';
-import { ccLog } from '@/utils/colorCycle/ccDebug';
 import { useAppStore } from '@/stores/useAppStore';
 
 type Point = { x: number; y: number };
@@ -276,29 +275,12 @@ const resolveRuntimeFlatMixByBand = (
     const slot = useForegroundGradient
       ? (layer?.colorCycleData?.fgActiveSlot ?? layer?.colorCycleData?.paintSlot ?? activeDef?.currentSlot ?? 0)
       : (layer?.colorCycleData?.paintSlot ?? activeDef?.currentSlot ?? 0);
-    ccLog('flat runtime slot inputs', {
-      useForegroundGradient,
-      fgActiveSlot: layer?.colorCycleData?.fgActiveSlot,
-      paintSlot: layer?.colorCycleData?.paintSlot,
-      activeDefCurrentSlot: activeDef?.currentSlot,
-      chosenSlot: slot,
-    });
     const slotPalettes = layer?.colorCycleData?.slotPalettes ?? [];
     const slotStops = slotPalettes.find((entry) => entry.slot === slot)?.stops;
     const fallbackStops = layer?.colorCycleData?.gradient ?? tools?.colorCycleGradient;
     const stops = useForegroundGradient
       ? ((fallbackStops?.length ? fallbackStops : slotStops) ?? [])
       : ((slotStops?.length ? slotStops : fallbackStops) ?? []);
-    ccLog('flat runtime stop source', {
-      layerId,
-      slot,
-      useForegroundGradient,
-      slotStopsLen: slotStops?.length ?? 0,
-      fallbackStopsLen: fallbackStops?.length ?? 0,
-      chosenStopsLen: stops?.length ?? 0,
-      slotStops,
-      fallbackStops,
-    });
     if (!stops.length) {
       return {};
     }
@@ -308,13 +290,6 @@ const resolveRuntimeFlatMixByBand = (
       targetColor: fgColor,
       baseOffset,
       spread,
-    });
-    ccLog('resolveFlatSierraBandMixInfo raw', {
-      targetColor: fgColor,
-      baseOffset,
-      spread,
-      stops,
-      bandMixInfo,
     });
     return {
       mixByBand: bandMixInfo.length === 5 ? bandMixInfo.map((entry) => entry.mix) : undefined,
@@ -546,14 +521,6 @@ export const fillCcGradientDither = async ({
       resolvedFlatBand = bestBand;
       resolvedFlatMix = resolvedFlatMixByBand[bestBand];
     }
-
-    ccLog('ccGradientDither flat recipe', {
-      flatTone,
-      resolvedFlatMixByBand,
-      resolvedFlatBand,
-      resolvedFlatMix,
-      flatSeed,
-    });
 
     fillFlatPatternMode({
       algorithm,
