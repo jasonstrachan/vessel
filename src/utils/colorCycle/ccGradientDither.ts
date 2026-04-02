@@ -7,9 +7,12 @@ import {
 } from '@/utils/ditherAlgorithms';
 import {
   fillFlatPatternMode,
-  resolveFlatInkCountForBand,
-  resolveToneBand,
 } from '@/utils/colorCycle/ccFlatModePatterns';
+import {
+  resolveFlatSierraBestBandForTarget,
+  resolveFlatSierraMixByBand,
+} from '@/utils/colorCycle/ccDitherRenderPalette';
+import { useAppStore } from '@/stores/useAppStore';
 
 type Point = { x: number; y: number };
 
@@ -22,6 +25,9 @@ export type CcGradientDitherOptions = {
   pixelSize: number;
   levels: number;
   baseOffset: number;
+  flatPairSpread?: number;
+  flatMixByBand?: readonly number[];
+  flatBandOverride?: number;
   algorithm?: DitherAlgorithm;
   patternStyle?: PatternStyle;
   pairBandCount?: number;
@@ -40,25 +46,6 @@ const noiseAt = (x: number, y: number): number => {
   n = (n ^ (n >>> 13)) * 1274126177;
   n = (n ^ (n >>> 16)) >>> 0;
   return (n & 0xffff) / 65536;
-};
-
-const resolveFlatModeGlobalTone = (
-  cellCoverage: Uint8Array,
-  activeMask: Uint8Array
-): number => {
-  let total = 0;
-  let count = 0;
-  for (let i = 0; i < cellCoverage.length; i += 1) {
-    if (!activeMask[i]) {
-      continue;
-    }
-    total += cellCoverage[i];
-    count += 1;
-  }
-  if (count <= 0) {
-    return 0.5;
-  }
-  return clamp01(total / (count * 255));
 };
 
 const indexFromNormalized = (pos: number, baseOffset: number): number => {
@@ -249,6 +236,55 @@ const resolveOrderedThreshold = (
   }
 };
 
+const resolveRuntimeFlatMixByBand = (
+  baseOffset: number,
+  spread?: number
+): { mixByBand?: number[]; bandOverride?: number } => {
+  try {
+    const state = useAppStore.getState();
+    const tools = state.tools?.brushSettings;
+    const layerId = state.activeLayerId;
+    const layer = state.layers?.find((entry) => entry.id === layerId);
+    const fgColor = state.palette?.foregroundColor ?? tools?.color;
+
+    const useForegroundGradient = Boolean(tools?.colorCycleUseForegroundGradient);
+    const defs = layer?.colorCycleData?.gradientDefs ?? [];
+    const activeId = layer?.colorCycleData?.activeGradientId ?? defs[0]?.id;
+    const activeDef = defs.find((entry) => entry.id === activeId) ?? defs[0];
+    const slot = useForegroundGradient
+      ? (layer?.colorCycleData?.fgActiveSlot ?? layer?.colorCycleData?.paintSlot ?? activeDef?.currentSlot ?? 0)
+      : (layer?.colorCycleData?.paintSlot ?? activeDef?.currentSlot ?? 0);
+    const slotPalettes = layer?.colorCycleData?.slotPalettes ?? [];
+    const slotStops = slotPalettes.find((entry) => entry.slot === slot)?.stops;
+    const fallbackStops = layer?.colorCycleData?.gradient ?? tools?.colorCycleGradient;
+    const stops = (slotStops?.length ? slotStops : fallbackStops) ?? [];
+    if (!stops.length) {
+      return {};
+    }
+
+    const mixes = resolveFlatSierraMixByBand({
+      stops,
+      targetColor: fgColor,
+      baseOffset,
+      spread,
+    });
+    const bandOverride = fgColor
+      ? resolveFlatSierraBestBandForTarget({
+          stops,
+          targetColor: fgColor,
+          baseOffset,
+          spread,
+        })
+      : undefined;
+    return {
+      mixByBand: mixes.length === 5 ? mixes : undefined,
+      bandOverride,
+    };
+  } catch {
+    return {};
+  }
+};
+
 export const fillCcGradientDither = async ({
   vertices,
   minX,
@@ -258,6 +294,9 @@ export const fillCcGradientDither = async ({
   pixelSize,
   levels,
   baseOffset,
+  flatPairSpread,
+  flatMixByBand,
+  flatBandOverride,
   algorithm = 'sierra-lite',
   patternStyle = 'dots',
   pairBandCount,
@@ -442,23 +481,29 @@ export const fillCcGradientDither = async ({
       }
     }
   } else if (clampedLevels === 1) {
-    const tone = resolveFlatModeGlobalTone(cellCoverage, activeMask);
-    const toneBand = resolveToneBand(tone);
     const phaseX = Math.floor(minX / Math.max(1, cellSize));
     const phaseY = Math.floor(minY / Math.max(1, cellSize));
-    const inkCount = resolveFlatInkCountForBand(toneBand);
+    const runtimeFlat = algorithm === 'sierra-lite'
+      ? resolveRuntimeFlatMixByBand(baseOffset, flatPairSpread)
+      : {};
+    const resolvedFlatMixByBand = flatMixByBand ?? runtimeFlat.mixByBand;
+    const resolvedFlatBandOverride = flatBandOverride ?? runtimeFlat.bandOverride;
 
     fillFlatPatternMode({
       algorithm,
       patternStyle,
-      tone,
+      tone: 0.5,
+      toneByCell: cellCoverage,
+      flatMixByBand: resolvedFlatMixByBand,
+      flatBandOverride: resolvedFlatBandOverride,
+      spread: flatPairSpread,
       gridW,
       gridH,
+      activeMask,
       fillBackground,
       baseOffset,
       phaseX,
       phaseY,
-      inkCount,
       writeCellIndex: (cellIdx, index) => {
         cellIndices[cellIdx] = index;
       },
