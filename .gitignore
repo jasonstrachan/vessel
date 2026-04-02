@@ -47,3 +47,6 @@ next-env.d.ts
 
 # local captures
 /screenshots/
+
+# local temp docs
+docs/temp/
