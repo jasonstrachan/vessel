@@ -23,6 +23,9 @@ type FillBrush = ColorCycleBrushImplementation & {
       ditherPixelSize?: number;
       ditherPairBandCount?: number;
       ditherPaletteSpread?: number;
+      ditherSampledStops?: GradientDitherOptions['ditherSampledStops'];
+      ditherBaseOffsetOverride?: GradientDitherOptions['ditherBaseOffsetOverride'];
+      paintSlotOverride?: GradientDitherOptions['paintSlotOverride'];
       roi?: GradientDitherOptions['roi'];
       lostEdge?: number;
     };
@@ -173,6 +176,9 @@ export const fillColorCycleLinear = async ({
           ditherPixelSize: options?.ditherPixelSize,
           ditherPairBandCount: options?.ditherPairBandCount,
           ditherPaletteSpread: options?.ditherPaletteSpread ?? brushSettings.ditherPaletteSpread,
+          ditherSampledStops: options?.ditherSampledStops,
+          ditherBaseOffsetOverride: options?.ditherBaseOffsetOverride,
+          paintSlotOverride: options?.paintSlotOverride,
           ditherBackgroundFill,
           roi: options?.roi,
           lostEdge: brushSettings.lostEdge,

@@ -32,6 +32,7 @@ export type CcGradientDitherOptions = {
   algorithm?: DitherAlgorithm;
   patternStyle?: PatternStyle;
   pairBandCount?: number;
+  sampledStopsOverride?: StoredStop[];
   fillBackground?: boolean;
   pxlEdge?: boolean;
   sampleNormalized: (x: number, y: number) => number;
@@ -510,6 +511,7 @@ export const fillCcGradientDither = async ({
   algorithm = 'sierra-lite',
   patternStyle = 'dots',
   pairBandCount,
+  sampledStopsOverride,
   fillBackground = true,
   pxlEdge = false,
   sampleNormalized,
@@ -698,11 +700,13 @@ export const fillCcGradientDither = async ({
     const preferSampledFlatSolver =
       algorithm === 'sierra-lite' &&
       !flatMixByBand &&
-      useAppStore.getState().tools?.ccGradientSource === 'sampled' &&
+      (sampledStopsOverride?.length
+        ? true
+        : useAppStore.getState().tools?.ccGradientSource === 'sampled') &&
       !brushSettings?.colorCycleUseForegroundGradient;
     const sampledFlatSolver = preferSampledFlatSolver
       ? resolveSampledFlatBandMix({
-          stops: resolveActiveSampledStops() ?? [],
+          stops: sampledStopsOverride?.length ? sampledStopsOverride : (resolveActiveSampledStops() ?? []),
           flatPosition,
           baseOffset,
           spread: flatPairSpread,
