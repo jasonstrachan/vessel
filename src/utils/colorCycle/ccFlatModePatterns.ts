@@ -342,8 +342,10 @@ const fillSierraLiteFlatPatternMode = ({
   const highIdx = inkSet.indices[1] & 255;
   const patternKey = (mixKey << 16) ^ (lowIdx << 8) ^ highIdx;
   const variant = resolvePatternVariant(flatSeed, patternKey);
+  const patternFingerprint = `${patternKey}:${variant}:${band}:${mixKey}:${lowIdx}:${highIdx}`;
 
   ccLog('flat sierra pattern', {
+    patternFingerprint,
     band,
     baseMix,
     mixKey,

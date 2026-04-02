@@ -127,6 +127,59 @@ const resolveRuntimeFlatMixByBand = (
   }
 };
 
+const summarizeFlatPatternOutput = (
+  cellIndices: Uint16Array,
+  activeMask: Uint8Array
+): {
+  activeCellCount: number;
+  sampleCellIndices: number[];
+  sampleHash: number;
+  backgroundCount: number;
+  lowInkIndex: number | null;
+  lowInkCount: number;
+  highInkIndex: number | null;
+  highInkCount: number;
+  uniqueActiveIndices: number[];
+} => {
+  const sampleCellIndices: number[] = [];
+  const indexCounts = new Map<number, number>();
+  let activeCellCount = 0;
+  let sampleHash = 2166136261;
+
+  for (let i = 0; i < activeMask.length; i += 1) {
+    if (!activeMask[i]) {
+      continue;
+    }
+    const index = cellIndices[i] ?? 0;
+    activeCellCount += 1;
+    if (sampleCellIndices.length < 24) {
+      sampleCellIndices.push(index);
+    }
+    if (activeCellCount <= 128) {
+      sampleHash ^= index + ((i & 255) << 8);
+      sampleHash = Math.imul(sampleHash, 16777619) >>> 0;
+    }
+    indexCounts.set(index, (indexCounts.get(index) ?? 0) + 1);
+  }
+
+  const uniqueActiveIndices = [...indexCounts.keys()].sort((a, b) => a - b);
+  const nonBackgroundIndices = uniqueActiveIndices.filter((index) => index !== 0);
+  const lowInkIndex = nonBackgroundIndices[0] ?? null;
+  const highInkIndex = nonBackgroundIndices[nonBackgroundIndices.length - 1] ?? null;
+
+  return {
+    activeCellCount,
+    sampleCellIndices,
+    sampleHash,
+    backgroundCount: indexCounts.get(0) ?? 0,
+    lowInkIndex,
+    lowInkCount: lowInkIndex == null ? 0 : (indexCounts.get(lowInkIndex) ?? 0),
+    highInkIndex,
+    highInkCount: highInkIndex == null ? 0 : (indexCounts.get(highInkIndex) ?? 0),
+    uniqueActiveIndices,
+  };
+};
+
 type ErrorDiffusionTap = { dx: number; dy: number; weight: number };
 type ErrorDiffusionKernel = {
   taps: ReadonlyArray<ErrorDiffusionTap>;
@@ -539,6 +592,8 @@ export const fillCcGradientDither = async ({
         cellIndices[cellIdx] = index;
       },
     });
+
+    ccLog('flat pattern output', summarizeFlatPatternOutput(cellIndices, activeMask));
   } else if (algorithm === 'sierra-lite') {
     let errCurr = new Float32Array(gridW);
     let errNext = new Float32Array(gridW);
