@@ -5,7 +5,6 @@ import {
   type DitherAlgorithm,
   type PatternStyle,
 } from '@/utils/ditherAlgorithms';
-import { ccLog } from '@/utils/colorCycle/ccDebug';
 
 export type FlatInkCount = 2;
 
@@ -298,17 +297,6 @@ const fillSierraLiteFlatPatternMode = ({
   const highIdx = inkSet.indices[1] & 255;
   const patternKey = (mixKey << 16) ^ (lowIdx << 8) ^ highIdx;
   const variant = resolvePatternVariant(flatSeed, patternKey);
-
-  ccLog('ccFlatModePatterns sierra flat family', {
-    band,
-    baseMix,
-    mixKey,
-    lowIdx,
-    highIdx,
-    patternKey,
-    flatSeed,
-    variant,
-  });
 
   for (let y = 0; y < gridH; y += 1) {
     const serpentine = (y & 1) === 1;
