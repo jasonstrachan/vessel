@@ -267,6 +267,7 @@ Agent Directives
 - When reading/searching code, prefer rg; read files in <=250-line chunks.
 - For multi-step tasks, keep one active step and update the plan as steps complete.
 - Keep Vessel runtime behavior and Goblet export behavior in sync for animation/playback changes; update both paths and tests in the same change.
+- For color-cycle flat-fill bugfixes: do not introduce jitter/noise injection and do not change dither algorithm selection as a workaround; fix signal mapping/ink selection logic only.
 
 Specialist Assignment Guide
 

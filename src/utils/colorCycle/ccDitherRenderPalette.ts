@@ -76,6 +76,45 @@ const subtractRgb = (
   b: [number, number, number]
 ): [number, number, number] => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
 
+export type FlatSierraBandMixInfo = {
+  band: number;
+  low: [number, number, number];
+  high: [number, number, number];
+  target: [number, number, number];
+  mix: number;
+};
+
+export const resolveFlatSierraBandMixInfo = ({
+  stops,
+  targetColor,
+  baseOffset,
+  spread,
+}: {
+  stops: StoredStop[];
+  targetColor?: string;
+  baseOffset: number;
+  spread?: number;
+}): FlatSierraBandMixInfo[] => {
+  if (!stops.length) {
+    return [];
+  }
+  const globalTarget = targetColor ? parseColor(targetColor) : null;
+  const info: FlatSierraBandMixInfo[] = [];
+  for (let band = 0; band < 5; band += 1) {
+    const [lowIndex, highIndex] = resolveFlatInkSetForBand(band, 2, baseOffset, spread).indices;
+    const low = sampleGradientColor(stops, clamp01((lowIndex - 1) / 254));
+    const high = sampleGradientColor(stops, clamp01((highIndex - 1) / 254));
+    const centerPos = clamp01((((lowIndex - 1) / 254) + ((highIndex - 1) / 254)) * 0.5);
+    const target = globalTarget ?? sampleGradientColor(stops, centerPos);
+    const span = subtractRgb(high, low);
+    const toTarget = subtractRgb(target, low);
+    const denom = dotRgb(span, span);
+    const mix = denom <= 1e-6 ? 0.5 : clamp01(dotRgb(toTarget, span) / denom);
+    info.push({ band, low, high, target, mix });
+  }
+  return info;
+};
+
 export const resolveFlatSierraMixByBand = ({
   stops,
   targetColor,
@@ -87,27 +126,12 @@ export const resolveFlatSierraMixByBand = ({
   baseOffset: number;
   spread?: number;
 }): number[] => {
-  if (!stops.length) {
-    return [];
-  }
-  const globalTarget = targetColor ? parseColor(targetColor) : null;
-  const mixes: number[] = [];
-  for (let band = 0; band < 5; band += 1) {
-    const [lowIndex, highIndex] = resolveFlatInkSetForBand(band, 2, baseOffset, spread).indices;
-    const low = sampleGradientColor(stops, clamp01((lowIndex - 1) / 254));
-    const high = sampleGradientColor(stops, clamp01((highIndex - 1) / 254));
-    const centerPos = clamp01((((lowIndex - 1) / 254) + ((highIndex - 1) / 254)) * 0.5);
-    const target = globalTarget ?? sampleGradientColor(stops, centerPos);
-    const span = subtractRgb(high, low);
-    const toTarget = subtractRgb(target, low);
-    const denom = dotRgb(span, span);
-    if (denom <= 1e-6) {
-      mixes.push(0.5);
-      continue;
-    }
-    mixes.push(clamp01(dotRgb(toTarget, span) / denom));
-  }
-  return mixes;
+  return resolveFlatSierraBandMixInfo({
+    stops,
+    targetColor,
+    baseOffset,
+    spread,
+  }).map((entry) => entry.mix);
 };
 
 export const resolveFlatSierraBestBandForTarget = ({
