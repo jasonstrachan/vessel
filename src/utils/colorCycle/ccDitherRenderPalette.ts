@@ -1,4 +1,5 @@
 import { parseColor } from '@/hooks/brushEngine/colorUtils';
+import { cloneStops } from '@/hooks/canvas/utils/colorCycleHelpers';
 import {
   buildSpreadInkPalette,
   resolveStrokeDitherPalette,
@@ -513,10 +514,10 @@ export const buildCcDitherRuntimePalette = ({
   const normalizedBandCount = Math.max(0, Math.floor(bands || 0));
   const resolvedAlgorithm = algorithm ?? 'sierra-lite';
   if (normalizedBandCount <= 0 && resolvedAlgorithm === 'sierra-lite') {
-    return buildCcFlatSierraContrastRenderPalette({
-      baseStops,
-      spread,
-    });
+    return {
+      bandCount: 0,
+      renderStops: cloneStops(baseStops),
+    };
   }
   return buildCcDitherRenderPalette({
     baseStops,
