@@ -121,4 +121,51 @@ describe('ccGradientRuntime', () => {
       session.previewStopsStored?.map((stop) => stop.color)
     );
   });
+
+  it('uses live dither spread for active session runtime palettes while editing', () => {
+    const layer = makeLayer();
+    const brushSettings = makeBrushSettings({
+      ditherEnabled: true,
+      gradientBands: 1,
+      ditherAlgorithm: 'sierra-lite',
+      ditherPaletteSpread: 0,
+    });
+    const session: MarkGradientSession = {
+      markId: 'session-2',
+      layerId: layer.id,
+      markKind: 'shape',
+      gradientKind: 'linear',
+      source: 'sampled',
+      frozenStopsStored: [
+        { position: 0, color: '#111111' },
+        { position: 1, color: '#eeeeee' },
+      ],
+      frozenHash: '',
+      binding: null,
+      previewStopsStored: [
+        { position: 0, color: '#111111' },
+        { position: 1, color: '#eeeeee' },
+      ],
+      previewHash: '',
+      fallbackStopsStored: [
+        { position: 0, color: '#111111' },
+        { position: 1, color: '#eeeeee' },
+      ],
+      ditherRenderConfig: {
+        enabled: true,
+        pairBandCount: 0,
+        spread: 100,
+      },
+    };
+
+    __setActiveMarkSessionGetterForTests(() => session);
+
+    const snapshot = buildRuntimeSnapshot(layer, brushSettings);
+
+    expect(snapshot.paintSlot).toBe(TEMP_SAMPLE_SLOT);
+    expect(snapshot.slotPalettes[0]?.stops).toHaveLength(10);
+    expect(snapshot.slotPalettes[0]?.stops.map((stop) => stop.color)).not.toEqual(
+      session.previewStopsStored?.map((stop) => stop.color)
+    );
+  });
 });

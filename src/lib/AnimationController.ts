@@ -15,7 +15,7 @@ export interface AnimationConfig {
 }
 
 export class AnimationController {
-  private fps: number = 30;
+  private fps: number = 60;
   private speed: number = 1.0;
   private offset: number = 0;
   
@@ -32,7 +32,7 @@ export class AnimationController {
   private frameTimeHistory: number[] = [];
   private dbg = { t: 0, prevOff: 0 };
   private maxHistorySize: number = 60;
-  private targetFrameTime: number = 1000 / 30; // Default to 30 FPS
+  private targetFrameTime: number = 1000 / 60; // Default to 60 FPS
   
   // Callbacks
   private onFrame?: (deltaTime: number, totalTime: number) => void;

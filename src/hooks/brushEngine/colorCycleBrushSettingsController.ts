@@ -46,6 +46,37 @@ export const updateColorCycleGradientBandsForLayer = ({
   window.dispatchEvent(new CustomEvent('colorCycleFrameReady'));
 };
 
+export const updateColorCycleDitherPaletteSpreadForLayer = ({
+  activeLayerId,
+  getLayers,
+  getActiveLayerColorCycleBrush,
+  initializeColorCycleBrush,
+  renderBrushToLayerCanvas,
+}: {
+  activeLayerId: string | null;
+  getLayers: () => Array<{ id: string; layerType?: string }>;
+  getActiveLayerColorCycleBrush: () => ColorCycleBrushImplementation | null;
+  initializeColorCycleBrush: () => ColorCycleBrushImplementation | null;
+  renderBrushToLayerCanvas: (brush: ColorCycleBrushImplementation, layerId: string | null | undefined) => void;
+}): void => {
+  const activeLayer = getLayers().find((layer) => layer.id === activeLayerId);
+  if (activeLayer?.layerType !== 'color-cycle') {
+    return;
+  }
+
+  let brush = getActiveLayerColorCycleBrush();
+  if (!brush) {
+    brush = initializeColorCycleBrush();
+  }
+
+  if (!brush) {
+    return;
+  }
+
+  renderBrushToLayerCanvas(brush, activeLayerId);
+  window.dispatchEvent(new CustomEvent('colorCycleFrameReady'));
+};
+
 export const updateColorCycleBandSpacingForLayer = ({
   activeLayerId,
   getLayers,

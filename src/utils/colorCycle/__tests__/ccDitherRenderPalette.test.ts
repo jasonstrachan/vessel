@@ -1,5 +1,9 @@
 import { parseColor } from '@/hooks/brushEngine/colorUtils';
-import { buildCcDitherRenderPalette, resolveCcDitherBandMode } from '@/utils/colorCycle/ccDitherRenderPalette';
+import {
+  buildCcDitherRenderPalette,
+  buildCcDitherRuntimePalette,
+  resolveCcDitherBandMode,
+} from '@/utils/colorCycle/ccDitherRenderPalette';
 
 describe('resolveCcDitherBandMode', () => {
   it('treats 1 color as flat dither and shifts gradient bands up by one', () => {
@@ -166,5 +170,39 @@ describe('buildCcDitherRenderPalette', () => {
     expect(flat.renderStops[1].position).toBe(0.5);
     expect(flat.renderStops[2].position).toBe(1);
     expect(new Set(flat.renderStops.map((stop) => stop.color)).size).toBeGreaterThanOrEqual(3);
+  });
+});
+
+describe('buildCcDitherRuntimePalette', () => {
+  it('uses contrast-forward flat Sierra palette stops when pair bands are zero', () => {
+    const runtime = buildCcDitherRuntimePalette({
+      baseStops: [
+        { position: 0, color: '#446688' },
+        { position: 1, color: '#88aacc' },
+      ],
+      bands: 0,
+      spread: 100,
+      algorithm: 'sierra-lite',
+    });
+
+    expect(runtime.bandCount).toBe(0);
+    expect(runtime.renderStops).toHaveLength(10);
+    const uniqueColors = new Set(runtime.renderStops.map((stop) => stop.color));
+    expect(uniqueColors.size).toBeGreaterThanOrEqual(8);
+  });
+
+  it('keeps legacy flat palette behavior for non-Sierra algorithms', () => {
+    const runtime = buildCcDitherRuntimePalette({
+      baseStops: [
+        { position: 0, color: '#446688' },
+        { position: 1, color: '#88aacc' },
+      ],
+      bands: 0,
+      spread: 100,
+      algorithm: 'pattern',
+    });
+
+    expect(runtime.bandCount).toBe(0);
+    expect(runtime.renderStops).toHaveLength(3);
   });
 });

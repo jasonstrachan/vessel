@@ -2,6 +2,7 @@ import { FLOW_SLOT_MASK, type FlowMode } from '@/lib/colorCycle/flowEncoding';
 import { TEMP_SAMPLE_SLOT } from '@/constants/colorCycle';
 import type { BrushSettings, Layer } from '@/types';
 import type { MarkGradientSession } from '@/hooks/canvas/utils/colorCycleMarkSession';
+import { resolveMarkSessionRuntimeStops } from '@/hooks/canvas/utils/colorCycleMarkSession';
 import type { GradientSeamProfile } from '@/lib/colorCycle/gradientSeamProfile';
 import { normalizeGradientSeamProfile } from '@/lib/colorCycle/gradientSeamProfile';
 
@@ -41,6 +42,18 @@ const normalizePaintSlot = (slot: number): number => {
 
 const cloneStops = (stops: GradientStop[]): GradientStop[] =>
   stops.map((stop) => ({ position: stop.position, color: stop.color, opacity: stop.opacity }));
+
+const resolveSessionRuntimeStops = (
+  session: MarkGradientSession,
+  stops: GradientStop[],
+  brushSettings: BrushSettings,
+): GradientStop[] =>
+  resolveMarkSessionRuntimeStops(session, stops, {
+    enabled: Boolean(brushSettings.ditherEnabled),
+    pairBandCount: session.ditherRenderConfig?.pairBandCount,
+    spread: brushSettings.ditherPaletteSpread,
+    algorithm: brushSettings.ditherAlgorithm ?? session.ditherRenderConfig?.algorithm,
+  });
 
 const resolveSessionSeamProfile = (
   session: MarkGradientSession | null,
@@ -155,7 +168,7 @@ export const buildRuntimeSnapshot = (
       paintSlot: TEMP_SAMPLE_SLOT,
       slotPalettes: [{
         slot: TEMP_SAMPLE_SLOT,
-        stops,
+        stops: resolveSessionRuntimeStops(activeSession, stops, brushSettings),
         seamProfile: resolveSessionSeamProfile(activeSession),
       }],
       flowMode: layer.colorCycleData?.flowMode,
@@ -168,7 +181,7 @@ export const buildRuntimeSnapshot = (
       slotPalettes: [
         {
           slot: activeSession.binding.slot,
-          stops: cloneStops(activeSession.frozenStopsStored),
+          stops: resolveSessionRuntimeStops(activeSession, activeSession.frozenStopsStored, brushSettings),
           seamProfile: resolveSessionSeamProfile(activeSession),
         },
       ],

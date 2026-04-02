@@ -33,8 +33,8 @@ export class RecolorAnimationController {
   // Animation state
   private isPlaying: boolean = false;
   private globalTick: number = 0;
-  private targetFPS: number = 30;
-  private frameInterval: number = 1000 / 30; // ms between frames
+  private targetFPS: number = 60;
+  private frameInterval: number = 1000 / 60; // ms between frames
   private lastFrameTime: number = 0;
   private animationFrameId: number | null = null;
   
@@ -52,7 +52,7 @@ export class RecolorAnimationController {
   
   // Adaptive quality
   private performanceMode: 'quality' | 'balanced' | 'performance' = 'balanced';
-  private frameTimeTarget: number = 1000 / 30; // Target 33.33ms per frame
+  private frameTimeTarget: number = 1000 / 60; // Target 16.67ms per frame
   
   // Callbacks
   private frameCallbacks: Set<(layers: AnimatedLayer[], stats: AnimationStats) => void> = new Set();

@@ -120,6 +120,7 @@ import {
 } from './brushEngine/colorCycleStrokeLifecycleController';
 import {
   updateColorCycleBandSpacingForLayer,
+  updateColorCycleDitherPaletteSpreadForLayer,
   updateColorCycleDitherSettings,
   updateColorCycleFillDitherPixelSize,
   updateColorCycleGradientBandsForLayer,
@@ -1710,6 +1711,21 @@ export const useBrushEngineSimplified = () => {
       renderBrushToLayerCanvas,
     });
   }, [tools.brushSettings.gradientBands, getActiveLayerColorCycleBrush, activeLayerId, initializeColorCycleBrush]);
+
+  useEffect(() => {
+    updateColorCycleDitherPaletteSpreadForLayer({
+      activeLayerId,
+      getLayers: () => useAppStore.getState().layers,
+      getActiveLayerColorCycleBrush,
+      initializeColorCycleBrush: () => initializeColorCycleBrush(),
+      renderBrushToLayerCanvas,
+    });
+  }, [
+    tools.brushSettings.ditherPaletteSpread,
+    getActiveLayerColorCycleBrush,
+    activeLayerId,
+    initializeColorCycleBrush,
+  ]);
 
   useEffect(() => {
     updateColorCycleBandSpacingForLayer({

@@ -6,6 +6,7 @@ import {
   getPreviewGradientForActiveMark,
 } from '@/hooks/canvas/utils/colorCycleMarkSession';
 import { useAppStore } from '@/stores/useAppStore';
+import { buildCcDitherRenderPalette, resolveCcDitherBandMode } from '@/utils/colorCycle/ccDitherRenderPalette';
 
 describe('colorCycleMarkSession rebuild', () => {
   const stops = [
@@ -140,5 +141,64 @@ describe('colorCycleMarkSession rebuild', () => {
     expect(finalizedStops?.map((stop) => stop.color)).toEqual(
       session.previewStopsStored.map((stop) => stop.color)
     );
+  });
+
+  it('freezes sampled dither render settings at mark start so later slider changes do not recolor the mark', () => {
+    const layer = createLayer();
+
+    useAppStore.setState((state) => ({
+      layers: [layer],
+      activeLayerId: layer.id,
+      tools: {
+        ...state.tools,
+        brushSettings: {
+          ...state.tools.brushSettings,
+          ditherEnabled: true,
+          ditherPaletteSpread: 100,
+        },
+      },
+      project: state.project
+        ? { ...state.project, width: 2, height: 2, layers: [layer] }
+        : state.project,
+    }));
+
+    const session = beginMarkGradientSession({
+      layerId: layer.id,
+      markKind: 'shape',
+      gradientKind: 'linear',
+      source: 'sampled',
+      stops,
+    });
+
+    if (!session) {
+      throw new Error('Expected sampled mark session');
+    }
+
+    useAppStore.setState((state) => ({
+      tools: {
+        ...state.tools,
+        brushSettings: {
+          ...state.tools.brushSettings,
+          ditherEnabled: true,
+          ditherPaletteSpread: 0,
+        },
+      },
+    }));
+
+    finalizeMarkGradientSession(layer.id);
+    const finalizedStops = useAppStore.getState().layers[0]?.colorCycleData?.gradientDefStore?.[0]?.stops;
+    const expectedFrozenStops = buildCcDitherRenderPalette({
+      baseStops: stops,
+      bands: resolveCcDitherBandMode(16).pairBandCount,
+      spread: 100,
+    }).renderStops;
+    const expectedCurrentStops = buildCcDitherRenderPalette({
+      baseStops: stops,
+      bands: resolveCcDitherBandMode(16).pairBandCount,
+      spread: 0,
+    }).renderStops;
+
+    expect(finalizedStops).toEqual(expectedFrozenStops);
+    expect(finalizedStops).not.toEqual(expectedCurrentStops);
   });
 });

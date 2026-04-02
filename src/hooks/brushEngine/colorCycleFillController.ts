@@ -22,6 +22,7 @@ type FillBrush = ColorCycleBrushImplementation & {
       ditherLevels?: number;
       ditherPixelSize?: number;
       ditherPairBandCount?: number;
+      ditherPaletteSpread?: number;
       roi?: GradientDitherOptions['roi'];
       lostEdge?: number;
     };
@@ -44,6 +45,7 @@ type SharedArgs = {
     | 'lostEdge'
     | 'ditherBackgroundFill'
     | 'ditherGradBgFill'
+    | 'ditherPaletteSpread'
   >;
   defaultBandSpacing: number;
   clampColorCycleBandSpacing: (value?: number) => number;
@@ -170,6 +172,7 @@ export const fillColorCycleLinear = async ({
           ditherLevels: options?.ditherLevels ?? ditherLevels,
           ditherPixelSize: options?.ditherPixelSize,
           ditherPairBandCount: options?.ditherPairBandCount,
+          ditherPaletteSpread: options?.ditherPaletteSpread ?? brushSettings.ditherPaletteSpread,
           ditherBackgroundFill,
           roi: options?.roi,
           lostEdge: brushSettings.lostEdge,
@@ -242,6 +245,7 @@ export const fillColorCycleConcentric = async ({
           ditherLevels: options?.ditherLevels ?? ditherLevels,
           ditherPixelSize: options?.ditherPixelSize,
           ditherPairBandCount: options?.ditherPairBandCount,
+          ditherPaletteSpread: options?.ditherPaletteSpread ?? brushSettings.ditherPaletteSpread,
           ditherBackgroundFill,
           roi: options?.roi,
           lostEdge: brushSettings.lostEdge,

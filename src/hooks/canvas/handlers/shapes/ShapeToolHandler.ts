@@ -34,7 +34,7 @@ import {
   clampForegroundDerivedBands,
   deriveForegroundGradientStops,
 } from '@/utils/colorCycleGradients';
-import { buildCcDitherRenderPalette, resolveCcDitherBandMode } from '@/utils/colorCycle/ccDitherRenderPalette';
+import { buildCcDitherRuntimePalette, resolveCcDitherBandMode } from '@/utils/colorCycle/ccDitherRenderPalette';
 import { fillCcGradientDither } from '@/utils/colorCycle/ccGradientDither';
 import { getPreviewGradientForActiveMark } from '@/hooks/canvas/utils/colorCycleMarkSession';
 import { parseCssColorToRgba } from '@/hooks/canvas/utils/colorCycleHelpers';
@@ -2873,10 +2873,11 @@ export const createShapeToolHandler = (
                   ? brushNow.colorCycleGradient
                   : DEFAULT_COLOR_CYCLE_GRADIENT);
             const ditherRenderStops = shouldDitherPreview
-              ? buildCcDitherRenderPalette({
+              ? buildCcDitherRuntimePalette({
                   baseStops: stops,
                   bands: resolveCcDitherBandMode(brushNow.gradientBands ?? 16).pairBandCount,
                   spread: brushNow.ditherPaletteSpread,
+                  algorithm: brushNow.ditherAlgorithm,
                 }).renderStops
               : stops;
             if (shouldDitherPreview) {
@@ -3016,6 +3017,7 @@ export const createShapeToolHandler = (
                         pixelSize,
                         levels,
                         baseOffset: 0,
+                        flatPairSpread: brushNow.ditherPaletteSpread,
                         algorithm: fillAlgorithm,
                         patternStyle: fillPatternStyle,
                         fillBackground,

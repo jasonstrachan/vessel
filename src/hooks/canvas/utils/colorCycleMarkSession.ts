@@ -4,6 +4,10 @@ import {
   resolveActiveColorCycleGradient,
 } from '@/hooks/canvas/utils/colorCycleHelpers';
 import {
+  buildCcDitherRuntimePalette,
+  resolveCcDitherBandMode,
+} from '@/utils/colorCycle/ccDitherRenderPalette';
+import {
   ensureGradientDefForStops,
   hashStops,
   type StoredStop,
@@ -29,6 +33,14 @@ export type MarkGradientSession = {
   previewHash?: string;
   fallbackStopsStored?: StoredStop[];
   samples?: Array<{ t01: number; rgba: [number, number, number, number] }>;
+  ditherRenderConfig?: FrozenCcDitherRenderConfig;
+};
+
+export type FrozenCcDitherRenderConfig = {
+  enabled: boolean;
+  pairBandCount: number;
+  spread?: number;
+  algorithm?: ReturnType<typeof useAppStore.getState>['tools']['brushSettings']['ditherAlgorithm'];
 };
 
 export type PreviewGradientResult = {
@@ -66,10 +78,11 @@ const finalizeSampledSession = (session: MarkGradientSession): void => {
   session.frozenHash = hashStops(session.frozenStopsStored, session.gradientKind);
 
   if (!session.binding) {
+    const runtimeStops = resolveMarkSessionRuntimeStops(session, session.frozenStopsStored);
     const defResult = ensureGradientDefForStops({
       layerId: session.layerId,
       kind: session.gradientKind,
-      stops: session.frozenStopsStored,
+      stops: runtimeStops,
       source: session.source,
       speedCps: session.speedCps ?? undefined,
       seamProfile: session.seamProfile,
@@ -78,6 +91,41 @@ const finalizeSampledSession = (session: MarkGradientSession): void => {
       session.binding = { kind: 'def', defId: defResult.def.id, slot: defResult.slot };
     }
   }
+};
+
+export const captureFrozenCcDitherRenderConfig = (): FrozenCcDitherRenderConfig => {
+  const brushSettings = useAppStore.getState().tools.brushSettings;
+  const mode = resolveCcDitherBandMode(brushSettings.gradientBands ?? 16);
+  return {
+    enabled: Boolean(brushSettings.ditherEnabled),
+    pairBandCount: mode.pairBandCount,
+    spread: brushSettings.ditherPaletteSpread,
+    algorithm: brushSettings.ditherAlgorithm,
+  };
+};
+
+export const resolveMarkSessionRuntimeStops = (
+  session: Pick<MarkGradientSession, 'ditherRenderConfig'> | null | undefined,
+  stops: StoredStop[],
+  liveOverrides?: {
+    enabled?: boolean;
+    pairBandCount?: number;
+    spread?: number;
+    algorithm?: ReturnType<typeof useAppStore.getState>['tools']['brushSettings']['ditherAlgorithm'];
+  },
+): StoredStop[] => {
+  const clonedStops = cloneStops(stops);
+  const config = session?.ditherRenderConfig;
+  const enabled = liveOverrides?.enabled ?? config?.enabled ?? false;
+  if (!enabled) {
+    return clonedStops;
+  }
+  return buildCcDitherRuntimePalette({
+    baseStops: clonedStops,
+    bands: liveOverrides?.pairBandCount ?? config?.pairBandCount ?? 0,
+    spread: liveOverrides?.spread ?? config?.spread,
+    algorithm: liveOverrides?.algorithm ?? config?.algorithm,
+  }).renderStops;
 };
 
 export const beginMarkGradientSession = (params: {
@@ -101,6 +149,7 @@ export const beginMarkGradientSession = (params: {
   }
   const seamProfile: GradientSeamProfile = 'hard';
   const frozenStops = cloneStops(params.stops);
+  const ditherRenderConfig = captureFrozenCcDitherRenderConfig();
   if (params.source === 'sampled') {
     const session: MarkGradientSession = {
       markId: nextMarkId(),
@@ -117,6 +166,7 @@ export const beginMarkGradientSession = (params: {
       previewHash: '',
       fallbackStopsStored: cloneStops(frozenStops),
       samples: [],
+      ditherRenderConfig,
     };
     sessionsByLayer.set(params.layerId, session);
     ccLog('begin session', {
@@ -137,10 +187,14 @@ export const beginMarkGradientSession = (params: {
     return session;
   }
 
+  const runtimeStops = resolveMarkSessionRuntimeStops(
+    { ditherRenderConfig },
+    frozenStops,
+  );
   const defResult = ensureGradientDefForStops({
     layerId: params.layerId,
     kind: params.gradientKind,
-    stops: frozenStops,
+    stops: runtimeStops,
     source: params.source,
     speedCps: params.speedCps,
     seamProfile,
@@ -160,6 +214,7 @@ export const beginMarkGradientSession = (params: {
     frozenHash: defResult.hash,
     binding: { kind: 'def', defId: defResult.def.id, slot: defResult.slot },
     speedCps: params.speedCps,
+    ditherRenderConfig,
   };
   sessionsByLayer.set(params.layerId, session);
   ccLog('begin session', {

@@ -18,6 +18,7 @@ export type GradientDitherOptions = {
   ditherLevels?: number;
   ditherPixelSize?: number;
   ditherPairBandCount?: number;
+  ditherPaletteSpread?: number;
   roi?: RoiRect;
 };
 
