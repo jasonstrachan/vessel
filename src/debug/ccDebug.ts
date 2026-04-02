@@ -5,11 +5,23 @@ type CCDebugState = { on: boolean; verbose: boolean; timing: boolean };
 
 const resolveConsole = (): ScopedConsole => console;
 
-const resolveInitialDebugState = (): boolean => false;
+const readLocalStorageFlag = (key: string): boolean => {
+  if (typeof window === 'undefined') {
+    return false;
+  }
 
-const resolveInitialVerboseState = (): boolean => false;
+  try {
+    return window.localStorage.getItem(key) === '1';
+  } catch {
+    return false;
+  }
+};
 
-const resolveInitialTimingState = (): boolean => false;
+const resolveInitialDebugState = (): boolean => readLocalStorageFlag('ccDebug');
+
+const resolveInitialVerboseState = (): boolean => readLocalStorageFlag('ccDebugVerbose');
+
+const resolveInitialTimingState = (): boolean => readLocalStorageFlag('ccDebugTiming');
 
 export const CC_DEBUG: CCDebugState = (() => {
   const globalScope = globalThis as Record<string, unknown>;

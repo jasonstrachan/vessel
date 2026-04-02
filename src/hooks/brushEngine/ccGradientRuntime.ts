@@ -5,6 +5,7 @@ import type { MarkGradientSession } from '@/hooks/canvas/utils/colorCycleMarkSes
 import { resolveMarkSessionRuntimeStops } from '@/hooks/canvas/utils/colorCycleMarkSession';
 import type { GradientSeamProfile } from '@/lib/colorCycle/gradientSeamProfile';
 import { normalizeGradientSeamProfile } from '@/lib/colorCycle/gradientSeamProfile';
+import { ccLog } from '@/utils/colorCycle/ccDebug';
 
 export type GradientStop = { position: number; color: string; opacity?: number };
 export type ColorCycleGradientDef = { id: string; name?: string; currentSlot: number };
@@ -42,6 +43,12 @@ const normalizePaintSlot = (slot: number): number => {
 
 const cloneStops = (stops: GradientStop[]): GradientStop[] =>
   stops.map((stop) => ({ position: stop.position, color: stop.color, opacity: stop.opacity }));
+
+const summarizeStopsForDebug = (stops: GradientStop[] | null | undefined) =>
+  (stops ?? []).slice(0, 8).map((stop) => ({
+    p: Number(stop.position.toFixed(3)),
+    c: stop.color,
+  }));
 
 const resolveSessionRuntimeStops = (
   session: MarkGradientSession,
@@ -153,6 +160,14 @@ export const buildRuntimeSnapshot = (
   brushSettings: BrushSettings
 ): CCRuntimeSnapshot => {
   const activeSession = resolveActiveMarkGradientSession(layer.id);
+  ccLog('runtime snapshot branch', {
+    layerId: layer.id,
+    hasSession: Boolean(activeSession),
+    sessionSource: activeSession?.source ?? null,
+    sessionSlot: activeSession?.binding?.slot ?? null,
+    hasPreviewStops: Boolean(activeSession?.previewStopsStored?.length),
+    hasFallbackStops: Boolean(activeSession?.fallbackStopsStored?.length),
+  });
   if (activeSession?.source === 'sampled') {
     const sampledStops =
       activeSession.previewStopsStored && activeSession.previewStopsStored.length >= 2
@@ -163,25 +178,50 @@ export const buildRuntimeSnapshot = (
         ? activeSession.fallbackStopsStored
         : activeSession.frozenStopsStored;
     const stops = cloneStops(sampledStops ?? fallbackStops);
+    const runtimeStops = resolveSessionRuntimeStops(activeSession, stops, brushSettings);
+    ccLog('runtime snapshot sampled session', {
+      layerId: layer.id,
+      markId: activeSession.markId,
+      sampleCount: activeSession.samples?.length ?? 0,
+      previewCount: sampledStops?.length ?? 0,
+      sourceCount: stops.length,
+      runtimeCount: runtimeStops.length,
+      sourceStops: summarizeStopsForDebug(stops),
+      runtimeStops: summarizeStopsForDebug(runtimeStops),
+    });
     return {
       layerId: layer.id,
       paintSlot: TEMP_SAMPLE_SLOT,
       slotPalettes: [{
         slot: TEMP_SAMPLE_SLOT,
-        stops: resolveSessionRuntimeStops(activeSession, stops, brushSettings),
+        stops: runtimeStops,
         seamProfile: resolveSessionSeamProfile(activeSession),
       }],
       flowMode: layer.colorCycleData?.flowMode,
     };
   }
   if (activeSession?.binding?.slot !== undefined) {
+    const runtimeStops = resolveSessionRuntimeStops(
+      activeSession,
+      activeSession.frozenStopsStored,
+      brushSettings,
+    );
+    ccLog('runtime snapshot bound session', {
+      layerId: layer.id,
+      markId: activeSession.markId,
+      slot: activeSession.binding.slot,
+      sourceCount: activeSession.frozenStopsStored.length,
+      runtimeCount: runtimeStops.length,
+      sourceStops: summarizeStopsForDebug(activeSession.frozenStopsStored),
+      runtimeStops: summarizeStopsForDebug(runtimeStops),
+    });
     return {
       layerId: layer.id,
       paintSlot: activeSession.binding.slot,
       slotPalettes: [
         {
           slot: activeSession.binding.slot,
-          stops: resolveSessionRuntimeStops(activeSession, activeSession.frozenStopsStored, brushSettings),
+          stops: runtimeStops,
           seamProfile: resolveSessionSeamProfile(activeSession),
         },
       ],
@@ -196,6 +236,15 @@ export const buildRuntimeSnapshot = (
     stops: cloneStops(entry.stops),
     seamProfile: resolveSlotSeamProfile(layer, entry.slot, activeSession),
   }));
+  ccLog('runtime snapshot layer palettes', {
+    layerId: layer.id,
+    paintSlot,
+    paletteCount: normalizedPalettes.length,
+    paletteSlots: normalizedPalettes.map((entry) => entry.slot),
+    paintStops: summarizeStopsForDebug(
+      normalizedPalettes.find((entry) => entry.slot === paintSlot)?.stops ?? fallbackStops,
+    ),
+  });
 
   const hasPaintPalette = normalizedPalettes.some((entry) => entry.slot === paintSlot);
   const ensuredPalettes = hasPaintPalette
