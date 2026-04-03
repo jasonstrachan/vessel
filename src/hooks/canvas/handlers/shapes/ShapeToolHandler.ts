@@ -37,10 +37,10 @@ import {
 import { buildCcDitherRuntimePalette, resolveCcDitherBandMode } from '@/utils/colorCycle/ccDitherRenderPalette';
 import { ccLog } from '@/utils/colorCycle/ccDebug';
 import { fillCcGradientDither } from '@/utils/colorCycle/ccGradientDither';
+import { resolveStableFlatSeed } from '@/utils/colorCycle/ccFlatSeed';
 import { getActiveMarkGradientSession, getPreviewGradientForActiveMark } from '@/hooks/canvas/utils/colorCycleMarkSession';
 import { parseCssColorToRgba } from '@/hooks/canvas/utils/colorCycleHelpers';
 import { applyPolygonMaskToCanvasContext } from '@/hooks/canvas/handlers/shapes/shapePreviewMask';
-import { hashNumbers } from '@/utils/risographTexture';
 
 const SHAPE_PREVIEW_OPACITY = 0.6;
 
@@ -3027,11 +3027,6 @@ export const createShapeToolHandler = (
                 const fillAlgorithm = brushNow.ditherAlgorithm ?? 'sierra-lite';
                 const fillPatternStyle = brushNow.patternStyle ?? 'dots';
                 const fillBackground = (brushNow.ditherGradBgFill ?? brushNow.ditherBackgroundFill) !== false;
-                const flatSeedValues = [w, h, pixelSize, levels, minProj, maxProj];
-                for (let i = 0; i < localVertices.length; i += 1) {
-                  flatSeedValues.push(localVertices[i].x, localVertices[i].y);
-                }
-                const flatSeed = hashNumbers(...flatSeedValues);
                 const tempCanvas = canvasPool.acquire(w, h);
                 const tempCtx = tempCanvas.getContext(
                   '2d',
@@ -3062,6 +3057,11 @@ export const createShapeToolHandler = (
                         canvasPool.release(tempCanvas);
                         return;
                       }
+                      const flatSeed = resolveStableFlatSeed({
+                        markId: liveSession?.markId ?? null,
+                        bounds: { minX: 0, minY: 0, width: w, height: h },
+                        points: localVertices,
+                      });
                       await fillCcGradientDither({
                         vertices: localVertices,
                         minX: 0,

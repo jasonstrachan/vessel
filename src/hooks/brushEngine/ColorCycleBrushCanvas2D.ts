@@ -30,6 +30,7 @@ import { useAppStore } from '@/stores/useAppStore';
 import { canvasPool } from '@/utils/canvasPool';
 import { ccDebugOn, ccLog, ccWarn } from '@/utils/colorCycle/ccDebug';
 import { fillCcGradientDither } from '@/utils/colorCycle/ccGradientDither';
+import { resolveStableFlatSeed } from '@/utils/colorCycle/ccFlatSeed';
 import { computeConcentricMaxDistance, fillConcentricIndices } from '@/utils/colorCycle/concentricFillCore';
 import { applyEdgePadding } from '@/utils/colorCycle/fillMath';
 import { simplifyToVertexLimit } from '@/utils/polygonSimplify';
@@ -56,7 +57,6 @@ import {
 import { ensurePalette } from '@/lib/colorCycle/paletteService';
 import { resolveLayerColorCycleBaseSpeedFromLayer } from '@/utils/colorCycleLayerSpeed';
 import type { StoredStop } from '@/utils/colorCycleGradientDefs';
-import { hashNumbers } from '@/utils/risographTexture';
 import type { CommitCommittedLayerStateOptions } from '@/hooks/brushEngine/colorCycleCommittedState';
 import { getActiveMarkGradientSession } from '@/hooks/canvas/utils/colorCycleMarkSession';
 
@@ -3227,14 +3227,16 @@ export class ColorCycleBrushCanvas2D {
           pairBandCount <= 0 && fillAlgorithm === 'sierra-lite'
             ? 'flat-sierra'
             : 'banded';
-        const flatSeed = hashNumbers(
-          strokeData?.stampCounter ?? this.stampCounter,
-          bbox.minX,
-          bbox.minY,
-          bbox.width,
-          bbox.height,
-          baseOffset
-        );
+        const flatSeed = resolveStableFlatSeed({
+          markId: activeSession?.markId ?? null,
+          bounds: {
+            minX: bbox.minX,
+            minY: bbox.minY,
+            width: bbox.width,
+            height: bbox.height,
+          },
+          points: vertices,
+        });
         ccLog('shape fill linear preview dither', {
           markId: activeSession?.markId ?? null,
           layerId: id,
@@ -4171,15 +4173,16 @@ export class ColorCycleBrushCanvas2D {
           quantLevels,
         });
         const activeSession = getActiveMarkGradientSession(id);
-        const flatSeed = hashNumbers(
-          strokeData?.stampCounter ?? this.stampCounter,
-          bbox.minX,
-          bbox.minY,
-          bbox.width,
-          bbox.height,
-          maxDist,
-          baseOffset
-        );
+        const flatSeed = resolveStableFlatSeed({
+          markId: activeSession?.markId ?? null,
+          bounds: {
+            minX: bbox.minX,
+            minY: bbox.minY,
+            width: bbox.width,
+            height: bbox.height,
+          },
+          points: vertices,
+        });
         const edges = new Array(vertices.length);
         for (let i = 0; i < vertices.length; i += 1) {
           const v1 = vertices[i];
