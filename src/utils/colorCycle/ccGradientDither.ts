@@ -7,6 +7,7 @@ import {
 } from '@/utils/ditherAlgorithms';
 import {
   fillFlatPatternMode,
+  resolveFlatInkSetForPosition,
 } from '@/utils/colorCycle/ccFlatModePatterns';
 import { resolveFlatSierraBandMixInfo } from '@/utils/colorCycle/ccDitherRenderPalette';
 import { ccLog } from '@/utils/colorCycle/ccDebug';
@@ -159,6 +160,92 @@ const rgbToCss = (rgb: [number, number, number]): string =>
 const rgbToTone = (rgb: [number, number, number]): number =>
   clamp01((rgb[0] * 0.2126 + rgb[1] * 0.7152 + rgb[2] * 0.0722) / 255);
 
+const rgbDistance = (left: [number, number, number], right: [number, number, number]): number => {
+  const dr = left[0] - right[0];
+  const dg = left[1] - right[1];
+  const db = left[2] - right[2];
+  return Math.sqrt(dr * dr + dg * dg + db * db);
+};
+
+const buildFlatTargetContrastPair = ({
+  target,
+  spread01,
+}: {
+  target: [number, number, number];
+  spread01: number;
+}): { low: [number, number, number]; high: [number, number, number] } => {
+  const lift = 0.2 + spread01 * 0.72;
+  const low: [number, number, number] = [
+    Math.max(0, Math.round(target[0] * (1 - lift))),
+    Math.max(0, Math.round(target[1] * (1 - lift))),
+    Math.max(0, Math.round(target[2] * (1 - lift))),
+  ];
+  const high: [number, number, number] = [
+    Math.min(255, Math.round(target[0] + (255 - target[0]) * lift)),
+    Math.min(255, Math.round(target[1] + (255 - target[1]) * lift)),
+    Math.min(255, Math.round(target[2] + (255 - target[2]) * lift)),
+  ];
+
+  return rgbToTone(low) <= rgbToTone(high)
+    ? { low, high }
+    : { low: high, high: low };
+};
+
+const projectTargetToPairMix = ({
+  target,
+  low,
+  high,
+}: {
+  target: [number, number, number];
+  low: [number, number, number];
+  high: [number, number, number];
+}): { flatMix: number; solveError: number; usedFallbackPair: boolean } => {
+  const axis: [number, number, number] = [
+    high[0] - low[0],
+    high[1] - low[1],
+    high[2] - low[2],
+  ];
+  const axisLenSq = axis[0] * axis[0] + axis[1] * axis[1] + axis[2] * axis[2];
+  const fallbackTargetMix = clamp01(rgbToTone(target));
+  if (axisLenSq < 1e-6) {
+    return {
+      flatMix: fallbackTargetMix,
+      solveError: 0,
+      usedFallbackPair: true,
+    };
+  }
+
+  const relative: [number, number, number] = [
+    target[0] - low[0],
+    target[1] - low[1],
+    target[2] - low[2],
+  ];
+  const projected = (
+    relative[0] * axis[0] +
+    relative[1] * axis[1] +
+    relative[2] * axis[2]
+  ) / axisLenSq;
+  const flatMix = clamp01(projected);
+  const solved: [number, number, number] = [
+    low[0] + axis[0] * flatMix,
+    low[1] + axis[1] * flatMix,
+    low[2] + axis[2] * flatMix,
+  ];
+
+  return {
+    flatMix,
+    solveError: rgbDistance(
+      target,
+      [
+        Math.round(solved[0]),
+        Math.round(solved[1]),
+        Math.round(solved[2]),
+      ]
+    ),
+    usedFallbackPair: false,
+  };
+};
+
 const resolveRepresentativeSampledTarget = (
   stops: StoredStop[] | null | undefined
 ): { tone: number; rgb: [number, number, number]; color: string } | null => {
@@ -275,21 +362,30 @@ export const resolveSampledFlatPositionMix = ({
   const targetRgb = targetRgbOverride ?? sampleStoredGradientColor(stops, clampedPosition);
   const targetColor = rgbToCss(targetRgb);
   const centerIndex = indexFromNormalized(clampedPosition, baseOffset);
-  const minHalfWidth = 1;
-  const maxHalfWidth = 63;
-  const halfWidth = Math.round(minHalfWidth + spread01 * (maxHalfWidth - minHalfWidth));
-  const lowIndex = clampCycleIndex(centerIndex - halfWidth);
-  const highIndex = clampCycleIndex(centerIndex + halfWidth);
+  const resolvedPair = resolveFlatInkSetForPosition(clampedPosition, 2, baseOffset, spread);
+  const [lowIndex, highIndex] = resolvedPair.indices;
   const pairSpan = Math.max(1, highIndex - lowIndex);
-  const interiorMin = 0.36 - spread01 * 0.22;
-  const interiorMax = 0.64 + spread01 * 0.22;
-  const flatMix = interiorMin + clampedPosition * (interiorMax - interiorMin);
-  const lowColor = rgbToCss(
-    sampleStoredGradientColor(stops, normalizeCycleIndex(lowIndex, baseOffset))
-  );
-  const highColor = rgbToCss(
-    sampleStoredGradientColor(stops, normalizeCycleIndex(highIndex, baseOffset))
-  );
+  const sampledLowRgb = sampleStoredGradientColor(stops, normalizeCycleIndex(lowIndex, baseOffset));
+  const sampledHighRgb = sampleStoredGradientColor(stops, normalizeCycleIndex(highIndex, baseOffset));
+  const sampledPairDistance = rgbDistance(sampledLowRgb, sampledHighRgb);
+  const contrastPair = buildFlatTargetContrastPair({
+    target: targetRgb,
+    spread01,
+  });
+  const useFallbackPair = sampledPairDistance < 18;
+  const solvePairLow = useFallbackPair ? contrastPair.low : sampledLowRgb;
+  const solvePairHigh = useFallbackPair ? contrastPair.high : sampledHighRgb;
+  const {
+    flatMix,
+    solveError,
+    usedFallbackPair,
+  } = projectTargetToPairMix({
+    target: targetRgb,
+    low: solvePairLow,
+    high: solvePairHigh,
+  });
+  const lowColor = rgbToCss(sampledLowRgb);
+  const highColor = rgbToCss(sampledHighRgb);
 
   ccLog('sampled flat solver decision', {
     flatPosition: Number(clampedPosition.toFixed(6)),
@@ -297,9 +393,6 @@ export const resolveSampledFlatPositionMix = ({
     spread: spread ?? null,
     spread01: Number(spread01.toFixed(6)),
     centerIndex,
-    halfWidth,
-    interiorMin: Number(interiorMin.toFixed(6)),
-    interiorMax: Number(interiorMax.toFixed(6)),
     sourceStopCount: stops.length,
     sourceStops: stops.slice(0, 8).map((stop) => ({
       p: Number(stop.position.toFixed(6)),
@@ -312,7 +405,12 @@ export const resolveSampledFlatPositionMix = ({
     lowIndex,
     highIndex,
     pairSpan,
+    sampledPairDistance: Number(sampledPairDistance.toFixed(6)),
+    usedFallbackPair,
+    solvePairLow: rgbToCss(solvePairLow),
+    solvePairHigh: rgbToCss(solvePairHigh),
     flatMix: Number(flatMix.toFixed(6)),
+    solveError: Number(solveError.toFixed(6)),
     lowColor,
     highColor,
   });
@@ -911,11 +1009,8 @@ export const fillCcGradientDither = async ({
             })
           : null;
       if (sampledFlatSolver) {
-        // Amplify spatial differences: flatPosition clusters ~0.4-0.55,
-        // so center-expand to push baseMix away from the 0.5 alternation zone.
         const centered = clamp01(flatPosition) - 0.5;
         const amplified = 0.5 + centered * 2.5;
-        // Per-shape scatter from seed so nearby shapes diverge.
         const seedHash = flatSeed
           ? (Math.imul((flatSeed >>> 0) ^ 0x9e3779b9, 2654435761) >>> 0)
           : 0;
@@ -979,15 +1074,15 @@ export const fillCcGradientDither = async ({
         ccLog('sampled flat trace', {
           traceId: sampledFlatTraceId,
           stage: sampledFlatTraceStage ?? 'unknown',
-          sampledSourceStops: summarizeStoredStopsForDebug(sampledFlatSourceStops),
-          flatPosition: Number(flatPosition.toFixed(6)),
-          representativeSampledTone: representativeSampledTarget
-            ? Number(representativeSampledTarget.tone.toFixed(6))
-            : null,
-          representativeSampledColor: representativeSampledTarget?.color ?? null,
-          spread: flatPairSpread ?? null,
-          solvedLowIndex: sampledFlatSolver?.lowIndex ?? null,
-          solvedHighIndex: sampledFlatSolver?.highIndex ?? null,
+        sampledSourceStops: summarizeStoredStopsForDebug(sampledFlatSourceStops),
+        flatPosition: Number(flatPosition.toFixed(6)),
+        representativeSampledTone: representativeSampledTarget
+          ? Number(representativeSampledTarget.tone.toFixed(6))
+          : null,
+        representativeSampledColor: representativeSampledTarget?.color ?? null,
+        spread: flatPairSpread ?? null,
+        solvedLowIndex: sampledFlatSolver?.lowIndex ?? null,
+        solvedHighIndex: sampledFlatSolver?.highIndex ?? null,
           solvedFlatMix: sampledFlatSolver
             ? Number(sampledFlatSolver.flatMix.toFixed(6))
             : null,
