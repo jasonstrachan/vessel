@@ -40,6 +40,10 @@ const resetToolsState = () => {
     recolorSampling: createDefaultRecolorSamplingState(),
     brushEditor: defaultBrushEditorState,
     brushSpecificSettings: {},
+    ccBrushDitherSelection: {
+      ditherAlgorithm: defaultBrushSettingsForStore.ditherAlgorithm,
+      patternStyle: defaultBrushSettingsForStore.patternStyle,
+    },
     shapeState: defaultShapeState,
     rectangleBrushState: DEFAULT_RECTANGLE_BRUSH_STATE,
     currentBrushPreset: defaultPreset,
@@ -172,6 +176,26 @@ describe('tools slice', () => {
         pressureDitherSmoosh: true,
       })
     );
+  });
+
+  it('stores CC dither selection globally instead of per brush', () => {
+    const store = useAppStore.getState();
+    const colorCycleStrokePreset = brushPresets.find((candidate) => candidate.id === 'color-cycle-stroke');
+    expect(colorCycleStrokePreset).toBeTruthy();
+    store.setBrushPreset(colorCycleStrokePreset!, true);
+
+    store.setBrushSettings({
+      ditherAlgorithm: 'pattern',
+      patternStyle: 'crosshatch',
+    });
+
+    const state = useAppStore.getState();
+    expect(state.ccBrushDitherSelection).toEqual({
+      ditherAlgorithm: 'pattern',
+      patternStyle: 'crosshatch',
+    });
+    expect(state.brushSpecificSettings[colorCycleStrokePreset!.id]?.ditherAlgorithm).toBeUndefined();
+    expect(state.brushSpecificSettings[colorCycleStrokePreset!.id]?.patternStyle).toBeUndefined();
   });
 
   it('persists mosaic brush settings per brush', () => {

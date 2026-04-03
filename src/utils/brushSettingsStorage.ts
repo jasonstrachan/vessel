@@ -19,8 +19,12 @@ const sanitizeBrushSpecificSettings = (
 
     const sanitizedSettings = { ...settings } as Partial<BrushSettings> & {
       ccGradientSamplePerShape?: never;
+      ditherAlgorithm?: never;
+      patternStyle?: never;
     };
     delete sanitizedSettings.ccGradientSamplePerShape;
+    delete sanitizedSettings.ditherAlgorithm;
+    delete sanitizedSettings.patternStyle;
 
     return [[brushId, sanitizedSettings] as const];
   });
@@ -34,12 +38,18 @@ export interface PressureSettingsPayload {
   max?: number;
 }
 
+export interface CcBrushDitherSelectionPayload {
+  ditherAlgorithm?: BrushSettings['ditherAlgorithm'];
+  patternStyle?: BrushSettings['patternStyle'];
+}
+
 export interface GlobalBrushSettingsPayload {
   globalBrushSize?: number;
   brushSpecificSettings?: StoredBrushMap;
   lastBrushId?: string;
   pressureSettings?: PressureSettingsPayload;
   shapeModeByBrush?: Record<string, boolean>;
+  ccBrushDitherSelection?: CcBrushDitherSelectionPayload;
 }
 
 let storageOverride: Storage | null = null;
@@ -137,6 +147,18 @@ export const saveGlobalBrushSettings = (payload: GlobalBrushSettingsPayload): vo
       const entries = Object.entries(payload.shapeModeByBrush).filter(([, value]) => typeof value === 'boolean');
       if (entries.length > 0) {
         sanitized.shapeModeByBrush = Object.fromEntries(entries) as Record<string, boolean>;
+      }
+    }
+    if (payload.ccBrushDitherSelection && typeof payload.ccBrushDitherSelection === 'object') {
+      const nextSelection: CcBrushDitherSelectionPayload = {};
+      if (typeof payload.ccBrushDitherSelection.ditherAlgorithm === 'string') {
+        nextSelection.ditherAlgorithm = payload.ccBrushDitherSelection.ditherAlgorithm;
+      }
+      if (typeof payload.ccBrushDitherSelection.patternStyle === 'string') {
+        nextSelection.patternStyle = payload.ccBrushDitherSelection.patternStyle;
+      }
+      if (Object.keys(nextSelection).length > 0) {
+        sanitized.ccBrushDitherSelection = nextSelection;
       }
     }
     storage.setItem(STORAGE_KEY, JSON.stringify(sanitized));

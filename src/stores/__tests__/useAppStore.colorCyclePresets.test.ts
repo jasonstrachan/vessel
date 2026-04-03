@@ -85,6 +85,26 @@ describe('useAppStore color cycle brush presets', () => {
     expect(useAppStore.getState().tools.brushSettings.colorCycleFlowMode).toBe('forward');
   });
 
+  it('reuses one shared CC dither selection across color cycle presets', () => {
+    const store = useAppStore.getState();
+    store.setBrushPreset(colorCycleStrokeBrushPreset);
+    store.setBrushSettings({
+      ditherAlgorithm: 'pattern',
+      patternStyle: 'crosshatch',
+    });
+
+    store.setBrushPreset(defaultBrushPreset);
+    store.setBrushSettings({
+      ditherAlgorithm: 'bayer',
+      patternStyle: 'dots',
+    });
+    store.setBrushPreset(colorCycleShapeBrushPreset);
+
+    const active = useAppStore.getState().tools.brushSettings;
+    expect(active.ditherAlgorithm).toBe('pattern');
+    expect(active.patternStyle).toBe('crosshatch');
+  });
+
   it('normalizes legacy flow forward flags into the new flow mode', () => {
     const store = useAppStore.getState();
     store.setBrushSettings({ colorCycleFlowForward: false } as unknown as Partial<BrushSettings>);

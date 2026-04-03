@@ -26,6 +26,10 @@ describe('global brush persistence', () => {
       brushSpecificSettings: {
         'pixel-square': { ditherEnabled: true },
       },
+      ccBrushDitherSelection: {
+        ditherAlgorithm: 'pattern',
+        patternStyle: 'crosshatch',
+      },
       lastBrushId: 'pixel-square',
       pressureSettings: { enabled: false, min: 25, max: 300 },
     });
@@ -36,6 +40,10 @@ describe('global brush persistence', () => {
     expect(loadMock).toHaveBeenCalled();
     expect(state.globalBrushSize).toBe(24);
     expect(state.brushSpecificSettings['pixel-square']?.ditherEnabled).toBe(true);
+    expect(state.ccBrushDitherSelection).toEqual({
+      ditherAlgorithm: 'pattern',
+      patternStyle: 'crosshatch',
+    });
     expect(state.tools.brushSettings.ditherEnabled).toBe(true);
     expect(state.currentBrushPreset?.id).toBe('pixel-square');
     expect(state.pressureSettings).toEqual({ enabled: false, min: 25, max: 300 });
@@ -215,6 +223,29 @@ describe('global brush persistence', () => {
         colorCycleStampShape: 'square',
       })
     );
+  });
+
+  it('persists shared CC dither selection without saving it per brush', async () => {
+    loadMock.mockReturnValue(null);
+
+    const { colorCycleStrokeBrushPreset } = await import('@/presets/brushPresets');
+    const { useAppStore } = await import('@/stores/useAppStore');
+    const store = useAppStore.getState();
+
+    store.setBrushPreset(colorCycleStrokeBrushPreset);
+    store.setBrushSettings({
+      ditherAlgorithm: 'pattern',
+      patternStyle: 'crosshatch',
+    });
+
+    jest.advanceTimersByTime(300);
+    const payload = saveMock.mock.calls.at(-1)?.[0];
+    expect(payload?.ccBrushDitherSelection).toEqual({
+      ditherAlgorithm: 'pattern',
+      patternStyle: 'crosshatch',
+    });
+    expect(payload?.brushSpecificSettings?.['color-cycle-stroke']?.ditherAlgorithm).toBeUndefined();
+    expect(payload?.brushSpecificSettings?.['color-cycle-stroke']?.patternStyle).toBeUndefined();
   });
 
   it('persists last used brush id', async () => {
