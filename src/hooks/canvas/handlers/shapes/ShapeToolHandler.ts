@@ -22,6 +22,7 @@ import {
   renderDitherGradientToImageData,
   resolveDitherGradPalette,
 } from '@/utils/orderedDitherGradient';
+import type { DitherAlgorithm, PatternStyle } from '@/utils/ditherAlgorithms';
 import {
   computePressureResolution,
   createPressureResolutionState,
@@ -41,6 +42,7 @@ import { resolveStableFlatSeed } from '@/utils/colorCycle/ccFlatSeed';
 import { getActiveMarkGradientSession, getPreviewGradientForActiveMark } from '@/hooks/canvas/utils/colorCycleMarkSession';
 import { parseCssColorToRgba } from '@/hooks/canvas/utils/colorCycleHelpers';
 import { applyPolygonMaskToCanvasContext } from '@/hooks/canvas/handlers/shapes/shapePreviewMask';
+import { hashStops, type StoredStop } from '@/utils/colorCycleGradientDefs';
 
 const SHAPE_PREVIEW_OPACITY = 0.6;
 
@@ -197,6 +199,135 @@ type ShapeFillBoundingBox = {
 
 const SHAPE_FILL_ROI_PADDING = 2;
 
+type CcPreviewRenderSettings = {
+  pixelSize: number;
+  levels: number;
+  algorithm: DitherAlgorithm;
+  patternStyle: PatternStyle;
+  isFastPreview: boolean;
+};
+
+type PreparedPreviewGradient = {
+  renderStops: StoredStop[];
+  sortedStops: Array<{ position: number; rgba: [number, number, number, number] }>;
+};
+
+const resolveCcShapePreviewRenderSettings = ({
+  pixelSize,
+  levels,
+  algorithm,
+  patternStyle,
+}: {
+  pixelSize: number;
+  levels: number;
+  algorithm: DitherAlgorithm;
+  patternStyle?: PatternStyle;
+}): CcPreviewRenderSettings => {
+  const clampedPixelSize = Math.max(1, Math.round(pixelSize));
+  const clampedLevels = Math.max(1, Math.min(16, Math.round(levels)));
+
+  if (algorithm === 'sierra-lite') {
+    return {
+      pixelSize: Math.max(clampedPixelSize, 2),
+      levels: Math.min(clampedLevels, 4),
+      algorithm: 'pattern',
+      patternStyle: patternStyle ?? 'dots',
+      isFastPreview: true,
+    };
+  }
+
+  return {
+    pixelSize: Math.max(clampedPixelSize, 2),
+    levels: Math.min(clampedLevels, 4),
+    algorithm,
+    patternStyle: patternStyle ?? 'dots',
+    isFastPreview: true,
+  };
+};
+
+const normalizePreparedPreviewStops = (
+  renderStops: StoredStop[] | null | undefined
+): Array<{ position: number; rgba: [number, number, number, number] }> => {
+  const sortedStops = Array.from(renderStops ?? [])
+    .map(stop => ({
+      position: Math.max(0, Math.min(1, Number.isFinite(stop.position) ? stop.position : 0)),
+      rgba: parseCssColorToRgba(stop.color),
+    }))
+    .sort((a, b) => a.position - b.position);
+
+  if (sortedStops.length === 0) {
+    sortedStops.push({ position: 0, rgba: [0, 0, 0, 255] });
+    sortedStops.push({ position: 1, rgba: [255, 255, 255, 255] });
+  } else if (sortedStops.length === 1) {
+    sortedStops.push({ position: 1, rgba: sortedStops[0].rgba });
+  }
+
+  return sortedStops;
+};
+
+const buildCcShapePreviewGradientCacheKey = ({
+  effectiveStops,
+  gradientBands,
+  ditherPaletteSpread,
+  ditherAlgorithm,
+  patternStyle,
+  useForegroundDerived,
+  foregroundDerivedKey,
+  previewSource,
+}: {
+  effectiveStops: StoredStop[];
+  gradientBands: number;
+  ditherPaletteSpread?: number;
+  ditherAlgorithm?: DitherAlgorithm;
+  patternStyle?: PatternStyle;
+  useForegroundDerived: boolean;
+  foregroundDerivedKey: string;
+  previewSource: string;
+}): string => {
+  const stopHash = hashStops(effectiveStops, 'linear');
+  return [
+    stopHash,
+    `bands:${Math.round(gradientBands) || 0}`,
+    `spread:${Math.round(ditherPaletteSpread ?? 0)}`,
+    `algo:${ditherAlgorithm ?? 'sierra-lite'}`,
+    `pattern:${patternStyle ?? 'dots'}`,
+    `fg:${useForegroundDerived ? foregroundDerivedKey : 'off'}`,
+    `source:${previewSource}`,
+  ].join('|');
+};
+
+const prepareCcShapePreviewGradient = ({
+  effectiveStops,
+  shouldDitherPreview,
+  gradientBands,
+  ditherPaletteSpread,
+  ditherAlgorithm,
+  preserveSourceStops,
+}: {
+  effectiveStops: StoredStop[];
+  shouldDitherPreview: boolean;
+  gradientBands: number;
+  ditherPaletteSpread?: number;
+  ditherAlgorithm?: DitherAlgorithm;
+  preserveSourceStops: boolean;
+}): PreparedPreviewGradient => {
+  const renderStops = shouldDitherPreview
+    ? buildCcDitherRuntimePalette({
+        baseStops: effectiveStops,
+        bands: resolveCcDitherBandMode(gradientBands).pairBandCount,
+        spread: ditherPaletteSpread,
+        algorithm: ditherAlgorithm,
+        preserveSourceStops,
+        debugContext: 'preview-fill-linear',
+      }).renderStops
+    : effectiveStops;
+
+  return {
+    renderStops,
+    sortedStops: normalizePreparedPreviewStops(renderStops),
+  };
+};
+
 type DitherGradPreviewState = {
   origin: { x: number; y: number } | null;
   lastPx: number;
@@ -206,6 +337,35 @@ type DitherGradPreviewState = {
   ccJobSeq: number;
   ccLastCanvas?: HTMLCanvasElement;
   ccLastOrigin?: { x: number; y: number };
+  ccLastSize?: { width: number; height: number };
+  ccScratchCanvas?: HTMLCanvasElement;
+  ccScratchBuffer?: Uint8ClampedArray;
+  ccPreparedGradientKey?: string;
+  ccPreparedGradient?: PreparedPreviewGradient;
+};
+
+const ensurePreviewCanvasCapacity = (
+  existing: HTMLCanvasElement | undefined,
+  width: number,
+  height: number
+): HTMLCanvasElement => {
+  if (existing && existing.width >= width && existing.height >= height) {
+    return existing;
+  }
+  if (existing) {
+    canvasPool.release(existing);
+  }
+  return canvasPool.acquire(width, height);
+};
+
+const ensurePreviewBufferCapacity = (
+  existing: Uint8ClampedArray | undefined,
+  requiredBytes: number
+): Uint8ClampedArray => {
+  if (existing && existing.length >= requiredBytes) {
+    return existing;
+  }
+  return new Uint8ClampedArray(requiredBytes);
 };
 
 const ditherGradPreviewStateByCanvas = new WeakMap<
@@ -438,8 +598,16 @@ export const createShapeToolHandler = (
     if (ditherGradPreviewState.ccLastCanvas) {
       canvasPool.release(ditherGradPreviewState.ccLastCanvas);
     }
+    if (ditherGradPreviewState.ccScratchCanvas) {
+      canvasPool.release(ditherGradPreviewState.ccScratchCanvas);
+    }
     ditherGradPreviewState.ccLastCanvas = undefined;
     ditherGradPreviewState.ccLastOrigin = undefined;
+    ditherGradPreviewState.ccLastSize = undefined;
+    ditherGradPreviewState.ccScratchCanvas = undefined;
+    ditherGradPreviewState.ccScratchBuffer = undefined;
+    ditherGradPreviewState.ccPreparedGradientKey = undefined;
+    ditherGradPreviewState.ccPreparedGradient = undefined;
     if (drawingHandlers.ccShapePreviewCacheRef) {
       drawingHandlers.ccShapePreviewCacheRef.current = null;
     }
@@ -2783,6 +2951,10 @@ export const createShapeToolHandler = (
           isCCShape && (isCCLinear || isColorCycleGradientPreset) && Boolean(brushNow.ditherEnabled);
 
         if (shouldDitherPreview && ditherGradPreviewState.ccLastCanvas && ditherGradPreviewState.ccLastOrigin) {
+          const lastSize = ditherGradPreviewState.ccLastSize ?? {
+            width: ditherGradPreviewState.ccLastCanvas.width,
+            height: ditherGradPreviewState.ccLastCanvas.height,
+          };
           overlayCtx.save();
           overlayCtx.setTransform(1, 0, 0, 1, 0, 0);
           overlayCtx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
@@ -2791,8 +2963,14 @@ export const createShapeToolHandler = (
           overlayCtx.globalAlpha = SHAPE_PREVIEW_OPACITY;
           overlayCtx.drawImage(
             ditherGradPreviewState.ccLastCanvas,
+            0,
+            0,
+            lastSize.width,
+            lastSize.height,
             ditherGradPreviewState.ccLastOrigin.x,
-            ditherGradPreviewState.ccLastOrigin.y
+            ditherGradPreviewState.ccLastOrigin.y,
+            lastSize.width,
+            lastSize.height
           );
           overlayCtx.restore();
         } else if (!shouldDitherPreview) {
@@ -2888,23 +3066,49 @@ export const createShapeToolHandler = (
                 (derivedStops && derivedStops.length >= 2
                   ? derivedStops
                   : brushNow.colorCycleGradient?.length
-                    ? brushNow.colorCycleGradient
+                  ? brushNow.colorCycleGradient
                     : DEFAULT_COLOR_CYCLE_GRADIENT)
               );
             const effectiveStops = stops ?? [];
-            const ditherRenderStops = shouldDitherPreview
-              ? buildCcDitherRuntimePalette({
-                  baseStops: effectiveStops,
-                  bands: resolveCcDitherBandMode(brushNow.gradientBands ?? 16).pairBandCount,
-                  spread: brushNow.ditherPaletteSpread,
-                  algorithm: brushNow.ditherAlgorithm,
-                  preserveSourceStops:
-                    ccPreview?.source === 'sampled' &&
-                    resolveCcDitherBandMode(brushNow.gradientBands ?? 16).pairBandCount <= 0 &&
-                    (brushNow.ditherAlgorithm ?? 'sierra-lite') === 'sierra-lite',
-                  debugContext: 'preview-fill-linear',
-                }).renderStops
-              : stops;
+            const preserveSourceStops =
+              ccPreview?.source === 'sampled' &&
+              resolveCcDitherBandMode(brushNow.gradientBands ?? 16).pairBandCount <= 0 &&
+              (brushNow.ditherAlgorithm ?? 'sierra-lite') === 'sierra-lite';
+            const foregroundDerivedKey = derivedSpec
+              ? [
+                  fgBaseColor,
+                  brushNow.colorCycleFgLightness ?? 0,
+                  brushNow.colorCycleFgVariance ?? 0,
+                  brushNow.colorCycleFgHueShift ?? 0,
+                  brushNow.colorCycleFgSaturationShift ?? 0,
+                  brushNow.colorCycleFgOpacity ?? 100,
+                  clampForegroundDerivedBands(brushNow.colorCycleFgStops),
+                ].join(':')
+              : 'none';
+            const preparedGradientKey = buildCcShapePreviewGradientCacheKey({
+              effectiveStops,
+              gradientBands: brushNow.gradientBands ?? 16,
+              ditherPaletteSpread: brushNow.ditherPaletteSpread,
+              ditherAlgorithm: brushNow.ditherAlgorithm,
+              patternStyle: brushNow.patternStyle,
+              useForegroundDerived,
+              foregroundDerivedKey,
+              previewSource: ccPreview?.source ?? (useForegroundDerived ? 'fg' : 'manual'),
+            });
+            const preparedGradient =
+              ditherGradPreviewState.ccPreparedGradientKey === preparedGradientKey &&
+              ditherGradPreviewState.ccPreparedGradient
+                ? ditherGradPreviewState.ccPreparedGradient
+                : prepareCcShapePreviewGradient({
+                    effectiveStops,
+                    shouldDitherPreview,
+                    gradientBands: brushNow.gradientBands ?? 16,
+                    ditherPaletteSpread: brushNow.ditherPaletteSpread,
+                    ditherAlgorithm: brushNow.ditherAlgorithm,
+                    preserveSourceStops,
+                  });
+            ditherGradPreviewState.ccPreparedGradientKey = preparedGradientKey;
+            ditherGradPreviewState.ccPreparedGradient = preparedGradient;
             ccLog('shape tool preview spread source', {
               source: ccPreview?.source ?? null,
               sampledMode: isSampledPreviewMode,
@@ -2977,18 +3181,7 @@ export const createShapeToolHandler = (
                   if (proj > maxProj) maxProj = proj;
                 }
                 const projRange = Math.max(1e-6, maxProj - minProj);
-                const sortedStops = Array.from(ditherRenderStops ?? [])
-                  .map(stop => ({
-                    position: Math.max(0, Math.min(1, Number.isFinite(stop.position) ? stop.position : 0)),
-                    rgba: parseCssColorToRgba(stop.color),
-                  }))
-                  .sort((a, b) => a.position - b.position);
-                if (sortedStops.length === 0) {
-                  sortedStops.push({ position: 0, rgba: [0, 0, 0, 255] });
-                  sortedStops.push({ position: 1, rgba: [255, 255, 255, 255] });
-                } else if (sortedStops.length === 1) {
-                  sortedStops.push({ position: 1, rgba: sortedStops[0].rgba });
-                }
+                const sortedStops = preparedGradient.sortedStops;
                 const sampleGradient = (t: number): [number, number, number, number] => {
                   const tt = Math.max(0, Math.min(1, t));
                   let idx = 0;
@@ -3026,14 +3219,26 @@ export const createShapeToolHandler = (
                 const levels = Math.max(1, Math.min(16, Math.round(brushNow.gradientBands ?? 16)));
                 const fillAlgorithm = brushNow.ditherAlgorithm ?? 'sierra-lite';
                 const fillPatternStyle = brushNow.patternStyle ?? 'dots';
+                const previewRenderSettings = resolveCcShapePreviewRenderSettings({
+                  pixelSize,
+                  levels,
+                  algorithm: fillAlgorithm,
+                  patternStyle: fillPatternStyle,
+                });
                 const fillBackground = (brushNow.ditherGradBgFill ?? brushNow.ditherBackgroundFill) !== false;
-                const tempCanvas = canvasPool.acquire(w, h);
+                ditherGradPreviewState.ccScratchCanvas = ensurePreviewCanvasCapacity(
+                  ditherGradPreviewState.ccScratchCanvas,
+                  w,
+                  h
+                );
+                const tempCanvas = ditherGradPreviewState.ccScratchCanvas;
                 const tempCtx = tempCanvas.getContext(
                   '2d',
                   { willReadFrequently: true } as CanvasRenderingContext2DSettings
                 );
                 if (!tempCtx) {
                   canvasPool.release(tempCanvas);
+                  ditherGradPreviewState.ccScratchCanvas = undefined;
                   ditherGradPreviewState.ccJobInFlight = false;
                 } else {
                   tempCtx.setTransform(1, 0, 0, 1, 0, 0);
@@ -3041,8 +3246,13 @@ export const createShapeToolHandler = (
                   tempCtx.globalAlpha = 1;
                   tempCtx.imageSmoothingEnabled = false;
                   tempCtx.clearRect(0, 0, w, h);
-                  const imageData = tempCtx.createImageData(w, h);
-                  const data = imageData.data;
+                  const requiredBytes = w * h * 4;
+                  ditherGradPreviewState.ccScratchBuffer = ensurePreviewBufferCapacity(
+                    ditherGradPreviewState.ccScratchBuffer,
+                    requiredBytes
+                  );
+                  const data = ditherGradPreviewState.ccScratchBuffer.subarray(0, requiredBytes);
+                  data.fill(0);
                   const yieldIfNeeded = createPreviewYieldController();
                   (async () => {
                     try {
@@ -3054,7 +3264,6 @@ export const createShapeToolHandler = (
                         !drawingHandlers.isDrawingShapeRef.current &&
                         !liveSession;
                       if (shouldSkipSampledPreviewReplay) {
-                        canvasPool.release(tempCanvas);
                         return;
                       }
                       const flatSeed = resolveStableFlatSeed({
@@ -3068,13 +3277,13 @@ export const createShapeToolHandler = (
                         minY: 0,
                         maxX: w - 1,
                         maxY: h - 1,
-                        pixelSize,
-                        levels,
+                        pixelSize: previewRenderSettings.pixelSize,
+                        levels: previewRenderSettings.levels,
                         baseOffset: 0,
                         flatPairSpread: brushNow.ditherPaletteSpread,
                         flatSeed,
-                        algorithm: fillAlgorithm,
-                        patternStyle: fillPatternStyle,
+                        algorithm: previewRenderSettings.algorithm,
+                        patternStyle: previewRenderSettings.patternStyle,
                         sampledFlatTraceId: liveSession?.markId
                           ? `${liveSession.markId}:preview`
                           : undefined,
@@ -3097,15 +3306,32 @@ export const createShapeToolHandler = (
                         },
                       });
                       if (mySeq !== ditherGradPreviewState.ccJobSeq) return;
+                      const imageData = new ImageData(data, w, h);
                       tempCtx.putImageData(imageData, 0, 0);
-                      if (ditherGradPreviewState.ccLastCanvas) {
-                        canvasPool.release(ditherGradPreviewState.ccLastCanvas);
+                      ditherGradPreviewState.ccLastCanvas = ensurePreviewCanvasCapacity(
+                        ditherGradPreviewState.ccLastCanvas,
+                        w,
+                        h
+                      );
+                      const displayCanvas = ditherGradPreviewState.ccLastCanvas;
+                      const displayCtx = displayCanvas.getContext(
+                        '2d',
+                        { willReadFrequently: true } as CanvasRenderingContext2DSettings
+                      );
+                      if (!displayCtx) {
+                        return;
                       }
-                      ditherGradPreviewState.ccLastCanvas = tempCanvas;
+                      displayCtx.setTransform(1, 0, 0, 1, 0, 0);
+                      displayCtx.globalCompositeOperation = 'source-over';
+                      displayCtx.globalAlpha = 1;
+                      displayCtx.imageSmoothingEnabled = false;
+                      displayCtx.clearRect(0, 0, w, h);
+                      displayCtx.drawImage(tempCanvas, 0, 0, w, h, 0, 0, w, h);
                       ditherGradPreviewState.ccLastOrigin = { ...origin };
+                      ditherGradPreviewState.ccLastSize = { width: w, height: h };
                       if (drawingHandlers.ccShapePreviewCacheRef) {
                         drawingHandlers.ccShapePreviewCacheRef.current = {
-                          canvas: tempCanvas,
+                          canvas: displayCanvas,
                           origin: { ...origin },
                         };
                       }
@@ -3119,10 +3345,10 @@ export const createShapeToolHandler = (
                       overlayCtx.scale(scale, scale);
                       overlayCtx.globalAlpha = SHAPE_PREVIEW_OPACITY;
                       overlayCtx.imageSmoothingEnabled = false;
-                      overlayCtx.drawImage(tempCanvas, origin.x, origin.y);
+                      overlayCtx.drawImage(displayCanvas, 0, 0, w, h, origin.x, origin.y, w, h);
                       overlayCtx.restore();
                     } catch {
-                      canvasPool.release(tempCanvas);
+                      // Keep scratch buffers for reuse on the next preview job.
                     } finally {
                       ditherGradPreviewState.ccJobInFlight = false;
                       if (ditherGradPreviewState.ccJobDirty) {
@@ -4109,5 +4335,9 @@ export const __shapeToolTestUtils = {
   isShapeFillToolActive,
   applyTransparencyLockMaskToContext,
   applyPolygonMaskToCanvasContext,
+  resolveCcShapePreviewRenderSettings,
+  normalizePreparedPreviewStops,
+  buildCcShapePreviewGradientCacheKey,
+  prepareCcShapePreviewGradient,
 };
 const LIVE_ADJUSTABLE_PARAMS = new Set<ShapeFillParamKey>(['spacing']);
