@@ -3360,7 +3360,7 @@ export const createShapeToolHandler = (
                         },
                       });
                       if (mySeq !== ditherGradPreviewState.ccJobSeq) return;
-                      const imageData = new ImageData(data, w, h);
+                      const imageData = new ImageData(new Uint8ClampedArray(data), w, h);
                       tempCtx.putImageData(imageData, 0, 0);
                       ditherGradPreviewState.ccLastCanvas = ensurePreviewCanvasCapacity(
                         ditherGradPreviewState.ccLastCanvas,
