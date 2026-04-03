@@ -536,7 +536,15 @@ export const startShapeDrawing = (
         ) {
           deps.updateDitherGradSamples(refs.shapePointsRef.current);
         }
-      } catch {}
+      } catch (error) {
+        const currentState = deps.storeRef.current;
+        deps.logError('CC shape pointerdown sampled update failed', {
+          error: error instanceof Error ? error.message : String(error),
+          layerId: currentState.activeLayerId ?? null,
+          ccGradientSource: currentState.tools.ccGradientSource,
+          pointCount: refs.shapePointsRef.current.length,
+        });
+      }
     } else {
       refs.shapePointsRef.current = [drawPos];
       deps.seedManualStrokeBoundingBox(refs.shapePointsRef.current, 2);
@@ -774,7 +782,14 @@ export const continueShapeDrawing = (
           ) {
             deps.updateDitherGradSamples(refs.shapePointsRef.current);
           }
-        } catch {}
+        } catch (error) {
+          deps.logError('CC shape drag sampled update failed', {
+            error: error instanceof Error ? error.message : String(error),
+            layerId: store.activeLayerId ?? null,
+            ccGradientSource: store.tools.ccGradientSource,
+            pointCount: refs.shapePointsRef.current.length,
+          });
+        }
       }
     }
   } else if (!shapeMode) {

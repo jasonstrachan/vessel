@@ -83,4 +83,34 @@ describe('ccSampling', () => {
     expect(result?.stops).toEqual(session.fallbackStopsStored);
     expect(session.previewStopsStored).toBeNull();
   });
+
+  it('accepts multi-sample previews even when fallback has more stops', () => {
+    const session = makeSession();
+    session.fallbackStopsStored = [
+      { position: 0, color: '#000000' },
+      { position: 0.2, color: '#222222' },
+      { position: 0.4, color: '#444444' },
+      { position: 0.6, color: '#666666' },
+      { position: 0.8, color: '#888888' },
+      { position: 1, color: '#ffffff' },
+    ];
+    const lastUpdateRef = { current: 0 };
+
+    const result = updateCcSampledSession({
+      session,
+      sourcePts: [
+        { x: 0, y: 0 },
+        { x: 96, y: 0 },
+      ],
+      now: 200,
+      lastUpdateRef,
+      sampleColor: (x) => (x < 48 ? '#112233' : '#445566'),
+      allowTiny: true,
+    });
+
+    expect(result?.updated).toBe(true);
+    expect(result?.sampleCount).toBeGreaterThan(1);
+    expect(result?.stops).not.toEqual(session.fallbackStopsStored);
+    expect(session.previewStopsStored).toEqual(result?.stops);
+  });
 });

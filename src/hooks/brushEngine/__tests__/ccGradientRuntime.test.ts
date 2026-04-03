@@ -3,6 +3,7 @@ import {
   buildRuntimeSnapshot,
 } from '@/hooks/brushEngine/ccGradientRuntime';
 import { TEMP_SAMPLE_SLOT } from '@/constants/colorCycle';
+import { buildCcDitherRuntimePalette } from '@/utils/colorCycle/ccDitherRenderPalette';
 import type { BrushSettings, Layer } from '@/types';
 import type { MarkGradientSession } from '@/hooks/canvas/utils/colorCycleMarkSession';
 
@@ -161,9 +162,16 @@ describe('ccGradientRuntime', () => {
     __setActiveMarkSessionGetterForTests(() => session);
 
     const snapshot = buildRuntimeSnapshot(layer, brushSettings);
+    const expectedStops = buildCcDitherRuntimePalette({
+      baseStops: session.previewStopsStored ?? [],
+      bands: session.ditherRenderConfig?.pairBandCount ?? 0,
+      spread: brushSettings.ditherPaletteSpread,
+      algorithm: brushSettings.ditherAlgorithm,
+      preserveSourceStops: false,
+    }).renderStops;
 
     expect(snapshot.paintSlot).toBe(TEMP_SAMPLE_SLOT);
-    expect(snapshot.slotPalettes[0]?.stops).toEqual(session.previewStopsStored);
+    expect(snapshot.slotPalettes[0]?.stops).toEqual(expectedStops);
   });
 
   it('preserves flat FG source stops for active bound sessions', () => {

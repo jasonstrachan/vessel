@@ -3210,7 +3210,16 @@ export class ColorCycleBrushCanvas2D {
         const pairBandCount = Math.max(0, Math.floor(options?.ditherPairBandCount ?? 0));
         const quantLevels = ditherLevels ?? (pairBandCount > 0 ? Math.max(2, numBands) : 1);
         const pixelSize = Math.max(1, Math.floor(options?.ditherPixelSize ?? this.ditherPixelSize));
-        const flatPairSpread = options?.ditherPaletteSpread ?? useAppStore.getState().tools.brushSettings.ditherPaletteSpread;
+        const flatPairSpread =
+          options?.ditherPaletteSpread ??
+          useAppStore.getState().tools?.brushSettings?.ditherPaletteSpread;
+        ccLog('shape fill linear canvas spread', {
+          optionsSpread: options?.ditherPaletteSpread ?? null,
+          storeSpread: useAppStore.getState().tools?.brushSettings?.ditherPaletteSpread ?? null,
+          flatPairSpread: flatPairSpread ?? null,
+          pairBandCount,
+          quantLevels,
+        });
         const activeSession = getActiveMarkGradientSession(id);
         const sampledStopsOverride = options?.ditherSampledStops?.length ? options.ditherSampledStops : null;
         const paintSlot = useAppStore.getState().layers.find((layer) => layer.id === id)?.colorCycleData?.paintSlot ?? null;
@@ -3258,6 +3267,10 @@ export class ColorCycleBrushCanvas2D {
           flatSeed,
           algorithm: fillAlgorithm,
           patternStyle: fillPatternStyle,
+          sampledFlatTraceId: activeSession?.markId
+            ? `${activeSession.markId}:brush-linear`
+            : (sampledStopsOverride ? `${id}:brush-linear` : undefined),
+          sampledFlatTraceStage: 'brush-linear',
           sampledStopsOverride: sampledStopsOverride ?? undefined,
           fillBackground: options?.ditherBackgroundFill !== false,
           pxlEdge: this.pxlEdgeEnabled,
@@ -4147,7 +4160,17 @@ export class ColorCycleBrushCanvas2D {
         const pairBandCount = Math.max(0, Math.floor(options?.ditherPairBandCount ?? 0));
         const quantLevels = ditherLevels ?? (pairBandCount > 0 ? Math.max(2, numBands) : 1);
         const pixelSize = Math.max(1, Math.floor(options?.ditherPixelSize ?? this.ditherPixelSize));
-        const flatPairSpread = options?.ditherPaletteSpread ?? useAppStore.getState().tools.brushSettings.ditherPaletteSpread;
+        const flatPairSpread =
+          options?.ditherPaletteSpread ??
+          useAppStore.getState().tools?.brushSettings?.ditherPaletteSpread;
+        ccLog('shape fill concentric canvas spread', {
+          optionsSpread: options?.ditherPaletteSpread ?? null,
+          storeSpread: useAppStore.getState().tools?.brushSettings?.ditherPaletteSpread ?? null,
+          flatPairSpread: flatPairSpread ?? null,
+          pairBandCount,
+          quantLevels,
+        });
+        const activeSession = getActiveMarkGradientSession(id);
         const flatSeed = hashNumbers(
           strokeData?.stampCounter ?? this.stampCounter,
           bbox.minX,
@@ -4180,6 +4203,10 @@ export class ColorCycleBrushCanvas2D {
           flatSeed,
           algorithm: fillAlgorithm,
           patternStyle: fillPatternStyle,
+          sampledFlatTraceId: activeSession?.markId
+            ? `${activeSession.markId}:brush-concentric`
+            : undefined,
+          sampledFlatTraceStage: 'brush-concentric',
           fillBackground: options?.ditherBackgroundFill !== false,
           pxlEdge: this.pxlEdgeEnabled,
           sampleNormalized: (x, y) => {

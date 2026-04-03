@@ -35,6 +35,7 @@ import {
   deriveForegroundGradientStops,
 } from '@/utils/colorCycleGradients';
 import { buildCcDitherRuntimePalette, resolveCcDitherBandMode } from '@/utils/colorCycle/ccDitherRenderPalette';
+import { ccLog } from '@/utils/colorCycle/ccDebug';
 import { fillCcGradientDither } from '@/utils/colorCycle/ccGradientDither';
 import { getActiveMarkGradientSession, getPreviewGradientForActiveMark } from '@/hooks/canvas/utils/colorCycleMarkSession';
 import { parseCssColorToRgba } from '@/hooks/canvas/utils/colorCycleHelpers';
@@ -2839,11 +2840,25 @@ export const createShapeToolHandler = (
         } else if (tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE_SHAPE) {
           if (isColorCycleGradientPreset || isColorCycleGradientPreview) {
             const useForegroundDerived = Boolean(brushNow.colorCycleUseForegroundGradient);
+            const isSampledPreviewMode = brushNow.ccGradientSource === 'sampled';
+            const livePreviewPoints = [...pts, previewPoint];
+            if (
+              isSampledPreviewMode &&
+              storeNow.activeLayerId &&
+              typeof drawingHandlers.updateCcSampledGradient === 'function'
+            ) {
+              drawingHandlers.updateCcSampledGradient(livePreviewPoints, {
+                layerId: storeNow.activeLayerId,
+                markKind: 'shape',
+              });
+            }
             const ccPreview = storeNow.activeLayerId
               ? getPreviewGradientForActiveMark(storeNow.activeLayerId)
               : null;
             const ccStopsOverride =
-              ccPreview?.stopsStored && ccPreview.stopsStored.length >= 2
+              ccPreview?.source === 'sampled' &&
+              ccPreview?.stopsStored &&
+              ccPreview.stopsStored.length >= 2
                 ? ccPreview.stopsStored
                 : null;
             const fgBaseColor =
@@ -2866,16 +2881,20 @@ export const createShapeToolHandler = (
             const derivedStops = derivedSpec
               ? deriveForegroundGradientStops(derivedSpec)
               : null;
-            const stops =
-              ccStopsOverride ??
-              (derivedStops && derivedStops.length >= 2
-                ? derivedStops
-                : brushNow.colorCycleGradient?.length
-                  ? brushNow.colorCycleGradient
-                  : DEFAULT_COLOR_CYCLE_GRADIENT);
+            const stops = isSampledPreviewMode
+              ? ccStopsOverride
+              : (
+                ccStopsOverride ??
+                (derivedStops && derivedStops.length >= 2
+                  ? derivedStops
+                  : brushNow.colorCycleGradient?.length
+                    ? brushNow.colorCycleGradient
+                    : DEFAULT_COLOR_CYCLE_GRADIENT)
+              );
+            const effectiveStops = stops ?? [];
             const ditherRenderStops = shouldDitherPreview
               ? buildCcDitherRuntimePalette({
-                  baseStops: stops,
+                  baseStops: effectiveStops,
                   bands: resolveCcDitherBandMode(brushNow.gradientBands ?? 16).pairBandCount,
                   spread: brushNow.ditherPaletteSpread,
                   algorithm: brushNow.ditherAlgorithm,
@@ -2886,6 +2905,19 @@ export const createShapeToolHandler = (
                   debugContext: 'preview-fill-linear',
                 }).renderStops
               : stops;
+            ccLog('shape tool preview spread source', {
+              source: ccPreview?.source ?? null,
+              sampledMode: isSampledPreviewMode,
+              brushNowSpread: brushNow.ditherPaletteSpread ?? null,
+              gradientBands: brushNow.gradientBands ?? null,
+              pairBandCount: resolveCcDitherBandMode(brushNow.gradientBands ?? 16).pairBandCount,
+              algorithm: brushNow.ditherAlgorithm ?? null,
+            });
+            if (isSampledPreviewMode && effectiveStops.length < 2) {
+              strokePreviewOutline();
+              didCustomFill = true;
+              return;
+            }
             if (shouldDitherPreview) {
               if (ditherGradPreviewState.ccLastCanvas && ditherGradPreviewState.ccLastOrigin) {
                 const { scale, offsetX, offsetY } = viewTransformRef.current;
@@ -2945,7 +2977,7 @@ export const createShapeToolHandler = (
                   if (proj > maxProj) maxProj = proj;
                 }
                 const projRange = Math.max(1e-6, maxProj - minProj);
-                const sortedStops = [...ditherRenderStops]
+                const sortedStops = Array.from(ditherRenderStops ?? [])
                   .map(stop => ({
                     position: Math.max(0, Math.min(1, Number.isFinite(stop.position) ? stop.position : 0)),
                     rgba: parseCssColorToRgba(stop.color),
@@ -3043,6 +3075,10 @@ export const createShapeToolHandler = (
                         flatSeed,
                         algorithm: fillAlgorithm,
                         patternStyle: fillPatternStyle,
+                        sampledFlatTraceId: liveSession?.markId
+                          ? `${liveSession.markId}:preview`
+                          : undefined,
+                        sampledFlatTraceStage: 'preview',
                         fillBackground,
                         yieldIfNeeded,
                         sampleNormalized: (x, y) => {
@@ -3119,7 +3155,7 @@ export const createShapeToolHandler = (
                 axis.end.x,
                 axis.end.y
               );
-              stops.forEach((stop) => {
+              effectiveStops.forEach((stop) => {
                 const pos = Number.isFinite(stop.position) ? stop.position : 0;
                 gradient.addColorStop(Math.max(0, Math.min(1, pos)), stop.color);
               });

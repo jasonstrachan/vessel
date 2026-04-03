@@ -7,7 +7,6 @@ import {
 } from '@/utils/ditherAlgorithms';
 import {
   fillFlatPatternMode,
-  resolveToneBand,
 } from '@/utils/colorCycle/ccFlatModePatterns';
 import { resolveFlatSierraBandMixInfo } from '@/utils/colorCycle/ccDitherRenderPalette';
 import { ccLog } from '@/utils/colorCycle/ccDebug';
@@ -39,6 +38,8 @@ export type CcGradientDitherOptions = {
   writeIndex: (x: number, y: number, index: number) => void;
   logSetIndexSample?: (x: number, y: number) => void;
   yieldIfNeeded?: (row: number) => Promise<void>;
+  sampledFlatTraceId?: string;
+  sampledFlatTraceStage?: string;
 };
 
 const clamp01 = (value: number): number => Math.max(0, Math.min(1, value));
@@ -155,62 +156,101 @@ const parseCssRgb = (color: string): [number, number, number] => {
 const rgbToCss = (rgb: [number, number, number]): string =>
   `rgb(${rgb[0]}, ${rgb[1]}, ${rgb[2]})`;
 
-export const resolveSampledFlatBandMix = ({
+const summarizeStoredStopsForDebug = (stops: StoredStop[] | null | undefined) =>
+  (stops ?? []).slice(0, 8).map((stop) => ({
+    p: Number(stop.position.toFixed(6)),
+    c: stop.color,
+  }));
+
+const clampCycleIndex = (value: number): number => Math.max(1, Math.min(255, Math.round(value)));
+
+const normalizeCycleIndex = (index: number, baseOffset: number): number => {
+  const zeroBased = clampCycleIndex(index) - 1;
+  const wrappedBaseOffset = ((baseOffset % 255) + 255) % 255;
+  const unshifted = ((zeroBased - wrappedBaseOffset) % 255 + 255) % 255;
+  return clamp01(unshifted / 254);
+};
+
+export const resolveSampledFlatPositionMix = ({
   stops,
+  sampledSourceStops,
   flatPosition,
   baseOffset = 0,
   spread,
 }: {
   stops: StoredStop[];
+  sampledSourceStops?: StoredStop[];
   flatPosition: number;
   baseOffset?: number;
   spread?: number;
-}): { band: number; mix: number; targetColor: string; mixByBand: number[] } | null => {
+}): {
+  flatPosition: number;
+  flatMix: number;
+  targetColor: string;
+  lowIndex: number;
+  highIndex: number;
+  lowColor: string;
+  highColor: string;
+} | null => {
   if (!stops.length) {
     return null;
   }
+
   const clampedPosition = clamp01(flatPosition);
+  const spread01 = clamp01((spread ?? 0) / 100);
   const targetRgb = sampleStoredGradientColor(stops, clampedPosition);
   const targetColor = rgbToCss(targetRgb);
-  const bandMixInfo = resolveFlatSierraBandMixInfo({
-    stops,
+  const centerIndex = indexFromNormalized(clampedPosition, baseOffset);
+  const minHalfWidth = 1;
+  const maxHalfWidth = 24;
+  const halfWidth = Math.round(minHalfWidth + spread01 * (maxHalfWidth - minHalfWidth));
+  const lowIndex = clampCycleIndex(centerIndex - halfWidth);
+  const highIndex = clampCycleIndex(centerIndex + halfWidth);
+  const pairSpan = Math.max(1, highIndex - lowIndex);
+  const interiorMin = 0.36 - spread01 * 0.22;
+  const interiorMax = 0.64 + spread01 * 0.22;
+  const flatMix = interiorMin + clampedPosition * (interiorMax - interiorMin);
+  const lowColor = rgbToCss(
+    sampleStoredGradientColor(stops, normalizeCycleIndex(lowIndex, baseOffset))
+  );
+  const highColor = rgbToCss(
+    sampleStoredGradientColor(stops, normalizeCycleIndex(highIndex, baseOffset))
+  );
+
+  ccLog('sampled flat solver decision', {
+    flatPosition: Number(clampedPosition.toFixed(6)),
     targetColor,
-    baseOffset,
-    spread,
+    spread: spread ?? null,
+    spread01: Number(spread01.toFixed(6)),
+    centerIndex,
+    halfWidth,
+    interiorMin: Number(interiorMin.toFixed(6)),
+    interiorMax: Number(interiorMax.toFixed(6)),
+    sourceStopCount: stops.length,
+    sourceStops: stops.slice(0, 8).map((stop) => ({
+      p: Number(stop.position.toFixed(6)),
+      c: stop.color,
+    })),
+    sampledSourceStops: (sampledSourceStops ?? []).slice(0, 8).map((stop) => ({
+      p: Number(stop.position.toFixed(6)),
+      c: stop.color,
+    })),
+    lowIndex,
+    highIndex,
+    pairSpan,
+    flatMix: Number(flatMix.toFixed(6)),
+    lowColor,
+    highColor,
   });
-  if (!bandMixInfo.length) {
-    return null;
-  }
-  const positionBand = resolveToneBand(clampedPosition);
-  const candidateInfo = bandMixInfo.filter((entry) => Math.abs(entry.band - positionBand) <= 1);
-  const eligibleInfo = candidateInfo.length > 0 ? candidateInfo : bandMixInfo;
-
-  let bestBand = eligibleInfo[0]?.band ?? positionBand;
-  let bestMix = eligibleInfo[0]?.mix ?? 0.5;
-  let bestError = Number.POSITIVE_INFINITY;
-
-  for (const entry of eligibleInfo) {
-    const mixed: [number, number, number] = [
-      Math.round(entry.low[0] + (entry.high[0] - entry.low[0]) * entry.mix),
-      Math.round(entry.low[1] + (entry.high[1] - entry.low[1]) * entry.mix),
-      Math.round(entry.low[2] + (entry.high[2] - entry.low[2]) * entry.mix),
-    ];
-    const dr = targetRgb[0] - mixed[0];
-    const dg = targetRgb[1] - mixed[1];
-    const db = targetRgb[2] - mixed[2];
-    const error = dr * dr + dg * dg + db * db;
-    if (error < bestError) {
-      bestError = error;
-      bestBand = entry.band;
-      bestMix = entry.mix;
-    }
-  }
 
   return {
-    band: bestBand,
-    mix: bestMix,
+    flatPosition: clampedPosition,
+    flatMix,
     targetColor,
-    mixByBand: bandMixInfo.map((entry) => entry.mix),
+    lowIndex,
+    highIndex,
+    lowColor,
+    highColor,
   };
 };
 
@@ -518,6 +558,8 @@ export const fillCcGradientDither = async ({
   writeIndex,
   logSetIndexSample,
   yieldIfNeeded,
+  sampledFlatTraceId,
+  sampledFlatTraceStage,
 }: CcGradientDitherOptions): Promise<void> => {
   const clampedLevels = Math.max(1, Math.min(255, Math.floor(levels)));
   const clampedPairBands = Math.max(0, Math.floor(pairBandCount ?? 0));
@@ -704,9 +746,14 @@ export const fillCcGradientDither = async ({
         ? true
         : useAppStore.getState().tools?.ccGradientSource === 'sampled') &&
       !brushSettings?.colorCycleUseForegroundGradient;
+    const sampledFlatSourceStops =
+      sampledStopsOverride?.length
+        ? sampledStopsOverride
+        : (resolveActiveSampledStops() ?? []);
     const sampledFlatSolver = preferSampledFlatSolver
-      ? resolveSampledFlatBandMix({
-          stops: sampledStopsOverride?.length ? sampledStopsOverride : (resolveActiveSampledStops() ?? []),
+      ? resolveSampledFlatPositionMix({
+          stops: sampledFlatSourceStops,
+          sampledSourceStops: sampledFlatSourceStops,
           flatPosition,
           baseOffset,
           spread: flatPairSpread,
@@ -727,18 +774,23 @@ export const fillCcGradientDither = async ({
       baseOffset,
       flatPairSpread,
       preferSampledFlatSolver,
+      sampledFlatSolverStopCount: sampledFlatSourceStops.length,
       sampledFlatSolver,
       resolvedFlatMixByBand,
       activeCellCount: activeMask.reduce((count, value) => count + (value ? 1 : 0), 0),
     });
 
+    let sampledFlatWriterDebug:
+      | { baseMix: number; lowIdx: number; highIdx: number }
+      | null = null;
     fillFlatPatternMode({
       algorithm,
       patternStyle,
       tone: flatPosition,
-      flatPosition: sampledFlatSolver ? undefined : flatPosition,
-      flatBand: sampledFlatSolver?.band,
-      flatMix: sampledFlatSolver?.mix,
+      flatPosition: sampledFlatSolver?.flatPosition ?? (sampledFlatSolver ? undefined : flatPosition),
+      flatLowIndex: sampledFlatSolver?.lowIndex,
+      flatHighIndex: sampledFlatSolver?.highIndex,
+      flatMix: sampledFlatSolver?.flatMix,
       flatMixByBand: resolvedFlatMixByBand,
       flatSeed,
       spread: flatPairSpread,
@@ -752,9 +804,41 @@ export const fillCcGradientDither = async ({
       writeCellIndex: (cellIdx, index) => {
         cellIndices[cellIdx] = index;
       },
+      debugCollector: sampledFlatSolver
+        ? (info) => {
+            sampledFlatWriterDebug = info;
+          }
+        : undefined,
     });
 
-    ccLog('flat pattern output', summarizeFlatPatternOutput(cellIndices, activeMask));
+    const patternOutput = summarizeFlatPatternOutput(cellIndices, activeMask);
+    ccLog('flat pattern output', patternOutput);
+    if (sampledFlatSolver && sampledFlatTraceId) {
+      const writerBaseMix =
+        sampledFlatWriterDebug == null
+          ? null
+          : Number((sampledFlatWriterDebug as { baseMix: number }).baseMix.toFixed(6));
+      ccLog('sampled flat trace', {
+        traceId: sampledFlatTraceId,
+        stage: sampledFlatTraceStage ?? 'unknown',
+        sampledSourceStops: summarizeStoredStopsForDebug(sampledFlatSourceStops),
+        flatPosition: Number(flatPosition.toFixed(6)),
+        spread: flatPairSpread ?? null,
+        centerIndex: indexFromNormalized(sampledFlatSolver.flatPosition, baseOffset),
+        halfWidth: Math.round(
+          1 + clamp01((flatPairSpread ?? 0) / 100) * (24 - 1)
+        ),
+        lowIndex: sampledFlatSolver.lowIndex,
+        highIndex: sampledFlatSolver.highIndex,
+        lowInkIndex: sampledFlatSolver.lowIndex,
+        highInkIndex: sampledFlatSolver.highIndex,
+        pairSpan: Math.max(1, sampledFlatSolver.highIndex - sampledFlatSolver.lowIndex),
+        solverFlatMix: Number(sampledFlatSolver.flatMix.toFixed(6)),
+        writerBaseMix,
+        finalActiveCellCount: patternOutput.activeCellCount,
+        finalUniqueIndices: patternOutput.uniqueActiveIndices,
+      });
+    }
   } else if (algorithm === 'sierra-lite') {
     let errCurr = new Float32Array(gridW);
     let errNext = new Float32Array(gridW);

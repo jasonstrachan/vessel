@@ -19,6 +19,8 @@ export type FlatPatternFillOptions = {
   tone: number;
   flatPosition?: number;
   flatBand?: number;
+  flatLowIndex?: number;
+  flatHighIndex?: number;
   flatMix?: number;
   flatMixByBand?: readonly number[];
   flatSeed?: number;
@@ -31,6 +33,11 @@ export type FlatPatternFillOptions = {
   phaseX: number;
   phaseY: number;
   writeCellIndex: (cellIdx: number, index: number) => void;
+  debugCollector?: (info: {
+    baseMix: number;
+    lowIdx: number;
+    highIdx: number;
+  }) => void;
 };
 
 const SIERRA_LITE_TONE_BANDS = 5;
@@ -197,12 +204,17 @@ const hash32 = (a: number, b: number, c: number, d: number): number => {
 const variantNoise01 = (
   x: number,
   y: number,
-  band: number,
+  identityKey: number,
   flatSeed: number,
   variant: number,
   patternKey: number
 ): number => {
-  const h = hash32(x + variant * 17, y + variant * 31, band ^ flatSeed, patternKey ^ (variant << 24));
+  const h = hash32(
+    x + variant * 17,
+    y + variant * 31,
+    identityKey ^ flatSeed,
+    patternKey ^ (variant << 24)
+  );
   return (h & 1023) / 1023;
 };
 
@@ -213,12 +225,12 @@ const resolvePatternVariant = (flatSeed = 0, patternKey = 0): number => {
 const resolveSeededThreshold = (
   x: number,
   y: number,
-  band: number,
+  identityKey: number,
   flatSeed: number,
   variant: number,
   patternKey: number
 ): number => {
-  const n = variantNoise01(x, y, band, flatSeed, variant, patternKey);
+  const n = variantNoise01(x, y, identityKey, flatSeed, variant, patternKey);
   const amp =
     variant === 0 ? 0.03 :
     variant === 1 ? 0.045 :
@@ -234,13 +246,20 @@ const resolveSeededThreshold = (
 const resolveInitialError = (
   x: number,
   y: number,
-  band: number,
+  identityKey: number,
   flatSeed: number,
   variant: number,
   patternKey: number
 ): number => {
-  const n0 = variantNoise01(x, y, band, flatSeed, variant, patternKey);
-  const n1 = variantNoise01(x + 37, y - 19, band ^ 11, flatSeed ^ 23, variant ^ 3, patternKey ^ 0x5a5a);
+  const n0 = variantNoise01(x, y, identityKey, flatSeed, variant, patternKey);
+  const n1 = variantNoise01(
+    x + 37,
+    y - 19,
+    identityKey ^ 11,
+    flatSeed ^ 23,
+    variant ^ 3,
+    patternKey ^ 0x5a5a
+  );
   const centered0 = n0 - 0.5;
   const centered1 = n1 - 0.5;
 
@@ -270,6 +289,8 @@ const fillOrderedFlatPatternMode = ({
   tone,
   flatPosition,
   flatBand,
+  flatLowIndex,
+  flatHighIndex,
   spread,
   gridW,
   gridH,
@@ -283,7 +304,11 @@ const fillOrderedFlatPatternMode = ({
   const band = Number.isFinite(flatBand)
     ? Math.max(0, Math.min(SIERRA_LITE_TONE_BANDS - 1, Math.floor(flatBand as number)))
     : resolveToneBand(Number.isFinite(flatPosition) ? (flatPosition as number) : tone);
-  const inkSet = Number.isFinite(flatPosition)
+  const inkSet = Number.isFinite(flatLowIndex) && Number.isFinite(flatHighIndex)
+    ? {
+        indices: [flatLowIndex as number, flatHighIndex as number] as [number, number],
+      }
+    : Number.isFinite(flatPosition)
     ? resolveFlatInkSetForPosition(flatPosition as number, 2, baseOffset, spread)
     : resolveFlatInkSetForBand(band, 2, baseOffset, spread);
   const orderedMix = resolveBandMixAmount(
@@ -315,6 +340,8 @@ const fillSierraLiteFlatPatternMode = ({
   tone,
   flatPosition,
   flatBand,
+  flatLowIndex,
+  flatHighIndex,
   flatMix,
   flatMixByBand,
   flatSeed,
@@ -327,26 +354,41 @@ const fillSierraLiteFlatPatternMode = ({
   phaseX,
   phaseY,
   writeCellIndex,
+  debugCollector,
 }: Omit<FlatPatternFillOptions, 'algorithm' | 'patternStyle'>): void => {
   const errors = new Float32Array(gridW * gridH);
-  const band = Number.isFinite(flatBand)
+  const isSampledFlat =
+    Number.isFinite(flatLowIndex) &&
+    Number.isFinite(flatHighIndex) &&
+    Number.isFinite(flatMix);
+  const resolvedBand = isSampledFlat
+    ? -1
+    : Number.isFinite(flatBand)
     ? Math.max(0, Math.min(SIERRA_LITE_TONE_BANDS - 1, Math.floor(flatBand as number)))
     : resolveToneBand(Number.isFinite(flatPosition) ? (flatPosition as number) : tone);
-
-  const inkSet = Number.isFinite(flatPosition)
+  const inkSet = isSampledFlat
+    ? {
+        indices: [flatLowIndex as number, flatHighIndex as number] as [number, number],
+      }
+    : Number.isFinite(flatPosition)
     ? resolveFlatInkSetForPosition(flatPosition as number, 2, baseOffset, spread)
-    : resolveFlatInkSetForBand(band, 2, baseOffset, spread);
-  const baseMix = resolveBandMixAmount(band, flatPosition, flatMix, flatMixByBand, spread);
+    : resolveFlatInkSetForBand(resolvedBand, 2, baseOffset, spread);
+  const patternBand = isSampledFlat ? -1 : resolvedBand;
+  const baseMix = isSampledFlat
+    ? clamp01(flatMix as number)
+    : resolveBandMixAmount(resolvedBand, flatPosition, flatMix, flatMixByBand, spread);
   const mixKey = Math.round(baseMix * 255) & 255;
   const lowIdx = inkSet.indices[0] & 255;
   const highIdx = inkSet.indices[1] & 255;
   const patternKey = (mixKey << 16) ^ (lowIdx << 8) ^ highIdx;
   const variant = resolvePatternVariant(flatSeed, patternKey);
-  const patternFingerprint = `${patternKey}:${variant}:${band}:${mixKey}:${lowIdx}:${highIdx}`;
+  const patternFingerprint = `${patternKey}:${variant}:${patternBand}:${mixKey}:${lowIdx}:${highIdx}`;
 
   ccLog('flat sierra pattern', {
     patternFingerprint,
-    band,
+    isSampledFlat,
+    band: patternBand,
+    resolvedBand,
     baseMix,
     mixKey,
     lowIdx,
@@ -355,6 +397,11 @@ const fillSierraLiteFlatPatternMode = ({
     flatSeed: flatSeed ?? 0,
     variant,
     flatPosition: Number.isFinite(flatPosition) ? flatPosition : null,
+  });
+  debugCollector?.({
+    baseMix,
+    lowIdx,
+    highIdx,
   });
 
   for (let y = 0; y < gridH; y += 1) {
@@ -369,9 +416,24 @@ const fillSierraLiteFlatPatternMode = ({
         continue;
       }
 
-      const initialErr = resolveInitialError(x + phaseX, y + phaseY, band, flatSeed ?? 0, variant, patternKey);
+      const errorBandKey = isSampledFlat ? 0 : patternBand;
+      const initialErr = resolveInitialError(
+        x + phaseX,
+        y + phaseY,
+        errorBandKey,
+        flatSeed ?? 0,
+        variant,
+        patternKey
+      );
       const value = clamp01(baseMix + initialErr + errors[idx]);
-      const threshold = resolveSeededThreshold(x + phaseX, y + phaseY, band, flatSeed ?? 0, variant, patternKey);
+      const threshold = resolveSeededThreshold(
+        x + phaseX,
+        y + phaseY,
+        errorBandKey,
+        flatSeed ?? 0,
+        variant,
+        patternKey
+      );
       const bit: 0 | 1 = value >= threshold ? 1 : 0;
       const qErr = value - bit;
 
@@ -416,6 +478,8 @@ export const fillFlatPatternMode = (options: FlatPatternFillOptions): void => {
       tone: options.tone,
       flatPosition: options.flatPosition,
       flatBand: options.flatBand,
+      flatLowIndex: options.flatLowIndex,
+      flatHighIndex: options.flatHighIndex,
       flatMix: options.flatMix,
       flatMixByBand: options.flatMixByBand,
       flatSeed: options.flatSeed,
