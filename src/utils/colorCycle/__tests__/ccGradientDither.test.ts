@@ -1,6 +1,7 @@
 import {
   fillCcGradientDither,
   resolveSampledFlatPositionMix,
+  resolveSampledTripleInks,
 } from '@/utils/colorCycle/ccGradientDither';
 import {
   fillFlatPatternMode,
@@ -311,15 +312,11 @@ describe('fillCcGradientDither', () => {
     const representativeRgb: [number, number, number] = [181, 146, 97];
     const representativeTone =
       (representativeRgb[0] * 0.2126 + representativeRgb[1] * 0.7152 + representativeRgb[2] * 0.0722) / 255;
-    const expectedPair = (() => {
-      const solved = resolveSampledFlatPositionMix({
-        stops: warmStops,
-        flatPosition: representativeTone,
-        spread: 84,
-        targetRgbOverride: representativeRgb,
-      });
-      return [solved?.lowIndex, solved?.highIndex];
-    })();
+    const expectedTriple = resolveSampledTripleInks({
+      representativeTone,
+      baseOffset: 0,
+      spread: 84,
+    });
 
     await fillCcGradientDither({
       vertices: [
@@ -336,6 +333,7 @@ describe('fillCcGradientDither', () => {
       levels: 1,
       baseOffset: 0,
       flatPairSpread: 84,
+      flatSeed: 7,
       algorithm: 'sierra-lite',
       sampledStopsOverride: warmStops,
       sampleNormalized: () => 0.5,
@@ -344,9 +342,16 @@ describe('fillCcGradientDither', () => {
       },
     });
 
-    expect(
-      Array.from(new Set(out)).filter((value) => value > 0).sort((a, b) => a - b)
-    ).toEqual(expectedPair);
+    const usedIndices = Array.from(new Set(out)).filter((value) => value > 0).sort((a, b) => a - b);
+    const allowed = new Set([
+      expectedTriple.lowIndex,
+      expectedTriple.midIndex,
+      expectedTriple.highIndex,
+    ]);
+
+    expect(usedIndices.length).toBeGreaterThanOrEqual(2);
+    expect(usedIndices.every((value) => allowed.has(value))).toBe(true);
+    expect(usedIndices.includes(expectedTriple.midIndex)).toBe(true);
   });
 
   it('derives sampled flat Sierra-Lite from the averaged sampled target instead of geometric flat position', async () => {
@@ -386,20 +391,18 @@ describe('fillCcGradientDither', () => {
     expect(usedPair).not.toEqual(resolveFlatInkSetForPosition(0.1, 2, 0, 0).indices);
   });
 
-  it('uses spatial flatPosition to vary sampled-flat Sierra-Lite occupancy while keeping the same pair', async () => {
+  it('uses flatPosition to shift sampled-flat Sierra-Lite occupancy across the same triple inks', async () => {
     const width = 16;
     const height = 16;
     const sampledStops = [
       { position: 0, color: '#9d9d9d' },
       { position: 1, color: '#9d9d9d' },
     ];
-    const solved = resolveSampledFlatPositionMix({
-      stops: sampledStops,
-      flatPosition: 0.614,
+    const tripleInks = resolveSampledTripleInks({
+      representativeTone: 157 / 255,
       baseOffset: 0,
       spread: 63,
     });
-    const highIndex = solved?.highIndex ?? 0;
 
     const run = async (tone: number) => {
       const out = new Uint8Array(width * height);
@@ -430,25 +433,18 @@ describe('fillCcGradientDither', () => {
 
     const lowerToneOut = await run(0.41);
     const higherToneOut = await run(0.59);
+    const allowed = new Set([tripleInks.lowIndex, tripleInks.midIndex, tripleInks.highIndex]);
+    const lowerUsed = Array.from(new Set(lowerToneOut)).filter((value) => value > 0).sort((a, b) => a - b);
+    const higherUsed = Array.from(new Set(higherToneOut)).filter((value) => value > 0).sort((a, b) => a - b);
 
-    const countIndex = (data: Uint8Array, index: number) => {
-      let count = 0;
-      for (let i = 0; i < data.length; i += 1) {
-        if (data[i] === index) {
-          count += 1;
-        }
-      }
-      return count;
-    };
-
-    expect(solved).not.toBeNull();
-    expect(
-      Array.from(new Set(lowerToneOut)).filter((value) => value > 0).sort((a, b) => a - b)
-    ).toEqual([solved?.lowIndex, solved?.highIndex]);
-    expect(
-      Array.from(new Set(higherToneOut)).filter((value) => value > 0).sort((a, b) => a - b)
-    ).toEqual([solved?.lowIndex, solved?.highIndex]);
-    expect(countIndex(higherToneOut, highIndex)).toBeGreaterThan(countIndex(lowerToneOut, highIndex));
+    expect(lowerUsed.every((value) => allowed.has(value))).toBe(true);
+    expect(higherUsed.every((value) => allowed.has(value))).toBe(true);
+    expect(lowerUsed).toContain(tripleInks.lowIndex);
+    expect(lowerUsed).toContain(tripleInks.midIndex);
+    expect(lowerUsed).not.toContain(tripleInks.highIndex);
+    expect(higherUsed).not.toContain(tripleInks.lowIndex);
+    expect(higherUsed).toContain(tripleInks.midIndex);
+    expect(higherUsed).toContain(tripleInks.highIndex);
   });
 
   it('does not let sampled flat solving jump away from the sampled-position pair', () => {

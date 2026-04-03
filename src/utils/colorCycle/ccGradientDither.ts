@@ -202,6 +202,47 @@ const normalizeCycleIndex = (index: number, baseOffset: number): number => {
   return clamp01(unshifted / 254);
 };
 
+const MULTI_INK_THRESHOLD = 40;
+
+const shouldUseSampledMultiInk = (spread: number): boolean => spread > MULTI_INK_THRESHOLD;
+
+export const resolveSampledTripleInks = ({
+  representativeTone,
+  baseOffset,
+  spread,
+}: {
+  representativeTone: number;
+  baseOffset: number;
+  spread: number;
+}): {
+  lowIndex: number;
+  midIndex: number;
+  highIndex: number;
+} => {
+  const spread01 = clamp01(spread / 100);
+  const centerIndex = indexFromNormalized(representativeTone, baseOffset);
+  const reach = Math.round(spread01 * 100);
+
+  return {
+    lowIndex: clampCycleIndex(centerIndex - reach),
+    midIndex: centerIndex,
+    highIndex: clampCycleIndex(centerIndex + reach),
+  };
+};
+
+const tripleInkIndex = (
+  level: number,
+  inks: { lowIndex: number; midIndex: number; highIndex: number }
+): number => {
+  if (level <= 0) {
+    return inks.lowIndex;
+  }
+  if (level >= 2) {
+    return inks.highIndex;
+  }
+  return inks.midIndex;
+};
+
 export const resolveSampledFlatPositionMix = ({
   stops,
   sampledSourceStops,
@@ -675,7 +716,7 @@ export const fillCcGradientDither = async ({
     const end = serpentine ? -1 : activeCells.length;
     const step = serpentine ? -1 : 1;
 
-      const sampleY = minY + cy * cellSize + cellSize * 0.5;
+    const sampleY = minY + cy * cellSize + cellSize * 0.5;
     for (let i = start; i !== end; i += step) {
       const cx = activeCells[i];
       const sampleX = minX + cx * cellSize + cellSize * 0.5;
@@ -786,107 +827,180 @@ export const fillCcGradientDither = async ({
     const representativeSampledTarget = preferSampledFlatSolver
       ? resolveRepresentativeSampledTarget(sampledFlatSourceStops)
       : null;
-    const sampledFlatSolver =
-      preferSampledFlatSolver && representativeSampledTarget
-        ? resolveSampledFlatPositionMix({
-            stops: sampledFlatSourceStops,
-            sampledSourceStops: sampledFlatSourceStops,
-            flatPosition: representativeSampledTarget.tone,
-            baseOffset,
-            spread: flatPairSpread,
-            targetRgbOverride: representativeSampledTarget.rgb,
-          })
-        : null;
-    if (sampledFlatSolver) {
-      // Amplify spatial differences: flatPosition clusters ~0.4-0.55,
-      // so center-expand to push baseMix away from the 0.5 alternation zone.
+    if (preferSampledFlatSolver && representativeSampledTarget && shouldUseSampledMultiInk(flatPairSpread ?? 0)) {
+      const tripleInks = resolveSampledTripleInks({
+        representativeTone: representativeSampledTarget.tone,
+        baseOffset,
+        spread: flatPairSpread ?? 0,
+      });
       const centered = clamp01(flatPosition) - 0.5;
       const amplified = 0.5 + centered * 2.5;
-      // Per-shape scatter from seed so nearby shapes diverge.
       const seedHash = flatSeed
         ? (Math.imul((flatSeed >>> 0) ^ 0x9e3779b9, 2654435761) >>> 0)
         : 0;
       const seedNoise = flatSeed
         ? ((seedHash & 0xffff) / 65536 - 0.5) * 0.5
         : 0;
-      sampledFlatSolver.flatMix = Math.max(0.08, Math.min(0.92, amplified + seedNoise));
-    }
-    const runtimeFlat = algorithm === 'sierra-lite'
-      ? resolveRuntimeFlatMixByBand(0, flatPairSpread)
-      : {};
-    const resolvedFlatMixByBand = sampledFlatSolver
-      ? undefined
-      : preferSampledFlatSolver
-      ? undefined
-      : (flatMixByBand ?? runtimeFlat.mixByBand);
+      const sampledTripleMix = Math.max(0.02, Math.min(0.98, amplified + seedNoise));
+      const tripleLevels = 3;
+      let errCurr = new Float32Array(gridW);
+      let errNext = new Float32Array(gridW);
 
-    ccLog('flat recipe inputs', {
-      algorithm,
-      flatPosition,
-      baseOffset,
-      flatPairSpread,
-      preferSampledFlatSolver,
-      sampledFlatSolverStopCount: sampledFlatSourceStops.length,
-      representativeSampledTarget: representativeSampledTarget
-        ? {
-            tone: Number(representativeSampledTarget.tone.toFixed(6)),
-            color: representativeSampledTarget.color,
+      for (let cy = 0; cy < gridH; cy += 1) {
+        const activeRow = activeCellsByRow[cy];
+        if (!activeRow.length) {
+          const swap = errCurr;
+          errCurr = errNext;
+          errNext = swap;
+          errNext.fill(0);
+          continue;
+        }
+
+        const swap = errCurr;
+        errCurr = errNext;
+        errNext = swap;
+        errNext.fill(0);
+
+        const serpentine = (cy & 1) === 1;
+        const start = serpentine ? activeRow.length - 1 : 0;
+        const end = serpentine ? -1 : activeRow.length;
+        const step = serpentine ? -1 : 1;
+
+        for (let i = start; i !== end; i += step) {
+          const cx = activeRow[i];
+          const cellIdx = cy * gridW + cx;
+          const scaled = sampledTripleMix * (tripleLevels - 1);
+          const lower = Math.max(0, Math.min(tripleLevels - 1, Math.floor(scaled)));
+          const frac = scaled - lower;
+          const adj = clamp01(frac + (errCurr[cx] || 0));
+          const chooseUpper = lower < tripleLevels - 1 && adj >= 0.5;
+          const q = chooseUpper ? 1 : 0;
+          const err = adj - q;
+
+          if (!serpentine) {
+            if (cx + 1 < gridW) {
+              errCurr[cx + 1] += err * 0.5;
+            }
+            if (cx - 1 >= 0) {
+              errNext[cx - 1] += err * 0.25;
+            }
+          } else {
+            if (cx - 1 >= 0) {
+              errCurr[cx - 1] += err * 0.5;
+            }
+            if (cx + 1 < gridW) {
+              errNext[cx + 1] += err * 0.25;
+            }
           }
-        : null,
-      sampledFlatSolver,
-      resolvedFlatMixByBand,
-      activeCellCount: activeMask.reduce((count, value) => count + (value ? 1 : 0), 0),
-    });
-    fillFlatPatternMode({
-      algorithm,
-      patternStyle,
-      tone: flatPosition,
-      flatPosition: sampledFlatSolver?.flatPosition ?? (sampledFlatSolver ? undefined : flatPosition),
-      flatLowIndex: sampledFlatSolver?.lowIndex,
-      flatHighIndex: sampledFlatSolver?.highIndex,
-      flatMix: sampledFlatSolver?.flatMix,
-      flatMixByBand: resolvedFlatMixByBand,
-      flatSeed,
-      spread: flatPairSpread,
-      gridW,
-      gridH,
-      activeMask,
-      fillBackground,
-      baseOffset,
-      phaseX,
-      phaseY,
-      writeCellIndex: (cellIdx, index) => {
-        cellIndices[cellIdx] = index;
-      },
-    });
+          errNext[cx] += err * 0.25;
 
-    const patternOutput = summarizeFlatPatternOutput(cellIndices, activeMask);
-    ccLog('flat pattern output', patternOutput);
-    if (preferSampledFlatSolver && sampledFlatTraceId) {
-      ccLog('sampled flat trace', {
-        traceId: sampledFlatTraceId,
-        stage: sampledFlatTraceStage ?? 'unknown',
-        sampledSourceStops: summarizeStoredStopsForDebug(sampledFlatSourceStops),
-        flatPosition: Number(flatPosition.toFixed(6)),
-        representativeSampledTone: representativeSampledTarget
-          ? Number(representativeSampledTarget.tone.toFixed(6))
+          const level = chooseUpper ? lower + 1 : lower;
+          cellIndices[cellIdx] = tripleInkIndex(level, tripleInks);
+        }
+      }
+    } else {
+      const sampledFlatSolver =
+        preferSampledFlatSolver && representativeSampledTarget
+          ? resolveSampledFlatPositionMix({
+              stops: sampledFlatSourceStops,
+              sampledSourceStops: sampledFlatSourceStops,
+              flatPosition: representativeSampledTarget.tone,
+              baseOffset,
+              spread: flatPairSpread,
+              targetRgbOverride: representativeSampledTarget.rgb,
+            })
+          : null;
+      if (sampledFlatSolver) {
+        // Amplify spatial differences: flatPosition clusters ~0.4-0.55,
+        // so center-expand to push baseMix away from the 0.5 alternation zone.
+        const centered = clamp01(flatPosition) - 0.5;
+        const amplified = 0.5 + centered * 2.5;
+        // Per-shape scatter from seed so nearby shapes diverge.
+        const seedHash = flatSeed
+          ? (Math.imul((flatSeed >>> 0) ^ 0x9e3779b9, 2654435761) >>> 0)
+          : 0;
+        const seedNoise = flatSeed
+          ? ((seedHash & 0xffff) / 65536 - 0.5) * 0.5
+          : 0;
+        sampledFlatSolver.flatMix = Math.max(0.08, Math.min(0.92, amplified + seedNoise));
+      }
+      const runtimeFlat = algorithm === 'sierra-lite'
+        ? resolveRuntimeFlatMixByBand(0, flatPairSpread)
+        : {};
+      const resolvedFlatMixByBand = sampledFlatSolver
+        ? undefined
+        : preferSampledFlatSolver
+        ? undefined
+        : (flatMixByBand ?? runtimeFlat.mixByBand);
+
+      ccLog('flat recipe inputs', {
+        algorithm,
+        flatPosition,
+        baseOffset,
+        flatPairSpread,
+        preferSampledFlatSolver,
+        sampledFlatSolverStopCount: sampledFlatSourceStops.length,
+        representativeSampledTarget: representativeSampledTarget
+          ? {
+              tone: Number(representativeSampledTarget.tone.toFixed(6)),
+              color: representativeSampledTarget.color,
+            }
           : null,
-        representativeSampledColor: representativeSampledTarget?.color ?? null,
-        spread: flatPairSpread ?? null,
-        solvedLowIndex: sampledFlatSolver?.lowIndex ?? null,
-        solvedHighIndex: sampledFlatSolver?.highIndex ?? null,
-        solvedFlatMix: sampledFlatSolver
-          ? Number(sampledFlatSolver.flatMix.toFixed(6))
-          : null,
-        writtenLowInkIndex: patternOutput.lowInkIndex,
-        writtenHighInkIndex: patternOutput.highInkIndex,
-        writtenIndexRange:
-          patternOutput.lowInkIndex != null && patternOutput.highInkIndex != null
-            ? Math.max(0, patternOutput.highInkIndex - patternOutput.lowInkIndex)
-            : null,
-        finalActiveCellCount: patternOutput.activeCellCount,
-        finalUniqueIndices: patternOutput.uniqueActiveIndices,
+        sampledFlatSolver,
+        resolvedFlatMixByBand,
+        activeCellCount: activeMask.reduce((count, value) => count + (value ? 1 : 0), 0),
       });
+      fillFlatPatternMode({
+        algorithm,
+        patternStyle,
+        tone: flatPosition,
+        flatPosition: sampledFlatSolver?.flatPosition ?? (sampledFlatSolver ? undefined : flatPosition),
+        flatLowIndex: sampledFlatSolver?.lowIndex,
+        flatHighIndex: sampledFlatSolver?.highIndex,
+        flatMix: sampledFlatSolver?.flatMix,
+        flatMixByBand: resolvedFlatMixByBand,
+        flatSeed,
+        spread: flatPairSpread,
+        gridW,
+        gridH,
+        activeMask,
+        fillBackground,
+        baseOffset,
+        phaseX,
+        phaseY,
+        writeCellIndex: (cellIdx, index) => {
+          cellIndices[cellIdx] = index;
+        },
+      });
+
+      const patternOutput = summarizeFlatPatternOutput(cellIndices, activeMask);
+      ccLog('flat pattern output', patternOutput);
+      if (preferSampledFlatSolver && sampledFlatTraceId) {
+        ccLog('sampled flat trace', {
+          traceId: sampledFlatTraceId,
+          stage: sampledFlatTraceStage ?? 'unknown',
+          sampledSourceStops: summarizeStoredStopsForDebug(sampledFlatSourceStops),
+          flatPosition: Number(flatPosition.toFixed(6)),
+          representativeSampledTone: representativeSampledTarget
+            ? Number(representativeSampledTarget.tone.toFixed(6))
+            : null,
+          representativeSampledColor: representativeSampledTarget?.color ?? null,
+          spread: flatPairSpread ?? null,
+          solvedLowIndex: sampledFlatSolver?.lowIndex ?? null,
+          solvedHighIndex: sampledFlatSolver?.highIndex ?? null,
+          solvedFlatMix: sampledFlatSolver
+            ? Number(sampledFlatSolver.flatMix.toFixed(6))
+            : null,
+          writtenLowInkIndex: patternOutput.lowInkIndex,
+          writtenHighInkIndex: patternOutput.highInkIndex,
+          writtenIndexRange:
+            patternOutput.lowInkIndex != null && patternOutput.highInkIndex != null
+              ? Math.max(0, patternOutput.highInkIndex - patternOutput.lowInkIndex)
+              : null,
+          finalActiveCellCount: patternOutput.activeCellCount,
+          finalUniqueIndices: patternOutput.uniqueActiveIndices,
+        });
+      }
     }
   } else if (algorithm === 'sierra-lite') {
     let errCurr = new Float32Array(gridW);
