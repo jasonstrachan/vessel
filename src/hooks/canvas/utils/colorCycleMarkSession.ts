@@ -102,12 +102,14 @@ const finalizeSampledSession = (session: MarkGradientSession): void => {
 export const captureFrozenCcDitherRenderConfig = (): FrozenCcDitherRenderConfig => {
   const brushSettings = useAppStore.getState().tools.brushSettings;
   const mode = resolveCcDitherBandMode(brushSettings.gradientBands ?? 16);
-  return {
+  const config = {
     enabled: Boolean(brushSettings.ditherEnabled),
     pairBandCount: mode.pairBandCount,
     spread: brushSettings.ditherPaletteSpread,
     algorithm: brushSettings.ditherAlgorithm,
   };
+  ccLog('capture frozen cc dither render config', config);
+  return config;
 };
 
 export const resolveMarkSessionRuntimeStops = (
@@ -197,7 +199,7 @@ export const beginMarkGradientSession = (params: {
       speedCps: params.speedCps,
       previewStopsStored: null,
       previewHash: '',
-      fallbackStopsStored: cloneStops(frozenStops),
+      fallbackStopsStored: [],
       samples: [],
       ditherRenderConfig,
     };
@@ -308,7 +310,7 @@ export const cancelMarkGradientSession = (layerId: string): void => {
     ccWarn('cancel during active mark', { layerId, stack: new Error().stack ?? null });
     return;
   }
-  ccWarn('cancel session', { layerId, stack: new Error().stack ?? null });
+  ccLog('cancel session', { layerId, stack: new Error().stack ?? null });
   sessionsByLayer.delete(layerId);
 };
 
@@ -320,25 +322,30 @@ export const getPreviewGradientForActiveMark = (layerId: string): PreviewGradien
         session.previewStopsStored && session.previewStopsStored.length >= 2
           ? session.previewStopsStored
           : null;
-      const fallbackStops =
-        session.fallbackStopsStored?.length ? session.fallbackStopsStored : session.frozenStopsStored;
-      const stops = sampledStops ?? fallbackStops;
+      if (!sampledStops) {
+        ccWarn('sampled preview missing sampled stops', {
+          layerId,
+          markId: session.markId,
+          hasPreviewStopsStored: Boolean(session.previewStopsStored?.length),
+          previewStopsLen: session.previewStopsStored?.length ?? 0,
+          fallbackStopsLen: session.fallbackStopsStored?.length ?? 0,
+          frozenStopsLen: session.frozenStopsStored?.length ?? 0,
+        });
+        return null;
+      }
       if (process.env.NODE_ENV !== 'production') {
         ccLog('preview', {
           markId: session.markId,
           layerId,
-          source: sampledStops ? 'sampled' : 'fallback',
+          source: 'sampled',
           phase: session.binding ? 'final' : 'sampling',
-          stopsLen: stops.length,
+          stopsLen: sampledStops.length,
         });
-        if (!stops || stops.length < 2) {
-          throw new Error('[CC] Sampled preview produced <2 stops');
-        }
       }
       return {
-        source: sampledStops ? 'sampled' : 'fallback',
+        source: 'sampled',
         phase: session.binding ? 'final' : 'sampling',
-        stopsStored: cloneStops(stops),
+        stopsStored: cloneStops(sampledStops),
         defIdPlanned: session.binding?.defId,
       };
     }

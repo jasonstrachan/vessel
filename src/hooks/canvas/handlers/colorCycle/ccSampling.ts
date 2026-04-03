@@ -94,6 +94,23 @@ export const updateCcSampledSession = (args: CcSampledUpdateArgs): CcSampledUpda
     return null;
   }
 
+  const fallbackStops = args.session.fallbackStopsStored;
+  const sampledUniqueColors = new Set(result.stops.map((stop) => stop.color)).size;
+  const isDegenerateSampledPreview = result.sampleCount <= 1 || sampledUniqueColors <= 1;
+  const shouldPreserveFallback =
+    Array.isArray(fallbackStops) &&
+    fallbackStops.length >= 2 &&
+    fallbackStops.length > result.stops.length &&
+    isDegenerateSampledPreview;
+  if (shouldPreserveFallback) {
+    args.lastUpdateRef.current = args.now;
+    return {
+      updated: false,
+      sampleCount: result.sampleCount,
+      stops: fallbackStops,
+    };
+  }
+
   const nextHash = hashStops(result.stops, args.session.gradientKind);
   const updated = nextHash !== args.session.previewHash;
   args.session.previewStopsStored = result.stops;

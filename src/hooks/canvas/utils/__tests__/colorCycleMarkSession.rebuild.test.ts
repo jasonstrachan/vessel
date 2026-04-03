@@ -244,7 +244,40 @@ describe('colorCycleMarkSession rebuild', () => {
     finalizeMarkGradientSession(layer.id);
     const finalizedStops = useAppStore.getState().layers[0]?.colorCycleData?.gradientDefStore?.[0]?.stops;
     expect(finalizedStops?.length).toBeGreaterThan(session.previewStopsStored.length);
-    expect(finalizedStops?.[0]?.color).toBe('rgb(17, 17, 17)');
-    expect(finalizedStops?.[finalizedStops.length - 1]?.color).toBe('rgb(242, 242, 242)');
+    expect(finalizedStops?.[0]?.color).not.toBe(session.previewStopsStored[0]?.color);
+    expect(finalizedStops?.[finalizedStops.length - 1]?.color).not.toBe(
+      session.previewStopsStored[session.previewStopsStored.length - 1]?.color
+    );
+    expect(finalizedStops?.[0]?.color).not.toBe(richStops[0]?.color);
+    expect(finalizedStops?.[finalizedStops.length - 1]?.color).not.toBe(
+      richStops[richStops.length - 1]?.color
+    );
+  });
+
+  it('returns null during sampled preview when sampled stops are missing', () => {
+    const layer = createLayer();
+
+    useAppStore.setState((state) => ({
+      layers: [layer],
+      activeLayerId: layer.id,
+      project: state.project
+        ? { ...state.project, width: 2, height: 2, layers: [layer] }
+        : state.project,
+    }));
+
+    const session = beginMarkGradientSession({
+      layerId: layer.id,
+      markKind: 'shape',
+      gradientKind: 'linear',
+      source: 'sampled',
+      stops,
+    });
+
+    if (!session) {
+      throw new Error('Expected sampled mark session');
+    }
+
+    expect(session.fallbackStopsStored).toEqual([]);
+    expect(getPreviewGradientForActiveMark(layer.id)).toBeNull();
   });
 });

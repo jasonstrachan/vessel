@@ -58,6 +58,12 @@ export const updateCcSampledGradientController = (
 ) => {
   const targetLayerId = options?.layerId ?? deps.storeRef.current.activeLayerId;
   if (!targetLayerId) {
+    deps.ccLog('sampled tick skipped', {
+      reason: 'missing-layer',
+      sourcePtsLen: sourcePts.length,
+      optionLayerId: options?.layerId ?? null,
+      activeLayerId: deps.storeRef.current.activeLayerId ?? null,
+    });
     return;
   }
 
@@ -81,10 +87,22 @@ export const updateCcSampledGradientController = (
         stops: resolved.activeStops,
         speedCps: currentState.tools.brushSettings.colorCycleSpeed,
       });
+      deps.ccLog('sampled tick session bootstrap', {
+        layerId: targetLayerId,
+        started: Boolean(session),
+        sourcePtsLen: sourcePts.length,
+        activeStopsLen: resolved.activeStops.length,
+      });
     }
   }
 
   if (!session || session.source !== 'sampled') {
+    deps.ccLog('sampled tick skipped', {
+      reason: !session ? 'missing-session' : 'non-sampled-session',
+      layerId: targetLayerId,
+      sessionSource: session?.source ?? null,
+      sourcePtsLen: sourcePts.length,
+    });
     return;
   }
 

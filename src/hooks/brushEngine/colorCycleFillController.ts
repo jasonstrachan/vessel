@@ -1,4 +1,5 @@
 import { BrushShape, type BrushSettings } from '@/types';
+import { ccLog } from '@/utils/colorCycle/ccDebug';
 import type { ColorCycleBrushImplementation } from './ColorCycleBrushMigration';
 import type { GradientDitherOptions, Point2D } from './shapeTypes';
 import {
@@ -162,6 +163,13 @@ export const fillColorCycleLinear = async ({
       brush.setDitherPixelSize(Math.max(1, Math.floor(options.ditherPixelSize)));
     }
 
+    ccLog('color cycle fill controller linear spread', {
+      optionsSpread: options?.ditherPaletteSpread ?? null,
+      brushSettingsSpread: brushSettings.ditherPaletteSpread ?? null,
+      resolvedSpread: options?.ditherPaletteSpread ?? brushSettings.ditherPaletteSpread ?? null,
+      ditherLevels: options?.ditherLevels ?? ditherLevels ?? null,
+      ditherPairBandCount: options?.ditherPairBandCount ?? null,
+    });
     await Promise.resolve(
       brush.fillShapeDispatch?.({
         mode: 'linear',
@@ -240,6 +248,13 @@ export const fillColorCycleConcentric = async ({
       brush.setDitherPixelSize(Math.max(1, Math.floor(options.ditherPixelSize)));
     }
 
+    ccLog('color cycle fill controller concentric spread', {
+      optionsSpread: options?.ditherPaletteSpread ?? null,
+      brushSettingsSpread: brushSettings.ditherPaletteSpread ?? null,
+      resolvedSpread: options?.ditherPaletteSpread ?? brushSettings.ditherPaletteSpread ?? null,
+      ditherLevels: options?.ditherLevels ?? ditherLevels ?? null,
+      ditherPairBandCount: options?.ditherPairBandCount ?? null,
+    });
     await Promise.resolve(
       brush.fillShapeDispatch?.({
         mode: 'concentric',

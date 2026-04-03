@@ -11,6 +11,7 @@ export const buildDrawingHandlersResultColorCycleArgs = ({
   stopContinuousColorCycleAnimation: colorCycleRuntime.stopContinuousColorCycleAnimation,
   resumeColorCycleAfterInteraction: colorCycleRuntime.resumeColorCycleAfterInteraction,
   commitRasterOverlay: colorCycleRuntime.commitRasterOverlay,
+  updateCcSampledGradient: colorCycleRuntime.updateCcSampledGradient,
   updateDitherGradSamples: colorCycleRuntime.updateDitherGradSamples,
   getCcGradientSampleStops: colorCycleRuntime.getCcGradientSampleStops,
 });

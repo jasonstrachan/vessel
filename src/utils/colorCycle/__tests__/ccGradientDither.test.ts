@@ -1,8 +1,9 @@
 import {
   fillCcGradientDither,
-  resolveSampledFlatBandMix,
+  resolveSampledFlatPositionMix,
 } from '@/utils/colorCycle/ccGradientDither';
 import {
+  fillFlatPatternMode,
   resolveFlatInkSetForBand,
   resolveFlatInkSetForPosition,
   resolveFlatInkCountForBand,
@@ -122,7 +123,7 @@ describe('fillCcGradientDither', () => {
     expect(usedPair).not.toEqual(legacyBandPair);
   });
 
-  it('solves sampled flat band/mix from sampled stops instead of only using flat position', () => {
+  it('solves sampled flat position/mix differently for different sampled stop colors', () => {
     const warmStops = [
       { position: 0, color: '#201010' },
       { position: 0.5, color: '#ffb347' },
@@ -134,12 +135,12 @@ describe('fillCcGradientDither', () => {
       { position: 1, color: '#d9f3ff' },
     ];
 
-    const warm = resolveSampledFlatBandMix({
+    const warm = resolveSampledFlatPositionMix({
       stops: warmStops,
       flatPosition: 0.5,
       spread: 84,
     });
-    const cool = resolveSampledFlatBandMix({
+    const cool = resolveSampledFlatPositionMix({
       stops: coolStops,
       flatPosition: 0.5,
       spread: 84,
@@ -148,10 +149,154 @@ describe('fillCcGradientDither', () => {
     expect(warm).not.toBeNull();
     expect(cool).not.toBeNull();
     expect(warm?.targetColor).not.toEqual(cool?.targetColor);
-    expect(warm?.band).toBeGreaterThanOrEqual(1);
-    expect(cool?.band).toBeGreaterThanOrEqual(1);
-    expect(warm?.mix).toBeGreaterThan(0);
-    expect(cool?.mix).toBeGreaterThan(0);
+    expect(warm?.flatMix).toBeGreaterThan(0);
+    expect(cool?.flatMix).toBeGreaterThan(0);
+    expect(warm?.lowIndex).toEqual(cool?.lowIndex);
+    expect(warm?.highIndex).toEqual(cool?.highIndex);
+  });
+
+  it('solves sampled flat position/mix from real sampled stops', () => {
+    const warmStops = [
+      { position: 0, color: '#201010' },
+      { position: 0.5, color: '#ffb347' },
+      { position: 1, color: '#fff2cc' },
+    ];
+    const coolStops = [
+      { position: 0, color: '#081018' },
+      { position: 0.5, color: '#4fd1ff' },
+      { position: 1, color: '#d9f3ff' },
+    ];
+
+    const warm = resolveSampledFlatPositionMix({
+      stops: warmStops,
+      flatPosition: 0.5,
+      spread: 84,
+    });
+    const cool = resolveSampledFlatPositionMix({
+      stops: coolStops,
+      flatPosition: 0.5,
+      spread: 84,
+    });
+
+    expect(warm).not.toBeNull();
+    expect(cool).not.toBeNull();
+    expect(warm?.targetColor).not.toEqual(cool?.targetColor);
+    expect(warm?.flatPosition).toBeCloseTo(0.5, 6);
+    expect(cool?.flatPosition).toBeCloseTo(0.5, 6);
+    expect(warm?.flatMix).toBeGreaterThan(0);
+    expect(cool?.flatMix).toBeGreaterThan(0);
+    expect([warm?.lowIndex, warm?.highIndex]).toEqual(resolveFlatInkSetForPosition(0.5, 2, 0, 84).indices);
+    expect([cool?.lowIndex, cool?.highIndex]).toEqual(resolveFlatInkSetForPosition(0.5, 2, 0, 84).indices);
+  });
+
+  it('keeps sampled-flat pair selection driven by tone and spread even for monochrome sources', () => {
+    const solved = resolveSampledFlatPositionMix({
+      stops: [
+        { position: 0, color: '#6f6f6f' },
+        { position: 1, color: '#6f6f6f' },
+      ],
+      flatPosition: 0.5,
+      spread: 100,
+    });
+
+    expect(solved).not.toBeNull();
+    expect([solved?.lowIndex, solved?.highIndex]).toEqual([104, 152]);
+    expect(solved?.flatMix).toBeCloseTo(0.5, 6);
+  });
+
+  it('widens the sampled-flat pair directly as spread increases', () => {
+    const tight = resolveSampledFlatPositionMix({
+      stops: [
+        { position: 0, color: '#163d16' },
+        { position: 0.5, color: '#1f4d27' },
+        { position: 1, color: '#4f8b5b' },
+      ],
+      flatPosition: 0.5,
+      spread: 0,
+    });
+    const wide = resolveSampledFlatPositionMix({
+      stops: [
+        { position: 0, color: '#163d16' },
+        { position: 0.5, color: '#1f4d27' },
+        { position: 1, color: '#4f8b5b' },
+      ],
+      flatPosition: 0.5,
+      spread: 100,
+    });
+
+    expect(tight).not.toBeNull();
+    expect(wide).not.toBeNull();
+    expect((wide?.highIndex ?? 0) - (wide?.lowIndex ?? 0)).toBeGreaterThan(
+      (tight?.highIndex ?? 0) - (tight?.lowIndex ?? 0)
+    );
+    expect([tight?.lowIndex, tight?.highIndex]).toEqual([127, 129]);
+    expect([wide?.lowIndex, wide?.highIndex]).toEqual([104, 152]);
+  });
+
+  it('maps sampled-flat tone directly into the spread-adjusted interior occupancy window', () => {
+    const dark = resolveSampledFlatPositionMix({
+      stops: [
+        { position: 0, color: '#10330f' },
+        { position: 0.5, color: '#134012' },
+        { position: 1, color: '#2c6b28' },
+      ],
+      flatPosition: 0.1,
+      spread: 100,
+    });
+    const mid = resolveSampledFlatPositionMix({
+      stops: [
+        { position: 0, color: '#777777' },
+        { position: 0.5, color: '#8b8b8b' },
+        { position: 1, color: '#a1a1a1' },
+      ],
+      flatPosition: 0.5,
+      spread: 100,
+    });
+    const bright = resolveSampledFlatPositionMix({
+      stops: [
+        { position: 0, color: '#c9c9c9' },
+        { position: 0.5, color: '#e7e7e7' },
+        { position: 1, color: '#fafafa' },
+      ],
+      flatPosition: 0.9,
+      spread: 100,
+    });
+
+    expect(dark).not.toBeNull();
+    expect(mid).not.toBeNull();
+    expect(bright).not.toBeNull();
+    expect(dark?.flatMix).toBeCloseTo(0.212, 6);
+    expect(mid?.flatMix).toBeCloseTo(0.5, 6);
+    expect(bright?.flatMix).toBeCloseTo(0.788, 6);
+    expect((dark?.flatMix ?? 0) < (mid?.flatMix ?? 0)).toBe(true);
+    expect((mid?.flatMix ?? 0) < (bright?.flatMix ?? 0)).toBe(true);
+  });
+
+  it('lets spread widen the sampled-flat occupancy window without changing tone ordering', () => {
+    const tight = resolveSampledFlatPositionMix({
+      stops: [
+        { position: 0, color: '#d7d7d7' },
+        { position: 0.5, color: '#ececec' },
+        { position: 1, color: '#fafafa' },
+      ],
+      flatPosition: 0.9,
+      spread: 0,
+    });
+    const wide = resolveSampledFlatPositionMix({
+      stops: [
+        { position: 0, color: '#d7d7d7' },
+        { position: 0.5, color: '#ececec' },
+        { position: 1, color: '#fafafa' },
+      ],
+      flatPosition: 0.9,
+      spread: 100,
+    });
+
+    expect(tight).not.toBeNull();
+    expect(wide).not.toBeNull();
+    expect(tight?.flatMix).toBeCloseTo(0.612, 6);
+    expect(wide?.flatMix).toBeCloseTo(0.788, 6);
+    expect((wide?.flatMix ?? 0) > (tight?.flatMix ?? 0)).toBe(true);
   });
 
   it('uses sampledStopsOverride for flat sampled solving when no active sampled session exists', async () => {
@@ -163,15 +308,7 @@ describe('fillCcGradientDither', () => {
       { position: 0.5, color: '#ffb347' },
       { position: 1, color: '#fff2cc' },
     ];
-    const expectedPair = (() => {
-      const solved = resolveSampledFlatBandMix({
-        stops: warmStops,
-        flatPosition: 0.5,
-        spread: 84,
-      });
-      const band = solved?.band ?? 2;
-      return resolveFlatInkSetForBand(band, 2, 0, 84).indices;
-    })();
+    const expectedPair = resolveFlatInkSetForPosition(0.5, 2, 0, 84).indices;
 
     await fillCcGradientDither({
       vertices: [
@@ -201,8 +338,8 @@ describe('fillCcGradientDither', () => {
     ).toEqual(expectedPair);
   });
 
-  it('does not let sampled flat solving jump to a far-away extreme band', () => {
-    const solved = resolveSampledFlatBandMix({
+  it('does not let sampled flat solving jump away from the sampled-position pair', () => {
+    const solved = resolveSampledFlatPositionMix({
       stops: [
         { position: 0, color: '#0d0a08' },
         { position: 1, color: '#f7c66e' },
@@ -213,7 +350,27 @@ describe('fillCcGradientDither', () => {
     });
 
     expect(solved).not.toBeNull();
-    expect(solved?.band).toBeGreaterThanOrEqual(2);
+    expect([solved?.lowIndex, solved?.highIndex]).toEqual(
+      resolveFlatInkSetForPosition(0.74, 2, 0, 98).indices
+    );
+  });
+
+  it('keeps sampled flat solving on the sampled position pair instead of a band-derived pair', () => {
+    const solved = resolveSampledFlatPositionMix({
+      stops: [
+        { position: 0, color: '#0d0a08' },
+        { position: 1, color: '#f7c66e' },
+      ],
+      flatPosition: 0.74,
+      baseOffset: 0,
+      spread: 98,
+    });
+
+    expect(solved).not.toBeNull();
+    expect(solved?.flatPosition).toBeCloseTo(0.74, 6);
+    expect([solved?.lowIndex, solved?.highIndex]).toEqual(
+      resolveFlatInkSetForPosition(0.74, 2, 0, 98).indices
+    );
   });
 
   it('uses band-local ink pairs when pairBandCount is provided', async () => {
@@ -416,6 +573,68 @@ describe('fillCcGradientDither', () => {
     expect(valuesB).toHaveLength(2);
     expect(valuesA).toEqual(valuesB);
     expect(Array.from(seedA)).not.toEqual(Array.from(seedB));
+  });
+
+  it('derives sampled-flat Sierra pattern identity from pair and mix instead of legacy band', async () => {
+    const run = (tone: number) => {
+      const gridW = 8;
+      const gridH = 8;
+      const out = new Uint16Array(gridW * gridH);
+
+      fillFlatPatternMode({
+        algorithm: 'sierra-lite',
+        tone,
+        flatLowIndex: 28,
+        flatHighIndex: 36,
+        flatMix: 0.61,
+        flatSeed: 11,
+        spread: 84,
+        gridW,
+        gridH,
+        fillBackground: true,
+        baseOffset: 0,
+        phaseX: 0,
+        phaseY: 0,
+        writeCellIndex: (cellIdx, index) => {
+          out[cellIdx] = index;
+        },
+      });
+
+      return Array.from(out);
+    };
+
+    expect(run(0.12)).toEqual(run(0.88));
+  });
+
+  it('keeps sampled-flat Sierra bit layout stable across nearby equivalent pair/mix solves', () => {
+    const run = (flatMix: number) => {
+      const gridW = 8;
+      const gridH = 8;
+      const out = new Uint16Array(gridW * gridH);
+
+      fillFlatPatternMode({
+        algorithm: 'sierra-lite',
+        tone: 0.5,
+        flatLowIndex: 28,
+        flatHighIndex: 36,
+        flatMix,
+        flatSeed: 11,
+        spread: 84,
+        gridW,
+        gridH,
+        fillBackground: true,
+        baseOffset: 0,
+        phaseX: 0,
+        phaseY: 0,
+        writeCellIndex: (cellIdx, index) => {
+          out[cellIdx] = index;
+        },
+      });
+
+      return Array.from(out);
+    };
+
+    expect(run(0.6101)).toEqual(run(0.6102));
   });
 
   it('uses two separated inks for each Sierra Lite flat tone band', () => {
