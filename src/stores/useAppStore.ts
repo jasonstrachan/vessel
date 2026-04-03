@@ -236,6 +236,7 @@ import {
   PressureSettings,
   applyPressureUpdate,
   applyPressureToTools,
+  isColorCycleBrushShape,
 } from '@/stores/helpers/toolsState';
 import { createColorCycleSlice } from '@/stores/slices/colorCycleSlice';
 import type { CCReason, ColorCycleRuntimeHandlers, ColorCycleUIState } from '@/stores/slices/colorCycleSlice';
@@ -339,6 +340,10 @@ export interface AppState {
   
   // Brush-specific settings storage
   brushSpecificSettings: Record<string, Partial<BrushSettings>>;
+  ccBrushDitherSelection: {
+    ditherAlgorithm?: BrushSettings['ditherAlgorithm'];
+    patternStyle?: BrushSettings['patternStyle'];
+  };
   shapeModeByBrush: Record<string, boolean>;
   saveBrushSettings: (brushId: string, settings: Partial<BrushSettings>) => void;
   loadBrushSettings: (brushId: string) => Partial<BrushSettings>;
@@ -966,6 +971,23 @@ const hydrateGlobalBrushSettings = (): void => {
         }
       }
     }
+    if (payload.ccBrushDitherSelection && typeof payload.ccBrushDitherSelection === 'object') {
+      partial.ccBrushDitherSelection = payload.ccBrushDitherSelection;
+      if (isColorCycleBrushShape(nextTools.brushSettings.brushShape)) {
+        nextTools = {
+          ...nextTools,
+          brushSettings: {
+            ...nextTools.brushSettings,
+            ...(payload.ccBrushDitherSelection.ditherAlgorithm !== undefined
+              ? { ditherAlgorithm: payload.ccBrushDitherSelection.ditherAlgorithm }
+              : {}),
+            ...(payload.ccBrushDitherSelection.patternStyle !== undefined
+              ? { patternStyle: payload.ccBrushDitherSelection.patternStyle }
+              : {}),
+          },
+        };
+      }
+    }
     if (payload.shapeModeByBrush && typeof payload.shapeModeByBrush === 'object') {
       partial.shapeModeByBrush = payload.shapeModeByBrush;
       const activePresetId = state.currentBrushPreset?.id ?? null;
@@ -1054,6 +1076,7 @@ const subscribeToGlobalBrushPersistence = (): void => {
   storeSubscribeWithSelector(
     (state) => ({
       brushSpecificSettings: state.brushSpecificSettings,
+      ccBrushDitherSelection: state.ccBrushDitherSelection,
       shapeModeByBrush: state.shapeModeByBrush,
       globalBrushSize: state.globalBrushSize,
       pressureSettings: state.pressureSettings,
@@ -1062,6 +1085,7 @@ const subscribeToGlobalBrushPersistence = (): void => {
     (next, prev) => {
       if (
         next.brushSpecificSettings === prev.brushSpecificSettings &&
+        next.ccBrushDitherSelection === prev.ccBrushDitherSelection &&
         next.shapeModeByBrush === prev.shapeModeByBrush &&
         next.globalBrushSize === prev.globalBrushSize &&
         next.pressureSettings === prev.pressureSettings &&
@@ -1073,6 +1097,7 @@ const subscribeToGlobalBrushPersistence = (): void => {
       scheduleSave({
         globalBrushSize: next.globalBrushSize,
         brushSpecificSettings: next.brushSpecificSettings,
+        ccBrushDitherSelection: next.ccBrushDitherSelection,
         shapeModeByBrush: next.shapeModeByBrush,
         pressureSettings: next.pressureSettings,
         lastBrushId: next.lastBrushId ?? undefined,
@@ -1081,6 +1106,7 @@ const subscribeToGlobalBrushPersistence = (): void => {
     {
       equalityFn: (a, b) =>
         a.brushSpecificSettings === b.brushSpecificSettings &&
+        a.ccBrushDitherSelection === b.ccBrushDitherSelection &&
         a.shapeModeByBrush === b.shapeModeByBrush &&
         a.globalBrushSize === b.globalBrushSize &&
         a.pressureSettings === b.pressureSettings &&

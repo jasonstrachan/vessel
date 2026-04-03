@@ -59,6 +59,8 @@ describe('brushSettingsStorage', () => {
         'color-cycle-gradient': {
           spacing: 4,
           ccGradientSamplePerShape: true,
+          ditherAlgorithm: 'pattern',
+          patternStyle: 'crosshatch',
         },
       },
     }));
@@ -89,6 +91,8 @@ describe('brushSettingsStorage', () => {
         'color-cycle-gradient': {
           spacing: 4,
           ccGradientSamplePerShape: true,
+          ditherAlgorithm: 'pattern',
+          patternStyle: 'crosshatch',
         } as Partial<Record<string, unknown>>,
       },
     } as Parameters<typeof saveGlobalBrushSettings>[0]);
@@ -97,6 +101,35 @@ describe('brushSettingsStorage', () => {
     expect(payload).toEqual({
       brushSpecificSettings: {
         'color-cycle-gradient': {
+          spacing: 4,
+        },
+      },
+    });
+  });
+
+  it('persists shared CC dither selection separately from brush-specific settings', () => {
+    saveGlobalBrushSettings({
+      ccBrushDitherSelection: {
+        ditherAlgorithm: 'pattern',
+        patternStyle: 'crosshatch',
+      },
+      brushSpecificSettings: {
+        'color-cycle-stroke': {
+          spacing: 4,
+          ditherAlgorithm: 'bayer',
+          patternStyle: 'dots',
+        },
+      },
+    });
+
+    const payload = JSON.parse((storage.setItem as jest.Mock).mock.calls[0][1]);
+    expect(payload).toEqual({
+      ccBrushDitherSelection: {
+        ditherAlgorithm: 'pattern',
+        patternStyle: 'crosshatch',
+      },
+      brushSpecificSettings: {
+        'color-cycle-stroke': {
           spacing: 4,
         },
       },

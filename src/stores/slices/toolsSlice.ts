@@ -195,8 +195,6 @@ const getSerializableBrushSettings = (settings: BrushSettings): Partial<BrushSet
   ditherEnabled: settings.ditherEnabled,
   ditherPhaseJitter: settings.ditherPhaseJitter,
   ditherPaletteSpread: settings.ditherPaletteSpread,
-  ditherAlgorithm: settings.ditherAlgorithm,
-  patternStyle: settings.patternStyle,
   ditherStrokeTipShape: settings.ditherStrokeTipShape,
   ditherBackgroundFill: settings.ditherBackgroundFill,
   ditherGradBgFill: settings.ditherGradBgFill,
@@ -297,6 +295,10 @@ export interface ToolsSlice {
   recolorSampling: RecolorSamplingState;
   brushEditor: BrushEditorState;
   brushSpecificSettings: Record<string, Partial<BrushSettings>>;
+  ccBrushDitherSelection: {
+    ditherAlgorithm?: BrushSettings['ditherAlgorithm'];
+    patternStyle?: BrushSettings['patternStyle'];
+  };
   shapeModeByBrush: Record<string, boolean>;
   setShapeDrawing: (isDrawing: boolean) => void;
   addShapePoint: (point: ShapePoint) => void;
@@ -368,6 +370,10 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
   recolorSampling: createDefaultRecolorSamplingState(),
   brushEditor: defaultBrushEditorState,
   brushSpecificSettings: {},
+  ccBrushDitherSelection: {
+    ditherAlgorithm: defaultBrushSettingsForStore.ditherAlgorithm,
+    patternStyle: defaultBrushSettingsForStore.patternStyle,
+  },
   shapeModeByBrush: {},
 
   setShapeDrawing: (isDrawing) =>
@@ -747,6 +753,7 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
       : (currentSettings.brushShape === BrushShape.CUSTOM && currentSettings.selectedCustomBrush 
          ? currentSettings.selectedCustomBrush 
          : null);
+    const isCurrentColorCycleBrush = Boolean(currentBrushId && isColorCyclePresetId(currentBrushId));
 
     // The dedicated dither brush should never disable dithering
     if (DITHER_BRUSH_IDS.includes(currentBrushId ?? '') && newSettings.ditherEnabled !== true) {
@@ -764,6 +771,8 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
       const settingsToSave: Partial<BrushSettings> = {
         ...existingSavedSettings
       };
+      delete settingsToSave.ditherAlgorithm;
+      delete settingsToSave.patternStyle;
 
       delete settingsToSave.pressureEnabled;
       delete settingsToSave.minPressure;
@@ -781,12 +790,6 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
       }
       if (settings.ditherPaletteSpread !== undefined) {
         settingsToSave.ditherPaletteSpread = newSettings.ditherPaletteSpread;
-      }
-      if (settings.ditherAlgorithm !== undefined) {
-        settingsToSave.ditherAlgorithm = newSettings.ditherAlgorithm;
-      }
-      if (settings.patternStyle !== undefined) {
-        settingsToSave.patternStyle = newSettings.patternStyle;
       }
       if (settings.ditherStrokeTipShape !== undefined) {
         settingsToSave.ditherStrokeTipShape = newSettings.ditherStrokeTipShape;
@@ -1108,7 +1111,20 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
       globalBrushSize: isCustomBrush
         ? state.globalBrushSize
         : (typeof newSettings.size === 'number' ? newSettings.size : state.globalBrushSize),
-      pressureSettings: nextPressure
+      pressureSettings: nextPressure,
+      ccBrushDitherSelection:
+        isCurrentColorCycleBrush &&
+        (settings.ditherAlgorithm !== undefined || settings.patternStyle !== undefined)
+          ? {
+              ...state.ccBrushDitherSelection,
+              ...(settings.ditherAlgorithm !== undefined
+                ? { ditherAlgorithm: newSettings.ditherAlgorithm }
+                : {}),
+              ...(settings.patternStyle !== undefined
+                ? { patternStyle: newSettings.patternStyle }
+                : {}),
+            }
+          : state.ccBrushDitherSelection,
     };
 
     updatedState = {
@@ -1754,6 +1770,14 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
     }
     if (newBrushSettings.colorCycleFlowMode && newBrushSettings.colorCycleFlowMode !== 'forward') {
       newBrushSettings.colorCycleFlowMode = 'forward';
+    }
+    if (isColorCyclePresetId(preset.id)) {
+      if (state.ccBrushDitherSelection.ditherAlgorithm !== undefined) {
+        newBrushSettings.ditherAlgorithm = state.ccBrushDitherSelection.ditherAlgorithm;
+      }
+      if (state.ccBrushDitherSelection.patternStyle !== undefined) {
+        newBrushSettings.patternStyle = state.ccBrushDitherSelection.patternStyle;
+      }
     }
 
     const previousGradient = currentSettings.colorCycleGradient;
@@ -2515,6 +2539,8 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
         ...existingSettings,
         ...getSerializableBrushSettings(currentBrushSettings),
       };
+      delete settingsToSave.ditherAlgorithm;
+      delete settingsToSave.patternStyle;
       if (brushIdToSave !== 'color-cycle-gradient' && settingsToSave.colorCycleFillMode !== undefined) {
         delete settingsToSave.colorCycleFillMode;
       }
@@ -2530,6 +2556,8 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
     set((state) => {
       const existingSettings = state.brushSpecificSettings[brushId] || {};
       const newSettings = { ...existingSettings, ...settings };
+      delete newSettings.ditherAlgorithm;
+      delete newSettings.patternStyle;
       if (newSettings.colorCycleFlowMode && newSettings.colorCycleFlowMode !== 'forward') {
         newSettings.colorCycleFlowMode = 'forward';
       }
@@ -2550,6 +2578,8 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
     } as Partial<BrushSettings> & { colorCycleFlowForward?: boolean };
 
     delete (normalized as Partial<BrushSettings> & { ccGradientSamplePerShape?: unknown }).ccGradientSamplePerShape;
+    delete normalized.ditherAlgorithm;
+    delete normalized.patternStyle;
 
     if (normalized.colorCycleFlowForward !== undefined) {
       normalized.colorCycleFlowMode = 'forward';
