@@ -253,6 +253,75 @@ describe('ColorCycleBrushCanvas2D regression tests', () => {
     expect(Math.abs(left - right)).toBeLessThanOrEqual(1);
   });
 
+  it('uses a slower animation speed byte for flat sierra CC fills than banded CC fills', async () => {
+    const createBrush = (layerId: string) => {
+      const canvas = makeCanvas(24, 12);
+      const brush = new ColorCycleBrushCanvas2D(canvas, { forceCanvas2D: true });
+      brush.setSpeed(1);
+      brush.setDitherEnabled(true);
+      brush.setStampDitherAlgorithm('sierra-lite');
+      brush.setGradientBands(16);
+      brush.setBandSpacing(1);
+      return { brush, layerId, canvas };
+    };
+    const vertices = [
+      { x: 0, y: 0 },
+      { x: 23, y: 0 },
+      { x: 23, y: 11 },
+      { x: 0, y: 11 },
+    ];
+
+    const flat = createBrush('layer-flat-speed');
+    await flat.brush.fillShapeDispatch({
+      mode: 'linear',
+      vertices,
+      layerId: flat.layerId,
+      direction: { x: 1, y: 0 },
+      options: {
+        spacing: 1,
+        ccGradient: true,
+        ditherLevels: 1,
+        ditherPairBandCount: 0,
+      },
+    });
+
+    const banded = createBrush('layer-banded-speed');
+    await banded.brush.fillShapeDispatch({
+      mode: 'linear',
+      vertices,
+      layerId: banded.layerId,
+      direction: { x: 1, y: 0 },
+      options: {
+        spacing: 1,
+        ccGradient: true,
+        ditherLevels: 4,
+        ditherPairBandCount: 3,
+      },
+    });
+
+    const flatAnimator = (flat.brush as unknown as {
+      animators: Map<string, { getIndexBuffers: () => { spd: Uint8Array } }>;
+    }).animators.get(flat.layerId);
+    const bandedAnimator = (banded.brush as unknown as {
+      animators: Map<string, { getIndexBuffers: () => { spd: Uint8Array } }>;
+    }).animators.get(banded.layerId);
+
+    if (!flatAnimator || !bandedAnimator) {
+      throw new Error('Missing animator for CC fill speed regression test');
+    }
+
+    const flatSpeedByte = Array.from(flatAnimator.getIndexBuffers().spd).find((value) => value > 0);
+    const bandedSpeedByte = Array.from(bandedAnimator.getIndexBuffers().spd).find((value) => value > 0);
+
+    expect(flatSpeedByte).toBeDefined();
+    expect(bandedSpeedByte).toBeDefined();
+
+    const flatSpeed = decodeColorCycleSpeedByte(flatSpeedByte as number);
+    const bandedSpeed = decodeColorCycleSpeedByte(bandedSpeedByte as number);
+
+    expect(flatSpeed).toBeLessThan(bandedSpeed);
+  });
+
   it('lost-edge only modifies pixels written by the fill', async () => {
     const canvas = makeCanvas(64, 64);
     const brush = new ColorCycleBrushCanvas2D(canvas, { forceCanvas2D: true });
@@ -424,7 +493,7 @@ describe('ColorCycleBrushCanvas2D regression tests', () => {
       vertices: rect,
       layerId: twoStopLayer,
       direction: { x: 1, y: 0 },
-      options: { ccGradient: true, continuous: true, spacing: 1 },
+      options: { ccGradient: true, continuous: true, spacing: 1, ditherLevels: 4, ditherPairBandCount: 3 },
     });
 
     const twoStopAnimator = (brush as unknown as {
@@ -451,7 +520,7 @@ describe('ColorCycleBrushCanvas2D regression tests', () => {
       vertices: rect,
       layerId: fiveStopLayer,
       direction: { x: 1, y: 0 },
-      options: { ccGradient: true, continuous: true, spacing: 1 },
+      options: { ccGradient: true, continuous: true, spacing: 1, ditherLevels: 4, ditherPairBandCount: 3 },
     });
 
     const fiveStopAnimator = (brush as unknown as {

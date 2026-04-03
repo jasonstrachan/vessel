@@ -328,6 +328,7 @@ interface StampMaskCacheEntry {
 const STAMP_MASK_ROTATION_TOLERANCE = Math.PI / 180; // ~1°
 const STAMP_MASK_CACHE_LIMIT = 80;
 const COLOR_CYCLE_FILL_WORKER_AREA = 240_000; // pixels
+const CC_FLAT_SIERRA_CADENCE_SCALE = 0.05;
 const nowMs = () => (typeof performance !== 'undefined' ? performance.now() : Date.now());
 
 const createYieldController = () => {
@@ -1034,8 +1035,31 @@ export class ColorCycleBrushCanvas2D {
     return encodeColorCycleSpeedByte(this.getWriteCycleSpeed(strokeData));
   }
 
-  private getCcGradientFillSpeedByte(strokeData?: LayerStrokeState | null): number {
+  private resolveCcGradientFillSpeed(
+    strokeData?: LayerStrokeState | null,
+    options?: {
+      pairBandCount?: number;
+      ditherAlgorithm?: StampDitherAlgorithm;
+    }
+  ): number {
     const baseSpeed = this.getWriteCycleSpeed(strokeData);
+    const shouldUseFlatSierraCadence =
+      (options?.pairBandCount ?? 0) <= 0 &&
+      (options?.ditherAlgorithm ?? 'sierra-lite') === 'sierra-lite';
+    if (!shouldUseFlatSierraCadence) {
+      return baseSpeed;
+    }
+    return sanitizeBrushColorCycleSpeed(baseSpeed * CC_FLAT_SIERRA_CADENCE_SCALE, baseSpeed);
+  }
+
+  private getCcGradientFillSpeedByte(
+    strokeData?: LayerStrokeState | null,
+    options?: {
+      pairBandCount?: number;
+      ditherAlgorithm?: StampDitherAlgorithm;
+    }
+  ): number {
+    const baseSpeed = this.resolveCcGradientFillSpeed(strokeData, options);
     if (!Number.isFinite(baseSpeed) || baseSpeed <= 0) {
       return 0;
     }
@@ -1054,11 +1078,15 @@ export class ColorCycleBrushCanvas2D {
 
   private resolveShapeAnimationBytes(
     strokeData?: LayerStrokeState | null,
-    options?: { ccGradient?: boolean }
+    options?: {
+      ccGradient?: boolean;
+      pairBandCount?: number;
+      ditherAlgorithm?: StampDitherAlgorithm;
+    }
   ): { speedByte: number; flowByte: number } {
     return {
       speedByte: options?.ccGradient
-        ? this.getCcGradientFillSpeedByte(strokeData)
+        ? this.getCcGradientFillSpeedByte(strokeData, options)
         : this.getWriteSpeedByte(strokeData),
       flowByte: this.getFlowByteForMode(),
     };
@@ -3032,7 +3060,13 @@ export class ColorCycleBrushCanvas2D {
     const baseOffset = Number.isFinite(options?.ditherBaseOffsetOverride)
       ? Math.max(0, Math.min(254, Math.round(options?.ditherBaseOffsetOverride as number)))
       : this.stampCounter % 255;
-    const { speedByte, flowByte } = this.resolveShapeAnimationBytes(strokeData, { ccGradient });
+    const fillAlgorithm = this.stampDitherAlgorithm ?? 'sierra-lite';
+    const pairBandCount = Math.max(0, Math.floor(options?.ditherPairBandCount ?? 0));
+    const { speedByte, flowByte } = this.resolveShapeAnimationBytes(strokeData, {
+      ccGradient,
+      pairBandCount,
+      ditherAlgorithm: fillAlgorithm,
+    });
     if (logCcFill) {
       debugLog('cc-fill', '[CC fill] linear path flags', {
         hasGL: (() => {
@@ -3204,10 +3238,8 @@ export class ColorCycleBrushCanvas2D {
         });
       };
 
-      const fillAlgorithm = this.stampDitherAlgorithm ?? 'sierra-lite';
       const fillPatternStyle = this.stampDitherPatternStyle ?? 'dots';
       if (ccGradient && this.ditherEnabled) {
-        const pairBandCount = Math.max(0, Math.floor(options?.ditherPairBandCount ?? 0));
         const quantLevels = ditherLevels ?? (pairBandCount > 0 ? Math.max(2, numBands) : 1);
         const pixelSize = Math.max(1, Math.floor(options?.ditherPixelSize ?? this.ditherPixelSize));
         const flatPairSpread =
@@ -3989,7 +4021,13 @@ export class ColorCycleBrushCanvas2D {
     const baseOffset = this.stampCounter % 255;
     const numBands = this.deriveBandCountFromDistance(maxDist, spacingValue);
     const stepPerBand = numBands > 1 ? 254 / (numBands - 1) : 254;
-    const { speedByte, flowByte } = this.resolveShapeAnimationBytes(strokeData, { ccGradient });
+    const fillAlgorithm = this.stampDitherAlgorithm ?? 'sierra-lite';
+    const pairBandCount = Math.max(0, Math.floor(options?.ditherPairBandCount ?? 0));
+    const { speedByte, flowByte } = this.resolveShapeAnimationBytes(strokeData, {
+      ccGradient,
+      pairBandCount,
+      ditherAlgorithm: fillAlgorithm,
+    });
 
     // Attempt GPU path first so most shapes stay off the CPU.
     if (!this.perceptualDither) {
@@ -4156,10 +4194,8 @@ export class ColorCycleBrushCanvas2D {
     };
 
     try {
-      const fillAlgorithm = this.stampDitherAlgorithm ?? 'sierra-lite';
       const fillPatternStyle = this.stampDitherPatternStyle ?? 'dots';
       if (ccGradient && this.ditherEnabled) {
-        const pairBandCount = Math.max(0, Math.floor(options?.ditherPairBandCount ?? 0));
         const quantLevels = ditherLevels ?? (pairBandCount > 0 ? Math.max(2, numBands) : 1);
         const pixelSize = Math.max(1, Math.floor(options?.ditherPixelSize ?? this.ditherPixelSize));
         const flatPairSpread =
