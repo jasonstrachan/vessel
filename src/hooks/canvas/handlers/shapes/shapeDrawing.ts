@@ -187,6 +187,21 @@ const normalizeSnappedShapePoints = (
   );
 };
 
+const shouldUseSimpleShapePreview = (state: AppState): boolean => {
+  const brushSettings = state.tools.brushSettings;
+  const isCCShape = brushSettings.brushShape === BrushShape.COLOR_CYCLE_SHAPE;
+  if (!isCCShape) {
+    return true;
+  }
+
+  const presetId = state.currentBrushPreset?.id ?? null;
+  const isLinearPreview = brushSettings.colorCycleFillMode === 'linear';
+  const isGradientPreset = presetId === 'color-cycle-gradient';
+  const isDitherPreview = Boolean(brushSettings.ditherEnabled) && (isLinearPreview || isGradientPreset);
+
+  return !isDitherPreview;
+};
+
 type ShapeDrawingDeps = {
   storeRef: React.MutableRefObject<AppState>;
   toolsRef: React.MutableRefObject<AppState['tools']>;
@@ -525,7 +540,7 @@ export const startShapeDrawing = (
     if (isAdvancedShape && refs.isDrawingShapeRef.current && refs.shapePointsRef.current.length > 0) {
       refs.shapePointsRef.current.push(drawPos);
       deps.seedManualStrokeBoundingBox(refs.shapePointsRef.current, 2);
-      if (renderPreview) {
+      if (renderPreview && shouldUseSimpleShapePreview(deps.storeRef.current)) {
         deps.triggerSimpleShapePreview();
       }
       try {
@@ -552,7 +567,7 @@ export const startShapeDrawing = (
       refs.shapeDragStartRef.current = drawPos;
       refs.shapeDragLastRef.current = drawPos;
       refs.shapeDragMovedRef.current = false;
-      if (renderPreview) {
+      if (renderPreview && shouldUseSimpleShapePreview(deps.storeRef.current)) {
         deps.triggerSimpleShapePreview();
       }
       try {
@@ -754,7 +769,7 @@ export const continueShapeDrawing = (
     );
     if (added > 0 || refs.shapeDragMovedRef.current) {
       deps.seedManualStrokeBoundingBox(refs.shapePointsRef.current, 2);
-      if (renderPreview) {
+      if (renderPreview && shouldUseSimpleShapePreview(store)) {
         deps.capturePendingShapeSnapshot();
         deps.triggerSimpleShapePreview();
       }
@@ -1004,7 +1019,9 @@ export const finalizeShapeDrawing = async (
         args.refs.isSelectingDirectionRef.current = false;
         args.refs.directionPreviewRef.current = null;
         args.refs.shapePointsRef.current = [];
-        deps.triggerSimpleShapePreview();
+        if (shouldUseSimpleShapePreview(deps.storeRef.current)) {
+          deps.triggerSimpleShapePreview();
+        }
         args.refs.isDrawingShapeRef.current = false;
         deps.resetShapeDragRefs();
 
@@ -1197,7 +1214,9 @@ export const finalizeShapeDrawing = async (
 
         if (!args.refs.isSelectingDirectionRef.current) {
           args.refs.shapePointsRef.current = [];
-          deps.triggerSimpleShapePreview();
+          if (shouldUseSimpleShapePreview(deps.storeRef.current)) {
+            deps.triggerSimpleShapePreview();
+          }
           args.refs.isDrawingShapeRef.current = false;
           deps.resetShapeDragRefs();
         }
@@ -1265,7 +1284,9 @@ export const finalizeShapeDrawing = async (
 
       if (args.refs.isDrawingShapeRef.current) {
         args.refs.shapePointsRef.current = [];
-        deps.triggerSimpleShapePreview();
+        if (shouldUseSimpleShapePreview(deps.storeRef.current)) {
+          deps.triggerSimpleShapePreview();
+        }
         args.refs.isDrawingShapeRef.current = false;
         deps.resetShapeDragRefs();
       }
@@ -1301,4 +1322,5 @@ export const __TESTING__ = {
   resolveColorCycleFillMode,
   resolveDitherGridSnapPoint,
   normalizeSnappedShapePoints,
+  shouldUseSimpleShapePreview,
 };

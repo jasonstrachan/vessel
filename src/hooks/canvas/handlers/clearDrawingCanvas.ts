@@ -1,5 +1,6 @@
 import type React from 'react';
 import { setOverlaySeededFromLayer } from '@/hooks/canvas/utils/overlaySeedState';
+import { logLivePreview } from '@/hooks/canvas/utils/livePreviewDebug';
 
 interface ClearDrawingCanvasOptions {
   drawingCtxRef: React.MutableRefObject<CanvasRenderingContext2D | null>;
@@ -24,6 +25,9 @@ export const clearDrawingCanvas = ({
   endMaskHealingStroke,
   resetShapeDragRefs,
 }: ClearDrawingCanvasOptions): void => {
+  const canvas = drawingCanvasRef.current;
+  const hadDrawingContent = drawingCanvasHasContent.current;
+
   if (drawingCtxRef.current && drawingCanvasRef.current) {
     drawingCtxRef.current.clearRect(0, 0, drawingCanvasRef.current.width, drawingCanvasRef.current.height);
     setOverlaySeededFromLayer(drawingCanvasRef.current, false);
@@ -39,6 +43,13 @@ export const clearDrawingCanvas = ({
 
   endMaskHealingStroke();
   resetShapeDragRefs();
+
+  logLivePreview('drawing-canvas-cleared', {
+    hadDrawingContent,
+    width: canvas?.width ?? null,
+    height: canvas?.height ?? null,
+    eraserV2Enabled,
+  });
 };
 
 export const createClearDrawingCanvasDispatcher = (

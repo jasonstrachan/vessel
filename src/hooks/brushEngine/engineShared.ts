@@ -67,6 +67,8 @@ export const AL = (step: string, obj: Record<string, unknown>) => {
   }
 };
 
+import { ensurePresResDebugBridge, isPresResDebugEnabled as isSharedPresResDebugEnabled } from '@/hooks/canvas/utils/presResDebug';
+
 export const DD = (step: string, obj: Record<string, unknown>) => {
   const level = typeof window !== 'undefined'
     ? (window as { __ditherDebugLevel?: number }).__ditherDebugLevel ?? 0
@@ -81,14 +83,8 @@ export const DD = (step: string, obj: Record<string, unknown>) => {
 };
 
 export const isPresResDebugEnabled = () => {
-  if (typeof window === 'undefined') {
-    return false;
-  }
-  const flag = (window as { __presResDebug?: unknown }).__presResDebug;
-  if (typeof flag === 'number') {
-    return flag > 0;
-  }
-  return Boolean(flag);
+  ensurePresResDebugBridge();
+  return isSharedPresResDebugEnabled();
 };
 
 export const appendPresResTrace = (entry: Record<string, unknown>) => {
