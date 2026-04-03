@@ -200,7 +200,7 @@ describe('fillCcGradientDither', () => {
     });
 
     expect(solved).not.toBeNull();
-    expect([solved?.lowIndex, solved?.highIndex]).toEqual([104, 152]);
+    expect([solved?.lowIndex, solved?.highIndex]).toEqual([65, 191]);
     expect(solved?.flatMix).toBeCloseTo(0.5, 6);
   });
 
@@ -230,7 +230,7 @@ describe('fillCcGradientDither', () => {
       (tight?.highIndex ?? 0) - (tight?.lowIndex ?? 0)
     );
     expect([tight?.lowIndex, tight?.highIndex]).toEqual([127, 129]);
-    expect([wide?.lowIndex, wide?.highIndex]).toEqual([104, 152]);
+    expect([wide?.lowIndex, wide?.highIndex]).toEqual([65, 191]);
   });
 
   it('maps sampled-flat tone directly into the spread-adjusted interior occupancy window', () => {
@@ -308,7 +308,18 @@ describe('fillCcGradientDither', () => {
       { position: 0.5, color: '#ffb347' },
       { position: 1, color: '#fff2cc' },
     ];
-    const expectedPair = resolveFlatInkSetForPosition(0.5, 2, 0, 84).indices;
+    const representativeRgb: [number, number, number] = [181, 146, 97];
+    const representativeTone =
+      (representativeRgb[0] * 0.2126 + representativeRgb[1] * 0.7152 + representativeRgb[2] * 0.0722) / 255;
+    const expectedPair = (() => {
+      const solved = resolveSampledFlatPositionMix({
+        stops: warmStops,
+        flatPosition: representativeTone,
+        spread: 84,
+        targetRgbOverride: representativeRgb,
+      });
+      return [solved?.lowIndex, solved?.highIndex];
+    })();
 
     await fillCcGradientDither({
       vertices: [
@@ -336,6 +347,108 @@ describe('fillCcGradientDither', () => {
     expect(
       Array.from(new Set(out)).filter((value) => value > 0).sort((a, b) => a - b)
     ).toEqual(expectedPair);
+  });
+
+  it('derives sampled flat Sierra-Lite from the averaged sampled target instead of geometric flat position', async () => {
+    const width = 12;
+    const height = 12;
+    const out = new Uint8Array(width * height);
+    const sampledStops = [
+      { position: 0, color: '#808080' },
+      { position: 1, color: '#808080' },
+    ];
+
+    await fillCcGradientDither({
+      vertices: [
+        { x: 0, y: 0 },
+        { x: width - 1, y: 0 },
+        { x: width - 1, y: height - 1 },
+        { x: 0, y: height - 1 },
+      ],
+      minX: 0,
+      minY: 0,
+      maxX: width - 1,
+      maxY: height - 1,
+      pixelSize: 1,
+      levels: 1,
+      baseOffset: 0,
+      flatPairSpread: 0,
+      algorithm: 'sierra-lite',
+      sampledStopsOverride: sampledStops,
+      sampleNormalized: () => 0.1,
+      writeIndex: (x, y, index) => {
+        out[y * width + x] = index;
+      },
+    });
+
+    const usedPair = Array.from(new Set(out)).filter((value) => value > 0).sort((a, b) => a - b);
+    expect(usedPair).toEqual([127, 129]);
+    expect(usedPair).not.toEqual(resolveFlatInkSetForPosition(0.1, 2, 0, 0).indices);
+  });
+
+  it('uses spatial flatPosition to vary sampled-flat Sierra-Lite occupancy while keeping the same pair', async () => {
+    const width = 16;
+    const height = 16;
+    const sampledStops = [
+      { position: 0, color: '#9d9d9d' },
+      { position: 1, color: '#9d9d9d' },
+    ];
+    const solved = resolveSampledFlatPositionMix({
+      stops: sampledStops,
+      flatPosition: 0.614,
+      baseOffset: 0,
+      spread: 63,
+    });
+    const highIndex = solved?.highIndex ?? 0;
+
+    const run = async (tone: number) => {
+      const out = new Uint8Array(width * height);
+      await fillCcGradientDither({
+        vertices: [
+          { x: 0, y: 0 },
+          { x: width - 1, y: 0 },
+          { x: width - 1, y: height - 1 },
+          { x: 0, y: height - 1 },
+        ],
+        minX: 0,
+        minY: 0,
+        maxX: width - 1,
+        maxY: height - 1,
+        pixelSize: 1,
+        levels: 1,
+        baseOffset: 0,
+        flatPairSpread: 63,
+        algorithm: 'sierra-lite',
+        sampledStopsOverride: sampledStops,
+        sampleNormalized: () => tone,
+        writeIndex: (x, y, index) => {
+          out[y * width + x] = index;
+        },
+      });
+      return out;
+    };
+
+    const lowerToneOut = await run(0.41);
+    const higherToneOut = await run(0.59);
+
+    const countIndex = (data: Uint8Array, index: number) => {
+      let count = 0;
+      for (let i = 0; i < data.length; i += 1) {
+        if (data[i] === index) {
+          count += 1;
+        }
+      }
+      return count;
+    };
+
+    expect(solved).not.toBeNull();
+    expect(
+      Array.from(new Set(lowerToneOut)).filter((value) => value > 0).sort((a, b) => a - b)
+    ).toEqual([solved?.lowIndex, solved?.highIndex]);
+    expect(
+      Array.from(new Set(higherToneOut)).filter((value) => value > 0).sort((a, b) => a - b)
+    ).toEqual([solved?.lowIndex, solved?.highIndex]);
+    expect(countIndex(higherToneOut, highIndex)).toBeGreaterThan(countIndex(lowerToneOut, highIndex));
   });
 
   it('does not let sampled flat solving jump away from the sampled-position pair', () => {
@@ -667,7 +780,7 @@ describe('fillCcGradientDither', () => {
 
     expect(tight[1] - tight[0]).toBeLessThan(medium[1] - medium[0]);
     expect(medium[1] - medium[0]).toBeLessThan(wide[1] - wide[0]);
-    expect(wide).toEqual([104, 152]);
+    expect(wide).toEqual([65, 191]);
   });
 
   it('shifts local flat ink pairs with baseOffset while keeping them centered on the sampled position', async () => {

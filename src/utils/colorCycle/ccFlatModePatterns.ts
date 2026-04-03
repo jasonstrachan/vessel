@@ -47,7 +47,7 @@ const SIERRA_LITE_MAX_MIX = 0.92;
 const FLAT_BAND_CENTERS: [number, number, number, number, number] = [26, 77, 128, 179, 230];
 const DEFAULT_FLAT_PAIR_HALF_SPREAD = 4;
 const MIN_FLAT_PAIR_HALF_SPREAD = 1;
-const MAX_FLAT_PAIR_HALF_SPREAD = 24;
+const MAX_FLAT_PAIR_HALF_SPREAD = 63;
 const MIN_FLAT_PAIR_DISTANCE = MIN_FLAT_PAIR_HALF_SPREAD * 2;
 const MAX_FLAT_PAIR_DISTANCE = MAX_FLAT_PAIR_HALF_SPREAD * 2;
 
@@ -380,9 +380,21 @@ const fillSierraLiteFlatPatternMode = ({
   const mixKey = Math.round(baseMix * 255) & 255;
   const lowIdx = inkSet.indices[0] & 255;
   const highIdx = inkSet.indices[1] & 255;
-  const patternKey = (mixKey << 16) ^ (lowIdx << 8) ^ highIdx;
-  const variant = resolvePatternVariant(flatSeed, patternKey);
+  const shapeSeed = (flatSeed ?? 0) >>> 0;
+  const seedPhaseX = shapeSeed & 7;
+  const seedPhaseY = (shapeSeed >>> 3) & 7;
+  const patternKey =
+    (mixKey << 16) ^
+    (lowIdx << 8) ^
+    highIdx ^
+    Math.imul(shapeSeed, 0x9e3779b1);
+  const variant = resolvePatternVariant(shapeSeed, patternKey);
   const patternFingerprint = `${patternKey}:${variant}:${patternBand}:${mixKey}:${lowIdx}:${highIdx}`;
+  const debugBits: number[] = [];
+  const debugThresholds: number[] = [];
+  const debugInitialErrs: number[] = [];
+  const debugCoords: Array<[number, number]> = [];
+  const debugIndices: number[] = [];
 
   ccLog('flat sierra pattern', {
     patternFingerprint,
@@ -394,7 +406,7 @@ const fillSierraLiteFlatPatternMode = ({
     lowIdx,
     highIdx,
     patternKey,
-    flatSeed: flatSeed ?? 0,
+    flatSeed: shapeSeed,
     variant,
     flatPosition: Number.isFinite(flatPosition) ? flatPosition : null,
   });
@@ -417,20 +429,22 @@ const fillSierraLiteFlatPatternMode = ({
       }
 
       const errorBandKey = isSampledFlat ? 0 : patternBand;
+      const seededX = x + phaseX + seedPhaseX;
+      const seededY = y + phaseY + seedPhaseY;
       const initialErr = resolveInitialError(
-        x + phaseX,
-        y + phaseY,
+        seededX,
+        seededY,
         errorBandKey,
-        flatSeed ?? 0,
+        shapeSeed,
         variant,
         patternKey
       );
       const value = clamp01(baseMix + initialErr + errors[idx]);
       const threshold = resolveSeededThreshold(
-        x + phaseX,
-        y + phaseY,
+        seededX,
+        seededY,
         errorBandKey,
-        flatSeed ?? 0,
+        shapeSeed,
         variant,
         patternKey
       );
@@ -442,6 +456,13 @@ const fillSierraLiteFlatPatternMode = ({
         : (bit === 0 ? inkSet.indices[0] : inkSet.indices[1]);
 
       writeCellIndex(idx, index);
+      if (debugBits.length < 24) {
+        debugBits.push(bit);
+        debugThresholds.push(Number(threshold.toFixed(4)));
+        debugInitialErrs.push(Number(initialErr.toFixed(4)));
+        debugCoords.push([seededX, seededY]);
+        debugIndices.push(index);
+      }
 
       if (!serpentine) {
         if (x + 1 < gridW && (!activeMask || activeMask[idx + 1])) {
@@ -470,6 +491,10 @@ const fillSierraLiteFlatPatternMode = ({
       }
     }
   }
+
+  ccLog(
+    `flat sierra samples fp=${patternFingerprint} variant=${variant} band=${resolvedBand} mix=${baseMix.toFixed(4)} low=${lowIdx} high=${highIdx} bits=${debugBits.join('')} thresholds=${debugThresholds.join(',')} initialErrs=${debugInitialErrs.join(',')} coords=${debugCoords.map(([x, y]) => `${x}:${y}`).join('|')} indices=${debugIndices.join(',')}`
+  );
 };
 
 export const fillFlatPatternMode = (options: FlatPatternFillOptions): void => {
