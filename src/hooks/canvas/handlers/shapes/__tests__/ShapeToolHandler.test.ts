@@ -77,4 +77,92 @@ describe('ShapeToolHandler – shape fill tool detection', () => {
     expect(overlayCtx.fill).toHaveBeenCalled();
     expect(overlayCtx.restore).toHaveBeenCalled();
   });
+
+  it('uses a cheaper fast-preview render configuration for live CC dither previews', () => {
+    expect(
+      __shapeToolTestUtils.resolveCcShapePreviewRenderSettings({
+        pixelSize: 1,
+        levels: 12,
+        algorithm: 'sierra-lite',
+        patternStyle: undefined,
+      })
+    ).toEqual({
+      pixelSize: 2,
+      levels: 4,
+      algorithm: 'pattern',
+      patternStyle: 'dots',
+      isFastPreview: true,
+    });
+
+    expect(
+      __shapeToolTestUtils.resolveCcShapePreviewRenderSettings({
+        pixelSize: 3,
+        levels: 6,
+        algorithm: 'bayer',
+        patternStyle: 'crosshatch',
+      })
+    ).toEqual({
+      pixelSize: 3,
+      levels: 4,
+      algorithm: 'bayer',
+      patternStyle: 'crosshatch',
+      isFastPreview: true,
+    });
+  });
+
+  it('builds a stable preview gradient cache key and prepares normalized preview stops', () => {
+    const effectiveStops = [
+      { position: 0, color: '#000000' },
+      { position: 1, color: '#ffffff' },
+    ];
+
+    const keyA = __shapeToolTestUtils.buildCcShapePreviewGradientCacheKey({
+      effectiveStops,
+      gradientBands: 8,
+      ditherPaletteSpread: 24,
+      ditherAlgorithm: 'sierra-lite',
+      patternStyle: 'dots',
+      useForegroundDerived: false,
+      foregroundDerivedKey: 'none',
+      previewSource: 'manual',
+    });
+    const keyB = __shapeToolTestUtils.buildCcShapePreviewGradientCacheKey({
+      effectiveStops,
+      gradientBands: 8,
+      ditherPaletteSpread: 24,
+      ditherAlgorithm: 'sierra-lite',
+      patternStyle: 'dots',
+      useForegroundDerived: false,
+      foregroundDerivedKey: 'none',
+      previewSource: 'manual',
+    });
+    const keyC = __shapeToolTestUtils.buildCcShapePreviewGradientCacheKey({
+      effectiveStops,
+      gradientBands: 12,
+      ditherPaletteSpread: 24,
+      ditherAlgorithm: 'sierra-lite',
+      patternStyle: 'dots',
+      useForegroundDerived: false,
+      foregroundDerivedKey: 'none',
+      previewSource: 'manual',
+    });
+
+    expect(keyA).toBe(keyB);
+    expect(keyA).not.toBe(keyC);
+
+    const prepared = __shapeToolTestUtils.prepareCcShapePreviewGradient({
+      effectiveStops,
+      shouldDitherPreview: false,
+      gradientBands: 8,
+      ditherPaletteSpread: 0,
+      ditherAlgorithm: 'sierra-lite',
+      preserveSourceStops: false,
+    });
+
+    expect(prepared.renderStops).toEqual(effectiveStops);
+    expect(prepared.sortedStops).toEqual([
+      { position: 0, rgba: [0, 0, 0, 255] },
+      { position: 1, rgba: [255, 255, 255, 255] },
+    ]);
+  });
 });
