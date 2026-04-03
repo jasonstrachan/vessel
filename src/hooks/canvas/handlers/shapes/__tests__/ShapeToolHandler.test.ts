@@ -78,7 +78,7 @@ describe('ShapeToolHandler – shape fill tool detection', () => {
     expect(overlayCtx.restore).toHaveBeenCalled();
   });
 
-  it('uses a cheaper fast-preview render configuration for live CC dither previews', () => {
+  it('keeps CC dither preview settings aligned with finalize settings', () => {
     expect(
       __shapeToolTestUtils.resolveCcShapePreviewRenderSettings({
         pixelSize: 1,
@@ -87,11 +87,11 @@ describe('ShapeToolHandler – shape fill tool detection', () => {
         patternStyle: undefined,
       })
     ).toEqual({
-      pixelSize: 2,
-      levels: 4,
-      algorithm: 'pattern',
+      pixelSize: 1,
+      levels: 12,
+      algorithm: 'sierra-lite',
       patternStyle: 'dots',
-      isFastPreview: true,
+      isFastPreview: false,
     });
 
     expect(
@@ -103,10 +103,10 @@ describe('ShapeToolHandler – shape fill tool detection', () => {
       })
     ).toEqual({
       pixelSize: 3,
-      levels: 4,
+      levels: 6,
       algorithm: 'bayer',
       patternStyle: 'crosshatch',
-      isFastPreview: true,
+      isFastPreview: false,
     });
   });
 
@@ -164,5 +164,37 @@ describe('ShapeToolHandler – shape fill tool detection', () => {
       { position: 0, rgba: [0, 0, 0, 255] },
       { position: 1, rgba: [255, 255, 255, 255] },
     ]);
+  });
+
+  it('replays cached cc dither preview only when the roi still matches', () => {
+    const roi = __shapeToolTestUtils.computeCcPreviewRoi([
+      { x: 10.2, y: 20.1 },
+      { x: 18.8, y: 22.4 },
+      { x: 14.6, y: 31.9 },
+    ]);
+
+    expect(
+      __shapeToolTestUtils.canReplayCcPreview(
+        roi.origin,
+        roi.size,
+        roi,
+      )
+    ).toBe(true);
+
+    expect(
+      __shapeToolTestUtils.canReplayCcPreview(
+        { x: roi.origin.x, y: roi.origin.y - 1 },
+        roi.size,
+        roi,
+      )
+    ).toBe(false);
+
+    expect(
+      __shapeToolTestUtils.canReplayCcPreview(
+        roi.origin,
+        { width: roi.size.width - 1, height: roi.size.height },
+        roi,
+      )
+    ).toBe(false);
   });
 });

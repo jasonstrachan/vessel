@@ -12,8 +12,10 @@ import {
 } from '@/utils/colorCycleGradients';
 import { getPreviewGradientForActiveMark } from '@/hooks/canvas/utils/colorCycleMarkSession';
 import { applyPolygonMaskToCanvasContext } from '@/hooks/canvas/handlers/shapes/shapePreviewMask';
+import { logLivePreview } from '@/hooks/canvas/utils/livePreviewDebug';
+import { ensurePresResDebugBridge, isPresResDebugEnabled } from '@/hooks/canvas/utils/presResDebug';
 
-const SHAPE_PREVIEW_OPACITY = 0.6;
+const SHAPE_PREVIEW_OPACITY = 0.8;
 
 // ---- ContourLines DEBUG ----------------------------------
 const CL_DEBUG_STORAGE_KEY = 'vessel.debug.cl';
@@ -600,16 +602,7 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
     return Math.max(0, Math.min(1, value));
   };
 
-  const isPresResDebugEnabled = (): boolean => {
-    if (typeof window === 'undefined') {
-      return false;
-    }
-    const flag = (window as { __presResDebug?: unknown }).__presResDebug;
-    if (typeof flag === 'number') {
-      return flag > 0;
-    }
-    return Boolean(flag);
-  };
+  ensurePresResDebugBridge();
 
   let presResLastPointerLogAt = 0;
   let presResLastLoggedPressure = Number.NaN;
@@ -3909,6 +3902,12 @@ function resampleStopsToColors(stops: Stop[], count: number): string[] {
     
     // Cancel any pending preview animation frame
     if (deps.previewAnimationFrameRef && deps.previewAnimationFrameRef.current) {
+      logLivePreview('pointerup-cancel-preview-raf', {
+        pointerId: event.pointerId,
+        tool: tools.currentTool,
+        shapeMode: tools.shapeMode,
+        previewAnimationFrame: deps.previewAnimationFrameRef.current,
+      });
       cancelAnimationFrame(deps.previewAnimationFrameRef.current);
       deps.previewAnimationFrameRef.current = null;
     }
@@ -3990,6 +3989,16 @@ function resampleStopsToColors(stops: Stop[], count: number): string[] {
       const overlayCtx = overlayCanvas.getContext('2d');
       if (overlayCtx) {
         overlayCtx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
+        logLivePreview('pointerup-overlay-cleared', {
+          pointerId: event.pointerId,
+          tool: tools.currentTool,
+          shapeMode: tools.shapeMode,
+          preserveSelectionOverlay,
+          isLines2Previewing,
+          contourStage: linesStateOnPointerUp.stage,
+          width: overlayCanvas.width,
+          height: overlayCanvas.height,
+        });
       }
     }
 
@@ -4352,6 +4361,25 @@ function resampleStopsToColors(stops: Stop[], count: number): string[] {
       cancelAnimationFrame(scheduledMoveRAF);
       scheduledMoveRAF = null;
       lastMoveEvent = null;
+    }
+
+    if (deps.previewAnimationFrameRef?.current) {
+      logLivePreview('pointercancel-cancel-preview-raf', {
+        pointerId: event.pointerId,
+        previewAnimationFrame: deps.previewAnimationFrameRef.current,
+      });
+      cancelAnimationFrame(deps.previewAnimationFrameRef.current);
+      deps.previewAnimationFrameRef.current = null;
+    }
+
+    const overlayCanvas = overlayCanvasRef.current;
+    if (overlayCanvas) {
+      overlayCanvas.getContext('2d')?.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
+      logLivePreview('pointercancel-overlay-cleared', {
+        pointerId: event.pointerId,
+        width: overlayCanvas.width,
+        height: overlayCanvas.height,
+      });
     }
 
     const { tools } = getDynamicDeps();

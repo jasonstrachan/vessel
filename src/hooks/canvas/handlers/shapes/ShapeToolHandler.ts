@@ -42,9 +42,10 @@ import { resolveStableFlatSeed } from '@/utils/colorCycle/ccFlatSeed';
 import { getActiveMarkGradientSession, getPreviewGradientForActiveMark } from '@/hooks/canvas/utils/colorCycleMarkSession';
 import { parseCssColorToRgba } from '@/hooks/canvas/utils/colorCycleHelpers';
 import { applyPolygonMaskToCanvasContext } from '@/hooks/canvas/handlers/shapes/shapePreviewMask';
+import { logLivePreview } from '@/hooks/canvas/utils/livePreviewDebug';
 import { hashStops, type StoredStop } from '@/utils/colorCycleGradientDefs';
 
-const SHAPE_PREVIEW_OPACITY = 0.6;
+const SHAPE_PREVIEW_OPACITY = 0.8;
 
 type ShapeAdjustHelperUpdate = {
   spacing: number;
@@ -212,6 +213,11 @@ type PreparedPreviewGradient = {
   sortedStops: Array<{ position: number; rgba: [number, number, number, number] }>;
 };
 
+type CcPreviewRoi = {
+  origin: { x: number; y: number };
+  size: { width: number; height: number };
+};
+
 const resolveCcShapePreviewRenderSettings = ({
   pixelSize,
   levels,
@@ -226,22 +232,12 @@ const resolveCcShapePreviewRenderSettings = ({
   const clampedPixelSize = Math.max(1, Math.round(pixelSize));
   const clampedLevels = Math.max(1, Math.min(16, Math.round(levels)));
 
-  if (algorithm === 'sierra-lite') {
-    return {
-      pixelSize: Math.max(clampedPixelSize, 2),
-      levels: Math.min(clampedLevels, 4),
-      algorithm: 'pattern',
-      patternStyle: patternStyle ?? 'dots',
-      isFastPreview: true,
-    };
-  }
-
   return {
-    pixelSize: Math.max(clampedPixelSize, 2),
-    levels: Math.min(clampedLevels, 4),
+    pixelSize: clampedPixelSize,
+    levels: clampedLevels,
     algorithm,
     patternStyle: patternStyle ?? 'dots',
-    isFastPreview: true,
+    isFastPreview: false,
   };
 };
 
@@ -326,6 +322,56 @@ const prepareCcShapePreviewGradient = ({
     renderStops,
     sortedStops: normalizePreparedPreviewStops(renderStops),
   };
+};
+
+const computeCcPreviewRoi = (
+  points: Array<{ x: number; y: number }>,
+  pad: number = 1,
+): CcPreviewRoi => {
+  let roiMinX = points[0].x;
+  let roiMinY = points[0].y;
+  let roiMaxX = points[0].x;
+  let roiMaxY = points[0].y;
+
+  for (let i = 1; i < points.length; i++) {
+    const point = points[i];
+    if (point.x < roiMinX) roiMinX = point.x;
+    if (point.y < roiMinY) roiMinY = point.y;
+    if (point.x > roiMaxX) roiMaxX = point.x;
+    if (point.y > roiMaxY) roiMaxY = point.y;
+  }
+
+  const origin = {
+    x: Math.floor(roiMinX) - pad,
+    y: Math.floor(roiMinY) - pad,
+  };
+  const maxXInt = Math.ceil(roiMaxX) + pad;
+  const maxYInt = Math.ceil(roiMaxY) + pad;
+
+  return {
+    origin,
+    size: {
+      width: Math.max(1, maxXInt - origin.x + 1),
+      height: Math.max(1, maxYInt - origin.y + 1),
+    },
+  };
+};
+
+const canReplayCcPreview = (
+  cachedOrigin: { x: number; y: number } | undefined,
+  cachedSize: { width: number; height: number } | undefined,
+  roi: CcPreviewRoi,
+): boolean => {
+  if (!cachedOrigin || !cachedSize) {
+    return false;
+  }
+
+  return (
+    cachedOrigin.x === roi.origin.x &&
+    cachedOrigin.y === roi.origin.y &&
+    cachedSize.width === roi.size.width &&
+    cachedSize.height === roi.size.height
+  );
 };
 
 type DitherGradPreviewState = {
@@ -688,6 +734,9 @@ export const createShapeToolHandler = (
   };
 
   const clearCurrentPreview = () => {
+    const hadCleanup = Boolean(currentPreviewCleanup);
+    const rectToClear = lastPreviewRect;
+
     if (currentPreviewCleanup) {
       try {
         currentPreviewCleanup();
@@ -702,6 +751,14 @@ export const createShapeToolHandler = (
       clearRegion(overlayCtx, lastPreviewRect);
     }
     lastPreviewRect = null;
+
+    logLivePreview('shape-preview-cleared', {
+      hadCleanup,
+      hadRect: Boolean(rectToClear),
+      rect: rectToClear,
+      overlayWidth: overlayCanvas?.width ?? null,
+      overlayHeight: overlayCanvas?.height ?? null,
+    });
   };
   let currentPreviewCleanup: (() => void) | null = null;
 
@@ -718,6 +775,10 @@ export const createShapeToolHandler = (
     if (!session || !session.shape) {
       clearRegion(overlayCtx, null);
       lastPreviewRect = null;
+      logLivePreview('shape-fill-preview-cleared-no-session', {
+        overlayWidth: overlayCanvas.width,
+        overlayHeight: overlayCanvas.height,
+      });
       return;
     }
 
@@ -748,6 +809,15 @@ export const createShapeToolHandler = (
 
     overlayCtx.setTransform(1, 0, 0, 1, 0, 0);
     overlayCtx.clearRect(rect.x, rect.y, rect.width, rect.height);
+    logLivePreview('shape-fill-preview-render', {
+      stage: session.stage,
+      isParamPreview,
+      pointCount: session.shape.points.length,
+      rect,
+      scale,
+      offsetX,
+      offsetY,
+    });
 
     const isAdjusting = session.stage === FillStage.AdjustingParam && !!session.currentParam;
     if (isAdjusting && session.currentParam) {
@@ -2011,6 +2081,10 @@ export const createShapeToolHandler = (
     if (!overlayCanvas) return;
     const overlayCtx = overlayCanvas.getContext('2d');
     overlayCtx?.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
+    logLivePreview('shape-overlay-cleared', {
+      overlayWidth: overlayCanvas.width,
+      overlayHeight: overlayCanvas.height,
+    });
   };
 
   const withRuntimeLineOptions = (_options?: ShapeFillOptions): ShapeFillOptions | undefined => {
@@ -2774,7 +2848,12 @@ export const createShapeToolHandler = (
         brushNow.brushShape === BrushShape.COLOR_CYCLE_SHAPE &&
         (isCCLinear || isCCGradientPreset) &&
         Boolean(brushNow.ditherEnabled);
-      const suppressCCPreview = shouldDitherPreview && tools.shapeMode;
+      const suppressCCPreview = false;
+      logLivePreview('cc-shape-preview-mode', {
+        phase: 'start',
+        shouldDitherPreview,
+        renderPreview: !suppressCCPreview,
+      });
       drawingHandlers.startShapeDrawing(worldPos, pressure, undefined, undefined, {
         renderPreview: !suppressCCPreview,
       });
@@ -2891,10 +2970,13 @@ export const createShapeToolHandler = (
           brushNow.brushShape === BrushShape.COLOR_CYCLE_SHAPE &&
           (isCCLinear || isCCGradientPreset) &&
           Boolean(brushNow.ditherEnabled);
-        const suppressCCPreview =
-          shouldDitherPreview &&
-          tools.shapeMode &&
-          drawingHandlers.isDrawingShapeRef.current;
+        const suppressCCPreview = false;
+        logLivePreview('cc-shape-preview-mode', {
+          phase: 'move',
+          shouldDitherPreview,
+          renderPreview: !suppressCCPreview,
+          isDrawingShape: drawingHandlers.isDrawingShapeRef.current,
+        });
         drawingHandlers.continueShapeDrawing(previewWorld, pressure, nowTs, event.pressure, {
           renderPreview: !suppressCCPreview,
         });
@@ -2950,30 +3032,7 @@ export const createShapeToolHandler = (
         const shouldDitherPreview =
           isCCShape && (isCCLinear || isColorCycleGradientPreset) && Boolean(brushNow.ditherEnabled);
 
-        if (shouldDitherPreview && ditherGradPreviewState.ccLastCanvas && ditherGradPreviewState.ccLastOrigin) {
-          const lastSize = ditherGradPreviewState.ccLastSize ?? {
-            width: ditherGradPreviewState.ccLastCanvas.width,
-            height: ditherGradPreviewState.ccLastCanvas.height,
-          };
-          overlayCtx.save();
-          overlayCtx.setTransform(1, 0, 0, 1, 0, 0);
-          overlayCtx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
-          overlayCtx.restore();
-          overlayCtx.save();
-          overlayCtx.globalAlpha = SHAPE_PREVIEW_OPACITY;
-          overlayCtx.drawImage(
-            ditherGradPreviewState.ccLastCanvas,
-            0,
-            0,
-            lastSize.width,
-            lastSize.height,
-            ditherGradPreviewState.ccLastOrigin.x,
-            ditherGradPreviewState.ccLastOrigin.y,
-            lastSize.width,
-            lastSize.height
-          );
-          overlayCtx.restore();
-        } else if (!shouldDitherPreview) {
+        if (!shouldDitherPreview) {
           const cachedPreview = drawingHandlers.ccShapePreviewCacheRef?.current;
           if (cachedPreview) {
             overlayCtx.save();
@@ -3123,7 +3182,17 @@ export const createShapeToolHandler = (
               return;
             }
             if (shouldDitherPreview) {
-              if (ditherGradPreviewState.ccLastCanvas && ditherGradPreviewState.ccLastOrigin) {
+              const allPoints = [...pts, previewPoint];
+              const nextPreviewRoi = computeCcPreviewRoi(allPoints);
+              const canReplayCurrentPreview =
+                ditherGradPreviewState.ccLastCanvas &&
+                canReplayCcPreview(
+                  ditherGradPreviewState.ccLastOrigin,
+                  ditherGradPreviewState.ccLastSize,
+                  nextPreviewRoi,
+                );
+
+              if (canReplayCurrentPreview && ditherGradPreviewState.ccLastCanvas && ditherGradPreviewState.ccLastOrigin) {
                 const { scale, offsetX, offsetY } = viewTransformRef.current;
                 overlayCtx.save();
                 overlayCtx.setTransform(1, 0, 0, 1, 0, 0);
@@ -3150,24 +3219,9 @@ export const createShapeToolHandler = (
                 ditherGradPreviewState.ccJobInFlight = true;
                 ditherGradPreviewState.ccJobDirty = false;
                 const mySeq = ++ditherGradPreviewState.ccJobSeq;
-                const allPoints = [...pts, previewPoint];
-                let roiMinX = allPoints[0].x;
-                let roiMinY = allPoints[0].y;
-                let roiMaxX = allPoints[0].x;
-                let roiMaxY = allPoints[0].y;
-                for (let i = 1; i < allPoints.length; i++) {
-                  const p = allPoints[i];
-                  if (p.x < roiMinX) roiMinX = p.x;
-                  if (p.y < roiMinY) roiMinY = p.y;
-                  if (p.x > roiMaxX) roiMaxX = p.x;
-                  if (p.y > roiMaxY) roiMaxY = p.y;
-                }
-                const PAD = 1;
-                const origin = { x: Math.floor(roiMinX) - PAD, y: Math.floor(roiMinY) - PAD };
-                const maxXInt = Math.ceil(roiMaxX) + PAD;
-                const maxYInt = Math.ceil(roiMaxY) + PAD;
-                const w = Math.max(1, maxXInt - origin.x + 1);
-                const h = Math.max(1, maxYInt - origin.y + 1);
+                const origin = nextPreviewRoi.origin;
+                const w = nextPreviewRoi.size.width;
+                const h = nextPreviewRoi.size.height;
                 const localVertices = allPoints.map(pt => ({
                   x: pt.x - origin.x,
                   y: pt.y - origin.y,
@@ -3658,19 +3712,29 @@ export const createShapeToolHandler = (
         return;
       }
 
+      logLivePreview('polygon-preview-scheduled', {
+        hasLatestPreviewPoint: Boolean(latestPolygonPreviewPoint),
+      });
       previewAnimationFrameRef.current = requestAnimationFrame(() => {
         const point = resolvePreviewPoint();
         if (!point) {
           if (previewAnimationFrameRef) {
             previewAnimationFrameRef.current = null;
           }
+          logLivePreview('polygon-preview-skipped-no-point');
           return;
         }
 
+        logLivePreview('polygon-preview-frame-start', {
+          point,
+        });
         void renderPolygonShapePreviewFrame(point).finally(() => {
           if (previewAnimationFrameRef) {
             previewAnimationFrameRef.current = null;
           }
+          logLivePreview('polygon-preview-frame-end', {
+            point,
+          });
         });
       });
     };
@@ -3716,6 +3780,10 @@ export const createShapeToolHandler = (
     }
 
     if (isShapeFill) {
+      logLivePreview('shape-pointerup-shape-fill', {
+        pointCount: drawingHandlers.shapePointsRef.current.length,
+        isDrawingShape: drawingHandlers.isDrawingShapeRef.current,
+      });
       if (drawingHandlers.isDrawingShapeRef.current && drawingHandlers.shapePointsRef.current.length >= 3) {
         const points = drawingHandlers.shapePointsRef.current.map(point => ({ x: point.x, y: point.y }));
         const store = useAppStore.getState();
@@ -3763,6 +3831,12 @@ export const createShapeToolHandler = (
     const resolvedColors = resolveShapeFillColors(points);
     const fillColor = getPrimaryColor(resolvedColors);
     drawingHandlers.initDrawingCanvas();
+    logLivePreview('shape-pointerup-finalize-preview', {
+      isPolygonGradient,
+      isContourPolygon,
+      pointCount: points.length,
+      pointerWorld,
+    });
     const drawCtx = drawingHandlers.drawingCanvasRef.current?.getContext('2d', { willReadFrequently: true });
 
     if (drawCtx && brushEngine) {
@@ -4336,6 +4410,8 @@ export const __shapeToolTestUtils = {
   applyTransparencyLockMaskToContext,
   applyPolygonMaskToCanvasContext,
   resolveCcShapePreviewRenderSettings,
+  computeCcPreviewRoi,
+  canReplayCcPreview,
   normalizePreparedPreviewStops,
   buildCcShapePreviewGradientCacheKey,
   prepareCcShapePreviewGradient,

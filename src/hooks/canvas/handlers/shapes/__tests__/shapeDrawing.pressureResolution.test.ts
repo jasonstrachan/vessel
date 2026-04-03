@@ -9,6 +9,7 @@ describe('shapeDrawing pressure-linked dither resolution', () => {
     resolveColorCycleFillMode,
     resolveDitherGridSnapPoint,
     normalizeSnappedShapePoints,
+    shouldUseSimpleShapePreview,
   } = __TESTING__;
 
   it('uses pressure-linked resolution when pressure is valid', () => {
@@ -179,5 +180,42 @@ describe('shapeDrawing pressure-linked dither resolution', () => {
       { x: 8, y: 8 },
       { x: 16, y: 16 },
     ]);
+  });
+
+  it('disables the generic shape preview only for dithered cc linear preview mode', () => {
+    const ccDitherLinearState = {
+      currentBrushPreset: { id: 'color-cycle-gradient' },
+      tools: {
+        brushSettings: {
+          brushShape: BrushShape.COLOR_CYCLE_SHAPE,
+          colorCycleFillMode: 'linear',
+          ditherEnabled: true,
+        },
+      },
+    } as unknown as AppState;
+    const ccNonDitherState = {
+      currentBrushPreset: { id: 'color-cycle-gradient' },
+      tools: {
+        brushSettings: {
+          brushShape: BrushShape.COLOR_CYCLE_SHAPE,
+          colorCycleFillMode: 'linear',
+          ditherEnabled: false,
+        },
+      },
+    } as unknown as AppState;
+    const ccConcentricDitherState = {
+      currentBrushPreset: { id: 'color-cycle-gradient' },
+      tools: {
+        brushSettings: {
+          brushShape: BrushShape.COLOR_CYCLE_SHAPE,
+          colorCycleFillMode: 'concentric',
+          ditherEnabled: true,
+        },
+      },
+    } as unknown as AppState;
+
+    expect(shouldUseSimpleShapePreview(ccDitherLinearState)).toBe(false);
+    expect(shouldUseSimpleShapePreview(ccNonDitherState)).toBe(true);
+    expect(shouldUseSimpleShapePreview(ccConcentricDitherState)).toBe(false);
   });
 });
