@@ -198,6 +198,7 @@ jest.mock('@/stores/useAppStore', () => {
     risographOutline: false,
     ditherEnabled: true,
     ditherPaletteSpread: 0,
+    ditherPatternDiversity: 100,
     ditherPhaseJitter: 0,
     ditherAlgorithm: 'sierra-lite',
     patternStyle: 'dots',
@@ -729,6 +730,7 @@ describe('BrushControls – Color Cycle gradient fill mode', () => {
           customBrushColorCycleMode: 'tip',
           ditherEnabled: true,
           ditherPaletteSpread: 24,
+          ditherPatternDiversity: 80,
         },
       },
       brushPresets: [{ id: 'color-cycle-gradient', name: 'CC Gradient' } as AppState['brushPresets'][number]],
@@ -738,7 +740,35 @@ describe('BrushControls – Color Cycle gradient fill mode', () => {
     render(<BrushControls />);
     expect(screen.getByRole('checkbox', { name: 'Grid Snap' })).toBeInTheDocument();
     expect(screen.getByLabelText('Dither Palette Spread')).toBeInTheDocument();
+    expect(screen.getByLabelText('Dither Pattern Diversity')).toBeInTheDocument();
+    expect(screen.getByText('Variety')).toBeInTheDocument();
     expect(screen.getByText('Sprd')).toBeInTheDocument();
+  });
+
+  it('updates dither pattern diversity from the CC gradient controls', () => {
+    useAppStore.setState((state) => ({
+      ...state,
+      tools: {
+        ...state.tools,
+        brushSettings: {
+          ...state.tools.brushSettings,
+          brushShape: 'color_cycle_shape' as BrushSettings['brushShape'],
+          customBrushColorCycle: false,
+          customBrushColorCycleMode: 'tip',
+          ditherEnabled: true,
+          ditherPatternDiversity: 100,
+        },
+      },
+      brushPresets: [{ id: 'color-cycle-gradient', name: 'CC Gradient' } as AppState['brushPresets'][number]],
+      currentBrushPreset: { id: 'color-cycle-gradient', name: 'CC Gradient' } as AppState['currentBrushPreset'],
+    }));
+
+    render(<BrushControls />);
+    fireEvent.change(screen.getByLabelText('Dither Pattern Diversity'), {
+      target: { value: '37' },
+    });
+
+    expect(useAppStore.getState().tools.brushSettings.ditherPatternDiversity).toBe(37);
   });
 
   it('toggles grid snap for color cycle gradient', async () => {

@@ -153,6 +153,7 @@ type FillOptions = {
   ditherPixelSize?: number;
   ditherPairBandCount?: number;
   ditherPaletteSpread?: number;
+  ditherPatternDiversity?: number;
   ditherBackgroundFill?: boolean;
   ditherSampledStops?: StoredStop[];
   ditherBaseOffsetOverride?: number;
@@ -3298,6 +3299,7 @@ export class ColorCycleBrushCanvas2D {
           pairBandCount,
           baseOffset,
           flatPairSpread,
+          ditherPatternDiversity: options?.ditherPatternDiversity,
           flatSeed,
           algorithm: fillAlgorithm,
           patternStyle: fillPatternStyle,
@@ -4239,6 +4241,7 @@ export class ColorCycleBrushCanvas2D {
           pairBandCount,
           baseOffset,
           flatPairSpread,
+          ditherPatternDiversity: options?.ditherPatternDiversity,
           flatSeed,
           algorithm: fillAlgorithm,
           patternStyle: fillPatternStyle,

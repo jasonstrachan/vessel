@@ -3335,6 +3335,7 @@ export const createShapeToolHandler = (
                         levels: previewRenderSettings.levels,
                         baseOffset: 0,
                         flatPairSpread: brushNow.ditherPaletteSpread,
+                        ditherPatternDiversity: brushNow.ditherPatternDiversity,
                         flatSeed,
                         algorithm: previewRenderSettings.algorithm,
                         patternStyle: previewRenderSettings.patternStyle,
