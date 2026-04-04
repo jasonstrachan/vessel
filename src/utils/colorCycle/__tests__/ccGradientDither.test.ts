@@ -201,7 +201,7 @@ describe('fillCcGradientDither', () => {
     });
 
     expect(solved).not.toBeNull();
-    expect([solved?.lowIndex, solved?.highIndex]).toEqual([65, 191]);
+    expect([solved?.lowIndex, solved?.highIndex]).toEqual([65, 192]);
     expect(solved?.flatMix).toBeGreaterThan(0.43);
     expect(solved?.flatMix).toBeLessThan(0.44);
   });
@@ -231,8 +231,8 @@ describe('fillCcGradientDither', () => {
     expect((wide?.highIndex ?? 0) - (wide?.lowIndex ?? 0)).toBeGreaterThan(
       (tight?.highIndex ?? 0) - (tight?.lowIndex ?? 0)
     );
-    expect([tight?.lowIndex, tight?.highIndex]).toEqual([127, 129]);
-    expect([wide?.lowIndex, wide?.highIndex]).toEqual([65, 191]);
+    expect([tight?.lowIndex, tight?.highIndex]).toEqual([128, 128]);
+    expect([wide?.lowIndex, wide?.highIndex]).toEqual([65, 192]);
   });
 
   it('maps sampled-flat tone monotonically through the projected pair solve', () => {
@@ -273,7 +273,7 @@ describe('fillCcGradientDither', () => {
     expect((mid?.flatMix ?? 0) < (bright?.flatMix ?? 0)).toBe(true);
   });
 
-  it('lets spread rebalance the sampled-flat occupancy solve', () => {
+  it('keeps sampled-flat occupancy stable while spread only changes the pair mapping', () => {
     const tight = resolveSampledFlatPositionMix({
       stops: [
         { position: 0, color: '#d7d7d7' },
@@ -295,7 +295,7 @@ describe('fillCcGradientDither', () => {
 
     expect(tight).not.toBeNull();
     expect(wide).not.toBeNull();
-    expect(Math.abs((wide?.flatMix ?? 0) - (tight?.flatMix ?? 0))).toBeGreaterThan(0.005);
+    expect(Math.abs((wide?.flatMix ?? 0) - (tight?.flatMix ?? 0))).toBeLessThan(0.000001);
     expect((tight?.flatMix ?? 0) > 0.5).toBe(true);
     expect((wide?.flatMix ?? 0) > 0.5).toBe(true);
   });
@@ -387,7 +387,7 @@ describe('fillCcGradientDither', () => {
     });
 
     const usedPair = Array.from(new Set(out)).filter((value) => value > 0).sort((a, b) => a - b);
-    expect(usedPair).toEqual([127, 129]);
+    expect(usedPair).toEqual([128]);
     expect(usedPair).not.toEqual(resolveFlatInkSetForPosition(0.1, 2, 0, 0).indices);
   });
 
@@ -598,9 +598,9 @@ describe('fillCcGradientDither', () => {
     const tight = await run(0);
     const wide = await run(100);
 
-    expect(tight).toHaveLength(2);
+    expect(tight).toHaveLength(1);
     expect(wide).toHaveLength(2);
-    expect(wide[1] - wide[0]).toBeGreaterThan(tight[1] - tight[0]);
+    expect(wide[1] - wide[0]).toBeGreaterThan(0);
   });
 
   it('drives Sierra Lite flat diffusion from mix amount when provided', async () => {
@@ -747,6 +747,46 @@ describe('fillCcGradientDither', () => {
     expect(run(0.6101)).toEqual(run(0.6102));
   });
 
+  it('keeps Sierra Lite flat bit layout stable when spread only remaps the ink pair', () => {
+    const gridW = 12;
+    const gridH = 12;
+    const run = (spread: number) => {
+      const out = new Uint16Array(gridW * gridH);
+      const [low, high] = resolveFlatInkSetForPosition(0.5, 2, 0, spread).indices;
+
+      fillFlatPatternMode({
+        algorithm: 'sierra-lite',
+        tone: 0.5,
+        flatPosition: 0.5,
+        flatSeed: 11,
+        spread,
+        gridW,
+        gridH,
+        fillBackground: true,
+        baseOffset: 0,
+        phaseX: 0,
+        phaseY: 0,
+        writeCellIndex: (cellIdx, index) => {
+          out[cellIdx] = index;
+        },
+      });
+
+      return Array.from(out, (value) => {
+        if (low === high) {
+          return value === low ? 0 : -1;
+        }
+        return value === high ? 1 : value === low ? 0 : -1;
+      });
+    };
+
+    const medium = run(50);
+    const wide = run(100);
+
+    expect(medium.includes(-1)).toBe(false);
+    expect(wide.includes(-1)).toBe(false);
+    expect(medium).toEqual(wide);
+  });
+
   it('uses two separated inks for each Sierra Lite flat tone band', () => {
     for (let band = 0; band < 5; band += 1) {
       const indices = resolveFlatInkSetForBand(band, 2, 0).indices;
@@ -764,10 +804,10 @@ describe('fillCcGradientDither', () => {
     expect(resolveFlatInkSetForBand(4, 2, 0).indices).toEqual([226, 234]);
   });
 
-  it('lets flat Sierra pair spread tighten down to adjacent local indices', () => {
-    expect(resolveFlatInkSetForBand(0, 2, 0, 0).indices).toEqual([25, 27]);
-    expect(resolveFlatInkSetForBand(2, 2, 0, 0).indices).toEqual([127, 129]);
-    expect(resolveFlatInkSetForBand(4, 2, 0, 0).indices).toEqual([229, 231]);
+  it('lets flat Sierra pair spread tighten down to a degenerate local pair', () => {
+    expect(resolveFlatInkSetForBand(0, 2, 0, 0).indices).toEqual([26, 26]);
+    expect(resolveFlatInkSetForBand(2, 2, 0, 0).indices).toEqual([128, 128]);
+    expect(resolveFlatInkSetForBand(4, 2, 0, 0).indices).toEqual([230, 230]);
   });
 
   it('widens flat Sierra pair spread as the slider increases', () => {
@@ -777,7 +817,96 @@ describe('fillCcGradientDither', () => {
 
     expect(tight[1] - tight[0]).toBeLessThan(medium[1] - medium[0]);
     expect(medium[1] - medium[0]).toBeLessThan(wide[1] - wide[0]);
-    expect(wide).toEqual([65, 191]);
+    expect(wide).toEqual([65, 192]);
+  });
+
+  it('wraps flat Sierra pair selection correctly at the low end of the cycle', () => {
+    expect(resolveFlatInkSetForPosition(0, 2, 0, 100).indices).toEqual([193, 65]);
+  });
+
+  it('wraps flat Sierra pair selection correctly at the high end of the cycle', () => {
+    expect(resolveFlatInkSetForPosition(1, 2, 0, 100).indices).toEqual([192, 64]);
+  });
+
+  it('allows the spread-zero flat pair to collapse to a solid fill without breaking Sierra Lite', () => {
+    const gridW = 8;
+    const gridH = 8;
+    const out = new Uint16Array(gridW * gridH);
+
+    fillFlatPatternMode({
+      algorithm: 'sierra-lite',
+      tone: 0.5,
+      flatPosition: 0.5,
+      spread: 0,
+      flatSeed: 17,
+      gridW,
+      gridH,
+      fillBackground: true,
+      baseOffset: 0,
+      phaseX: 0,
+      phaseY: 0,
+      writeCellIndex: (cellIdx, index) => {
+        out[cellIdx] = index;
+      },
+    });
+
+    expect(Array.from(new Set(out))).toEqual([128]);
+  });
+
+  it('keeps sampled-flat Sierra layout stable when spread only remaps the sampled pair', async () => {
+    const width = 12;
+    const height = 12;
+    const run = async (spread: number) => {
+      const out = new Uint8Array(width * height);
+
+      await fillCcGradientDither({
+        vertices: [
+          { x: 0, y: 0 },
+          { x: width - 1, y: 0 },
+          { x: width - 1, y: height - 1 },
+          { x: 0, y: height - 1 },
+        ],
+        minX: 0,
+        minY: 0,
+        maxX: width - 1,
+        maxY: height - 1,
+        pixelSize: 1,
+        levels: 1,
+        baseOffset: 0,
+        flatPairSpread: spread,
+        flatSeed: 11,
+        algorithm: 'sierra-lite',
+        sampledStopsOverride: [
+          { position: 0, color: '#444444' },
+          { position: 1, color: '#444444' },
+        ],
+        sampleNormalized: () => 0.5,
+        writeIndex: (x, y, index) => {
+          out[y * width + x] = index;
+        },
+      });
+
+      const unique = Array.from(new Set(out)).filter((value) => value > 0).sort((a, b) => a - b);
+      const low = unique[0] ?? 0;
+      const high = unique[unique.length - 1] ?? low;
+
+      return Array.from(out, (value) => {
+        if (value === 0) {
+          return 0;
+        }
+        if (low === high) {
+          return value === low ? 0 : -1;
+        }
+        return value === high ? 1 : value === low ? 0 : -1;
+      });
+    };
+
+    const medium = await run(25);
+    const wide = await run(40);
+
+    expect(medium.includes(-1)).toBe(false);
+    expect(wide.includes(-1)).toBe(false);
+    expect(medium).toEqual(wide);
   });
 
   it('shifts local flat ink pairs with baseOffset while keeping them centered on the sampled position', async () => {

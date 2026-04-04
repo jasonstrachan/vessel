@@ -191,7 +191,7 @@ describe('buildCcDitherRuntimePalette', () => {
     expect(runtime.renderStops.map((stop) => stop.position)).toEqual(
       [0.1, 0.3, 0.5, 0.7, 0.9].flatMap((position) =>
         resolveFlatInkSetForPosition(position, 2, 0, 100).indices.map((index) => (index - 1) / 254)
-      )
+      ).sort((a, b) => a - b)
     );
     const uniqueColors = new Set(runtime.renderStops.map((stop) => stop.color));
     expect(uniqueColors.size).toBeGreaterThanOrEqual(8);
