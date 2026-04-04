@@ -643,7 +643,6 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
         trace.splice(0, trace.length - MAX_TRACE);
       }
     }
-    console.log('[PresRes:pointer]', entry);
   };
 
   const resetFreehandCaptureState = () => {
