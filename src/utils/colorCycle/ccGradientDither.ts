@@ -376,7 +376,6 @@ export const resolveSampledFlatPositionMix = ({
   const solvePairLow = useFallbackPair ? contrastPair.low : sampledLowRgb;
   const solvePairHigh = useFallbackPair ? contrastPair.high : sampledHighRgb;
   const {
-    flatMix,
     solveError,
     usedFallbackPair,
   } = projectTargetToPairMix({
@@ -384,6 +383,7 @@ export const resolveSampledFlatPositionMix = ({
     low: solvePairLow,
     high: solvePairHigh,
   });
+  const flatMix = clamp01(rgbToTone(targetRgb));
   const lowColor = rgbToCss(sampledLowRgb);
   const highColor = rgbToCss(sampledHighRgb);
 
