@@ -1,7 +1,6 @@
 import {
   fillCcGradientDither,
   resolveSampledFlatPositionMix,
-  resolveSampledTripleInks,
 } from '@/utils/colorCycle/ccGradientDither';
 import {
   fillFlatPatternMode,
@@ -312,11 +311,7 @@ describe('fillCcGradientDither', () => {
     const representativeRgb: [number, number, number] = [181, 146, 97];
     const representativeTone =
       (representativeRgb[0] * 0.2126 + representativeRgb[1] * 0.7152 + representativeRgb[2] * 0.0722) / 255;
-    const expectedTriple = resolveSampledTripleInks({
-      representativeTone,
-      baseOffset: 0,
-      spread: 84,
-    });
+    const expectedPair = resolveFlatInkSetForPosition(representativeTone, 2, 0, 84).indices;
 
     await fillCcGradientDither({
       vertices: [
@@ -343,15 +338,7 @@ describe('fillCcGradientDither', () => {
     });
 
     const usedIndices = Array.from(new Set(out)).filter((value) => value > 0).sort((a, b) => a - b);
-    const allowed = new Set([
-      expectedTriple.lowIndex,
-      expectedTriple.midIndex,
-      expectedTriple.highIndex,
-    ]);
-
-    expect(usedIndices.length).toBeGreaterThanOrEqual(2);
-    expect(usedIndices.every((value) => allowed.has(value))).toBe(true);
-    expect(usedIndices.includes(expectedTriple.midIndex)).toBe(true);
+    expect(usedIndices).toEqual(expectedPair);
   });
 
   it('derives sampled flat Sierra-Lite from the averaged sampled target instead of geometric flat position', async () => {
@@ -391,18 +378,14 @@ describe('fillCcGradientDither', () => {
     expect(usedPair).not.toEqual(resolveFlatInkSetForPosition(0.1, 2, 0, 0).indices);
   });
 
-  it('uses flatPosition to shift sampled-flat Sierra-Lite occupancy across the same triple inks', async () => {
+  it('uses flatPosition to shift sampled-flat Sierra-Lite occupancy across the same pair', async () => {
     const width = 16;
     const height = 16;
     const sampledStops = [
       { position: 0, color: '#9d9d9d' },
       { position: 1, color: '#9d9d9d' },
     ];
-    const tripleInks = resolveSampledTripleInks({
-      representativeTone: 157 / 255,
-      baseOffset: 0,
-      spread: 63,
-    });
+    const pair = resolveFlatInkSetForPosition(157 / 255, 2, 0, 63).indices;
 
     const run = async (tone: number) => {
       const out = new Uint8Array(width * height);
@@ -436,16 +419,8 @@ describe('fillCcGradientDither', () => {
     const lowerUsed = Array.from(new Set(lowerToneOut)).filter((value) => value > 0).sort((a, b) => a - b);
     const higherUsed = Array.from(new Set(higherToneOut)).filter((value) => value > 0).sort((a, b) => a - b);
 
-    const allowed = new Set([tripleInks.lowIndex, tripleInks.midIndex, tripleInks.highIndex]);
-
-    expect(lowerUsed.every((value) => allowed.has(value))).toBe(true);
-    expect(higherUsed.every((value) => allowed.has(value))).toBe(true);
-    expect(lowerUsed).toContain(tripleInks.lowIndex);
-    expect(lowerUsed).toContain(tripleInks.midIndex);
-    expect(lowerUsed).not.toContain(tripleInks.highIndex);
-    expect(higherUsed).not.toContain(tripleInks.lowIndex);
-    expect(higherUsed).toContain(tripleInks.midIndex);
-    expect(higherUsed).toContain(tripleInks.highIndex);
+    expect(lowerUsed).toEqual(pair);
+    expect(higherUsed).toEqual(pair);
   });
 
   it('does not let sampled flat solving jump away from the sampled-position pair', () => {
