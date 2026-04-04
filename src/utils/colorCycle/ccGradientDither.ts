@@ -27,6 +27,7 @@ export type CcGradientDitherOptions = {
   levels: number;
   baseOffset: number;
   flatPairSpread?: number;
+  ditherPatternDiversity?: number;
   flatMixByBand?: readonly number[];
   flatSeed?: number;
   algorithm?: DitherAlgorithm;
@@ -44,6 +45,34 @@ export type CcGradientDitherOptions = {
 };
 
 const clamp01 = (value: number): number => Math.max(0, Math.min(1, value));
+
+const resolveSampledFlatDiversityMix = ({
+  flatPosition,
+  flatSeed,
+  ditherPatternDiversity,
+  minMix,
+  maxMix,
+}: {
+  flatPosition: number;
+  flatSeed?: number;
+  ditherPatternDiversity?: number;
+  minMix: number;
+  maxMix: number;
+}): number => {
+  const diversity01 = clamp01((ditherPatternDiversity ?? 100) / 100);
+  const amplification = 1 + diversity01 * 1.5;
+  const noiseAmp = diversity01 * 0.5;
+  const centered = clamp01(flatPosition) - 0.5;
+  const amplified = 0.5 + centered * amplification;
+  const seedHash = flatSeed
+    ? (Math.imul((flatSeed >>> 0) ^ 0x9e3779b9, 2654435761) >>> 0)
+    : 0;
+  const seedNoise = flatSeed
+    ? ((seedHash & 0xffff) / 65536 - 0.5) * noiseAmp
+    : 0;
+
+  return Math.max(minMix, Math.min(maxMix, amplified + seedNoise));
+};
 
 const noiseAt = (x: number, y: number): number => {
   let n = (x | 0) * 374761393 + (y | 0) * 668265263;
@@ -718,6 +747,7 @@ export const fillCcGradientDither = async ({
   levels,
   baseOffset,
   flatPairSpread,
+  ditherPatternDiversity,
   flatMixByBand,
   flatSeed,
   algorithm = 'sierra-lite',
@@ -931,15 +961,13 @@ export const fillCcGradientDither = async ({
         baseOffset,
         spread: flatPairSpread ?? 0,
       });
-      const centered = clamp01(flatPosition) - 0.5;
-      const amplified = 0.5 + centered * 2.5;
-      const seedHash = flatSeed
-        ? (Math.imul((flatSeed >>> 0) ^ 0x9e3779b9, 2654435761) >>> 0)
-        : 0;
-      const seedNoise = flatSeed
-        ? ((seedHash & 0xffff) / 65536 - 0.5) * 0.5
-        : 0;
-      const sampledTripleMix = Math.max(0.02, Math.min(0.98, amplified + seedNoise));
+      const sampledTripleMix = resolveSampledFlatDiversityMix({
+        flatPosition,
+        flatSeed,
+        ditherPatternDiversity,
+        minMix: 0.02,
+        maxMix: 0.98,
+      });
       const tripleLevels = 3;
       let errCurr = new Float32Array(gridW);
       let errNext = new Float32Array(gridW);
@@ -1009,15 +1037,13 @@ export const fillCcGradientDither = async ({
             })
           : null;
       if (sampledFlatSolver) {
-        const centered = clamp01(flatPosition) - 0.5;
-        const amplified = 0.5 + centered * 2.5;
-        const seedHash = flatSeed
-          ? (Math.imul((flatSeed >>> 0) ^ 0x9e3779b9, 2654435761) >>> 0)
-          : 0;
-        const seedNoise = flatSeed
-          ? ((seedHash & 0xffff) / 65536 - 0.5) * 0.5
-          : 0;
-        sampledFlatSolver.flatMix = Math.max(0.08, Math.min(0.92, amplified + seedNoise));
+        sampledFlatSolver.flatMix = resolveSampledFlatDiversityMix({
+          flatPosition,
+          flatSeed,
+          ditherPatternDiversity,
+          minMix: 0.08,
+          maxMix: 0.92,
+        });
       }
       const runtimeFlat = algorithm === 'sierra-lite'
         ? resolveRuntimeFlatMixByBand(0, flatPairSpread)
@@ -1055,6 +1081,7 @@ export const fillCcGradientDither = async ({
         flatMix: sampledFlatSolver?.flatMix,
         flatMixByBand: resolvedFlatMixByBand,
         flatSeed,
+        ditherPatternDiversity,
         spread: flatPairSpread,
         gridW,
         gridH,

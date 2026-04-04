@@ -692,6 +692,33 @@ describe('ColorCycleBrushCanvas2D', () => {
     );
   });
 
+  it('forwards dither pattern diversity for continuous linear cc gradient fills', async () => {
+    const canvas = makeCanvas();
+    const brush = new ColorCycleBrushCanvas2D(canvas);
+
+    brush.setDitherEnabled(true);
+    ccGradientDitherMocks.fillCcGradientDither.mockClear();
+
+    const vertices = [
+      { x: 0, y: 0 },
+      { x: 7, y: 0 },
+      { x: 7, y: 5 },
+      { x: 0, y: 5 },
+    ];
+
+    await brush.fillShapeLinear(vertices, { x: 1, y: 0 }, 'layer-1', 4, {
+      continuous: true,
+      ccGradient: true,
+      ditherPatternDiversity: 25,
+    });
+
+    expect(ccGradientDitherMocks.fillCcGradientDither).toHaveBeenCalledWith(
+      expect.objectContaining({
+        ditherPatternDiversity: 25,
+      })
+    );
+  });
+
   it('uses selected dither algorithm/pattern for continuous concentric cc gradient fills', async () => {
     const canvas = makeCanvas();
     const brush = new ColorCycleBrushCanvas2D(canvas);

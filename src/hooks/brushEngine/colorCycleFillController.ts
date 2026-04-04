@@ -24,6 +24,8 @@ type FillBrush = ColorCycleBrushImplementation & {
       ditherPixelSize?: number;
       ditherPairBandCount?: number;
       ditherPaletteSpread?: number;
+      ditherPatternDiversity?: number;
+      ditherBackgroundFill?: boolean;
       ditherSampledStops?: GradientDitherOptions['ditherSampledStops'];
       ditherBaseOffsetOverride?: GradientDitherOptions['ditherBaseOffsetOverride'];
       paintSlotOverride?: GradientDitherOptions['paintSlotOverride'];
@@ -50,6 +52,7 @@ type SharedArgs = {
     | 'ditherBackgroundFill'
     | 'ditherGradBgFill'
     | 'ditherPaletteSpread'
+    | 'ditherPatternDiversity'
   >;
   defaultBandSpacing: number;
   clampColorCycleBandSpacing: (value?: number) => number;
@@ -184,6 +187,8 @@ export const fillColorCycleLinear = async ({
           ditherPixelSize: options?.ditherPixelSize,
           ditherPairBandCount: options?.ditherPairBandCount,
           ditherPaletteSpread: options?.ditherPaletteSpread ?? brushSettings.ditherPaletteSpread,
+          ditherPatternDiversity:
+            options?.ditherPatternDiversity ?? brushSettings.ditherPatternDiversity,
           ditherSampledStops: options?.ditherSampledStops,
           ditherBaseOffsetOverride: options?.ditherBaseOffsetOverride,
           paintSlotOverride: options?.paintSlotOverride,
@@ -267,6 +272,8 @@ export const fillColorCycleConcentric = async ({
           ditherPixelSize: options?.ditherPixelSize,
           ditherPairBandCount: options?.ditherPairBandCount,
           ditherPaletteSpread: options?.ditherPaletteSpread ?? brushSettings.ditherPaletteSpread,
+          ditherPatternDiversity:
+            options?.ditherPatternDiversity ?? brushSettings.ditherPatternDiversity,
           ditherBackgroundFill,
           roi: options?.roi,
           lostEdge: brushSettings.lostEdge,

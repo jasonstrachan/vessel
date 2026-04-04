@@ -1682,6 +1682,24 @@ const BrushControls = () => {
                     </div>
                     <div className="flex items-center gap-2 mt-2">
                       <label className={CONTROL_LABEL_CLASS} style={CONTROL_LABEL_STYLE}>
+                        Variety
+                      </label>
+                      <ProgressSlider
+                        value={activeSettings.ditherPatternDiversity ?? 100}
+                        min={0}
+                        max={100}
+                        step={1}
+                        onChange={(value) =>
+                          setActiveSettings({
+                            ditherPatternDiversity: Math.max(0, Math.min(100, Math.round(value))),
+                          })
+                        }
+                        aria-label="Dither Pattern Diversity"
+                        className="flex-1"
+                      />
+                    </div>
+                    <div className="flex items-center gap-2 mt-2">
+                      <label className={CONTROL_LABEL_CLASS} style={CONTROL_LABEL_STYLE}>
                         Sprd
                       </label>
                       <ProgressSlider

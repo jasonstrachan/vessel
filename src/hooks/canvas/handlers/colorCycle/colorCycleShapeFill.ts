@@ -298,6 +298,7 @@ const resolveShapeFinalizeDitherOptions = (
 ): {
   ditherPixelSize: number | undefined;
   ditherLevels?: number;
+  ditherPatternDiversity?: number;
   ditherSampledStops?: StoredStop[];
   ditherBaseOffsetOverride?: number;
   paintSlotOverride?: number;
@@ -308,6 +309,7 @@ const resolveShapeFinalizeDitherOptions = (
   return {
     ditherPixelSize,
     ditherLevels: brushSettings.ditherEnabled ? ccDitherMode.quantLevels : undefined,
+    ditherPatternDiversity: brushSettings.ditherPatternDiversity,
     roi,
     skipPostRender: true,
   };

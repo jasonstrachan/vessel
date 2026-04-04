@@ -787,6 +787,60 @@ describe('fillCcGradientDither', () => {
     expect(medium).toEqual(wide);
   });
 
+  it('forces a neutral checkerboard-family Sierra mix at zero diversity regardless of seed', () => {
+    const run = (flatSeed: number) => {
+      const gridW = 8;
+      const gridH = 8;
+      const out = new Uint16Array(gridW * gridH);
+
+      fillFlatPatternMode({
+        algorithm: 'sierra-lite',
+        tone: 0.5,
+        flatLowIndex: 28,
+        flatHighIndex: 36,
+        flatMix: 0.61,
+        flatSeed,
+        ditherPatternDiversity: 0,
+        spread: 84,
+        gridW,
+        gridH,
+        fillBackground: true,
+        baseOffset: 0,
+        phaseX: 0,
+        phaseY: 0,
+        writeCellIndex: (cellIdx, index) => {
+          out[cellIdx] = index;
+        },
+      });
+
+      return Array.from(out);
+    };
+
+    const seedA = run(11);
+    const seedB = run(999);
+    const lowCount = seedA.filter((value) => value === 28).length;
+    const highCount = seedA.filter((value) => value === 36).length;
+
+    const rows = [];
+    for (let y = 0; y < 8; y += 1) {
+      rows.push(seedA.slice(y * 8, y * 8 + 8));
+    }
+
+    const hasAlternation = rows.some((row) =>
+      row.some(
+        (value, index) =>
+          index < row.length - 2 &&
+          row[index + 1] !== value &&
+          row[index + 2] === value
+      )
+    );
+
+    expect(hasAlternation).toBe(true);
+    expect(seedA).toEqual(seedB);
+    expect(new Set(seedA)).toEqual(new Set([28, 36]));
+    expect(Math.abs(lowCount - highCount)).toBeLessThanOrEqual(1);
+  });
+
   it('uses two separated inks for each Sierra Lite flat tone band', () => {
     for (let band = 0; band < 5; band += 1) {
       const indices = resolveFlatInkSetForBand(band, 2, 0).indices;

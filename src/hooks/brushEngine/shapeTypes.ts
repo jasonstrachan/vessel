@@ -20,6 +20,7 @@ export type GradientDitherOptions = {
   ditherPixelSize?: number;
   ditherPairBandCount?: number;
   ditherPaletteSpread?: number;
+  ditherPatternDiversity?: number;
   ditherSampledStops?: StoredStop[];
   ditherBaseOffsetOverride?: number;
   paintSlotOverride?: number;
@@ -38,6 +39,7 @@ export type RectangleGradientSettings = Pick<
   | 'ditherAlgorithm'
   | 'patternStyle'
   | 'ditherPaletteSpread'
+  | 'ditherPatternDiversity'
   | 'risographColorShift'
 >;
 
@@ -53,4 +55,5 @@ export type PolygonGradientSettings = Pick<
   | 'ditherAlgorithm'
   | 'patternStyle'
   | 'ditherPaletteSpread'
+  | 'ditherPatternDiversity'
 >;
