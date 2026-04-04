@@ -314,37 +314,6 @@ const resolveInitialError = (
   }
 };
 
-const resolveDeterministicFloorThresholdOffset = (
-  x: number,
-  y: number
-): number => {
-  const parity = ((x + y) & 1) === 0 ? -1 : 1;
-  const runPhase = (x + y * 2) & 3;
-  const runBias =
-    runPhase === 0 ? -0.012 :
-    runPhase === 1 ? 0.01 :
-    runPhase === 2 ? -0.004 :
-    0.006;
-
-  return parity * 0.018 + runBias;
-};
-
-const resolveDeterministicFloorInitialError = (
-  x: number,
-  y: number
-): number => {
-  const parity = ((x + y) & 1) === 0 ? 1 : -1;
-  const rowPhase = (y & 1) === 0 ? 1 : -1;
-  const runPhase = (x + y * 2) & 3;
-  const runBias =
-    runPhase === 0 ? 0.03 :
-    runPhase === 1 ? -0.008 :
-    runPhase === 2 ? 0.018 :
-    -0.016;
-
-  return parity * 0.028 + rowPhase * 0.01 + runBias;
-};
-
 const fillOrderedFlatPatternMode = ({
   algorithm,
   patternStyle,
@@ -440,11 +409,11 @@ const fillSierraLiteFlatPatternMode = ({
   const baseMix = isSampledFlat
     ? clamp01(flatMix as number)
     : resolveBandMixAmount(resolvedBand, flatPosition, flatMix, flatMixByBand, spread);
+  const diversity01 = clamp01((ditherPatternDiversity ?? 100) / 100);
   const mixKey = Math.round(baseMix * 255) & 255;
   const lowIdx = inkSet.indices[0] & 255;
   const highIdx = inkSet.indices[1] & 255;
   const shapeSeed = (flatSeed ?? 0) >>> 0;
-  const diversity01 = clamp01((ditherPatternDiversity ?? 100) / 100);
   const seedPhaseX = shapeSeed & 7;
   const seedPhaseY = (shapeSeed >>> 3) & 7;
   const patternIdentityBand = isSampledFlat ? 0 : patternBand;
@@ -503,14 +472,6 @@ const fillSierraLiteFlatPatternMode = ({
         variant,
         patternKey
       );
-      const deterministicInitialErr = resolveDeterministicFloorInitialError(
-        x + phaseX,
-        y + phaseY
-      );
-      const blendedInitialErr =
-        diversity01 <= 0
-          ? deterministicInitialErr
-          : (deterministicInitialErr * (1 - diversity01)) + (initialErr * diversity01);
       const threshold = resolveSeededThreshold(
         seededX,
         seededY,
@@ -519,12 +480,8 @@ const fillSierraLiteFlatPatternMode = ({
         variant,
         patternKey
       );
-      const deterministicThreshold =
-        SIERRA_LITE_THRESHOLD + resolveDeterministicFloorThresholdOffset(x + phaseX, y + phaseY);
-      const blendedThreshold =
-        diversity01 <= 0
-          ? deterministicThreshold
-          : (deterministicThreshold * (1 - diversity01)) + (threshold * diversity01);
+      const blendedInitialErr = initialErr * diversity01;
+      const blendedThreshold = 0.5 + (threshold - 0.5) * diversity01;
       const value = clamp01(baseMix + blendedInitialErr + errors[idx]);
       const bit: 0 | 1 = value >= blendedThreshold ? 1 : 0;
       const qErr = value - bit;

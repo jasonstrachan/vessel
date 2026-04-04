@@ -60,6 +60,12 @@ const resolveSampledFlatDiversityMix = ({
   maxMix: number;
 }): number => {
   const diversity01 = clamp01((ditherPatternDiversity ?? 100) / 100);
+  const floorMix = 0.5;
+
+  if (diversity01 <= 0) {
+    return floorMix;
+  }
+
   const amplification = 1 + diversity01 * 1.5;
   const noiseAmp = diversity01 * 0.5;
   const centered = clamp01(flatPosition) - 0.5;
@@ -67,11 +73,15 @@ const resolveSampledFlatDiversityMix = ({
   const seedHash = flatSeed
     ? (Math.imul((flatSeed >>> 0) ^ 0x9e3779b9, 2654435761) >>> 0)
     : 0;
+  const u1 = (seedHash & 0xffff) / 65536 - 0.5;
+  const u2 = ((seedHash >>> 16) & 0xffff) / 65536 - 0.5;
   const seedNoise = flatSeed
-    ? ((seedHash & 0xffff) / 65536 - 0.5) * noiseAmp
+    ? ((u1 + u2) / 2) * noiseAmp
     : 0;
+  const stochasticMix = amplified + seedNoise;
+  const blended = floorMix + diversity01 * (stochasticMix - floorMix);
 
-  return Math.max(minMix, Math.min(maxMix, amplified + seedNoise));
+  return Math.max(minMix, Math.min(maxMix, blended));
 };
 
 const noiseAt = (x: number, y: number): number => {
@@ -316,47 +326,6 @@ const normalizeCycleIndex = (index: number, baseOffset: number): number => {
   const wrappedBaseOffset = ((baseOffset % 255) + 255) % 255;
   const unshifted = ((zeroBased - wrappedBaseOffset) % 255 + 255) % 255;
   return clamp01(unshifted / 254);
-};
-
-const MULTI_INK_THRESHOLD = 40;
-
-const shouldUseSampledMultiInk = (spread: number): boolean => spread > MULTI_INK_THRESHOLD;
-
-export const resolveSampledTripleInks = ({
-  representativeTone,
-  baseOffset,
-  spread,
-}: {
-  representativeTone: number;
-  baseOffset: number;
-  spread: number;
-}): {
-  lowIndex: number;
-  midIndex: number;
-  highIndex: number;
-} => {
-  const spread01 = clamp01(spread / 100);
-  const centerIndex = indexFromNormalized(representativeTone, baseOffset);
-  const reach = Math.round(spread01 * 100);
-
-  return {
-    lowIndex: clampCycleIndex(centerIndex - reach),
-    midIndex: centerIndex,
-    highIndex: clampCycleIndex(centerIndex + reach),
-  };
-};
-
-const tripleInkIndex = (
-  level: number,
-  inks: { lowIndex: number; midIndex: number; highIndex: number }
-): number => {
-  if (level <= 0) {
-    return inks.lowIndex;
-  }
-  if (level >= 2) {
-    return inks.highIndex;
-  }
-  return inks.midIndex;
 };
 
 export const resolveSampledFlatPositionMix = ({
@@ -955,152 +924,82 @@ export const fillCcGradientDither = async ({
     const representativeSampledTarget = preferSampledFlatSolver
       ? resolveRepresentativeSampledTarget(sampledFlatSourceStops)
       : null;
-    if (preferSampledFlatSolver && representativeSampledTarget && shouldUseSampledMultiInk(flatPairSpread ?? 0)) {
-      const tripleInks = resolveSampledTripleInks({
-        representativeTone: representativeSampledTarget.tone,
-        baseOffset,
-        spread: flatPairSpread ?? 0,
-      });
-      const sampledTripleMix = resolveSampledFlatDiversityMix({
+    const sampledFlatSolver =
+      preferSampledFlatSolver && representativeSampledTarget
+        ? resolveSampledFlatPositionMix({
+            stops: sampledFlatSourceStops,
+            sampledSourceStops: sampledFlatSourceStops,
+            flatPosition: representativeSampledTarget.tone,
+            baseOffset,
+            spread: flatPairSpread,
+            targetRgbOverride: representativeSampledTarget.rgb,
+          })
+        : null;
+    if (sampledFlatSolver) {
+      sampledFlatSolver.flatMix = resolveSampledFlatDiversityMix({
         flatPosition,
         flatSeed,
         ditherPatternDiversity,
-        minMix: 0.02,
-        maxMix: 0.98,
+        minMix: 0.08,
+        maxMix: 0.92,
       });
-      const tripleLevels = 3;
-      let errCurr = new Float32Array(gridW);
-      let errNext = new Float32Array(gridW);
+    }
+    const runtimeFlat = algorithm === 'sierra-lite'
+      ? resolveRuntimeFlatMixByBand(0, flatPairSpread)
+      : {};
+    const resolvedFlatMixByBand = sampledFlatSolver
+      ? undefined
+      : preferSampledFlatSolver
+      ? undefined
+      : (flatMixByBand ?? runtimeFlat.mixByBand);
 
-      for (let cy = 0; cy < gridH; cy += 1) {
-        const activeRow = activeCellsByRow[cy];
-        if (!activeRow.length) {
-          const swap = errCurr;
-          errCurr = errNext;
-          errNext = swap;
-          errNext.fill(0);
-          continue;
-        }
-
-        const swap = errCurr;
-        errCurr = errNext;
-        errNext = swap;
-        errNext.fill(0);
-
-        const serpentine = (cy & 1) === 1;
-        const start = serpentine ? activeRow.length - 1 : 0;
-        const end = serpentine ? -1 : activeRow.length;
-        const step = serpentine ? -1 : 1;
-
-        for (let i = start; i !== end; i += step) {
-          const cx = activeRow[i];
-          const cellIdx = cy * gridW + cx;
-          const scaled = sampledTripleMix * (tripleLevels - 1);
-          const lower = Math.max(0, Math.min(tripleLevels - 1, Math.floor(scaled)));
-          const frac = scaled - lower;
-          const adj = clamp01(frac + (errCurr[cx] || 0));
-          const chooseUpper = lower < tripleLevels - 1 && adj >= 0.5;
-          const q = chooseUpper ? 1 : 0;
-          const err = adj - q;
-
-          if (!serpentine) {
-            if (cx + 1 < gridW) {
-              errCurr[cx + 1] += err * 0.5;
-            }
-            if (cx - 1 >= 0) {
-              errNext[cx - 1] += err * 0.25;
-            }
-          } else {
-            if (cx - 1 >= 0) {
-              errCurr[cx - 1] += err * 0.5;
-            }
-            if (cx + 1 < gridW) {
-              errNext[cx + 1] += err * 0.25;
-            }
+    ccLog('flat recipe inputs', {
+      algorithm,
+      flatPosition,
+      baseOffset,
+      flatPairSpread,
+      preferSampledFlatSolver,
+      sampledFlatSolverStopCount: sampledFlatSourceStops.length,
+      representativeSampledTarget: representativeSampledTarget
+        ? {
+            tone: Number(representativeSampledTarget.tone.toFixed(6)),
+            color: representativeSampledTarget.color,
           }
-          errNext[cx] += err * 0.25;
+        : null,
+      sampledFlatSolver,
+      resolvedFlatMixByBand,
+      activeCellCount: activeMask.reduce((count, value) => count + (value ? 1 : 0), 0),
+    });
+    fillFlatPatternMode({
+      algorithm,
+      patternStyle,
+      tone: flatPosition,
+      flatPosition: sampledFlatSolver?.flatPosition ?? (sampledFlatSolver ? undefined : flatPosition),
+      flatLowIndex: sampledFlatSolver?.lowIndex,
+      flatHighIndex: sampledFlatSolver?.highIndex,
+      flatMix: sampledFlatSolver?.flatMix,
+      flatMixByBand: resolvedFlatMixByBand,
+      flatSeed,
+      ditherPatternDiversity,
+      spread: flatPairSpread,
+      gridW,
+      gridH,
+      activeMask,
+      fillBackground,
+      baseOffset,
+      phaseX,
+      phaseY,
+      writeCellIndex: (cellIdx, index) => {
+        cellIndices[cellIdx] = index;
+      },
+    });
 
-          const level = chooseUpper ? lower + 1 : lower;
-          cellIndices[cellIdx] = tripleInkIndex(level, tripleInks);
-        }
-      }
-    } else {
-      const sampledFlatSolver =
-        preferSampledFlatSolver && representativeSampledTarget
-          ? resolveSampledFlatPositionMix({
-              stops: sampledFlatSourceStops,
-              sampledSourceStops: sampledFlatSourceStops,
-              flatPosition: representativeSampledTarget.tone,
-              baseOffset,
-              spread: flatPairSpread,
-              targetRgbOverride: representativeSampledTarget.rgb,
-            })
-          : null;
-      if (sampledFlatSolver) {
-        sampledFlatSolver.flatMix = resolveSampledFlatDiversityMix({
-          flatPosition,
-          flatSeed,
-          ditherPatternDiversity,
-          minMix: 0.08,
-          maxMix: 0.92,
-        });
-      }
-      const runtimeFlat = algorithm === 'sierra-lite'
-        ? resolveRuntimeFlatMixByBand(0, flatPairSpread)
-        : {};
-      const resolvedFlatMixByBand = sampledFlatSolver
-        ? undefined
-        : preferSampledFlatSolver
-        ? undefined
-        : (flatMixByBand ?? runtimeFlat.mixByBand);
-
-      ccLog('flat recipe inputs', {
-        algorithm,
-        flatPosition,
-        baseOffset,
-        flatPairSpread,
-        preferSampledFlatSolver,
-        sampledFlatSolverStopCount: sampledFlatSourceStops.length,
-        representativeSampledTarget: representativeSampledTarget
-          ? {
-              tone: Number(representativeSampledTarget.tone.toFixed(6)),
-              color: representativeSampledTarget.color,
-            }
-          : null,
-        sampledFlatSolver,
-        resolvedFlatMixByBand,
-        activeCellCount: activeMask.reduce((count, value) => count + (value ? 1 : 0), 0),
-      });
-      fillFlatPatternMode({
-        algorithm,
-        patternStyle,
-        tone: flatPosition,
-        flatPosition: sampledFlatSolver?.flatPosition ?? (sampledFlatSolver ? undefined : flatPosition),
-        flatLowIndex: sampledFlatSolver?.lowIndex,
-        flatHighIndex: sampledFlatSolver?.highIndex,
-        flatMix: sampledFlatSolver?.flatMix,
-        flatMixByBand: resolvedFlatMixByBand,
-        flatSeed,
-        ditherPatternDiversity,
-        spread: flatPairSpread,
-        gridW,
-        gridH,
-        activeMask,
-        fillBackground,
-        baseOffset,
-        phaseX,
-        phaseY,
-        writeCellIndex: (cellIdx, index) => {
-          cellIndices[cellIdx] = index;
-        },
-      });
-
-      const patternOutput = summarizeFlatPatternOutput(cellIndices, activeMask);
-      ccLog('flat pattern output', patternOutput);
-      if (preferSampledFlatSolver && sampledFlatTraceId) {
-        ccLog('sampled flat trace', {
-          traceId: sampledFlatTraceId,
-          stage: sampledFlatTraceStage ?? 'unknown',
+    const patternOutput = summarizeFlatPatternOutput(cellIndices, activeMask);
+    ccLog('flat pattern output', patternOutput);
+    if (preferSampledFlatSolver && sampledFlatTraceId) {
+      ccLog('sampled flat trace', {
+        traceId: sampledFlatTraceId,
+        stage: sampledFlatTraceStage ?? 'unknown',
         sampledSourceStops: summarizeStoredStopsForDebug(sampledFlatSourceStops),
         flatPosition: Number(flatPosition.toFixed(6)),
         representativeSampledTone: representativeSampledTarget
@@ -1120,9 +1019,8 @@ export const fillCcGradientDither = async ({
               ? Math.max(0, patternOutput.highInkIndex - patternOutput.lowInkIndex)
               : null,
           finalActiveCellCount: patternOutput.activeCellCount,
-          finalUniqueIndices: patternOutput.uniqueActiveIndices,
-        });
-      }
+        finalUniqueIndices: patternOutput.uniqueActiveIndices,
+      });
     }
   } else if (algorithm === 'sierra-lite') {
     let errCurr = new Float32Array(gridW);
