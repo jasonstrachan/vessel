@@ -13,12 +13,22 @@ export const __DEV__ = process.env.NODE_ENV !== 'production';
 type DebugConfig = { all?: boolean; [scope: string]: boolean | undefined };
 
 type Breadcrumb = { t: number; scope: string; data: unknown };
+export type CrashReport = {
+  t: number;
+  type: 'error' | 'unhandledrejection';
+  href: string;
+  message: string;
+  stack?: string | null;
+  userAgent?: string;
+  breadcrumbs: Breadcrumb[];
+};
 
 type DebugWindow = Window & {
   __TB_DEBUG?: DebugConfig;
   __TB_DEBUG_FORCE?: string | string[];
   __TB_DEBUG_EXCLUDE?: string | string[];
   __TB_BREADCRUMBS?: Breadcrumb[];
+  __TB_LAST_CRASH__?: CrashReport;
 };
 
 const getDebugWindow = (): DebugWindow | undefined => {
@@ -167,6 +177,8 @@ export function logError(...args: unknown[]) {
 const BC_WIN_KEY = '__TB_BREADCRUMBS';
 const BC_LS_KEY = 'TB_BREADCRUMBS';
 const BC_MAX = 200;
+const CRASH_LS_KEY = 'TB_LAST_CRASH';
+const CRASH_REPORTED_LS_KEY = 'TB_LAST_CRASH_REPORTED';
 
 export function recordBreadcrumb(scope: string, data: unknown) {
   if (!__DEV__) return; // Dev-only breadcrumbs
@@ -185,6 +197,83 @@ export function recordBreadcrumb(scope: string, data: unknown) {
       } catch {}
     }
   } catch {}
+}
+
+export function getPersistedBreadcrumbs(): Breadcrumb[] {
+  try {
+    const w = getDebugWindow();
+    if (w && Array.isArray(w[BC_WIN_KEY]) && w[BC_WIN_KEY]!.length > 0) {
+      return [...w[BC_WIN_KEY]!];
+    }
+    if (w?.localStorage) {
+      const raw = w.localStorage.getItem(BC_LS_KEY);
+      if (!raw) {
+        return [];
+      }
+      const parsed = JSON.parse(raw);
+      return Array.isArray(parsed) ? parsed : [];
+    }
+  } catch {}
+  return [];
+}
+
+export function persistCrashReport(
+  report: Omit<CrashReport, 't' | 'href' | 'userAgent' | 'breadcrumbs'> & Partial<Pick<CrashReport, 't' | 'href' | 'userAgent' | 'breadcrumbs'>>
+): CrashReport | null {
+  try {
+    const w = getDebugWindow();
+    if (!w?.localStorage) {
+      return null;
+    }
+    const next: CrashReport = {
+      t: report.t ?? Date.now(),
+      type: report.type,
+      href: report.href ?? w.location.href,
+      message: report.message,
+      stack: report.stack ?? null,
+      userAgent: report.userAgent ?? w.navigator.userAgent,
+      breadcrumbs: report.breadcrumbs ?? getPersistedBreadcrumbs(),
+    };
+    w.__TB_LAST_CRASH__ = next;
+    w.localStorage.setItem(CRASH_LS_KEY, JSON.stringify(next));
+    return next;
+  } catch {}
+  return null;
+}
+
+export function getLastCrashReport(): CrashReport | null {
+  try {
+    const w = getDebugWindow();
+    if (!w?.localStorage) {
+      return null;
+    }
+    if (w.__TB_LAST_CRASH__) {
+      return w.__TB_LAST_CRASH__ ?? null;
+    }
+    const raw = w.localStorage.getItem(CRASH_LS_KEY);
+    if (!raw) {
+      return null;
+    }
+    const parsed = JSON.parse(raw) as CrashReport;
+    w.__TB_LAST_CRASH__ = parsed;
+    return parsed;
+  } catch {}
+  return null;
+}
+
+export function markCrashReportSeen(report: CrashReport): void {
+  try {
+    const w = getDebugWindow();
+    w?.localStorage?.setItem(CRASH_REPORTED_LS_KEY, String(report.t));
+  } catch {}
+}
+
+export function hasSeenCrashReport(report: CrashReport): boolean {
+  try {
+    const w = getDebugWindow();
+    return w?.localStorage?.getItem(CRASH_REPORTED_LS_KEY) === String(report.t);
+  } catch {}
+  return false;
 }
 
 // Helper to update debug config at runtime (e.g., from a dev UI toggle)
