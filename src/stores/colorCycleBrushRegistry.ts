@@ -145,7 +145,7 @@ export const createColorCycleBrushRegistry = (deps: ColorCycleBrushRegistryDeps)
       const BrushCanvas = deps.getBrushClass();
       const brush = new BrushCanvas(canvas, {
         brushSize: currentSettings.size ?? defaultBrushSettings.size,
-        fps: currentSettings.colorCycleFPS ?? 30,
+        fps: currentSettings.colorCycleFPS ?? 60,
         forceCanvas2D: deps.shouldForceCanvas2D()
       });
 
