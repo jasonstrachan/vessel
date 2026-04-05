@@ -511,7 +511,10 @@ export const startContinuousColorCycleAnimationCore = (
     lastRendererLogTS.current = 0;
 
     let lastRenderTime = 0;
-    const targetFPS = 30;
+    const configuredFPS = storeRef.current.tools.brushSettings.colorCycleFPS;
+    const targetFPS = Number.isFinite(configuredFPS)
+      ? Math.max(1, Math.min(120, configuredFPS as number))
+      : 60;
     const frameInterval = 1000 / targetFPS;
 
     continuousColorCycleAnimationActiveRef.current = true;
