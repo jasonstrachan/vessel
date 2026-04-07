@@ -97,7 +97,6 @@ export const getStrokeDitherPixelSize = ({
         source: 'engine',
         ...payload,
       });
-      console.log('[PresRes]', payload);
     }
   }
   return size;
