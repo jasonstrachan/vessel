@@ -87,11 +87,12 @@ export class RendererWebGL {
     gradientId?: Uint8Array,
     speedData?: Uint8Array,
     flowData?: Uint8Array,
+    phaseData?: Uint8Array,
     defIdData?: Uint16Array,
     rect?: { x: number; y: number; width: number; height: number },
     defIdDirty: boolean = true
   ) {
-    this.renderer.setIndexData(data, gradientId, speedData, flowData, defIdData, rect, defIdDirty);
+    this.renderer.setIndexData(data, gradientId, speedData, flowData, phaseData, defIdData, rect, defIdDirty);
   }
 
   render(timeSeconds: number, legacyPhase: number = timeSeconds, flowMode: FlowMode = 'forward') {

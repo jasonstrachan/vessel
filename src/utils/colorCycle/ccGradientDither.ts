@@ -38,6 +38,7 @@ export type CcGradientDitherOptions = {
   pxlEdge?: boolean;
   sampleNormalized: (x: number, y: number) => number;
   writeIndex: (x: number, y: number, index: number) => void;
+  writePhase?: (x: number, y: number, phaseByte: number) => void;
   logSetIndexSample?: (x: number, y: number) => void;
   yieldIfNeeded?: (row: number) => Promise<void>;
   sampledFlatTraceId?: string;
@@ -320,6 +321,7 @@ const summarizeStoredStopsForDebug = (stops: StoredStop[] | null | undefined) =>
   }));
 
 const clampCycleIndex = (value: number): number => Math.max(1, Math.min(255, Math.round(value)));
+const encodePhaseByte = (value: number): number => Math.max(0, Math.min(255, Math.floor(clamp01(value) * 255)));
 
 const normalizeCycleIndex = (index: number, baseOffset: number): number => {
   const zeroBased = clampCycleIndex(index) - 1;
@@ -727,6 +729,7 @@ export const fillCcGradientDither = async ({
   pxlEdge = false,
   sampleNormalized,
   writeIndex,
+  writePhase,
   logSetIndexSample,
   yieldIfNeeded,
   sampledFlatTraceId,
@@ -750,6 +753,19 @@ export const fillCcGradientDither = async ({
   const activeCells: number[] = [];
   const cellSeen = new Uint8Array(gridW);
   const thresholdJitter = algorithm === 'sierra-lite' ? 0 : 0.2;
+  const shouldWritePerPixelPhase = algorithm === 'sierra-lite' && clampedPairBands <= 0 && Boolean(writePhase);
+  const writePixel = (x: number, y: number, index: number) => {
+    writeIndex(x, y, index);
+    if (!writePhase) {
+      return;
+    }
+    if (!shouldWritePerPixelPhase || index <= 0) {
+      writePhase(x, y, 0);
+      return;
+    }
+    const phase = sampleNormalized(x + 0.5, y + 0.5);
+    writePhase(x, y, encodePhaseByte(phase));
+  };
 
   for (let row = 0; row < bboxHeight; row += 1) {
     const y = minY + row;
@@ -1176,7 +1192,7 @@ export const fillCcGradientDither = async ({
             if (logSetIndexSample) {
               logSetIndexSample(x, y);
             }
-            writeIndex(x, y, index);
+            writePixel(x, y, index);
           }
         }
       }
@@ -1213,7 +1229,7 @@ export const fillCcGradientDither = async ({
                 if (logSetIndexSample) {
                   logSetIndexSample(x, y);
                 }
-                writeIndex(x, y, 0);
+                writePixel(x, y, 0);
               }
             }
           }
@@ -1229,7 +1245,7 @@ export const fillCcGradientDither = async ({
           if (logSetIndexSample) {
             logSetIndexSample(x, y);
           }
-          writeIndex(x, y, index);
+          writePixel(x, y, index);
         }
       }
     }

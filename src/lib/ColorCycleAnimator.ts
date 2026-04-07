@@ -38,6 +38,7 @@ type DirectFillHandle = {
   gradientId: Uint8Array;
   speedData: Uint8Array;
   flowData: Uint8Array;
+  phaseData: Uint8Array;
   width: number;
   height: number;
 };
@@ -146,17 +147,18 @@ export class ColorCycleAnimator implements CCIndexSurface {
     return this.indexBuffer.getDimensions().height;
   }
 
-  getIndexBuffers(): { data: Uint8Array; gid?: Uint8Array; spd?: Uint8Array; flow?: Uint8Array } {
+  getIndexBuffers(): { data: Uint8Array; gid?: Uint8Array; spd?: Uint8Array; flow?: Uint8Array; phase?: Uint8Array } {
     return {
       data: this.indexBuffer.getDirectData(),
       gid: this.indexBuffer.getDirectGradientIdData(),
       spd: this.indexBuffer.getDirectSpeedData(),
       flow: this.indexBuffer.getDirectFlowData(),
+      phase: this.indexBuffer.getDirectPhaseData(),
     };
   }
 
-  setIndexBuffers(data: Uint8Array, gid?: Uint8Array, spd?: Uint8Array, flow?: Uint8Array): void {
-    this.setIndexBufferFromArray(data, gid, spd, flow);
+  setIndexBuffers(data: Uint8Array, gid?: Uint8Array, spd?: Uint8Array, flow?: Uint8Array, phase?: Uint8Array): void {
+    this.setIndexBufferFromArray(data, gid, spd, flow, phase);
   }
 
   setDefIdData(defIdData?: Uint16Array | null, options?: { forceDirty?: boolean }): void {
@@ -506,6 +508,7 @@ export class ColorCycleAnimator implements CCIndexSurface {
       const gradientId = this.indexBuffer.getDirectGradientIdData();
       const speedData = this.indexBuffer.getDirectSpeedData();
       const flowData = this.indexBuffer.getDirectFlowData();
+      const phaseData = this.indexBuffer.getDirectPhaseData();
       const width = canvas.width;
       const { minX, minY, width: bw, height: bh } = options.bbox;
       const clampedSlot = Math.max(0, Math.min(255, Math.round(gradientSlot)));
@@ -525,6 +528,7 @@ export class ColorCycleAnimator implements CCIndexSurface {
           gradientId[destStart + x] = value === 0 ? 0 : clampedSlot;
           speedData[destStart + x] = value === 0 ? 0 : clampedSpeed;
           flowData[destStart + x] = value === 0 ? 0 : clampedFlow;
+          phaseData[destStart + x] = 0;
           if (value !== 0) {
             wroteNonZero = true;
           }
@@ -562,6 +566,7 @@ export class ColorCycleAnimator implements CCIndexSurface {
       gradientId: this.indexBuffer.getDirectGradientIdData(),
       speedData: this.indexBuffer.getDirectSpeedData(),
       flowData: this.indexBuffer.getDirectFlowData(),
+      phaseData: this.indexBuffer.getDirectPhaseData(),
       width: canvas.width,
       height: canvas.height,
     };
@@ -602,6 +607,7 @@ export class ColorCycleAnimator implements CCIndexSurface {
       const gradientIdData = this.indexBuffer.getDirectGradientIdData();
       const speedData = this.indexBuffer.getDirectSpeedData();
       const flowData = this.indexBuffer.getDirectFlowData();
+      const phaseData = this.indexBuffer.getDirectPhaseData();
       if (!indexData) return;
 
       if (!this._dbgSpeedStatsLogged && speedData && speedData.length > 0) {
@@ -677,6 +683,7 @@ export class ColorCycleAnimator implements CCIndexSurface {
             gradientIdData,
             speedData,
             flowData,
+            phaseData,
             this.defIdData ?? undefined,
             rect,
             this._glDefIdDirty
@@ -717,6 +724,7 @@ export class ColorCycleAnimator implements CCIndexSurface {
         defPalettesById: this.defPalettesById ?? undefined,
         speedData,
         flowData,
+        phaseData,
         paletteSlots: this.paletteController.getPalettesBySlot(),
         basePalette: basePalette32,
         phase: legacyPhase,
@@ -1504,7 +1512,8 @@ export class ColorCycleAnimator implements CCIndexSurface {
     data: Uint8Array,
     gradientIdData?: Uint8Array,
     speedData?: Uint8Array,
-    flowData?: Uint8Array
+    flowData?: Uint8Array,
+    phaseData?: Uint8Array
   ): void {
     const { width, height } = this.indexBuffer.getDimensions();
     const expected = width * height;
@@ -1519,6 +1528,7 @@ export class ColorCycleAnimator implements CCIndexSurface {
       const gradientDest = this.indexBuffer.getDirectGradientIdData();
       const speedDest = this.indexBuffer.getDirectSpeedData();
       const flowDest = this.indexBuffer.getDirectFlowData();
+      const phaseDest = this.indexBuffer.getDirectPhaseData();
       dest.fill(0);
       dest.set(data.subarray(0, Math.min(dest.length, data.length)));
       if (gradientIdData) {
@@ -1543,6 +1553,12 @@ export class ColorCycleAnimator implements CCIndexSurface {
       } else {
         flowDest.fill(0);
       }
+      if (phaseData) {
+        phaseDest.fill(0);
+        phaseDest.set(phaseData.subarray(0, Math.min(phaseDest.length, phaseData.length)));
+      } else {
+        phaseDest.fill(0);
+      }
       this.indexBuffer.markDirty();
       this._glIndexDirty = true;
       return;
@@ -1553,6 +1569,7 @@ export class ColorCycleAnimator implements CCIndexSurface {
     const gradientDest = this.indexBuffer.getDirectGradientIdData();
     const speedDest = this.indexBuffer.getDirectSpeedData();
     const flowDest = this.indexBuffer.getDirectFlowData();
+    const phaseDest = this.indexBuffer.getDirectPhaseData();
     if (gradientIdData) {
       gradientDest.set(gradientIdData.subarray(0, Math.min(gradientDest.length, gradientIdData.length)));
       this.indexBuffer.setHasNonZeroGradientIds(gradientIdData.some((value) => value !== 0));
@@ -1571,6 +1588,11 @@ export class ColorCycleAnimator implements CCIndexSurface {
       flowDest.set(flowData.subarray(0, Math.min(flowDest.length, flowData.length)));
     } else {
       flowDest.fill(0);
+    }
+    if (phaseData) {
+      phaseDest.set(phaseData.subarray(0, Math.min(phaseDest.length, phaseData.length)));
+    } else {
+      phaseDest.fill(0);
     }
     this.indexBuffer.markDirty();
     this._glIndexDirty = true;

@@ -10,6 +10,7 @@ export class IndexBuffer {
   private gradientId: Uint8Array;
   private speedData: Uint8Array;
   private flowData: Uint8Array;
+  private phaseData: Uint8Array;
   private width: number;
   private height: number;
   private palette: string[];
@@ -65,6 +66,7 @@ export class IndexBuffer {
     this.gradientId = new Uint8Array(width * height);
     this.speedData = new Uint8Array(width * height);
     this.flowData = new Uint8Array(width * height);
+    this.phaseData = new Uint8Array(width * height);
     this.palette = ['rgba(0,0,0,0)']; // Index 0 = transparent
     this.maxPaletteIndex = 0;
     
@@ -260,6 +262,7 @@ export class IndexBuffer {
           this.gradientId[dataIndex] = normalizedIndex === 0 ? 0 : normalizedSlot;
           this.speedData[dataIndex] = normalizedIndex === 0 ? 0 : normalizedSpeed;
           this.flowData[dataIndex] = normalizedIndex === 0 ? 0 : normalizedFlowBits;
+          this.phaseData[dataIndex] = 0;
         }
       }
     }
@@ -1520,6 +1523,10 @@ export class IndexBuffer {
     return this.flowData;
   }
 
+  getDirectPhaseData(): Uint8Array {
+    return this.phaseData;
+  }
+
   getIndexData(): Uint8Array {
     return this.data;
   }
@@ -1534,6 +1541,10 @@ export class IndexBuffer {
 
   getFlowData(): Uint8Array {
     return this.flowData;
+  }
+
+  getPhaseData(): Uint8Array {
+    return this.phaseData;
   }
 
   getDirtyBounds(): { x: number; y: number; width: number; height: number } | null {
@@ -1592,6 +1603,7 @@ export class IndexBuffer {
     gradientId: Uint8Array;
     speedData: Uint8Array;
     flowData: Uint8Array;
+    phaseData: Uint8Array;
     palette: string[];
   } {
     return {
@@ -1601,6 +1613,7 @@ export class IndexBuffer {
       gradientId: new Uint8Array(this.gradientId),
       speedData: new Uint8Array(this.speedData),
       flowData: new Uint8Array(this.flowData),
+      phaseData: new Uint8Array(this.phaseData),
       palette: [...this.palette]
     };
   }
@@ -1615,6 +1628,7 @@ export class IndexBuffer {
     gradientId?: Uint8Array;
     speedData?: Uint8Array;
     flowData?: Uint8Array;
+    phaseData?: Uint8Array;
     palette: string[];
   }): IndexBuffer {
     const buffer = new IndexBuffer(data.width, data.height);
@@ -1627,6 +1641,9 @@ export class IndexBuffer {
       : new Uint8Array(data.width * data.height);
     buffer.flowData = data.flowData
       ? new Uint8Array(data.flowData)
+      : new Uint8Array(data.width * data.height);
+    buffer.phaseData = data.phaseData
+      ? new Uint8Array(data.phaseData)
       : new Uint8Array(data.width * data.height);
     buffer.palette = [...data.palette];
     buffer.isDirty = true;
