@@ -336,6 +336,17 @@ describe('AnimationControlsPanel', () => {
     ).toBeInTheDocument();
   });
 
+  it('clamps playback speed to the supported minimum', () => {
+    render(<AnimationControlsPanel />);
+
+    fireEvent.change(screen.getByRole('slider', { name: /playback speed/i }), {
+      target: { value: '0.001' },
+    });
+
+    const store = appStore.getState();
+    expect(store.setPlaybackSpeedScale).toHaveBeenCalledWith(0.01);
+  });
+
   it('shows and updates CC base speed for the active color-cycle layer', () => {
     appStore.setState({
       layers: [{

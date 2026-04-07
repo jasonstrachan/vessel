@@ -44,7 +44,7 @@ describe('webglExporter helpers', () => {
 
   it('clamps export layer speed scale and applies scaled playback speeds', () => {
     expect(clampExportLayerSpeedScale(undefined)).toBe(1);
-    expect(clampExportLayerSpeedScale(0)).toBe(0.0005);
+    expect(clampExportLayerSpeedScale(0)).toBe(0.01);
     expect(clampExportLayerSpeedScale(10)).toBe(3);
 
     expect(applyExportPlaybackScale(0.8, 0.5)).toBeCloseTo(0.4, 5);
