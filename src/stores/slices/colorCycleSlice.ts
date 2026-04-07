@@ -1,4 +1,8 @@
 import type { StateCreator } from 'zustand';
+import {
+  MAX_CC_LAYER_SPEED_SCALE,
+  MIN_CC_LAYER_SPEED_SCALE,
+} from '@/constants/colorCycle';
 
 type AppState = import('../useAppStore').AppState;
 
@@ -70,7 +74,7 @@ const appendColorCycleReason = (
 
 const clampPlaybackSpeedScale = (scale: number): number =>
   Number.isFinite(scale)
-    ? Math.max(0.0005, Math.min(3, scale))
+    ? Math.max(MIN_CC_LAYER_SPEED_SCALE, Math.min(MAX_CC_LAYER_SPEED_SCALE, scale))
     : 1;
 
 const applyPlaybackSpeedScale = (state: AppState, scale: number) => ({
