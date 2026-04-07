@@ -198,7 +198,7 @@ type LayerStrokeState = {
   snapshot?: StrokeDataSnapshot;
 };
     
-type AnimatorSerializedState = ReturnType<ColorCycleAnimator['serialize']>;
+type AnimatorSerializedState = ReturnType<ColorCycleAnimator['serializeBaseState']>;
 
 interface AnimatorIndexSnapshot {
   width: number;
@@ -210,7 +210,7 @@ interface AnimatorIndexSnapshot {
   phaseData?: ArrayBuffer;
   gradientStops?: GradientStop[];
   gradientDefs?: Array<{ id: string; name?: string; currentSlot: number }>;
-  slotPalettes?: Array<{ slot: number; stops: GradientStop[] }>;
+  slotPalettes?: Array<{ slot: number; stops: GradientStop[]; seamProfile?: GradientSeamProfile }>;
   activeGradientId?: string;
   paintSlot?: number;
   legacyRemap?: { from: number; to: number };
@@ -232,7 +232,7 @@ interface SerializedLayerState {
   data: AnimatorSerializedState;
   strokeData?: StrokeDataSnapshot;
   gradientDefs?: Array<{ id: string; name?: string; currentSlot: number }>;
-  slotPalettes?: Array<{ slot: number; stops: GradientStop[] }>;
+  slotPalettes?: Array<{ slot: number; stops: GradientStop[]; seamProfile?: GradientSeamProfile }>;
   gradientDefStore?: Array<{
     id: number;
     kind: 'linear' | 'concentric';
@@ -261,6 +261,8 @@ interface SerializedLayerState {
   }>;
   activeGradientId?: string;
 }
+
+type SerializedLayerColorCycleMeta = Omit<SerializedLayerState, 'layerId' | 'data' | 'strokeData'>;
 
 type LayerSnapshotEntry = {
   layerId: string;
@@ -381,11 +383,89 @@ const paletteEntriesFromMap = (map: Map<string, number>): PaletteMapEntry[] => {
   });
 };
 
+const cloneGradientStops = <T extends { position: number; color: unknown; opacity?: number }>(
+  stops: T[] | null | undefined
+): T[] | undefined => (Array.isArray(stops) ? stops.map((stop) => ({ ...stop })) : undefined);
+
+const cloneSerializedLayerColorCycleMeta = (
+  meta?: Partial<SerializedLayerColorCycleMeta> | null
+): SerializedLayerColorCycleMeta | null => {
+  if (!meta) {
+    return null;
+  }
+
+  const cloned: SerializedLayerColorCycleMeta = {
+    gradientDefs: meta.gradientDefs
+      ? meta.gradientDefs.map((entry) => ({
+          id: entry.id,
+          name: entry.name,
+          currentSlot: entry.currentSlot,
+        }))
+      : undefined,
+    slotPalettes: meta.slotPalettes
+      ? meta.slotPalettes.map((entry) => ({
+          slot: entry.slot,
+          stops: cloneGradientStops(entry.stops) ?? [],
+          seamProfile: entry.seamProfile,
+        }))
+      : undefined,
+    gradientDefStore: meta.gradientDefStore
+      ? meta.gradientDefStore.map((entry) => ({
+          id: entry.id,
+          kind: entry.kind,
+          stops: cloneGradientStops(entry.stops) ?? [],
+          hash: entry.hash,
+          source: entry.source,
+          seamProfile: entry.seamProfile,
+          createdAtMs: entry.createdAtMs,
+          slot: entry.slot,
+          speedCps: entry.speedCps,
+        }))
+      : undefined,
+    nextGradientDefId: meta.nextGradientDefId,
+    paintSlot: meta.paintSlot,
+    legacyRemap: meta.legacyRemap ? { ...meta.legacyRemap } : undefined,
+    fgActiveSlot: meta.fgActiveSlot,
+    fgDerivedKey: meta.fgDerivedKey,
+    fgDerivedGradients: meta.fgDerivedGradients
+      ? meta.fgDerivedGradients.map((entry) => ({
+          key: entry.key,
+          slot: entry.slot,
+          spec: { ...entry.spec },
+        }))
+      : undefined,
+    derivedGradients: meta.derivedGradients
+      ? meta.derivedGradients.map((entry) => ({
+          key: entry.key,
+          slot: entry.slot,
+          spec: { ...entry.spec },
+        }))
+      : undefined,
+    activeGradientId: meta.activeGradientId,
+  };
+
+  const hasData =
+    Boolean(cloned.gradientDefs?.length) ||
+    Boolean(cloned.slotPalettes?.length) ||
+    Boolean(cloned.gradientDefStore?.length) ||
+    typeof cloned.nextGradientDefId === 'number' ||
+    typeof cloned.paintSlot === 'number' ||
+    Boolean(cloned.legacyRemap) ||
+    typeof cloned.fgActiveSlot === 'number' ||
+    typeof cloned.fgDerivedKey === 'string' ||
+    Boolean(cloned.fgDerivedGradients?.length) ||
+    Boolean(cloned.derivedGradients?.length) ||
+    typeof cloned.activeGradientId === 'string';
+
+  return hasData ? cloned : null;
+};
+
 export class ColorCycleBrushCanvas2D {
   private static readonly REDUCED_INIT_SIZE = 256;
   private animators: Map<string, ColorCycleAnimator> = new Map();
   private activeLayerId: string | null = null;
   private defPaletteCacheByLayer: Map<string, DefPaletteCache> = new Map();
+  private persistedColorCycleMetaByLayer: Map<string, SerializedLayerColorCycleMeta> = new Map();
   
   // Canvas references
   private webglCanvas: HTMLCanvasElement; // Keep name for compatibility
@@ -457,6 +537,97 @@ export class ColorCycleBrushCanvas2D {
   private customStampSourceCache: WeakMap<ImageData, HTMLCanvasElement> = new WeakMap();
   private customStampCanvasCache: Map<string, HTMLCanvasElement> = new Map();
   private customStampMaskCache: Map<string, StampMaskCacheEntry> = new Map();
+
+  private readLayerColorCycleMetaFromStore(layerId: string): SerializedLayerColorCycleMeta | null {
+    const layer = useAppStore.getState().layers.find((entry) => entry.id === layerId);
+    const colorCycleData = layer?.layerType === 'color-cycle' ? layer.colorCycleData : null;
+    if (!colorCycleData) {
+      return null;
+    }
+
+    const seamProfileBySlot = new Map<number, GradientSeamProfile>();
+    colorCycleData.gradientDefStore?.forEach((entry) => {
+      if (typeof entry.slot === 'number' && !seamProfileBySlot.has(entry.slot)) {
+        seamProfileBySlot.set(entry.slot, normalizeGradientSeamProfile(entry.seamProfile));
+      }
+    });
+
+    return cloneSerializedLayerColorCycleMeta({
+      gradientDefs: colorCycleData.gradientDefs?.map((entry) => ({
+        id: entry.id,
+        name: entry.name,
+        currentSlot: entry.currentSlot,
+      })),
+      slotPalettes: colorCycleData.slotPalettes?.map((entry) => ({
+        slot: entry.slot,
+        stops: entry.stops.map((stop) => ({ ...stop })),
+        seamProfile: seamProfileBySlot.get(entry.slot),
+      })),
+      gradientDefStore: colorCycleData.gradientDefStore?.map((entry) => ({
+        id: entry.id,
+        kind: entry.kind,
+        stops: entry.stops.map((stop) => ({ ...stop })),
+        hash: entry.hash,
+        source: entry.source,
+        seamProfile: entry.seamProfile,
+        createdAtMs: entry.createdAtMs,
+        slot: entry.slot,
+        speedCps: entry.speedCps,
+      })),
+      nextGradientDefId: colorCycleData.nextGradientDefId,
+      paintSlot: colorCycleData.paintSlot,
+      legacyRemap: colorCycleData.legacyRemap,
+      fgActiveSlot: colorCycleData.fgActiveSlot,
+      fgDerivedKey: colorCycleData.fgDerivedKey,
+      fgDerivedGradients: colorCycleData.fgDerivedGradients?.map((entry) => ({
+        key: entry.key,
+        slot: entry.slot,
+        spec: { ...entry.spec },
+      })),
+      derivedGradients: colorCycleData.derivedGradients?.map((entry) => ({
+        key: entry.key,
+        slot: entry.slot,
+        spec: { ...entry.spec },
+      })),
+      activeGradientId: colorCycleData.activeGradientId,
+    });
+  }
+
+  private setPersistedLayerColorCycleMeta(
+    layerId: string,
+    meta?: Partial<SerializedLayerColorCycleMeta> | null
+  ): void {
+    const cloned = cloneSerializedLayerColorCycleMeta(meta);
+    if (!cloned) {
+      this.persistedColorCycleMetaByLayer.delete(layerId);
+      return;
+    }
+    this.persistedColorCycleMetaByLayer.set(layerId, cloned);
+  }
+
+  private getLayerColorCycleMeta(layerId: string): SerializedLayerColorCycleMeta | null {
+    const persisted = cloneSerializedLayerColorCycleMeta(this.persistedColorCycleMetaByLayer.get(layerId));
+    const fromStore = this.readLayerColorCycleMetaFromStore(layerId);
+    if (!fromStore) {
+      return persisted;
+    }
+    if (!persisted) {
+      return fromStore;
+    }
+    return {
+      gradientDefs: fromStore.gradientDefs ?? persisted.gradientDefs,
+      slotPalettes: fromStore.slotPalettes ?? persisted.slotPalettes,
+      gradientDefStore: fromStore.gradientDefStore ?? persisted.gradientDefStore,
+      nextGradientDefId: fromStore.nextGradientDefId ?? persisted.nextGradientDefId,
+      paintSlot: fromStore.paintSlot ?? persisted.paintSlot,
+      legacyRemap: fromStore.legacyRemap ?? persisted.legacyRemap,
+      fgActiveSlot: fromStore.fgActiveSlot ?? persisted.fgActiveSlot,
+      fgDerivedKey: fromStore.fgDerivedKey ?? persisted.fgDerivedKey,
+      fgDerivedGradients: fromStore.fgDerivedGradients ?? persisted.fgDerivedGradients,
+      derivedGradients: fromStore.derivedGradients ?? persisted.derivedGradients,
+      activeGradientId: fromStore.activeGradientId ?? persisted.activeGradientId,
+    };
+  }
 
   private resolvePressureBrushSize(pressure: number): number {
     if (!this.pressureEnabled) {
@@ -1894,8 +2065,7 @@ export class ColorCycleBrushCanvas2D {
     }
 
     try {
-      const layer = useAppStore.getState().layers.find((entry) => entry.id === id);
-      const defs = layer?.colorCycleData?.gradientDefStore as Array<{
+      const defs = this.getLayerColorCycleMeta(id)?.gradientDefStore as Array<{
         id: number;
         hash: string;
         stops: GradientStop[];
@@ -2018,8 +2188,7 @@ export class ColorCycleBrushCanvas2D {
 
     try {
       const animator = this.animators.get(layerId) ?? this.getAnimator(layerId);
-      const layer = useAppStore.getState().layers.find((entry) => entry.id === layerId);
-      const defs = layer?.colorCycleData?.gradientDefStore as Array<{
+      const defs = this.getLayerColorCycleMeta(layerId)?.gradientDefStore as Array<{
         id: number;
         hash: string;
         stops: GradientStop[];
@@ -4568,18 +4737,11 @@ export class ColorCycleBrushCanvas2D {
     // Always rebuild from animators (authoritative).
     this.compositeCtx.clearRect(0, 0, this.width, this.height);
 
-    const state = useAppStore.getState();
-    const defStoreByLayer = new Map(
-      state.layers
-        .filter((layer) => layer.layerType === 'color-cycle' && layer.colorCycleData?.gradientDefStore)
-        .map((layer) => [layer.id, layer.colorCycleData?.gradientDefStore])
-    );
-
     // Composite all layers with content
     this.animators.forEach((animator, layerId) => {
       const strokeData = this.layerStrokes.get(layerId);
       if (strokeData?.hasContent) {
-        const defs = defStoreByLayer.get(layerId) as Array<{
+        const defs = this.getLayerColorCycleMeta(layerId)?.gradientDefStore as Array<{
           id: number;
           hash: string;
           stops: GradientStop[];
@@ -4664,9 +4826,7 @@ export class ColorCycleBrushCanvas2D {
     }
 
     try {
-      const state = useAppStore.getState();
-      const layer = state.layers.find((entry) => entry.id === layerId);
-      const defs = layer?.colorCycleData?.gradientDefStore as Array<{
+      const defs = this.getLayerColorCycleMeta(layerId)?.gradientDefStore as Array<{
         id: number;
         hash: string;
         stops: GradientStop[];
@@ -5633,6 +5793,7 @@ export class ColorCycleBrushCanvas2D {
     
     this.animators.clear();
     this.layerStrokes.clear();
+    this.persistedColorCycleMetaByLayer.clear();
   }
   
   /**
@@ -5870,12 +6031,6 @@ export class ColorCycleBrushCanvas2D {
       active: this.activeLayerId ?? null
     });
     const layers: SerializedLayerState[] = [];
-    const storeLayers = useAppStore.getState().layers;
-    const layerMetaById = new Map(
-      storeLayers
-        .filter((layer) => layer.layerType === 'color-cycle' && layer.colorCycleData)
-        .map((layer) => [layer.id, layer.colorCycleData])
-    );
 
     this.animators.forEach((animator, layerId) => {
       const strokeData = this.layerStrokes.get(layerId);
@@ -5933,33 +6088,10 @@ export class ColorCycleBrushCanvas2D {
         }
       }
       const strokeCounter = strokeData?.strokeCounter ?? snapshot?.strokeCounter ?? this.strokeCounter;
-      const colorCycleMeta = layerMetaById.get(layerId);
-      const gradientDefs = colorCycleMeta?.gradientDefs
-        ? colorCycleMeta.gradientDefs.map((entry) => ({
-            id: entry.id,
-            name: entry.name,
-            currentSlot: entry.currentSlot,
-          }))
-        : undefined;
-      const slotPalettes = colorCycleMeta?.slotPalettes
-        ? colorCycleMeta.slotPalettes.map((entry) => ({
-            slot: entry.slot,
-            stops: entry.stops.map((stop) => ({ position: stop.position, color: stop.color })),
-          }))
-        : undefined;
-      const gradientDefStore = colorCycleMeta?.gradientDefStore
-        ? colorCycleMeta.gradientDefStore.map((entry) => ({
-            id: entry.id,
-            kind: entry.kind,
-            stops: entry.stops.map((stop) => ({ position: stop.position, color: stop.color })),
-            hash: entry.hash,
-            source: entry.source,
-            seamProfile: entry.seamProfile,
-            createdAtMs: entry.createdAtMs,
-            slot: entry.slot,
-            speedCps: entry.speedCps,
-          }))
-        : undefined;
+      const colorCycleMeta = this.getLayerColorCycleMeta(layerId);
+      const gradientDefs = colorCycleMeta?.gradientDefs;
+      const slotPalettes = colorCycleMeta?.slotPalettes;
+      const gradientDefStore = colorCycleMeta?.gradientDefStore;
       const fgDerivedGradients = colorCycleMeta?.fgDerivedGradients ?? colorCycleMeta?.derivedGradients;
       const derivedGradients = fgDerivedGradients
         ? fgDerivedGradients.map((entry) => ({
@@ -5973,10 +6105,14 @@ export class ColorCycleBrushCanvas2D {
       const legacyRemap = colorCycleMeta?.legacyRemap;
       const fgActiveSlot = colorCycleMeta?.fgActiveSlot;
       const fgDerivedKey = colorCycleMeta?.fgDerivedKey;
+      const animatorBaseState =
+        typeof (animator as { serializeBaseState?: () => unknown }).serializeBaseState === 'function'
+          ? (animator as { serializeBaseState: () => AnimatorSerializedState }).serializeBaseState()
+          : animator.serialize() as AnimatorSerializedState;
 
       layers.push({
         layerId,
-        data: animator.serialize(),
+        data: animatorBaseState,
         gradientDefs,
         slotPalettes,
         gradientDefStore,
@@ -6067,6 +6203,19 @@ export class ColorCycleBrushCanvas2D {
     }
 
     data.layers?.forEach((layer) => {
+      instance.setPersistedLayerColorCycleMeta(layer.layerId, {
+        gradientDefs: layer.gradientDefs,
+        slotPalettes: layer.slotPalettes,
+        gradientDefStore: layer.gradientDefStore,
+        nextGradientDefId: layer.nextGradientDefId,
+        paintSlot: layer.paintSlot,
+        legacyRemap: layer.legacyRemap,
+        fgActiveSlot: layer.fgActiveSlot,
+        fgDerivedKey: layer.fgDerivedKey,
+        fgDerivedGradients: layer.fgDerivedGradients,
+        derivedGradients: layer.derivedGradients,
+        activeGradientId: layer.activeGradientId,
+      });
       const strokeData = layer.strokeData;
       const sourceBuffer = strokeData?.paintBuffer;
       const gradientSource = strokeData?.gradientIdBuffer;
@@ -6383,7 +6532,7 @@ export class ColorCycleBrushCanvas2D {
 
     if (animatorIndex?.slotPalettes?.length) {
       for (const palette of animatorIndex.slotPalettes) {
-        this.setGradientSlotStops(layerId, palette.slot, palette.stops);
+        this.setGradientSlotStops(layerId, palette.slot, palette.stops, palette.seamProfile);
       }
     }
     if (typeof animatorIndex?.paintSlot === 'number') {
@@ -6460,8 +6609,7 @@ export class ColorCycleBrushCanvas2D {
       if (animator && strokeData) {
         this.bindStrokeBuffersToAnimator(strokeData, animator);
         try {
-          const layer = useAppStore.getState().layers.find((entry) => entry.id === layerId);
-          const defs = layer?.colorCycleData?.gradientDefStore as Array<{
+          const defs = this.getLayerColorCycleMeta(layerId)?.gradientDefStore as Array<{
             id: number;
             hash: string;
             stops: GradientStop[];

@@ -5,6 +5,10 @@ import { signatureForStops } from '@/hooks/brushEngine/ccGradientRuntime';
 import { TEMP_SAMPLE_SLOT } from '@/constants/colorCycle';
 import { quantizeColorCycleSpeed } from '@/utils/colorCycleSpeed';
 import {
+  allocateNextColorCycleDefId,
+  normalizeNextColorCycleDefId,
+} from '@/utils/colorCycleDefIds';
+import {
   normalizeGradientSeamProfile,
   type GradientSeamProfile,
 } from '@/lib/colorCycle/gradientSeamProfile';
@@ -87,6 +91,13 @@ const reportSlotAllocationFailure = (params: {
   });
 };
 
+const reportDefIdAllocationFailure = (layerId: string) => {
+  if (process.env.NODE_ENV === 'production' || process.env.NODE_ENV === 'test') {
+    return;
+  }
+  console.error('[CC] Gradient def id allocation failed', { layerId });
+};
+
 const runProjectSlotRebuild = (layerId: string) => {
   const state = useAppStore.getState();
   const result = rebuildGradientSlotUsageAndGC({
@@ -146,17 +157,9 @@ export const ensureGradientDefForStops = (params: {
     };
     const matchesSeamProfile = (entry: ColorCycleGradientDefStore): boolean =>
       normalizeGradientSeamProfile(entry.seamProfile) === incomingSeamProfile;
-    let existing = defStore.find(
+    const existing = defStore.find(
       (entry) => entry.hash === hash && matchesSpeed(entry) && matchesSeamProfile(entry)
     ) ?? null;
-    if (!existing && incomingSpeedQ !== null) {
-      existing = defStore.find(
-        (entry) =>
-          entry.hash === hash &&
-          !Number.isFinite(entry.speedCps ?? NaN) &&
-          matchesSeamProfile(entry)
-      ) ?? null;
-    }
     const existingSlot = existing?.slot;
     const slotPalettes = colorCycleData.slotPalettes ?? [];
     const usedSlots = collectUsedSlots({
@@ -169,7 +172,10 @@ export const ensureGradientDefForStops = (params: {
 
     let slot: number | null = null;
     let nextDefStore = defStore;
-    let nextId = colorCycleData.nextGradientDefId ?? 1;
+    let nextId = normalizeNextColorCycleDefId(
+      defStore.map((entry) => entry.id),
+      colorCycleData.nextGradientDefId ?? 1
+    );
     let def: ColorCycleGradientDefStore;
 
     if (existing) {
@@ -203,8 +209,17 @@ export const ensureGradientDefForStops = (params: {
         reportSlotAllocationFailure({ layerId: params.layerId, usedSlots, context: 'new-def' });
         return { result: null, failure: 'no-slot' };
       }
+      const allocation = allocateNextColorCycleDefId({
+        ids: defStore.map((entry) => entry.id),
+        nextId,
+      });
+      if (allocation.id === null) {
+        reportDefIdAllocationFailure(params.layerId);
+        return { result: null };
+      }
+      nextId = allocation.nextGradientDefId;
       def = {
-        id: nextId,
+        id: allocation.id,
         kind: params.kind,
         stops: frozenStops,
         hash,
@@ -215,7 +230,6 @@ export const ensureGradientDefForStops = (params: {
         speedCps: incomingSpeed ?? undefined,
       };
       nextDefStore = [...defStore, def];
-      nextId += 1;
     }
 
     const existingPalette = slotPalettes.find((entry) => entry.slot === slot);
@@ -248,7 +262,10 @@ export const ensureGradientDefForStops = (params: {
       colorCycleData: {
         ...colorCycleData,
         gradientDefStore: nextDefStore,
-        nextGradientDefId: nextId,
+        nextGradientDefId: normalizeNextColorCycleDefId(
+          nextDefStore.map((entry) => entry.id),
+          nextId
+        ),
         slotPalettes: nextSlotPalettes,
       },
     });
