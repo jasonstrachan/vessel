@@ -1,6 +1,8 @@
 import { pointInPolygon } from '@/shapeFill/utils/geometry';
 import { ColorCycleBrushCanvas2D } from '../ColorCycleBrushCanvas2D';
 import { decodeColorCycleSpeedByte, encodeColorCycleSpeedByte } from '@/utils/colorCycleSpeed';
+import { appendGradientSeamProfileSignature } from '@/lib/colorCycle/gradientSeamProfile';
+import { useAppStore } from '@/stores/useAppStore';
 
 type MockContext = CanvasRenderingContext2D & {
   _lastImageData?: ImageData;
@@ -125,6 +127,12 @@ describe('ColorCycleBrushCanvas2D regression tests', () => {
     globalThis.cancelAnimationFrame = originalCaf;
   });
 
+  afterEach(() => {
+    const state = useAppStore.getState() as unknown as MockStoreState;
+    state.layers = [];
+    state.tools.brushSettings = {};
+  });
+
   it('updates indices on endStroke for sierra-lite stamp dither', () => {
     const canvas = makeCanvas(16, 16);
     const brush = new ColorCycleBrushCanvas2D(canvas, { forceCanvas2D: true });
@@ -166,6 +174,99 @@ describe('ColorCycleBrushCanvas2D regression tests', () => {
     expect(snapshot?.hasContent).toBe(true);
     expect(snapshot).not.toBeNull();
     expect(new Uint8Array(snapshot!.paintBuffer).some((value) => value !== 0)).toBe(true);
+  });
+
+  it('round-trips seam-profile def bindings through deserialize without store metadata', () => {
+    const state = useAppStore.getState() as unknown as MockStoreState & {
+      layers: Array<Record<string, unknown>>;
+    };
+    const layerId = 'layer-def-roundtrip';
+    const defId = 11;
+    const defHash = 'linear:#111111-soft';
+    const slot = 5;
+
+    state.layers = [
+      {
+        id: layerId,
+        layerType: 'color-cycle',
+        colorCycleData: {
+          slotPalettes: [
+            {
+              slot,
+              stops: [
+                { position: 0, color: '#111111' },
+                { position: 1, color: '#eeeeee' },
+              ],
+            },
+          ],
+          gradientDefStore: [
+            {
+              id: defId,
+              kind: 'linear',
+              slot,
+              stops: [
+                { position: 0, color: '#111111' },
+                { position: 1, color: '#eeeeee' },
+              ],
+              hash: defHash,
+              source: 'manual',
+              seamProfile: 'soft',
+              createdAtMs: 0,
+            },
+          ],
+          nextGradientDefId: defId + 1,
+          paintSlot: slot,
+        },
+      },
+    ];
+
+    const brush = new ColorCycleBrushCanvas2D(makeCanvas(4, 1), { forceCanvas2D: true });
+    brush.applyLayerSnapshot(layerId, {
+      paintBuffer: new Uint8Array([1, 2, 0, 0]).buffer,
+      gradientIdBuffer: new Uint8Array([slot, slot, 0, 0]).buffer,
+      gradientDefIdBuffer: new Uint16Array([defId, defId, 0, 0]).buffer,
+      speedBuffer: new Uint8Array([32, 32, 0, 0]).buffer,
+      flowBuffer: new Uint8Array([1, 1, 0, 0]).buffer,
+      hasContent: true,
+      strokeCounter: 3,
+    });
+
+    const serialized = brush.serialize();
+    expect(serialized.layers[0]?.gradientDefStore?.[0]?.seamProfile).toBe('soft');
+
+    state.layers = [];
+
+    const restored = ColorCycleBrushCanvas2D.deserialize(serialized as never, makeCanvas(4, 1));
+    const restoredSnapshot = restored.getLayerSnapshot(layerId);
+    expect(Array.from(new Uint16Array(restoredSnapshot?.gradientDefIdBuffer ?? new ArrayBuffer(0)))).toEqual([
+      defId,
+      defId,
+      0,
+      0,
+    ]);
+
+    const restoredSerialized = restored.serialize();
+    expect(restoredSerialized.layers[0]?.gradientDefStore?.[0]).toMatchObject({
+      id: defId,
+      slot,
+      seamProfile: 'soft',
+      hash: defHash,
+    });
+
+    restored.renderDirectToCanvas(makeCanvas(4, 1), layerId);
+
+    const defCache = (restored as unknown as {
+      defPaletteCacheByLayer: Map<string, { signaturesById: Map<number, string> }>;
+      animators: Map<string, { defIdData?: Uint16Array | null }>;
+    }).defPaletteCacheByLayer.get(layerId);
+    expect(defCache?.signaturesById.get(defId)).toBe(
+      appendGradientSeamProfileSignature(defHash, 'soft')
+    );
+
+    const animator = (restored as unknown as {
+      animators: Map<string, { defIdData?: Uint16Array | null }>;
+    }).animators.get(layerId);
+    expect(Array.from(animator?.defIdData ?? [])).toEqual([defId, defId, 0, 0]);
   });
 
   it('linear fill is monotonic along x (with at most one wrap)', async () => {

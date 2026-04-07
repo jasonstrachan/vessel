@@ -190,4 +190,97 @@ describe('colorCycleGradientDefs', () => {
 
     expect(result?.def.seamProfile).toBe('hard');
   });
+
+  it('forks a new def instead of mutating a legacy speedless def when speed is provided', () => {
+    const defHash = hashStops(baseStops, 'linear');
+    const layer = createLayer({
+      colorCycleData: {
+        slotPalettes: [{ slot: 2, stops: baseStops }],
+        gradientDefs: [],
+        gradientDefStore: [
+          {
+            id: 1,
+            kind: 'linear',
+            stops: baseStops,
+            hash: defHash,
+            source: 'manual',
+            createdAtMs: 0,
+            slot: 2,
+          },
+        ],
+        nextGradientDefId: 2,
+      },
+    });
+
+    useAppStore.setState({ layers: [layer], activeLayerId: layer.id });
+
+    const result = ensureGradientDefForStops({
+      layerId: layer.id,
+      kind: 'linear',
+      stops: baseStops,
+      source: 'manual',
+      speedCps: 0.2,
+    });
+
+    expect(result?.def.id).toBe(2);
+    expect(result?.def.speedCps).toBe(0.2);
+
+    const updatedLayer = useAppStore.getState().layers.find((entry) => entry.id === layer.id);
+    const updatedStore = updatedLayer?.colorCycleData?.gradientDefStore ?? [];
+    const legacyDef = updatedStore.find((entry) => entry.id === 1);
+    const speededDef = updatedStore.find((entry) => entry.id === 2);
+
+    expect(updatedStore).toHaveLength(2);
+    expect(legacyDef?.speedCps).toBeUndefined();
+    expect(legacyDef?.slot).toBe(2);
+    expect(speededDef?.speedCps).toBe(0.2);
+    expect(speededDef?.slot).not.toBe(2);
+  });
+
+  it('reuses a free Uint16 def id when nextGradientDefId has overflowed past the storage limit', () => {
+    const nearLimitId = 0xffff;
+    const layer = createLayer({
+      colorCycleData: {
+        slotPalettes: [{ slot: 1, stops: baseStops }],
+        gradientDefs: [],
+        gradientDefStore: [
+          {
+            id: 1,
+            kind: 'linear',
+            stops: baseStops,
+            hash: hashStops(baseStops, 'linear'),
+            source: 'manual',
+            createdAtMs: 0,
+            slot: 1,
+          },
+          {
+            id: nearLimitId,
+            kind: 'linear',
+            stops: altStops,
+            hash: hashStops(altStops, 'linear'),
+            source: 'manual',
+            createdAtMs: 0,
+            slot: 2,
+          },
+        ],
+        nextGradientDefId: nearLimitId + 1,
+      },
+    });
+
+    useAppStore.setState({ layers: [layer], activeLayerId: layer.id });
+
+    const result = ensureGradientDefForStops({
+      layerId: layer.id,
+      kind: 'linear',
+      stops: [
+        { position: 0, color: '#111111' },
+        { position: 1, color: '#eeeeee' },
+      ],
+      source: 'manual',
+    });
+
+    expect(result?.def.id).toBe(2);
+    const updatedLayer = useAppStore.getState().layers.find((entry) => entry.id === layer.id);
+    expect(updatedLayer?.colorCycleData?.nextGradientDefId).toBe(3);
+  });
 });

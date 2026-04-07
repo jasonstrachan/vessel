@@ -3,6 +3,7 @@ import {
   finalizeColorCycleShapeFillConcentric,
   finalizeColorCycleShapeFillLinear,
 } from '@/hooks/canvas/handlers/colorCycle/colorCycleShapeFill';
+import * as colorCycleGradients from '@/utils/colorCycleGradients';
 import { buildCcDitherRenderPalette, resolveCcDitherBandMode } from '@/utils/colorCycle/ccDitherRenderPalette';
 import { hashStops, type StoredStop } from '@/utils/colorCycleGradientDefs';
 import type { MarkGradientSession } from '@/hooks/canvas/utils/colorCycleMarkSession';
@@ -658,6 +659,199 @@ describe('colorCycleShapeFill transparency lock', () => {
     expect(useAppStore.getState().layers[0]?.colorCycleData?.slotPalettes).toEqual([
       { slot: 7, stops: renderStops },
     ]);
+  });
+
+  it('continues linear finalize when foreground runtime refresh still cannot allocate a slot', async () => {
+    const ensureForegroundGradientSlotSpy = jest
+      .spyOn(colorCycleGradients, 'ensureForegroundGradientSlot')
+      .mockReturnValue(null);
+
+    const commitCommittedLayerState = jest.fn();
+    const scheduleDeferredColorCycleSaveWithState = jest.fn(async () => undefined);
+    const logError = jest.fn();
+    const getStateSpy = jest.spyOn(useAppStore, 'getState');
+    getStateSpy.mockReturnValue({
+      layers: [
+        {
+          id: 'layer-1',
+          transparencyLocked: false,
+          layerType: 'color-cycle',
+          colorCycleData: {
+            fgActiveSlot: undefined,
+            slotPalettes: [],
+          },
+        },
+      ],
+      tools: {
+        brushSettings: {
+          colorCycleUseForegroundGradient: true,
+          ditherEnabled: false,
+        },
+      },
+      setCcGradientSampleCount: jest.fn(),
+      updateLayer: jest.fn(),
+    } as unknown as ReturnType<typeof useAppStore.getState>);
+
+    const canvas = document.createElement('canvas');
+    canvas.width = 2;
+    canvas.height = 2;
+
+    const session: MarkGradientSession = {
+      markId: 'mark-fg-linear',
+      layerId: 'layer-1',
+      markKind: 'shape',
+      gradientKind: 'linear',
+      source: 'fg',
+      frozenStopsStored: [
+        { position: 0, color: '#101010' },
+        { position: 1, color: '#f0f0f0' },
+      ],
+      frozenHash: 'hash-fg-linear',
+      binding: null,
+      speedCps: null,
+    };
+
+    await finalizeColorCycleShapeFillLinear(
+      {
+        session,
+        shapePoints: [
+          { x: 0, y: 0 },
+          { x: 1, y: 0 },
+          { x: 0, y: 1 },
+        ],
+        direction: { x: 1, y: 0 },
+        activeLayerId: 'layer-1',
+        activeLayerCanvas: canvas,
+        overlayCanvas: null,
+        overlayCtx: null,
+        fallbackBlendMode: 'source-over',
+        fallbackOpacity: 1,
+        shapeLayerId: 'layer-1',
+        beforeColorState: null,
+        tool: 'brush',
+      },
+      {
+        brushEngine: {
+          fillCcGradientLinear: jest.fn(async () => undefined),
+          updateColorCycleTexture: jest.fn(),
+        } as never,
+        getColorCycleBrushManager: () => ({
+          getBrush: () => ({ commitCommittedLayerState }) as never,
+        }),
+        bindBrushToCanvas: jest.fn(),
+        timeAsync: async (_label, task) => task(),
+        timeSync: (_label, task) => task(),
+        ccLog: jest.fn(),
+        scheduleDeferredColorCycleSaveWithState,
+        logError,
+      }
+    );
+
+    expect(commitCommittedLayerState).toHaveBeenCalled();
+    expect(scheduleDeferredColorCycleSaveWithState).toHaveBeenCalled();
+    expect(ensureForegroundGradientSlotSpy).toHaveBeenCalledTimes(2);
+    expect(ensureForegroundGradientSlotSpy).toHaveBeenCalledWith('layer-1');
+    expect(logError).toHaveBeenCalledWith(
+      '[CC] Missing foreground runtime palette after linear shape finalize; continuing commit.'
+    );
+
+    getStateSpy.mockRestore();
+  });
+
+  it('continues concentric finalize when foreground runtime refresh still cannot allocate a slot', async () => {
+    const ensureForegroundGradientSlotSpy = jest
+      .spyOn(colorCycleGradients, 'ensureForegroundGradientSlot')
+      .mockReturnValue(null);
+
+    const commitCommittedLayerState = jest.fn();
+    const scheduleDeferredColorCycleSaveWithState = jest.fn(async () => undefined);
+    const logError = jest.fn();
+    const getStateSpy = jest.spyOn(useAppStore, 'getState');
+    getStateSpy.mockReturnValue({
+      layers: [
+        {
+          id: 'layer-1',
+          transparencyLocked: false,
+          layerType: 'color-cycle',
+          colorCycleData: {
+            fgActiveSlot: undefined,
+            slotPalettes: [],
+          },
+        },
+      ],
+      tools: {
+        brushSettings: {
+          colorCycleUseForegroundGradient: true,
+          ditherEnabled: false,
+        },
+      },
+      setCcGradientSampleCount: jest.fn(),
+      updateLayer: jest.fn(),
+    } as unknown as ReturnType<typeof useAppStore.getState>);
+
+    const canvas = document.createElement('canvas');
+    canvas.width = 2;
+    canvas.height = 2;
+
+    const session: MarkGradientSession = {
+      markId: 'mark-fg-concentric',
+      layerId: 'layer-1',
+      markKind: 'shape',
+      gradientKind: 'concentric',
+      source: 'fg',
+      frozenStopsStored: [
+        { position: 0, color: '#202020' },
+        { position: 1, color: '#fafafa' },
+      ],
+      frozenHash: 'hash-fg-concentric',
+      binding: null,
+      speedCps: null,
+    };
+
+    await finalizeColorCycleShapeFillConcentric(
+      {
+        session,
+        shapePoints: [
+          { x: 0, y: 0 },
+          { x: 1, y: 0 },
+          { x: 0, y: 1 },
+        ],
+        activeLayerId: 'layer-1',
+        activeLayerCanvas: canvas,
+        overlayCanvas: null,
+        overlayCtx: null,
+        fallbackBlendMode: 'source-over',
+        fallbackOpacity: 1,
+        shapeLayerId: 'layer-1',
+        beforeColorState: null,
+        tool: 'brush',
+      },
+      {
+        brushEngine: {
+          fillCcGradientConcentric: jest.fn(async () => undefined),
+          updateColorCycleTexture: jest.fn(),
+        } as never,
+        getColorCycleBrushManager: () => ({
+          getBrush: () => ({ commitCommittedLayerState }) as never,
+        }),
+        bindBrushToCanvas: jest.fn(),
+        timeAsync: async (_label, task) => task(),
+        timeSync: (_label, task) => task(),
+        ccLog: jest.fn(),
+        scheduleDeferredColorCycleSaveWithState,
+        logError,
+      }
+    );
+
+    expect(commitCommittedLayerState).toHaveBeenCalled();
+    expect(scheduleDeferredColorCycleSaveWithState).toHaveBeenCalled();
+    expect(ensureForegroundGradientSlotSpy).toHaveBeenCalledTimes(2);
+    expect(ensureForegroundGradientSlotSpy).toHaveBeenCalledWith('layer-1');
+    expect(logError).toHaveBeenCalledWith(
+      '[CC] Missing foreground runtime palette after concentric shape finalize; continuing commit.'
+    );
+
+    getStateSpy.mockRestore();
   });
 
 });
