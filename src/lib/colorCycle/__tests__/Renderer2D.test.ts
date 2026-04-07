@@ -83,4 +83,35 @@ describe('Renderer2D forward-only flow', () => {
     expect(pixels32[0]).toBe(palette[(0 - shift) & 255]);
     renderer.cleanup();
   });
+
+  it('applies per-pixel phase offsets on top of animated speed', () => {
+    const renderer = new Renderer2D({ width: 1, height: 1 });
+    const palette = buildPalette();
+    const paletteSlots = Array.from({ length: 256 }, () => palette);
+    const speedByte = 128;
+    const speed = decodeColorCycleSpeedByte(speedByte);
+    const baseTime = 0.75;
+    const phaseByte = 64;
+    const phaseOffset = phaseByte / 256;
+    const shift = ((((baseTime * speed) % 1) + phaseOffset) % 1 * 256) | 0;
+
+    renderer.render({
+      indexData: new Uint8Array([1]),
+      gradientIdData: new Uint8Array([5]),
+      speedData: new Uint8Array([speedByte]),
+      flowData: new Uint8Array([1]),
+      phaseData: new Uint8Array([phaseByte]),
+      paletteSlots,
+      basePalette: palette,
+      phase: 0,
+      baseOffset: 0,
+      baseTime,
+      flowMode: 'forward',
+    });
+
+    const imageData = renderer.getImageData();
+    const pixels32 = new Uint32Array(imageData.data.buffer);
+    expect(pixels32[0]).toBe(palette[(0 - shift) & 255]);
+    renderer.cleanup();
+  });
 });

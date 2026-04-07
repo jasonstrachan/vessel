@@ -60,6 +60,7 @@ export class Renderer2D {
     defPalettesById?: Map<number, Uint32Array>;
     speedData?: Uint8Array;
     flowData?: Uint8Array;
+    phaseData?: Uint8Array;
     paletteSlots: Uint32Array[];
     basePalette: Uint32Array;
     phase: number;
@@ -76,6 +77,7 @@ export class Renderer2D {
     const defPalettesById = options.defPalettesById;
     const speedData = options.speedData;
     const flowData = options.flowData;
+    const phaseData = options.phaseData;
     const baseTime = options.baseTime;
     void (options.flowMode ?? 'forward');
 
@@ -89,13 +91,15 @@ export class Renderer2D {
       const slot = gid & FLOW_SLOT_MASK;
       const speedByte = speedData ? speedData[i] : 0;
       const flowByte = flowData ? flowData[i] : 0;
+      const phaseByte = phaseData ? phaseData[i] : 0;
       const hasPerPixelSpeed = Boolean(speedData);
       const hasSpeed = speedByte > 0;
       const speed = hasSpeed ? decodeColorCycleSpeedByte(speedByte) : 0;
       const basePhase = hasSpeed ? (baseTime * speed) % 1 : (hasPerPixelSpeed ? 0 : offset);
-      let phase = basePhase;
+      const phaseOffset = phaseByte / 256;
+      let phase = (basePhase + phaseOffset) % 1;
       if (flowByte === 3) {
-        const t = (basePhase * 2) % 2;
+        const t = (phase * 2) % 2;
         phase = t > 1 ? 2 - t : t;
       }
       const dir = flowByte === 2 ? 1 : -1;

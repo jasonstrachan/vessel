@@ -109,8 +109,9 @@ export class WebGLColorCycleRenderer {
   private zeroGradientIdBuffer: Uint8Array | null = null;
   private zeroSpeedBuffer: Uint8Array | null = null;
   private zeroFlowBuffer: Uint8Array | null = null;
-  private zeroDefIdBuffer: Uint8Array | null = null;
-  private defIdPackedBuffer: Uint8Array | null = null;
+  private zeroPhaseBuffer: Uint8Array | null = null;
+  private zeroDefMetaBuffer: Uint8Array | null = null;
+  private defMetaPackedBuffer: Uint8Array | null = null;
 
   // Offscreen resources for compute-style polygon fills
   private fillProgram: WebGLProgram | null = null;
@@ -251,8 +252,9 @@ export class WebGLColorCycleRenderer {
     this.speedTexAllocated = false;
     this.flowTexAllocated = false;
     this.defIdTexAllocated = false;
-    this.zeroDefIdBuffer = null;
-    this.defIdPackedBuffer = null;
+    this.zeroPhaseBuffer = null;
+    this.zeroDefMetaBuffer = null;
+    this.defMetaPackedBuffer = null;
   }
 
   setPaletteColors(paletteRGBA: Uint8Array | Uint8ClampedArray) {
@@ -340,6 +342,7 @@ export class WebGLColorCycleRenderer {
     gradientIdData?: Uint8Array,
     speedData?: Uint8Array,
     flowData?: Uint8Array,
+    phaseData?: Uint8Array,
     defIdData?: Uint16Array,
     rect?: { x: number; y: number; width: number; height: number } | null,
     defIdDirty: boolean = true
@@ -359,9 +362,10 @@ export class WebGLColorCycleRenderer {
     const gidData = gradientIdData ?? this.getZeroGradientIdBuffer();
     const spdData = speedData ?? this.getZeroSpeedBuffer();
     const flow = flowData ?? this.getZeroFlowBuffer();
-    const shouldUploadDefId = defIdDirty || !this.defIdTexAllocated;
-    const defDataPacked = shouldUploadDefId
-      ? (defIdData ? this.packDefIdData(defIdData) : this.getZeroDefIdBuffer())
+    const phase = phaseData ?? this.getZeroPhaseBuffer();
+    const shouldUploadDefMeta = defIdDirty || !this.defIdTexAllocated || Boolean(phaseData);
+    const defDataPacked = shouldUploadDefMeta
+      ? this.packDefMetaData(defIdData, phase)
       : null;
 
     this.uploadSingleChannelTexture(
@@ -408,8 +412,8 @@ export class WebGLColorCycleRenderer {
       isFull,
       'flow'
     );
-    if (shouldUploadDefId && defDataPacked) {
-      this.uploadTwoChannelTexture(
+    if (shouldUploadDefMeta && defDataPacked) {
+      this.uploadDefMetaTexture(
         this.defIdTex,
         4,
         defDataPacked,
@@ -599,6 +603,7 @@ export class WebGLColorCycleRenderer {
         float fFlow = floor(flowN * 255.0 + 0.5);
         float defR = floor(defSample.r * 255.0 + 0.5);
         float defG = floor(defSample.g * 255.0 + 0.5);
+        float phaseN = floor(defSample.b * 255.0 + 0.5) / 256.0;
         float defId = defR + defG * 256.0;
 
         // Index 0 = transparent
@@ -619,7 +624,7 @@ export class WebGLColorCycleRenderer {
           float speed = mix(u_speedMin, u_speedMax, clamp(tNorm, 0.0, 1.0));
           basePhase = mod(u_offset * speed, 1.0);
         }
-        float phase = basePhase;
+        float phase = mod(basePhase + phaseN, 1.0);
         // fFlow: 0=unset, 1=forward, 2=reverse, 3=pingpong
         float dirForward = -1.0;
         float dir = dirForward;
@@ -627,7 +632,7 @@ export class WebGLColorCycleRenderer {
           dir = -dirForward;
         }
         if (fFlow > 2.5) {
-          float t2 = mod(basePhase * 2.0, 2.0);
+          float t2 = mod(phase * 2.0, 2.0);
           phase = t2 > 1.0 ? 2.0 - t2 : t2;
           dir = dirForward;
         }
@@ -1179,6 +1184,14 @@ export class WebGLColorCycleRenderer {
     return this.zeroFlowBuffer;
   }
 
+  private getZeroPhaseBuffer(): Uint8Array {
+    const size = this.width * this.height;
+    if (!this.zeroPhaseBuffer || this.zeroPhaseBuffer.length !== size) {
+      this.zeroPhaseBuffer = new Uint8Array(size);
+    }
+    return this.zeroPhaseBuffer;
+  }
+
   private ensurePaletteTexture() {
     if (this.paletteTexAllocated) {
       return;
@@ -1231,29 +1244,34 @@ export class WebGLColorCycleRenderer {
     this.defLutTexAllocated = true;
   }
 
-  private getZeroDefIdBuffer(): Uint8Array {
-    const size = this.width * this.height * 2;
-    if (!this.zeroDefIdBuffer || this.zeroDefIdBuffer.length !== size) {
-      this.zeroDefIdBuffer = new Uint8Array(size);
+  private getZeroDefMetaBuffer(): Uint8Array {
+    const size = this.width * this.height * 4;
+    if (!this.zeroDefMetaBuffer || this.zeroDefMetaBuffer.length !== size) {
+      this.zeroDefMetaBuffer = new Uint8Array(size);
     }
-    return this.zeroDefIdBuffer;
+    return this.zeroDefMetaBuffer;
   }
 
-  private packDefIdData(defIdData: Uint16Array): Uint8Array {
+  private packDefMetaData(defIdData: Uint16Array | undefined, phaseData: Uint8Array): Uint8Array {
     const expected = this.width * this.height;
-    if (defIdData.length !== expected) {
-      return this.getZeroDefIdBuffer();
+    if (phaseData.length !== expected) {
+      return this.getZeroDefMetaBuffer();
     }
-    const size = defIdData.length * 2;
-    if (!this.defIdPackedBuffer || this.defIdPackedBuffer.length !== size) {
-      this.defIdPackedBuffer = new Uint8Array(size);
+    if (defIdData && defIdData.length !== expected) {
+      return this.getZeroDefMetaBuffer();
     }
-    const packed = this.defIdPackedBuffer;
-    for (let i = 0; i < defIdData.length; i += 1) {
-      const id = defIdData[i];
-      const idx = i * 2;
+    const size = expected * 4;
+    if (!this.defMetaPackedBuffer || this.defMetaPackedBuffer.length !== size) {
+      this.defMetaPackedBuffer = new Uint8Array(size);
+    }
+    const packed = this.defMetaPackedBuffer;
+    for (let i = 0; i < expected; i += 1) {
+      const id = defIdData?.[i] ?? 0;
+      const idx = i * 4;
       packed[idx] = id & 0xff;
       packed[idx + 1] = (id >> 8) & 0xff;
+      packed[idx + 2] = phaseData[i] ?? 0;
+      packed[idx + 3] = 255;
     }
     return packed;
   }
@@ -1362,7 +1380,7 @@ export class WebGLColorCycleRenderer {
     }
   }
 
-  private uploadTwoChannelTexture(
+  private uploadDefMetaTexture(
     texture: WebGLTexture | null,
     textureUnit: number,
     data: Uint8Array,
@@ -1383,7 +1401,7 @@ export class WebGLColorCycleRenderer {
     if (this.isWebGL2) {
       const gl2 = gl as WebGL2RenderingContext;
       if (!this.defIdTexAllocated) {
-        gl2.texImage2D(gl2.TEXTURE_2D, 0, gl2.RG8, this.width, this.height, 0, gl2.RG, gl2.UNSIGNED_BYTE, null);
+        gl2.texImage2D(gl2.TEXTURE_2D, 0, gl2.RGBA8, this.width, this.height, 0, gl2.RGBA, gl2.UNSIGNED_BYTE, null);
         this.defIdTexAllocated = true;
       }
 
@@ -1404,7 +1422,7 @@ export class WebGLColorCycleRenderer {
         rectY,
         rectW,
         rectH,
-        gl2.RG,
+        gl2.RGBA,
         gl2.UNSIGNED_BYTE,
         data
       );
@@ -1416,17 +1434,17 @@ export class WebGLColorCycleRenderer {
       }
     } else {
       if (!this.defIdTexAllocated) {
-        gl.texImage2D(gl.TEXTURE_2D, 0, gl.LUMINANCE_ALPHA, this.width, this.height, 0, gl.LUMINANCE_ALPHA, gl.UNSIGNED_BYTE, null);
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, this.width, this.height, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
         this.defIdTexAllocated = true;
       }
 
       let uploadData = data;
       if (!isFull) {
-        const contiguous = new Uint8Array(rectW * rectH * 2);
+        const contiguous = new Uint8Array(rectW * rectH * 4);
         for (let row = 0; row < rectH; row++) {
-          const srcStart = ((rectY + row) * this.width + rectX) * 2;
-          const srcEnd = srcStart + rectW * 2;
-          contiguous.set(data.subarray(srcStart, srcEnd), row * rectW * 2);
+          const srcStart = ((rectY + row) * this.width + rectX) * 4;
+          const srcEnd = srcStart + rectW * 4;
+          contiguous.set(data.subarray(srcStart, srcEnd), row * rectW * 4);
         }
         uploadData = contiguous;
       }
@@ -1438,7 +1456,7 @@ export class WebGLColorCycleRenderer {
         rectY,
         rectW,
         rectH,
-        gl.LUMINANCE_ALPHA,
+        gl.RGBA,
         gl.UNSIGNED_BYTE,
         uploadData
       );
