@@ -198,7 +198,7 @@ type LayerStrokeState = {
   snapshot?: StrokeDataSnapshot;
 };
     
-type AnimatorSerializedState = ReturnType<ColorCycleAnimator['serializeBaseState']>;
+type AnimatorSerializedState = ReturnType<ColorCycleAnimator['serialize']>;
 
 interface AnimatorIndexSnapshot {
   width: number;
@@ -6105,10 +6105,13 @@ export class ColorCycleBrushCanvas2D {
       const legacyRemap = colorCycleMeta?.legacyRemap;
       const fgActiveSlot = colorCycleMeta?.fgActiveSlot;
       const fgDerivedKey = colorCycleMeta?.fgDerivedKey;
+      const legacyAnimatorSerializer = animator as unknown as {
+        serializeBaseState?: () => AnimatorSerializedState;
+      };
       const animatorBaseState =
-        typeof (animator as { serializeBaseState?: () => unknown }).serializeBaseState === 'function'
-          ? (animator as { serializeBaseState: () => AnimatorSerializedState }).serializeBaseState()
-          : animator.serialize() as AnimatorSerializedState;
+        typeof legacyAnimatorSerializer.serializeBaseState === 'function'
+          ? legacyAnimatorSerializer.serializeBaseState()
+          : animator.serialize();
 
       layers.push({
         layerId,
