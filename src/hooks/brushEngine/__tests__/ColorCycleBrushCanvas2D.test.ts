@@ -31,6 +31,7 @@ jest.mock('@/lib/ColorCycleAnimator', () => {
     gradientId?: Uint8Array;
     speedData?: Uint8Array;
     flowData?: Uint8Array;
+    phaseData?: Uint8Array;
 
     constructor(opts: { width: number; height: number; fps?: number }) {
       this.width = opts.width;
@@ -118,11 +119,15 @@ jest.mock('@/lib/ColorCycleAnimator', () => {
       if (!this.flowData) {
         this.flowData = new Uint8Array(this.width * this.height);
       }
+      if (!this.phaseData) {
+        this.phaseData = new Uint8Array(this.width * this.height);
+      }
       return {
         data: this.indexBuffer,
         gid: this.gradientId,
         spd: this.speedData,
         flow: this.flowData,
+        phase: this.phaseData,
       };
     }
 
@@ -162,11 +167,15 @@ jest.mock('@/lib/ColorCycleAnimator', () => {
       if (!this.flowData) {
         this.flowData = new Uint8Array(this.width * this.height);
       }
+      if (!this.phaseData) {
+        this.phaseData = new Uint8Array(this.width * this.height);
+      }
       return {
         data: this.indexBuffer,
         gradientId: this.gradientId,
         speedData: this.speedData,
         flowData: this.flowData,
+        phaseData: this.phaseData,
         width: this.width,
         height: this.height,
       };
@@ -616,6 +625,46 @@ describe('ColorCycleBrushCanvas2D', () => {
 
     expect(band4Mid).not.toBe(band4Start);
     expect(band12Mid).not.toBe(band12Start);
+  });
+
+  it('uses the same speed byte for sierra-lite cc gradient fills as stroke mode', () => {
+    const canvas = makeCanvas();
+    const brush = new ColorCycleBrushCanvas2D(canvas);
+    const strokeData = (brush as any).ensureStrokeState('layer-1');
+
+    brush.setSpeed(0.1);
+    strokeData.strokeCounter = 1;
+    (brush as any).strokeCounter = 1;
+    strokeData.strokeCycleSpeed = (brush as any).getResolvedWriteCycleSpeed();
+    strokeData.strokeSpeedByte = (brush as any).getWriteSpeedByte(strokeData);
+
+    const strokeSpeedByte = (brush as any).getWriteSpeedByte(strokeData);
+    const gradientSpeedByte = (brush as any).getCcGradientFillSpeedByte(strokeData, {
+      ditherAlgorithm: 'sierra-lite',
+      pairBandCount: 0,
+    });
+
+    expect(gradientSpeedByte).toBe(strokeSpeedByte);
+  });
+
+  it('keeps cc gradient fill speed aligned with stroke speed for paired bands too', () => {
+    const canvas = makeCanvas();
+    const brush = new ColorCycleBrushCanvas2D(canvas);
+    const strokeData = (brush as any).ensureStrokeState('layer-1');
+
+    brush.setSpeed(0.1);
+    strokeData.strokeCounter = 2;
+    (brush as any).strokeCounter = 2;
+    strokeData.strokeCycleSpeed = (brush as any).getResolvedWriteCycleSpeed();
+    strokeData.strokeSpeedByte = (brush as any).getWriteSpeedByte(strokeData);
+
+    const strokeSpeedByte = (brush as any).getWriteSpeedByte(strokeData);
+    const gradientSpeedByte = (brush as any).getCcGradientFillSpeedByte(strokeData, {
+      ditherAlgorithm: 'sierra-lite',
+      pairBandCount: 2,
+    });
+
+    expect(gradientSpeedByte).toBe(strokeSpeedByte);
   });
 
   it('fills linear gradients continuously when requested', async () => {

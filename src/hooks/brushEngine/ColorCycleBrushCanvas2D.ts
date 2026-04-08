@@ -335,7 +335,6 @@ interface StampMaskCacheEntry {
 const STAMP_MASK_ROTATION_TOLERANCE = Math.PI / 180; // ~1°
 const STAMP_MASK_CACHE_LIMIT = 80;
 const COLOR_CYCLE_FILL_WORKER_AREA = 240_000; // pixels
-const CC_FLAT_SIERRA_CADENCE_SCALE = 0.05;
 const nowMs = () => (typeof performance !== 'undefined' ? performance.now() : Date.now());
 
 const createYieldController = () => {
@@ -1222,14 +1221,8 @@ export class ColorCycleBrushCanvas2D {
       ditherAlgorithm?: StampDitherAlgorithm;
     }
   ): number {
-    const baseSpeed = this.getWriteCycleSpeed(strokeData);
-    const shouldUseFlatSierraCadence =
-      (options?.pairBandCount ?? 0) <= 0 &&
-      (options?.ditherAlgorithm ?? 'sierra-lite') === 'sierra-lite';
-    if (!shouldUseFlatSierraCadence) {
-      return baseSpeed;
-    }
-    return sanitizeBrushColorCycleSpeed(baseSpeed * CC_FLAT_SIERRA_CADENCE_SCALE, baseSpeed);
+    void options;
+    return this.getWriteCycleSpeed(strokeData);
   }
 
   private getCcGradientFillSpeedByte(
