@@ -354,7 +354,7 @@ describe('ColorCycleBrushCanvas2D regression tests', () => {
     expect(Math.abs(left - right)).toBeLessThanOrEqual(1);
   });
 
-  it('uses a slower animation speed byte for flat sierra CC fills than banded CC fills', async () => {
+  it('uses matching animation speed bytes for flat and banded sierra CC fills', async () => {
     const createBrush = (layerId: string) => {
       const canvas = makeCanvas(24, 12);
       const brush = new ColorCycleBrushCanvas2D(canvas, { forceCanvas2D: true });
@@ -420,7 +420,7 @@ describe('ColorCycleBrushCanvas2D regression tests', () => {
     const flatSpeed = decodeColorCycleSpeedByte(flatSpeedByte as number);
     const bandedSpeed = decodeColorCycleSpeedByte(bandedSpeedByte as number);
 
-    expect(flatSpeed).toBeLessThan(bandedSpeed);
+    expect(flatSpeed).toBeCloseTo(bandedSpeed, 5);
   });
 
   it('lost-edge only modifies pixels written by the fill', async () => {
@@ -518,7 +518,7 @@ describe('ColorCycleBrushCanvas2D regression tests', () => {
     expect(violations).toBe(0);
   });
 
-  it('rescales existing layer speed bytes when the layer base speed changes', () => {
+  it('rescales existing and future shape speeds when the layer base speed changes', () => {
     const canvas = makeCanvas(16, 16);
     const brush = new ColorCycleBrushCanvas2D(canvas, { forceCanvas2D: true });
     const layerId = 'layer-speed-write-only';
@@ -526,6 +526,7 @@ describe('ColorCycleBrushCanvas2D regression tests', () => {
 
     const firstSpeed = 0.2;
     const secondBaseSpeed = 1.6;
+    const thirdBaseSpeed = 2.2;
     const firstExpectedByte = encodeColorCycleSpeedByte(firstSpeed);
     const secondExpectedSpeed = firstSpeed * secondBaseSpeed;
     const secondExpectedByte = encodeColorCycleSpeedByte(secondExpectedSpeed);
@@ -569,6 +570,30 @@ describe('ColorCycleBrushCanvas2D regression tests', () => {
     }
     expect(decodeColorCycleSpeedByte(afterNewStroke[firstIndex])).toBeCloseTo(secondExpectedSpeed, 1);
     expect(afterNewStroke[secondIndex]).toBe(secondExpectedByte);
+
+    const thirdExpectedSpeed = secondExpectedSpeed * (thirdBaseSpeed / secondBaseSpeed);
+    const thirdExpectedByte = encodeColorCycleSpeedByte(thirdExpectedSpeed);
+    const thirdIndex = 8 + 8 * canvas.width;
+
+    brush.setLayerBaseSpeed(thirdBaseSpeed);
+    const afterThirdBaseSpeed = animator.getIndexBuffers().spd;
+    if (!afterThirdBaseSpeed) {
+      throw new Error('Missing speed buffer after third base speed rescale');
+    }
+    expect(decodeColorCycleSpeedByte(afterThirdBaseSpeed[firstIndex])).toBeCloseTo(thirdExpectedSpeed, 1);
+    expect(decodeColorCycleSpeedByte(afterThirdBaseSpeed[secondIndex])).toBeCloseTo(thirdExpectedSpeed, 1);
+
+    brush.startStroke(layerId);
+    brush.paint(8, 8, layerId, 1);
+    brush.endStroke(layerId);
+
+    const afterThirdStroke = animator.getIndexBuffers().spd;
+    if (!afterThirdStroke) {
+      throw new Error('Missing speed buffer after third stroke');
+    }
+    expect(decodeColorCycleSpeedByte(afterThirdStroke[firstIndex])).toBeCloseTo(thirdExpectedSpeed, 1);
+    expect(decodeColorCycleSpeedByte(afterThirdStroke[secondIndex])).toBeCloseTo(thirdExpectedSpeed, 1);
+    expect(afterThirdStroke[thirdIndex]).toBe(thirdExpectedByte);
   });
 
   it('keeps CC gradient fill speed aligned with the slider across stop counts', async () => {
