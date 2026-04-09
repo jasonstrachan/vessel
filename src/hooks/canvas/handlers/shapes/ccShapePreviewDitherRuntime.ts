@@ -322,6 +322,11 @@ export const getDitherGradPreviewState = (
   return created;
 };
 
+export const shouldUseRenderedCcPreviewFill = (params: {
+  canReplayCurrentPreview: boolean;
+  shouldDrawCachedPreview: boolean;
+}): boolean => params.shouldDrawCachedPreview;
+
 const createPreviewYieldController = () => {
   let sliceStart = typeof performance !== 'undefined' ? performance.now() : Date.now();
   return async (row: number) => {
@@ -416,8 +421,11 @@ export const runCcDitherPreviewRuntime = (args: {
       canReplayCurrentPreview: Boolean(canReplayCurrentPreview),
       jobInFlight: ditherGradPreviewState.ccJobInFlight,
     });
-  const suppressLivePreviewChrome =
-    Boolean(shouldDrawCachedPreview) && !Boolean(canReplayCurrentPreview);
+  const shouldUseCustomFill = shouldUseRenderedCcPreviewFill({
+    canReplayCurrentPreview: Boolean(canReplayCurrentPreview),
+    shouldDrawCachedPreview: Boolean(shouldDrawCachedPreview),
+  });
+  const suppressLivePreviewChrome = false;
 
   if (shouldDrawCachedPreview && ditherGradPreviewState.ccLastCanvas && ditherGradPreviewState.ccLastOrigin) {
     overlayCtx.save();
@@ -623,7 +631,7 @@ export const runCcDitherPreviewRuntime = (args: {
     }
   }
   return {
-    didCustomFill: true,
+    didCustomFill: shouldUseCustomFill,
     suppressLivePreviewChrome,
   };
 };

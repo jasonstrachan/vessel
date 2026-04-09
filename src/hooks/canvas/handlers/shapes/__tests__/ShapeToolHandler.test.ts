@@ -1,5 +1,6 @@
 import { shapeFillBrushPreset, pixelBrushPreset } from '@/presets/brushPresets';
 import { __shapeToolTestUtils } from '@/hooks/canvas/handlers/shapes/ShapeToolHandler';
+import { shouldUseRenderedCcPreviewFill } from '@/hooks/canvas/handlers/shapes/ccShapePreviewDitherRuntime';
 import { useAppStore } from '@/stores/useAppStore';
 import type { Layer } from '@/types';
 
@@ -318,5 +319,28 @@ describe('ShapeToolHandler – shape fill tool detection', () => {
       { x: 30, y: 30 },
       { x: 45, y: 22 },
     ]);
+  });
+
+  it('keeps using the last rendered cc preview fill until a new frame is ready', () => {
+    expect(
+      shouldUseRenderedCcPreviewFill({
+        canReplayCurrentPreview: false,
+        shouldDrawCachedPreview: false,
+      })
+    ).toBe(false);
+
+    expect(
+      shouldUseRenderedCcPreviewFill({
+        canReplayCurrentPreview: false,
+        shouldDrawCachedPreview: true,
+      })
+    ).toBe(true);
+
+    expect(
+      shouldUseRenderedCcPreviewFill({
+        canReplayCurrentPreview: true,
+        shouldDrawCachedPreview: true,
+      })
+    ).toBe(true);
   });
 });
