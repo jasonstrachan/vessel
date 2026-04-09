@@ -67,6 +67,8 @@ const resolveSampledFlatDiversityMix = ({
     return floorMix;
   }
 
+  const mixStrength = diversity01 * diversity01;
+
   const amplification = 1 + diversity01 * 1.5;
   const noiseAmp = diversity01 * 0.5;
   const centered = clamp01(flatPosition) - 0.5;
@@ -80,7 +82,7 @@ const resolveSampledFlatDiversityMix = ({
     ? ((u1 + u2) / 2) * noiseAmp
     : 0;
   const stochasticMix = amplified + seedNoise;
-  const blended = floorMix + diversity01 * (stochasticMix - floorMix);
+  const blended = floorMix + mixStrength * (stochasticMix - floorMix);
 
   return Math.max(minMix, Math.min(maxMix, blended));
 };
@@ -376,6 +378,7 @@ export const resolveSampledFlatPositionMix = ({
   const solvePairLow = useFallbackPair ? contrastPair.low : sampledLowRgb;
   const solvePairHigh = useFallbackPair ? contrastPair.high : sampledHighRgb;
   const {
+    flatMix,
     solveError,
     usedFallbackPair,
   } = projectTargetToPairMix({
@@ -383,7 +386,6 @@ export const resolveSampledFlatPositionMix = ({
     low: solvePairLow,
     high: solvePairHigh,
   });
-  const flatMix = clamp01(rgbToTone(targetRgb));
   const lowColor = rgbToCss(sampledLowRgb);
   const highColor = rgbToCss(sampledHighRgb);
 

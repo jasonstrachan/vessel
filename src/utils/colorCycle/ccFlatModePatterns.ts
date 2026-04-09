@@ -49,21 +49,15 @@ const FLAT_BAND_CENTERS: [number, number, number, number, number] = [26, 77, 128
 const DEFAULT_FLAT_PAIR_HALF_SPREAD = 4;
 const MIN_FLAT_PAIR_HALF_SPREAD = 1;
 const MAX_FLAT_PAIR_HALF_SPREAD = 63;
-const PALETTE_CYCLE_SIZE = 255;
-const MIN_FLAT_PAIR_DISTANCE = 0;
-const MAX_FLAT_PAIR_DISTANCE = Math.floor(PALETTE_CYCLE_SIZE / 2);
+const MIN_FLAT_PAIR_DISTANCE = MIN_FLAT_PAIR_HALF_SPREAD * 2;
+const MAX_FLAT_PAIR_DISTANCE = MAX_FLAT_PAIR_HALF_SPREAD * 2;
 
 const clamp01 = (value: number): number => Math.max(0, Math.min(1, value));
 
 const shiftPaletteIndex = (index: number, baseOffset: number): number => {
   const zeroBased = Math.max(0, Math.min(254, index - 1));
-  const shifted = (zeroBased + baseOffset) % PALETTE_CYCLE_SIZE;
+  const shifted = (zeroBased + baseOffset) % 255;
   return Math.max(1, Math.min(255, shifted + 1));
-};
-
-const wrapPaletteIndex = (index: number): number => {
-  const zeroBased = ((Math.round(index) - 1) % PALETTE_CYCLE_SIZE + PALETTE_CYCLE_SIZE) % PALETTE_CYCLE_SIZE;
-  return zeroBased + 1;
 };
 
 export const resolveToneBand = (tone: number): number => {
@@ -83,35 +77,6 @@ const resolveFlatPairHalfSpread = (spreadPercent?: number): number => {
   );
 };
 
-const resolveFlatPairGap = (spreadPercent?: number): number => {
-  if (!Number.isFinite(spreadPercent)) {
-    return DEFAULT_FLAT_PAIR_HALF_SPREAD * 2;
-  }
-  const clamped = Math.max(0, Math.min(100, spreadPercent ?? 0));
-  return Math.floor((clamped / 100) * MAX_FLAT_PAIR_DISTANCE);
-};
-
-const resolveFlatInkPairFromRepresentativeTone = (
-  representativeTone: number,
-  baseOffset: number,
-  spreadPercent?: number
-): FlatInkSet => {
-  const center = Math.max(1, Math.min(255, Math.round(representativeTone)));
-  const gap = resolveFlatPairGap(spreadPercent);
-  const low = shiftPaletteIndex(
-    wrapPaletteIndex(center - Math.floor(gap / 2)),
-    baseOffset
-  );
-  const high = shiftPaletteIndex(
-    wrapPaletteIndex(center + Math.ceil(gap / 2)),
-    baseOffset
-  );
-
-  return {
-    indices: [low, high],
-  };
-};
-
 export const resolveFlatInkSetForBand = (
   band: number,
   _inkCount: FlatInkCount,
@@ -119,11 +84,14 @@ export const resolveFlatInkSetForBand = (
   spreadPercent?: number
 ): FlatInkSet => {
   const clampedBand = Math.max(0, Math.min(FLAT_BAND_CENTERS.length - 1, band | 0));
-  return resolveFlatInkPairFromRepresentativeTone(
-    FLAT_BAND_CENTERS[clampedBand],
-    baseOffset,
-    spreadPercent
-  );
+  const center = FLAT_BAND_CENTERS[clampedBand];
+  const half = resolveFlatPairHalfSpread(spreadPercent);
+  const low = shiftPaletteIndex(Math.max(1, center - half), baseOffset);
+  const high = shiftPaletteIndex(Math.min(255, center + half), baseOffset);
+
+  return {
+    indices: [low, high],
+  };
 };
 
 export const resolveFlatInkSetForPosition = (
@@ -133,17 +101,19 @@ export const resolveFlatInkSetForPosition = (
   spreadPercent?: number
 ): FlatInkSet => {
   const clampedPosition = clamp01(position);
-  return resolveFlatInkPairFromRepresentativeTone(
-    Math.round(clampedPosition * 254) + 1,
-    baseOffset,
-    spreadPercent
-  );
+  const center = Math.max(1, Math.min(255, Math.round(clampedPosition * 254) + 1));
+  const half = resolveFlatPairHalfSpread(spreadPercent);
+  const low = shiftPaletteIndex(Math.max(1, center - half), baseOffset);
+  const high = shiftPaletteIndex(Math.min(255, center + half), baseOffset);
+
+  return {
+    indices: [low, high],
+  };
 };
 
 export const resolveFlatPairDistance = (band: number, spreadPercent?: number): number => {
   const [low, high] = resolveFlatInkSetForBand(band, 2, 0, spreadPercent).indices;
-  const forward = ((high - low) % PALETTE_CYCLE_SIZE + PALETTE_CYCLE_SIZE) % PALETTE_CYCLE_SIZE;
-  return Math.min(forward, PALETTE_CYCLE_SIZE - forward);
+  return Math.max(1, high - low);
 };
 
 export const resolveFlatPairContrastStrength = (distance: number): number => {
@@ -406,20 +376,22 @@ const fillSierraLiteFlatPatternMode = ({
     ? resolveFlatInkSetForPosition(flatPosition as number, 2, baseOffset, spread)
     : resolveFlatInkSetForBand(resolvedBand, 2, baseOffset, spread);
   const patternBand = isSampledFlat ? -1 : resolvedBand;
-  const baseMix = isSampledFlat
+  const diversity01 = clamp01((ditherPatternDiversity ?? 100) / 100);
+  const resolvedMix = isSampledFlat
     ? clamp01(flatMix as number)
     : resolveBandMixAmount(resolvedBand, flatPosition, flatMix, flatMixByBand, spread);
-  const diversity01 = clamp01((ditherPatternDiversity ?? 100) / 100);
+  const mixStrength = diversity01 * diversity01;
+  const baseMix = 0.5 + (resolvedMix - 0.5) * mixStrength;
   const mixKey = Math.round(baseMix * 255) & 255;
   const lowIdx = inkSet.indices[0] & 255;
   const highIdx = inkSet.indices[1] & 255;
   const shapeSeed = (flatSeed ?? 0) >>> 0;
   const seedPhaseX = shapeSeed & 7;
   const seedPhaseY = (shapeSeed >>> 3) & 7;
-  const patternIdentityBand = isSampledFlat ? 0 : patternBand;
   const patternKey =
     (mixKey << 16) ^
-    ((patternIdentityBand & 255) << 8) ^
+    (lowIdx << 8) ^
+    highIdx ^
     Math.imul(shapeSeed, 0x9e3779b1);
   const variant = resolvePatternVariant(shapeSeed, patternKey);
   const patternFingerprint = `${patternKey}:${variant}:${patternBand}:${mixKey}:${lowIdx}:${highIdx}`;
@@ -461,7 +433,7 @@ const fillSierraLiteFlatPatternMode = ({
         continue;
       }
 
-      const errorBandKey = patternIdentityBand;
+      const errorBandKey = isSampledFlat ? 0 : patternBand;
       const seededX = x + phaseX + seedPhaseX;
       const seededY = y + phaseY + seedPhaseY;
       const initialErr = resolveInitialError(
