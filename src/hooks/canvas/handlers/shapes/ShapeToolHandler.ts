@@ -262,6 +262,67 @@ const normalizePreparedPreviewStops = (
   return sortedStops;
 };
 
+const computeAxisOpposingEnds = (verts: Array<{ x: number; y: number }>): {
+  start: { x: number; y: number };
+  end: { x: number; y: number };
+  dir: { x: number; y: number };
+  length: number;
+} => {
+  const n = verts.length;
+  if (n === 0) {
+    return { start: { x: 0, y: 0 }, end: { x: 1, y: 0 }, dir: { x: 1, y: 0 }, length: 1 };
+  }
+  if (n === 1) {
+    return { start: verts[0], end: { x: verts[0].x + 1, y: verts[0].y }, dir: { x: 1, y: 0 }, length: 1 };
+  }
+
+  let a = verts[0];
+  let b = verts[1];
+  let bestD2 = -1;
+  for (let i = 0; i < n; i += 1) {
+    for (let j = i + 1; j < n; j += 1) {
+      const dx = verts[j].x - verts[i].x;
+      const dy = verts[j].y - verts[i].y;
+      const d2 = dx * dx + dy * dy;
+      if (d2 > bestD2) {
+        bestD2 = d2;
+        a = verts[i];
+        b = verts[j];
+      }
+    }
+  }
+
+  let dx = b.x - a.x;
+  let dy = b.y - a.y;
+  let len = Math.hypot(dx, dy);
+  if (len < 1e-6) {
+    dx = 1;
+    dy = 0;
+    len = 1;
+  }
+  dx /= len;
+  dy /= len;
+
+  let minT = Infinity;
+  let maxT = -Infinity;
+  let minP = verts[0];
+  let maxP = verts[0];
+  for (const v of verts) {
+    const t = v.x * dx + v.y * dy;
+    if (t < minT) {
+      minT = t;
+      minP = v;
+    }
+    if (t > maxT) {
+      maxT = t;
+      maxP = v;
+    }
+  }
+
+  const length = Math.max(1e-6, maxT - minT);
+  return { start: minP, end: maxP, dir: { x: dx, y: dy }, length };
+};
+
 const buildCcShapePreviewGradientCacheKey = ({
   effectiveStops,
   gradientBands,
@@ -1942,69 +2003,6 @@ export const createShapeToolHandler = (
     return colors.background;
   };
 
-  const computeAxisOpposingEnds = (verts: Array<{ x: number; y: number }>): {
-    start: { x: number; y: number };
-    end: { x: number; y: number };
-    dir: { x: number; y: number };
-    length: number;
-  } => {
-    const n = verts.length;
-    if (n === 0) {
-      return { start: { x: 0, y: 0 }, end: { x: 1, y: 0 }, dir: { x: 1, y: 0 }, length: 1 };
-    }
-    if (n === 1) {
-      return { start: verts[0], end: { x: verts[0].x + 1, y: verts[0].y }, dir: { x: 1, y: 0 }, length: 1 };
-    }
-
-    // 1) pick direction from farthest pair (O(n^2), acceptable for small vertex counts)
-    let a = verts[0];
-    let b = verts[1];
-    let bestD2 = -1;
-    for (let i = 0; i < n; i += 1) {
-      for (let j = i + 1; j < n; j += 1) {
-        const dx = verts[j].x - verts[i].x;
-        const dy = verts[j].y - verts[i].y;
-        const d2 = dx * dx + dy * dy;
-        if (d2 > bestD2) {
-          bestD2 = d2;
-          a = verts[i];
-          b = verts[j];
-        }
-      }
-    }
-
-    let dx = b.x - a.x;
-    let dy = b.y - a.y;
-    let len = Math.hypot(dx, dy);
-    if (len < 1e-6) {
-      dx = 1;
-      dy = 0;
-      len = 1;
-    }
-    dx /= len;
-    dy /= len;
-
-    // 2) choose opposing endpoints along that direction by projection
-    let minT = Infinity;
-    let maxT = -Infinity;
-    let minP = verts[0];
-    let maxP = verts[0];
-    for (const v of verts) {
-      const t = v.x * dx + v.y * dy;
-      if (t < minT) {
-        minT = t;
-        minP = v;
-      }
-      if (t > maxT) {
-        maxT = t;
-        maxP = v;
-      }
-    }
-
-    const length = Math.max(1e-6, maxT - minT);
-    return { start: minP, end: maxP, dir: { x: dx, y: dy }, length };
-  };
-
   const resolvePolygonPointColor = (worldPos: { x: number; y: number }) => {
     const store = useAppStore.getState();
     const { brushSettings } = store.tools;
@@ -3255,14 +3253,11 @@ export const createShapeToolHandler = (
                 );
 
               if (canReplayCurrentPreview && ditherGradPreviewState.ccLastCanvas && ditherGradPreviewState.ccLastOrigin) {
-                const { scale, offsetX, offsetY } = viewTransformRef.current;
                 overlayCtx.save();
                 overlayCtx.setTransform(1, 0, 0, 1, 0, 0);
                 overlayCtx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
                 overlayCtx.restore();
                 overlayCtx.save();
-                overlayCtx.translate(offsetX, offsetY);
-                overlayCtx.scale(scale, scale);
                 overlayCtx.globalAlpha = SHAPE_PREVIEW_OPACITY;
                 overlayCtx.imageSmoothingEnabled = false;
                 overlayCtx.drawImage(
@@ -3446,18 +3441,17 @@ export const createShapeToolHandler = (
                           origin: { ...origin },
                         };
                       }
-                      const { scale, offsetX, offsetY } = viewTransformRef.current;
-                      overlayCtx.save();
-                      overlayCtx.setTransform(1, 0, 0, 1, 0, 0);
-                      overlayCtx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
-                      overlayCtx.restore();
-                      overlayCtx.save();
-                      overlayCtx.translate(offsetX, offsetY);
-                      overlayCtx.scale(scale, scale);
-                      overlayCtx.globalAlpha = SHAPE_PREVIEW_OPACITY;
-                      overlayCtx.imageSmoothingEnabled = false;
-                      overlayCtx.drawImage(displayCanvas, 0, 0, w, h, origin.x, origin.y, w, h);
-                      overlayCtx.restore();
+                      const canRefreshPreview =
+                        tools.shapeMode &&
+                        drawingHandlers.isDrawingShapeRef.current &&
+                        drawingHandlers.shapePointsRef.current.length > 0;
+                      if (canRefreshPreview) {
+                        schedulePolygonShapePreviewFrame(() =>
+                          latestPolygonPreviewPoint
+                            ? { ...latestPolygonPreviewPoint }
+                            : null
+                        );
+                      }
                     } catch {
                       // Keep scratch buffers for reuse on the next preview job.
                     } finally {
@@ -4134,6 +4128,7 @@ export const createShapeToolHandler = (
       tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE_SHAPE &&
       Boolean(tools.brushSettings.ditherEnabled);
     if (isCCPreview) {
+      resetDitherGradOrigin();
       if (previewAnimationFrameRef?.current) {
         cancelAnimationFrame(previewAnimationFrameRef.current);
         previewAnimationFrameRef.current = null;
@@ -4222,6 +4217,9 @@ export const createShapeToolHandler = (
     const isCCPreview =
       tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE_SHAPE &&
       Boolean(tools.brushSettings.ditherEnabled);
+    if (isCCPreview) {
+      resetDitherGradOrigin();
+    }
     finalizePromise.then(() => {
       logShapeFillEvent('shape-fill-finalize-success', {
         source: 'triangle-size',
