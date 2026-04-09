@@ -4077,6 +4077,14 @@ export const createShapeToolHandler = (
     const isCCPreview =
       tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE_SHAPE &&
       Boolean(tools.brushSettings.ditherEnabled);
+    if (isCCPreview) {
+      if (previewAnimationFrameRef?.current) {
+        cancelAnimationFrame(previewAnimationFrameRef.current);
+        previewAnimationFrameRef.current = null;
+      }
+      clearCurrentPreview();
+      clearOverlayCanvas();
+    }
     finalizePromise.then(() => {
       logShapeFillEvent('shape-fill-finalize-success', {
         source: 'polygon-complete',
@@ -4093,14 +4101,8 @@ export const createShapeToolHandler = (
       if (restartColorCycleAnimation) {
         restartColorCycleAnimation();
       }
-      if (isCCPreview) {
-        requestAnimationFrame(() => {
-          clearCurrentPreview();
-          clearOverlayCanvas();
-          if (drawingHandlers.ccShapePreviewCacheRef) {
-            drawingHandlers.ccShapePreviewCacheRef.current = null;
-          }
-        });
+      if (isCCPreview && drawingHandlers.ccShapePreviewCacheRef) {
+        drawingHandlers.ccShapePreviewCacheRef.current = null;
       }
       }).catch(error => {
       logShapeFillEvent('shape-fill-finalize-error', {
