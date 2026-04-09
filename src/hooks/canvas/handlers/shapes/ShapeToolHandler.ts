@@ -39,6 +39,7 @@ import { buildCcDitherRuntimePalette, resolveCcDitherBandMode } from '@/utils/co
 import { ccLog } from '@/utils/colorCycle/ccDebug';
 import { fillCcGradientDither } from '@/utils/colorCycle/ccGradientDither';
 import { resolveStableFlatSeed } from '@/utils/colorCycle/ccFlatSeed';
+import { computeConcentricMaxDistance } from '@/utils/colorCycle/concentricFillCore';
 import { getActiveMarkGradientSession, getPreviewGradientForActiveMark } from '@/hooks/canvas/utils/colorCycleMarkSession';
 import { parseCssColorToRgba } from '@/hooks/canvas/utils/colorCycleHelpers';
 import { applyPolygonMaskToCanvasContext } from '@/hooks/canvas/handlers/shapes/shapePreviewMask';
@@ -321,6 +322,67 @@ const prepareCcShapePreviewGradient = ({
   return {
     renderStops,
     sortedStops: normalizePreparedPreviewStops(renderStops),
+  };
+};
+
+const createCcShapePreviewSampleNormalized = ({
+  colorCycleFillMode,
+  localVertices,
+  width,
+  height,
+}: {
+  colorCycleFillMode?: BrushSettings['colorCycleFillMode'];
+  localVertices: Array<{ x: number; y: number }>;
+  width: number;
+  height: number;
+}): ((x: number, y: number) => number) => {
+  if (colorCycleFillMode === 'concentric') {
+    const edges = new Array(localVertices.length);
+    for (let i = 0; i < localVertices.length; i += 1) {
+      const v1 = localVertices[i];
+      const v2 = localVertices[(i + 1) % localVertices.length];
+      const dx = v2.x - v1.x;
+      const dy = v2.y - v1.y;
+      edges[i] = { v1x: v1.x, v1y: v1.y, dx, dy, len2: dx * dx + dy * dy };
+    }
+    const safeMaxDist = computeConcentricMaxDistance(localVertices, {
+      minX: 0,
+      minY: 0,
+      width,
+      height,
+    });
+    return (x, y) => {
+      let minDistSq = Infinity;
+      for (let i = 0; i < edges.length; i += 1) {
+        const edge = edges[i];
+        if (edge.len2 <= 0) continue;
+        const tNum = (x - edge.v1x) * edge.dx + (y - edge.v1y) * edge.dy;
+        const tVal = Math.max(0, Math.min(1, tNum / edge.len2));
+        const px = edge.v1x + tVal * edge.dx;
+        const py = edge.v1y + tVal * edge.dy;
+        const ddx = x - px;
+        const ddy = y - py;
+        const d2 = ddx * ddx + ddy * ddy;
+        if (d2 < minDistSq) {
+          minDistSq = d2;
+        }
+      }
+      return Math.min(1, Math.sqrt(Math.max(0, minDistSq)) / safeMaxDist);
+    };
+  }
+
+  const axis = computeAxisOpposingEnds(localVertices);
+  let minProj = Infinity;
+  let maxProj = -Infinity;
+  for (const vertex of localVertices) {
+    const proj = vertex.x * axis.dir.x + vertex.y * axis.dir.y;
+    if (proj < minProj) minProj = proj;
+    if (proj > maxProj) maxProj = proj;
+  }
+  const projRange = Math.max(1e-6, maxProj - minProj);
+  return (x, y) => {
+    const proj = x * axis.dir.x + y * axis.dir.y;
+    return (proj - minProj) / projRange;
   };
 };
 
@@ -3226,15 +3288,12 @@ export const createShapeToolHandler = (
                   x: pt.x - origin.x,
                   y: pt.y - origin.y,
                 }));
-                const axis = computeAxisOpposingEnds(localVertices);
-                let minProj = Infinity;
-                let maxProj = -Infinity;
-                for (const v of localVertices) {
-                  const proj = v.x * axis.dir.x + v.y * axis.dir.y;
-                  if (proj < minProj) minProj = proj;
-                  if (proj > maxProj) maxProj = proj;
-                }
-                const projRange = Math.max(1e-6, maxProj - minProj);
+                const sampleNormalized = createCcShapePreviewSampleNormalized({
+                  colorCycleFillMode: brushNow.colorCycleFillMode,
+                  localVertices,
+                  width: w,
+                  height: h,
+                });
                 const sortedStops = preparedGradient.sortedStops;
                 const sampleGradient = (t: number): [number, number, number, number] => {
                   const tt = Math.max(0, Math.min(1, t));
@@ -3345,10 +3404,7 @@ export const createShapeToolHandler = (
                         sampledFlatTraceStage: 'preview',
                         fillBackground,
                         yieldIfNeeded,
-                        sampleNormalized: (x, y) => {
-                          const proj = x * axis.dir.x + y * axis.dir.y;
-                          return (proj - minProj) / projRange;
-                        },
+                        sampleNormalized,
                         writeIndex: (x, y, index) => {
                           if (index <= 0) return;
                           const t = (index - 1) / 254;
@@ -4413,6 +4469,7 @@ export const __shapeToolTestUtils = {
   applyTransparencyLockMaskToContext,
   applyPolygonMaskToCanvasContext,
   resolveCcShapePreviewRenderSettings,
+  createCcShapePreviewSampleNormalized,
   computeCcPreviewRoi,
   canReplayCcPreview,
   normalizePreparedPreviewStops,
