@@ -219,5 +219,25 @@ describe('ShapeToolHandler – shape fill tool detection', () => {
         roi,
       )
     ).toBe(false);
+
+    expect(
+      __shapeToolTestUtils.canReplayCcPreview(
+        roi.origin,
+        roi.size,
+        'preview-a',
+        roi,
+        'preview-a',
+      )
+    ).toBe(true);
+
+    expect(
+      __shapeToolTestUtils.canReplayCcPreview(
+        roi.origin,
+        roi.size,
+        'preview-a',
+        roi,
+        'preview-b',
+      )
+    ).toBe(false);
   });
 });

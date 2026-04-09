@@ -480,20 +480,74 @@ const computeCcPreviewRoi = (
   };
 };
 
+const buildCcPreviewReplayKey = ({
+  points,
+  preparedGradientKey,
+  colorCycleFillMode,
+  pixelSize,
+  levels,
+  algorithm,
+  patternStyle,
+}: {
+  points: Array<{ x: number; y: number }>;
+  preparedGradientKey: string;
+  colorCycleFillMode?: BrushSettings['colorCycleFillMode'];
+  pixelSize: number;
+  levels: number;
+  algorithm: DitherAlgorithm;
+  patternStyle: PatternStyle;
+}): string => {
+  const geometryKey = points
+    .map(point => `${Math.round(point.x * 100) / 100},${Math.round(point.y * 100) / 100}`)
+    .join('|');
+
+  return [
+    preparedGradientKey,
+    `mode:${colorCycleFillMode ?? 'linear'}`,
+    `px:${pixelSize}`,
+    `levels:${levels}`,
+    `algo:${algorithm}`,
+    `pattern:${patternStyle}`,
+    `points:${geometryKey}`,
+  ].join('||');
+};
+
 const canReplayCcPreview = (
   cachedOrigin: { x: number; y: number } | undefined,
   cachedSize: { width: number; height: number } | undefined,
-  roi: CcPreviewRoi,
+  cachedReplayKeyOrRoi?: string | CcPreviewRoi,
+  roi?: CcPreviewRoi,
+  replayKey?: string,
 ): boolean => {
   if (!cachedOrigin || !cachedSize) {
     return false;
   }
 
+  let cachedReplayKey: string | undefined;
+  const effectiveReplayKey = replayKey;
+  let effectiveRoi: CcPreviewRoi | undefined = roi;
+
+  if (
+    cachedReplayKeyOrRoi &&
+    typeof cachedReplayKeyOrRoi === 'object' &&
+    'origin' in cachedReplayKeyOrRoi &&
+    'size' in cachedReplayKeyOrRoi
+  ) {
+    effectiveRoi = cachedReplayKeyOrRoi;
+  } else {
+    cachedReplayKey = cachedReplayKeyOrRoi;
+  }
+
+  if (!effectiveRoi) {
+    return false;
+  }
+
   return (
-    cachedOrigin.x === roi.origin.x &&
-    cachedOrigin.y === roi.origin.y &&
-    cachedSize.width === roi.size.width &&
-    cachedSize.height === roi.size.height
+    cachedOrigin.x === effectiveRoi.origin.x &&
+    cachedOrigin.y === effectiveRoi.origin.y &&
+    cachedSize.width === effectiveRoi.size.width &&
+    cachedSize.height === effectiveRoi.size.height &&
+    (effectiveReplayKey === undefined || cachedReplayKey === effectiveReplayKey)
   );
 };
 
@@ -507,6 +561,7 @@ type DitherGradPreviewState = {
   ccLastCanvas?: HTMLCanvasElement;
   ccLastOrigin?: { x: number; y: number };
   ccLastSize?: { width: number; height: number };
+  ccLastReplayKey?: string;
   ccScratchCanvas?: HTMLCanvasElement;
   ccScratchBuffer?: Uint8ClampedArray;
   ccPreparedGradientKey?: string;
@@ -773,6 +828,7 @@ export const createShapeToolHandler = (
     ditherGradPreviewState.ccLastCanvas = undefined;
     ditherGradPreviewState.ccLastOrigin = undefined;
     ditherGradPreviewState.ccLastSize = undefined;
+    ditherGradPreviewState.ccLastReplayKey = undefined;
     ditherGradPreviewState.ccScratchCanvas = undefined;
     ditherGradPreviewState.ccScratchBuffer = undefined;
     ditherGradPreviewState.ccPreparedGradientKey = undefined;
@@ -3244,12 +3300,38 @@ export const createShapeToolHandler = (
             if (shouldDitherPreview) {
               const allPoints = [...pts, previewPoint];
               const nextPreviewRoi = computeCcPreviewRoi(allPoints);
+              const basePixelSize = Math.max(1, Math.round(brushNow.fillResolution ?? 1));
+              const usePressure =
+                Boolean(brushNow.pressureLinkedFillResolution) &&
+                Boolean(drawingHandlers.hadValidShapePressureRef?.current);
+              const pressurePixelSize = usePressure
+                ? (drawingHandlers.latestShapePixelSizeRef?.current ??
+                  drawingHandlers.computeShapePixelSize?.(
+                    drawingHandlers.lastStablePressureRef?.current ?? 0.5
+                  ) ??
+                  basePixelSize)
+                : basePixelSize;
+              const pixelSize = Math.max(1, Math.round(pressurePixelSize || basePixelSize));
+              const levels = Math.max(1, Math.min(16, Math.round(brushNow.gradientBands ?? 16)));
+              const fillAlgorithm = brushNow.ditherAlgorithm ?? 'sierra-lite';
+              const fillPatternStyle = brushNow.patternStyle ?? 'dots';
+              const replayKey = buildCcPreviewReplayKey({
+                points: allPoints,
+                preparedGradientKey,
+                colorCycleFillMode: brushNow.colorCycleFillMode,
+                pixelSize,
+                levels,
+                algorithm: fillAlgorithm,
+                patternStyle: fillPatternStyle,
+              });
               const canReplayCurrentPreview =
                 ditherGradPreviewState.ccLastCanvas &&
                 canReplayCcPreview(
                   ditherGradPreviewState.ccLastOrigin,
                   ditherGradPreviewState.ccLastSize,
+                  ditherGradPreviewState.ccLastReplayKey,
                   nextPreviewRoi,
+                  replayKey,
                 );
 
               if (canReplayCurrentPreview && ditherGradPreviewState.ccLastCanvas && ditherGradPreviewState.ccLastOrigin) {
@@ -3268,6 +3350,10 @@ export const createShapeToolHandler = (
                 overlayCtx.restore();
                 didCustomFill = true;
               } else {
+                overlayCtx.save();
+                overlayCtx.setTransform(1, 0, 0, 1, 0, 0);
+                overlayCtx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
+                overlayCtx.restore();
                 didCustomFill = true;
               }
               if (ditherGradPreviewState.ccJobInFlight) {
@@ -3312,21 +3398,6 @@ export const createShapeToolHandler = (
                     lerp(a.rgba[3], b.rgba[3]),
                   ];
                 };
-                const basePixelSize = Math.max(1, Math.round(brushNow.fillResolution ?? 1));
-                const usePressure =
-                  Boolean(brushNow.pressureLinkedFillResolution) &&
-                  Boolean(drawingHandlers.hadValidShapePressureRef?.current);
-                const pressurePixelSize = usePressure
-                  ? (drawingHandlers.latestShapePixelSizeRef?.current ??
-                    drawingHandlers.computeShapePixelSize?.(
-                      drawingHandlers.lastStablePressureRef?.current ?? 0.5
-                    ) ??
-                    basePixelSize)
-                  : basePixelSize;
-                const pixelSize = Math.max(1, Math.round(pressurePixelSize || basePixelSize));
-                const levels = Math.max(1, Math.min(16, Math.round(brushNow.gradientBands ?? 16)));
-                const fillAlgorithm = brushNow.ditherAlgorithm ?? 'sierra-lite';
-                const fillPatternStyle = brushNow.patternStyle ?? 'dots';
                 const previewRenderSettings = resolveCcShapePreviewRenderSettings({
                   pixelSize,
                   levels,
@@ -3435,6 +3506,7 @@ export const createShapeToolHandler = (
                       displayCtx.drawImage(tempCanvas, 0, 0, w, h, 0, 0, w, h);
                       ditherGradPreviewState.ccLastOrigin = { ...origin };
                       ditherGradPreviewState.ccLastSize = { width: w, height: h };
+                      ditherGradPreviewState.ccLastReplayKey = replayKey;
                       if (drawingHandlers.ccShapePreviewCacheRef) {
                         drawingHandlers.ccShapePreviewCacheRef.current = {
                           canvas: displayCanvas,
@@ -3819,6 +3891,7 @@ export const createShapeToolHandler = (
   const polygonShapePointerUp = (event: React.PointerEvent<HTMLCanvasElement>) => {
     const isPolygonGradient = isPolygonGradientBrush();
     const isContourPolygon = isContourPolygonBrush();
+    const isCCShape = isColorCycleShapeBrush();
     const isShapeFill = isShapeFillBrush();
     const liveBrushForUp = useAppStore.getState().tools.brushSettings;
     if (liveBrushForUp.brushShape === BrushShape.DITHER_GRADIENT) {
@@ -3828,6 +3901,16 @@ export const createShapeToolHandler = (
           : Date.now();
       drawingHandlers.updateShapePressure?.(0, nowTs, event.pressure);
       resetDitherGradOrigin();
+    }
+
+    if (isCCShape) {
+      latestPolygonPreviewPoint = null;
+      if (previewAnimationFrameRef?.current) {
+        cancelAnimationFrame(previewAnimationFrameRef.current);
+        previewAnimationFrameRef.current = null;
+      }
+      clearCurrentPreview();
+      clearOverlayCanvas();
     }
 
     if (isShapeFill) {
