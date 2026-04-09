@@ -15,7 +15,13 @@ export default function GlobalErrorHooks() {
     const previousCrash = getLastCrashReport();
     if (previousCrash && !hasSeenCrashReport(previousCrash)) {
       try {
-        logError('[previous-crash]', previousCrash);
+        console.warn('[previous-crash]', {
+          type: previousCrash.type,
+          message: previousCrash.message,
+          href: previousCrash.href,
+          t: previousCrash.t,
+          breadcrumbs: previousCrash.breadcrumbs.length,
+        });
       } catch {}
       markCrashReportSeen(previousCrash);
     }

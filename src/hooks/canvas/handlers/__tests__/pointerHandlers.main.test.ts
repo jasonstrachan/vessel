@@ -1816,6 +1816,7 @@ describe('pointerHandlers main flows', () => {
     });
 
     deps.interaction.state = { isDrawing: true, isSelecting: false, mode: 'drawing' } as any;
+    deps.getMousePos = jest.fn(() => ({ x: 9, y: 11 }));
     deps.drawingHandlers.isDrawingShapeRef.current = true;
     deps.drawingHandlers.shapePointsRef.current = [{ x: 0, y: 0 }, { x: 1, y: 0 }, { x: 1, y: 1 }];
     deps.drawingHandlers.isSelectingDirectionRef.current = false;
@@ -1831,6 +1832,41 @@ describe('pointerHandlers main flows', () => {
     expect(setSequentialPointerDown).toHaveBeenCalledWith(false);
     expect(deps.stateMachine.finalizationComplete).not.toHaveBeenCalled();
     expect(getStateSpy).toHaveBeenCalled();
+  });
+
+  it('commits the live pointer-up vertex before finalizing a color-cycle shape', async () => {
+    const { deps } = createDeps({
+      tools: {
+        ...baseDynamic.tools,
+        currentTool: 'brush',
+        shapeMode: true,
+        brushSettings: {
+          ...baseDynamic.tools.brushSettings,
+          brushShape: BrushShape.COLOR_CYCLE_SHAPE,
+          colorCycleFillMode: 'concentric',
+        } as any,
+      },
+    });
+
+    deps.interaction.state = { isDrawing: true, isSelecting: false, mode: 'drawing' } as any;
+    deps.drawingHandlers.isDrawingShapeRef.current = true;
+    deps.drawingHandlers.shapePointsRef.current = [{ x: 0, y: 0 }, { x: 1, y: 0 }, { x: 1, y: 1 }];
+    deps.drawingHandlers.isSelectingDirectionRef.current = false;
+
+    const handlers = createPointerHandlers(deps);
+    handlers.handlePointerUp(makePointerEvent({ clientX: 9, clientY: 11 }));
+
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(deps.drawingHandlers.continueShapeDrawing).toHaveBeenCalledTimes(1);
+    expect((deps.drawingHandlers.continueShapeDrawing as jest.Mock).mock.calls[0][0]).toEqual(
+      expect.objectContaining({ x: expect.any(Number), y: expect.any(Number) })
+    );
+    expect(deps.drawingHandlers.finalizeShapeDrawing).toHaveBeenCalled();
+    expect((deps.drawingHandlers.continueShapeDrawing as jest.Mock).mock.invocationCallOrder[0]).toBeLessThan(
+      (deps.drawingHandlers.finalizeShapeDrawing as jest.Mock).mock.invocationCallOrder[0]
+    );
   });
 
   it('finalizes shape drawing on pointer up', async () => {

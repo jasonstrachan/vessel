@@ -31,6 +31,59 @@ type DebugWindow = Window & {
   __TB_LAST_CRASH__?: CrashReport;
 };
 
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === 'object' && value !== null;
+
+const normalizeBreadcrumb = (value: unknown): Breadcrumb | null => {
+  if (!isRecord(value)) {
+    return null;
+  }
+
+  const t = typeof value.t === 'number' && Number.isFinite(value.t) ? value.t : null;
+  const scope = typeof value.scope === 'string' ? value.scope : null;
+  if (t == null || !scope) {
+    return null;
+  }
+
+  return {
+    t,
+    scope,
+    data: 'data' in value ? value.data : null,
+  };
+};
+
+const normalizeCrashReport = (value: unknown): CrashReport | null => {
+  if (!isRecord(value)) {
+    return null;
+  }
+
+  const t = typeof value.t === 'number' && Number.isFinite(value.t) ? value.t : null;
+  const type = value.type === 'error' || value.type === 'unhandledrejection' ? value.type : null;
+  const href = typeof value.href === 'string' ? value.href : null;
+  const message = typeof value.message === 'string' && value.message.trim().length > 0
+    ? value.message
+    : null;
+  if (t == null || type == null || href == null || message == null) {
+    return null;
+  }
+
+  const breadcrumbs = Array.isArray(value.breadcrumbs)
+    ? value.breadcrumbs
+        .map(normalizeBreadcrumb)
+        .filter((breadcrumb): breadcrumb is Breadcrumb => breadcrumb !== null)
+    : [];
+
+  return {
+    t,
+    type,
+    href,
+    message,
+    stack: typeof value.stack === 'string' ? value.stack : null,
+    userAgent: typeof value.userAgent === 'string' ? value.userAgent : undefined,
+    breadcrumbs,
+  };
+};
+
 const getDebugWindow = (): DebugWindow | undefined => {
   return typeof window === 'undefined' ? undefined : (window as DebugWindow);
 };
@@ -248,16 +301,24 @@ export function getLastCrashReport(): CrashReport | null {
       return null;
     }
     if (w.__TB_LAST_CRASH__) {
-      return w.__TB_LAST_CRASH__ ?? null;
+      return normalizeCrashReport(w.__TB_LAST_CRASH__) ?? null;
     }
     const raw = w.localStorage.getItem(CRASH_LS_KEY);
     if (!raw) {
       return null;
     }
-    const parsed = JSON.parse(raw) as CrashReport;
+    const parsed = normalizeCrashReport(JSON.parse(raw));
+    if (!parsed) {
+      w.localStorage.removeItem(CRASH_LS_KEY);
+      return null;
+    }
     w.__TB_LAST_CRASH__ = parsed;
     return parsed;
-  } catch {}
+  } catch {
+    try {
+      getDebugWindow()?.localStorage?.removeItem(CRASH_LS_KEY);
+    } catch {}
+  }
   return null;
 }
 

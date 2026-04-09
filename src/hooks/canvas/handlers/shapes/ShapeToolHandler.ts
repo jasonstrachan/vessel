@@ -52,10 +52,17 @@ type PreviewPoint = { x: number; y: number };
 
 const pointsMatch = (a: PreviewPoint, b: PreviewPoint) => a.x === b.x && a.y === b.y;
 
+const shouldKeepCachedCcPreviewVisible = (params: {
+  hasCachedPreview: boolean;
+  canReplayCurrentPreview: boolean;
+  jobInFlight: boolean;
+}): boolean => params.hasCachedPreview && (!params.canReplayCurrentPreview || params.jobInFlight);
+
 const buildPolygonPreviewPaths = (
   points: PreviewPoint[],
   previewPoint: PreviewPoint
 ): {
+  fillPolygon: PreviewPoint[];
   closedPolygon: PreviewPoint[];
   extensionSegment: PreviewPoint[] | null;
   anchorPoints: PreviewPoint[];
@@ -63,18 +70,38 @@ const buildPolygonPreviewPaths = (
   const closedPolygon = points.map((point) => ({ x: point.x, y: point.y }));
   const lastPoint = closedPolygon[closedPolygon.length - 1];
   const hasExtension = Boolean(lastPoint && !pointsMatch(lastPoint, previewPoint));
+  const fillPolygon = hasExtension
+    ? [...closedPolygon, { x: previewPoint.x, y: previewPoint.y }]
+    : closedPolygon;
   const extensionSegment = hasExtension && lastPoint
     ? [lastPoint, { x: previewPoint.x, y: previewPoint.y }]
     : null;
-  const anchorPoints = hasExtension
-    ? [...closedPolygon, { x: previewPoint.x, y: previewPoint.y }]
-    : closedPolygon;
+  const anchorPoints = fillPolygon;
 
   return {
+    fillPolygon,
     closedPolygon,
     extensionSegment,
     anchorPoints,
   };
+};
+
+const appendCommittedPreviewPoint = (
+  points: PreviewPoint[],
+  previewPoint: PreviewPoint
+): PreviewPoint[] => {
+  if (points.length === 0) {
+    return [{ x: previewPoint.x, y: previewPoint.y }];
+  }
+
+  const normalizedPoints = points.map((point) => ({ x: point.x, y: point.y }));
+  const lastPoint = normalizedPoints[normalizedPoints.length - 1];
+  if (!lastPoint || pointsMatch(lastPoint, previewPoint)) {
+    return normalizedPoints;
+  }
+
+  normalizedPoints.push({ x: previewPoint.x, y: previewPoint.y });
+  return normalizedPoints;
 };
 
 type ShapeAdjustHelperUpdate = {
@@ -3375,8 +3402,18 @@ export const createShapeToolHandler = (
                   nextPreviewRoi,
                   replayKey,
                 );
+              const hasCachedPreview =
+                Boolean(ditherGradPreviewState.ccLastCanvas) &&
+                Boolean(ditherGradPreviewState.ccLastOrigin);
+              const shouldDrawCachedPreview =
+                Boolean(canReplayCurrentPreview) ||
+                shouldKeepCachedCcPreviewVisible({
+                  hasCachedPreview,
+                  canReplayCurrentPreview: Boolean(canReplayCurrentPreview),
+                  jobInFlight: ditherGradPreviewState.ccJobInFlight,
+                });
 
-              if (canReplayCurrentPreview && ditherGradPreviewState.ccLastCanvas && ditherGradPreviewState.ccLastOrigin) {
+              if (shouldDrawCachedPreview && ditherGradPreviewState.ccLastCanvas && ditherGradPreviewState.ccLastOrigin) {
                 overlayCtx.save();
                 overlayCtx.setTransform(1, 0, 0, 1, 0, 0);
                 overlayCtx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
@@ -3391,7 +3428,7 @@ export const createShapeToolHandler = (
                 );
                 overlayCtx.restore();
                 didCustomFill = true;
-              } else {
+              } else if (!hasCachedPreview) {
                 overlayCtx.save();
                 overlayCtx.setTransform(1, 0, 0, 1, 0, 0);
                 overlayCtx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
@@ -3805,9 +3842,9 @@ export const createShapeToolHandler = (
 
         overlayCtx.globalCompositeOperation = 'source-over';
         overlayCtx.beginPath();
-        overlayCtx.moveTo(previewPaths.closedPolygon[0].x, previewPaths.closedPolygon[0].y);
-        for (let i = 1; i < previewPaths.closedPolygon.length; i++) {
-          overlayCtx.lineTo(previewPaths.closedPolygon[i].x, previewPaths.closedPolygon[i].y);
+        overlayCtx.moveTo(previewPaths.fillPolygon[0].x, previewPaths.fillPolygon[0].y);
+        for (let i = 1; i < previewPaths.fillPolygon.length; i++) {
+          overlayCtx.lineTo(previewPaths.fillPolygon[i].x, previewPaths.fillPolygon[i].y);
         }
         overlayCtx.closePath();
 
@@ -3996,6 +4033,13 @@ export const createShapeToolHandler = (
     }
 
     const pointerWorld = computeWorldPointer(event);
+
+    if (isCCShape && drawingHandlers.isDrawingShapeRef.current) {
+      drawingHandlers.shapePointsRef.current = appendCommittedPreviewPoint(
+        drawingHandlers.shapePointsRef.current as PreviewPoint[],
+        pointerWorld
+      );
+    }
 
     if (points.length < 3) {
       return true;
@@ -4589,6 +4633,7 @@ export const __shapeToolTestUtils = {
   isShapeFillToolActive,
   applyTransparencyLockMaskToContext,
   applyPolygonMaskToCanvasContext,
+  shouldKeepCachedCcPreviewVisible,
   resolveCcShapePreviewRenderSettings,
   createCcShapePreviewSampleNormalized,
   computeCcPreviewRoi,
