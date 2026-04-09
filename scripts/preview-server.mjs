@@ -34,6 +34,12 @@ const MIME_TYPES = {
   '.woff2': 'font/woff2',
 };
 
+const CACHE_HEADERS = {
+  'cache-control': 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0',
+  pragma: 'no-cache',
+  expires: '0',
+};
+
 const stripLeadingSlash = (value) => value.replace(/^\/+/, '');
 
 const resolveLocalPath = (requestPath) => {
@@ -108,6 +114,7 @@ const server = http.createServer(async (req, res) => {
       const indexStat = await fs.stat(indexPath);
       const stream = createReadStream(indexPath);
       res.writeHead(200, {
+        ...CACHE_HEADERS,
         'content-type': MIME_TYPES['.html'],
         'content-length': indexStat.size,
       });
@@ -126,6 +133,7 @@ const server = http.createServer(async (req, res) => {
     const contentType = MIME_TYPES[extension] ?? 'application/octet-stream';
     const stream = createReadStream(absolutePath);
     res.writeHead(200, {
+      ...CACHE_HEADERS,
       'content-type': contentType,
       'content-length': stat.size,
     });
@@ -158,4 +166,3 @@ process.on('SIGINT', () => {
     process.exit(0);
   });
 });
-

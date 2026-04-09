@@ -27,7 +27,7 @@ const storagePath = env.LOCALSTORAGE_FILE_PATH || '/tmp/vessel-localstorage';
 env.NODE_OPTIONS = [baseOptions, `${LOCALSTORAGE_FLAG}=${storagePath}`]
   .filter(Boolean)
   .join(' ');
-env.NEXT_DIST_DIR = env.NEXT_DIST_DIR || '.next';
+env.NEXT_DIST_DIR = env.NEXT_DIST_DIR || '.next-build';
 
 // Next 15 occasionally leaves a partially valid dist tree behind after
 // interrupted/failed builds, which can break later route manifest resolution.
