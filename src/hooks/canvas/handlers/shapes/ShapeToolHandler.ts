@@ -86,24 +86,6 @@ const buildPolygonPreviewPaths = (
   };
 };
 
-const appendCommittedPreviewPoint = (
-  points: PreviewPoint[],
-  previewPoint: PreviewPoint
-): PreviewPoint[] => {
-  if (points.length === 0) {
-    return [{ x: previewPoint.x, y: previewPoint.y }];
-  }
-
-  const normalizedPoints = points.map((point) => ({ x: point.x, y: point.y }));
-  const lastPoint = normalizedPoints[normalizedPoints.length - 1];
-  if (!lastPoint || pointsMatch(lastPoint, previewPoint)) {
-    return normalizedPoints;
-  }
-
-  normalizedPoints.push({ x: previewPoint.x, y: previewPoint.y });
-  return normalizedPoints;
-};
-
 type ShapeAdjustHelperUpdate = {
   spacing: number;
   density?: number;
@@ -3189,6 +3171,7 @@ export const createShapeToolHandler = (
       const pts = points as Array<{ x: number; y: number }>;
       const vertexCount = pts.length + 1;
       let didCustomFill = false;
+      let suppressLivePreviewChrome = false;
 
       if (vertexCount >= 3) {
         const previewPaths = buildPolygonPreviewPaths(pts, previewPoint);
@@ -3412,6 +3395,8 @@ export const createShapeToolHandler = (
                   canReplayCurrentPreview: Boolean(canReplayCurrentPreview),
                   jobInFlight: ditherGradPreviewState.ccJobInFlight,
                 });
+              suppressLivePreviewChrome =
+                Boolean(shouldDrawCachedPreview) && !Boolean(canReplayCurrentPreview);
 
               if (shouldDrawCachedPreview && ditherGradPreviewState.ccLastCanvas && ditherGradPreviewState.ccLastOrigin) {
                 overlayCtx.save();
@@ -3428,7 +3413,7 @@ export const createShapeToolHandler = (
                 );
                 overlayCtx.restore();
                 didCustomFill = true;
-              } else if (!hasCachedPreview) {
+              } else {
                 overlayCtx.save();
                 overlayCtx.setTransform(1, 0, 0, 1, 0, 0);
                 overlayCtx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
@@ -3840,35 +3825,37 @@ export const createShapeToolHandler = (
           }
         }
 
-        overlayCtx.globalCompositeOperation = 'source-over';
-        overlayCtx.beginPath();
-        overlayCtx.moveTo(previewPaths.fillPolygon[0].x, previewPaths.fillPolygon[0].y);
-        for (let i = 1; i < previewPaths.fillPolygon.length; i++) {
-          overlayCtx.lineTo(previewPaths.fillPolygon[i].x, previewPaths.fillPolygon[i].y);
-        }
-        overlayCtx.closePath();
-
-        if (isContourPolygon) {
-          overlayCtx.stroke();
-          strokePreviewOutline();
-        } else if (isShapeFill) {
-          if (!didCustomFill) {
-            overlayCtx.fill();
+        if (!suppressLivePreviewChrome) {
+          overlayCtx.globalCompositeOperation = 'source-over';
+          overlayCtx.beginPath();
+          overlayCtx.moveTo(previewPaths.fillPolygon[0].x, previewPaths.fillPolygon[0].y);
+          for (let i = 1; i < previewPaths.fillPolygon.length; i++) {
+            overlayCtx.lineTo(previewPaths.fillPolygon[i].x, previewPaths.fillPolygon[i].y);
           }
-        } else {
-          if (!didCustomFill) {
-            overlayCtx.fill();
-          }
-          strokePreviewOutline();
-        }
+          overlayCtx.closePath();
 
-        drawHighContrastAnchors(
-          overlayCtx,
-          previewPaths.anchorPoints,
-          viewTransformRef.current.scale,
-          previewStrokePalette,
-          0.95
-        );
+          if (isContourPolygon) {
+            overlayCtx.stroke();
+            strokePreviewOutline();
+          } else if (isShapeFill) {
+            if (!didCustomFill) {
+              overlayCtx.fill();
+            }
+          } else {
+            if (!didCustomFill) {
+              overlayCtx.fill();
+            }
+            strokePreviewOutline();
+          }
+
+          drawHighContrastAnchors(
+            overlayCtx,
+            previewPaths.anchorPoints,
+            viewTransformRef.current.scale,
+            previewStrokePalette,
+            0.95
+          );
+        }
       } else if (pts.length === 1 && tools.shapeMode && drawingHandlers.isDrawingShapeRef.current) {
         const palette = getPreviewStrokePalette(tools.brushSettings.color);
         drawHighContrastStroke(
@@ -4032,20 +4019,12 @@ export const createShapeToolHandler = (
       return true;
     }
 
-    const pointerWorld = computeWorldPointer(event);
-
-    if (isCCShape && drawingHandlers.isDrawingShapeRef.current) {
-      drawingHandlers.shapePointsRef.current = appendCommittedPreviewPoint(
-        drawingHandlers.shapePointsRef.current as PreviewPoint[],
-        pointerWorld
-      );
-    }
-
     if (points.length < 3) {
       return true;
     }
 
     const vertices = points.map((p: { x: number; y: number }) => ({ x: p.x, y: p.y }));
+    const pointerWorld = computeWorldPointer(event);
     const resolvedColors = resolveShapeFillColors(points);
     const fillColor = getPrimaryColor(resolvedColors);
     drawingHandlers.initDrawingCanvas();

@@ -214,6 +214,106 @@ describe('ShapeToolHandler CC dither preview replay', () => {
     expect(fillCcGradientDither).toHaveBeenCalledTimes(2);
   });
 
+  it('keeps a stale cached cc preview visible without drawing mismatched live geometry', async () => {
+    let resolveFirst!: () => void;
+    fillCcGradientDither.mockImplementationOnce(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveFirst = resolve;
+        })
+    );
+
+    const overlayCtx = makeMockContext();
+    const overlayCanvas = document.createElement('canvas');
+    overlayCanvas.width = 256;
+    overlayCanvas.height = 256;
+    (overlayCanvas as any).getContext = jest.fn(() => overlayCtx);
+
+    const canvas = document.createElement('canvas');
+    canvas.getBoundingClientRect = jest.fn(
+      () => ({ left: 0, top: 0, width: 256, height: 256, right: 256, bottom: 256 } as DOMRect)
+    );
+
+    const deps = {
+      canvasRef: { current: canvas },
+      canvas: { zoom: 1 },
+      pan: {
+        screenToWorld: (x: number, y: number) => ({ x, y }),
+        worldToScreen: (x: number, y: number) => ({ x, y }),
+      },
+      drawingHandlers: {
+        continueShapeDrawing: jest.fn(),
+        isDrawingShapeRef: { current: true },
+        shapePointsRef: { current: [{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 10, y: 10 }] },
+        latestShapePixelSizeRef: { current: 1 },
+        lastStablePressureRef: { current: 0.5 },
+        hadValidShapePressureRef: { current: false },
+        computeShapePixelSize: jest.fn(() => 1),
+        ccShapePreviewCacheRef: { current: null },
+      },
+      dynamicDepsRef: { current: { currentBrushPresetId: 'color-cycle-gradient' } },
+      currentBrushPresetId: 'color-cycle-gradient',
+      tools: storeState.tools,
+      overlayCanvasRef: { current: overlayCanvas },
+      compositeCanvasRef: { current: null },
+      compositeCanvasDirtyRef: { current: false },
+      compositeLayersToCanvas: jest.fn(),
+      setCurrentOffscreenCanvas: jest.fn(),
+      project: { width: 256, height: 256 },
+      stateMachine: { dispatch: jest.fn(), finalizationComplete: jest.fn(), state: { mode: 'IDLE' } },
+      setNeedsRedraw: jest.fn(),
+      viewTransformRef: { current: { scale: 1, offsetX: 0, offsetY: 0 } },
+      sampleColorAtPosition: jest.fn(() => '#000000'),
+      previewAnimationFrameRef: { current: null },
+      layers: [],
+      activeLayerId: null,
+      interaction: { dispatch: jest.fn() },
+      feedback: jest.fn(),
+      palette: storeState.palette,
+    } as any;
+
+    const handler = createShapeToolHandler(
+      {
+        deps,
+        overlayPreviewFrameMs: 0,
+        getLastOverlayPreviewTs: () => 0,
+        setLastOverlayPreviewTs: jest.fn(),
+      },
+      {}
+    );
+
+    const moveEvent = (x: number, y: number) =>
+      ({
+        clientX: x,
+        clientY: y,
+        buttons: 1,
+        pointerType: 'mouse',
+        pressure: 0.5,
+        shiftKey: false,
+        ctrlKey: false,
+        target: canvas,
+      }) as any;
+
+    handler.handlePointerMove(moveEvent(20, 20));
+    rafQueue.shift()?.(0);
+    await Promise.resolve();
+
+    resolveFirst();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    (overlayCtx.clearRect as jest.Mock).mockClear();
+    (overlayCtx.drawImage as jest.Mock).mockClear();
+    (overlayCtx.beginPath as jest.Mock).mockClear();
+
+    handler.handlePointerMove(moveEvent(30, 30));
+    rafQueue.shift()?.(0);
+
+    expect(overlayCtx.clearRect as jest.Mock).toHaveBeenCalled();
+    expect(overlayCtx.drawImage as jest.Mock).toHaveBeenCalled();
+    expect(overlayCtx.beginPath as jest.Mock).not.toHaveBeenCalled();
+  });
+
   it('clears the CC preview immediately on pointer up', () => {
     const overlayCtx = makeMockContext();
     const overlayCanvas = document.createElement('canvas');
