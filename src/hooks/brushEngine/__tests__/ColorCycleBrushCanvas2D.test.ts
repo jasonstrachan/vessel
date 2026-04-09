@@ -690,6 +690,34 @@ describe('ColorCycleBrushCanvas2D', () => {
     expect(unique.size).toBeGreaterThan(4);
   });
 
+  it('does not cap continuous linear cc gradient fills at 64 bands', async () => {
+    const canvas = makeCanvas();
+    canvas.width = 256;
+    canvas.height = 32;
+    const brush = new ColorCycleBrushCanvas2D(canvas);
+
+    brush.setGradientBands(128);
+    brush.setDitherEnabled(false);
+
+    const vertices = [
+      { x: 0, y: 0 },
+      { x: 255, y: 0 },
+      { x: 255, y: 31 },
+      { x: 0, y: 31 },
+    ];
+
+    await brush.fillShapeLinear(vertices, { x: 1, y: 0 }, 'layer-1', 1, {
+      continuous: true,
+      ccGradient: true,
+    });
+
+    const animator = (brush as any).getAnimator('layer-1');
+    const indexBuffer = animator?.indexBuffer as Uint8Array;
+    const unique = new Set(Array.from(indexBuffer || []).filter((v) => v > 0));
+
+    expect(unique.size).toBeGreaterThan(64);
+  });
+
   it('applies perceptual dithering for continuous linear fills when enabled', async () => {
     const canvas = makeCanvas();
     const brush = new ColorCycleBrushCanvas2D(canvas);

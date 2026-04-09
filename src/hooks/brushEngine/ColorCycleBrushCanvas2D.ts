@@ -3226,7 +3226,7 @@ export class ColorCycleBrushCanvas2D {
     const projectionSpan = Math.max(1, Math.abs(safeProjectionRange));
     const ccGradient = options?.ccGradient === true;
     const numBands = ccGradient
-      ? Math.max(2, Math.min(64, Math.floor(this.gradientBands || 12)))
+      ? Math.max(2, Math.min(254, Math.floor(this.gradientBands || 12)))
       : this.deriveBandCountFromDistance(projectionSpan, spacingValue);
     const continuous = options?.continuous === true;
     const lostEdge = Number.isFinite(options?.lostEdge)
