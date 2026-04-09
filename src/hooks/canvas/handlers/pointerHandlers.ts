@@ -4008,6 +4008,17 @@ function resampleStopsToColors(stops: Stop[], count: number): string[] {
       pan.screenToWorld(mousePos.x, mousePos.y, pointerScale),
       shouldSnapPointer
     );
+    const rawPressureOnPointerUp = event.pressure ?? 0;
+    const pressureOnPointerUp = normalizePointerPressure({
+      rawPressure: rawPressureOnPointerUp,
+      pointerType: event.pointerType,
+      pressureEnabled: tools.brushSettings.pressureEnabled,
+      pressureLinkedFillResolution: tools.brushSettings.pressureLinkedFillResolution,
+      colorCycleStampDitherPressureLinked: tools.brushSettings.colorCycleStampDitherPressureLinked,
+      shiftKey: event.shiftKey,
+      ctrlKey: event.ctrlKey,
+      fallback: 0,
+    });
 
     const shouldRouteToShapeHandler =
       tools.currentTool === 'brush' &&
@@ -4117,6 +4128,24 @@ function resampleStopsToColors(stops: Stop[], count: number): string[] {
       compositeCanvasDirtyRef.current = true;
       
       if (tools.currentTool === 'brush' && tools.shapeMode && drawingHandlers.isDrawingShapeRef.current) {
+        const isColorCycleShape = tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE_SHAPE;
+        if (isColorCycleShape) {
+          let shapeWorld = worldPosOnPointerUp;
+          if (event.shiftKey) {
+            const pts = drawingHandlers.shapePointsRef?.current || [];
+            if (pts.length >= 1) {
+              const anchor = pts[pts.length - 1];
+              shapeWorld = snapPointToAngle(anchor, shapeWorld, 45);
+            }
+          }
+          drawingHandlers.continueShapeDrawing(
+            shapeWorld,
+            pressureOnPointerUp,
+            event.timeStamp,
+            rawPressureOnPointerUp
+          );
+        }
+
         // Guard: require at least 3 points to finalize a polygon
         let shapePointCount = drawingHandlers.shapePointsRef.current.length;
         if (shapePointCount < 3) {
@@ -4128,7 +4157,6 @@ function resampleStopsToColors(stops: Stop[], count: number): string[] {
             return;
           }
         }
-        const isColorCycleShape = tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE_SHAPE;
         // Check if we need to enter direction selection mode for linear gradient
         const isLinearFill = tools.brushSettings.colorCycleFillMode === 'linear';
         const brushPresetId = getDynamicDeps().currentBrushPresetId;

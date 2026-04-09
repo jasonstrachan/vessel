@@ -78,6 +78,30 @@ describe('ShapeToolHandler – shape fill tool detection', () => {
     expect(overlayCtx.restore).toHaveBeenCalled();
   });
 
+  it('keeps the last cc preview visible while a replacement job is pending', () => {
+    expect(
+      __shapeToolTestUtils.shouldKeepCachedCcPreviewVisible({
+        hasCachedPreview: true,
+        canReplayCurrentPreview: false,
+        jobInFlight: true,
+      })
+    ).toBe(true);
+    expect(
+      __shapeToolTestUtils.shouldKeepCachedCcPreviewVisible({
+        hasCachedPreview: true,
+        canReplayCurrentPreview: true,
+        jobInFlight: false,
+      })
+    ).toBe(false);
+    expect(
+      __shapeToolTestUtils.shouldKeepCachedCcPreviewVisible({
+        hasCachedPreview: false,
+        canReplayCurrentPreview: false,
+        jobInFlight: true,
+      })
+    ).toBe(false);
+  });
+
   it('keeps CC dither preview settings aligned with finalize settings', () => {
     expect(
       __shapeToolTestUtils.resolveCcShapePreviewRenderSettings({
@@ -187,6 +211,34 @@ describe('ShapeToolHandler – shape fill tool detection', () => {
       { position: 0, rgba: [0, 0, 0, 255] },
       { position: 1, rgba: [255, 255, 255, 255] },
     ]);
+  });
+
+  it('includes the live preview point in the fill polygon while keeping the extension separate', () => {
+    const previewPaths = __shapeToolTestUtils.buildPolygonPreviewPaths(
+      [
+        { x: 10, y: 10 },
+        { x: 40, y: 10 },
+        { x: 40, y: 40 },
+      ],
+      { x: 15, y: 55 }
+    );
+
+    expect(previewPaths.fillPolygon).toEqual([
+      { x: 10, y: 10 },
+      { x: 40, y: 10 },
+      { x: 40, y: 40 },
+      { x: 15, y: 55 },
+    ]);
+    expect(previewPaths.closedPolygon).toEqual([
+      { x: 10, y: 10 },
+      { x: 40, y: 10 },
+      { x: 40, y: 40 },
+    ]);
+    expect(previewPaths.extensionSegment).toEqual([
+      { x: 40, y: 40 },
+      { x: 15, y: 55 },
+    ]);
+    expect(previewPaths.anchorPoints).toEqual(previewPaths.fillPolygon);
   });
 
   it('replays cached cc dither preview only when the roi still matches', () => {
