@@ -110,6 +110,29 @@ describe('ShapeToolHandler – shape fill tool detection', () => {
     });
   });
 
+  it('uses concentric edge-distance sampling for cc shape previews in concentric mode', () => {
+    const sampleNormalized = __shapeToolTestUtils.createCcShapePreviewSampleNormalized({
+      colorCycleFillMode: 'concentric',
+      localVertices: [
+        { x: 0, y: 0 },
+        { x: 10, y: 0 },
+        { x: 10, y: 10 },
+        { x: 0, y: 10 },
+      ],
+      width: 10,
+      height: 10,
+    });
+
+    const leftEdge = sampleNormalized(0.5, 5);
+    const topEdge = sampleNormalized(5, 0.5);
+    const center = sampleNormalized(5, 5);
+
+    expect(leftEdge).toBeCloseTo(topEdge, 6);
+    expect(leftEdge).toBeGreaterThanOrEqual(0);
+    expect(center).toBeLessThanOrEqual(1);
+    expect(center).toBeGreaterThan(leftEdge);
+  });
+
   it('builds a stable preview gradient cache key and prepares normalized preview stops', () => {
     const effectiveStops = [
       { position: 0, color: '#000000' },
