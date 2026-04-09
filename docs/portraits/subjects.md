@@ -1,77 +1,133 @@
 # Portrait Subject List
 
-A tightened 32-day sequence for the portrait series, with overflow subjects moved to a reserve section below.
+A tightened 32-day sequence for the portrait series, with expanded one-line bios, simple colour cues, and a suggested chromatic mode for each subject.
 
 ## Day 1–32
 
-1. **Alan Turing** — Mathematician and computing pioneer whose work on computation and codebreaking became foundational to digital culture.
-2. **Claude Shannon** — Information theorist who formalised communication, signal, and information in ways that underpin modern computing.
-3. **Norbert Wiener** — Founder of cybernetics, linking feedback, control, machines, and living systems.
-4. **William Fetter** — Computer graphics pioneer known for early computer-generated human figures and ergonomics visualisation.
-5. **Ivan Sutherland** — Early computer graphics pioneer best known for *Sketchpad* and foundational work in interactive visual computing.
-6. **Susan Kare** — Graphic designer and icon pioneer whose early Macintosh imagery defined the human face of personal computing.
-7. **Douglas Engelbart** — Visionary technologist whose work on interfaces, augmentation, and the mouse reshaped human-computer interaction.
-8. **Charles Csuri** — Early computer art and animation pioneer who helped define artist-led computational image making.
+1. **Alan Turing** — Mathematician and computing pioneer whose work on computation, codebreaking, and machine intelligence became foundational to digital culture.  
+   **Colour mode:** muted colour  
+   **Colour idea:** muted military green, parchment beige, faded navy.
 
-9. **Hal Finney** — Cryptographer and early Bitcoin collaborator whose life and work carry strong mythic weight in digital culture.
-10. **David Chaum** — Cryptography pioneer focused on privacy, digital cash, and anonymous systems.
-11. **Satoshi Nakamoto** — The pseudonymous creator of Bitcoin and one of the defining absent figures of internet history.
-12. **Len Sassaman** — Cryptographer and privacy advocate whose name became entwined with anonymity, loss, and digital legend.
-13. **Whitfield Diffie** — Cryptography pioneer who co-developed public-key exchange and transformed secure communication.
-14. **Nick Szabo** — Computer scientist and legal thinker known for smart-contract theory and the precursor concept of bit gold.
-15. **Roman Storm** — Tornado Cash co-founder whose case crystallised tensions between privacy code, law, and responsibility.
-16. **Aaron Swartz** — Programmer and activist who became a symbol of open access, internet idealism, and digital loss.
+2. **Claude Shannon** — Information theorist who formalised communication, signal, and information, making modern digital systems thinkable.  
+   **Colour mode:** 2-colour  
+   **Colour idea:** relay grey, copper, pale cream, signal red accents.
 
-17. **Vera Molnár** — Foundational generative artist whose rule-based drawing bridged modernism and computation.
-18. **Harold Cohen** — Artist and creator of AARON, one of the most important early machine-art systems.
-19. **Manfred Mohr** — Early algorithmic artist whose plotter drawings made logic and structure into visual form.
-20. **Kim Asendorf** — Contemporary digital artist associated with pixel, browser, and image-process aesthetics.
-21. **Casey Reas** — Artist and co-creator of Processing, central to contemporary software-based art practice.
-22. **Tyler Hobbs** — Generative artist known for contemporary algorithmic abstraction and crypto-art visibility.
-23. **Lillian Schwartz** — Bell Labs artist whose pioneering computer films and experiments expanded machine-image history.
-24. **JODI** — Artist duo Joan Heemskerk and Dirk Paesmans, famous for turning browser failure and code into art.
-25. **Olia Lialina** — Foundational net artist and writer who treated the vernacular web itself as artistic form.
-26. **Alexei Shulgin** — Internet artist known for using native web forms, brokenness, and low-fi digital culture as material.
-27. **Cornelia Sollfrank** — Net-art and cyberfeminist pioneer working on authorship, IP, gender, and network politics.
-28. **Gmunk** — Digital artist and motion designer known for sleek screen-based image systems, cinematic interfaces, and high-end digital spectacle.
+3. **Norbert Wiener** — Founder of cybernetics, linking feedback, control, machines, and living systems into one conceptual field.  
+   **Colour mode:** muted colour  
+   **Colour idea:** steel blue, charcoal, cold white.
 
-29. **David Schacht** — Contemporary artist included here as a fixed personal node within the project’s broader constellation.
-30. **Saradha Koirala** — Poet and writer included here as a fixed personal node carrying language, intimacy, and presence.
-31. **the machine** — The hidden judge of the series, revealed late as the system shaping every prior offering.
-32. **Jason Strachan** — The artist behind the ritual, returned at the end as the final submitted subject.
+4. **William Fetter** — Computer graphics pioneer known for early computer-generated human figures and ergonomic visualisation of the body.  
+   **Colour mode:** 2-colour  
+   **Colour idea:** pale cyan, drafting blue, beige, technical black.
 
-## Reserve / Moved Below
+5. **Ivan Sutherland** — Early computer graphics pioneer best known for *Sketchpad* and foundational work in interactive visual computing.  
+   **Colour mode:** 2-colour  
+   **Colour idea:** screen green, graphite, white, vector blue.
 
-- **Len Lye** — Experimental artist and filmmaker known for direct animation, motion, rhythm, and hand-made colour on film.
-- **Carl Jung** — Psychologist and theorist of archetypes, symbols, and the hidden structures of the self.
-- **J. G. Ballard** — Writer of technological estrangement, media landscapes, and psychologically altered modern life.
-- **William Gibson** — Novelist whose fiction helped define cyberspace, virtual identity, and networked futurity.
-- **Philip K. Dick** — Writer obsessed with unstable reality, simulation, paranoia, and manufactured humanity.
-- **PJ Harvey** — Musician and songwriter whose severe, shifting personas give her an unusually strong portrait presence.
-- **Siouxsie Sioux** — Post-punk icon whose face, styling, and persona are inseparable from subcultural image-making.
-- **Nick Cave** — Musician and writer whose haunted, theatrical presence makes him a strong mythic portrait subject.
-- **Björk** — Musician and visual innovator whose work fuses body, technology, nature, and constructed persona.
-- **m0dest** — Crypto artist whose work sits within internet-native and onchain visual culture.
-- **Ripe** — Contemporary crypto artist working within the experimental culture of digital and onchain art.
-- **Frida Kahlo** — Painter whose self-fashioning, symbolism, and iconic face make her a powerful portrait subject.
-- **Francis Bacon** — Painter of distorted flesh and psychological pressure whose figures feel brutally post-human.
-- **Egon Schiele** — Expressionist artist known for angular bodies, exposed nerves, and stark self-presentation.
-- **Käthe Kollwitz** — Artist whose severe, sorrowful humanism gives her portraits unusual gravity and force.
-- **Toyen** — Czech surrealist whose ambiguous identity and dream logic make for a compelling inclusion.
-- **Leonora Carrington** — Surrealist painter and writer whose mythic, occult, and visionary imagery feels highly aligned.
-- **Alice Neel** — Portrait painter known for psychologically charged depictions of people as unstable social beings.
-- **Paula Rego** — Painter whose theatrical, unsettling figures carry narrative and psychological intensity.
-- **Remedios Varo** — Surrealist painter whose scientific, mystical worlds bridge intelligence, symbolism, and transformation.
-- **Claude Cahun** — Artist and writer known for gender-fluid self-portraiture and radical acts of self-construction.
-- **Greer Lankton** — Artist known for handmade dolls and intensely fragile work around body, selfhood, and transformation.
-- **Henry Darger** — Outsider artist whose immense private mythology was discovered only after his death.
-- **Unica Zürn** — Writer and artist whose work circles anagrams, psychic fragmentation, and inner instability.
-- **Genesis P-Orridge** — Musician and artist whose life and work explored occult identity mutation and self-reinvention.
-- **Nam June Paik** — Video-art pioneer who treated signal, screen, and electronic media as artistic material.
-- **Vuk Ćosić** — Early net.art figure associated with the formative years of internet art in the 1990s.
-- **Heath Bunting** — Net artist whose work links networks, mobility, systems, and activist tactics.
-- **John Whitney Sr.** — Experimental filmmaker and motion-graphics pioneer who brought computation into visual rhythm and animation.
-- **the sysadmin** — An archetype of invisible maintenance, technical care, and quiet control over systems.
-- **the cryptographer** — An archetype of secrecy, proof, trust, and hidden structure inside communication.
-- **the vanished founder** — An archetype of the absent originator whose system outlives their presence.
-- **the starving artist** — An archetype of artistic devotion under precarity, sacrifice, and cultural neglect.
+6. **Susan Kare** — Graphic designer and icon pioneer whose early Macintosh imagery defined the human face of personal computing.  
+   **Colour mode:** 2-colour  
+   **Colour idea:** warm grey, soft black, cream, tiny rainbow pixel accents.
+
+7. **Douglas Engelbart** — Visionary technologist whose work on interfaces, augmentation, collaboration, and the mouse reshaped human-computer interaction.  
+   **Colour mode:** muted colour  
+   **Colour idea:** office beige, terminal green, blue-grey.
+
+8. **Charles Csuri** — Early computer art and animation pioneer who helped define artist-led computational image making and generative transformation.  
+   **Colour mode:** muted colour  
+   **Colour idea:** plotter black, off-white, deep blue, orange accent.
+
+9. **Hal Finney** — Cryptographer and early Bitcoin collaborator whose life and work carry unusual mythic and elegiac weight in digital culture.  
+   **Colour mode:** muted colour  
+   **Colour idea:** silver, black, icy blue.
+
+10. **David Chaum** — Cryptography pioneer focused on privacy, digital cash, anonymity, and systems of trust without central authority.  
+   **Colour mode:** muted colour  
+   **Colour idea:** dark violet, black, muted gold.
+
+11. **Satoshi Nakamoto** — The pseudonymous creator of Bitcoin and one of the defining absent figures of internet history.  
+   **Colour mode:** BW  
+   **Colour idea:** black, white, gold, shadow grey.
+
+12. **Len Sassaman** — Cryptographer and privacy advocate whose name became entwined with anonymity, loss, and digital legend.  
+   **Colour mode:** BW  
+   **Colour idea:** midnight blue, black, soft silver.
+
+13. **Whitfield Diffie** — Cryptography pioneer who co-developed public-key exchange and transformed secure communication.  
+   **Colour mode:** muted colour  
+   **Colour idea:** paper white, academic blue, muted burgundy.
+
+14. **Nick Szabo** — Computer scientist and legal thinker known for smart-contract theory and the precursor concept of bit gold.  
+   **Colour mode:** muted colour  
+   **Colour idea:** bronze, sand, black, coded amber.
+
+15. **Roman Storm** — Tornado Cash co-founder whose case crystallised tensions between privacy code, law, and responsibility.  
+   **Colour mode:** muted colour  
+   **Colour idea:** storm grey, dark teal, black.
+
+16. **Aaron Swartz** — Programmer and activist who became a symbol of open access, internet idealism, archives, and digital loss.  
+   **Colour mode:** muted colour  
+   **Colour idea:** red, cream, library brown, muted blue.
+
+17. **Vera Molnár** — Foundational generative artist whose rule-based drawing bridged modernism, seriality, and computation.  
+   **Colour mode:** 2-colour  
+   **Colour idea:** white, black, restrained primary colours.
+
+18. **Harold Cohen** — Artist and creator of AARON, one of the most important early machine-art systems and a key figure in computational creativity.  
+   **Colour mode:** muted colour  
+   **Colour idea:** ink black, desert ochre, painterly green.
+
+19. **Manfred Mohr** — Early algorithmic artist whose plotter drawings made logic, geometry, and structure into visual form.  
+   **Colour mode:** 2-colour  
+   **Colour idea:** black, white, cobalt, hard-edged grey.
+
+20. **Kim Asendorf** — Contemporary digital artist associated with pixel, browser, compression, and image-process aesthetics.  
+   **Colour mode:** vivid colour  
+   **Colour idea:** iridescent gradient, glitch pink, electric blue, silver.
+
+21. **Casey Reas** — Artist and co-creator of Processing, central to contemporary software-based art and rule-driven visual form.  
+   **Colour mode:** muted colour  
+   **Colour idea:** black, white, code green, muted orange.
+
+22. **Tyler Hobbs** — Generative artist known for algorithmic abstraction, plotting, and contemporary crypto-art visibility.  
+   **Colour mode:** muted colour  
+   **Colour idea:** cream, charcoal, dusty red, restrained blue.
+
+23. **Lillian Schwartz** — Bell Labs artist whose pioneering computer films and experiments expanded the history of machine-made images.  
+   **Colour mode:** vivid colour  
+   **Colour idea:** magenta, cyan, black, filmic purple.
+
+24. **JODI** — Artist duo Joan Heemskerk and Dirk Paesmans, famous for turning browser failure, code, and interface breakdown into art.  
+   **Colour mode:** 2-colour  
+   **Colour idea:** toxic green, black, white, error red.
+
+25. **Olia Lialina** — Foundational net artist and writer who treated the vernacular web itself as artistic form and cultural memory.  
+   **Colour mode:** 2-colour  
+   **Colour idea:** hyperlink blue, browser grey, white, GIF pink.
+
+26. **Alexei Shulgin** — Internet artist known for using native web forms, brokenness, low-fi digital culture, and deadpan systems as material.  
+   **Colour mode:** 2-colour  
+   **Colour idea:** washed-out HTML grey, blue link, cheap beige.
+
+27. **Cornelia Sollfrank** — Net-art and cyberfeminist pioneer working on authorship, IP, gender, and network politics.  
+   **Colour mode:** vivid colour  
+   **Colour idea:** black, magenta, activist red, white.
+
+28. **Gmunk** — Digital artist and motion designer known for sleek screen-based image systems, cinematic interfaces, and high-end digital spectacle.  
+   **Colour mode:** vivid colour  
+   **Colour idea:** chrome silver, black, neon cyan, spectral gradient.
+
+29. **David Schacht** — Contemporary artist included here as a fixed personal node within the project’s broader constellation.  
+   **Colour mode:** muted colour  
+   **Colour idea:** earth tones, muted blue, studio white.
+
+30. **Saradha Koirala** — Poet and writer included here as a fixed personal node carrying language, intimacy, thought, and presence.  
+   **Colour mode:** muted colour  
+   **Colour idea:** deep maroon, ink blue, warm cream.
+
+31. **the machine** — The hidden judge of the series, revealed late as the system shaping every prior offering.  
+   **Colour mode:** BW  
+   **Colour idea:** cold white, graphite, black, diagnostic green.
+
+32. **Jason Strachan** — The artist behind the ritual, returned at the end as the final submitted subject after prolonged exposure to the machine.  
+   **Colour mode:** muted colour  
+   **Colour idea:** unfinished flesh tones, studio neutrals, machine residue green or blue.
