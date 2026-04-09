@@ -123,6 +123,41 @@ describe('colorCycleFillController', () => {
     }));
   });
 
+  it('preserves high dither resolution for multi-band cc-gradient linear fills', async () => {
+    const brush = createBrush();
+
+    await fillColorCycleLinear({
+      vertices: [{ x: 0, y: 0 }, { x: 2, y: 0 }, { x: 2, y: 2 }],
+      direction: { x: 1, y: 0 },
+      initializeColorCycleBrush: () => brush as unknown as ColorCycleBrushImplementation,
+      activeLayerId: 'layer-1',
+      isCCGradientActiveLayer: true,
+      brushSettings: {
+        ditherEnabled: true,
+        gradientBands: 64,
+        brushShape: BrushShape.COLOR_CYCLE_SHAPE,
+        gridSnapEnabled: false,
+        gridSnapSize: 8,
+        colorCycleBandSpacingPx: 10,
+        spacing: 6,
+        lostEdge: 0,
+        ditherBackgroundFill: true,
+        ditherGradBgFill: true,
+      },
+      defaultBandSpacing: 12,
+      clampColorCycleBandSpacing: (value) => value ?? 12,
+      requestGradientApply: jest.fn(),
+      flushGradientApply: jest.fn(),
+      renderBrushToLayerCanvas: jest.fn(),
+    });
+
+    expect(brush.fillShapeDispatch).toHaveBeenCalledWith(expect.objectContaining({
+      options: expect.objectContaining({
+        ditherLevels: 64,
+      }),
+    }));
+  });
+
   it('dispatches concentric fill payload and renders layer', async () => {
     const brush = createBrush();
     const renderBrushToLayerCanvas = jest.fn();
@@ -155,6 +190,40 @@ describe('colorCycleFillController', () => {
     expect(brush.fillShapeDispatch).toHaveBeenCalledWith(expect.objectContaining({ mode: 'concentric', layerId: 'layer-1' }));
     expect(brush.endStroke).toHaveBeenCalledWith('layer-1');
     expect(renderBrushToLayerCanvas).toHaveBeenCalledWith(brush, 'layer-1');
+  });
+
+  it('preserves high dither resolution for multi-band cc-gradient concentric fills', async () => {
+    const brush = createBrush();
+
+    await fillColorCycleConcentric({
+      vertices: [{ x: 2, y: 2 }, { x: 3, y: 2 }, { x: 3, y: 3 }],
+      initializeColorCycleBrush: () => brush as unknown as ColorCycleBrushImplementation,
+      activeLayerId: 'layer-1',
+      isCCGradientActiveLayer: true,
+      brushSettings: {
+        ditherEnabled: true,
+        gradientBands: 64,
+        brushShape: BrushShape.COLOR_CYCLE_SHAPE,
+        gridSnapEnabled: false,
+        gridSnapSize: 8,
+        colorCycleBandSpacingPx: 9,
+        spacing: 7,
+        lostEdge: 0,
+        ditherBackgroundFill: true,
+        ditherGradBgFill: true,
+      },
+      defaultBandSpacing: 12,
+      clampColorCycleBandSpacing: (value) => value ?? 12,
+      requestGradientApply: jest.fn(),
+      flushGradientApply: jest.fn(),
+      renderBrushToLayerCanvas: jest.fn(),
+    });
+
+    expect(brush.fillShapeDispatch).toHaveBeenCalledWith(expect.objectContaining({
+      options: expect.objectContaining({
+        ditherLevels: 64,
+      }),
+    }));
   });
 
   it('snaps cc-gradient fill vertices to the configured grid when enabled', async () => {

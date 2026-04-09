@@ -112,7 +112,9 @@ const resolveFillSettings = ({
       : brushSettings.spacing ?? defaultBandSpacing
   );
   const ditherLevels = wantDither
-    ? Math.max(1, Math.min(16, Math.round(brushSettings.gradientBands ?? 16)))
+    // Preserve the configured CC gradient resolution so playback does not
+    // visually collapse into a small number of animated color steps.
+    ? Math.max(1, Math.min(254, Math.round(brushSettings.gradientBands ?? 16)))
     : undefined;
   const ditherBackgroundFill = brushSettings.ditherGradBgFill ?? brushSettings.ditherBackgroundFill;
 
