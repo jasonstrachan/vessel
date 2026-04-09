@@ -48,6 +48,35 @@ import { hashStops, type StoredStop } from '@/utils/colorCycleGradientDefs';
 
 const SHAPE_PREVIEW_OPACITY = 0.8;
 
+type PreviewPoint = { x: number; y: number };
+
+const pointsMatch = (a: PreviewPoint, b: PreviewPoint) => a.x === b.x && a.y === b.y;
+
+const buildPolygonPreviewPaths = (
+  points: PreviewPoint[],
+  previewPoint: PreviewPoint
+): {
+  closedPolygon: PreviewPoint[];
+  extensionSegment: PreviewPoint[] | null;
+  anchorPoints: PreviewPoint[];
+} => {
+  const closedPolygon = points.map((point) => ({ x: point.x, y: point.y }));
+  const lastPoint = closedPolygon[closedPolygon.length - 1];
+  const hasExtension = Boolean(lastPoint && !pointsMatch(lastPoint, previewPoint));
+  const extensionSegment = hasExtension && lastPoint
+    ? [lastPoint, { x: previewPoint.x, y: previewPoint.y }]
+    : null;
+  const anchorPoints = hasExtension
+    ? [...closedPolygon, { x: previewPoint.x, y: previewPoint.y }]
+    : closedPolygon;
+
+  return {
+    closedPolygon,
+    extensionSegment,
+    anchorPoints,
+  };
+};
+
 type ShapeAdjustHelperUpdate = {
   spacing: number;
   density?: number;
@@ -3135,6 +3164,7 @@ export const createShapeToolHandler = (
       let didCustomFill = false;
 
       if (vertexCount >= 3) {
+        const previewPaths = buildPolygonPreviewPaths(pts, previewPoint);
         const previewStrokePalette = getPreviewStrokePalette(tools.brushSettings.color);
         const storeNow = useAppStore.getState();
         const brushNow = storeNow.tools.brushSettings;
@@ -3173,17 +3203,29 @@ export const createShapeToolHandler = (
             overlayCtx,
             ctx => {
               ctx.beginPath();
-              ctx.moveTo(pts[0].x, pts[0].y);
-              for (let i = 1; i < pts.length; i++) {
-                ctx.lineTo(pts[i].x, pts[i].y);
+              ctx.moveTo(previewPaths.closedPolygon[0].x, previewPaths.closedPolygon[0].y);
+              for (let i = 1; i < previewPaths.closedPolygon.length; i++) {
+                ctx.lineTo(previewPaths.closedPolygon[i].x, previewPaths.closedPolygon[i].y);
               }
-              ctx.lineTo(previewPoint.x, previewPoint.y);
               ctx.closePath();
             },
             viewTransformRef.current.scale,
             previewStrokePalette,
             0.95
           );
+          if (previewPaths.extensionSegment) {
+            drawHighContrastStroke(
+              overlayCtx,
+              ctx => {
+                ctx.beginPath();
+                ctx.moveTo(previewPaths.extensionSegment![0].x, previewPaths.extensionSegment![0].y);
+                ctx.lineTo(previewPaths.extensionSegment![1].x, previewPaths.extensionSegment![1].y);
+              },
+              viewTransformRef.current.scale,
+              previewStrokePalette,
+              0.95
+            );
+          }
         };
 
         if (isContourPolygon) {
@@ -3763,11 +3805,10 @@ export const createShapeToolHandler = (
 
         overlayCtx.globalCompositeOperation = 'source-over';
         overlayCtx.beginPath();
-        overlayCtx.moveTo(pts[0].x, pts[0].y);
-        for (let i = 1; i < pts.length; i++) {
-          overlayCtx.lineTo(pts[i].x, pts[i].y);
+        overlayCtx.moveTo(previewPaths.closedPolygon[0].x, previewPaths.closedPolygon[0].y);
+        for (let i = 1; i < previewPaths.closedPolygon.length; i++) {
+          overlayCtx.lineTo(previewPaths.closedPolygon[i].x, previewPaths.closedPolygon[i].y);
         }
-        overlayCtx.lineTo(previewPoint.x, previewPoint.y);
         overlayCtx.closePath();
 
         if (isContourPolygon) {
@@ -3784,10 +3825,9 @@ export const createShapeToolHandler = (
           strokePreviewOutline();
         }
 
-        const anchorPoints = [...pts, previewPoint];
         drawHighContrastAnchors(
           overlayCtx,
-          anchorPoints,
+          previewPaths.anchorPoints,
           viewTransformRef.current.scale,
           previewStrokePalette,
           0.95
@@ -4556,5 +4596,6 @@ export const __shapeToolTestUtils = {
   normalizePreparedPreviewStops,
   buildCcShapePreviewGradientCacheKey,
   prepareCcShapePreviewGradient,
+  buildPolygonPreviewPaths,
 };
 const LIVE_ADJUSTABLE_PARAMS = new Set<ShapeFillParamKey>(['spacing']);

@@ -240,4 +240,31 @@ describe('ShapeToolHandler – shape fill tool detection', () => {
       )
     ).toBe(false);
   });
+
+  it('keeps the preview closure anchored to the first committed point', () => {
+    const previewPaths = __shapeToolTestUtils.buildPolygonPreviewPaths(
+      [
+        { x: 10, y: 10 },
+        { x: 30, y: 10 },
+        { x: 30, y: 30 },
+      ],
+      { x: 45, y: 22 },
+    );
+
+    expect(previewPaths.closedPolygon).toEqual([
+      { x: 10, y: 10 },
+      { x: 30, y: 10 },
+      { x: 30, y: 30 },
+    ]);
+    expect(previewPaths.extensionSegment).toEqual([
+      { x: 30, y: 30 },
+      { x: 45, y: 22 },
+    ]);
+    expect(previewPaths.anchorPoints).toEqual([
+      { x: 10, y: 10 },
+      { x: 30, y: 10 },
+      { x: 30, y: 30 },
+      { x: 45, y: 22 },
+    ]);
+  });
 });
