@@ -1,3 +1,4 @@
+import { rmSync } from 'node:fs';
 import { spawn } from 'node:child_process';
 
 const LOCALSTORAGE_FLAG = '--localstorage-file';
@@ -27,6 +28,10 @@ env.NODE_OPTIONS = [baseOptions, `${LOCALSTORAGE_FLAG}=${storagePath}`]
   .filter(Boolean)
   .join(' ');
 env.NEXT_DIST_DIR = env.NEXT_DIST_DIR || '.next';
+
+// Next 15 occasionally leaves a partially valid dist tree behind after
+// interrupted/failed builds, which can break later route manifest resolution.
+rmSync(env.NEXT_DIST_DIR, { recursive: true, force: true });
 
 const child = spawn('next', ['build'], {
   stdio: 'inherit',
