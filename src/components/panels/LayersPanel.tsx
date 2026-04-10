@@ -998,7 +998,7 @@ const LayersPanel: React.FC = () => {
                           createLayerGroupFromSelection(targetIds);
                           setLayerMenuState(null);
                         }}
-                        className="w-full flex items-center justify-center px-1.5 py-0.5 text-[11px] border border-[#4C6B3C] text-[#D4F7C4] bg-[#2E3A29] hover:bg-[#3A4A32] transition-colors"
+                        className="w-full flex items-center justify-center px-1.5 py-0.5 text-[11px] border border-[#545454] text-[#B0B0B0] hover:bg-[#3A3A3A] transition-colors"
                         title="Create a visual group from selection"
                       >
                         <span>Group selection</span>
@@ -1014,7 +1014,7 @@ const LayersPanel: React.FC = () => {
                         }}
                         className={`w-full flex items-center justify-center px-1.5 py-0.5 text-[11px] border transition-colors ${
                           layer.groupId
-                            ? 'border-[#6B5A3C] text-[#F2D7AA] bg-[#3A3022] hover:bg-[#4A3D2A]'
+                            ? 'border-[#545454] text-[#B0B0B0] hover:bg-[#3A3A3A]'
                             : 'border-[#3A3A3A] text-[#777] cursor-not-allowed'
                         }`}
                         disabled={!layer.groupId}
@@ -1034,7 +1034,7 @@ const LayersPanel: React.FC = () => {
                         }}
                         className={`w-full flex items-center justify-center px-1.5 py-0.5 text-[11px] border transition-colors ${
                           selectedLayerIds.length > 1
-                            ? 'border-[#4C6B3C] text-[#D4F7C4] bg-[#2E3A29] hover:bg-[#3A4A32]'
+                            ? 'border-[#545454] text-[#B0B0B0] hover:bg-[#3A3A3A]'
                             : 'border-[#3A3A3A] text-[#777] cursor-not-allowed'
                         }`}
                         disabled={selectedLayerIds.length < 2}
