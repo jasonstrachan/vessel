@@ -633,6 +633,24 @@ export const drawColorCycleStroke = ({
 
       return;
     } else {
+      const win = window as Window & { __ccLastFreehandRef?: { x: number | null; y: number | null } };
+      const lastFreehandRef = win.__ccLastFreehandRef ??= { x: null, y: null };
+      const lx = lastFreehandRef.x;
+      const ly = lastFreehandRef.y;
+      const segDist =
+        lx == null || ly == null ? 0 : Math.hypot(x - lx, y - ly);
+
+      console.log('[cc-stroke-input]', {
+        x,
+        y,
+        segDist,
+        speedSamplePxPerMs: options?.speedSamplePxPerMs ?? null,
+        brushSize: brushSizeSetting,
+        gridSnapEnabled: false,
+      });
+
+      lastFreehandRef.x = x;
+      lastFreehandRef.y = y;
       paintStrokePoint(x, y);
     }
 

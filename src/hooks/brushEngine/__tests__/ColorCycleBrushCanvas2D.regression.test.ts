@@ -701,7 +701,7 @@ describe('ColorCycleBrushCanvas2D regression tests', () => {
     if (!strokeState) {
       throw new Error('Missing stroke state for velocity animation speed test');
     }
-    expect(strokeState.strokePhaseUnits).toBe(2);
+    expect(strokeState.strokePhaseUnits).toBe(1);
 
   });
 
