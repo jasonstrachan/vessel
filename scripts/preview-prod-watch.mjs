@@ -4,6 +4,8 @@ import { execSync, spawn } from 'node:child_process';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 
+const WATCH_LOCK_PATH = '.preview-prod-watch.lock.json';
+
 const WATCH_ROOTS = [
   'src',
   'public',
@@ -35,6 +37,7 @@ const BUILD_DEBOUNCE_MS = 500;
 const PREVIEW_PORT = process.env.PORT || '3001';
 
 const projectRoot = process.cwd();
+const watchLockFile = path.join(projectRoot, WATCH_LOCK_PATH);
 
 let previewProcess = null;
 let buildProcess = null;
@@ -46,6 +49,21 @@ let snapshot = new Map();
 const log = (message) => {
   const timestamp = new Date().toLocaleTimeString();
   console.log(`[preview:prod:watch ${timestamp}] ${message}`);
+};
+
+const writeWatchLock = async () => {
+  const payload = {
+    pid: process.pid,
+    port: PREVIEW_PORT,
+    startedAt: new Date().toISOString(),
+  };
+  await fs.writeFile(watchLockFile, `${JSON.stringify(payload, null, 2)}\n`, 'utf8');
+};
+
+const removeWatchLock = async () => {
+  try {
+    await fs.unlink(watchLockFile);
+  } catch {}
 };
 
 const spawnCommand = (command, args, envOverrides = {}) =>
@@ -214,7 +232,9 @@ const queueBuild = (reason) => {
     }
 
     log(`rebuilding after change in ${reason}`);
-    buildProcess = spawnCommand('npm', ['run', 'build']);
+    buildProcess = spawnCommand('npm', ['run', 'build'], {
+      VESSEL_PREVIEW_PROD_WATCH: '1',
+    });
 
     buildProcess.on('exit', (code, signal) => {
       buildProcess = null;
@@ -254,6 +274,7 @@ const shutdown = async () => {
     clearTimeout(debounceTimer);
     debounceTimer = null;
   }
+  await removeWatchLock();
   await stopChild(buildProcess);
   await stopChild(previewProcess);
   process.exit(0);
@@ -263,13 +284,17 @@ process.on('SIGINT', shutdown);
 process.on('SIGTERM', shutdown);
 
 log('starting initial production build');
-buildProcess = spawnCommand('npm', ['run', 'build']);
+await writeWatchLock();
+buildProcess = spawnCommand('npm', ['run', 'build'], {
+  VESSEL_PREVIEW_PROD_WATCH: '1',
+});
 buildProcess.on('exit', async (code, signal) => {
   buildProcess = null;
   if (shuttingDown) {
     return;
   }
   if (code !== 0) {
+    await removeWatchLock();
     log(`initial build failed (${signal ?? code ?? 'unknown'})`);
     process.exit(code ?? 1);
   }

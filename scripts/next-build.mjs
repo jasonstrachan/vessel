@@ -1,5 +1,6 @@
 import { rmSync } from 'node:fs';
 import { spawn } from 'node:child_process';
+import { ensureBuildAllowed } from './ensure-build-allowed.mjs';
 
 const LOCALSTORAGE_FLAG = '--localstorage-file';
 
@@ -28,6 +29,7 @@ env.NODE_OPTIONS = [baseOptions, `${LOCALSTORAGE_FLAG}=${storagePath}`]
   .filter(Boolean)
   .join(' ');
 env.NEXT_DIST_DIR = env.NEXT_DIST_DIR || '.next-build';
+ensureBuildAllowed(env);
 
 // Next 15 occasionally leaves a partially valid dist tree behind after
 // interrupted/failed builds, which can break later route manifest resolution.

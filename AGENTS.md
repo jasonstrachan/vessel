@@ -252,6 +252,7 @@ Build and Config Notes
 - next.config.ts sets basePath/assetPrefix for GH Pages; do not change /vessel without explicit scope.
 - env.BUILD_TIMESTAMP is injected at build; preserve.
 - Dev port defaults to 3000; dev scripts may kill stale processes.
+- `npm run preview:prod:watch` owns the production build pipeline while it is running. Do not start a separate `npm run build` in parallel; rely on the watcher-managed build or stop the watcher first.
 
 Agent Directives
 
