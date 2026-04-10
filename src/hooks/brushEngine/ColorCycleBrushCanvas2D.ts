@@ -941,6 +941,9 @@ export class ColorCycleBrushCanvas2D {
       if (strokeData.buffers.flow.length !== expected) {
         strokeData.buffers.flow = new Uint8Array(expected);
       }
+      if (strokeData.buffers.phase.length !== expected) {
+        strokeData.buffers.phase = new Uint8Array(expected);
+      }
       if (strokeData.buffers.def.length !== expected) {
         strokeData.buffers.def = new Uint16Array(expected);
       }
@@ -972,6 +975,9 @@ export class ColorCycleBrushCanvas2D {
     }
     if (handle.flowData && handle.flowData.length === expected) {
       strokeData.buffers.flow = handle.flowData;
+    }
+    if (handle.phaseData && handle.phaseData.length === expected) {
+      strokeData.buffers.phase = handle.phaseData;
     }
     animator.endDirectFill({ markDirty: false });
     animator.setDefIdData(strokeData.buffers.def);
@@ -5906,6 +5912,7 @@ export class ColorCycleBrushCanvas2D {
             sd.buffers.gid.fill(0);
             sd.buffers.spd.fill(0);
             sd.buffers.flow.fill(0);
+            sd.buffers.phase.fill(0);
             sd.buffers.def.fill(0);
             sd.hasContent = false;
             sd.strokeCounter = 0;
@@ -5951,8 +5958,10 @@ export class ColorCycleBrushCanvas2D {
             const {
               paintBuffer,
               gradientIdBuffer,
+              gradientDefIdBuffer,
               speedBuffer,
               flowBuffer,
+              phaseBuffer,
               hasContent,
               strokeCounter,
               animatorIndex
@@ -5964,8 +5973,10 @@ export class ColorCycleBrushCanvas2D {
             this.applyLayerSnapshot(snapshot.layerId, {
               paintBuffer: buffer,
               gradientIdBuffer,
+              gradientDefIdBuffer,
               speedBuffer,
               flowBuffer,
+              phaseBuffer,
               hasContent: Boolean(hasContent) || buffer.byteLength > 0,
               strokeCounter: strokeCounter ?? 0
             }, animatorIndex);
