@@ -56,38 +56,49 @@ type PreviewPoint = { x: number; y: number };
 
 const pointsMatch = (a: PreviewPoint, b: PreviewPoint) => a.x === b.x && a.y === b.y;
 
+const getClosedCommittedPolygon = (points: PreviewPoint[]): PreviewPoint[] => points;
+
 const shouldKeepCachedCcPreviewVisible = (params: {
   hasCachedPreview: boolean;
   canReplayCurrentPreview: boolean;
   jobInFlight: boolean;
 }): boolean => params.hasCachedPreview && (!params.canReplayCurrentPreview || params.jobInFlight);
 
-const buildPolygonPreviewPaths = (
+type PolygonPreviewModel = {
+  committedPolygon: PreviewPoint[];
+  guideSegment: PreviewPoint[] | null;
+  firstAnchor: PreviewPoint | null;
+  lastAnchor: PreviewPoint | null;
+};
+
+const buildPolygonPreviewModel = (
   points: PreviewPoint[],
   previewPoint: PreviewPoint
-): {
-  fillPolygon: PreviewPoint[];
-  closedPolygon: PreviewPoint[];
-  extensionSegment: PreviewPoint[] | null;
-  anchorPoints: PreviewPoint[];
-} => {
-  const closedPolygon = points.map((point) => ({ x: point.x, y: point.y }));
-  const lastPoint = closedPolygon[closedPolygon.length - 1];
-  const hasExtension = Boolean(lastPoint && !pointsMatch(lastPoint, previewPoint));
-  const fillPolygon = hasExtension
-    ? [...closedPolygon, { x: previewPoint.x, y: previewPoint.y }]
-    : closedPolygon;
-  const extensionSegment = hasExtension && lastPoint
-    ? [lastPoint, { x: previewPoint.x, y: previewPoint.y }]
+): PolygonPreviewModel => {
+  const committedPolygon = points.map((point) => ({ x: point.x, y: point.y }));
+  const firstAnchor = committedPolygon.length > 0 ? committedPolygon[0] : null;
+  const lastAnchor = committedPolygon.length > 0
+    ? committedPolygon[committedPolygon.length - 1]
     : null;
-  const anchorPoints = fillPolygon;
+  const guideSegment =
+    lastAnchor && !pointsMatch(lastAnchor, previewPoint)
+      ? [lastAnchor, { x: previewPoint.x, y: previewPoint.y }]
+      : null;
 
   return {
-    fillPolygon,
-    closedPolygon,
-    extensionSegment,
-    anchorPoints,
+    committedPolygon,
+    guideSegment,
+    firstAnchor,
+    lastAnchor,
   };
+};
+
+const getPolygonPreviewAnchors = (previewModel: PolygonPreviewModel): PreviewPoint[] => {
+  if (previewModel.committedPolygon.length === 0) {
+    return [];
+  }
+
+  return previewModel.committedPolygon;
 };
 
 type ShapeAdjustHelperUpdate = {
@@ -2919,12 +2930,13 @@ export const createShapeToolHandler = (
       overlayCtx.scale(viewTransformRef.current.scale, viewTransformRef.current.scale);
 
       const pts = points as Array<{ x: number; y: number }>;
-      const vertexCount = pts.length + 1;
       let didCustomFill = false;
       let suppressLivePreviewChrome = false;
 
-      if (vertexCount >= 3) {
-        const previewPaths = buildPolygonPreviewPaths(pts, previewPoint);
+      if (pts.length >= 3) {
+        const previewModel = buildPolygonPreviewModel(pts, previewPoint);
+        const committedPolygon = getClosedCommittedPolygon(previewModel.committedPolygon);
+        const anchorPoints = getPolygonPreviewAnchors(previewModel);
         const previewStrokePalette = getPreviewStrokePalette(tools.brushSettings.color);
         const storeNow = useAppStore.getState();
         const brushNow = storeNow.tools.brushSettings;
@@ -2963,9 +2975,9 @@ export const createShapeToolHandler = (
             overlayCtx,
             ctx => {
               ctx.beginPath();
-              ctx.moveTo(previewPaths.closedPolygon[0].x, previewPaths.closedPolygon[0].y);
-              for (let i = 1; i < previewPaths.closedPolygon.length; i++) {
-                ctx.lineTo(previewPaths.closedPolygon[i].x, previewPaths.closedPolygon[i].y);
+              ctx.moveTo(committedPolygon[0].x, committedPolygon[0].y);
+              for (let i = 1; i < committedPolygon.length; i++) {
+                ctx.lineTo(committedPolygon[i].x, committedPolygon[i].y);
               }
               ctx.closePath();
             },
@@ -2973,13 +2985,13 @@ export const createShapeToolHandler = (
             previewStrokePalette,
             0.95
           );
-          if (previewPaths.extensionSegment) {
+          if (previewModel.guideSegment) {
             drawHighContrastStroke(
               overlayCtx,
               ctx => {
                 ctx.beginPath();
-                ctx.moveTo(previewPaths.extensionSegment![0].x, previewPaths.extensionSegment![0].y);
-                ctx.lineTo(previewPaths.extensionSegment![1].x, previewPaths.extensionSegment![1].y);
+                ctx.moveTo(previewModel.guideSegment![0].x, previewModel.guideSegment![0].y);
+                ctx.lineTo(previewModel.guideSegment![1].x, previewModel.guideSegment![1].y);
               },
               viewTransformRef.current.scale,
               previewStrokePalette,
@@ -2996,13 +3008,12 @@ export const createShapeToolHandler = (
           if (isColorCycleGradientPreset || isColorCycleGradientPreview) {
             const useForegroundDerived = Boolean(brushNow.colorCycleUseForegroundGradient);
             const isSampledPreviewMode = brushNow.ccGradientSource === 'sampled';
-            const livePreviewPoints = [...pts, previewPoint];
             if (
               isSampledPreviewMode &&
               storeNow.activeLayerId &&
               typeof drawingHandlers.updateCcSampledGradient === 'function'
             ) {
-              drawingHandlers.updateCcSampledGradient(livePreviewPoints, {
+              drawingHandlers.updateCcSampledGradient(committedPolygon, {
                 layerId: storeNow.activeLayerId,
                 markKind: 'shape',
               });
@@ -3100,7 +3111,6 @@ export const createShapeToolHandler = (
               return;
             }
             if (shouldDitherPreview) {
-              const allPoints = [...pts, previewPoint];
               const basePixelSize = Math.max(1, Math.round(brushNow.fillResolution ?? 1));
               const usePressure =
                 Boolean(brushNow.pressureLinkedFillResolution) &&
@@ -3123,7 +3133,7 @@ export const createShapeToolHandler = (
               const runtimeResult = runCcDitherPreviewRuntime({
                 overlayCtx,
                 overlayCanvas,
-                allPoints,
+                committedPolygon,
                 brushSettings: brushNow,
                 preparedGradientKey,
                 preparedGradient,
@@ -3141,7 +3151,7 @@ export const createShapeToolHandler = (
               didCustomFill = runtimeResult.didCustomFill;
               suppressLivePreviewChrome = runtimeResult.suppressLivePreviewChrome;
             } else {
-              const axis = computeAxisOpposingEnds([...pts, previewPoint]);
+              const axis = computeAxisOpposingEnds(committedPolygon);
               const gradient = overlayCtx.createLinearGradient(
                 axis.start.x,
                 axis.start.y,
@@ -3169,12 +3179,12 @@ export const createShapeToolHandler = (
           overlayCtx.fillStyle = tools.brushSettings.color;
           overlayCtx.globalAlpha = 0.4;
         } else {
-          let minX = pts[0].x;
-          let minY = pts[0].y;
-          let maxX = pts[0].x;
-          let maxY = pts[0].y;
-          for (let i = 1; i < pts.length; i++) {
-            const p = pts[i];
+          let minX = committedPolygon[0].x;
+          let minY = committedPolygon[0].y;
+          let maxX = committedPolygon[0].x;
+          let maxY = committedPolygon[0].y;
+          for (let i = 1; i < committedPolygon.length; i++) {
+            const p = committedPolygon[i];
             if (p.x < minX) minX = p.x;
             if (p.y < minY) minY = p.y;
             if (p.x > maxX) maxX = p.x;
@@ -3184,10 +3194,6 @@ export const createShapeToolHandler = (
           const baseMinY = minY;
           const baseMaxX = maxX;
           const baseMaxY = maxY;
-          if (previewPoint.x < minX) minX = previewPoint.x;
-          if (previewPoint.y < minY) minY = previewPoint.y;
-          if (previewPoint.x > maxX) maxX = previewPoint.x;
-          if (previewPoint.y > maxY) maxY = previewPoint.y;
           const width = maxX - minX;
           const height = maxY - minY;
 
@@ -3217,13 +3223,13 @@ export const createShapeToolHandler = (
             ditherGradPreviewState.lastPx = pixelSize;
             const origin = ditherGradPreviewState.origin ?? { x: Math.floor(baseMinX), y: Math.floor(baseMinY) };
 
-            const localVertices = [...pts, previewPoint].map(pt => ({
+            const localVertices = committedPolygon.map(pt => ({
               x: pt.x - origin.x,
               y: pt.y - origin.y,
             }));
             const axisBase = computeAxisOpposingEnds(localVertices);
-            const w = Math.max(1, Math.ceil(Math.max(baseMaxX, previewPoint.x) - origin.x));
-            const h = Math.max(1, Math.ceil(Math.max(baseMaxY, previewPoint.y) - origin.y));
+            const w = Math.max(1, Math.ceil(baseMaxX - origin.x));
+            const h = Math.max(1, Math.ceil(baseMaxY - origin.y));
             const corners = [
               { x: 0, y: 0 },
               { x: w, y: 0 },
@@ -3354,9 +3360,9 @@ export const createShapeToolHandler = (
         if (!suppressLivePreviewChrome) {
           overlayCtx.globalCompositeOperation = 'source-over';
           overlayCtx.beginPath();
-          overlayCtx.moveTo(previewPaths.fillPolygon[0].x, previewPaths.fillPolygon[0].y);
-          for (let i = 1; i < previewPaths.fillPolygon.length; i++) {
-            overlayCtx.lineTo(previewPaths.fillPolygon[i].x, previewPaths.fillPolygon[i].y);
+          overlayCtx.moveTo(committedPolygon[0].x, committedPolygon[0].y);
+          for (let i = 1; i < committedPolygon.length; i++) {
+            overlayCtx.lineTo(committedPolygon[i].x, committedPolygon[i].y);
           }
           overlayCtx.closePath();
 
@@ -3376,12 +3382,47 @@ export const createShapeToolHandler = (
 
           drawHighContrastAnchors(
             overlayCtx,
-            previewPaths.anchorPoints,
+            anchorPoints,
             viewTransformRef.current.scale,
             previewStrokePalette,
             0.95
           );
         }
+      } else if (pts.length === 2 && tools.shapeMode && drawingHandlers.isDrawingShapeRef.current) {
+        const previewModel = buildPolygonPreviewModel(pts, previewPoint);
+        const palette = getPreviewStrokePalette(tools.brushSettings.color);
+        drawHighContrastStroke(
+          overlayCtx,
+          (ctx) => {
+            ctx.beginPath();
+            ctx.moveTo(previewModel.committedPolygon[0].x, previewModel.committedPolygon[0].y);
+            ctx.lineTo(previewModel.committedPolygon[1].x, previewModel.committedPolygon[1].y);
+          },
+          viewTransformRef.current.scale,
+          palette,
+          0.95
+        );
+        if (previewModel.guideSegment) {
+          const guideSegment = previewModel.guideSegment;
+          drawHighContrastStroke(
+            overlayCtx,
+            (ctx) => {
+              ctx.beginPath();
+              ctx.moveTo(guideSegment[0].x, guideSegment[0].y);
+              ctx.lineTo(guideSegment[1].x, guideSegment[1].y);
+            },
+            viewTransformRef.current.scale,
+            palette,
+            0.95
+          );
+        }
+        drawHighContrastAnchors(
+          overlayCtx,
+          getPolygonPreviewAnchors(previewModel),
+          viewTransformRef.current.scale,
+          palette,
+          0.95
+        );
       } else if (pts.length === 1 && tools.shapeMode && drawingHandlers.isDrawingShapeRef.current) {
         const palette = getPreviewStrokePalette(tools.brushSettings.color);
         drawHighContrastStroke(
@@ -3397,7 +3438,7 @@ export const createShapeToolHandler = (
         );
         drawHighContrastAnchors(
           overlayCtx,
-          [pts[0], previewPoint],
+          [pts[0]],
           viewTransformRef.current.scale,
           palette,
           0.95
@@ -4146,6 +4187,7 @@ export const __shapeToolTestUtils = {
   normalizePreparedPreviewStops,
   buildCcShapePreviewGradientCacheKey,
   prepareCcShapePreviewGradient,
-  buildPolygonPreviewPaths,
+  getClosedCommittedPolygon,
+  buildPolygonPreviewModel,
 };
 const LIVE_ADJUSTABLE_PARAMS = new Set<ShapeFillParamKey>(['spacing']);

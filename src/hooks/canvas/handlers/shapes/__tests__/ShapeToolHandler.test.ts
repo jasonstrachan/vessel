@@ -214,8 +214,8 @@ describe('ShapeToolHandler – shape fill tool detection', () => {
     ]);
   });
 
-  it('includes the live preview point in the fill polygon while keeping the extension separate', () => {
-    const previewPaths = __shapeToolTestUtils.buildPolygonPreviewPaths(
+  it('keeps committed polygon geometry separate from the live guide segment', () => {
+    const previewModel = __shapeToolTestUtils.buildPolygonPreviewModel(
       [
         { x: 10, y: 10 },
         { x: 40, y: 10 },
@@ -224,22 +224,17 @@ describe('ShapeToolHandler – shape fill tool detection', () => {
       { x: 15, y: 55 }
     );
 
-    expect(previewPaths.fillPolygon).toEqual([
-      { x: 10, y: 10 },
-      { x: 40, y: 10 },
-      { x: 40, y: 40 },
-      { x: 15, y: 55 },
-    ]);
-    expect(previewPaths.closedPolygon).toEqual([
+    expect(previewModel.committedPolygon).toEqual([
       { x: 10, y: 10 },
       { x: 40, y: 10 },
       { x: 40, y: 40 },
     ]);
-    expect(previewPaths.extensionSegment).toEqual([
+    expect(previewModel.guideSegment).toEqual([
       { x: 40, y: 40 },
       { x: 15, y: 55 },
     ]);
-    expect(previewPaths.anchorPoints).toEqual(previewPaths.fillPolygon);
+    expect(previewModel.firstAnchor).toEqual({ x: 10, y: 10 });
+    expect(previewModel.lastAnchor).toEqual({ x: 40, y: 40 });
   });
 
   it('replays cached cc dither preview only when the roi still matches', () => {
@@ -295,7 +290,7 @@ describe('ShapeToolHandler – shape fill tool detection', () => {
   });
 
   it('keeps the preview closure anchored to the first committed point', () => {
-    const previewPaths = __shapeToolTestUtils.buildPolygonPreviewPaths(
+    const previewModel = __shapeToolTestUtils.buildPolygonPreviewModel(
       [
         { x: 10, y: 10 },
         { x: 30, y: 10 },
@@ -304,20 +299,21 @@ describe('ShapeToolHandler – shape fill tool detection', () => {
       { x: 45, y: 22 },
     );
 
-    expect(previewPaths.closedPolygon).toEqual([
+    expect(
+      __shapeToolTestUtils.getClosedCommittedPolygon(previewModel.committedPolygon)
+    ).toEqual([
       { x: 10, y: 10 },
       { x: 30, y: 10 },
       { x: 30, y: 30 },
     ]);
-    expect(previewPaths.extensionSegment).toEqual([
+    expect(previewModel.guideSegment).toEqual([
       { x: 30, y: 30 },
       { x: 45, y: 22 },
     ]);
-    expect(previewPaths.anchorPoints).toEqual([
+    expect(previewModel.committedPolygon).toEqual([
       { x: 10, y: 10 },
       { x: 30, y: 10 },
       { x: 30, y: 30 },
-      { x: 45, y: 22 },
     ]);
   });
 
