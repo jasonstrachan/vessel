@@ -314,6 +314,22 @@ jest.mock('@/stores/useAppStore', () => {
         },
       }))
     ),
+    setColorCycleGradientDraft: jest.fn((stops: NonNullable<BrushSettings['colorCycleGradient']>) =>
+      store.setState((state) => ({
+        tools: {
+          ...state.tools,
+          brushSettings: { ...state.tools.brushSettings, colorCycleGradient: stops },
+        },
+      }))
+    ),
+    commitColorCycleGradientDraft: jest.fn((stops: NonNullable<BrushSettings['colorCycleGradient']>) =>
+      store.setState((state) => ({
+        tools: {
+          ...state.tools,
+          brushSettings: { ...state.tools.brushSettings, colorCycleGradient: stops },
+        },
+      }))
+    ),
     setCcGradientSource: jest.fn((source: 'manual' | 'fg' | 'sampled') =>
       store.setState((state) => ({
         tools: {

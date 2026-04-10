@@ -1,31 +1,18 @@
-import React, { useState, useCallback, useEffect, useRef, useMemo } from 'react';
-import Dropdown from './Dropdown';
+import React, {
+  forwardRef,
+  useCallback,
+  useEffect,
+  useImperativeHandle,
+  useRef,
+  useState,
+} from 'react';
 import ColorPicker from './ColorPicker';
-import { useAppStore } from '../../stores/useAppStore';
-import {
-  selectLayers,
-  selectActiveLayerId,
-} from '@/stores/selectors/layersSelectors';
-import { selectBrushSettings } from '@/stores/selectors/toolsSelectors';
 import { useKeyboardScope } from '../../hooks/useKeyboardScope';
-import {
-  DEFAULT_GRADIENT_ID,
-  GRADIENT_PRESETS,
-  getPresetById
-} from '@/utils/gradientPresets';
-import type { PresetGradientStop } from '@/utils/gradientPresets';
 
 interface GradientStop {
   position: number;
   color: string;
   opacity?: number;
-}
-
-interface SavedGradient {
-  id: string;
-  name: string;
-  stops: GradientStop[];
-  isDefault?: boolean;
 }
 
 interface GradientEditorProps {
@@ -39,13 +26,18 @@ interface GradientEditorProps {
   sampleTarget?: 'recolor' | 'brush';
 }
 
-const toGradientStop = (stop: GradientStop | PresetGradientStop): GradientStop => ({
+export type GradientEditorHandle = {
+  flushDraft: () => void;
+  endEditSession: () => void;
+};
+
+const toGradientStop = (stop: GradientStop): GradientStop => ({
   position: stop.position,
   color: stop.color,
-  opacity: (stop as GradientStop).opacity ?? 1,
+  opacity: stop.opacity ?? 1,
 });
 
-const normalizeStops = (stops: Array<GradientStop | PresetGradientStop>): GradientStop[] =>
+const normalizeStops = (stops: GradientStop[]): GradientStop[] =>
   stops.map(toGradientStop);
 
 const clampAlpha = (value: number): number => Math.max(0, Math.min(1, value));
@@ -192,172 +184,17 @@ const stopToCssGradientPart = (stop: GradientStop): string => {
   return `rgba(${parsed.r}, ${parsed.g}, ${parsed.b}, ${alpha}) ${stop.position * 100}%`;
 };
 
-const DEFAULT_PRESET_ID_SET = new Set(GRADIENT_PRESETS.map((gradient) => gradient.id));
-let gradientIdSequence = 0;
-
-const sanitizeGradientStop = (stop: unknown): GradientStop | null => {
-  if (!stop || typeof stop !== 'object') {
-    return null;
-  }
-
-  const candidate = stop as Partial<GradientStop>;
-  const position = typeof candidate.position === 'number' ? candidate.position : Number.NaN;
-  const color = typeof candidate.color === 'string' ? candidate.color.trim() : '';
-  const opacityRaw =
-    typeof candidate.opacity === 'number'
-      ? candidate.opacity
-      : candidate.opacity === undefined
-        ? 1
-        : Number.NaN;
-
-  if (!Number.isFinite(position) || position < 0 || position > 1 || color.length === 0) {
-    return null;
-  }
-
-  if (!Number.isFinite(opacityRaw)) {
-    return null;
-  }
-
-  return {
-    position,
-    color,
-    opacity: clampAlpha(opacityRaw),
-  };
-};
-
-const sanitizeStoredGradient = (gradient: unknown): SavedGradient | null => {
-  if (!gradient || typeof gradient !== 'object') {
-    return null;
-  }
-
-  const candidate = gradient as Partial<SavedGradient>;
-  const id = typeof candidate.id === 'string' ? candidate.id.trim() : '';
-  const name = typeof candidate.name === 'string' ? candidate.name.trim() : '';
-  const stops = Array.isArray(candidate.stops)
-    ? candidate.stops
-      .map(sanitizeGradientStop)
-      .filter((stop): stop is GradientStop => stop !== null)
-      .sort((a, b) => a.position - b.position)
-    : [];
-
-  if (!id || !name || stops.length < 2) {
-    return null;
-  }
-
-  return {
-    id,
-    name,
-    stops,
-    isDefault: false,
-  };
-};
-
-const createForkedGradientName = (baseName: string, existingGradients: SavedGradient[]): string => {
-  const trimmedBaseName = baseName.trim() || 'Custom';
-  const preferredName = `${trimmedBaseName} Copy`;
-  const existingNames = new Set(existingGradients.map((gradient) => gradient.name));
-
-  if (!existingNames.has(preferredName)) {
-    return preferredName;
-  }
-
-  let suffix = 2;
-  while (existingNames.has(`${preferredName} ${suffix}`)) {
-    suffix += 1;
-  }
-
-  return `${preferredName} ${suffix}`;
-};
-
-const createGradientId = (prefix: 'custom' | 'sampled'): string => {
-  gradientIdSequence += 1;
-  return `${prefix}_${Date.now()}_${gradientIdSequence.toString(36)}`;
-};
-
-const ensureUniqueGradientIds = (gradients: SavedGradient[]): SavedGradient[] => {
-  const seen = new Set<string>();
-
-  return gradients.map((gradient) => {
-    if (!seen.has(gradient.id)) {
-      seen.add(gradient.id);
-      return gradient;
-    }
-
-    const nextId = createGradientId('custom');
-    seen.add(nextId);
-    return {
-      ...gradient,
-      id: nextId,
-    };
-  });
-};
-
-// Load custom gradients from localStorage and merge with defaults
-const loadGradients = (): SavedGradient[] => {
-  const defaults = GRADIENT_PRESETS.map(g => ({
-    id: g.id,
-    name: g.name,
-    stops: g.stops.map(toGradientStop),
-    isDefault: true
-  }));
-  try {
-    const stored = localStorage.getItem('vessel_custom_gradients');
-    if (stored) {
-      const parsed = JSON.parse(stored) as unknown;
-      const customGradients = Array.isArray(parsed)
-        ? ensureUniqueGradientIds(parsed
-          .map(sanitizeStoredGradient)
-          .filter((gradient): gradient is SavedGradient => (
-            gradient !== null && !DEFAULT_PRESET_ID_SET.has(gradient.id)
-          )))
-        : [];
-      return [...defaults, ...customGradients];
-    }
-  } catch (e) {
-    console.error('Failed to load gradients:', e);
-  }
-  return defaults;
-};
-
-// Save only custom gradients to localStorage
-const saveCustomGradients = (allGradients: SavedGradient[]) => {
-  try {
-    const customGradients = allGradients.filter(g => !g.isDefault);
-    localStorage.setItem('vessel_custom_gradients', JSON.stringify(customGradients));
-  } catch (e) {
-    console.error('Failed to save gradients:', e);
-  }
-};
-
-export const GradientEditor: React.FC<GradientEditorProps> = ({ 
+export const GradientEditor = forwardRef<GradientEditorHandle, GradientEditorProps>(({
   stops: initialStops, 
   onChange,
   className = '',
   onEditStart,
   onEditEnd,
   sampleTarget = 'recolor'
-}) => {
-  const startRecolorSampling = useAppStore((state) => state.startRecolorSampling);
-  const addNotification = useAppStore((state) => state.addNotification);
-  const brushSettings = useAppStore(selectBrushSettings);
-  // Brush auto-sample state (used when sampleTarget === 'brush')
-  const autoSampleEnabled = Boolean(brushSettings.autoSampleGradient);
-  const setBrushSettings = useAppStore(state => state.setBrushSettings);
-  const activeLayerId = useAppStore(selectActiveLayerId);
-  const layers = useAppStore(selectLayers);
-  const activeLayer = useMemo(
-    () => layers.find((layer) => layer.id === activeLayerId) ?? null,
-    [layers, activeLayerId]
-  );
-  // Track pending creation of a saved gradient from live sampling
-  const pendingSampleAddRef = useRef<boolean>(false);
-  const sampleStartSigRef = useRef<string>('');
-  const prevAutoSampleRef = useRef<boolean>(autoSampleEnabled);
+}, ref) => {
   const [stops, setStops] = useState<GradientStop[]>(normalizeStops(initialStops));
   const [selectedStop, setSelectedStop] = useState<number | null>(null);
   const [isDragging, setIsDragging] = useState(false);
-  const [savedGradients, setSavedGradients] = useState<SavedGradient[]>(loadGradients());
-  const [selectedGradientId, setSelectedGradientId] = useState<string>(DEFAULT_GRADIENT_ID);
   const prevStopsRef = useRef<GradientStop[]>(stops);
   const containerRef = useRef<HTMLDivElement>(null);
   const [hasFocus, setHasFocus] = useState(false);
@@ -368,7 +205,6 @@ export const GradientEditor: React.FC<GradientEditorProps> = ({
   const colorPickerUndoRef = useRef(false);
   const pendingGradientUpdateRef = useRef<number | null>(null);
   const pendingGradientStopsRef = useRef<GradientStop[] | null>(null);
-  const hasResolvedInitialSelectionRef = useRef(false);
   const editSessionActiveRef = useRef(false);
   const editSessionTimeoutRef = useRef<number | null>(null);
   const gradientHeightClass = sampleTarget === 'brush' ? 'h-4' : 'h-8';
@@ -424,6 +260,11 @@ export const GradientEditor: React.FC<GradientEditorProps> = ({
       }
     });
   }, [beginEditSession, onChange]);
+
+  useImperativeHandle(ref, () => ({
+    flushDraft: flushPendingGradientUpdate,
+    endEditSession,
+  }), [endEditSession, flushPendingGradientUpdate]);
 
   useEffect(() => {
     return () => {
@@ -534,28 +375,6 @@ export const GradientEditor: React.FC<GradientEditorProps> = ({
       .join(','),
   []);
 
-  const findMatchingGradientId = useCallback((
-    signature: string,
-    gradients: SavedGradient[]
-  ): string | null => {
-    const match = gradients.find((gradient) =>
-      stopsSignature(normalizeStops(gradient.stops ?? [])) === signature
-    );
-    return match?.id ?? null;
-  }, [stopsSignature]);
-
-  // If auto-sample toggles ON for brush, arm a one-shot capture to add the next
-  // sampled gradient to the saved list once stops meaningfully change.
-  useEffect(() => {
-    if (sampleTarget !== 'brush') return;
-    if (autoSampleEnabled && !prevAutoSampleRef.current) {
-      pendingSampleAddRef.current = true;
-      // Record the signature at the moment sampling starts, so we can detect the first change
-      sampleStartSigRef.current = stopsSignature(normalizeStops(initialStops));
-    }
-    prevAutoSampleRef.current = autoSampleEnabled;
-  }, [autoSampleEnabled, initialStops, sampleTarget, stopsSignature]);
-
   // Update internal state when props meaningfully change (content-based),
   // preserving selection whenever possible.
   useEffect(() => {
@@ -587,100 +406,9 @@ export const GradientEditor: React.FC<GradientEditorProps> = ({
         return nearestIdx;
       });
 
-      // If we're armed to capture the first sampled gradient after enabling
-      // auto-sampling for brush, and the new props reflect a different gradient,
-      // add it into the saved list exactly once.
-      if (sampleTarget === 'brush' && pendingSampleAddRef.current) {
-        const changedFromStart = nextSig && nextSig !== sampleStartSigRef.current;
-        if (changedFromStart) {
-          const newId = createGradientId('sampled');
-          const newEntry: SavedGradient = { id: newId, name: 'Sampled', stops: normalized.map(s => ({ ...s })) };
-          setSavedGradients(prev => {
-            // Avoid duplicates if an identical gradient already exists
-            const exists = prev.some(g => stopsSignature(normalizeStops(g.stops)) === nextSig);
-            const updated = exists ? prev : [...prev, newEntry];
-            saveCustomGradients(updated);
-            return updated;
-          });
-          setSelectedGradientId(newId);
-          pendingSampleAddRef.current = false;
-        }
-      }
-
-      const matchedId = findMatchingGradientId(nextSig, savedGradients);
-      if (matchedId && matchedId !== selectedGradientId) {
-        setSelectedGradientId(matchedId);
-      } else if (!matchedId && !hasResolvedInitialSelectionRef.current) {
-        // Avoid mutating a preset id before we know what this restored gradient represents.
-        setSelectedGradientId('');
-      }
-      if (!hasResolvedInitialSelectionRef.current) {
-        hasResolvedInitialSelectionRef.current = true;
-      }
+      setSelectedStop(null);
     }
-  }, [
-    findMatchingGradientId,
-    initialStops,
-    sampleTarget,
-    savedGradients,
-    selectedGradientId,
-    stopsSignature
-  ]);
-
-  // Update saved gradient when stops change without triggering recursive renders
-  useEffect(() => {
-    if (!selectedGradientId || stops.length === 0) return;
-    if (!hasResolvedInitialSelectionRef.current) {
-      return;
-    }
-
-    const target = savedGradients.find(g => g.id === selectedGradientId);
-    if (!target) {
-      return;
-    }
-
-    const normalizedStops = normalizeStops(stops);
-    const incomingSignature = stopsSignature(normalizedStops);
-    const matchedId = findMatchingGradientId(incomingSignature, savedGradients);
-    if (matchedId && matchedId !== selectedGradientId) {
-      setSelectedGradientId(matchedId);
-      return;
-    }
-    const existingSignature = stopsSignature(
-      normalizeStops(target.stops ?? [])
-    );
-
-    if (existingSignature === incomingSignature) {
-      return;
-    }
-
-    setSavedGradients(prev => {
-      const index = prev.findIndex(g => g.id === selectedGradientId);
-      if (index === -1) return prev;
-      const targetGradient = prev[index];
-      if (targetGradient.isDefault) {
-        const newId = createGradientId('custom');
-        const forkedGradient: SavedGradient = {
-          id: newId,
-          name: createForkedGradientName(targetGradient.name, prev),
-          isDefault: false,
-          stops: normalizedStops,
-        };
-        const updated = [...prev, forkedGradient];
-        saveCustomGradients(updated);
-        setSelectedGradientId(newId);
-        return updated;
-      }
-      const updated = [...prev];
-      updated[index] = {
-        ...targetGradient,
-        isDefault: false,
-        stops: normalizedStops
-      };
-      saveCustomGradients(updated);
-      return updated;
-    });
-  }, [findMatchingGradientId, savedGradients, selectedGradientId, stops, stopsSignature]);
+  }, [initialStops, sampleTarget, stopsSignature]);
 
   // Generate CSS gradient string with opacity (fallback transparent when no stops)
   const gradientString = (stops.length > 0
@@ -885,254 +613,8 @@ export const GradientEditor: React.FC<GradientEditorProps> = ({
 
   // Deleting stops via UI removed; keep logic minimal in component
 
-  const activeRecolorPalette = activeLayer?.colorCycleData?.recolorSettings?.palette ?? null;
-
-  const handleGradientSelect = useCallback((gradientId: string) => {
-    // Selecting a preset should fork the active gradient for new strokes.
-    beginEditSession();
-    // Special case: restore "Original" palette-derived gradient for the active recolor layer
-    if (gradientId === 'original') {
-      try {
-        const palette = activeRecolorPalette;
-        if (palette && palette.length >= 2) {
-          // Build a reasonable number of stops from the palette (sample 16 evenly from indices 1..255)
-          const sampleCount = 16;
-          const newStops: GradientStop[] = [];
-          for (let i = 0; i < sampleCount; i++) {
-            const idx = 1 + Math.floor((i * (255 - 1)) / (sampleCount - 1));
-            const v = palette[idx] >>> 0; // ensure unsigned
-            const r = v & 0xff;
-            const g = (v >>> 8) & 0xff;
-            const b = (v >>> 16) & 0xff;
-            const hex = `#${r.toString(16).padStart(2, '0')}${g
-              .toString(16)
-              .padStart(2, '0')}${b.toString(16).padStart(2, '0')}`;
-            newStops.push({ position: i / (sampleCount - 1), color: hex, opacity: 1 });
-          }
-          setStops(newStops);
-          scheduleGradientUpdate(newStops);
-          setSelectedGradientId('original');
-          setSelectedStop(null);
-        } else {
-          // No palette available (e.g., not in recolor mode)
-          addNotification?.({
-            type: 'warning',
-            title: 'Original unavailable',
-            message: 'Select a recolor layer first to use its original colors.',
-            timestamp: new Date()
-          });
-        }
-      } catch {}
-      return;
-    }
-
-    let gradient = savedGradients.find(g => g.id === gradientId);
-    if (!gradient) {
-      const preset = getPresetById(gradientId);
-      if (preset) {
-        gradient = {
-          id: preset.id,
-          name: preset.name,
-          stops: preset.stops.map(toGradientStop),
-          isDefault: true
-        };
-        setSavedGradients(prev => {
-          const exists = prev.some(g => g.id === preset.id);
-          return exists ? prev : [...prev, gradient!];
-        });
-      }
-    }
-    if (gradient) {
-      const newStops = gradient.stops.map(stop => ({ ...stop }));
-      setStops(newStops);
-      scheduleGradientUpdate(newStops);
-      setSelectedGradientId(gradientId);
-      setSelectedStop(null);
-    }
-  }, [savedGradients, addNotification, scheduleGradientUpdate, activeRecolorPalette, beginEditSession]);
-
-  const handleAddGradient = useCallback(() => {
-    beginEditSession();
-    const existingCustom = savedGradients.filter(g => g.name.startsWith('Custom '));
-    const customNumber = existingCustom.length + 1;
-    const newId = createGradientId('custom');
-    const newGradient: SavedGradient = {
-      id: newId,
-      name: `Custom ${customNumber}`,
-      stops: [
-        { position: 0.0, color: '#000000', opacity: 1 },
-        { position: 0.5, color: '#ffffff', opacity: 1 },
-        { position: 1.0, color: '#000000', opacity: 1 }
-      ],
-      isDefault: false
-    };
-    
-    const updated = [...savedGradients, newGradient];
-    setSavedGradients(updated);
-    saveCustomGradients(updated);
-    
-    // Select and apply the new gradient
-    setStops(newGradient.stops);
-    scheduleGradientUpdate(newGradient.stops);
-    setSelectedGradientId(newId);
-    setSelectedStop(null);
-  }, [savedGradients, scheduleGradientUpdate, beginEditSession]);
-
-  const handleRemoveGradient = useCallback((gradientId: string) => {
-    const gradient = savedGradients.find(g => g.id === gradientId);
-
-    // Don't permanently delete default gradients, just hide them for this session
-    if (gradient?.isDefault) {
-      const updated = savedGradients.filter(g => g.id !== gradientId);
-      setSavedGradients(updated);
-      // Don't save to localStorage - this is just a session hide
-    } else {
-      // Permanently delete custom gradients
-      const updated = savedGradients.filter(g => g.id !== gradientId);
-      setSavedGradients(updated);
-      saveCustomGradients(updated);
-    }
-
-    // If removing the selected gradient, clear selection
-    if (selectedGradientId === gradientId) {
-      setSelectedGradientId('');
-    }
-  }, [savedGradients, selectedGradientId]);
-
-  const handleReorderSavedGradients = useCallback((fromSlot: number, toSlot: number) => {
-    if (fromSlot === toSlot) {
-      return;
-    }
-
-    setSavedGradients(prev => {
-      if (fromSlot < 0 || fromSlot >= prev.length) {
-        return prev;
-      }
-      const safeTo = Math.max(0, Math.min(toSlot, prev.length - 1));
-      const updated = [...prev];
-      const [moved] = updated.splice(fromSlot, 1);
-      updated.splice(safeTo, 0, moved);
-      saveCustomGradients(updated);
-      return updated;
-    });
-  }, []);
-
-
-  // Render gradient preview for dropdown option
-  const renderGradientOption = useCallback((option: { value: string; label: string; isAction?: boolean }) => {
-    // Handle action items: render label as-is (+ Add, + Sample)
-    if (option.isAction) {
-      return (
-        <div className="flex items-center gap-2">
-          <span className="text-[#D9D9D9]">{option.label}</span>
-        </div>
-      );
-    }
-
-    const gradient = savedGradients.find(g => g.id === option.value);
-    if (!gradient) return option.label;
-
-    const gradientCss = gradient.stops
-      .map(stopToCssGradientPart)
-      .join(', ');
-
-    return (
-      <div className="flex items-center gap-2 w-full relative">
-        <div 
-          className="flex-1 h-5"
-          style={{ 
-            background: `linear-gradient(90deg, ${gradientCss})` 
-          }}
-        />
-        <button
-          onClick={(e) => {
-            e.stopPropagation();
-            handleRemoveGradient(option.value);
-          }}
-          className="absolute right-0 text-[#888] hover:text-[#ff6b6b] transition-colors px-1"
-          title="Remove gradient"
-        >
-          ×
-        </button>
-      </div>
-    );
-  }, [savedGradients, handleRemoveGradient]);
-
   return (
     <div className={`gradient-editor relative ${className}`}>
-      {/* Preset selector */}
-      <div className="mb-2">
-        <Dropdown
-          value={selectedGradientId}
-          options={[
-            { value: 'original', label: 'Original' },
-            ...savedGradients.map(g => ({ value: g.id, label: g.name })),
-            { value: 'add', label: '+ Add', isAction: true },
-            // Replace "+ Sample" with a Sampling toggle when editing brush gradients
-            ...(sampleTarget === 'brush'
-              ? [{ value: 'toggle-sampled', label: 'Sample', isAction: true }]
-              : [{ value: 'sample', label: '+ Sample', isAction: true }]
-            )
-          ]}
-          onChange={handleGradientSelect}
-          onAction={(action) => {
-            if (action === 'add') {
-              handleAddGradient();
-            } else if (action === 'sample') {
-              // Kick off recolor or brush sampling mode via line-drag
-              try {
-                startRecolorSampling(12, sampleTarget);
-                addNotification?.({ type: 'info', title: 'Sampling', message: 'Click and drag a short stroke on the canvas to sample a gradient and flow direction.', timestamp: new Date() });
-              } catch {}
-            } else if (action === 'toggle-sampled') {
-              // One-shot sampling for brush mode: always enable sampling and arm capture
-              try {
-                setBrushSettings({ autoSampleGradient: true });
-                pendingSampleAddRef.current = true;
-                sampleStartSigRef.current = stopsSignature(stops);
-                addNotification?.({ type: 'info', title: 'Sampling', message: 'Sampling enabled for one use. Draw a short stroke to capture multiple colors; it will auto-disable after applying.', timestamp: new Date() });
-              } catch {}
-            }
-        }}
-          placeholder="Select gradient..."
-          reorderable={savedGradients.length > 1}
-          canReorderOption={(option) => !option.isAction && option.value !== 'original'}
-          onReorder={handleReorderSavedGradients}
-          renderOption={(option) => {
-            // Live preview for "Original" using active layer palette
-            if (option.value === 'original') {
-              try {
-                const palette = activeLayer?.colorCycleData?.recolorSettings?.palette;
-                if (palette && palette.length >= 2) {
-                  // Build preview CSS by sampling more densely for a smooth bar
-                  const previewSamples = 24;
-                  const parts: string[] = [];
-                  for (let i = 0; i < previewSamples; i++) {
-                    const idx = 1 + Math.floor((i * (255 - 1)) / (previewSamples - 1));
-                    const v = palette[idx] >>> 0;
-                    const r = v & 0xff;
-                    const g = (v >>> 8) & 0xff;
-                    const b = (v >>> 16) & 0xff;
-                    const pos = (i / (previewSamples - 1)) * 100;
-                    parts.push(`rgba(${r}, ${g}, ${b}, 1) ${pos}%`);
-                  }
-                  return (
-                    <div className="flex items-center gap-2 w-full relative">
-                      <div
-                        className="flex-1 h-5"
-                        style={{ background: `linear-gradient(90deg, ${parts.join(', ')})` }}
-                      />
-                    </div>
-                  );
-                }
-              } catch {}
-              return option.label;
-            }
-            return renderGradientOption(option);
-          }}
-        />
-      </div>
-
       {/* Gradient preview bar with checkerboard background for transparency */}
       <div className="relative mb-2">
         {/* Checkerboard background */}
@@ -1224,7 +706,8 @@ export const GradientEditor: React.FC<GradientEditorProps> = ({
       {/* Controls removed per request */}
     </div>
   );
-};
+});
+GradientEditor.displayName = 'GradientEditor';
 
 // Helper function to interpolate color at a position
 function interpolateColor(position: number, stops: GradientStop[]): string {

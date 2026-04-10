@@ -5,7 +5,7 @@ import type { MarkGradientSession } from '@/hooks/canvas/utils/colorCycleMarkSes
 import { resolveMarkSessionRuntimeStops } from '@/hooks/canvas/utils/colorCycleMarkSession';
 import type { GradientSeamProfile } from '@/lib/colorCycle/gradientSeamProfile';
 import { normalizeGradientSeamProfile } from '@/lib/colorCycle/gradientSeamProfile';
-import { ccLog } from '@/utils/colorCycle/ccDebug';
+import { ccDebugVerboseOn, ccLog } from '@/utils/colorCycle/ccDebug';
 
 export type GradientStop = { position: number; color: string; opacity?: number };
 export type ColorCycleGradientDef = { id: string; name?: string; currentSlot: number };
@@ -49,6 +49,12 @@ const summarizeStopsForDebug = (stops: GradientStop[] | null | undefined) =>
     p: Number(stop.position.toFixed(3)),
     c: stop.color,
   }));
+
+const ccVerboseLog = (...args: Parameters<typeof ccLog>): void => {
+  if (ccDebugVerboseOn()) {
+    ccLog(...args);
+  }
+};
 
 const resolveSessionRuntimeStops = (
   session: MarkGradientSession,
@@ -160,7 +166,7 @@ export const buildRuntimeSnapshot = (
   brushSettings: BrushSettings
 ): CCRuntimeSnapshot => {
   const activeSession = resolveActiveMarkGradientSession(layer.id);
-  ccLog('runtime snapshot branch', {
+  ccVerboseLog('runtime snapshot branch', {
     layerId: layer.id,
     hasSession: Boolean(activeSession),
     sessionSource: activeSession?.source ?? null,
@@ -179,7 +185,7 @@ export const buildRuntimeSnapshot = (
         : activeSession.frozenStopsStored;
     const stops = cloneStops(sampledStops ?? fallbackStops);
     const runtimeStops = resolveSessionRuntimeStops(activeSession, stops, brushSettings);
-    ccLog('runtime snapshot sampled session', {
+    ccVerboseLog('runtime snapshot sampled session', {
       layerId: layer.id,
       markId: activeSession.markId,
       sampleCount: activeSession.samples?.length ?? 0,
@@ -206,7 +212,7 @@ export const buildRuntimeSnapshot = (
       activeSession.frozenStopsStored,
       brushSettings,
     );
-    ccLog('runtime snapshot bound session', {
+    ccVerboseLog('runtime snapshot bound session', {
       layerId: layer.id,
       markId: activeSession.markId,
       slot: activeSession.binding.slot,
@@ -236,7 +242,7 @@ export const buildRuntimeSnapshot = (
     stops: cloneStops(entry.stops),
     seamProfile: resolveSlotSeamProfile(layer, entry.slot, activeSession),
   }));
-  ccLog('runtime snapshot layer palettes', {
+  ccVerboseLog('runtime snapshot layer palettes', {
     layerId: layer.id,
     paintSlot,
     paletteCount: normalizedPalettes.length,

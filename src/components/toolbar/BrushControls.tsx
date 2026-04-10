@@ -31,12 +31,14 @@ import ProgressSlider from "../ui/ProgressSlider";
 import Dropdown from "../ui/Dropdown";
 import ButtonGroup from "../ui/ButtonGroup";
 import { drawTestSwatches } from "@/utils/drawTestSwatches";
-import { GradientEditor } from "../ui/GradientEditor";
+import { GradientEditor, type GradientEditorHandle } from "../ui/GradientEditor";
 import { GradientPalette } from '@/lib/GradientPalette';
 import CustomSwitch from "../ui/CustomSwitch";
 import { isStrokeBrush, supportsDither } from "@/utils/brushCategories";
 import {
+  DEFAULT_GRADIENT_ID,
   DEFAULT_GRADIENT_STOPS,
+  GRADIENT_PRESETS,
   getPresetOptions as getRectGradientPresetOptions,
   getPresetStops
 } from '@/utils/gradientPresets';
@@ -78,6 +80,224 @@ const PREVIEW_PALETTE_SIZE = 256;
 const BRUSH_COLOR_CYCLE_SLIDER_MIN = 0;
 const BRUSH_COLOR_CYCLE_SLIDER_MAX = 1;
 const BRUSH_COLOR_CYCLE_SLIDER_STEP = 0.001;
+const CUSTOM_GRADIENTS_STORAGE_KEY = 'vessel_custom_gradients';
+
+type BrushGradientStop = NonNullable<BrushSettings['colorCycleGradient']>[number];
+type SavedBrushGradient = {
+  id: string;
+  name: string;
+  stops: BrushGradientStop[];
+  isDefault?: boolean;
+  baseGradientId?: string;
+};
+
+const DEFAULT_PRESET_ID_SET = new Set(GRADIENT_PRESETS.map((gradient) => gradient.id));
+let savedGradientIdSequence = 0;
+
+const cloneGradientStops = (stops: BrushGradientStop[]): BrushGradientStop[] =>
+  stops.map((stop) => ({ ...stop }));
+
+const gradientStopsSignature = (stops: BrushGradientStop[]): string =>
+  stops
+    .map((stop) => `${stop.position.toFixed(4)}|${(stop.opacity ?? 1).toFixed(3)}|${stop.color.toLowerCase()}`)
+    .join(',');
+
+const stopToCssGradientPart = (stop: BrushGradientStop): string => {
+  const color = (stop.color ?? '#000000').trim();
+  const opacity = Math.max(0, Math.min(1, stop.opacity ?? 1));
+  const position = Math.max(0, Math.min(1, stop.position)) * 100;
+  if (color.toLowerCase() === 'transparent') {
+    return `rgba(0, 0, 0, 0) ${position}%`;
+  }
+  const hex = color.match(/^#([0-9a-f]{6})$/i)?.[1];
+  if (!hex) {
+    return `${color} ${position}%`;
+  }
+  const r = parseInt(hex.slice(0, 2), 16);
+  const g = parseInt(hex.slice(2, 4), 16);
+  const b = parseInt(hex.slice(4, 6), 16);
+  return `rgba(${r}, ${g}, ${b}, ${opacity}) ${position}%`;
+};
+
+const sanitizeGradientStop = (stop: unknown): BrushGradientStop | null => {
+  if (!stop || typeof stop !== 'object') {
+    return null;
+  }
+
+  const candidate = stop as Partial<BrushGradientStop>;
+  const position = typeof candidate.position === 'number' ? candidate.position : Number.NaN;
+  const color = typeof candidate.color === 'string' ? candidate.color.trim() : '';
+  const opacity =
+    typeof candidate.opacity === 'number'
+      ? candidate.opacity
+      : candidate.opacity === undefined
+        ? 1
+        : Number.NaN;
+
+  if (!Number.isFinite(position) || position < 0 || position > 1 || !color || !Number.isFinite(opacity)) {
+    return null;
+  }
+
+  return {
+    position,
+    color,
+    opacity: Math.max(0, Math.min(1, opacity)),
+  };
+};
+
+const sanitizeStoredGradient = (gradient: unknown): SavedBrushGradient | null => {
+  if (!gradient || typeof gradient !== 'object') {
+    return null;
+  }
+
+  const candidate = gradient as Partial<SavedBrushGradient>;
+  const id = typeof candidate.id === 'string' ? candidate.id.trim() : '';
+  const name = typeof candidate.name === 'string' ? candidate.name.trim() : '';
+  const baseGradientId = typeof candidate.baseGradientId === 'string'
+    ? candidate.baseGradientId.trim()
+    : undefined;
+  const stops = Array.isArray(candidate.stops)
+    ? candidate.stops
+      .map(sanitizeGradientStop)
+      .filter((stop): stop is BrushGradientStop => stop !== null)
+      .sort((a, b) => a.position - b.position)
+    : [];
+
+  return id && name && stops.length >= 2
+    ? {
+        id,
+        name,
+        stops,
+        isDefault: false,
+        ...(baseGradientId ? { baseGradientId } : {}),
+      }
+    : null;
+};
+
+const createSavedGradientId = (prefix: 'custom' | 'sampled'): string => {
+  savedGradientIdSequence += 1;
+  return `${prefix}_${Date.now()}_${savedGradientIdSequence.toString(36)}`;
+};
+
+const ensureUniqueGradientIds = (gradients: SavedBrushGradient[]): SavedBrushGradient[] => {
+  const seen = new Set<string>();
+  return gradients.map((gradient) => {
+    if (!seen.has(gradient.id)) {
+      seen.add(gradient.id);
+      return gradient;
+    }
+    const id = createSavedGradientId('custom');
+    seen.add(id);
+    return { ...gradient, id };
+  });
+};
+
+const createForkedGradientName = (baseName: string, gradients: SavedBrushGradient[]): string => {
+  const rootName = `${baseName} Custom`;
+  const existingNames = new Set(gradients.map((gradient) => gradient.name));
+  if (!existingNames.has(rootName)) {
+    return rootName;
+  }
+
+  let suffix = 2;
+  while (existingNames.has(`${rootName} ${suffix}`)) {
+    suffix += 1;
+  }
+  return `${rootName} ${suffix}`;
+};
+
+const findGradientByStops = (
+  gradients: SavedBrushGradient[],
+  stops: BrushGradientStop[],
+): SavedBrushGradient | undefined => {
+  const signature = gradientStopsSignature(stops);
+  return gradients.find((gradient) => gradientStopsSignature(gradient.stops) === signature);
+};
+
+const findDefaultOverrideGradient = (
+  gradients: SavedBrushGradient[],
+  defaultGradientId: string,
+): SavedBrushGradient | undefined => {
+  for (let index = gradients.length - 1; index >= 0; index -= 1) {
+    const gradient = gradients[index];
+    if (!gradient.isDefault && gradient.baseGradientId === defaultGradientId) {
+      return gradient;
+    }
+  }
+  return undefined;
+};
+
+const inferBaseGradientIdFromName = (gradientName: string): string | undefined => {
+  const normalizedName = gradientName.trim().toLowerCase();
+  const matchedDefault = GRADIENT_PRESETS.find((preset) => {
+    const expectedPrefix = `${preset.name} Custom`.toLowerCase();
+    return normalizedName === expectedPrefix || normalizedName.startsWith(`${expectedPrefix} `);
+  });
+  return matchedDefault?.id;
+};
+
+const migrateLegacyDefaultOverrides = (gradients: SavedBrushGradient[]): SavedBrushGradient[] => (
+  gradients.map((gradient) => {
+    if (gradient.isDefault || gradient.baseGradientId) {
+      return gradient;
+    }
+    const baseGradientId = inferBaseGradientIdFromName(gradient.name);
+    return baseGradientId ? { ...gradient, baseGradientId } : gradient;
+  })
+);
+
+const shouldAutoSelectGradientId = (id: string): boolean => (
+  id.length === 0 || DEFAULT_PRESET_ID_SET.has(id)
+);
+
+const loadSavedBrushGradients = (): SavedBrushGradient[] => {
+  const defaults = GRADIENT_PRESETS.map((gradient) => ({
+    id: gradient.id,
+    name: gradient.name,
+    stops: gradient.stops.map((stop) => ({
+      ...stop,
+      opacity: 'opacity' in stop && typeof stop.opacity === 'number' ? stop.opacity : 1,
+    })),
+    isDefault: true,
+  }));
+
+  if (typeof window === 'undefined') {
+    return defaults;
+  }
+
+  try {
+    const stored = window.localStorage.getItem(CUSTOM_GRADIENTS_STORAGE_KEY);
+    const parsed = stored ? JSON.parse(stored) as unknown : [];
+    const customGradients = Array.isArray(parsed)
+      ? migrateLegacyDefaultOverrides(ensureUniqueGradientIds(parsed
+          .map(sanitizeStoredGradient)
+          .filter((gradient): gradient is SavedBrushGradient => (
+            gradient !== null && !DEFAULT_PRESET_ID_SET.has(gradient.id)
+          ))))
+      : [];
+    const loaded = [...defaults, ...customGradients];
+    return loaded;
+  } catch (error) {
+    console.error('Failed to load gradients:', error);
+    return defaults;
+  }
+};
+
+const saveCustomBrushGradients = (gradients: SavedBrushGradient[]): void => {
+  if (typeof window === 'undefined') {
+    return;
+  }
+
+  try {
+    const customGradients = gradients.filter((gradient) => !gradient.isDefault);
+    window.localStorage.setItem(
+      CUSTOM_GRADIENTS_STORAGE_KEY,
+      JSON.stringify(customGradients)
+    );
+  } catch (error) {
+    console.error('Failed to save gradients:', error);
+  }
+};
 
 type RisoControlsProps = {
   settings: BrushSettings;
@@ -396,6 +616,17 @@ const SampledGradientPreview: React.FC<SampledGradientPreviewProps> = ({
 const BrushControls = () => {
   // Use individual selectors to avoid unstable object references
   const setBrushSettings = useAppStore(state => state.setBrushSettings);
+  const commitColorCycleGradientDraftFromStore = useAppStore(state => state.commitColorCycleGradientDraft);
+  const commitColorCycleGradientDraft = React.useCallback((
+    stops: NonNullable<BrushSettings['colorCycleGradient']>,
+    options?: { fork?: boolean }
+  ) => {
+    if (commitColorCycleGradientDraftFromStore) {
+      commitColorCycleGradientDraftFromStore(stops, options);
+      return;
+    }
+    setBrushSettings({ colorCycleGradient: stops });
+  }, [commitColorCycleGradientDraftFromStore, setBrushSettings]);
   const setEraserSettings = useAppStore(state => state.setEraserSettings);
   const setGlobalBrushSize = useAppStore(state => state.setGlobalBrushSize);
   const setCustomBrushSizePercent = useAppStore(state => state.setCustomBrushSizePercent);
@@ -428,6 +659,10 @@ const BrushControls = () => {
   const activeLayerId = useAppStore(selectActiveLayerId);
   const layers = useAppStore(selectLayers);
   const addNotification = useAppStore((state) => state.addNotification);
+  const gradientEditorRef = React.useRef<GradientEditorHandle | null>(null);
+  const [savedGradients, setSavedGradients] = React.useState<SavedBrushGradient[]>(loadSavedBrushGradients);
+  const [selectedGradientId, setSelectedGradientId] = React.useState<string>(DEFAULT_GRADIENT_ID);
+  const savedGradientsRef = React.useRef(savedGradients);
   const desiredColorCyclePlaying = useAppStore(state => state.colorCyclePlayback.desiredPlaying);
   const effectiveColorCyclePlaying = useAppStore(selectEffectiveColorCyclePlaying);
   const playColorCycle = useAppStore(state => state.playColorCycle);
@@ -437,6 +672,10 @@ const BrushControls = () => {
     () => layers.find((layer) => layer.id === activeLayerId) ?? null,
     [layers, activeLayerId]
   );
+
+  React.useEffect(() => {
+    savedGradientsRef.current = savedGradients;
+  }, [savedGradients]);
   
   const showColorCycleLayerHint = React.useCallback(() => {
     if (typeof addNotification !== 'function') {
@@ -1053,23 +1292,112 @@ const BrushControls = () => {
   const gradientFrameRef = React.useRef<number | null>(null);
   const gradientForkRef = React.useRef(false);
   const gradientDirtyRef = React.useRef(false);
+  const editingGradientIdRef = React.useRef<string | null>(null);
+  const persistedGradientIdRef = React.useRef<string | null>(null);
   const pendingGradientRef = React.useRef<Array<{ position: number; color: string; opacity?: number }>>(
     brushSettings.colorCycleGradient
       ? brushSettings.colorCycleGradient.map(stop => ({ ...stop }))
       : DEFAULT_GRADIENT_STOPS.map(stop => ({ ...stop }))
   );
 
+  const persistEditedSavedGradient = React.useCallback((stops: BrushGradientStop[]) => {
+    const editingGradientId = editingGradientIdRef.current;
+    if (!editingGradientId) {
+      return;
+    }
+
+    const currentGradients = savedGradientsRef.current;
+    const selectedGradient = currentGradients.find((gradient) => gradient.id === editingGradientId);
+    if (!selectedGradient) {
+      editingGradientIdRef.current = null;
+      return;
+    }
+
+    const clonedStops = cloneGradientStops(stops);
+    if (gradientStopsSignature(selectedGradient.stops) === gradientStopsSignature(clonedStops)) {
+      return;
+    }
+
+    if (selectedGradient.isDefault) {
+      const overrideGradient = findDefaultOverrideGradient(currentGradients, selectedGradient.id);
+      if (overrideGradient) {
+        const updated = currentGradients.map((gradient) => (
+          gradient.id === overrideGradient.id
+            ? { ...gradient, stops: clonedStops, baseGradientId: selectedGradient.id, isDefault: false }
+            : gradient
+        ));
+        savedGradientsRef.current = updated;
+        setSavedGradients(updated);
+        saveCustomBrushGradients(updated);
+        editingGradientIdRef.current = overrideGradient.id;
+        persistedGradientIdRef.current = overrideGradient.id;
+        setSelectedGradientId(overrideGradient.id);
+        return;
+      }
+
+      const forkedGradient: SavedBrushGradient = {
+        id: createSavedGradientId('custom'),
+        name: createForkedGradientName(selectedGradient.name, currentGradients),
+        stops: clonedStops,
+        isDefault: false,
+        baseGradientId: selectedGradient.id,
+      };
+      const updated = [...currentGradients, forkedGradient];
+      savedGradientsRef.current = updated;
+      setSavedGradients(updated);
+      saveCustomBrushGradients(updated);
+      editingGradientIdRef.current = forkedGradient.id;
+      persistedGradientIdRef.current = forkedGradient.id;
+      setSelectedGradientId(forkedGradient.id);
+      return;
+    }
+
+    const updated = currentGradients.map((gradient) => (
+      gradient.id === selectedGradient.id
+        ? { ...gradient, stops: clonedStops, isDefault: false }
+        : gradient
+    ));
+    savedGradientsRef.current = updated;
+    setSavedGradients(updated);
+    saveCustomBrushGradients(updated);
+    persistedGradientIdRef.current = selectedGradient.id;
+    setSelectedGradientId(selectedGradient.id);
+  }, []);
+
   const flushPendingGradient = React.useCallback(() => {
+    if (gradientDebounceTimerRef.current) {
+      clearTimeout(gradientDebounceTimerRef.current);
+      gradientDebounceTimerRef.current = null;
+    }
+    if (gradientFrameRef.current !== null) {
+      cancelAnimationFrame(gradientFrameRef.current);
+      gradientFrameRef.current = null;
+    }
+    if (!gradientDirtyRef.current && !gradientForkRef.current) {
+      return;
+    }
+
     const stops = pendingGradientRef.current;
     const clonedStops = stops.map(stop => ({ ...stop }));
-    setActiveSettings({ colorCycleGradient: clonedStops });
+    persistEditedSavedGradient(clonedStops);
+    commitColorCycleGradientDraft(clonedStops, { fork: gradientForkRef.current });
     setSharedColorCycleGradient(clonedStops, { fork: gradientForkRef.current });
     gradientForkRef.current = false;
 
     colorCycleRuntimeHandlers?.updateGradient?.(clonedStops);
     pendingGradientRef.current = clonedStops;
     gradientDirtyRef.current = false;
-  }, [setActiveSettings, colorCycleRuntimeHandlers]);
+  }, [
+    colorCycleRuntimeHandlers,
+    commitColorCycleGradientDraft,
+    persistEditedSavedGradient,
+  ]);
+
+  const flushGradientEditorDraft = React.useCallback(() => {
+    gradientEditorRef.current?.flushDraft();
+    gradientEditorRef.current?.endEditSession();
+    flushPendingGradient();
+  }, [flushPendingGradient]);
 
   const scheduleFlushFrame = React.useCallback(() => {
     if (gradientFrameRef.current !== null) {
@@ -1126,6 +1454,249 @@ const BrushControls = () => {
     pendingGradientRef.current = currentStops.map(stop => ({ ...stop }));
     gradientDirtyRef.current = false;
   }, [activeSettings.colorCycleGradient]);
+
+  React.useEffect(() => {
+    const currentStops = activeSettings.colorCycleGradient || DEFAULT_GRADIENT_STOPS;
+    const signature = gradientStopsSignature(currentStops);
+    const selectedGradient = savedGradients.find((gradient) => gradient.id === selectedGradientId);
+    const selectedGradientStillMatches = selectedGradient
+      ? gradientStopsSignature(selectedGradient.stops) === signature
+      : false;
+    const persistedGradientId = persistedGradientIdRef.current;
+    const persistedGradient = persistedGradientId
+      ? savedGradients.find((gradient) => gradient.id === persistedGradientId)
+      : undefined;
+    const persistedGradientStillMatches = persistedGradient
+      ? gradientStopsSignature(persistedGradient.stops) === signature
+      : false;
+    const matchedGradient = persistedGradientStillMatches
+      ? persistedGradient
+      : selectedGradientStillMatches
+      ? selectedGradient
+      : persistedGradientId
+        ? undefined
+        : shouldAutoSelectGradientId(selectedGradientId)
+        ? findGradientByStops(savedGradients, currentStops)
+        : undefined;
+    const nextSelectedGradientId = matchedGradient?.id ?? persistedGradientId ?? selectedGradientId;
+    if (persistedGradientId && nextSelectedGradientId === persistedGradientId) {
+      persistedGradientIdRef.current = null;
+    }
+    setSelectedGradientId((currentId) => (
+      currentId === nextSelectedGradientId ? currentId : nextSelectedGradientId
+    ));
+  }, [activeSettings.colorCycleGradient, savedGradients, selectedGradientId]);
+
+  const handleSelectSavedGradient = React.useCallback((gradientId: string) => {
+    flushGradientEditorDraft();
+    editingGradientIdRef.current = null;
+    persistedGradientIdRef.current = null;
+
+    const requestedGradient = savedGradients.find((candidate) => candidate.id === gradientId);
+    if (!requestedGradient) {
+      return;
+    }
+
+    const gradient = requestedGradient.isDefault
+      ? findDefaultOverrideGradient(savedGradients, requestedGradient.id) ?? requestedGradient
+      : requestedGradient;
+    const nextStops = cloneGradientStops(gradient.stops);
+    setSelectedGradientId(gradient.id);
+    pendingGradientRef.current = nextStops;
+    gradientDirtyRef.current = true;
+    flushPendingGradient();
+  }, [flushGradientEditorDraft, flushPendingGradient, savedGradients]);
+
+  const handleAddSavedGradient = React.useCallback(() => {
+    flushGradientEditorDraft();
+    editingGradientIdRef.current = null;
+    persistedGradientIdRef.current = null;
+
+    const existingCustomCount = savedGradients.filter((gradient) =>
+      gradient.name.startsWith('Custom ')
+    ).length;
+    const newGradient: SavedBrushGradient = {
+      id: createSavedGradientId('custom'),
+      name: `Custom ${existingCustomCount + 1}`,
+      stops: cloneGradientStops(activeSettings.colorCycleGradient || DEFAULT_GRADIENT_STOPS),
+      isDefault: false,
+    };
+    const updated = [...savedGradients, newGradient];
+    savedGradientsRef.current = updated;
+    setSavedGradients(updated);
+    saveCustomBrushGradients(updated);
+    setSelectedGradientId(newGradient.id);
+  }, [activeSettings.colorCycleGradient, flushGradientEditorDraft, savedGradients]);
+
+  const handleRemoveSavedGradient = React.useCallback((gradientId: string) => {
+    flushGradientEditorDraft();
+    editingGradientIdRef.current = null;
+    persistedGradientIdRef.current = null;
+
+    const gradient = savedGradients.find((candidate) => candidate.id === gradientId);
+    if (gradient?.isDefault) {
+      return;
+    }
+
+    const updated = savedGradients.filter((candidate) => candidate.id !== gradientId);
+    savedGradientsRef.current = updated;
+    setSavedGradients(updated);
+    saveCustomBrushGradients(updated);
+    if (selectedGradientId === gradientId) {
+      setSelectedGradientId('');
+    }
+  }, [flushGradientEditorDraft, savedGradients, selectedGradientId]);
+
+  const handleReorderSavedGradients = React.useCallback((fromSlot: number, toSlot: number) => {
+    flushGradientEditorDraft();
+    if (fromSlot === toSlot) {
+      return;
+    }
+
+    setSavedGradients((currentGradients) => {
+      if (fromSlot < 0 || fromSlot >= currentGradients.length) {
+        return currentGradients;
+      }
+      const safeTo = Math.max(0, Math.min(toSlot, currentGradients.length - 1));
+      const updated = [...currentGradients];
+      const [moved] = updated.splice(fromSlot, 1);
+      updated.splice(safeTo, 0, moved);
+      savedGradientsRef.current = updated;
+      saveCustomBrushGradients(updated);
+      return updated;
+    });
+  }, [flushGradientEditorDraft]);
+
+  const handleGradientSourceChange = React.useCallback((value: string) => {
+    const nextSource = value === 'fg' ? 'fg' : value === 'sample' ? 'sampled' : 'manual';
+    flushGradientEditorDraft();
+    editingGradientIdRef.current = null;
+    persistedGradientIdRef.current = null;
+    setCcGradientSource(nextSource);
+    if (nextSource === 'manual') {
+      // Switching back to manual must never recolor existing pixels.
+      // Force a fork so subsequent edits apply to future strokes only.
+      gradientForkRef.current = true;
+      flushPendingGradient();
+    }
+  }, [
+    flushGradientEditorDraft,
+    flushPendingGradient,
+    setCcGradientSource,
+  ]);
+
+  const renderSavedGradientOption = React.useCallback((option: { value: string; label: string; isAction?: boolean }) => {
+    if (option.isAction) {
+      return (
+        <div className="flex items-center gap-2">
+          <span className="text-[#D9D9D9]">{option.label}</span>
+        </div>
+      );
+    }
+
+    const gradient = savedGradients.find((candidate) => candidate.id === option.value);
+    if (!gradient) {
+      return option.label;
+    }
+
+    const gradientCss = gradient.stops.map(stopToCssGradientPart).join(', ');
+    return (
+      <div className="flex items-center gap-2 w-full relative">
+        <div
+          className="flex-1 h-5"
+          style={{ background: `linear-gradient(90deg, ${gradientCss})` }}
+        />
+        {!gradient.isDefault && (
+          <button
+            type="button"
+            onClick={(event) => {
+              event.stopPropagation();
+              handleRemoveSavedGradient(option.value);
+            }}
+            className="absolute right-0 text-[#888] hover:text-[#ff6b6b] transition-colors px-1"
+            title="Remove gradient"
+          >
+            x
+          </button>
+        )}
+      </div>
+    );
+  }, [handleRemoveSavedGradient, savedGradients]);
+
+  const renderBrushGradientEditor = React.useCallback((options?: { syncBands?: boolean }) => (
+    <>
+      <div className="mb-2">
+        <Dropdown
+          value={selectedGradientId}
+          options={[
+            ...savedGradients.map((gradient) => ({ value: gradient.id, label: gradient.name })),
+            { value: 'add', label: '+ Add', isAction: true },
+            { value: 'toggle-sampled', label: 'Sample', isAction: true },
+          ]}
+          onChange={handleSelectSavedGradient}
+          onAction={(action) => {
+            if (action === 'add') {
+              handleAddSavedGradient();
+              return;
+            }
+            if (action === 'toggle-sampled') {
+              flushGradientEditorDraft();
+              setActiveSettings({ autoSampleGradient: true });
+              addNotification?.({
+                type: 'info',
+                title: 'Sampling',
+                message: 'Sampling enabled for one use. Draw a short stroke to capture multiple colors; it will auto-disable after applying.',
+                timestamp: new Date(),
+              });
+            }
+          }}
+          placeholder="Select gradient..."
+          reorderable={savedGradients.length > 1}
+          canReorderOption={(option) => !option.isAction && !savedGradients.find((gradient) => gradient.id === option.value)?.isDefault}
+          onReorder={handleReorderSavedGradients}
+          renderOption={renderSavedGradientOption}
+        />
+      </div>
+      <GradientEditor
+        ref={gradientEditorRef}
+        sampleTarget="brush"
+        stops={activeSettings.colorCycleGradient || DEFAULT_GRADIENT_STOPS}
+        onChange={(stops) => {
+          scheduleGradientFlush(stops);
+          if (
+            options?.syncBands &&
+            stops.length &&
+            activeSettings.gradientBands &&
+            activeSettings.gradientBands < stops.length
+          ) {
+            setActiveSettings({ gradientBands: stops.length });
+          }
+        }}
+        onEditStart={() => {
+          editingGradientIdRef.current = selectedGradientId || null;
+          gradientForkRef.current = true;
+        }}
+        onEditEnd={() => {
+          flushPendingGradient();
+          editingGradientIdRef.current = null;
+        }}
+      />
+    </>
+  ), [
+    activeSettings.colorCycleGradient,
+    activeSettings.gradientBands,
+    addNotification,
+    flushGradientEditorDraft,
+    flushPendingGradient,
+    handleAddSavedGradient,
+    handleReorderSavedGradients,
+    handleSelectSavedGradient,
+    renderSavedGradientOption,
+    savedGradients,
+    scheduleGradientFlush,
+    selectedGradientId,
+    setActiveSettings,
+  ]);
 
   const handleToggleCustomColorCycle = React.useCallback((checked: boolean) => {
     if (
@@ -1423,16 +1994,7 @@ const BrushControls = () => {
               { label: 'Sample', value: 'sample' }
             ]}
             value={gradientModeValue}
-            onChange={(value) => {
-              const nextSource = value === 'fg' ? 'fg' : value === 'sample' ? 'sampled' : 'manual';
-              setCcGradientSource(nextSource);
-              if (nextSource === 'manual') {
-                // Switching back to manual must never recolor existing pixels.
-                // Force a fork so subsequent edits apply to future strokes only.
-                gradientForkRef.current = true;
-                flushPendingGradient();
-              }
-            }}
+            onChange={handleGradientSourceChange}
             size="sm"
           />
         </div>
@@ -1537,19 +2099,7 @@ const BrushControls = () => {
           </div>
         ) : (
           <div className="mb-3">
-            <GradientEditor
-              sampleTarget="brush"
-              stops={activeSettings.colorCycleGradient || DEFAULT_GRADIENT_STOPS}
-              onChange={(stops) => {
-                scheduleGradientFlush(stops);
-                if (stops.length && activeSettings.gradientBands && activeSettings.gradientBands < stops.length) {
-                  setActiveSettings({ gradientBands: stops.length });
-                }
-              }}
-              onEditStart={() => {
-                gradientForkRef.current = true;
-              }}
-            />
+            {renderBrushGradientEditor({ syncBands: true })}
           </div>
         )}
 
@@ -2488,16 +3038,7 @@ const BrushControls = () => {
         </div>
 
         <div className="mb-3">
-          <GradientEditor
-            sampleTarget="brush"
-            stops={activeSettings.colorCycleGradient || DEFAULT_GRADIENT_STOPS}
-            onChange={(stops) => {
-              scheduleGradientFlush(stops);
-            }}
-            onEditStart={() => {
-              gradientForkRef.current = true;
-            }}
-          />
+          {renderBrushGradientEditor()}
         </div>
 
         <div className="mb-2">
@@ -3694,16 +4235,7 @@ const BrushControls = () => {
 
               {!isCapturedDataMode && (
                 <>
-                  <GradientEditor
-                    sampleTarget="brush"
-                    stops={activeSettings.colorCycleGradient || DEFAULT_GRADIENT_STOPS}
-                    onChange={(stops) => {
-                      scheduleGradientFlush(stops);
-                    }}
-                    onEditStart={() => {
-                      gradientForkRef.current = true;
-                    }}
-                  />
+                  {renderBrushGradientEditor()}
                   <div className="mt-2">
                     <div className="flex items-center gap-2">
                       <label className={CONTROL_LABEL_CLASS} style={CONTROL_LABEL_STYLE}>

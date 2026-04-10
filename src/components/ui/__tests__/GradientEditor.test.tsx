@@ -1,8 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import React from 'react';
 import { render, fireEvent, screen } from '@testing-library/react';
-import { GradientEditor } from '../GradientEditor';
-import { getPresetStops } from '@/utils/gradientPresets';
+import { GradientEditor, type GradientEditorHandle } from '../GradientEditor';
 
 const startRecolorSampling = jest.fn();
 const addNotification = jest.fn();
@@ -26,23 +25,7 @@ jest.mock('@/hooks/useKeyboardScope', () => ({
   useKeyboardScope: jest.fn(),
 }));
 
-type DropdownProps = { onAction?: (action: string) => void; onChange?: (value: string) => void };
 type ColorPickerProps = { onChange?: (value: string) => void; onCommit?: () => void };
-
-jest.mock('@/components/ui/Dropdown', () => {
-  const DropdownMock = ({ onAction, onChange, value }: DropdownProps & { value?: string }) => (
-    <div>
-      <div data-testid="dropdown-value">{value ?? ''}</div>
-      <button data-testid="action-add" onClick={() => onAction?.('add')}>add</button>
-      <button data-testid="action-sample" onClick={() => onAction?.('sample')}>sample</button>
-      <button data-testid="action-toggle" onClick={() => onAction?.('toggle-sampled')}>toggle</button>
-      <button data-testid="select-rainbow" onClick={() => onChange?.('rainbow')}>rainbow</button>
-      <button data-testid="select-default" onClick={() => onChange?.('bw-stripes')}>default</button>
-    </div>
-  );
-  DropdownMock.displayName = 'DropdownMock';
-  return { __esModule: true, default: DropdownMock };
-});
 
 jest.mock('@/components/ui/ColorPicker', () => {
   const ColorPickerMock = ({ onChange, onCommit }: ColorPickerProps) => (
@@ -74,24 +57,7 @@ describe('GradientEditor', () => {
     setBrushSettings.mockClear();
   });
 
-  it('adds a custom gradient and saves it', () => {
-    const onChange = jest.fn();
-    render(
-      <GradientEditor
-        stops={[
-          { position: 0, color: '#FF0000' },
-          { position: 1, color: '#00FF00' },
-        ]}
-        onChange={onChange}
-      />
-    );
-
-    fireEvent.click(screen.getByTestId('action-add'));
-    expect(window.localStorage.setItem).toHaveBeenCalled();
-    expect(onChange).toHaveBeenCalled(); // scheduled update for new gradient
-  });
-
-  it('triggers sampling actions', () => {
+  it('does not own saved gradient persistence or sampling actions', () => {
     render(
       <GradientEditor
         stops={[
@@ -102,11 +68,10 @@ describe('GradientEditor', () => {
       />
     );
 
-    fireEvent.click(screen.getByTestId('action-sample'));
-    expect(startRecolorSampling).toHaveBeenCalled();
-
-    fireEvent.click(screen.getByTestId('action-toggle'));
-    expect(setBrushSettings).toHaveBeenCalledWith({ autoSampleGradient: true });
+    expect(screen.queryByTestId('action-add')).not.toBeInTheDocument();
+    expect(startRecolorSampling).not.toHaveBeenCalled();
+    expect(setBrushSettings).not.toHaveBeenCalled();
+    expect(window.localStorage.setItem).not.toHaveBeenCalled();
   });
 
   it('opens color picker on stop double click and updates color', () => {
@@ -129,7 +94,7 @@ describe('GradientEditor', () => {
     fireEvent.click(screen.getByTestId('color-commit'));
 
     expect(onChange).toHaveBeenCalled();
-    expect(window.localStorage.setItem).toHaveBeenCalled();
+    expect(window.localStorage.setItem).not.toHaveBeenCalled();
   });
 
   it('keeps stop frame visible when stop color is set to transparent', () => {
@@ -173,125 +138,35 @@ describe('GradientEditor', () => {
     expect(borders.some((node) => node.style.borderColor.includes('255, 255, 255'))).toBe(true);
   });
 
-  it('forks edited preset dropdown gradients into custom entries instead of overriding defaults', () => {
+  it('exposes an imperative draft flush for parent-owned commit boundaries', () => {
+    const ref = React.createRef<GradientEditorHandle>();
+    const onChange = jest.fn();
+    jest.spyOn(window, 'requestAnimationFrame').mockImplementation(((cb: FrameRequestCallback) => {
+      window.setTimeout(() => cb(0), 0);
+      return 22;
+    }) as any);
+
     const { container } = render(
       <GradientEditor
+        ref={ref}
         stops={[
           { position: 0, color: '#FF0000' },
           { position: 1, color: '#00FF00' },
         ]}
-        onChange={jest.fn()}
+        onChange={onChange}
       />
     );
-
-    fireEvent.click(screen.getByTestId('select-rainbow'));
 
     const stopHandle = container.querySelector('.gradient-editor div[style*="background-color"]');
     expect(stopHandle).toBeTruthy();
 
     fireEvent.doubleClick(stopHandle!);
     fireEvent.click(screen.getByTestId('color-change'));
-    fireEvent.click(screen.getByTestId('color-commit'));
+    expect(onChange).not.toHaveBeenCalled();
 
-    const lastSetItemCall = (window.localStorage.setItem as jest.Mock).mock.calls.at(-1);
-    expect(lastSetItemCall).toBeTruthy();
-    const payload = JSON.parse(lastSetItemCall![1] as string) as Array<{ id: string; name: string }>;
-    expect(payload.some((entry) => entry.id === 'rainbow')).toBe(false);
-    expect(payload.some((entry) => entry.name === 'Rainbow Copy')).toBe(true);
-  });
-
-  it('shows matching preset id after restoring stops from props', () => {
-    const rainbow = getPresetStops('rainbow');
-    expect(rainbow).toBeTruthy();
-
-    render(
-      <GradientEditor
-        stops={(rainbow ?? []).map((stop) => ({ ...stop }))}
-        onChange={jest.fn()}
-      />
-    );
-
-    expect(screen.getByTestId('dropdown-value').textContent).toBe('rainbow');
-  });
-
-  it('does not overwrite black and white preset when restoring another preset on load', () => {
-    const rainbow = getPresetStops('rainbow');
-    expect(rainbow).toBeTruthy();
-
-    render(
-      <GradientEditor
-        stops={(rainbow ?? []).map((stop) => ({ ...stop }))}
-        onChange={jest.fn()}
-      />
-    );
-
-    expect(window.localStorage.setItem).not.toHaveBeenCalled();
-    expect(screen.getByTestId('dropdown-value').textContent).toBe('rainbow');
-  });
-
-  it('ignores stored custom entries that shadow default preset ids', () => {
-    const rainbow = getPresetStops('rainbow');
-    expect(rainbow).toBeTruthy();
-
-    (window.localStorage.getItem as jest.Mock).mockImplementation(() => JSON.stringify([
-      {
-        id: 'rainbow',
-        name: 'Rainbow',
-        stops: [
-          { position: 0, color: '#000000', opacity: 1 },
-          { position: 1, color: '#000000', opacity: 1 },
-        ],
-      },
+    ref.current?.flushDraft();
+    expect(onChange).toHaveBeenCalledWith(expect.arrayContaining([
+      expect.objectContaining({ color: '#00FF00' }),
     ]));
-
-    render(
-      <GradientEditor
-        stops={(rainbow ?? []).map((stop) => ({ ...stop }))}
-        onChange={jest.fn()}
-      />
-    );
-
-    fireEvent.click(screen.getByTestId('select-rainbow'));
-    expect(screen.getByTestId('dropdown-value').textContent).toBe('rainbow');
-    expect(window.localStorage.setItem).not.toHaveBeenCalled();
-  });
-
-  it('loads duplicate stored custom gradients with unique ids', () => {
-    (window.localStorage.getItem as jest.Mock).mockImplementation(() => JSON.stringify([
-      {
-        id: 'custom_dup',
-        name: 'Custom A',
-        stops: [
-          { position: 0, color: '#111111', opacity: 1 },
-          { position: 1, color: '#222222', opacity: 1 },
-        ],
-      },
-      {
-        id: 'custom_dup',
-        name: 'Custom B',
-        stops: [
-          { position: 0, color: '#333333', opacity: 1 },
-          { position: 1, color: '#444444', opacity: 1 },
-        ],
-      },
-    ]));
-
-    const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
-
-    render(
-      <GradientEditor
-        stops={[
-          { position: 0, color: '#FF0000' },
-          { position: 1, color: '#00FF00' },
-        ]}
-        onChange={jest.fn()}
-      />
-    );
-
-    expect(consoleErrorSpy).not.toHaveBeenCalledWith(
-      expect.stringContaining('Encountered two children with the same key')
-    );
-
-    consoleErrorSpy.mockRestore();
   });
 });

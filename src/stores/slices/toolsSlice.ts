@@ -311,6 +311,11 @@ export interface ToolsSlice {
   setGlobalBrushSize: (size: number) => void;
   setCustomBrushSizePercent: (percent: number) => void;
   setBrushSettings: (settings: Partial<BrushSettings>) => void;
+  setColorCycleGradientDraft: (stops: NonNullable<BrushSettings['colorCycleGradient']>) => void;
+  commitColorCycleGradientDraft: (
+    stops: NonNullable<BrushSettings['colorCycleGradient']>,
+    options?: { fork?: boolean }
+  ) => void;
   setEraserSettings: (settings: Partial<BrushSettings>) => void;
   setFillSettings: (settings: Partial<ToolState['fillSettings']>) => void;
   setWandSettings: (settings: Partial<ToolState['wandSettings']>) => void;
@@ -746,7 +751,7 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
     ) {
       newSettings.colorCycleGradientVersion = currentSettings.colorCycleGradientVersion;
     }
-    
+
     // Auto-save brush-specific settings when they change (excluding size)
     // Determine current brush ID (standard brush preset or custom brush)
     const currentBrushId = state.currentBrushPreset 
@@ -1185,6 +1190,12 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
     if (pendingPalette) {
       applyPaletteSnapshot(set, get, pendingPalette);
     }
+  },
+  setColorCycleGradientDraft: (stops) => {
+    get().setBrushSettings({ colorCycleGradient: cloneGradientStops(stops) });
+  },
+  commitColorCycleGradientDraft: (stops) => {
+    get().setBrushSettings({ colorCycleGradient: cloneGradientStops(stops) });
   },
   setEraserSettings: (incomingSettings) => {
     let pendingPalette: PaletteState | null = null;
