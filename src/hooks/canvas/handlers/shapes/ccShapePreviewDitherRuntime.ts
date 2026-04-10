@@ -354,7 +354,7 @@ type DrawingHandlersSubset = {
 export const runCcDitherPreviewRuntime = (args: {
   overlayCtx: CanvasRenderingContext2D;
   overlayCanvas: HTMLCanvasElement;
-  allPoints: Array<{ x: number; y: number }>;
+  committedPolygon: Array<{ x: number; y: number }>;
   brushSettings: BrushSettings;
   preparedGradientKey: string;
   preparedGradient: PreparedPreviewGradient;
@@ -375,7 +375,7 @@ export const runCcDitherPreviewRuntime = (args: {
   const {
     overlayCtx,
     overlayCanvas,
-    allPoints,
+    committedPolygon,
     brushSettings,
     preparedGradientKey,
     preparedGradient,
@@ -388,13 +388,13 @@ export const runCcDitherPreviewRuntime = (args: {
     previewRenderSettings,
   } = args;
 
-  const nextPreviewRoi = computeCcPreviewRoi(allPoints);
+  const nextPreviewRoi = computeCcPreviewRoi(committedPolygon);
   const pixelSize = previewRenderSettings.pixelSize;
   const levels = previewRenderSettings.levels;
   const fillAlgorithm = previewRenderSettings.algorithm;
   const fillPatternStyle = previewRenderSettings.patternStyle;
   const replayKey = buildCcPreviewReplayKey({
-    points: allPoints,
+    points: committedPolygon,
     preparedGradientKey,
     colorCycleFillMode: brushSettings.colorCycleFillMode,
     pixelSize,
@@ -457,7 +457,7 @@ export const runCcDitherPreviewRuntime = (args: {
     const origin = nextPreviewRoi.origin;
     const w = nextPreviewRoi.size.width;
     const h = nextPreviewRoi.size.height;
-    const localVertices = allPoints.map(pt => ({
+    const localVertices = committedPolygon.map(pt => ({
       x: pt.x - origin.x,
       y: pt.y - origin.y,
     }));
