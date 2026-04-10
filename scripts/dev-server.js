@@ -9,6 +9,7 @@ const CACHE_DIRS = ['.next', 'node_modules/.cache', '.turbo'];
 const MAX_RETRIES = 3;
 const RESTART_DELAY = 2000;
 const PORT = process.env.PORT || 3000;
+const PROJECT_ROOT = process.cwd();
 
 let server = null;
 let retryCount = 0;
@@ -25,65 +26,92 @@ function isPortAvailable(port) {
   });
 }
 
-async function killPortProcess(port) {
+function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+function readListeningPids(port) {
   try {
-    console.log(`🔍 Checking for process on port ${port}...`);
-    
-    // More aggressive port killing for Linux/WSL
-    try {
-      if (process.platform === 'linux') {
-        // Only attempt ss if available; avoid grep -P for portability
-        try {
-          execSync('command -v ss >/dev/null 2>&1');
-          const ssOutput = execSync(
-            `ss -tulpn 2>/dev/null | grep :${port} | sed -n 's/.*pid=\\([0-9][0-9]*\\).*/\\1/p' | head -1`,
-            { encoding: 'utf8' }
-          ).trim();
-          if (ssOutput) {
-            console.log(`⚠️  Found process ${ssOutput} on port ${port}, terminating...`);
-            try {
-              process.kill(parseInt(ssOutput, 10), 'SIGKILL'); // Use SIGKILL for stubborn processes
-            } catch (e) {
-              execSync(`kill -9 ${ssOutput} 2>/dev/null || true`);
-            }
-            await new Promise(resolve => setTimeout(resolve, 1500));
-            return;
-          }
-        } catch (_) {
-          // ss not available or parsing failed; fall through to lsof
-        }
-      }
-    } catch (e) {
-      // Fallback to lsof
-    }
-    
-    // Fallback to lsof - LISTENERS ONLY (never kill client/browser sockets)
-    const pid = execSync(
+    const raw = execSync(
       `lsof -tiTCP:${port} -sTCP:LISTEN 2>/dev/null || true`,
       { encoding: 'utf8' }
     ).trim();
-    if (pid) {
-      const pids = pid.split('\n').filter(p => p);
-      console.log(`⚠️  Found process(es) ${pids.join(', ')} on port ${port}, terminating...`);
+    return raw ? raw.split('\n').filter(Boolean) : [];
+  } catch (err) {
+    return [];
+  }
+}
+
+function readCommandForPid(pid) {
+  try {
+    return execSync(`ps -p ${pid} -o command=`, { encoding: 'utf8' }).trim();
+  } catch (err) {
+    return '';
+  }
+}
+
+function readCwdForPid(pid) {
+  try {
+    const raw = execSync(`lsof -a -p ${pid} -d cwd -Fn 2>/dev/null || true`, {
+      encoding: 'utf8',
+    }).trim();
+    const cwdLine = raw.split('\n').find(line => line.startsWith('n'));
+    return cwdLine ? cwdLine.slice(1) : '';
+  } catch (err) {
+    return '';
+  }
+}
+
+function isProjectProcess(pid, command) {
+  const cwd = readCwdForPid(pid);
+  return cwd === PROJECT_ROOT || command.includes(PROJECT_ROOT);
+}
+
+async function stopListeningPid(pid, port) {
+  const numericPid = parseInt(pid, 10);
+  if (Number.isNaN(numericPid)) {
+    return;
+  }
+
+  try {
+    process.kill(numericPid, 'SIGTERM');
+  } catch (err) {
+    return;
+  }
+
+  await sleep(1500);
+  if (!readListeningPids(port).includes(pid)) {
+    return;
+  }
+
+  try {
+    process.kill(numericPid, 'SIGKILL');
+  } catch (err) {
+    execSync(`kill -9 ${pid} 2>/dev/null || true`);
+  }
+}
+
+async function killPortProcess(port) {
+  try {
+    console.log(`🔍 Checking for process on port ${port}...`);
+
+    const pids = readListeningPids(port);
+    if (pids.length > 0) {
+      console.log(`⚠️  Found process(es) ${pids.join(', ')} on port ${port}.`);
       for (const p of pids) {
-        try {
-          process.kill(parseInt(p), 'SIGKILL');
-        } catch (e) {
-          execSync(`kill -9 ${p} 2>/dev/null || true`);
+        const command = readCommandForPid(p);
+        if (!isProjectProcess(p, command)) {
+          throw new Error(
+            `Port ${port} is already in use by a non-Vessel process: ${command || p}`
+          );
         }
+        console.log(`⚠️  Stopping Vessel dev listener ${p}: ${command || 'unknown command'}`);
+        await stopListeningPid(p, port);
       }
-      await new Promise(resolve => setTimeout(resolve, 1500));
-    }
-    
-    // Nuclear option - kill all node processes running next
-    const nextProcesses = execSync(`pgrep -f "next dev" 2>/dev/null || true`, { encoding: 'utf8' }).trim();
-    if (nextProcesses) {
-      console.log(`☠️  Found stale Next.js processes, removing...`);
-      execSync(`pkill -9 -f "next dev" 2>/dev/null || true`);
-      await new Promise(resolve => setTimeout(resolve, 1000));
     }
   } catch (err) {
-    // Ignore errors - port might be free
+    console.error(`❌ ${err.message}`);
+    process.exit(1);
   }
 }
 
@@ -109,7 +137,7 @@ async function startServer(cleanFirst = false) {
     cleanCache();
   }
   
-  // ALWAYS kill any existing processes on port - no mercy
+  // Stop only this repo's existing listener on the requested port.
   await killPortProcess(PORT);
   
   console.log(`🚀 Starting Next.js dev server on port ${PORT} (attempt ${retryCount + 1})...`);

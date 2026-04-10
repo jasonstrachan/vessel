@@ -100,6 +100,24 @@ const readCommandForPid = (pid) => {
   }
 };
 
+const readCwdForPid = (pid) => {
+  try {
+    const raw = execSync(`lsof -a -p ${pid} -d cwd -Fn 2>/dev/null || true`, {
+      cwd: projectRoot,
+      encoding: 'utf8',
+    }).trim();
+    const cwdLine = raw.split('\n').find((line) => line.startsWith('n'));
+    return cwdLine ? cwdLine.slice(1) : '';
+  } catch {
+    return '';
+  }
+};
+
+const isProjectProcess = (pid, command) => {
+  const cwd = readCwdForPid(pid);
+  return cwd === projectRoot || command.includes(projectRoot);
+};
+
 const ensurePreviewPortAvailable = () => {
   const pids = readListeningPids(PREVIEW_PORT);
   if (pids.length === 0) {
@@ -108,7 +126,7 @@ const ensurePreviewPortAvailable = () => {
 
   for (const pid of pids) {
     const command = readCommandForPid(pid);
-    if (command.includes('scripts/preview-server.mjs')) {
+    if (command.includes('scripts/preview-server.mjs') && isProjectProcess(pid, command)) {
       log(`stopping existing preview server on port ${PREVIEW_PORT} (pid ${pid})`);
       try {
         process.kill(Number.parseInt(pid, 10), 'SIGTERM');
