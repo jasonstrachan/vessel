@@ -39,7 +39,7 @@ const resolveDebugOn = (): boolean => {
   return readLocalStorageFlag('ccDebug');
 };
 
-const resolveVerboseOn = (legacyDebugOn: boolean): boolean => {
+const resolveVerboseOn = (): boolean => {
   const scope = globalThis as { CC_DEBUG?: { verbose?: boolean } };
   if (scope.CC_DEBUG?.verbose === true) {
     return true;
@@ -54,7 +54,7 @@ const resolveVerboseOn = (legacyDebugOn: boolean): boolean => {
   }
 
   const localVerbose = readLocalStorageFlag('ccDebugVerbose');
-  return localVerbose || legacyDebugOn;
+  return localVerbose;
 };
 
 export const ccDebugOn = (): boolean => {
@@ -72,7 +72,7 @@ export const ccDebugVerboseOn = (): boolean => {
     return false;
   }
 
-  return resolveVerboseOn(debugOn);
+  return resolveVerboseOn();
 };
 
 export const ccLog: CCLogFn = (...args) => {

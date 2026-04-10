@@ -493,6 +493,11 @@ export interface AppState {
   tools: ToolState;
   setCurrentTool: (tool: Tool) => void;
   setBrushSettings: (settings: Partial<BrushSettings>) => void;
+  setColorCycleGradientDraft: (stops: NonNullable<BrushSettings['colorCycleGradient']>) => void;
+  commitColorCycleGradientDraft: (
+    stops: NonNullable<BrushSettings['colorCycleGradient']>,
+    options?: { fork?: boolean }
+  ) => void;
   setEraserSettings: (settings: Partial<BrushSettings>) => void;
   setFillSettings: (settings: Partial<ToolState['fillSettings']>) => void;
   setWandSettings: (settings: Partial<ToolState['wandSettings']>) => void;
