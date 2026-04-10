@@ -663,7 +663,7 @@ describe('projectIO serialize/deserialize layering', () => {
     expect(restoredLayer?.colorCycleData?.brushState).toEqual(projectPayload.project.layers[0].colorCycleData.brushState);
   });
 
-  it('serializes flowBuffer in color-cycle brushState', async () => {
+  it('serializes flowBuffer and phaseBuffer in color-cycle brushState', async () => {
     const contextProto = (globalThis as unknown as {
       CanvasRenderingContext2D?: { prototype?: { rect?: (...args: number[]) => void } };
     }).CanvasRenderingContext2D?.prototype;
@@ -708,6 +708,7 @@ describe('projectIO serialize/deserialize layering', () => {
                 strokeCounter: 2,
                 paintBuffer: Uint8Array.from([1, 2, 3, 4]).buffer,
                 flowBuffer: Uint8Array.from([9, 10, 11, 12]).buffer,
+                phaseBuffer: Uint8Array.from([64, 96, 128, 192]).buffer,
               },
             }],
           }),
@@ -740,7 +741,7 @@ describe('projectIO serialize/deserialize layering', () => {
           layers: Array<{
             colorCycleData?: {
               brushState?: {
-                layers?: Array<{ strokeData?: { flowBuffer?: string } }>;
+                layers?: Array<{ strokeData?: { flowBuffer?: string; phaseBuffer?: string } }>;
               };
             };
           }>;
@@ -750,6 +751,9 @@ describe('projectIO serialize/deserialize layering', () => {
       expect(
         manifest.project.layers[0]?.colorCycleData?.brushState?.layers?.[0]?.strokeData?.flowBuffer
       ).toBe(Buffer.from(Uint8Array.from([9, 10, 11, 12])).toString('base64'));
+      expect(
+        manifest.project.layers[0]?.colorCycleData?.brushState?.layers?.[0]?.strokeData?.phaseBuffer
+      ).toBe(Buffer.from(Uint8Array.from([64, 96, 128, 192])).toString('base64'));
     } finally {
       if (contextProto) {
         contextProto.rect = originalRect;
@@ -970,8 +974,9 @@ describe('projectIO serialize/deserialize layering', () => {
     );
   });
 
-  it('restores flowBuffer from persisted color-cycle brushState', async () => {
+  it('restores flowBuffer and phaseBuffer from persisted color-cycle brushState', async () => {
     const flowBuffer = Buffer.from(Uint8Array.from([5, 6, 7, 8])).toString('base64');
+    const phaseBuffer = Buffer.from(Uint8Array.from([64, 96, 128, 192])).toString('base64');
     const paintBuffer = Buffer.from(Uint8Array.from([1, 2, 3, 4])).toString('base64');
     const projectPayload = {
       version: '1.1.0',
@@ -1018,6 +1023,7 @@ describe('projectIO serialize/deserialize layering', () => {
                   strokeCounter: 2,
                   paintBuffer,
                   flowBuffer,
+                  phaseBuffer,
                 },
               }],
             },
@@ -1032,12 +1038,14 @@ describe('projectIO serialize/deserialize layering', () => {
       | {
           getLayerSnapshot?: (layerId: string) => {
             flowBuffer?: ArrayBuffer;
+            phaseBuffer?: ArrayBuffer;
           } | null;
         }
       | undefined;
 
     const snapshot = restoredBrush?.getLayerSnapshot?.(restoredLayer.id);
     expect(Array.from(new Uint8Array(snapshot?.flowBuffer ?? new ArrayBuffer(0)))).toEqual([5, 6, 7, 8]);
+    expect(Array.from(new Uint8Array(snapshot?.phaseBuffer ?? new ArrayBuffer(0)))).toEqual([64, 96, 128, 192]);
   });
 
   it('seeds color-cycle runtime from persisted gradient buffers when brushState is missing', async () => {

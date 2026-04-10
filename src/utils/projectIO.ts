@@ -403,6 +403,7 @@ interface SerializedAnimatorSnapshot {
     gradientId?: string; // base64 encoded Uint8Array
     speedData?: string; // base64 encoded Uint8Array
     flowData?: string; // base64 encoded Uint8Array
+    phaseData?: string; // base64 encoded Uint8Array
     palette: string[];
   };
   gradient: {
@@ -428,6 +429,7 @@ interface SerializedStrokeSnapshot {
   gradientDefIdBuffer?: string; // base64 encoded ArrayBuffer (Uint16)
   speedBuffer?: string; // base64 encoded ArrayBuffer
   flowBuffer?: string; // base64 encoded ArrayBuffer
+  phaseBuffer?: string; // base64 encoded ArrayBuffer
   hasContent?: boolean;
   strokeCounter?: number;
 }
@@ -616,6 +618,7 @@ interface ColorCycleBrushState {
         gradientId?: Uint8Array;
         speedData?: Uint8Array;
         flowData?: Uint8Array;
+        phaseData?: Uint8Array;
         palette: string[];
       };
       gradient: {
@@ -642,6 +645,7 @@ interface ColorCycleBrushState {
       gradientDefIdBuffer?: ArrayBuffer;
       speedBuffer?: ArrayBuffer;
       flowBuffer?: ArrayBuffer;
+      phaseBuffer?: ArrayBuffer;
     };
     gradientDefs?: Array<{ id: string; name?: string; currentSlot: number }>;
     slotPalettes?: Array<{ slot: number; stops: Array<{ position: number; color: string }> }>;
@@ -977,6 +981,9 @@ const isCompatibleColorCycleSnapshot = (
   if (!matchesExpected(strokeData?.flowBuffer, expectedPixels)) {
     return false;
   }
+  if (!matchesExpected(strokeData?.phaseBuffer, expectedPixels)) {
+    return false;
+  }
   if (!matchesExpected(strokeData?.gradientDefIdBuffer, expectedDefBytes)) {
     return false;
   }
@@ -995,6 +1002,9 @@ const isCompatibleColorCycleSnapshot = (
       return false;
     }
     if (!matchesExpected(animatorIndex.flowData, expectedPixels)) {
+      return false;
+    }
+    if (!matchesExpected(animatorIndex.phaseData, expectedPixels)) {
       return false;
     }
   }
@@ -1307,6 +1317,7 @@ function serializeBrushState(state: ColorCycleBrushState | undefined): Persisted
           : undefined,
         speedBuffer: strokeData.speedBuffer ? arrayBufferToBase64(strokeData.speedBuffer) : undefined,
         flowBuffer: strokeData.flowBuffer ? arrayBufferToBase64(strokeData.flowBuffer) : undefined,
+        phaseBuffer: strokeData.phaseBuffer ? arrayBufferToBase64(strokeData.phaseBuffer) : undefined,
       };
     }
 
@@ -1325,6 +1336,9 @@ function serializeBrushState(state: ColorCycleBrushState | undefined): Persisted
             : undefined,
           flowData: data.indexBuffer.flowData
             ? typedArrayToBase64(data.indexBuffer.flowData)
+            : undefined,
+          phaseData: data.indexBuffer.phaseData
+            ? typedArrayToBase64(data.indexBuffer.phaseData)
             : undefined,
           palette: [...data.indexBuffer.palette]
         },
@@ -1400,10 +1414,12 @@ function serializeBrushState(state: ColorCycleBrushState | undefined): Persisted
     Boolean(layer.strokeData?.gradientDefIdBuffer) ||
     Boolean(layer.strokeData?.speedBuffer) ||
     Boolean(layer.strokeData?.flowBuffer) ||
+    Boolean(layer.strokeData?.phaseBuffer) ||
     Boolean(layer.animator?.indexBuffer.data) ||
     Boolean(layer.animator?.indexBuffer.gradientId) ||
     Boolean(layer.animator?.indexBuffer.speedData) ||
-    Boolean(layer.animator?.indexBuffer.flowData)
+    Boolean(layer.animator?.indexBuffer.flowData) ||
+    Boolean(layer.animator?.indexBuffer.phaseData)
   ));
 
   if (!hasRestorableLayerPayload) {
@@ -2497,10 +2513,12 @@ export async function restoreColorCycleBrushes(layers: Layer[]): Promise<Layer[]
           Boolean(snapshot.strokeData?.gradientDefIdBuffer) ||
           Boolean(snapshot.strokeData?.speedBuffer) ||
           Boolean(snapshot.strokeData?.flowBuffer) ||
+          Boolean(snapshot.strokeData?.phaseBuffer) ||
           Boolean(snapshot.animator?.indexBuffer.data) ||
           Boolean(snapshot.animator?.indexBuffer.gradientId) ||
           Boolean(snapshot.animator?.indexBuffer.speedData) ||
-          Boolean(snapshot.animator?.indexBuffer.flowData)
+          Boolean(snapshot.animator?.indexBuffer.flowData) ||
+          Boolean(snapshot.animator?.indexBuffer.phaseData)
         ))
       );
       if (savedBrushState) {
@@ -2540,6 +2558,9 @@ export async function restoreColorCycleBrushes(layers: Layer[]): Promise<Layer[]
             const flowBuffer = snapshot.strokeData?.flowBuffer
               ? base64ToArrayBuffer(snapshot.strokeData.flowBuffer)
               : undefined;
+            const phaseBuffer = snapshot.strokeData?.phaseBuffer
+              ? base64ToArrayBuffer(snapshot.strokeData.phaseBuffer)
+              : undefined;
             const animatorIndex = snapshot.animator?.indexBuffer.data
               ? {
                   width: snapshot.animator.indexBuffer.width,
@@ -2553,6 +2574,9 @@ export async function restoreColorCycleBrushes(layers: Layer[]): Promise<Layer[]
                     : undefined,
                   flowData: snapshot.animator.indexBuffer.flowData
                     ? base64ToArrayBuffer(snapshot.animator.indexBuffer.flowData)
+                    : undefined,
+                  phaseData: snapshot.animator.indexBuffer.phaseData
+                    ? base64ToArrayBuffer(snapshot.animator.indexBuffer.phaseData)
                     : undefined,
                   gradientStops: snapshot.animator.gradient.gradientStops,
                   gradientDefs: snapshot.gradientDefs,
@@ -2568,6 +2592,7 @@ export async function restoreColorCycleBrushes(layers: Layer[]): Promise<Layer[]
               gradientDefIdBuffer,
               speedBuffer,
               flowBuffer,
+              phaseBuffer,
               hasContent: snapshot.strokeData?.hasContent,
               strokeCounter: snapshot.strokeData?.strokeCounter,
               animatorIndex
