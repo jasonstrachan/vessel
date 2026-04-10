@@ -1292,7 +1292,16 @@ export class ColorCycleBrushCanvas2D {
     const phaseIndex = ((strokeData.strokePhaseUnits % 255) + 255) % 255;
     const normalized = bands <= 1 ? 0 : phaseIndex / 254;
     const bandIndex = Math.max(0, Math.min(bands - 1, Math.round(normalized * (bands - 1))));
-    return this.mapBandIndexToPaletteIndex(bandIndex, bands);
+    const paletteIndex = this.mapBandIndexToPaletteIndex(bandIndex, bands);
+    if ((phaseIndex % 8) === 0) {
+      console.log('[cc-band-map]', {
+        phaseIndex,
+        bands,
+        bandIndex,
+        paletteIndex,
+      });
+    }
+    return paletteIndex;
   }
 
   private computeColorBandIndexPerStamp(strokeData: LayerStrokeState): number {
@@ -1322,7 +1331,6 @@ export class ColorCycleBrushCanvas2D {
     const advance = this.resolvePhaseAdvancePerStamp();
     strokeData.strokePhaseUnits = (strokeData.strokePhaseUnits + advance) % 255;
   }
-
 
   private getSourceCanvasForStamp(stamp: CustomStampInput): HTMLCanvasElement {
     const profile = getCcCustomStampProfile();
@@ -1500,10 +1508,28 @@ export class ColorCycleBrushCanvas2D {
 
     if (strokeData) {
       this.applyStrokeFlowSpeed(strokeData, speedSamplePxPerMs);
-      this.advanceStrokePhase(strokeData);
-      const colorIndex = this.computeColorBandIndex(strokeData);
       const activeSlot = strokeData.flow.activeSlot ?? this.activeGradientSlots.get(id) ?? 0;
       const flowSlot = this.resolveFlowSlot(strokeData, activeSlot);
+      const useStampDither = this.stampDitherEnabled;
+      const prevPhase = strokeData.strokePhaseUnits;
+      const prevColorIndex = useStampDither
+        ? this.computeColorBandIndex(strokeData)
+        : 1 + (((Math.floor(strokeData.strokePhaseUnits) % 255) + 255) % 255);
+      const last = strokeData.lastPoint;
+      const dx = last ? x - last.x : 0;
+      const dy = last ? y - last.y : 0;
+      const dist = Math.hypot(dx, dy);
+
+      if (useStampDither) {
+        this.advanceStrokePhase(strokeData);
+      } else if (dist > 0) {
+        strokeData.strokePhaseUnits = (Math.floor(strokeData.strokePhaseUnits) + 1) % 255;
+      }
+      const nextPhase = strokeData.strokePhaseUnits;
+      const nextColorIndex = useStampDither
+        ? this.computeColorBandIndex(strokeData)
+        : 1 + (((Math.floor(strokeData.strokePhaseUnits) % 255) + 255) % 255);
+      const colorIndex = nextColorIndex;
       const speedByte = this.getWriteSpeedByte(strokeData);
       if (typeof (animator as { setStrokeSpeedByte?: (value: number) => void }).setStrokeSpeedByte === 'function') {
         (animator as { setStrokeSpeedByte: (value: number) => void }).setStrokeSpeedByte(speedByte);
@@ -1515,10 +1541,45 @@ export class ColorCycleBrushCanvas2D {
       // Keep stroke pressure response continuous across all stamp shapes.
       const pressureSize = this.resolvePressureBrushSize(pressure);
       
-      // Detailed paint debug removed
-      
-      const useStampDither = this.stampDitherEnabled;
       const primaryIndex = colorIndex;
+      if (!this.stampDitherEnabled && (strokeData.stampCounter % 4 === 0)) {
+        console.log('[cc-nodither-decision]', {
+          x,
+          y,
+          lastPoint: last ? { x: last.x, y: last.y } : null,
+          dx,
+          dy,
+          dist,
+          prevPhase,
+          nextPhase,
+          advancedPhase: nextPhase !== prevPhase,
+          prevColorIndex,
+          nextColorIndex,
+          gradientBands: this.gradientBands,
+          stampCounter: strokeData.stampCounter,
+          flowSlot,
+          speedSamplePxPerMs: speedSamplePxPerMs ?? null,
+          strokeCycleSpeed: strokeData.strokeCycleSpeed,
+          strokeSpeedByte: strokeData.strokeSpeedByte,
+        });
+      }
+      if (!this.stampDitherEnabled && dist === 0) {
+        console.log('[cc-nodither-zero-dist]', {
+          x,
+          y,
+          stampCounter: strokeData.stampCounter,
+          phase: strokeData.strokePhaseUnits,
+          colorIndex: nextColorIndex,
+        });
+        console.log('[cc-zero-dist-phase-check]', {
+          prevPhase,
+          nextPhase: strokeData.strokePhaseUnits,
+          advanced: strokeData.strokePhaseUnits !== prevPhase,
+          x,
+          y,
+          stampCounter: strokeData.stampCounter,
+        });
+      }
 
       // Paint with specific color index and pressure-modulated size
       if (useStampDither) {
@@ -1668,7 +1729,23 @@ export class ColorCycleBrushCanvas2D {
           perf.stampCounter += 1;
         }
       }
-      
+
+      if (!this.stampDitherEnabled && (strokeData.stampCounter % 4 === 0)) {
+        const sx = Math.max(0, Math.min(this.width - 1, Math.round(x)));
+        const sy = Math.max(0, Math.min(this.height - 1, Math.round(y)));
+        const si = sy * this.width + sx;
+
+        console.log('[cc-nodither-postpaint]', {
+          x: sx,
+          y: sy,
+          expectedColorIndex: nextColorIndex,
+          actualPaint: strokeData.buffers.paint[si],
+          actualGid: strokeData.buffers.gid[si],
+          actualSpd: strokeData.buffers.spd[si],
+          actualFlow: strokeData.buffers.flow[si],
+        });
+      }
+
       // Update tracking
       strokeData.lastPoint = { x, y };
       strokeData.stampCounter++;
@@ -2645,30 +2722,37 @@ export class ColorCycleBrushCanvas2D {
           this.bindStrokeBuffersToAnimator(strokeData, animator);
         } catch {}
       }
+      if (!this.stampDitherEnabled) {
+        strokeData.lastPoint = null;
+        strokeData.strokePhaseUnits = 0;
+        strokeData.stampCounter = 0;
+      }
       strokeData.flow.activeSlot = this.activeGradientSlots.get(id) ?? strokeData.flow.activeSlot ?? 0;
       strokeData.flow.mode = this.flowMode;
       strokeData.flow.encoded = true;
-      const seedSlot = strokeData.flow.activeSlot ?? 0;
-      const colorIndex = this.computeColorBandIndex(strokeData);
-      const seedPos = Math.max(0, Math.min(1, (colorIndex - 1) / 254));
-      const seedRgb = this.colorAtPosition(seedPos);
-      const nextSeed = this.hashStrokeDitherSeed(
-        seedRgb.r,
-        seedRgb.g,
-        seedRgb.b,
-        seedSlot,
-        this.strokeCounter
-      );
+      let nextSeed = 0;
+      if (this.stampDitherEnabled) {
+        const seedSlot = strokeData.flow.activeSlot ?? 0;
+        const colorIndex = this.computeColorBandIndex(strokeData);
+        const seedPos = Math.max(0, Math.min(1, (colorIndex - 1) / 254));
+        const seedRgb = this.colorAtPosition(seedPos);
+        nextSeed = this.hashStrokeDitherSeed(
+          seedRgb.r,
+          seedRgb.g,
+          seedRgb.b,
+          seedSlot,
+          this.strokeCounter
+        );
+      }
       if (clearBuffer && !this._isHistoryRestore) {
-        const preservedStampCounter = strokeData.stampCounter;
-        const preservedPhaseUnits = strokeData.strokePhaseUnits;
+        const preservedStampCounter = this.stampDitherEnabled ? strokeData.stampCounter : 0;
+        const preservedPhaseUnits = this.stampDitherEnabled ? strokeData.strokePhaseUnits : 0;
         strokeData.buffers.paint.fill(0);
         strokeData.buffers.gid.fill(0);
         strokeData.buffers.spd.fill(0);
         strokeData.buffers.flow.fill(0);
         strokeData.buffers.def.fill(0);
         strokeData.hasContent = false;
-        // Preserve stamp counter for continuous gradient flow between shapes
         strokeData.stampCounter = preservedStampCounter;
         strokeData.strokePhaseUnits = preservedPhaseUnits;
       }
@@ -2676,6 +2760,11 @@ export class ColorCycleBrushCanvas2D {
       strokeData.strokeCycleSpeed = strokeStartSpeed;
       strokeData.strokeSpeedByte = speedByte;
       strokeData.lastPoint = null;
+      console.log('[cc-stroke-begin]', {
+        stampCounter: strokeData.stampCounter,
+        phase: strokeData.strokePhaseUnits,
+        lastPoint: strokeData.lastPoint,
+      });
       if (this.stampDitherEnabled) {
         const perf = this.perfStroke;
         const stampState = this.ensureStampDitherState(strokeData);
@@ -2877,6 +2966,11 @@ export class ColorCycleBrushCanvas2D {
     }
 
     if (strokeData) {
+      console.log('[cc-stroke-end]', {
+        stampCounter: strokeData.stampCounter,
+        phase: strokeData.strokePhaseUnits,
+        lastPoint: strokeData.lastPoint,
+      });
       strokeData.lastPoint = null;
       strokeData.strokeCounter = this.strokeCounter;
 
