@@ -12,7 +12,7 @@ const port = Number.parseInt(process.env.PORT ?? '', 10) || DEFAULT_PORT;
 const host = process.env.HOST ?? '0.0.0.0';
 
 const projectRoot = path.resolve(process.cwd());
-const outDir = path.resolve(projectRoot, 'out');
+const outDir = path.resolve(projectRoot, process.env.PREVIEW_OUT_DIR ?? 'out');
 
 const MIME_TYPES = {
   '.html': 'text/html; charset=utf-8',
