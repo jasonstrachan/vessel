@@ -794,7 +794,7 @@ describe('ColorCycleBrushCanvas2D regression tests', () => {
     expect(strokeState.stampCounter).toBe(1);
   });
 
-  it('applies the non-dither baseline to shared custom stamp phase progression', () => {
+  it('advances captured-data custom stamp phase even when stamp dithering is off', () => {
     const canvas = makeCanvas(16, 16);
     const brush = new ColorCycleBrushCanvas2D(canvas, { forceCanvas2D: true });
     const layerId = 'layer-custom-non-dither-baseline';
@@ -830,13 +830,13 @@ describe('ColorCycleBrushCanvas2D regression tests', () => {
     }
 
     const data = animator.getIndexBuffers().data;
-    expect(data[4 + 4 * canvas.width]).toBe(2);
-    expect(data[5 + 4 * canvas.width]).toBe(3);
-    expect(strokeState.strokePhaseUnits).toBe(0);
+    expect(data[4 + 4 * canvas.width]).toBe(4);
+    expect(data[5 + 4 * canvas.width]).toBe(5);
+    expect(strokeState.strokePhaseUnits).toBe(3);
     expect(strokeState.stampCounter).toBe(3);
   });
 
-  it('uses one integer color index across non-dither custom stamp pixels', () => {
+  it('maps captured-data custom stamp pixels from their phase map when stamp dithering is off', () => {
     const canvas = makeCanvas(16, 16);
     const brush = new ColorCycleBrushCanvas2D(canvas, { forceCanvas2D: true });
     const layerId = 'layer-custom-non-dither-single-index';
@@ -873,7 +873,49 @@ describe('ColorCycleBrushCanvas2D regression tests', () => {
     const data = animator.getIndexBuffers().data;
     const y = 8 * canvas.width;
     const painted = [data[7 + y], data[8 + y], data[9 + y]].filter((value) => value > 0);
-    expect(new Set(painted)).toEqual(new Set([1]));
+    expect(new Set(painted)).toEqual(new Set([2, 3, 130]));
+  });
+
+  it('treats captured-data phase maps as 0-based and does not skip phase 0 pixels', () => {
+    const canvas = makeCanvas(16, 16);
+    const brush = new ColorCycleBrushCanvas2D(canvas, { forceCanvas2D: true });
+    const layerId = 'layer-custom-captured-zero-based';
+    const stamp = {
+      imageData: new ImageData(new Uint8ClampedArray([
+        255, 255, 255, 255,
+        255, 255, 255, 255,
+        255, 255, 255, 255,
+      ]), 3, 1),
+      width: 3,
+      height: 1,
+      colorCycle: {
+        schemaVersion: 2 as const,
+        mode: 'captured-data' as const,
+        sourceCycleLength: 256,
+        mapWidth: 3,
+        mapHeight: 1,
+        phaseMap: new Uint16Array([0, 1, 2]),
+      },
+    };
+
+    brush.setBrushSize(3);
+    brush.startStroke(layerId);
+    brush.paintCustomStamp(stamp, 8, 8, layerId, 1);
+    brush.endStroke(layerId);
+
+    const animator = (brush as unknown as {
+      animators: Map<string, { getIndexBuffers: () => { data: Uint8Array } }>;
+    }).animators.get(layerId);
+    if (!animator) {
+      throw new Error('Missing custom stamp zero-based animator');
+    }
+
+    const data = animator.getIndexBuffers().data;
+    const y = 8 * canvas.width;
+    expect(data[7 + y]).toBeGreaterThan(0);
+    expect(data[8 + y]).toBeGreaterThan(0);
+    expect(data[9 + y]).toBeGreaterThan(0);
+    expect(new Set([data[7 + y], data[8 + y], data[9 + y]])).toEqual(new Set([2, 3, 4]));
   });
 
   it('writes boosted speed bytes while keeping phase progression stamp-based', () => {

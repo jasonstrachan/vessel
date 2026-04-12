@@ -1908,13 +1908,16 @@ export class ColorCycleBrushCanvas2D {
       return;
     }
 
-    if (useStampDither) {
+    const isCapturedDataStamp =
+      stamp.colorCycle?.schemaVersion === 2 &&
+      stamp.colorCycle.mode === 'captured-data';
+    if (useStampDither || isCapturedDataStamp) {
       this.advanceStrokePhase(strokeData);
     }
-    const colorIndex = useStampDither
+    const fallbackColorIndex = useStampDither
       ? this.computeColorBandIndexPerStamp(strokeData)
       : this.getNonDitherStrokeColorIndex(strokeData);
-    const colorCycle = useStampDither ? stamp.colorCycle : undefined;
+    const colorCycle = stamp.colorCycle;
     const capturedPhaseMap =
       colorCycle?.schemaVersion === 2 && colorCycle.mode === 'captured-data'
         ? (
@@ -1934,7 +1937,6 @@ export class ColorCycleBrushCanvas2D {
     const phaseOffset = cycleSpan > 0
       ? Math.floor(((strokeData.strokePhaseUnits % cycleSpan) + cycleSpan) % cycleSpan)
       : 0;
-
     for (let py = 0; py < maskEntry.height; py++) {
       const targetY = originY + py;
       if (targetY < 0 || targetY >= this.height) continue;
@@ -1966,14 +1968,12 @@ export class ColorCycleBrushCanvas2D {
             )
           );
           const sourceIndex = capturedPhaseMap[srcY * capturedMapWidth + srcX] ?? 0;
-          if (sourceIndex <= 0) {
-            continue;
-          }
-          const mapped = ((Math.max(1, sourceIndex) - 1 + phaseOffset) % cycleSpan) + 1;
-          animator.setIndex(targetX, targetY, mapped, flowSlot);
+          const normalizedSource = Math.max(0, sourceIndex);
+          const mapped = (normalizedSource + phaseOffset) % cycleSpan;
+          animator.setIndex(targetX, targetY, mapped + 1, flowSlot);
           wrotePixels += 1;
         } else {
-          animator.setIndex(targetX, targetY, colorIndex, flowSlot);
+          animator.setIndex(targetX, targetY, fallbackColorIndex, flowSlot);
           wrotePixels += 1;
         }
       }
