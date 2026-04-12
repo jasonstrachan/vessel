@@ -481,7 +481,9 @@ export const createSelectionHandlers = (
 
     if (!hit) {
       deps.clearSelection();
-      return true;
+      // Let the same pointer-down start a replacement selection instead of
+      // forcing users to click once to clear and a second time to begin.
+      return false;
     }
 
     return false;

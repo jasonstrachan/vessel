@@ -752,7 +752,7 @@ describe('pointerHandlers main flows', () => {
     expect(deps.setShowBrushCursor).toHaveBeenCalledWith(false);
   });
 
-  it('clears selection when clicking outside marquee', () => {
+  it('clears selection and immediately starts a replacement marquee when clicking outside', () => {
     const { deps, dynamicDepsRef } = createDeps({
       tools: {
         ...baseDynamic.tools,
@@ -771,7 +771,9 @@ describe('pointerHandlers main flows', () => {
     handlers.handlePointerDown(makePointerEvent({ clientX: 90, clientY: 90 }));
 
     expect(deps.clearSelection).toHaveBeenCalledTimes(1);
-    expect(deps.isMouseDownRef.current).toBe(false);
+    expect(deps.setSelectionBounds).toHaveBeenCalledWith({ x: 90, y: 90 }, { x: 90, y: 90 });
+    expect(deps.interaction.dispatch).toHaveBeenCalledWith({ type: 'SELECTION_START' });
+    expect(deps.isMouseDownRef.current).toBe(true);
   });
 
   it('snaps marquee selection bounds to whole pixels on pointer up', () => {
@@ -1000,7 +1002,7 @@ describe('pointerHandlers main flows', () => {
     expect(deps.toolStateMachine.handleRectangleGradientMouseDown).not.toHaveBeenCalled();
   });
 
-  it('clears selection when mask hit test fails', () => {
+  it('clears mask selection and immediately starts a replacement marquee when hit test fails', () => {
     const mask = new ImageData(2, 2);
     mask.data.fill(0);
     const maskBounds = { x: 0, y: 0, width: 2, height: 2 };
@@ -1021,7 +1023,9 @@ describe('pointerHandlers main flows', () => {
     handlers.handlePointerDown(makePointerEvent({ clientX: 10, clientY: 10 }));
 
     expect(deps.clearSelection).toHaveBeenCalled();
-    expect(deps.isMouseDownRef.current).toBe(false);
+    expect(deps.setSelectionBounds).toHaveBeenCalledWith({ x: 10, y: 10 }, { x: 10, y: 10 });
+    expect(deps.interaction.dispatch).toHaveBeenCalledWith({ type: 'SELECTION_START' });
+    expect(deps.isMouseDownRef.current).toBe(true);
   });
 
   it('creates contiguous magic wand selection mask', () => {
