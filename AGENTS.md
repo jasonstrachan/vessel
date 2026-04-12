@@ -270,6 +270,12 @@ Agent Directives
 - Keep Vessel runtime behavior and Goblet export behavior in sync for animation/playback changes; update both paths and tests in the same change.
 - For color-cycle flat-fill bugfixes: do not introduce jitter/noise injection and do not change dither algorithm selection as a workaround; fix signal mapping/ink selection logic only.
 
+Ambiguity Handling
+
+- State assumptions explicitly when requirements are ambiguous.
+- If multiple reasonable interpretations exist, name them briefly before proceeding.
+- Push back on overcomplicated approaches when a simpler solution satisfies the goal.
+
 Specialist Assignment Guide
 
 - Frontend/Next.js: routes, metadata, basePath/assetPrefix, static export constraints.
