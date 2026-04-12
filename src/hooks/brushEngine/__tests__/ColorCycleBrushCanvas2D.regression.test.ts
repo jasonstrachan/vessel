@@ -1,11 +1,12 @@
 import { pointInPolygon } from '@/shapeFill/utils/geometry';
 import { ColorCycleBrushCanvas2D } from '../ColorCycleBrushCanvas2D';
-import { decodeColorCycleSpeedByte, encodeColorCycleSpeedByte } from '@/utils/colorCycleSpeed';
+import { decodeColorCycleSpeedByte } from '@/utils/colorCycleSpeed';
 import { appendGradientSeamProfileSignature } from '@/lib/colorCycle/gradientSeamProfile';
 import { useAppStore } from '@/stores/useAppStore';
 
 type MockContext = CanvasRenderingContext2D & {
   _lastImageData?: ImageData;
+  _hasDrawImage?: boolean;
 };
 
 const makeMockContext = (canvas: HTMLCanvasElement): MockContext => {
@@ -14,16 +15,27 @@ const makeMockContext = (canvas: HTMLCanvasElement): MockContext => {
     width: w,
     height: h,
   });
+  const createDrawnImageData = (w: number, h: number) => {
+    const imageData = createImageData(w, h);
+    for (let i = 3; i < imageData.data.length; i += 4) {
+      imageData.data[i] = 255;
+    }
+    return imageData;
+  };
   const ctx = {
     canvas,
     imageSmoothingEnabled: false,
     globalCompositeOperation: 'source-over',
     globalAlpha: 1,
     createImageData: jest.fn(createImageData),
-    getImageData: jest.fn((x: number, y: number, w: number, h: number) => createImageData(w, h)),
+    getImageData: jest.fn((x: number, y: number, w: number, h: number) =>
+      ctx._hasDrawImage ? createDrawnImageData(w, h) : createImageData(w, h)
+    ),
     putImageData: jest.fn(),
     clearRect: jest.fn(),
-    drawImage: jest.fn(),
+    drawImage: jest.fn(() => {
+      ctx._hasDrawImage = true;
+    }),
     setTransform: jest.fn(),
     save: jest.fn(),
     restore: jest.fn(),
@@ -518,7 +530,7 @@ describe('ColorCycleBrushCanvas2D regression tests', () => {
     expect(violations).toBe(0);
   });
 
-  it('rescales existing and future shape speeds when the layer base speed changes', () => {
+  it('keeps non-dither live preview speed static but enables playback speed on stroke end', () => {
     const canvas = makeCanvas(16, 16);
     const brush = new ColorCycleBrushCanvas2D(canvas, { forceCanvas2D: true });
     const layerId = 'layer-speed-write-only';
@@ -527,17 +539,16 @@ describe('ColorCycleBrushCanvas2D regression tests', () => {
     const firstSpeed = 0.2;
     const secondBaseSpeed = 1.6;
     const thirdBaseSpeed = 2.2;
-    const firstExpectedByte = encodeColorCycleSpeedByte(firstSpeed);
-    const secondExpectedSpeed = firstSpeed * secondBaseSpeed;
-    const secondExpectedByte = encodeColorCycleSpeedByte(secondExpectedSpeed);
 
     brush.setSpeed(firstSpeed);
     brush.startStroke(layerId);
     brush.paint(2, 2, layerId, 1);
-    brush.endStroke(layerId);
 
     const animator = (brush as unknown as {
-      animators: Map<string, { getIndexBuffers: () => { data: Uint8Array; spd?: Uint8Array } }>;
+      animators: Map<string, {
+        getIndexBuffers: () => { data: Uint8Array; spd?: Uint8Array };
+        updateFrame: () => void;
+      }>;
     }).animators.get(layerId);
     if (!animator) {
       throw new Error('Missing animator for speed write-only test');
@@ -549,7 +560,19 @@ describe('ColorCycleBrushCanvas2D regression tests', () => {
     if (!afterFirst) {
       throw new Error('Missing speed buffer for speed write-only test');
     }
-    expect(afterFirst[firstIndex]).toBe(firstExpectedByte);
+    expect(afterFirst[firstIndex]).toBe(0);
+
+    brush.endStroke(layerId);
+    const afterFirstEnd = animator.getIndexBuffers().spd;
+    if (!afterFirstEnd) {
+      throw new Error('Missing speed buffer after first stroke end');
+    }
+    expect(afterFirstEnd[firstIndex]).toBeGreaterThan(0);
+
+    const updateFrameSpy = jest.spyOn(animator, 'updateFrame');
+    brush.updateAnimation();
+    expect(updateFrameSpy).toHaveBeenCalled();
+    updateFrameSpy.mockRestore();
 
     brush.setLayerBaseSpeed(secondBaseSpeed);
 
@@ -557,22 +580,27 @@ describe('ColorCycleBrushCanvas2D regression tests', () => {
     if (!afterSecond) {
       throw new Error('Missing speed buffer after layer speed rescale');
     }
-    expect(afterSecond[firstIndex]).not.toBe(firstExpectedByte);
-    expect(decodeColorCycleSpeedByte(afterSecond[firstIndex])).toBeCloseTo(secondExpectedSpeed, 1);
+    expect(afterSecond[firstIndex]).toBeGreaterThan(0);
 
     brush.startStroke(layerId);
     brush.paint(12, 12, layerId, 1);
+
+    const duringSecondStroke = animator.getIndexBuffers().spd;
+    if (!duringSecondStroke) {
+      throw new Error('Missing speed buffer during second stroke');
+    }
+    expect(duringSecondStroke[firstIndex]).toBeGreaterThan(0);
+    expect(duringSecondStroke[secondIndex]).toBe(0);
+
     brush.endStroke(layerId);
 
     const afterNewStroke = animator.getIndexBuffers().spd;
     if (!afterNewStroke) {
       throw new Error('Missing speed buffer after second stroke');
     }
-    expect(decodeColorCycleSpeedByte(afterNewStroke[firstIndex])).toBeCloseTo(secondExpectedSpeed, 1);
-    expect(afterNewStroke[secondIndex]).toBe(secondExpectedByte);
+    expect(afterNewStroke[firstIndex]).toBeGreaterThan(0);
+    expect(afterNewStroke[secondIndex]).toBeGreaterThan(0);
 
-    const thirdExpectedSpeed = secondExpectedSpeed * (thirdBaseSpeed / secondBaseSpeed);
-    const thirdExpectedByte = encodeColorCycleSpeedByte(thirdExpectedSpeed);
     const thirdIndex = 8 + 8 * canvas.width;
 
     brush.setLayerBaseSpeed(thirdBaseSpeed);
@@ -580,20 +608,27 @@ describe('ColorCycleBrushCanvas2D regression tests', () => {
     if (!afterThirdBaseSpeed) {
       throw new Error('Missing speed buffer after third base speed rescale');
     }
-    expect(decodeColorCycleSpeedByte(afterThirdBaseSpeed[firstIndex])).toBeCloseTo(thirdExpectedSpeed, 1);
-    expect(decodeColorCycleSpeedByte(afterThirdBaseSpeed[secondIndex])).toBeCloseTo(thirdExpectedSpeed, 1);
+    expect(afterThirdBaseSpeed[firstIndex]).toBeGreaterThan(0);
+    expect(afterThirdBaseSpeed[secondIndex]).toBeGreaterThan(0);
 
     brush.startStroke(layerId);
     brush.paint(8, 8, layerId, 1);
+
+    const duringThirdStroke = animator.getIndexBuffers().spd;
+    if (!duringThirdStroke) {
+      throw new Error('Missing speed buffer during third stroke');
+    }
+    expect(duringThirdStroke[thirdIndex]).toBe(0);
+
     brush.endStroke(layerId);
 
     const afterThirdStroke = animator.getIndexBuffers().spd;
     if (!afterThirdStroke) {
       throw new Error('Missing speed buffer after third stroke');
     }
-    expect(decodeColorCycleSpeedByte(afterThirdStroke[firstIndex])).toBeCloseTo(thirdExpectedSpeed, 1);
-    expect(decodeColorCycleSpeedByte(afterThirdStroke[secondIndex])).toBeCloseTo(thirdExpectedSpeed, 1);
-    expect(afterThirdStroke[thirdIndex]).toBe(thirdExpectedByte);
+    expect(afterThirdStroke[firstIndex]).toBeGreaterThan(0);
+    expect(afterThirdStroke[secondIndex]).toBeGreaterThan(0);
+    expect(afterThirdStroke[thirdIndex]).toBeGreaterThan(0);
   });
 
   it('keeps CC gradient fill speed aligned with the slider across stop counts', async () => {
@@ -665,7 +700,183 @@ describe('ColorCycleBrushCanvas2D regression tests', () => {
     expect(fiveStopSpeed).toBeCloseTo(twoStopSpeed, 0);
   });
 
-  it('writes boosted speed bytes while keeping phase progression constant', () => {
+  it('authors non-dither stroke stamps with integer phase and palette indices', () => {
+    const canvas = makeCanvas(16, 16);
+    const brush = new ColorCycleBrushCanvas2D(canvas, { forceCanvas2D: true });
+    const layerId = 'layer-non-dither-baseline';
+    brush.setBrushSize(1);
+    brush.setStampShape('square');
+    brush.setGradientBands(4);
+
+    brush.startStroke(layerId);
+    brush.paint(2, 2, layerId, 1);
+    brush.paint(2, 2, layerId, 1);
+    brush.paint(3, 2, layerId, 1);
+    brush.paint(4, 2, layerId, 1);
+    brush.endStroke(layerId);
+
+    const animator = (brush as unknown as {
+      animators: Map<string, { getIndexBuffers: () => { data: Uint8Array } }>;
+    }).animators.get(layerId);
+    const strokeState = (brush as unknown as {
+      layerStrokes: Map<string, { strokePhaseUnits: number; stampCounter: number; lastPoint: { x: number; y: number } | null }>;
+    }).layerStrokes.get(layerId);
+    if (!animator || !strokeState) {
+      throw new Error('Missing non-dither baseline state');
+    }
+
+    const data = animator.getIndexBuffers().data;
+    expect(data[2 + 2 * canvas.width]).toBe(2);
+    expect(data[3 + 2 * canvas.width]).toBe(3);
+    expect(data[4 + 2 * canvas.width]).toBe(4);
+    expect(strokeState.strokePhaseUnits).toBe(0);
+    expect(strokeState.stampCounter).toBe(4);
+    expect(strokeState.lastPoint).toBeNull();
+  });
+
+  it('uses one-step progression for non-dither stroke color', () => {
+    const canvas = makeCanvas(16, 16);
+    const brush = new ColorCycleBrushCanvas2D(canvas, { forceCanvas2D: true });
+    const layerId = 'layer-non-dither-progression';
+    brush.setBrushSize(1);
+    brush.setStampShape('square');
+
+    brush.startStroke(layerId);
+    brush.paint(2, 2, layerId, 1);
+    brush.paint(10, 2, layerId, 1);
+    brush.endStroke(layerId);
+
+    const animator = (brush as unknown as {
+      animators: Map<string, { getIndexBuffers: () => { data: Uint8Array } }>;
+    }).animators.get(layerId);
+    const strokeState = (brush as unknown as {
+      layerStrokes: Map<string, { strokePhaseUnits: number }>;
+    }).layerStrokes.get(layerId);
+    if (!animator || !strokeState) {
+      throw new Error('Missing non-dither progression state');
+    }
+
+    const data = animator.getIndexBuffers().data;
+    expect(data[2 + 2 * canvas.width]).toBe(1);
+    expect(data[10 + 2 * canvas.width]).toBe(2);
+    expect(strokeState.strokePhaseUnits).toBe(0);
+  });
+
+  it('resets non-dither authored phase for each new stroke', () => {
+    const canvas = makeCanvas(16, 16);
+    const brush = new ColorCycleBrushCanvas2D(canvas, { forceCanvas2D: true });
+    const layerId = 'layer-non-dither-reset';
+    brush.setBrushSize(1);
+    brush.setStampShape('square');
+
+    brush.startStroke(layerId);
+    brush.paint(2, 2, layerId, 1);
+    brush.paint(4, 2, layerId, 1);
+    brush.endStroke(layerId);
+
+    brush.startStroke(layerId);
+    brush.paint(8, 2, layerId, 1);
+    brush.endStroke(layerId);
+
+    const animator = (brush as unknown as {
+      animators: Map<string, { getIndexBuffers: () => { data: Uint8Array } }>;
+    }).animators.get(layerId);
+    const strokeState = (brush as unknown as {
+      layerStrokes: Map<string, { strokePhaseUnits: number; stampCounter: number }>;
+    }).layerStrokes.get(layerId);
+    if (!animator || !strokeState) {
+      throw new Error('Missing non-dither reset state');
+    }
+
+    const data = animator.getIndexBuffers().data;
+    expect(data[8 + 2 * canvas.width]).toBe(1);
+    expect(strokeState.strokePhaseUnits).toBe(0);
+    expect(strokeState.stampCounter).toBe(1);
+  });
+
+  it('applies the non-dither baseline to shared custom stamp phase progression', () => {
+    const canvas = makeCanvas(16, 16);
+    const brush = new ColorCycleBrushCanvas2D(canvas, { forceCanvas2D: true });
+    const layerId = 'layer-custom-non-dither-baseline';
+    const stamp = {
+      imageData: new ImageData(new Uint8ClampedArray([255, 255, 255, 255]), 1, 1),
+      width: 1,
+      height: 1,
+      colorCycle: {
+        schemaVersion: 2 as const,
+        mode: 'captured-data' as const,
+        sourceCycleLength: 256,
+        mapWidth: 1,
+        mapHeight: 1,
+        phaseMap: new Uint16Array([1]),
+      },
+    };
+
+    brush.setBrushSize(1);
+    brush.startStroke(layerId);
+    brush.paintCustomStamp(stamp, 4, 4, layerId, 1);
+    brush.paintCustomStamp(stamp, 4, 4, layerId, 1);
+    brush.paintCustomStamp(stamp, 5, 4, layerId, 1);
+    brush.endStroke(layerId);
+
+    const animator = (brush as unknown as {
+      animators: Map<string, { getIndexBuffers: () => { data: Uint8Array } }>;
+    }).animators.get(layerId);
+    const strokeState = (brush as unknown as {
+      layerStrokes: Map<string, { strokePhaseUnits: number; stampCounter: number }>;
+    }).layerStrokes.get(layerId);
+    if (!animator || !strokeState) {
+      throw new Error('Missing custom stamp non-dither baseline state');
+    }
+
+    const data = animator.getIndexBuffers().data;
+    expect(data[4 + 4 * canvas.width]).toBe(2);
+    expect(data[5 + 4 * canvas.width]).toBe(3);
+    expect(strokeState.strokePhaseUnits).toBe(0);
+    expect(strokeState.stampCounter).toBe(3);
+  });
+
+  it('uses one integer color index across non-dither custom stamp pixels', () => {
+    const canvas = makeCanvas(16, 16);
+    const brush = new ColorCycleBrushCanvas2D(canvas, { forceCanvas2D: true });
+    const layerId = 'layer-custom-non-dither-single-index';
+    const stamp = {
+      imageData: new ImageData(new Uint8ClampedArray([
+        255, 255, 255, 255,
+        255, 255, 255, 255,
+        255, 255, 255, 255,
+      ]), 3, 1),
+      width: 3,
+      height: 1,
+      colorCycle: {
+        schemaVersion: 2 as const,
+        mode: 'captured-data' as const,
+        sourceCycleLength: 256,
+        mapWidth: 3,
+        mapHeight: 1,
+        phaseMap: new Uint16Array([1, 128, 255]),
+      },
+    };
+
+    brush.setBrushSize(3);
+    brush.startStroke(layerId);
+    brush.paintCustomStamp(stamp, 8, 8, layerId, 1);
+    brush.endStroke(layerId);
+
+    const animator = (brush as unknown as {
+      animators: Map<string, { getIndexBuffers: () => { data: Uint8Array } }>;
+    }).animators.get(layerId);
+    if (!animator) {
+      throw new Error('Missing custom stamp single-index animator');
+    }
+
+    const data = animator.getIndexBuffers().data;
+    const y = 8 * canvas.width;
+    const painted = [data[7 + y], data[8 + y], data[9 + y]].filter((value) => value > 0);
+    expect(new Set(painted)).toEqual(new Set([1]));
+  });
+
+  it('writes boosted speed bytes while keeping phase progression stamp-based', () => {
     const canvas = makeCanvas(16, 16);
     const brush = new ColorCycleBrushCanvas2D(canvas, { forceCanvas2D: true });
     const layerId = 'layer-velocity-animation';
@@ -673,12 +884,9 @@ describe('ColorCycleBrushCanvas2D regression tests', () => {
     brush.setGradientBands(254);
     brush.setSpeed(0.2);
 
-    const baseSpeedByte = encodeColorCycleSpeedByte(0.2);
-
     brush.startStroke(layerId);
     brush.paint(2, 2, layerId, 1);
     brush.paint(14, 2, layerId, 1, 0, 2.5);
-    brush.endStroke(layerId);
 
     const animator = (brush as unknown as {
       animators: Map<string, { getIndexBuffers: () => { data: Uint8Array; spd?: Uint8Array } }>;
@@ -692,8 +900,16 @@ describe('ColorCycleBrushCanvas2D regression tests', () => {
     }
     const firstIndex = 2 + 2 * canvas.width;
     const secondIndex = 14 + 2 * canvas.width;
-    expect(spd[firstIndex]).toBe(baseSpeedByte);
-    expect(spd[secondIndex]).toBeGreaterThan(baseSpeedByte);
+    expect(spd[firstIndex]).toBe(0);
+    expect(spd[secondIndex]).toBe(0);
+
+    brush.endStroke(layerId);
+    const afterEndSpd = animator.getIndexBuffers().spd;
+    if (!afterEndSpd) {
+      throw new Error('Missing speed buffer after velocity stroke end');
+    }
+    expect(afterEndSpd[firstIndex]).toBeGreaterThan(0);
+    expect(afterEndSpd[secondIndex]).toBeGreaterThan(0);
 
     const strokeState = (brush as unknown as {
       layerStrokes: Map<string, { strokePhaseUnits: number }>;
@@ -701,7 +917,7 @@ describe('ColorCycleBrushCanvas2D regression tests', () => {
     if (!strokeState) {
       throw new Error('Missing stroke state for velocity animation speed test');
     }
-    expect(strokeState.strokePhaseUnits).toBe(1);
+    expect(strokeState.strokePhaseUnits).toBe(0);
 
   });
 

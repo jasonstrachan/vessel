@@ -425,7 +425,7 @@ export const runCcDitherPreviewRuntime = (args: {
     canReplayCurrentPreview: Boolean(canReplayCurrentPreview),
     shouldDrawCachedPreview: Boolean(shouldDrawCachedPreview),
   });
-  const suppressLivePreviewChrome = false;
+  const suppressLivePreviewChrome = shouldUseCustomFill;
 
   if (shouldDrawCachedPreview && ditherGradPreviewState.ccLastCanvas && ditherGradPreviewState.ccLastOrigin) {
     overlayCtx.save();

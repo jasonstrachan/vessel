@@ -4,6 +4,20 @@ jest.mock('@/stores/ccRuntime', () => ({
   syncCCRuntimes: jest.fn(),
 }));
 
+jest.mock('@/hooks/brushEngine/ccGradientApplyScheduler', () => ({
+  __esModule: true,
+  requestGradientApply: jest.fn(),
+}));
+
+jest.mock('@/utils/colorCycleSlotGC', () => ({
+  __esModule: true,
+  rebuildGradientSlotUsageAndGC: jest.fn(() => ({
+    layers: [],
+    removedSlotsByLayer: new Map(),
+  })),
+  buildDefaultReservedSlots: jest.fn(() => new Set()),
+}));
+
 import { createLayersSlice } from '@/stores/slices/layersSlice';
 import { createSliceTestStore } from '@/stores/__tests__/sliceTestUtils';
 
