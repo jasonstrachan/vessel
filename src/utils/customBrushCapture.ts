@@ -360,9 +360,12 @@ const cropPaintPhaseMap = (
   const { width: canvasWidth, height: canvasHeight } = resolveCycleCanvasSize(layer);
   const brush = colorCycleBrushManager.getLayerColorCycleBrush(layer.id);
   const snapshot = brush?.getLayerSnapshot?.(layer.id);
+  const persistedBuffer = layer.colorCycleData?.gradientIdBuffer;
   const sourceBuffer =
     snapshot?.paintBuffer && snapshot.paintBuffer.byteLength > 0
       ? snapshot.paintBuffer
+      : persistedBuffer && persistedBuffer.byteLength > 0
+        ? persistedBuffer
       : undefined;
   if (!sourceBuffer) {
     return undefined;

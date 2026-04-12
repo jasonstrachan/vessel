@@ -85,6 +85,42 @@ describe('captureColorCycleDataFromLayer', () => {
     expect(capture?.indexMap).toBeUndefined();
   });
 
+  it('falls back to persisted gradientIdBuffer when the runtime paintBuffer is missing', () => {
+    getLayerColorCycleBrush.mockReturnValue({
+      getLayerSnapshot: () => ({
+        paintBuffer: new ArrayBuffer(0),
+      }),
+    });
+
+    const capture = captureColorCycleDataFromLayer({
+      activeLayer: createLayer(),
+      sampleAllLayers: false,
+      bounds: { x: 0, y: 0, width: 2, height: 2 },
+      captureResult: {
+        imageData: new ImageData(
+          new Uint8ClampedArray([
+            255, 255, 255, 255,
+            255, 255, 255, 255,
+            255, 255, 255, 255,
+            255, 255, 255, 255,
+          ]),
+          2,
+          2
+        ),
+        width: 2,
+        height: 2,
+        naturalWidth: 2,
+        naturalHeight: 2,
+        maxDimension: 2,
+      },
+    });
+
+    expect(capture?.schemaVersion).toBe(2);
+    expect(capture?.mode).toBe('captured-data');
+    expect(Array.from(capture?.phaseMap ?? [])).toEqual([9, 9, 9, 9]);
+    expect(capture?.indexMap).toBeUndefined();
+  });
+
   it('captures gradient from active slot palette when defs are present', () => {
     getLayerColorCycleBrush.mockReturnValue({
       getLayerSnapshot: () => ({
