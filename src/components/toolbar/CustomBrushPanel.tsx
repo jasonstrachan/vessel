@@ -349,11 +349,12 @@ export const CustomBrushPanel = () => {
     
     // Add the brush to the project
     addCustomBrush(permanentBrush);
-    
-    
+
     // Update brush settings to use the new permanent brush at 100% size
-    try { console.log('[CUSTOM/BRUSH] saving brush', { id: permanentBrush.id, w: permanentBrush.width, h: permanentBrush.height }); } catch {}
-    const normalizedSize = Math.max(1, Math.round(permanentBrush.maxDimension ?? Math.max(permanentBrush.width, permanentBrush.height)));
+    const normalizedSize = Math.max(
+      1,
+      Math.round(permanentBrush.maxDimension ?? Math.max(permanentBrush.width, permanentBrush.height))
+    );
     setGlobalBrushSize(normalizedSize);
     setBrushSettings({
       brushShape: BrushShape.CUSTOM,
