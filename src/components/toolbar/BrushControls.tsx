@@ -2614,49 +2614,46 @@ const BrushControls = () => {
                 px
               </span>
             </div>
-            <div className="mt-2 pl-[72px]">
-              <div className="flex items-center gap-2">
-                <label
-                  htmlFor="rounded-corners-enabled-cc"
-                  className="text-[#D9D9D9]"
-                  style={{ fontSize: '13px' }}
-                >
-                  rounded
-                </label>
-                <CustomSwitch
-                  id="rounded-corners-enabled-cc"
-                  checked={activeSettings.roundedCornersEnabled || false}
-                  onChange={(checked) => setActiveSettings({ roundedCornersEnabled: checked })}
-                />
+            {activeSettings.gridSnapEnabled && (
+              <div className="mt-2">
+                <div className="flex items-center gap-2">
+                  <label
+                    htmlFor="rounded-corners-enabled-cc"
+                    className="w-16 text-[#D9D9D9]"
+                    style={{ fontSize: '13px' }}
+                  >
+                    Rounded
+                  </label>
+                  <CustomSwitch
+                    id="rounded-corners-enabled-cc"
+                    checked={activeSettings.roundedCornersEnabled || false}
+                    onChange={(checked) => setActiveSettings({ roundedCornersEnabled: checked })}
+                  />
+                  <Input
+                    id="corner-radius-px-cc"
+                    type="number"
+                    variant="compact"
+                    value={Math.max(1, Math.round(activeSettings.cornerRadiusPx ?? 8))}
+                    onChange={(e) => {
+                      const next = Number(e.target.value);
+                      if (!Number.isFinite(next)) return;
+                      setActiveSettings({ cornerRadiusPx: Math.max(1, Math.min(256, Math.round(next))) });
+                    }}
+                    min="1"
+                    max="256"
+                    className="w-14 bg-transparent text-right"
+                    title="Rounded corner radius in pixels"
+                  />
+                  <label
+                    htmlFor="corner-radius-px-cc"
+                    className="text-[#D9D9D9]"
+                    style={{ fontSize: '13px' }}
+                  >
+                    Radius
+                  </label>
+                </div>
               </div>
-              <div className="mt-2 flex items-center gap-2">
-                <label
-                  htmlFor="corner-radius-px-cc"
-                  className="text-[#D9D9D9]"
-                  style={{ fontSize: '13px' }}
-                >
-                  cradius
-                </label>
-                <Input
-                  id="corner-radius-px-cc"
-                  type="number"
-                  variant="compact"
-                  value={Math.max(1, Math.round(activeSettings.cornerRadiusPx ?? 8))}
-                  onChange={(e) => {
-                    const next = Number(e.target.value);
-                    if (!Number.isFinite(next)) return;
-                    setActiveSettings({ cornerRadiusPx: Math.max(1, Math.min(256, Math.round(next))) });
-                  }}
-                  min="1"
-                  max="256"
-                  className="w-14 bg-transparent text-right"
-                  title="Rounded corner radius in pixels"
-                />
-                <span className="text-[#D9D9D9]" style={{ fontSize: '12px' }}>
-                  px
-                </span>
-              </div>
-            </div>
+            )}
           </div>
         )}
       </div>
