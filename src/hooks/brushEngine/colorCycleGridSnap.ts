@@ -38,6 +38,15 @@ export const snapPointToColorCycleGrid = (
   getColorCycleGridSnapSpacing(gridSnapSize),
 );
 
+export const snapPointToRectangularColorCycleGrid = (
+  point: { x: number; y: number },
+  gridWidth: number,
+  gridHeight: number
+): { x: number; y: number } => ({
+  x: snapToGridPure(point.x, point.y, Math.max(1, gridWidth)).x,
+  y: snapToGridPure(point.x, point.y, Math.max(1, gridHeight)).y,
+});
+
 export const snapVerticesToColorCycleGrid = (
   vertices: Array<{ x: number; y: number }>,
   settings: ColorCycleGridSnapSettings
@@ -84,6 +93,29 @@ export const rasterizeGridLinePoints = (
   }
 
   return points;
+};
+
+export const rasterizeRectangularGridLinePoints = (
+  from: GridSnapPoint,
+  to: GridSnapPoint,
+  gridWidth: number,
+  gridHeight: number
+): GridSnapPoint[] => {
+  const safeGridWidth = Math.max(1, Math.round(gridWidth));
+  const safeGridHeight = Math.max(1, Math.round(gridHeight));
+  const fromCell = {
+    x: Math.round(from.x / safeGridWidth),
+    y: Math.round(from.y / safeGridHeight),
+  };
+  const toCell = {
+    x: Math.round(to.x / safeGridWidth),
+    y: Math.round(to.y / safeGridHeight),
+  };
+
+  return rasterizeGridLinePoints(fromCell, toCell).map((point) => ({
+    x: point.x * safeGridWidth,
+    y: point.y * safeGridHeight,
+  }));
 };
 
 const resolveSegmentAxis = (
