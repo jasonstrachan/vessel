@@ -1,6 +1,7 @@
 'use client';
 
 import CustomSwitch from '@/components/ui/CustomSwitch';
+import DimensionsBox from '@/components/ui/DimensionsBox';
 import { useAppStore } from '@/stores/useAppStore';
 import { selectCustomBrushes } from '@/stores/selectors/projectSelectors';
 import {
@@ -13,7 +14,7 @@ import {
 import { selectSelectionRects } from '@/stores/selectors/pasteSelectors';
 import { selectActiveLayer } from '@/stores/selectors/layersSelectors';
 import { CustomBrush, BrushShape } from '@/types';
-import { useEffect, useCallback, useState } from 'react';
+import { useEffect, useCallback, useMemo, useState } from 'react';
 import { brushCache } from '@/utils/brushCache';
 import { scaledBrushCache } from '@/utils/scaledBrushCache';
 import {
@@ -390,6 +391,13 @@ export const CustomBrushPanel = () => {
     ? Boolean(selectionStart && selectionEnd)
     : Boolean(freehandPath && freehandPath.points.length >= 3);
   const hasTemporaryBrush = !!temporaryCustomBrush;
+  const captureBounds = useMemo(() => {
+    if (captureMode === 'rectangle') {
+      return selectionToCaptureBounds(selectionStart, selectionEnd);
+    }
+
+    return freehandPath?.bounds ?? null;
+  }, [captureMode, freehandPath?.bounds, selectionEnd, selectionStart]);
 
   return (
     <div className="p-4 bg-[#2a2a2a] border-t border-[#404040]">
@@ -454,6 +462,14 @@ export const CustomBrushPanel = () => {
           onChange={setCustomBrushSampleAllLayers}
         />
       </div>
+      {captureBounds ? (
+        <DimensionsBox
+          label={captureMode === 'rectangle' ? 'Selection' : 'Capture bounds'}
+          width={captureBounds.width}
+          height={captureBounds.height}
+          className="mt-3"
+        />
+      ) : null}
       {/* Show temporary brush preview if available */}
       {hasTemporaryBrush && (
         <div className="mt-4 p-3 bg-[#1a1a1a] rounded">

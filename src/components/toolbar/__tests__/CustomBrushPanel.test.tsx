@@ -256,6 +256,13 @@ describe('CustomBrushPanel CC capture hint', () => {
     expect(tempBrushArg.colorCycle).toBeUndefined();
   });
 
+  it('shows selection dimensions for rectangle capture', () => {
+    render(<CustomBrushPanel />);
+
+    expect(screen.getByText('Selection')).toBeInTheDocument();
+    expect(screen.getByText('4×4')).toBeInTheDocument();
+  });
+
   it('shows CC import hint for freehand capture from active color-cycle layer', async () => {
     (useAppStore as unknown as { setState: (partial: unknown) => void }).setState((state: MockState) => ({
       ...state,
@@ -295,6 +302,35 @@ describe('CustomBrushPanel CC capture hint', () => {
     const setCurrentTool =
       (useAppStore as unknown as { getState: () => MockState }).getState().setCurrentTool as jest.Mock;
     expect(setCurrentTool).toHaveBeenCalledWith('brush');
+  });
+
+  it('shows capture bounds dimensions for freehand capture', () => {
+    (useAppStore as unknown as { setState: (partial: unknown) => void }).setState((state: MockState) => ({
+      ...state,
+      currentOffscreenCanvas: null,
+      selectionStart: null,
+      selectionEnd: null,
+      tools: {
+        ...state.tools,
+        customBrushCapture: {
+          ...state.tools.customBrushCapture,
+          mode: 'freehand',
+          freehandPath: {
+            points: [
+              { x: 0, y: 0 },
+              { x: 8, y: 0 },
+              { x: 4, y: 6 },
+            ],
+            bounds: { x: 1, y: 2, width: 8, height: 6 },
+          },
+        },
+      },
+    }));
+
+    render(<CustomBrushPanel />);
+
+    expect(screen.getByText('Capture bounds')).toBeInTheDocument();
+    expect(screen.getByText('8×6')).toBeInTheDocument();
   });
 
   it('falls back to image-derived captured payload when layer map extraction is unavailable', async () => {

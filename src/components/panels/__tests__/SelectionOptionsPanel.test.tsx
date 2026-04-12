@@ -96,6 +96,33 @@ describe('SelectionOptionsPanel', () => {
     expect(screen.getByRole('spinbutton', { name: 'Expand pixels' })).toBeInTheDocument();
   });
 
+  it('shows marquee selection dimensions in the panel', () => {
+    act(() => {
+      useAppStore.setState((state) => ({
+        ...state,
+        project: {
+          id: 'selection-dimensions-project',
+          name: 'Selection Dimensions Project',
+          width: 20,
+          height: 20,
+          layers: [],
+          backgroundColor: '#000000',
+          createdAt: new Date(),
+          updatedAt: new Date(),
+          customBrushes: [],
+        },
+        tools: { ...state.tools, currentTool: 'selection', selectionMode: 'marquee' },
+        selectionStart: { x: 2, y: 4 },
+        selectionEnd: { x: 11, y: 10 },
+      }));
+    });
+
+    render(<BrushSettingsPanel />);
+
+    expect(screen.getByText('9×6')).toBeInTheDocument();
+    expect(screen.getByText('px')).toBeInTheDocument();
+  });
+
   it('enters crop mode from marquee settings using the current selection bounds', () => {
     act(() => {
       useAppStore.setState((state) => ({

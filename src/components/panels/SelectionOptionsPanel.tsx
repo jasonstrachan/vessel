@@ -3,6 +3,7 @@
 import React from 'react';
 import ButtonGroup from '@/components/ui/ButtonGroup';
 import CommittedNumberInput from '@/components/ui/CommittedNumberInput';
+import DimensionsBox from '@/components/ui/DimensionsBox';
 import MagicWandControls from '@/components/toolbar/MagicWandControls';
 import { clampMarqueeDragRectToBounds } from '@/stores/helpers/selectionRoi';
 import { useAppStore } from '@/stores/useAppStore';
@@ -135,6 +136,14 @@ const SelectionOptionsPanel: React.FC = () => {
         onChange={(value) => setSelectionMode(value as SelectionMode)}
         size="sm"
       />
+      {selectionMode === 'marquee' && marqueeSelectionRect ? (
+        <DimensionsBox
+          label="Selection"
+          width={marqueeSelectionRect.width}
+          height={marqueeSelectionRect.height}
+          className="mt-3"
+        />
+      ) : null}
       <div className="mt-3 grid grid-cols-2 gap-2">
         <button
           type="button"
