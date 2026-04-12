@@ -220,6 +220,35 @@ describe('tools slice', () => {
     expect(saved?.mosaicDitherEnabled).toBe(true);
   });
 
+  it('persists custom brush snap in brush-specific settings', () => {
+    const store = useAppStore.getState();
+    const customBrush: CustomBrush = {
+      id: 'grid-tip',
+      name: 'Grid Tip',
+      imageData: new ImageData(12, 6),
+      width: 12,
+      height: 6,
+      createdAt: Date.now(),
+      thumbnail: '',
+      naturalWidth: 12,
+      naturalHeight: 6,
+      maxDimension: 12,
+    };
+
+    store.addCustomBrush(customBrush);
+    store.setBrushPreset(createCustomBrushPreset(customBrush));
+    store.setBrushSettings({ customBrushSnapEnabled: true });
+
+    const state = useAppStore.getState();
+    const presetId = state.currentBrushPreset?.id;
+    expect(state.tools.brushSettings.customBrushSnapEnabled).toBe(true);
+    expect(presetId).toBe(`custom_${customBrush.id}`);
+    if (!presetId) {
+      return;
+    }
+    expect(state.brushSpecificSettings[presetId]?.customBrushSnapEnabled).toBe(true);
+  });
+
   it('keeps eraser size in sync when linking to brush size', () => {
     const store = useAppStore.getState();
     store.setGlobalBrushSize(18);

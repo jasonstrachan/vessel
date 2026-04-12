@@ -5,7 +5,9 @@ import {
   buildRoundedGridStrokePath,
   getColorCycleGridSnapSpacing,
   rasterizeGridLinePoints,
+  rasterizeRectangularGridLinePoints,
   snapPointToColorCycleGrid,
+  snapPointToRectangularColorCycleGrid,
   type GridSnapPoint,
 } from './colorCycleGridSnap';
 import {
@@ -219,6 +221,7 @@ type DrawColorCycleArgs = {
     | 'colorCycleGradient'
     | 'gridSnapEnabled'
     | 'gridSnapSize'
+    | 'customBrushSnapEnabled'
     | 'roundedCornersEnabled'
     | 'cornerRadiusPx'
     | 'pressureEnabled'
@@ -330,6 +333,28 @@ export const drawColorCycleStroke = ({
       brushSizeSetting = 1;
     }
 
+    const resolveCustomSnapSpacing = (): { x: number; y: number } | null => {
+      if (!brushSettings.customBrushSnapEnabled || !options?.customStamp) {
+        return null;
+      }
+
+      const width = Number(options.customStamp.width);
+      const height = Number(options.customStamp.height);
+      if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
+        return null;
+      }
+
+      const maxDimension = Math.max(width, height);
+      if (maxDimension <= 0) {
+        return null;
+      }
+
+      return {
+        x: Math.max(1, Math.round((width * brushSizeSetting) / maxDimension)),
+        y: Math.max(1, Math.round((height * brushSizeSetting) / maxDimension)),
+      };
+    };
+
     colorCycleBrush.setBrushSize(brushSizeSetting);
 
     const layerId = activeLayerId;
@@ -429,6 +454,58 @@ export const drawColorCycleStroke = ({
         colorCycleBrush.paint(paintX, paintY, layerId, pressure, rotation);
       }
     };
+
+    const customSnapSpacing = resolveCustomSnapSpacing();
+    if (customSnapSpacing) {
+      const snappedPoint = snapPointToRectangularColorCycleGrid(
+        { x, y },
+        customSnapSpacing.x,
+        customSnapSpacing.y,
+      );
+      const previousPoint = gridSnapStrokePointRef.current;
+      const hasAdvancedAnchor = !(
+        previousPoint &&
+        previousPoint.x === snappedPoint.x &&
+        previousPoint.y === snappedPoint.y
+      );
+      const pathPoints = hasAdvancedAnchor
+        ? (previousPoint
+          ? rasterizeRectangularGridLinePoints(
+            previousPoint,
+            snappedPoint,
+            customSnapSpacing.x,
+            customSnapSpacing.y,
+          ).slice(1)
+          : [snappedPoint])
+        : [];
+
+      if (hasAdvancedAnchor) {
+        for (const point of pathPoints) {
+          paintStrokePoint(point.x, point.y);
+        }
+        gridSnapStrokePointRef.current = snappedPoint;
+      }
+
+      const renderCustomSnapPreview = () => {
+        mirrorScheduledRef.current = false;
+        ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
+        renderColorCycle(ctx, true, { withOverlay: false });
+      };
+
+      if (firstStampImmediateRef.current) {
+        firstStampImmediateRef.current = false;
+        renderCustomSnapPreview();
+      } else if (!mirrorScheduledRef.current) {
+        mirrorScheduledRef.current = true;
+        if (typeof requestAnimationFrame === 'function') {
+          requestAnimationFrame(renderCustomSnapPreview);
+        } else {
+          renderCustomSnapPreview();
+        }
+      }
+
+      return;
+    }
 
     if (brushSettings.gridSnapEnabled) {
       const snappedPoint = snapPointToColorCycleGrid(

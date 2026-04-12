@@ -323,6 +323,69 @@ describe('colorCycleDrawController', () => {
     expect(paintedPoints.length).toBe(25);
   });
 
+  it('snaps custom stamps on color-cycle layers using rectangular stamp spacing', () => {
+    const ctx = createCtx();
+    const brush = createBrush();
+    const gridSnapStrokePointRef = { current: null as { x: number; y: number } | null };
+
+    const baseArgs = {
+      ctx,
+      activeLayerId: 'layer-1',
+      activeLayerTransparencyLock: false,
+      getActiveLayerColorCycleBrush: () => brush as unknown as ColorCycleBrushImplementation,
+      getActiveLayerBitmapCanvas: () => null,
+      maskHasAlphaNear: jest.fn(() => true),
+      resolveBrushPressureRange: () => ({ enabled: false, minPercent: 100, maxPercent: 100 }),
+      requestGradientApply: jest.fn(),
+      flushGradientApply: jest.fn(),
+      renderColorCycle: jest.fn(),
+      firstStampImmediateRef: { current: true },
+      mirrorScheduledRef: { current: false },
+      gridSnapStrokePointRef,
+      roundedCornerAnchorsRef: { current: [] as Array<{ x: number; y: number }> },
+      roundedCornerBaselineSnapshotRef: { current: null },
+      brushSettings: {
+        size: 20,
+        brushShape: BrushShape.CUSTOM,
+        colorCycleStampShape: 'square' as const,
+        color: '#ff0000',
+        colorCycleGradient: previewGradient,
+        gridSnapEnabled: false,
+        gridSnapSize: 8,
+        customBrushSnapEnabled: true,
+        pressureEnabled: false,
+        minPressure: 0,
+        maxPressure: 100,
+      },
+      options: {
+        customStamp: {
+          imageData: new ImageData(20, 10),
+          width: 20,
+          height: 10,
+        },
+      },
+    };
+
+    drawColorCycleStroke({
+      ...baseArgs,
+      x: 1,
+      y: 1,
+    });
+
+    drawColorCycleStroke({
+      ...baseArgs,
+      x: 35,
+      y: 19,
+    });
+
+    const paintedPoints = (brush.paintCustomStamp as jest.Mock).mock.calls.map((call) => [call[1], call[2]]);
+    expect(paintedPoints).toEqual([
+      [0, 0],
+      [20, 10],
+      [40, 20],
+    ]);
+  });
+
   it('does not connect a new snapped stroke to the previous stroke after reset', () => {
     const ctx = createCtx();
     const brush = createBrush();

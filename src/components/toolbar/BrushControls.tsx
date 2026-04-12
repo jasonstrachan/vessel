@@ -4139,17 +4139,6 @@ const BrushControls = () => {
                   title="Link spacing to cursor speed"
                 />
               </div>
-              <div className="mt-2 flex items-center gap-2">
-                <label className="text-[#D9D9D9] w-16" style={{ fontSize: '14px' }}>
-                  Brush Snap
-                </label>
-                <CustomSwitch
-                  id="custom-brush-spacing-by-width"
-                  aria-label="Custom Brush Snap"
-                  checked={Boolean(activeSettings.customBrushSnapEnabled)}
-                  onChange={(checked) => setActiveSettings({ customBrushSnapEnabled: checked })}
-                />
-              </div>
             </div>
           )}
 
@@ -4688,6 +4677,22 @@ const BrushControls = () => {
                   />
               </>
             )}
+          </div>
+        </div>
+      )}
+
+      {isActiveCustomBrush && (
+        <div className="mb-2">
+          <div className="flex items-center gap-2">
+            <label className="text-[#D9D9D9] w-16" style={{ fontSize: '14px' }}>
+              Brush Snap
+            </label>
+            <CustomSwitch
+              id="custom-brush-spacing-by-width"
+              aria-label="Custom Brush Snap"
+              checked={Boolean(activeSettings.customBrushSnapEnabled)}
+              onChange={(checked) => setActiveSettings({ customBrushSnapEnabled: checked })}
+            />
           </div>
         </div>
       )}

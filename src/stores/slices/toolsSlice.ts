@@ -880,6 +880,9 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
       if (settings.dashGap !== undefined) settingsToSave.dashGap = newSettings.dashGap;
       if (settings.gridSnapEnabled !== undefined) settingsToSave.gridSnapEnabled = newSettings.gridSnapEnabled;
       if (settings.gridSnapSize !== undefined) settingsToSave.gridSnapSize = newSettings.gridSnapSize;
+      if (settings.customBrushSnapEnabled !== undefined) {
+        settingsToSave.customBrushSnapEnabled = newSettings.customBrushSnapEnabled;
+      }
       if (settings.shapeEnabled !== undefined) settingsToSave.shapeEnabled = newSettings.shapeEnabled;
       if (settings.antialiasing !== undefined) settingsToSave.antialiasing = newSettings.antialiasing;
       if (settings.hueShift !== undefined) settingsToSave.hueShift = newSettings.hueShift;
