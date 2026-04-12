@@ -384,4 +384,98 @@ describe('colorCyclePlayback shared runtime integration', () => {
     expect(stopAnimation).toHaveBeenCalledTimes(1);
     expect(startAnimation).toHaveBeenCalledTimes(1);
   });
+
+  it('preserves freshly initialized layer canvas when marking playback active', () => {
+    registerSharedRuntimeConsumer.mockImplementation(() => jest.fn());
+    mockGetBrush.mockReturnValue(null);
+
+    const initializedCanvas = document.createElement('canvas');
+    initializedCanvas.width = 64;
+    initializedCanvas.height = 64;
+
+    const state = {
+      tools: {
+        brushSettings: {
+          brushShape: BrushShape.COLOR_CYCLE,
+          customBrushColorCycle: false,
+        },
+      },
+      layers: [
+        {
+          id: 'layer-cc',
+          layerType: 'color-cycle',
+          colorCycleData: {
+            mode: 'index',
+            isAnimating: false,
+          },
+        },
+      ],
+      project: { width: 64, height: 64 },
+      initColorCycleForLayer: jest.fn((layerId: string) => {
+        state.layers = state.layers.map((layer) => {
+          if (layer.id !== layerId) {
+            return layer;
+          }
+          return {
+            ...layer,
+            colorCycleData: {
+              ...layer.colorCycleData,
+              canvas: initializedCanvas,
+              isAnimating: false,
+            },
+          };
+        });
+      }),
+      updateLayer: jest.fn((layerId: string, patch: { colorCycleData?: Record<string, unknown> }) => {
+        state.layers = state.layers.map((layer) => {
+          if (layer.id !== layerId) {
+            return layer;
+          }
+          return {
+            ...layer,
+            ...patch,
+          };
+        });
+      }),
+    } as unknown as AppState;
+
+    startContinuousColorCycleAnimationCore('toolbar', {
+      brushEngine: {
+        renderColorCycle: jest.fn(),
+        updateColorCycleAnimation: jest.fn(),
+        isColorCycleAnimating: jest.fn(() => false),
+      } as unknown as BrushEngine,
+      ensureOverlayInitialized: jest.fn(() => true),
+      renderAllColorCycleLayers: jest.fn(() => true),
+      storeRef: { current: state } as React.MutableRefObject<AppState>,
+      getEffectiveColorCyclePlaying: jest.fn(() => true),
+      cancelDeferredOverlayRender: jest.fn(),
+      scheduleDeferredOverlayRender: jest.fn(),
+      ccLog: jest.fn(),
+      ccGroup: jest.fn(),
+      ccGroupEnd: jest.fn(),
+      dumpLayerFlags: jest.fn(),
+      debugWarn: jest.fn(),
+      continuousColorCycleAnimationRef: { current: null },
+      continuousColorCycleAnimationActiveRef: { current: false },
+      startingColorCycleAnimationRef: { current: false },
+      lastStartAtRef: { current: 0 },
+      drawingCanvasRef: { current: null },
+      drawingCtxRef: { current: null },
+      drawingCanvasHasContent: { current: false },
+      firstPaintRef: { current: true },
+      lastRendererLogTS: { current: 0 },
+      startCooldownMs: 0,
+    });
+
+    expect(state.initColorCycleForLayer).toHaveBeenCalledWith('layer-cc', 64, 64);
+    expect(state.updateLayer).toHaveBeenCalledWith('layer-cc', {
+      colorCycleData: {
+        mode: 'index',
+        isAnimating: true,
+        canvas: initializedCanvas,
+      },
+    });
+    expect(state.layers[0].colorCycleData?.canvas).toBe(initializedCanvas);
+  });
 });

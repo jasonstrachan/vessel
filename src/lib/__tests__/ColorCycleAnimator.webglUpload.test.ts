@@ -1,9 +1,9 @@
 import { ColorCycleAnimator } from '../ColorCycleAnimator';
 
-jest.mock('../colorCycle/rendering/WebGLColorCycleRenderer', () => {
+jest.mock('@/lib/colorCycle/rendering/RendererWebGL', () => {
   const uploads: Array<{ rect?: { x: number; y: number; width: number; height: number } }> = [];
 
-  class MockWebGLColorCycleRenderer {
+  class MockRendererWebGL {
     width: number;
     height: number;
     constructor(opts: { width: number; height: number }) {
@@ -20,6 +20,7 @@ jest.mock('../colorCycle/rendering/WebGLColorCycleRenderer', () => {
       _gradientId?: Uint8Array,
       _speedData?: Uint8Array,
       _flowData?: Uint8Array,
+      _phaseData?: Uint8Array,
       _defIdData?: Uint16Array,
       rect?: { x: number; y: number; width: number; height: number },
       _defIdDirty: boolean = true
@@ -34,6 +35,10 @@ jest.mock('../colorCycle/rendering/WebGLColorCycleRenderer', () => {
       canvas.height = this.height;
       return canvas;
     }
+    isPaletteReady() {
+      return true;
+    }
+    ensureBasePalette() {}
     resize(width: number, height: number) {
       this.width = width;
       this.height = height;
@@ -42,7 +47,7 @@ jest.mock('../colorCycle/rendering/WebGLColorCycleRenderer', () => {
   }
 
   return {
-    WebGLColorCycleRenderer: MockWebGLColorCycleRenderer,
+    RendererWebGL: MockRendererWebGL,
     __uploads: uploads,
   };
 });
@@ -62,7 +67,7 @@ describe('ColorCycleAnimator WebGL uploads', () => {
     animator.setIndex(2, 3, 1);
     animator.forceRender();
 
-    const mock = jest.requireMock('../colorCycle/rendering/WebGLColorCycleRenderer') as {
+    const mock = jest.requireMock('@/lib/colorCycle/rendering/RendererWebGL') as {
       __uploads: Array<{ rect?: { x: number; y: number; width: number; height: number } }>;
     };
     const last = mock.__uploads[mock.__uploads.length - 1];

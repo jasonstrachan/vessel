@@ -1,4 +1,9 @@
 import type { Layer } from '@/types';
+import {
+  allocateNextColorCycleDefId,
+  EXHAUSTED_COLOR_CYCLE_DEF_ID,
+  normalizeNextColorCycleDefId,
+} from '@/utils/colorCycleDefIds';
 
 type ColorCycleData = NonNullable<Layer['colorCycleData']>;
 export type TransferredColorCycleGradientDef = NonNullable<ColorCycleData['gradientDefStore']>[number];
@@ -300,9 +305,9 @@ export const mergeTransferredColorCycleGradientDefs = ({
     }
   });
 
-  let nextGradientDefId = Math.max(
-    colorCycleData.nextGradientDefId ?? 1,
-    nextStore.reduce((max, entry) => Math.max(max, entry.id + 1), 1)
+  let nextGradientDefId = normalizeNextColorCycleDefId(
+    nextStore.map((entry) => entry.id),
+    colorCycleData.nextGradientDefId ?? 1
   );
   const remap = new Map<number, number>();
   let storeChanged = false;
@@ -326,8 +331,18 @@ export const mergeTransferredColorCycleGradientDefs = ({
       continue;
     }
 
-    const keepSourceId = !exactById;
-    const targetId = keepSourceId ? sourceId : nextGradientDefId++;
+    const allocation = allocateNextColorCycleDefId({
+      ids: nextStore.map((entry) => entry.id),
+      nextId: nextGradientDefId,
+      preferredId: !exactById ? sourceId : null,
+    });
+    nextGradientDefId = allocation.nextGradientDefId;
+    const targetId = allocation.id;
+    if (targetId === null) {
+      remap.set(sourceId, 0);
+      storeChanged = true;
+      continue;
+    }
     const slot = typeof sourceDef.slot === 'number'
       ? sourceDef.slot
       : undefined;
@@ -341,9 +356,6 @@ export const mergeTransferredColorCycleGradientDefs = ({
     existingByHash.set(nextDef.hash, nextDef);
     remap.set(sourceId, targetId);
     storeChanged = true;
-    if (keepSourceId) {
-      nextGradientDefId = Math.max(nextGradientDefId, targetId + 1);
-    }
   }
 
   const remappedDefIds = new Uint16Array(defIds);
@@ -374,7 +386,9 @@ export const mergeTransferredColorCycleGradientDefs = ({
       colorCycleData: {
         ...colorCycleData,
         gradientDefStore: nextStore,
-        nextGradientDefId,
+        nextGradientDefId: nextGradientDefId === EXHAUSTED_COLOR_CYCLE_DEF_ID
+          ? EXHAUSTED_COLOR_CYCLE_DEF_ID
+          : normalizeNextColorCycleDefId(nextStore.map((entry) => entry.id), nextGradientDefId),
       },
     },
     remappedDefIds,

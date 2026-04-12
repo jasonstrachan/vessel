@@ -237,7 +237,7 @@ export class IndexBuffer {
     const normalizedSlot = this.normalizeGradientSlot(gradientSlot);
     const normalizedFlowBits = this.normalizeFlowBits(flowBits);
     const normalizedSpeed =
-      normalizedIndex === 0 ? 0 : Math.max(1, this.normalizeSpeedByte(speedByte));
+      normalizedIndex === 0 ? 0 : this.normalizeSpeedByte(speedByte);
     const radius = brushSize / 2;
     const radiusSq = radius * radius;
 
@@ -542,10 +542,10 @@ export class IndexBuffer {
     const normalizedSlot = this.normalizeGradientSlot(gradientSlot);
     const normalizedFlowBits = this.normalizeFlowBits(flowBits);
     const normalizedSpeed =
-      normalizedIndex === 0 ? 0 : Math.max(1, this.normalizeSpeedByte(speedByte));
+      normalizedIndex === 0 ? 0 : this.normalizeSpeedByte(speedByte);
     const secondarySpeed =
       normalizedSecondaryIndex && normalizedSecondaryIndex !== 0
-        ? Math.max(1, this.normalizeSpeedByte(speedByte))
+        ? this.normalizeSpeedByte(speedByte)
         : 0;
     const halfSize = brushSize / 2;
 
@@ -626,10 +626,10 @@ export class IndexBuffer {
     const normalizedSlot = this.normalizeGradientSlot(gradientSlot);
     const normalizedFlowBits = this.normalizeFlowBits(flowBits);
     const normalizedSpeed =
-      normalizedIndex === 0 ? 0 : Math.max(1, this.normalizeSpeedByte(speedByte));
+      normalizedIndex === 0 ? 0 : this.normalizeSpeedByte(speedByte);
     const secondarySpeed =
       normalizedSecondaryIndex && normalizedSecondaryIndex !== 0
-        ? Math.max(1, this.normalizeSpeedByte(speedByte))
+        ? this.normalizeSpeedByte(speedByte)
         : 0;
     const radius = brushSize / 2;
     const radiusSq = radius * radius;
@@ -711,10 +711,10 @@ export class IndexBuffer {
     const normalizedSlot = this.normalizeGradientSlot(gradientSlot);
     const normalizedFlowBits = this.normalizeFlowBits(flowBits);
     const normalizedSpeed =
-      normalizedIndex === 0 ? 0 : Math.max(1, this.normalizeSpeedByte(speedByte));
+      normalizedIndex === 0 ? 0 : this.normalizeSpeedByte(speedByte);
     const secondarySpeed =
       normalizedSecondaryIndex && normalizedSecondaryIndex !== 0
-        ? Math.max(1, this.normalizeSpeedByte(speedByte))
+        ? this.normalizeSpeedByte(speedByte)
         : 0;
     const radius = brushSize / 2;
 
@@ -899,10 +899,10 @@ export class IndexBuffer {
     const normalizedSlot = this.normalizeGradientSlot(gradientSlot);
     const normalizedFlowBits = this.normalizeFlowBits(flowBits);
     const normalizedSpeed =
-      normalizedIndex === 0 ? 0 : Math.max(1, this.normalizeSpeedByte(speedByte));
+      normalizedIndex === 0 ? 0 : this.normalizeSpeedByte(speedByte);
     const secondarySpeed =
       normalizedSecondaryIndex && normalizedSecondaryIndex !== 0
-        ? Math.max(1, this.normalizeSpeedByte(speedByte))
+        ? this.normalizeSpeedByte(speedByte)
         : 0;
     const scale = Math.max(1, Math.round(pixelScale));
     const stampSize = gridSize * scale;
@@ -1049,10 +1049,10 @@ export class IndexBuffer {
     const normalizedSlot = this.normalizeGradientSlot(gradientSlot);
     const normalizedFlowBits = this.normalizeFlowBits(flowBits);
     const normalizedSpeed =
-      normalizedIndex === 0 ? 0 : Math.max(1, this.normalizeSpeedByte(speedByte));
+      normalizedIndex === 0 ? 0 : this.normalizeSpeedByte(speedByte);
     const secondarySpeed =
       normalizedSecondaryIndex && normalizedSecondaryIndex !== 0
-        ? Math.max(1, this.normalizeSpeedByte(speedByte))
+        ? this.normalizeSpeedByte(speedByte)
         : 0;
     const halfSize = brushSize / 2;
 
@@ -1234,7 +1234,7 @@ export class IndexBuffer {
     const normalizedSlot = this.normalizeGradientSlot(gradientSlot);
     const normalizedFlowBits = this.normalizeFlowBits(flowBits);
     const normalizedSpeed =
-      normalizedIndex === 0 ? 0 : Math.max(1, this.normalizeSpeedByte(speedByte));
+      normalizedIndex === 0 ? 0 : this.normalizeSpeedByte(speedByte);
     const targetIndex = this.data[y * this.width + x];
 
     if (targetIndex === normalizedIndex) {
@@ -1405,7 +1405,7 @@ export class IndexBuffer {
     const normalizedSlot = normalizedIndex === 0 ? 0 : this.normalizeGradientSlot(gradientSlot);
     const normalizedFlowBits = this.normalizeFlowBits(flowBits);
     const normalizedSpeed =
-      normalizedIndex === 0 ? 0 : Math.max(1, this.normalizeSpeedByte(speedByte));
+      normalizedIndex === 0 ? 0 : this.normalizeSpeedByte(speedByte);
     const index = y * this.width + x;
     this.data[index] = normalizedIndex;
     this.gradientId[index] = normalizedIndex === 0 ? 0 : normalizedSlot;

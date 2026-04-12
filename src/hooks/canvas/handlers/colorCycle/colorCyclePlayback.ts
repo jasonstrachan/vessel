@@ -363,15 +363,16 @@ export const startContinuousColorCycleAnimationCore = (
     try {
       const st = storeRef.current;
       ccLayers.forEach((layer) => {
-        if (!layer.colorCycleData) {
+        const freshLayer = st.layers.find((entry) => entry.id === layer.id) ?? layer;
+        if (!freshLayer.colorCycleData) {
           return;
         }
-        if (layer.colorCycleData.isAnimating) {
+        if (freshLayer.colorCycleData.isAnimating) {
           return;
         }
         st.updateLayer(layer.id, {
           colorCycleData: {
-            ...layer.colorCycleData,
+            ...freshLayer.colorCycleData,
             isAnimating: true,
           },
         });
@@ -461,8 +462,12 @@ export const startContinuousColorCycleAnimationCore = (
       try {
         const st = storeRef.current;
         ccLayers.forEach(layer => {
+          const freshLayer = st.layers.find((entry) => entry.id === layer.id) ?? layer;
+          if (!freshLayer.colorCycleData) {
+            return;
+          }
           const updatedData: Layer['colorCycleData'] = {
-            ...(layer.colorCycleData ?? {}),
+            ...freshLayer.colorCycleData,
             isAnimating: true,
           };
           st.updateLayer(layer.id, { colorCycleData: updatedData });

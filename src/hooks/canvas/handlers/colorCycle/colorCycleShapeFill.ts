@@ -573,10 +573,11 @@ export const finalizeColorCycleShapeFillLinear = async (
             : fgPalette;
         }
         if (typeof fgSlot !== 'number' || !fgPalette?.stops?.length) {
-          return;
+          deps.logError('[CC] Missing foreground runtime palette after linear shape finalize; continuing commit.');
+        } else {
+          requestGradientApply(args.activeLayerId, 'shape-render-fg');
+          flushGradientApply(args.activeLayerId);
         }
-        requestGradientApply(args.activeLayerId, 'shape-render-fg');
-        flushGradientApply(args.activeLayerId);
       }
       deps.bindBrushToCanvas(colorCycleBrush, args.activeLayerCanvas);
       const binding: CommitCommittedLayerStateOptions['binding'] = renderSession?.binding
@@ -802,10 +803,11 @@ export const finalizeColorCycleShapeFillConcentric = async (
             : fgPalette;
         }
         if (typeof fgSlot !== 'number' || !fgPalette?.stops?.length) {
-          return;
+          deps.logError('[CC] Missing foreground runtime palette after concentric shape finalize; continuing commit.');
+        } else {
+          requestGradientApply(args.activeLayerId, 'shape-render-fg');
+          flushGradientApply(args.activeLayerId);
         }
-        requestGradientApply(args.activeLayerId, 'shape-render-fg');
-        flushGradientApply(args.activeLayerId);
       }
       deps.bindBrushToCanvas(colorCycleBrush, args.activeLayerCanvas);
       const binding: CommitCommittedLayerStateOptions['binding'] = renderSession?.binding

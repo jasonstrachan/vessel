@@ -549,7 +549,7 @@ describe('colorCycleDrawController', () => {
 
     expect(brush.paint).not.toHaveBeenCalled();
     expect(renderColorCycle).toHaveBeenCalledWith(ctx, true, { withOverlay: false });
-    expect((ctx.fillRect as jest.Mock)).toHaveBeenCalled();
+    expect((ctx.fillRect as jest.Mock)).not.toHaveBeenCalled();
   });
 
   it('rebuilds the full rounded path so multiple corners stay rounded', () => {

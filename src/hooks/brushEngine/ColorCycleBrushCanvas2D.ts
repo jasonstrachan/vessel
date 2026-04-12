@@ -1293,7 +1293,12 @@ export class ColorCycleBrushCanvas2D {
     const normalized = bands <= 1 ? 0 : phaseIndex / 254;
     const bandIndex = Math.max(0, Math.min(bands - 1, Math.round(normalized * (bands - 1))));
     const paletteIndex = this.mapBandIndexToPaletteIndex(bandIndex, bands);
-    if ((phaseIndex % 8) === 0) {
+    if (
+      process.env.NODE_ENV !== 'production' &&
+      typeof globalThis !== 'undefined' &&
+      (globalThis as { __CC_NON_DITHER_DEBUG?: boolean }).__CC_NON_DITHER_DEBUG === true &&
+      (phaseIndex % 8) === 0
+    ) {
       console.log('[cc-band-map]', {
         phaseIndex,
         bands,
@@ -1330,6 +1335,34 @@ export class ColorCycleBrushCanvas2D {
   private advanceStrokePhase(strokeData: LayerStrokeState): void {
     const advance = this.resolvePhaseAdvancePerStamp();
     strokeData.strokePhaseUnits = (strokeData.strokePhaseUnits + advance) % 255;
+  }
+
+  private getNonDitherStrokeColorIndex(strokeData: LayerStrokeState): number {
+    const phase = ((Math.floor(strokeData.stampCounter) % 255) + 255) % 255;
+    return 1 + phase;
+  }
+
+  private enableNonDitherPlaybackSpeed(strokeData: LayerStrokeState): boolean {
+    const paint = strokeData.buffers.paint;
+    const spd = strokeData.buffers.spd;
+    if (paint.length === 0 || spd.length !== paint.length) {
+      return false;
+    }
+
+    const speedByte = this.getWriteSpeedByte(strokeData);
+    if (speedByte <= 0) {
+      return false;
+    }
+
+    let changed = false;
+    for (let i = 0; i < paint.length; i += 1) {
+      const nextSpeed = paint[i] === 0 ? 0 : speedByte;
+      if (spd[i] !== nextSpeed) {
+        spd[i] = nextSpeed;
+        changed = true;
+      }
+    }
+    return changed;
   }
 
   private getSourceCanvasForStamp(stamp: CustomStampInput): HTMLCanvasElement {
@@ -1511,26 +1544,24 @@ export class ColorCycleBrushCanvas2D {
       const activeSlot = strokeData.flow.activeSlot ?? this.activeGradientSlots.get(id) ?? 0;
       const flowSlot = this.resolveFlowSlot(strokeData, activeSlot);
       const useStampDither = this.stampDitherEnabled;
-      const prevPhase = strokeData.strokePhaseUnits;
       const prevColorIndex = useStampDither
         ? this.computeColorBandIndex(strokeData)
-        : 1 + (((Math.floor(strokeData.strokePhaseUnits) % 255) + 255) % 255);
+        : this.getNonDitherStrokeColorIndex(strokeData);
       const last = strokeData.lastPoint;
       const dx = last ? x - last.x : 0;
       const dy = last ? y - last.y : 0;
       const dist = Math.hypot(dx, dy);
+      const prevPhase = strokeData.strokePhaseUnits;
 
       if (useStampDither) {
         this.advanceStrokePhase(strokeData);
-      } else if (dist > 0) {
-        strokeData.strokePhaseUnits = (Math.floor(strokeData.strokePhaseUnits) + 1) % 255;
       }
       const nextPhase = strokeData.strokePhaseUnits;
       const nextColorIndex = useStampDither
         ? this.computeColorBandIndex(strokeData)
-        : 1 + (((Math.floor(strokeData.strokePhaseUnits) % 255) + 255) % 255);
+        : this.getNonDitherStrokeColorIndex(strokeData);
       const colorIndex = nextColorIndex;
-      const speedByte = this.getWriteSpeedByte(strokeData);
+      const speedByte = useStampDither ? this.getWriteSpeedByte(strokeData) : 0;
       if (typeof (animator as { setStrokeSpeedByte?: (value: number) => void }).setStrokeSpeedByte === 'function') {
         (animator as { setStrokeSpeedByte: (value: number) => void }).setStrokeSpeedByte(speedByte);
       }
@@ -1542,7 +1573,13 @@ export class ColorCycleBrushCanvas2D {
       const pressureSize = this.resolvePressureBrushSize(pressure);
       
       const primaryIndex = colorIndex;
-      if (!this.stampDitherEnabled && (strokeData.stampCounter % 4 === 0)) {
+      if (
+        process.env.NODE_ENV !== 'production' &&
+        typeof globalThis !== 'undefined' &&
+        (globalThis as { __CC_NON_DITHER_DEBUG?: boolean }).__CC_NON_DITHER_DEBUG === true &&
+        !this.stampDitherEnabled &&
+        (strokeData.stampCounter % 4 === 0)
+      ) {
         console.log('[cc-nodither-decision]', {
           x,
           y,
@@ -1563,7 +1600,13 @@ export class ColorCycleBrushCanvas2D {
           strokeSpeedByte: strokeData.strokeSpeedByte,
         });
       }
-      if (!this.stampDitherEnabled && dist === 0) {
+      if (
+        process.env.NODE_ENV !== 'production' &&
+        typeof globalThis !== 'undefined' &&
+        (globalThis as { __CC_NON_DITHER_DEBUG?: boolean }).__CC_NON_DITHER_DEBUG === true &&
+        !this.stampDitherEnabled &&
+        dist === 0
+      ) {
         console.log('[cc-nodither-zero-dist]', {
           x,
           y,
@@ -1730,7 +1773,13 @@ export class ColorCycleBrushCanvas2D {
         }
       }
 
-      if (!this.stampDitherEnabled && (strokeData.stampCounter % 4 === 0)) {
+      if (
+        process.env.NODE_ENV !== 'production' &&
+        typeof globalThis !== 'undefined' &&
+        (globalThis as { __CC_NON_DITHER_DEBUG?: boolean }).__CC_NON_DITHER_DEBUG === true &&
+        !this.stampDitherEnabled &&
+        (strokeData.stampCounter % 4 === 0)
+      ) {
         const sx = Math.max(0, Math.min(this.width - 1, Math.round(x)));
         const sy = Math.max(0, Math.min(this.height - 1, Math.round(y)));
         const si = sy * this.width + sx;
@@ -1812,9 +1861,8 @@ export class ColorCycleBrushCanvas2D {
     const targetLayerId = layerId || this.activeLayerId || 'default';
     const { id, animator, strokeData } = this.prepareStrokeContext(targetLayerId);
     this.applyStrokeFlowSpeed(strokeData, speedSamplePxPerMs);
-    this.advanceStrokePhase(strokeData);
-    const colorIndex = this.computeColorBandIndexPerStamp(strokeData);
-    const speedByte = this.getWriteSpeedByte(strokeData);
+    const useStampDither = this.stampDitherEnabled;
+    const speedByte = useStampDither ? this.getWriteSpeedByte(strokeData) : 0;
     if (typeof (animator as { setStrokeSpeedByte?: (value: number) => void }).setStrokeSpeedByte === 'function') {
       (animator as { setStrokeSpeedByte: (value: number) => void }).setStrokeSpeedByte(speedByte);
     }
@@ -1855,7 +1903,18 @@ export class ColorCycleBrushCanvas2D {
     const originX = Math.round(x - maskEntry.width / 2);
     const originY = Math.round(y - maskEntry.height / 2);
     const alpha = maskEntry.alpha;
-    const colorCycle = stamp.colorCycle;
+    const hasVisiblePixels = alpha.some((value) => value >= 16);
+    if (!hasVisiblePixels) {
+      return;
+    }
+
+    if (useStampDither) {
+      this.advanceStrokePhase(strokeData);
+    }
+    const colorIndex = useStampDither
+      ? this.computeColorBandIndexPerStamp(strokeData)
+      : this.getNonDitherStrokeColorIndex(strokeData);
+    const colorCycle = useStampDither ? stamp.colorCycle : undefined;
     const capturedPhaseMap =
       colorCycle?.schemaVersion === 2 && colorCycle.mode === 'captured-data'
         ? (
@@ -2760,11 +2819,17 @@ export class ColorCycleBrushCanvas2D {
       strokeData.strokeCycleSpeed = strokeStartSpeed;
       strokeData.strokeSpeedByte = speedByte;
       strokeData.lastPoint = null;
-      console.log('[cc-stroke-begin]', {
-        stampCounter: strokeData.stampCounter,
-        phase: strokeData.strokePhaseUnits,
-        lastPoint: strokeData.lastPoint,
-      });
+      if (
+        process.env.NODE_ENV !== 'production' &&
+        typeof globalThis !== 'undefined' &&
+        (globalThis as { __CC_NON_DITHER_DEBUG?: boolean }).__CC_NON_DITHER_DEBUG === true
+      ) {
+        console.log('[cc-stroke-begin]', {
+          stampCounter: strokeData.stampCounter,
+          phase: strokeData.strokePhaseUnits,
+          lastPoint: strokeData.lastPoint,
+        });
+      }
       if (this.stampDitherEnabled) {
         const perf = this.perfStroke;
         const stampState = this.ensureStampDitherState(strokeData);
@@ -2966,11 +3031,29 @@ export class ColorCycleBrushCanvas2D {
     }
 
     if (strokeData) {
-      console.log('[cc-stroke-end]', {
-        stampCounter: strokeData.stampCounter,
-        phase: strokeData.strokePhaseUnits,
-        lastPoint: strokeData.lastPoint,
-      });
+      if (!this.stampDitherEnabled && this.enableNonDitherPlaybackSpeed(strokeData)) {
+        try {
+          animator.setIndexBufferFromArray(
+            strokeData.buffers.paint,
+            strokeData.buffers.gid,
+            strokeData.buffers.spd,
+            strokeData.buffers.flow,
+            strokeData.buffers.phase
+          );
+          this.bindStrokeBuffersToAnimator(strokeData, animator);
+        } catch {}
+      }
+      if (
+        process.env.NODE_ENV !== 'production' &&
+        typeof globalThis !== 'undefined' &&
+        (globalThis as { __CC_NON_DITHER_DEBUG?: boolean }).__CC_NON_DITHER_DEBUG === true
+      ) {
+        console.log('[cc-stroke-end]', {
+          stampCounter: strokeData.stampCounter,
+          phase: strokeData.strokePhaseUnits,
+          lastPoint: strokeData.lastPoint,
+        });
+      }
       strokeData.lastPoint = null;
       strokeData.strokeCounter = this.strokeCounter;
 
@@ -5416,7 +5499,7 @@ export class ColorCycleBrushCanvas2D {
         }
       }
 
-      if (!sawEncodedSpeed && paintBuffer.length === speedBuffer.length) {
+      if (this.stampDitherEnabled && !sawEncodedSpeed && paintBuffer.length === speedBuffer.length) {
         for (let i = 0; i < paintBuffer.length; i += 1) {
           const nextByte = paintBuffer[i] === 0 ? 0 : nextBaseSpeedByte;
           if (speedBuffer[i] !== nextByte) {

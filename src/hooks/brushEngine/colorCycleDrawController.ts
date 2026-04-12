@@ -2,7 +2,6 @@ import { BrushShape, type BrushSettings } from '@/types';
 import type { CustomBrushStrokeData } from './BrushEngineFacade';
 import type { ColorCycleBrushImplementation } from './ColorCycleBrushMigration';
 import {
-  buildColorCycleGridPreviewPath,
   buildRoundedGridStrokePath,
   getColorCycleGridSnapSpacing,
   rasterizeGridLinePoints,
@@ -249,92 +248,6 @@ type DrawColorCycleArgs = {
   gridSnapStrokePointRef: { current: { x: number; y: number } | null };
   roundedCornerAnchorsRef: { current: GridSnapPoint[] };
   roundedCornerBaselineSnapshotRef: { current: ColorCycleLayerSnapshot | null };
-};
-
-const resolvePreviewStrokeColor = (
-  brushSettings: Pick<BrushSettings, 'color' | 'colorCycleGradient'>
-): string => (
-  brushSettings.colorCycleGradient?.[0]?.color ||
-  brushSettings.color ||
-  '#ffffff'
-);
-
-const drawPreviewStamp = (
-  ctx: CanvasRenderingContext2D,
-  point: GridSnapPoint,
-  brushSize: number,
-  stampShape: 'square' | 'round' | 'triangle'
-) => {
-  const radius = Math.max(0.5, brushSize / 2);
-  if (stampShape === 'round') {
-    ctx.beginPath();
-    ctx.arc(point.x, point.y, radius, 0, Math.PI * 2);
-    ctx.fill();
-    return;
-  }
-
-  if (stampShape === 'triangle') {
-    ctx.beginPath();
-    ctx.moveTo(point.x, point.y - radius);
-    ctx.lineTo(point.x + radius, point.y + radius);
-    ctx.lineTo(point.x - radius, point.y + radius);
-    ctx.closePath();
-    ctx.fill();
-    return;
-  }
-
-  ctx.fillRect(
-    Math.round(point.x - radius),
-    Math.round(point.y - radius),
-    Math.max(1, Math.round(brushSize)),
-    Math.max(1, Math.round(brushSize)),
-  );
-};
-
-const drawGridSnapPreviewOverlay = ({
-  ctx,
-  points,
-  brushSize,
-  stampShape,
-  color,
-}: {
-  ctx: CanvasRenderingContext2D;
-  points: GridSnapPoint[];
-  brushSize: number;
-  stampShape: 'square' | 'round' | 'triangle';
-  color: string;
-}): void => {
-  if (points.length === 0) {
-    return;
-  }
-
-  ctx.save();
-  ctx.globalCompositeOperation = 'source-over';
-  ctx.globalAlpha = 0.75;
-  ctx.fillStyle = color;
-  ctx.strokeStyle = color;
-  ctx.imageSmoothingEnabled = false;
-
-  for (const point of points) {
-    drawPreviewStamp(ctx, point, brushSize, stampShape);
-  }
-
-  ctx.restore();
-};
-
-const resolvePreviewStampShape = (
-  brushShape: BrushSettings['brushShape'],
-  stampShape: BrushSettings['colorCycleStampShape']
-): 'square' | 'round' | 'triangle' => {
-  if (brushShape === BrushShape.COLOR_CYCLE_TRIANGLE) {
-    return 'triangle';
-  }
-
-  if (stampShape === 'round') {
-    return 'round';
-  }
-
-  return 'square';
 };
 
 export const drawColorCycleStroke = ({
@@ -591,32 +504,10 @@ export const drawColorCycleStroke = ({
         gridSnapStrokePointRef.current = snappedPoint;
       }
 
-      const previewPath = buildColorCycleGridPreviewPath({
-        anchors: roundedCornerAnchorsRef.current,
-        point: { x: Math.round(x), y: Math.round(y) },
-        rounded: Boolean(brushSettings.roundedCornersEnabled),
-        radiusPx: Math.max(1, Math.round(brushSettings.cornerRadiusPx ?? 8)),
-      });
-      const previewStampShape = resolvePreviewStampShape(
-        brushSettings.brushShape,
-        brushSettings.colorCycleStampShape,
-      );
-      const previewColor = resolvePreviewStrokeColor({
-        color: brushSettings.color,
-        colorCycleGradient: brushSettings.colorCycleGradient,
-      });
-
       const renderGridSnapPreview = () => {
         mirrorScheduledRef.current = false;
         ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
         renderColorCycle(ctx, true, { withOverlay: false });
-        drawGridSnapPreviewOverlay({
-          ctx,
-          points: previewPath,
-          brushSize: brushSizeSetting,
-          stampShape: previewStampShape,
-          color: previewColor,
-        });
       };
 
       if (firstStampImmediateRef.current) {
@@ -640,14 +531,20 @@ export const drawColorCycleStroke = ({
       const segDist =
         lx == null || ly == null ? 0 : Math.hypot(x - lx, y - ly);
 
-      console.log('[cc-stroke-input]', {
-        x,
-        y,
-        segDist,
-        speedSamplePxPerMs: options?.speedSamplePxPerMs ?? null,
-        brushSize: brushSizeSetting,
-        gridSnapEnabled: false,
-      });
+      if (
+        process.env.NODE_ENV !== 'production' &&
+        typeof globalThis !== 'undefined' &&
+        (globalThis as { __CC_NON_DITHER_DEBUG?: boolean }).__CC_NON_DITHER_DEBUG === true
+      ) {
+        console.log('[cc-stroke-input]', {
+          x,
+          y,
+          segDist,
+          speedSamplePxPerMs: options?.speedSamplePxPerMs ?? null,
+          brushSize: brushSizeSetting,
+          gridSnapEnabled: false,
+        });
+      }
 
       lastFreehandRef.x = x;
       lastFreehandRef.y = y;
