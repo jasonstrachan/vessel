@@ -1271,6 +1271,16 @@ export class ColorCycleBrushCanvas2D {
     };
   }
 
+  private refreshShapeFillWriteSpeed(strokeData?: LayerStrokeState | null): void {
+    if (!strokeData) {
+      return;
+    }
+    const resolvedSpeed = this.getResolvedWriteCycleSpeed();
+    strokeData.strokeCounter = this.strokeCounter;
+    strokeData.strokeCycleSpeed = resolvedSpeed;
+    strokeData.strokeSpeedByte = encodeColorCycleSpeedByte(resolvedSpeed);
+  }
+
   private logSetIndexSample(layerId: string, x: number, y: number) {
     if ((x & 31) === 0 && (y & 31) === 0) {
       ccLog('setIndex sample', { id: layerId, x, y });
@@ -1356,7 +1366,9 @@ export class ColorCycleBrushCanvas2D {
 
     let changed = false;
     for (let i = 0; i < paint.length; i += 1) {
-      const nextSpeed = paint[i] === 0 ? 0 : speedByte;
+      const nextSpeed = paint[i] === 0
+        ? 0
+        : (spd[i] > 0 ? spd[i] : speedByte);
       if (spd[i] !== nextSpeed) {
         spd[i] = nextSpeed;
         changed = true;
@@ -3292,6 +3304,7 @@ export class ColorCycleBrushCanvas2D {
     if (strokeData) {
       strokeData.hasContent = true;
       strokeData.skipStampDitherFinalize = true;
+      this.refreshShapeFillWriteSpeed(strokeData);
       if (strokeData.buffers.paint.length === 0) {
         strokeData.buffers.paint = new Uint8Array(this.width * this.height);
       }
@@ -4270,6 +4283,7 @@ export class ColorCycleBrushCanvas2D {
     if (strokeData) {
       strokeData.hasContent = true;
       strokeData.skipStampDitherFinalize = true;
+      this.refreshShapeFillWriteSpeed(strokeData);
       // Ensure full-size buffer
       if (strokeData.buffers.paint.length === 0) {
         strokeData.buffers.paint = new Uint8Array(this.width * this.height);

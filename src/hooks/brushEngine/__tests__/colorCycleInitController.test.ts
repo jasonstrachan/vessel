@@ -184,6 +184,36 @@ describe('colorCycleInitController', () => {
     expect(brush.setLayerBaseSpeed).toHaveBeenCalledWith(1.4);
   });
 
+  it('does not use legacy brushSpeed as a live layer base speed override', () => {
+    const brush = makeBrush();
+
+    initializeColorCycleBrushForActiveLayer({
+      activeLayerId: 'layer-cc',
+      projectWidth: 64,
+      projectHeight: 64,
+      brushSettings: {
+        ...makeBrushSettings(),
+        colorCycleSpeed: 0.5,
+      } as BrushSettings,
+      playbackSpeedScale: 1,
+      isCCGradientActiveLayer: false,
+      defaultBandSpacing: 12,
+      clampColorCycleBandSpacing: (v) => v ?? 12,
+      resolveBrushPressureRange: () => ({ enabled: false, minPercent: 100, maxPercent: 100 }),
+      getLayers: () => [{
+        id: 'layer-cc',
+        layerType: 'color-cycle',
+        colorCycleData: { brushSpeed: 1.4 },
+      }],
+      initColorCycleForLayer: jest.fn(),
+      getActiveLayerColorCycleBrush: () => brush,
+      requestGradientApply: jest.fn(),
+    });
+
+    expect(brush.setSpeed).toHaveBeenCalledWith(0.5);
+    expect(brush.setLayerBaseSpeed).toHaveBeenCalledWith(1);
+  });
+
   it('toggles animation only for color-cycle layers', () => {
     const ccBrush = { startAnimation: jest.fn(), stopAnimation: jest.fn() };
     const bitmapBrush = { startAnimation: jest.fn(), stopAnimation: jest.fn() };

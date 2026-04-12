@@ -1,6 +1,6 @@
 import { BrushShape, type BrushSettings } from '@/types';
 import { MAX_CC_LAYER_SPEED_SCALE, MIN_CC_LAYER_SPEED_SCALE } from '@/constants/colorCycle';
-import { resolveLayerColorCycleBaseSpeed } from '@/utils/colorCycleLayerSpeed';
+import { resolveExplicitLayerColorCycleBaseSpeed } from '@/utils/colorCycleLayerSpeed';
 
 type LayerSummary = {
   id: string;
@@ -118,7 +118,7 @@ export const initializeColorCycleBrushForActiveLayer = <TBrush extends BrushLike
 
     try {
       const speedLayer = getLayers().find((layer) => layer.id === activeLayerId);
-      const perLayerSpeed = resolveLayerColorCycleBaseSpeed(speedLayer?.colorCycleData);
+      const perLayerSpeed = resolveExplicitLayerColorCycleBaseSpeed(speedLayer?.colorCycleData);
       const writeSpeed = brushSettings.colorCycleSpeed;
       const baseSpeed = perLayerSpeed ?? 1;
       const layerSpeedScale = Number.isFinite(playbackSpeedScale)

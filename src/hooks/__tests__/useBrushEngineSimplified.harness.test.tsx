@@ -345,4 +345,26 @@ describe('useBrushEngineSimplified harness', () => {
     expect(mockSetLayerBaseSpeed).not.toHaveBeenCalled();
   });
 
+  it('ignores legacy brushSpeed when resolving runtime layer base speed', async () => {
+    const state = (jest.requireMock('@/stores/useAppStore') as { useAppStore: { getState: () => any } }).useAppStore.getState();
+    state.tools.brushSettings.colorCycleSpeed = 0.2;
+    state.layers = [
+      {
+        id: 'layer-a',
+        layerType: 'color-cycle',
+        colorCycleData: {
+          brushSpeed: 1.6,
+        },
+      },
+    ];
+    state.activeLayerId = 'layer-a';
+
+    await act(async () => {
+      render(<Harness onReady={() => {}} />);
+    });
+
+    expect(mockSetSpeed).toHaveBeenCalledWith(0.2);
+    expect(mockSetLayerBaseSpeed).toHaveBeenCalledWith(1);
+  });
+
 });
