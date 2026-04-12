@@ -631,6 +631,149 @@ describe('ColorCycleBrushCanvas2D regression tests', () => {
     expect(afterThirdStroke[thirdIndex]).toBeGreaterThan(0);
   });
 
+  it('preserves prior non-dither stroke speed bytes when a new stroke uses a different speed', () => {
+    const canvas = makeCanvas(16, 16);
+    const brush = new ColorCycleBrushCanvas2D(canvas, { forceCanvas2D: true });
+    const layerId = 'layer-stroke-speed-preservation';
+    brush.setBrushSize(1);
+
+    const firstIndex = 2 + 2 * canvas.width;
+    const secondIndex = 12 + 12 * canvas.width;
+
+    brush.setSpeed(0.2);
+    brush.startStroke(layerId);
+    brush.paint(2, 2, layerId, 1);
+    brush.endStroke(layerId);
+
+    const animator = (brush as unknown as {
+      animators: Map<string, { getIndexBuffers: () => { spd?: Uint8Array } }>;
+    }).animators.get(layerId);
+    if (!animator) {
+      throw new Error('Missing animator for stroke speed preservation test');
+    }
+
+    const afterFirstStroke = animator.getIndexBuffers().spd;
+    if (!afterFirstStroke) {
+      throw new Error('Missing speed buffer after first stroke');
+    }
+    const firstStrokeByte = afterFirstStroke[firstIndex];
+    expect(firstStrokeByte).toBeGreaterThan(0);
+    expect(decodeColorCycleSpeedByte(firstStrokeByte)).toBeCloseTo(0.2, 2);
+
+    brush.setSpeed(1.6);
+    brush.startStroke(layerId);
+    brush.paint(12, 12, layerId, 1);
+    brush.endStroke(layerId);
+
+    const afterSecondStroke = animator.getIndexBuffers().spd;
+    if (!afterSecondStroke) {
+      throw new Error('Missing speed buffer after second stroke');
+    }
+
+    expect(afterSecondStroke[firstIndex]).toBe(firstStrokeByte);
+    expect(decodeColorCycleSpeedByte(afterSecondStroke[firstIndex])).toBeCloseTo(0.2, 2);
+    expect(afterSecondStroke[secondIndex]).toBeGreaterThan(0);
+    expect(decodeColorCycleSpeedByte(afterSecondStroke[secondIndex])).toBeCloseTo(1.6, 2);
+  });
+
+  it('preserves prior dithered stroke speed bytes when a new stroke uses a different speed', () => {
+    const canvas = makeCanvas(16, 16);
+    const brush = new ColorCycleBrushCanvas2D(canvas, { forceCanvas2D: true });
+    const layerId = 'layer-dither-stroke-speed-preservation';
+    brush.setBrushSize(2);
+    brush.setStampDitherEnabled(true);
+    brush.setStampDitherAlgorithm('sierra-lite');
+    brush.setStampDitherPixelSize(1);
+
+    const firstIndex = 2 + 2 * canvas.width;
+    const secondIndex = 12 + 12 * canvas.width;
+
+    brush.setSpeed(0.2);
+    brush.startStroke(layerId);
+    brush.paint(2, 2, layerId, 1);
+    brush.endStroke(layerId);
+
+    const animator = (brush as unknown as {
+      animators: Map<string, { getIndexBuffers: () => { spd?: Uint8Array } }>;
+    }).animators.get(layerId);
+    if (!animator) {
+      throw new Error('Missing animator for dithered stroke speed preservation test');
+    }
+
+    const afterFirstStroke = animator.getIndexBuffers().spd;
+    if (!afterFirstStroke) {
+      throw new Error('Missing speed buffer after first dithered stroke');
+    }
+    const firstStrokeByte = afterFirstStroke[firstIndex];
+    expect(firstStrokeByte).toBeGreaterThan(0);
+    expect(decodeColorCycleSpeedByte(firstStrokeByte)).toBeCloseTo(0.2, 2);
+
+    brush.setSpeed(1.6);
+    brush.startStroke(layerId);
+    brush.paint(12, 12, layerId, 1);
+    brush.endStroke(layerId);
+
+    const afterSecondStroke = animator.getIndexBuffers().spd;
+    if (!afterSecondStroke) {
+      throw new Error('Missing speed buffer after second dithered stroke');
+    }
+
+    expect(afterSecondStroke[firstIndex]).toBe(firstStrokeByte);
+    expect(decodeColorCycleSpeedByte(afterSecondStroke[firstIndex])).toBeCloseTo(0.2, 2);
+    expect(afterSecondStroke[secondIndex]).toBeGreaterThan(0);
+    expect(decodeColorCycleSpeedByte(afterSecondStroke[secondIndex])).toBeCloseTo(1.6, 2);
+  });
+
+  it('preserves prior custom-stamp stroke speed bytes when a new stroke uses a different speed', () => {
+    const canvas = makeCanvas(16, 16);
+    const brush = new ColorCycleBrushCanvas2D(canvas, { forceCanvas2D: true });
+    const layerId = 'layer-custom-stamp-speed-preservation';
+    brush.setBrushSize(1);
+    const stamp = {
+      imageData: new ImageData(new Uint8ClampedArray([255, 255, 255, 255]), 1, 1),
+      width: 1,
+      height: 1,
+    };
+
+    const firstIndex = 4 + 4 * canvas.width;
+    const secondIndex = 12 + 12 * canvas.width;
+
+    brush.setSpeed(0.2);
+    brush.startStroke(layerId);
+    brush.paintCustomStamp(stamp, 4, 4, layerId, 1);
+    brush.endStroke(layerId);
+
+    const animator = (brush as unknown as {
+      animators: Map<string, { getIndexBuffers: () => { spd?: Uint8Array } }>;
+    }).animators.get(layerId);
+    if (!animator) {
+      throw new Error('Missing animator for custom stamp speed preservation test');
+    }
+
+    const afterFirstStroke = animator.getIndexBuffers().spd;
+    if (!afterFirstStroke) {
+      throw new Error('Missing speed buffer after first custom stamp stroke');
+    }
+    const firstStrokeByte = afterFirstStroke[firstIndex];
+    expect(firstStrokeByte).toBeGreaterThan(0);
+    expect(decodeColorCycleSpeedByte(firstStrokeByte)).toBeCloseTo(0.2, 2);
+
+    brush.setSpeed(1.6);
+    brush.startStroke(layerId);
+    brush.paintCustomStamp(stamp, 12, 12, layerId, 1);
+    brush.endStroke(layerId);
+
+    const afterSecondStroke = animator.getIndexBuffers().spd;
+    if (!afterSecondStroke) {
+      throw new Error('Missing speed buffer after second custom stamp stroke');
+    }
+
+    expect(afterSecondStroke[firstIndex]).toBe(firstStrokeByte);
+    expect(decodeColorCycleSpeedByte(afterSecondStroke[firstIndex])).toBeCloseTo(0.2, 2);
+    expect(afterSecondStroke[secondIndex]).toBeGreaterThan(0);
+    expect(decodeColorCycleSpeedByte(afterSecondStroke[secondIndex])).toBeCloseTo(1.6, 2);
+  });
+
   it('keeps CC gradient fill speed aligned with the slider across stop counts', async () => {
     const canvas = makeCanvas(16, 8);
     const brush = new ColorCycleBrushCanvas2D(canvas, { forceCanvas2D: true });
@@ -698,6 +841,121 @@ describe('ColorCycleBrushCanvas2D regression tests', () => {
     expect(decodeColorCycleSpeedByte(twoStopSpeed)).toBeCloseTo(baseSpeed, 2);
     expect(decodeColorCycleSpeedByte(fiveStopSpeed)).toBeCloseTo(baseSpeed, 2);
     expect(fiveStopSpeed).toBeCloseTo(twoStopSpeed, 0);
+  });
+
+  it('preserves prior CC shape speed bytes when a later shape uses a different speed', async () => {
+    const canvas = makeCanvas(16, 8);
+    const brush = new ColorCycleBrushCanvas2D(canvas, { forceCanvas2D: true });
+    const layerId = 'layer-shape-speed-preservation';
+    const leftRect = [
+      { x: 0, y: 0 },
+      { x: 5, y: 0 },
+      { x: 5, y: 7 },
+      { x: 0, y: 7 },
+    ];
+    const rightRect = [
+      { x: 10, y: 0 },
+      { x: 15, y: 0 },
+      { x: 15, y: 7 },
+      { x: 10, y: 7 },
+    ];
+
+    brush.setSpeed(0.2);
+    await brush.fillShapeDispatch({
+      mode: 'concentric',
+      vertices: leftRect,
+      layerId,
+      options: { ccGradient: true, spacing: 1 },
+    });
+
+    const animator = (brush as unknown as {
+      animators: Map<string, { getIndexBuffers: () => { spd?: Uint8Array } }>;
+    }).animators.get(layerId);
+    if (!animator) {
+      throw new Error('Missing animator for shape speed preservation test');
+    }
+
+    const firstIndex = 2 + 3 * canvas.width;
+    const secondIndex = 12 + 3 * canvas.width;
+    const afterFirstShape = animator.getIndexBuffers().spd;
+    if (!afterFirstShape) {
+      throw new Error('Missing speed buffer after first shape');
+    }
+    const firstShapeByte = afterFirstShape[firstIndex];
+    expect(firstShapeByte).toBeGreaterThan(0);
+    expect(decodeColorCycleSpeedByte(firstShapeByte)).toBeCloseTo(0.2, 2);
+
+    brush.setSpeed(1.6);
+    await brush.fillShapeDispatch({
+      mode: 'concentric',
+      vertices: rightRect,
+      layerId,
+      options: { ccGradient: true, spacing: 1 },
+    });
+
+    const afterSecondShape = animator.getIndexBuffers().spd;
+    if (!afterSecondShape) {
+      throw new Error('Missing speed buffer after second shape');
+    }
+
+    expect(afterSecondShape[firstIndex]).toBe(firstShapeByte);
+    expect(decodeColorCycleSpeedByte(afterSecondShape[firstIndex])).toBeCloseTo(0.2, 2);
+    expect(afterSecondShape[secondIndex]).toBeGreaterThan(0);
+    expect(decodeColorCycleSpeedByte(afterSecondShape[secondIndex])).toBeCloseTo(1.6, 2);
+  });
+
+  it('preserves CC speed bytes across mixed shape and stroke authoring', async () => {
+    const canvas = makeCanvas(16, 16);
+    const brush = new ColorCycleBrushCanvas2D(canvas, { forceCanvas2D: true });
+    const layerId = 'layer-mixed-speed-preservation';
+    brush.setBrushSize(1);
+
+    const shapeRect = [
+      { x: 0, y: 0 },
+      { x: 5, y: 0 },
+      { x: 5, y: 5 },
+      { x: 0, y: 5 },
+    ];
+    const shapeIndex = 2 + 2 * canvas.width;
+    const strokeIndex = 12 + 12 * canvas.width;
+
+    brush.setSpeed(0.2);
+    await brush.fillShapeDispatch({
+      mode: 'concentric',
+      vertices: shapeRect,
+      layerId,
+      options: { ccGradient: true, spacing: 1 },
+    });
+
+    const animator = (brush as unknown as {
+      animators: Map<string, { getIndexBuffers: () => { spd?: Uint8Array } }>;
+    }).animators.get(layerId);
+    if (!animator) {
+      throw new Error('Missing animator for mixed speed preservation test');
+    }
+
+    const afterShape = animator.getIndexBuffers().spd;
+    if (!afterShape) {
+      throw new Error('Missing speed buffer after shape');
+    }
+    const shapeSpeedByte = afterShape[shapeIndex];
+    expect(shapeSpeedByte).toBeGreaterThan(0);
+    expect(decodeColorCycleSpeedByte(shapeSpeedByte)).toBeCloseTo(0.2, 2);
+
+    brush.setSpeed(1.6);
+    brush.startStroke(layerId);
+    brush.paint(12, 12, layerId, 1);
+    brush.endStroke(layerId);
+
+    const afterStroke = animator.getIndexBuffers().spd;
+    if (!afterStroke) {
+      throw new Error('Missing speed buffer after mixed stroke');
+    }
+
+    expect(afterStroke[shapeIndex]).toBe(shapeSpeedByte);
+    expect(decodeColorCycleSpeedByte(afterStroke[shapeIndex])).toBeCloseTo(0.2, 2);
+    expect(afterStroke[strokeIndex]).toBeGreaterThan(0);
+    expect(decodeColorCycleSpeedByte(afterStroke[strokeIndex])).toBeCloseTo(1.6, 2);
   });
 
   it('authors non-dither stroke stamps with integer phase and palette indices', () => {

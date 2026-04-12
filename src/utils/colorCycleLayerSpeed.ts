@@ -22,3 +22,19 @@ export const resolveLayerColorCycleBaseSpeed = (data: ColorCycleLike): number | 
 export const resolveLayerColorCycleBaseSpeedFromLayer = (layer: Layer | null | undefined): number | undefined => {
   return resolveLayerColorCycleBaseSpeed(layer?.colorCycleData);
 };
+
+export const resolveExplicitLayerColorCycleBaseSpeed = (data: ColorCycleLike): number | undefined => {
+  if (typeof data?.layerBaseSpeedCps === 'number' && Number.isFinite(data.layerBaseSpeedCps)) {
+    return data.layerBaseSpeedCps;
+  }
+  if (typeof data?.controllerSpeedCps === 'number' && Number.isFinite(data.controllerSpeedCps)) {
+    return data.controllerSpeedCps;
+  }
+  return undefined;
+};
+
+export const resolveExplicitLayerColorCycleBaseSpeedFromLayer = (
+  layer: Layer | null | undefined
+): number | undefined => {
+  return resolveExplicitLayerColorCycleBaseSpeed(layer?.colorCycleData);
+};

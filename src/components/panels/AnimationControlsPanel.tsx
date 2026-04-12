@@ -17,7 +17,7 @@ import {
   MIN_CC_LAYER_SPEED_SCALE,
 } from '@/constants/colorCycle';
 import { sanitizeBrushColorCycleSpeed } from '@/utils/colorCycleSpeed';
-import { resolveLayerColorCycleBaseSpeed } from '@/utils/colorCycleLayerSpeed';
+import { resolveExplicitLayerColorCycleBaseSpeed } from '@/utils/colorCycleLayerSpeed';
 import SequentialControlsModule from '@/components/panels/SequentialControlsModule';
 import { toggleGlobalColorCyclePlayback } from '@/utils/colorCyclePlayback';
 
@@ -105,7 +105,7 @@ const AnimationControlsPanel: React.FC = () => {
       }
       const next = sanitizeBrushColorCycleSpeed(
         Number(event.target.value),
-        resolveLayerColorCycleBaseSpeed(activeColorCycleLayer.colorCycleData) ?? 1
+        resolveExplicitLayerColorCycleBaseSpeed(activeColorCycleLayer.colorCycleData) ?? 1
       );
       updateLayer(activeColorCycleLayer.id, {
         colorCycleData: {
@@ -124,7 +124,7 @@ const AnimationControlsPanel: React.FC = () => {
         CC_LAYER_SPEED_SCALE_STEP,
         Math.min(
           MAX_BRUSH_COLOR_CYCLE_SPEED,
-          resolveLayerColorCycleBaseSpeed(activeColorCycleLayer.colorCycleData) ?? 1
+          resolveExplicitLayerColorCycleBaseSpeed(activeColorCycleLayer.colorCycleData) ?? 1
         )
       )
     : null;

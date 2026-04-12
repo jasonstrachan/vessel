@@ -10,7 +10,7 @@ import {
   selectPlaybackSpeedScale,
   useAppStore
 } from '../stores/useAppStore';
-import { resolveLayerColorCycleBaseSpeed } from '@/utils/colorCycleLayerSpeed';
+import { resolveExplicitLayerColorCycleBaseSpeed } from '@/utils/colorCycleLayerSpeed';
 import { createBrushEngineFacade, type BrushEngineConfig, type BrushStrokeParams, type CustomBrushStrokeData } from './brushEngine/BrushEngineFacade';
 import { BrushShape, type BrushSettings } from '../types';
 import {
@@ -201,7 +201,7 @@ export const useBrushEngineSimplified = () => {
   const playbackSpeedScale = useAppStore(selectPlaybackSpeedScale);
   const activeLayerBaseSpeed = useAppStore((state) => {
     const layer = state.layers.find(l => l.id === state.activeLayerId);
-    return resolveLayerColorCycleBaseSpeed(layer?.colorCycleData);
+    return resolveExplicitLayerColorCycleBaseSpeed(layer?.colorCycleData);
   });
   const activeLayerFlowMode = useAppStore((state) => {
     const layer = state.layers.find(l => l.id === state.activeLayerId);
