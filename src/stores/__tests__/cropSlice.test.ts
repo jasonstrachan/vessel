@@ -92,6 +92,7 @@ const seedCropState = () => {
       showFPSMeter: false,
       transparencyBackgroundMode: 'checker',
       displayMode: 'smooth',
+      displayFilters: state.canvas.displayFilters,
       canvasWidth: baseProject.width,
       canvasHeight: baseProject.height,
       offsetX: 0,

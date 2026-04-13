@@ -5,7 +5,7 @@ import { useAppStore } from '@/stores/useAppStore';
 import { Tool } from '@/types';
 import { useToolSwitcher } from '@/utils/toolSwitch';
 
-type ToolbarItemId = Tool | 'grid-toggle' | 'magic-wand';
+type ToolbarItemId = Tool | 'grid-toggle' | 'magic-wand' | 'filters';
 
 const toolShortcuts: Partial<Record<ToolbarItemId, { aria: string; display: string }>> = {
   brush: { aria: 'KeyB', display: 'B' },
@@ -21,7 +21,16 @@ const toolShortcuts: Partial<Record<ToolbarItemId, { aria: string; display: stri
 
 const LeftToolbar = () => {
   // Force refresh - toolbar black background fix
-  const { tools: toolState, ui, saveProject, toggleGrid, toggleModal, setSelectionMode } = useAppStore();
+  const {
+    tools: toolState,
+    ui,
+    saveProject,
+    toggleGrid,
+    toggleModal,
+    setSelectionMode,
+    setBrushPanelSection,
+    setSettingsSection,
+  } = useAppStore();
   const switchTool = useToolSwitcher();
 
   const baseButtonStyle: React.CSSProperties = {
@@ -44,7 +53,7 @@ const LeftToolbar = () => {
       { id: 'eraser' as Tool, label: 'Eraser', abbr: 'Er' },
       { id: 'eyedropper' as Tool, label: 'Eyedropper', abbr: 'Ey' },
       { id: 'color-picker' as Tool, label: 'Color Picker', abbr: 'Cp' },
-      { id: 'fill' as Tool, label: 'Fill', abbr: 'Fl' },
+      { id: 'fill' as Tool, label: 'Fill', abbr: 'Fi' },
       { id: 'magic-wand' as ToolbarItemId, label: 'Magic Wand', abbr: 'Mw' },
       { id: 'color-adjust' as Tool, label: 'Hue/Sat', abbr: 'Hs' },
     ],
@@ -53,6 +62,7 @@ const LeftToolbar = () => {
       { id: 'load' as Tool, label: 'Load File', abbr: 'Ld' },
       { id: 'export' as Tool, label: 'Export', abbr: 'Ex' },
       { id: 'grid-toggle' as ToolbarItemId, label: 'Grid', abbr: 'Gd' },
+      { id: 'filters' as ToolbarItemId, label: 'Filters', abbr: 'Fl' },
       { id: 'options' as Tool, label: 'Options', abbr: 'St' },
     ],
   ];
@@ -72,12 +82,19 @@ const LeftToolbar = () => {
       toggleModal('export');
     } else if (toolId === 'grid-toggle') {
       toggleGrid();
+    } else if (toolId === 'filters') {
+      setBrushPanelSection('filters');
     } else if (toolId === 'options') {
-      toggleModal('settings');
+      setSettingsSection('display');
+      if (!ui.modals.settings) {
+        toggleModal('settings');
+      }
     } else if (toolId === 'magic-wand') {
+      setBrushPanelSection('tool');
       setSelectionMode('magic-wand');
       await switchTool('selection');
     } else {
+      setBrushPanelSection('tool');
       await switchTool(toolId);
     }
   };
@@ -100,8 +117,10 @@ const LeftToolbar = () => {
           {group.map((tool, toolIndex) => {
             const isActive = tool.id === 'grid-toggle'
               ? ui.grid.enabled
-              : tool.id === 'magic-wand'
-                ? toolState.currentTool === 'selection' && toolState.selectionMode === 'magic-wand'
+              : tool.id === 'filters'
+                ? ui.brushPanelSection === 'filters'
+                : tool.id === 'magic-wand'
+                  ? toolState.currentTool === 'selection' && toolState.selectionMode === 'magic-wand'
                 : tool.id === 'selection'
                   ? toolState.currentTool === 'selection' && toolState.selectionMode !== 'magic-wand'
                   : toolState.currentTool === tool.id;

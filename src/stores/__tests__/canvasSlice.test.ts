@@ -3,6 +3,7 @@ import { useAppStore } from '@/stores/useAppStore';
 
 describe('canvas slice invariants', () => {
   const reset = () => {
+    localStorage.removeItem('vessel-settings');
     useAppStore.setState({
       canvas: {
         ...useAppStore.getState().canvas,
@@ -72,5 +73,16 @@ describe('canvas slice invariants', () => {
 
     useAppStore.getState().setTransparencyBackgroundMode('gray');
     expect(useAppStore.getState().canvas.transparencyBackgroundMode).toBe('gray');
+  });
+
+  it('toggles display filters and sanitizes updates', () => {
+    useAppStore.getState().setDisplayFilterEnabled('pixelate', true);
+    expect(
+      useAppStore.getState().canvas.displayFilters.find((filter) => filter.id === 'pixelate')?.enabled
+    ).toBe(true);
+
+    useAppStore.getState().updateDisplayFilter('bloom', { blurRadius: 99, intensity: -4 });
+    const bloom = useAppStore.getState().canvas.displayFilters.find((filter) => filter.id === 'bloom');
+    expect(bloom?.settings).toEqual({ blurRadius: 12, intensity: 0 });
   });
 });

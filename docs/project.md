@@ -3,6 +3,7 @@
 ## Table of Contents
 
 - [Recent Updates](#recent-updates)
+  - [Display Filters](#display-filters-2026-04-13)
   - [Canvas Shape Masks](#canvas-shape-masks-2026-01-03)
   - [2D Unified Rendering Pipeline](#2d-unified-rendering-pipeline-2025-08-28)
   - [Canvas2D Performance Enhancements](#canvas2d-performance-enhancements-2025-08-28)
@@ -36,6 +37,13 @@
   - [Future Considerations](#future-considerations)
 
 ## Recent Updates
+
+### Display Filters (2026-04-13)
+- **Runtime-only post-processing stack**: adds Canvas2D display filters for pixelate, bloom, color grade, LCD mask, and noise without altering source layer data.
+- **UI entry point**: `LeftToolbar` now exposes a `Fl` shortcut that switches the brush settings panel to a dedicated Filters section.
+- **Persistence model**: filter configs are stored in local settings and serialized in project `viewState`, so projects reopen with the same display lens.
+- **Rendering boundary**: filters are applied only to the final artwork composite, overlays remain unfiltered, and active drawing bypasses the stack to preserve interaction responsiveness.
+- **Export behavior**: this phase is viewport-only; project exports remain source-accurate and do not bake display filters into output files.
 
 ## CC new-layer paste + Hue/Sat: dev note
 

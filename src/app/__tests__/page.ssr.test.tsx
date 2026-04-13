@@ -1,6 +1,7 @@
 import React from 'react';
 import { render, screen } from '@testing-library/react';
 import { autosaveService as mockAutosaveService } from '@/utils/autosave';
+import type { DisplayFilterConfig } from '@/types';
 import Home from '../HomeClient';
 
 function createMockComponent<P extends Record<string, unknown> = Record<string, never>>(
@@ -152,7 +153,12 @@ function createMockStore() {
         lastBackupTime: null,
       },
     },
-    canvas: { showRulers: false, showFPSMeter: true, transparencyBackgroundMode: 'checker' },
+    canvas: {
+      showRulers: false,
+      showFPSMeter: true,
+      transparencyBackgroundMode: 'checker',
+      displayFilters: [] as DisplayFilterConfig[],
+    },
     setAutosaveEnabled: jest.fn(),
     setAutosaveInterval: jest.fn(),
     clearSaveStatus: jest.fn(),
@@ -168,7 +174,14 @@ function createMockStore() {
     ensureCustomBrushHydrated: jest.fn().mockResolvedValue(undefined),
     layers: [],
     palette: { activeSlot: 'foreground', foregroundColor: '#000000', backgroundColor: '#ffffff' },
-    ui: { modals: { document: false, settings: false, export: false, loadProject: false } },
+    setDisplayFilters: jest.fn((filters: DisplayFilterConfig[]) => {
+      store.canvas.displayFilters = filters;
+    }),
+    ui: {
+      modals: { document: false, settings: false, export: false, loadProject: false },
+      brushPanelSection: 'tool',
+      settingsSection: 'display',
+    },
   };
   return store;
 }
@@ -269,4 +282,5 @@ describe('Home page client rendering', () => {
 
     expect(mockStore.setTransparencyBackgroundMode).toHaveBeenCalledWith('gray');
   });
+
 });

@@ -43,6 +43,7 @@ export const useDrawingCanvasRuntimeRenderStage = ({
       checkerPatternCacheRef: state.checkerPatternCacheRef,
       currentTool: state.tools.currentTool,
       displayMode: state.displayMode,
+      displayFilters: state.displayFilters,
       transparencyBackgroundMode: state.transparencyBackgroundMode,
       compositeCanvasDirtyRef: state.compositeCanvasDirtyRef,
       compositeSegmentsRef: state.compositeSegmentsRef,

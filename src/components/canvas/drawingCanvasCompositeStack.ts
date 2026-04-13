@@ -13,9 +13,17 @@ interface VisibleRect {
   height: number;
 }
 
+interface TargetRect {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
 interface DrawVisibleCompositeStackOptions {
   ctx: CanvasRenderingContext2D;
   visibleRect: VisibleRect | null;
+  targetRect?: TargetRect;
   useSplitOverlay: boolean;
   underCompositeCanvas: HTMLCanvasElement | null;
   isActivelyErasing: boolean | undefined;
@@ -33,6 +41,7 @@ interface DrawVisibleCompositeStackResult {
 export const drawVisibleCompositeStack = ({
   ctx,
   visibleRect,
+  targetRect,
   useSplitOverlay,
   underCompositeCanvas,
   isActivelyErasing,
@@ -51,12 +60,23 @@ export const drawVisibleCompositeStack = ({
   }
 
   const { x, y, width, height } = visibleRect;
+  const destination = targetRect ?? visibleRect;
   if (width <= 0 || height <= 0) {
     return { invalidCompositeBitmap };
   }
 
   if (useSplitOverlay && underCompositeCanvas) {
-    ctx.drawImage(underCompositeCanvas, x, y, width, height, x, y, width, height);
+    ctx.drawImage(
+      underCompositeCanvas,
+      x,
+      y,
+      width,
+      height,
+      destination.x,
+      destination.y,
+      destination.width,
+      destination.height,
+    );
     return { invalidCompositeBitmap };
   }
 
@@ -77,7 +97,17 @@ export const drawVisibleCompositeStack = ({
       if (segment.kind === 'static') {
         const source = segment.bitmap ?? segment.canvas;
         try {
-          ctx.drawImage(source, x, y, width, height, x, y, width, height);
+          ctx.drawImage(
+            source,
+            x,
+            y,
+            width,
+            height,
+            destination.x,
+            destination.y,
+            destination.width,
+            destination.height,
+          );
         } catch (error) {
           console.warn('[CompositeSegments] Failed to draw static segment', error);
         }
@@ -98,7 +128,17 @@ export const drawVisibleCompositeStack = ({
         ctx.save();
         ctx.globalAlpha = segment.opacity;
         ctx.globalCompositeOperation = segment.blendMode ?? 'source-over';
-        ctx.drawImage(layerCanvas, x, y, width, height, x, y, width, height);
+        ctx.drawImage(
+          layerCanvas,
+          x,
+          y,
+          width,
+          height,
+          destination.x,
+          destination.y,
+          destination.width,
+          destination.height,
+        );
         ctx.restore();
         return;
       }
@@ -134,7 +174,17 @@ export const drawVisibleCompositeStack = ({
       ctx.save();
       ctx.globalAlpha = segment.opacity;
       ctx.globalCompositeOperation = segment.blendMode ?? 'source-over';
-      ctx.drawImage(sequentialCanvas as CanvasImageSource, x, y, width, height, x, y, width, height);
+      ctx.drawImage(
+        sequentialCanvas as CanvasImageSource,
+        x,
+        y,
+        width,
+        height,
+        destination.x,
+        destination.y,
+        destination.width,
+        destination.height,
+      );
       ctx.restore();
     });
 
@@ -142,7 +192,17 @@ export const drawVisibleCompositeStack = ({
 
   if (!compositeDrawn && compositeBitmap) {
     try {
-      ctx.drawImage(compositeBitmap, x, y, width, height, x, y, width, height);
+      ctx.drawImage(
+        compositeBitmap,
+        x,
+        y,
+        width,
+        height,
+        destination.x,
+        destination.y,
+        destination.width,
+        destination.height,
+      );
       compositeDrawn = true;
     } catch (error) {
       const isInvalidState = error instanceof DOMException && error.name === 'InvalidStateError';
@@ -155,7 +215,17 @@ export const drawVisibleCompositeStack = ({
   }
 
   if (!compositeDrawn && compositeCanvas) {
-    ctx.drawImage(compositeCanvas, x, y, width, height, x, y, width, height);
+    ctx.drawImage(
+      compositeCanvas,
+      x,
+      y,
+      width,
+      height,
+      destination.x,
+      destination.y,
+      destination.width,
+      destination.height,
+    );
   }
 
   return { invalidCompositeBitmap };

@@ -4,9 +4,10 @@ interface SwitchProps {
   id: string;
   checked?: boolean;
   onChange?: (checked: boolean) => void;
+  'aria-label'?: string;
 }
 
-export const Switch: React.FC<SwitchProps> = ({ id, checked = false, onChange }) => {
+export const Switch: React.FC<SwitchProps> = ({ id, checked = false, onChange, 'aria-label': ariaLabel }) => {
   return (
     <div className="relative inline-block">
       <input
@@ -16,6 +17,7 @@ export const Switch: React.FC<SwitchProps> = ({ id, checked = false, onChange })
         checked={checked}
         onChange={(e) => onChange?.(e.target.checked)}
         className="sr-only"
+        aria-label={ariaLabel}
       />
       <label
         htmlFor={id}

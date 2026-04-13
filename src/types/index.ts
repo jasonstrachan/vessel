@@ -90,6 +90,73 @@ export interface PaletteState {
   activeSlot: 'foreground' | 'background';
 }
 
+export type DisplayFilterId =
+  | 'pixelate'
+  | 'bloom'
+  | 'color-grade'
+  | 'lcd-mask'
+  | 'noise';
+
+export interface PixelateDisplayFilter {
+  id: 'pixelate';
+  enabled: boolean;
+  settings: {
+    cellSize: number;
+  };
+}
+
+export interface BloomDisplayFilter {
+  id: 'bloom';
+  enabled: boolean;
+  settings: {
+    blurRadius: number;
+    intensity: number;
+  };
+}
+
+export interface ColorGradeDisplayFilter {
+  id: 'color-grade';
+  enabled: boolean;
+  settings: {
+    brightness: number;
+    contrast: number;
+    saturation: number;
+  };
+}
+
+export interface LcdMaskDisplayFilter {
+  id: 'lcd-mask';
+  enabled: boolean;
+  settings: {
+    stripeOpacity: number;
+    scanlineOpacity: number;
+  };
+}
+
+export interface NoiseDisplayFilter {
+  id: 'noise';
+  enabled: boolean;
+  settings: {
+    opacity: number;
+    scale: number;
+  };
+}
+
+export type DisplayFilterConfig =
+  | PixelateDisplayFilter
+  | BloomDisplayFilter
+  | ColorGradeDisplayFilter
+  | LcdMaskDisplayFilter
+  | NoiseDisplayFilter;
+
+export type BrushPanelSectionId = 'tool' | 'filters';
+
+export type SettingsSectionId =
+  | 'display'
+  | 'autosave'
+  | 'implementation'
+  | 'performance';
+
 export type CanvasShapeTool = 'rectangle' | 'circle' | 'freehand';
 
 export interface CanvasRectangleShape {
@@ -133,6 +200,7 @@ export interface Project {
   // Canvas view state
   viewState?: {
     zoom: number;
+    displayFilters?: DisplayFilterConfig[];
   };
   // Brush-specific settings (size, opacity, etc per brush)
   brushSpecificSettings?: Record<string, Partial<BrushSettings>>;
@@ -605,6 +673,7 @@ export interface CanvasState {
   showFPSMeter: boolean;
   transparencyBackgroundMode: 'checker' | 'gray';
   displayMode: 'pixelated' | 'smooth';
+  displayFilters: DisplayFilterConfig[];
   canvasWidth: number;
   canvasHeight: number;
   offsetX: number;
@@ -698,6 +767,8 @@ export interface UIState {
     columns: number;
   };
   notifications: Notification[];
+  brushPanelSection: BrushPanelSectionId;
+  settingsSection: SettingsSectionId;
   keyboardScope: KeyboardScopeState;
 }
 
