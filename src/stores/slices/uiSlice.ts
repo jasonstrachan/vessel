@@ -1,5 +1,12 @@
 import type { StateCreator } from 'zustand';
-import type { Notification, UIState, KeyboardScope, KeyboardScopeEntry } from '@/types';
+import type {
+  Notification,
+  UIState,
+  KeyboardScope,
+  KeyboardScopeEntry,
+  SettingsSectionId,
+  BrushPanelSectionId,
+} from '@/types';
 
 const DEFAULT_KEYBOARD_SCOPE: KeyboardScope = 'canvas';
 const DEFAULT_GRID_ROWS = 8;
@@ -60,6 +67,8 @@ export const createDefaultUIState = (): UIState => ({
     columns: DEFAULT_GRID_COLUMNS,
   },
   notifications: createDefaultNotifications(),
+  brushPanelSection: 'tool',
+  settingsSection: 'display',
   keyboardScope: {
     active: DEFAULT_KEYBOARD_SCOPE,
     stack: [],
@@ -75,6 +84,8 @@ export interface UISlice {
   ui: UIState;
   togglePanel: (panel: PanelKey) => void;
   toggleModal: (modal: ModalKey) => void;
+  setBrushPanelSection: (section: BrushPanelSectionId) => void;
+  setSettingsSection: (section: SettingsSectionId) => void;
   toggleGrid: () => void;
   setGridEnabled: (enabled: boolean) => void;
   setGridDimensions: (dimensions: Partial<UIState['grid']>) => void;
@@ -107,6 +118,30 @@ export const createUiSlice = (): StateCreator<AppState, [], [], UISlice> => (set
       },
     },
   })),
+
+  setBrushPanelSection: (section) => set((state) => {
+    if (state.ui.brushPanelSection === section) {
+      return state;
+    }
+    return {
+      ui: {
+        ...state.ui,
+        brushPanelSection: section,
+      },
+    };
+  }),
+
+  setSettingsSection: (section) => set((state) => {
+    if (state.ui.settingsSection === section) {
+      return state;
+    }
+    return {
+      ui: {
+        ...state.ui,
+        settingsSection: section,
+      },
+    };
+  }),
 
   toggleGrid: () => set((state) => ({
     ui: {

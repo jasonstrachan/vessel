@@ -441,7 +441,7 @@ describe('BrushControls – Color Cycle stroke essentials', () => {
   it('renders rounded corner controls under grid snap for color cycle stroke', () => {
     render(<BrushControls />);
 
-    expect(screen.getByRole('checkbox', { name: 'rounded' })).toBeInTheDocument();
+    expect(screen.getByRole('checkbox', { name: /rounded/i })).toBeInTheDocument();
     expect(screen.getByTitle('Rounded corner radius in pixels')).toBeInTheDocument();
   });
 
@@ -449,7 +449,7 @@ describe('BrushControls – Color Cycle stroke essentials', () => {
     const user = userEvent.setup();
     render(<BrushControls />);
 
-    await user.click(screen.getByRole('checkbox', { name: 'rounded' }));
+    await user.click(screen.getByRole('checkbox', { name: /rounded/i }));
 
     expect(useAppStore.getState().tools.brushSettings.roundedCornersEnabled).toBe(true);
   });

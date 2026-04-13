@@ -24,6 +24,7 @@ import {
   serializeCustomBrushColorCycle,
   type SerializedCustomBrushColorCycle,
 } from '@/utils/customBrushColorCycle';
+import { cloneDisplayFilters, sanitizeDisplayFilters } from '@/lib/displayFilters';
 import {
   decodeSequentialChunksToEvents,
   encodeSequentialEventsToChunks,
@@ -315,6 +316,7 @@ export interface VesselProject {
     exportLayout?: ExportContainerLayout;
     palette?: PaletteState;
     canvasShape?: Project['canvasShape'];
+    viewState?: Project['viewState'];
   };
 }
 
@@ -2004,6 +2006,12 @@ const buildSerializedProjectArtifacts = async (
       exportLayout: cloneExportLayout(project.exportLayout),
       palette: normalizePalette(project.palette),
       canvasShape: project.canvasShape,
+      viewState: project.viewState
+        ? {
+            zoom: project.viewState.zoom,
+            displayFilters: cloneDisplayFilters(project.viewState.displayFilters),
+          }
+        : undefined,
     },
   };
 
@@ -2340,6 +2348,12 @@ export async function deserializeProject(projectData: ProjectFileData): Promise<
     exportLayout: cloneExportLayout(serializedProject.exportLayout),
     palette: normalizePalette(serializedProject.palette),
     canvasShape: serializedProject.canvasShape,
+    viewState: serializedProject.viewState
+      ? {
+          zoom: toFiniteNumber(serializedProject.viewState.zoom, 1),
+          displayFilters: sanitizeDisplayFilters(serializedProject.viewState.displayFilters),
+        }
+      : undefined,
   };
 }
 

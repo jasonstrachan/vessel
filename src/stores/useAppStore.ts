@@ -375,6 +375,12 @@ export interface AppState {
   setShowFPSMeter: (visible: boolean) => void;
   setTransparencyBackgroundMode: (mode: CanvasState['transparencyBackgroundMode']) => void;
   setDisplayMode: (mode: 'pixelated' | 'smooth') => void;
+  setDisplayFilters: (filters: CanvasState['displayFilters']) => void;
+  setDisplayFilterEnabled: (id: import('@/types').DisplayFilterId, enabled: boolean) => void;
+  updateDisplayFilter: (
+    id: import('@/types').DisplayFilterId,
+    settings: Partial<Record<string, number>>
+  ) => void;
   setCanvasDimensions: (width: number, height: number) => void;
   setProjectDimensions: (width: number, height: number) => void;
   resizeProjectCanvas: (width: number, height: number) => Promise<void>;
@@ -581,6 +587,8 @@ export interface AppState {
   ui: UIState;
   togglePanel: (panel: keyof UIState['panels']) => void;
   toggleModal: (modal: keyof UIState['modals']) => void;
+  setBrushPanelSection: (section: UIState['brushPanelSection']) => void;
+  setSettingsSection: (section: UIState['settingsSection']) => void;
   toggleGrid: () => void;
   setGridEnabled: (enabled: boolean) => void;
   setGridDimensions: (dimensions: Partial<UIState['grid']>) => void;

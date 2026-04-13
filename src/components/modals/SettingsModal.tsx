@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useAppStore } from '../../stores/useAppStore';
 import { XIcon } from '../icons/XIcon';
 import { Switch } from '../retroui/Switch';
@@ -6,6 +6,8 @@ import { FeatureFlagToggle } from '../ui/FeatureFlagToggle';
 import { useKeyboardScope } from '../../hooks/useKeyboardScope';
 import { devLog } from '../../utils/devLog';
 import { getProjectSaveSizeReport, type ProjectSaveSizeReport } from '@/utils/projectIO';
+import type { SettingsSectionId } from '@/types';
+import { writeLocalSettings } from '@/utils/localSettings';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -13,6 +15,13 @@ interface SettingsModalProps {
 }
 
 const settingsLog = devLog.scope('SETTINGS');
+
+const SETTINGS_SECTIONS: Array<{ id: SettingsSectionId; label: string }> = [
+  { id: 'display', label: 'Display' },
+  { id: 'autosave', label: 'Autosave' },
+  { id: 'implementation', label: 'Impl' },
+  { id: 'performance', label: 'Perf' },
+];
 
 const formatBytes = (bytes: number): string => {
   if (!Number.isFinite(bytes) || bytes <= 0) {
@@ -30,23 +39,25 @@ const formatBytes = (bytes: number): string => {
 };
 
 export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose }) => {
-  // Suspend global/canvas shortcuts while modal is open
   useKeyboardScope('modal', isOpen);
-  const showRulers = useAppStore(state => state.canvas.showRulers);
-  const showFPSMeter = useAppStore(state => state.canvas.showFPSMeter);
-  const transparencyBackgroundMode = useAppStore(state => state.canvas.transparencyBackgroundMode);
-  const isAutosaveEnabled = useAppStore(state => state.autosave.isEnabled);
-  const autosaveInterval = useAppStore(state => state.autosave.interval);
-  const historySize = useAppStore(state => state.history.maxHistorySize);
-  const setAutosaveEnabled = useAppStore(state => state.setAutosaveEnabled);
-  const setAutosaveInterval = useAppStore(state => state.setAutosaveInterval);
-  const setHistorySize = useAppStore(state => state.setHistorySize);
-  const toggleRulers = useAppStore(state => state.toggleRulers);
-  const setShowFPSMeter = useAppStore(state => state.setShowFPSMeter);
-  const setTransparencyBackgroundMode = useAppStore(state => state.setTransparencyBackgroundMode);
-  const project = useAppStore(state => state.project);
-  const layers = useAppStore(state => state.layers);
-  
+
+  const showRulers = useAppStore((state) => state.canvas.showRulers);
+  const showFPSMeter = useAppStore((state) => state.canvas.showFPSMeter);
+  const transparencyBackgroundMode = useAppStore((state) => state.canvas.transparencyBackgroundMode);
+  const isAutosaveEnabled = useAppStore((state) => state.autosave.isEnabled);
+  const autosaveInterval = useAppStore((state) => state.autosave.interval);
+  const historySize = useAppStore((state) => state.history.maxHistorySize);
+  const settingsSection = useAppStore((state) => state.ui.settingsSection);
+  const setAutosaveEnabled = useAppStore((state) => state.setAutosaveEnabled);
+  const setAutosaveInterval = useAppStore((state) => state.setAutosaveInterval);
+  const setHistorySize = useAppStore((state) => state.setHistorySize);
+  const toggleRulers = useAppStore((state) => state.toggleRulers);
+  const setShowFPSMeter = useAppStore((state) => state.setShowFPSMeter);
+  const setTransparencyBackgroundMode = useAppStore((state) => state.setTransparencyBackgroundMode);
+  const setSettingsSection = useAppStore((state) => state.setSettingsSection);
+  const project = useAppStore((state) => state.project);
+  const layers = useAppStore((state) => state.layers);
+
   const [isVisible, setIsVisible] = useState(false);
   const [shouldRender, setShouldRender] = useState(false);
   const [isAnalyzingSize, setIsAnalyzingSize] = useState(false);
@@ -57,7 +68,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
   const dragOffset = React.useRef<{ x: number; y: number }>({ x: 0, y: 0 });
 
   const saveSettings = React.useCallback(() => {
-    // Get fresh state from store to ensure we have the latest values
     const currentState = useAppStore.getState();
     const settings = {
       autosave: {
@@ -73,16 +83,15 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
         maxHistorySize: currentState.history.maxHistorySize,
       },
     };
-    try {
-      localStorage.setItem('vessel-settings', JSON.stringify(settings));
-    } catch (error) {
-      settingsLog.warn('Failed to persist settings to localStorage; keeping in-memory values only.', { error });
+    const saved = writeLocalSettings(settings);
+    if (!saved) {
+      settingsLog.warn('Failed to persist settings to localStorage; keeping in-memory values only.');
       currentState.addNotification?.({
         type: 'warning',
         title: 'Settings Not Saved',
         message: 'Settings were applied for this session, but could not be stored locally. Check browser storage permissions.',
         timestamp: new Date(),
-        duration: 4000
+        duration: 4000,
       });
     }
   }, []);
@@ -91,18 +100,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
     saveSettings();
     onClose();
   }, [onClose, saveSettings]);
-
-  const handleAutosaveToggle = (enabled: boolean) => {
-    setAutosaveEnabled(enabled);
-  };
-
-  const handleIntervalChange = (interval: number) => {
-    setAutosaveInterval(interval);
-  };
-
-  const handleHistorySizeChange = (size: number) => {
-    setHistorySize(size);
-  };
 
   const handleAnalyzeSaveSize = React.useCallback(async () => {
     if (!project) {
@@ -123,38 +120,23 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
     }
   }, [layers, project]);
 
-
   const handleRulersToggle = (enabled: boolean) => {
     if (showRulers !== enabled) {
       toggleRulers();
     }
   };
 
-  const handleFPSMeterToggle = (enabled: boolean) => {
-    setShowFPSMeter(enabled);
-  };
-
-  const handleTransparencyBackgroundModeChange = (
-    event: React.ChangeEvent<HTMLSelectElement>
-  ) => {
-    const mode = event.target.value;
-    if (mode === 'checker' || mode === 'gray') {
-      setTransparencyBackgroundMode(mode);
-    }
-  };
-
   useEffect(() => {
     if (isOpen) {
       setShouldRender(true);
-      const modalWidth = 384; // w-96
+      const modalWidth = 448;
       const x = Math.max(16, Math.round((window.innerWidth - modalWidth) / 2));
       const y = Math.max(24, Math.round(window.innerHeight * 0.12));
       setPos({ x, y });
-      setTimeout(() => setIsVisible(true), 10);
+      window.setTimeout(() => setIsVisible(true), 10);
     } else {
       setIsVisible(false);
-      // Keep modal rendered during fade out, then remove it
-      setTimeout(() => setShouldRender(false), 300);
+      window.setTimeout(() => setShouldRender(false), 300);
     }
   }, [isOpen]);
 
@@ -174,187 +156,215 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
     };
   }, [isOpen, handleClose]);
 
-  const onDragStart = (e: React.MouseEvent) => {
-    e.preventDefault();
+  const onDragStart = (event: React.MouseEvent) => {
+    event.preventDefault();
     setDragging(true);
-    dragOffset.current = { x: e.clientX - pos.x, y: e.clientY - pos.y };
+    dragOffset.current = { x: event.clientX - pos.x, y: event.clientY - pos.y };
   };
-  React.useEffect(() => {
-    if (!dragging) return;
-    const onMove = (e: MouseEvent) => {
-      const nx = Math.min(window.innerWidth - 60, Math.max(8, e.clientX - dragOffset.current.x));
-      const ny = Math.min(window.innerHeight - 60, Math.max(8, e.clientY - dragOffset.current.y));
-      setPos({ x: nx, y: ny });
+
+  useEffect(() => {
+    if (!dragging) {
+      return;
+    }
+
+    const onMove = (event: MouseEvent) => {
+      const nextX = Math.min(window.innerWidth - 60, Math.max(8, event.clientX - dragOffset.current.x));
+      const nextY = Math.min(window.innerHeight - 60, Math.max(8, event.clientY - dragOffset.current.y));
+      setPos({ x: nextX, y: nextY });
     };
     const onUp = () => setDragging(false);
+
     window.addEventListener('mousemove', onMove);
     window.addEventListener('mouseup', onUp);
     return () => {
       window.removeEventListener('mousemove', onMove);
       window.removeEventListener('mouseup', onUp);
     };
-  }, [dragging, pos.x, pos.y]);
+  }, [dragging]);
 
-  if (!shouldRender) return null;
+  if (!shouldRender) {
+    return null;
+  }
 
   return (
-    <div 
+    <div
       className={`fixed inset-0 z-50 ${isVisible ? 'opacity-100' : 'opacity-0'} transition-opacity duration-300`}
       onClick={handleClose}
     >
-      <div 
-        className="bg-[#2C2C2C] rounded-lg w-96 max-w-full mx-4 shadow-xl"
+      <div
+        className="bg-[#2C2C2C] rounded-lg w-[28rem] max-w-[calc(100vw-2rem)] shadow-xl"
         style={{ position: 'fixed', left: pos.x, top: pos.y }}
-        onClick={(e) => e.stopPropagation()}
+        onClick={(event) => event.stopPropagation()}
       >
-        <div className="flex items-center justify-between px-6 pt-4 pb-3 border-b border-[#555] cursor-move" onMouseDown={onDragStart}>
-          <h2 className="text-[#D9D9D9] text-base font-semibold">Settings</h2>
+        <div
+          className="flex items-center justify-between border-b border-[#555] px-6 pb-3 pt-4 cursor-move"
+          onMouseDown={onDragStart}
+        >
+          <h2 className="text-base font-semibold text-[#D9D9D9]">Settings</h2>
           <button
+            type="button"
             onClick={handleClose}
-            className="text-[#888] hover:text-white transition-colors p-1"
+            className="p-1 text-[#888] transition-colors hover:text-white"
           >
-            <XIcon className="w-5 h-5" />
+            <XIcon className="h-5 w-5" />
           </button>
         </div>
 
-        <div className="space-y-6 p-6 pt-4">
-          {/* Display Settings */}
-          <div>
-            <h3 className="text-[#D9D9D9] text-base font-medium mb-3">Display</h3>
-            <div className="space-y-3">
-              <div className="flex items-center justify-between">
-                <label htmlFor="show-rulers" className="text-base text-[#888]">Show Rulers</label>
-                <Switch
-                  id="show-rulers"
-                  checked={showRulers}
-                  onChange={handleRulersToggle}
-                />
-              </div>
-              <div className="flex items-center justify-between">
-                <label htmlFor="show-fps-meter" className="text-base text-[#888]">Show FPS Meter</label>
-                <Switch
-                  id="show-fps-meter"
-                  checked={showFPSMeter}
-                  onChange={handleFPSMeterToggle}
-                />
-              </div>
-              <div className="flex items-center justify-between gap-4">
-                <label htmlFor="transparency-background-mode" className="text-base text-[#888]">
-                  Transparent Background
-                </label>
-                <select
-                  id="transparency-background-mode"
-                  value={transparencyBackgroundMode}
-                  onChange={handleTransparencyBackgroundModeChange}
-                  className="bg-[#444] text-[#D9D9D9] px-3 py-1 rounded border border-[#555] text-base"
+        <div className="max-h-[min(75vh,760px)] overflow-y-auto p-6 pt-4">
+          <div className="mb-5 flex flex-wrap gap-2">
+            {SETTINGS_SECTIONS.map((section) => {
+              const isActive = settingsSection === section.id;
+              return (
+                <button
+                  key={section.id}
+                  type="button"
+                  onClick={() => setSettingsSection(section.id)}
+                  className="rounded border px-2 py-1 text-[11px] uppercase tracking-[0.08em] transition-colors"
+                  style={{
+                    borderColor: isActive ? '#D9D9D9' : '#555',
+                    backgroundColor: isActive ? '#D9D9D9' : 'transparent',
+                    color: isActive ? '#1A1A1A' : '#A5A5A5',
+                  }}
                 >
-                  <option value="checker">Checkered</option>
-                  <option value="gray">Grey</option>
-                </select>
-              </div>
-            </div>
+                  {section.label}
+                </button>
+              );
+            })}
           </div>
 
-          {/* Divider */}
-          <div className="border-t border-[#555]"></div>
-
-          {/* Autosave Settings */}
-          <div>
-            <h3 className="text-[#D9D9D9] text-base font-medium mb-3">Autosave</h3>
-            <div className="space-y-3">
-              <div className="flex items-center justify-between">
-                <label htmlFor="enable-autosave" className="text-base text-[#888]">Enable Autosave</label>
-                <Switch
-                  id="enable-autosave"
-                  checked={isAutosaveEnabled}
-                  onChange={handleAutosaveToggle}
-                />
-              </div>
-              {isAutosaveEnabled && (
+          {settingsSection === 'display' && (
+            <div>
+              <h3 className="mb-3 text-base font-medium text-[#D9D9D9]">Display</h3>
+              <div className="space-y-3">
                 <div className="flex items-center justify-between">
-                  <label className="text-base text-[#888]">Save Interval</label>
-                  <select 
-                    value={autosaveInterval}
-                    onChange={(e) => handleIntervalChange(Number(e.target.value))}
-                    className="bg-[#444] text-[#D9D9D9] px-3 py-1 rounded border border-[#555] text-base"
+                  <label htmlFor="show-rulers" className="text-base text-[#888]">Show Rulers</label>
+                  <Switch id="show-rulers" checked={showRulers} onChange={handleRulersToggle} />
+                </div>
+                <div className="flex items-center justify-between">
+                  <label htmlFor="show-fps-meter" className="text-base text-[#888]">Show FPS Meter</label>
+                  <Switch
+                    id="show-fps-meter"
+                    checked={showFPSMeter}
+                    onChange={(enabled) => setShowFPSMeter(enabled)}
+                  />
+                </div>
+                <div className="flex items-center justify-between gap-4">
+                  <label htmlFor="transparency-background-mode" className="text-base text-[#888]">
+                    Transparent Background
+                  </label>
+                  <select
+                    id="transparency-background-mode"
+                    value={transparencyBackgroundMode}
+                    onChange={(event) => {
+                      const mode = event.target.value;
+                      if (mode === 'checker' || mode === 'gray') {
+                        setTransparencyBackgroundMode(mode);
+                      }
+                    }}
+                    className="rounded border border-[#555] bg-[#444] px-3 py-1 text-base text-[#D9D9D9]"
                   >
-                    <option value={1}>1 minute</option>
-                    <option value={2}>2 minutes</option>
-                    <option value={5}>5 minutes</option>
-                    <option value={10}>10 minutes</option>
+                    <option value="checker">Checkered</option>
+                    <option value="gray">Grey</option>
                   </select>
                 </div>
-              )}
-            </div>
-          </div>
-
-          {/* Divider */}
-          <div className="border-t border-[#555]"></div>
-
-          {/* Implementation Settings */}
-          <div>
-            <h3 className="text-[#D9D9D9] text-base font-medium mb-3">Implementation</h3>
-            <FeatureFlagToggle className="mb-4" />
-          </div>
-
-          {/* Divider */}
-          <div className="border-t border-[#555]"></div>
-
-          {/* Performance Settings */}
-          <div>
-            <h3 className="text-[#D9D9D9] text-base font-medium mb-3">Performance</h3>
-            <div className="space-y-3">
-              <div className="flex items-center justify-between">
-                <label className="text-base text-[#888]">Undo History Size</label>
-                <select 
-                  value={historySize}
-                  onChange={(e) => handleHistorySizeChange(Number(e.target.value))}
-                  className="bg-[#444] text-[#D9D9D9] px-3 py-1 rounded border border-[#555] text-base"
-                >
-                  <option value={10}>10 actions</option>
-                  <option value={25}>25 actions</option>
-                  <option value={50}>50 actions</option>
-                  <option value={100}>100 actions</option>
-                </select>
               </div>
+            </div>
+          )}
 
-              <div className="border-t border-[#555] pt-3 mt-2">
-                <div className="flex items-center justify-between gap-3">
-                  <label className="text-base text-[#888]">Save Size Inspector</label>
-                  <button
-                    type="button"
-                    onClick={handleAnalyzeSaveSize}
-                    disabled={isAnalyzingSize || !project}
-                    className="bg-[#444] text-[#D9D9D9] px-3 py-1 rounded border border-[#555] text-base disabled:opacity-50"
-                  >
-                    {isAnalyzingSize ? 'Analyzing…' : 'Analyze'}
-                  </button>
+          {settingsSection === 'autosave' && (
+            <div>
+              <h3 className="mb-3 text-base font-medium text-[#D9D9D9]">Autosave</h3>
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <label htmlFor="enable-autosave" className="text-base text-[#888]">Enable Autosave</label>
+                  <Switch
+                    id="enable-autosave"
+                    checked={isAutosaveEnabled}
+                    onChange={(enabled) => setAutosaveEnabled(enabled)}
+                  />
                 </div>
-                {!project && (
-                  <p className="text-sm text-[#777] mt-2">Open or create a project to analyze save size.</p>
-                )}
-                {sizeReportError && (
-                  <p className="text-sm text-[#D77] mt-2">{sizeReportError}</p>
-                )}
-                {sizeReport && (
-                  <div className="mt-2 text-sm text-[#B5B5B5] space-y-1">
-                    <div>Archive: {formatBytes(sizeReport.archiveBytes)}</div>
-                    <div>Manifest (unzipped): {formatBytes(sizeReport.combinedManifestBytes)}</div>
-                    <div>Compression Ratio: {(sizeReport.compressionRatio * 100).toFixed(1)}%</div>
-                    <div>
-                      Top Section: {sizeReport.sectionBreakdown[0]?.name ?? 'n/a'} ({formatBytes(sizeReport.sectionBreakdown[0]?.bytes ?? 0)})
-                    </div>
-                    <div>
-                      Largest Layer: {sizeReport.largestLayers[0]?.layerName ?? 'n/a'} ({formatBytes(sizeReport.largestLayers[0]?.bytes ?? 0)})
-                    </div>
-                    {sizeReport.recommendations[0] && (
-                      <div className="text-[#9FAF9F]">Tip: {sizeReport.recommendations[0]}</div>
-                    )}
+                {isAutosaveEnabled && (
+                  <div className="flex items-center justify-between">
+                    <label className="text-base text-[#888]">Save Interval</label>
+                    <select
+                      value={autosaveInterval}
+                      onChange={(event) => setAutosaveInterval(Number(event.target.value))}
+                      className="rounded border border-[#555] bg-[#444] px-3 py-1 text-base text-[#D9D9D9]"
+                    >
+                      <option value={1}>1 minute</option>
+                      <option value={2}>2 minutes</option>
+                      <option value={5}>5 minutes</option>
+                      <option value={10}>10 minutes</option>
+                    </select>
                   </div>
                 )}
               </div>
             </div>
-          </div>
+          )}
+
+          {settingsSection === 'implementation' && (
+            <div>
+              <h3 className="mb-3 text-base font-medium text-[#D9D9D9]">Implementation</h3>
+              <FeatureFlagToggle className="mb-4" />
+            </div>
+          )}
+
+          {settingsSection === 'performance' && (
+            <div>
+              <h3 className="mb-3 text-base font-medium text-[#D9D9D9]">Performance</h3>
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <label className="text-base text-[#888]">Undo History Size</label>
+                  <select
+                    value={historySize}
+                    onChange={(event) => setHistorySize(Number(event.target.value))}
+                    className="rounded border border-[#555] bg-[#444] px-3 py-1 text-base text-[#D9D9D9]"
+                  >
+                    <option value={10}>10 actions</option>
+                    <option value={25}>25 actions</option>
+                    <option value={50}>50 actions</option>
+                    <option value={100}>100 actions</option>
+                  </select>
+                </div>
+
+                <div className="mt-2 border-t border-[#555] pt-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <label className="text-base text-[#888]">Save Size Inspector</label>
+                    <button
+                      type="button"
+                      onClick={handleAnalyzeSaveSize}
+                      disabled={isAnalyzingSize || !project}
+                      className="rounded border border-[#555] bg-[#444] px-3 py-1 text-base text-[#D9D9D9] disabled:opacity-50"
+                    >
+                      {isAnalyzingSize ? 'Analyzing…' : 'Analyze'}
+                    </button>
+                  </div>
+                  {!project && (
+                    <p className="mt-2 text-sm text-[#777]">Open or create a project to analyze save size.</p>
+                  )}
+                  {sizeReportError && (
+                    <p className="mt-2 text-sm text-[#D77]">{sizeReportError}</p>
+                  )}
+                  {sizeReport && (
+                    <div className="mt-2 space-y-1 text-sm text-[#B5B5B5]">
+                      <div>Archive: {formatBytes(sizeReport.archiveBytes)}</div>
+                      <div>Manifest (unzipped): {formatBytes(sizeReport.combinedManifestBytes)}</div>
+                      <div>Compression Ratio: {(sizeReport.compressionRatio * 100).toFixed(1)}%</div>
+                      <div>
+                        Top Section: {sizeReport.sectionBreakdown[0]?.name ?? 'n/a'} ({formatBytes(sizeReport.sectionBreakdown[0]?.bytes ?? 0)})
+                      </div>
+                      <div>
+                        Largest Layer: {sizeReport.largestLayers[0]?.layerName ?? 'n/a'} ({formatBytes(sizeReport.largestLayers[0]?.bytes ?? 0)})
+                      </div>
+                      {sizeReport.recommendations[0] && (
+                        <div className="text-[#9FAF9F]">Tip: {sizeReport.recommendations[0]}</div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </div>

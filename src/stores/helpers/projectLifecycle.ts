@@ -213,6 +213,7 @@ export const createProjectLifecycle = ({
         ? {
             ...get().canvas,
             zoom: loadedProject.viewState.zoom,
+            displayFilters: loadedProject.viewState.displayFilters ?? get().canvas.displayFilters,
           }
         : get().canvas,
       brushSpecificSettings: loadedProject.brushSpecificSettings ?? {},
@@ -432,6 +433,7 @@ export const createProjectLifecycle = ({
         layerGroups: freshState.layerGroups,
         viewState: {
           zoom: freshState.canvas.zoom,
+          displayFilters: freshState.canvas.displayFilters,
         },
         brushSpecificSettings: freshState.brushSpecificSettings,
         globalBrushSize: freshState.globalBrushSize,

@@ -66,6 +66,7 @@ Vessel is built with Next.js (App Router) and a custom Canvas2D rendering pipeli
 - `docs/project.md` — Consolidated architecture notes and recent updates
 
 ### Recent Updates (from `docs/project.md`)
+- **Display Filters (2026-04-13):** runtime-only artwork post-processing with persisted filter presets in the brush settings panel
 - **Canvas Shape Masks (2026-01-03):** non-rectangular canvas bounds, clipped draw/selection, export masking
 - **Color Cycle + Recolor (2025-12-31):** recolor mode with palette extraction and deterministic export
 - **Color Cycle Brush System (2025-08-27):** Canvas2D-first indexed pipeline with optional WebGL accel

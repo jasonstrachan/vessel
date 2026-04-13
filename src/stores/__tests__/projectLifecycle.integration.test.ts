@@ -1,5 +1,5 @@
 import { createDefaultExportLayout, createDefaultLayerAlignment } from '@/utils/layoutDefaults';
-import { BrushShape, type CustomBrush, type Layer, type Project } from '@/types';
+import { BrushShape, type CustomBrush, type DisplayFilterConfig, type Layer, type Project } from '@/types';
 import { useAppStore } from '@/stores/useAppStore';
 import type { AppState } from '@/stores/useAppStore';
 import { exportProjectAsPNG, saveProjectToFile } from '@/utils/projectIO';
@@ -207,6 +207,7 @@ describe('project slice lifecycle flows', () => {
     const [projectPayload, preferredName, layersArg] = (saveProjectToFile as jest.Mock).mock.calls[0];
     expect(preferredName).toBe('poster.vessel');
     expect(projectPayload.viewState?.zoom).toBe(useAppStore.getState().canvas.zoom);
+    expect(projectPayload.viewState?.displayFilters).toEqual(useAppStore.getState().canvas.displayFilters);
     expect(Array.isArray(layersArg)).toBe(true);
     expect(useAppStore.getState().projectFilename).toBe('poster.vessel');
     expect(useAppStore.getState().projectFileHandle).toEqual({ id: 'handle-1' });
@@ -284,6 +285,49 @@ describe('project slice lifecycle flows', () => {
     expect(savedLayer?.imageData?.data[2]).toBe(56);
     expect(savedLayer?.imageData?.data[3]).toBe(255);
     expect(savedLayer?.imageData?.data[0]).not.toBe(200);
+  });
+
+  it('restores persisted display filters when loading a project', async () => {
+    const displayFilters: DisplayFilterConfig[] = [
+      { id: 'pixelate', enabled: true, settings: { cellSize: 6 } },
+      { id: 'bloom', enabled: true, settings: { blurRadius: 4, intensity: 0.2 } },
+      { id: 'color-grade', enabled: false, settings: { brightness: 0, contrast: 0.1, saturation: 1 } },
+      { id: 'lcd-mask', enabled: false, settings: { stripeOpacity: 0.1, scanlineOpacity: 0.02 } },
+      { id: 'noise', enabled: true, settings: { opacity: 0.08, scale: 2 } },
+    ];
+
+    const loadProjectFromFile = jest.requireMock('@/utils/projectIO').loadProjectFromFile as jest.Mock;
+    loadProjectFromFile.mockResolvedValue({
+      project: {
+        id: 'loaded-project',
+        name: 'Loaded',
+        width: 16,
+        height: 16,
+        layers: [makeLayer('loaded-layer')],
+        backgroundColor: '#000',
+        createdAt: new Date('2024-01-01'),
+        updatedAt: new Date('2024-01-02'),
+        customBrushes: [],
+        defaultCustomBrushId: null,
+        exportLayout: createDefaultExportLayout(),
+        palette: {
+          foregroundColor: '#ffffff',
+          backgroundColor: '#000000',
+          activeSlot: 'foreground',
+        },
+        viewState: {
+          zoom: 2,
+          displayFilters,
+        },
+      },
+      fileName: 'loaded.vessel',
+      fileHandle: null,
+    });
+
+    await useAppStore.getState().loadProject();
+
+    expect(useAppStore.getState().canvas.zoom).toBe(2);
+    expect(useAppStore.getState().canvas.displayFilters).toEqual(displayFilters);
   });
 
   it('forces a save dialog when requested even if a file handle exists', async () => {

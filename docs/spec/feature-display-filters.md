@@ -21,7 +21,7 @@ This must be a display-layer effect, not a brush-authoring effect. The source ar
 Phase 1 includes:
 
 - a new Filters toolbar entry
-- a Filters section inside Settings
+- a Filters section inside the brush settings panel
 - a fixed-order stack of five display filters
 - live viewport rendering of enabled filters
 - persistence in local settings
@@ -63,7 +63,7 @@ That means the effect should live after compositing, at the viewport/display sta
 Add a new toolbar entry for Filters.
 
 - Label in the current toolbar language: `Fl`
-- Behavior: opens Settings and lands directly in the Filters section
+- Behavior: switches the brush settings panel to the Filters section
 - This should not become a second full editor surface unless the current modal becomes too cramped
 
 Requirements:
@@ -74,7 +74,7 @@ Requirements:
 
 ### Settings Surface
 
-Add a Filters section inside Settings.
+Add a Filters section inside the brush settings panel.
 
 - Filters are shown as stacked cards
 - Each filter card has:

@@ -60,6 +60,7 @@ export const useDrawingCanvasRuntimeStateBundle = () => {
     canvasOffsetX: storeState.canvasOffsetX,
     canvasOffsetY: storeState.canvasOffsetY,
     displayMode: storeState.displayMode,
+    displayFilters: storeState.displayFilters,
     transparencyBackgroundMode: storeState.transparencyBackgroundMode,
     compositeBitmap: storeState.compositeBitmap,
     compositeLayersToCanvas: storeState.compositeLayersToCanvas,

@@ -27,6 +27,7 @@ import { selectModals } from '@/stores/selectors/modalSelectors';
 import { preloadRisographTexture } from '@/utils/risographTexture';
 import { autosaveService } from '@/utils/autosave';
 import { devLog } from '@/utils/devLog';
+import { readLocalSettings } from '@/utils/localSettings';
 // import TestPluginBrushes from '../components/TestPluginBrushes'; // TEST COMPONENT - Disabled due to render loop
 
 const homeLog = devLog.scope('HOME');
@@ -65,7 +66,6 @@ export default function Home() {
   // Feedback strip state
   const [feedbackMessage, setFeedbackMessage] = useState<string | null>(null);
   const [isSettingsHydrated, setIsSettingsHydrated] = useState(false);
-  
   const showFeedback = useCallback((message: string) => {
     setFeedbackMessage(message);
   }, []);
@@ -101,14 +101,17 @@ export default function Home() {
   // Load settings from localStorage on initial mount only
   useEffect(() => {
     try {
-      const savedSettings = localStorage.getItem('vessel-settings');
-      if (savedSettings) {
-        const settings = JSON.parse(savedSettings);
+      const settings = readLocalSettings();
+      if (Object.keys(settings).length > 0) {
 
         // Load autosave settings
         if (settings.autosave) {
-          setAutosaveEnabled(settings.autosave.isEnabled);
-          setAutosaveInterval(settings.autosave.interval);
+          if (typeof settings.autosave.isEnabled === 'boolean') {
+            setAutosaveEnabled(settings.autosave.isEnabled);
+          }
+          if (typeof settings.autosave.interval === 'number') {
+            setAutosaveInterval(settings.autosave.interval);
+          }
         }
 
         // Load canvas settings

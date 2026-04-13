@@ -9,20 +9,24 @@ jest.mock('@/utils/toolSwitch', () => ({
 
 type ToolbarStore = {
   tools: { currentTool: string; selectionMode?: string };
-  ui: { grid: { enabled: boolean } };
+  ui: { grid: { enabled: boolean }; modals: { settings: boolean }; brushPanelSection: 'tool' | 'filters' };
   saveProject: jest.Mock;
   toggleGrid: jest.Mock;
   toggleModal: jest.Mock;
   setSelectionMode: jest.Mock;
+  setBrushPanelSection: jest.Mock;
+  setSettingsSection: jest.Mock;
 };
 
 const mockStore: ToolbarStore = {
   tools: { currentTool: 'brush', selectionMode: 'marquee' },
-  ui: { grid: { enabled: false } },
+  ui: { grid: { enabled: false }, modals: { settings: false }, brushPanelSection: 'tool' },
   saveProject: jest.fn().mockResolvedValue(undefined),
   toggleGrid: jest.fn(),
   toggleModal: jest.fn(),
   setSelectionMode: jest.fn(),
+  setBrushPanelSection: jest.fn(),
+  setSettingsSection: jest.fn(),
 };
 
 jest.mock('@/stores/useAppStore', () => {
@@ -56,6 +60,8 @@ describe('LeftToolbar accessibility', () => {
     mockStore.tools.currentTool = 'brush';
     mockStore.tools.selectionMode = 'marquee';
     mockStore.ui.grid.enabled = false;
+    mockStore.ui.modals.settings = false;
+    mockStore.ui.brushPanelSection = 'tool';
   });
 
   it('marks the active tool button as pressed and annotates shortcuts', () => {
@@ -120,5 +126,33 @@ describe('LeftToolbar accessibility', () => {
     fireEvent.click(gridButton);
 
     expect(mockStore.toggleGrid).toHaveBeenCalledTimes(1);
+  });
+
+  it('routes the Fl button to the brush settings filters section', () => {
+    render(<LeftToolbar />);
+
+    fireEvent.click(screen.getByRole('button', { name: /filters/i }));
+
+    expect(mockStore.setBrushPanelSection).toHaveBeenCalledWith('filters');
+    expect(mockStore.toggleModal).not.toHaveBeenCalled();
+  });
+
+  it('marks the Fl button active when the brush panel is showing filters', () => {
+    mockStore.ui.brushPanelSection = 'filters';
+
+    render(<LeftToolbar />);
+
+    expect(screen.getByRole('button', { name: /filters/i })).toHaveAttribute('aria-pressed', 'true');
+  });
+
+  it('still opens global settings from the options button', () => {
+    mockStore.ui.modals.settings = true;
+
+    render(<LeftToolbar />);
+
+    fireEvent.click(screen.getByRole('button', { name: /options/i }));
+
+    expect(mockStore.setSettingsSection).toHaveBeenCalledWith('display');
+    expect(mockStore.toggleModal).not.toHaveBeenCalled();
   });
 });
