@@ -34,6 +34,7 @@ import {
   waitForFinalizeQueueIdle,
 } from '@/stores/pendingColorCycleSaves';
 import { getStoredDisplayFilterDefaults } from '@/stores/slices/canvasSlice';
+import { normalizePersistedBrushSettings } from '@/stores/helpers/toolsState';
 
 type AppState = import('../useAppStore').AppState;
 
@@ -241,7 +242,7 @@ export const createProjectLifecycle = ({
       if (activeBrushId) {
         const overrides = stateAfterLoad.brushSpecificSettings?.[activeBrushId];
         if (overrides) {
-          const rest = { ...overrides };
+          const rest = normalizePersistedBrushSettings({ ...overrides });
           delete rest.size;
           delete rest.pressureEnabled;
           delete rest.minPressure;

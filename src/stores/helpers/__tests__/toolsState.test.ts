@@ -1,4 +1,8 @@
-import { pixelsFromCustomPercent, percentFromPixelSize } from '@/stores/helpers/toolsState';
+import {
+  normalizePersistedBrushSettings,
+  pixelsFromCustomPercent,
+  percentFromPixelSize,
+} from '@/stores/helpers/toolsState';
 import { BrushShape, type BrushSettings } from '@/types';
 import type { AppState } from '@/stores/useAppStore';
 import { defaultBrushSettings } from '@/presets/brushPresets';
@@ -70,5 +74,38 @@ describe('custom brush size conversions', () => {
     // Without metadata we expect it to use the underlying image dimensions (10)
     expect(percentFromPixelSize(20, state, brushSettings)).toBe(200);
     expect(percentFromPixelSize(5, state, brushSettings)).toBe(50);
+  });
+});
+
+describe('normalizePersistedBrushSettings', () => {
+  it('restores pressure-linked max resolution from persisted dither settings', () => {
+    expect(
+      normalizePersistedBrushSettings({
+        pressureLinkedFillResolution: true,
+        fillResolution: 13,
+        pressureLinkedFillMaxResolution: '27' as unknown as number,
+      })
+    ).toEqual(
+      expect.objectContaining({
+        pressureLinkedFillResolution: true,
+        fillResolution: 13,
+        pressureLinkedFillMaxResolution: 27,
+      })
+    );
+  });
+
+  it('backfills pressure-linked max resolution when older payloads omit it', () => {
+    expect(
+      normalizePersistedBrushSettings({
+        pressureLinkedFillResolution: true,
+        fillResolution: 19,
+      })
+    ).toEqual(
+      expect.objectContaining({
+        pressureLinkedFillResolution: true,
+        fillResolution: 19,
+        pressureLinkedFillMaxResolution: 19,
+      })
+    );
   });
 });

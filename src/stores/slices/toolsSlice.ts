@@ -31,6 +31,7 @@ import {
   quantizeCustomBrushPercent,
   pixelsFromCustomPercent,
   percentFromPixelSize,
+  normalizePersistedBrushSettings,
   cloneGradientStops,
   gradientsEqual,
   findStoredColorCycleGradient,
@@ -2591,9 +2592,9 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
     const state = get();
     const loadedSettings = state.brushSpecificSettings[brushId] || {};
 
-    const normalized = {
+    const normalized = normalizePersistedBrushSettings({
       ...loadedSettings,
-    } as Partial<BrushSettings> & { colorCycleFlowForward?: boolean };
+    }) as Partial<BrushSettings> & { colorCycleFlowForward?: boolean };
 
     delete (normalized as Partial<BrushSettings> & { ccGradientSamplePerShape?: unknown }).ccGradientSamplePerShape;
     delete normalized.ditherAlgorithm;
