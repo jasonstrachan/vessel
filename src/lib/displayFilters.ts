@@ -7,6 +7,8 @@ const FILTER_ORDER: DisplayFilterId[] = [
   'bloom',
   'color-grade',
   'lcd-mask',
+  'crt-grid',
+  'chromatic-aberration',
   'noise',
 ];
 
@@ -50,7 +52,7 @@ const sanitizeBloom = (filter?: Partial<DisplayFilterForId<'bloom'>>): DisplayFi
     intensity: roundToStep(clamp(
       filter?.settings?.intensity,
       0,
-      1,
+      2,
       0.18,
     ), 0.01),
   },
@@ -119,11 +121,65 @@ const sanitizeNoise = (filter?: Partial<DisplayFilterForId<'noise'>>): DisplayFi
   },
 });
 
+const sanitizeChromaticAberration = (
+  filter?: Partial<DisplayFilterForId<'chromatic-aberration'>>,
+): DisplayFilterConfig => ({
+  id: 'chromatic-aberration',
+  enabled: filter?.enabled === true,
+  settings: {
+    offset: roundToStep(clamp(
+      filter?.settings?.offset,
+      0,
+      12,
+      2,
+    ), 0.25),
+    intensity: roundToStep(clamp(
+      filter?.settings?.intensity,
+      0,
+      1,
+      0.38,
+    ), 0.01),
+  },
+});
+
+const sanitizeCrtGrid = (filter?: Partial<DisplayFilterForId<'crt-grid'>>): DisplayFilterConfig => ({
+  id: 'crt-grid',
+  enabled: filter?.enabled === true,
+  settings: {
+    lineOpacity: roundToStep(clamp(
+      filter?.settings?.lineOpacity,
+      0,
+      1,
+      0.14,
+    ), 0.01),
+    lineSpacing: Math.max(2, Math.round(clamp(
+      filter?.settings?.lineSpacing,
+      2,
+      16,
+      4,
+    ))),
+    phosphorOpacity: roundToStep(clamp(
+      filter?.settings?.phosphorOpacity,
+      0,
+      1,
+      0.12,
+    ), 0.01),
+    scanlineOpacity: roundToStep(clamp(
+      filter?.settings?.scanlineOpacity,
+      0,
+      1,
+      0.18,
+    ), 0.01),
+  },
+});
+
 export const createDefaultDisplayFilters = (): DisplayFilterConfig[] => ([
   sanitizePixelate(),
   sanitizeBloom(),
   sanitizeColorGrade(),
   sanitizeLcdMask(),
+  sanitizeCrtGrid(),
+  sanitizeChromaticAberration(),
   sanitizeNoise(),
 ]);
 
@@ -137,6 +193,10 @@ const sanitizeDisplayFilter = (filter?: Partial<DisplayFilterConfig>): DisplayFi
       return sanitizeColorGrade(filter);
     case 'lcd-mask':
       return sanitizeLcdMask(filter);
+    case 'crt-grid':
+      return sanitizeCrtGrid(filter);
+    case 'chromatic-aberration':
+      return sanitizeChromaticAberration(filter);
     case 'noise':
       return sanitizeNoise(filter);
     default:
@@ -164,6 +224,14 @@ export const sanitizeDisplayFilters = (
 
 export const cloneDisplayFilters = (filters?: DisplayFilterConfig[] | null): DisplayFilterConfig[] =>
   sanitizeDisplayFilters(filters ?? createDefaultDisplayFilters());
+
+export const disableDisplayFilters = (
+  filters?: DisplayFilterConfig[] | null,
+): DisplayFilterConfig[] =>
+  sanitizeDisplayFilters(filters ?? createDefaultDisplayFilters()).map((filter) => ({
+    ...filter,
+    enabled: false,
+  }));
 
 export const hasEnabledDisplayFilters = (filters?: DisplayFilterConfig[] | null): boolean =>
   (filters ?? []).some((filter) => filter.enabled);

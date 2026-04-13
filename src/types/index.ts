@@ -95,6 +95,8 @@ export type DisplayFilterId =
   | 'bloom'
   | 'color-grade'
   | 'lcd-mask'
+  | 'crt-grid'
+  | 'chromatic-aberration'
   | 'noise';
 
 export interface PixelateDisplayFilter {
@@ -142,11 +144,33 @@ export interface NoiseDisplayFilter {
   };
 }
 
+export interface CrtGridDisplayFilter {
+  id: 'crt-grid';
+  enabled: boolean;
+  settings: {
+    lineOpacity: number;
+    lineSpacing: number;
+    phosphorOpacity: number;
+    scanlineOpacity: number;
+  };
+}
+
+export interface ChromaticAberrationDisplayFilter {
+  id: 'chromatic-aberration';
+  enabled: boolean;
+  settings: {
+    offset: number;
+    intensity: number;
+  };
+}
+
 export type DisplayFilterConfig =
   | PixelateDisplayFilter
   | BloomDisplayFilter
   | ColorGradeDisplayFilter
   | LcdMaskDisplayFilter
+  | CrtGridDisplayFilter
+  | ChromaticAberrationDisplayFilter
   | NoiseDisplayFilter;
 
 export type BrushPanelSectionId = 'tool' | 'filters';

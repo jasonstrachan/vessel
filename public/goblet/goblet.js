@@ -1,4 +1,11 @@
 import { clamp, posInt, round3, toNum } from './num.js';
+import {
+  applyDisplayFilterStack,
+  clearDisplayFilterCanvas,
+  createDisplayFilterPipelineState,
+  ensureDisplayFilterCanvas,
+  hasEnabledDisplayFiltersInList,
+} from './displayFilterPipeline.js';
 
 const __DEV__ = typeof process !== 'undefined' && process.env && process.env.NODE_ENV
   ? process.env.NODE_ENV !== 'production'
@@ -1253,6 +1260,17 @@ const computeViewportMapping = (viewport, canvasWidth, canvasHeight) => {
     canvasWidth: resolvedCanvasWidth,
     canvasHeight: resolvedCanvasHeight
   };
+};
+
+const computeDocumentViewportMapping = (metadata, canvasWidth, canvasHeight) => {
+  const viewport = metadata?.viewport ?? {};
+  const projectWidth = Math.max(1, toNum(metadata?.project?.width, viewport?.designWidth ?? canvasWidth));
+  const projectHeight = Math.max(1, toNum(metadata?.project?.height, viewport?.designHeight ?? canvasHeight));
+  return computeViewportMapping({
+    ...viewport,
+    designWidth: projectWidth,
+    designHeight: projectHeight,
+  }, canvasWidth, canvasHeight);
 };
 
 const resolveAnchorPivot = (anchorValue) => {
@@ -3725,6 +3743,10 @@ const createCanvasStrategy = (metadata, canvas, initialOverride) => {
   };
 };
 
+const getGobletDisplayFilters = (metadata) => (
+  Array.isArray(metadata?.settings?.displayFilters) ? metadata.settings.displayFilters : []
+);
+
 class VesselGoblet {
   constructor(metadata, canvas, options, sourceMetadata) {
     this.metadata = metadata;
@@ -3738,6 +3760,7 @@ class VesselGoblet {
     this.ctx = null;
     this.layerEntries = [];
     this.dynamicPlayers = [];
+    this.displayFilterState = createDisplayFilterPipelineState();
     this.rafId = null;
     this.lastTimestamp = 0;
     this.destroyed = false;
@@ -3898,6 +3921,23 @@ class VesselGoblet {
       ctx.fillRect(0, 0, clearWidth, clearHeight);
     }
 
+    const documentSize = {
+      width: Math.max(1, toNum(this.metadata.project?.width, cssW)),
+      height: Math.max(1, toNum(this.metadata.project?.height, cssH))
+    };
+    const displayFilters = getGobletDisplayFilters(this.metadata);
+    const shouldFilterArtwork = hasEnabledDisplayFiltersInList(displayFilters);
+    const filterSurfaceCanvas = shouldFilterArtwork
+      ? ensureDisplayFilterCanvas(
+          this.displayFilterState.filterSurfaceCanvas,
+          documentSize.width,
+          documentSize.height,
+        )
+      : null;
+    const filterCtx = shouldFilterArtwork ? clearDisplayFilterCanvas(filterSurfaceCanvas) : null;
+    this.displayFilterState.filterSurfaceCanvas = filterSurfaceCanvas;
+    const renderCtx = filterCtx ?? ctx;
+
     const sorted = [...this.layerEntries];
     sorted.sort((a, b) => {
       const originalA = this.layerEntries.indexOf(a);
@@ -3916,14 +3956,16 @@ class VesselGoblet {
       visible: entry.layer.visible
     })));
 
-    const viewportSize = { width: cssW, height: cssH };
-    const documentSize = {
-      width: Math.max(1, toNum(this.metadata.project?.width, cssW)),
-      height: Math.max(1, toNum(this.metadata.project?.height, cssH))
-    };
+    const viewportSize = shouldFilterArtwork
+      ? { width: documentSize.width, height: documentSize.height }
+      : { width: cssW, height: cssH };
     const designSize = {
-      width: Math.max(1, toNum(this.metadata.viewport?.designWidth, cssW)),
-      height: Math.max(1, toNum(this.metadata.viewport?.designHeight, cssH))
+      width: shouldFilterArtwork
+        ? documentSize.width
+        : Math.max(1, toNum(this.metadata.viewport?.designWidth, cssW)),
+      height: shouldFilterArtwork
+        ? documentSize.height
+        : Math.max(1, toNum(this.metadata.viewport?.designHeight, cssH))
     };
     let painted = 0;
     sorted.forEach((entry, index) => {
@@ -4047,7 +4089,7 @@ class VesselGoblet {
 
       // log removed
 
-      const directFixedPlacement = isFixed && entry.layer.documentBoundsPx
+      const directFixedPlacement = isFixed && !shouldFilterArtwork && entry.layer.documentBoundsPx
         ? (() => {
             const docRect = entry.layer.documentBoundsPx;
             const scaleX = viewportSize.width / Math.max(1, documentSize.width);
@@ -4088,9 +4130,9 @@ class VesselGoblet {
       const blendMode = entry.layer.blendMode ?? 'source-over';
       const opacity = Number.isFinite(entry.layer.opacity) ? clamp(entry.layer.opacity, 0, 1) : 1;
 
-      ctx.save();
-      ctx.globalCompositeOperation = blendMode;
-      ctx.globalAlpha = opacity;
+      renderCtx.save();
+      renderCtx.globalCompositeOperation = blendMode;
+      renderCtx.globalAlpha = opacity;
 
       if (__DEV__) {
         if (!(placement.dest.width > 0 && placement.dest.height > 0)) {
@@ -4099,11 +4141,11 @@ class VesselGoblet {
       }
 
       const drawResult = drawLayerWithPlacement(
-        ctx,
+        renderCtx,
         source,
         placement,
         {
-          isFixed,
+          isFixed: isFixed && !shouldFilterArtwork,
           dpr,
           paintedRect,
           fit: directFixedPlacement ? 'none' : align.fit
@@ -4111,12 +4153,12 @@ class VesselGoblet {
       );
 
       if (!drawResult.ok) {
-        ctx.restore();
+        renderCtx.restore();
         diagnostics.log(`[goblet] Failed to paint layer ${entry.layer.id}`);
         return;
       }
 
-      const transformBeforeDraw = snapshotTransform(ctx);
+      const transformBeforeDraw = snapshotTransform(renderCtx);
       if (!isIdentityTransform(transformBeforeDraw)) {
         warnNonIdentityTransform(entry.layer?.id, transformBeforeDraw);
       }
@@ -4134,7 +4176,7 @@ class VesselGoblet {
         destination: destForLog
       });
 
-      ctx.restore();
+      renderCtx.restore();
       painted += 1;
     });
 
@@ -4142,6 +4184,30 @@ class VesselGoblet {
 
     if (painted === 0 && sorted.length > 0) {
       diagnostics.warn('Render completed but no layers produced pixels');
+    }
+
+    if (filterCtx && filterSurfaceCanvas) {
+      const documentViewportMapping = computeDocumentViewportMapping(
+        this.metadata,
+        clearWidth,
+        clearHeight,
+      );
+      const finalFilteredCanvas = applyDisplayFilterStack({
+        sourceCanvas: filterSurfaceCanvas,
+        displayFilters,
+        filterState: this.displayFilterState,
+      });
+      ctx.drawImage(
+        finalFilteredCanvas,
+        0,
+        0,
+        documentSize.width,
+        documentSize.height,
+        documentViewportMapping.offsetX,
+        documentViewportMapping.offsetY,
+        documentSize.width * documentViewportMapping.scaleX,
+        documentSize.height * documentViewportMapping.scaleY,
+      );
     }
 
     logSummary(painted, sorted.length, startTime);

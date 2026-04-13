@@ -517,6 +517,49 @@ describe('exportProjectAsWebGL color cycle integration', () => {
     expect(exportedLayer.colorCycle?.brushState?.alphaMode).toBe('source');
   });
 
+  it('includes display filters in Goblet export metadata', async () => {
+    const canvas = document.createElement('canvas');
+    canvas.width = 128;
+    canvas.height = 128;
+
+    const layer = createColorCycleLayer(canvas);
+    const project = createProject(layer);
+    project.viewState = {
+      zoom: 1,
+      displayFilters: [
+        { id: 'pixelate', enabled: true, settings: { cellSize: 5 } },
+        { id: 'bloom', enabled: false, settings: { blurRadius: 1.5, intensity: 0.18 } },
+        { id: 'color-grade', enabled: false, settings: { brightness: -0.02, contrast: 0.08, saturation: 0.88 } },
+        { id: 'lcd-mask', enabled: true, settings: { stripeOpacity: 0.1, scanlineOpacity: 0.03 } },
+        {
+          id: 'crt-grid',
+          enabled: true,
+          settings: { lineOpacity: 0.16, lineSpacing: 5, phosphorOpacity: 0.12, scanlineOpacity: 0.18 },
+        },
+        { id: 'chromatic-aberration', enabled: true, settings: { offset: 1.25, intensity: 0.2 } },
+        { id: 'noise', enabled: false, settings: { opacity: 0.08, scale: 2 } }
+      ]
+    };
+
+    const metadata = await exportProjectAsWebGL({
+      project,
+      layers: [layer],
+      layout: createDefaultExportLayout(),
+      viewport: { designWidth: project.width, designHeight: project.height, mode: 'fixed' },
+      fps: 30,
+      totalFrames: 60,
+      durationSeconds: 2,
+      perfectLoop: false,
+      includeHiddenLayers: true,
+      embedCanvasFallback: false,
+      minify: false,
+      filenameBase: 'display-filter-export',
+      bundleFormat: 'json'
+    });
+
+    expect(metadata.settings.displayFilters).toEqual(project.viewState.displayFilters);
+  });
+
   it('exports sequential layer frame textures for Goblet playback', async () => {
     const canvas = document.createElement('canvas');
     canvas.width = 64;

@@ -1,4 +1,4 @@
-import type { CanvasState } from '@/types';
+import type { CanvasState, DisplayFilterConfig } from '@/types';
 
 export interface VesselLocalSettings {
   autosave?: {
@@ -9,6 +9,7 @@ export interface VesselLocalSettings {
     showRulers?: boolean;
     showFPSMeter?: boolean;
     transparencyBackgroundMode?: CanvasState['transparencyBackgroundMode'];
+    displayFilterDefaults?: DisplayFilterConfig[];
   };
   history?: {
     maxHistorySize?: number;

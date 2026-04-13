@@ -1,7 +1,8 @@
 import type { StateCreator } from 'zustand';
 import type { CanvasState, DisplayFilterConfig, DisplayFilterId } from '@/types';
 import { MIN_CANVAS_ZOOM, MAX_CANVAS_ZOOM } from '@/constants/canvas';
-import { createDefaultDisplayFilters, sanitizeDisplayFilters } from '@/lib/displayFilters';
+import { createDefaultDisplayFilters, disableDisplayFilters, sanitizeDisplayFilters } from '@/lib/displayFilters';
+import { mergeLocalSettings, readLocalSettings } from '@/utils/localSettings';
 
 type AppState = import('../useAppStore').AppState;
 
@@ -37,6 +38,19 @@ const createDefaultSelection = (): CanvasState['selection'] => ({
   pixels: typeof ImageData !== 'undefined' ? new ImageData(1, 1) : ({} as ImageData),
 });
 
+export const getStoredDisplayFilterDefaults = (): DisplayFilterConfig[] =>
+  disableDisplayFilters(
+    readLocalSettings().canvas?.displayFilterDefaults ?? createDefaultDisplayFilters(),
+  );
+
+const persistDisplayFilterDefaults = (filters: DisplayFilterConfig[]): void => {
+  mergeLocalSettings({
+    canvas: {
+      displayFilterDefaults: disableDisplayFilters(filters),
+    },
+  });
+};
+
 export const defaultCanvasState: CanvasState = {
   zoom: 1,
   rotation: 0,
@@ -45,7 +59,7 @@ export const defaultCanvasState: CanvasState = {
   showFPSMeter: true,
   transparencyBackgroundMode: 'checker',
   displayMode: 'pixelated',
-  displayFilters: createDefaultDisplayFilters(),
+  displayFilters: getStoredDisplayFilterDefaults(),
   canvasWidth: 2000,
   canvasHeight: 2000,
   offsetX: 0,
@@ -145,24 +159,28 @@ export const createCanvasSlice: StateCreator<AppState, [], [], CanvasSlice> = (s
       },
     })),
   updateDisplayFilter: (id, settings) =>
-    set((state) => ({
-      canvas: {
-        ...state.canvas,
-        displayFilters: sanitizeDisplayFilters(
-          state.canvas.displayFilters.map((filter) => (
-            filter.id === id
-              ? ({
-                  ...filter,
-                  settings: {
-                    ...filter.settings,
-                    ...(settings as object),
-                  },
-                } as DisplayFilterConfig)
-              : filter
-          ))
-        ),
-      },
-    })),
+    set((state) => {
+      const nextDisplayFilters = sanitizeDisplayFilters(
+        state.canvas.displayFilters.map((filter) => (
+          filter.id === id
+            ? ({
+                ...filter,
+                settings: {
+                  ...filter.settings,
+                  ...(settings as object),
+                },
+              } as DisplayFilterConfig)
+            : filter
+        ))
+      );
+      persistDisplayFilterDefaults(nextDisplayFilters);
+      return {
+        canvas: {
+          ...state.canvas,
+          displayFilters: nextDisplayFilters,
+        },
+      };
+    }),
   setCanvasDimensions: (width, height) =>
     set((state) => ({
       canvas: { ...state.canvas, canvasWidth: width, canvasHeight: height },

@@ -293,6 +293,12 @@ describe('project slice lifecycle flows', () => {
       { id: 'bloom', enabled: true, settings: { blurRadius: 4, intensity: 0.2 } },
       { id: 'color-grade', enabled: false, settings: { brightness: 0, contrast: 0.1, saturation: 1 } },
       { id: 'lcd-mask', enabled: false, settings: { stripeOpacity: 0.1, scanlineOpacity: 0.02 } },
+      {
+        id: 'crt-grid',
+        enabled: true,
+        settings: { lineOpacity: 0.16, lineSpacing: 5, phosphorOpacity: 0.12, scanlineOpacity: 0.18 },
+      },
+      { id: 'chromatic-aberration', enabled: true, settings: { offset: 1.25, intensity: 0.2 } },
       { id: 'noise', enabled: true, settings: { opacity: 0.08, scale: 2 } },
     ];
 
@@ -328,6 +334,57 @@ describe('project slice lifecycle flows', () => {
 
     expect(useAppStore.getState().canvas.zoom).toBe(2);
     expect(useAppStore.getState().canvas.displayFilters).toEqual(displayFilters);
+  });
+
+  it('falls back to locally remembered filter settings with all filters disabled when a project has none', async () => {
+    localStorage.setItem('vessel-settings', JSON.stringify({
+      canvas: {
+        displayFilterDefaults: [
+          { id: 'pixelate', enabled: true, settings: { cellSize: 9 } },
+          { id: 'bloom', enabled: true, settings: { blurRadius: 5, intensity: 0.4 } },
+        ],
+      },
+    }));
+
+    const loadProjectFromFile = jest.requireMock('@/utils/projectIO').loadProjectFromFile as jest.Mock;
+    loadProjectFromFile.mockResolvedValue({
+      project: {
+        id: 'loaded-project-no-filters',
+        name: 'Loaded No Filters',
+        width: 16,
+        height: 16,
+        layers: [makeLayer('loaded-layer')],
+        backgroundColor: '#000',
+        createdAt: new Date('2024-01-01'),
+        updatedAt: new Date('2024-01-02'),
+        customBrushes: [],
+        defaultCustomBrushId: null,
+        exportLayout: createDefaultExportLayout(),
+        palette: {
+          foregroundColor: '#ffffff',
+          backgroundColor: '#000000',
+          activeSlot: 'foreground',
+        },
+        viewState: {
+          zoom: 2,
+        },
+      },
+      fileName: 'loaded.vessel',
+      fileHandle: null,
+    });
+
+    await useAppStore.getState().loadProject();
+
+    expect(useAppStore.getState().canvas.displayFilters.find((filter) => filter.id === 'pixelate')).toEqual({
+      id: 'pixelate',
+      enabled: false,
+      settings: { cellSize: 9 },
+    });
+    expect(useAppStore.getState().canvas.displayFilters.find((filter) => filter.id === 'bloom')).toEqual({
+      id: 'bloom',
+      enabled: false,
+      settings: { blurRadius: 5, intensity: 0.4 },
+    });
   });
 
   it('forces a save dialog when requested even if a file handle exists', async () => {

@@ -1,4 +1,7 @@
-import { getNextFilterWorkCanvas } from '@/components/canvas/useDrawingCanvasBaseRenderer';
+import {
+  getNextFilterWorkCanvas,
+  getSeamlessNoisePatternSize,
+} from '@/lib/displayFilterPipeline';
 
 describe('getNextFilterWorkCanvas', () => {
   it('alternates away from the canvas that just became current', () => {
@@ -15,5 +18,19 @@ describe('getNextFilterWorkCanvas', () => {
     currentCanvas = workCanvasA;
     const nextCanvas = getNextFilterWorkCanvas(currentCanvas, workCanvasA, workCanvasB);
     expect(nextCanvas).toBe(workCanvasB);
+  });
+});
+
+describe('getSeamlessNoisePatternSize', () => {
+  it('always returns a pattern size that tiles cleanly for the requested noise step', () => {
+    expect(getSeamlessNoisePatternSize(3) % 3).toBe(0);
+    expect(getSeamlessNoisePatternSize(7) % 7).toBe(0);
+    expect(getSeamlessNoisePatternSize(19) % 19).toBe(0);
+  });
+
+  it('keeps the pattern at a practical size while staying aligned to the tile step', () => {
+    expect(getSeamlessNoisePatternSize(1)).toBe(128);
+    expect(getSeamlessNoisePatternSize(8)).toBe(256);
+    expect(getSeamlessNoisePatternSize(32)).toBe(256);
   });
 });

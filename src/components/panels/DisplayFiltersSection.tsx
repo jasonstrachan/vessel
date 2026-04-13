@@ -8,28 +8,28 @@ const FILTER_COPY: Record<
   DisplayFilterId,
   {
     title: string;
-    summary: string;
   }
 > = {
   pixelate: {
     title: 'Pixelate',
-    summary: 'Nearest-neighbor block enlargement.',
   },
   bloom: {
     title: 'Bloom',
-    summary: 'Low-intensity softness over the pixel base.',
   },
   'color-grade': {
     title: 'Color Grade',
-    summary: 'Brightness, contrast, and saturation shaping.',
   },
   'lcd-mask': {
     title: 'LCD Mask',
-    summary: 'RGB stripe texture with optional scanline banding.',
+  },
+  'crt-grid': {
+    title: 'CRT Grid',
+  },
+  'chromatic-aberration': {
+    title: 'Chromatic Aberration',
   },
   noise: {
     title: 'Noise',
-    summary: 'Cached grain layered over the glass.',
   },
 };
 
@@ -41,7 +41,6 @@ const FilterCard = ({ filter }: FilterCardProps) => {
   const setDisplayFilterEnabled = useAppStore((state) => state.setDisplayFilterEnabled);
   const updateDisplayFilter = useAppStore((state) => state.updateDisplayFilter);
   const copy = FILTER_COPY[filter.id];
-  const bodyClassName = filter.enabled ? 'opacity-100' : 'opacity-45';
 
   return (
     <section
@@ -53,7 +52,6 @@ const FilterCard = ({ filter }: FilterCardProps) => {
           <h4 id={`display-filter-${filter.id}`} className="text-sm font-medium text-[#E5E5E5]">
             {copy.title}
           </h4>
-          <p className="mt-1 text-[11px] leading-4 text-[#8F8F8F]">{copy.summary}</p>
         </div>
         <Switch
           id={`display-filter-toggle-${filter.id}`}
@@ -63,7 +61,8 @@ const FilterCard = ({ filter }: FilterCardProps) => {
         />
       </div>
 
-      <div className={`mt-3 space-y-3 ${bodyClassName}`}>
+      {filter.enabled && (
+        <div className="mt-3 space-y-3">
         {filter.id === 'pixelate' && (
           <div>
             <label className="mb-1 block text-[11px] uppercase tracking-[0.08em] text-[#8F8F8F]">
@@ -102,7 +101,7 @@ const FilterCard = ({ filter }: FilterCardProps) => {
               <ProgressSlider
                 value={filter.settings.intensity}
                 min={0}
-                max={1}
+                max={2}
                 step={0.01}
                 onChange={(value) => updateDisplayFilter('bloom', { intensity: value })}
                 aria-label="Bloom intensity"
@@ -223,7 +222,100 @@ const FilterCard = ({ filter }: FilterCardProps) => {
             </div>
           </>
         )}
-      </div>
+
+        {filter.id === 'crt-grid' && (
+          <>
+            <div>
+              <label className="mb-1 block text-[11px] uppercase tracking-[0.08em] text-[#8F8F8F]">
+                Mask Strength
+              </label>
+              <ProgressSlider
+                value={filter.settings.lineOpacity}
+                min={0}
+                max={1}
+                step={0.01}
+                onChange={(value) => updateDisplayFilter('crt-grid', { lineOpacity: value })}
+                aria-label="CRT grid line opacity"
+                formatValue={(value) => `${Math.round(value * 100)}%`}
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-[11px] uppercase tracking-[0.08em] text-[#8F8F8F]">
+                Line Spacing
+              </label>
+              <ProgressSlider
+                value={filter.settings.lineSpacing}
+                min={2}
+                max={16}
+                step={1}
+                onChange={(value) => updateDisplayFilter('crt-grid', { lineSpacing: Math.round(value) })}
+                aria-label="CRT grid line spacing"
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-[11px] uppercase tracking-[0.08em] text-[#8F8F8F]">
+                Phosphor Glow
+              </label>
+              <ProgressSlider
+                value={filter.settings.phosphorOpacity}
+                min={0}
+                max={1}
+                step={0.01}
+                onChange={(value) => updateDisplayFilter('crt-grid', { phosphorOpacity: value })}
+                aria-label="CRT grid phosphor glow"
+                formatValue={(value) => `${Math.round(value * 100)}%`}
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-[11px] uppercase tracking-[0.08em] text-[#8F8F8F]">
+                Scanline Depth
+              </label>
+              <ProgressSlider
+                value={filter.settings.scanlineOpacity}
+                min={0}
+                max={1}
+                step={0.01}
+                onChange={(value) => updateDisplayFilter('crt-grid', { scanlineOpacity: value })}
+                aria-label="CRT grid scanline depth"
+                formatValue={(value) => `${Math.round(value * 100)}%`}
+              />
+            </div>
+          </>
+        )}
+
+        {filter.id === 'chromatic-aberration' && (
+          <>
+            <div>
+              <label className="mb-1 block text-[11px] uppercase tracking-[0.08em] text-[#8F8F8F]">
+                Offset
+              </label>
+              <ProgressSlider
+                value={filter.settings.offset}
+                min={0}
+                max={12}
+                step={0.25}
+                onChange={(value) => updateDisplayFilter('chromatic-aberration', { offset: value })}
+                aria-label="Chromatic aberration offset"
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-[11px] uppercase tracking-[0.08em] text-[#8F8F8F]">
+                Intensity
+              </label>
+              <ProgressSlider
+                value={filter.settings.intensity}
+                min={0}
+                max={1}
+                step={0.01}
+                onChange={(value) => updateDisplayFilter('chromatic-aberration', { intensity: value })}
+                aria-label="Chromatic aberration intensity"
+                formatValue={(value) => `${Math.round(value * 100)}%`}
+              />
+            </div>
+          </>
+        )}
+        </div>
+      )}
     </section>
   );
 };
