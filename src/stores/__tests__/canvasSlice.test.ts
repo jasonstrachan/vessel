@@ -1,5 +1,7 @@
 import { MIN_CANVAS_ZOOM, MAX_CANVAS_ZOOM } from '@/constants/canvas';
+import { readLocalSettings } from '@/utils/localSettings';
 import { useAppStore } from '@/stores/useAppStore';
+import { getStoredDisplayFilterDefaults } from '@/stores/slices/canvasSlice';
 
 describe('canvas slice invariants', () => {
   const reset = () => {
@@ -81,8 +83,70 @@ describe('canvas slice invariants', () => {
       useAppStore.getState().canvas.displayFilters.find((filter) => filter.id === 'pixelate')?.enabled
     ).toBe(true);
 
-    useAppStore.getState().updateDisplayFilter('bloom', { blurRadius: 99, intensity: -4 });
+    useAppStore.getState().updateDisplayFilter('bloom', { blurRadius: 99, intensity: 4 });
     const bloom = useAppStore.getState().canvas.displayFilters.find((filter) => filter.id === 'bloom');
-    expect(bloom?.settings).toEqual({ blurRadius: 12, intensity: 0 });
+    expect(bloom?.settings).toEqual({ blurRadius: 12, intensity: 2 });
+
+    useAppStore.getState().updateDisplayFilter('crt-grid', {
+      lineOpacity: 9,
+      lineSpacing: 1,
+      phosphorOpacity: 3,
+      scanlineOpacity: -2,
+    });
+    const crtGrid = useAppStore.getState().canvas.displayFilters.find((filter) => filter.id === 'crt-grid');
+    expect(crtGrid?.settings).toEqual({
+      lineOpacity: 1,
+      lineSpacing: 2,
+      phosphorOpacity: 1,
+      scanlineOpacity: 0,
+    });
+
+    useAppStore.getState().updateDisplayFilter('chromatic-aberration', { offset: 9, intensity: -2 });
+    const chromaticAberration = useAppStore
+      .getState()
+      .canvas
+      .displayFilters
+      .find((filter) => filter.id === 'chromatic-aberration');
+    expect(chromaticAberration?.settings).toEqual({ offset: 9, intensity: 0 });
+
+    useAppStore.getState().updateDisplayFilter('chromatic-aberration', { offset: 40 });
+    expect(
+      useAppStore.getState().canvas.displayFilters.find((filter) => filter.id === 'chromatic-aberration')?.settings
+    ).toEqual({ offset: 12, intensity: 0 });
+
+    const persistedDefaults = readLocalSettings().canvas?.displayFilterDefaults;
+    expect(persistedDefaults?.every((filter) => filter.enabled === false)).toBe(true);
+    expect(persistedDefaults?.find((filter) => filter.id === 'crt-grid')?.settings).toEqual({
+      lineOpacity: 1,
+      lineSpacing: 2,
+      phosphorOpacity: 1,
+      scanlineOpacity: 0,
+    });
+    expect(persistedDefaults?.find((filter) => filter.id === 'chromatic-aberration')?.settings).toEqual({
+      offset: 12,
+      intensity: 0,
+    });
+  });
+
+  it('restores locally remembered filter settings with every filter disabled', () => {
+    localStorage.setItem('vessel-settings', JSON.stringify({
+      canvas: {
+        displayFilterDefaults: [
+          { id: 'pixelate', enabled: true, settings: { cellSize: 7 } },
+          { id: 'bloom', enabled: true, settings: { blurRadius: 4, intensity: 0.33 } },
+        ],
+      },
+    }));
+
+    expect(getStoredDisplayFilterDefaults().find((filter) => filter.id === 'pixelate')).toEqual({
+      id: 'pixelate',
+      enabled: false,
+      settings: { cellSize: 7 },
+    });
+    expect(getStoredDisplayFilterDefaults().find((filter) => filter.id === 'bloom')).toEqual({
+      id: 'bloom',
+      enabled: false,
+      settings: { blurRadius: 4, intensity: 0.33 },
+    });
   });
 });

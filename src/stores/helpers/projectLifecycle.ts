@@ -33,6 +33,7 @@ import {
   waitForAllPendingColorCycleSaves,
   waitForFinalizeQueueIdle,
 } from '@/stores/pendingColorCycleSaves';
+import { getStoredDisplayFilterDefaults } from '@/stores/slices/canvasSlice';
 
 type AppState = import('../useAppStore').AppState;
 
@@ -213,7 +214,7 @@ export const createProjectLifecycle = ({
         ? {
             ...get().canvas,
             zoom: loadedProject.viewState.zoom,
-            displayFilters: loadedProject.viewState.displayFilters ?? get().canvas.displayFilters,
+            displayFilters: loadedProject.viewState.displayFilters ?? getStoredDisplayFilterDefaults(),
           }
         : get().canvas,
       brushSpecificSettings: loadedProject.brushSpecificSettings ?? {},

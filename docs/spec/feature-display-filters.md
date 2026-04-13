@@ -22,7 +22,7 @@ Phase 1 includes:
 
 - a new Filters toolbar entry
 - a Filters section inside the brush settings panel
-- a fixed-order stack of five display filters
+- a fixed-order stack of six display filters
 - live viewport rendering of enabled filters
 - persistence in local settings
 - persistence in Vessel project files
@@ -100,9 +100,11 @@ Phase 1 filters, in fixed order:
 2. Bloom
 3. Color Grade
 4. LCD Mask
-5. Noise
+5. CRT Grid
+6. Chromatic Aberration
+7. Noise
 
-This order matches the intended illusion: pixelate first so bloom softens pixel edges rather than chunking pre-softened source; noise last so it sits "on top of the glass" and isn't smeared by bloom.
+This order matches the intended illusion: pixelate first so bloom softens pixel edges rather than chunking pre-softened source; CRT/LCD structure sits over the graded image; chromatic aberration introduces restrained channel misregistration near the end of the chain; noise stays last so it sits "on top of the glass" and isn't smeared by bloom.
 
 ## Technical Design
 
@@ -188,8 +190,9 @@ Purpose:
 
 Implementation:
 
-- blur a downsampled copy of the filtered image (quarter or eighth resolution) and upscale — the softness hides the low resolution and keeps cost sub-1ms
-- composite it back at low intensity
+- extract a bright-pass from a downsampled copy of the filtered image
+- blur that reduced highlight signal and upscale it
+- composite it back at low intensity as halation rather than a full-frame softening pass
 
 Controls:
 
@@ -204,6 +207,7 @@ Guardrail:
 Requirements:
 
 - bloom must operate on a downsampled copy
+- bloom should favor bright areas instead of softening the full image uniformly
 - bloom intensity must remain low by default
 
 #### Color Grade
@@ -257,6 +261,28 @@ Guardrail:
 - phase 1 ships the RGB subpixel version only; no "simplified vertical stripe" alternative
 
 Requirements:
+
+#### CRT Grid
+
+Purpose:
+
+- add a dark line lattice that reads more like a CRT shadow-mask / scanline structure than LCD subpixels
+
+Implementation:
+
+- overlay a repeating dark grid pattern with both horizontal and vertical lines
+- align the pattern to the viewport so it stays visually stable while panning
+- keep the effect subtle and multiplicative so it shades the image instead of replacing it
+
+Controls:
+
+- line opacity
+- line spacing
+
+Requirements:
+
+- the grid must stack cleanly with LCD Mask
+- the effect must remain visibly subtle at default settings
 
 - stripe period must align with the pixelate cell size
 - scanline contribution must stay optional and low-opacity
