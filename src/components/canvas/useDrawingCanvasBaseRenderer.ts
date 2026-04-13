@@ -37,6 +37,12 @@ interface FilterPatternCache {
   canvas: HTMLCanvasElement | null;
 }
 
+export const getNextFilterWorkCanvas = (
+  currentCanvas: HTMLCanvasElement,
+  workCanvasA: HTMLCanvasElement,
+  workCanvasB: HTMLCanvasElement,
+): HTMLCanvasElement => (currentCanvas === workCanvasA ? workCanvasB : workCanvasA);
+
 const computeVisibleWorldRect = (
   offsetX: number,
   offsetY: number,
@@ -239,9 +245,8 @@ export const useDrawingCanvasBaseRenderer = ({
     const noiseFilter = getDisplayFilterById(displayFilters, 'noise');
 
     const swap = (canvas: HTMLCanvasElement): HTMLCanvasElement => {
-      const previous = currentCanvas;
       currentCanvas = canvas;
-      nextCanvas = previous === workCanvasA ? workCanvasB : workCanvasA;
+      nextCanvas = getNextFilterWorkCanvas(currentCanvas, workCanvasA, workCanvasB);
       return currentCanvas;
     };
 
