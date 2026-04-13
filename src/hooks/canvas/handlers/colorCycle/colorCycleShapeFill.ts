@@ -88,7 +88,6 @@ const persistCommittedSampledSlot = (
   state.updateLayer(layerId, {
     colorCycleData: {
       ...layer.colorCycleData,
-      paintSlot: slot,
       paintStops: nextStops,
       slotPalettes: nextSlotPalettes,
       gradient: nextStops,
@@ -291,13 +290,22 @@ const shouldRefreshForegroundRuntimeForShapeFinalize = (
   session: MarkGradientSession | null
 ): boolean => useForegroundGradient && !session?.binding;
 
-const resolveShapeFinalizeDitherOptions = (
-  brushSettings: ReturnType<typeof useAppStore.getState>['tools']['brushSettings'],
-  ditherPixelSize: number | undefined,
-  roi: DeferredSaveWithStateArgs['roi'] | undefined
-): {
+type FinalizeDitherOptionsArgs = {
+  brushSettings: ReturnType<typeof useAppStore.getState>['tools']['brushSettings'];
+  ditherPixelSize: number | undefined;
+  roi: DeferredSaveWithStateArgs['roi'] | undefined;
+  pairBandCount?: number;
+};
+
+const resolveShapeFinalizeDitherOptions = ({
+  brushSettings,
+  ditherPixelSize,
+  roi,
+  pairBandCount,
+}: FinalizeDitherOptionsArgs): {
   ditherPixelSize: number | undefined;
   ditherLevels?: number;
+  ditherPairBandCount: number;
   ditherPatternDiversity?: number;
   ditherSampledStops?: StoredStop[];
   ditherBaseOffsetOverride?: number;
@@ -309,6 +317,7 @@ const resolveShapeFinalizeDitherOptions = (
   return {
     ditherPixelSize,
     ditherLevels: brushSettings.ditherEnabled ? ccDitherMode.quantLevels : undefined,
+    ditherPairBandCount: pairBandCount ?? ccDitherMode.pairBandCount,
     ditherPatternDiversity: brushSettings.ditherPatternDiversity,
     roi,
     skipPostRender: true,
@@ -543,14 +552,40 @@ export const finalizeColorCycleShapeFillLinear = async (
           });
         }
       }
+      const sampledStops =
+        resolvedRenderSession?.source === 'sampled'
+          ? toStoredStops(resolvedRenderSession.frozenStopsStored)
+          : undefined;
+      ccLog('finalize linear handoff', {
+        markId: session?.markId ?? null,
+        layerId: args.activeLayerId,
+        source: resolvedRenderSession?.source ?? session?.source ?? null,
+        stopsLen: sampledStops?.length ?? 0,
+        stops: summarizeCcDebugStops(resolvedRenderSession?.frozenStopsStored),
+        previewStopsLen: session?.previewStopsStored?.length ?? 0,
+        previewStops: summarizeCcDebugStops(session?.previewStopsStored),
+        frozenStopsLen: resolvedRenderSession?.frozenStopsStored?.length ?? 0,
+        frozenStops: summarizeCcDebugStops(resolvedRenderSession?.frozenStopsStored),
+        gradientBands: liveSettings.gradientBands ?? null,
+        pairBandCount:
+          resolvedRenderSession?.binding?.slot !== undefined
+            ? (session?.ditherRenderConfig?.pairBandCount ?? resolveCcDitherBandMode(liveSettings.gradientBands ?? 16).pairBandCount)
+            : (session?.ditherRenderConfig?.pairBandCount ?? 0),
+        quantLevels: liveSettings.ditherEnabled ? resolveCcDitherBandMode(liveSettings.gradientBands ?? 16).quantLevels : null,
+        usingSessionData: Boolean(resolvedRenderSession?.frozenStopsStored?.length),
+        usingFallbackData: !resolvedRenderSession?.frozenStopsStored?.length,
+      });
       await deps.brushEngine.fillCcGradientLinear(args.shapePoints, args.direction, {
-        ...resolveShapeFinalizeDitherOptions(liveSettings, args.ditherPixelSize, args.roi),
-        ditherSampledStops:
-          resolvedRenderSession?.source === 'sampled'
-            ? toStoredStops(resolvedRenderSession.frozenStopsStored)
-            : undefined,
+        ...resolveShapeFinalizeDitherOptions({
+          brushSettings: liveSettings,
+          ditherPixelSize: args.ditherPixelSize,
+          roi: args.roi,
+          pairBandCount: session?.ditherRenderConfig?.pairBandCount,
+        }),
+        ditherSampledStops: sampledStops,
         ditherBaseOffsetOverride: resolvedRenderSession?.source === 'sampled' ? 0 : undefined,
         paintSlotOverride: resolvedRenderSession?.binding?.slot,
+        shapePhaseSeedMarkId: session?.markId ?? null,
       });
       return resolvedRenderSession;
     });
@@ -644,9 +679,6 @@ export const finalizeColorCycleShapeFillLinear = async (
           pairBandCount: args.session?.ditherRenderConfig?.pairBandCount ?? 0,
           paintSlotAfterPersist: useAppStore.getState().layers.find((layer) => layer.id === args.activeLayerId)?.colorCycleData?.paintSlot ?? null,
         });
-        try {
-          colorCycleBrush.setActiveGradientSlot?.(args.activeLayerId, renderSession.binding.slot);
-        } catch {}
       }
     } else {
       deps.timeSync('cc:shape:render(fallback)', () => {
@@ -780,7 +812,13 @@ export const finalizeColorCycleShapeFillConcentric = async (
         }
       }
       await deps.brushEngine.fillCcGradientConcentric(args.shapePoints, {
-        ...resolveShapeFinalizeDitherOptions(liveSettings, args.ditherPixelSize, args.roi),
+        ...resolveShapeFinalizeDitherOptions({
+          brushSettings: liveSettings,
+          ditherPixelSize: args.ditherPixelSize,
+          roi: args.roi,
+          pairBandCount: session?.ditherRenderConfig?.pairBandCount,
+        }),
+        shapePhaseSeedMarkId: session?.markId ?? null,
       });
       return resolvedRenderSession;
     });
@@ -874,9 +912,6 @@ export const finalizeColorCycleShapeFillConcentric = async (
           pairBandCount: args.session?.ditherRenderConfig?.pairBandCount ?? 0,
           paintSlotAfterPersist: useAppStore.getState().layers.find((layer) => layer.id === args.activeLayerId)?.colorCycleData?.paintSlot ?? null,
         });
-        try {
-          colorCycleBrush.setActiveGradientSlot?.(args.activeLayerId, renderSession.binding.slot);
-        } catch {}
       }
     }
 

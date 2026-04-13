@@ -28,7 +28,7 @@ import {
 } from './strokeStampDither';
 import { useAppStore } from '@/stores/useAppStore';
 import { canvasPool } from '@/utils/canvasPool';
-import { ccDebugOn, ccLog, ccWarn } from '@/utils/colorCycle/ccDebug';
+import { ccWarn } from '@/utils/colorCycle/ccDebug';
 import { fillCcGradientDither } from '@/utils/colorCycle/ccGradientDither';
 import { resolveStableFlatSeed } from '@/utils/colorCycle/ccFlatSeed';
 import { computeConcentricMaxDistance, fillConcentricIndices } from '@/utils/colorCycle/concentricFillCore';
@@ -83,13 +83,6 @@ const getBrushProfileNow = (): number =>
   typeof performance !== 'undefined' && typeof performance.now === 'function'
     ? performance.now()
     : Date.now();
-
-const summarizeCcDebugStops = (
-  stops: Array<{ position: number; color: string; opacity?: number }> | null | undefined
-) => (stops ?? []).slice(0, 8).map((stop) => ({
-  p: Number(stop.position.toFixed(3)),
-  c: stop.color,
-}));
 
 const getCcCustomStampProfile = (): CcCustomStampPerfStats | null => {
   if (typeof window === 'undefined') {
@@ -158,16 +151,11 @@ type FillOptions = {
   ditherSampledStops?: StoredStop[];
   ditherBaseOffsetOverride?: number;
   paintSlotOverride?: number;
+  shapePhaseSeedMarkId?: string | null;
   roi?: { x: number; y: number; width: number; height: number };
   spacing?: number;
   lostEdge?: number;
 };
-
-const summarizeStoredStopsForDebug = (stops: StoredStop[] | null | undefined) =>
-  (stops ?? []).slice(0, 8).map((stop) => ({
-    p: Number(stop.position.toFixed(3)),
-    c: stop.color,
-  }));
 
 type LayerStrokeState = {
   hasContent: boolean;
@@ -1033,7 +1021,6 @@ export class ColorCycleBrushCanvas2D {
    * Get or create animator for a layer
    */
   private getAnimator(layerId: string): ColorCycleAnimator {
-    ccLog('getAnimator()', { layerId, has: this.animators.has(layerId), size: this.animators.size });
     // Add validation
     if (!layerId) {
       throw new Error('Layer ID is required');
@@ -1271,6 +1258,70 @@ export class ColorCycleBrushCanvas2D {
     };
   }
 
+  private resolveShapePhaseByte(
+    normalized: number,
+    options?: {
+      ccGradient?: boolean;
+      pairBandCount?: number;
+      effectiveColorCount?: number;
+      shapePhaseBaseByte?: number;
+    }
+  ): number {
+    if (!options?.ccGradient) return 0;
+
+    const t = Number.isFinite(normalized)
+      ? Math.max(0, Math.min(1, normalized))
+      : 0;
+
+    const effectiveColorCount = Math.max(
+      options.pairBandCount ?? 0,
+      options.effectiveColorCount ?? 0
+    );
+
+    if (effectiveColorCount <= 1) {
+      return 0;
+    }
+
+    const basePhase = Number.isFinite(options.shapePhaseBaseByte)
+      ? Math.max(0, Math.min(255, Math.round(options.shapePhaseBaseByte ?? 0)))
+      : 0;
+    if (basePhase > 0) {
+      return basePhase;
+    }
+
+    return t > 0 ? 1 : 0;
+  }
+
+  private resolveShapePhaseBaseByte(
+    options?: {
+      ccGradient?: boolean;
+      pairBandCount?: number;
+      effectiveColorCount?: number;
+      markId?: string | null;
+      bounds?: { minX: number; minY: number; width: number; height: number };
+      points?: Array<{ x: number; y: number }>;
+    }
+  ): number {
+    if (!options?.ccGradient) {
+      return 0;
+    }
+
+    const effectiveColorCount = Math.max(
+      options.pairBandCount ?? 0,
+      options.effectiveColorCount ?? 0
+    );
+    if (effectiveColorCount <= 1) {
+      return 0;
+    }
+
+    const stableSeed = resolveStableFlatSeed({
+      markId: options.markId ?? null,
+      bounds: options.bounds ?? { minX: 0, minY: 0, width: 1, height: 1 },
+      points: options.points ?? [],
+    });
+    return Math.max(0, Math.min(255, stableSeed % 224));
+  }
+
   private refreshShapeFillWriteSpeed(strokeData?: LayerStrokeState | null): void {
     if (!strokeData) {
       return;
@@ -1282,9 +1333,91 @@ export class ColorCycleBrushCanvas2D {
   }
 
   private logSetIndexSample(layerId: string, x: number, y: number) {
-    if ((x & 31) === 0 && (y & 31) === 0) {
-      ccLog('setIndex sample', { id: layerId, x, y });
+    void layerId;
+    void x;
+    void y;
+  }
+
+  private logShapeFillBufferSnapshot(options: {
+    layerId: string;
+    mode: 'linear' | 'concentric';
+    path: 'cpu' | 'gpu' | 'worker';
+    ccGradient: boolean;
+    ditherEnabled: boolean;
+    colors: number;
+    bbox: { minX: number; minY: number; width: number; height: number };
+    width: number;
+    paint: Uint8Array;
+    speed: Uint8Array;
+    flow: Uint8Array;
+    phase: Uint8Array;
+  }) {
+    if (!isDebugEnabled('cc-fill')) {
+      return;
     }
+
+    const { bbox, width, paint, speed, flow, phase } = options;
+    const uniquePaint = new Set<number>();
+    const uniqueSpeed = new Set<number>();
+    const uniqueFlow = new Set<number>();
+    const uniquePhase = new Set<number>();
+    let nonZeroPaint = 0;
+    let nonZeroSpeed = 0;
+    let nonZeroFlow = 0;
+    let nonZeroPhase = 0;
+
+    for (let y = 0; y < bbox.height; y += 1) {
+      const py = bbox.minY + y;
+      if (py < 0 || py >= this.height) {
+        continue;
+      }
+      const rowOffset = py * width;
+      for (let x = 0; x < bbox.width; x += 1) {
+        const px = bbox.minX + x;
+        if (px < 0 || px >= width) {
+          continue;
+        }
+        const idx = rowOffset + px;
+        const paintByte = paint[idx] ?? 0;
+        const speedByte = speed[idx] ?? 0;
+        const flowByte = flow[idx] ?? 0;
+        const phaseByte = phase[idx] ?? 0;
+        if (paintByte !== 0) {
+          nonZeroPaint += 1;
+          if (uniquePaint.size < 8) uniquePaint.add(paintByte);
+        }
+        if (speedByte !== 0) {
+          nonZeroSpeed += 1;
+          if (uniqueSpeed.size < 8) uniqueSpeed.add(speedByte);
+        }
+        if (flowByte !== 0) {
+          nonZeroFlow += 1;
+          if (uniqueFlow.size < 8) uniqueFlow.add(flowByte);
+        }
+        if (phaseByte !== 0) {
+          nonZeroPhase += 1;
+          if (uniquePhase.size < 8) uniquePhase.add(phaseByte);
+        }
+      }
+    }
+
+    debugLog('cc-fill', '[CC fill] buffer snapshot', {
+      layerId: options.layerId,
+      mode: options.mode,
+      path: options.path,
+      ccGradient: options.ccGradient,
+      ditherEnabled: options.ditherEnabled,
+      colors: options.colors,
+      bbox,
+      nonZeroPaint,
+      nonZeroSpeed,
+      nonZeroFlow,
+      nonZeroPhase,
+      uniquePaint: Array.from(uniquePaint),
+      uniqueSpeed: Array.from(uniqueSpeed),
+      uniqueFlow: Array.from(uniqueFlow),
+      uniquePhase: Array.from(uniquePhase),
+    });
   }
 
   private mapBandIndexToPaletteIndex(bandIndex: number, bandsToUse: number): number {
@@ -2527,10 +2660,12 @@ export class ColorCycleBrushCanvas2D {
     prevGid: Uint8Array;
     prevSpd: Uint8Array;
     prevFlow: Uint8Array;
+    prevPhase: Uint8Array;
     paint: Uint8Array;
     gid: Uint8Array;
     spd: Uint8Array;
     flow: Uint8Array;
+    phase: Uint8Array;
     fullW: number;
     bbox: { minX: number; minY: number; width: number; height: number };
     lostEdge: number;
@@ -2541,10 +2676,12 @@ export class ColorCycleBrushCanvas2D {
       prevGid,
       prevSpd,
       prevFlow,
+      prevPhase,
       paint,
       gid,
       spd,
       flow,
+      phase,
       fullW,
       bbox,
       lostEdge,
@@ -2563,6 +2700,7 @@ export class ColorCycleBrushCanvas2D {
         gid[dst] = prevGid[p];
         spd[dst] = prevSpd[p];
         flow[dst] = prevFlow[p];
+        phase[dst] = prevPhase[p];
       }
     }
     if (process.env.NODE_ENV !== 'production') {
@@ -2579,12 +2717,15 @@ export class ColorCycleBrushCanvas2D {
             paint[dst] !== prevIdx[p] ||
             gid[dst] !== prevGid[p] ||
             spd[dst] !== prevSpd[p] ||
-            flow[dst] !== prevFlow[p]
+            flow[dst] !== prevFlow[p] ||
+            phase[dst] !== prevPhase[p]
           ) {
             violations.push({ x: bbox.minX + col, y });
             paint[dst] = prevIdx[p];
             gid[dst] = prevGid[p];
             spd[dst] = prevSpd[p];
+            flow[dst] = prevFlow[p];
+            phase[dst] = prevPhase[p];
             if (violations.length >= 5) break;
           }
         }
@@ -3294,7 +3435,6 @@ export class ColorCycleBrushCanvas2D {
     
     const id = layerId;
     const yieldIfNeeded = createYieldController();
-    
     // Initialize stroke data BEFORE getting animator
     if (!this.layerStrokes.has(id)) {
       this.layerStrokes.set(id, this.createLayerStrokeState({ hasContent: true }));
@@ -3441,6 +3581,19 @@ export class ColorCycleBrushCanvas2D {
       pairBandCount,
       ditherAlgorithm: fillAlgorithm,
     });
+    const resolveLinearPhaseByte = (x: number, y: number, colorIndex: number) => {
+      if (colorIndex <= 0) {
+        return 0;
+      }
+      const proj = (x + 0.5 - centerX) * dirX + (y + 0.5 - centerY) * dirY;
+      const normalized = clamp01((proj - paddedMinProjection) / safeProjectionRange);
+      return this.resolveShapePhaseByte(normalized, {
+        ccGradient,
+        pairBandCount,
+        effectiveColorCount: numBands,
+        shapePhaseBaseByte,
+      });
+    };
     if (logCcFill) {
       debugLog('cc-fill', '[CC fill] linear path flags', {
         hasGL: (() => {
@@ -3471,6 +3624,14 @@ export class ColorCycleBrushCanvas2D {
       width: Math.max(1, Math.ceil(fillMaxX) - Math.floor(fillMinX) + 1),
       height: Math.max(1, Math.ceil(fillMaxY) - Math.floor(fillMinY) + 1)
     };
+    const shapePhaseBaseByte = this.resolveShapePhaseBaseByte({
+      ccGradient,
+      pairBandCount,
+      effectiveColorCount: numBands,
+      markId: options?.shapePhaseSeedMarkId ?? null,
+      bounds: bbox,
+      points: vertices,
+    });
     const prevIdx = this.captureRegionU8(strokeData?.buffers.paint ?? new Uint8Array(0), this.width, bbox);
     const prevGid = strokeData?.buffers.gid
       ? this.captureRegionU8(strokeData.buffers.gid, this.width, bbox)
@@ -3480,6 +3641,9 @@ export class ColorCycleBrushCanvas2D {
       : new Uint8Array(bbox.width * bbox.height);
     const prevFlow = strokeData?.buffers.flow
       ? this.captureRegionU8(strokeData.buffers.flow, this.width, bbox)
+      : new Uint8Array(bbox.width * bbox.height);
+    const prevPhase = strokeData?.buffers.phase
+      ? this.captureRegionU8(strokeData.buffers.phase, this.width, bbox)
       : new Uint8Array(bbox.width * bbox.height);
     const writtenMask = new Uint8Array(bbox.width * bbox.height);
     const dirNorm = { x: dirX, y: dirY };
@@ -3526,10 +3690,25 @@ export class ColorCycleBrushCanvas2D {
             ditherStrength,
             ditherPixelSize,
             noiseSeed,
-          }, flowSlot, speedByte, flowByte);
+          }, flowSlot, speedByte, flowByte, resolveLinearPhaseByte);
           if (ok) {
             if (logCcFill) {
               debugLog('cc-fill', '[CC fill] linear USED GPU', { bbox, bands: numBands });
+              const gpuBuffers = animator.getIndexBuffers();
+              this.logShapeFillBufferSnapshot({
+                layerId: id,
+                mode: 'linear',
+                path: 'gpu',
+                ccGradient,
+                ditherEnabled: this.ditherEnabled,
+                colors: numBands,
+                bbox,
+                width: this.width,
+                paint: gpuBuffers.data,
+                speed: gpuBuffers.spd ?? new Uint8Array(0),
+                flow: gpuBuffers.flow ?? new Uint8Array(0),
+                phase: gpuBuffers.phase ?? new Uint8Array(0),
+              });
             }
             this.stampCounter += numBands;
             if (strokeData) strokeData.stampCounter = this.stampCounter;
@@ -3581,7 +3760,12 @@ export class ColorCycleBrushCanvas2D {
     }
     const linearBufferWidth = directLinearHandle.width;
     const linearBufferHeight = directLinearHandle.height;
-    const writeLinearIndex = (x: number, y: number, colorIndex: number) => {
+    const writeLinearIndex = (
+      x: number,
+      y: number,
+      colorIndex: number,
+      phaseByte: number = 0
+    ) => {
       if (x < 0 || y < 0 || x >= linearBufferWidth || y >= linearBufferHeight) {
         return;
       }
@@ -3591,7 +3775,7 @@ export class ColorCycleBrushCanvas2D {
       linearGradientId[idx] = clamped === 0 ? 0 : flowSlot;
       linearSpeedData[idx] = clamped === 0 ? 0 : speedByte;
       linearFlowData[idx] = clamped === 0 ? 0 : flowByte;
-      linearPhaseData[idx] = 0;
+      linearPhaseData[idx] = clamped === 0 ? 0 : phaseByte;
       const localX = x - bbox.minX;
       const localY = y - bbox.minY;
       if (localX >= 0 && localY >= 0 && localX < bbox.width && localY < bbox.height) {
@@ -3622,22 +3806,11 @@ export class ColorCycleBrushCanvas2D {
         const flatPairSpread =
           options?.ditherPaletteSpread ??
           useAppStore.getState().tools?.brushSettings?.ditherPaletteSpread;
-        ccLog('shape fill linear canvas spread', {
-          optionsSpread: options?.ditherPaletteSpread ?? null,
-          storeSpread: useAppStore.getState().tools?.brushSettings?.ditherPaletteSpread ?? null,
-          flatPairSpread: flatPairSpread ?? null,
-          pairBandCount,
-          quantLevels,
-        });
         const activeSession = getActiveMarkGradientSession(id);
+        const phaseSeedMarkId = options?.shapePhaseSeedMarkId ?? activeSession?.markId ?? null;
         const sampledStopsOverride = options?.ditherSampledStops?.length ? options.ditherSampledStops : null;
-        const paintSlot = useAppStore.getState().layers.find((layer) => layer.id === id)?.colorCycleData?.paintSlot ?? null;
-        const modeChosen =
-          pairBandCount <= 0 && fillAlgorithm === 'sierra-lite'
-            ? 'flat-sierra'
-            : 'banded';
         const flatSeed = resolveStableFlatSeed({
-          markId: activeSession?.markId ?? null,
+          markId: phaseSeedMarkId,
           bounds: {
             minX: bbox.minX,
             minY: bbox.minY,
@@ -3645,24 +3818,6 @@ export class ColorCycleBrushCanvas2D {
             height: bbox.height,
           },
           points: vertices,
-        });
-        ccLog('shape fill linear preview dither', {
-          markId: activeSession?.markId ?? null,
-          layerId: id,
-          source: sampledStopsOverride ? 'sampled-override' : (activeSession?.source ?? null),
-          previewStopsLen: activeSession?.previewStopsStored?.length ?? 0,
-          previewStops: summarizeCcDebugStops(activeSession?.previewStopsStored),
-          sampledStopsOverrideLen: sampledStopsOverride?.length ?? 0,
-          sampledStopsOverride: summarizeStoredStopsForDebug(sampledStopsOverride),
-          pairBandCount,
-          spread: flatPairSpread ?? null,
-          algorithm: fillAlgorithm,
-          baseOffset,
-          ditherBaseOffsetOverride: options?.ditherBaseOffsetOverride ?? null,
-          paintSlotOverride: options?.paintSlotOverride ?? null,
-          paintSlot,
-          activeSlot,
-          modeChosen,
         });
         await fillCcGradientDither({
           vertices,
@@ -3679,8 +3834,8 @@ export class ColorCycleBrushCanvas2D {
           flatSeed,
           algorithm: fillAlgorithm,
           patternStyle: fillPatternStyle,
-          sampledFlatTraceId: activeSession?.markId
-            ? `${activeSession.markId}:brush-linear`
+          sampledFlatTraceId: phaseSeedMarkId
+            ? `${phaseSeedMarkId}:brush-linear`
             : (sampledStopsOverride ? `${id}:brush-linear` : undefined),
           sampledFlatTraceStage: 'brush-linear',
           sampledStopsOverride: sampledStopsOverride ?? undefined,
@@ -3690,14 +3845,24 @@ export class ColorCycleBrushCanvas2D {
             const proj = (x - centerX) * dirX + (y - centerY) * dirY;
             return clamp01((proj - paddedMinProjection) / safeProjectionRange);
           },
-          writeIndex: (x, y, index) => {
-            writeLinearIndex(x, y, index);
+          writeIndex: (x, y, index, phaseByte) => {
+            writeLinearIndex(x, y, index, phaseByte ?? 0);
           },
           writePhase: (x, y, phaseByte) => {
             if (x < 0 || y < 0 || x >= linearBufferWidth || y >= linearBufferHeight) {
               return;
             }
             linearPhaseData[y * linearBufferWidth + x] = phaseByte;
+          },
+          resolvePhaseByte: (x, y, index, normalized) => {
+            return index <= 0
+              ? 0
+              : this.resolveShapePhaseByte(normalized, {
+                  ccGradient,
+                  pairBandCount,
+                  effectiveColorCount: quantLevels,
+                  shapePhaseBaseByte,
+                });
           },
           logSetIndexSample: (x, y) => {
             this.logSetIndexSample(id, x, y);
@@ -3712,10 +3877,12 @@ export class ColorCycleBrushCanvas2D {
                 prevGid,
                 prevSpd,
                 prevFlow,
+                prevPhase,
                 paint: linearBuffer,
                 gid: linearGradientId,
                 spd: linearSpeedData,
                 flow: linearFlowData,
+                phase: linearPhaseData,
                 fullW: linearBufferWidth,
                 bbox,
                 lostEdge,
@@ -3726,6 +3893,22 @@ export class ColorCycleBrushCanvas2D {
         if (strokeData) strokeData.stampCounter = this.stampCounter;
         this.dirtyLayers.add(id);
         animator.markDirtyBounds(bbox);
+        if (logCcFill) {
+          this.logShapeFillBufferSnapshot({
+            layerId: id,
+            mode: 'linear',
+            path: 'cpu',
+            ccGradient,
+            ditherEnabled: this.ditherEnabled,
+            colors: quantLevels,
+            bbox,
+            width: linearBufferWidth,
+            paint: linearBuffer,
+            speed: linearSpeedData,
+            flow: linearFlowData,
+            phase: linearPhaseData,
+          });
+        }
         animator.forceRender();
         this.render(false);
         if (strokeData) {
@@ -3864,10 +4047,12 @@ export class ColorCycleBrushCanvas2D {
             prevGid,
             prevSpd,
             prevFlow,
+            prevPhase,
             paint: linearBuffer,
             gid: linearGradientId,
             spd: linearSpeedData,
             flow: linearFlowData,
+            phase: linearPhaseData,
             fullW: linearBufferWidth,
             bbox,
             lostEdge,
@@ -3876,6 +4061,22 @@ export class ColorCycleBrushCanvas2D {
             this.stampCounter += quantLevels;
             if (strokeData) strokeData.stampCounter = this.stampCounter;
             this.dirtyLayers.add(id);
+            if (logCcFill) {
+              this.logShapeFillBufferSnapshot({
+                layerId: id,
+                mode: 'linear',
+                path: 'cpu',
+                ccGradient,
+                ditherEnabled: this.ditherEnabled,
+                colors: quantLevels,
+                bbox,
+                width: linearBufferWidth,
+                paint: linearBuffer,
+                speed: linearSpeedData,
+                flow: linearFlowData,
+                phase: linearPhaseData,
+              });
+            }
             animator.forceRender();
             this.render(false);
             if (strokeData) {
@@ -3922,10 +4123,12 @@ export class ColorCycleBrushCanvas2D {
             prevGid,
             prevSpd,
             prevFlow,
+            prevPhase,
             paint: linearBuffer,
             gid: linearGradientId,
             spd: linearSpeedData,
             flow: linearFlowData,
+            phase: linearPhaseData,
             fullW: linearBufferWidth,
             bbox,
             lostEdge,
@@ -3934,6 +4137,22 @@ export class ColorCycleBrushCanvas2D {
         this.stampCounter += quantLevels;
         if (strokeData) strokeData.stampCounter = this.stampCounter;
         this.dirtyLayers.add(id);
+        if (logCcFill) {
+          this.logShapeFillBufferSnapshot({
+            layerId: id,
+            mode: 'linear',
+            path: 'cpu',
+            ccGradient,
+            ditherEnabled: this.ditherEnabled,
+            colors: quantLevels,
+            bbox,
+            width: linearBufferWidth,
+            paint: linearBuffer,
+            speed: linearSpeedData,
+            flow: linearFlowData,
+            phase: linearPhaseData,
+          });
+        }
         animator.forceRender();
         this.render(false);
         if (strokeData) {
@@ -4170,8 +4389,13 @@ export class ColorCycleBrushCanvas2D {
           for (let x = startX; x <= endX; x++) {
             const r = evaluateNormalized(x + 0.5, y + 0.5, false);
             const outIdx = indexFromNormalized(r);
+            const phaseByte = this.resolveShapePhaseByte(r, {
+              ccGradient,
+              pairBandCount,
+              effectiveColorCount: numBands,
+            });
             this.logSetIndexSample(id, x, y);
-            writeLinearIndex(x, y, outIdx);
+            writeLinearIndex(x, y, outIdx, phaseByte);
           }
         } else {
           // No dithering: banded quantization anchored to gradient ends
@@ -4184,8 +4408,13 @@ export class ColorCycleBrushCanvas2D {
             const k = Math.min(quantLevels - 1, Math.floor(scaled)); // ensure exactly quantLevels unique bands
             const pos = k / denom; // 0..1 range including endpoints
             const outIdx = indexFromNormalized(pos);
+            const phaseByte = this.resolveShapePhaseByte(r, {
+              ccGradient,
+              pairBandCount,
+              effectiveColorCount: numBands,
+            });
             this.logSetIndexSample(id, x, y);
-            writeLinearIndex(x, y, outIdx);
+            writeLinearIndex(x, y, outIdx, phaseByte);
           }
         }
       }
@@ -4198,10 +4427,12 @@ export class ColorCycleBrushCanvas2D {
         prevGid,
         prevSpd,
         prevFlow,
+        prevPhase,
         paint: linearBuffer,
         gid: linearGradientId,
         spd: linearSpeedData,
         flow: linearFlowData,
+        phase: linearPhaseData,
         fullW: linearBufferWidth,
         bbox,
         lostEdge,
@@ -4217,28 +4448,28 @@ export class ColorCycleBrushCanvas2D {
     // Mark layer as dirty for rendering
     this.dirtyLayers.add(id);
     animator.markDirtyBounds(bbox);
+    if (logCcFill) {
+      this.logShapeFillBufferSnapshot({
+        layerId: id,
+        mode: 'linear',
+        path: 'cpu',
+        ccGradient,
+        ditherEnabled: this.ditherEnabled,
+        colors: numBands,
+        bbox,
+        width: linearBufferWidth,
+        paint: linearBuffer,
+        speed: linearSpeedData,
+        flow: linearFlowData,
+        phase: linearPhaseData,
+      });
+    }
     
     // Force immediate render
     animator.forceRender();
     this.render(false);
     if (strokeData) {
       this.snapshotFromBuffers(strokeData);
-    }
-    if (ccDebugOn()) {
-      try {
-        const sampleX = Math.floor((bbox.minX + bbox.minX + bbox.width - 1) / 2);
-        const sampleY = Math.floor((bbox.minY + bbox.minY + bbox.height - 1) / 2);
-        const p = Math.max(0, Math.min(this.width * this.height - 1, sampleY * this.width + sampleX));
-        const buffers = strokeData?.buffers;
-        ccLog('shape fill sample', {
-          cx: sampleX,
-          cy: sampleY,
-          p,
-          idx: buffers?.paint?.[p],
-          gid: buffers?.gid?.[p],
-          activeSlot,
-        });
-      } catch {}
     }
     logCpuLinear();
     } finally {
@@ -4392,6 +4623,9 @@ export class ColorCycleBrushCanvas2D {
     const prevFlow = strokeData?.buffers.flow
       ? this.captureRegionU8(strokeData.buffers.flow, this.width, bbox)
       : new Uint8Array(bbox.width * bbox.height);
+    const prevPhase = strokeData?.buffers.phase
+      ? this.captureRegionU8(strokeData.buffers.phase, this.width, bbox)
+      : new Uint8Array(bbox.width * bbox.height);
     const writtenMask = new Uint8Array(bbox.width * bbox.height);
     // Hoist invariants
     const spacingValue = this.normalizeBandSpacingValue(spacing);
@@ -4413,6 +4647,58 @@ export class ColorCycleBrushCanvas2D {
       pairBandCount,
       ditherAlgorithm: fillAlgorithm,
     });
+    const shapePhaseBaseByte = this.resolveShapePhaseBaseByte({
+      ccGradient,
+      pairBandCount,
+      effectiveColorCount: numBands,
+      markId: options?.shapePhaseSeedMarkId ?? null,
+      bounds: bbox,
+      points: vertices,
+    });
+    const concentricEdges = vertices.map((vertex, index) => {
+      const next = vertices[(index + 1) % vertices.length];
+      const dx = next.x - vertex.x;
+      const dy = next.y - vertex.y;
+      return {
+        v1x: vertex.x,
+        v1y: vertex.y,
+        dx,
+        dy,
+        len2: dx * dx + dy * dy,
+      };
+    });
+    const safeMaxDist = Math.max(1e-6, maxDist);
+    const resolveConcentricPhaseByte = (x: number, y: number, colorIndex: number) => {
+      if (colorIndex <= 0) {
+        return 0;
+      }
+      let minDistSq = Infinity;
+      const sampleX = x + 0.5;
+      const sampleY = y + 0.5;
+      for (let edgeIndex = 0; edgeIndex < concentricEdges.length; edgeIndex += 1) {
+        const edge = concentricEdges[edgeIndex];
+        if (edge.len2 <= 0) {
+          continue;
+        }
+        const tNum = (sampleX - edge.v1x) * edge.dx + (sampleY - edge.v1y) * edge.dy;
+        const tVal = Math.max(0, Math.min(1, tNum / edge.len2));
+        const px = edge.v1x + tVal * edge.dx;
+        const py = edge.v1y + tVal * edge.dy;
+        const ddx = sampleX - px;
+        const ddy = sampleY - py;
+        const d2 = ddx * ddx + ddy * ddy;
+        if (d2 < minDistSq) {
+          minDistSq = d2;
+        }
+      }
+      const normalized = Math.min(1, Math.sqrt(Math.max(0, minDistSq)) / safeMaxDist);
+      return this.resolveShapePhaseByte(normalized, {
+        ccGradient,
+        pairBandCount,
+        effectiveColorCount: numBands,
+        shapePhaseBaseByte,
+      });
+    };
 
     // Attempt GPU path first so most shapes stay off the CPU.
     if (!this.perceptualDither) {
@@ -4453,8 +4739,25 @@ export class ColorCycleBrushCanvas2D {
               ditherStrength: ditherStrengthGpu,
               ditherPixelSize: ditherPixelSizeGpu,
               noiseSeed,
-        }, flowSlot, speedByte, flowByte);
+        }, flowSlot, speedByte, flowByte, resolveConcentricPhaseByte);
         if (ok) {
+          if (logCcFill) {
+            const gpuBuffers = animator.getIndexBuffers();
+            this.logShapeFillBufferSnapshot({
+              layerId: id,
+              mode: 'concentric',
+              path: 'gpu',
+              ccGradient,
+              ditherEnabled: this.ditherEnabled,
+              colors: numBands,
+              bbox,
+              width: this.width,
+              paint: gpuBuffers.data,
+              speed: gpuBuffers.spd ?? new Uint8Array(0),
+              flow: gpuBuffers.flow ?? new Uint8Array(0),
+              phase: gpuBuffers.phase ?? new Uint8Array(0),
+            });
+          }
           this.stampCounter += numBands;
           if (strokeData) strokeData.stampCounter = this.stampCounter;
           this.dirtyLayers.add(id);
@@ -4515,7 +4818,12 @@ export class ColorCycleBrushCanvas2D {
     }
     const concentricWidth = directConcentricHandle.width;
     const concentricHeight = directConcentricHandle.height;
-    const writeConcentricIndex = (x: number, y: number, colorIndex: number) => {
+    const writeConcentricIndex = (
+      x: number,
+      y: number,
+      colorIndex: number,
+      phaseByte: number = 0
+    ) => {
       if (x < 0 || y < 0 || x >= concentricWidth || y >= concentricHeight) {
         return;
       }
@@ -4525,7 +4833,7 @@ export class ColorCycleBrushCanvas2D {
       concentricGradientId[idx] = clamped === 0 ? 0 : flowSlot;
       concentricSpeedData[idx] = clamped === 0 ? 0 : speedByte;
       concentricFlowData[idx] = clamped === 0 ? 0 : flowByte;
-      concentricPhaseData[idx] = 0;
+      concentricPhaseData[idx] = clamped === 0 ? 0 : phaseByte;
       const localX = x - bbox.minX;
       const localY = y - bbox.minY;
       if (localX >= 0 && localY >= 0 && localX < bbox.width && localY < bbox.height) {
@@ -4550,7 +4858,7 @@ export class ColorCycleBrushCanvas2D {
           concentricGradientId[destIndex] = value === 0 ? 0 : flowSlot;
           concentricSpeedData[destIndex] = value === 0 ? 0 : speedByte;
           concentricFlowData[destIndex] = value === 0 ? 0 : flowByte;
-          concentricPhaseData[destIndex] = 0;
+          concentricPhaseData[destIndex] = resolveConcentricPhaseByte(destX, destY, value);
           writtenMask[srcRowOffset + col] = 255;
         }
       }
@@ -4564,10 +4872,12 @@ export class ColorCycleBrushCanvas2D {
           prevGid,
           prevSpd,
           prevFlow,
+          prevPhase,
           paint: concentricBuffer,
           gid: concentricGradientId,
           spd: concentricSpeedData,
           flow: concentricFlowData,
+          phase: concentricPhaseData,
           fullW: concentricWidth,
           bbox,
           lostEdge,
@@ -4577,6 +4887,22 @@ export class ColorCycleBrushCanvas2D {
       if (strokeData) strokeData.stampCounter = this.stampCounter;
       this.dirtyLayers.add(id);
       animator.markDirtyBounds(bbox);
+      if (logCcFill) {
+        this.logShapeFillBufferSnapshot({
+          layerId: id,
+          mode: 'concentric',
+          path,
+          ccGradient,
+          ditherEnabled: this.ditherEnabled,
+          colors: count,
+          bbox,
+          width: concentricWidth,
+          paint: concentricBuffer,
+          speed: concentricSpeedData,
+          flow: concentricFlowData,
+          phase: concentricPhaseData,
+        });
+      }
       animator.forceRender();
       this.render(false);
       logConcentricFill(path);
@@ -4590,16 +4916,10 @@ export class ColorCycleBrushCanvas2D {
         const flatPairSpread =
           options?.ditherPaletteSpread ??
           useAppStore.getState().tools?.brushSettings?.ditherPaletteSpread;
-        ccLog('shape fill concentric canvas spread', {
-          optionsSpread: options?.ditherPaletteSpread ?? null,
-          storeSpread: useAppStore.getState().tools?.brushSettings?.ditherPaletteSpread ?? null,
-          flatPairSpread: flatPairSpread ?? null,
-          pairBandCount,
-          quantLevels,
-        });
         const activeSession = getActiveMarkGradientSession(id);
+        const phaseSeedMarkId = options?.shapePhaseSeedMarkId ?? activeSession?.markId ?? null;
         const flatSeed = resolveStableFlatSeed({
-          markId: activeSession?.markId ?? null,
+          markId: phaseSeedMarkId,
           bounds: {
             minX: bbox.minX,
             minY: bbox.minY,
@@ -4632,8 +4952,8 @@ export class ColorCycleBrushCanvas2D {
           flatSeed,
           algorithm: fillAlgorithm,
           patternStyle: fillPatternStyle,
-          sampledFlatTraceId: activeSession?.markId
-            ? `${activeSession.markId}:brush-concentric`
+          sampledFlatTraceId: phaseSeedMarkId
+            ? `${phaseSeedMarkId}:brush-concentric`
             : undefined,
           sampledFlatTraceStage: 'brush-concentric',
           fillBackground: options?.ditherBackgroundFill !== false,
@@ -4656,9 +4976,9 @@ export class ColorCycleBrushCanvas2D {
             }
             return Math.min(1, Math.sqrt(Math.max(0, minDistSq)) / safeMaxDist);
           },
-          writeIndex: (x, y, index) => {
+          writeIndex: (x, y, index, phaseByte) => {
             this.logSetIndexSample(id, x, y);
-            writeConcentricIndex(x, y, index);
+            writeConcentricIndex(x, y, index, phaseByte ?? 0);
           },
           writePhase: (x, y, phaseByte) => {
             if (x < 0 || y < 0 || x >= concentricWidth || y >= concentricHeight) {
@@ -4666,6 +4986,15 @@ export class ColorCycleBrushCanvas2D {
             }
             concentricPhaseData[y * concentricWidth + x] = phaseByte;
           },
+          resolvePhaseByte: (_x, _y, index, normalized) =>
+            index <= 0
+              ? 0
+              : this.resolveShapePhaseByte(normalized, {
+                  ccGradient,
+                  pairBandCount,
+                  effectiveColorCount: quantLevels,
+                  shapePhaseBaseByte,
+                }),
           yieldIfNeeded,
         });
         finalizeFill('cpu', quantLevels);
@@ -4807,7 +5136,7 @@ export class ColorCycleBrushCanvas2D {
                 const gi = mapRgbToIndex2.get(key);
                 if (gi !== undefined) {
                   const shifted = (gi - 1 + baseOffset) % 255;
-                  writeConcentricIndex(x, y, shifted + 1);
+                  writeConcentricIndex(x, y, shifted + 1, resolveConcentricPhaseByte(x, y, shifted + 1));
                 }
               }
             }
@@ -4881,7 +5210,7 @@ export class ColorCycleBrushCanvas2D {
         {
           writeSample: (x, y, colorIndex) => {
             this.logSetIndexSample(id, x, y);
-            writeConcentricIndex(x, y, colorIndex);
+            writeConcentricIndex(x, y, colorIndex, resolveConcentricPhaseByte(x, y, colorIndex));
           },
           yieldIfNeeded,
         }
@@ -5788,7 +6117,6 @@ export class ColorCycleBrushCanvas2D {
    * Set active layer ID
    */
   setActiveLayer(layerId: string) {
-    ccLog('setActiveLayer()', { layerId });
     this.activeLayerId = layerId;
   }
   
@@ -5815,7 +6143,6 @@ export class ColorCycleBrushCanvas2D {
    * Note: This overrides the deprecated setLayerId above
    */
   setLayerId(layerId: string): void {
-    ccLog('setLayerId()', { layerId });
     this.layerId = layerId;
     // Also call setActiveLayer for compatibility
     this.setActiveLayer(layerId);
@@ -6219,12 +6546,6 @@ export class ColorCycleBrushCanvas2D {
    * Serialize state (API compatible simplified)
    */
   serialize(): ColorCycleBrushCanvasSerialized {
-    ccLog('Brush.serialize()', {
-      layerCount: this.animators.size,
-      layerIds: Array.from(this.animators.keys()),
-      hasActive: Boolean(this.activeLayerId),
-      active: this.activeLayerId ?? null
-    });
     const layers: SerializedLayerState[] = [];
 
     this.animators.forEach((animator, layerId) => {

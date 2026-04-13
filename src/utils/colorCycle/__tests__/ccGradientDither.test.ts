@@ -1125,6 +1125,43 @@ describe('fillCcGradientDither', () => {
     expect(writesBgOff.some((value) => value === 0)).toBe(true);
   });
 
+  it('writes per-pixel phase for paired Sierra Lite fills when a phase resolver is provided', async () => {
+    const width = 8;
+    const height = 2;
+    const phases = new Uint8Array(width * height);
+
+    await fillCcGradientDither({
+      vertices: [
+        { x: 0, y: 0 },
+        { x: width - 1, y: 0 },
+        { x: width - 1, y: height - 1 },
+        { x: 0, y: height - 1 },
+      ],
+      minX: 0,
+      minY: 0,
+      maxX: width - 1,
+      maxY: height - 1,
+      pixelSize: 1,
+      levels: 2,
+      pairBandCount: 2,
+      baseOffset: 0,
+      algorithm: 'sierra-lite',
+      sampleNormalized: (x) => x / (width - 1),
+      writeIndex: () => {},
+      writePhase: (x, y, phaseByte) => {
+        phases[y * width + x] = phaseByte;
+      },
+      resolvePhaseByte: (_x, _y, index, normalized) => (
+        index <= 0 ? 0 : Math.min(255, 11 + Math.round(normalized * 32))
+      ),
+    });
+
+    const nonZeroPhases = Array.from(phases).filter((value) => value > 0);
+    expect(nonZeroPhases.length).toBeGreaterThan(0);
+    expect(new Set(nonZeroPhases).size).toBeGreaterThan(1);
+    expect(Math.min(...nonZeroPhases)).toBeGreaterThanOrEqual(11);
+  });
+
   it('fills whole dither cells at polygon edges when pxlEdge is enabled', async () => {
     const width = 4;
     const height = 4;

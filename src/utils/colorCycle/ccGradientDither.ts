@@ -10,7 +10,6 @@ import {
   resolveFlatInkSetForPosition,
 } from '@/utils/colorCycle/ccFlatModePatterns';
 import { resolveFlatSierraBandMixInfo } from '@/utils/colorCycle/ccDitherRenderPalette';
-import { ccLog } from '@/utils/colorCycle/ccDebug';
 import { getActiveMarkGradientSession } from '@/hooks/canvas/utils/colorCycleMarkSession';
 import type { StoredStop } from '@/utils/colorCycleGradientDefs';
 import { useAppStore } from '@/stores/useAppStore';
@@ -37,8 +36,9 @@ export type CcGradientDitherOptions = {
   fillBackground?: boolean;
   pxlEdge?: boolean;
   sampleNormalized: (x: number, y: number) => number;
-  writeIndex: (x: number, y: number, index: number) => void;
+  writeIndex: (x: number, y: number, index: number, phaseByte?: number) => void;
   writePhase?: (x: number, y: number, phaseByte: number) => void;
+  resolvePhaseByte?: (x: number, y: number, index: number, normalized: number) => number;
   logSetIndexSample?: (x: number, y: number) => void;
   yieldIfNeeded?: (row: number) => Promise<void>;
   sampledFlatTraceId?: string;
@@ -316,12 +316,6 @@ const resolveRepresentativeSampledTarget = (
   };
 };
 
-const summarizeStoredStopsForDebug = (stops: StoredStop[] | null | undefined) =>
-  (stops ?? []).slice(0, 8).map((stop) => ({
-    p: Number(stop.position.toFixed(6)),
-    c: stop.color,
-  }));
-
 const clampCycleIndex = (value: number): number => Math.max(1, Math.min(255, Math.round(value)));
 const encodePhaseByte = (value: number): number => Math.max(0, Math.min(255, Math.floor(clamp01(value) * 255)));
 
@@ -358,6 +352,7 @@ export const resolveSampledFlatPositionMix = ({
   if (!stops.length) {
     return null;
   }
+  void sampledSourceStops;
 
   const clampedPosition = clamp01(flatPosition);
   const spread01 = clamp01((spread ?? 0) / 100);
@@ -367,6 +362,8 @@ export const resolveSampledFlatPositionMix = ({
   const resolvedPair = resolveFlatInkSetForPosition(clampedPosition, 2, baseOffset, spread);
   const [lowIndex, highIndex] = resolvedPair.indices;
   const pairSpan = Math.max(1, highIndex - lowIndex);
+  void centerIndex;
+  void pairSpan;
   const sampledLowRgb = sampleStoredGradientColor(stops, normalizeCycleIndex(lowIndex, baseOffset));
   const sampledHighRgb = sampleStoredGradientColor(stops, normalizeCycleIndex(highIndex, baseOffset));
   const sampledPairDistance = rgbDistance(sampledLowRgb, sampledHighRgb);
@@ -388,34 +385,8 @@ export const resolveSampledFlatPositionMix = ({
   });
   const lowColor = rgbToCss(sampledLowRgb);
   const highColor = rgbToCss(sampledHighRgb);
-
-  ccLog('sampled flat solver decision', {
-    flatPosition: Number(clampedPosition.toFixed(6)),
-    targetColor,
-    spread: spread ?? null,
-    spread01: Number(spread01.toFixed(6)),
-    centerIndex,
-    sourceStopCount: stops.length,
-    sourceStops: stops.slice(0, 8).map((stop) => ({
-      p: Number(stop.position.toFixed(6)),
-      c: stop.color,
-    })),
-    sampledSourceStops: (sampledSourceStops ?? []).slice(0, 8).map((stop) => ({
-      p: Number(stop.position.toFixed(6)),
-      c: stop.color,
-    })),
-    lowIndex,
-    highIndex,
-    pairSpan,
-    sampledPairDistance: Number(sampledPairDistance.toFixed(6)),
-    usedFallbackPair,
-    solvePairLow: rgbToCss(solvePairLow),
-    solvePairHigh: rgbToCss(solvePairHigh),
-    flatMix: Number(flatMix.toFixed(6)),
-    solveError: Number(solveError.toFixed(6)),
-    lowColor,
-    highColor,
-  });
+  void solveError;
+  void usedFallbackPair;
 
   return {
     flatPosition: clampedPosition,
@@ -732,11 +703,14 @@ export const fillCcGradientDither = async ({
   sampleNormalized,
   writeIndex,
   writePhase,
+  resolvePhaseByte,
   logSetIndexSample,
   yieldIfNeeded,
   sampledFlatTraceId,
   sampledFlatTraceStage,
 }: CcGradientDitherOptions): Promise<void> => {
+  void sampledFlatTraceId;
+  void sampledFlatTraceStage;
   const clampedLevels = Math.max(1, Math.min(255, Math.floor(levels)));
   const clampedPairBands = Math.max(0, Math.floor(pairBandCount ?? 0));
   const cellSize = Math.max(1, Math.floor(pixelSize));
@@ -755,18 +729,26 @@ export const fillCcGradientDither = async ({
   const activeCells: number[] = [];
   const cellSeen = new Uint8Array(gridW);
   const thresholdJitter = algorithm === 'sierra-lite' ? 0 : 0.2;
-  const shouldWritePerPixelPhase = algorithm === 'sierra-lite' && clampedPairBands <= 0 && Boolean(writePhase);
+  const shouldWritePerPixelPhase = algorithm === 'sierra-lite' && Boolean(writePhase);
   const writePixel = (x: number, y: number, index: number) => {
-    writeIndex(x, y, index);
+    let phaseByte = 0;
+    if (shouldWritePerPixelPhase && index > 0) {
+      const normalizedRaw = sampleNormalized(x + 0.5, y + 0.5);
+      const normalized = Number.isFinite(normalizedRaw) ? clamp01(normalizedRaw) : 0;
+      const resolvedPhaseByte = resolvePhaseByte
+        ? resolvePhaseByte(x, y, index, normalized)
+        : (
+            clampedPairBands <= 0
+              ? encodePhaseByte(normalized)
+              : 0
+          );
+      phaseByte = Number.isFinite(resolvedPhaseByte) ? resolvedPhaseByte : 0;
+    }
+    writeIndex(x, y, index, phaseByte);
     if (!writePhase) {
       return;
     }
-    if (!shouldWritePerPixelPhase || index <= 0) {
-      writePhase(x, y, 0);
-      return;
-    }
-    const phase = sampleNormalized(x + 0.5, y + 0.5);
-    writePhase(x, y, encodePhaseByte(phase));
+    writePhase(x, y, phaseByte);
   };
 
   for (let row = 0; row < bboxHeight; row += 1) {
@@ -971,23 +953,6 @@ export const fillCcGradientDither = async ({
       ? undefined
       : (flatMixByBand ?? runtimeFlat.mixByBand);
 
-    ccLog('flat recipe inputs', {
-      algorithm,
-      flatPosition,
-      baseOffset,
-      flatPairSpread,
-      preferSampledFlatSolver,
-      sampledFlatSolverStopCount: sampledFlatSourceStops.length,
-      representativeSampledTarget: representativeSampledTarget
-        ? {
-            tone: Number(representativeSampledTarget.tone.toFixed(6)),
-            color: representativeSampledTarget.color,
-          }
-        : null,
-      sampledFlatSolver,
-      resolvedFlatMixByBand,
-      activeCellCount: activeMask.reduce((count, value) => count + (value ? 1 : 0), 0),
-    });
     fillFlatPatternMode({
       algorithm,
       patternStyle,
@@ -1012,34 +977,7 @@ export const fillCcGradientDither = async ({
       },
     });
 
-    const patternOutput = summarizeFlatPatternOutput(cellIndices, activeMask);
-    ccLog('flat pattern output', patternOutput);
-    if (preferSampledFlatSolver && sampledFlatTraceId) {
-      ccLog('sampled flat trace', {
-        traceId: sampledFlatTraceId,
-        stage: sampledFlatTraceStage ?? 'unknown',
-        sampledSourceStops: summarizeStoredStopsForDebug(sampledFlatSourceStops),
-        flatPosition: Number(flatPosition.toFixed(6)),
-        representativeSampledTone: representativeSampledTarget
-          ? Number(representativeSampledTarget.tone.toFixed(6))
-          : null,
-        representativeSampledColor: representativeSampledTarget?.color ?? null,
-        spread: flatPairSpread ?? null,
-        solvedLowIndex: sampledFlatSolver?.lowIndex ?? null,
-        solvedHighIndex: sampledFlatSolver?.highIndex ?? null,
-          solvedFlatMix: sampledFlatSolver
-            ? Number(sampledFlatSolver.flatMix.toFixed(6))
-            : null,
-          writtenLowInkIndex: patternOutput.lowInkIndex,
-          writtenHighInkIndex: patternOutput.highInkIndex,
-          writtenIndexRange:
-            patternOutput.lowInkIndex != null && patternOutput.highInkIndex != null
-              ? Math.max(0, patternOutput.highInkIndex - patternOutput.lowInkIndex)
-              : null,
-          finalActiveCellCount: patternOutput.activeCellCount,
-        finalUniqueIndices: patternOutput.uniqueActiveIndices,
-      });
-    }
+    summarizeFlatPatternOutput(cellIndices, activeMask);
   } else if (algorithm === 'sierra-lite') {
     let errCurr = new Float32Array(gridW);
     let errNext = new Float32Array(gridW);

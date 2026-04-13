@@ -24,6 +24,7 @@ export type GradientDitherOptions = {
   ditherSampledStops?: StoredStop[];
   ditherBaseOffsetOverride?: number;
   paintSlotOverride?: number;
+  shapePhaseSeedMarkId?: string | null;
   roi?: RoiRect;
 };
 

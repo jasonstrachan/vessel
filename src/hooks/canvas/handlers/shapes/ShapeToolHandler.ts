@@ -35,7 +35,6 @@ import {
   deriveForegroundGradientStops,
 } from '@/utils/colorCycleGradients';
 import { buildCcDitherRuntimePalette, resolveCcDitherBandMode } from '@/utils/colorCycle/ccDitherRenderPalette';
-import { ccLog } from '@/utils/colorCycle/ccDebug';
 import { getPreviewGradientForActiveMark } from '@/hooks/canvas/utils/colorCycleMarkSession';
 import { parseCssColorToRgba } from '@/hooks/canvas/utils/colorCycleHelpers';
 import { applyPolygonMaskToCanvasContext } from '@/hooks/canvas/handlers/shapes/shapePreviewMask';
@@ -3097,14 +3096,6 @@ export const createShapeToolHandler = (
                   });
             ditherGradPreviewState.ccPreparedGradientKey = preparedGradientKey;
             ditherGradPreviewState.ccPreparedGradient = preparedGradient;
-            ccLog('shape tool preview spread source', {
-              source: ccPreview?.source ?? null,
-              sampledMode: isSampledPreviewMode,
-              brushNowSpread: brushNow.ditherPaletteSpread ?? null,
-              gradientBands: brushNow.gradientBands ?? null,
-              pairBandCount: resolveCcDitherBandMode(brushNow.gradientBands ?? 16).pairBandCount,
-              algorithm: brushNow.ditherAlgorithm ?? null,
-            });
             if (isSampledPreviewMode && effectiveStops.length < 2) {
               strokePreviewOutline();
               didCustomFill = true;

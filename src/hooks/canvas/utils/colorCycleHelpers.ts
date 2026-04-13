@@ -1,7 +1,6 @@
 import { FLOW_SLOT_MASK } from '@/lib/colorCycle/flowEncoding';
 import type { BrushSettings, Layer } from '@/types';
 import { buildForegroundDerivedGradientSpec, deriveForegroundGradientStops } from '@/utils/colorCycleGradients';
-import { ccLog } from '@/utils/colorCycle/ccDebug';
 export type GradientStop = { position: number; color: string; opacity?: number };
 export type ForegroundGradientParams = {
   fgColorHex?: string;
@@ -103,20 +102,6 @@ export const resolveActiveColorCycleGradient = (
     Boolean(layer.colorCycleData?.activeGradientId) &&
     gradientDefs.some((entry) => entry.id === layer.colorCycleData?.activeGradientId);
   const needsBootstrap = !layer.colorCycleData?.gradientDefs?.length || !hasActiveId;
-  ccLog('resolve active gradient', {
-    layerId: layer.id,
-    useForegroundGradient,
-    activeGradientId,
-    activeSlot,
-    needsBootstrap,
-    gradientDefCount: gradientDefs.length,
-    slotPaletteCount: slotPalettes.length,
-    hasDerivedStops: Boolean(derivedStops?.length),
-    activeStops: activeStops.slice(0, 8).map((stop) => ({
-      p: Number(stop.position.toFixed(3)),
-      c: stop.color,
-    })),
-  });
   return {
     gradientDefs,
     slotPalettes,
