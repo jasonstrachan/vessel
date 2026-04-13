@@ -37,6 +37,7 @@ export function getDisplayFilterByIdFromList<I extends DisplayFilterConfig['id']
 ): Extract<DisplayFilterConfig, { id: I }> | undefined;
 export function hasEnabledDisplayFiltersInList(filters: DisplayFilterConfig[]): boolean;
 export function getSeamlessNoisePatternSize(tileStep: number): number;
+export function createTileableNoiseGrid(columns: number, rows: number, seed?: number): number[][];
 export function applyDisplayFilterStack(args: {
   sourceCanvas: HTMLCanvasElement;
   displayFilters: DisplayFilterConfig[];

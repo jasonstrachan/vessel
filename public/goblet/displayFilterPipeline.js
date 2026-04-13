@@ -9,6 +9,27 @@ export const getSeamlessNoisePatternSize = (tileStep) => {
   return normalizedTileStep * cellsPerAxis;
 };
 
+const hashNoise = (x, y, seed) => {
+  const value = Math.sin((x + 1) * 127.1 + (y + 1) * 311.7 + seed * 17.13) * 43758.5453123;
+  return value - Math.floor(value);
+};
+
+export const createTileableNoiseGrid = (columns, rows, seed = 0) => {
+  const safeColumns = Math.max(1, Math.floor(getNumeric(columns, 1)));
+  const safeRows = Math.max(1, Math.floor(getNumeric(rows, 1)));
+  const grid = Array.from({ length: safeRows }, () => Array(safeColumns).fill(0));
+
+  for (let y = 0; y < safeRows; y += 1) {
+    for (let x = 0; x < safeColumns; x += 1) {
+      const wrappedX = x === safeColumns - 1 ? 0 : x;
+      const wrappedY = y === safeRows - 1 ? 0 : y;
+      grid[y][x] = Math.floor(hashNoise(wrappedX, wrappedY, seed) * 255);
+    }
+  }
+
+  return grid;
+};
+
 export const createDisplayFilterPipelineState = () => ({
   filterSurfaceCanvas: null,
   workCanvasA: null,
@@ -440,11 +461,14 @@ export const applyDisplayFilterStack = ({
       );
       const patternCtx = clearDisplayFilterCanvas(patternCanvas);
       if (patternCanvas && patternCtx) {
-        for (let y = 0; y < patternCanvas.height; y += tileStep) {
-          for (let x = 0; x < patternCanvas.width; x += tileStep) {
-            const tone = Math.floor(Math.random() * 255);
+        const columns = Math.max(1, Math.round(patternCanvas.width / tileStep));
+        const rows = Math.max(1, Math.round(patternCanvas.height / tileStep));
+        const tones = createTileableNoiseGrid(columns, rows, tileStep);
+        for (let y = 0; y < rows; y += 1) {
+          for (let x = 0; x < columns; x += 1) {
+            const tone = tones[y][x];
             patternCtx.fillStyle = `rgb(${tone}, ${tone}, ${tone})`;
-            patternCtx.fillRect(x, y, tileStep, tileStep);
+            patternCtx.fillRect(x * tileStep, y * tileStep, tileStep, tileStep);
           }
         }
       }

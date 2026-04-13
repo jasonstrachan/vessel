@@ -4,7 +4,13 @@ import { BrushShape } from '@/types';
 import type { CanvasShape, DisplayFilterConfig, Layer, Project, Tool } from '@/types';
 import type { CompositeSegment } from '@/stores/slices/layersSlice';
 import { useAppStore } from '@/stores/useAppStore';
-import { getDisplayFilterById, hasEnabledDisplayFilters } from '@/lib/displayFilters';
+import {
+  applyDisplayFilterStack as applySharedDisplayFilterStack,
+  clearDisplayFilterCanvas,
+  createDisplayFilterPipelineState,
+  ensureDisplayFilterCanvas,
+  hasEnabledDisplayFiltersInList,
+} from '@/lib/displayFilterPipeline';
 import type { SimplifiedColorCycleManager } from './SimplifiedColorCycleManager';
 import type { CanvasShapeDraft } from './useCanvasShapeEditorHandlers';
 import { renderCanvasBackground } from './drawingCanvasBackground';
@@ -31,17 +37,6 @@ interface VisibleWorldRect {
   width: number;
   height: number;
 }
-
-interface FilterPatternCache {
-  key: string;
-  canvas: HTMLCanvasElement | null;
-}
-
-export const getNextFilterWorkCanvas = (
-  currentCanvas: HTMLCanvasElement,
-  workCanvasA: HTMLCanvasElement,
-  workCanvasB: HTMLCanvasElement,
-): HTMLCanvasElement => (currentCanvas === workCanvasA ? workCanvasB : workCanvasA);
 
 const computeVisibleWorldRect = (
   offsetX: number,
@@ -75,48 +70,6 @@ const computeVisibleWorldRect = (
     width,
     height,
   };
-};
-
-const ensureCanvas = (
-  canvasRef: React.MutableRefObject<HTMLCanvasElement | null>,
-  width: number,
-  height: number,
-): HTMLCanvasElement | null => {
-  if (typeof document === 'undefined') {
-    return null;
-  }
-
-  const nextWidth = Math.max(1, Math.ceil(width));
-  const nextHeight = Math.max(1, Math.ceil(height));
-  const canvas = canvasRef.current ?? document.createElement('canvas');
-  if (canvas.width !== nextWidth) {
-    canvas.width = nextWidth;
-  }
-  if (canvas.height !== nextHeight) {
-    canvas.height = nextHeight;
-  }
-  canvasRef.current = canvas;
-  return canvas;
-};
-
-const clearCanvas = (canvas: HTMLCanvasElement | null): CanvasRenderingContext2D | null => {
-  const ctx = canvas?.getContext('2d');
-  if (!ctx || !canvas) {
-    return null;
-  }
-  ctx.setTransform(1, 0, 0, 1, 0, 0);
-  ctx.globalAlpha = 1;
-  ctx.globalCompositeOperation = 'source-over';
-  ctx.filter = 'none';
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
-  return ctx;
-};
-
-const buildColorGradeFilter = (filter: Extract<DisplayFilterConfig, { id: 'color-grade' }>): string => {
-  const brightness = 100 + filter.settings.brightness * 100;
-  const contrast = 100 + filter.settings.contrast * 100;
-  const saturation = filter.settings.saturation * 100;
-  return `brightness(${brightness}%) contrast(${contrast}%) saturate(${saturation}%)`;
 };
 
 interface FloatingPasteLike {
@@ -217,181 +170,15 @@ export const useDrawingCanvasBaseRenderer = ({
   selectionVectorPath,
 }: UseDrawingCanvasBaseRendererOptions) => {
   const lastSplitCompositeSequentialFrameRef = useRef<number | null>(null);
-  const filterSurfaceCanvasRef = useRef<HTMLCanvasElement | null>(null);
-  const filterWorkCanvasARef = useRef<HTMLCanvasElement | null>(null);
-  const filterWorkCanvasBRef = useRef<HTMLCanvasElement | null>(null);
-  const filterAuxCanvasRef = useRef<HTMLCanvasElement | null>(null);
-  const pixelateCanvasRef = useRef<HTMLCanvasElement | null>(null);
-  const lcdPatternCacheRef = useRef<FilterPatternCache>({ key: '', canvas: null });
-  const noisePatternCacheRef = useRef<FilterPatternCache>({ key: '', canvas: null });
+  const displayFilterStateRef = useRef(createDisplayFilterPipelineState());
 
   const applyDisplayFilterStack = useCallback((
     sourceCanvas: HTMLCanvasElement,
-    visibleRect: VisibleWorldRect,
-  ): HTMLCanvasElement => {
-    const workCanvasA = ensureCanvas(filterWorkCanvasARef, sourceCanvas.width, sourceCanvas.height);
-    const workCanvasB = ensureCanvas(filterWorkCanvasBRef, sourceCanvas.width, sourceCanvas.height);
-    if (!workCanvasA || !workCanvasB) {
-      return sourceCanvas;
-    }
-
-    let currentCanvas = sourceCanvas;
-    let nextCanvas = workCanvasA;
-    const auxCanvas = ensureCanvas(filterAuxCanvasRef, sourceCanvas.width, sourceCanvas.height);
-    const pixelateFilter = getDisplayFilterById(displayFilters, 'pixelate');
-    const bloomFilter = getDisplayFilterById(displayFilters, 'bloom');
-    const colorGradeFilter = getDisplayFilterById(displayFilters, 'color-grade');
-    const lcdMaskFilter = getDisplayFilterById(displayFilters, 'lcd-mask');
-    const noiseFilter = getDisplayFilterById(displayFilters, 'noise');
-
-    const swap = (canvas: HTMLCanvasElement): HTMLCanvasElement => {
-      currentCanvas = canvas;
-      nextCanvas = getNextFilterWorkCanvas(currentCanvas, workCanvasA, workCanvasB);
-      return currentCanvas;
-    };
-
-    if (pixelateFilter?.enabled && pixelateFilter.settings.cellSize > 1) {
-      const downsampleCanvas = ensureCanvas(
-        pixelateCanvasRef,
-        Math.max(1, Math.round(currentCanvas.width / pixelateFilter.settings.cellSize)),
-        Math.max(1, Math.round(currentCanvas.height / pixelateFilter.settings.cellSize)),
-      );
-      const downsampleCtx = clearCanvas(downsampleCanvas);
-      const nextCtx = clearCanvas(nextCanvas);
-      if (downsampleCanvas && downsampleCtx && nextCtx) {
-        downsampleCtx.imageSmoothingEnabled = true;
-        downsampleCtx.drawImage(currentCanvas, 0, 0, downsampleCanvas.width, downsampleCanvas.height);
-        nextCtx.imageSmoothingEnabled = false;
-        nextCtx.drawImage(downsampleCanvas, 0, 0, nextCanvas.width, nextCanvas.height);
-        swap(nextCanvas);
-      }
-    }
-
-    if (bloomFilter?.enabled && bloomFilter.settings.blurRadius > 0 && bloomFilter.settings.intensity > 0) {
-      const bloomCanvas = ensureCanvas(
-        auxCanvas ? { current: auxCanvas } : filterAuxCanvasRef,
-        Math.max(1, Math.round(currentCanvas.width / 4)),
-        Math.max(1, Math.round(currentCanvas.height / 4)),
-      );
-      const bloomCtx = clearCanvas(bloomCanvas);
-      const nextCtx = clearCanvas(nextCanvas);
-      if (bloomCanvas && bloomCtx && nextCtx) {
-        bloomCtx.imageSmoothingEnabled = true;
-        bloomCtx.filter = `blur(${bloomFilter.settings.blurRadius}px)`;
-        bloomCtx.drawImage(currentCanvas, 0, 0, bloomCanvas.width, bloomCanvas.height);
-        bloomCtx.filter = 'none';
-        nextCtx.drawImage(currentCanvas, 0, 0);
-        nextCtx.globalAlpha = bloomFilter.settings.intensity;
-        nextCtx.imageSmoothingEnabled = true;
-        nextCtx.drawImage(bloomCanvas, 0, 0, nextCanvas.width, nextCanvas.height);
-        nextCtx.globalAlpha = 1;
-        swap(nextCanvas);
-      }
-    }
-
-    if (colorGradeFilter?.enabled) {
-      const nextCtx = clearCanvas(nextCanvas);
-      if (nextCtx) {
-        nextCtx.filter = buildColorGradeFilter(colorGradeFilter);
-        nextCtx.drawImage(currentCanvas, 0, 0);
-        nextCtx.filter = 'none';
-        swap(nextCanvas);
-      }
-    }
-
-    if (lcdMaskFilter?.enabled && (lcdMaskFilter.settings.stripeOpacity > 0 || lcdMaskFilter.settings.scanlineOpacity > 0)) {
-      const baseCell = Math.max(1, pixelateFilter?.settings.cellSize ?? 1);
-      const patternKey = JSON.stringify({
-        baseCell,
-        stripeOpacity: lcdMaskFilter.settings.stripeOpacity,
-        scanlineOpacity: lcdMaskFilter.settings.scanlineOpacity,
-      });
-      if (lcdPatternCacheRef.current.key !== patternKey) {
-        const patternCanvas = ensureCanvas(
-          { current: lcdPatternCacheRef.current.canvas },
-          baseCell * 3,
-          Math.max(2, baseCell * 2),
-        );
-        const patternCtx = clearCanvas(patternCanvas);
-        if (patternCanvas && patternCtx) {
-          const stripeWidth = Math.max(1, Math.ceil(patternCanvas.width / 3));
-          patternCtx.fillStyle = `rgba(255, 96, 96, ${lcdMaskFilter.settings.stripeOpacity})`;
-          patternCtx.fillRect(0, 0, stripeWidth, patternCanvas.height);
-          patternCtx.fillStyle = `rgba(96, 255, 96, ${lcdMaskFilter.settings.stripeOpacity})`;
-          patternCtx.fillRect(stripeWidth, 0, stripeWidth, patternCanvas.height);
-          patternCtx.fillStyle = `rgba(96, 160, 255, ${lcdMaskFilter.settings.stripeOpacity})`;
-          patternCtx.fillRect(stripeWidth * 2, 0, patternCanvas.width - stripeWidth * 2, patternCanvas.height);
-          if (lcdMaskFilter.settings.scanlineOpacity > 0) {
-            patternCtx.fillStyle = `rgba(0, 0, 0, ${lcdMaskFilter.settings.scanlineOpacity})`;
-            patternCtx.fillRect(0, patternCanvas.height - 1, patternCanvas.width, 1);
-          }
-        }
-        lcdPatternCacheRef.current = { key: patternKey, canvas: patternCanvas };
-      }
-
-      const nextCtx = clearCanvas(nextCanvas);
-      if (nextCtx) {
-        nextCtx.drawImage(currentCanvas, 0, 0);
-        const pattern = lcdPatternCacheRef.current.canvas
-          ? nextCtx.createPattern(lcdPatternCacheRef.current.canvas, 'repeat')
-          : null;
-        if (pattern && lcdPatternCacheRef.current.canvas) {
-          nextCtx.save();
-          nextCtx.globalCompositeOperation = 'multiply';
-          nextCtx.translate(
-            -((visibleRect.x % lcdPatternCacheRef.current.canvas.width) + lcdPatternCacheRef.current.canvas.width) % lcdPatternCacheRef.current.canvas.width,
-            -((visibleRect.y % lcdPatternCacheRef.current.canvas.height) + lcdPatternCacheRef.current.canvas.height) % lcdPatternCacheRef.current.canvas.height,
-          );
-          nextCtx.fillStyle = pattern;
-          nextCtx.fillRect(0, 0, nextCanvas.width + lcdPatternCacheRef.current.canvas.width, nextCanvas.height + lcdPatternCacheRef.current.canvas.height);
-          nextCtx.restore();
-        }
-        swap(nextCanvas);
-      }
-    }
-
-    if (noiseFilter?.enabled && noiseFilter.settings.opacity > 0) {
-      const tileStep = Math.max(1, Math.round(noiseFilter.settings.scale));
-      const patternKey = JSON.stringify({ tileStep });
-      if (noisePatternCacheRef.current.key !== patternKey) {
-        const patternCanvas = ensureCanvas({ current: noisePatternCacheRef.current.canvas }, 128, 128);
-        const patternCtx = clearCanvas(patternCanvas);
-        if (patternCanvas && patternCtx) {
-          for (let y = 0; y < patternCanvas.height; y += tileStep) {
-            for (let x = 0; x < patternCanvas.width; x += tileStep) {
-              const tone = Math.floor(Math.random() * 255);
-              patternCtx.fillStyle = `rgb(${tone}, ${tone}, ${tone})`;
-              patternCtx.fillRect(x, y, tileStep, tileStep);
-            }
-          }
-        }
-        noisePatternCacheRef.current = { key: patternKey, canvas: patternCanvas };
-      }
-
-      const nextCtx = clearCanvas(nextCanvas);
-      if (nextCtx) {
-        nextCtx.drawImage(currentCanvas, 0, 0);
-        const pattern = noisePatternCacheRef.current.canvas
-          ? nextCtx.createPattern(noisePatternCacheRef.current.canvas, 'repeat')
-          : null;
-        if (pattern && noisePatternCacheRef.current.canvas) {
-          nextCtx.save();
-          nextCtx.globalAlpha = noiseFilter.settings.opacity;
-          nextCtx.globalCompositeOperation = 'soft-light';
-          nextCtx.translate(
-            -((visibleRect.x % noisePatternCacheRef.current.canvas.width) + noisePatternCacheRef.current.canvas.width) % noisePatternCacheRef.current.canvas.width,
-            -((visibleRect.y % noisePatternCacheRef.current.canvas.height) + noisePatternCacheRef.current.canvas.height) % noisePatternCacheRef.current.canvas.height,
-          );
-          nextCtx.fillStyle = pattern;
-          nextCtx.fillRect(0, 0, nextCanvas.width + noisePatternCacheRef.current.canvas.width, nextCanvas.height + noisePatternCacheRef.current.canvas.height);
-          nextCtx.restore();
-        }
-        swap(nextCanvas);
-      }
-    }
-
-    return currentCanvas;
-  }, [displayFilters]);
+  ): HTMLCanvasElement => applySharedDisplayFilterStack({
+    sourceCanvas,
+    displayFilters,
+    filterState: displayFilterStateRef.current,
+  }), [displayFilters]);
 
   return useCallback(
     (
@@ -422,7 +209,6 @@ export const useDrawingCanvasBaseRenderer = ({
             project.height
           )
         : null;
-
       ctx.save();
       ctx.setTransform(1, 0, 0, 1, 0, 0);
       ctx.fillStyle = '#141514';
@@ -532,15 +318,16 @@ export const useDrawingCanvasBaseRenderer = ({
       const shouldFilterArtwork =
         Boolean(visibleRect) &&
         !isDrawing &&
-        hasEnabledDisplayFilters(displayFilters);
+        hasEnabledDisplayFiltersInList(displayFilters);
       const filterCanvas = shouldFilterArtwork
-        ? ensureCanvas(
-            filterSurfaceCanvasRef,
+        ? ensureDisplayFilterCanvas(
+            displayFilterStateRef.current.filterSurfaceCanvas,
             Math.ceil(visibleRect?.width ?? 1),
             Math.ceil(visibleRect?.height ?? 1),
           )
         : null;
-      const filterCtx = shouldFilterArtwork ? clearCanvas(filterCanvas) : null;
+      displayFilterStateRef.current.filterSurfaceCanvas = filterCanvas;
+      const filterCtx = shouldFilterArtwork ? clearDisplayFilterCanvas(filterCanvas) : null;
       const compositeTargetCtx = filterCtx ?? ctx;
       const { invalidCompositeBitmap } = drawVisibleCompositeStack({
         ctx: compositeTargetCtx ?? ctx,
@@ -563,7 +350,7 @@ export const useDrawingCanvasBaseRenderer = ({
         state.setLayersNeedRecomposition(true);
       }
       if (filterCtx && filterCanvas && visibleRect) {
-        const finalFilteredCanvas = applyDisplayFilterStack(filterCanvas, visibleRect);
+        const finalFilteredCanvas = applyDisplayFilterStack(filterCanvas);
         ctx.drawImage(
           finalFilteredCanvas,
           0,

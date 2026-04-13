@@ -24,6 +24,7 @@ import { decodeColorCycleSpeedByte, encodeColorCycleSpeedByte } from '@/utils/co
 import { resolveLayerColorCycleBaseSpeed } from '@/utils/colorCycleLayerSpeed';
 import type {
   ContentBounds,
+  DisplayFilterConfig,
   ExportContainerLayout,
   Layer,
   LayerAlignmentSettings,
@@ -36,6 +37,7 @@ import { deriveForegroundGradientStops } from '@/utils/colorCycleGradients';
 import { getSequentialLayerRenderCanvas } from '@/lib/sequential/SequentialLayerRenderer';
 import { captureCanvasImageData } from '@/utils/canvas/canvasImage';
 import { useAppStore } from '@/stores/useAppStore';
+import { cloneDisplayFilters } from '@/lib/displayFilters';
 import {
   clampRectToDocument as clampBoundsToDocument,
   scaleMaskBoundsToDocument,
@@ -485,6 +487,7 @@ export interface WebGLExportMetadata {
     pixelPerfectStack: boolean;
     perfectLoop: boolean;
     bundleFormat: WebGLExportBundleFormat;
+    displayFilters: DisplayFilterConfig[];
     viewportPreset?: 'default' | 'embed-fill' | 'embed-fit' | 'fixed';
     htmlTitle: string;
     htmlBackgroundColor: string;
@@ -4904,6 +4907,9 @@ export const exportProjectAsWebGL = async (
   }
 
   const bundleFormat: WebGLExportBundleFormat = options.bundleFormat ?? 'zip';
+  const displayFilters = cloneDisplayFilters(
+    options.project.viewState?.displayFilters ?? useAppStore.getState().canvas.displayFilters ?? []
+  );
 
   const metadata: WebGLExportMetadata = {
     format: gobletFormat,
@@ -4938,6 +4944,7 @@ export const exportProjectAsWebGL = async (
       pixelPerfectStack,
       perfectLoop: options.perfectLoop,
       bundleFormat,
+      displayFilters,
       viewportPreset: options.viewportPreset,
       htmlTitle: resolvedHtmlTitle,
       htmlBackgroundColor: resolvedHtmlBackgroundColor
