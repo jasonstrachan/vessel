@@ -13,7 +13,7 @@ import {
   type StoredStop,
   type GradientDefSource,
 } from '@/utils/colorCycleGradientDefs';
-import { ccLog, ccWarn } from '@/utils/colorCycle/ccDebug';
+import { ccWarn } from '@/utils/colorCycle/ccDebug';
 import {
   type GradientSeamProfile,
 } from '@/lib/colorCycle/gradientSeamProfile';
@@ -49,12 +49,6 @@ export type PreviewGradientResult = {
   stopsStored: StoredStop[];
   defIdPlanned?: number;
 };
-
-const summarizeStopsForDebug = (stops: StoredStop[] | null | undefined) =>
-  (stops ?? []).slice(0, 8).map((stop) => ({
-    p: Number(stop.position.toFixed(3)),
-    c: stop.color,
-  }));
 
 const sessionsByLayer = new Map<string, MarkGradientSession>();
 let markSessionPointerDownRef: { current: boolean } | null = null;
@@ -108,7 +102,6 @@ export const captureFrozenCcDitherRenderConfig = (): FrozenCcDitherRenderConfig 
     spread: brushSettings.ditherPaletteSpread,
     algorithm: brushSettings.ditherAlgorithm,
   };
-  ccLog('capture frozen cc dither render config', config);
   return config;
 };
 
@@ -126,11 +119,6 @@ export const resolveMarkSessionRuntimeStops = (
   const config = session?.ditherRenderConfig;
   const enabled = liveOverrides?.enabled ?? config?.enabled ?? false;
   if (!enabled) {
-    ccLog('runtime stops bypass dither', {
-      enabled,
-      inCount: clonedStops.length,
-      inStops: summarizeStopsForDebug(clonedStops),
-    });
     return clonedStops;
   }
   const bands = liveOverrides?.pairBandCount ?? config?.pairBandCount ?? 0;
@@ -148,18 +136,6 @@ export const resolveMarkSessionRuntimeStops = (
     preserveSourceStops,
     debugContext: session?.source === 'sampled' ? 'runtime-snapshot-sampled' : undefined,
   }).renderStops;
-  ccLog('runtime stops rebuild', {
-    enabled,
-    bands,
-    spread,
-    algorithm,
-    source: session?.source ?? null,
-    preserveSourceStops,
-    inCount: clonedStops.length,
-    outCount: runtimeStops.length,
-    inStops: summarizeStopsForDebug(clonedStops),
-    outStops: summarizeStopsForDebug(runtimeStops),
-  });
   return runtimeStops;
 };
 
@@ -204,23 +180,6 @@ export const beginMarkGradientSession = (params: {
       ditherRenderConfig,
     };
     sessionsByLayer.set(params.layerId, session);
-    ccLog('begin session', {
-      markId: session.markId,
-      layerId: params.layerId,
-      source: params.source,
-      kind: params.gradientKind,
-      stopsLen: params.stops?.length ?? 0,
-      ditherRenderConfig,
-      stops: summarizeStopsForDebug(frozenStops),
-    });
-    ccLog('mark slot (during)', {
-      layerId: params.layerId,
-      markId: session.markId,
-      defId: session.binding?.defId ?? null,
-      slot: session.binding?.slot ?? null,
-      phase: session.binding ? 'bound' : 'sampling',
-    });
-    ccLog('begin session stack', new Error('[CC] begin session stack').stack ?? null);
     return session;
   }
 
@@ -254,23 +213,6 @@ export const beginMarkGradientSession = (params: {
     ditherRenderConfig,
   };
   sessionsByLayer.set(params.layerId, session);
-  ccLog('begin session', {
-    markId: session.markId,
-    layerId: params.layerId,
-    source: params.source,
-    kind: params.gradientKind,
-    stopsLen: params.stops?.length ?? 0,
-    defId: session.binding?.defId,
-    slot: session.binding?.slot,
-  });
-  ccLog('mark slot (during)', {
-    layerId: params.layerId,
-    markId: session.markId,
-    defId: session.binding?.defId ?? null,
-    slot: session.binding?.slot ?? null,
-    phase: session.binding ? 'bound' : 'sampling',
-  });
-  ccLog('begin session stack', new Error('[CC] begin session stack').stack ?? null);
   return session;
 };
 
@@ -279,22 +221,12 @@ export const getActiveMarkGradientSession = (layerId: string): MarkGradientSessi
 
 export const finalizeMarkGradientSession = (layerId: string): MarkGradientSession | null => {
   const session = sessionsByLayer.get(layerId) ?? null;
-  ccLog('finalize session', { layerId, markId: session?.markId });
   if (process.env.NODE_ENV !== 'production') {
     isFinalizingSession = true;
   }
   try {
     if (session?.source === 'sampled') {
       finalizeSampledSession(session);
-    }
-    if (session) {
-      ccLog('mark slot (finalized)', {
-        layerId,
-        markId: session.markId,
-        defId: session.binding?.defId ?? null,
-        slot: session.binding?.slot ?? null,
-        phase: session.binding ? 'bound' : 'sampling',
-      });
     }
     sessionsByLayer.delete(layerId);
     return session;
@@ -310,7 +242,6 @@ export const cancelMarkGradientSession = (layerId: string): void => {
     ccWarn('cancel during active mark', { layerId, stack: new Error().stack ?? null });
     return;
   }
-  ccLog('cancel session', { layerId, stack: new Error().stack ?? null });
   sessionsByLayer.delete(layerId);
 };
 
@@ -332,15 +263,6 @@ export const getPreviewGradientForActiveMark = (layerId: string): PreviewGradien
           frozenStopsLen: session.frozenStopsStored?.length ?? 0,
         });
         return null;
-      }
-      if (process.env.NODE_ENV !== 'production') {
-        ccLog('preview', {
-          markId: session.markId,
-          layerId,
-          source: 'sampled',
-          phase: session.binding ? 'final' : 'sampling',
-          stopsLen: sampledStops.length,
-        });
       }
       return {
         source: 'sampled',

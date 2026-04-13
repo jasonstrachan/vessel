@@ -5,8 +5,6 @@ import {
   type DitherAlgorithm,
   type PatternStyle,
 } from '@/utils/ditherAlgorithms';
-import { ccLog } from '@/utils/colorCycle/ccDebug';
-
 export type FlatInkCount = 2;
 
 type FlatInkSet = {
@@ -395,26 +393,13 @@ const fillSierraLiteFlatPatternMode = ({
     Math.imul(shapeSeed, 0x9e3779b1);
   const variant = resolvePatternVariant(shapeSeed, patternKey);
   const patternFingerprint = `${patternKey}:${variant}:${patternBand}:${mixKey}:${lowIdx}:${highIdx}`;
+  void patternFingerprint;
   const debugBits: number[] = [];
   const debugThresholds: number[] = [];
   const debugInitialErrs: number[] = [];
   const debugCoords: Array<[number, number]> = [];
   const debugIndices: number[] = [];
 
-  ccLog('flat sierra pattern', {
-    patternFingerprint,
-    isSampledFlat,
-    band: patternBand,
-    resolvedBand,
-    baseMix,
-    mixKey,
-    lowIdx,
-    highIdx,
-    patternKey,
-    flatSeed: shapeSeed,
-    variant,
-    flatPosition: Number.isFinite(flatPosition) ? flatPosition : null,
-  });
   debugCollector?.({
     baseMix,
     lowIdx,
@@ -499,9 +484,6 @@ const fillSierraLiteFlatPatternMode = ({
     }
   }
 
-  ccLog(
-    `flat sierra samples fp=${patternFingerprint} variant=${variant} band=${resolvedBand} mix=${baseMix.toFixed(4)} low=${lowIdx} high=${highIdx} bits=${debugBits.join('')} thresholds=${debugThresholds.join(',')} initialErrs=${debugInitialErrs.join(',')} coords=${debugCoords.map(([x, y]) => `${x}:${y}`).join('|')} indices=${debugIndices.join(',')}`
-  );
 };
 
 export const fillFlatPatternMode = (options: FlatPatternFillOptions): void => {

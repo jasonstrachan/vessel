@@ -628,6 +628,18 @@ export const startShapeDrawing = (
             if (logCcFg) {
               debugLog('cc-fg', '[CC FG] resolved stops hash', hashStops(resolvedForHash.activeStops, kindForHash));
             }
+            deps.ccLog('shape sampled session source', {
+              layerId: activeLayer.id,
+              activeSlot: resolved.activeSlot,
+              sampledStopsLen: resolved.activeStops?.length ?? 0,
+              sampledStops: resolved.activeStops.slice(0, 8).map((stop) => ({
+                p: Number(stop.position.toFixed(3)),
+                c: stop.color,
+              })),
+              sourceKind: source,
+              fromSlotPaletteLen:
+                resolved.slotPalettes.find((entry) => entry.slot === resolved.activeSlot)?.stops?.length ?? 0,
+            });
             beginMarkGradientSession({
               layerId: activeLayer.id,
               markKind: 'shape',

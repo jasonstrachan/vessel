@@ -452,10 +452,11 @@ describe('colorCycleShapeFill transparency lock', () => {
       expect.objectContaining({
         ditherPixelSize: 3,
         ditherLevels: 5,
+        ditherPairBandCount: 4,
         skipPostRender: true,
       })
     );
-    expect(linearOptions).not.toHaveProperty('ditherPairBandCount');
+    expect(linearOptions).toHaveProperty('ditherPairBandCount', 4);
 
     getStateSpy.mockRestore();
   });
@@ -530,10 +531,11 @@ describe('colorCycleShapeFill transparency lock', () => {
       expect.objectContaining({
         ditherPixelSize: 2,
         ditherLevels: 6,
+        ditherPairBandCount: 5,
         skipPostRender: true,
       })
     );
-    expect(concentricOptions).not.toHaveProperty('ditherPairBandCount');
+    expect(concentricOptions).toHaveProperty('ditherPairBandCount', 5);
 
     getStateSpy.mockRestore();
   });
@@ -659,6 +661,121 @@ describe('colorCycleShapeFill transparency lock', () => {
     expect(useAppStore.getState().layers[0]?.colorCycleData?.slotPalettes).toEqual([
       { slot: 7, stops: renderStops },
     ]);
+  });
+
+  it('forwards sampled finalize phase seed and sampled stops into linear fill', async () => {
+    const sampledStops: StoredStop[] = [
+      { position: 0, color: '#112233' },
+      { position: 1, color: '#ddeeff' },
+    ];
+    const updateLayer = jest.fn();
+    const setActiveGradientSlot = jest.fn();
+    const getStateSpy = jest.spyOn(useAppStore, 'getState');
+    getStateSpy.mockReturnValue({
+      layers: [
+        {
+          id: 'layer-1',
+          transparencyLocked: false,
+          layerType: 'color-cycle',
+          colorCycleData: {
+            paintSlot: 0,
+            slotPalettes: [],
+          },
+        },
+      ],
+      tools: {
+        brushSettings: {
+          colorCycleUseForegroundGradient: false,
+          ditherEnabled: true,
+          gradientBands: 2,
+          ditherPaletteSpread: 50,
+        },
+      },
+      setCcGradientSampleCount: jest.fn(),
+      updateLayer,
+    } as unknown as ReturnType<typeof useAppStore.getState>);
+
+    const canvas = document.createElement('canvas');
+    canvas.width = 3;
+    canvas.height = 3;
+
+    const brushEngine = {
+      fillCcGradientLinear: jest.fn(async () => undefined),
+      updateColorCycleTexture: jest.fn(),
+    };
+    const brush = {
+      setActiveGradientSlot,
+      renderDirectToCanvas: jest.fn(),
+    };
+    const session: MarkGradientSession = {
+      markId: 'mark-sampled-shape',
+      layerId: 'layer-1',
+      markKind: 'shape',
+      gradientKind: 'linear',
+      source: 'sampled',
+      frozenStopsStored: sampledStops,
+      previewStopsStored: sampledStops,
+      fallbackStopsStored: sampledStops,
+      frozenHash: hashStops(sampledStops, 'linear'),
+      binding: { kind: 'def', defId: 17, slot: 9 },
+      speedCps: null,
+    };
+
+    await finalizeColorCycleShapeFillLinear(
+      {
+        session,
+        shapePoints: [
+          { x: 0, y: 0 },
+          { x: 2, y: 0 },
+          { x: 0, y: 2 },
+        ],
+        direction: { x: 1, y: 0 },
+        activeLayerId: 'layer-1',
+        activeLayerCanvas: canvas,
+        overlayCanvas: null,
+        overlayCtx: null,
+        fallbackBlendMode: 'source-over',
+        fallbackOpacity: 1,
+        shapeLayerId: 'layer-1',
+        beforeColorState: null,
+        tool: 'brush',
+        ditherPixelSize: 2,
+      },
+      {
+        brushEngine: brushEngine as never,
+        getColorCycleBrushManager: () => ({ getBrush: () => brush as never }),
+        bindBrushToCanvas: jest.fn(),
+        timeAsync: async (_label, task) => task(),
+        timeSync: (_label, task) => task(),
+        ccLog: jest.fn(),
+        scheduleDeferredColorCycleSaveWithState: jest.fn(async () => undefined),
+        logError: jest.fn(),
+      }
+    );
+
+    expect(brushEngine.fillCcGradientLinear).toHaveBeenCalledWith(
+      expect.any(Array),
+      { x: 1, y: 0 },
+      expect.objectContaining({
+        ditherBaseOffsetOverride: 0,
+        shapePhaseSeedMarkId: 'mark-sampled-shape',
+      })
+    );
+    const sampledCall = brushEngine.fillCcGradientLinear.mock.calls[0] as unknown as
+      | [Array<{ x: number; y: number }>, { x: number; y: number }, Record<string, unknown>]
+      | undefined;
+    const sampledOptions = sampledCall?.[2] as {
+      ditherSampledStops?: StoredStop[];
+      paintSlotOverride?: number;
+    } | undefined;
+    expect(sampledOptions?.ditherSampledStops?.length).toBeGreaterThanOrEqual(2);
+    expect(sampledOptions?.paintSlotOverride).toBe(0);
+    expect(setActiveGradientSlot).not.toHaveBeenCalledWith('layer-1', 9);
+    expect(
+      updateLayer.mock.calls.some(([, payload]) => payload?.colorCycleData?.paintSlot === 9)
+    ).toBe(false);
+
+    getStateSpy.mockRestore();
   });
 
   it('continues linear finalize when foreground runtime refresh still cannot allocate a slot', async () => {

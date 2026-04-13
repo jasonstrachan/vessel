@@ -1,5 +1,4 @@
 import { BrushShape, type BrushSettings } from '@/types';
-import { ccLog } from '@/utils/colorCycle/ccDebug';
 import type { ColorCycleBrushImplementation } from './ColorCycleBrushMigration';
 import type { GradientDitherOptions, Point2D } from './shapeTypes';
 import {
@@ -29,6 +28,7 @@ type FillBrush = ColorCycleBrushImplementation & {
       ditherSampledStops?: GradientDitherOptions['ditherSampledStops'];
       ditherBaseOffsetOverride?: GradientDitherOptions['ditherBaseOffsetOverride'];
       paintSlotOverride?: GradientDitherOptions['paintSlotOverride'];
+      shapePhaseSeedMarkId?: string | null;
       roi?: GradientDitherOptions['roi'];
       lostEdge?: number;
     };
@@ -168,13 +168,6 @@ export const fillColorCycleLinear = async ({
       brush.setDitherPixelSize(Math.max(1, Math.floor(options.ditherPixelSize)));
     }
 
-    ccLog('color cycle fill controller linear spread', {
-      optionsSpread: options?.ditherPaletteSpread ?? null,
-      brushSettingsSpread: brushSettings.ditherPaletteSpread ?? null,
-      resolvedSpread: options?.ditherPaletteSpread ?? brushSettings.ditherPaletteSpread ?? null,
-      ditherLevels: options?.ditherLevels ?? ditherLevels ?? null,
-      ditherPairBandCount: options?.ditherPairBandCount ?? null,
-    });
     await Promise.resolve(
       brush.fillShapeDispatch?.({
         mode: 'linear',
@@ -194,6 +187,7 @@ export const fillColorCycleLinear = async ({
           ditherSampledStops: options?.ditherSampledStops,
           ditherBaseOffsetOverride: options?.ditherBaseOffsetOverride,
           paintSlotOverride: options?.paintSlotOverride,
+          shapePhaseSeedMarkId: options?.shapePhaseSeedMarkId,
           ditherBackgroundFill,
           roi: options?.roi,
           lostEdge: brushSettings.lostEdge,
@@ -255,13 +249,6 @@ export const fillColorCycleConcentric = async ({
       brush.setDitherPixelSize(Math.max(1, Math.floor(options.ditherPixelSize)));
     }
 
-    ccLog('color cycle fill controller concentric spread', {
-      optionsSpread: options?.ditherPaletteSpread ?? null,
-      brushSettingsSpread: brushSettings.ditherPaletteSpread ?? null,
-      resolvedSpread: options?.ditherPaletteSpread ?? brushSettings.ditherPaletteSpread ?? null,
-      ditherLevels: options?.ditherLevels ?? ditherLevels ?? null,
-      ditherPairBandCount: options?.ditherPairBandCount ?? null,
-    });
     await Promise.resolve(
       brush.fillShapeDispatch?.({
         mode: 'concentric',
@@ -273,6 +260,7 @@ export const fillColorCycleConcentric = async ({
           ditherLevels: options?.ditherLevels ?? ditherLevels,
           ditherPixelSize: options?.ditherPixelSize,
           ditherPairBandCount: options?.ditherPairBandCount,
+          shapePhaseSeedMarkId: options?.shapePhaseSeedMarkId,
           ditherPaletteSpread: options?.ditherPaletteSpread ?? brushSettings.ditherPaletteSpread,
           ditherPatternDiversity:
             options?.ditherPatternDiversity ?? brushSettings.ditherPatternDiversity,

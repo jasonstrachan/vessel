@@ -78,6 +78,22 @@ describe('IndexBuffer', () => {
       expect(buffer.getPixel(12, 10)).toBe(255);
     });
   });
+
+  describe('resize', () => {
+    it('preserves phase data when resizing', () => {
+      const phase = buffer.getDirectPhaseData();
+      phase[1 * 100 + 2] = 77;
+      phase[4 * 100 + 5] = 123;
+
+      buffer.resize(120, 80);
+
+      const resizedPhase = buffer.getDirectPhaseData();
+      expect(resizedPhase).toHaveLength(120 * 80);
+      expect(resizedPhase[1 * 120 + 2]).toBe(77);
+      expect(resizedPhase[4 * 120 + 5]).toBe(123);
+      expect(resizedPhase[79 * 120 + 119]).toBe(0);
+    });
+  });
   
   describe('painting operations', () => {
     beforeEach(() => {

@@ -91,7 +91,7 @@ export class ColorCycleAnimator implements CCIndexSurface {
   // Callbacks
   private onFrameCallbacks: Set<(imageData: ImageData) => void> = new Set();
   private directFillDepth: number = 0;
-  
+
   constructor(config: ColorCycleAnimatorConfig) {
     this.forceCanvas2D = Boolean(config.forceCanvas2D);
 
@@ -471,6 +471,7 @@ export class ColorCycleAnimator implements CCIndexSurface {
     gradientSlot: number = 0,
     speedByte: number = 0,
     flowByte: number = 0,
+    resolvePhaseByte?: (x: number, y: number, colorIndex: number) => number,
   ): boolean {
     if (this.forceCanvas2D || !this.glRenderer || vertices.length < 3) {
       return false;
@@ -528,7 +529,10 @@ export class ColorCycleAnimator implements CCIndexSurface {
           gradientId[destStart + x] = value === 0 ? 0 : clampedSlot;
           speedData[destStart + x] = value === 0 ? 0 : clampedSpeed;
           flowData[destStart + x] = value === 0 ? 0 : clampedFlow;
-          phaseData[destStart + x] = 0;
+          phaseData[destStart + x] =
+            value === 0
+              ? 0
+              : (resolvePhaseByte ? resolvePhaseByte(minX + x, destY, value) : 0);
           if (value !== 0) {
             wroteNonZero = true;
           }
@@ -560,15 +564,15 @@ export class ColorCycleAnimator implements CCIndexSurface {
 
   beginDirectFill(): DirectFillHandle {
     this.directFillDepth += 1;
-    const canvas = this.renderer2D.getCanvas();
+    const { width, height } = this.indexBuffer.getDimensions();
     return {
       data: this.indexBuffer.getDirectData(),
       gradientId: this.indexBuffer.getDirectGradientIdData(),
       speedData: this.indexBuffer.getDirectSpeedData(),
       flowData: this.indexBuffer.getDirectFlowData(),
       phaseData: this.indexBuffer.getDirectPhaseData(),
-      width: canvas.width,
-      height: canvas.height,
+      width,
+      height,
     };
   }
 
@@ -676,11 +680,11 @@ export class ColorCycleAnimator implements CCIndexSurface {
 
         const dirtyBounds = this.indexBuffer.getDirtyBounds();
         if (this._glIndexDirty || this._glDefIdDirty || dirtyBounds) {
-          const canvas = this.renderer2D.getCanvas();
-          const rect = dirtyBounds ?? { x: 0, y: 0, width: canvas.width, height: canvas.height };
-          glRenderer.setIndexData(
-            indexData,
-            gradientIdData,
+        const canvas = this.renderer2D.getCanvas();
+        const rect = dirtyBounds ?? { x: 0, y: 0, width: canvas.width, height: canvas.height };
+        glRenderer.setIndexData(
+          indexData,
+          gradientIdData,
             speedData,
             flowData,
             phaseData,

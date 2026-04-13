@@ -1475,6 +1475,7 @@ export class IndexBuffer {
     const newGradientId = new Uint8Array(newWidth * newHeight);
     const newSpeedData = new Uint8Array(newWidth * newHeight);
     const newFlowData = new Uint8Array(newWidth * newHeight);
+    const newPhaseData = new Uint8Array(newWidth * newHeight);
     
     // Copy existing data
     const copyWidth = Math.min(this.width, newWidth);
@@ -1488,6 +1489,7 @@ export class IndexBuffer {
         newGradientId[newIndex] = this.gradientId[oldIndex];
         newSpeedData[newIndex] = this.speedData[oldIndex];
         newFlowData[newIndex] = this.flowData[oldIndex];
+        newPhaseData[newIndex] = this.phaseData[oldIndex];
       }
     }
     
@@ -1495,6 +1497,7 @@ export class IndexBuffer {
     this.gradientId = newGradientId;
     this.speedData = newSpeedData;
     this.flowData = newFlowData;
+    this.phaseData = newPhaseData;
     this.width = newWidth;
     this.height = newHeight;
     this.hasNonZeroGradientIds = this.gradientId.some((value) => value !== 0);

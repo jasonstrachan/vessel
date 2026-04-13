@@ -301,6 +301,10 @@ const ccGradientDitherMocks = jest.requireMock('@/utils/colorCycle/ccGradientDit
 const pressureCurveMocks = jest.requireMock('@/utils/pressureCurve') as {
   applyPressureCurve: jest.Mock;
 };
+const concentricFillMocks = jest.requireMock('@/utils/colorCycle/concentricFillCore') as {
+  fillConcentricIndices: jest.Mock;
+  computeConcentricMaxDistance: jest.Mock;
+};
 
 const makeCanvas = () => {
   const canvas = document.createElement('canvas');
@@ -709,6 +713,7 @@ describe('ColorCycleBrushCanvas2D', () => {
     await brush.fillShapeLinear(vertices, { x: 1, y: 0 }, 'layer-1', 1, {
       continuous: true,
       ccGradient: true,
+      ditherPairBandCount: 2,
     });
 
     const animator = (brush as any).getAnimator('layer-1');
@@ -716,6 +721,107 @@ describe('ColorCycleBrushCanvas2D', () => {
     const unique = new Set(Array.from(indexBuffer || []).filter((v) => v > 0));
 
     expect(unique.size).toBeGreaterThan(64);
+  });
+
+  it('resolves shape phase bytes only for phased cc gradient fills', () => {
+    const brush = new ColorCycleBrushCanvas2D(makeCanvas());
+
+    expect((brush as any).resolveShapePhaseByte(0.5, { ccGradient: false, pairBandCount: 2 })).toBe(0);
+    expect((brush as any).resolveShapePhaseByte(0.5, { ccGradient: true, pairBandCount: 1 })).toBe(0);
+    expect((brush as any).resolveShapePhaseByte(0, { ccGradient: true, pairBandCount: 2 })).toBe(0);
+    expect((brush as any).resolveShapePhaseByte(0.5, { ccGradient: true, pairBandCount: 2 })).toBe(1);
+    expect((brush as any).resolveShapePhaseByte(0.5, { ccGradient: true, effectiveColorCount: 4 })).toBe(1);
+    expect((brush as any).resolveShapePhaseByte(0.5, {
+      ccGradient: true,
+      pairBandCount: 2,
+      shapePhaseBaseByte: 17,
+    })).toBe(17);
+  });
+
+  it('writes a stable per-shape phase offset for non-dither concentric cc gradient fills', async () => {
+    const canvas = document.createElement('canvas');
+    canvas.width = 32;
+    canvas.height = 32;
+    canvas.getContext = jest.fn(() => ({
+      clearRect: jest.fn(),
+      drawImage: jest.fn(),
+      putImageData: jest.fn(),
+      getImageData: jest.fn(() => ({
+        data: new Uint8ClampedArray(canvas.width * canvas.height * 4),
+        width: canvas.width,
+        height: canvas.height,
+      })),
+      save: jest.fn(),
+      restore: jest.fn(),
+    })) as any;
+    const brush = new ColorCycleBrushCanvas2D(canvas);
+
+    brush.setSpeed(0.1);
+    brush.setGradientBands(4);
+    brush.setDitherEnabled(false);
+    concentricFillMocks.fillConcentricIndices.mockImplementationOnce(
+      async (
+        _job: unknown,
+        callbacks: { writeSample: (x: number, y: number, colorIndex: number) => void }
+      ) => {
+        for (let y = 0; y < canvas.height; y += 1) {
+          for (let x = 0; x < canvas.width; x += 1) {
+            const colorIndex = x < canvas.width / 2 ? 1 : 128;
+            callbacks.writeSample(x, y, colorIndex);
+          }
+        }
+      }
+    );
+
+    const vertices = [
+      { x: 0, y: 0 },
+      { x: 31, y: 0 },
+      { x: 31, y: 31 },
+      { x: 0, y: 31 },
+    ];
+
+    await brush.fillShapeDispatch({
+      mode: 'concentric',
+      vertices,
+      layerId: 'layer-1',
+      options: {
+        ccGradient: true,
+        spacing: 1,
+        ditherPairBandCount: 2,
+      },
+    });
+
+    const animator = (brush as any).getAnimator('layer-1');
+    const speedData = Array.from((animator?.speedData as Uint8Array) ?? []).filter((value) => value > 0);
+    const phaseData = Array.from((animator?.phaseData as Uint8Array) ?? []).filter((value) => value > 0);
+
+    expect(new Set(speedData).size).toBe(1);
+    expect(new Set(phaseData).size).toBe(1);
+  });
+
+  it('derives different stable base phases for different shape seeds', () => {
+    const brush = new ColorCycleBrushCanvas2D(makeCanvas());
+
+    const phaseA = (brush as any).resolveShapePhaseBaseByte({
+      ccGradient: true,
+      pairBandCount: 2,
+      markId: 'shape-a',
+      bounds: { minX: 0, minY: 0, width: 10, height: 10 },
+      points: [{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 10, y: 10 }],
+    });
+    const phaseB = (brush as any).resolveShapePhaseBaseByte({
+      ccGradient: true,
+      pairBandCount: 2,
+      markId: 'shape-b',
+      bounds: { minX: 0, minY: 0, width: 10, height: 10 },
+      points: [{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 10, y: 10 }],
+    });
+
+    expect(phaseA).toBeGreaterThanOrEqual(0);
+    expect(phaseA).toBeLessThanOrEqual(223);
+    expect(phaseB).toBeGreaterThanOrEqual(0);
+    expect(phaseB).toBeLessThanOrEqual(223);
+    expect(phaseA).not.toBe(phaseB);
   });
 
   it('applies perceptual dithering for continuous linear fills when enabled', async () => {
