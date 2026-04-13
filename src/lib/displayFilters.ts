@@ -152,9 +152,9 @@ const sanitizeCrtGrid = (filter?: Partial<DisplayFilterForId<'crt-grid'>>): Disp
       1,
       0.14,
     ), 0.01),
-    lineSpacing: Math.max(2, Math.round(clamp(
+    lineSpacing: Math.max(1, Math.round(clamp(
       filter?.settings?.lineSpacing,
-      2,
+      1,
       16,
       4,
     ))),

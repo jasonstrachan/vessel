@@ -310,7 +310,7 @@ export const applyDisplayFilterStack = ({
       1,
       Math.round(getNumeric(pixelateFilter?.settings?.cellSize, 1) * normalizedLengthScale),
     );
-    const spacing = Math.max(2, Math.round(getNumeric(crtGridFilter?.settings?.lineSpacing, 4) * baseCell));
+    const spacing = Math.max(1, Math.round(getNumeric(crtGridFilter?.settings?.lineSpacing, 4) * baseCell));
     const phosphorOpacity = getNumeric(crtGridFilter.settings.phosphorOpacity, 0.12);
     const scanlineOpacity = getNumeric(crtGridFilter.settings.scanlineOpacity, 0.18);
     const patternKey = JSON.stringify({
@@ -320,24 +320,24 @@ export const applyDisplayFilterStack = ({
       scanlineOpacity,
     });
     if (filterState.crtGridPatternKey !== patternKey) {
-      const patternCanvas = ensureDisplayFilterCanvas(filterState.crtGridPatternCanvas, spacing * 3, spacing);
+      const patternCanvas = ensureDisplayFilterCanvas(filterState.crtGridPatternCanvas, spacing, spacing);
       const glowCanvas = ensureDisplayFilterCanvas(filterState.crtGridGlowCanvas, spacing * 3, spacing);
       const patternCtx = clearDisplayFilterCanvas(patternCanvas);
       const glowCtx = clearDisplayFilterCanvas(glowCanvas);
       if (patternCanvas && patternCtx && glowCanvas && glowCtx) {
         const lineOpacity = getNumeric(crtGridFilter.settings.lineOpacity, 0);
-        const stripeWidth = Math.max(1, Math.floor(patternCanvas.width / 3));
         const scanlineHeight = 1;
         const maskTop = patternCanvas.height - scanlineHeight;
         const separatorOpacity = Math.min(1, lineOpacity * 0.72);
         const apertureOpacity = Math.min(1, lineOpacity * 0.5);
 
-        patternCtx.fillStyle = `rgba(0, 0, 0, ${apertureOpacity})`;
-        for (let channel = 1; channel < 3; channel += 1) {
-          const separatorX = Math.max(0, Math.min(patternCanvas.width - 1, stripeWidth * channel));
-          patternCtx.fillRect(separatorX, 0, 1, patternCanvas.height);
+        if (patternCanvas.width > 1) {
+          patternCtx.fillStyle = `rgba(0, 0, 0, ${apertureOpacity})`;
+          patternCtx.fillRect(patternCanvas.width - 1, 0, 1, patternCanvas.height);
+        } else {
+          patternCtx.fillStyle = `rgba(0, 0, 0, ${Math.min(1, apertureOpacity * 0.45)})`;
+          patternCtx.fillRect(0, 0, 1, patternCanvas.height);
         }
-        patternCtx.fillRect(patternCanvas.width - 1, 0, 1, patternCanvas.height);
         patternCtx.fillStyle = `rgba(0, 0, 0, ${separatorOpacity})`;
         patternCtx.fillRect(0, maskTop, patternCanvas.width, scanlineHeight);
         patternCtx.fillStyle = `rgba(255, 255, 255, ${lineOpacity * 0.04})`;
@@ -348,6 +348,7 @@ export const applyDisplayFilterStack = ({
           `rgba(116, 255, 120, ${phosphorOpacity})`,
           `rgba(110, 174, 255, ${phosphorOpacity})`,
         ];
+        const stripeWidth = spacing;
         const glowInset = Math.max(0, Math.floor(stripeWidth * 0.15));
         const glowWidth = Math.max(1, stripeWidth - glowInset * 2);
         const glowHeight = Math.max(1, patternCanvas.height - scanlineHeight);

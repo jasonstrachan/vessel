@@ -245,7 +245,7 @@ const FilterCard = ({ filter }: FilterCardProps) => {
               </label>
               <ProgressSlider
                 value={filter.settings.lineSpacing}
-                min={2}
+                min={1}
                 max={16}
                 step={1}
                 onChange={(value) => updateDisplayFilter('crt-grid', { lineSpacing: Math.round(value) })}
