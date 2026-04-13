@@ -62,6 +62,9 @@ describe('LeftToolbar accessibility', () => {
     mockStore.ui.grid.enabled = false;
     mockStore.ui.modals.settings = false;
     mockStore.ui.brushPanelSection = 'tool';
+    mockStore.setBrushPanelSection.mockImplementation((section: 'tool' | 'filters') => {
+      mockStore.ui.brushPanelSection = section;
+    });
   });
 
   it('marks the active tool button as pressed and annotates shortcuts', () => {
@@ -143,6 +146,32 @@ describe('LeftToolbar accessibility', () => {
     render(<LeftToolbar />);
 
     expect(screen.getByRole('button', { name: /filters/i })).toHaveAttribute('aria-pressed', 'true');
+  });
+
+  it('treats filters as the only active toolbar state while the filters section is open', () => {
+    mockStore.ui.brushPanelSection = 'filters';
+
+    render(<LeftToolbar />);
+
+    expect(screen.getByRole('button', { name: /filters/i })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('button', { name: /brush \(b\)/i })).toHaveAttribute('aria-pressed', 'false');
+    expect(screen.getByRole('button', { name: /selection \(m\)/i })).toHaveAttribute('aria-pressed', 'false');
+  });
+
+  it('switches back to tool mode when a toolbar tool is clicked from filters', async () => {
+    mockStore.ui.brushPanelSection = 'filters';
+    const { rerender } = render(<LeftToolbar />);
+
+    fireEvent.click(screen.getByRole('button', { name: /custom brush/i }));
+
+    await waitFor(() => {
+      expect(mockStore.setBrushPanelSection).toHaveBeenCalledWith('tool');
+      expect(mockSwitchTool).toHaveBeenCalledWith('custom');
+    });
+
+    rerender(<LeftToolbar />);
+
+    expect(screen.getByRole('button', { name: /filters/i })).toHaveAttribute('aria-pressed', 'false');
   });
 
   it('still opens global settings from the options button', () => {

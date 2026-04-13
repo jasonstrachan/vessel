@@ -4,11 +4,39 @@ import { render, fireEvent, screen } from '@testing-library/react';
 import BrushLibrary from '@/components/BrushLibrary';
 import { BrushShape } from '@/types';
 
+const mockSwitchTool = jest.fn().mockResolvedValue(undefined);
+
+jest.mock('@/utils/toolSwitch', () => ({
+  useToolSwitcher: () => mockSwitchTool,
+}));
+
 type MockState = {
   currentBrushPreset: unknown;
   brushPresets: unknown[];
   project: any;
   tools: { brushSettings: { brushShape: BrushShape; selectedCustomBrush: string | null } };
+  ui: {
+    panels: {
+      leftToolbar: boolean;
+      rightToolbar: boolean;
+      timeline: boolean;
+      layerPanel: boolean;
+      brushPanel: boolean;
+    };
+    modals: {
+      export: boolean;
+      settings: boolean;
+      help: boolean;
+      document: boolean;
+      loadProject: boolean;
+    };
+    theme: 'dark' | 'light';
+    grid: { enabled: boolean; rows: number; columns: number };
+    notifications: unknown[];
+    brushPanelSection: 'tool' | 'filters';
+    settingsSection: string;
+    keyboardScope: { active: string; stack: unknown[] };
+  };
   brushEditor: { status: string };
   currentOffscreenCanvas: unknown;
   temporaryCustomBrush: unknown;
@@ -22,6 +50,7 @@ type MockState = {
   setBrushSettings: jest.Mock;
   cancelBrushEdit: jest.Mock;
   setCurrentTool: jest.Mock;
+  setBrushPanelSection: jest.Mock;
   markAutosaveDirty: jest.Mock;
 };
 
@@ -34,6 +63,28 @@ jest.mock('@/stores/useAppStore', () => {
     brushPresets: [],
     project: null,
     tools: { brushSettings: { brushShape: BrushShape.ROUND, selectedCustomBrush: null } },
+    ui: {
+      panels: {
+        leftToolbar: true,
+        rightToolbar: true,
+        timeline: true,
+        layerPanel: true,
+        brushPanel: true,
+      },
+      modals: {
+        export: false,
+        settings: false,
+        help: false,
+        document: false,
+        loadProject: false,
+      },
+      theme: 'dark',
+      grid: { enabled: false, rows: 8, columns: 8 },
+      notifications: [],
+      brushPanelSection: 'tool',
+      settingsSection: 'display',
+      keyboardScope: { active: 'canvas', stack: [] },
+    },
     brushEditor: { status: 'IDLE' },
     currentOffscreenCanvas: null,
     temporaryCustomBrush: null,
@@ -50,6 +101,10 @@ jest.mock('@/stores/useAppStore', () => {
     setBrushSettings: jest.fn(),
     cancelBrushEdit: jest.fn(),
     setCurrentTool: jest.fn(),
+    setBrushPanelSection: jest.fn((section: 'tool' | 'filters') => {
+      state.ui.brushPanelSection = section;
+      listeners.forEach((l) => l(state));
+    }),
     markAutosaveDirty: jest.fn(),
   };
   const useAppStore = ((selector?: (s: MockState) => unknown) =>
@@ -134,6 +189,7 @@ const otherPreset = {
 
 describe('BrushLibrary', () => {
   beforeEach(() => {
+    jest.clearAllMocks();
     useAppStore.setState({
       ...useAppStore.getState(),
       currentBrushPreset: basePreset as any,
@@ -157,6 +213,10 @@ describe('BrushLibrary', () => {
           selectedCustomBrush: null,
         },
       },
+      ui: {
+        ...useAppStore.getState().ui,
+        brushPanelSection: 'tool',
+      },
     });
   });
 
@@ -172,6 +232,23 @@ describe('BrushLibrary', () => {
 
     // Smoke: ensure click succeeded and store still has a preset selected
     expect(useAppStore.getState().currentBrushPreset?.id).toBeTruthy();
+  });
+
+  it('switches back to the brush tool section when selecting a library brush from filters', () => {
+    useAppStore.setState({
+      ...useAppStore.getState(),
+      ui: {
+        ...useAppStore.getState().ui,
+        brushPanelSection: 'filters',
+      },
+    });
+
+    render(<BrushLibrary />);
+
+    fireEvent.click(screen.getByText('Pixel Square'));
+
+    expect(useAppStore.getState().setBrushPanelSection).toHaveBeenCalledWith('tool');
+    expect(mockSwitchTool).toHaveBeenCalledWith('brush');
   });
 
   it('does not render an image tag when document is present but thumbnail fetch is mocked', () => {

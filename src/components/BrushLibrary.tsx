@@ -34,6 +34,7 @@ const BrushLibrary = () => {
   const getCustomBrushByIdUnsafe = useAppStore((state) => state.getCustomBrushByIdUnsafe);
   const currentOffscreenCanvas = useAppStore((state) => state.currentOffscreenCanvas);
   const setBrushPreset = useAppStore((state) => state.setBrushPreset);
+  const setBrushPanelSection = useAppStore((state) => state.setBrushPanelSection);
   const switchTool = useToolSwitcher();
   const cancelBrushEdit = useAppStore((state) => state.cancelBrushEdit);
   const [saveCustomBrushAsPreset, removeCustomBrush, setDefaultCustomBrush] = useAppStore(
@@ -286,6 +287,7 @@ const BrushLibrary = () => {
   const handlePresetClick = async (preset: BrushPreset) => {
     // Switch to Brush tool first to avoid any chance of preset
     // application being overwritten by a subsequent tool change.
+    setBrushPanelSection('tool');
     await switchTool('brush');
     const preserveEditMode = preset.isCustomBrush;
     // Then apply the selected preset (preserve edit mode only for custom brushes)
