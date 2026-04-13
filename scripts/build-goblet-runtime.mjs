@@ -76,11 +76,22 @@ const buildInlineNumRuntime = (numJs) => {
   return sanitized ? `${sanitized}\n` : '';
 };
 
+const buildInlineDisplayFilterRuntime = (pipelineJs) => {
+  const sanitized = pipelineJs
+    .replace(/export\s+const\s+/g, 'const ')
+    .replace(/export\s+function\s+/g, 'function ')
+    .replace(/export\s+default\s+[^;\n]+;?/g, '')
+    .replace(/export\s+\{[^}]*\};?/g, '')
+    .trim();
+  return sanitized ? `${sanitized}\n` : '';
+};
+
 const sanitizeGobletRuntime = (gobletJs) => {
   const withoutAlign = stripModuleImportStatement(gobletJs, './alignFitResolver.js');
   const withoutNum = stripModuleImportStatement(withoutAlign, './num.js');
   const withoutInflate = stripModuleImportStatement(withoutNum, './fflate-inflate.js');
-  const sanitized = stripGobletExports(withoutInflate).trim();
+  const withoutDisplayFilter = stripModuleImportStatement(withoutInflate, './displayFilterPipeline.js');
+  const sanitized = stripGobletExports(withoutDisplayFilter).trim();
   return sanitized;
 };
 
@@ -89,11 +100,19 @@ const buildRuntimeSource = (dir, runtimeFile) => {
   const alignJs = readGobletAsset(dir, 'alignFitResolver.js');
   const numJs = readGobletAsset(dir, 'num.js');
   const inflateJs = readGobletAsset(dir, 'fflate-inflate.js');
+  const displayFilterJs = fs.readFileSync(
+    path.resolve(projectRoot, 'src/lib/displayFilterPipeline.js'),
+    'utf8',
+  );
 
   const runtimeSections = [];
   const inlineNum = buildInlineNumRuntime(numJs);
   if (inlineNum) {
     runtimeSections.push(inlineNum);
+  }
+  const inlineDisplayFilter = buildInlineDisplayFilterRuntime(displayFilterJs);
+  if (inlineDisplayFilter) {
+    runtimeSections.push(inlineDisplayFilter);
   }
   const inlineAlign = buildInlineAlignRuntime(alignJs);
   if (inlineAlign) {
@@ -109,6 +128,22 @@ const buildRuntimeSource = (dir, runtimeFile) => {
   }
   runtimeSections.push(gobletRuntime);
   return runtimeSections.join('\n');
+};
+
+const syncDisplayFilterPipeline = (dir, check) => {
+  const source = fs.readFileSync(path.resolve(projectRoot, 'src/lib/displayFilterPipeline.js'), 'utf8');
+  const outputFile = path.resolve(dir, 'displayFilterPipeline.js');
+  const previous = fs.existsSync(outputFile) ? fs.readFileSync(outputFile, 'utf8') : null;
+  if (previous === source) {
+    return;
+  }
+  if (check) {
+    throw new Error(
+      `${path.relative(projectRoot, outputFile)} is out of date. Run: npm run build:goblet-inline`
+    );
+  }
+  fs.writeFileSync(outputFile, source);
+  console.log(`Wrote ${path.relative(projectRoot, outputFile)}`);
 };
 
 const require = createRequire(import.meta.url);
@@ -180,6 +215,7 @@ const main = async () => {
   const goblet2Dir = path.resolve(projectRoot, 'public/goblet2');
 
   if (target === 'all' || target === 'goblet') {
+    syncDisplayFilterPipeline(gobletDir, check);
     await buildInlineRuntime({
       dir: gobletDir,
       runtimeFile: 'goblet.js',
@@ -190,6 +226,7 @@ const main = async () => {
   }
 
   if ((target === 'all' || target === 'goblet2') && fs.existsSync(goblet2Dir)) {
+    syncDisplayFilterPipeline(goblet2Dir, check);
     await buildInlineRuntime({
       dir: goblet2Dir,
       runtimeFile: 'goblet2.js',

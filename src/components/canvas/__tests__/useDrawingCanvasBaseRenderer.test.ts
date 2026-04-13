@@ -1,4 +1,5 @@
 import {
+  createTileableNoiseGrid,
   getNextFilterWorkCanvas,
   getSeamlessNoisePatternSize,
 } from '@/lib/displayFilterPipeline';
@@ -32,5 +33,19 @@ describe('getSeamlessNoisePatternSize', () => {
     expect(getSeamlessNoisePatternSize(1)).toBe(128);
     expect(getSeamlessNoisePatternSize(8)).toBe(256);
     expect(getSeamlessNoisePatternSize(32)).toBe(256);
+  });
+});
+
+describe('createTileableNoiseGrid', () => {
+  it('wraps opposite edges so repeated noise tiles do not show a boundary seam', () => {
+    const grid = createTileableNoiseGrid(6, 5, 3);
+
+    for (let y = 0; y < grid.length; y += 1) {
+      expect(grid[y][grid[y].length - 1]).toBe(grid[y][0]);
+    }
+
+    for (let x = 0; x < grid[0].length; x += 1) {
+      expect(grid[grid.length - 1][x]).toBe(grid[0][x]);
+    }
   });
 });
