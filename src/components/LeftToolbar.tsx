@@ -115,15 +115,20 @@ const LeftToolbar = () => {
             <div className="h-[2px] w-full my-2 flex-shrink-0" style={{ backgroundColor: '#D9D9D9' }} />
           )}
           {group.map((tool, toolIndex) => {
+            const isFilterSectionActive = ui.brushPanelSection === 'filters';
             const isActive = tool.id === 'grid-toggle'
               ? ui.grid.enabled
               : tool.id === 'filters'
-                ? ui.brushPanelSection === 'filters'
+                ? isFilterSectionActive
                 : tool.id === 'magic-wand'
-                  ? toolState.currentTool === 'selection' && toolState.selectionMode === 'magic-wand'
+                  ? !isFilterSectionActive
+                    && toolState.currentTool === 'selection'
+                    && toolState.selectionMode === 'magic-wand'
                 : tool.id === 'selection'
-                  ? toolState.currentTool === 'selection' && toolState.selectionMode !== 'magic-wand'
-                  : toolState.currentTool === tool.id;
+                  ? !isFilterSectionActive
+                    && toolState.currentTool === 'selection'
+                    && toolState.selectionMode !== 'magic-wand'
+                  : !isFilterSectionActive && toolState.currentTool === tool.id;
             const shortcut = tool.id === 'grid-toggle' ? undefined : toolShortcuts[tool.id]?.display;
 
             return (
