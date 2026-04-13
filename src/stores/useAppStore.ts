@@ -237,6 +237,7 @@ import {
   applyPressureUpdate,
   applyPressureToTools,
   isColorCycleBrushShape,
+  normalizePersistedBrushSettings,
 } from '@/stores/helpers/toolsState';
 import { createColorCycleSlice } from '@/stores/slices/colorCycleSlice';
 import type { CCReason, ColorCycleRuntimeHandlers, ColorCycleUIState } from '@/stores/slices/colorCycleSlice';
@@ -967,7 +968,7 @@ const hydrateGlobalBrushSettings = (): void => {
       if (activeId) {
         const overrides = storedMap[activeId];
         if (overrides) {
-          const rest = { ...overrides };
+          const rest = normalizePersistedBrushSettings({ ...overrides });
           delete rest.size;
           delete rest.pressureEnabled;
           delete rest.minPressure;

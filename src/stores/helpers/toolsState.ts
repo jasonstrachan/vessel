@@ -43,6 +43,33 @@ export const applyPressureToTools = (tools: ToolState, pressure: PressureSetting
   },
 });
 
+const toPositiveIntegerOrUndefined = (value: unknown): number | undefined => {
+  const numeric = typeof value === 'string' ? Number(value) : value;
+  if (!Number.isFinite(numeric)) {
+    return undefined;
+  }
+  return Math.max(1, Math.round(numeric as number));
+};
+
+export const normalizePersistedBrushSettings = (
+  settings: Partial<BrushSettings>
+): Partial<BrushSettings> => {
+  const normalized = { ...settings };
+  const fillResolution = toPositiveIntegerOrUndefined(normalized.fillResolution);
+  if (fillResolution !== undefined) {
+    normalized.fillResolution = fillResolution;
+  }
+
+  const maxResolution = toPositiveIntegerOrUndefined(normalized.pressureLinkedFillMaxResolution);
+  if (maxResolution !== undefined) {
+    normalized.pressureLinkedFillMaxResolution = maxResolution;
+  } else if (normalized.pressureLinkedFillResolution) {
+    normalized.pressureLinkedFillMaxResolution = fillResolution ?? 1;
+  }
+
+  return normalized;
+};
+
 const CUSTOM_BRUSH_PERCENT_MIN = 5;
 const CUSTOM_BRUSH_PERCENT_MAX = 1000;
 const CUSTOM_BRUSH_PERCENT_STEP = 5;
