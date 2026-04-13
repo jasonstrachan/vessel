@@ -96,7 +96,7 @@ describe('canvas slice invariants', () => {
     const crtGrid = useAppStore.getState().canvas.displayFilters.find((filter) => filter.id === 'crt-grid');
     expect(crtGrid?.settings).toEqual({
       lineOpacity: 1,
-      lineSpacing: 2,
+      lineSpacing: 1,
       phosphorOpacity: 1,
       scanlineOpacity: 0,
     });
@@ -118,7 +118,7 @@ describe('canvas slice invariants', () => {
     expect(persistedDefaults?.every((filter) => filter.enabled === false)).toBe(true);
     expect(persistedDefaults?.find((filter) => filter.id === 'crt-grid')?.settings).toEqual({
       lineOpacity: 1,
-      lineSpacing: 2,
+      lineSpacing: 1,
       phosphorOpacity: 1,
       scanlineOpacity: 0,
     });
