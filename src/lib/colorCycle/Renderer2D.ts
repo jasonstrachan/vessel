@@ -81,6 +81,28 @@ export class Renderer2D {
     const baseTime = options.baseTime;
     void (options.flowMode ?? 'forward');
 
+    const mixPackedColor = (a: number, b: number, t: number): number => {
+      if (!(t > 0)) {
+        return a >>> 0;
+      }
+      if (t >= 1) {
+        return b >>> 0;
+      }
+      const ar = a & 0xff;
+      const ag = (a >>> 8) & 0xff;
+      const ab = (a >>> 16) & 0xff;
+      const aa = (a >>> 24) & 0xff;
+      const br = b & 0xff;
+      const bg = (b >>> 8) & 0xff;
+      const bb = (b >>> 16) & 0xff;
+      const ba = (b >>> 24) & 0xff;
+      const r = Math.round(ar + (br - ar) * t);
+      const g = Math.round(ag + (bg - ag) * t);
+      const bch = Math.round(ab + (bb - ab) * t);
+      const aCh = Math.round(aa + (ba - aa) * t);
+      return (((aCh & 0xff) << 24) | ((bch & 0xff) << 16) | ((g & 0xff) << 8) | (r & 0xff)) >>> 0;
+    };
+
     for (let i = 0; i < options.indexData.length; i++) {
       const colorIndex = options.indexData[i];
       if (colorIndex === 0) {
@@ -109,10 +131,16 @@ export class Renderer2D {
         defId > 0
           ? defPalettesById?.get(defId) ?? options.basePalette
           : options.paletteSlots[slot] ?? options.basePalette;
-      const shift = hasSpeed
-        ? (dir * ((speedOffset * 256) | 0))
-        : (hasPerPixelSpeed ? 0 : (dir * legacyShift));
-      pixels32[i] = palette[(colorIndex - 1 + shift) & 255];
+      if (hasSpeed) {
+        const palettePos = ((((colorIndex - 1) + dir * speedOffset * 256) % 256) + 256) % 256;
+        const lower = Math.floor(palettePos) & 255;
+        const upper = (lower + 1) & 255;
+        const frac = palettePos - Math.floor(palettePos);
+        pixels32[i] = mixPackedColor(palette[lower], palette[upper], frac);
+      } else {
+        const shift = hasPerPixelSpeed ? 0 : (dir * legacyShift);
+        pixels32[i] = palette[(colorIndex - 1 + shift) & 255];
+      }
     }
 
     this.ctx.putImageData(imageData, 0, 0);
