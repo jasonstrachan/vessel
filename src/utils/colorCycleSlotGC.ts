@@ -119,9 +119,25 @@ const ensureSlotPalette = (
 ): Array<{ slot: number; stops: Array<{ position: number; color: string }> }> => {
   const existing = slotPalettes.find((entry) => clampSlot(entry.slot) === slot);
   if (existing) {
-    return slotPalettes;
+    if (signatureForStops(existing.stops) === signatureForStops(stops)) {
+      return slotPalettes;
+    }
+    return slotPalettes.map((entry) =>
+      clampSlot(entry.slot) === slot
+        ? {
+            slot: clampSlot(slot),
+            stops: stops.map((stop) => ({ position: stop.position, color: stop.color })),
+          }
+        : entry
+    );
   }
-  return [...slotPalettes, { slot, stops }];
+  return [
+    ...slotPalettes,
+    {
+      slot: clampSlot(slot),
+      stops: stops.map((stop) => ({ position: stop.position, color: stop.color })),
+    },
+  ];
 };
 
 export const rebuildGradientSlotUsageAndGC = (args: {
@@ -206,18 +222,6 @@ export const rebuildGradientSlotUsageAndGC = (args: {
     const nonDefSlots = collectNonDefSlots(data);
     const slotPaletteMap = buildSlotPaletteMap(slotPalettes);
 
-    const usedDefSlots = new Set<number>();
-    const needsSlot: typeof defStore = [];
-    usedDefIds.forEach((id) => {
-      const def = defById.get(id);
-      if (!def) return;
-      if (typeof def.slot === 'number') {
-        usedDefSlots.add(clampSlot(def.slot));
-      } else {
-        needsSlot.push(def);
-      }
-    });
-
     let nextDefStore: typeof defStore | null = null;
     let nextSlotPalettes: typeof slotPalettes | null = null;
 
@@ -255,6 +259,23 @@ export const rebuildGradientSlotUsageAndGC = (args: {
       }
       nextSlotPalettes = removeSlotPalette(nextSlotPalettes, slot);
     };
+
+    const usedDefSlots = new Set<number>();
+    const needsSlot: typeof defStore = [];
+    usedDefIds.forEach((id) => {
+      const def = defById.get(id);
+      if (!def) return;
+      if (typeof def.slot === 'number') {
+        const slot = clampSlot(def.slot);
+        usedDefSlots.add(slot);
+        const paletteStops = slotPaletteMap.get(slot);
+        if (!paletteStops || signatureForStops(paletteStops) !== signatureForStops(def.stops)) {
+          ensurePalette(slot, def.stops);
+        }
+      } else {
+        needsSlot.push(def);
+      }
+    });
 
     for (const def of defStore) {
       if (usedDefIds.has(def.id)) {

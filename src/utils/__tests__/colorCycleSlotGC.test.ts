@@ -290,6 +290,45 @@ describe('colorCycleSlotGC', () => {
     expect(result?.missingDefLayers?.[0]?.missingDefIds).toContain(42);
   });
 
+  it('prevents noisy fills by healing stale slot palettes for used def-bound gradients', () => {
+    const defStops = [
+      { position: 0, color: '#000000' },
+      { position: 0.5, color: '#00ff00' },
+      { position: 1, color: '#ffffff' },
+    ];
+    const staleStops = [
+      { position: 0, color: '#ff00ff' },
+      { position: 1, color: '#00ffff' },
+    ];
+    const layer = createLayer({
+      colorCycleData: {
+        gradientDefs: [],
+        slotPalettes: [{ slot: 7, stops: staleStops }],
+        gradientDefStore: [
+          {
+            id: 7,
+            kind: 'linear',
+            stops: defStops,
+            hash: 'linear:healed',
+            source: 'manual',
+            createdAtMs: 0,
+            slot: 7,
+          },
+        ],
+        gradientDefIdBuffer: new Uint16Array([7, 7, 0, 0]).buffer,
+      },
+    });
+
+    const result = rebuildGradientSlotUsageAndGC({
+      layers: [layer],
+      scope: 'layer',
+      layerId: layer.id,
+    });
+
+    const updated = result?.updates[0]?.colorCycleData ?? layer.colorCycleData;
+    expect(updated?.slotPalettes).toEqual([{ slot: 7, stops: defStops }]);
+  });
+
   it('keeps slot palettes that are still referenced by non-def gradient ids', () => {
     const liveStops = [
       { position: 0, color: '#101010' },
