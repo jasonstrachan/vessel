@@ -644,8 +644,10 @@ export class WebGLColorCycleRenderer {
         float shift = dir * phase * u_paletteSize;
 
         float pIdx = mod(base + shift + u_paletteSize * 4.0, u_paletteSize);
-        // Sample palette with NEAREST by addressing the center of the texel
-        float u = (floor(pIdx) + 0.5) / u_paletteSize;
+        float pBase = floor(pIdx);
+        float pFrac = fract(pIdx);
+        float u0 = (pBase + 0.5) / u_paletteSize;
+        float u1 = (mod(pBase + 1.0, u_paletteSize) + 0.5) / u_paletteSize;
         float gid = clamp(fGid, 0.0, u_paletteSize - 1.0);
         float v = (gid + 0.5) / u_paletteSize;
 
@@ -659,13 +661,17 @@ export class WebGLColorCycleRenderer {
           if (rowEncoded > 0.5) {
             float row = rowEncoded - 1.0;
             float vDef = (row + 0.5) / u_defPaletteRows;
-            vec4 defColor = texture2D(u_defPaletteTex, vec2(u, vDef));
+            vec4 defColor0 = texture2D(u_defPaletteTex, vec2(u0, vDef));
+            vec4 defColor1 = texture2D(u_defPaletteTex, vec2(u1, vDef));
+            vec4 defColor = mix(defColor0, defColor1, pFrac);
             gl_FragColor = defColor;
             return;
           }
         }
 
-        vec4 color = texture2D(u_paletteTex, vec2(u, v));
+        vec4 color0 = texture2D(u_paletteTex, vec2(u0, v));
+        vec4 color1 = texture2D(u_paletteTex, vec2(u1, v));
+        vec4 color = mix(color0, color1, pFrac);
         gl_FragColor = color;
       }
     `;
