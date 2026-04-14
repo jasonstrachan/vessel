@@ -13,6 +13,7 @@ const KeyboardHarness: React.FC<Partial<KeyboardProps>> = (props) => {
 
 const resetStore = (): void => {
   useAppStore.setState(state => ({
+    currentBrushPreset: null,
     tools: {
       ...state.tools,
       currentTool: 'brush',
@@ -127,6 +128,52 @@ describe('useComprehensiveKeyboard – brush size shortcuts', () => {
 
     numericInput.blur();
     document.body.removeChild(numericInput);
+    keyboard.unmount();
+  });
+
+  it('routes bracket shortcuts to cc gradient colors instead of size for color-cycle-gradient', async () => {
+    const keyboard = render(React.createElement(KeyboardHarness));
+
+    act(() => {
+      useAppStore.setState(state => ({
+        currentBrushPreset: {
+          ...(state.currentBrushPreset ?? {}),
+          id: 'color-cycle-gradient',
+          name: 'CC Gradient',
+        } as NonNullable<typeof state.currentBrushPreset>,
+        tools: {
+          ...state.tools,
+          currentTool: 'brush',
+          brushSettings: {
+            ...state.tools.brushSettings,
+            brushShape: BrushShape.COLOR_CYCLE_SHAPE,
+            size: 12,
+            gradientBands: 8,
+          },
+        },
+      }));
+    });
+
+    await act(async () => {
+      fireEvent.keyDown(window, { key: '[', code: 'BracketLeft' });
+      jest.advanceTimersByTime(20);
+    });
+
+    expect(useAppStore.getState().tools.brushSettings.gradientBands).toBe(7);
+    expect(useAppStore.getState().tools.brushSettings.size).toBe(12);
+
+    await act(async () => {
+      fireEvent.keyUp(window, { key: '[', code: 'BracketLeft' });
+    });
+
+    await act(async () => {
+      fireEvent.keyDown(window, { key: ']', code: 'BracketRight' });
+      jest.advanceTimersByTime(20);
+    });
+
+    expect(useAppStore.getState().tools.brushSettings.gradientBands).toBe(8);
+    expect(useAppStore.getState().tools.brushSettings.size).toBe(12);
+
     keyboard.unmount();
   });
 

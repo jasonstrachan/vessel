@@ -89,6 +89,7 @@ interface KeyboardState {
 }
 
 type KeyboardScope = 'global' | 'canvas' | 'recolor' | 'gradient' | 'modal';
+type BracketShortcutTarget = 'brush-size' | 'cc-gradient-colors';
 
 const selectKeyboardScope = (state: AppState) => state.ui.keyboardScope.active as KeyboardScope;
 const selectSelectionRange = (state: AppState) => ({
@@ -97,6 +98,23 @@ const selectSelectionRange = (state: AppState) => ({
 });
 const selectFloatingPaste = (state: AppState) => state.floatingPaste;
 const selectPalette = (state: AppState) => state.palette;
+const selectCurrentBrushPresetId = (state: AppState) => state.currentBrushPreset?.id ?? null;
+
+const clampCcGradientColors = (value: number): number => {
+  if (value < 1) return 1;
+  if (value > 16) return 16;
+  return value;
+};
+
+const resolveBracketShortcutTarget = (
+  currentTool: Tool,
+  currentBrushPresetId: string | null
+): BracketShortcutTarget => {
+  if (currentTool === 'brush' && currentBrushPresetId === 'color-cycle-gradient') {
+    return 'cc-gradient-colors';
+  }
+  return 'brush-size';
+};
 
 type VoidHandler = () => void | Promise<void>;
 
@@ -158,10 +176,11 @@ export function useComprehensiveKeyboard({
   const colorPickerPreviousToolRef = useRef<Tool | null>(null);
   const isColorPickerHeldRef = useRef(false);
   const lastKeydownTimeRef = useRef<number>(0);
-  const brushSizeHoldDirectionRef = useRef<-1 | 0 | 1>(0);
-  const brushSizeHoldAnimationFrameRef = useRef<number | null>(null);
-  const lastBrushSizeHoldTickRef = useRef<number>(0);
-  const brushSizeHoldStartedAtRef = useRef<number>(0);
+  const bracketHoldDirectionRef = useRef<-1 | 0 | 1>(0);
+  const bracketHoldTargetRef = useRef<BracketShortcutTarget>('brush-size');
+  const bracketHoldAnimationFrameRef = useRef<number | null>(null);
+  const lastBracketHoldTickRef = useRef<number>(0);
+  const bracketHoldStartedAtRef = useRef<number>(0);
 
   const setCurrentTool = useAppStore((state) => state.setCurrentTool);
   const bumpGlobalBrushSize = useAppStore((state) => state.bumpGlobalBrushSize);
@@ -173,6 +192,7 @@ export function useComprehensiveKeyboard({
   const copySelectionToClipboard = useAppStore((state) => state.copySelectionToClipboard);
   const swapPaletteColors = useAppStore((state) => state.swapPaletteColors);
   const setPaletteColor = useAppStore((state) => state.setPaletteColor);
+  const setBrushSettings = useAppStore((state) => state.setBrushSettings);
 
   const keyboardScopeRef = useStoreSelectorRef(selectKeyboardScope);
   const toolsRef = useStoreSelectorRef(selectToolsState);
@@ -180,6 +200,7 @@ export function useComprehensiveKeyboard({
   const selectionRangeRef = useStoreSelectorRef(selectSelectionRange);
   const floatingPasteRef = useStoreSelectorRef(selectFloatingPaste);
   const paletteRef = useStoreSelectorRef(selectPalette);
+  const currentBrushPresetIdRef = useStoreSelectorRef(selectCurrentBrushPresetId);
 
   // Use refs for stable callbacks to avoid re-registering event listeners
   const onSpacePressedRef = useRef(onSpacePressed);
@@ -240,50 +261,64 @@ export function useComprehensiveKeyboard({
     applyBrushSizeDeltaImmediate(delta);
   }, [applyBrushSizeDeltaImmediate, setCustomBrushSizePercent, setEraserSettings, toolsRef]);
 
-  const stopBrushSizeHold = useCallback(() => {
-    brushSizeHoldDirectionRef.current = 0;
-    lastBrushSizeHoldTickRef.current = 0;
-    brushSizeHoldStartedAtRef.current = 0;
-    if (brushSizeHoldAnimationFrameRef.current !== null) {
-      cancelAnimationFrame(brushSizeHoldAnimationFrameRef.current);
-      brushSizeHoldAnimationFrameRef.current = null;
+  const applyBracketShortcutStep = useCallback((target: BracketShortcutTarget, delta: -1 | 1) => {
+    if (target === 'cc-gradient-colors') {
+      const current = toolsRef.current.brushSettings.gradientBands ?? 16;
+      const next = clampCcGradientColors(current + delta);
+      if (next !== current) {
+        setBrushSettings({ gradientBands: next });
+      }
+      return;
+    }
+
+    applyBrushSizeDeltaForCurrentTool(delta);
+  }, [applyBrushSizeDeltaForCurrentTool, setBrushSettings, toolsRef]);
+
+  const stopBracketHold = useCallback(() => {
+    bracketHoldDirectionRef.current = 0;
+    lastBracketHoldTickRef.current = 0;
+    bracketHoldStartedAtRef.current = 0;
+    if (bracketHoldAnimationFrameRef.current !== null) {
+      cancelAnimationFrame(bracketHoldAnimationFrameRef.current);
+      bracketHoldAnimationFrameRef.current = null;
     }
   }, []);
 
-  const startBrushSizeHold = useCallback((direction: -1 | 1) => {
-    brushSizeHoldDirectionRef.current = direction;
-    if (brushSizeHoldAnimationFrameRef.current !== null) {
+  const startBracketHold = useCallback((target: BracketShortcutTarget, direction: -1 | 1) => {
+    bracketHoldTargetRef.current = target;
+    bracketHoldDirectionRef.current = direction;
+    if (bracketHoldAnimationFrameRef.current !== null) {
       return;
     }
-    brushSizeHoldStartedAtRef.current = 0;
+    bracketHoldStartedAtRef.current = 0;
 
     const step = (timestamp: number) => {
-      const activeDirection = brushSizeHoldDirectionRef.current;
+      const activeDirection = bracketHoldDirectionRef.current;
       if (activeDirection === 0) {
-        brushSizeHoldAnimationFrameRef.current = null;
+        bracketHoldAnimationFrameRef.current = null;
         return;
       }
 
-      if (brushSizeHoldStartedAtRef.current === 0) {
-        brushSizeHoldStartedAtRef.current = timestamp;
+      if (bracketHoldStartedAtRef.current === 0) {
+        bracketHoldStartedAtRef.current = timestamp;
       }
 
-      const holdElapsed = timestamp - brushSizeHoldStartedAtRef.current;
+      const holdElapsed = timestamp - bracketHoldStartedAtRef.current;
       const shouldRepeat =
         holdElapsed >= BRUSH_SIZE_HOLD_INITIAL_DELAY_MS &&
-        (lastBrushSizeHoldTickRef.current === 0 ||
-          timestamp - lastBrushSizeHoldTickRef.current >= BRUSH_SIZE_HOLD_INTERVAL_MS);
+        (lastBracketHoldTickRef.current === 0 ||
+          timestamp - lastBracketHoldTickRef.current >= BRUSH_SIZE_HOLD_INTERVAL_MS);
 
       if (shouldRepeat) {
-        lastBrushSizeHoldTickRef.current = timestamp;
-        applyBrushSizeDeltaForCurrentTool(activeDirection);
+        lastBracketHoldTickRef.current = timestamp;
+        applyBracketShortcutStep(bracketHoldTargetRef.current, activeDirection);
       }
 
-      brushSizeHoldAnimationFrameRef.current = requestAnimationFrame(step);
+      bracketHoldAnimationFrameRef.current = requestAnimationFrame(step);
     };
 
-    brushSizeHoldAnimationFrameRef.current = requestAnimationFrame(step);
-  }, [applyBrushSizeDeltaForCurrentTool]);
+    bracketHoldAnimationFrameRef.current = requestAnimationFrame(step);
+  }, [applyBracketShortcutStep]);
   
   // Update refs when callbacks change
   useEffect(() => {
@@ -481,6 +516,20 @@ export function useComprehensiveKeyboard({
       return;
     }
 
+    if (isBracketShortcut) {
+      const bracketTarget = resolveBracketShortcutTarget(
+        tools.currentTool,
+        currentBrushPresetIdRef.current
+      );
+      const direction: -1 | 1 = isBracketLeftEvent(event) ? -1 : 1;
+      if (bracketTarget !== 'brush-size') {
+        event.preventDefault();
+        applyBracketShortcutStep(bracketTarget, direction);
+        startBracketHold(bracketTarget, direction);
+        return;
+      }
+    }
+
     const isBrushSizeDecreaseShortcut =
       scopedShortcut === 'brush-size-decrease' ||
       isBracketLeftEvent(event);
@@ -490,7 +539,7 @@ export function useComprehensiveKeyboard({
         onBrushSizeDecrease();
       } else {
         applyBrushSizeDeltaForCurrentTool(-1);
-        startBrushSizeHold(-1);
+        startBracketHold('brush-size', -1);
       }
       return;
     }
@@ -504,7 +553,7 @@ export function useComprehensiveKeyboard({
         onBrushSizeIncrease();
       } else {
         applyBrushSizeDeltaForCurrentTool(1);
-        startBrushSizeHold(1);
+        startBracketHold('brush-size', 1);
       }
       return;
     }
@@ -572,7 +621,8 @@ export function useComprehensiveKeyboard({
       copySelectionToClipboard,
       setFloatingPaste, setPaletteColor, swapPaletteColors,
       keyboardScopeRef, toolsRef, polygonGradientStateRef, selectionRangeRef,
-      floatingPasteRef, paletteRef, startBrushSizeHold, applyBrushSizeDeltaForCurrentTool]);
+      floatingPasteRef, paletteRef, currentBrushPresetIdRef, startBracketHold, applyBracketShortcutStep,
+      applyBrushSizeDeltaForCurrentTool]);
 
   const handleKeyUp = useCallback(async (event: KeyboardEvent) => {
     if (!enabled) return;
@@ -613,7 +663,7 @@ export function useComprehensiveKeyboard({
     pressedKeysRef.current.delete(pressedKeyId);
 
     if (event.code === 'BracketLeft' || event.code === 'BracketRight') {
-      stopBrushSizeHold();
+      stopBracketHold();
     }
 
     // Handle P key release (temporary color picker)
@@ -660,7 +710,7 @@ export function useComprehensiveKeyboard({
         return;
       }
     }
-  }, [enabled, allowedScopes, stopBrushSizeHold, switchTool, keyboardScopeRef]);
+  }, [enabled, allowedScopes, stopBracketHold, switchTool, keyboardScopeRef]);
 
   // Handle window blur to reset state when window loses focus
   const handleBlur = useCallback(() => {
@@ -680,7 +730,7 @@ export function useComprehensiveKeyboard({
         isMetaPressed: false,
       };
       pressedKeysRef.current.clear();
-      stopBrushSizeHold();
+      stopBracketHold();
 
       if (isColorPickerHeldRef.current) {
         const previousTool = colorPickerPreviousToolRef.current;
@@ -691,7 +741,7 @@ export function useComprehensiveKeyboard({
         colorPickerPreviousToolRef.current = null;
       }
     }
-  }, [stopBrushSizeHold, switchTool]);
+  }, [stopBracketHold, switchTool]);
 
   // Safety net: clear stuck keys if the page becomes hidden or pointer leaves the window
   useEffect(() => {
@@ -702,7 +752,7 @@ export function useComprehensiveKeyboard({
       }
       pressedKeysRef.current.clear();
       keyboardStateRef.current.isSpacePressed = false;
-      stopBrushSizeHold();
+      stopBracketHold();
     };
 
     const handleVisibility = () => {
@@ -719,13 +769,13 @@ export function useComprehensiveKeyboard({
       document.removeEventListener('visibilitychange', handleVisibility);
       window.removeEventListener('pointerleave', handlePointerLeave);
     };
-  }, [stopBrushSizeHold]);
+  }, [stopBracketHold]);
 
   useEffect(() => {
     return () => {
-      stopBrushSizeHold();
+      stopBracketHold();
     };
-  }, [stopBrushSizeHold]);
+  }, [stopBracketHold]);
 
   useEffect(() => {
     if (!enabled) return;
