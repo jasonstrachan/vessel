@@ -342,6 +342,12 @@ export const createProjectLifecycle = ({
       }
     }
 
+    try {
+      get().runColorCycleSlotRebuild('project-load');
+    } catch (error) {
+      console.warn('[Store] Failed to rebuild color cycle slots after load:', error);
+    }
+
     get().clearHistory();
 
     setTimeout(() => {

@@ -301,7 +301,6 @@ const resolveShapeFinalizeDitherOptions = ({
   brushSettings,
   ditherPixelSize,
   roi,
-  pairBandCount,
 }: FinalizeDitherOptionsArgs): {
   ditherPixelSize: number | undefined;
   ditherLevels?: number;
@@ -317,7 +316,7 @@ const resolveShapeFinalizeDitherOptions = ({
   return {
     ditherPixelSize,
     ditherLevels: brushSettings.ditherEnabled ? ccDitherMode.quantLevels : undefined,
-    ditherPairBandCount: pairBandCount ?? ccDitherMode.pairBandCount,
+    ditherPairBandCount: 0,
     ditherPatternDiversity: brushSettings.ditherPatternDiversity,
     roi,
     skipPostRender: true,

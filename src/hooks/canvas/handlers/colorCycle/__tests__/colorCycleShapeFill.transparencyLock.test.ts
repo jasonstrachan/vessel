@@ -380,7 +380,7 @@ describe('colorCycleShapeFill transparency lock', () => {
     getStateSpy.mockRestore();
   });
 
-  it('uses preview-parity quantized levels for linear CC dither finalize', async () => {
+  it('prevents noisy fills by using preview-parity quantized levels for linear CC dither finalize', async () => {
     const getStateSpy = jest.spyOn(useAppStore, 'getState');
     getStateSpy.mockReturnValue({
       layers: [
@@ -452,16 +452,16 @@ describe('colorCycleShapeFill transparency lock', () => {
       expect.objectContaining({
         ditherPixelSize: 3,
         ditherLevels: 5,
-        ditherPairBandCount: 4,
+        ditherPairBandCount: 0,
         skipPostRender: true,
       })
     );
-    expect(linearOptions).toHaveProperty('ditherPairBandCount', 4);
+    expect(linearOptions).toHaveProperty('ditherPairBandCount', 0);
 
     getStateSpy.mockRestore();
   });
 
-  it('uses preview-parity quantized levels for concentric CC dither finalize', async () => {
+  it('prevents noisy fills by using preview-parity quantized levels for concentric CC dither finalize', async () => {
     const getStateSpy = jest.spyOn(useAppStore, 'getState');
     getStateSpy.mockReturnValue({
       layers: [
@@ -531,11 +531,11 @@ describe('colorCycleShapeFill transparency lock', () => {
       expect.objectContaining({
         ditherPixelSize: 2,
         ditherLevels: 6,
-        ditherPairBandCount: 5,
+        ditherPairBandCount: 0,
         skipPostRender: true,
       })
     );
-    expect(concentricOptions).toHaveProperty('ditherPairBandCount', 5);
+    expect(concentricOptions).toHaveProperty('ditherPairBandCount', 0);
 
     getStateSpy.mockRestore();
   });

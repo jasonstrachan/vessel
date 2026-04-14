@@ -55,6 +55,12 @@ Observed failures:
 - `src/hooks/canvas/handlers/colorCycle/colorCycleShapeFill.ts`
   - Shape finalize now passes preview-parity quantized dither options to the brush engine.
 
+- `src/stores/helpers/projectLifecycle.ts`
+  - Project load now runs CC slot rebuild so stale persisted def-slot palettes are repaired when older noisy projects are reopened.
+
+- `src/utils/colorCycleSlotGC.ts`
+  - Slot GC now heals used def-bound slot palettes when the stored slot palette drifts from the def store.
+
 - `src/hooks/brushEngine/ColorCycleBrushCanvas2D.ts`
   - Explicit `ditherLevels` now override the fallback flat-mode branch even when `ditherPairBandCount` is zero.
 
@@ -83,6 +89,7 @@ Observed failures:
 
 - `src/hooks/canvas/handlers/colorCycle/__tests__/colorCycleShapeFill.transparencyLock.test.ts`
   - Locks shape-finalize dither options to preview-parity quantized levels.
+  - Includes explicit `noisy fills` regression names for linear and concentric finalize.
   - Verifies linear shape finalize repairs stale def-bound slot palettes before rendering.
 
 - `src/hooks/brushEngine/__tests__/ColorCycleBrushCanvas2D.test.ts`
@@ -90,6 +97,9 @@ Observed failures:
 
 - `src/utils/__tests__/colorCycleGradientDefs.test.ts`
   - Verifies def reuse heals stale slot palettes for long-lived persisted CC state.
+
+- `src/utils/__tests__/colorCycleSlotGC.test.ts`
+  - Verifies project/layer slot GC heals stale def-bound slot palettes that would otherwise keep older projects noisy after load.
 
 - `src/utils/colorCycle/__tests__/ccGradientDither.test.ts`
   - Verifies `sierra-lite` multi-level fills do not collapse into a repeating-row band pattern.
@@ -99,3 +109,19 @@ Observed failures:
 
 - `src/components/panels/__tests__/AnimationControlsPanel.test.tsx`
   - Verifies the Play/Pause button routes through the global runtime-aware playback toggle.
+
+## Findability
+
+If this regresses again, search for these exact anchors:
+
+- `rg "noisy fills" src/hooks/canvas/handlers/colorCycle/__tests__ src/utils/__tests__`
+- `rg "preview-parity quantized levels" src/hooks/canvas/handlers/colorCycle/__tests__`
+- `rg "stale slot palettes" src/utils/__tests__ docs/refactor`
+
+Primary files:
+
+- `src/hooks/canvas/handlers/colorCycle/colorCycleShapeFill.ts`
+- `src/hooks/canvas/handlers/colorCycle/__tests__/colorCycleShapeFill.transparencyLock.test.ts`
+- `src/utils/colorCycleSlotGC.ts`
+- `src/utils/__tests__/colorCycleSlotGC.test.ts`
+- `src/stores/helpers/projectLifecycle.ts`
