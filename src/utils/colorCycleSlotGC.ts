@@ -31,11 +31,6 @@ export type GradientSlotRebuildResult = {
   missingDefLayers?: Array<{ layerId: string; missingDefIds: number[] }>;
 };
 
-type GradientSlotLiveBuffers = {
-  gradientIdBuffer?: ArrayBuffer | null;
-  gradientDefIdBuffer?: ArrayBuffer | null;
-};
-
 const clampSlot = (slot: number): number => Math.max(0, Math.min(FLOW_SLOT_MASK, Math.round(slot)));
 
 export const buildDefaultReservedSlots = (): Set<number> =>
@@ -151,7 +146,6 @@ export const rebuildGradientSlotUsageAndGC = (args: {
   layerId?: string;
   reservedSlots?: Set<number>;
   activeSessionSlots?: Set<number>;
-  getLiveBuffers?: (layerId: string) => GradientSlotLiveBuffers | null;
   nowMs?: number;
 }): GradientSlotRebuildResult | null => {
   const scope = args.scope ?? 'layer';
@@ -177,19 +171,16 @@ export const rebuildGradientSlotUsageAndGC = (args: {
   let unassignedDefsCount = 0;
   let reassignedSlotsCount = 0;
 
-  let usedDefIdsByLayer: Map<string, Set<number>> | null = null;
+  let globalUsedDefIds: Set<number> | null = null;
   if (scope === 'project') {
-    usedDefIdsByLayer = new Map<string, Set<number>>();
+    globalUsedDefIds = new Set<number>();
     for (const layer of targetLayers) {
       if (layer.layerType !== 'color-cycle' || !layer.colorCycleData) {
         continue;
       }
-      const liveBuffers = args.getLiveBuffers?.(layer.id);
-      const { usedDefIds, pixelsScanned: layerPixels } = scanDefIds(
-        liveBuffers?.gradientDefIdBuffer ?? layer.colorCycleData.gradientDefIdBuffer
-      );
+      const { usedDefIds, pixelsScanned: layerPixels } = scanDefIds(layer.colorCycleData.gradientDefIdBuffer);
       pixelsScanned += layerPixels;
-      usedDefIdsByLayer.set(layer.id, usedDefIds);
+      usedDefIds.forEach((id) => globalUsedDefIds?.add(id));
     }
   }
 
@@ -198,19 +189,15 @@ export const rebuildGradientSlotUsageAndGC = (args: {
       continue;
     }
     const data = layer.colorCycleData;
-    const liveBuffers = args.getLiveBuffers?.(layer.id);
     const defStore = data.gradientDefStore ?? [];
     const slotPalettes = data.slotPalettes ?? [];
 
-    const liveGradientDefIdBuffer = liveBuffers?.gradientDefIdBuffer ?? data.gradientDefIdBuffer;
-    const { usedDefIds: usedDefIdsForLayer, pixelsScanned: layerPixels } = scanDefIds(liveGradientDefIdBuffer);
+    const { usedDefIds: usedDefIdsForLayer, pixelsScanned: layerPixels } = scanDefIds(data.gradientDefIdBuffer);
     if (scope !== 'project') {
       pixelsScanned += layerPixels;
     }
     usedDefsCount += usedDefIdsForLayer.size;
-    const usedDefIds = scope === 'project'
-      ? (usedDefIdsByLayer?.get(layer.id) ?? new Set<number>())
-      : usedDefIdsForLayer;
+    const usedDefIds = scope === 'project' ? (globalUsedDefIds ?? new Set<number>()) : usedDefIdsForLayer;
 
     if (usedDefIdsForLayer.size === 0 && defStore.length === 0) {
       continue;
@@ -232,11 +219,7 @@ export const rebuildGradientSlotUsageAndGC = (args: {
       continue;
     }
 
-    const nonDefSlots = collectNonDefSlots({
-      ...data,
-      gradientIdBuffer: liveBuffers?.gradientIdBuffer ?? data.gradientIdBuffer,
-      gradientDefIdBuffer: liveGradientDefIdBuffer,
-    });
+    const nonDefSlots = collectNonDefSlots(data);
     const slotPaletteMap = buildSlotPaletteMap(slotPalettes);
 
     let nextDefStore: typeof defStore | null = null;

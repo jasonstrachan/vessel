@@ -220,28 +220,19 @@ describe('colorCycleSlotGC', () => {
     expect(typeof resurrected?.slot).toBe('number');
   });
 
-  it('does not treat another layer using the same numeric def id as local usage in project scope', () => {
+  it('does not free defs used on another layer in project scope', () => {
     const stops = [
       { position: 0, color: '#123456' },
       { position: 1, color: '#654321' },
     ];
-    const layerADef = {
+    const sharedDef = {
       id: 7,
       kind: 'linear' as const,
       stops,
-      hash: 'linear:layer-a',
+      hash: 'linear:shared',
       source: 'manual' as const,
       createdAtMs: 0,
       slot: 7,
-    };
-    const layerBDef = {
-      id: 7,
-      kind: 'linear' as const,
-      stops,
-      hash: 'linear:layer-b',
-      source: 'manual' as const,
-      createdAtMs: 0,
-      slot: 9,
     };
 
     const layerA = createLayer({
@@ -249,7 +240,7 @@ describe('colorCycleSlotGC', () => {
       colorCycleData: {
         gradientDefs: [],
         slotPalettes: [{ slot: 7, stops }],
-        gradientDefStore: [layerADef],
+        gradientDefStore: [sharedDef],
         gradientDefIdBuffer: new Uint16Array([0, 0, 0, 0]).buffer,
       },
     });
@@ -257,8 +248,8 @@ describe('colorCycleSlotGC', () => {
       id: 'layer-b',
       colorCycleData: {
         gradientDefs: [],
-        slotPalettes: [{ slot: 9, stops }],
-        gradientDefStore: [layerBDef],
+        slotPalettes: [{ slot: 7, stops }],
+        gradientDefStore: [sharedDef],
         gradientDefIdBuffer: new Uint16Array([7, 7, 0, 0]).buffer,
       },
     });
@@ -273,8 +264,8 @@ describe('colorCycleSlotGC', () => {
     const defA = updatedA?.gradientDefStore?.find((entry) => entry.id === 7);
     const defB = updatedB?.gradientDefStore?.find((entry) => entry.id === 7);
 
-    expect(defA?.slot).toBeUndefined();
-    expect(defB?.slot).toBe(9);
+    expect(defA?.slot).toBe(7);
+    expect(defB?.slot).toBe(7);
   });
 
   it('aborts when missing def ids are found', () => {
@@ -297,42 +288,6 @@ describe('colorCycleSlotGC', () => {
     expect(result?.updates.length).toBe(0);
     expect(result?.missingDefLayers?.length).toBe(1);
     expect(result?.missingDefLayers?.[0]?.missingDefIds).toContain(42);
-  });
-
-  it('prefers live snapshot def buffers over stale persisted buffers', () => {
-    const stops = [
-      { position: 0, color: '#0a0a0a' },
-      { position: 1, color: '#fafafa' },
-    ];
-    const layer = createLayer({
-      colorCycleData: {
-        gradientDefs: [],
-        slotPalettes: [{ slot: 12, stops }],
-        gradientDefStore: [
-          {
-            id: 12,
-            kind: 'linear',
-            stops,
-            hash: 'linear:live-only',
-            source: 'manual',
-            createdAtMs: 0,
-            slot: 12,
-          },
-        ],
-        gradientDefIdBuffer: new Uint16Array([0, 0, 0, 0]).buffer,
-      },
-    });
-
-    const result = rebuildGradientSlotUsageAndGC({
-      layers: [layer],
-      scope: 'project',
-      getLiveBuffers: () => ({
-        gradientDefIdBuffer: new Uint16Array([12, 12, 0, 0]).buffer,
-      }),
-    });
-
-    expect(result?.updates.length ?? 0).toBe(0);
-    expect(result?.missingDefLayers).toBeUndefined();
   });
 
   it('prevents noisy fills by healing stale slot palettes for used def-bound gradients', () => {

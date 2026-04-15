@@ -107,69 +107,6 @@ describe('colorCycleGradientDefs', () => {
     ]);
   });
 
-  it('does not write back when an existing def and slot palette already match', () => {
-    const defHash = hashStops(baseStops, 'linear');
-    const layer = createLayer({
-      colorCycleData: {
-        slotPalettes: [{ slot: 2, stops: baseStops }],
-        gradientDefs: [],
-        gradientDefStore: [
-          {
-            id: 1,
-            kind: 'linear',
-            stops: baseStops,
-            hash: defHash,
-            source: 'manual',
-            createdAtMs: 0,
-            slot: 2,
-          },
-        ],
-        nextGradientDefId: 2,
-      },
-    });
-
-    useAppStore.setState({ layers: [layer], activeLayerId: layer.id });
-    const updateSpy = jest.spyOn(useAppStore.getState(), 'updateLayer');
-
-    const result = ensureGradientDefForStops({
-      layerId: layer.id,
-      kind: 'linear',
-      stops: baseStops,
-      source: 'manual',
-    });
-
-    expect(result?.slot).toBe(2);
-    expect(updateSpy).not.toHaveBeenCalled();
-    updateSpy.mockRestore();
-  });
-
-  it('forwards update options to updateLayer when allocating a new def', () => {
-    const layer = createLayer();
-    useAppStore.setState({ layers: [layer], activeLayerId: layer.id });
-    const updateSpy = jest.spyOn(useAppStore.getState(), 'updateLayer');
-
-    const result = ensureGradientDefForStops({
-      layerId: layer.id,
-      kind: 'linear',
-      stops: baseStops,
-      source: 'manual',
-      updateOptions: { skipColorCycleSync: true },
-    });
-
-    expect(result).not.toBeNull();
-    expect(updateSpy).toHaveBeenCalledWith(
-      layer.id,
-      expect.objectContaining({
-        colorCycleData: expect.objectContaining({
-          gradientDefStore: expect.any(Array),
-          slotPalettes: expect.any(Array),
-        }),
-      }),
-      expect.objectContaining({ skipColorCycleSync: true }),
-    );
-    updateSpy.mockRestore();
-  });
-
   it('rebuilds slots on allocation failure and succeeds', () => {
     const slotPalettes = Array.from({ length: 254 }, (_, slot) => ({
       slot,

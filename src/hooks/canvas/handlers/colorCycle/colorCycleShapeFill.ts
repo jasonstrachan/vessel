@@ -14,7 +14,7 @@ import type { MarkGradientSession } from '@/hooks/canvas/utils/colorCycleMarkSes
 import { resolveMarkSessionRuntimeStops } from '@/hooks/canvas/utils/colorCycleMarkSession';
 import { TEMP_SAMPLE_SLOT } from '@/constants/colorCycle';
 import { ccLog } from '@/debug/ccDebug';
-import { ensureGradientDefForStops, hashStops, type StoredStop } from '@/utils/colorCycleGradientDefs';
+import { ensureGradientDefForStops, type StoredStop } from '@/utils/colorCycleGradientDefs';
 import type { GradientStop } from '@/hooks/brushEngine/ccGradientRuntime';
 
 type ColorCycleBrush = ColorCycleBrushImplementation;
@@ -92,7 +92,7 @@ const persistCommittedSampledSlot = (
       slotPalettes: nextSlotPalettes,
       gradient: nextStops,
     },
-  }, { skipColorCycleSync: true });
+  });
   const nextState = useAppStore.getState();
   const nextLayer = nextState.layers.find((candidate) => candidate.id === layerId);
   const activeSlotPaletteStopCount =
@@ -416,17 +416,6 @@ const resolveDitherRenderSession = ({
       resolveCcDitherBandMode(brushSettings.gradientBands ?? 16).pairBandCount,
     paintSlotBeforeCommit: useAppStore.getState().layers.find((layer) => layer.id === layerId)?.colorCycleData?.paintSlot ?? null,
   });
-  const renderHash = hashStops(renderPalette.renderStops, session.gradientKind);
-  if (session.binding && renderHash === session.frozenHash) {
-    return {
-      binding: session.binding,
-      frozenStopsStored: renderPalette.renderStops,
-      frozenHash: renderHash,
-      source: session.source,
-      gradientKind: session.gradientKind,
-      speedCps: session.speedCps,
-    };
-  }
   const renderDef = ensureGradientDefForStops({
     layerId,
     kind: session.gradientKind,
@@ -434,7 +423,6 @@ const resolveDitherRenderSession = ({
     source: session.source,
     speedCps: session.speedCps ?? undefined,
     seamProfile: session.seamProfile,
-    updateOptions: { skipColorCycleSync: true },
   });
   if (!renderDef) {
     return {

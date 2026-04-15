@@ -37,9 +37,6 @@ const EDITOR_SLOT = 255;
 
 const clampSlot = (slot: number): number => Math.max(0, Math.min(FLOW_SLOT_MASK, Math.round(slot)));
 
-const haveMatchingStops = (left: StoredStop[], right: StoredStop[]): boolean =>
-  signatureForStops(left) === signatureForStops(right);
-
 export const hashStops = (stops: StoredStop[], kind: 'linear' | 'concentric'): string =>
   `${kind}:${signatureForStops(stops)}`;
 
@@ -99,20 +96,6 @@ const runProjectSlotRebuild = (layerId: string) => {
     layers: state.layers,
     scope: 'project',
     reservedSlots: buildDefaultReservedSlots(),
-    getLiveBuffers: (targetLayerId) => {
-      const brush = state.getLayerColorCycleBrush(targetLayerId);
-      if (!brush || typeof brush.getLayerSnapshot !== 'function') {
-        return null;
-      }
-      const snapshot = brush.getLayerSnapshot(targetLayerId);
-      if (!snapshot) {
-        return null;
-      }
-      return {
-        gradientIdBuffer: snapshot.gradientIdBuffer,
-        gradientDefIdBuffer: snapshot.gradientDefIdBuffer,
-      };
-    },
   });
   if (!result) {
     return null;
@@ -140,9 +123,6 @@ export const ensureGradientDefForStops = (params: {
   preferredSlot?: number;
   speedCps?: number;
   seamProfile?: GradientSeamProfile;
-  updateOptions?: {
-    skipColorCycleSync?: boolean;
-  };
 }): { def: ColorCycleGradientDefStore; slot: number; hash: string } | null => {
   const attemptEnsure = (): { result: { def: ColorCycleGradientDefStore; slot: number; hash: string } | null; failure?: 'no-slot' } => {
     const state = useAppStore.getState();
@@ -262,35 +242,25 @@ export const ensureGradientDefForStops = (params: {
       return { result: null };
     }
     const hasSlotPalette = Boolean(existingPalette);
-    const paletteAlreadyMatches = Boolean(existingPalette && haveMatchingStops(existingPalette.stops, frozenStops));
     const nextSlotPalettes = hasSlotPalette
-      ? paletteAlreadyMatches
-        ? slotPalettes
-        : slotPalettes.map((entry) =>
-            entry.slot === slot
-              ? { slot, stops: cloneStops(frozenStops) }
-              : entry
-          )
+      ? slotPalettes.map((entry) =>
+          entry.slot === slot
+            ? { slot, stops: cloneStops(frozenStops) }
+            : entry
+        )
       : [...slotPalettes, { slot, stops: cloneStops(frozenStops) }];
-    const nextNextGradientDefId = normalizeNextColorCycleDefId(
-      nextDefStore.map((entry) => entry.id),
-      nextId
-    );
-    const didChangeStore =
-      nextDefStore !== defStore ||
-      nextSlotPalettes !== slotPalettes ||
-      nextNextGradientDefId !== (colorCycleData.nextGradientDefId ?? 1);
 
-    if (didChangeStore) {
-      state.updateLayer(layer.id, {
-        colorCycleData: {
-          ...colorCycleData,
-          gradientDefStore: nextDefStore,
-          nextGradientDefId: nextNextGradientDefId,
-          slotPalettes: nextSlotPalettes,
-        },
-      }, params.updateOptions);
-    }
+    state.updateLayer(layer.id, {
+      colorCycleData: {
+        ...colorCycleData,
+        gradientDefStore: nextDefStore,
+        nextGradientDefId: normalizeNextColorCycleDefId(
+          nextDefStore.map((entry) => entry.id),
+          nextId
+        ),
+        slotPalettes: nextSlotPalettes,
+      },
+    });
 
     return { result: { def, slot, hash } };
   };
