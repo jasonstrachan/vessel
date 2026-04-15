@@ -86,7 +86,6 @@ const finalizeSampledSession = (session: MarkGradientSession): void => {
       source: session.source,
       speedCps: session.speedCps ?? undefined,
       seamProfile: session.seamProfile,
-      updateOptions: { skipColorCycleSync: true },
     });
     if (defResult) {
       session.binding = { kind: 'def', defId: defResult.def.id, slot: defResult.slot };
@@ -195,7 +194,6 @@ export const beginMarkGradientSession = (params: {
     source: params.source,
     speedCps: params.speedCps,
     seamProfile,
-    updateOptions: { skipColorCycleSync: true },
   });
   if (!defResult) {
     return null;
