@@ -174,10 +174,14 @@ export const useDrawingCanvasBaseRenderer = ({
 
   const applyDisplayFilterStack = useCallback((
     sourceCanvas: HTMLCanvasElement,
+    visibleRect?: VisibleWorldRect | null,
+    lengthScale = 1,
   ): HTMLCanvasElement => applySharedDisplayFilterStack({
     sourceCanvas,
     displayFilters,
     filterState: displayFilterStateRef.current,
+    visibleRect,
+    lengthScale,
   }), [displayFilters]);
 
   return useCallback(
@@ -350,7 +354,11 @@ export const useDrawingCanvasBaseRenderer = ({
         state.setLayersNeedRecomposition(true);
       }
       if (filterCtx && filterCanvas && visibleRect) {
-        const finalFilteredCanvas = applyDisplayFilterStack(filterCanvas);
+        const finalFilteredCanvas = applyDisplayFilterStack(
+          filterCanvas,
+          visibleRect,
+          scale * dpr,
+        );
         ctx.drawImage(
           finalFilteredCanvas,
           0,

@@ -115,6 +115,61 @@ const extractBrightPass = (ctx, canvas) => {
   ctx.putImageData(imageData, 0, 0);
 };
 
+const applyRoundPixelsWholeImage = ({
+  currentCanvas,
+  nextCanvas,
+  workCanvas,
+  blurRadius,
+  threshold,
+  crush,
+  preserveColor,
+}) => {
+  const workCtx = clearDisplayFilterCanvas(workCanvas);
+  const nextCtx = clearDisplayFilterCanvas(nextCanvas);
+  if (!workCtx || !nextCtx) {
+    return false;
+  }
+
+  const scaledBlurRadius = Math.max(0, getNumeric(blurRadius, 0));
+  workCtx.imageSmoothingEnabled = true;
+  workCtx.filter = scaledBlurRadius > 0 ? `blur(${scaledBlurRadius}px)` : 'none';
+  workCtx.drawImage(currentCanvas, 0, 0);
+  workCtx.filter = 'none';
+
+  const imageData = workCtx.getImageData(0, 0, workCanvas.width, workCanvas.height);
+  const { data } = imageData;
+  const pivot = Math.max(0, Math.min(1, getNumeric(threshold, 0.5)));
+  const crushAmount = Math.max(0, Math.min(1, getNumeric(crush, 0)));
+  const preserveAmount = Math.max(0, Math.min(1, getNumeric(preserveColor, 0.85)));
+  const contrast = 1 + crushAmount * 24;
+
+  for (let index = 0; index < data.length; index += 4) {
+    const r = data[index] / 255;
+    const g = data[index + 1] / 255;
+    const b = data[index + 2] / 255;
+    const a = data[index + 3] / 255;
+
+    const luma = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+    const crushedLuma = Math.max(0, Math.min(1, (luma - pivot) * contrast + 0.5));
+    const thresholdLuma = luma >= pivot ? 1 : 0;
+    const finalLuma = crushedLuma * (1 - crushAmount) + thresholdLuma * crushAmount;
+    const lumaScale = luma > 0.0001 ? finalLuma / luma : 0;
+    const preservedR = Math.max(0, Math.min(1, r * lumaScale));
+    const preservedG = Math.max(0, Math.min(1, g * lumaScale));
+    const preservedB = Math.max(0, Math.min(1, b * lumaScale));
+    const neutralValue = finalLuma;
+
+    data[index] = Math.round((preservedR * preserveAmount + neutralValue * (1 - preserveAmount)) * 255);
+    data[index + 1] = Math.round((preservedG * preserveAmount + neutralValue * (1 - preserveAmount)) * 255);
+    data[index + 2] = Math.round((preservedB * preserveAmount + neutralValue * (1 - preserveAmount)) * 255);
+    data[index + 3] = Math.round(a * 255);
+  }
+
+  workCtx.putImageData(imageData, 0, 0);
+  nextCtx.drawImage(workCanvas, 0, 0);
+  return true;
+};
+
 export const applyDisplayFilterStack = ({
   sourceCanvas,
   displayFilters,
@@ -164,6 +219,7 @@ export const applyDisplayFilterStack = ({
   const normalizedLengthScale = Math.max(0.0001, getNumeric(lengthScale, 1));
   const pixelateFilter = getDisplayFilterByIdFromList(displayFilters, 'pixelate');
   const bloomFilter = getDisplayFilterByIdFromList(displayFilters, 'bloom');
+  const roundPixelsFilter = getDisplayFilterByIdFromList(displayFilters, 'round-pixels');
   const colorGradeFilter = getDisplayFilterByIdFromList(displayFilters, 'color-grade');
   const lcdMaskFilter = getDisplayFilterByIdFromList(displayFilters, 'lcd-mask');
   const crtGridFilter = getDisplayFilterByIdFromList(displayFilters, 'crt-grid');
@@ -194,6 +250,29 @@ export const applyDisplayFilterStack = ({
       downsampleCtx.drawImage(currentCanvas, 0, 0, downsampleCanvas.width, downsampleCanvas.height);
       nextCtx.imageSmoothingEnabled = false;
       nextCtx.drawImage(downsampleCanvas, 0, 0, nextCanvas.width, nextCanvas.height);
+      swap(nextCanvas);
+    }
+  }
+
+  if (
+    roundPixelsFilter?.enabled &&
+    getNumeric(pixelateFilter?.settings?.cellSize, 1) > 1
+  ) {
+    const workCanvas = ensureDisplayFilterCanvas(
+      filterState.auxCanvas,
+      currentCanvas.width,
+      currentCanvas.height,
+    );
+    filterState.auxCanvas = workCanvas;
+    if (workCanvas && applyRoundPixelsWholeImage({
+      currentCanvas,
+      nextCanvas,
+      workCanvas,
+      blurRadius: getNumeric(roundPixelsFilter.settings.blurRadius, 0),
+      threshold: getNumeric(roundPixelsFilter.settings.threshold, 0.5),
+      crush: getNumeric(roundPixelsFilter.settings.crush, 0),
+      preserveColor: getNumeric(roundPixelsFilter.settings.preserveColor, 0.85),
+    })) {
       swap(nextCanvas);
     }
   }

@@ -290,6 +290,7 @@ describe('project slice lifecycle flows', () => {
   it('restores persisted display filters when loading a project', async () => {
     const displayFilters: DisplayFilterConfig[] = [
       { id: 'pixelate', enabled: true, settings: { cellSize: 6 } },
+      { id: 'round-pixels', enabled: true, settings: { blurRadius: 2.5, threshold: 0.44, crush: 0.52, preserveColor: 0.84 } },
       { id: 'bloom', enabled: true, settings: { blurRadius: 4, intensity: 0.2 } },
       { id: 'color-grade', enabled: false, settings: { brightness: 0, contrast: 0.1, saturation: 1 } },
       { id: 'lcd-mask', enabled: false, settings: { stripeOpacity: 0.1, scanlineOpacity: 0.02 } },
@@ -341,6 +342,7 @@ describe('project slice lifecycle flows', () => {
       canvas: {
         displayFilterDefaults: [
           { id: 'pixelate', enabled: true, settings: { cellSize: 9 } },
+          { id: 'round-pixels', enabled: true, settings: { blurRadius: 3, threshold: 0.47, crush: 0.58, preserveColor: 0.79 } },
           { id: 'bloom', enabled: true, settings: { blurRadius: 5, intensity: 0.4 } },
         ],
       },
@@ -384,6 +386,11 @@ describe('project slice lifecycle flows', () => {
       id: 'bloom',
       enabled: false,
       settings: { blurRadius: 5, intensity: 0.4 },
+    });
+    expect(useAppStore.getState().canvas.displayFilters.find((filter) => filter.id === 'round-pixels')).toEqual({
+      id: 'round-pixels',
+      enabled: false,
+      settings: { blurRadius: 3, threshold: 0.47000000000000003, crush: 0.58, preserveColor: 0.79 },
     });
   });
 

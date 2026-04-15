@@ -83,6 +83,10 @@ describe('canvas slice invariants', () => {
       useAppStore.getState().canvas.displayFilters.find((filter) => filter.id === 'pixelate')?.enabled
     ).toBe(true);
 
+    useAppStore.getState().updateDisplayFilter('round-pixels', { blurRadius: 99, threshold: -1, crush: 4, preserveColor: 9 });
+    const roundPixels = useAppStore.getState().canvas.displayFilters.find((filter) => filter.id === 'round-pixels');
+    expect(roundPixels?.settings).toEqual({ blurRadius: 12, threshold: 0, crush: 1, preserveColor: 1 });
+
     useAppStore.getState().updateDisplayFilter('bloom', { blurRadius: 99, intensity: 4 });
     const bloom = useAppStore.getState().canvas.displayFilters.find((filter) => filter.id === 'bloom');
     expect(bloom?.settings).toEqual({ blurRadius: 12, intensity: 2 });
@@ -122,6 +126,12 @@ describe('canvas slice invariants', () => {
       phosphorOpacity: 1,
       scanlineOpacity: 0,
     });
+    expect(persistedDefaults?.find((filter) => filter.id === 'round-pixels')?.settings).toEqual({
+      blurRadius: 12,
+      threshold: 0,
+      crush: 1,
+      preserveColor: 1,
+    });
     expect(persistedDefaults?.find((filter) => filter.id === 'chromatic-aberration')?.settings).toEqual({
       offset: 12,
       intensity: 0,
@@ -133,6 +143,7 @@ describe('canvas slice invariants', () => {
       canvas: {
         displayFilterDefaults: [
           { id: 'pixelate', enabled: true, settings: { cellSize: 7 } },
+          { id: 'round-pixels', enabled: true, settings: { blurRadius: 2.5, threshold: 0.42, crush: 0.61, preserveColor: 0.73 } },
           { id: 'bloom', enabled: true, settings: { blurRadius: 4, intensity: 0.33 } },
         ],
       },
@@ -147,6 +158,11 @@ describe('canvas slice invariants', () => {
       id: 'bloom',
       enabled: false,
       settings: { blurRadius: 4, intensity: 0.33 },
+    });
+    expect(getStoredDisplayFilterDefaults().find((filter) => filter.id === 'round-pixels')).toEqual({
+      id: 'round-pixels',
+      enabled: false,
+      settings: { blurRadius: 2.5, threshold: 0.42, crush: 0.61, preserveColor: 0.73 },
     });
   });
 });
