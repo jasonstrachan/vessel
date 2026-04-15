@@ -1,6 +1,7 @@
 'use client';
 
 import React from 'react';
+import { preloadHistoryRehydrationModule } from '@/history/historyManager';
 import HomeClient from './HomeClient';
 
 export default function HomeClientMount() {
@@ -8,6 +9,7 @@ export default function HomeClientMount() {
 
   React.useEffect(() => {
     setMounted(true);
+    void preloadHistoryRehydrationModule();
   }, []);
 
   if (!mounted) {

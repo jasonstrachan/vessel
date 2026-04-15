@@ -5,6 +5,7 @@ const fs = require('fs');
 const path = require('path');
 const net = require('net');
 const { createRuntimeLogger } = require('./runtime-logger.cjs');
+const { mergeNodeOptions, stripLocalStorageFlag } = require('./node-options.cjs');
 
 const CACHE_DIRS = ['.next', 'node_modules/.cache', '.turbo'];
 const MAX_RETRIES = 3;
@@ -167,7 +168,10 @@ async function startServer(cleanFirst = false) {
     ...process.env, 
     WEBPACK_CACHE_TYPE: 'memory',
     WSL_DISTRO_NAME: '1', // Force WSL2 optimizations
-    NODE_OPTIONS: '--max-old-space-size=4096', // Increase memory limit
+    NODE_OPTIONS: mergeNodeOptions(
+      stripLocalStorageFlag(process.env.NODE_OPTIONS),
+      '--max-old-space-size=4096'
+    ),
     PORT: PORT
   };
   

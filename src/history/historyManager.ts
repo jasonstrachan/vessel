@@ -19,9 +19,16 @@ let rehydrationModulePromise: Promise<RehydrationModule> | null = null;
 
 const loadRehydrationModule = async (): Promise<RehydrationModule> => {
   if (!rehydrationModulePromise) {
-    rehydrationModulePromise = import('./runtimeRehydration');
+    rehydrationModulePromise = import('./runtimeRehydration').catch((error) => {
+      rehydrationModulePromise = null;
+      throw error;
+    });
   }
   return rehydrationModulePromise;
+};
+
+export const preloadHistoryRehydrationModule = async (): Promise<void> => {
+  await loadRehydrationModule();
 };
 
 interface HistoryManagerOptions {

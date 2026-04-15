@@ -1,33 +1,15 @@
 import { rmSync } from 'node:fs';
 import { spawn } from 'node:child_process';
+import { createRequire } from 'node:module';
 import path from 'node:path';
 
-const LOCALSTORAGE_FLAG = '--localstorage-file';
-
-const stripLocalStorageFlag = (value) => {
-  if (!value) return '';
-  const parts = value.split(/\s+/).filter(Boolean);
-  const cleaned = [];
-  for (let i = 0; i < parts.length; i += 1) {
-    const part = parts[i];
-    if (part === LOCALSTORAGE_FLAG) {
-      // Drop the flag and any dangling value.
-      continue;
-    }
-    if (part.startsWith(`${LOCALSTORAGE_FLAG}=`)) {
-      continue;
-    }
-    cleaned.push(part);
-  }
-  return cleaned.join(' ');
-};
+const require = createRequire(import.meta.url);
+const { LOCALSTORAGE_FLAG, mergeNodeOptions, stripLocalStorageFlag } = require('./node-options.cjs');
 
 const env = { ...process.env };
 const baseOptions = stripLocalStorageFlag(env.NODE_OPTIONS);
 const storagePath = env.LOCALSTORAGE_FILE_PATH || '/tmp/vessel-localstorage';
-env.NODE_OPTIONS = [baseOptions, `${LOCALSTORAGE_FLAG}=${storagePath}`]
-  .filter(Boolean)
-  .join(' ');
+env.NODE_OPTIONS = mergeNodeOptions(baseOptions, `${LOCALSTORAGE_FLAG}=${storagePath}`);
 env.NEXT_DIST_DIR = env.NEXT_DIST_DIR || '.next-build';
 
 // Next 15 occasionally leaves a partially valid dist tree behind after

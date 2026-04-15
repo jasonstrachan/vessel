@@ -20,7 +20,7 @@
     "start": "NEXT_DIST_DIR=.next-build next start",
     "preview": "node scripts/preview-server.mjs",
     "preview:prod": "npm run preview:prod:build && npm run preview:prod:serve",
-    "preview:prod:build": "NEXT_DIST_DIR=.next-preview node scripts/next-build.mjs",
+    "preview:prod:build": "node scripts/preview-build.mjs",
     "preview:prod:serve": "PREVIEW_OUT_DIR=.next-preview PORT=3001 node scripts/preview-server.mjs",
     "lint": "eslint src",
     "audit:prod": "npm audit --omit=dev",
