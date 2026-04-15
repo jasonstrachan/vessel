@@ -18,6 +18,7 @@ const host = process.env.HOST ?? '0.0.0.0';
 
 const projectRoot = path.resolve(process.cwd());
 const outDir = path.resolve(projectRoot, process.env.PREVIEW_OUT_DIR ?? 'out');
+const previousOutDir = path.resolve(projectRoot, `${path.basename(outDir)}-prev`);
 const logger = createRuntimeLogger('preview-server');
 const lockFile = path.join(
   os.tmpdir(),
@@ -142,6 +143,34 @@ const resolveLocalPath = (requestPath) => {
   return stripLeadingSlash(pathname);
 };
 
+const isNextStaticAsset = (localPath) => localPath.startsWith('_next/static/');
+
+const resolveAbsolutePath = (baseDir, localPath) => path.resolve(baseDir, localPath);
+
+const canServeFromBaseDir = (baseDir, absolutePath) => absolutePath.startsWith(baseDir);
+
+const streamFile = async ({ req, res, start, localPath, absolutePath, stat, statusCode = 200, fallbackLabel = null }) => {
+  const extension = path.extname(absolutePath).toLowerCase();
+  const contentType = MIME_TYPES[extension] ?? 'application/octet-stream';
+  const stream = createReadStream(absolutePath);
+  res.writeHead(statusCode, {
+    ...CACHE_HEADERS,
+    'content-type': contentType,
+    'content-length': stat.size,
+  });
+  stream.pipe(res);
+  stream.on('close', () => {
+    if (fallbackLabel) {
+      logger.warn(`Served ${localPath} from ${fallbackLabel}`);
+    }
+    log(req, statusCode, Date.now() - start);
+  });
+  stream.on('error', (error) => {
+    logger.error(`Stream error while serving ${localPath}`, error);
+    res.destroy(error);
+  });
+};
+
 const send = (res, statusCode, headers, message) => {
   res.writeHead(statusCode, headers);
   if (message) {
@@ -168,9 +197,9 @@ const server = http.createServer(async (req, res) => {
 
   const { pathname } = new url.URL(req.url, 'http://localhost');
   const localPath = resolveLocalPath(pathname);
-  const absolutePath = path.resolve(outDir, localPath);
+  const absolutePath = resolveAbsolutePath(outDir, localPath);
 
-  if (!absolutePath.startsWith(outDir)) {
+  if (!canServeFromBaseDir(outDir, absolutePath)) {
     send(res, 403, { 'content-type': 'text/plain; charset=utf-8' }, 'Forbidden');
     log(req, 403, Date.now() - start);
     return;
@@ -181,40 +210,37 @@ const server = http.createServer(async (req, res) => {
     if (stat.isDirectory()) {
       const indexPath = path.join(absolutePath, 'index.html');
       const indexStat = await fs.stat(indexPath);
-      const stream = createReadStream(indexPath);
-      res.writeHead(200, {
-        ...CACHE_HEADERS,
-        'content-type': MIME_TYPES['.html'],
-        'content-length': indexStat.size,
-      });
-      stream.pipe(res);
-      stream.on('close', () => {
-        log(req, 200, Date.now() - start);
-      });
-      stream.on('error', (error) => {
-        logger.error(`Stream error while serving ${localPath}`, error);
-        res.destroy(error);
-      });
+      await streamFile({ req, res, start, localPath, absolutePath: indexPath, stat: indexStat });
       return;
     }
 
-    const extension = path.extname(absolutePath).toLowerCase();
-    const contentType = MIME_TYPES[extension] ?? 'application/octet-stream';
-    const stream = createReadStream(absolutePath);
-    res.writeHead(200, {
-      ...CACHE_HEADERS,
-      'content-type': contentType,
-      'content-length': stat.size,
-    });
-    stream.pipe(res);
-    stream.on('close', () => {
-      log(req, 200, Date.now() - start);
-    });
-    stream.on('error', (error) => {
-      logger.error(`Stream error while serving ${localPath}`, error);
-      res.destroy(error);
-    });
+    await streamFile({ req, res, start, localPath, absolutePath, stat });
   } catch (error) {
+    if (error.code === 'ENOENT' && isNextStaticAsset(localPath)) {
+      const fallbackPath = resolveAbsolutePath(previousOutDir, localPath);
+      if (canServeFromBaseDir(previousOutDir, fallbackPath)) {
+        try {
+          const fallbackStat = await fs.stat(fallbackPath);
+          if (fallbackStat.isFile()) {
+            await streamFile({
+              req,
+              res,
+              start,
+              localPath,
+              absolutePath: fallbackPath,
+              stat: fallbackStat,
+              fallbackLabel: previousOutDir,
+            });
+            return;
+          }
+        } catch (fallbackError) {
+          if (fallbackError.code !== 'ENOENT') {
+            logger.error(`Error serving fallback asset ${localPath}`, fallbackError);
+          }
+        }
+      }
+    }
+
     if (error.code !== 'ENOENT') {
       logger.error(`Error serving ${localPath}`, error);
     }
