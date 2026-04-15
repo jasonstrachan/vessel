@@ -557,7 +557,8 @@ describe('exportProjectAsWebGL color cycle integration', () => {
           settings: { lineOpacity: 0.16, lineSpacing: 5, phosphorOpacity: 0.12, scanlineOpacity: 0.18 },
         },
         { id: 'chromatic-aberration', enabled: true, settings: { offset: 1.25, intensity: 0.2 } },
-        { id: 'noise', enabled: false, settings: { opacity: 0.08, scale: 2 } }
+        { id: 'noise', enabled: false, settings: { opacity: 0.08, scale: 2 } },
+        { id: 'film-noise', enabled: false, settings: { opacity: 0.16, scale: 1.5, shadowBias: 0.62 } }
       ]
     };
 

@@ -37,6 +37,9 @@ const FILTER_COPY: Record<
   noise: {
     title: 'Noise',
   },
+  'film-noise': {
+    title: 'Film Noise',
+  },
 };
 
 interface FilterCardProps {
@@ -468,6 +471,52 @@ const FilterCard = ({ filter }: FilterCardProps) => {
                 step={0.5}
                 onChange={(value) => updateDisplayFilter('noise', { scale: value })}
                 aria-label="Noise scale"
+              />
+            </div>
+          </>
+        )}
+
+        {filter.id === 'film-noise' && (
+          <>
+            <div>
+              <label className="mb-1 block text-[11px] uppercase tracking-[0.08em] text-[#8F8F8F]">
+                Opacity
+              </label>
+              <ProgressSlider
+                value={filter.settings.opacity}
+                min={0}
+                max={1}
+                step={0.01}
+                onChange={(value) => updateDisplayFilter('film-noise', { opacity: value })}
+                aria-label="Film noise opacity"
+                formatValue={(value) => `${Math.round(value * 100)}%`}
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-[11px] uppercase tracking-[0.08em] text-[#8F8F8F]">
+                Grain Size
+              </label>
+              <ProgressSlider
+                value={filter.settings.scale}
+                min={1}
+                max={8}
+                step={0.25}
+                onChange={(value) => updateDisplayFilter('film-noise', { scale: value })}
+                aria-label="Film noise grain size"
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-[11px] uppercase tracking-[0.08em] text-[#8F8F8F]">
+                Shadow Bias
+              </label>
+              <ProgressSlider
+                value={filter.settings.shadowBias}
+                min={0}
+                max={1}
+                step={0.01}
+                onChange={(value) => updateDisplayFilter('film-noise', { shadowBias: value })}
+                aria-label="Film noise shadow bias"
+                formatValue={(value) => `${Math.round(value * 100)}%`}
               />
             </div>
           </>

@@ -36,6 +36,7 @@ const mockStore = {
       },
       { id: 'chromatic-aberration', enabled: true, settings: { offset: 2, intensity: 0.38 } },
       { id: 'noise', enabled: true, settings: { opacity: 0.08, scale: 2 } },
+      { id: 'film-noise', enabled: true, settings: { opacity: 0.16, scale: 1.5, shadowBias: 0.62 } },
     ],
   },
   setDisplayFilterEnabled: jest.fn(),
@@ -64,6 +65,7 @@ describe('DisplayFiltersSection', () => {
     expect(screen.getByText('CRT Grid')).toBeInTheDocument();
     expect(screen.getByText('Chromatic Aberration')).toBeInTheDocument();
     expect(screen.getByText('Noise')).toBeInTheDocument();
+    expect(screen.getByText('Film Noise')).toBeInTheDocument();
   });
 
   it('routes toggle changes through the store', () => {
@@ -96,6 +98,8 @@ describe('DisplayFiltersSection', () => {
     fireEvent.change(screen.getByLabelText('CRT grid phosphor glow'), { target: { value: '0.24' } });
     fireEvent.change(screen.getByLabelText('Chromatic aberration offset'), { target: { value: '1.5' } });
     fireEvent.change(screen.getByLabelText('Noise scale'), { target: { value: '3' } });
+    fireEvent.change(screen.getByLabelText('Film noise grain size'), { target: { value: '2.25' } });
+    fireEvent.change(screen.getByLabelText('Film noise shadow bias'), { target: { value: '0.71' } });
 
     expect(mockStore.updateDisplayFilter).toHaveBeenCalledWith('round-pixels', { blurRadius: 3.25 });
     expect(mockStore.updateDisplayFilter).toHaveBeenCalledWith('round-pixels', { threshold: 0.62 });
@@ -108,5 +112,7 @@ describe('DisplayFiltersSection', () => {
     expect(mockStore.updateDisplayFilter).toHaveBeenCalledWith('crt-grid', { phosphorOpacity: 0.24 });
     expect(mockStore.updateDisplayFilter).toHaveBeenCalledWith('chromatic-aberration', { offset: 1.5 });
     expect(mockStore.updateDisplayFilter).toHaveBeenCalledWith('noise', { scale: 3 });
+    expect(mockStore.updateDisplayFilter).toHaveBeenCalledWith('film-noise', { scale: 2.25 });
+    expect(mockStore.updateDisplayFilter).toHaveBeenCalledWith('film-noise', { shadowBias: 0.71 });
   });
 });
