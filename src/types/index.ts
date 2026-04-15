@@ -99,7 +99,8 @@ export type DisplayFilterId =
   | 'crt'
   | 'crt-grid'
   | 'chromatic-aberration'
-  | 'noise';
+  | 'noise'
+  | 'film-noise';
 
 export interface PixelateDisplayFilter {
   id: 'pixelate';
@@ -157,6 +158,16 @@ export interface NoiseDisplayFilter {
   };
 }
 
+export interface FilmNoiseDisplayFilter {
+  id: 'film-noise';
+  enabled: boolean;
+  settings: {
+    opacity: number;
+    scale: number;
+    shadowBias: number;
+  };
+}
+
 export interface CrtDisplayFilter {
   id: 'crt';
   enabled: boolean;
@@ -206,7 +217,8 @@ export type DisplayFilterConfig =
   | CrtDisplayFilter
   | CrtGridDisplayFilter
   | ChromaticAberrationDisplayFilter
-  | NoiseDisplayFilter;
+  | NoiseDisplayFilter
+  | FilmNoiseDisplayFilter;
 
 export type BrushPanelSectionId = 'tool' | 'filters';
 

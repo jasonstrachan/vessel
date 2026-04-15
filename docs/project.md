@@ -39,7 +39,7 @@
 ## Recent Updates
 
 ### Display Filters (2026-04-13)
-- **Runtime-only post-processing stack**: adds Canvas2D display filters for pixelate, bloom, color grade, LCD mask, and noise without altering source layer data.
+- **Runtime-only post-processing stack**: adds Canvas2D display filters for pixelate, bloom, color grade, LCD mask, noise, and film noise without altering source layer data.
 - **UI entry point**: `LeftToolbar` now exposes a `Fl` shortcut that switches the brush settings panel to a dedicated Filters section.
 - **Persistence model**: filter configs are stored in local settings and serialized in project `viewState`, so projects reopen with the same display lens.
 - **Rendering boundary**: filters are applied only to the final artwork composite, overlays remain unfiltered, and active drawing bypasses the stack to preserve interaction responsiveness.

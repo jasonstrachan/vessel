@@ -12,6 +12,7 @@ const FILTER_ORDER: DisplayFilterId[] = [
   'crt-grid',
   'chromatic-aberration',
   'noise',
+  'film-noise',
 ];
 
 const clamp = (value: unknown, min: number, max: number, fallback: number): number => {
@@ -239,6 +240,31 @@ const sanitizeNoise = (filter?: Partial<DisplayFilterForId<'noise'>>): DisplayFi
   },
 });
 
+const sanitizeFilmNoise = (filter?: Partial<DisplayFilterForId<'film-noise'>>): DisplayFilterConfig => ({
+  id: 'film-noise',
+  enabled: filter?.enabled === true,
+  settings: {
+    opacity: roundToStep(clamp(
+      filter?.settings?.opacity,
+      0,
+      1,
+      0.16,
+    ), 0.01),
+    scale: roundToStep(clamp(
+      filter?.settings?.scale,
+      1,
+      8,
+      1.5,
+    ), 0.25),
+    shadowBias: roundToStep(clamp(
+      filter?.settings?.shadowBias,
+      0,
+      1,
+      0.62,
+    ), 0.01),
+  },
+});
+
 const sanitizeChromaticAberration = (
   filter?: Partial<DisplayFilterForId<'chromatic-aberration'>>,
 ): DisplayFilterConfig => ({
@@ -301,6 +327,7 @@ export const createDefaultDisplayFilters = (): DisplayFilterConfig[] => ([
   sanitizeCrtGrid(),
   sanitizeChromaticAberration(),
   sanitizeNoise(),
+  sanitizeFilmNoise(),
 ]);
 
 const sanitizeDisplayFilter = (filter?: Partial<DisplayFilterConfig>): DisplayFilterConfig => {
@@ -323,6 +350,8 @@ const sanitizeDisplayFilter = (filter?: Partial<DisplayFilterConfig>): DisplayFi
       return sanitizeChromaticAberration(filter);
     case 'noise':
       return sanitizeNoise(filter);
+    case 'film-noise':
+      return sanitizeFilmNoise(filter);
     default:
       return sanitizePixelate();
   }

@@ -320,6 +320,7 @@ describe('project slice lifecycle flows', () => {
       },
       { id: 'chromatic-aberration', enabled: true, settings: { offset: 1.25, intensity: 0.2 } },
       { id: 'noise', enabled: true, settings: { opacity: 0.08, scale: 2 } },
+      { id: 'film-noise', enabled: true, settings: { opacity: 0.16, scale: 1.5, shadowBias: 0.62 } },
     ];
 
     const loadProjectFromFile = jest.requireMock('@/utils/projectIO').loadProjectFromFile as jest.Mock;

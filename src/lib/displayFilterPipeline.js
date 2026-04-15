@@ -45,6 +45,9 @@ export const createDisplayFilterPipelineState = () => ({
   crtGridGlowCanvas: null,
   noisePatternKey: '',
   noisePatternCanvas: null,
+  filmNoisePatternKey: '',
+  filmNoiseBaseCanvas: null,
+  filmNoiseClumpCanvas: null,
 });
 
 export const getNextFilterWorkCanvas = (currentCanvas, workCanvasA, workCanvasB) => (
@@ -108,6 +111,15 @@ const smoothstep = (edge0, edge1, value) => {
   const width = Math.max(1e-6, edge1 - edge0);
   const t = clamp01((value - edge0) / width);
   return t * t * (3 - 2 * t);
+};
+
+const samplePatternValue = (data, width, height, x, y) => {
+  if (!data || width <= 0 || height <= 0) {
+    return 0.5;
+  }
+  const wrappedX = ((x % width) + width) % width;
+  const wrappedY = ((y % height) + height) % height;
+  return data[(wrappedY * width + wrappedX) * 4] / 255;
 };
 
 const sampleChannelNearest = (data, width, height, x, y, channel) => {
@@ -434,6 +446,7 @@ export const applyDisplayFilterStack = ({
   const crtGridFilter = getDisplayFilterByIdFromList(displayFilters, 'crt-grid');
   const chromaticAberrationFilter = getDisplayFilterByIdFromList(displayFilters, 'chromatic-aberration');
   const noiseFilter = getDisplayFilterByIdFromList(displayFilters, 'noise');
+  const filmNoiseFilter = getDisplayFilterByIdFromList(displayFilters, 'film-noise');
   const timeSeconds = Date.now() / 1000;
 
   const swap = (canvas) => {
@@ -795,6 +808,131 @@ export const applyDisplayFilterStack = ({
         nextCtx.fillRect(0, 0, nextCanvas.width + patternCanvas.width, nextCanvas.height + patternCanvas.height);
         nextCtx.restore();
       }
+      swap(nextCanvas);
+    }
+  }
+
+  if (filmNoiseFilter?.enabled && getNumeric(filmNoiseFilter?.settings?.opacity, 0) > 0) {
+    const tileStep = Math.max(
+      1,
+      Math.round(getNumeric(filmNoiseFilter?.settings?.scale, 1) * normalizedLengthScale),
+    );
+    const clumpStep = Math.max(tileStep + 1, Math.round(tileStep * 3));
+    const patternKey = JSON.stringify({ tileStep, clumpStep });
+    if (filterState.filmNoisePatternKey !== patternKey) {
+      const basePatternSize = getSeamlessNoisePatternSize(tileStep);
+      const clumpPatternSize = getSeamlessNoisePatternSize(clumpStep);
+      const basePatternCanvas = ensureDisplayFilterCanvas(
+        filterState.filmNoiseBaseCanvas,
+        basePatternSize,
+        basePatternSize,
+      );
+      const clumpPatternCanvas = ensureDisplayFilterCanvas(
+        filterState.filmNoiseClumpCanvas,
+        clumpPatternSize,
+        clumpPatternSize,
+      );
+      const basePatternCtx = clearDisplayFilterCanvas(basePatternCanvas);
+      const clumpPatternCtx = clearDisplayFilterCanvas(clumpPatternCanvas);
+
+      if (basePatternCanvas && basePatternCtx) {
+        const columns = Math.max(1, Math.round(basePatternCanvas.width / tileStep));
+        const rows = Math.max(1, Math.round(basePatternCanvas.height / tileStep));
+        const tones = createTileableNoiseGrid(columns, rows, tileStep * 0.618);
+        for (let y = 0; y < rows; y += 1) {
+          for (let x = 0; x < columns; x += 1) {
+            const tone = tones[y][x];
+            basePatternCtx.fillStyle = `rgb(${tone}, ${tone}, ${tone})`;
+            basePatternCtx.fillRect(x * tileStep, y * tileStep, tileStep, tileStep);
+          }
+        }
+      }
+
+      if (clumpPatternCanvas && clumpPatternCtx) {
+        const columns = Math.max(1, Math.round(clumpPatternCanvas.width / clumpStep));
+        const rows = Math.max(1, Math.round(clumpPatternCanvas.height / clumpStep));
+        const tones = createTileableNoiseGrid(columns, rows, clumpStep * 1.731);
+        for (let y = 0; y < rows; y += 1) {
+          for (let x = 0; x < columns; x += 1) {
+            const tone = tones[y][x];
+            clumpPatternCtx.fillStyle = `rgb(${tone}, ${tone}, ${tone})`;
+            clumpPatternCtx.fillRect(x * clumpStep, y * clumpStep, clumpStep, clumpStep);
+          }
+        }
+      }
+
+      filterState.filmNoisePatternKey = patternKey;
+      filterState.filmNoiseBaseCanvas = basePatternCanvas;
+      filterState.filmNoiseClumpCanvas = clumpPatternCanvas;
+    }
+
+    const nextCtx = clearDisplayFilterCanvas(nextCanvas);
+    const sourceCtx = currentCanvas?.getContext('2d', { willReadFrequently: true });
+    const basePatternCtx = filterState.filmNoiseBaseCanvas?.getContext('2d', { willReadFrequently: true });
+    const clumpPatternCtx = filterState.filmNoiseClumpCanvas?.getContext('2d', { willReadFrequently: true });
+    if (nextCtx && sourceCtx && basePatternCtx && clumpPatternCtx) {
+      const sourceImageData = sourceCtx.getImageData(0, 0, currentCanvas.width, currentCanvas.height);
+      const outputImageData = nextCtx.createImageData(currentCanvas.width, currentCanvas.height);
+      outputImageData.data.set(sourceImageData.data);
+
+      const basePatternCanvas = filterState.filmNoiseBaseCanvas;
+      const clumpPatternCanvas = filterState.filmNoiseClumpCanvas;
+      const basePatternData = basePatternCanvas
+        ? basePatternCtx.getImageData(0, 0, basePatternCanvas.width, basePatternCanvas.height).data
+        : null;
+      const clumpPatternData = clumpPatternCanvas
+        ? clumpPatternCtx.getImageData(0, 0, clumpPatternCanvas.width, clumpPatternCanvas.height).data
+        : null;
+
+      const opacity = clamp01(filmNoiseFilter.settings.opacity);
+      const shadowBias = clamp01(filmNoiseFilter.settings.shadowBias);
+      const sourceData = sourceImageData.data;
+      const outputData = outputImageData.data;
+      const width = currentCanvas.width;
+      const height = currentCanvas.height;
+      const originX = Math.round(origin.x);
+      const originY = Math.round(origin.y);
+
+      for (let y = 0; y < height; y += 1) {
+        for (let x = 0; x < width; x += 1) {
+          const index = (y * width + x) * 4;
+          const alpha = sourceData[index + 3] / 255;
+          if (alpha <= 0) {
+            continue;
+          }
+
+          const r = sourceData[index];
+          const g = sourceData[index + 1];
+          const b = sourceData[index + 2];
+          const luma = (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
+          const shadowFactor = Math.pow(1 - luma, 1.35);
+          const tonalWeight = 0.42 + shadowFactor * (0.58 + shadowBias * 1.1);
+          const baseValue = samplePatternValue(
+            basePatternData,
+            basePatternCanvas?.width ?? 0,
+            basePatternCanvas?.height ?? 0,
+            originX + x,
+            originY + y,
+          );
+          const clumpValue = samplePatternValue(
+            clumpPatternData,
+            clumpPatternCanvas?.width ?? 0,
+            clumpPatternCanvas?.height ?? 0,
+            originX + x,
+            originY + y,
+          );
+          const grain = (baseValue - 0.5) * 2;
+          const clumpWeight = 0.55 + Math.pow(clumpValue, 1.6) * 1.15;
+          const delta = grain * clumpWeight * tonalWeight * opacity * 34 * alpha;
+          const nextValue = (channel) => Math.max(0, Math.min(255, Math.round(channel + delta)));
+
+          outputData[index] = nextValue(r);
+          outputData[index + 1] = nextValue(g);
+          outputData[index + 2] = nextValue(b);
+        }
+      }
+
+      nextCtx.putImageData(outputImageData, 0, 0);
       swap(nextCanvas);
     }
   }
