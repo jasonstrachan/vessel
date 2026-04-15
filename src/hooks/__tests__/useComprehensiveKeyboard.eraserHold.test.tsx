@@ -177,6 +177,50 @@ describe('useComprehensiveKeyboard – brush size shortcuts', () => {
     keyboard.unmount();
   });
 
+  it('does not change cc gradient bands while a shape preview is active', async () => {
+    const keyboard = render(React.createElement(KeyboardHarness));
+
+    act(() => {
+      useAppStore.setState(state => ({
+        currentBrushPreset: {
+          ...(state.currentBrushPreset ?? {}),
+          id: 'color-cycle-gradient',
+          name: 'CC Gradient',
+        } as NonNullable<typeof state.currentBrushPreset>,
+        tools: {
+          ...state.tools,
+          currentTool: 'brush',
+          brushSettings: {
+            ...state.tools.brushSettings,
+            brushShape: BrushShape.COLOR_CYCLE_SHAPE,
+            size: 12,
+            gradientBands: 8,
+          },
+        },
+      }));
+      useAppStore.getState().setShapeDrawing(true);
+    });
+
+    await act(async () => {
+      fireEvent.keyDown(window, { key: '[', code: 'BracketLeft' });
+      fireEvent.keyDown(window, { key: '[', code: 'BracketLeft', repeat: true });
+      jest.advanceTimersByTime(400);
+    });
+
+    expect(useAppStore.getState().tools.brushSettings.gradientBands).toBe(8);
+
+    await act(async () => {
+      fireEvent.keyUp(window, { key: '[', code: 'BracketLeft' });
+      jest.advanceTimersByTime(80);
+    });
+
+    expect(useAppStore.getState().tools.brushSettings.gradientBands).toBe(8);
+    act(() => {
+      useAppStore.getState().setShapeDrawing(false);
+    });
+    keyboard.unmount();
+  });
+
   it('allows Enter to trigger floating paste commit while a numeric input is focused', async () => {
     const onEnterPressed = jest.fn();
     const keyboard = render(React.createElement(KeyboardHarness, { onEnterPressed }));

@@ -3,17 +3,23 @@
 import { useEffect } from 'react';
 import {
   getLastCrashReport,
+  getLastHangReport,
   hasSeenCrashReport,
+  hasSeenHangReport,
   logError,
   markCrashReportSeen,
+  markHangReportSeen,
   getPersistedBreadcrumbs,
   persistCrashReport,
+  persistHangReport,
   recordBreadcrumb,
 } from '@/utils/debug';
 
 export default function GlobalErrorHooks() {
   useEffect(() => {
     const canPostRuntimeEvents = process.env.NODE_ENV === 'development';
+    const ACTIVE_SESSION_KEY = 'TB_ACTIVE_RUNTIME_SESSION';
+    const HANG_GAP_MS = 4_000;
     const clientId = (() => {
       try {
         const key = 'TB_RUNTIME_CLIENT_ID';
@@ -28,6 +34,48 @@ export default function GlobalErrorHooks() {
         return `ephemeral-${Date.now().toString(36)}`;
       }
     })();
+    const sessionId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+
+    const readActiveSession = (): {
+      sessionId?: string;
+      href?: string;
+      status?: string;
+      visibilityState?: string | null;
+      lastBeatAt?: number;
+    } | null => {
+      try {
+        const raw = window.localStorage.getItem(ACTIVE_SESSION_KEY);
+        if (!raw) {
+          return null;
+        }
+        const parsed = JSON.parse(raw);
+        if (!parsed || typeof parsed !== 'object') {
+          return null;
+        }
+        return parsed as {
+          sessionId?: string;
+          href?: string;
+          status?: string;
+          visibilityState?: string | null;
+          lastBeatAt?: number;
+        };
+      } catch {
+        return null;
+      }
+    };
+
+    const writeActiveSession = (status: 'active' | 'clean-exit') => {
+      try {
+        window.localStorage.setItem(ACTIVE_SESSION_KEY, JSON.stringify({
+          clientId,
+          sessionId,
+          href: window.location.href,
+          visibilityState: document.visibilityState,
+          status,
+          lastBeatAt: Date.now(),
+        }));
+      } catch {}
+    };
 
     const postRuntimeEvent = (payload: {
       event: 'crash' | 'heartbeat' | 'longtask' | 'lag';
@@ -82,6 +130,55 @@ export default function GlobalErrorHooks() {
       } catch {}
       markCrashReportSeen(previousCrash);
     }
+
+    const previousHang = getLastHangReport();
+    if (previousHang && !hasSeenHangReport(previousHang)) {
+      try {
+        console.warn('[previous-hang]', {
+          message: previousHang.message,
+          href: previousHang.href,
+          t: previousHang.t,
+          gapMs: previousHang.gapMs ?? null,
+          sessionId: previousHang.sessionId ?? null,
+          breadcrumbs: previousHang.breadcrumbs.length,
+        });
+      } catch {}
+      markHangReportSeen(previousHang);
+    }
+
+    const priorSession = readActiveSession();
+    if (
+      priorSession?.status === 'active' &&
+      priorSession.sessionId &&
+      priorSession.sessionId !== sessionId &&
+      typeof priorSession.lastBeatAt === 'number'
+    ) {
+      const gapMs = Date.now() - priorSession.lastBeatAt;
+      if (gapMs > HANG_GAP_MS) {
+        const report = persistHangReport({
+          message: 'Previous runtime session stopped heartbeating before a clean exit',
+          sessionId: priorSession.sessionId,
+          href: priorSession.href ?? window.location.href,
+          visibilityState: priorSession.visibilityState ?? null,
+          lastBeatAt: priorSession.lastBeatAt,
+          gapMs,
+        });
+        if (report && !hasSeenHangReport(report)) {
+          try {
+            console.warn('[recovered-hang]', {
+              message: report.message,
+              href: report.href,
+              gapMs: report.gapMs,
+              sessionId: report.sessionId,
+              breadcrumbs: report.breadcrumbs.length,
+            });
+          } catch {}
+          markHangReportSeen(report);
+        }
+      }
+    }
+
+    writeActiveSession('active');
 
     const onError = (event: ErrorEvent) => {
       try {
@@ -155,6 +252,7 @@ export default function GlobalErrorHooks() {
     let performanceObserver: PerformanceObserver | null = null;
 
     const sendHeartbeat = () => {
+      writeActiveSession('active');
       postRuntimeEvent({
         event: 'heartbeat',
         message: 'heartbeat',
@@ -171,6 +269,13 @@ export default function GlobalErrorHooks() {
       expectedTick = now + 1000;
       if (lagMs > 1500) {
         recordBreadcrumb('client-runtime-lag', { lagMs });
+        persistHangReport({
+          message: 'Recovered after event-loop lag spike',
+          sessionId,
+          visibilityState: document.visibilityState,
+          lastBeatAt: now,
+          gapMs: lagMs,
+        });
         postRuntimeEvent({
           event: 'lag',
           message: 'event-loop-lag',
@@ -192,6 +297,13 @@ export default function GlobalErrorHooks() {
               name: entry.name,
               entryType: entry.entryType,
             });
+            persistHangReport({
+              message: `Recovered after long task: ${entry.name || 'longtask'}`,
+              sessionId,
+              visibilityState: document.visibilityState,
+              lastBeatAt: Date.now(),
+              gapMs: durationMs,
+            });
             postRuntimeEvent({
               event: 'longtask',
               message: entry.name || 'longtask',
@@ -203,9 +315,16 @@ export default function GlobalErrorHooks() {
       } catch {}
     }
 
+    const handleBeforeUnload = () => {
+      writeActiveSession('clean-exit');
+    };
+
     window.addEventListener('error', onError);
     window.addEventListener('unhandledrejection', onRejection);
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    window.addEventListener('pagehide', handleBeforeUnload);
     return () => {
+      handleBeforeUnload();
       if (heartbeatTimer !== null) {
         window.clearInterval(heartbeatTimer);
       }
@@ -215,6 +334,8 @@ export default function GlobalErrorHooks() {
       performanceObserver?.disconnect();
       window.removeEventListener('error', onError);
       window.removeEventListener('unhandledrejection', onRejection);
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+      window.removeEventListener('pagehide', handleBeforeUnload);
     };
   }, []);
   return null;

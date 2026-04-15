@@ -564,6 +564,7 @@ export const startShapeDrawing = (
       refs.shapePointsRef.current = [drawPos];
       deps.seedManualStrokeBoundingBox(refs.shapePointsRef.current, 2);
       refs.isDrawingShapeRef.current = true;
+      useAppStore.getState().setShapeDrawing(true);
       refs.shapeDragStartRef.current = drawPos;
       refs.shapeDragLastRef.current = drawPos;
       refs.shapeDragMovedRef.current = false;
@@ -1035,6 +1036,7 @@ export const finalizeShapeDrawing = async (
           deps.triggerSimpleShapePreview();
         }
         args.refs.isDrawingShapeRef.current = false;
+        useAppStore.getState().setShapeDrawing(false);
         deps.resetShapeDragRefs();
 
         args.refs.ccShapePreviewPauseStartedRef.current = false;
@@ -1230,6 +1232,7 @@ export const finalizeShapeDrawing = async (
             deps.triggerSimpleShapePreview();
           }
           args.refs.isDrawingShapeRef.current = false;
+          useAppStore.getState().setShapeDrawing(false);
           deps.resetShapeDragRefs();
         }
 
@@ -1300,6 +1303,7 @@ export const finalizeShapeDrawing = async (
           deps.triggerSimpleShapePreview();
         }
         args.refs.isDrawingShapeRef.current = false;
+        useAppStore.getState().setShapeDrawing(false);
         deps.resetShapeDragRefs();
       }
 
