@@ -4,6 +4,7 @@ import {
   finalizeColorCycleShapeFillLinear,
 } from '@/hooks/canvas/handlers/colorCycle/colorCycleShapeFill';
 import * as colorCycleGradients from '@/utils/colorCycleGradients';
+import * as colorCycleGradientDefs from '@/utils/colorCycleGradientDefs';
 import { buildCcDitherRenderPalette, resolveCcDitherBandMode } from '@/utils/colorCycle/ccDitherRenderPalette';
 import { hashStops, type StoredStop } from '@/utils/colorCycleGradientDefs';
 import type { MarkGradientSession } from '@/hooks/canvas/utils/colorCycleMarkSession';
@@ -376,6 +377,124 @@ describe('colorCycleShapeFill transparency lock', () => {
       },
     });
     expect(renderDirectToCanvas).not.toHaveBeenCalled();
+
+    getStateSpy.mockRestore();
+  });
+
+  it('reuses an existing manual-session binding when finalize resolves the same render hash', async () => {
+    const ensureGradientDefForStopsSpy = jest.spyOn(colorCycleGradientDefs, 'ensureGradientDefForStops');
+    const getStateSpy = jest.spyOn(useAppStore, 'getState');
+    getStateSpy.mockReturnValue({
+      layers: [
+        {
+          id: 'layer-1',
+          transparencyLocked: false,
+          colorCycleData: {
+            gradientDefStore: [
+              {
+                id: 11,
+                kind: 'linear',
+                slot: 7,
+                stops: [
+                  { position: 0, color: '#111111' },
+                  { position: 1, color: '#eeeeee' },
+                ],
+                hash: 'hash-11',
+              },
+            ],
+          },
+        },
+      ],
+      tools: {
+        brushSettings: {
+          colorCycleUseForegroundGradient: false,
+          ditherEnabled: true,
+          gradientBands: 64,
+          ditherPaletteSpread: 0,
+          ditherAlgorithm: 'sierra-lite',
+        },
+      },
+      setCcGradientSampleCount: jest.fn(),
+      updateLayer: jest.fn(),
+    } as unknown as ReturnType<typeof useAppStore.getState>);
+
+    const canvas = document.createElement('canvas');
+    canvas.width = 2;
+    canvas.height = 2;
+
+    const commitCommittedLayerState = jest.fn();
+    const ccBrush = {
+      commitCommittedLayerState,
+      renderDirectToCanvas: jest.fn(),
+    };
+    const frozenStops: StoredStop[] = [
+      { position: 0, color: '#111111' },
+      { position: 1, color: '#eeeeee' },
+    ];
+    const runtimeHash = hashStops(frozenStops, 'linear');
+
+    await finalizeColorCycleShapeFillLinear(
+      {
+        session: {
+          markId: 'mark-reuse-binding',
+          layerId: 'layer-1',
+          markKind: 'shape',
+          gradientKind: 'linear',
+          source: 'manual',
+          seamProfile: 'hard',
+          frozenStopsStored: frozenStops,
+          frozenHash: runtimeHash,
+          binding: { kind: 'def', defId: 11, slot: 7 },
+          speedCps: 0.3,
+          ditherRenderConfig: {
+            enabled: true,
+            pairBandCount: 0,
+            spread: 0,
+            algorithm: 'sierra-lite',
+          },
+        },
+        shapePoints: [
+          { x: 0, y: 0 },
+          { x: 1, y: 0 },
+          { x: 0, y: 1 },
+        ],
+        direction: { x: 1, y: 0 },
+        activeLayerId: 'layer-1',
+        activeLayerCanvas: canvas,
+        overlayCanvas: null,
+        overlayCtx: null,
+        fallbackBlendMode: 'source-over',
+        fallbackOpacity: 1,
+        shapeLayerId: 'layer-1',
+        beforeColorState: null,
+        tool: 'brush',
+      },
+      {
+        brushEngine: {
+          fillCcGradientLinear: jest.fn(async () => undefined),
+          updateColorCycleTexture: jest.fn(),
+        } as never,
+        getColorCycleBrushManager: () => ({ getBrush: () => ccBrush as never }),
+        bindBrushToCanvas: jest.fn(),
+        timeAsync: async (_label, task) => task(),
+        timeSync: (_label, task) => task(),
+        ccLog: jest.fn(),
+        scheduleDeferredColorCycleSaveWithState: jest.fn(async () => undefined),
+        logError: jest.fn(),
+      }
+    );
+
+    expect(ensureGradientDefForStopsSpy).not.toHaveBeenCalled();
+    expect(commitCommittedLayerState).toHaveBeenCalledWith({
+      layerId: 'layer-1',
+      targetCanvas: canvas,
+      binding: {
+        defId: 11,
+        slot: 7,
+        bbox: undefined,
+        previewSlot: null,
+      },
+    });
 
     getStateSpy.mockRestore();
   });

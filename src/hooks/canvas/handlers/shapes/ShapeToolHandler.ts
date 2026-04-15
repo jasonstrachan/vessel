@@ -3845,7 +3845,7 @@ export const createShapeToolHandler = (
         source: 'polygon-complete',
       });
 
-      if (compositeCanvasRef.current && project) {
+      if (!isCCPreview && compositeCanvasRef.current && project) {
         compositeLayersToCanvas(compositeCanvasRef.current);
         setCurrentOffscreenCanvas(compositeCanvasRef.current);
         compositeCanvasDirtyRef.current = false;
@@ -3930,7 +3930,7 @@ export const createShapeToolHandler = (
         finalSize,
       });
 
-      if (compositeCanvasRef.current && project) {
+      if (!isCCPreview && compositeCanvasRef.current && project) {
         compositeLayersToCanvas(compositeCanvasRef.current);
         setCurrentOffscreenCanvas(compositeCanvasRef.current);
         compositeCanvasDirtyRef.current = false;

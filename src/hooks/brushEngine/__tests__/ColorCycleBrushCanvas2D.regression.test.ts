@@ -843,6 +843,64 @@ describe('ColorCycleBrushCanvas2D regression tests', () => {
     expect(fiveStopSpeed).toBeCloseTo(twoStopSpeed, 0);
   });
 
+  it('does not republish an unchanged def palette cache to the animator', () => {
+    const canvas = makeCanvas(4, 4);
+    const brush = new ColorCycleBrushCanvas2D(canvas, { forceCanvas2D: true });
+    const layerId = 'layer-def-cache-reuse';
+    const strokeData = {
+      buffers: {
+        def: new Uint16Array(16),
+      },
+    };
+    const animator = {
+      setDefIdData: jest.fn(),
+      setDefPaletteCache: jest.fn(),
+    };
+    const defs = [
+      {
+        id: 7,
+        hash: 'linear:0:#000000|1:#ffffff',
+        stops: [
+          { position: 0, color: '#000000' },
+          { position: 1, color: '#ffffff' },
+        ],
+        seamProfile: 'hard' as const,
+      },
+    ];
+    type DefEntry = {
+      id: number;
+      hash: string;
+      stops: Array<{ position: number; color: string }>;
+      seamProfile: 'hard';
+    };
+
+    (brush as unknown as {
+      applyDefBindingsForLayer: (
+        layerId: string,
+        animator: {
+          setDefIdData: (data?: Uint16Array | null) => void;
+          setDefPaletteCache: (cache: unknown) => void;
+        },
+        strokeData: { buffers: { def: Uint16Array } },
+        defs: DefEntry[],
+      ) => void;
+    }).applyDefBindingsForLayer(layerId, animator, strokeData, defs);
+    (brush as unknown as {
+      applyDefBindingsForLayer: (
+        layerId: string,
+        animator: {
+          setDefIdData: (data?: Uint16Array | null) => void;
+          setDefPaletteCache: (cache: unknown) => void;
+        },
+        strokeData: { buffers: { def: Uint16Array } },
+        defs: DefEntry[],
+      ) => void;
+    }).applyDefBindingsForLayer(layerId, animator, strokeData, defs);
+
+    expect(animator.setDefIdData).toHaveBeenCalledTimes(2);
+    expect(animator.setDefPaletteCache).toHaveBeenCalledTimes(1);
+  });
+
   it('preserves prior CC shape speed bytes when a later shape uses a different speed', async () => {
     const canvas = makeCanvas(16, 8);
     const brush = new ColorCycleBrushCanvas2D(canvas, { forceCanvas2D: true });

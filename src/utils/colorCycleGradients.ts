@@ -86,6 +86,20 @@ const runProjectSlotRebuild = (layerId: string) => {
     layers: state.layers,
     scope: 'project',
     reservedSlots: buildDefaultReservedSlots(),
+    getLiveBuffers: (targetLayerId) => {
+      const brush = state.getLayerColorCycleBrush(targetLayerId);
+      if (!brush || typeof brush.getLayerSnapshot !== 'function') {
+        return null;
+      }
+      const snapshot = brush.getLayerSnapshot(targetLayerId);
+      if (!snapshot) {
+        return null;
+      }
+      return {
+        gradientIdBuffer: snapshot.gradientIdBuffer,
+        gradientDefIdBuffer: snapshot.gradientDefIdBuffer,
+      };
+    },
   });
   if (!result) {
     return null;
