@@ -2741,7 +2741,14 @@ class BrushWebGLRenderer {
     gl.clear(gl.COLOR_BUFFER_BIT);
     gl.useProgram(this.program);
     gl.bindVertexArray(this.vao);
-    gl.uniform1f(this.uniforms.u_time, timeSeconds);
+    // --------------------------------------------------------------------
+    // CC SPEED MULTIPLIER (viewer-only)
+    // Goblet2 currently plays slower than Vessel; multiply time here to
+    // speed up ALL color-cycle animation (legacy + per-pixel speed shader).
+    // Adjust this single constant to tune playback speed.
+    // --------------------------------------------------------------------
+    const CC_TIME_MULTIPLIER = 3.0;
+    gl.uniform1f(this.uniforms.u_time, timeSeconds * CC_TIME_MULTIPLIER);
     gl.uniform1f(this.uniforms.u_legacyOffset01, legacyOffset01);
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
   }
@@ -3790,28 +3797,12 @@ class ColorCycleLayerPlayer {
     if (!this.hasAnimation()) {
       return false;
     }
-    if (!Number.isFinite(deltaSeconds) || deltaSeconds <= 0) {
-      return false;
+    if (Number.isFinite(deltaSeconds) && deltaSeconds > 0) {
+      this._lastFps = 1 / deltaSeconds;
     }
-    this._lastFps = 1 / deltaSeconds;
     this._lastDeltaSeconds = deltaSeconds;
-
-    let elapsedSeconds = deltaSeconds;
-    const targetFPS = Number.isFinite(this.targetFPS) && this.targetFPS > 0
-      ? this.targetFPS
-      : null;
-    if (targetFPS) {
-      const frameDurationSeconds = 1 / targetFPS;
-      this.frameAccumulator += deltaSeconds;
-      if (this.frameAccumulator < frameDurationSeconds) {
-        return false;
-      }
-      elapsedSeconds = this.frameAccumulator;
-      this.frameAccumulator = 0;
-    }
-
-    this.baseTimeSeconds += elapsedSeconds;
-    this.legacyOffset01 = wrap01(this.legacyOffset01 + elapsedSeconds * (this.legacySpeedCps || 0));
+    this.baseTimeSeconds += deltaSeconds;
+    this.legacyOffset01 = wrap01(this.legacyOffset01 + deltaSeconds * (this.legacySpeedCps || 0));
     this.renderFrame();
     return true;
   }
