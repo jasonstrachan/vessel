@@ -50,6 +50,18 @@ function readCommandForPid(pid) {
   }
 }
 
+function isManagedDevCommand(command) {
+  if (!command) {
+    return false;
+  }
+
+  return [
+    'next dev',
+    'npm run dev:safe',
+    'scripts/dev-server.js',
+  ].some((segment) => command.includes(segment));
+}
+
 function readCwdForPid(pid) {
   try {
     const raw = execSync(`lsof -a -p ${pid} -d cwd -Fn 2>/dev/null || true`, {
@@ -103,6 +115,11 @@ async function killPortProcess(port) {
         if (!isProjectProcess(p, command)) {
           throw new Error(
             `Port ${port} is already in use by a non-Vessel process: ${command || p}`
+          );
+        }
+        if (!isManagedDevCommand(command)) {
+          throw new Error(
+            `Port ${port} is in use by a Vessel process that is not the managed dev server: ${command || p}`
           );
         }
         console.log(`⚠️  Stopping Vessel dev listener ${p}: ${command || 'unknown command'}`);

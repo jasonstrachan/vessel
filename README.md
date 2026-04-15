@@ -111,7 +111,7 @@ Vessel is built with Next.js (App Router) and a custom Canvas2D rendering pipeli
 - Work directly on the `poc2` branch (no feature branches).
 - Recommended local workflow:
   - Terminal A (dev): `npm run dev` → `http://localhost:3000`
-  - Terminal B (static preview): `npm run build` then `npm run preview:prod` → `http://localhost:3001/vessel/`
+  - Terminal B (isolated prod preview): `npm run preview:prod` → `http://localhost:3001/vessel/`
   - Use `npm run preview` to serve `out/` on port 4000 for GH Pages parity.
 
 ### Build & Deploy
@@ -120,12 +120,21 @@ Vessel is built with Next.js (App Router) and a custom Canvas2D rendering pipeli
 # Build for production
 npm run build
 
-# Preview production build alongside dev (port 3001, static export)
+# Build an isolated prod preview artifact alongside dev
+npm run preview:prod:build
+
+# Serve the isolated prod preview artifact on port 3001
+npm run preview:prod:serve
+
+# Build + serve isolated production preview alongside dev (port 3001)
 npm run preview:prod
 
 # Preview static export (serves /out on port 4000)
 npm run preview
 ```
+
+`preview:prod` now uses a dedicated `.next-preview` output directory so it can be rebuilt and served without touching the dev server's `.next` state on port `3000`.
+`preview:prod:serve` also uses a per-repo lock file in the system temp directory, so a second preview server instance fails cleanly instead of competing for port `3001`.
 
 ### Security Checks
 - Production dependency audit (recommended gate): `npm run audit:prod`

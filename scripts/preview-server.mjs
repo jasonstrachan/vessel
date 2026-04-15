@@ -2,6 +2,7 @@
 
 import http from 'node:http';
 import { createReadStream, promises as fs } from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import url from 'node:url';
 
@@ -13,6 +14,71 @@ const host = process.env.HOST ?? '0.0.0.0';
 
 const projectRoot = path.resolve(process.cwd());
 const outDir = path.resolve(projectRoot, process.env.PREVIEW_OUT_DIR ?? 'out');
+const lockFile = path.join(
+  os.tmpdir(),
+  `vessel-preview-${Buffer.from(projectRoot).toString('hex')}-${port}.json`,
+);
+
+const isProcessRunning = (pid) => {
+  if (!Number.isInteger(pid) || pid <= 0) {
+    return false;
+  }
+
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return false;
+  }
+};
+
+const writeLockFile = async () => {
+  const payload = {
+    pid: process.pid,
+    port,
+    outDir,
+    projectRoot,
+    startedAt: new Date().toISOString(),
+  };
+
+  await fs.writeFile(lockFile, JSON.stringify(payload, null, 2), 'utf8');
+};
+
+const removeLockFile = async () => {
+  try {
+    const raw = await fs.readFile(lockFile, 'utf8');
+    const payload = JSON.parse(raw);
+    if (payload?.pid === process.pid) {
+      await fs.unlink(lockFile);
+    }
+  } catch (error) {
+    if (error?.code !== 'ENOENT') {
+      console.error(`Failed to clean preview lock ${lockFile}:`, error);
+    }
+  }
+};
+
+const acquireLock = async () => {
+  try {
+    const raw = await fs.readFile(lockFile, 'utf8');
+    const payload = JSON.parse(raw);
+    const existingPid = Number(payload?.pid);
+
+    if (isProcessRunning(existingPid)) {
+      throw new Error(
+        `${SERVER_NAME} already running for this repo on port ${payload?.port ?? port} (PID ${existingPid}). Stop it before starting another preview server.`,
+      );
+    }
+
+    await fs.unlink(lockFile);
+  } catch (error) {
+    if (error?.code !== 'ENOENT') {
+      throw error;
+    }
+  }
+
+  await writeLockFile();
+};
 
 const MIME_TYPES = {
   '.html': 'text/html; charset=utf-8',
@@ -154,15 +220,48 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
+let isShuttingDown = false;
+
+const shutdown = async (signal) => {
+  if (isShuttingDown) {
+    return;
+  }
+  isShuttingDown = true;
+
+  if (signal) {
+    console.log(`\nShutting down preview server (${signal})...`);
+  }
+
+  server.close(async () => {
+    await removeLockFile();
+    process.exit(0);
+  });
+};
+
+try {
+  await acquireLock();
+} catch (error) {
+  console.error(error.message);
+  process.exit(1);
+}
+
 server.listen(port, host, () => {
   console.log(`${SERVER_NAME} listening on http://${host === '0.0.0.0' ? 'localhost' : host}:${port}`);
   console.log(`Serving static export from ${outDir}`);
+  console.log(`Lock file: ${lockFile}`);
   console.log('Hit Ctrl+C to stop.');
 });
 
+server.on('error', async (error) => {
+  await removeLockFile();
+  console.error(error);
+  process.exit(1);
+});
+
 process.on('SIGINT', () => {
-  console.log('\nShutting down preview server...');
-  server.close(() => {
-    process.exit(0);
-  });
+  shutdown('SIGINT');
+});
+
+process.on('SIGTERM', () => {
+  shutdown('SIGTERM');
 });
