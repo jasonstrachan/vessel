@@ -6,7 +6,6 @@
  */
 
 import React, { useState, useRef } from 'react';
-import { MasterTestRunner } from '@/testing/MasterTestRunner';
 import type { TestResult } from '@/testing/ColorCycleFeatureParityTest';
 import type { BenchmarkResult } from '@/testing/PerformanceBenchmark';
 import type { ComparisonResult } from '@/testing/VisualQualityComparison';
@@ -28,8 +27,20 @@ type MigrationSummary = {
   };
 };
 
-type AllTestResults = Awaited<ReturnType<MasterTestRunner['runAllTests']>>;
-type ParityTestResult = Awaited<ReturnType<MasterTestRunner['runFeatureParityTest']>>;
+type AllTestResults = {
+  parity: TestResult[];
+  performance: BenchmarkResult[];
+  visual: ComparisonResult[];
+  memory: MemoryTestResult[];
+};
+
+type ParityTestResult = {
+  results: TestResult[];
+  summary?: {
+    passed: number;
+    totalTests: number;
+  };
+};
 
 const summarizeParity = (
   results: TestResult[],
@@ -106,6 +117,7 @@ export default function MigrationTestPage() {
     setReportHtml('');
     
     try {
+      const { MasterTestRunner } = await import('@/testing/MasterTestRunner');
       const runner = new MasterTestRunner();
       
       if (selectedTest === 'all') {

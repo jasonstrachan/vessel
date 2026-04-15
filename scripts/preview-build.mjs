@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { cp, rm, symlink } from 'node:fs/promises';
+import { cp, rename, rm, symlink } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
@@ -16,6 +16,8 @@ const logger = createRuntimeLogger('preview-build');
 const projectRoot = path.resolve(process.cwd());
 const previewDistDirName = '.next-preview';
 const previewDistDir = path.join(projectRoot, previewDistDirName);
+const previewDistDirPrev = path.join(projectRoot, `${previewDistDirName}-prev`);
+const previewDistDirNext = path.join(projectRoot, `${previewDistDirName}-next`);
 const workspaceHash = createHash('sha1').update(projectRoot).digest('hex').slice(0, 12);
 const tempWorkspace = path.join(os.tmpdir(), `vessel-preview-build-${workspaceHash}`);
 
@@ -24,6 +26,8 @@ const EXCLUDED_NAMES = new Set([
   '.next',
   '.next-build',
   '.next-preview',
+  '.next-preview-prev',
+  '.next-preview-next',
   'node_modules',
   'coverage',
   'dist',
@@ -103,14 +107,22 @@ await symlink(sourceNodeModules, workspaceNodeModules, 'junction');
 try {
   await runBuild(tempWorkspace);
 
-  logger.log(`Copying isolated preview artifact back to ${previewDistDir}`);
-  await rm(previewDistDir, { recursive: true, force: true });
-  await cp(path.join(tempWorkspace, previewDistDirName), previewDistDir, {
+  logger.log(`Staging isolated preview artifact at ${previewDistDirNext}`);
+  await rm(previewDistDirNext, { recursive: true, force: true });
+  await cp(path.join(tempWorkspace, previewDistDirName), previewDistDirNext, {
     recursive: true,
     force: true,
   });
+
+  logger.log(`Swapping staged preview artifact into ${previewDistDir}`);
+  await rm(previewDistDirPrev, { recursive: true, force: true });
+  if (existsSync(previewDistDir)) {
+    await rename(previewDistDir, previewDistDirPrev);
+  }
+  await rename(previewDistDirNext, previewDistDir);
   logger.log('Preview build completed successfully.');
 } finally {
+  await rm(previewDistDirNext, { recursive: true, force: true });
   logger.log(`Cleaning isolated preview workspace ${tempWorkspace}`);
   await rm(tempWorkspace, { recursive: true, force: true });
 }

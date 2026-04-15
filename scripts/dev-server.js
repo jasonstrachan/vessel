@@ -151,10 +151,40 @@ function cleanCache() {
   });
 }
 
+function shouldCleanStaleNextDist() {
+  const nextDir = path.join(process.cwd(), '.next');
+  if (!fs.existsSync(nextDir)) {
+    return false;
+  }
+
+  const exportMarkerPath = path.join(nextDir, 'export-marker.json');
+  if (fs.existsSync(exportMarkerPath)) {
+    logger.warn('Detected export artifact inside .next; forcing a clean dev rebuild.');
+    return true;
+  }
+
+  const devAppChunkPath = path.join(nextDir, 'static', 'chunks', 'app', 'page.js');
+  const hashedAppChunkDir = path.join(nextDir, 'static', 'chunks', 'app');
+  if (!fs.existsSync(devAppChunkPath) && fs.existsSync(hashedAppChunkDir)) {
+    try {
+      const chunkNames = fs.readdirSync(hashedAppChunkDir);
+      const hasHashedPageChunk = chunkNames.some((name) => /^page-[^.]+\.(js|js\.map)$/.test(name));
+      if (hasHashedPageChunk) {
+        logger.warn('Detected hashed app chunks without dev aliases; forcing a clean dev rebuild.');
+        return true;
+      }
+    } catch (err) {
+      logger.warn(`Failed to inspect .next chunk layout: ${err.message}`);
+    }
+  }
+
+  return false;
+}
+
 async function startServer(cleanFirst = false) {
   if (isShuttingDown) return;
   
-  if (cleanFirst) {
+  if (cleanFirst || shouldCleanStaleNextDist()) {
     cleanCache();
   }
   
