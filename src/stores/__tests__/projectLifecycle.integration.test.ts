@@ -295,6 +295,25 @@ describe('project slice lifecycle flows', () => {
       { id: 'color-grade', enabled: false, settings: { brightness: 0, contrast: 0.1, saturation: 1 } },
       { id: 'lcd-mask', enabled: false, settings: { stripeOpacity: 0.1, scanlineOpacity: 0.02 } },
       {
+        id: 'crt',
+        enabled: true,
+        settings: {
+          cellSize: 12,
+          scanlineIntensity: 0.08,
+          maskIntensity: 0.07,
+          barrelDistortion: 0.15,
+          chromaticAberration: 2,
+          beamFocus: 0.51,
+          brightness: 0.5,
+          shadowLift: 0.16,
+          vignetteIntensity: 0.45,
+          flickerIntensity: 0.2,
+          signalArtifacts: 0.45,
+          bloomIntensity: 1.93,
+          bloomRadius: 24,
+        },
+      },
+      {
         id: 'crt-grid',
         enabled: true,
         settings: { lineOpacity: 0.16, lineSpacing: 5, phosphorOpacity: 0.12, scanlineOpacity: 0.18 },
@@ -344,6 +363,7 @@ describe('project slice lifecycle flows', () => {
           { id: 'pixelate', enabled: true, settings: { cellSize: 9 } },
           { id: 'round-pixels', enabled: true, settings: { blurRadius: 3, threshold: 0.47, crush: 0.58, preserveColor: 0.79 } },
           { id: 'bloom', enabled: true, settings: { blurRadius: 5, intensity: 0.4 } },
+          { id: 'crt', enabled: true, settings: { beamFocus: 0.72, vignetteIntensity: 0.3 } },
         ],
       },
     }));

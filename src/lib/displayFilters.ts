@@ -8,6 +8,7 @@ const FILTER_ORDER: DisplayFilterId[] = [
   'bloom',
   'color-grade',
   'lcd-mask',
+  'crt',
   'crt-grid',
   'chromatic-aberration',
   'noise',
@@ -134,6 +135,91 @@ const sanitizeLcdMask = (filter?: Partial<DisplayFilterForId<'lcd-mask'>>): Disp
   },
 });
 
+const sanitizeCrt = (filter?: Partial<DisplayFilterForId<'crt'>>): DisplayFilterConfig => ({
+  id: 'crt',
+  enabled: filter?.enabled === true,
+  settings: {
+    cellSize: Math.max(1, Math.round(clamp(
+      filter?.settings?.cellSize,
+      1,
+      32,
+      12,
+    ))),
+    scanlineIntensity: roundToStep(clamp(
+      filter?.settings?.scanlineIntensity,
+      0,
+      1,
+      0.08,
+    ), 0.01),
+    maskIntensity: roundToStep(clamp(
+      filter?.settings?.maskIntensity,
+      0,
+      1,
+      0.07,
+    ), 0.01),
+    barrelDistortion: roundToStep(clamp(
+      filter?.settings?.barrelDistortion,
+      0,
+      0.4,
+      0.15,
+    ), 0.01),
+    chromaticAberration: roundToStep(clamp(
+      filter?.settings?.chromaticAberration,
+      0,
+      8,
+      2,
+    ), 0.25),
+    beamFocus: roundToStep(clamp(
+      filter?.settings?.beamFocus,
+      0,
+      1,
+      0.51,
+    ), 0.01),
+    brightness: roundToStep(clamp(
+      filter?.settings?.brightness,
+      0,
+      1.5,
+      0.5,
+    ), 0.01),
+    shadowLift: roundToStep(clamp(
+      filter?.settings?.shadowLift,
+      0,
+      0.5,
+      0.16,
+    ), 0.01),
+    vignetteIntensity: roundToStep(clamp(
+      filter?.settings?.vignetteIntensity,
+      0,
+      1,
+      0.45,
+    ), 0.01),
+    flickerIntensity: roundToStep(clamp(
+      filter?.settings?.flickerIntensity,
+      0,
+      1,
+      0.2,
+    ), 0.01),
+    signalArtifacts: roundToStep(clamp(
+      filter?.settings?.signalArtifacts,
+      0,
+      1,
+      0.45,
+    ), 0.01),
+    bloomIntensity: roundToStep(clamp(
+      filter?.settings?.bloomIntensity,
+      0,
+      4,
+      1.93,
+    ), 0.01),
+    bloomRadius: roundToStep(clamp(
+      filter?.settings?.bloomRadius,
+      0,
+      32,
+      24,
+    ), 0.5),
+  },
+});
+
 const sanitizeNoise = (filter?: Partial<DisplayFilterForId<'noise'>>): DisplayFilterConfig => ({
   id: 'noise',
   enabled: filter?.enabled === true,
@@ -211,6 +297,7 @@ export const createDefaultDisplayFilters = (): DisplayFilterConfig[] => ([
   sanitizeBloom(),
   sanitizeColorGrade(),
   sanitizeLcdMask(),
+  sanitizeCrt(),
   sanitizeCrtGrid(),
   sanitizeChromaticAberration(),
   sanitizeNoise(),
@@ -228,6 +315,8 @@ const sanitizeDisplayFilter = (filter?: Partial<DisplayFilterConfig>): DisplayFi
       return sanitizeColorGrade(filter);
     case 'lcd-mask':
       return sanitizeLcdMask(filter);
+    case 'crt':
+      return sanitizeCrt(filter);
     case 'crt-grid':
       return sanitizeCrtGrid(filter);
     case 'chromatic-aberration':

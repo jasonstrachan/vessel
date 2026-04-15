@@ -25,6 +25,9 @@ const FILTER_COPY: Record<
   'lcd-mask': {
     title: 'LCD Mask',
   },
+  crt: {
+    title: 'CRT',
+  },
   'crt-grid': {
     title: 'CRT Grid',
   },
@@ -249,6 +252,190 @@ const FilterCard = ({ filter }: FilterCardProps) => {
                 onChange={(value) => updateDisplayFilter('lcd-mask', { scanlineOpacity: value })}
                 aria-label="LCD mask scanline opacity"
                 formatValue={(value) => `${Math.round(value * 100)}%`}
+              />
+            </div>
+          </>
+        )}
+
+        {filter.id === 'crt' && (
+          <>
+            <div>
+              <label className="mb-1 block text-[11px] uppercase tracking-[0.08em] text-[#8F8F8F]">
+                Cell Size
+              </label>
+              <ProgressSlider
+                value={filter.settings.cellSize}
+                min={1}
+                max={32}
+                step={1}
+                onChange={(value) => updateDisplayFilter('crt', { cellSize: Math.round(value) })}
+                aria-label="CRT cell size"
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-[11px] uppercase tracking-[0.08em] text-[#8F8F8F]">
+                Scanline Depth
+              </label>
+              <ProgressSlider
+                value={filter.settings.scanlineIntensity}
+                min={0}
+                max={1}
+                step={0.01}
+                onChange={(value) => updateDisplayFilter('crt', { scanlineIntensity: value })}
+                aria-label="CRT scanline depth"
+                formatValue={(value) => `${Math.round(value * 100)}%`}
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-[11px] uppercase tracking-[0.08em] text-[#8F8F8F]">
+                Mask Strength
+              </label>
+              <ProgressSlider
+                value={filter.settings.maskIntensity}
+                min={0}
+                max={1}
+                step={0.01}
+                onChange={(value) => updateDisplayFilter('crt', { maskIntensity: value })}
+                aria-label="CRT mask strength"
+                formatValue={(value) => `${Math.round(value * 100)}%`}
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-[11px] uppercase tracking-[0.08em] text-[#8F8F8F]">
+                Distortion
+              </label>
+              <ProgressSlider
+                value={filter.settings.barrelDistortion}
+                min={0}
+                max={0.4}
+                step={0.01}
+                onChange={(value) => updateDisplayFilter('crt', { barrelDistortion: value })}
+                aria-label="CRT distortion"
+                formatValue={(value) => `${Math.round(value * 100)}%`}
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-[11px] uppercase tracking-[0.08em] text-[#8F8F8F]">
+                Chromatic Split
+              </label>
+              <ProgressSlider
+                value={filter.settings.chromaticAberration}
+                min={0}
+                max={8}
+                step={0.25}
+                onChange={(value) => updateDisplayFilter('crt', { chromaticAberration: value })}
+                aria-label="CRT chromatic split"
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-[11px] uppercase tracking-[0.08em] text-[#8F8F8F]">
+                Beam Focus
+              </label>
+              <ProgressSlider
+                value={filter.settings.beamFocus}
+                min={0}
+                max={1}
+                step={0.01}
+                onChange={(value) => updateDisplayFilter('crt', { beamFocus: value })}
+                aria-label="CRT beam focus"
+                formatValue={(value) => `${Math.round(value * 100)}%`}
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-[11px] uppercase tracking-[0.08em] text-[#8F8F8F]">
+                Brightness
+              </label>
+              <ProgressSlider
+                value={filter.settings.brightness}
+                min={0}
+                max={1.5}
+                step={0.01}
+                onChange={(value) => updateDisplayFilter('crt', { brightness: value })}
+                aria-label="CRT brightness"
+                formatValue={(value) => `${Math.round(value * 100)}%`}
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-[11px] uppercase tracking-[0.08em] text-[#8F8F8F]">
+                Shadow Lift
+              </label>
+              <ProgressSlider
+                value={filter.settings.shadowLift}
+                min={0}
+                max={0.5}
+                step={0.01}
+                onChange={(value) => updateDisplayFilter('crt', { shadowLift: value })}
+                aria-label="CRT shadow lift"
+                formatValue={(value) => `${Math.round(value * 100)}%`}
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-[11px] uppercase tracking-[0.08em] text-[#8F8F8F]">
+                Vignette
+              </label>
+              <ProgressSlider
+                value={filter.settings.vignetteIntensity}
+                min={0}
+                max={1}
+                step={0.01}
+                onChange={(value) => updateDisplayFilter('crt', { vignetteIntensity: value })}
+                aria-label="CRT vignette"
+                formatValue={(value) => `${Math.round(value * 100)}%`}
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-[11px] uppercase tracking-[0.08em] text-[#8F8F8F]">
+                Flicker
+              </label>
+              <ProgressSlider
+                value={filter.settings.flickerIntensity}
+                min={0}
+                max={1}
+                step={0.01}
+                onChange={(value) => updateDisplayFilter('crt', { flickerIntensity: value })}
+                aria-label="CRT flicker"
+                formatValue={(value) => `${Math.round(value * 100)}%`}
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-[11px] uppercase tracking-[0.08em] text-[#8F8F8F]">
+                Signal Artifacts
+              </label>
+              <ProgressSlider
+                value={filter.settings.signalArtifacts}
+                min={0}
+                max={1}
+                step={0.01}
+                onChange={(value) => updateDisplayFilter('crt', { signalArtifacts: value })}
+                aria-label="CRT signal artifacts"
+                formatValue={(value) => `${Math.round(value * 100)}%`}
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-[11px] uppercase tracking-[0.08em] text-[#8F8F8F]">
+                Bloom Intensity
+              </label>
+              <ProgressSlider
+                value={filter.settings.bloomIntensity}
+                min={0}
+                max={4}
+                step={0.01}
+                onChange={(value) => updateDisplayFilter('crt', { bloomIntensity: value })}
+                aria-label="CRT bloom intensity"
+                formatValue={(value) => `${Math.round(value * 100)}%`}
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-[11px] uppercase tracking-[0.08em] text-[#8F8F8F]">
+                Bloom Radius
+              </label>
+              <ProgressSlider
+                value={filter.settings.bloomRadius}
+                min={0}
+                max={32}
+                step={0.5}
+                onChange={(value) => updateDisplayFilter('crt', { bloomRadius: value })}
+                aria-label="CRT bloom radius"
               />
             </div>
           </>
