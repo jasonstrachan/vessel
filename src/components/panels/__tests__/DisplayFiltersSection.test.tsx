@@ -11,6 +11,25 @@ const mockStore = {
       { id: 'color-grade', enabled: false, settings: { brightness: -0.02, contrast: 0.08, saturation: 0.88 } },
       { id: 'lcd-mask', enabled: false, settings: { stripeOpacity: 0.16, scanlineOpacity: 0.05 } },
       {
+        id: 'crt',
+        enabled: true,
+        settings: {
+          cellSize: 12,
+          scanlineIntensity: 0.08,
+          maskIntensity: 0.07,
+          barrelDistortion: 0.15,
+          chromaticAberration: 2,
+          beamFocus: 0.51,
+          brightness: 0.5,
+          shadowLift: 0.16,
+          vignetteIntensity: 0.45,
+          flickerIntensity: 0.2,
+          signalArtifacts: 0.45,
+          bloomIntensity: 1.93,
+          bloomRadius: 24,
+        },
+      },
+      {
         id: 'crt-grid',
         enabled: true,
         settings: { lineOpacity: 0.14, lineSpacing: 4, phosphorOpacity: 0.12, scanlineOpacity: 0.18 },
@@ -41,6 +60,7 @@ describe('DisplayFiltersSection', () => {
     expect(screen.getByText('Bloom')).toBeInTheDocument();
     expect(screen.getByText('Color Grade')).toBeInTheDocument();
     expect(screen.getByText('LCD Mask')).toBeInTheDocument();
+    expect(screen.getByText('CRT')).toBeInTheDocument();
     expect(screen.getByText('CRT Grid')).toBeInTheDocument();
     expect(screen.getByText('Chromatic Aberration')).toBeInTheDocument();
     expect(screen.getByText('Noise')).toBeInTheDocument();
@@ -70,6 +90,8 @@ describe('DisplayFiltersSection', () => {
     fireEvent.change(screen.getByLabelText('Round pixels levels crush'), { target: { value: '0.58' } });
     fireEvent.change(screen.getByLabelText('Round pixels preserve color'), { target: { value: '0.91' } });
     fireEvent.change(screen.getByLabelText('Bloom blur radius'), { target: { value: '4.5' } });
+    fireEvent.change(screen.getByLabelText('CRT distortion'), { target: { value: '0.22' } });
+    fireEvent.change(screen.getByLabelText('CRT bloom radius'), { target: { value: '18' } });
     fireEvent.change(screen.getByLabelText('CRT grid line spacing'), { target: { value: '6' } });
     fireEvent.change(screen.getByLabelText('CRT grid phosphor glow'), { target: { value: '0.24' } });
     fireEvent.change(screen.getByLabelText('Chromatic aberration offset'), { target: { value: '1.5' } });
@@ -80,6 +102,8 @@ describe('DisplayFiltersSection', () => {
     expect(mockStore.updateDisplayFilter).toHaveBeenCalledWith('round-pixels', { crush: 0.58 });
     expect(mockStore.updateDisplayFilter).toHaveBeenCalledWith('round-pixels', { preserveColor: 0.91 });
     expect(mockStore.updateDisplayFilter).toHaveBeenCalledWith('bloom', { blurRadius: 4.5 });
+    expect(mockStore.updateDisplayFilter).toHaveBeenCalledWith('crt', { barrelDistortion: 0.22 });
+    expect(mockStore.updateDisplayFilter).toHaveBeenCalledWith('crt', { bloomRadius: 18 });
     expect(mockStore.updateDisplayFilter).toHaveBeenCalledWith('crt-grid', { lineSpacing: 6 });
     expect(mockStore.updateDisplayFilter).toHaveBeenCalledWith('crt-grid', { phosphorOpacity: 0.24 });
     expect(mockStore.updateDisplayFilter).toHaveBeenCalledWith('chromatic-aberration', { offset: 1.5 });

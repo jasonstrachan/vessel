@@ -96,6 +96,7 @@ export type DisplayFilterId =
   | 'bloom'
   | 'color-grade'
   | 'lcd-mask'
+  | 'crt'
   | 'crt-grid'
   | 'chromatic-aberration'
   | 'noise';
@@ -156,6 +157,26 @@ export interface NoiseDisplayFilter {
   };
 }
 
+export interface CrtDisplayFilter {
+  id: 'crt';
+  enabled: boolean;
+  settings: {
+    cellSize: number;
+    scanlineIntensity: number;
+    maskIntensity: number;
+    barrelDistortion: number;
+    chromaticAberration: number;
+    beamFocus: number;
+    brightness: number;
+    shadowLift: number;
+    vignetteIntensity: number;
+    flickerIntensity: number;
+    signalArtifacts: number;
+    bloomIntensity: number;
+    bloomRadius: number;
+  };
+}
+
 export interface CrtGridDisplayFilter {
   id: 'crt-grid';
   enabled: boolean;
@@ -182,6 +203,7 @@ export type DisplayFilterConfig =
   | BloomDisplayFilter
   | ColorGradeDisplayFilter
   | LcdMaskDisplayFilter
+  | CrtDisplayFilter
   | CrtGridDisplayFilter
   | ChromaticAberrationDisplayFilter
   | NoiseDisplayFilter;

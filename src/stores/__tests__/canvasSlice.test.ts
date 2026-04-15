@@ -91,6 +91,38 @@ describe('canvas slice invariants', () => {
     const bloom = useAppStore.getState().canvas.displayFilters.find((filter) => filter.id === 'bloom');
     expect(bloom?.settings).toEqual({ blurRadius: 12, intensity: 2 });
 
+    useAppStore.getState().updateDisplayFilter('crt', {
+      cellSize: 99,
+      scanlineIntensity: -1,
+      maskIntensity: 3,
+      barrelDistortion: 9,
+      chromaticAberration: 99,
+      beamFocus: 4,
+      brightness: 9,
+      shadowLift: -2,
+      vignetteIntensity: 8,
+      flickerIntensity: 7,
+      signalArtifacts: -1,
+      bloomIntensity: 8,
+      bloomRadius: 99,
+    });
+    const crt = useAppStore.getState().canvas.displayFilters.find((filter) => filter.id === 'crt');
+    expect(crt?.settings).toEqual({
+      cellSize: 32,
+      scanlineIntensity: 0,
+      maskIntensity: 1,
+      barrelDistortion: 0.4,
+      chromaticAberration: 8,
+      beamFocus: 1,
+      brightness: 1.5,
+      shadowLift: 0,
+      vignetteIntensity: 1,
+      flickerIntensity: 1,
+      signalArtifacts: 0,
+      bloomIntensity: 4,
+      bloomRadius: 32,
+    });
+
     useAppStore.getState().updateDisplayFilter('crt-grid', {
       lineOpacity: 9,
       lineSpacing: 1,
@@ -120,6 +152,21 @@ describe('canvas slice invariants', () => {
 
     const persistedDefaults = readLocalSettings().canvas?.displayFilterDefaults;
     expect(persistedDefaults?.every((filter) => filter.enabled === false)).toBe(true);
+    expect(persistedDefaults?.find((filter) => filter.id === 'crt')?.settings).toEqual({
+      cellSize: 32,
+      scanlineIntensity: 0,
+      maskIntensity: 1,
+      barrelDistortion: 0.4,
+      chromaticAberration: 8,
+      beamFocus: 1,
+      brightness: 1.5,
+      shadowLift: 0,
+      vignetteIntensity: 1,
+      flickerIntensity: 1,
+      signalArtifacts: 0,
+      bloomIntensity: 4,
+      bloomRadius: 32,
+    });
     expect(persistedDefaults?.find((filter) => filter.id === 'crt-grid')?.settings).toEqual({
       lineOpacity: 1,
       lineSpacing: 1,
@@ -145,6 +192,7 @@ describe('canvas slice invariants', () => {
           { id: 'pixelate', enabled: true, settings: { cellSize: 7 } },
           { id: 'round-pixels', enabled: true, settings: { blurRadius: 2.5, threshold: 0.42, crush: 0.61, preserveColor: 0.73 } },
           { id: 'bloom', enabled: true, settings: { blurRadius: 4, intensity: 0.33 } },
+          { id: 'crt', enabled: true, settings: { cellSize: 14, barrelDistortion: 0.2 } },
         ],
       },
     }));
@@ -158,6 +206,25 @@ describe('canvas slice invariants', () => {
       id: 'bloom',
       enabled: false,
       settings: { blurRadius: 4, intensity: 0.33 },
+    });
+    expect(getStoredDisplayFilterDefaults().find((filter) => filter.id === 'crt')).toEqual({
+      id: 'crt',
+      enabled: false,
+      settings: {
+        cellSize: 14,
+        scanlineIntensity: 0.08,
+        maskIntensity: 0.07,
+        barrelDistortion: 0.2,
+        chromaticAberration: 2,
+        beamFocus: 0.51,
+        brightness: 0.5,
+        shadowLift: 0.16,
+        vignetteIntensity: 0.45,
+        flickerIntensity: 0.2,
+        signalArtifacts: 0.45,
+        bloomIntensity: 1.93,
+        bloomRadius: 24,
+      },
     });
     expect(getStoredDisplayFilterDefaults().find((filter) => filter.id === 'round-pixels')).toEqual({
       id: 'round-pixels',
