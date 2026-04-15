@@ -2,9 +2,13 @@
 
 import http from 'node:http';
 import { createReadStream, promises as fs } from 'node:fs';
+import { createRequire } from 'node:module';
 import os from 'node:os';
 import path from 'node:path';
 import url from 'node:url';
+
+const require = createRequire(import.meta.url);
+const { createRuntimeLogger } = require('./runtime-logger.cjs');
 
 const DEFAULT_PORT = 4000;
 const SERVER_NAME = 'vessel-preview';
@@ -14,6 +18,7 @@ const host = process.env.HOST ?? '0.0.0.0';
 
 const projectRoot = path.resolve(process.cwd());
 const outDir = path.resolve(projectRoot, process.env.PREVIEW_OUT_DIR ?? 'out');
+const logger = createRuntimeLogger('preview-server');
 const lockFile = path.join(
   os.tmpdir(),
   `vessel-preview-${Buffer.from(projectRoot).toString('hex')}-${port}.json`,
@@ -53,7 +58,7 @@ const removeLockFile = async () => {
     }
   } catch (error) {
     if (error?.code !== 'ENOENT') {
-      console.error(`Failed to clean preview lock ${lockFile}:`, error);
+      logger.error(`Failed to clean preview lock ${lockFile}`, error);
     }
   }
 };
@@ -149,9 +154,7 @@ const send = (res, statusCode, headers, message) => {
 const log = (req, status, durationMs) => {
   const method = req.method ?? 'GET';
   const pathName = req.url ?? '';
-  const time = new Date().toISOString();
-  console.log(`HTTP ${time} ${req.socket.remoteAddress ?? '-'} ${method} ${pathName}`);
-  console.log(`HTTP ${time} ${req.socket.remoteAddress ?? '-'} Returned ${status} in ${durationMs} ms`);
+  logger.log(`HTTP ${req.socket.remoteAddress ?? '-'} ${method} ${pathName} -> ${status} in ${durationMs} ms`);
 };
 
 const server = http.createServer(async (req, res) => {
@@ -189,7 +192,7 @@ const server = http.createServer(async (req, res) => {
         log(req, 200, Date.now() - start);
       });
       stream.on('error', (error) => {
-        console.error(error);
+        logger.error(`Stream error while serving ${localPath}`, error);
         res.destroy(error);
       });
       return;
@@ -208,12 +211,12 @@ const server = http.createServer(async (req, res) => {
       log(req, 200, Date.now() - start);
     });
     stream.on('error', (error) => {
-      console.error(error);
+      logger.error(`Stream error while serving ${localPath}`, error);
       res.destroy(error);
     });
   } catch (error) {
     if (error.code !== 'ENOENT') {
-      console.error(`Error serving ${localPath}:`, error);
+      logger.error(`Error serving ${localPath}`, error);
     }
     send(res, 404, { 'content-type': 'text/plain; charset=utf-8' }, 'Not Found');
     log(req, 404, Date.now() - start);
@@ -221,6 +224,9 @@ const server = http.createServer(async (req, res) => {
 });
 
 let isShuttingDown = false;
+const stopWatchdog = logger.startWatchdog({
+  getStatus: () => `port=${port} outDir=${outDir} shuttingDown=${isShuttingDown}`,
+});
 
 const shutdown = async (signal) => {
   if (isShuttingDown) {
@@ -229,9 +235,10 @@ const shutdown = async (signal) => {
   isShuttingDown = true;
 
   if (signal) {
-    console.log(`\nShutting down preview server (${signal})...`);
+    logger.log(`Shutting down preview server (${signal}).`);
   }
 
+  stopWatchdog?.();
   server.close(async () => {
     await removeLockFile();
     process.exit(0);
@@ -241,20 +248,22 @@ const shutdown = async (signal) => {
 try {
   await acquireLock();
 } catch (error) {
-  console.error(error.message);
+  logger.error(error.message);
   process.exit(1);
 }
 
+logger.installProcessHandlers('preview-server');
+logger.log(`Runtime log file: ${logger.filePath}`);
 server.listen(port, host, () => {
-  console.log(`${SERVER_NAME} listening on http://${host === '0.0.0.0' ? 'localhost' : host}:${port}`);
-  console.log(`Serving static export from ${outDir}`);
-  console.log(`Lock file: ${lockFile}`);
-  console.log('Hit Ctrl+C to stop.');
+  logger.log(`${SERVER_NAME} listening on http://${host === '0.0.0.0' ? 'localhost' : host}:${port}`);
+  logger.log(`Serving static export from ${outDir}`);
+  logger.log(`Lock file: ${lockFile}`);
+  logger.log('Hit Ctrl+C to stop.');
 });
 
 server.on('error', async (error) => {
   await removeLockFile();
-  console.error(error);
+  logger.error('Preview server failed', error);
   process.exit(1);
 });
 
