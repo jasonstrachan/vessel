@@ -7,8 +7,10 @@ import {
   dedupePolylineForSampling,
 } from '@/hooks/canvas/utils/autoSampleGradient';
 import { equidistantPointsOnPolyline } from '@/hooks/canvas/handlers/brushSampling';
+import { resolveStrokeDitherPalette } from '@/hooks/brushEngine/engineShared';
 import { hashStops, type StoredStop } from '@/utils/colorCycleGradientDefs';
 import { parseCssColorToRgba } from '@/hooks/canvas/utils/colorCycleHelpers';
+import { useAppStore } from '@/stores/useAppStore';
 
 export const CC_SAMPLED_THROTTLE_MS = 120;
 
@@ -27,6 +29,29 @@ export type CcSampledUpdateResult = {
   stops: StoredStop[];
 };
 
+const buildSingleSampleAnimatedStops = (color: string): StoredStop[] => {
+  const brushSettings = useAppStore.getState().tools.brushSettings;
+  const { palette } = resolveStrokeDitherPalette({
+    color,
+    spreadPercent: brushSettings.ditherPaletteSpread ?? 0,
+    ditherBackgroundFill: false,
+  });
+  const low = palette[0] ?? color;
+  const high = palette[1] ?? palette[0] ?? color;
+
+  if (low === high) {
+    return [
+      { position: 0, color },
+      { position: 1, color },
+    ];
+  }
+
+  return [
+    { position: 0, color: low },
+    { position: 1, color: high },
+  ];
+};
+
 const buildSampledStops = (params: {
   sourcePts: Array<{ x: number; y: number }>;
   sampleColor: (x: number, y: number) => string;
@@ -40,10 +65,7 @@ const buildSampledStops = (params: {
     const color = params.sampleColor(deduped[0].x, deduped[0].y);
     const rgba = parseCssColorToRgba(color);
     return {
-      stops: [
-        { position: 0, color },
-        { position: 1, color },
-      ],
+      stops: buildSingleSampleAnimatedStops(color),
       samples: [{ t01: 0, rgba }],
       sampleCount: 1,
     };

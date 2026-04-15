@@ -38,7 +38,9 @@ describe('ccSampling', () => {
 
     expect(result?.stops.length).toBe(2);
     expect(result?.sampleCount).toBe(1);
-    expect(session.previewStopsStored?.[0].color).toBe('#112233');
+    expect(session.previewStopsStored).toEqual(result?.stops);
+    expect(new Set(result?.stops.map((stop) => stop.color)).size).toBe(2);
+    expect(result?.stops[0]?.color).not.toBe('#112233');
   });
 
   it('throttles sampling updates', () => {
