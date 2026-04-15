@@ -13,6 +13,9 @@ const FILTER_COPY: Record<
   pixelate: {
     title: 'Pixelate',
   },
+  'round-pixels': {
+    title: 'Round Pixels',
+  },
   bloom: {
     title: 'Bloom',
   },
@@ -77,6 +80,66 @@ const FilterCard = ({ filter }: FilterCardProps) => {
               aria-label="Pixelate cell size"
             />
           </div>
+        )}
+
+        {filter.id === 'round-pixels' && (
+          <>
+            <div>
+              <label className="mb-1 block text-[11px] uppercase tracking-[0.08em] text-[#8F8F8F]">
+                Blur Radius
+              </label>
+              <ProgressSlider
+                value={filter.settings.blurRadius}
+                min={0}
+                max={12}
+                step={0.25}
+                onChange={(value) => updateDisplayFilter('round-pixels', { blurRadius: value })}
+                aria-label="Round pixels blur radius"
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-[11px] uppercase tracking-[0.08em] text-[#8F8F8F]">
+                Threshold
+              </label>
+              <ProgressSlider
+                value={filter.settings.threshold}
+                min={0}
+                max={1}
+                step={0.01}
+                onChange={(value) => updateDisplayFilter('round-pixels', { threshold: value })}
+                aria-label="Round pixels threshold"
+                formatValue={(value) => `${Math.round(value * 100)}%`}
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-[11px] uppercase tracking-[0.08em] text-[#8F8F8F]">
+                Levels Crush
+              </label>
+              <ProgressSlider
+                value={filter.settings.crush}
+                min={0}
+                max={1}
+                step={0.01}
+                onChange={(value) => updateDisplayFilter('round-pixels', { crush: value })}
+                aria-label="Round pixels levels crush"
+                formatValue={(value) => `${Math.round(value * 100)}%`}
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-[11px] uppercase tracking-[0.08em] text-[#8F8F8F]">
+                Preserve Color
+              </label>
+              <ProgressSlider
+                value={filter.settings.preserveColor}
+                min={0}
+                max={1}
+                step={0.01}
+                onChange={(value) => updateDisplayFilter('round-pixels', { preserveColor: value })}
+                aria-label="Round pixels preserve color"
+                formatValue={(value) => `${Math.round(value * 100)}%`}
+              />
+            </div>
+          </>
         )}
 
         {filter.id === 'bloom' && (

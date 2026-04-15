@@ -92,6 +92,7 @@ export interface PaletteState {
 
 export type DisplayFilterId =
   | 'pixelate'
+  | 'round-pixels'
   | 'bloom'
   | 'color-grade'
   | 'lcd-mask'
@@ -113,6 +114,17 @@ export interface BloomDisplayFilter {
   settings: {
     blurRadius: number;
     intensity: number;
+  };
+}
+
+export interface RoundPixelsDisplayFilter {
+  id: 'round-pixels';
+  enabled: boolean;
+  settings: {
+    blurRadius: number;
+    threshold: number;
+    crush: number;
+    preserveColor: number;
   };
 }
 
@@ -166,6 +178,7 @@ export interface ChromaticAberrationDisplayFilter {
 
 export type DisplayFilterConfig =
   | PixelateDisplayFilter
+  | RoundPixelsDisplayFilter
   | BloomDisplayFilter
   | ColorGradeDisplayFilter
   | LcdMaskDisplayFilter

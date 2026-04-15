@@ -528,6 +528,7 @@ describe('exportProjectAsWebGL color cycle integration', () => {
       zoom: 1,
       displayFilters: [
         { id: 'pixelate', enabled: true, settings: { cellSize: 5 } },
+        { id: 'round-pixels', enabled: true, settings: { blurRadius: 2.75, threshold: 0.49, crush: 0.55, preserveColor: 0.88 } },
         { id: 'bloom', enabled: false, settings: { blurRadius: 1.5, intensity: 0.18 } },
         { id: 'color-grade', enabled: false, settings: { brightness: -0.02, contrast: 0.08, saturation: 0.88 } },
         { id: 'lcd-mask', enabled: true, settings: { stripeOpacity: 0.1, scanlineOpacity: 0.03 } },

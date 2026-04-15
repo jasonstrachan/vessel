@@ -4,6 +4,7 @@ type DisplayFilterForId<I extends DisplayFilterId> = Extract<DisplayFilterConfig
 
 const FILTER_ORDER: DisplayFilterId[] = [
   'pixelate',
+  'round-pixels',
   'bloom',
   'color-grade',
   'lcd-mask',
@@ -54,6 +55,37 @@ const sanitizeBloom = (filter?: Partial<DisplayFilterForId<'bloom'>>): DisplayFi
       0,
       2,
       0.18,
+    ), 0.01),
+  },
+});
+
+const sanitizeRoundPixels = (filter?: Partial<DisplayFilterForId<'round-pixels'>>): DisplayFilterConfig => ({
+  id: 'round-pixels',
+  enabled: filter?.enabled === true,
+  settings: {
+    blurRadius: Math.max(0, roundToStep(clamp(
+      filter?.settings?.blurRadius,
+      0,
+      12,
+      1.5,
+    ), 0.25)),
+    threshold: roundToStep(clamp(
+      filter?.settings?.threshold,
+      0,
+      1,
+      0.5,
+    ), 0.01),
+    crush: roundToStep(clamp(
+      filter?.settings?.crush,
+      0,
+      1,
+      0.35,
+    ), 0.01),
+    preserveColor: roundToStep(clamp(
+      filter?.settings?.preserveColor,
+      0,
+      1,
+      0.85,
     ), 0.01),
   },
 });
@@ -175,6 +207,7 @@ const sanitizeCrtGrid = (filter?: Partial<DisplayFilterForId<'crt-grid'>>): Disp
 
 export const createDefaultDisplayFilters = (): DisplayFilterConfig[] => ([
   sanitizePixelate(),
+  sanitizeRoundPixels(),
   sanitizeBloom(),
   sanitizeColorGrade(),
   sanitizeLcdMask(),
@@ -187,6 +220,8 @@ const sanitizeDisplayFilter = (filter?: Partial<DisplayFilterConfig>): DisplayFi
   switch (filter?.id) {
     case 'pixelate':
       return sanitizePixelate(filter);
+    case 'round-pixels':
+      return sanitizeRoundPixels(filter);
     case 'bloom':
       return sanitizeBloom(filter);
     case 'color-grade':
