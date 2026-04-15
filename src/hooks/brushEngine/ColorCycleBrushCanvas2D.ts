@@ -452,6 +452,7 @@ export class ColorCycleBrushCanvas2D {
   private animators: Map<string, ColorCycleAnimator> = new Map();
   private activeLayerId: string | null = null;
   private defPaletteCacheByLayer: Map<string, DefPaletteCache> = new Map();
+  private appliedDefPaletteCacheByLayer: Map<string, DefPaletteCache | null> = new Map();
   private persistedColorCycleMetaByLayer: Map<string, SerializedLayerColorCycleMeta> = new Map();
   
   // Canvas references
@@ -1067,6 +1068,7 @@ export class ColorCycleBrushCanvas2D {
   ): DefPaletteCache | null {
     if (!defs || defs.length === 0) {
       this.defPaletteCacheByLayer.delete(layerId);
+      this.appliedDefPaletteCacheByLayer.delete(layerId);
       return null;
     }
 
@@ -1113,6 +1115,7 @@ export class ColorCycleBrushCanvas2D {
       (animator as { setDefIdData: (data?: Uint16Array | null) => void }).setDefIdData(strokeData?.buffers.def);
     }
     const cache = this.getDefPaletteCache(layerId, defs);
+    const lastAppliedCache = this.appliedDefPaletteCacheByLayer.get(layerId) ?? null;
     if (typeof (animator as {
       setDefPaletteCache?: (cache?: {
         palettesById: Map<number, Uint32Array>;
@@ -1120,7 +1123,7 @@ export class ColorCycleBrushCanvas2D {
         signaturesById: Map<number, string>;
       } | null) => void;
     }).setDefPaletteCache === 'function') {
-      if (cache) {
+      if (cache && cache !== lastAppliedCache) {
         (animator as {
           setDefPaletteCache: (cache: {
             palettesById: Map<number, Uint32Array>;
@@ -1128,8 +1131,10 @@ export class ColorCycleBrushCanvas2D {
             signaturesById: Map<number, string>;
           }) => void;
         }).setDefPaletteCache(cache);
-      } else {
+        this.appliedDefPaletteCacheByLayer.set(layerId, cache);
+      } else if (!cache && lastAppliedCache !== null) {
         (animator as { setDefPaletteCache: (cache: null) => void }).setDefPaletteCache(null);
+        this.appliedDefPaletteCacheByLayer.set(layerId, null);
       }
     }
   }
@@ -2503,12 +2508,33 @@ export class ColorCycleBrushCanvas2D {
     if (!layer?.colorCycleData) {
       return;
     }
+    const existingBuffer = layer.colorCycleData.gradientDefIdBuffer;
+    if (existingBuffer === snapshot.gradientDefIdBuffer) {
+      return;
+    }
+    if (
+      existingBuffer &&
+      existingBuffer.byteLength === snapshot.gradientDefIdBuffer.byteLength
+    ) {
+      const existingView = new Uint8Array(existingBuffer);
+      const nextView = new Uint8Array(snapshot.gradientDefIdBuffer);
+      let differs = false;
+      for (let i = 0; i < existingView.length; i += 1) {
+        if (existingView[i] !== nextView[i]) {
+          differs = true;
+          break;
+        }
+      }
+      if (!differs) {
+        return;
+      }
+    }
     state.updateLayer(layerId, {
       colorCycleData: {
         ...layer.colorCycleData,
         gradientDefIdBuffer: snapshot.gradientDefIdBuffer,
       },
-    });
+    }, { skipColorCycleSync: true });
   }
 
   commitCommittedLayerState(options: CommitCommittedLayerStateOptions): void {
@@ -7311,6 +7337,7 @@ export class ColorCycleBrushCanvas2D {
     this.gradientSlotSignaturesByLayer.clear();
     this.activeGradientSlots.clear();
     this.defPaletteCacheByLayer.clear();
+    this.appliedDefPaletteCacheByLayer.clear();
     
     console.log('ColorCycleBrushCanvas2D disposed');
   }
