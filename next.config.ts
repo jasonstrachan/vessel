@@ -37,6 +37,7 @@ const nextConfig: NextConfig = {
           '**/.git',
           '**/.next',
           '**/.next-build',
+          '**/.next-preview',
           '**/dist',
           '**/build',
           '**/.turbo',
