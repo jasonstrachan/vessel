@@ -4,16 +4,19 @@ const { spawn, execSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 const net = require('net');
+const { createRuntimeLogger } = require('./runtime-logger.cjs');
 
 const CACHE_DIRS = ['.next', 'node_modules/.cache', '.turbo'];
 const MAX_RETRIES = 3;
 const RESTART_DELAY = 2000;
 const PORT = process.env.PORT || 3000;
 const PROJECT_ROOT = process.cwd();
+const logger = createRuntimeLogger('dev-server');
 
 let server = null;
 let retryCount = 0;
 let isShuttingDown = false;
+let stopWatchdog = null;
 
 function isPortAvailable(port) {
   return new Promise((resolve) => {
@@ -105,11 +108,11 @@ async function stopListeningPid(pid, port) {
 
 async function killPortProcess(port) {
   try {
-    console.log(`🔍 Checking for process on port ${port}...`);
+    logger.log(`Checking for process on port ${port}.`);
 
     const pids = readListeningPids(port);
     if (pids.length > 0) {
-      console.log(`⚠️  Found process(es) ${pids.join(', ')} on port ${port}.`);
+      logger.warn(`Found process(es) ${pids.join(', ')} on port ${port}.`);
       for (const p of pids) {
         const command = readCommandForPid(p);
         if (!isProjectProcess(p, command)) {
@@ -122,26 +125,26 @@ async function killPortProcess(port) {
             `Port ${port} is in use by a Vessel process that is not the managed dev server: ${command || p}`
           );
         }
-        console.log(`⚠️  Stopping Vessel dev listener ${p}: ${command || 'unknown command'}`);
+        logger.warn(`Stopping Vessel dev listener ${p}: ${command || 'unknown command'}`);
         await stopListeningPid(p, port);
       }
     }
   } catch (err) {
-    console.error(`❌ ${err.message}`);
+    logger.error(`Dev server startup aborted: ${err.message}`);
     process.exit(1);
   }
 }
 
 function cleanCache() {
-  console.log('🧹 Cleaning cache directories...');
+  logger.log('Cleaning cache directories.');
   CACHE_DIRS.forEach(dir => {
     const fullPath = path.join(process.cwd(), dir);
     if (fs.existsSync(fullPath)) {
       try {
         fs.rmSync(fullPath, { recursive: true, force: true });
-        console.log(`  ✓ Removed ${dir}`);
+        logger.log(`Removed ${dir}.`);
       } catch (err) {
-        console.log(`  ⚠ Could not remove ${dir}: ${err.message}`);
+        logger.warn(`Could not remove ${dir}: ${err.message}`);
       }
     }
   });
@@ -157,7 +160,7 @@ async function startServer(cleanFirst = false) {
   // Stop only this repo's existing listener on the requested port.
   await killPortProcess(PORT);
   
-  console.log(`🚀 Starting Next.js dev server on port ${PORT} (attempt ${retryCount + 1})...`);
+  logger.log(`Starting Next.js dev server on port ${PORT} (attempt ${retryCount + 1}).`);
   
   // Force memory cache and WSL2 optimizations
   const env = { 
@@ -169,15 +172,16 @@ async function startServer(cleanFirst = false) {
   };
   
   server = spawn('npm', ['run', 'dev:safe'], {
-    stdio: 'inherit',
+    stdio: ['inherit', 'pipe', 'pipe'],
     env,
     shell: true
   });
+  logger.attachChild(server, 'next-dev');
   
   server.on('exit', (code, signal) => {
     if (isShuttingDown) return;
     
-    console.log(`\n⚠️  Dev server exited with code ${code} (signal: ${signal})`);
+    logger.warn(`Dev server exited with code ${code} (signal: ${signal})`);
     
     // Only restart on actual failures (non-zero exit codes)
     // Code 0 means normal exit - don't restart
@@ -185,7 +189,7 @@ async function startServer(cleanFirst = false) {
       if (retryCount < MAX_RETRIES) {
         retryCount++;
         
-        console.log(`🔄 Auto-restarting in ${RESTART_DELAY/1000} seconds (attempt ${retryCount}/${MAX_RETRIES})...`);
+        logger.warn(`Auto-restarting in ${RESTART_DELAY/1000} seconds (attempt ${retryCount}/${MAX_RETRIES}).`);
         
         // Clean cache on every other retry
         const shouldClean = retryCount % 2 === 0;
@@ -194,7 +198,7 @@ async function startServer(cleanFirst = false) {
           startServer(shouldClean);
         }, RESTART_DELAY);
       } else {
-        console.log('❌ Max retries reached. Performing full cache clean and final attempt...');
+        logger.error('Max retries reached. Performing full cache clean and final attempt.');
         retryCount = 0;
         cleanCache();
         setTimeout(() => {
@@ -202,21 +206,22 @@ async function startServer(cleanFirst = false) {
         }, RESTART_DELAY);
       }
     } else if (code === 0) {
-      console.log('✅ Dev server exited normally');
+      logger.log('Dev server exited normally.');
       process.exit(0);
     }
   });
   
   server.on('error', (err) => {
-    console.error('❌ Failed to start server:', err);
+    logger.error('Failed to start dev child process', err);
     process.exit(1);
   });
 }
 
 // Handle graceful shutdown
 process.on('SIGINT', () => {
-  console.log('\n👋 Shutting down gracefully...');
+  logger.log('Shutting down gracefully after SIGINT.');
   isShuttingDown = true;
+  stopWatchdog?.();
   if (server) {
     server.kill('SIGTERM');
   }
@@ -226,7 +231,9 @@ process.on('SIGINT', () => {
 });
 
 process.on('SIGTERM', () => {
+  logger.log('Shutting down after SIGTERM.');
   isShuttingDown = true;
+  stopWatchdog?.();
   if (server) {
     server.kill('SIGTERM');
   }
@@ -249,8 +256,8 @@ let corruptionCheckInterval = setInterval(() => {
         fs.readdirSync(cacheDir);
       }
     } catch (err) {
-      console.log('\n⚠️  Detected cache corruption:', err.message);
-      console.log('🔄 Restarting with clean cache...');
+      logger.warn(`Detected cache corruption: ${err.message}`);
+      logger.warn('Restarting with clean cache.');
       
       if (server) {
         server.kill('SIGTERM');
@@ -269,6 +276,11 @@ const args = process.argv.slice(2);
 const monitorMode = args.includes('--monitor') || args.includes('-m');
 
 // Start the server
+logger.installProcessHandlers('dev-server');
+logger.log(`Runtime log file: ${logger.filePath}`);
+stopWatchdog = logger.startWatchdog({
+  getStatus: () => `port=${PORT} retryCount=${retryCount} childPid=${server?.pid ?? 'none'} shuttingDown=${isShuttingDown}`,
+});
 console.log('🎨 Vessel Development Server Manager');
 console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
 console.log('This wrapper provides:');
@@ -276,6 +288,7 @@ console.log('  • Auto-recovery from crashes');
 console.log('  • Cache corruption detection');
 console.log('  • Automatic cache cleaning');
 console.log('  • Memory-based caching for stability');
+console.log(`  • Persistent runtime logs at ${logger.filePath}`);
 if (monitorMode) {
   console.log('  • 👁️  MONITOR MODE - Watching existing server');
 }
@@ -283,7 +296,7 @@ console.log('━━━━━━━━━━━━━━━━━━━━━━�
 
 if (monitorMode) {
   // In monitor mode, just watch the port
-  console.log('📡 Monitoring mode activated...');
+  logger.log('Monitoring mode activated.');
   console.log('ℹ️  Watching for server on port', PORT);
   console.log('   (Server will be auto-started if it crashes)\n');
   
@@ -291,8 +304,7 @@ if (monitorMode) {
   let checkInterval = setInterval(async () => {
     const available = await isPortAvailable(PORT);
     if (available) {
-      console.log('\n⚠️  Server not detected on port', PORT);
-      console.log('🚀 Starting new server...\n');
+      logger.warn(`Server not detected on port ${PORT}. Starting new server.`);
       clearInterval(checkInterval);
       startServer(false);
     }

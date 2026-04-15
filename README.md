@@ -135,6 +135,8 @@ npm run preview
 
 `preview:prod` now uses a dedicated `.next-preview` output directory so it can be rebuilt and served without touching the dev server's `.next` state on port `3000`.
 `preview:prod:serve` also uses a per-repo lock file in the system temp directory, so a second preview server instance fails cleanly instead of competing for port `3001`.
+Runtime logs for dev and prod preview now persist under `logs/runtime/dev-server.log` and `logs/runtime/preview-server.log`, including child output, startup/shutdown events, and uncaught errors.
+Those logs also include periodic heartbeats and simple event-loop lag warnings, so a lockup that does not crash still leaves evidence in the log timeline.
 
 ### Security Checks
 - Production dependency audit (recommended gate): `npm run audit:prod`
