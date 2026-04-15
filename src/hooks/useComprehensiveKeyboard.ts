@@ -99,6 +99,7 @@ const selectSelectionRange = (state: AppState) => ({
 const selectFloatingPaste = (state: AppState) => state.floatingPaste;
 const selectPalette = (state: AppState) => state.palette;
 const selectCurrentBrushPresetId = (state: AppState) => state.currentBrushPreset?.id ?? null;
+const selectShapeDrawingActive = (state: AppState) => state.shapeState.isDrawing;
 
 const clampCcGradientColors = (value: number): number => {
   if (value < 1) return 1;
@@ -201,6 +202,7 @@ export function useComprehensiveKeyboard({
   const floatingPasteRef = useStoreSelectorRef(selectFloatingPaste);
   const paletteRef = useStoreSelectorRef(selectPalette);
   const currentBrushPresetIdRef = useStoreSelectorRef(selectCurrentBrushPresetId);
+  const shapeDrawingActiveRef = useStoreSelectorRef(selectShapeDrawingActive);
 
   // Use refs for stable callbacks to avoid re-registering event listeners
   const onSpacePressedRef = useRef(onSpacePressed);
@@ -524,6 +526,9 @@ export function useComprehensiveKeyboard({
       const direction: -1 | 1 = isBracketLeftEvent(event) ? -1 : 1;
       if (bracketTarget !== 'brush-size') {
         event.preventDefault();
+        if (shapeDrawingActiveRef.current) {
+          return;
+        }
         applyBracketShortcutStep(bracketTarget, direction);
         startBracketHold(bracketTarget, direction);
         return;
@@ -621,7 +626,7 @@ export function useComprehensiveKeyboard({
       copySelectionToClipboard,
       setFloatingPaste, setPaletteColor, swapPaletteColors,
       keyboardScopeRef, toolsRef, polygonGradientStateRef, selectionRangeRef,
-      floatingPasteRef, paletteRef, currentBrushPresetIdRef, startBracketHold, applyBracketShortcutStep,
+      floatingPasteRef, paletteRef, currentBrushPresetIdRef, shapeDrawingActiveRef, startBracketHold, applyBracketShortcutStep,
       applyBrushSizeDeltaForCurrentTool]);
 
   const handleKeyUp = useCallback(async (event: KeyboardEvent) => {

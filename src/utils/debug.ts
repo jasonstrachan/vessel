@@ -23,12 +23,26 @@ export type CrashReport = {
   breadcrumbs: Breadcrumb[];
 };
 
+export type HangReport = {
+  t: number;
+  type: 'hang';
+  href: string;
+  message: string;
+  userAgent?: string;
+  visibilityState?: string | null;
+  sessionId?: string | null;
+  lastBeatAt?: number | null;
+  gapMs?: number | null;
+  breadcrumbs: Breadcrumb[];
+};
+
 type DebugWindow = Window & {
   __TB_DEBUG?: DebugConfig;
   __TB_DEBUG_FORCE?: string | string[];
   __TB_DEBUG_EXCLUDE?: string | string[];
   __TB_BREADCRUMBS?: Breadcrumb[];
   __TB_LAST_CRASH__?: CrashReport;
+  __TB_LAST_HANG__?: HangReport;
 };
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -80,6 +94,43 @@ const normalizeCrashReport = (value: unknown): CrashReport | null => {
     message,
     stack: typeof value.stack === 'string' ? value.stack : null,
     userAgent: typeof value.userAgent === 'string' ? value.userAgent : undefined,
+    breadcrumbs,
+  };
+};
+
+const normalizeHangReport = (value: unknown): HangReport | null => {
+  if (!isRecord(value)) {
+    return null;
+  }
+
+  const t = typeof value.t === 'number' && Number.isFinite(value.t) ? value.t : null;
+  const type = value.type === 'hang' ? value.type : null;
+  const href = typeof value.href === 'string' ? value.href : null;
+  const message = typeof value.message === 'string' && value.message.trim().length > 0
+    ? value.message
+    : null;
+  if (t == null || type == null || href == null || message == null) {
+    return null;
+  }
+
+  const breadcrumbs = Array.isArray(value.breadcrumbs)
+    ? value.breadcrumbs
+        .map(normalizeBreadcrumb)
+        .filter((breadcrumb): breadcrumb is Breadcrumb => breadcrumb !== null)
+    : [];
+
+  return {
+    t,
+    type,
+    href,
+    message,
+    userAgent: typeof value.userAgent === 'string' ? value.userAgent : undefined,
+    visibilityState: typeof value.visibilityState === 'string' ? value.visibilityState : null,
+    sessionId: typeof value.sessionId === 'string' ? value.sessionId : null,
+    lastBeatAt: typeof value.lastBeatAt === 'number' && Number.isFinite(value.lastBeatAt)
+      ? value.lastBeatAt
+      : null,
+    gapMs: typeof value.gapMs === 'number' && Number.isFinite(value.gapMs) ? value.gapMs : null,
     breadcrumbs,
   };
 };
@@ -232,6 +283,8 @@ const BC_LS_KEY = 'TB_BREADCRUMBS';
 const BC_MAX = 200;
 const CRASH_LS_KEY = 'TB_LAST_CRASH';
 const CRASH_REPORTED_LS_KEY = 'TB_LAST_CRASH_REPORTED';
+const HANG_LS_KEY = 'TB_LAST_HANG';
+const HANG_REPORTED_LS_KEY = 'TB_LAST_HANG_REPORTED';
 
 export function recordBreadcrumb(scope: string, data: unknown) {
   if (!__DEV__) return; // Dev-only breadcrumbs
@@ -333,6 +386,77 @@ export function hasSeenCrashReport(report: CrashReport): boolean {
   try {
     const w = getDebugWindow();
     return w?.localStorage?.getItem(CRASH_REPORTED_LS_KEY) === String(report.t);
+  } catch {}
+  return false;
+}
+
+export function persistHangReport(
+  report: Omit<HangReport, 't' | 'href' | 'userAgent' | 'breadcrumbs' | 'type'> &
+    Partial<Pick<HangReport, 't' | 'href' | 'userAgent' | 'breadcrumbs' | 'visibilityState' | 'sessionId' | 'lastBeatAt' | 'gapMs'>>
+): HangReport | null {
+  try {
+    const w = getDebugWindow();
+    if (!w?.localStorage) {
+      return null;
+    }
+    const next: HangReport = {
+      t: report.t ?? Date.now(),
+      type: 'hang',
+      href: report.href ?? w.location.href,
+      message: report.message,
+      userAgent: report.userAgent ?? w.navigator.userAgent,
+      visibilityState: report.visibilityState ?? null,
+      sessionId: report.sessionId ?? null,
+      lastBeatAt: report.lastBeatAt ?? null,
+      gapMs: report.gapMs ?? null,
+      breadcrumbs: report.breadcrumbs ?? getPersistedBreadcrumbs(),
+    };
+    w.__TB_LAST_HANG__ = next;
+    w.localStorage.setItem(HANG_LS_KEY, JSON.stringify(next));
+    return next;
+  } catch {}
+  return null;
+}
+
+export function getLastHangReport(): HangReport | null {
+  try {
+    const w = getDebugWindow();
+    if (!w?.localStorage) {
+      return null;
+    }
+    if (w.__TB_LAST_HANG__) {
+      return normalizeHangReport(w.__TB_LAST_HANG__) ?? null;
+    }
+    const raw = w.localStorage.getItem(HANG_LS_KEY);
+    if (!raw) {
+      return null;
+    }
+    const parsed = normalizeHangReport(JSON.parse(raw));
+    if (!parsed) {
+      w.localStorage.removeItem(HANG_LS_KEY);
+      return null;
+    }
+    w.__TB_LAST_HANG__ = parsed;
+    return parsed;
+  } catch {
+    try {
+      getDebugWindow()?.localStorage?.removeItem(HANG_LS_KEY);
+    } catch {}
+  }
+  return null;
+}
+
+export function markHangReportSeen(report: HangReport): void {
+  try {
+    const w = getDebugWindow();
+    w?.localStorage?.setItem(HANG_REPORTED_LS_KEY, String(report.t));
+  } catch {}
+}
+
+export function hasSeenHangReport(report: HangReport): boolean {
+  try {
+    const w = getDebugWindow();
+    return w?.localStorage?.getItem(HANG_REPORTED_LS_KEY) === String(report.t);
   } catch {}
   return false;
 }
