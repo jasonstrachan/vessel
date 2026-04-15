@@ -13,6 +13,7 @@ import {
 
 export default function GlobalErrorHooks() {
   useEffect(() => {
+    const canPostRuntimeEvents = process.env.NODE_ENV === 'development';
     const clientId = (() => {
       try {
         const key = 'TB_RUNTIME_CLIENT_ID';
@@ -39,6 +40,9 @@ export default function GlobalErrorHooks() {
       lineno?: number | null;
       colno?: number | null;
     }) => {
+      if (!canPostRuntimeEvents) {
+        return;
+      }
       try {
         const body = JSON.stringify({
           ...payload,
