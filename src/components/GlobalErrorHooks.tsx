@@ -17,7 +17,21 @@ import {
 
 export default function GlobalErrorHooks() {
   useEffect(() => {
-    const canPostRuntimeEvents = process.env.NODE_ENV === 'development';
+    const canPostRuntimeEvents = (() => {
+      if (process.env.NODE_ENV === 'development') {
+        return true;
+      }
+
+      if (typeof window === 'undefined') {
+        return false;
+      }
+
+      const { protocol, hostname } = window.location;
+      return protocol === 'http:' && (
+        hostname === 'localhost' ||
+        hostname === '127.0.0.1'
+      );
+    })();
     const ACTIVE_SESSION_KEY = 'TB_ACTIVE_RUNTIME_SESSION';
     const HANG_GAP_MS = 4_000;
     const clientId = (() => {

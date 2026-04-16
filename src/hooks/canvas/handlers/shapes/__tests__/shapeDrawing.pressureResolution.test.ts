@@ -221,10 +221,6 @@ describe('shapeDrawing pressure-linked dither resolution', () => {
   });
 
   it('clears the transient cc shape overlay after finalize', () => {
-    expect(shouldKeepColorCycleShapeOverlayAfterFinalize({
-      brushShape: BrushShape.COLOR_CYCLE_SHAPE,
-      ditherEnabled: true,
-      gradientBands: 8,
-    } as BrushSettings)).toBe(false);
+    expect(shouldKeepColorCycleShapeOverlayAfterFinalize()).toBe(false);
   });
 });

@@ -112,6 +112,9 @@ const CACHE_HEADERS = {
   expires: '0',
 };
 
+const HEARTBEAT_GAP_MS = 15_000;
+const clientHeartbeatState = new Map();
+
 const stripLeadingSlash = (value) => value.replace(/^\/+/, '');
 
 const resolveLocalPath = (requestPath) => {
@@ -186,6 +189,127 @@ const log = (req, status, durationMs) => {
   logger.log(`HTTP ${req.socket.remoteAddress ?? '-'} ${method} ${pathName} -> ${status} in ${durationMs} ms`);
 };
 
+const asString = (value) => {
+  if (typeof value !== 'string') {
+    return null;
+  }
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+};
+
+const asFiniteNumber = (value) => (
+  typeof value === 'number' && Number.isFinite(value) ? value : null
+);
+
+const readJsonBody = async (req) => {
+  const chunks = [];
+  for await (const chunk of req) {
+    chunks.push(typeof chunk === 'string' ? Buffer.from(chunk) : chunk);
+  }
+
+  const raw = Buffer.concat(chunks).toString('utf8');
+  return raw.length > 0 ? JSON.parse(raw) : {};
+};
+
+const handleClientRuntimeEvent = async (req, res, start) => {
+  let payload;
+
+  try {
+    payload = await readJsonBody(req);
+  } catch {
+    send(res, 400, { 'content-type': 'application/json; charset=utf-8' }, JSON.stringify({
+      ok: false,
+      error: 'invalid-json',
+    }));
+    log(req, 400, Date.now() - start);
+    return;
+  }
+
+  const event = asString(payload?.event) ?? 'crash';
+  const clientId = asString(payload?.clientId) ?? 'unknown-client';
+  const href = asString(payload?.href);
+  const visibilityState = asString(payload?.visibilityState);
+  const userAgent = asString(payload?.userAgent);
+  const ts = asFiniteNumber(payload?.ts) ?? Date.now();
+
+  if (event === 'heartbeat') {
+    const now = Date.now();
+    const previous = clientHeartbeatState.get(clientId);
+    if (previous) {
+      const gapMs = now - previous.lastSeenAt;
+      if (gapMs > HEARTBEAT_GAP_MS) {
+        logger.warn('[client-runtime-gap]', {
+          clientId,
+          gapMs,
+          href,
+          previousHref: previous.lastHref,
+          visibilityState,
+          userAgent,
+        });
+      }
+    } else {
+      logger.log('[client-runtime-heartbeat-start]', {
+        clientId,
+        href,
+        visibilityState,
+        userAgent,
+      });
+    }
+
+    clientHeartbeatState.set(clientId, {
+      lastSeenAt: now,
+      lastHref: href,
+    });
+
+    send(res, 200, { 'content-type': 'application/json; charset=utf-8' }, JSON.stringify({ ok: true }));
+    log(req, 200, Date.now() - start);
+    return;
+  }
+
+  if (event === 'longtask') {
+    logger.warn('[client-runtime-longtask]', {
+      clientId,
+      durationMs: asFiniteNumber(payload?.durationMs),
+      href,
+      visibilityState,
+      ts,
+    });
+    send(res, 200, { 'content-type': 'application/json; charset=utf-8' }, JSON.stringify({ ok: true }));
+    log(req, 200, Date.now() - start);
+    return;
+  }
+
+  if (event === 'lag') {
+    logger.warn('[client-runtime-lag]', {
+      clientId,
+      lagMs: asFiniteNumber(payload?.lagMs),
+      href,
+      visibilityState,
+      ts,
+    });
+    send(res, 200, { 'content-type': 'application/json; charset=utf-8' }, JSON.stringify({ ok: true }));
+    log(req, 200, Date.now() - start);
+    return;
+  }
+
+  logger.error('[client-runtime-error]', {
+    clientId,
+    type: payload?.type === 'unhandledrejection' ? 'unhandledrejection' : 'error',
+    message: asString(payload?.message) ?? 'Unknown client runtime error',
+    href,
+    filename: asString(payload?.filename),
+    lineno: asFiniteNumber(payload?.lineno),
+    colno: asFiniteNumber(payload?.colno),
+    userAgent,
+    visibilityState,
+    ts,
+    stack: asString(payload?.stack),
+    breadcrumbs: Array.isArray(payload?.breadcrumbs) ? payload.breadcrumbs.slice(-20) : [],
+  });
+  send(res, 200, { 'content-type': 'application/json; charset=utf-8' }, JSON.stringify({ ok: true }));
+  log(req, 200, Date.now() - start);
+};
+
 const server = http.createServer(async (req, res) => {
   const start = Date.now();
 
@@ -196,6 +320,12 @@ const server = http.createServer(async (req, res) => {
   }
 
   const { pathname } = new url.URL(req.url, 'http://localhost');
+
+  if (pathname === '/api/client-error' && req.method === 'POST') {
+    await handleClientRuntimeEvent(req, res, start);
+    return;
+  }
+
   const localPath = resolveLocalPath(pathname);
   const absolutePath = resolveAbsolutePath(outDir, localPath);
 

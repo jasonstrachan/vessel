@@ -986,7 +986,7 @@ export const finalizeShapeDrawing = async (
               deps.latestShapePixelSizeRef.current = pixelSize;
               ditherPixelSize = pixelSize;
             }
-            const keepOverlayAfter = shouldKeepColorCycleShapeOverlayAfterFinalize(activeSettings);
+            const keepOverlayAfter = shouldKeepColorCycleShapeOverlayAfterFinalize();
             const session = finalizeMarkGradientSession(shapeLayerIdString)
               ?? (activeLayer
                 ? buildFallbackMarkSession(activeLayer, deps.storeRef.current, 'linear')
@@ -1165,7 +1165,7 @@ export const finalizeShapeDrawing = async (
                   deps.latestShapePixelSizeRef.current = pixelSize;
                   ditherPixelSize = pixelSize;
                 }
-                const keepOverlayAfter = shouldKeepColorCycleShapeOverlayAfterFinalize(liveBrushSettings);
+                const keepOverlayAfter = shouldKeepColorCycleShapeOverlayAfterFinalize();
                 const session = finalizeMarkGradientSession(shapeLayerIdString)
                   ?? (activeLayer
                     ? buildFallbackMarkSession(activeLayer, deps.storeRef.current, fillMode)
