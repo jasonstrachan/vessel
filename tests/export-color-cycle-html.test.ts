@@ -2,6 +2,7 @@ import { exportProjectAsWebGL } from '@/utils/export/webglExporter';
 import { createDefaultLayerAlignment, createDefaultExportLayout } from '@/utils/layoutDefaults';
 import { buildForegroundDerivedGradientSpec, deriveForegroundGradientStops } from '@/utils/colorCycleGradients';
 import { FLOW_SLOT_MASK } from '@/lib/colorCycle/flowEncoding';
+import { useAppStore } from '@/stores/useAppStore';
 import { hashStops } from '@/utils/colorCycleGradientDefs';
 import { BrushShape, type Layer, type Project } from '@/types';
 
@@ -579,6 +580,7 @@ describe('exportProjectAsWebGL color cycle integration', () => {
     });
 
     expect(metadata.settings.displayFilters).toEqual(project.viewState.displayFilters);
+    expect(metadata.settings.transparencyBackgroundMode).toBe(useAppStore.getState().canvas.transparencyBackgroundMode);
   });
 
   it('exports sequential layer frame textures for Goblet playback', async () => {

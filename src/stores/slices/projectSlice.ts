@@ -992,6 +992,7 @@ export const createProjectSlice =
         enableGobletDiagnostics: process.env.NEXT_PUBLIC_VESSEL_GOBLET_DEBUG === 'true',
         htmlTitle: 'Goblet',
         htmlBackgroundColor: '#000000',
+        transparencyBackgroundMode: 'checker',
         viewportPreset: 'default',
         designScalePercent: 100,
       },

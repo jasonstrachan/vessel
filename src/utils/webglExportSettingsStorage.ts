@@ -82,6 +82,15 @@ const sanitizeHtmlBackgroundColor = (value: unknown): string | undefined => {
   return trimmed.toLowerCase();
 };
 
+const sanitizeTransparencyBackgroundMode = (
+  value: unknown,
+): WebGLExportSettings['transparencyBackgroundMode'] | undefined => {
+  if (value === 'checker' || value === 'gray') {
+    return value;
+  }
+  return undefined;
+};
+
 const sanitizeWebglExportSettings = (value: unknown): Partial<WebGLExportSettings> => {
   if (!value || typeof value !== 'object') {
     return {};
@@ -130,6 +139,11 @@ const sanitizeWebglExportSettings = (value: unknown): Partial<WebGLExportSetting
   const htmlBackgroundColor = sanitizeHtmlBackgroundColor(record.htmlBackgroundColor);
   if (htmlBackgroundColor) {
     sanitized.htmlBackgroundColor = htmlBackgroundColor;
+  }
+
+  const transparencyBackgroundMode = sanitizeTransparencyBackgroundMode(record.transparencyBackgroundMode);
+  if (transparencyBackgroundMode) {
+    sanitized.transparencyBackgroundMode = transparencyBackgroundMode;
   }
 
   return sanitized;

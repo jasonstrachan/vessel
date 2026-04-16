@@ -34,6 +34,7 @@ const sampleSettings: WebGLExportSettings = {
   enableGobletDiagnostics: false,
   htmlTitle: 'Goblet',
   htmlBackgroundColor: '#123456',
+  transparencyBackgroundMode: 'checker',
   viewportPreset: 'default',
   designScalePercent: 150,
 };
@@ -71,6 +72,7 @@ describe('webglExportSettingsStorage', () => {
       enableGobletDiagnostics: true,
       htmlTitle: '  My Title  ',
       htmlBackgroundColor: '#ABC',
+      transparencyBackgroundMode: 'gray',
       viewportPreset: 'embed-fill',
       designScalePercent: 820,
       ignoredField: 'x',
@@ -85,6 +87,7 @@ describe('webglExportSettingsStorage', () => {
       enableGobletDiagnostics: true,
       htmlTitle: 'My Title',
       htmlBackgroundColor: '#abc',
+      transparencyBackgroundMode: 'gray',
       viewportPreset: 'embed-fill',
       designScalePercent: 800,
     });

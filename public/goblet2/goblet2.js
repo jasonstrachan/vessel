@@ -1458,12 +1458,65 @@ const PROPERTY_UNMINIFY_MAP = {
   ihl: 'includeHiddenLayers',
   ecf: 'embedCanvasFallback',
   mo: 'minifyOutput',
+  tbm: 'transparencyBackgroundMode',
   plp: 'perfectLoop',
   fps: 'fps',
   tfm: 'totalFrames',
   ds: 'durationSeconds',
   pm: 'phaseMap',
   sq: 'sequential'
+};
+
+const GOBLET_TRANSPARENCY_GRAY = '#5a5a5f';
+const GOBLET_CHECKER_LIGHT = '#2a2a2e';
+const GOBLET_CHECKER_DARK = '#1c1c1f';
+
+const hasRenderableBackgroundColor = (value) => {
+  if (typeof value !== 'string') {
+    return false;
+  }
+  const normalized = value.trim().toLowerCase();
+  return normalized !== '' && normalized !== 'transparent' && normalized !== '#00000000';
+};
+
+const paintGobletBackground = (ctx, width, height, metadata) => {
+  if (!ctx || width <= 0 || height <= 0) {
+    return;
+  }
+
+  const backgroundColor = metadata?.project?.backgroundColor;
+  if (hasRenderableBackgroundColor(backgroundColor)) {
+    ctx.fillStyle = rgbaToCss(parseColor(backgroundColor));
+    ctx.fillRect(0, 0, width, height);
+    return;
+  }
+
+  const transparencyMode = metadata?.settings?.transparencyBackgroundMode === 'gray' ? 'gray' : 'checker';
+  if (transparencyMode === 'gray') {
+    ctx.fillStyle = GOBLET_TRANSPARENCY_GRAY;
+    ctx.fillRect(0, 0, width, height);
+    return;
+  }
+
+  const checkerSize = 10;
+  ctx.fillStyle = GOBLET_CHECKER_LIGHT;
+  ctx.fillRect(0, 0, width, height);
+  ctx.fillStyle = GOBLET_CHECKER_DARK;
+  for (let x = 0; x < width; x += checkerSize * 2) {
+    for (let y = 0; y < height; y += checkerSize * 2) {
+      ctx.fillRect(x, y, Math.min(checkerSize, width - x), Math.min(checkerSize, height - y));
+      const shiftedX = x + checkerSize;
+      const shiftedY = y + checkerSize;
+      if (shiftedX < width && shiftedY < height) {
+        ctx.fillRect(
+          shiftedX,
+          shiftedY,
+          Math.min(checkerSize, width - shiftedX),
+          Math.min(checkerSize, height - shiftedY),
+        );
+      }
+    }
+  }
 };
 
 const expandMinifiedProperties = (value) => {
@@ -4811,10 +4864,7 @@ class VesselGoblet {
     ctx.globalAlpha = 1;
     ctx.clearRect(0, 0, clearWidth, clearHeight);
 
-    if (this.metadata.project?.backgroundColor) {
-      ctx.fillStyle = rgbaToCss(parseColor(this.metadata.project.backgroundColor));
-      ctx.fillRect(0, 0, clearWidth, clearHeight);
-    }
+    paintGobletBackground(ctx, clearWidth, clearHeight, this.metadata);
 
     const documentSize = {
       width: Math.max(1, toNum(this.metadata.project?.width, cssW)),
@@ -4831,6 +4881,9 @@ class VesselGoblet {
       : null;
     const filterCtx = shouldFilterArtwork ? clearDisplayFilterCanvas(filterSurfaceCanvas) : null;
     this.displayFilterState.filterSurfaceCanvas = filterSurfaceCanvas;
+    if (filterCtx) {
+      paintGobletBackground(filterCtx, documentSize.width, documentSize.height, this.metadata);
+    }
     const renderCtx = filterCtx ?? ctx;
 
     const sorted = [...this.layerEntries];
@@ -4985,7 +5038,7 @@ class VesselGoblet {
 
       // log removed
 
-      const directFixedPlacement = isFixed && !shouldFilterArtwork && entry.layer.documentBoundsPx
+      const directFixedPlacement = isFixed && entry.layer.documentBoundsPx
         ? (() => {
             const docRect = entry.layer.documentBoundsPx;
             const scaleX = viewportSize.width / Math.max(1, documentSize.width);
@@ -5088,10 +5141,22 @@ class VesselGoblet {
         clearWidth,
         clearHeight,
       );
+      const filterLengthScale = Math.max(
+        Math.abs(documentViewportMapping.scaleX) || 0,
+        Math.abs(documentViewportMapping.scaleY) || 0,
+        1e-4,
+      );
       const finalFilteredCanvas = applyDisplayFilterStack({
         sourceCanvas: filterSurfaceCanvas,
         displayFilters,
         filterState: this.displayFilterState,
+        visibleRect: {
+          x: 0,
+          y: 0,
+          width: documentSize.width,
+          height: documentSize.height,
+        },
+        lengthScale: filterLengthScale,
       });
       ctx.drawImage(
         finalFilteredCanvas,

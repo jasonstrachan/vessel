@@ -23,6 +23,12 @@ describe('Goblet display filter runtime parity', () => {
     expect(runtime).toContain('this.displayFilterState = createDisplayFilterPipelineState();');
     expect(runtime).toContain('const computeDocumentViewportMapping = (metadata, canvasWidth, canvasHeight) => {');
     expect(runtime).toContain('documentSize.width * documentViewportMapping.scaleX');
+    expect(runtime).toContain('const filterLengthScale = Math.max(');
+    expect(runtime).toContain("const transparencyMode = metadata?.settings?.transparencyBackgroundMode === 'gray' ? 'gray' : 'checker';");
+    expect(runtime).toContain('paintGobletBackground(ctx, clearWidth, clearHeight, this.metadata);');
+    expect(runtime).toContain('paintGobletBackground(filterCtx, documentSize.width, documentSize.height, this.metadata);');
+    expect(runtime).toContain('visibleRect: {');
+    expect(runtime).toContain('lengthScale: filterLengthScale');
     expect(runtime).toContain('const finalFilteredCanvas = applyDisplayFilterStack({');
   });
 
@@ -34,6 +40,12 @@ describe('Goblet display filter runtime parity', () => {
     expect(runtime).toContain('this.displayFilterState = createDisplayFilterPipelineState();');
     expect(runtime).toContain('const computeDocumentViewportMapping = (metadata, canvasWidth, canvasHeight) => {');
     expect(runtime).toContain('documentSize.width * documentViewportMapping.scaleX');
+    expect(runtime).toContain('const filterLengthScale = Math.max(');
+    expect(runtime).toContain("const transparencyMode = metadata?.settings?.transparencyBackgroundMode === 'gray' ? 'gray' : 'checker';");
+    expect(runtime).toContain('paintGobletBackground(ctx, clearWidth, clearHeight, this.metadata);');
+    expect(runtime).toContain('paintGobletBackground(filterCtx, documentSize.width, documentSize.height, this.metadata);');
+    expect(runtime).toContain('visibleRect: {');
+    expect(runtime).toContain('lengthScale: filterLengthScale');
     expect(runtime).toContain('const finalFilteredCanvas = applyDisplayFilterStack({');
   });
 

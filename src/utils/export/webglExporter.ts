@@ -282,6 +282,7 @@ const PROPERTY_MINIFY_MAP = {
   minifyOutput: 'mo',
   htmlTitle: 'htl',
   htmlBackgroundColor: 'hbc',
+  transparencyBackgroundMode: 'tbm',
   perfectLoop: 'plp',
   fps: 'fps',
   totalFrames: 'tfm',
@@ -491,6 +492,7 @@ export interface WebGLExportMetadata {
     viewportPreset?: 'default' | 'embed-fill' | 'embed-fit' | 'fixed';
     htmlTitle: string;
     htmlBackgroundColor: string;
+    transparencyBackgroundMode: 'checker' | 'gray';
   };
   layers: WebGLLayerMetadata[];
   gradients?: SerializedGradientStops[];
@@ -534,6 +536,7 @@ export interface WebGLExportRequest {
   compositeLayersToCanvasSync?: (targetCanvas: HTMLCanvasElement) => boolean;
   htmlTitle?: string;
   htmlBackgroundColor?: string;
+  transparencyBackgroundMode?: 'checker' | 'gray';
   viewportPreset?: 'default' | 'embed-fill' | 'embed-fit' | 'fixed';
 }
 
@@ -4907,6 +4910,10 @@ export const exportProjectAsWebGL = async (
   }
 
   const bundleFormat: WebGLExportBundleFormat = options.bundleFormat ?? 'zip';
+  const transparencyBackgroundMode =
+    options.transparencyBackgroundMode
+    ?? useAppStore.getState().canvas.transparencyBackgroundMode
+    ?? 'checker';
   const displayFilters = cloneDisplayFilters(
     options.project.viewState?.displayFilters ?? useAppStore.getState().canvas.displayFilters ?? []
   );
@@ -4947,7 +4954,8 @@ export const exportProjectAsWebGL = async (
       displayFilters,
       viewportPreset: options.viewportPreset,
       htmlTitle: resolvedHtmlTitle,
-      htmlBackgroundColor: resolvedHtmlBackgroundColor
+      htmlBackgroundColor: resolvedHtmlBackgroundColor,
+      transparencyBackgroundMode,
     },
     layers: metadataLayers
   };
