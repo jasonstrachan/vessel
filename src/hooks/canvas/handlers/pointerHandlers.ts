@@ -2475,8 +2475,10 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
       shiftAnchorWorldPosRef.current = event.shiftKey ? worldPos : null;
       // quiet
 
-      interaction.dispatch({ type: 'DRAWING_START', pressure });
-      drawingHandlers.startShapeDrawing(worldPos, pressure);
+      const didStart = drawingHandlers.startShapeDrawing(worldPos, pressure);
+      if (didStart) {
+        interaction.dispatch({ type: 'DRAWING_START', pressure });
+      }
       return;
     }
     
@@ -2863,10 +2865,13 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
         !toolStateMachine.isColorCycleShape &&
         !toolStateMachine.isContourPolygon
       ) {
-        interaction.dispatch({ type: 'DRAWING_START', pressure });
         if (tools.shapeMode && tools.currentTool === 'brush') {
-          drawingHandlers.startShapeDrawing(worldPos, pressure);
+          const didStart = drawingHandlers.startShapeDrawing(worldPos, pressure);
+          if (didStart) {
+            interaction.dispatch({ type: 'DRAWING_START', pressure });
+          }
         } else {
+          interaction.dispatch({ type: 'DRAWING_START', pressure });
           const brushPresetId = getDynamicDeps().currentBrushPresetId;
           drawingHandlers.beginStrokeSession({
             pointerId: event.pointerId,
