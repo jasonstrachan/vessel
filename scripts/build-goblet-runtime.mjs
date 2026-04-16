@@ -83,7 +83,23 @@ const buildInlineDisplayFilterRuntime = (pipelineJs) => {
     .replace(/export\s+default\s+[^;\n]+;?/g, '')
     .replace(/export\s+\{[^}]*\};?/g, '')
     .trim();
-  return sanitized ? `${sanitized}\n` : '';
+  if (!sanitized) {
+    return '';
+  }
+
+  const exports = [
+    'getSeamlessNoisePatternSize',
+    'createTileableNoiseGrid',
+    'createDisplayFilterPipelineState',
+    'getNextFilterWorkCanvas',
+    'ensureDisplayFilterCanvas',
+    'clearDisplayFilterCanvas',
+    'getDisplayFilterByIdFromList',
+    'hasEnabledDisplayFiltersInList',
+    'applyDisplayFilterStack',
+  ];
+  const exportList = exports.join(', ');
+  return `const { ${exportList} } = (() => {\n${sanitized}\nreturn { ${exportList} };\n})();`;
 };
 
 const sanitizeGobletRuntime = (gobletJs) => {
