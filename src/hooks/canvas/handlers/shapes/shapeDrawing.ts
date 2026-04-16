@@ -207,6 +207,20 @@ const shouldKeepColorCycleShapeOverlayAfterFinalize = (): boolean => {
   return false;
 };
 
+const canStartShapeDrawing = ({
+  isBusyRef,
+  finalizeQueueRef,
+}: {
+  isBusyRef?: React.MutableRefObject<boolean> | null;
+  finalizeQueueRef: React.MutableRefObject<FinalizeQueue>;
+}): boolean => {
+  if (isBusyRef?.current) {
+    return false;
+  }
+
+  return !finalizeQueueRef.current.isBusy();
+};
+
 type ShapeDrawingDeps = {
   storeRef: React.MutableRefObject<AppState>;
   toolsRef: React.MutableRefObject<AppState['tools']>;
@@ -458,7 +472,16 @@ export const startShapeDrawing = (
     renderPreview?: boolean;
   },
   deps: ShapeDrawingDeps
-): void => {
+): boolean => {
+  if (
+    !canStartShapeDrawing({
+      isBusyRef: deps.isBusyRef,
+      finalizeQueueRef: args.refs.finalizeQueueRef,
+    })
+  ) {
+    return false;
+  }
+
   const { worldPos, pressure = 0, timestamp, rawPressure, shapeMode, refs } = args;
   const drawPos = resolveDitherGridSnapPoint(worldPos, deps.storeRef.current, pressure);
   const renderPreview = args.renderPreview !== false;
@@ -475,7 +498,7 @@ export const startShapeDrawing = (
   deps.updateShapePressure(effectivePressure, timestamp, rawVal);
   if (refs.isSelectingDirectionRef.current) {
     refs.directionPreviewRef.current = drawPos;
-    return;
+    return true;
   }
 
   try {
@@ -679,6 +702,8 @@ export const startShapeDrawing = (
   } else {
     deps.startDrawing(drawPos, pressure);
   }
+
+  return true;
 };
 
 export const continueShapeDrawing = (
@@ -1341,4 +1366,5 @@ export const __TESTING__ = {
   normalizeSnappedShapePoints,
   shouldUseSimpleShapePreview,
   shouldKeepColorCycleShapeOverlayAfterFinalize,
+  canStartShapeDrawing,
 };

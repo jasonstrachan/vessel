@@ -11,6 +11,7 @@ describe('shapeDrawing pressure-linked dither resolution', () => {
     normalizeSnappedShapePoints,
     shouldUseSimpleShapePreview,
     shouldKeepColorCycleShapeOverlayAfterFinalize,
+    canStartShapeDrawing,
   } = __TESTING__;
 
   it('uses pressure-linked resolution when pressure is valid', () => {
@@ -218,6 +219,38 @@ describe('shapeDrawing pressure-linked dither resolution', () => {
     expect(shouldUseSimpleShapePreview(ccDitherLinearState)).toBe(false);
     expect(shouldUseSimpleShapePreview(ccNonDitherState)).toBe(true);
     expect(shouldUseSimpleShapePreview(ccConcentricDitherState)).toBe(false);
+  });
+
+  it('blocks starting a new shape while finalize work is queued', () => {
+    const finalizeQueueRef = {
+      current: {
+        isBusy: () => true,
+      },
+    } as unknown as Parameters<typeof canStartShapeDrawing>[0]['finalizeQueueRef'];
+
+    expect(canStartShapeDrawing({ finalizeQueueRef })).toBe(false);
+  });
+
+  it('blocks starting a new shape while the drawing handlers are busy', () => {
+    const finalizeQueueRef = {
+      current: {
+        isBusy: () => false,
+      },
+    } as unknown as Parameters<typeof canStartShapeDrawing>[0]['finalizeQueueRef'];
+    const isBusyRef = { current: true };
+
+    expect(canStartShapeDrawing({ isBusyRef, finalizeQueueRef })).toBe(false);
+  });
+
+  it('allows starting a new shape when no finalize work is pending', () => {
+    const finalizeQueueRef = {
+      current: {
+        isBusy: () => false,
+      },
+    } as unknown as Parameters<typeof canStartShapeDrawing>[0]['finalizeQueueRef'];
+    const isBusyRef = { current: false };
+
+    expect(canStartShapeDrawing({ isBusyRef, finalizeQueueRef })).toBe(true);
   });
 
   it('clears the transient cc shape overlay after finalize', () => {
