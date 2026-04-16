@@ -59,6 +59,7 @@ const storeState = {
   setStrokeInProgress: jest.fn(),
   setStrokeBounds: jest.fn(),
   setColorCycleRuntimeHandlers: jest.fn(),
+  setShapeDrawing: jest.fn(),
 };
 
 const baseBrushSettings = { ...storeState.tools.brushSettings };
@@ -66,6 +67,7 @@ const baseToolsState = { ...storeState.tools, brushSettings: baseBrushSettings }
 const resetStoreState = () => {
   storeState.tools = { ...baseToolsState, brushSettings: { ...baseBrushSettings } };
   storeState.setBrushSettings.mockClear();
+  storeState.setShapeDrawing.mockClear();
 };
 
 jest.mock('@/stores/useAppStore', () => {

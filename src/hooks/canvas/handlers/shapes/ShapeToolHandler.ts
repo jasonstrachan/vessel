@@ -2680,14 +2680,16 @@ export const createShapeToolHandler = (
           retryStore.cancelShapeFillSession();
           resetShapeFillHistoryContext();
           clearCurrentPreview();
-          interaction.dispatch({ type: 'DRAWING_START' });
-          drawingHandlers.startShapeDrawing(
+          const didStart = drawingHandlers.startShapeDrawing(
             fallbackWorldPos,
             fallbackPressure,
             undefined,
             undefined,
             { renderPreview: false }
           );
+          if (didStart) {
+            interaction.dispatch({ type: 'DRAWING_START' });
+          }
         };
 
         if (session.stage === FillStage.AdjustingParam) {
@@ -2738,21 +2740,22 @@ export const createShapeToolHandler = (
     if (isShapeFill) {
       useAppStore.getState().cancelShapeFillSession();
       clearCurrentPreview();
-      interaction.dispatch({ type: 'DRAWING_START' });
-      drawingHandlers.startShapeDrawing(
+      const didStart = drawingHandlers.startShapeDrawing(
         worldPos,
         pressure,
         undefined,
         undefined,
         { renderPreview: false }
       );
+      if (didStart) {
+        interaction.dispatch({ type: 'DRAWING_START' });
+      }
       return true;
     }
 
     if (isCCShape) {
       resetDitherGradOrigin();
       drawingHandlers.stopContinuousColorCycleAnimation?.('shape-tool-start');
-      interaction.dispatch({ type: 'DRAWING_START' });
       const storeNow = useAppStore.getState();
       const brushNow = storeNow.tools.brushSettings;
       const isCCLinear = brushNow.colorCycleFillMode === 'linear';
@@ -2768,9 +2771,12 @@ export const createShapeToolHandler = (
         shouldDitherPreview,
         renderPreview: !suppressCCPreview,
       });
-      drawingHandlers.startShapeDrawing(worldPos, pressure, undefined, undefined, {
+      const didStart = drawingHandlers.startShapeDrawing(worldPos, pressure, undefined, undefined, {
         renderPreview: !suppressCCPreview,
       });
+      if (didStart) {
+        interaction.dispatch({ type: 'DRAWING_START' });
+      }
       return true;
     }
 

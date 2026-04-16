@@ -54,6 +54,7 @@ const createDeps = () => {
       resetShapePressureState: jest.fn(),
       updateShapePressure: jest.fn(),
       startShapeDrawing: jest.fn(),
+      stopContinuousColorCycleAnimation: jest.fn(),
       continueShapeDrawing: jest.fn(),
       drawingCanvasRef: { current: null },
       drawingCanvasHasContent: { current: false },
@@ -74,6 +75,7 @@ const createDeps = () => {
     setNeedsRedraw: jest.fn(),
     viewTransformRef: { current: { scale: 1, offsetX: 0, offsetY: 0 } },
     sampleColorAtPosition: jest.fn(() => '#000000'),
+    dynamicDepsRef: { current: { currentBrushPresetId: 'color-cycle-gradient' } },
     previewAnimationFrameRef: { current: null },
     layers: [],
     activeLayerId: null,
@@ -84,6 +86,7 @@ const createDeps = () => {
 
 describe('ShapeToolHandler dither gradient sampling', () => {
   beforeEach(() => {
+    storeState.tools.brushSettings.brushShape = BrushShape.DITHER_GRADIENT;
     storeState.polygonGradientState = { drawingState: 'idle', points: [] };
     storeState.setPolygonGradientState.mockClear();
   });
@@ -208,5 +211,41 @@ describe('ShapeToolHandler dither gradient sampling', () => {
     handler.handlePointerMove(moveEvent);
 
     expect(deps.drawingHandlers.updateDitherGradSamples).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not enter drawing state when cc shape start is rejected', () => {
+    storeState.tools.brushSettings.brushShape = BrushShape.COLOR_CYCLE_SHAPE;
+    const deps = createDeps();
+    deps.layers = [{ id: 'cc-layer', layerType: 'color-cycle' }];
+    deps.activeLayerId = 'cc-layer';
+    deps.drawingHandlers.startShapeDrawing.mockReturnValue(false);
+
+    const handler = createShapeToolHandler(
+      {
+        deps,
+        overlayPreviewFrameMs: 16,
+        getLastOverlayPreviewTs: () => 0,
+        setLastOverlayPreviewTs: jest.fn(),
+      },
+      {}
+    );
+
+    const event = {
+      button: 0,
+      clientX: 10,
+      clientY: 15,
+      pointerType: 'mouse',
+      pressure: 0.5,
+      shiftKey: false,
+      ctrlKey: false,
+      preventDefault: jest.fn(),
+      stopPropagation: jest.fn(),
+      target: deps.canvasRef.current,
+    } as any;
+
+    handler.handlePointerDown(event);
+
+    expect(deps.drawingHandlers.startShapeDrawing).toHaveBeenCalled();
+    expect(deps.interaction.dispatch).not.toHaveBeenCalledWith({ type: 'DRAWING_START' });
   });
 });
