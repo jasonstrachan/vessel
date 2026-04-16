@@ -1,6 +1,7 @@
 import {
   commitColorCycleLayerStroke,
   commitRasterOverlay,
+  scheduleDeferredColorCycleSaveWithState,
 } from '@/hooks/canvas/handlers/colorCycle/colorCycleCommit';
 import { TEMP_SAMPLE_SLOT } from '@/constants/colorCycle';
 import { setOverlaySeededFromLayer } from '@/hooks/canvas/utils/overlaySeedState';
@@ -329,5 +330,45 @@ describe('commitRasterOverlay', () => {
     expect(setCcGradientSampleCount).toHaveBeenCalledWith(0);
 
     getStateSpy.mockRestore();
+  });
+});
+
+describe('scheduleDeferredColorCycleSaveWithState', () => {
+  it('defers after-state serialization to the deferred save pipeline', async () => {
+    const scheduleDeferredColorCycleSave = jest.fn(async () => undefined);
+    const captureColorCycleBrushState = jest.fn(() => null);
+
+    const canvas = document.createElement('canvas');
+    canvas.width = 2;
+    canvas.height = 2;
+
+    await scheduleDeferredColorCycleSaveWithState(
+      {
+        layerId: 'layer-1',
+        canvas,
+        beforeColorState: null,
+        actionType: 'fill',
+        description: 'CC Shape Linear',
+        tool: 'brush',
+      },
+      {
+        scheduleDeferredColorCycleSave,
+        captureColorCycleBrushState,
+        perfMark: jest.fn(),
+        perfMeasure: jest.fn(),
+        debugTime: jest.fn(),
+        debugTimeEnd: jest.fn(),
+      }
+    );
+
+    expect(captureColorCycleBrushState).not.toHaveBeenCalled();
+    expect(scheduleDeferredColorCycleSave).toHaveBeenCalledWith(
+      expect.objectContaining({
+        layerId: 'layer-1',
+        afterColorState: null,
+        actionType: 'fill',
+        description: 'CC Shape Linear',
+      })
+    );
   });
 });

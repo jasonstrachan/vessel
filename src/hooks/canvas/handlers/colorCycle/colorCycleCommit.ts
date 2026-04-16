@@ -350,26 +350,13 @@ export const scheduleDeferredColorCycleSaveWithState = async (
   args: DeferredSaveWithStateArgs,
   deps: DeferredSaveWithStateDeps
 ): Promise<void> => {
-  deps.perfMark('cc:state-serialize-after:start');
-  deps.debugTime('cc:state-serialize-after');
-  let afterColorState: ColorCycleSerializedState | null = null;
-  try {
-    afterColorState = deps.captureColorCycleBrushState(args.layerId);
-  } finally {
-    deps.debugTimeEnd('cc:state-serialize-after');
-    deps.perfMark('cc:state-serialize-after:end');
-    deps.perfMeasure(
-      'cc:state-serialize-after',
-      'cc:state-serialize-after:start',
-      'cc:state-serialize-after:end'
-    );
-  }
-
   await deps.scheduleDeferredColorCycleSave({
     layerId: args.layerId,
     canvas: args.canvas,
     beforeColorState: args.beforeColorState,
-    afterColorState,
+    // Shape finalize can burst heavily. Let the deferred save pipeline capture
+    // the after-state in its idle stage instead of serializing synchronously here.
+    afterColorState: null,
     actionType: args.actionType,
     description: args.description,
     tool: args.tool,
