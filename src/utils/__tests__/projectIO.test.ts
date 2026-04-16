@@ -1107,6 +1107,79 @@ describe('projectIO serialize/deserialize layering', () => {
     );
   });
 
+  it('skips oversized color-cycle brushState restore when persisted gradient buffers can seed runtime', async () => {
+    const width = 3;
+    const height = 3;
+    const colorCycleCanvas = document.createElement('canvas');
+    colorCycleCanvas.width = width;
+    colorCycleCanvas.height = height;
+    const gradientIds = new Uint8Array(width * height);
+    gradientIds[2] = 5;
+    gradientIds[7] = 9;
+    const oversizedBase64 = 'A'.repeat(33 * 1024 * 1024);
+
+    const layer: Layer = {
+      id: 'layer-cc-oversized-brush-state',
+      name: 'CC Oversized Brush State',
+      visible: true,
+      opacity: 1,
+      blendMode: 'source-over',
+      locked: false,
+      transparencyLocked: false,
+      order: 0,
+      imageData: null,
+      framebuffer: createCanvasFromImageData(createSolidImageData(width, height, [0, 0, 0, 0])),
+      alignment: createDefaultLayerAlignment(),
+      layerType: 'color-cycle',
+      version: 1,
+      colorCycleData: {
+        canvas: colorCycleCanvas,
+        canvasImageData: createSolidImageData(width, height, [120, 40, 200, 255]),
+        canvasWidth: width,
+        canvasHeight: height,
+        gradient: [
+          { position: 0, color: '#000000' },
+          { position: 1, color: '#ffffff' },
+        ],
+        gradientIdBuffer: gradientIds.buffer.slice(0),
+        isAnimating: false,
+        mode: 'brush',
+        brushState: {
+          layers: [{
+            layerId: 'layer-cc-oversized-brush-state',
+            strokeData: {
+              paintBuffer: oversizedBase64,
+              gradientIdBuffer: oversizedBase64,
+              hasContent: true,
+              strokeCounter: 1,
+            },
+          }],
+          cycleSpeed: 0.5,
+          fps: 24,
+          brushSize: 8,
+        },
+      },
+    };
+
+    const [restoredLayer] = await restoreColorCycleBrushes([layer]);
+    const restoredBrush = restoredLayer.colorCycleData?.colorCycleBrush as
+      | {
+          getLayerSnapshot?: (layerId: string) => {
+            gradientIdBuffer?: ArrayBuffer;
+            hasContent: boolean;
+          } | null;
+        }
+      | undefined;
+
+    const snapshot = restoredBrush?.getLayerSnapshot?.(restoredLayer.id);
+    expect(snapshot).toBeTruthy();
+    expect(snapshot?.hasContent).toBe(true);
+    expect(Array.from(new Uint8Array(snapshot?.gradientIdBuffer ?? new ArrayBuffer(0)))).toEqual(
+      Array.from(gradientIds),
+    );
+    expect(restoredLayer.colorCycleData?.brushState).toBeUndefined();
+  });
+
   it('prefers per-layer framebuffer pixels when saving', async () => {
     const red = createSolidImageData(2, 2, [255, 0, 0, 255]);
     const green = createSolidImageData(2, 2, [0, 255, 0, 255]);

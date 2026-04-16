@@ -1,4 +1,4 @@
-import { useCallback, useEffect, type MutableRefObject } from 'react';
+import { useCallback, useEffect, useRef, type MutableRefObject } from 'react';
 import { refreshLayerCCSurface } from '@/hooks/useBrushEngineSimplified';
 import { getColorCycleBrushManager, type ColorCycleBrushManager } from '@/stores/colorCycleBrushManager';
 import type { CompositeSegment } from '@/stores/slices/layersSlice';
@@ -23,6 +23,8 @@ export const useDrawingCanvasColorCycleSegmentRefresh = ({
   pendingColorCycleRefreshRef,
   colorCycleBrushManagerRef,
 }: UseDrawingCanvasColorCycleSegmentRefreshOptions) => {
+  const isRefreshingRef = useRef(false);
+
   useEffect(() => {
     const map = new Map<string, Layer>();
     layers.forEach((layer) => {
@@ -38,49 +40,59 @@ export const useDrawingCanvasColorCycleSegmentRefresh = ({
   }, [compositeSegmentsRef, compositeSegmentsVersion, getCompositeSegmentsSnapshot, pendingColorCycleRefreshRef]);
 
   const refreshColorCycleSegments = useCallback(() => {
-    const segments = compositeSegmentsRef.current;
-    if (!segments.length) {
+    if (isRefreshingRef.current) {
+      pendingColorCycleRefreshRef.current = true;
       return;
     }
-    const manager = colorCycleBrushManagerRef.current ?? getColorCycleBrushManager();
-    if (!colorCycleBrushManagerRef.current) {
-      colorCycleBrushManagerRef.current = manager;
+
+    isRefreshingRef.current = true;
+    const segments = compositeSegmentsRef.current;
+    try {
+      if (!segments.length) {
+        return;
+      }
+      const manager = colorCycleBrushManagerRef.current ?? getColorCycleBrushManager();
+      if (!colorCycleBrushManagerRef.current) {
+        colorCycleBrushManagerRef.current = manager;
+      }
+
+      segments.forEach((segment) => {
+        if (segment.kind !== 'color-cycle') {
+          return;
+        }
+        const layer = layerMapRef.current.get(segment.layerId);
+        if (!layer || !layer.colorCycleData) {
+          return;
+        }
+        const brush = manager?.getBrush(segment.layerId);
+        if (!brush) {
+          return;
+        }
+        const layerCanvas = refreshLayerCCSurface(brush, segment.layerId);
+        if (!layerCanvas) {
+          return;
+        }
+        if (layerCanvas && 'setTargetCanvas' in brush && typeof brush.setTargetCanvas === 'function') {
+          brush.setTargetCanvas(layerCanvas);
+        }
+
+        const wantPlaying = Boolean(layer.colorCycleData.isAnimating && layer.colorCycleData.mode !== 'recolor');
+        const isPlaying = typeof brush.isPlaying === 'function' ? brush.isPlaying() : false;
+        if (wantPlaying && !isPlaying) {
+          brush.startAnimation?.();
+        } else if (!wantPlaying && isPlaying) {
+          brush.stopAnimation?.();
+        }
+
+        if (layer.colorCycleData.isAnimating) {
+          brush.updateAnimation?.();
+        }
+        brush.renderDirectToCanvas?.(layerCanvas, segment.layerId);
+      });
+    } finally {
+      isRefreshingRef.current = false;
     }
-
-    segments.forEach((segment) => {
-      if (segment.kind !== 'color-cycle') {
-        return;
-      }
-      const layer = layerMapRef.current.get(segment.layerId);
-      if (!layer || !layer.colorCycleData) {
-        return;
-      }
-      const brush = manager?.getBrush(segment.layerId);
-      if (!brush) {
-        return;
-      }
-      const layerCanvas = refreshLayerCCSurface(brush, segment.layerId);
-      if (!layerCanvas) {
-        return;
-      }
-      if (layerCanvas && 'setTargetCanvas' in brush && typeof brush.setTargetCanvas === 'function') {
-        brush.setTargetCanvas(layerCanvas);
-      }
-
-      const wantPlaying = Boolean(layer.colorCycleData.isAnimating && layer.colorCycleData.mode !== 'recolor');
-      const isPlaying = typeof brush.isPlaying === 'function' ? brush.isPlaying() : false;
-      if (wantPlaying && !isPlaying) {
-        brush.startAnimation?.();
-      } else if (!wantPlaying && isPlaying) {
-        brush.stopAnimation?.();
-      }
-
-      if (layer.colorCycleData.isAnimating) {
-        brush.updateAnimation?.();
-      }
-      brush.renderDirectToCanvas?.(layerCanvas, segment.layerId);
-    });
-  }, [colorCycleBrushManagerRef, compositeSegmentsRef, layerMapRef]);
+  }, [colorCycleBrushManagerRef, compositeSegmentsRef, layerMapRef, pendingColorCycleRefreshRef]);
 
   useEffect(() => {
     if (pendingColorCycleRefreshRef.current) {
