@@ -1107,6 +1107,156 @@ describe('projectIO serialize/deserialize layering', () => {
     );
   });
 
+  it('skips oversized color-cycle brushState restore when persisted gradient buffers can seed runtime', async () => {
+    const width = 3;
+    const height = 3;
+    const gradientIds = new Uint8Array(width * height);
+    gradientIds[2] = 5;
+    gradientIds[7] = 9;
+    const oversizedBase64 = 'A'.repeat(33 * 1024 * 1024);
+
+    const restored = await deserializeProject(JSON.stringify({
+      version: '1.0.0',
+      metadata: {
+        name: 'oversized-cc',
+        created: '2025-01-01T00:00:00.000Z',
+        modified: '2025-01-01T00:00:00.000Z',
+        appVersion: '1.0.0',
+      },
+      project: {
+        id: 'project-oversized-cc',
+        name: 'oversized-cc',
+        width,
+        height,
+        backgroundColor: '#000000',
+        layers: [{
+          id: 'layer-cc-oversized-brush-state',
+          name: 'CC Oversized Brush State',
+          visible: true,
+          opacity: 1,
+          blendMode: 'source-over',
+          locked: false,
+          transparencyLocked: false,
+          order: 0,
+          imageDataUrl: '',
+          alignment: createDefaultLayerAlignment(),
+          layerType: 'color-cycle',
+          version: 1,
+          colorCycleData: {
+            canvasImageData: encodeRawImageDataUrl(createSolidImageData(width, height, [120, 40, 200, 255])),
+            canvasWidth: width,
+            canvasHeight: height,
+            gradient: [
+              { position: 0, color: '#000000' },
+              { position: 1, color: '#ffffff' },
+            ],
+            gradientIdBuffer: Buffer.from(gradientIds).toString('base64'),
+            isAnimating: false,
+            mode: 'brush',
+            brushState: {
+              layers: [{
+                layerId: 'layer-cc-oversized-brush-state',
+                strokeData: {
+                  paintBuffer: oversizedBase64,
+                  gradientIdBuffer: oversizedBase64,
+                  hasContent: true,
+                  strokeCounter: 1,
+                },
+              }],
+              cycleSpeed: 0.5,
+              fps: 24,
+              brushSize: 8,
+            },
+          },
+        }],
+        customBrushes: [],
+        defaultCustomBrushId: null,
+        brushSpecificSettings: {},
+        globalBrushSize: 1,
+      },
+    }));
+
+    const [restoredLayer] = await restoreColorCycleBrushes(restored.layers);
+    const restoredBrush = restoredLayer.colorCycleData?.colorCycleBrush as
+      | {
+          getLayerSnapshot?: (layerId: string) => {
+            gradientIdBuffer?: ArrayBuffer;
+            hasContent: boolean;
+          } | null;
+        }
+      | undefined;
+
+    const snapshot = restoredBrush?.getLayerSnapshot?.(restoredLayer.id);
+    expect(snapshot).toBeTruthy();
+    expect(snapshot?.hasContent).toBe(true);
+    expect(Array.from(new Uint8Array(snapshot?.gradientIdBuffer ?? new ArrayBuffer(0)))).toEqual(
+      Array.from(gradientIds),
+    );
+    expect(restoredLayer.colorCycleData?.brushState).toBeUndefined();
+    expect(restoredLayer.colorCycleData?.colorCycleBrush).toBeTruthy();
+  });
+
+  it('prefers live color-cycle canvas pixels over stale empty canvasImageData when saving', async () => {
+    const width = 2;
+    const height = 2;
+    const liveCanvasImageData = createSolidImageData(width, height, [25, 200, 120, 255]);
+    const staleEmptyImageData = createSolidImageData(width, height, [0, 0, 0, 0]);
+
+    const layer: Layer = {
+      id: 'layer-cc-live-canvas-wins',
+      name: 'CC Live Canvas Wins',
+      visible: true,
+      opacity: 1,
+      blendMode: 'source-over',
+      locked: false,
+      transparencyLocked: false,
+      order: 0,
+      imageData: null,
+      framebuffer: createCanvasFromImageData(staleEmptyImageData),
+      alignment: createDefaultLayerAlignment(),
+      layerType: 'color-cycle',
+      version: 1,
+      colorCycleData: {
+        canvas: createCanvasFromImageData(liveCanvasImageData),
+        canvasImageData: staleEmptyImageData,
+        canvasWidth: width,
+        canvasHeight: height,
+        gradient: [
+          { position: 0, color: '#000000' },
+          { position: 1, color: '#ffffff' },
+        ],
+        isAnimating: false,
+        mode: 'brush',
+      },
+    };
+
+    const project: Project = {
+      id: 'project-cc-live-canvas-wins',
+      name: 'cc-live-canvas-wins',
+      width,
+      height,
+      backgroundColor: '#000000',
+      layers: [layer],
+      customBrushes: [],
+      defaultCustomBrushId: null,
+      brushSpecificSettings: {},
+      globalBrushSize: 1,
+      createdAt: new Date('2025-01-01T00:00:00.000Z'),
+      updatedAt: new Date('2025-01-01T00:00:00.000Z'),
+      referenceLayerId: null,
+      exportLayout: undefined,
+      palette: undefined,
+      canvasShape: undefined,
+    };
+
+    const serialized = await serializeProject(project);
+    const restored = await deserializeProject(serialized);
+    const restoredImageData = restored.layers[0]?.colorCycleData?.canvasImageData ?? null;
+
+    expect(readPixel(restoredImageData, 0, 0)).toEqual([25, 200, 120, 255]);
+    expect(readPixel(restoredImageData, 1, 1)).toEqual([25, 200, 120, 255]);
+  });
+
   it('prefers per-layer framebuffer pixels when saving', async () => {
     const red = createSolidImageData(2, 2, [255, 0, 0, 255]);
     const green = createSolidImageData(2, 2, [0, 255, 0, 255]);
