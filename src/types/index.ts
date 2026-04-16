@@ -80,6 +80,7 @@ export interface WebGLExportSettings {
   enableGobletDiagnostics: boolean;
   htmlTitle: string;
   htmlBackgroundColor: string;
+  transparencyBackgroundMode: 'checker' | 'gray';
   viewportPreset: 'default' | 'embed-fill' | 'embed-fit' | 'fixed';
   designScalePercent: number;
 }
