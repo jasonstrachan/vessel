@@ -19,6 +19,7 @@ import { TEMP_SAMPLE_SLOT } from '@/constants/colorCycle';
 import type { StoredStop } from '@/utils/colorCycleGradientDefs';
 import { ccDebugVerboseOn, ccLog } from '@/utils/colorCycle/ccDebug';
 import { isOverlaySeededFromLayer } from '@/hooks/canvas/utils/overlaySeedState';
+import { logCCMutation, summarizeColorCycleLayer } from '@/utils/colorCycle/ccMutationAudit';
 
 const loggedLegacySlotSummaryByLayer = new Set<string>();
 
@@ -383,6 +384,10 @@ export const commitColorCycleLayerStroke = async (
   args: CommitColorCycleLayerStrokeArgs,
   deps: CommitColorCycleLayerStrokeDeps
 ): Promise<CommitColorCycleLayerStrokeResult> => {
+  const beforeCommitLayer = useAppStore.getState().layers.find(
+    (entry) => entry.id === args.layer.id
+  ) ?? args.layer;
+  const beforeCommitSummary = summarizeColorCycleLayer(beforeCommitLayer);
   const layerCanvas = args.layer.colorCycleData?.canvas ?? null;
   if (!layerCanvas) {
     return { deferredLayerCanvas: null };
@@ -390,6 +395,7 @@ export const commitColorCycleLayerStroke = async (
 
   deps.startFinalizeVisibleTimer();
   let strokeCaptureRoi: CaptureRegion | undefined = args.captureRoi;
+  let committedSession: ReturnType<typeof finalizeMarkGradientSession> | null = null;
   if (args.enableCaptureRoi && args.project) {
     deps.perfMark('cc:roi:start');
     strokeCaptureRoi = boundingBoxToCaptureRegion(
@@ -472,33 +478,32 @@ export const commitColorCycleLayerStroke = async (
         brush.finalizeCurrentStroke?.(targetLayerId);
       }
 
-      let session: ReturnType<typeof finalizeMarkGradientSession> | null = null;
       try {
-        session = finalizeMarkGradientSession(targetLayerId);
-        if (session && ccDebugVerboseOn()) {
+        committedSession = finalizeMarkGradientSession(targetLayerId);
+        if (committedSession && ccDebugVerboseOn()) {
           ccLog('mark slot (commit)', {
             layerId: targetLayerId,
-            markId: session.markId,
-            defId: session.binding?.defId ?? null,
-            slot: session.binding?.slot ?? null,
-            phase: session.binding ? 'bound' : 'sampling',
+            markId: committedSession.markId,
+            defId: committedSession.binding?.defId ?? null,
+            slot: committedSession.binding?.slot ?? null,
+            phase: committedSession.binding ? 'bound' : 'sampling',
           });
         }
       } catch {}
 
-      if (session?.binding && typeof brush.setGradientSlotStops === 'function') {
+      if (committedSession?.binding && typeof brush.setGradientSlotStops === 'function') {
         brush.setGradientSlotStops(
           targetLayerId,
-          session.binding.slot,
-          session.frozenStopsStored
+          committedSession.binding.slot,
+          committedSession.frozenStopsStored
         );
       }
 
-      const sampledCommitNeedsFullRebind = session?.source === 'sampled';
-      const binding: CommitCommittedLayerStateOptions['binding'] = session?.binding
+      const sampledCommitNeedsFullRebind = committedSession?.source === 'sampled';
+      const binding: CommitCommittedLayerStateOptions['binding'] = committedSession?.binding
         ? {
-            defId: session.binding.defId,
-            slot: session.binding.slot,
+            defId: committedSession.binding.defId,
+            slot: committedSession.binding.slot,
             // Sampled strokes preview through TEMP_SAMPLE_SLOT. If ROI capture misses any finalized
             // pixels, those pixels remain bound to the temp slot and will mutate on the next sampled
             // stroke. Rebinding sampled commits across the full layer avoids temp-slot leakage.
@@ -534,52 +539,61 @@ export const commitColorCycleLayerStroke = async (
       brushForCleanup = brush;
 
       try {
-        if (binding && session?.binding && process.env.NODE_ENV !== 'production') {
-          logCommittedSlotsInRoi('after-bind', binding.bbox);
+        if (binding && committedSession?.binding && process.env.NODE_ENV !== 'production') {
+          const finalizedSession = committedSession;
+          const finalizedBinding = finalizedSession.binding;
+          if (finalizedBinding) {
+            logCommittedSlotsInRoi('after-bind', binding.bbox);
 
-          const state = useAppStore.getState();
-          const layer = state.layers.find((entry) => entry.id === targetLayerId);
-          let def = layer?.colorCycleData?.gradientDefStore?.find(
-            (entry) => Number(entry.id) === session.binding?.defId
-          );
-          if (!def && layer?.colorCycleData) {
-            const nextDef = {
-              id: session.binding.defId,
-              kind: session.gradientKind,
-              stops: session.frozenStopsStored,
-              hash: session.frozenHash,
-              source: session.source,
-              seamProfile: session.seamProfile,
-              createdAtMs: Date.now(),
-              slot: session.binding.slot,
-              speedCps: session.speedCps ?? undefined,
-            };
-            const existing = layer.colorCycleData.gradientDefStore ?? [];
-            const nextStore = [...existing, nextDef];
-            state.updateLayer(targetLayerId, {
-              colorCycleData: {
-                ...layer.colorCycleData,
-                gradientDefStore: nextStore,
-                nextGradientDefId: Math.max(
-                  layer.colorCycleData.nextGradientDefId ?? 0,
-                  session.binding.defId + 1
-                ),
-              },
-            });
-            def = nextDef;
+            const state = useAppStore.getState();
+            const layer = state.layers.find((entry) => entry.id === targetLayerId);
+            let def = layer?.colorCycleData?.gradientDefStore?.find(
+              (entry) => Number(entry.id) === finalizedBinding.defId
+            );
+            if (!def && layer?.colorCycleData) {
+              const nextDef = {
+                id: finalizedBinding.defId,
+                kind: finalizedSession.gradientKind,
+                stops: finalizedSession.frozenStopsStored,
+                hash: finalizedSession.frozenHash,
+                source: finalizedSession.source,
+                seamProfile: finalizedSession.seamProfile,
+                createdAtMs: Date.now(),
+                slot: finalizedBinding.slot,
+                speedCps: finalizedSession.speedCps ?? undefined,
+              };
+              const existing = layer.colorCycleData.gradientDefStore ?? [];
+              const nextStore = [...existing, nextDef];
+              state.updateLayer(targetLayerId, {
+                colorCycleData: {
+                  ...layer.colorCycleData,
+                  gradientDefStore: nextStore,
+                  nextGradientDefId: Math.max(
+                    layer.colorCycleData.nextGradientDefId ?? 0,
+                    finalizedBinding.defId + 1
+                  ),
+                },
+              });
+              def = nextDef;
+            }
+            console.assert(
+              Boolean(def && def.hash === finalizedSession.frozenHash),
+              '[CC] Commit parity failed (def hash mismatch)',
+              {
+                layerId: targetLayerId,
+                defId: finalizedBinding.defId,
+                frozenHash: finalizedSession.frozenHash,
+                defHash: def?.hash,
+              }
+            );
           }
-          console.assert(
-            Boolean(def && def.hash === session.frozenHash),
-            '[CC] Commit parity failed (def hash mismatch)',
-            { layerId: targetLayerId, defId: session.binding.defId, frozenHash: session.frozenHash, defHash: def?.hash }
-          );
         }
         if (process.env.NODE_ENV !== 'production') {
           const layer = useAppStore.getState().layers.find((entry) => entry.id === targetLayerId);
           const gradientDefStore = layer?.colorCycleData?.gradientDefStore ?? [];
           const legacySlots = new Set<number>();
           gradientDefStore.forEach((entry) => {
-            if (!entry || entry.id === session?.binding?.defId) {
+            if (!entry || entry.id === committedSession?.binding?.defId) {
               return;
             }
             if (typeof entry.slot === 'number') {
@@ -595,7 +609,7 @@ export const commitColorCycleLayerStroke = async (
             });
           }
         }
-        if (session?.source === 'sampled') {
+        if (committedSession?.source === 'sampled') {
           try {
             useAppStore.getState().setCcGradientSampleCount(0);
           } catch {}
@@ -619,6 +633,31 @@ export const commitColorCycleLayerStroke = async (
     deps.dispatchFrameUpdate(targetLayerId);
   } catch {}
   deps.endFinalizeVisibleTimer();
+
+  const afterCommitLayer = useAppStore.getState().layers.find(
+    (entry) => entry.id === targetLayerId
+  ) ?? null;
+  logCCMutation({
+    event: 'stroke-commit',
+    layerId: targetLayerId,
+    reason: 'commitColorCycleLayerStroke',
+    severity: 'info',
+    before: beforeCommitSummary,
+    after: summarizeColorCycleLayer(afterCommitLayer),
+    details: {
+      sampledSource: committedSession?.source === 'sampled',
+      bindingDefId: committedSession?.binding?.defId ?? null,
+      bindingSlot: committedSession?.binding?.slot ?? null,
+      roi: strokeCaptureRoi
+        ? {
+            x: strokeCaptureRoi.x,
+            y: strokeCaptureRoi.y,
+            width: strokeCaptureRoi.width,
+            height: strokeCaptureRoi.height,
+          }
+        : null,
+    },
+  });
 
   return {
     deferredLayerCanvas: layerCanvas,

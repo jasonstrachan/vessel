@@ -16,6 +16,7 @@ import { TEMP_SAMPLE_SLOT } from '@/constants/colorCycle';
 import { ccLog } from '@/debug/ccDebug';
 import { ensureGradientDefForStops, hashStops, type StoredStop } from '@/utils/colorCycleGradientDefs';
 import type { GradientStop } from '@/hooks/brushEngine/ccGradientRuntime';
+import { logCCMutation, summarizeColorCycleLayer } from '@/utils/colorCycle/ccMutationAudit';
 
 type ColorCycleBrush = ColorCycleBrushImplementation;
 type SnapshotCapableBrush = ColorCycleBrush & ColorCycleCommittedStateBrush & {
@@ -519,6 +520,9 @@ export const finalizeColorCycleShapeFillLinear = async (
   deps: ColorCycleShapeFillDeps
 ): Promise<void> => {
   try {
+    const beforeShapeFinalize = summarizeColorCycleLayer(
+      useAppStore.getState().layers.find((candidate) => candidate.id === args.activeLayerId) ?? null
+    );
     const initialBrush = deps.getColorCycleBrushManager().getBrush(args.activeLayerId) as SnapshotCapableBrush | null;
     const preFillPaintMask = snapshotTransparencyLockPaintMask({
       brush: initialBrush,
@@ -604,6 +608,7 @@ export const finalizeColorCycleShapeFillLinear = async (
     const colorCycleBrush = initialBrush ?? deps.getColorCycleBrushManager().getBrush(args.activeLayerId);
     if (colorCycleBrush) {
       const st = useAppStore.getState();
+      const sampledCommitNeedsFullRebind = renderSession?.source === 'sampled';
       if (shouldRefreshForegroundRuntimeForShapeFinalize(
         Boolean(st.tools.brushSettings.colorCycleUseForegroundGradient),
         args.session
@@ -630,10 +635,12 @@ export const finalizeColorCycleShapeFillLinear = async (
         ? {
             defId: renderSession.binding.defId,
             slot: renderSession.binding.slot,
-            bbox: args.roi
+            // Sampled shapes preview through TEMP_SAMPLE_SLOT. Commit must scan the
+            // full layer so finalized pixels cannot remain attached to the temp slot.
+            bbox: !sampledCommitNeedsFullRebind && args.roi
               ? { minX: args.roi.x, minY: args.roi.y, width: args.roi.width, height: args.roi.height }
               : undefined,
-            previewSlot: renderSession.source === 'sampled' ? TEMP_SAMPLE_SLOT : null,
+            previewSlot: sampledCommitNeedsFullRebind ? TEMP_SAMPLE_SLOT : null,
           }
         : undefined;
       ccLog('shape finalize pre-commit', {
@@ -733,6 +740,25 @@ export const finalizeColorCycleShapeFillLinear = async (
 
     clearColorCycleShapeEraseMask(args.activeLayerId, args.roi);
 
+    logCCMutation({
+      event: 'shape-commit-linear',
+      layerId: args.activeLayerId,
+      reason: 'finalizeColorCycleShapeFillLinear',
+      severity: 'info',
+      before: beforeShapeFinalize,
+      after: summarizeColorCycleLayer(
+        useAppStore.getState().layers.find((candidate) => candidate.id === args.activeLayerId) ?? null
+      ),
+      details: {
+        sampledSource: renderSession?.source === 'sampled',
+        bindingDefId: renderSession?.binding?.defId ?? null,
+        bindingSlot: renderSession?.binding?.slot ?? null,
+        roi: args.roi
+          ? { x: args.roi.x, y: args.roi.y, width: args.roi.width, height: args.roi.height }
+          : null,
+      },
+    });
+
     if (args.shapeLayerId) {
       deps.ccLog('shape: wrote CC canvas', { mode: 'linear', layerId: args.shapeLayerId.slice(-6) });
       launchDeferredColorCycleShapeSave(deps, {
@@ -778,6 +804,9 @@ export const finalizeColorCycleShapeFillConcentric = async (
   deps: ColorCycleShapeFillDeps
 ): Promise<void> => {
   try {
+    const beforeShapeFinalize = summarizeColorCycleLayer(
+      useAppStore.getState().layers.find((candidate) => candidate.id === args.activeLayerId) ?? null
+    );
     const initialBrush = deps.getColorCycleBrushManager().getBrush(args.activeLayerId) as SnapshotCapableBrush | null;
     const preFillPaintMask = snapshotTransparencyLockPaintMask({
       brush: initialBrush,
@@ -837,6 +866,7 @@ export const finalizeColorCycleShapeFillConcentric = async (
     const colorCycleBrush = initialBrush ?? deps.getColorCycleBrushManager().getBrush(args.activeLayerId);
     if (colorCycleBrush) {
       const st = useAppStore.getState();
+      const sampledCommitNeedsFullRebind = renderSession?.source === 'sampled';
       if (shouldRefreshForegroundRuntimeForShapeFinalize(
         Boolean(st.tools.brushSettings.colorCycleUseForegroundGradient),
         args.session
@@ -863,10 +893,12 @@ export const finalizeColorCycleShapeFillConcentric = async (
         ? {
             defId: renderSession.binding.defId,
             slot: renderSession.binding.slot,
-            bbox: args.roi
+            // Sampled shapes preview through TEMP_SAMPLE_SLOT. Commit must scan the
+            // full layer so finalized pixels cannot remain attached to the temp slot.
+            bbox: !sampledCommitNeedsFullRebind && args.roi
               ? { minX: args.roi.x, minY: args.roi.y, width: args.roi.width, height: args.roi.height }
               : undefined,
-            previewSlot: renderSession.source === 'sampled' ? TEMP_SAMPLE_SLOT : null,
+            previewSlot: sampledCommitNeedsFullRebind ? TEMP_SAMPLE_SLOT : null,
           }
         : undefined;
       ccLog('shape finalize pre-commit', {
@@ -954,6 +986,25 @@ export const finalizeColorCycleShapeFillConcentric = async (
     } catch {}
 
     clearColorCycleShapeEraseMask(args.activeLayerId, args.roi);
+
+    logCCMutation({
+      event: 'shape-commit-concentric',
+      layerId: args.activeLayerId,
+      reason: 'finalizeColorCycleShapeFillConcentric',
+      severity: 'info',
+      before: beforeShapeFinalize,
+      after: summarizeColorCycleLayer(
+        useAppStore.getState().layers.find((candidate) => candidate.id === args.activeLayerId) ?? null
+      ),
+      details: {
+        sampledSource: renderSession?.source === 'sampled',
+        bindingDefId: renderSession?.binding?.defId ?? null,
+        bindingSlot: renderSession?.binding?.slot ?? null,
+        roi: args.roi
+          ? { x: args.roi.x, y: args.roi.y, width: args.roi.width, height: args.roi.height }
+          : null,
+      },
+    });
 
     if (args.shapeLayerId) {
       deps.ccLog('shape: wrote CC canvas', { mode: 'concentric', layerId: args.shapeLayerId.slice(-6) });

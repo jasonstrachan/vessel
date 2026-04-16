@@ -10,6 +10,11 @@ import { cloneLayerAlignment, dedupeLayerIds, normalizeLayers } from '@/utils/la
 import { computeLayerPercentOffset } from '@/utils/layerMetrics';
 import { clamp } from '@/utils/num';
 import { __DEV__, logError, recordBreadcrumb } from '@/utils/debug';
+import {
+  auditColorCycleLayerTransition,
+  logCCMutation,
+  summarizeColorCycleLayer,
+} from '@/utils/colorCycle/ccMutationAudit';
 import { syncCCRuntimes } from '@/stores/ccRuntime';
 import { requestGradientApply } from '@/hooks/brushEngine/ccGradientApplyScheduler';
 import { FLOW_SLOT_MASK } from '@/lib/colorCycle/flowEncoding';
@@ -2043,6 +2048,8 @@ export const createLayersSlice = (
   removeLayer: (id) => {
     clearSequentialLayerRendererLayer(id);
     const stateBeforeRemove = get();
+    const removedLayerBefore = stateBeforeRemove.layers.find((layer) => layer.id === id) ?? null;
+    const removedLayerSummary = summarizeColorCycleLayer(removedLayerBefore);
     const beforeSnapshot = captureLayerStructureSnapshot(stateBeforeRemove, {
       actionType: 'layer-remove',
       description: 'Remove layer',
@@ -2099,6 +2106,19 @@ export const createLayersSlice = (
     pruneGroupVisibilitySnapshots(new Set(get().layerGroups.map((group) => group.id)));
     get().markAllCompositeSegmentsDirty();
     scheduleSlotRebuild('remove-layer');
+    if (removedLayerSummary?.hasColorCycleData || removedLayerSummary?.layerType === 'color-cycle') {
+      logCCMutation({
+        event: 'layer-remove',
+        layerId: id,
+        reason: 'removeLayer',
+        before: removedLayerSummary,
+        after: null,
+        details: {
+          activeLayerIdBefore: stateBeforeRemove.activeLayerId,
+          selectedLayerCountBefore: stateBeforeRemove.selectedLayerIds.length,
+        },
+      });
+    }
   },
   removeLayers: (layerIds) => {
     const state = get();
@@ -2125,6 +2145,9 @@ export const createLayersSlice = (
     runSlotRebuild(reason);
   },
   updateLayer: (id, updates, options?: UpdateLayerOptions) => {
+    const stateBeforeUpdate = get();
+    const originalLayerForAudit = stateBeforeUpdate.layers.find((layer) => layer.id === id) ?? null;
+    const beforeAudit = summarizeColorCycleLayer(originalLayerForAudit);
     if ('layerType' in updates && updates.layerType !== 'sequential') {
       clearSequentialLayerRendererLayer(id);
     }
@@ -2340,6 +2363,19 @@ export const createLayersSlice = (
     } else {
       get().markCompositeSegmentsDirtyByLayerIds([id]);
     }
+    const updatedLayerForAudit = get().layers.find((layer) => layer.id === id) ?? null;
+    const afterAudit = summarizeColorCycleLayer(updatedLayerForAudit);
+    auditColorCycleLayerTransition({
+      event: 'layer-update-destructive',
+      layerId: id,
+      reason: 'updateLayer',
+      before: beforeAudit,
+      after: afterAudit,
+      details: {
+        updateKeys: Object.keys(updates),
+        skipColorCycleSync: options?.skipColorCycleSync ?? false,
+      },
+    });
   },
   appendSequentialLayerEvent: (layerId, event, metadata) => {
     get().appendSequentialLayerEvents(layerId, [event], metadata);
