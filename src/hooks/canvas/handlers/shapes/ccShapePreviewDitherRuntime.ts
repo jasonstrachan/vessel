@@ -2,6 +2,7 @@ import type React from 'react';
 import { useAppStore } from '@/stores/useAppStore';
 import type { BrushSettings } from '@/types';
 import { canvasPool } from '@/utils/canvasPool';
+import { simplifyToVertexLimit } from '@/utils/polygonSimplify';
 import type { DitherAlgorithm, PatternStyle } from '@/utils/ditherAlgorithms';
 import {
   createPressureResolutionState,
@@ -29,6 +30,70 @@ export type CcPreviewRenderSettings = {
   algorithm: DitherAlgorithm;
   patternStyle: PatternStyle;
   isFastPreview: boolean;
+};
+
+const MAX_CC_PREVIEW_VERTICES = 256;
+
+const simplifyPreviewPolygon = (
+  points: Array<{ x: number; y: number }>
+): Array<{ x: number; y: number }> => {
+  if (points.length <= MAX_CC_PREVIEW_VERTICES) {
+    return points;
+  }
+
+  return simplifyToVertexLimit(points, MAX_CC_PREVIEW_VERTICES, {
+    initialTolerance: 0.25,
+    maxTolerance: 12,
+    stepFactor: 1.4,
+  });
+};
+
+type PreparedCcPreviewGeometry = {
+  previewPolygon: Array<{ x: number; y: number }>;
+  roi: CcPreviewRoi;
+  scale: number;
+  width: number;
+  height: number;
+  scaledWidth: number;
+  scaledHeight: number;
+  localVertices: Array<{ x: number; y: number }>;
+  scaledVertices: Array<{ x: number; y: number }>;
+};
+
+const prepareCcPreviewGeometry = ({
+  committedPolygon,
+  pixelSize,
+}: {
+  committedPolygon: Array<{ x: number; y: number }>;
+  pixelSize: number;
+}): PreparedCcPreviewGeometry => {
+  const previewPolygon = simplifyPreviewPolygon(committedPolygon);
+  const roi = computeCcPreviewRoi(previewPolygon);
+  const scale = Math.max(1, pixelSize);
+  const width = roi.size.width;
+  const height = roi.size.height;
+  const scaledWidth = Math.max(1, Math.ceil(width / scale));
+  const scaledHeight = Math.max(1, Math.ceil(height / scale));
+  const localVertices = previewPolygon.map(pt => ({
+    x: pt.x - roi.origin.x,
+    y: pt.y - roi.origin.y,
+  }));
+  const scaledVertices = localVertices.map(pt => ({
+    x: pt.x / scale,
+    y: pt.y / scale,
+  }));
+
+  return {
+    previewPolygon,
+    roi,
+    scale,
+    width,
+    height,
+    scaledWidth,
+    scaledHeight,
+    localVertices,
+    scaledVertices,
+  };
 };
 
 export type DitherGradPreviewState = {
@@ -388,8 +453,12 @@ export const runCcDitherPreviewRuntime = (args: {
     previewRenderSettings,
   } = args;
 
-  const nextPreviewRoi = computeCcPreviewRoi(committedPolygon);
   const pixelSize = previewRenderSettings.pixelSize;
+  const previewGeometry = prepareCcPreviewGeometry({
+    committedPolygon,
+    pixelSize,
+  });
+  const nextPreviewRoi = previewGeometry.roi;
   const levels = previewRenderSettings.levels;
   const fillAlgorithm = previewRenderSettings.algorithm;
   const fillPatternStyle = previewRenderSettings.patternStyle;
@@ -455,17 +524,19 @@ export const runCcDitherPreviewRuntime = (args: {
     ditherGradPreviewState.ccJobDirty = false;
     const mySeq = ++ditherGradPreviewState.ccJobSeq;
     const origin = nextPreviewRoi.origin;
-    const w = nextPreviewRoi.size.width;
-    const h = nextPreviewRoi.size.height;
-    const localVertices = committedPolygon.map(pt => ({
-      x: pt.x - origin.x,
-      y: pt.y - origin.y,
-    }));
-    const sampleNormalized = createCcShapePreviewSampleNormalized({
-      colorCycleFillMode: brushSettings.colorCycleFillMode,
-      localVertices,
+    const {
       width: w,
       height: h,
+      scaledWidth: scaledW,
+      scaledHeight: scaledH,
+      localVertices,
+      scaledVertices,
+    } = previewGeometry;
+    const sampleNormalized = createCcShapePreviewSampleNormalized({
+      colorCycleFillMode: brushSettings.colorCycleFillMode,
+      localVertices: scaledVertices,
+      width: scaledW,
+      height: scaledH,
     });
     const sortedStops = preparedGradient.sortedStops;
     const sampleGradient = (t: number): [number, number, number, number] => {
@@ -493,8 +564,8 @@ export const runCcDitherPreviewRuntime = (args: {
     const fillBackground = (brushSettings.ditherGradBgFill ?? brushSettings.ditherBackgroundFill) !== false;
     ditherGradPreviewState.ccScratchCanvas = ensurePreviewCanvasCapacity(
       ditherGradPreviewState.ccScratchCanvas,
-      w,
-      h
+      scaledW,
+      scaledH
     );
     const tempCanvas = ditherGradPreviewState.ccScratchCanvas;
     const tempCtx = tempCanvas.getContext(
@@ -510,8 +581,8 @@ export const runCcDitherPreviewRuntime = (args: {
       tempCtx.globalCompositeOperation = 'source-over';
       tempCtx.globalAlpha = 1;
       tempCtx.imageSmoothingEnabled = false;
-      tempCtx.clearRect(0, 0, w, h);
-      const requiredBytes = w * h * 4;
+      tempCtx.clearRect(0, 0, scaledW, scaledH);
+      const requiredBytes = scaledW * scaledH * 4;
       ditherGradPreviewState.ccScratchBuffer = ensurePreviewBufferCapacity(
         ditherGradPreviewState.ccScratchBuffer,
         requiredBytes
@@ -537,12 +608,12 @@ export const runCcDitherPreviewRuntime = (args: {
             points: localVertices,
           });
           await fillCcGradientDither({
-            vertices: localVertices,
+            vertices: scaledVertices,
             minX: 0,
             minY: 0,
-            maxX: w - 1,
-            maxY: h - 1,
-            pixelSize: previewRenderSettings.pixelSize,
+            maxX: scaledW - 1,
+            maxY: scaledH - 1,
+            pixelSize: 1,
             levels: previewRenderSettings.levels,
             baseOffset: 0,
             flatPairSpread: brushSettings.ditherPaletteSpread,
@@ -561,7 +632,7 @@ export const runCcDitherPreviewRuntime = (args: {
               if (index <= 0) return;
               const t = (index - 1) / 254;
               const [r, g, b, a] = sampleGradient(t);
-              const px = (y * w + x) * 4;
+              const px = (y * scaledW + x) * 4;
               data[px] = Math.round(r);
               data[px + 1] = Math.round(g);
               data[px + 2] = Math.round(b);
@@ -569,7 +640,7 @@ export const runCcDitherPreviewRuntime = (args: {
             },
           });
           if (mySeq !== ditherGradPreviewState.ccJobSeq) return;
-          const imageData = new ImageData(new Uint8ClampedArray(data), w, h);
+          const imageData = new ImageData(data, scaledW, scaledH);
           tempCtx.putImageData(imageData, 0, 0);
           ditherGradPreviewState.ccLastCanvas = ensurePreviewCanvasCapacity(
             ditherGradPreviewState.ccLastCanvas,
@@ -589,7 +660,7 @@ export const runCcDitherPreviewRuntime = (args: {
           displayCtx.globalAlpha = 1;
           displayCtx.imageSmoothingEnabled = false;
           displayCtx.clearRect(0, 0, w, h);
-          displayCtx.drawImage(tempCanvas, 0, 0, w, h, 0, 0, w, h);
+          displayCtx.drawImage(tempCanvas, 0, 0, scaledW, scaledH, 0, 0, w, h);
           ditherGradPreviewState.ccLastOrigin = { ...origin };
           ditherGradPreviewState.ccLastSize = { width: w, height: h };
           ditherGradPreviewState.ccLastReplayKey = replayKey;
