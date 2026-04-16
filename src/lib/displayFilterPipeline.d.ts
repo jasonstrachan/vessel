@@ -15,6 +15,14 @@ export interface DisplayFilterPipelineState {
   crtGridGlowCanvas: HTMLCanvasElement | null;
   noisePatternKey: string;
   noisePatternCanvas: HTMLCanvasElement | null;
+  filmNoisePatternKey: string;
+  filmNoiseBaseCanvas: HTMLCanvasElement | null;
+  filmNoiseClumpCanvas: HTMLCanvasElement | null;
+  filmNoiseBasePatternData: Uint8ClampedArray | null;
+  filmNoiseClumpPatternData: Uint8ClampedArray | null;
+  filmNoiseCombinedKey: string;
+  filmNoiseCombinedField: Float32Array | null;
+  filmNoiseImageData: ImageData | null;
 }
 
 export function createDisplayFilterPipelineState(): DisplayFilterPipelineState;
