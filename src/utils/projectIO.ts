@@ -1039,10 +1039,15 @@ const resolveColorCycleCanvasImageDataForSave = async (
     return undefined;
   }
 
-  const fromCanvas =
-    colorCycleData.canvasImageData ?? captureCanvasImageData(colorCycleData.canvas ?? null);
-  if (fromCanvas) {
-    return fromCanvas;
+  const persistedCanvasImageData = colorCycleData.canvasImageData;
+  const liveCanvasImageData = captureCanvasImageData(colorCycleData.canvas ?? null) ?? undefined;
+
+  if (imageDataHasVisiblePixels(liveCanvasImageData)) {
+    return liveCanvasImageData;
+  }
+
+  if (imageDataHasVisiblePixels(persistedCanvasImageData)) {
+    return persistedCanvasImageData;
   }
 
   const brush = colorCycleData.colorCycleBrush as
@@ -1066,10 +1071,15 @@ const resolveColorCycleCanvasImageDataForSave = async (
     brush.renderDirectToCanvas(renderCanvas, layer.id);
   } catch (error) {
     console.warn('[projectIO] Failed to render color cycle canvas for save:', error);
-    return undefined;
+    return liveCanvasImageData ?? persistedCanvasImageData ?? undefined;
   }
 
-  return captureCanvasImageData(renderCanvas) ?? undefined;
+  const renderedImageData = captureCanvasImageData(renderCanvas) ?? undefined;
+  if (imageDataHasVisiblePixels(renderedImageData)) {
+    return renderedImageData;
+  }
+
+  return liveCanvasImageData ?? persistedCanvasImageData ?? renderedImageData;
 };
 
 // Serialize a layer for saving
@@ -1102,10 +1112,7 @@ async function serializeLayer(layer: Layer): Promise<SerializedLayer> {
   // Serialize color cycle data if present
   if (layer.layerType === 'color-cycle') {
     const sourceColorCycleData = layer.colorCycleData || {};
-    const canvasImageData =
-      sourceColorCycleData.canvasImageData ??
-      captureCanvasImageData(sourceColorCycleData.canvas ?? null) ??
-      (await resolveColorCycleCanvasImageDataForSave(layer));
+    const canvasImageData = await resolveColorCycleCanvasImageDataForSave(layer);
     const eraseMaskImageData = sourceColorCycleData.eraseMaskImageData ?? captureCanvasImageData(sourceColorCycleData.eraseMask ?? null);
     const colorCycleData = {
       ...sourceColorCycleData,
@@ -2516,6 +2523,50 @@ export async function loadProjectFromFile(): Promise<{
 export async function restoreColorCycleBrushes(layers: Layer[]): Promise<Layer[]> {
   // Import ColorCycleBrush factory dynamically to avoid circular dependencies
   const { createColorCycleBrush } = await import('../hooks/brushEngine/ColorCycleBrushMigration');
+  const OVERSIZED_CC_BRUSH_STATE_BASE64_THRESHOLD = 32 * 1024 * 1024;
+  const estimateSerializedBrushStatePayloadSize = (
+    brushState: PersistedColorCycleBrushState | undefined
+  ): number => {
+    const snapshots = brushState?.layers ?? [];
+    let total = 0;
+    for (const snapshot of snapshots) {
+      total += snapshot.strokeData?.paintBuffer?.length ?? 0;
+      total += snapshot.strokeData?.gradientIdBuffer?.length ?? 0;
+      total += snapshot.strokeData?.gradientDefIdBuffer?.length ?? 0;
+      total += snapshot.strokeData?.speedBuffer?.length ?? 0;
+      total += snapshot.strokeData?.flowBuffer?.length ?? 0;
+      total += snapshot.strokeData?.phaseBuffer?.length ?? 0;
+      total += snapshot.animator?.indexBuffer.data?.length ?? 0;
+      total += snapshot.animator?.indexBuffer.gradientId?.length ?? 0;
+      total += snapshot.animator?.indexBuffer.speedData?.length ?? 0;
+      total += snapshot.animator?.indexBuffer.flowData?.length ?? 0;
+      total += snapshot.animator?.indexBuffer.phaseData?.length ?? 0;
+    }
+    return total;
+  };
+  const canSeedFromPersistedBuffers = (
+    colorCycleBrush: {
+      applyLayerSnapshot?: (
+        layerId: string,
+        snapshot: {
+          paintBuffer: ArrayBuffer;
+          gradientIdBuffer?: ArrayBuffer;
+          gradientDefIdBuffer?: ArrayBuffer;
+          hasContent: boolean;
+          strokeCounter: number;
+        },
+      ) => void;
+    },
+    colorCycleData: NonNullable<Layer['colorCycleData']>,
+  ): boolean => {
+    const persistedGradientIdBuffer = colorCycleData.gradientIdBuffer;
+    const expectedSize = colorCycleData.canvas!.width * colorCycleData.canvas!.height;
+    return (
+      typeof colorCycleBrush.applyLayerSnapshot === 'function' &&
+      persistedGradientIdBuffer instanceof ArrayBuffer &&
+      persistedGradientIdBuffer.byteLength === expectedSize
+    );
+  };
   
   for (const layer of layers) {
     if (layer.layerType === 'color-cycle' && layer.colorCycleData) {
@@ -2555,8 +2606,35 @@ export async function restoreColorCycleBrushes(layers: Layer[]): Promise<Layer[]
         } else {
         try {
           const colorCycleBrush = createColorCycleBrush(layer.colorCycleData.canvas!);
+          const shouldSkipOversizedBrushStateRestore =
+            estimateSerializedBrushStatePayloadSize(savedBrushState) > OVERSIZED_CC_BRUSH_STATE_BASE64_THRESHOLD &&
+            canSeedFromPersistedBuffers(
+              colorCycleBrush as {
+                applyLayerSnapshot?: (
+                  layerId: string,
+                  snapshot: {
+                    paintBuffer: ArrayBuffer;
+                    gradientIdBuffer?: ArrayBuffer;
+                    gradientDefIdBuffer?: ArrayBuffer;
+                    hasContent: boolean;
+                    strokeCounter: number;
+                  },
+                ) => void;
+              },
+              layer.colorCycleData,
+            );
 
-          const layerSnapshots = (savedBrushState.layers ?? []).map(snapshot => {
+          if (shouldSkipOversizedBrushStateRestore) {
+            console.warn('[projectIO] Skipping oversized color cycle brushState restore in favor of persisted buffers', {
+              layerId: layer.id,
+              canvasWidth,
+              canvasHeight,
+              estimatedPayloadChars: estimateSerializedBrushStatePayloadSize(savedBrushState),
+            });
+            layer.colorCycleData.brushState = undefined;
+            savedBrushStates.delete(layer);
+          } else {
+            const layerSnapshots = (savedBrushState.layers ?? []).map(snapshot => {
             const paintBuffer = snapshot.strokeData?.paintBuffer
               ? base64ToArrayBuffer(snapshot.strokeData.paintBuffer)
               : undefined;
@@ -2664,6 +2742,7 @@ export async function restoreColorCycleBrushes(layers: Layer[]): Promise<Layer[]
           }
 
           continue;
+          }
         } catch (error) {
           console.error('[projectIO] Failed to restore color cycle brush state:', error);
         }
@@ -2715,6 +2794,9 @@ export async function restoreColorCycleBrushes(layers: Layer[]): Promise<Layer[]
       } else {
         // No saved state, create a new brush with the gradient
         const colorCycleBrush = createColorCycleBrush(layer.colorCycleData.canvas!);
+        const existingBrushState = layer.colorCycleData.brushState as
+          | PersistedColorCycleBrushState
+          | undefined;
         if (typeof colorCycleBrush.setLayerId === 'function') {
           try {
             colorCycleBrush.setLayerId(layer.id);
@@ -2737,9 +2819,8 @@ export async function restoreColorCycleBrushes(layers: Layer[]): Promise<Layer[]
 
         const persistedGradientIdBuffer = layer.colorCycleData.gradientIdBuffer;
         const persistedGradientDefIdBuffer = layer.colorCycleData.gradientDefIdBuffer;
-        const expectedSize = layer.colorCycleData.canvas!.width * layer.colorCycleData.canvas!.height;
-        const canSeedFromPersistedBuffers =
-          typeof (colorCycleBrush as {
+        const canSeedFromBuffers = canSeedFromPersistedBuffers(
+          colorCycleBrush as {
             applyLayerSnapshot?: (
               layerId: string,
               snapshot: {
@@ -2750,13 +2831,14 @@ export async function restoreColorCycleBrushes(layers: Layer[]): Promise<Layer[]
                 strokeCounter: number;
               },
             ) => void;
-          }).applyLayerSnapshot === 'function' &&
-          persistedGradientIdBuffer instanceof ArrayBuffer &&
-          persistedGradientIdBuffer.byteLength === expectedSize;
+          },
+          layer.colorCycleData,
+        );
 
-        if (canSeedFromPersistedBuffers) {
+        if (canSeedFromBuffers) {
           try {
-            const seededPaint = new Uint8Array(persistedGradientIdBuffer.slice(0));
+            const seededGradientIdBuffer = persistedGradientIdBuffer as ArrayBuffer;
+            const seededPaint = new Uint8Array(seededGradientIdBuffer.slice(0));
             const hasPersistedContent = seededPaint.some((value) => value !== 0);
             (
               colorCycleBrush as {
@@ -2773,11 +2855,17 @@ export async function restoreColorCycleBrushes(layers: Layer[]): Promise<Layer[]
               }
             ).applyLayerSnapshot(layer.id, {
               paintBuffer: seededPaint.buffer,
-              gradientIdBuffer: persistedGradientIdBuffer.slice(0),
+              gradientIdBuffer: seededGradientIdBuffer.slice(0),
               gradientDefIdBuffer: persistedGradientDefIdBuffer?.slice(0),
               hasContent: hasPersistedContent,
               strokeCounter: 0,
             });
+            if (
+              existingBrushState &&
+              estimateSerializedBrushStatePayloadSize(existingBrushState) > OVERSIZED_CC_BRUSH_STATE_BASE64_THRESHOLD
+            ) {
+              layer.colorCycleData.brushState = undefined;
+            }
           } catch (error) {
             console.warn('[projectIO] Failed to seed color cycle runtime from persisted buffers:', error);
           }
