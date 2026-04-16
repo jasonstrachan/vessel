@@ -10,6 +10,7 @@ describe('shapeDrawing pressure-linked dither resolution', () => {
     resolveDitherGridSnapPoint,
     normalizeSnappedShapePoints,
     shouldUseSimpleShapePreview,
+    shouldKeepColorCycleShapeOverlayAfterFinalize,
   } = __TESTING__;
 
   it('uses pressure-linked resolution when pressure is valid', () => {
@@ -217,5 +218,13 @@ describe('shapeDrawing pressure-linked dither resolution', () => {
     expect(shouldUseSimpleShapePreview(ccDitherLinearState)).toBe(false);
     expect(shouldUseSimpleShapePreview(ccNonDitherState)).toBe(true);
     expect(shouldUseSimpleShapePreview(ccConcentricDitherState)).toBe(false);
+  });
+
+  it('clears the transient cc shape overlay after finalize', () => {
+    expect(shouldKeepColorCycleShapeOverlayAfterFinalize({
+      brushShape: BrushShape.COLOR_CYCLE_SHAPE,
+      ditherEnabled: true,
+      gradientBands: 8,
+    } as BrushSettings)).toBe(false);
   });
 });
