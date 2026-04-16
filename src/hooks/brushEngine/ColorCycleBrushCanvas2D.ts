@@ -2463,7 +2463,7 @@ export class ColorCycleBrushCanvas2D {
       }
     }
     if (process.env.NODE_ENV !== 'production' && effectivePreviewSlot !== null) {
-      console.assert(leftoverPreview === 0, '[CC] preview slot leaked into committed stroke', {
+      console.assert(leftoverPreview === 0, '[CC] preview slot leaked into committed layer state', {
         layerId,
         leftover: leftoverPreview,
         previewSlot: effectivePreviewSlot,
@@ -2491,16 +2491,17 @@ export class ColorCycleBrushCanvas2D {
         hasContent: strokeData.hasContent,
         strokeCounter: strokeData.strokeCounter,
       }),
+      gradientIdBuffer: gidBuffer.slice().buffer,
       gradientDefIdBuffer: defBuffer.slice().buffer,
     };
   }
 
-  private syncGradientDefBufferToLayerStore(layerId: string): void {
+  private syncCommittedBuffersToLayerStore(layerId: string): void {
     if (typeof this.getLayerSnapshot !== 'function') {
       return;
     }
     const snapshot = this.getLayerSnapshot(layerId);
-    if (!snapshot?.gradientDefIdBuffer) {
+    if (!snapshot?.gradientIdBuffer && !snapshot?.gradientDefIdBuffer) {
       return;
     }
     const state = useAppStore.getState();
@@ -2508,16 +2509,19 @@ export class ColorCycleBrushCanvas2D {
     if (!layer?.colorCycleData) {
       return;
     }
-    const existingBuffer = layer.colorCycleData.gradientDefIdBuffer;
-    if (existingBuffer === snapshot.gradientDefIdBuffer) {
-      return;
-    }
-    if (
-      existingBuffer &&
-      existingBuffer.byteLength === snapshot.gradientDefIdBuffer.byteLength
-    ) {
+
+    const buffersEqual = (
+      existingBuffer: ArrayBufferLike | undefined,
+      nextBuffer: ArrayBufferLike | undefined
+    ): boolean => {
+      if (existingBuffer === nextBuffer) {
+        return true;
+      }
+      if (!existingBuffer || !nextBuffer || existingBuffer.byteLength !== nextBuffer.byteLength) {
+        return false;
+      }
       const existingView = new Uint8Array(existingBuffer);
-      const nextView = new Uint8Array(snapshot.gradientDefIdBuffer);
+      const nextView = new Uint8Array(nextBuffer);
       let differs = false;
       for (let i = 0; i < existingView.length; i += 1) {
         if (existingView[i] !== nextView[i]) {
@@ -2525,14 +2529,27 @@ export class ColorCycleBrushCanvas2D {
           break;
         }
       }
-      if (!differs) {
-        return;
-      }
+      return !differs;
+    };
+
+    const nextGradientIdBuffer = snapshot.gradientIdBuffer;
+    const nextGradientDefIdBuffer = snapshot.gradientDefIdBuffer;
+    const hasGradientIdChange = nextGradientIdBuffer
+      ? !buffersEqual(layer.colorCycleData.gradientIdBuffer, nextGradientIdBuffer)
+      : false;
+    const hasGradientDefChange = nextGradientDefIdBuffer
+      ? !buffersEqual(layer.colorCycleData.gradientDefIdBuffer, nextGradientDefIdBuffer)
+      : false;
+
+    if (!hasGradientIdChange && !hasGradientDefChange) {
+      return;
     }
+
     state.updateLayer(layerId, {
       colorCycleData: {
         ...layer.colorCycleData,
-        gradientDefIdBuffer: snapshot.gradientDefIdBuffer,
+        ...(hasGradientIdChange ? { gradientIdBuffer: nextGradientIdBuffer } : {}),
+        ...(hasGradientDefChange ? { gradientDefIdBuffer: nextGradientDefIdBuffer } : {}),
       },
     }, { skipColorCycleSync: true });
   }
@@ -2547,7 +2564,7 @@ export class ColorCycleBrushCanvas2D {
         binding.bbox,
         binding.previewSlot
       );
-      this.syncGradientDefBufferToLayerStore(layerId);
+      this.syncCommittedBuffersToLayerStore(layerId);
     }
 
     if (!targetCanvas) {

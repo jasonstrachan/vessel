@@ -1,7 +1,11 @@
 import { pointInPolygon } from '@/shapeFill/utils/geometry';
+import { TEMP_SAMPLE_SLOT } from '@/constants/colorCycle';
+import { finalizeColorCycleShapeFillLinear } from '@/hooks/canvas/handlers/colorCycle/colorCycleShapeFill';
+import type { MarkGradientSession } from '@/hooks/canvas/utils/colorCycleMarkSession';
 import { ColorCycleBrushCanvas2D } from '../ColorCycleBrushCanvas2D';
 import { decodeColorCycleSpeedByte } from '@/utils/colorCycleSpeed';
 import { appendGradientSeamProfileSignature } from '@/lib/colorCycle/gradientSeamProfile';
+import { hashStops, type StoredStop } from '@/utils/colorCycleGradientDefs';
 import { useAppStore } from '@/stores/useAppStore';
 
 type MockContext = CanvasRenderingContext2D & {
@@ -80,6 +84,8 @@ jest.mock('@/utils/canvasPool', () => ({
 type MockStoreState = {
   layers: Array<unknown>;
   tools: { brushSettings: Record<string, unknown> };
+  updateLayer?: jest.Mock;
+  setCcGradientSampleCount?: jest.Mock;
 };
 
 jest.mock('@/stores/useAppStore', () => {
@@ -279,6 +285,230 @@ describe('ColorCycleBrushCanvas2D regression tests', () => {
       animators: Map<string, { defIdData?: Uint16Array | null }>;
     }).animators.get(layerId);
     expect(Array.from(animator?.defIdData ?? [])).toEqual([defId, defId, 0, 0]);
+  });
+
+  it('keeps finalized sampled shapes stable across a second sampled commit and serialize/deserialize after a tight ROI', () => {
+    const layerId = 'layer-sampled-shape-stability';
+    const canvas = makeCanvas(4, 1);
+    const brush = new ColorCycleBrushCanvas2D(canvas, { forceCanvas2D: true });
+    const state = useAppStore.getState() as unknown as MockStoreState;
+    const sampledStopsA: StoredStop[] = [
+      { position: 0, color: '#112233' },
+      { position: 1, color: '#ddeeff' },
+    ];
+    const sampledStopsB: StoredStop[] = [
+      { position: 0, color: '#aa5500' },
+      { position: 1, color: '#ffeeaa' },
+    ];
+    const sessionA: MarkGradientSession = {
+      markId: 'shape-a',
+      layerId,
+      markKind: 'shape',
+      gradientKind: 'linear',
+      source: 'sampled',
+      frozenStopsStored: sampledStopsA,
+      previewStopsStored: sampledStopsA,
+      fallbackStopsStored: sampledStopsA,
+      frozenHash: hashStops(sampledStopsA, 'linear'),
+      binding: { kind: 'def', defId: 101, slot: 5 },
+      speedCps: null,
+    };
+    const sessionB: MarkGradientSession = {
+      markId: 'shape-b',
+      layerId,
+      markKind: 'shape',
+      gradientKind: 'linear',
+      source: 'sampled',
+      frozenStopsStored: sampledStopsB,
+      previewStopsStored: sampledStopsB,
+      fallbackStopsStored: sampledStopsB,
+      frozenHash: hashStops(sampledStopsB, 'linear'),
+      binding: { kind: 'def', defId: 202, slot: 6 },
+      speedCps: null,
+    };
+
+    state.layers = [
+      {
+        id: layerId,
+        layerType: 'color-cycle',
+        transparencyLocked: false,
+        colorCycleData: {
+          paintSlot: 0,
+          slotPalettes: [],
+          gradientDefStore: [],
+        },
+      },
+    ];
+    state.tools.brushSettings = {
+      colorCycleUseForegroundGradient: false,
+      ditherEnabled: true,
+      gradientBands: 2,
+      ditherPaletteSpread: 50,
+    };
+    state.updateLayer = jest.fn((targetLayerId: string, payload: { colorCycleData?: Record<string, unknown> }) => {
+      state.layers = state.layers.map((layer) => {
+        const typedLayer = layer as Record<string, unknown>;
+        if (typedLayer.id !== targetLayerId) {
+          return layer;
+        }
+        return {
+          ...typedLayer,
+          colorCycleData: {
+            ...(typedLayer.colorCycleData as Record<string, unknown> | undefined),
+            ...(payload.colorCycleData ?? {}),
+          },
+        };
+      });
+    });
+    state.setCcGradientSampleCount = jest.fn();
+
+    let finalizeStep = 0;
+    const deps = {
+      brushEngine: {
+        fillCcGradientLinear: jest.fn(async () => {
+          finalizeStep += 1;
+          if (finalizeStep === 1) {
+            brush.applyLayerSnapshot(layerId, {
+              paintBuffer: new Uint8Array([1, 1, 1, 0]).buffer,
+              gradientIdBuffer: new Uint8Array([TEMP_SAMPLE_SLOT, TEMP_SAMPLE_SLOT, TEMP_SAMPLE_SLOT, 0]).buffer,
+              gradientDefIdBuffer: new Uint16Array([0, 0, 0, 0]).buffer,
+              speedBuffer: new Uint8Array([0, 0, 0, 0]).buffer,
+              flowBuffer: new Uint8Array([0, 0, 0, 0]).buffer,
+              phaseBuffer: new Uint8Array([0, 0, 0, 0]).buffer,
+              hasContent: true,
+              strokeCounter: 1,
+            });
+            return;
+          }
+          const current = brush.getLayerSnapshot(layerId);
+          const paint = new Uint8Array(current?.paintBuffer ?? new ArrayBuffer(0));
+          const gradientIds = new Uint8Array(current?.gradientIdBuffer ?? new ArrayBuffer(0));
+          const gradientDefs = new Uint16Array(current?.gradientDefIdBuffer ?? new ArrayBuffer(0));
+          paint[3] = 1;
+          gradientIds[3] = TEMP_SAMPLE_SLOT;
+          gradientDefs[3] = 0;
+          brush.applyLayerSnapshot(layerId, {
+            paintBuffer: paint.buffer.slice(0),
+            gradientIdBuffer: gradientIds.buffer.slice(0),
+            gradientDefIdBuffer: gradientDefs.buffer.slice(0),
+            speedBuffer: new Uint8Array([0, 0, 0, 0]).buffer,
+            flowBuffer: new Uint8Array([0, 0, 0, 0]).buffer,
+            phaseBuffer: new Uint8Array([0, 0, 0, 0]).buffer,
+            hasContent: true,
+            strokeCounter: 2,
+          });
+        }),
+        updateColorCycleTexture: jest.fn(),
+      } as never,
+      getColorCycleBrushManager: () => ({ getBrush: () => brush as never }),
+      bindBrushToCanvas: jest.fn(),
+      timeAsync: async <T,>(_label: string, task: () => Promise<T>) => task(),
+      timeSync: <T,>(_label: string, task: () => T) => task(),
+      ccLog: jest.fn(),
+      scheduleDeferredColorCycleSaveWithState: jest.fn(async () => undefined),
+      logError: jest.fn(),
+    };
+
+    return finalizeColorCycleShapeFillLinear(
+      {
+        session: sessionA,
+        shapePoints: [
+          { x: 0, y: 0 },
+          { x: 2, y: 0 },
+          { x: 0, y: 1 },
+        ],
+        direction: { x: 1, y: 0 },
+        activeLayerId: layerId,
+        activeLayerCanvas: canvas,
+        overlayCanvas: null,
+        overlayCtx: null,
+        fallbackBlendMode: 'source-over',
+        fallbackOpacity: 1,
+        shapeLayerId: layerId,
+        beforeColorState: null,
+        tool: 'brush',
+        roi: { x: 0, y: 0, width: 2, height: 1 },
+      },
+      deps
+    ).then(async () => {
+      const afterShapeA = brush.getLayerSnapshot(layerId);
+      const shapeAGradientIds = Array.from(
+        new Uint8Array(afterShapeA?.gradientIdBuffer ?? new ArrayBuffer(0))
+      );
+      const shapeADefIds = Array.from(
+        new Uint16Array(afterShapeA?.gradientDefIdBuffer ?? new ArrayBuffer(0))
+      );
+      expect(shapeAGradientIds).toHaveLength(4);
+      expect(shapeADefIds).toHaveLength(4);
+      expect(shapeAGradientIds.slice(0, 3).every((value) => value === shapeAGradientIds[0])).toBe(true);
+      expect(shapeAGradientIds.slice(0, 3)).not.toContain(TEMP_SAMPLE_SLOT);
+      expect(shapeADefIds.slice(0, 3).every((value) => value === shapeADefIds[0] && value !== 0)).toBe(true);
+      const persistedAfterShapeA = state.layers[0] as {
+        colorCycleData?: { gradientIdBuffer?: ArrayBuffer; gradientDefIdBuffer?: ArrayBuffer };
+      };
+      expect(
+        Array.from(new Uint8Array(persistedAfterShapeA.colorCycleData?.gradientIdBuffer ?? new ArrayBuffer(0)))
+      ).toEqual(shapeAGradientIds);
+      expect(
+        Array.from(new Uint16Array(persistedAfterShapeA.colorCycleData?.gradientDefIdBuffer ?? new ArrayBuffer(0)))
+      ).toEqual(shapeADefIds);
+
+      await finalizeColorCycleShapeFillLinear(
+        {
+          session: sessionB,
+          shapePoints: [
+            { x: 3, y: 0 },
+            { x: 3, y: 0 },
+            { x: 3, y: 1 },
+          ],
+          direction: { x: 1, y: 0 },
+          activeLayerId: layerId,
+          activeLayerCanvas: canvas,
+          overlayCanvas: null,
+          overlayCtx: null,
+          fallbackBlendMode: 'source-over',
+          fallbackOpacity: 1,
+          shapeLayerId: layerId,
+          beforeColorState: null,
+          tool: 'brush',
+          roi: { x: 3, y: 0, width: 1, height: 1 },
+        },
+        deps
+      );
+
+      const afterShapeB = brush.getLayerSnapshot(layerId);
+      const shapeBGradientIds = Array.from(
+        new Uint8Array(afterShapeB?.gradientIdBuffer ?? new ArrayBuffer(0))
+      );
+      const shapeBDefIds = Array.from(
+        new Uint16Array(afterShapeB?.gradientDefIdBuffer ?? new ArrayBuffer(0))
+      );
+      expect(shapeBGradientIds.slice(0, 3)).toEqual(shapeAGradientIds.slice(0, 3));
+      expect(shapeBDefIds.slice(0, 3)).toEqual(shapeADefIds.slice(0, 3));
+      expect(shapeBGradientIds).not.toContain(TEMP_SAMPLE_SLOT);
+      expect(shapeBDefIds[3]).not.toBe(0);
+      const persistedAfterShapeB = state.layers[0] as {
+        colorCycleData?: { gradientIdBuffer?: ArrayBuffer; gradientDefIdBuffer?: ArrayBuffer };
+      };
+      expect(
+        Array.from(new Uint8Array(persistedAfterShapeB.colorCycleData?.gradientIdBuffer ?? new ArrayBuffer(0)))
+      ).toEqual(shapeBGradientIds);
+      expect(
+        Array.from(new Uint16Array(persistedAfterShapeB.colorCycleData?.gradientDefIdBuffer ?? new ArrayBuffer(0)))
+      ).toEqual(shapeBDefIds);
+
+      const restored = ColorCycleBrushCanvas2D.deserialize(brush.serialize(), makeCanvas(4, 1));
+      const restoredSnapshot = restored.getLayerSnapshot(layerId);
+      expect(Array.from(new Uint8Array(restoredSnapshot?.gradientIdBuffer ?? new ArrayBuffer(0)))).toEqual(
+        shapeBGradientIds
+      );
+      expect(Array.from(new Uint16Array(restoredSnapshot?.gradientDefIdBuffer ?? new ArrayBuffer(0)))).toEqual(
+        shapeBDefIds
+      );
+      expect(Array.from(new Uint8Array(restoredSnapshot?.gradientIdBuffer ?? new ArrayBuffer(0)))).not.toContain(
+        TEMP_SAMPLE_SLOT
+      );
+    });
   });
 
   it('linear fill is monotonic along x (with at most one wrap)', async () => {

@@ -16,6 +16,11 @@ import { flushPendingToolWork } from '@/utils/toolFlushRegistry';
 import { getColorCycleBrushManager } from '@/stores/colorCycleBrushManager';
 import { syncCCRuntimes } from '@/stores/ccRuntime';
 import { waitForPendingHistoryCommits } from '@/history/pendingHistoryCommits';
+import {
+  logCCMutation,
+  summarizeColorCycleLayer,
+  summarizeSerializedColorCycleLayer,
+} from '@/utils/colorCycle/ccMutationAudit';
 
 type AppState = import('../useAppStore').AppState;
 type CCReason = import('../useAppStore').CCReason;
@@ -593,6 +598,10 @@ export const createHistoryService = ({
       const brush = manager.getBrush(layer.id);
       const serializedState = (colorData.brushState ?? null) as ColorCycleSerializedState | null;
       if (brush && serializedState) {
+        const beforeRestore = summarizeColorCycleLayer(refreshedLayer ?? null);
+        const serializedLayer = serializedState.layers?.find(
+          (entry) => entry.layerId === layer.id
+        );
         const runtimeBrush = brush as typeof brush & {
           restoreFullState?: (state: ColorCycleSerializedState) => void;
           updateColorCycleTexture?: () => void;
@@ -604,6 +613,28 @@ export const createHistoryService = ({
           if (colorData.hasContent) {
             runtimeBrush.render?.(false);
           }
+          logCCMutation({
+            event: 'history-rehydrate-restore',
+            layerId: layer.id,
+            reason: 'rehydrateColorCycleLayersFromStore',
+            severity: 'info',
+            before: beforeRestore,
+            after: summarizeColorCycleLayer(
+              get().layers.find((entry) => entry.id === layer.id) ?? refreshedLayer ?? null
+            ),
+            details: {
+              serialized: summarizeSerializedColorCycleLayer({
+                layerId: layer.id,
+                hasContent: serializedLayer?.strokeData?.hasContent,
+                gradientDefBufferBytes:
+                  serializedLayer?.strokeData?.gradientDefIdBuffer?.byteLength ?? 0,
+                gradientIdBufferBytes:
+                  serializedLayer?.strokeData?.gradientIdBuffer?.byteLength ?? 0,
+                gradientDefStoreCount: serializedLayer?.gradientDefStore?.length ?? 0,
+                slotPaletteCount: serializedLayer?.slotPalettes?.length ?? 0,
+              }),
+            },
+          });
         } catch {
           // brush restore best-effort
         }
