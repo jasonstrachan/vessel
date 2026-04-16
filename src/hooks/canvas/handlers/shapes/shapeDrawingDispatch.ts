@@ -18,7 +18,7 @@ export const dispatchStartShapeDrawing = (
   args: Omit<StartArgs, 'refs'> & { refs: StartArgs['refs'] },
   deps: StartDeps
 ) => {
-  startShapeDrawingExternal(args, deps);
+  return startShapeDrawingExternal(args, deps);
 };
 
 export const dispatchContinueShapeDrawing = (
@@ -62,8 +62,7 @@ export const createShapeDrawingDispatchers = ({
     rawPressure?: number,
     options?: DrawOptions
   ) => {
-    isPointerDownRef.current = true;
-    dispatchStartShapeDrawing(
+    const didStart = dispatchStartShapeDrawing(
       {
         worldPos,
         pressure,
@@ -75,6 +74,8 @@ export const createShapeDrawingDispatchers = ({
       },
       shapeDrawingDeps
     );
+    isPointerDownRef.current = didStart;
+    return didStart;
   };
 
   const continueShapeDrawing = (
