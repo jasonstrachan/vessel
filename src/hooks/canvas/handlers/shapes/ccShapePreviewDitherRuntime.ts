@@ -12,6 +12,7 @@ import { fillCcGradientDither } from '@/utils/colorCycle/ccGradientDither';
 import { resolveStableFlatSeed } from '@/utils/colorCycle/ccFlatSeed';
 import { computeConcentricMaxDistance } from '@/utils/colorCycle/concentricFillCore';
 import { getActiveMarkGradientSession } from '@/hooks/canvas/utils/colorCycleMarkSession';
+import { stampCcHangProbe } from '@/hooks/canvas/utils/ccHangProbe';
 import type { StoredStop } from '@/utils/colorCycleGradientDefs';
 
 export type PreparedPreviewGradient = {
@@ -463,7 +464,7 @@ export const runCcDitherPreviewRuntime = (args: {
   const fillAlgorithm = previewRenderSettings.algorithm;
   const fillPatternStyle = previewRenderSettings.patternStyle;
   const replayKey = buildCcPreviewReplayKey({
-    points: committedPolygon,
+    points: previewGeometry.previewPolygon,
     preparedGradientKey,
     colorCycleFillMode: brushSettings.colorCycleFillMode,
     pixelSize,
@@ -595,6 +596,28 @@ export const runCcDitherPreviewRuntime = (args: {
           const liveState = useAppStore.getState();
           const liveLayerId = liveState.activeLayerId;
           const liveSession = liveLayerId ? getActiveMarkGradientSession(liveLayerId) : null;
+          stampCcHangProbe({
+            phase: 'cc-runtime-job-start',
+            canvas: overlayCanvas,
+            ctx: overlayCtx,
+            markKind: 'shape',
+            source: liveState.tools.ccGradientSource ?? null,
+            algorithm: previewRenderSettings.algorithm,
+            levels: previewRenderSettings.levels,
+            colors: typeof brushSettings.colors === 'number' ? brushSettings.colors : null,
+            pointCount: committedPolygon.length,
+            previewPointCountRaw: committedPolygon.length,
+            previewPointCountSimplified: previewGeometry.previewPolygon.length,
+            replayKeyPointCount: previewGeometry.previewPolygon.length,
+            w,
+            h,
+            scaledW,
+            scaledH,
+            pixelSize: previewRenderSettings.pixelSize,
+            inFlight: ditherGradPreviewState.ccJobInFlight,
+            dirty: ditherGradPreviewState.ccJobDirty,
+            seq: mySeq,
+          });
           const shouldSkipSampledPreviewReplay =
             liveState.tools.ccGradientSource === 'sampled' &&
             !drawingHandlers.isDrawingShapeRef.current &&
@@ -606,6 +629,28 @@ export const runCcDitherPreviewRuntime = (args: {
             markId: liveSession?.markId ?? null,
             bounds: { minX: 0, minY: 0, width: w, height: h },
             points: localVertices,
+          });
+          stampCcHangProbe({
+            phase: 'cc-runtime-before-fillCcGradientDither',
+            canvas: overlayCanvas,
+            ctx: overlayCtx,
+            markKind: 'shape',
+            source: liveState.tools.ccGradientSource ?? null,
+            algorithm: previewRenderSettings.algorithm,
+            levels: previewRenderSettings.levels,
+            colors: typeof brushSettings.colors === 'number' ? brushSettings.colors : null,
+            pointCount: committedPolygon.length,
+            previewPointCountRaw: committedPolygon.length,
+            previewPointCountSimplified: previewGeometry.previewPolygon.length,
+            replayKeyPointCount: previewGeometry.previewPolygon.length,
+            w,
+            h,
+            scaledW,
+            scaledH,
+            pixelSize: previewRenderSettings.pixelSize,
+            inFlight: ditherGradPreviewState.ccJobInFlight,
+            dirty: ditherGradPreviewState.ccJobDirty,
+            seq: mySeq,
           });
           await fillCcGradientDither({
             vertices: scaledVertices,
@@ -639,9 +684,75 @@ export const runCcDitherPreviewRuntime = (args: {
               data[px + 3] = Math.round(a);
             },
           });
+          stampCcHangProbe({
+            phase: 'cc-runtime-after-fillCcGradientDither',
+            canvas: overlayCanvas,
+            ctx: overlayCtx,
+            markKind: 'shape',
+            source: liveState.tools.ccGradientSource ?? null,
+            algorithm: previewRenderSettings.algorithm,
+            levels: previewRenderSettings.levels,
+            colors: typeof brushSettings.colors === 'number' ? brushSettings.colors : null,
+            pointCount: committedPolygon.length,
+            previewPointCountRaw: committedPolygon.length,
+            previewPointCountSimplified: previewGeometry.previewPolygon.length,
+            replayKeyPointCount: previewGeometry.previewPolygon.length,
+            w,
+            h,
+            scaledW,
+            scaledH,
+            pixelSize: previewRenderSettings.pixelSize,
+            inFlight: ditherGradPreviewState.ccJobInFlight,
+            dirty: ditherGradPreviewState.ccJobDirty,
+            seq: mySeq,
+          });
           if (mySeq !== ditherGradPreviewState.ccJobSeq) return;
-          const imageData = new ImageData(data, scaledW, scaledH);
+          stampCcHangProbe({
+            phase: 'cc-runtime-before-putImageData',
+            canvas: overlayCanvas,
+            ctx: overlayCtx,
+            markKind: 'shape',
+            source: liveState.tools.ccGradientSource ?? null,
+            algorithm: previewRenderSettings.algorithm,
+            levels: previewRenderSettings.levels,
+            colors: typeof brushSettings.colors === 'number' ? brushSettings.colors : null,
+            pointCount: committedPolygon.length,
+            previewPointCountRaw: committedPolygon.length,
+            previewPointCountSimplified: previewGeometry.previewPolygon.length,
+            replayKeyPointCount: previewGeometry.previewPolygon.length,
+            w,
+            h,
+            scaledW,
+            scaledH,
+            pixelSize: previewRenderSettings.pixelSize,
+            inFlight: ditherGradPreviewState.ccJobInFlight,
+            dirty: ditherGradPreviewState.ccJobDirty,
+            seq: mySeq,
+          });
+          const imageData = new ImageData(Uint8ClampedArray.from(data), scaledW, scaledH);
           tempCtx.putImageData(imageData, 0, 0);
+          stampCcHangProbe({
+            phase: 'cc-runtime-after-putImageData',
+            canvas: overlayCanvas,
+            ctx: overlayCtx,
+            markKind: 'shape',
+            source: liveState.tools.ccGradientSource ?? null,
+            algorithm: previewRenderSettings.algorithm,
+            levels: previewRenderSettings.levels,
+            colors: typeof brushSettings.colors === 'number' ? brushSettings.colors : null,
+            pointCount: committedPolygon.length,
+            previewPointCountRaw: committedPolygon.length,
+            previewPointCountSimplified: previewGeometry.previewPolygon.length,
+            replayKeyPointCount: previewGeometry.previewPolygon.length,
+            w,
+            h,
+            scaledW,
+            scaledH,
+            pixelSize: previewRenderSettings.pixelSize,
+            inFlight: ditherGradPreviewState.ccJobInFlight,
+            dirty: ditherGradPreviewState.ccJobDirty,
+            seq: mySeq,
+          });
           ditherGradPreviewState.ccLastCanvas = ensurePreviewCanvasCapacity(
             ditherGradPreviewState.ccLastCanvas,
             w,
@@ -660,7 +771,51 @@ export const runCcDitherPreviewRuntime = (args: {
           displayCtx.globalAlpha = 1;
           displayCtx.imageSmoothingEnabled = false;
           displayCtx.clearRect(0, 0, w, h);
+          stampCcHangProbe({
+            phase: 'cc-runtime-before-display-blit',
+            canvas: overlayCanvas,
+            ctx: overlayCtx,
+            markKind: 'shape',
+            source: liveState.tools.ccGradientSource ?? null,
+            algorithm: previewRenderSettings.algorithm,
+            levels: previewRenderSettings.levels,
+            colors: typeof brushSettings.colors === 'number' ? brushSettings.colors : null,
+            pointCount: committedPolygon.length,
+            previewPointCountRaw: committedPolygon.length,
+            previewPointCountSimplified: previewGeometry.previewPolygon.length,
+            replayKeyPointCount: previewGeometry.previewPolygon.length,
+            w,
+            h,
+            scaledW,
+            scaledH,
+            pixelSize: previewRenderSettings.pixelSize,
+            inFlight: ditherGradPreviewState.ccJobInFlight,
+            dirty: ditherGradPreviewState.ccJobDirty,
+            seq: mySeq,
+          });
           displayCtx.drawImage(tempCanvas, 0, 0, scaledW, scaledH, 0, 0, w, h);
+          stampCcHangProbe({
+            phase: 'cc-runtime-after-display-blit',
+            canvas: overlayCanvas,
+            ctx: overlayCtx,
+            markKind: 'shape',
+            source: liveState.tools.ccGradientSource ?? null,
+            algorithm: previewRenderSettings.algorithm,
+            levels: previewRenderSettings.levels,
+            colors: typeof brushSettings.colors === 'number' ? brushSettings.colors : null,
+            pointCount: committedPolygon.length,
+            previewPointCountRaw: committedPolygon.length,
+            previewPointCountSimplified: previewGeometry.previewPolygon.length,
+            replayKeyPointCount: previewGeometry.previewPolygon.length,
+            w,
+            h,
+            scaledW,
+            scaledH,
+            pixelSize: previewRenderSettings.pixelSize,
+            inFlight: ditherGradPreviewState.ccJobInFlight,
+            dirty: ditherGradPreviewState.ccJobDirty,
+            seq: mySeq,
+          });
           ditherGradPreviewState.ccLastOrigin = { ...origin };
           ditherGradPreviewState.ccLastSize = { width: w, height: h };
           ditherGradPreviewState.ccLastReplayKey = replayKey;
@@ -670,32 +825,15 @@ export const runCcDitherPreviewRuntime = (args: {
               origin: { ...origin },
             };
           }
-          const canRefreshPreview =
-            liveState.tools.shapeMode &&
-            drawingHandlers.isDrawingShapeRef.current &&
-            drawingHandlers.shapePointsRef.current.length > 0;
-          if (canRefreshPreview) {
-            schedulePolygonShapePreviewFrame(() =>
-              getLatestPolygonPreviewPoint()
-            );
-          }
         } catch {
           // Keep scratch buffers for reuse on the next preview job.
         } finally {
           ditherGradPreviewState.ccJobInFlight = false;
           if (ditherGradPreviewState.ccJobDirty) {
             ditherGradPreviewState.ccJobDirty = false;
-            const rerenderPoint = getLatestPolygonPreviewPoint();
-            const canReplayPreview =
-              Boolean(rerenderPoint) &&
-              useAppStore.getState().tools.shapeMode &&
-              drawingHandlers.isDrawingShapeRef.current &&
-              drawingHandlers.shapePointsRef.current.length > 0;
-            if (canReplayPreview) {
-              schedulePolygonShapePreviewFrame(() =>
-                getLatestPolygonPreviewPoint() ?? rerenderPoint
-              );
-            }
+            schedulePolygonShapePreviewFrame(() =>
+              getLatestPolygonPreviewPoint()
+            );
           }
         }
       })();
