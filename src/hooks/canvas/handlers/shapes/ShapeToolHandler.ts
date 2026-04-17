@@ -37,6 +37,7 @@ import {
 import { buildCcDitherRuntimePalette, resolveCcDitherBandMode } from '@/utils/colorCycle/ccDitherRenderPalette';
 import { getPreviewGradientForActiveMark } from '@/hooks/canvas/utils/colorCycleMarkSession';
 import { parseCssColorToRgba } from '@/hooks/canvas/utils/colorCycleHelpers';
+import { stampCcHangProbe } from '@/hooks/canvas/utils/ccHangProbe';
 import { applyPolygonMaskToCanvasContext } from '@/hooks/canvas/handlers/shapes/shapePreviewMask';
 import { logLivePreview } from '@/hooks/canvas/utils/livePreviewDebug';
 import { hashStops, type StoredStop } from '@/utils/colorCycleGradientDefs';
@@ -63,6 +64,30 @@ const shouldKeepCachedCcPreviewVisible = (params: {
   jobInFlight: boolean;
 }): boolean => params.hasCachedPreview && (!params.canReplayCurrentPreview || params.jobInFlight);
 
+const LIVE_SHAPE_PREVIEW_MAX_POINTS = 256;
+
+const capLiveShapePreviewPoints = (points: PreviewPoint[]): PreviewPoint[] => {
+  if (points.length <= LIVE_SHAPE_PREVIEW_MAX_POINTS) {
+    return points.map((point) => ({ x: point.x, y: point.y }));
+  }
+
+  const lastIndex = points.length - 1;
+  const step = lastIndex / (LIVE_SHAPE_PREVIEW_MAX_POINTS - 1);
+  const capped: PreviewPoint[] = [];
+  for (let i = 0; i < LIVE_SHAPE_PREVIEW_MAX_POINTS; i += 1) {
+    const index = i === LIVE_SHAPE_PREVIEW_MAX_POINTS - 1
+      ? lastIndex
+      : Math.min(lastIndex, Math.round(i * step));
+    const point = points[index];
+    const prev = capped[capped.length - 1];
+    if (!prev || prev.x !== point.x || prev.y !== point.y) {
+      capped.push({ x: point.x, y: point.y });
+    }
+  }
+
+  return capped;
+};
+
 type PolygonPreviewModel = {
   committedPolygon: PreviewPoint[];
   guideSegment: PreviewPoint[] | null;
@@ -74,10 +99,10 @@ const buildPolygonPreviewModel = (
   points: PreviewPoint[],
   previewPoint: PreviewPoint
 ): PolygonPreviewModel => {
-  const committedPolygon = points.map((point) => ({ x: point.x, y: point.y }));
-  const firstAnchor = committedPolygon.length > 0 ? committedPolygon[0] : null;
-  const lastAnchor = committedPolygon.length > 0
-    ? committedPolygon[committedPolygon.length - 1]
+  const committedPolygon = capLiveShapePreviewPoints(points);
+  const firstAnchor = points.length > 0 ? { x: points[0].x, y: points[0].y } : null;
+  const lastAnchor = points.length > 0
+    ? { x: points[points.length - 1].x, y: points[points.length - 1].y }
     : null;
   const guideSegment =
     lastAnchor && !pointsMatch(lastAnchor, previewPoint)
@@ -3102,30 +3127,65 @@ export const createShapeToolHandler = (
                   });
             ditherGradPreviewState.ccPreparedGradientKey = preparedGradientKey;
             ditherGradPreviewState.ccPreparedGradient = preparedGradient;
+            const basePixelSize = Math.max(1, Math.round(brushNow.fillResolution ?? 1));
+            const usePressure =
+              Boolean(brushNow.pressureLinkedFillResolution) &&
+              Boolean(drawingHandlers.hadValidShapePressureRef?.current);
+            const pressurePixelSize = usePressure
+              ? (drawingHandlers.latestShapePixelSizeRef?.current ??
+                drawingHandlers.computeShapePixelSize?.(
+                  drawingHandlers.lastStablePressureRef?.current ?? 0.5
+                ) ??
+                basePixelSize)
+              : basePixelSize;
+            const pixelSize = Math.max(1, Math.round(pressurePixelSize || basePixelSize));
+            const levels = Math.max(1, Math.min(16, Math.round(brushNow.gradientBands ?? 16)));
+            stampCcHangProbe({
+              phase: 'shape-preview-frame-start',
+              canvas: overlayCanvas,
+              ctx: overlayCtx,
+              incrementPreviewFrame: true,
+              markKind: 'shape',
+              source: brushNow.ccGradientSource ?? null,
+              algorithm: brushNow.ditherAlgorithm ?? 'sierra-lite',
+              levels,
+              colors: typeof brushNow.colors === 'number' ? brushNow.colors : null,
+              pointCount: committedPolygon.length,
+              previewPointCountRaw: committedPolygon.length,
+              pixelSize,
+              sampledFlatPreviewBypass: false,
+              inFlight: ditherGradPreviewState.ccJobInFlight,
+              dirty: ditherGradPreviewState.ccJobDirty,
+              seq: ditherGradPreviewState.ccJobSeq,
+            });
             if (isSampledPreviewMode && effectiveStops.length < 2) {
               strokePreviewOutline();
               didCustomFill = true;
               return;
             }
             if (shouldDitherPreview) {
-              const basePixelSize = Math.max(1, Math.round(brushNow.fillResolution ?? 1));
-              const usePressure =
-                Boolean(brushNow.pressureLinkedFillResolution) &&
-                Boolean(drawingHandlers.hadValidShapePressureRef?.current);
-              const pressurePixelSize = usePressure
-                ? (drawingHandlers.latestShapePixelSizeRef?.current ??
-                  drawingHandlers.computeShapePixelSize?.(
-                    drawingHandlers.lastStablePressureRef?.current ?? 0.5
-                  ) ??
-                  basePixelSize)
-                : basePixelSize;
-              const pixelSize = Math.max(1, Math.round(pressurePixelSize || basePixelSize));
-              const levels = Math.max(1, Math.min(16, Math.round(brushNow.gradientBands ?? 16)));
               const previewRenderSettings = resolveCcShapePreviewRenderSettings({
                 pixelSize,
                 levels,
                 algorithm: brushNow.ditherAlgorithm ?? 'sierra-lite',
                 patternStyle: brushNow.patternStyle ?? 'dots',
+              });
+              stampCcHangProbe({
+                phase: 'shape-preview-before-runtime',
+                canvas: overlayCanvas,
+                ctx: overlayCtx,
+                markKind: 'shape',
+                source: brushNow.ccGradientSource ?? null,
+                algorithm: previewRenderSettings.algorithm,
+                levels: previewRenderSettings.levels,
+                colors: typeof brushNow.colors === 'number' ? brushNow.colors : null,
+                pointCount: committedPolygon.length,
+                previewPointCountRaw: committedPolygon.length,
+                pixelSize: previewRenderSettings.pixelSize,
+                sampledFlatPreviewBypass: false,
+                inFlight: ditherGradPreviewState.ccJobInFlight,
+                dirty: ditherGradPreviewState.ccJobDirty,
+                seq: ditherGradPreviewState.ccJobSeq,
               });
               const runtimeResult = runCcDitherPreviewRuntime({
                 overlayCtx,
@@ -3144,6 +3204,23 @@ export const createShapeToolHandler = (
                     ? { ...latestPolygonPreviewPoint }
                     : null,
                 previewRenderSettings,
+              });
+              stampCcHangProbe({
+                phase: 'shape-preview-after-runtime-call',
+                canvas: overlayCanvas,
+                ctx: overlayCtx,
+                markKind: 'shape',
+                source: brushNow.ccGradientSource ?? null,
+                algorithm: previewRenderSettings.algorithm,
+                levels: previewRenderSettings.levels,
+                colors: typeof brushNow.colors === 'number' ? brushNow.colors : null,
+                pointCount: committedPolygon.length,
+                previewPointCountRaw: committedPolygon.length,
+                pixelSize: previewRenderSettings.pixelSize,
+                sampledFlatPreviewBypass: false,
+                inFlight: ditherGradPreviewState.ccJobInFlight,
+                dirty: ditherGradPreviewState.ccJobDirty,
+                seq: ditherGradPreviewState.ccJobSeq,
               });
               didCustomFill = runtimeResult.didCustomFill;
               suppressLivePreviewChrome = runtimeResult.suppressLivePreviewChrome;

@@ -317,6 +317,27 @@ describe('ShapeToolHandler – shape fill tool detection', () => {
     ]);
   });
 
+  it('caps live preview polygon points without mutating the underlying shape inputs', () => {
+    const rawPoints = Array.from({ length: 600 }, (_, index) => ({
+      x: index,
+      y: Math.sin(index / 20) * 10,
+    }));
+
+    const previewModel = __shapeToolTestUtils.buildPolygonPreviewModel(
+      rawPoints,
+      { x: 700, y: 20 },
+    );
+
+    expect(rawPoints).toHaveLength(600);
+    expect(previewModel.committedPolygon.length).toBeLessThanOrEqual(256);
+    expect(previewModel.committedPolygon[0]).toEqual(rawPoints[0]);
+    expect(previewModel.committedPolygon[previewModel.committedPolygon.length - 1]).toEqual(
+      rawPoints[rawPoints.length - 1]
+    );
+    expect(previewModel.firstAnchor).toEqual(rawPoints[0]);
+    expect(previewModel.lastAnchor).toEqual(rawPoints[rawPoints.length - 1]);
+  });
+
   it('keeps using the last rendered cc preview fill until a new frame is ready', () => {
     expect(
       shouldUseRenderedCcPreviewFill({

@@ -12,6 +12,7 @@ import { buildCcDitherRuntimePalette, resolveCcDitherBandMode } from '@/utils/co
 import { applyRuntimeToBrush, flushGradientApply, requestGradientApply } from '@/hooks/brushEngine/ccGradientApplyScheduler';
 import type { MarkGradientSession } from '@/hooks/canvas/utils/colorCycleMarkSession';
 import { resolveMarkSessionRuntimeStops } from '@/hooks/canvas/utils/colorCycleMarkSession';
+import { stampCcHangProbe, type CcHangProbePhase } from '@/hooks/canvas/utils/ccHangProbe';
 import { TEMP_SAMPLE_SLOT } from '@/constants/colorCycle';
 import { ccLog } from '@/debug/ccDebug';
 import { ensureGradientDefForStops, hashStops, type StoredStop } from '@/utils/colorCycleGradientDefs';
@@ -57,6 +58,43 @@ const launchDeferredColorCycleShapeSave = (
 ): void => {
   deps.scheduleDeferredColorCycleSaveWithState(args).catch((error) => {
     deps.logError('Deferred color cycle shape save failed', error);
+  });
+};
+
+const stampShapeFinalizeProbe = ({
+  phase,
+  activeLayerCanvas,
+  overlayCanvas,
+  overlayCtx,
+  shapePoints,
+  source,
+  algorithm,
+  levels,
+  colors,
+  incrementFinalizeCount = false,
+}: {
+  phase: CcHangProbePhase;
+  activeLayerCanvas: HTMLCanvasElement;
+  overlayCanvas: HTMLCanvasElement | null;
+  overlayCtx: CanvasRenderingContext2D | null;
+  shapePoints: Array<{ x: number; y: number }>;
+  source: string | null;
+  algorithm: string | null;
+  levels: number | null;
+  colors: number | null;
+  incrementFinalizeCount?: boolean;
+}): void => {
+  stampCcHangProbe({
+    phase,
+    canvas: overlayCanvas ?? activeLayerCanvas,
+    ctx: overlayCtx,
+    markKind: 'shape',
+    source,
+    algorithm,
+    levels,
+    colors,
+    pointCount: shapePoints.length,
+    incrementFinalizeCount,
   });
 };
 
@@ -520,6 +558,21 @@ export const finalizeColorCycleShapeFillLinear = async (
   deps: ColorCycleShapeFillDeps
 ): Promise<void> => {
   try {
+    const initialSettings = useAppStore.getState().tools.brushSettings;
+    stampShapeFinalizeProbe({
+      phase: 'shape-finalize-start',
+      activeLayerCanvas: args.activeLayerCanvas,
+      overlayCanvas: args.overlayCanvas,
+      overlayCtx: args.overlayCtx,
+      shapePoints: args.shapePoints,
+      source: args.session?.source ?? initialSettings.ccGradientSource ?? null,
+      algorithm: initialSettings.ditherAlgorithm ?? null,
+      levels: initialSettings.ditherEnabled
+        ? resolveCcDitherBandMode(initialSettings.gradientBands ?? 16).quantLevels
+        : null,
+      colors: typeof initialSettings.colors === 'number' ? initialSettings.colors : null,
+      incrementFinalizeCount: true,
+    });
     const beforeShapeFinalize = summarizeColorCycleLayer(
       useAppStore.getState().layers.find((candidate) => candidate.id === args.activeLayerId) ?? null
     );
@@ -531,6 +584,19 @@ export const finalizeColorCycleShapeFillLinear = async (
     const lockMaskCanvas = preFillPaintMask
       ? null
       : snapshotTransparencyLockMask(args.activeLayerId, args.activeLayerCanvas);
+    stampShapeFinalizeProbe({
+      phase: 'shape-finalize-before-fill',
+      activeLayerCanvas: args.activeLayerCanvas,
+      overlayCanvas: args.overlayCanvas,
+      overlayCtx: args.overlayCtx,
+      shapePoints: args.shapePoints,
+      source: args.session?.source ?? initialSettings.ccGradientSource ?? null,
+      algorithm: initialSettings.ditherAlgorithm ?? null,
+      levels: initialSettings.ditherEnabled
+        ? resolveCcDitherBandMode(initialSettings.gradientBands ?? 16).quantLevels
+        : null,
+      colors: typeof initialSettings.colors === 'number' ? initialSettings.colors : null,
+    });
     const renderSession = await deps.timeAsync('cc:shape:fill(linear)', async () => {
       const live = useAppStore.getState();
       const liveLayer = live.layers.find((candidate) => candidate.id === args.activeLayerId);
@@ -604,6 +670,20 @@ export const finalizeColorCycleShapeFillLinear = async (
       });
       return resolvedRenderSession;
     });
+    const postFillSettings = useAppStore.getState().tools.brushSettings;
+    stampShapeFinalizeProbe({
+      phase: 'shape-finalize-after-fill',
+      activeLayerCanvas: args.activeLayerCanvas,
+      overlayCanvas: args.overlayCanvas,
+      overlayCtx: args.overlayCtx,
+      shapePoints: args.shapePoints,
+      source: renderSession?.source ?? args.session?.source ?? postFillSettings.ccGradientSource ?? null,
+      algorithm: postFillSettings.ditherAlgorithm ?? null,
+      levels: postFillSettings.ditherEnabled
+        ? resolveCcDitherBandMode(postFillSettings.gradientBands ?? 16).quantLevels
+        : null,
+      colors: typeof postFillSettings.colors === 'number' ? postFillSettings.colors : null,
+    });
 
     const colorCycleBrush = initialBrush ?? deps.getColorCycleBrushManager().getBrush(args.activeLayerId);
     if (colorCycleBrush) {
@@ -658,6 +738,19 @@ export const finalizeColorCycleShapeFillLinear = async (
         pairBandCount: args.session?.ditherRenderConfig?.pairBandCount ?? 0,
         paintSlotBeforeCommit: st.layers.find((layer) => layer.id === args.activeLayerId)?.colorCycleData?.paintSlot ?? null,
       });
+      stampShapeFinalizeProbe({
+        phase: 'shape-finalize-before-commit',
+        activeLayerCanvas: args.activeLayerCanvas,
+        overlayCanvas: args.overlayCanvas,
+        overlayCtx: args.overlayCtx,
+        shapePoints: args.shapePoints,
+        source: renderSession?.source ?? args.session?.source ?? st.tools.brushSettings.ccGradientSource ?? null,
+        algorithm: st.tools.brushSettings.ditherAlgorithm ?? null,
+        levels: st.tools.brushSettings.ditherEnabled
+          ? resolveCcDitherBandMode(st.tools.brushSettings.gradientBands ?? 16).quantLevels
+          : null,
+        colors: typeof st.tools.brushSettings.colors === 'number' ? st.tools.brushSettings.colors : null,
+      });
       deps.timeSync('cc:shape:commit', () => {
         if (typeof colorCycleBrush.commitCommittedLayerState === 'function') {
           colorCycleBrush.commitCommittedLayerState({
@@ -669,6 +762,19 @@ export const finalizeColorCycleShapeFillLinear = async (
         }
         deps.brushEngine.updateColorCycleTexture();
         colorCycleBrush.renderDirectToCanvas?.(args.activeLayerCanvas, args.activeLayerId);
+      });
+      stampShapeFinalizeProbe({
+        phase: 'shape-finalize-after-commit',
+        activeLayerCanvas: args.activeLayerCanvas,
+        overlayCanvas: args.overlayCanvas,
+        overlayCtx: args.overlayCtx,
+        shapePoints: args.shapePoints,
+        source: renderSession?.source ?? args.session?.source ?? st.tools.brushSettings.ccGradientSource ?? null,
+        algorithm: st.tools.brushSettings.ditherAlgorithm ?? null,
+        levels: st.tools.brushSettings.ditherEnabled
+          ? resolveCcDitherBandMode(st.tools.brushSettings.gradientBands ?? 16).quantLevels
+          : null,
+        colors: typeof st.tools.brushSettings.colors === 'number' ? st.tools.brushSettings.colors : null,
       });
       if (renderSession?.source === 'sampled' && renderSession.binding?.slot !== undefined) {
         persistCommittedSampledSlot(
@@ -804,6 +910,21 @@ export const finalizeColorCycleShapeFillConcentric = async (
   deps: ColorCycleShapeFillDeps
 ): Promise<void> => {
   try {
+    const initialSettings = useAppStore.getState().tools.brushSettings;
+    stampShapeFinalizeProbe({
+      phase: 'shape-finalize-start',
+      activeLayerCanvas: args.activeLayerCanvas,
+      overlayCanvas: args.overlayCanvas,
+      overlayCtx: args.overlayCtx,
+      shapePoints: args.shapePoints,
+      source: args.session?.source ?? initialSettings.ccGradientSource ?? null,
+      algorithm: initialSettings.ditherAlgorithm ?? null,
+      levels: initialSettings.ditherEnabled
+        ? resolveCcDitherBandMode(initialSettings.gradientBands ?? 16).quantLevels
+        : null,
+      colors: typeof initialSettings.colors === 'number' ? initialSettings.colors : null,
+      incrementFinalizeCount: true,
+    });
     const beforeShapeFinalize = summarizeColorCycleLayer(
       useAppStore.getState().layers.find((candidate) => candidate.id === args.activeLayerId) ?? null
     );
@@ -815,6 +936,19 @@ export const finalizeColorCycleShapeFillConcentric = async (
     const lockMaskCanvas = preFillPaintMask
       ? null
       : snapshotTransparencyLockMask(args.activeLayerId, args.activeLayerCanvas);
+    stampShapeFinalizeProbe({
+      phase: 'shape-finalize-before-fill',
+      activeLayerCanvas: args.activeLayerCanvas,
+      overlayCanvas: args.overlayCanvas,
+      overlayCtx: args.overlayCtx,
+      shapePoints: args.shapePoints,
+      source: args.session?.source ?? initialSettings.ccGradientSource ?? null,
+      algorithm: initialSettings.ditherAlgorithm ?? null,
+      levels: initialSettings.ditherEnabled
+        ? resolveCcDitherBandMode(initialSettings.gradientBands ?? 16).quantLevels
+        : null,
+      colors: typeof initialSettings.colors === 'number' ? initialSettings.colors : null,
+    });
     const renderSession = await deps.timeAsync('cc:shape:fill(concentric)', async () => {
       const live = useAppStore.getState();
       const liveLayer = live.layers.find((candidate) => candidate.id === args.activeLayerId);
@@ -861,6 +995,20 @@ export const finalizeColorCycleShapeFillConcentric = async (
         shapePhaseSeedMarkId: session?.markId ?? null,
       });
       return resolvedRenderSession;
+    });
+    const postFillSettings = useAppStore.getState().tools.brushSettings;
+    stampShapeFinalizeProbe({
+      phase: 'shape-finalize-after-fill',
+      activeLayerCanvas: args.activeLayerCanvas,
+      overlayCanvas: args.overlayCanvas,
+      overlayCtx: args.overlayCtx,
+      shapePoints: args.shapePoints,
+      source: renderSession?.source ?? args.session?.source ?? postFillSettings.ccGradientSource ?? null,
+      algorithm: postFillSettings.ditherAlgorithm ?? null,
+      levels: postFillSettings.ditherEnabled
+        ? resolveCcDitherBandMode(postFillSettings.gradientBands ?? 16).quantLevels
+        : null,
+      colors: typeof postFillSettings.colors === 'number' ? postFillSettings.colors : null,
     });
 
     const colorCycleBrush = initialBrush ?? deps.getColorCycleBrushManager().getBrush(args.activeLayerId);
@@ -916,6 +1064,19 @@ export const finalizeColorCycleShapeFillConcentric = async (
         pairBandCount: args.session?.ditherRenderConfig?.pairBandCount ?? 0,
         paintSlotBeforeCommit: st.layers.find((layer) => layer.id === args.activeLayerId)?.colorCycleData?.paintSlot ?? null,
       });
+      stampShapeFinalizeProbe({
+        phase: 'shape-finalize-before-commit',
+        activeLayerCanvas: args.activeLayerCanvas,
+        overlayCanvas: args.overlayCanvas,
+        overlayCtx: args.overlayCtx,
+        shapePoints: args.shapePoints,
+        source: renderSession?.source ?? args.session?.source ?? st.tools.brushSettings.ccGradientSource ?? null,
+        algorithm: st.tools.brushSettings.ditherAlgorithm ?? null,
+        levels: st.tools.brushSettings.ditherEnabled
+          ? resolveCcDitherBandMode(st.tools.brushSettings.gradientBands ?? 16).quantLevels
+          : null,
+        colors: typeof st.tools.brushSettings.colors === 'number' ? st.tools.brushSettings.colors : null,
+      });
       deps.timeSync('cc:shape:commit', () => {
         if (typeof colorCycleBrush.commitCommittedLayerState === 'function') {
           colorCycleBrush.commitCommittedLayerState({
@@ -927,6 +1088,19 @@ export const finalizeColorCycleShapeFillConcentric = async (
         }
         deps.brushEngine.updateColorCycleTexture();
         colorCycleBrush.renderDirectToCanvas?.(args.activeLayerCanvas, args.activeLayerId);
+      });
+      stampShapeFinalizeProbe({
+        phase: 'shape-finalize-after-commit',
+        activeLayerCanvas: args.activeLayerCanvas,
+        overlayCanvas: args.overlayCanvas,
+        overlayCtx: args.overlayCtx,
+        shapePoints: args.shapePoints,
+        source: renderSession?.source ?? args.session?.source ?? st.tools.brushSettings.ccGradientSource ?? null,
+        algorithm: st.tools.brushSettings.ditherAlgorithm ?? null,
+        levels: st.tools.brushSettings.ditherEnabled
+          ? resolveCcDitherBandMode(st.tools.brushSettings.gradientBands ?? 16).quantLevels
+          : null,
+        colors: typeof st.tools.brushSettings.colors === 'number' ? st.tools.brushSettings.colors : null,
       });
       if (renderSession?.source === 'sampled' && renderSession.binding?.slot !== undefined) {
         persistCommittedSampledSlot(

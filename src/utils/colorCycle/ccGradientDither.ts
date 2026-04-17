@@ -710,7 +710,6 @@ export const fillCcGradientDither = async ({
   sampledFlatTraceStage,
 }: CcGradientDitherOptions): Promise<void> => {
   void sampledFlatTraceId;
-  void sampledFlatTraceStage;
   const clampedLevels = Math.max(1, Math.min(255, Math.floor(levels)));
   const clampedPairBands = Math.max(0, Math.floor(pairBandCount ?? 0));
   const cellSize = Math.max(1, Math.floor(pixelSize));
@@ -910,7 +909,11 @@ export const fillCcGradientDither = async ({
     const phaseY = Math.floor(minY / Math.max(1, cellSize));
     const flatPosition = resolveAverageActiveTone(cellCoverage, activeMask);
     const brushSettings = useAppStore.getState().tools?.brushSettings;
+    const isPreviewSampledFlatSierraLite =
+      sampledFlatTraceStage === 'preview' &&
+      algorithm === 'sierra-lite';
     const preferSampledFlatSolver =
+      !isPreviewSampledFlatSierraLite &&
       algorithm === 'sierra-lite' &&
       !flatMixByBand &&
       (sampledStopsOverride?.length

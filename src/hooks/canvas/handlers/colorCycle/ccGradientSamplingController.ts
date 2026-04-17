@@ -57,6 +57,7 @@ export const updateCcSampledGradientController = (
   deps: UpdateCcSampledGradientDeps
 ) => {
   const targetLayerId = options?.layerId ?? deps.storeRef.current.activeLayerId;
+  const isShapeSampledUpdate = options?.markKind === 'shape';
   if (!targetLayerId) {
     deps.ccLog('sampled tick skipped', {
       reason: 'missing-layer',
@@ -128,7 +129,7 @@ export const updateCcSampledGradientController = (
   deps.writeCcGradientSampleCount(result.sampleCount, now);
   if (result.updated) {
     requestGradientApply(targetLayerId, 'sampled-tick');
-    if (now - deps.ccSampledRuntimeFlushAtRef.current >= deps.sampledRuntimeFlushThrottleMs) {
+    if (!isShapeSampledUpdate && now - deps.ccSampledRuntimeFlushAtRef.current >= deps.sampledRuntimeFlushThrottleMs) {
       deps.ccSampledRuntimeFlushAtRef.current = now;
       flushGradientApply(targetLayerId);
     }
