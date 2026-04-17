@@ -149,6 +149,96 @@ describe('ExportModal', () => {
     expect(getByText('Scale')).toBeInTheDocument();
   });
 
+  it('passes fractional GIF scale options through export requests', async () => {
+    runExportMock.mockResolvedValue({
+      kind: 'gif',
+      filename: 'Demo@0.5x.gif',
+      blob: new Blob(['gif'], { type: 'image/gif' }),
+      paletteSize: 16,
+    });
+
+    render(<ExportModal isOpen onClose={jest.fn()} />);
+    act(() => {
+      jest.runAllTimers();
+    });
+
+    fireEvent.click(screen.getByText('GIF'));
+    expect(screen.getByRole('button', { name: '50%' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '20%' })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: '50%' }));
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /^Export$/i }));
+    });
+
+    await waitFor(() => {
+      expect(runExportMock).toHaveBeenCalled();
+    });
+
+    const request = runExportMock.mock.calls[0]?.[0];
+    expect(request.kind).toBe('gif');
+    expect(request.scale).toBe(0.5);
+  });
+
+  it('resets hidden fractional scale when switching from GIF to PNG', async () => {
+    runExportMock.mockResolvedValue({
+      kind: 'png',
+      filename: 'Demo@1x.png',
+      blob: new Blob(['png'], { type: 'image/png' }),
+    });
+
+    render(<ExportModal isOpen onClose={jest.fn()} />);
+    act(() => {
+      jest.runAllTimers();
+    });
+
+    fireEvent.click(screen.getByText('GIF'));
+    fireEvent.click(screen.getByRole('button', { name: '50%' }));
+    fireEvent.click(screen.getByText('PNG'));
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /^Export$/i }));
+    });
+
+    await waitFor(() => {
+      expect(runExportMock).toHaveBeenCalled();
+    });
+
+    const request = runExportMock.mock.calls[0]?.[0];
+    expect(request.kind).toBe('png');
+    expect(request.scale).toBe(1);
+  });
+
+  it('applies GIF FPS preset buttons to the export request', async () => {
+    runExportMock.mockResolvedValue({
+      kind: 'gif',
+      filename: 'Demo@1x.gif',
+      blob: new Blob(['gif'], { type: 'image/gif' }),
+      paletteSize: 16,
+    });
+
+    render(<ExportModal isOpen onClose={jest.fn()} />);
+    act(() => {
+      jest.runAllTimers();
+    });
+
+    fireEvent.click(screen.getByText('GIF'));
+    fireEvent.click(screen.getByRole('button', { name: '24' }));
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /^Export$/i }));
+    });
+
+    await waitFor(() => {
+      expect(runExportMock).toHaveBeenCalled();
+    });
+
+    const request = runExportMock.mock.calls[0]?.[0];
+    expect(request.kind).toBe('gif');
+    expect(request.options.fps).toBe(24);
+  });
+
   it('drives sequential frame index during animation sessions and restores on finish', async () => {
     (store as any).layers = [{
       ...store.layers[0],
@@ -467,6 +557,128 @@ describe('ExportModal', () => {
       const request = runExportMock.mock.calls[0]?.[0];
       expect(request.kind).toBe('video');
       expect(request.options.durationSeconds).toBeCloseTo(2, 4);
+    } finally {
+      Object.defineProperty(URL, 'createObjectURL', {
+        configurable: true,
+        value: originalCreateObjectURL,
+      });
+      Object.defineProperty(URL, 'revokeObjectURL', {
+        configurable: true,
+        value: originalRevokeObjectURL,
+      });
+      Object.defineProperty(HTMLAnchorElement.prototype, 'click', {
+        configurable: true,
+        value: originalAnchorClick,
+      });
+    }
+  });
+
+  it('maps the video compression slider to bitrate for export requests', async () => {
+    runExportMock.mockResolvedValue({
+      kind: 'video',
+      filename: 'Demo@1x.webm',
+      blob: new Blob(['video'], { type: 'video/webm' }),
+      mimeType: 'video/webm;codecs=vp8',
+    });
+
+    const originalCreateObjectURL = URL.createObjectURL;
+    const originalRevokeObjectURL = URL.revokeObjectURL;
+    const originalAnchorClick = HTMLAnchorElement.prototype.click;
+    try {
+      Object.defineProperty(URL, 'createObjectURL', {
+        configurable: true,
+        value: jest.fn(() => 'blob:video'),
+      });
+      Object.defineProperty(URL, 'revokeObjectURL', {
+        configurable: true,
+        value: jest.fn(),
+      });
+      Object.defineProperty(HTMLAnchorElement.prototype, 'click', {
+        configurable: true,
+        value: jest.fn(),
+      });
+
+      render(<ExportModal isOpen onClose={jest.fn()} />);
+      act(() => {
+        jest.runAllTimers();
+      });
+
+      fireEvent.click(screen.getByText('Video'));
+      fireEvent.change(screen.getByLabelText('Video compression'), { target: { value: '100' } });
+
+      await act(async () => {
+        fireEvent.click(screen.getByRole('button', { name: 'Export' }));
+      });
+
+      await waitFor(() => {
+        expect(runExportMock).toHaveBeenCalled();
+      });
+
+      const request = runExportMock.mock.calls[0]?.[0];
+      expect(request.kind).toBe('video');
+      expect(request.options.bitrateKbps).toBe(1000);
+    } finally {
+      Object.defineProperty(URL, 'createObjectURL', {
+        configurable: true,
+        value: originalCreateObjectURL,
+      });
+      Object.defineProperty(URL, 'revokeObjectURL', {
+        configurable: true,
+        value: originalRevokeObjectURL,
+      });
+      Object.defineProperty(HTMLAnchorElement.prototype, 'click', {
+        configurable: true,
+        value: originalAnchorClick,
+      });
+    }
+  });
+
+  it('passes fractional video scale options through export requests', async () => {
+    runExportMock.mockResolvedValue({
+      kind: 'video',
+      filename: 'Demo@0.5x.webm',
+      blob: new Blob(['video'], { type: 'video/webm' }),
+      mimeType: 'video/webm;codecs=vp8',
+    });
+
+    const originalCreateObjectURL = URL.createObjectURL;
+    const originalRevokeObjectURL = URL.revokeObjectURL;
+    const originalAnchorClick = HTMLAnchorElement.prototype.click;
+    try {
+      Object.defineProperty(URL, 'createObjectURL', {
+        configurable: true,
+        value: jest.fn(() => 'blob:video'),
+      });
+      Object.defineProperty(URL, 'revokeObjectURL', {
+        configurable: true,
+        value: jest.fn(),
+      });
+      Object.defineProperty(HTMLAnchorElement.prototype, 'click', {
+        configurable: true,
+        value: jest.fn(),
+      });
+
+      render(<ExportModal isOpen onClose={jest.fn()} />);
+      act(() => {
+        jest.runAllTimers();
+      });
+
+      fireEvent.click(screen.getByText('Video'));
+      expect(screen.getByRole('button', { name: '50%' })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: '20%' })).toBeInTheDocument();
+      fireEvent.click(screen.getByRole('button', { name: '50%' }));
+
+      await act(async () => {
+        fireEvent.click(screen.getByRole('button', { name: 'Export' }));
+      });
+
+      await waitFor(() => {
+        expect(runExportMock).toHaveBeenCalled();
+      });
+
+      const request = runExportMock.mock.calls[0]?.[0];
+      expect(request.kind).toBe('video');
+      expect(request.scale).toBe(0.5);
     } finally {
       Object.defineProperty(URL, 'createObjectURL', {
         configurable: true,
