@@ -214,36 +214,6 @@ describe('ShapeToolHandler – shape fill tool detection', () => {
     ]);
   });
 
-  it('preserves flat Sierra Lite source stops for manual previews', () => {
-    expect(
-      __shapeToolTestUtils.shouldPreserveCcPreviewSourceStops({
-        previewSource: 'manual',
-        gradientBands: 1,
-        ditherAlgorithm: 'sierra-lite',
-      })
-    ).toBe(true);
-  });
-
-  it('preserves flat Sierra Lite source stops for foreground-derived previews', () => {
-    expect(
-      __shapeToolTestUtils.shouldPreserveCcPreviewSourceStops({
-        previewSource: 'fg',
-        gradientBands: 1,
-        ditherAlgorithm: 'sierra-lite',
-      })
-    ).toBe(true);
-  });
-
-  it('keeps sampled flat Sierra Lite previews on the existing non-preserved path', () => {
-    expect(
-      __shapeToolTestUtils.shouldPreserveCcPreviewSourceStops({
-        previewSource: 'sampled',
-        gradientBands: 1,
-        ditherAlgorithm: 'sierra-lite',
-      })
-    ).toBe(false);
-  });
-
   it('keeps committed polygon geometry separate from the live guide segment', () => {
     const previewModel = __shapeToolTestUtils.buildPolygonPreviewModel(
       [

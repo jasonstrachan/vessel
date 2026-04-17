@@ -453,19 +453,6 @@ const prepareCcShapePreviewGradient = ({
   };
 };
 
-const shouldPreserveCcPreviewSourceStops = ({
-  previewSource,
-  gradientBands,
-  ditherAlgorithm,
-}: {
-  previewSource: string;
-  gradientBands: number;
-  ditherAlgorithm?: DitherAlgorithm;
-}): boolean =>
-  previewSource !== 'sampled' &&
-  resolveCcDitherBandMode(gradientBands).pairBandCount <= 0 &&
-  (ditherAlgorithm ?? 'sierra-lite') === 'sierra-lite';
-
 const snapshotLayerImageData = (layer: Layer | null | undefined): ImageData | null => {
   if (!layer) return null;
   if (layer.imageData) {
@@ -3101,12 +3088,10 @@ export const createShapeToolHandler = (
                     : DEFAULT_COLOR_CYCLE_GRADIENT)
               );
             const effectiveStops = stops ?? [];
-            const previewSource = ccPreview?.source ?? (useForegroundDerived ? 'fg' : 'manual');
-            const preserveSourceStops = shouldPreserveCcPreviewSourceStops({
-              previewSource,
-              gradientBands: brushNow.gradientBands ?? 16,
-              ditherAlgorithm: brushNow.ditherAlgorithm,
-            });
+            const preserveSourceStops =
+              ccPreview?.source === 'sampled' &&
+              resolveCcDitherBandMode(brushNow.gradientBands ?? 16).pairBandCount <= 0 &&
+              (brushNow.ditherAlgorithm ?? 'sierra-lite') === 'sierra-lite';
             const foregroundDerivedKey = derivedSpec
               ? [
                   fgBaseColor,
@@ -3126,7 +3111,7 @@ export const createShapeToolHandler = (
               patternStyle: brushNow.patternStyle,
               useForegroundDerived,
               foregroundDerivedKey,
-              previewSource,
+              previewSource: ccPreview?.source ?? (useForegroundDerived ? 'fg' : 'manual'),
             });
             const preparedGradient =
               ditherGradPreviewState.ccPreparedGradientKey === preparedGradientKey &&
@@ -4276,7 +4261,6 @@ export const __shapeToolTestUtils = {
   normalizePreparedPreviewStops,
   buildCcShapePreviewGradientCacheKey,
   prepareCcShapePreviewGradient,
-  shouldPreserveCcPreviewSourceStops,
   getClosedCommittedPolygon,
   buildPolygonPreviewModel,
 };
