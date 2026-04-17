@@ -341,6 +341,49 @@ describe('fillCcGradientDither', () => {
     expect(usedIndices).toEqual(expectedPair);
   });
 
+  it('uses sampledStopsOverride for flat sampled solving during preview stage too', async () => {
+    const width = 12;
+    const height = 12;
+    const sampledStops = [
+      { position: 0, color: '#808080' },
+      { position: 1, color: '#808080' },
+    ];
+    const run = async (sampledFlatTraceStage?: string) => {
+      const out = new Uint8Array(width * height);
+      await fillCcGradientDither({
+        vertices: [
+          { x: 0, y: 0 },
+          { x: width - 1, y: 0 },
+          { x: width - 1, y: height - 1 },
+          { x: 0, y: height - 1 },
+        ],
+        minX: 0,
+        minY: 0,
+        maxX: width - 1,
+        maxY: height - 1,
+        pixelSize: 1,
+        levels: 1,
+        baseOffset: 0,
+        flatPairSpread: 0,
+        algorithm: 'sierra-lite',
+        sampledStopsOverride: sampledStops,
+        sampledFlatTraceStage,
+        sampleNormalized: () => 0.1,
+        writeIndex: (x, y, index) => {
+          out[y * width + x] = index;
+        },
+      });
+      return Array.from(new Set(out)).filter((value) => value > 0).sort((a, b) => a - b);
+    };
+
+    const previewPair = await run('preview');
+    const finalizePair = await run('brush-linear');
+
+    expect(previewPair).toEqual([127, 129]);
+    expect(previewPair).toEqual(finalizePair);
+    expect(previewPair).not.toEqual(resolveFlatInkSetForPosition(0.1, 2, 0, 0).indices);
+  });
+
   it('derives sampled flat Sierra-Lite from the averaged sampled target instead of geometric flat position', async () => {
     const width = 12;
     const height = 12;
