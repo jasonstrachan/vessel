@@ -17,6 +17,7 @@ import type { FrameProvider } from '@/utils/export/types';
 import type { Layer, WebGLExportBundleFormat, WebGLExportGobletVersion } from '@/types';
 
 type ExportKind = 'png' | 'gif' | 'mp4' | 'webgl';
+type RasterExportScale = 0.2 | 0.5 | 1 | 2 | 3 | 4;
 
 const BUNDLE_FORMAT_LABELS: Record<WebGLExportBundleFormat, string> = {
   zip: 'Goblet bundle zip',
@@ -28,6 +29,9 @@ const GOBLET_VERSION_LABELS: Record<WebGLExportGobletVersion, string> = {
   goblet1: 'Goblet 1 (legacy)',
   goblet2: 'Goblet 2 (GPU-first)'
 };
+const GIF_FPS_PRESETS = [12, 18, 24] as const;
+const VIDEO_BITRATE_MIN_KBPS = 1000;
+const VIDEO_BITRATE_MAX_KBPS = 20000;
 
 const MODAL_PANEL_CLASS = 'bg-[#2C2C2C] border border-[#2A2A2A]';
 const MODAL_SURFACE_CLASS = 'border-t border-[#424242] pt-4';
@@ -63,6 +67,24 @@ const normalizeWebglHtmlBackgroundColor = (value: string): string => {
     return trimmed.toLowerCase();
   }
   return '#000000';
+};
+
+const clampVideoBitrate = (value: number): number => (
+  Math.max(VIDEO_BITRATE_MIN_KBPS, Math.min(VIDEO_BITRATE_MAX_KBPS, Math.round(value)))
+);
+
+const bitrateToCompressionPercent = (bitrateKbps: number): number => {
+  const normalized = (clampVideoBitrate(bitrateKbps) - VIDEO_BITRATE_MIN_KBPS)
+    / (VIDEO_BITRATE_MAX_KBPS - VIDEO_BITRATE_MIN_KBPS);
+  return Math.round((1 - normalized) * 100);
+};
+
+const compressionPercentToBitrate = (compressionPercent: number): number => {
+  const clamped = Math.max(0, Math.min(100, compressionPercent));
+  const normalized = 1 - (clamped / 100);
+  return clampVideoBitrate(
+    VIDEO_BITRATE_MIN_KBPS + normalized * (VIDEO_BITRATE_MAX_KBPS - VIDEO_BITRATE_MIN_KBPS)
+  );
 };
 
 const hasSequentialExportLayers = (layers: Layer[] | undefined): boolean =>
@@ -229,7 +251,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
   const dragOffset = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
 
   const [exportKind, setExportKind] = useState<ExportKind>('webgl');
-  const [scale, setScale] = useState<1 | 2 | 3 | 4>(1);
+  const [scale, setScale] = useState<RasterExportScale>(1);
 
   const [layerAlignmentOpen, setLayerAlignmentOpen] = useState(false);
 
@@ -304,6 +326,21 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
   const [isExporting, setIsExporting] = useState(false);
   const [progress, setProgress] = useState(0);
   const exportAbortRef = useRef<AbortController | null>(null);
+  const scaleOptions = exportKind === 'gif' || exportKind === 'mp4'
+    ? [
+      { value: 0.2 as const, label: '20%' },
+      { value: 0.5 as const, label: '50%' },
+      { value: 1 as const, label: '1x' },
+      { value: 2 as const, label: '2x' },
+      { value: 3 as const, label: '3x' },
+      { value: 4 as const, label: '4x' },
+    ]
+    : [
+      { value: 1 as const, label: '1x' },
+      { value: 2 as const, label: '2x' },
+      { value: 3 as const, label: '3x' },
+      { value: 4 as const, label: '4x' },
+    ];
 
   useEffect(() => {
     if (isOpen) {
@@ -368,6 +405,11 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
 
   useEffect(() => {
     if (exportKind === 'webgl' && scale !== 1) {
+      setScale(1);
+      return;
+    }
+
+    if (exportKind === 'png' && scale < 1) {
       setScale(1);
     }
   }, [exportKind, scale]);
@@ -500,6 +542,11 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
   const videoEffectiveDuration = useMemo(() => (
     videoAutoFrames ? videoFrameSuggestion.duration : Math.max(1, videoDuration)
   ), [videoAutoFrames, videoDuration, videoFrameSuggestion.duration]);
+
+  const videoCompressionPercent = useMemo(
+    () => bitrateToCompressionPercent(videoBitrate),
+    [videoBitrate]
+  );
 
   const webglTotalFrames = useMemo(() => {
     const fps = Math.max(1, Math.floor(webglFps));
@@ -937,14 +984,14 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
               <div className="flex items-center gap-3">
                 <label className={`${MODAL_TEXT_PRIMARY} text-sm font-semibold uppercase tracking-[0.08em]`}>Scale</label>
                 <div className="flex flex-wrap gap-2">
-                  {[1,2,3,4].map((value) => (
+                  {scaleOptions.map(({ value, label }) => (
                     <button
                       key={value}
-                      onClick={() => setScale(value as 1|2|3|4)}
+                      onClick={() => setScale(value)}
                       className={`${TOGGLE_BASE_CLASS} ${scale === value ? TOGGLE_ACTIVE_CLASS : TOGGLE_INACTIVE_CLASS}`}
                       disabled={isExporting}
                     >
-                      {value}x
+                      {label}
                     </button>
                   ))}
                 </div>
@@ -984,7 +1031,22 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
             <div className="space-y-3">
               <div className="flex items-center justify-between">
                 <label className="text-base text-[#888]">FPS</label>
-                <Input type="number" min={1} max={60} value={gifFps} onChange={(e) => setGifFps(Math.max(1, Math.min(60, parseInt(e.target.value)||1)))} className="w-24 text-right" />
+                <div className="flex items-center gap-2">
+                  <div className="flex flex-wrap gap-2">
+                    {GIF_FPS_PRESETS.map((value) => (
+                      <button
+                        key={value}
+                        type="button"
+                        onClick={() => setGifFps(value)}
+                        className={`${TOGGLE_BASE_CLASS} px-2 py-1 text-xs ${gifFps === value ? TOGGLE_ACTIVE_CLASS : TOGGLE_INACTIVE_CLASS}`}
+                        disabled={isExporting}
+                      >
+                        {value}
+                      </button>
+                    ))}
+                  </div>
+                  <Input type="number" min={1} max={60} value={gifFps} onChange={(e) => setGifFps(Math.max(1, Math.min(60, parseInt(e.target.value)||1)))} className="w-24 text-right" />
+                </div>
               </div>
               <div className="flex items-center justify-between">
                 <label className="text-base text-[#888]">Duration (s)</label>
@@ -1422,9 +1484,34 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
                   <option value="video/mp4">MP4 (best-effort)</option>
                 </select>
               </div>
-              <div className="flex items-center justify-between">
-                <label className="text-base text-[#888]">Bitrate (kbps)</label>
-                <Input type="number" min={1000} max={20000} value={videoBitrate} onChange={(e) => setVideoBitrate(Math.max(1000, Math.min(20000, parseInt(e.target.value)||6000)))} className="w-24 text-right" />
+              <div className="space-y-2">
+                <div className="flex items-center justify-between gap-4">
+                  <label className="text-base text-[#888]">Compression</label>
+                  <div className="text-right leading-tight">
+                    <div className="text-sm text-[#E5E5E5]">{videoCompressionPercent}%</div>
+                    <div className="text-xs text-[#888]">{videoBitrate.toLocaleString()} kbps</div>
+                  </div>
+                </div>
+                <input
+                  type="range"
+                  min={0}
+                  max={100}
+                  step={1}
+                  value={videoCompressionPercent}
+                  onChange={(e) => setVideoBitrate(compressionPercentToBitrate(parseInt(e.target.value, 10) || 0))}
+                  className="slider w-full"
+                  style={{
+                    '--slider-track-gradient': 'linear-gradient(to right, rgba(217,217,217,0.2), rgba(217,217,217,0.6))',
+                    '--ascii-thumb-size': '14px',
+                    '--slider-progress': `${videoCompressionPercent}%`
+                  } as React.CSSProperties & { '--slider-progress': string }}
+                  disabled={isExporting}
+                  aria-label="Video compression"
+                />
+                <div className="flex items-center justify-between text-xs text-[#777]">
+                  <span>Lower compression / higher quality</span>
+                  <span>Higher compression / smaller file</span>
+                </div>
               </div>
             </div>
           )}
