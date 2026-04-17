@@ -2,6 +2,8 @@
 
 import React, { ErrorInfo } from 'react';
 
+import { getErrorMessage } from '@/utils/errorMessage';
+
 type Props = { children: React.ReactNode };
 type State = { hasError: boolean; message?: string };
 
@@ -11,7 +13,7 @@ class ProductionErrorBoundary extends React.Component<Props, State> {
   state: State = { hasError: false };
 
   static getDerivedStateFromError(error: unknown): State {
-    const message = error instanceof Error ? error.message : String(error);
+    const message = getErrorMessage(error);
     return { hasError: true, message };
   }
 

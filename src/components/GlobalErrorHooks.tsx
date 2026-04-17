@@ -14,6 +14,7 @@ import {
   persistHangReport,
   recordBreadcrumb,
 } from '@/utils/debug';
+import { getErrorMessage, getErrorStack } from '@/utils/errorMessage';
 
 export default function GlobalErrorHooks() {
   useEffect(() => {
@@ -196,11 +197,8 @@ export default function GlobalErrorHooks() {
 
     const onError = (event: ErrorEvent) => {
       try {
-        const message = event.message || 'Unknown error';
-        const stack =
-          typeof event.error?.stack === 'string'
-            ? event.error.stack
-            : (typeof event.error === 'string' ? event.error : null);
+        const message = getErrorMessage(event.error ?? event, event.message || 'Unknown error');
+        const stack = getErrorStack(event.error ?? event);
         recordBreadcrumb('global-error', {
           message,
           filename: event.filename ?? null,
@@ -231,14 +229,8 @@ export default function GlobalErrorHooks() {
     const onRejection = (event: PromiseRejectionEvent) => {
       try {
         const reason = event.reason;
-        const message =
-          typeof reason?.message === 'string'
-            ? reason.message
-            : (typeof reason === 'string' ? reason : 'Unhandled promise rejection');
-        const stack =
-          typeof reason?.stack === 'string'
-            ? reason.stack
-            : null;
+        const message = getErrorMessage(reason, 'Unhandled promise rejection');
+        const stack = getErrorStack(reason);
         recordBreadcrumb('global-unhandled-rejection', {
           message,
           reason,
