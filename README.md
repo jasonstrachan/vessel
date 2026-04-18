@@ -64,6 +64,7 @@ Vessel is built with Next.js (App Router) and a custom Canvas2D rendering pipeli
 
 ### Project Docs
 - `docs/project.md` — Consolidated architecture notes and recent updates
+- `docs/notes/dev-debug-overlay.md` — Reusable on-screen dev debug overlay usage
 
 ### Recent Updates (from `docs/project.md`)
 - **Display Filters (2026-04-13):** runtime-only artwork post-processing with persisted filter presets in the brush settings panel, including a film-noise option for monochrome shadow-weighted grain

@@ -1109,10 +1109,15 @@ export class ColorCycleBrushCanvas2D {
     layerId: string,
     animator: ColorCycleAnimator,
     strokeData: LayerStrokeState | undefined,
-    defs: Array<{ id: number; hash: string; stops: GradientStop[]; seamProfile?: GradientSeamProfile }> | undefined
+    defs: Array<{ id: number; hash: string; stops: GradientStop[]; seamProfile?: GradientSeamProfile }> | undefined,
+    options?: { forceDefDirty?: boolean },
   ): void {
     if (typeof (animator as { setDefIdData?: (data?: Uint16Array | null) => void }).setDefIdData === 'function') {
-      (animator as { setDefIdData: (data?: Uint16Array | null) => void }).setDefIdData(strokeData?.buffers.def);
+      (
+        animator as {
+          setDefIdData: (data?: Uint16Array | null, options?: { forceDirty?: boolean }) => void;
+        }
+      ).setDefIdData(strokeData?.buffers.def, options?.forceDefDirty ? { forceDirty: true } : undefined);
     }
     const cache = this.getDefPaletteCache(layerId, defs);
     const lastAppliedCache = this.appliedDefPaletteCacheByLayer.get(layerId) ?? null;
@@ -2478,7 +2483,7 @@ export class ColorCycleBrushCanvas2D {
         hash: string;
         stops: GradientStop[];
       }> | undefined;
-      this.applyDefBindingsForLayer(layerId, animator, strokeData, defs);
+      this.applyDefBindingsForLayer(layerId, animator, strokeData, defs, { forceDefDirty: true });
     } catch {}
 
     strokeData.snapshot = {

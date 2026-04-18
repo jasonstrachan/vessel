@@ -1577,26 +1577,77 @@ describe('ColorCycleBrushCanvas2D regression tests', () => {
       applyDefBindingsForLayer: (
         layerId: string,
         animator: {
-          setDefIdData: (data?: Uint16Array | null) => void;
+          setDefIdData: (data?: Uint16Array | null, options?: { forceDirty?: boolean }) => void;
           setDefPaletteCache: (cache: unknown) => void;
         },
         strokeData: { buffers: { def: Uint16Array } },
         defs: DefEntry[],
+        options?: { forceDefDirty?: boolean },
       ) => void;
     }).applyDefBindingsForLayer(layerId, animator, strokeData, defs);
     (brush as unknown as {
       applyDefBindingsForLayer: (
         layerId: string,
         animator: {
-          setDefIdData: (data?: Uint16Array | null) => void;
+          setDefIdData: (data?: Uint16Array | null, options?: { forceDirty?: boolean }) => void;
           setDefPaletteCache: (cache: unknown) => void;
         },
         strokeData: { buffers: { def: Uint16Array } },
         defs: DefEntry[],
+        options?: { forceDefDirty?: boolean },
       ) => void;
     }).applyDefBindingsForLayer(layerId, animator, strokeData, defs);
 
     expect(animator.setDefIdData).toHaveBeenCalledTimes(2);
+    expect(animator.setDefIdData).toHaveBeenNthCalledWith(1, strokeData.buffers.def, undefined);
+    expect(animator.setDefIdData).toHaveBeenNthCalledWith(2, strokeData.buffers.def, undefined);
     expect(animator.setDefPaletteCache).toHaveBeenCalledTimes(1);
+  });
+
+  it('forces def dirty only when requested for in-place def buffer mutations', () => {
+    const canvas = makeCanvas(4, 4);
+    const brush = new ColorCycleBrushCanvas2D(canvas, { forceCanvas2D: true });
+    const layerId = 'layer-def-force-dirty';
+    const strokeData = {
+      buffers: {
+        def: new Uint16Array(16),
+      },
+    };
+    const animator = {
+      setDefIdData: jest.fn(),
+      setDefPaletteCache: jest.fn(),
+    };
+    const defs = [
+      {
+        id: 8,
+        hash: 'linear:0:#111111|1:#eeeeee',
+        stops: [
+          { position: 0, color: '#111111' },
+          { position: 1, color: '#eeeeee' },
+        ],
+        seamProfile: 'hard' as const,
+      },
+    ];
+    type DefEntry = {
+      id: number;
+      hash: string;
+      stops: Array<{ position: number; color: string }>;
+      seamProfile: 'hard';
+    };
+
+    (brush as unknown as {
+      applyDefBindingsForLayer: (
+        layerId: string,
+        animator: {
+          setDefIdData: (data?: Uint16Array | null, options?: { forceDirty?: boolean }) => void;
+          setDefPaletteCache: (cache: unknown) => void;
+        },
+        strokeData: { buffers: { def: Uint16Array } },
+        defs: DefEntry[],
+        options?: { forceDefDirty?: boolean },
+      ) => void;
+    }).applyDefBindingsForLayer(layerId, animator, strokeData, defs, { forceDefDirty: true });
+
+    expect(animator.setDefIdData).toHaveBeenCalledWith(strokeData.buffers.def, { forceDirty: true });
   });
 });
