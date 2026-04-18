@@ -212,6 +212,7 @@ Styling
 
 Logging and Errors
 - Use debugLog/devLog for dev logs; keep console noise minimal.
+- For new diagnostics and temporary investigation logging, prefer on-screen instrumentation over DevTools-only output. If a debugging signal matters during interactive testing, make it visible in-app so it can be validated without opening DevTools.
 - Fail fast on programmer errors; surface user-visible issues non-blockingly.
 
 Comments and Docs
