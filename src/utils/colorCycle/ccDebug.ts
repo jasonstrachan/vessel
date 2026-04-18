@@ -1,4 +1,5 @@
 // ---- CC DEBUG TOGGLE & HELPERS ----
+import { appendCCDebugOverlayEntry } from '@/utils/colorCycle/ccDebugOverlayStore';
 
 type CCLogFn = (...args: unknown[]) => void;
 
@@ -78,12 +79,16 @@ export const ccDebugVerboseOn = (): boolean => {
 export const ccLog: CCLogFn = (...args) => {
   if (ccDebugOn()) {
     console.log('[CC]', ...args);
+    const [message, data] = args;
+    appendCCDebugOverlayEntry('log', String(message ?? ''), data);
   }
 };
 
 export const ccWarn: CCLogFn = (...args) => {
   if (ccDebugOn()) {
     console.warn('[CC]', ...args);
+    const [message, data] = args;
+    appendCCDebugOverlayEntry('warn', String(message ?? ''), data);
   }
 };
 

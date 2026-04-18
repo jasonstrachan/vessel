@@ -1,4 +1,5 @@
 import { useAppStore } from '@/stores/useAppStore';
+import { appendCCDebugOverlayEntry } from '@/utils/colorCycle/ccDebugOverlayStore';
 
 type ScopedConsole = typeof console;
 type CCDebugState = { on: boolean; verbose: boolean; timing: boolean };
@@ -136,13 +137,19 @@ if (typeof window !== 'undefined') {
 }
 
 export function ccLog(message: string, data?: unknown) {
-  void message;
-  void data;
+  if (!CC_DEBUG.on) {
+    return;
+  }
+  resolveConsole().log('[CC]', message, data ?? '');
+  appendCCDebugOverlayEntry('log', message, data);
 }
 
 export function ccGroup(message: string, data?: unknown) {
-  void message;
-  void data;
+  if (!CC_DEBUG.on) {
+    return;
+  }
+  resolveConsole().log('[CC][GROUP]', message, data ?? '');
+  appendCCDebugOverlayEntry('group', message, data);
 }
 
 export function ccGroupEnd() {}
@@ -160,4 +167,5 @@ export function ccAssert(condition: boolean, message: string, info?: unknown) {
     return;
   }
   resolveConsole().warn(`[CC][ASSERT FAIL] ${message}`, info ?? '');
+  appendCCDebugOverlayEntry('assert', message, info);
 }

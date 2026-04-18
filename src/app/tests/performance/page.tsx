@@ -6,7 +6,14 @@
  */
 
 import React, { useRef, useState } from 'react';
-import { PerformanceEnhancementsTest, type PerformanceTestResult } from '@/testing/PerformanceEnhancementsTest';
+
+type PerformanceTestResult = {
+  testName: string;
+  baseline: number;
+  optimized: number;
+  improvement: number;
+  details: unknown;
+};
 
 export default function PerformanceTestPage() {
   const canvas1Ref = useRef<HTMLCanvasElement>(null);
@@ -22,6 +29,7 @@ export default function PerformanceTestPage() {
     setResults([]);
     
     try {
+      const { PerformanceEnhancementsTest } = await import('@/testing/PerformanceEnhancementsTest');
       const test = new PerformanceEnhancementsTest();
       const testResults = await test.runAllTests(canvas1Ref.current, canvas2Ref.current);
       setResults(testResults);

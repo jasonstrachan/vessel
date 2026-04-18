@@ -15,6 +15,7 @@ import FeedbackStrip from '@/components/FeedbackStrip';
 import SaveStatusStrip from '@/components/SaveStatusStrip';
 import SelectionConstraintStrip from '@/components/SelectionConstraintStrip';
 import FPSMeter from '@/components/dev/FPSMeter';
+import DevDebugOverlay from '@/components/dev/DevDebugOverlay';
 // import RHC1Panel from '../components/panels/RHC1Panel'; // HIDDEN
 
 import { DocumentModal } from '@/components/modals/DocumentModal';
@@ -269,6 +270,7 @@ export default function Home() {
 
       {/* Simple FPS overlay */}
       {isSettingsHydrated && showFPSMeter && <FPSMeter />}
+      <DevDebugOverlay />
 
 
     </main>
