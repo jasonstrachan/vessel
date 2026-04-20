@@ -28,6 +28,7 @@ export const prepareStrokeStartSamplingCanvas = ({
   colorCycleDistanceRef,
   colorCycleLastPosRef,
   colorCycleLastRotationRef,
+  colorCycleGridSnapSpacingRef,
   ccFlowVelocityRef,
   colorCyclePixelQueueRef,
   createPixelQueue,
@@ -60,6 +61,7 @@ export const prepareStrokeStartSamplingCanvas = ({
   colorCycleDistanceRef: React.MutableRefObject<number>;
   colorCycleLastPosRef: React.MutableRefObject<Point | null>;
   colorCycleLastRotationRef: React.MutableRefObject<number | undefined>;
+  colorCycleGridSnapSpacingRef: React.MutableRefObject<number | null>;
   ccFlowVelocityRef: React.MutableRefObject<CcFlowVelocityState>;
   colorCyclePixelQueueRef: React.MutableRefObject<PixelQueue | null>;
   createPixelQueue: () => PixelQueue;
@@ -102,6 +104,7 @@ export const prepareStrokeStartSamplingCanvas = ({
     colorCycleDistanceRef,
     colorCycleLastPosRef,
     colorCycleLastRotationRef,
+    colorCycleGridSnapSpacingRef,
     ccFlowVelocityRef,
     colorCyclePixelQueueRef,
     createPixelQueue,

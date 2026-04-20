@@ -71,6 +71,7 @@ export type ProcessBatchedStrokesArgs = {
   colorCycleDistanceRef: React.MutableRefObject<number>;
   colorCycleLastPosRef: React.MutableRefObject<{ x: number; y: number } | null>;
   colorCycleLastRotationRef: React.MutableRefObject<number | undefined>;
+  colorCycleGridSnapSpacingRef?: React.MutableRefObject<number | null>;
   ccFlowVelocityRef: React.MutableRefObject<CcFlowVelocityState>;
   eraserToolRef: React.MutableRefObject<{
     move: (to: { x: number; y: number }, pressure: number, from: { x: number; y: number }) => void;
@@ -439,7 +440,12 @@ export const processBatchedStrokes = (
                 let stampY = previousPos.y + dy * t;
 
                 if (doSnap) {
-                  const gridSpacing = deps.calculateGridSpacing(pressure);
+                  const frozenGridSpacingRef = args.colorCycleGridSnapSpacingRef;
+                  const gridSpacing = frozenGridSpacingRef?.current
+                    ?? deps.calculateGridSpacing(pressure);
+                  if (frozenGridSpacingRef && frozenGridSpacingRef.current == null) {
+                    frozenGridSpacingRef.current = gridSpacing;
+                  }
                   const snapped = deps.snapToGridPure(stampX, stampY, gridSpacing);
                   stampX = snapped.x;
                   stampY = snapped.y;

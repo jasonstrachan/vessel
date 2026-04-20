@@ -118,6 +118,7 @@ export const useDrawingStartRuntime = ({
       colorCycleDistanceRef: refs.colorCycleDistanceRef,
       colorCycleLastPosRef: refs.colorCycleLastPosRef,
       colorCycleLastRotationRef: refs.colorCycleLastRotationRef,
+      colorCycleGridSnapSpacingRef: refs.colorCycleGridSnapSpacingRef,
       ccFlowVelocityRef: refs.ccFlowVelocityRef,
       colorCyclePixelQueueRef: refs.colorCyclePixelQueue,
       createPixelQueue,

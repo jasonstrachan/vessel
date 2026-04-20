@@ -70,6 +70,7 @@ export const useDrawingHandlerRefs = () => {
   const colorCycleDistanceRef = useRef<number>(0);
   const colorCycleLastPosRef = useRef<{ x: number; y: number } | null>(null);
   const colorCycleLastRotationRef = useRef<number | undefined>(undefined);
+  const colorCycleGridSnapSpacingRef = useRef<number | null>(null);
   const ccFlowVelocityRef = useRef<CcFlowVelocityState>({ smoothedPxPerMs: 0 });
   const colorCyclePixelQueue = useRef<PixelQueue | null>(createPixelQueue());
   const continuousColorCycleAnimationRef = useRef<number | null>(null);
@@ -147,6 +148,7 @@ export const useDrawingHandlerRefs = () => {
     colorCycleDistanceRef,
     colorCycleLastPosRef,
     colorCycleLastRotationRef,
+    colorCycleGridSnapSpacingRef,
     ccFlowVelocityRef,
     colorCyclePixelQueue,
     continuousColorCycleAnimationRef,
