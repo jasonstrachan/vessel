@@ -12,6 +12,7 @@ export const prepareStrokeStartColorCycleState = ({
   colorCycleDistanceRef,
   colorCycleLastPosRef,
   colorCycleLastRotationRef,
+  colorCycleGridSnapSpacingRef,
   ccFlowVelocityRef,
   colorCyclePixelQueueRef,
   createPixelQueue,
@@ -25,6 +26,7 @@ export const prepareStrokeStartColorCycleState = ({
   colorCycleDistanceRef: React.MutableRefObject<number>;
   colorCycleLastPosRef: React.MutableRefObject<{ x: number; y: number } | null>;
   colorCycleLastRotationRef: React.MutableRefObject<number | undefined>;
+  colorCycleGridSnapSpacingRef: React.MutableRefObject<number | null>;
   ccFlowVelocityRef: React.MutableRefObject<CcFlowVelocityState>;
   colorCyclePixelQueueRef: React.MutableRefObject<PixelQueue | null>;
   createPixelQueue: () => PixelQueue;
@@ -47,6 +49,7 @@ export const prepareStrokeStartColorCycleState = ({
   colorCycleDistanceRef.current = 0;
   colorCycleLastPosRef.current = null;
   colorCycleLastRotationRef.current = undefined;
+  colorCycleGridSnapSpacingRef.current = null;
   ccFlowVelocityRef.current.smoothedPxPerMs = 0;
 
   resetColorCyclePixelQueueExternal(colorCyclePixelQueueRef, { createPixelQueue });

@@ -942,6 +942,92 @@ describe('sequential color-cycle routing', () => {
     ]);
   });
 
+  it('freezes snapped color-cycle grid spacing for the full stroke', () => {
+    const state = createColorCycleState();
+    const layer = state.layers.find((entry) => entry.id === state.activeLayerId);
+    const targetCtx = layer?.colorCycleData?.canvas?.getContext('2d');
+    if (!targetCtx) {
+      throw new Error('color-cycle 2d context unavailable');
+    }
+
+    const drawColorCycle = jest.fn();
+    const colorCycleGridSnapSpacingRef = { current: 16 as number | null };
+    const args: ProcessBatchedStrokesArgs = {
+      strokeBatchRef: {
+        current: [
+          { pos: { x: 16, y: 16 }, pressure: 0 },
+          { pos: { x: 32, y: 32 }, pressure: 0 },
+        ],
+      },
+      strokeBatchTimerRef: { current: 1 },
+      drawingCtxRef: { current: targetCtx },
+      lastDrawPosRef: { current: { x: 16, y: 16 } },
+      lastDrawTimestampRef: { current: null },
+      brushSamplingPreviewActiveRef: { current: false },
+      autoSamplePointsRef: { current: [] },
+      ccSampledPointsRef: { current: [] },
+      resamplerBrushDataRef: { current: undefined },
+      stampCounterRef: { current: 0 },
+      colorCyclePixelQueueRef: { current: createPixelQueue() },
+      colorCycleDistanceRef: { current: 16 },
+      colorCycleLastPosRef: { current: { x: 16, y: 16 } },
+      colorCycleLastRotationRef: { current: 0 },
+      colorCycleGridSnapSpacingRef,
+      ccFlowVelocityRef: { current: { smoothedPxPerMs: 0 } },
+      eraserToolRef: { current: null },
+      eraserRoiRef: { current: null },
+    };
+
+    const deps: ProcessBatchedStrokesDeps = {
+      storeRef: { current: state },
+      project: { width: 64, height: 64 },
+      brushEngine: {
+        drawBrush: jest.fn(),
+        consumeRecentStamps: jest.fn(() => []),
+        drawColorCycle,
+      },
+      userBrushEngine: {
+        isUserBrush: () => false,
+        continueStroke: jest.fn(),
+      },
+      drawEraserSegment: jest.fn(),
+      updateAutoSampledGradient: jest.fn(),
+      updateCcSampledGradient: jest.fn(),
+      renderBrushSamplingPreview: jest.fn(),
+      getCCStampTargetCtx: () => targetCtx,
+      scheduleRecompose: jest.fn(),
+      extendMaskHealingStroke: jest.fn(),
+      createPixelQueue,
+      getColorCycleBrushManager: () => ({ getBrush: () => null }),
+      ensureActiveColorCycleGradientSlot: jest.fn(),
+      resolveActiveCustomBrushData: () => undefined,
+      getColorCycleBrushFlags: () => ({ isAny: true, isCustom: false }),
+      selectEffectiveColorCyclePlaying: () => true,
+      shouldPixelAlignBrush: () => false,
+      alignPointToPixel: (point) => point,
+      clipLineSegment: (start, end) => [start, end],
+      shouldDrawStamp: () => true,
+      shouldApplyGridSnapPure: () => true,
+      calculateGridSpacing: jest.fn(() => 8),
+      snapToGridPure: (x, y, spacing) => ({
+        x: Math.round(x / spacing) * spacing,
+        y: Math.round(y / spacing) * spacing,
+      }),
+      resolveBrushRotation: () => ({ rotation: 0, nextRotation: 0 }),
+      captureBrushFromCanvas: jest.fn(() => null),
+      isEraserV2: false,
+    };
+
+    processBatchedStrokes(args, deps);
+
+    expect(drawColorCycle.mock.calls.map((call) => ({ x: call[1], y: call[2] }))).toEqual([
+      { x: 0, y: 0 },
+      { x: 16, y: 16 },
+      { x: 32, y: 32 },
+    ]);
+    expect(deps.calculateGridSpacing).not.toHaveBeenCalled();
+  });
+
   it('expands clipping bounds by brush radius to keep edge strokes continuous', () => {
     createSequentialState();
     useAppStore.setState((state) => ({
