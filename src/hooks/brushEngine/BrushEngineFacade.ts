@@ -40,6 +40,11 @@ import {
   type DirectionState,
   type RotationInput
 } from './rotation';
+import {
+  rasterizeGridPath,
+  snapPointToGrid,
+  type GridSpacing,
+} from './gridStroke';
 import type { PixelQueue, RenderSettings } from './types';
 
 /**
@@ -198,6 +203,8 @@ export class BrushEngineFacade {
   private stampTrackingActive = false;
   private trackedStampPressure = 1;
   private trackedStampAlpha = 1;
+  private strokeGridSnapSpacing: GridSpacing | null = null;
+  private strokeGridSnapMode: 'grid' | 'custom' | null = null;
   private static readonly MAX_CAPTURED_PATTERN_CACHE = 512;
   private static readonly MAX_CAPTURED_PALETTE_CACHE = 64;
 
@@ -230,20 +237,19 @@ export class BrushEngineFacade {
     };
   }
 
-  private snapToRectGrid(
-    point: { x: number; y: number },
-    spacing: { x: number; y: number }
-  ): { x: number; y: number } {
-    const snapAxis = (value: number, step: number): number => {
-      const safeStep = Math.max(1, step);
-      const snapped = Math.sign(value) * Math.round(Math.abs(value) / safeStep) * safeStep;
-      return Number.isNaN(snapped) ? 0 : snapped;
-    };
+  private resolveStrokeGridSnapSpacing(
+    mode: 'grid' | 'custom',
+    nextSpacing: GridSpacing
+  ): GridSpacing {
+    if (!this.pixelQueue.initialized || !this.strokeGridSnapSpacing || this.strokeGridSnapMode !== mode) {
+      this.strokeGridSnapSpacing = {
+        x: Math.max(1, Math.round(nextSpacing.x)),
+        y: Math.max(1, Math.round(nextSpacing.y)),
+      };
+      this.strokeGridSnapMode = mode;
+    }
 
-    return {
-      x: snapAxis(point.x, spacing.x),
-      y: snapAxis(point.y, spacing.y),
-    };
+    return this.strokeGridSnapSpacing;
   }
 
   constructor(config: BrushEngineConfig) {
@@ -499,16 +505,13 @@ export class BrushEngineFacade {
 
       // When grid snapping is enabled, draw stamps at grid positions
       if (isGridSnapping) {
-        const snapSpacing = customBrushSnapSpacing ?? {
+        const snapMode = customBrushSnapSpacing ? 'custom' : 'grid';
+        const snapSpacing = this.resolveStrokeGridSnapSpacing(snapMode, customBrushSnapSpacing ?? {
           x: this.utilities.calculateGridSpacing(pressure),
           y: this.utilities.calculateGridSpacing(pressure),
-        };
-        const snappedFrom = customBrushSnapSpacing
-          ? this.snapToRectGrid(drawFrom, snapSpacing)
-          : this.utilities.snapToGrid(drawFrom.x, drawFrom.y, pressure);
-        const snappedTo = customBrushSnapSpacing
-          ? this.snapToRectGrid(drawTo, snapSpacing)
-          : this.utilities.snapToGrid(drawTo.x, drawTo.y, pressure);
+        });
+        const snappedFrom = snapPointToGrid(drawFrom, snapSpacing);
+        const snappedTo = snapPointToGrid(drawTo, snapSpacing);
 
         // Set image smoothing based on brush type
         if (isPixelBrush || isPixelSquare || !brushSettings.antialiasing) {
@@ -569,31 +572,8 @@ export class BrushEngineFacade {
           }
         };
 
-        // Traverse every touched grid cell with Bresenham to avoid skipped cells on steep/diagonal moves.
-        let cellX = Math.round(snappedFrom.x / snapSpacing.x);
-        let cellY = Math.round(snappedFrom.y / snapSpacing.y);
-        const targetCellX = Math.round(snappedTo.x / snapSpacing.x);
-        const targetCellY = Math.round(snappedTo.y / snapSpacing.y);
-        const deltaX = Math.abs(targetCellX - cellX);
-        const deltaY = Math.abs(targetCellY - cellY);
-        const stepX = cellX < targetCellX ? 1 : -1;
-        const stepY = cellY < targetCellY ? 1 : -1;
-        let error = deltaX - deltaY;
-
-        while (true) {
-          drawSnappedStamp(cellX * snapSpacing.x, cellY * snapSpacing.y);
-          if (cellX === targetCellX && cellY === targetCellY) {
-            break;
-          }
-          const doubleError = error * 2;
-          if (doubleError > -deltaY) {
-            error -= deltaY;
-            cellX += stepX;
-          }
-          if (doubleError < deltaX) {
-            error += deltaX;
-            cellY += stepY;
-          }
+        for (const point of rasterizeGridPath(snappedFrom, snappedTo, snapSpacing)) {
+          drawSnappedStamp(point.x, point.y);
         }
 
         // Update tracking
@@ -1411,6 +1391,8 @@ export class BrushEngineFacade {
     this.customStrokeCycleSeed = 0;
     this.customStrokeCyclePhaseBase = 0;
     this.customStrokeCycleInitialized = false;
+    this.strokeGridSnapSpacing = null;
+    this.strokeGridSnapMode = null;
   }
 
   /**

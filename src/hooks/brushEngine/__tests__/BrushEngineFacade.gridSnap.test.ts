@@ -56,6 +56,78 @@ describe('BrushEngineFacade grid snap stamping', () => {
     expect(uniqueX).toEqual([0, 8, 16, 24, 32]);
   });
 
+  it('stamps across every traversed grid cell for a diagonal snapped stroke', () => {
+    const engine = new BrushEngineFacade({
+      brushSettings: createBaseSettings(),
+    });
+    const canvas = document.createElement('canvas');
+    canvas.width = 128;
+    canvas.height = 128;
+    const ctx = canvas.getContext('2d');
+    expect(ctx).not.toBeNull();
+    if (!ctx) {
+      return;
+    }
+
+    engine.renderBrushStroke(ctx, {
+      from: { x: 1, y: 1 },
+      to: { x: 31, y: 30 },
+      pressure: 1,
+      velocity: 1,
+      timestamp: performance.now(),
+    });
+
+    const stamps = engine.consumeRecentStamps();
+    expect(stamps.map((stamp) => ({ x: stamp.x, y: stamp.y }))).toEqual([
+      { x: 0, y: 0 },
+      { x: 8, y: 8 },
+      { x: 16, y: 16 },
+      { x: 24, y: 24 },
+      { x: 32, y: 32 },
+    ]);
+  });
+
+  it('freezes grid spacing for the full stroke when pressure changes', () => {
+    const engine = new BrushEngineFacade({
+      brushSettings: {
+        ...createBaseSettings(),
+        pressureEnabled: true,
+        minPressure: 0,
+        maxPressure: 100,
+      },
+    });
+    const canvas = document.createElement('canvas');
+    canvas.width = 128;
+    canvas.height = 128;
+    const ctx = canvas.getContext('2d');
+    expect(ctx).not.toBeNull();
+    if (!ctx) {
+      return;
+    }
+
+    engine.renderBrushStroke(ctx, {
+      from: { x: 0, y: 0 },
+      to: { x: 16, y: 16 },
+      pressure: 1,
+      velocity: 1,
+      timestamp: performance.now(),
+    });
+    engine.consumeRecentStamps();
+
+    engine.renderBrushStroke(ctx, {
+      from: { x: 16, y: 16 },
+      to: { x: 32, y: 32 },
+      pressure: 0,
+      velocity: 1,
+      timestamp: performance.now(),
+    });
+
+    const stamps = engine.consumeRecentStamps();
+    expect(stamps.map((stamp) => ({ x: stamp.x, y: stamp.y }))).toEqual([
+      { x: 32, y: 32 },
+    ]);
+  });
+
   it('uses spacing-driven stamps when grid snap is disabled', () => {
     const engine = new BrushEngineFacade({
       brushSettings: {
