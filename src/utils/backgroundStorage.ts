@@ -3,6 +3,7 @@
 
 import type { Project, Layer } from '../types';
 import { captureCanvasImageData } from '@/utils/canvas/canvasImage';
+import { captureColorCycleCanvasSnapshot } from '@/utils/colorCycleCanvasSnapshot';
 
 type BackgroundStorageGlobal = typeof globalThis & {
   __vesselBackgroundStorage?: BackgroundStorageService;
@@ -26,7 +27,10 @@ const sanitizeColorCycleData = (
 
   const sanitized: Layer['colorCycleData'] = {
     ...rest,
-    canvasImageData: captureCanvasImageData(canvas) ?? rest.canvasImageData,
+    canvasImageData: captureColorCycleCanvasSnapshot({
+      canvas,
+      existingImageData: rest.canvasImageData,
+    }) ?? rest.canvasImageData,
     canvasWidth: rest.canvasWidth ?? canvas?.width,
     canvasHeight: rest.canvasHeight ?? canvas?.height,
     eraseMaskImageData: captureCanvasImageData(eraseMask) ?? rest.eraseMaskImageData,

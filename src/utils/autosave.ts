@@ -160,7 +160,10 @@ class AutosaveService {
 
       // Get fresh state after capture
       const freshState = useAppStore.getState();
-      if (!freshState.project) return;
+      if (!freshState.project) {
+        freshState.clearSaveStatus();
+        return;
+      }
 
       // Save to background storage (IndexedDB) - silent, non-blocking
       const projectForBackground = {
@@ -223,34 +226,36 @@ class AutosaveService {
                   duration: 5000
                 });
               }
-              return;
-            }
+              autosaveLog.warn('Skipping autosave file backup because write permission is unavailable.', {
+                mode,
+              });
+            } else {
+              const backupProject = {
+                ...freshState.project,
+                layerGroups: freshState.layerGroups,
+                palette: freshState.palette,
+                referenceLayerId: freshState.referenceLayerId ?? null,
+              };
 
-            const backupProject = {
-              ...freshState.project,
-              layerGroups: freshState.layerGroups,
-              palette: freshState.palette,
-              referenceLayerId: freshState.referenceLayerId ?? null,
-            };
-
-            const backupResult = await fileBackupService.saveProjectBackup(
-              backupProject,
-              freshState.layers,
-              mode
-            );
-            autosaveLog.debug('Autosave file backup result', {
-              success: backupResult.success,
-              filename: backupResult.filename,
-              error: backupResult.error,
-            });
-          
-            if (backupResult.success) {
-              // Update file backup time in store
-              const currentState = useAppStore.getState();
-              currentState.updateFileBackupTime();
-              // File backup saved: ${backupResult.filename}
+              const backupResult = await fileBackupService.saveProjectBackup(
+                backupProject,
+                freshState.layers,
+                mode
+              );
+              autosaveLog.debug('Autosave file backup result', {
+                success: backupResult.success,
+                filename: backupResult.filename,
+                error: backupResult.error,
+              });
+            
+              if (backupResult.success) {
+                // Update file backup time in store
+                const currentState = useAppStore.getState();
+                currentState.updateFileBackupTime();
+                // File backup saved: ${backupResult.filename}
+              }
+              // File backup failed: ${backupResult.error}
             }
-            // File backup failed: ${backupResult.error}
           } catch (error) {
             autosaveLog.error('Failed to write file backup during autosave.', error, { mode });
           }

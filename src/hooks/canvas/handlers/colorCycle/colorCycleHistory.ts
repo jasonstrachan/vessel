@@ -5,6 +5,8 @@ import { captureColorCycleBrushState } from '@/history/helpers/colorCycle';
 import type { ColorCycleSerializedState } from '@/history/helpers/colorCycle';
 import { commitLayerHistory } from '@/history/helpers/layerHistory';
 import type { BoundingBox } from '@/hooks/canvas/handlers/shapes/ShapeFinalizeHandler';
+import { useAppStore } from '@/stores/useAppStore';
+import { captureColorCycleCanvasSnapshot } from '@/utils/colorCycleCanvasSnapshot';
 
 type CaptureRegion = { x: number; y: number; width: number; height: number };
 
@@ -165,6 +167,31 @@ export const scheduleDeferredColorCycleSave = (
         beforeCtr: beforeColorState?.layers?.[0]?.strokeData?.strokeCounter ?? -1,
         afterCtr: nextAfterColorState?.layers?.[0]?.strokeData?.strokeCounter ?? -1,
       });
+
+      const state = useAppStore.getState();
+      const layer = state.layers.find((entry) => entry.id === layerId);
+      if (layer?.layerType === 'color-cycle' && layer.colorCycleData) {
+        const nextCanvasImageData = captureColorCycleCanvasSnapshot({
+          canvas,
+          existingImageData: layer.colorCycleData.canvasImageData,
+          roi,
+        });
+
+        if (nextCanvasImageData) {
+          state.updateLayer(
+            layerId,
+            {
+              colorCycleData: {
+                ...layer.colorCycleData,
+                canvasImageData: nextCanvasImageData,
+                canvasWidth: nextCanvasImageData.width,
+                canvasHeight: nextCanvasImageData.height,
+              },
+            },
+            { skipColorCycleSync: true }
+          );
+        }
+      }
     });
   };
 
