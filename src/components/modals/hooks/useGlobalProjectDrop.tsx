@@ -5,11 +5,86 @@ import {
   findAcceptableFile,
 } from '@/components/modals/utils/projectFileAcceptance';
 
-type UseGlobalProjectDropOptions = {
-  onDropProjectFile: (file: File) => void;
+type DroppedDirectoryHandle = FileSystemDirectoryHandle & {
+  kind: 'directory';
 };
 
-export function useGlobalProjectDrop({ onDropProjectFile }: UseGlobalProjectDropOptions) {
+type DroppedProjectPayload =
+  | { kind: 'file'; file: File }
+  | { kind: 'directory'; handle: DroppedDirectoryHandle };
+
+type FileSystemHandleDropItem = DataTransferItem & {
+  getAsFileSystemHandle?: () => Promise<FileSystemHandle | null>;
+};
+
+type UseGlobalProjectDropOptions = {
+  onDropProject: (payload: DroppedProjectPayload) => void | Promise<void>;
+};
+
+const hasPotentialDirectoryPayload = (
+  items: DataTransferItemList | null | undefined,
+) => {
+  if (!items || items.length === 0) {
+    return false;
+  }
+
+  for (let index = 0; index < items.length; index += 1) {
+    const item = items[index] as FileSystemHandleDropItem | null;
+    if (!item || item.kind !== 'file' || typeof item.getAsFileSystemHandle !== 'function') {
+      continue;
+    }
+
+    if (item.getAsFile?.() == null) {
+      return true;
+    }
+  }
+
+  return false;
+};
+
+const hasSupportedProjectPayload = (dataTransfer: DataTransfer | null | undefined) => {
+  if (!dataTransfer) {
+    return false;
+  }
+
+  if (findAcceptableFile(dataTransfer.files ?? null)) {
+    return true;
+  }
+
+  if (extractFileFromItems(dataTransfer.items ?? null)) {
+    return true;
+  }
+
+  return hasPotentialDirectoryPayload(dataTransfer.items ?? null);
+};
+
+const extractDirectoryHandleFromItems = async (
+  items: DataTransferItemList | null | undefined,
+): Promise<DroppedDirectoryHandle | null> => {
+  if (!items || items.length === 0) {
+    return null;
+  }
+
+  for (let index = 0; index < items.length; index += 1) {
+    const item = items[index] as FileSystemHandleDropItem | null;
+    if (!item || item.kind !== 'file' || typeof item.getAsFileSystemHandle !== 'function') {
+      continue;
+    }
+
+    try {
+      const handle = await item.getAsFileSystemHandle();
+      if (handle?.kind === 'directory') {
+        return handle as DroppedDirectoryHandle;
+      }
+    } catch (error) {
+      console.warn('[LoadProjectModal] Failed to inspect dropped handle', error);
+    }
+  }
+
+  return null;
+};
+
+export function useGlobalProjectDrop({ onDropProject }: UseGlobalProjectDropOptions) {
   const [dragActive, setDragActive] = useState(false);
   const dragDepth = useRef(0);
 
@@ -18,23 +93,35 @@ export function useGlobalProjectDrop({ onDropProjectFile }: UseGlobalProjectDrop
     setDragActive(false);
   }, []);
 
-  const handleDrop = useCallback((event: DragEvent) => {
-    const file = findAcceptableFile(event.dataTransfer?.files ?? null)
-      || extractFileFromItems(event.dataTransfer?.items ?? null);
-    if (!file) {
+  const handleDrop = useCallback(async (event: DragEvent) => {
+    if (!hasSupportedProjectPayload(event.dataTransfer)) {
       return;
     }
 
     event.preventDefault();
     event.stopPropagation();
+
+    const directoryHandle = await extractDirectoryHandleFromItems(event.dataTransfer?.items ?? null);
+    if (directoryHandle) {
+      resetDragState();
+      void onDropProject({ kind: 'directory', handle: directoryHandle });
+      return;
+    }
+
+    const file = findAcceptableFile(event.dataTransfer?.files ?? null)
+      || extractFileFromItems(event.dataTransfer?.items ?? null);
+    if (!file) {
+      resetDragState();
+      return;
+    }
+
     resetDragState();
-    onDropProjectFile(file);
-  }, [onDropProjectFile, resetDragState]);
+    void onDropProject({ kind: 'file', file });
+  }, [onDropProject, resetDragState]);
 
   useEffect(() => {
     const handleDragEnter = (event: DragEvent) => {
-      const hasFile = Boolean(extractFileFromItems(event.dataTransfer?.items ?? null));
-      if (!hasFile) {
+      if (!hasSupportedProjectPayload(event.dataTransfer)) {
         return;
       }
       event.preventDefault();
@@ -43,11 +130,7 @@ export function useGlobalProjectDrop({ onDropProjectFile }: UseGlobalProjectDrop
     };
 
     const handleDragOver = (event: DragEvent) => {
-      const hasFile = Boolean(
-        extractFileFromItems(event.dataTransfer?.items ?? null)
-          || findAcceptableFile(event.dataTransfer?.files ?? null),
-      );
-      if (!hasFile) {
+      if (!hasSupportedProjectPayload(event.dataTransfer)) {
         return;
       }
       event.preventDefault();
@@ -66,12 +149,10 @@ export function useGlobalProjectDrop({ onDropProjectFile }: UseGlobalProjectDrop
     };
 
     const handleWindowDrop = (event: DragEvent) => {
-      const file = findAcceptableFile(event.dataTransfer?.files ?? null)
-        || extractFileFromItems(event.dataTransfer?.items ?? null);
-      if (!file) {
+      if (!hasSupportedProjectPayload(event.dataTransfer)) {
         return;
       }
-      handleDrop(event);
+      void handleDrop(event);
     };
 
     window.addEventListener('dragenter', handleDragEnter);
@@ -95,7 +176,7 @@ export function useGlobalProjectDrop({ onDropProjectFile }: UseGlobalProjectDrop
     return (
       <div className='fixed inset-0 z-[60] pointer-events-none flex items-center justify-center bg-black/60'>
         <div className='border-2 border-dashed border-[#8AE9FF] bg-[#0A1A1F]/70 text-[#8AE9FF] px-8 py-6 rounded-lg text-lg font-medium'>
-          Drop your Vessel project to load
+          Drop a Vessel project or folder to load
         </div>
       </div>
     );
@@ -107,4 +188,3 @@ export function useGlobalProjectDrop({ onDropProjectFile }: UseGlobalProjectDrop
     dropOverlay,
   };
 }
-

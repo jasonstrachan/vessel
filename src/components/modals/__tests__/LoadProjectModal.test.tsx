@@ -277,4 +277,90 @@ describe('LoadProjectModal', () => {
     expect(screen.queryByText('File is empty or incomplete. Autosave may have failed to write the file.')).not.toBeInTheDocument();
   });
 
+  it('accepts OS-style file drags where getAsFile is unavailable before drop', async () => {
+    const file = createProjectFile('dropped.vs');
+
+    render(<LoadProjectModal isOpen onClose={jest.fn()} />);
+    act(() => {
+      jest.runAllTimers();
+    });
+
+    fireEvent.dragEnter(window, {
+      dataTransfer: {
+        types: ['Files'],
+        items: [
+          {
+            kind: 'file',
+            getAsFile: () => null,
+          },
+        ],
+      },
+    });
+
+    expect(screen.getByText('Drop a Vessel project or folder to load')).toBeInTheDocument();
+
+    fireEvent.drop(window, {
+      dataTransfer: {
+        types: ['Files'],
+        files: [file],
+        items: [
+          {
+            kind: 'file',
+            getAsFile: () => file,
+          },
+        ],
+      },
+    });
+
+    await waitFor(() => {
+      expect(mockReadProjectPreviewManifest).toHaveBeenCalledTimes(1);
+    });
+    expect(screen.queryByText('Drop a Vessel project or folder to load')).not.toBeInTheDocument();
+  });
+
+  it('loads directory entries from a dropped folder handle', async () => {
+    const alphaHandle = createFileHandle('alpha.vs');
+    const betaHandle = createFileHandle('beta.vs');
+    const directoryHandle = createDirectoryHandle([
+      ['alpha.vs', alphaHandle],
+      ['beta.vs', betaHandle],
+    ]);
+
+    render(<LoadProjectModal isOpen onClose={jest.fn()} />);
+    act(() => {
+      jest.runAllTimers();
+    });
+
+    fireEvent.dragEnter(window, {
+      dataTransfer: {
+        types: ['Files'],
+        items: [
+          {
+            kind: 'file',
+            getAsFile: () => null,
+            getAsFileSystemHandle: async () => directoryHandle,
+          },
+        ],
+      },
+    });
+
+    expect(screen.getByText('Drop a Vessel project or folder to load')).toBeInTheDocument();
+
+    fireEvent.drop(window, {
+      dataTransfer: {
+        types: ['Files'],
+        items: [
+          {
+            kind: 'file',
+            getAsFile: () => null,
+            getAsFileSystemHandle: async () => directoryHandle,
+          },
+        ],
+      },
+    });
+
+    expect(await screen.findByText('alpha.vs')).toBeInTheDocument();
+    expect(await screen.findByText('beta.vs')).toBeInTheDocument();
+  });
+
 });
