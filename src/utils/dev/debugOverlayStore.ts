@@ -13,11 +13,13 @@ declare global {
   interface Window {
     __DEV_DEBUG_OVERLAY_ENTRIES__?: DevDebugOverlayEntry[];
     __DEV_DEBUG_OVERLAY__?: boolean;
+    __DEV_DEBUG_OVERLAY_MINIMIZED__?: boolean;
   }
 }
 
 const MAX_DEV_DEBUG_OVERLAY_ENTRIES = 120;
 export const DEV_DEBUG_OVERLAY_EVENT = 'dev-debug-overlay-update';
+const DEV_DEBUG_OVERLAY_MINIMIZED_KEY = 'devDebugOverlayMinimized';
 
 let nextEntryId = 1;
 
@@ -118,6 +120,37 @@ export const setDevDebugOverlayEnabled = (enabled: boolean): void => {
       window.localStorage.setItem('devDebugOverlay', '1');
     } else {
       window.localStorage.removeItem('devDebugOverlay');
+    }
+  } catch {}
+  window.dispatchEvent(new CustomEvent(DEV_DEBUG_OVERLAY_EVENT));
+};
+
+export const isDevDebugOverlayMinimized = (): boolean => {
+  if (typeof window === 'undefined') {
+    return false;
+  }
+
+  if (window.__DEV_DEBUG_OVERLAY_MINIMIZED__ === true) {
+    return true;
+  }
+
+  try {
+    return window.localStorage.getItem(DEV_DEBUG_OVERLAY_MINIMIZED_KEY) === '1';
+  } catch {
+    return false;
+  }
+};
+
+export const setDevDebugOverlayMinimized = (minimized: boolean): void => {
+  if (typeof window === 'undefined') {
+    return;
+  }
+  window.__DEV_DEBUG_OVERLAY_MINIMIZED__ = minimized;
+  try {
+    if (minimized) {
+      window.localStorage.setItem(DEV_DEBUG_OVERLAY_MINIMIZED_KEY, '1');
+    } else {
+      window.localStorage.removeItem(DEV_DEBUG_OVERLAY_MINIMIZED_KEY);
     }
   } catch {}
   window.dispatchEvent(new CustomEvent(DEV_DEBUG_OVERLAY_EVENT));

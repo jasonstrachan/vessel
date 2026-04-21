@@ -5,8 +5,9 @@ import {
   clearDevDebugOverlayEntries,
   DEV_DEBUG_OVERLAY_EVENT,
   isDevDebugOverlayEnabled,
+  isDevDebugOverlayMinimized,
   readDevDebugOverlayEntries,
-  setDevDebugOverlayEnabled,
+  setDevDebugOverlayMinimized,
   type DevDebugOverlayEntry,
 } from '@/utils/dev/debugOverlayStore';
 
@@ -40,6 +41,7 @@ const toClipboardText = (entries: DevDebugOverlayEntry[]): string =>
 
 export default function DevDebugOverlay() {
   const [enabled, setEnabled] = useState(false);
+  const [minimized, setMinimized] = useState(false);
   const [entries, setEntries] = useState<DevDebugOverlayEntry[]>([]);
   const [copied, setCopied] = useState(false);
 
@@ -47,6 +49,7 @@ export default function DevDebugOverlay() {
     const refresh = () => {
       const on = isDevDebugOverlayEnabled();
       setEnabled(on);
+      setMinimized(isDevDebugOverlayMinimized());
       if (!on) {
         setEntries([]);
         return;
@@ -107,38 +110,40 @@ export default function DevDebugOverlay() {
           </button>
           <button
             type="button"
-            onClick={() => setDevDebugOverlayEnabled(false)}
+            onClick={() => setDevDebugOverlayMinimized(!minimized)}
             className="rounded border border-[#4a4a4a] px-2 py-1 text-[10px] uppercase tracking-[0.12em] text-[#d9d9d9] hover:bg-white/10"
           >
-            hide
+            {minimized ? 'expand' : 'minimize'}
           </button>
         </div>
       </div>
-      <div
-        data-testid="dev-debug-overlay-scroll-region"
-        className="max-h-[42vh] overflow-y-auto overscroll-contain px-3 py-2 font-mono leading-4"
-      >
-        {visibleEntries.length === 0 ? (
-          <div className="text-[#6f6f6f]">Waiting for debug events...</div>
-        ) : (
-          visibleEntries.map((entry) => (
-            <div key={entry.id} className="mb-2 border-b border-white/5 pb-2 last:mb-0 last:border-b-0 last:pb-0">
-              <div className="flex items-center gap-2 text-[#7f7f7f]">
-                <span>{formatTime(entry.ts)}</span>
-                <span className={`rounded border px-1.5 py-[1px] text-[9px] uppercase tracking-[0.12em] ${sourceClassName(entry.source)}`}>
-                  {entry.source}
-                </span>
-                <span className={levelClassName[entry.level]}>{entry.message}</span>
-              </div>
-              {entry.data ? (
-                <div className="mt-1 whitespace-pre-wrap break-words text-[#a8a8a8]">
-                  {entry.data}
+      {minimized ? null : (
+        <div
+          data-testid="dev-debug-overlay-scroll-region"
+          className="max-h-[42vh] overflow-y-auto overscroll-contain px-3 py-2 font-mono leading-4"
+        >
+          {visibleEntries.length === 0 ? (
+            <div className="text-[#6f6f6f]">Waiting for debug events...</div>
+          ) : (
+            visibleEntries.map((entry) => (
+              <div key={entry.id} className="mb-2 border-b border-white/5 pb-2 last:mb-0 last:border-b-0 last:pb-0">
+                <div className="flex items-center gap-2 text-[#7f7f7f]">
+                  <span>{formatTime(entry.ts)}</span>
+                  <span className={`rounded border px-1.5 py-[1px] text-[9px] uppercase tracking-[0.12em] ${sourceClassName(entry.source)}`}>
+                    {entry.source}
+                  </span>
+                  <span className={levelClassName[entry.level]}>{entry.message}</span>
                 </div>
-              ) : null}
-            </div>
-          ))
-        )}
-      </div>
+                {entry.data ? (
+                  <div className="mt-1 whitespace-pre-wrap break-words text-[#a8a8a8]">
+                    {entry.data}
+                  </div>
+                ) : null}
+              </div>
+            ))
+          )}
+        </div>
+      )}
     </div>
   );
 }
