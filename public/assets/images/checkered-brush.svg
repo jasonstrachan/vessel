@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" fill="none">
+  <defs>
+    <linearGradient id="checkered-bg" x1="4" y1="4" x2="28" y2="28" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#120B2B"/>
+      <stop offset="0.35" stop-color="#09204A"/>
+      <stop offset="0.7" stop-color="#12352A"/>
+      <stop offset="1" stop-color="#2A170B"/>
+    </linearGradient>
+  </defs>
+  <rect width="32" height="32" rx="6" fill="#0B0A12"/>
+  <rect x="4.5" y="4.5" width="23" height="23" rx="5" fill="url(#checkered-bg)"/>
+  <rect x="7" y="7" width="4.5" height="4.5" rx="1" fill="#FF5B7E"/>
+  <rect x="16" y="7" width="4.5" height="4.5" rx="1" fill="#FFD65A"/>
+  <rect x="11.5" y="11.5" width="4.5" height="4.5" rx="1" fill="#58ED8B"/>
+  <rect x="20.5" y="11.5" width="4.5" height="4.5" rx="1" fill="#45B7FF"/>
+  <rect x="7" y="16" width="4.5" height="4.5" rx="1" fill="#B576FF"/>
+  <rect x="16" y="16" width="4.5" height="4.5" rx="1" fill="#FF8C42"/>
+  <rect x="11.5" y="20.5" width="4.5" height="4.5" rx="1" fill="#FFE45E"/>
+  <rect x="20.5" y="20.5" width="4.5" height="4.5" rx="1" fill="#5DDCFF"/>
+</svg>

@@ -50,12 +50,20 @@ export function generateBrushThumbnail(
 
   const aaComponent = preset.components.find((component) => component.type === 'antialiasing');
   const isAntialiased = aaComponent?.parameters?.mode !== 'pixel';
+  const ditherTipShape = preset.preferredSettings?.ditherStrokeTipShape;
+  const colorCycleStampShape = preset.preferredSettings?.colorCycleStampShape;
 
   if (!isAntialiased) {
     ctx.imageSmoothingEnabled = false;
   }
 
-  switch (brushShape) {
+  if (
+    (brushShape === BrushShape.PIXEL_DITHER && ditherTipShape === 'checkered') ||
+    (brushShape === BrushShape.COLOR_CYCLE && colorCycleStampShape === 'checkered')
+  ) {
+    generateCheckeredThumbnail(ctx, opts);
+  } else {
+    switch (brushShape) {
     case BrushShape.SQUARE:
       generateSquareThumbnail(ctx, opts, isAntialiased, baseStrokeWidth);
       break;
@@ -92,6 +100,7 @@ export function generateBrushThumbnail(
     default:
       generateRoundThumbnail(ctx, opts, baseStrokeWidth);
       break;
+    }
   }
 
   try {
@@ -158,6 +167,34 @@ function generatePixelRoundThumbnail(
   ctx.beginPath();
   ctx.arc(center, center, radius, 0, Math.PI * 2);
   ctx.stroke();
+}
+
+function generateCheckeredThumbnail(
+  ctx: CanvasRenderingContext2D,
+  opts: Required<ThumbnailOptions>
+) {
+  const gridSize = 4;
+  const stampSize = Math.max(12, Math.round(opts.size * 0.6));
+  const cellSize = Math.max(2, Math.floor(stampSize / gridSize));
+  const rasterSize = cellSize * gridSize;
+  const originX = Math.round((opts.size - rasterSize) / 2);
+  const originY = Math.round((opts.size - rasterSize) / 2);
+
+  ctx.imageSmoothingEnabled = false;
+  ctx.globalAlpha = 1;
+  for (let row = 0; row < gridSize; row += 1) {
+    for (let col = 0; col < gridSize; col += 1) {
+      if ((row + col) % 2 !== 0) {
+        continue;
+      }
+      ctx.fillRect(
+        originX + col * cellSize,
+        originY + row * cellSize,
+        cellSize,
+        cellSize
+      );
+    }
+  }
 }
 
 function generateTriangleThumbnail(

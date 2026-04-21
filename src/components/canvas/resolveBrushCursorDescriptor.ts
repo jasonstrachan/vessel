@@ -4,13 +4,14 @@ import type { BrushCursorDescriptor } from './useDrawingCanvasCursorModel';
 
 type CursorToolSettings = {
   currentTool: Tool;
-  brushSettings: {
-    size?: number;
-    brushShape?: BrushShape;
-    mosaicTilePx?: number;
-    mosaicBlocksCount?: number;
-    ditherStrokeTipShape?: BrushSettings['ditherStrokeTipShape'];
-    currentBrushTip?: BrushSettings['currentBrushTip'];
+    brushSettings: {
+      size?: number;
+      brushShape?: BrushShape;
+      mosaicTilePx?: number;
+      mosaicBlocksCount?: number;
+      ditherStrokeTipShape?: BrushSettings['ditherStrokeTipShape'];
+      colorCycleStampShape?: BrushSettings['colorCycleStampShape'];
+      currentBrushTip?: BrushSettings['currentBrushTip'];
     selectedCustomBrush?: string | null;
   };
   eraserSettings: {
@@ -41,6 +42,11 @@ const resolvePixelDitherCursorSize = (
     case 'diamond7':
     case 'diamond9': {
       const gridSize = tipShape === 'diamond9' ? 9 : tipShape === 'diamond7' ? 7 : 5;
+      const pixelScale = Math.max(1, Math.round(stampSize / gridSize));
+      return Math.max(stampSize, pixelScale * gridSize);
+    }
+    case 'checkered': {
+      const gridSize = 4;
       const pixelScale = Math.max(1, Math.round(stampSize / gridSize));
       return Math.max(stampSize, pixelScale * gridSize);
     }
@@ -84,6 +90,9 @@ export const resolveBrushCursorDescriptor = ({
           mosaicCursorSize ??
             (tools.brushSettings.brushShape === BrushShape.PIXEL_DITHER
               ? resolvePixelDitherCursorSize(baseBrushSize, tools.brushSettings.ditherStrokeTipShape)
+              : tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE &&
+                  tools.brushSettings.colorCycleStampShape === 'checkered'
+                ? resolvePixelDitherCursorSize(baseBrushSize, 'checkered')
               : baseBrushSize)
         );
   const activeSettings =
@@ -137,9 +146,19 @@ export const resolveBrushCursorDescriptor = ({
     }
   }
 
+  const tipShape =
+    tools.currentTool === 'eraser'
+      ? undefined
+      : tools.brushSettings.brushShape === BrushShape.PIXEL_DITHER
+        ? tools.brushSettings.ditherStrokeTipShape
+        : tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE
+          ? tools.brushSettings.colorCycleStampShape
+        : undefined;
+
   return {
     kind: 'shape',
     shape: brushShapeForCursor,
     pixelSize: cursorSize,
+    tipShape,
   };
 };

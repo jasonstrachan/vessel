@@ -47,7 +47,7 @@ export const resolveColorCycleRasterAnchor = (
   }
   if (settings.brushShape === BrushShape.COLOR_CYCLE) {
     const stampShape = settings.colorCycleStampShape ?? 'square';
-    if (stampShape === 'square') {
+    if (stampShape === 'square' || stampShape === 'checkered') {
       return 'pixel-square-center';
     }
     return 'pixel-center';

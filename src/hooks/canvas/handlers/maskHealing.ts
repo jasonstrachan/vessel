@@ -53,7 +53,7 @@ export type CreateMaskHealingDispatchersArgs = {
   getState: () => AppState;
 };
 
-type MaskTipShape = 'square' | 'round' | 'triangle' | 'diamond' | 'diamond5' | 'diamond7' | 'diamond9';
+type MaskTipShape = 'square' | 'round' | 'triangle' | 'diamond' | 'diamond5' | 'diamond7' | 'diamond9' | 'checkered';
 
 const resolveMaskTipShape = (state: AppState): MaskTipShape => {
   const settings = state.tools.brushSettings;
@@ -163,6 +163,35 @@ const drawInitialMaskTipStamp = (
     ctx.lineTo(Math.round(cx - diamondHalf), cy);
     ctx.closePath();
     ctx.fill();
+    return;
+  }
+
+  if (shape === 'checkered') {
+    const gridSize = 4;
+    const pixelScale = Math.max(1, Math.round(size / gridSize));
+    const stampSize = gridSize * pixelScale;
+    const originX = Math.round(cx - stampSize / 2);
+    const originY = Math.round(cy - stampSize / 2);
+    const mask = [
+      1, 1, 0, 0,
+      1, 1, 0, 0,
+      0, 0, 1, 1,
+      0, 0, 1, 1,
+    ];
+
+    for (let row = 0; row < gridSize; row++) {
+      for (let col = 0; col < gridSize; col++) {
+        if (mask[row * gridSize + col] === 0) {
+          continue;
+        }
+        ctx.fillRect(
+          originX + col * pixelScale,
+          originY + row * pixelScale,
+          pixelScale,
+          pixelScale,
+        );
+      }
+    }
     return;
   }
 

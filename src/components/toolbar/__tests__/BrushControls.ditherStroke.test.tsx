@@ -337,4 +337,5 @@ describe('BrushControls dither stroke tip shapes', () => {
       gridSnapSize: 5,
     });
   });
+
 });

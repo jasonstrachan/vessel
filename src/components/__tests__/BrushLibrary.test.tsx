@@ -186,6 +186,14 @@ const otherPreset = {
     category: 'Special',
     components: [{ type: 'shape', parameters: { shape: BrushShape.SHAPE_FILL } }],
   };
+  const checkeredStaticPreset = {
+    id: 'checkered',
+    name: 'Checkered',
+    isDefault: false,
+    category: 'Special',
+    thumbnail: '/assets/images/checkered-brush.svg',
+    components: [{ type: 'shape', parameters: { shape: BrushShape.COLOR_CYCLE } }],
+  };
 
 describe('BrushLibrary', () => {
   beforeEach(() => {
@@ -222,6 +230,7 @@ describe('BrushLibrary', () => {
 
   afterEach(() => {
     useAppStore.setState({ project: null, brushPresets: [], currentBrushPreset: null });
+    (globalThis as any).__NEXT_DATA__ = undefined;
   });
 
   it('renders presets and selects a brush on click', () => {
@@ -300,5 +309,66 @@ describe('BrushLibrary', () => {
     const stroke = screen.getByText('Color Cycle Stroke');
     const relation = shapeFill.compareDocumentPosition(stroke);
     expect(relation & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('orders Checkered directly after Color Cycle Gradient', () => {
+    useAppStore.setState({
+      ...useAppStore.getState(),
+      currentBrushPreset: {
+        id: 'checkered',
+        name: 'Checkered',
+        category: 'Special',
+        components: [{ type: 'shape', parameters: { shape: BrushShape.COLOR_CYCLE } }],
+        isDefault: false,
+      } as any,
+      brushPresets: [
+        ccShapePreset as any,
+        {
+          id: 'checkered',
+          name: 'Checkered',
+          category: 'Special',
+          components: [{ type: 'shape', parameters: { shape: BrushShape.COLOR_CYCLE } }],
+          isDefault: false,
+        } as any,
+        ccGradientPreset as any,
+      ],
+    });
+
+    render(<BrushLibrary />);
+
+    const gradient = screen.getByText('Color Cycle Gradient');
+    const checkered = screen.getByText('Checkered');
+    const relation = gradient.compareDocumentPosition(checkered);
+    expect(relation & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('prefers a dedicated preset thumbnail asset over generated thumbnails', () => {
+    useAppStore.setState({
+      ...useAppStore.getState(),
+      currentBrushPreset: checkeredStaticPreset as any,
+      brushPresets: [checkeredStaticPreset as any],
+    });
+
+    render(<BrushLibrary />);
+
+    const image = screen.getByAltText('Checkered thumbnail');
+    expect(image).toHaveAttribute('src', '/assets/images/checkered-brush.svg');
+  });
+
+  it('prefixes dedicated preset thumbnail assets with the Next assetPrefix when present', () => {
+    (globalThis as any).__NEXT_DATA__ = {
+      assetPrefix: '/vessel/',
+    };
+
+    useAppStore.setState({
+      ...useAppStore.getState(),
+      currentBrushPreset: checkeredStaticPreset as any,
+      brushPresets: [checkeredStaticPreset as any],
+    });
+
+    render(<BrushLibrary />);
+
+    const image = screen.getByAltText('Checkered thumbnail');
+    expect(image).toHaveAttribute('src', '/vessel/assets/images/checkered-brush.svg');
   });
 });

@@ -23,7 +23,7 @@ export default function TestsPage() {
           </div>
           
           <div className="grid gap-6">
-            <Link href="/tests/migration" className="block">
+            <Link href="/dev-tests/migration" className="block">
               <div className="bg-white rounded-lg shadow-md p-6 hover:shadow-lg transition-shadow cursor-pointer border-l-4 border-blue-500">
                 <div className="flex items-center mb-3">
                   <span className="text-3xl mr-4">🔄</span>
@@ -42,7 +42,7 @@ export default function TestsPage() {
               </div>
             </Link>
             
-            <Link href="/tests/performance" className="block">
+            <Link href="/dev-tests/performance" className="block">
               <div className="bg-white rounded-lg shadow-md p-6 hover:shadow-lg transition-shadow cursor-pointer border-l-4 border-green-500">
                 <div className="flex items-center mb-3">
                   <span className="text-3xl mr-4">🚀</span>

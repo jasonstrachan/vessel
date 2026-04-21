@@ -2005,6 +2005,9 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
       newBrushSettings.brushShape = BrushShape.COLOR_CYCLE_SHAPE;
     } else if (preset.id === 'color-cycle-stroke') {
       newBrushSettings.brushShape = BrushShape.COLOR_CYCLE;
+    } else if (preset.id === 'checkered') {
+      newBrushSettings.brushShape = BrushShape.COLOR_CYCLE;
+      newBrushSettings.colorCycleStampShape = 'checkered';
     }
 
     let nextCcGradientSource = newBrushSettings.ccGradientSource ?? state.tools.ccGradientSource ?? 'manual';
@@ -2022,7 +2025,10 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
     const wasShapeFillBrush = state.tools.brushSettings.brushShape === BrushShape.SHAPE_FILL;
     const isShapeFillBrush = newBrushSettings.brushShape === BrushShape.SHAPE_FILL;
     const forceShapeModePreset = preset.id === 'dither-shape';
-    const forceShapeOffPreset = preset.id === 'dither-stroke' || isRegularPixelPresetId(preset.id);
+    const forceShapeOffPreset =
+      preset.id === 'dither-stroke' ||
+      preset.id === 'checkered' ||
+      isRegularPixelPresetId(preset.id);
 
     let nextShapeMode: boolean;
     if (forceShapeModePreset) {

@@ -583,6 +583,34 @@ describe('tools slice', () => {
     expect(afterRegular.tools.brushSettings.brushShape).not.toBe(BrushShape.CUSTOM);
   });
 
+  it('keeps brush size stable when switching through checkered and mosaic presets', () => {
+    const store = useAppStore.getState();
+    store.setGlobalBrushSize(12);
+
+    const checkeredPreset = brushPresets.find((candidate) => candidate.id === 'checkered');
+    const mosaicPreset = brushPresets.find((candidate) => candidate.id === 'mosaic');
+    const pixelRoundPreset = brushPresets.find((candidate) => candidate.id === 'pixel-round');
+
+    expect(checkeredPreset).toBeTruthy();
+    expect(mosaicPreset).toBeTruthy();
+    expect(pixelRoundPreset).toBeTruthy();
+    if (!checkeredPreset || !mosaicPreset || !pixelRoundPreset) {
+      return;
+    }
+
+    store.setBrushPreset(checkeredPreset);
+    expect(useAppStore.getState().globalBrushSize).toBe(12);
+    expect(useAppStore.getState().tools.brushSettings.size).toBe(12);
+
+    store.setBrushPreset(mosaicPreset);
+    expect(useAppStore.getState().globalBrushSize).toBe(12);
+    expect(useAppStore.getState().tools.brushSettings.size).toBe(12);
+
+    store.setBrushPreset(pixelRoundPreset);
+    expect(useAppStore.getState().globalBrushSize).toBe(12);
+    expect(useAppStore.getState().tools.brushSettings.size).toBe(12);
+  });
+
   it('merges rectangle brush state updates', () => {
     const store = useAppStore.getState();
     store.setRectangleBrushState({ width: 42 });
