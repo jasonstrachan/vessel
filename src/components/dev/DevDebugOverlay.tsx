@@ -114,7 +114,10 @@ export default function DevDebugOverlay() {
           </button>
         </div>
       </div>
-      <div className="max-h-[42vh] overflow-hidden px-3 py-2 font-mono leading-4">
+      <div
+        data-testid="dev-debug-overlay-scroll-region"
+        className="max-h-[42vh] overflow-y-auto overscroll-contain px-3 py-2 font-mono leading-4"
+      >
         {visibleEntries.length === 0 ? (
           <div className="text-[#6f6f6f]">Waiting for debug events...</div>
         ) : (
