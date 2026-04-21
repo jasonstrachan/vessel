@@ -2,10 +2,6 @@
 
 import { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
-import { DitherBrushPlugin } from '../../brushes/plugins/DitherBrushPlugin';
-import { ParticleBrushPlugin } from '../../brushes/plugins/ParticleBrushPlugin';
-import { brushRegistry } from '../../brushes/BrushRegistry';
-import { BrushDrawContext } from '../../brushes/BrushPlugin';
 import { defaultBrushSettings } from '../../presets/brushPresets';
 
 export default function TestPlugins() {
@@ -14,12 +10,28 @@ export default function TestPlugins() {
   const [results, setResults] = useState<string[]>([]);
 
   useEffect(() => {
+    let isMounted = true;
+
     // Load and test plugins
     const runTests = async () => {
       const testResults: string[] = [];
       
       try {
+        const [
+          { DitherBrushPlugin },
+          { ParticleBrushPlugin },
+          { brushRegistry },
+        ] = await Promise.all([
+          import('../../brushes/plugins/DitherBrushPlugin'),
+          import('../../brushes/plugins/ParticleBrushPlugin'),
+          import('../../brushes/BrushRegistry'),
+        ]);
+
         // Test 1: Register plugins
+        if (!isMounted) {
+          return;
+        }
+
         setStatus('Testing plugin registration...');
         
         const ditherBrush = new DitherBrushPlugin();
@@ -50,7 +62,7 @@ export default function TestPlugins() {
             if (ditherActive) {
               // Draw with dither brush
               for (let i = 0; i < 50; i++) {
-                const context: BrushDrawContext = {
+                const context = {
                   ctx,
                   x: 50 + i * 4,
                   y: 50 + Math.sin(i * 0.3) * 20,
@@ -69,7 +81,7 @@ export default function TestPlugins() {
             if (particleActive) {
               // Draw with particle brush
               for (let i = 0; i < 50; i++) {
-                const context: BrushDrawContext = {
+                const context = {
                   ctx,
                   x: 50 + i * 4,
                   y: 150 + Math.sin(i * 0.3) * 20,
@@ -98,14 +110,18 @@ export default function TestPlugins() {
         brushRegistry.activate('dither-brush');
         unsubscribe();
         testResults.push(`✅ Event system works: ${eventFired}`);
-        
-        setStatus('✅ All tests passed!');
-        setResults(testResults);
+
+        if (isMounted) {
+          setStatus('✅ All tests passed!');
+          setResults(testResults);
+        }
         
       } catch (error) {
-        setStatus(`❌ Error: ${error}`);
         testResults.push(`❌ Test failed: ${error}`);
-        setResults(testResults);
+        if (isMounted) {
+          setStatus(`❌ Error: ${error}`);
+          setResults(testResults);
+        }
       }
     };
     
@@ -113,7 +129,10 @@ export default function TestPlugins() {
     
     // Cleanup
     return () => {
-      brushRegistry.clear();
+      isMounted = false;
+      void import('../../brushes/BrushRegistry').then(({ brushRegistry }) => {
+        brushRegistry.clear();
+      });
     };
   }, []);
 

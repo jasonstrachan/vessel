@@ -6,10 +6,24 @@
  */
 
 import React, { useState, useRef } from 'react';
-import type { TestResult } from '@/testing/ColorCycleFeatureParityTest';
-import type { BenchmarkResult } from '@/testing/PerformanceBenchmark';
-import type { ComparisonResult } from '@/testing/VisualQualityComparison';
-import type { MemoryTestResult } from '@/testing/MemoryAnalysis';
+
+type TestResult = {
+  parity: boolean;
+};
+
+type BenchmarkResult = {
+  ratio: number;
+};
+
+type ComparisonResult = {
+  difference: number;
+};
+
+type MemoryTestResult = {
+  savings: {
+    percentSaved: number;
+  };
+};
 
 type MigrationSummary = {
   parity?: {
