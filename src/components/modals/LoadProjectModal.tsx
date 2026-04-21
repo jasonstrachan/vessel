@@ -110,6 +110,7 @@ export function LoadProjectModal({ isOpen, onClose }: LoadProjectModalProps) {
     isScanningDirectory,
     directoryError,
     pickDirectory,
+    openDirectoryHandle,
     refreshDirectory,
     selectEntryAtIndex,
     setSelectedEntryIndexByName,
@@ -119,14 +120,19 @@ export function LoadProjectModal({ isOpen, onClose }: LoadProjectModalProps) {
     onEntryOpen: handleDirectoryEntryOpen,
   });
 
-  const handleDropProjectFile = useCallback((file: File) => {
+  const handleDropProject = useCallback((payload: { kind: 'file'; file: File } | { kind: 'directory'; handle: FileSystemDirectoryHandle }) => {
+    if (payload.kind === 'directory') {
+      void openDirectoryHandle(payload.handle);
+      return;
+    }
+
     ensureModalOpenForDrop();
-    setSelectedEntryIndexByName(file.name);
-    void processProjectFile(file);
-  }, [ensureModalOpenForDrop, processProjectFile, setSelectedEntryIndexByName]);
+    setSelectedEntryIndexByName(payload.file.name);
+    void processProjectFile(payload.file);
+  }, [ensureModalOpenForDrop, openDirectoryHandle, processProjectFile, setSelectedEntryIndexByName]);
 
   const { dragActive, resetDragState, dropOverlay } = useGlobalProjectDrop({
-    onDropProjectFile: handleDropProjectFile,
+    onDropProject: handleDropProject,
   });
 
   useEffect(() => {
@@ -294,7 +300,7 @@ export function LoadProjectModal({ isOpen, onClose }: LoadProjectModalProps) {
                 <Button variant="secondary" onClick={pickDirectory} disabled={isScanningDirectory}>
                   Browse Folder
                 </Button>
-                <div className="text-[#8C8C8C] text-sm">or drag & drop a project anywhere in the app</div>
+                <div className="text-[#8C8C8C] text-sm">or drag & drop a project file or folder anywhere in the app</div>
               </div>
               <div className="flex-1 min-h-0 flex">
                 <LoadProjectModalBody

@@ -32,6 +32,7 @@ type UseProjectDirectoryBrowserResult = {
   isScanningDirectory: boolean;
   directoryError: string | null;
   pickDirectory: () => Promise<void>;
+  openDirectoryHandle: (handle: FileSystemDirectoryHandle) => Promise<void>;
   refreshDirectory: () => void;
   selectEntryAtIndex: (index: number, loadProject?: boolean, autoImport?: boolean) => void;
   setSelectedEntryIndexByName: (entryName: string | null) => void;
@@ -425,6 +426,11 @@ export function useProjectDirectoryBrowser({
     }
   }, [ensureModalOpen, scanDirectoryForProjects]);
 
+  const openDirectoryHandle = useCallback(async (handle: FileSystemDirectoryHandle) => {
+    ensureModalOpen();
+    await scanDirectoryForProjects(handle);
+  }, [ensureModalOpen, scanDirectoryForProjects]);
+
   const refreshDirectory = useCallback(() => {
     if (directoryHandle) {
       void scanDirectoryForProjects(directoryHandle);
@@ -542,6 +548,7 @@ export function useProjectDirectoryBrowser({
     isScanningDirectory,
     directoryError,
     pickDirectory,
+    openDirectoryHandle,
     refreshDirectory,
     selectEntryAtIndex,
     setSelectedEntryIndexByName,
