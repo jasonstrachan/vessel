@@ -310,6 +310,29 @@ describe('AutosaveService', () => {
     expect(store.updateFileBackupTime).toHaveBeenCalled();
   });
 
+  it('completes autosave when file-backup permission is unavailable', async () => {
+    const store = getStateMock();
+    store.autosave.isEnabled = true;
+    store.autosave.fileBackup.enabled = true;
+    store.autosave.fileBackup.mode = 'single-file';
+    store.autosave.fileBackup.fileHandle = { id: 'fh-2' } as unknown as FileSystemFileHandle;
+    (fileBackupService.ensureFileWritePermission as jest.Mock).mockResolvedValueOnce(false);
+
+    await autosaveService.triggerAutosave();
+
+    expect(fileBackupService.saveProjectBackup).not.toHaveBeenCalled();
+    expect(store.clearDirtyState).toHaveBeenCalled();
+    expect(store.setSaveStatus).toHaveBeenCalledWith('saving', 'autosave', 'Autosaving...');
+    expect(store.setSaveStatus).toHaveBeenCalledWith('saved', 'autosave', 'Autosave complete');
+    expect(store.addNotification).toHaveBeenCalledWith({
+      type: 'warning',
+      title: 'Autosave Permission Needed',
+      message: 'Autosave could not update the file because write permission was not granted. Re-open the project or choose a backup file.',
+      timestamp: expect.any(Date),
+      duration: 5000,
+    });
+  });
+
   it('forwards sequential layer payloads to background autosave persistence', async () => {
     const store = getStateMock();
     store.autosave.isEnabled = true;
