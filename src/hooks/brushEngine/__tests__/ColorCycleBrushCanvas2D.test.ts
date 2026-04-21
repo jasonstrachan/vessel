@@ -348,6 +348,10 @@ describe('ColorCycleBrushCanvas2D', () => {
     });
 
     brush.setStampShape('triangle');
+    brush.setDitherEnabled(true);
+    brush.setDitherStrength(0.5);
+    brush.setDitherPixelSize(4);
+    brush.setPerceptualDither(true);
     brush.setStampDitherEnabled(true);
     brush.setStampDitherPixelSize(3);
     brush.setStampDitherAlgorithm('pattern');
@@ -361,6 +365,10 @@ describe('ColorCycleBrushCanvas2D', () => {
     const strokeData = serialized.layers[0].strokeData;
     expect(strokeData?.strokeCounter).toBe(7);
     expect(strokeData?.paintBuffer.byteLength).toBe(paint.byteLength);
+    expect(serialized.ditherEnabled).toBe(true);
+    expect(serialized.ditherStrength).toBe(0.5);
+    expect(serialized.ditherPixelSize).toBe(4);
+    expect(serialized.perceptualDither).toBe(true);
     expect(serialized.stampShape).toBe('triangle');
     expect(serialized.stampDitherPixelSize).toBe(3);
     expect(serialized.stampDitherAlgorithm).toBe('pattern');
@@ -373,6 +381,10 @@ describe('ColorCycleBrushCanvas2D', () => {
     const snapshot = roundTripped.getLayerSnapshot('layer-1');
     expect(snapshot?.strokeCounter).toBe(7);
     expect(new Uint8Array(snapshot!.paintBuffer)[0]).toBe(5);
+    expect(roundTripped.serialize().ditherEnabled).toBe(true);
+    expect(roundTripped.serialize().ditherStrength).toBe(0.5);
+    expect(roundTripped.serialize().ditherPixelSize).toBe(4);
+    expect(roundTripped.serialize().perceptualDither).toBe(true);
     expect(roundTripped.serialize().stampDitherAlgorithm).toBe('pattern');
     expect(roundTripped.serialize().stampDitherPatternStyle).toBe('crosshatch');
     expect(roundTripped.serialize().stampDitherPressureLinked).toBe(true);

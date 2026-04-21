@@ -35,6 +35,7 @@ import {
 } from '@/stores/pendingColorCycleSaves';
 import { getStoredDisplayFilterDefaults } from '@/stores/slices/canvasSlice';
 import { normalizePersistedBrushSettings } from '@/stores/helpers/toolsState';
+import { ccWarn } from '@/utils/colorCycle/ccDebug';
 
 type AppState = import('../useAppStore').AppState;
 
@@ -177,7 +178,6 @@ export const createProjectLifecycle = ({
 
   const applyLoadedProject = async (loadedProject: Project): Promise<void> => {
     const state = get();
-
     const layersWithRestoredColorCycles = await restoreColorCycleBrushes(loadedProject.layers);
     const finalLayers = layersWithRestoredColorCycles ?? loadedProject.layers;
 
@@ -206,6 +206,12 @@ export const createProjectLifecycle = ({
       project: projectWithPalette,
       palette: normalizedPalette,
       paletteDirty: false,
+      colorCyclePlayback: {
+        ...state.colorCyclePlayback,
+        desiredPlaying: false,
+        suspendDepth: 0,
+        lastReason: 'startup',
+      },
       layers: syncedLayers,
       layerGroups: projectWithPalette.layerGroups ?? [],
       activeLayerId: nextActiveLayerId,
@@ -435,7 +441,6 @@ export const createProjectLifecycle = ({
           };
         })
       );
-
       const projectWithViewState = {
         ...freshState.project!,
         layerGroups: freshState.layerGroups,
@@ -557,6 +562,9 @@ export const createProjectLifecycle = ({
             },
       }));
     } catch (error) {
+      ccWarn('loadProject failed', {
+        message: error instanceof Error ? error.message : String(error),
+      });
       state.addNotification({
         type: 'error',
         title: 'Load Failed',
@@ -607,6 +615,9 @@ export const createProjectLifecycle = ({
             },
       }));
     } catch (error) {
+      ccWarn('importProject failed', {
+        message: error instanceof Error ? error.message : String(error),
+      });
       state.addNotification({
         type: 'error',
         title: 'Load Failed',

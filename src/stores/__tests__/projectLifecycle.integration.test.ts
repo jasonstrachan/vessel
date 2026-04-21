@@ -528,6 +528,55 @@ describe('project slice lifecycle flows', () => {
     });
   });
 
+  it('keeps imported color-cycle layers non-animating after load', async () => {
+    useAppStore.getState().playColorCycle('toolbar');
+
+    const colorCycleCanvas = document.createElement('canvas');
+    colorCycleCanvas.width = 8;
+    colorCycleCanvas.height = 8;
+
+    const colorCycleLayer = makeLayer('layer-import-cc', {
+      imageData: null,
+      layerType: 'color-cycle',
+      colorCycleData: {
+        mode: 'brush',
+        isAnimating: false,
+        canvas: colorCycleCanvas,
+        canvasImageData: new ImageData(8, 8),
+        canvasWidth: 8,
+        canvasHeight: 8,
+      },
+    });
+
+    const project: Project = {
+      id: 'project-import-cc',
+      name: 'Imported CC Scene',
+      width: 320,
+      height: 180,
+      layers: [colorCycleLayer],
+      backgroundColor: '#101010',
+      createdAt: new Date('2024-04-01'),
+      updatedAt: new Date('2024-04-02'),
+      customBrushes: [],
+      defaultCustomBrushId: null,
+      exportLayout: createDefaultExportLayout(),
+      palette: {
+        foregroundColor: '#ff00ff',
+        backgroundColor: '#00ffff',
+        activeSlot: 'foreground',
+      },
+      brushSpecificSettings: {},
+    };
+
+    await useAppStore.getState().importProject(project, { fileName: 'imported-cc.vessel' });
+
+    const nextState = useAppStore.getState();
+    expect(nextState.layers).toHaveLength(1);
+    expect(nextState.layers[0].layerType).toBe('color-cycle');
+    expect(nextState.layers[0].colorCycleData?.isAnimating).toBe(false);
+    expect(nextState.colorCyclePlayback.desiredPlaying).toBe(false);
+  });
+
   it('imports sequential layers and preserves sequential capture payload', async () => {
     const sequentialLayer = makeLayer('layer-seq', {
       imageData: null,

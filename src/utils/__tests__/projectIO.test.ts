@@ -532,7 +532,7 @@ describe('projectIO serialize/deserialize layering', () => {
     }
   });
 
-  it('does not persist metadata-only color-cycle brushState payloads', async () => {
+  it('persists metadata-only color-cycle brushState payloads', async () => {
     const ccImageData = createSolidImageData(4, 4, [12, 34, 56, 255]);
     const layer: Layer = {
       id: 'layer-cc-metadata-only',
@@ -594,11 +594,25 @@ describe('projectIO serialize/deserialize layering', () => {
 
       const manifest = JSON.parse(projectJson) as {
         project: {
-          layers: Array<{ colorCycleData?: { brushState?: unknown } }>;
+          layers: Array<{
+            colorCycleData?: {
+              brushState?: {
+                cycleSpeed?: number;
+                fps?: number;
+                brushSize?: number;
+                layers?: unknown[];
+              };
+            };
+          }>;
         };
       };
 
-      expect(manifest.project.layers[0]?.colorCycleData?.brushState).toBeUndefined();
+      expect(manifest.project.layers[0]?.colorCycleData?.brushState).toEqual({
+        cycleSpeed: 0.35,
+        fps: 24,
+        brushSize: 7,
+        layers: [],
+      });
     } finally {
       if (contextProto) {
         contextProto.rect = originalRect;
@@ -661,6 +675,80 @@ describe('projectIO serialize/deserialize layering', () => {
     const restoredLayer = restored.layers[0];
 
     expect(restoredLayer?.colorCycleData?.brushState).toEqual(projectPayload.project.layers[0].colorCycleData.brushState);
+  });
+
+  it('restores metadata-only color-cycle brushState to the runtime brush', async () => {
+    const projectPayload = {
+      version: '1.1.0',
+      metadata: {
+        name: 'cc-brush-state-metadata-only',
+        created: '2025-01-01T00:00:00.000Z',
+        modified: '2025-01-01T00:00:00.000Z',
+        appVersion: '1.0.0',
+      },
+      project: {
+        id: 'p-cc-brush-state-metadata-only',
+        name: 'cc-brush-state-metadata-only',
+        width: 2,
+        height: 2,
+        backgroundColor: '#000000',
+        customBrushes: [],
+        layers: [{
+          id: 'layer-cc-brush-state-metadata-only',
+          name: 'CC Brush State Metadata Only',
+          visible: true,
+          opacity: 1,
+          blendMode: 'source-over',
+          locked: false,
+          transparencyLocked: false,
+          order: 0,
+          layerType: 'color-cycle',
+          alignment: createDefaultLayerAlignment(),
+          colorCycleData: {
+            mode: 'brush',
+            canvasImageData: encodeRawImageDataUrl(createSolidImageData(2, 2, [60, 80, 100, 255])),
+            canvasWidth: 2,
+            canvasHeight: 2,
+            gradient: [
+              { position: 0, color: '#000000' },
+              { position: 1, color: '#ffffff' },
+            ],
+            brushState: {
+              cycleSpeed: 0.35,
+              fps: 24,
+              brushSize: 7,
+              ditherEnabled: true,
+              ditherStrength: 0.6,
+              ditherPixelSize: 38,
+              perceptualDither: false,
+              layers: [],
+            },
+          },
+        }],
+      },
+    };
+
+    const restored = await deserializeProject(JSON.stringify(projectPayload));
+    const [restoredLayer] = await restoreColorCycleBrushes(restored.layers);
+    const restoredBrush = restoredLayer.colorCycleData?.colorCycleBrush as
+      | {
+          serialize?: () => {
+            ditherEnabled?: boolean;
+            ditherStrength?: number;
+            ditherPixelSize?: number;
+            perceptualDither?: boolean;
+          };
+        }
+      | undefined;
+    const restoredState = restoredBrush?.serialize?.();
+
+    expect(restoredLayer.colorCycleData?.brushState).toEqual(
+      projectPayload.project.layers[0].colorCycleData.brushState,
+    );
+    expect(restoredState?.ditherEnabled).toBe(true);
+    expect(restoredState?.ditherStrength).toBe(0.6);
+    expect(restoredState?.ditherPixelSize).toBe(38);
+    expect(restoredState?.perceptualDither).toBe(false);
   });
 
   it('serializes flowBuffer and phaseBuffer in color-cycle brushState', async () => {
@@ -754,6 +842,116 @@ describe('projectIO serialize/deserialize layering', () => {
       expect(
         manifest.project.layers[0]?.colorCycleData?.brushState?.layers?.[0]?.strokeData?.phaseBuffer
       ).toBe(Buffer.from(Uint8Array.from([64, 96, 128, 192])).toString('base64'));
+    } finally {
+      if (contextProto) {
+        contextProto.rect = originalRect;
+      }
+    }
+  });
+
+  it('serializes and restores fill dither settings in color-cycle brushState', async () => {
+    const contextProto = (globalThis as unknown as {
+      CanvasRenderingContext2D?: { prototype?: { rect?: (...args: number[]) => void } };
+    }).CanvasRenderingContext2D?.prototype;
+    const originalRect = contextProto?.rect;
+    if (contextProto && typeof contextProto.rect !== 'function') {
+      contextProto.rect = jest.fn();
+    }
+
+    const layer: Layer = {
+      id: 'layer-cc-fill-dither',
+      name: 'CC Fill Dither',
+      visible: true,
+      opacity: 1,
+      blendMode: 'source-over',
+      locked: false,
+      transparencyLocked: false,
+      order: 0,
+      imageData: null,
+      framebuffer: createCanvasFromImageData(createSolidImageData(2, 2, [0, 0, 0, 0])),
+      alignment: createDefaultLayerAlignment(),
+      layerType: 'color-cycle',
+      version: 1,
+      colorCycleData: {
+        canvas: createCanvasFromImageData(createSolidImageData(2, 2, [10, 20, 30, 255])),
+        canvasImageData: createSolidImageData(2, 2, [10, 20, 30, 255]),
+        canvasWidth: 2,
+        canvasHeight: 2,
+        gradient: [
+          { position: 0, color: '#000000' },
+          { position: 1, color: '#ffffff' },
+        ],
+        isAnimating: true,
+        mode: 'brush',
+        colorCycleBrush: {
+          getFullState: () => ({
+            cycleSpeed: 0.4,
+            fps: 24,
+            brushSize: 9,
+            ditherEnabled: true,
+            ditherStrength: 0.65,
+            ditherPixelSize: 5,
+            perceptualDither: true,
+            layers: [{
+              layerId: 'layer-cc-fill-dither',
+              strokeData: {
+                hasContent: true,
+                strokeCounter: 3,
+                paintBuffer: new Uint8Array([1, 2, 3, 4]).buffer,
+              },
+            }],
+          }),
+        } as unknown as NonNullable<Layer['colorCycleData']>['colorCycleBrush'],
+      },
+    };
+
+    const project: Project = {
+      id: 'project-cc-fill-dither',
+      name: 'cc-fill-dither',
+      width: 2,
+      height: 2,
+      backgroundColor: '#000000',
+      layers: [layer],
+      customBrushes: [],
+      defaultCustomBrushId: null,
+      brushSpecificSettings: {},
+      globalBrushSize: 1,
+      createdAt: new Date('2025-01-01T00:00:00.000Z'),
+      updatedAt: new Date('2025-01-01T00:00:00.000Z'),
+      referenceLayerId: null,
+      exportLayout: undefined,
+      palette: undefined,
+      canvasShape: undefined,
+    };
+
+    try {
+      const payload = await serializeProject(project, project.layers);
+      const manifest = await readProjectManifest(payload);
+      const persistedBrushState = manifest.project.layers[0]?.colorCycleData?.brushState;
+
+      expect(persistedBrushState?.ditherEnabled).toBe(true);
+      expect(persistedBrushState?.ditherStrength).toBe(0.65);
+      expect(persistedBrushState?.ditherPixelSize).toBe(5);
+      expect(persistedBrushState?.perceptualDither).toBe(true);
+
+      const restored = await deserializeProject(payload);
+      const [restoredLayer] = await restoreColorCycleBrushes(restored.layers);
+      const restoredBrush = restoredLayer.colorCycleData?.colorCycleBrush as
+        | {
+            serialize?: () => {
+              ditherEnabled?: boolean;
+              ditherStrength?: number;
+              ditherPixelSize?: number;
+              perceptualDither?: boolean;
+            };
+          }
+        | undefined;
+      const restoredState = restoredBrush?.serialize?.();
+
+      expect(restoredState?.ditherEnabled).toBe(true);
+      expect(restoredState?.ditherStrength).toBe(0.65);
+      expect(restoredState?.ditherPixelSize).toBe(5);
+      expect(restoredState?.perceptualDither).toBe(true);
     } finally {
       if (contextProto) {
         contextProto.rect = originalRect;
@@ -1048,52 +1246,74 @@ describe('projectIO serialize/deserialize layering', () => {
     expect(Array.from(new Uint8Array(snapshot?.phaseBuffer ?? new ArrayBuffer(0)))).toEqual([64, 96, 128, 192]);
   });
 
-  it('seeds color-cycle runtime from persisted gradient buffers when brushState is missing', async () => {
-    const width = 3;
-    const height = 3;
-    const canvasImageData = createSolidImageData(width, height, [240, 120, 60, 255]);
-    const colorCycleCanvas = document.createElement('canvas');
-    colorCycleCanvas.width = width;
-    colorCycleCanvas.height = height;
-    const gradientIds = new Uint8Array(width * height);
-    gradientIds[0] = 7;
-    gradientIds[4] = 9;
-
-    const layer: Layer = {
-      id: 'layer-cc-persisted-gradient',
-      name: 'CC Persisted Gradient',
-      visible: true,
-      opacity: 1,
-      blendMode: 'source-over',
-      locked: false,
-      transparencyLocked: false,
-      order: 0,
-      imageData: null,
-      framebuffer: createCanvasFromImageData(createSolidImageData(width, height, [0, 0, 0, 0])),
-      alignment: createDefaultLayerAlignment(),
-      layerType: 'color-cycle',
-      version: 1,
-      colorCycleData: {
-        canvas: colorCycleCanvas,
-        canvasImageData,
-        canvasWidth: width,
-        canvasHeight: height,
-        gradient: [
-          { position: 0, color: '#000000' },
-          { position: 1, color: '#ffffff' },
-        ],
-        gradientIdBuffer: gradientIds.buffer.slice(0),
-        isAnimating: false,
-        mode: 'brush',
+  it('prefers saved brushState snapshots over fallback gradient buffer seeding during restore', async () => {
+    const brushStateGradientIds = Buffer.from(Uint8Array.from([1, 2, 3, 4])).toString('base64');
+    const fallbackGradientIds = Buffer.from(Uint8Array.from([7, 7, 7, 7])).toString('base64');
+    const paintBuffer = Buffer.from(Uint8Array.from([9, 8, 7, 6])).toString('base64');
+    const projectPayload = {
+      version: '1.1.0',
+      metadata: {
+        name: 'cc-brushstate-precedence',
+        created: '2025-01-01T00:00:00.000Z',
+        modified: '2025-01-01T00:00:00.000Z',
+        appVersion: '1.0.0',
+      },
+      project: {
+        id: 'p-cc-brushstate-precedence',
+        name: 'cc-brushstate-precedence',
+        width: 2,
+        height: 2,
+        backgroundColor: '#000000',
+        customBrushes: [],
+        layers: [{
+          id: 'layer-cc-brushstate-precedence',
+          name: 'CC BrushState Precedence',
+          visible: true,
+          opacity: 1,
+          blendMode: 'source-over',
+          locked: false,
+          transparencyLocked: false,
+          order: 0,
+          layerType: 'color-cycle',
+          alignment: createDefaultLayerAlignment(),
+          colorCycleData: {
+            mode: 'brush',
+            canvasImageData: encodeRawImageDataUrl(createSolidImageData(2, 2, [20, 30, 40, 255])),
+            canvasWidth: 2,
+            canvasHeight: 2,
+            gradient: [
+              { position: 0, color: '#000000' },
+              { position: 1, color: '#ffffff' },
+            ],
+            gradientIdBuffer: fallbackGradientIds,
+            brushState: {
+              cycleSpeed: 0.2,
+              fps: 18,
+              ditherEnabled: true,
+              ditherPixelSize: 38,
+              layers: [{
+                layerId: 'layer-cc-brushstate-precedence',
+                strokeData: {
+                  hasContent: true,
+                  strokeCounter: 2,
+                  paintBuffer,
+                  gradientIdBuffer: brushStateGradientIds,
+                },
+              }],
+            },
+          },
+        }],
       },
     };
 
-    const [restoredLayer] = await restoreColorCycleBrushes([layer]);
+    const restored = await deserializeProject(JSON.stringify(projectPayload));
+    const [restoredLayer] = await restoreColorCycleBrushes(restored.layers);
     const restoredBrush = restoredLayer.colorCycleData?.colorCycleBrush as
       | {
           getLayerSnapshot?: (layerId: string) => {
             paintBuffer: ArrayBuffer;
             gradientIdBuffer?: ArrayBuffer;
+            strokeCounter?: number;
             hasContent: boolean;
           } | null;
         }
@@ -1102,8 +1322,11 @@ describe('projectIO serialize/deserialize layering', () => {
     const snapshot = restoredBrush?.getLayerSnapshot?.(restoredLayer.id);
     expect(snapshot).toBeTruthy();
     expect(snapshot?.hasContent).toBe(true);
-    expect(Array.from(new Uint8Array(snapshot?.gradientIdBuffer ?? new ArrayBuffer(0)))).toEqual(
-      Array.from(gradientIds),
+    expect(snapshot?.strokeCounter).toBe(2);
+    expect(Array.from(new Uint8Array(snapshot?.paintBuffer ?? new ArrayBuffer(0)))).toEqual([9, 8, 7, 6]);
+    expect(Array.from(new Uint8Array(snapshot?.gradientIdBuffer ?? new ArrayBuffer(0)))).toEqual([1, 2, 3, 4]);
+    expect(restoredLayer.colorCycleData?.brushState).toEqual(
+      projectPayload.project.layers[0].colorCycleData.brushState,
     );
   });
 
@@ -1166,6 +1389,10 @@ describe('projectIO serialize/deserialize layering', () => {
               cycleSpeed: 0.5,
               fps: 24,
               brushSize: 8,
+              ditherEnabled: true,
+              ditherStrength: 1,
+              ditherPixelSize: 38,
+              perceptualDither: false,
             },
           },
         }],
@@ -1183,6 +1410,87 @@ describe('projectIO serialize/deserialize layering', () => {
             gradientIdBuffer?: ArrayBuffer;
             hasContent: boolean;
           } | null;
+          serialize?: () => {
+            ditherEnabled?: boolean;
+            ditherStrength?: number;
+            ditherPixelSize?: number;
+            perceptualDither?: boolean;
+          };
+        }
+      | undefined;
+
+    const snapshot = restoredBrush?.getLayerSnapshot?.(restoredLayer.id);
+    const restoredState = restoredBrush?.serialize?.();
+    expect(snapshot).toBeTruthy();
+    expect(snapshot?.hasContent).toBe(true);
+    expect(Array.from(new Uint8Array(snapshot?.gradientIdBuffer ?? new ArrayBuffer(0)))).toEqual(
+      Array.from(gradientIds),
+    );
+    expect(restoredLayer.colorCycleData?.brushState).toEqual({
+      layers: [],
+      cycleSpeed: 0.5,
+      fps: 24,
+      brushSize: 8,
+      ditherEnabled: true,
+      ditherStrength: 1,
+      ditherPixelSize: 38,
+      perceptualDither: false,
+    });
+    expect(restoredState?.ditherEnabled).toBe(true);
+    expect(restoredState?.ditherStrength).toBe(1);
+    expect(restoredState?.ditherPixelSize).toBe(38);
+    expect(restoredState?.perceptualDither).toBe(false);
+    expect(restoredLayer.colorCycleData?.colorCycleBrush).toBeTruthy();
+  });
+
+  it('seeds color-cycle runtime from persisted gradient buffers when brushState is missing', async () => {
+    const width = 3;
+    const height = 3;
+    const canvasImageData = createSolidImageData(width, height, [240, 120, 60, 255]);
+    const colorCycleCanvas = document.createElement('canvas');
+    colorCycleCanvas.width = width;
+    colorCycleCanvas.height = height;
+    const gradientIds = new Uint8Array(width * height);
+    gradientIds[0] = 7;
+    gradientIds[4] = 9;
+
+    const layer: Layer = {
+      id: 'layer-cc-persisted-gradient',
+      name: 'CC Persisted Gradient',
+      visible: true,
+      opacity: 1,
+      blendMode: 'source-over',
+      locked: false,
+      transparencyLocked: false,
+      order: 0,
+      imageData: null,
+      framebuffer: createCanvasFromImageData(createSolidImageData(width, height, [0, 0, 0, 0])),
+      alignment: createDefaultLayerAlignment(),
+      layerType: 'color-cycle',
+      version: 1,
+      colorCycleData: {
+        canvas: colorCycleCanvas,
+        canvasImageData,
+        canvasWidth: width,
+        canvasHeight: height,
+        gradient: [
+          { position: 0, color: '#000000' },
+          { position: 1, color: '#ffffff' },
+        ],
+        gradientIdBuffer: gradientIds.buffer.slice(0),
+        isAnimating: false,
+        mode: 'brush',
+      },
+    };
+
+    const [restoredLayer] = await restoreColorCycleBrushes([layer]);
+    const restoredBrush = restoredLayer.colorCycleData?.colorCycleBrush as
+      | {
+          getLayerSnapshot?: (layerId: string) => {
+            paintBuffer: ArrayBuffer;
+            gradientIdBuffer?: ArrayBuffer;
+            hasContent: boolean;
+          } | null;
         }
       | undefined;
 
@@ -1192,8 +1500,6 @@ describe('projectIO serialize/deserialize layering', () => {
     expect(Array.from(new Uint8Array(snapshot?.gradientIdBuffer ?? new ArrayBuffer(0)))).toEqual(
       Array.from(gradientIds),
     );
-    expect(restoredLayer.colorCycleData?.brushState).toBeUndefined();
-    expect(restoredLayer.colorCycleData?.colorCycleBrush).toBeTruthy();
   });
 
   it('prefers live color-cycle canvas pixels over stale empty canvasImageData when saving', async () => {
