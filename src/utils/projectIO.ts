@@ -39,7 +39,6 @@ import {
   PROJECT_FILE_MIME,
   PROJECT_FILE_MIME_ACCEPT
 } from '@/constants/projectFiles';
-
 // Vessel project file format version
 const PROJECT_VERSION = '1.1.0';
 const MAX_PROJECT_ARCHIVE_BYTES = 512 * 1024 * 1024;
@@ -495,6 +494,10 @@ interface PersistedColorCycleBrushState {
   cycleSpeed?: number;
   fps?: number;
   brushSize?: number;
+  ditherEnabled?: boolean;
+  ditherStrength?: number;
+  ditherPixelSize?: number;
+  perceptualDither?: boolean;
   layers: SerializedBrushLayerSnapshot[];
 }
 
@@ -702,6 +705,10 @@ interface ColorCycleBrushState {
   cycleSpeed?: number;
   fps?: number;
   brushSize?: number;
+  ditherEnabled?: boolean;
+  ditherStrength?: number;
+  ditherPixelSize?: number;
+  perceptualDither?: boolean;
   stampShape?: 'square' | 'round' | 'triangle' | 'diamond' | 'diamond5' | 'diamond7' | 'diamond9';
   stampDitherEnabled?: boolean;
   stampDitherPixelSize?: number;
@@ -714,6 +721,19 @@ type SerializedColorCycleWebGLState = NonNullable<SerializedLayer['colorCycleDat
 
 const savedWebGLStates = new WeakMap<Layer, SerializedColorCycleWebGLState | undefined>();
 const savedBrushStates = new WeakMap<Layer, PersistedColorCycleBrushState | undefined>();
+
+const toFastPathMetadataBrushState = (
+  brushState: PersistedColorCycleBrushState
+): PersistedColorCycleBrushState => ({
+  cycleSpeed: brushState.cycleSpeed,
+  fps: brushState.fps,
+  brushSize: brushState.brushSize,
+  ditherEnabled: brushState.ditherEnabled,
+  ditherStrength: brushState.ditherStrength,
+  ditherPixelSize: brushState.ditherPixelSize,
+  perceptualDither: brushState.perceptualDither,
+  layers: [],
+});
 
 function imageDataHasVisiblePixels(imageData: ImageData | null | undefined): boolean {
   if (!imageData) return false;
@@ -1417,28 +1437,14 @@ function serializeBrushState(state: ColorCycleBrushState | undefined): Persisted
     layers.push(snapshot);
   }
 
-  const hasRestorableLayerPayload = layers.some((layer) => (
-    Boolean(layer.strokeData?.paintBuffer) ||
-    Boolean(layer.strokeData?.gradientIdBuffer) ||
-    Boolean(layer.strokeData?.gradientDefIdBuffer) ||
-    Boolean(layer.strokeData?.speedBuffer) ||
-    Boolean(layer.strokeData?.flowBuffer) ||
-    Boolean(layer.strokeData?.phaseBuffer) ||
-    Boolean(layer.animator?.indexBuffer.data) ||
-    Boolean(layer.animator?.indexBuffer.gradientId) ||
-    Boolean(layer.animator?.indexBuffer.speedData) ||
-    Boolean(layer.animator?.indexBuffer.flowData) ||
-    Boolean(layer.animator?.indexBuffer.phaseData)
-  ));
-
-  if (!hasRestorableLayerPayload) {
-    return undefined;
-  }
-
   return {
     cycleSpeed: state.cycleSpeed,
     fps: state.fps,
     brushSize: state.brushSize,
+    ditherEnabled: state.ditherEnabled,
+    ditherStrength: state.ditherStrength,
+    ditherPixelSize: state.ditherPixelSize,
+    perceptualDither: state.perceptualDither,
     layers
   };
 }
@@ -2571,21 +2577,6 @@ export async function restoreColorCycleBrushes(layers: Layer[]): Promise<Layer[]
   for (const layer of layers) {
     if (layer.layerType === 'color-cycle' && layer.colorCycleData) {
       const savedBrushState = savedBrushStates.get(layer);
-      const hasRestorableSavedBrushLayers = Boolean(
-        savedBrushState?.layers?.some((snapshot) => (
-          Boolean(snapshot.strokeData?.paintBuffer) ||
-          Boolean(snapshot.strokeData?.gradientIdBuffer) ||
-          Boolean(snapshot.strokeData?.gradientDefIdBuffer) ||
-          Boolean(snapshot.strokeData?.speedBuffer) ||
-          Boolean(snapshot.strokeData?.flowBuffer) ||
-          Boolean(snapshot.strokeData?.phaseBuffer) ||
-          Boolean(snapshot.animator?.indexBuffer.data) ||
-          Boolean(snapshot.animator?.indexBuffer.gradientId) ||
-          Boolean(snapshot.animator?.indexBuffer.speedData) ||
-          Boolean(snapshot.animator?.indexBuffer.flowData) ||
-          Boolean(snapshot.animator?.indexBuffer.phaseData)
-        ))
-      );
       if (savedBrushState) {
         const canvasWidth = layer.colorCycleData.canvas?.width ?? 0;
         const canvasHeight = layer.colorCycleData.canvas?.height ?? 0;
@@ -2594,9 +2585,7 @@ export async function restoreColorCycleBrushes(layers: Layer[]): Promise<Layer[]
           canvasHeight > 0 &&
           savedBrushState.layers?.some((snapshot) => !isCompatibleColorCycleSnapshot(snapshot, canvasWidth, canvasHeight))
         );
-        if (!hasRestorableSavedBrushLayers) {
-          savedBrushStates.delete(layer);
-        } else if (hasDimensionMismatch) {
+        if (hasDimensionMismatch) {
           console.warn('[projectIO] Dropping incompatible color cycle brushState during load', {
             layerId: layer.id,
             canvasWidth,
@@ -2606,6 +2595,10 @@ export async function restoreColorCycleBrushes(layers: Layer[]): Promise<Layer[]
         } else {
         try {
           const colorCycleBrush = createColorCycleBrush(layer.colorCycleData.canvas!);
+          // Restore precedence for brush-mode CC layers:
+          // 1. Use the saved brushState snapshot when it is valid and affordable to decode.
+          // 2. Use the persisted gradient-buffer fast path only for oversized payloads.
+          // 3. Preserve metadata-only brushState on the fast path so dither settings still survive load.
           const shouldSkipOversizedBrushStateRestore =
             estimateSerializedBrushStatePayloadSize(savedBrushState) > OVERSIZED_CC_BRUSH_STATE_BASE64_THRESHOLD &&
             canSeedFromPersistedBuffers(
@@ -2625,16 +2618,10 @@ export async function restoreColorCycleBrushes(layers: Layer[]): Promise<Layer[]
             );
 
           if (shouldSkipOversizedBrushStateRestore) {
-            console.warn('[projectIO] Skipping oversized color cycle brushState restore in favor of persisted buffers', {
-              layerId: layer.id,
-              canvasWidth,
-              canvasHeight,
-              estimatedPayloadChars: estimateSerializedBrushStatePayloadSize(savedBrushState),
-            });
-            layer.colorCycleData.brushState = undefined;
+            layer.colorCycleData.brushState = toFastPathMetadataBrushState(savedBrushState);
             savedBrushStates.delete(layer);
           } else {
-            const layerSnapshots = (savedBrushState.layers ?? []).map(snapshot => {
+          const layerSnapshots = (savedBrushState.layers ?? []).map(snapshot => {
             const paintBuffer = snapshot.strokeData?.paintBuffer
               ? base64ToArrayBuffer(snapshot.strokeData.paintBuffer)
               : undefined;
@@ -2701,6 +2688,10 @@ export async function restoreColorCycleBrushes(layers: Layer[]): Promise<Layer[]
             cycleSpeed: savedBrushState.cycleSpeed,
             fps: savedBrushState.fps,
             brushSize: savedBrushState.brushSize,
+            ditherEnabled: savedBrushState.ditherEnabled,
+            ditherStrength: savedBrushState.ditherStrength,
+            ditherPixelSize: savedBrushState.ditherPixelSize,
+            perceptualDither: savedBrushState.perceptualDither,
             layerSnapshots
           });
 
@@ -2740,7 +2731,6 @@ export async function restoreColorCycleBrushes(layers: Layer[]): Promise<Layer[]
               console.warn('[projectIO] Failed to flag restored color cycle base (brush state):', error);
             }
           }
-
           continue;
           }
         } catch (error) {
@@ -2797,6 +2787,9 @@ export async function restoreColorCycleBrushes(layers: Layer[]): Promise<Layer[]
         const existingBrushState = layer.colorCycleData.brushState as
           | PersistedColorCycleBrushState
           | undefined;
+        const metadataOnlyExistingBrushState = existingBrushState
+          ? toFastPathMetadataBrushState(existingBrushState)
+          : undefined;
         if (typeof colorCycleBrush.setLayerId === 'function') {
           try {
             colorCycleBrush.setLayerId(layer.id);
@@ -2807,6 +2800,24 @@ export async function restoreColorCycleBrushes(layers: Layer[]): Promise<Layer[]
         if (layer.colorCycleData.gradient) {
           requestGradientApply(layer.id, 'project-load');
         }
+
+        if (metadataOnlyExistingBrushState) {
+          try {
+            colorCycleBrush.restoreFullState({
+              cycleSpeed: metadataOnlyExistingBrushState.cycleSpeed,
+              fps: metadataOnlyExistingBrushState.fps,
+              brushSize: metadataOnlyExistingBrushState.brushSize,
+              ditherEnabled: metadataOnlyExistingBrushState.ditherEnabled,
+              ditherStrength: metadataOnlyExistingBrushState.ditherStrength,
+              ditherPixelSize: metadataOnlyExistingBrushState.ditherPixelSize,
+              perceptualDither: metadataOnlyExistingBrushState.perceptualDither,
+              layerSnapshots: [],
+            });
+          } catch (error) {
+            console.warn('[projectIO] Failed to restore metadata-only color cycle brush state:', error);
+          }
+        }
+
         const controllerSpeed = resolveLayerColorCycleBaseSpeed(layer.colorCycleData);
         if (typeof controllerSpeed === 'number') {
           try {
@@ -2860,17 +2871,14 @@ export async function restoreColorCycleBrushes(layers: Layer[]): Promise<Layer[]
               hasContent: hasPersistedContent,
               strokeCounter: 0,
             });
-            if (
-              existingBrushState &&
-              estimateSerializedBrushStatePayloadSize(existingBrushState) > OVERSIZED_CC_BRUSH_STATE_BASE64_THRESHOLD
-            ) {
-              layer.colorCycleData.brushState = undefined;
-            }
           } catch (error) {
             console.warn('[projectIO] Failed to seed color cycle runtime from persisted buffers:', error);
           }
         }
 
+        if (metadataOnlyExistingBrushState) {
+          layer.colorCycleData.brushState = metadataOnlyExistingBrushState;
+        }
         layer.colorCycleData.colorCycleBrush = colorCycleBrush;
 
         const externalBaseImageData = layer.colorCycleData.canvasImageData ?? layer.imageData;

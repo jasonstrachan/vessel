@@ -274,6 +274,10 @@ interface ColorCycleBrushCanvasState {
   fps?: number;
   brushSize?: number;
   layerSnapshots?: LayerSnapshots;
+  ditherEnabled?: boolean;
+  ditherStrength?: number;
+  ditherPixelSize?: number;
+  perceptualDither?: boolean;
   stampShape?: StampShape;
   stampDitherEnabled?: boolean;
   stampDitherPixelSize?: number;
@@ -302,6 +306,10 @@ interface ColorCycleBrushCanvasSerialized {
   playbackSpeedScale?: number;
   fps: number;
   brushSize: number;
+  ditherEnabled?: boolean;
+  ditherStrength?: number;
+  ditherPixelSize?: number;
+  perceptualDither?: boolean;
   stampShape?: StampShape;
   stampDitherEnabled?: boolean;
   stampDitherPixelSize?: number;
@@ -6433,6 +6441,18 @@ export class ColorCycleBrushCanvas2D {
       }
       if (state.fps !== undefined) this.fps = state.fps;
       if (state.brushSize !== undefined) this.brushSize = state.brushSize;
+      if (typeof state.ditherEnabled === 'boolean') {
+        this.setDitherEnabled(state.ditherEnabled);
+      }
+      if (typeof state.ditherStrength === 'number') {
+        this.setDitherStrength(state.ditherStrength);
+      }
+      if (typeof state.ditherPixelSize === 'number') {
+        this.setDitherPixelSize(state.ditherPixelSize);
+      }
+      if (typeof state.perceptualDither === 'boolean') {
+        this.setPerceptualDither(state.perceptualDither);
+      }
       if (
         state.stampShape === 'triangle' ||
         state.stampShape === 'square' ||
@@ -6711,6 +6731,10 @@ export class ColorCycleBrushCanvas2D {
       playbackSpeedScale: this.playbackSpeedScale,
       fps: this.fps,
       brushSize: this.brushSize,
+      ditherEnabled: this.ditherEnabled,
+      ditherStrength: this.ditherStrength,
+      ditherPixelSize: this.ditherPixelSize,
+      perceptualDither: this.perceptualDither,
       stampShape: this.stampShape,
       stampDitherEnabled: this.stampDitherEnabled,
       stampDitherPixelSize: this.stampDitherPixelSize,
@@ -6740,6 +6764,18 @@ export class ColorCycleBrushCanvas2D {
     }
     if (typeof data.playbackSpeedScale === 'number') {
       instance.setPlaybackSpeedScale(data.playbackSpeedScale);
+    }
+    if (typeof data.ditherEnabled === 'boolean') {
+      instance.setDitherEnabled(data.ditherEnabled);
+    }
+    if (typeof data.ditherStrength === 'number') {
+      instance.setDitherStrength(data.ditherStrength);
+    }
+    if (typeof data.ditherPixelSize === 'number') {
+      instance.setDitherPixelSize(data.ditherPixelSize);
+    }
+    if (typeof data.perceptualDither === 'boolean') {
+      instance.setPerceptualDither(data.perceptualDither);
     }
 
     if (data.stampShape) {
