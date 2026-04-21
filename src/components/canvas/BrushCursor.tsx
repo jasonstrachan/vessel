@@ -32,7 +32,7 @@ const getDescriptorCacheKey = (descriptor: BrushCursorDescriptor): string => {
   if (descriptor.kind === 'custom-brush') {
     return `custom:${descriptor.pixelWidth}x${descriptor.pixelHeight}:${descriptor.pixelSize}`;
   }
-  return `shape:${descriptor.shape}:${descriptor.pixelSize}`;
+  return `shape:${descriptor.shape}:${descriptor.pixelSize}:${descriptor.tipShape ?? ''}`;
 };
 
 const getCursorScreenDimensions = (
@@ -85,6 +85,27 @@ const drawShapeCursor = (
       Math.max(1, Math.round(screenWidth) - 1),
       Math.max(1, Math.round(screenHeight) - 1)
     );
+    ctx.stroke();
+    return;
+  }
+
+  if (descriptor.tipShape === 'checkered') {
+    const gridSize = 4;
+    const cellWidth = screenWidth / gridSize;
+    const cellHeight = screenHeight / gridSize;
+    for (let row = 0; row < gridSize; row += 1) {
+      for (let col = 0; col < gridSize; col += 1) {
+        if ((row + col) % 2 !== 0) {
+          continue;
+        }
+        ctx.rect(
+          Math.round(centerX - halfWidth + col * cellWidth) + lineOffset,
+          Math.round(centerY - halfHeight + row * cellHeight) + lineOffset,
+          Math.max(1, Math.round(cellWidth) - 1),
+          Math.max(1, Math.round(cellHeight) - 1)
+        );
+      }
+    }
     ctx.stroke();
     return;
   }

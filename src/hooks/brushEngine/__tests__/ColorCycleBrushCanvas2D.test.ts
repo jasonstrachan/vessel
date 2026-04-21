@@ -347,7 +347,7 @@ describe('ColorCycleBrushCanvas2D', () => {
       strokeCounter: 7,
     });
 
-    brush.setStampShape('triangle');
+    brush.setStampShape('checkered');
     brush.setDitherEnabled(true);
     brush.setDitherStrength(0.5);
     brush.setDitherPixelSize(4);
@@ -369,7 +369,7 @@ describe('ColorCycleBrushCanvas2D', () => {
     expect(serialized.ditherStrength).toBe(0.5);
     expect(serialized.ditherPixelSize).toBe(4);
     expect(serialized.perceptualDither).toBe(true);
-    expect(serialized.stampShape).toBe('triangle');
+    expect(serialized.stampShape).toBe('checkered');
     expect(serialized.stampDitherPixelSize).toBe(3);
     expect(serialized.stampDitherAlgorithm).toBe('pattern');
     expect(serialized.stampDitherPatternStyle).toBe('crosshatch');

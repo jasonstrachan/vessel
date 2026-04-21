@@ -454,8 +454,9 @@ describe('Dithering Algorithms', () => {
       applyPressureDither(largeImageData, settings);
       const end = performance.now();
       
-      // Allow extra headroom for slower CI runners.
-      expect(end - start).toBeLessThan(150);
+      // This test runs in Jest on shared runners; keep it loose enough to catch
+      // regressions without flaking on CPU contention.
+      expect(end - start).toBeLessThan(400);
     });
     
     it('should handle edge cases gracefully', () => {

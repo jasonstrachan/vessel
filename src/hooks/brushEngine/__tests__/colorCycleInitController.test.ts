@@ -2,7 +2,7 @@ import {
   ensureColorCycleAnimationForLayers,
   initializeColorCycleBrushForActiveLayer,
 } from '../colorCycleInitController';
-import type { BrushSettings } from '@/types';
+import { BrushShape, type BrushSettings } from '@/types';
 
 const makeBrushSettings = (): BrushSettings => ({
   size: 12,
@@ -125,6 +125,31 @@ describe('colorCycleInitController', () => {
     expect(brush.setMaxPressure).toHaveBeenCalledWith(120);
     expect(requestGradientApply).toHaveBeenCalledWith('layer-cc', 'brush-init');
     expect(brush.setFlowMode).toHaveBeenCalledWith('forward');
+  });
+
+  it('passes the dedicated checkered stamp shape through to the CC brush', () => {
+    const brush = makeBrush();
+
+    initializeColorCycleBrushForActiveLayer({
+      activeLayerId: 'layer-cc',
+      projectWidth: 64,
+      projectHeight: 64,
+      brushSettings: {
+        ...makeBrushSettings(),
+        brushShape: BrushShape.COLOR_CYCLE,
+        colorCycleStampShape: 'checkered',
+      } as BrushSettings,
+      isCCGradientActiveLayer: false,
+      defaultBandSpacing: 12,
+      clampColorCycleBandSpacing: (v) => v ?? 12,
+      resolveBrushPressureRange: () => ({ enabled: false, minPercent: 100, maxPercent: 100 }),
+      getLayers: () => [{ id: 'layer-cc', layerType: 'color-cycle' }],
+      initColorCycleForLayer: jest.fn(),
+      getActiveLayerColorCycleBrush: () => brush,
+      requestGradientApply: jest.fn(),
+    });
+
+    expect(brush.setStampShape).toHaveBeenCalledWith('checkered');
   });
 
   it('applies global CC layer speed scale when configuring speed', () => {

@@ -792,7 +792,26 @@ export const drawShape = (
         if (shape === BrushShape.PIXEL_DITHER && ditherTipShape !== 'round') {
           const stampSize = Math.max(1, Math.round(size));
           drawingCtx.imageSmoothingEnabled = false;
-          if (ditherTipShape === 'diamond5' || ditherTipShape === 'diamond7' || ditherTipShape === 'diamond9') {
+          if (ditherTipShape === 'checkered') {
+            const gridSize = 4;
+            const pixelScale = Math.max(1, Math.round(stampSize / gridSize));
+            const rasterSize = pixelScale * gridSize;
+            const originX = Math.round(drawX - rasterSize / 2);
+            const originY = Math.round(drawY - rasterSize / 2);
+            for (let row = 0; row < gridSize; row += 1) {
+              for (let col = 0; col < gridSize; col += 1) {
+                if ((row + col) % 2 !== 0) {
+                  continue;
+                }
+                drawingCtx.fillRect(
+                  originX + col * pixelScale,
+                  originY + row * pixelScale,
+                  pixelScale,
+                  pixelScale
+                );
+              }
+            }
+          } else if (ditherTipShape === 'diamond5' || ditherTipShape === 'diamond7' || ditherTipShape === 'diamond9') {
             const gridSize =
               ditherTipShape === 'diamond9'
                 ? 9

@@ -297,7 +297,7 @@ describe('LoadProjectModal', () => {
       },
     });
 
-    expect(screen.getByText('Drop a Vessel project or folder to load')).toBeInTheDocument();
+    expect(screen.getByText('Select or drop a Vessel project')).toBeInTheDocument();
 
     fireEvent.drop(window, {
       dataTransfer: {
@@ -315,7 +315,7 @@ describe('LoadProjectModal', () => {
     await waitFor(() => {
       expect(mockReadProjectPreviewManifest).toHaveBeenCalledTimes(1);
     });
-    expect(screen.queryByText('Drop a Vessel project or folder to load')).not.toBeInTheDocument();
+    expect(screen.queryByText('Select or drop a Vessel project')).not.toBeInTheDocument();
   });
 
   it('loads directory entries from a dropped folder handle', async () => {
@@ -344,7 +344,7 @@ describe('LoadProjectModal', () => {
       },
     });
 
-    expect(screen.getByText('Drop a Vessel project or folder to load')).toBeInTheDocument();
+    expect(screen.getByText('Select or drop a Vessel project')).toBeInTheDocument();
 
     fireEvent.drop(window, {
       dataTransfer: {

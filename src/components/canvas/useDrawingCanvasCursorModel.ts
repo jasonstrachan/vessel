@@ -8,6 +8,7 @@ export type BrushCursorDescriptor =
       kind: 'shape';
       shape: BrushShape;
       pixelSize: number;
+      tipShape?: BrushSettings['ditherStrokeTipShape'];
     }
   | {
       kind: 'custom-brush';
@@ -28,6 +29,7 @@ interface UseDrawingCanvasCursorModelOptions {
       antialiasing: boolean;
       rotationEnabled: boolean;
       ditherStrokeTipShape?: BrushSettings['ditherStrokeTipShape'];
+      colorCycleStampShape?: BrushSettings['colorCycleStampShape'];
       currentBrushTip?: BrushSettings['currentBrushTip'];
       selectedCustomBrush?: string | null;
     };

@@ -175,7 +175,8 @@ export const COLOR_CYCLE_PRESET_IDS = [
   'color-cycle-stroke',
   'color-cycle-triangle',
   'color-cycle-shape',
-  'color-cycle-gradient'
+  'color-cycle-gradient',
+  'checkered',
 ] as const;
 
 export const REGULAR_PIXEL_PRESET_IDS = [

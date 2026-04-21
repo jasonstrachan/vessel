@@ -50,6 +50,12 @@ export class IndexBuffer {
     0, 0, 0, 1, 1, 1, 0, 0, 0,
     0, 0, 0, 0, 1, 0, 0, 0, 0,
   ];
+  private static readonly CHECKERED_4_MASK: ReadonlyArray<number> = [
+    1, 0, 1, 0,
+    0, 1, 0, 1,
+    1, 0, 1, 0,
+    0, 1, 0, 1,
+  ];
   
   // Cache for converted RGBA values
   private rgbaCache: Map<number, [number, number, number, number]> = new Map();
@@ -461,6 +467,41 @@ export class IndexBuffer {
     );
     this.isDirty = true;
   }
+
+  paintCheckeredPixelatedWithIndex(
+    x: number,
+    y: number,
+    pixelScale: number,
+    colorIndex: number,
+    maskTile?: Uint8Array,
+    maskTileSize?: number,
+    maskClears?: boolean,
+    secondaryIndex?: number,
+    gradientSlot?: number,
+    maskOriginX?: number,
+    maskOriginY?: number,
+    speedByte?: number,
+    flowBits?: number
+  ) {
+    this.paintMaskedPixelatedInternal(
+      x,
+      y,
+      pixelScale,
+      4,
+      IndexBuffer.CHECKERED_4_MASK,
+      colorIndex,
+      maskTile,
+      maskTileSize,
+      maskClears,
+      secondaryIndex,
+      gradientSlot,
+      maskOriginX,
+      maskOriginY,
+      speedByte,
+      flowBits
+    );
+    this.isDirty = true;
+  }
   
   /**
    * Paint pixels with a square brush
@@ -789,7 +830,7 @@ export class IndexBuffer {
     speedByte?: number,
     flowBits?: number
   ) {
-    this.paintDiamondPixelatedInternal(
+    this.paintMaskedPixelatedInternal(
       x,
       y,
       pixelScale,
@@ -823,7 +864,7 @@ export class IndexBuffer {
     speedByte?: number,
     flowBits?: number
   ) {
-    this.paintDiamondPixelatedInternal(
+    this.paintMaskedPixelatedInternal(
       x,
       y,
       pixelScale,
@@ -857,7 +898,7 @@ export class IndexBuffer {
     speedByte?: number,
     flowBits?: number
   ) {
-    this.paintDiamondPixelatedInternal(
+    this.paintMaskedPixelatedInternal(
       x,
       y,
       pixelScale,
@@ -876,11 +917,11 @@ export class IndexBuffer {
     );
   }
 
-  private paintDiamondPixelatedInternal(
+  private paintMaskedPixelatedInternal(
     x: number,
     y: number,
     pixelScale: number,
-    gridSize: 5 | 7 | 9,
+    gridSize: number,
     mask: ReadonlyArray<number>,
     colorIndex: number,
     maskTile?: Uint8Array,

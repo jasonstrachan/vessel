@@ -311,7 +311,7 @@ export type SequentialPluginConfigValue = string | number | boolean | null | und
 export interface SequentialBrushSnapshot {
   tool: string;
   brushShape: BrushShape;
-  tipShape?: 'round' | 'square' | 'triangle' | 'diamond5' | 'diamond7' | 'diamond9';
+  tipShape?: 'round' | 'square' | 'triangle' | 'diamond5' | 'diamond7' | 'diamond9' | 'checkered';
   size: number;
   opacity: number;
   blendMode: BlendMode;
@@ -376,7 +376,7 @@ export interface SequentialBrushSnapshot {
     | 'blue-noise'
     | 'void-and-cluster'
     | 'pattern';
-  ditherStrokeTipShape?: 'square' | 'round' | 'triangle' | 'diamond' | 'diamond5' | 'diamond7' | 'diamond9';
+  ditherStrokeTipShape?: 'square' | 'round' | 'triangle' | 'diamond' | 'diamond5' | 'diamond7' | 'diamond9' | 'checkered';
   ditherBackgroundFill?: boolean;
   fillResolution?: number;
   pressureLinkedFillResolution?: boolean;
@@ -1033,7 +1033,7 @@ export interface BrushSettings {
     | 'ascii'
     | 'tone-adaptive';
   /** Dither Stroke only: stamp tip shape selection */
-  ditherStrokeTipShape?: 'square' | 'round' | 'triangle' | 'diamond' | 'diamond5' | 'diamond7' | 'diamond9';
+  ditherStrokeTipShape?: 'square' | 'round' | 'triangle' | 'diamond' | 'diamond5' | 'diamond7' | 'diamond9' | 'checkered';
   // Pigment lift mask: erode existing pigment before applying a new stamp
   pigmentLiftEnabled?: boolean;
   /** Strength of lift (0-1). 0 = no lift, 1 = full removal within mask. */
@@ -1057,7 +1057,7 @@ export interface BrushSettings {
   colorCycleStampDitherClears?: boolean;
   /** Link color cycle stamp dither resolution/pixel size to input pressure */
   colorCycleStampDitherPressureLinked?: boolean;
-  colorCycleStampShape?: 'square' | 'round' | 'triangle' | 'diamond' | 'diamond5' | 'diamond7' | 'diamond9';
+  colorCycleStampShape?: 'square' | 'round' | 'triangle' | 'diamond' | 'diamond5' | 'diamond7' | 'diamond9' | 'checkered';
   // Resampler brush settings
   continuousSampling?: boolean; // true = sample continuously during stroke, false = sample once at stroke start
   resampleInterval?: number; // Number of stamps between resamples (1-10), default 5

@@ -20,6 +20,38 @@ import {
 
 const BRUSH_ICON_SIZE = 32;
 const BRUSH_TEXT_LINE_HEIGHT = 11;
+const GENERIC_PRESET_THUMBNAILS = new Set([
+  '/assets/images/Brush.png',
+  '/assets/images/Square.png',
+]);
+
+const resolveBrushThumbnailUrl = (src: string): string => {
+  if (!src.startsWith('/')) {
+    return src;
+  }
+  if (typeof window === 'undefined') {
+    return src;
+  }
+
+  const nextData = (window as typeof window & {
+    __NEXT_DATA__?: {
+      assetPrefix?: string;
+      runtimeConfig?: { basePath?: string };
+    };
+  }).__NEXT_DATA__;
+
+  const assetPrefix = nextData?.assetPrefix?.trim();
+  if (assetPrefix) {
+    return `${assetPrefix.replace(/\/$/, '')}${src}`;
+  }
+
+  const basePath = nextData?.runtimeConfig?.basePath?.trim();
+  if (basePath) {
+    return `${basePath.replace(/\/$/, '')}${src}`;
+  }
+
+  return src;
+};
 
 const BrushLibrary = () => {
   const currentBrushPreset = useAppStore((state) => state.currentBrushPreset);
@@ -73,11 +105,15 @@ const BrushLibrary = () => {
         return; // Hide triangle duplicate in the library; switcher handles it
       }
       if (!preset.isCustomBrush) {
-        thumbnails[preset.id] = generateBrushThumbnail(preset, {
-          size: BRUSH_ICON_SIZE,
-          brushColor: '#D9D9D9',
-          backgroundColor: 'transparent'
-        });
+        const presetThumbnail = preset.thumbnail?.trim();
+        thumbnails[preset.id] =
+          presetThumbnail && !GENERIC_PRESET_THUMBNAILS.has(presetThumbnail)
+            ? resolveBrushThumbnailUrl(presetThumbnail)
+            : generateBrushThumbnail(preset, {
+                size: BRUSH_ICON_SIZE,
+                brushColor: '#D9D9D9',
+                backgroundColor: 'transparent'
+              });
       }
     });
 
@@ -118,7 +154,8 @@ const BrushLibrary = () => {
         ['shape-fill', 0],
         ['color-cycle-stroke', 1],
         ['color-cycle-gradient', 2],
-        ['color-cycle-shape', 3],
+        ['checkered', 3],
+        ['color-cycle-shape', 4],
       ]);
       const aSpecial = specialOrder.get(a.id);
       const bSpecial = specialOrder.get(b.id);

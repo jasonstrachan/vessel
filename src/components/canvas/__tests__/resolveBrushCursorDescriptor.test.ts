@@ -24,6 +24,7 @@ describe('resolveBrushCursorDescriptor', () => {
       kind: 'shape',
       shape: BrushShape.ROUND,
       pixelSize: 15,
+      tipShape: 'round',
     });
   });
 
@@ -43,6 +44,7 @@ describe('resolveBrushCursorDescriptor', () => {
       kind: 'shape',
       shape: BrushShape.SQUARE,
       pixelSize: 22,
+      tipShape: 'diamond',
     });
   });
 
@@ -63,6 +65,29 @@ describe('resolveBrushCursorDescriptor', () => {
       kind: 'shape',
       shape: BrushShape.SQUARE,
       pixelSize: 18,
+      tipShape: 'diamond9',
+    });
+  });
+
+  it('retains the checkered CC tip on the cursor descriptor', () => {
+    const descriptor = resolveBrushCursorDescriptor({
+      tools: {
+        ...baseTools,
+        brushSettings: {
+          ...baseTools.brushSettings,
+          size: 15,
+          brushShape: BrushShape.COLOR_CYCLE,
+          colorCycleStampShape: 'checkered',
+        },
+      },
+      globalBrushSize: 15,
+    });
+
+    expect(descriptor).toEqual({
+      kind: 'shape',
+      shape: BrushShape.COLOR_CYCLE,
+      pixelSize: 16,
+      tipShape: 'checkered',
     });
   });
 });

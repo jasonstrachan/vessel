@@ -654,6 +654,7 @@ const BrushControls = () => {
     currentBrushPresetId === 'dither-shape';
   const isDitherStrokePreset = currentBrushPresetId === 'dither-stroke';
   const isDitherShapePreset = currentBrushPresetId === 'dither-shape';
+  const isCheckeredPreset = currentBrushPresetId === 'checkered';
   const isMosaicPreset = currentBrushPresetId === 'mosaic';
   // For per-layer CC brush speed
   const activeLayerId = useAppStore(selectActiveLayerId);
@@ -729,7 +730,7 @@ const BrushControls = () => {
   const sizeUnit = isActiveCustomBrush ? '%' : 'px';
   const sizeLabel = isActiveCustomBrush ? 'Tip Scale %' : `Size ${sizeUnit}`;
   const hideShapeToggle =
-    ((isDitherStrokePreset || isDitherShapePreset) && !isActiveCustomBrush) ||
+    ((isDitherStrokePreset || isDitherShapePreset || isCheckeredPreset) && !isActiveCustomBrush) ||
     Boolean(currentBrushPresetId && isRegularPixelPresetId(currentBrushPresetId)) ||
     currentTool === 'eraser';
   const eraserTip = resolveEraserTipOption(eraserSettings);
@@ -1832,6 +1833,7 @@ const BrushControls = () => {
             <ButtonGroup
               options={[
                 { label: 'Square', value: 'square' },
+                { label: 'Checkered', value: 'checkered' },
                 { label: 'Round', value: 'round' },
                 { label: 'Diamond', value: 'diamond' },
                 { label: 'Diamond5', value: 'diamond5' },
@@ -1848,6 +1850,8 @@ const BrushControls = () => {
                     ? 'shape'
                   : activeSettings.brushShape === BrushShape.COLOR_CYCLE_TRIANGLE
                     ? 'triangle'
+                    : isCheckeredPreset || activeSettings.colorCycleStampShape === 'checkered'
+                      ? 'checkered'
                     : activeSettings.colorCycleStampShape === 'round'
                       ? 'round'
                       : activeSettings.colorCycleStampShape === 'diamond9'
@@ -1862,6 +1866,7 @@ const BrushControls = () => {
               }
               onChange={(value) => {
                 const strokePreset = brushPresets.find(p => p.id === 'color-cycle-stroke');
+                const checkeredPreset = brushPresets.find(p => p.id === 'checkered');
                 const shapePreset = brushPresets.find(p => p.id === 'color-cycle-shape');
                 const trianglePreset = brushPresets.find(p => p.id === 'color-cycle-triangle');
                 const gradientPreset = brushPresets.find(p => p.id === 'color-cycle-gradient');
@@ -1876,6 +1881,9 @@ const BrushControls = () => {
                 } else if (value === 'triangle' && trianglePreset) {
                   setBrushPreset(trianglePreset, true);
                   setActiveSettings({ colorCycleStampShape: 'triangle' });
+                } else if (value === 'checkered' && checkeredPreset) {
+                  setBrushPreset(checkeredPreset, true);
+                  setActiveSettings({ colorCycleStampShape: 'checkered' });
                 } else if (
                   (
                     value === 'square' ||

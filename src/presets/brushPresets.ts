@@ -10,6 +10,7 @@ export type BrushCapabilities = {
 export const BRUSH_PRESET_CAPABILITIES: Record<string, BrushCapabilities> = {
   'dither-stroke': { canDither: true, forceDither: true },
   'dither-shape': { canDither: true, forceDither: true },
+  'checkered': { canDither: false },
   'color-cycle-stroke': { canDither: false },
   'color-cycle-shape': { canDither: false },
   'color-cycle-triangle': { canDither: false },
@@ -51,7 +52,7 @@ export const pixelBrushSettings: BrushSettings = {
     jitter: 0,
     offset: 0
   },
-  dashedEnabled: true,
+  dashedEnabled: false,
   dashLength: 3,
   velocitySpacingEnabled: false,
   velocityAnimationSpeedEnabled: false,
@@ -1225,6 +1226,41 @@ export const shapeDitherPreset: BrushPreset = {
   }
 };
 
+export const checkeredBrushPreset: BrushPreset = {
+  id: 'checkered',
+  name: 'Checkered',
+  category: 'Special',
+  components: colorCycleStrokeBrushComponents,
+  thumbnail: '/assets/images/checkered-brush.svg',
+  tags: ['color-cycle', 'checkered', 'stroke', 'retro'],
+  isDefault: false,
+  createdAt: new Date(),
+  modifiedAt: new Date(),
+  preferredSettings: {
+    ...pixelBrushSettings,
+    brushShape: BrushShape.COLOR_CYCLE,
+    size: 8,
+    opacity: 1,
+    spacing: 8,
+    antialiasing: false,
+    pressureEnabled: false,
+    minPressure: 0,
+    maxPressure: 200,
+    colorCycleFPS: 10,
+    colorCycleSpeed: 0.1,
+    gradientBands: 12,
+    colorCycleStampShape: 'checkered',
+    colorCycleStampDitherEnabled: true,
+    colorCycleStampDitherPixelSize: 1,
+    colorCycleStampDitherBgFill: true,
+    colorCycleStampDitherPressureLinked: false,
+    lostEdge: 0,
+    pressureLinkedFillResolution: true,
+    fillResolution: 6,
+    pressureLinkedFillMaxResolution: 12,
+  },
+};
+
 // Available brush presets
 export const brushPresets: BrushPreset[] = [
   pixelBrushPreset,
@@ -1234,6 +1270,7 @@ export const brushPresets: BrushPreset[] = [
   mosaicBrushPreset,
   pixelDitherPreset,
   shapeDitherPreset,
+  checkeredBrushPreset,
   ditherGradientBrushPreset,
   colorCycleStrokeBrushPreset,
   colorCycleTriangleBrushPreset,

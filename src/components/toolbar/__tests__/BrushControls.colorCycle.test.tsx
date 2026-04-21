@@ -298,7 +298,10 @@ jest.mock('@/stores/useAppStore', () => {
     selectedLayerIds: [],
     referenceLayerId: null,
     layersNeedRecomposition: false,
-    brushPresets: [{ id: 'color-cycle-stroke', name: 'CC Stroke' } as unknown as AppState['brushPresets'][number]],
+    brushPresets: [
+      { id: 'color-cycle-stroke', name: 'CC Stroke' } as unknown as AppState['brushPresets'][number],
+      { id: 'checkered', name: 'Checkered' } as unknown as AppState['brushPresets'][number],
+    ],
     currentBrushPreset: { id: 'color-cycle-stroke', name: 'CC Stroke' } as AppState['currentBrushPreset'],
     temporaryCustomBrush: null,
     recolorSampling: { active: false, start: null, end: null, samples: undefined, target: 'brush' },
@@ -353,7 +356,7 @@ jest.mock('@/stores/useAppStore', () => {
     setGlobalBrushSize: () => {},
     setCustomBrushSizePercent: () => {},
     setShapeMode: () => {},
-    setBrushPreset: () => {},
+    setBrushPreset: jest.fn(),
     updateLayer: jest.fn(),
     addNotification: () => {},
     playColorCycle: () => {},
@@ -532,6 +535,20 @@ describe('BrushControls – Color Cycle stroke essentials', () => {
     await user.click(diamondButton);
 
     expect(useAppStore.getState().tools.brushSettings.colorCycleStampShape).toBe('diamond9');
+  });
+
+  it('switches to the dedicated checkered CC preset', async () => {
+    const user = userEvent.setup();
+    render(<BrushControls />);
+
+    const checkeredButton = screen.getByRole('button', { name: 'Checkered' });
+    await user.click(checkeredButton);
+
+    expect(useAppStore.getState().setBrushPreset).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'checkered' }),
+      true,
+    );
+    expect(useAppStore.getState().tools.brushSettings.colorCycleStampShape).toBe('checkered');
   });
 
   it('disables stamp dither resolution when pressure-linked', () => {

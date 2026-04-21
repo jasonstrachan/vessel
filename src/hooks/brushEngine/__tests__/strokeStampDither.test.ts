@@ -381,4 +381,74 @@ describe('strokeStampDither', () => {
     expect(bayer).not.toEqual(voidAndCluster);
     expect(bayer).not.toEqual(pattern);
   });
+
+  it('scales the checkered stamp cells with brush size', () => {
+    const width = 20;
+    const height = 20;
+    const animator = buildAnimator(width, height);
+    const runtime = stampDither.createStampDitherRuntime();
+    const config = {
+      algorithm: 'sierra-lite' as const,
+      pixelSize: 2,
+      patternStyle: 'dots' as const,
+      bgFill: true,
+      pressureLinked: false,
+      seed: 7,
+    };
+
+    const buildState = (): StampDitherState & {
+      paintBuffer: Uint8Array;
+      gradientIdBuffer: Uint8Array;
+      speedBuffer: Uint8Array;
+    } => ({
+      paintBuffer: new Uint8Array(width * height),
+      gradientIdBuffer: new Uint8Array(width * height),
+      speedBuffer: new Uint8Array(width * height),
+      stampDitherStrokeEpoch: 1,
+      stampDitherStampSeq: 0,
+    });
+
+    const smallState = buildState();
+    stampDither.applyStampDitherStamp({
+      animator: animator as unknown as Parameters<typeof stampDither.applyStampDitherStamp>[0]['animator'],
+      state: smallState,
+      config,
+      runtime,
+      stampShape: 'checkered',
+      x: 10,
+      y: 10,
+      pressure: 1,
+      pressureSize: 4,
+      primaryIndex: 5,
+      flowSlot: 1,
+      cycleSpeed: 1,
+      width,
+      height,
+      isAnimating: false,
+    });
+    const smallCoverage = Array.from(smallState.stampDitherPrimaryBuffer ?? []).filter((value) => value === 5).length;
+
+    const largeState = buildState();
+    stampDither.applyStampDitherStamp({
+      animator: animator as unknown as Parameters<typeof stampDither.applyStampDitherStamp>[0]['animator'],
+      state: largeState,
+      config,
+      runtime,
+      stampShape: 'checkered',
+      x: 10,
+      y: 10,
+      pressure: 1,
+      pressureSize: 8,
+      primaryIndex: 5,
+      flowSlot: 1,
+      cycleSpeed: 1,
+      width,
+      height,
+      isAnimating: false,
+    });
+    const largeCoverage = Array.from(largeState.stampDitherPrimaryBuffer ?? []).filter((value) => value === 5).length;
+
+    expect(smallCoverage).toBe(8);
+    expect(largeCoverage).toBe(32);
+  });
 });

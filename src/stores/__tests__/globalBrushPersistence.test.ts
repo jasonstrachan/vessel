@@ -51,6 +51,42 @@ describe('global brush persistence', () => {
     expect(state.tools.brushSettings.maxPressure).toBe(300);
   });
 
+  it('restores dashed brush settings on startup and persists later changes', async () => {
+    loadMock.mockReturnValue({
+      brushSpecificSettings: {
+        'pixel-square': {
+          dashedEnabled: true,
+          dashLength: 7,
+          dashGap: 5,
+        },
+      },
+      lastBrushId: 'pixel-square',
+    });
+
+    const { useAppStore } = await import('@/stores/useAppStore');
+    const store = useAppStore.getState();
+
+    expect(store.tools.brushSettings.dashedEnabled).toBe(true);
+    expect(store.tools.brushSettings.dashLength).toBe(7);
+    expect(store.tools.brushSettings.dashGap).toBe(5);
+
+    store.setBrushSettings({
+      dashedEnabled: false,
+      dashLength: 4,
+      dashGap: 2,
+    });
+
+    jest.advanceTimersByTime(300);
+    const payload = saveMock.mock.calls.at(-1)?.[0];
+    expect(payload?.brushSpecificSettings?.['pixel-square']).toEqual(
+      expect.objectContaining({
+        dashedEnabled: false,
+        dashLength: 4,
+        dashGap: 2,
+      })
+    );
+  });
+
   it('saves when brush-specific settings change', async () => {
     loadMock.mockReturnValue(null);
 

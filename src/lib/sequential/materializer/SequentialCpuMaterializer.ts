@@ -31,7 +31,7 @@ import type { SequentialMaterializerBackend } from '@/lib/sequential/materialize
 
 const clamp01 = (value: number): number => Math.max(0, Math.min(1, value));
 
-type SequentialStampShape = 'round' | 'square' | 'triangle' | 'diamond5' | 'diamond7' | 'diamond9';
+type SequentialStampShape = 'round' | 'square' | 'triangle' | 'diamond5' | 'diamond7' | 'diamond9' | 'checkered';
 const DIAMOND_5_MASK: ReadonlyArray<number> = [
   0, 0, 1, 0, 0,
   0, 1, 1, 1, 0,
@@ -58,6 +58,12 @@ const DIAMOND_9_MASK: ReadonlyArray<number> = [
   0, 0, 1, 1, 1, 1, 1, 0, 0,
   0, 0, 0, 1, 1, 1, 0, 0, 0,
   0, 0, 0, 0, 1, 0, 0, 0, 0,
+];
+const CHECKERED_4_MASK: ReadonlyArray<number> = [
+  1, 0, 1, 0,
+  0, 1, 0, 1,
+  1, 0, 1, 0,
+  0, 1, 0, 1,
 ];
 type SequentialTextureMode = 'solid' | 'dither' | 'mosaic' | 'risograph-soft' | 'risograph-ultra';
 type SequentialPluginRenderMode = 'none' | 'dither-brush' | 'particle-brush' | 'spam-brush';
@@ -342,7 +348,8 @@ const resolveStampShape = (event: SequentialStrokeEvent): SequentialStampShape =
     explicitTipShape === 'triangle' ||
     explicitTipShape === 'diamond5' ||
     explicitTipShape === 'diamond7' ||
-    explicitTipShape === 'diamond9'
+    explicitTipShape === 'diamond9' ||
+    explicitTipShape === 'checkered'
   ) {
     return explicitTipShape;
   }
@@ -366,6 +373,9 @@ const resolveStampShape = (event: SequentialStrokeEvent): SequentialStampShape =
     }
     if (tipShape === 'diamond9') {
       return 'diamond9';
+    }
+    if (tipShape === 'checkered') {
+      return 'checkered';
     }
     if (tipShape === 'triangle' || tipShape === 'diamond') {
       return 'triangle';
@@ -608,6 +618,16 @@ const isStampPixelCovered = ({
       const cellX = Math.max(0, Math.min(8, Math.floor(normalizedX * 9)));
       const cellY = Math.max(0, Math.min(8, Math.floor(normalizedY * 9)));
       return DIAMOND_9_MASK[cellY * 9 + cellX] === 1;
+    }
+    case 'checkered': {
+      if (Math.abs(dx) > halfSize || Math.abs(dy) > halfSize) {
+        return false;
+      }
+      const normalizedX = ((dx / Math.max(1e-6, halfSize)) + 1) * 0.5;
+      const normalizedY = ((dy / Math.max(1e-6, halfSize)) + 1) * 0.5;
+      const cellX = Math.max(0, Math.min(3, Math.floor(normalizedX * 4)));
+      const cellY = Math.max(0, Math.min(3, Math.floor(normalizedY * 4)));
+      return CHECKERED_4_MASK[cellY * 4 + cellX] === 1;
     }
     case 'triangle': {
       if (Math.abs(dx) > halfSize || Math.abs(dy) > halfSize) {

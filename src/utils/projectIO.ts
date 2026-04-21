@@ -709,7 +709,7 @@ interface ColorCycleBrushState {
   ditherStrength?: number;
   ditherPixelSize?: number;
   perceptualDither?: boolean;
-  stampShape?: 'square' | 'round' | 'triangle' | 'diamond' | 'diamond5' | 'diamond7' | 'diamond9';
+  stampShape?: 'square' | 'round' | 'triangle' | 'diamond' | 'diamond5' | 'diamond7' | 'diamond9' | 'checkered';
   stampDitherEnabled?: boolean;
   stampDitherPixelSize?: number;
   stampDitherBgFill?: boolean;

@@ -272,6 +272,20 @@ describe('IndexBuffer', () => {
       expect(buffer.getPixel(11, 11)).toBe(3);
       expect(buffer.getPixel(9, 9)).toBe(0);
     });
+
+    it('uses an alternating checker mask for checkered pixelated stamps', () => {
+      buffer.paintCheckeredPixelatedWithIndex(20, 20, 1, 2);
+
+      const originX = Math.floor(20 - 4 / 2);
+      const originY = Math.floor(20 - 4 / 2);
+
+      expect(buffer.getPixel(originX, originY)).toBe(2);
+      expect(buffer.getPixel(originX + 1, originY)).toBe(0);
+      expect(buffer.getPixel(originX + 2, originY)).toBe(2);
+      expect(buffer.getPixel(originX, originY + 1)).toBe(0);
+      expect(buffer.getPixel(originX + 1, originY + 1)).toBe(2);
+      expect(buffer.getPixel(originX + 2, originY + 1)).toBe(0);
+    });
   });
 
   describe('fill operation', () => {
