@@ -4,6 +4,8 @@ import type { BrushSettings } from '@/types';
 import { canvasPool } from '@/utils/canvasPool';
 import { simplifyToVertexLimit } from '@/utils/polygonSimplify';
 import type { DitherAlgorithm, PatternStyle } from '@/utils/ditherAlgorithms';
+import { buildCcDitherRuntimePalette, resolveCcDitherBandMode } from '@/utils/colorCycle/ccDitherRenderPalette';
+import { hashStops, type StoredStop } from '@/utils/colorCycleGradientDefs';
 import {
   createPressureResolutionState,
   type PressureResolutionState,
@@ -13,7 +15,9 @@ import { resolveStableFlatSeed } from '@/utils/colorCycle/ccFlatSeed';
 import { computeConcentricMaxDistance } from '@/utils/colorCycle/concentricFillCore';
 import { getActiveMarkGradientSession } from '@/hooks/canvas/utils/colorCycleMarkSession';
 import { stampCcHangProbe } from '@/hooks/canvas/utils/ccHangProbe';
-import type { StoredStop } from '@/utils/colorCycleGradientDefs';
+import { parseCssColorToRgba } from '@/hooks/canvas/utils/colorCycleHelpers';
+import { buildSampledStops } from '@/hooks/canvas/handlers/colorCycle/ccSampling';
+import { runIdleAsync } from '@/hooks/canvas/utils/idle';
 
 export type PreparedPreviewGradient = {
   renderStops: StoredStop[];
@@ -34,6 +38,8 @@ export type CcPreviewRenderSettings = {
 };
 
 const MAX_CC_PREVIEW_VERTICES = 256;
+const MAX_CC_PREVIEW_SCALED_DIMENSION = 512;
+const MAX_CC_PREVIEW_SCALED_AREA = 512 * 512;
 
 const simplifyPreviewPolygon = (
   points: Array<{ x: number; y: number }>
@@ -70,9 +76,15 @@ const prepareCcPreviewGeometry = ({
 }): PreparedCcPreviewGeometry => {
   const previewPolygon = simplifyPreviewPolygon(committedPolygon);
   const roi = computeCcPreviewRoi(previewPolygon);
-  const scale = Math.max(1, pixelSize);
+  let scale = Math.max(1, pixelSize);
   const width = roi.size.width;
   const height = roi.size.height;
+  const dimensionScale = Math.max(
+    width / MAX_CC_PREVIEW_SCALED_DIMENSION,
+    height / MAX_CC_PREVIEW_SCALED_DIMENSION,
+  );
+  const areaScale = Math.sqrt((width * height) / MAX_CC_PREVIEW_SCALED_AREA);
+  scale = Math.max(scale, Math.ceil(Math.max(1, dimensionScale, areaScale)));
   const scaledWidth = Math.max(1, Math.ceil(width / scale));
   const scaledHeight = Math.max(1, Math.ceil(height / scale));
   const localVertices = previewPolygon.map(pt => ({
@@ -112,6 +124,7 @@ export type DitherGradPreviewState = {
   ccScratchBuffer?: Uint8ClampedArray;
   ccPreparedGradientKey?: string;
   ccPreparedGradient?: PreparedPreviewGradient;
+  ccPendingSampledRequest?: SampledCcPreviewRequest;
 };
 
 const computeAxisOpposingEnds = (verts: Array<{ x: number; y: number }>): {
@@ -405,6 +418,158 @@ const createPreviewYieldController = () => {
       sliceStart = typeof performance !== 'undefined' ? performance.now() : Date.now();
     }
   };
+};
+
+const normalizePreparedPreviewStops = (
+  renderStops: StoredStop[] | null | undefined
+): Array<{ position: number; rgba: [number, number, number, number] }> => {
+  const sortedStops = Array.from(renderStops ?? [])
+    .map(stop => ({
+      position: Math.max(0, Math.min(1, Number.isFinite(stop.position) ? stop.position : 0)),
+      rgba: parseCssColorToRgba(stop.color),
+    }))
+    .sort((a, b) => a.position - b.position);
+
+  if (sortedStops.length === 0) {
+    sortedStops.push({ position: 0, rgba: [0, 0, 0, 255] });
+    sortedStops.push({ position: 1, rgba: [255, 255, 255, 255] });
+  } else if (sortedStops.length === 1) {
+    sortedStops.push({ position: 1, rgba: sortedStops[0].rgba });
+  }
+
+  return sortedStops;
+};
+
+const prepareCcShapePreviewGradient = ({
+  effectiveStops,
+  gradientBands,
+  ditherPaletteSpread,
+  ditherAlgorithm,
+  preserveSourceStops,
+}: {
+  effectiveStops: StoredStop[];
+  gradientBands: number;
+  ditherPaletteSpread?: number;
+  ditherAlgorithm?: DitherAlgorithm;
+  preserveSourceStops: boolean;
+}): PreparedPreviewGradient => {
+  const renderStops = buildCcDitherRuntimePalette({
+    baseStops: effectiveStops,
+    bands: resolveCcDitherBandMode(gradientBands).pairBandCount,
+    spread: ditherPaletteSpread,
+    algorithm: ditherAlgorithm,
+    preserveSourceStops,
+    debugContext: 'preview-fill-linear',
+  }).renderStops;
+
+  return {
+    renderStops,
+    sortedStops: normalizePreparedPreviewStops(renderStops),
+  };
+};
+
+const buildSampledPreviewRequestKey = ({
+  points,
+  brushSettings,
+  previewRenderSettings,
+  fallbackStops,
+}: {
+  points: Array<{ x: number; y: number }>;
+  brushSettings: BrushSettings;
+  previewRenderSettings: CcPreviewRenderSettings;
+  fallbackStops: StoredStop[];
+}): string => {
+  const geometryKey = points
+    .map(point => `${Math.round(point.x * 100) / 100},${Math.round(point.y * 100) / 100}`)
+    .join('|');
+
+  return [
+    'sampled-preview',
+    `fallback:${hashStops(fallbackStops, 'linear')}`,
+    `mode:${brushSettings.colorCycleFillMode ?? 'linear'}`,
+    `px:${previewRenderSettings.pixelSize}`,
+    `levels:${previewRenderSettings.levels}`,
+    `algo:${previewRenderSettings.algorithm}`,
+    `pattern:${previewRenderSettings.patternStyle}`,
+    `spread:${Math.round(brushSettings.ditherPaletteSpread ?? 0)}`,
+    `points:${geometryKey}`,
+  ].join('||');
+};
+
+const drawCachedCcPreview = ({
+  overlayCtx,
+  overlayCanvas,
+  previewOpacity,
+  ditherGradPreviewState,
+  shouldKeepCachedCcPreviewVisible,
+  nextPreviewRoi,
+  replayKey,
+}: {
+  overlayCtx: CanvasRenderingContext2D;
+  overlayCanvas: HTMLCanvasElement;
+  previewOpacity: number;
+  ditherGradPreviewState: DitherGradPreviewState;
+  shouldKeepCachedCcPreviewVisible: (params: {
+    hasCachedPreview: boolean;
+    canReplayCurrentPreview: boolean;
+    jobInFlight: boolean;
+  }) => boolean;
+  nextPreviewRoi: CcPreviewRoi;
+  replayKey: string;
+}): { shouldUseCustomFill: boolean } => {
+  const canReplayCurrentPreview =
+    ditherGradPreviewState.ccLastCanvas &&
+    canReplayCcPreview(
+      ditherGradPreviewState.ccLastOrigin,
+      ditherGradPreviewState.ccLastSize,
+      ditherGradPreviewState.ccLastReplayKey,
+      nextPreviewRoi,
+      replayKey,
+    );
+  const hasCachedPreview =
+    Boolean(ditherGradPreviewState.ccLastCanvas) &&
+    Boolean(ditherGradPreviewState.ccLastOrigin);
+  const shouldDrawCachedPreview =
+    Boolean(canReplayCurrentPreview) ||
+    shouldKeepCachedCcPreviewVisible({
+      hasCachedPreview,
+      canReplayCurrentPreview: Boolean(canReplayCurrentPreview),
+      jobInFlight: ditherGradPreviewState.ccJobInFlight,
+    });
+
+  if (shouldDrawCachedPreview && ditherGradPreviewState.ccLastCanvas && ditherGradPreviewState.ccLastOrigin) {
+    overlayCtx.save();
+    overlayCtx.setTransform(1, 0, 0, 1, 0, 0);
+    overlayCtx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
+    overlayCtx.restore();
+    overlayCtx.save();
+    overlayCtx.globalAlpha = previewOpacity;
+    overlayCtx.imageSmoothingEnabled = false;
+    overlayCtx.drawImage(
+      ditherGradPreviewState.ccLastCanvas,
+      ditherGradPreviewState.ccLastOrigin.x,
+      ditherGradPreviewState.ccLastOrigin.y
+    );
+    overlayCtx.restore();
+  } else {
+    overlayCtx.save();
+    overlayCtx.setTransform(1, 0, 0, 1, 0, 0);
+    overlayCtx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
+    overlayCtx.restore();
+  }
+
+  return {
+    shouldUseCustomFill: Boolean(shouldDrawCachedPreview),
+  };
+};
+
+type SampledCcPreviewRequest = {
+  replayKey: string;
+  previewGeometry: PreparedCcPreviewGeometry;
+  brushSettings: BrushSettings;
+  previewRenderSettings: CcPreviewRenderSettings;
+  fallbackStops: StoredStop[];
+  sampleColor: (x: number, y: number) => string;
 };
 
 type DrawingHandlersSubset = {
@@ -842,5 +1007,319 @@ export const runCcDitherPreviewRuntime = (args: {
   return {
     didCustomFill: shouldUseCustomFill,
     suppressLivePreviewChrome,
+  };
+};
+
+export const runSampledCcDitherPreviewRuntime = (args: {
+  overlayCtx: CanvasRenderingContext2D;
+  overlayCanvas: HTMLCanvasElement;
+  committedPolygon: Array<{ x: number; y: number }>;
+  brushSettings: BrushSettings;
+  ditherGradPreviewState: DitherGradPreviewState;
+  drawingHandlers: DrawingHandlersSubset;
+  shouldKeepCachedCcPreviewVisible: (params: {
+    hasCachedPreview: boolean;
+    canReplayCurrentPreview: boolean;
+    jobInFlight: boolean;
+  }) => boolean;
+  previewOpacity: number;
+  schedulePolygonShapePreviewFrame: (
+    resolvePreviewPoint: () => { x: number; y: number } | null
+  ) => void;
+  getLatestPolygonPreviewPoint: () => { x: number; y: number } | null;
+  previewRenderSettings: CcPreviewRenderSettings;
+  sampleColor: (x: number, y: number) => string;
+  fallbackStops: StoredStop[];
+}): { didCustomFill: boolean; suppressLivePreviewChrome: boolean } => {
+  const {
+    overlayCtx,
+    overlayCanvas,
+    committedPolygon,
+    brushSettings,
+    ditherGradPreviewState,
+    drawingHandlers,
+    shouldKeepCachedCcPreviewVisible,
+    previewOpacity,
+    schedulePolygonShapePreviewFrame,
+    getLatestPolygonPreviewPoint,
+    previewRenderSettings,
+    sampleColor,
+    fallbackStops,
+  } = args;
+
+  const previewGeometry = prepareCcPreviewGeometry({
+    committedPolygon,
+    pixelSize: previewRenderSettings.pixelSize,
+  });
+  const replayKey = buildSampledPreviewRequestKey({
+    points: previewGeometry.previewPolygon,
+    brushSettings,
+    previewRenderSettings,
+    fallbackStops,
+  });
+  const cachedPreview = drawCachedCcPreview({
+    overlayCtx,
+    overlayCanvas,
+    previewOpacity,
+    ditherGradPreviewState,
+    shouldKeepCachedCcPreviewVisible,
+    nextPreviewRoi: previewGeometry.roi,
+    replayKey,
+  });
+
+  ditherGradPreviewState.ccPendingSampledRequest = {
+    replayKey,
+    previewGeometry,
+    brushSettings: { ...brushSettings },
+    previewRenderSettings,
+    fallbackStops: fallbackStops.map(stop => ({ ...stop })),
+    sampleColor,
+  };
+
+  if (ditherGradPreviewState.ccJobInFlight) {
+    ditherGradPreviewState.ccJobDirty = true;
+    return {
+      didCustomFill: cachedPreview.shouldUseCustomFill,
+      suppressLivePreviewChrome: cachedPreview.shouldUseCustomFill,
+    };
+  }
+
+  ditherGradPreviewState.ccJobInFlight = true;
+  ditherGradPreviewState.ccJobDirty = false;
+
+  const processPendingSampledRequest = async (): Promise<void> => {
+    try {
+      while (true) {
+        const request = ditherGradPreviewState.ccPendingSampledRequest;
+        ditherGradPreviewState.ccPendingSampledRequest = undefined;
+        if (!request) {
+          break;
+        }
+
+        const mySeq = ++ditherGradPreviewState.ccJobSeq;
+        const {
+          previewGeometry: sampledGeometry,
+          brushSettings: sampledBrushSettings,
+          previewRenderSettings: sampledPreviewRenderSettings,
+          sampleColor: sampledColorFn,
+        } = request;
+
+        const sampledPreview = buildSampledStops({
+          sourcePts: sampledGeometry.previewPolygon,
+          sampleColor: sampledColorFn,
+          allowTiny: true,
+        });
+        const effectiveStops =
+          sampledPreview?.stops && sampledPreview.stops.length >= 2
+            ? sampledPreview.stops
+            : request.fallbackStops;
+        const preparedGradient = prepareCcShapePreviewGradient({
+          effectiveStops,
+          gradientBands: sampledBrushSettings.gradientBands ?? 16,
+          ditherPaletteSpread: sampledBrushSettings.ditherPaletteSpread,
+          ditherAlgorithm: sampledBrushSettings.ditherAlgorithm,
+          preserveSourceStops:
+            resolveCcDitherBandMode(sampledBrushSettings.gradientBands ?? 16).pairBandCount <= 0 &&
+            (sampledBrushSettings.ditherAlgorithm ?? 'sierra-lite') === 'sierra-lite',
+        });
+
+        const origin = sampledGeometry.roi.origin;
+        const {
+          width: w,
+          height: h,
+          scaledWidth: scaledW,
+          scaledHeight: scaledH,
+          localVertices,
+          scaledVertices,
+          previewPolygon,
+        } = sampledGeometry;
+        const sortedStops = preparedGradient.sortedStops;
+        const sampleGradient = (t: number): [number, number, number, number] => {
+          const tt = Math.max(0, Math.min(1, t));
+          let idx = 0;
+          for (let i = 0; i < sortedStops.length - 1; i += 1) {
+            if (tt >= sortedStops[i].position && tt <= sortedStops[i + 1].position) {
+              idx = i;
+              break;
+            }
+            if (tt > sortedStops[i + 1].position) idx = i + 1;
+          }
+          const a = sortedStops[Math.max(0, Math.min(sortedStops.length - 2, idx))];
+          const b = sortedStops[Math.max(1, Math.min(sortedStops.length - 1, idx + 1))];
+          const span = Math.max(1e-6, b.position - a.position);
+          const localT = Math.max(0, Math.min(1, (tt - a.position) / span));
+          const lerp = (v0: number, v1: number) => v0 + (v1 - v0) * localT;
+          return [
+            lerp(a.rgba[0], b.rgba[0]),
+            lerp(a.rgba[1], b.rgba[1]),
+            lerp(a.rgba[2], b.rgba[2]),
+            lerp(a.rgba[3], b.rgba[3]),
+          ];
+        };
+
+        ditherGradPreviewState.ccScratchCanvas = ensurePreviewCanvasCapacity(
+          ditherGradPreviewState.ccScratchCanvas,
+          scaledW,
+          scaledH
+        );
+        const tempCanvas = ditherGradPreviewState.ccScratchCanvas;
+        const tempCtx = tempCanvas.getContext(
+          '2d',
+          { willReadFrequently: true } as CanvasRenderingContext2DSettings
+        );
+        if (!tempCtx) {
+          canvasPool.release(tempCanvas);
+          ditherGradPreviewState.ccScratchCanvas = undefined;
+          continue;
+        }
+
+        tempCtx.setTransform(1, 0, 0, 1, 0, 0);
+        tempCtx.globalCompositeOperation = 'source-over';
+        tempCtx.globalAlpha = 1;
+        tempCtx.imageSmoothingEnabled = false;
+        tempCtx.clearRect(0, 0, scaledW, scaledH);
+        const requiredBytes = scaledW * scaledH * 4;
+        ditherGradPreviewState.ccScratchBuffer = ensurePreviewBufferCapacity(
+          ditherGradPreviewState.ccScratchBuffer,
+          requiredBytes
+        );
+        const data = ditherGradPreviewState.ccScratchBuffer.subarray(0, requiredBytes);
+        data.fill(0);
+        const yieldIfNeeded = createPreviewYieldController();
+        const sampleNormalized = createCcShapePreviewSampleNormalized({
+          colorCycleFillMode: sampledBrushSettings.colorCycleFillMode,
+          localVertices: scaledVertices,
+          width: scaledW,
+          height: scaledH,
+        });
+
+        const liveState = useAppStore.getState();
+        const liveLayerId = liveState.activeLayerId;
+        const liveSession = liveLayerId ? getActiveMarkGradientSession(liveLayerId) : null;
+        stampCcHangProbe({
+          phase: 'cc-runtime-job-start',
+          canvas: overlayCanvas,
+          ctx: overlayCtx,
+          markKind: 'shape',
+          source: sampledBrushSettings.ccGradientSource ?? null,
+          algorithm: sampledPreviewRenderSettings.algorithm,
+          levels: sampledPreviewRenderSettings.levels,
+          colors: typeof sampledBrushSettings.colors === 'number' ? sampledBrushSettings.colors : null,
+          pointCount: committedPolygon.length,
+          previewPointCountRaw: committedPolygon.length,
+          previewPointCountSimplified: previewPolygon.length,
+          replayKeyPointCount: previewPolygon.length,
+          w,
+          h,
+          scaledW,
+          scaledH,
+          pixelSize: sampledPreviewRenderSettings.pixelSize,
+          inFlight: ditherGradPreviewState.ccJobInFlight,
+          dirty: ditherGradPreviewState.ccJobDirty,
+          seq: mySeq,
+        });
+
+        const flatSeed = resolveStableFlatSeed({
+          markId: liveSession?.markId ?? null,
+          bounds: { minX: 0, minY: 0, width: w, height: h },
+          points: localVertices,
+        });
+
+        await fillCcGradientDither({
+          vertices: scaledVertices,
+          minX: 0,
+          minY: 0,
+          maxX: scaledW - 1,
+          maxY: scaledH - 1,
+          pixelSize: 1,
+          levels: sampledPreviewRenderSettings.levels,
+          baseOffset: 0,
+          flatPairSpread: sampledBrushSettings.ditherPaletteSpread,
+          ditherPatternDiversity: sampledBrushSettings.ditherPatternDiversity,
+          flatSeed,
+          algorithm: sampledPreviewRenderSettings.algorithm,
+          patternStyle: sampledPreviewRenderSettings.patternStyle,
+          sampledFlatTraceId: liveSession?.markId
+            ? `${liveSession.markId}:preview`
+            : undefined,
+          sampledFlatTraceStage: 'preview',
+          fillBackground: (sampledBrushSettings.ditherGradBgFill ?? sampledBrushSettings.ditherBackgroundFill) !== false,
+          yieldIfNeeded,
+          sampleNormalized,
+          writeIndex: (x, y, index) => {
+            if (index <= 0) return;
+            const t = (index - 1) / 254;
+            const [r, g, b, a] = sampleGradient(t);
+            const px = (y * scaledW + x) * 4;
+            data[px] = Math.round(r);
+            data[px + 1] = Math.round(g);
+            data[px + 2] = Math.round(b);
+            data[px + 3] = Math.round(a);
+          },
+        });
+
+        if (mySeq !== ditherGradPreviewState.ccJobSeq) {
+          continue;
+        }
+
+        const pendingSampledRequest =
+          ditherGradPreviewState.ccPendingSampledRequest as SampledCcPreviewRequest | undefined;
+        if (pendingSampledRequest && pendingSampledRequest.replayKey !== request.replayKey) {
+          ditherGradPreviewState.ccJobDirty = true;
+          continue;
+        }
+
+        const imageData = new ImageData(Uint8ClampedArray.from(data), scaledW, scaledH);
+        tempCtx.putImageData(imageData, 0, 0);
+        ditherGradPreviewState.ccLastCanvas = ensurePreviewCanvasCapacity(
+          ditherGradPreviewState.ccLastCanvas,
+          w,
+          h
+        );
+        const displayCanvas = ditherGradPreviewState.ccLastCanvas;
+        const displayCtx = displayCanvas.getContext(
+          '2d',
+          { willReadFrequently: true } as CanvasRenderingContext2DSettings
+        );
+        if (!displayCtx) {
+          continue;
+        }
+        displayCtx.setTransform(1, 0, 0, 1, 0, 0);
+        displayCtx.globalCompositeOperation = 'source-over';
+        displayCtx.globalAlpha = 1;
+        displayCtx.imageSmoothingEnabled = false;
+        displayCtx.clearRect(0, 0, w, h);
+        displayCtx.drawImage(tempCanvas, 0, 0, scaledW, scaledH, 0, 0, w, h);
+        if (mySeq !== ditherGradPreviewState.ccJobSeq) {
+          continue;
+        }
+        ditherGradPreviewState.ccLastOrigin = { ...origin };
+        ditherGradPreviewState.ccLastSize = { width: w, height: h };
+        ditherGradPreviewState.ccLastReplayKey = request.replayKey;
+        if (drawingHandlers.ccShapePreviewCacheRef) {
+          drawingHandlers.ccShapePreviewCacheRef.current = {
+            canvas: displayCanvas,
+            origin: { ...origin },
+          };
+        }
+        schedulePolygonShapePreviewFrame(() => getLatestPolygonPreviewPoint());
+      }
+    } catch {
+      // Keep scratch buffers for reuse on the next preview job.
+    } finally {
+      ditherGradPreviewState.ccJobInFlight = false;
+      if (ditherGradPreviewState.ccPendingSampledRequest) {
+        ditherGradPreviewState.ccJobDirty = false;
+        ditherGradPreviewState.ccJobInFlight = true;
+        void runIdleAsync(processPendingSampledRequest);
+      }
+    }
+  };
+
+  void runIdleAsync(processPendingSampledRequest);
+
+  return {
+    didCustomFill: cachedPreview.shouldUseCustomFill,
+    suppressLivePreviewChrome: cachedPreview.shouldUseCustomFill,
   };
 };

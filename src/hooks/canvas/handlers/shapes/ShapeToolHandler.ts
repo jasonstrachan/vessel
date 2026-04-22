@@ -41,15 +41,16 @@ import { stampCcHangProbe } from '@/hooks/canvas/utils/ccHangProbe';
 import { applyPolygonMaskToCanvasContext } from '@/hooks/canvas/handlers/shapes/shapePreviewMask';
 import { logLivePreview } from '@/hooks/canvas/utils/livePreviewDebug';
 import { hashStops, type StoredStop } from '@/utils/colorCycleGradientDefs';
-import { buildSampledStops } from '@/hooks/canvas/handlers/colorCycle/ccSampling';
 import {
   canReplayCcPreview,
   computeCcPreviewRoi,
   createCcShapePreviewSampleNormalized,
   getDitherGradPreviewState,
   runCcDitherPreviewRuntime,
+  runSampledCcDitherPreviewRuntime,
   type PreparedPreviewGradient,
 } from '@/hooks/canvas/handlers/shapes/ccShapePreviewDitherRuntime';
+import { ccLog } from '@/debug/ccDebug';
 
 const SHAPE_PREVIEW_OPACITY = 0.8;
 
@@ -647,6 +648,7 @@ export const createShapeToolHandler = (
     ditherGradPreviewState.ccJobDirty = false;
     ditherGradPreviewState.ccJobInFlight = false;
     ditherGradPreviewState.ccJobSeq += 1;
+    ditherGradPreviewState.ccPendingSampledRequest = undefined;
     if (ditherGradPreviewState.ccLastCanvas) {
       canvasPool.release(ditherGradPreviewState.ccLastCanvas);
     }
@@ -3051,23 +3053,14 @@ export const createShapeToolHandler = (
           if (isColorCycleGradientPreset || isColorCycleGradientPreview) {
             const useForegroundDerived = Boolean(brushNow.colorCycleUseForegroundGradient);
             const isSampledPreviewMode = brushNow.ccGradientSource === 'sampled';
-            const localSampledPreview = isSampledPreviewMode
-              ? buildSampledStops({
-                  sourcePts: committedPolygon,
-                  sampleColor: sampleColorAtPosition,
-                  allowTiny: true,
-                })
-              : null;
             const ccPreview = storeNow.activeLayerId
               ? getPreviewGradientForActiveMark(storeNow.activeLayerId)
               : null;
             const ccStopsOverride =
-              localSampledPreview?.stops && localSampledPreview.stops.length >= 2
-                ? localSampledPreview.stops
-                : ccPreview?.source === 'sampled' &&
-                    ccPreview?.stopsStored &&
-                    ccPreview.stopsStored.length >= 2
-                  ? ccPreview.stopsStored
+              ccPreview?.source === 'sampled' &&
+              ccPreview?.stopsStored &&
+              ccPreview.stopsStored.length >= 2
+                ? ccPreview.stopsStored
                 : null;
             const fgBaseColor =
               context.deps.palette?.foregroundColor ??
@@ -3090,7 +3083,13 @@ export const createShapeToolHandler = (
               ? deriveForegroundGradientStops(derivedSpec)
               : null;
             const stops = isSampledPreviewMode
-              ? ccStopsOverride
+              ? (
+                (derivedStops && derivedStops.length >= 2
+                  ? derivedStops
+                  : brushNow.colorCycleGradient?.length
+                    ? brushNow.colorCycleGradient
+                    : DEFAULT_COLOR_CYCLE_GRADIENT)
+              )
               : (
                 ccStopsOverride ??
                 (derivedStops && derivedStops.length >= 2
@@ -3115,30 +3114,6 @@ export const createShapeToolHandler = (
                   clampForegroundDerivedBands(brushNow.colorCycleFgStops),
                 ].join(':')
               : 'none';
-            const preparedGradientKey = buildCcShapePreviewGradientCacheKey({
-              effectiveStops,
-              gradientBands: brushNow.gradientBands ?? 16,
-              ditherPaletteSpread: brushNow.ditherPaletteSpread,
-              ditherAlgorithm: brushNow.ditherAlgorithm,
-              patternStyle: brushNow.patternStyle,
-              useForegroundDerived,
-              foregroundDerivedKey,
-              previewSource: ccPreview?.source ?? (useForegroundDerived ? 'fg' : 'manual'),
-            });
-            const preparedGradient =
-              ditherGradPreviewState.ccPreparedGradientKey === preparedGradientKey &&
-              ditherGradPreviewState.ccPreparedGradient
-                ? ditherGradPreviewState.ccPreparedGradient
-                : prepareCcShapePreviewGradient({
-                    effectiveStops,
-                    shouldDitherPreview,
-                    gradientBands: brushNow.gradientBands ?? 16,
-                    ditherPaletteSpread: brushNow.ditherPaletteSpread,
-                    ditherAlgorithm: brushNow.ditherAlgorithm,
-                    preserveSourceStops,
-                  });
-            ditherGradPreviewState.ccPreparedGradientKey = preparedGradientKey;
-            ditherGradPreviewState.ccPreparedGradient = preparedGradient;
             const basePixelSize = Math.max(1, Math.round(brushNow.fillResolution ?? 1));
             const usePressure =
               Boolean(brushNow.pressureLinkedFillResolution) &&
@@ -3170,11 +3145,6 @@ export const createShapeToolHandler = (
               dirty: ditherGradPreviewState.ccJobDirty,
               seq: ditherGradPreviewState.ccJobSeq,
             });
-            if (isSampledPreviewMode && effectiveStops.length < 2) {
-              strokePreviewOutline();
-              didCustomFill = true;
-              return;
-            }
             if (shouldDitherPreview) {
               const previewRenderSettings = resolveCcShapePreviewRenderSettings({
                 pixelSize,
@@ -3199,24 +3169,69 @@ export const createShapeToolHandler = (
                 dirty: ditherGradPreviewState.ccJobDirty,
                 seq: ditherGradPreviewState.ccJobSeq,
               });
-              const runtimeResult = runCcDitherPreviewRuntime({
-                overlayCtx,
-                overlayCanvas,
-                committedPolygon,
-                brushSettings: brushNow,
-                preparedGradientKey,
-                preparedGradient,
-                ditherGradPreviewState,
-                drawingHandlers,
-                shouldKeepCachedCcPreviewVisible,
-                previewOpacity: SHAPE_PREVIEW_OPACITY,
-                schedulePolygonShapePreviewFrame,
-                getLatestPolygonPreviewPoint: () =>
-                  latestPolygonPreviewPoint
-                    ? { ...latestPolygonPreviewPoint }
-                    : null,
-                previewRenderSettings,
-              });
+              const runtimeResult = isSampledPreviewMode
+                ? runSampledCcDitherPreviewRuntime({
+                    overlayCtx,
+                    overlayCanvas,
+                    committedPolygon,
+                    brushSettings: brushNow,
+                    ditherGradPreviewState,
+                    drawingHandlers,
+                    shouldKeepCachedCcPreviewVisible,
+                    previewOpacity: SHAPE_PREVIEW_OPACITY,
+                    schedulePolygonShapePreviewFrame,
+                    getLatestPolygonPreviewPoint: () =>
+                      latestPolygonPreviewPoint
+                        ? { ...latestPolygonPreviewPoint }
+                        : null,
+                    previewRenderSettings,
+                    sampleColor: sampleColorAtPosition,
+                    fallbackStops: effectiveStops,
+                  })
+                : (() => {
+                    const preparedGradientKey = buildCcShapePreviewGradientCacheKey({
+                      effectiveStops,
+                      gradientBands: brushNow.gradientBands ?? 16,
+                      ditherPaletteSpread: brushNow.ditherPaletteSpread,
+                      ditherAlgorithm: brushNow.ditherAlgorithm,
+                      patternStyle: brushNow.patternStyle,
+                      useForegroundDerived,
+                      foregroundDerivedKey,
+                      previewSource: ccPreview?.source ?? (useForegroundDerived ? 'fg' : 'manual'),
+                    });
+                    const preparedGradient =
+                      ditherGradPreviewState.ccPreparedGradientKey === preparedGradientKey &&
+                      ditherGradPreviewState.ccPreparedGradient
+                        ? ditherGradPreviewState.ccPreparedGradient
+                        : prepareCcShapePreviewGradient({
+                            effectiveStops,
+                            shouldDitherPreview,
+                            gradientBands: brushNow.gradientBands ?? 16,
+                            ditherPaletteSpread: brushNow.ditherPaletteSpread,
+                            ditherAlgorithm: brushNow.ditherAlgorithm,
+                            preserveSourceStops,
+                          });
+                    ditherGradPreviewState.ccPreparedGradientKey = preparedGradientKey;
+                    ditherGradPreviewState.ccPreparedGradient = preparedGradient;
+                    return runCcDitherPreviewRuntime({
+                      overlayCtx,
+                      overlayCanvas,
+                      committedPolygon,
+                      brushSettings: brushNow,
+                      preparedGradientKey,
+                      preparedGradient,
+                      ditherGradPreviewState,
+                      drawingHandlers,
+                      shouldKeepCachedCcPreviewVisible,
+                      previewOpacity: SHAPE_PREVIEW_OPACITY,
+                      schedulePolygonShapePreviewFrame,
+                      getLatestPolygonPreviewPoint: () =>
+                        latestPolygonPreviewPoint
+                          ? { ...latestPolygonPreviewPoint }
+                          : null,
+                      previewRenderSettings,
+                    });
+                  })();
               stampCcHangProbe({
                 phase: 'shape-preview-after-runtime-call',
                 canvas: overlayCanvas,
@@ -3621,6 +3636,11 @@ export const createShapeToolHandler = (
     }
 
     if (isCCShape) {
+      ccLog('shape: pointerup', {
+        pointCount: drawingHandlers.shapePointsRef.current.length,
+        source: liveBrushForUp.ccGradientSource ?? null,
+      });
+      resetDitherGradOrigin();
       latestPolygonPreviewPoint = null;
       if (previewAnimationFrameRef?.current) {
         cancelAnimationFrame(previewAnimationFrameRef.current);

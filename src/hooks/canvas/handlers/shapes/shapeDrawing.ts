@@ -737,18 +737,6 @@ export const startShapeDrawing = (
             if (logCcFg) {
               debugLog('cc-fg', '[CC FG] resolved stops hash', hashStops(resolvedForHash.activeStops, kindForHash));
             }
-            deps.ccLog('shape sampled session source', {
-              layerId: activeLayer.id,
-              activeSlot: resolved.activeSlot,
-              sampledStopsLen: resolved.activeStops?.length ?? 0,
-              sampledStops: resolved.activeStops.slice(0, 8).map((stop) => ({
-                p: Number(stop.position.toFixed(3)),
-                c: stop.color,
-              })),
-              sourceKind: source,
-              fromSlotPaletteLen:
-                resolved.slotPalettes.find((entry) => entry.slot === resolved.activeSlot)?.stops?.length ?? 0,
-            });
             beginMarkGradientSession({
               layerId: activeLayer.id,
               markKind: 'shape',
@@ -806,12 +794,9 @@ export const continueShapeDrawing = (
     const state = deps.storeRef.current;
     const isCCShape = state.tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE_SHAPE;
 
-    if (isCCShape) {
-      deps.ccLog('shape: CC preview, no pause');
-    } else {
+    if (!isCCShape) {
       deps.pauseColorCycleForNonCCInteraction();
     }
-    deps.ccLog('shape: preview pause begin', { isCCShape });
     refs.ccShapePreviewPauseStartedRef.current = true;
   }
 
@@ -963,6 +948,14 @@ export const finalizeShapeDrawing = async (
 
   let ditherGradPoints: Array<{ x: number; y: number }> | null = null;
   args.refs.shapeInteractionPhaseRef.current = 'finalizing';
+  deps.ccLog('shape: finalize begin', {
+    brushShape: liveBrushSettings.brushShape,
+    isSelectingDirection: args.refs.isSelectingDirectionRef.current,
+    isDrawingShape: args.refs.isDrawingShapeRef.current,
+    pointCount: args.refs.shapePointsRef.current.length,
+    polygonPointCount,
+    source: liveBrushSettings.ccGradientSource ?? null,
+  });
 
   void args.refs.finalizeQueueRef.current.enqueue(async () => {
     let finalizeTriggered = false;
@@ -1092,11 +1085,18 @@ export const finalizeShapeDrawing = async (
             const currentFinalizeState = deps.storeRef.current;
             const sampledFinalizeSource = isSampledCcShapeDrag(currentFinalizeState);
             if (sampledFinalizeSource && activeLayer) {
+              deps.ccLog('shape: sampled session begin', {
+                layerId: activeLayer.id,
+                pointCount: shapePointsSnapshot.length,
+              });
               beginFinalSampledShapeSession({
                 layer: activeLayer,
                 state: currentFinalizeState,
                 shapePoints: shapePointsSnapshot,
                 deps,
+              });
+              deps.ccLog('shape: sampled session end', {
+                layerId: activeLayer.id,
               });
             }
             const session = finalizeMarkGradientSession(shapeLayerIdString)
@@ -1282,11 +1282,18 @@ export const finalizeShapeDrawing = async (
                 const currentFinalizeState = deps.storeRef.current;
                 const sampledFinalizeSource = isSampledCcShapeDrag(currentFinalizeState);
                 if (sampledFinalizeSource && activeLayer) {
+                  deps.ccLog('shape: sampled session begin', {
+                    layerId: activeLayer.id,
+                    pointCount: shapePointsSnapshot.length,
+                  });
                   beginFinalSampledShapeSession({
                     layer: activeLayer,
                     state: currentFinalizeState,
                     shapePoints: shapePointsSnapshot,
                     deps,
+                  });
+                  deps.ccLog('shape: sampled session end', {
+                    layerId: activeLayer.id,
                   });
                 }
                 const session = finalizeMarkGradientSession(shapeLayerIdString)
@@ -1372,6 +1379,10 @@ export const finalizeShapeDrawing = async (
           await deps.resumeColorCycleAfterInteraction();
           deps.resetPolygonState();
           if (deps.isBusyRef) deps.isBusyRef.current = false;
+          deps.ccLog('shape: finalize end', {
+            kind: 'color-cycle',
+            handled: true,
+          });
           finalizeTriggered = true;
           return true;
         }
@@ -1411,6 +1422,10 @@ export const finalizeShapeDrawing = async (
         if (rasterHandled) {
           finalizeTriggered = true;
           args.refs.ccShapePreviewPauseStartedRef.current = false;
+          deps.ccLog('shape: finalize end', {
+            kind: 'raster',
+            handled: true,
+          });
           return true;
         }
 
@@ -1419,6 +1434,10 @@ export const finalizeShapeDrawing = async (
         finalizeTriggered = true;
         args.refs.ccShapePreviewPauseStartedRef.current = false;
         await deps.resumeColorCycleAfterInteraction();
+        deps.ccLog('shape: finalize end', {
+          kind: 'fallback',
+          handled: true,
+        });
         return true;
       }
 
@@ -1440,6 +1459,10 @@ export const finalizeShapeDrawing = async (
         await deps.finalizeDrawing();
         finalizeTriggered = true;
         deps.resetPolygonState();
+        deps.ccLog('shape: finalize end', {
+          kind: 'fallback',
+          handled: true,
+        });
       }
       return true;
     };
