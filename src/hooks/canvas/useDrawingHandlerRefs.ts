@@ -10,6 +10,8 @@ import { EraserTool } from '@/tools/EraserTool';
 import { createPixelQueue } from '@/hooks/brushEngine/strokeProcessor';
 import type { CcFlowVelocityState } from '@/utils/colorCycleFlowVelocity';
 
+export type ShapeInteractionPhase = 'idle' | 'drawing' | 'finalizing';
+
 export const useDrawingHandlerRefs = () => {
   const feedbackMessageRef = useRef<((message: string) => void) | null>(null);
 
@@ -32,6 +34,7 @@ export const useDrawingHandlerRefs = () => {
 
   const shapePointsRef = useRef<Array<{ x: number; y: number }>>([]);
   const isDrawingShapeRef = useRef(false);
+  const shapeInteractionPhaseRef = useRef<ShapeInteractionPhase>('idle');
   const isSelectingDirectionRef = useRef(false);
   const directionPreviewRef = useRef<{ x: number; y: number } | null>(null);
   const shapeDragStartRef = useRef<{ x: number; y: number } | null>(null);
@@ -117,6 +120,7 @@ export const useDrawingHandlerRefs = () => {
     lastDrawTimestampRef,
     shapePointsRef,
     isDrawingShapeRef,
+    shapeInteractionPhaseRef,
     isSelectingDirectionRef,
     directionPreviewRef,
     shapeDragStartRef,

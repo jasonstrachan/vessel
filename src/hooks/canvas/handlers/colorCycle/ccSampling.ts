@@ -52,7 +52,7 @@ const buildSingleSampleAnimatedStops = (color: string): StoredStop[] => {
   ];
 };
 
-const buildSampledStops = (params: {
+export const buildSampledStops = (params: {
   sourcePts: Array<{ x: number; y: number }>;
   sampleColor: (x: number, y: number) => string;
   allowTiny: boolean;

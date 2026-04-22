@@ -28,6 +28,7 @@ export const useDrawingShapeRuntimeBridge = ({
     strokeCapturePaddingRef,
     shapePointsRef,
     isDrawingShapeRef,
+    shapeInteractionPhaseRef,
   } = refs;
 
   const {
@@ -70,6 +71,7 @@ export const useDrawingShapeRuntimeBridge = ({
     strokeCapturePaddingRef,
     shapePointsRef,
     isDrawingShapeRef,
+    shapeInteractionPhaseRef,
   });
 
   const { drawEraserSegment, seedManualStrokeBoundingBox } = useStrokeBoundaryCallbacks({

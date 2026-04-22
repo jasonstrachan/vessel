@@ -41,6 +41,7 @@ import { stampCcHangProbe } from '@/hooks/canvas/utils/ccHangProbe';
 import { applyPolygonMaskToCanvasContext } from '@/hooks/canvas/handlers/shapes/shapePreviewMask';
 import { logLivePreview } from '@/hooks/canvas/utils/livePreviewDebug';
 import { hashStops, type StoredStop } from '@/utils/colorCycleGradientDefs';
+import { buildSampledStops } from '@/hooks/canvas/handlers/colorCycle/ccSampling';
 import {
   canReplayCcPreview,
   computeCcPreviewRoi,
@@ -124,6 +125,10 @@ const getPolygonPreviewAnchors = (previewModel: PolygonPreviewModel): PreviewPoi
 
   return previewModel.committedPolygon;
 };
+
+const isSampledCcShapePreview = (brushSettings: BrushSettings): boolean =>
+  brushSettings.brushShape === BrushShape.COLOR_CYCLE_SHAPE &&
+  brushSettings.ccGradientSource === 'sampled';
 
 type ShapeAdjustHelperUpdate = {
   spacing: number;
@@ -2783,6 +2788,7 @@ export const createShapeToolHandler = (
       drawingHandlers.stopContinuousColorCycleAnimation?.('shape-tool-start');
       const storeNow = useAppStore.getState();
       const brushNow = storeNow.tools.brushSettings;
+      const sampledCcPreview = isSampledCcShapePreview(brushNow);
       const isCCLinear = brushNow.colorCycleFillMode === 'linear';
       const presetId = context.deps.dynamicDepsRef.current.currentBrushPresetId;
       const isCCGradientPreset = presetId === 'color-cycle-gradient';
@@ -2794,10 +2800,11 @@ export const createShapeToolHandler = (
       logLivePreview('cc-shape-preview-mode', {
         phase: 'start',
         shouldDitherPreview,
-        renderPreview: !suppressCCPreview,
+        renderPreview: sampledCcPreview ? false : !suppressCCPreview,
+        sampledCcPreview,
       });
       const didStart = drawingHandlers.startShapeDrawing(worldPos, pressure, undefined, undefined, {
-        renderPreview: !suppressCCPreview,
+        renderPreview: sampledCcPreview ? false : !suppressCCPreview,
       });
       if (didStart) {
         interaction.dispatch({ type: 'DRAWING_START' });
@@ -2892,9 +2899,12 @@ export const createShapeToolHandler = (
 
     let shouldShowPreview: boolean;
     if (isCCShape) {
+      const sampledCcPreview = isSampledCcShapePreview(tools.brushSettings);
       // Pause only while the user is actively drawing, not mere hover/preview.
       if (isActivelyDrawing) {
-        drawingHandlers.stopContinuousColorCycleAnimation?.('shape-tool-drag');
+        if (!sampledCcPreview) {
+          drawingHandlers.stopContinuousColorCycleAnimation?.('shape-tool-drag');
+        }
       } else {
         // Keep animation running during hover (no drawing) for CC shapes.
         restartColorCycleAnimation?.();
@@ -2916,14 +2926,17 @@ export const createShapeToolHandler = (
           (isCCLinear || isCCGradientPreset) &&
           Boolean(brushNow.ditherEnabled);
         const suppressCCPreview = false;
+        const renderPreview = sampledCcPreview ? false : !suppressCCPreview;
         logLivePreview('cc-shape-preview-mode', {
           phase: 'move',
           shouldDitherPreview,
-          renderPreview: !suppressCCPreview,
+          renderPreview,
           isDrawingShape: drawingHandlers.isDrawingShapeRef.current,
+          ccGradientSource: brushNow.ccGradientSource ?? null,
+          sampledCcPreview,
         });
         drawingHandlers.continueShapeDrawing(previewWorld, pressure, nowTs, event.pressure, {
-          renderPreview: !suppressCCPreview,
+          renderPreview,
         });
       }
 
@@ -3038,24 +3051,23 @@ export const createShapeToolHandler = (
           if (isColorCycleGradientPreset || isColorCycleGradientPreview) {
             const useForegroundDerived = Boolean(brushNow.colorCycleUseForegroundGradient);
             const isSampledPreviewMode = brushNow.ccGradientSource === 'sampled';
-            if (
-              isSampledPreviewMode &&
-              storeNow.activeLayerId &&
-              typeof drawingHandlers.updateCcSampledGradient === 'function'
-            ) {
-              drawingHandlers.updateCcSampledGradient(committedPolygon, {
-                layerId: storeNow.activeLayerId,
-                markKind: 'shape',
-              });
-            }
+            const localSampledPreview = isSampledPreviewMode
+              ? buildSampledStops({
+                  sourcePts: committedPolygon,
+                  sampleColor: sampleColorAtPosition,
+                  allowTiny: true,
+                })
+              : null;
             const ccPreview = storeNow.activeLayerId
               ? getPreviewGradientForActiveMark(storeNow.activeLayerId)
               : null;
             const ccStopsOverride =
-              ccPreview?.source === 'sampled' &&
-              ccPreview?.stopsStored &&
-              ccPreview.stopsStored.length >= 2
-                ? ccPreview.stopsStored
+              localSampledPreview?.stops && localSampledPreview.stops.length >= 2
+                ? localSampledPreview.stops
+                : ccPreview?.source === 'sampled' &&
+                    ccPreview?.stopsStored &&
+                    ccPreview.stopsStored.length >= 2
+                  ? ccPreview.stopsStored
                 : null;
             const fgBaseColor =
               context.deps.palette?.foregroundColor ??
