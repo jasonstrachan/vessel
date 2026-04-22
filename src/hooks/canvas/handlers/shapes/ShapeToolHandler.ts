@@ -41,6 +41,7 @@ import { stampCcHangProbe } from '@/hooks/canvas/utils/ccHangProbe';
 import { applyPolygonMaskToCanvasContext } from '@/hooks/canvas/handlers/shapes/shapePreviewMask';
 import { logLivePreview } from '@/hooks/canvas/utils/livePreviewDebug';
 import { hashStops, type StoredStop } from '@/utils/colorCycleGradientDefs';
+import { simplifyToVertexLimit } from '@/utils/polygonSimplify';
 import {
   canReplayCcPreview,
   computeCcPreviewRoi,
@@ -68,26 +69,17 @@ const shouldKeepCachedCcPreviewVisible = (params: {
 
 const LIVE_SHAPE_PREVIEW_MAX_POINTS = 256;
 
-const capLiveShapePreviewPoints = (points: PreviewPoint[]): PreviewPoint[] => {
+const simplifyLiveShapePreviewPoints = (points: PreviewPoint[]): PreviewPoint[] => {
   if (points.length <= LIVE_SHAPE_PREVIEW_MAX_POINTS) {
     return points.map((point) => ({ x: point.x, y: point.y }));
   }
 
-  const lastIndex = points.length - 1;
-  const step = lastIndex / (LIVE_SHAPE_PREVIEW_MAX_POINTS - 1);
-  const capped: PreviewPoint[] = [];
-  for (let i = 0; i < LIVE_SHAPE_PREVIEW_MAX_POINTS; i += 1) {
-    const index = i === LIVE_SHAPE_PREVIEW_MAX_POINTS - 1
-      ? lastIndex
-      : Math.min(lastIndex, Math.round(i * step));
-    const point = points[index];
-    const prev = capped[capped.length - 1];
-    if (!prev || prev.x !== point.x || prev.y !== point.y) {
-      capped.push({ x: point.x, y: point.y });
-    }
-  }
-
-  return capped;
+  const simplified = simplifyToVertexLimit(points, LIVE_SHAPE_PREVIEW_MAX_POINTS, {
+    initialTolerance: 0.25,
+    maxTolerance: 12,
+    stepFactor: 1.4,
+  });
+  return simplified.map((point) => ({ x: point.x, y: point.y }));
 };
 
 type PolygonPreviewModel = {
@@ -101,10 +93,15 @@ const buildPolygonPreviewModel = (
   points: PreviewPoint[],
   previewPoint: PreviewPoint
 ): PolygonPreviewModel => {
-  const committedPolygon = capLiveShapePreviewPoints(points);
-  const firstAnchor = points.length > 0 ? { x: points[0].x, y: points[0].y } : null;
-  const lastAnchor = points.length > 0
-    ? { x: points[points.length - 1].x, y: points[points.length - 1].y }
+  const committedPolygon = simplifyLiveShapePreviewPoints(points);
+  const firstAnchor = committedPolygon.length > 0
+    ? { x: committedPolygon[0].x, y: committedPolygon[0].y }
+    : null;
+  const lastAnchor = committedPolygon.length > 0
+    ? {
+        x: committedPolygon[committedPolygon.length - 1].x,
+        y: committedPolygon[committedPolygon.length - 1].y,
+      }
     : null;
   const guideSegment =
     lastAnchor && !pointsMatch(lastAnchor, previewPoint)
@@ -2969,6 +2966,13 @@ export const createShapeToolHandler = (
         return;
       }
 
+      if (tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE_SHAPE) {
+        ccLog('shape: preview frame', {
+          pointCount: points.length,
+          source: tools.brushSettings.ccGradientSource ?? null,
+        });
+      }
+
       overlayCtx.save();
       overlayCtx.imageSmoothingEnabled = false;
       overlayCtx.translate(viewTransformRef.current.offsetX, viewTransformRef.current.offsetY);
@@ -3152,6 +3156,13 @@ export const createShapeToolHandler = (
                 algorithm: brushNow.ditherAlgorithm ?? 'sierra-lite',
                 patternStyle: brushNow.patternStyle ?? 'dots',
               });
+              if (isSampledPreviewMode) {
+                ccLog('shape: sampled preview dispatch', {
+                  pointCount: committedPolygon.length,
+                  pixelSize: previewRenderSettings.pixelSize,
+                  levels: previewRenderSettings.levels,
+                });
+              }
               stampCcHangProbe({
                 phase: 'shape-preview-before-runtime',
                 canvas: overlayCanvas,
@@ -3179,14 +3190,14 @@ export const createShapeToolHandler = (
                     drawingHandlers,
                     shouldKeepCachedCcPreviewVisible,
                     previewOpacity: SHAPE_PREVIEW_OPACITY,
+                    previewRenderSettings,
+                    sampleColor: sampleColorAtPosition,
+                    fallbackStops: effectiveStops,
                     schedulePolygonShapePreviewFrame,
                     getLatestPolygonPreviewPoint: () =>
                       latestPolygonPreviewPoint
                         ? { ...latestPolygonPreviewPoint }
                         : null,
-                    previewRenderSettings,
-                    sampleColor: sampleColorAtPosition,
-                    fallbackStops: effectiveStops,
                   })
                 : (() => {
                     const preparedGradientKey = buildCcShapePreviewGradientCacheKey({

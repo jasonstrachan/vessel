@@ -418,17 +418,6 @@ describe('ShapeToolHandler CC dither preview replay', () => {
     overlayCanvas.height = 256;
     (overlayCanvas as any).getContext = jest.fn(() => overlayCtx);
 
-    const previewAnimationFrameRef = { current: null as number | null };
-    const schedulePolygonShapePreviewFrame = jest.fn((resolvePreviewPoint: () => { x: number; y: number } | null) => {
-      if (previewAnimationFrameRef.current != null) {
-        return;
-      }
-      previewAnimationFrameRef.current = requestAnimationFrame(() => {
-        resolvePreviewPoint();
-        previewAnimationFrameRef.current = null;
-      });
-    });
-
     runSampledCcDitherPreviewRuntime({
       overlayCtx,
       overlayCanvas,
@@ -452,8 +441,6 @@ describe('ShapeToolHandler CC dither preview replay', () => {
       },
       shouldKeepCachedCcPreviewVisible: () => false,
       previewOpacity: 0.8,
-      schedulePolygonShapePreviewFrame,
-      getLatestPolygonPreviewPoint: () => ({ x: 20, y: 20 }),
       previewRenderSettings: {
         pixelSize: 1,
         levels: 8,
@@ -466,6 +453,8 @@ describe('ShapeToolHandler CC dither preview replay', () => {
         { position: 0, color: '#000000' },
         { position: 1, color: '#ffffff' },
       ],
+      schedulePolygonShapePreviewFrame: jest.fn(),
+      getLatestPolygonPreviewPoint: () => ({ x: 10, y: 10 }),
     });
 
     expect(buildSampledStops).not.toHaveBeenCalled();
@@ -521,8 +510,6 @@ describe('ShapeToolHandler CC dither preview replay', () => {
       },
       shouldKeepCachedCcPreviewVisible: () => false,
       previewOpacity: 0.8,
-      schedulePolygonShapePreviewFrame: jest.fn(),
-      getLatestPolygonPreviewPoint: () => ({ x: 20, y: 20 }),
       previewRenderSettings: {
         pixelSize: 1,
         levels: 8,
@@ -535,6 +522,8 @@ describe('ShapeToolHandler CC dither preview replay', () => {
         { position: 0, color: '#000000' },
         { position: 1, color: '#ffffff' },
       ],
+      schedulePolygonShapePreviewFrame: jest.fn(),
+      getLatestPolygonPreviewPoint: () => ({ x: 10, y: 10 }),
     });
 
     jest.runOnlyPendingTimers();

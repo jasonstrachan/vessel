@@ -18,6 +18,7 @@ import { stampCcHangProbe } from '@/hooks/canvas/utils/ccHangProbe';
 import { parseCssColorToRgba } from '@/hooks/canvas/utils/colorCycleHelpers';
 import { buildSampledStops } from '@/hooks/canvas/handlers/colorCycle/ccSampling';
 import { runIdleAsync } from '@/hooks/canvas/utils/idle';
+import { ccLog } from '@/debug/ccDebug';
 
 export type PreparedPreviewGradient = {
   renderStops: StoredStop[];
@@ -516,7 +517,7 @@ const drawCachedCcPreview = ({
   }) => boolean;
   nextPreviewRoi: CcPreviewRoi;
   replayKey: string;
-}): { shouldUseCustomFill: boolean } => {
+}): { shouldUseCustomFill: boolean; canReplayCurrentPreview: boolean } => {
   const canReplayCurrentPreview =
     ditherGradPreviewState.ccLastCanvas &&
     canReplayCcPreview(
@@ -560,6 +561,7 @@ const drawCachedCcPreview = ({
 
   return {
     shouldUseCustomFill: Boolean(shouldDrawCachedPreview),
+    canReplayCurrentPreview: Boolean(canReplayCurrentPreview),
   };
 };
 
@@ -1023,13 +1025,13 @@ export const runSampledCcDitherPreviewRuntime = (args: {
     jobInFlight: boolean;
   }) => boolean;
   previewOpacity: number;
+  previewRenderSettings: CcPreviewRenderSettings;
+  sampleColor: (x: number, y: number) => string;
+  fallbackStops: StoredStop[];
   schedulePolygonShapePreviewFrame: (
     resolvePreviewPoint: () => { x: number; y: number } | null
   ) => void;
   getLatestPolygonPreviewPoint: () => { x: number; y: number } | null;
-  previewRenderSettings: CcPreviewRenderSettings;
-  sampleColor: (x: number, y: number) => string;
-  fallbackStops: StoredStop[];
 }): { didCustomFill: boolean; suppressLivePreviewChrome: boolean } => {
   const {
     overlayCtx,
@@ -1040,11 +1042,11 @@ export const runSampledCcDitherPreviewRuntime = (args: {
     drawingHandlers,
     shouldKeepCachedCcPreviewVisible,
     previewOpacity,
-    schedulePolygonShapePreviewFrame,
-    getLatestPolygonPreviewPoint,
     previewRenderSettings,
     sampleColor,
     fallbackStops,
+    schedulePolygonShapePreviewFrame,
+    getLatestPolygonPreviewPoint,
   } = args;
 
   const previewGeometry = prepareCcPreviewGeometry({
@@ -1066,6 +1068,13 @@ export const runSampledCcDitherPreviewRuntime = (args: {
     nextPreviewRoi: previewGeometry.roi,
     replayKey,
   });
+
+  if (cachedPreview.canReplayCurrentPreview && !ditherGradPreviewState.ccJobInFlight) {
+    return {
+      didCustomFill: cachedPreview.shouldUseCustomFill,
+      suppressLivePreviewChrome: cachedPreview.shouldUseCustomFill,
+    };
+  }
 
   ditherGradPreviewState.ccPendingSampledRequest = {
     replayKey,
@@ -1103,11 +1112,19 @@ export const runSampledCcDitherPreviewRuntime = (args: {
           previewRenderSettings: sampledPreviewRenderSettings,
           sampleColor: sampledColorFn,
         } = request;
+        ccLog('shape: sampled preview worker begin', {
+          pointCount: sampledGeometry.previewPolygon.length,
+          pixelSize: sampledPreviewRenderSettings.pixelSize,
+          levels: sampledPreviewRenderSettings.levels,
+        });
 
         const sampledPreview = buildSampledStops({
           sourcePts: sampledGeometry.previewPolygon,
           sampleColor: sampledColorFn,
           allowTiny: true,
+        });
+        ccLog('shape: sampled preview stops ready', {
+          stopCount: sampledPreview?.stops?.length ?? request.fallbackStops.length,
         });
         const effectiveStops =
           sampledPreview?.stops && sampledPreview.stops.length >= 2
@@ -1257,6 +1274,11 @@ export const runSampledCcDitherPreviewRuntime = (args: {
             data[px + 3] = Math.round(a);
           },
         });
+        ccLog('shape: sampled preview fill end', {
+          pointCount: sampledGeometry.previewPolygon.length,
+          scaledW,
+          scaledH,
+        });
 
         if (mySeq !== ditherGradPreviewState.ccJobSeq) {
           continue;
@@ -1302,6 +1324,10 @@ export const runSampledCcDitherPreviewRuntime = (args: {
             origin: { ...origin },
           };
         }
+        ccLog('shape: sampled preview publish', {
+          scaledW,
+          scaledH,
+        });
         schedulePolygonShapePreviewFrame(() => getLatestPolygonPreviewPoint());
       }
     } catch {

@@ -58,13 +58,11 @@ export default function DevDebugOverlay() {
     };
 
     refresh();
-    const intervalId = window.setInterval(refresh, 500);
     const handleOverlayUpdate = () => refresh();
     window.addEventListener(DEV_DEBUG_OVERLAY_EVENT, handleOverlayUpdate);
     window.addEventListener('storage', handleOverlayUpdate);
 
     return () => {
-      window.clearInterval(intervalId);
       window.removeEventListener(DEV_DEBUG_OVERLAY_EVENT, handleOverlayUpdate);
       window.removeEventListener('storage', handleOverlayUpdate);
     };
