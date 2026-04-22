@@ -6,11 +6,12 @@ Scope
 
 - `BrushShape.COLOR_CYCLE_SHAPE`
 - Shape-mode preview path
-- All CC gradient variants share the preview pipeline:
+- All CC gradient variants share the preview controller contract:
   - `sampled`
   - `fg`
   - `manual`
 - The primary pathological case is `sampled`, especially the flat-color / `1`-band / `sierra-lite` preview path.
+- `sampled` is allowed to use stricter request throttling, stronger geometry simplification, and harsher fallback behavior than `fg` and `manual`.
 
 Goal
 
@@ -23,6 +24,8 @@ Current problem
 
 - The current live preview path still does too much work on or near the live frame path.
 - Even after guardrails, sampled CC shape drag can still hang because the preview pipeline continues to schedule and execute heavy sampled fill work while the pointer is moving.
+- Recent logs also showed large resample bursts even when sampled update count was `0` and preview draw cost looked small.
+- That means the problem is not only sampled fill work. Unbounded geometry generation is also a first-class failure mode.
 - Small guardrail patches are not sufficient for the full live sampled fill preview requirement.
 
 Non-goals
@@ -53,6 +56,27 @@ Design principles
    - Preview should use the same settings family as finalize.
    - Finalize remains the source of truth for the actual committed output.
 
+6. Bound geometry before preview work begins.
+   - Live shape geometry generation must be bounded.
+   - Per-move point insertion must be capped.
+   - Preview requests operate on bounded geometry, never raw unbounded drag input.
+
+Bounded geometry requirements
+
+- Raw drag points are not the preview/render contract.
+- Per-move insertions must be capped.
+- Total live preview points must be capped.
+- Preview request construction must consume simplified bounded geometry.
+- `simplifiedPolygon` is mandatory and is the primary preview geometry for rendering.
+- Finalize may consume higher-fidelity geometry, but preview never does.
+
+Budgets
+
+- Max request build frequency must be bounded.
+- Max polygon points entering request build must be bounded.
+- Max ROI size for preview rendering must be bounded.
+- In-flight canvas and buffer sizes must be reused and bounded.
+
 Architecture
 
 ## Lane A: Immediate live frame paint
@@ -67,6 +91,8 @@ Responsibilities
 - Update geometry.
 - Draw outline, anchors, and guide segment immediately.
 - Draw the latest cached fill preview if one exists.
+- If no cached fill exists yet, draw outline/anchors only or a deliberately cheap coarse fallback.
+- Never block waiting for the first async fill result.
 - Publish the latest desired preview request to the async controller.
 
 Constraints
@@ -122,6 +148,10 @@ Rules
 - Request construction may read live state.
 - Async rendering may not depend on mutable live state after request creation.
 - Sampled preview stops are derived locally for the request only.
+- Every request must leave the builder with a valid preview-stop payload.
+- If sampled derivation fails, downgrade once to a stable fallback stop set before the request is emitted.
+- The renderer must never receive a request in a `sampled` but `no usable preview stops` state.
+- `simplifiedPolygon` is mandatory, bounded, and is the geometry the renderer consumes.
 
 Variant behavior
 
@@ -131,6 +161,9 @@ Variant behavior
 - Request builder derives sampled stops from current drag geometry and the pixel sampler.
 - No drag-time store or session mutation.
 - No mark-session dependency for preview.
+- May use stricter request throttling than `fg` and `manual`.
+- May use stronger geometry simplification than `fg` and `manual`.
+- May fall back more aggressively to stable preview stops when sampled derivation is weak or unavailable.
 
 ## FG
 
@@ -193,53 +226,70 @@ Behavior
 - On completion, stale results are discarded.
 - If a pending request exists, launch exactly one new render for it.
 
+Finalize isolation
+
+- Pointerdown must be rejected while finalize is active.
+- Preview controller jobs must be invalidated on finalize start.
+- No preview result may publish after finalize has claimed authority for that shape.
+- Finalize is authoritative and isolated, not just unchanged in quality.
+
 Implementation plan
 
-1. Map the current CC shape preview flow for `sampled`, `fg`, and `manual`.
+1. Bound geometry and clamp resampling first.
+   - Ensure live preview cannot be fed runaway shape input.
+   - Make bounded preview geometry a prerequisite for the controller redesign.
+
+2. Map the current CC shape preview flow for `sampled`, `fg`, and `manual`.
    - `ShapeToolHandler` pointer move
    - preview scheduling
    - `renderPolygonShapePreviewFrame`
    - `ccShapePreviewDitherRuntime`
    - finalize handoff
 
-2. Introduce a dedicated preview controller state.
+3. Introduce a dedicated preview controller state.
    - Store latest requested preview state separately from cached completed preview state.
 
-3. Extract pure request-building helpers from `ShapeToolHandler`.
+4. Extract pure request-building helpers from `ShapeToolHandler`.
    - Build frozen request objects for the controller.
+   - Enforce bounded geometry and valid preview-stop payload invariants here.
 
-4. Refactor `ShapeToolHandler` live preview.
+5. Refactor `ShapeToolHandler` live preview.
    - Frame path paints geometry and cached fill only.
    - Heavy fill recompute leaves the live frame path.
 
-5. Refactor `ccShapePreviewDitherRuntime`.
+6. Refactor `ccShapePreviewDitherRuntime`.
    - Accept frozen requests.
    - Run latest-only async rendering.
    - Drop stale results.
    - Never recursively pile up frame work.
 
-6. Unify all CC gradient variants on the same controller.
-   - `sampled`, `fg`, and `manual` should share controller semantics.
+7. Unify all CC gradient variants on the same controller contract.
+   - `sampled`, `fg`, and `manual` share controller semantics.
+   - `sampled` may keep stricter throttling, stronger simplification, and stronger fallback rules.
 
-7. Preserve finalize unchanged.
+8. Preserve finalize authority and isolation.
    - Cancel or invalidate stale preview work on pointer up and finalize.
-   - Finalize remains authoritative.
+   - Finalize remains authoritative and isolated.
 
-8. Add instrumentation.
+9. Add instrumentation.
    - Request count
    - Completed render count
    - Dropped stale render count
    - Last render latency
+   - Bounded point counts under worst-case drag
+   - Missing sampled stops occurrences
 
-9. Add tests.
+10. Add tests.
    - Latest-only replacement behavior
    - Stale-result suppression
    - Cached fill reuse while render is in flight
    - No drag-time sampled session/store mutation
    - Shared variant coverage for `sampled` / `fg` / `manual`
    - Cleanup on pointer up and finalize
+   - Request builder always emits valid preview stops
+   - Bounded point counts and bounded request geometry under worst-case fast drag
 
-10. Validate manually.
+11. Validate manually.
    - Sampled CC shape drag
    - FG CC shape drag
    - Manual CC shape drag
@@ -252,6 +302,9 @@ Success criteria
 - Live preview remains visible during drag.
 - Preview stays close to finalize.
 - Finalize output remains unchanged in quality and correctness.
+- No repeated `missing sampled stops` condition during a single drag.
+- No drag-time store or session writes for sampled preview.
+- Bounded point counts under worst-case fast drag.
 
 Files likely involved
 

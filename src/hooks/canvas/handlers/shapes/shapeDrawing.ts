@@ -1239,6 +1239,7 @@ export const finalizeShapeDrawing = async (
                 (pt): pt is { x: number; y: number } => Boolean(pt)
               );
               const shapePointsSnapshot = [...points];
+              const currentFinalizeState = deps.storeRef.current;
               const activeLayerCanvas = activeLayer?.colorCycleData?.canvas ?? null;
               const overlayCtx = drawCtx;
               const overlayCanvas = deps.drawingCanvasRef.current;
@@ -1279,7 +1280,6 @@ export const finalizeShapeDrawing = async (
                   ditherPixelSize = pixelSize;
                 }
                 const keepOverlayAfter = shouldKeepColorCycleShapeOverlayAfterFinalize();
-                const currentFinalizeState = deps.storeRef.current;
                 const sampledFinalizeSource = isSampledCcShapeDrag(currentFinalizeState);
                 if (sampledFinalizeSource && activeLayer) {
                   deps.ccLog('shape: sampled session begin', {
