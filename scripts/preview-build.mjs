@@ -9,7 +9,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 const require = createRequire(import.meta.url);
-const { LOCALSTORAGE_FLAG, mergeNodeOptions, stripLocalStorageFlag } = require('./node-options.cjs');
+const { stripLocalStorageFlag } = require('./node-options.cjs');
 const { createRuntimeLogger } = require('./runtime-logger.cjs');
 
 const logger = createRuntimeLogger('preview-build');
@@ -54,16 +54,13 @@ const shouldCopyPath = (source) => {
 
 const runBuild = async (cwd) => {
   const env = { ...process.env };
-  const baseOptions = stripLocalStorageFlag(env.NODE_OPTIONS);
-  const storagePath = env.LOCALSTORAGE_FILE_PATH || '/tmp/vessel-localstorage';
-
-  env.NODE_OPTIONS = mergeNodeOptions(baseOptions, `${LOCALSTORAGE_FLAG}=${storagePath}`);
+  env.NODE_OPTIONS = stripLocalStorageFlag(env.NODE_OPTIONS);
   env.NEXT_DIST_DIR = previewDistDirName;
 
-  const nextBin = path.resolve(projectRoot, 'node_modules/.bin/next');
+  const nextBin = path.resolve(projectRoot, 'node_modules/next/dist/bin/next');
 
   await new Promise((resolve, reject) => {
-    const child = spawn(nextBin, ['build'], {
+    const child = spawn(process.execPath, [nextBin, 'build'], {
       cwd,
       env,
       stdio: ['inherit', 'pipe', 'pipe'],
