@@ -132,21 +132,6 @@ const persistCommittedSampledSlot = (
       gradient: nextStops,
     },
   }, { skipColorCycleSync: true });
-  const nextState = useAppStore.getState();
-  const nextLayer = nextState.layers.find((candidate) => candidate.id === layerId);
-  const activeSlotPaletteStopCount =
-    nextLayer?.layerType === 'color-cycle' && nextLayer.colorCycleData
-      ? (nextLayer.colorCycleData.slotPalettes?.find((entry) => entry.slot === slot)?.stops?.length ?? 0)
-      : 0;
-  ccLog('persist committed sampled slot', {
-    paintSlot: slot,
-    'paintStops.length': nextStops.length,
-    'gradient.length':
-      nextLayer?.layerType === 'color-cycle' && nextLayer.colorCycleData
-        ? (nextLayer.colorCycleData.gradient?.length ?? 0)
-        : 0,
-    'active slot palette stop count': activeSlotPaletteStopCount,
-  });
   requestGradientApply(layerId, 'shape-commit-sampled-slot');
   flushGradientApply(layerId);
 };
@@ -378,12 +363,6 @@ type CcDitherRenderSession = Pick<
   'binding' | 'frozenStopsStored' | 'frozenHash' | 'source' | 'gradientKind' | 'speedCps'
 >;
 
-const summarizeCcDebugStops = (stops: GradientStop[] | null | undefined) =>
-  (stops ?? []).slice(0, 8).map((stop) => ({
-    p: Number(stop.position.toFixed(3)),
-    c: stop.color,
-  }));
-
 const resolveDitherRenderSession = ({
   layerId,
   session,
@@ -400,21 +379,6 @@ const resolveDitherRenderSession = ({
     Boolean(session.ditherRenderConfig?.enabled) || (!session.ditherRenderConfig && brushSettings.ditherEnabled);
   if (!session.frozenStopsStored?.length || !shouldUseSessionDither) {
     const runtimeStops = resolveMarkSessionRuntimeStops(session, session.frozenStopsStored);
-    ccLog('shape finalize render session', {
-      markId: session.markId,
-      layerId,
-      source: session.source,
-      frozenStopsLen: session.frozenStopsStored.length,
-      frozenStops: summarizeCcDebugStops(session.frozenStopsStored),
-      renderStopsLen: runtimeStops.length,
-      renderStops: summarizeCcDebugStops(runtimeStops),
-      bindingSlot: session.binding?.slot ?? null,
-      bindingDefId: session.binding?.defId ?? null,
-      spread: session.ditherRenderConfig?.spread ?? brushSettings.ditherPaletteSpread ?? null,
-      algorithm: session.ditherRenderConfig?.algorithm ?? brushSettings.ditherAlgorithm ?? null,
-      pairBandCount: session.ditherRenderConfig?.pairBandCount ?? 0,
-      paintSlotBeforeCommit: useAppStore.getState().layers.find((layer) => layer.id === layerId)?.colorCycleData?.paintSlot ?? null,
-    });
     return {
       binding: session.binding,
       frozenStopsStored: runtimeStops,
@@ -437,23 +401,6 @@ const resolveDitherRenderSession = ({
         resolveCcDitherBandMode(brushSettings.gradientBands ?? 16).pairBandCount) <= 0 &&
       (session.ditherRenderConfig?.algorithm ?? brushSettings.ditherAlgorithm ?? 'sierra-lite') === 'sierra-lite',
     debugContext: 'finalize-render-session',
-  });
-  ccLog('shape finalize render session', {
-    markId: session.markId,
-    layerId,
-    source: session.source,
-    frozenStopsLen: session.frozenStopsStored.length,
-    frozenStops: summarizeCcDebugStops(session.frozenStopsStored),
-    renderStopsLen: renderPalette.renderStops.length,
-    renderStops: summarizeCcDebugStops(renderPalette.renderStops),
-    bindingSlot: session.binding?.slot ?? null,
-    bindingDefId: session.binding?.defId ?? null,
-    spread: session.ditherRenderConfig?.spread ?? brushSettings.ditherPaletteSpread ?? null,
-    algorithm: session.ditherRenderConfig?.algorithm ?? brushSettings.ditherAlgorithm ?? null,
-    pairBandCount:
-      session.ditherRenderConfig?.pairBandCount ??
-      resolveCcDitherBandMode(brushSettings.gradientBands ?? 16).pairBandCount,
-    paintSlotBeforeCommit: useAppStore.getState().layers.find((layer) => layer.id === layerId)?.colorCycleData?.paintSlot ?? null,
   });
   const renderHash = hashStops(renderPalette.renderStops, session.gradientKind);
   if (session.binding && renderHash === session.frozenHash) {
@@ -637,25 +584,6 @@ export const finalizeColorCycleShapeFillLinear = async (
         resolvedRenderSession?.source === 'sampled'
           ? toStoredStops(resolvedRenderSession.frozenStopsStored)
           : undefined;
-      ccLog('finalize linear handoff', {
-        markId: session?.markId ?? null,
-        layerId: args.activeLayerId,
-        source: resolvedRenderSession?.source ?? session?.source ?? null,
-        stopsLen: sampledStops?.length ?? 0,
-        stops: summarizeCcDebugStops(resolvedRenderSession?.frozenStopsStored),
-        previewStopsLen: session?.previewStopsStored?.length ?? 0,
-        previewStops: summarizeCcDebugStops(session?.previewStopsStored),
-        frozenStopsLen: resolvedRenderSession?.frozenStopsStored?.length ?? 0,
-        frozenStops: summarizeCcDebugStops(resolvedRenderSession?.frozenStopsStored),
-        gradientBands: liveSettings.gradientBands ?? null,
-        pairBandCount:
-          resolvedRenderSession?.binding?.slot !== undefined
-            ? (session?.ditherRenderConfig?.pairBandCount ?? resolveCcDitherBandMode(liveSettings.gradientBands ?? 16).pairBandCount)
-            : (session?.ditherRenderConfig?.pairBandCount ?? 0),
-        quantLevels: liveSettings.ditherEnabled ? resolveCcDitherBandMode(liveSettings.gradientBands ?? 16).quantLevels : null,
-        usingSessionData: Boolean(resolvedRenderSession?.frozenStopsStored?.length),
-        usingFallbackData: !resolvedRenderSession?.frozenStopsStored?.length,
-      });
       await deps.brushEngine.fillCcGradientLinear(args.shapePoints, args.direction, {
         ...resolveShapeFinalizeDitherOptions({
           brushSettings: liveSettings,
@@ -723,21 +651,6 @@ export const finalizeColorCycleShapeFillLinear = async (
             previewSlot: sampledCommitNeedsFullRebind ? TEMP_SAMPLE_SLOT : null,
           }
         : undefined;
-      ccLog('shape finalize pre-commit', {
-        markId: args.session?.markId ?? null,
-        layerId: args.activeLayerId,
-        source: renderSession?.source ?? null,
-        frozenStopsLen: renderSession?.frozenStopsStored?.length ?? 0,
-        frozenStops: summarizeCcDebugStops(renderSession?.frozenStopsStored),
-        renderStopsLen: renderSession?.frozenStopsStored?.length ?? 0,
-        renderStops: summarizeCcDebugStops(renderSession?.frozenStopsStored),
-        bindingSlot: renderSession?.binding?.slot ?? null,
-        bindingDefId: renderSession?.binding?.defId ?? null,
-        spread: args.session?.ditherRenderConfig?.spread ?? st.tools.brushSettings.ditherPaletteSpread ?? null,
-        algorithm: args.session?.ditherRenderConfig?.algorithm ?? st.tools.brushSettings.ditherAlgorithm ?? null,
-        pairBandCount: args.session?.ditherRenderConfig?.pairBandCount ?? 0,
-        paintSlotBeforeCommit: st.layers.find((layer) => layer.id === args.activeLayerId)?.colorCycleData?.paintSlot ?? null,
-      });
       stampShapeFinalizeProbe({
         phase: 'shape-finalize-before-commit',
         activeLayerCanvas: args.activeLayerCanvas,
@@ -777,6 +690,11 @@ export const finalizeColorCycleShapeFillLinear = async (
         colors: typeof st.tools.brushSettings.colors === 'number' ? st.tools.brushSettings.colors : null,
       });
       if (renderSession?.source === 'sampled' && renderSession.binding?.slot !== undefined) {
+        deps.ccLog('shape: sampled persist begin', {
+          layerId: args.activeLayerId,
+          bindingSlot: renderSession.binding.slot,
+          stopCount: renderSession.frozenStopsStored.length,
+        });
         persistCommittedSampledSlot(
           args.activeLayerId,
           renderSession.binding.slot,
@@ -788,19 +706,9 @@ export const finalizeColorCycleShapeFillLinear = async (
           slotPalettes: [{ slot: renderSession.binding.slot, stops: renderSession.frozenStopsStored }],
           flowMode: useAppStore.getState().layers.find((layer) => layer.id === args.activeLayerId)?.colorCycleData?.flowMode,
         });
-        ccLog('shape finalize post-persist', {
-          markId: args.session?.markId ?? null,
+        deps.ccLog('shape: sampled persist end', {
           layerId: args.activeLayerId,
-          source: renderSession.source,
-          frozenStopsLen: renderSession.frozenStopsStored.length,
-          frozenStops: summarizeCcDebugStops(renderSession.frozenStopsStored),
-          renderStopsLen: renderSession.frozenStopsStored.length,
-          renderStops: summarizeCcDebugStops(renderSession.frozenStopsStored),
           bindingSlot: renderSession.binding.slot,
-          bindingDefId: renderSession.binding.defId,
-          spread: args.session?.ditherRenderConfig?.spread ?? st.tools.brushSettings.ditherPaletteSpread ?? null,
-          algorithm: args.session?.ditherRenderConfig?.algorithm ?? st.tools.brushSettings.ditherAlgorithm ?? null,
-          pairBandCount: args.session?.ditherRenderConfig?.pairBandCount ?? 0,
           paintSlotAfterPersist: useAppStore.getState().layers.find((layer) => layer.id === args.activeLayerId)?.colorCycleData?.paintSlot ?? null,
         });
       }
@@ -841,7 +749,6 @@ export const finalizeColorCycleShapeFillLinear = async (
 
     try {
       window.dispatchEvent(new CustomEvent('colorCycleFrameUpdate'));
-      deps.ccLog('shape: frameUpdate dispatched', { mode: 'linear' });
     } catch {}
 
     clearColorCycleShapeEraseMask(args.activeLayerId, args.roi);
@@ -866,7 +773,6 @@ export const finalizeColorCycleShapeFillLinear = async (
     });
 
     if (args.shapeLayerId) {
-      deps.ccLog('shape: wrote CC canvas', { mode: 'linear', layerId: args.shapeLayerId.slice(-6) });
       launchDeferredColorCycleShapeSave(deps, {
         layerId: args.shapeLayerId,
         canvas: args.activeLayerCanvas,
@@ -1049,21 +955,6 @@ export const finalizeColorCycleShapeFillConcentric = async (
             previewSlot: sampledCommitNeedsFullRebind ? TEMP_SAMPLE_SLOT : null,
           }
         : undefined;
-      ccLog('shape finalize pre-commit', {
-        markId: args.session?.markId ?? null,
-        layerId: args.activeLayerId,
-        source: renderSession?.source ?? null,
-        frozenStopsLen: renderSession?.frozenStopsStored?.length ?? 0,
-        frozenStops: summarizeCcDebugStops(renderSession?.frozenStopsStored),
-        renderStopsLen: renderSession?.frozenStopsStored?.length ?? 0,
-        renderStops: summarizeCcDebugStops(renderSession?.frozenStopsStored),
-        bindingSlot: renderSession?.binding?.slot ?? null,
-        bindingDefId: renderSession?.binding?.defId ?? null,
-        spread: args.session?.ditherRenderConfig?.spread ?? st.tools.brushSettings.ditherPaletteSpread ?? null,
-        algorithm: args.session?.ditherRenderConfig?.algorithm ?? st.tools.brushSettings.ditherAlgorithm ?? null,
-        pairBandCount: args.session?.ditherRenderConfig?.pairBandCount ?? 0,
-        paintSlotBeforeCommit: st.layers.find((layer) => layer.id === args.activeLayerId)?.colorCycleData?.paintSlot ?? null,
-      });
       stampShapeFinalizeProbe({
         phase: 'shape-finalize-before-commit',
         activeLayerCanvas: args.activeLayerCanvas,
@@ -1103,6 +994,11 @@ export const finalizeColorCycleShapeFillConcentric = async (
         colors: typeof st.tools.brushSettings.colors === 'number' ? st.tools.brushSettings.colors : null,
       });
       if (renderSession?.source === 'sampled' && renderSession.binding?.slot !== undefined) {
+        deps.ccLog('shape: sampled persist begin', {
+          layerId: args.activeLayerId,
+          bindingSlot: renderSession.binding.slot,
+          stopCount: renderSession.frozenStopsStored.length,
+        });
         persistCommittedSampledSlot(
           args.activeLayerId,
           renderSession.binding.slot,
@@ -1114,19 +1010,9 @@ export const finalizeColorCycleShapeFillConcentric = async (
           slotPalettes: [{ slot: renderSession.binding.slot, stops: renderSession.frozenStopsStored }],
           flowMode: useAppStore.getState().layers.find((layer) => layer.id === args.activeLayerId)?.colorCycleData?.flowMode,
         });
-        ccLog('shape finalize post-persist', {
-          markId: args.session?.markId ?? null,
+        deps.ccLog('shape: sampled persist end', {
           layerId: args.activeLayerId,
-          source: renderSession.source,
-          frozenStopsLen: renderSession.frozenStopsStored.length,
-          frozenStops: summarizeCcDebugStops(renderSession.frozenStopsStored),
-          renderStopsLen: renderSession.frozenStopsStored.length,
-          renderStops: summarizeCcDebugStops(renderSession.frozenStopsStored),
           bindingSlot: renderSession.binding.slot,
-          bindingDefId: renderSession.binding.defId,
-          spread: args.session?.ditherRenderConfig?.spread ?? st.tools.brushSettings.ditherPaletteSpread ?? null,
-          algorithm: args.session?.ditherRenderConfig?.algorithm ?? st.tools.brushSettings.ditherAlgorithm ?? null,
-          pairBandCount: args.session?.ditherRenderConfig?.pairBandCount ?? 0,
           paintSlotAfterPersist: useAppStore.getState().layers.find((layer) => layer.id === args.activeLayerId)?.colorCycleData?.paintSlot ?? null,
         });
       }
@@ -1156,7 +1042,6 @@ export const finalizeColorCycleShapeFillConcentric = async (
 
     try {
       window.dispatchEvent(new CustomEvent('colorCycleFrameUpdate'));
-      deps.ccLog('shape: frameUpdate dispatched', { mode: 'concentric' });
     } catch {}
 
     clearColorCycleShapeEraseMask(args.activeLayerId, args.roi);
@@ -1181,7 +1066,6 @@ export const finalizeColorCycleShapeFillConcentric = async (
     });
 
     if (args.shapeLayerId) {
-      deps.ccLog('shape: wrote CC canvas', { mode: 'concentric', layerId: args.shapeLayerId.slice(-6) });
       launchDeferredColorCycleShapeSave(deps, {
         layerId: args.shapeLayerId,
         canvas: args.activeLayerCanvas,

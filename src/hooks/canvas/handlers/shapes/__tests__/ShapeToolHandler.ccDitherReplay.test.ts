@@ -1,11 +1,17 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { createShapeToolHandler } from '../ShapeToolHandler';
+import { runSampledCcDitherPreviewRuntime } from '../ccShapePreviewDitherRuntime';
 import { BrushShape } from '@/types';
 
 const fillCcGradientDither = jest.fn<Promise<void>, [unknown]>();
+const buildSampledStops = jest.fn();
 
 jest.mock('@/utils/colorCycle/ccGradientDither', () => ({
   fillCcGradientDither: (...args: unknown[]) => fillCcGradientDither(...(args as [unknown])),
+}));
+
+jest.mock('@/hooks/canvas/handlers/colorCycle/ccSampling', () => ({
+  buildSampledStops: (...args: unknown[]) => buildSampledStops(...args),
 }));
 
 const makeMockContext = () => {
@@ -92,9 +98,17 @@ describe('ShapeToolHandler CC dither preview replay', () => {
 
   beforeEach(() => {
     fillCcGradientDither.mockReset();
+    buildSampledStops.mockReset();
+    buildSampledStops.mockReturnValue({
+      stops: [
+        { position: 0, color: '#000000' },
+        { position: 1, color: '#ffffff' },
+      ],
+    });
     rafQueue.length = 0;
     rafId = 1;
     storeState.tools.brushSettings.fillResolution = 1;
+    storeState.tools.brushSettings.ccGradientSource = undefined;
     originalRaf = global.requestAnimationFrame;
     originalCancelRaf = global.cancelAnimationFrame;
     cancelAnimationFrameMock = jest.fn();
@@ -106,6 +120,7 @@ describe('ShapeToolHandler CC dither preview replay', () => {
   });
 
   afterEach(() => {
+    jest.useRealTimers();
     global.requestAnimationFrame = originalRaf;
     global.cancelAnimationFrame = originalCancelRaf;
   });
@@ -393,6 +408,149 @@ describe('ShapeToolHandler CC dither preview replay', () => {
     expect(overlayCtx.clearRect).toHaveBeenCalled();
   });
 
+  it('defers sampled cc preview recompute until after the live preview frame', async () => {
+    jest.useFakeTimers();
+    fillCcGradientDither.mockResolvedValueOnce();
+
+    const overlayCtx = makeMockContext();
+    const overlayCanvas = document.createElement('canvas');
+    overlayCanvas.width = 256;
+    overlayCanvas.height = 256;
+    (overlayCanvas as any).getContext = jest.fn(() => overlayCtx);
+
+    const previewAnimationFrameRef = { current: null as number | null };
+    const schedulePolygonShapePreviewFrame = jest.fn((resolvePreviewPoint: () => { x: number; y: number } | null) => {
+      if (previewAnimationFrameRef.current != null) {
+        return;
+      }
+      previewAnimationFrameRef.current = requestAnimationFrame(() => {
+        resolvePreviewPoint();
+        previewAnimationFrameRef.current = null;
+      });
+    });
+
+    runSampledCcDitherPreviewRuntime({
+      overlayCtx,
+      overlayCanvas,
+      committedPolygon: [{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 10, y: 10 }],
+      brushSettings: {
+        ...storeState.tools.brushSettings,
+        ccGradientSource: 'sampled',
+      },
+      ditherGradPreviewState: {
+        origin: null,
+        lastPx: -1,
+        resState: {} as any,
+        ccJobInFlight: false,
+        ccJobDirty: false,
+        ccJobSeq: 0,
+      },
+      drawingHandlers: {
+        isDrawingShapeRef: { current: true },
+        shapePointsRef: { current: [{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 10, y: 10 }] },
+        ccShapePreviewCacheRef: { current: null },
+      },
+      shouldKeepCachedCcPreviewVisible: () => false,
+      previewOpacity: 0.8,
+      schedulePolygonShapePreviewFrame,
+      getLatestPolygonPreviewPoint: () => ({ x: 20, y: 20 }),
+      previewRenderSettings: {
+        pixelSize: 1,
+        levels: 8,
+        algorithm: 'sierra-lite',
+        patternStyle: 'dots',
+        isFastPreview: false,
+      },
+      sampleColor: jest.fn(() => '#000000'),
+      fallbackStops: [
+        { position: 0, color: '#000000' },
+        { position: 1, color: '#ffffff' },
+      ],
+    });
+
+    expect(buildSampledStops).not.toHaveBeenCalled();
+    expect(fillCcGradientDither).not.toHaveBeenCalled();
+
+    jest.runOnlyPendingTimers();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(buildSampledStops).toHaveBeenCalledTimes(1);
+    expect(fillCcGradientDither).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not publish a sampled preview result after the preview seq is invalidated', async () => {
+    jest.useFakeTimers();
+    let resolveFill!: () => void;
+    fillCcGradientDither.mockImplementationOnce(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveFill = resolve;
+        })
+    );
+
+    const overlayCtx = makeMockContext();
+    const overlayCanvas = document.createElement('canvas');
+    overlayCanvas.width = 256;
+    overlayCanvas.height = 256;
+    (overlayCanvas as any).getContext = jest.fn(() => overlayCtx);
+
+    const previewState = {
+      origin: null,
+      lastPx: -1,
+      resState: {} as any,
+      ccJobInFlight: false,
+      ccJobDirty: false,
+      ccJobSeq: 0,
+    } as any;
+    const cacheRef = { current: null as any };
+
+    runSampledCcDitherPreviewRuntime({
+      overlayCtx,
+      overlayCanvas,
+      committedPolygon: [{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 10, y: 10 }],
+      brushSettings: {
+        ...storeState.tools.brushSettings,
+        ccGradientSource: 'sampled',
+      },
+      ditherGradPreviewState: previewState,
+      drawingHandlers: {
+        isDrawingShapeRef: { current: true },
+        shapePointsRef: { current: [{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 10, y: 10 }] },
+        ccShapePreviewCacheRef: cacheRef,
+      },
+      shouldKeepCachedCcPreviewVisible: () => false,
+      previewOpacity: 0.8,
+      schedulePolygonShapePreviewFrame: jest.fn(),
+      getLatestPolygonPreviewPoint: () => ({ x: 20, y: 20 }),
+      previewRenderSettings: {
+        pixelSize: 1,
+        levels: 8,
+        algorithm: 'sierra-lite',
+        patternStyle: 'dots',
+        isFastPreview: false,
+      },
+      sampleColor: jest.fn(() => '#000000'),
+      fallbackStops: [
+        { position: 0, color: '#000000' },
+        { position: 1, color: '#ffffff' },
+      ],
+    });
+
+    jest.runOnlyPendingTimers();
+    await Promise.resolve();
+    expect(fillCcGradientDither).toHaveBeenCalledTimes(1);
+
+    previewState.ccJobSeq += 1;
+    previewState.ccPendingSampledRequest = undefined;
+    resolveFill();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(cacheRef.current).toBeNull();
+    expect(previewState.ccLastReplayKey).toBeUndefined();
+  });
+
   it('renders CC dither previews at reduced cell resolution before scaling back to the ROI', async () => {
     fillCcGradientDither.mockResolvedValueOnce();
 
@@ -585,5 +743,101 @@ describe('ShapeToolHandler CC dither preview replay', () => {
     expect(callArgs).toBeDefined();
     const { vertices } = callArgs;
     expect(vertices.length).toBeLessThanOrEqual(256);
+  });
+
+  it('caps oversized CC preview render buffers by increasing preview scale', async () => {
+    fillCcGradientDither.mockResolvedValueOnce();
+
+    const overlayCtx = makeMockContext();
+    const overlayCanvas = document.createElement('canvas');
+    overlayCanvas.width = 2048;
+    overlayCanvas.height = 2048;
+    (overlayCanvas as any).getContext = jest.fn(() => overlayCtx);
+
+    const canvas = document.createElement('canvas');
+    canvas.getBoundingClientRect = jest.fn(
+      () => ({ left: 0, top: 0, width: 2048, height: 2048, right: 2048, bottom: 2048 } as DOMRect)
+    );
+
+    const deps = {
+      canvasRef: { current: canvas },
+      canvas: { zoom: 1 },
+      pan: {
+        screenToWorld: (x: number, y: number) => ({ x, y }),
+        worldToScreen: (x: number, y: number) => ({ x, y }),
+      },
+      drawingHandlers: {
+        continueShapeDrawing: jest.fn(),
+        isDrawingShapeRef: { current: true },
+        shapePointsRef: {
+          current: [
+            { x: 0, y: 0 },
+            { x: 1800, y: 0 },
+            { x: 1800, y: 1800 },
+            { x: 0, y: 1800 },
+          ],
+        },
+        latestShapePixelSizeRef: { current: 1 },
+        lastStablePressureRef: { current: 0.5 },
+        hadValidShapePressureRef: { current: false },
+        computeShapePixelSize: jest.fn(() => 1),
+        ccShapePreviewCacheRef: { current: null },
+      },
+      dynamicDepsRef: { current: { currentBrushPresetId: 'color-cycle-gradient' } },
+      currentBrushPresetId: 'color-cycle-gradient',
+      tools: storeState.tools,
+      overlayCanvasRef: { current: overlayCanvas },
+      compositeCanvasRef: { current: null },
+      compositeCanvasDirtyRef: { current: false },
+      compositeLayersToCanvas: jest.fn(),
+      setCurrentOffscreenCanvas: jest.fn(),
+      project: { width: 2048, height: 2048 },
+      stateMachine: { dispatch: jest.fn(), finalizationComplete: jest.fn(), state: { mode: 'IDLE' } },
+      setNeedsRedraw: jest.fn(),
+      viewTransformRef: { current: { scale: 1, offsetX: 0, offsetY: 0 } },
+      sampleColorAtPosition: jest.fn(() => '#000000'),
+      previewAnimationFrameRef: { current: null },
+      layers: [],
+      activeLayerId: null,
+      interaction: { dispatch: jest.fn() },
+      feedback: jest.fn(),
+      palette: storeState.palette,
+    } as any;
+
+    const handler = createShapeToolHandler(
+      {
+        deps,
+        overlayPreviewFrameMs: 0,
+        getLastOverlayPreviewTs: () => 0,
+        setLastOverlayPreviewTs: jest.fn(),
+      },
+      {}
+    );
+
+    handler.handlePointerMove(
+      ({
+        clientX: 1800,
+        clientY: 1800,
+        buttons: 1,
+        pointerType: 'mouse',
+        pressure: 0.5,
+        shiftKey: false,
+        ctrlKey: false,
+        target: canvas,
+      }) as any
+    );
+
+    expect(rafQueue).toHaveLength(1);
+    rafQueue.shift()?.(0);
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(fillCcGradientDither).toHaveBeenCalledTimes(1);
+    expect(fillCcGradientDither.mock.calls[0][0]).toMatchObject({
+      minX: 0,
+      minY: 0,
+      maxX: 450,
+      maxY: 450,
+    });
   });
 });
