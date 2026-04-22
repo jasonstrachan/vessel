@@ -3,6 +3,7 @@ import type React from 'react';
 import type { AppState } from '@/stores/useAppStore';
 import { useAppStore } from '@/stores/useAppStore';
 import type { BoundingBox } from '@/hooks/canvas/utils/captureRegions';
+import type { ShapeInteractionPhase } from '@/hooks/canvas/useDrawingHandlerRefs';
 
 type UseShapePressureResetEffectsArgs = {
   resetShapePressureState: () => void;
@@ -11,6 +12,7 @@ type UseShapePressureResetEffectsArgs = {
   strokeCapturePaddingRef: React.MutableRefObject<number>;
   shapePointsRef: React.MutableRefObject<Array<{ x: number; y: number }>>;
   isDrawingShapeRef: React.MutableRefObject<boolean>;
+  shapeInteractionPhaseRef: React.MutableRefObject<ShapeInteractionPhase>;
 };
 
 export const useShapePressureResetEffects = ({
@@ -20,6 +22,7 @@ export const useShapePressureResetEffects = ({
   strokeCapturePaddingRef,
   shapePointsRef,
   isDrawingShapeRef,
+  shapeInteractionPhaseRef,
 }: UseShapePressureResetEffectsArgs): void => {
   useEffect(() => {
     const selector = (state: AppState) => ({
@@ -61,6 +64,7 @@ export const useShapePressureResetEffects = ({
         strokeCapturePaddingRef.current = 0;
         shapePointsRef.current = [];
         isDrawingShapeRef.current = false;
+        shapeInteractionPhaseRef.current = 'idle';
         resetShapeDragRefs();
       }
       prevZoom = nextZoom;
@@ -72,6 +76,7 @@ export const useShapePressureResetEffects = ({
     resetShapeDragRefs,
     resetShapePressureState,
     shapePointsRef,
+    shapeInteractionPhaseRef,
     strokeBoundingBoxRef,
     strokeCapturePaddingRef,
   ]);

@@ -153,6 +153,7 @@ export const useDrawingShapeRuntime = ({
     toolsRef,
     isPointerDownRef: refs.isPointerDownRef,
     isDrawingShapeRef: refs.isDrawingShapeRef,
+    shapeInteractionPhaseRef: refs.shapeInteractionPhaseRef,
     isSelectingDirectionRef: refs.isSelectingDirectionRef,
     directionPreviewRef: refs.directionPreviewRef,
     shapePointsRef: refs.shapePointsRef,

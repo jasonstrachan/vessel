@@ -17,6 +17,7 @@ export const buildShapeDrawingHandlerOptions = (
     toolsRef,
     isPointerDownRef,
     isDrawingShapeRef,
+    shapeInteractionPhaseRef,
     isSelectingDirectionRef,
     directionPreviewRef,
     shapePointsRef,
@@ -113,6 +114,7 @@ export const buildShapeDrawingHandlerOptions = (
     shapeMode,
     shapeDrawingRefs: {
       isDrawingShapeRef,
+      shapeInteractionPhaseRef,
       isSelectingDirectionRef,
       directionPreviewRef,
       shapePointsRef,

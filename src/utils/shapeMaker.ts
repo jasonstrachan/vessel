@@ -1,5 +1,7 @@
 import type { ShapePoint } from '../types';
 
+const MAX_RESAMPLED_POINTS_PER_SEGMENT = 32;
+
 /**
  * Append a point to a shape path if it is far enough from the last point,
  * using a zoom- and brush-aware spacing threshold.
@@ -76,7 +78,7 @@ export function appendSegmentWithDynamicResampling(
     return 0;
   }
 
-  const steps = Math.min(2048, Math.floor(dist / spacing));
+  const steps = Math.min(MAX_RESAMPLED_POINTS_PER_SEGMENT, Math.floor(dist / spacing));
   const sx = dx / (steps + 1);
   const sy = dy / (steps + 1);
 

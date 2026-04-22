@@ -87,7 +87,7 @@ export default function DevDebugOverlay() {
 
   return (
     <div
-      className="fixed right-[532px] top-2 z-[80] w-[380px] max-w-[calc(100vw-548px)] rounded border border-[#3b3b3b] bg-black/85 text-[11px] shadow-2xl"
+      className="fixed right-[532px] top-2 bottom-2 z-[80] flex w-[380px] max-w-[calc(100vw-548px)] flex-col rounded border border-[#3b3b3b] bg-black/85 text-[11px] shadow-2xl"
       style={{ pointerEvents: 'auto' }}
       aria-label="dev-debug-overlay"
     >
@@ -120,14 +120,14 @@ export default function DevDebugOverlay() {
       {minimized ? null : (
         <div
           data-testid="dev-debug-overlay-scroll-region"
-          className="max-h-[42vh] overflow-y-auto overscroll-contain px-3 py-2 font-mono leading-4"
+          className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 py-2 font-mono leading-[1.2]"
         >
           {visibleEntries.length === 0 ? (
             <div className="text-[#6f6f6f]">Waiting for debug events...</div>
           ) : (
             visibleEntries.map((entry) => (
-              <div key={entry.id} className="mb-2 border-b border-white/5 pb-2 last:mb-0 last:border-b-0 last:pb-0">
-                <div className="flex items-center gap-2 text-[#7f7f7f]">
+              <div key={entry.id} className="mb-1.5 border-b border-white/5 pb-1.5 last:mb-0 last:border-b-0 last:pb-0">
+                <div className="flex items-center gap-1.5 text-[#7f7f7f] leading-[1.15]">
                   <span>{formatTime(entry.ts)}</span>
                   <span className={`rounded border px-1.5 py-[1px] text-[9px] uppercase tracking-[0.12em] ${sourceClassName(entry.source)}`}>
                     {entry.source}
@@ -135,7 +135,7 @@ export default function DevDebugOverlay() {
                   <span className={levelClassName[entry.level]}>{entry.message}</span>
                 </div>
                 {entry.data ? (
-                  <div className="mt-1 whitespace-pre-wrap break-words text-[#a8a8a8]">
+                  <div className="mt-0.5 whitespace-pre-wrap break-words text-[#a8a8a8] leading-[1.15]">
                     {entry.data}
                   </div>
                 ) : null}

@@ -12,6 +12,7 @@ describe('shapeDrawing pressure-linked dither resolution', () => {
     shouldUseSimpleShapePreview,
     shouldKeepColorCycleShapeOverlayAfterFinalize,
     canStartShapeDrawing,
+    canContinueShapeDrawing,
   } = __TESTING__;
 
   it('uses pressure-linked resolution when pressure is valid', () => {
@@ -95,6 +96,12 @@ describe('shapeDrawing pressure-linked dither resolution', () => {
     expect(resolveColorCycleFillMode(undefined)).toBe('linear');
     expect(resolveColorCycleFillMode('linear')).toBe('linear');
     expect(resolveColorCycleFillMode('concentric')).toBe('concentric');
+  });
+
+  it('only allows shape continues while interaction phase is drawing', () => {
+    expect(canContinueShapeDrawing({ current: 'drawing' })).toBe(true);
+    expect(canContinueShapeDrawing({ current: 'idle' })).toBe(false);
+    expect(canContinueShapeDrawing({ current: 'finalizing' })).toBe(false);
   });
 
   it('snaps points to grid for dither shape and dither stroke presets when enabled', () => {

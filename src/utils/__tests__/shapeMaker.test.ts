@@ -59,5 +59,14 @@ describe('shapeMaker helpers', () => {
       expect(added).toBeGreaterThan(0);
       expect(points[points.length - 1]).toEqual({ x: 5, y: 0 });
     });
+
+    it('caps resampled points per segment to avoid drag bursts', () => {
+      const points = [{ x: 0, y: 0 }];
+      const added = appendSegmentWithDynamicResampling(points, { x: 1000, y: 0 }, 1, 10);
+
+      expect(added).toBeLessThanOrEqual(33);
+      expect(points.length).toBeLessThanOrEqual(34);
+      expect(points[points.length - 1]).toEqual({ x: 1000, y: 0 });
+    });
   });
 });

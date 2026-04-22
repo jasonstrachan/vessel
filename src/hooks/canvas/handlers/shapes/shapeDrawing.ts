@@ -10,6 +10,7 @@ import type { FinalizeQueue } from '@/lib/canvas';
 import type { ColorCycleBrushImplementation } from '@/hooks/brushEngine/ColorCycleBrushMigration';
 import type { LayerHistoryPayload } from '@/history/helpers/layerHistory';
 import type { BrushEngine } from '@/hooks/useBrushEngineSimplified';
+import type { ShapeInteractionPhase } from '@/hooks/canvas/useDrawingHandlerRefs';
 import {
   beginMarkGradientSession,
   captureFrozenCcDitherRenderConfig,
@@ -21,12 +22,13 @@ import {
   isColorCycleGradientShapePreset,
 } from '@/hooks/brushEngine/colorCycleGridSnap';
 import { resolveActiveColorCycleGradient } from '@/hooks/canvas/utils/colorCycleHelpers';
-import { hashStops, type GradientDefSource } from '@/utils/colorCycleGradientDefs';
+import { hashStops, type GradientDefSource, type StoredStop } from '@/utils/colorCycleGradientDefs';
 import { debugLog, isDebugEnabled } from '@/utils/debug';
 import {
   calculatePressureAwareGridSpacing,
   snapToGridPure,
 } from '@/hooks/brushEngine/utilities';
+import { buildSampledStops } from '@/hooks/canvas/handlers/colorCycle/ccSampling';
 
 type ShapeDrawingRefs = {
   isDrawingShapeRef: React.MutableRefObject<boolean>;
@@ -36,6 +38,7 @@ type ShapeDrawingRefs = {
   shapeDragStartRef: React.MutableRefObject<{ x: number; y: number } | null>;
   shapeDragLastRef: React.MutableRefObject<{ x: number; y: number } | null>;
   shapeDragMovedRef: React.MutableRefObject<boolean>;
+  shapeInteractionPhaseRef: React.MutableRefObject<ShapeInteractionPhase>;
   latestShapePressureRef: React.MutableRefObject<number>;
   lastStablePressureRef: React.MutableRefObject<number>;
   shapeBeforeImageRef: React.MutableRefObject<ShapeBeforeSnapshot | null>;
@@ -100,6 +103,14 @@ const resolveFallbackMarkSource = (state: AppState): GradientDefSource => {
   return 'manual';
 };
 
+const isSampledCcShapeDrag = (state: AppState): boolean =>
+  state.tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE_SHAPE &&
+  state.tools.ccGradientSource === 'sampled';
+
+const canContinueShapeDrawing = (
+  phaseRef: React.MutableRefObject<ShapeInteractionPhase>
+): boolean => phaseRef.current === 'drawing';
+
 const buildFallbackMarkSession = (
   layer: Layer,
   state: AppState,
@@ -135,6 +146,70 @@ const buildFallbackMarkSession = (
     speedCps: state.tools.brushSettings.colorCycleSpeed,
     ditherRenderConfig: captureFrozenCcDitherRenderConfig(),
   };
+};
+
+const resolveShapeSampleColor = (
+  deps: Pick<ShapeDrawingDeps, 'sampleColorAt' | 'sampleHexAt'>,
+  fallbackColor: string
+) => (x: number, y: number): string => {
+  const sampled =
+    (typeof deps.sampleColorAt === 'function' ? deps.sampleColorAt(x, y) : null) ??
+    deps.sampleHexAt(x, y);
+  return sampled ?? fallbackColor;
+};
+
+const beginFinalSampledShapeSession = (params: {
+  layer: Layer;
+  state: AppState;
+  shapePoints: Array<{ x: number; y: number }>;
+  deps: Pick<ShapeDrawingDeps, 'sampleColorAt' | 'sampleHexAt'>;
+}): MarkGradientSession | null => {
+  if (params.layer.layerType !== 'color-cycle') {
+    return null;
+  }
+
+  const gradientKind = resolveColorCycleFillMode(params.state.tools.brushSettings.colorCycleFillMode);
+  const fallbackResolved = resolveActiveColorCycleGradient(params.layer, params.state.tools.brushSettings, {
+    fgColorHex: params.state.palette.foregroundColor,
+    fgLightness: params.state.tools.brushSettings.colorCycleFgLightness,
+    fgVariance: params.state.tools.brushSettings.colorCycleFgVariance,
+    fgHueShift: params.state.tools.brushSettings.colorCycleFgHueShift,
+    fgSaturationShift: params.state.tools.brushSettings.colorCycleFgSaturationShift,
+    fgOpacity: params.state.tools.brushSettings.colorCycleFgOpacity,
+    fgStops: params.state.tools.brushSettings.colorCycleFgStops,
+  });
+  const fallbackStops = fallbackResolved.activeStops;
+  const fallbackColor =
+    params.state.palette.foregroundColor ??
+    params.state.tools.brushSettings.color ??
+    '#000000';
+  const sampledPreview = buildSampledStops({
+    sourcePts: params.shapePoints,
+    sampleColor: resolveShapeSampleColor(params.deps, fallbackColor),
+    allowTiny: true,
+  });
+  const previewStops: StoredStop[] | null =
+    sampledPreview?.stops && sampledPreview.stops.length >= 2
+      ? sampledPreview.stops
+      : null;
+
+  const session = beginMarkGradientSession({
+    layerId: params.layer.id,
+    markKind: 'shape',
+    gradientKind,
+    source: 'sampled',
+    stops: fallbackStops,
+    speedCps: params.state.tools.brushSettings.colorCycleSpeed,
+  });
+  if (!session) {
+    return null;
+  }
+
+  session.fallbackStopsStored = fallbackStops;
+  session.previewStopsStored = previewStops;
+  session.previewHash = previewStops ? hashStops(previewStops, gradientKind) : '';
+
+  return session;
 };
 
 const shouldSnapShapePreviewToGrid = (state: AppState): boolean => {
@@ -473,6 +548,10 @@ export const startShapeDrawing = (
   },
   deps: ShapeDrawingDeps
 ): boolean => {
+  if (args.refs.shapeInteractionPhaseRef.current === 'finalizing') {
+    return false;
+  }
+
   if (
     !canStartShapeDrawing({
       isBusyRef: deps.isBusyRef,
@@ -488,6 +567,7 @@ export const startShapeDrawing = (
   const isNewShape = !refs.isDrawingShapeRef.current || refs.shapePointsRef.current.length === 0;
 
   if (isNewShape) {
+    refs.shapeInteractionPhaseRef.current = 'drawing';
     deps.resetShapePressureState();
   }
 
@@ -602,11 +682,11 @@ export const startShapeDrawing = (
       try {
         const st = deps.storeRef.current;
         const isCCShape = st.tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE_SHAPE;
-        const sampledSource = st.tools.ccGradientSource === 'sampled';
+        const sampledSource = isSampledCcShapeDrag(st);
         const autoSampleEnabled =
           st.tools.brushSettings.autoSampleGradient ||
           st.tools.brushSettings.autoSampleGradientRealtime;
-        if (isCCShape && st.activeLayerId) {
+        if (isCCShape && st.activeLayerId && !sampledSource) {
           const activeLayer = st.layers.find((layer) => layer.id === st.activeLayerId);
           if (activeLayer?.layerType === 'color-cycle') {
             const resolved = resolveActiveColorCycleGradient(activeLayer, st.tools.brushSettings, {
@@ -679,13 +759,7 @@ export const startShapeDrawing = (
             });
           }
         }
-        if (isCCShape && sampledSource) {
-          refs.ccSampledPointsRef.current = [...refs.shapePointsRef.current];
-          deps.updateCcSampledGradient(
-            refs.ccSampledPointsRef.current,
-            { layerId: st.activeLayerId ?? null, markKind: 'shape' }
-          );
-        } else if (isCCShape && autoSampleEnabled) {
+        if (isCCShape && autoSampleEnabled && !sampledSource) {
           refs.autoSamplePointsRef.current = [...refs.shapePointsRef.current];
           refs.autoSampleForkRef.current = true;
           refs.autoSampleLastUpdateRef.current = 0;
@@ -718,6 +792,10 @@ export const continueShapeDrawing = (
   },
   deps: ShapeDrawingDeps
 ): void => {
+  if (!canContinueShapeDrawing(args.refs.shapeInteractionPhaseRef)) {
+    return;
+  }
+
   const { worldPos, pressure = 0, timestamp, rawPressure, shapeMode, refs } = args;
   const drawPos = resolveDitherGridSnapPoint(worldPos, deps.storeRef.current, pressure);
   const renderPreview = args.renderPreview !== false;
@@ -819,17 +897,11 @@ export const continueShapeDrawing = (
       if (added > 0) {
         try {
           const isCCShape = store.tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE_SHAPE;
-          const sampledSource = store.tools.ccGradientSource === 'sampled';
+          const sampledSource = isSampledCcShapeDrag(store);
           const autoSampleEnabled =
             store.tools.brushSettings.autoSampleGradient ||
             store.tools.brushSettings.autoSampleGradientRealtime;
-          if (isCCShape && sampledSource) {
-            refs.ccSampledPointsRef.current = [...refs.shapePointsRef.current];
-            deps.updateCcSampledGradient(
-              refs.ccSampledPointsRef.current,
-              { layerId: store.activeLayerId ?? null, markKind: 'shape' }
-            );
-          } else if (isCCShape && autoSampleEnabled) {
+          if (isCCShape && autoSampleEnabled && !sampledSource) {
             refs.autoSamplePointsRef.current = [...refs.shapePointsRef.current];
             refs.autoSampleForkRef.current = true;
             deps.updateAutoSampledGradient(refs.autoSamplePointsRef.current);
@@ -863,6 +935,10 @@ export const finalizeShapeDrawing = async (
   },
   deps: ShapeDrawingDeps
 ): Promise<void> => {
+  if (args.refs.shapeInteractionPhaseRef.current === 'finalizing') {
+    return;
+  }
+
   const polygonState = deps.storeRef.current.polygonGradientState;
   const toolsSnapshot = args.toolsRef.current;
   const liveBrushSettings = toolsSnapshot.brushSettings;
@@ -886,6 +962,7 @@ export const finalizeShapeDrawing = async (
   }
 
   let ditherGradPoints: Array<{ x: number; y: number }> | null = null;
+  args.refs.shapeInteractionPhaseRef.current = 'finalizing';
 
   void args.refs.finalizeQueueRef.current.enqueue(async () => {
     let finalizeTriggered = false;
@@ -1012,6 +1089,16 @@ export const finalizeShapeDrawing = async (
               ditherPixelSize = pixelSize;
             }
             const keepOverlayAfter = shouldKeepColorCycleShapeOverlayAfterFinalize();
+            const currentFinalizeState = deps.storeRef.current;
+            const sampledFinalizeSource = isSampledCcShapeDrag(currentFinalizeState);
+            if (sampledFinalizeSource && activeLayer) {
+              beginFinalSampledShapeSession({
+                layer: activeLayer,
+                state: currentFinalizeState,
+                shapePoints: shapePointsSnapshot,
+                deps,
+              });
+            }
             const session = finalizeMarkGradientSession(shapeLayerIdString)
               ?? (activeLayer
                 ? buildFallbackMarkSession(activeLayer, deps.storeRef.current, 'linear')
@@ -1064,6 +1151,7 @@ export const finalizeShapeDrawing = async (
           deps.triggerSimpleShapePreview();
         }
         args.refs.isDrawingShapeRef.current = false;
+        args.refs.shapeInteractionPhaseRef.current = 'idle';
         useAppStore.getState().setShapeDrawing(false);
         deps.resetShapeDragRefs();
 
@@ -1191,6 +1279,16 @@ export const finalizeShapeDrawing = async (
                   ditherPixelSize = pixelSize;
                 }
                 const keepOverlayAfter = shouldKeepColorCycleShapeOverlayAfterFinalize();
+                const currentFinalizeState = deps.storeRef.current;
+                const sampledFinalizeSource = isSampledCcShapeDrag(currentFinalizeState);
+                if (sampledFinalizeSource && activeLayer) {
+                  beginFinalSampledShapeSession({
+                    layer: activeLayer,
+                    state: currentFinalizeState,
+                    shapePoints: shapePointsSnapshot,
+                    deps,
+                  });
+                }
                 const session = finalizeMarkGradientSession(shapeLayerIdString)
                   ?? (activeLayer
                     ? buildFallbackMarkSession(activeLayer, deps.storeRef.current, fillMode)
@@ -1258,6 +1356,7 @@ export const finalizeShapeDrawing = async (
             deps.triggerSimpleShapePreview();
           }
           args.refs.isDrawingShapeRef.current = false;
+          args.refs.shapeInteractionPhaseRef.current = 'idle';
           useAppStore.getState().setShapeDrawing(false);
           deps.resetShapeDragRefs();
         }
@@ -1329,6 +1428,7 @@ export const finalizeShapeDrawing = async (
           deps.triggerSimpleShapePreview();
         }
         args.refs.isDrawingShapeRef.current = false;
+        args.refs.shapeInteractionPhaseRef.current = 'idle';
         useAppStore.getState().setShapeDrawing(false);
         deps.resetShapeDragRefs();
       }
@@ -1353,6 +1453,9 @@ export const finalizeShapeDrawing = async (
       deps.logError('Error during shape finalization:', error);
     } finally {
       if (deps.isBusyRef) deps.isBusyRef.current = false;
+      if (args.refs.shapeInteractionPhaseRef.current === 'finalizing') {
+        args.refs.shapeInteractionPhaseRef.current = args.refs.isDrawingShapeRef.current ? 'drawing' : 'idle';
+      }
       deps.clearShapeBeforeSnapshot();
       deps.resetShapePressureState();
     }
@@ -1367,4 +1470,5 @@ export const __TESTING__ = {
   shouldUseSimpleShapePreview,
   shouldKeepColorCycleShapeOverlayAfterFinalize,
   canStartShapeDrawing,
+  canContinueShapeDrawing,
 };
