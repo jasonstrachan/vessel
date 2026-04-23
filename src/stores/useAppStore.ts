@@ -259,7 +259,7 @@ import { createVesselStore } from '@/stores/createVesselStore';
 // import { memoryManager } from '../utils/memoryCleanup';
 import { logError } from '../utils/debug';
 import { computeLayerPercentOffset, computePercentOffsetFromPixels } from '@/utils/layerMetrics';
-import { setActiveHistoryDocument } from '@/history/historyService';
+import historyManager, { setActiveHistoryDocument } from '@/history/historyService';
 import {
   captureLayerStructureSnapshot,
   commitLayerStructureHistory,
@@ -274,6 +274,7 @@ import type { GlobalBrushSettingsPayload } from '@/utils/brushSettingsStorage';
 import { loadWebglExportSettings, saveWebglExportSettings } from '@/utils/webglExportSettingsStorage';
 import { loadSequentialSettings, saveSequentialSettings } from '@/utils/sequentialSettingsStorage';
 import { setGradientApplyStateGetter } from '@/hooks/brushEngine/ccGradientApplyScheduler';
+import { backgroundStorageService } from '@/utils/backgroundStorage';
 
 export type { CCReason, ColorCycleRuntimeHandlers, ColorCycleUIState } from '@/stores/slices/colorCycleSlice';
 export type { SequentialRecordSlice, SequentialRecordState } from '@/stores/slices/sequentialRecordSlice';
@@ -787,7 +788,11 @@ export const useAppStore = createVesselStore<AppState>(
       const shapeFillSlice = createShapeFillSlice(set, get, store);
       const colorAdjustSlice = createColorAdjustSlice(set, get, store);
       const paletteSlice = createPaletteSlice(set, get, store);
-      const autosaveSlice = createAutosaveSlice(set, get, store);
+      const autosaveSlice = createAutosaveSlice({
+        historyManager,
+        backgroundStorageService,
+        now: () => new Date(),
+      })(set, get, store);
 
       return {
         ...historySlice,
