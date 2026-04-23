@@ -1,4 +1,5 @@
 import JSZip from 'jszip';
+import { ColorCycleBrushCanvas2D } from '@/hooks/brushEngine/ColorCycleBrushCanvas2D';
 import {
   deserializeProject,
   getProjectSaveSizeReport,
@@ -382,6 +383,248 @@ describe('projectIO serialize/deserialize layering', () => {
         contextProto.rect = originalRect;
       }
     }
+  });
+
+  it('writes compact CC archives by pruning duplicated animator frame buffers when stroke snapshots already exist', async () => {
+    const width = 64;
+    const height = 64;
+    const paint = new Uint8Array(width * height);
+    const gradientId = new Uint8Array(width * height);
+    const speed = new Uint8Array(width * height);
+    const flow = new Uint8Array(width * height);
+    const phase = new Uint8Array(width * height);
+    const gradientDefIds = new Uint16Array(width * height);
+    paint[0] = 1;
+    gradientId[0] = 9;
+    speed[0] = 3;
+    flow[0] = 2;
+    phase[0] = 7;
+    gradientDefIds[0] = 11;
+
+    const brushCanvas = document.createElement('canvas');
+    brushCanvas.width = width;
+    brushCanvas.height = height;
+    const brush = new ColorCycleBrushCanvas2D(brushCanvas, { brushSize: 6, fps: 24 });
+    brush.applyLayerSnapshot('layer-cc-compact-archive', {
+      paintBuffer: paint.buffer.slice(0),
+      gradientIdBuffer: gradientId.buffer.slice(0),
+      gradientDefIdBuffer: gradientDefIds.buffer.slice(0),
+      speedBuffer: speed.buffer.slice(0),
+      flowBuffer: flow.buffer.slice(0),
+      phaseBuffer: phase.buffer.slice(0),
+      hasContent: true,
+      strokeCounter: 2,
+    });
+    brush.setGradientSlotStops('layer-cc-compact-archive', 2, [
+      { position: 0, color: '#112233' },
+      { position: 1, color: '#ddeeff' },
+    ]);
+    brush.setActiveGradientSlot('layer-cc-compact-archive', 2);
+
+    const layer: Layer = {
+      id: 'layer-cc-compact-archive',
+      name: 'CC Compact Archive',
+      visible: true,
+      opacity: 1,
+      blendMode: 'source-over',
+      locked: false,
+      transparencyLocked: false,
+      order: 0,
+      imageData: null,
+      framebuffer: createCanvasFromImageData(createSolidImageData(width, height, [0, 0, 0, 0])),
+      alignment: createDefaultLayerAlignment(),
+      layerType: 'color-cycle',
+      version: 1,
+      colorCycleData: {
+        canvas: Object.assign(document.createElement('canvas'), { width, height }),
+        canvasWidth: width,
+        canvasHeight: height,
+        gradient: [
+          { position: 0, color: '#000000' },
+          { position: 1, color: '#ffffff' },
+        ],
+        mode: 'brush',
+        colorCycleBrush: brush as unknown as NonNullable<Layer['colorCycleData']>['colorCycleBrush'],
+      },
+    };
+
+    const project: Project = {
+      id: 'project-cc-compact-archive',
+      name: 'CC Compact Archive',
+      width,
+      height,
+      backgroundColor: '#000000',
+      layers: [layer],
+      customBrushes: [],
+      createdAt: new Date('2025-01-01T00:00:00.000Z'),
+      updatedAt: new Date('2025-01-01T00:00:00.000Z'),
+    };
+
+    const contextProto = (globalThis as unknown as {
+      CanvasRenderingContext2D?: { prototype?: { rect?: (...args: number[]) => void } };
+    }).CanvasRenderingContext2D?.prototype;
+    const originalRect = contextProto?.rect;
+    if (contextProto && typeof contextProto.rect !== 'function') {
+      contextProto.rect = () => {};
+    }
+
+    try {
+      const payload = await serializeProject(project, project.layers);
+      const zip = await JSZip.loadAsync(payload);
+      const projectJson = await zip.file('project.json')?.async('string');
+      if (!projectJson) {
+        throw new Error('Missing project.json');
+      }
+
+      const manifest = JSON.parse(projectJson) as {
+        project: {
+          layers: Array<{
+            colorCycleData?: {
+              brushState?: {
+                layers?: Array<{
+                  strokeData?: {
+                    paintBuffer?: string;
+                    gradientIdBuffer?: string;
+                    gradientDefIdBuffer?: string;
+                    speedBuffer?: string;
+                    flowBuffer?: string;
+                    phaseBuffer?: string;
+                  };
+                  animator?: {
+                    indexBuffer: {
+                      data?: string;
+                      gradientId?: string;
+                      speedData?: string;
+                      flowData?: string;
+                      phaseData?: string;
+                    };
+                  };
+                }>;
+              };
+            };
+          }>;
+        };
+      };
+
+      const persistedLayer = manifest.project.layers[0]?.colorCycleData?.brushState?.layers?.[0];
+      expect(persistedLayer?.strokeData?.paintBuffer?.length ?? 0).toBeGreaterThan(0);
+      expect(persistedLayer?.strokeData?.gradientIdBuffer?.length ?? 0).toBeGreaterThan(0);
+      expect(persistedLayer?.strokeData?.gradientDefIdBuffer?.length ?? 0).toBeGreaterThan(0);
+      expect(persistedLayer?.strokeData?.speedBuffer?.length ?? 0).toBeGreaterThan(0);
+      expect(persistedLayer?.strokeData?.flowBuffer?.length ?? 0).toBeGreaterThan(0);
+      expect(persistedLayer?.strokeData?.phaseBuffer?.length ?? 0).toBeGreaterThan(0);
+      expect(persistedLayer?.animator?.indexBuffer.data ?? '').toBe('');
+      expect(persistedLayer?.animator?.indexBuffer.gradientId ?? '').toBe('');
+      expect(persistedLayer?.animator?.indexBuffer.speedData ?? '').toBe('');
+      expect(persistedLayer?.animator?.indexBuffer.flowData ?? '').toBe('');
+      expect(persistedLayer?.animator?.indexBuffer.phaseData ?? '').toBe('');
+    } finally {
+      if (contextProto) {
+        contextProto.rect = originalRect;
+      }
+    }
+  });
+
+  it('restores compact animator metadata records with paintSlot intact', async () => {
+    const width = 3;
+    const height = 3;
+    const projectPayload = {
+      version: '1.1.0',
+      metadata: {
+        name: 'compact-cc-metadata',
+        created: '2025-01-01T00:00:00.000Z',
+        modified: '2025-01-01T00:00:00.000Z',
+        appVersion: '1.0.0',
+      },
+      project: {
+        id: 'project-compact-cc-metadata',
+        name: 'compact-cc-metadata',
+        width,
+        height,
+        backgroundColor: '#000000',
+        layers: [{
+          id: 'layer-compact-cc-metadata',
+          name: 'CC Compact Metadata',
+          visible: true,
+          opacity: 1,
+          blendMode: 'source-over',
+          locked: false,
+          transparencyLocked: false,
+          order: 0,
+          imageDataUrl: '',
+          alignment: createDefaultLayerAlignment(),
+          layerType: 'color-cycle',
+          version: 1,
+          colorCycleData: {
+            canvasImageData: encodeRawImageDataUrl(createSolidImageData(width, height, [120, 40, 200, 255])),
+            canvasWidth: width,
+            canvasHeight: height,
+            gradient: [
+              { position: 0, color: '#000000' },
+              { position: 1, color: '#ffffff' },
+            ],
+            isAnimating: false,
+            mode: 'brush',
+            brushState: {
+              layers: [{
+                layerId: 'layer-compact-cc-metadata',
+                paintSlot: 2,
+                animator: {
+                  indexBuffer: {
+                    width,
+                    height,
+                    data: '',
+                    gradientId: '',
+                    speedData: '',
+                    flowData: '',
+                    phaseData: '',
+                    palette: ['#000000', '#ffffff'],
+                  },
+                  gradient: {
+                    gradientStops: [
+                      { position: 0, color: '#000000' },
+                      { position: 1, color: '#ffffff' },
+                    ],
+                  },
+                  animation: {
+                    offset: 0,
+                    stats: {
+                      targetFPS: 24,
+                      actualFPS: 24,
+                      frameCount: 1,
+                      totalTime: 0,
+                      averageFrameTime: 0,
+                      isAnimating: false,
+                    },
+                  },
+                },
+                strokeData: {
+                  paintBuffer: Buffer.from(Uint8Array.from([1, 0, 0, 0, 0, 0, 0, 0, 0])).toString('base64'),
+                  hasContent: true,
+                  strokeCounter: 1,
+                },
+              }],
+              cycleSpeed: 0.5,
+              fps: 24,
+              brushSize: 8,
+            },
+          },
+        }],
+        customBrushes: [],
+        defaultCustomBrushId: null,
+        brushSpecificSettings: {},
+        globalBrushSize: 1,
+      },
+    };
+
+    const restored = await deserializeProject(JSON.stringify(projectPayload));
+    const [restoredLayer] = await restoreColorCycleBrushes(restored.layers);
+    const restoredBrush = restoredLayer.colorCycleData?.colorCycleBrush as
+      | { activeGradientSlots?: Map<string, number> }
+      | undefined;
+    const activeSlot = restoredBrush?.activeGradientSlots?.get(restoredLayer.id);
+
+    expect(activeSlot).toBe(2);
   });
 
   it('writes v2 preview manifest and omits project.json thumbnail duplication', async () => {
@@ -1330,13 +1573,16 @@ describe('projectIO serialize/deserialize layering', () => {
     );
   });
 
-  it('skips oversized color-cycle brushState restore when persisted gradient buffers can seed runtime', async () => {
+  it('restores compatible duplicated color-cycle brushState snapshots without collapsing to metadata-only fallback', async () => {
     const width = 3;
     const height = 3;
-    const gradientIds = new Uint8Array(width * height);
-    gradientIds[2] = 5;
-    gradientIds[7] = 9;
-    const oversizedBase64 = 'A'.repeat(33 * 1024 * 1024);
+    const snapshotPaint = Uint8Array.from([0, 1, 2, 3, 4, 5, 6, 7, 8]);
+    const snapshotGradientIds = Uint8Array.from([8, 7, 6, 5, 4, 3, 2, 1, 0]);
+    const snapshotSpeed = Uint8Array.from([1, 1, 1, 2, 2, 2, 3, 3, 3]);
+    const snapshotFlow = Uint8Array.from([4, 4, 4, 5, 5, 5, 6, 6, 6]);
+    const snapshotPhase = Uint8Array.from([9, 8, 7, 6, 5, 4, 3, 2, 1]);
+    const snapshotDefs = new Uint16Array([0, 1, 2, 3, 4, 5, 6, 7, 8]);
+    const persistedGradientIds = Uint8Array.from([5, 5, 5, 5, 5, 5, 5, 5, 5]);
 
     const restored = await deserializeProject(JSON.stringify({
       version: '1.0.0',
@@ -1373,17 +1619,190 @@ describe('projectIO serialize/deserialize layering', () => {
               { position: 0, color: '#000000' },
               { position: 1, color: '#ffffff' },
             ],
-            gradientIdBuffer: Buffer.from(gradientIds).toString('base64'),
+            gradientIdBuffer: Buffer.from(persistedGradientIds).toString('base64'),
             isAnimating: false,
             mode: 'brush',
             brushState: {
               layers: [{
                 layerId: 'layer-cc-oversized-brush-state',
                 strokeData: {
+                  paintBuffer: Buffer.from(snapshotPaint).toString('base64'),
+                  gradientIdBuffer: Buffer.from(snapshotGradientIds).toString('base64'),
+                  gradientDefIdBuffer: Buffer.from(snapshotDefs.buffer).toString('base64'),
+                  speedBuffer: Buffer.from(snapshotSpeed).toString('base64'),
+                  flowBuffer: Buffer.from(snapshotFlow).toString('base64'),
+                  phaseBuffer: Buffer.from(snapshotPhase).toString('base64'),
+                  hasContent: true,
+                  strokeCounter: 1,
+                },
+                animator: {
+                  indexBuffer: {
+                    width,
+                    height,
+                    data: Buffer.from(snapshotPaint).toString('base64'),
+                    gradientId: Buffer.from(snapshotGradientIds).toString('base64'),
+                    speedData: Buffer.from(snapshotSpeed).toString('base64'),
+                    flowData: Buffer.from(snapshotFlow).toString('base64'),
+                    phaseData: Buffer.from(snapshotPhase).toString('base64'),
+                    palette: ['#000000', '#ffffff'],
+                  },
+                  gradient: {
+                    gradientStops: [
+                      { position: 0, color: '#000000' },
+                      { position: 1, color: '#ffffff' },
+                    ],
+                  },
+                  animation: {
+                    offset: 0,
+                    stats: {
+                      targetFPS: 24,
+                      actualFPS: 24,
+                      frameCount: 1,
+                      totalTime: 0,
+                      averageFrameTime: 0,
+                      isAnimating: false,
+                    },
+                  },
+                },
+              }],
+              cycleSpeed: 0.5,
+              fps: 24,
+              brushSize: 8,
+              ditherEnabled: true,
+              ditherStrength: 1,
+              ditherPixelSize: 38,
+              perceptualDither: false,
+            },
+          },
+        }],
+        customBrushes: [],
+        defaultCustomBrushId: null,
+        brushSpecificSettings: {},
+        globalBrushSize: 1,
+      },
+    }));
+
+    const [restoredLayer] = await restoreColorCycleBrushes(restored.layers);
+    const restoredBrush = restoredLayer.colorCycleData?.colorCycleBrush as
+      | {
+          getLayerSnapshot?: (layerId: string) => {
+            paintBuffer: ArrayBuffer;
+            gradientIdBuffer?: ArrayBuffer;
+            gradientDefIdBuffer?: ArrayBuffer;
+            speedBuffer?: ArrayBuffer;
+            flowBuffer?: ArrayBuffer;
+            phaseBuffer?: ArrayBuffer;
+            hasContent: boolean;
+          } | null;
+          serialize?: () => {
+            ditherEnabled?: boolean;
+            ditherStrength?: number;
+            ditherPixelSize?: number;
+            perceptualDither?: boolean;
+          };
+        }
+      | undefined;
+
+    const snapshot = restoredBrush?.getLayerSnapshot?.(restoredLayer.id);
+    const restoredState = restoredBrush?.serialize?.();
+    expect(snapshot).toBeTruthy();
+    expect(snapshot?.hasContent).toBe(true);
+    expect(Array.from(new Uint8Array(snapshot?.paintBuffer ?? new ArrayBuffer(0)))).toEqual(Array.from(snapshotPaint));
+    expect(Array.from(new Uint8Array(snapshot?.gradientIdBuffer ?? new ArrayBuffer(0)))).toEqual(Array.from(snapshotGradientIds));
+    expect(Array.from(new Uint16Array(snapshot?.gradientDefIdBuffer ?? new ArrayBuffer(0)))).toEqual(Array.from(snapshotDefs));
+    expect(Array.from(new Uint8Array(snapshot?.speedBuffer ?? new ArrayBuffer(0)))).toEqual(Array.from(snapshotSpeed));
+    expect(Array.from(new Uint8Array(snapshot?.flowBuffer ?? new ArrayBuffer(0)))).toEqual(Array.from(snapshotFlow));
+    expect(Array.from(new Uint8Array(snapshot?.phaseBuffer ?? new ArrayBuffer(0)))).toEqual(Array.from(snapshotPhase));
+    expect(restoredLayer.colorCycleData?.brushState).toEqual(
+      restored.layers[0]?.colorCycleData?.brushState,
+    );
+    expect(restoredState?.ditherEnabled).toBe(true);
+    expect(restoredState?.ditherStrength).toBe(1);
+    expect(restoredState?.ditherPixelSize).toBe(38);
+    expect(restoredState?.perceptualDither).toBe(false);
+    expect(restoredLayer.colorCycleData?.colorCycleBrush).toBeTruthy();
+  });
+
+  it('keeps oversized duplicated legacy snapshots on the persisted-buffer fast path', async () => {
+    const width = 3;
+    const height = 3;
+    const gradientIds = new Uint8Array(width * height);
+    gradientIds[2] = 5;
+    gradientIds[7] = 9;
+    const oversizedBase64 = 'A'.repeat(33 * 1024 * 1024);
+
+    const restored = await deserializeProject(JSON.stringify({
+      version: '1.0.0',
+      metadata: {
+        name: 'oversized-legacy-cc',
+        created: '2025-01-01T00:00:00.000Z',
+        modified: '2025-01-01T00:00:00.000Z',
+        appVersion: '1.0.0',
+      },
+      project: {
+        id: 'project-oversized-legacy-cc',
+        name: 'oversized-legacy-cc',
+        width,
+        height,
+        backgroundColor: '#000000',
+        layers: [{
+          id: 'layer-cc-oversized-legacy-brush-state',
+          name: 'CC Oversized Legacy Brush State',
+          visible: true,
+          opacity: 1,
+          blendMode: 'source-over',
+          locked: false,
+          transparencyLocked: false,
+          order: 0,
+          imageDataUrl: '',
+          alignment: createDefaultLayerAlignment(),
+          layerType: 'color-cycle',
+          version: 1,
+          colorCycleData: {
+            canvasImageData: encodeRawImageDataUrl(createSolidImageData(width, height, [120, 40, 200, 255])),
+            canvasWidth: width,
+            canvasHeight: height,
+            gradient: [
+              { position: 0, color: '#000000' },
+              { position: 1, color: '#ffffff' },
+            ],
+            gradientIdBuffer: Buffer.from(gradientIds).toString('base64'),
+            isAnimating: false,
+            mode: 'brush',
+            brushState: {
+              layers: [{
+                layerId: 'layer-cc-oversized-legacy-brush-state',
+                strokeData: {
                   paintBuffer: oversizedBase64,
                   gradientIdBuffer: oversizedBase64,
                   hasContent: true,
                   strokeCounter: 1,
+                },
+                animator: {
+                  indexBuffer: {
+                    width,
+                    height,
+                    data: oversizedBase64,
+                    gradientId: oversizedBase64,
+                    palette: ['#000000', '#ffffff'],
+                  },
+                  gradient: {
+                    gradientStops: [
+                      { position: 0, color: '#000000' },
+                      { position: 1, color: '#ffffff' },
+                    ],
+                  },
+                  animation: {
+                    offset: 0,
+                    stats: {
+                      targetFPS: 24,
+                      actualFPS: 24,
+                      frameCount: 1,
+                      totalTime: 0,
+                      averageFrameTime: 0,
+                      isAnimating: false,
+                    },
+                  },
                 },
               }],
               cycleSpeed: 0.5,
@@ -1410,24 +1829,48 @@ describe('projectIO serialize/deserialize layering', () => {
             gradientIdBuffer?: ArrayBuffer;
             hasContent: boolean;
           } | null;
-          serialize?: () => {
-            ditherEnabled?: boolean;
-            ditherStrength?: number;
-            ditherPixelSize?: number;
-            perceptualDither?: boolean;
-          };
         }
       | undefined;
-
     const snapshot = restoredBrush?.getLayerSnapshot?.(restoredLayer.id);
-    const restoredState = restoredBrush?.serialize?.();
+
     expect(snapshot).toBeTruthy();
     expect(snapshot?.hasContent).toBe(true);
     expect(Array.from(new Uint8Array(snapshot?.gradientIdBuffer ?? new ArrayBuffer(0)))).toEqual(
       Array.from(gradientIds),
     );
     expect(restoredLayer.colorCycleData?.brushState).toEqual({
-      layers: [],
+      layers: [{
+        layerId: 'layer-cc-oversized-legacy-brush-state',
+        animator: {
+          indexBuffer: {
+            width,
+            height,
+            data: undefined,
+            gradientId: undefined,
+            speedData: undefined,
+            flowData: undefined,
+            phaseData: undefined,
+            palette: ['#000000', '#ffffff'],
+          },
+          gradient: {
+            gradientStops: [
+              { position: 0, color: '#000000' },
+              { position: 1, color: '#ffffff' },
+            ],
+          },
+          animation: {
+            offset: 0,
+            stats: {
+              targetFPS: 24,
+              actualFPS: 24,
+              frameCount: 1,
+              totalTime: 0,
+              averageFrameTime: 0,
+              isAnimating: false,
+            },
+          },
+        },
+      }],
       cycleSpeed: 0.5,
       fps: 24,
       brushSize: 8,
@@ -1436,11 +1879,6 @@ describe('projectIO serialize/deserialize layering', () => {
       ditherPixelSize: 38,
       perceptualDither: false,
     });
-    expect(restoredState?.ditherEnabled).toBe(true);
-    expect(restoredState?.ditherStrength).toBe(1);
-    expect(restoredState?.ditherPixelSize).toBe(38);
-    expect(restoredState?.perceptualDither).toBe(false);
-    expect(restoredLayer.colorCycleData?.colorCycleBrush).toBeTruthy();
   });
 
   it('seeds color-cycle runtime from persisted gradient buffers when brushState is missing', async () => {

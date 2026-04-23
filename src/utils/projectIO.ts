@@ -453,6 +453,8 @@ interface SerializedBrushLayerSnapshot {
     speedCps?: number;
   }>;
   nextGradientDefId?: number;
+  paintSlot?: number;
+  legacyRemap?: { from: number; to: number };
   fgActiveSlot?: number;
   fgDerivedKey?: string;
   fgDerivedGradients?: Array<{
@@ -732,7 +734,36 @@ const toFastPathMetadataBrushState = (
   ditherStrength: brushState.ditherStrength,
   ditherPixelSize: brushState.ditherPixelSize,
   perceptualDither: brushState.perceptualDither,
-  layers: [],
+  layers: brushState.layers.map((layer) => ({
+    layerId: layer.layerId,
+    gradientDefs: layer.gradientDefs,
+    slotPalettes: layer.slotPalettes,
+    gradientDefStore: layer.gradientDefStore,
+    nextGradientDefId: layer.nextGradientDefId,
+    paintSlot: layer.paintSlot,
+    legacyRemap: layer.legacyRemap,
+    fgActiveSlot: layer.fgActiveSlot,
+    fgDerivedKey: layer.fgDerivedKey,
+    fgDerivedGradients: layer.fgDerivedGradients,
+    derivedGradients: layer.derivedGradients,
+    activeGradientId: layer.activeGradientId,
+    animator: layer.animator
+      ? {
+          indexBuffer: {
+            width: layer.animator.indexBuffer.width,
+            height: layer.animator.indexBuffer.height,
+            data: undefined,
+            gradientId: undefined,
+            speedData: undefined,
+            flowData: undefined,
+            phaseData: undefined,
+            palette: layer.animator.indexBuffer.palette,
+          },
+          gradient: layer.animator.gradient,
+          animation: layer.animator.animation,
+        }
+      : undefined,
+  })),
 });
 
 function imageDataHasVisiblePixels(imageData: ImageData | null | undefined): boolean {
@@ -1034,6 +1065,64 @@ const isCompatibleColorCycleSnapshot = (
   return true;
 };
 
+const OVERSIZED_CC_BRUSH_STATE_BASE64_THRESHOLD = 32 * 1024 * 1024;
+
+const estimateSerializedBrushStatePayloadSize = (
+  brushState: PersistedColorCycleBrushState | undefined
+): number => {
+  const snapshots = brushState?.layers ?? [];
+  let total = 0;
+  for (const snapshot of snapshots) {
+    total += snapshot.strokeData?.paintBuffer?.length ?? 0;
+    total += snapshot.strokeData?.gradientIdBuffer?.length ?? 0;
+    total += snapshot.strokeData?.gradientDefIdBuffer?.length ?? 0;
+    total += snapshot.strokeData?.speedBuffer?.length ?? 0;
+    total += snapshot.strokeData?.flowBuffer?.length ?? 0;
+    total += snapshot.strokeData?.phaseBuffer?.length ?? 0;
+    total += snapshot.animator?.indexBuffer.data?.length ?? 0;
+    total += snapshot.animator?.indexBuffer.gradientId?.length ?? 0;
+    total += snapshot.animator?.indexBuffer.speedData?.length ?? 0;
+    total += snapshot.animator?.indexBuffer.flowData?.length ?? 0;
+    total += snapshot.animator?.indexBuffer.phaseData?.length ?? 0;
+  }
+  return total;
+};
+
+const snapshotHasRichColorCycleMetadata = (
+  snapshot: PersistedColorCycleBrushState['layers'][number] | undefined
+): boolean => {
+  if (!snapshot) {
+    return false;
+  }
+
+  return Boolean(
+    snapshot.slotPalettes?.length ||
+    snapshot.gradientDefs?.length ||
+    snapshot.gradientDefStore?.length ||
+    snapshot.fgDerivedGradients?.length ||
+    snapshot.derivedGradients?.length ||
+    snapshot.activeGradientId ||
+    typeof snapshot.paintSlot === 'number' ||
+    Boolean(snapshot.legacyRemap) ||
+    snapshot.fgDerivedKey ||
+    typeof snapshot.fgActiveSlot === 'number' ||
+    typeof snapshot.nextGradientDefId === 'number'
+  );
+};
+
+const snapshotLooksLikeDuplicatedLegacyPayload = (
+  snapshot: PersistedColorCycleBrushState['layers'][number] | undefined
+): boolean => {
+  if (!snapshot) {
+    return false;
+  }
+
+  return Boolean(
+    snapshot.strokeData?.paintBuffer &&
+    snapshot.animator?.indexBuffer.data
+  );
+};
+
 
 const resolveLayerImageDataForSave = (layer: Layer): ImageData | null => {
   const layerImageData = layer.imageData ?? null;
@@ -1330,6 +1419,10 @@ function serializeBrushState(state: ColorCycleBrushState | undefined): Persisted
 
   const layers: SerializedBrushLayerSnapshot[] = [];
   for (const layer of state.layers ?? []) {
+    const layerWithPaletteMeta = layer as typeof layer & {
+      paintSlot?: number;
+      legacyRemap?: { from: number; to: number };
+    };
     const snapshot: SerializedBrushLayerSnapshot = {
       layerId: layer.layerId
     };
@@ -1410,6 +1503,12 @@ function serializeBrushState(state: ColorCycleBrushState | undefined): Persisted
     }
     if (typeof layer.nextGradientDefId === 'number') {
       snapshot.nextGradientDefId = layer.nextGradientDefId;
+    }
+    if (typeof layerWithPaletteMeta.paintSlot === 'number') {
+      snapshot.paintSlot = layerWithPaletteMeta.paintSlot;
+    }
+    if (layerWithPaletteMeta.legacyRemap) {
+      snapshot.legacyRemap = { ...layerWithPaletteMeta.legacyRemap };
     }
     const fgDerivedGradients = layer.fgDerivedGradients ?? layer.derivedGradients;
     if (fgDerivedGradients) {
@@ -2529,27 +2628,6 @@ export async function loadProjectFromFile(): Promise<{
 export async function restoreColorCycleBrushes(layers: Layer[]): Promise<Layer[]> {
   // Import ColorCycleBrush factory dynamically to avoid circular dependencies
   const { createColorCycleBrush } = await import('../hooks/brushEngine/ColorCycleBrushMigration');
-  const OVERSIZED_CC_BRUSH_STATE_BASE64_THRESHOLD = 32 * 1024 * 1024;
-  const estimateSerializedBrushStatePayloadSize = (
-    brushState: PersistedColorCycleBrushState | undefined
-  ): number => {
-    const snapshots = brushState?.layers ?? [];
-    let total = 0;
-    for (const snapshot of snapshots) {
-      total += snapshot.strokeData?.paintBuffer?.length ?? 0;
-      total += snapshot.strokeData?.gradientIdBuffer?.length ?? 0;
-      total += snapshot.strokeData?.gradientDefIdBuffer?.length ?? 0;
-      total += snapshot.strokeData?.speedBuffer?.length ?? 0;
-      total += snapshot.strokeData?.flowBuffer?.length ?? 0;
-      total += snapshot.strokeData?.phaseBuffer?.length ?? 0;
-      total += snapshot.animator?.indexBuffer.data?.length ?? 0;
-      total += snapshot.animator?.indexBuffer.gradientId?.length ?? 0;
-      total += snapshot.animator?.indexBuffer.speedData?.length ?? 0;
-      total += snapshot.animator?.indexBuffer.flowData?.length ?? 0;
-      total += snapshot.animator?.indexBuffer.phaseData?.length ?? 0;
-    }
-    return total;
-  };
   const canSeedFromPersistedBuffers = (
     colorCycleBrush: {
       applyLayerSnapshot?: (
@@ -2595,11 +2673,7 @@ export async function restoreColorCycleBrushes(layers: Layer[]): Promise<Layer[]
         } else {
         try {
           const colorCycleBrush = createColorCycleBrush(layer.colorCycleData.canvas!);
-          // Restore precedence for brush-mode CC layers:
-          // 1. Use the saved brushState snapshot when it is valid and affordable to decode.
-          // 2. Use the persisted gradient-buffer fast path only for oversized payloads.
-          // 3. Preserve metadata-only brushState on the fast path so dither settings still survive load.
-          const shouldSkipOversizedBrushStateRestore =
+          const shouldUseOversizedFastPath =
             estimateSerializedBrushStatePayloadSize(savedBrushState) > OVERSIZED_CC_BRUSH_STATE_BASE64_THRESHOLD &&
             canSeedFromPersistedBuffers(
               colorCycleBrush as {
@@ -2615,9 +2689,13 @@ export async function restoreColorCycleBrushes(layers: Layer[]): Promise<Layer[]
                 ) => void;
               },
               layer.colorCycleData,
-            );
+            ) &&
+            (savedBrushState.layers ?? []).every((snapshot) => (
+              snapshotLooksLikeDuplicatedLegacyPayload(snapshot) &&
+              !snapshotHasRichColorCycleMetadata(snapshot)
+            ));
 
-          if (shouldSkipOversizedBrushStateRestore) {
+          if (shouldUseOversizedFastPath) {
             layer.colorCycleData.brushState = toFastPathMetadataBrushState(savedBrushState);
             savedBrushStates.delete(layer);
           } else {
@@ -2640,11 +2718,13 @@ export async function restoreColorCycleBrushes(layers: Layer[]): Promise<Layer[]
             const phaseBuffer = snapshot.strokeData?.phaseBuffer
               ? base64ToArrayBuffer(snapshot.strokeData.phaseBuffer)
               : undefined;
-            const animatorIndex = snapshot.animator?.indexBuffer.data
+            const animatorIndex = snapshot.animator
               ? {
                   width: snapshot.animator.indexBuffer.width,
                   height: snapshot.animator.indexBuffer.height,
-                  data: base64ToArrayBuffer(snapshot.animator.indexBuffer.data),
+                  data: snapshot.animator.indexBuffer.data
+                    ? base64ToArrayBuffer(snapshot.animator.indexBuffer.data)
+                    : new ArrayBuffer(0),
                   gradientIdData: snapshot.animator.indexBuffer.gradientId
                     ? base64ToArrayBuffer(snapshot.animator.indexBuffer.gradientId)
                     : undefined,
@@ -2660,6 +2740,8 @@ export async function restoreColorCycleBrushes(layers: Layer[]): Promise<Layer[]
                   gradientStops: snapshot.animator.gradient.gradientStops,
                   gradientDefs: snapshot.gradientDefs,
                   slotPalettes: snapshot.slotPalettes,
+                  paintSlot: snapshot.paintSlot,
+                  legacyRemap: snapshot.legacyRemap,
                   activeGradientId: snapshot.activeGradientId,
                 }
               : undefined;

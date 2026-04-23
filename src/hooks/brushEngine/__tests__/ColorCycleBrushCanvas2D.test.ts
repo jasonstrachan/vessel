@@ -390,6 +390,36 @@ describe('ColorCycleBrushCanvas2D', () => {
     expect(roundTripped.serialize().stampDitherPressureLinked).toBe(true);
   });
 
+  it('does not duplicate animator index buffers when stroke snapshots already own restore data', () => {
+    const canvas = makeCanvas();
+    const brush = new ColorCycleBrushCanvas2D(canvas, { brushSize: 10, fps: 60 });
+
+    const paint = new Uint8Array(canvas.width * canvas.height);
+    const gradientId = new Uint8Array(canvas.width * canvas.height);
+    const speed = new Uint8Array(canvas.width * canvas.height);
+    paint[0] = 5;
+    gradientId[0] = 7;
+    speed[0] = 9;
+
+    brush.applyLayerSnapshot('layer-dup-prune', {
+      paintBuffer: paint.buffer,
+      gradientIdBuffer: gradientId.buffer,
+      speedBuffer: speed.buffer,
+      hasContent: true,
+      strokeCounter: 4,
+    });
+
+    const serialized = brush.serialize();
+    const layer = serialized.layers[0];
+
+    expect(layer?.strokeData?.paintBuffer.byteLength).toBe(paint.byteLength);
+    expect(layer?.data.indexBuffer.data.byteLength).toBe(0);
+    expect(layer?.data.indexBuffer.gradientId?.byteLength ?? 0).toBe(0);
+    expect(layer?.data.indexBuffer.speedData?.byteLength ?? 0).toBe(0);
+    expect(layer?.data.indexBuffer.flowData?.byteLength ?? 0).toBe(0);
+    expect(layer?.data.indexBuffer.phaseData?.byteLength ?? 0).toBe(0);
+  });
+
   it('restores layer base speed through restoreFullState', () => {
     const source = new ColorCycleBrushCanvas2D(makeCanvas(), { brushSize: 10, fps: 60 });
     source.setLayerBaseSpeed(1.75);
