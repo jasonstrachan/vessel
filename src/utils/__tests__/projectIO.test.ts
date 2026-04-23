@@ -495,6 +495,145 @@ describe('projectIO readProjectManifest', () => {
     );
   });
 
+  it('repairs missing binary manifest entries from zip-backed archives during read', async () => {
+    const zip = new JSZip();
+    zip.file('project.json', JSON.stringify({
+      ...minimalVesselProject,
+      manifestVersion: 1,
+      project: {
+        ...minimalVesselProject.project,
+        layers: [{
+          id: 'layer-cc',
+          name: 'cc',
+          visible: true,
+          opacity: 1,
+          blendMode: 'normal',
+          locked: false,
+          order: 0,
+          imageDataUrl: '',
+          layerType: 'color-cycle',
+          state: {
+            version: 1,
+            dimensions: { width: 2, height: 2 },
+            gradientDefStore: [],
+            paintRef: 'zip:buffers/color-cycle/layer-cc/paint.bin',
+          },
+          colorCycleData: {
+            canvasWidth: 2,
+            canvasHeight: 2,
+          },
+        }],
+      },
+      binaries: {
+        entries: [],
+      },
+    }));
+    zip.file('buffers/color-cycle/layer-cc/paint.bin', new Uint8Array([1, 2, 3, 4]));
+
+    const payload = await zip.generateAsync({ type: 'uint8array', compression: 'DEFLATE' });
+    const manifest = await readProjectManifest(payload);
+    const report = await readProjectHealthReport(payload);
+
+    expect(manifest.binaries?.entries).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        path: 'buffers/color-cycle/layer-cc/paint.bin',
+        byteLength: 4,
+        dtype: 'uint8',
+      }),
+    ]));
+    expect(report.warnings).toEqual([]);
+  });
+
+  it('rejects missing canonical color-cycle stroke buffers from zip-backed archives', async () => {
+    const zip = new JSZip();
+    zip.file('project.json', JSON.stringify({
+      ...minimalVesselProject,
+      manifestVersion: 1,
+      project: {
+        ...minimalVesselProject.project,
+        layers: [{
+          id: 'layer-cc',
+          name: 'cc',
+          visible: true,
+          opacity: 1,
+          blendMode: 'normal',
+          locked: false,
+          order: 0,
+          imageDataUrl: '',
+          layerType: 'color-cycle',
+          state: {
+            version: 1,
+            dimensions: { width: 2, height: 2 },
+            gradientDefStore: [],
+            paintRef: 'zip:buffers/color-cycle/layer-cc/paint.bin',
+          },
+          colorCycleData: {
+            canvasWidth: 2,
+            canvasHeight: 2,
+          },
+        }],
+      },
+      binaries: {
+        entries: [],
+      },
+    }));
+
+    const payload = await zip.generateAsync({ type: 'uint8array', compression: 'DEFLATE' });
+    await expect(readProjectManifest(payload)).rejects.toThrow(
+      'Project archive manifest is missing binary entry buffers/color-cycle/layer-cc/paint.bin',
+    );
+    await expect(readProjectHealthReport(payload)).rejects.toThrow(
+      'Project archive manifest is missing binary entry buffers/color-cycle/layer-cc/paint.bin',
+    );
+    await expect(deserializeProjectWithReport(payload)).rejects.toThrow(
+      'Project archive manifest is missing binary entry buffers/color-cycle/layer-cc/paint.bin',
+    );
+  });
+
+  it('drops dangling optional color-cycle runtime refs when the archive payload is gone', async () => {
+    const zip = new JSZip();
+    zip.file('project.json', JSON.stringify({
+      ...minimalVesselProject,
+      manifestVersion: 1,
+      project: {
+        ...minimalVesselProject.project,
+        layers: [{
+          id: 'layer-cc',
+          name: 'cc',
+          visible: true,
+          opacity: 1,
+          blendMode: 'normal',
+          locked: false,
+          order: 0,
+          imageDataUrl: '',
+          layerType: 'color-cycle',
+          state: {
+            version: 1,
+            dimensions: { width: 2, height: 2 },
+            gradientDefStore: [],
+          },
+          colorCycleData: {
+            canvasWidth: 2,
+            canvasHeight: 2,
+            canvasImageData: 'zip:buffers/color-cycle/layer-cc/canvas-image.txt',
+          },
+        }],
+      },
+      binaries: {
+        entries: [],
+      },
+    }));
+
+    const payload = await zip.generateAsync({ type: 'uint8array', compression: 'DEFLATE' });
+    const manifest = await readProjectManifest(payload);
+    const report = await readProjectHealthReport(payload);
+    const deserialized = await deserializeProjectWithReport(payload);
+
+    expect(manifest.project.layers[0]?.colorCycleData?.canvasImageData).toBeUndefined();
+    expect(report.warnings).toEqual([]);
+    expect(deserialized.project.layers[0]?.layerType).toBe('color-cycle');
+  });
+
   it('rejects dual-authority color-cycle state when canonical fields also remain on colorCycleData', async () => {
     const invalidEnvelope = {
       ...minimalVesselProject,

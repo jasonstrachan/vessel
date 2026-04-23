@@ -40,6 +40,7 @@ import {
   normalizePersistedLayerType,
   validateStrictColorCyclePersistedSurface,
   type BinaryManifestEntry,
+  type PersistedProjectBinaryManifest,
   type VesselProjectArchive,
 } from '@/utils/projectPersistence';
 import {
@@ -66,6 +67,7 @@ const MAX_PROJECT_CUSTOM_BRUSHES = 512;
 const LEGACY_FLOW_SLOT_MASK = 63;
 const LEGACY_EDITOR_SLOT = 63;
 const utf8Encoder = new TextEncoder();
+const utf8Decoder = new TextDecoder();
 
 const parseVersionTuple = (version: string): [number, number, number] | null => {
   const parts = version.split('.').map((part) => Number(part));
@@ -3083,7 +3085,7 @@ const validateSerializedProjectEnvelope = (vesselProject: VesselProject): void =
   serializedProject.layers.forEach((layer) => validateLayerEnvelope(layer, binaryPaths));
 };
 
-function parseVesselProjectJson(json: string): VesselProject {
+const parseVesselProjectJsonRaw = (json: string): VesselProject => {
   let sanitized = json;
   if (sanitized.length > 0 && sanitized.charCodeAt(0) === 0xfeff) {
     sanitized = sanitized.slice(1);
@@ -3109,6 +3111,186 @@ function parseVesselProjectJson(json: string): VesselProject {
     throw new Error('Invalid Vessel project file');
   }
 
+  return vesselProject;
+};
+
+const buildRepairedArchiveBinaryManifest = async (
+  vesselProject: VesselProject,
+  archiveZip: JSZip,
+): Promise<PersistedProjectBinaryManifest | undefined> => {
+  const binaryEntries = vesselProject.binaries?.entries ?? [];
+  const knownPaths = new Set<string>();
+  binaryEntries.forEach((entry) => {
+    validateBinaryManifestEntry(entry);
+    if (knownPaths.has(entry.path)) {
+      throw new Error(`Duplicate project binary manifest entry ${entry.path}`);
+    }
+    knownPaths.add(entry.path);
+  });
+
+  const repairedEntries = [...binaryEntries];
+  let didRepair = false;
+  for (const path of collectArchiveBinaryRefs(vesselProject.project.layers)) {
+    if (knownPaths.has(path)) {
+      continue;
+    }
+    const entry = archiveZip.file(path);
+    const normalizedEntry = Array.isArray(entry) ? entry[0] ?? null : entry;
+    if (!normalizedEntry) {
+      continue;
+    }
+    const bytes = await normalizedEntry.async('uint8array');
+    repairedEntries.push({
+      version: 1,
+      path,
+      checksum: fnv1aHash(bytes),
+      byteLength: bytes.byteLength,
+      dtype: inferBinaryManifestDType(path),
+      compression: 'deflate',
+    });
+    knownPaths.add(path);
+    didRepair = true;
+  }
+
+  return didRepair ? { entries: repairedEntries } : vesselProject.binaries;
+};
+
+const OPTIONAL_COLOR_CYCLE_ARCHIVE_SUFFIXES = [
+  'canvas-image.txt',
+  'erase-mask.txt',
+  'recolor-index.bin',
+  'recolor-index-phase.bin',
+  'recolor-phase.bin',
+  'recolor-original-image.txt',
+  'animator-index.bin',
+  'animator-gradient-id.bin',
+  'animator-speed.bin',
+  'animator-flow.bin',
+  'animator-phase.bin',
+] as const;
+
+const isOptionalColorCycleArchivePath = (path: string): boolean => (
+  path.startsWith('buffers/color-cycle/')
+  && OPTIONAL_COLOR_CYCLE_ARCHIVE_SUFFIXES.some((suffix) => path.endsWith(suffix))
+);
+
+const removeDanglingColorCycleArchiveRefs = (
+  layer: SerializedLayer,
+  missingPaths: Set<string>,
+): void => {
+  if (normalizePersistedLayerType(layer.layerType) !== 'color-cycle' || missingPaths.size === 0) {
+    return;
+  }
+
+  const isMissingRef = (value: unknown): value is string => (
+    typeof value === 'string'
+    && isPersistedArchiveBinaryRef(value)
+    && missingPaths.has(value.slice(ARCHIVE_BINARY_REF_PREFIX.length))
+  );
+
+  if (layer.state && 'dimensions' in layer.state) {
+    const colorCycleState = layer.state as SerializedColorCycleLayerStateV1;
+    if (isMissingRef(colorCycleState.paintRef)) {
+      colorCycleState.paintRef = undefined;
+    }
+    if (isMissingRef(colorCycleState.speedRef)) {
+      colorCycleState.speedRef = undefined;
+    }
+    if (isMissingRef(colorCycleState.flowRef)) {
+      colorCycleState.flowRef = undefined;
+    }
+    if (isMissingRef(colorCycleState.phaseRef)) {
+      colorCycleState.phaseRef = undefined;
+    }
+  }
+
+  const colorCycleData = layer.colorCycleData;
+  if (!colorCycleData) {
+    return;
+  }
+
+  if (isMissingRef(colorCycleData.canvasImageData)) {
+    colorCycleData.canvasImageData = undefined;
+  }
+  if (isMissingRef(colorCycleData.eraseMaskImageData)) {
+    colorCycleData.eraseMaskImageData = undefined;
+  }
+  if (colorCycleData.recolorSettings) {
+    if (isMissingRef(colorCycleData.recolorSettings.indexBuffer)) {
+      colorCycleData.recolorSettings.indexBuffer = undefined;
+    }
+    if (isMissingRef(colorCycleData.recolorSettings.indexPhaseMap)) {
+      colorCycleData.recolorSettings.indexPhaseMap = undefined;
+    }
+    if (isMissingRef(colorCycleData.recolorSettings.phaseMap)) {
+      colorCycleData.recolorSettings.phaseMap = undefined;
+    }
+    if (isMissingRef(colorCycleData.recolorSettings.originalImageData)) {
+      colorCycleData.recolorSettings.originalImageData = undefined;
+    }
+  }
+
+  colorCycleData.brushState?.layers?.forEach((snapshot) => {
+    if (snapshot.strokeData) {
+      if (isMissingRef(snapshot.strokeData.paintBuffer)) {
+        snapshot.strokeData.paintBuffer = undefined;
+      }
+      if (isMissingRef(snapshot.strokeData.speedBuffer)) {
+        snapshot.strokeData.speedBuffer = undefined;
+      }
+      if (isMissingRef(snapshot.strokeData.flowBuffer)) {
+        snapshot.strokeData.flowBuffer = undefined;
+      }
+      if (isMissingRef(snapshot.strokeData.phaseBuffer)) {
+        snapshot.strokeData.phaseBuffer = undefined;
+      }
+    }
+    if (snapshot.animator?.indexBuffer) {
+      if (isMissingRef(snapshot.animator.indexBuffer.data)) {
+        snapshot.animator.indexBuffer.data = undefined;
+      }
+      if (isMissingRef(snapshot.animator.indexBuffer.gradientId)) {
+        snapshot.animator.indexBuffer.gradientId = undefined;
+      }
+      if (isMissingRef(snapshot.animator.indexBuffer.speedData)) {
+        snapshot.animator.indexBuffer.speedData = undefined;
+      }
+      if (isMissingRef(snapshot.animator.indexBuffer.flowData)) {
+        snapshot.animator.indexBuffer.flowData = undefined;
+      }
+      if (isMissingRef(snapshot.animator.indexBuffer.phaseData)) {
+        snapshot.animator.indexBuffer.phaseData = undefined;
+      }
+    }
+  });
+};
+
+const sanitizeDanglingColorCycleArchiveRefs = (
+  vesselProject: VesselProject,
+  archiveZip: JSZip,
+): void => {
+  vesselProject.project.layers.forEach((layer) => {
+    const missingPaths = new Set<string>();
+    collectArchiveBinaryRefs(layer).forEach((path) => {
+      if (isOptionalColorCycleArchivePath(path) && !archiveZip.file(path)) {
+        missingPaths.add(path);
+      }
+    });
+    removeDanglingColorCycleArchiveRefs(layer, missingPaths);
+  });
+};
+
+async function parseVesselProjectJson(
+  json: string,
+  options?: {
+    archiveZip?: JSZip | null;
+  },
+): Promise<VesselProject> {
+  const vesselProject = parseVesselProjectJsonRaw(json);
+  if (options?.archiveZip) {
+    vesselProject.binaries = await buildRepairedArchiveBinaryManifest(vesselProject, options.archiveZip);
+    sanitizeDanglingColorCycleArchiveRefs(vesselProject, options.archiveZip);
+  }
   validateSerializedProjectEnvelope(vesselProject);
 
   return vesselProject;
@@ -3226,8 +3408,8 @@ export async function readProjectPreviewManifest(projectData: ProjectFileData): 
       if (!normalizedProjectEntry) {
         throw new Error('Project archive is missing project.json');
       }
-      const projectJson = await normalizedProjectEntry.async('string');
-      return toProjectPreview(parseVesselProjectJson(projectJson));
+      const projectJson = utf8Decoder.decode(await normalizedProjectEntry.async('uint8array'));
+      return toProjectPreview(await parseVesselProjectJson(projectJson, { archiveZip: zip }));
     }
   }
 
@@ -3237,18 +3419,19 @@ export async function readProjectPreviewManifest(projectData: ProjectFileData): 
 export async function readProjectHealthReport(projectData: ProjectFileData): Promise<ProjectHealthReport> {
   const projectBytes = await toProjectDataBytes(projectData);
   let archiveBytes = 0;
+  let archiveZip: JSZip | null = null;
   let projectJson: string;
   let previewJson: string | null = null;
 
   if (projectBytes && isZipBytes(projectBytes)) {
     archiveBytes = projectBytes.byteLength;
-    const archiveZip = await JSZip.loadAsync(projectBytes);
+    archiveZip = await JSZip.loadAsync(projectBytes);
     const projectEntry = archiveZip.file(PROJECT_ARCHIVE_ENTRY);
     const normalizedProjectEntry = Array.isArray(projectEntry) ? projectEntry[0] ?? null : projectEntry;
     if (!normalizedProjectEntry) {
       throw new Error('Project archive is missing project.json');
     }
-    projectJson = await normalizedProjectEntry.async('string');
+    projectJson = utf8Decoder.decode(await normalizedProjectEntry.async('uint8array'));
     const previewEntry = archiveZip.file(PROJECT_PREVIEW_ARCHIVE_ENTRY);
     const normalizedPreviewEntry = Array.isArray(previewEntry) ? previewEntry[0] ?? null : previewEntry;
     previewJson = normalizedPreviewEntry ? await normalizedPreviewEntry.async('string') : null;
@@ -3257,7 +3440,7 @@ export async function readProjectHealthReport(projectData: ProjectFileData): Pro
     archiveBytes = projectBytes?.byteLength ?? byteCountForString(projectJson);
   }
 
-  const vesselProject = parseVesselProjectJson(projectJson);
+  const vesselProject = await parseVesselProjectJson(projectJson, { archiveZip });
   const previewManifest = previewJson
     ? parseVesselProjectPreviewJson(previewJson)
     : toProjectPreview(vesselProject);
@@ -3272,10 +3455,24 @@ export async function readProjectHealthReport(projectData: ProjectFileData): Pro
 }
 
 export async function readProjectManifest(projectData: ProjectFileData): Promise<VesselProject> {
-  let projectJson = await decodeProjectData(projectData);
+  const projectBytes = await toProjectDataBytes(projectData);
+  let archiveZip: JSZip | null = null;
+  let projectJson: string;
+
+  if (projectBytes && isZipBytes(projectBytes)) {
+    archiveZip = await JSZip.loadAsync(projectBytes);
+    const projectEntry = archiveZip.file(PROJECT_ARCHIVE_ENTRY);
+    const normalizedProjectEntry = Array.isArray(projectEntry) ? projectEntry[0] ?? null : projectEntry;
+    if (!normalizedProjectEntry) {
+      throw new Error('Project archive is missing project.json');
+    }
+    projectJson = utf8Decoder.decode(await normalizedProjectEntry.async('uint8array'));
+  } else {
+    projectJson = await decodeProjectData(projectData);
+  }
 
   try {
-    return parseVesselProjectJson(projectJson);
+    return await parseVesselProjectJson(projectJson, { archiveZip });
   } catch (error) {
     const trimmed = projectJson.trimStart();
     const firstChar = trimmed.charCodeAt(0);
@@ -3545,11 +3742,11 @@ export async function deserializeProjectWithReport(projectData: ProjectFileData)
     if (!normalizedProjectEntry) {
       throw new Error('Project archive is missing project.json');
     }
-    projectJson = await normalizedProjectEntry.async('string');
+    projectJson = utf8Decoder.decode(await normalizedProjectEntry.async('uint8array'));
   } else {
     projectJson = await decodeProjectData(projectData);
   }
-  const vesselProject = parseVesselProjectJson(projectJson);
+  const vesselProject = await parseVesselProjectJson(projectJson, { archiveZip });
   const serializedProject = vesselProject.project;
   const migration = migrateLegacyProjectLayers(serializedProject.layers, {
     projectWidth: serializedProject.width,
