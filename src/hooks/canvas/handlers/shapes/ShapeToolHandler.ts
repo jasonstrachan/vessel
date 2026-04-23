@@ -40,6 +40,7 @@ import { parseCssColorToRgba } from '@/hooks/canvas/utils/colorCycleHelpers';
 import { stampCcHangProbe } from '@/hooks/canvas/utils/ccHangProbe';
 import { applyPolygonMaskToCanvasContext } from '@/hooks/canvas/handlers/shapes/shapePreviewMask';
 import { logLivePreview } from '@/hooks/canvas/utils/livePreviewDebug';
+import { recordSampledCcShapeBreadcrumb } from '@/hooks/canvas/utils/sampledCcShapeBreadcrumbs';
 import { hashStops, type StoredStop } from '@/utils/colorCycleGradientDefs';
 import { simplifyToVertexLimit } from '@/utils/polygonSimplify';
 import {
@@ -3149,6 +3150,20 @@ export const createShapeToolHandler = (
               dirty: ditherGradPreviewState.ccJobDirty,
               seq: ditherGradPreviewState.ccJobSeq,
             });
+            if (isSampledPreviewMode) {
+              recordSampledCcShapeBreadcrumb({
+                event: 'preview-frame-start',
+                activeLayerId: storeNow.activeLayerId ?? null,
+                seq: ditherGradPreviewState.ccJobSeq,
+                rawPointCount: pts.length,
+                previewPointCount: committedPolygon.length,
+                pixelSize,
+                levels,
+                inFlight: ditherGradPreviewState.ccJobInFlight,
+                dirty: ditherGradPreviewState.ccJobDirty,
+                source: brushNow.ccGradientSource ?? null,
+              });
+            }
             if (shouldDitherPreview) {
               const previewRenderSettings = resolveCcShapePreviewRenderSettings({
                 pixelSize,
@@ -3161,6 +3176,22 @@ export const createShapeToolHandler = (
                   pointCount: committedPolygon.length,
                   pixelSize: previewRenderSettings.pixelSize,
                   levels: previewRenderSettings.levels,
+                });
+                recordSampledCcShapeBreadcrumb({
+                  event: 'sampled-preview-dispatch',
+                  activeLayerId: storeNow.activeLayerId ?? null,
+                  seq: ditherGradPreviewState.ccJobSeq,
+                  rawPointCount: pts.length,
+                  previewPointCount: committedPolygon.length,
+                  minX: Math.min(...committedPolygon.map(point => point.x)),
+                  minY: Math.min(...committedPolygon.map(point => point.y)),
+                  maxX: Math.max(...committedPolygon.map(point => point.x)),
+                  maxY: Math.max(...committedPolygon.map(point => point.y)),
+                  pixelSize: previewRenderSettings.pixelSize,
+                  levels: previewRenderSettings.levels,
+                  inFlight: ditherGradPreviewState.ccJobInFlight,
+                  dirty: ditherGradPreviewState.ccJobDirty,
+                  source: brushNow.ccGradientSource ?? null,
                 });
               }
               stampCcHangProbe({
@@ -3651,6 +3682,14 @@ export const createShapeToolHandler = (
         pointCount: drawingHandlers.shapePointsRef.current.length,
         source: liveBrushForUp.ccGradientSource ?? null,
       });
+      if (liveBrushForUp.ccGradientSource === 'sampled') {
+        recordSampledCcShapeBreadcrumb({
+          event: 'pointer-up',
+          activeLayerId: activeLayerId ?? null,
+          pointCount: drawingHandlers.shapePointsRef.current.length,
+          source: liveBrushForUp.ccGradientSource ?? null,
+        });
+      }
       resetDitherGradOrigin();
       latestPolygonPreviewPoint = null;
       if (previewAnimationFrameRef?.current) {
