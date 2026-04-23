@@ -306,9 +306,10 @@ export const createColorCycleBrushRegistry = (deps: ColorCycleBrushRegistryDeps)
         let shouldPreserve = false;
         const layer = layers.find(candidate => candidate.id === layerId);
         if (layer && layer.layerType === 'color-cycle' && layer.colorCycleData?.mode !== 'recolor') {
-          const hasCanvas = Boolean(layer.colorCycleData?.canvas);
+          const hydrationState = layer.colorCycleData?.runtimeHydrationState
+            ?? (layer.colorCycleData?.deferredRuntimeRestore ? 'cold' : 'warm');
           const isAnimating = Boolean(layer.colorCycleData?.isAnimating);
-          if (hasCanvas || isAnimating) {
+          if (hydrationState === 'active' || isAnimating) {
             shouldPreserve = true;
           }
         }

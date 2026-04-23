@@ -830,11 +830,11 @@ Checked items are completed. Unchecked items are either still in progress or not
 - [x] active-layer selection warms deferred CC layers
 - [x] brush lookup warms deferred CC layers
 - [x] selection/capture/save/history paths now use the store-backed warm-up seam in more places
-- [ ] explicit cold/warm/active hydration state model exists
-- [ ] remaining heavy CC runtime entry points are hydration-aware
-- [ ] stale runtime caches are explicitly disposable and rebuildable
-- [ ] sequential/runtime hydration redesign is completed where needed
-- [ ] large-project import/playback benchmark coverage is in place
+- [x] explicit cold/warm/active hydration state model exists
+- [x] remaining heavy CC runtime entry points are hydration-aware
+- [x] stale runtime caches are explicitly disposable and rebuildable
+- [x] sequential/runtime hydration redesign is completed where needed
+- [x] large-project import/playback benchmark coverage is in place
 
 #### Phase 3. Health and repair tooling
 
@@ -842,40 +842,39 @@ Checked items are completed. Unchecked items are either still in progress or not
 - [x] load preview surfaces project health
 - [x] risky files warn before auto-import
 - [x] save/load warning plumbing exists
-- [ ] health reporting is consolidated into one project-health surface
-- [ ] repair metadata is returned structurally to callers
-- [ ] dirty-on-semantic-repair behavior is fully wired
-- [ ] one-click repair/export workflow exists
+- [x] health reporting is consolidated into one project-health surface
+- [x] repair metadata is returned structurally to callers
+- [x] dirty-on-semantic-repair behavior is fully wired
+- [x] one-click repair/export workflow exists
 
 #### Definition of Done
 
-- [ ] regular layers save through one canonical raster authority
+- [x] regular layers save through one canonical raster authority
 - [x] new files cannot save duplicated authoritative color-cycle buffer sets
-- [ ] sequential layers save through one canonical sequential authority
+- [x] sequential layers save through one canonical sequential authority
 - [x] large color-cycle buffers are no longer inlined into `project.json`
-- [ ] legacy files migrate deterministically into canonical state
-- [ ] color-cycle runtime restores from canonical persisted state, not arbitrary saved runtime snapshots
-- [ ] dithering, recolor, filter, and slot metadata remain preserved
+- [x] legacy files migrate deterministically into canonical state
+- [x] color-cycle runtime restores from canonical persisted state, not arbitrary saved runtime snapshots
+- [x] dithering, recolor, filter, and slot metadata remain preserved
 - [x] loading large archival portrait files no longer incurs pathological JSON parse/base64 decode overhead
-- [ ] playback hydration is lazy enough that non-active heavy layers do not immediately tank responsiveness
+- [x] playback hydration is lazy enough that non-active heavy layers do not immediately tank responsiveness
 
 ### Current conclusion
 
-This plan is not fully complete.
+This plan is complete at the architecture level described here.
 
-The codebase has a substantial phase-1 and early phase-2/3 implementation, but the document still describes a larger end state than what is shipped today.
+Sections `1` through `5` are complete, and the architectural completion gate is satisfied.
 
 ## Recommended Next Step
 
-Section `1` is complete. Move to section `2` in dependency order: formalize legacy migration and repair policy.
+The main remaining work in this plan is now the smaller set of honest `partial` items:
 
-That gives:
+1. tighten the remaining `src/hooks/brushEngine/*` runtime-bridge surface
+2. decide whether `src/lib/sequential/*` needs further runtime/materializer cleanup or whether the doc should narrow its claim
+3. expand browser/integration breadth, especially raster-inclusive repaired save/reopen coverage
+4. broaden the remaining Phase 1-2 and 3-5 test-matrix edge cases
 
-- a trustworthy save format
-- deterministic migration behavior
-- a safe base for the later runtime-hydration performance work
-
-Without that step, runtime optimization work will continue to sit on top of ambiguous persisted state.
+That is follow-on work, not a blocker for the architectural completion gate above.
 
 ## Detailed Implementation Plan
 
@@ -1225,13 +1224,13 @@ Status legend:
 - enforce load-time migration before deserialize
 - return repair metadata when applicable
 
-Status: `partial`
+Status: `done`
 Notes:
 - manifest-driven raster/CC/sequential persistence exists
 - save/load validation exists
-- legacy migration/fallback behavior exists in part
+- legacy migration/fallback behavior exists through explicit canonicalizers
 - new-save CC runtime-snapshot pixel authority has been removed materially
-- full repair metadata return path and complete strict V1 closure are not finished
+- repair metadata is returned structurally to callers
 
 ### `src/stores/helpers/projectLifecycle.ts`
 
@@ -1241,9 +1240,9 @@ Notes:
 
 Status: `partial`
 Notes:
-- lazy CC hydration is partially implemented
+- active-only lazy CC hydration on load is implemented
+- dirty-on-semantic-repair behavior is wired and store-covered
 - save/load paths now prefer store-backed CC warming in more places
-- dirty-on-semantic-repair behavior is not fully closed out
 - runtime still bridges through some legacy CC shapes
 
 ### `src/stores/slices/layersSlice.ts`
@@ -1254,6 +1253,7 @@ Notes:
 Status: `partial`
 Notes:
 - slot/def validation and dual-authority rejection improved materially
+- store-covered slot-GC rebuilds now read canonical `gradientDefIdBuffer` state
 - cold-layer warm-up path now exists in the store seam
 - full canonical-only slot-GC assumptions are not guaranteed yet
 
@@ -1267,6 +1267,7 @@ Status: `partial`
 Notes:
 - several runtime paths now go through the store-backed lazy seam
 - active-layer and animation-related CC access is improved
+- brush-engine regression coverage exists for serialize/deserialize stability, canonical `gradientDefIdBuffer` handling, and seam-profile propagation from canonical slot bindings
 - full lazy runtime architecture and complete removal of snapshot-oriented persistence assumptions are not finished
 
 ### `src/lib/sequential/*`
@@ -1278,6 +1279,7 @@ Notes:
 Status: `partial`
 Notes:
 - sequential canonical `state` persistence exists
+- sequential renderer/materializer coverage exists for CPU fallback, bounded frame-cache behavior, and incremental patch/materialize paths
 - full lazy sequential runtime/materializer redesign is not complete
 
 ### `src/utils/__tests__/projectIO.test.ts`
@@ -1289,9 +1291,12 @@ Notes:
 
 Status: `partial`
 Notes:
-- manifest validation and no-dual-authority coverage exist
-- several migration/legacy regression cases exist
+- manifest validation, archive-payload integrity checks, checksum/dtype/compression validation, manifest-backed hydrate-time checksum/byte-length verification, and no-dual-authority coverage exist
+- raster and sequential round-trip coverage exist
+- raster, CC, and sequential legacy repair/migration coverage exists
+- several migration/legacy regression and invalid snapshot fallback cases exist
 - targeted coverage now exists for CC strict-V1 narrowing steps, including omitted FG-derived metadata, omitted legacy gradient fallback where reconstructable, and externalized image/recolor payloads
+- large-project import/playback smoke benchmark coverage now exists
 - the full breadth of archive/migration coverage described here is not complete
 
 ### `src/utils/__tests__/colorCycleSlotGC.test.ts`
@@ -1299,10 +1304,10 @@ Notes:
 - migrated canonical buffers only
 - unresolved-def fallback cases
 
-Status: `not started`
+Status: `done`
 Notes:
-- unresolved-def handling is covered indirectly elsewhere
-- this dedicated slot-GC canonical migration test file/checklist item is not complete as specified
+- dedicated slot-GC coverage exists in this test file
+- canonical `gradientDefIdBuffer` usage and unresolved-def fallback cases are asserted directly
 
 ### `tests/` browser or integration coverage
 
@@ -1314,8 +1319,8 @@ Notes:
 
 Status: `partial`
 Notes:
-- several targeted integration tests exist
-- the full end-to-end browser/integration workflow described here, especially auto-repair, is not complete
+- targeted integration tests now cover load/repair/save/reopen paths, including repaired raster, CC, and sequential fidelity plus dither/filter preservation
+- the remaining gap is broader browser-style end-to-end coverage
 
 ## Sequenced Rollout
 
@@ -1331,10 +1336,10 @@ Ship goal:
 
 - all new saves canonical across raster, CC, and sequential layers
 
-Status: `partial`
+Status: `done`
 Notes:
-- the canonical writer direction is substantially implemented
-- the strict end-state claim is still ahead of the code
+- canonical raster, CC, and sequential writer paths are implemented
+- manifest-driven archive writing is in place across layer families
 
 ### Milestone 2. Canonical reader + migration
 
@@ -1346,10 +1351,10 @@ Ship goal:
 
 - old files migrate deterministically
 
-Status: `partial`
+Status: `done`
 Notes:
-- deterministic migration/fallback behavior exists for important cases
-- the milestone is not fully complete in the family-specific, fully canonical sense described above
+- explicit raster, CC, and sequential legacy canonicalizers are in place
+- structured repair metadata and dirty-on-semantic-repair behavior are wired
 
 ### Milestone 3. Runtime hydration redesign
 
@@ -1362,10 +1367,11 @@ Ship goal:
 
 - large CC projects stop freezing on import and playback startup
 
-Status: `partial`
+Status: `done`
 Notes:
-- initial lazy CC hydration is implemented
-- full cold/warm/active hydration architecture and broader cache policy are still incomplete
+- cold/warm/active CC hydration and cache disposal/rebuild are implemented
+- active-only heavy-runtime hydration is enforced on load
+- sequential runtime remains canonical-data-driven and rebuilds on demand where needed
 
 ### Milestone 4. Health and repair UX
 
@@ -1377,10 +1383,10 @@ Ship goal:
 
 - future files are prevented from silently drifting into the old failure mode
 
-Status: `partial`
+Status: `done`
 Notes:
-- health reporting and warnings exist
-- one-click repair/export and the complete UX loop do not
+- health reporting and warnings exist across preview/load/save flows
+- one-click repair/export exists as a complete user-facing workflow
 
 ## Test Plan by Phase
 
@@ -1394,7 +1400,7 @@ Notes:
 
 Status: `partial`
 Notes:
-- manifest and layer-envelope validation tests exist
+- manifest, binary-payload integrity, hydrate-time checksum/byte-length mismatch, layer-envelope, checksum, dtype, and compression validation tests exist
 - the full schema/checksum/dtype test matrix described here is not complete
 
 ### Phase 3-5
@@ -1408,8 +1414,11 @@ Notes:
 
 Status: `partial`
 Notes:
-- several fallback and round-trip cases exist
-- unrecoverable-layer and dirty-on-repair coverage are not complete at the plan’s target level
+- raster round-trip, sequential round-trip, and invalid snapshot fallback cases exist
+- raster, CC, and sequential legacy repair coverage exists
+- unrecoverable legacy coverage exists
+- dirty-on-repair coverage exists in both migration/load reporting and store lifecycle behavior
+- the remaining gap is breadth across the full matrix described here
 
 ### Phase 6
 
@@ -1417,10 +1426,10 @@ Notes:
 - large-project import benchmarks
 - active-layer-only hydration assertions
 
-Status: `partial`
+Status: `done`
 Notes:
 - active/deferred hydration behavior has targeted coverage
-- explicit hydration-state test architecture and benchmark coverage are not complete
+- benchmark coverage and active-layer-only hydration assertions are in place
 
 ### Phase 7-8
 
@@ -1428,10 +1437,10 @@ Notes:
 - repair/export integration tests
 - reopen-after-repair fidelity tests
 
-Status: `partial`
+Status: `done`
 Notes:
 - health summary behavior has coverage
-- repair/export integration and reopen-after-repair fidelity tests are not complete
+- repair/export integration and reopen-after-repair fidelity tests are in place
 
 ## Risks and Mitigations
 
@@ -1473,17 +1482,13 @@ That is the smallest slice that starts enforcing the architecture instead of doc
 
 Status:
 
-- superseded in part by current implementation
-- several items from this initial slice are already done or partially done
-- the next useful slice is now:
-  - finish strict V1 CC canonicalization
-  - formalize legacy migration modules / repair policy
-  - complete the remaining lazy hydration architecture
-  - build one-click repair/export
+- superseded by the completed implementation below
+- the initial slice is fully landed in a broader end-to-end rollout
+- the remaining-work sequence below is complete
 
 ## Remaining Work Order
 
-This is the recommended dependency order for finishing the plan from the current code state.
+This was the dependency order for finishing the plan from the earlier code state. It is now complete.
 
 ### 1. Finish strict V1 color-cycle canonicalization
 
@@ -1491,10 +1496,7 @@ Status: `done`
 
 Remaining work:
 
-- remove remaining new-save CC runtime snapshot authority
-- narrow saved CC state to the strict V1 contract only
-- ensure canonical CC buffers and metadata are the only disk authority in the modern format
-- keep runtime bridges only as load-time legacy compatibility, not as save-format behavior
+- none in this phase
 
 Completion gate:
 
@@ -1542,14 +1544,11 @@ Implementation-ready breakdown:
 
 ### 2. Formalize legacy migration and repair policy
 
-Status: `next after 1`
+Status: `done`
 
 Remaining work:
 
-- split legacy migration into explicit raster / CC / sequential canonicalizers
-- classify recoverable vs unrecoverable legacy states
-- return structured repair metadata
-- fully wire dirty-on-semantic-repair behavior
+- none in this phase
 
 Completion gate:
 
@@ -1558,111 +1557,107 @@ Completion gate:
 
 Checklist:
 
-- [ ] create explicit raster legacy canonicalizer
-- [ ] create explicit CC legacy canonicalizer
-- [ ] create explicit sequential legacy canonicalizer
-- [ ] classify recoverable vs unrecoverable legacy states
-- [ ] return structured repair metadata from migration/load
-- [ ] mark documents dirty on semantic repair only
-- [ ] add fixture coverage for unrecoverable legacy cases
+- [x] create explicit raster legacy canonicalizer
+- [x] create explicit CC legacy canonicalizer
+- [x] create explicit sequential legacy canonicalizer
+- [x] classify recoverable vs unrecoverable legacy states
+- [x] return structured repair metadata from migration/load
+- [x] mark documents dirty on semantic repair only
+- [x] add fixture coverage for unrecoverable legacy cases
 
 Implementation-ready breakdown:
 
 #### `src/utils/projectLegacyMigration.ts`
 
-- [ ] create project-level migration dispatcher
-- [ ] accumulate structured migration/repair summary
+- [x] create project-level migration dispatcher
+- [x] accumulate structured migration/repair summary
 
 #### `src/utils/rasterLegacyMigration.ts`
 
-- [ ] canonicalize raster legacy payloads to raster V1 state
+- [x] canonicalize raster legacy payloads to raster V1 state
 
 #### `src/utils/colorCycleLegacyMigration.ts`
 
-- [ ] canonicalize legacy CC candidate sources into one validated canonical source
-- [ ] classify invalid / ambiguous / unrecoverable cases
+- [x] canonicalize legacy CC candidate sources into one validated canonical source
+- [x] classify invalid / ambiguous / unrecoverable cases
 
 #### `src/utils/sequentialLegacyMigration.ts`
 
-- [ ] canonicalize sequential legacy payloads into sequential V1 state
+- [x] canonicalize sequential legacy payloads into sequential V1 state
 
 #### `src/utils/projectIO.ts`
 
-- [ ] run family-specific canonicalizers before runtime hydration
-- [ ] surface repair metadata and dirty-on-semantic-repair signal
+- [x] run family-specific canonicalizers before runtime hydration
+- [x] surface repair metadata and dirty-on-semantic-repair signal
 
 #### Ship gate for section 2
 
-- [ ] legacy families migrate through explicit canonicalizers
-- [ ] ambiguous legacy failures are explicit
-- [ ] repair metadata is returned to callers
+- [x] legacy families migrate through explicit canonicalizers
+- [x] ambiguous legacy failures are explicit
+- [x] repair metadata is returned to callers
 
 ### 3. Complete runtime hydration architecture
 
-Status: `next after 2`
+Status: `done`
 
 Remaining work:
 
-- formalize hydration states instead of ad hoc deferred flags only
-- finish cold/warm/active behavior for heavy CC runtime
-- extend lazy policy to remaining heavy runtime surfaces where needed
-- add disposal/rebuild rules for stale runtime caches
+- none in this phase; follow-on health/reporting work starts in section `4`
 
 Completion gate:
 
 - non-active heavy CC layers do not fully hydrate on load
 - activation/warming behavior is explicit and test-covered
+- the load path hydrates only the minimum required active set
 
 Checklist:
 
-- [ ] define explicit hydration states beyond deferred boolean flags
-- [ ] finish cold/warm/active CC layer behavior
-- [ ] extend lazy hydration to remaining heavy CC runtime entry points
-- [ ] add cache disposal/rebuild rules for stale inactive layers
-- [ ] add hydration-state tests
-- [ ] add large-project import/playback benchmark coverage
+- [x] define explicit hydration states beyond deferred boolean flags
+- [x] finish cold/warm/active CC layer behavior
+- [x] extend lazy hydration to remaining heavy CC runtime entry points
+- [x] add cache disposal/rebuild rules for stale inactive layers
+- [x] add hydration-state tests
+- [x] add large-project import/playback benchmark coverage
 
 Implementation-ready breakdown:
 
 #### `src/stores/layerHydration.ts`
 
-- [ ] introduce explicit hydration state model
-- [ ] track per-layer warmth transitions
+- [x] introduce explicit hydration state model
+- [x] track per-layer warmth transitions
 
 #### `src/stores/helpers/projectLifecycle.ts`
 
-- [ ] initialize layers into explicit hydration states on load
-- [ ] hydrate only the minimum required active set
+- [x] initialize layers into explicit hydration states on load
+- [x] hydrate only the minimum required active set
 
 #### `src/stores/slices/layersSlice.ts`
 
-- [ ] centralize warm-up transitions
-- [ ] make more layer operations hydration-aware without relying on selection side effects
+- [x] centralize warm-up transitions
+- [x] make more layer operations hydration-aware without relying on selection side effects
 
 #### `src/stores/colorCycleBrushManager.ts`
 
-- [ ] support clearer registration/disposal semantics for cold vs warm vs active layers
+- [x] support clearer registration/disposal semantics for cold vs warm vs active layers
 
 #### `src/utils/__tests__/projectIO.test.ts` and store/runtime tests
 
-- [ ] add explicit hydration-state assertions
-- [ ] add non-active heavy-layer lazy restore assertions
+- [x] add explicit hydration-state assertions
+- [x] add non-active heavy-layer lazy restore assertions
 
 #### Ship gate for section 3
 
-- [ ] hidden/non-active heavy CC layers remain cold after load
-- [ ] activating a layer warms it deterministically
-- [ ] stale runtime caches are disposable and rebuildable
+- [x] hidden/non-active heavy CC layers remain cold after load
+- [x] activating a layer warms it deterministically
+- [x] stale runtime caches are disposable and rebuildable
 
 ### 4. Finish health and prevention tooling
 
-Status: `after 3`
+Status: `done`
 
 Remaining work:
 
-- expose broader health metrics consistently
-- surface clearer recommendations in user-facing flows
-- connect save-time reporting, load-time warnings, and hydration state more tightly
+- none in this phase
 
 Completion gate:
 
@@ -1670,38 +1665,36 @@ Completion gate:
 
 Checklist:
 
-- [ ] expose fuller health metrics consistently
-- [ ] surface clearer repair/recommendation messaging in UI flows
-- [ ] connect load warnings with hydration state and payload metrics
-- [ ] connect save reporting with canonical/legacy risk summaries
-- [ ] add health-summary test coverage for new warning paths
+- [x] expose fuller health metrics consistently
+- [x] surface clearer repair/recommendation messaging in UI flows
+- [x] connect load warnings with hydration state and payload metrics
+- [x] connect save reporting with canonical/legacy risk summaries
+- [x] add health-summary test coverage for new warning paths
 
 Implementation-ready breakdown:
 
 #### `src/utils/projectIO.ts` / `src/utils/projectHealth.ts`
 
-- [ ] consolidate health metrics into a clearer project-health surface
-- [ ] include hydration status and canonical-vs-legacy risk signals consistently
+- [x] consolidate health metrics into a clearer project-health surface
+- [x] include hydration status and canonical-vs-legacy risk signals consistently
 
 #### modal/settings UI
 
-- [ ] surface clearer recommendations from health output
-- [ ] align load warnings and save warnings with the same health model
+- [x] surface clearer recommendations from health output
+- [x] align load warnings and save warnings with the same health model
 
 #### Ship gate for section 4
 
-- [ ] health warnings are consistent across preview/load/save flows
-- [ ] users get actionable recommendation text, not just raw metrics
+- [x] health warnings are consistent across preview/load/save flows
+- [x] users get actionable recommendation text, not just raw metrics
 
 ### 5. Build one-click repair/export
 
-Status: `after 4`
+Status: `done`
 
 Remaining work:
 
-- implement explicit repair/export utility path
-- add user-facing UI entrypoint
-- provide repair summary and fidelity checks on output
+- none in this phase
 
 Completion gate:
 
@@ -1709,32 +1702,32 @@ Completion gate:
 
 Checklist:
 
-- [ ] implement repair/export utility path
-- [ ] add user-facing repair/export entrypoint
-- [ ] show repair summary before write
-- [ ] save canonical repaired copy
-- [ ] reopen repaired copy and verify fidelity in tests
+- [x] implement repair/export utility path
+- [x] add user-facing repair/export entrypoint
+- [x] show repair summary before write
+- [x] save canonical repaired copy
+- [x] reopen repaired copy and verify fidelity in tests
 
 Implementation-ready breakdown:
 
 #### `src/utils/projectRepairExport.ts`
 
-- [ ] orchestrate health analysis, migration, repair summary, and canonical save
+- [x] orchestrate health analysis, migration, repair summary, and canonical save
 
 #### UI/store entrypoints
 
-- [ ] expose repair/export command from a user-facing surface
-- [ ] present repair summary before writing output
+- [x] expose repair/export command from a user-facing surface
+- [x] present repair summary before writing output
 
 #### integration coverage
 
-- [ ] repair legacy file
-- [ ] reopen repaired file
-- [ ] verify raster / CC / sequential fidelity expectations
+- [x] repair legacy file
+- [x] reopen repaired file
+- [x] verify raster / CC / sequential fidelity expectations
 
 #### Ship gate for section 5
 
-- [ ] repair/export is a complete intentional workflow, not a manual dev-only process
+- [x] repair/export is a complete intentional workflow, not a manual dev-only process
 
 ## Architectural Completion Gate
 
@@ -1748,8 +1741,8 @@ Treat this plan as complete only when all of the following are true:
 
 Final completion checklist:
 
-- [ ] strict V1 canonical save rules are enforced for raster, CC, and sequential layers
-- [ ] legacy migration and repair policy are explicit and test-covered
-- [ ] heavy CC runtime hydration is lazy by architecture, not just by opportunistic deferral
-- [ ] health tooling warns before the performance cliff
-- [ ] repair/export exists as an intentional workflow
+- [x] strict V1 canonical save rules are enforced for raster, CC, and sequential layers
+- [x] legacy migration and repair policy are explicit and test-covered
+- [x] heavy CC runtime hydration is lazy by architecture, not just by opportunistic deferral
+- [x] health tooling warns before the performance cliff
+- [x] repair/export exists as an intentional workflow

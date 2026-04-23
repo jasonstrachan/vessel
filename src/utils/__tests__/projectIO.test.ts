@@ -2,6 +2,7 @@ import JSZip from 'jszip';
 import { ColorCycleBrushCanvas2D } from '@/hooks/brushEngine/ColorCycleBrushCanvas2D';
 import {
   deserializeProject,
+  deserializeProjectWithReport,
   getProjectSaveSizeReport,
   readProjectHealthReport,
   readProjectManifest,
@@ -13,6 +14,8 @@ import {
 import {
   getUnexpectedColorCycleStateFields,
   getUnexpectedModernColorCycleDataFields,
+  fnv1aHash,
+  inferBinaryManifestDType,
 } from '@/utils/projectPersistence';
 import { createDefaultLayerAlignment } from '@/utils/layoutDefaults';
 import { BrushShape, type Layer, type Project } from '@/types';
@@ -171,6 +174,162 @@ const readPixel = (imageData: ImageData | null, x: number, y: number): [number, 
   return [data[idx], data[idx + 1], data[idx + 2], data[idx + 3]];
 };
 
+const LARGE_PROJECT_IMPORT_BUDGET_MS = 2500;
+const LARGE_PROJECT_LAZY_HYDRATION_BUDGET_MS = 1500;
+
+const withPatchedCanvasRect = async <T>(run: () => Promise<T>): Promise<T> => {
+  const contextProto = (globalThis as unknown as {
+    CanvasRenderingContext2D?: { prototype?: { rect?: (...args: number[]) => void } };
+  }).CanvasRenderingContext2D?.prototype;
+  const originalRect = contextProto?.rect;
+
+  if (contextProto && typeof contextProto.rect !== 'function') {
+    contextProto.rect = () => {};
+  }
+
+  try {
+    return await run();
+  } finally {
+    if (contextProto) {
+      contextProto.rect = originalRect;
+    }
+  }
+};
+
+const createBenchmarkColorCycleLayer = (
+  index: number,
+  width: number,
+  height: number,
+  visible: boolean,
+): Layer => {
+  const pixelCount = width * height;
+  const paint = new Uint8Array(pixelCount);
+  const gradientId = new Uint8Array(pixelCount);
+  const speed = new Uint8Array(pixelCount);
+  const flow = new Uint8Array(pixelCount);
+  const phase = new Uint8Array(pixelCount);
+  const gradientDefIds = new Uint16Array(pixelCount);
+  const gradientDefId = index + 1;
+
+  paint.fill((index % 7) + 1);
+  gradientId.fill((index % 11) + 1);
+  speed.fill((index % 5) + 1);
+  flow.fill(index % 2);
+  phase.fill(index % 13);
+  gradientDefIds.fill(gradientDefId);
+
+  const brushCanvas = document.createElement('canvas');
+  brushCanvas.width = width;
+  brushCanvas.height = height;
+  const brush = new ColorCycleBrushCanvas2D(brushCanvas, { brushSize: 6, fps: 24 });
+  const layerId = `benchmark-cc-${index}`;
+
+  brush.applyLayerSnapshot(layerId, {
+    paintBuffer: paint.buffer.slice(0),
+    gradientIdBuffer: gradientId.buffer.slice(0),
+    gradientDefIdBuffer: gradientDefIds.buffer.slice(0),
+    speedBuffer: speed.buffer.slice(0),
+    flowBuffer: flow.buffer.slice(0),
+    phaseBuffer: phase.buffer.slice(0),
+    hasContent: true,
+    strokeCounter: index + 1,
+  });
+
+  return {
+    id: layerId,
+    name: `Benchmark CC ${index}`,
+    visible,
+    opacity: 1,
+    blendMode: 'source-over',
+    locked: false,
+    transparencyLocked: false,
+    order: index,
+    imageData: null,
+    framebuffer: createCanvasFromImageData(createSolidImageData(1, 1, [0, 0, 0, 0])),
+    alignment: createDefaultLayerAlignment(),
+    layerType: 'color-cycle',
+    version: 1,
+    colorCycleData: {
+      canvas: Object.assign(document.createElement('canvas'), { width, height }),
+      canvasWidth: width,
+      canvasHeight: height,
+      gradient: [
+        { position: 0, color: '#000000' },
+        { position: 1, color: '#ffffff' },
+      ],
+      gradientDefStore: [{
+        id: gradientDefId,
+        kind: 'linear',
+        stops: [
+          { position: 0, color: '#000000' },
+          { position: 1, color: '#ffffff' },
+        ],
+        hash: `benchmark-def-${gradientDefId}`,
+        source: 'manual',
+        createdAtMs: gradientDefId,
+      }],
+      mode: 'brush',
+      colorCycleBrush: brush as unknown as NonNullable<Layer['colorCycleData']>['colorCycleBrush'],
+    },
+  };
+};
+
+const createBenchmarkRasterLayer = (index: number, width: number, height: number): Layer => {
+  const imageData = createSolidImageData(width, height, [
+    (index * 37) % 255,
+    (index * 59) % 255,
+    (index * 83) % 255,
+    255,
+  ]);
+
+  return {
+    id: `benchmark-raster-${index}`,
+    name: `Benchmark Raster ${index}`,
+    visible: true,
+    opacity: 1,
+    blendMode: 'source-over',
+    locked: false,
+    transparencyLocked: false,
+    order: 100 + index,
+    imageData,
+    framebuffer: createCanvasFromImageData(imageData),
+    alignment: createDefaultLayerAlignment(),
+    layerType: 'normal',
+    version: 1,
+  };
+};
+
+const createLargeProjectBenchmarkFixture = async (): Promise<{
+  payload: Uint8Array;
+  totalLayerCount: number;
+}> => withPatchedCanvasRect(async () => {
+  const width = 128;
+  const height = 128;
+  const colorCycleLayers = Array.from({ length: 12 }, (_, index) =>
+    createBenchmarkColorCycleLayer(index, width, height, index === 0),
+  );
+  const rasterLayers = Array.from({ length: 6 }, (_, index) =>
+    createBenchmarkRasterLayer(index, width, height),
+  );
+  const layers = [...colorCycleLayers, ...rasterLayers];
+  const project: Project = {
+    id: 'project-large-import-benchmark',
+    name: 'Large Import Benchmark',
+    width,
+    height,
+    backgroundColor: '#000000',
+    layers,
+    customBrushes: [],
+    createdAt: new Date('2025-01-01T00:00:00.000Z'),
+    updatedAt: new Date('2025-01-01T00:00:00.000Z'),
+  };
+
+  return {
+    payload: await serializeProject(project, layers),
+    totalLayerCount: layers.length,
+  };
+});
+
 describe('projectIO readProjectManifest', () => {
   let errorSpy: jest.SpyInstance;
 
@@ -203,6 +362,8 @@ describe('projectIO readProjectManifest', () => {
     expect(report.binaryPayloadBytes).toBe(0);
     expect(report.colorCycleDuplicationRiskLayers).toEqual([]);
     expect(report.unresolvedColorCycleDefLayers).toEqual([]);
+    expect(report.warnings).toEqual([]);
+    expect(report.primaryWarning).toBeNull();
   });
 
   it('does not reject valid zip manifests based on unreliable JSZip size metadata', async () => {
@@ -442,6 +603,132 @@ describe('projectIO readProjectManifest', () => {
     );
   });
 
+  it('rejects binary manifest entries with invalid checksum format', async () => {
+    const invalidEnvelope = {
+      ...minimalVesselProject,
+      manifestVersion: 1,
+      project: {
+        ...minimalVesselProject.project,
+        layers: [{
+          id: 'layer-normal',
+          name: 'normal',
+          visible: true,
+          opacity: 1,
+          blendMode: 'source-over',
+          locked: false,
+          order: 0,
+          imageDataUrl: '',
+          layerType: 'normal',
+          state: {
+            version: 1,
+            dimensions: { width: 10, height: 10 },
+            imageRef: 'zip:buffers/raster/layer-normal/image.json',
+          },
+        }],
+      },
+      binaries: {
+        entries: [{
+          version: 1,
+          path: 'buffers/raster/layer-normal/image.json',
+          checksum: 'not-hex',
+          byteLength: 12,
+          dtype: 'json',
+          width: 10,
+          height: 10,
+          compression: 'deflate',
+        }],
+      },
+    };
+
+    await expect(readProjectManifest(JSON.stringify(invalidEnvelope))).rejects.toThrow(
+      'Invalid Vessel project binary manifest',
+    );
+  });
+
+  it('rejects binary manifest entries with invalid dtype', async () => {
+    const invalidEnvelope = {
+      ...minimalVesselProject,
+      manifestVersion: 1,
+      project: {
+        ...minimalVesselProject.project,
+        layers: [{
+          id: 'layer-normal',
+          name: 'normal',
+          visible: true,
+          opacity: 1,
+          blendMode: 'source-over',
+          locked: false,
+          order: 0,
+          imageDataUrl: '',
+          layerType: 'normal',
+          state: {
+            version: 1,
+            dimensions: { width: 10, height: 10 },
+            imageRef: 'zip:buffers/raster/layer-normal/image.json',
+          },
+        }],
+      },
+      binaries: {
+        entries: [{
+          version: 1,
+          path: 'buffers/raster/layer-normal/image.json',
+          checksum: 'deadbeef',
+          byteLength: 12,
+          dtype: 'float32',
+          width: 10,
+          height: 10,
+          compression: 'deflate',
+        }],
+      },
+    };
+
+    await expect(readProjectManifest(JSON.stringify(invalidEnvelope))).rejects.toThrow(
+      'Invalid Vessel project binary manifest',
+    );
+  });
+
+  it('rejects binary manifest entries with invalid compression', async () => {
+    const invalidEnvelope = {
+      ...minimalVesselProject,
+      manifestVersion: 1,
+      project: {
+        ...minimalVesselProject.project,
+        layers: [{
+          id: 'layer-normal',
+          name: 'normal',
+          visible: true,
+          opacity: 1,
+          blendMode: 'source-over',
+          locked: false,
+          order: 0,
+          imageDataUrl: '',
+          layerType: 'normal',
+          state: {
+            version: 1,
+            dimensions: { width: 10, height: 10 },
+            imageRef: 'zip:buffers/raster/layer-normal/image.json',
+          },
+        }],
+      },
+      binaries: {
+        entries: [{
+          version: 1,
+          path: 'buffers/raster/layer-normal/image.json',
+          checksum: 'deadbeef',
+          byteLength: 12,
+          dtype: 'json',
+          width: 10,
+          height: 10,
+          compression: 'brotli',
+        }],
+      },
+    };
+
+    await expect(readProjectManifest(JSON.stringify(invalidEnvelope))).rejects.toThrow(
+      'Invalid Vessel project binary manifest',
+    );
+  });
+
   it('rejects unexpected color-cycle state fields in modern manifests', async () => {
     const invalidEnvelope = {
       ...minimalVesselProject,
@@ -643,6 +930,164 @@ describe('projectIO readProjectPreviewManifest', () => {
 });
 
 describe('projectIO serialize/deserialize layering', () => {
+  it('writes binary manifest entries that match the actual archive payloads', async () => {
+    const rasterLayer: Layer = {
+      id: 'layer-binary-raster',
+      name: 'Binary Raster',
+      visible: true,
+      opacity: 1,
+      blendMode: 'source-over',
+      locked: false,
+      transparencyLocked: false,
+      order: 0,
+      imageData: createSolidImageData(3, 2, [255, 0, 0, 255]),
+      framebuffer: createCanvasFromImageData(createSolidImageData(3, 2, [255, 0, 0, 255])),
+      alignment: createDefaultLayerAlignment(),
+      layerType: 'normal',
+      version: 1,
+    };
+
+    const sequentialLayer: Layer = {
+      id: 'layer-binary-seq',
+      name: 'Binary Sequential',
+      visible: true,
+      opacity: 1,
+      blendMode: 'source-over',
+      locked: false,
+      transparencyLocked: false,
+      order: 1,
+      imageData: null,
+      framebuffer: createCanvasFromImageData(createSolidImageData(3, 2, [0, 0, 0, 0])),
+      alignment: createDefaultLayerAlignment(),
+      layerType: 'sequential',
+      sequentialData: {
+        frameCount: 2,
+        fps: 12,
+        durationMs: 167,
+        events: [
+          {
+            id: 'seq-binary-event',
+            layerId: 'layer-binary-seq',
+            strokeId: 'stroke-binary',
+            timestampMs: 40,
+            frameIndex: 1,
+            brush: {
+              tool: 'brush',
+              brushShape: BrushShape.ROUND,
+              size: 4,
+              opacity: 1,
+              blendMode: 'source-over',
+              rotation: 0,
+              spacing: 1,
+              color: '#ffffff',
+              customStampId: null,
+            },
+            stamps: [{ x: 1, y: 1, pressure: 1, rotation: 0, size: 4, alpha: 1 }],
+          },
+        ],
+      },
+      version: 1,
+    };
+
+    const project: Project = {
+      id: 'project-binary-integrity',
+      name: 'Binary Integrity',
+      width: 3,
+      height: 2,
+      backgroundColor: '#000000',
+      layers: [rasterLayer, sequentialLayer],
+      customBrushes: [],
+      createdAt: new Date('2025-01-01T00:00:00.000Z'),
+      updatedAt: new Date('2025-01-01T00:00:00.000Z'),
+    };
+
+    const payload = await serializeProject(project);
+    const manifest = await readProjectManifest(payload);
+    const zip = await JSZip.loadAsync(payload);
+
+    const binaryEntries = manifest.binaries?.entries ?? [];
+    expect(binaryEntries.length).toBeGreaterThan(0);
+
+    for (const entry of binaryEntries) {
+      const archiveFile = zip.file(entry.path);
+      const normalizedEntry = Array.isArray(archiveFile) ? archiveFile[0] ?? null : archiveFile;
+      expect(normalizedEntry).toBeTruthy();
+      const bytes = await normalizedEntry!.async('uint8array');
+      expect(entry.byteLength).toBe(bytes.byteLength);
+      expect(entry.checksum).toBe(fnv1aHash(bytes));
+      expect(entry.dtype).toBe(inferBinaryManifestDType(entry.path));
+    }
+  });
+
+  it('rejects corrupted archived text payloads that no longer match the manifest checksum', async () => {
+    const rasterLayer: Layer = {
+      id: 'layer-raster-corrupt',
+      name: 'Raster Corrupt',
+      visible: true,
+      opacity: 1,
+      blendMode: 'source-over',
+      locked: false,
+      transparencyLocked: false,
+      order: 0,
+      imageData: createSolidImageData(2, 2, [255, 0, 0, 255]),
+      framebuffer: createCanvasFromImageData(createSolidImageData(2, 2, [255, 0, 0, 255])),
+      alignment: createDefaultLayerAlignment(),
+      layerType: 'normal',
+      version: 1,
+    };
+    const project: Project = {
+      id: 'project-raster-corrupt',
+      name: 'Raster Corrupt',
+      width: 2,
+      height: 2,
+      backgroundColor: '#000000',
+      layers: [rasterLayer],
+      customBrushes: [],
+      createdAt: new Date('2025-01-01T00:00:00.000Z'),
+      updatedAt: new Date('2025-01-01T00:00:00.000Z'),
+    };
+
+    const payload = await serializeProject(project);
+    const zip = await JSZip.loadAsync(payload);
+    const imageEntry = zip.file('buffers/raster/layer-raster-corrupt/image.json');
+    const normalizedImageEntry = Array.isArray(imageEntry) ? imageEntry[0] ?? null : imageEntry;
+    const originalImageJson = await normalizedImageEntry?.async('string');
+    expect(originalImageJson).toBeTruthy();
+    const corruptedImageJson = `${'x'.repeat(Math.max((originalImageJson?.length ?? 1) - 1, 0))}!`;
+    zip.file('buffers/raster/layer-raster-corrupt/image.json', corruptedImageJson);
+
+    const corruptedPayload = await zip.generateAsync({ type: 'uint8array' });
+
+    await expect(deserializeProjectWithReport(corruptedPayload)).rejects.toThrow(
+      'Project archive binary checksum mismatch for buffers/raster/layer-raster-corrupt/image.json',
+    );
+  });
+
+  it('rejects corrupted archived binary payloads that no longer match the manifest byte length', async () => {
+    const colorCycleLayer = createBenchmarkColorCycleLayer(7, 4, 4, true);
+    const project: Project = {
+      id: 'project-cc-corrupt',
+      name: 'CC Corrupt',
+      width: 4,
+      height: 4,
+      backgroundColor: '#000000',
+      layers: [colorCycleLayer],
+      customBrushes: [],
+      createdAt: new Date('2025-01-01T00:00:00.000Z'),
+      updatedAt: new Date('2025-01-01T00:00:00.000Z'),
+    };
+
+    const payload = await withPatchedCanvasRect(() => serializeProject(project));
+    const zip = await JSZip.loadAsync(payload);
+    zip.file('buffers/color-cycle/benchmark-cc-7/paint.bin', Uint8Array.from([1, 2, 3]));
+
+    const corruptedPayload = await zip.generateAsync({ type: 'uint8array' });
+
+    await expect(deserializeProjectWithReport(corruptedPayload)).rejects.toThrow(
+      'Project archive binary length mismatch for buffers/color-cycle/benchmark-cc-7/paint.bin',
+    );
+  });
+
   it('builds a save size report with section and layer breakdown', async () => {
     const layerA: Layer = {
       id: 'layer-report-a',
@@ -3027,6 +3472,7 @@ describe('projectIO serialize/deserialize layering', () => {
     });
 
     expect(deferredLayer.colorCycleData?.deferredRuntimeRestore).toBe(true);
+    expect(deferredLayer.colorCycleData?.runtimeHydrationState).toBe('cold');
     expect(deferredLayer.colorCycleData?.colorCycleBrush).toBeUndefined();
 
     const copiedLayer: Layer = {
@@ -3057,6 +3503,7 @@ describe('projectIO serialize/deserialize layering', () => {
 
     const snapshot = warmedBrush?.getLayerSnapshot?.(warmedLayer.id);
     expect(warmedLayer.colorCycleData?.deferredRuntimeRestore).toBe(false);
+    expect(warmedLayer.colorCycleData?.runtimeHydrationState).toBe('active');
     expect(snapshot).toBeTruthy();
     expect(Array.from(new Uint8Array(snapshot?.paintBuffer ?? new ArrayBuffer(0)).slice(0, 4))).toEqual([9, 8, 7, 6]);
     expect(Array.from(new Uint8Array(snapshot?.gradientIdBuffer ?? new ArrayBuffer(0)).slice(0, 4))).toEqual([1, 2, 3, 4]);
@@ -3419,10 +3866,11 @@ describe('projectIO serialize/deserialize layering', () => {
     });
 
     expect(restoredLayer.colorCycleData?.deferredRuntimeRestore).toBe(true);
+    expect(restoredLayer.colorCycleData?.runtimeHydrationState).toBe('cold');
     expect(restoredLayer.colorCycleData?.colorCycleBrush).toBeUndefined();
   });
 
-  it('does not defer runtime restore for visible heavy color-cycle layers when lazy mode is enabled', async () => {
+  it('defers runtime restore for visible non-active heavy color-cycle layers when lazy mode is enabled', async () => {
     const width = 2048;
     const height = 2048;
     const payloadSize = width * height;
@@ -3465,8 +3913,216 @@ describe('projectIO serialize/deserialize layering', () => {
       activeLayerId: 'other-layer',
     });
 
+    expect(restoredLayer.colorCycleData?.deferredRuntimeRestore).toBe(true);
+    expect(restoredLayer.colorCycleData?.runtimeHydrationState).toBe('cold');
+    expect(restoredLayer.colorCycleData?.colorCycleBrush).toBeUndefined();
+  });
+
+  it('does not defer runtime restore for animating non-active heavy color-cycle layers when lazy mode is enabled', async () => {
+    const width = 2048;
+    const height = 2048;
+    const payloadSize = width * height;
+    const animatingLayer: Layer = {
+      id: 'layer-cc-animating-heavy',
+      name: 'Animating Heavy CC',
+      visible: true,
+      opacity: 1,
+      blendMode: 'source-over',
+      locked: false,
+      transparencyLocked: false,
+      order: 0,
+      imageData: null,
+      framebuffer: createCanvasFromImageData(createSolidImageData(1, 1, [0, 0, 0, 0])),
+      alignment: createDefaultLayerAlignment(),
+      layerType: 'color-cycle',
+      version: 1,
+      colorCycleData: {
+        isAnimating: true,
+        canvas: Object.assign(document.createElement('canvas'), { width: 1, height: 1 }),
+        canvasWidth: width,
+        canvasHeight: height,
+        gradientIdBuffer: new Uint8Array(payloadSize).buffer,
+        brushState: {
+          cycleSpeed: 0.3,
+          fps: 12,
+          layers: [{
+            layerId: 'layer-cc-animating-heavy',
+            strokeData: {
+              hasContent: true,
+              strokeCounter: 1,
+              flowBuffer: Buffer.alloc(payloadSize).toString('base64'),
+            },
+          }],
+        },
+      },
+    };
+
+    const [restoredLayer] = await restoreColorCycleBrushes([animatingLayer], {
+      lazy: true,
+      activeLayerId: 'other-layer',
+    });
+
     expect(restoredLayer.colorCycleData?.deferredRuntimeRestore).toBe(false);
+    expect(restoredLayer.colorCycleData?.runtimeHydrationState).toBe('warm');
     expect(restoredLayer.colorCycleData?.colorCycleBrush).toBeDefined();
+  });
+
+  it('does not defer runtime restore for the active heavy color-cycle layer when lazy mode is enabled', async () => {
+    const width = 2048;
+    const height = 2048;
+    const payloadSize = width * height;
+    const activeLayer: Layer = {
+      id: 'layer-cc-active-heavy',
+      name: 'Active Heavy CC',
+      visible: true,
+      opacity: 1,
+      blendMode: 'source-over',
+      locked: false,
+      transparencyLocked: false,
+      order: 0,
+      imageData: null,
+      framebuffer: createCanvasFromImageData(createSolidImageData(1, 1, [0, 0, 0, 0])),
+      alignment: createDefaultLayerAlignment(),
+      layerType: 'color-cycle',
+      version: 1,
+      colorCycleData: {
+        canvas: Object.assign(document.createElement('canvas'), { width: 1, height: 1 }),
+        canvasWidth: width,
+        canvasHeight: height,
+        gradientIdBuffer: new Uint8Array(payloadSize).buffer,
+        brushState: {
+          cycleSpeed: 0.3,
+          fps: 12,
+          layers: [{
+            layerId: 'layer-cc-active-heavy',
+            strokeData: {
+              hasContent: true,
+              strokeCounter: 1,
+              flowBuffer: Buffer.alloc(payloadSize).toString('base64'),
+            },
+          }],
+        },
+      },
+    };
+
+    const [restoredLayer] = await restoreColorCycleBrushes([activeLayer], {
+      lazy: true,
+      activeLayerId: 'layer-cc-active-heavy',
+    });
+
+    expect(restoredLayer.colorCycleData?.deferredRuntimeRestore).toBe(false);
+    expect(restoredLayer.colorCycleData?.runtimeHydrationState).toBe('active');
+    expect(restoredLayer.colorCycleData?.colorCycleBrush).toBeDefined();
+  });
+
+  describe('large-project smoke benchmarks', () => {
+    let fixture: Awaited<ReturnType<typeof createLargeProjectBenchmarkFixture>>;
+
+    beforeAll(async () => {
+      fixture = await createLargeProjectBenchmarkFixture();
+    });
+
+    it('keeps large archive import under the smoke-test budget', async () => {
+      const startedAt = performance.now();
+      const restored = await deserializeProjectWithReport(fixture.payload);
+      const durationMs = performance.now() - startedAt;
+
+      expect(restored.project.layers).toHaveLength(fixture.totalLayerCount);
+      expect(durationMs).toBeLessThan(LARGE_PROJECT_IMPORT_BUDGET_MS);
+    });
+
+    it('keeps lazy hydration for large hidden CC layer sets under the smoke-test budget', async () => {
+      const payloadSize = 2048 * 2048;
+      const hiddenLayers = Array.from({ length: 4 }, (_, index): Layer => ({
+        id: `benchmark-hidden-heavy-${index}`,
+        name: `Benchmark Hidden Heavy ${index}`,
+        visible: false,
+        opacity: 1,
+        blendMode: 'source-over',
+        locked: false,
+        transparencyLocked: false,
+        order: index + 1,
+        imageData: null,
+        framebuffer: createCanvasFromImageData(createSolidImageData(1, 1, [0, 0, 0, 0])),
+        alignment: createDefaultLayerAlignment(),
+        layerType: 'color-cycle',
+        version: 1,
+        colorCycleData: {
+          canvas: Object.assign(document.createElement('canvas'), { width: 1, height: 1 }),
+          canvasWidth: 2048,
+          canvasHeight: 2048,
+          gradientIdBuffer: new Uint8Array(payloadSize).buffer,
+          brushState: {
+            cycleSpeed: 0.3,
+            fps: 12,
+            layers: [{
+              layerId: `benchmark-hidden-heavy-${index}`,
+              strokeData: {
+                hasContent: true,
+                strokeCounter: 1,
+                flowBuffer: Buffer.alloc(payloadSize).toString('base64'),
+              },
+            }],
+          },
+        },
+      }));
+      const activeLayerId = 'benchmark-active-cc';
+      const layers: Layer[] = [{
+        id: activeLayerId,
+        name: 'Benchmark Active CC',
+        visible: true,
+        opacity: 1,
+        blendMode: 'source-over',
+        locked: false,
+        transparencyLocked: false,
+        order: 0,
+        imageData: null,
+        framebuffer: createCanvasFromImageData(createSolidImageData(1, 1, [0, 0, 0, 0])),
+        alignment: createDefaultLayerAlignment(),
+        layerType: 'color-cycle',
+        version: 1,
+        colorCycleData: {
+          canvas: Object.assign(document.createElement('canvas'), { width: 32, height: 32 }),
+          canvasWidth: 32,
+          canvasHeight: 32,
+          gradientIdBuffer: new Uint8Array(32 * 32).buffer,
+          brushState: {
+            cycleSpeed: 0.3,
+            fps: 12,
+            layers: [{
+              layerId: activeLayerId,
+              strokeData: {
+                hasContent: true,
+                strokeCounter: 1,
+                flowBuffer: Buffer.alloc(32 * 32).toString('base64'),
+              },
+            }],
+          },
+        },
+      }, ...hiddenLayers];
+
+      const startedAt = performance.now();
+      const hydratedLayers = await restoreColorCycleBrushes(layers, {
+        lazy: true,
+        activeLayerId,
+      });
+      const durationMs = performance.now() - startedAt;
+
+      const activeLayer = hydratedLayers.find((layer) => layer.id === activeLayerId);
+      const coldHiddenLayers = hydratedLayers.filter((layer) =>
+        layer.id.startsWith('benchmark-hidden-heavy-'),
+      );
+
+      expect(activeLayer?.colorCycleData?.runtimeHydrationState).toBe('active');
+      expect(activeLayer?.colorCycleData?.colorCycleBrush).toBeDefined();
+      expect(coldHiddenLayers).toHaveLength(hiddenLayers.length);
+      expect(coldHiddenLayers.every((layer) => (
+        layer.colorCycleData?.runtimeHydrationState === 'cold'
+        && layer.colorCycleData?.deferredRuntimeRestore === true
+        && !layer.colorCycleData?.colorCycleBrush
+      ))).toBe(true);
+      expect(durationMs).toBeLessThan(LARGE_PROJECT_LAZY_HYDRATION_BUDGET_MS);
+    });
   });
 
   it('seeds color-cycle runtime from persisted gradient buffers when brushState is missing', async () => {
@@ -3779,6 +4435,215 @@ describe('projectIO serialize/deserialize layering', () => {
     expect(Array.from(view)).toEqual([0, 0, 1, 2]);
   });
 
+  it('returns structured repair metadata when legacy color-cycle metadata is promoted from brush snapshots', async () => {
+    const gradientIdBuffer = Buffer.from(Uint8Array.from([1, 2, 3, 4])).toString('base64');
+    const legacyProject = {
+      version: '1.0.0',
+      metadata: {
+        name: 'legacy-cc-repair',
+        created: '2025-01-01T00:00:00.000Z',
+        modified: '2025-01-01T00:00:00.000Z',
+        appVersion: '1.0.0',
+      },
+      project: {
+        id: 'legacy-cc-repair-project',
+        name: 'legacy-cc-repair',
+        width: 2,
+        height: 2,
+        backgroundColor: '#000000',
+        layers: [
+          {
+            id: 'layer-cc',
+            name: 'Legacy CC',
+            visible: true,
+            opacity: 1,
+            blendMode: 'source-over',
+            locked: false,
+            order: 0,
+            imageDataUrl: '',
+            colorCycleData: {
+              brushState: {
+                layers: [
+                  {
+                    layerId: 'layer-cc',
+                    strokeData: {
+                      gradientIdBuffer,
+                    },
+                    gradientDefStore: [
+                      {
+                        id: 1,
+                        kind: 'linear',
+                        stops: [{ position: 0, color: '#000000' }, { position: 1, color: '#ffffff' }],
+                        hash: 'defs-1',
+                        source: 'manual',
+                        createdAtMs: 123,
+                      },
+                    ],
+                    slotPalettes: [
+                      {
+                        slot: 0,
+                        stops: [{ position: 0, color: '#000000' }, { position: 1, color: '#ffffff' }],
+                      },
+                    ],
+                    nextGradientDefId: 2,
+                    activeGradientId: 'gradient-1',
+                  },
+                ],
+              },
+            },
+          },
+        ],
+        customBrushes: [],
+      },
+    };
+
+    const result = await deserializeProjectWithReport(JSON.stringify(legacyProject));
+    const restoredLayer = result.project.layers[0];
+
+    expect(result.migration.shouldMarkDirty).toBe(true);
+    expect(result.migration.repairs.map((repair) => repair.code)).toEqual(expect.arrayContaining([
+      'legacy-cc-missing-layer-type',
+      'legacy-cc-defaulted-canvas-width',
+      'legacy-cc-defaulted-canvas-height',
+      'legacy-cc-promoted-gradientDefStore',
+      'legacy-cc-promoted-slotPalettes',
+      'legacy-cc-promoted-nextGradientDefId',
+      'legacy-cc-promoted-activeGradientId',
+      'legacy-cc-promoted-gradientIdBuffer',
+    ]));
+    expect(restoredLayer.layerType).toBe('color-cycle');
+    expect(restoredLayer.colorCycleData?.gradientDefStore?.[0]?.id).toBe(1);
+    expect(restoredLayer.colorCycleData?.slotPalettes?.[0]?.slot).toBe(0);
+    expect(restoredLayer.colorCycleData?.activeGradientId).toBe('gradient-1');
+    expect(Array.from(new Uint8Array(restoredLayer.colorCycleData?.gradientIdBuffer as ArrayBuffer))).toEqual([1, 2, 3, 4]);
+  });
+
+  it('returns raster repair metadata when legacy raster layer type and image payload are repaired', async () => {
+    const legacyProject = {
+      version: '1.0.0',
+      metadata: {
+        name: 'legacy-raster-repair',
+        created: '2025-01-01T00:00:00.000Z',
+        modified: '2025-01-01T00:00:00.000Z',
+        appVersion: '1.0.0',
+      },
+      project: {
+        id: 'legacy-raster-repair-project',
+        name: 'legacy-raster-repair',
+        width: 2,
+        height: 2,
+        backgroundColor: '#000000',
+        layers: [
+          {
+            id: 'layer-raster',
+            name: 'Legacy Raster',
+            visible: true,
+            opacity: 1,
+            blendMode: 'source-over',
+            locked: false,
+            order: 0,
+          },
+        ],
+        customBrushes: [],
+      },
+    };
+
+    const result = await deserializeProjectWithReport(JSON.stringify(legacyProject));
+    const restoredLayer = result.project.layers[0];
+
+    expect(result.migration.shouldMarkDirty).toBe(true);
+    expect(result.migration.repairs.map((repair) => repair.code)).toEqual(expect.arrayContaining([
+      'legacy-raster-missing-layer-type',
+      'legacy-raster-missing-image-defaulted',
+    ]));
+    expect(restoredLayer.layerType).toBe('normal');
+    expect(restoredLayer.imageData).toBeNull();
+  });
+
+  it('fails explicitly when legacy color-cycle payload is structurally invalid', async () => {
+    const legacyProject = {
+      version: '1.0.0',
+      metadata: {
+        name: 'legacy-cc-conflict',
+        created: '2025-01-01T00:00:00.000Z',
+        modified: '2025-01-01T00:00:00.000Z',
+        appVersion: '1.0.0',
+      },
+      project: {
+        id: 'legacy-cc-conflict-project',
+        name: 'legacy-cc-conflict',
+        width: 2,
+        height: 2,
+        backgroundColor: '#000000',
+        layers: [
+          {
+            id: 'layer-cc',
+            name: 'Legacy CC',
+            visible: true,
+            opacity: 1,
+            blendMode: 'source-over',
+            locked: false,
+            order: 0,
+            imageDataUrl: '',
+            colorCycleData: 'invalid-payload',
+          },
+        ],
+        customBrushes: [],
+      },
+    };
+
+    await expect(deserializeProjectWithReport(JSON.stringify(legacyProject))).rejects.toThrow(
+      'Color-cycle layer layer-cc has an invalid payload.',
+    );
+  });
+
+  it('fails explicitly when legacy color-cycle metadata has ambiguous duplicated authorities', async () => {
+    const legacyProject = {
+      version: '1.0.0',
+      metadata: {
+        name: 'legacy-cc-ambiguous',
+        created: '2025-01-01T00:00:00.000Z',
+        modified: '2025-01-01T00:00:00.000Z',
+        appVersion: '1.0.0',
+      },
+      project: {
+        id: 'legacy-cc-ambiguous-project',
+        name: 'legacy-cc-ambiguous',
+        width: 2,
+        height: 2,
+        backgroundColor: '#000000',
+        layers: [
+          {
+            id: 'layer-cc',
+            name: 'Legacy CC',
+            visible: true,
+            opacity: 1,
+            blendMode: 'source-over',
+            locked: false,
+            order: 0,
+            imageDataUrl: '',
+            colorCycleData: {
+              activeGradientId: 'top-level-gradient',
+              brushState: {
+                layers: [
+                  {
+                    layerId: 'layer-cc',
+                    activeGradientId: 'snapshot-gradient',
+                  },
+                ],
+              },
+            },
+          },
+        ],
+        customBrushes: [],
+      },
+    };
+
+    await expect(deserializeProjectWithReport(JSON.stringify(legacyProject))).rejects.toThrow(
+      'Color-cycle layer layer-cc has ambiguous legacy activeGradientId sources.',
+    );
+  });
+
   it('round-trips sequential layer capture data through serialize/deserialize', async () => {
     const sequentialLayer: Layer = {
       id: 'layer-seq',
@@ -3987,6 +4852,52 @@ describe('projectIO serialize/deserialize layering', () => {
       durationMs: 1,
       events: [],
     });
+  });
+
+  it('returns repair metadata when sequential legacy payloads are sanitized', async () => {
+    const legacyProject = {
+      version: '1.0.0',
+      metadata: {
+        name: 'legacy-seq-report',
+        created: '2025-01-01T00:00:00.000Z',
+        modified: '2025-01-01T00:00:00.000Z',
+        appVersion: '1.0.0',
+      },
+      project: {
+        id: 'legacy-seq-report-project',
+        name: 'legacy-seq-report',
+        width: 2,
+        height: 2,
+        backgroundColor: '#000000',
+        layers: [
+          {
+            id: 'layer-seq',
+            name: 'Legacy Sequential',
+            visible: true,
+            opacity: 1,
+            blendMode: 'source-over',
+            locked: false,
+            order: 0,
+            imageDataUrl: '',
+            sequentialData: {
+              frameCount: 0,
+              fps: 0,
+              durationMs: 0,
+              events: null,
+            },
+          },
+        ],
+        customBrushes: [],
+      },
+    };
+
+    const result = await deserializeProjectWithReport(JSON.stringify(legacyProject));
+
+    expect(result.migration.shouldMarkDirty).toBe(true);
+    expect(result.migration.repairs.map((repair) => repair.code)).toEqual(expect.arrayContaining([
+      'legacy-sequential-missing-layer-type',
+      'legacy-sequential-sanitized',
+    ]));
   });
 
   it('restores sequential events from chunk payload when events are missing', async () => {

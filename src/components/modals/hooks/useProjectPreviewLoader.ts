@@ -5,9 +5,11 @@ import type { Project } from '@/types';
 import {
   deserializeProject,
   generateProjectThumbnail,
+  getProjectHealthWarning,
   readProjectHealthReport,
   readProjectPreviewManifest,
 } from '@/utils/projectIO';
+import { repairAndExportProject } from '@/utils/projectRepairExport';
 
 type ProcessProjectFileOptions = {
   autoImport?: boolean;
@@ -22,13 +24,17 @@ type ImportProjectFn = (
 type UseProjectPreviewLoaderOptions = {
   importProject: ImportProjectFn;
   closeModal: () => void;
+  notify?: (notification: {
+    type: 'success' | 'warning' | 'error';
+    title: string;
+    message: string;
+    timestamp: Date;
+  }) => void;
 };
 
 const EMPTY_FILE_RETRY_ATTEMPTS = 8;
 const EMPTY_FILE_INITIAL_RETRY_DELAY_MS = 120;
 const EMPTY_FILE_MAX_RETRY_DELAY_MS = 1200;
-const HEALTH_WARNING_BINARY_THRESHOLD_BYTES = 32 * 1024 * 1024;
-
 const waitFor = (ms: number) => new Promise<void>((resolve) => {
   setTimeout(resolve, ms);
 });
@@ -55,28 +61,14 @@ const refreshPossiblyIncompleteFile = async (
   return latest;
 };
 
-const buildProjectHealthWarning = (healthReport: ProjectPreview['healthReport']): string | null => {
-  if (!healthReport) {
-    return null;
-  }
-  if (healthReport.unresolvedColorCycleDefLayers.length > 0) {
-    return 'This project has unresolved color-cycle defs. Review the health details before loading.';
-  }
-  if (healthReport.colorCycleDuplicationRiskLayers.length > 0) {
-    return 'This project contains legacy duplicated color-cycle state. Review the health details before loading.';
-  }
-  if (healthReport.binaryPayloadBytes >= HEALTH_WARNING_BINARY_THRESHOLD_BYTES) {
-    return 'This project has a very large binary payload and may restore slowly.';
-  }
-  return null;
-};
-
 export function useProjectPreviewLoader({
   importProject,
   closeModal,
+  notify,
 }: UseProjectPreviewLoaderOptions) {
   const [isProcessing, setIsProcessing] = useState(false);
   const [applyInFlight, setApplyInFlight] = useState(false);
+  const [repairExportInFlight, setRepairExportInFlight] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [warning, setWarning] = useState<string | null>(null);
   const [projectData, setProjectData] = useState<ArrayBuffer | null>(null);
@@ -89,6 +81,7 @@ export function useProjectPreviewLoader({
   const reset = useCallback(() => {
     setIsProcessing(false);
     setApplyInFlight(false);
+    setRepairExportInFlight(false);
     setError(null);
     setWarning(null);
     setProjectData(null);
@@ -155,7 +148,7 @@ export function useProjectPreviewLoader({
         fileName: resolvedFile.name,
         fileSize: resolvedFile.size,
         healthReport,
-        healthWarning: buildProjectHealthWarning(healthReport),
+        healthWarning: getProjectHealthWarning(healthReport),
       };
 
       setProjectData(buffer);
@@ -254,9 +247,49 @@ export function useProjectPreviewLoader({
     }
   }, [applyInFlight, cachedProject, closeModal, importProject, preview?.fileName, projectData, selectedFileHandle]);
 
+  const confirmRepairExport = useCallback(async () => {
+    if (!projectData || repairExportInFlight) {
+      return;
+    }
+
+    setRepairExportInFlight(true);
+    setError(null);
+
+    try {
+      const result = await repairAndExportProject(projectData, {
+        fileName: preview?.fileName ?? null,
+        confirmWrite: async (summary) => window.confirm(summary.confirmationMessage),
+      });
+
+      if (!result) {
+        return;
+      }
+
+      notify?.({
+        type: 'success',
+        title: 'Repair Copy Saved',
+        message: `Saved ${result.fileName} with ${result.summary.repairCount} repair${result.summary.repairCount === 1 ? '' : 's'} applied.`,
+        timestamp: new Date(),
+      });
+    } catch (repairError) {
+      console.error('[LoadProjectModal] Failed to repair/export project', repairError);
+      const message = repairError instanceof Error ? repairError.message : 'Failed to repair project';
+      setError(message);
+      notify?.({
+        type: 'error',
+        title: 'Repair Failed',
+        message,
+        timestamp: new Date(),
+      });
+    } finally {
+      setRepairExportInFlight(false);
+    }
+  }, [notify, preview?.fileName, projectData, repairExportInFlight]);
+
   return {
     isProcessing,
     applyInFlight,
+    repairExportInFlight,
     error,
     warning,
     preview,
@@ -265,6 +298,7 @@ export function useProjectPreviewLoader({
     processProjectFile,
     setError,
     confirmLoad,
+    confirmRepairExport,
     reset,
   };
 }

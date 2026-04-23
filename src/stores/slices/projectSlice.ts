@@ -457,7 +457,7 @@ export const createProjectSlice =
             return;
           }
 
-          const brush = colorCycleBrushManager.getBrush(layer.id);
+          const brush = state.getLayerColorCycleBrush(layer.id) ?? colorCycleBrushManager.getBrush(layer.id);
           const snapshot = brush?.getLayerSnapshot?.(layer.id);
           if (!snapshot?.paintBuffer) {
             return;
@@ -627,7 +627,7 @@ export const createProjectSlice =
 
           const scaledSnapshot = colorCycleSnapshots.get(layer.id);
           const layerCanvas = layer.colorCycleData?.canvas;
-          const brush = colorCycleBrushManager.getBrush(layer.id);
+          const brush = state.getLayerColorCycleBrush(layer.id) ?? colorCycleBrushManager.getBrush(layer.id);
           if (!scaledSnapshot || !layerCanvas || !brush) {
             return;
           }

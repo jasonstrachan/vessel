@@ -51,6 +51,20 @@ export type ColorCycleShapeFillDeps = {
   logError: (message: string, error?: unknown) => void;
 };
 
+const resolveShapeFillBrush = (
+  layerId: string,
+  deps: ColorCycleShapeFillDeps,
+): SnapshotCapableBrush | null => {
+  const state = useAppStore.getState();
+  return (
+    (typeof state.getLayerColorCycleBrush === 'function'
+      ? state.getLayerColorCycleBrush(layerId)
+      : null) ??
+    deps.getColorCycleBrushManager().getBrush(layerId) ??
+    null
+  ) as SnapshotCapableBrush | null;
+};
+
 const launchDeferredColorCycleShapeSave = (
   deps: ColorCycleShapeFillDeps,
   args: DeferredSaveWithStateArgs
@@ -522,7 +536,7 @@ export const finalizeColorCycleShapeFillLinear = async (
     const beforeShapeFinalize = summarizeColorCycleLayer(
       useAppStore.getState().layers.find((candidate) => candidate.id === args.activeLayerId) ?? null
     );
-    const initialBrush = deps.getColorCycleBrushManager().getBrush(args.activeLayerId) as SnapshotCapableBrush | null;
+    const initialBrush = resolveShapeFillBrush(args.activeLayerId, deps);
     const preFillPaintMask = snapshotTransparencyLockPaintMask({
       brush: initialBrush,
       layerId: args.activeLayerId,
@@ -569,7 +583,7 @@ export const finalizeColorCycleShapeFillLinear = async (
         deps.logError('[CC] Missing mark session on shape finalize (linear).');
       }
       if (resolvedRenderSession?.binding?.slot !== undefined && frozenStops?.length) {
-        const brush = deps.getColorCycleBrushManager().getBrush(args.activeLayerId);
+        const brush = resolveShapeFillBrush(args.activeLayerId, deps);
         if (brush) {
           applyRuntimeToBrush(brush, args.activeLayerId, {
             layerId: args.activeLayerId,
@@ -612,7 +626,7 @@ export const finalizeColorCycleShapeFillLinear = async (
       colors: typeof postFillSettings.colors === 'number' ? postFillSettings.colors : null,
     });
 
-    const colorCycleBrush = initialBrush ?? deps.getColorCycleBrushManager().getBrush(args.activeLayerId);
+    const colorCycleBrush = initialBrush ?? resolveShapeFillBrush(args.activeLayerId, deps);
     if (colorCycleBrush) {
       const st = useAppStore.getState();
       const sampledCommitNeedsFullRebind = renderSession?.source === 'sampled';
@@ -833,7 +847,7 @@ export const finalizeColorCycleShapeFillConcentric = async (
     const beforeShapeFinalize = summarizeColorCycleLayer(
       useAppStore.getState().layers.find((candidate) => candidate.id === args.activeLayerId) ?? null
     );
-    const initialBrush = deps.getColorCycleBrushManager().getBrush(args.activeLayerId) as SnapshotCapableBrush | null;
+    const initialBrush = resolveShapeFillBrush(args.activeLayerId, deps);
     const preFillPaintMask = snapshotTransparencyLockPaintMask({
       brush: initialBrush,
       layerId: args.activeLayerId,
@@ -880,7 +894,7 @@ export const finalizeColorCycleShapeFillConcentric = async (
         deps.logError('[CC] Missing mark session on shape finalize (concentric).');
       }
       if (resolvedRenderSession?.binding?.slot !== undefined && frozenStops?.length) {
-        const brush = deps.getColorCycleBrushManager().getBrush(args.activeLayerId);
+        const brush = resolveShapeFillBrush(args.activeLayerId, deps);
         if (brush) {
           applyRuntimeToBrush(brush, args.activeLayerId, {
             layerId: args.activeLayerId,
@@ -916,7 +930,7 @@ export const finalizeColorCycleShapeFillConcentric = async (
       colors: typeof postFillSettings.colors === 'number' ? postFillSettings.colors : null,
     });
 
-    const colorCycleBrush = initialBrush ?? deps.getColorCycleBrushManager().getBrush(args.activeLayerId);
+    const colorCycleBrush = initialBrush ?? resolveShapeFillBrush(args.activeLayerId, deps);
     if (colorCycleBrush) {
       const st = useAppStore.getState();
       const sampledCommitNeedsFullRebind = renderSession?.source === 'sampled';

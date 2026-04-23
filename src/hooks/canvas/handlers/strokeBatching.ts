@@ -376,7 +376,11 @@ export const processBatchedStrokes = (
 
             if (activeLayer && isColorCycleLayer) {
               const colorCycleBrushManager = deps.getColorCycleBrushManager();
-              const colorCycleBrush = colorCycleBrushManager.getBrush(activeLayer.id);
+              const colorCycleBrush = (
+                typeof currentState.getLayerColorCycleBrush === 'function'
+                  ? currentState.getLayerColorCycleBrush(activeLayer.id)
+                  : null
+              ) ?? colorCycleBrushManager.getBrush(activeLayer.id);
               deps.ensureActiveColorCycleGradientSlot(currentState, activeLayer, colorCycleBrush);
             }
 

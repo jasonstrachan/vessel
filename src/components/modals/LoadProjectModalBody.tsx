@@ -168,6 +168,32 @@ export function LoadProjectModalBody({
                 Binary {formatFileSize(preview.healthReport.binaryPayloadBytes)}
               </div>
             </div>
+            <div className='grid grid-cols-2 gap-x-3 gap-y-1 text-xs text-[#A5AFA5]'>
+              <div>Archive {formatFileSize(preview.healthReport.archiveBytes)}</div>
+              <div>Manifest {formatFileSize(preview.healthReport.combinedManifestBytes)}</div>
+              <div>Compression {(preview.healthReport.compressionRatio * 100).toFixed(1)}%</div>
+              <div>
+                Top {preview.healthReport.sectionBreakdown[0]?.name ?? 'n/a'}
+              </div>
+              <div className='col-span-2'>
+                Largest {preview.healthReport.largestLayers[0]?.layerName ?? 'n/a'}
+                {preview.healthReport.largestLayers[0]
+                  ? ` (${formatFileSize(preview.healthReport.largestLayers[0]?.bytes ?? 0)})`
+                  : ''}
+              </div>
+            </div>
+            {preview.healthReport.warnings.length > 0 && (
+              <div className='rounded border border-amber-700/40 bg-amber-950/30 p-2'>
+                <div className='text-amber-200 text-[11px] uppercase tracking-wide mb-1'>Warnings</div>
+                <div className='space-y-1'>
+                  {preview.healthReport.warnings.slice(0, 2).map((entry) => (
+                    <div key={entry} className='text-amber-100 text-xs'>
+                      {entry}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
             {preview.healthReport.colorCycleDuplicationRiskLayers.length > 0 && (
               <div className='text-amber-300 text-xs'>
                 CC duplication risk: {preview.healthReport.colorCycleDuplicationRiskLayers.join(', ')}
@@ -178,9 +204,16 @@ export function LoadProjectModalBody({
                 Unresolved CC defs: {preview.healthReport.unresolvedColorCycleDefLayers.join(', ')}
               </div>
             )}
-            {preview.healthReport.recommendations[0] && (
-              <div className='text-[#9FAF9F] text-xs'>
-                {preview.healthReport.recommendations[0]}
+            {preview.healthReport.recommendations.length > 0 && (
+              <div className='rounded border border-[#273127] bg-[#182018] p-2'>
+                <div className='text-[#B7D0B7] text-[11px] uppercase tracking-wide mb-1'>Recommendations</div>
+                <div className='space-y-1'>
+                  {preview.healthReport.recommendations.slice(0, 2).map((entry) => (
+                    <div key={entry} className='text-[#9FAF9F] text-xs'>
+                      {entry}
+                    </div>
+                  ))}
+                </div>
               </div>
             )}
           </div>

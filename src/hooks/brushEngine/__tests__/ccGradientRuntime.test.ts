@@ -85,6 +85,73 @@ describe('ccGradientRuntime', () => {
     expect(slot5?.stops.length).toBe(3);
   });
 
+  it('preserves seam profiles from canonical gradientDefStore slot bindings', () => {
+    const layer = makeLayer({
+      colorCycleData: {
+        gradientDefs: [{ id: 'g0', currentSlot: 3 }],
+        activeGradientId: 'g0',
+        paintSlot: 3,
+        slotPalettes: [
+          {
+            slot: 3,
+            stops: [
+              { position: 0, color: '#111111' },
+              { position: 1, color: '#eeeeee' },
+            ],
+          },
+        ],
+        gradientDefStore: [
+          {
+            id: 7,
+            kind: 'linear',
+            stops: [
+              { position: 0, color: '#111111' },
+              { position: 1, color: '#eeeeee' },
+            ],
+            hash: 'linear:soft',
+            source: 'manual',
+            createdAtMs: 0,
+            slot: 3,
+            seamProfile: 'soft',
+          },
+        ],
+      },
+    } as Partial<Layer>);
+
+    const snapshot = buildRuntimeSnapshot(layer, makeBrushSettings());
+    const slot3 = snapshot.slotPalettes.find((entry) => entry.slot === 3);
+
+    expect(slot3).toBeTruthy();
+    expect(slot3?.seamProfile).toBe('soft');
+  });
+
+  it('preserves seam profiles from slotPalettes when defs are absent', () => {
+    const layer = makeLayer({
+      colorCycleData: {
+        gradientDefs: [{ id: 'g0', currentSlot: 4 }],
+        activeGradientId: 'g0',
+        paintSlot: 4,
+        slotPalettes: [
+          {
+            slot: 4,
+            stops: [
+              { position: 0, color: '#222222' },
+              { position: 1, color: '#dddddd' },
+            ],
+            seamProfile: 'soft',
+          },
+        ] as unknown as NonNullable<Layer['colorCycleData']>['slotPalettes'],
+        gradientDefStore: [],
+      },
+    } as Partial<Layer>);
+
+    const snapshot = buildRuntimeSnapshot(layer, makeBrushSettings());
+    const slot4 = snapshot.slotPalettes.find((entry) => entry.slot === 4);
+
+    expect(slot4).toBeTruthy();
+    expect(slot4?.seamProfile).toBe('soft');
+  });
+
   it('uses sampled preview stops directly for active sampled sessions', () => {
     const layer = makeLayer();
     const brushSettings = makeBrushSettings({

@@ -16,6 +16,11 @@ import {
   summarizeColorCycleLayer,
 } from '@/utils/colorCycle/ccMutationAudit';
 import { syncCCRuntimes } from '@/stores/ccRuntime';
+import {
+  getColorCycleHydrationState,
+  isColdColorCycleLayer,
+  updateLayerColorCycleHydrationState,
+} from '@/stores/layerHydration';
 import { requestGradientApply } from '@/hooks/brushEngine/ccGradientApplyScheduler';
 import { FLOW_SLOT_MASK } from '@/lib/colorCycle/flowEncoding';
 import { TEMP_SAMPLE_SLOT } from '@/constants/colorCycle';
@@ -1230,7 +1235,7 @@ export const createLayersSlice = (
           if (
             !latestLayer ||
             latestLayer.layerType !== 'color-cycle' ||
-            !latestLayer.colorCycleData?.deferredRuntimeRestore
+            !isColdColorCycleLayer(latestLayer)
           ) {
             return;
           }
@@ -1240,7 +1245,11 @@ export const createLayersSlice = (
           });
           const now = Date.now();
           set((current) => ({
-            layers: current.layers.map((candidate) => candidate.id === layerId ? restoredLayer : candidate),
+            layers: current.layers.map((candidate) => (
+              candidate.id === layerId
+                ? updateLayerColorCycleHydrationState(restoredLayer, markActive ? 'active' : 'warm')
+                : candidate
+            )),
           }));
           const brush = restoredLayer.colorCycleData?.colorCycleBrush as ColorCycleBrushImplementation & {
             setLayerId?: (nextLayerId: string) => void;
@@ -1889,7 +1898,7 @@ export const createLayersSlice = (
           logError('Failed to initialize ColorCycleBrush for new layer', { layerId: newLayerId });
         } else {
           // Pre-create the animator to avoid lag on first paint
-          const brush = colorCycleBrushManager.getBrush(newLayerId);
+          const brush = state.getLayerColorCycleBrush(newLayerId) ?? colorCycleBrushManager.getBrush(newLayerId);
           if (brush && 'setSpeed' in brush && typeof brush.setSpeed === 'function') {
             // Call setSpeed to trigger animator creation internally
             // This ensures the animator is ready before first paint
@@ -2897,7 +2906,7 @@ export const createLayersSlice = (
         ctx.globalAlpha = layer.opacity ?? 1;
 
         if (layer.layerType === 'color-cycle') {
-          const brush = colorCycleBrushManager.getBrush(layer.id);
+          const brush = state.getLayerColorCycleBrush(layer.id) ?? colorCycleBrushManager.getBrush(layer.id);
           const sourceCanvas =
             (layer.colorCycleData?.canvas as HTMLCanvasElement | OffscreenCanvas | undefined) ??
             (hasValidFramebuffer(layer.framebuffer) ? layer.framebuffer : null);
@@ -3085,7 +3094,8 @@ export const createLayersSlice = (
             try { colorCycleBrushManager.setActiveState(state.activeLayerId, false); } catch (e) { logError('CC cleanup error (non-fatal): setActiveState', e); }
             // End any active strokes
             try {
-              const oldBrush = colorCycleBrushManager.getLayerColorCycleBrush(state.activeLayerId);
+              const oldBrush = state.getLayerColorCycleBrush(state.activeLayerId)
+                ?? colorCycleBrushManager.getLayerColorCycleBrush(state.activeLayerId);
               oldBrush?.endStroke(state.activeLayerId);
             } catch (e) { logError('CC cleanup error (non-fatal): endStroke', e); }
           }
@@ -3108,7 +3118,7 @@ export const createLayersSlice = (
     })();
 
     if (layer?.layerType === 'color-cycle' && state.tools.currentTool !== 'recolor') {
-      const isDeferredRuntimeRestore = layer.colorCycleData?.deferredRuntimeRestore === true;
+      const isDeferredRuntimeRestore = isColdColorCycleLayer(layer);
       // Validate and reinitialize if needed
       if (!isDeferredRuntimeRestore && !colorCycleBrushManager.validateColorCycleBrush(id)) {
         
@@ -3133,7 +3143,8 @@ export const createLayersSlice = (
       
       // Ensure brush tracks the active layer before runtime sync
       try {
-        const colorCycleBrush = colorCycleBrushManager.getLayerColorCycleBrush(id);
+        const colorCycleBrush = state.getLayerColorCycleBrush(id)
+          ?? colorCycleBrushManager.getLayerColorCycleBrush(id);
         if (colorCycleBrush && 'setActiveLayer' in colorCycleBrush && typeof colorCycleBrush.setActiveLayer === 'function') {
           colorCycleBrush.setActiveLayer(id);
         }
@@ -3195,7 +3206,21 @@ export const createLayersSlice = (
       const result = {
         activeLayerId: id,
         selectedLayerIds: baseSelection,
-        tools: nextTools
+        tools: nextTools,
+        layers: state.layers.map((candidate) => {
+          if (candidate.id === id && candidate.layerType === 'color-cycle') {
+            return updateLayerColorCycleHydrationState(candidate, isDeferredRuntimeRestore ? 'cold' : 'active');
+          }
+          if (
+            candidate.id === state.activeLayerId &&
+            candidate.id !== id &&
+            candidate.layerType === 'color-cycle' &&
+            getColorCycleHydrationState(candidate.colorCycleData) === 'active'
+          ) {
+            return updateLayerColorCycleHydrationState(candidate, 'warm');
+          }
+          return candidate;
+        }),
       };
 
       try {
@@ -3237,8 +3262,15 @@ export const createLayersSlice = (
     const result = {
       activeLayerId: id,
       selectedLayerIds: baseSelection,
-      tools: nextTools
-      // DO NOT return layers unless we're actually changing them
+      tools: nextTools,
+      layers: state.layers.map((candidate) => (
+        candidate.id === state.activeLayerId &&
+        candidate.id !== id &&
+        candidate.layerType === 'color-cycle' &&
+        getColorCycleHydrationState(candidate.colorCycleData) === 'active'
+          ? updateLayerColorCycleHydrationState(candidate, 'warm')
+          : candidate
+      )),
     };
 
     // Debug checks removed - the race condition has been fixed
@@ -3547,7 +3579,7 @@ export const createLayersSlice = (
       });
       
       // GUARD: Don't re-initialize if already initialized
-      const existingBrush = colorCycleBrushManager.getBrush(layerId);
+      const existingBrush = state.getLayerColorCycleBrush(layerId) ?? colorCycleBrushManager.getBrush(layerId);
       if (existingBrush) {
         // quiet
         // Ensure the layer has a valid canvas and CC metadata even if we skip recreation.
@@ -4576,7 +4608,7 @@ export const createLayersSlice = (
       return null; // Never return a CC brush for regular layers
     }
 
-    if (layer?.colorCycleData?.deferredRuntimeRestore) {
+    if (isColdColorCycleLayer(layer)) {
       scheduleDeferredColorCycleRestore(layerId, state.activeLayerId === layerId);
       return null;
     }

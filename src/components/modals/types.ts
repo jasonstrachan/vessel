@@ -1,4 +1,4 @@
-import type { ProjectSaveSizeReport } from '@/utils/projectIO';
+import type { ProjectHealthReport } from '@/utils/projectIO';
 
 export interface ProjectPreview {
   projectName: string;
@@ -10,7 +10,7 @@ export interface ProjectPreview {
   hasEmbeddedThumbnail: boolean;
   fileName: string;
   fileSize: number;
-  healthReport?: ProjectSaveSizeReport | null;
+  healthReport?: ProjectHealthReport | null;
   healthWarning?: string | null;
 }
 

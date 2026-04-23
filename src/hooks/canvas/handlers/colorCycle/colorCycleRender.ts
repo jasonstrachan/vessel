@@ -72,7 +72,11 @@ export const renderAllColorCycleLayers = (
       return;
     }
     if (layer.visible && layer.layerType === 'color-cycle' && layer.colorCycleData?.canvas) {
-      const colorCycleBrush = colorCycleBrushManager.getBrush(layer.id);
+      const colorCycleBrush = (
+        typeof currentState.getLayerColorCycleBrush === 'function'
+          ? currentState.getLayerColorCycleBrush(layer.id)
+          : null
+      ) ?? colorCycleBrushManager.getBrush(layer.id);
       if (!colorCycleBrush) return;
 
       const liveCanvas = deps.refreshLayerCCSurface(colorCycleBrush, layer.id, currentState);

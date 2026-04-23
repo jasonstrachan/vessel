@@ -83,6 +83,12 @@ const resolveSlotSeamProfile = (
       return resolveSessionSeamProfile(session);
     }
   }
+  const paletteSeamProfile = (
+    layer.colorCycleData?.slotPalettes as Array<{ slot: number; seamProfile?: GradientSeamProfile }> | undefined
+  )?.find((entry) => entry.slot === slot)?.seamProfile;
+  if (paletteSeamProfile) {
+    return normalizeGradientSeamProfile(paletteSeamProfile);
+  }
   const def = layer.colorCycleData?.gradientDefStore?.find((entry) => entry.slot === slot);
   return normalizeGradientSeamProfile(def?.seamProfile);
 };
@@ -158,6 +164,7 @@ const normalizeSlotPalettes = (palettes: ColorCycleSlotPalette[]): ColorCycleSlo
     .map((entry) => ({
       slot: clampSlot(entry.slot),
       stops: cloneStops(entry.stops),
+      seamProfile: normalizeGradientSeamProfile(entry.seamProfile),
     }))
     .filter((entry) => entry.slot !== EDITOR_SLOT);
 

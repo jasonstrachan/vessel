@@ -5,7 +5,7 @@ import { Switch } from '../retroui/Switch';
 import { FeatureFlagToggle } from '../ui/FeatureFlagToggle';
 import { useKeyboardScope } from '../../hooks/useKeyboardScope';
 import { devLog } from '../../utils/devLog';
-import { getProjectSaveSizeReport, type ProjectSaveSizeReport } from '@/utils/projectIO';
+import { getProjectSaveSizeReport, type ProjectHealthReport } from '@/utils/projectIO';
 import type { SettingsSectionId } from '@/types';
 import { writeLocalSettings } from '@/utils/localSettings';
 
@@ -61,7 +61,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
   const [isVisible, setIsVisible] = useState(false);
   const [shouldRender, setShouldRender] = useState(false);
   const [isAnalyzingSize, setIsAnalyzingSize] = useState(false);
-  const [sizeReport, setSizeReport] = useState<ProjectSaveSizeReport | null>(null);
+  const [sizeReport, setSizeReport] = useState<ProjectHealthReport | null>(null);
   const [sizeReportError, setSizeReportError] = useState<string | null>(null);
   const [pos, setPos] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
   const [dragging, setDragging] = useState(false);
@@ -356,8 +356,25 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
                       <div>
                         Largest Layer: {sizeReport.largestLayers[0]?.layerName ?? 'n/a'} ({formatBytes(sizeReport.largestLayers[0]?.bytes ?? 0)})
                       </div>
-                      {sizeReport.recommendations[0] && (
-                        <div className="text-[#9FAF9F]">Tip: {sizeReport.recommendations[0]}</div>
+                      {sizeReport.warnings.length > 0 && (
+                        <div className="mt-2 rounded border border-amber-700/40 bg-amber-950/30 p-2">
+                          <div className="mb-1 text-[11px] uppercase tracking-wide text-amber-200">Warnings</div>
+                          <div className="space-y-1">
+                            {sizeReport.warnings.slice(0, 3).map((warningEntry) => (
+                              <div key={warningEntry} className="text-xs text-amber-100">{warningEntry}</div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                      {sizeReport.recommendations.length > 0 && (
+                        <div className="mt-2 rounded border border-[#273127] bg-[#182018] p-2">
+                          <div className="mb-1 text-[11px] uppercase tracking-wide text-[#B7D0B7]">Recommendations</div>
+                          <div className="space-y-1">
+                            {sizeReport.recommendations.slice(0, 3).map((recommendation) => (
+                              <div key={recommendation} className="text-xs text-[#9FAF9F]">{recommendation}</div>
+                            ))}
+                          </div>
+                        </div>
                       )}
                     </div>
                   )}
