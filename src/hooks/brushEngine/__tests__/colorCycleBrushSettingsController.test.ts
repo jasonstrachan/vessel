@@ -84,6 +84,7 @@ describe('colorCycleBrushSettingsController', () => {
     updateColorCycleDitherSettings({
       brush: brush as unknown as ColorCycleBrushImplementation,
       isCCGradientActiveLayer: true,
+      shouldApplyToolbarSettings: true,
       ditherEnabled: true,
       stampDitherEnabled: true,
       ditherAlgorithm: 'sierra-lite',
@@ -113,10 +114,39 @@ describe('colorCycleBrushSettingsController', () => {
 
     updateColorCycleStampDitherPixelSize({
       brush: brush as unknown as ColorCycleBrushImplementation,
+      shouldApplyToolbarSettings: true,
       stampDitherPixelSize: 2.2,
     });
 
     expect(brush.setDitherPixelSize).toHaveBeenCalledWith(4);
     expect(brush.setStampDitherPixelSize).toHaveBeenCalledWith(2);
+  });
+
+  it('does not overwrite restored brush settings when toolbar sync is inactive', () => {
+    const brush = makeBrush();
+
+    updateColorCycleDitherSettings({
+      brush: brush as unknown as ColorCycleBrushImplementation,
+      isCCGradientActiveLayer: false,
+      shouldApplyToolbarSettings: false,
+      ditherEnabled: false,
+      stampDitherEnabled: false,
+      ditherAlgorithm: 'sierra-lite',
+      patternStyle: 'dots',
+      stampDitherPressureLinked: false,
+      stampDitherBgFill: true,
+      stampDitherClears: false,
+      pxlEdge: false,
+    });
+
+    updateColorCycleStampDitherPixelSize({
+      brush: brush as unknown as ColorCycleBrushImplementation,
+      shouldApplyToolbarSettings: false,
+      stampDitherPixelSize: 1,
+    });
+
+    expect(brush.setDitherEnabled).not.toHaveBeenCalled();
+    expect(brush.setStampDitherEnabled).not.toHaveBeenCalled();
+    expect(brush.setStampDitherPixelSize).not.toHaveBeenCalled();
   });
 });

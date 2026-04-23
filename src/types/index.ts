@@ -408,6 +408,136 @@ export interface SequentialLayerData {
   events: SequentialStrokeEvent[];
 }
 
+export interface ColorCycleGradientDef {
+  id: string;
+  name?: string;
+  currentSlot: number;
+}
+
+export interface ColorCycleSlotPalette {
+  slot: number;
+  stops: Array<{ position: number; color: string }>;
+}
+
+export interface ColorCycleGradientDefStoreEntry {
+  id: number;
+  kind: 'linear' | 'concentric';
+  stops: Array<{ position: number; color: string }>;
+  hash: string;
+  source: 'manual' | 'fg' | 'sampled';
+  seamProfile?: GradientSeamProfile;
+  createdAtMs: number;
+  slot?: number;
+  speedCps?: number;
+}
+
+export interface ColorCycleRecolorSettings {
+  quantizationMode: 'rgb332' | 'oklab-median-cut';
+  ditherMode: 'off' | 'bayer4' | 'bayer8';
+  indexBuffer?: Uint8Array;
+  palette?: Uint32Array;
+  colorMap?: Map<number, number>;
+  animation: {
+    speed: number;
+    fps: number;
+    ticksPerFrame: number;
+    isPlaying: boolean;
+    currentTick: number;
+    flowDirection: 'forward' | 'reverse' | 'pingpong' | 'bounce';
+  };
+  cycleColors: number;
+  gradient: Array<{ position: number; color: string }>;
+  mappingMode?: 'banded' | 'continuous';
+  flowMapping?: 'palette' | 'directional' | 'luminance';
+  indexPhaseMap?: Uint8Array;
+  directionAngle?: number;
+  bandWidthPx?: number;
+  phaseMap?: Uint8Array;
+  currentLOD: 'full' | 'half' | 'quarter';
+  originalImageData?: ImageData;
+}
+
+export interface ColorCycleCanonicalDocumentData {
+  mode?: 'brush' | 'recolor';
+  /**
+   * @deprecated Legacy single gradient. Use gradientDefs + slotPalettes instead.
+   */
+  gradient?: Array<{ position: number; color: string }>;
+  paintStops?: Array<{ position: number; color: string; opacity?: number }>;
+  /**
+   * @deprecated Legacy gradient list (id + slot + stops). Prefer gradientDefs + slotPalettes.
+   */
+  gradients?: Array<{
+    id: string;
+    slot: number;
+    stops: Array<{ position: number; color: string }>;
+  }>;
+  gradientDefs?: ColorCycleGradientDef[];
+  slotPalettes?: ColorCycleSlotPalette[];
+  fgActiveSlot?: number;
+  paintSlot?: number;
+  layerBaseSpeedCps?: number;
+  /**
+   * @deprecated Use layerBaseSpeedCps.
+   */
+  controllerSpeedCps?: number;
+  legacyRemap?: {
+    from: number;
+    to: number;
+  };
+  activeGradientId?: string;
+  gradientIdBuffer?: ArrayBuffer;
+  gradientDefIdBuffer?: ArrayBuffer;
+  smoothPhaseBuffer?: ArrayBuffer;
+  smoothFlagsBuffer?: ArrayBuffer;
+  gradientDefStore?: ColorCycleGradientDefStoreEntry[];
+  nextGradientDefId?: number;
+  gradientVersion?: number;
+  hasContent?: boolean;
+  /**
+   * @deprecated Use layerBaseSpeedCps for layer playback speed.
+   */
+  brushSpeed?: number;
+  flowMode?: 'forward' | 'reverse' | 'pingpong';
+}
+
+export interface ColorCyclePersistedCompatibilityData {
+  canvasImageData?: ImageData;
+  canvasWidth?: number;
+  canvasHeight?: number;
+  eraseMaskImageData?: ImageData;
+  eraseMaskVersion?: number;
+  recolorSettings?: ColorCycleRecolorSettings;
+}
+
+export interface ColorCycleRuntimeData {
+  fgDerivedKey?: string;
+  fgDerivedGradients?: Array<{
+    key: string;
+    slot: number;
+    spec: DerivedGradientSpec;
+  }>;
+  /**
+   * @deprecated Legacy FG-derived metadata (use fgDerivedGradients).
+   */
+  derivedGradients?: Array<{
+    key: string;
+    slot: number;
+    spec: DerivedGradientSpec;
+  }>;
+  colorCycleBrush?: import('../hooks/brushEngine/ColorCycleBrushCanvas2D').ColorCycleBrushCanvas2D;
+  isAnimating?: boolean;
+  canvas?: HTMLCanvasElement;
+  eraseMask?: HTMLCanvasElement;
+  brushState?: unknown;
+  deferredRuntimeRestore?: boolean;
+}
+
+export type LayerColorCycleData =
+  & ColorCycleCanonicalDocumentData
+  & ColorCyclePersistedCompatibilityData
+  & ColorCycleRuntimeData;
+
 export interface Layer {
   id: string;
   name: string;
@@ -431,187 +561,7 @@ export interface Layer {
   layerType: 'normal' | 'color-cycle' | 'sequential'; // REQUIRED - not optional
   
   // Color cycle specific data (only present for CC layers)
-  colorCycleData?: {
-    // Mode selection: brush-based cycling vs recolor layer animation
-    mode?: 'brush' | 'recolor';
-
-    // Brush mode data (existing functionality)
-    /**
-     * @deprecated Legacy single gradient. Use gradients + activeGradientId instead.
-     */
-    gradient?: Array<{ position: number; color: string }>;
-    /**
-     * Canonical paint stops for the current paint slot.
-     */
-    paintStops?: Array<{ position: number; color: string; opacity?: number }>;
-    /**
-     * @deprecated Legacy gradient list (id + slot + stops). Prefer gradientDefs + slotPalettes.
-     */
-    gradients?: Array<{
-      id: string;
-      slot: number;
-      stops: Array<{ position: number; color: string }>;
-    }>;
-    /**
-     * Stable user gradients. Each def points to the current slot for future strokes.
-     */
-    gradientDefs?: Array<{
-      id: string;
-      name?: string;
-      currentSlot: number;
-    }>;
-    /**
-     * Immutable slot palettes for any slot referenced by pixels.
-     */
-    slotPalettes?: Array<{
-      slot: number;
-      stops: Array<{ position: number; color: string }>;
-    }>;
-    /**
-     * Active slot for FG-derived gradients (kept separate from manual gradient defs).
-     */
-    fgActiveSlot?: number;
-    /**
-     * Authoritative slot for new writes (raw slot, 0..255). Never use 255 for paint.
-     */
-    paintSlot?: number;
-    /**
-     * Explicit per-layer base playback speed for brush-mode color-cycle layers.
-     */
-    layerBaseSpeedCps?: number;
-    /**
-     * Global controller speed (cycles per second) used by AnimationController.
-     * @deprecated Use layerBaseSpeedCps.
-     */
-    controllerSpeedCps?: number;
-    /**
-     * Legacy gid remap for reserved slots -> dedicated slot.
-     */
-    legacyRemap?: {
-      from: number;
-      to: number;
-    };
-    /**
-     * Last FG-derived spec key applied to this layer.
-     */
-    fgDerivedKey?: string;
-    /**
-     * FG-derived gradient metadata keyed by spec hash.
-     */
-    fgDerivedGradients?: Array<{
-      key: string;
-      slot: number;
-      spec: DerivedGradientSpec;
-    }>;
-    /**
-     * @deprecated Legacy FG-derived metadata (use fgDerivedGradients).
-     */
-    derivedGradients?: Array<{
-      key: string;
-      slot: number;
-      spec: DerivedGradientSpec;
-    }>;
-    activeGradientId?: string;
-    /**
-     * Persisted buffer of per-pixel gradient slot indices (Uint8Array at runtime).
-     */
-    gradientIdBuffer?: ArrayBuffer;
-    /**
-     * Persisted buffer of per-pixel gradient def ids (Uint16Array at runtime).
-     */
-    gradientDefIdBuffer?: ArrayBuffer;
-    /**
-     * Persisted buffer of per-pixel smooth gradient phase (Uint16Array at runtime).
-     */
-    smoothPhaseBuffer?: ArrayBuffer;
-    /**
-     * Persisted buffer of per-pixel smooth-mode flags (Uint8Array at runtime).
-     */
-    smoothFlagsBuffer?: ArrayBuffer;
-    /**
-     * Immutable gradient definitions (def-bound).
-     */
-    gradientDefStore?: Array<{
-      id: number;
-      kind: 'linear' | 'concentric';
-      stops: Array<{ position: number; color: string }>;
-      hash: string;
-      source: 'manual' | 'fg' | 'sampled';
-      seamProfile?: GradientSeamProfile;
-      createdAtMs: number;
-      slot?: number;
-      speedCps?: number;
-    }>;
-    nextGradientDefId?: number;
-    gradientVersion?: number;
-    colorCycleBrush?: import('../hooks/brushEngine/ColorCycleBrushCanvas2D').ColorCycleBrushCanvas2D;
-    isAnimating?: boolean;
-    hasContent?: boolean;
-    // Per-layer animation speed for brush-mode CC (cycles per second)
-    // @deprecated Use layerBaseSpeedCps for layer playback speed.
-    brushSpeed?: number;
-    // Per-layer animation flow mode for brush-mode CC
-    flowMode?: 'forward' | 'reverse' | 'pingpong';
-    canvas?: HTMLCanvasElement;
-    canvasImageData?: ImageData;
-    canvasWidth?: number;
-    canvasHeight?: number;
-    eraseMask?: HTMLCanvasElement;
-    eraseMaskImageData?: ImageData;
-    eraseMaskVersion?: number;
-    brushState?: unknown;
-
-    // Recolor mode data (new functionality)
-    recolorSettings?: {
-      // Quantization settings
-      quantizationMode: 'rgb332' | 'oklab-median-cut';
-      ditherMode: 'off' | 'bayer4' | 'bayer8';
-      
-      // Index buffer and palette (core performance data)
-      indexBuffer?: Uint8Array;
-      palette?: Uint32Array; // 256 RGBA colors as packed 32-bit values
-      colorMap?: Map<number, number>; // RGB color key to palette index mapping
-      
-      // Animation settings
-      animation: {
-        speed: number; // 0.02 - 2.0x
-        fps: number; // 15, 30, or 60
-        ticksPerFrame: number; // Calculated from speed
-        isPlaying: boolean;
-        currentTick: number;
-        flowDirection: 'forward' | 'reverse' | 'pingpong' | 'bounce';
-      };
-      
-      // Gradient configuration (for the cycling effect)
-      cycleColors: number; // 8-256, default 16 (visible color bands)
-      gradient: Array<{ position: number; color: string }>;
-      // Visual interpolation of gradient steps
-      mappingMode?: 'banded' | 'continuous';
-
-      // Flow mapping determines how the gradient phase is chosen per pixel
-      // 'palette' = current behavior (by palette index)
-      // 'directional' = geometric sweep using angle + wavelength
-      // 'luminance' = phase from original pixel luminance
-      flowMapping?: 'palette' | 'directional' | 'luminance';
-
-      // Optional remap for palette-based flow: maps each palette index (0-255)
-      // to a phase 0-255 so the gradient sequence can follow a desired direction
-      // without altering the pixel index buffer structure.
-      indexPhaseMap?: Uint8Array;
-
-      // Parameters for directional mapping
-      directionAngle?: number; // degrees, 0 = left->right
-      bandWidthPx?: number;    // wavelength in pixels between repeating bands
-      // Cached per-pixel phase map (0-255) for non-palette mappings
-      phaseMap?: Uint8Array;
-      
-      // Performance optimization levels
-      currentLOD: 'full' | 'half' | 'quarter';
-      
-      // Original image data (preserved for undo/reprocessing)
-      originalImageData?: ImageData;
-    };
-  };
+  colorCycleData?: LayerColorCycleData;
 
   // Sequential recording data (only present for sequential layers)
   sequentialData?: SequentialLayerData;

@@ -1,4 +1,4 @@
-import { getColorCycleBrushManager } from '@/stores/colorCycleBrushManager';
+import { getColorCycleBrushManager, getColorCycleStoreState } from '@/stores/colorCycleBrushManager';
 import { useAppStore } from '@/stores/useAppStore';
 import type { ColorCycleBrushImplementation } from '@/stores/colorCycleBrushManager';
 
@@ -83,7 +83,9 @@ const captureEraseMaskSnapshot = (layerId: string): ColorCycleEraseMaskSnapshot 
 export const captureColorCycleBrushState = (layerId: string): ColorCycleSerializedState =>
   (() => {
     const manager = getColorCycleBrushManager();
-    const brush = manager.getBrush(layerId);
+    const brush =
+      getColorCycleStoreState()?.getLayerColorCycleBrush?.(layerId) ??
+      manager.getBrush(layerId);
     if (!brush || typeof brush.serialize !== 'function') {
       return null;
     }

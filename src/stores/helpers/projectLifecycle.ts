@@ -178,7 +178,10 @@ export const createProjectLifecycle = ({
 
   const applyLoadedProject = async (loadedProject: Project): Promise<void> => {
     const state = get();
-    const layersWithRestoredColorCycles = await restoreColorCycleBrushes(loadedProject.layers);
+    const layersWithRestoredColorCycles = await restoreColorCycleBrushes(loadedProject.layers, {
+      lazy: true,
+      activeLayerId: loadedProject.layers[0]?.id ?? null,
+    });
     const finalLayers = layersWithRestoredColorCycles ?? loadedProject.layers;
 
     const normalizedProject = normalizeProject(loadedProject);
@@ -397,7 +400,7 @@ export const createProjectLifecycle = ({
             captureCanvasImageData(colorCycleData.canvas ?? null);
 
           if (!canvasImageData) {
-            const brush = colorCycleBrushManager?.getLayerColorCycleBrush(layer.id) as
+            const brush = freshState.getLayerColorCycleBrush(layer.id) as
               | { renderDirectToCanvas?: (canvas: HTMLCanvasElement, layerId: string) => void }
               | null
               | undefined;

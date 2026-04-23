@@ -128,6 +128,7 @@ export const updateColorCycleBandSpacingForLayer = ({
 export const updateColorCycleDitherSettings = ({
   brush,
   isCCGradientActiveLayer,
+  shouldApplyToolbarSettings,
   ditherEnabled,
   stampDitherEnabled,
   ditherAlgorithm,
@@ -139,6 +140,7 @@ export const updateColorCycleDitherSettings = ({
 }: {
   brush: ColorCycleBrushImplementation | null;
   isCCGradientActiveLayer: boolean;
+  shouldApplyToolbarSettings: boolean;
   ditherEnabled?: boolean;
   stampDitherEnabled?: boolean;
   ditherAlgorithm?: BrushSettings['ditherAlgorithm'];
@@ -149,6 +151,9 @@ export const updateColorCycleDitherSettings = ({
   pxlEdge?: boolean;
 }): void => {
   if (!brush) {
+    return;
+  }
+  if (!shouldApplyToolbarSettings) {
     return;
   }
 
@@ -218,12 +223,17 @@ export const updateColorCycleFillDitherPixelSize = ({
 
 export const updateColorCycleStampDitherPixelSize = ({
   brush,
+  shouldApplyToolbarSettings,
   stampDitherPixelSize,
 }: {
   brush: ColorCycleBrushImplementation | null;
+  shouldApplyToolbarSettings: boolean;
   stampDitherPixelSize?: number;
 }): void => {
   if (!brush) {
+    return;
+  }
+  if (!shouldApplyToolbarSettings) {
     return;
   }
 

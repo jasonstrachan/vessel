@@ -1,6 +1,6 @@
 import { ColorCycleBrushCanvas2D } from '@/hooks/brushEngine/ColorCycleBrushCanvas2D';
 import type { GradientStop } from '@/lib/GradientPalette';
-import { getColorCycleBrushManager } from '@/stores/colorCycleBrushManager';
+import { getColorCycleBrushManager, getColorCycleStoreState } from '@/stores/colorCycleBrushManager';
 import { useAppStore } from '@/stores/useAppStore';
 import { isColorCycleDesired } from '@/utils/colorCyclePlayback';
 import type {
@@ -158,7 +158,7 @@ export class ColorCycleStrokeDelta implements HistoryDelta {
       return;
     }
 
-    if (!manager.getBrush(this.layerId)) {
+    if (!(getColorCycleStoreState()?.getLayerColorCycleBrush?.(this.layerId) ?? manager.getBrush(this.layerId))) {
       const width =
         initialLayer.colorCycleData.canvas?.width ??
         initialState.project?.width ??
@@ -177,7 +177,10 @@ export class ColorCycleStrokeDelta implements HistoryDelta {
       }
     }
 
-    const brush = manager.getBrush(this.layerId) as ManagedColorCycleBrush | undefined;
+    const brush = (
+      getColorCycleStoreState()?.getLayerColorCycleBrush?.(this.layerId) ??
+      manager.getBrush(this.layerId)
+    ) as ManagedColorCycleBrush | undefined;
     const liveState = useAppStore.getState();
     const layer = liveState.layers.find((candidate) => candidate.id === this.layerId);
     const targetCanvas = layer?.colorCycleData?.canvas;

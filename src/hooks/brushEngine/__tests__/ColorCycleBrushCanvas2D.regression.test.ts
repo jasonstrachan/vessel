@@ -176,6 +176,9 @@ describe('ColorCycleBrushCanvas2D regression tests', () => {
 
     const after = animator.getIndexBuffers().data;
     expect(Array.from(after)).not.toEqual(Array.from(before));
+    const snapshot = brush.getLayerSnapshot(layerId);
+    expect(snapshot).not.toBeNull();
+    expect(Array.from(new Uint8Array(snapshot!.paintBuffer))).toEqual(Array.from(after));
   });
 
   it('keeps the first tiny stroke on a fresh color-cycle layer', () => {

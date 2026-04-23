@@ -1217,6 +1217,80 @@ export const createLayersSlice = (
 
     let slotRebuildTimer: ReturnType<typeof setTimeout> | null = null;
     const SLOT_REBUILD_DEBOUNCE_MS = 250;
+    const deferredColorCycleRestoreByLayerId = new Map<string, Promise<void>>();
+
+    const scheduleDeferredColorCycleRestore = (layerId: string, markActive: boolean): void => {
+      if (deferredColorCycleRestoreByLayerId.has(layerId)) {
+        return;
+      }
+      const restorePromise = import('@/utils/projectIO')
+        .then(async ({ restoreColorCycleBrushes }) => {
+          const latestState = get();
+          const latestLayer = latestState.layers.find((candidate) => candidate.id === layerId);
+          if (
+            !latestLayer ||
+            latestLayer.layerType !== 'color-cycle' ||
+            !latestLayer.colorCycleData?.deferredRuntimeRestore
+          ) {
+            return;
+          }
+          const [restoredLayer] = await restoreColorCycleBrushes([latestLayer], {
+            lazy: false,
+            activeLayerId: layerId,
+          });
+          const now = Date.now();
+          set((current) => ({
+            layers: current.layers.map((candidate) => candidate.id === layerId ? restoredLayer : candidate),
+          }));
+          const brush = restoredLayer.colorCycleData?.colorCycleBrush as ColorCycleBrushImplementation & {
+            setLayerId?: (nextLayerId: string) => void;
+            isUsingWebGL?: () => boolean;
+          } | undefined;
+          if (brush) {
+            colorCycleBrushManager.brushes.set(layerId, brush);
+            colorCycleBrushManager.brushMetadata.set(layerId, {
+              layerId,
+              created: now,
+              lastUsed: now,
+              width: restoredLayer.colorCycleData?.canvas?.width ?? latestState.project?.width ?? 0,
+              height: restoredLayer.colorCycleData?.canvas?.height ?? latestState.project?.height ?? 0,
+              gradientHash: undefined,
+              isActive: markActive,
+            });
+            colorCycleBrushManager.activeResources.add(layerId);
+            colorCycleBrushManager.activeResources.add(`canvas_${layerId}`);
+            try {
+              if (brush.isUsingWebGL?.()) {
+                colorCycleBrushManager.activeResources.add(`webgl_${layerId}`);
+              }
+            } catch {
+              // quiet
+            }
+            try {
+              brush.setLayerId?.(layerId);
+            } catch {
+              // quiet
+            }
+            try {
+              colorCycleBrushManager.setActiveState(layerId, markActive);
+            } catch {
+              // quiet
+            }
+          }
+          try {
+            syncCCRuntimes([restoredLayer], 'deferred-restore');
+          } catch (error) {
+            logError('[layers] Failed to sync CC runtime after deferred restore', error);
+          }
+        })
+        .catch((error) => {
+          logError('[layers] Deferred color-cycle restore failed', { layerId, error });
+        })
+        .finally(() => {
+          deferredColorCycleRestoreByLayerId.delete(layerId);
+        });
+      deferredColorCycleRestoreByLayerId.set(layerId, restorePromise);
+    };
 
     const runSlotRebuild = (reason: string) => {
       const state = get();
@@ -3034,8 +3108,9 @@ export const createLayersSlice = (
     })();
 
     if (layer?.layerType === 'color-cycle' && state.tools.currentTool !== 'recolor') {
+      const isDeferredRuntimeRestore = layer.colorCycleData?.deferredRuntimeRestore === true;
       // Validate and reinitialize if needed
-      if (!colorCycleBrushManager.validateColorCycleBrush(id)) {
+      if (!isDeferredRuntimeRestore && !colorCycleBrushManager.validateColorCycleBrush(id)) {
         
         const width = state.project?.width || 1024;
         const height = state.project?.height || 1024;
@@ -3064,6 +3139,10 @@ export const createLayersSlice = (
         }
       } catch {
         // quiet
+      }
+
+      if (isDeferredRuntimeRestore) {
+        scheduleDeferredColorCycleRestore(id, true);
       }
       
       // Remember the user's current brush context so we can restore it when leaving CC layers
@@ -4496,8 +4575,12 @@ export const createLayersSlice = (
       // Silently return null for non-CC layers - this is expected behavior
       return null; // Never return a CC brush for regular layers
     }
-    
-    // Get from manager
+
+    if (layer?.colorCycleData?.deferredRuntimeRestore) {
+      scheduleDeferredColorCycleRestore(layerId, state.activeLayerId === layerId);
+      return null;
+    }
+
     return colorCycleBrushManager.getBrush(layerId) ?? null;
   },
 

@@ -605,7 +605,9 @@ export const useBrushEngineSimplified = () => {
     return id === 'dither-stroke' || id === 'dither-shape';
   }, [currentBrushPreset]);
   const isCCGradient = currentBrushPreset?.id === 'color-cycle-gradient';
+  const isCCStrokePreset = currentBrushPreset?.id === 'color-cycle-stroke';
   const isCCGradientActiveLayer = isCCGradient && activeLayer?.layerType === 'color-cycle';
+  const shouldApplyToolbarColorCycleSettings = (isCCGradient || isCCStrokePreset) && activeLayer?.layerType === 'color-cycle';
   const isDitherStrokeBrush = tools.brushSettings.brushShape === BrushShape.PIXEL_DITHER;
   const ditherStrokeGuardWarnedRef = useRef(false);
   const warnIfDitherStrokePath = useCallback((context: string) => {
@@ -1365,11 +1367,11 @@ export const useBrushEngineSimplified = () => {
   ]);
 
   const ensureColorCycleAnimation = useCallback((shouldPlay: boolean) => {
-    const manager = getColorCycleBrushManager();
     ensureColorCycleAnimationForLayers({
       shouldPlay,
       layers: useAppStore.getState().layers,
-      getBrush: (layerId) => manager.getBrush(layerId) as Partial<ColorCycleBrushImplementation> | undefined,
+      getBrush: (layerId) =>
+        useAppStore.getState().getLayerColorCycleBrush(layerId) as Partial<ColorCycleBrushImplementation> | undefined,
     });
   }, []);
 
@@ -1761,6 +1763,7 @@ export const useBrushEngineSimplified = () => {
     updateColorCycleDitherSettings({
       brush: getActiveLayerColorCycleBrush(),
       isCCGradientActiveLayer,
+      shouldApplyToolbarSettings: shouldApplyToolbarColorCycleSettings,
       ditherEnabled: tools.brushSettings.ditherEnabled,
       stampDitherEnabled: tools.brushSettings.colorCycleStampDitherEnabled,
       ditherAlgorithm: tools.brushSettings.ditherAlgorithm,
@@ -1772,6 +1775,7 @@ export const useBrushEngineSimplified = () => {
     });
   }, [
     isCCGradientActiveLayer,
+    shouldApplyToolbarColorCycleSettings,
     tools.brushSettings.ditherEnabled,
     tools.brushSettings.colorCycleStampDitherEnabled,
     tools.brushSettings.colorCycleStampDitherBgFill,
@@ -1805,10 +1809,12 @@ export const useBrushEngineSimplified = () => {
   useEffect(() => {
     updateColorCycleStampDitherPixelSize({
       brush: getActiveLayerColorCycleBrush(),
+      shouldApplyToolbarSettings: shouldApplyToolbarColorCycleSettings,
       stampDitherPixelSize: tools.brushSettings.colorCycleStampDitherPixelSize,
     });
   }, [
     tools.brushSettings.colorCycleStampDitherPixelSize,
+    shouldApplyToolbarColorCycleSettings,
     activeLayerId,
     getActiveLayerColorCycleBrush
   ]);

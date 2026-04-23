@@ -10,7 +10,6 @@ import {
   dedupePolylineForSampling,
   type PolyPoint,
 } from '@/hooks/canvas/utils/autoSampleGradient';
-import { getColorCycleBrushManager } from '@/stores/colorCycleBrushManager';
 import { setLayerColorCycleGradient, setSharedColorCycleGradient } from '@/utils/colorCycleGradients';
 
 const SAMPLE_PREVIEW_STROKE_STYLE = 'rgba(255, 214, 102, 0.95)';
@@ -292,8 +291,7 @@ export const updateAutoSampledGradient = ({
           const activeId = activeLayer.colorCycleData.activeGradientId ?? defs[0]?.id;
           const activeDef = defs.find(entry => entry.id === activeId) ?? defs[0];
           const slot = activeDef?.currentSlot ?? 0;
-          const manager = getColorCycleBrushManager();
-          const brush = manager.getBrush(activeLayer.id);
+          const brush = refreshed.getLayerColorCycleBrush(activeLayer.id);
           if (brush) {
             if (typeof brush.setGradientSlotStops === 'function') {
               brush.setGradientSlotStops(activeLayer.id, slot, stops);

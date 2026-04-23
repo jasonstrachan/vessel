@@ -1,7 +1,11 @@
 import type { Layer, Project } from '@/types';
-import { getColorCycleBrushManager } from '@/stores/colorCycleBrushManager';
+import { getColorCycleBrushManager, getColorCycleStoreState } from '@/stores/colorCycleBrushManager';
 
 const colorCycleBrushManager = getColorCycleBrushManager();
+
+const resolveLayerBrush = (layerId: string) =>
+  getColorCycleStoreState()?.getLayerColorCycleBrush?.(layerId) ??
+  colorCycleBrushManager.getLayerColorCycleBrush(layerId);
 
 type SelectionPoint = { x: number; y: number };
 
@@ -112,7 +116,7 @@ const captureColorCycleIndices = (
     return undefined;
   }
 
-  const brush = colorCycleBrushManager.getLayerColorCycleBrush(layer.id);
+  const brush = resolveLayerBrush(layer.id);
   const snapshot = brush?.getLayerSnapshot?.(layer.id);
 
   const canvas =
@@ -174,7 +178,7 @@ const captureColorCycleSnapshotScalar = (
     return undefined;
   }
 
-  const brush = colorCycleBrushManager.getLayerColorCycleBrush(layer.id);
+  const brush = resolveLayerBrush(layer.id);
   const snapshot = brush?.getLayerSnapshot?.(layer.id);
   const canvas =
     layer.colorCycleData?.canvas ??
@@ -202,7 +206,7 @@ const captureColorCycleGradientDefIds = (
     return undefined;
   }
 
-  const brush = colorCycleBrushManager.getLayerColorCycleBrush(layer.id);
+  const brush = resolveLayerBrush(layer.id);
   const snapshot = brush?.getLayerSnapshot?.(layer.id);
   const canvas =
     layer.colorCycleData?.canvas ??

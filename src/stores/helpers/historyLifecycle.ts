@@ -13,7 +13,7 @@ import {
   waitForAllPendingColorCycleSaves,
 } from '../pendingColorCycleSaves';
 import { flushPendingToolWork } from '@/utils/toolFlushRegistry';
-import { getColorCycleBrushManager } from '@/stores/colorCycleBrushManager';
+import { getColorCycleBrushManager, getColorCycleStoreState } from '@/stores/colorCycleBrushManager';
 import { syncCCRuntimes } from '@/stores/ccRuntime';
 import { waitForPendingHistoryCommits } from '@/history/pendingHistoryCommits';
 import {
@@ -595,7 +595,9 @@ export const createHistoryService = ({
         }
       }
 
-      const brush = manager.getBrush(layer.id);
+      const brush =
+        getColorCycleStoreState()?.getLayerColorCycleBrush?.(layer.id) ??
+        manager.getBrush(layer.id);
       const serializedState = (colorData.brushState ?? null) as ColorCycleSerializedState | null;
       if (brush && serializedState) {
         const beforeRestore = summarizeColorCycleLayer(refreshedLayer ?? null);

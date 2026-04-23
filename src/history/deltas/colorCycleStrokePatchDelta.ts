@@ -1,5 +1,5 @@
 import type { ColorCycleBrushCanvas2D } from '@/hooks/brushEngine/ColorCycleBrushCanvas2D';
-import { getColorCycleBrushManager } from '@/stores/colorCycleBrushManager';
+import { getColorCycleBrushManager, getColorCycleStoreState } from '@/stores/colorCycleBrushManager';
 import { useAppStore } from '@/stores/useAppStore';
 import type { HistoryDelta, HistoryDirection, HistoryRehydrationTargets } from '../actionTypes';
 import { readBlob, releaseBlob, storeBlob } from '../blobStore';
@@ -301,7 +301,7 @@ class ColorCycleStrokePatchDelta implements HistoryDelta {
       return;
     }
 
-    if (!manager.getBrush(this.layerId)) {
+    if (!(getColorCycleStoreState()?.getLayerColorCycleBrush?.(this.layerId) ?? manager.getBrush(this.layerId))) {
       const width = this.width || layer.colorCycleData.canvas?.width || store.project?.width || 0;
       const height = this.height || layer.colorCycleData.canvas?.height || store.project?.height || 0;
       if (!width || !height) {
@@ -314,7 +314,10 @@ class ColorCycleStrokePatchDelta implements HistoryDelta {
       }
     }
 
-    const brush = manager.getBrush(this.layerId) as ManagedColorCycleBrush | undefined;
+    const brush = (
+      getColorCycleStoreState()?.getLayerColorCycleBrush?.(this.layerId) ??
+      manager.getBrush(this.layerId)
+    ) as ManagedColorCycleBrush | undefined;
     const targetCanvas = layer.colorCycleData.canvas;
     if (!brush || !targetCanvas || typeof brush.applyPaintPatch !== 'function') {
       return;

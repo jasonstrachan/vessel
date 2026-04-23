@@ -7,6 +7,7 @@ import Button from '../ui/Button';
 type LoadProjectModalBodyProps = {
   isProcessing: boolean;
   error: string | null;
+  warning: string | null;
   preview: ProjectPreview | null;
   previewOffset: { x: number; y: number };
   previewScale: number;
@@ -43,6 +44,7 @@ const formatFileSize = (bytes: number) => {
 export function LoadProjectModalBody({
   isProcessing,
   error,
+  warning,
   preview,
   previewOffset,
   previewScale,
@@ -153,6 +155,36 @@ export function LoadProjectModalBody({
             <div className='text-[#8C8C8C] text-sm'>Pick a project to see details and a live preview here.</div>
           )}
         </div>
+        {warning && (
+          <div className='rounded-lg border border-amber-700/60 bg-amber-950/40 p-3 text-amber-200 text-xs flex-shrink-0'>
+            {warning}
+          </div>
+        )}
+        {preview?.healthReport && (
+          <div className='rounded-lg border border-[#2A2A2A] bg-[#121312] p-4 text-sm flex flex-col gap-2 flex-shrink-0'>
+            <div className='flex items-center justify-between gap-3'>
+              <div className='text-[#D9D9D9] font-medium'>Project Health</div>
+              <div className='text-[#8C8C8C] text-xs'>
+                Binary {formatFileSize(preview.healthReport.binaryPayloadBytes)}
+              </div>
+            </div>
+            {preview.healthReport.colorCycleDuplicationRiskLayers.length > 0 && (
+              <div className='text-amber-300 text-xs'>
+                CC duplication risk: {preview.healthReport.colorCycleDuplicationRiskLayers.join(', ')}
+              </div>
+            )}
+            {preview.healthReport.unresolvedColorCycleDefLayers.length > 0 && (
+              <div className='text-red-300 text-xs'>
+                Unresolved CC defs: {preview.healthReport.unresolvedColorCycleDefLayers.join(', ')}
+              </div>
+            )}
+            {preview.healthReport.recommendations[0] && (
+              <div className='text-[#9FAF9F] text-xs'>
+                {preview.healthReport.recommendations[0]}
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       <div className='w-64 flex flex-col text-sm min-h-0'>
@@ -205,4 +237,3 @@ export function LoadProjectModalBody({
     </div>
   );
 }
-
