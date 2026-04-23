@@ -8,6 +8,11 @@ import { devLog } from '../../utils/devLog';
 import { getProjectSaveSizeReport, type ProjectHealthReport } from '@/utils/projectIO';
 import type { SettingsSectionId } from '@/types';
 import { writeLocalSettings } from '@/utils/localSettings';
+import {
+  DEV_DEBUG_OVERLAY_EVENT,
+  isDevDebugOverlayEnabled,
+  setDevDebugOverlayEnabled,
+} from '@/utils/dev/debugOverlayStore';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -15,6 +20,7 @@ interface SettingsModalProps {
 }
 
 const settingsLog = devLog.scope('SETTINGS');
+const isDevBuild = process.env.NODE_ENV !== 'production';
 
 const SETTINGS_SECTIONS: Array<{ id: SettingsSectionId; label: string }> = [
   { id: 'display', label: 'Display' },
@@ -63,6 +69,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
   const [isAnalyzingSize, setIsAnalyzingSize] = useState(false);
   const [sizeReport, setSizeReport] = useState<ProjectHealthReport | null>(null);
   const [sizeReportError, setSizeReportError] = useState<string | null>(null);
+  const [isDevDebugOverlayOn, setIsDevDebugOverlayOn] = useState(false);
   const [pos, setPos] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
   const [dragging, setDragging] = useState(false);
   const dragOffset = React.useRef<{ x: number; y: number }>({ x: 0, y: 0 });
@@ -125,6 +132,22 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
       toggleRulers();
     }
   };
+
+  useEffect(() => {
+    if (!isDevBuild) {
+      return;
+    }
+
+    const syncDevDebugOverlay = () => {
+      setIsDevDebugOverlayOn(isDevDebugOverlayEnabled());
+    };
+
+    syncDevDebugOverlay();
+    window.addEventListener(DEV_DEBUG_OVERLAY_EVENT, syncDevDebugOverlay);
+    return () => {
+      window.removeEventListener(DEV_DEBUG_OVERLAY_EVENT, syncDevDebugOverlay);
+    };
+  }, []);
 
   useEffect(() => {
     if (isOpen) {
@@ -248,6 +271,18 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
                     onChange={(enabled) => setShowFPSMeter(enabled)}
                   />
                 </div>
+                {isDevBuild && (
+                  <div className="flex items-center justify-between">
+                    <label htmlFor="show-dev-debug-overlay" className="text-base text-[#888]">
+                      Show Debug Overlay
+                    </label>
+                    <Switch
+                      id="show-dev-debug-overlay"
+                      checked={isDevDebugOverlayOn}
+                      onChange={(enabled) => setDevDebugOverlayEnabled(enabled)}
+                    />
+                  </div>
+                )}
                 <div className="flex items-center justify-between gap-4">
                   <label htmlFor="transparency-background-mode" className="text-base text-[#888]">
                     Transparent Background

@@ -32,6 +32,7 @@ import { readLocalSettings } from '@/utils/localSettings';
 // import TestPluginBrushes from '../components/TestPluginBrushes'; // TEST COMPONENT - Disabled due to render loop
 
 const homeLog = devLog.scope('HOME');
+const isDevBuild = process.env.NODE_ENV !== 'production';
 
 export default function Home() {
   // Global mouse tracking removed - now handled directly in canvas
@@ -270,7 +271,7 @@ export default function Home() {
 
       {/* Simple FPS overlay */}
       {isSettingsHydrated && showFPSMeter && <FPSMeter />}
-      <DevDebugOverlay />
+      {isDevBuild && <DevDebugOverlay />}
 
 
     </main>
