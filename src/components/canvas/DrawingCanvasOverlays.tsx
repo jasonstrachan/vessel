@@ -4,6 +4,7 @@ import FloatingPasteOverlay from './FloatingPasteOverlay';
 import GridOverlay from './GridOverlay';
 import SelectionMarqueeHandles from './SelectionMarqueeHandles';
 import { useAppStore } from '@/stores/useAppStore';
+import { selectGridState } from '@/stores/selectors/stateSelectors';
 
 interface DrawingCanvasOverlaysProps {
   project: { width: number; height: number } | null;
@@ -26,11 +27,7 @@ export const DrawingCanvasOverlays = ({
   isSpacePressed,
   displayProjectName,
 }: DrawingCanvasOverlaysProps) => {
-  const grid = useAppStore((state) => state.ui?.grid ?? {
-    enabled: false,
-    rows: 8,
-    columns: 8,
-  });
+  const grid = useAppStore(selectGridState);
 
   return (
     <>

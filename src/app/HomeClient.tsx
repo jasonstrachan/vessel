@@ -25,6 +25,7 @@ import LoadProjectModal from '@/components/modals/LoadProjectModal';
 import { useAppStore } from '@/stores/useAppStore';
 import { selectLayers } from '@/stores/selectors/layersSelectors';
 import { selectModals } from '@/stores/selectors/modalSelectors';
+import { selectAutosaveSaveStatus } from '@/stores/selectors/stateSelectors';
 import { preloadRisographTexture } from '@/utils/risographTexture';
 import { autosaveService } from '@/utils/autosave';
 import { devLog } from '@/utils/devLog';
@@ -57,12 +58,7 @@ export default function Home() {
   const layers = useAppStore(selectLayers);
   const isAutosaveEnabled = useAppStore((state) => state.autosave.isEnabled);
   const autosaveIntervalMinutes = useAppStore((state) => state.autosave.interval);
-  const saveStatus = useAppStore((state) => state.autosave.saveStatus ?? {
-    phase: 'idle' as const,
-    source: null,
-    message: null,
-    updatedAt: null,
-  });
+  const saveStatus = useAppStore(selectAutosaveSaveStatus);
   const clearSaveStatus = useAppStore((state) => state.clearSaveStatus);
   
   // Feedback strip state
@@ -167,12 +163,7 @@ export default function Home() {
 
     const savedAt = saveStatus.updatedAt?.getTime() ?? Date.now();
     const timer = setTimeout(() => {
-      const latest = useAppStore.getState().autosave.saveStatus ?? {
-        phase: 'idle' as const,
-        source: null,
-        message: null,
-        updatedAt: null,
-      };
+      const latest = selectAutosaveSaveStatus(useAppStore.getState());
       const latestSavedAt = latest.updatedAt?.getTime() ?? 0;
       if (latest.phase === 'saved' && latestSavedAt === savedAt) {
         clearSaveStatus();
