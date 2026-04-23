@@ -4,10 +4,14 @@ import { createRequire } from 'node:module';
 import path from 'node:path';
 
 const require = createRequire(import.meta.url);
-const { stripLocalStorageFlag } = require('./node-options.cjs');
+const { normalizeNodeOptionsWithLocalStorage } = require('./node-options.cjs');
 
 const env = { ...process.env };
-env.NODE_OPTIONS = stripLocalStorageFlag(env.NODE_OPTIONS);
+env.NODE_OPTIONS = normalizeNodeOptionsWithLocalStorage({
+  nodeOptions: env.NODE_OPTIONS,
+  storagePath: env.LOCALSTORAGE_FILE_PATH,
+  scope: 'next-build',
+});
 env.NEXT_DIST_DIR = env.NEXT_DIST_DIR || '.next-build';
 
 // Next 15 occasionally leaves a partially valid dist tree behind after
