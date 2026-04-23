@@ -18,6 +18,7 @@ import { stampCcHangProbe } from '@/hooks/canvas/utils/ccHangProbe';
 import { parseCssColorToRgba } from '@/hooks/canvas/utils/colorCycleHelpers';
 import { buildSampledStops } from '@/hooks/canvas/handlers/colorCycle/ccSampling';
 import { runIdleAsync } from '@/hooks/canvas/utils/idle';
+import { recordSampledCcShapeBreadcrumb } from '@/hooks/canvas/utils/sampledCcShapeBreadcrumbs';
 import { ccLog } from '@/debug/ccDebug';
 
 export type PreparedPreviewGradient = {
@@ -1117,6 +1118,16 @@ export const runSampledCcDitherPreviewRuntime = (args: {
           pixelSize: sampledPreviewRenderSettings.pixelSize,
           levels: sampledPreviewRenderSettings.levels,
         });
+        recordSampledCcShapeBreadcrumb({
+          event: 'sampled-worker-begin',
+          activeLayerId: useAppStore.getState().activeLayerId ?? null,
+          seq: mySeq,
+          previewPointCount: sampledGeometry.previewPolygon.length,
+          pixelSize: sampledPreviewRenderSettings.pixelSize,
+          levels: sampledPreviewRenderSettings.levels,
+          roiWidth: sampledGeometry.width,
+          roiHeight: sampledGeometry.height,
+        });
 
         const sampledPreview = buildSampledStops({
           sourcePts: sampledGeometry.previewPolygon,
@@ -1125,6 +1136,22 @@ export const runSampledCcDitherPreviewRuntime = (args: {
         });
         ccLog('shape: sampled preview stops ready', {
           stopCount: sampledPreview?.stops?.length ?? request.fallbackStops.length,
+        });
+        recordSampledCcShapeBreadcrumb({
+          event: 'sampled-stops-ready',
+          activeLayerId: useAppStore.getState().activeLayerId ?? null,
+          seq: mySeq,
+          stopCount: sampledPreview?.stops?.length ?? request.fallbackStops.length,
+          usedFallbackStops: !sampledPreview?.stops || sampledPreview.stops.length < 2,
+          stopsHash: hashStops(
+            sampledPreview?.stops && sampledPreview.stops.length >= 2
+              ? sampledPreview.stops
+              : request.fallbackStops,
+            sampledBrushSettings.colorCycleFillMode === 'concentric' || sampledBrushSettings.colorCycleFillMode === 'circular'
+              ? 'concentric'
+              : 'linear'
+          ),
+          replayKey: request.replayKey,
         });
         const effectiveStops =
           sampledPreview?.stops && sampledPreview.stops.length >= 2
@@ -1242,6 +1269,7 @@ export const runSampledCcDitherPreviewRuntime = (args: {
           points: localVertices,
         });
 
+        const fillStartAt = Date.now();
         await fillCcGradientDither({
           vertices: scaledVertices,
           minX: 0,
@@ -1279,8 +1307,26 @@ export const runSampledCcDitherPreviewRuntime = (args: {
           scaledW,
           scaledH,
         });
+        recordSampledCcShapeBreadcrumb({
+          event: 'sampled-fill-end',
+          activeLayerId: useAppStore.getState().activeLayerId ?? null,
+          seq: mySeq,
+          previewPointCount: sampledGeometry.previewPolygon.length,
+          scaledWidth: scaledW,
+          scaledHeight: scaledH,
+          durationMs: Math.max(0, Date.now() - fillStartAt),
+          replayKey: request.replayKey,
+        });
 
         if (mySeq !== ditherGradPreviewState.ccJobSeq) {
+          recordSampledCcShapeBreadcrumb({
+            event: 'sampled-drop-stale-seq',
+            activeLayerId: useAppStore.getState().activeLayerId ?? null,
+            seq: mySeq,
+            liveSeq: ditherGradPreviewState.ccJobSeq,
+            reason: 'seq-invalidated-before-publish',
+            replayKey: request.replayKey,
+          });
           continue;
         }
 
@@ -1288,6 +1334,14 @@ export const runSampledCcDitherPreviewRuntime = (args: {
           ditherGradPreviewState.ccPendingSampledRequest as SampledCcPreviewRequest | undefined;
         if (pendingSampledRequest && pendingSampledRequest.replayKey !== request.replayKey) {
           ditherGradPreviewState.ccJobDirty = true;
+          recordSampledCcShapeBreadcrumb({
+            event: 'sampled-drop-dirty-replay',
+            activeLayerId: useAppStore.getState().activeLayerId ?? null,
+            seq: mySeq,
+            replayKey: request.replayKey,
+            pendingReplayKey: pendingSampledRequest.replayKey,
+            reason: 'pending-request-replaced-current',
+          });
           continue;
         }
 
@@ -1327,6 +1381,15 @@ export const runSampledCcDitherPreviewRuntime = (args: {
         ccLog('shape: sampled preview publish', {
           scaledW,
           scaledH,
+        });
+        recordSampledCcShapeBreadcrumb({
+          event: 'sampled-publish',
+          activeLayerId: useAppStore.getState().activeLayerId ?? null,
+          seq: mySeq,
+          scaledWidth: scaledW,
+          scaledHeight: scaledH,
+          roiWidth: w,
+          roiHeight: h,
         });
         schedulePolygonShapePreviewFrame(() => getLatestPolygonPreviewPoint());
       }

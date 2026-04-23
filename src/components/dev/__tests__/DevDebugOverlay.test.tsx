@@ -20,6 +20,9 @@ describe('DevDebugOverlay', () => {
     act(() => {
       clearDevDebugOverlayEntries();
       setDevDebugOverlayEnabled(false);
+      window.__CC_DEBUG__ = false;
+      window.__CC_DEBUG_VERBOSE__ = false;
+      window.__CC_DEBUG_TIMING__ = false;
     });
   });
 
@@ -77,5 +80,30 @@ describe('DevDebugOverlay', () => {
     fireEvent.click(screen.getByRole('button', { name: 'expand' }));
 
     expect(screen.getByTestId('dev-debug-overlay-scroll-region')).toBeInTheDocument();
+  });
+
+  it('surfaces CC debug toggles in the overlay header', async () => {
+    await import('@/debug/ccDebug');
+
+    act(() => {
+      setDevDebugOverlayEnabled(true);
+    });
+
+    render(<DevDebugOverlay />);
+
+    act(() => {
+      fireEvent.click(screen.getByRole('button', { name: 'cc' }));
+    });
+    expect(window.__CC_DEBUG__).toBe(true);
+
+    act(() => {
+      fireEvent.click(screen.getByRole('button', { name: 'verbose' }));
+    });
+    expect(window.__CC_DEBUG_VERBOSE__).toBe(true);
+
+    act(() => {
+      fireEvent.click(screen.getByRole('button', { name: 'timing' }));
+    });
+    expect(window.__CC_DEBUG_TIMING__).toBe(true);
   });
 });

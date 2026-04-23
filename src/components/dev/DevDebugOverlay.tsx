@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useEffect, useMemo, useState } from 'react';
+import { CC_DEBUG, CC_DEBUG_STATE_EVENT } from '@/debug/ccDebug';
 import {
   clearDevDebugOverlayEntries,
   DEV_DEBUG_OVERLAY_EVENT,
@@ -39,17 +40,37 @@ const toClipboardText = (entries: DevDebugOverlayEntry[]): string =>
     return entry.data ? `${header}\n${entry.data}` : header;
   }).join('\n\n');
 
+type CCDebugFlags = {
+  on: boolean;
+  verbose: boolean;
+  timing: boolean;
+};
+
+const readCcDebugFlags = (): CCDebugFlags => ({
+  on: CC_DEBUG.on,
+  verbose: CC_DEBUG.verbose,
+  timing: CC_DEBUG.timing,
+});
+
+const countEntriesBySource = (entries: DevDebugOverlayEntry[]) =>
+  entries.reduce<Record<string, number>>((acc, entry) => {
+    acc[entry.source] = (acc[entry.source] ?? 0) + 1;
+    return acc;
+  }, {});
+
 export default function DevDebugOverlay() {
   const [enabled, setEnabled] = useState(false);
   const [minimized, setMinimized] = useState(false);
   const [entries, setEntries] = useState<DevDebugOverlayEntry[]>([]);
   const [copied, setCopied] = useState(false);
+  const [ccDebugFlags, setCcDebugFlags] = useState<CCDebugFlags>(readCcDebugFlags);
 
   useEffect(() => {
     const refresh = () => {
       const on = isDevDebugOverlayEnabled();
       setEnabled(on);
       setMinimized(isDevDebugOverlayMinimized());
+      setCcDebugFlags(readCcDebugFlags());
       if (!on) {
         setEntries([]);
         return;
@@ -60,15 +81,18 @@ export default function DevDebugOverlay() {
     refresh();
     const handleOverlayUpdate = () => refresh();
     window.addEventListener(DEV_DEBUG_OVERLAY_EVENT, handleOverlayUpdate);
+    window.addEventListener(CC_DEBUG_STATE_EVENT, handleOverlayUpdate);
     window.addEventListener('storage', handleOverlayUpdate);
 
     return () => {
       window.removeEventListener(DEV_DEBUG_OVERLAY_EVENT, handleOverlayUpdate);
+      window.removeEventListener(CC_DEBUG_STATE_EVENT, handleOverlayUpdate);
       window.removeEventListener('storage', handleOverlayUpdate);
     };
   }, []);
 
   const visibleEntries = useMemo(() => entries.slice(-24), [entries]);
+  const sourceCounts = useMemo(() => countEntriesBySource(entries), [entries]);
 
   if (!enabled) {
     return null;
@@ -83,6 +107,30 @@ export default function DevDebugOverlay() {
     window.setTimeout(() => setCopied(false), 1200);
   };
 
+  const toggleCcDebugFlag = (key: keyof CCDebugFlags) => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+
+    const nextValue = !ccDebugFlags[key];
+    if (key === 'on') {
+      window.__CC_DEBUG__ = nextValue;
+      return;
+    }
+    if (key === 'verbose') {
+      (window as Window & { __CC_DEBUG_VERBOSE__?: boolean }).__CC_DEBUG_VERBOSE__ = nextValue;
+      return;
+    }
+    (window as Window & { __CC_DEBUG_TIMING__?: boolean }).__CC_DEBUG_TIMING__ = nextValue;
+  };
+
+  const controlButtonClassName = (active: boolean) =>
+    `rounded border px-2 py-1 text-[10px] uppercase tracking-[0.12em] ${
+      active
+        ? 'border-[#4f7db0] bg-[#1e3a57] text-[#d7ebff]'
+        : 'border-[#4a4a4a] text-[#d9d9d9] hover:bg-white/10'
+    }`;
+
   return (
     <div
       className="fixed right-[532px] top-2 bottom-2 z-[80] flex w-[380px] max-w-[calc(100vw-548px)] flex-col rounded border border-[#3b3b3b] bg-black/85 text-[11px] shadow-2xl"
@@ -90,8 +138,42 @@ export default function DevDebugOverlay() {
       aria-label="dev-debug-overlay"
     >
       <div className="flex items-center justify-between border-b border-[#2a2a2a] px-3 py-2 text-[10px] uppercase tracking-[0.18em] text-[#9a9a9a]">
-        <span>Dev Debug Overlay</span>
+        <div className="flex min-w-0 flex-col gap-1">
+          <span>Dev Debug Overlay</span>
+          <div className="flex flex-wrap items-center gap-1 text-[9px] tracking-[0.12em] text-[#6f6f6f]">
+            {Object.entries(sourceCounts).length === 0 ? (
+              <span>no sources yet</span>
+            ) : (
+              Object.entries(sourceCounts).map(([source, count]) => (
+                <span key={source} className={`rounded border px-1.5 py-[1px] ${sourceClassName(source)}`}>
+                  {source}:{count}
+                </span>
+              ))
+            )}
+          </div>
+        </div>
         <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => toggleCcDebugFlag('on')}
+            className={controlButtonClassName(ccDebugFlags.on)}
+          >
+            cc
+          </button>
+          <button
+            type="button"
+            onClick={() => toggleCcDebugFlag('verbose')}
+            className={controlButtonClassName(ccDebugFlags.verbose)}
+          >
+            verbose
+          </button>
+          <button
+            type="button"
+            onClick={() => toggleCcDebugFlag('timing')}
+            className={controlButtonClassName(ccDebugFlags.timing)}
+          >
+            timing
+          </button>
           <button
             type="button"
             onClick={() => void copyEntries()}

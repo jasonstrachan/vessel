@@ -1,13 +1,24 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { createAutosaveSlice } from '@/stores/slices/autosaveSlice';
 import { createSliceTestStore } from '@/stores/__tests__/sliceTestUtils';
 
 jest.mock('@/history/historyService', () => ({
   __esModule: true,
+  setActiveHistoryDocument: jest.fn(),
   default: {
     setMaxEntries: jest.fn(),
   },
 }));
+
+jest.mock('@/utils/backgroundStorage', () => ({
+  __esModule: true,
+  backgroundStorageService: {
+    updateSession: jest.fn(() => Promise.resolve()),
+  },
+}));
+
+const { createAutosaveSlice } = jest.requireActual('@/stores/slices/autosaveSlice') as {
+  createAutosaveSlice: (...args: any[]) => any;
+};
 
 const mockedHistory = jest.requireMock('@/history/historyService').default as {
   setMaxEntries: jest.Mock;

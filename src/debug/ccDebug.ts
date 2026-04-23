@@ -4,8 +4,26 @@ import { setDevDebugOverlayEnabled } from '@/utils/dev/debugOverlayStore';
 
 type ScopedConsole = typeof console;
 type CCDebugState = { on: boolean; verbose: boolean; timing: boolean };
+export const CC_DEBUG_STATE_EVENT = 'cc-debug-state-change';
+
+declare global {
+  interface Window {
+    __CC_DEBUG__?: boolean;
+    __CC_DEBUG_VERBOSE__?: boolean;
+    __CC_DEBUG_TIMING__?: boolean;
+    CC_DEBUG?: CCDebugState;
+    __CC_RUN_SLOT_GC__?: (reason?: string) => void;
+  }
+}
 
 const resolveConsole = (): ScopedConsole => console;
+
+const emitCcDebugStateChange = () => {
+  if (typeof window === 'undefined') {
+    return;
+  }
+  window.dispatchEvent(new CustomEvent(CC_DEBUG_STATE_EVENT));
+};
 
 const readLocalStorageFlag = (key: string): boolean => {
   if (typeof window === 'undefined') {
@@ -31,6 +49,7 @@ const syncDebugOverlayPreference = (enabled: boolean) => {
   }
 
   setDevDebugOverlayEnabled(enabled);
+  emitCcDebugStateChange();
 };
 
 export const CC_DEBUG: CCDebugState = (() => {
@@ -73,6 +92,8 @@ const persistVerbosePreference = (enabled: boolean) => {
       window.localStorage.removeItem('ccDebugVerbose');
     }
   } catch {}
+
+  emitCcDebugStateChange();
 };
 
 const persistTimingPreference = (enabled: boolean) => {
@@ -87,6 +108,8 @@ const persistTimingPreference = (enabled: boolean) => {
       window.localStorage.removeItem('ccDebugTiming');
     }
   } catch {}
+
+  emitCcDebugStateChange();
 };
 
 if (typeof window !== 'undefined') {
@@ -157,6 +180,14 @@ export function ccLog(message: string, data?: unknown) {
   appendCCDebugOverlayEntry('log', message, data);
 }
 
+export function ccWarn(message: string, data?: unknown) {
+  if (!CC_DEBUG.on) {
+    return;
+  }
+  resolveConsole().warn('[CC]', message, data ?? '');
+  appendCCDebugOverlayEntry('warn', message, data);
+}
+
 export function ccGroup(message: string, data?: unknown) {
   if (!CC_DEBUG.on) {
     return;
@@ -182,3 +213,9 @@ export function ccAssert(condition: boolean, message: string, info?: unknown) {
   resolveConsole().warn(`[CC][ASSERT FAIL] ${message}`, info ?? '');
   appendCCDebugOverlayEntry('assert', message, info);
 }
+
+export const ccDebugOn = (): boolean => CC_DEBUG.on;
+
+export const ccDebugVerboseOn = (): boolean => CC_DEBUG.on && CC_DEBUG.verbose;
+
+export const ccDebugTimingOn = (): boolean => CC_DEBUG.on && CC_DEBUG.timing;

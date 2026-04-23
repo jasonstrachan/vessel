@@ -5,6 +5,7 @@ import { BrushShape } from '@/types';
 
 const fillCcGradientDither = jest.fn<Promise<void>, [unknown]>();
 const buildSampledStops = jest.fn();
+const recordSampledCcShapeBreadcrumb = jest.fn();
 
 jest.mock('@/utils/colorCycle/ccGradientDither', () => ({
   fillCcGradientDither: (...args: unknown[]) => fillCcGradientDither(...(args as [unknown])),
@@ -12,6 +13,10 @@ jest.mock('@/utils/colorCycle/ccGradientDither', () => ({
 
 jest.mock('@/hooks/canvas/handlers/colorCycle/ccSampling', () => ({
   buildSampledStops: (...args: unknown[]) => buildSampledStops(...args),
+}));
+
+jest.mock('@/hooks/canvas/utils/sampledCcShapeBreadcrumbs', () => ({
+  recordSampledCcShapeBreadcrumb: (...args: unknown[]) => recordSampledCcShapeBreadcrumb(...args),
 }));
 
 const makeMockContext = () => {
@@ -99,6 +104,7 @@ describe('ShapeToolHandler CC dither preview replay', () => {
   beforeEach(() => {
     fillCcGradientDither.mockReset();
     buildSampledStops.mockReset();
+    recordSampledCcShapeBreadcrumb.mockReset();
     buildSampledStops.mockReturnValue({
       stops: [
         { position: 0, color: '#000000' },
@@ -466,6 +472,33 @@ describe('ShapeToolHandler CC dither preview replay', () => {
 
     expect(buildSampledStops).toHaveBeenCalledTimes(1);
     expect(fillCcGradientDither).toHaveBeenCalledTimes(1);
+    expect(recordSampledCcShapeBreadcrumb).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: 'sampled-worker-begin',
+        seq: 1,
+        previewPointCount: 3,
+      })
+    );
+    expect(recordSampledCcShapeBreadcrumb).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: 'sampled-stops-ready',
+        seq: 1,
+        stopCount: 2,
+        usedFallbackStops: false,
+      })
+    );
+    expect(recordSampledCcShapeBreadcrumb).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: 'sampled-fill-end',
+        seq: 1,
+      })
+    );
+    expect(recordSampledCcShapeBreadcrumb).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: 'sampled-publish',
+        seq: 1,
+      })
+    );
   });
 
   it('does not publish a sampled preview result after the preview seq is invalidated', async () => {
@@ -538,6 +571,13 @@ describe('ShapeToolHandler CC dither preview replay', () => {
 
     expect(cacheRef.current).toBeNull();
     expect(previewState.ccLastReplayKey).toBeUndefined();
+    expect(recordSampledCcShapeBreadcrumb).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: 'sampled-drop-stale-seq',
+        seq: 1,
+        liveSeq: 2,
+      })
+    );
   });
 
   it('renders CC dither previews at reduced cell resolution before scaling back to the ROI', async () => {

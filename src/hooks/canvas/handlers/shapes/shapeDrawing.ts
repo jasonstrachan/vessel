@@ -24,6 +24,7 @@ import {
 import { resolveActiveColorCycleGradient } from '@/hooks/canvas/utils/colorCycleHelpers';
 import { hashStops, type GradientDefSource, type StoredStop } from '@/utils/colorCycleGradientDefs';
 import { debugLog, isDebugEnabled } from '@/utils/debug';
+import { recordSampledCcShapeBreadcrumb } from '@/hooks/canvas/utils/sampledCcShapeBreadcrumbs';
 import {
   calculatePressureAwareGridSpacing,
   snapToGridPure,
@@ -679,6 +680,16 @@ export const startShapeDrawing = (
       if (renderPreview && shouldUseSimpleShapePreview(deps.storeRef.current)) {
         deps.triggerSimpleShapePreview();
       }
+      if (isSampledCcShapeDrag(shapeStoreSnapshot)) {
+        recordSampledCcShapeBreadcrumb({
+          event: 'pointer-down',
+          activeLayerId: shapeStoreSnapshot.activeLayerId ?? null,
+          pointCount: refs.shapePointsRef.current.length,
+          source: shapeStoreSnapshot.tools.ccGradientSource ?? null,
+          x: drawPos.x,
+          y: drawPos.y,
+        });
+      }
       try {
         const st = deps.storeRef.current;
         const isCCShape = st.tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE_SHAPE;
@@ -956,6 +967,17 @@ export const finalizeShapeDrawing = async (
     polygonPointCount,
     source: liveBrushSettings.ccGradientSource ?? null,
   });
+  if (liveBrushSettings.brushShape === BrushShape.COLOR_CYCLE_SHAPE && liveBrushSettings.ccGradientSource === 'sampled') {
+    recordSampledCcShapeBreadcrumb({
+      event: 'finalize-begin',
+      activeLayerId: deps.storeRef.current.activeLayerId ?? null,
+      pointCount: args.refs.shapePointsRef.current.length,
+      polygonPointCount,
+      isSelectingDirection: args.refs.isSelectingDirectionRef.current,
+      isDrawingShape: args.refs.isDrawingShapeRef.current,
+      source: liveBrushSettings.ccGradientSource ?? null,
+    });
+  }
 
   void args.refs.finalizeQueueRef.current.enqueue(async () => {
     let finalizeTriggered = false;
@@ -1391,6 +1413,14 @@ export const finalizeShapeDrawing = async (
             kind: 'color-cycle',
             handled: true,
           });
+          if (liveBrushSettings.brushShape === BrushShape.COLOR_CYCLE_SHAPE && liveBrushSettings.ccGradientSource === 'sampled') {
+            recordSampledCcShapeBreadcrumb({
+              event: 'finalize-end',
+              activeLayerId: deps.storeRef.current.activeLayerId ?? null,
+              kind: 'color-cycle',
+              handled: true,
+            });
+          }
           finalizeTriggered = true;
           return true;
         }
@@ -1434,6 +1464,14 @@ export const finalizeShapeDrawing = async (
             kind: 'raster',
             handled: true,
           });
+          if (liveBrushSettings.brushShape === BrushShape.COLOR_CYCLE_SHAPE && liveBrushSettings.ccGradientSource === 'sampled') {
+            recordSampledCcShapeBreadcrumb({
+              event: 'finalize-end',
+              activeLayerId: deps.storeRef.current.activeLayerId ?? null,
+              kind: 'raster',
+              handled: true,
+            });
+          }
           return true;
         }
 
@@ -1446,6 +1484,14 @@ export const finalizeShapeDrawing = async (
           kind: 'fallback',
           handled: true,
         });
+        if (liveBrushSettings.brushShape === BrushShape.COLOR_CYCLE_SHAPE && liveBrushSettings.ccGradientSource === 'sampled') {
+          recordSampledCcShapeBreadcrumb({
+            event: 'finalize-end',
+            activeLayerId: deps.storeRef.current.activeLayerId ?? null,
+            kind: 'fallback',
+            handled: true,
+          });
+        }
         return true;
       }
 
@@ -1471,6 +1517,14 @@ export const finalizeShapeDrawing = async (
           kind: 'fallback',
           handled: true,
         });
+        if (liveBrushSettings.brushShape === BrushShape.COLOR_CYCLE_SHAPE && liveBrushSettings.ccGradientSource === 'sampled') {
+          recordSampledCcShapeBreadcrumb({
+            event: 'finalize-end',
+            activeLayerId: deps.storeRef.current.activeLayerId ?? null,
+            kind: 'fallback',
+            handled: true,
+          });
+        }
       }
       return true;
     };
