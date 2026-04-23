@@ -1,4 +1,3 @@
-
 ## Sampled CC Shape Drag Hang
 
 Date: 2026-04-22
@@ -108,3 +107,67 @@ Files touched in the stabilization pass
 - `src/hooks/canvas/handlers/shapes/buildShapeDrawingHandlerOptions.ts`
 - `src/hooks/canvas/useDrawingShapeRuntime.ts`
 - `src/lib/canvas/FinalizeQueue.ts`
+
+---
+
+Update: 2026-04-23 07:44 AEST
+
+What turned out to be wrong in the original writeup:
+
+- The shipped fix did not disable sampled preview entirely.
+- The shipped fix did not keep sampled finalize capped.
+- The final code keeps sampled preview alive and transformed through the normal preview frame path.
+- The committed sampled shape still uses the full user-drawn geometry.
+
+What was confirmed in-browser:
+
+- The sampled preview worker was not the main remaining crash source once preview requests were bounded.
+- Real logs showed a split between:
+  - very large raw drag geometry
+  - much smaller sampled preview dispatch geometry
+- Example investigation logs showed:
+  - `shape: preview frame` with raw counts in the thousands
+  - `shape: sampled preview dispatch` with bounded counts around `100-160`
+
+What landed in code:
+
+1. Sampled preview publish now re-enters the normal preview-frame redraw path.
+   - This preserves the active zoom/pan transform.
+   - It avoids painting the cached sampled preview in raw world coordinates.
+
+2. Sampled preview now reuses cached preview frames when the replay key already matches.
+   - This avoids kicking another sampled worker pass just to repaint the same preview.
+
+3. Preview geometry is simplified for live preview only.
+   - `ShapeToolHandler.ts` uses a preview-only simplification path.
+   - The simplifier is shape-preserving (`simplifyToVertexLimit(...)`), not blunt even-step decimation.
+   - The preview guide segment was also corrected to use the same simplified endpoint as the preview polygon.
+
+4. Finalize keeps the full shape geometry.
+   - A temporary finalize-time sampled simplification was tried and then removed.
+   - It was removed because it changed the committed mask for detailed shapes.
+   - Final sampled session setup and sampled fill now use the full user-drawn polygon again.
+
+What this means now:
+
+- Preview path:
+  - bounded
+  - simplified
+  - cached
+  - transformed correctly through the normal overlay redraw path
+
+- Finalize path:
+  - uses the real shape geometry
+  - does not inherit preview simplification
+
+Important follow-up fact:
+
+- Large raw point counts still exist on finalize.
+- That means excessive point generation during drag remains a real upstream problem.
+- The current shipped code fixes preview stability and transform correctness without changing committed shape fidelity.
+- It does not yet solve the broader question of reducing raw drag point generation itself.
+
+Relevant commits from this investigation:
+
+- `844fb1f94` `fix: harden cc shape preview and finalize tracing`
+- `ebe6c2470` `fix: stabilize sampled cc shape preview`
