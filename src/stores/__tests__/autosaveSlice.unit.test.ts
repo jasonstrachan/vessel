@@ -23,10 +23,17 @@ const { createAutosaveSlice } = jest.requireActual('@/stores/slices/autosaveSlic
 const mockedHistory = jest.requireMock('@/history/historyService').default as {
   setMaxEntries: jest.Mock;
 };
+const mockedBackgroundStorage = jest.requireMock('@/utils/backgroundStorage').backgroundStorageService as {
+  updateSession: jest.Mock;
+};
 
 const createTestStore = (overrides: Record<string, any> = {}) => {
   const { slice, getState } = createSliceTestStore(
-    (set, get) => (createAutosaveSlice as any)(set, get),
+    (set, get) => (createAutosaveSlice as any)({
+      historyManager: mockedHistory,
+      backgroundStorageService: mockedBackgroundStorage,
+      now: () => new Date(),
+    })(set, get),
     {
       history: { maxHistorySize: 50 },
       ...overrides,
@@ -43,6 +50,7 @@ describe('autosave slice', () => {
   beforeEach(() => {
     jest.useFakeTimers().setSystemTime(new Date('2025-01-01T00:00:00Z'));
     mockedHistory.setMaxEntries.mockClear();
+    mockedBackgroundStorage.updateSession.mockClear();
   });
 
   afterEach(() => {
