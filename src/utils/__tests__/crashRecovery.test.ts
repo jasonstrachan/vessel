@@ -126,4 +126,28 @@ describe('CrashRecoveryService', () => {
     expect(result?.project).toEqual(baseProject);
     expect(result?.layers).toEqual(baseLayers);
   });
+
+  it('uses archive-backed autosave payloads returned by background storage during recovery checks', async () => {
+    const service = new CrashRecoveryService();
+    const archiveBackedProject = {
+      ...baseProject,
+      updatedAt: new Date('2025-01-03T04:05:06.000Z'),
+      layers: baseLayers,
+    };
+    (backgroundStorageService.hasUnsavedWork as jest.Mock).mockResolvedValue(true);
+    (backgroundStorageService.getLastAutosavedProjectId as jest.Mock).mockResolvedValue('project-1');
+    (backgroundStorageService.getAutosavedProject as jest.Mock).mockResolvedValue({
+      project: archiveBackedProject,
+      layers: archiveBackedProject.layers,
+    });
+
+    const result = await service.checkForUnsavedWork();
+
+    expect(backgroundStorageService.getAutosavedProject).toHaveBeenCalledWith('project-1');
+    expect(result).toEqual({
+      project: archiveBackedProject,
+      layers: archiveBackedProject.layers,
+      lastSaveTime: archiveBackedProject.updatedAt.getTime(),
+    });
+  });
 });
