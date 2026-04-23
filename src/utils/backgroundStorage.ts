@@ -1,9 +1,10 @@
 // Background storage service using IndexedDB for autosave functionality
 // Saves projects silently without user interaction
 
-import type { Project, Layer } from '../types';
+import type { Project, Layer, LayerGroup, PaletteState } from '../types';
 import { captureCanvasImageData } from '@/utils/canvas/canvasImage';
 import { captureColorCycleCanvasSnapshot } from '@/utils/colorCycleCanvasSnapshot';
+import { deserializeProject, serializeProject } from '@/utils/projectIO';
 
 type BackgroundStorageGlobal = typeof globalThis & {
   __vesselBackgroundStorage?: BackgroundStorageService;
@@ -72,13 +73,30 @@ const createFramebuffer = (width: number, height: number): Layer['framebuffer'] 
 
 type SerializableLayer = Omit<Layer, 'framebuffer'>;
 
-interface AutosaveRecord {
+type LegacyAutosaveProject = Project & {
+  layerGroups?: LayerGroup[];
+  palette?: PaletteState;
+  referenceLayerId?: string | null;
+};
+
+interface AutosaveArchiveRecord {
   projectId: string;
-  projectData: Project;
+  format: 'archive';
+  serializedProject: Uint8Array;
+  timestamp: number;
+  isDirty: boolean;
+}
+
+interface LegacyAutosaveRecord {
+  projectId: string;
+  format?: 'legacy';
+  projectData: LegacyAutosaveProject;
   layerData: SerializableLayer[];
   timestamp: number;
   isDirty: boolean;
 }
+
+type AutosaveRecord = AutosaveArchiveRecord | LegacyAutosaveRecord;
 
 interface SessionRecord {
   lastProjectId: string;
@@ -150,24 +168,13 @@ class BackgroundStorageService {
       throw new Error('IndexedDB not available');
     }
 
-    // Create serializable layers by excluding OffscreenCanvas framebuffer
-    const serializableLayers = layers.map(layer => {
-      const { framebuffer: _framebuffer, colorCycleData, ...serializableLayer } = layer;
-      void _framebuffer;
-      return {
-        ...serializableLayer,
-        colorCycleData: sanitizeColorCycleData(colorCycleData)
-      };
-    });
+    const serializableLayers = this.prepareLayersForArchivePersistence(layers);
+    const serializedProject = await serializeProject(project, serializableLayers);
 
-    // Create serializable project data by excluding layers (they're stored separately)
-    const { layers: _projectLayers, ...serializableProject } = project;
-    void _projectLayers;
-
-    const autosaveRecord: AutosaveRecord = {
+    const autosaveRecord: AutosaveArchiveRecord = {
       projectId: project.id,
-      projectData: { ...serializableProject, layers: [] },
-      layerData: serializableLayers,
+      format: 'archive',
+      serializedProject,
       timestamp: Date.now(),
       isDirty: false
     };
@@ -207,46 +214,7 @@ class BackgroundStorageService {
       request.onsuccess = () => {
         const result = request.result as AutosaveRecord | undefined;
         if (result) {
-          // Add missing framebuffer property back to layers
-          const restoredLayers: Layer[] = result.layerData.map(layer => {
-            const framebufferWidth = layer.imageData?.width ?? result.projectData.width;
-            const framebufferHeight = layer.imageData?.height ?? result.projectData.height;
-            let restoredColorCycleData = layer.colorCycleData;
-
-            if (
-              layer.layerType === 'color-cycle' &&
-              layer.colorCycleData?.eraseMaskImageData &&
-              typeof document !== 'undefined'
-            ) {
-              try {
-                const maskCanvas = document.createElement('canvas');
-                maskCanvas.width = layer.colorCycleData.eraseMaskImageData.width;
-                maskCanvas.height = layer.colorCycleData.eraseMaskImageData.height;
-                const maskCtx = maskCanvas.getContext('2d', {
-                  willReadFrequently: true
-                } as CanvasRenderingContext2DSettings);
-                maskCtx?.putImageData(layer.colorCycleData.eraseMaskImageData, 0, 0);
-
-                restoredColorCycleData = {
-                  ...layer.colorCycleData,
-                  eraseMask: maskCanvas
-                };
-              } catch (error) {
-                console.warn('[BackgroundStorage] Failed to restore erase mask.', error);
-              }
-            }
-
-            return {
-              ...layer,
-              colorCycleData: restoredColorCycleData,
-              framebuffer: createFramebuffer(framebufferWidth, framebufferHeight)
-            };
-          });
-
-          resolve({
-            project: result.projectData,
-            layers: restoredLayers
-          });
+          void this.resolveAutosavedProject(result).then(resolve).catch(reject);
         } else {
           resolve(null);
         }
@@ -393,6 +361,77 @@ class BackgroundStorageService {
         }
       };
     });
+  }
+
+  private prepareLayersForArchivePersistence(layers: Layer[]): Layer[] {
+    return layers.map((layer) => {
+      const { framebuffer: _framebuffer, colorCycleData, ...serializableLayer } = layer;
+      void _framebuffer;
+      return {
+        ...serializableLayer,
+        framebuffer: undefined as unknown as Layer['framebuffer'],
+        colorCycleData: sanitizeColorCycleData(colorCycleData),
+      };
+    });
+  }
+
+  private async resolveAutosavedProject(
+    result: AutosaveRecord
+  ): Promise<{ project: Project; layers: Layer[] } | null> {
+    if (result.format === 'archive') {
+      const restoredProject = await deserializeProject(result.serializedProject);
+      return {
+        project: restoredProject,
+        layers: restoredProject.layers,
+      };
+    }
+
+    return this.restoreLegacyAutosave(result.projectData, result.layerData);
+  }
+
+  private restoreLegacyAutosave(
+    projectData: LegacyAutosaveProject,
+    layerData: SerializableLayer[]
+  ): { project: Project; layers: Layer[] } {
+    const restoredLayers: Layer[] = layerData.map((layer) => {
+      const framebufferWidth = layer.imageData?.width ?? projectData.width;
+      const framebufferHeight = layer.imageData?.height ?? projectData.height;
+      let restoredColorCycleData = layer.colorCycleData;
+
+      if (
+        layer.layerType === 'color-cycle' &&
+        layer.colorCycleData?.eraseMaskImageData &&
+        typeof document !== 'undefined'
+      ) {
+        try {
+          const maskCanvas = document.createElement('canvas');
+          maskCanvas.width = layer.colorCycleData.eraseMaskImageData.width;
+          maskCanvas.height = layer.colorCycleData.eraseMaskImageData.height;
+          const maskCtx = maskCanvas.getContext('2d', {
+            willReadFrequently: true
+          } as CanvasRenderingContext2DSettings);
+          maskCtx?.putImageData(layer.colorCycleData.eraseMaskImageData, 0, 0);
+
+          restoredColorCycleData = {
+            ...layer.colorCycleData,
+            eraseMask: maskCanvas
+          };
+        } catch (error) {
+          console.warn('[BackgroundStorage] Failed to restore erase mask.', error);
+        }
+      }
+
+      return {
+        ...layer,
+        colorCycleData: restoredColorCycleData,
+        framebuffer: createFramebuffer(framebufferWidth, framebufferHeight)
+      };
+    });
+
+    return {
+      project: projectData,
+      layers: restoredLayers
+    };
   }
 }
 
