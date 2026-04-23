@@ -1066,7 +1066,11 @@ export const finalizeShapeDrawing = async (
 
           const activeLayerId = deps.storeRef.current.activeLayerId;
           if (isColorCycleLayer && activeLayerCanvas && activeLayerId) {
-            const ccBrush = deps.getColorCycleBrushManager().getBrush(activeLayerId) ?? null;
+            const ccBrush = (
+              typeof currentState.getLayerColorCycleBrush === 'function'
+                ? currentState.getLayerColorCycleBrush(activeLayerId)
+                : null
+            ) ?? deps.getColorCycleBrushManager().getBrush(activeLayerId) ?? null;
             if (activeLayer) {
               deps.ensureActiveColorCycleGradientSlot(currentState, activeLayer, ccBrush);
             }
@@ -1264,7 +1268,11 @@ export const finalizeShapeDrawing = async (
 
               const activeLayerId = deps.storeRef.current.activeLayerId;
               if (activeLayerId && activeLayerCanvas) {
-                const ccBrush = deps.getColorCycleBrushManager().getBrush(activeLayerId) ?? null;
+                const ccBrush = (
+                  typeof deps.storeRef.current.getLayerColorCycleBrush === 'function'
+                    ? deps.storeRef.current.getLayerColorCycleBrush(activeLayerId)
+                    : null
+                ) ?? deps.getColorCycleBrushManager().getBrush(activeLayerId) ?? null;
                 if (activeLayer) {
                   deps.ensureActiveColorCycleGradientSlot(deps.storeRef.current, activeLayer, ccBrush);
                 }

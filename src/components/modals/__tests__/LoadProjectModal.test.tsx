@@ -5,9 +5,11 @@ import LoadProjectModal from '../LoadProjectModal';
 import {
   deserializeProject,
   generateProjectThumbnail,
+  getProjectHealthWarning,
   readProjectHealthReport,
   readProjectPreviewManifest,
 } from '@/utils/projectIO';
+import { repairAndExportProject } from '@/utils/projectRepairExport';
 
 jest.mock('@/hooks/useKeyboardScope', () => ({
   useKeyboardScope: jest.fn(),
@@ -16,13 +18,19 @@ jest.mock('@/hooks/useKeyboardScope', () => ({
 jest.mock('@/utils/projectIO', () => ({
   deserializeProject: jest.fn(),
   generateProjectThumbnail: jest.fn(),
+  getProjectHealthWarning: jest.fn((report) => report?.primaryWarning ?? null),
   readProjectHealthReport: jest.fn(),
   readProjectPreviewManifest: jest.fn(),
+}));
+
+jest.mock('@/utils/projectRepairExport', () => ({
+  repairAndExportProject: jest.fn(),
 }));
 
 const mockStore = {
   importProject: jest.fn(),
   toggleModal: jest.fn(),
+  addNotification: jest.fn(),
 };
 
 jest.mock('@/stores/useAppStore', () => ({
@@ -46,6 +54,8 @@ const mockReadProjectPreviewManifest = readProjectPreviewManifest as jest.Mocked
 const mockReadProjectHealthReport = readProjectHealthReport as jest.MockedFunction<typeof readProjectHealthReport>;
 const mockDeserializeProject = deserializeProject as jest.MockedFunction<typeof deserializeProject>;
 const mockGenerateProjectThumbnail = generateProjectThumbnail as jest.MockedFunction<typeof generateProjectThumbnail>;
+const mockGetProjectHealthWarning = getProjectHealthWarning as jest.MockedFunction<typeof getProjectHealthWarning>;
+const mockRepairAndExportProject = repairAndExportProject as jest.MockedFunction<typeof repairAndExportProject>;
 let consoleErrorSpy: jest.SpyInstance;
 
 const createProjectFile = (name: string, opts?: { lastModified?: number; bytes?: Uint8Array }): File => {
@@ -150,8 +160,69 @@ describe('LoadProjectModal', () => {
       sectionBreakdown: [],
       largestLayers: [],
       recommendations: ['Looks fine'],
+      warnings: [],
+      primaryWarning: null,
     });
     mockGenerateProjectThumbnail.mockReturnValue('data:image/png;base64,generated');
+    mockGetProjectHealthWarning.mockImplementation((report) => report?.primaryWarning ?? null);
+    mockRepairAndExportProject.mockResolvedValue({
+      project: ({
+        id: 'p1',
+        name: 'demo',
+        width: 16,
+        height: 16,
+        backgroundColor: '#000000',
+        layers: [],
+        customBrushes: [],
+      } as any),
+      migration: {
+        repairs: [{ code: 'legacy-fix', message: 'Fixed legacy issue', semantic: true, layerType: 'color-cycle' }],
+        hasSemanticRepairs: true,
+        shouldMarkDirty: true,
+      },
+      beforeHealth: {
+        projectManifestBytes: 10,
+        previewManifestBytes: 10,
+        combinedManifestBytes: 20,
+        archiveBytes: 20,
+        compressionRatio: 1,
+        binaryPayloadBytes: 0,
+        colorCycleDuplicationRiskLayers: ['layer-cc-risk'],
+        unresolvedColorCycleDefLayers: [],
+        sectionBreakdown: [],
+        largestLayers: [],
+        recommendations: [],
+        warnings: ['warn'],
+        primaryWarning: 'warn',
+      },
+      afterHealth: {
+        projectManifestBytes: 10,
+        previewManifestBytes: 10,
+        combinedManifestBytes: 20,
+        archiveBytes: 20,
+        compressionRatio: 1,
+        binaryPayloadBytes: 0,
+        colorCycleDuplicationRiskLayers: [],
+        unresolvedColorCycleDefLayers: [],
+        sectionBreakdown: [],
+        largestLayers: [],
+        recommendations: [],
+        warnings: [],
+        primaryWarning: null,
+      },
+      summary: {
+        repairCount: 1,
+        semanticRepairCount: 1,
+        beforeWarningCount: 1,
+        afterWarningCount: 0,
+        headline: 'Repair 1 legacy issue and save a canonical copy?',
+        detailLines: ['Fixed legacy issue'],
+        confirmationMessage: 'Repair 1 legacy issue and save a canonical copy?',
+      },
+      fileName: 'risky-repaired.vs',
+      fileHandle: null,
+    } as any);
+    (window as Window & { confirm?: (message?: string) => boolean }).confirm = jest.fn(() => true);
   });
 
   afterEach(() => {
@@ -393,9 +464,18 @@ describe('LoadProjectModal', () => {
       binaryPayloadBytes: 0,
       colorCycleDuplicationRiskLayers: ['layer-cc-risk'],
       unresolvedColorCycleDefLayers: [],
-      sectionBreakdown: [],
-      largestLayers: [],
+      sectionBreakdown: [{ name: 'layers', bytes: 12 }],
+      largestLayers: [{
+        layerId: 'layer-cc-risk',
+        layerName: 'Risk Layer',
+        layerType: 'color-cycle',
+        bytes: 12,
+        dominantSection: 'colorCycleData',
+        dominantSectionBytes: 12,
+      }],
       recommendations: ['Risky project'],
+      warnings: ['This project contains legacy duplicated color-cycle state. Re-save or repair it before archival sharing.'],
+      primaryWarning: 'This project contains legacy duplicated color-cycle state. Re-save or repair it before archival sharing.',
     });
 
     render(<LoadProjectModal isOpen onClose={jest.fn()} />);
@@ -409,10 +489,72 @@ describe('LoadProjectModal', () => {
     fireEvent.doubleClick(screen.getByText('risky.vs'));
 
     await waitFor(() => {
-      expect(screen.getByText('This project contains legacy duplicated color-cycle state. Review the health details before loading.')).toBeInTheDocument();
+      expect(
+        screen.getAllByText('This project contains legacy duplicated color-cycle state. Re-save or repair it before archival sharing.').length,
+      ).toBeGreaterThan(0);
     });
+    expect(screen.getByText('Warnings')).toBeInTheDocument();
+    expect(screen.getByText('Recommendations')).toBeInTheDocument();
+    expect(screen.getByText('Risky project')).toBeInTheDocument();
+    expect(screen.getByText('Archive 20 B')).toBeInTheDocument();
+    expect(screen.getByText('Manifest 20 B')).toBeInTheDocument();
+    expect(screen.getByText('Top layers')).toBeInTheDocument();
+    expect(screen.getByText('Largest Risk Layer (12 B)')).toBeInTheDocument();
     expect(mockStore.importProject).not.toHaveBeenCalled();
     expect(screen.getByText('Project Health')).toBeInTheDocument();
+  });
+
+  it('repairs and saves a canonical copy for risky files', async () => {
+    const riskyHandle = createFileHandle('risky.vs');
+    (window as any).showDirectoryPicker = jest.fn(async () => createDirectoryHandle([
+      ['risky.vs', riskyHandle],
+    ]));
+    mockReadProjectHealthReport.mockResolvedValue({
+      projectManifestBytes: 10,
+      previewManifestBytes: 10,
+      combinedManifestBytes: 20,
+      archiveBytes: 20,
+      compressionRatio: 1,
+      binaryPayloadBytes: 0,
+      colorCycleDuplicationRiskLayers: ['layer-cc-risk'],
+      unresolvedColorCycleDefLayers: [],
+      sectionBreakdown: [{ name: 'layers', bytes: 12 }],
+      largestLayers: [{
+        layerId: 'layer-cc-risk',
+        layerName: 'Risk Layer',
+        layerType: 'color-cycle',
+        bytes: 12,
+        dominantSection: 'colorCycleData',
+        dominantSectionBytes: 12,
+      }],
+      recommendations: ['Risky project'],
+      warnings: ['This project contains legacy duplicated color-cycle state. Re-save or repair it before archival sharing.'],
+      primaryWarning: 'This project contains legacy duplicated color-cycle state. Re-save or repair it before archival sharing.',
+    });
+
+    render(<LoadProjectModal isOpen onClose={jest.fn()} />);
+    act(() => {
+      jest.runAllTimers();
+    });
+
+    fireEvent.click(screen.getByText('Browse Folder'));
+    expect(await screen.findByText('risky.vs')).toBeInTheDocument();
+
+    fireEvent.doubleClick(screen.getByText('risky.vs'));
+
+    await waitFor(() => {
+      expect(screen.getByText('Repair & Save Copy')).toBeEnabled();
+    });
+
+    fireEvent.click(screen.getByText('Repair & Save Copy'));
+
+    await waitFor(() => {
+      expect(mockRepairAndExportProject).toHaveBeenCalledTimes(1);
+    });
+    expect(mockStore.addNotification).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'success',
+      title: 'Repair Copy Saved',
+    }));
   });
 
 });

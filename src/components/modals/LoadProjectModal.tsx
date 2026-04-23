@@ -32,6 +32,7 @@ export function LoadProjectModal({ isOpen, onClose }: LoadProjectModalProps) {
 
   const importProject = useAppStore((state) => state.importProject);
   const toggleModal = useAppStore((state) => state.toggleModal);
+  const addNotification = useAppStore((state) => state.addNotification);
 
   const [shouldRender, setShouldRender] = useState(false);
   const [isVisible, setIsVisible] = useState(false);
@@ -61,6 +62,7 @@ export function LoadProjectModal({ isOpen, onClose }: LoadProjectModalProps) {
   const {
     isProcessing,
     applyInFlight,
+    repairExportInFlight,
     error,
     warning,
     preview,
@@ -68,10 +70,12 @@ export function LoadProjectModal({ isOpen, onClose }: LoadProjectModalProps) {
     processProjectFile,
     setError,
     confirmLoad,
+    confirmRepairExport,
     reset,
   } = useProjectPreviewLoader({
     importProject,
     closeModal,
+    notify: addNotification,
   });
 
   const {
@@ -328,8 +332,15 @@ export function LoadProjectModal({ isOpen, onClose }: LoadProjectModalProps) {
               </div>
             </div>
             <div className="px-6 py-4 border-t border-[#2A2A2A] flex justify-end gap-3">
-              <Button variant="secondary" onClick={closeModal} disabled={applyInFlight}>
+              <Button variant="secondary" onClick={closeModal} disabled={applyInFlight || repairExportInFlight}>
                 Cancel
+              </Button>
+              <Button
+                variant="secondary"
+                onClick={confirmRepairExport}
+                disabled={!projectData || !preview?.healthReport?.warnings.length || isProcessing || applyInFlight || repairExportInFlight}
+              >
+                {repairExportInFlight ? 'Repairing…' : 'Repair & Save Copy'}
               </Button>
               <Button onClick={confirmLoad} disabled={!projectData || isProcessing || applyInFlight}>
                 {applyInFlight ? 'Loading…' : 'Load Project'}

@@ -551,6 +551,218 @@ describe('ColorCycleBrushCanvas2D', () => {
     expect(snapshot?.hasContent).toBe(true);
   });
 
+  it('keeps persisted color-cycle metadata when store metadata for the layer is still empty', () => {
+    const canvas = makeCanvas();
+    const { useAppStore } = jest.requireMock('@/stores/useAppStore') as {
+      useAppStore: { getState: () => { layers: Array<unknown> } };
+    };
+    useAppStore.getState().layers = [
+      {
+        id: 'layer-cold-meta',
+        layerType: 'color-cycle',
+        colorCycleData: {
+          gradientDefs: [],
+          slotPalettes: [],
+          gradientDefStore: [],
+        },
+      },
+    ];
+
+    const serialized = {
+      layers: [
+        {
+          layerId: 'layer-cold-meta',
+          gradientDefs: [{ id: 'gradient-1', currentSlot: 3 }],
+          slotPalettes: [
+            {
+              slot: 3,
+              stops: [
+                { position: 0, color: '#111111' },
+                { position: 1, color: '#eeeeee' },
+              ],
+            },
+          ],
+          gradientDefStore: [
+            {
+              id: 7,
+              kind: 'linear',
+              slot: 3,
+              stops: [
+                { position: 0, color: '#111111' },
+                { position: 1, color: '#eeeeee' },
+              ],
+              hash: 'defs-7',
+              source: 'manual',
+              createdAtMs: 0,
+            },
+          ],
+          nextGradientDefId: 8,
+          paintSlot: 3,
+          activeGradientId: 'gradient-1',
+          strokeData: {
+            paintBuffer: new Uint8Array([1, 1, 0, 0]).buffer,
+            gradientIdBuffer: new Uint8Array([3, 3, 0, 0]).buffer,
+            gradientDefIdBuffer: new Uint16Array([7, 7, 0, 0]).buffer,
+            hasContent: true,
+            strokeCounter: 1,
+          },
+        },
+      ],
+      cycleSpeed: 0.2,
+      fps: 24,
+      brushSize: 10,
+    };
+
+    const brush = ColorCycleBrushCanvas2D.deserialize(serialized as any, canvas);
+    const roundTripped = brush.serialize();
+
+    expect(roundTripped.layers[0]?.gradientDefs).toEqual(serialized.layers[0].gradientDefs);
+    expect(roundTripped.layers[0]?.slotPalettes).toEqual(serialized.layers[0].slotPalettes);
+    expect(roundTripped.layers[0]?.gradientDefStore).toEqual(serialized.layers[0].gradientDefStore);
+    expect(roundTripped.layers[0]?.paintSlot).toBe(3);
+    expect(roundTripped.layers[0]?.activeGradientId).toBe('gradient-1');
+  });
+
+  it('does not let stale store activeGradientId or paintSlot override coherent persisted metadata', () => {
+    const canvas = makeCanvas();
+    const { useAppStore } = jest.requireMock('@/stores/useAppStore') as {
+      useAppStore: { getState: () => { layers: Array<unknown> } };
+    };
+    useAppStore.getState().layers = [
+      {
+        id: 'layer-stale-store-meta',
+        layerType: 'color-cycle',
+        colorCycleData: {
+          gradientDefs: [],
+          slotPalettes: [],
+          gradientDefStore: [],
+          paintSlot: 9,
+          activeGradientId: 'missing-gradient',
+        },
+      },
+    ];
+
+    const serialized = {
+      layers: [
+        {
+          layerId: 'layer-stale-store-meta',
+          gradientDefs: [{ id: 'gradient-1', currentSlot: 3 }],
+          slotPalettes: [
+            {
+              slot: 3,
+              stops: [
+                { position: 0, color: '#111111' },
+                { position: 1, color: '#eeeeee' },
+              ],
+            },
+          ],
+          gradientDefStore: [
+            {
+              id: 7,
+              kind: 'linear',
+              slot: 3,
+              stops: [
+                { position: 0, color: '#111111' },
+                { position: 1, color: '#eeeeee' },
+              ],
+              hash: 'defs-7',
+              source: 'manual',
+              createdAtMs: 0,
+            },
+          ],
+          nextGradientDefId: 8,
+          paintSlot: 3,
+          activeGradientId: 'gradient-1',
+          strokeData: {
+            paintBuffer: new Uint8Array([1, 1, 0, 0]).buffer,
+            gradientIdBuffer: new Uint8Array([3, 3, 0, 0]).buffer,
+            gradientDefIdBuffer: new Uint16Array([7, 7, 0, 0]).buffer,
+            hasContent: true,
+            strokeCounter: 1,
+          },
+        },
+      ],
+      cycleSpeed: 0.2,
+      fps: 24,
+      brushSize: 10,
+    };
+
+    const brush = ColorCycleBrushCanvas2D.deserialize(serialized as any, canvas);
+    const roundTripped = brush.serialize();
+
+    expect(roundTripped.layers[0]?.paintSlot).toBe(3);
+    expect(roundTripped.layers[0]?.activeGradientId).toBe('gradient-1');
+  });
+
+  it('does not let a stale lower store nextGradientDefId override the persisted counter', () => {
+    const canvas = makeCanvas();
+    const { useAppStore } = jest.requireMock('@/stores/useAppStore') as {
+      useAppStore: { getState: () => { layers: Array<unknown> } };
+    };
+    useAppStore.getState().layers = [
+      {
+        id: 'layer-stale-next-def-id',
+        layerType: 'color-cycle',
+        colorCycleData: {
+          gradientDefs: [],
+          slotPalettes: [],
+          gradientDefStore: [],
+          nextGradientDefId: 2,
+        },
+      },
+    ];
+
+    const serialized = {
+      layers: [
+        {
+          layerId: 'layer-stale-next-def-id',
+          gradientDefs: [{ id: 'gradient-7', currentSlot: 3 }],
+          slotPalettes: [
+            {
+              slot: 3,
+              stops: [
+                { position: 0, color: '#111111' },
+                { position: 1, color: '#eeeeee' },
+              ],
+            },
+          ],
+          gradientDefStore: [
+            {
+              id: 7,
+              kind: 'linear',
+              slot: 3,
+              stops: [
+                { position: 0, color: '#111111' },
+                { position: 1, color: '#eeeeee' },
+              ],
+              hash: 'defs-7',
+              source: 'manual',
+              createdAtMs: 0,
+            },
+          ],
+          nextGradientDefId: 8,
+          paintSlot: 3,
+          activeGradientId: 'gradient-7',
+          strokeData: {
+            paintBuffer: new Uint8Array([1, 1, 0, 0]).buffer,
+            gradientIdBuffer: new Uint8Array([3, 3, 0, 0]).buffer,
+            gradientDefIdBuffer: new Uint16Array([7, 7, 0, 0]).buffer,
+            hasContent: true,
+            strokeCounter: 1,
+          },
+        },
+      ],
+      cycleSpeed: 0.2,
+      fps: 24,
+      brushSize: 10,
+    };
+
+    const brush = ColorCycleBrushCanvas2D.deserialize(serialized as any, canvas);
+    const roundTripped = brush.serialize();
+
+    expect(roundTripped.layers[0]?.nextGradientDefId).toBe(8);
+  });
+
   it('normalizes ArrayBuffer animator data on endStroke', () => {
     const canvas = makeCanvas();
     const brush = new ColorCycleBrushCanvas2D(canvas, { brushSize: 4, fps: 60 });

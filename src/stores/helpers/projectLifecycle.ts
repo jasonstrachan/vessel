@@ -527,28 +527,40 @@ export const createProjectLifecycle = ({
     const state = get();
 
     try {
-      const { project: loadedProject, fileName, fileHandle } = await loadProjectFromFile();
+      const { project: loadedProject, migration, fileName, fileHandle } = await loadProjectFromFile();
+      const shouldDetachLoadedHandle = Boolean(migration?.shouldMarkDirty);
+      const attachedFileHandle = shouldDetachLoadedHandle ? null : fileHandle;
       autosaveLog.info('Load project file handle info', {
         fileName,
-        hasHandle: Boolean(fileHandle),
-        handleName: (fileHandle as FileSystemFileHandle | null)?.name ?? null,
+        hasHandle: Boolean(attachedFileHandle),
+        handleName: (attachedFileHandle as FileSystemFileHandle | null)?.name ?? null,
+        detachedForRepair: shouldDetachLoadedHandle,
       });
       await applyLoadedProject(loadedProject);
-      if (fileHandle) {
-        fileBackupService.setFileHandle(fileHandle);
-        await fileBackupService.ensureFileWritePermission(fileHandle);
+      if (migration?.shouldMarkDirty) {
+        get().markAutosaveDirty('manual');
+        get().addNotification({
+          type: 'warning',
+          title: 'Project Repaired On Load',
+          message: `Applied ${migration.repairs.length} load repair${migration.repairs.length === 1 ? '' : 's'} to canonicalize legacy data. Save to keep the repaired format.`,
+          timestamp: new Date(),
+        });
+      }
+      if (attachedFileHandle) {
+        fileBackupService.setFileHandle(attachedFileHandle);
+        await fileBackupService.ensureFileWritePermission(attachedFileHandle);
       }
       set((current) => ({
         projectFilename: fileName ?? null,
-        projectFileHandle: fileHandle ?? null,
-        autosave: fileHandle
+        projectFileHandle: attachedFileHandle ?? null,
+        autosave: attachedFileHandle
           ? {
               ...current.autosave,
               fileBackup: {
                 ...current.autosave.fileBackup,
                 enabled: true,
                 mode: 'single-file',
-                fileHandle,
+                fileHandle: attachedFileHandle,
                 directoryHandle: null,
                 backupPath: fileName ?? current.autosave.fileBackup.backupPath,
               },

@@ -6,6 +6,7 @@ import type { AppState } from '@/stores/useAppStore';
 import { exportProjectAsPNG, saveProjectToFile } from '@/utils/projectIO';
 import { backgroundStorageService } from '@/utils/backgroundStorage';
 import { flushPendingToolWork } from '@/utils/toolFlushRegistry';
+import { fileBackupService } from '@/utils/fileBackupService';
 import {
   waitForAllPendingColorCycleSaves,
   waitForFinalizeQueueIdle,
@@ -578,6 +579,94 @@ describe('project slice lifecycle flows', () => {
     expect(nextState.colorCyclePlayback.desiredPlaying).toBe(false);
   });
 
+  it('hydrates only the active heavy CC runtime during import', async () => {
+    const actualProjectIO = jest.requireActual('@/utils/projectIO') as typeof import('@/utils/projectIO');
+    const restoreColorCycleBrushesMock = jest.requireMock('@/utils/projectIO').restoreColorCycleBrushes as jest.Mock;
+    restoreColorCycleBrushesMock.mockImplementation(actualProjectIO.restoreColorCycleBrushes);
+
+    const payloadSize = 2048 * 2048;
+    const makeHeavyColorCycleLayer = (id: string, visible: boolean): Layer => makeLayer(id, {
+      imageData: null,
+      visible,
+      layerType: 'color-cycle',
+      colorCycleData: {
+        mode: 'brush',
+        isAnimating: false,
+        canvas: Object.assign(document.createElement('canvas'), { width: 1, height: 1 }),
+        canvasImageData: new ImageData(8, 8),
+        canvasWidth: 2048,
+        canvasHeight: 2048,
+        gradientIdBuffer: new Uint8Array(payloadSize).buffer,
+        brushState: {
+          cycleSpeed: 0.3,
+          fps: 12,
+          layers: [{
+            layerId: id,
+            strokeData: {
+              hasContent: true,
+              strokeCounter: 1,
+              flowBuffer: Buffer.alloc(payloadSize).toString('base64'),
+            },
+          }],
+        },
+      },
+    });
+
+    const project: Project = {
+      id: 'project-import-heavy-cc',
+      name: 'Imported Heavy CC Scene',
+      width: 320,
+      height: 180,
+      layers: [
+        makeHeavyColorCycleLayer('layer-import-active-cc', true),
+        makeHeavyColorCycleLayer('layer-import-visible-cold-cc', true),
+        makeHeavyColorCycleLayer('layer-import-hidden-cold-cc', false),
+      ],
+      backgroundColor: '#101010',
+      createdAt: new Date('2024-04-01'),
+      updatedAt: new Date('2024-04-02'),
+      customBrushes: [],
+      defaultCustomBrushId: null,
+      exportLayout: createDefaultExportLayout(),
+      palette: {
+        foregroundColor: '#ff00ff',
+        backgroundColor: '#00ffff',
+        activeSlot: 'foreground',
+      },
+      brushSpecificSettings: {},
+    };
+
+    try {
+      await useAppStore.getState().importProject(project, { fileName: 'imported-heavy-cc.vessel' });
+
+      const nextState = useAppStore.getState();
+      expect(nextState.activeLayerId).toBe('layer-import-active-cc');
+
+      const activeLayer = nextState.layers.find((layer) => layer.id === 'layer-import-active-cc');
+      const visibleColdLayer = nextState.layers.find((layer) => layer.id === 'layer-import-visible-cold-cc');
+      const hiddenColdLayer = nextState.layers.find((layer) => layer.id === 'layer-import-hidden-cold-cc');
+
+      expect(activeLayer?.colorCycleData?.runtimeHydrationState).toBe('active');
+      expect(activeLayer?.colorCycleData?.deferredRuntimeRestore).toBe(false);
+      expect(activeLayer?.colorCycleData?.colorCycleBrush).toBeTruthy();
+
+      expect(visibleColdLayer?.colorCycleData?.runtimeHydrationState).toBe('cold');
+      expect(visibleColdLayer?.colorCycleData?.deferredRuntimeRestore).toBe(true);
+      expect(visibleColdLayer?.colorCycleData?.colorCycleBrush).toBeUndefined();
+
+      expect(hiddenColdLayer?.colorCycleData?.runtimeHydrationState).toBe('cold');
+      expect(hiddenColdLayer?.colorCycleData?.deferredRuntimeRestore).toBe(true);
+      expect(hiddenColdLayer?.colorCycleData?.colorCycleBrush).toBeUndefined();
+    } finally {
+      restoreColorCycleBrushesMock.mockImplementation(async (layers: Layer[]) => layers);
+      useAppStore.setState({
+        layers: [],
+        activeLayerId: null,
+        selectedLayerIds: [],
+      });
+    }
+  });
+
   it('imports a real zipped CC project payload without flattening restored brush state', async () => {
     const actualProjectIO = jest.requireActual('@/utils/projectIO') as typeof import('@/utils/projectIO');
     const contextProto = (globalThis as unknown as {
@@ -719,13 +808,23 @@ describe('project slice lifecycle flows', () => {
           }
         | undefined;
       const persistedSnapshot = persistedBrushState?.layers?.[0];
+      const canonicalGradientIdBuffer = hydratedLayer?.colorCycleData?.gradientIdBuffer;
+      const canonicalGradientDefIdBuffer = hydratedLayer?.colorCycleData?.gradientDefIdBuffer;
 
       if (hydratedLayer?.colorCycleData) {
         hydratedLayer.colorCycleData.colorCycleBrush = {
           getLayerSnapshot: () => ({
             paintBuffer: base64ToArrayBuffer(persistedSnapshot?.strokeData?.paintBuffer),
-            gradientIdBuffer: base64ToArrayBuffer(persistedSnapshot?.strokeData?.gradientIdBuffer),
-            gradientDefIdBuffer: base64ToArrayBuffer(persistedSnapshot?.strokeData?.gradientDefIdBuffer),
+            gradientIdBuffer: persistedSnapshot?.strokeData?.gradientIdBuffer
+              ? base64ToArrayBuffer(persistedSnapshot.strokeData.gradientIdBuffer)
+              : canonicalGradientIdBuffer instanceof ArrayBuffer
+                ? canonicalGradientIdBuffer.slice(0)
+                : new ArrayBuffer(0),
+            gradientDefIdBuffer: persistedSnapshot?.strokeData?.gradientDefIdBuffer
+              ? base64ToArrayBuffer(persistedSnapshot.strokeData.gradientDefIdBuffer)
+              : canonicalGradientDefIdBuffer instanceof ArrayBuffer
+                ? canonicalGradientDefIdBuffer.slice(0)
+                : new ArrayBuffer(0),
           }),
         } as unknown as NonNullable<Layer['colorCycleData']>['colorCycleBrush'];
       }
@@ -860,6 +959,111 @@ describe('project slice lifecycle flows', () => {
       expect.objectContaining({
         type: 'warning',
         title: 'Layer IDs Repaired',
+      }),
+    );
+  });
+
+  it('marks autosave dirty and warns when load applies semantic repairs', async () => {
+    const notifySpy = useAppStore.getState().addNotification as jest.Mock;
+    notifySpy.mockClear();
+
+    const loadProjectFromFile = jest.requireMock('@/utils/projectIO').loadProjectFromFile as jest.Mock;
+    loadProjectFromFile.mockResolvedValue({
+      project: {
+        id: 'loaded-repaired-project',
+        name: 'Loaded Repaired',
+        width: 16,
+        height: 16,
+        layers: [makeLayer('loaded-layer')],
+        backgroundColor: '#000',
+        createdAt: new Date('2024-01-01'),
+        updatedAt: new Date('2024-01-02'),
+        customBrushes: [],
+        defaultCustomBrushId: null,
+        exportLayout: createDefaultExportLayout(),
+        palette: {
+          foregroundColor: '#ffffff',
+          backgroundColor: '#000000',
+          activeSlot: 'foreground',
+        },
+      },
+      migration: {
+        repairs: [{
+          layerId: 'loaded-layer',
+          code: 'legacy-repair',
+          message: 'Promoted legacy data to canonical state',
+          semantic: true,
+        }],
+        shouldMarkDirty: true,
+      },
+      fileName: 'loaded-repaired.vessel',
+      fileHandle: null,
+    });
+
+    await useAppStore.getState().loadProject();
+
+    expect(useAppStore.getState().autosave.hasUnsavedChanges).toBe(true);
+    expect(useAppStore.getState().autosave.lastDirtyReason).toBe('manual');
+    expect(notifySpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'warning',
+        title: 'Project Repaired On Load',
+      }),
+    );
+  });
+
+  it('does not reattach the source file handle when load repairs legacy data', async () => {
+    const notifySpy = useAppStore.getState().addNotification as jest.Mock;
+    notifySpy.mockClear();
+    const repairedHandle = { name: 'loaded-repaired.vessel' } as FileSystemFileHandle;
+    const { loadProjectFromFile } = jest.requireMock('@/utils/projectIO') as {
+      loadProjectFromFile: jest.Mock;
+    };
+
+    loadProjectFromFile.mockResolvedValueOnce({
+      project: {
+        id: 'loaded-project-repaired-handle',
+        name: 'Loaded Project',
+        width: 8,
+        height: 8,
+        backgroundColor: '#000000',
+        layers: [makeLayer('loaded-layer')],
+        customBrushes: [],
+        defaultCustomBrushId: null,
+        exportLayout: createDefaultExportLayout(),
+        palette: {
+          foregroundColor: '#ffffff',
+          backgroundColor: '#000000',
+          activeSlot: 'foreground',
+        },
+      },
+      migration: {
+        repairs: [{
+          layerId: 'loaded-layer',
+          code: 'legacy-repair',
+          message: 'Promoted legacy data to canonical state',
+          semantic: true,
+        }],
+        shouldMarkDirty: true,
+      },
+      fileName: 'loaded-repaired.vessel',
+      fileHandle: repairedHandle,
+    });
+
+    await useAppStore.getState().loadProject();
+
+    const nextState = useAppStore.getState();
+    expect(nextState.projectFilename).toBe('loaded-repaired.vessel');
+    expect(nextState.projectFileHandle).toBeNull();
+    expect(nextState.autosave.fileBackup.fileHandle).toBeNull();
+    expect(nextState.autosave.fileBackup.backupPath).toBeNull();
+    expect(nextState.autosave.fileBackup.enabled).toBe(false);
+    expect(fileBackupService.setFileHandle).not.toHaveBeenCalledWith(repairedHandle);
+    expect(fileBackupService.ensureFileWritePermission).not.toHaveBeenCalledWith(repairedHandle);
+    expect(notifySpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'warning',
+        title: 'Project Repaired On Load',
       }),
     );
   });

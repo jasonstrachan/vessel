@@ -20,7 +20,10 @@ export const ensureStrokeStartColorCycleCaptureReady = ({
   }
 
   const colorCycleBrushManager = getColorCycleBrushManager();
-  if (colorCycleBrushManager.getBrush(activeLayerForCapture.id)) {
+  const storeBrush = typeof currentState.getLayerColorCycleBrush === 'function'
+    ? currentState.getLayerColorCycleBrush(activeLayerForCapture.id)
+    : null;
+  if (storeBrush ?? colorCycleBrushManager.getBrush(activeLayerForCapture.id)) {
     return true;
   }
 

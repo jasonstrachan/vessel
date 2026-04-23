@@ -62,10 +62,17 @@ export const runStrokeStartLayerGuards = ({
   }
 
   const colorCycleBrushManager = getColorCycleBrushManager();
-  if (!colorCycleBrushManager.getBrush(activeLayer.id)) {
+  const storeBrush = typeof currentState.getLayerColorCycleBrush === 'function'
+    ? currentState.getLayerColorCycleBrush(activeLayer.id)
+    : null;
+  if (!storeBrush) {
     currentState.initColorCycleForLayer(activeLayer.id, runtimeProject.width, runtimeProject.height);
   }
-  const colorCycleBrush = colorCycleBrushManager.getBrush(activeLayer.id);
+  const colorCycleBrush = (
+    typeof currentState.getLayerColorCycleBrush === 'function'
+      ? currentState.getLayerColorCycleBrush(activeLayer.id)
+      : null
+  ) ?? colorCycleBrushManager.getBrush(activeLayer.id);
   ensureActiveColorCycleGradientSlot(currentState, activeLayer, colorCycleBrush);
 
   try {

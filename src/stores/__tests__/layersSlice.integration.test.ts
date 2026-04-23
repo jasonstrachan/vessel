@@ -243,6 +243,7 @@ describe('layers slice integration', () => {
       colorCycleData: {
         ...createColorCycleLayerInput('Deferred CC Layer').colorCycleData,
         deferredRuntimeRestore: true,
+        runtimeHydrationState: 'cold',
         colorCycleBrush: undefined,
         canvas: makeCanvas(),
       },
@@ -257,6 +258,7 @@ describe('layers slice integration', () => {
               colorCycleData: {
                 ...(layer.colorCycleData as NonNullable<Layer['colorCycleData']>),
                 deferredRuntimeRestore: false,
+                runtimeHydrationState: 'active',
                 colorCycleBrush: mockBrush,
                 canvas: makeCanvas(),
               },
@@ -282,6 +284,7 @@ describe('layers slice integration', () => {
       { lazy: false, activeLayerId: layerId },
     );
     expect(warmedLayer?.colorCycleData?.deferredRuntimeRestore).toBe(false);
+    expect(warmedLayer?.colorCycleData?.runtimeHydrationState).toBe('warm');
     expect(useAppStore.getState().getLayerColorCycleBrush(layerId)).toBe(mockBrush);
   });
 
@@ -292,6 +295,7 @@ describe('layers slice integration', () => {
       colorCycleData: {
         ...createColorCycleLayerInput('Deferred Active CC Layer').colorCycleData,
         deferredRuntimeRestore: true,
+        runtimeHydrationState: 'cold',
         colorCycleBrush: undefined,
         canvas: makeCanvas(),
       },
@@ -309,6 +313,7 @@ describe('layers slice integration', () => {
               colorCycleData: {
                 ...(layer.colorCycleData as NonNullable<Layer['colorCycleData']>),
                 deferredRuntimeRestore: false,
+                runtimeHydrationState: 'active',
                 colorCycleBrush: mockBrush,
                 canvas: makeCanvas(),
               },
@@ -334,6 +339,102 @@ describe('layers slice integration', () => {
       { lazy: false, activeLayerId: layerId },
     );
     expect(warmedLayer?.colorCycleData?.deferredRuntimeRestore).toBe(false);
+    expect(warmedLayer?.colorCycleData?.runtimeHydrationState).toBe('warm');
+  });
+
+  it('rebuilds slot usage from canonical gradientDefIdBuffer state', () => {
+    const colorCycleLayer: Layer = {
+      id: 'layer-slot-gc',
+      name: 'Slot GC Layer',
+      visible: true,
+      opacity: 1,
+      blendMode: 'source-over',
+      locked: false,
+      transparencyLocked: false,
+      order: 0,
+      imageData: null,
+      framebuffer: makeCanvas(),
+      alignment: createDefaultLayerAlignment(),
+      layerType: 'color-cycle',
+      version: 1,
+      colorCycleData: {
+        gradient: [
+          { position: 0, color: '#000000' },
+          { position: 1, color: '#ffffff' },
+        ],
+        isAnimating: false,
+        gradientDefs: [],
+        slotPalettes: [
+          {
+            slot: 7,
+            stops: [
+              { position: 0, color: '#000000' },
+              { position: 1, color: '#ffffff' },
+            ],
+          },
+          {
+            slot: 9,
+            stops: [
+              { position: 0, color: '#ff0000' },
+              { position: 1, color: '#00ff00' },
+            ],
+          },
+        ],
+        gradientDefStore: [
+          {
+            id: 1,
+            kind: 'linear',
+            stops: [
+              { position: 0, color: '#000000' },
+              { position: 1, color: '#ffffff' },
+            ],
+            hash: 'linear:one',
+            source: 'manual',
+            createdAtMs: 0,
+            slot: 7,
+          },
+          {
+            id: 2,
+            kind: 'linear',
+            stops: [
+              { position: 0, color: '#ff0000' },
+              { position: 1, color: '#00ff00' },
+            ],
+            hash: 'linear:two',
+            source: 'manual',
+            createdAtMs: 0,
+          },
+        ],
+        gradientDefIdBuffer: new Uint16Array([2, 2, 0, 0]).buffer,
+      },
+    };
+
+    useAppStore.setState((state) => ({
+      ...state,
+      project: state.project
+        ? {
+            ...state.project,
+            width: 2,
+            height: 2,
+          }
+        : state.project,
+      layers: [colorCycleLayer],
+      activeLayerId: colorCycleLayer.id,
+      selectedLayerIds: [colorCycleLayer.id],
+    }));
+
+    useAppStore.getState().runColorCycleSlotRebuild('test-canonical-buffer');
+
+    const updatedLayer = useAppStore.getState().layers.find((layer) => layer.id === colorCycleLayer.id);
+    const updatedDefs = updatedLayer?.colorCycleData?.gradientDefStore ?? [];
+    const updatedDef1 = updatedDefs.find((entry) => entry.id === 1);
+    const updatedDef2 = updatedDefs.find((entry) => entry.id === 2);
+    const paletteSlots = (updatedLayer?.colorCycleData?.slotPalettes ?? []).map((entry) => entry.slot);
+
+    expect(updatedDef1?.slot).toBeUndefined();
+    expect(typeof updatedDef2?.slot).toBe('number');
+    expect(paletteSlots).not.toContain(7);
+    expect(paletteSlots).toContain(updatedDef2?.slot);
   });
 
   it('recomputes alignment offsets and flags recomposition when alignment changes', () => {

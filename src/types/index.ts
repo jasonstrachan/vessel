@@ -530,6 +530,7 @@ export interface ColorCycleRuntimeData {
   canvas?: HTMLCanvasElement;
   eraseMask?: HTMLCanvasElement;
   brushState?: unknown;
+  runtimeHydrationState?: 'cold' | 'warm' | 'active';
   deferredRuntimeRestore?: boolean;
 }
 

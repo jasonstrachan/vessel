@@ -30,7 +30,11 @@ export const syncStrokeStartColorCyclePlayback = ({
   const refreshedLayer = refreshedState.layers.find((layer) => layer.id === refreshedState.activeLayerId);
   if (refreshedLayer?.layerType === 'color-cycle') {
     const colorCycleBrushManager = getColorCycleBrushManager();
-    const colorCycleBrush = colorCycleBrushManager.getBrush(refreshedLayer.id);
+    const colorCycleBrush = (
+      typeof refreshedState.getLayerColorCycleBrush === 'function'
+        ? refreshedState.getLayerColorCycleBrush(refreshedLayer.id)
+        : null
+    ) ?? colorCycleBrushManager.getBrush(refreshedLayer.id);
     ensureActiveColorCycleGradientSlot(refreshedState, refreshedLayer, colorCycleBrush);
   }
 

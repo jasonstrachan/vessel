@@ -43,6 +43,11 @@ import {
   type VesselProjectArchive,
 } from '@/utils/projectPersistence';
 import {
+  migrateLegacyProjectLayers,
+  type ProjectLegacyMigrationSummary,
+} from '@/utils/projectLegacyMigration';
+import { setColorCycleHydrationState } from '@/stores/layerHydration';
+import {
   LEGACY_PROJECT_FILE_EXTENSION,
   LEGACY_PROJECT_FILE_MIME,
   PROJECT_FILE_ACCEPT,
@@ -204,6 +209,11 @@ const sanitizeSequentialLayerData = (
 };
 
 export type ProjectFileData = string | ArrayBuffer | Uint8Array | Blob;
+
+export interface DeserializedProjectResult {
+  project: Project;
+  migration: ProjectLegacyMigrationSummary;
+}
 
 const PROJECT_ARCHIVE_ENTRY = 'project.json';
 const PROJECT_PREVIEW_ARCHIVE_ENTRY = 'manifest.json';
@@ -387,6 +397,11 @@ export interface ProjectSaveSizeReport {
   recommendations: string[];
 }
 
+export interface ProjectHealthReport extends ProjectSaveSizeReport {
+  warnings: string[];
+  primaryWarning: string | null;
+}
+
 type ArchiveBinaryEntry = {
   path: string;
   bytes: Uint8Array;
@@ -394,6 +409,8 @@ type ArchiveBinaryEntry = {
   width?: number;
   height?: number;
 };
+
+type ArchiveBinaryManifestIndex = Map<string, BinaryManifestEntry>;
 
 type SerializedRasterLayerStateV1 = {
   version: 1;
@@ -1749,11 +1766,12 @@ const shouldDeferColorCycleRuntimeRestore = (
   if (layer.id === options.activeLayerId) {
     return false;
   }
-  // Only hidden CC layers are safe to keep cold on load. Visible layers must
-  // restore eagerly so the initial rendered document matches the saved file.
-  if (layer.visible !== false) {
+  if (layer.colorCycleData.isAnimating) {
     return false;
   }
+  // Persisted canvas/canvasImageData remain available for document rendering,
+  // so heavy non-active CC runtimes can stay cold until selection/playback
+  // actually needs the live brush runtime.
   return estimatePersistedColorCycleRuntimePayloadBytes(layer) >= DEFERRED_CC_RUNTIME_PAYLOAD_THRESHOLD;
 };
 
@@ -2671,13 +2689,53 @@ const buildProjectSizeRecommendations = (report: ProjectSaveSizeReport): string[
   return recommendations;
 };
 
+const buildProjectHealthWarnings = (report: ProjectSaveSizeReport): string[] => {
+  const warnings: string[] = [];
+  const largestLayer = report.largestLayers[0] ?? null;
+
+  if (report.unresolvedColorCycleDefLayers.length > 0) {
+    warnings.push('This project has unresolved color-cycle defs. Repair these layers before relying on playback or archival sharing.');
+  }
+
+  if (report.colorCycleDuplicationRiskLayers.length > 0) {
+    warnings.push('This project contains legacy duplicated color-cycle state. Re-save or repair it before archival sharing.');
+  }
+
+  if (report.binaryPayloadBytes >= 32 * MB) {
+    warnings.push('This project has a very large binary payload. Non-active heavy runtimes will stay cold on load, and activating them may still take longer.');
+  }
+
+  if (
+    largestLayer
+    && largestLayer.layerType === 'color-cycle'
+    && largestLayer.dominantSection === 'colorCycleData'
+    && largestLayer.dominantSectionBytes >= 8 * MB
+  ) {
+    warnings.push('This project contains heavy color-cycle runtime data. Load will prefer active-layer hydration, but switching into large inactive layers may restore more slowly.');
+  }
+
+  return warnings;
+};
+
+const finalizeProjectHealthReport = (report: ProjectSaveSizeReport): ProjectHealthReport => {
+  const warnings = buildProjectHealthWarnings(report);
+  return {
+    ...report,
+    warnings,
+    primaryWarning: warnings[0] ?? null,
+  };
+};
+
+export const getProjectHealthWarning = (report: Pick<ProjectHealthReport, 'primaryWarning'> | null | undefined): string | null =>
+  report?.primaryWarning ?? null;
+
 const buildProjectSaveSizeReport = (
   vesselProject: VesselProject,
   previewManifest: VesselProjectPreview,
   projectJson: string,
   previewJson: string,
   archiveBytes: number,
-): ProjectSaveSizeReport => {
+): ProjectHealthReport => {
   const binaryPayloadBytes = (vesselProject.binaries?.entries ?? []).reduce(
     (total, entry) => total + entry.byteLength,
     0,
@@ -2751,14 +2809,14 @@ const buildProjectSaveSizeReport = (
     recommendations: [],
   };
   report.recommendations = buildProjectSizeRecommendations(report);
-  return report;
+  return finalizeProjectHealthReport(report);
 };
 
 type SerializedProjectArtifacts = {
   archiveData: Uint8Array;
   projectJson: string;
   previewJson: string;
-  report: ProjectSaveSizeReport;
+  report: ProjectHealthReport;
 };
 
 const buildSerializedProjectArtifacts = async (
@@ -2874,9 +2932,13 @@ const buildSerializedProjectArtifacts = async (
   };
 };
 
-export async function getProjectSaveSizeReport(project: Project, layers?: Layer[]): Promise<ProjectSaveSizeReport> {
+export async function getProjectSaveSizeReport(project: Project, layers?: Layer[]): Promise<ProjectHealthReport> {
   const artifacts = await buildSerializedProjectArtifacts(project, layers);
   return artifacts.report;
+}
+
+export async function getProjectHealthReport(project: Project, layers?: Layer[]): Promise<ProjectHealthReport> {
+  return getProjectSaveSizeReport(project, layers);
 }
 
 // Serialize a project for saving
@@ -2892,6 +2954,10 @@ const isSafeIntegerInRange = (value: unknown, min: number, max: number): value i
     && value >= min
     && value <= max;
 };
+
+const VALID_BINARY_MANIFEST_DTYPES = new Set(['uint8', 'uint16', 'rgba8', 'json', 'unknown']);
+const VALID_BINARY_MANIFEST_COMPRESSIONS = new Set(['deflate', 'stored']);
+const BINARY_MANIFEST_CHECKSUM_PATTERN = /^[0-9a-f]{8}$/i;
 
 const validateProjectDimensions = (width: unknown, height: unknown, label: string): void => {
   if (!isSafeIntegerInRange(width, 1, MAX_PROJECT_DIMENSION) || !isSafeIntegerInRange(height, 1, MAX_PROJECT_DIMENSION)) {
@@ -2910,9 +2976,11 @@ const validateBinaryManifestEntry = (entry: BinaryManifestEntry): void => {
     || typeof entry.path !== 'string'
     || !entry.path
     || typeof entry.checksum !== 'string'
-    || !entry.checksum
+    || !BINARY_MANIFEST_CHECKSUM_PATTERN.test(entry.checksum)
     || !isSafeIntegerInRange(entry.byteLength, 0, MAX_PROJECT_ARCHIVE_BYTES)
     || entry.version !== 1
+    || !VALID_BINARY_MANIFEST_DTYPES.has(entry.dtype)
+    || !VALID_BINARY_MANIFEST_COMPRESSIONS.has(entry.compression)
   ) {
     throw new Error('Invalid Vessel project binary manifest');
   }
@@ -2928,6 +2996,8 @@ const validateLayerEnvelope = (layer: SerializedLayer, binaryPaths: Set<string>)
   }
 
   const normalizedLayerType = normalizePersistedLayerType(layer.layerType);
+  const isImplicitLegacyColorCycle = layer.layerType === undefined && Boolean(layer.colorCycleData) && !layer.sequentialData;
+  const isImplicitLegacySequential = layer.layerType === undefined && Boolean(layer.sequentialData) && !layer.colorCycleData;
   if (normalizedLayerType === 'color-cycle') {
     if (!layer.colorCycleData || layer.sequentialData) {
       throw new Error(`Invalid Vessel project layer envelope for ${layer.id}`);
@@ -2941,7 +3011,7 @@ const validateLayerEnvelope = (layer: SerializedLayer, binaryPaths: Set<string>)
         throw new Error(`Invalid Vessel project layer envelope for ${layer.id}`);
       }
     }
-  } else if (layer.colorCycleData || layer.sequentialData) {
+  } else if (!isImplicitLegacyColorCycle && !isImplicitLegacySequential && (layer.colorCycleData || layer.sequentialData)) {
     throw new Error(`Invalid Vessel project layer envelope for ${layer.id}`);
   }
 
@@ -3164,7 +3234,7 @@ export async function readProjectPreviewManifest(projectData: ProjectFileData): 
   return toProjectPreview(await readProjectManifest(projectData));
 }
 
-export async function readProjectHealthReport(projectData: ProjectFileData): Promise<ProjectSaveSizeReport> {
+export async function readProjectHealthReport(projectData: ProjectFileData): Promise<ProjectHealthReport> {
   const projectBytes = await toProjectDataBytes(projectData);
   let archiveBytes = 0;
   let projectJson: string;
@@ -3258,9 +3328,34 @@ const toProjectDataBytes = async (projectData: ProjectFileData): Promise<Uint8Ar
   throw new Error('Unsupported project data input');
 };
 
+const readVerifiedArchiveEntryBytes = async (
+  entryPath: string,
+  zip: JSZip,
+  binaryManifest: ArchiveBinaryManifestIndex,
+): Promise<Uint8Array> => {
+  const entry = zip.file(entryPath);
+  const normalizedEntry = Array.isArray(entry) ? entry[0] ?? null : entry;
+  if (!normalizedEntry) {
+    throw new Error(`Project archive is missing ${entryPath}`);
+  }
+  const manifestEntry = binaryManifest.get(entryPath);
+  if (!manifestEntry) {
+    throw new Error(`Project archive manifest is missing binary entry ${entryPath}`);
+  }
+  const bytes = await normalizedEntry.async('uint8array');
+  if (bytes.byteLength !== manifestEntry.byteLength) {
+    throw new Error(`Project archive binary length mismatch for ${entryPath}`);
+  }
+  if (fnv1aHash(bytes) !== manifestEntry.checksum) {
+    throw new Error(`Project archive binary checksum mismatch for ${entryPath}`);
+  }
+  return bytes;
+};
+
 const hydrateArchiveBinaryRef = async (
   value: string | undefined,
   zip: JSZip | null,
+  binaryManifest: ArchiveBinaryManifestIndex,
   cache: Map<string, string>,
 ): Promise<string | undefined> => {
   if (!value || !isArchiveBinaryRef(value) || !zip) {
@@ -3271,12 +3366,7 @@ const hydrateArchiveBinaryRef = async (
   if (typeof cached === 'string') {
     return cached;
   }
-  const entry = zip.file(entryPath);
-  const normalizedEntry = Array.isArray(entry) ? entry[0] ?? null : entry;
-  if (!normalizedEntry) {
-    throw new Error(`Project archive is missing ${entryPath}`);
-  }
-  const bytes = await normalizedEntry.async('uint8array');
+  const bytes = await readVerifiedArchiveEntryBytes(entryPath, zip, binaryManifest);
   const hydrated = bytesToBase64(bytes);
   cache.set(entryPath, hydrated);
   return hydrated;
@@ -3285,6 +3375,7 @@ const hydrateArchiveBinaryRef = async (
 const hydrateArchiveTextRef = async (
   value: string | undefined,
   zip: JSZip | null,
+  binaryManifest: ArchiveBinaryManifestIndex,
   cache: Map<string, string>,
 ): Promise<string | undefined> => {
   if (!value || !isArchiveBinaryRef(value) || !zip) {
@@ -3295,12 +3386,8 @@ const hydrateArchiveTextRef = async (
   if (typeof cached === 'string') {
     return cached;
   }
-  const entry = zip.file(entryPath);
-  const normalizedEntry = Array.isArray(entry) ? entry[0] ?? null : entry;
-  if (!normalizedEntry) {
-    throw new Error(`Project archive is missing ${entryPath}`);
-  }
-  const hydrated = await normalizedEntry.async('string');
+  const bytes = await readVerifiedArchiveEntryBytes(entryPath, zip, binaryManifest);
+  const hydrated = new TextDecoder().decode(bytes);
   cache.set(entryPath, hydrated);
   return hydrated;
 };
@@ -3308,16 +3395,17 @@ const hydrateArchiveTextRef = async (
 const hydrateSerializedLayerArchiveRefs = async (
   layer: SerializedLayer,
   zip: JSZip | null,
+  binaryManifest: ArchiveBinaryManifestIndex,
   cache: Map<string, string>,
 ): Promise<void> => {
   if (layer.state && 'imageRef' in layer.state && !layer.imageDataUrl) {
-    layer.imageDataUrl = (await hydrateArchiveTextRef(layer.state.imageRef, zip, cache)) ?? '';
+    layer.imageDataUrl = (await hydrateArchiveTextRef(layer.state.imageRef, zip, binaryManifest, cache)) ?? '';
   }
 
   if (layer.state && 'chunksRef' in layer.state && !layer.sequentialData) {
-    const chunksJson = await hydrateArchiveTextRef(layer.state.chunksRef, zip, cache);
+    const chunksJson = await hydrateArchiveTextRef(layer.state.chunksRef, zip, binaryManifest, cache);
     const brushSnapshotsJson = layer.state.brushSnapshotsRef
-      ? await hydrateArchiveTextRef(layer.state.brushSnapshotsRef, zip, cache)
+      ? await hydrateArchiveTextRef(layer.state.brushSnapshotsRef, zip, binaryManifest, cache)
       : undefined;
     layer.sequentialData = {
       frameCount: layer.state.frameCount,
@@ -3353,23 +3441,23 @@ const hydrateSerializedLayerArchiveRefs = async (
           }
     ) as PersistedColorCycleBrushState;
     if (!colorCycleData.gradientIdBuffer) {
-      colorCycleData.gradientIdBuffer = await hydrateArchiveBinaryRef(layer.state.gradientIdRef, zip, cache);
+      colorCycleData.gradientIdBuffer = await hydrateArchiveBinaryRef(layer.state.gradientIdRef, zip, binaryManifest, cache);
     }
     if (!colorCycleData.gradientDefIdBuffer) {
-      colorCycleData.gradientDefIdBuffer = await hydrateArchiveBinaryRef(layer.state.gradientDefIdRef, zip, cache);
+      colorCycleData.gradientDefIdBuffer = await hydrateArchiveBinaryRef(layer.state.gradientDefIdRef, zip, binaryManifest, cache);
     }
     const currentLayerSnapshot = getSerializedBrushSnapshotForLayer(metadataBrushState, layer.id) ?? {
       layerId: layer.id,
     };
     const currentLayerStrokeData = currentLayerSnapshot.strokeData ?? {};
-    currentLayerStrokeData.paintBuffer = await hydrateArchiveBinaryRef(layer.state.paintRef, zip, cache);
+    currentLayerStrokeData.paintBuffer = await hydrateArchiveBinaryRef(layer.state.paintRef, zip, binaryManifest, cache);
     currentLayerSnapshot.paintSlot ??= layer.state.paintSlot;
     currentLayerSnapshot.activeGradientId ??= layer.state.activeGradientId;
     currentLayerStrokeData.hasContent ??= layer.state.hasContent;
     currentLayerStrokeData.strokeCounter ??= layer.state.strokeCounter;
-    currentLayerStrokeData.speedBuffer = await hydrateArchiveBinaryRef(layer.state.speedRef, zip, cache);
-    currentLayerStrokeData.flowBuffer = await hydrateArchiveBinaryRef(layer.state.flowRef, zip, cache);
-    currentLayerStrokeData.phaseBuffer = await hydrateArchiveBinaryRef(layer.state.phaseRef, zip, cache);
+    currentLayerStrokeData.speedBuffer = await hydrateArchiveBinaryRef(layer.state.speedRef, zip, binaryManifest, cache);
+    currentLayerStrokeData.flowBuffer = await hydrateArchiveBinaryRef(layer.state.flowRef, zip, binaryManifest, cache);
+    currentLayerStrokeData.phaseBuffer = await hydrateArchiveBinaryRef(layer.state.phaseRef, zip, binaryManifest, cache);
     if (
       currentLayerStrokeData.paintBuffer
       || currentLayerStrokeData.speedBuffer
@@ -3407,46 +3495,46 @@ const hydrateSerializedLayerArchiveRefs = async (
     return;
   }
 
-  colorCycleData.canvasImageData = (await hydrateArchiveTextRef(colorCycleData.canvasImageData, zip, cache)) ?? colorCycleData.canvasImageData;
-  colorCycleData.eraseMaskImageData = (await hydrateArchiveTextRef(colorCycleData.eraseMaskImageData, zip, cache)) ?? colorCycleData.eraseMaskImageData;
+  colorCycleData.canvasImageData = (await hydrateArchiveTextRef(colorCycleData.canvasImageData, zip, binaryManifest, cache)) ?? colorCycleData.canvasImageData;
+  colorCycleData.eraseMaskImageData = (await hydrateArchiveTextRef(colorCycleData.eraseMaskImageData, zip, binaryManifest, cache)) ?? colorCycleData.eraseMaskImageData;
   if (colorCycleData.recolorSettings) {
     colorCycleData.recolorSettings.indexBuffer =
-      await hydrateArchiveBinaryRef(colorCycleData.recolorSettings.indexBuffer, zip, cache);
+      await hydrateArchiveBinaryRef(colorCycleData.recolorSettings.indexBuffer, zip, binaryManifest, cache);
     colorCycleData.recolorSettings.indexPhaseMap =
-      await hydrateArchiveBinaryRef(colorCycleData.recolorSettings.indexPhaseMap, zip, cache);
+      await hydrateArchiveBinaryRef(colorCycleData.recolorSettings.indexPhaseMap, zip, binaryManifest, cache);
     colorCycleData.recolorSettings.phaseMap =
-      await hydrateArchiveBinaryRef(colorCycleData.recolorSettings.phaseMap, zip, cache);
+      await hydrateArchiveBinaryRef(colorCycleData.recolorSettings.phaseMap, zip, binaryManifest, cache);
     colorCycleData.recolorSettings.originalImageData =
-      (await hydrateArchiveTextRef(colorCycleData.recolorSettings.originalImageData, zip, cache))
+      (await hydrateArchiveTextRef(colorCycleData.recolorSettings.originalImageData, zip, binaryManifest, cache))
       ?? colorCycleData.recolorSettings.originalImageData;
   }
 
-  colorCycleData.gradientIdBuffer = await hydrateArchiveBinaryRef(colorCycleData.gradientIdBuffer, zip, cache);
-  colorCycleData.gradientDefIdBuffer = await hydrateArchiveBinaryRef(colorCycleData.gradientDefIdBuffer, zip, cache);
+  colorCycleData.gradientIdBuffer = await hydrateArchiveBinaryRef(colorCycleData.gradientIdBuffer, zip, binaryManifest, cache);
+  colorCycleData.gradientDefIdBuffer = await hydrateArchiveBinaryRef(colorCycleData.gradientDefIdBuffer, zip, binaryManifest, cache);
 
   if (colorCycleData.brushState?.layers?.length) {
     for (const snapshot of colorCycleData.brushState.layers) {
       if (snapshot.strokeData) {
-        snapshot.strokeData.paintBuffer = await hydrateArchiveBinaryRef(snapshot.strokeData.paintBuffer, zip, cache);
-        snapshot.strokeData.gradientIdBuffer = await hydrateArchiveBinaryRef(snapshot.strokeData.gradientIdBuffer, zip, cache);
-        snapshot.strokeData.gradientDefIdBuffer = await hydrateArchiveBinaryRef(snapshot.strokeData.gradientDefIdBuffer, zip, cache);
-        snapshot.strokeData.speedBuffer = await hydrateArchiveBinaryRef(snapshot.strokeData.speedBuffer, zip, cache);
-        snapshot.strokeData.flowBuffer = await hydrateArchiveBinaryRef(snapshot.strokeData.flowBuffer, zip, cache);
-        snapshot.strokeData.phaseBuffer = await hydrateArchiveBinaryRef(snapshot.strokeData.phaseBuffer, zip, cache);
+        snapshot.strokeData.paintBuffer = await hydrateArchiveBinaryRef(snapshot.strokeData.paintBuffer, zip, binaryManifest, cache);
+        snapshot.strokeData.gradientIdBuffer = await hydrateArchiveBinaryRef(snapshot.strokeData.gradientIdBuffer, zip, binaryManifest, cache);
+        snapshot.strokeData.gradientDefIdBuffer = await hydrateArchiveBinaryRef(snapshot.strokeData.gradientDefIdBuffer, zip, binaryManifest, cache);
+        snapshot.strokeData.speedBuffer = await hydrateArchiveBinaryRef(snapshot.strokeData.speedBuffer, zip, binaryManifest, cache);
+        snapshot.strokeData.flowBuffer = await hydrateArchiveBinaryRef(snapshot.strokeData.flowBuffer, zip, binaryManifest, cache);
+        snapshot.strokeData.phaseBuffer = await hydrateArchiveBinaryRef(snapshot.strokeData.phaseBuffer, zip, binaryManifest, cache);
       }
       if (snapshot.animator?.indexBuffer) {
-        snapshot.animator.indexBuffer.data = await hydrateArchiveBinaryRef(snapshot.animator.indexBuffer.data, zip, cache);
-        snapshot.animator.indexBuffer.gradientId = await hydrateArchiveBinaryRef(snapshot.animator.indexBuffer.gradientId, zip, cache);
-        snapshot.animator.indexBuffer.speedData = await hydrateArchiveBinaryRef(snapshot.animator.indexBuffer.speedData, zip, cache);
-        snapshot.animator.indexBuffer.flowData = await hydrateArchiveBinaryRef(snapshot.animator.indexBuffer.flowData, zip, cache);
-        snapshot.animator.indexBuffer.phaseData = await hydrateArchiveBinaryRef(snapshot.animator.indexBuffer.phaseData, zip, cache);
+        snapshot.animator.indexBuffer.data = await hydrateArchiveBinaryRef(snapshot.animator.indexBuffer.data, zip, binaryManifest, cache);
+        snapshot.animator.indexBuffer.gradientId = await hydrateArchiveBinaryRef(snapshot.animator.indexBuffer.gradientId, zip, binaryManifest, cache);
+        snapshot.animator.indexBuffer.speedData = await hydrateArchiveBinaryRef(snapshot.animator.indexBuffer.speedData, zip, binaryManifest, cache);
+        snapshot.animator.indexBuffer.flowData = await hydrateArchiveBinaryRef(snapshot.animator.indexBuffer.flowData, zip, binaryManifest, cache);
+        snapshot.animator.indexBuffer.phaseData = await hydrateArchiveBinaryRef(snapshot.animator.indexBuffer.phaseData, zip, binaryManifest, cache);
       }
     }
   }
 };
 
 // Deserialize a project from saved data
-export async function deserializeProject(projectData: ProjectFileData): Promise<Project> {
+export async function deserializeProjectWithReport(projectData: ProjectFileData): Promise<DeserializedProjectResult> {
   const projectBytes = await toProjectDataBytes(projectData);
   let archiveZip: JSZip | null = null;
   let projectJson: string;
@@ -3462,16 +3550,20 @@ export async function deserializeProject(projectData: ProjectFileData): Promise<
     projectJson = await decodeProjectData(projectData);
   }
   const vesselProject = parseVesselProjectJson(projectJson);
-  
-  // TODO: Add version migration logic here if needed
-  
   const serializedProject = vesselProject.project;
-  
+  const migration = migrateLegacyProjectLayers(serializedProject.layers, {
+    projectWidth: serializedProject.width,
+    projectHeight: serializedProject.height,
+  });
+
   // Deserialize layers
   const archiveCache = new Map<string, string>();
+  const binaryManifest = new Map(
+    (vesselProject.binaries?.entries ?? []).map((entry) => [entry.path, entry] as const)
+  );
   const layers = await Promise.all(
-    serializedProject.layers.map(async (layer) => {
-      await hydrateSerializedLayerArchiveRefs(layer, archiveZip, archiveCache);
+    migration.layers.map(async (layer) => {
+      await hydrateSerializedLayerArchiveRefs(layer, archiveZip, binaryManifest, archiveCache);
       return deserializeLayer(layer, serializedProject.width, serializedProject.height);
     })
   );
@@ -3496,6 +3588,8 @@ export async function deserializeProject(projectData: ProjectFileData): Promise<
   
   
   return {
+    migration: migration.summary,
+    project: {
     id: serializedProject.id,
     name: serializedProject.name,
     width: serializedProject.width,
@@ -3519,7 +3613,13 @@ export async function deserializeProject(projectData: ProjectFileData): Promise<
           displayFilters: sanitizeDisplayFilters(serializedProject.viewState.displayFilters),
         }
       : undefined,
+    },
   };
+}
+
+export async function deserializeProject(projectData: ProjectFileData): Promise<Project> {
+  const result = await deserializeProjectWithReport(projectData);
+  return result.project;
 }
 
 // Save project to file using File System Access API with fallback
@@ -3613,6 +3713,7 @@ export async function saveProjectToFile(
 // Load project from file
 export async function loadProjectFromFile(): Promise<{
   project: Project;
+  migration?: ProjectLegacyMigrationSummary;
   fileName?: string;
   fileHandle?: FileSystemFileHandle | null;
 }> {
@@ -3637,12 +3738,12 @@ export async function loadProjectFromFile(): Promise<{
       
       const file = await fileHandle.getFile();
       const projectData = await file.arrayBuffer();
-      const project = await deserializeProject(projectData);
+      const result = await deserializeProjectWithReport(projectData);
       console.log('[projectIO] loadProjectFromFile: using File System Access handle', {
         fileName: file.name,
         handleName: fileHandle.name,
       });
-      return { project, fileName: file.name, fileHandle };
+      return { project: result.project, migration: result.migration, fileName: file.name, fileHandle };
     } catch {
       // User cancelled or API not supported, fall back to file input
     }
@@ -3663,11 +3764,11 @@ export async function loadProjectFromFile(): Promise<{
       
       try {
         const projectData = await file.arrayBuffer();
-        const project = await deserializeProject(projectData);
+        const result = await deserializeProjectWithReport(projectData);
         console.log('[projectIO] loadProjectFromFile: using file input fallback', {
           fileName: file.name,
         });
-        resolve({ project, fileName: file.name, fileHandle: null });
+        resolve({ project: result.project, migration: result.migration, fileName: file.name, fileHandle: null });
       } catch (error) {
         reject(error);
       }
@@ -3711,10 +3812,13 @@ export async function restoreColorCycleBrushes(
   for (const layer of layers) {
     if (layer.layerType === 'color-cycle' && layer.colorCycleData) {
       if (shouldDeferColorCycleRuntimeRestore(layer, options)) {
-        layer.colorCycleData.deferredRuntimeRestore = true;
+        layer.colorCycleData = setColorCycleHydrationState(layer.colorCycleData, 'cold');
         continue;
       }
-      layer.colorCycleData.deferredRuntimeRestore = false;
+      layer.colorCycleData = setColorCycleHydrationState(
+        layer.colorCycleData,
+        options?.activeLayerId === layer.id ? 'active' : 'warm',
+      );
       const savedBrushState = getSavedColorCycleBrushState(layer);
       if (savedBrushState) {
         const canvasWidth = layer.colorCycleData.canvas?.width ?? 0;

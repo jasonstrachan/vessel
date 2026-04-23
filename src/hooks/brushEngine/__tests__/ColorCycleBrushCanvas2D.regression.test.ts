@@ -290,6 +290,51 @@ describe('ColorCycleBrushCanvas2D regression tests', () => {
     expect(Array.from(animator?.defIdData ?? [])).toEqual([defId, defId, 0, 0]);
   });
 
+  it('preserves slot palette seam profiles during serialize when defs are absent', () => {
+    const state = useAppStore.getState() as unknown as MockStoreState & {
+      layers: Array<Record<string, unknown>>;
+    };
+    const layerId = 'layer-palette-seam-only';
+    const slot = 2;
+
+    state.layers = [
+      {
+        id: layerId,
+        layerType: 'color-cycle',
+        colorCycleData: {
+          gradientDefs: [{ id: 'gradient-1', currentSlot: slot }],
+          slotPalettes: [
+            {
+              slot,
+              stops: [
+                { position: 0, color: '#222222' },
+                { position: 1, color: '#dddddd' },
+              ],
+              seamProfile: 'soft',
+            },
+          ],
+          gradientDefStore: [],
+          nextGradientDefId: 2,
+          paintSlot: slot,
+        },
+      },
+    ];
+
+    const brush = new ColorCycleBrushCanvas2D(makeCanvas(4, 1), { forceCanvas2D: true });
+    brush.applyLayerSnapshot(layerId, {
+      paintBuffer: new Uint8Array([1, 1, 0, 0]).buffer,
+      gradientIdBuffer: new Uint8Array([slot, slot, 0, 0]).buffer,
+      gradientDefIdBuffer: new Uint16Array([0, 0, 0, 0]).buffer,
+      speedBuffer: new Uint8Array([32, 32, 0, 0]).buffer,
+      flowBuffer: new Uint8Array([1, 1, 0, 0]).buffer,
+      hasContent: true,
+      strokeCounter: 2,
+    });
+
+    const serialized = brush.serialize();
+    expect(serialized.layers[0]?.slotPalettes?.[0]?.seamProfile).toBe('soft');
+  });
+
   it('keeps finalized sampled shapes stable across a second sampled commit and serialize/deserialize after a tight ROI', () => {
     const layerId = 'layer-sampled-shape-stability';
     const canvas = makeCanvas(4, 1);

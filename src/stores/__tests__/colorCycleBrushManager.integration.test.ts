@@ -1,7 +1,13 @@
-import { createColorCycleBrushManager, disposeColorCycleBrushManager, getColorCycleBrushManager } from '@/stores/colorCycleBrushManager';
+import {
+  createColorCycleBrushManager,
+  disposeColorCycleBrushManager,
+  getColorCycleBrushManager,
+  setColorCycleStoreStateGetter,
+} from '@/stores/colorCycleBrushManager';
 import { refreshLayerCCSurface } from '@/hooks/useBrushEngineSimplified';
 import type { AppState } from '@/stores/useAppStore';
 import type { Layer } from '@/types';
+import { defaultBrushSettings } from '@/presets/brushPresets';
 
 type MockBrush = ReturnType<typeof createMockBrush>;
 
@@ -64,7 +70,14 @@ const mockLayer = ({
 } as unknown) as Layer;
 
 const mockStoreState = {
+  tools: {
+    brushSettings: defaultBrushSettings,
+  },
   layers: [mockLayer],
+  colorCyclePlayback: {
+    playbackSpeedScale: 1,
+  },
+  getLayerColorCycleBrush: jest.fn(() => null),
   updateLayer: mockUpdateLayer,
 } as unknown as AppState;
 
@@ -92,6 +105,8 @@ describe('colorCycleBrushManager integration', () => {
   beforeEach(() => {
     createdBrushes.length = 0;
     mockUpdateLayer.mockClear();
+    mockStoreState.layers = [mockLayer];
+    setColorCycleStoreStateGetter(() => mockStoreState as unknown as Pick<AppState, 'tools' | 'layers' | 'colorCyclePlayback' | 'getLayerColorCycleBrush'>);
   });
 
   afterEach(() => {
@@ -128,6 +143,88 @@ describe('colorCycleBrushManager integration', () => {
 
     manager.cleanupInactive(60_000);
     expect(manager.getBrush('layer-1')).toBeUndefined();
+  });
+
+  it('cleans up stale warm-layer runtimes even when the layer still has a canvas reference', () => {
+    const manager = createColorCycleBrushManager();
+    manager.initColorCycleForLayer('layer-a', 16, 16);
+
+    mockStoreState.layers = [{
+      ...mockLayer,
+      id: 'layer-a',
+      colorCycleData: {
+        ...mockLayer.colorCycleData,
+        canvas: document.createElement('canvas'),
+        runtimeHydrationState: 'warm',
+        isAnimating: false,
+      },
+    }] as unknown as Layer[];
+
+    const metadata = manager.brushMetadata.get('layer-a');
+    expect(metadata).toBeDefined();
+    if (metadata) {
+      metadata.lastUsed = Date.now() - 120_000;
+      metadata.isActive = false;
+    }
+
+    manager.cleanupInactive(60_000);
+    expect(manager.getBrush('layer-a')).toBeUndefined();
+  });
+
+  it('rebuilds a disposed warm runtime on the next init request', () => {
+    const manager = createColorCycleBrushManager();
+    manager.initColorCycleForLayer('layer-a', 16, 16);
+    const firstBrush = manager.getBrush('layer-a');
+
+    mockStoreState.layers = [{
+      ...mockLayer,
+      id: 'layer-a',
+      colorCycleData: {
+        ...mockLayer.colorCycleData,
+        canvas: document.createElement('canvas'),
+        runtimeHydrationState: 'warm',
+        isAnimating: false,
+      },
+    }] as unknown as Layer[];
+
+    const metadata = manager.brushMetadata.get('layer-a');
+    if (metadata) {
+      metadata.lastUsed = Date.now() - 120_000;
+      metadata.isActive = false;
+    }
+
+    manager.cleanupInactive(60_000);
+    expect(manager.getBrush('layer-a')).toBeUndefined();
+
+    expect(manager.initColorCycleForLayer('layer-a', 16, 16)).toBe(true);
+    const rebuiltBrush = manager.getBrush('layer-a');
+    expect(rebuiltBrush).toBeDefined();
+    expect(rebuiltBrush).not.toBe(firstBrush);
+  });
+
+  it('preserves stale active-layer runtimes during inactive cleanup', () => {
+    const manager = createColorCycleBrushManager();
+    manager.initColorCycleForLayer('layer-a', 16, 16);
+
+    mockStoreState.layers = [{
+      ...mockLayer,
+      id: 'layer-a',
+      colorCycleData: {
+        ...mockLayer.colorCycleData,
+        canvas: document.createElement('canvas'),
+        runtimeHydrationState: 'active',
+        isAnimating: false,
+      },
+    }] as unknown as Layer[];
+
+    const metadata = manager.brushMetadata.get('layer-a');
+    if (metadata) {
+      metadata.lastUsed = Date.now() - 120_000;
+      metadata.isActive = false;
+    }
+
+    manager.cleanupInactive(60_000);
+    expect(manager.getBrush('layer-a')).toBeDefined();
   });
 
   it('responds to feature-flag events by toggling canvas implementation', () => {

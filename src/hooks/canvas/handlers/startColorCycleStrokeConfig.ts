@@ -15,7 +15,11 @@ export const configureStartColorCycleStroke = ({
   debugLog: (message: string, payload?: Record<string, unknown>) => void;
 }): void => {
   const colorCycleBrushManager = getColorCycleBrushManager();
-  const colorCycleBrush = colorCycleBrushManager.getBrush(activeLayer.id);
+  const colorCycleBrush = (
+    typeof currentState.getLayerColorCycleBrush === 'function'
+      ? currentState.getLayerColorCycleBrush(activeLayer.id)
+      : null
+  ) ?? colorCycleBrushManager.getBrush(activeLayer.id);
   debugLog('[cc] stroke-start settings', {
     useForegroundGradient: currentState.tools.brushSettings.colorCycleUseForegroundGradient,
     fgStops: currentState.tools.brushSettings.colorCycleFgStops,

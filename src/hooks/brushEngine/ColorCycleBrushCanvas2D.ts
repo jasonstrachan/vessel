@@ -569,7 +569,9 @@ export class ColorCycleBrushCanvas2D {
       slotPalettes: colorCycleData.slotPalettes?.map((entry) => ({
         slot: entry.slot,
         stops: entry.stops.map((stop) => ({ ...stop })),
-        seamProfile: seamProfileBySlot.get(entry.slot),
+        seamProfile: (
+          entry as { slot: number; seamProfile?: GradientSeamProfile }
+        ).seamProfile ?? seamProfileBySlot.get(entry.slot),
       })),
       gradientDefStore: colorCycleData.gradientDefStore?.map((entry) => ({
         id: entry.id,
@@ -622,18 +624,49 @@ export class ColorCycleBrushCanvas2D {
     if (!persisted) {
       return fromStore;
     }
+    const preferNonEmptyArray = <T,>(primary: T[] | undefined, fallback: T[] | undefined): T[] | undefined => {
+      if (primary && primary.length > 0) {
+        return primary;
+      }
+      return fallback;
+    };
+    const gradientDefs = preferNonEmptyArray(fromStore.gradientDefs, persisted.gradientDefs);
+    const slotPalettes = preferNonEmptyArray(fromStore.slotPalettes, persisted.slotPalettes);
+    const gradientDefStore = preferNonEmptyArray(fromStore.gradientDefStore, persisted.gradientDefStore);
+    const hasSlot = (slot: number | undefined): boolean => {
+      if (typeof slot !== 'number') {
+        return false;
+      }
+      return Boolean(
+        slotPalettes?.some((entry) => entry.slot === slot)
+        || gradientDefs?.some((entry) => entry.currentSlot === slot)
+        || gradientDefStore?.some((entry) => entry.slot === slot)
+      );
+    };
+    const activeGradientId = typeof fromStore.activeGradientId === 'string'
+      && fromStore.activeGradientId.length > 0
+      && (gradientDefs?.some((entry) => entry.id === fromStore.activeGradientId) ?? false)
+      ? fromStore.activeGradientId
+      : persisted.activeGradientId;
+    const paintSlot = hasSlot(fromStore.paintSlot)
+      ? fromStore.paintSlot
+      : persisted.paintSlot;
+    const nextGradientDefId = Math.max(
+      fromStore.nextGradientDefId ?? 0,
+      persisted.nextGradientDefId ?? 0,
+    ) || undefined;
     return {
-      gradientDefs: fromStore.gradientDefs ?? persisted.gradientDefs,
-      slotPalettes: fromStore.slotPalettes ?? persisted.slotPalettes,
-      gradientDefStore: fromStore.gradientDefStore ?? persisted.gradientDefStore,
-      nextGradientDefId: fromStore.nextGradientDefId ?? persisted.nextGradientDefId,
-      paintSlot: fromStore.paintSlot ?? persisted.paintSlot,
+      gradientDefs,
+      slotPalettes,
+      gradientDefStore,
+      nextGradientDefId,
+      paintSlot,
       legacyRemap: fromStore.legacyRemap ?? persisted.legacyRemap,
       fgActiveSlot: fromStore.fgActiveSlot ?? persisted.fgActiveSlot,
       fgDerivedKey: fromStore.fgDerivedKey ?? persisted.fgDerivedKey,
       fgDerivedGradients: fromStore.fgDerivedGradients ?? persisted.fgDerivedGradients,
       derivedGradients: fromStore.derivedGradients ?? persisted.derivedGradients,
-      activeGradientId: fromStore.activeGradientId ?? persisted.activeGradientId,
+      activeGradientId,
     };
   }
 
