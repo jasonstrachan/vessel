@@ -570,6 +570,35 @@ describe('BrushControls – Color Cycle stroke essentials', () => {
     expect(slider.disabled).toBe(true);
   });
 
+  it('does not force stamp dither resolution back to 6 when enabling pressure-linked mode', async () => {
+    const user = userEvent.setup();
+    useAppStore.setState((state) => ({
+      ...state,
+      tools: {
+        ...state.tools,
+        brushSettings: {
+          ...state.tools.brushSettings,
+          colorCycleStampDitherEnabled: true,
+          colorCycleStampDitherPixelSize: 4,
+          colorCycleStampDitherPressureLinked: false,
+        },
+      },
+    }));
+
+    render(<BrushControls />);
+
+    const toggle = document.getElementById('stamp-dither-pressure-linked-color-cycle') as HTMLInputElement | null;
+    expect(toggle).not.toBeNull();
+    if (!toggle) {
+      throw new Error('stamp dither pressure-linked toggle not found');
+    }
+    await user.click(toggle);
+
+    const active = useAppStore.getState().tools.brushSettings;
+    expect(active.colorCycleStampDitherPressureLinked).toBe(true);
+    expect(active.colorCycleStampDitherPixelSize).toBe(4);
+  });
+
   it('exposes dashed toggle for color cycle stroke', async () => {
     const user = userEvent.setup();
     render(<BrushControls />);

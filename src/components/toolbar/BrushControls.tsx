@@ -2394,16 +2394,9 @@ const BrushControls = () => {
                     id="stamp-dither-pressure-linked-color-cycle"
                     checked={Boolean(activeSettings.colorCycleStampDitherPressureLinked)}
                     onChange={(checked) => {
-                      const nextSettings: Partial<BrushSettings> = {
+                      setActiveSettings({
                         colorCycleStampDitherPressureLinked: checked,
-                      };
-                      if (checked) {
-                        const current = activeSettings.colorCycleStampDitherPixelSize ?? 1;
-                        if (current <= 1) {
-                          nextSettings.colorCycleStampDitherPixelSize = 6;
-                        }
-                      }
-                      setActiveSettings(nextSettings);
+                      });
                     }}
                   />
                 </div>
