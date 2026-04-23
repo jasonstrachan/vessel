@@ -43,7 +43,7 @@ beforeAll(() => {
     Object.defineProperty(HTMLCanvasElement.prototype, 'toBlob', {
       configurable: true,
       writable: true,
-      value: function toBlob(callback: BlobCallback, type?: string, quality?: number): void {
+      value: function toBlob(callback: BlobCallback, type?: string): void {
         const mime = type ?? 'image/png';
         const blob = new Blob([''], { type: mime });
         setTimeout(() => callback(blob), 0);
@@ -238,6 +238,54 @@ const createBrushModeLayer = (canvas: HTMLCanvasElement): Layer => {
     },
     version: 1
   };
+};
+
+const createBrushModeLayerWithStrippedAnimatorPayload = (canvas: HTMLCanvasElement): Layer => {
+  const layer = createBrushModeLayer(canvas);
+  const strippedPaint = new Uint8Array(Array.from({ length: 64 }, (_, idx) => (idx % 8) + 1));
+  const strippedGradientIds = new Uint8Array(Array.from({ length: 64 }, (_, idx) => idx % 3));
+
+  layer.colorCycleData = {
+    ...layer.colorCycleData!,
+    colorCycleBrush: {
+      serialize: () => ({
+        layers: [
+          {
+            layerId: layer.id,
+            data: {
+              indexBuffer: {
+                width: 8,
+                height: 8,
+                data: new Uint8Array(0),
+                gradientId: new Uint8Array(0),
+              },
+              gradient: {
+                gradientStops: layer.colorCycleData?.gradient ?? [],
+              },
+              animation: {
+                offset: 2,
+                stats: {
+                  targetFPS: 24,
+                },
+              },
+            },
+            strokeData: {
+              paintBuffer: strippedPaint.buffer.slice(0),
+              gradientIdBuffer: strippedGradientIds.buffer.slice(0),
+            },
+          },
+        ],
+        cycleSpeed: 0.35,
+        fps: 24,
+        brushSize: 14,
+      }),
+      commitCurrentStroke: jest.fn(),
+      getCanvas: () => canvas,
+      isPlaying: () => true,
+    } as unknown as Layer['colorCycleData']['colorCycleBrush'],
+  };
+
+  return layer;
 };
 
 const createForegroundDerivedLayer = (canvas: HTMLCanvasElement): {
@@ -478,6 +526,40 @@ describe('exportProjectAsWebGL color cycle integration', () => {
     expect(exportedLayer.colorCycle?.recolorSettings).toBeDefined();
     expect(exportedLayer.colorCycle?.recolorSettings?.indexBuffer).toBeDefined();
     expect(exportedLayer.colorCycle?.recolorSettings?.gradient).toHaveLength(3);
+  });
+
+  it('sizes recolor exports from the recolor surface instead of the framebuffer', async () => {
+    const canvas = document.createElement('canvas');
+    canvas.width = 128;
+    canvas.height = 128;
+
+    const layer = createColorCycleLayer(canvas);
+    layer.colorCycleData!.canvasWidth = 4;
+    layer.colorCycleData!.canvasHeight = 4;
+
+    const project = createProject(layer);
+    const layout = createDefaultExportLayout();
+
+    const metadata = await exportProjectAsWebGL({
+      project,
+      layers: [layer],
+      layout,
+      viewport: { designWidth: project.width, designHeight: project.height, mode: 'fixed' },
+      fps: 30,
+      totalFrames: 60,
+      durationSeconds: 2,
+      perfectLoop: false,
+      includeHiddenLayers: true,
+      embedCanvasFallback: false,
+      minify: false,
+      filenameBase: 'color-cycle-recolor-size-export',
+      bundleFormat: 'json'
+    });
+
+    const exportedLayer = metadata.layers[0];
+    expect(exportedLayer.source).toEqual({ width: 4, height: 4 });
+    expect(exportedLayer.colorCycle?.recolorSettings?.width).toBe(4);
+    expect(exportedLayer.colorCycle?.recolorSettings?.height).toBe(4);
   });
 
   it('serializes brush state metadata for brush-mode color-cycle layers', async () => {
@@ -761,6 +843,95 @@ describe('exportProjectAsWebGL color cycle integration', () => {
     const speedBySlot = new Map(slotSpeeds.map((entry) => [entry.slot, entry.speed]));
     expect(speedBySlot.get(0)).toBeCloseTo(0.25, 5);
     expect(speedBySlot.get(1)).toBeCloseTo(0.5, 5);
+  });
+
+  it('exports brush payloads from live strokeData when animator buffers are intentionally stripped', async () => {
+    const canvas = document.createElement('canvas');
+    canvas.width = 128;
+    canvas.height = 128;
+
+    const layer = createBrushModeLayerWithStrippedAnimatorPayload(canvas);
+    const project = createProject(layer);
+    const layout = createDefaultExportLayout();
+
+    const metadata = await exportProjectAsWebGL({
+      project,
+      layers: [layer],
+      layout,
+      viewport: { designWidth: project.width, designHeight: project.height, mode: 'fixed' },
+      fps: 24,
+      totalFrames: 48,
+      durationSeconds: 2,
+      perfectLoop: false,
+      includeHiddenLayers: true,
+      embedCanvasFallback: false,
+      minify: false,
+      filenameBase: 'color-cycle-brush-strokedata-live',
+      bundleFormat: 'json',
+      gobletVersion: 'goblet2'
+    });
+
+    const brushState = metadata.layers[0].colorCycle?.brushState;
+    expect(brushState).toBeDefined();
+    expect(brushState?.width).toBe(8);
+    expect(brushState?.height).toBe(8);
+    expect(brushState?.gradientIdBuffer).toEqual(Array.from(new Uint8Array(Array.from({ length: 64 }, (_, idx) => idx % 3))));
+    expect(brushState?.indexBuffer?.[0]).toBe(1);
+    expect(brushState?.indexBuffer?.[8]).toBe(1);
+  });
+
+  it('emits minified brushState metadata when live strokeData backs the export', async () => {
+    const canvas = document.createElement('canvas');
+    canvas.width = 128;
+    canvas.height = 128;
+
+    const layer = createBrushModeLayerWithStrippedAnimatorPayload(canvas);
+    const project = createProject(layer);
+
+    let capturedBlob: Blob | null = null;
+    (URL.createObjectURL as jest.Mock).mockImplementation((blob: Blob) => {
+      capturedBlob = blob;
+      return mockBlobUrl;
+    });
+
+    await exportProjectAsWebGL({
+      project,
+      layers: [layer],
+      layout: createDefaultExportLayout(),
+      viewport: { designWidth: project.width, designHeight: project.height, mode: 'fixed' },
+      fps: 24,
+      totalFrames: 48,
+      durationSeconds: 2,
+      perfectLoop: false,
+      includeHiddenLayers: true,
+      embedCanvasFallback: false,
+      minify: true,
+      filenameBase: 'color-cycle-brush-strokedata-live-min',
+      bundleFormat: 'json',
+      gobletVersion: 'goblet2'
+    });
+
+    expect(capturedBlob).not.toBeNull();
+    const minifiedJson = await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onerror = () => reject(reader.error ?? new Error('Failed to read blob'));
+      reader.onload = () => resolve(typeof reader.result === 'string' ? reader.result : '');
+      reader.readAsText(capturedBlob!);
+    });
+    const payload = JSON.parse(minifiedJson) as {
+      l?: Array<{ cc?: { bs?: { w?: number; h?: number; ib?: string; gib?: string } } }>;
+    };
+    const brushState = payload.l?.[0]?.cc?.bs;
+    expect(brushState?.w).toBe(8);
+    expect(brushState?.h).toBe(8);
+    expect(
+      typeof brushState?.ib === 'string' || Array.isArray(brushState?.ib)
+    ).toBe(true);
+    expect(
+      typeof brushState?.gib === 'string' || Array.isArray(brushState?.gib)
+    ).toBe(true);
+
+    (URL.createObjectURL as jest.Mock).mockImplementation(() => mockBlobUrl);
   });
 
   it('preserves 8-bit gradient id buffers during export', async () => {
