@@ -213,7 +213,7 @@ describe('global brush persistence', () => {
       brushSpecificSettings: {
         'color-cycle-stroke': {
           colorCycleStampDitherEnabled: true,
-          colorCycleStampDitherPixelSize: 6,
+          colorCycleStampDitherPixelSize: 4,
           colorCycleStampDitherPressureLinked: true,
           colorCycleStampDitherBgFill: false,
           colorCycleFlowMode: 'pingpong',
@@ -229,7 +229,7 @@ describe('global brush persistence', () => {
     store.setBrushPreset(colorCycleStrokeBrushPreset);
     const active = useAppStore.getState().tools.brushSettings;
     expect(active.colorCycleStampDitherEnabled).toBe(true);
-    expect(active.colorCycleStampDitherPixelSize).toBe(6);
+    expect(active.colorCycleStampDitherPixelSize).toBe(4);
     expect(active.colorCycleStampDitherPressureLinked).toBe(true);
     expect(active.colorCycleStampDitherBgFill).toBe(false);
     expect(active.colorCycleFlowMode).toBe('forward');
