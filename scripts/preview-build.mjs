@@ -9,7 +9,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 const require = createRequire(import.meta.url);
-const { stripLocalStorageFlag } = require('./node-options.cjs');
+const { normalizeNodeOptionsWithLocalStorage } = require('./node-options.cjs');
 const { createRuntimeLogger } = require('./runtime-logger.cjs');
 
 const logger = createRuntimeLogger('preview-build');
@@ -54,7 +54,11 @@ const shouldCopyPath = (source) => {
 
 const runBuild = async (cwd) => {
   const env = { ...process.env };
-  env.NODE_OPTIONS = stripLocalStorageFlag(env.NODE_OPTIONS);
+  env.NODE_OPTIONS = normalizeNodeOptionsWithLocalStorage({
+    nodeOptions: env.NODE_OPTIONS,
+    storagePath: env.LOCALSTORAGE_FILE_PATH,
+    scope: 'preview-build',
+  });
   env.NEXT_DIST_DIR = previewDistDirName;
 
   const nextBin = path.resolve(projectRoot, 'node_modules/next/dist/bin/next');

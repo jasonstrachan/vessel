@@ -14,7 +14,6 @@ import type { MarkGradientSession } from '@/hooks/canvas/utils/colorCycleMarkSes
 import { resolveMarkSessionRuntimeStops } from '@/hooks/canvas/utils/colorCycleMarkSession';
 import { stampCcHangProbe, type CcHangProbePhase } from '@/hooks/canvas/utils/ccHangProbe';
 import { TEMP_SAMPLE_SLOT } from '@/constants/colorCycle';
-import { ccLog } from '@/debug/ccDebug';
 import { ensureGradientDefForStops, hashStops, type StoredStop } from '@/utils/colorCycleGradientDefs';
 import type { GradientStop } from '@/hooks/brushEngine/ccGradientRuntime';
 import { logCCMutation, summarizeColorCycleLayer } from '@/utils/colorCycle/ccMutationAudit';
