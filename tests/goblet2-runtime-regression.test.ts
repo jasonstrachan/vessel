@@ -51,4 +51,12 @@ describe('Goblet 2 runtime export regression guard', () => {
     expect(runtime).toContain('this.legacyOffset01=wrap01(this.legacyOffset01+e*(this.legacySpeedCps||0))');
     expect(runtime).not.toContain('this.frameAccumulator+=e');
   });
+
+  it('sizes recolor playback from exported recolor dimensions in the module runtime', () => {
+    const runtime = read('public/goblet2/goblet2.js');
+
+    expect(runtime).toContain('Number.isFinite(recolorSettings?.width) ? recolorSettings.width : this.canvas.width');
+    expect(runtime).toContain('Number.isFinite(recolorSettings?.height) ? recolorSettings.height : this.canvas.height');
+    expect(runtime).toContain('this.canvas.width !== sourceWidth || this.canvas.height !== sourceHeight');
+  });
 });

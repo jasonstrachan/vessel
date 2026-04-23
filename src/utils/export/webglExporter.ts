@@ -77,8 +77,8 @@ const resolveRecolorSurfaceSize = (layer: Layer, project: Project): CoverageSize
   const width = resolveDimensionFromCandidates(
     [
       recolorImage?.width,
-      colorCycle?.canvas?.width,
       colorCycle?.canvasWidth,
+      colorCycle?.canvas?.width,
       project.width
     ],
     project.width
@@ -87,8 +87,8 @@ const resolveRecolorSurfaceSize = (layer: Layer, project: Project): CoverageSize
   const height = resolveDimensionFromCandidates(
     [
       recolorImage?.height,
-      colorCycle?.canvas?.height,
       colorCycle?.canvasHeight,
+      colorCycle?.canvas?.height,
       project.height
     ],
     project.height
@@ -345,7 +345,10 @@ interface WebGLSerializedColorCycle {
   speedMin?: number;
   speedMax?: number;
   isAnimating: boolean;
-  recolorSettings?: Record<string, unknown>;
+  recolorSettings?: Record<string, unknown> & {
+    width?: number;
+    height?: number;
+  };
   brushState?: WebGLSerializedBrushState;
   slotPalettes?: SerializedSlotPalette[];
   alphaMask?: WebGLSerializedAlphaMask;
@@ -2253,12 +2256,9 @@ const resolveColorCycleBrushInstance = (layer: Layer): { serialize?: () => unkno
 const serializeBrushState = (layer: Layer): WebGLSerializedBrushState | undefined => {
   const brush = resolveColorCycleBrushInstance(layer);
 
-  if (!brush?.serialize) {
-    return extractBrushStateFromSavedSnapshot(layer);
-  }
-
-  try {
-    const raw = brush.serialize() as {
+  if (brush?.serialize) {
+    try {
+      const raw = brush.serialize() as {
       layers?: Array<{
         layerId?: string;
         data?: {
@@ -2275,21 +2275,27 @@ const serializeBrushState = (layer: Layer): WebGLSerializedBrushState | undefine
             stats?: { targetFPS?: number };
           };
         };
+        strokeData?: {
+          paintBuffer?: unknown;
+          gradientIdBuffer?: unknown;
+          gradientDefIdBuffer?: unknown;
+          speedBuffer?: unknown;
+        };
       }>;
-    } | undefined;
+      } | undefined;
 
-    ccLog('serializeBrushState.raw', {
-      layerId: layer.id,
-      rawLayers: raw?.layers?.map((entry) => ({
-        id: entry?.layerId ?? null,
-        w: entry?.data?.indexBuffer?.width ?? null,
-        h: entry?.data?.indexBuffer?.height ?? null,
-        len: (entry?.data?.indexBuffer?.data as { length?: number } | undefined)?.length ?? null
-      })) ?? null
-    });
+      ccLog('serializeBrushState.raw', {
+        layerId: layer.id,
+        rawLayers: raw?.layers?.map((entry) => ({
+          id: entry?.layerId ?? null,
+          w: entry?.data?.indexBuffer?.width ?? null,
+          h: entry?.data?.indexBuffer?.height ?? null,
+          len: (entry?.data?.indexBuffer?.data as { length?: number } | undefined)?.length ?? null
+        })) ?? null
+      });
 
-    if (raw?.layers && raw.layers.length > 0) {
-      const directMatch = raw.layers.find((candidate) => candidate?.layerId === layer.id);
+      if (raw?.layers && raw.layers.length > 0) {
+        const directMatch = raw.layers.find((candidate) => candidate?.layerId === layer.id);
 
       type FallbackReason = 'default' | 'single' | 'dimensions' | 'density';
       let fallbackReason: FallbackReason | undefined;
@@ -2411,10 +2417,11 @@ const serializeBrushState = (layer: Layer): WebGLSerializedBrushState | undefine
 
       if (entry) {
         const indexBuffer = entry.data?.indexBuffer;
+        const strokeData = entry.strokeData;
+        const widthRaw = Number(indexBuffer?.width);
+        const heightRaw = Number(indexBuffer?.height);
         if (indexBuffer) {
           const ib = indexBuffer;
-          const widthRaw = Number(ib.width);
-          const heightRaw = Number(ib.height);
           const fallbackWidth = layer.imageData?.width ?? layer.colorCycleData?.canvas?.width ?? 1;
           const fallbackHeight = layer.imageData?.height ?? layer.colorCycleData?.canvas?.height ?? 1;
 
@@ -2453,94 +2460,149 @@ const serializeBrushState = (layer: Layer): WebGLSerializedBrushState | undefine
 
             if (indexArray.length === 0) {
               console.warn(`[webglExporter] Brush serialize() returned an empty index buffer for layer ${layer.id}`);
-              return undefined;
-            }
+            } else {
+              if (gobletDiagnosticsActive) {
+                const totalLength = indexArray.length;
+                const uniqueValues = new Set(indexArray);
+                const firstNonZeroIndex = indexArray.findIndex((value) => value !== 0);
+                gobletDebugLog('[webglExporter] Brush serialize() index analysis', {
+                  layerId: layer.id,
+                  totalLength,
+                  nonZeroCount: indexArray.filter((value) => value !== 0).length,
+                  uniqueValues: Array.from(uniqueValues).slice(0, 20),
+                  firstNonZeroIndex,
+                  startSample: indexArray.slice(0, 16),
+                  endSample: indexArray.slice(totalLength > 16 ? totalLength - 16 : 0)
+                });
+              }
 
-            if (gobletDiagnosticsActive) {
-              const totalLength = indexArray.length;
-              const uniqueValues = new Set(indexArray);
-              const firstNonZeroIndex = indexArray.findIndex((value) => value !== 0);
-              gobletDebugLog('[webglExporter] Brush serialize() index analysis', {
-                layerId: layer.id,
-                totalLength,
-                nonZeroCount: indexArray.filter((value) => value !== 0).length,
-                uniqueValues: Array.from(uniqueValues).slice(0, 20),
-                firstNonZeroIndex,
-                startSample: indexArray.slice(0, 16),
-                endSample: indexArray.slice(totalLength > 16 ? totalLength - 16 : 0)
-              });
-            }
+              const width = Math.max(1, Math.round(Number.isFinite(widthRaw) ? widthRaw : fallbackWidth));
+              const height = Math.max(1, Math.round(Number.isFinite(heightRaw) ? heightRaw : fallbackHeight));
+              const gradientStops = toSerializableGradientStops(
+                entry.data?.gradient?.gradientStops as Array<{ position?: number; color?: string }> | undefined,
+                layer.colorCycleData?.gradient ?? []
+              );
+              const gradientIdValues = toSerializableNumberArray(ib.gradientId);
+              const gradientIdBuffer = gradientIdValues.length > 0 ? gradientIdValues : undefined;
+              const speedValues = toSerializableNumberArray((ib as { speedData?: unknown }).speedData);
+              const speedBuffer = speedValues.length > 0 ? speedValues : undefined;
+              const animationOffset = typeof entry.data?.animation?.offset === 'number'
+                ? entry.data.animation.offset
+                : 0;
+              const targetFPS = typeof entry.data?.animation?.stats?.targetFPS === 'number'
+                ? entry.data.animation.stats.targetFPS
+                : undefined;
+              const paletteValues = ib.palette ? toSerializablePaletteArray(ib.palette) : undefined;
+              const palette = paletteValues && paletteValues.length > 0 ? paletteValues : undefined;
 
-            const width = Math.max(1, Math.round(Number.isFinite(widthRaw) ? widthRaw : fallbackWidth));
-            const height = Math.max(1, Math.round(Number.isFinite(heightRaw) ? heightRaw : fallbackHeight));
-            const gradientStops = toSerializableGradientStops(
-              entry.data?.gradient?.gradientStops as Array<{ position?: number; color?: string }> | undefined,
-              layer.colorCycleData?.gradient ?? []
-            );
-            const gradientIdValues = toSerializableNumberArray(ib.gradientId);
-            const gradientIdBuffer = gradientIdValues.length > 0 ? gradientIdValues : undefined;
-            const speedValues = toSerializableNumberArray((ib as { speedData?: unknown }).speedData);
-            const speedBuffer = speedValues.length > 0 ? speedValues : undefined;
-            const animationOffset = typeof entry.data?.animation?.offset === 'number'
-              ? entry.data.animation.offset
-              : 0;
-            const targetFPS = typeof entry.data?.animation?.stats?.targetFPS === 'number'
-              ? entry.data.animation.stats.targetFPS
-              : undefined;
-            const paletteValues = ib.palette ? toSerializablePaletteArray(ib.palette) : undefined;
-            const palette = paletteValues && paletteValues.length > 0 ? paletteValues : undefined;
+              const result: WebGLSerializedBrushState = {
+                width,
+                height,
+                indexBuffer: indexArray,
+                gradientIdBuffer,
+                speedBuffer,
+                gradientStops,
+                palette,
+                animationOffset,
+                targetFPS
+              };
 
-            const result: WebGLSerializedBrushState = {
-              width,
-              height,
-              indexBuffer: indexArray,
-              gradientIdBuffer,
-              speedBuffer,
-              gradientStops,
-              palette,
-              animationOffset,
-              targetFPS
-            };
+              const animationData = entry.data?.animation as { flowDirection?: unknown; stats?: { flowDirection?: unknown } } | undefined;
+              const serializedDirection = normalizeBrushFlowDirection(animationData?.flowDirection)
+                ?? normalizeBrushFlowDirection(animationData?.stats?.flowDirection);
+              const flowDirection = serializedDirection
+                ?? detectBrushFlowDirection(brush, layer.id);
 
-            const animationData = entry.data?.animation as { flowDirection?: unknown; stats?: { flowDirection?: unknown } } | undefined;
-            const serializedDirection = normalizeBrushFlowDirection(animationData?.flowDirection)
-              ?? normalizeBrushFlowDirection(animationData?.stats?.flowDirection);
-            const flowDirection = serializedDirection
-              ?? detectBrushFlowDirection(brush, layer.id);
+              if (flowDirection) {
+                result.flowDirection = flowDirection;
+              }
 
-            if (flowDirection) {
-              result.flowDirection = flowDirection;
-            }
+              result.alphaMode = 'opaque-indices';
 
-            result.alphaMode = 'opaque-indices';
+              if (gobletDiagnosticsActive) {
+                gobletDebugLog('[webglExporter] Brush serialize() final state', {
+                  layerId: layer.id,
+                  width,
+                  height,
+                  indices: indexArray.length,
+                  gradientStops: gradientStops.length,
+                  paletteSize: palette?.length ?? null,
+                  targetFPS
+                });
+              }
 
-            if (gobletDiagnosticsActive) {
-              gobletDebugLog('[webglExporter] Brush serialize() final state', {
+              ccLog('serializeBrushState.done', {
                 layerId: layer.id,
                 width,
                 height,
-                indices: indexArray.length,
-                gradientStops: gradientStops.length,
-                paletteSize: palette?.length ?? null,
-                targetFPS
+                idxLen: indexArray.length,
+                idxSample: ccSample(indexArray, 12)
               });
+
+              return result;
             }
-
-            ccLog('serializeBrushState.done', {
-              layerId: layer.id,
-              width,
-              height,
-              idxLen: indexArray.length,
-              idxSample: ccSample(indexArray, 12)
-            });
-
-            return result;
           }
         }
+
+        const strokeIndexBuffer = decodePersistedNumericBuffer(strokeData?.paintBuffer);
+        if (strokeIndexBuffer.length > 0) {
+          const fallbackWidth = Number.isFinite(widthRaw)
+            ? widthRaw
+            : (layer.imageData?.width ?? layer.colorCycleData?.canvasWidth ?? layer.colorCycleData?.canvas?.width ?? 1);
+          const fallbackHeight = Number.isFinite(heightRaw)
+            ? heightRaw
+            : (layer.imageData?.height ?? layer.colorCycleData?.canvasHeight ?? layer.colorCycleData?.canvas?.height ?? 1);
+          const width = Math.max(1, Math.round(Number.isFinite(fallbackWidth) ? fallbackWidth : 1));
+          const height = Math.max(1, Math.round(Number.isFinite(fallbackHeight) ? fallbackHeight : 1));
+          const gradientStops = toSerializableGradientStops(
+            entry.data?.gradient?.gradientStops as Array<{ position?: number; color?: string }> | undefined,
+            layer.colorCycleData?.gradient ?? []
+          );
+          const gradientIdValues = decodePersistedNumericBuffer(strokeData?.gradientIdBuffer);
+          const gradientDefIdValues = decodePersistedDefIdBuffer(
+            strokeData?.gradientDefIdBuffer ?? layer.colorCycleData?.gradientDefIdBuffer
+          );
+          const speedValues = decodePersistedNumericBuffer(strokeData?.speedBuffer);
+          const animationOffset = typeof entry.data?.animation?.offset === 'number'
+            ? entry.data.animation.offset
+            : 0;
+          const targetFPS = typeof entry.data?.animation?.stats?.targetFPS === 'number'
+            ? entry.data.animation.stats.targetFPS
+            : undefined;
+
+          const result: WebGLSerializedBrushState = {
+            width,
+            height,
+            indexBuffer: strokeIndexBuffer,
+            gradientIdBuffer: gradientIdValues.length > 0 ? gradientIdValues : undefined,
+            gradientDefIdBuffer: gradientDefIdValues.length > 0 ? gradientDefIdValues : undefined,
+            speedBuffer: speedValues.length > 0 ? speedValues : undefined,
+            gradientStops,
+            animationOffset,
+            targetFPS,
+            alphaMode: 'opaque-indices'
+          };
+
+          const flowDirection = detectBrushFlowDirection(brush, layer.id);
+          if (flowDirection) {
+            result.flowDirection = flowDirection;
+          }
+
+          ccLog('serializeBrushState.strokeDataFallback', {
+            layerId: layer.id,
+            width,
+            height,
+            idxLen: strokeIndexBuffer.length,
+            idxSample: ccSample(strokeIndexBuffer, 12)
+          });
+
+          return result;
+        }
       }
+      }
+    } catch (error) {
+      console.warn('[webglExporter] Failed to serialize brush color cycle state for layer', layer.id, error);
     }
-  } catch (error) {
-    console.warn('[webglExporter] Failed to serialize brush color cycle state for layer', layer.id, error);
   }
 
   const propertyState = extractBrushStateFromBrushProperties(brush, layer);
@@ -3018,6 +3080,8 @@ const serializeColorCycleData = async (
     });
   }
 
+  const recolorSurface = data.recolorSettings ? resolveRecolorSurfaceSize(layer, project) : undefined;
+
   if (data.recolorSettings) {
     const { recolorSettings } = data;
     const animation = { ...recolorSettings.animation };
@@ -3040,6 +3104,8 @@ const serializeColorCycleData = async (
     const serializedPhaseMap = await packNumericArrayForExport(recolorSettings.phaseMap ?? undefined);
 
     serialized.recolorSettings = {
+      width: recolorSurface!.width,
+      height: recolorSurface!.height,
       quantizationMode: recolorSettings.quantizationMode,
       ditherMode: recolorSettings.ditherMode,
       animation,
@@ -3069,8 +3135,6 @@ const serializeColorCycleData = async (
       }));
     }
   }
-
-  const recolorSurface = data.recolorSettings ? resolveRecolorSurfaceSize(layer, project) : undefined;
 
   const maskDimensions = brushState
     ? { width: brushState.width, height: brushState.height }
@@ -4586,6 +4650,17 @@ export const exportProjectAsWebGL = async (
       surfaceSize.width = Math.max(surfaceSize.width, Math.max(1, brushRuntime.width));
       surfaceSize.height = Math.max(surfaceSize.height, Math.max(1, brushRuntime.height));
     }
+    const recolorRuntime = colorCycle?.recolorSettings;
+    if (recolorRuntime) {
+      const recolorWidth = toNum(recolorRuntime.width, NaN);
+      const recolorHeight = toNum(recolorRuntime.height, NaN);
+      if (Number.isFinite(recolorWidth) && recolorWidth > 0) {
+        surfaceSize.width = Math.max(1, recolorWidth);
+      }
+      if (Number.isFinite(recolorHeight) && recolorHeight > 0) {
+        surfaceSize.height = Math.max(1, recolorHeight);
+      }
+    }
 
     const needsSyntheticTexture = Boolean(
       brushRuntime && (!texture || originalSurfaceSize.width <= 1 || originalSurfaceSize.height <= 1)
@@ -5138,6 +5213,7 @@ export const __TESTING__ = {
   buildSequentialExportPlayback,
   captureSequentialLayerFrameTextures,
   extractBrushStateFromSavedSnapshot,
+  serializeBrushState,
   resolveDefBoundSlotPalettes,
   normalizeCanvasSurfaceForExport,
 };

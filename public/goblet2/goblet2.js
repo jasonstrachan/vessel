@@ -3742,11 +3742,17 @@ class ColorCycleLayerPlayer {
 
   async initializeRecolorMode(colorCycle, recolorSettings) {
     this.mode = colorCycle.mode ?? 'recolor';
-    const sourceWidth = this.canvas.width;
-    const sourceHeight = this.canvas.height;
+    const sourceWidth = Math.max(
+      1,
+      Math.round(Number.isFinite(recolorSettings?.width) ? recolorSettings.width : this.canvas.width)
+    );
+    const sourceHeight = Math.max(
+      1,
+      Math.round(Number.isFinite(recolorSettings?.height) ? recolorSettings.height : this.canvas.height)
+    );
     const width = Math.max(1, Math.round(sourceWidth * this.renderScale));
     const height = Math.max(1, Math.round(sourceHeight * this.renderScale));
-    if (width !== this.width || height !== this.height) {
+    if (width !== this.width || height !== this.height || this.canvas.width !== sourceWidth || this.canvas.height !== sourceHeight) {
       this.createSurface(sourceWidth, sourceHeight);
     }
     const rawIndexBuffer = await resolveNumericBuffer(recolorSettings.indexBuffer);
