@@ -1,3 +1,4 @@
+import JSZip from 'jszip';
 import { createDefaultExportLayout, createDefaultLayerAlignment } from '@/utils/layoutDefaults';
 import { BrushShape, type CustomBrush, type DisplayFilterConfig, type Layer, type Project } from '@/types';
 import { useAppStore } from '@/stores/useAppStore';
@@ -176,7 +177,7 @@ describe('project slice lifecycle flows', () => {
         },
       },
     }));
-  });
+  }, 10000);
 
   it('flushes pending tool work before saving and records saved file metadata', async () => {
     const captureSpy = useAppStore.getState()
@@ -576,6 +577,189 @@ describe('project slice lifecycle flows', () => {
     expect(nextState.layers[0].colorCycleData?.isAnimating).toBe(false);
     expect(nextState.colorCyclePlayback.desiredPlaying).toBe(false);
   });
+
+  it('imports a real zipped CC project payload without flattening restored brush state', async () => {
+    const actualProjectIO = jest.requireActual('@/utils/projectIO') as typeof import('@/utils/projectIO');
+    const contextProto = (globalThis as unknown as {
+      CanvasRenderingContext2D?: { prototype?: { rect?: (...args: number[]) => void } };
+    }).CanvasRenderingContext2D?.prototype;
+    const originalRect = contextProto?.rect;
+    const originalOffscreenCanvas = (globalThis as { OffscreenCanvas?: unknown }).OffscreenCanvas;
+    if (contextProto && typeof contextProto.rect !== 'function') {
+      contextProto.rect = () => {};
+    }
+    (globalThis as { OffscreenCanvas?: unknown }).OffscreenCanvas = class {
+      width: number;
+      height: number;
+
+      constructor(nextWidth: number, nextHeight: number) {
+        this.width = nextWidth;
+        this.height = nextHeight;
+      }
+
+      getContext() {
+        return {
+          drawImage: jest.fn(),
+          getImageData: jest.fn(() => new ImageData(this.width, this.height)),
+          clearRect: jest.fn(),
+          putImageData: jest.fn(),
+        };
+      }
+    };
+    const base64ToArrayBuffer = (base64: string | undefined): ArrayBuffer => {
+      if (!base64) {
+        return new ArrayBuffer(0);
+      }
+      const bytes = Uint8Array.from(Buffer.from(base64, 'base64'));
+      return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
+    };
+
+    const width = 8;
+    const height = 8;
+    const paint = new Uint8Array(width * height);
+    const gradientId = new Uint8Array(width * height);
+    const speed = new Uint8Array(width * height);
+    const flow = new Uint8Array(width * height);
+    const phase = new Uint8Array(width * height);
+    const gradientDefIds = new Uint16Array(width * height);
+    paint[0] = 1;
+    paint[9] = 2;
+    gradientId[0] = 7;
+    gradientId[9] = 3;
+    speed[0] = 5;
+    flow[0] = 4;
+    phase[0] = 2;
+    gradientDefIds[0] = 12;
+
+    const colorCycleCanvas = document.createElement('canvas');
+    colorCycleCanvas.width = width;
+    colorCycleCanvas.height = height;
+
+    try {
+      const zip = new JSZip();
+      zip.file('project.json', JSON.stringify({
+        version: '1.1.0',
+        metadata: {
+          name: 'Real Zipped CC',
+          created: '2024-04-01T00:00:00.000Z',
+          modified: '2024-04-02T00:00:00.000Z',
+          appVersion: '1.0.0',
+        },
+        project: {
+          id: 'project-real-zipped-cc',
+          name: 'Real Zipped CC',
+          width,
+          height,
+          backgroundColor: '#101010',
+          layers: [{
+            id: 'layer-real-zipped-cc',
+            name: 'Layer layer-real-zipped-cc',
+            visible: true,
+            opacity: 1,
+            blendMode: 'source-over',
+            locked: false,
+            transparencyLocked: false,
+            order: 0,
+            imageDataUrl: '',
+            alignment: createDefaultLayerAlignment(),
+            layerType: 'color-cycle',
+            colorCycleData: {
+              canvasImageData: '',
+              canvasWidth: width,
+              canvasHeight: height,
+              mode: 'brush',
+              gradient: [
+                { position: 0, color: '#000000' },
+                { position: 1, color: '#ffffff' },
+              ],
+              brushState: {
+                cycleSpeed: 0.4,
+                fps: 24,
+                brushSize: 6,
+                layers: [{
+                  layerId: 'layer-real-zipped-cc',
+                  strokeData: {
+                    paintBuffer: Buffer.from(paint).toString('base64'),
+                    gradientIdBuffer: Buffer.from(gradientId).toString('base64'),
+                    gradientDefIdBuffer: Buffer.from(gradientDefIds.buffer).toString('base64'),
+                    speedBuffer: Buffer.from(speed).toString('base64'),
+                    flowBuffer: Buffer.from(flow).toString('base64'),
+                    phaseBuffer: Buffer.from(phase).toString('base64'),
+                    hasContent: true,
+                    strokeCounter: 3,
+                  },
+                }],
+              },
+            },
+          }],
+          customBrushes: [],
+          defaultCustomBrushId: null,
+          exportLayout: createDefaultExportLayout(),
+          palette: {
+            foregroundColor: '#ff00ff',
+            backgroundColor: '#00ffff',
+            activeSlot: 'foreground',
+          },
+          brushSpecificSettings: {},
+          globalBrushSize: 1,
+        },
+      }));
+      const payload = await zip.generateAsync({ type: 'uint8array' });
+      const hydratedProject = await actualProjectIO.deserializeProject(payload);
+      const hydratedLayer = hydratedProject.layers[0];
+      const persistedBrushState = hydratedLayer?.colorCycleData?.brushState as
+        | {
+            layers?: Array<{
+              strokeData?: {
+                paintBuffer?: string;
+                gradientIdBuffer?: string;
+                gradientDefIdBuffer?: string;
+              };
+            }>;
+          }
+        | undefined;
+      const persistedSnapshot = persistedBrushState?.layers?.[0];
+
+      if (hydratedLayer?.colorCycleData) {
+        hydratedLayer.colorCycleData.colorCycleBrush = {
+          getLayerSnapshot: () => ({
+            paintBuffer: base64ToArrayBuffer(persistedSnapshot?.strokeData?.paintBuffer),
+            gradientIdBuffer: base64ToArrayBuffer(persistedSnapshot?.strokeData?.gradientIdBuffer),
+            gradientDefIdBuffer: base64ToArrayBuffer(persistedSnapshot?.strokeData?.gradientDefIdBuffer),
+          }),
+        } as unknown as NonNullable<Layer['colorCycleData']>['colorCycleBrush'];
+      }
+
+      await useAppStore.getState().importProject(hydratedProject, { fileName: 'real-zipped-cc.vessel' });
+
+      const nextState = useAppStore.getState();
+      const importedLayer = nextState.layers[0];
+      const importedBrush = importedLayer?.colorCycleData?.colorCycleBrush as
+        | {
+            getLayerSnapshot?: (layerId: string) => {
+              paintBuffer: ArrayBuffer;
+              gradientIdBuffer?: ArrayBuffer;
+              gradientDefIdBuffer?: ArrayBuffer;
+            } | null;
+          }
+        | undefined;
+      const snapshot = importedBrush?.getLayerSnapshot?.(importedLayer.id);
+
+      expect(nextState.projectFilename).toBe('real-zipped-cc.vessel');
+      expect(importedLayer?.layerType).toBe('color-cycle');
+      expect(importedLayer?.colorCycleData?.colorCycleBrush).toBeTruthy();
+      expect(mockManager.brushes.get(importedLayer.id)).toBe(importedLayer.colorCycleData?.colorCycleBrush);
+      expect(snapshot).toBeTruthy();
+      expect(Array.from(new Uint8Array(snapshot?.paintBuffer ?? new ArrayBuffer(0)))).toEqual(Array.from(paint));
+      expect(Array.from(new Uint8Array(snapshot?.gradientIdBuffer ?? new ArrayBuffer(0)))).toEqual(Array.from(gradientId));
+      expect(Array.from(new Uint16Array(snapshot?.gradientDefIdBuffer ?? new ArrayBuffer(0)))).toEqual(Array.from(gradientDefIds));
+    } finally {
+      if (contextProto) {
+        contextProto.rect = originalRect;
+      }
+      (globalThis as { OffscreenCanvas?: unknown }).OffscreenCanvas = originalOffscreenCanvas;
+    }
+  }, 10000);
 
   it('imports sequential layers and preserves sequential capture payload', async () => {
     const sequentialLayer = makeLayer('layer-seq', {

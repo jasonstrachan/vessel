@@ -250,6 +250,18 @@ interface SerializedLayerState {
   activeGradientId?: string;
 }
 
+const stripAnimatorIndexBufferPayload = (state: AnimatorSerializedState): AnimatorSerializedState => ({
+  ...state,
+  indexBuffer: {
+    ...state.indexBuffer,
+    data: new Uint8Array(0),
+    gradientId: new Uint8Array(0),
+    speedData: new Uint8Array(0),
+    flowData: new Uint8Array(0),
+    phaseData: new Uint8Array(0),
+  },
+});
+
 type SerializedLayerColorCycleMeta = Omit<SerializedLayerState, 'layerId' | 'data' | 'strokeData'>;
 
 type LayerSnapshotEntry = {
@@ -6707,10 +6719,14 @@ export class ColorCycleBrushCanvas2D {
         typeof legacyAnimatorSerializer.serializeBaseState === 'function'
           ? legacyAnimatorSerializer.serializeBaseState()
           : animator.serialize();
+      const hasCanonicalStrokeSnapshot = paintBuffer.byteLength > 0;
+      const serializedAnimatorState = hasCanonicalStrokeSnapshot
+        ? stripAnimatorIndexBufferPayload(animatorBaseState)
+        : animatorBaseState;
 
       layers.push({
         layerId,
-        data: animatorBaseState,
+        data: serializedAnimatorState,
         gradientDefs,
         slotPalettes,
         gradientDefStore,
