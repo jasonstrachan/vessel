@@ -8,6 +8,14 @@ import { FLOW_SLOT_MASK } from '@/lib/colorCycle/flowEncoding';
 
 const colorCycleBrushManager = getColorCycleBrushManager();
 
+const resolveLayerBrush = (
+  state: Pick<AppState, 'getLayerColorCycleBrush'> | null | undefined,
+  layerId: string,
+) =>
+  (typeof state?.getLayerColorCycleBrush === 'function'
+    ? state.getLayerColorCycleBrush(layerId)
+    : null) ?? colorCycleBrushManager.getLayerColorCycleBrush(layerId);
+
 type BufferMutator = (buffers: {
   paint: Uint8Array;
   gradientId: Uint8Array;
@@ -18,11 +26,16 @@ type BufferMutator = (buffers: {
   height: number;
 }) => boolean;
 
-const getCanvasForLayer = (layer: Layer, fallbackWidth: number, fallbackHeight: number) => {
+const getCanvasForLayer = (
+  state: Pick<AppState, 'getLayerColorCycleBrush'> | null | undefined,
+  layer: Layer,
+  fallbackWidth: number,
+  fallbackHeight: number,
+) => {
   if (layer.colorCycleData?.canvas) {
     return layer.colorCycleData.canvas;
   }
-  const brush = colorCycleBrushManager.getLayerColorCycleBrush(layer.id);
+  const brush = resolveLayerBrush(state, layer.id);
   if (brush && typeof brush.getCanvas === 'function') {
     const brushCanvas = brush.getCanvas();
     if (brushCanvas) {
@@ -53,7 +66,7 @@ const mutateColorCycleLayer = (
 
   const fallbackWidth = layer.imageData?.width ?? project.width ?? 0;
   const fallbackHeight = layer.imageData?.height ?? project.height ?? 0;
-  const canvas = getCanvasForLayer(layer, fallbackWidth, fallbackHeight);
+  const canvas = getCanvasForLayer(state, layer, fallbackWidth, fallbackHeight);
   if (!canvas?.width || !canvas.height) {
     if (process.env.NODE_ENV !== 'production') {
       console.warn('[cc] invalid canvas in mutateColorCycleLayer', {
@@ -65,11 +78,11 @@ const mutateColorCycleLayer = (
     return false;
   }
 
-  let brush = colorCycleBrushManager.getLayerColorCycleBrush(layer.id);
+  let brush = resolveLayerBrush(state, layer.id);
   if ((!brush?.getLayerSnapshot || !(brush as { applyLayerSnapshot?: unknown }).applyLayerSnapshot) &&
       typeof colorCycleBrushManager.initColorCycleForLayer === 'function') {
     colorCycleBrushManager.initColorCycleForLayer(layer.id, canvas.width, canvas.height);
-    brush = colorCycleBrushManager.getLayerColorCycleBrush(layer.id);
+    brush = resolveLayerBrush(state, layer.id);
   }
   if (!brush?.getLayerSnapshot || !brush.applyLayerSnapshot) {
     return false;
@@ -593,7 +606,7 @@ export const debugCaptureColorCycleScalarRegion = (
   project: Project,
   rect: Rectangle
 ): Uint8Array | null => {
-  const brush = colorCycleBrushManager.getLayerColorCycleBrush(layer.id);
+  const brush = resolveLayerBrush(null, layer.id);
   if (!brush?.getLayerSnapshot) {
     return null;
   }

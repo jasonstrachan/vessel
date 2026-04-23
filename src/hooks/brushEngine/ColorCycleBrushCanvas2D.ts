@@ -3261,6 +3261,11 @@ export class ColorCycleBrushCanvas2D {
     }
 
     if (strokeData) {
+      if (this.stampDitherEnabled) {
+        try {
+          this.bindStrokeBuffersToAnimator(strokeData, animator);
+        } catch {}
+      }
       if (!this.stampDitherEnabled && this.enableNonDitherPlaybackSpeed(strokeData)) {
         try {
           animator.setIndexBufferFromArray(
@@ -6483,7 +6488,8 @@ export class ColorCycleBrushCanvas2D {
         state.stampShape === 'diamond5' ||
         state.stampShape === 'diamond7' ||
         state.stampShape === 'diamond9' ||
-        state.stampShape === 'round'
+        state.stampShape === 'round' ||
+        state.stampShape === 'checkered'
       ) {
         this.setStampShape(state.stampShape);
       }

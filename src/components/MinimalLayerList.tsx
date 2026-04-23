@@ -190,6 +190,14 @@ const LayerRow = memo<LayerRowProps>(
               <span className={LAYER_TAG_CLASS}>
                 {layer.colorCycleData?.mode === 'recolor' ? 'Recolor' : 'Brush'}
               </span>
+              {layer.colorCycleData?.deferredRuntimeRestore ? (
+                <span
+                  className={LAYER_TAG_CLASS}
+                  title="Runtime restore deferred until this layer becomes active"
+                >
+                  Cold
+                </span>
+              ) : null}
             </div>
           ) : (
             <div className="ml-1 flex items-center gap-1">

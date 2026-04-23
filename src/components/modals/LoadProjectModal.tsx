@@ -62,6 +62,7 @@ export function LoadProjectModal({ isOpen, onClose }: LoadProjectModalProps) {
     isProcessing,
     applyInFlight,
     error,
+    warning,
     preview,
     projectData,
     processProjectFile,
@@ -306,6 +307,7 @@ export function LoadProjectModal({ isOpen, onClose }: LoadProjectModalProps) {
                 <LoadProjectModalBody
                   isProcessing={isProcessing}
                   error={error}
+                  warning={warning}
                   preview={preview}
                   previewOffset={previewOffset}
                   previewScale={previewScale}

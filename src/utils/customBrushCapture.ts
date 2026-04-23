@@ -1,5 +1,5 @@
 import type { CustomBrushColorCycleV2, Layer } from '@/types';
-import { getColorCycleBrushManager } from '@/stores/colorCycleBrushManager';
+import { getColorCycleBrushManager, getColorCycleStoreState } from '@/stores/colorCycleBrushManager';
 import { resolveLayerColorCycleBaseSpeedFromLayer } from '@/utils/colorCycleLayerSpeed';
 
 export type CapturePoint = { x: number; y: number };
@@ -42,6 +42,10 @@ const DEFAULT_THUMBNAIL_SIZE = 64;
 
 const DEFAULT_SOURCE_CYCLE_LENGTH = 256;
 const colorCycleBrushManager = getColorCycleBrushManager();
+
+const resolveLayerBrush = (layerId: string) =>
+  getColorCycleStoreState()?.getLayerColorCycleBrush?.(layerId) ??
+  colorCycleBrushManager.getLayerColorCycleBrush(layerId);
 
 export const selectionToCaptureBounds = (
   start: CapturePoint | null | undefined,
@@ -358,7 +362,7 @@ const cropPaintPhaseMap = (
   }
 
   const { width: canvasWidth, height: canvasHeight } = resolveCycleCanvasSize(layer);
-  const brush = colorCycleBrushManager.getLayerColorCycleBrush(layer.id);
+  const brush = resolveLayerBrush(layer.id);
   const snapshot = brush?.getLayerSnapshot?.(layer.id);
   const persistedBuffer = layer.colorCycleData?.gradientIdBuffer;
   const sourceBuffer =

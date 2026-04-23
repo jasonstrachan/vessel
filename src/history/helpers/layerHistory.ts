@@ -9,7 +9,7 @@ import type { HistoryDelta } from '@/history/actionTypes';
 import type { CanvasSnapshot } from '@/types';
 import { useAppStore } from '@/stores/useAppStore';
 import { createSelectionDelta } from '@/history/deltas/selectionDelta';
-import { getColorCycleBrushManager } from '@/stores/colorCycleBrushManager';
+import { getColorCycleBrushManager, getColorCycleStoreState } from '@/stores/colorCycleBrushManager';
 import {
   cloneSelectionSnapshot,
   selectionSnapshotFromValues,
@@ -207,7 +207,10 @@ export const commitLayerHistory = async ({
 
     if (isColorCycleLayer) {
       const manager = getColorCycleBrushManager();
-      const brush = manager.getBrush(layerId) as BrushWithOptionalFlush | undefined;
+      const brush = (
+        getColorCycleStoreState()?.getLayerColorCycleBrush?.(layerId) ??
+        manager.getBrush(layerId)
+      ) as BrushWithOptionalFlush | undefined;
       brush?.flush?.(layerId);
     }
 

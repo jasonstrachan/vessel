@@ -1,3 +1,5 @@
+import type { ProjectSaveSizeReport } from '@/utils/projectIO';
+
 export interface ProjectPreview {
   projectName: string;
   width: number;
@@ -8,6 +10,8 @@ export interface ProjectPreview {
   hasEmbeddedThumbnail: boolean;
   fileName: string;
   fileSize: number;
+  healthReport?: ProjectSaveSizeReport | null;
+  healthWarning?: string | null;
 }
 
 export interface DirectoryProjectEntry {
@@ -15,4 +19,3 @@ export interface DirectoryProjectEntry {
   handle: FileSystemFileHandle;
   lastModified?: number;
 }
-

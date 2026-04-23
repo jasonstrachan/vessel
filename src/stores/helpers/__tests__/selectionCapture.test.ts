@@ -5,6 +5,7 @@ const mockGetLayerColorCycleBrush = jest.fn<unknown | null, [string]>(() => null
 
 jest.mock('@/stores/colorCycleBrushManager', () => ({
   __esModule: true,
+  getColorCycleStoreState: () => null,
   getColorCycleBrushManager: () => ({
     getLayerColorCycleBrush: mockGetLayerColorCycleBrush,
   }),

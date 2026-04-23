@@ -847,6 +847,14 @@ const LayersPanel: React.FC = () => {
                         <span className={`px-1 text-[9px] leading-4 ${badgeBackgroundClass} ${badgeTextClass}`}>
                           {layer.colorCycleData?.mode === 'recolor' ? 'Recolor' : 'Brush'}
                         </span>
+                        {layer.colorCycleData?.deferredRuntimeRestore && (
+                          <span
+                            className={`px-1 text-[9px] leading-4 ${badgeBackgroundClass} ${badgeTextClass}`}
+                            title="Runtime restore deferred until this layer becomes active"
+                          >
+                            Cold
+                          </span>
+                        )}
                         {isReferenceLayer && (
                           <span
                             className="px-1 text-[9px] leading-4 bg-[#2F3C27] text-[#C9F6B5] border border-[#47603D]"

@@ -3,6 +3,7 @@ import { getColorCycleBrushManager } from '@/stores/colorCycleBrushManager';
 import { useAppStore } from '@/stores/useAppStore';
 
 jest.mock('@/stores/colorCycleBrushManager', () => ({
+  getColorCycleStoreState: () => null,
   getColorCycleBrushManager: jest.fn(),
 }));
 

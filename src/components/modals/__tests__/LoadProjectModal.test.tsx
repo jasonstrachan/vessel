@@ -5,6 +5,7 @@ import LoadProjectModal from '../LoadProjectModal';
 import {
   deserializeProject,
   generateProjectThumbnail,
+  readProjectHealthReport,
   readProjectPreviewManifest,
 } from '@/utils/projectIO';
 
@@ -15,6 +16,7 @@ jest.mock('@/hooks/useKeyboardScope', () => ({
 jest.mock('@/utils/projectIO', () => ({
   deserializeProject: jest.fn(),
   generateProjectThumbnail: jest.fn(),
+  readProjectHealthReport: jest.fn(),
   readProjectPreviewManifest: jest.fn(),
 }));
 
@@ -41,6 +43,7 @@ const createDeferred = <T,>(): Deferred<T> => {
 };
 
 const mockReadProjectPreviewManifest = readProjectPreviewManifest as jest.MockedFunction<typeof readProjectPreviewManifest>;
+const mockReadProjectHealthReport = readProjectHealthReport as jest.MockedFunction<typeof readProjectHealthReport>;
 const mockDeserializeProject = deserializeProject as jest.MockedFunction<typeof deserializeProject>;
 const mockGenerateProjectThumbnail = generateProjectThumbnail as jest.MockedFunction<typeof generateProjectThumbnail>;
 let consoleErrorSpy: jest.SpyInstance;
@@ -135,6 +138,19 @@ describe('LoadProjectModal', () => {
       createdAt: new Date('2025-01-01T00:00:00.000Z'),
       updatedAt: new Date('2025-01-01T00:00:00.000Z'),
     } as any);
+    mockReadProjectHealthReport.mockResolvedValue({
+      projectManifestBytes: 10,
+      previewManifestBytes: 10,
+      combinedManifestBytes: 20,
+      archiveBytes: 20,
+      compressionRatio: 1,
+      binaryPayloadBytes: 0,
+      colorCycleDuplicationRiskLayers: [],
+      unresolvedColorCycleDefLayers: [],
+      sectionBreakdown: [],
+      largestLayers: [],
+      recommendations: ['Looks fine'],
+    });
     mockGenerateProjectThumbnail.mockReturnValue('data:image/png;base64,generated');
   });
 
@@ -361,6 +377,42 @@ describe('LoadProjectModal', () => {
 
     expect(await screen.findByText('alpha.vs')).toBeInTheDocument();
     expect(await screen.findByText('beta.vs')).toBeInTheDocument();
+  });
+
+  it('shows a project health warning and blocks auto-import for risky files', async () => {
+    const riskyHandle = createFileHandle('risky.vs');
+    (window as any).showDirectoryPicker = jest.fn(async () => createDirectoryHandle([
+      ['risky.vs', riskyHandle],
+    ]));
+    mockReadProjectHealthReport.mockResolvedValue({
+      projectManifestBytes: 10,
+      previewManifestBytes: 10,
+      combinedManifestBytes: 20,
+      archiveBytes: 20,
+      compressionRatio: 1,
+      binaryPayloadBytes: 0,
+      colorCycleDuplicationRiskLayers: ['layer-cc-risk'],
+      unresolvedColorCycleDefLayers: [],
+      sectionBreakdown: [],
+      largestLayers: [],
+      recommendations: ['Risky project'],
+    });
+
+    render(<LoadProjectModal isOpen onClose={jest.fn()} />);
+    act(() => {
+      jest.runAllTimers();
+    });
+
+    fireEvent.click(screen.getByText('Browse Folder'));
+    expect(await screen.findByText('risky.vs')).toBeInTheDocument();
+
+    fireEvent.doubleClick(screen.getByText('risky.vs'));
+
+    await waitFor(() => {
+      expect(screen.getByText('This project contains legacy duplicated color-cycle state. Review the health details before loading.')).toBeInTheDocument();
+    });
+    expect(mockStore.importProject).not.toHaveBeenCalled();
+    expect(screen.getByText('Project Health')).toBeInTheDocument();
   });
 
 });

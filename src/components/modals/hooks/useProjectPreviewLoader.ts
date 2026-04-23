@@ -5,6 +5,7 @@ import type { Project } from '@/types';
 import {
   deserializeProject,
   generateProjectThumbnail,
+  readProjectHealthReport,
   readProjectPreviewManifest,
 } from '@/utils/projectIO';
 
@@ -26,6 +27,7 @@ type UseProjectPreviewLoaderOptions = {
 const EMPTY_FILE_RETRY_ATTEMPTS = 8;
 const EMPTY_FILE_INITIAL_RETRY_DELAY_MS = 120;
 const EMPTY_FILE_MAX_RETRY_DELAY_MS = 1200;
+const HEALTH_WARNING_BINARY_THRESHOLD_BYTES = 32 * 1024 * 1024;
 
 const waitFor = (ms: number) => new Promise<void>((resolve) => {
   setTimeout(resolve, ms);
@@ -53,6 +55,22 @@ const refreshPossiblyIncompleteFile = async (
   return latest;
 };
 
+const buildProjectHealthWarning = (healthReport: ProjectPreview['healthReport']): string | null => {
+  if (!healthReport) {
+    return null;
+  }
+  if (healthReport.unresolvedColorCycleDefLayers.length > 0) {
+    return 'This project has unresolved color-cycle defs. Review the health details before loading.';
+  }
+  if (healthReport.colorCycleDuplicationRiskLayers.length > 0) {
+    return 'This project contains legacy duplicated color-cycle state. Review the health details before loading.';
+  }
+  if (healthReport.binaryPayloadBytes >= HEALTH_WARNING_BINARY_THRESHOLD_BYTES) {
+    return 'This project has a very large binary payload and may restore slowly.';
+  }
+  return null;
+};
+
 export function useProjectPreviewLoader({
   importProject,
   closeModal,
@@ -60,6 +78,7 @@ export function useProjectPreviewLoader({
   const [isProcessing, setIsProcessing] = useState(false);
   const [applyInFlight, setApplyInFlight] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [warning, setWarning] = useState<string | null>(null);
   const [projectData, setProjectData] = useState<ArrayBuffer | null>(null);
   const [cachedProject, setCachedProject] = useState<Project | null>(null);
   const [preview, setPreview] = useState<ProjectPreview | null>(null);
@@ -71,6 +90,7 @@ export function useProjectPreviewLoader({
     setIsProcessing(false);
     setApplyInFlight(false);
     setError(null);
+    setWarning(null);
     setProjectData(null);
     setCachedProject(null);
     setPreview(null);
@@ -88,6 +108,7 @@ export function useProjectPreviewLoader({
 
     setIsProcessing(true);
     setError(null);
+    setWarning(null);
     if (autoImport) {
       setApplyInFlight(true);
     }
@@ -117,6 +138,10 @@ export function useProjectPreviewLoader({
       if (isStale()) {
         return;
       }
+      const healthReport = await readProjectHealthReport(buffer);
+      if (isStale()) {
+        return;
+      }
 
       const { project, metadata } = vesselProject;
       const previewDetails: ProjectPreview = {
@@ -129,6 +154,8 @@ export function useProjectPreviewLoader({
         hasEmbeddedThumbnail: Boolean(project.thumbnail),
         fileName: resolvedFile.name,
         fileSize: resolvedFile.size,
+        healthReport,
+        healthWarning: buildProjectHealthWarning(healthReport),
       };
 
       setProjectData(buffer);
@@ -170,6 +197,10 @@ export function useProjectPreviewLoader({
       }
 
       if (autoImport) {
+        if (previewDetails.healthWarning) {
+          setWarning(previewDetails.healthWarning);
+          return;
+        }
         const hydrated = await ensureHydratedProject();
         if (isStale()) {
           return;
@@ -206,6 +237,7 @@ export function useProjectPreviewLoader({
     }
     setApplyInFlight(true);
     setError(null);
+    setWarning(null);
 
     try {
       const project = cachedProject ?? await deserializeProject(projectData);
@@ -226,6 +258,7 @@ export function useProjectPreviewLoader({
     isProcessing,
     applyInFlight,
     error,
+    warning,
     preview,
     projectData,
     selectedFileHandle,

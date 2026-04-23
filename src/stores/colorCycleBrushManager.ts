@@ -11,7 +11,7 @@ import {
 
 type IntervalHandle = ReturnType<typeof setInterval> | number;
 
-type StoreSlice = Pick<AppState, 'tools' | 'layers' | 'colorCyclePlayback'>;
+type StoreSlice = Pick<AppState, 'tools' | 'layers' | 'colorCyclePlayback' | 'getLayerColorCycleBrush'>;
 
 let storeStateGetter: (() => StoreSlice) | null = null;
 
@@ -83,6 +83,10 @@ const buildRegistry = (): ColorCycleBrushManager => {
 
 export function setColorCycleStoreStateGetter(getter: () => StoreSlice): void {
   storeStateGetter = getter;
+}
+
+export function getColorCycleStoreState(): StoreSlice | null {
+  return storeStateGetter?.() ?? null;
 }
 
 export function setLayerIdGetter(getter: () => Set<string>): void {
