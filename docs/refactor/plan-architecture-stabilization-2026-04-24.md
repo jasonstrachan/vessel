@@ -21,7 +21,7 @@ Last updated: 2026-04-24.
   after extraction.
 - [x] Phase 2 Goblet/WebGL export extraction.
 - [x] Phase 2 `webglExporter.ts` budget made blocking after extraction.
-- [ ] Phase 3 single playback runtime owner.
+- [x] Phase 3 single playback runtime owner.
 - [ ] Phase 4 canvas runtime consolidation.
 - [ ] Phase 4 canvas hotspot budgets made blocking after extraction.
 - [ ] Phase 5 raw logging and store-access guards made strict after cleanup.

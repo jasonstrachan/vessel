@@ -13,6 +13,7 @@ import { LayerColorSwatches, LAYER_TAG_CLASS } from '@/components/MinimalLayerLi
 import { Eye, EyeOff } from 'lucide-react';
 import { createDefaultExportLayout } from '@/utils/layoutDefaults';
 import { runExport } from '@/utils/export/exportService';
+import { buildGobletExportSnapshotRequest } from '@/utils/export/goblet/gobletSnapshot';
 import type { FrameProvider } from '@/utils/export/types';
 import type { Layer, WebGLExportBundleFormat, WebGLExportGobletVersion } from '@/types';
 
@@ -242,6 +243,11 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
   const addNotification = useAppStore((s) => s.addNotification);
   const webglExportSettings = useAppStore((s) => s.webglExportSettings);
   const updateWebglExportSettings = useAppStore((s) => s.updateWebglExportSettings);
+  const transparencyBackgroundMode = useAppStore((s) => s.canvas.transparencyBackgroundMode);
+  const displayFilters = useAppStore((s) => s.canvas.displayFilters);
+  const colorCyclePlaybackSpeedScale = useAppStore((s) => s.colorCyclePlayback?.playbackSpeedScale);
+  const colorCycleLayerSpeedScale = useAppStore((s) => s.tools?.brushSettings?.colorCycleLayerSpeedScale);
+  const colorCycleToolSpeed = useAppStore((s) => s.tools?.brushSettings?.colorCycleSpeed);
 
   const [isVisible, setIsVisible] = useState(false);
   const [shouldRender, setShouldRender] = useState(false);
@@ -846,7 +852,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
               kind: 'webgl' as const,
               filenameBase,
               options: {
-                request: {
+                request: buildGobletExportSnapshotRequest({
                   project,
                   layers,
                   layout: project.exportLayout ?? createDefaultExportLayout(),
@@ -878,7 +884,13 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
                   viewportPreset: webglViewportPreset,
                   htmlTitle: webglHtmlTitle,
                   htmlBackgroundColor: webglHtmlBackgroundColor
-                },
+                }, {
+                  transparencyBackgroundMode,
+                  displayFilters,
+                  colorCyclePlaybackSpeedScale,
+                  colorCycleLayerSpeedScale,
+                  colorCycleToolSpeed,
+                }),
                 bundleFormat: webglBundleFormat,
                 gobletVersion: webglGobletVersion,
                 htmlTitle: webglHtmlTitle,
