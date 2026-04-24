@@ -1,4 +1,5 @@
-import { useAppStore } from '@/stores/useAppStore';
+import { getAppStoreState } from '@/stores/appStoreAccess';
+import type { AppState } from '@/stores/useAppStore';
 import {
   cloneStops,
   resolveActiveColorCycleGradient,
@@ -40,7 +41,7 @@ export type FrozenCcDitherRenderConfig = {
   enabled: boolean;
   pairBandCount: number;
   spread?: number;
-  algorithm?: ReturnType<typeof useAppStore.getState>['tools']['brushSettings']['ditherAlgorithm'];
+  algorithm?: AppState['tools']['brushSettings']['ditherAlgorithm'];
 };
 
 export type PreviewGradientResult = {
@@ -95,7 +96,7 @@ const finalizeSampledSession = (session: MarkGradientSession): void => {
 };
 
 export const captureFrozenCcDitherRenderConfig = (): FrozenCcDitherRenderConfig => {
-  const brushSettings = useAppStore.getState().tools.brushSettings;
+  const brushSettings = getAppStoreState().tools.brushSettings;
   const mode = resolveCcDitherBandMode(brushSettings.gradientBands ?? 16);
   const config = {
     enabled: Boolean(brushSettings.ditherEnabled),
@@ -113,7 +114,7 @@ export const resolveMarkSessionRuntimeStops = (
     enabled?: boolean;
     pairBandCount?: number;
     spread?: number;
-    algorithm?: ReturnType<typeof useAppStore.getState>['tools']['brushSettings']['ditherAlgorithm'];
+    algorithm?: AppState['tools']['brushSettings']['ditherAlgorithm'];
   },
 ): StoredStop[] => {
   const clonedStops = cloneStops(stops);
@@ -154,7 +155,7 @@ export const beginMarkGradientSession = (params: {
   if (process.env.NODE_ENV !== 'production' && sessionsByLayer.has(params.layerId)) {
     throw new Error(`[CC] beginMarkGradientSession called while a session is active for ${params.layerId}`);
   }
-  const state = useAppStore.getState();
+  const state = getAppStoreState();
   const layer = state.layers.find((entry) => entry.id === params.layerId);
   if (!layer || layer.layerType !== 'color-cycle') {
     return null;
@@ -281,7 +282,7 @@ export const getPreviewGradientForActiveMark = (layerId: string): PreviewGradien
     };
   }
 
-  const state = useAppStore.getState();
+  const state = getAppStoreState();
   const layer = state.layers.find((entry) => entry.id === layerId);
   if (!layer || layer.layerType !== 'color-cycle') {
     return null;
