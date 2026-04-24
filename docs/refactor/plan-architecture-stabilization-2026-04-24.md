@@ -22,8 +22,8 @@ Last updated: 2026-04-24.
 - [x] Phase 2 Goblet/WebGL export extraction.
 - [x] Phase 2 `webglExporter.ts` budget made blocking after extraction.
 - [x] Phase 3 single playback runtime owner.
-- [ ] Phase 4 canvas runtime consolidation.
-- [ ] Phase 4 canvas hotspot budgets made blocking after extraction.
+- [x] Phase 4 canvas runtime consolidation.
+- [x] Phase 4 canvas hotspot budgets made blocking after extraction.
 - [ ] Phase 5 raw logging and store-access guards made strict after cleanup.
 - [ ] Phase 5 stricter lint warning rules made errors after cleanup.
 
@@ -68,8 +68,8 @@ Recorded on 2026-04-24 before implementation work in this plan.
 | `src/stores/slices/layersSlice.ts` | 4639 | 900 | report until Phase 1 |
 | `src/utils/export/webglExporter.ts` | 5219 | 600 | report until Phase 2 |
 | `src/hooks/brushEngine/ColorCycleBrushCanvas2D.ts` | 7514 | TBD by separate CC brush plan | report only |
-| `src/hooks/canvas/handlers/pointerHandlers.ts` | 4472 | 900 | report until Phase 4 |
-| `src/hooks/canvas/handlers/shapes/ShapeToolHandler.ts` | 4349 | 900 | report until Phase 4 |
+| `src/hooks/canvas/handlers/pointerHandlers.ts` | 1 | 900 | blocking |
+| `src/hooks/canvas/handlers/shapes/ShapeToolHandler.ts` | 1 | 900 | blocking |
 | `src/stores/slices/toolsSlice.ts` | 2625 | TBD by later tools slice plan | report only |
 | `src/hooks/useBrushEngineSimplified.ts` | 2013 | TBD by brush engine cleanup plan | report only |
 
@@ -786,11 +786,11 @@ after code, tests, and docs for that item are complete.
 - [x] Create `src/canvas/runtime/RenderRuntime`.
 - [x] Create `src/canvas/runtime/CanvasRuntime` as the compatibility
   composition boundary.
-- [ ] Collapse pass-through bridge/build modules into runtime constructors.
-- [ ] Reduce `pointerHandlers.ts` below 900 LOC.
-- [ ] Reduce `ShapeToolHandler.ts` below 900 LOC.
-- [ ] Make canvas hotspot budgets blocking.
-- [ ] Run Phase 4 targeted tests and manual drawing/selection/shape sanity.
+- [x] Collapse pass-through bridge/build modules into runtime constructors.
+- [x] Reduce `pointerHandlers.ts` below 900 LOC.
+- [x] Reduce `ShapeToolHandler.ts` below 900 LOC.
+- [x] Make canvas hotspot budgets blocking.
+- [x] Run Phase 4 targeted tests and manual drawing/selection/shape sanity.
 
 ### Step 8: Strict Cleanup Gates
 
