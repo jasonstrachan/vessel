@@ -3,11 +3,9 @@
 import React from 'react';
 import {
   useAppStore,
-  selectEffectiveColorCyclePlaying,
-  selectColorCycleSuspendDepth,
+  selectColorCyclePlaybackToggleAction,
   selectPlaybackSpeedScale,
   selectSequentialCaptureActive,
-  selectSequentialPlaybackActive,
   selectSequentialRecordState,
 } from '@/stores/useAppStore';
 import {
@@ -19,10 +17,9 @@ import {
 import { sanitizeBrushColorCycleSpeed } from '@/utils/colorCycleSpeed';
 import { resolveExplicitLayerColorCycleBaseSpeed } from '@/utils/colorCycleLayerSpeed';
 import SequentialControlsModule from '@/components/panels/SequentialControlsModule';
-import { toggleGlobalColorCyclePlayback } from '@/utils/colorCyclePlayback';
+import { toggleToolbarColorCyclePlayback } from '@/utils/colorCyclePlayback';
 
 const AnimationControlsPanel: React.FC = () => {
-  const forceResumeColorCycle = useAppStore(state => state.forceResumeColorCycle);
   const setRecordFPS = useAppStore((state) => state.setRecordFPS);
   const setRecordFrameCount = useAppStore((state) => state.setRecordFrameCount);
   const setTimeSmear = useAppStore((state) => state.setTimeSmear);
@@ -36,26 +33,18 @@ const AnimationControlsPanel: React.FC = () => {
     }
     return activeLayer;
   });
-  const effectivePlaying = useAppStore(selectEffectiveColorCyclePlaying);
-  const suspendDepth = useAppStore(selectColorCycleSuspendDepth);
-  const sequentialPlaybackActive = useAppStore(selectSequentialPlaybackActive);
   const sequentialCaptureActive = useAppStore(selectSequentialCaptureActive);
   const sequentialRecord = useAppStore(selectSequentialRecordState);
-  const sequentialPlaybackRunning = sequentialPlaybackActive && suspendDepth === 0;
-
-  const isPlaybackRunning =
-    effectivePlaying || sequentialPlaybackRunning || sequentialCaptureActive;
+  const colorCycleToggleAction = useAppStore(selectColorCyclePlaybackToggleAction);
+  const buttonAction = sequentialCaptureActive ? 'pause' : colorCycleToggleAction;
+  const buttonLabel =
+    buttonAction === 'pause' ? 'Pause' : buttonAction === 'resume' ? 'Resume' : 'Play';
+  const buttonIcon =
+    buttonAction === 'pause' ? '⏸' : buttonAction === 'resume' ? '↻' : '▶';
 
   const handleTogglePlayback = React.useCallback(() => {
-    if (isPlaybackRunning) {
-      void toggleGlobalColorCyclePlayback(false, 'toolbar');
-      return;
-    }
-    if (suspendDepth > 0) {
-      forceResumeColorCycle('toolbar');
-    }
-    void toggleGlobalColorCyclePlayback(true, 'toolbar');
-  }, [isPlaybackRunning, forceResumeColorCycle, suspendDepth]);
+    void toggleToolbarColorCyclePlayback();
+  }, []);
 
   const handleFpsChange = React.useCallback(
     (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -159,8 +148,8 @@ const AnimationControlsPanel: React.FC = () => {
           onClick={handleTogglePlayback}
           className="w-full h-11 bg-[#D9D9D9] text-[#31313A] hover:bg-[#C4C4C4] transition-colors text-xs outline-none focus:outline-none flex items-center justify-center"
         >
-          <span className="text-[10px]" aria-hidden="true">{isPlaybackRunning ? '⏸' : '▶'}</span>
-          <span className="ml-1 text-[10px]">{isPlaybackRunning ? 'Pause' : 'Play'}</span>
+          <span className="text-[10px]" aria-hidden="true">{buttonIcon}</span>
+          <span className="ml-1 text-[10px]">{buttonLabel}</span>
         </button>
       </div>
     </div>

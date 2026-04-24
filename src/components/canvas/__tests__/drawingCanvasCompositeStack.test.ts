@@ -396,4 +396,33 @@ describe('drawVisibleCompositeStack', () => {
     expect(drawCalls[0].source).toBe(staticCanvas);
     expect(mockGetSequentialLayerRenderCanvas).not.toHaveBeenCalled();
   });
+
+  it('flags invalid composite bitmaps without throwing when drawImage hits InvalidStateError', () => {
+    const compositeBitmap = {} as ImageBitmap;
+    const compositeCanvas = document.createElement('canvas');
+    const invalidStateError = {
+      message: 'stale bitmap',
+      name: 'InvalidStateError',
+    };
+    const { ctx } = createRecordingContext();
+
+    (ctx.drawImage as jest.Mock).mockImplementationOnce(() => {
+      throw invalidStateError;
+    });
+
+    const result = drawVisibleCompositeStack({
+      ctx,
+      visibleRect: { x: 0, y: 0, width: 16, height: 16 },
+      useSplitOverlay: false,
+      underCompositeCanvas: null,
+      isActivelyErasing: false,
+      drawNonActiveVisibleLayers: jest.fn(),
+      segments: [],
+      layerMap: new Map(),
+      compositeBitmap,
+      compositeCanvas,
+    });
+
+    expect(result.invalidCompositeBitmap).toBe(true);
+  });
 });

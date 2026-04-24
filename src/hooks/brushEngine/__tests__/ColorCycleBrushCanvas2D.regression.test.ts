@@ -1698,4 +1698,63 @@ describe('ColorCycleBrushCanvas2D regression tests', () => {
 
     expect(animator.setDefIdData).toHaveBeenCalledWith(strokeData.buffers.def, { forceDirty: true });
   });
+
+  it('stops the animation loop after the last color-cycle layer is cleared', () => {
+    const previousRaf = globalThis.requestAnimationFrame;
+    const previousCaf = globalThis.cancelAnimationFrame;
+    let nextFrameId = 1;
+    const scheduledFrames = new Map<number, FrameRequestCallback>();
+
+    globalThis.requestAnimationFrame = jest.fn((cb: FrameRequestCallback) => {
+      const id = nextFrameId++;
+      scheduledFrames.set(id, cb);
+      return id;
+    });
+    globalThis.cancelAnimationFrame = jest.fn((id: number) => {
+      scheduledFrames.delete(id);
+    });
+
+    try {
+      const canvas = makeCanvas(16, 16);
+      const brush = new ColorCycleBrushCanvas2D(canvas, { forceCanvas2D: true });
+      const layerId = 'layer-stop-loop-after-clear';
+      const internals = brush as unknown as {
+        ensureStrokeState: (id: string) => {
+          hasContent: boolean;
+          buffers: {
+            paint: Uint8Array;
+            gid: Uint8Array;
+            spd: Uint8Array;
+            flow: Uint8Array;
+            phase: Uint8Array;
+            def: Uint16Array;
+          };
+        };
+      };
+      const strokeData = internals.ensureStrokeState(layerId);
+      strokeData.hasContent = true;
+      strokeData.buffers.paint[0] = 1;
+
+      for (const [pendingFrameId, pendingFrame] of Array.from(scheduledFrames.entries())) {
+        scheduledFrames.delete(pendingFrameId);
+        pendingFrame(0);
+      }
+
+      brush.startAnimation();
+      expect(brush.isPlaying()).toBe(true);
+      expect(scheduledFrames.size).toBe(1);
+
+      brush.clearPaintBuffer(layerId);
+
+      expect(brush.isPlaying()).toBe(false);
+      for (const [pendingFrameId, pendingFrame] of Array.from(scheduledFrames.entries())) {
+        scheduledFrames.delete(pendingFrameId);
+        pendingFrame(32);
+      }
+      expect(scheduledFrames.size).toBe(0);
+    } finally {
+      globalThis.requestAnimationFrame = previousRaf;
+      globalThis.cancelAnimationFrame = previousCaf;
+    }
+  });
 });

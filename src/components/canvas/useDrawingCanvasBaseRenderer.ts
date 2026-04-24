@@ -171,6 +171,7 @@ export const useDrawingCanvasBaseRenderer = ({
 }: UseDrawingCanvasBaseRendererOptions) => {
   const lastSplitCompositeSequentialFrameRef = useRef<number | null>(null);
   const displayFilterStateRef = useRef(createDisplayFilterPipelineState());
+  const lastInvalidCompositeBitmapRef = useRef<ImageBitmap | null>(null);
 
   const applyDisplayFilterStack = useCallback((
     sourceCanvas: HTMLCanvasElement,
@@ -218,6 +219,10 @@ export const useDrawingCanvasBaseRenderer = ({
       ctx.fillStyle = '#141514';
       ctx.fillRect(0, 0, canvasPixelWidth, canvasPixelHeight);
       ctx.restore();
+
+      if (compositeBitmap == null && lastInvalidCompositeBitmapRef.current !== null) {
+        lastInvalidCompositeBitmapRef.current = null;
+      }
 
       if (!project || layers.length === 0) {
         return;
@@ -349,9 +354,12 @@ export const useDrawingCanvasBaseRenderer = ({
         compositeCanvas: compositeCanvasRef.current,
       });
       if (invalidCompositeBitmap) {
-        const state = useAppStore.getState();
-        state.setCurrentCompositeBitmap(null);
-        state.setLayersNeedRecomposition(true);
+        if (compositeBitmap && lastInvalidCompositeBitmapRef.current !== compositeBitmap) {
+          lastInvalidCompositeBitmapRef.current = compositeBitmap;
+          const state = useAppStore.getState();
+          state.setCurrentCompositeBitmap(null);
+          state.setLayersNeedRecomposition(true);
+        }
       }
       if (filterCtx && filterCanvas && visibleRect) {
         const finalFilteredCanvas = applyDisplayFilterStack(

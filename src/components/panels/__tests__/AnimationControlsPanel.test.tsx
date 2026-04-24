@@ -1,11 +1,10 @@
 import React from 'react';
 import { fireEvent, render, screen } from '@testing-library/react';
 
-const toggleGlobalColorCyclePlayback = jest.fn<Promise<void>, [boolean, string]>(() => Promise.resolve());
+const toggleToolbarColorCyclePlayback = jest.fn<Promise<void>, []>(() => Promise.resolve());
 
 jest.mock('@/utils/colorCyclePlayback', () => ({
-  toggleGlobalColorCyclePlayback: (shouldPlay: boolean, reason: string) =>
-    toggleGlobalColorCyclePlayback(shouldPlay, reason),
+  toggleToolbarColorCyclePlayback: () => toggleToolbarColorCyclePlayback(),
 }));
 
 jest.mock('@/stores/useAppStore', () => {
@@ -37,7 +36,6 @@ jest.mock('@/stores/useAppStore', () => {
     sequentialRecord: SequentialRecord;
     playColorCycle: jest.Mock;
     pauseColorCycle: jest.Mock;
-    forceResumeColorCycle: jest.Mock;
     setPlaybackSpeedScale: jest.Mock;
     setRecordFPS: jest.Mock;
     setRecordFrameCount: jest.Mock;
@@ -66,7 +64,6 @@ jest.mock('@/stores/useAppStore', () => {
     },
     playColorCycle: jest.fn(),
     pauseColorCycle: jest.fn(),
-    forceResumeColorCycle: jest.fn(),
     setPlaybackSpeedScale: jest.fn((next: number) => {
       state.colorCyclePlayback = {
         ...state.colorCyclePlayback,
@@ -104,26 +101,26 @@ jest.mock('@/stores/useAppStore', () => {
     return () => listeners.delete(listener);
   };
 
-  const selectEffectiveColorCyclePlaying = (s: MockState) =>
-    s.colorCyclePlayback.desiredPlaying && s.colorCyclePlayback.suspendDepth === 0;
-  const selectColorCycleSuspendDepth = (s: MockState) => s.colorCyclePlayback.suspendDepth;
+  const selectColorCyclePlaybackToggleAction = (s: MockState) => {
+    if (!s.colorCyclePlayback.desiredPlaying) {
+      return 'play';
+    }
+    if (s.colorCyclePlayback.suspendDepth > 0) {
+      return 'resume';
+    }
+    return 'pause';
+  };
   const selectPlaybackSpeedScale = (s: MockState) => s.colorCyclePlayback.playbackSpeedScale;
   const selectSequentialRecordState = (s: MockState) => s.sequentialRecord;
-  const selectSequentialPlaybackActive = (s: MockState) => {
-    const activeLayer = s.layers.find((layer) => layer.id === s.activeLayerId);
-    return s.colorCyclePlayback.desiredPlaying && activeLayer?.layerType === 'sequential';
-  };
   const selectSequentialCaptureActive = (s: MockState) =>
     s.sequentialRecord.isPointerDown &&
     s.layers.some((layer) => layer.id === s.activeLayerId && layer.layerType === 'sequential');
 
   return {
     useAppStore,
-    selectEffectiveColorCyclePlaying,
-    selectColorCycleSuspendDepth,
+    selectColorCyclePlaybackToggleAction,
     selectPlaybackSpeedScale,
     selectSequentialRecordState,
-    selectSequentialPlaybackActive,
     selectSequentialCaptureActive,
   };
 });
@@ -150,7 +147,6 @@ type PanelMockState = {
   };
   playColorCycle: jest.Mock;
   pauseColorCycle: jest.Mock;
-  forceResumeColorCycle: jest.Mock;
   setPlaybackSpeedScale: jest.Mock;
   setRecordFPS: jest.Mock;
   setRecordFrameCount: jest.Mock;
@@ -166,11 +162,10 @@ const appStore = useAppStore as unknown as {
 describe('AnimationControlsPanel', () => {
   beforeEach(() => {
     window.localStorage.removeItem(SEQUENTIAL_PANEL_EXPANDED_STORAGE_KEY);
-    toggleGlobalColorCyclePlayback.mockClear();
+    toggleToolbarColorCyclePlayback.mockClear();
     const store = appStore.getState();
     store.playColorCycle.mockClear();
     store.pauseColorCycle.mockClear();
-    store.forceResumeColorCycle.mockClear();
     store.setPlaybackSpeedScale.mockClear();
     store.setRecordFPS.mockClear();
     store.setRecordFrameCount.mockClear();
@@ -199,22 +194,20 @@ describe('AnimationControlsPanel', () => {
     fireEvent.click(screen.getByRole('button', { name: /pause/i }));
 
     const store = appStore.getState();
-    expect(toggleGlobalColorCyclePlayback).toHaveBeenCalledWith(false, 'toolbar');
+    expect(toggleToolbarColorCyclePlayback).toHaveBeenCalledTimes(1);
     expect(store.pauseColorCycle).not.toHaveBeenCalled();
     expect(store.playColorCycle).not.toHaveBeenCalled();
   });
 
-  it('plays and force-resumes when suspended', () => {
+  it('shows resume when playback is suspended', () => {
     appStore.setState({
       colorCyclePlayback: { desiredPlaying: true, suspendDepth: 2, playbackSpeedScale: 1 },
     });
 
     render(<AnimationControlsPanel />);
-    fireEvent.click(screen.getByRole('button', { name: /play/i }));
+    fireEvent.click(screen.getByRole('button', { name: /resume/i }));
 
-    const store = appStore.getState();
-    expect(toggleGlobalColorCyclePlayback).toHaveBeenCalledWith(true, 'toolbar');
-    expect(store.forceResumeColorCycle).toHaveBeenCalledWith('toolbar');
+    expect(toggleToolbarColorCyclePlayback).toHaveBeenCalledTimes(1);
   });
 
   it('disables sequential controls while capturing', () => {
@@ -290,11 +283,10 @@ describe('AnimationControlsPanel', () => {
     });
 
     render(<AnimationControlsPanel />);
-    fireEvent.click(screen.getByRole('button', { name: /play/i }));
+    fireEvent.click(screen.getByRole('button', { name: /resume/i }));
 
     const store = appStore.getState();
-    expect(toggleGlobalColorCyclePlayback).toHaveBeenCalledWith(true, 'toolbar');
-    expect(store.forceResumeColorCycle).toHaveBeenCalledWith('toolbar');
+    expect(toggleToolbarColorCyclePlayback).toHaveBeenCalledTimes(1);
     expect(store.pauseColorCycle).not.toHaveBeenCalled();
   });
 

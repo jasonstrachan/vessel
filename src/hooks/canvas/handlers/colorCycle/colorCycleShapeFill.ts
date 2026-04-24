@@ -136,6 +136,8 @@ const persistCommittedSampledSlot = (
           : entry
       )
     : [...slotPalettes, { slot, stops: nextStops }];
+  const effectivePlaying =
+    state.colorCyclePlayback?.desiredPlaying === true && state.colorCyclePlayback.suspendDepth === 0;
 
   state.updateLayer(layerId, {
     colorCycleData: {
@@ -143,6 +145,8 @@ const persistCommittedSampledSlot = (
       paintStops: nextStops,
       slotPalettes: nextSlotPalettes,
       gradient: nextStops,
+      paintSlot: slot,
+      isAnimating: effectivePlaying,
     },
   }, { skipColorCycleSync: true });
   requestGradientApply(layerId, 'shape-commit-sampled-slot');

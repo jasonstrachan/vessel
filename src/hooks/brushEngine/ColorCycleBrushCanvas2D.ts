@@ -2461,6 +2461,10 @@ export class ColorCycleBrushCanvas2D {
     animator.setDefIdData(strokeData.buffers.def);
     animator.forceRender();
     this.render(false);
+
+    if (this.isAnimating && !this.hasAnimatedContent()) {
+      this.stopAnimation();
+    }
   }
 
   /**
@@ -5723,8 +5727,25 @@ export class ColorCycleBrushCanvas2D {
     this.animationFrameId = null;
   }
 
+  private hasAnimatedContent(): boolean {
+    for (const strokeData of this.layerStrokes.values()) {
+      if (strokeData?.hasContent) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
   private handleAnimationTick = (timestamp: number) => {
     if (!this.isAnimating) {
+      this.animationFrameId = null;
+      return;
+    }
+
+    if (!this.hasAnimatedContent()) {
+      this.isAnimating = false;
+      this.isPaused = false;
       this.animationFrameId = null;
       return;
     }

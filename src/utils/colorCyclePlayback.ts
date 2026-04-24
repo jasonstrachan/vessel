@@ -1,6 +1,7 @@
 import { ccGroup, ccGroupEnd, ccLog, dumpLayerFlags } from '@/debug/ccDebug';
 import { RecolorManager } from '@/lib/colorCycle/RecolorManager';
 import {
+  selectColorCyclePlaybackToggleAction,
   selectColorCycleDesiredPlaying,
   selectColorCycleSuspendDepth,
   selectEffectiveColorCyclePlaying,
@@ -130,4 +131,20 @@ export const toggleGlobalColorCyclePlayback = async (
 
   dumpLayerFlags();
   ccGroupEnd();
+};
+
+export const toggleToolbarColorCyclePlayback = async (): Promise<void> => {
+  const snapshot = useAppStore.getState();
+  const action = selectColorCyclePlaybackToggleAction(snapshot);
+
+  if (action === 'pause') {
+    await toggleGlobalColorCyclePlayback(false, 'toolbar');
+    return;
+  }
+
+  if (snapshot.colorCyclePlayback.suspendDepth > 0) {
+    snapshot.forceResumeColorCycle('toolbar');
+  }
+
+  await toggleGlobalColorCyclePlayback(true, 'toolbar');
 };

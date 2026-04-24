@@ -28,6 +28,33 @@ const hasSharedColorCycleRuntimeConsumer = (
   storeRef: React.MutableRefObject<AppState>
 ): boolean => colorCycleRuntimeConsumerByStoreRef.has(storeRef);
 
+const summarizeColorCycleLayers = (storeRef: React.MutableRefObject<AppState>) => {
+  try {
+    return storeRef.current.layers
+      .filter((layer) => layer.layerType === 'color-cycle')
+      .map((layer) => ({
+        id: layer.id.slice(-6),
+        isAnimating: !!layer.colorCycleData?.isAnimating,
+        mode: layer.colorCycleData?.mode ?? 'unknown',
+      }));
+  } catch {
+    return [];
+  }
+};
+
+const summarizePlaybackState = (storeRef: React.MutableRefObject<AppState>) => {
+  try {
+    return {
+      desiredPlaying: storeRef.current.colorCyclePlayback.desiredPlaying,
+      suspendDepth: storeRef.current.colorCyclePlayback.suspendDepth,
+      lastReason: storeRef.current.colorCyclePlayback.lastReason ?? null,
+      effectivePlaying: selectEffectiveColorCyclePlaying(storeRef.current),
+    };
+  } catch {
+    return null;
+  }
+};
+
 const setSharedColorCycleRuntimeConsumer = (
   storeRef: React.MutableRefObject<AppState>,
   unregister: () => void
@@ -234,7 +261,11 @@ export const stopContinuousColorCycleAnimationCore = (
   continuousColorCycleAnimationActiveRef.current = false;
   clearSharedColorCycleRuntimeConsumer(storeRef);
   continuousColorCycleAnimationRef.current = null;
-  ccLog('cancel shared animation consumer', { reason });
+  ccLog('cancel shared animation consumer', {
+    reason,
+    playback: summarizePlaybackState(storeRef),
+    layers: summarizeColorCycleLayers(storeRef),
+  });
   if (typeof window !== 'undefined') {
     window.__ccRafAlive = false;
   }
@@ -417,7 +448,11 @@ export const startContinuousColorCycleAnimationCore = (
 
     clearSharedColorCycleRuntimeConsumer(storeRef);
     continuousColorCycleAnimationRef.current = null;
-    ccLog('cancel prior shared animation consumer');
+    ccLog('cancel prior shared animation consumer', {
+      reason,
+      playback: summarizePlaybackState(storeRef),
+      layers: summarizeColorCycleLayers(storeRef),
+    });
     if (typeof window !== 'undefined') {
       window.__ccRafAlive = false;
     }
@@ -514,6 +549,7 @@ export const startContinuousColorCycleAnimationCore = (
     drawingCanvasHasContent.current = false;
     firstPaintRef.current = true;
     lastRendererLogTS.current = 0;
+    let lastBlankFrameLogAt = 0;
 
     let lastRenderTime = 0;
     const configuredFPS = storeRef.current.tools.brushSettings.colorCycleFPS;
@@ -561,6 +597,21 @@ export const startContinuousColorCycleAnimationCore = (
         }
         brushEngine.renderColorCycle(drawingCtxRef.current, true);
         drawingCanvasHasContent.current = true;
+
+        const now =
+          typeof performance !== 'undefined' && typeof performance.now === 'function'
+            ? performance.now()
+            : Date.now();
+        if (now - lastBlankFrameLogAt >= 500) {
+          ccLog('shared runtime blank frame', {
+            reason,
+            shouldAdvance,
+            activeRef: continuousColorCycleAnimationActiveRef.current,
+            runtimeHandle: continuousColorCycleAnimationRef.current,
+            layers: summarizeColorCycleLayers(storeRef),
+          });
+          lastBlankFrameLogAt = now;
+        }
       }
 
       if (firstPaintRef.current) {
@@ -585,7 +636,17 @@ export const startContinuousColorCycleAnimationCore = (
       lastRenderTime = timestamp;
     });
     setSharedColorCycleRuntimeConsumer(storeRef, unregister);
+    ccLog('register shared animation consumer', {
+      reason,
+      playback: summarizePlaybackState(storeRef),
+      layers: summarizeColorCycleLayers(storeRef),
+    });
     runtime.start();
+    ccLog('start shared animation runtime', {
+      reason,
+      playback: summarizePlaybackState(storeRef),
+      layers: summarizeColorCycleLayers(storeRef),
+    });
 
     if (typeof window !== 'undefined') {
       window.__ccRafAlive = true;

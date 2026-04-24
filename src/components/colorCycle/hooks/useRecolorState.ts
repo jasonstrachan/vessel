@@ -8,12 +8,16 @@
 import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import { Layer } from '../../../types';
 import { RecolorManager, RecolorOptions, RecolorPerformanceStats } from '../../../lib/colorCycle/RecolorManager';
-import { useAppStore } from '@/stores/useAppStore';
+import {
+  selectColorCyclePlaybackToggleAction,
+  useAppStore,
+} from '@/stores/useAppStore';
 import { selectLayers } from '@/stores/selectors/layersSelectors';
 import {
   MAX_RECOLOR_COLOR_CYCLE_SPEED,
   MIN_RECOLOR_COLOR_CYCLE_SPEED,
 } from '@/constants/colorCycle';
+import { toggleToolbarColorCyclePlayback } from '@/utils/colorCyclePlayback';
 
 const isRecolorLayer = (layer: Layer) =>
   layer.layerType === 'color-cycle' && layer.colorCycleData?.mode === 'recolor';
@@ -84,13 +88,12 @@ export function useRecolorState(
 
   // Get recolor manager instance
   const recolorManager = useMemo(() => RecolorManager.getInstance(), []);
-  const desiredPlaying = useAppStore(state => state.colorCyclePlayback.desiredPlaying);
-  const suspendDepth = useAppStore(state => state.colorCyclePlayback.suspendDepth);
-  const playColorCycle = useAppStore(state => state.playColorCycle);
-  const pauseColorCycle = useAppStore(state => state.pauseColorCycle);
+  const playbackToggleAction = useAppStore(selectColorCyclePlaybackToggleAction);
   const layers = useAppStore(selectLayers);
   const updateLayer = useAppStore((state) => state.updateLayer);
-  const effectivePlaying = desiredPlaying && suspendDepth === 0;
+  const effectivePlaying = useAppStore((state) =>
+    state.colorCyclePlayback.desiredPlaying && state.colorCyclePlayback.suspendDepth === 0
+  );
   const isAnimating = effectivePlaying;
 
   // Internal state
@@ -220,17 +223,13 @@ export function useRecolorState(
       }
       lastToggleAtRef.current = now;
 
-      if (desiredPlaying) {
-        pauseColorCycle('toolbar');
-      } else {
-        playColorCycle('toolbar');
-      }
+      void toggleToolbarColorCyclePlayback();
     } catch (error) {
       console.error('[useRecolorState] Animation toggle error:', error);
       const errorMessage = error instanceof Error ? error.message : 'Animation control error';
       actions.setError(errorMessage);
     }
-  }, [actions, desiredPlaying, pauseColorCycle, playColorCycle]);
+  }, [actions, playbackToggleAction]);
 
   // Settings management
   const updateLayerSpeed = useCallback((layerId: string, speed: number) => {

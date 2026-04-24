@@ -1694,22 +1694,41 @@ export const createLayersSlice = (
       setCurrentOffscreenCanvas: (canvas) => set({ currentOffscreenCanvas: canvas }),
       setCurrentCompositeBitmap: (bitmap) => {
         const previous = get().currentCompositeBitmap;
-        set({ currentCompositeBitmap: bitmap ?? null });
-        if (previous && previous !== bitmap) {
+        const nextBitmap = bitmap ?? null;
+        if (previous === nextBitmap) {
+          return;
+        }
+        set({ currentCompositeBitmap: nextBitmap });
+        if (previous) {
           scheduleCompositeBitmapRelease(previous);
         }
       },
       setLayersNeedRecomposition: (needed) => {
         set((state) => {
+          if (!needed) {
+            if (!state.layersNeedRecomposition) {
+              return state;
+            }
+            return { layersNeedRecomposition: false };
+          }
+
+          const hasCleanStaticSegments = state.compositeSegments.some((segment) =>
+            segment.kind === 'static' && !segment.dirty
+          );
+
+          if (state.layersNeedRecomposition && !hasCleanStaticSegments) {
+            return state;
+          }
+
           if (needed) {
             return {
-              layersNeedRecomposition: needed,
+              layersNeedRecomposition: true,
               compositeSegments: state.compositeSegments.map((segment) =>
                 segment.kind === 'static' ? { ...segment, dirty: true } : segment
               )
             };
           }
-          return { layersNeedRecomposition: needed };
+          return state;
         });
       },
       getCompositeSegmentsSnapshot: () =>

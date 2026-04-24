@@ -53,6 +53,10 @@ export function syncCCRuntimes(layers: Layer[], cause?: string): void {
   }
 
   const manager = getColorCycleBrushManager();
+  const appState = useAppStore.getState();
+  const playbackActive =
+    appState.colorCyclePlayback?.desiredPlaying === true &&
+    (appState.colorCyclePlayback?.suspendDepth ?? 0) === 0;
   let shouldRequestStart = false;
 
   for (const layer of layers) {
@@ -84,7 +88,8 @@ export function syncCCRuntimes(layers: Layer[], cause?: string): void {
       continue;
     }
 
-    const { isAnimating } = layer.colorCycleData;
+    const requestedAnimating = Boolean(layer.colorCycleData.isAnimating);
+    const isAnimating = playbackActive && requestedAnimating;
     const previous = lastRuntimeState.get(layer.id) ?? {};
     const nextSnapshot: RuntimeSnapshot = { ...previous };
     const brushChanged = previous.brushRef !== brush;
@@ -127,7 +132,7 @@ export function syncCCRuntimes(layers: Layer[], cause?: string): void {
 
   if (typeof window !== 'undefined' && shouldRequestStart) {
     try {
-      if (shouldRequestStart) {
+      if (shouldRequestStart && playbackActive) {
         useAppStore.getState().colorCycleRuntimeHandlers.start?.('cc-runtime');
       }
     } catch {}
