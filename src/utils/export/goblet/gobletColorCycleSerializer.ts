@@ -1666,7 +1666,7 @@ export const serializeBrushState = (layer: Layer): WebGLSerializedBrushState | u
         reason: directMatch ? 'direct' : (fallbackReason ?? 'unknown')
       });
 
-      if (!directMatch && console) {
+      if (!directMatch) {
         const reasonDescription = (() => {
           switch (fallbackReason) {
             case 'default':
@@ -1681,7 +1681,8 @@ export const serializeBrushState = (layer: Layer): WebGLSerializedBrushState | u
               return undefined;
           }
         })();
-        console.warn?.(
+        debugWarn(
+          'raw-console',
           '[webglExporter] Falling back to brush state from layerId',
           entry.layerId ?? 'unknown',
           'for layer',
