@@ -12,17 +12,24 @@ const allowedPathParts = [
   '/__tests__/',
   '/stores/',
   '/history/',
-  '/utils/',
   '/lib/',
   '/debug/',
   '/testing/',
 ];
 
+const allowedPathPrefixes = [
+  'src/utils/',
+];
+
 const isSourceFile = (filePath) => /\.(ts|tsx)$/.test(filePath) && !filePath.endsWith('.d.ts');
 
 const shouldSkip = (filePath) => {
-  const normalized = `/${relative(root, filePath).replaceAll('\\', '/')}`;
+  const relativePath = relative(root, filePath).replaceAll('\\', '/');
+  const normalized = `/${relativePath}`;
   if (normalized.includes('.test.') || normalized.includes('.spec.')) {
+    return true;
+  }
+  if (allowedPathPrefixes.some((prefix) => relativePath.startsWith(prefix))) {
     return true;
   }
   return allowedPathParts.some((part) => normalized.includes(part));

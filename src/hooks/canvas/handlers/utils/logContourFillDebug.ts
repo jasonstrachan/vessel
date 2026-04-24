@@ -1,4 +1,4 @@
-import { useAppStore } from '@/stores/useAppStore';
+import { getAppStoreState } from '@/stores/appStoreAccess';
 import { BrushShape } from '@/types';
 import { debugLog } from '@/utils/debug';
 
@@ -24,7 +24,7 @@ export const shouldLogContourFill = (
 export const logContourFillDebug = (message: string, data?: Record<string, unknown>): void => {
   if (!isContourFillLoggingEnabled()) return;
 
-  const store = useAppStore.getState();
+  const store = getAppStoreState();
   const mode = store.tools.brushSettings.shapeGradientMode || 'contour';
   const brushShape = store.tools.brushSettings.brushShape;
 
