@@ -478,4 +478,77 @@ describe('colorCyclePlayback shared runtime integration', () => {
     });
     expect(state.layers[0].colorCycleData?.canvas).toBe(initializedCanvas);
   });
+
+  it('defers cold color-cycle hydration until after playback has started', () => {
+    jest.useFakeTimers();
+    registerSharedRuntimeConsumer.mockImplementation(() => jest.fn());
+    mockGetBrush.mockReturnValue(null);
+
+    const getLayerColorCycleBrush = jest.fn();
+    const state = {
+      tools: {
+        brushSettings: {
+          brushShape: BrushShape.COLOR_CYCLE,
+          customBrushColorCycle: false,
+        },
+      },
+      layers: [
+        {
+          id: 'layer-cold',
+          visible: true,
+          layerType: 'color-cycle',
+          colorCycleData: {
+            mode: 'index',
+            isAnimating: false,
+            deferredRuntimeRestore: true,
+            runtimeHydrationState: 'cold',
+          },
+        },
+      ],
+      project: { width: 64, height: 64 },
+      initColorCycleForLayer: jest.fn(),
+      updateLayer: jest.fn(),
+      getLayerColorCycleBrush,
+    } as unknown as AppState;
+
+    try {
+      startContinuousColorCycleAnimationCore('toolbar', {
+        brushEngine: {
+          renderColorCycle: jest.fn(),
+          updateColorCycleAnimation: jest.fn(),
+          isColorCycleAnimating: jest.fn(() => false),
+        } as unknown as BrushEngine,
+        ensureOverlayInitialized: jest.fn(() => true),
+        renderAllColorCycleLayers: jest.fn(() => true),
+        storeRef: { current: state } as React.MutableRefObject<AppState>,
+        getEffectiveColorCyclePlaying: jest.fn(() => true),
+        cancelDeferredOverlayRender: jest.fn(),
+        scheduleDeferredOverlayRender: jest.fn(),
+        ccLog: jest.fn(),
+        ccGroup: jest.fn(),
+        ccGroupEnd: jest.fn(),
+        dumpLayerFlags: jest.fn(),
+        debugWarn: jest.fn(),
+        continuousColorCycleAnimationRef: { current: null },
+        continuousColorCycleAnimationActiveRef: { current: false },
+        startingColorCycleAnimationRef: { current: false },
+        lastStartAtRef: { current: 0 },
+        drawingCanvasRef: { current: null },
+        drawingCtxRef: { current: null },
+        drawingCanvasHasContent: { current: false },
+        firstPaintRef: { current: true },
+        lastRendererLogTS: { current: 0 },
+        startCooldownMs: 0,
+      });
+
+      expect(state.initColorCycleForLayer).not.toHaveBeenCalled();
+      expect(getLayerColorCycleBrush).not.toHaveBeenCalled();
+
+      jest.runOnlyPendingTimers();
+
+      expect(getLayerColorCycleBrush).toHaveBeenCalledWith('layer-cold');
+    } finally {
+      jest.useRealTimers();
+    }
+  });
 });

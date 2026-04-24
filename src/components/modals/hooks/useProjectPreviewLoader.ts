@@ -159,7 +159,9 @@ export function useProjectPreviewLoader({
       let hydratedProject: Project | null = null;
       const ensureHydratedProject = async (): Promise<Project> => {
         if (!hydratedProject) {
-          hydratedProject = await deserializeProject(buffer);
+          hydratedProject = await deserializeProject(buffer, {
+            lazyColorCycleRuntime: true,
+          });
         }
         return hydratedProject;
       };
@@ -233,7 +235,9 @@ export function useProjectPreviewLoader({
     setWarning(null);
 
     try {
-      const project = cachedProject ?? await deserializeProject(projectData);
+      const project = cachedProject ?? await deserializeProject(projectData, {
+        lazyColorCycleRuntime: true,
+      });
       await importProject(project, {
         fileName: preview?.fileName ?? null,
         fileHandle: selectedFileHandle,

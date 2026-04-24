@@ -18,9 +18,17 @@ export interface BinaryManifestEntry {
   path: string;
   checksum: string;
   byteLength: number;
+  logicalByteLength?: number;
   dtype: BinaryManifestDType;
   width?: number;
   height?: number;
+  encoding?: 'raw' | 'sparse-rect-v1';
+  crop?: {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  };
   compression: BinaryManifestCompression;
 }
 
