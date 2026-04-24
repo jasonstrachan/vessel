@@ -1,4 +1,7 @@
-import { createColorCycleStrokePatchDelta } from '@/history/deltas/colorCycleStrokePatchDelta';
+import {
+  COLOR_CYCLE_PIXEL_PATCH_BUFFER_KEYS,
+  createColorCycleStrokePatchDelta,
+} from '@/history/deltas/colorCycleStrokePatchDelta';
 import { ColorCycleAnimator } from '@/lib/ColorCycleAnimator';
 import { useAppStore } from '@/stores/useAppStore';
 import type { Layer } from '@/types';
@@ -121,6 +124,17 @@ describe('ColorCycleStrokePatchDelta', () => {
         ? { ...state.project, width: 2, height: 2, layers: [layer] }
         : state.project,
     }));
+  });
+
+  it('keeps the explicit patch contract aligned with serialized render buffers', () => {
+    expect(COLOR_CYCLE_PIXEL_PATCH_BUFFER_KEYS).toEqual([
+      'paint',
+      'gradientId',
+      'gradientDefId',
+      'speed',
+      'flow',
+      'phase',
+    ]);
   });
 
   it('restores gradient def id and phase bytes when undoing an overlapping CC shape patch', async () => {
