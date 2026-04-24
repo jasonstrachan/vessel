@@ -57,7 +57,7 @@ interface RebuildArgs {
   colorCycleBrushManager: ColorCycleBrushManager;
   getState: () => AppState;
   setState: StoreApi<AppState>['setState'];
-  syncCCRuntimes: (layers: Layer[], cause: string) => void;
+  syncPlaybackColorCycleLayers: (layers: Layer[], cause: string) => void;
   logError?: Logger;
 }
 
@@ -66,7 +66,7 @@ export function rebuildCCLayerAfterCrop({
   colorCycleBrushManager,
   getState,
   setState,
-  syncCCRuntimes,
+  syncPlaybackColorCycleLayers,
   logError
 }: RebuildArgs): void {
   if (!entries.length || typeof window === 'undefined') {
@@ -307,7 +307,7 @@ export function rebuildCCLayerAfterCrop({
               },
             }));
           }
-          syncCCRuntimes(layersToSync, 'crop-rebuild');
+          syncPlaybackColorCycleLayers(layersToSync, 'crop-rebuild');
         }
       } catch (error) {
         logger('[crop] Failed to sync CC runtime after rebuild', error);

@@ -137,6 +137,22 @@ describe('syncCCRuntimes visibility behavior', () => {
     expect(startRuntime).toHaveBeenCalledTimes(2);
   });
 
+  it('starts eligible visible layers from global playback even when legacy isAnimating is false', () => {
+    const visibleLayer = makeLayer({
+      id: 'visible-layer',
+      visible: true,
+      colorCycleData: {
+        isAnimating: false,
+        mode: 'brush',
+      } as NonNullable<Layer['colorCycleData']>,
+    });
+
+    syncCCRuntimes([visibleLayer], 'legacy-flag-false');
+
+    expect(visibleBrush.startAnimation).toHaveBeenCalledTimes(1);
+    expect(startRuntime).toHaveBeenCalledTimes(1);
+  });
+
   it('does not start cc-runtime while global playback is paused even if a layer flag is stale', () => {
     mockUseAppStore.getState.mockReturnValue({
       colorCyclePlayback: {

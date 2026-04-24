@@ -2,8 +2,10 @@ import { useEffect, useRef } from 'react';
 import { useFeatureFlag } from '@/config/featureFlags';
 import {
   dispatchGlobalAnimationFrameUpdate,
-  getSharedAnimationRuntime,
 } from '@/hooks/canvas/handlers/animation/animationRuntime';
+import {
+  getPlaybackRuntimeController,
+} from '@/runtime/playback/PlaybackRuntimeController';
 import {
   flushBufferedSequentialEvents,
   getBufferedSequentialPendingPayloadBytes,
@@ -64,7 +66,7 @@ export const useSequentialAnimationRuntimeEffect = ({
   };
 
   useEffect(() => {
-    const runtime = getSharedAnimationRuntime();
+    const playbackController = getPlaybackRuntimeController();
     if (!sequentialRecordModeEnabled) {
       accumMsRef.current = 0;
       flushBufferedSequentialEvents({ state: useAppStore.getState() });
@@ -99,7 +101,7 @@ export const useSequentialAnimationRuntimeEffect = ({
 
       const shouldRun = selectSequentialPlaybackActive(state) || captureActive;
       if (shouldRun) {
-        runtime.start();
+        playbackController.sync(state, 'sequential-store-sync');
       } else {
         accumMsRef.current = 0;
         lastCheckpointFlushMsRef.current = -Infinity;
@@ -120,7 +122,7 @@ export const useSequentialAnimationRuntimeEffect = ({
     }
     noteSequentialCaptureActivity({ isActive: initialCaptureActive });
     if (selectSequentialPlaybackActive(initialState) || initialCaptureActive) {
-      runtime.start();
+      playbackController.sync(initialState, 'sequential-startup');
     }
 
     return () => {
@@ -139,8 +141,8 @@ export const useSequentialAnimationRuntimeEffect = ({
       return;
     }
 
-    const runtime = getSharedAnimationRuntime();
-    const unregister = runtime.register((_timestampMs, deltaMs) => {
+    const playbackController = getPlaybackRuntimeController();
+    const unregister = playbackController.registerAnimationConsumer((_timestampMs, deltaMs) => {
       try {
         const timestampMs = Number.isFinite(_timestampMs) ? _timestampMs : Date.now();
         const state = useAppStore.getState() as Partial<AppState>;

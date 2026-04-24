@@ -14,7 +14,7 @@ import {
   logCCMutation,
   summarizeColorCycleLayer,
 } from '@/utils/colorCycle/ccMutationAudit';
-import { syncCCRuntimes } from '@/stores/ccRuntime';
+import { syncPlaybackColorCycleLayers } from '@/stores/ccRuntime';
 import {
   getColorCycleHydrationState,
   isColdColorCycleLayer,
@@ -410,7 +410,7 @@ export const createLayersSlice = (
             }
           }
           try {
-            syncCCRuntimes([restoredLayer], 'deferred-restore');
+            syncPlaybackColorCycleLayers([restoredLayer], 'deferred-restore');
           } catch (error) {
             logError('[layers] Failed to sync CC runtime after deferred restore', error);
           }
@@ -461,7 +461,7 @@ export const createLayersSlice = (
       try {
         const refreshed = get();
         const updatedLayers = refreshed.layers.filter((layer) => updateMap.has(layer.id));
-        syncCCRuntimes(updatedLayers, 'slot-gc');
+        syncPlaybackColorCycleLayers(updatedLayers, 'slot-gc');
         updatedLayers.forEach((layer) => {
           if (layer.layerType === 'color-cycle') {
             requestGradientApply(layer.id, 'slot-gc');
@@ -1558,7 +1558,7 @@ export const createLayersSlice = (
           syncedLayer.colorCycleData &&
           !skipColorCycleSync
         ) {
-          syncCCRuntimes([syncedLayer], 'updateLayer');
+          syncPlaybackColorCycleLayers([syncedLayer], 'updateLayer');
           requestGradientApply(syncedLayer.id, 'update-layer');
         }
       } catch (error) {
@@ -2342,7 +2342,7 @@ export const createLayersSlice = (
       };
 
       try {
-        syncCCRuntimes([layer], 'setActiveLayer');
+        syncPlaybackColorCycleLayers([layer], 'setActiveLayer');
       } catch (error) {
         logError('[setActiveLayer] Failed to sync CC runtime', error);
       }

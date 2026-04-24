@@ -116,6 +116,7 @@ describe('colorCyclePlayback visibility behavior', () => {
   it('registers only visible recolor layers when playback starts', async () => {
     await toggleGlobalColorCyclePlayback(true, 'toolbar');
 
+    expect(runtimeStart).toHaveBeenCalledWith('store-sync');
     expect(registerExistingLayer).toHaveBeenCalledTimes(1);
     expect(registerExistingLayer).toHaveBeenCalledWith(
       expect.objectContaining({ id: 'visible-recolor' })

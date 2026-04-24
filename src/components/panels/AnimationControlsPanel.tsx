@@ -3,8 +3,8 @@
 import React from 'react';
 import {
   useAppStore,
-  selectColorCyclePlaybackToggleAction,
   selectPlaybackSpeedScale,
+  selectPlaybackToggleUi,
   selectSequentialCaptureActive,
   selectSequentialRecordState,
 } from '@/stores/useAppStore';
@@ -33,14 +33,11 @@ const AnimationControlsPanel: React.FC = () => {
     }
     return activeLayer;
   });
+  const playbackToggleUi = useAppStore(selectPlaybackToggleUi);
   const sequentialCaptureActive = useAppStore(selectSequentialCaptureActive);
   const sequentialRecord = useAppStore(selectSequentialRecordState);
-  const colorCycleToggleAction = useAppStore(selectColorCyclePlaybackToggleAction);
-  const buttonAction = sequentialCaptureActive ? 'pause' : colorCycleToggleAction;
-  const buttonLabel =
-    buttonAction === 'pause' ? 'Pause' : buttonAction === 'resume' ? 'Resume' : 'Play';
-  const buttonIcon =
-    buttonAction === 'pause' ? '⏸' : buttonAction === 'resume' ? '↻' : '▶';
+  const buttonLabel = playbackToggleUi.label;
+  const buttonIcon = playbackToggleUi.icon;
 
   const handleTogglePlayback = React.useCallback(() => {
     void toggleToolbarColorCyclePlayback();

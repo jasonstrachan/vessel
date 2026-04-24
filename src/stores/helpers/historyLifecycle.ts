@@ -14,7 +14,7 @@ import {
 } from '../pendingColorCycleSaves';
 import { flushPendingToolWork } from '@/utils/toolFlushRegistry';
 import { getColorCycleBrushManager, getColorCycleStoreState } from '@/stores/colorCycleBrushManager';
-import { syncCCRuntimes } from '@/stores/ccRuntime';
+import { syncPlaybackColorCycleLayers } from '@/stores/ccRuntime';
 import { waitForPendingHistoryCommits } from '@/history/pendingHistoryCommits';
 import {
   logCCMutation,
@@ -656,7 +656,7 @@ export const createHistoryService = ({
       const latestLayers = get().layers.filter((layer) => layer.layerType === 'color-cycle');
       if (latestLayers.length) {
         try {
-          syncCCRuntimes(latestLayers as Layer[], 'history-rehydrate');
+          syncPlaybackColorCycleLayers(latestLayers as Layer[], 'history-rehydrate');
         } catch {
           // runtime sync best-effort
         }

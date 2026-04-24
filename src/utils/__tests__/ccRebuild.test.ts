@@ -90,7 +90,7 @@ describe('rebuildCCLayerAfterCrop', () => {
       colorCycleBrushManager: manager as never,
       getState: () => state as AppState,
       setState,
-      syncCCRuntimes: jest.fn(),
+      syncPlaybackColorCycleLayers: jest.fn(),
       logError: jest.fn(),
     });
 
@@ -150,7 +150,7 @@ describe('rebuildCCLayerAfterCrop', () => {
       colorCycleBrushManager: manager as never,
       getState: () => state as AppState,
       setState,
-      syncCCRuntimes: jest.fn(),
+      syncPlaybackColorCycleLayers: jest.fn(),
       logError: jest.fn(),
     });
 
