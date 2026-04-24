@@ -794,9 +794,9 @@ after code, tests, and docs for that item are complete.
 
 ### Step 8: Strict Cleanup Gates
 
-- [ ] Replace remaining raw production `console.*` calls with `debugLog`,
+- [x] Replace remaining raw production `console.*` calls with `debugLog`,
   `devLog`, visible diagnostics, or explicit user-facing error handling.
-- [ ] Run `node scripts/check-raw-console.mjs --strict`.
+- [x] Run `node scripts/check-raw-console.mjs --strict`.
 - [ ] Move remaining component/canvas direct store reads behind selectors,
   hooks, injected dependencies, or runtime/service adapters.
 - [ ] Run `node scripts/check-store-access.mjs --strict`.

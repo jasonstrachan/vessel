@@ -1,5 +1,6 @@
 'use client';
 
+import { debugLog, logError } from '@/utils/debug';
 import { useState, useEffect, useCallback } from 'react';
 import { useUserBrushEngine } from '../hooks/useUserBrushEngine';
 import { useAppStore } from '../stores/useAppStore';
@@ -28,12 +29,12 @@ export function TestPluginBrushes() {
   useEffect(() => {
     const loadPlugins = async () => {
       try {
-        console.log('Loading plugin brushes...');
+        debugLog('raw-console', 'Loading plugin brushes...');
         
         // Check if brushes are already loaded to avoid re-registration
         const existingBrushes = userBrushEngine.getAllUserBrushes();
         if (existingBrushes.length > 0) {
-          console.log('✅ Plugin brushes already loaded:', existingBrushes);
+          debugLog('raw-console', '✅ Plugin brushes already loaded:', existingBrushes);
           setPluginBrushes(existingBrushes);
           setIsLoaded(true);
           return;
@@ -47,9 +48,9 @@ export function TestPluginBrushes() {
         setPluginBrushes(brushes);
         setIsLoaded(true);
         
-        console.log('✅ Loaded plugin brushes:', brushes);
+        debugLog('raw-console', '✅ Loaded plugin brushes:', brushes);
       } catch (error) {
-        console.error('❌ Failed to load plugin brushes:', error);
+        logError('❌ Failed to load plugin brushes:', error);
         // Try to get any existing brushes
         const existingBrushes = userBrushEngine.getAllUserBrushes();
         if (existingBrushes.length > 0) {
@@ -97,7 +98,7 @@ export function TestPluginBrushes() {
     
     userBrushEngine.drawStroke(ctx, points);
     
-    console.log(`✅ Drew test stroke with ${brushId}`);
+    debugLog('raw-console', `✅ Drew test stroke with ${brushId}`);
   };
 
   // Create a mock brush preset for plugin brushes
@@ -119,7 +120,7 @@ export function TestPluginBrushes() {
     // Set it as current brush using the selectBrushPreset action
     setBrushPreset(pluginPreset, true);
     
-    console.log(`✅ Activated plugin brush: ${brushName}`);
+    debugLog('raw-console', `✅ Activated plugin brush: ${brushName}`);
   };
 
   return (

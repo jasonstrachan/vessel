@@ -36,7 +36,7 @@ import { applyEdgePadding } from '@/utils/colorCycle/fillMath';
 import { simplifyToVertexLimit } from '@/utils/polygonSimplify';
 import { getMaskManager } from '@/layers/MaskManager';
 import { CC_PERF, recordColorCycleFillPerf } from '@/utils/perf/ccPerfProbe';
-import { debugLog, isDebugEnabled } from '@/utils/debug';
+import { debugLog, isDebugEnabled, debugWarn } from '@/utils/debug';
 import { runConcentricFillJob, runPerceptualDitherJob } from '@/workers/colorCycleFillClient';
 import type { PaletteMapEntry } from '@/workers/colorCycleFillTypes';
 import type { PatternStyle } from '@/utils/ditherAlgorithms';
@@ -186,7 +186,7 @@ type LayerStrokeState = {
   stampDither?: StampDitherState;
   snapshot?: StrokeDataSnapshot;
 };
-    
+
 type AnimatorSerializedState = ReturnType<ColorCycleAnimator['serialize']>;
 
 interface AnimatorIndexSnapshot {
@@ -475,14 +475,14 @@ export class ColorCycleBrushCanvas2D {
   private defPaletteCacheByLayer: Map<string, DefPaletteCache> = new Map();
   private appliedDefPaletteCacheByLayer: Map<string, DefPaletteCache | null> = new Map();
   private persistedColorCycleMetaByLayer: Map<string, SerializedLayerColorCycleMeta> = new Map();
-  
+
   // Canvas references
   private webglCanvas: HTMLCanvasElement; // Keep name for compatibility
   private compositeCanvas: HTMLCanvasElement;
   private compositeCtx: CanvasRenderingContext2D;
   private forceCanvas2D: boolean = false;
   private concentricWorkerJobId: number = 0;
-  
+
   // Core settings (match original API)
   private brushSize: number;
   private cycleSpeed: number;
@@ -503,11 +503,11 @@ export class ColorCycleBrushCanvas2D {
     { position: 0, color: '#000000' },
     { position: 1, color: '#ffffff' }
   ];
-  
+
   // Canvas dimensions
   private width: number;
   private height: number;
-  
+
   // Animation state
   private isAnimating: boolean = false;
   private isPaused: boolean = false;
@@ -516,30 +516,30 @@ export class ColorCycleBrushCanvas2D {
   private animationFrameId: number | null = null;
   private lastAnimationTimestamp: number = 0;
   private playbackAccumulatorMs: number = 0;
-  
+
   // Stroke tracking
   private strokeCounter: number = 0;
   private lastPoint: { x: number; y: number } | null = null;
   private isDrawing: boolean = false;
-  
+
   // Stamp tracking for gradient progression
   private stampCounter: number = 0;
   private totalGradientSteps: number = 256; // Total colors in gradient
   private flowMode: 'forward' | 'reverse' | 'pingpong' = 'forward';
   private legacyFlowMode: FlowMode = 'forward';
-  
+
   // Batched rendering
   private renderScheduled: boolean = false;
   private dirtyLayers: Set<string> = new Set();
 
   // Stamp geometry
   private stampShape: StampShape = 'square';
-  
+
   // Frame callback
   private onFrameRendered?: () => void;
 
   private _isHistoryRestore = false;
-  
+
   // Layer tracking for API compatibility
   private layerStrokes: Map<string, LayerStrokeState> = new Map();
 
@@ -738,40 +738,40 @@ export class ColorCycleBrushCanvas2D {
       'useOffscreenCanvas' | 'useWebWorkers' | 'useWASM' | 'useImageBitmap' | 'usePerceptualDitherWorker'
     >
   >;
-  
+
   constructor(canvas: HTMLCanvasElement, options: ColorCycleBrushCanvas2DOptions = {}) {
-    
+
     // Validate canvas
     if (!canvas) {
       throw new Error('Canvas element is required');
     }
-    
+
     if (!canvas.width || !canvas.height) {
       throw new Error('Canvas must have valid dimensions');
     }
-    
+
     // Use provided canvas as the "WebGL" canvas for compatibility
     this.webglCanvas = canvas;
     this.width = canvas.width;
     this.height = canvas.height;
-    
+
     // Create composite canvas for final rendering
     this.compositeCanvas = document.createElement('canvas');
     this.compositeCanvas.width = this.width;
     this.compositeCanvas.height = this.height;
-    
+
     const ctx = this.compositeCanvas.getContext('2d', {
       willReadFrequently: true,
       alpha: true
     });
-    
+
     if (!ctx) {
       throw new Error('Failed to create 2D context');
     }
-    
+
     this.compositeCtx = ctx;
     this.compositeCtx.imageSmoothingEnabled = false;
-    
+
     this.forceCanvas2D = options.forceCanvas2D ?? false;
     this.performanceOptions = {
       useOffscreenCanvas: options.useOffscreenCanvas ?? true,
@@ -1080,18 +1080,18 @@ export class ColorCycleBrushCanvas2D {
     if (!layerId) {
       throw new Error('Layer ID is required');
     }
-    
+
     if (!this.animators.has(layerId)) {
       const strokeData = this.layerStrokes.get(layerId);
       const initial = strokeData?.hasContent ? 'full' : 'reduced';
       this.createAnimator(layerId, { initial });
     }
-    
+
     const animator = this.animators.get(layerId);
     if (!animator) {
       throw new Error(`Failed to get or create animator for layer: ${layerId}`);
     }
-    
+
     return animator;
   }
 
@@ -1205,7 +1205,7 @@ export class ColorCycleBrushCanvas2D {
       }
     }
   }
-  
+
   /**
    * Paint at position (API compatible)
    */
@@ -1514,7 +1514,7 @@ export class ColorCycleBrushCanvas2D {
       (globalThis as { __CC_NON_DITHER_DEBUG?: boolean }).__CC_NON_DITHER_DEBUG === true &&
       (phaseIndex % 8) === 0
     ) {
-      console.log('[cc-band-map]', {
+      debugLog('raw-console', '[cc-band-map]', {
         phaseIndex,
         bands,
         bandIndex,
@@ -1744,15 +1744,15 @@ export class ColorCycleBrushCanvas2D {
       }
     }
     void _rotation;
-    
+
     // Debug logging removed for paint hot path
-    
+
     // Validate coordinates
     if (!Number.isFinite(x) || !Number.isFinite(y)) {
-      console.warn(`Invalid paint coordinates: x=${x}, y=${y}`);
+      debugWarn('raw-console', `Invalid paint coordinates: x=${x}, y=${y}`);
       return;
     }
-    
+
     const targetLayerId = layerId || this.activeLayerId || 'default';
     const { id, animator, strokeData } = this.prepareStrokeContext(targetLayerId);
 
@@ -1786,10 +1786,10 @@ export class ColorCycleBrushCanvas2D {
       try {
         animator.setFlowMode(this.flowMode);
       } catch {}
-      
+
       // Keep stroke pressure response continuous across all stamp shapes.
       const pressureSize = this.resolvePressureBrushSize(pressure);
-      
+
       const primaryIndex = colorIndex;
       if (
         process.env.NODE_ENV !== 'production' &&
@@ -1798,7 +1798,7 @@ export class ColorCycleBrushCanvas2D {
         !this.stampDitherEnabled &&
         (strokeData.stampCounter % 4 === 0)
       ) {
-        console.log('[cc-nodither-decision]', {
+        debugLog('raw-console', '[cc-nodither-decision]', {
           x,
           y,
           lastPoint: last ? { x: last.x, y: last.y } : null,
@@ -1825,14 +1825,14 @@ export class ColorCycleBrushCanvas2D {
         !this.stampDitherEnabled &&
         dist === 0
       ) {
-        console.log('[cc-nodither-zero-dist]', {
+        debugLog('raw-console', '[cc-nodither-zero-dist]', {
           x,
           y,
           stampCounter: strokeData.stampCounter,
           phase: strokeData.strokePhaseUnits,
           colorIndex: nextColorIndex,
         });
-        console.log('[cc-zero-dist-phase-check]', {
+        debugLog('raw-console', '[cc-zero-dist-phase-check]', {
           prevPhase,
           nextPhase: strokeData.strokePhaseUnits,
           advanced: strokeData.strokePhaseUnits !== prevPhase,
@@ -1919,7 +1919,7 @@ export class ColorCycleBrushCanvas2D {
             const boundsArea = lastBounds
               ? (lastBounds.maxX - lastBounds.minX + 1) * (lastBounds.maxY - lastBounds.minY + 1)
               : 0;
-            console.log('[perf] cc-stamp', {
+            debugLog('raw-console', '[perf] cc-stamp', {
               stamp: perf.stampCounter,
               canvas: `${perf.stats.canvasW}x${perf.stats.canvasH}`,
               brushBucket: perf.stats.brushBucket,
@@ -2011,7 +2011,7 @@ export class ColorCycleBrushCanvas2D {
         const sy = Math.max(0, Math.min(this.height - 1, Math.round(y)));
         const si = sy * this.width + sx;
 
-        console.log('[cc-nodither-postpaint]', {
+        debugLog('raw-console', '[cc-nodither-postpaint]', {
           x: sx,
           y: sy,
           expectedColorIndex: nextColorIndex,
@@ -2029,7 +2029,7 @@ export class ColorCycleBrushCanvas2D {
 
     // Mark layer as dirty for batched rendering
     this.dirtyLayers.add(id);
-    
+
     // If animation just resumed but the global driver hasn't scheduled yet, flush immediately.
     const needsImmediateRender = this.isAnimating && this.animationFrameId === null;
     const hasPresentationSurface =
@@ -2046,7 +2046,7 @@ export class ColorCycleBrushCanvas2D {
       this.renderScheduled = true;
       requestAnimationFrame(() => {
         this.renderScheduled = false;
-        
+
         // Render all dirty layers
         if (this.dirtyLayers.size > 0) {
           // Force render on all dirty animators
@@ -2056,16 +2056,16 @@ export class ColorCycleBrushCanvas2D {
               animator.forceRender();
             }
           });
-          
+
           // Clear dirty set
           this.dirtyLayers.clear();
-          
+
           // Composite all layers
           this.render(false);
         }
       });
     }
-    
+
     // quiet
   }
 
@@ -2264,7 +2264,7 @@ export class ColorCycleBrushCanvas2D {
     try {
       this.currentGradientStops = Array.isArray(stops) && stops.length > 0 ? [...stops] : this.currentGradientStops;
     } catch {}
-    
+
     if (gradientChanged && !this.preserveGradientPhaseOnChange) {
       // Reset stamp sequencing so the new gradient starts from the first band
       this.stampCounter = 0;
@@ -2859,7 +2859,7 @@ export class ColorCycleBrushCanvas2D {
         if (violations.length >= 5) break;
       }
       if (violations.length > 0) {
-        console.warn('[CC lost-edge] write mask violation; restoring pixels', {
+        debugWarn('raw-console', '[CC lost-edge] write mask violation; restoring pixels', {
           count: violations.length,
           sample: violations,
         });
@@ -3014,13 +3014,13 @@ export class ColorCycleBrushCanvas2D {
       // removed debug log
     }
     const id = layerId || this.activeLayerId || 'default';
-    
+
 
     this.activeLayerId = id;
     this.isDrawing = true;
     this.strokeCounter++;
     this.lastPoint = null;
-    
+
     // Before starting a new stroke, optionally separate from any existing content
     // by committing previous content to the target layer (if present) and
     // clearing internal buffers. We keep this conservative to avoid unwanted
@@ -3104,7 +3104,7 @@ export class ColorCycleBrushCanvas2D {
         typeof globalThis !== 'undefined' &&
         (globalThis as { __CC_NON_DITHER_DEBUG?: boolean }).__CC_NON_DITHER_DEBUG === true
       ) {
-        console.log('[cc-stroke-begin]', {
+        debugLog('raw-console', '[cc-stroke-begin]', {
           stampCounter: strokeData.stampCounter,
           phase: strokeData.strokePhaseUnits,
           lastPoint: strokeData.lastPoint,
@@ -3153,7 +3153,7 @@ export class ColorCycleBrushCanvas2D {
         if (process.env.NODE_ENV !== 'production') {
           const h = stampStroke.stampDitherFillHandle;
           if (h && (h.width !== this.width || h.height !== this.height)) {
-            console.warn('[CC] stamp dither handle size mismatch', {
+            debugWarn('raw-console', '[CC] stamp dither handle size mismatch', {
               handle: { w: h.width, h: h.height },
               brush: { w: this.width, h: this.height },
             });
@@ -3170,7 +3170,7 @@ export class ColorCycleBrushCanvas2D {
       } else {
         strokeData.stampDither = undefined;
       }
-      
+
       // Keep stamp counter continuous across strokes for flowing gradients (unless cleared above)
       // Don't reset - let it accumulate for continuous color progression
     }
@@ -3178,7 +3178,7 @@ export class ColorCycleBrushCanvas2D {
       this.perfStroke.durations.beginStrokeTotalMs += Math.max(0, nowMs() - beginStrokeStart);
     }
   }
-  
+
   /**
    * End stroke (API compatible)
    */
@@ -3212,7 +3212,7 @@ export class ColorCycleBrushCanvas2D {
         samples.push({ i, v: data[i] });
       }
       try {
-        console.log(`[CC endStroke] ${label}`, { len: data.length, samples });
+        debugLog('raw-console', `[CC endStroke] ${label}`, { len: data.length, samples });
       } catch {}
     };
     const probeIndexRegion = (label: string, buf?: Uint8Array) => {
@@ -3240,7 +3240,7 @@ export class ColorCycleBrushCanvas2D {
         }
       }
       try {
-        console.log('[CC index probe]', {
+        debugLog('raw-console', '[CC index probe]', {
           label,
           unique: seen.size,
           transitions,
@@ -3334,7 +3334,7 @@ export class ColorCycleBrushCanvas2D {
         typeof globalThis !== 'undefined' &&
         (globalThis as { __CC_NON_DITHER_DEBUG?: boolean }).__CC_NON_DITHER_DEBUG === true
       ) {
-        console.log('[cc-stroke-end]', {
+        debugLog('raw-console', '[cc-stroke-end]', {
           stampCounter: strokeData.stampCounter,
           phase: strokeData.strokePhaseUnits,
           lastPoint: strokeData.lastPoint,
@@ -3481,7 +3481,7 @@ export class ColorCycleBrushCanvas2D {
       mask = applySierraLiteLostEdgeMask(coverage, regionW, regionH, strength);
     } catch (error) {
       if (process.env.NODE_ENV !== 'production') {
-        console.warn('[CC] Lost-edge mask failed:', error);
+        debugWarn('raw-console', '[CC] Lost-edge mask failed:', error);
       }
       return;
     }
@@ -3536,11 +3536,11 @@ export class ColorCycleBrushCanvas2D {
       try {
         this.endStroke(layerId);
       } catch (error) {
-        console.warn('[ColorCycleBrush.finalizeCurrentStroke] Failed to end stroke:', error);
+        debugWarn('raw-console', '[ColorCycleBrush.finalizeCurrentStroke] Failed to end stroke:', error);
       }
     }
   }
-  
+
   /**
    * Fill shape with linear gradient in specified direction
    */
@@ -3557,22 +3557,22 @@ export class ColorCycleBrushCanvas2D {
 
     // Validate input
     if (!vertices || !Array.isArray(vertices)) {
-      console.warn('Invalid vertices provided to fillShapeLinear');
+      debugWarn('raw-console', 'Invalid vertices provided to fillShapeLinear');
       return;
     }
-    
+
     if (vertices.length < 3) {
-      console.warn('fillShapeLinear requires at least 3 vertices');
+      debugWarn('raw-console', 'fillShapeLinear requires at least 3 vertices');
       return;
     }
-    
+
     const id = layerId;
     const yieldIfNeeded = createYieldController();
     // Initialize stroke data BEFORE getting animator
     if (!this.layerStrokes.has(id)) {
       this.layerStrokes.set(id, this.createLayerStrokeState({ hasContent: true }));
     }
-    
+
     const strokeData = this.layerStrokes.get(id);
     if (strokeData) {
       strokeData.hasContent = true;
@@ -3597,7 +3597,7 @@ export class ColorCycleBrushCanvas2D {
         strokeData.buffers.def = new Uint16Array(this.width * this.height);
       }
     }
-    
+
     const animator = this.ensureFullResolution(id, 'fill');
     if (strokeData) {
       try {
@@ -3623,18 +3623,18 @@ export class ColorCycleBrushCanvas2D {
         encoded: strokeData?.flow?.encoded,
       });
     }
-    
+
     // Find bounds
     let minX = Infinity, maxX = -Infinity;
     let minY = Infinity, maxY = -Infinity;
-    
+
     for (const v of vertices) {
       minX = Math.min(minX, v.x);
       maxX = Math.max(maxX, v.x);
       minY = Math.min(minY, v.y);
       maxY = Math.max(maxY, v.y);
     }
-    
+
     // Clamp to canvas bounds
     minX = Math.max(0, Math.floor(minX));
     maxX = Math.min(this.width - 1, Math.ceil(maxX));
@@ -3663,20 +3663,20 @@ export class ColorCycleBrushCanvas2D {
         return;
       }
     }
-    
+
     // Calculate shape center for direction vector origin
     const centerX = (fullMinX + fullMaxX) / 2;
     const centerY = (fullMinY + fullMaxY) / 2;
-    
+
     // Normalize direction vector
     const dirLength = Math.sqrt(direction.x * direction.x + direction.y * direction.y);
     const dirX = direction.x / dirLength;
     const dirY = direction.y / dirLength;
-    
+
     // Calculate projection range for normalization
     let minProjection = Infinity;
     let maxProjection = -Infinity;
-    
+
     // Find min/max projections for all vertices
     for (const v of vertices) {
       const dx = v.x - centerX;
@@ -3685,7 +3685,7 @@ export class ColorCycleBrushCanvas2D {
       minProjection = Math.min(minProjection, projection);
       maxProjection = Math.max(maxProjection, projection);
     }
-    
+
     const projectionPadding = 0.5 * (Math.abs(dirX) + Math.abs(dirY));
     const paddedMinProjection = minProjection - projectionPadding;
     const paddedMaxProjection = maxProjection + projectionPadding;
@@ -4218,7 +4218,7 @@ export class ColorCycleBrushCanvas2D {
             logCpuLinear();
             return;
           } catch (error) {
-            console.warn('[ColorCycleBrushCanvas2D] Worker perceptual fill failed; falling back to main thread.', error);
+            debugWarn('raw-console', '[ColorCycleBrushCanvas2D] Worker perceptual fill failed; falling back to main thread.', error);
           }
         }
 
@@ -4344,23 +4344,23 @@ export class ColorCycleBrushCanvas2D {
       const serpentine = (rowIdx & 1) === 1; // per-pixel path serpentine
       const serpentineCell = ((Math.floor(rowIdx / Math.max(1, cellSize)) & 1) === 1); // block path serpentine
       const intersections: number[] = [];
-      
+
       // Find all edge intersections with this scanline
       for (let i = 0; i < vertices.length; i++) {
         const v1 = vertices[i];
         const v2 = vertices[(i + 1) % vertices.length];
-        
+
         if (Math.abs(v2.y - v1.y) < 0.0001) continue;
-        
+
         if ((v1.y <= y && v2.y > y) || (v2.y <= y && v1.y > y)) {
           const t = (y - v1.y) / (v2.y - v1.y);
           const x = v1.x + t * (v2.x - v1.x);
           intersections.push(x);
         }
       }
-      
+
       intersections.sort((a, b) => a - b);
-      
+
       // Fill between pairs of intersections
       for (let i = 0; i < intersections.length - 1; i += 2) {
         const startFloat = intersections[i];
@@ -4552,7 +4552,7 @@ export class ColorCycleBrushCanvas2D {
         }
       }
     }
-    
+
     if (lostEdge > 0) {
       this.applyLostEdgeFromWrittenMask({
         writtenMask,
@@ -4577,7 +4577,7 @@ export class ColorCycleBrushCanvas2D {
     if (strokeData) {
       strokeData.stampCounter = this.stampCounter;
     }
-    
+
     // Mark layer as dirty for rendering
     this.dirtyLayers.add(id);
     animator.markDirtyBounds(bbox);
@@ -4597,7 +4597,7 @@ export class ColorCycleBrushCanvas2D {
         phase: linearPhaseData,
       });
     }
-    
+
     // Force immediate render
     animator.forceRender();
     this.render(false);
@@ -4610,7 +4610,7 @@ export class ColorCycleBrushCanvas2D {
     }
   }
 
-  
+
   /**
    * Fill shape with smooth gradient bands from edge to center (concentric)
    */
@@ -4626,23 +4626,23 @@ export class ColorCycleBrushCanvas2D {
 
     // Validate input
     if (!vertices || !Array.isArray(vertices)) {
-      console.warn('Invalid vertices provided to fillShape');
+      debugWarn('raw-console', 'Invalid vertices provided to fillShape');
       return;
     }
-    
+
     if (vertices.length < 3) {
-      console.warn('fillShape requires at least 3 vertices');
+      debugWarn('raw-console', 'fillShape requires at least 3 vertices');
       return;
     }
-    
+
     const id = layerId;
     const yieldIfNeeded = createYieldController();
-    
+
     // Initialize stroke data BEFORE getting animator
     if (!this.layerStrokes.has(id)) {
       this.layerStrokes.set(id, this.createLayerStrokeState({ hasContent: true }));
     }
-    
+
     const strokeData = this.layerStrokes.get(id);
     if (strokeData) {
       strokeData.hasContent = true;
@@ -4662,7 +4662,7 @@ export class ColorCycleBrushCanvas2D {
         strokeData.buffers.def = new Uint16Array(this.width * this.height);
       }
     }
-    
+
     const activeSlot = strokeData?.flow.activeSlot ?? this.activeGradientSlots.get(id) ?? 0;
     if (strokeData) {
       strokeData.flow.activeSlot = activeSlot;
@@ -4681,18 +4681,18 @@ export class ColorCycleBrushCanvas2D {
     }
 
     const animator = this.ensureFullResolution(id, 'fill');
-    
+
     // Find bounds with proper initialization
     let minX = Infinity, maxX = -Infinity;
     let minY = Infinity, maxY = -Infinity;
-    
+
     for (const v of vertices) {
       minX = Math.min(minX, v.x);
       maxX = Math.max(maxX, v.x);
       minY = Math.min(minY, v.y);
       maxY = Math.max(maxY, v.y);
     }
-    
+
     // Clamp to canvas bounds
     minX = Math.max(0, Math.floor(minX));
     maxX = Math.min(this.width - 1, Math.ceil(maxX));
@@ -4721,7 +4721,7 @@ export class ColorCycleBrushCanvas2D {
         return;
       }
     }
-    
+
     // Use scanline fill with inline gradient calculation - simpler and more reliable
     // gradientBands represents number of color divisions
     // bandSpacing (or passed spacing) represents pixel distance between bands
@@ -5356,7 +5356,7 @@ export class ColorCycleBrushCanvas2D {
       animator.endDirectFill();
     }
   }
-  
+
   /**
    * Clear (API compatible)
    */
@@ -5371,7 +5371,7 @@ export class ColorCycleBrushCanvas2D {
     this.layerStrokes.clear();
     this.render(false);
   }
-  
+
   /**
    * Render current frame (API compatible)
    */
@@ -5411,7 +5411,7 @@ export class ColorCycleBrushCanvas2D {
       webglCtx.drawImage(this.compositeCanvas, 0, 0);
       webglCtx.globalCompositeOperation = prevOp;
     }
-    
+
     this.dirtyLayers.clear();
 
     // Call frame callback
@@ -5419,21 +5419,21 @@ export class ColorCycleBrushCanvas2D {
       this.onFrameRendered();
     }
   }
-  
+
   /**
    * Render directly to canvas (API compatible)
    */
   renderDirectToCanvas(targetCanvas: HTMLCanvasElement, layerId: string) {
     if (!targetCanvas) {
-      console.warn('Target canvas is required for renderDirectToCanvas');
+      debugWarn('raw-console', 'Target canvas is required for renderDirectToCanvas');
       return;
     }
-    
+
     if (!layerId) {
-      console.warn('Layer ID is required for renderDirectToCanvas');
+      debugWarn('raw-console', 'Layer ID is required for renderDirectToCanvas');
       return;
     }
-    
+
     // Ensure an animator exists for the layer to avoid noisy warnings
     let animator = this.animators.get(layerId);
     if (!animator) {
@@ -5452,7 +5452,7 @@ export class ColorCycleBrushCanvas2D {
     const ctx = targetCanvas.getContext('2d', { willReadFrequently: true });
 
     if (!ctx) {
-      console.warn('Failed to get 2D context from target canvas');
+      debugWarn('raw-console', 'Failed to get 2D context from target canvas');
       return;
     }
 
@@ -5529,7 +5529,7 @@ export class ColorCycleBrushCanvas2D {
         animator.forceRender();
       }
     } catch (error) {
-      console.warn('[ColorCycleBrush.commitCurrentStroke] Failed to finalize stroke:', error);
+      debugWarn('raw-console', '[ColorCycleBrush.commitCurrentStroke] Failed to finalize stroke:', error);
     }
   }
 
@@ -5540,11 +5540,11 @@ export class ColorCycleBrushCanvas2D {
   commitToLayer(targetCanvas: HTMLCanvasElement, layerId: string, opacity: number = 1) {
     // Validate inputs
     if (!targetCanvas) {
-      console.warn('[ColorCycleBrush.commitToLayer] No target canvas provided');
+      debugWarn('raw-console', '[ColorCycleBrush.commitToLayer] No target canvas provided');
       return;
     }
     if (!layerId) {
-      console.warn('[ColorCycleBrush.commitToLayer] No layerId provided');
+      debugWarn('raw-console', '[ColorCycleBrush.commitToLayer] No layerId provided');
       return;
     }
 
@@ -5560,7 +5560,7 @@ export class ColorCycleBrushCanvas2D {
 
     const ctx = targetCanvas.getContext('2d', { willReadFrequently: true });
     if (!ctx) {
-      console.warn('[ColorCycleBrush.commitToLayer] Failed to acquire 2D context');
+      debugWarn('raw-console', '[ColorCycleBrush.commitToLayer] Failed to acquire 2D context');
       return;
     }
 
@@ -5576,7 +5576,7 @@ export class ColorCycleBrushCanvas2D {
     if (shouldCommitLog) {
       try {
         const dimensions = animator.getDimensions();
-        console.log('[CC commit] animator surface', {
+        debugLog('raw-console', '[CC commit] animator surface', {
           width: dimensions.width,
           height: dimensions.height,
           hasWebGL: animator.hasWebGL?.() ?? false,
@@ -5676,7 +5676,7 @@ export class ColorCycleBrushCanvas2D {
           };
         }
         try {
-          console.log('[CC commit] transitions', { animatorTransitions, previewTransitions });
+          debugLog('raw-console', '[CC commit] transitions', { animatorTransitions, previewTransitions });
         } catch {}
       } catch {}
     }
@@ -5820,15 +5820,15 @@ export class ColorCycleBrushCanvas2D {
     if (this.isAnimating) {
       return;
     }
-    
+
     // Flush any pending renders before starting animation
     this.flushScheduledRender();
-    
+
     this.isAnimating = true;
     this.isPaused = false;
     this.ensureAnimationLoop();
   }
-  
+
   /**
    * Stop animation (API compatible)
    */
@@ -5848,7 +5848,7 @@ export class ColorCycleBrushCanvas2D {
       } catch {}
     });
   }
-  
+
   /**
    * Toggle play/pause (API compatible)
    */
@@ -5868,7 +5868,7 @@ export class ColorCycleBrushCanvas2D {
       this.pause();
     }
   }
-  
+
   /**
    * Pause animation (API compatible)
    */
@@ -5879,7 +5879,7 @@ export class ColorCycleBrushCanvas2D {
     }
     this.isPaused = true;
   }
-  
+
   /**
    * Resume animation (API compatible)
    */
@@ -5904,7 +5904,7 @@ export class ColorCycleBrushCanvas2D {
   resumeAnimation() {
     this.resume();
   }
-  
+
   /**
    * Update animation (API compatible)
    */
@@ -5918,7 +5918,7 @@ export class ColorCycleBrushCanvas2D {
         animator.updateFrame();
       }
     });
-    
+
     // Always render when updateAnimation is called
     this.render(false);
   }
@@ -5938,13 +5938,13 @@ export class ColorCycleBrushCanvas2D {
     });
     this.render(false);
   }
-  
+
   /**
    * Set animation speed (API compatible)
    */
   setSpeed(speed: number) {
     if (!Number.isFinite(speed) || speed < 0) {
-      console.warn(`Invalid animation speed: ${speed}`);
+      debugWarn('raw-console', `Invalid animation speed: ${speed}`);
       return;
     }
     // Write-speed only: this value is stamped into newly painted pixels.
@@ -5955,7 +5955,7 @@ export class ColorCycleBrushCanvas2D {
 
   setLayerBaseSpeed(speed: number) {
     if (!Number.isFinite(speed) || speed < 0) {
-      console.warn(`Invalid layer base speed: ${speed}`);
+      debugWarn('raw-console', `Invalid layer base speed: ${speed}`);
       return;
     }
 
@@ -6038,19 +6038,19 @@ export class ColorCycleBrushCanvas2D {
 
   setPlaybackSpeedScale(scale: number) {
     if (!Number.isFinite(scale) || scale < 0) {
-      console.warn(`Invalid playback speed scale: ${scale}`);
+      debugWarn('raw-console', `Invalid playback speed scale: ${scale}`);
       return;
     }
     this.playbackSpeedScale = scale;
     this.animators.forEach((animator) => animator.setSpeed(scale));
   }
-  
+
   /**
    * Set FPS (API compatible)
    */
   setFPS(fps: number) {
     if (!Number.isFinite(fps) || fps <= 0 || fps > 120) {
-      console.warn(`Invalid FPS value: ${fps}. Expected value between 1 and 120`);
+      debugWarn('raw-console', `Invalid FPS value: ${fps}. Expected value between 1 and 120`);
       return;
     }
     this.fps = fps;
@@ -6058,36 +6058,36 @@ export class ColorCycleBrushCanvas2D {
     this.lastAnimationTimestamp = 0;
     this.animators.forEach(animator => animator.setFPS(fps));
   }
-  
+
   /**
    * Set brush size (API compatible)
    */
   setBrushSize(size: number) {
     if (!Number.isFinite(size) || size <= 0) {
-      console.warn(`Invalid brush size: ${size}`);
+      debugWarn('raw-console', `Invalid brush size: ${size}`);
       return;
     }
     this.brushSize = size;
   }
-  
+
   /**
    * Set gradient bands (number of color bands in the gradient)
    * Controls how many distinct color zones appear in shapes
    */
   setGradientBands(bands: number) {
     if (!Number.isFinite(bands) || bands < 1) {
-      console.warn(`Invalid gradient bands: ${bands}, using default`);
+      debugWarn('raw-console', `Invalid gradient bands: ${bands}, using default`);
       return;
     }
     this.gradientBands = Math.max(1, Math.min(254, Math.floor(bands)));
   }
-  
+
   /**
    * Set band spacing (pixel distance between bands)
    */
   setBandSpacing(spacing: number) {
     if (!Number.isFinite(spacing) || spacing <= 0) {
-      console.warn(`Invalid band spacing: ${spacing}, using default`);
+      debugWarn('raw-console', `Invalid band spacing: ${spacing}, using default`);
       return;
     }
     const clamped = Math.max(1, Math.min(512, Math.round(spacing)));
@@ -6138,21 +6138,21 @@ export class ColorCycleBrushCanvas2D {
       this.stampShape = 'square';
     }
   }
-  
+
   /**
    * Set pressure enabled state
    */
   setPressureEnabled(enabled: boolean) {
     this.pressureEnabled = enabled;
   }
-  
+
   /**
    * Set min pressure (size percentage)
    */
   setMinPressure(min: number) {
     this.minPressure = Math.max(1, Math.min(1000, min));
   }
-  
+
   /**
    * Set max pressure (size percentage)
    */
@@ -6188,7 +6188,7 @@ export class ColorCycleBrushCanvas2D {
   setPxlEdgeEnabled(enabled: boolean) {
     this.pxlEdgeEnabled = !!enabled;
   }
-  
+
   /** Toggle stamp-level dithering for Color Cycle strokes. */
   setStampDitherEnabled(enabled: boolean) {
     this.stampDitherEnabled = !!enabled;
@@ -6250,28 +6250,28 @@ export class ColorCycleBrushCanvas2D {
   setStampDitherClears(enabled: boolean) {
     this.stampDitherBgFill = !enabled;
   }
-  
+
   /**
    * Is playing? (API compatible)
    */
   isPlaying(): boolean {
     return this.isAnimating && !this.isPaused;
   }
-  
+
   /**
    * Set frame callback (API compatible)
    */
   setOnFrameRendered(callback: () => void) {
     this.onFrameRendered = callback;
   }
-  
+
   /**
    * Set active layer ID
    */
   setActiveLayer(layerId: string) {
     this.activeLayerId = layerId;
   }
-  
+
   /**
    * @deprecated Use startAnimation() or stopAnimation() directly
    * Set playing state - wrapper for backward compatibility
@@ -6283,13 +6283,13 @@ export class ColorCycleBrushCanvas2D {
       this.stopAnimation();
     }
   }
-  
+
   /**
    * Layer isolation methods for multi-layer support
    */
   private layerId: string | null = null;
   private isolated: boolean = false;
-  
+
   /**
    * Set the layer ID this brush instance belongs to
    * Note: This overrides the deprecated setLayerId above
@@ -6300,21 +6300,21 @@ export class ColorCycleBrushCanvas2D {
     this.setActiveLayer(layerId);
     // quiet
   }
-  
+
   /**
    * Get the layer ID this brush instance belongs to
    */
   getLayerId(): string | null {
     return this.layerId;
   }
-  
+
   /**
    * Mark this brush as isolated (no shared resources)
    */
   setIsolated(isolated: boolean): void {
     this.isolated = isolated;
   }
-  
+
   /**
    * Get canvas for validation
    */
@@ -6412,14 +6412,14 @@ export class ColorCycleBrushCanvas2D {
 
     return false;
   }
-  
+
   /**
    * Check if WebGL context is lost (always false for Canvas2D)
    */
   isContextLost(): boolean {
     return false; // Canvas2D doesn't lose context
   }
-  
+
   /**
    * Check if buffers are valid
    */
@@ -6438,7 +6438,7 @@ export class ColorCycleBrushCanvas2D {
     // No active layer is also valid
     return true;
   }
-  
+
   /**
    * Cleanup resources and stop animations
    */
@@ -6446,9 +6446,9 @@ export class ColorCycleBrushCanvas2D {
     // Cancel any pending renders
     this.renderScheduled = false;
     this.dirtyLayers.clear();
-    
+
     this.stopAnimation();
-    
+
     // Clean up all animators
     this.animators.forEach((animator) => {
       try {
@@ -6459,12 +6459,12 @@ export class ColorCycleBrushCanvas2D {
         animator.cleanup();
       } catch {}
     });
-    
+
     this.animators.clear();
     this.layerStrokes.clear();
     this.persistedColorCycleMetaByLayer.clear();
   }
-  
+
   /**
    * @deprecated Use cleanup() instead
    * Alias for cleanup() to maintain API compatibility
@@ -6472,7 +6472,7 @@ export class ColorCycleBrushCanvas2D {
   destroy() {
     this.cleanup();
   }
-  
+
   /**
    * Set flow direction (API compatible)
    */
@@ -6502,21 +6502,21 @@ export class ColorCycleBrushCanvas2D {
   set flowDirection(direction: 'forward' | 'backward') {
     this.setFlowDirection(direction);
   }
-  
+
   /**
    * Toggle flow direction (API compatible)
    */
   toggleFlowDirection() {
     this.setFlowMode('forward');
   }
-  
+
   /**
    * Get full state (API compatible)
    */
   getFullState() {
     return this.serialize();
   }
-  
+
   /**
    * Restore full state (API compatible)
    */
@@ -6584,13 +6584,13 @@ export class ColorCycleBrushCanvas2D {
       if (typeof state.pxlEdgeEnabled === 'boolean') {
         this.setPxlEdgeEnabled(state.pxlEdgeEnabled);
       }
-      
+
       if (layerSnapshots && !asHistory) {
         const clearForLayer = (layerId: string) => {
           clearedDuringRestore = true;
           const sd = this.layerStrokes.get(layerId);
           if (sd) {
-            console.log('[ColorCycleBrush] Paint buffer cleared during restore for layer:', layerId?.substring(0, 20));
+            debugLog('raw-console', '[ColorCycleBrush] Paint buffer cleared during restore for layer:', layerId?.substring(0, 20));
             sd.buffers.paint.fill(0);
             sd.buffers.gid.fill(0);
             sd.buffers.spd.fill(0);
@@ -6669,7 +6669,7 @@ export class ColorCycleBrushCanvas2D {
       if (asHistory) {
         this.strokeCounter = highestStrokeCounter;
       }
-      
+
     } finally {
       if (shouldAssertNoClear) {
         console.assert(!clearedDuringRestore, '[ColorCycleBrush] Cleared stroke data during history restore');
@@ -6685,13 +6685,13 @@ export class ColorCycleBrushCanvas2D {
     const id = layerId;
     const animator = this.animators.get(id);
     if (!animator) {
-      console.log('[Debug] No animator exists for layer:', id);
+      debugLog('raw-console', '[Debug] No animator exists for layer:', id);
       return true;
     }
     const strokeData = this.layerStrokes.get(id);
     try {
       if (!strokeData?.buffers.paint) {
-        console.log('[Debug] No paint buffer data on layer');
+        debugLog('raw-console', '[Debug] No paint buffer data on layer');
         return true;
       }
       const hasContent = this.paintBufferHasContent(
@@ -6699,14 +6699,14 @@ export class ColorCycleBrushCanvas2D {
         this.width,
         this.height
       );
-      console.log('[Debug] Animator buffer has content:', hasContent, 'layer:', id);
+      debugLog('raw-console', '[Debug] Animator buffer has content:', hasContent, 'layer:', id);
       return !hasContent;
     } catch (error) {
-      console.warn('[Debug] Failed to verify animator canvas content:', error);
+      debugWarn('raw-console', '[Debug] Failed to verify animator canvas content:', error);
       return false;
     }
   }
-  
+
   /**
    * Serialize state (API compatible simplified)
    */
@@ -6847,7 +6847,7 @@ export class ColorCycleBrushCanvas2D {
       pxlEdgeEnabled: this.pxlEdgeEnabled,
     };
   }
-  
+
   /**
    * Deserialize state (API compatible simplified)
    */
@@ -7486,7 +7486,7 @@ export class ColorCycleBrushCanvas2D {
   dispose(): void {
     // Stop all animations
     this.pauseAnimation();
-    
+
     // Clear all animators
     for (const [layerId, animator] of this.animators) {
       try {
@@ -7506,11 +7506,11 @@ export class ColorCycleBrushCanvas2D {
           anyAnimator.stop();
         }
       } catch (error) {
-        console.warn(`Error disposing animator for layer ${layerId}:`, error);
+        debugWarn('raw-console', `Error disposing animator for layer ${layerId}:`, error);
       }
     }
     this.animators.clear();
-    
+
     // Clear stroke data
     this.layerStrokes.clear();
     this.dirtyLayers.clear();
@@ -7520,8 +7520,8 @@ export class ColorCycleBrushCanvas2D {
     this.activeGradientSlots.clear();
     this.defPaletteCacheByLayer.clear();
     this.appliedDefPaletteCacheByLayer.clear();
-    
-    console.log('ColorCycleBrushCanvas2D disposed');
+
+    debugLog('raw-console', 'ColorCycleBrushCanvas2D disposed');
   }
 
   private static computeGradientSignature(

@@ -1,3 +1,4 @@
+import { debugWarn } from '@/utils/debug';
 import { OffscreenRenderer } from './OffscreenRenderer';
 import { supportsOffscreenComposite } from '@/utils/offscreenSupport';
 
@@ -60,7 +61,7 @@ class CompositeBitmapManager {
         return bitmap;
       }
     } catch (error) {
-      console.warn('[CompositeBitmapManager] snapshot failed, falling back to canvas path', error);
+      debugWarn('raw-console', '[CompositeBitmapManager] snapshot failed, falling back to canvas path', error);
     }
 
     return null;

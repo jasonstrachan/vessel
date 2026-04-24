@@ -66,6 +66,10 @@ const makeStore = () => ({
     sequentialData: undefined,
   }],
   activeLayerId: 'l1',
+  canvas: {
+    transparencyBackgroundMode: 'checker' as const,
+    displayFilters: [],
+  },
   sequentialRecord: { currentFrame: 0 },
   compositeLayersToCanvas: jest.fn(),
   setActiveLayer: jest.fn(),

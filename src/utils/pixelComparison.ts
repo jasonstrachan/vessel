@@ -1,3 +1,4 @@
+import { logError } from '@/utils/debug';
 // Direct pixel comparison utilities for debugging preview vs cache discrepancies
 
 export interface PixelDifference {
@@ -39,7 +40,7 @@ export function compareImageData(
 
   // Check dimensions first
   if (previewData.width !== cacheData.width || previewData.height !== cacheData.height) {
-    console.error('[PixelComparison] Dimension mismatch!', {
+    logError('[PixelComparison] Dimension mismatch!', {
       preview: `${previewData.width}x${previewData.height}`,
       cache: `${cacheData.width}x${cacheData.height}`
     });
@@ -138,7 +139,7 @@ export function compareImageData(
 export function extractImageDataFromCanvas(canvas: HTMLCanvasElement, label: string): ImageData | null {
   const ctx = canvas.getContext('2d', { willReadFrequently: true, colorSpace: 'srgb' });
   if (!ctx) {
-    console.error(`[PixelComparison] Failed to get context for ${label} canvas`);
+    logError(`[PixelComparison] Failed to get context for ${label} canvas`);
     return null;
   }
 
@@ -160,7 +161,7 @@ export function createCleanCanvasCopy(sourceCanvas: HTMLCanvasElement, label: st
     
     const tempCtx = tempCanvas.getContext('2d', { willReadFrequently: true, colorSpace: 'srgb' });
     if (!tempCtx) {
-      console.error(`[PixelComparison] Failed to get temp context for ${label}`);
+      logError(`[PixelComparison] Failed to get temp context for ${label}`);
       return null;
     }
 
@@ -171,7 +172,7 @@ export function createCleanCanvasCopy(sourceCanvas: HTMLCanvasElement, label: st
 
     return tempCanvas;
   } catch (error) {
-    console.error(`[PixelComparison] Error creating clean copy for ${label}:`, error);
+    logError(`[PixelComparison] Error creating clean copy for ${label}:`, error);
     return null;
   }
 }
@@ -189,12 +190,12 @@ export function compareLatestBrushData(tolerance: number = 0): void {
   const cacheData = windowWithDebugData.latestCacheImageData;
 
   if (!previewData) {
-    console.error('[PixelComparison] No preview ImageData available. Make sure to interact with MiniCanvas first.');
+    logError('[PixelComparison] No preview ImageData available. Make sure to interact with MiniCanvas first.');
     return;
   }
 
   if (!cacheData) {
-    console.error('[PixelComparison] No cache ImageData available. Make sure to draw on canvas first.');
+    logError('[PixelComparison] No cache ImageData available. Make sure to draw on canvas first.');
     return;
   }
 

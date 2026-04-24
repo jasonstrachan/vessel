@@ -2,6 +2,12 @@ import { drawPolygonGradient, type DrawPolygonGradientArgs } from '../shapePolyg
 import { spreadPaletteColors } from '../engineShared';
 import type { BrushSettings } from '@/types';
 
+jest.mock('@/utils/debug', () => ({
+  debugWarn: jest.fn(),
+}));
+
+import { debugWarn } from '@/utils/debug';
+
 const createGradientRecorder = () => {
   const stops: Array<{ position: number; color: string }> = [];
   return {
@@ -90,13 +96,11 @@ describe('shapePolygonGradientController', () => {
   it('warns and returns for insufficient vertices', () => {
     const args = createDefaultArgs();
     args.polygonData = { vertices: [{ x: 0, y: 0 }, { x: 1, y: 1 }], colors: [] };
-    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
 
     drawPolygonGradient(args);
 
-    expect(warnSpy).toHaveBeenCalledWith('[drawPolygonGradient] Skipping - insufficient vertices:', 2);
+    expect(debugWarn).toHaveBeenCalledWith('raw-console', '[drawPolygonGradient] Skipping - insufficient vertices:', 2);
     expect(args.withTransparencyLock).not.toHaveBeenCalled();
-    warnSpy.mockRestore();
   });
 
   it('creates banded stops for main gradient when gradientBands is enabled', () => {

@@ -1,6 +1,7 @@
 // Project input/output utilities for Vessel
 // Handles serialization, deserialization, and file operations
 
+import { debugLog, debugWarn, logError } from '@/utils/debug';
 import type {
   Project,
   Layer,
@@ -168,7 +169,7 @@ const migrateLegacyColorCycleEncoding = (layers: Layer[], version: string) => {
     data.legacyRemap = undefined;
 
     if (hadEditorSlot) {
-      console.warn('[projectIO] Legacy editor slot remapped during load', {
+      debugWarn('raw-console', '[projectIO] Legacy editor slot remapped during load', {
         layerId: layer.id,
       });
     }
@@ -197,7 +198,7 @@ const sanitizeSequentialLayerData = (
         brushSnapshots: serializedChunkData.brushSnapshots,
       });
     } catch (error) {
-      console.warn('[projectIO] Failed to decode sequential chunks, falling back to empty events:', error);
+      debugWarn('raw-console', '[projectIO] Failed to decode sequential chunks, falling back to empty events:', error);
       events = [];
     }
   }
@@ -1032,14 +1033,14 @@ async function imageDataToDataUrl(imageData: ImageData): Promise<string> {
     return await encodeWithOffscreenCanvas();
   } catch (error) {
     if (typeof process !== 'undefined' && process.env.NODE_ENV === 'development') {
-      console.warn('[projectIO] Falling back to DOM canvas encoding:', error);
+      debugWarn('raw-console', '[projectIO] Falling back to DOM canvas encoding:', error);
     }
   }
 
   try {
     return encodeWithDOMCanvas();
   } catch (error) {
-    console.warn('[projectIO] Falling back to raw image serialization:', error);
+    debugWarn('raw-console', '[projectIO] Falling back to raw image serialization:', error);
   }
 
   return encodeImageDataAsRawDataUrl(imageData);
@@ -1072,7 +1073,7 @@ function dataUrlToImageData(dataUrl: string): Promise<ImageData> {
         const base64 = dataUrl.substring('data:application/json;base64,'.length);
         const jsonString = atob(base64);
         const rawData = JSON.parse(jsonString);
-        
+
         // Recreate ImageData from raw pixel data
         if (Array.isArray(rawData.data)) {
           // Legacy format: data array of numbers
@@ -1104,7 +1105,7 @@ function dataUrlToImageData(dataUrl: string): Promise<ImageData> {
         reject(new Error('Unsupported raw image payload'));
         return;
       }
-      
+
       // Fallback: handle old PNG format for backward compatibility
       if (dataUrl.startsWith('data:image/png;base64,')) {
         const img = new Image();
@@ -1117,7 +1118,7 @@ function dataUrlToImageData(dataUrl: string): Promise<ImageData> {
             reject(new Error('Failed to get canvas context'));
             return;
           }
-          
+
           ctx.drawImage(img, 0, 0);
           const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
           resolve(imageData);
@@ -1126,7 +1127,7 @@ function dataUrlToImageData(dataUrl: string): Promise<ImageData> {
         img.src = dataUrl;
         return;
       }
-      
+
       reject(new Error('Unsupported data format'));
     } catch (error) {
       reject(error);
@@ -2246,7 +2247,7 @@ const resolveColorCycleCanvasImageDataForSave = async (
   try {
     brush.renderDirectToCanvas(renderCanvas, layer.id);
   } catch (error) {
-    console.warn('[projectIO] Failed to render color cycle canvas for save:', error);
+    debugWarn('raw-console', '[projectIO] Failed to render color cycle canvas for save:', error);
     return liveCanvasImageData ?? persistedCanvasImageData ?? undefined;
   }
 
@@ -2266,7 +2267,7 @@ async function serializeLayer(layer: Layer): Promise<SerializedLayer> {
     try {
       imageDataUrl = await imageDataToDataUrl(imageDataForSave);
     } catch (error) {
-      console.warn('[projectIO] Failed to encode layer imageData, falling back to empty payload:', error);
+      debugWarn('raw-console', '[projectIO] Failed to encode layer imageData, falling back to empty payload:', error);
     }
   }
 
@@ -2295,7 +2296,7 @@ async function serializeLayer(layer: Layer): Promise<SerializedLayer> {
       imageRef: toArchiveBinaryRef(`buffers/raster/${layer.id}/image.json`),
     };
   }
-  
+
   // Serialize color cycle data if present
   if (layer.layerType === 'color-cycle') {
     const sourceColorCycleData = layer.colorCycleData || {};
@@ -2331,7 +2332,7 @@ async function serializeLayer(layer: Layer): Promise<SerializedLayer> {
       try {
         serializedColorCycle.canvasImageData = await imageDataToDataUrl(colorCycleData.canvasImageData);
       } catch (error) {
-        console.warn('[projectIO] Failed to serialize color cycle canvas image data:', error);
+        debugWarn('raw-console', '[projectIO] Failed to serialize color cycle canvas image data:', error);
       }
     }
 
@@ -2339,7 +2340,7 @@ async function serializeLayer(layer: Layer): Promise<SerializedLayer> {
       try {
         serializedColorCycle.eraseMaskImageData = await imageDataToDataUrl(colorCycleData.eraseMaskImageData);
       } catch (error) {
-        console.warn('[projectIO] Failed to serialize color cycle erase mask:', error);
+        debugWarn('raw-console', '[projectIO] Failed to serialize color cycle erase mask:', error);
       }
     }
 
@@ -2409,7 +2410,7 @@ async function serializeLayer(layer: Layer): Promise<SerializedLayer> {
           }
         }
       } catch (error) {
-        console.warn('[projectIO] Failed to serialize color cycle brush state:', error);
+        debugWarn('raw-console', '[projectIO] Failed to serialize color cycle brush state:', error);
       }
     }
 
@@ -2534,7 +2535,7 @@ function serializeBrushStateForCanonicalSave(
 
 // Deserialize a layer from saved data
 async function deserializeLayer(serializedLayer: SerializedLayer, projectWidth: number, projectHeight: number): Promise<Layer> {
-  
+
   let imageData: ImageData | null = null;
   if (serializedLayer.imageDataUrl) {
     try {
@@ -2543,10 +2544,10 @@ async function deserializeLayer(serializedLayer: SerializedLayer, projectWidth: 
     }
   } else {
   }
-  
+
   // Create framebuffer with project dimensions
   const framebuffer = new OffscreenCanvas(projectWidth, projectHeight);
-  
+
   const rawLayerType = serializedLayer.layerType === 'colorCycle'
     ? 'color-cycle'
     : serializedLayer.layerType;
@@ -2565,7 +2566,7 @@ async function deserializeLayer(serializedLayer: SerializedLayer, projectWidth: 
     alignment: cloneLayerAlignment(serializedLayer.alignment),
     groupId: serializedLayer.groupId,
     layerType: rawLayerType || (
-      console.warn('🟡 Layer missing layerType during load, defaulting to normal:', serializedLayer.id?.substring(0, 20)),
+      debugWarn('raw-console', '🟡 Layer missing layerType during load, defaulting to normal:', serializedLayer.id?.substring(0, 20)),
       'normal' as const
     ),
     version: Date.now()
@@ -2581,7 +2582,7 @@ async function deserializeLayer(serializedLayer: SerializedLayer, projectWidth: 
       fbCtx?.clearRect(0, 0, framebuffer.width, framebuffer.height);
       fbCtx?.putImageData(imageData, 0, 0);
     } catch (error) {
-      console.warn('[projectIO] Failed to hydrate layer framebuffer from image data during load:', error);
+      debugWarn('raw-console', '[projectIO] Failed to hydrate layer framebuffer from image data during load:', error);
     }
   }
 
@@ -2598,7 +2599,7 @@ async function deserializeLayer(serializedLayer: SerializedLayer, projectWidth: 
       typeof serializedCanvasHeight === 'number' &&
       (serializedCanvasWidth !== projectWidth || serializedCanvasHeight !== projectHeight)
     ) {
-      console.warn('[projectIO] Coercing mismatched color cycle canvas dimensions to project size during load', {
+      debugWarn('raw-console', '[projectIO] Coercing mismatched color cycle canvas dimensions to project size during load', {
         layerId: serializedLayer.id,
         serializedCanvasWidth,
         serializedCanvasHeight,
@@ -2678,7 +2679,7 @@ async function deserializeLayer(serializedLayer: SerializedLayer, projectWidth: 
       try {
         baseColorCycleData.recolorSettings = await deserializeRecolorSettings(serializedLayer.colorCycleData.recolorSettings);
       } catch (error) {
-        console.error('[projectIO] Failed to restore color cycle recolor settings:', error);
+        logError('[projectIO] Failed to restore color cycle recolor settings:', error);
       }
     }
 
@@ -2689,7 +2690,7 @@ async function deserializeLayer(serializedLayer: SerializedLayer, projectWidth: 
         const ctx = colorCycleCanvas.getContext('2d', { willReadFrequently: true } as CanvasRenderingContext2DSettings);
         ctx?.putImageData(imageData, 0, 0);
       } catch (error) {
-        console.warn('[projectIO] Failed to restore color cycle canvas image data:', error);
+        debugWarn('raw-console', '[projectIO] Failed to restore color cycle canvas image data:', error);
       }
     }
 
@@ -2705,7 +2706,7 @@ async function deserializeLayer(serializedLayer: SerializedLayer, projectWidth: 
         baseColorCycleData.eraseMaskImageData = eraseMaskData;
         baseColorCycleData.eraseMaskVersion = serializedLayer.colorCycleData.eraseMaskVersion ?? 0;
       } catch (error) {
-        console.warn('[projectIO] Failed to restore color cycle erase mask:', error);
+        debugWarn('raw-console', '[projectIO] Failed to restore color cycle erase mask:', error);
       }
     }
 
@@ -2767,7 +2768,7 @@ async function deserializeRecolorSettings(serialized: SerializedColorCycleRecolo
     try {
       settings.originalImageData = await dataUrlToImageData(serialized.originalImageData);
     } catch (error) {
-      console.warn('[projectIO] Failed to restore original recolor image data:', error);
+      debugWarn('raw-console', '[projectIO] Failed to restore original recolor image data:', error);
     }
   }
 
@@ -2797,13 +2798,13 @@ async function serializeCustomBrush(brush: CustomBrush): Promise<SerializedCusto
 
 // Deserialize a custom brush from saved data
 async function deserializeCustomBrush(serializedBrush: SerializedCustomBrush): Promise<CustomBrush> {
-  
+
   const imageData = await dataUrlToImageData(serializedBrush.imageDataUrl);
-  
+
   const naturalWidth = serializedBrush.naturalWidth ?? serializedBrush.width;
   const naturalHeight = serializedBrush.naturalHeight ?? serializedBrush.height;
   const maxDimension = serializedBrush.maxDimension ?? Math.max(naturalWidth, naturalHeight);
-  
+
   return {
     id: serializedBrush.id,
     name: serializedBrush.name,
@@ -3487,7 +3488,7 @@ const parseVesselProjectJsonRaw = (json: string): VesselProject => {
   } catch (error) {
     const preview = sanitized.slice(0, 80);
     const charCodes = Array.from(preview).map((ch) => ch.charCodeAt(0));
-    console.error('[projectIO] Failed to parse project manifest', { error, preview, charCodes });
+    logError('[projectIO] Failed to parse project manifest', { error, preview, charCodes });
     throw new Error('Invalid project file format');
   }
 
@@ -3722,7 +3723,7 @@ function parseVesselProjectPreviewJson(json: string): VesselProjectPreview {
   } catch (error) {
     const preview = sanitized.slice(0, 80);
     const charCodes = Array.from(preview).map((ch) => ch.charCodeAt(0));
-    console.error('[projectIO] Failed to parse project preview manifest', { error, preview, charCodes });
+    logError('[projectIO] Failed to parse project preview manifest', { error, preview, charCodes });
     throw new Error('Invalid project preview format');
   }
 
@@ -3783,7 +3784,7 @@ export async function readProjectPreviewManifest(projectData: ProjectFileData): 
           const previewJson = await normalizedPreviewEntry.async('string');
           return parseVesselProjectPreviewJson(previewJson);
         } catch (error) {
-          console.warn('[projectIO] Failed to read project preview archive entry; falling back to project manifest', error);
+          debugWarn('raw-console', '[projectIO] Failed to read project preview archive entry; falling back to project manifest', error);
         }
       }
 
@@ -3884,7 +3885,7 @@ export async function readProjectManifest(projectData: ProjectFileData): Promise
           return parseVesselProjectJson(projectJson);
         }
       } catch (base64Error) {
-        console.warn('[projectIO] Base64 project manifest decode failed', base64Error);
+        debugWarn('raw-console', '[projectIO] Base64 project manifest decode failed', base64Error);
       }
     }
 
@@ -4195,9 +4196,9 @@ export async function deserializeProjectWithReport(
     })
   );
   migrateLegacyColorCycleEncoding(layers, vesselProject.version);
-  
+
   // Deserialize custom brushes
-  
+
   const customBrushes = await Promise.all(
     serializedProject.customBrushes.map(deserializeCustomBrush)
   );
@@ -4206,14 +4207,14 @@ export async function deserializeProjectWithReport(
     layers,
     serializedProject.brushSpecificSettings as Record<string, Partial<BrushSettings>> | undefined,
   );
-  
+
   const serializedDefaultId = serializedProject.defaultCustomBrushId ?? null;
   const defaultCustomBrushId =
     serializedDefaultId && customBrushes.some((brush) => brush.id === serializedDefaultId)
       ? serializedDefaultId
       : null;
-  
-  
+
+
   return {
     migration: migration.summary,
     project: {
@@ -4365,13 +4366,13 @@ export async function loadProjectFromFile(): Promise<{
         }],
         multiple: false
       });
-      
+
       const file = await fileHandle.getFile();
       const projectData = await file.arrayBuffer();
       const result = await deserializeProjectWithReport(projectData, {
         lazyColorCycleRuntime: true,
       });
-      console.log('[projectIO] loadProjectFromFile: using File System Access handle', {
+      debugLog('raw-console', '[projectIO] loadProjectFromFile: using File System Access handle', {
         fileName: file.name,
         handleName: fileHandle.name,
       });
@@ -4380,7 +4381,7 @@ export async function loadProjectFromFile(): Promise<{
       // User cancelled or API not supported, fall back to file input
     }
   }
-  
+
   // Fallback: create file input
   return new Promise((resolve, reject) => {
     const input = document.createElement('input');
@@ -4393,13 +4394,13 @@ export async function loadProjectFromFile(): Promise<{
         reject(new Error('No file selected'));
         return;
       }
-      
+
       try {
         const projectData = await file.arrayBuffer();
         const result = await deserializeProjectWithReport(projectData, {
           lazyColorCycleRuntime: true,
         });
-        console.log('[projectIO] loadProjectFromFile: using file input fallback', {
+        debugLog('raw-console', '[projectIO] loadProjectFromFile: using file input fallback', {
           fileName: file.name,
         });
         resolve({ project: result.project, migration: result.migration, fileName: file.name, fileHandle: null });
@@ -4407,7 +4408,7 @@ export async function loadProjectFromFile(): Promise<{
         reject(error);
       }
     };
-    
+
     input.click();
   });
 }
@@ -4442,7 +4443,7 @@ export async function restoreColorCycleBrushes(
       persistedGradientIdBuffer.byteLength === expectedSize
     );
   };
-  
+
   for (const layer of layers) {
     if (layer.layerType === 'color-cycle' && layer.colorCycleData) {
       if (shouldDeferColorCycleRuntimeRestore(layer, options)) {
@@ -4464,7 +4465,7 @@ export async function restoreColorCycleBrushes(
           savedBrushState.layers?.some((snapshot) => !isCompatibleColorCycleSnapshot(snapshot, canvasWidth, canvasHeight))
         );
         if (hasDimensionMismatch) {
-          console.warn('[projectIO] Dropping incompatible color cycle brushState during load', {
+          debugWarn('raw-console', '[projectIO] Dropping incompatible color cycle brushState during load', {
             layerId: layer.id,
             canvasWidth,
             canvasHeight,
@@ -4678,7 +4679,7 @@ export async function restoreColorCycleBrushes(
             try {
               colorCycleBrush.setLayerId(layer.id);
             } catch (error) {
-              console.warn('[projectIO] Failed to assign layerId to restored color cycle brush:', error);
+              debugWarn('raw-console', '[projectIO] Failed to assign layerId to restored color cycle brush:', error);
             }
           }
 
@@ -4707,13 +4708,13 @@ export async function restoreColorCycleBrushes(
             try {
               colorCycleBrush.markLayerHasExternalBase(layer.id);
             } catch (error) {
-              console.warn('[projectIO] Failed to flag restored color cycle base (brush state):', error);
+              debugWarn('raw-console', '[projectIO] Failed to flag restored color cycle base (brush state):', error);
             }
           }
           continue;
           }
         } catch (error) {
-          console.error('[projectIO] Failed to restore color cycle brush state:', error);
+          logError('[projectIO] Failed to restore color cycle brush state:', error);
         }
         }
       }
@@ -4726,28 +4727,28 @@ export async function restoreColorCycleBrushes(
           try {
             colorCycleBrush.setLayerId(layer.id);
           } catch (error) {
-            console.warn('[projectIO] Failed to assign layerId to restored CC brush (WebGL state):', error);
+            debugWarn('raw-console', '[projectIO] Failed to assign layerId to restored CC brush (WebGL state):', error);
           }
         }
-        
+
         // Restore the WebGL state
         const layerSnapshots = new Map<string, ArrayBuffer>();
         for (const snapshot of savedState.layerSnapshots) {
           layerSnapshots.set(snapshot.layerId, base64ToArrayBuffer(snapshot.data));
         }
-        
+
         colorCycleBrush.restoreFullState({
           gradients: savedState.gradients,
           animationState: savedState.animationState,
           layerSnapshots
         });
-        
+
         // Attach the brush to the layer
         layer.colorCycleData.colorCycleBrush = colorCycleBrush;
-        
+
         // Clean up the temporary saved state
         deleteSavedColorCycleWebGLState(layer);
-        
+
         // Start animation if it was animating
         if (layer.colorCycleData.isAnimating) {
           colorCycleBrush.setPlaying(!savedState.animationState.isPaused);
@@ -4757,7 +4758,7 @@ export async function restoreColorCycleBrushes(
           try {
             colorCycleBrush.markLayerHasExternalBase(layer.id);
           } catch (error) {
-            console.warn('[projectIO] Failed to flag restored color cycle base (WebGL state):', error);
+            debugWarn('raw-console', '[projectIO] Failed to flag restored color cycle base (WebGL state):', error);
           }
         }
       } else {
@@ -4773,7 +4774,7 @@ export async function restoreColorCycleBrushes(
           try {
             colorCycleBrush.setLayerId(layer.id);
           } catch (error) {
-            console.warn('[projectIO] Failed to assign layerId to restored CC brush (fallback):', error);
+            debugWarn('raw-console', '[projectIO] Failed to assign layerId to restored CC brush (fallback):', error);
           }
         }
         if (layer.colorCycleData.gradient) {
@@ -4802,7 +4803,7 @@ export async function restoreColorCycleBrushes(
               layerSnapshots: [],
             });
           } catch (error) {
-            console.warn('[projectIO] Failed to restore metadata-only color cycle brush state:', error);
+            debugWarn('raw-console', '[projectIO] Failed to restore metadata-only color cycle brush state:', error);
           }
         }
 
@@ -4812,7 +4813,7 @@ export async function restoreColorCycleBrushes(
             // Legacy fallback for files without per-stroke speed buffers.
             colorCycleBrush.setSpeed(controllerSpeed);
           } catch (error) {
-            console.warn('[projectIO] Failed to restore color cycle speed:', error);
+            debugWarn('raw-console', '[projectIO] Failed to restore color cycle speed:', error);
           }
         }
 
@@ -4860,7 +4861,7 @@ export async function restoreColorCycleBrushes(
               strokeCounter: 0,
             });
           } catch (error) {
-            console.warn('[projectIO] Failed to seed color cycle runtime from persisted buffers:', error);
+            debugWarn('raw-console', '[projectIO] Failed to seed color cycle runtime from persisted buffers:', error);
           }
         }
 
@@ -4887,15 +4888,15 @@ export async function restoreColorCycleBrushes(
       }
     }
   }
-  
+
   // Return the modified layers
   return layers;
 }
 
 // Export project as PNG
 export async function exportProjectAsPNG(
-  project: Project, 
-  layers: Layer[], 
+  project: Project,
+  layers: Layer[],
   options: {
     includeBackground?: boolean;
     scale?: number;
@@ -4903,35 +4904,35 @@ export async function exportProjectAsPNG(
   } = {}
 ): Promise<void> {
   const { includeBackground = true, scale = 1, quality = 1 } = options;
-  
+
   const canvas = document.createElement('canvas');
   canvas.width = project.width * scale;
   canvas.height = project.height * scale;
   const ctx = canvas.getContext('2d', { colorSpace: 'srgb' });
-  
+
   if (!ctx) {
     throw new Error('Failed to get canvas context');
   }
-  
+
   // Scale context if needed
   if (scale !== 1) {
     ctx.scale(scale, scale);
   }
-  
+
   // Draw background if requested
   if (includeBackground) {
     ctx.fillStyle = project.backgroundColor;
     ctx.fillRect(0, 0, project.width, project.height);
   }
-  
+
   // Draw layers in order
   const sortedLayers = [...layers].sort((a, b) => a.order - b.order);
   for (const layer of sortedLayers) {
     if (!layer.visible || !layer.imageData) continue;
-    
+
     ctx.globalAlpha = layer.opacity;
     ctx.globalCompositeOperation = layer.blendMode;
-    
+
     // Create temporary canvas for the layer
     const layerCanvas = document.createElement('canvas');
     layerCanvas.width = layer.imageData.width;
@@ -4945,11 +4946,11 @@ export async function exportProjectAsPNG(
 
   const shape = normalizeCanvasShape(project.canvasShape, project.width, project.height);
   applyCanvasShapeMask(ctx, shape);
-  
+
   // Save as PNG
   canvas.toBlob((blob) => {
     if (!blob) return;
-    
+
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;

@@ -1,3 +1,4 @@
+import { debugWarn } from '@/utils/debug';
 import type { Point2D, PolygonGradientData, PolygonGradientSettings } from './shapeTypes';
 import { spreadPaletteColors } from './engineShared';
 
@@ -190,7 +191,7 @@ export const drawPolygonGradient = ({
   const { vertices, colors } = polygonData || {};
 
   if (!polygonData || !vertices || !Array.isArray(vertices) || vertices.length < 3) {
-    console.warn('[drawPolygonGradient] Skipping - insufficient vertices:', vertices?.length || 0);
+    debugWarn('raw-console', '[drawPolygonGradient] Skipping - insufficient vertices:', vertices?.length || 0);
     return;
   }
 

@@ -3,6 +3,7 @@
  * Enhanced with OKLab color analysis for perceptually accurate extraction
  */
 
+import { logError } from '@/utils/debug';
 import React, { useState, useCallback, useMemo, useEffect } from 'react';
 import { Layer } from '../../../types';
 import { RecolorManager } from '../../../lib/colorCycle/RecolorManager';
@@ -238,7 +239,7 @@ export const ExtractColorsDialog: React.FC<ExtractColorsDialogProps> = ({
       });
 
     } catch (error) {
-      console.error('Failed to extract colors:', error);
+      logError('Failed to extract colors:', error);
     } finally {
       setIsExtracting(false);
     }

@@ -1,3 +1,4 @@
+import { debugLog, debugWarn } from '@/utils/debug';
 import { FastGradientLUT } from '../rendering/FastGradientLUT';
 
 type MemoryPoolGlobal = typeof globalThis & {
@@ -342,7 +343,7 @@ export class MemoryPool {
     const memoryPressure = this.getMemoryPressure();
     
     if (memoryPressure === 'high') {
-      console.log('[MemoryPool] High memory pressure detected, performing aggressive cleanup');
+      debugLog('raw-console', '[MemoryPool] High memory pressure detected, performing aggressive cleanup');
       
       // Clear all pools
       this.bufferPool.clear();
@@ -358,7 +359,7 @@ export class MemoryPool {
       this.totalAllocatedMemory = 0;
       
     } else if (memoryPressure === 'medium') {
-      console.log('[MemoryPool] Medium memory pressure detected, performing partial cleanup');
+      debugLog('raw-console', '[MemoryPool] Medium memory pressure detected, performing partial cleanup');
       
       // Partial cleanup - reduce pool sizes
       // This would require additional pool methods to reduce size
@@ -384,7 +385,7 @@ export class MemoryPool {
         this.gcObserver.observe({ entryTypes: ['measure'] });
       } catch (error) {
         // GC monitoring not supported
-        console.warn('[MemoryPool] GC monitoring not supported', error);
+        debugWarn('raw-console', '[MemoryPool] GC monitoring not supported', error);
       }
     }
   }

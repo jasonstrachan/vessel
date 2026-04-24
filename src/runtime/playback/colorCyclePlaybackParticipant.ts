@@ -1,3 +1,4 @@
+import { debugLog } from '@/utils/debug';
 import { getColorCycleBrushManager } from '@/stores/colorCycleBrushManager';
 import type { AppState } from '@/stores/useAppStore';
 import type { Layer } from '@/types';
@@ -40,7 +41,7 @@ export const colorCyclePlaybackParticipant: PlaybackParticipant = {
       })();
 
     if (logCC) {
-      console.log('[colorCyclePlaybackParticipant] sync', {
+      debugLog('raw-console', '[colorCyclePlaybackParticipant] sync', {
         cause,
         layerIds,
         count: layerIds.length,
@@ -51,7 +52,7 @@ export const colorCyclePlaybackParticipant: PlaybackParticipant = {
       const scope = globalThis as { __TB_DEBUG?: { disableCCRuntime?: boolean } };
       if (scope.__TB_DEBUG?.disableCCRuntime) {
         if (process.env.NODE_ENV !== 'production') {
-          console.log('[colorCyclePlaybackParticipant] sync disabled via __TB_DEBUG');
+          debugLog('raw-console', '[colorCyclePlaybackParticipant] sync disabled via __TB_DEBUG');
         }
         return;
       }
@@ -73,7 +74,7 @@ export const colorCyclePlaybackParticipant: PlaybackParticipant = {
       }
 
       if (logCC) {
-        console.log('[colorCyclePlaybackParticipant] sync layer', {
+        debugLog('raw-console', '[colorCyclePlaybackParticipant] sync layer', {
           cause,
           layerId: layer.id,
           gradientStops: layer.colorCycleData.gradient?.length ?? 0,

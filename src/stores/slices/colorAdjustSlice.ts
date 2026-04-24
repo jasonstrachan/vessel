@@ -1,3 +1,4 @@
+import { debugWarn } from '@/utils/debug';
 import type { StateCreator } from 'zustand';
 import type { ColorAdjustParams, ColorAdjustState, Layer, Rectangle } from '@/types';
 import {
@@ -621,7 +622,7 @@ const previewSelectedColorCycleRegion = (
     const sourcePaletteStops = resolveSlotStopsFromColorCycleData(originalData, sourceSlot);
     if (!sourcePaletteStops?.length) {
       if (process.env.NODE_ENV !== 'production') {
-        console.warn('[colorAdjust] Missing CC slot palette for selected slot', {
+        debugWarn('raw-console', '[colorAdjust] Missing CC slot palette for selected slot', {
           layerId: layer.id,
           sourceSlot,
         });
@@ -863,7 +864,7 @@ const syncFramebufferFromImageData = (layer: Layer | undefined, imageData: Image
     fbCtx.putImageData(imageData, 0, 0);
   } catch (error) {
     if (process.env.NODE_ENV !== 'production') {
-      console.warn('[colorAdjust] Failed to sync framebuffer', error);
+      debugWarn('raw-console', '[colorAdjust] Failed to sync framebuffer', error);
     }
   }
 };
@@ -1196,7 +1197,7 @@ const commitRasterColorAdjustHistory = async ({
       bitmapRoi: resolveSelectionBounds(state, beforeImage.width, beforeImage.height) ?? undefined,
     }).catch((error) => {
       if (process.env.NODE_ENV !== 'production') {
-        console.warn('[history] Failed to record color adjust', error);
+        debugWarn('raw-console', '[history] Failed to record color adjust', error);
       }
     });
   }

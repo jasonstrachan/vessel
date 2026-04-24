@@ -1,9 +1,10 @@
+import { debugWarn } from '@/utils/debug';
 import { MemoryPool } from '../memory/MemoryPool';
 import { CacheManager } from '../memory/CacheManager';
 
 /**
  * PerformanceMonitor - Comprehensive performance tracking for color cycle rendering
- * 
+ *
  * Tracks frame times, memory usage, cache performance, and system health
  * with automatic optimization suggestions and performance reporting.
  */
@@ -327,7 +328,7 @@ export class PerformanceMonitor {
     // Get pooled memory from MemoryPool
     const memoryPool = MemoryPool.getInstance();
     const poolStats = memoryPool.getStats();
-    
+
     // Get cache memory from CacheManager
     const cacheManager = CacheManager.getInstance();
     const cacheStats = cacheManager.getStats();
@@ -350,7 +351,7 @@ export class PerformanceMonitor {
    */
   recordCacheMetrics(): void {
     if (!this.isEnabled) return;
-    
+
     const cacheManager = CacheManager.getInstance();
     const stats = cacheManager.getStats();
     
@@ -418,7 +419,7 @@ export class PerformanceMonitor {
       
       this.observer.observe({ entryTypes: ['measure', 'navigation', 'resource'] });
     } catch (error) {
-      console.warn('[PerformanceMonitor] Failed to setup PerformanceObserver:', error);
+      debugWarn('raw-console', '[PerformanceMonitor] Failed to setup PerformanceObserver:', error);
     }
   }
   
@@ -441,7 +442,7 @@ export class PerformanceMonitor {
 
     this.intervalId = setInterval(() => {
       if (this.isCollecting) return;
-      
+
       this.isCollecting = true;
       
       try {
@@ -722,10 +723,10 @@ export class PerformanceMonitor {
       this.observer.disconnect();
       this.observer = null;
     }
-    
+
     this.issueCallbacks.clear();
     this.reportCallbacks.clear();
-    
+
     PerformanceMonitor.instance = null;
   }
 }

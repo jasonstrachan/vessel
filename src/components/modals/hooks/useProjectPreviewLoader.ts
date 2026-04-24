@@ -1,3 +1,4 @@
+import { debugWarn, logError } from '@/utils/debug';
 import { useCallback, useRef, useState } from 'react';
 
 import type { ProjectPreview } from '@/components/modals/types';
@@ -186,7 +187,7 @@ export function useProjectPreviewLoader({
               }
               : prev));
           } catch (thumbnailError) {
-            console.warn('[LoadProjectModal] Failed to generate thumbnail', thumbnailError);
+            debugWarn('raw-console', '[LoadProjectModal] Failed to generate thumbnail', thumbnailError);
           }
         })();
       }
@@ -211,7 +212,7 @@ export function useProjectPreviewLoader({
       if (isStale()) {
         return;
       }
-      console.error('[LoadProjectModal] Failed to process project file', processError);
+      logError('[LoadProjectModal] Failed to process project file', processError);
       setProjectData(null);
       setPreview(null);
       setCachedProject(null);
@@ -244,7 +245,7 @@ export function useProjectPreviewLoader({
       });
       closeModal();
     } catch (confirmError) {
-      console.error('[LoadProjectModal] Failed to import project', confirmError);
+      logError('[LoadProjectModal] Failed to import project', confirmError);
       setError(confirmError instanceof Error ? confirmError.message : 'Failed to load project');
     } finally {
       setApplyInFlight(false);
@@ -276,7 +277,7 @@ export function useProjectPreviewLoader({
         timestamp: new Date(),
       });
     } catch (repairError) {
-      console.error('[LoadProjectModal] Failed to repair/export project', repairError);
+      logError('[LoadProjectModal] Failed to repair/export project', repairError);
       const message = repairError instanceof Error ? repairError.message : 'Failed to repair project';
       setError(message);
       notify?.({

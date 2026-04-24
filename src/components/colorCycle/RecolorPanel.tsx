@@ -5,6 +5,7 @@
  * and real-time performance monitoring.
  */
 
+import { debugWarn } from '@/utils/debug';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Layer } from '../../types';
 import { RecolorManager } from '../../lib/colorCycle/RecolorManager';
@@ -72,7 +73,7 @@ export const RecolorPanel: React.FC<RecolorPanelProps> = ({
   const currentTool = useAppStore(selectCurrentTool);
   // While the recolor panel is visible and in recolor mode, suspend global/canvas shortcuts
   useKeyboardScope('recolor', isVisible && state.mode === 'recolor');
-  
+
   // debug log removed
   // Planned (pre-conversion) animation settings so users can configure before applying
   const [plannedSettings, setPlannedSettings] = useState({
@@ -453,7 +454,7 @@ export const RecolorPanel: React.FC<RecolorPanelProps> = ({
                   const manager = RecolorManager.getInstance();
                   manager.setLayerFlowMapping(activeLayer.id, mode);
                 } catch (e) {
-                  console.warn('Failed to set flow mapping', e);
+                  debugWarn('raw-console', 'Failed to set flow mapping', e);
                 }
               } else {
                 setPlannedSettings((prev) => ({ ...prev, flowMapping: mode }));

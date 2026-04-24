@@ -3,6 +3,7 @@
  * Pure functions for drawing shapes without hook dependencies
  */
 
+import { debugWarn } from '@/utils/debug';
 import { BrushShape, type BrushSettings } from '@/types';
 import { canvasPool } from '@/utils/canvasPool';
 import { getRisographPattern, getRisographEffectSettings } from '@/utils/risographTexture';
@@ -414,7 +415,7 @@ export const drawShape = (
               tempCtx.imageSmoothingEnabled = false;
               tempCtx.clearRect(0, 0, sampleWidth, sampleHeight);
               tempCtx.putImageData(sampledData, 0, 0);
-              
+
               // Draw the sampled content at the current position (square shape)
               // Ensure pixel-perfect positioning
               targetCtx.imageSmoothingEnabled = false;
@@ -454,7 +455,7 @@ export const drawShape = (
             }
           }
         } catch (e) {
-          console.warn('[Resampler] Continuous sampling failed:', e);
+          debugWarn('raw-console', '[Resampler] Continuous sampling failed:', e);
           // If we can't sample, draw a square fallback
           targetCtx.fillRect(Math.round(drawX - halfSize), Math.round(drawY - halfSize), sampleSize, sampleSize);
         }
@@ -646,7 +647,7 @@ export const drawShape = (
               sqCtx.imageSmoothingEnabled = false;
               sqCtx.fillStyle = drawingCtx.fillStyle;
               sqCtx.fillRect(0, 0, pixelSize, pixelSize);
-              
+
               // Get pre-rotated version
               const colorKey = drawingCtx.fillStyle ? drawingCtx.fillStyle.toString() : '';
               const rotatedSquare = getRotatedPixelStamp(
@@ -1082,25 +1083,25 @@ export const applyRisographTexture = (
   if (!risoPattern) {
     return;
   }
-  
+
   const isPixelBrush = !ctx.imageSmoothingEnabled;
   const effect = getRisographEffectSettings(intensity, { isPixelBrush });
 
   if (effect.alpha <= 0) {
     return;
   }
-  
+
   // Store original values (much faster than save/restore)
   const originalAlpha = ctx.globalAlpha;
   const originalComposite = ctx.globalCompositeOperation;
   const originalFillStyle = ctx.fillStyle;
-  
+
   // Apply risograph effect
   ctx.globalCompositeOperation = 'multiply';
   // Combine the risograph alpha with the existing alpha (e.g., from brush opacity)
   ctx.globalAlpha = originalAlpha * effect.alpha;
   ctx.fillStyle = risoPattern;
-  
+
   // Draw slightly larger to cover the shape (matching monolithic)
   const risoSize = size * 1.1;
   const halfSize = risoSize / 2;

@@ -3,13 +3,14 @@
  * Integrates with Vessel engine for real-time dithered drawing
  */
 
+import { debugWarn } from '@/utils/debug';
 import React from 'react';
 import { BrushSettings } from '../../types';
-import { 
-  applyPressureDither, 
+import {
+  applyPressureDither,
   applyPressureDitherChunked,
-  DitherSettings, 
-  DitherAlgorithm, 
+  DitherSettings,
+  DitherAlgorithm,
   BayerMatrixSize,
   APPLE_II_PALETTE,
   createGrayscalePalette,
@@ -50,7 +51,7 @@ export const DEFAULT_DITHER_SETTINGS: DitherBrushSettings = {
   risographIntensity: 0,
   risographOutline: false,
   ditherEnabled: true,
-  
+
   // Dithering-specific settings
   ditherAlgorithm: 'bayer',
   ditherIntensity: 75,
@@ -94,19 +95,19 @@ export const applyDitherBrushStroke = (
 ): void => {
   const brushSize = Math.max(1, brushSettings.size * (brushSettings.pressureEnabled ? pressure : 1));
   const halfSize = Math.floor(brushSize / 2);
-  
+
   // Get the region to dither
   const regionX = Math.max(0, x - halfSize);
   const regionY = Math.max(0, y - halfSize);
   const regionWidth = Math.min(brushSize, ctx.canvas.width - regionX);
   const regionHeight = Math.min(brushSize, ctx.canvas.height - regionY);
-  
+
   if (regionWidth <= 0 || regionHeight <= 0) return;
-  
+
   try {
     // Get image data for the region
     const imageData = ctx.getImageData(regionX, regionY, regionWidth, regionHeight);
-    
+
     // Set up dithering parameters
     const ditherSettings: DitherSettings = {
       algorithm: brushSettings.ditherAlgorithm,
@@ -116,7 +117,7 @@ export const applyDitherBrushStroke = (
       patternStyle: brushSettings.patternStyle,
       palette: getDitherPalette(brushSettings.ditherPalette)
     };
-    
+
     // Apply dithering
     if (brushSettings.realtimeProcessing && regionWidth * regionHeight > 4096) {
       // Use chunked processing for large areas
@@ -129,7 +130,7 @@ export const applyDitherBrushStroke = (
       ctx.putImageData(ditheredData, regionX, regionY);
     }
   } catch (error) {
-    console.warn('Dither brush stroke failed:', error);
+    debugWarn('raw-console', 'Dither brush stroke failed:', error);
   }
 };
 
@@ -145,29 +146,29 @@ export const createDitherBrushStamp = (
   canvas.width = size;
   canvas.height = size;
   const ctx = canvas.getContext('2d', { willReadFrequently: true });
-  
+
   if (!ctx) return canvas;
-  
+
   const radius = size / 2;
   const centerX = radius;
   const centerY = radius;
-  
+
   // Create a gradient from center color to transparent
   const gradient = ctx.createRadialGradient(centerX, centerY, 0, centerX, centerY, radius);
   gradient.addColorStop(0, color);
   gradient.addColorStop(0.8, color);
   gradient.addColorStop(1, 'rgba(0,0,0,0)');
-  
+
   ctx.fillStyle = gradient;
   ctx.beginPath();
   ctx.arc(centerX, centerY, radius, 0, Math.PI * 2);
   ctx.fill();
-  
+
   // Apply dithering to the stamp
   const imageData = ctx.getImageData(0, 0, size, size);
   const ditheredData = applyPressureDither(imageData, ditherSettings);
   ctx.putImageData(ditheredData, 0, 0);
-  
+
   return canvas;
 };
 
@@ -186,7 +187,7 @@ export const DitherBrushControls: React.FC<DitherBrushControlsProps> = ({
   return (
     <div className="dither-brush-controls space-y-3">
       <div className="text-xs font-medium text-gray-300 mb-2">Dither Settings</div>
-      
+
       {/* Algorithm Selection */}
       <div className="space-y-1">
         <label className="text-xs text-gray-400">Algorithm</label>
@@ -203,7 +204,7 @@ export const DitherBrushControls: React.FC<DitherBrushControlsProps> = ({
           <option value="pattern">Pattern</option>
         </select>
       </div>
-      
+
       {/* Intensity Slider */}
       <div className="space-y-1">
         <label className="text-xs text-gray-400">
@@ -223,7 +224,7 @@ export const DitherBrushControls: React.FC<DitherBrushControlsProps> = ({
           } as React.CSSProperties & { '--slider-progress': string }}
         />
       </div>
-      
+
       {/* Pressure Sensitivity Toggle */}
       <div className="flex items-center space-x-2">
         <input
@@ -237,7 +238,7 @@ export const DitherBrushControls: React.FC<DitherBrushControlsProps> = ({
           Pressure Sensitive
         </label>
       </div>
-      
+
       {/* Palette Selection */}
       <div className="space-y-1">
         <label className="text-xs text-gray-400">Palette</label>
@@ -252,7 +253,7 @@ export const DitherBrushControls: React.FC<DitherBrushControlsProps> = ({
           <option value="grayscale-8">Grayscale (8 levels)</option>
         </select>
       </div>
-      
+
       {/* Bayer Matrix Size (only for Bayer algorithm) */}
       {settings.ditherAlgorithm === 'bayer' && (
         <div className="space-y-1">
@@ -268,7 +269,7 @@ export const DitherBrushControls: React.FC<DitherBrushControlsProps> = ({
           </select>
         </div>
       )}
-      
+
       {/* Pattern Style (only for Pattern algorithm) */}
       {settings.ditherAlgorithm === 'pattern' && (
         <div className="space-y-1">
@@ -291,7 +292,7 @@ export const DitherBrushControls: React.FC<DitherBrushControlsProps> = ({
         </select>
       </div>
       )}
-      
+
       {/* Performance Toggle */}
       <div className="flex items-center space-x-2">
         <input
@@ -305,16 +306,16 @@ export const DitherBrushControls: React.FC<DitherBrushControlsProps> = ({
           Smooth Processing
         </label>
       </div>
-      
+
       {/* Pressure Visualization */}
       {settings.pressureSensitiveDither && (
         <div className="space-y-1">
           <div className="text-xs text-gray-400">Pressure Effect Preview</div>
           <div className="h-4 bg-gray-800 rounded overflow-hidden">
-            <div 
+            <div
               className="h-full bg-gradient-to-r from-blue-600 to-blue-300 transition-all duration-200"
-              style={{ 
-                width: `${calculatePressureDitherThreshold(settings.pressure / 100, settings.ditherIntensity / 100) * 100}%` 
+              style={{
+                width: `${calculatePressureDitherThreshold(settings.pressure / 100, settings.ditherIntensity / 100) * 100}%`
               }}
             />
           </div>

@@ -1,3 +1,4 @@
+import { debugWarn } from '@/utils/debug';
 import { parseColor } from './colorUtils';
 import { applyDithering as applyDitheringImport, applyDitheringWithFillResolution } from './dithering';
 
@@ -141,7 +142,7 @@ export const ditherRegionWithCurrentPressure = ({
     const sourceCtx = sampleCtx ?? ctx;
     src = sourceCtx.getImageData(x, y, width, height);
   } catch (err) {
-    console.warn('[Dither] Failed to sample region for pressure dither:', err);
+    debugWarn('raw-console', '[Dither] Failed to sample region for pressure dither:', err);
     return;
   }
 
@@ -320,7 +321,7 @@ export const ditherRegionWithCurrentPressure = ({
   try {
     ctx.putImageData(dithered, x, y);
   } catch (err) {
-    console.warn('[Dither] Failed to write dithered region:', err);
+    debugWarn('raw-console', '[Dither] Failed to write dithered region:', err);
   } finally {
     ctx.imageSmoothingEnabled = previousSmoothing;
   }

@@ -1,3 +1,4 @@
+import { debugWarn } from '@/utils/debug';
 /**
  * HotPathRenderer - Highly optimized rendering for color cycle animation
  * 
@@ -117,7 +118,7 @@ export class HotPathRenderer {
     
     // Only log if performance is concerning (>5ms for 1080p)
     if (perfTime > 5 && indices.length > 100000) {
-      console.warn(`[HotPathRenderer] Slow remap: ${perfTime.toFixed(1)}ms for ${indices.length} pixels`);
+      debugWarn('raw-console', `[HotPathRenderer] Slow remap: ${perfTime.toFixed(1)}ms for ${indices.length} pixels`);
     }
   }
   

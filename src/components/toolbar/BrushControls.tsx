@@ -1,5 +1,6 @@
 "use client";
 
+import { debugLog, logError } from '@/utils/debug';
 // Simple brush controls for proof of concept
 // Based on /docs/03_Features/Drawing_Tools.md (lines 8-48)
 
@@ -278,7 +279,7 @@ const loadSavedBrushGradients = (): SavedBrushGradient[] => {
     const loaded = [...defaults, ...customGradients];
     return loaded;
   } catch (error) {
-    console.error('Failed to load gradients:', error);
+    logError('Failed to load gradients:', error);
     return defaults;
   }
 };
@@ -295,7 +296,7 @@ const saveCustomBrushGradients = (gradients: SavedBrushGradient[]): void => {
       JSON.stringify(customGradients)
     );
   } catch (error) {
-    console.error('Failed to save gradients:', error);
+    logError('Failed to save gradients:', error);
   }
 };
 
@@ -677,7 +678,7 @@ const BrushControls = () => {
   React.useEffect(() => {
     savedGradientsRef.current = savedGradients;
   }, [savedGradients]);
-  
+
   const showColorCycleLayerHint = React.useCallback(() => {
     if (typeof addNotification !== 'function') {
       return;
@@ -1770,10 +1771,10 @@ const BrushControls = () => {
     const fallbackSpacing = shape === BrushShape.COLOR_CYCLE_SHAPE ? 4 : 2;
     setActiveSettings({ spacing: fallbackSpacing });
   }, [activeSettings.brushShape, activeSettings.spacing, setActiveSettings]);
-  
+
   // Handle animation when switching brush types
   const previousBrushShape = React.useRef(activeSettings.brushShape);
-  
+
   React.useEffect(() => {
     const previousShape = previousBrushShape.current;
     const wasColorCycle = isColorCycleBrush(previousShape);
@@ -1823,7 +1824,7 @@ const BrushControls = () => {
           }
         })();
       if (logCC) {
-        console.log('[BrushControls] ColorCycle branch', activeSettings.brushShape);
+        debugLog('raw-console', '[BrushControls] ColorCycle branch', activeSettings.brushShape);
       }
     }
     return (
@@ -2664,7 +2665,7 @@ const BrushControls = () => {
   // Show special controls for the Spam Text brush
   if (activeSettings.brushShape === BrushShape.SPAM_TEXT) {
     if (typeof window !== 'undefined') {
-      console.log('[BrushControls] Spam branch');
+      debugLog('raw-console', '[BrushControls] Spam branch');
     }
     // Define spam text presets
     const spamPresets: Record<string, string> = {
@@ -2686,7 +2687,7 @@ const BrushControls = () => {
             <Dropdown
               value={activeSettings.spamContentType || 'mixed'}
               onChange={(value) => {
-                setActiveSettings({ 
+                setActiveSettings({
                   spamContentType: value,
                   spamCustomText: spamPresets[value] || spamPresets.mixed
                 });
@@ -3259,16 +3260,16 @@ const BrushControls = () => {
   // Show special controls for Resampler brush
   if (activeSettings.brushShape === BrushShape.RESAMPLER) {
     if (typeof window !== 'undefined') {
-      console.log('[BrushControls] Resampler branch');
+      debugLog('raw-console', '[BrushControls] Resampler branch');
     }
     return (
       <div className="p-4">
         {/* Continuous Sampling Toggle */}
         <div className="mb-2">
           <div className="flex items-center gap-2">
-            <label 
+            <label
               htmlFor="continuous-sampling"
-              className="text-[#D9D9D9] w-16" 
+              className="text-[#D9D9D9] w-16"
               style={{ fontSize: "14px" }}
             >
               Continuous
@@ -3282,7 +3283,7 @@ const BrushControls = () => {
             />
           </div>
         </div>
-        
+
         {/* Resample Interval Slider - always shown for resampler brush */}
         <div className="mb-2">
           <div className="flex items-center gap-2">
@@ -3422,7 +3423,7 @@ const BrushControls = () => {
                 id="shape-mode-resampler"
                 checked={shapeMode || false}
                 onChange={(checked) => {
-                  try { console.log('[SHAPE/UI] toggle (resampler)', { checked }); } catch {}
+                  try { debugLog('raw-console', '[SHAPE/UI] toggle (resampler)', { checked }); } catch {}
                   setShapeMode(checked);
                 }}
               />
@@ -3608,7 +3609,7 @@ const BrushControls = () => {
   // Show special controls for Polygon brush
   if (activeSettings.brushShape === BrushShape.POLYGON) {
     if (typeof window !== 'undefined') {
-      console.log('[BrushControls] Polygon branch');
+      debugLog('raw-console', '[BrushControls] Polygon branch');
     }
     return (
       <div className="p-4">
@@ -4543,7 +4544,7 @@ const BrushControls = () => {
                 id="shape-mode"
                 checked={shapeMode || false}
                 onChange={(checked) => {
-                  try { console.log('[SHAPE/UI] toggle (default)', { checked }); } catch {}
+                  try { debugLog('raw-console', '[SHAPE/UI] toggle (default)', { checked }); } catch {}
                   setShapeMode(checked);
                 }}
               />

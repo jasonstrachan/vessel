@@ -1,3 +1,4 @@
+import { debugWarn } from '@/utils/debug';
 import {
   detectColorCycleWorkerSupport,
   markColorCycleWorkerUnsupported,
@@ -66,7 +67,7 @@ export class ColorCycleCompositorClient {
             listener(data.layers);
           } catch (error) {
             if (process.env.NODE_ENV !== 'production') {
-              console.warn('[ColorCycleWorker] frame listener failed', error);
+              debugWarn('raw-console', '[ColorCycleWorker] frame listener failed', error);
             }
           }
         });

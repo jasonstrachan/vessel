@@ -3,6 +3,7 @@
  * Uses Canvas2D rendering with optional WebGL acceleration controlled via feature flag.
  */
 
+import { debugLog, logError } from '@/utils/debug';
 import { featureFlags } from '../../config/featureFlags';
 import { ColorCycleBrushCanvas2D } from './ColorCycleBrushCanvas2D';
 
@@ -18,7 +19,7 @@ export function createColorCycleBrush(
   const useCanvas2D = featureFlags.useCanvas2DColorCycle;
 
   if (featureFlags.logColorCycleOperations) {
-    console.log(`[ColorCycle] Creating brush (mode=${useCanvas2D ? 'canvas2d' : 'webgl'})`);
+    debugLog('raw-console', `[ColorCycle] Creating brush (mode=${useCanvas2D ? 'canvas2d' : 'webgl'})`);
   }
 
   try {
@@ -27,7 +28,7 @@ export function createColorCycleBrush(
       forceCanvas2D: useCanvas2D,
     });
   } catch (error) {
-    console.error('[ColorCycle] Failed to create brush implementation:', error);
+    logError('[ColorCycle] Failed to create brush implementation:', error);
     throw new Error('Failed to create ColorCycleBrush instance');
   }
 }

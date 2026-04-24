@@ -1,3 +1,4 @@
+import { debugWarn } from '@/utils/debug';
 import historyManager from '@/history/historyService';
 import { mapCanvasActionToHistoryId } from '@/history/helpers/actions';
 import { createBitmapTileDelta } from '@/history/deltas/bitmapDelta';
@@ -155,7 +156,7 @@ export const recordCropHistory = async ({
   } catch (error) {
     txn.cancel();
     if (process.env.NODE_ENV !== 'production') {
-      console.warn('[history] Failed to record crop history', error);
+      debugWarn('raw-console', '[history] Failed to record crop history', error);
     }
   }
 };

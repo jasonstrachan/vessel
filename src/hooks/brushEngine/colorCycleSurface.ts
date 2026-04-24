@@ -1,3 +1,4 @@
+import { debugWarn } from '@/utils/debug';
 import { flushGradientApply, requestGradientApply } from '@/hooks/brushEngine/ccGradientApplyScheduler';
 import type { ColorCycleBrushImplementation } from '@/hooks/brushEngine/ColorCycleBrushMigration';
 import { useAppStore } from '@/stores/useAppStore';
@@ -84,7 +85,7 @@ export const renderBrushToLayerCanvas = (
     try {
       brush.renderDirectToCanvas(layerCanvas, layerId);
     } catch (error) {
-      console.warn('[ColorCycle] renderDirectToCanvas failed:', error);
+      debugWarn('raw-console', '[ColorCycle] renderDirectToCanvas failed:', error);
     }
   }
 };

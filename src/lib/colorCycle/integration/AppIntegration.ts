@@ -3,6 +3,7 @@
  * Handles app store integration, UI coordination, and feature compatibility
  */
 
+import { debugWarn, logError } from '@/utils/debug';
 import { useAppStore } from '../../../stores/useAppStore';
 import { RecolorManager, RecolorOptions } from '../RecolorManager';
 import { BrowserCompat } from '../compatibility/BrowserCompat';
@@ -77,7 +78,7 @@ export class AppIntegration {
       // quiet
 
     } catch (error) {
-      console.error('❌ Failed to initialize Color Cycle Integration:', error);
+      logError('❌ Failed to initialize Color Cycle Integration:', error);
       throw error;
     }
   }
@@ -188,7 +189,7 @@ export class AppIntegration {
         error: error instanceof Error ? error.message : 'Unknown error' 
       });
       
-      console.error(`❌ Failed to convert layer ${layer.id}:`, error);
+      logError(`❌ Failed to convert layer ${layer.id}:`, error);
       throw error;
     }
   }
@@ -218,7 +219,7 @@ export class AppIntegration {
         success: false, 
         error: error instanceof Error ? error.message : 'Unknown error' 
       });
-      console.error('Animation update failed:', error);
+      logError('Animation update failed:', error);
     }
   }
 
@@ -234,7 +235,7 @@ export class AppIntegration {
         this.recolorManager.cleanup(layer);
       }
     } catch (error) {
-      console.error(`Failed to cleanup layer ${layerId}:`, error);
+      logError(`Failed to cleanup layer ${layerId}:`, error);
     }
   }
 
@@ -339,7 +340,7 @@ export class AppIntegration {
         const avgFrameTime = deltaTime / 60;
         
         if (avgFrameTime > 33) { // > 30 FPS
-          console.warn('🐌 Low FPS detected, consider performance optimizations');
+          debugWarn('raw-console', '🐌 Low FPS detected, consider performance optimizations');
           this.adjustPerformanceSettings(false); // Reduce quality
         } else if (avgFrameTime < 16) { // < 60 FPS with headroom
           this.adjustPerformanceSettings(true); // Increase quality

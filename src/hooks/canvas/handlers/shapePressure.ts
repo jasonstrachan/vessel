@@ -1,3 +1,4 @@
+import { debugLog } from '@/utils/debug';
 import type React from 'react';
 import {
   computePressureResolution,
@@ -173,7 +174,7 @@ export const updateShapePressure = ({
   refs.latestShapePressureRef.current = smoothed;
 
   if (deps.debugEnabled() && typeof console !== 'undefined') {
-    console.log('[shape-pressure]', {
+    debugLog('raw-console', '[shape-pressure]', {
       raw: val,
       stable: refs.lastStablePressureRef.current,
       maxSeen: refs.shapeMaxPressureRef.current,

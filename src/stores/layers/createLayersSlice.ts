@@ -8,7 +8,7 @@ import type {
 } from '@/types';
 import { cloneLayerAlignment, dedupeLayerIds, normalizeLayers } from '@/utils/layoutDefaults';
 import { computeLayerPercentOffset } from '@/utils/layerMetrics';
-import { __DEV__, logError, recordBreadcrumb } from '@/utils/debug';
+import { __DEV__, logError, recordBreadcrumb, debugWarn } from '@/utils/debug';
 import {
   auditColorCycleLayerTransition,
   logCCMutation,
@@ -968,7 +968,7 @@ export const createLayersSlice = (
         type: l.layerType,
         hasCC: !!l.colorCycleData
       }));
-      
+
       const resolvedLayerType = layer.layerType || (
         (logError('CRITICAL: Layer missing layerType!', {
           layerId: newLayerId?.substring(0, 20),
@@ -998,7 +998,7 @@ export const createLayersSlice = (
             }
           : layer.sequentialData
       };
-      
+
       // Insert the new layer directly ABOVE the currently active layer
       // Fallback: if no active layer, append to top of stack
       const insertedIndex = getInsertionIndexAboveActiveLayer(state.layers, state.activeLayerId);
@@ -1008,7 +1008,7 @@ export const createLayersSlice = (
       const updatedLayers = normalizeLayerOrder(newLayers);
       recordBreadcrumb('layers', { event: 'store-addLayer-updated', total: updatedLayers.length, insertedIndex });
       // quiet
-      
+
       // Initialize ColorCycleBrush for color-cycle layers
       if (newLayer.layerType === 'color-cycle' && state.project) {
         const width = state.project.width || 1024;
@@ -1019,12 +1019,12 @@ export const createLayersSlice = (
         // Note: gradient is in { position, color }[] format, but initColorCycleForLayer expects Uint8Array
         // Pass undefined to use default gradient
         const success = colorCycleBrushManager.initColorCycleForLayer(
-          newLayerId, 
-          width, 
-          height, 
+          newLayerId,
+          width,
+          height,
           undefined
         );
-        
+
         if (!success) {
           logError('Failed to initialize ColorCycleBrush for new layer', { layerId: newLayerId });
         } else {
@@ -1038,7 +1038,7 @@ export const createLayersSlice = (
           }
         }
       }
-      
+
       // VERIFY: Check if any existing layer lost its type
       // IMPORTANT: Compare by stable id, not by array index, because we inserted a new
       // layer and normalized order which shifts indices. Index-based comparison would
@@ -1063,7 +1063,7 @@ export const createLayersSlice = (
           });
         }
       });
-      
+
       const syncedLayers = syncPercentOffsetsFromPixels(updatedLayers, state.project ?? null);
 
       return {
@@ -1271,10 +1271,10 @@ export const createLayersSlice = (
     set((state) => {
       // Use enhanced manager method for cleanup
       colorCycleBrushManager.removeColorCycleBrush(id);
-      
+
       const updatedLayers = state.layers.filter(l => l.id !== id);
-      const newActiveLayerId = state.activeLayerId === id ? 
-        updatedLayers.find(l => l.id !== id)?.id || null : 
+      const newActiveLayerId = state.activeLayerId === id ?
+        updatedLayers.find(l => l.id !== id)?.id || null :
         state.activeLayerId;
 
       const filteredSelection = state.selectedLayerIds.filter(selectedId => {
@@ -1286,7 +1286,7 @@ export const createLayersSlice = (
       const nextSelection = filteredSelection.length > 0
         ? filteredSelection
         : (newActiveLayerId ? [newActiveLayerId] : []);
-      
+
       trackLayerChanges('removeLayer RETURN', updatedLayers);
       const syncedLayers = syncPercentOffsetsFromPixels(updatedLayers, state.project ?? null);
       const nextLayerGroups = sanitizeLayerGroups(syncedLayers, state.layerGroups);
@@ -1367,9 +1367,9 @@ export const createLayersSlice = (
     set((state) => {
     const skipColorCycleSync = options?.skipColorCycleSync ?? false;
     const originalLayer = state.layers.find(l => l.id === id);
-    
+
     // CRITICAL: Detect when a color-cycle layer is being changed to normal
-    if (originalLayer?.layerType === 'color-cycle' && 
+    if (originalLayer?.layerType === 'color-cycle' &&
         updates.layerType === 'normal') {
       logError('Blocked color-cycle layer type downgrade in updateLayer', {
         layerId: id,
@@ -1381,10 +1381,10 @@ export const createLayersSlice = (
         debugger;
       }
     }
-    
+
     // Also detect when colorCycleData is being cleared
-    if (originalLayer?.colorCycleData && 
-        'colorCycleData' in updates && 
+    if (originalLayer?.colorCycleData &&
+        'colorCycleData' in updates &&
         !updates.colorCycleData) {
       logError('Blocked colorCycleData clear in updateLayer', {
         layerId: id,
@@ -1395,17 +1395,17 @@ export const createLayersSlice = (
         debugger;
       }
     }
-    
-    
+
+
     // DEBUG: Log any layerType changes from color-cycle
-    if (originalLayer && originalLayer.layerType === 'color-cycle' && 
+    if (originalLayer && originalLayer.layerType === 'color-cycle' &&
         ('layerType' in updates && updates.layerType !== 'color-cycle')) {
       logError('Attempted to change color-cycle layer type', {
         layerId: id.substring(0, 20),
         attemptedLayerType: updates.layerType,
       });
     }
-    
+
     let didUpdateMatchingLayer = false;
     let duplicateIdMatchCount = 0;
     const updatedLayers = state.layers.map(layer => {
@@ -1417,7 +1417,7 @@ export const createLayersSlice = (
         didUpdateMatchingLayer = true;
         // Start with a shallow copy
         const updatedLayer = { ...layer };
-        
+
         // Special handling for colorCycleData updates
         if ('colorCycleData' in updates) {
           if (updates.colorCycleData) {
@@ -1484,22 +1484,22 @@ export const createLayersSlice = (
             // Keep the layer as-is to prevent conversion
           }
         }
-        
+
         // Apply all other updates except colorCycleData
         const otherUpdates = { ...updates };
         delete (otherUpdates as Partial<typeof layer>).colorCycleData;
         Object.assign(updatedLayer, otherUpdates);
-        
+
         // Protect against accidentally clearing layerType or colorCycleData
         // If the layer was color-cycle and we're not explicitly changing it
-        if (layer.layerType === 'color-cycle' && 
-            !('layerType' in updates) && 
+        if (layer.layerType === 'color-cycle' &&
+            !('layerType' in updates) &&
             !('colorCycleData' in updates)) {
           // Ensure we preserve the color-cycle nature
           updatedLayer.layerType = 'color-cycle';
           updatedLayer.colorCycleData = layer.colorCycleData;
         }
-        
+
         // FORBIDDEN: Never allow conversion from CC to normal!
         if (updates.layerType === 'normal' && layer.layerType === 'color-cycle') {
           logError('Blocked direct CC -> normal conversion', {
@@ -1515,7 +1515,7 @@ export const createLayersSlice = (
           // Safe: normal -> normal, can clear colorCycleData if any exists
           delete updatedLayer.colorCycleData;
         }
-        
+
         return updatedLayer;
       }
       return layer;
@@ -1529,12 +1529,12 @@ export const createLayersSlice = (
     }
 
     // Check if visual properties changed that require recomposition
-    const needsRecomposition = 'visible' in updates || 'opacity' in updates || 'blendMode' in updates || 
+    const needsRecomposition = 'visible' in updates || 'opacity' in updates || 'blendMode' in updates ||
                                'colorCycleData' in updates || 'layerType' in updates;
     if (needsRecomposition) {
       // Visual property changed - triggering recomposition
     }
-    
+
     // FINAL VERIFICATION: Check for unexpected CC -> Normal conversions
     const updatedLayer = updatedLayers.find(l => l.id === id);
     if (originalLayer?.layerType === 'color-cycle' && updatedLayer?.layerType === 'normal') {
@@ -2201,7 +2201,7 @@ export const createLayersSlice = (
       }
     }
     // quiet
-    
+
     // When switching away from a color-cycle layer, mark it as inactive
     const currentActiveLayer = state.layers.find(l => l.id === state.activeLayerId);
     if (currentActiveLayer?.layerType === 'color-cycle' && currentActiveLayer.id !== id) {
@@ -2223,7 +2223,7 @@ export const createLayersSlice = (
       }
       // quiet
     }
-    
+
     // If switching to a color-cycle layer in BRUSH context, validate/reinit brush resources.
     // Skip entirely when the Recolor tool is active so we don't override recolor mode.
     const baseSelection = (() => {
@@ -2239,15 +2239,15 @@ export const createLayersSlice = (
       const isDeferredRuntimeRestore = isColdColorCycleLayer(layer);
       // Validate and reinitialize if needed
       if (!isDeferredRuntimeRestore && !colorCycleBrushManager.validateColorCycleBrush(id)) {
-        
+
         const width = state.project?.width || 1024;
         const height = state.project?.height || 1024;
         // Note: gradient is in { position, color }[] format, but initColorCycleForLayer expects Uint8Array
         try {
           colorCycleBrushManager.initColorCycleForLayer(
-          id, 
-          width, 
-          height, 
+          id,
+          width,
+          height,
           undefined
         );
         } catch (e) {
@@ -2255,10 +2255,10 @@ export const createLayersSlice = (
         }
         // quiet
       }
-      
+
       // Mark as active
       try { colorCycleBrushManager.setActiveState(id, true); } catch (e) { logError('Color cycle setActiveState error', e); }
-      
+
       // Ensure brush tracks the active layer before runtime sync
       try {
         const colorCycleBrush = state.getLayerColorCycleBrush(id)
@@ -2273,7 +2273,7 @@ export const createLayersSlice = (
       if (isDeferredRuntimeRestore) {
         scheduleDeferredColorCycleRestore(id, true);
       }
-      
+
       // Remember the user's current brush context so we can restore it when leaving CC layers
       let savedRegularTool = state.tools.lastRegularTool;
       let savedBrushShape = state.tools.lastRegularBrushShape;
@@ -2349,7 +2349,7 @@ export const createLayersSlice = (
 
       return result;
     }
-    
+
     // When switching to a regular layer from color cycle, restore last regular tool
     const baseBrushSettings = {
       ...state.tools.brushSettings,
@@ -2392,7 +2392,7 @@ export const createLayersSlice = (
     };
 
     // Debug checks removed - the race condition has been fixed
-    
+
     return result;
   }),
   setReferenceLayer: (id) => set((state) => {
@@ -2444,7 +2444,7 @@ export const createLayersSlice = (
             offsetPercent: percentOffset
           };
         } catch (error) {
-          console.warn('[useAppStore] Failed to compute percent offset during alignment update', error);
+          debugWarn('raw-console', '[useAppStore] Failed to compute percent offset during alignment update', error);
         }
       }
 
@@ -2498,9 +2498,9 @@ export const createLayersSlice = (
     set((state) => {
       const newLayers = reorderLayerAtIndex(state.layers, sourceIndex, destinationIndex);
       const updatedLayers = normalizeLayerOrder(newLayers);
-      
+
       // Layer order changed - triggering recomposition
-      
+
       const syncedLayers = syncPercentOffsetsFromPixels(updatedLayers, state.project ?? null);
 
       return {
@@ -2586,7 +2586,7 @@ export const createLayersSlice = (
         logError('[Store] Layer not found', { layerId });
         return {};
       }
-      
+
       // CRITICAL: Only allow initialization for color-cycle layers
       if (layer.layerType !== 'color-cycle') {
         logError('Blocked initColorCycleForLayer for non-color-cycle layer', {
@@ -2657,7 +2657,7 @@ export const createLayersSlice = (
         previousWidth: layer.colorCycleData?.canvasWidth ?? layer.colorCycleData?.canvas?.width,
         previousHeight: layer.colorCycleData?.canvasHeight ?? layer.colorCycleData?.canvas?.height,
       });
-      
+
       // GUARD: Don't re-initialize if already initialized
       const existingBrush = state.getLayerColorCycleBrush(layerId) ?? colorCycleBrushManager.getBrush(layerId);
       if (existingBrush) {
@@ -2706,14 +2706,14 @@ export const createLayersSlice = (
         const syncedLayers = syncPercentOffsetsFromPixels(updatedLayers, state.project ?? null);
         return { layers: syncedLayers };
       }
-      
+
       // Create a canvas element for this layer's color cycle
       // Use the current brush gradient if available
       const gradientArray = gradientStopsToUint8Array(activeStops);
-      
+
       // Create brush through manager
       const colorCycleBrush = colorCycleBrushManager.createBrush(layerId, safeWidth, safeHeight, gradientArray);
-      
+
       if (!colorCycleBrush) {
         logError('[Store] Failed to create color cycle brush', { layerId });
         return {};
@@ -2812,7 +2812,7 @@ export const createLayersSlice = (
         }
       };
     });
-    
+
     trackLayerChanges('initColorCycleForLayer RETURN', updatedLayers);
     const syncedLayers = syncPercentOffsetsFromPixels(updatedLayers, state.project ?? null);
     return {
@@ -2832,14 +2832,14 @@ export const createLayersSlice = (
     const layer = state.layers.find(l => l.id === layerId);
     // CRITICAL: Only cleanup color-cycle layers, never touch normal layers
     if (!layer || layer.layerType !== 'color-cycle' || !layer.colorCycleData) return state;
-    
+
     // Cleanup through manager
     colorCycleBrushManager.deleteBrush(layerId);
-    
+
     // CRITICAL FIX: Don't change the layer type when cleaning up!
     // We're just disposing Canvas2D resources, not converting the layer
-    const updatedLayers = state.layers.map(l => 
-      l.id === layerId 
+    const updatedLayers = state.layers.map(l =>
+      l.id === layerId
         ? {
             ...l,
             // Keep the layer type as is - don't change it!
@@ -2850,7 +2850,7 @@ export const createLayersSlice = (
           }
         : l
     );
-    
+
     const syncedLayers = syncPercentOffsetsFromPixels(updatedLayers, state.project ?? null);
     return {
       layers: syncedLayers
@@ -3337,7 +3337,7 @@ export const createLayersSlice = (
                 },
               };
             } catch (error) {
-              console.warn('[captureCanvasToActiveLayer] Failed to sync percent alignment', error);
+              debugWarn('raw-console', '[captureCanvasToActiveLayer] Failed to sync percent alignment', error);
             }
           }
 
@@ -3370,7 +3370,7 @@ export const createLayersSlice = (
       get().setLayersNeedRecomposition(true);
     } catch (error) {
       if (error instanceof DOMException && error.name === 'SecurityError') {
-        console.warn('[captureCanvasToActiveLayer] Canvas capture blocked by CORS/security policy');
+        debugWarn('raw-console', '[captureCanvasToActiveLayer] Canvas capture blocked by CORS/security policy');
         return;
       }
       logError('[captureCanvasToActiveLayer] Failed', error);

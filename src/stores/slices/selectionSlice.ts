@@ -1,3 +1,4 @@
+import { debugWarn } from '@/utils/debug';
 import type { StateCreator } from 'zustand';
 import type { Layer, Rectangle } from '@/types';
 import { selectionSnapshotFromValues } from '@/history/selectionState';
@@ -1153,7 +1154,7 @@ export const createSelectionSlice: StateCreator<AppState, [], [], SelectionSlice
           },
         }).catch((error) => {
           if (process.env.NODE_ENV !== 'production') {
-            console.warn('[history] Failed to record sequential selection delete', error);
+            debugWarn('raw-console', '[history] Failed to record sequential selection delete', error);
           }
         });
         trackPendingHistoryCommit(deleteHistoryCommit);
@@ -1268,7 +1269,7 @@ export const createSelectionSlice: StateCreator<AppState, [], [], SelectionSlice
         selectionBefore,
       }).catch((error) => {
         if (process.env.NODE_ENV !== 'production') {
-          console.warn('[history] Failed to record selection delete', error);
+          debugWarn('raw-console', '[history] Failed to record selection delete', error);
         }
       });
       trackPendingHistoryCommit(deleteHistoryCommit);
@@ -1428,7 +1429,7 @@ export const createSelectionSlice: StateCreator<AppState, [], [], SelectionSlice
           !paste.colorCycleIndices &&
           state.layers.find((layer) => layer.id === state.activeLayerId)?.layerType === 'color-cycle'
         ) {
-          console.warn('[floatingPaste] Missing colorCycleIndices in setFloatingPaste', {
+          debugWarn('raw-console', '[floatingPaste] Missing colorCycleIndices in setFloatingPaste', {
             activeLayerId: state.activeLayerId,
             sourceLayerId: paste.sourceLayerId,
             hasImageData: Boolean(paste.imageData),
@@ -1707,7 +1708,7 @@ export const createSelectionSlice: StateCreator<AppState, [], [], SelectionSlice
                 selectionBefore,
               }).catch((error) => {
                 if (process.env.NODE_ENV !== 'production') {
-                  console.warn('[history] Failed to record selection cut', error);
+                  debugWarn('raw-console', '[history] Failed to record selection cut', error);
                 }
               });
               trackPendingHistoryCommit(cutHistoryCommit);
@@ -1754,7 +1755,7 @@ const writeImageDataToClipboard = async (imageData: ImageData): Promise<void> =>
     await navigator.clipboard.write([new clipboardCtor({ [blob.type]: blob })]);
   } catch (error) {
     if (process.env.NODE_ENV !== 'production') {
-      console.warn('[selectionClipboard] Failed to write image to clipboard', error);
+      debugWarn('raw-console', '[selectionClipboard] Failed to write image to clipboard', error);
     }
   }
 };

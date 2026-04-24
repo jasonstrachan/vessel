@@ -1,3 +1,4 @@
+import { debugLog, debugWarn, logError } from '@/utils/debug';
 import { useSyncExternalStore } from 'react';
 
 export type FeatureFlagKey =
@@ -46,7 +47,7 @@ const notify = (key: FeatureFlagKey) => {
       callback();
     } catch (error) {
       if (process.env.NODE_ENV !== 'production') {
-        console.error('[featureFlags] subscriber callback failed', error);
+        logError('[featureFlags] subscriber callback failed', error);
       }
     }
   });
@@ -75,7 +76,7 @@ const readFromStorage = (key: FeatureFlagKey) => {
     }
   } catch (error) {
     if (process.env.NODE_ENV !== 'production') {
-      console.warn('[featureFlags] failed to read storage', error);
+      debugWarn('raw-console', '[featureFlags] failed to read storage', error);
     }
   }
 };
@@ -97,11 +98,11 @@ export const setFeatureFlag = (key: FeatureFlagKey, value: boolean): void => {
   if (process.env.NODE_ENV !== 'production') {
     if (key === 'useCanvas2DColorCycle') {
       const mode = value ? 'Canvas2D' : 'WebGL';
-      console.log(`[featureFlags] useCanvas2DColorCycle set to ${mode}`);
+      debugLog('raw-console', `[featureFlags] useCanvas2DColorCycle set to ${mode}`);
     }
     if (key === 'useColorCycleWorker') {
       const status = value ? 'worker' : 'main-thread';
-      console.log(`[featureFlags] useColorCycleWorker set to ${status}`);
+      debugLog('raw-console', `[featureFlags] useColorCycleWorker set to ${status}`);
     }
   }
 
@@ -110,7 +111,7 @@ export const setFeatureFlag = (key: FeatureFlagKey, value: boolean): void => {
       window.localStorage.setItem(STORAGE_KEYS[key], value ? 'true' : 'false');
     } catch (error) {
       if (process.env.NODE_ENV !== 'production') {
-        console.warn('[featureFlags] failed to persist storage', error);
+        debugWarn('raw-console', '[featureFlags] failed to persist storage', error);
       }
     }
     const detail = { key, value };
@@ -131,7 +132,7 @@ export const resetFeatureFlags = (): void => {
           window.localStorage.setItem(STORAGE_KEYS[key], value ? 'true' : 'false');
         } catch (error) {
           if (process.env.NODE_ENV !== 'production') {
-            console.warn('[featureFlags] failed to persist storage', error);
+            debugWarn('raw-console', '[featureFlags] failed to persist storage', error);
           }
         }
       }

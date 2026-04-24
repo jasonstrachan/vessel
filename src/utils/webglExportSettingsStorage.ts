@@ -1,3 +1,4 @@
+import { debugWarn } from '@/utils/debug';
 import type { WebGLExportSettings } from '@/types';
 
 const STORAGE_KEY = 'vessel:webgl-export-settings';
@@ -164,7 +165,7 @@ export const loadWebglExportSettings = (): Partial<WebGLExportSettings> | null =
     const sanitized = sanitizeWebglExportSettings(parsed);
     return Object.keys(sanitized).length > 0 ? sanitized : null;
   } catch (error) {
-    console.warn('[WebglExportSettingsStorage] Failed to load settings', error);
+    debugWarn('raw-console', '[WebglExportSettingsStorage] Failed to load settings', error);
     return null;
   }
 };
@@ -179,6 +180,6 @@ export const saveWebglExportSettings = (payload: WebGLExportSettings): void => {
     const sanitized = sanitizeWebglExportSettings(payload);
     storage.setItem(STORAGE_KEY, JSON.stringify(sanitized));
   } catch (error) {
-    console.warn('[WebglExportSettingsStorage] Failed to save settings', error);
+    debugWarn('raw-console', '[WebglExportSettingsStorage] Failed to save settings', error);
   }
 };

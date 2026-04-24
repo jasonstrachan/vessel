@@ -70,6 +70,10 @@ const makeStore = () => ({
     sequentialData: undefined,
   }],
   activeLayerId: 'l1',
+  canvas: {
+    transparencyBackgroundMode: 'checker' as const,
+    displayFilters: [],
+  },
   sequentialRecord: {
     currentFrame: 0,
   },
@@ -261,7 +265,9 @@ describe('ExportModal', () => {
       jest.runOnlyPendingTimers();
     });
 
-    fireEvent.click(screen.getByRole('button', { name: /^Export$/i }));
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /^Export$/i }));
+    });
 
     await waitFor(() => {
       expect(runExportMock).toHaveBeenCalled();
@@ -357,7 +363,9 @@ describe('ExportModal', () => {
     expect(store.updateWebglExportSettings).toHaveBeenCalledWith({
       viewportPreset: 'embed-fill',
     });
-    fireEvent.click(screen.getByRole('button', { name: /^Export$/i }));
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /^Export$/i }));
+    });
 
     await waitFor(() => {
       expect(runExportMock).toHaveBeenCalled();

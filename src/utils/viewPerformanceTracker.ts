@@ -1,3 +1,4 @@
+import { debugLog } from '@/utils/debug';
 type SessionType = 'pan' | 'zoom' | 'draw';
 
 interface SessionStats {
@@ -107,7 +108,7 @@ class ViewPerformanceTracker {
     if (!summary) return;
     const { samples, average, max, min, lastDurations } = summary;
     const last = lastDurations.length > 0 ? lastDurations[lastDurations.length - 1] : 0;
-    console.info(
+    debugLog('raw-console',
       `[ViewPerformanceTracker] ${type.toUpperCase()} frames — samples: ${samples}, avg: ${average.toFixed(
         2
       )}ms, last: ${last.toFixed(2)}ms, max: ${max.toFixed(2)}ms, min: ${min.toFixed(2)}ms`

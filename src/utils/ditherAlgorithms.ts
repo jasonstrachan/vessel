@@ -3,6 +3,7 @@
  * Implements Floyd-Steinberg and Bayer matrix dithering with pressure control
  */
 
+import { debugWarn } from '@/utils/debug';
 import {
   LOST_EDGE_TILE_MIN,
   LOST_EDGE_TILE_MAX,
@@ -371,14 +372,14 @@ export const calculatePressureDitherThreshold = (
   maxThreshold: number = 0.9
 ): number => {
   const pressureDeadzone = 0.05; // 5% deadzone
-  
+
   // Normalize pressure (0-1)
-  const normalizedPressure = rawPressure < pressureDeadzone ? 0 : 
+  const normalizedPressure = rawPressure < pressureDeadzone ? 0 :
     (rawPressure - pressureDeadzone) / (1.0 - pressureDeadzone);
-  
+
   // Invert pressure for dithering (light pressure = more dither)
   const ditherAmount = (1.0 - normalizedPressure) * intensity;
-  
+
   return minThreshold + (maxThreshold - minThreshold) * ditherAmount;
 };
 
@@ -386,14 +387,14 @@ export const calculatePressureDitherThreshold = (
  * Finds the nearest color in a palette using Euclidean distance
  */
 export const findNearestPaletteColor = (
-  r: number, 
-  g: number, 
-  b: number, 
+  r: number,
+  g: number,
+  b: number,
   palette: [number, number, number][]
 ): [number, number, number] => {
   let nearest = palette[0];
   let minDistance = Math.sqrt((r - nearest[0])**2 + (g - nearest[1])**2 + (b - nearest[2])**2);
-  
+
   for (let i = 1; i < palette.length; i++) {
     const color = palette[i];
     const distance = Math.sqrt((r - color[0])**2 + (g - color[1])**2 + (b - color[2])**2);
@@ -402,7 +403,7 @@ export const findNearestPaletteColor = (
       nearest = color;
     }
   }
-  
+
   return nearest;
 };
 
@@ -413,17 +414,17 @@ export const findNearestPaletteColor = (
  * 3/16 5/16 1/16
  */
 export const applyFloydSteinbergDither = (
-  imageData: ImageData, 
+  imageData: ImageData,
   settings: DitherSettings
 ): ImageData => {
   const data = new Uint8ClampedArray(imageData.data);
   const width = imageData.width;
   const height = imageData.height;
   const palette = settings.palette;
-  
+
   // Pressure affects error diffusion intensity
   const errorIntensity = calculatePressureDitherThreshold(settings.pressure, settings.intensity);
-  
+
   for (let y = 0; y < height; y++) {
     for (let x = 0; x < width; x++) {
       const idx = (y * width + x) * 4;
@@ -431,20 +432,20 @@ export const applyFloydSteinbergDither = (
       const oldR = data[idx];
       const oldG = data[idx + 1];
       const oldB = data[idx + 2];
-      
+
       // Quantize to nearest palette color
       const [newR, newG, newB] = findNearestPaletteColor(oldR, oldG, oldB, palette);
-      
+
       // Calculate quantization error
       const errorR = (oldR - newR) * errorIntensity;
       const errorG = (oldG - newG) * errorIntensity;
       const errorB = (oldB - newB) * errorIntensity;
-      
+
       // Set quantized color
       data[idx] = newR;
       data[idx + 1] = newG;
       data[idx + 2] = newB;
-      
+
       // Distribute error using Floyd-Steinberg weights
       // Right pixel (7/16)
       if (x < width - 1) {
@@ -453,7 +454,7 @@ export const applyFloydSteinbergDither = (
         data[rightIdx + 1] = Math.max(0, Math.min(255, data[rightIdx + 1] + errorG * 7 / 16));
         data[rightIdx + 2] = Math.max(0, Math.min(255, data[rightIdx + 2] + errorB * 7 / 16));
       }
-      
+
       // Bottom-left pixel (3/16)
       if (y < height - 1 && x > 0) {
         const bottomLeftIdx = ((y + 1) * width + (x - 1)) * 4;
@@ -461,7 +462,7 @@ export const applyFloydSteinbergDither = (
         data[bottomLeftIdx + 1] = Math.max(0, Math.min(255, data[bottomLeftIdx + 1] + errorG * 3 / 16));
         data[bottomLeftIdx + 2] = Math.max(0, Math.min(255, data[bottomLeftIdx + 2] + errorB * 3 / 16));
       }
-      
+
       // Bottom pixel (5/16)
       if (y < height - 1) {
         const bottomIdx = ((y + 1) * width + x) * 4;
@@ -469,7 +470,7 @@ export const applyFloydSteinbergDither = (
         data[bottomIdx + 1] = Math.max(0, Math.min(255, data[bottomIdx + 1] + errorG * 5 / 16));
         data[bottomIdx + 2] = Math.max(0, Math.min(255, data[bottomIdx + 2] + errorB * 5 / 16));
       }
-      
+
       // Bottom-right pixel (1/16)
       if (y < height - 1 && x < width - 1) {
         const bottomRightIdx = ((y + 1) * width + (x + 1)) * 4;
@@ -479,7 +480,7 @@ export const applyFloydSteinbergDither = (
       }
     }
   }
-  
+
   return new ImageData(data, width, height);
 };
 
@@ -550,7 +551,7 @@ export const applySierra2Dither = (
  * Bayer matrix ordered dithering with pressure sensitivity
  */
 export const applyBayerDither = (
-  imageData: ImageData, 
+  imageData: ImageData,
   settings: DitherSettings
 ): ImageData => {
   const data = new Uint8ClampedArray(imageData.data);
@@ -559,7 +560,7 @@ export const applyBayerDither = (
   const palette = settings.palette;
   const offsetX = settings.phaseOffset?.x ?? 0;
   const offsetY = settings.phaseOffset?.y ?? 0;
-  
+
   // Select Bayer matrix based on size
   let matrix: number[][];
   switch (settings.bayerMatrixSize) {
@@ -574,12 +575,12 @@ export const applyBayerDither = (
       matrix = BAYER_8x8_MATRIX;
       break;
   }
-  
+
   const matrixSize = matrix.length;
-  
+
   // Pressure affects threshold sensitivity
   const thresholdMultiplier = calculatePressureDitherThreshold(settings.pressure, settings.intensity, 0.2, 1.0);
-  
+
   for (let y = 0; y < height; y++) {
     const leftToRight = (y & 1) === 0;
     const xStart = leftToRight ? 0 : width - 1;
@@ -588,24 +589,24 @@ export const applyBayerDither = (
 
     for (let x = xStart; x !== xEnd; x += xStep) {
       const idx = (y * width + x) * 4;
-      
+
       // Get Bayer threshold for this position
       const bayerValue = matrix[mod(y + offsetY, matrixSize)][mod(x + offsetX, matrixSize)];
       const threshold = (bayerValue - 0.5) * thresholdMultiplier * 128; // Scale to ±64
-      
+
       const r = Math.max(0, Math.min(255, data[idx] + threshold));
       const g = Math.max(0, Math.min(255, data[idx + 1] + threshold));
       const b = Math.max(0, Math.min(255, data[idx + 2] + threshold));
-      
+
       // Quantize to nearest palette color
       const [newR, newG, newB] = findNearestPaletteColor(r, g, b, palette);
-      
+
       data[idx] = newR;
       data[idx + 1] = newG;
       data[idx + 2] = newB;
     }
   }
-  
+
   return new ImageData(data, width, height);
 };
 
@@ -626,10 +627,10 @@ export const applyAtkinsonDither = (
   const width = imageData.width;
   const height = imageData.height;
   const palette = settings.palette;
-  
+
   // Pressure affects error diffusion intensity (75% max for Atkinson)
   const errorIntensity = calculatePressureDitherThreshold(settings.pressure, settings.intensity) * 0.75;
-  
+
   for (let y = 0; y < height; y++) {
     const leftToRight = (y & 1) === 0;
     const xStart = leftToRight ? 0 : width - 1;
@@ -638,27 +639,27 @@ export const applyAtkinsonDither = (
 
     for (let x = xStart; x !== xEnd; x += xStep) {
       const idx = (y * width + x) * 4;
-      
+
       const oldR = data[idx];
       const oldG = data[idx + 1];
       const oldB = data[idx + 2];
-      
+
       // Quantize to nearest palette color
       const [newR, newG, newB] = findNearestPaletteColor(oldR, oldG, oldB, palette);
-      
+
       // Calculate quantization error (only 75% is distributed)
       const errorR = (oldR - newR) * errorIntensity;
       const errorG = (oldG - newG) * errorIntensity;
       const errorB = (oldB - newB) * errorIntensity;
-      
+
       // Set quantized color
       data[idx] = newR;
       data[idx + 1] = newG;
       data[idx + 2] = newB;
-      
+
       // Distribute error using Atkinson weights (1/8 each to 6 pixels)
       const weight = 1 / 8;
-      
+
       // Right pixel
       if (x < width - 1) {
         const rightIdx = (y * width + (x + 1)) * 4;
@@ -666,7 +667,7 @@ export const applyAtkinsonDither = (
         data[rightIdx + 1] = Math.max(0, Math.min(255, data[rightIdx + 1] + errorG * weight));
         data[rightIdx + 2] = Math.max(0, Math.min(255, data[rightIdx + 2] + errorB * weight));
       }
-      
+
       // Right+1 pixel
       if (x < width - 2) {
         const right2Idx = (y * width + (x + 2)) * 4;
@@ -674,7 +675,7 @@ export const applyAtkinsonDither = (
         data[right2Idx + 1] = Math.max(0, Math.min(255, data[right2Idx + 1] + errorG * weight));
         data[right2Idx + 2] = Math.max(0, Math.min(255, data[right2Idx + 2] + errorB * weight));
       }
-      
+
       // Bottom-left pixel
       if (y < height - 1 && x > 0) {
         const bottomLeftIdx = ((y + 1) * width + (x - 1)) * 4;
@@ -682,7 +683,7 @@ export const applyAtkinsonDither = (
         data[bottomLeftIdx + 1] = Math.max(0, Math.min(255, data[bottomLeftIdx + 1] + errorG * weight));
         data[bottomLeftIdx + 2] = Math.max(0, Math.min(255, data[bottomLeftIdx + 2] + errorB * weight));
       }
-      
+
       // Bottom pixel
       if (y < height - 1) {
         const bottomIdx = ((y + 1) * width + x) * 4;
@@ -690,7 +691,7 @@ export const applyAtkinsonDither = (
         data[bottomIdx + 1] = Math.max(0, Math.min(255, data[bottomIdx + 1] + errorG * weight));
         data[bottomIdx + 2] = Math.max(0, Math.min(255, data[bottomIdx + 2] + errorB * weight));
       }
-      
+
       // Bottom-right pixel
       if (y < height - 1 && x < width - 1) {
         const bottomRightIdx = ((y + 1) * width + (x + 1)) * 4;
@@ -698,7 +699,7 @@ export const applyAtkinsonDither = (
         data[bottomRightIdx + 1] = Math.max(0, Math.min(255, data[bottomRightIdx + 1] + errorG * weight));
         data[bottomRightIdx + 2] = Math.max(0, Math.min(255, data[bottomRightIdx + 2] + errorB * weight));
       }
-      
+
       // Bottom+1 pixel (2 rows down)
       if (y < height - 2) {
         const bottom2Idx = ((y + 2) * width + x) * 4;
@@ -708,7 +709,7 @@ export const applyAtkinsonDither = (
       }
     }
   }
-  
+
   return new ImageData(data, width, height);
 };
 
@@ -727,12 +728,12 @@ export const applyBlueNoiseDither = (
   const palette = settings.palette;
   const offsetX = settings.phaseOffset?.x ?? 0;
   const offsetY = settings.phaseOffset?.y ?? 0;
-  
+
   const matrixSize = BLUE_NOISE_16x16.length;
-  
+
   // Pressure affects threshold sensitivity
   const thresholdMultiplier = calculatePressureDitherThreshold(settings.pressure, settings.intensity, 0.2, 1.0);
-  
+
   for (let y = 0; y < height; y++) {
     const leftToRight = (y & 1) === 0;
     const xStart = leftToRight ? 0 : width - 1;
@@ -741,24 +742,24 @@ export const applyBlueNoiseDither = (
 
     for (let x = xStart; x !== xEnd; x += xStep) {
       const idx = (y * width + x) * 4;
-      
+
       // Get blue noise threshold for this position
       const noiseValue = BLUE_NOISE_16x16[mod(y + offsetY, matrixSize)][mod(x + offsetX, matrixSize)];
       const threshold = (noiseValue - 0.5) * thresholdMultiplier * 255;
-      
+
       const r = Math.max(0, Math.min(255, data[idx] + threshold));
       const g = Math.max(0, Math.min(255, data[idx + 1] + threshold));
       const b = Math.max(0, Math.min(255, data[idx + 2] + threshold));
-      
+
       // Quantize to nearest palette color
       const [newR, newG, newB] = findNearestPaletteColor(r, g, b, palette);
-      
+
       data[idx] = newR;
       data[idx + 1] = newG;
       data[idx + 2] = newB;
     }
   }
-  
+
   return new ImageData(data, width, height);
 };
 
@@ -816,10 +817,10 @@ export const applySierraLitePressureDither = (
   const width = imageData.width;
   const height = imageData.height;
   const palette = settings.palette;
-  
+
   // Pressure affects error diffusion intensity
   const errorIntensity = calculatePressureDitherThreshold(settings.pressure, settings.intensity);
-  
+
   for (let y = 0; y < height; y++) {
     const leftToRight = serpentine ? (y & 1) === 0 : true;
     const xStart = leftToRight ? 0 : width - 1;
@@ -828,19 +829,19 @@ export const applySierraLitePressureDither = (
 
     for (let x = xStart; x !== xEnd; x += xStep) {
       const idx = (y * width + x) * 4;
-      
+
       const oldR = data[idx];
       const oldG = data[idx + 1];
       const oldB = data[idx + 2];
-      
+
       // Quantize to nearest palette color
       const [newR, newG, newB] = findNearestPaletteColor(oldR, oldG, oldB, palette);
-      
+
       // Calculate quantization error
       const errorR = (oldR - newR) * errorIntensity;
       const errorG = (oldG - newG) * errorIntensity;
       const errorB = (oldB - newB) * errorIntensity;
-      
+
       // Set quantized color
       data[idx] = newR;
       data[idx + 1] = newG;
@@ -890,7 +891,7 @@ export const applySierraLitePressureDither = (
       }
     }
   }
-  
+
   return new ImageData(data, width, height);
 };
 
@@ -1091,17 +1092,17 @@ export const applyPatternDither = (
   const patternStyle = settings.patternStyle || 'dots';
   const offsetX = settings.phaseOffset?.x ?? 0;
   const offsetY = settings.phaseOffset?.y ?? 0;
-  
+
   // Pressure affects pattern density
   const thresholdMultiplier = calculatePressureDitherThreshold(settings.pressure, settings.intensity, 0.2, 1.0);
-  
+
   for (let y = 0; y < height; y++) {
     for (let x = 0; x < width; x++) {
       const idx = (y * width + x) * 4;
-      
+
       // Get pattern threshold based on style
       let patternValue = 0;
-      
+
       const px = x + offsetX;
       const py = y + offsetY;
 
@@ -1190,23 +1191,23 @@ export const applyPatternDither = (
           break;
         }
       }
-      
+
       // Apply threshold with pressure sensitivity
       const threshold = (patternValue - 0.5) * thresholdMultiplier * 128;
-      
+
       const r = Math.max(0, Math.min(255, data[idx] + threshold));
       const g = Math.max(0, Math.min(255, data[idx + 1] + threshold));
       const b = Math.max(0, Math.min(255, data[idx + 2] + threshold));
-      
+
       // Quantize to nearest palette color
       const [newR, newG, newB] = findNearestPaletteColor(r, g, b, palette);
-      
+
       data[idx] = newR;
       data[idx + 1] = newG;
       data[idx + 2] = newB;
     }
   }
-  
+
   return new ImageData(data, width, height);
 };
 
@@ -1214,7 +1215,7 @@ export const applyPatternDither = (
  * Main dithering function that routes to the appropriate algorithm
  */
 export const applyPressureDither = (
-  imageData: ImageData, 
+  imageData: ImageData,
   settings: DitherSettings
 ): ImageData => {
   switch (settings.algorithm) {
@@ -1243,7 +1244,7 @@ export const applyPressureDither = (
     case 'pattern':
       return applyPatternDither(imageData, settings);
     default:
-      console.warn(`Unknown dithering algorithm: ${settings.algorithm}`);
+      debugWarn('raw-console', `Unknown dithering algorithm: ${settings.algorithm}`);
       return imageData;
   }
 };
@@ -1261,32 +1262,32 @@ export const applyPressureDitherChunked = (
   return new Promise((resolve) => {
     const result = new ImageData(imageData.width, imageData.height);
     result.data.set(imageData.data);
-    
+
     const height = imageData.height;
     let currentY = 0;
-    
+
     const processChunk = () => {
       const endY = Math.min(currentY + chunkSize, height);
-      
+
       // Create chunk ImageData
       const chunkHeight = endY - currentY;
       const chunkImageData = new ImageData(imageData.width, chunkHeight);
       const sourceStart = currentY * imageData.width * 4;
       const sourceEnd = sourceStart + chunkImageData.data.length;
       chunkImageData.data.set(imageData.data.subarray(sourceStart, sourceEnd));
-      
+
       // Apply dithering to chunk
       const ditheredChunk = applyPressureDither(chunkImageData, settings);
-      
+
       // Copy back to result
       result.data.set(ditheredChunk.data, sourceStart);
-      
+
       currentY = endY;
-      
+
       if (onProgress) {
         onProgress(currentY / height);
       }
-      
+
       if (currentY < height) {
         // Continue processing next chunk
         requestAnimationFrame(processChunk);
@@ -1295,7 +1296,7 @@ export const applyPressureDitherChunked = (
         resolve(result);
       }
     };
-    
+
     processChunk();
   });
 };
@@ -1305,15 +1306,15 @@ export const applyPressureDitherChunked = (
  */
 export const createGrayscalePalette = (levels: number): [number, number, number][] => {
   const palette: [number, number, number][] = [];
-  
+
   if (levels <= 0) {
     return [[0, 0, 0]]; // Default to black if invalid input
   }
-  
+
   if (levels === 1) {
     return [[0, 0, 0]]; // Single level is black
   }
-  
+
   for (let i = 0; i < levels; i++) {
     const value = Math.round((i / (levels - 1)) * 255);
     palette.push([value, value, value]);
@@ -1327,7 +1328,7 @@ export const createGrayscalePalette = (levels: number): [number, number, number]
 export const APPLE_II_PALETTE: [number, number, number][] = [
   [0, 0, 0],         // Black
   [114, 38, 64],     // Dark Red/Magenta
-  [64, 51, 127],     // Dark Blue  
+  [64, 51, 127],     // Dark Blue
   [228, 52, 254],    // Purple/Violet
   [14, 89, 64],      // Dark Green
   [128, 128, 128],   // Gray

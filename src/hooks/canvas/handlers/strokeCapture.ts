@@ -1,3 +1,4 @@
+import { debugWarn } from '@/utils/debug';
 import type { CaptureRegion } from '@/hooks/canvas/utils/captureRegions';
 import type { Layer } from '@/types';
 
@@ -104,7 +105,7 @@ export const prepareStrokeCapture = async (
 
     if (!captureRoi) {
       if (process.env.NODE_ENV !== 'production') {
-        console.warn('[history] Falling back to full-canvas capture', {
+        debugWarn('raw-console', '[history] Falling back to full-canvas capture', {
           overlayHasContent,
           project,
           engineStrokeBounds,

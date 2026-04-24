@@ -1,3 +1,4 @@
+import { debugWarn } from '@/utils/debug';
 import type React from 'react';
 import { RecolorManager } from '@/lib/colorCycle/RecolorManager';
 import type { BrushSettings, Layer } from '@/types';
@@ -77,7 +78,7 @@ const applyRecolorSampling = ({
             try {
               manager.playSingle(layer.id);
             } catch (e) {
-              console.warn('Failed to auto-play recolor animation:', e);
+              debugWarn('raw-console', 'Failed to auto-play recolor animation:', e);
             }
           }
           const dx = end.x - start.x;
@@ -86,7 +87,7 @@ const applyRecolorSampling = ({
           try { manager.setPaletteDirectionalOrder(layer.id, angle); } catch {}
           try { manager.autoSetAnimationDirection(layer.id, angle); } catch {}
         } catch (e) {
-          console.warn('Failed to apply sampled gradient', e);
+          debugWarn('raw-console', 'Failed to apply sampled gradient', e);
         }
       })();
     }

@@ -3,6 +3,7 @@
  * Supports color cycling animation and smooth gradient interpolation
  */
 
+import { debugLog, debugWarn } from '@/utils/debug';
 import { DEFAULT_GRADIENT_STOPS } from '@/utils/gradientPresets';
 import {
   applyGradientSeamProfile,
@@ -29,12 +30,12 @@ export class GradientPalette {
   private gradientStops: GradientStop[];
   private paletteSize: number = 256;
   private seamProfile: GradientSeamProfile = DEFAULT_GRADIENT_SEAM_PROFILE;
-  
+
   // Cache for parsed colors
   private parsedColors: Map<string, RGBA> = new Map();
   private static parserCanvas: HTMLCanvasElement | null = null;
   private static parserContext: CanvasRenderingContext2D | null = null;
-  
+
   constructor(stops?: GradientStop[], options?: { seamProfile?: GradientSeamProfile }) {
     this.colors = new Uint8ClampedArray(this.paletteSize * 4);
     this.seamProfile = normalizeGradientSeamProfile(options?.seamProfile);
@@ -42,7 +43,7 @@ export class GradientPalette {
       { position: 0, color: '#000000' },
       { position: 1, color: '#ffffff' }
     ];
-    
+
     if (stops && stops.length > 0) {
       this.updateFromGradient(stops, this.seamProfile);
     } else {
@@ -50,7 +51,7 @@ export class GradientPalette {
       this.updateFromGradient(this.gradientStops, this.seamProfile);
     }
   }
-  
+
   /**
    * Parse CSS color string to RGBA values
    */
@@ -64,31 +65,31 @@ export class GradientPalette {
         a: 255
       };
     }
-    
+
     // Handle string format
     if (this.parsedColors.has(color)) {
       return this.parsedColors.get(color)!;
     }
-    
+
     const ctx = GradientPalette.getParserContext();
-    
+
     if (!ctx) {
       const rgba = { r: 0, g: 0, b: 0, a: 255 };
       this.parsedColors.set(color, rgba);
       return rgba;
     }
-    
+
     ctx.fillStyle = color;
     ctx.fillRect(0, 0, 1, 1);
     const data = ctx.getImageData(0, 0, 1, 1).data;
-    
+
     const rgba = {
       r: data[0],
       g: data[1],
       b: data[2],
       a: data[3]
     };
-    
+
     this.parsedColors.set(color, rgba);
     return rgba;
   }
@@ -107,7 +108,7 @@ export class GradientPalette {
     GradientPalette.parserContext = canvas.getContext('2d', { willReadFrequently: true });
     return GradientPalette.parserContext;
   }
-  
+
   /**
    * Interpolate between two colors
    */
@@ -134,7 +135,7 @@ export class GradientPalette {
       a: Math.round(color.a * alpha),
     };
   }
-  
+
   /**
    * Update palette from gradient stops
    */
@@ -142,10 +143,10 @@ export class GradientPalette {
     if (!stops || stops.length === 0) return;
     this.seamProfile = normalizeGradientSeamProfile(seamProfile);
     this.gradientStops = [...stops];
-    
+
     // Sort stops by position
     this.gradientStops.sort((a, b) => a.position - b.position);
-    
+
     // Ensure we have stops at 0 and 1
     if (this.gradientStops[0].position > 0) {
       this.gradientStops.unshift({
@@ -159,12 +160,12 @@ export class GradientPalette {
         color: this.gradientStops[this.gradientStops.length - 1].color
       });
     }
-    
+
     // Generate palette
     for (let i = 0; i < this.paletteSize; i++) {
       const position = i / (this.paletteSize - 1);
       const color = this.getColorAtPosition(position);
-      
+
       const idx = i * 4;
       this.colors[idx] = color.r;
       this.colors[idx + 1] = color.g;
@@ -176,69 +177,69 @@ export class GradientPalette {
       seamProfile: this.seamProfile,
     });
   }
-  
+
   /**
    * Get interpolated color at a specific position
    */
   private getColorAtPosition(position: number): RGBA {
     // Clamp position
     position = Math.max(0, Math.min(1, position));
-    
+
     // Find surrounding stops
     let leftStop = this.gradientStops[0];
     let rightStop = this.gradientStops[this.gradientStops.length - 1];
-    
+
     for (let i = 0; i < this.gradientStops.length - 1; i++) {
-      if (position >= this.gradientStops[i].position && 
+      if (position >= this.gradientStops[i].position &&
           position <= this.gradientStops[i + 1].position) {
         leftStop = this.gradientStops[i];
         rightStop = this.gradientStops[i + 1];
         break;
       }
     }
-    
+
     // Parse colors
     const leftColor = this.applyStopOpacity(this.parseColor(leftStop.color), leftStop.opacity);
     const rightColor = this.applyStopOpacity(this.parseColor(rightStop.color), rightStop.opacity);
-    
+
     // Calculate interpolation factor
     if (leftStop.position === rightStop.position) {
       return this.applyStopOpacity(leftColor, leftStop.opacity);
     }
-    
+
     const t = (position - leftStop.position) / (rightStop.position - leftStop.position);
-    
+
     // Interpolate
     return this.interpolateColor(leftColor, rightColor, t);
   }
-  
+
   /**
    * Shift colors by offset for animation (color cycling)
    */
   shift(offset: number) {
     // Normalize offset to 0-1 range
     offset = ((offset % 1) + 1) % 1;
-    
+
     // Calculate shift in palette indices
     const shiftIndices = Math.floor(offset * this.paletteSize);
-    
+
     // Create temporary buffer for shifted colors
     const shifted = new Uint8ClampedArray(this.paletteSize * 4);
-    
+
     for (let i = 0; i < this.paletteSize; i++) {
       const sourceIndex = (i + shiftIndices) % this.paletteSize;
       const sourceIdx = sourceIndex * 4;
       const targetIdx = i * 4;
-      
+
       shifted[targetIdx] = this.colors[sourceIdx];
       shifted[targetIdx + 1] = this.colors[sourceIdx + 1];
       shifted[targetIdx + 2] = this.colors[sourceIdx + 2];
       shifted[targetIdx + 3] = this.colors[sourceIdx + 3];
     }
-    
+
     return shifted;
   }
-  
+
   /**
    * Shift colors in place
    */
@@ -246,26 +247,26 @@ export class GradientPalette {
     const shifted = this.shift(offset);
     this.colors = shifted;
   }
-  
+
   /**
    * Get color at specific index
    */
   getColor(index: number): RGBA {
     // Ensure colors array exists
     if (!this.colors || this.colors.length === 0) {
-      console.warn('[GradientPalette] Colors array not initialized');
+      debugWarn('raw-console', '[GradientPalette] Colors array not initialized');
       return { r: 0, g: 0, b: 0, a: 0 };
     }
-    
+
     index = Math.max(0, Math.min(this.paletteSize - 1, index));
     const idx = index * 4;
-    
+
     // Bounds check
     if (idx + 3 >= this.colors.length) {
-      console.warn('[GradientPalette] Index out of bounds:', index, idx);
+      debugWarn('raw-console', '[GradientPalette] Index out of bounds:', index, idx);
       return { r: 0, g: 0, b: 0, a: 0 };
     }
-    
+
     return {
       r: this.colors[idx] ?? 0,
       g: this.colors[idx + 1] ?? 0,
@@ -273,7 +274,7 @@ export class GradientPalette {
       a: this.colors[idx + 3] ?? 255
     };
   }
-  
+
   /**
    * Get color as CSS string
    */
@@ -286,14 +287,14 @@ export class GradientPalette {
     const a = Math.max(0, Math.min(255, color.a || 255)) / 255;
     return `rgba(${r},${g},${b},${a})`;
   }
-  
+
   /**
    * Get the entire palette as RGBA array
    */
   getPaletteColors(): Uint8ClampedArray {
     return new Uint8ClampedArray(this.colors);
   }
-  
+
   /**
    * Get palette as array of CSS color strings
    */
@@ -348,10 +349,10 @@ export class GradientPalette {
   applyToIndexBuffer(indexData: Uint8Array, imageData: ImageData, offset: number = 0) {
     const pixels = imageData.data;
     const shifted = offset > 0 ? this.shift(offset) : this.colors;
-    
+
     for (let i = 0; i < indexData.length; i++) {
       const colorIndex = indexData[i];
-      
+
       // Skip transparent pixels (index 0)
       if (colorIndex === 0) {
         const pixelIndex = i * 4;
@@ -361,7 +362,7 @@ export class GradientPalette {
         pixels[pixelIndex + 3] = 0;
         continue;
       }
-      
+
       // Map index to palette color
       let paletteIndex = colorIndex - 1;
       if (paletteIndex < 0) {
@@ -377,11 +378,11 @@ export class GradientPalette {
       pixels[pixelIdx + 2] = shifted[colorIdx + 2];
       pixels[pixelIdx + 3] = shifted[colorIdx + 3];
       if (process.env.DEBUG_PALETTE === 'true') {
-        console.log('apply', { i, colorIndex, paletteIndex, values: [shifted[colorIdx], shifted[colorIdx + 1], shifted[colorIdx + 2], shifted[colorIdx + 3]] });
+        debugLog('raw-console', 'apply', { i, colorIndex, paletteIndex, values: [shifted[colorIdx], shifted[colorIdx + 1], shifted[colorIdx + 2], shifted[colorIdx + 3]] });
       }
     }
   }
-  
+
   /**
    * Create the default alternating black and white gradient used by color cycle brushes.
    */
@@ -395,7 +396,7 @@ export class GradientPalette {
   static createRainbow(): GradientPalette {
     return new GradientPalette([
       { position: 0.00, color: '#ff0000' }, // Red
-      { position: 0.17, color: '#ff7f00' }, // Orange  
+      { position: 0.17, color: '#ff7f00' }, // Orange
       { position: 0.33, color: '#ffff00' }, // Yellow
       { position: 0.50, color: '#00ff00' }, // Green
       { position: 0.67, color: '#0000ff' }, // Blue
@@ -403,7 +404,7 @@ export class GradientPalette {
       { position: 1.00, color: '#9400d3' }  // Violet
     ]);
   }
-  
+
   /**
    * Create a fire gradient
    */
@@ -417,7 +418,7 @@ export class GradientPalette {
       { position: 1.00, color: '#ffffff' }  // White
     ]);
   }
-  
+
   /**
    * Create an ocean gradient
    */
@@ -430,7 +431,7 @@ export class GradientPalette {
       { position: 1.00, color: '#66ddff' }  // Cyan
     ]);
   }
-  
+
   /**
    * Create a sunset gradient
    */
@@ -443,7 +444,7 @@ export class GradientPalette {
       { position: 1.00, color: '#ffcc00' }  // Yellow
     ]);
   }
-  
+
   /**
    * Create a grayscale gradient
    */
@@ -453,7 +454,7 @@ export class GradientPalette {
       { position: 1, color: '#ffffff' }
     ]);
   }
-  
+
   /**
    * Clone the palette
    */
@@ -463,14 +464,14 @@ export class GradientPalette {
     cloned.gradientStops = this.gradientStops.map(stop => ({ ...stop }));
     return cloned;
   }
-  
+
   /**
    * Get current gradient stops
    */
   getGradientStops(): GradientStop[] {
     return this.gradientStops.map(stop => ({ ...stop }));
   }
-  
+
   /**
    * Serialize for storage
    */
@@ -485,7 +486,7 @@ export class GradientPalette {
       seamProfile: this.seamProfile,
     };
   }
-  
+
   /**
    * Deserialize from storage
    */

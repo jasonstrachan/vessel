@@ -1,3 +1,4 @@
+import { debugLog, debugWarn, logError } from '@/utils/debug';
 import { BrushShape, type BrushSettings } from '@/types';
 import type { CustomBrushStrokeData } from './BrushEngineFacade';
 import type { ColorCycleBrushImplementation } from './ColorCycleBrushMigration';
@@ -94,7 +95,7 @@ export const renderColorCycleToContext = ({
     flushGradientApply(activeLayerId);
     colorCycleBrush.renderDirectToCanvas(layerCanvas, activeLayerId);
   } catch (error) {
-    console.warn('[ColorCycle] Failed to render to layer canvas:', error);
+    debugWarn('raw-console', '[ColorCycle] Failed to render to layer canvas:', error);
     return;
   }
 
@@ -305,7 +306,7 @@ export const drawColorCycleStroke = ({
       colorCycleBrush.setMinPressure(minPercent);
       colorCycleBrush.setMaxPressure(maxPercent);
     } catch (error) {
-      console.error('[CC DrawCycle] Error setting pressure:', error);
+      logError('[CC DrawCycle] Error setting pressure:', error);
     }
 
     try {
@@ -315,7 +316,7 @@ export const drawColorCycleStroke = ({
           : (brushSettings.colorCycleStampShape ?? 'square');
       colorCycleBrush.setStampShape(stampShape);
     } catch (error) {
-      console.error('[CC DrawCycle] Error setting stamp shape:', error);
+      logError('[CC DrawCycle] Error setting stamp shape:', error);
     }
 
     let brushSizeSetting = baseBrushSize;
@@ -399,7 +400,7 @@ export const drawColorCycleStroke = ({
 
     const internalCanvas = colorCycleBrush.getCanvas();
     if (!internalCanvas || !internalCanvas.width || !internalCanvas.height) {
-      console.error('[ColorCycle] Invalid internal canvas');
+      logError('[ColorCycle] Invalid internal canvas');
       return;
     }
 
@@ -613,7 +614,7 @@ export const drawColorCycleStroke = ({
         typeof globalThis !== 'undefined' &&
         (globalThis as { __CC_NON_DITHER_DEBUG?: boolean }).__CC_NON_DITHER_DEBUG === true
       ) {
-        console.log('[cc-stroke-input]', {
+        debugLog('raw-console', '[cc-stroke-input]', {
           x,
           y,
           segDist,
@@ -644,6 +645,6 @@ export const drawColorCycleStroke = ({
       }
     }
   } catch (error) {
-    console.error('[ColorCycle] Error in drawColorCycle:', error);
+    logError('[ColorCycle] Error in drawColorCycle:', error);
   }
 };

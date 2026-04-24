@@ -1,3 +1,4 @@
+import { debugWarn } from '@/utils/debug';
 import type { Rect } from './engineShared';
 
 type CanvasPoolLike = {
@@ -110,12 +111,12 @@ export const applyAlphaLockToPaint = ({
       if (isColorCycleLayer) {
         probeWindow.__AL_probe.bypasses += 1;
         if (alphaLockDebugLevel > 0 && typeof console !== 'undefined') {
-          console.warn('[AL:bypass-cc]', payload);
+          debugWarn('raw-console', '[AL:bypass-cc]', payload);
         }
       } else {
         probeWindow.__AL_probe.blocks += 1;
         if (alphaLockDebugLevel > 0 && typeof console !== 'undefined') {
-          console.warn('[AL:block]', payload);
+          debugWarn('raw-console', '[AL:block]', payload);
         }
       }
     }
@@ -129,7 +130,7 @@ export const applyAlphaLockToPaint = ({
 
   if (shouldBlock && !isColorCycleLayer) {
     if (!alphaLockEmptyMaskWarnedRef.current && alphaLockDebugLevel > 0 && typeof console !== 'undefined') {
-      console.warn('[AlphaLock] Active layer shows no visible alpha; lock prevents new pixels.');
+      debugWarn('raw-console', '[AlphaLock] Active layer shows no visible alpha; lock prevents new pixels.');
       alphaLockEmptyMaskWarnedRef.current = true;
     }
     return;

@@ -2,6 +2,7 @@
  * Manager for gradient calculation Web Worker
  */
 
+import { logError } from '@/utils/debug';
 import { ensurePalette, PaletteHandle } from '@/lib/colorCycle/paletteService';
 
 export interface GradientStop {
@@ -51,7 +52,7 @@ export class GradientWorkerManager {
         this.worker.onmessage = this.handleMessage.bind(this);
         this.worker.onerror = this.handleError.bind(this);
       } catch (error) {
-        console.error('Failed to initialize gradient worker:', error);
+        logError('Failed to initialize gradient worker:', error);
         this.isSupported = false;
         this.worker = null;
       }
@@ -74,7 +75,7 @@ export class GradientWorkerManager {
   }
 
   private handleError(error: ErrorEvent) {
-    console.error('Gradient worker error:', error);
+    logError('Gradient worker error:', error);
     // Reject all pending requests
     for (const [, request] of this.pendingRequests) {
       request.reject(new Error(error.message));
@@ -151,7 +152,7 @@ export class GradientWorkerManager {
     if (!this.isSupported || !this.worker) {
       return this.shiftPaletteLocally(offset);
     }
-    
+
     return await this.sendMessage('shiftPalette', { offset });
   }
 

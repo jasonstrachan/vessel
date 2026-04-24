@@ -1,3 +1,4 @@
+import { debugWarn } from '@/utils/debug';
 import type { Layer, SequentialStrokeEvent } from '@/types';
 import { isFeatureFlagEnabled } from '@/config/featureFlags';
 import { SequentialEventLog } from '@/lib/sequential/SequentialEventLog';
@@ -122,7 +123,7 @@ const createSequentialMaterializer = (
       sequentialGpuUnavailable = true;
       if (!sequentialGpuFallbackLogged && process.env.NODE_ENV !== 'production') {
         sequentialGpuFallbackLogged = true;
-        console.warn(
+        debugWarn('raw-console',
           '[sequential] GPU materializer unavailable, falling back to CPU backend.',
           error
         );

@@ -18,6 +18,7 @@
  */
 
 // Debug logs suppressed for GPU renderer
+import { debugWarn } from '@/utils/debug';
 import {
   MAX_BRUSH_COLOR_CYCLE_SPEED,
   MIN_BRUSH_COLOR_CYCLE_SPEED,
@@ -910,7 +911,7 @@ export class WebGLColorCycleRenderer {
     // No need for depth/stencil
     const status = gl.checkFramebufferStatus(gl.FRAMEBUFFER);
     if (status !== gl.FRAMEBUFFER_COMPLETE) {
-      console.warn('[WebGLColorCycleRenderer] Fill FBO incomplete:', status.toString(16));
+      debugWarn('raw-console', '[WebGLColorCycleRenderer] Fill FBO incomplete:', status.toString(16));
     }
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
   }

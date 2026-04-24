@@ -1,6 +1,7 @@
 // Background storage service using IndexedDB for autosave functionality
 // Saves projects silently without user interaction
 
+import { debugWarn, logError } from '@/utils/debug';
 import type { Project, Layer, LayerGroup, PaletteState } from '../types';
 import { captureCanvasImageData } from '@/utils/canvas/canvasImage';
 import { captureColorCycleCanvasSnapshot } from '@/utils/colorCycleCanvasSnapshot';
@@ -127,7 +128,7 @@ class BackgroundStorageService {
       const request = indexedDB.open(this.DB_NAME, this.DB_VERSION);
 
       request.onerror = () => {
-        console.error('[BackgroundStorage] Failed to open database:', request.error);
+        logError('[BackgroundStorage] Failed to open database:', request.error);
         this.initializingPromise = null;
         resolve(null);
       };
@@ -185,7 +186,7 @@ class BackgroundStorageService {
       const request = store.put(autosaveRecord);
 
       request.onerror = () => {
-        console.error('[BackgroundStorage] Failed to save project:', request.error);
+        logError('[BackgroundStorage] Failed to save project:', request.error);
         reject(request.error);
       };
 
@@ -207,7 +208,7 @@ class BackgroundStorageService {
       const request = store.get(projectId);
 
       request.onerror = () => {
-        console.error('[BackgroundStorage] Failed to retrieve project:', request.error);
+        logError('[BackgroundStorage] Failed to retrieve project:', request.error);
         reject(request.error);
       };
 
@@ -232,7 +233,7 @@ class BackgroundStorageService {
       const request = store.get('current-session');
 
       request.onerror = () => {
-        console.error('[BackgroundStorage] Failed to check session:', request.error);
+        logError('[BackgroundStorage] Failed to check session:', request.error);
         reject(request.error);
       };
 
@@ -253,7 +254,7 @@ class BackgroundStorageService {
       const request = store.get('current-session');
 
       request.onerror = () => {
-        console.error('[BackgroundStorage] Failed to get last project:', request.error);
+        logError('[BackgroundStorage] Failed to get last project:', request.error);
         reject(request.error);
       };
 
@@ -274,7 +275,7 @@ class BackgroundStorageService {
       const request = store.delete(projectId);
 
       request.onerror = () => {
-        console.error('[BackgroundStorage] Failed to clear autosave:', request.error);
+        logError('[BackgroundStorage] Failed to clear autosave:', request.error);
         reject(request.error);
       };
 
@@ -303,7 +304,7 @@ class BackgroundStorageService {
       const request = store.put(sessionRecord);
 
       request.onerror = () => {
-        console.error('[BackgroundStorage] Failed to update session:', request.error);
+        logError('[BackgroundStorage] Failed to update session:', request.error);
         reject(request.error);
       };
 
@@ -323,7 +324,7 @@ class BackgroundStorageService {
       const request = store.getAll();
 
       request.onerror = () => {
-        console.error('[BackgroundStorage] Failed to get all autosaves:', request.error);
+        logError('[BackgroundStorage] Failed to get all autosaves:', request.error);
         reject(request.error);
       };
 
@@ -346,7 +347,7 @@ class BackgroundStorageService {
       const request = index.openCursor(IDBKeyRange.upperBound(cutoffTime));
 
       request.onerror = () => {
-        console.error('[BackgroundStorage] Failed to cleanup old autosaves:', request.error);
+        logError('[BackgroundStorage] Failed to cleanup old autosaves:', request.error);
         reject(request.error);
       };
 
@@ -417,7 +418,7 @@ class BackgroundStorageService {
             eraseMask: maskCanvas
           };
         } catch (error) {
-          console.warn('[BackgroundStorage] Failed to restore erase mask.', error);
+          debugWarn('raw-console', '[BackgroundStorage] Failed to restore erase mask.', error);
         }
       }
 

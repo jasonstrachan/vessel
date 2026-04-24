@@ -1,3 +1,4 @@
+import { debugWarn } from '@/utils/debug';
 import { useEffect, type MutableRefObject } from 'react';
 import { getColorCycleCompositorClient } from '@/workers/colorCycleCompositorClient';
 
@@ -27,7 +28,7 @@ export const useDrawingCanvasColorCycleWorkerInit = ({
         if (!hasWarnedColorCycleWorkerRef.current) {
           hasWarnedColorCycleWorkerRef.current = true;
           if (process.env.NODE_ENV !== 'production') {
-            console.warn(
+            debugWarn('raw-console',
               '[ColorCycleWorker] init failed; falling back to main-thread compositing.',
               error
             );

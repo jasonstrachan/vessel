@@ -1,3 +1,4 @@
+import { debugLog } from '@/utils/debug';
 const PRES_RES_STORAGE_KEY = 'vessel.debug.presRes';
 
 type PresResWindow = Window & {
@@ -43,7 +44,7 @@ export const ensurePresResDebugBridge = (): void => {
     } catch {
       // Ignore storage failures in restricted modes.
     }
-    console.log('[PresRes]', 'debug flag updated', enabled);
+    debugLog('raw-console', '[PresRes]', 'debug flag updated', enabled);
   };
 
   try {

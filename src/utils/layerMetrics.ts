@@ -1,3 +1,4 @@
+import { debugWarn } from '@/utils/debug';
 import type {
   ContentBounds,
   Layer,
@@ -83,7 +84,7 @@ const computeCanvasContentBounds = (
 
     return computeContentBoundsFromImageData(imageData);
   } catch (error) {
-    console.warn('[layerMetrics] Failed to compute canvas content bounds', error);
+    debugWarn('raw-console', '[layerMetrics] Failed to compute canvas content bounds', error);
     return null;
   }
 };
@@ -162,7 +163,7 @@ export const computeLayerContentMetrics = (
     try {
       bounds = computeContentBoundsFromImageData(layer.imageData);
     } catch (error) {
-      console.warn('[layerMetrics] Failed to compute bounds from layer.imageData', error);
+      debugWarn('raw-console', '[layerMetrics] Failed to compute bounds from layer.imageData', error);
     }
   }
 

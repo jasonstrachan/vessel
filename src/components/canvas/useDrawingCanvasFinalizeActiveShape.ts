@@ -1,3 +1,4 @@
+import { debugLog } from '@/utils/debug';
 import { useCallback } from 'react';
 import { useAppStore } from '@/stores/useAppStore';
 import { computeShapeFillColors } from '@/shapeFill/colorUtils';
@@ -112,7 +113,7 @@ export const useDrawingCanvasFinalizeActiveShape = ({
           const lostEdge = Math.max(0, Math.min(100, rawLostEdge));
 
           if (process.env.NODE_ENV !== 'production') {
-            console.log('[shapeFill] lostEdge', {
+            debugLog('raw-console', '[shapeFill] lostEdge', {
               uiLostEdge,
               perFillEdge,
               payloadEdge,

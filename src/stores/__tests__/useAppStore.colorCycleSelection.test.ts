@@ -33,13 +33,14 @@ jest.mock('../colorCycleBrushManager', () => ({
 jest.mock('../ccRuntime', () => ({
   __esModule: true as const,
   syncCCRuntimes: jest.fn(),
+  syncPlaybackColorCycleLayers: jest.fn(),
 }));
 
 // Import after mocks are in place
-import { syncCCRuntimes } from '@/stores/ccRuntime';
+import { syncPlaybackColorCycleLayers } from '@/stores/ccRuntime';
 import { useAppStore } from '@/stores/useAppStore';
 
-const syncCCRuntimesMock = syncCCRuntimes as jest.Mock;
+const syncPlaybackColorCycleLayersMock = syncPlaybackColorCycleLayers as jest.Mock;
 
 const cloneStops = (stops: ReadonlyArray<{ position: number; color: string }>) =>
   stops.map(stop => ({ ...stop }));
@@ -86,7 +87,7 @@ describe('useAppStore color cycle layer selection', () => {
       mockFn.mockClear();
     });
 
-    syncCCRuntimesMock.mockClear();
+    syncPlaybackColorCycleLayersMock.mockClear();
 
     useAppStore.setState(state => ({
       layers: [],
@@ -178,7 +179,7 @@ describe('useAppStore color cycle layer selection', () => {
     const store = useAppStore.getState();
     const layerId = store.addLayer(makeColorCycleLayer('layer-skip-sync'));
 
-    syncCCRuntimesMock.mockClear();
+    syncPlaybackColorCycleLayersMock.mockClear();
 
     store.updateLayer(
       layerId,
@@ -190,14 +191,14 @@ describe('useAppStore color cycle layer selection', () => {
       { skipColorCycleSync: true }
     );
 
-    expect(syncCCRuntimesMock).not.toHaveBeenCalled();
+    expect(syncPlaybackColorCycleLayersMock).not.toHaveBeenCalled();
   });
 
   it('syncs runtime when skipColorCycleSync is not provided', () => {
     const store = useAppStore.getState();
     const layerId = store.addLayer(makeColorCycleLayer('layer-allow-sync'));
 
-    syncCCRuntimesMock.mockClear();
+    syncPlaybackColorCycleLayersMock.mockClear();
 
     store.updateLayer(layerId, {
       colorCycleData: {
@@ -205,7 +206,7 @@ describe('useAppStore color cycle layer selection', () => {
       },
     });
 
-    expect(syncCCRuntimesMock).toHaveBeenCalled();
+    expect(syncPlaybackColorCycleLayersMock).toHaveBeenCalled();
   });
 
   it('preserves slot palettes when colorCycleData update includes undefined fields', () => {

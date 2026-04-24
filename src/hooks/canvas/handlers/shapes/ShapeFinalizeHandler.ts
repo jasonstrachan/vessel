@@ -1,3 +1,4 @@
+import { debugLog, debugWarn } from '@/utils/debug';
 import type React from 'react';
 import type { AppState } from '@/stores/useAppStore';
 import type { BrushSettings } from '@/types';
@@ -127,7 +128,7 @@ export const applyPolygonLostEdgeErosion = ({
     for (let i = 3; i < postRegion.data.length; i += 4) {
       if (postRegion.data[i] !== 0) postAlpha += 1;
     }
-    console.log('[polygonGradient] erosion', {
+    debugLog('raw-console', '[polygonGradient] erosion', {
       lostEdge: clampedLostEdge,
       padding,
       preAlpha,
@@ -316,7 +317,7 @@ export const commitRasterShapeFill = async ({
 
   await deps.withTiming('cc:capture', () => deps.captureCanvasToActiveLayer(drawingCanvas, captureRegion));
   if (!captureRegion) {
-    console.warn('[shape-finalize] captureRegion missing; committing full-layer delta.');
+    debugWarn('raw-console', '[shape-finalize] captureRegion missing; committing full-layer delta.');
   }
 
   await deps.scheduleHistoryCommit({
@@ -946,7 +947,7 @@ export const finalizeRasterShapeFill = ({
         };
 
         if (ccDebug?.on && ccDebug?.verbose) {
-          console.log('[dither-shape-finalize]', {
+          debugLog('raw-console', '[dither-shape-finalize]', {
             effectivePressure,
             usePressure,
             forcedPixelSize

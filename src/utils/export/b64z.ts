@@ -1,3 +1,4 @@
+import { debugWarn } from '@/utils/debug';
 import { deflateSync } from 'fflate';
 
 const B64Z_PREFIX = 'b64z:';
@@ -60,7 +61,7 @@ const compressWithStream = async (bytes: Uint8Array): Promise<Uint8Array | null>
     const buffer = await new Response(stream).arrayBuffer();
     return new Uint8Array(buffer);
   } catch (error) {
-    console.warn('[b64z] CompressionStream failed, falling back to fflate', error);
+    debugWarn('raw-console', '[b64z] CompressionStream failed, falling back to fflate', error);
     return null;
   }
 };
@@ -69,7 +70,7 @@ const compressWithFflate = (bytes: Uint8Array): Uint8Array | null => {
   try {
     return deflateSync(bytes, { level: 9 });
   } catch (error) {
-    console.warn('[b64z] fflate deflateSync failed', error);
+    debugWarn('raw-console', '[b64z] fflate deflateSync failed', error);
     return null;
   }
 };

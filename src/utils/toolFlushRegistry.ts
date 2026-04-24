@@ -1,3 +1,4 @@
+import { debugWarn } from '@/utils/debug';
 type FlushTask = () => Promise<void> | void;
 
 const registry = new Map<string, FlushTask>();
@@ -16,7 +17,7 @@ export const flushPendingToolWork = async (): Promise<void> => {
       await task();
     } catch (error) {
       if (process.env.NODE_ENV !== 'production') {
-        console.warn('[toolFlushRegistry] flush failed', error);
+        debugWarn('raw-console', '[toolFlushRegistry] flush failed', error);
       }
     }
   }

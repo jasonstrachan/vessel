@@ -1,3 +1,4 @@
+import { debugLog, debugWarn } from '@/utils/debug';
 import { BaseBrushPlugin, BrushDrawContext, BrushMetadata, BrushConfig } from '../BrushPlugin';
 import { BrushSettings } from '../../types';
 
@@ -95,11 +96,11 @@ export class SpamBrushPlugin extends BaseBrushPlugin {
   }
 
   onActivate(): void {
-    console.log('Spam Text brush activated with font:', this.currentFont);
+    debugLog('raw-console', 'Spam Text brush activated with font:', this.currentFont);
   }
 
   onDeactivate(): void {
-    console.log('Spam Text brush deactivated');
+    debugLog('raw-console', 'Spam Text brush deactivated');
   }
 
   applySettings(settings: BrushSettings): void {
@@ -211,7 +212,7 @@ export class SpamBrushPlugin extends BaseBrushPlugin {
 
   validateSettings(settings: BrushSettings): boolean {
     if (settings.size < 8 || settings.size > 72) {
-      console.warn('Spam Text brush works best with size between 8 and 72');
+      debugWarn('raw-console', 'Spam Text brush works best with size between 8 and 72');
     }
     return true;
   }

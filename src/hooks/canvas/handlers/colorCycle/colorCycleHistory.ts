@@ -218,7 +218,7 @@ export const scheduleDeferredColorCycleSave = (
     const scheduleError = (error: unknown) => {
       logError('Deferred color cycle save failed', error);
       if (process.env.NODE_ENV !== 'production') {
-        console.error('[cc:defer] finalize queue rejected', error);
+        logError('[cc:defer] finalize queue rejected', error);
       }
       reject(error);
     };

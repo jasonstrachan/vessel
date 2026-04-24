@@ -3,6 +3,7 @@
  * Provides a complete animated drawing system with indexed colors
  */
 
+import { logError } from '@/utils/debug';
 import { IndexBuffer } from './IndexBuffer';
 import { debugLog, debugWarn } from '../utils/debug';
 // Debug logs suppressed for color cycle GPU path
@@ -87,7 +88,7 @@ export class ColorCycleAnimator implements CCIndexSurface {
   private defAtlasRowSignatures: Array<string | null> = [];
   private defAtlasMaxRows: number = 1024;
   private defAtlasLut: Uint8Array | null = null;
-  
+
   // Callbacks
   private onFrameCallbacks: Set<(imageData: ImageData) => void> = new Set();
   private directFillDepth: number = 0;
@@ -208,24 +209,24 @@ export class ColorCycleAnimator implements CCIndexSurface {
     this.drawTo(ctx, 0, 0);
   }
 
-  
+
   /**
    * Handle animation frame
    */
   private handleAnimationFrame() {
     // Get current animation offset
     const offset = this.animationController.getOffset();
-    
+
     // Render frame with offset
     this.renderFrame(offset);
-    
+
     // Notify all callbacks
     const frameImageData = this.renderer2D.ensureImageData();
     this.onFrameCallbacks.forEach(callback => {
       callback(frameImageData);
     });
   }
-  
+
   /**
    * Update IndexBuffer palette from gradient
    */
@@ -594,7 +595,7 @@ export class ColorCycleAnimator implements CCIndexSurface {
     }
     try { return this.glRenderer?.getFillMaxVerts?.() ?? null; } catch { return null; }
   }
-  
+
   /**
    * Render a single frame with directional flow
    */
@@ -747,7 +748,7 @@ export class ColorCycleAnimator implements CCIndexSurface {
   getOffset(): number {
     return this.animationController.getOffset();
   }
-  
+
   /**
    * Paint with brush
    */
@@ -759,7 +760,7 @@ export class ColorCycleAnimator implements CCIndexSurface {
     // Paint to index buffer using numeric index
     this.indexBuffer.paintWithIndex(x, y, brushSize, index, slot, this.currentSpeedByte, flowBits);
     this._glIndexDirty = true;
-    
+
     // If not animating, render immediately
     if (!this.animationController.isPlaying()) {
       this.renderFrame();
@@ -791,7 +792,7 @@ export class ColorCycleAnimator implements CCIndexSurface {
       // Fail silently for out-of-bounds or transient states
     }
   }
-  
+
   /**
    * Paint square brush with stamp-based color progression
    */
@@ -813,7 +814,7 @@ export class ColorCycleAnimator implements CCIndexSurface {
       const index = colorIndex !== undefined ? colorIndex : this.getNextColorIndex();
       const slot = gradientSlot ?? this.paletteController.getActiveSlot();
       const flowBits = this.getFlowBits();
-      
+
       // Paint to index buffer with the specific color index - NO RENDERING
       this.indexBuffer.paintSquareWithIndex(
         x,
@@ -831,11 +832,11 @@ export class ColorCycleAnimator implements CCIndexSurface {
         flowBits
       );
       this._glIndexDirty = true;
-      
+
       // REMOVED per-stamp rendering - caller handles batched rendering
-      
+
     } catch (error) {
-      console.error('[ColorCycleAnimator] Error in paintSquare:', error);
+      logError('[ColorCycleAnimator] Error in paintSquare:', error);
     }
   }
 
@@ -876,7 +877,7 @@ export class ColorCycleAnimator implements CCIndexSurface {
       );
       this._glIndexDirty = true;
     } catch (error) {
-      console.error('[ColorCycleAnimator] Error in paintTriangle:', error);
+      logError('[ColorCycleAnimator] Error in paintTriangle:', error);
     }
   }
 
@@ -917,7 +918,7 @@ export class ColorCycleAnimator implements CCIndexSurface {
       );
       this._glIndexDirty = true;
     } catch (error) {
-      console.error('[ColorCycleAnimator] Error in paintCircle:', error);
+      logError('[ColorCycleAnimator] Error in paintCircle:', error);
     }
   }
 
@@ -958,7 +959,7 @@ export class ColorCycleAnimator implements CCIndexSurface {
       );
       this._glIndexDirty = true;
     } catch (error) {
-      console.error('[ColorCycleAnimator] Error in paintDiamond:', error);
+      logError('[ColorCycleAnimator] Error in paintDiamond:', error);
     }
   }
 
@@ -999,7 +1000,7 @@ export class ColorCycleAnimator implements CCIndexSurface {
       );
       this._glIndexDirty = true;
     } catch (error) {
-      console.error('[ColorCycleAnimator] Error in paintDiamond5Pixelated:', error);
+      logError('[ColorCycleAnimator] Error in paintDiamond5Pixelated:', error);
     }
   }
 
@@ -1040,7 +1041,7 @@ export class ColorCycleAnimator implements CCIndexSurface {
       );
       this._glIndexDirty = true;
     } catch (error) {
-      console.error('[ColorCycleAnimator] Error in paintDiamond7Pixelated:', error);
+      logError('[ColorCycleAnimator] Error in paintDiamond7Pixelated:', error);
     }
   }
 
@@ -1081,7 +1082,7 @@ export class ColorCycleAnimator implements CCIndexSurface {
       );
       this._glIndexDirty = true;
     } catch (error) {
-      console.error('[ColorCycleAnimator] Error in paintDiamond9Pixelated:', error);
+      logError('[ColorCycleAnimator] Error in paintDiamond9Pixelated:', error);
     }
   }
 
@@ -1119,10 +1120,10 @@ export class ColorCycleAnimator implements CCIndexSurface {
       );
       this._glIndexDirty = true;
     } catch (error) {
-      console.error('[ColorCycleAnimator] Error in paintCheckeredPixelated:', error);
+      logError('[ColorCycleAnimator] Error in paintCheckeredPixelated:', error);
     }
   }
-  
+
   /**
    * Paint line
    */
@@ -1138,7 +1139,7 @@ export class ColorCycleAnimator implements CCIndexSurface {
     const index = colorIndex !== undefined ? colorIndex : this.getNextColorIndex();
     const slot = gradientSlot ?? this.paletteController.getActiveSlot();
     const flowBits = this.getFlowBits();
-    
+
     this.indexBuffer.paintLineWithIndex(
       x0,
       y0,
@@ -1151,26 +1152,26 @@ export class ColorCycleAnimator implements CCIndexSurface {
       flowBits
     );
     this._glIndexDirty = true;
-    
+
     // REMOVED per-stamp rendering - caller handles batched rendering
   }
-  
+
   /**
    * Fill area
    */
   fill(x: number, y: number, colorIndex?: number, gradientSlot?: number) {
     const index = colorIndex !== undefined ? colorIndex : this.getNextColorIndex();
     const slot = gradientSlot ?? this.paletteController.getActiveSlot();
-    
+
     const flowBits = this.getFlowBits();
     this.indexBuffer.fillWithIndex(x, y, index, slot, this.currentSpeedByte, flowBits);
     this._glIndexDirty = true;
-    
+
     if (!this.animationController.isPlaying()) {
       this.renderFrame();
     }
   }
-  
+
   /**
    * Get next color index for gradient progression
    */
@@ -1186,28 +1187,28 @@ export class ColorCycleAnimator implements CCIndexSurface {
     }
     return index;
   }
-  
+
   /**
    * Start new stroke
    */
   startStroke() {
     // Don't reset stroke index, let it accumulate for proper flow
   }
-  
+
   /**
    * End stroke
    */
   endStroke() {
     // Stroke index continues to accumulate
   }
-  
+
   /**
    * Force render the current frame (used for immediate updates)
    */
   forceRender() {
     this.renderFrame(this.animationController.getOffset());
   }
-  
+
   /**
    * Clear canvas
    */
@@ -1218,14 +1219,14 @@ export class ColorCycleAnimator implements CCIndexSurface {
     this.strokeTracker.reset();
     this.renderFrame();
   }
-  
+
   /**
    * Clear rectangle
    */
   clearRect(x: number, y: number, width: number, height: number) {
     this.indexBuffer.clearRect(x, y, width, height);
     this._glIndexDirty = true;
-    
+
     if (!this.animationController.isPlaying()) {
       this.renderFrame();
     }
@@ -1237,7 +1238,7 @@ export class ColorCycleAnimator implements CCIndexSurface {
     this.indexBuffer.markDirtyBounds(bounds.minX, bounds.minY, maxX, maxY);
     this._glIndexDirty = true;
   }
-  
+
   /**
    * Update gradient
    */
@@ -1282,14 +1283,14 @@ export class ColorCycleAnimator implements CCIndexSurface {
       this.indexBuffer.markHasNonZeroGradientIds();
     }
   }
-  
+
   /**
    * Use preset gradient
    */
   setPresetGradient(preset: 'bw-stripes' | 'rainbow' | 'fire' | 'ocean' | 'sunset' | 'grayscale') {
     let palette: GradientPalette;
     const signature = `preset:${preset}`;
-    
+
     switch (preset) {
       case 'bw-stripes':
         palette = GradientPalette.createDefault();
@@ -1311,41 +1312,41 @@ export class ColorCycleAnimator implements CCIndexSurface {
         palette = GradientPalette.createGrayscale();
         break;
     }
-    
+
     if (this.paletteController.setPresetPalette(palette, signature)) {
       this.updateIndexBufferPalette();
       this.renderFrame(this.animationController.getOffset());
     }
   }
-  
+
   /**
    * Animation controls
    */
   start() {
     this.animationController.start();
   }
-  
+
   stop() {
     this.animationController.stop();
   }
-  
+
   pause() {
     this.animationController.pause();
   }
-  
+
   resume() {
     this.animationController.resume();
   }
-  
+
   toggle() {
     this.animationController.toggle();
   }
-  
+
   reset() {
     this.animationController.reset();
     this.renderFrame();
   }
-  
+
   /**
    * Manually update animation frame
    * Used when animation is driven externally
@@ -1373,7 +1374,7 @@ export class ColorCycleAnimator implements CCIndexSurface {
     this.animationController.setOffset(p);
     this.renderFrame(p, p);
   }
-  
+
   /**
    * Set animation speed
    */
@@ -1391,56 +1392,56 @@ export class ColorCycleAnimator implements CCIndexSurface {
     }
     this.currentSpeedByte = Math.max(0, Math.min(255, Math.round(speedByte)));
   }
-  
+
   /**
    * Set FPS
    */
   setFPS(fps: number) {
     this.animationController.setFPS(fps);
   }
-  
+
   /**
    * Get animation stats
    */
   getStats() {
     return this.animationController.getStats();
   }
-  
+
   /**
    * Is animating?
    */
   isAnimating(): boolean {
     return this.animationController.isPlaying();
   }
-  
+
   /**
    * Add frame callback
    */
   onFrame(callback: (imageData: ImageData) => void) {
     this.onFrameCallbacks.add(callback);
   }
-  
+
   /**
    * Remove frame callback
    */
   offFrame(callback: (imageData: ImageData) => void) {
     this.onFrameCallbacks.delete(callback);
   }
-  
+
   /**
    * Get canvas
    */
   getCanvas(): HTMLCanvasElement {
     return this.glCanvas || this.renderer2D.getCanvas();
   }
-  
+
   /**
    * Get current image data
    */
   getImageData(): ImageData {
     return this.renderer2D.getImageData();
   }
-  
+
   /**
    * Draw to another context
    */
@@ -1448,7 +1449,7 @@ export class ColorCycleAnimator implements CCIndexSurface {
     const src = this.glCanvas || this.renderer2D.getCanvas();
     ctx.drawImage(src, x, y);
   }
-  
+
   /**
    * Resize
    */
@@ -1458,7 +1459,7 @@ export class ColorCycleAnimator implements CCIndexSurface {
     if (canvas.width === width && canvas.height === height) {
       return;
     }
-    
+
     const needsDataPreservation = canvas.width > 0 && canvas.height > 0 && this.renderer2D.hasImageData();
 
     // Resize index buffer
@@ -1475,12 +1476,12 @@ export class ColorCycleAnimator implements CCIndexSurface {
         this.glCanvas = this.glRenderer.getCanvas();
       } catch {}
     }
-    
+
     this.strokeTracker.resize(width, height, { preserveIndices: needsDataPreservation });
-    
+
     this.renderFrame();
   }
-  
+
   /**
    * Set flow direction
    */
@@ -1493,7 +1494,7 @@ export class ColorCycleAnimator implements CCIndexSurface {
   setFlowDirection(direction: 'forward' | 'backward') {
     this.setFlowMode(direction === 'backward' ? 'reverse' : 'forward');
   }
-  
+
   /**
    * Get flow direction
    */
@@ -1518,7 +1519,7 @@ export class ColorCycleAnimator implements CCIndexSurface {
         return 0;
     }
   }
-  
+
   /**
    * Toggle flow direction
    */
@@ -1545,7 +1546,7 @@ export class ColorCycleAnimator implements CCIndexSurface {
   getDimensions(): { width: number; height: number } {
     return this.indexBuffer.getDimensions();
   }
-  
+
   /**
    * Overwrite the index buffer with external data (e.g., history/selection).
    * Expects a flat Uint8Array of length width*height.
@@ -1639,7 +1640,7 @@ export class ColorCycleAnimator implements CCIndexSurface {
     this.indexBuffer.markDirty();
     this._glIndexDirty = true;
   }
-  
+
   /**
    * Serialize state
    */
@@ -1653,7 +1654,7 @@ export class ColorCycleAnimator implements CCIndexSurface {
       }
     };
   }
-  
+
   /**
    * Deserialize state
    */
@@ -1663,46 +1664,46 @@ export class ColorCycleAnimator implements CCIndexSurface {
       height: data.indexBuffer.height,
       gradientStops: data.gradient.gradientStops
     });
-    
+
     // Restore index buffer
     animator.indexBuffer = IndexBuffer.deserialize(data.indexBuffer);
-    
+
     // Restore animation offset
     animator.animationController.setOffset(data.animation.offset);
-    
+
     // Render current state
     animator.renderFrame();
-    
+
     return animator;
   }
-  
+
   /**
    * Create animated gradient fill effect
    */
   createGradientFill(
-    x: number, 
-    y: number, 
-    width: number, 
+    x: number,
+    y: number,
+    width: number,
     height: number,
     startIndex: number = 0,
     endIndex: number = 255
   ) {
     const indexRange = endIndex - startIndex;
-    
+
     for (let py = 0; py < height; py++) {
       const progress = py / height;
       const colorIndex = Math.floor(startIndex + progress * indexRange);
-      
+
       for (let px = 0; px < width; px++) {
         this.indexBuffer.setPixel(x + px, y + py, colorIndex);
       }
     }
-    
+
     if (!this.animationController.isPlaying()) {
       this.renderFrame();
     }
   }
-  
+
   /**
    * Create radial gradient effect
    */
@@ -1714,13 +1715,13 @@ export class ColorCycleAnimator implements CCIndexSurface {
     endIndex: number = 255
   ) {
     const indexRange = endIndex - startIndex;
-    
+
     for (let y = Math.floor(centerY - radius); y <= Math.ceil(centerY + radius); y++) {
       for (let x = Math.floor(centerX - radius); x <= Math.ceil(centerX + radius); x++) {
         const dx = x - centerX;
         const dy = y - centerY;
         const distance = Math.sqrt(dx * dx + dy * dy);
-        
+
         if (distance <= radius) {
           const progress = distance / radius;
           const colorIndex = Math.floor(startIndex + progress * indexRange);
@@ -1728,19 +1729,19 @@ export class ColorCycleAnimator implements CCIndexSurface {
         }
       }
     }
-    
+
     if (!this.animationController.isPlaying()) {
       this.renderFrame();
     }
   }
-  
+
   /**
    * Clean up resources and return canvas to pool
    */
   cleanup() {
     // Stop animation
     this.animationController.stop();
-    
+
     // Clear callbacks
     this.onFrameCallbacks.clear();
 
@@ -1756,10 +1757,10 @@ export class ColorCycleAnimator implements CCIndexSurface {
         this._renderSampledOnce = false;
       }
     }
-    
+
     this.renderer2D.cleanup();
   }
-  
+
   /**
    * Alias for cleanup to maintain API compatibility
    */

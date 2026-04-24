@@ -1,3 +1,4 @@
+import { debugWarn } from '@/utils/debug';
 import type {
   HistoryActionId,
   HistoryDelta,
@@ -286,7 +287,7 @@ export class HistoryManager {
     );
     if (approxBytes >= HISTORY_ENTRY_MAX_BYTES) {
       if (process.env.NODE_ENV !== 'production') {
-        console.warn('[history] Dropping history entry exceeding size limit', {
+        debugWarn('raw-console', '[history] Dropping history entry exceeding size limit', {
           action: txn.action,
           approxBytes,
         });
@@ -304,7 +305,7 @@ export class HistoryManager {
       approxBytes >= HISTORY_ENTRY_WARN_BYTES &&
       process.env.NODE_ENV !== 'production'
     ) {
-      console.warn('[history] Large history entry recorded', {
+      debugWarn('raw-console', '[history] Large history entry recorded', {
         action: txn.action,
         approxBytes,
       });
@@ -398,7 +399,7 @@ export class HistoryManager {
         delta.dispose?.();
       } catch (error) {
         if (process.env.NODE_ENV !== 'production') {
-          console.warn('[history] Failed to dispose delta', error);
+          debugWarn('raw-console', '[history] Failed to dispose delta', error);
         }
       }
     }

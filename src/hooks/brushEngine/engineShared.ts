@@ -1,3 +1,4 @@
+import { debugLog, debugWarn } from '@/utils/debug';
 import { parseColor } from './colorUtils';
 import { resolveBrushPressureRange } from '@/utils/pressureSettings';
 import type { BrushSettings } from '@/types';
@@ -42,7 +43,7 @@ export const warnShapeFillRemoved = (() => {
       return;
     }
     hasWarned = true;
-    console.warn(
+    debugWarn('raw-console',
       `[ShapeFill] ${feature} called after shape-fill system was removed. This operation is now a no-op.`
     );
   };
@@ -62,9 +63,9 @@ export const AL = (step: string, obj: Record<string, unknown>) => {
     : 0;
   if (level > 0) {
     try {
-      console.log(`[AL] ${step} ${JSON.stringify(obj)}`);
+      debugLog('raw-console', `[AL] ${step} ${JSON.stringify(obj)}`);
     } catch {
-      console.log('[AL]', step, obj);
+      debugLog('raw-console', '[AL]', step, obj);
     }
   }
 };
@@ -77,9 +78,9 @@ export const DD = (step: string, obj: Record<string, unknown>) => {
     : 0;
   if (level > 0) {
     try {
-      console.log(`[DITHER] ${step} ${JSON.stringify(obj)}`);
+      debugLog('raw-console', `[DITHER] ${step} ${JSON.stringify(obj)}`);
     } catch {
-      console.log('[DITHER]', step, obj);
+      debugLog('raw-console', '[DITHER]', step, obj);
     }
   }
 };

@@ -1,3 +1,4 @@
+import { debugWarn } from '@/utils/debug';
 import type { Layer } from '@/types';
 import type { CompositeSegment } from '@/stores/slices/layersSlice';
 import { selectSequentialPlaybackActive, useAppStore, type AppState } from '@/stores/useAppStore';
@@ -109,7 +110,7 @@ export const drawVisibleCompositeStack = ({
             destination.height,
           );
         } catch (error) {
-          console.warn('[CompositeSegments] Failed to draw static segment', error);
+          debugWarn('raw-console', '[CompositeSegments] Failed to draw static segment', error);
         }
         return;
       }

@@ -1,3 +1,4 @@
+import { debugLog, debugWarn } from '@/utils/debug';
 import { getColorCycleBrushManager } from '@/stores/colorCycleBrushManager';
 import type { ColorCycleBrushManager } from '@/stores/colorCycleBrushManager';
 import { FLOW_SLOT_MASK } from '@/lib/colorCycle/flowEncoding';
@@ -25,7 +26,7 @@ export const setGobletColorCycleDiagnosticsActive = (active: boolean): void => {
 
 const gobletDebugLog = (...args: Array<unknown>) => {
   if (gobletDiagnosticsActive) {
-    console.log(...args);
+    debugLog('raw-console', ...args);
   }
 };
 
@@ -186,7 +187,7 @@ const detectFlowDirectionFromAnimator = (animator: unknown): 'forward' | 'revers
         return detected;
       }
     } catch (error) {
-      console.debug('[webglExporter] Failed to read flow mode via animator.getFlowMode()', error);
+      debugLog('raw-console', '[webglExporter] Failed to read flow mode via animator.getFlowMode()', error);
     }
   }
 
@@ -197,7 +198,7 @@ const detectFlowDirectionFromAnimator = (animator: unknown): 'forward' | 'revers
         return detected;
       }
     } catch (error) {
-      console.debug('[webglExporter] Failed to read flow direction via animator.getFlowDirection()', error);
+      debugLog('raw-console', '[webglExporter] Failed to read flow direction via animator.getFlowDirection()', error);
     }
   }
 
@@ -220,7 +221,7 @@ const detectFlowDirectionFromAnimator = (animator: unknown): 'forward' | 'revers
           return detected;
         }
       } catch (error) {
-        console.debug('[webglExporter] Failed to read flow mode via animationController.getMode()', error);
+        debugLog('raw-console', '[webglExporter] Failed to read flow mode via animationController.getMode()', error);
       }
     }
 
@@ -231,7 +232,7 @@ const detectFlowDirectionFromAnimator = (animator: unknown): 'forward' | 'revers
           return detected;
         }
       } catch (error) {
-        console.debug('[webglExporter] Failed to read flow direction via animationController.getDirection()', error);
+        debugLog('raw-console', '[webglExporter] Failed to read flow direction via animationController.getDirection()', error);
       }
     }
 
@@ -283,7 +284,7 @@ const detectBrushFlowDirection = (brush: unknown, layerId: string): 'forward' | 
         return detected;
       }
     } catch (error) {
-      console.debug('[webglExporter] Failed to read brush flow mode via getFlowMode()', error);
+      debugLog('raw-console', '[webglExporter] Failed to read brush flow mode via getFlowMode()', error);
     }
   }
 
@@ -294,7 +295,7 @@ const detectBrushFlowDirection = (brush: unknown, layerId: string): 'forward' | 
         return detected;
       }
     } catch (error) {
-      console.debug('[webglExporter] Failed to read brush flow direction via getFlowDirection()', error);
+      debugLog('raw-console', '[webglExporter] Failed to read brush flow direction via getFlowDirection()', error);
     }
   }
 
@@ -331,7 +332,7 @@ const detectBrushFlowDirection = (brush: unknown, layerId: string): 'forward' | 
       }
     }
   } catch (error) {
-    console.debug('[webglExporter] Failed to inspect brush animators for flow direction', error);
+    debugLog('raw-console', '[webglExporter] Failed to inspect brush animators for flow direction', error);
   }
 
   return undefined;
@@ -1284,7 +1285,7 @@ const extractBrushStateFromAnimator = (brush: unknown, layer: Layer): WebGLSeria
         };
         }
       } catch (error) {
-        console.warn('[webglExporter] Failed to read animator index buffer directly for layer', layer.id, error);
+        debugWarn('raw-console', '[webglExporter] Failed to read animator index buffer directly for layer', layer.id, error);
       }
     }
 
@@ -1310,7 +1311,7 @@ const extractBrushStateFromAnimator = (brush: unknown, layer: Layer): WebGLSeria
 
     const indexBufferData = normalizeIndexBufferValues(indexBuffer.data);
     if (indexBufferData.length === 0) {
-      console.warn('[webglExporter] Animator fallback produced an empty index buffer for layer', layer.id);
+      debugWarn('raw-console', '[webglExporter] Animator fallback produced an empty index buffer for layer', layer.id);
       return undefined;
     }
 
@@ -1372,7 +1373,7 @@ const extractBrushStateFromAnimator = (brush: unknown, layer: Layer): WebGLSeria
 
     return brushState;
   } catch (error) {
-    console.warn('[webglExporter] Failed to extract brush state from animator for layer', layer.id, error);
+    debugWarn('raw-console', '[webglExporter] Failed to extract brush state from animator for layer', layer.id, error);
     return undefined;
   }
 };
@@ -1499,7 +1500,7 @@ const getBrushManagerInstance = (): Pick<ColorCycleBrushManager, 'getBrush'> | n
     cachedBrushManager = getColorCycleBrushManager();
     return cachedBrushManager;
   } catch (error) {
-    console.debug('[webglExporter] Unable to load color cycle brush manager', error);
+    debugLog('raw-console', '[webglExporter] Unable to load color cycle brush manager', error);
     cachedBrushManager = null;
   }
 
@@ -1521,7 +1522,7 @@ const resolveColorCycleBrushInstance = (layer: Layer): { serialize?: () => unkno
       }
     }
   } catch (error) {
-    console.debug('[webglExporter] Failed to resolve color cycle brush via manager', error);
+    debugLog('raw-console', '[webglExporter] Failed to resolve color cycle brush via manager', error);
   }
 
   return directBrush;
@@ -1724,7 +1725,7 @@ export const serializeBrushState = (layer: Layer): WebGLSerializedBrushState | u
             try {
               indexArray = Array.from(ib.data as ArrayLike<number>);
             } catch (conversionError) {
-              console.warn('[webglExporter] Failed to convert indexBuffer data via Array.from; falling back to normalizeIndexBufferValues', conversionError);
+              debugWarn('raw-console', '[webglExporter] Failed to convert indexBuffer data via Array.from; falling back to normalizeIndexBufferValues', conversionError);
               indexArray = normalizeIndexBufferValues(ib.data);
             }
 
@@ -1733,7 +1734,7 @@ export const serializeBrushState = (layer: Layer): WebGLSerializedBrushState | u
             }
 
             if (indexArray.length === 0) {
-              console.warn(`[webglExporter] Brush serialize() returned an empty index buffer for layer ${layer.id}`);
+              debugWarn('raw-console', `[webglExporter] Brush serialize() returned an empty index buffer for layer ${layer.id}`);
             } else {
               if (gobletDiagnosticsActive) {
                 const totalLength = indexArray.length;
@@ -1875,7 +1876,7 @@ export const serializeBrushState = (layer: Layer): WebGLSerializedBrushState | u
       }
       }
     } catch (error) {
-      console.warn('[webglExporter] Failed to serialize brush color cycle state for layer', layer.id, error);
+      debugWarn('raw-console', '[webglExporter] Failed to serialize brush color cycle state for layer', layer.id, error);
     }
   }
 
@@ -2200,7 +2201,7 @@ const isBrushInstanceAnimating = (brush: unknown): boolean => {
         return true;
       }
     } catch (error) {
-      console.debug('[webglExporter] Failed to inspect brush.isPlaying()', error);
+      debugLog('raw-console', '[webglExporter] Failed to inspect brush.isPlaying()', error);
     }
   }
 
@@ -2211,7 +2212,7 @@ const isBrushInstanceAnimating = (brush: unknown): boolean => {
         return true;
       }
     } catch (error) {
-      console.debug('[webglExporter] Failed to inspect brush.isAnimating()', error);
+      debugLog('raw-console', '[webglExporter] Failed to inspect brush.isAnimating()', error);
     }
   }
 
@@ -2310,7 +2311,7 @@ export const serializeColorCycleData = async (
     try {
       brushInstance.commitCurrentStroke(layer.id);
     } catch (error) {
-      console.warn('[webglExporter] Failed to commit current color cycle stroke before export', error);
+      debugWarn('raw-console', '[webglExporter] Failed to commit current color cycle stroke before export', error);
     }
   }
 
@@ -2319,7 +2320,7 @@ export const serializeColorCycleData = async (
   if (!data.recolorSettings) {
     brushState = serializeBrushState(layer);
     if (!brushState) {
-      console.warn('[webglExporter] No brush state could be extracted for layer', layer.id);
+      debugWarn('raw-console', '[webglExporter] No brush state could be extracted for layer', layer.id);
     }
   }
 
@@ -2472,7 +2473,7 @@ export const serializeColorCycleData = async (
       if (speedWarning) {
         speedWarning.warned = true;
       }
-      console.warn(
+      debugWarn('raw-console',
         '[webglExporter] Missing per-shape color cycle speed metadata; falling back to tool speed during export.'
       );
     };

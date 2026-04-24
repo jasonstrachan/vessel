@@ -3,6 +3,7 @@
  * Clean interface using the facade pattern
  */
 
+import { debugWarn, logError } from '@/utils/debug';
 import { useCallback, useMemo, useRef, useEffect } from 'react';
 import {
   selectColorCycleDesiredPlaying,
@@ -424,7 +425,7 @@ export const useBrushEngineSimplified = () => {
       canvasPool,
     });
   }, [activeLayerTransparencyLock, getActiveLayerBitmapCanvas, layerHasAnyAlpha]);
-  
+
   // Cache for brush stamps
   const brushStampCacheRef = useRef(new Map<string, HTMLCanvasElement>());
   const patternTempCanvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -469,10 +470,10 @@ export const useBrushEngineSimplified = () => {
       colorCycleBrush.setMinPressure(pressure.min);
       colorCycleBrush.setMaxPressure(pressure.max);
     } catch (error) {
-      console.error('[CC Effect] Failed to sync pressure settings:', error);
+      logError('[CC Effect] Failed to sync pressure settings:', error);
     }
   }, [getActiveLayerColorCycleBrush]);
-  
+
   // Performance: Cache expensive computations
   const isPixelBrush = useMemo(() =>
     tools.brushSettings.brushShape === BrushShape.PIXEL_ROUND ||
@@ -481,7 +482,7 @@ export const useBrushEngineSimplified = () => {
      !tools.brushSettings.antialiasing),
     [tools.brushSettings.brushShape, tools.brushSettings.antialiasing]
   );
-  
+
   // Pattern temp context getter - also returns the canvas
   const getPatternTempContext = useCallback((width: number, height: number) => {
     return getPatternTempContextController({
@@ -507,9 +508,9 @@ export const useBrushEngineSimplified = () => {
       brushStampCache: brushStampCacheRef.current,
     });
   }, []);
-  
+
   // Create pixel circle stamp (matching monolithic implementation exactly)
-  
+
   const createPixelCircleStamp = useCallback((size: number) => {
     return createPixelCircleStampController({
       size,
@@ -556,7 +557,7 @@ export const useBrushEngineSimplified = () => {
       getRotationTempContext,
       customBrushes: project?.customBrushes || []
     };
-    
+
     return createBrushEngineFacade(config);
   }, [resolvedEngineBrushSettings, project?.customBrushes, getPatternTempContext, createPixelCircleStamp, createPixelSquareStamp, getRotationTempContext, activeLayerTransparencyLock]);
 
@@ -618,7 +619,7 @@ export const useBrushEngineSimplified = () => {
       return;
     }
     ditherStrokeGuardWarnedRef.current = true;
-    console.warn('[Dither] Legacy Dither Stroke path hit by non-dither brush', {
+    debugWarn('raw-console', '[Dither] Legacy Dither Stroke path hit by non-dither brush', {
       context,
       brushShape: tools.brushSettings.brushShape,
       presetId: currentBrushPreset?.id ?? null,
@@ -958,7 +959,7 @@ export const useBrushEngineSimplified = () => {
     ctx: CanvasRenderingContext2D,
     from: { x: number; y: number },
     to: { x: number; y: number },
-    cursor: { 
+    cursor: {
       pressure?: number;
       customBrushData?: CustomBrushStrokeData;
       velocityPxPerMs?: number;
@@ -1434,7 +1435,7 @@ export const useBrushEngineSimplified = () => {
     renderCCWithBlendAndLock,
     applyColorCycleRisographOverlay
   ]);
-  
+
   /**
    * Draw with Color Cycle Brush - only paints to Canvas2D buffer, no immediate rendering
    */
@@ -1478,7 +1479,7 @@ export const useBrushEngineSimplified = () => {
     activeLayerTransparencyLock,
     colorCycleGridSnapStrokePointRef
   ]);
-  
+
   /**
    * Reset Color Cycle - starts a new stroke with the existing brush
    */
@@ -1497,7 +1498,7 @@ export const useBrushEngineSimplified = () => {
       firstStampImmediateRef,
     });
   }, [initializeColorCycleBrush, activeLayerId]);
-  
+
   /**
    * End color cycle stroke
    */
@@ -1510,7 +1511,7 @@ export const useBrushEngineSimplified = () => {
       getActiveLayerColorCycleBrush,
     });
   }, [activeLayerId, getActiveLayerColorCycleBrush]);
-  
+
   /**
    * Fill a shape with linear color cycle gradient in specified direction
    */
@@ -1549,7 +1550,7 @@ export const useBrushEngineSimplified = () => {
     fillColorCycleSettings,
     isCCGradientActiveLayer,
   ]);
-  
+
   /**
    * Fill a shape with color cycle gradient from edges to center
    */
@@ -1585,7 +1586,7 @@ export const useBrushEngineSimplified = () => {
   ]);
 
   // Color cycle functions removed - now defined inline in return object to avoid stale closures
-  
+
   const resolvedColorCycleWriteSpeed = useMemo(() => {
     const fallbackSpeed = tools.brushSettings.colorCycleSpeed;
     if (Number.isFinite(fallbackSpeed)) {
@@ -1700,7 +1701,7 @@ export const useBrushEngineSimplified = () => {
       }
     });
   }, [layers, resolvedColorCycleLayerSpeedScale]);
-  
+
   // Update color cycle FPS when it changes
   useEffect(() => {
     const colorCycleBrush = getActiveLayerColorCycleBrush();
@@ -1708,7 +1709,7 @@ export const useBrushEngineSimplified = () => {
       colorCycleBrush.setFPS(tools.brushSettings.colorCycleFPS);
     }
   }, [tools.brushSettings.colorCycleFPS, activeLayerId, getActiveLayerColorCycleBrush]);
-  
+
   // Update gradient bands when it changes
   useEffect(() => {
     updateColorCycleGradientBandsForLayer({
@@ -1757,7 +1758,7 @@ export const useBrushEngineSimplified = () => {
     activeLayerId,
     initializeColorCycleBrush,
   ]);
-  
+
   // Update dithering toggle for color-cycle shape fills
   useEffect(() => {
     updateColorCycleDitherSettings({
@@ -1820,7 +1821,7 @@ export const useBrushEngineSimplified = () => {
   ]);
 
   // Perceptual dithering removed
-  
+
   // Sync brush size + pressure with debounce so rapid slider changes don't stall UI
   useEffect(() => {
     const targetSize = Math.max(1, Math.round(tools.brushSettings.size || 1));
@@ -1895,14 +1896,14 @@ export const useBrushEngineSimplified = () => {
     drawStamp,
     finalizeStroke,
     resetStroke,
-    
+
     // Shape drawing
     drawRectangleGradient,
     drawPolygonGradient,
     drawContourPolygon,
     drawCrossHatchPolygon,
     drawDelaunayPolygon,
-    
+
     // Color cycle brush
     drawColorCycle,
     renderColorCycle,
@@ -1910,7 +1911,7 @@ export const useBrushEngineSimplified = () => {
     endColorCycleStroke,
     fillCcGradientConcentric,
     fillCcGradientLinear,
-    
+
     // Force immediate texture update for color cycle brush
     updateColorCycleTexture: () => {
       const colorCycleBrush = getActiveLayerColorCycleBrush();
@@ -1918,7 +1919,7 @@ export const useBrushEngineSimplified = () => {
         renderBrushToLayerCanvas(colorCycleBrush, activeLayerId);
       }
     },
-    
+
     // These need fresh ref access, define inline:
     updateColorCycleGradient: (stops: Array<{ position: number; color: string; opacity?: number }>) => {
       const colorCycleBrush = getActiveLayerColorCycleBrush();
@@ -1928,14 +1929,14 @@ export const useBrushEngineSimplified = () => {
       applyGradientEdit({ stops, layerId: activeLayerId, intent: 'commitRecolor' });
       renderBrushToLayerCanvas(colorCycleBrush, activeLayerId);
     },
-    
+
     updateColorCycleSpeed: (speed: number) => {
       const colorCycleBrush = getActiveLayerColorCycleBrush();
       if (colorCycleBrush) {
         colorCycleBrush.setSpeed(speed);
       }
     },
-    
+
     setColorCycleFlowMode: (_mode: 'forward' | 'reverse' | 'pingpong') => {
       void _mode;
       const colorCycleBrush = getActiveLayerColorCycleBrush();
@@ -1951,7 +1952,7 @@ export const useBrushEngineSimplified = () => {
     ensureColorCycleAnimation: (shouldPlay: boolean) => {
       ensureColorCycleAnimation(shouldPlay);
     },
-    
+
     updateColorCycleAnimation: () => {
       // Manually update animation state for external render loops
       const colorCycleBrush = getActiveLayerColorCycleBrush();
@@ -1959,13 +1960,13 @@ export const useBrushEngineSimplified = () => {
         colorCycleBrush.updateAnimation();
       }
     },
-    
+
     isColorCycleAnimating: () => {
       const colorCycleBrush = getActiveLayerColorCycleBrush();
       if (!colorCycleBrush) return false;
       return colorCycleBrush.isPlaying();
     },
-    
+
     clearColorCycleStrokes: () => {
       const colorCycleBrush = getActiveLayerColorCycleBrush();
       if (colorCycleBrush) {
@@ -1981,7 +1982,7 @@ export const useBrushEngineSimplified = () => {
         // Silently skip for non-CC layers
         return;
       }
-      
+
       // Ensure brush exists without starting a stroke
       let colorCycleBrush = getActiveLayerColorCycleBrush();
       if (!colorCycleBrush) {
@@ -1998,12 +1999,12 @@ export const useBrushEngineSimplified = () => {
     // Effects
     applyStrokeDither,
     applyDithering,
-    
+
     // Utilities
-    canDrawAt: (ctx: CanvasRenderingContext2D, x: number, y: number) => 
+    canDrawAt: (ctx: CanvasRenderingContext2D, x: number, y: number) =>
       brushEngine.canDrawAt(ctx, x, y),
     consumeRecentStamps: () => brushEngine.consumeRecentStamps(),
-    
+
     // Direct access to engine for advanced use
     engine: brushEngine
   };

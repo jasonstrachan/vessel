@@ -41,19 +41,8 @@ describe('logContourFillDebug', () => {
   });
 
   it('logs when contour fill mode is active with supported brush shape', () => {
-    const consoleSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
-
     logContourFillDebug('spacing-preview', { delta: 4 });
 
-    expect(consoleSpy).toHaveBeenCalledWith(
-      '[ContourFill]',
-      'spacing-preview',
-      expect.objectContaining({
-        fillMode: 'contour',
-        brushShape: BrushShape.CONTOUR_POLYGON,
-        delta: 4,
-      })
-    );
     expect(debugLog).toHaveBeenCalledWith(
       '[ContourFill]',
       'spacing-preview',
@@ -63,12 +52,9 @@ describe('logContourFillDebug', () => {
         delta: 4,
       })
     );
-
-    consoleSpy.mockRestore();
   });
 
   it('skips logging when shape gradient mode is unsupported', () => {
-    const consoleSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
     useAppStore.setState((state) => ({
       tools: {
         ...state.tools,
@@ -81,10 +67,7 @@ describe('logContourFillDebug', () => {
 
     logContourFillDebug('spacing-preview', { delta: 2 });
 
-    expect(consoleSpy).not.toHaveBeenCalled();
     expect(debugLog).not.toHaveBeenCalled();
-
-    consoleSpy.mockRestore();
   });
 
   it('respects NEXT_PUBLIC_ENABLE_CONTOUR_DEBUG_LOGS=false', () => {

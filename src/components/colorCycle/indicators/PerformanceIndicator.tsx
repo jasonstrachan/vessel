@@ -2,6 +2,7 @@
  * PerformanceIndicator - Real-time performance monitoring display
  */
 
+import { debugWarn } from '@/utils/debug';
 import React, { useState, useEffect, useCallback } from 'react';
 import { RecolorManager, RecolorPerformanceStats } from '../../../lib/colorCycle/RecolorManager';
 
@@ -36,11 +37,11 @@ export const PerformanceIndicator: React.FC<PerformanceIndicatorProps> = ({
   // Update performance data
   const updatePerformance = useCallback(() => {
     if (!recolorManager) return;
-    
+
     try {
       const stats = recolorManager.getStats();
       const layers = recolorManager.getRecolorLayers();
-      
+
       setPerfData({
         fps: Math.round(stats.fps || 0),
         frameTime: Math.round(stats.frameTime || 0),
@@ -51,7 +52,7 @@ export const PerformanceIndicator: React.FC<PerformanceIndicatorProps> = ({
         activeLayers: layers.length
       });
     } catch (error) {
-      console.warn('Performance stats update failed:', error);
+      debugWarn('raw-console', 'Performance stats update failed:', error);
     }
   }, [recolorManager]);
 
@@ -77,7 +78,7 @@ export const PerformanceIndicator: React.FC<PerformanceIndicatorProps> = ({
           }
         }
       } catch (error) {
-        console.warn('Animation state check failed:', error);
+        debugWarn('raw-console', 'Animation state check failed:', error);
       }
     };
 

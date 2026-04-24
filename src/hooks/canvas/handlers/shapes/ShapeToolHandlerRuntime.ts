@@ -1,3 +1,4 @@
+import { debugLog } from '@/utils/debug';
 import type React from 'react';
 import { useAppStore } from '../../../../stores/useAppStore';
 import type { EventHandlerDependencies } from '../../utils/types';
@@ -244,7 +245,7 @@ const ensureContourDebugBridge = () => {
       } catch {
         // storage may fail silently
       }
-      console.info('[ContourShape]', `Contour debug ${enabled ? 'enabled' : 'disabled'}`);
+      debugLog('raw-console', '[ContourShape]', `Contour debug ${enabled ? 'enabled' : 'disabled'}`);
     };
   }
 
@@ -267,9 +268,9 @@ ensureContourDebugBridge();
 const contourDebug = (label: string, payload?: Record<string, unknown>) => {
   if (!isContourDebugEnabled()) return;
   if (payload) {
-    console.debug('[ContourShape]', label, payload);
+    debugLog('raw-console', '[ContourShape]', label, payload);
   } else {
-    console.debug('[ContourShape]', label);
+    debugLog('raw-console', '[ContourShape]', label);
   }
 };
 

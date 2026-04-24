@@ -1,3 +1,4 @@
+import { debugWarn } from '@/utils/debug';
 import type { ClipboardHandlers, EventHandlerDependencies } from '../utils/types';
 
 const cloneClipboardImageData = (imageData: ImageData): ImageData =>
@@ -72,7 +73,7 @@ export const createClipboardHandlers = (
         await deps.commitFloatingPaste();
       } catch (error) {
         if (process.env.NODE_ENV !== 'production') {
-          console.warn('[floatingPaste] Failed to commit existing floating before paste', error);
+          debugWarn('raw-console', '[floatingPaste] Failed to commit existing floating before paste', error);
         }
       }
     };

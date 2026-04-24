@@ -1,3 +1,4 @@
+import { debugWarn } from '@/utils/debug';
 import type { StoreApi } from 'zustand';
 import type { CustomBrush } from '@/types';
 import { mergeCustomBrushCollections, resolveStoredDefaultBrushId } from './customBrushMerge';
@@ -43,7 +44,7 @@ export const createCustomBrushPersistence = (set: StoreSet, get: StoreGet) => {
         defaultCustomBrushId: state.project.defaultCustomBrushId ?? null,
       };
     } catch (error) {
-      console.warn('[Store] Failed to persist custom brushes.', error);
+      debugWarn('raw-console', '[Store] Failed to persist custom brushes.', error);
     }
   };
 
@@ -108,7 +109,7 @@ export const createCustomBrushPersistence = (set: StoreSet, get: StoreGet) => {
         persistCustomBrushes();
       }
     } catch (error) {
-      console.warn('[Store] Failed to hydrate custom brushes from storage.', error);
+      debugWarn('raw-console', '[Store] Failed to hydrate custom brushes from storage.', error);
       clearStoredCustomBrushes();
     } finally {
       isHydratingStoredCustomBrushes = false;

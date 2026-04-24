@@ -23,7 +23,7 @@ import {
   type ColorCycleBrushImplementation,
 } from '../colorCycleBrushManager';
 import { setActiveHistoryDocument } from '@/history/historyService';
-import { logError } from '@/utils/debug';
+import { logError, debugWarn } from '@/utils/debug';
 import { captureCanvasImageData } from '@/utils/canvas/canvasImage';
 import { devLog } from '@/utils/devLog';
 import { backgroundStorageService } from '@/utils/backgroundStorage';
@@ -297,7 +297,7 @@ export const createProjectLifecycle = ({
       try {
         colorCycleBrushManager.cleanupOrphanedBrushes(colorCycleLayerIds);
       } catch (error) {
-        console.warn('[Store] Failed to cleanup orphaned color cycle brushes during load:', error);
+        debugWarn('raw-console', '[Store] Failed to cleanup orphaned color cycle brushes during load:', error);
       }
 
       const now = Date.now();
@@ -317,7 +317,7 @@ export const createProjectLifecycle = ({
         try {
           brush.setLayerId?.(layer.id);
         } catch (error) {
-          console.warn('[Store] Failed to set layerId on restored color cycle brush:', error);
+          debugWarn('raw-console', '[Store] Failed to set layerId on restored color cycle brush:', error);
         }
 
         colorCycleBrushManager.brushes.set(layer.id, brush);
@@ -338,7 +338,7 @@ export const createProjectLifecycle = ({
             colorCycleBrushManager.activeResources.add(`webgl_${layer.id}`);
           }
         } catch (error) {
-          console.warn('[Store] Failed to register WebGL resource for restored CC brush:', error);
+          debugWarn('raw-console', '[Store] Failed to register WebGL resource for restored CC brush:', error);
         }
       }
 
@@ -346,7 +346,7 @@ export const createProjectLifecycle = ({
         try {
           colorCycleBrushManager.setActiveState(postLoadState.activeLayerId, true);
         } catch (error) {
-          console.warn('[Store] Failed to set active CC brush state during load:', error);
+          debugWarn('raw-console', '[Store] Failed to set active CC brush state during load:', error);
         }
       }
     }
@@ -354,7 +354,7 @@ export const createProjectLifecycle = ({
     try {
       get().runColorCycleSlotRebuild('project-load');
     } catch (error) {
-      console.warn('[Store] Failed to rebuild color cycle slots after load:', error);
+      debugWarn('raw-console', '[Store] Failed to rebuild color cycle slots after load:', error);
     }
 
     get().clearHistory();

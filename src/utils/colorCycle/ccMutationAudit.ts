@@ -1,5 +1,5 @@
 import type { Layer } from '@/types';
-import { __DEV__, logError, recordBreadcrumb } from '@/utils/debug';
+import { __DEV__, logError, recordBreadcrumb, debugLog, debugWarn } from '@/utils/debug';
 
 type AuditSeverity = 'info' | 'warn' | 'error';
 
@@ -180,10 +180,10 @@ export const logCCMutation = ({
     return;
   }
   if (severity === 'info') {
-    console.info(LOG_PREFIX, event, payload);
+    debugLog('raw-console', LOG_PREFIX, event, payload);
     return;
   }
-  console.warn(LOG_PREFIX, event, payload);
+  debugWarn('raw-console', LOG_PREFIX, event, payload);
 };
 
 const transitionLooksDestructive = (

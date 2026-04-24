@@ -1,4 +1,5 @@
 // Image processing utilities for brush tip editing
+import { logError } from '@/utils/debug';
 import { canvasPool } from './canvasPool';
 
 // Convert RGB to HSL
@@ -244,7 +245,7 @@ export function adjustHueAndSaturation(
   if (!sourceCtx || !destCtx) {
     canvasPool.release(sourceCanvas);
     canvasPool.release(destCanvas);
-    console.error("Failed to get 2D context for processing hue and saturation.");
+    logError("Failed to get 2D context for processing hue and saturation.");
     return imageData; // Return original on failure
   }
 
@@ -308,7 +309,7 @@ export function adjustBrightness(imageData: ImageData, brightness: number): Imag
 export function adjustContrast(imageData: ImageData, contrast: number): ImageData {
   const data = new Uint8ClampedArray(imageData.data);
   const factor = (259 * (contrast + 255)) / (255 * (259 - contrast));
-  
+
   for (let i = 0; i < data.length; i += 4) {
     const a = data[i + 3];
     

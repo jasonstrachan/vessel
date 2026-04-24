@@ -148,17 +148,17 @@ const appendZipAutoloadSnippet = (
               window.__VESSEL_GOBLET_DEBUG__ = enableDiagnostics;
             }
           : () => {
-              console.warn('Goblet diagnostics are disabled in this build.');
+              debugWarn('raw-console', 'Goblet diagnostics are disabled in this build.');
             };
       }
       const emitLog = enableDiagnostics
         ? (...args) => {
-            console.log('[Vessel Goblet]', ...args);
+            debugLog('raw-console', '[Vessel Goblet]', ...args);
           }
         : () => {};
       const emitWarn = enableDiagnostics
         ? (...args) => {
-            console.warn('[Vessel Goblet]', ...args);
+            debugWarn('raw-console', '[Vessel Goblet]', ...args);
           }
         : () => {};
       const expandPackagedMetadata = (raw) => {
@@ -371,20 +371,20 @@ const buildSingleFileRenderSnippet = (metadataJson: string, diagnosticsEnabled: 
               window.__VESSEL_GOBLET_DEBUG__ = enableDiagnostics;
             }
           : () => {
-              console.warn('Goblet diagnostics are disabled in this build.');
+              debugWarn('raw-console', 'Goblet diagnostics are disabled in this build.');
             };
       }
       const emitLog = diagnosticsDefault
         ? (...args) => {
             if (enableDiagnostics) {
-              console.log('[Vessel Goblet]', ...args);
+              debugLog('raw-console', '[Vessel Goblet]', ...args);
             }
           }
         : () => {};
       const emitWarn = diagnosticsDefault
         ? (...args) => {
             if (enableDiagnostics) {
-              console.warn('[Vessel Goblet]', ...args);
+              debugWarn('raw-console', '[Vessel Goblet]', ...args);
             }
           }
         : () => {};
@@ -478,8 +478,8 @@ const buildSingleFileRenderSnippet = (metadataJson: string, diagnosticsEnabled: 
           }
           setStatus('Packaged bundle rendered.');
         } catch (error) {
-          console.error('[goblet] Render failed:', error);
-          console.error('[goblet] Stack trace:', error?.stack);
+          logError('[goblet] Render failed:', error);
+          logError('[goblet] Stack trace:', error?.stack);
           emitWarn('Failed to render packaged bundle', error);
           setStatus(error instanceof Error ? error.message : 'Failed to render bundle', 'error');
         }

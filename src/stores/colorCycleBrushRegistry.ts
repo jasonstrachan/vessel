@@ -1,4 +1,5 @@
 
+import { debugLog, logError } from '@/utils/debug';
 import type { ColorCycleBrushCanvas2D } from '@/hooks/brushEngine/ColorCycleBrushCanvas2D';
 import type { ColorCycleBrushImplementation } from '@/hooks/brushEngine/ColorCycleBrushMigration';
 import { MAX_CC_LAYER_SPEED_SCALE, MIN_CC_LAYER_SPEED_SCALE } from '@/constants/colorCycle';
@@ -100,7 +101,7 @@ export const createColorCycleBrushRegistry = (deps: ColorCycleBrushRegistryDeps)
     if (!shouldLogRegistry()) {
       return;
     }
-    console.log(message, payload);
+    debugLog('raw-console', message, payload);
   };
 
   const getBrushSettings = (): BrushSettings => {
@@ -362,7 +363,7 @@ export const createColorCycleBrushRegistry = (deps: ColorCycleBrushRegistryDeps)
         activeResources.add(`canvas_${layerId}`);
         return true;
       } catch (error) {
-        console.error(`❌ Failed to create CC brush for layer ${layerId}:`, error);
+        logError(`❌ Failed to create CC brush for layer ${layerId}:`, error);
         return false;
       }
     },
@@ -419,7 +420,7 @@ export const createColorCycleBrushRegistry = (deps: ColorCycleBrushRegistryDeps)
 
         return true;
       } catch (error) {
-        console.error(`❌ Validation error for layer ${layerId}:`, error);
+        logError(`❌ Validation error for layer ${layerId}:`, error);
         return false;
       }
     },
@@ -436,7 +437,7 @@ export const createColorCycleBrushRegistry = (deps: ColorCycleBrushRegistryDeps)
           try {
             brush.destroy();
           } catch (error) {
-            console.error(`Error destroying brush for layer ${layerId}:`, error);
+            logError(`Error destroying brush for layer ${layerId}:`, error);
           }
         }
 
@@ -444,7 +445,7 @@ export const createColorCycleBrushRegistry = (deps: ColorCycleBrushRegistryDeps)
           try {
             brush.cleanup();
           } catch (error) {
-            console.error(`Error cleaning up brush for layer ${layerId}:`, error);
+            logError(`Error cleaning up brush for layer ${layerId}:`, error);
           }
         }
 

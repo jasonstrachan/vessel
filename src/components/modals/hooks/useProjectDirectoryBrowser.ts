@@ -1,3 +1,4 @@
+import { debugWarn, logError } from '@/utils/debug';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { hasSupportedExtension } from '@/components/modals/utils/projectFileAcceptance';
@@ -93,7 +94,7 @@ async function persistLastDirectoryHandle(handle: FileSystemDirectoryHandle): Pr
       store.put(handle, LAST_DIRECTORY_KEY);
     });
   } catch (error) {
-    console.warn('[LoadProjectModal] Failed to persist directory handle', error);
+    debugWarn('raw-console', '[LoadProjectModal] Failed to persist directory handle', error);
   }
 }
 
@@ -123,7 +124,7 @@ async function loadPersistedDirectoryHandle(): Promise<FileSystemDirectoryHandle
       };
     });
   } catch (error) {
-    console.warn('[LoadProjectModal] Failed to load persisted directory handle', error);
+    debugWarn('raw-console', '[LoadProjectModal] Failed to load persisted directory handle', error);
     return null;
   }
 }
@@ -139,7 +140,7 @@ const storeLastDirectoryEntryName = (name: string | null) => {
       window.localStorage.removeItem(LAST_DIRECTORY_ENTRY_KEY);
     }
   } catch (error) {
-    console.warn('[LoadProjectModal] Failed to persist directory entry name', error);
+    debugWarn('raw-console', '[LoadProjectModal] Failed to persist directory entry name', error);
   }
 };
 
@@ -150,7 +151,7 @@ const readStoredDirectoryEntryName = (): string | null => {
   try {
     return window.localStorage.getItem(LAST_DIRECTORY_ENTRY_KEY);
   } catch (error) {
-    console.warn('[LoadProjectModal] Failed to read directory entry name', error);
+    debugWarn('raw-console', '[LoadProjectModal] Failed to read directory entry name', error);
     return null;
   }
 };
@@ -310,7 +311,7 @@ export function useProjectDirectoryBrowser({
         if (error instanceof DOMException && error.name === 'AbortError') {
           return;
         }
-        console.warn('[LoadProjectModal] Unable to inspect file timestamp', error);
+        debugWarn('raw-console', '[LoadProjectModal] Unable to inspect file timestamp', error);
       }
 
       if ((orderIndex + 1) % TIMESTAMP_HYDRATION_BATCH_SIZE === 0) {
@@ -346,7 +347,7 @@ export function useProjectDirectoryBrowser({
           nextEntries.push({ name, handle: entry as FileSystemFileHandle });
         }
       } else {
-        console.warn('[LoadProjectModal] Directory handle does not support iteration');
+        debugWarn('raw-console', '[LoadProjectModal] Directory handle does not support iteration');
       }
 
       if (scanVersion !== scanVersionRef.current) {
@@ -390,7 +391,7 @@ export function useProjectDirectoryBrowser({
       if (scanVersion !== scanVersionRef.current) {
         return;
       }
-      console.error('[LoadProjectModal] Failed to read directory', error);
+      logError('[LoadProjectModal] Failed to read directory', error);
       directoryEntriesRef.current = [];
       setDirectoryEntries([]);
       setDirectoryError(error instanceof Error ? error.message : 'Failed to read folder');
@@ -421,7 +422,7 @@ export function useProjectDirectoryBrowser({
       if (error instanceof DOMException && error.name === 'AbortError') {
         return;
       }
-      console.error('[LoadProjectModal] showDirectoryPicker failed', error);
+      logError('[LoadProjectModal] showDirectoryPicker failed', error);
       setDirectoryError(error instanceof Error ? error.message : 'Failed to open folder');
     }
   }, [ensureModalOpen, scanDirectoryForProjects]);
@@ -462,14 +463,14 @@ export function useProjectDirectoryBrowser({
               return;
             }
           } catch (error) {
-            console.warn('[LoadProjectModal] Failed to confirm directory permission', error);
+            debugWarn('raw-console', '[LoadProjectModal] Failed to confirm directory permission', error);
           }
         }
         if (!cancelled) {
           await scanDirectoryForProjects(handle);
         }
       } catch (error) {
-        console.warn('[LoadProjectModal] Failed to restore last directory handle', error);
+        debugWarn('raw-console', '[LoadProjectModal] Failed to restore last directory handle', error);
       }
     };
 
@@ -496,7 +497,7 @@ export function useProjectDirectoryBrowser({
           const status = await handleWithPerms.queryPermission({ mode: 'read' });
           hasPermission = status === 'granted';
         } catch (error) {
-          console.warn('[LoadProjectModal] Failed to query directory permission', error);
+          debugWarn('raw-console', '[LoadProjectModal] Failed to query directory permission', error);
           hasPermission = true;
         }
       }
