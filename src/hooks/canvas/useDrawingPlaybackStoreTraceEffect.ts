@@ -1,5 +1,9 @@
 import { useEffect, type MutableRefObject } from 'react';
-import { type AppState, useAppStore } from '@/stores/useAppStore';
+import {
+  selectEffectiveColorCyclePlaying,
+  type AppState,
+  useAppStore,
+} from '@/stores/useAppStore';
 import type { Layer } from '@/types';
 
 interface UseDrawingPlaybackStoreTraceEffectOptions {
@@ -28,10 +32,31 @@ export const useDrawingPlaybackStoreTraceEffect = ({
         return acc;
       }, {});
 
+    const summarizeLayers = (layers: Layer[]) =>
+      layers
+        .filter((layer) => layer.layerType === 'color-cycle')
+        .map((layer) => ({
+          id: layer.id.slice(-6),
+          mode: layer.colorCycleData?.mode ?? null,
+          isAnimating: layer.colorCycleData?.isAnimating ?? null,
+        }));
+
     let previousSnapshots = buildSnapshot(storeRef.current.layers);
+    let previousPlayback = {
+      desiredPlaying: storeRef.current.colorCyclePlayback.desiredPlaying,
+      suspendDepth: storeRef.current.colorCyclePlayback.suspendDepth,
+      lastReason: storeRef.current.colorCyclePlayback.lastReason ?? null,
+      effectivePlaying: selectEffectiveColorCyclePlaying(storeRef.current),
+    };
 
     const unsubscribe = useAppStore.subscribe((state: AppState) => {
       const nextSnapshots = buildSnapshot(state.layers);
+      const nextPlayback = {
+        desiredPlaying: state.colorCyclePlayback.desiredPlaying,
+        suspendDepth: state.colorCyclePlayback.suspendDepth,
+        lastReason: state.colorCyclePlayback.lastReason ?? null,
+        effectivePlaying: selectEffectiveColorCyclePlaying(state),
+      };
 
       Object.values(nextSnapshots).forEach((entry) => {
         const prevEntry = previousSnapshots[entry.id];
@@ -48,7 +73,21 @@ export const useDrawingPlaybackStoreTraceEffect = ({
         }
       });
 
+      if (
+        previousPlayback.desiredPlaying !== nextPlayback.desiredPlaying ||
+        previousPlayback.suspendDepth !== nextPlayback.suspendDepth ||
+        previousPlayback.lastReason !== nextPlayback.lastReason ||
+        previousPlayback.effectivePlaying !== nextPlayback.effectivePlaying
+      ) {
+        ccLog('STORE playback flip', {
+          prev: previousPlayback,
+          next: nextPlayback,
+          layers: summarizeLayers(state.layers),
+        });
+      }
+
       previousSnapshots = nextSnapshots;
+      previousPlayback = nextPlayback;
     });
 
     return () => {

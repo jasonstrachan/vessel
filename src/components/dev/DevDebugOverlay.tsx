@@ -137,15 +137,15 @@ export default function DevDebugOverlay() {
       style={{ pointerEvents: 'auto' }}
       aria-label="dev-debug-overlay"
     >
-      <div className="flex items-center justify-between border-b border-[#2a2a2a] px-3 py-2 text-[10px] uppercase tracking-[0.18em] text-[#9a9a9a]">
-        <div className="flex min-w-0 flex-col gap-1">
-          <span>Dev Debug Overlay</span>
-          <div className="flex flex-wrap items-center gap-1 text-[9px] tracking-[0.12em] text-[#6f6f6f]">
+      <div className="flex items-center justify-between gap-3 border-b border-[#2a2a2a] px-3 py-2 text-[10px] uppercase tracking-[0.18em] text-[#9a9a9a]">
+        <div className="flex min-w-0 items-center gap-2 overflow-hidden">
+          <span className="shrink-0 whitespace-nowrap">Dev Debug Overlay</span>
+          <div className="flex min-w-0 items-center gap-1 overflow-hidden whitespace-nowrap text-[9px] tracking-[0.12em] text-[#6f6f6f]">
             {Object.entries(sourceCounts).length === 0 ? (
-              <span>no sources yet</span>
+              <span className="truncate">no sources yet</span>
             ) : (
               Object.entries(sourceCounts).map(([source, count]) => (
-                <span key={source} className={`rounded border px-1.5 py-[1px] ${sourceClassName(source)}`}>
+                <span key={source} className={`shrink-0 rounded border px-1.5 py-[1px] ${sourceClassName(source)}`}>
                   {source}:{count}
                 </span>
               ))

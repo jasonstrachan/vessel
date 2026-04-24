@@ -3,7 +3,7 @@ import type { Layer } from '@/types';
 const startRuntime = jest.fn();
 
 const mockUseAppStore = {
-  getState: jest.fn(() => ({
+  getState: jest.fn<unknown, []>(() => ({
     colorCycleRuntimeHandlers: {
       start: startRuntime
     }
@@ -77,6 +77,15 @@ describe('syncCCRuntimes visibility behavior', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     resetCCRuntimesForTests();
+    mockUseAppStore.getState.mockReturnValue({
+      colorCyclePlayback: {
+        desiredPlaying: true,
+        suspendDepth: 0,
+      },
+      colorCycleRuntimeHandlers: {
+        start: startRuntime,
+      },
+    });
     brushMap = {
       'hidden-layer': hiddenBrush,
       'visible-layer': visibleBrush,
@@ -126,5 +135,31 @@ describe('syncCCRuntimes visibility behavior', () => {
     expect(visibleBrush.startAnimation).toHaveBeenCalledTimes(1);
     expect(replacementBrush.startAnimation).toHaveBeenCalledTimes(1);
     expect(startRuntime).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not start cc-runtime while global playback is paused even if a layer flag is stale', () => {
+    mockUseAppStore.getState.mockReturnValue({
+      colorCyclePlayback: {
+        desiredPlaying: false,
+        suspendDepth: 0,
+      },
+      colorCycleRuntimeHandlers: {
+        start: startRuntime,
+      },
+    });
+
+    const visibleLayer = makeLayer({
+      id: 'visible-layer',
+      visible: true,
+      colorCycleData: {
+        isAnimating: true,
+      } as NonNullable<Layer['colorCycleData']>,
+    });
+
+    syncCCRuntimes([visibleLayer], 'paused-global-playback');
+
+    expect(visibleBrush.startAnimation).not.toHaveBeenCalled();
+    expect(visibleBrush.stopAnimation).not.toHaveBeenCalled();
+    expect(startRuntime).not.toHaveBeenCalled();
   });
 });

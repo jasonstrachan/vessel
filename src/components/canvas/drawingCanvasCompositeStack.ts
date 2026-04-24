@@ -205,7 +205,11 @@ export const drawVisibleCompositeStack = ({
       );
       compositeDrawn = true;
     } catch (error) {
-      const isInvalidState = error instanceof DOMException && error.name === 'InvalidStateError';
+      const errorName =
+        typeof error === 'object' && error !== null && 'name' in error
+          ? String((error as { name?: unknown }).name)
+          : null;
+      const isInvalidState = errorName === 'InvalidStateError';
       if (isInvalidState) {
         invalidCompositeBitmap = true;
       } else {

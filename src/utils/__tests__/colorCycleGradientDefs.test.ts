@@ -215,6 +215,100 @@ describe('colorCycleGradientDefs', () => {
     expect(deadDef?.slot).toBeUndefined();
   });
 
+  it('allocates slot 253 as the final committed sampled slot before reserved slots', () => {
+    const slotPalettes = Array.from({ length: 253 }, (_, slot) => ({
+      slot,
+      stops: baseStops,
+    }));
+    const gradientDefStore = Array.from({ length: 253 }, (_, index) => ({
+      id: index + 1,
+      kind: 'linear' as const,
+      stops: baseStops,
+      hash: `${hashStops(baseStops, 'linear')}:${index}`,
+      source: 'sampled' as const,
+      createdAtMs: 0,
+      slot: index,
+    }));
+    const layer = createLayer({
+      colorCycleData: {
+        slotPalettes,
+        gradientDefs: [],
+        gradientDefStore,
+        nextGradientDefId: 254,
+      },
+    });
+
+    useAppStore.setState({ layers: [layer], activeLayerId: layer.id });
+
+    const result = ensureGradientDefForStops({
+      layerId: layer.id,
+      kind: 'linear',
+      stops: altStops,
+      source: 'sampled',
+    });
+
+    expect(result?.slot).toBe(253);
+    const updatedLayer = useAppStore.getState().layers.find((entry) => entry.id === layer.id);
+    expect(updatedLayer?.colorCycleData?.slotPalettes).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ slot: 253, stops: altStops }),
+      ])
+    );
+    expect(updatedLayer?.colorCycleData?.slotPalettes).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ slot: 254 }),
+        expect.objectContaining({ slot: 255 }),
+      ])
+    );
+  });
+
+  it('returns null when committed sampled slots are exhausted through slot 253', () => {
+    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    const slotPalettes = Array.from({ length: 254 }, (_, slot) => ({
+      slot,
+      stops: baseStops,
+    }));
+    const gradientDefStore = Array.from({ length: 254 }, (_, index) => ({
+      id: index + 1,
+      kind: 'linear' as const,
+      stops: baseStops,
+      hash: `${hashStops(baseStops, 'linear')}:${index}`,
+      source: 'sampled' as const,
+      createdAtMs: 0,
+      slot: index,
+    }));
+    const layer = createLayer({
+      colorCycleData: {
+        slotPalettes,
+        gradientDefs: [],
+        gradientDefStore,
+        gradientDefIdBuffer: new Uint16Array(
+          Array.from({ length: 254 }, (_, index) => index + 1)
+        ).buffer,
+        nextGradientDefId: 255,
+      },
+    });
+
+    useAppStore.setState({ layers: [layer], activeLayerId: layer.id });
+
+    const result = ensureGradientDefForStops({
+      layerId: layer.id,
+      kind: 'linear',
+      stops: altStops,
+      source: 'sampled',
+    });
+
+    expect(result).toBeNull();
+    const updatedLayer = useAppStore.getState().layers.find((entry) => entry.id === layer.id);
+    expect(updatedLayer?.colorCycleData?.slotPalettes).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ slot: 254 }),
+        expect.objectContaining({ slot: 255 }),
+      ])
+    );
+    errorSpy.mockRestore();
+  });
+
   it('stores seam profile per def and treats soft/hard variants as distinct defs', () => {
     const layer = createLayer();
     useAppStore.setState({ layers: [layer], activeLayerId: layer.id });

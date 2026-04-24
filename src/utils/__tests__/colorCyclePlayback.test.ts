@@ -15,6 +15,7 @@ const recolorManagerInstance = {
 const updateLayer = jest.fn();
 const playColorCycle = jest.fn();
 const pauseColorCycle = jest.fn();
+const forceResumeColorCycle = jest.fn();
 const runtimeStart = jest.fn();
 const runtimeStop = jest.fn();
 
@@ -31,6 +32,10 @@ const mockState = {
   pauseColorCycle: (reason: string) => {
     pauseColorCycle(reason);
     mockState.colorCyclePlayback.desiredPlaying = false;
+  },
+  forceResumeColorCycle: (reason: string) => {
+    forceResumeColorCycle(reason);
+    mockState.colorCyclePlayback.suspendDepth = 0;
   },
   updateLayer,
   colorCycleRuntimeHandlers: {
@@ -53,11 +58,23 @@ jest.mock('@/stores/useAppStore', () => ({
   },
   selectColorCycleDesiredPlaying: (state: typeof mockState) => state.colorCyclePlayback.desiredPlaying,
   selectColorCycleSuspendDepth: (state: typeof mockState) => state.colorCyclePlayback.suspendDepth,
+  selectColorCyclePlaybackToggleAction: (state: typeof mockState) => {
+    if (!state.colorCyclePlayback.desiredPlaying) {
+      return 'play';
+    }
+    if (state.colorCyclePlayback.suspendDepth > 0) {
+      return 'resume';
+    }
+    return 'pause';
+  },
   selectEffectiveColorCyclePlaying: (state: typeof mockState) =>
     state.colorCyclePlayback.desiredPlaying && state.colorCyclePlayback.suspendDepth === 0
 }));
 
-import { toggleGlobalColorCyclePlayback } from '@/utils/colorCyclePlayback';
+import {
+  toggleGlobalColorCyclePlayback,
+  toggleToolbarColorCyclePlayback,
+} from '@/utils/colorCyclePlayback';
 
 const makeRecolorLayer = (id: string, visible: boolean): Layer =>
   ({
@@ -83,6 +100,7 @@ describe('colorCyclePlayback visibility behavior', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockState.colorCyclePlayback.desiredPlaying = false;
+    mockState.colorCyclePlayback.suspendDepth = 0;
     mockState.layers = [
       makeRecolorLayer('visible-recolor', true),
       makeRecolorLayer('hidden-recolor', false),
@@ -113,5 +131,24 @@ describe('colorCyclePlayback visibility behavior', () => {
         })
       })
     );
+  });
+
+  it('uses pause as the single toolbar action when playback is already active', async () => {
+    mockState.colorCyclePlayback.desiredPlaying = true;
+
+    await toggleToolbarColorCyclePlayback();
+
+    expect(pauseColorCycle).toHaveBeenCalledWith('toolbar');
+    expect(playColorCycle).not.toHaveBeenCalled();
+  });
+
+  it('uses resume as the single toolbar action when playback is suspended', async () => {
+    mockState.colorCyclePlayback.desiredPlaying = true;
+    mockState.colorCyclePlayback.suspendDepth = 2;
+
+    await toggleToolbarColorCyclePlayback();
+
+    expect(forceResumeColorCycle).toHaveBeenCalledWith('toolbar');
+    expect(playColorCycle).toHaveBeenCalledWith('toolbar');
   });
 });

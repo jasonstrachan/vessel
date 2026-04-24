@@ -1001,6 +1001,245 @@ describe('colorCycleShapeFill transparency lock', () => {
     getStateSpy.mockRestore();
   });
 
+  it('persists sampled linear shape binding as the active paint slot', async () => {
+    const sampledStops: StoredStop[] = [
+      { position: 0, color: '#123456' },
+      { position: 1, color: '#abcdef' },
+    ];
+    const updateLayer = jest.fn();
+    const setActiveGradientSlot = jest.fn();
+    const getStateSpy = jest.spyOn(useAppStore, 'getState');
+    getStateSpy.mockReturnValue({
+      layers: [
+        {
+          id: 'layer-1',
+          transparencyLocked: false,
+          layerType: 'color-cycle',
+          colorCycleData: {
+            paintSlot: 0,
+            slotPalettes: [],
+          },
+        },
+      ],
+      tools: {
+        brushSettings: {
+          colorCycleUseForegroundGradient: false,
+          ditherEnabled: false,
+          gradientBands: 2,
+          ditherPaletteSpread: 50,
+        },
+      },
+      colorCyclePlayback: {
+        desiredPlaying: false,
+        suspendDepth: 0,
+      },
+      setCcGradientSampleCount: jest.fn(),
+      updateLayer,
+    } as unknown as ReturnType<typeof useAppStore.getState>);
+
+    const canvas = document.createElement('canvas');
+    canvas.width = 4;
+    canvas.height = 4;
+
+    const brushEngine = {
+      fillCcGradientLinear: jest.fn(async () => undefined),
+      updateColorCycleTexture: jest.fn(),
+    };
+    const brush = {
+      setActiveGradientSlot,
+      commitCommittedLayerState: jest.fn(),
+      renderDirectToCanvas: jest.fn(),
+    };
+    const session: MarkGradientSession = {
+      markId: 'mark-sampled-shape-linear-persist',
+      layerId: 'layer-1',
+      markKind: 'shape',
+      gradientKind: 'linear',
+      source: 'sampled',
+      frozenStopsStored: sampledStops,
+      previewStopsStored: sampledStops,
+      fallbackStopsStored: sampledStops,
+      frozenHash: hashStops(sampledStops, 'linear'),
+      binding: { kind: 'def', defId: 19, slot: 94 },
+      speedCps: null,
+    };
+
+    await finalizeColorCycleShapeFillLinear(
+      {
+        session,
+        shapePoints: [
+          { x: 0, y: 0 },
+          { x: 3, y: 0 },
+          { x: 0, y: 3 },
+        ],
+        direction: { x: 1, y: 0 },
+        activeLayerId: 'layer-1',
+        activeLayerCanvas: canvas,
+        overlayCanvas: null,
+        overlayCtx: null,
+        fallbackBlendMode: 'source-over',
+        fallbackOpacity: 1,
+        shapeLayerId: 'layer-1',
+        beforeColorState: null,
+        tool: 'brush',
+      },
+      {
+        brushEngine: brushEngine as never,
+        getColorCycleBrushManager: () => ({ getBrush: () => brush as never }),
+        bindBrushToCanvas: jest.fn(),
+        timeAsync: async (_label, task) => task(),
+        timeSync: (_label, task) => task(),
+        ccLog: jest.fn(),
+        scheduleDeferredColorCycleSaveWithState: jest.fn(async () => undefined),
+        logError: jest.fn(),
+      }
+    );
+
+    expect(brushEngine.fillCcGradientLinear).toHaveBeenCalledWith(
+      expect.any(Array),
+      { x: 1, y: 0 },
+      expect.objectContaining({
+        paintSlotOverride: 94,
+      })
+    );
+    expect(updateLayer).toHaveBeenCalledWith(
+      'layer-1',
+      expect.objectContaining({
+        colorCycleData: expect.objectContaining({
+          paintSlot: 94,
+          slotPalettes: expect.arrayContaining([
+            expect.objectContaining({ slot: 94 }),
+          ]),
+        }),
+      }),
+      { skipColorCycleSync: true }
+    );
+    expect(setActiveGradientSlot).toHaveBeenCalledWith('layer-1', 94);
+
+    getStateSpy.mockRestore();
+  });
+
+  it('persists sampled linear shape commits at the final valid slot', async () => {
+    const sampledStops: StoredStop[] = [
+      { position: 0, color: '#241100' },
+      { position: 1, color: '#ffe0aa' },
+    ];
+    const updateLayer = jest.fn();
+    const setActiveGradientSlot = jest.fn();
+    const getStateSpy = jest.spyOn(useAppStore, 'getState');
+    getStateSpy.mockReturnValue({
+      layers: [
+        {
+          id: 'layer-1',
+          transparencyLocked: false,
+          layerType: 'color-cycle',
+          colorCycleData: {
+            paintSlot: 252,
+            slotPalettes: Array.from({ length: 253 }, (_, slot) => ({
+              slot,
+              stops: sampledStops,
+            })),
+          },
+        },
+      ],
+      tools: {
+        brushSettings: {
+          colorCycleUseForegroundGradient: false,
+          ditherEnabled: false,
+          gradientBands: 2,
+          ditherPaletteSpread: 50,
+        },
+      },
+      colorCyclePlayback: {
+        desiredPlaying: false,
+        suspendDepth: 0,
+      },
+      setCcGradientSampleCount: jest.fn(),
+      updateLayer,
+    } as unknown as ReturnType<typeof useAppStore.getState>);
+
+    const canvas = document.createElement('canvas');
+    canvas.width = 4;
+    canvas.height = 4;
+
+    const brushEngine = {
+      fillCcGradientLinear: jest.fn(async () => undefined),
+      updateColorCycleTexture: jest.fn(),
+    };
+    const brush = {
+      setActiveGradientSlot,
+      commitCommittedLayerState: jest.fn(),
+      renderDirectToCanvas: jest.fn(),
+    };
+    const session: MarkGradientSession = {
+      markId: 'mark-sampled-shape-linear-final-slot',
+      layerId: 'layer-1',
+      markKind: 'shape',
+      gradientKind: 'linear',
+      source: 'sampled',
+      frozenStopsStored: sampledStops,
+      previewStopsStored: sampledStops,
+      fallbackStopsStored: sampledStops,
+      frozenHash: hashStops(sampledStops, 'linear'),
+      binding: { kind: 'def', defId: 253, slot: 253 },
+      speedCps: null,
+    };
+
+    await finalizeColorCycleShapeFillLinear(
+      {
+        session,
+        shapePoints: [
+          { x: 0, y: 0 },
+          { x: 3, y: 0 },
+          { x: 0, y: 3 },
+        ],
+        direction: { x: 1, y: 0 },
+        activeLayerId: 'layer-1',
+        activeLayerCanvas: canvas,
+        overlayCanvas: null,
+        overlayCtx: null,
+        fallbackBlendMode: 'source-over',
+        fallbackOpacity: 1,
+        shapeLayerId: 'layer-1',
+        beforeColorState: null,
+        tool: 'brush',
+      },
+      {
+        brushEngine: brushEngine as never,
+        getColorCycleBrushManager: () => ({ getBrush: () => brush as never }),
+        bindBrushToCanvas: jest.fn(),
+        timeAsync: async (_label, task) => task(),
+        timeSync: (_label, task) => task(),
+        ccLog: jest.fn(),
+        scheduleDeferredColorCycleSaveWithState: jest.fn(async () => undefined),
+        logError: jest.fn(),
+      }
+    );
+
+    expect(brushEngine.fillCcGradientLinear).toHaveBeenCalledWith(
+      expect.any(Array),
+      { x: 1, y: 0 },
+      expect.objectContaining({
+        paintSlotOverride: 253,
+      })
+    );
+    expect(updateLayer).toHaveBeenCalledWith(
+      'layer-1',
+      expect.objectContaining({
+        colorCycleData: expect.objectContaining({
+          paintSlot: 253,
+          slotPalettes: expect.arrayContaining([
+            expect.objectContaining({ slot: 253 }),
+          ]),
+        }),
+      }),
+      { skipColorCycleSync: true }
+    );
+    expect(setActiveGradientSlot).toHaveBeenCalledWith('layer-1', 253);
+
+    getStateSpy.mockRestore();
+  });
+
   it('rebinds sampled concentric shape commits across the full layer to prevent temp-slot leakage', async () => {
     const sampledStops: StoredStop[] = [
       { position: 0, color: '#334455' },

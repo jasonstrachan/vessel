@@ -74,6 +74,19 @@ describe('layers slice', () => {
     expect(second.close).not.toHaveBeenCalled();
   });
 
+  it('does not recycle the same composite bitmap instance', () => {
+    const store = createTestStore();
+    const bitmap = { close: jest.fn() } as unknown as ImageBitmap;
+
+    store.setCurrentCompositeBitmap(bitmap);
+    store.setCurrentCompositeBitmap(bitmap);
+
+    expect(store.getState().currentCompositeBitmap).toBe(bitmap);
+
+    jest.advanceTimersByTime(200);
+    expect(bitmap.close).not.toHaveBeenCalled();
+  });
+
   it('marks static composite segments dirty when recomposition is needed', () => {
     const store = createTestStore({
       compositeSegments: [
@@ -86,5 +99,38 @@ describe('layers slice', () => {
 
     const segments = store.getState().compositeSegments;
     expect(segments[0].dirty).toBe(true);
+  });
+
+  it('does not remap composite segments when recomposition is already active and segments are already dirty', () => {
+    const initialSegments = [
+      { kind: 'static', dirty: true, layerIds: ['a'] },
+      { kind: 'color-cycle', layerIds: ['b'] },
+    ];
+    const store = createTestStore({
+      compositeSegments: initialSegments,
+      layersNeedRecomposition: true,
+    });
+
+    store.setLayersNeedRecomposition(true);
+
+    expect(store.getState().compositeSegments).toBe(initialSegments);
+    expect(store.getState().layersNeedRecomposition).toBe(true);
+  });
+
+  it('still dirties newly clean static segments while recomposition is already active', () => {
+    const initialSegments = [
+      { kind: 'static', dirty: false, layerIds: ['a'] },
+      { kind: 'color-cycle', layerIds: ['b'] },
+    ];
+    const store = createTestStore({
+      compositeSegments: initialSegments,
+      layersNeedRecomposition: true,
+    });
+
+    store.setLayersNeedRecomposition(true);
+
+    const nextSegments = store.getState().compositeSegments;
+    expect(nextSegments).not.toBe(initialSegments);
+    expect(nextSegments[0].dirty).toBe(true);
   });
 });

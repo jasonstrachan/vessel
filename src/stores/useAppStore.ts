@@ -829,6 +829,29 @@ export const selectColorCycleSuspendDepth = (state: AppState): number =>
   state.colorCyclePlayback.suspendDepth;
 export const selectEffectiveColorCyclePlaying = (state: AppState): boolean =>
   state.colorCyclePlayback.desiredPlaying && state.colorCyclePlayback.suspendDepth === 0;
+export const selectColorCyclePlaybackUiState = (
+  state: AppState
+): 'paused' | 'suspended' | 'playing' => {
+  if (!state.colorCyclePlayback.desiredPlaying) {
+    return 'paused';
+  }
+  if (state.colorCyclePlayback.suspendDepth > 0) {
+    return 'suspended';
+  }
+  return 'playing';
+};
+export const selectColorCyclePlaybackToggleAction = (
+  state: AppState
+): 'play' | 'pause' | 'resume' => {
+  const uiState = selectColorCyclePlaybackUiState(state);
+  if (uiState === 'playing') {
+    return 'pause';
+  }
+  if (uiState === 'suspended') {
+    return 'resume';
+  }
+  return 'play';
+};
 export const selectSequentialRecordState = (state: AppState): SequentialRecordState =>
   state.sequentialRecord;
 export const selectSequentialPlaybackActive = (state: AppState): boolean => {
