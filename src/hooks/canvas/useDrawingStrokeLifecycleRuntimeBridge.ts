@@ -1,3 +1,4 @@
+import { useStrokeRuntimeLifecycle } from '@/canvas/runtime/StrokeRuntime';
 import { useDrawingHandlerRefs } from '@/hooks/canvas/useDrawingHandlerRefs';
 import { useDrawingStartRuntime } from '@/hooks/canvas/useDrawingStartRuntime';
 import { useDrawingStrokeRuntime } from '@/hooks/canvas/useDrawingStrokeRuntime';
@@ -17,15 +18,9 @@ export const useDrawingStrokeLifecycleRuntimeBridge = ({
   refs,
   startRuntimeOptions,
   strokeRuntimeOptions,
-}: UseDrawingStrokeLifecycleRuntimeBridgeOptions) => {
-  const startDrawing = useDrawingStartRuntime({
+}: UseDrawingStrokeLifecycleRuntimeBridgeOptions) =>
+  useStrokeRuntimeLifecycle({
     refs,
-    ...startRuntimeOptions,
+    startRuntimeOptions,
+    strokeRuntimeOptions,
   });
-  const { processBatchedStrokes, continueDrawing } = useDrawingStrokeRuntime({
-    refs,
-    ...strokeRuntimeOptions,
-  });
-
-  return { startDrawing, processBatchedStrokes, continueDrawing };
-};
