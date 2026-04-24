@@ -3,6 +3,19 @@ import {
   getNextFilterWorkCanvas,
   getSeamlessNoisePatternSize,
 } from '@/lib/displayFilterPipeline';
+import { shouldRequestCompositeBitmapRecomposition } from '@/components/canvas/useDrawingCanvasBaseRenderer';
+
+describe('shouldRequestCompositeBitmapRecomposition', () => {
+  it('only requests recomposition for the first invalid bitmap still owned by the store', () => {
+    const bitmap = {} as ImageBitmap;
+    const previous = {} as ImageBitmap;
+
+    expect(shouldRequestCompositeBitmapRecomposition(bitmap, null, bitmap)).toBe(true);
+    expect(shouldRequestCompositeBitmapRecomposition(bitmap, bitmap, bitmap)).toBe(false);
+    expect(shouldRequestCompositeBitmapRecomposition(bitmap, null, previous)).toBe(false);
+    expect(shouldRequestCompositeBitmapRecomposition(null, null, null)).toBe(false);
+  });
+});
 
 describe('getNextFilterWorkCanvas', () => {
   it('alternates away from the canvas that just became current', () => {
