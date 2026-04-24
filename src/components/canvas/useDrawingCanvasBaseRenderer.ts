@@ -24,12 +24,22 @@ import { drawCanvasOverlayLayer } from './drawingCanvasOverlay';
 import { drawSelectionLayer } from './drawingCanvasSelection';
 import { applyCanvasShapeClip, strokeCanvasShapeOutline } from '@/utils/canvasShape';
 import { isOverlaySeededFromLayer } from '@/hooks/canvas/utils/overlaySeedState';
+import { recordBreadcrumb } from '@/utils/debug';
 
 const CANVAS_CHECKER_LIGHT = '#2a2a2e';
 const CANVAS_CHECKER_DARK = '#1c1c1f';
 const CANVAS_TRANSPARENCY_GRAY = '#5a5a5f';
 
 type Point = { x: number; y: number };
+
+export const shouldRequestCompositeBitmapRecomposition = (
+  invalidBitmap: ImageBitmap | null,
+  lastInvalidBitmap: ImageBitmap | null,
+  currentStoreBitmap: ImageBitmap | null,
+): boolean =>
+  invalidBitmap !== null &&
+  lastInvalidBitmap !== invalidBitmap &&
+  currentStoreBitmap === invalidBitmap;
 
 interface VisibleWorldRect {
   x: number;
@@ -354,11 +364,31 @@ export const useDrawingCanvasBaseRenderer = ({
         compositeCanvas: compositeCanvasRef.current,
       });
       if (invalidCompositeBitmap) {
-        if (compositeBitmap && lastInvalidCompositeBitmapRef.current !== compositeBitmap) {
+        const lastInvalidBitmap = lastInvalidCompositeBitmapRef.current;
+        if (compositeBitmap && lastInvalidBitmap !== compositeBitmap) {
           lastInvalidCompositeBitmapRef.current = compositeBitmap;
           const state = useAppStore.getState();
-          state.setCurrentCompositeBitmap(null);
-          state.setLayersNeedRecomposition(true);
+          const stateStillOwnsBitmap = state.currentCompositeBitmap === compositeBitmap;
+          const shouldRequestRecomposition = shouldRequestCompositeBitmapRecomposition(
+            compositeBitmap,
+            lastInvalidBitmap,
+            state.currentCompositeBitmap
+          );
+          recordBreadcrumb('canvas-composite', {
+            event: 'invalid-composite-bitmap',
+            stateStillOwnsBitmap,
+            layersNeedRecomposition: state.layersNeedRecomposition,
+            segmentCount: compositeSegmentsRef.current.length,
+            hasCompositeCanvas: Boolean(compositeCanvasRef.current),
+            activeLayerType: activeLayer?.layerType ?? null,
+            activeLayerAnimating: activeLayer?.layerType === 'color-cycle'
+              ? Boolean(activeLayer.colorCycleData?.isAnimating)
+              : null,
+          });
+          if (shouldRequestRecomposition) {
+            state.setCurrentCompositeBitmap(null);
+            state.setLayersNeedRecomposition(true);
+          }
         }
       }
       if (filterCtx && filterCanvas && visibleRect) {

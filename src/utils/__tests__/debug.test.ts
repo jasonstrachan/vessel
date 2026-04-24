@@ -1,8 +1,11 @@
 import {
+  getPersistedBreadcrumbs,
   getLastCrashReport,
   getLastHangReport,
   persistCrashReport,
   persistHangReport,
+  recordBreadcrumb,
+  shouldPersistRuntimeDiagnostics,
 } from '../debug';
 
 describe('debug crash report persistence', () => {
@@ -73,5 +76,24 @@ describe('debug crash report persistence', () => {
       gapMs: 3200,
       breadcrumbs: [{ t: 2, scope: 'test-hang', data: { active: true } }],
     });
+  });
+
+  it('persists runtime breadcrumbs for local repro diagnostics', () => {
+    expect(shouldPersistRuntimeDiagnostics()).toBe(true);
+
+    recordBreadcrumb('sampled-cc-shape', {
+      event: 'pointer-down',
+      pointCount: 1,
+    });
+
+    expect(getPersistedBreadcrumbs()).toEqual([
+      expect.objectContaining({
+        scope: 'sampled-cc-shape',
+        data: {
+          event: 'pointer-down',
+          pointCount: 1,
+        },
+      }),
+    ]);
   });
 });

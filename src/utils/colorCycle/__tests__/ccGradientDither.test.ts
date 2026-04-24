@@ -48,6 +48,40 @@ describe('fillCcGradientDither', () => {
     expect(values.has(255)).toBe(false);
   });
 
+  it('keeps the final write pass synchronous when a yield callback is provided', async () => {
+    const width = 16;
+    const height = 16;
+    const out = new Uint8Array(width * height);
+    const yieldIfNeeded = jest.fn(async () => {});
+
+    await fillCcGradientDither({
+      vertices: [
+        { x: 0, y: 0 },
+        { x: width - 1, y: 0 },
+        { x: width - 1, y: height - 1 },
+        { x: 0, y: height - 1 },
+      ],
+      minX: 0,
+      minY: 0,
+      maxX: width - 1,
+      maxY: height - 1,
+      pixelSize: 4,
+      levels: 2,
+      baseOffset: 0,
+      algorithm: 'sierra-lite',
+      pxlEdge: true,
+      sampleNormalized: () => 1,
+      writeIndex: (x, y, index) => {
+        if (x < 0 || y < 0 || x >= width || y >= height) return;
+        out[y * width + x] = index;
+      },
+      yieldIfNeeded,
+    });
+
+    expect(yieldIfNeeded).not.toHaveBeenCalled();
+    expect(out.some((value) => value > 0)).toBe(true);
+  });
+
   it('resolves Sierra Lite flat tones into local ink pairs centered on the sampled position', async () => {
     const width = 16;
     const height = 16;

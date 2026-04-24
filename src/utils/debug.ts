@@ -139,6 +139,19 @@ const getDebugWindow = (): DebugWindow | undefined => {
   return typeof window === 'undefined' ? undefined : (window as DebugWindow);
 };
 
+const isLocalRuntimeHost = (): boolean => {
+  const w = getDebugWindow();
+  if (!w) {
+    return false;
+  }
+
+  const hostname = w.location?.hostname;
+  return hostname === 'localhost' || hostname === '127.0.0.1';
+};
+
+export const shouldPersistRuntimeDiagnostics = (): boolean =>
+  __DEV__ || isLocalRuntimeHost();
+
 // Optional exclusion list to suppress noisy scopes even when `all` is enabled
 let __cachedExclude: Set<string> | null = null;
 let __lastExcludeRead = 0;
@@ -276,7 +289,8 @@ export function logError(...args: unknown[]) {
   console.error(...args);
 }
 
-// Lightweight persistent breadcrumbs to survive page reloads/crashes
+// Lightweight persistent breadcrumbs to survive page reloads/crashes.
+// Enabled in dev and in localhost production builds used for runtime repros.
 // Stores last ~200 events in memory and mirrors to localStorage
 const BC_WIN_KEY = '__TB_BREADCRUMBS';
 const BC_LS_KEY = 'TB_BREADCRUMBS';
@@ -287,7 +301,7 @@ const HANG_LS_KEY = 'TB_LAST_HANG';
 const HANG_REPORTED_LS_KEY = 'TB_LAST_HANG_REPORTED';
 
 export function recordBreadcrumb(scope: string, data: unknown) {
-  if (!__DEV__) return; // Dev-only breadcrumbs
+  if (!shouldPersistRuntimeDiagnostics()) return;
   try {
     const w = getDebugWindow();
     const entry: Breadcrumb = { t: Date.now(), scope, data };

@@ -705,7 +705,6 @@ export const fillCcGradientDither = async ({
   writePhase,
   resolvePhaseByte,
   logSetIndexSample,
-  yieldIfNeeded,
   sampledFlatTraceId,
   sampledFlatTraceStage,
 }: CcGradientDitherOptions): Promise<void> => {
@@ -1115,9 +1114,6 @@ export const fillCcGradientDither = async ({
       const yStart = minY + cy * cellSize;
       const yEnd = Math.min(maxY, yStart + cellSize - 1);
       for (let y = yStart; y <= yEnd; y += 1) {
-        if (yieldIfNeeded) {
-          await yieldIfNeeded(y - minY);
-        }
         for (let i = 0; i < activeRow.length; i += 1) {
           const cx = activeRow[i];
           if (cx < 0 || cx >= gridW) continue;
@@ -1145,9 +1141,6 @@ export const fillCcGradientDither = async ({
 
   for (let row = 0; row < bboxHeight; row += 1) {
     const y = minY + row;
-    if (yieldIfNeeded) {
-      await yieldIfNeeded(row);
-    }
     const spans = rowSpans[row];
     if (!spans.length) continue;
 

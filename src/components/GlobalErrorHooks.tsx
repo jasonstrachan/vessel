@@ -114,7 +114,7 @@ export default function GlobalErrorHooks() {
           visibilityState: document.visibilityState,
           ts: Date.now(),
           userAgent: window.navigator.userAgent,
-          breadcrumbs: payload.event === 'crash' ? getPersistedBreadcrumbs() : undefined,
+          breadcrumbs: payload.event === 'heartbeat' ? undefined : getPersistedBreadcrumbs(),
         });
 
         if (typeof navigator.sendBeacon === 'function') {
