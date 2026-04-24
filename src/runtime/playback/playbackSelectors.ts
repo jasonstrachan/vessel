@@ -1,10 +1,7 @@
 import type { AppState } from '@/stores/useAppStore';
 import type { ColorCycleUIState } from '@/stores/slices/colorCycleSlice';
 import type { SequentialRecordState } from '@/stores/slices/sequentialRecordSlice';
-import {
-  createPlaybackRuntimeState,
-  resolveColorCyclePlaybackState,
-} from '@/runtime/playback/playbackState';
+import { createPlaybackRuntimeState } from '@/runtime/playback/playbackState';
 
 export type PlaybackToggleAction = 'play' | 'pause' | 'resume';
 
@@ -19,20 +16,19 @@ const PLAYBACK_TOGGLE_PAUSE: PlaybackToggleUi = { action: 'pause', label: 'Pause
 const PLAYBACK_TOGGLE_RESUME: PlaybackToggleUi = { action: 'resume', label: 'Resume', icon: '↻' };
 
 export const selectColorCyclePlayback = (state: AppState): ColorCycleUIState =>
-  resolveColorCyclePlaybackState(state);
+  state.colorCyclePlayback;
 
 export const selectColorCycleDesiredPlaying = (state: AppState): boolean =>
-  resolveColorCyclePlaybackState(state).desiredPlaying;
+  state.colorCyclePlayback.desiredPlaying;
 
 export const selectPlaybackSpeedScale = (state: AppState): number => {
-  const playbackState = resolveColorCyclePlaybackState(state);
-  return Number.isFinite(playbackState.playbackSpeedScale)
-    ? playbackState.playbackSpeedScale
+  return Number.isFinite(state.colorCyclePlayback.playbackSpeedScale)
+    ? state.colorCyclePlayback.playbackSpeedScale
     : 1;
 };
 
 export const selectColorCycleSuspendDepth = (state: AppState): number =>
-  resolveColorCyclePlaybackState(state).suspendDepth;
+  state.colorCyclePlayback.suspendDepth;
 
 export const selectEffectiveColorCyclePlaying = (state: AppState): boolean =>
   createPlaybackRuntimeState(state).effectivePlaying;
@@ -67,7 +63,7 @@ export const selectSequentialPlaybackActive = (state: AppState): boolean => {
   if (!selectColorCycleDesiredPlaying(state)) {
     return false;
   }
-  return state.layers?.some((layer) => layer.layerType === 'sequential') ?? false;
+  return state.layers.some((layer) => layer.layerType === 'sequential');
 };
 
 export const selectSequentialCaptureActive = (state: AppState): boolean =>
