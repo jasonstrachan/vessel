@@ -12,7 +12,13 @@ Last updated: 2026-04-24.
 - [x] Phase 5 worker and test type-check scripts added.
 - [x] Phase 5 CI wiring added for report-mode architecture checks, app
   type-check, worker type-check, and test type-check.
-- [ ] Phase 1 `layersSlice` domain extraction.
+- [ ] Phase 1 `layersSlice` domain extraction. In progress: clone helpers
+  extracted to `src/stores/layers/layerCloneService.ts`; pure group helpers
+  extracted to `src/stores/layers/layerGroupService.ts`; pure CRUD/order
+  helpers extracted to `src/stores/layers/layerCrudService.ts`; color-cycle
+  gradient/slot/buffer helpers extracted to
+  `src/stores/layers/layerColorCycleState.ts`; composite invalidation helpers
+  extracted to `src/stores/layers/layerCompositeInvalidation.ts`.
 - [ ] Phase 1 `layersSlice` budget made blocking after extraction.
 - [ ] Phase 2 Goblet/WebGL export extraction.
 - [ ] Phase 2 `webglExporter.ts` budget made blocking after extraction.
@@ -657,13 +663,13 @@ after code, tests, and docs for that item are complete.
 - [ ] Add characterization tests around layer CRUD, duplication, removal,
   reorder, active-layer selection, grouping, color-cycle slot normalization,
   compositing invalidation, and sequential event append behavior.
-- [ ] Extract canvas/framebuffer clone helpers into
+- [x] Extract canvas/framebuffer clone helpers into
   `src/stores/layers/layerCloneService.ts`.
-- [ ] Extract group helpers into `src/stores/layers/layerGroupService.ts`.
-- [ ] Extract CRUD/order helpers into `src/stores/layers/layerCrudService.ts`.
-- [ ] Extract color-cycle gradient/slot normalization into
+- [x] Extract group helpers into `src/stores/layers/layerGroupService.ts`.
+- [x] Extract CRUD/order helpers into `src/stores/layers/layerCrudService.ts`.
+- [x] Extract color-cycle gradient/slot normalization into
   `src/stores/layers/layerColorCycleState.ts`.
-- [ ] Extract composite invalidation into
+- [x] Extract composite invalidation into
   `src/stores/layers/layerCompositeInvalidation.ts`.
 - [ ] Extract composite render coordination into
   `src/stores/layers/layerCompositeRenderer.ts`.
