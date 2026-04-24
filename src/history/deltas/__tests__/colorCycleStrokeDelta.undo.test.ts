@@ -1,7 +1,7 @@
 import { createDefaultLayerAlignment } from '@/utils/layoutDefaults';
 import type { Layer } from '@/types';
 import { useAppStore } from '@/stores/useAppStore';
-import { ColorCycleStrokeDelta } from '@/history/deltas/colorCycleStrokeDelta';
+import { ColorCycleStrokeDelta, createColorCycleStrokeDelta } from '@/history/deltas/colorCycleStrokeDelta';
 import { ColorCycleAnimator } from '@/lib/ColorCycleAnimator';
 
 // eslint-disable-next-line no-var
@@ -194,5 +194,81 @@ describe('ColorCycleStrokeDelta undo resurrection', () => {
     const updatedLayer = useAppStore.getState().layers.find((entry) => entry.id === layer.id);
     const def = updatedLayer?.colorCycleData?.gradientDefStore?.find((entry) => entry.id === 1);
     expect(typeof def?.slot).toBe('number');
+  });
+
+  it('preserves speed, flow, and phase buffers through full-state history restore', async () => {
+    const layer = createLayer();
+    useAppStore.setState((state) => ({
+      layers: [layer],
+      activeLayerId: layer.id,
+      project: state.project
+        ? { ...state.project, width: 2, height: 2, layers: [layer] }
+        : state.project,
+    }));
+
+    const backwardState = {
+      cycleSpeed: 1,
+      fps: 30,
+      brushSize: 1,
+      layers: [
+        {
+          layerId: layer.id,
+          data: makeAnimatorState(),
+          strokeData: {
+            paintBuffer: new Uint8Array([1, 2, 0, 0]).buffer,
+            gradientIdBuffer: new Uint8Array([3, 4, 0, 0]).buffer,
+            gradientDefIdBuffer: new Uint16Array([5, 6, 0, 0]).buffer,
+            speedBuffer: new Uint8Array([7, 8, 0, 0]).buffer,
+            flowBuffer: new Uint8Array([9, 10, 0, 0]).buffer,
+            phaseBuffer: new Uint8Array([11, 12, 0, 0]).buffer,
+            hasContent: true,
+            strokeCounter: 1,
+          },
+        },
+      ],
+    };
+
+    const forwardState = {
+      cycleSpeed: 1,
+      fps: 30,
+      brushSize: 1,
+      layers: [
+        {
+          layerId: layer.id,
+          data: makeAnimatorState(),
+          strokeData: {
+            paintBuffer: new Uint8Array([13, 14, 0, 0]).buffer,
+            gradientIdBuffer: new Uint8Array([15, 16, 0, 0]).buffer,
+            gradientDefIdBuffer: new Uint16Array([17, 18, 0, 0]).buffer,
+            speedBuffer: new Uint8Array([19, 20, 0, 0]).buffer,
+            flowBuffer: new Uint8Array([21, 22, 0, 0]).buffer,
+            phaseBuffer: new Uint8Array([23, 24, 0, 0]).buffer,
+            hasContent: true,
+            strokeCounter: 2,
+          },
+        },
+      ],
+    };
+
+    const delta = createColorCycleStrokeDelta({
+      layerId: layer.id,
+      forwardState,
+      backwardState,
+    });
+
+    expect(delta).not.toBeNull();
+    await delta!.apply('backward');
+
+    const payload = mockBrush.restoreFullState.mock.calls[0]?.[0] as {
+      layerSnapshots?: Array<{
+        speedBuffer?: ArrayBuffer;
+        flowBuffer?: ArrayBuffer;
+        phaseBuffer?: ArrayBuffer;
+      }>;
+    };
+    const snapshot = payload.layerSnapshots?.[0];
+    expect(Array.from(new Uint8Array(snapshot?.speedBuffer ?? new ArrayBuffer(0)))).toEqual([7, 8, 0, 0]);
+    expect(Array.from(new Uint8Array(snapshot?.flowBuffer ?? new ArrayBuffer(0)))).toEqual([9, 10, 0, 0]);
+    expect(Array.from(new Uint8Array(snapshot?.phaseBuffer ?? new ArrayBuffer(0)))).toEqual([11, 12, 0, 0]);
   });
 });
