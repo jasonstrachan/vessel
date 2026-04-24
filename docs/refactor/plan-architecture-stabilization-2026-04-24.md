@@ -19,8 +19,8 @@ Last updated: 2026-04-24.
   layer-domain coordinator.
 - [x] Phase 1 `layersSlice` and extracted coordinator budgets made blocking
   after extraction.
-- [ ] Phase 2 Goblet/WebGL export extraction.
-- [ ] Phase 2 `webglExporter.ts` budget made blocking after extraction.
+- [x] Phase 2 Goblet/WebGL export extraction.
+- [x] Phase 2 `webglExporter.ts` budget made blocking after extraction.
 - [ ] Phase 3 single playback runtime owner.
 - [ ] Phase 4 canvas runtime consolidation.
 - [ ] Phase 4 canvas hotspot budgets made blocking after extraction.
@@ -683,30 +683,30 @@ after code, tests, and docs for that item are complete.
 
 ### Step 5: Goblet/WebGL Export Extraction
 
-- [ ] Add parity tests for existing single-file and zip export output contracts.
-- [ ] Extract Goblet contracts into `src/utils/export/goblet/gobletTypes.ts`.
-- [ ] Extract explicit export snapshot building into
+- [x] Add parity tests for existing single-file and zip export output contracts.
+- [x] Extract Goblet contracts into `src/utils/export/goblet/gobletTypes.ts`.
+- [x] Extract explicit export snapshot building into
   `src/utils/export/goblet/gobletSnapshot.ts`.
-- [ ] Extract runtime asset resolution into
+- [x] Extract runtime asset resolution into
   `src/utils/export/goblet/gobletRuntimeAssets.ts`.
-- [ ] Extract HTML building into
+- [x] Extract HTML building into
   `src/utils/export/goblet/gobletHtmlBuilder.ts`.
-- [ ] Extract texture encoding into
+- [x] Extract texture encoding into
   `src/utils/export/goblet/gobletTextureEncoder.ts`.
-- [ ] Extract normal layer serialization into
+- [x] Extract normal layer serialization into
   `src/utils/export/goblet/gobletLayerSerializer.ts`.
-- [ ] Extract color-cycle serialization into
+- [x] Extract color-cycle serialization into
   `src/utils/export/goblet/gobletColorCycleSerializer.ts`.
-- [ ] Extract sequential serialization into
+- [x] Extract sequential serialization into
   `src/utils/export/goblet/gobletSequentialSerializer.ts`.
-- [ ] Extract zip packaging into
+- [x] Extract zip packaging into
   `src/utils/export/goblet/gobletZipBuilder.ts`.
-- [ ] Extract browser download helper into
+- [x] Extract browser download helper into
   `src/utils/export/goblet/downloadBlob.ts`.
-- [ ] Remove direct `useAppStore` imports from export internals.
-- [ ] Reduce `webglExporter.ts` below 600 LOC as a compatibility facade.
-- [ ] Make `webglExporter.ts` file budget blocking.
-- [ ] Run Phase 2 Goblet/export verification.
+- [x] Remove direct `useAppStore` imports from export internals.
+- [x] Reduce `webglExporter.ts` below 600 LOC as a compatibility facade.
+- [x] Make `webglExporter.ts` file budget blocking.
+- [x] Run Phase 2 Goblet/export verification.
 
 ### Step 6: Playback Runtime Owner
 
