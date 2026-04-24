@@ -20,6 +20,7 @@ import type { StoredStop } from '@/utils/colorCycleGradientDefs';
 import { ccDebugVerboseOn, ccLog } from '@/utils/colorCycle/ccDebug';
 import { isOverlaySeededFromLayer } from '@/hooks/canvas/utils/overlaySeedState';
 import { logCCMutation, summarizeColorCycleLayer } from '@/utils/colorCycle/ccMutationAudit';
+import { persistCommittedSampledSlot } from '@/hooks/canvas/handlers/colorCycle/colorCycleSampledSlotPersistence';
 
 const loggedLegacySlotSummaryByLayer = new Set<string>();
 
@@ -599,6 +600,15 @@ export const commitColorCycleLayerStroke = async (
           }
         }
         if (committedSession?.source === 'sampled') {
+          if (committedSession.binding) {
+            persistCommittedSampledSlot({
+              layerId: targetLayerId,
+              slot: committedSession.binding.slot,
+              stops: committedSession.frozenStopsStored,
+              defId: committedSession.binding.defId,
+              reason: 'stroke-commit-sampled-slot',
+            });
+          }
           try {
             useAppStore.getState().setCcGradientSampleCount(0);
           } catch {}

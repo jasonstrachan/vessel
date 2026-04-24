@@ -162,7 +162,22 @@ describe('commitRasterOverlay', () => {
       canvas,
       hasContent: true,
       gradient: [],
-      gradientDefStore: [],
+      gradientDefStore: [
+        {
+          id: 22,
+          kind: 'linear',
+          stops: [
+            { position: 0, color: '#081018' },
+            { position: 0.5, color: '#506070' },
+            { position: 1, color: '#c0d0e0' },
+          ],
+          hash: 'hash-sampled',
+          source: 'sampled',
+          createdAtMs: 1,
+          slot: 6,
+          speedCps: 0.3,
+        },
+      ],
     } as Layer['colorCycleData'];
 
     const updateLayer = jest.fn();
@@ -172,6 +187,7 @@ describe('commitRasterOverlay', () => {
       layers: [layer],
       updateLayer,
       setCcGradientSampleCount,
+      colorCyclePlayback: { desiredPlaying: true, suspendDepth: 0 },
     } as unknown as ReturnType<typeof useAppStore.getState>);
 
     (finalizeMarkGradientSession as jest.Mock).mockReturnValue({
@@ -252,7 +268,22 @@ describe('commitRasterOverlay', () => {
       canvas,
       hasContent: true,
       gradient: [],
-      gradientDefStore: [],
+      gradientDefStore: [
+        {
+          id: 22,
+          kind: 'linear',
+          stops: [
+            { position: 0, color: '#081018' },
+            { position: 0.5, color: '#506070' },
+            { position: 1, color: '#c0d0e0' },
+          ],
+          hash: 'hash-sampled',
+          source: 'sampled',
+          createdAtMs: 1,
+          slot: 6,
+          speedCps: 0.3,
+        },
+      ],
     } as Layer['colorCycleData'];
 
     const updateLayer = jest.fn();
@@ -262,6 +293,7 @@ describe('commitRasterOverlay', () => {
       layers: [layer],
       updateLayer,
       setCcGradientSampleCount,
+      colorCyclePlayback: { desiredPlaying: true, suspendDepth: 0 },
     } as unknown as ReturnType<typeof useAppStore.getState>);
 
     (finalizeMarkGradientSession as jest.Mock).mockReturnValue({
@@ -327,6 +359,31 @@ describe('commitRasterOverlay', () => {
         previewSlot: TEMP_SAMPLE_SLOT,
       },
     });
+    expect(updateLayer).toHaveBeenCalledWith(
+      layer.id,
+      {
+        colorCycleData: expect.objectContaining({
+          gradient: [
+            expect.objectContaining({ position: 0, color: '#081018' }),
+            expect.objectContaining({ position: 0.5, color: '#506070' }),
+            expect.objectContaining({ position: 1, color: '#c0d0e0' }),
+          ],
+          paintSlot: 6,
+          isAnimating: true,
+          slotPalettes: [
+            {
+              slot: 6,
+              stops: [
+                expect.objectContaining({ position: 0, color: '#081018' }),
+                expect.objectContaining({ position: 0.5, color: '#506070' }),
+                expect.objectContaining({ position: 1, color: '#c0d0e0' }),
+              ],
+            },
+          ],
+        }),
+      },
+      { skipColorCycleSync: true }
+    );
     expect(setCcGradientSampleCount).toHaveBeenCalledWith(0);
 
     getStateSpy.mockRestore();
