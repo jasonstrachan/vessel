@@ -1603,6 +1603,21 @@ describe('projectIO serialize/deserialize layering', () => {
       expect(zip.file('buffers/color-cycle/layer-cc-external-buffers/gradient-id.bin')).toBeTruthy();
       expect(zip.file('buffers/color-cycle/layer-cc-external-buffers/flow.bin')).toBeTruthy();
       expect(zip.file('buffers/color-cycle/layer-cc-external-buffers/phase.bin')).toBeTruthy();
+      const binaryEntries = (await readProjectManifest(payload)).binaries?.entries ?? [];
+      const paintEntry = binaryEntries.find((entry) => entry.path === 'buffers/color-cycle/layer-cc-external-buffers/paint.bin');
+      const gradientDefEntry = binaryEntries.find((entry) => entry.path === 'buffers/color-cycle/layer-cc-external-buffers/gradient-def-id.bin');
+      expect(paintEntry).toMatchObject({
+        byteLength: 1,
+        logicalByteLength: width * height,
+        encoding: 'sparse-rect-v1',
+        crop: { x: 0, y: 0, width: 1, height: 1 },
+      });
+      expect(gradientDefEntry).toMatchObject({
+        byteLength: 2,
+        logicalByteLength: width * height * 2,
+        encoding: 'sparse-rect-v1',
+        crop: { x: 0, y: 0, width: 1, height: 1 },
+      });
 
       const restored = await deserializeProject(payload);
       const [restoredLayer] = await restoreColorCycleBrushes(restored.layers);
@@ -4055,6 +4070,298 @@ describe('projectIO serialize/deserialize layering', () => {
     expect(restoredLayer.colorCycleData?.deferredRuntimeRestore).toBe(true);
     expect(restoredLayer.colorCycleData?.runtimeHydrationState).toBe('cold');
     expect(restoredLayer.colorCycleData?.colorCycleBrush).toBeUndefined();
+  });
+
+  it('keeps non-active heavy archive color-cycle buffers unhydrated until warm restore', async () => {
+    const width = 1152;
+    const height = 1152;
+    const activeLayerId = 'active-raster-lazy-memory';
+    const colorCycleLayerId = 'cold-cc-lazy-memory';
+    const pixelCount = width * height;
+    const paint = new Uint8Array(pixelCount);
+    const gradientId = new Uint8Array(pixelCount);
+    const gradientDefId = new Uint16Array(pixelCount);
+    const speed = new Uint8Array(pixelCount);
+    const flow = new Uint8Array(pixelCount);
+    const phase = new Uint8Array(pixelCount);
+    paint.fill(1);
+    gradientId.fill(2);
+    gradientDefId.fill(3);
+    speed.fill(4);
+    flow.fill(1);
+    phase.fill(5);
+
+    const entries = [
+      { path: `buffers/color-cycle/${colorCycleLayerId}/paint.bin`, bytes: paint },
+      { path: `buffers/color-cycle/${colorCycleLayerId}/gradient-id.bin`, bytes: gradientId },
+      { path: `buffers/color-cycle/${colorCycleLayerId}/gradient-def-id.bin`, bytes: new Uint8Array(gradientDefId.buffer) },
+      { path: `buffers/color-cycle/${colorCycleLayerId}/speed.bin`, bytes: speed },
+      { path: `buffers/color-cycle/${colorCycleLayerId}/flow.bin`, bytes: flow },
+      { path: `buffers/color-cycle/${colorCycleLayerId}/phase.bin`, bytes: phase },
+    ];
+    const ref = (path: string) => `zip:${path}`;
+    const archive = {
+      version: '1.1.0',
+      metadata: {
+        name: 'Lazy CC Archive Runtime',
+        created: '2025-01-01T00:00:00.000Z',
+        modified: '2025-01-01T00:00:00.000Z',
+        appVersion: '1.0.0',
+      },
+      project: {
+        id: 'project-lazy-cc-archive-runtime',
+        name: 'Lazy CC Archive Runtime',
+        width,
+        height,
+        backgroundColor: '#000000',
+        layers: [{
+          id: activeLayerId,
+          name: 'Active Raster',
+          visible: true,
+          opacity: 1,
+          blendMode: 'source-over',
+          locked: false,
+          order: 0,
+          imageDataUrl: '',
+          layerType: 'normal',
+        }, {
+          id: colorCycleLayerId,
+          name: 'Cold CC',
+          visible: true,
+          opacity: 1,
+          blendMode: 'source-over',
+          locked: false,
+          order: 1,
+          imageDataUrl: '',
+          layerType: 'color-cycle',
+          state: {
+            version: 1,
+            dimensions: { width, height },
+            mode: 'brush',
+            gradientDefStore: [{
+              id: 3,
+              kind: 'linear',
+              stops: [{ position: 0, color: '#000000' }, { position: 1, color: '#ffffff' }],
+              hash: 'def-3',
+              source: 'manual',
+              createdAtMs: 1,
+            }],
+            paintRef: ref(entries[0].path),
+            gradientIdRef: ref(entries[1].path),
+            gradientDefIdRef: ref(entries[2].path),
+            speedRef: ref(entries[3].path),
+            flowRef: ref(entries[4].path),
+            phaseRef: ref(entries[5].path),
+            hasContent: true,
+            strokeCounter: 1,
+          },
+          colorCycleData: {},
+        }],
+        customBrushes: [],
+      },
+      binaries: {
+        entries: entries.map((entry) => ({
+          version: 1,
+          path: entry.path,
+          checksum: fnv1aHash(entry.bytes),
+          byteLength: entry.bytes.byteLength,
+          dtype: inferBinaryManifestDType(entry.path),
+          width,
+          height,
+          compression: 'deflate',
+        })),
+      },
+    };
+    const zip = new JSZip();
+    zip.file('project.json', JSON.stringify(archive));
+    entries.forEach((entry) => zip.file(entry.path, entry.bytes));
+    const payload = await zip.generateAsync({ type: 'uint8array', compression: 'DEFLATE' });
+    const deserialized = await deserializeProject(payload, {
+      lazyColorCycleRuntime: true,
+      activeLayerId,
+    });
+    const lazyLayer = deserialized.layers.find((layer) => layer.id === colorCycleLayerId);
+
+    expect(lazyLayer?.colorCycleData?.gradientIdBuffer?.byteLength ?? 0).toBeLessThan(width * height);
+    expect(lazyLayer?.colorCycleData?.gradientDefIdBuffer?.byteLength ?? 0).toBeLessThan(width * height * 2);
+
+    const restoredColdLayers = await restoreColorCycleBrushes(deserialized.layers, {
+      lazy: true,
+      activeLayerId,
+    });
+    const restoredColdLayer = restoredColdLayers.find((layer) => layer.id === colorCycleLayerId);
+
+    expect(restoredColdLayer?.colorCycleData?.runtimeHydrationState).toBe('cold');
+    expect(restoredColdLayer?.colorCycleData?.colorCycleBrush).toBeUndefined();
+    expect(restoredColdLayer?.colorCycleData?.gradientIdBuffer?.byteLength ?? 0).toBeLessThan(width * height);
+
+    const [warmedLayer] = await restoreColorCycleBrushes([restoredColdLayer as Layer], {
+      lazy: false,
+      activeLayerId: colorCycleLayerId,
+    });
+
+    expect(warmedLayer.colorCycleData?.runtimeHydrationState).toBe('active');
+    expect(warmedLayer.colorCycleData?.gradientIdBuffer?.byteLength).toBe(width * height);
+    expect(warmedLayer.colorCycleData?.gradientDefIdBuffer?.byteLength).toBe(width * height * 2);
+    expect(warmedLayer.colorCycleData?.colorCycleBrush).toBeTruthy();
+  });
+
+  it('copies deferred archive color-cycle binaries when saving before warm restore', async () => {
+    const width = 1152;
+    const height = 1152;
+    const activeLayerId = 'active-raster-lazy-resave';
+    const colorCycleLayerId = 'cold-cc-lazy-resave';
+    const pixelCount = width * height;
+    const paint = new Uint8Array(pixelCount);
+    const gradientId = new Uint8Array(pixelCount);
+    const gradientDefId = new Uint16Array(pixelCount);
+    const speed = new Uint8Array(pixelCount);
+    const flow = new Uint8Array(pixelCount);
+    const phase = new Uint8Array(pixelCount);
+    paint.fill(1);
+    gradientId.fill(2);
+    gradientDefId.fill(3);
+    speed.fill(4);
+    flow.fill(1);
+    phase.fill(5);
+
+    const entries = [
+      { path: `buffers/color-cycle/${colorCycleLayerId}/paint.bin`, bytes: paint },
+      { path: `buffers/color-cycle/${colorCycleLayerId}/gradient-id.bin`, bytes: gradientId },
+      { path: `buffers/color-cycle/${colorCycleLayerId}/gradient-def-id.bin`, bytes: new Uint8Array(gradientDefId.buffer) },
+      { path: `buffers/color-cycle/${colorCycleLayerId}/speed.bin`, bytes: speed },
+      { path: `buffers/color-cycle/${colorCycleLayerId}/flow.bin`, bytes: flow },
+      { path: `buffers/color-cycle/${colorCycleLayerId}/phase.bin`, bytes: phase },
+    ];
+    const ref = (path: string) => `zip:${path}`;
+    const archive = {
+      version: '1.1.0',
+      metadata: {
+        name: 'Lazy CC Resave',
+        created: '2025-01-01T00:00:00.000Z',
+        modified: '2025-01-01T00:00:00.000Z',
+        appVersion: '1.0.0',
+      },
+      project: {
+        id: 'project-lazy-cc-resave',
+        name: 'Lazy CC Resave',
+        width,
+        height,
+        backgroundColor: '#000000',
+        layers: [{
+          id: activeLayerId,
+          name: 'Active Raster',
+          visible: true,
+          opacity: 1,
+          blendMode: 'source-over',
+          locked: false,
+          order: 0,
+          imageDataUrl: '',
+          layerType: 'normal',
+        }, {
+          id: colorCycleLayerId,
+          name: 'Cold CC',
+          visible: true,
+          opacity: 1,
+          blendMode: 'source-over',
+          locked: false,
+          order: 1,
+          imageDataUrl: '',
+          layerType: 'color-cycle',
+          state: {
+            version: 1,
+            dimensions: { width, height },
+            mode: 'brush',
+            gradientDefStore: [{
+              id: 3,
+              kind: 'linear',
+              stops: [{ position: 0, color: '#000000' }, { position: 1, color: '#ffffff' }],
+              hash: 'def-3',
+              source: 'manual',
+              createdAtMs: 1,
+            }],
+            paintRef: ref(entries[0].path),
+            gradientIdRef: ref(entries[1].path),
+            gradientDefIdRef: ref(entries[2].path),
+            speedRef: ref(entries[3].path),
+            flowRef: ref(entries[4].path),
+            phaseRef: ref(entries[5].path),
+            hasContent: true,
+            strokeCounter: 1,
+          },
+          colorCycleData: {},
+        }],
+        customBrushes: [],
+      },
+      binaries: {
+        entries: entries.map((entry) => ({
+          version: 1,
+          path: entry.path,
+          checksum: fnv1aHash(entry.bytes),
+          byteLength: entry.bytes.byteLength,
+          dtype: inferBinaryManifestDType(entry.path),
+          width,
+          height,
+          compression: 'deflate',
+        })),
+      },
+    };
+    const sourceZip = new JSZip();
+    sourceZip.file('project.json', JSON.stringify(archive));
+    entries.forEach((entry) => sourceZip.file(entry.path, entry.bytes));
+    const sourcePayload = await sourceZip.generateAsync({ type: 'uint8array', compression: 'DEFLATE' });
+
+    const deserialized = await deserializeProject(sourcePayload, {
+      lazyColorCycleRuntime: true,
+      activeLayerId,
+    });
+    deserialized.layers = await restoreColorCycleBrushes(deserialized.layers, {
+      lazy: true,
+      activeLayerId,
+    });
+    const coldLayer = deserialized.layers.find((layer) => layer.id === colorCycleLayerId);
+    expect(coldLayer?.colorCycleData?.runtimeHydrationState).toBe('cold');
+
+    const resavedPayload = await withPatchedCanvasRect(() => serializeProject(deserialized, deserialized.layers));
+    const resavedZip = await JSZip.loadAsync(resavedPayload);
+    const projectJson = await resavedZip.file('project.json')?.async('string');
+    if (!projectJson) {
+      throw new Error('Missing project.json');
+    }
+    const resavedManifest = JSON.parse(projectJson) as {
+      binaries?: { entries?: Array<{ path: string; byteLength: number }> };
+      project: { layers: Array<{ id: string; state?: Record<string, string | undefined> }> };
+    };
+    const binaryPaths = new Set((resavedManifest.binaries?.entries ?? []).map((entry) => entry.path));
+    const persistedColdLayer = resavedManifest.project.layers.find((layer) => layer.id === colorCycleLayerId);
+    const persistedRefs = [
+      persistedColdLayer?.state?.paintRef,
+      persistedColdLayer?.state?.gradientIdRef,
+      persistedColdLayer?.state?.gradientDefIdRef,
+      persistedColdLayer?.state?.speedRef,
+      persistedColdLayer?.state?.flowRef,
+      persistedColdLayer?.state?.phaseRef,
+    ];
+
+    for (const persistedRef of persistedRefs) {
+      expect(typeof persistedRef).toBe('string');
+      const path = (persistedRef as string).slice('zip:'.length);
+      expect(binaryPaths.has(path)).toBe(true);
+      expect(resavedZip.file(path)).toBeTruthy();
+    }
+
+    const restored = await deserializeProject(resavedPayload);
+    const restoredLayer = restored.layers.find((layer) => layer.id === colorCycleLayerId);
+    expect(restoredLayer?.colorCycleData?.gradientIdBuffer?.byteLength).toBe(width * height);
+    expect(restoredLayer?.colorCycleData?.gradientDefIdBuffer?.byteLength).toBe(width * height * 2);
+    const restoredBrushState = restoredLayer?.colorCycleData?.brushState as {
+      layers?: Array<{ strokeData?: { paintBuffer?: string; flowBuffer?: string } }>;
+    } | undefined;
+    const restoredStrokeData = restoredBrushState?.layers?.[0]?.strokeData;
+    expect(typeof restoredStrokeData?.paintBuffer).toBe('string');
+    expect((restoredStrokeData?.paintBuffer ?? '').length).toBeGreaterThan(0);
+    expect(typeof restoredStrokeData?.flowBuffer).toBe('string');
+    expect((restoredStrokeData?.flowBuffer ?? '').length).toBeGreaterThan(0);
   });
 
   it('does not defer runtime restore for animating non-active heavy color-cycle layers when lazy mode is enabled', async () => {

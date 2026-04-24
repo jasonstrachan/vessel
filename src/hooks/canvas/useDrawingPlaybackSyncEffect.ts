@@ -52,9 +52,9 @@ export const useDrawingPlaybackSyncEffect = ({
         playing,
         activeRef: latest.continuousColorCycleAnimationActiveRef.current,
         startingRef: latest.startingColorCycleAnimationRef.current,
-        desiredPlaying: latest.storeRef.current.colorCyclePlayback.desiredPlaying,
-        suspendDepth: latest.storeRef.current.colorCyclePlayback.suspendDepth,
-        lastReason: latest.storeRef.current.colorCyclePlayback.lastReason ?? null,
+        desiredPlaying: latest.storeRef.current.colorCyclePlayback?.desiredPlaying ?? false,
+        suspendDepth: latest.storeRef.current.colorCyclePlayback?.suspendDepth ?? 0,
+        lastReason: latest.storeRef.current.colorCyclePlayback?.lastReason ?? null,
       });
       const syncPlayback = createDrawingPlaybackSync({
         startContinuousColorCycleAnimation: latest.startContinuousColorCycleAnimation,
@@ -81,9 +81,9 @@ export const useDrawingPlaybackSyncEffect = ({
       latestRef.current.ccLog('sync effect observed effectivePlaying change', {
         prev: previous,
         next,
-        desiredPlaying: state.colorCyclePlayback.desiredPlaying,
-        suspendDepth: state.colorCyclePlayback.suspendDepth,
-        lastReason: state.colorCyclePlayback.lastReason ?? null,
+        desiredPlaying: state.colorCyclePlayback?.desiredPlaying ?? false,
+        suspendDepth: state.colorCyclePlayback?.suspendDepth ?? 0,
+        lastReason: state.colorCyclePlayback?.lastReason ?? null,
       });
       previous = next;
       runSync(next, 'store-sync');

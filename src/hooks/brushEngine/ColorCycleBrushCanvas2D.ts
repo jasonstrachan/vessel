@@ -59,6 +59,7 @@ import { resolveLayerColorCycleBaseSpeedFromLayer } from '@/utils/colorCycleLaye
 import type { StoredStop } from '@/utils/colorCycleGradientDefs';
 import type { CommitCommittedLayerStateOptions } from '@/hooks/brushEngine/colorCycleCommittedState';
 import { getActiveMarkGradientSession } from '@/hooks/canvas/utils/colorCycleMarkSession';
+import { TEMP_SAMPLE_SLOT } from '@/constants/colorCycle';
 
 type CcCustomStampPerfStats = {
   sourceHit: number;
@@ -1101,6 +1102,14 @@ export class ColorCycleBrushCanvas2D {
     return Math.max(0, Math.min(FLOW_SLOT_MASK, Math.round(activeSlot)));
   }
 
+  private resolveActiveStrokeSlot(layerId: string, strokeData?: LayerStrokeState | null): number {
+    const activeSession = getActiveMarkGradientSession(layerId);
+    if (activeSession?.source === 'sampled' && activeSession.markKind === 'stroke') {
+      return TEMP_SAMPLE_SLOT;
+    }
+    return strokeData?.flow.activeSlot ?? this.activeGradientSlots.get(layerId) ?? 0;
+  }
+
   private buildDefPaletteSignature(
     defs: Array<{ id: number; hash: string; seamProfile?: GradientSeamProfile }>
   ): string {
@@ -1749,7 +1758,8 @@ export class ColorCycleBrushCanvas2D {
 
     if (strokeData) {
       this.applyStrokeFlowSpeed(strokeData, speedSamplePxPerMs);
-      const activeSlot = strokeData.flow.activeSlot ?? this.activeGradientSlots.get(id) ?? 0;
+      const activeSlot = this.resolveActiveStrokeSlot(id, strokeData);
+      strokeData.flow.activeSlot = activeSlot;
       const flowSlot = this.resolveFlowSlot(strokeData, activeSlot);
       const useStampDither = this.stampDitherEnabled;
       const prevColorIndex = useStampDither
@@ -2523,7 +2533,10 @@ export class ColorCycleBrushCanvas2D {
         if (effectivePreviewSlot !== null && curSlot === effectivePreviewSlot) {
           gidBuffer[idx] = (gid & ~FLOW_SLOT_MASK) | committedSlotMasked;
           defBuffer[idx] = defId;
-        } else if (curSlot === committedSlotMasked) {
+        } else if (
+          curSlot === committedSlotMasked &&
+          (effectivePreviewSlot === null || defBuffer[idx] === 0)
+        ) {
           defBuffer[idx] = defId;
         }
         if (process.env.NODE_ENV !== 'production' && effectivePreviewSlot !== null) {
@@ -3053,7 +3066,7 @@ export class ColorCycleBrushCanvas2D {
         strokeData.strokePhaseUnits = 0;
         strokeData.stampCounter = 0;
       }
-      strokeData.flow.activeSlot = this.activeGradientSlots.get(id) ?? strokeData.flow.activeSlot ?? 0;
+      strokeData.flow.activeSlot = this.resolveActiveStrokeSlot(id, strokeData);
       strokeData.flow.mode = this.flowMode;
       strokeData.flow.encoded = true;
       let nextSeed = 0;
@@ -3252,7 +3265,8 @@ export class ColorCycleBrushCanvas2D {
     if (strokeData && this.stampDitherEnabled && !skipStampFinalize) {
       const algo = this.stampDitherAlgorithm ?? 'sierra-lite';
       const finalizeStart = perf ? nowMs() : 0;
-      const activeSlot = strokeData.flow.activeSlot ?? this.activeGradientSlots.get(id) ?? 0;
+      const activeSlot = this.resolveActiveStrokeSlot(id, strokeData);
+      strokeData.flow.activeSlot = activeSlot;
       const flowSlot = this.resolveFlowSlot(strokeData, activeSlot);
       finalizeStampDither({
         animator,

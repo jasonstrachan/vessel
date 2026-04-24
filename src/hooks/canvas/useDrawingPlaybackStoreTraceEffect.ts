@@ -41,22 +41,19 @@ export const useDrawingPlaybackStoreTraceEffect = ({
           isAnimating: layer.colorCycleData?.isAnimating ?? null,
         }));
 
+    const buildPlaybackSnapshot = (state: AppState) => ({
+      desiredPlaying: state.colorCyclePlayback?.desiredPlaying ?? false,
+      suspendDepth: state.colorCyclePlayback?.suspendDepth ?? 0,
+      lastReason: state.colorCyclePlayback?.lastReason ?? null,
+      effectivePlaying: selectEffectiveColorCyclePlaying(state),
+    });
+
     let previousSnapshots = buildSnapshot(storeRef.current.layers);
-    let previousPlayback = {
-      desiredPlaying: storeRef.current.colorCyclePlayback.desiredPlaying,
-      suspendDepth: storeRef.current.colorCyclePlayback.suspendDepth,
-      lastReason: storeRef.current.colorCyclePlayback.lastReason ?? null,
-      effectivePlaying: selectEffectiveColorCyclePlaying(storeRef.current),
-    };
+    let previousPlayback = buildPlaybackSnapshot(storeRef.current);
 
     const unsubscribe = useAppStore.subscribe((state: AppState) => {
       const nextSnapshots = buildSnapshot(state.layers);
-      const nextPlayback = {
-        desiredPlaying: state.colorCyclePlayback.desiredPlaying,
-        suspendDepth: state.colorCyclePlayback.suspendDepth,
-        lastReason: state.colorCyclePlayback.lastReason ?? null,
-        effectivePlaying: selectEffectiveColorCyclePlaying(state),
-      };
+      const nextPlayback = buildPlaybackSnapshot(state);
 
       Object.values(nextSnapshots).forEach((entry) => {
         const prevEntry = previousSnapshots[entry.id];

@@ -1,7 +1,11 @@
 import { pointInPolygon } from '@/shapeFill/utils/geometry';
 import { TEMP_SAMPLE_SLOT } from '@/constants/colorCycle';
 import { finalizeColorCycleShapeFillLinear } from '@/hooks/canvas/handlers/colorCycle/colorCycleShapeFill';
-import type { MarkGradientSession } from '@/hooks/canvas/utils/colorCycleMarkSession';
+import {
+  beginMarkGradientSession,
+  finalizeMarkGradientSession,
+  type MarkGradientSession,
+} from '@/hooks/canvas/utils/colorCycleMarkSession';
 import { ColorCycleBrushCanvas2D } from '../ColorCycleBrushCanvas2D';
 import { decodeColorCycleSpeedByte } from '@/utils/colorCycleSpeed';
 import { appendGradientSeamProfileSignature } from '@/lib/colorCycle/gradientSeamProfile';
@@ -557,6 +561,153 @@ describe('ColorCycleBrushCanvas2D regression tests', () => {
         TEMP_SAMPLE_SLOT
       );
     });
+  });
+
+  it('does not rebind already committed sampled pixels when a new sampled commit collides with their slot', () => {
+    const layerId = 'layer-sampled-slot-collision';
+    const slot = 7;
+    const oldDefId = 101;
+    const newDefId = 202;
+    const brush = new ColorCycleBrushCanvas2D(makeCanvas(4, 1), { forceCanvas2D: true });
+    const state = useAppStore.getState() as unknown as MockStoreState;
+
+    state.layers = [
+      {
+        id: layerId,
+        layerType: 'color-cycle',
+        colorCycleData: {
+          paintSlot: slot,
+          slotPalettes: [
+            {
+              slot,
+              stops: [
+                { position: 0, color: '#111111' },
+                { position: 1, color: '#eeeeee' },
+              ],
+            },
+          ],
+          gradientDefStore: [
+            {
+              id: oldDefId,
+              kind: 'linear',
+              stops: [
+                { position: 0, color: '#111111' },
+                { position: 1, color: '#eeeeee' },
+              ],
+              hash: 'linear:old',
+              source: 'sampled',
+              createdAtMs: 1,
+              slot,
+            },
+            {
+              id: newDefId,
+              kind: 'linear',
+              stops: [
+                { position: 0, color: '#aa3300' },
+                { position: 1, color: '#ffee99' },
+              ],
+              hash: 'linear:new',
+              source: 'sampled',
+              createdAtMs: 2,
+              slot,
+            },
+          ],
+        },
+      },
+    ];
+
+    brush.applyLayerSnapshot(layerId, {
+      paintBuffer: new Uint8Array([1, 1, 1, 1]).buffer,
+      gradientIdBuffer: new Uint8Array([slot, slot, TEMP_SAMPLE_SLOT, slot]).buffer,
+      gradientDefIdBuffer: new Uint16Array([oldDefId, oldDefId, 0, 0]).buffer,
+      speedBuffer: new Uint8Array([0, 0, 0, 0]).buffer,
+      flowBuffer: new Uint8Array([0, 0, 0, 0]).buffer,
+      phaseBuffer: new Uint8Array([0, 0, 0, 0]).buffer,
+      hasContent: true,
+      strokeCounter: 1,
+    });
+
+    brush.commitCommittedLayerState({
+      layerId,
+      binding: {
+        defId: newDefId,
+        slot,
+        previewSlot: TEMP_SAMPLE_SLOT,
+      },
+    });
+
+    const after = brush.getLayerSnapshot(layerId);
+    expect(Array.from(new Uint8Array(after?.gradientIdBuffer ?? new ArrayBuffer(0)))).toEqual([
+      slot,
+      slot,
+      slot,
+      slot,
+    ]);
+    expect(Array.from(new Uint16Array(after?.gradientDefIdBuffer ?? new ArrayBuffer(0)))).toEqual([
+      oldDefId,
+      oldDefId,
+      newDefId,
+      newDefId,
+    ]);
+  });
+
+  it('authors active sampled strokes into the temp slot before commit rebinding', () => {
+    const layerId = 'layer-sampled-stroke-temp-slot';
+    const previousCommittedSlot = 12;
+    const state = useAppStore.getState() as unknown as MockStoreState;
+    state.layers = [
+      {
+        id: layerId,
+        layerType: 'color-cycle',
+        colorCycleData: {
+          paintSlot: previousCommittedSlot,
+          slotPalettes: [
+            {
+              slot: previousCommittedSlot,
+              stops: [
+                { position: 0, color: '#223344' },
+                { position: 1, color: '#ddeeff' },
+              ],
+            },
+          ],
+          gradientDefStore: [],
+        },
+      },
+    ];
+
+    beginMarkGradientSession({
+      layerId,
+      markKind: 'stroke',
+      gradientKind: 'linear',
+      source: 'sampled',
+      stops: [
+        { position: 0, color: '#aa3300' },
+        { position: 1, color: '#ffee99' },
+      ],
+      speedCps: 0.2,
+    });
+
+    const brush = new ColorCycleBrushCanvas2D(makeCanvas(16, 16), { forceCanvas2D: true });
+    try {
+      brush.setBrushSize(3);
+      brush.setActiveGradientSlot(layerId, previousCommittedSlot);
+      brush.startStroke(layerId);
+      brush.paint(8, 8, layerId, 1);
+      brush.endStroke(layerId);
+
+      const snapshot = brush.getLayerSnapshot(layerId);
+      const paint = new Uint8Array(snapshot?.paintBuffer ?? new ArrayBuffer(0));
+      const gradientIds = new Uint8Array(snapshot?.gradientIdBuffer ?? new ArrayBuffer(0));
+      const paintedSlots = new Set<number>();
+      paint.forEach((value, index) => {
+        if (value !== 0) {
+          paintedSlots.add(gradientIds[index]);
+        }
+      });
+      expect(paintedSlots).toEqual(new Set([TEMP_SAMPLE_SLOT]));
+    } finally {
+      finalizeMarkGradientSession(layerId);
+    }
   });
 
   it('linear fill is monotonic along x (with at most one wrap)', async () => {

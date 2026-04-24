@@ -55,6 +55,14 @@ const summarizePlaybackState = (storeRef: React.MutableRefObject<AppState>) => {
   }
 };
 
+const isColdColorCycleLayer = (layer: Layer): boolean => (
+  layer.layerType === 'color-cycle' &&
+  Boolean(
+    layer.colorCycleData?.deferredRuntimeRestore ||
+    layer.colorCycleData?.runtimeHydrationState === 'cold'
+  )
+);
+
 const setSharedColorCycleRuntimeConsumer = (
   storeRef: React.MutableRefObject<AppState>,
   unregister: () => void
@@ -471,6 +479,10 @@ export const startContinuousColorCycleAnimationCore = (
         const projW = state.project?.width || 1024;
         const projH = state.project?.height || 1024;
         ccLayers.forEach(l => {
+          if (isColdColorCycleLayer(l)) {
+            ccLog('skip cold CC init before first playback frame', { id: l.id.slice(-6), reason });
+            return;
+          }
           const hasBrush = !!mgr.getBrush(l.id);
           if (!hasBrush) {
             try { state.initColorCycleForLayer(l.id, projW, projH); ccLog('initColorCycleForLayer()', { id: l.id.slice(-6), reason }); } catch {}
@@ -537,6 +549,25 @@ export const startContinuousColorCycleAnimationCore = (
       window.dispatchEvent(new CustomEvent('colorCycleFrameUpdate'));
       ccLog('dispatched colorCycleFrameUpdate', { reason });
     } catch {}
+    if (!lightweightPanResume) {
+      const coldLayerIds = ccLayers
+        .filter((layer) => layer.visible !== false && isColdColorCycleLayer(layer))
+        .map((layer) => layer.id);
+      if (coldLayerIds.length > 0 && typeof window !== 'undefined') {
+        window.setTimeout(() => {
+          try {
+            const latestState = storeRef.current;
+            coldLayerIds.forEach((layerId) => {
+              latestState.getLayerColorCycleBrush?.(layerId);
+            });
+            ccLog('scheduled cold CC playback hydration', {
+              reason,
+              count: coldLayerIds.length,
+            });
+          } catch {}
+        }, 0);
+      }
+    }
     if (limitInitialRenderToActiveLayer) {
       scheduleDeferredOverlayRender();
     }

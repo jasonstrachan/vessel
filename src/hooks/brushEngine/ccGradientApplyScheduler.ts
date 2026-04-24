@@ -3,6 +3,7 @@ import type { ColorCycleBrushImplementation } from '@/hooks/brushEngine/ColorCyc
 import type { AppState } from '@/stores/useAppStore';
 import { buildRuntimeSnapshot, signatureForStops, type CCRuntimeSnapshot } from './ccGradientRuntime';
 import { appendGradientSeamProfileSignature } from '@/lib/colorCycle/gradientSeamProfile';
+import { TEMP_SAMPLE_SLOT } from '@/constants/colorCycle';
 
 const lastAppliedByLayer = new Map<
   string,
@@ -55,7 +56,8 @@ export const applyRuntimeToBrush = (
     }
   }
 
-  if (didChangePalette) {
+  const isSampledTempPreviewUpdate = snapshot.paintSlot === TEMP_SAMPLE_SLOT;
+  if (didChangePalette && !isSampledTempPreviewUpdate) {
     try {
       brush.commitCurrentStroke?.(layerId);
       brush.flush?.(layerId);
