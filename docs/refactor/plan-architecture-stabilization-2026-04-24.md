@@ -12,14 +12,13 @@ Last updated: 2026-04-24.
 - [x] Phase 5 worker and test type-check scripts added.
 - [x] Phase 5 CI wiring added for report-mode architecture checks, app
   type-check, worker type-check, and test type-check.
-- [ ] Phase 1 `layersSlice` domain extraction. In progress: clone helpers
-  extracted to `src/stores/layers/layerCloneService.ts`; pure group helpers
-  extracted to `src/stores/layers/layerGroupService.ts`; pure CRUD/order
-  helpers extracted to `src/stores/layers/layerCrudService.ts`; color-cycle
-  gradient/slot/buffer helpers extracted to
-  `src/stores/layers/layerColorCycleState.ts`; composite invalidation helpers
-  extracted to `src/stores/layers/layerCompositeInvalidation.ts`.
-- [ ] Phase 1 `layersSlice` budget made blocking after extraction.
+- [x] Phase 1 `layersSlice` domain extraction. Clone, group, CRUD/order,
+  color-cycle gradient/slot/buffer, composite invalidation, composite render
+  segment, and sequential append helpers are extracted under
+  `src/stores/layers/`; the public slice entrypoint is now a facade over the
+  layer-domain coordinator.
+- [x] Phase 1 `layersSlice` and extracted coordinator budgets made blocking
+  after extraction.
 - [ ] Phase 2 Goblet/WebGL export extraction.
 - [ ] Phase 2 `webglExporter.ts` budget made blocking after extraction.
 - [ ] Phase 3 single playback runtime owner.
@@ -262,6 +261,9 @@ Zustand actions.
 ### Definition of Done
 
 - `src/stores/slices/layersSlice.ts` is under 900 LOC.
+- `src/stores/layers/createLayersSlice.ts` is covered by a blocking
+  no-growth budget until its remaining action orchestration can be split into
+  smaller coordinator modules.
 - No extracted service exceeds 800 LOC without a follow-up split note.
 - Existing layer, history, color-cycle, and composite split tests pass.
 - No new direct component imports from layer internals.
@@ -660,7 +662,7 @@ after code, tests, and docs for that item are complete.
 
 ### Step 4: `layersSlice` Extraction
 
-- [ ] Add characterization tests around layer CRUD, duplication, removal,
+- [x] Add characterization tests around layer CRUD, duplication, removal,
   reorder, active-layer selection, grouping, color-cycle slot normalization,
   compositing invalidation, and sequential event append behavior.
 - [x] Extract canvas/framebuffer clone helpers into
@@ -671,13 +673,13 @@ after code, tests, and docs for that item are complete.
   `src/stores/layers/layerColorCycleState.ts`.
 - [x] Extract composite invalidation into
   `src/stores/layers/layerCompositeInvalidation.ts`.
-- [ ] Extract composite render coordination into
+- [x] Extract composite render coordination into
   `src/stores/layers/layerCompositeRenderer.ts`.
-- [ ] Extract sequential append routing into
+- [x] Extract sequential append routing into
   `src/stores/layers/sequentialLayerEvents.ts`.
-- [ ] Reduce `layersSlice.ts` below 900 LOC.
-- [ ] Make `layersSlice.ts` file budget blocking.
-- [ ] Run Phase 1 targeted tests and full type/lint gates.
+- [x] Reduce `layersSlice.ts` below 900 LOC.
+- [x] Make `layersSlice.ts` and extracted coordinator file budgets blocking.
+- [x] Run Phase 1 targeted tests and full type/lint gates.
 
 ### Step 5: Goblet/WebGL Export Extraction
 
