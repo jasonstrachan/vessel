@@ -27,7 +27,9 @@ describe('debugOverlayStore', () => {
     expect(window.localStorage.getItem('devDebugOverlay')).toBeNull();
   });
 
-  it('appends and clears overlay entries', () => {
+  it('appends and clears overlay entries while enabled', () => {
+    setDevDebugOverlayEnabled(true);
+
     appendDevDebugOverlayEntry({
       source: 'selection',
       level: 'log',
@@ -50,7 +52,19 @@ describe('debugOverlayStore', () => {
     expect(readDevDebugOverlayEntries()).toEqual([]);
   });
 
+  it('does not append overlay entries while disabled', () => {
+    appendDevDebugOverlayEntry({
+      source: 'selection',
+      level: 'log',
+      message: 'selection updated',
+    });
+
+    expect(readDevDebugOverlayEntries()).toEqual([]);
+  });
+
   it('creates scoped logger helpers', () => {
+    setDevDebugOverlayEnabled(true);
+
     const logger = createDevDebugOverlayLogger('export');
 
     logger.warn('fallback encoder', { format: 'gif' });
@@ -75,6 +89,8 @@ describe('debugOverlayStore', () => {
   });
 
   it('dispatches overlay update events when entries change', () => {
+    setDevDebugOverlayEnabled(true);
+
     const listener = jest.fn();
     window.addEventListener(DEV_DEBUG_OVERLAY_EVENT, listener);
 

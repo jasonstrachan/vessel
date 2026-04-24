@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { CC_DEBUG } from '@/debug/ccDebug';
 import { useAppStore } from '../../stores/useAppStore';
 import { XIcon } from '../icons/XIcon';
 import { Switch } from '../retroui/Switch';
@@ -131,6 +132,16 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
     if (showRulers !== enabled) {
       toggleRulers();
     }
+  };
+
+  const handleDevDebugOverlayToggle = (enabled: boolean) => {
+    if (!enabled) {
+      CC_DEBUG.on = false;
+      if (typeof window !== 'undefined') {
+        window.__CC_DEBUG__ = false;
+      }
+    }
+    setDevDebugOverlayEnabled(enabled);
   };
 
   useEffect(() => {
@@ -279,7 +290,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
                     <Switch
                       id="show-dev-debug-overlay"
                       checked={isDevDebugOverlayOn}
-                      onChange={(enabled) => setDevDebugOverlayEnabled(enabled)}
+                      onChange={handleDevDebugOverlayToggle}
                     />
                   </div>
                 )}

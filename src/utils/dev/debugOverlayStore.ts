@@ -51,6 +51,9 @@ export const appendDevDebugOverlayEntry = ({
   if (typeof window === 'undefined') {
     return;
   }
+  if (!isDevDebugOverlayEnabled()) {
+    return;
+  }
 
   const entries = window.__DEV_DEBUG_OVERLAY_ENTRIES__ ?? [];
   entries.push({

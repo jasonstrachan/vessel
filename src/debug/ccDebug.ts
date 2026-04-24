@@ -1,6 +1,6 @@
 import { useAppStore } from '@/stores/useAppStore';
 import { appendCCDebugOverlayEntry } from '@/utils/colorCycle/ccDebugOverlayStore';
-import { setDevDebugOverlayEnabled } from '@/utils/dev/debugOverlayStore';
+import { isDevDebugOverlayEnabled, setDevDebugOverlayEnabled } from '@/utils/dev/debugOverlayStore';
 
 type ScopedConsole = typeof console;
 type CCDebugState = { on: boolean; verbose: boolean; timing: boolean };
@@ -173,7 +173,7 @@ if (typeof window !== 'undefined') {
 }
 
 export function ccLog(message: string, data?: unknown) {
-  if (!CC_DEBUG.on) {
+  if (!CC_DEBUG.on || !isDevDebugOverlayEnabled()) {
     return;
   }
   resolveConsole().log('[CC]', message, data ?? '');
@@ -181,7 +181,7 @@ export function ccLog(message: string, data?: unknown) {
 }
 
 export function ccWarn(message: string, data?: unknown) {
-  if (!CC_DEBUG.on) {
+  if (!CC_DEBUG.on || !isDevDebugOverlayEnabled()) {
     return;
   }
   resolveConsole().warn('[CC]', message, data ?? '');
@@ -189,7 +189,7 @@ export function ccWarn(message: string, data?: unknown) {
 }
 
 export function ccGroup(message: string, data?: unknown) {
-  if (!CC_DEBUG.on) {
+  if (!CC_DEBUG.on || !isDevDebugOverlayEnabled()) {
     return;
   }
   resolveConsole().log('[CC][GROUP]', message, data ?? '');
@@ -207,7 +207,7 @@ export function ccAssert(condition: boolean, message: string, info?: unknown) {
   if (condition) {
     return;
   }
-  if (!CC_DEBUG.on || !CC_DEBUG.verbose) {
+  if (!CC_DEBUG.on || !CC_DEBUG.verbose || !isDevDebugOverlayEnabled()) {
     return;
   }
   resolveConsole().warn(`[CC][ASSERT FAIL] ${message}`, info ?? '');
