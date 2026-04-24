@@ -2,6 +2,26 @@
 
 Date: 2026-04-24
 
+## Implementation Status
+
+Last updated: 2026-04-24.
+
+- [x] Phase 0 baseline recorded.
+- [x] Phase 0 dependency map recorded.
+- [x] Phase 5 report-mode guardrail scripts added.
+- [x] Phase 5 worker and test type-check scripts added.
+- [x] Phase 5 CI wiring added for report-mode architecture checks, app
+  type-check, worker type-check, and test type-check.
+- [ ] Phase 1 `layersSlice` domain extraction.
+- [ ] Phase 1 `layersSlice` budget made blocking after extraction.
+- [ ] Phase 2 Goblet/WebGL export extraction.
+- [ ] Phase 2 `webglExporter.ts` budget made blocking after extraction.
+- [ ] Phase 3 single playback runtime owner.
+- [ ] Phase 4 canvas runtime consolidation.
+- [ ] Phase 4 canvas hotspot budgets made blocking after extraction.
+- [ ] Phase 5 raw logging and store-access guards made strict after cleanup.
+- [ ] Phase 5 stricter lint warning rules made errors after cleanup.
+
 ## Goal
 
 Reduce the main architectural risk areas that remain after the first round of
@@ -28,6 +48,100 @@ Known hotspots from the architecture review:
 - `src/hooks/useBrushEngineSimplified.ts`: 2013 LOC.
 - Production `src` still has many direct `useAppStore.getState()` and
   `console.*` usages outside test-only paths.
+
+## Baseline Snapshot
+
+Recorded on 2026-04-24 before implementation work in this plan.
+
+### File Size Baseline
+
+| File | Current LOC | Target | Current guard status |
+| --- | ---: | ---: | --- |
+| `src/components/canvas/DrawingCanvas.tsx` | 42 | 700 | blocking |
+| `src/hooks/useDrawingHandlers.ts` | 79 | 700 | blocking |
+| `src/hooks/canvas/useCanvasEventHandlers.ts` | 43 | 700 | blocking |
+| `src/stores/slices/layersSlice.ts` | 4639 | 900 | report until Phase 1 |
+| `src/utils/export/webglExporter.ts` | 5219 | 600 | report until Phase 2 |
+| `src/hooks/brushEngine/ColorCycleBrushCanvas2D.ts` | 7514 | TBD by separate CC brush plan | report only |
+| `src/hooks/canvas/handlers/pointerHandlers.ts` | 4472 | 900 | report until Phase 4 |
+| `src/hooks/canvas/handlers/shapes/ShapeToolHandler.ts` | 4349 | 900 | report until Phase 4 |
+| `src/stores/slices/toolsSlice.ts` | 2625 | TBD by later tools slice plan | report only |
+| `src/hooks/useBrushEngineSimplified.ts` | 2013 | TBD by brush engine cleanup plan | report only |
+
+### Raw Access Baseline
+
+The first report-mode guardrail run found:
+
+- `440` raw `console.*` calls in production `src` after excluding tests,
+  dev-only routes, debug helpers, and approved error boundary/debug utilities.
+- `217` direct `useAppStore.getState()` calls in the React/canvas scan after
+  excluding tests and known store/history/service boundaries.
+
+These counts are intentionally non-blocking at the start of this plan. They
+become blocking only after the relevant cleanup phase removes or centralizes the
+existing debt.
+
+### Dependency Map
+
+Layer operations:
+
+- Current owner: `src/stores/slices/layersSlice.ts`.
+- Direct collaborators: `src/stores/helpers/*`, history helpers/deltas under
+  `src/history/**`, canvas compositing hooks under `src/components/canvas/**`,
+  color-cycle brush/runtime helpers under `src/stores/colorCycleBrushManager.ts`
+  and `src/stores/ccRuntime.ts`.
+- Refactor target: keep Zustand action names stable while moving clone,
+  grouping, color-cycle state, compositing, and sequential event logic into
+  domain services.
+
+Layer compositing:
+
+- Current owners: `layersSlice`, `src/components/canvas/drawingCanvasCompositeStack.ts`,
+  `src/components/canvas/useDrawingCanvasCompositeBuffers.ts`, and related
+  canvas rendering hooks.
+- Refactor target: separate dirty-region/invalidation decisions from actual
+  render coordination.
+
+Color-cycle slot and gradient layer mutation:
+
+- Current owners: `layersSlice`, `src/utils/colorCycleGradientDefs.ts`,
+  `src/utils/colorCycleGradients.ts`, `src/stores/helpers/colorCycleSelection.ts`,
+  and color-cycle canvas handlers.
+- Refactor target: a layer color-cycle state service owns slot/def
+  normalization and buffer guards; callers request mutations through typed
+  service functions.
+
+Goblet metadata export:
+
+- Current owner: `src/utils/export/webglExporter.ts`.
+- Direct collaborators: `src/utils/export/types.ts`, layer/project state,
+  color-cycle brush state, sequential state, and export modal call sites.
+- Refactor target: explicit Goblet snapshot and serializers, with no direct
+  global store reads inside export internals.
+
+Goblet runtime asset/template export:
+
+- Current owner: `src/utils/export/webglExporter.ts`.
+- Direct collaborators: generated Goblet runtime assets in `public/` and build
+  scripts such as `scripts/build-goblet-runtime.mjs`.
+- Refactor target: runtime asset resolution, HTML building, zip building, and
+  download triggering live in separate services.
+
+Playback start/stop synchronization:
+
+- Current owners: global store playback state, `src/stores/ccRuntime.ts`,
+  `src/utils/colorCyclePlayback.ts`, color-cycle canvas handlers, sequential
+  runtime hooks, and brush-local animation loops.
+- Refactor target: one playback runtime controller schedules global RAF work
+  and participants expose only capabilities and tick hooks.
+
+Canvas pointer/shape orchestration:
+
+- Current owners: `src/hooks/canvas/handlers/pointerHandlers.ts`,
+  `src/hooks/canvas/handlers/shapes/ShapeToolHandler.ts`, and many build/bridge
+  helper files under `src/hooks/canvas/**`.
+- Refactor target: feature runtimes for input, stroke, shape, selection, and
+  render scheduling, with compatibility shells left thin.
 
 The earlier docs remain useful, but they describe first-pass extraction:
 
@@ -476,6 +590,159 @@ Update `.github/workflows/deploy.yml`:
 7. Phase 4 canvas runtime consolidation.
 8. Turn canvas hotspot budgets blocking.
 9. Tighten lint warnings to errors.
+
+## Detailed Implementation Checklist
+
+Use this checklist as the step-by-step execution tracker. Mark each item only
+after code, tests, and docs for that item are complete.
+
+### Step 0: Baseline and Scope Lock
+
+- [x] Record line counts for current hotspots.
+- [x] Record raw `console.*` baseline.
+- [x] Record direct `useAppStore.getState()` baseline.
+- [x] Record dependency map for layers, Goblet/export, playback, and canvas
+  orchestration.
+- [x] Identify allowed touch areas for the first implementation slice:
+  - `scripts/check-file-budgets.mjs`
+  - `scripts/check-raw-console.mjs`
+  - `scripts/check-store-access.mjs`
+  - `tsconfig.worker.json`
+  - `tsconfig.jest.json`
+  - `tsconfig.test-types.json`
+  - `package.json`
+  - `.github/workflows/deploy.yml`
+  - `src/hooks/brushEngine/engineShared.ts`
+  - `src/workers/colorCycleFill.worker.ts`
+  - `src/workers/__tests__/workerHarness.ts`
+  - this plan document
+
+### Step 1: Report-Mode Guardrails
+
+- [x] Add `scripts/check-file-budgets.mjs`.
+- [x] Set already-compliant orchestration shells to blocking:
+  `DrawingCanvas.tsx`, `useDrawingHandlers.ts`,
+  `useCanvasEventHandlers.ts`.
+- [x] Set not-yet-migrated hotspots to report mode:
+  `layersSlice.ts`, `webglExporter.ts`, `pointerHandlers.ts`,
+  `ShapeToolHandler.ts`.
+- [x] Add `scripts/check-raw-console.mjs`.
+- [x] Add `scripts/check-store-access.mjs`.
+- [x] Add package scripts:
+  `architecture:budgets`, `architecture:console`,
+  `architecture:store-access`, and `architecture:check`.
+- [x] Validate `npm run architecture:check`.
+
+### Step 2: Type-Check Boundaries
+
+- [x] Add `tsconfig.worker.json`.
+- [x] Add `type-check:workers`.
+- [x] Add `type-check:tests`.
+- [x] Fix narrow type gaps exposed by worker/test type-checking.
+- [x] Validate `npm run type-check`.
+- [x] Validate `npm run type-check:workers`.
+- [x] Validate `npm run type-check:tests`.
+
+### Step 3: CI Integration
+
+- [x] Run architecture guardrails after lint.
+- [x] Run app type-check.
+- [x] Run worker type-check.
+- [x] Run test type-check.
+- [x] Keep raw logging, direct store access, and incomplete hotspot budgets in
+  report mode until their cleanup phases complete.
+
+### Step 4: `layersSlice` Extraction
+
+- [ ] Add characterization tests around layer CRUD, duplication, removal,
+  reorder, active-layer selection, grouping, color-cycle slot normalization,
+  compositing invalidation, and sequential event append behavior.
+- [ ] Extract canvas/framebuffer clone helpers into
+  `src/stores/layers/layerCloneService.ts`.
+- [ ] Extract group helpers into `src/stores/layers/layerGroupService.ts`.
+- [ ] Extract CRUD/order helpers into `src/stores/layers/layerCrudService.ts`.
+- [ ] Extract color-cycle gradient/slot normalization into
+  `src/stores/layers/layerColorCycleState.ts`.
+- [ ] Extract composite invalidation into
+  `src/stores/layers/layerCompositeInvalidation.ts`.
+- [ ] Extract composite render coordination into
+  `src/stores/layers/layerCompositeRenderer.ts`.
+- [ ] Extract sequential append routing into
+  `src/stores/layers/sequentialLayerEvents.ts`.
+- [ ] Reduce `layersSlice.ts` below 900 LOC.
+- [ ] Make `layersSlice.ts` file budget blocking.
+- [ ] Run Phase 1 targeted tests and full type/lint gates.
+
+### Step 5: Goblet/WebGL Export Extraction
+
+- [ ] Add parity tests for existing single-file and zip export output contracts.
+- [ ] Extract Goblet contracts into `src/utils/export/goblet/gobletTypes.ts`.
+- [ ] Extract explicit export snapshot building into
+  `src/utils/export/goblet/gobletSnapshot.ts`.
+- [ ] Extract runtime asset resolution into
+  `src/utils/export/goblet/gobletRuntimeAssets.ts`.
+- [ ] Extract HTML building into
+  `src/utils/export/goblet/gobletHtmlBuilder.ts`.
+- [ ] Extract texture encoding into
+  `src/utils/export/goblet/gobletTextureEncoder.ts`.
+- [ ] Extract normal layer serialization into
+  `src/utils/export/goblet/gobletLayerSerializer.ts`.
+- [ ] Extract color-cycle serialization into
+  `src/utils/export/goblet/gobletColorCycleSerializer.ts`.
+- [ ] Extract sequential serialization into
+  `src/utils/export/goblet/gobletSequentialSerializer.ts`.
+- [ ] Extract zip packaging into
+  `src/utils/export/goblet/gobletZipBuilder.ts`.
+- [ ] Extract browser download helper into
+  `src/utils/export/goblet/downloadBlob.ts`.
+- [ ] Remove direct `useAppStore` imports from export internals.
+- [ ] Reduce `webglExporter.ts` below 600 LOC as a compatibility facade.
+- [ ] Make `webglExporter.ts` file budget blocking.
+- [ ] Run Phase 2 Goblet/export verification.
+
+### Step 6: Playback Runtime Owner
+
+- [ ] Add `src/runtime/playback/playbackState.ts`.
+- [ ] Add `src/runtime/playback/playbackParticipants.ts`.
+- [ ] Add `src/runtime/playback/PlaybackRuntimeController.ts`.
+- [ ] Adapt color-cycle runtime through
+  `src/runtime/playback/colorCyclePlaybackParticipant.ts`.
+- [ ] Adapt sequential runtime through
+  `src/runtime/playback/sequentialPlaybackParticipant.ts`.
+- [ ] Add `src/runtime/playback/playbackSelectors.ts` for UI-safe labels and
+  actions.
+- [ ] Replace direct `syncCCRuntimes()` calls with controller sync calls.
+- [ ] Remove UI-local open-coded playback derivations.
+- [ ] Demote `colorCycleData.isAnimating` to derived/migration-only state.
+- [ ] Run Phase 3 targeted tests and manual playback sanity checks.
+
+### Step 7: Canvas Runtime Consolidation
+
+- [ ] Build dependency map for current canvas bridge/build modules.
+- [ ] Create `src/canvas/runtime/InputRuntime`.
+- [ ] Create `src/canvas/runtime/StrokeRuntime`.
+- [ ] Create `src/canvas/runtime/ShapeRuntime`.
+- [ ] Create `src/canvas/runtime/SelectionRuntime`.
+- [ ] Create `src/canvas/runtime/RenderRuntime`.
+- [ ] Create `src/canvas/runtime/CanvasRuntime` as the compatibility
+  composition boundary.
+- [ ] Collapse pass-through bridge/build modules into runtime constructors.
+- [ ] Reduce `pointerHandlers.ts` below 900 LOC.
+- [ ] Reduce `ShapeToolHandler.ts` below 900 LOC.
+- [ ] Make canvas hotspot budgets blocking.
+- [ ] Run Phase 4 targeted tests and manual drawing/selection/shape sanity.
+
+### Step 8: Strict Cleanup Gates
+
+- [ ] Replace remaining raw production `console.*` calls with `debugLog`,
+  `devLog`, visible diagnostics, or explicit user-facing error handling.
+- [ ] Run `node scripts/check-raw-console.mjs --strict`.
+- [ ] Move remaining component/canvas direct store reads behind selectors,
+  hooks, injected dependencies, or runtime/service adapters.
+- [ ] Run `node scripts/check-store-access.mjs --strict`.
+- [ ] Tighten `@typescript-eslint/no-unused-vars` from warning to error.
+- [ ] Tighten `@typescript-eslint/no-explicit-any` from warning to error.
+- [ ] Run full verification checklist.
 
 ## Risk Review
 

@@ -1,4 +1,5 @@
 import { parentPort, workerData } from 'worker_threads';
+import { createRequire } from 'module';
 
 type WorkerHarnessData = {
   entry: string;
@@ -27,8 +28,12 @@ parentPort.on('message', (dataMessage) => {
   }
 });
 
-void import(data.entry).catch((error) => {
+const requireEntry = createRequire(import.meta.url);
+
+try {
+  requireEntry(data.entry);
+} catch (error) {
   setImmediate(() => {
     throw error;
   });
-});
+}

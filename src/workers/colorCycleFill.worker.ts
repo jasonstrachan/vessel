@@ -83,7 +83,7 @@ ctx.onmessage = (event: MessageEvent<WorkerMessage>) => {
       case 'perceptual-dither':
         response.result = handlePerceptualDither(job);
         response.ok = true;
-        ctx.postMessage(response, response.result ? [response.result.indices] : undefined);
+        ctx.postMessage(response, response.result ? [response.result.indices] : []);
         return;
       case 'concentric-fill':
         handleConcentricFill(job).then((result) => {
@@ -96,7 +96,7 @@ ctx.onmessage = (event: MessageEvent<WorkerMessage>) => {
         });
         return;
       default:
-        throw new Error(`Unknown colorCycle fill job: ${job.type}`);
+        throw new Error(`Unknown colorCycle fill job: ${(job as { type?: string }).type ?? 'unknown'}`);
     }
   } catch (error) {
     response.error = error instanceof Error ? error.message : String(error);

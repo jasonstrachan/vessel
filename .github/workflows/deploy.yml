@@ -61,8 +61,17 @@ jobs:
       - name: Run lint
         run: npm run lint
 
+      - name: Run architecture guardrails
+        run: npm run architecture:check
+
       - name: Run type check
         run: npm run type-check
+
+      - name: Run worker type check
+        run: npm run type-check:workers
+
+      - name: Run test type check
+        run: npm run type-check:tests
 
       - name: Run load-project guardrail tests
         run: npm run test:load-project-modal:guardrails
