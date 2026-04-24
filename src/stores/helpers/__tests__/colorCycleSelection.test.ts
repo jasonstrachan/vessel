@@ -514,11 +514,13 @@ describe('colorCycleSelection helpers', () => {
     const gradientDefIds = new Uint16Array(16).fill(2);
     const speed = new Uint8Array(16).fill(3);
     const flow = new Uint8Array(16).fill(4);
+    const phase = new Uint8Array(16).fill(5);
     const src = new Uint8Array([9, 8, 7, 6]);
     const srcGradientIds = new Uint8Array([11, 12, 13, 14]);
     const srcGradientDefIds = new Uint16Array([101, 102, 103, 104]);
     const srcSpeed = new Uint8Array([21, 22, 23, 24]);
     const srcFlow = new Uint8Array([31, 32, 33, 34]);
+    const srcPhase = new Uint8Array([41, 42, 43, 44]);
 
     mockGetLayerSnapshot.mockReturnValue({
       paintBuffer: paint.buffer,
@@ -526,6 +528,7 @@ describe('colorCycleSelection helpers', () => {
       gradientDefIdBuffer: gradientDefIds.buffer,
       speedBuffer: speed.buffer,
       flowBuffer: flow.buffer,
+      phaseBuffer: phase.buffer,
       hasContent: true,
       strokeCounter: 0,
     });
@@ -569,6 +572,7 @@ describe('colorCycleSelection helpers', () => {
         sourceGradientDefIds: srcGradientDefIds,
         sourceSpeed: srcSpeed,
         sourceFlow: srcFlow,
+        sourcePhase: srcPhase,
       }
     );
 
@@ -579,6 +583,7 @@ describe('colorCycleSelection helpers', () => {
     expect(Array.from(new Uint16Array(snapshotArg.gradientDefIdBuffer).slice(0, 6))).toEqual([101, 102, 2, 2, 103, 104]);
     expect(Array.from(new Uint8Array(snapshotArg.speedBuffer).slice(0, 6))).toEqual([21, 22, 3, 3, 23, 24]);
     expect(Array.from(new Uint8Array(snapshotArg.flowBuffer).slice(0, 6))).toEqual([31, 32, 4, 4, 33, 34]);
+    expect(Array.from(new Uint8Array(snapshotArg.phaseBuffer).slice(0, 6))).toEqual([41, 42, 5, 5, 43, 44]);
     expect(updateLayer).toHaveBeenCalledWith(
       'layer-cc-payload',
       expect.objectContaining({

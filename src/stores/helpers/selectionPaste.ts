@@ -335,6 +335,7 @@ const rebuildMoveBeforeColorState = ({
   sourceGradientDefIds,
   sourceSpeed,
   sourceFlow,
+  sourcePhase,
   sourceWidth,
   sourceHeight,
   canvasWidth,
@@ -347,6 +348,7 @@ const rebuildMoveBeforeColorState = ({
   sourceGradientDefIds?: Uint16Array | null;
   sourceSpeed?: Uint8Array | null;
   sourceFlow?: Uint8Array | null;
+  sourcePhase?: Uint8Array | null;
   sourceWidth: number;
   sourceHeight: number;
   canvasWidth: number;
@@ -370,6 +372,9 @@ const rebuildMoveBeforeColorState = ({
     : null;
   const flowBuffer = layer0?.strokeData?.flowBuffer
     ? new Uint8Array(layer0.strokeData.flowBuffer)
+    : null;
+  const phaseBuffer = layer0?.strokeData?.phaseBuffer
+    ? new Uint8Array(layer0.strokeData.phaseBuffer)
     : null;
   if (!paintBuffer || paintBuffer.length !== canvasWidth * canvasHeight) {
     return currentState;
@@ -403,6 +408,9 @@ const rebuildMoveBeforeColorState = ({
       if (flowBuffer && flowBuffer.length === canvasWidth * canvasHeight) {
         flowBuffer[dstIndex] = sourceFlow?.[srcIndex] ?? 0;
       }
+      if (phaseBuffer && phaseBuffer.length === canvasWidth * canvasHeight) {
+        phaseBuffer[dstIndex] = sourcePhase?.[srcIndex] ?? 0;
+      }
     }
   }
 
@@ -416,6 +424,7 @@ const rebuildMoveBeforeColorState = ({
           gradientDefIdBuffer: gradientDefBuffer?.buffer ?? layer0.strokeData.gradientDefIdBuffer,
           speedBuffer: speedBuffer?.buffer ?? layer0.strokeData.speedBuffer,
           flowBuffer: flowBuffer?.buffer ?? layer0.strokeData.flowBuffer,
+          phaseBuffer: phaseBuffer?.buffer ?? layer0.strokeData.phaseBuffer,
         }
       : layer0.strokeData,
   };
@@ -487,6 +496,7 @@ export const createSelectionPasteHelpers = ({
           sourceGradientDefIds: floatingPasteHistoryContext.sourceGradientDefIds,
           sourceSpeed: floatingPasteHistoryContext.sourceSpeed,
           sourceFlow: floatingPasteHistoryContext.sourceFlow,
+          sourcePhase: floatingPasteHistoryContext.sourcePhase,
           sourceWidth: floatingPaste.width,
           sourceHeight: floatingPaste.height,
           canvasWidth: project.width,
@@ -650,6 +660,17 @@ export const createSelectionPasteHelpers = ({
               )
             : floatingPaste.colorCycleFlow)
           : null;
+        const colorCycleSourcePhase = floatingPaste.colorCyclePhase
+          ? (requiresResample
+            ? resampleScalarNearest(
+                floatingPaste.colorCyclePhase,
+                floatingPaste.width,
+                floatingPaste.height,
+                colorCycleDestRect.width,
+                colorCycleDestRect.height
+              )
+            : floatingPaste.colorCyclePhase)
+          : null;
         const colorCycleSourceWidth = requiresResample ? colorCycleDestRect.width : floatingPaste.width;
         const colorCycleSourceHeight = requiresResample ? colorCycleDestRect.height : floatingPaste.height;
         const resampledAlphaData = requiresResample
@@ -697,6 +718,7 @@ export const createSelectionPasteHelpers = ({
             sourceGradientDefIds: colorCycleSourceGradientDefIds,
             sourceSpeed: colorCycleSourceSpeed,
             sourceFlow: colorCycleSourceFlow,
+            sourcePhase: colorCycleSourcePhase,
           }
         );
         const afterRegion = debugCaptureColorCycleScalarRegion(targetLayer, project, colorCycleDestRect);
@@ -934,7 +956,14 @@ export const createSelectionPasteHelpers = ({
           },
           floatingPaste.colorCycleIndices,
           floatingPaste.width,
-          floatingPaste.height
+          floatingPaste.height,
+          {
+            sourceGradientIds: floatingPaste.colorCycleGradientIds,
+            sourceGradientDefIds: floatingPaste.colorCycleGradientDefIds,
+            sourceSpeed: floatingPaste.colorCycleSpeed,
+            sourceFlow: floatingPaste.colorCycleFlow,
+            sourcePhase: floatingPaste.colorCyclePhase,
+          }
         );
         state.setLayersNeedRecomposition(true);
         state.setCurrentCompositeBitmap(null);

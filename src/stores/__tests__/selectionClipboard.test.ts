@@ -247,6 +247,7 @@ describe('selection clipboard helpers', () => {
       colorCycleGradientDefIds: new Uint16Array([9, 10, 11, 12]),
       colorCycleSpeed: new Uint8Array([13, 14, 15, 16]),
       colorCycleFlow: new Uint8Array([17, 18, 19, 20]),
+      colorCyclePhase: new Uint8Array([21, 22, 23, 24]),
       sourceLayerId: 'layer-cc',
     });
 
@@ -259,6 +260,7 @@ describe('selection clipboard helpers', () => {
     expect(Array.from(clipboard?.colorCycleGradientDefIds ?? [])).toEqual([9, 10, 11, 12]);
     expect(Array.from(clipboard?.colorCycleSpeed ?? [])).toEqual([13, 14, 15, 16]);
     expect(Array.from(clipboard?.colorCycleFlow ?? [])).toEqual([17, 18, 19, 20]);
+    expect(Array.from(clipboard?.colorCyclePhase ?? [])).toEqual([21, 22, 23, 24]);
     expect(clipboard?.colorCycleSourceLayerId).toBe('layer-cc');
   });
 });

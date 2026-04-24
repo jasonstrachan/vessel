@@ -461,6 +461,7 @@ export interface AppState {
     colorCycleGradientDefs?: import('@/stores/helpers/colorCycleGradientDefTransfer').TransferredColorCycleGradientDef[] | null;
     colorCycleSpeed?: Uint8Array | null;
     colorCycleFlow?: Uint8Array | null;
+    colorCyclePhase?: Uint8Array | null;
     vectorPath?: {
       mode: 'freehand' | 'click-line';
       points: Array<{ x: number; y: number }>;
@@ -484,6 +485,7 @@ export interface AppState {
     colorCycleGradientDefs?: import('@/stores/helpers/colorCycleGradientDefTransfer').TransferredColorCycleGradientDef[] | null;
     colorCycleSpeed?: Uint8Array | null;
     colorCycleFlow?: Uint8Array | null;
+    colorCyclePhase?: Uint8Array | null;
     vectorPath?: {
       mode: 'freehand' | 'click-line';
       points: Array<{ x: number; y: number }>;

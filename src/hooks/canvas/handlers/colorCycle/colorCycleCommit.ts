@@ -112,6 +112,8 @@ export type ManagedColorCycleBrush = ColorCycleBrushImplementation & {
     gradientIdBuffer?: ArrayBuffer;
     gradientDefIdBuffer?: ArrayBuffer;
     speedBuffer?: ArrayBuffer;
+    flowBuffer?: ArrayBuffer;
+    phaseBuffer?: ArrayBuffer;
     hasContent: boolean;
     strokeCounter: number;
   } | null;

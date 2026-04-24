@@ -115,6 +115,12 @@ describe('selectionCapture color-cycle fallback', () => {
           58, 59, 60, 61,
           62, 63, 64, 65,
         ]).buffer,
+        phaseBuffer: Uint8Array.from([
+          70, 71, 72, 73,
+          74, 75, 76, 77,
+          78, 79, 80, 81,
+          82, 83, 84, 85,
+        ]).buffer,
       }),
       getCanvas: () => ({ width: 4, height: 4 }),
     });
@@ -151,5 +157,6 @@ describe('selectionCapture color-cycle fallback', () => {
     expect(Array.from(capture?.colorCycleGradientDefIds ?? [])).toEqual([105, 106, 109, 110]);
     expect(Array.from(capture?.colorCycleSpeed ?? [])).toEqual([35, 36, 39, 40]);
     expect(Array.from(capture?.colorCycleFlow ?? [])).toEqual([55, 56, 59, 60]);
+    expect(Array.from(capture?.colorCyclePhase ?? [])).toEqual([75, 76, 79, 80]);
   });
 });

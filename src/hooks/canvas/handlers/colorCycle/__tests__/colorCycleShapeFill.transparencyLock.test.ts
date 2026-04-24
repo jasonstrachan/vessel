@@ -63,6 +63,7 @@ describe('colorCycleShapeFill transparency lock', () => {
         gradientDefIdBuffer: new Uint16Array([3, 0]).buffer,
         speedBuffer: new Uint8Array([4, 0]).buffer,
         flowBuffer: new Uint8Array([5, 0]).buffer,
+        phaseBuffer: new Uint8Array([6, 0]).buffer,
         hasContent: true,
         strokeCounter: 9,
       })
@@ -72,6 +73,7 @@ describe('colorCycleShapeFill transparency lock', () => {
         gradientDefIdBuffer: new Uint16Array([3, 3]).buffer,
         speedBuffer: new Uint8Array([4, 4]).buffer,
         flowBuffer: new Uint8Array([5, 5]).buffer,
+        phaseBuffer: new Uint8Array([6, 6]).buffer,
         hasContent: true,
         strokeCounter: 9,
       });
@@ -121,6 +123,7 @@ describe('colorCycleShapeFill transparency lock', () => {
     expect(new Uint16Array(appliedSnapshot.gradientDefIdBuffer)[1]).toBe(0);
     expect(new Uint8Array(appliedSnapshot.speedBuffer)[1]).toBe(0);
     expect(new Uint8Array(appliedSnapshot.flowBuffer)[1]).toBe(0);
+    expect(new Uint8Array(appliedSnapshot.phaseBuffer)[1]).toBe(0);
     expect(renderDirectToCanvas).toHaveBeenCalled();
 
     getStateSpy.mockRestore();
