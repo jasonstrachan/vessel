@@ -70,6 +70,7 @@ const makeAnimatorState = () =>
 describe('ColorCycleStrokeDelta undo resurrection', () => {
   beforeEach(() => {
     mockBrush.restoreFullState.mockClear();
+    mockBrush.restoreFullState.mockReset();
     mockManager.getBrush.mockClear();
     mockManager.getBrush.mockReturnValue(mockBrush);
     useAppStore.setState((state) => ({
@@ -148,6 +149,16 @@ describe('ColorCycleStrokeDelta undo resurrection', () => {
         {
           layerId: layer.id,
           data: makeAnimatorState(),
+          gradientDefStore: [
+            {
+              id: 1,
+              kind: 'linear' as const,
+              stops,
+              hash: 'linear:one',
+              source: 'manual' as const,
+              createdAtMs: 0,
+            },
+          ],
           strokeData: {
             paintBuffer: new Uint8Array([1, 0, 0, 0]).buffer,
             gradientDefIdBuffer: new Uint16Array([1, 0, 0, 0]).buffer,
@@ -270,5 +281,241 @@ describe('ColorCycleStrokeDelta undo resurrection', () => {
     expect(Array.from(new Uint8Array(snapshot?.speedBuffer ?? new ArrayBuffer(0)))).toEqual([7, 8, 0, 0]);
     expect(Array.from(new Uint8Array(snapshot?.flowBuffer ?? new ArrayBuffer(0)))).toEqual([9, 10, 0, 0]);
     expect(Array.from(new Uint8Array(snapshot?.phaseBuffer ?? new ArrayBuffer(0)))).toEqual([11, 12, 0, 0]);
+  });
+
+  it('restores color-cycle slot metadata with sampled stroke history states', async () => {
+    const layer = createLayer({
+      colorCycleData: {
+        canvas: document.createElement('canvas'),
+        gradientDefs: [{ id: 'g0', currentSlot: 9 }],
+        slotPalettes: [
+          {
+            slot: 9,
+            stops: [
+              { position: 0, color: '#111111' },
+              { position: 1, color: '#222222' },
+            ],
+          },
+        ],
+        gradientDefStore: [
+          {
+            id: 9,
+            kind: 'linear',
+            stops: [
+              { position: 0, color: '#111111' },
+              { position: 1, color: '#222222' },
+            ],
+            hash: 'linear:old',
+            source: 'sampled',
+            createdAtMs: 1,
+            slot: 9,
+          },
+        ],
+        paintSlot: 9,
+      },
+    });
+    layer.colorCycleData!.canvas!.width = 2;
+    layer.colorCycleData!.canvas!.height = 2;
+
+    useAppStore.setState((state) => ({
+      layers: [layer],
+      activeLayerId: layer.id,
+      project: state.project
+        ? { ...state.project, width: 2, height: 2, layers: [layer] }
+        : state.project,
+    }));
+
+    const backwardState = {
+      cycleSpeed: 1,
+      fps: 30,
+      brushSize: 1,
+      layers: [
+        {
+          layerId: layer.id,
+          data: makeAnimatorState(),
+          gradientDefs: [{ id: 'g0', currentSlot: 4 }],
+          slotPalettes: [
+            {
+              slot: 4,
+              stops: [
+                { position: 0, color: '#334455' },
+                { position: 1, color: '#ddeeff' },
+              ],
+            },
+          ],
+          gradientDefStore: [
+            {
+              id: 4,
+              kind: 'linear' as const,
+              stops: [
+                { position: 0, color: '#334455' },
+                { position: 1, color: '#ddeeff' },
+              ],
+              hash: 'linear:sampled-back',
+              source: 'sampled' as const,
+              createdAtMs: 2,
+              slot: 4,
+            },
+          ],
+          nextGradientDefId: 5,
+          activeGradientId: 'g0',
+          paintSlot: 4,
+          strokeData: {
+            paintBuffer: new Uint8Array([1, 0, 0, 0]).buffer,
+            gradientIdBuffer: new Uint8Array([4, 0, 0, 0]).buffer,
+            gradientDefIdBuffer: new Uint16Array([4, 0, 0, 0]).buffer,
+            hasContent: true,
+            strokeCounter: 1,
+          },
+        },
+      ],
+    };
+
+    const forwardState = {
+      cycleSpeed: 1,
+      fps: 30,
+      brushSize: 1,
+      layers: [
+        {
+          ...backwardState.layers[0],
+          slotPalettes: [
+            {
+              slot: 9,
+              stops: [
+                { position: 0, color: '#111111' },
+                { position: 1, color: '#222222' },
+              ],
+            },
+          ],
+          gradientDefStore: layer.colorCycleData!.gradientDefStore,
+          paintSlot: 9,
+          strokeData: {
+            paintBuffer: new Uint8Array([1, 1, 0, 0]).buffer,
+            gradientIdBuffer: new Uint8Array([9, 9, 0, 0]).buffer,
+            gradientDefIdBuffer: new Uint16Array([9, 9, 0, 0]).buffer,
+            hasContent: true,
+            strokeCounter: 2,
+          },
+        },
+      ],
+    };
+
+    const delta = createColorCycleStrokeDelta({
+      layerId: layer.id,
+      forwardState,
+      backwardState,
+    });
+
+    expect(delta).not.toBeNull();
+    await delta!.apply('backward');
+
+    const restoredLayer = useAppStore.getState().layers.find((entry) => entry.id === layer.id);
+    expect(restoredLayer?.colorCycleData?.paintSlot).toBe(4);
+    expect(restoredLayer?.colorCycleData?.slotPalettes?.[0]?.slot).toBe(4);
+    expect(restoredLayer?.colorCycleData?.gradientDefStore?.[0]?.slot).toBe(4);
+    expect(restoredLayer?.colorCycleData?.nextGradientDefId).toBe(5);
+  });
+
+  it('clears future slot metadata when restoring a state that had none', async () => {
+    const layer = createLayer({
+      colorCycleData: {
+        canvas: document.createElement('canvas'),
+        gradientDefs: [{ id: 'g0', currentSlot: 9 }],
+        slotPalettes: [
+          {
+            slot: 9,
+            stops: [
+              { position: 0, color: '#111111' },
+              { position: 1, color: '#222222' },
+            ],
+          },
+        ],
+        gradientDefStore: [
+          {
+            id: 9,
+            kind: 'linear',
+            stops: [
+              { position: 0, color: '#111111' },
+              { position: 1, color: '#222222' },
+            ],
+            hash: 'linear:future',
+            source: 'sampled',
+            createdAtMs: 1,
+            slot: 9,
+          },
+        ],
+        nextGradientDefId: 10,
+        activeGradientId: 'g0',
+        paintSlot: 9,
+      },
+    });
+    layer.colorCycleData!.canvas!.width = 2;
+    layer.colorCycleData!.canvas!.height = 2;
+
+    useAppStore.setState((state) => ({
+      layers: [layer],
+      activeLayerId: layer.id,
+      project: state.project
+        ? { ...state.project, width: 2, height: 2, layers: [layer] }
+        : state.project,
+    }));
+
+    const backwardState = {
+      cycleSpeed: 1,
+      fps: 30,
+      brushSize: 1,
+      layers: [
+        {
+          layerId: layer.id,
+          data: makeAnimatorState(),
+          strokeData: {
+            paintBuffer: new Uint8Array([0, 0, 0, 0]).buffer,
+            gradientIdBuffer: new Uint8Array([0, 0, 0, 0]).buffer,
+            gradientDefIdBuffer: new Uint16Array([0, 0, 0, 0]).buffer,
+            hasContent: false,
+            strokeCounter: 0,
+          },
+        },
+      ],
+    };
+
+    const forwardState = {
+      cycleSpeed: 1,
+      fps: 30,
+      brushSize: 1,
+      layers: [
+        {
+          layerId: layer.id,
+          data: makeAnimatorState(),
+          slotPalettes: layer.colorCycleData!.slotPalettes,
+          gradientDefStore: layer.colorCycleData!.gradientDefStore,
+          nextGradientDefId: 10,
+          activeGradientId: 'g0',
+          paintSlot: 9,
+          strokeData: {
+            paintBuffer: new Uint8Array([1, 0, 0, 0]).buffer,
+            gradientIdBuffer: new Uint8Array([9, 0, 0, 0]).buffer,
+            gradientDefIdBuffer: new Uint16Array([9, 0, 0, 0]).buffer,
+            hasContent: true,
+            strokeCounter: 1,
+          },
+        },
+      ],
+    };
+
+    const delta = createColorCycleStrokeDelta({
+      layerId: layer.id,
+      forwardState,
+      backwardState,
+    });
+
+    expect(delta).not.toBeNull();
+    await delta!.apply('backward');
+
+    const restoredLayer = useAppStore.getState().layers.find((entry) => entry.id === layer.id);
+    expect(restoredLayer?.colorCycleData?.paintSlot).toBeUndefined();
+    expect(restoredLayer?.colorCycleData?.slotPalettes).toBeUndefined();
+    expect(restoredLayer?.colorCycleData?.gradientDefStore).toBeUndefined();
+    expect(restoredLayer?.colorCycleData?.nextGradientDefId).toBeUndefined();
   });
 });

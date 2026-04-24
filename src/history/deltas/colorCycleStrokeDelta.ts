@@ -82,6 +82,32 @@ const cloneLayerData = (
   return data;
 };
 
+const serializeGradientColor = (color: unknown): string => {
+  if (typeof color === 'string') {
+    return color;
+  }
+  if (
+    color &&
+    typeof color === 'object' &&
+    typeof (color as { r?: unknown }).r === 'number' &&
+    typeof (color as { g?: unknown }).g === 'number' &&
+    typeof (color as { b?: unknown }).b === 'number'
+  ) {
+    const { r, g, b } = color as { r: number; g: number; b: number };
+    return `rgb(${Math.round(r)}, ${Math.round(g)}, ${Math.round(b)})`;
+  }
+  return String(color ?? '#000000');
+};
+
+const cloneStoredStops = <T extends { position: number; color: unknown; opacity?: number }>(
+  stops: T[]
+): Array<{ position: number; color: string; opacity?: number }> =>
+  stops.map((stop) => ({
+    position: stop.position,
+    color: serializeGradientColor(stop.color),
+    opacity: stop.opacity,
+  }));
+
 const cloneState = (
   state: ColorCycleBrushState | null,
   paintBufferLengths?: Map<string, number>
@@ -97,6 +123,46 @@ const cloneState = (
       ? state.layers.map((layer: ColorCycleSerializedLayer) => ({
           layerId: layer.layerId,
           data: cloneLayerData(layer.data),
+          gradientDefs: layer.gradientDefs
+            ? layer.gradientDefs.map((entry) => ({
+                id: entry.id,
+                name: entry.name,
+                currentSlot: entry.currentSlot,
+              }))
+            : undefined,
+          slotPalettes: layer.slotPalettes
+            ? layer.slotPalettes.map((entry) => ({
+                slot: entry.slot,
+                stops: cloneStoredStops(entry.stops),
+                seamProfile: entry.seamProfile,
+              }))
+            : undefined,
+          gradientDefStore: layer.gradientDefStore
+            ? layer.gradientDefStore.map((entry) => ({
+                ...entry,
+                stops: cloneStoredStops(entry.stops),
+              }))
+            : undefined,
+          nextGradientDefId: layer.nextGradientDefId,
+          fgActiveSlot: layer.fgActiveSlot,
+          fgDerivedKey: layer.fgDerivedKey,
+          fgDerivedGradients: layer.fgDerivedGradients
+            ? layer.fgDerivedGradients.map((entry) => ({
+                key: entry.key,
+                slot: entry.slot,
+                spec: { ...entry.spec },
+              }))
+            : undefined,
+          derivedGradients: layer.derivedGradients
+            ? layer.derivedGradients.map((entry) => ({
+                key: entry.key,
+                slot: entry.slot,
+                spec: { ...entry.spec },
+              }))
+            : undefined,
+          activeGradientId: layer.activeGradientId,
+          paintSlot: layer.paintSlot,
+          legacyRemap: layer.legacyRemap,
           strokeData: layer.strokeData
             ? {
                 ...layer.strokeData,
@@ -217,8 +283,9 @@ export class ColorCycleStrokeDelta implements HistoryDelta {
       Boolean(layerSnapshot.strokeData?.hasContent)
     );
     const layerHadContent = Boolean(layer.colorCycleData?.hasContent);
+    const hasLayerSnapshot = layerSnapshots.some((layerSnapshot) => layerSnapshot.layerId === this.layerId);
 
-    if (!restoredHasContent && !layerHadContent) {
+    if (!restoredHasContent && !layerHadContent && !hasLayerSnapshot) {
       return;
     }
 
@@ -391,13 +458,50 @@ export class ColorCycleStrokeDelta implements HistoryDelta {
       try {
         const latestState = useAppStore.getState();
         const latestLayer = latestState.layers.find((candidate) => candidate.id === this.layerId);
+        const restoredLayerSnapshot = layerSnapshots.find((snapshot) => snapshot.layerId === this.layerId);
         if (latestLayer?.colorCycleData) {
-          latestState.updateLayer(this.layerId, {
-            colorCycleData: {
-              ...latestLayer.colorCycleData,
-              hasContent: restoredHasContent
-            }
-          });
+          const hasRestoredSnapshot = Boolean(restoredLayerSnapshot);
+          const restoredSlotPalettes = restoredLayerSnapshot?.slotPalettes
+            ? restoredLayerSnapshot.slotPalettes.map((entry) => ({
+                slot: entry.slot,
+                stops: cloneStoredStops(entry.stops),
+                seamProfile: entry.seamProfile,
+              }))
+            : undefined;
+          const restoredGradientDefStore = restoredLayerSnapshot?.gradientDefStore
+            ? restoredLayerSnapshot.gradientDefStore.map((entry) => ({
+                ...entry,
+                stops: cloneStoredStops(entry.stops),
+              }))
+            : undefined;
+          const nextColorCycleData = {
+            ...latestLayer.colorCycleData,
+            gradientDefs: hasRestoredSnapshot ? restoredLayerSnapshot?.gradientDefs : latestLayer.colorCycleData.gradientDefs,
+            slotPalettes: hasRestoredSnapshot ? restoredSlotPalettes : latestLayer.colorCycleData.slotPalettes,
+            gradientDefStore: hasRestoredSnapshot ? restoredGradientDefStore : latestLayer.colorCycleData.gradientDefStore,
+            nextGradientDefId: hasRestoredSnapshot ? restoredLayerSnapshot?.nextGradientDefId : latestLayer.colorCycleData.nextGradientDefId,
+            fgActiveSlot: hasRestoredSnapshot ? restoredLayerSnapshot?.fgActiveSlot : latestLayer.colorCycleData.fgActiveSlot,
+            fgDerivedKey: hasRestoredSnapshot ? restoredLayerSnapshot?.fgDerivedKey : latestLayer.colorCycleData.fgDerivedKey,
+            fgDerivedGradients: hasRestoredSnapshot ? restoredLayerSnapshot?.fgDerivedGradients : latestLayer.colorCycleData.fgDerivedGradients,
+            derivedGradients: hasRestoredSnapshot ? restoredLayerSnapshot?.derivedGradients : latestLayer.colorCycleData.derivedGradients,
+            activeGradientId: hasRestoredSnapshot ? restoredLayerSnapshot?.activeGradientId : latestLayer.colorCycleData.activeGradientId,
+            paintSlot: hasRestoredSnapshot ? restoredLayerSnapshot?.paintSlot : latestLayer.colorCycleData.paintSlot,
+            legacyRemap: hasRestoredSnapshot ? restoredLayerSnapshot?.legacyRemap : latestLayer.colorCycleData.legacyRemap,
+            hasContent: restoredHasContent
+          };
+          useAppStore.setState((current) => ({
+            layers: current.layers.map((candidate) =>
+              candidate.id === this.layerId && candidate.layerType === 'color-cycle'
+                ? {
+                    ...candidate,
+                    colorCycleData: {
+                      ...candidate.colorCycleData,
+                      ...nextColorCycleData,
+                    },
+                  }
+                : candidate
+            ),
+          }));
         }
       } catch {
         // Best-effort metadata update.

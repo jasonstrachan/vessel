@@ -17,6 +17,7 @@ import { TEMP_SAMPLE_SLOT } from '@/constants/colorCycle';
 import { ensureGradientDefForStops, hashStops, type StoredStop } from '@/utils/colorCycleGradientDefs';
 import type { GradientStop } from '@/hooks/brushEngine/ccGradientRuntime';
 import { logCCMutation, summarizeColorCycleLayer } from '@/utils/colorCycle/ccMutationAudit';
+import { persistCommittedSampledSlot } from '@/hooks/canvas/handlers/colorCycle/colorCycleSampledSlotPersistence';
 
 type ColorCycleBrush = ColorCycleBrushImplementation;
 type SnapshotCapableBrush = ColorCycleBrush & ColorCycleCommittedStateBrush & {
@@ -111,48 +112,6 @@ const stampShapeFinalizeProbe = ({
     pointCount: shapePoints.length,
     incrementFinalizeCount,
   });
-};
-
-const persistCommittedSampledSlot = (
-  layerId: string,
-  slot: number,
-  stops: GradientStop[]
-): void => {
-  const state = useAppStore.getState();
-  const layer = state.layers.find((candidate) => candidate.id === layerId);
-  if (!layer || layer.layerType !== 'color-cycle' || !layer.colorCycleData) {
-    return;
-  }
-
-  const nextStops = stops.map((stop) => ({
-    position: stop.position,
-    color: stop.color,
-    opacity: stop.opacity,
-  }));
-  const slotPalettes = layer.colorCycleData.slotPalettes ?? [];
-  const hasSlot = slotPalettes.some((entry) => entry.slot === slot);
-  const nextSlotPalettes = hasSlot
-    ? slotPalettes.map((entry) =>
-        entry.slot === slot
-          ? { slot, stops: nextStops }
-          : entry
-      )
-    : [...slotPalettes, { slot, stops: nextStops }];
-  const effectivePlaying =
-    state.colorCyclePlayback?.desiredPlaying === true && state.colorCyclePlayback.suspendDepth === 0;
-
-  state.updateLayer(layerId, {
-    colorCycleData: {
-      ...layer.colorCycleData,
-      paintStops: nextStops,
-      slotPalettes: nextSlotPalettes,
-      gradient: nextStops,
-      paintSlot: slot,
-      isAnimating: effectivePlaying,
-    },
-  }, { skipColorCycleSync: true });
-  requestGradientApply(layerId, 'shape-commit-sampled-slot');
-  flushGradientApply(layerId);
 };
 
 export const clearColorCycleShapeEraseMask = (
@@ -849,11 +808,13 @@ export const finalizeColorCycleShapeFillLinear = async (
           bindingSlot: renderSession.binding.slot,
           stopCount: renderSession.frozenStopsStored.length,
         });
-        persistCommittedSampledSlot(
-          args.activeLayerId,
-          renderSession.binding.slot,
-          renderSession.frozenStopsStored
-        );
+        persistCommittedSampledSlot({
+          layerId: args.activeLayerId,
+          slot: renderSession.binding.slot,
+          stops: renderSession.frozenStopsStored,
+          defId: renderSession.binding.defId,
+          reason: 'shape-commit-sampled-slot',
+        });
         applyRuntimeToBrush(colorCycleBrush, args.activeLayerId, {
           layerId: args.activeLayerId,
           paintSlot: renderSession.binding.slot,
@@ -1152,11 +1113,13 @@ export const finalizeColorCycleShapeFillConcentric = async (
           bindingSlot: renderSession.binding.slot,
           stopCount: renderSession.frozenStopsStored.length,
         });
-        persistCommittedSampledSlot(
-          args.activeLayerId,
-          renderSession.binding.slot,
-          renderSession.frozenStopsStored
-        );
+        persistCommittedSampledSlot({
+          layerId: args.activeLayerId,
+          slot: renderSession.binding.slot,
+          stops: renderSession.frozenStopsStored,
+          defId: renderSession.binding.defId,
+          reason: 'shape-commit-sampled-slot',
+        });
         applyRuntimeToBrush(colorCycleBrush, args.activeLayerId, {
           layerId: args.activeLayerId,
           paintSlot: renderSession.binding.slot,
