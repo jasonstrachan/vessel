@@ -1,5 +1,4 @@
 import type { AppState } from '@/stores/useAppStore';
-import type { ColorCycleUIState } from '@/stores/slices/colorCycleSlice';
 
 export type PlaybackRuntimeMode =
   | 'idle'
@@ -17,29 +16,17 @@ export interface PlaybackRuntimeState {
   scrubbing: boolean;
 }
 
-const DEFAULT_COLOR_CYCLE_PLAYBACK: ColorCycleUIState = {
-  desiredPlaying: false,
-  playbackSpeedScale: 1,
-  suspendDepth: 0,
-  lastReason: undefined,
-  recentReasons: [],
-};
-
-export const resolveColorCyclePlaybackState = (state?: AppState | null): ColorCycleUIState =>
-  state?.colorCyclePlayback ?? DEFAULT_COLOR_CYCLE_PLAYBACK;
-
 export const createPlaybackRuntimeState = (state: AppState): PlaybackRuntimeState => {
-  const colorCyclePlayback = resolveColorCyclePlaybackState(state);
-  const desiredPlaying = colorCyclePlayback.desiredPlaying;
-  const suspended = desiredPlaying && colorCyclePlayback.suspendDepth > 0;
+  const desiredPlaying = state.colorCyclePlayback.desiredPlaying;
+  const suspended = desiredPlaying && state.colorCyclePlayback.suspendDepth > 0;
   const effectivePlaying = desiredPlaying && !suspended;
-  const activeLayerId = state?.activeLayerId;
+  const activeLayerId = state.activeLayerId;
   const activeLayer = activeLayerId
-    ? state?.layers?.find((layer) => layer.id === activeLayerId)
+    ? state.layers.find((layer) => layer.id === activeLayerId)
     : null;
   const capturing =
     activeLayer?.layerType === 'sequential' &&
-    state?.sequentialRecord?.isPointerDown;
+    state.sequentialRecord.isPointerDown;
   const scrubbing = false;
 
   let mode: PlaybackRuntimeMode = 'idle';
