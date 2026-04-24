@@ -7328,8 +7328,10 @@ export class ColorCycleBrushCanvas2D {
     bytes: Uint8Array,
     extras?: {
       gradientIdBytes?: Uint8Array;
+      gradientDefIdBytes?: Uint8Array;
       speedBytes?: Uint8Array;
       flowBytes?: Uint8Array;
+      phaseBytes?: Uint8Array;
     }
   ): boolean {
     const width = this.width;
@@ -7353,10 +7355,16 @@ export class ColorCycleBrushCanvas2D {
     if (extras?.gradientIdBytes && extras.gradientIdBytes.length < patchWidth * patchHeight) {
       return false;
     }
+    if (extras?.gradientDefIdBytes && extras.gradientDefIdBytes.length < patchWidth * patchHeight * Uint16Array.BYTES_PER_ELEMENT) {
+      return false;
+    }
     if (extras?.speedBytes && extras.speedBytes.length < patchWidth * patchHeight) {
       return false;
     }
     if (extras?.flowBytes && extras.flowBytes.length < patchWidth * patchHeight) {
+      return false;
+    }
+    if (extras?.phaseBytes && extras.phaseBytes.length < patchWidth * patchHeight) {
       return false;
     }
 
@@ -7366,9 +7374,17 @@ export class ColorCycleBrushCanvas2D {
 
     const paint = strokeData.buffers.paint;
     const gid = strokeData.buffers.gid;
+    const def = strokeData.buffers.def;
     const spd = strokeData.buffers.spd;
     const flow = strokeData.buffers.flow;
-    let hasNonZero = strokeData.hasContent;
+    const phase = strokeData.buffers.phase;
+    const gradientDefValues = extras?.gradientDefIdBytes
+      ? new Uint16Array(
+          extras.gradientDefIdBytes.buffer,
+          extras.gradientDefIdBytes.byteOffset,
+          Math.floor(extras.gradientDefIdBytes.byteLength / Uint16Array.BYTES_PER_ELEMENT)
+        )
+      : null;
     let srcIndex = 0;
     for (let row = 0; row < patchHeight; row += 1) {
       const destBase = (y + row) * width + x;
@@ -7379,22 +7395,29 @@ export class ColorCycleBrushCanvas2D {
         if (extras?.gradientIdBytes) {
           gid[destIndex] = extras.gradientIdBytes[srcIndex - 1] ?? 0;
         }
+        if (gradientDefValues) {
+          def[destIndex] = gradientDefValues[srcIndex - 1] ?? 0;
+        } else if (value === 0) {
+          def[destIndex] = 0;
+        }
         if (extras?.speedBytes) {
           spd[destIndex] = extras.speedBytes[srcIndex - 1] ?? 0;
         }
         if (extras?.flowBytes) {
           flow[destIndex] = extras.flowBytes[srcIndex - 1] ?? 0;
         }
-        if (!hasNonZero && value !== 0) {
-          hasNonZero = true;
+        if (extras?.phaseBytes) {
+          phase[destIndex] = extras.phaseBytes[srcIndex - 1] ?? 0;
         }
       }
     }
 
+    const hasNonZero = paint.some((value) => value !== 0);
     strokeData.hasContent = hasNonZero;
     this.layerStrokes.set(layerId, strokeData);
 
     try {
+      animator.setDefIdData(strokeData.buffers.def, { forceDirty: true });
       animator.setIndexBufferFromArray(
         strokeData.buffers.paint,
         strokeData.buffers.gid,
