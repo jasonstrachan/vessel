@@ -46,6 +46,7 @@ type ColorCycleRuntimeSnapshot = {
   gradientDefIdBuffer: Uint16Array | null;
   speedBuffer: Uint8Array | null;
   flowBuffer: Uint8Array | null;
+  phaseBuffer: Uint8Array | null;
   width: number;
   height: number;
   hasContent: boolean;
@@ -438,6 +439,7 @@ const captureColorCycleRuntimeSnapshot = (
       gradientDefIdBuffer?: ArrayBuffer;
       speedBuffer?: ArrayBuffer;
       flowBuffer?: ArrayBuffer;
+      phaseBuffer?: ArrayBuffer;
       hasContent?: boolean;
       strokeCounter?: number;
     } | null;
@@ -457,6 +459,7 @@ const captureColorCycleRuntimeSnapshot = (
   const gradientDefIdBuffer = cloneUint16Array(snapshot.gradientDefIdBuffer);
   const speedBuffer = cloneUint8Array(snapshot.speedBuffer);
   const flowBuffer = cloneUint8Array(snapshot.flowBuffer);
+  const phaseBuffer = cloneUint8Array(snapshot.phaseBuffer);
 
   if (!paintBuffer || paintBuffer.length !== width * height || gradientIdBuffer.length !== width * height) {
     return null;
@@ -470,6 +473,9 @@ const captureColorCycleRuntimeSnapshot = (
   if (flowBuffer && flowBuffer.length !== width * height) {
     return null;
   }
+  if (phaseBuffer && phaseBuffer.length !== width * height) {
+    return null;
+  }
 
   return {
     paintBuffer,
@@ -477,6 +483,7 @@ const captureColorCycleRuntimeSnapshot = (
     gradientDefIdBuffer,
     speedBuffer,
     flowBuffer,
+    phaseBuffer,
     width,
     height,
     hasContent: snapshot.hasContent ?? paintBuffer.some((value) => value !== 0),
@@ -500,6 +507,7 @@ const restoreColorCycleRuntimeSnapshot = (
       gradientDefIdBuffer?: ArrayBuffer;
       speedBuffer?: ArrayBuffer;
       flowBuffer?: ArrayBuffer;
+      phaseBuffer?: ArrayBuffer;
       hasContent: boolean;
       strokeCounter: number;
     }) => void;
@@ -517,6 +525,7 @@ const restoreColorCycleRuntimeSnapshot = (
     gradientDefIdBuffer: snapshot.gradientDefIdBuffer?.slice().buffer,
     speedBuffer: snapshot.speedBuffer?.slice().buffer,
     flowBuffer: snapshot.flowBuffer?.slice().buffer,
+    phaseBuffer: snapshot.phaseBuffer?.slice().buffer,
     hasContent: snapshot.hasContent,
     strokeCounter: snapshot.strokeCounter,
   });

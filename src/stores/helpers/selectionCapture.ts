@@ -26,6 +26,7 @@ export interface SelectionCaptureResult {
   colorCycleGradientDefIds?: Uint16Array;
   colorCycleSpeed?: Uint8Array;
   colorCycleFlow?: Uint8Array;
+  colorCyclePhase?: Uint8Array;
 }
 
 type NormalizedRect = { x: number; y: number; width: number; height: number };
@@ -172,7 +173,7 @@ const captureColorCycleIndices = (
 const captureColorCycleSnapshotScalar = (
   layer: Layer,
   rect: NormalizedRect,
-  field: 'gradientIdBuffer' | 'speedBuffer' | 'flowBuffer'
+  field: 'gradientIdBuffer' | 'speedBuffer' | 'flowBuffer' | 'phaseBuffer'
 ): Uint8Array | undefined => {
   if (layer.layerType !== 'color-cycle') {
     return undefined;
@@ -391,6 +392,15 @@ export const captureSelectionBitmap = (
           height: safeHeight,
         }, 'flowBuffer')
       : undefined;
+  const colorCyclePhase =
+    layer.layerType === 'color-cycle'
+      ? captureColorCycleSnapshotScalar(layer, {
+          x: clampedMinX,
+          y: clampedMinY,
+          width: safeWidth,
+          height: safeHeight,
+        }, 'phaseBuffer')
+      : undefined;
 
   return {
     bounds: {
@@ -406,6 +416,7 @@ export const captureSelectionBitmap = (
     colorCycleGradientDefIds,
     colorCycleSpeed,
     colorCycleFlow,
+    colorCyclePhase,
   };
 };
 
@@ -493,6 +504,7 @@ export const captureSelectionBitmapFromMask = (
   let colorCycleGradientDefIds: Uint16Array | undefined;
   let colorCycleSpeed: Uint8Array | undefined;
   let colorCycleFlow: Uint8Array | undefined;
+  let colorCyclePhase: Uint8Array | undefined;
   if (layer.layerType === 'color-cycle') {
     const indices = captureColorCycleIndices(layer, {
       x: clampedX,
@@ -564,6 +576,20 @@ export const captureSelectionBitmapFromMask = (
         colorCycleFlow[i] = alpha > 0 ? flow[i] : 0;
       }
     }
+
+    const phase = captureColorCycleSnapshotScalar(layer, {
+      x: clampedX,
+      y: clampedY,
+      width: safeWidth,
+      height: safeHeight,
+    }, 'phaseBuffer');
+    if (phase) {
+      colorCyclePhase = new Uint8Array(phase.length);
+      for (let i = 0; i < phase.length; i += 1) {
+        const alpha = selectionBuffer[(i * 4) + 3];
+        colorCyclePhase[i] = alpha > 0 ? phase[i] : 0;
+      }
+    }
   }
 
   return {
@@ -580,5 +606,6 @@ export const captureSelectionBitmapFromMask = (
     colorCycleGradientDefIds,
     colorCycleSpeed,
     colorCycleFlow,
+    colorCyclePhase,
   };
 };

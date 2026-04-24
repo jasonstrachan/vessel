@@ -488,6 +488,7 @@ export interface ColorCycleCanonicalDocumentData {
   activeGradientId?: string;
   gradientIdBuffer?: ArrayBuffer;
   gradientDefIdBuffer?: ArrayBuffer;
+  phaseBuffer?: ArrayBuffer;
   smoothPhaseBuffer?: ArrayBuffer;
   smoothFlagsBuffer?: ArrayBuffer;
   gradientDefStore?: ColorCycleGradientDefStoreEntry[];
@@ -1207,6 +1208,7 @@ export interface ColorCycleSnapshot {
     gradientDefIdBuffer?: ArrayBuffer;
     speedBuffer?: ArrayBuffer;
     flowBuffer?: ArrayBuffer;
+    phaseBuffer?: ArrayBuffer;
     smoothPhaseBuffer?: ArrayBuffer;
     smoothFlagsBuffer?: ArrayBuffer;
     hasContent: boolean;

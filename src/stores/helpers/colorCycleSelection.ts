@@ -22,6 +22,7 @@ type BufferMutator = (buffers: {
   gradientDefId: Uint16Array;
   speed: Uint8Array;
   flow: Uint8Array;
+  phase: Uint8Array;
   width: number;
   height: number;
 }) => boolean;
@@ -131,6 +132,7 @@ const mutateColorCycleLayer = (
     : (layer.colorCycleData?.gradientDefIdBuffer ? new Uint16Array(layer.colorCycleData.gradientDefIdBuffer) : null);
   const incomingSpeed = snapshot.speedBuffer ? new Uint8Array(snapshot.speedBuffer) : null;
   const incomingFlow = snapshot.flowBuffer ? new Uint8Array(snapshot.flowBuffer) : null;
+  const incomingPhase = snapshot.phaseBuffer ? new Uint8Array(snapshot.phaseBuffer) : null;
   if (!incoming && process.env.NODE_ENV !== 'production') {
     console.warn('[cc] no paintBuffer in snapshot', { layerId: layer.id });
   }
@@ -139,6 +141,7 @@ const mutateColorCycleLayer = (
   const workingGradientDefId = new Uint16Array(bufferLength);
   const workingSpeed = new Uint8Array(bufferLength);
   const workingFlow = new Uint8Array(bufferLength);
+  const workingPhase = new Uint8Array(bufferLength);
   if (incoming && incoming.length) {
     if (incoming.length !== bufferLength && process.env.NODE_ENV !== 'production') {
       console.warn('[cc] paintBuffer/canvas mismatch in mutateColorCycleLayer', {
@@ -179,12 +182,17 @@ const mutateColorCycleLayer = (
     workingFlow.set(incomingFlow.subarray(0, Math.min(incomingFlow.length, workingFlow.length)));
   }
 
+  if (incomingPhase && incomingPhase.length) {
+    workingPhase.set(incomingPhase.subarray(0, Math.min(incomingPhase.length, workingPhase.length)));
+  }
+
   const mutated = mutator({
     paint: working,
     gradientId: workingGradientId,
     gradientDefId: workingGradientDefId,
     speed: workingSpeed,
     flow: workingFlow,
+    phase: workingPhase,
     width: canvas.width,
     height: canvas.height,
   });
@@ -200,6 +208,7 @@ const mutateColorCycleLayer = (
     gradientDefIdBuffer: workingGradientDefId.buffer,
     speedBuffer: workingSpeed.buffer,
     flowBuffer: workingFlow.buffer,
+    phaseBuffer: workingPhase.buffer,
     hasContent,
     strokeCounter: snapshot.strokeCounter,
   });
@@ -239,6 +248,7 @@ const mutateColorCycleLayer = (
     }
     update.gradientIdBuffer = workingGradientId.buffer.slice(0) as ArrayBuffer;
     update.gradientDefIdBuffer = workingGradientDefId.buffer.slice(0) as ArrayBuffer;
+    update.phaseBuffer = workingPhase.buffer.slice(0) as ArrayBuffer;
 
     const hasUpdates = Object.keys(update).length > 0;
     return hasUpdates ? { ...base, ...update } : base;
@@ -354,6 +364,7 @@ export const writeColorCycleRegion = (
     sourceGradientDefIds?: Uint16Array | null;
     sourceSpeed?: Uint8Array | null;
     sourceFlow?: Uint8Array | null;
+    sourcePhase?: Uint8Array | null;
     skipMaterialize?: boolean;
   }
 ): boolean =>
@@ -361,7 +372,7 @@ export const writeColorCycleRegion = (
     state,
     layer,
     project,
-    ({ paint: buffer, gradientId, gradientDefId, speed, flow, width: bufferWidth, height: bufferHeight }) => {
+    ({ paint: buffer, gradientId, gradientDefId, speed, flow, phase, width: bufferWidth, height: bufferHeight }) => {
     const { startX, startY, endX, endY } = clampRect(rect, bufferWidth, bufferHeight);
     if (startX >= endX || startY >= endY) {
       return false;
@@ -379,6 +390,7 @@ export const writeColorCycleRegion = (
     const sourceGradientDefIds = options?.sourceGradientDefIds ?? null;
     const sourceSpeed = options?.sourceSpeed ?? null;
     const sourceFlow = options?.sourceFlow ?? null;
+    const sourcePhase = options?.sourcePhase ?? null;
     let changed = false;
     for (let y = startY; y < endY; y += 1) {
       const destRowOffset = y * bufferWidth;
@@ -423,6 +435,11 @@ export const writeColorCycleRegion = (
         const nextFlow = sourceFlow?.[srcIndex] ?? flow[destIndex];
         if (flow[destIndex] !== nextFlow) {
           flow[destIndex] = nextFlow;
+          changed = true;
+        }
+        const nextPhase = sourcePhase?.[srcIndex] ?? phase[destIndex];
+        if (phase[destIndex] !== nextPhase) {
+          phase[destIndex] = nextPhase;
           changed = true;
         }
       }

@@ -42,6 +42,7 @@ export interface FloatingPasteHistoryContext {
   sourceGradientDefIds?: Uint16Array | null;
   sourceSpeed?: Uint8Array | null;
   sourceFlow?: Uint8Array | null;
+  sourcePhase?: Uint8Array | null;
   beforeImage: ImageData | null;
   beforeColorState: ColorCycleSerializedState | null;
   selectionBefore: SelectionSnapshot;
@@ -96,6 +97,7 @@ export interface SelectionSlice {
     colorCycleGradientDefs?: TransferredColorCycleGradientDef[] | null;
     colorCycleSpeed?: Uint8Array | null;
     colorCycleFlow?: Uint8Array | null;
+    colorCyclePhase?: Uint8Array | null;
     vectorPath?: {
       mode: 'freehand' | 'click-line';
       points: Array<{ x: number; y: number }>;
@@ -119,6 +121,7 @@ export interface SelectionSlice {
     colorCycleGradientDefs?: TransferredColorCycleGradientDef[] | null;
     colorCycleSpeed?: Uint8Array | null;
     colorCycleFlow?: Uint8Array | null;
+    colorCyclePhase?: Uint8Array | null;
     vectorPath?: {
       mode: 'freehand' | 'click-line';
       points: Array<{ x: number; y: number }>;
@@ -148,6 +151,7 @@ export interface SelectionClipboardPayload {
   colorCycleGradientDefs?: TransferredColorCycleGradientDef[] | null;
   colorCycleSpeed?: Uint8Array | null;
   colorCycleFlow?: Uint8Array | null;
+  colorCyclePhase?: Uint8Array | null;
   colorCycleSourceLayerId?: string | null;
 }
 
@@ -159,6 +163,7 @@ const buildTransferredColorCyclePayload = (
     colorCycleGradientDefIds?: Uint16Array | null;
     colorCycleSpeed?: Uint8Array | null;
     colorCycleFlow?: Uint8Array | null;
+    colorCyclePhase?: Uint8Array | null;
   }
 ) => ({
   colorCycleIndices: capture.colorCycleIndices ?? null,
@@ -175,6 +180,7 @@ const buildTransferredColorCyclePayload = (
   ),
   colorCycleSpeed: capture.colorCycleSpeed ?? null,
   colorCycleFlow: capture.colorCycleFlow ?? null,
+  colorCyclePhase: capture.colorCyclePhase ?? null,
 });
 
 const computeBoundsFromSelection = (
@@ -450,7 +456,7 @@ const extractImageDataRegion = (imageData: ImageData | null, bounds: Rectangle):
 const extractColorCycleRegion = (
   state: ColorCycleSerializedState | null,
   bounds: Rectangle,
-  field: 'gradientIdBuffer' | 'speedBuffer' | 'flowBuffer'
+  field: 'gradientIdBuffer' | 'speedBuffer' | 'flowBuffer' | 'phaseBuffer'
 ): Uint8Array | null => {
   const layer = state?.layers?.[0];
   if (!layer?.strokeData) {
@@ -1402,6 +1408,7 @@ export const createSelectionSlice: StateCreator<AppState, [], [], SelectionSlice
           sourceGradientDefIds: extractColorCycleDefRegion(beforeColorState, capture.bounds),
           sourceSpeed: extractColorCycleRegion(beforeColorState, capture.bounds, 'speedBuffer'),
           sourceFlow: extractColorCycleRegion(beforeColorState, capture.bounds, 'flowBuffer'),
+          sourcePhase: extractColorCycleRegion(beforeColorState, capture.bounds, 'phaseBuffer'),
           beforeImage,
           beforeColorState,
           selectionBefore,
@@ -1448,6 +1455,7 @@ export const createSelectionSlice: StateCreator<AppState, [], [], SelectionSlice
                   colorCycleGradientDefs: cloneTransferredColorCycleGradientDefs(paste.colorCycleGradientDefs),
                   colorCycleSpeed: paste.colorCycleSpeed ?? null,
                   colorCycleFlow: paste.colorCycleFlow ?? null,
+                  colorCyclePhase: paste.colorCyclePhase ?? null,
                   vectorPath: paste.vectorPath ?? null,
                 }
               : null,
@@ -1535,6 +1543,14 @@ export const createSelectionSlice: StateCreator<AppState, [], [], SelectionSlice
                   'horizontal'
                 )
               : floatingPaste.colorCycleFlow,
+            colorCyclePhase: floatingPaste.colorCyclePhase
+              ? flipColorCycleIndices(
+                  floatingPaste.colorCyclePhase,
+                  floatingPaste.width,
+                  floatingPaste.height,
+                  'horizontal'
+                )
+              : floatingPaste.colorCyclePhase,
             vectorPath: flipVectorPath(
               floatingPaste.vectorPath ?? null,
               floatingPaste.width,
@@ -1596,6 +1612,14 @@ export const createSelectionSlice: StateCreator<AppState, [], [], SelectionSlice
                   'vertical'
                 )
               : floatingPaste.colorCycleFlow,
+            colorCyclePhase: floatingPaste.colorCyclePhase
+              ? flipColorCycleIndices(
+                  floatingPaste.colorCyclePhase,
+                  floatingPaste.width,
+                  floatingPaste.height,
+                  'vertical'
+                )
+              : floatingPaste.colorCyclePhase,
             vectorPath: flipVectorPath(
               floatingPaste.vectorPath ?? null,
               floatingPaste.width,
@@ -1792,6 +1816,9 @@ const createClipboardPayloadFromFloatingPaste = (
       : null,
     colorCycleFlow: floatingPaste.colorCycleFlow
       ? new Uint8Array(floatingPaste.colorCycleFlow)
+      : null,
+    colorCyclePhase: floatingPaste.colorCyclePhase
+      ? new Uint8Array(floatingPaste.colorCyclePhase)
       : null,
     colorCycleSourceLayerId: floatingPaste.sourceLayerId ?? null,
   };

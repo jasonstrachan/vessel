@@ -436,6 +436,7 @@ describe('selection paste commit', () => {
     const colorCycleGradientDefIds = new Uint16Array([101, 102, 103, 104]);
     const colorCycleSpeed = new Uint8Array([21, 22, 23, 24]);
     const colorCycleFlow = new Uint8Array([31, 32, 33, 34]);
+    const colorCyclePhase = new Uint8Array([41, 42, 43, 44]);
     const { helpers, state, captureCanvasToActiveLayer, layer } = setupHelpers(
       {
         colorCycleIndices,
@@ -443,6 +444,7 @@ describe('selection paste commit', () => {
         colorCycleGradientDefIds,
         colorCycleSpeed,
         colorCycleFlow,
+        colorCyclePhase,
         width: 2,
         height: 2,
         displayWidth: 2,
@@ -478,6 +480,7 @@ describe('selection paste commit', () => {
         sourceGradientDefIds: colorCycleGradientDefIds,
         sourceSpeed: colorCycleSpeed,
         sourceFlow: colorCycleFlow,
+        sourcePhase: colorCyclePhase,
       })
     );
 
@@ -559,6 +562,7 @@ describe('selection paste commit', () => {
     const colorCycleGradientDefIds = new Uint16Array([101, 102, 103, 104]);
     const colorCycleSpeed = new Uint8Array([11, 12, 13, 14]);
     const colorCycleFlow = new Uint8Array([21, 22, 23, 24]);
+    const colorCyclePhase = new Uint8Array([31, 32, 33, 34]);
     const { helpers, state, layer } = setupHelpers(
       {
         colorCycleIndices,
@@ -566,6 +570,7 @@ describe('selection paste commit', () => {
         colorCycleGradientDefIds,
         colorCycleSpeed,
         colorCycleFlow,
+        colorCyclePhase,
         width: 2,
         height: 2,
         displayWidth: 6,
@@ -628,6 +633,13 @@ describe('selection paste commit', () => {
           21, 21, 21, 22, 22, 22,
           23, 23, 23, 24, 24, 24,
           23, 23, 23, 24, 24, 24,
+        ]),
+        sourcePhase: new Uint8Array([
+          31, 31, 31, 32, 32, 32,
+          31, 31, 31, 32, 32, 32,
+          31, 31, 31, 32, 32, 32,
+          33, 33, 33, 34, 34, 34,
+          33, 33, 33, 34, 34, 34,
         ]),
       })
     );

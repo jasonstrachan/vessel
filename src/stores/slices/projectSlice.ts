@@ -37,6 +37,7 @@ type ColorCycleLayerSnapshot = {
   gradientDefIdBuffer?: ArrayBuffer;
   speedBuffer?: ArrayBuffer;
   flowBuffer?: ArrayBuffer;
+  phaseBuffer?: ArrayBuffer;
   hasContent: boolean;
   strokeCounter: number;
 };
@@ -216,6 +217,7 @@ const scaleColorCycleSnapshot = ({
     gradientDefIdBuffer: scaleUint16Buffer(snapshot.gradientDefIdBuffer),
     speedBuffer: scaleUint8Buffer(snapshot.speedBuffer),
     flowBuffer: scaleUint8Buffer(snapshot.flowBuffer),
+    phaseBuffer: scaleUint8Buffer(snapshot.phaseBuffer),
   };
 };
 
@@ -469,6 +471,7 @@ export const createProjectSlice =
             gradientDefIdBuffer: snapshot.gradientDefIdBuffer?.slice(0),
             speedBuffer: snapshot.speedBuffer?.slice(0),
             flowBuffer: snapshot.flowBuffer?.slice(0),
+            phaseBuffer: snapshot.phaseBuffer?.slice(0),
             hasContent: snapshot.hasContent,
             strokeCounter: snapshot.strokeCounter,
           });

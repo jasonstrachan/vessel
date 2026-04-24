@@ -26,6 +26,7 @@ type SnapshotCapableBrush = ColorCycleBrush & ColorCycleCommittedStateBrush & {
     gradientDefIdBuffer?: ArrayBuffer;
     speedBuffer?: ArrayBuffer;
     flowBuffer?: ArrayBuffer;
+    phaseBuffer?: ArrayBuffer;
     hasContent: boolean;
     strokeCounter: number;
   } | null;
@@ -35,6 +36,7 @@ type SnapshotCapableBrush = ColorCycleBrush & ColorCycleCommittedStateBrush & {
     gradientDefIdBuffer?: ArrayBuffer;
     speedBuffer?: ArrayBuffer;
     flowBuffer?: ArrayBuffer;
+    phaseBuffer?: ArrayBuffer;
     hasContent: boolean;
     strokeCounter: number;
   }) => void;
@@ -259,6 +261,7 @@ const applyTransparencyLockToBrushSnapshot = ({
   const gdef = snapshot.gradientDefIdBuffer ? new Uint16Array(snapshot.gradientDefIdBuffer) : null;
   const spd = snapshot.speedBuffer ? new Uint8Array(snapshot.speedBuffer) : null;
   const flow = snapshot.flowBuffer ? new Uint8Array(snapshot.flowBuffer) : null;
+  const phase = snapshot.phaseBuffer ? new Uint8Array(snapshot.phaseBuffer) : null;
   const paintMask =
     preFillPaintMask && preFillPaintMask.length === paint.length
       ? preFillPaintMask
@@ -303,6 +306,10 @@ const applyTransparencyLockToBrushSnapshot = ({
         flow[i] = 0;
         changed = true;
       }
+      if (phase && phase[i] !== 0) {
+        phase[i] = 0;
+        changed = true;
+      }
       continue;
     }
     if (paint[i] !== 0) {
@@ -320,6 +327,7 @@ const applyTransparencyLockToBrushSnapshot = ({
     gradientDefIdBuffer: gdef?.buffer,
     speedBuffer: spd?.buffer,
     flowBuffer: flow?.buffer,
+    phaseBuffer: phase?.buffer,
     hasContent,
     strokeCounter: snapshot.strokeCounter,
   });

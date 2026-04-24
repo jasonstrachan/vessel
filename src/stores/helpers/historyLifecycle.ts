@@ -229,6 +229,9 @@ const cloneLayerForHistory = (
       gradientDefIdBuffer: existingColorCycleData.gradientDefIdBuffer
         ? existingColorCycleData.gradientDefIdBuffer.slice(0)
         : undefined,
+      phaseBuffer: existingColorCycleData.phaseBuffer
+        ? existingColorCycleData.phaseBuffer.slice(0)
+        : undefined,
       gradientDefStore: existingColorCycleData.gradientDefStore
         ? existingColorCycleData.gradientDefStore.map((entry) => ({
             id: entry.id,
@@ -329,6 +332,9 @@ interface SerializedColorCycleLayerSnapshot {
     paintBuffer?: ArrayBufferLike;
     gradientIdBuffer?: ArrayBufferLike;
     gradientDefIdBuffer?: ArrayBufferLike;
+    speedBuffer?: ArrayBufferLike;
+    flowBuffer?: ArrayBufferLike;
+    phaseBuffer?: ArrayBufferLike;
     hasContent?: boolean;
     strokeCounter?: number;
   };
@@ -453,6 +459,9 @@ export const createHistorySnapshotFromState = (
             : undefined,
           flowBuffer: layerSnapshot.strokeData?.flowBuffer
             ? new Uint8Array(layerSnapshot.strokeData.flowBuffer).slice().buffer
+            : undefined,
+          phaseBuffer: layerSnapshot.strokeData?.phaseBuffer
+            ? new Uint8Array(layerSnapshot.strokeData.phaseBuffer).slice().buffer
             : undefined,
           hasContent: Boolean(layerSnapshot.strokeData?.hasContent) || hasNonZeroIndex,
           strokeCounter: layerSnapshot.strokeData?.strokeCounter ?? 0,
