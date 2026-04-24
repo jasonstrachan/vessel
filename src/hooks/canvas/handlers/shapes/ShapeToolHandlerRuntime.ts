@@ -1,3 +1,4 @@
+import { getAppStoreState } from '@/stores/appStoreAccess';
 import { debugLog } from '@/utils/debug';
 import type React from 'react';
 import { useAppStore } from '../../../../stores/useAppStore';
@@ -587,7 +588,7 @@ const shapeFillHistoryContext: ShapeFillHistoryContext = {
 };
 
 const isShapeFillToolActive = (): boolean => {
-  const state = useAppStore.getState();
+  const state = getAppStoreState();
   return state.tools.currentTool === 'brush' && state.tools.brushSettings.brushShape === BrushShape.SHAPE_FILL;
 };
 
@@ -834,7 +835,7 @@ export const createShapeToolHandler = (
       overlayCtx.strokeStyle = previewPrimary;
       overlayCtx.fillStyle = previewPrimary;
 
-      const store = useAppStore.getState();
+      const store = getAppStoreState();
       const fillId = store.shapeFill.activeFillId;
       const renderer = getPreviewRenderer(fillId);
       const strategy = getFillStrategy(fillId);
@@ -895,7 +896,7 @@ export const createShapeToolHandler = (
       return;
     }
 
-    const store = useAppStore.getState();
+    const store = getAppStoreState();
     const fillId = store.shapeFill.activeFillId;
     const strategy = getFillStrategy(fillId);
     const storedParams = { ...(store.shapeFill.paramsByFill[fillId] ?? {}) };
@@ -978,7 +979,7 @@ export const createShapeToolHandler = (
   };
 
   const runShapeFillFinalize = async (): Promise<boolean> => {
-    const store = useAppStore.getState();
+    const store = getAppStoreState();
     const payload = store.finalizeShapeFillSession();
     if (!payload) {
       return false;
@@ -1031,7 +1032,7 @@ export const createShapeToolHandler = (
     payload.params = paramsWithColor;
     payload.result = renderedResult;
 
-    const storeSnapshot = useAppStore.getState();
+    const storeSnapshot = getAppStoreState();
     const byFill = (storeSnapshot.shapeFill.paramsByFill as Record<string, Partial<FillParams>>)[
       payload.fillId
     ] ?? {};
@@ -1090,7 +1091,7 @@ export const createShapeToolHandler = (
     }
     drawingHandlers.drawingCanvasHasContent.current = true;
 
-    const activeSnapshot = useAppStore.getState();
+    const activeSnapshot = getAppStoreState();
     const activeLayer = activeSnapshot.layers.find(layer => layer.id === activeSnapshot.activeLayerId);
     const projectSnapshot = activeSnapshot.project ?? project ?? null;
     const historyDescription = `Shape Fill: ${payload.strategy.label ?? payload.fillId}`;
@@ -1110,7 +1111,7 @@ export const createShapeToolHandler = (
       stateMachine.finalizationComplete();
       if (project) {
         try {
-          useAppStore.getState().setLayersNeedRecomposition(true);
+          getAppStoreState().setLayersNeedRecomposition(true);
         } catch {
           // quiet
         }
@@ -1148,7 +1149,7 @@ export const createShapeToolHandler = (
       stateMachine.finalizationComplete();
       if (project) {
         try {
-          useAppStore.getState().setLayersNeedRecomposition(true);
+          getAppStoreState().setLayersNeedRecomposition(true);
         } catch {
           // quiet
         }
@@ -1163,7 +1164,7 @@ export const createShapeToolHandler = (
     // Close the shape session now so its history transaction completes before layer history begins.
     store.cancelShapeFillSession();
 
-    const postCancelState = useAppStore.getState();
+    const postCancelState = getAppStoreState();
     const roiProject =
       projectSnapshot ?? { width: drawingCanvas.width, height: drawingCanvas.height };
     const roi = boundingBoxToRoi(shapeFillHistoryContext.bbox ?? effectiveBoundingBox, roiProject);
@@ -1194,7 +1195,7 @@ export const createShapeToolHandler = (
 
     if (project) {
       try {
-        useAppStore.getState().setLayersNeedRecomposition(true);
+        getAppStoreState().setLayersNeedRecomposition(true);
       } catch {
         // quiet
       }
@@ -1212,7 +1213,7 @@ export const createShapeToolHandler = (
   };
 
   const logShapeFillEvent = (label: string, extra: Record<string, unknown> = {}) => {
-    const store = useAppStore.getState();
+    const store = getAppStoreState();
     const polygonState = store.polygonGradientState;
     const toolsState = store.tools;
     const payload = {
@@ -1235,7 +1236,7 @@ export const createShapeToolHandler = (
   };
 
   const logShapeModeGuard = (source: string) => {
-    const store = useAppStore.getState();
+    const store = getAppStoreState();
     if (!store.tools.shapeMode) {
       logShapeFillEvent('shape-fill-shape-mode-disabled', {
         source,
@@ -1253,7 +1254,7 @@ export const createShapeToolHandler = (
       return;
     }
 
-    const store = useAppStore.getState();
+    const store = getAppStoreState();
     const jobId = store.polygonGradientState.gpuJobId;
     if (!jobId) {
       return;
@@ -1288,7 +1289,7 @@ export const createShapeToolHandler = (
   };
 
   const applyShapeAdjustPreview = (update: ShapeAdjustHelperUpdate) => {
-    const store = useAppStore.getState();
+    const store = getAppStoreState();
     store.setPolygonGradientState({
       tempSpacing: update.spacing,
       tempMaxSteps: update.density != null ? Math.round(update.density) : update.density,
@@ -1323,7 +1324,7 @@ export const createShapeToolHandler = (
       patch.flowSeedJitter = clampNoise(update.noiseStrength);
     }
 
-    useAppStore.getState().setBrushSettings(patch);
+    getAppStoreState().setBrushSettings(patch);
     dispatchFlowJobUpdate(update, true);
     // Clean up any previous preview before starting new one
     if (currentPreviewCleanup) {
@@ -1360,7 +1361,7 @@ export const createShapeToolHandler = (
     opController.reset();
     canvasManager.reset();
 
-    useAppStore.getState().setPolygonGradientState({
+    getAppStoreState().setPolygonGradientState({
       drawingState: 'idle',
       points: [],
       vertices: undefined,
@@ -1405,12 +1406,12 @@ export const createShapeToolHandler = (
     };
   };
 
-  const getPolygonState = () => useAppStore.getState().polygonGradientState;
+  const getPolygonState = () => getAppStoreState().polygonGradientState;
 
   const startPolygonGradientDrawing = (worldPos: { x: number; y: number }) => {
     const color = resolvePolygonPointColor(worldPos);
     resetPolygonAdjustmentState();
-    useAppStore.getState().setPolygonGradientState({
+    getAppStoreState().setPolygonGradientState({
       drawingState: 'drawing',
       points: [{ x: worldPos.x, y: worldPos.y, color }],
       previewPath: undefined,
@@ -1433,7 +1434,7 @@ export const createShapeToolHandler = (
   };
 
   const appendPolygonGradientPoint = (worldPos: { x: number; y: number }) => {
-    const state = useAppStore.getState();
+    const state = getAppStoreState();
     const polygonState = state.polygonGradientState;
     if (polygonState.drawingState !== 'drawing') {
       return false;
@@ -1458,7 +1459,7 @@ export const createShapeToolHandler = (
   };
 
   const drawContourPreview = (spacing: number, strokeColorOverride?: string): (() => void) => {
-    const currentState = useAppStore.getState();
+    const currentState = getAppStoreState();
     const { polygonGradientState } = currentState;
     const vertices = polygonGradientState.vertices;
 
@@ -1537,7 +1538,7 @@ export const createShapeToolHandler = (
   };
 
   const drawCrosshatchPreview = (rotation: number, spacing: number): (() => void) => {
-    const currentState = useAppStore.getState();
+    const currentState = getAppStoreState();
     const { polygonGradientState } = currentState;
     const vertices = polygonGradientState.vertices;
 
@@ -1625,7 +1626,7 @@ export const createShapeToolHandler = (
   };
 
   const drawFlowPreview = (seedSpacing: number, options?: { isPreview?: boolean }): (() => void) => {
-    const currentState = useAppStore.getState();
+    const currentState = getAppStoreState();
     const { polygonGradientState } = currentState;
     const vertices = polygonGradientState.vertices;
 
@@ -1889,7 +1890,7 @@ export const createShapeToolHandler = (
   };
 
   const resolvePolygonPointColor = (worldPos: { x: number; y: number }) => {
-    const store = useAppStore.getState();
+    const store = getAppStoreState();
     const { brushSettings } = store.tools;
     const brushShape = brushSettings.brushShape;
     const samplingEnabled = brushSettings.polygonSampleColors !== false;
@@ -1920,11 +1921,11 @@ export const createShapeToolHandler = (
   };
 
   const isPolygonGradientBrush = () => {
-    const shape = useAppStore.getState().tools.brushSettings.brushShape;
+    const shape = getAppStoreState().tools.brushSettings.brushShape;
     return shape === BrushShape.POLYGON_GRADIENT || shape === BrushShape.DITHER_GRADIENT;
   };
   const isColorCycleShapeBrush = () =>
-    useAppStore.getState().tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE_SHAPE;
+    getAppStoreState().tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE_SHAPE;
   const isShapeFillBrush = () => isShapeFillToolActive();
   const isContourPolygonBrush = () => {
     const shape = tools.brushSettings.brushShape;
@@ -1937,7 +1938,7 @@ export const createShapeToolHandler = (
   const resolveShapeFillColors = (
     points?: Array<{ x: number; y: number; color?: string }>
   ) => {
-    const store = useAppStore.getState();
+    const store = getAppStoreState();
     const { brushSettings } = store.tools;
     const brushShape = brushSettings.brushShape;
 
@@ -2046,7 +2047,7 @@ export const createShapeToolHandler = (
   const handleCrosshatchPointerDown = (event: React.PointerEvent<HTMLCanvasElement>) => {
     if (event.button !== 0) return false;
 
-    const polygonState = useAppStore.getState().polygonGradientState;
+    const polygonState = getAppStoreState().polygonGradientState;
     if (polygonState.mode !== 'crosshatch') {
       return false;
     }
@@ -2060,7 +2061,7 @@ export const createShapeToolHandler = (
   };
 
   const handleContourPointerMove = (event: React.PointerEvent<HTMLCanvasElement>) => {
-    const polygonState = useAppStore.getState().polygonGradientState;
+    const polygonState = getAppStoreState().polygonGradientState;
     if (
       polygonState.mode !== 'contour' ||
       !polygonState.vertices ||
@@ -2083,7 +2084,7 @@ export const createShapeToolHandler = (
 
           previewRef.current = requestAnimationFrame(() => {
             context.setLastOverlayPreviewTs(performance.now());
-            const currentState = useAppStore.getState().polygonGradientState;
+            const currentState = getAppStoreState().polygonGradientState;
             if (
               currentState.mode !== 'contour' ||
               currentState.drawingState !== 'adjustingSpacing' ||
@@ -2111,7 +2112,7 @@ export const createShapeToolHandler = (
               })
             ));
 
-            useAppStore.getState().setPolygonGradientState({ tempSpacing: newSpacing });
+            getAppStoreState().setPolygonGradientState({ tempSpacing: newSpacing });
             // Clean up any previous preview before starting new one
             if (currentPreviewCleanup) {
               currentPreviewCleanup();
@@ -2141,7 +2142,7 @@ export const createShapeToolHandler = (
         })
       ));
 
-      useAppStore.getState().setPolygonGradientState({ tempSpacing: newSpacing });
+      getAppStoreState().setPolygonGradientState({ tempSpacing: newSpacing });
       // Clean up any previous preview before starting new one
       if (currentPreviewCleanup) {
         currentPreviewCleanup();
@@ -2154,7 +2155,7 @@ export const createShapeToolHandler = (
   };
 
   const handleCrosshatchPointerMove = (event: React.PointerEvent<HTMLCanvasElement>) => {
-    const polygonState = useAppStore.getState().polygonGradientState;
+    const polygonState = getAppStoreState().polygonGradientState;
     if (
       polygonState.mode !== 'crosshatch' ||
       !polygonState.vertices ||
@@ -2177,7 +2178,7 @@ export const createShapeToolHandler = (
 
           previewRef.current = requestAnimationFrame(() => {
             context.setLastOverlayPreviewTs(performance.now());
-            const currentState = useAppStore.getState().polygonGradientState;
+            const currentState = getAppStoreState().polygonGradientState;
             if (
               currentState.mode !== 'crosshatch' ||
               currentState.drawingState !== 'adjustingRotation' ||
@@ -2191,7 +2192,7 @@ export const createShapeToolHandler = (
             const angleRad = Math.atan2(previewWorld.y - centroid.y, previewWorld.x - centroid.x);
             const newRotation = ((angleRad * 180) / Math.PI + 360) % 360;
 
-            useAppStore.getState().setPolygonGradientState({ tempRotation: newRotation });
+            getAppStoreState().setPolygonGradientState({ tempRotation: newRotation });
 
             const spacingForPreview = clampCrosshatchSpacing(
               currentState.tempSpacing ?? tools.brushSettings.crossHatchSpacing ?? 10
@@ -2211,7 +2212,7 @@ export const createShapeToolHandler = (
       const centroid = computePolygonCentroid(polygonState.vertices);
       const angleRad = Math.atan2(worldPos.y - centroid.y, worldPos.x - centroid.x);
       const newRotation = ((angleRad * 180) / Math.PI + 360) % 360;
-      useAppStore.getState().setPolygonGradientState({ tempRotation: newRotation });
+      getAppStoreState().setPolygonGradientState({ tempRotation: newRotation });
       const spacingForPreview = clampCrosshatchSpacing(
         polygonState.tempSpacing ?? tools.brushSettings.crossHatchSpacing ?? 10
       );
@@ -2234,7 +2235,7 @@ export const createShapeToolHandler = (
 
           previewRef.current = requestAnimationFrame(() => {
             context.setLastOverlayPreviewTs(performance.now());
-            const currentState = useAppStore.getState().polygonGradientState;
+            const currentState = getAppStoreState().polygonGradientState;
             if (
               currentState.mode !== 'crosshatch' ||
               currentState.drawingState !== 'adjustingSpacing' ||
@@ -2264,7 +2265,7 @@ export const createShapeToolHandler = (
               })
             );
 
-            useAppStore.getState().setPolygonGradientState({ tempSpacing: newSpacing });
+            getAppStoreState().setPolygonGradientState({ tempSpacing: newSpacing });
 
             const rotationForPreview = currentState.tempRotation ?? tools.brushSettings.crossHatchRotation ?? 45;
             // Clean up any previous preview before starting new one
@@ -2296,7 +2297,7 @@ export const createShapeToolHandler = (
         })
       );
 
-      useAppStore.getState().setPolygonGradientState({ tempSpacing: newSpacing });
+      getAppStoreState().setPolygonGradientState({ tempSpacing: newSpacing });
 
       const rotationForPreview = polygonState.tempRotation ?? tools.brushSettings.crossHatchRotation ?? 45;
       // Clean up any previous preview before starting new one
@@ -2309,7 +2310,7 @@ export const createShapeToolHandler = (
   };
 
   const handleContourPointerUp = () => {
-    const polygonState = useAppStore.getState().polygonGradientState;
+    const polygonState = getAppStoreState().polygonGradientState;
     if (
       polygonState.mode !== 'contour' ||
       !polygonState.vertices ||
@@ -2319,7 +2320,7 @@ export const createShapeToolHandler = (
     }
 
     if (polygonState.drawingState === 'adjustingSpacing') {
-      const setBrushSettings = useAppStore.getState().setBrushSettings;
+      const setBrushSettings = getAppStoreState().setBrushSettings;
       const finalSpacing = Math.max(2, Math.min(96,
         polygonState.tempSpacing ?? tools.brushSettings.contourSpacing ?? 6
       ));
@@ -2391,7 +2392,7 @@ export const createShapeToolHandler = (
   };
 
   const handleCrosshatchPointerUp = (event: React.PointerEvent<HTMLCanvasElement>) => {
-    const polygonState = useAppStore.getState().polygonGradientState;
+    const polygonState = getAppStoreState().polygonGradientState;
     if (
       polygonState.mode !== 'crosshatch' ||
       !polygonState.vertices ||
@@ -2403,7 +2404,7 @@ export const createShapeToolHandler = (
     const pointerWorldPos = computeWorldPointer(event);
 
     if (polygonState.drawingState === 'adjustingSpacing') {
-      const setBrushSettings = useAppStore.getState().setBrushSettings;
+      const setBrushSettings = getAppStoreState().setBrushSettings;
       const finalSpacing = clampCrosshatchSpacing(
         polygonState.tempSpacing ?? tools.brushSettings.crossHatchSpacing ?? 10
       );
@@ -2419,7 +2420,7 @@ export const createShapeToolHandler = (
         nextRotation = ((angleRad * 180) / Math.PI + 360) % 360;
       }
 
-      useAppStore.getState().setPolygonGradientState({
+      getAppStoreState().setPolygonGradientState({
         drawingState: 'adjustingRotation',
         tempRotation: nextRotation,
         tempSpacing: finalSpacing,
@@ -2439,7 +2440,7 @@ export const createShapeToolHandler = (
     }
 
     if (polygonState.drawingState === 'adjustingRotation') {
-      const setBrushSettings = useAppStore.getState().setBrushSettings;
+      const setBrushSettings = getAppStoreState().setBrushSettings;
       const finalSpacing = clampCrosshatchSpacing(
         polygonState.tempSpacing ?? tools.brushSettings.crossHatchSpacing ?? 10
       );
@@ -2499,7 +2500,7 @@ export const createShapeToolHandler = (
       return false;
     }
 
-    const polygonState = useAppStore.getState().polygonGradientState;
+    const polygonState = getAppStoreState().polygonGradientState;
     if (
       polygonState.mode !== 'flow' ||
       polygonState.drawingState !== 'adjustingSpacing' ||
@@ -2519,7 +2520,7 @@ export const createShapeToolHandler = (
   };
 
   const handleFlowPointerMove = (event: React.PointerEvent<HTMLCanvasElement>) => {
-    const polygonState = useAppStore.getState().polygonGradientState;
+    const polygonState = getAppStoreState().polygonGradientState;
     if (
       polygonState.mode !== 'flow' ||
       polygonState.drawingState !== 'adjustingSpacing' ||
@@ -2539,7 +2540,7 @@ export const createShapeToolHandler = (
     const modifiers = { shiftKey: event.shiftKey } as const;
 
     const runUpdate = () => {
-      const latestState = useAppStore.getState().polygonGradientState;
+      const latestState = getAppStoreState().polygonGradientState;
       if (
         latestState.mode !== 'flow' ||
         latestState.drawingState !== 'adjustingSpacing' ||
@@ -2571,7 +2572,7 @@ export const createShapeToolHandler = (
   };
 
   const handleFlowPointerUp = (event: React.PointerEvent<HTMLCanvasElement>) => {
-    const polygonState = useAppStore.getState().polygonGradientState;
+    const polygonState = getAppStoreState().polygonGradientState;
     if (
       polygonState.mode !== 'flow' ||
       polygonState.drawingState !== 'adjustingSpacing' ||
@@ -2680,7 +2681,7 @@ export const createShapeToolHandler = (
     const isContourPolygon = isContourPolygonBrush();
     const isCCShape = isColorCycleShapeBrush();
     const isShapeFill = isShapeFillBrush();
-    const liveBrush = useAppStore.getState().tools.brushSettings;
+    const liveBrush = getAppStoreState().tools.brushSettings;
     const isDitherGradient = liveBrush.brushShape === BrushShape.DITHER_GRADIENT;
 
     if (isDitherGradient) {
@@ -2695,7 +2696,7 @@ export const createShapeToolHandler = (
     }
 
     if (isShapeFill) {
-      const store = useAppStore.getState();
+      const store = getAppStoreState();
       const session = store.shapeFill.session;
       if (session && session.stage !== FillStage.Drawing) {
         const fallbackWorldPos = computeWorldPointer(event);
@@ -2707,7 +2708,7 @@ export const createShapeToolHandler = (
           if (didFinalize) {
             return;
           }
-          const retryStore = useAppStore.getState();
+          const retryStore = getAppStoreState();
           retryStore.cancelShapeFillSession();
           resetShapeFillHistoryContext();
           clearCurrentPreview();
@@ -2725,7 +2726,7 @@ export const createShapeToolHandler = (
 
         if (session.stage === FillStage.AdjustingParam) {
           store.commitShapeFillParameter();
-          const updated = useAppStore.getState().shapeFill.session;
+          const updated = getAppStoreState().shapeFill.session;
           renderShapeFillLiveResult(updated ?? null);
           drawShapeFillPreview(updated ?? null);
           if (!updated || updated.stage === FillStage.Finalized) {
@@ -2742,7 +2743,7 @@ export const createShapeToolHandler = (
       return false;
     }
 
-    const polygonState = useAppStore.getState().polygonGradientState;
+    const polygonState = getAppStoreState().polygonGradientState;
     if (
       polygonState.drawingState === 'adjustingSize' ||
       polygonState.drawingState === 'adjustingRotation' ||
@@ -2769,7 +2770,7 @@ export const createShapeToolHandler = (
     }
 
     if (isShapeFill) {
-      useAppStore.getState().cancelShapeFillSession();
+      getAppStoreState().cancelShapeFillSession();
       clearCurrentPreview();
       const didStart = drawingHandlers.startShapeDrawing(
         worldPos,
@@ -2787,7 +2788,7 @@ export const createShapeToolHandler = (
     if (isCCShape) {
       resetDitherGradOrigin();
       drawingHandlers.stopContinuousColorCycleAnimation?.('shape-tool-start');
-      const storeNow = useAppStore.getState();
+      const storeNow = getAppStoreState();
       const brushNow = storeNow.tools.brushSettings;
       const sampledCcPreview = isSampledCcShapePreview(brushNow);
       const isCCLinear = brushNow.colorCycleFillMode === 'linear';
@@ -2845,7 +2846,7 @@ export const createShapeToolHandler = (
     const worldPos = computeWorldPointer(event);
     let previewWorld = worldPos;
 
-    const liveBrushForMove = useAppStore.getState().tools.brushSettings;
+    const liveBrushForMove = getAppStoreState().tools.brushSettings;
     if (liveBrushForMove.brushShape === BrushShape.DITHER_GRADIENT) {
       const pressure = computePointerPressure(event);
       const nowTs =
@@ -2886,11 +2887,11 @@ export const createShapeToolHandler = (
         );
       }
 
-      const store = useAppStore.getState();
+      const store = getAppStoreState();
       const session = store.shapeFill.session;
       if (session && session.stage === FillStage.AdjustingParam) {
         store.updateShapeFillCursor(previewWorld);
-        const updatedSession = useAppStore.getState().shapeFill.session;
+        const updatedSession = getAppStoreState().shapeFill.session;
         renderShapeFillLiveResult(updatedSession ?? null);
         drawShapeFillPreview(updatedSession ?? null);
         return true;
@@ -2917,7 +2918,7 @@ export const createShapeToolHandler = (
           typeof performance !== 'undefined' && typeof performance.now === 'function'
             ? performance.now()
             : Date.now();
-        const storeNow = useAppStore.getState();
+        const storeNow = getAppStoreState();
         const brushNow = storeNow.tools.brushSettings;
         const isCCLinear = brushNow.colorCycleFillMode === 'linear';
         const presetId = context.deps.dynamicDepsRef.current.currentBrushPresetId;
@@ -2989,7 +2990,7 @@ export const createShapeToolHandler = (
         const committedPolygon = getClosedCommittedPolygon(previewModel.committedPolygon);
         const anchorPoints = getPolygonPreviewAnchors(previewModel);
         const previewStrokePalette = getPreviewStrokePalette(tools.brushSettings.color);
-        const storeNow = useAppStore.getState();
+        const storeNow = getAppStoreState();
         const brushNow = storeNow.tools.brushSettings;
         const dynamicPresetId = context.deps.dynamicDepsRef.current.currentBrushPresetId;
         const presetId = dynamicPresetId ?? context.deps.currentBrushPresetId;
@@ -3426,7 +3427,7 @@ export const createShapeToolHandler = (
             );
             const axisScaled = scaleOrderedAxis(axisNorm, lengthFactor);
 
-            const palette = useAppStore.getState().palette;
+            const palette = getAppStoreState().palette;
             const fg = parseCssColorToRgba(
               palette?.foregroundColor ?? tools.brushSettings.color ?? '#000'
             );
@@ -3668,7 +3669,7 @@ export const createShapeToolHandler = (
     const isContourPolygon = isContourPolygonBrush();
     const isCCShape = isColorCycleShapeBrush();
     const isShapeFill = isShapeFillBrush();
-    const liveBrushForUp = useAppStore.getState().tools.brushSettings;
+    const liveBrushForUp = getAppStoreState().tools.brushSettings;
     if (liveBrushForUp.brushShape === BrushShape.DITHER_GRADIENT) {
       const nowTs =
         typeof performance !== 'undefined' && typeof performance.now === 'function'
@@ -3708,7 +3709,7 @@ export const createShapeToolHandler = (
       });
       if (drawingHandlers.isDrawingShapeRef.current && drawingHandlers.shapePointsRef.current.length >= 3) {
         const points = drawingHandlers.shapePointsRef.current.map(point => ({ x: point.x, y: point.y }));
-        const store = useAppStore.getState();
+        const store = getAppStoreState();
         const activeLayer = store.layers.find(layer => layer.id === store.activeLayerId);
         if (activeLayer && activeLayer.layerType !== 'color-cycle') {
           shapeFillHistoryContext.layerId = activeLayer.id;
@@ -3721,7 +3722,7 @@ export const createShapeToolHandler = (
         store.beginShapeFillSession(points);
         drawingHandlers.isDrawingShapeRef.current = false;
         drawingHandlers.shapePointsRef.current = [];
-        const session = useAppStore.getState().shapeFill.session;
+        const session = getAppStoreState().shapeFill.session;
         if (session?.stage === FillStage.AdjustingParam) {
           renderShapeFillLiveResult(session);
         }
@@ -3770,7 +3771,7 @@ export const createShapeToolHandler = (
           // Don't clear drawing canvas - let canvasManager handle preview lifecycle
           // Manually clearing here can destroy content that's being finalized
 
-          useAppStore.getState().setPolygonGradientState({
+          getAppStoreState().setPolygonGradientState({
             drawingState: 'adjustingSpacing',
             mode: 'crosshatch',
             vertices,
@@ -3813,7 +3814,7 @@ export const createShapeToolHandler = (
           const centroid = computePolygonCentroid(vertices);
           const gpuJobId: string | undefined = undefined;
 
-          useAppStore.getState().setPolygonGradientState({
+          getAppStoreState().setPolygonGradientState({
             drawingState: 'adjustingSpacing',
             mode: 'flow',
             vertices,
@@ -3881,7 +3882,7 @@ export const createShapeToolHandler = (
           const referenceDistance = Math.max(1, Math.hypot(pointerWorld.x - centroid.x, pointerWorld.y - centroid.y));
           const initialSize = clampTriangleSize(tools.brushSettings.triangleFillSize ?? 36);
 
-          useAppStore.getState().setPolygonGradientState({
+          getAppStoreState().setPolygonGradientState({
             drawingState: 'adjustingSize',
             mode: 'triangle',
             vertices,
@@ -3893,7 +3894,7 @@ export const createShapeToolHandler = (
           });
 
           withTemporaryBrushSettings(
-            useAppStore.getState().tools.brushSettings,
+            getAppStoreState().tools.brushSettings,
             { triangleFillSize: initialSize },
             () => {
               brushEngine.drawDelaunayPolygon(
@@ -3935,7 +3936,7 @@ export const createShapeToolHandler = (
           Math.min(initialSpacing, Math.max(hardMax - EDGE_EPS, MIN_LINE_SPACING))
         );
 
-        useAppStore.getState().setPolygonGradientState({
+        getAppStoreState().setPolygonGradientState({
           drawingState: 'adjustingSpacing',
           mode: 'contour',
           vertices,
@@ -3947,7 +3948,7 @@ export const createShapeToolHandler = (
         });
 
         try {
-          useAppStore.getState().setShapeMode(true);
+          getAppStoreState().setShapeMode(true);
         } catch {
           // Ignore store errors; pointer guards prevent brush engine takeover.
         }
@@ -4048,7 +4049,7 @@ export const createShapeToolHandler = (
     polygonState: ReturnType<typeof useAppStore.getState>['polygonGradientState'],
     finalSize: number
   ) => {
-    const setBrushSettings = useAppStore.getState().setBrushSettings;
+    const setBrushSettings = getAppStoreState().setBrushSettings;
     setBrushSettings({ triangleFillSize: Math.round(finalSize) });
 
     const drawCtx = drawingHandlers.drawingCanvasRef.current?.getContext('2d', { willReadFrequently: true });
@@ -4059,7 +4060,7 @@ export const createShapeToolHandler = (
       const patch: Partial<BrushSettings> = { triangleFillSize: finalSize };
 
       withTemporaryBrushSettings(
-        useAppStore.getState().tools.brushSettings,
+        getAppStoreState().tools.brushSettings,
         patch,
         () => {
           brushEngine.drawContourPolygon(
@@ -4139,7 +4140,7 @@ export const createShapeToolHandler = (
     polygonState: ReturnType<typeof useAppStore.getState>['polygonGradientState'],
     finalRotation: number
   ) => {
-    const setBrushSettings = useAppStore.getState().setBrushSettings;
+    const setBrushSettings = getAppStoreState().setBrushSettings;
     setBrushSettings({ triangleFillRotation: finalRotation });
 
     const drawCtx = drawingHandlers.drawingCanvasRef.current?.getContext('2d', { willReadFrequently: true });
@@ -4150,7 +4151,7 @@ export const createShapeToolHandler = (
       const patch: Partial<BrushSettings> = { triangleFillRotation: finalRotation };
 
       withTemporaryBrushSettings(
-        useAppStore.getState().tools.brushSettings,
+        getAppStoreState().tools.brushSettings,
         patch,
         () => {
           brushEngine.drawDelaunayPolygon(
@@ -4174,7 +4175,7 @@ export const createShapeToolHandler = (
   const handleTrianglePointerDown = (event: React.PointerEvent<HTMLCanvasElement>) => {
     if (event.button !== 0) return false;
 
-    const polygonState = useAppStore.getState().polygonGradientState;
+    const polygonState = getAppStoreState().polygonGradientState;
     if (polygonState.drawingState !== 'adjustingSize' || polygonState.mode !== 'triangle') {
       return false;
     }
@@ -4186,7 +4187,7 @@ export const createShapeToolHandler = (
   };
 
   const handleTrianglePointerMove = (event: React.PointerEvent<HTMLCanvasElement>) => {
-    const polygonState = useAppStore.getState().polygonGradientState;
+    const polygonState = getAppStoreState().polygonGradientState;
     const vertices = polygonState.vertices;
     if (
       polygonState.drawingState !== 'adjustingSize' ||
@@ -4218,7 +4219,7 @@ export const createShapeToolHandler = (
       })
     );
 
-    useAppStore.getState().setPolygonGradientState({ tempSize: newSize });
+    getAppStoreState().setPolygonGradientState({ tempSize: newSize });
 
     const drawCtx = drawingHandlers.drawingCanvasRef.current?.getContext('2d', { willReadFrequently: true });
     if (drawCtx && brushEngine) {
@@ -4227,7 +4228,7 @@ export const createShapeToolHandler = (
       const patch: Partial<BrushSettings> = { triangleFillSize: newSize };
 
       withTemporaryBrushSettings(
-        useAppStore.getState().tools.brushSettings,
+        getAppStoreState().tools.brushSettings,
         patch,
         () => {
           brushEngine.drawDelaunayPolygon(
@@ -4247,7 +4248,7 @@ export const createShapeToolHandler = (
   };
 
   const handleTrianglePointerUp = () => {
-    const polygonState = useAppStore.getState().polygonGradientState;
+    const polygonState = getAppStoreState().polygonGradientState;
     if (polygonState.mode !== 'triangle') {
       return false;
     }

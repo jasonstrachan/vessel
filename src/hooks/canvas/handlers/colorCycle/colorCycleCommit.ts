@@ -1,3 +1,4 @@
+import { getAppStoreState } from '@/stores/appStoreAccess';
 import { commitLayerHistory } from '@/history/helpers/layerHistory';
 import type { ColorCycleSerializedState } from '@/history/helpers/colorCycle';
 import {
@@ -13,7 +14,6 @@ import type {
 import type { DeferredColorCycleSaveOptions } from '@/hooks/canvas/handlers/colorCycle/colorCycleHistory';
 import type { BrushSettings, CanvasSnapshot, Layer } from '@/types';
 import { finalizeMarkGradientSession } from '@/hooks/canvas/utils/colorCycleMarkSession';
-import { useAppStore } from '@/stores/useAppStore';
 import { FLOW_SLOT_MASK } from '@/lib/colorCycle/flowEncoding';
 import { TEMP_SAMPLE_SLOT } from '@/constants/colorCycle';
 import type { StoredStop } from '@/utils/colorCycleGradientDefs';
@@ -374,7 +374,7 @@ export const commitColorCycleLayerStroke = async (
   args: CommitColorCycleLayerStrokeArgs,
   deps: CommitColorCycleLayerStrokeDeps
 ): Promise<CommitColorCycleLayerStrokeResult> => {
-  const beforeCommitLayer = useAppStore.getState().layers.find(
+  const beforeCommitLayer = getAppStoreState().layers.find(
     (entry) => entry.id === args.layer.id
   ) ?? args.layer;
   const beforeCommitSummary = summarizeColorCycleLayer(beforeCommitLayer);
@@ -535,7 +535,7 @@ export const commitColorCycleLayerStroke = async (
           if (finalizedBinding) {
             logCommittedSlotsInRoi('after-bind', binding.bbox);
 
-            const state = useAppStore.getState();
+            const state = getAppStoreState();
             const layer = state.layers.find((entry) => entry.id === targetLayerId);
             let def = layer?.colorCycleData?.gradientDefStore?.find(
               (entry) => Number(entry.id) === finalizedBinding.defId
@@ -579,7 +579,7 @@ export const commitColorCycleLayerStroke = async (
           }
         }
         if (process.env.NODE_ENV !== 'production') {
-          const layer = useAppStore.getState().layers.find((entry) => entry.id === targetLayerId);
+          const layer = getAppStoreState().layers.find((entry) => entry.id === targetLayerId);
           const gradientDefStore = layer?.colorCycleData?.gradientDefStore ?? [];
           const legacySlots = new Set<number>();
           gradientDefStore.forEach((entry) => {
@@ -610,7 +610,7 @@ export const commitColorCycleLayerStroke = async (
             });
           }
           try {
-            useAppStore.getState().setCcGradientSampleCount(0);
+            getAppStoreState().setCcGradientSampleCount(0);
           } catch {}
         }
       } catch {}
@@ -633,7 +633,7 @@ export const commitColorCycleLayerStroke = async (
   } catch {}
   deps.endFinalizeVisibleTimer();
 
-  const afterCommitLayer = useAppStore.getState().layers.find(
+  const afterCommitLayer = getAppStoreState().layers.find(
     (entry) => entry.id === targetLayerId
   ) ?? null;
   logCCMutation({

@@ -1,3 +1,4 @@
+import { getAppStoreState } from '@/stores/appStoreAccess';
 import type React from 'react';
 import type { MarkGradientSession } from '@/hooks/canvas/utils/colorCycleMarkSession';
 import {
@@ -10,7 +11,6 @@ import { equidistantPointsOnPolyline } from '@/hooks/canvas/handlers/brushSampli
 import { resolveStrokeDitherPalette } from '@/hooks/brushEngine/engineShared';
 import { hashStops, type StoredStop } from '@/utils/colorCycleGradientDefs';
 import { parseCssColorToRgba } from '@/hooks/canvas/utils/colorCycleHelpers';
-import { useAppStore } from '@/stores/useAppStore';
 
 export const CC_SAMPLED_THROTTLE_MS = 120;
 
@@ -30,7 +30,7 @@ export type CcSampledUpdateResult = {
 };
 
 const buildSingleSampleAnimatedStops = (color: string): StoredStop[] => {
-  const brushSettings = useAppStore.getState().tools.brushSettings;
+  const brushSettings = getAppStoreState().tools.brushSettings;
   const { palette } = resolveStrokeDitherPalette({
     color,
     spreadPercent: brushSettings.ditherPaletteSpread ?? 0,

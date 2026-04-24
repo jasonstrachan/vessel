@@ -1,3 +1,4 @@
+import { getAppStoreState } from '@/stores/appStoreAccess';
 import React, { useEffect, useState } from 'react';
 import { CC_DEBUG } from '@/debug/ccDebug';
 import { useAppStore } from '../../stores/useAppStore';
@@ -76,7 +77,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
   const dragOffset = React.useRef<{ x: number; y: number }>({ x: 0, y: 0 });
 
   const saveSettings = React.useCallback(() => {
-    const currentState = useAppStore.getState();
+    const currentState = getAppStoreState();
     const settings = {
       autosave: {
         isEnabled: currentState.autosave.isEnabled,

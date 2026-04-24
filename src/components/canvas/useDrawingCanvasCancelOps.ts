@@ -1,5 +1,5 @@
+import { getAppStoreState } from '@/stores/appStoreAccess';
 import { useCallback } from 'react';
-import { useAppStore } from '@/stores/useAppStore';
 
 type CancelOptions = {
   includeFloatingPaste?: boolean;
@@ -31,7 +31,7 @@ export const useDrawingCanvasCancelOps = ({
 }: UseDrawingCanvasCancelOpsOptions) =>
   useCallback(
     ({ includeFloatingPaste = false, dispatchInteractionEnd = true }: CancelOptions = {}) => {
-      const store = useAppStore.getState();
+      const store = getAppStoreState();
       let didCancel = false;
 
       if (store.polygonGradientState.drawingState !== 'idle') {

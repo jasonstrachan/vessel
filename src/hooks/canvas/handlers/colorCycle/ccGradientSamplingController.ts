@@ -1,3 +1,4 @@
+import { getAppStoreState } from '@/stores/appStoreAccess';
 import type React from 'react';
 import type { AppState } from '@/stores/useAppStore';
 import { useAppStore } from '@/stores/useAppStore';
@@ -178,7 +179,7 @@ export const subscribeCcGradientSourceResetController = (deps: {
     activeLayerId: state.activeLayerId,
   });
 
-  const initial = selector(useAppStore.getState());
+  const initial = selector(getAppStoreState());
   deps.activeLayerIdRef.current = initial.activeLayerId ?? null;
 
   return useAppStore.subscribe((state, prevState) => {

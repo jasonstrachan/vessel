@@ -1,5 +1,6 @@
+import { getAppStoreState } from '@/stores/appStoreAccess';
 import type React from 'react';
-import { useAppStore, type AppState } from '@/stores/useAppStore';
+import { type AppState } from '@/stores/useAppStore';
 import type { CustomBrushStrokeData } from '@/hooks/brushEngine/BrushEngineFacade';
 import { getColorCycleBrushFlags } from '@/hooks/canvas/utils/colorCycleBrushFlags';
 import { startUserBrushStroke } from '@/hooks/canvas/handlers/startUserBrushStroke';
@@ -125,7 +126,7 @@ export const startBrushToolStroke = ({
       worldPos,
       pressure,
     });
-    const captureState = useAppStore.getState();
+    const captureState = getAppStoreState();
     captureSequentialStampsForActiveLayer({
       state: captureState,
       stamps: [createFallbackSequentialStamp(worldPos, pressure, captureState.tools.brushSettings)],
@@ -164,7 +165,7 @@ export const startBrushToolStroke = ({
       colorCycleDistanceRef.current = 0;
       colorCycleLastRotationRef.current = 0;
       ccFlowVelocityRef.current.smoothedPxPerMs = 0;
-      const captureState = useAppStore.getState();
+      const captureState = getAppStoreState();
       captureSequentialStampsForActiveLayer({
         state: captureState,
         stamps: [createFallbackSequentialStamp(worldPos, pressure, captureState.tools.brushSettings)],

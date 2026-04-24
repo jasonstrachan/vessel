@@ -1,3 +1,4 @@
+import { getAppStoreState } from '@/stores/appStoreAccess';
 import { useEffect, useRef, useCallback } from 'react';
 import { useAppStore, type AppState } from '@/stores/useAppStore';
 import { BrushShape, Tool } from '@/types';
@@ -468,7 +469,7 @@ export function useComprehensiveKeyboard({
     }
     if (scopedShortcut === 'tool-magic-wand') {
       event.preventDefault();
-      useAppStore.getState().setSelectionMode('magic-wand');
+      getAppStoreState().setSelectionMode('magic-wand');
       await switchTool('selection');
       return;
     }

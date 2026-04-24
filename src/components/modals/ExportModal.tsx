@@ -1,5 +1,6 @@
 "use client";
 
+import { getAppStoreState } from '@/stores/appStoreAccess';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useAppStore } from '../../stores/useAppStore';
 import { XIcon } from '../icons/XIcon';
@@ -428,7 +429,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
     try {
       const fps = Math.max(1, Math.floor(gifFps / Math.max(1, gifFrameStep)));
       const targetFrames = Math.max(1, Math.round(gifDuration * fps));
-      const store = useAppStore.getState();
+      const store = getAppStoreState();
       const recolorSpeeds: number[] = layers
         .filter(l => l.layerType === 'color-cycle' && l.colorCycleData?.mode === 'recolor' && l.colorCycleData?.recolorSettings)
         .map(l => l.colorCycleData!.recolorSettings!.animation.speed || 0.1)
@@ -515,7 +516,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
 
   const webglFrameSuggestion = useMemo(() => {
     try {
-      const store = useAppStore.getState();
+      const store = getAppStoreState();
       return computeBestLoopSuggestion({
         fps: webglFps,
         durationSeconds: webglDuration,
@@ -531,7 +532,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
 
   const videoFrameSuggestion = useMemo(() => {
     try {
-      const store = useAppStore.getState();
+      const store = getAppStoreState();
       return computeBestLoopSuggestion({
         fps: videoFps,
         durationSeconds: videoDuration,
@@ -657,7 +658,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
         }
 
         try {
-          const fallbackStore = useAppStore.getState() as {
+          const fallbackStore = getAppStoreState() as {
             setSequentialFrame?: (nextFrame: number) => void;
           };
           fallbackStore.setSequentialFrame?.(frame);
@@ -668,7 +669,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
 
       const recolorManager = RecolorManager.getInstance();
       const originalStates: Array<{ layerId: string; wasPlaying: boolean; wasAnimating: boolean }> = [];
-      const initialStore = useAppStore.getState() as {
+      const initialStore = getAppStoreState() as {
         layers?: Layer[];
         sequentialRecord?: { currentFrame?: number };
         setSequentialFrame?: (frame: number) => void;
@@ -682,7 +683,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
 
       if (kind !== 'estimate') {
         try {
-          const store = useAppStore.getState();
+          const store = getAppStoreState();
           for (const layer of store.layers) {
             if (layer.layerType === 'color-cycle' && layer.colorCycleData) {
               const brush = store.getLayerColorCycleBrush(layer.id);
@@ -717,7 +718,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
         }
 
         try {
-          const store = useAppStore.getState();
+          const store = getAppStoreState();
           const phase = useAbsolutePhase ? (frameIndex / totalFrames) : null;
           for (const layer of store.layers) {
             if (layer.layerType === 'color-cycle' && layer.colorCycleData?.mode === 'recolor') {
@@ -744,7 +745,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
 
       const advanceFrame = () => {
         try {
-          const store = useAppStore.getState();
+          const store = getAppStoreState();
           for (const layer of store.layers) {
             if (layer.layerType === 'color-cycle' && layer.colorCycleData?.mode === 'recolor') {
               recolorManager.updateAnimation(layer);
@@ -760,7 +761,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
 
         if (kind === 'estimate') return;
         try {
-          const store = useAppStore.getState();
+          const store = getAppStoreState();
           for (const st of originalStates) {
             const layer = store.layers.find((l) => l.id === st.layerId);
             if (!layer) continue;

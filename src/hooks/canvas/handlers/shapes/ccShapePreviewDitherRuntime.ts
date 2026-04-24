@@ -1,5 +1,5 @@
+import { getAppStoreState } from '@/stores/appStoreAccess';
 import type React from 'react';
-import { useAppStore } from '@/stores/useAppStore';
 import type { BrushSettings } from '@/types';
 import { canvasPool } from '@/utils/canvasPool';
 import { simplifyToVertexLimit } from '@/utils/polygonSimplify';
@@ -761,7 +761,7 @@ export const runCcDitherPreviewRuntime = (args: {
       const yieldIfNeeded = createPreviewYieldController();
       (async () => {
         try {
-          const liveState = useAppStore.getState();
+          const liveState = getAppStoreState();
           const liveLayerId = liveState.activeLayerId;
           const liveSession = liveLayerId ? getActiveMarkGradientSession(liveLayerId) : null;
           stampCcHangProbe({
@@ -1120,7 +1120,7 @@ export const runSampledCcDitherPreviewRuntime = (args: {
         });
         recordSampledCcShapeBreadcrumb({
           event: 'sampled-worker-begin',
-          activeLayerId: useAppStore.getState().activeLayerId ?? null,
+          activeLayerId: getAppStoreState().activeLayerId ?? null,
           seq: mySeq,
           previewPointCount: sampledGeometry.previewPolygon.length,
           pixelSize: sampledPreviewRenderSettings.pixelSize,
@@ -1139,7 +1139,7 @@ export const runSampledCcDitherPreviewRuntime = (args: {
         });
         recordSampledCcShapeBreadcrumb({
           event: 'sampled-stops-ready',
-          activeLayerId: useAppStore.getState().activeLayerId ?? null,
+          activeLayerId: getAppStoreState().activeLayerId ?? null,
           seq: mySeq,
           stopCount: sampledPreview?.stops?.length ?? request.fallbackStops.length,
           usedFallbackStops: !sampledPreview?.stops || sampledPreview.stops.length < 2,
@@ -1237,7 +1237,7 @@ export const runSampledCcDitherPreviewRuntime = (args: {
           height: scaledH,
         });
 
-        const liveState = useAppStore.getState();
+        const liveState = getAppStoreState();
         const liveLayerId = liveState.activeLayerId;
         const liveSession = liveLayerId ? getActiveMarkGradientSession(liveLayerId) : null;
         stampCcHangProbe({
@@ -1309,7 +1309,7 @@ export const runSampledCcDitherPreviewRuntime = (args: {
         });
         recordSampledCcShapeBreadcrumb({
           event: 'sampled-fill-end',
-          activeLayerId: useAppStore.getState().activeLayerId ?? null,
+          activeLayerId: getAppStoreState().activeLayerId ?? null,
           seq: mySeq,
           previewPointCount: sampledGeometry.previewPolygon.length,
           scaledWidth: scaledW,
@@ -1321,7 +1321,7 @@ export const runSampledCcDitherPreviewRuntime = (args: {
         if (mySeq !== ditherGradPreviewState.ccJobSeq) {
           recordSampledCcShapeBreadcrumb({
             event: 'sampled-drop-stale-seq',
-            activeLayerId: useAppStore.getState().activeLayerId ?? null,
+            activeLayerId: getAppStoreState().activeLayerId ?? null,
             seq: mySeq,
             liveSeq: ditherGradPreviewState.ccJobSeq,
             reason: 'seq-invalidated-before-publish',
@@ -1336,7 +1336,7 @@ export const runSampledCcDitherPreviewRuntime = (args: {
           ditherGradPreviewState.ccJobDirty = true;
           recordSampledCcShapeBreadcrumb({
             event: 'sampled-drop-dirty-replay',
-            activeLayerId: useAppStore.getState().activeLayerId ?? null,
+            activeLayerId: getAppStoreState().activeLayerId ?? null,
             seq: mySeq,
             replayKey: request.replayKey,
             pendingReplayKey: pendingSampledRequest.replayKey,
@@ -1384,7 +1384,7 @@ export const runSampledCcDitherPreviewRuntime = (args: {
         });
         recordSampledCcShapeBreadcrumb({
           event: 'sampled-publish',
-          activeLayerId: useAppStore.getState().activeLayerId ?? null,
+          activeLayerId: getAppStoreState().activeLayerId ?? null,
           seq: mySeq,
           scaledWidth: scaledW,
           scaledHeight: scaledH,

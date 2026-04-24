@@ -1,6 +1,6 @@
+import { getAppStoreState } from '@/stores/appStoreAccess';
 import type React from 'react';
 import type { AppState } from '@/stores/useAppStore';
-import { useAppStore } from '@/stores/useAppStore';
 import { resolveActiveColorCycleGradient } from '@/hooks/canvas/utils/colorCycleHelpers';
 import { getFgParamsFromState } from '@/hooks/canvas/handlers/colorCycle/ensureActiveColorCycleGradientSlot';
 import {
@@ -76,7 +76,7 @@ export const runStrokeStartLayerGuards = ({
   ensureActiveColorCycleGradientSlot(currentState, activeLayer, colorCycleBrush);
 
   try {
-    const refreshedState = useAppStore.getState();
+    const refreshedState = getAppStoreState();
     const refreshedLayer =
       refreshedState.layers.find((layer) => layer.id === activeLayer.id) ?? activeLayer;
     const resolved = resolveActiveColorCycleGradient(

@@ -1,6 +1,6 @@
+import { getAppStoreState } from '@/stores/appStoreAccess';
 import { debugLog } from '@/utils/debug';
 import { useCallback } from 'react';
-import { useAppStore } from '@/stores/useAppStore';
 import { computeShapeFillColors } from '@/shapeFill/colorUtils';
 import { FillStage } from '@/shapeFill/types';
 import { snapPointToPixel } from '@/utils/pixelSharp';
@@ -48,7 +48,7 @@ export const useDrawingCanvasFinalizeActiveShape = ({
   tools,
 }: UseDrawingCanvasFinalizeActiveShapeOptions) =>
   useCallback(async (): Promise<boolean> => {
-    const store = useAppStore.getState();
+    const store = getAppStoreState();
 
     if (store.rectangleBrushState.drawingState !== 'idle') {
       return finalizeRectangleGradientFromState();
@@ -59,7 +59,7 @@ export const useDrawingCanvasFinalizeActiveShape = ({
         store.commitShapeFillParameter();
       }
 
-      const payload = useAppStore.getState().finalizeShapeFillSession();
+      const payload = getAppStoreState().finalizeShapeFillSession();
       if (payload) {
         if (!drawingHandlers.drawingCanvasRef.current) {
           drawingHandlers.initDrawingCanvas();
@@ -68,7 +68,7 @@ export const useDrawingCanvasFinalizeActiveShape = ({
         const canvas = drawingHandlers.drawingCanvasRef.current;
         const ctx = canvas?.getContext('2d');
         if (canvas && ctx) {
-          const storeSnapshot = useAppStore.getState();
+          const storeSnapshot = getAppStoreState();
           const colors = computeShapeFillColors({
             points: payload.shape.points as ShapePointLike[],
             palette: storeSnapshot.palette,
@@ -142,7 +142,7 @@ export const useDrawingCanvasFinalizeActiveShape = ({
           const overlayCanvas = overlayCanvasRef.current;
           overlayCanvas?.getContext('2d')?.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
 
-          useAppStore.getState().cancelShapeFillSession();
+          getAppStoreState().cancelShapeFillSession();
 
           if (rebuildStaticComposite()) {
             compositeCanvasDirtyRef.current = false;

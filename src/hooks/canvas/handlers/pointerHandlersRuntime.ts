@@ -1,8 +1,8 @@
 'use client';
 
+import { getAppStoreState } from '@/stores/appStoreAccess';
 import { debugWarn } from '@/utils/debug';
 import React from 'react';
-import { useAppStore } from '@/stores/useAppStore';
 import { getColorCycleBrushManager } from '@/stores/colorCycleBrushManager';
 import { flushBufferedSequentialEvents } from '@/hooks/canvas/handlers/sequential/sequentialCapture';
 import {
@@ -1624,7 +1624,7 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
     const safeScale = Math.max(deps.viewTransformRef.current.scale, 0.001);
 
     const { tools: currentTools } = getDynamicDeps();
-    const shapeFillSession = useAppStore.getState().shapeFill.session;
+    const shapeFillSession = getAppStoreState().shapeFill.session;
     if (
       currentTools.brushSettings.brushShape === BrushShape.SHAPE_FILL ||
       !!shapeFillSession
@@ -2364,7 +2364,7 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
       if (isInsideSelection && !event.shiftKey) {
         const extracted = deps.extractSelectionToFloatingPaste();
         if (extracted) {
-          const nextFloatingPaste = useAppStore.getState().floatingPaste;
+          const nextFloatingPaste = getAppStoreState().floatingPaste;
           if (!nextFloatingPaste) {
             return;
           }
@@ -3870,7 +3870,7 @@ function resampleStopsToColors(stops: Stop[], count: number): string[] {
     }
     // Clear pointer down state
     isMouseDownRef.current = false;
-    const store = useAppStore.getState();
+    const store = getAppStoreState();
     const shouldDeferSequentialPointerReset =
       interaction.state.isDrawing &&
       (tools.currentTool === 'brush' || tools.currentTool === 'eraser');
@@ -4371,7 +4371,7 @@ function resampleStopsToColors(stops: Stop[], count: number): string[] {
     suppressBootstrapUntilPointerUpRef.current = false;
     // Handle pointer cancel (e.g., stylus moving out of range)
     isMouseDownRef.current = false;
-    const store = useAppStore.getState();
+    const store = getAppStoreState();
     if (typeof store.setSequentialPointerDown === 'function') {
       store.setSequentialPointerDown(false);
     }

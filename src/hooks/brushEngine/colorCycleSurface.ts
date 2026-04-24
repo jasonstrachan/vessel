@@ -1,7 +1,7 @@
+import { getAppStoreState } from '@/stores/appStoreAccess';
 import { debugWarn } from '@/utils/debug';
 import { flushGradientApply, requestGradientApply } from '@/hooks/brushEngine/ccGradientApplyScheduler';
 import type { ColorCycleBrushImplementation } from '@/hooks/brushEngine/ColorCycleBrushMigration';
-import { useAppStore } from '@/stores/useAppStore';
 import type { Layer } from '@/types';
 import { isFgPending } from '@/utils/colorCycleGradients';
 
@@ -33,7 +33,7 @@ export const refreshLayerCCSurface = (
   brush: ColorCycleBrushImplementation,
   layerId: string
 ): HTMLCanvasElement | null => {
-  const state = useAppStore.getState();
+  const state = getAppStoreState();
   const layer = state.layers.find((candidate) => candidate.id === layerId);
   if (!layer) {
     return null;

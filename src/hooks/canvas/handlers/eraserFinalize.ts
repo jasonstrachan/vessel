@@ -1,3 +1,4 @@
+import { getAppStoreState } from '@/stores/appStoreAccess';
 import type { CaptureRegion } from '@/hooks/canvas/utils/captureRegions';
 import type { CanvasSnapshot, Layer } from '@/types';
 import type { LayerHistoryPayload } from '@/history/helpers/layerHistory';
@@ -11,7 +12,6 @@ import {
   cropImageDataToBounds,
   findOpaqueMaskBounds,
 } from '@/lib/sequential/sequentialEdit';
-import { useAppStore } from '@/stores/useAppStore';
 
 export type FinalizeEraserStrokeArgs = {
   activeLayer: Layer | null;
@@ -127,7 +127,7 @@ export const finalizeEraserStroke = async (
   const description = historyDescription ?? 'Eraser Stroke';
   const isColorCycleLayer = activeLayer.layerType === 'color-cycle';
   if (activeLayer.layerType === 'sequential' && activeLayer.sequentialData && drawingCanvas) {
-    const store = useAppStore.getState();
+    const store = getAppStoreState();
     const project = store.project;
     if (!project) {
       return false;

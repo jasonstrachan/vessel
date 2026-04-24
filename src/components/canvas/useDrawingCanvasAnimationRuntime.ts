@@ -1,5 +1,5 @@
+import { getAppStoreState } from '@/stores/appStoreAccess';
 import { useCallback, useEffect } from 'react';
-import { useAppStore } from '@/stores/useAppStore';
 import type { SimplifiedColorCycleManager } from './SimplifiedColorCycleManager';
 
 interface ColorCycleRuntimeHandlers {
@@ -69,7 +69,7 @@ export const useDrawingCanvasAnimationRuntime = ({
     if (pausedAnimationForPanRef.current) {
       return;
     }
-    const st = useAppStore.getState();
+    const st = getAppStoreState();
     st.suspendColorCycle('pan');
     pausedAnimationForPanRef.current = true;
   }, [pausedAnimationForPanRef]);
@@ -78,7 +78,7 @@ export const useDrawingCanvasAnimationRuntime = ({
     if (!pausedAnimationForPanRef.current) {
       return;
     }
-    const st = useAppStore.getState();
+    const st = getAppStoreState();
     st.resumeColorCycle('pan');
     pausedAnimationForPanRef.current = false;
   }, [pausedAnimationForPanRef]);

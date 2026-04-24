@@ -1,9 +1,9 @@
+import { getAppStoreState } from '@/stores/appStoreAccess';
 import { useCallback, useRef } from 'react';
 import type React from 'react';
 import { BrushShape } from '@/types';
 import type { CanvasShape, DisplayFilterConfig, Layer, Project, Tool } from '@/types';
 import type { CompositeSegment } from '@/stores/slices/layersSlice';
-import { useAppStore } from '@/stores/useAppStore';
 import {
   applyDisplayFilterStack as applySharedDisplayFilterStack,
   clearDisplayFilterCanvas,
@@ -269,7 +269,7 @@ export const useDrawingCanvasBaseRenderer = ({
 
       const activeLayer =
         activeLayerId != null ? layers.find((layer) => layer.id === activeLayerId) ?? null : null;
-      const runtimeState = useAppStore.getState() as {
+      const runtimeState = getAppStoreState() as {
         activeLayerId?: string | null;
         sequentialRecord?: { currentFrame?: number; isPointerDown?: boolean };
         layersNeedRecomposition?: boolean;
@@ -367,7 +367,7 @@ export const useDrawingCanvasBaseRenderer = ({
         const lastInvalidBitmap = lastInvalidCompositeBitmapRef.current;
         if (compositeBitmap && lastInvalidBitmap !== compositeBitmap) {
           lastInvalidCompositeBitmapRef.current = compositeBitmap;
-          const state = useAppStore.getState();
+          const state = getAppStoreState();
           const stateStillOwnsBitmap = state.currentCompositeBitmap === compositeBitmap;
           const shouldRequestRecomposition = shouldRequestCompositeBitmapRecomposition(
             compositeBitmap,

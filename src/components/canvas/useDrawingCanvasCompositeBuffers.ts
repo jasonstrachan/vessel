@@ -1,7 +1,8 @@
+import { getAppStoreState } from '@/stores/appStoreAccess';
 import type React from 'react';
 import { useCallback, useEffect } from 'react';
 import { BrushShape, type Layer } from '@/types';
-import { selectSequentialPlaybackActive, useAppStore, type AppState } from '@/stores/useAppStore';
+import { selectSequentialPlaybackActive, type AppState } from '@/stores/useAppStore';
 import {
   getSequentialLayerRenderCanvas,
 } from '@/lib/sequential/SequentialLayerRenderer';
@@ -118,7 +119,7 @@ export const useDrawingCanvasCompositeBuffers = ({
     const sortedLayers = [...layers].sort((a, b) => a.order - b.order);
     const activeLayer = activeLayerId ? sortedLayers.find((layer) => layer.id === activeLayerId) ?? null : null;
     const activeOrder = activeLayer ? activeLayer.order : Number.POSITIVE_INFINITY;
-    const storeState = useAppStore.getState() as AppState;
+    const storeState = getAppStoreState() as AppState;
     const sequentialFrameIndex = storeState.sequentialRecord?.currentFrame ?? 0;
     const shouldHoldPreviousSequentialFrame = !selectSequentialPlaybackActive(storeState);
 

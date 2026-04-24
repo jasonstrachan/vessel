@@ -1,5 +1,5 @@
+import { getAppStoreState } from '@/stores/appStoreAccess';
 import type React from 'react';
-import { useAppStore } from '@/stores/useAppStore';
 import {
   cancelClickLineSelectionSession,
   finalizeClickLineSelectionSession,
@@ -28,7 +28,7 @@ const isTextEntryTarget = (target: EventTarget | null): boolean => {
 };
 
 const scopeAllowsSpace = (): boolean => {
-  const state = useAppStore.getState();
+  const state = getAppStoreState();
   const currentScope = state.ui.keyboardScope.active;
   const brushEditorStatus = state.brushEditor.status;
   return currentScope === 'canvas' || (currentScope === 'modal' && brushEditorStatus === 'EDITING');
@@ -165,7 +165,7 @@ export const createKeyboardHandlers = (
       return;
     }
 
-    const currentScope = useAppStore.getState().ui.keyboardScope.active;
+    const currentScope = getAppStoreState().ui.keyboardScope.active;
     if (currentScope !== 'canvas') {
       return;
     }

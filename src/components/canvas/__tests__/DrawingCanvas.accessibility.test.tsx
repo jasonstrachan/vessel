@@ -107,14 +107,30 @@ function createBaseState(): AppState {
 } as unknown as AppState);
 }
 
-const baseState = createBaseState();
+const mockBaseState = createBaseState();
+const baseState = mockBaseState;
+
+jest.mock('@/stores/appStoreAccess', () => ({
+  getAppStoreState: () => mockBaseState,
+}));
 
 jest.mock('@/stores/useAppStore', () => {
   const actual = jest.requireActual('@/stores/useAppStore');
+  const stateHolder: { current?: AppState } = {};
+  type MockUseAppStore = jest.MockedFunction<(selector?: (store: AppState) => unknown) => unknown> & {
+    getState?: () => AppState;
+    __stateHolder?: typeof stateHolder;
+  };
+  const useAppStore = jest.fn((selector?: (store: AppState) => unknown): unknown => {
+    const state = stateHolder.current;
+    return selector && state ? selector(state) : state;
+  }) as MockUseAppStore;
+  useAppStore.getState = () => stateHolder.current as AppState;
+  useAppStore.__stateHolder = stateHolder;
   return {
     __esModule: true,
     ...actual,
-    useAppStore: jest.fn(),
+    useAppStore,
     selectEffectiveColorCyclePlaying: jest.fn(() => false),
   };
 });
@@ -128,6 +144,7 @@ const { useAppStore: useAppStoreMock } = jest.requireMock('@/stores/useAppStore'
 };
 
 Object.assign(useAppStoreMock, {
+  __stateHolder: { current: baseState },
   getState: () => baseState,
   setState: jest.fn(),
   subscribe: jest.fn(() => () => {}),

@@ -1,5 +1,6 @@
 'use client';
 
+import { getAppStoreState } from '@/stores/appStoreAccess';
 import React, {
   useCallback,
   useEffect,
@@ -202,7 +203,7 @@ const InlineBrushEditor: React.FC = () => {
       if (!canvasToSave) return;
       saveBrushEdit(canvasToSave);
       modificationPendingRef.current = false;
-      const nextSelectedBrush = useAppStore.getState().tools.brushSettings.selectedCustomBrush;
+      const nextSelectedBrush = getAppStoreState().tools.brushSettings.selectedCustomBrush;
       if (nextSelectedBrush && currentOffscreenCanvas) {
         requestAnimationFrame(() => {
           startBrushEdit(nextSelectedBrush, currentOffscreenCanvas);
@@ -723,7 +724,7 @@ const InlineBrushEditor: React.FC = () => {
     ctx.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
     ctx.putImageData(adjustedPixels, 0, 0);
 
-    const currentBrushSettings = useAppStore.getState().tools.brushSettings;
+    const currentBrushSettings = getAppStoreState().tools.brushSettings;
     if (
       brushEditor.editingBrushId &&
       currentBrushSettings.brushShape === BrushShape.CUSTOM &&
@@ -732,7 +733,7 @@ const InlineBrushEditor: React.FC = () => {
       brushCache.clear();
       scaledBrushCache.clear();
 
-      useAppStore.getState().updateCurrentBrushTip({
+      getAppStoreState().updateCurrentBrushTip({
         imageData: adjustedPixels,
         brushId: brushEditor.editingBrushId,
         isColorizable: false,

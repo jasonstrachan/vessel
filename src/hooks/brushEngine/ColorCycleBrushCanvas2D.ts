@@ -4,6 +4,7 @@
  * Maintains API compatibility with original ColorCycleBrush
  */
 
+import { getAppStoreState } from '@/stores/appStoreAccess';
 import { ColorCycleAnimator } from '../../lib/ColorCycleAnimator';
 // Debug logs suppressed for color cycle brush
 import { GradientStop } from '../../lib/GradientPalette';
@@ -26,7 +27,6 @@ import {
   type StampDitherConfig,
   type StampDitherState,
 } from './strokeStampDither';
-import { useAppStore } from '@/stores/useAppStore';
 import { canvasPool } from '@/utils/canvasPool';
 import { ccWarn } from '@/utils/colorCycle/ccDebug';
 import { fillCcGradientDither } from '@/utils/colorCycle/ccGradientDither';
@@ -548,7 +548,7 @@ export class ColorCycleBrushCanvas2D {
   private customStampMaskCache: Map<string, StampMaskCacheEntry> = new Map();
 
   private readLayerColorCycleMetaFromStore(layerId: string): SerializedLayerColorCycleMeta | null {
-    const layer = useAppStore.getState().layers.find((entry) => entry.id === layerId);
+    const layer = getAppStoreState().layers.find((entry) => entry.id === layerId);
     const colorCycleData = layer?.layerType === 'color-cycle' ? layer.colorCycleData : null;
     if (!colorCycleData) {
       return null;
@@ -2588,7 +2588,7 @@ export class ColorCycleBrushCanvas2D {
     if (!snapshot?.gradientIdBuffer && !snapshot?.gradientDefIdBuffer) {
       return;
     }
-    const state = useAppStore.getState();
+    const state = getAppStoreState();
     const layer = state.layers.find((entry) => entry.id === layerId);
     if (!layer?.colorCycleData) {
       return;
@@ -3398,7 +3398,7 @@ export class ColorCycleBrushCanvas2D {
 
       this.logPerfStroke(id);
       try {
-        const storeState = useAppStore.getState();
+        const storeState = getAppStoreState();
         const layer = storeState.layers.find(layerItem => layerItem.id === id);
         if (layer?.colorCycleData) {
           storeState.updateLayer(layer.id, {
@@ -3938,7 +3938,7 @@ export class ColorCycleBrushCanvas2D {
         const pixelSize = Math.max(1, Math.floor(options?.ditherPixelSize ?? this.ditherPixelSize));
         const flatPairSpread =
           options?.ditherPaletteSpread ??
-          useAppStore.getState().tools?.brushSettings?.ditherPaletteSpread;
+          getAppStoreState().tools?.brushSettings?.ditherPaletteSpread;
         const activeSession = getActiveMarkGradientSession(id);
         const phaseSeedMarkId = options?.shapePhaseSeedMarkId ?? activeSession?.markId ?? null;
         const sampledStopsOverride = options?.ditherSampledStops?.length ? options.ditherSampledStops : null;
@@ -5048,7 +5048,7 @@ export class ColorCycleBrushCanvas2D {
         const pixelSize = Math.max(1, Math.floor(options?.ditherPixelSize ?? this.ditherPixelSize));
         const flatPairSpread =
           options?.ditherPaletteSpread ??
-          useAppStore.getState().tools?.brushSettings?.ditherPaletteSpread;
+          getAppStoreState().tools?.brushSettings?.ditherPaletteSpread;
         const activeSession = getActiveMarkGradientSession(id);
         const phaseSeedMarkId = options?.shapePhaseSeedMarkId ?? activeSession?.markId ?? null;
         const flatSeed = resolveStableFlatSeed({
@@ -7198,7 +7198,7 @@ export class ColorCycleBrushCanvas2D {
     }
     if (!incomingSpeed && strokeData.buffers.spd.length === expectedSize) {
       try {
-        const state = useAppStore.getState();
+        const state = getAppStoreState();
         const layer = state.layers.find((candidate) => candidate.id === layerId);
         const fallbackSpeed =
           resolveLayerColorCycleBaseSpeedFromLayer(layer)
@@ -7212,7 +7212,7 @@ export class ColorCycleBrushCanvas2D {
     }
     if (!incomingFlow && strokeData.buffers.flow.length === expectedSize) {
       try {
-        const state = useAppStore.getState();
+        const state = getAppStoreState();
         const layer = state.layers.find((candidate) => candidate.id === layerId);
         const flowMode =
           layer?.colorCycleData?.flowMode

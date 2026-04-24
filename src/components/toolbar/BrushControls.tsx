@@ -1,5 +1,6 @@
 "use client";
 
+import { getAppStoreState } from '@/stores/appStoreAccess';
 import { debugLog, logError } from '@/utils/debug';
 // Simple brush controls for proof of concept
 // Based on /docs/03_Features/Drawing_Tools.md (lines 8-48)
@@ -738,7 +739,7 @@ const BrushControls = () => {
   const capability: BrushCapabilities = currentBrushPresetId
     ? getPresetCapabilities(
         currentBrushPresetId,
-        (useAppStore.getState().currentBrushPreset as { capabilities?: BrushCapabilities } | null) || undefined
+        (getAppStoreState().currentBrushPreset as { capabilities?: BrushCapabilities } | null) || undefined
       )
     : {};
   const canDitherForShape = (shape?: BrushShape) =>
@@ -2956,7 +2957,7 @@ const BrushControls = () => {
                   setCustomBrushSizePercent(value);
                   if (currentTool === 'eraser' && eraserSettings.linkSizeToBrush === false) {
                     const updatedSize =
-                      useAppStore.getState().tools.brushSettings.size ?? globalBrushSize;
+                      getAppStoreState().tools.brushSettings.size ?? globalBrushSize;
                     setEraserSettings({ size: updatedSize });
                   }
                   return;
@@ -3320,7 +3321,7 @@ const BrushControls = () => {
                   setCustomBrushSizePercent(value);
                   if (currentTool === 'eraser' && eraserSettings.linkSizeToBrush === false) {
                     const updatedSize =
-                      useAppStore.getState().tools.brushSettings.size ?? globalBrushSize;
+                      getAppStoreState().tools.brushSettings.size ?? globalBrushSize;
                     setEraserSettings({ size: updatedSize });
                   }
                   return;
@@ -4107,7 +4108,7 @@ const BrushControls = () => {
                   setCustomBrushSizePercent(value);
                   if (currentTool === 'eraser' && eraserSettings.linkSizeToBrush === false) {
                     const updatedSize =
-                      useAppStore.getState().tools.brushSettings.size ?? globalBrushSize;
+                      getAppStoreState().tools.brushSettings.size ?? globalBrushSize;
                     setEraserSettings({ size: updatedSize });
                   }
                 }}

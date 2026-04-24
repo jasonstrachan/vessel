@@ -1,6 +1,7 @@
+import { getAppStoreState } from '@/stores/appStoreAccess';
 import type React from 'react';
 import { BrushShape } from '@/types';
-import { useAppStore, type AppState } from '@/stores/useAppStore';
+import { type AppState } from '@/stores/useAppStore';
 import type { CustomBrushStrokeData } from '@/hooks/brushEngine/BrushEngineFacade';
 import {
   captureSequentialStampsForActiveLayer,
@@ -88,7 +89,7 @@ export const startNonColorCycleBrushStroke = ({
     typeof brushEngine.consumeRecentStamps === 'function'
       ? brushEngine.consumeRecentStamps()
       : [];
-  const captureState = useAppStore.getState();
+  const captureState = getAppStoreState();
 
   captureSequentialStampsForActiveLayer({
     state: captureState,

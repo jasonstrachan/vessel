@@ -1,3 +1,4 @@
+import { getAppStoreState } from '@/stores/appStoreAccess';
 import { useEffect, useRef } from 'react';
 import { useFeatureFlag } from '@/config/featureFlags';
 import {
@@ -69,11 +70,11 @@ export const useSequentialAnimationRuntimeEffect = ({
     const playbackController = getPlaybackRuntimeController();
     if (!sequentialRecordModeEnabled) {
       accumMsRef.current = 0;
-      flushBufferedSequentialEvents({ state: useAppStore.getState() });
+      flushBufferedSequentialEvents({ state: getAppStoreState() });
       noteSequentialCaptureActivity({ isActive: false });
       lastCaptureActiveRef.current = false;
       dispatchClearOverlay();
-      const state = useAppStore.getState() as Partial<AppState>;
+      const state = getAppStoreState() as Partial<AppState>;
       if (hasSequentialRuntimeState(state) && state.sequentialRecord.isCaptureActive) {
         state.setSequentialCaptureActive(false);
       }
@@ -129,7 +130,7 @@ export const useSequentialAnimationRuntimeEffect = ({
       unsubscribe();
       accumMsRef.current = 0;
       lastCheckpointFlushMsRef.current = -Infinity;
-      flushBufferedSequentialEvents({ state: useAppStore.getState() });
+      flushBufferedSequentialEvents({ state: getAppStoreState() });
       noteSequentialCaptureActivity({ isActive: false });
       lastCaptureActiveRef.current = false;
       dispatchClearOverlay();
@@ -145,7 +146,7 @@ export const useSequentialAnimationRuntimeEffect = ({
     const unregister = playbackController.registerAnimationConsumer((_timestampMs, deltaMs) => {
       try {
         const timestampMs = Number.isFinite(_timestampMs) ? _timestampMs : Date.now();
-        const state = useAppStore.getState() as Partial<AppState>;
+        const state = getAppStoreState() as Partial<AppState>;
         if (!hasSequentialRuntimeState(state)) {
           accumMsRef.current = 0;
           return;
@@ -184,7 +185,7 @@ export const useSequentialAnimationRuntimeEffect = ({
           }
         }
 
-        const nextState = useAppStore.getState() as Partial<AppState>;
+        const nextState = getAppStoreState() as Partial<AppState>;
         if (!hasSequentialRuntimeState(nextState)) {
           accumMsRef.current = 0;
           return;

@@ -1,5 +1,5 @@
+import { getAppStoreState } from '@/stores/appStoreAccess';
 import { flushGradientApply, requestGradientApply } from '@/hooks/brushEngine/ccGradientApplyScheduler';
-import { useAppStore } from '@/stores/useAppStore';
 import type { StoredStop } from '@/utils/colorCycleGradientDefs';
 
 export const persistCommittedSampledSlot = ({
@@ -15,7 +15,7 @@ export const persistCommittedSampledSlot = ({
   defId?: number;
   reason: string;
 }): void => {
-  const state = useAppStore.getState();
+  const state = getAppStoreState();
   const layer = state.layers.find((candidate) => candidate.id === layerId);
   if (!layer || layer.layerType !== 'color-cycle' || !layer.colorCycleData) {
     return;

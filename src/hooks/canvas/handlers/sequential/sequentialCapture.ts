@@ -18,10 +18,7 @@ import {
   recordSequentialFlushPerf,
   recordSequentialTemporalDistributionPerf,
 } from '@/lib/sequential/SequentialPerfCounters';
-import {
-  selectSequentialCaptureActive,
-  type AppState,
-} from '@/stores/useAppStore';
+import { selectSequentialCaptureActive, type AppState } from '@/stores/useAppStore';
 import { resolvePressureSizing } from '@/utils/pressureSizing';
 import { resolveBrushPressureRange } from '@/utils/pressureSettings';
 import { brushRegistry } from '@/brushes/BrushRegistry';
