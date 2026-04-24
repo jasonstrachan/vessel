@@ -36,14 +36,14 @@ type SyncPercentFn = (layers: Layer[], project: Project | null) => Layer[];
 type CropSliceDeps = {
   colorCycleBrushManager: ColorCycleBrushManager;
   syncPercentOffsetsFromPixels: SyncPercentFn;
-  syncCCRuntimes: (layers: Layer[], cause: string) => void;
+  syncPlaybackColorCycleLayers: (layers: Layer[], cause: string) => void;
   logError: (message: string, error?: unknown) => void;
 };
 
 export const createCropSlice = ({
   colorCycleBrushManager,
   syncPercentOffsetsFromPixels,
-  syncCCRuntimes,
+  syncPlaybackColorCycleLayers,
   logError,
 }: CropSliceDeps): StateCreator<AppState, [], [], CropSlice> => (set, get) => ({
   crop: defaultCropState,
@@ -187,7 +187,7 @@ export const createCropSlice = ({
           colorCycleBrushManager,
           getState: get,
           setState: set,
-          syncCCRuntimes,
+          syncPlaybackColorCycleLayers,
           logError,
         });
       }

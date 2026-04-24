@@ -177,7 +177,7 @@ if (typeof window !== 'undefined') {
 
 // Import ColorCycleBrush manager
 import { getColorCycleBrushManager, setLayerIdGetter, setColorCycleStoreStateGetter } from './colorCycleBrushManager';
-import { syncCCRuntimes } from './ccRuntime';
+import { syncPlaybackColorCycleLayers } from './ccRuntime';
 import type { ColorCycleBrushImplementation } from './colorCycleBrushManager';
 import type { ShapeFillFinalizePayload } from '@/shapeFill';
 import type { FillParams, ShapeFillId, ShapeFillParamKey, Vec2 } from '@/shapeFill/types';
@@ -275,6 +275,20 @@ import { loadWebglExportSettings, saveWebglExportSettings } from '@/utils/webglE
 import { loadSequentialSettings, saveSequentialSettings } from '@/utils/sequentialSettingsStorage';
 import { setGradientApplyStateGetter } from '@/hooks/brushEngine/ccGradientApplyScheduler';
 import { backgroundStorageService } from '@/utils/backgroundStorage';
+export {
+  selectColorCyclePlayback,
+  selectColorCycleDesiredPlaying,
+  selectPlaybackSpeedScale,
+  selectColorCycleSuspendDepth,
+  selectEffectiveColorCyclePlaying,
+  selectColorCyclePlaybackUiState,
+  selectColorCyclePlaybackToggleAction,
+  selectSequentialRecordState,
+  selectSequentialPlaybackActive,
+  selectSequentialCaptureActive,
+  selectGlobalAnimationActive,
+  selectPlaybackToggleUi,
+} from '@/runtime/playback/playbackSelectors';
 
 export type { CCReason, ColorCycleRuntimeHandlers, ColorCycleUIState } from '@/stores/slices/colorCycleSlice';
 export type { SequentialRecordSlice, SequentialRecordState } from '@/stores/slices/sequentialRecordSlice';
@@ -783,7 +797,7 @@ export const useAppStore = createVesselStore<AppState>(
       const cropSlice = createCropSlice({
         colorCycleBrushManager,
         syncPercentOffsetsFromPixels,
-        syncCCRuntimes,
+        syncPlaybackColorCycleLayers,
         logError,
       })(set, get, store);
       const toolsSlice = createToolsSlice(set, get, store);
@@ -820,63 +834,6 @@ export const useAppStore = createVesselStore<AppState>(
   // { name: 'vessel-store' }
 );
 
-export const selectColorCyclePlayback = (state: AppState): ColorCycleUIState => state.colorCyclePlayback;
-export const selectColorCycleDesiredPlaying = (state: AppState): boolean =>
-  state.colorCyclePlayback.desiredPlaying;
-export const selectPlaybackSpeedScale = (state: AppState): number =>
-  Number.isFinite(state.colorCyclePlayback.playbackSpeedScale)
-    ? state.colorCyclePlayback.playbackSpeedScale
-    : 1;
-export const selectColorCycleSuspendDepth = (state: AppState): number =>
-  state.colorCyclePlayback.suspendDepth;
-export const selectEffectiveColorCyclePlaying = (state: AppState): boolean =>
-  state.colorCyclePlayback.desiredPlaying && state.colorCyclePlayback.suspendDepth === 0;
-export const selectColorCyclePlaybackUiState = (
-  state: AppState
-): 'paused' | 'suspended' | 'playing' => {
-  if (!state.colorCyclePlayback.desiredPlaying) {
-    return 'paused';
-  }
-  if (state.colorCyclePlayback.suspendDepth > 0) {
-    return 'suspended';
-  }
-  return 'playing';
-};
-export const selectColorCyclePlaybackToggleAction = (
-  state: AppState
-): 'play' | 'pause' | 'resume' => {
-  const uiState = selectColorCyclePlaybackUiState(state);
-  if (uiState === 'playing') {
-    return 'pause';
-  }
-  if (uiState === 'suspended') {
-    return 'resume';
-  }
-  return 'play';
-};
-export const selectSequentialRecordState = (state: AppState): SequentialRecordState =>
-  state.sequentialRecord;
-export const selectSequentialPlaybackActive = (state: AppState): boolean => {
-  if (!selectColorCycleDesiredPlaying(state)) {
-    return false;
-  }
-  return state.layers.some((layer) => layer.layerType === 'sequential');
-};
-export const selectSequentialCaptureActive = (state: AppState): boolean => {
-  const activeLayerId = state.activeLayerId;
-  if (!activeLayerId) {
-    return false;
-  }
-  const activeLayer = state.layers.find((layer) => layer.id === activeLayerId);
-  if (activeLayer?.layerType !== 'sequential') {
-    return false;
-  }
-  return state.sequentialRecord.isPointerDown;
-};
-export const selectGlobalAnimationActive = (state: AppState): boolean =>
-  selectEffectiveColorCyclePlaying(state) ||
-  selectSequentialPlaybackActive(state) ||
-  selectSequentialCaptureActive(state);
 export const selectActivePaletteColor = (state: AppState): string =>
   state.palette.activeSlot === 'background'
     ? state.palette.backgroundColor

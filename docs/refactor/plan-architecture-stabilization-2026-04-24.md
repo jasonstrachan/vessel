@@ -710,19 +710,19 @@ after code, tests, and docs for that item are complete.
 
 ### Step 6: Playback Runtime Owner
 
-- [ ] Add `src/runtime/playback/playbackState.ts`.
-- [ ] Add `src/runtime/playback/playbackParticipants.ts`.
-- [ ] Add `src/runtime/playback/PlaybackRuntimeController.ts`.
-- [ ] Adapt color-cycle runtime through
+- [x] Add `src/runtime/playback/playbackState.ts`.
+- [x] Add `src/runtime/playback/playbackParticipants.ts`.
+- [x] Add `src/runtime/playback/PlaybackRuntimeController.ts`.
+- [x] Adapt color-cycle runtime through
   `src/runtime/playback/colorCyclePlaybackParticipant.ts`.
-- [ ] Adapt sequential runtime through
+- [x] Adapt sequential runtime through
   `src/runtime/playback/sequentialPlaybackParticipant.ts`.
-- [ ] Add `src/runtime/playback/playbackSelectors.ts` for UI-safe labels and
+- [x] Add `src/runtime/playback/playbackSelectors.ts` for UI-safe labels and
   actions.
-- [ ] Replace direct `syncCCRuntimes()` calls with controller sync calls.
-- [ ] Remove UI-local open-coded playback derivations.
-- [ ] Demote `colorCycleData.isAnimating` to derived/migration-only state.
-- [ ] Run Phase 3 targeted tests and manual playback sanity checks.
+- [x] Replace direct `syncCCRuntimes()` calls with controller sync calls.
+- [x] Remove UI-local open-coded playback derivations.
+- [x] Demote `colorCycleData.isAnimating` to derived/migration-only state.
+- [x] Run Phase 3 targeted tests and manual playback sanity checks.
 
 ### Step 7: Canvas Runtime Consolidation
 

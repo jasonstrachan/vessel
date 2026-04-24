@@ -1,6 +1,9 @@
 import { ccGroup, ccGroupEnd, ccLog, dumpLayerFlags } from '@/debug/ccDebug';
 import { RecolorManager } from '@/lib/colorCycle/RecolorManager';
 import {
+  getPlaybackRuntimeController,
+} from '@/runtime/playback/PlaybackRuntimeController';
+import {
   selectColorCyclePlaybackToggleAction,
   selectColorCycleDesiredPlaying,
   selectColorCycleSuspendDepth,
@@ -119,8 +122,11 @@ export const toggleGlobalColorCyclePlayback = async (
 
   try {
     if (shouldPlay) {
-      useAppStore.getState().colorCycleRuntimeHandlers?.start?.('store-sync');
-      ccLog('kicked colorCycleRuntimeHandlers.start from toggleGlobalColorCyclePlayback', { reason });
+      const currentState = useAppStore.getState();
+      const playbackController = getPlaybackRuntimeController();
+      playbackController.requestColorCycleRuntimeStart(currentState, 'store-sync');
+      playbackController.sync(currentState, 'store-sync');
+      ccLog('synced playback controller start from toggleGlobalColorCyclePlayback', { reason });
     } else {
       useAppStore.getState().colorCycleRuntimeHandlers?.stop?.('store-sync');
       ccLog('invoked colorCycleRuntimeHandlers.stop from toggleGlobalColorCyclePlayback', { reason });

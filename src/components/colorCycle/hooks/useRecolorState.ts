@@ -9,7 +9,7 @@ import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import { Layer } from '../../../types';
 import { RecolorManager, RecolorOptions, RecolorPerformanceStats } from '../../../lib/colorCycle/RecolorManager';
 import {
-  selectColorCyclePlaybackToggleAction,
+  selectEffectiveColorCyclePlaying,
   useAppStore,
 } from '@/stores/useAppStore';
 import { selectLayers } from '@/stores/selectors/layersSelectors';
@@ -88,12 +88,9 @@ export function useRecolorState(
 
   // Get recolor manager instance
   const recolorManager = useMemo(() => RecolorManager.getInstance(), []);
-  const playbackToggleAction = useAppStore(selectColorCyclePlaybackToggleAction);
   const layers = useAppStore(selectLayers);
   const updateLayer = useAppStore((state) => state.updateLayer);
-  const effectivePlaying = useAppStore((state) =>
-    state.colorCyclePlayback.desiredPlaying && state.colorCyclePlayback.suspendDepth === 0
-  );
+  const effectivePlaying = useAppStore(selectEffectiveColorCyclePlaying);
   const isAnimating = effectivePlaying;
 
   // Internal state
@@ -229,7 +226,7 @@ export function useRecolorState(
       const errorMessage = error instanceof Error ? error.message : 'Animation control error';
       actions.setError(errorMessage);
     }
-  }, [actions, playbackToggleAction]);
+  }, [actions]);
 
   // Settings management
   const updateLayerSpeed = useCallback((layerId: string, speed: number) => {

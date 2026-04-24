@@ -1,8 +1,8 @@
 import type React from 'react';
 import type { BrushEngine } from '@/hooks/useBrushEngineSimplified';
 import {
-  getSharedAnimationRuntime,
-} from '@/hooks/canvas/handlers/animation/animationRuntime';
+  getPlaybackRuntimeController,
+} from '@/runtime/playback/PlaybackRuntimeController';
 import type { AppState, CCReason } from '@/stores/useAppStore';
 import { selectEffectiveColorCyclePlaying } from '@/stores/useAppStore';
 import { BrushShape, type Layer } from '@/types';
@@ -592,8 +592,7 @@ export const startContinuousColorCycleAnimationCore = (
     continuousColorCycleAnimationActiveRef.current = true;
     continuousColorCycleAnimationRef.current = SHARED_RUNTIME_HANDLE_SENTINEL;
 
-    const runtime = getSharedAnimationRuntime();
-    const unregister = runtime.register((timestamp) => {
+    const unregister = getPlaybackRuntimeController().registerAnimationConsumer((timestamp) => {
       if (!continuousColorCycleAnimationActiveRef.current) {
         return;
       }
@@ -672,8 +671,7 @@ export const startContinuousColorCycleAnimationCore = (
       playback: summarizePlaybackState(storeRef),
       layers: summarizeColorCycleLayers(storeRef),
     });
-    runtime.start();
-    ccLog('start shared animation runtime', {
+    ccLog('start shared animation runtime via playback controller', {
       reason,
       playback: summarizePlaybackState(storeRef),
       layers: summarizeColorCycleLayers(storeRef),

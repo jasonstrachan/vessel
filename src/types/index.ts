@@ -527,6 +527,10 @@ export interface ColorCycleRuntimeData {
     spec: DerivedGradientSpec;
   }>;
   colorCycleBrush?: import('../hooks/brushEngine/ColorCycleBrushCanvas2D').ColorCycleBrushCanvas2D;
+  /**
+   * @deprecated Runtime-derived/migration-only flag. Playback ownership lives in
+   * PlaybackRuntimeController and colorCyclePlayback.
+   */
   isAnimating?: boolean;
   canvas?: HTMLCanvasElement;
   eraseMask?: HTMLCanvasElement;

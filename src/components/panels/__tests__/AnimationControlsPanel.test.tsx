@@ -115,10 +115,23 @@ jest.mock('@/stores/useAppStore', () => {
   const selectSequentialCaptureActive = (s: MockState) =>
     s.sequentialRecord.isPointerDown &&
     s.layers.some((layer) => layer.id === s.activeLayerId && layer.layerType === 'sequential');
+  const selectPlaybackToggleUi = (s: MockState) => {
+    const action = selectSequentialCaptureActive(s)
+      ? 'pause'
+      : selectColorCyclePlaybackToggleAction(s);
+    if (action === 'pause') {
+      return { action, label: 'Pause', icon: '⏸' };
+    }
+    if (action === 'resume') {
+      return { action, label: 'Resume', icon: '↻' };
+    }
+    return { action, label: 'Play', icon: '▶' };
+  };
 
   return {
     useAppStore,
     selectColorCyclePlaybackToggleAction,
+    selectPlaybackToggleUi,
     selectPlaybackSpeedScale,
     selectSequentialRecordState,
     selectSequentialCaptureActive,
