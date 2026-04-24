@@ -10,6 +10,7 @@ export interface CroppedAnimatorIndexSnapshot {
   gradientIdData?: ArrayBuffer;
   speedData?: ArrayBuffer;
   flowData?: ArrayBuffer;
+  phaseData?: ArrayBuffer;
   gradientStops?: Array<{ position: number; color: string }>;
   gradientDefs?: Array<{ id: string; name?: string; currentSlot: number }>;
   slotPalettes?: Array<{ slot: number; stops: Array<{ position: number; color: string }> }>;
@@ -26,6 +27,7 @@ export interface ColorCycleBrushResetEntry {
   imageData: ImageData | null;
   gradientStops?: Array<{ position: number; color: string }>;
   wasAnimating: boolean;
+  wasPlaying: boolean;
   layerBaseSpeedCps?: number;
   brushSpeed?: number;
   controllerSpeedCps?: number;
@@ -37,6 +39,7 @@ export interface ColorCycleBrushResetEntry {
     gradientDefIdBuffer?: ArrayBuffer;
     speedBuffer?: ArrayBuffer;
     flowBuffer?: ArrayBuffer;
+    phaseBuffer?: ArrayBuffer;
     hasContent: boolean;
     strokeCounter: number;
   };

@@ -77,9 +77,11 @@ describe('rebuildCCLayerAfterCrop', () => {
           croppedCanvas: null,
           imageData: new ImageData(2, 2),
           wasAnimating: true,
+          wasPlaying: true,
           wasActiveLayer: true,
           strokeSnapshot: {
             paintBuffer: new Uint8Array([1, 0, 0, 0]).buffer,
+            phaseBuffer: new Uint8Array([4, 0, 0, 0]).buffer,
             hasContent: true,
             strokeCounter: 1,
           },
@@ -95,6 +97,13 @@ describe('rebuildCCLayerAfterCrop', () => {
     await flushMicrotasks();
 
     expect(freshBrush.applyLayerSnapshot).toHaveBeenCalled();
+    expect(freshBrush.applyLayerSnapshot).toHaveBeenCalledWith(
+      'layer-cc',
+      expect.objectContaining({
+        phaseBuffer: expect.any(ArrayBuffer),
+      }),
+      undefined
+    );
     expect(freshBrush.markLayerHasExternalBase).toHaveBeenCalledWith('layer-cc');
   });
 
@@ -134,6 +143,7 @@ describe('rebuildCCLayerAfterCrop', () => {
           croppedCanvas: null,
           imageData,
           wasAnimating: true,
+          wasPlaying: true,
           wasActiveLayer: true,
         },
       ],
