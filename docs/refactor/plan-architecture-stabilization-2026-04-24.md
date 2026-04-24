@@ -802,7 +802,7 @@ after code, tests, and docs for that item are complete.
 - [x] Run `node scripts/check-store-access.mjs --strict`.
 - [x] Tighten `@typescript-eslint/no-unused-vars` from warning to error.
 - [x] Tighten `@typescript-eslint/no-explicit-any` from warning to error.
-- [ ] Run full verification checklist.
+- [x] Run full verification checklist.
 
 ## Risk Review
 
