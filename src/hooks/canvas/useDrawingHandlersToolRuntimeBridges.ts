@@ -1,5 +1,5 @@
-import { useDrawingBrushToolRuntime } from '@/hooks/canvas/useDrawingBrushToolRuntime';
-import { useDrawingShapeRuntimeBridge } from '@/hooks/canvas/useDrawingShapeRuntimeBridge';
+import { useStrokeToolRuntime } from '@/canvas/runtime/StrokeRuntime';
+import { useShapeToolRuntime } from '@/canvas/runtime/ShapeRuntime';
 import type { useDrawingHandlerRefs } from '@/hooks/canvas/useDrawingHandlerRefs';
 import type { useDrawingHandlersStoreState } from '@/hooks/canvas/useDrawingHandlersStoreState';
 import type { useBrushEngineSimplified } from '@/hooks/useBrushEngineSimplified';
@@ -21,12 +21,12 @@ export const useDrawingHandlersToolRuntimeBridges = ({
   brushEngine,
   userBrushEngine,
 }: UseDrawingHandlersToolRuntimeBridgesOptions) => {
-  const shapeRuntime = useDrawingShapeRuntimeBridge({
+  const shapeRuntime = useShapeToolRuntime({
     refs,
     storeRef,
   });
 
-  const brushToolRuntime = useDrawingBrushToolRuntime({
+  const brushToolRuntime = useStrokeToolRuntime({
     refs,
     storeRef,
     brushEngine,

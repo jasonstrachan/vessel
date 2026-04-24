@@ -470,6 +470,58 @@ should target these stronger boundaries.
 - Runtime modules expose small typed interfaces and have focused tests.
 - The number of pass-through `build*`/`bridge*` files stops growing.
 
+### Dependency Map - 2026-04-24
+
+Current canvas composition has three layers:
+
+- `src/components/canvas/DrawingCanvas.tsx` is already a thin shell over
+  `useDrawingCanvasRuntime.ts`, `DrawingCanvasViewport.tsx`, and overlay
+  components.
+- `src/components/canvas/useDrawingCanvasRuntime.ts` fans into runtime state,
+  visual setup, render setup, interaction setup, input handlers, and effects.
+  Most `buildDrawingCanvas*` files are pass-through option builders around
+  those hooks.
+- `src/hooks/useDrawingHandlers.ts` is already thin, but
+  `useDrawingHandlersRuntimeStages.ts` fans into engine/store refs, tool
+  runtimes, color-cycle runtime setup, and runtime handler bridges. Most
+  `buildDrawingHandlers*` files are pass-through option builders around that
+  fan-out.
+
+Primary hotspots and owners:
+
+- Input/runtime bridge:
+  `src/hooks/canvas/useCanvasEventHandlers.ts` ->
+  `createCanvasEventHandlerModules.ts` ->
+  `handlers/pointerHandlers.ts`, `keyboardHandlers.ts`,
+  `wheelHandlers.ts`, and `clipboardHandlers.ts`.
+- Stroke runtime:
+  `useDrawingStrokeRuntime.ts`, `useDrawingStartRuntime.ts`,
+  `useStrokeInputHandlers.ts`, and stroke helpers under
+  `src/hooks/canvas/handlers/stroke*` and `start*`.
+- Shape runtime:
+  `useDrawingShapeRuntime.ts`, `useDrawingShapeAuxRuntime.ts`,
+  `useShapeDrawingHandlers.ts`, `handlers/shapes/ShapeToolHandler.ts`,
+  `ShapeFinalizeHandler.ts`, and shape preview helpers.
+- Selection runtime:
+  `handlers/selectionHandlers.ts`, `selectionApply.ts`,
+  `magicWandSelection.ts`, selection ROI helpers, and floating paste
+  overlays/effects.
+- Render runtime:
+  `useDrawingCanvasRenderRuntimeSetup.ts`, `useDrawingCanvasBaseRenderer.ts`,
+  `drawingCanvasCompositeStack.ts`, composite buffers/rebuild hooks, overlay
+  canvas utilities, and redraw effects.
+
+Reduction approach:
+
+- Introduce `src/canvas/runtime/*` compatibility modules first, delegating to
+  existing hooks/handlers without behavior changes.
+- Move pointer handler subflows by domain into `InputRuntime`, `StrokeRuntime`,
+  `ShapeRuntime`, and `SelectionRuntime` wrappers before deleting bridge files.
+- Move render/composite setup into `RenderRuntime`, then compose them through
+  `CanvasRuntime`.
+- Only make hotspot budgets blocking after `pointerHandlers.ts` and
+  `ShapeToolHandler.ts` are actually below 900 LOC.
+
 ### Validation
 
 - `npm run type-check`
@@ -726,13 +778,13 @@ after code, tests, and docs for that item are complete.
 
 ### Step 7: Canvas Runtime Consolidation
 
-- [ ] Build dependency map for current canvas bridge/build modules.
-- [ ] Create `src/canvas/runtime/InputRuntime`.
-- [ ] Create `src/canvas/runtime/StrokeRuntime`.
-- [ ] Create `src/canvas/runtime/ShapeRuntime`.
-- [ ] Create `src/canvas/runtime/SelectionRuntime`.
-- [ ] Create `src/canvas/runtime/RenderRuntime`.
-- [ ] Create `src/canvas/runtime/CanvasRuntime` as the compatibility
+- [x] Build dependency map for current canvas bridge/build modules.
+- [x] Create `src/canvas/runtime/InputRuntime`.
+- [x] Create `src/canvas/runtime/StrokeRuntime`.
+- [x] Create `src/canvas/runtime/ShapeRuntime`.
+- [x] Create `src/canvas/runtime/SelectionRuntime`.
+- [x] Create `src/canvas/runtime/RenderRuntime`.
+- [x] Create `src/canvas/runtime/CanvasRuntime` as the compatibility
   composition boundary.
 - [ ] Collapse pass-through bridge/build modules into runtime constructors.
 - [ ] Reduce `pointerHandlers.ts` below 900 LOC.
