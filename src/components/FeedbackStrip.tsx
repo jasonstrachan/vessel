@@ -2,6 +2,9 @@
 
 import React, { useEffect, useState } from 'react';
 
+const DEFAULT_FEEDBACK_DURATION_MS = 1200;
+const FEEDBACK_FADE_MS = 150;
+
 interface FeedbackStripProps {
   message: string;
   duration?: number;
@@ -10,21 +13,28 @@ interface FeedbackStripProps {
 
 const FeedbackStrip: React.FC<FeedbackStripProps> = ({ 
   message, 
-  duration = 3000,
+  duration = DEFAULT_FEEDBACK_DURATION_MS,
   onClose 
 }) => {
   const [isVisible, setIsVisible] = useState(true);
   
   useEffect(() => {
+    setIsVisible(true);
+    let fadeTimer: ReturnType<typeof setTimeout> | null = null;
     const timer = setTimeout(() => {
       setIsVisible(false);
       if (onClose) {
-        setTimeout(onClose, 300); // Wait for fade out animation
+        fadeTimer = setTimeout(onClose, FEEDBACK_FADE_MS);
       }
     }, duration);
     
-    return () => clearTimeout(timer);
-  }, [duration, onClose]);
+    return () => {
+      clearTimeout(timer);
+      if (fadeTimer) {
+        clearTimeout(fadeTimer);
+      }
+    };
+  }, [duration, message, onClose]);
   
   if (!message) return null;
   
@@ -33,7 +43,7 @@ const FeedbackStrip: React.FC<FeedbackStripProps> = ({
       className={`
         fixed bottom-5 left-1/2 transform -translate-x-1/2
         bg-black text-white px-4 py-2 rounded
-        transition-opacity duration-300 z-50
+        transition-opacity duration-150 z-50
         ${isVisible ? 'opacity-100' : 'opacity-0'}
         pointer-events-none select-none
       `}
