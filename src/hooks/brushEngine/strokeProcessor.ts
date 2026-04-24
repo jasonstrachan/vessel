@@ -4,6 +4,7 @@
  * Uses factory pattern for stateful operations
  */
 
+import { logError } from '@/utils/debug';
 import { BrushShape } from '@/types';
 import { isFeatureFlagEnabled } from '@/config/featureFlags';
 import type { BrushSettings } from '@/types';
@@ -269,7 +270,7 @@ export function createPixelQueue(): PixelQueue {
     try {
       task.run();
     } catch (error) {
-      console.error('[PixelQueue] Task execution failed:', error);
+      logError('[PixelQueue] Task execution failed:', error);
     }
   };
 
@@ -290,7 +291,7 @@ export function createPixelQueue(): PixelQueue {
       try {
         cb();
       } catch (error) {
-        console.error('[PixelQueue] Idle callback failed:', error);
+        logError('[PixelQueue] Idle callback failed:', error);
       }
     }
   };
@@ -317,7 +318,7 @@ export function createPixelQueue(): PixelQueue {
         })
       );
     } catch (error) {
-      console.error('[PixelQueue] Failed to dispatch dirty rect:', error);
+      logError('[PixelQueue] Failed to dispatch dirty rect:', error);
     }
   };
 
@@ -437,7 +438,7 @@ export function createPixelQueue(): PixelQueue {
         try {
           cb();
         } catch (error) {
-          console.error('[PixelQueue] Idle callback failed:', error);
+          logError('[PixelQueue] Idle callback failed:', error);
         }
       });
       return;
@@ -678,7 +679,7 @@ export const createStrokeProcessor = (deps: StrokeProcessorDependencies) => {
       queue.spacingCounter = 0;
       queue.lastStrokePosition = { x: roundedX, y: roundedY };
       queue.accumulatedDistance = 0;
-      
+
       // Draw the first pixel
       if (shouldDrawStamp(
         brushSettings,

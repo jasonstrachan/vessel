@@ -3,6 +3,7 @@
  * Dramatically improves performance at larger brush sizes by avoiding repeated drawImage scaling.
  */
 
+import { debugWarn } from '@/utils/debug';
 import { CustomBrush } from '../types';
 import { canvasPool } from './canvasPool';
 import { adjustHueLightnessSaturation } from './imageProcessing';
@@ -326,7 +327,7 @@ class ScaledBrushCache {
           canvasPool.release(data.canvas);
         } catch (error) {
           // Continue cleanup even if canvas release fails
-          console.warn('Failed to release canvas during cache cleanup:', error);
+          debugWarn('raw-console', 'Failed to release canvas during cache cleanup:', error);
         }
       }
     }

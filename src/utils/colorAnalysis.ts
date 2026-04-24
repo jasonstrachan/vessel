@@ -1,5 +1,6 @@
 // Color analysis utilities for extracting most used colors from canvas
 
+import { debugWarn } from '@/utils/debug';
 import type { Project, Layer } from '../types';
 
 /**
@@ -106,7 +107,7 @@ export function getLiveColorPalette(canvas: HTMLCanvasElement | null, maxColors:
     
     return sortedColors;
   } catch (error) {
-    console.warn('Failed to analyze canvas colors:', error);
+    debugWarn('raw-console', 'Failed to analyze canvas colors:', error);
     return [];
   }
 }
@@ -236,7 +237,7 @@ export function extractColorsFromSelection(imageData: ImageData, bounds: { x: nu
     
     return sortedColors;
   } catch (error) {
-    console.warn('Failed to analyze selection colors:', error);
+    debugWarn('raw-console', 'Failed to analyze selection colors:', error);
     return [];
   }
 }

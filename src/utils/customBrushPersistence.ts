@@ -1,3 +1,4 @@
+import { debugWarn } from '@/utils/debug';
 import type { CustomBrush } from '@/types';
 import {
   deserializeCustomBrushColorCycle,
@@ -121,7 +122,7 @@ export function saveCustomBrushesToStorage(brushes: CustomBrush[], defaultCustom
       try {
         window.localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
         if (startIndex > 0) {
-          console.warn(
+          debugWarn('raw-console',
             `[CustomBrushStorage] Quota limited. Persisted ${keptBrushes.length}/${serializedBrushes.length} most recent custom brushes.`
           );
         }
@@ -137,10 +138,10 @@ export function saveCustomBrushesToStorage(brushes: CustomBrush[], defaultCustom
 
     if (!saved) {
       clearStoredCustomBrushes();
-      console.warn('[CustomBrushStorage] Unable to persist custom brushes due to storage limits.');
+      debugWarn('raw-console', '[CustomBrushStorage] Unable to persist custom brushes due to storage limits.');
     }
   } catch (error) {
-    console.warn('[CustomBrushStorage] Failed to persist custom brushes.', error);
+    debugWarn('raw-console', '[CustomBrushStorage] Failed to persist custom brushes.', error);
   }
 }
 
@@ -189,7 +190,7 @@ export async function loadCustomBrushesFromStorage(): Promise<{
       defaultCustomBrushId: parsed.defaultCustomBrushId ?? null
     };
   } catch (error) {
-    console.warn('[CustomBrushStorage] Failed to load stored custom brushes.', error);
+    debugWarn('raw-console', '[CustomBrushStorage] Failed to load stored custom brushes.', error);
     clearStoredCustomBrushes();
     return null;
   }

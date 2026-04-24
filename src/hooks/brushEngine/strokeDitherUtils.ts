@@ -1,3 +1,4 @@
+import { debugWarn } from '@/utils/debug';
 import { BrushShape, type BrushSettings } from '@/types';
 import { applySierraLiteLostEdgeMask } from '@/utils/ditherAlgorithms';
 import { isColorCycleBrush } from '@/utils/colorCycleGradients';
@@ -44,7 +45,7 @@ export const applyLostEdgeToStrokeAlphaData = (
   try {
     mask = applySierraLiteLostEdgeMask(coverage, width, height, clamped);
   } catch (error) {
-    console.warn('[Dither] Lost-edge mask failed (pre-dither):', error);
+    debugWarn('raw-console', '[Dither] Lost-edge mask failed (pre-dither):', error);
     return;
   }
 

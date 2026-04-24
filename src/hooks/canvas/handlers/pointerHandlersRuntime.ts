@@ -1,5 +1,6 @@
 'use client';
 
+import { debugWarn } from '@/utils/debug';
 import React from 'react';
 import { useAppStore } from '@/stores/useAppStore';
 import { getColorCycleBrushManager } from '@/stores/colorCycleBrushManager';
@@ -1268,7 +1269,7 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
         });
         } catch (error) {
         if (process.env.NODE_ENV !== 'production') {
-          console.warn('[Vessel] Preview dithering failed', error);
+          debugWarn('raw-console', '[Vessel] Preview dithering failed', error);
         }
       }
       }
@@ -2697,7 +2698,7 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
           bitmapRoi: fillBounds ?? undefined,
         }).catch((error) => {
           if (process.env.NODE_ENV !== 'production') {
-            console.warn('[history] Failed to record flood fill history', error);
+            debugWarn('raw-console', '[history] Failed to record flood fill history', error);
           }
         });
         trackPendingHistoryCommit(historyCommit);

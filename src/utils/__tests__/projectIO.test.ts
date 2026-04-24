@@ -1,4 +1,11 @@
 import JSZip from 'jszip';
+
+jest.mock('@/utils/debug', () => ({
+  ...jest.requireActual('@/utils/debug'),
+  debugWarn: jest.fn(),
+}));
+
+import { debugWarn } from '@/utils/debug';
 import { ColorCycleBrushCanvas2D } from '@/hooks/brushEngine/ColorCycleBrushCanvas2D';
 import {
   deserializeProject,
@@ -24,7 +31,6 @@ jest.setTimeout(20000);
 
 const originalOffscreenCanvas = (globalThis as { OffscreenCanvas?: unknown }).OffscreenCanvas;
 const originalToDataURL = HTMLCanvasElement.prototype.toDataURL;
-let consoleWarnSpy: jest.SpyInstance | null = null;
 
 class TestOffscreenCanvas {
   width: number;
@@ -42,7 +48,6 @@ class TestOffscreenCanvas {
 
 beforeAll(() => {
   (globalThis as { OffscreenCanvas?: unknown }).OffscreenCanvas = TestOffscreenCanvas;
-  consoleWarnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
   Object.defineProperty(HTMLCanvasElement.prototype, 'toDataURL', {
     configurable: true,
     writable: true,
@@ -59,8 +64,6 @@ afterAll(() => {
     writable: true,
     value: originalToDataURL
   });
-  consoleWarnSpy?.mockRestore();
-  consoleWarnSpy = null;
 });
 
 const minimalVesselProject = {
@@ -3307,7 +3310,8 @@ describe('projectIO serialize/deserialize layering', () => {
     expect(restoredLayer.colorCycleData?.canvas?.width).toBe(3);
     expect(restoredLayer.colorCycleData?.canvas?.height).toBe(2);
     expect(restoredLayer.colorCycleData?.colorCycleBrush).toBeDefined();
-    expect(consoleWarnSpy).toHaveBeenCalledWith(
+    expect(debugWarn).toHaveBeenCalledWith(
+      'raw-console',
       '[projectIO] Dropping incompatible color cycle brushState during load',
       expect.objectContaining({
         layerId: 'layer-cc-crop-mismatch',

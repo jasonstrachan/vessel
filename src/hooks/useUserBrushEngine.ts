@@ -1,5 +1,6 @@
 'use client';
 
+import { debugWarn } from '@/utils/debug';
 import { useCallback, useRef, useEffect } from 'react';
 import { BrushRegistry } from '../brushes/BrushRegistry';
 import { BrushPlugin, BrushDrawContext } from '../brushes/BrushPlugin';
@@ -98,7 +99,7 @@ export const useUserBrushEngine = () => {
 
     // Validate settings if brush supports it
     if (brush.validateSettings && !brush.validateSettings(brushSettings)) {
-      console.warn(`Brush ${brush.id} validation failed for current settings`);
+      debugWarn('raw-console', `Brush ${brush.id} validation failed for current settings`);
       return;
     }
 
@@ -216,7 +217,7 @@ export const useUserBrushEngine = () => {
             y: interpY,
             pressure: interpPressure,
             settings: resolveRuntimeBrushSettings(brushSettings, ctx),
-            lastPoint: i === 0 ? null : { 
+            lastPoint: i === 0 ? null : {
               x: lastPoint.x + (x - lastPoint.x) * ((i - 1) / steps),
               y: lastPoint.y + (y - lastPoint.y) * ((i - 1) / steps),
               pressure: lastPoint.pressure + (pressure - lastPoint.pressure) * ((i - 1) / steps)

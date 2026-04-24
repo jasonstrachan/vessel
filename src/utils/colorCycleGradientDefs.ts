@@ -1,3 +1,4 @@
+import { logError } from '@/utils/debug';
 import { useAppStore } from '@/stores/useAppStore';
 import { FLOW_SLOT_MASK } from '@/lib/colorCycle/flowEncoding';
 import { cloneStops, getNextGradientSlot } from '@/hooks/canvas/utils/colorCycleHelpers';
@@ -77,7 +78,7 @@ const reportSlotAllocationFailure = (params: {
   if (process.env.NODE_ENV === 'production' || process.env.NODE_ENV === 'test') {
     return;
   }
-  console.error('[CC] Gradient slot allocation failed', {
+  logError('[CC] Gradient slot allocation failed', {
     layerId: params.layerId,
     context: params.context,
     usedSlotsSize: params.usedSlots.size,
@@ -90,7 +91,7 @@ const reportDefIdAllocationFailure = (layerId: string) => {
   if (process.env.NODE_ENV === 'production' || process.env.NODE_ENV === 'test') {
     return;
   }
-  console.error('[CC] Gradient def id allocation failed', { layerId });
+  logError('[CC] Gradient def id allocation failed', { layerId });
 };
 
 const runProjectSlotRebuild = (layerId: string) => {
@@ -105,7 +106,7 @@ const runProjectSlotRebuild = (layerId: string) => {
   }
   if (result.missingDefLayers && result.missingDefLayers.length > 0) {
     if (process.env.NODE_ENV !== 'production') {
-      console.error('[CC] Slot GC aborted due to missing defs', {
+      logError('[CC] Slot GC aborted due to missing defs', {
         layerId,
         missingDefLayers: result.missingDefLayers,
       });

@@ -3,6 +3,7 @@
  * Simplified interface that combines all brush engine modules
  */
 
+import { debugLog } from '@/utils/debug';
 import {
   BrushShape,
   type BrushSettings,
@@ -698,7 +699,7 @@ export class BrushEngineFacade {
         }
       }
     }
-    
+
     // Draw final stamp at exact end position if we have moved
     if (distance > 0 && this.strokeProcessor.shouldDrawStamp(
       this.config.brushSettings,
@@ -1307,7 +1308,7 @@ export class BrushEngineFacade {
   private get shapeDrawer() {
     return this._shapeDrawer;
   }
-  
+
   private set shapeDrawer(value: ReturnType<typeof createShapeDrawer>) {
     this._shapeDrawer = value;
   }
@@ -1331,8 +1332,8 @@ export class BrushEngineFacade {
   finalizeStroke(ctx: CanvasRenderingContext2D): void {
     // Only draw waiting pixel for pixel-perfect brushes (antialiasing disabled)
     // This prevents an extra stamp at the end of strokes for normal brushes
-    if (!this.config.brushSettings.antialiasing && 
-        this.pixelQueue.initialized && 
+    if (!this.config.brushSettings.antialiasing &&
+        this.pixelQueue.initialized &&
         (this.pixelQueue.waitingPixelX !== this.pixelQueue.lastDrawnX ||
          this.pixelQueue.waitingPixelY !== this.pixelQueue.lastDrawnY)) {
       const { brushSettings } = this.config;
@@ -1423,7 +1424,7 @@ export class BrushEngineFacade {
       if (debugLevel >= 3) {
         try {
           const pixel = ctx.getImageData(Math.floor(x), Math.floor(y), 1, 1);
-          console.log('[AL] canDrawAt bypass sample', {
+          debugLog('raw-console', '[AL] canDrawAt bypass sample', {
             x: Math.floor(x),
             y: Math.floor(y),
             alpha: pixel.data[3],

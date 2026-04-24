@@ -1,3 +1,4 @@
+import { debugWarn } from '@/utils/debug';
 /**
  * Performance profiling and monitoring for color cycle operations
  * Provides detailed timing, memory usage, and performance recommendations
@@ -73,7 +74,7 @@ export class PerformanceProfiler {
   end(profileId: string, additionalMetadata: ProfileMetadata = {}): ProfileResult | null {
     const activeProfile = this.activeProfiles.get(profileId);
     if (!activeProfile) {
-      console.warn(`No active profile found for ID: ${profileId}`);
+      debugWarn('raw-console', `No active profile found for ID: ${profileId}`);
       return null;
     }
 
@@ -106,17 +107,17 @@ export class PerformanceProfiler {
     metadata: ProfileMetadata = {}
   ): Promise<{ result: T; profile: ProfileResult }> {
     const profileId = `${name}_${Date.now()}_${Math.random()}`;
-    
+
     this.start(profileId, metadata);
-    
+
     try {
       const result = await fn();
       const profile = this.end(profileId, { success: true });
       return { result, profile: profile! };
     } catch (error) {
-      this.end(profileId, { 
-        success: false, 
-        error: error instanceof Error ? error.message : 'Unknown error' 
+      this.end(profileId, {
+        success: false,
+        error: error instanceof Error ? error.message : 'Unknown error'
       });
       throw error;
     }

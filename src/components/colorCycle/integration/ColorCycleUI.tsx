@@ -3,6 +3,7 @@
  * Integrates RecolorPanel with existing Vessel UI structure
  */
 
+import { logError } from '@/utils/debug';
 import React, { useEffect, useState, useCallback } from 'react';
 import type { Layer } from '@/types';
 import { useAppStore } from '../../../stores/useAppStore';
@@ -21,9 +22,9 @@ interface ColorCycleUIProps {
   onToggleVisibility?: (visible: boolean) => void;
 }
 
-export const ColorCycleUI: React.FC<ColorCycleUIProps> = ({ 
-  isVisible = false, 
-  onToggleVisibility 
+export const ColorCycleUI: React.FC<ColorCycleUIProps> = ({
+  isVisible = false,
+  onToggleVisibility
 }) => {
   const [initialized, setInitialized] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -57,7 +58,7 @@ export const ColorCycleUI: React.FC<ColorCycleUIProps> = ({
       } catch (err) {
         const errorMessage = err instanceof Error ? err.message : 'Failed to initialize color cycling';
         setError(errorMessage);
-        console.error('Color cycle initialization failed:', err);
+        logError('Color cycle initialization failed:', err);
       }
     };
 
@@ -74,7 +75,7 @@ export const ColorCycleUI: React.FC<ColorCycleUIProps> = ({
   // Handle errors from RecolorPanel
   const handlePanelError = useCallback((errorMessage: string) => {
     setError(errorMessage);
-    console.error('RecolorPanel error:', errorMessage);
+    logError('RecolorPanel error:', errorMessage);
   }, []);
 
   // Don't render if not visible
@@ -134,7 +135,7 @@ export const ColorCycleUI: React.FC<ColorCycleUIProps> = ({
   return (
     <ColorCycleErrorBoundary
       onError={(error, errorInfo) => {
-        console.error('Color Cycle Error:', error, errorInfo);
+        logError('Color Cycle Error:', error, errorInfo);
         setError(`Component error: ${error.message}`);
       }}
     >
@@ -165,10 +166,10 @@ export interface ColorCycleToggleProps {
   disabled?: boolean;
 }
 
-export const ColorCycleToggle: React.FC<ColorCycleToggleProps> = ({ 
-  isActive, 
-  onClick, 
-  disabled = false 
+export const ColorCycleToggle: React.FC<ColorCycleToggleProps> = ({
+  isActive,
+  onClick,
+  disabled = false
 }) => {
   const activeLayerId = useAppStore(selectActiveLayerId);
   const layers = useAppStore(selectLayers);
@@ -185,8 +186,8 @@ export const ColorCycleToggle: React.FC<ColorCycleToggleProps> = ({
       disabled={disabled || !hasRecolorCapability}
       className={`
         flex items-center gap-2 px-3 py-2 rounded text-sm font-medium transition-colors
-        ${isActive 
-          ? 'bg-purple-600 text-white shadow-md' 
+        ${isActive
+          ? 'bg-purple-600 text-white shadow-md'
           : 'bg-gray-700 text-gray-300 hover:bg-gray-600 hover:text-white'
         }
         ${(disabled || !hasRecolorCapability)
@@ -195,8 +196,8 @@ export const ColorCycleToggle: React.FC<ColorCycleToggleProps> = ({
         }
       `}
       title={
-        !hasRecolorCapability 
-          ? 'Select a layer with content to use Color cycle + recolor' 
+        !hasRecolorCapability
+          ? 'Select a layer with content to use Color cycle + recolor'
           : 'Toggle Color cycle + recolor panel'
       }
     >
@@ -267,7 +268,7 @@ export const useColorCycleIntegration = () => {
         await integration.initialize();
         setInitialized(true);
       } catch (error) {
-        console.error('Failed to initialize color cycle integration:', error);
+        logError('Failed to initialize color cycle integration:', error);
       }
     };
 

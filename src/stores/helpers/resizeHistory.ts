@@ -1,3 +1,4 @@
+import { debugWarn } from '@/utils/debug';
 import historyManager from '@/history/historyService';
 import { createColorCycleStrokePatchDelta } from '@/history/deltas/colorCycleStrokePatchDelta';
 import { createProjectDimensionsDelta } from '@/history/deltas/projectDimensionsDelta';
@@ -186,7 +187,7 @@ export const recordResizeHistory = async ({
   } catch (error) {
     txn.cancel();
     if (process.env.NODE_ENV !== 'production') {
-      console.warn('[history] Failed to record resize history', error);
+      debugWarn('raw-console', '[history] Failed to record resize history', error);
     }
   }
 };

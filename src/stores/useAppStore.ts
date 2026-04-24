@@ -152,7 +152,7 @@ if (typeof window !== 'undefined') {
     tinyWindow.__checkLayerIntegrity = () => {
       const state = useAppStore.getState();
       const issues: string[] = [];
-      
+
       state.layers.forEach(layer => {
         if (layer.layerType === 'color-cycle' && !layer.colorCycleData) {
           issues.push(`Layer ${layer.id} is color-cycle but missing colorCycleData`);
@@ -164,10 +164,10 @@ if (typeof window !== 'undefined') {
           issues.push(`Layer ${layer.id} is normal but has colorCycleData`);
         }
       });
-    
+
     if (issues.length > 0) {
       if (process.env.NODE_ENV !== 'production') {
-        console.error('🔴 LAYER INTEGRITY ISSUES:', issues);
+        logError('🔴 LAYER INTEGRITY ISSUES:', issues);
       }
     }
     return issues;
@@ -176,6 +176,7 @@ if (typeof window !== 'undefined') {
 }
 
 // Import ColorCycleBrush manager
+import { debugLog, logError } from '@/utils/debug';
 import { getColorCycleBrushManager, setLayerIdGetter, setColorCycleStoreStateGetter } from './colorCycleBrushManager';
 import { syncPlaybackColorCycleLayers } from './ccRuntime';
 import type { ColorCycleBrushImplementation } from './colorCycleBrushManager';
@@ -257,7 +258,6 @@ import { createColorAdjustSlice } from '@/stores/slices/colorAdjustSlice';
 import { createCropSlice } from '@/stores/slices/cropSlice';
 import { createVesselStore } from '@/stores/createVesselStore';
 // import { memoryManager } from '../utils/memoryCleanup';
-import { logError } from '../utils/debug';
 import { computeLayerPercentOffset, computePercentOffsetFromPixels } from '@/utils/layerMetrics';
 import historyManager, { setActiveHistoryDocument } from '@/history/historyService';
 import {
@@ -331,11 +331,11 @@ export interface AppState {
   recordSequentialRuntimeTick: SequentialRecordSlice['recordSequentialRuntimeTick'];
   setSequentialFrameCacheStats: SequentialRecordSlice['setSequentialFrameCacheStats'];
   resetSequentialRuntimeMetrics: SequentialRecordSlice['resetSequentialRuntimeMetrics'];
-  
+
   // Layer composition trigger
   layersNeedRecomposition: boolean;
   setLayersNeedRecomposition: (needed: boolean) => void;
-  
+
   // Global brush settings
   globalBrushSize: number;
   setGlobalBrushSize: (size: number) => void;
@@ -343,7 +343,7 @@ export interface AppState {
   setCustomBrushSizePercent: (percent: number) => void;
   pressureSettings: PressureSettings;
   setPressureSettings: (settings: Partial<PressureSettings>) => void;
-  
+
   // Palette State
   palette: PaletteState;
   setPaletteColor: (slot: 'foreground' | 'background', color: string) => void;
@@ -353,7 +353,7 @@ export interface AppState {
   colorPickerPreferReferenceLayer: boolean;
   setColorPickerPreferReferenceLayer: (prefer: boolean) => void;
   syncPaletteFromTool: (color: string, slot?: 'foreground' | 'background') => void;
-  
+
   // Brush-specific settings storage
   brushSpecificSettings: Record<string, Partial<BrushSettings>>;
   ccBrushDitherSelection: {
@@ -365,7 +365,7 @@ export interface AppState {
   loadBrushSettings: (brushId: string) => Partial<BrushSettings>;
   clearBrushSettings: (brushId: string) => void;
   _saveCurrentBrushSettings: () => void;
-  
+
   // History State
   history: HistoryState;
   undo: () => Promise<CanvasSnapshot | null>;
@@ -411,7 +411,7 @@ export interface AppState {
   commitCanvasShape: () => void;
   cancelCanvasShapeEdit: () => void;
   setCanvasShape: (shape: CanvasShape) => void;
-  
+
   // Selection State
   selectionStart: { x: number; y: number } | null;
   selectionEnd: { x: number; y: number } | null;
@@ -455,7 +455,7 @@ export interface AppState {
   resetCrop: () => void;
   commitCrop: (overrideRect?: Rectangle | null) => Promise<void>;
   cancelCrop: () => void;
-  
+
   // Floating Paste State
   floatingPaste: {
     active: boolean;
@@ -512,7 +512,7 @@ export interface AppState {
   flipFloatingPasteVertical: () => void;
   commitFloatingPaste: () => Promise<void>;
   cancelFloatingPaste: () => void;
-  
+
   // Tool State
   tools: ToolState;
   setCurrentTool: (tool: Tool) => void;
@@ -535,7 +535,7 @@ export interface AppState {
   ccGradientSampleResetToken: number;
   setCcGradientSampleCount: (count: number) => void;
   resetCcGradientSample: () => void;
-  
+
   // Brush Presets
   brushPresets: BrushPreset[];
   currentBrushPreset: BrushPreset | null;
@@ -543,7 +543,7 @@ export interface AppState {
   setBrushPreset: (preset: BrushPreset, preserveEditMode?: boolean) => void;
   getBrushPresets: () => BrushPreset[];
   getBrushPresetById: (id: string) => BrushPreset | undefined;
-  
+
       // Shape State
   shapeState: ShapeState;
   setShapeDrawing: (isDrawing: boolean) => void;
@@ -569,7 +569,7 @@ export interface AppState {
   commitShapeFillParameter: () => void;
   finalizeShapeFillSession: () => ShapeFillFinalizePayload | null;
   cancelShapeFillSession: () => void;
-  
+
   // Rectangle Brush State
   rectangleBrushState: {
     drawingState: 'idle' | 'definingLength' | 'definingWidth';
@@ -581,7 +581,7 @@ export interface AppState {
     endColor: string;
   };
   setRectangleBrushState: (partialState: Partial<AppState['rectangleBrushState']>) => void;
-  
+
   // Polygon Gradient Brush State
   polygonGradientState: PolygonGradientState;
   setPolygonGradientState: (partialState: Partial<PolygonGradientState>) => void;
@@ -600,7 +600,7 @@ export interface AppState {
   startRecolorSampling: (samples?: number, target?: 'recolor' | 'brush') => void;
   updateRecolorSampling: (partial: Partial<AppState['recolorSampling']>) => void;
   stopRecolorSampling: () => void;
-  
+
   // UI State
   ui: UIState;
   togglePanel: (panel: keyof UIState['panels']) => void;
@@ -615,7 +615,7 @@ export interface AppState {
   removeNotification: (id: string) => void;
   pushKeyboardScope: (id: string, scope: KeyboardScope) => void;
   popKeyboardScope: (id: string) => void;
-  
+
   // Layer Management
   layers: Layer[];
   layerGroups: LayerGroup[];
@@ -656,12 +656,12 @@ export interface AppState {
   reorderLayers: (sourceIndex: number, destinationIndex: number) => void;
   reorderLayerBlock: (layerIds: string[], destinationIndex: number) => void;
   setSelectedLayerIds: (layerIds: string[]) => void;
-  
+
   // Color Cycle Layer Management
   initColorCycleForLayer: (layerId: string, width: number, height: number) => void;
   cleanupColorCycleForLayer: (layerId: string) => void;
   getLayerColorCycleBrush: (layerId: string) => ColorCycleBrushImplementation | null;
-  
+
   // Custom Brush Management
   temporaryCustomBrush: CustomBrush | null;
   setTemporaryCustomBrush: (brush: CustomBrush | null) => void;
@@ -674,7 +674,7 @@ export interface AppState {
   getCustomBrushByIdUnsafe: (brushId: string) => CustomBrush | null;
   listCustomBrushes: () => CustomBrush[];
   ensureCustomBrushHydrated: () => Promise<void>;
-  
+
   // Brush Editor State
   brushEditor: BrushEditorState;
   startBrushEdit: (brushId: string, canvas: HTMLCanvasElement) => void;
@@ -691,10 +691,10 @@ export interface AppState {
     height?: number;
   }) => void;
   refreshCurrentBrushTipFromSource: () => void;
-  
+
   // Brush Preset Management
   removeBrushPreset: (presetId: string) => void;
-  
+
   // Canvas Reference Management
   currentOffscreenCanvas: HTMLCanvasElement | null;
   setCurrentOffscreenCanvas: (canvas: HTMLCanvasElement | null) => void;
@@ -711,7 +711,7 @@ export interface AppState {
   getCompositeSegmentsSnapshot: () => CompositeSegment[];
   markCompositeSegmentsDirtyByLayerIds: (layerIds: string[]) => void;
   markAllCompositeSegmentsDirty: () => void;
-  
+
   // Project Save/Load Management
   saveProject: (request?: string | { filename?: string; forceDialog?: boolean }) => Promise<void>;
   loadProject: () => Promise<void>;
@@ -729,7 +729,7 @@ export interface AppState {
     options?: { mode?: 'alpha' | 'replace' }
   ) => Promise<void>;
   captureCanvasToLayer: (sourceCanvas: HTMLCanvasElement, targetLayerId: string | null) => Promise<void>;
-  
+
   // Autosave State
   autosave: AutosaveState;
   setAutosaveEnabled: (enabled: boolean) => void;
@@ -873,7 +873,7 @@ configureMaskManager({
 // Subscribe to track all layer changes
 useAppStore.subscribe((state) => {
   trackLayerChanges('STORE SUBSCRIPTION', state.layers);
-  
+
   // Note: Zustand v4 doesn't provide previous state in subscribe
   // Would need to track manually if we need to compare
 });
@@ -1268,8 +1268,8 @@ subscribeToSaveInFlightUnloadGuard();
       const next = patch?.colorCycleData?.isAnimating;
       if (isCcDebugEnabled() && isCcDebugVerboseEnabled() && typeof next === 'boolean' && next !== prev) {
         console.groupCollapsed('[CC:TRACE] updateLayer isAnimating flip', { id: id?.slice(-6), prev, next });
-        console.log('patch:', patch);
-        console.log(new Error('updateLayer:isAnimating').stack);
+        debugLog('raw-console', 'patch:', patch);
+        debugLog('raw-console', new Error('updateLayer:isAnimating').stack);
         console.groupEnd();
         // debugger;
       }

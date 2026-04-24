@@ -1,3 +1,4 @@
+import { debugLog, debugWarn, logError } from '@/utils/debug';
 import { cloneExportLayout } from '@/utils/layoutDefaults';
 import { computeLayerContentMetrics } from '@/utils/layerMetrics';
 import type { LayerContentMetrics } from '@/utils/layerMetrics';
@@ -92,13 +93,13 @@ let gobletDiagnosticsActive = gobletDiagnosticsDefault;
 
 const gobletDebugLog = (...args: Array<unknown>) => {
   if (gobletDiagnosticsActive) {
-    console.log(...args);
+    debugLog('raw-console', ...args);
   }
 };
 
 const gobletDebugWarn = (...args: Array<unknown>) => {
   if (gobletDiagnosticsActive) {
-    console.warn(...args);
+    debugWarn('raw-console', ...args);
   }
 };
 
@@ -251,7 +252,7 @@ export const exportProjectAsWebGL = async (
     try {
       metricsMap.set(layer.id, computeLayerExportMetrics(layer, options.project));
     } catch (error) {
-      console.warn('[webglExporter] Failed to compute export metrics for layer', layer.id, error);
+      debugWarn('raw-console', '[webglExporter] Failed to compute export metrics for layer', layer.id, error);
       const fallbackSurface = getLayerSurfaceSize(layer, options.project);
       metricsMap.set(layer.id, {
         surfaceSize: fallbackSurface,
@@ -641,7 +642,7 @@ export const exportProjectAsWebGL = async (
       const { dataUrl: previewDataUrl, format: previewFormat } = await canvasToDataURL(previewCanvas);
       const normalizedPreview = normalizeImageDataUrl(previewDataUrl);
       if (!normalizedPreview) {
-        console.error(`[webglExporter] Invalid data URL generated for ${previewFormat} preview`);
+        logError(`[webglExporter] Invalid data URL generated for ${previewFormat} preview`);
       } else {
         preview = {
           type: previewFormat,
@@ -655,7 +656,7 @@ export const exportProjectAsWebGL = async (
         const { dataUrl, format } = await canvasToDataURL(compositeCanvas);
         const normalized = normalizeImageDataUrl(dataUrl);
         if (!normalized) {
-          console.error(`[webglExporter] Invalid data URL generated for ${format} fallback`);
+          logError(`[webglExporter] Invalid data URL generated for ${format} fallback`);
         } else {
           fallback = {
             type: format,
@@ -664,7 +665,7 @@ export const exportProjectAsWebGL = async (
         }
       }
     } catch (error) {
-      console.warn('[webglExporter] Failed to capture Goblet preview or fallback', error);
+      debugWarn('raw-console', '[webglExporter] Failed to capture Goblet preview or fallback', error);
     }
   }
 

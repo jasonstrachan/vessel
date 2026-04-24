@@ -1,3 +1,4 @@
+import { debugLog, logError } from '@/utils/debug';
 import type { ColorCycleBrushImplementation } from '@/hooks/brushEngine/ColorCycleBrushMigration';
 import {
   setFgPending,
@@ -90,7 +91,7 @@ export const runProjectSlotRebuild = (layerId: string) => {
   }
   if (result.missingDefLayers && result.missingDefLayers.length > 0) {
     if (process.env.NODE_ENV !== 'production') {
-      console.error('[CC] Slot GC aborted due to missing defs', {
+      logError('[CC] Slot GC aborted due to missing defs', {
         layerId,
         missingDefLayers: result.missingDefLayers,
       });
@@ -149,7 +150,7 @@ export const ensureActiveColorCycleGradientSlot = ({
     const previous = gradientTraceByLayer.get(layer.id);
     const gray = isLikelyGrayGradient(activeStops);
     if (!previous || previous.sig !== sig || previous.source !== source) {
-      console.info('[cc gradient debug] ensure slot', {
+      debugLog('raw-console', '[cc gradient debug] ensure slot', {
         layerId: layer.id,
         source,
         changed: !previous ? 'initial' : 'changed',

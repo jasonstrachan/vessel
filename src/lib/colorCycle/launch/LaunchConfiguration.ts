@@ -3,6 +3,7 @@
  * Handles production deployment, error tracking, and health monitoring
  */
 
+import { debugLog, debugWarn, logError } from '@/utils/debug';
 import { AppIntegration } from '../integration/AppIntegration';
 import { PerformanceProfiler } from '../monitoring/PerformanceProfiler';
 import { BrowserCompat } from '../compatibility/BrowserCompat';
@@ -112,13 +113,13 @@ export class LaunchConfiguration {
    * Initialize the system for launch
    */
   async launch(): Promise<{ success: boolean; issues: string[] }> {
-    console.log('🚀 Launching Color Cycle System...');
+    debugLog('raw-console', '🚀 Launching Color Cycle System...');
     
     const issues: string[] = [];
 
     try {
       // Step 1: Run integration tests
-      console.log('📋 Running pre-launch integration tests...');
+      debugLog('raw-console', '📋 Running pre-launch integration tests...');
       const testResults = await this.runPreLaunchTests();
       
       if (testResults.testsFailed > 0) {
@@ -137,17 +138,17 @@ export class LaunchConfiguration {
       }
 
       // Step 2: Initialize core systems
-      console.log('⚙️ Initializing core systems...');
+      debugLog('raw-console', '⚙️ Initializing core systems...');
       await this.integration.initialize();
 
       // Step 3: Setup monitoring
       if (this.config.enableTelemetry || this.config.enableErrorReporting) {
-        console.log('📊 Setting up monitoring and error tracking...');
+        debugLog('raw-console', '📊 Setting up monitoring and error tracking...');
         this.setupMonitoring();
       }
 
       // Step 4: Apply performance optimizations
-      console.log('🎛️ Applying performance optimizations...');
+      debugLog('raw-console', '🎛️ Applying performance optimizations...');
       this.applyPerformanceOptimizations();
 
       // Step 5: Setup error handling
@@ -159,7 +160,7 @@ export class LaunchConfiguration {
       const success = this.health.status !== 'critical' && this.config.enableColorCycleFeature;
 
       if (success) {
-        console.log('✅ Color Cycle System launched successfully');
+        debugLog('raw-console', '✅ Color Cycle System launched successfully');
         
         // Log launch success
         this.reportEvent('info', 'LaunchConfiguration', 'System launched successfully', {
@@ -167,7 +168,7 @@ export class LaunchConfiguration {
           health: this.health
         });
       } else {
-        console.warn('⚠️ Color Cycle System launched with issues');
+        debugWarn('raw-console', '⚠️ Color Cycle System launched with issues');
         issues.push(`System health: ${this.health.status}`);
       }
 
@@ -175,7 +176,7 @@ export class LaunchConfiguration {
 
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown launch error';
-      console.error('❌ Failed to launch Color Cycle System:', error);
+      logError('❌ Failed to launch Color Cycle System:', error);
       
       issues.push(`Launch failed: ${errorMessage}`);
       
@@ -201,7 +202,7 @@ export class LaunchConfiguration {
   updateConfig(updates: Partial<LaunchConfig>): void {
     this.config = { ...this.config, ...updates };
     
-    console.log('🔧 Configuration updated:', updates);
+    debugLog('raw-console', '🔧 Configuration updated:', updates);
     
     // Apply changes immediately if system is running
     if (this.monitoringInterval) {
@@ -251,7 +252,7 @@ export class LaunchConfiguration {
    * Shutdown system gracefully
    */
   shutdown(): void {
-    console.log('🛑 Shutting down Color Cycle System...');
+    debugLog('raw-console', '🛑 Shutting down Color Cycle System...');
     
     if (this.monitoringInterval) {
       clearInterval(this.monitoringInterval);
@@ -263,7 +264,7 @@ export class LaunchConfiguration {
       finalHealth: this.health
     });
 
-    console.log('✅ Color Cycle System shutdown complete');
+    debugLog('raw-console', '✅ Color Cycle System shutdown complete');
   }
 
   /**
@@ -295,7 +296,7 @@ export class LaunchConfiguration {
       
     }, this.config.performanceCheckIntervalMs);
 
-    console.log(`📊 Monitoring started (${this.config.performanceCheckIntervalMs}ms interval)`);
+    debugLog('raw-console', `📊 Monitoring started (${this.config.performanceCheckIntervalMs}ms interval)`);
   }
 
   /**
@@ -311,14 +312,14 @@ export class LaunchConfiguration {
         browserSettings.maxConcurrentLayers
       );
       
-      console.log(`🎛️ Performance mode enabled: max ${this.config.maxConcurrentLayers} concurrent layers`);
+      debugLog('raw-console', `🎛️ Performance mode enabled: max ${this.config.maxConcurrentLayers} concurrent layers`);
     }
 
     // Apply memory constraints
     const memoryLimit = this.browserCompat.getMemoryLimit();
     if (memoryLimit < this.config.maxMemoryUsageMB) {
       this.config.maxMemoryUsageMB = memoryLimit;
-      console.log(`💾 Memory limit adjusted to ${memoryLimit}MB`);
+      debugLog('raw-console', `💾 Memory limit adjusted to ${memoryLimit}MB`);
     }
   }
 
@@ -347,7 +348,7 @@ export class LaunchConfiguration {
       }
     });
 
-    console.log('🛡️ Global error handling setup complete');
+    debugLog('raw-console', '🛡️ Global error handling setup complete');
   }
 
   /**
@@ -423,7 +424,7 @@ export class LaunchConfiguration {
    */
   private handleDegradedPerformance(): void {
     if (this.health.status === 'critical') {
-      console.warn('🚨 Critical system health - applying emergency measures');
+      debugWarn('raw-console', '🚨 Critical system health - applying emergency measures');
       
       if (this.config.disableOnPoorPerformance) {
         this.config.enableColorCycleFeature = false;
@@ -434,7 +435,7 @@ export class LaunchConfiguration {
       
       if (this.config.fallbackToStaticMode) {
         // Could implement static mode fallback here
-        console.log('🔄 Falling back to static mode');
+        debugLog('raw-console', '🔄 Falling back to static mode');
       }
     }
   }
@@ -510,7 +511,7 @@ export class LaunchConfiguration {
         body: JSON.stringify(error)
       });
     } catch (e) {
-      console.error('Failed to send error report:', e);
+      logError('Failed to send error report:', e);
     }
   }
 

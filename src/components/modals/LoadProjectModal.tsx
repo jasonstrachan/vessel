@@ -1,5 +1,6 @@
 'use client';
 
+import { debugWarn, logError } from '@/utils/debug';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 
 import { LoadProjectModalBody } from '@/components/modals/LoadProjectModalBody';
@@ -103,7 +104,7 @@ export function LoadProjectModal({ isOpen, onClose }: LoadProjectModalProps) {
       ensureModalOpenForDrop();
       await processProjectFile(file, { ...options, fileHandle: entry.handle });
     } catch (openError) {
-      console.error('[LoadProjectModal] Failed to open file from directory', openError);
+      logError('[LoadProjectModal] Failed to open file from directory', openError);
       setError(openError instanceof Error ? openError.message : 'Failed to open file from folder');
     }
   }, [ensureModalOpenForDrop, processProjectFile, setError]);
@@ -220,7 +221,7 @@ export function LoadProjectModal({ isOpen, onClose }: LoadProjectModalProps) {
         if (pickerError instanceof DOMException && pickerError.name === 'AbortError') {
           return;
         }
-        console.warn('[LoadProjectModal] showOpenFilePicker failed, falling back', pickerError);
+        debugWarn('raw-console', '[LoadProjectModal] showOpenFilePicker failed, falling back', pickerError);
       }
     }
 

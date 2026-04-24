@@ -1,10 +1,11 @@
 /**
  * useRecolorState - Custom hook for managing recolor panel state
- * 
+ *
  * Clean state management with event handlers and side effects,
  * integrating with the RecolorManager and app store.
  */
 
+import { debugWarn, logError } from '@/utils/debug';
 import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import { Layer } from '../../../types';
 import { RecolorManager, RecolorOptions, RecolorPerformanceStats } from '../../../lib/colorCycle/RecolorManager';
@@ -51,15 +52,15 @@ export interface UseRecolorStateOptions {
 export interface UseRecolorStateReturn {
   state: RecolorState;
   actions: RecolorActions;
-  
+
   // Layer processing
   processLayer: (layer: Layer, options?: RecolorOptions) => Promise<boolean>;
   convertToNormal: (layer: Layer) => Promise<boolean>;
-  
+
   // Animation controls
   toggleAnimation: () => void;
   isAnimating: boolean;
-  
+
   // Settings management
   updateLayerSpeed: (layerId: string, speed: number) => void;
   updateLayerCycleColors: (layerId: string, cycleColors: number) => void;
@@ -67,10 +68,10 @@ export interface UseRecolorStateReturn {
   updateLayerMappingMode: (layerId: string, mode: 'banded' | 'continuous') => void;
   updateGradient: (layer: Layer, gradient: Array<{ position: number; color: string }>) => void;
   updateGlobalFPS: (fps: number) => void;
-  
+
   // Performance monitoring
   performanceStats: RecolorPerformanceStats | null;
-  
+
   // Success feedback
   successMessage: string | null;
   showSuccess: (message: string) => void;
@@ -80,10 +81,10 @@ export function useRecolorState(
   activeLayer: Layer | null,
   options: UseRecolorStateOptions = {}
 ): UseRecolorStateReturn {
-  const { 
+  const {
     initialMode = 'brush',
     onModeChange,
-    onError 
+    onError
   } = options;
 
   // Get recolor manager instance
@@ -123,31 +124,31 @@ export function useRecolorState(
       setState(prev => ({ ...prev, mode }));
       onModeChange?.(mode);
     },
-    
+
     setProcessing: (isProcessing: boolean) => {
       setState(prev => ({ ...prev, isProcessing }));
     },
-    
+
     showExtractDialog: () => {
       setState(prev => ({ ...prev, showExtractDialog: true }));
     },
-    
+
     hideExtractDialog: () => {
       setState(prev => ({ ...prev, showExtractDialog: false }));
     },
-    
+
     toggleAdvancedControls: () => {
       setState(prev => ({ ...prev, showAdvancedControls: !prev.showAdvancedControls }));
     },
-    
+
     setPerformanceMode: (performanceMode: 'auto' | 'quality' | 'performance') => {
       setState(prev => ({ ...prev, performanceMode }));
     },
-    
+
     clearError: () => {
       setState(prev => ({ ...prev, error: null }));
     },
-    
+
     setError: (error: string) => {
       setState(prev => ({ ...prev, error }));
       onError?.(error);
@@ -164,17 +165,17 @@ export function useRecolorState(
   const processLayer = useCallback(async (layer: Layer, options?: RecolorOptions): Promise<boolean> => {
     actions.setProcessing(true);
     actions.clearError();
-    
+
     try {
       const success = await recolorManager.processLayer(layer, options);
-      
+
       if (success) {
         actions.setMode('recolor');
         showSuccess('Layer converted to recolor mode');
       } else {
         actions.setError('Failed to process layer');
       }
-      
+
       return success;
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
@@ -188,17 +189,17 @@ export function useRecolorState(
   const convertToNormal = useCallback(async (layer: Layer): Promise<boolean> => {
     actions.setProcessing(true);
     actions.clearError();
-    
+
     try {
       const success = recolorManager.convertToNormal(layer);
-      
+
       if (success) {
         actions.setMode('brush');
         showSuccess('Layer converted to brush mode');
       } else {
         actions.setError('Failed to convert layer to normal mode');
       }
-      
+
       return success;
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
@@ -222,7 +223,7 @@ export function useRecolorState(
 
       void toggleToolbarColorCyclePlayback();
     } catch (error) {
-      console.error('[useRecolorState] Animation toggle error:', error);
+      logError('[useRecolorState] Animation toggle error:', error);
       const errorMessage = error instanceof Error ? error.message : 'Animation control error';
       actions.setError(errorMessage);
     }
@@ -260,7 +261,7 @@ export function useRecolorState(
             }
           });
         } catch (storeError) {
-          console.warn('[useRecolorState] Failed to push speed into store state:', storeError);
+          debugWarn('raw-console', '[useRecolorState] Failed to push speed into store state:', storeError);
         }
 
         let applied = recolorManager.setLayerSpeed(layerId, clampedSpeed);
@@ -345,7 +346,7 @@ export function useRecolorState(
             }
           }
         } catch (error) {
-          console.error('[useRecolorState] Failed to start recolor playback', error);
+          logError('[useRecolorState] Failed to start recolor playback', error);
           if (!cancelled) {
             actions.setError('Failed to start recolor animation');
           }
@@ -368,14 +369,14 @@ export function useRecolorState(
   // Update performance stats periodically during animation
   useEffect(() => {
     let interval: NodeJS.Timeout | undefined;
-    
+
     if (isAnimating) {
       interval = setInterval(() => {
         try {
           const stats = recolorManager.getStats();
           setPerformanceStats(stats);
         } catch (error) {
-          console.warn('Failed to get performance stats:', error);
+          debugWarn('raw-console', 'Failed to get performance stats:', error);
         }
       }, 1000);
     }

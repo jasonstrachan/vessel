@@ -1,4 +1,4 @@
-import { __DEV__ } from '@/utils/debug';
+import { __DEV__, debugWarn } from '@/utils/debug';
 
 import { computePlacement } from './alignFitCore';
 import type { BasisInput, Placement, Rect, Size } from './alignFitCore';
@@ -44,7 +44,7 @@ export function drawLayer(
   };
 
   if (painted.width > surfaceWidth || painted.height > surfaceHeight) {
-    console.warn('[align] painted exceeds surface; clamping');
+    debugWarn('raw-console', '[align] painted exceeds surface; clamping');
     painted.width = Math.min(painted.width, surfaceWidth);
     painted.height = Math.min(painted.height, surfaceHeight);
   }
@@ -62,7 +62,7 @@ export function drawLayer(
   const { dpr, isFixed } = opts;
 
   if (__DEV__ && !(placement.dest.width > 0 && placement.dest.height > 0)) {
-    console.warn('[align] non-positive dest size', {
+    debugWarn('raw-console', '[align] non-positive dest size', {
       placement,
       alignRaw: opts.alignRaw,
       autoOffsetPercent: opts.autoOffsetPercent

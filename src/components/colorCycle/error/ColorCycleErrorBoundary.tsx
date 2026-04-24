@@ -3,6 +3,7 @@
  * Provides graceful error handling and recovery options
  */
 
+import { logError } from '@/utils/debug';
 import React, { Component, ErrorInfo, ReactNode } from 'react';
 
 interface Props {
@@ -43,7 +44,7 @@ export class ColorCycleErrorBoundary extends Component<Props, State> {
     });
 
     // Log error for debugging
-    console.error('Color Cycle Error Boundary caught an error:', error, errorInfo);
+    logError('Color Cycle Error Boundary caught an error:', error, errorInfo);
 
     // Call custom error handler
     if (this.props.onError) {
@@ -67,7 +68,7 @@ export class ColorCycleErrorBoundary extends Component<Props, State> {
     };
 
     // Log to console for development
-    console.error('Color Cycle Error Report:', errorReport);
+    logError('Color Cycle Error Report:', errorReport);
   };
 
   private handleRetry = () => {

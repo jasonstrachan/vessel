@@ -1,3 +1,4 @@
+import { debugLog, debugWarn, logError } from '@/utils/debug';
 import { parseCssColor } from '@/utils/color/parseCssColor';
 import type { Layer } from '@/types';
 import type { BrushStateRuntimePayload, CanvasExportFormatOption, CanvasExportMimeType } from '@/utils/export/goblet/gobletTypes';
@@ -107,7 +108,7 @@ export const normalizeCanvasSurfaceForExport = (
     exportCtx.putImageData(imageData, 0, 0);
     return exportCanvas;
   } catch (error) {
-    console.debug('[webglExporter] Failed to normalize canvas-like surface for export', error);
+    debugLog('raw-console', '[webglExporter] Failed to normalize canvas-like surface for export', error);
     return undefined;
   }
 };
@@ -165,7 +166,7 @@ const encodeCanvasToBlob = async (
         return blob;
       }
     } catch (error) {
-      console.debug(`[webglExporter] HTMLCanvas toBlob failed for ${format.type}`, error);
+      debugLog('raw-console', `[webglExporter] HTMLCanvas toBlob failed for ${format.type}`, error);
     }
   }
 
@@ -180,7 +181,7 @@ const encodeCanvasToBlob = async (
         return blob;
       }
     } catch (error) {
-      console.debug(`[webglExporter] OffscreenCanvas convertToBlob failed for ${format.type}`, error);
+      debugLog('raw-console', `[webglExporter] OffscreenCanvas convertToBlob failed for ${format.type}`, error);
     }
   }
 
@@ -208,7 +209,7 @@ export const canvasToDataURL = async (
         format.type;
       return { dataUrl, format: actualFormat };
     } catch (error) {
-      console.debug(`[webglExporter] Failed to encode canvas as ${format.type}`, error);
+      debugLog('raw-console', `[webglExporter] Failed to encode canvas as ${format.type}`, error);
     }
   }
 
@@ -217,7 +218,7 @@ export const canvasToDataURL = async (
       const dataUrl = normalizedCanvas.toDataURL('image/png');
       return { dataUrl, format: 'image/png' };
     } catch (error) {
-      console.debug('[webglExporter] Final HTMLCanvas toDataURL fallback failed', error);
+      debugLog('raw-console', '[webglExporter] Final HTMLCanvas toDataURL fallback failed', error);
     }
   }
 
@@ -386,7 +387,7 @@ const imageBitmapToDataURL = async (bitmap: ImageBitmap): Promise<string | undef
     const { dataUrl } = await canvasToDataURL(canvas);
     return normalizeImageDataUrl(dataUrl);
   } catch (error) {
-    console.warn('[webglExporter] Failed to serialize ImageBitmap for layer export', error);
+    debugWarn('raw-console', '[webglExporter] Failed to serialize ImageBitmap for layer export', error);
     return undefined;
   } finally {
     try {
@@ -406,7 +407,7 @@ export const captureLayerTexture = async (layer: Layer): Promise<string | undefi
       const { dataUrl } = await canvasToDataURL(surface);
       const normalized = normalizeImageDataUrl(dataUrl);
       if (!normalized) {
-        console.error('[webglExporter] Invalid data URL generated from canvas surface for layer', layer.id);
+        logError('[webglExporter] Invalid data URL generated from canvas surface for layer', layer.id);
         return undefined;
       }
       return normalized;
@@ -415,7 +416,7 @@ export const captureLayerTexture = async (layer: Layer): Promise<string | undefi
       const dataUrl = await imageDataToDataURL(layer.imageData);
       const normalized = normalizeImageDataUrl(dataUrl);
       if (!normalized) {
-        console.error('[webglExporter] Invalid data URL generated from ImageData for layer', layer.id);
+        logError('[webglExporter] Invalid data URL generated from ImageData for layer', layer.id);
         return undefined;
       }
       return normalized;
@@ -429,7 +430,7 @@ export const captureLayerTexture = async (layer: Layer): Promise<string | undefi
     }
     return undefined;
   } catch (error) {
-    console.warn('[webglExporter] Failed to capture texture for layer', layer.id, error);
+    debugWarn('raw-console', '[webglExporter] Failed to capture texture for layer', layer.id, error);
     return undefined;
   }
 };
@@ -529,7 +530,7 @@ export const synthesizeBrushTextureFromIndices = async (
     const { dataUrl } = await canvasToDataURL(canvas);
     return normalizeImageDataUrl(dataUrl);
   } catch (error) {
-    console.warn('[webglExporter] Failed to synthesize brush texture from indices', error);
+    debugWarn('raw-console', '[webglExporter] Failed to synthesize brush texture from indices', error);
     return undefined;
   }
 };

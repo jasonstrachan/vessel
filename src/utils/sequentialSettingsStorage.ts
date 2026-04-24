@@ -1,3 +1,4 @@
+import { debugWarn } from '@/utils/debug';
 const STORAGE_KEY = 'vessel:sequential-settings';
 
 export interface SequentialSettingsPayload {
@@ -53,7 +54,7 @@ export const loadSequentialSettings = (): SequentialSettingsPayload | null => {
     const timeSmear = sanitizeTimeSmear(parsed?.timeSmear);
     return typeof timeSmear === 'number' ? { timeSmear } : null;
   } catch (error) {
-    console.warn('[SequentialSettingsStorage] Failed to load settings', error);
+    debugWarn('raw-console', '[SequentialSettingsStorage] Failed to load settings', error);
     return null;
   }
 };
@@ -72,6 +73,6 @@ export const saveSequentialSettings = (payload: SequentialSettingsPayload): void
     }
     storage.setItem(STORAGE_KEY, JSON.stringify(sanitized));
   } catch (error) {
-    console.warn('[SequentialSettingsStorage] Failed to save settings', error);
+    debugWarn('raw-console', '[SequentialSettingsStorage] Failed to save settings', error);
   }
 };

@@ -1,3 +1,4 @@
+import { logError } from '@/utils/debug';
 /**
  * ImageBitmap Transfer Manager for efficient canvas operations
  */
@@ -34,7 +35,7 @@ export class ImageBitmapTransfer {
         colorSpaceConversion: options?.colorSpaceConversion || 'none',
         resizeQuality: options?.resizeQuality || 'pixelated'
       });
-      
+
       return bitmap;
     } catch {
       return imageData;
@@ -58,7 +59,7 @@ export class ImageBitmapTransfer {
         colorSpaceConversion: options?.colorSpaceConversion || 'none',
         resizeQuality: options?.resizeQuality || 'pixelated'
       });
-      
+
       return bitmap;
     } catch {
       return canvas;
@@ -85,7 +86,7 @@ export class ImageBitmapTransfer {
       
       return bitmap;
     } catch (error) {
-      console.error('Failed to create ImageBitmap from blob:', error);
+      logError('Failed to create ImageBitmap from blob:', error);
       return null;
     }
   }
@@ -120,7 +121,7 @@ export class ImageBitmapTransfer {
       
       return true;
     } catch (error) {
-      console.error('Failed to transfer to canvas:', error);
+      logError('Failed to transfer to canvas:', error);
       return false;
     }
   }
@@ -258,7 +259,7 @@ export class ImageBitmapTransfer {
       
       return tiledBitmap;
     } catch (error) {
-      console.error('Failed to create tiled bitmap:', error);
+      logError('Failed to create tiled bitmap:', error);
       return null;
     }
   }

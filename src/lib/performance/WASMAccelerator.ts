@@ -1,3 +1,4 @@
+import { logError } from '@/utils/debug';
 /**
  * WASM Accelerator for critical path operations
  */
@@ -33,7 +34,7 @@ export class WASMAccelerator {
   private wasmInstance: WebAssembly.Instance | null = null;
   private memory: WebAssembly.Memory | null = null;
   private isInitialized = false;
-  
+
   // Exported functions from WASM
   private exports: AcceleratorExports | null = null;
 
@@ -55,7 +56,7 @@ export class WASMAccelerator {
         env: {
           memory: this.memory,
           abort: (msg: number, file: number, line: number, column: number) => {
-            console.error('WASM abort at', { msg, file, line, column });
+            logError('WASM abort at', { msg, file, line, column });
           }
         }
       };
@@ -63,11 +64,11 @@ export class WASMAccelerator {
       this.wasmModule = await WebAssembly.compile(wasmCode);
       this.wasmInstance = await WebAssembly.instantiate(this.wasmModule, importObject);
       this.exports = this.wasmInstance.exports as AcceleratorExports;
-      
+
       this.isInitialized = true;
       return true;
     } catch (error) {
-      console.error('Failed to initialize WASM module:', error);
+      logError('Failed to initialize WASM module:', error);
       this.isInitialized = false;
       return false;
     }
@@ -84,7 +85,7 @@ export class WASMAccelerator {
     if (!this.isInitialized || !this.exports || !this.memory) {
       return null;
     }
-    
+
     try {
       const memoryView = new Uint8Array(this.memory.buffer);
       
@@ -114,7 +115,7 @@ export class WASMAccelerator {
         return result;
       }
     } catch (error) {
-      console.error('WASM execution failed:', error);
+      logError('WASM execution failed:', error);
     }
     
     return null;
@@ -127,7 +128,7 @@ export class WASMAccelerator {
     if (!this.isInitialized || !this.exports || !this.memory) {
       return null;
     }
-    
+
     try {
       const memoryView = new Uint8Array(this.memory.buffer);
       
@@ -153,7 +154,7 @@ export class WASMAccelerator {
         return result;
       }
     } catch (error) {
-      console.error('WASM shift failed:', error);
+      logError('WASM shift failed:', error);
     }
     
     return null;
@@ -174,7 +175,7 @@ export class WASMAccelerator {
     if (!this.isInitialized || !this.exports || !this.memory) {
       return false;
     }
-    
+
     try {
       const memoryView = new Uint8Array(this.memory.buffer);
       
@@ -199,7 +200,7 @@ export class WASMAccelerator {
         return true;
       }
     } catch (error) {
-      console.error('WASM paint failed:', error);
+      logError('WASM paint failed:', error);
     }
     
     return false;

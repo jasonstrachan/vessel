@@ -1,6 +1,7 @@
 // File backup service for automatic file-based autosaves
 // Saves autosave copies as actual .vs files to user-selected directory (legacy .tb still supported)
 
+import { logError } from '@/utils/debug';
 import type { Project, Layer } from '../types';
 import {
   PROJECT_FILE_ACCEPT,
@@ -53,7 +54,7 @@ export class FileBackupService {
       if (error instanceof Error && error.name === 'AbortError') {
         return { success: false, error: 'File selection cancelled' };
       }
-      console.error('[FileBackup] Failed to select file:', error);
+      logError('[FileBackup] Failed to select file:', error);
       return { success: false, error: `Failed to select file: ${error instanceof Error ? error.message : 'Unknown error'}` };
     }
   }
@@ -84,7 +85,7 @@ export class FileBackupService {
       if (error instanceof Error && error.name === 'AbortError') {
         return { success: false, error: 'Directory selection cancelled' };
       }
-      console.error('[FileBackup] Failed to select directory:', error);
+      logError('[FileBackup] Failed to select directory:', error);
       return { success: false, error: `Failed to select directory: ${error instanceof Error ? error.message : 'Unknown error'}` };
     }
   }
@@ -93,7 +94,7 @@ export class FileBackupService {
     if (mode === 'single-file' && !this.fileHandle) {
       return { success: false, error: 'No backup file selected' };
     }
-    
+
     if (mode === 'timestamped-files' && !this.directoryHandle) {
       return { success: false, error: 'No backup directory selected' };
     }
@@ -147,7 +148,7 @@ export class FileBackupService {
           // Best-effort cleanup of partially written autosave files.
         }
       }
-      console.error('[FileBackup] Failed to save backup:', error);
+      logError('[FileBackup] Failed to save backup:', error);
       return { success: false, error: `Failed to save backup: ${error instanceof Error ? error.message : 'Unknown error'}` };
     }
   }
@@ -191,13 +192,13 @@ export class FileBackupService {
 
   async checkFileAccess(): Promise<boolean> {
     if (!this.fileHandle) return false;
-    
+
     try {
       // Test if we still have access to the file by trying to get it
       await this.fileHandle.getFile();
       return true;
     } catch (error) {
-      console.error('[FileBackup] File access check failed:', error);
+      logError('[FileBackup] File access check failed:', error);
       return false;
     }
   }
@@ -229,7 +230,7 @@ export class FileBackupService {
       }
       return true;
     } catch (error) {
-      console.error('[FileBackup] Failed to request file write permission:', error);
+      logError('[FileBackup] Failed to request file write permission:', error);
       return false;
     }
   }
@@ -261,14 +262,14 @@ export class FileBackupService {
       }
       return true;
     } catch (error) {
-      console.error('[FileBackup] Failed to request directory write permission:', error);
+      logError('[FileBackup] Failed to request directory write permission:', error);
       return false;
     }
   }
 
   async checkDirectoryAccess(): Promise<boolean> {
     if (!this.directoryHandle) return false;
-    
+
     try {
       // Test if we still have access by trying to get a test file handle
       await this.directoryHandle.getFileHandle('__test__', { create: false });

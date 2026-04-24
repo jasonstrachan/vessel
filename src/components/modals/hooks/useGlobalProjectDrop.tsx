@@ -1,3 +1,4 @@
+import { debugWarn } from '@/utils/debug';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import {
@@ -77,7 +78,7 @@ const extractDirectoryHandleFromItems = async (
         return handle as DroppedDirectoryHandle;
       }
     } catch (error) {
-      console.warn('[LoadProjectModal] Failed to inspect dropped handle', error);
+      debugWarn('raw-console', '[LoadProjectModal] Failed to inspect dropped handle', error);
     }
   }
 

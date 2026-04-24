@@ -644,7 +644,7 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
     }
 
     if (DEBUG_LOSTEDGE && Object.prototype.hasOwnProperty.call(settings, 'lostEdge')) {
-      console.debug('[LE:slider->store]', {
+      debugLog('raw-console', '[LE:slider->store]', {
         incoming: settings.lostEdge,
         previous: currentSettings.lostEdge,
         next: newSettings.lostEdge
@@ -755,10 +755,10 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
 
     // Auto-save brush-specific settings when they change (excluding size)
     // Determine current brush ID (standard brush preset or custom brush)
-    const currentBrushId = state.currentBrushPreset 
-      ? state.currentBrushPreset.id 
-      : (currentSettings.brushShape === BrushShape.CUSTOM && currentSettings.selectedCustomBrush 
-         ? currentSettings.selectedCustomBrush 
+    const currentBrushId = state.currentBrushPreset
+      ? state.currentBrushPreset.id
+      : (currentSettings.brushShape === BrushShape.CUSTOM && currentSettings.selectedCustomBrush
+         ? currentSettings.selectedCustomBrush
          : null);
     const isCurrentColorCycleBrush = Boolean(currentBrushId && isColorCyclePresetId(currentBrushId));
 
@@ -766,14 +766,14 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
     if (DITHER_BRUSH_IDS.includes(currentBrushId ?? '') && newSettings.ditherEnabled !== true) {
       newSettings = { ...newSettings, ditherEnabled: true };
     }
-         
+
     // Store brush settings to save for later
     let brushSettingsToSave: Array<{ brushId: string; settings: Partial<BrushSettings> }> = [];
-    
+
     if (currentBrushId) {
       // Get existing saved settings for this brush
       const existingSavedSettings = state.brushSpecificSettings[currentBrushId] || {};
-      
+
       // Merge with new settings
       const settingsToSave: Partial<BrushSettings> = {
         ...existingSavedSettings
@@ -784,7 +784,7 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
       delete settingsToSave.pressureEnabled;
       delete settingsToSave.minPressure;
       delete settingsToSave.maxPressure;
-      
+
       // Update with changed settings
       if (settings.opacity !== undefined) settingsToSave.opacity = newSettings.opacity;
       if (settings.spacing !== undefined) settingsToSave.spacing = newSettings.spacing;
@@ -986,7 +986,7 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
       ) {
         settingsToSave.colorCycleGradientVersion = newSettings.colorCycleGradientVersion;
       }
-      
+
       brushSettingsToSave = [{ brushId: currentBrushId, settings: settingsToSave }];
 
       if (DITHER_BRUSH_IDS.includes(currentBrushId)) {
@@ -1021,7 +1021,7 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
         }
       }
     }
-    
+
     // Handle brush-specific resource cleanup when switching between custom and regular brushes
     if (newSettings.brushShape !== undefined) {
       const wasCustom = currentSettings.brushShape === BrushShape.CUSTOM;
@@ -1042,14 +1042,14 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
         }
       }
     }
-    
+
     // CRITICAL: Always clear currentBrushTip for standard brushes to prevent contamination
     // But ONLY if we're not in the process of setting it to CUSTOM with a currentBrushTip
     if (newSettings.brushShape !== BrushShape.CUSTOM && !settings.currentBrushTip) {
       newSettings.currentBrushTip = undefined;
       newSettings.selectedCustomBrush = null;
     }
-    
+
     // Keep brush editor adjustments in sync while editing
     let nextBrushEditor = state.brushEditor;
     if (state.brushEditor.status === 'EDITING') {
@@ -1082,7 +1082,7 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
         };
       }
     }
-    
+
     // Clear temporary brush when switching away from custom brushes
     let nextCcGradientSource = state.tools.ccGradientSource;
     if (Object.prototype.hasOwnProperty.call(settings, 'ccGradientSource')) {
@@ -1151,8 +1151,8 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
         brushEditor: nextBrushEditor
       };
     }
-    
-    
+
+
     // Apply brush settings save if needed (avoid circular dependency)
     if (brushSettingsToSave.length > 0) {
       updatedState = {
@@ -1165,24 +1165,24 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
         }
       };
     }
-    
+
     if (newSettings.color !== currentSettings.color) {
       pendingPalette = {
         ...state.palette,
         foregroundColor: newSettings.color ?? state.palette.foregroundColor,
       };
     }
-    
+
     // If switching away from custom brush, discard temporary brush
-    if (newSettings.brushShape !== undefined && 
-        currentSettings.brushShape === BrushShape.CUSTOM && 
+    if (newSettings.brushShape !== undefined &&
+        currentSettings.brushShape === BrushShape.CUSTOM &&
         newSettings.brushShape !== BrushShape.CUSTOM) {
       return {
         ...updatedState,
         temporaryCustomBrush: null
       };
     }
-    
+
     return updatedState;
     } catch (error) {
       debugLog('brush-error', 'Failed to apply brush settings', error);
@@ -1641,7 +1641,7 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
       }
     }
   },
-  
+
   setPolygonGradientState: (partialState) => set((state) => ({
     polygonGradientState: { ...state.polygonGradientState, ...partialState }
   })),
@@ -1693,7 +1693,7 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
     ) {
       stateBeforeSwitch.cancelShapeFillSession();
     }
-    
+
     // Cancel any active brush edit session before switching (unless preserveEditMode is true)
     const state = get();
     if (state.brushEditor.status === 'EDITING' && !preserveEditMode) {
@@ -1752,7 +1752,7 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
     let newBrushSettings: BrushSettings = {
       ...defaultBrushSettingsForStore, // 1. Start with the absolute base defaults.
       ...presetDefaults,               // 2. Apply the preset settings (which now includes user overrides).
-      
+
       // 3. Finally, preserve the settings that carry over between any brush.
       color: currentSettings.color,
       blendMode: currentSettings.blendMode,
@@ -1850,7 +1850,7 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
     // Handle custom brush presets specifically
     if (preset.isCustomBrush) {
       const customBrushId = preset.id.startsWith('custom_') ? preset.id.substring(7) : preset.id;
-      
+
       newBrushSettings.brushShape = BrushShape.CUSTOM;
       newBrushSettings.selectedCustomBrush = customBrushId;
       newBrushSettings.pressureEnabled = false;
@@ -1860,20 +1860,20 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
       newBrushSettings.hueShift = 0;
       newBrushSettings.lightnessAdjust = 0;
       newBrushSettings.saturationAdjust = 100;
-      
+
       // CRITICAL FIX: Load the custom brush data into currentBrushTip
       // The issue was that custom brushes selected from the library weren't
       // properly loading their imageData into currentBrushTip
-      
+
       // First check temporary custom brush
-      let customBrush = state.temporaryCustomBrush && state.temporaryCustomBrush.id === customBrushId 
-        ? state.temporaryCustomBrush 
+      let customBrush = state.temporaryCustomBrush && state.temporaryCustomBrush.id === customBrushId
+        ? state.temporaryCustomBrush
         : null;
 
       if (!customBrush) {
         customBrush = state.getCustomBrushById(customBrushId);
       }
-      
+
       // IMPORTANT: Always use preset.customBrushData as the primary source
       // This ensures custom brushes loaded from BrushLibrary work correctly
       if (preset.customBrushData) {
@@ -1893,7 +1893,7 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
           createdAt: customBrush?.createdAt || Date.now()
         };
       }
-      
+
       if (customBrush) {
         const maxDimension = Math.max(
           1,
@@ -1969,10 +1969,10 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
           newBrushSettings.customBrushUseCapturedAlphaMask = true;
         }
       } else {
-        
+
       }
     }
-    
+
     // Handle brush resource cleanup and brush tip state when switching between custom and regular brushes
     if (presetDefaults.brushShape !== undefined) {
       const wasCustom = currentSettings.brushShape === BrushShape.CUSTOM;
@@ -1993,7 +1993,7 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
         }
       }
     }
-    
+
     // Force antialiasing off for Spam Text brush (disables shape mode)
     if (newBrushSettings.brushShape === BrushShape.SPAM_TEXT) {
       newBrushSettings.antialiasing = false;
@@ -2017,7 +2017,7 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
       nextCcGradientSource = 'sampled';
     }
     newBrushSettings.ccGradientSource = nextCcGradientSource;
-    
+
     // Decide shapeMode based on brush domain (Color Cycle vs regular)
     const isNewCC = newBrushSettings.brushShape === BrushShape.COLOR_CYCLE ||
                     newBrushSettings.brushShape === BrushShape.COLOR_CYCLE_TRIANGLE ||
@@ -2091,17 +2091,17 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
             pressureSettings: globalPressure,
             tools: applyPressureToTools(updatedState.tools, globalPressure),
           };
-    
+
     // If switching away from custom brush, discard temporary brush
-    if (presetDefaults.brushShape !== undefined && 
-        currentSettings.brushShape === BrushShape.CUSTOM && 
+    if (presetDefaults.brushShape !== undefined &&
+        currentSettings.brushShape === BrushShape.CUSTOM &&
         presetDefaults.brushShape !== BrushShape.CUSTOM) {
       return {
         ...pressureSyncedState,
         temporaryCustomBrush: null
       };
     }
-    
+
     return pressureSyncedState;
     });
   },
@@ -2111,21 +2111,21 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
     // Don't allow deletion of default presets
     const presetToDelete = state.brushPresets.find(p => p.id === presetId);
     if (!presetToDelete || presetToDelete.isDefault) return state;
-    
+
     const newPresets = state.brushPresets.filter(p => p.id !== presetId);
-    
+
     // If deleting the currently active preset, switch to default
     let newCurrentPreset = state.currentBrushPreset;
     if (state.currentBrushPreset?.id === presetId) {
       newCurrentPreset = newPresets.find(p => p.isDefault) || newPresets[0] || null;
     }
-    
+
     return {
       brushPresets: newPresets,
       currentBrushPreset: newCurrentPreset
     };
   }),
-  
+
   startBrushEdit: (brushId, canvas) => set((state) => {
     const ctx = canvas.getContext('2d', { willReadFrequently: true } as CanvasRenderingContext2DSettings) as (CanvasRenderingContext2D | null);
     if (!ctx) {
@@ -2162,7 +2162,7 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
             tempCtx.arc(size/2, size/2, size/2, 0, Math.PI * 2);
             tempCtx.fill();
           }
-          
+
           // Create temporary brush data
           brushData = {
             id: brushId,
@@ -2185,20 +2185,20 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
     // Calculate centered bounds using the actual canvas dimensions
     const brushWidth = brushData.imageData.width;
     const brushHeight = brushData.imageData.height;
-    
+
     // Get the canvas dimensions - if it's the offscreen canvas, use project dimensions
     const canvasWidth = state.project?.width || canvas.width;
     const canvasHeight = state.project?.height || canvas.height;
-    
+
     const centerX = Math.floor((canvasWidth - brushWidth) / 2);
     const centerY = Math.floor((canvasHeight - brushHeight) / 2);
-    
+
     const bounds = { x: centerX, y: centerY, width: brushWidth, height: brushHeight };
 
     // Create an empty ImageData for originalCanvasState since we're not modifying the main canvas
     // This is just to satisfy the type requirements and prevent errors
     const originalCanvasState = ctx.createImageData(bounds.width, bounds.height);
-    
+
     // NOTE: We don't draw the brush onto the main canvas here
     // The BrushEditorUI panel renders and manages its own off-main canvas
 
@@ -2220,11 +2220,11 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
       },
       size: targetSize
     };
-    
+
     // Clear caches to ensure fresh brush data
     brushCache.clear();
     scaledBrushCache.clear();
-    
+
     const preserveAdjustments =
       state.brushEditor.status === 'EDITING' && state.brushEditor.editingBrushId === brushId;
 
@@ -2514,7 +2514,7 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
   }),
   cancelBrushEdit: () => set((state) => {
     if (state.brushEditor.status !== 'EDITING' || !state.brushEditor.originalCanvasState || !state.brushEditor.editingBounds) {
-      return { 
+      return {
         brushEditor: defaultBrushEditorState,
         tools: {
           ...state.tools,
@@ -2533,7 +2533,7 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
     // The brush editor works entirely in its own inline canvas
 
     // Clear currentBrushTip when canceling brush edit
-    return { 
+    return {
       brushEditor: defaultBrushEditorState,
       tools: {
         ...state.tools,
@@ -2552,8 +2552,8 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
     const { tools, currentBrushPreset, brushSpecificSettings } = state;
     const currentTool = tools.currentTool;
     const currentBrushSettings = tools.brushSettings;
-    
-    const brushIdToSave = currentBrushPreset?.id ?? 
+
+    const brushIdToSave = currentBrushPreset?.id ??
         (currentBrushSettings.brushShape === BrushShape.CUSTOM && currentBrushSettings.selectedCustomBrush
             ? currentBrushSettings.selectedCustomBrush
             : null);

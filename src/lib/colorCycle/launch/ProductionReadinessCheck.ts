@@ -3,6 +3,7 @@
  * Validates all components are production-ready
  */
 
+import { debugLog } from '@/utils/debug';
 import { LaunchConfiguration } from './LaunchConfiguration';
 import { AppIntegrationTest } from '../__tests__/integration/AppIntegrationTest';
 import { PerformanceBenchmark } from '../__tests__/performance/PerformanceBenchmark';
@@ -38,7 +39,7 @@ export class ProductionReadinessCheck {
    * Run complete production readiness check
    */
   async runProductionCheck(): Promise<ProductionReadinessReport> {
-    console.log('🔍 Running Production Readiness Check...');
+    debugLog('raw-console', '🔍 Running Production Readiness Check...');
     
     const checks: ProductionCheck[] = [];
 
@@ -78,8 +79,8 @@ export class ProductionReadinessCheck {
       deploymentGuidance: this.generateDeploymentGuidance(checks)
     };
 
-    console.log(`🎯 Production Readiness: ${overallStatus.toUpperCase()}`);
-    console.log(`   Blockers: ${blockers.length}, Warnings: ${warnings.length}`);
+    debugLog('raw-console', `🎯 Production Readiness: ${overallStatus.toUpperCase()}`);
+    debugLog('raw-console', `   Blockers: ${blockers.length}, Warnings: ${warnings.length}`);
 
     return report;
   }

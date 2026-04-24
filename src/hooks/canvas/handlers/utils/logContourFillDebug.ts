@@ -37,7 +37,7 @@ export const logContourFillDebug = (message: string, data?: Record<string, unkno
   };
 
   if (typeof console !== 'undefined') {
-    console.log('[ContourFill]', message, contextData);
+    debugLog('raw-console', '[ContourFill]', message, contextData);
   }
 
   debugLog('[ContourFill]', message, contextData);

@@ -23,7 +23,7 @@ import {
 } from '@/hooks/brushEngine/colorCycleGridSnap';
 import { resolveActiveColorCycleGradient } from '@/hooks/canvas/utils/colorCycleHelpers';
 import { hashStops, type GradientDefSource, type StoredStop } from '@/utils/colorCycleGradientDefs';
-import { debugLog, isDebugEnabled } from '@/utils/debug';
+import { debugLog, isDebugEnabled, debugWarn } from '@/utils/debug';
 import { recordSampledCcShapeBreadcrumb } from '@/hooks/canvas/utils/sampledCcShapeBreadcrumbs';
 import {
   calculatePressureAwareGridSpacing,
@@ -1130,7 +1130,7 @@ export const finalizeShapeDrawing = async (
                 ? buildFallbackMarkSession(activeLayer, deps.storeRef.current, 'linear')
                 : null);
             if (!session) {
-              console.warn('[CC] Missing mark session before shape finalize (linear selection)', {
+              debugWarn('raw-console', '[CC] Missing mark session before shape finalize (linear selection)', {
                 layerId: shapeLayerIdString,
                 stack: new Error().stack,
               });
@@ -1331,7 +1331,7 @@ export const finalizeShapeDrawing = async (
                     ? buildFallbackMarkSession(activeLayer, deps.storeRef.current, fillMode)
                     : null);
                 if (!session) {
-                  console.warn('[CC] Missing mark session before shape finalize', {
+                  debugWarn('raw-console', '[CC] Missing mark session before shape finalize', {
                     layerId: shapeLayerIdString,
                     stack: new Error().stack,
                   });

@@ -5,6 +5,7 @@
  * optimization, load balancing, and performance monitoring integration.
  */
 
+import { logError } from '@/utils/debug';
 import { HotPathRenderer } from '../rendering/HotPathRenderer';
 import { FastGradientLUT } from '../rendering/FastGradientLUT';
 import { MemoryPool } from '../memory/MemoryPool';
@@ -118,7 +119,7 @@ class BatchProcessor {
     try {
       const batch = this.takeBatch(this.config.maxBatchSize);
       await this.processBatch(batch);
-      
+
       // Continue processing if more requests are pending
       if (this.pendingCount() > 0) {
         this.scheduleProcessing();
@@ -459,7 +460,7 @@ export class OptimizedPipeline {
       return canvas;
       
     } catch (error) {
-      console.error('[OptimizedPipeline] Error rendering layer:', error);
+      logError('[OptimizedPipeline] Error rendering layer:', error);
       perfMonitor.endFrame(1, 0, true); // Mark as dropped frame
       return null;
     }
@@ -512,7 +513,7 @@ export class OptimizedPipeline {
       return results;
       
     } catch (error) {
-      console.error('[OptimizedPipeline] Error rendering layers:', error);
+      logError('[OptimizedPipeline] Error rendering layers:', error);
       perfMonitor.endFrame(layers.length, 0, true);
       return layers.map(() => null);
     }

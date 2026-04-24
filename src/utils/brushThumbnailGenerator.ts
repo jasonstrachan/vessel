@@ -1,3 +1,4 @@
+import { debugWarn } from '@/utils/debug';
 import { BrushPreset, BrushShape } from '../types';
 
 export interface ThumbnailOptions {
@@ -106,7 +107,7 @@ export function generateBrushThumbnail(
   try {
     return canvas.toDataURL();
   } catch (error) {
-    console.warn('Failed to generate brush thumbnail:', error);
+    debugWarn('raw-console', 'Failed to generate brush thumbnail:', error);
     return 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8/5+hHgAHggJ/PchI7wAAAABJRU5ErkJggg==';
   }
 }

@@ -1,3 +1,4 @@
+import { logError } from '@/utils/debug';
 import { BrushShape, type BrushSettings } from '@/types';
 import { MAX_CC_LAYER_SPEED_SCALE, MIN_CC_LAYER_SPEED_SCALE } from '@/constants/colorCycle';
 import { resolveExplicitLayerColorCycleBaseSpeed } from '@/utils/colorCycleLayerSpeed';
@@ -100,7 +101,7 @@ export const initializeColorCycleBrushForActiveLayer = <TBrush extends BrushLike
       colorCycleBrush = getActiveLayerColorCycleBrush();
 
       if (!colorCycleBrush) {
-        console.error('[ColorCycle] Failed to initialize brush for layer:', activeLayerId);
+        logError('[ColorCycle] Failed to initialize brush for layer:', activeLayerId);
         return null;
       }
 
@@ -164,7 +165,7 @@ export const initializeColorCycleBrushForActiveLayer = <TBrush extends BrushLike
       }
       colorCycleBrush.setStampDitherEnabled(!isCCGradientActiveLayer && !!brushSettings.colorCycleStampDitherEnabled);
     } catch (error) {
-      console.error('[CC Init] Failed to set dither settings:', error);
+      logError('[CC Init] Failed to set dither settings:', error);
     }
 
     try {
@@ -173,7 +174,7 @@ export const initializeColorCycleBrushForActiveLayer = <TBrush extends BrushLike
       colorCycleBrush.setMinPressure(enabled ? minPercent : 100);
       colorCycleBrush.setMaxPressure(enabled ? maxPercent : 100);
     } catch (error) {
-      console.error('[CC Init] Failed to set pressure settings:', error);
+      logError('[CC Init] Failed to set pressure settings:', error);
     }
 
     try {
@@ -183,7 +184,7 @@ export const initializeColorCycleBrushForActiveLayer = <TBrush extends BrushLike
           : (brushSettings.colorCycleStampShape ?? 'square');
       colorCycleBrush.setStampShape(stampShape);
     } catch (error) {
-      console.error('[CC Init] Failed to set stamp shape:', error);
+      logError('[CC Init] Failed to set stamp shape:', error);
     }
 
     if (!skipGradientReinit) {
@@ -202,7 +203,7 @@ export const initializeColorCycleBrushForActiveLayer = <TBrush extends BrushLike
 
     return colorCycleBrush;
   } catch (error) {
-    console.error('[ColorCycle] Error initializing brush:', error);
+    logError('[ColorCycle] Error initializing brush:', error);
     return null;
   }
 };

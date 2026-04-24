@@ -1,3 +1,4 @@
+import { logError } from '@/utils/debug';
 /**
  * FinalizeQueue - Serializes finalization operations
  *
@@ -100,7 +101,7 @@ export class FinalizeQueue {
         }
       } catch (callbackError) {
         if (process.env.NODE_ENV !== 'production') {
-          console.error('[FinalizeQueue] waiter callback failed', callbackError);
+          logError('[FinalizeQueue] waiter callback failed', callbackError);
         }
       }
     });
@@ -120,7 +121,7 @@ export class FinalizeQueue {
         }
       } catch (callbackError) {
         if (process.env.NODE_ENV !== 'production') {
-          console.error('[FinalizeQueue] global waiter callback failed', callbackError);
+          logError('[FinalizeQueue] global waiter callback failed', callbackError);
         }
       }
     });

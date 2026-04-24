@@ -4,6 +4,7 @@
  * Based on the color cycling recolor feature specification
  */
 
+import { debugLog, debugWarn, logError } from '@/utils/debug';
 import { ColorQuantizer, QuantizationOptions } from './ColorQuantizer';
 import { WebGLColorCycleRenderer } from './rendering/WebGLColorCycleRenderer';
 import { CPUColorCycleRenderer } from './rendering/CPUColorCycleRenderer';
@@ -104,7 +105,7 @@ export class RecolorEngine {
       console.time('[RecolorEngine] processLayer');
       
       if (!layer.imageData || layer.imageData.data.length === 0) {
-        console.warn('[RecolorEngine] No image data to process');
+        debugWarn('raw-console', '[RecolorEngine] No image data to process');
         return false;
       }
       
@@ -119,8 +120,8 @@ export class RecolorEngine {
         }
       }
       
-      console.log(`[RecolorEngine] Original layer analysis: ${nonTransparentPixels} non-transparent pixels in first 100`);
-      console.log(`[RecolorEngine] Sample original pixels (RGBA):`, samplePixels);
+      debugLog('raw-console', `[RecolorEngine] Original layer analysis: ${nonTransparentPixels} non-transparent pixels in first 100`);
+      debugLog('raw-console', `[RecolorEngine] Sample original pixels (RGBA):`, samplePixels);
       
       // Set default options
       const {
@@ -197,7 +198,7 @@ export class RecolorEngine {
       
       // Log quantization statistics
       if (quantized.stats) {
-        console.log(`[RecolorEngine] Quantization completed:`, {
+        debugLog('raw-console', `[RecolorEngine] Quantization completed:`, {
           method: quantized.stats.method,
           originalColors: Math.floor(quantized.stats.compressionRatio * quantized.actualColors),
           quantizedColors: quantized.actualColors,
@@ -212,7 +213,7 @@ export class RecolorEngine {
       settings.palette = quantized.palette;
       settings.colorMap = quantized.colorMap;
       
-      console.log(`[RecolorEngine] Quantization results:`, {
+      debugLog('raw-console', `[RecolorEngine] Quantization results:`, {
         indexBufferSize: quantized.indices ? quantized.indices.length : 'null',
         paletteSize: quantized.palette ? quantized.palette.length : 'null',
         imageSize: layer.imageData.width + 'x' + layer.imageData.height
@@ -221,22 +222,22 @@ export class RecolorEngine {
       // Step 4: Set up gradient for animation
       if (customGradient) {
         settings.gradient = customGradient;
-        console.log(`[RecolorEngine] Using custom gradient with ${customGradient.length} stops`);
+        debugLog('raw-console', `[RecolorEngine] Using custom gradient with ${customGradient.length} stops`);
       } else {
         settings.gradient = this.createPresetGradient(gradientPreset);
-        console.log(`[RecolorEngine] Created ${gradientPreset} gradient with ${settings.gradient.length} stops:`, settings.gradient);
+        debugLog('raw-console', `[RecolorEngine] Created ${gradientPreset} gradient with ${settings.gradient.length} stops:`, settings.gradient);
       }
       
       // Step 5: Update canvas size to match layer
       this.resizeCanvas(layer.imageData.width, layer.imageData.height);
       
       console.timeEnd('[RecolorEngine] processLayer');
-      console.log(`[RecolorEngine] Processed ${layer.imageData.width}x${layer.imageData.height} layer with ${quantized.actualColors} colors`);
+      debugLog('raw-console', `[RecolorEngine] Processed ${layer.imageData.width}x${layer.imageData.height} layer with ${quantized.actualColors} colors`);
       
       return true;
       
     } catch (error) {
-      console.error('[RecolorEngine] Error processing layer:', error);
+      logError('[RecolorEngine] Error processing layer:', error);
       return false;
     }
   }
@@ -246,9 +247,9 @@ export class RecolorEngine {
    * This is called repeatedly during animation to update the visual
    */
   renderFrame(layer: Layer, tick?: number): ImageData | null {
-    if (!layer.colorCycleData?.recolorSettings?.indexBuffer || 
+    if (!layer.colorCycleData?.recolorSettings?.indexBuffer ||
         !layer.colorCycleData.recolorSettings.palette) {
-      console.warn('[RecolorEngine] renderFrame: missing indexBuffer or palette');
+      debugWarn('raw-console', '[RecolorEngine] renderFrame: missing indexBuffer or palette');
       return null;
     }
 
@@ -257,10 +258,10 @@ export class RecolorEngine {
     const currentTick = tick ?? settings.animation.currentTick;
     const sourceImage = layer.imageData;
     if (!sourceImage) {
-      console.warn('[RecolorEngine] renderFrame: missing layer image data');
+      debugWarn('raw-console', '[RecolorEngine] renderFrame: missing layer image data');
       return null;
     }
-    
+
     try {
       const { width, height } = sourceImage;
 
@@ -303,7 +304,7 @@ export class RecolorEngine {
           colorCycleData.canvas = this.glRenderer.getCanvas();
           return null;
         } catch (error) {
-          console.error('[RecolorEngine] GPU render failed, falling back to CPU:', error);
+          logError('[RecolorEngine] GPU render failed, falling back to CPU:', error);
           this.gpuUnavailable = true;
           if (this.glRenderer) {
             this.glRenderer.dispose();
@@ -315,7 +316,7 @@ export class RecolorEngine {
 
       return this.cpuRenderer.render(layer, settings, currentTick);
     } catch (error) {
-      console.error('[RecolorEngine] Error rendering frame:', error);
+      logError('[RecolorEngine] Error rendering frame:', error);
       return null;
     }
   }
@@ -388,7 +389,7 @@ export class RecolorEngine {
     if (!layer.colorCycleData?.recolorSettings) {
       return false;
     }
-    
+
     layer.colorCycleData.recolorSettings.gradient = gradient;
     return true;
   }
@@ -412,7 +413,7 @@ export class RecolorEngine {
     }
     this.cpuRenderer.releaseLayer(layer.id);
   }
-  
+
   /**
    * Get processing stats for debugging
    */

@@ -1,3 +1,4 @@
+import { debugWarn } from '@/utils/debug';
 import type { Layer, Project } from '@/types';
 import { getColorCycleBrushManager, getColorCycleStoreState } from '@/stores/colorCycleBrushManager';
 
@@ -127,7 +128,7 @@ const captureColorCycleIndices = (
   const canvasHeight = canvas?.height ?? layer.imageData?.height ?? 0;
   if (!canvasWidth || !canvasHeight) {
     if (process.env.NODE_ENV !== 'production') {
-      console.warn('[cc] invalid canvas size in captureColorCycleIndices', {
+      debugWarn('raw-console', '[cc] invalid canvas size in captureColorCycleIndices', {
         layerId: layer.id,
         canvasWidth,
         canvasHeight,
@@ -146,7 +147,7 @@ const captureColorCycleIndices = (
 
   if (!incoming) {
     if (process.env.NODE_ENV !== 'production') {
-      console.warn('[cc] no paint source for captureColorCycleIndices', {
+      debugWarn('raw-console', '[cc] no paint source for captureColorCycleIndices', {
         layerId: layer.id,
         hasSnapshot: Boolean(snapshot?.paintBuffer),
         hasPersistedBuffer: Boolean(persistedBuffer),
@@ -157,7 +158,7 @@ const captureColorCycleIndices = (
 
   if (incoming.length !== canvasWidth * canvasHeight) {
     if (process.env.NODE_ENV !== 'production') {
-      console.warn('[cc] paintBuffer/canvas mismatch in captureColorCycleIndices', {
+      debugWarn('raw-console', '[cc] paintBuffer/canvas mismatch in captureColorCycleIndices', {
         layerId: layer.id,
         incoming: incoming.length,
         canvasWidth,

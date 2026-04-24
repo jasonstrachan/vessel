@@ -4,6 +4,7 @@
  * to ensure they share the same gradient settings
  */
 
+import { logError } from '@/utils/debug';
 import { useAppStore } from '@/stores/useAppStore';
 import { DEFAULT_GRADIENT_STOPS } from '@/utils/gradientPresets';
 import { parseCssColor } from '@/utils/color/parseCssColor';
@@ -92,7 +93,7 @@ const runProjectSlotRebuild = (layerId: string) => {
   }
   if (result.missingDefLayers && result.missingDefLayers.length > 0) {
     if (process.env.NODE_ENV !== 'production') {
-      console.error('[CC] Slot GC aborted due to missing defs', {
+      logError('[CC] Slot GC aborted due to missing defs', {
         layerId,
         missingDefLayers: result.missingDefLayers,
       });
@@ -376,7 +377,7 @@ export function setSharedColorCycleGradient(
   const setBrushSettings = state.setBrushSettings;
   const setEraserSettings = state.setEraserSettings;
   const activeLayerId = state.activeLayerId;
-  
+
   // Manual edits must own the gradient source; otherwise FG/sample can overwrite stops.
   setBrushSettings({
     colorCycleGradient: gradient,
@@ -385,7 +386,7 @@ export function setSharedColorCycleGradient(
     autoSampleGradient: false,
     autoSampleGradientRealtime: false,
   });
-  
+
   // Also update eraser settings if using color cycle
   const eraserSettings = state.tools.eraserSettings;
   if (isColorCycleBrush(eraserSettings.brushShape)) {
@@ -404,7 +405,7 @@ export function setSharedColorCycleGradient(
 export function getSharedColorCycleSettings() {
   const state = useAppStore.getState();
   const settings = state.tools.brushSettings;
-  
+
   return {
     gradient: settings.colorCycleGradient || DEFAULT_GRADIENT_STOPS,
     speed: settings.colorCycleSpeed ?? 0.1,

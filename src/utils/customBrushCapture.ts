@@ -1,3 +1,4 @@
+import { debugWarn } from '@/utils/debug';
 import type { CustomBrushColorCycleV2, Layer } from '@/types';
 import { getColorCycleBrushManager, getColorCycleStoreState } from '@/stores/colorCycleBrushManager';
 import { resolveLayerColorCycleBaseSpeedFromLayer } from '@/utils/colorCycleLayerSpeed';
@@ -133,7 +134,7 @@ export const captureBrushFromCanvas = (
     );
   } catch (error) {
     if (process.env.NODE_ENV !== 'production') {
-      console.warn('[customBrushCapture] drawImage failed', error);
+      debugWarn('raw-console', '[customBrushCapture] drawImage failed', error);
     }
     return null;
   }
@@ -143,7 +144,7 @@ export const captureBrushFromCanvas = (
     imageData = captureCtx.getImageData(0, 0, bounds.width, bounds.height);
   } catch (error) {
     if (process.env.NODE_ENV !== 'production') {
-      console.warn('[customBrushCapture] getImageData failed', error);
+      debugWarn('raw-console', '[customBrushCapture] getImageData failed', error);
     }
     return null;
   }

@@ -1,3 +1,4 @@
+import { logError } from '@/utils/debug';
 import type { CaptureROI } from '@/stores/useAppStore';
 
 // Test function to draw dither palette swatches on canvas
@@ -18,23 +19,23 @@ export const drawTestSwatches = async () => {
   // Get the store to access canvas through proper methods
   const store = (window as Window & { __vesselStore?: VesselStore }).__vesselStore;
   if (!store) {
-    console.error('Store not found - click the button again in a moment');
+    logError('Store not found - click the button again in a moment');
     return;
   }
-  
+
   const state = store.getState();
-  
+
   // Get the current offscreen canvas
   const offscreenCanvas = state.currentOffscreenCanvas;
-  
+
   if (!offscreenCanvas) {
-    console.error('No offscreen canvas found');
+    logError('No offscreen canvas found');
     return;
   }
-  
+
   const ctx = offscreenCanvas.getContext('2d');
   if (!ctx) return;
-  
+
   // Combined dithering palette (from useBrushEngine.ts DITHER_PALETTE)
   const testColors = [
     // Core neutrals
@@ -43,7 +44,7 @@ export const drawTestSwatches = async () => {
     { color: [128, 128, 128], name: 'Med Grey' },
     { color: [192, 192, 192], name: 'Lt Grey' },
     { color: [64, 64, 64], name: 'Dk Grey' },
-    
+
     // Browns and earth tones
     { color: [139, 69, 19], name: 'Saddle' },
     { color: [160, 82, 45], name: 'Sienna' },
@@ -55,14 +56,14 @@ export const drawTestSwatches = async () => {
     { color: [101, 67, 33], name: 'DkBrown' },
     { color: [92, 51, 23], name: 'Russet' },
     { color: [61, 43, 31], name: 'Coffee' },
-    
+
     // Warm neutrals
     { color: [188, 143, 143], name: 'Rosy' },
     { color: [244, 164, 96], name: 'Sandy' },
     { color: [255, 218, 185], name: 'Peach' },
     { color: [250, 235, 215], name: 'Antique' },
     { color: [245, 245, 220], name: 'Beige' },
-    
+
     // Apple II vibrant colors
     { color: [114, 38, 64], name: 'Magenta' },
     { color: [64, 51, 127], name: 'DkBlue' },
@@ -78,50 +79,50 @@ export const drawTestSwatches = async () => {
     { color: [191, 204, 128], name: 'Yellow' },
     { color: [141, 217, 191], name: 'Aqua' }
   ];
-  
+
   // Save current state
   ctx.save();
-  
+
   // Draw swatches in a grid
   const swatchSize = 50;
   const padding = 4;
   const cols = 8;
   const rows = Math.ceil(testColors.length / cols);
-  
+
   // Calculate grid dimensions
   const gridWidth = cols * swatchSize + (cols - 1) * padding;
   const gridHeight = rows * swatchSize + (rows - 1) * padding;
-  
+
   // Center the grid on canvas
   const startX = (offscreenCanvas.width - gridWidth) / 2;
   const startY = (offscreenCanvas.height - gridHeight) / 2;
-  
+
   testColors.forEach((swatch, index) => {
     const col = index % cols;
     const row = Math.floor(index / cols);
     const x = startX + col * (swatchSize + padding);
     const y = startY + row * (swatchSize + padding);
-    
+
     // Draw the swatch
     ctx.fillStyle = `rgb(${swatch.color[0]}, ${swatch.color[1]}, ${swatch.color[2]})`;
     ctx.fillRect(x, y, swatchSize, swatchSize);
-    
+
     // Draw a border
     ctx.strokeStyle = '#000';
     ctx.lineWidth = 1;
     ctx.strokeRect(x, y, swatchSize, swatchSize);
-    
+
     // Add text label
     ctx.fillStyle = swatch.color[0] + swatch.color[1] + swatch.color[2] > 400 ? '#000' : '#fff';
     ctx.font = '9px monospace';
     ctx.fillText(swatch.name, x + 2, y + 10);
   });
-  
+
   ctx.restore();
-  
+
   // Capture the canvas to the active layer to persist the swatches
   await state.captureCanvasToActiveLayer(offscreenCanvas);
-  
+
 };
 
 // Make it available globally

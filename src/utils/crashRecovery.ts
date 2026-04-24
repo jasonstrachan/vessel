@@ -1,6 +1,7 @@
 // Crash recovery service for Vessel
 // Detects and recovers unsaved work after browser crashes or unexpected closes
 
+import { logError } from '@/utils/debug';
 import { backgroundStorageService } from './backgroundStorage';
 import { useAppStore } from '../stores/useAppStore';
 import type { Project, Layer } from '../types';
@@ -48,7 +49,7 @@ export class CrashRecoveryService {
 
   async recoverProject(recoveryData: RecoveryData): Promise<void> {
     const store = useAppStore.getState();
-    
+
     try {
       const restoredLayers = await restoreColorCycleBrushes(recoveryData.layers);
 
@@ -93,7 +94,7 @@ export class CrashRecoveryService {
       });
 
     } catch (error) {
-      console.error('[CrashRecovery] Failed to recover project:', error);
+      logError('[CrashRecovery] Failed to recover project:', error);
       
       store.addNotification({
         type: 'error',
@@ -113,7 +114,7 @@ export class CrashRecoveryService {
       await backgroundStorageService.clearAutosave(projectId);
       // Recovery dismissed, autosave data cleared
     } catch (error) {
-      console.error('[CrashRecovery] Failed to dismiss recovery:', error);
+      logError('[CrashRecovery] Failed to dismiss recovery:', error);
     }
   }
 
@@ -159,7 +160,7 @@ export class CrashRecoveryService {
       await backgroundStorageService.cleanupOldAutosaves();
       // Old recovery data cleaned up
     } catch (error) {
-      console.error('[CrashRecovery] Failed to cleanup old recovery data:', error);
+      logError('[CrashRecovery] Failed to cleanup old recovery data:', error);
     }
   }
 }

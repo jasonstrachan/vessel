@@ -1,3 +1,4 @@
+import { debugWarn } from '@/utils/debug';
 import type { BrushSettings } from '@/types';
 import { clampPressureDeltaPercent } from '@/utils/pressureSettings';
 
@@ -103,7 +104,7 @@ export const loadGlobalBrushSettings = (): GlobalBrushSettingsPayload | null => 
       brushSpecificSettings: sanitizeBrushSpecificSettings(parsed.brushSpecificSettings),
     };
   } catch (error) {
-    console.warn('[BrushSettingsStorage] Failed to load global brush settings', error);
+    debugWarn('raw-console', '[BrushSettingsStorage] Failed to load global brush settings', error);
     return null;
   }
 };
@@ -163,6 +164,6 @@ export const saveGlobalBrushSettings = (payload: GlobalBrushSettingsPayload): vo
     }
     storage.setItem(STORAGE_KEY, JSON.stringify(sanitized));
   } catch (error) {
-    console.warn('[BrushSettingsStorage] Failed to save global brush settings', error);
+    debugWarn('raw-console', '[BrushSettingsStorage] Failed to save global brush settings', error);
   }
 };

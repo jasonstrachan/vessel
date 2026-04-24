@@ -1,6 +1,7 @@
 // File backup settings component for autosave
 // Allows users to configure automatic file backup to a selected directory
 
+import { logError } from '@/utils/debug';
 import React, { useState, useCallback, useEffect } from 'react';
 import { useAutosave } from '../../utils/autosave';
 import { fileBackupService } from '../../utils/fileBackupService';
@@ -43,11 +44,11 @@ export default function FileBackupSettings({ className = '' }: FileBackupSetting
           // File selected: result.path
         }
       } else if (result.error && !result.error.includes('cancelled')) {
-        console.error('[FileBackupSettings] File selection failed:', result.error);
+        logError('[FileBackupSettings] File selection failed:', result.error);
         alert(`Failed to select file: ${result.error}`);
       }
     } catch (error) {
-      console.error('[FileBackupSettings] File selection error:', error);
+      logError('[FileBackupSettings] File selection error:', error);
       alert('Failed to select backup file. Please try again.');
     } finally {
       setIsSelecting(false);
@@ -72,11 +73,11 @@ export default function FileBackupSettings({ className = '' }: FileBackupSetting
           // Directory selected: result.path
         }
       } else if (result.error && !result.error.includes('cancelled')) {
-        console.error('[FileBackupSettings] Directory selection failed:', result.error);
+        logError('[FileBackupSettings] Directory selection failed:', result.error);
         alert(`Failed to select directory: ${result.error}`);
       }
     } catch (error) {
-      console.error('[FileBackupSettings] Directory selection error:', error);
+      logError('[FileBackupSettings] Directory selection error:', error);
       alert('Failed to select backup directory. Please try again.');
     } finally {
       setIsSelecting(false);

@@ -1,3 +1,4 @@
+import { debugWarn } from '@/utils/debug';
 import { getColorCycleBrushManager } from '@/stores/colorCycleBrushManager';
 import { copyScalarRegion } from '@/stores/helpers/selectionCapture';
 import type { Layer, Project, Rectangle } from '@/types';
@@ -70,7 +71,7 @@ const mutateColorCycleLayer = (
   const canvas = getCanvasForLayer(state, layer, fallbackWidth, fallbackHeight);
   if (!canvas?.width || !canvas.height) {
     if (process.env.NODE_ENV !== 'production') {
-      console.warn('[cc] invalid canvas in mutateColorCycleLayer', {
+      debugWarn('raw-console', '[cc] invalid canvas in mutateColorCycleLayer', {
         layerId: layer.id,
         canvasWidth: canvas?.width,
         canvasHeight: canvas?.height,
@@ -108,7 +109,7 @@ const mutateColorCycleLayer = (
   }
   if (!snapshot) {
     if (process.env.NODE_ENV !== 'production') {
-      console.warn('[cc] no snapshot in mutateColorCycleLayer', { layerId: layer.id });
+      debugWarn('raw-console', '[cc] no snapshot in mutateColorCycleLayer', { layerId: layer.id });
     }
     return false;
   }
@@ -116,7 +117,7 @@ const mutateColorCycleLayer = (
   const bufferLength = canvas.width * canvas.height;
   if (bufferLength <= 0) {
     if (process.env.NODE_ENV !== 'production') {
-      console.warn('[cc] zero bufferLength in mutateColorCycleLayer', {
+      debugWarn('raw-console', '[cc] zero bufferLength in mutateColorCycleLayer', {
         layerId: layer.id,
         canvasWidth: canvas.width,
         canvasHeight: canvas.height,
@@ -134,7 +135,7 @@ const mutateColorCycleLayer = (
   const incomingFlow = snapshot.flowBuffer ? new Uint8Array(snapshot.flowBuffer) : null;
   const incomingPhase = snapshot.phaseBuffer ? new Uint8Array(snapshot.phaseBuffer) : null;
   if (!incoming && process.env.NODE_ENV !== 'production') {
-    console.warn('[cc] no paintBuffer in snapshot', { layerId: layer.id });
+    debugWarn('raw-console', '[cc] no paintBuffer in snapshot', { layerId: layer.id });
   }
   const working = new Uint8Array(bufferLength);
   const workingGradientId = new Uint8Array(bufferLength);
@@ -144,7 +145,7 @@ const mutateColorCycleLayer = (
   const workingPhase = new Uint8Array(bufferLength);
   if (incoming && incoming.length) {
     if (incoming.length !== bufferLength && process.env.NODE_ENV !== 'production') {
-      console.warn('[cc] paintBuffer/canvas mismatch in mutateColorCycleLayer', {
+      debugWarn('raw-console', '[cc] paintBuffer/canvas mismatch in mutateColorCycleLayer', {
         layerId: layer.id,
         incoming: incoming.length,
         bufferLength,
@@ -157,7 +158,7 @@ const mutateColorCycleLayer = (
 
   if (incomingGradientId && incomingGradientId.length) {
     if (incomingGradientId.length !== bufferLength && process.env.NODE_ENV !== 'production') {
-      console.warn('[cc] gradientIdBuffer/canvas mismatch in mutateColorCycleLayer', {
+      debugWarn('raw-console', '[cc] gradientIdBuffer/canvas mismatch in mutateColorCycleLayer', {
         layerId: layer.id,
         incoming: incomingGradientId.length,
         bufferLength,

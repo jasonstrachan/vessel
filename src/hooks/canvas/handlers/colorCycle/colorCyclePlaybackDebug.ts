@@ -1,3 +1,4 @@
+import { debugLog } from '@/utils/debug';
 import type { MutableRefObject } from 'react';
 
 export interface ColorCycleTraceState {
@@ -24,7 +25,7 @@ export const runStopContinuousColorCycleWithTrace = ({
   if (ccDebug.on && ccDebug.verbose) {
     try {
       console.groupCollapsed('[CC:TRACE] stopContinuousColorCycleAnimation', { reason });
-      console.log(new Error('stopContinuousColorCycleAnimation').stack);
+      debugLog('raw-console', new Error('stopContinuousColorCycleAnimation').stack);
       console.groupEnd();
     } catch {
       // no-op
@@ -79,9 +80,9 @@ export const runStartContinuousColorCycleWithTrace = ({
         suppressedCount,
       });
       if (suppressedCount > 0) {
-        console.log(`suppressed ${suppressedCount} rapid calls`);
+        debugLog('raw-console', `suppressed ${suppressedCount} rapid calls`);
       }
-      console.log(new Error('startContinuousColorCycleAnimation').stack);
+      debugLog('raw-console', new Error('startContinuousColorCycleAnimation').stack);
       console.groupEnd();
     } catch {
       // no-op

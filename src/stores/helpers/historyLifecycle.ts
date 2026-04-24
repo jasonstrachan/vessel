@@ -1,3 +1,4 @@
+import { debugWarn } from '@/utils/debug';
 import type { StoreApi } from 'zustand';
 import historyManager from '@/history/historyService';
 import type { HistoryEntry } from '@/history/actionTypes';
@@ -561,7 +562,7 @@ export const createHistoryService = ({
         get().initColorCycleForLayer(layer.id, width, height);
       } catch (error) {
         if (process.env.NODE_ENV !== 'production') {
-          console.warn('[history] Failed to init color cycle layer during rehydrate', {
+          debugWarn('raw-console', '[history] Failed to init color cycle layer during rehydrate', {
             layerId: layer.id,
             error,
           });

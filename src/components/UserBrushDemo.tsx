@@ -1,5 +1,6 @@
 'use client';
 
+import { debugLog, logError } from '@/utils/debug';
 import { useEffect } from 'react';
 import { useUserBrushEngine } from '../hooks/useUserBrushEngine';
 
@@ -18,9 +19,9 @@ export function UserBrushDemo() {
         
         // Get all registered brushes
         const allBrushes = userBrushEngine.getAllUserBrushes();
-        console.log('Loaded user brushes:', allBrushes);
+        debugLog('raw-console', 'Loaded user brushes:', allBrushes);
       } catch (error) {
-        console.error('Failed to load built-in brushes:', error);
+        logError('Failed to load built-in brushes:', error);
       }
     };
 

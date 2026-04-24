@@ -1,6 +1,7 @@
+import { debugLog, debugWarn } from '@/utils/debug';
 import { BaseBrushPlugin, BrushDrawContext, BrushMetadata, BrushConfig } from '../BrushPlugin';
 import type { BrushSettings, SequentialBrushSnapshot } from '../../types';
-import { 
+import {
   applyFloydSteinbergDither,
   applyBayerDither,
   DitherSettings,
@@ -108,11 +109,11 @@ export class DitherBrushPlugin extends BaseBrushPlugin {
   }
 
   onActivate(): void {
-    console.log('Dither brush activated with settings:', this.ditherSettings);
+    debugLog('raw-console', 'Dither brush activated with settings:', this.ditherSettings);
   }
 
   onDeactivate(): void {
-    console.log('Dither brush deactivated');
+    debugLog('raw-console', 'Dither brush deactivated');
   }
 
   draw(context: BrushDrawContext): void {
@@ -219,7 +220,7 @@ export class DitherBrushPlugin extends BaseBrushPlugin {
   validateSettings(settings: BrushSettings): boolean {
     // Dither brush works best with certain settings
     if (settings.size < 1 || settings.size > 200) {
-      console.warn('Dither brush works best with size between 1 and 200');
+      debugWarn('raw-console', 'Dither brush works best with size between 1 and 200');
     }
     return true;
   }

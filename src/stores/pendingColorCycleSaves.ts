@@ -1,3 +1,4 @@
+import { logError } from '@/utils/debug';
 import type { FinalizeQueue } from '@/lib/canvas/FinalizeQueue';
 
 const pendingPromises = new Map<string, Set<Promise<void>>>();
@@ -13,7 +14,7 @@ const settlePromise = (layerId: string, promise: Promise<void>, error?: unknown)
   if (entries.size === 0) {
     pendingPromises.delete(layerId);
     if (error && process.env.NODE_ENV !== 'production') {
-      console.error('[cc-pending-saves] pending promise rejected', { layerId, error });
+      logError('[cc-pending-saves] pending promise rejected', { layerId, error });
     }
   }
 };
@@ -50,7 +51,7 @@ export const waitForPendingColorCycleSaves = async (layerId: string): Promise<vo
     const results = await Promise.allSettled(pendingArray);
     results.forEach((result, index) => {
       if (result.status === 'rejected' && process.env.NODE_ENV !== 'production') {
-        console.error('[cc-pending-saves] deferred save rejected', {
+        logError('[cc-pending-saves] deferred save rejected', {
           layerId,
           index,
           reason: result.reason,
@@ -72,7 +73,7 @@ export const waitForAllPendingColorCycleSaves = async (): Promise<void> => {
     const results = await Promise.allSettled(pendingArray);
     results.forEach((result, index) => {
       if (result.status === 'rejected' && process.env.NODE_ENV !== 'production') {
-        console.error('[cc-pending-saves] deferred save rejected', {
+        logError('[cc-pending-saves] deferred save rejected', {
           layerId: 'all',
           index,
           reason: result.reason,

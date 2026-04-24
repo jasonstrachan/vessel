@@ -1,5 +1,6 @@
 'use client';
 
+import { debugWarn } from '@/utils/debug';
 import React, { memo, useCallback, useMemo, useState } from 'react';
 import { ChevronRight } from 'lucide-react';
 
@@ -228,7 +229,7 @@ export const LayerAlignmentControls = memo<LayerAlignmentControlsProps>(({ densi
           try {
             nextPercent = computeLayerPercentOffset(targetLayer, project);
           } catch (error) {
-            console.warn('[LayerAlignmentControls] Failed to compute percent offset for auto mode', error);
+            debugWarn('raw-console', '[LayerAlignmentControls] Failed to compute percent offset for auto mode', error);
           }
         }
 
@@ -324,7 +325,7 @@ export const LayerAlignmentControls = memo<LayerAlignmentControlsProps>(({ densi
                         <span
                           className={[
                             'h-1.5 w-1.5 block',
-                            
+
                             isSelected
                               ? 'bg-[#F3F3F7]'
                               : 'border border-current bg-transparent'
