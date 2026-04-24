@@ -644,22 +644,30 @@ describe('exportProjectAsWebGL color cycle integration', () => {
         { id: 'film-noise', enabled: false, settings: { opacity: 0.16, scale: 1.5, shadowBias: 0.62 } }
       ]
     };
+    const previousDisplayFilters = useAppStore.getState().canvas.displayFilters;
+    useAppStore.getState().setDisplayFilters(project.viewState.displayFilters);
 
-    const metadata = await exportProjectAsWebGL({
-      project,
-      layers: [layer],
-      layout: createDefaultExportLayout(),
-      viewport: { designWidth: project.width, designHeight: project.height, mode: 'fixed' },
-      fps: 30,
-      totalFrames: 60,
-      durationSeconds: 2,
-      perfectLoop: false,
-      includeHiddenLayers: true,
-      embedCanvasFallback: false,
-      minify: false,
-      filenameBase: 'display-filter-export',
-      bundleFormat: 'json'
-    });
+    const metadata = await (async () => {
+      try {
+        return await exportProjectAsWebGL({
+          project,
+          layers: [layer],
+          layout: createDefaultExportLayout(),
+          viewport: { designWidth: project.width, designHeight: project.height, mode: 'fixed' },
+          fps: 30,
+          totalFrames: 60,
+          durationSeconds: 2,
+          perfectLoop: false,
+          includeHiddenLayers: true,
+          embedCanvasFallback: false,
+          minify: false,
+          filenameBase: 'display-filter-export',
+          bundleFormat: 'json'
+        });
+      } finally {
+        useAppStore.getState().setDisplayFilters(previousDisplayFilters);
+      }
+    })();
 
     expect(metadata.settings.displayFilters).toEqual(project.viewState.displayFilters);
     expect(metadata.settings.transparencyBackgroundMode).toBe(useAppStore.getState().canvas.transparencyBackgroundMode);

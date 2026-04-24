@@ -12,7 +12,7 @@ const budgets = [
   { path: 'src/hooks/canvas/useCanvasEventHandlers.ts', max: 700, status: 'blocking' },
   { path: 'src/stores/slices/layersSlice.ts', max: 900, status: 'blocking' },
   { path: 'src/stores/layers/createLayersSlice.ts', max: 3500, status: 'blocking' },
-  { path: 'src/utils/export/webglExporter.ts', max: 600, status: 'report-until-phase-2' },
+  { path: 'src/utils/export/webglExporter.ts', max: 600, status: 'blocking' },
   { path: 'src/hooks/canvas/handlers/pointerHandlers.ts', max: 900, status: 'report-until-phase-4' },
   { path: 'src/hooks/canvas/handlers/shapes/ShapeToolHandler.ts', max: 900, status: 'report-until-phase-4' },
 ];
