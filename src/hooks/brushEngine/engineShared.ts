@@ -57,7 +57,9 @@ export const getAlphaLockDebugLevel = () => {
 };
 
 export const AL = (step: string, obj: Record<string, unknown>) => {
-  const level = typeof window !== 'undefined' ? window.__alphaLockDebug ?? 0 : 0;
+  const level = typeof window !== 'undefined'
+    ? (window as Window & { __alphaLockDebug?: number }).__alphaLockDebug ?? 0
+    : 0;
   if (level > 0) {
     try {
       console.log(`[AL] ${step} ${JSON.stringify(obj)}`);
@@ -92,7 +94,8 @@ export const appendPresResTrace = (entry: Record<string, unknown>) => {
     return;
   }
   ensurePresResTraceHelpers();
-  const trace = ((window as Window).__presResTrace ??= []);
+  const traceWindow = window as Window & { __presResTrace?: Array<Record<string, unknown>> };
+  const trace = (traceWindow.__presResTrace ??= []);
   trace.push(entry);
   const MAX_TRACE = 400;
   if (trace.length > MAX_TRACE) {
@@ -104,7 +107,11 @@ const ensurePresResTraceHelpers = () => {
   if (typeof window === 'undefined') {
     return;
   }
-  const w = window as Window;
+  const w = window as Window & {
+    __presResTrace?: Array<Record<string, unknown>>;
+    __clearPresResTrace?: () => void;
+    __summarizePresResTrace?: () => Record<string, unknown>;
+  };
   if (typeof w.__clearPresResTrace !== 'function') {
     w.__clearPresResTrace = () => {
       w.__presResTrace = [];

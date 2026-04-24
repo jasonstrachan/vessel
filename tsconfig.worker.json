@@ -1,0 +1,19 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "lib": ["es2020", "dom", "webworker"],
+    "jsx": "preserve",
+    "types": [],
+    "incremental": false
+  },
+  "include": [
+    "next-env.d.ts",
+    "src/workers/**/*.ts",
+    "src/utils/colorCycleWorkerSupport.ts",
+    "src/lib/performance/GradientWorkerManager.ts"
+  ],
+  "exclude": [
+    "node_modules",
+    "src/workers/__tests__/**"
+  ]
+}
