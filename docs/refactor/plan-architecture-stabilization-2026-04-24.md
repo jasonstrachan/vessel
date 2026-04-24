@@ -24,7 +24,7 @@ Last updated: 2026-04-24.
 - [x] Phase 3 single playback runtime owner.
 - [x] Phase 4 canvas runtime consolidation.
 - [x] Phase 4 canvas hotspot budgets made blocking after extraction.
-- [ ] Phase 5 raw logging and store-access guards made strict after cleanup.
+- [x] Phase 5 raw logging and store-access guards made strict after cleanup.
 - [x] Phase 5 stricter lint warning rules made errors after cleanup.
 
 ## Goal
@@ -797,9 +797,9 @@ after code, tests, and docs for that item are complete.
 - [x] Replace remaining raw production `console.*` calls with `debugLog`,
   `devLog`, visible diagnostics, or explicit user-facing error handling.
 - [x] Run `node scripts/check-raw-console.mjs --strict`.
-- [ ] Move remaining component/canvas direct store reads behind selectors,
+- [x] Move remaining component/canvas direct store reads behind selectors,
   hooks, injected dependencies, or runtime/service adapters.
-- [ ] Run `node scripts/check-store-access.mjs --strict`.
+- [x] Run `node scripts/check-store-access.mjs --strict`.
 - [x] Tighten `@typescript-eslint/no-unused-vars` from warning to error.
 - [x] Tighten `@typescript-eslint/no-explicit-any` from warning to error.
 - [ ] Run full verification checklist.

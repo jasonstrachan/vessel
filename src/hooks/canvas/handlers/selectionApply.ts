@@ -1,3 +1,4 @@
+import { getAppStoreState } from '@/stores/appStoreAccess';
 import { useAppStore } from '@/stores/useAppStore';
 import type { Rectangle } from '@/types';
 
@@ -38,7 +39,7 @@ export const applyMaskSelectionResult = ({
   vectorPath = null,
 }: ApplyMaskSelectionResultArgs): void => {
   if (append) {
-    useAppStore.getState().appendSelectionMask({
+    getAppStoreState().appendSelectionMask({
       mask,
       bounds,
       layerId,

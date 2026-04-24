@@ -1,6 +1,6 @@
+import { getAppStoreState } from '@/stores/appStoreAccess';
 import { useCallback } from 'react';
 import { getPresetStops } from '@/utils/gradientPresets';
-import { useAppStore } from '@/stores/useAppStore';
 
 type Point = { x: number; y: number };
 
@@ -66,7 +66,7 @@ export const useDrawingCanvasRectangleGradientFinalize = ({
   stateMachine,
 }: UseDrawingCanvasRectangleGradientFinalizeOptions) =>
   useCallback(async (): Promise<boolean> => {
-    const store = useAppStore.getState();
+    const store = getAppStoreState();
     const rectState = store.rectangleBrushState;
 
     if (rectState.drawingState === 'idle') {

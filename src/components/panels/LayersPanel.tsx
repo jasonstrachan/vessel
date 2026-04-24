@@ -1,5 +1,6 @@
 'use client';
 
+import { getAppStoreState } from '@/stores/appStoreAccess';
 import React from 'react';
 import { ChevronRight, Eye, EyeOff, Plus } from 'lucide-react';
 import { useAppStore } from '@/stores/useAppStore';
@@ -242,7 +243,7 @@ const LayersPanel: React.FC = () => {
     canvas.width = 1;
     canvas.height = 1;
 
-    const store = useAppStore.getState();
+    const store = getAppStoreState();
     const currentGradient = store.tools.brushSettings.colorCycleGradient || [
       { position: 0.0, color: '#ff0000' },
       { position: 0.17, color: '#ff7f00' },

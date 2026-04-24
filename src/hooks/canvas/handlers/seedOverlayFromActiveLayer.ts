@@ -1,7 +1,7 @@
+import { getAppStoreState } from '@/stores/appStoreAccess';
 import type { Layer } from '@/types';
 import { setOverlaySeededFromLayer } from '@/hooks/canvas/utils/overlaySeedState';
 import { getSequentialLayerRenderCanvas } from '@/lib/sequential/SequentialLayerRenderer';
-import { useAppStore } from '@/stores/useAppStore';
 
 export const seedOverlayFromActiveLayer = ({
   activeLayer,
@@ -16,7 +16,7 @@ export const seedOverlayFromActiveLayer = ({
   }
 
   if (activeLayer.layerType === 'sequential' && activeLayer.sequentialData) {
-    const state = useAppStore.getState();
+    const state = getAppStoreState();
     const project = state.project;
     if (project) {
       const source = getSequentialLayerRenderCanvas({

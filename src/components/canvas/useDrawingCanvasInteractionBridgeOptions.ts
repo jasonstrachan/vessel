@@ -1,5 +1,5 @@
+import { getAppStoreState } from '@/stores/appStoreAccess';
 import { useDrawingCanvasInteractionBridge } from './useDrawingCanvasInteractionBridge';
-import { useAppStore } from '@/stores/useAppStore';
 
 type InteractionBridgeOptions = Parameters<typeof useDrawingCanvasInteractionBridge>[0];
 type KeyboardOptions = InteractionBridgeOptions['keyboardOptions'];
@@ -18,10 +18,10 @@ export const useDrawingCanvasInteractionBridgeOptions = ({
 }: UseDrawingCanvasInteractionBridgeOptionsArgs): InteractionBridgeOptions => ({
   keyboardOptions: {
     ...keyboardOptions,
-    saveProject: () => useAppStore.getState().saveProject(),
-    openProjectModal: () => useAppStore.getState().toggleModal('loadProject'),
-    canUndo: () => useAppStore.getState().canUndo(),
-    canRedo: () => useAppStore.getState().canRedo(),
+    saveProject: () => getAppStoreState().saveProject(),
+    openProjectModal: () => getAppStoreState().toggleModal('loadProject'),
+    canUndo: () => getAppStoreState().canUndo(),
+    canRedo: () => getAppStoreState().canRedo(),
   },
   toolSyncOptions,
 });

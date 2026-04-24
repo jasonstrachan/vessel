@@ -1,3 +1,4 @@
+import { getAppStoreState } from '@/stores/appStoreAccess';
 import type React from 'react';
 import type { FinalizeQueue } from '@/lib/canvas';
 import type { CanvasSnapshot } from '@/types';
@@ -5,7 +6,6 @@ import { captureColorCycleBrushState } from '@/history/helpers/colorCycle';
 import type { ColorCycleSerializedState } from '@/history/helpers/colorCycle';
 import { commitLayerHistory } from '@/history/helpers/layerHistory';
 import type { BoundingBox } from '@/hooks/canvas/handlers/shapes/ShapeFinalizeHandler';
-import { useAppStore } from '@/stores/useAppStore';
 import { captureColorCycleCanvasSnapshot } from '@/utils/colorCycleCanvasSnapshot';
 
 type CaptureRegion = { x: number; y: number; width: number; height: number };
@@ -168,7 +168,7 @@ export const scheduleDeferredColorCycleSave = (
         afterCtr: nextAfterColorState?.layers?.[0]?.strokeData?.strokeCounter ?? -1,
       });
 
-      const state = useAppStore.getState();
+      const state = getAppStoreState();
       const layer = state.layers.find((entry) => entry.id === layerId);
       if (layer?.layerType === 'color-cycle' && layer.colorCycleData) {
         const nextCanvasImageData = captureColorCycleCanvasSnapshot({

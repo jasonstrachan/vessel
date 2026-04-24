@@ -1,3 +1,4 @@
+import { getAppStoreState } from '@/stores/appStoreAccess';
 import { debugLog, logError } from '@/utils/debug';
 import type { ColorCycleBrushImplementation } from '@/hooks/brushEngine/ColorCycleBrushMigration';
 import {
@@ -10,7 +11,6 @@ import {
 import { TEMP_SAMPLE_SLOT } from '@/constants/colorCycle';
 import { flushGradientApply, requestGradientApply } from '@/hooks/brushEngine/ccGradientApplyScheduler';
 import type { AppState } from '@/stores/useAppStore';
-import { useAppStore } from '@/stores/useAppStore';
 import {
   rebuildGradientSlotUsageAndGC,
   rebuildOnDemandAndRetryAllocate,
@@ -80,7 +80,7 @@ const isLikelyGrayGradient = (stops: Array<{ position: number; color: string }>)
 };
 
 export const runProjectSlotRebuild = (layerId: string) => {
-  const state = useAppStore.getState();
+  const state = getAppStoreState();
   const result = rebuildGradientSlotUsageAndGC({
     layers: state.layers,
     scope: 'project',
@@ -290,7 +290,7 @@ export const ensureActiveColorCycleGradientSlot = ({
       rebuildOnDemandAndRetryAllocate({
         attemptAllocate: () => {
           const retryUsed = new Set<number>();
-          const latest = useAppStore.getState().layers.find((entry) => entry.id === layer.id);
+          const latest = getAppStoreState().layers.find((entry) => entry.id === layer.id);
           const latestData = latest?.colorCycleData;
           latestData?.slotPalettes?.forEach((entry) => retryUsed.add(entry.slot));
           latestData?.gradientDefs?.forEach((entry) => retryUsed.add(entry.currentSlot));

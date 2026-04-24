@@ -1,5 +1,5 @@
+import { getAppStoreState } from '@/stores/appStoreAccess';
 import { FLOW_SLOT_MASK } from '@/lib/colorCycle/flowEncoding';
-import { useAppStore } from '@/stores/useAppStore';
 import type { Layer } from '@/types';
 import { buildCcDitherRuntimePalette, resolveCcDitherBandMode } from '@/utils/colorCycle/ccDitherRenderPalette';
 import { hashStops } from '@/utils/colorCycleGradientDefs';
@@ -84,7 +84,7 @@ const resolveRuntimeStopsForEdit = ({
     };
   }
 
-  const brushSettings = useAppStore.getState().tools.brushSettings;
+  const brushSettings = getAppStoreState().tools.brushSettings;
   const shouldUseDitherRuntime = Boolean(brushSettings.ditherEnabled);
   const runtimeStops = shouldUseDitherRuntime
     ? buildCcDitherRuntimePalette({
@@ -114,7 +114,7 @@ export const applyGradientEdit = (params: {
   layerId?: string;
   intent?: GradientEditIntent;
 }): void => {
-  const state = useAppStore.getState();
+  const state = getAppStoreState();
   const targetLayerId = params.layerId ?? state.activeLayerId;
   if (!targetLayerId) {
     return;
@@ -218,7 +218,7 @@ export const applyGradientEdit = (params: {
 };
 
 export const setActiveGradientId = (layerId: string, gradientId: string): void => {
-  const state = useAppStore.getState();
+  const state = getAppStoreState();
   const layer = state.layers.find((entry) => entry.id === layerId);
   if (!layer || layer.layerType !== 'color-cycle' || !layer.colorCycleData) {
     return;
@@ -250,7 +250,7 @@ export const ensurePaintSlotPalette = (layer: Layer, fallbackStops: GradientStop
   if (hasSlot) {
     return;
   }
-  useAppStore.getState().updateLayer(layer.id, {
+  getAppStoreState().updateLayer(layer.id, {
     colorCycleData: {
       ...layer.colorCycleData,
       slotPalettes: [...slotPalettes, { slot: paintSlot, stops: cloneStops(fallbackStops) }],

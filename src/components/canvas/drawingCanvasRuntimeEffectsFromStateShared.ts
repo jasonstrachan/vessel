@@ -1,4 +1,5 @@
-import { selectEffectiveColorCyclePlaying, useAppStore } from '@/stores/useAppStore';
+import { getAppStoreState } from '@/stores/appStoreAccess';
+import { selectEffectiveColorCyclePlaying } from '@/stores/useAppStore';
 
 export const isColorCyclePlaybackActive = () =>
-  selectEffectiveColorCyclePlaying(useAppStore.getState());
+  selectEffectiveColorCyclePlaying(getAppStoreState());

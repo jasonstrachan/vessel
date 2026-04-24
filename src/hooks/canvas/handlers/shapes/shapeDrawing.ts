@@ -1,6 +1,7 @@
+import { getAppStoreState } from '@/stores/appStoreAccess';
 import type React from 'react';
 import { BrushShape, type BrushSettings, type CanvasSnapshot, type Layer, type Tool } from '@/types';
-import { useAppStore, type AppState, type CCReason } from '@/stores/useAppStore';
+import { type AppState, type CCReason } from '@/stores/useAppStore';
 import type { ColorCycleSerializedState } from '@/history/helpers/colorCycle';
 import type { CaptureRegion, BoundingBox } from '@/hooks/canvas/utils/captureRegions';
 import type { ShapeBeforeSnapshot } from '@/hooks/canvas/utils/snapshots';
@@ -673,7 +674,7 @@ export const startShapeDrawing = (
       refs.shapePointsRef.current = [drawPos];
       deps.seedManualStrokeBoundingBox(refs.shapePointsRef.current, 2);
       refs.isDrawingShapeRef.current = true;
-      useAppStore.getState().setShapeDrawing(true);
+      getAppStoreState().setShapeDrawing(true);
       refs.shapeDragStartRef.current = drawPos;
       refs.shapeDragLastRef.current = drawPos;
       refs.shapeDragMovedRef.current = false;
@@ -722,7 +723,7 @@ export const startShapeDrawing = (
                 : desiredSource === 'fg'
                   ? 'fg'
                   : 'manual';
-            const s = useAppStore.getState();
+            const s = getAppStoreState();
             const logCcFg = isDebugEnabled('cc-fg');
             if (logCcFg) {
               debugLog('cc-fg', '[CC FG] pointerdown tools', {
@@ -1178,7 +1179,7 @@ export const finalizeShapeDrawing = async (
         }
         args.refs.isDrawingShapeRef.current = false;
         args.refs.shapeInteractionPhaseRef.current = 'idle';
-        useAppStore.getState().setShapeDrawing(false);
+        getAppStoreState().setShapeDrawing(false);
         deps.resetShapeDragRefs();
 
         args.refs.ccShapePreviewPauseStartedRef.current = false;
@@ -1394,7 +1395,7 @@ export const finalizeShapeDrawing = async (
           }
           args.refs.isDrawingShapeRef.current = false;
           args.refs.shapeInteractionPhaseRef.current = 'idle';
-          useAppStore.getState().setShapeDrawing(false);
+          getAppStoreState().setShapeDrawing(false);
           deps.resetShapeDragRefs();
         }
 
@@ -1502,7 +1503,7 @@ export const finalizeShapeDrawing = async (
         }
         args.refs.isDrawingShapeRef.current = false;
         args.refs.shapeInteractionPhaseRef.current = 'idle';
-        useAppStore.getState().setShapeDrawing(false);
+        getAppStoreState().setShapeDrawing(false);
         deps.resetShapeDragRefs();
       }
 

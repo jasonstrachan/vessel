@@ -1,5 +1,6 @@
 'use client';
 
+import { getAppStoreState } from '@/stores/appStoreAccess';
 import React, { useEffect, useState, useCallback } from 'react';
 import LeftToolbar from '@/components/LeftToolbar';
 import ColorPickerPanel from '@/components/panels/ColorPickerPanel';
@@ -163,7 +164,7 @@ export default function Home() {
 
     const savedAt = saveStatus.updatedAt?.getTime() ?? Date.now();
     const timer = setTimeout(() => {
-      const latest = selectAutosaveSaveStatus(useAppStore.getState());
+      const latest = selectAutosaveSaveStatus(getAppStoreState());
       const latestSavedAt = latest.updatedAt?.getTime() ?? 0;
       if (latest.phase === 'saved' && latestSavedAt === savedAt) {
         clearSaveStatus();

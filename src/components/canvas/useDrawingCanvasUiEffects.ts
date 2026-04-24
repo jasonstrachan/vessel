@@ -1,6 +1,6 @@
+import { getAppStoreState } from '@/stores/appStoreAccess';
 import type React from 'react';
 import { useEffect } from 'react';
-import { useAppStore } from '@/stores/useAppStore';
 import { flushBufferedSequentialEvents } from '@/hooks/canvas/handlers/sequential/sequentialCapture';
 
 interface UseDrawingCanvasUiEffectsOptions {
@@ -79,7 +79,7 @@ export const useDrawingCanvasUiEffects = ({
 
   useEffect(() => {
     const handleInteractionReset = () => {
-      const store = useAppStore.getState();
+      const store = getAppStoreState();
       if (typeof store.setSequentialPointerDown === 'function') {
         store.setSequentialPointerDown(false);
       }

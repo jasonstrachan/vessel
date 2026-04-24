@@ -1,3 +1,4 @@
+import { getAppStoreState } from '@/stores/appStoreAccess';
 import type { CanvasSnapshot } from '@/types';
 import type { CaptureRegion } from '@/hooks/canvas/utils/captureRegions';
 import type { ColorCycleSerializedState } from '@/history/helpers/colorCycle';
@@ -7,7 +8,6 @@ import {
   commitBrushHistory,
   type ManagedColorCycleBrush,
 } from '@/hooks/canvas/handlers/colorCycle/colorCycleCommit';
-import { useAppStore } from '@/stores/useAppStore';
 
 type LayerHistoryPayload = Parameters<typeof commitBrushHistory>[0];
 
@@ -59,7 +59,7 @@ export const commitStrokeHistoryIfNeeded = async (
     return false;
   }
 
-  const state = useAppStore.getState();
+  const state = getAppStoreState();
   const activeLayer = state.layers.find((layer) => layer.id === args.activeLayerId);
   if (activeLayer?.layerType === 'sequential' && activeLayer.sequentialData) {
     const sessionStartMs = state.sequentialRecord.sessionStartMs;

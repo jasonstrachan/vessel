@@ -1,7 +1,8 @@
+import { getAppStoreState } from '@/stores/appStoreAccess';
 import type { PixelQueue } from '@/hooks/brushEngine/types';
 import type { CustomBrushStrokeData } from '@/hooks/brushEngine/BrushEngineFacade';
 import type { ColorCycleBrushImplementation } from '@/hooks/brushEngine/ColorCycleBrushMigration';
-import { useAppStore, type AppState } from '@/stores/useAppStore';
+import { type AppState } from '@/stores/useAppStore';
 import type { Layer, BrushSettings } from '@/types';
 import { BrushShape } from '@/types';
 import { updateContinuousResamplerSample } from '@/hooks/canvas/handlers/customBrushCapture';
@@ -224,7 +225,7 @@ export const processBatchedStrokes = (
     if (stamps.length === 0) {
       return;
     }
-    const captureState = useAppStore.getState();
+    const captureState = getAppStoreState();
     captureSequentialStampsForActiveLayer({
       state: captureState,
       stamps,

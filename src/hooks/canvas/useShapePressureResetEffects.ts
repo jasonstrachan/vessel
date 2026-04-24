@@ -1,3 +1,4 @@
+import { getAppStoreState } from '@/stores/appStoreAccess';
 import { useEffect } from 'react';
 import type React from 'react';
 import type { AppState } from '@/stores/useAppStore';
@@ -31,7 +32,7 @@ export const useShapePressureResetEffects = ({
       pressureLinkedFillResolution: state.tools.brushSettings.pressureLinkedFillResolution,
     });
 
-    let prev = selector(useAppStore.getState());
+    let prev = selector(getAppStoreState());
     const unsubscribe = useAppStore.subscribe((state) => {
       const next = selector(state);
       const pressureToggled =
@@ -54,7 +55,7 @@ export const useShapePressureResetEffects = ({
   }, [resetShapePressureState]);
 
   useEffect(() => {
-    let prevZoom = useAppStore.getState().canvas?.zoom ?? 1;
+    let prevZoom = getAppStoreState().canvas?.zoom ?? 1;
 
     const unsubscribe = useAppStore.subscribe((state: AppState) => {
       const nextZoom = state.canvas?.zoom ?? 1;

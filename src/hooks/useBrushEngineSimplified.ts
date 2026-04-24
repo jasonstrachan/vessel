@@ -3,6 +3,7 @@
  * Clean interface using the facade pattern
  */
 
+import { getAppStoreState } from '@/stores/appStoreAccess';
 import { debugWarn, logError } from '@/utils/debug';
 import { useCallback, useMemo, useRef, useEffect } from 'react';
 import {
@@ -455,7 +456,7 @@ export const useBrushEngineSimplified = () => {
   // Get color cycle brush from active layer instead of single instance
   const getActiveLayerColorCycleBrush = useCallback((): ColorCycleBrushImplementation | null => {
     if (!activeLayerId) return null;
-    return useAppStore.getState().getLayerColorCycleBrush(activeLayerId);
+    return getAppStoreState().getLayerColorCycleBrush(activeLayerId);
   }, [activeLayerId]);
 
   const applyPendingBrushSizing = useCallback(() => {
@@ -1351,8 +1352,8 @@ export const useBrushEngineSimplified = () => {
       defaultBandSpacing: DEFAULT_CC_BAND_SPACING,
       clampColorCycleBandSpacing,
       resolveBrushPressureRange,
-      getLayers: () => useAppStore.getState().layers,
-      initColorCycleForLayer: (layerId, width, height) => useAppStore.getState().initColorCycleForLayer(layerId, width, height),
+      getLayers: () => getAppStoreState().layers,
+      initColorCycleForLayer: (layerId, width, height) => getAppStoreState().initColorCycleForLayer(layerId, width, height),
       getActiveLayerColorCycleBrush,
       requestGradientApply,
       skipGradientReinit: options?.skipGradientReinit,
@@ -1370,9 +1371,9 @@ export const useBrushEngineSimplified = () => {
   const ensureColorCycleAnimation = useCallback((shouldPlay: boolean) => {
     ensureColorCycleAnimationForLayers({
       shouldPlay,
-      layers: useAppStore.getState().layers,
+      layers: getAppStoreState().layers,
       getBrush: (layerId) =>
-        useAppStore.getState().getLayerColorCycleBrush(layerId) as Partial<ColorCycleBrushImplementation> | undefined,
+        getAppStoreState().getLayerColorCycleBrush(layerId) as Partial<ColorCycleBrushImplementation> | undefined,
     });
   }, []);
 
@@ -1492,8 +1493,8 @@ export const useBrushEngineSimplified = () => {
       options,
       initializeColorCycleBrush,
       activeLayerId,
-      getLayers: () => useAppStore.getState().layers,
-      isColorCycleDesiredPlaying: () => selectColorCycleDesiredPlaying(useAppStore.getState()),
+      getLayers: () => getAppStoreState().layers,
+      isColorCycleDesiredPlaying: () => selectColorCycleDesiredPlaying(getAppStoreState()),
       bindBrushToCanvas,
       firstStampImmediateRef,
     });
@@ -1714,7 +1715,7 @@ export const useBrushEngineSimplified = () => {
   useEffect(() => {
     updateColorCycleGradientBandsForLayer({
       activeLayerId,
-      getLayers: () => useAppStore.getState().layers,
+      getLayers: () => getAppStoreState().layers,
       getActiveLayerColorCycleBrush,
       initializeColorCycleBrush: () => initializeColorCycleBrush(),
       gradientBands: tools.brushSettings.gradientBands,
@@ -1725,7 +1726,7 @@ export const useBrushEngineSimplified = () => {
   useEffect(() => {
     updateColorCycleDitherPaletteSpreadForLayer({
       activeLayerId,
-      getLayers: () => useAppStore.getState().layers,
+      getLayers: () => getAppStoreState().layers,
       getActiveLayerColorCycleBrush,
       initializeColorCycleBrush: () => initializeColorCycleBrush(),
       renderBrushToLayerCanvas,
@@ -1740,7 +1741,7 @@ export const useBrushEngineSimplified = () => {
   useEffect(() => {
     updateColorCycleBandSpacingForLayer({
       activeLayerId,
-      getLayers: () => useAppStore.getState().layers,
+      getLayers: () => getAppStoreState().layers,
       getActiveLayerColorCycleBrush,
       initializeColorCycleBrush: () => initializeColorCycleBrush(),
       brushShape: tools.brushSettings.brushShape,
@@ -1858,7 +1859,7 @@ export const useBrushEngineSimplified = () => {
   }, [activeLayerId, applyPendingBrushSizing]);
 
   useEffect(() => {
-    let previous = selectEffectiveColorCyclePlaying(useAppStore.getState());
+    let previous = selectEffectiveColorCyclePlaying(getAppStoreState());
     ensureColorCycleAnimation(previous);
 
     const unsubscribe = useAppStore.subscribe((state) => {
@@ -1976,7 +1977,7 @@ export const useBrushEngineSimplified = () => {
 
     ensureColorCycleBrush: () => {
       // CRITICAL: Only ensure brush for color-cycle layers
-      const state = useAppStore.getState();
+      const state = getAppStoreState();
       const activeLayer = state.layers.find(l => l.id === activeLayerId);
       if (!activeLayer || activeLayer.layerType !== 'color-cycle') {
         // Silently skip for non-CC layers

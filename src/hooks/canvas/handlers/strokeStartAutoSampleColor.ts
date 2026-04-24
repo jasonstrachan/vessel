@@ -1,5 +1,5 @@
+import { getAppStoreState } from '@/stores/appStoreAccess';
 import type { AppState } from '@/stores/useAppStore';
-import { useAppStore } from '@/stores/useAppStore';
 import { BrushShape } from '@/types';
 
 export const applyStrokeStartAutoSampleColor = ({
@@ -58,7 +58,7 @@ export const applyStrokeStartAutoSampleColor = ({
     if (sampledColor && sampledColor !== brushSettings.color) {
       const updatedBrushSettings = { ...brushSettings, color: sampledColor, useSwatchColor: true };
       nextState.setBrushSettings(updatedBrushSettings);
-      const refreshed = useAppStore.getState();
+      const refreshed = getAppStoreState();
       nextState = refreshed;
       brushSettings = refreshed.tools.brushSettings;
       if (brushEngine?.engine?.updateConfig) {

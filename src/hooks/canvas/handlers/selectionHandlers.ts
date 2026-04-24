@@ -1,5 +1,5 @@
+import { getAppStoreState } from '@/stores/appStoreAccess';
 import type React from 'react';
-import { useAppStore } from '@/stores/useAppStore';
 import { captureSelectionSnapshot, commitSelectionHistory, cloneSelectionSnapshot } from '@/history/helpers/selectionHistory';
 import { strokeCurrentMarqueePath } from '@/utils/marqueeStroke';
 import type { InteractionAction, InteractionState } from '@/hooks/useCanvasInteraction';
@@ -153,7 +153,7 @@ const applyMaskSelection = (
 ): boolean => {
   const built = buildMaskFromPath(points, dynamic.project);
   if (!built) {
-    useAppStore.getState().clearSelection();
+    getAppStoreState().clearSelection();
     return false;
   }
 
@@ -709,7 +709,7 @@ export const createSelectionHandlers = (
 
     if (deps.interaction.refs.selectionStart.current) {
       if (event.shiftKey) {
-        useAppStore.getState().appendSelectionBounds(
+        getAppStoreState().appendSelectionBounds(
           deps.interaction.refs.selectionStart.current,
           worldPos
         );

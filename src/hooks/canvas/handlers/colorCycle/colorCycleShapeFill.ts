@@ -1,3 +1,4 @@
+import { getAppStoreState } from '@/stores/appStoreAccess';
 import type { BrushEngine } from '@/hooks/useBrushEngineSimplified';
 import type { ColorCycleBrushImplementation } from '@/hooks/brushEngine/ColorCycleBrushMigration';
 import type {
@@ -58,7 +59,7 @@ const resolveShapeFillBrush = (
   layerId: string,
   deps: ColorCycleShapeFillDeps,
 ): SnapshotCapableBrush | null => {
-  const state = useAppStore.getState();
+  const state = getAppStoreState();
   return (
     (typeof state.getLayerColorCycleBrush === 'function'
       ? state.getLayerColorCycleBrush(layerId)
@@ -122,7 +123,7 @@ export const clearColorCycleShapeEraseMask = (
     return;
   }
   clearColorCycleEraseMaskInRegion(
-    { current: useAppStore.getState() },
+    { current: getAppStoreState() },
     layerId,
     roi
   );
@@ -132,7 +133,7 @@ const snapshotTransparencyLockMask = (
   layerId: string,
   sourceCanvas: HTMLCanvasElement
 ): HTMLCanvasElement | null => {
-  const state = useAppStore.getState();
+  const state = getAppStoreState();
   const layer = state.layers.find((candidate) => candidate.id === layerId);
   if (!layer || layer.transparencyLocked !== true) {
     return null;
@@ -153,7 +154,7 @@ const snapshotTransparencyLockMask = (
 };
 
 const isLayerTransparencyLocked = (layerId: string): boolean => {
-  const state = useAppStore.getState();
+  const state = getAppStoreState();
   const layer = state.layers.find((candidate) => candidate.id === layerId);
   return layer?.transparencyLocked === true;
 };
@@ -618,7 +619,7 @@ export const finalizeColorCycleShapeFillLinear = async (
   deps: ColorCycleShapeFillDeps
 ): Promise<void> => {
   try {
-    const initialSettings = useAppStore.getState().tools.brushSettings;
+    const initialSettings = getAppStoreState().tools.brushSettings;
     stampShapeFinalizeProbe({
       phase: 'shape-finalize-start',
       activeLayerCanvas: args.activeLayerCanvas,
@@ -634,7 +635,7 @@ export const finalizeColorCycleShapeFillLinear = async (
       incrementFinalizeCount: true,
     });
     const beforeShapeFinalize = summarizeColorCycleLayer(
-      useAppStore.getState().layers.find((candidate) => candidate.id === args.activeLayerId) ?? null
+      getAppStoreState().layers.find((candidate) => candidate.id === args.activeLayerId) ?? null
     );
     const initialBrush = resolveShapeFillBrush(args.activeLayerId, deps);
     const preFillPaintMask = snapshotTransparencyLockPaintMask({
@@ -658,7 +659,7 @@ export const finalizeColorCycleShapeFillLinear = async (
       colors: typeof initialSettings.colors === 'number' ? initialSettings.colors : null,
     });
     const renderSession = await deps.timeAsync('cc:shape:fill(linear)', async () => {
-      const live = useAppStore.getState();
+      const live = getAppStoreState();
       const liveLayer = live.layers.find((candidate) => candidate.id === args.activeLayerId);
       const liveSettings = live.tools.brushSettings;
       const useFG = Boolean(liveSettings.colorCycleUseForegroundGradient);
@@ -711,7 +712,7 @@ export const finalizeColorCycleShapeFillLinear = async (
       });
       return resolvedRenderSession;
     });
-    const postFillSettings = useAppStore.getState().tools.brushSettings;
+    const postFillSettings = getAppStoreState().tools.brushSettings;
     stampShapeFinalizeProbe({
       phase: 'shape-finalize-after-fill',
       activeLayerCanvas: args.activeLayerCanvas,
@@ -728,7 +729,7 @@ export const finalizeColorCycleShapeFillLinear = async (
 
     const colorCycleBrush = initialBrush ?? resolveShapeFillBrush(args.activeLayerId, deps);
     if (colorCycleBrush) {
-      const st = useAppStore.getState();
+      const st = getAppStoreState();
       const sampledCommitNeedsFullRebind = renderSession?.source === 'sampled';
       if (shouldRefreshForegroundRuntimeForShapeFinalize(
         Boolean(st.tools.brushSettings.colorCycleUseForegroundGradient),
@@ -819,12 +820,12 @@ export const finalizeColorCycleShapeFillLinear = async (
           layerId: args.activeLayerId,
           paintSlot: renderSession.binding.slot,
           slotPalettes: [{ slot: renderSession.binding.slot, stops: renderSession.frozenStopsStored }],
-          flowMode: useAppStore.getState().layers.find((layer) => layer.id === args.activeLayerId)?.colorCycleData?.flowMode,
+          flowMode: getAppStoreState().layers.find((layer) => layer.id === args.activeLayerId)?.colorCycleData?.flowMode,
         });
         deps.ccLog('shape: sampled persist end', {
           layerId: args.activeLayerId,
           bindingSlot: renderSession.binding.slot,
-          paintSlotAfterPersist: useAppStore.getState().layers.find((layer) => layer.id === args.activeLayerId)?.colorCycleData?.paintSlot ?? null,
+          paintSlotAfterPersist: getAppStoreState().layers.find((layer) => layer.id === args.activeLayerId)?.colorCycleData?.paintSlot ?? null,
         });
       }
     } else {
@@ -843,7 +844,7 @@ export const finalizeColorCycleShapeFillLinear = async (
     try {
       if (renderSession?.source === 'sampled') {
         try {
-          useAppStore.getState().setCcGradientSampleCount(0);
+          getAppStoreState().setCcGradientSampleCount(0);
         } catch {}
       }
     } catch {}
@@ -875,7 +876,7 @@ export const finalizeColorCycleShapeFillLinear = async (
       severity: 'info',
       before: beforeShapeFinalize,
       after: summarizeColorCycleLayer(
-        useAppStore.getState().layers.find((candidate) => candidate.id === args.activeLayerId) ?? null
+        getAppStoreState().layers.find((candidate) => candidate.id === args.activeLayerId) ?? null
       ),
       details: {
         sampledSource: renderSession?.source === 'sampled',
@@ -930,7 +931,7 @@ export const finalizeColorCycleShapeFillConcentric = async (
   deps: ColorCycleShapeFillDeps
 ): Promise<void> => {
   try {
-    const initialSettings = useAppStore.getState().tools.brushSettings;
+    const initialSettings = getAppStoreState().tools.brushSettings;
     stampShapeFinalizeProbe({
       phase: 'shape-finalize-start',
       activeLayerCanvas: args.activeLayerCanvas,
@@ -946,7 +947,7 @@ export const finalizeColorCycleShapeFillConcentric = async (
       incrementFinalizeCount: true,
     });
     const beforeShapeFinalize = summarizeColorCycleLayer(
-      useAppStore.getState().layers.find((candidate) => candidate.id === args.activeLayerId) ?? null
+      getAppStoreState().layers.find((candidate) => candidate.id === args.activeLayerId) ?? null
     );
     const initialBrush = resolveShapeFillBrush(args.activeLayerId, deps);
     const preFillPaintMask = snapshotTransparencyLockPaintMask({
@@ -970,7 +971,7 @@ export const finalizeColorCycleShapeFillConcentric = async (
       colors: typeof initialSettings.colors === 'number' ? initialSettings.colors : null,
     });
     const renderSession = await deps.timeAsync('cc:shape:fill(concentric)', async () => {
-      const live = useAppStore.getState();
+      const live = getAppStoreState();
       const liveLayer = live.layers.find((candidate) => candidate.id === args.activeLayerId);
       const liveSettings = live.tools.brushSettings;
       const useFG = Boolean(liveSettings.colorCycleUseForegroundGradient);
@@ -1016,7 +1017,7 @@ export const finalizeColorCycleShapeFillConcentric = async (
       });
       return resolvedRenderSession;
     });
-    const postFillSettings = useAppStore.getState().tools.brushSettings;
+    const postFillSettings = getAppStoreState().tools.brushSettings;
     stampShapeFinalizeProbe({
       phase: 'shape-finalize-after-fill',
       activeLayerCanvas: args.activeLayerCanvas,
@@ -1033,7 +1034,7 @@ export const finalizeColorCycleShapeFillConcentric = async (
 
     const colorCycleBrush = initialBrush ?? resolveShapeFillBrush(args.activeLayerId, deps);
     if (colorCycleBrush) {
-      const st = useAppStore.getState();
+      const st = getAppStoreState();
       const sampledCommitNeedsFullRebind = renderSession?.source === 'sampled';
       if (shouldRefreshForegroundRuntimeForShapeFinalize(
         Boolean(st.tools.brushSettings.colorCycleUseForegroundGradient),
@@ -1124,12 +1125,12 @@ export const finalizeColorCycleShapeFillConcentric = async (
           layerId: args.activeLayerId,
           paintSlot: renderSession.binding.slot,
           slotPalettes: [{ slot: renderSession.binding.slot, stops: renderSession.frozenStopsStored }],
-          flowMode: useAppStore.getState().layers.find((layer) => layer.id === args.activeLayerId)?.colorCycleData?.flowMode,
+          flowMode: getAppStoreState().layers.find((layer) => layer.id === args.activeLayerId)?.colorCycleData?.flowMode,
         });
         deps.ccLog('shape: sampled persist end', {
           layerId: args.activeLayerId,
           bindingSlot: renderSession.binding.slot,
-          paintSlotAfterPersist: useAppStore.getState().layers.find((layer) => layer.id === args.activeLayerId)?.colorCycleData?.paintSlot ?? null,
+          paintSlotAfterPersist: getAppStoreState().layers.find((layer) => layer.id === args.activeLayerId)?.colorCycleData?.paintSlot ?? null,
         });
       }
     }
@@ -1137,7 +1138,7 @@ export const finalizeColorCycleShapeFillConcentric = async (
     try {
       if (renderSession?.source === 'sampled') {
         try {
-          useAppStore.getState().setCcGradientSampleCount(0);
+          getAppStoreState().setCcGradientSampleCount(0);
         } catch {}
       }
     } catch {}
@@ -1169,7 +1170,7 @@ export const finalizeColorCycleShapeFillConcentric = async (
       severity: 'info',
       before: beforeShapeFinalize,
       after: summarizeColorCycleLayer(
-        useAppStore.getState().layers.find((candidate) => candidate.id === args.activeLayerId) ?? null
+        getAppStoreState().layers.find((candidate) => candidate.id === args.activeLayerId) ?? null
       ),
       details: {
         sampledSource: renderSession?.source === 'sampled',

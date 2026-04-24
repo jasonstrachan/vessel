@@ -1,6 +1,6 @@
+import { getAppStoreState } from '@/stores/appStoreAccess';
 import type React from 'react';
 import { useComprehensiveKeyboard } from '@/hooks/useComprehensiveKeyboard';
-import { useAppStore } from '@/stores/useAppStore';
 import { BrushShape, type Layer, type Tool } from '@/types';
 
 interface UseDrawingCanvasKeyboardOptions {
@@ -136,7 +136,7 @@ export const useDrawingCanvasKeyboard = ({
       openProjectModal();
     },
     onCustomTool: () => {
-      const store = useAppStore.getState();
+      const store = getAppStoreState();
       store.setBrushSettings({
         selectedCustomBrush: null,
         currentBrushTip: undefined,
@@ -255,7 +255,7 @@ export const useDrawingCanvasKeyboard = ({
         return;
       }
 
-      const hasFloatingPaste = Boolean(useAppStore.getState().floatingPaste ?? floatingPaste);
+      const hasFloatingPaste = Boolean(getAppStoreState().floatingPaste ?? floatingPaste);
       if (hasFloatingPaste) {
         await commitFloatingPaste();
         compositeCanvasDirtyRef.current = true;
