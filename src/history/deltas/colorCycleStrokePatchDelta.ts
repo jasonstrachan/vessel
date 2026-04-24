@@ -29,12 +29,71 @@ type ManagedColorCycleBrush = ColorCycleBrushCanvas2D & {
 
 type PatchEncoding = 'raw' | 'rle';
 
+export const COLOR_CYCLE_PIXEL_PATCH_BUFFER_KEYS = [
+  'paint',
+  'gradientId',
+  'gradientDefId',
+  'speed',
+  'flow',
+  'phase',
+] as const;
+
+type ColorCyclePixelPatchBufferKey = typeof COLOR_CYCLE_PIXEL_PATCH_BUFFER_KEYS[number];
+type ColorCyclePixelPatchBytes = Record<ColorCyclePixelPatchBufferKey, Uint8Array | null>;
+type EncodedColorCyclePixelPatches = Record<ColorCyclePixelPatchBufferKey, PaintPatch | null>;
+type ColorCyclePatchRuntimeExtras = {
+  gradientIdBytes?: Uint8Array;
+  gradientDefIdBytes?: Uint8Array;
+  speedBytes?: Uint8Array;
+  flowBytes?: Uint8Array;
+  phaseBytes?: Uint8Array;
+};
+
 type PaintPatch = {
   roi: { x: number; y: number; width: number; height: number };
   blobId: string;
   encoding: PatchEncoding;
   approxBytes: number;
 };
+
+type ColorCyclePixelBufferSpec = {
+  key: ColorCyclePixelPatchBufferKey;
+  bytesPerPixel: number;
+  read: (layer: ColorCycleSerializedLayer) => ArrayBuffer | ArrayBufferView | undefined;
+};
+
+const COLOR_CYCLE_PIXEL_BUFFER_SPECS: readonly ColorCyclePixelBufferSpec[] = [
+  {
+    key: 'paint',
+    bytesPerPixel: Uint8Array.BYTES_PER_ELEMENT,
+    read: (layer) => layer.strokeData?.paintBuffer ?? layer.data?.indexBuffer?.data,
+  },
+  {
+    key: 'gradientId',
+    bytesPerPixel: Uint8Array.BYTES_PER_ELEMENT,
+    read: (layer) => layer.strokeData?.gradientIdBuffer ?? layer.data?.indexBuffer?.gradientId,
+  },
+  {
+    key: 'gradientDefId',
+    bytesPerPixel: Uint16Array.BYTES_PER_ELEMENT,
+    read: (layer) => layer.strokeData?.gradientDefIdBuffer,
+  },
+  {
+    key: 'speed',
+    bytesPerPixel: Uint8Array.BYTES_PER_ELEMENT,
+    read: (layer) => layer.strokeData?.speedBuffer ?? layer.data?.indexBuffer?.speedData,
+  },
+  {
+    key: 'flow',
+    bytesPerPixel: Uint8Array.BYTES_PER_ELEMENT,
+    read: (layer) => layer.strokeData?.flowBuffer ?? layer.data?.indexBuffer?.flowData,
+  },
+  {
+    key: 'phase',
+    bytesPerPixel: Uint8Array.BYTES_PER_ELEMENT,
+    read: (layer) => layer.strokeData?.phaseBuffer ?? layer.data?.indexBuffer?.phaseData,
+  },
+];
 
 export interface ColorCycleStrokePatchDeltaOptions {
   layerId: string;
@@ -85,166 +144,50 @@ const encodePatchData = async (bytes: Uint8Array) => {
   return { blobId, encoding: 'raw' as const, approxBytes: bytes.length };
 };
 
-const extractPaintBuffer = (
+const emptyColorCyclePatchBytes = (): ColorCyclePixelPatchBytes => ({
+  paint: null,
+  gradientId: null,
+  gradientDefId: null,
+  speed: null,
+  flow: null,
+  phase: null,
+});
+
+const emptyEncodedColorCyclePatches = (): EncodedColorCyclePixelPatches => ({
+  paint: null,
+  gradientId: null,
+  gradientDefId: null,
+  speed: null,
+  flow: null,
+  phase: null,
+});
+
+const findSerializedLayer = (
   state: ColorCycleBrushState | null,
-  layerId: string,
-  expectedSize: number
-): Uint8Array | null => {
+  layerId: string
+): ColorCycleSerializedLayer | null => {
   if (!state?.layers) {
     return null;
   }
-  const layer = state.layers.find((candidate: ColorCycleSerializedLayer) => candidate.layerId === layerId);
-  const buffer = (
-    layer?.strokeData?.paintBuffer ??
-    layer?.data?.indexBuffer?.data
-  ) as ArrayBuffer | ArrayBufferView | undefined;
+  return state.layers.find((candidate: ColorCycleSerializedLayer) => candidate.layerId === layerId) ?? null;
+};
+
+const bufferToPatchBytes = (
+  buffer: ArrayBuffer | ArrayBufferView | undefined,
+  expectedPixels: number,
+  bytesPerPixel: number
+): Uint8Array | null => {
   if (!buffer) {
     return null;
   }
+  const byteLength = expectedPixels * bytesPerPixel;
   const bytes =
     buffer instanceof ArrayBuffer
       ? new Uint8Array(buffer)
       : ArrayBuffer.isView(buffer)
         ? new Uint8Array(buffer.buffer, buffer.byteOffset, buffer.byteLength)
         : null;
-  if (!bytes || bytes.length < expectedSize) {
-    return null;
-  }
-  return bytes;
-};
-
-const extractGradientIdBuffer = (
-  state: ColorCycleBrushState | null,
-  layerId: string,
-  expectedSize: number
-): Uint8Array | null => {
-  if (!state?.layers) {
-    return null;
-  }
-  const layer = state.layers.find((candidate: ColorCycleSerializedLayer) => candidate.layerId === layerId);
-  const buffer = (
-    layer?.strokeData?.gradientIdBuffer ??
-    layer?.data?.indexBuffer?.gradientId
-  ) as ArrayBuffer | ArrayBufferView | undefined;
-  if (!buffer) {
-    return null;
-  }
-  const bytes =
-    buffer instanceof ArrayBuffer
-      ? new Uint8Array(buffer)
-      : ArrayBuffer.isView(buffer)
-        ? new Uint8Array(buffer.buffer, buffer.byteOffset, buffer.byteLength)
-        : null;
-  if (!bytes || bytes.length < expectedSize) {
-    return null;
-  }
-  return bytes;
-};
-
-const extractGradientDefIdBuffer = (
-  state: ColorCycleBrushState | null,
-  layerId: string,
-  expectedSize: number
-): Uint16Array | null => {
-  if (!state?.layers) {
-    return null;
-  }
-  const layer = state.layers.find((candidate: ColorCycleSerializedLayer) => candidate.layerId === layerId);
-  const buffer = layer?.strokeData?.gradientDefIdBuffer as ArrayBuffer | ArrayBufferView | undefined;
-  if (!buffer) {
-    return null;
-  }
-  const values =
-    buffer instanceof ArrayBuffer
-      ? new Uint16Array(buffer)
-      : ArrayBuffer.isView(buffer)
-        ? new Uint16Array(buffer.buffer, buffer.byteOffset, Math.floor(buffer.byteLength / Uint16Array.BYTES_PER_ELEMENT))
-        : null;
-  if (!values || values.length < expectedSize) {
-    return null;
-  }
-  return values;
-};
-
-const extractSpeedBuffer = (
-  state: ColorCycleBrushState | null,
-  layerId: string,
-  expectedSize: number
-): Uint8Array | null => {
-  if (!state?.layers) {
-    return null;
-  }
-  const layer = state.layers.find((candidate: ColorCycleSerializedLayer) => candidate.layerId === layerId);
-  const buffer = (
-    layer?.strokeData?.speedBuffer ??
-    layer?.data?.indexBuffer?.speedData
-  ) as ArrayBuffer | ArrayBufferView | undefined;
-  if (!buffer) {
-    return null;
-  }
-  const bytes =
-    buffer instanceof ArrayBuffer
-      ? new Uint8Array(buffer)
-      : ArrayBuffer.isView(buffer)
-        ? new Uint8Array(buffer.buffer, buffer.byteOffset, buffer.byteLength)
-        : null;
-  if (!bytes || bytes.length < expectedSize) {
-    return null;
-  }
-  return bytes;
-};
-
-const extractFlowBuffer = (
-  state: ColorCycleBrushState | null,
-  layerId: string,
-  expectedSize: number
-): Uint8Array | null => {
-  if (!state?.layers) {
-    return null;
-  }
-  const layer = state.layers.find((candidate: ColorCycleSerializedLayer) => candidate.layerId === layerId);
-  const buffer = (
-    layer?.strokeData?.flowBuffer ??
-    layer?.data?.indexBuffer?.flowData
-  ) as ArrayBuffer | ArrayBufferView | undefined;
-  if (!buffer) {
-    return null;
-  }
-  const bytes =
-    buffer instanceof ArrayBuffer
-      ? new Uint8Array(buffer)
-      : ArrayBuffer.isView(buffer)
-        ? new Uint8Array(buffer.buffer, buffer.byteOffset, buffer.byteLength)
-        : null;
-  if (!bytes || bytes.length < expectedSize) {
-    return null;
-  }
-  return bytes;
-};
-
-const extractPhaseBuffer = (
-  state: ColorCycleBrushState | null,
-  layerId: string,
-  expectedSize: number
-): Uint8Array | null => {
-  if (!state?.layers) {
-    return null;
-  }
-  const layer = state.layers.find((candidate: ColorCycleSerializedLayer) => candidate.layerId === layerId);
-  const buffer = (
-    layer?.strokeData?.phaseBuffer ??
-    layer?.data?.indexBuffer?.phaseData
-  ) as ArrayBuffer | ArrayBufferView | undefined;
-  if (!buffer) {
-    return null;
-  }
-  const bytes =
-    buffer instanceof ArrayBuffer
-      ? new Uint8Array(buffer)
-      : ArrayBuffer.isView(buffer)
-        ? new Uint8Array(buffer.buffer, buffer.byteOffset, buffer.byteLength)
-        : null;
-  if (!bytes || bytes.length < expectedSize) {
+  if (!bytes || bytes.length < byteLength) {
     return null;
   }
   return bytes;
@@ -277,31 +220,58 @@ const extractRoiPatch = (
   return output;
 };
 
-const extractRoiPatchU16 = (
-  source: Uint16Array,
+const extractRoiPatchBytes = (
+  source: Uint8Array,
+  bytesPerPixel: number,
   width: number,
   height: number,
   roi: { x: number; y: number; width: number; height: number }
 ): Uint8Array => {
-  const output = new Uint16Array(roi.width * roi.height);
+  if (bytesPerPixel === 1) {
+    return extractRoiPatch(source, width, height, roi);
+  }
+  const output = new Uint8Array(roi.width * roi.height * bytesPerPixel);
   let targetIndex = 0;
   for (let row = 0; row < roi.height; row += 1) {
     const srcY = roi.y + row;
     if (srcY < 0 || srcY >= height) {
-      targetIndex += roi.width;
+      targetIndex += roi.width * bytesPerPixel;
       continue;
     }
-    const srcOffset = srcY * width + roi.x;
     for (let col = 0; col < roi.width; col += 1) {
       const srcX = roi.x + col;
       if (srcX < 0 || srcX >= width) {
-        output[targetIndex++] = 0;
+        targetIndex += bytesPerPixel;
         continue;
       }
-      output[targetIndex++] = source[srcOffset + col] ?? 0;
+      const sourceStart = (srcY * width + srcX) * bytesPerPixel;
+      output.set(source.subarray(sourceStart, sourceStart + bytesPerPixel), targetIndex);
+      targetIndex += bytesPerPixel;
     }
   }
-  return new Uint8Array(output.buffer);
+  return output;
+};
+
+const extractColorCyclePixelPatchBytes = (
+  state: ColorCycleBrushState | null,
+  layerId: string,
+  width: number,
+  height: number,
+  roi: { x: number; y: number; width: number; height: number }
+): ColorCyclePixelPatchBytes => {
+  const output = emptyColorCyclePatchBytes();
+  const layer = findSerializedLayer(state, layerId);
+  if (!layer) {
+    return output;
+  }
+  const expectedPixels = width * height;
+  for (const spec of COLOR_CYCLE_PIXEL_BUFFER_SPECS) {
+    const bytes = bufferToPatchBytes(spec.read(layer), expectedPixels, spec.bytesPerPixel);
+    output[spec.key] = bytes
+      ? extractRoiPatchBytes(bytes, spec.bytesPerPixel, width, height, roi)
+      : null;
+  }
+  return output;
 };
 
 const patchesEqual = (a: Uint8Array, b: Uint8Array): boolean => {
@@ -316,6 +286,86 @@ const patchesEqual = (a: Uint8Array, b: Uint8Array): boolean => {
   return true;
 };
 
+const patchesMatch = (
+  forward: ColorCyclePixelPatchBytes,
+  backward: ColorCyclePixelPatchBytes
+): boolean =>
+  COLOR_CYCLE_PIXEL_PATCH_BUFFER_KEYS.every((key) => {
+    const forwardBytes = forward[key];
+    const backwardBytes = backward[key];
+    return (
+      (!forwardBytes && !backwardBytes) ||
+      Boolean(forwardBytes && backwardBytes && patchesEqual(forwardBytes, backwardBytes))
+    );
+  });
+
+const synthesizeMissingBackwardPatches = (
+  forward: ColorCyclePixelPatchBytes,
+  backward: ColorCyclePixelPatchBytes,
+  roi: { width: number; height: number }
+): ColorCyclePixelPatchBytes => {
+  const next = { ...backward };
+  for (const spec of COLOR_CYCLE_PIXEL_BUFFER_SPECS) {
+    if (!next[spec.key] && forward[spec.key]) {
+      next[spec.key] = new Uint8Array(roi.width * roi.height * spec.bytesPerPixel);
+    }
+  }
+  return next;
+};
+
+const encodeColorCyclePatchBytes = async (
+  bytes: ColorCyclePixelPatchBytes,
+  roi: { x: number; y: number; width: number; height: number }
+): Promise<EncodedColorCyclePixelPatches> => {
+  const encoded = emptyEncodedColorCyclePatches();
+  await Promise.all(
+    COLOR_CYCLE_PIXEL_PATCH_BUFFER_KEYS.map(async (key) => {
+      const patchBytes = bytes[key];
+      encoded[key] = patchBytes ? { ...(await encodePatchData(patchBytes)), roi } : null;
+    })
+  );
+  return encoded;
+};
+
+const encodedPatchApproxBytes = (patches: EncodedColorCyclePixelPatches): number =>
+  COLOR_CYCLE_PIXEL_PATCH_BUFFER_KEYS.reduce(
+    (sum, key) => sum + (patches[key]?.approxBytes ?? 0),
+    0
+  );
+
+const decodePatch = async (patch: PaintPatch | null): Promise<Uint8Array | undefined> => {
+  if (!patch) {
+    return undefined;
+  }
+  const blob = await readBlob(patch.blobId);
+  if (!blob) {
+    return undefined;
+  }
+  return patch.encoding === 'rle' ? decodeRLE(blob.data) : blob.data;
+};
+
+const decodeColorCyclePatchSet = async (
+  patches: EncodedColorCyclePixelPatches
+): Promise<ColorCyclePixelPatchBytes> => {
+  const decoded = emptyColorCyclePatchBytes();
+  await Promise.all(
+    COLOR_CYCLE_PIXEL_PATCH_BUFFER_KEYS.map(async (key) => {
+      decoded[key] = (await decodePatch(patches[key])) ?? null;
+    })
+  );
+  return decoded;
+};
+
+const patchSetRuntimeExtras = (
+  patches: ColorCyclePixelPatchBytes
+): ColorCyclePatchRuntimeExtras => ({
+  gradientIdBytes: patches.gradientId ?? undefined,
+  gradientDefIdBytes: patches.gradientDefId ?? undefined,
+  speedBytes: patches.speed ?? undefined,
+  flowBytes: patches.flow ?? undefined,
+  phaseBytes: patches.phase ?? undefined,
+});
+
 class ColorCycleStrokePatchDelta implements HistoryDelta {
   readonly _tag = 'color-cycle-stroke-patch';
   readonly approxBytes?: number;
@@ -324,70 +374,31 @@ class ColorCycleStrokePatchDelta implements HistoryDelta {
   private readonly width: number;
   private readonly height: number;
   private readonly roi: { x: number; y: number; width: number; height: number };
-  private readonly forwardPaint: PaintPatch | null;
-  private readonly backwardPaint: PaintPatch | null;
-  private readonly forwardGradientId: PaintPatch | null;
-  private readonly backwardGradientId: PaintPatch | null;
-  private readonly forwardGradientDefId: PaintPatch | null;
-  private readonly backwardGradientDefId: PaintPatch | null;
-  private readonly forwardSpeed: PaintPatch | null;
-  private readonly backwardSpeed: PaintPatch | null;
-  private readonly forwardFlow: PaintPatch | null;
-  private readonly backwardFlow: PaintPatch | null;
-  private readonly forwardPhase: PaintPatch | null;
-  private readonly backwardPhase: PaintPatch | null;
+  private readonly forwardPatches: EncodedColorCyclePixelPatches;
+  private readonly backwardPatches: EncodedColorCyclePixelPatches;
 
   constructor(options: {
     layerId: string;
     width: number;
     height: number;
     roi: { x: number; y: number; width: number; height: number };
-    forwardPaint: PaintPatch | null;
-    backwardPaint: PaintPatch | null;
-    forwardGradientId: PaintPatch | null;
-    backwardGradientId: PaintPatch | null;
-    forwardGradientDefId: PaintPatch | null;
-    backwardGradientDefId: PaintPatch | null;
-    forwardSpeed: PaintPatch | null;
-    backwardSpeed: PaintPatch | null;
-    forwardFlow: PaintPatch | null;
-    backwardFlow: PaintPatch | null;
-    forwardPhase: PaintPatch | null;
-    backwardPhase: PaintPatch | null;
+    forwardPatches: EncodedColorCyclePixelPatches;
+    backwardPatches: EncodedColorCyclePixelPatches;
   }) {
     this.layerId = options.layerId;
     this.width = options.width;
     this.height = options.height;
     this.roi = options.roi;
-    this.forwardPaint = options.forwardPaint;
-    this.backwardPaint = options.backwardPaint;
-    this.forwardGradientId = options.forwardGradientId;
-    this.backwardGradientId = options.backwardGradientId;
-    this.forwardGradientDefId = options.forwardGradientDefId;
-    this.backwardGradientDefId = options.backwardGradientDefId;
-    this.forwardSpeed = options.forwardSpeed;
-    this.backwardSpeed = options.backwardSpeed;
-    this.forwardFlow = options.forwardFlow;
-    this.backwardFlow = options.backwardFlow;
-    this.forwardPhase = options.forwardPhase;
-    this.backwardPhase = options.backwardPhase;
+    this.forwardPatches = options.forwardPatches;
+    this.backwardPatches = options.backwardPatches;
     this.approxBytes =
-      (options.forwardPaint?.approxBytes ?? 0) +
-      (options.backwardPaint?.approxBytes ?? 0) +
-      (options.forwardGradientId?.approxBytes ?? 0) +
-      (options.backwardGradientId?.approxBytes ?? 0) +
-      (options.forwardGradientDefId?.approxBytes ?? 0) +
-      (options.backwardGradientDefId?.approxBytes ?? 0) +
-      (options.forwardSpeed?.approxBytes ?? 0) +
-      (options.backwardSpeed?.approxBytes ?? 0) +
-      (options.forwardFlow?.approxBytes ?? 0) +
-      (options.backwardFlow?.approxBytes ?? 0) +
-      (options.forwardPhase?.approxBytes ?? 0) +
-      (options.backwardPhase?.approxBytes ?? 0);
+      encodedPatchApproxBytes(options.forwardPatches) +
+      encodedPatchApproxBytes(options.backwardPatches);
   }
 
   async apply(direction: HistoryDirection): Promise<void> {
-    const patch = direction === 'forward' ? this.forwardPaint : this.backwardPaint;
+    const patches = direction === 'forward' ? this.forwardPatches : this.backwardPatches;
+    const patch = patches.paint;
     if (!patch) {
       return;
     }
@@ -431,42 +442,17 @@ class ColorCycleStrokePatchDelta implements HistoryDelta {
       } catch {}
     }
 
-    const stored = await readBlob(patch.blobId);
-    if (!stored) {
+    const decoded = await decodeColorCyclePatchSet(patches);
+    if (!decoded.paint) {
       return;
     }
-    const decoded =
-      patch.encoding === 'rle' ? decodeRLE(stored.data) : stored.data;
-    const gradientPatch = direction === 'forward' ? this.forwardGradientId : this.backwardGradientId;
-    const gradientDefPatch = direction === 'forward' ? this.forwardGradientDefId : this.backwardGradientDefId;
-    const speedPatch = direction === 'forward' ? this.forwardSpeed : this.backwardSpeed;
-    const flowPatch = direction === 'forward' ? this.forwardFlow : this.backwardFlow;
-    const phasePatch = direction === 'forward' ? this.forwardPhase : this.backwardPhase;
-    const decodeOptionalPatch = async (source: PaintPatch | null): Promise<Uint8Array | undefined> => {
-      if (!source) {
-        return undefined;
-      }
-      const blob = await readBlob(source.blobId);
-      if (!blob) {
-        return undefined;
-      }
-      return source.encoding === 'rle' ? decodeRLE(blob.data) : blob.data;
-    };
-    const [gradientIdBytes, gradientDefIdBytes, speedBytes, flowBytes, phaseBytes] = await Promise.all([
-      decodeOptionalPatch(gradientPatch),
-      decodeOptionalPatch(gradientDefPatch),
-      decodeOptionalPatch(speedPatch),
-      decodeOptionalPatch(flowPatch),
-      decodeOptionalPatch(phasePatch),
-    ]);
 
-    const hasContent = brush.applyPaintPatch(this.layerId, patch.roi, decoded, {
-      gradientIdBytes,
-      gradientDefIdBytes,
-      speedBytes,
-      flowBytes,
-      phaseBytes,
-    });
+    const hasContent = brush.applyPaintPatch(
+      this.layerId,
+      patch.roi,
+      decoded.paint,
+      patchSetRuntimeExtras(decoded)
+    );
 
     try {
       brush.updateColorCycleTexture?.();
@@ -505,23 +491,11 @@ class ColorCycleStrokePatchDelta implements HistoryDelta {
   }
 
   dispose(): void {
-    const blobs = [
-      this.forwardPaint,
-      this.backwardPaint,
-      this.forwardGradientId,
-      this.backwardGradientId,
-      this.forwardGradientDefId,
-      this.backwardGradientDefId,
-      this.forwardSpeed,
-      this.backwardSpeed,
-      this.forwardFlow,
-      this.backwardFlow,
-      this.forwardPhase,
-      this.backwardPhase,
-    ];
-    for (const patch of blobs) {
-      if (patch) {
-        releaseBlob(patch.blobId);
+    for (const patches of [this.forwardPatches, this.backwardPatches]) {
+      for (const patch of Object.values(patches)) {
+        if (patch) {
+          releaseBlob(patch.blobId);
+        }
       }
     }
   }
@@ -544,97 +518,35 @@ export const createColorCycleStrokePatchDelta = async (
     return null;
   }
 
-  const expectedSize = width * height;
-  const forwardBuffer = extractPaintBuffer(options.forwardState, options.layerId, expectedSize);
-  const backwardBuffer = extractPaintBuffer(options.backwardState, options.layerId, expectedSize);
-  const forwardGradientIdBuffer = extractGradientIdBuffer(options.forwardState, options.layerId, expectedSize);
-  const backwardGradientIdBuffer = extractGradientIdBuffer(options.backwardState, options.layerId, expectedSize);
-  const forwardGradientDefIdBuffer = extractGradientDefIdBuffer(options.forwardState, options.layerId, expectedSize);
-  const backwardGradientDefIdBuffer = extractGradientDefIdBuffer(options.backwardState, options.layerId, expectedSize);
-  const forwardSpeedBuffer = extractSpeedBuffer(options.forwardState, options.layerId, expectedSize);
-  const backwardSpeedBuffer = extractSpeedBuffer(options.backwardState, options.layerId, expectedSize);
-  const forwardFlowBuffer = extractFlowBuffer(options.forwardState, options.layerId, expectedSize);
-  const backwardFlowBuffer = extractFlowBuffer(options.backwardState, options.layerId, expectedSize);
-  const forwardPhaseBuffer = extractPhaseBuffer(options.forwardState, options.layerId, expectedSize);
-  const backwardPhaseBuffer = extractPhaseBuffer(options.backwardState, options.layerId, expectedSize);
-  if (!forwardBuffer && !backwardBuffer) {
+  const forwardPatchBytes = extractColorCyclePixelPatchBytes(
+    options.forwardState,
+    options.layerId,
+    width,
+    height,
+    roi
+  );
+  let backwardPatchBytes = extractColorCyclePixelPatchBytes(
+    options.backwardState,
+    options.layerId,
+    width,
+    height,
+    roi
+  );
+  if (!forwardPatchBytes.paint && !backwardPatchBytes.paint) {
+    return null;
+  }
+  backwardPatchBytes = synthesizeMissingBackwardPatches(forwardPatchBytes, backwardPatchBytes, roi);
+
+  if (forwardPatchBytes.paint && backwardPatchBytes.paint && patchesMatch(forwardPatchBytes, backwardPatchBytes)) {
     return null;
   }
 
-  const forwardPatchBytes = forwardBuffer ? extractRoiPatch(forwardBuffer, width, height, roi) : null;
-  const backwardPatchBytes = backwardBuffer
-    ? extractRoiPatch(backwardBuffer, width, height, roi)
-    : forwardPatchBytes
-      ? new Uint8Array(roi.width * roi.height)
-      : null;
-  const forwardGradientIdBytes = forwardGradientIdBuffer
-    ? extractRoiPatch(forwardGradientIdBuffer, width, height, roi)
-    : null;
-  const backwardGradientIdBytes = backwardGradientIdBuffer
-    ? extractRoiPatch(backwardGradientIdBuffer, width, height, roi)
-    : forwardGradientIdBytes
-      ? new Uint8Array(roi.width * roi.height)
-    : null;
-  const forwardGradientDefIdBytes = forwardGradientDefIdBuffer
-    ? extractRoiPatchU16(forwardGradientDefIdBuffer, width, height, roi)
-    : null;
-  const backwardGradientDefIdBytes = backwardGradientDefIdBuffer
-    ? extractRoiPatchU16(backwardGradientDefIdBuffer, width, height, roi)
-    : forwardGradientDefIdBytes
-      ? new Uint8Array(roi.width * roi.height * Uint16Array.BYTES_PER_ELEMENT)
-    : null;
-  const forwardSpeedBytes = forwardSpeedBuffer ? extractRoiPatch(forwardSpeedBuffer, width, height, roi) : null;
-  const backwardSpeedBytes = backwardSpeedBuffer
-    ? extractRoiPatch(backwardSpeedBuffer, width, height, roi)
-    : forwardSpeedBytes
-      ? new Uint8Array(roi.width * roi.height)
-      : null;
-  const forwardFlowBytes = forwardFlowBuffer ? extractRoiPatch(forwardFlowBuffer, width, height, roi) : null;
-  const backwardFlowBytes = backwardFlowBuffer
-    ? extractRoiPatch(backwardFlowBuffer, width, height, roi)
-    : forwardFlowBytes
-      ? new Uint8Array(roi.width * roi.height)
-      : null;
-  const forwardPhaseBytes = forwardPhaseBuffer ? extractRoiPatch(forwardPhaseBuffer, width, height, roi) : null;
-  const backwardPhaseBytes = backwardPhaseBuffer
-    ? extractRoiPatch(backwardPhaseBuffer, width, height, roi)
-    : forwardPhaseBytes
-      ? new Uint8Array(roi.width * roi.height)
-      : null;
+  const [forwardPatches, backwardPatches] = await Promise.all([
+    encodeColorCyclePatchBytes(forwardPatchBytes, roi),
+    encodeColorCyclePatchBytes(backwardPatchBytes, roi),
+  ]);
 
-  if (forwardPatchBytes && backwardPatchBytes && patchesEqual(forwardPatchBytes, backwardPatchBytes)) {
-    const gradientEqual =
-      (!forwardGradientIdBytes && !backwardGradientIdBytes) ||
-      (forwardGradientIdBytes && backwardGradientIdBytes && patchesEqual(forwardGradientIdBytes, backwardGradientIdBytes));
-    const speedEqual =
-      (!forwardSpeedBytes && !backwardSpeedBytes) ||
-      (forwardSpeedBytes && backwardSpeedBytes && patchesEqual(forwardSpeedBytes, backwardSpeedBytes));
-    const flowEqual =
-      (!forwardFlowBytes && !backwardFlowBytes) ||
-      (forwardFlowBytes && backwardFlowBytes && patchesEqual(forwardFlowBytes, backwardFlowBytes));
-    const gradientDefEqual =
-      (!forwardGradientDefIdBytes && !backwardGradientDefIdBytes) ||
-      (forwardGradientDefIdBytes && backwardGradientDefIdBytes && patchesEqual(forwardGradientDefIdBytes, backwardGradientDefIdBytes));
-    const phaseEqual =
-      (!forwardPhaseBytes && !backwardPhaseBytes) ||
-      (forwardPhaseBytes && backwardPhaseBytes && patchesEqual(forwardPhaseBytes, backwardPhaseBytes));
-    if (gradientEqual && gradientDefEqual && speedEqual && flowEqual && phaseEqual) return null;
-  }
-
-  const forwardPaint = forwardPatchBytes ? await encodePatchData(forwardPatchBytes) : null;
-  const backwardPaint = backwardPatchBytes ? await encodePatchData(backwardPatchBytes) : null;
-  const forwardGradientId = forwardGradientIdBytes ? await encodePatchData(forwardGradientIdBytes) : null;
-  const backwardGradientId = backwardGradientIdBytes ? await encodePatchData(backwardGradientIdBytes) : null;
-  const forwardGradientDefId = forwardGradientDefIdBytes ? await encodePatchData(forwardGradientDefIdBytes) : null;
-  const backwardGradientDefId = backwardGradientDefIdBytes ? await encodePatchData(backwardGradientDefIdBytes) : null;
-  const forwardSpeed = forwardSpeedBytes ? await encodePatchData(forwardSpeedBytes) : null;
-  const backwardSpeed = backwardSpeedBytes ? await encodePatchData(backwardSpeedBytes) : null;
-  const forwardFlow = forwardFlowBytes ? await encodePatchData(forwardFlowBytes) : null;
-  const backwardFlow = backwardFlowBytes ? await encodePatchData(backwardFlowBytes) : null;
-  const forwardPhase = forwardPhaseBytes ? await encodePatchData(forwardPhaseBytes) : null;
-  const backwardPhase = backwardPhaseBytes ? await encodePatchData(backwardPhaseBytes) : null;
-
-  if (!forwardPaint && !backwardPaint) {
+  if (!forwardPatches.paint && !backwardPatches.paint) {
     return null;
   }
 
@@ -643,21 +555,7 @@ export const createColorCycleStrokePatchDelta = async (
     width,
     height,
     roi,
-    forwardPaint: forwardPaint
-      ? { ...forwardPaint, roi }
-      : null,
-    backwardPaint: backwardPaint
-      ? { ...backwardPaint, roi }
-      : null,
-    forwardGradientId: forwardGradientId ? { ...forwardGradientId, roi } : null,
-    backwardGradientId: backwardGradientId ? { ...backwardGradientId, roi } : null,
-    forwardGradientDefId: forwardGradientDefId ? { ...forwardGradientDefId, roi } : null,
-    backwardGradientDefId: backwardGradientDefId ? { ...backwardGradientDefId, roi } : null,
-    forwardSpeed: forwardSpeed ? { ...forwardSpeed, roi } : null,
-    backwardSpeed: backwardSpeed ? { ...backwardSpeed, roi } : null,
-    forwardFlow: forwardFlow ? { ...forwardFlow, roi } : null,
-    backwardFlow: backwardFlow ? { ...backwardFlow, roi } : null,
-    forwardPhase: forwardPhase ? { ...forwardPhase, roi } : null,
-    backwardPhase: backwardPhase ? { ...backwardPhase, roi } : null,
+    forwardPatches,
+    backwardPatches,
   });
 };
