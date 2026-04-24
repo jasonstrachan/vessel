@@ -425,6 +425,7 @@ describe('useAppStore commitCrop', () => {
     const gradientDefIds = Uint16Array.from({ length: 24 }, (_, idx) => idx + 100);
     const speed = new Uint8Array(24).fill(12);
     const flow = Uint8Array.from({ length: 24 }, (_, idx) => idx + 20);
+    const phase = Uint8Array.from({ length: 24 }, (_, idx) => idx + 40);
 
     brush?.applyLayerSnapshot?.(layer.id, {
       paintBuffer: paint.buffer.slice(0),
@@ -432,6 +433,7 @@ describe('useAppStore commitCrop', () => {
       gradientDefIdBuffer: gradientDefIds.buffer.slice(0),
       speedBuffer: speed.buffer.slice(0),
       flowBuffer: flow.buffer.slice(0),
+      phaseBuffer: phase.buffer.slice(0),
       hasContent: true,
       strokeCounter: 3
     });
@@ -447,6 +449,7 @@ describe('useAppStore commitCrop', () => {
     expect(snapshot?.gradientIdBuffer).toBeDefined();
     expect(snapshot?.gradientDefIdBuffer).toBeDefined();
     expect(snapshot?.flowBuffer).toBeDefined();
+    expect(snapshot?.phaseBuffer).toBeDefined();
 
     expect(Array.from(new Uint8Array(snapshot?.gradientIdBuffer ?? new ArrayBuffer(0)))).toEqual([
       7, 8, 9,
@@ -459,6 +462,10 @@ describe('useAppStore commitCrop', () => {
     expect(Array.from(new Uint8Array(snapshot?.flowBuffer ?? new ArrayBuffer(0)))).toEqual([
       27, 28, 29,
       33, 34, 35,
+    ]);
+    expect(Array.from(new Uint8Array(snapshot?.phaseBuffer ?? new ArrayBuffer(0)))).toEqual([
+      47, 48, 49,
+      53, 54, 55,
     ]);
   });
 
@@ -549,6 +556,11 @@ describe('useAppStore commitCrop', () => {
 
     const initialBrush = useAppStore.getState().getLayerColorCycleBrush(layer.id);
     initialBrush?.setActiveLayer?.(layer.id);
+    initialBrush?.applyLayerSnapshot?.(layer.id, {
+      paintBuffer: new Uint8Array(24).fill(1).buffer,
+      hasContent: true,
+      strokeCounter: 1,
+    });
     initialBrush?.startAnimation();
 
     useAppStore.setState((state) => ({
@@ -682,6 +694,7 @@ describe('useAppStore commitCrop', () => {
       gradientDefIdBuffer: Uint16Array.from([101, 102, 103, 104]).buffer,
       speedBuffer: Uint8Array.from([21, 22, 23, 24]).buffer,
       flowBuffer: Uint8Array.from([31, 32, 33, 34]).buffer,
+      phaseBuffer: Uint8Array.from([41, 42, 43, 44]).buffer,
       hasContent: true,
       strokeCounter: 7,
     });
@@ -713,6 +726,12 @@ describe('useAppStore commitCrop', () => {
       101, 101, 102, 102,
       103, 103, 104, 104,
       103, 103, 104, 104,
+    ]);
+    expect(Array.from(new Uint8Array(snapshot?.phaseBuffer ?? new ArrayBuffer(0)))).toEqual([
+      41, 41, 42, 42,
+      41, 41, 42, 42,
+      43, 43, 44, 44,
+      43, 43, 44, 44,
     ]);
   });
 

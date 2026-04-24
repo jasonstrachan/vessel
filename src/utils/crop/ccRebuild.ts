@@ -136,6 +136,7 @@ export function rebuildCCLayerAfterCrop({
                 gradientDefIdBuffer: entry.strokeSnapshot?.gradientDefIdBuffer,
                 speedBuffer: entry.strokeSnapshot?.speedBuffer,
                 flowBuffer: entry.strokeSnapshot?.flowBuffer,
+                phaseBuffer: entry.strokeSnapshot?.phaseBuffer,
                 hasContent: entry.strokeSnapshot.hasContent,
                 strokeCounter: entry.strokeSnapshot.strokeCounter
               },
@@ -263,6 +264,8 @@ export function rebuildCCLayerAfterCrop({
                   entry.strokeSnapshot?.gradientIdBuffer ?? layer.colorCycleData.gradientIdBuffer,
                 gradientDefIdBuffer:
                   entry.strokeSnapshot?.gradientDefIdBuffer ?? layer.colorCycleData.gradientDefIdBuffer,
+                phaseBuffer:
+                  entry.strokeSnapshot?.phaseBuffer ?? layer.colorCycleData.phaseBuffer,
                 brushSpeed:
                   typeof entry.brushSpeed === 'number'
                     ? entry.brushSpeed
@@ -294,6 +297,16 @@ export function rebuildCCLayerAfterCrop({
           .map((layerId) => latestState.layers.find((layer) => layer.id === layerId))
           .filter((layer): layer is Layer => Boolean(layer && layer.layerType === 'color-cycle' && layer.colorCycleData));
         if (layersToSync.length > 0) {
+          if (entries.some((entry) => rebuiltLayerIds.includes(entry.id) && entry.wasPlaying)) {
+            setState((current) => ({
+              colorCyclePlayback: {
+                ...current.colorCyclePlayback,
+                desiredPlaying: true,
+                suspendDepth: 0,
+                lastReason: 'store-sync',
+              },
+            }));
+          }
           syncCCRuntimes(layersToSync, 'crop-rebuild');
         }
       } catch (error) {

@@ -2,6 +2,7 @@ import { logError as defaultLogError } from '@/utils/debug';
 import { cloneLayerAlignment } from '@/utils/layoutDefaults';
 import type { Layer } from '@/types';
 import { resolveLayerColorCycleBaseSpeed } from '@/utils/colorCycleLayerSpeed';
+import { getColorCycleBrushManager } from '@/stores/colorCycleBrushManager';
 import type {
   ColorCycleBrushResetEntry,
   CroppedAnimatorIndexSnapshot,
@@ -487,7 +488,10 @@ export function readLayerSourcesForCrop(
         : Array.isArray(layer.colorCycleData.recolorSettings?.gradient)
           ? layer.colorCycleData.recolorSettings.gradient.map((stop) => ({ ...stop }))
           : undefined;
-      const existingBrush = layer.colorCycleData.colorCycleBrush ?? null;
+      const existingBrush =
+        layer.colorCycleData.colorCycleBrush ??
+        getColorCycleBrushManager().getBrush(layer.id) ??
+        null;
       const brushIsPlaying =
         typeof existingBrush?.isPlaying === 'function' ? existingBrush.isPlaying() : false;
       const storedAnimating = layer.colorCycleData.isAnimating ?? false;
@@ -506,6 +510,7 @@ export function readLayerSourcesForCrop(
             gradientDefIdBuffer?: ArrayBuffer;
             speedBuffer?: ArrayBuffer;
             flowBuffer?: ArrayBuffer;
+            phaseBuffer?: ArrayBuffer;
             hasContent: boolean;
             strokeCounter: number;
           }
@@ -565,12 +570,21 @@ export function readLayerSourcesForCrop(
                   croppedFlow = flowCrop.buffer.slice(0) as ArrayBuffer;
                 }
               }
+              let croppedPhase: ArrayBuffer | undefined;
+              if (rawSnapshot.phaseBuffer) {
+                const phaseSource = new Uint8Array(rawSnapshot.phaseBuffer);
+                if (phaseSource.length === srcWidth * srcHeight) {
+                  const phaseCrop = copyScalarRegion(phaseSource, srcWidth, srcHeight, rect);
+                  croppedPhase = phaseCrop.buffer.slice(0) as ArrayBuffer;
+                }
+              }
               strokeSnapshot = {
                 paintBuffer: croppedBuffer.buffer.slice(0) as ArrayBuffer,
                 gradientIdBuffer: croppedGradientIds,
                 gradientDefIdBuffer: croppedGradientDefIds,
                 speedBuffer: croppedSpeed,
                 flowBuffer: croppedFlow,
+                phaseBuffer: croppedPhase,
                 hasContent,
                 strokeCounter: rawSnapshot.strokeCounter
               };
@@ -593,6 +607,7 @@ export function readLayerSourcesForCrop(
                 gradientId?: ArrayBuffer;
                 speedData?: ArrayBuffer;
                 flowData?: ArrayBuffer;
+                phaseData?: ArrayBuffer;
               };
               gradient?: { gradientStops?: Array<{ position: number; color: string }> };
             };
@@ -633,6 +648,11 @@ export function readLayerSourcesForCrop(
               flowFull && flowFull.length === expectedLength
                 ? copyScalarRegion(flowFull, sw, colorCycleReadbackCanvas.height, rect)
                 : null;
+            const phaseFull = idx?.phaseData ? new Uint8Array(idx.phaseData) : null;
+            const phaseOut =
+              phaseFull && phaseFull.length === expectedLength
+                ? copyScalarRegion(phaseFull, sw, colorCycleReadbackCanvas.height, rect)
+                : null;
             croppedAnimatorIndex = {
               width: targetWidth,
               height: targetHeight,
@@ -640,6 +660,7 @@ export function readLayerSourcesForCrop(
               gradientIdData: gradientOut?.buffer as ArrayBuffer | undefined,
               speedData: speedOut?.buffer as ArrayBuffer | undefined,
               flowData: flowOut?.buffer as ArrayBuffer | undefined,
+              phaseData: phaseOut?.buffer as ArrayBuffer | undefined,
               gradientStops: layerState?.data?.gradient?.gradientStops,
               gradientDefs: layerState?.gradientDefs?.map((entry) => ({ ...entry })),
               slotPalettes: layerState?.slotPalettes?.map((entry) => ({
@@ -664,6 +685,7 @@ export function readLayerSourcesForCrop(
         imageData: croppedImageData,
         gradientStops,
         wasAnimating,
+        wasPlaying: brushIsPlaying,
         layerBaseSpeedCps: controllerSpeedCps,
         brushSpeed,
         controllerSpeedCps,

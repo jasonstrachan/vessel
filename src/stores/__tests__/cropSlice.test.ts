@@ -203,6 +203,7 @@ describe('cropSlice.commitCrop', () => {
           croppedCanvas: null,
           imageData: null,
           wasAnimating: true,
+          wasPlaying: true,
           wasActiveLayer: true,
         },
       ],
