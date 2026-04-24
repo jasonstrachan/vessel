@@ -218,5 +218,30 @@
   - Maintain independent stacks per document; global undo routes to active document’s stack with clear API for multi-document workflows.
 - **View vs. Document Separation**
   - Track view state changes separately with opt-in inclusion during undo or dedicated view-history control.
+
+## 2026-04-24 Color Cycle Pixel Buffer Invariant
+
+Color Cycle undo entries must restore every per-pixel buffer that affects render or playback. A CC pixel is not represented by `paintBuffer` alone.
+
+Authoritative render/playback buffer set:
+
+- `paintBuffer`
+- `gradientIdBuffer`
+- `gradientDefIdBuffer`
+- `speedBuffer`
+- `flowBuffer`
+- `phaseBuffer`
+
+The optimized ROI path is centralized in `COLOR_CYCLE_PIXEL_PATCH_BUFFER_KEYS` and `COLOR_CYCLE_PIXEL_BUFFER_SPECS` in `src/history/deltas/colorCycleStrokePatchDelta.ts`. Any future render-affecting per-pixel buffer must be added to that contract, the runtime `applyPaintPatch(...)` extras, and the focused guard test in `src/history/deltas/__tests__/colorCycleStrokePatchDelta.test.ts`.
+
+Current audit:
+
+- `ColorCycleStrokePatchDelta`: uses the centralized buffer contract, including empty backward patches for first CC marks.
+- `ColorCycleStrokeDelta`: full-state restore now preserves `gradientIdBuffer`, `gradientDefIdBuffer`, `speedBuffer`, `flowBuffer`, and `phaseBuffer` through clone, size accounting, and `applyLayerSnapshot(...)`.
+- Crop/resize history paths delegate CC pixel history to `createColorCycleStrokePatchDelta(...)`, so they inherit the centralized ROI contract.
+- Erase mask history remains a separate alpha-mask patch because it restores `eraseMaskSnapshot`, not CC stroke render buffers.
+- Layer structure history clones stored layer metadata, including `colorCycleData.gradientDefIdBuffer`, but does not replace stroke-buffer history.
+
+Rule for future work: if a change adds or reinterprets a per-pixel CC buffer, update history, persistence, runtime restore, and export/runtime playback together. A visual undo that clears paint but leaves color binding or playback metadata stale is considered broken.
 - **Crash Recovery**
   - Optional persistence flag instructs manager to write entry headers + blob references to IndexedDB; lazy load blobs on replay.

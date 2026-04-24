@@ -25,7 +25,11 @@ type ManagedColorCycleBrush = ColorCycleBrushCanvas2D & {
     layerId: string,
     snapshot: {
       paintBuffer: ArrayBuffer;
+      gradientIdBuffer?: ArrayBuffer;
       gradientDefIdBuffer?: ArrayBuffer;
+      speedBuffer?: ArrayBuffer;
+      flowBuffer?: ArrayBuffer;
+      phaseBuffer?: ArrayBuffer;
       hasContent: boolean;
       strokeCounter: number;
     },
@@ -114,7 +118,13 @@ const cloneState = (
                   : layer.strokeData?.gradientDefIdBuffer,
                 speedBuffer: layer.strokeData?.speedBuffer
                   ? layer.strokeData.speedBuffer.slice(0)
-                  : layer.strokeData?.speedBuffer
+                  : layer.strokeData?.speedBuffer,
+                flowBuffer: layer.strokeData?.flowBuffer
+                  ? layer.strokeData.flowBuffer.slice(0)
+                  : layer.strokeData?.flowBuffer,
+                phaseBuffer: layer.strokeData?.phaseBuffer
+                  ? layer.strokeData.phaseBuffer.slice(0)
+                  : layer.strokeData?.phaseBuffer
               }
             : undefined
         }))
@@ -140,7 +150,9 @@ export class ColorCycleStrokeDelta implements HistoryDelta {
           + (layer.strokeData?.paintBuffer?.byteLength ?? 0)
           + (layer.strokeData?.gradientIdBuffer?.byteLength ?? 0)
           + (layer.strokeData?.gradientDefIdBuffer?.byteLength ?? 0)
-          + (layer.strokeData?.speedBuffer?.byteLength ?? 0);
+          + (layer.strokeData?.speedBuffer?.byteLength ?? 0)
+          + (layer.strokeData?.flowBuffer?.byteLength ?? 0)
+          + (layer.strokeData?.phaseBuffer?.byteLength ?? 0);
       }, 0) ?? 0;
     this.approxBytes = sizeOf(this.forwardState) + sizeOf(this.backwardState);
   }
@@ -234,12 +246,18 @@ export class ColorCycleStrokeDelta implements HistoryDelta {
               height?: number;
               data?: ArrayBuffer | ArrayBufferView | { buffer?: ArrayBuffer | SharedArrayBuffer } | SharedArrayBuffer;
               gradientId?: ArrayBuffer | ArrayBufferView | { buffer?: ArrayBuffer | SharedArrayBuffer } | SharedArrayBuffer;
+              speedData?: ArrayBuffer | ArrayBufferView | { buffer?: ArrayBuffer | SharedArrayBuffer } | SharedArrayBuffer;
+              flowData?: ArrayBuffer | ArrayBufferView | { buffer?: ArrayBuffer | SharedArrayBuffer } | SharedArrayBuffer;
+              phaseData?: ArrayBuffer | ArrayBufferView | { buffer?: ArrayBuffer | SharedArrayBuffer } | SharedArrayBuffer;
             };
             gradient?: { gradientStops?: GradientStop[] | unknown };
           } | undefined;
           const indexBuffer = layerData?.indexBuffer;
           const animatorData = toArrayBuffer(indexBuffer?.data);
           const animatorGradientId = toArrayBuffer(indexBuffer?.gradientId);
+          const animatorSpeed = toArrayBuffer(indexBuffer?.speedData);
+          const animatorFlow = toArrayBuffer(indexBuffer?.flowData);
+          const animatorPhase = toArrayBuffer(indexBuffer?.phaseData);
           const gradientStops = Array.isArray(layerData?.gradient?.gradientStops)
             ? (layerData?.gradient?.gradientStops as GradientStop[])
             : undefined;
@@ -250,6 +268,9 @@ export class ColorCycleStrokeDelta implements HistoryDelta {
                   height: indexBuffer.height,
                   data: animatorData,
                   gradientIdData: animatorGradientId ?? undefined,
+                  speedData: animatorSpeed ?? undefined,
+                  flowData: animatorFlow ?? undefined,
+                  phaseData: animatorPhase ?? undefined,
                   gradientStops,
                   gradientDefs: layerSnapshot.gradientDefs
                     ? layerSnapshot.gradientDefs.map((entry) => ({
@@ -272,6 +293,9 @@ export class ColorCycleStrokeDelta implements HistoryDelta {
             paintBuffer: layerSnapshot.strokeData?.paintBuffer ?? new ArrayBuffer(0),
             gradientIdBuffer: layerSnapshot.strokeData?.gradientIdBuffer,
             gradientDefIdBuffer: layerSnapshot.strokeData?.gradientDefIdBuffer,
+            speedBuffer: layerSnapshot.strokeData?.speedBuffer,
+            flowBuffer: layerSnapshot.strokeData?.flowBuffer,
+            phaseBuffer: layerSnapshot.strokeData?.phaseBuffer,
             hasContent: Boolean(layerSnapshot.strokeData?.hasContent),
             strokeCounter: layerSnapshot.strokeData?.strokeCounter ?? 0,
             animatorIndex
