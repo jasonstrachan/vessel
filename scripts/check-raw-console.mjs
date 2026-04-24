@@ -6,7 +6,7 @@ import { join, relative } from 'node:path';
 const root = process.cwd();
 const srcRoot = join(root, 'src');
 const mode = process.argv.includes('--strict') ? 'strict' : 'report';
-const consolePattern = /\bconsole\.(log|warn|error|info|debug|trace)\s*\(/g;
+const consolePattern = /\bconsole\.(log|warn|error|info|debug|trace)(?:\?\.)?\s*\(/g;
 
 const allowedPathParts = [
   '/__tests__/',
