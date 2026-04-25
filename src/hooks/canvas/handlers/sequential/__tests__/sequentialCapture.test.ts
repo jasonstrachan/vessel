@@ -723,6 +723,7 @@ describe('sequentialCapture', () => {
 
   it('uses time-smear for capture stamp densification and distributes events across adjacent frames', () => {
     setFeatureFlag('enableSequentialRecordMode', true);
+    const runtime = createSequentialEventBufferRuntime();
     useAppStore.setState((state) => ({
       sequentialRecord: {
         ...state.sequentialRecord,
@@ -733,12 +734,24 @@ describe('sequentialCapture', () => {
     const appended = captureSequentialStampsForActiveLayer({
       state: useAppStore.getState(),
       nowMs: 1300,
+      eventBufferRuntime: runtime,
       stamps: [
         { x: 0, y: 0, pressure: 1, rotation: 0, size: 5, alpha: 1 },
         { x: 40, y: 0, pressure: 1, rotation: 0, size: 5, alpha: 1 },
       ],
     });
-    flushBufferedSequentialEvents({ state: useAppStore.getState() });
+    expect(
+      [6, 7, 8].map(
+        (frameIndex) =>
+          getBufferedSequentialLayerFrameEvents({
+            layerId: 'layer-seq',
+            frameIndex,
+            runtime,
+          }).length
+      )
+    ).toEqual([1, 1, 1]);
+
+    flushBufferedSequentialEvents({ state: useAppStore.getState(), runtime });
 
     expect(appended).toBeGreaterThan(2);
     const events =
@@ -749,6 +762,41 @@ describe('sequentialCapture', () => {
     expect(events[0].stamps.length).toBeGreaterThan(0);
     expect(events[1].stamps.length).toBeGreaterThan(0);
     expect(events.map((event) => event.frameIndex)).toEqual([6, 7, 8]);
+  });
+
+  it('expands high-end time-smear values beyond the old 80x range', () => {
+    setFeatureFlag('enableSequentialRecordMode', true);
+    const stamps = Array.from({ length: 6 }, () => ({
+      x: 10,
+      y: 10,
+      pressure: 1,
+      rotation: 0,
+      size: 5,
+      alpha: 1,
+    }));
+    const captureFrameIndices = (timeSmear: number): number[] => {
+      const runtime = createSequentialStampCapRuntime();
+      const eventBufferRuntime = createSequentialEventBufferRuntime();
+      useAppStore.setState((state) => ({
+        sequentialRecord: {
+          ...state.sequentialRecord,
+          timeSmear,
+        },
+      }));
+
+      captureSequentialStampsForActiveLayer({
+        state: useAppStore.getState(),
+        runtime,
+        eventBufferRuntime,
+        nowMs: 1300,
+        stamps,
+      });
+
+      return eventBufferRuntime.layers.get('layer-seq')?.events.map((event) => event.frameIndex) ?? [];
+    };
+
+    expect(captureFrameIndices(80)).toEqual([6, 7, 8]);
+    expect(captureFrameIndices(160)).toEqual([6, 7, 8, 9, 10, 11]);
   });
 
   it('reduces smear densification for large brush tips to keep capture responsive', () => {

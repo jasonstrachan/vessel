@@ -103,6 +103,7 @@ export const startBrushToolStroke = ({
   debugLog: (message: string, payload?: Record<string, unknown>) => void;
   beginMaskHealingStroke: (layerId: string, worldPos: Point, pressure: number) => void;
 }): void => {
+  const captureNowMs = Date.now();
   const activeLayer = currentState.layers.find((layer) => layer.id === currentState.activeLayerId);
   const shouldSeedOverlayFromLayer =
     Boolean(activeLayer) &&
@@ -132,6 +133,7 @@ export const startBrushToolStroke = ({
       stamps: [createFallbackSequentialStamp(worldPos, pressure, captureState.tools.brushSettings)],
       customBrushData,
       pluginBrushId: currentBrushId,
+      nowMs: captureNowMs,
     });
     return;
   }
@@ -170,6 +172,7 @@ export const startBrushToolStroke = ({
         state: captureState,
         stamps: [createFallbackSequentialStamp(worldPos, pressure, captureState.tools.brushSettings)],
         customBrushData: stampData,
+        nowMs: captureNowMs,
       });
       return;
     }

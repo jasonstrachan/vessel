@@ -5,6 +5,7 @@ import { createDefaultLayerAlignment } from '@/utils/layoutDefaults';
 
 const mockGetState = jest.fn();
 const mockGetSequentialLayerRenderCanvas = jest.fn();
+const mockGetSequentialLivePreviewFrame = jest.fn<unknown, [unknown]>(() => null);
 
 jest.mock('@/stores/useAppStore', () => ({
   selectSequentialPlaybackActive: (state: {
@@ -20,6 +21,11 @@ jest.mock('@/stores/useAppStore', () => ({
 
 jest.mock('@/lib/sequential/SequentialLayerRenderer', () => ({
   getSequentialLayerRenderCanvas: (...args: unknown[]) => mockGetSequentialLayerRenderCanvas(...args),
+}));
+
+jest.mock('@/lib/sequential/SequentialLivePreviewRuntime', () => ({
+  getSequentialLivePreviewFrame: (args: unknown) =>
+    mockGetSequentialLivePreviewFrame(args),
 }));
 
 type DrawCall = {
@@ -87,6 +93,7 @@ const createLayer = (overrides: Partial<Layer>): Layer => {
 describe('drawVisibleCompositeStack', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    mockGetSequentialLivePreviewFrame.mockReturnValue(null);
   });
 
   it('draws static, color-cycle, and sequential segments in order with layer blend and opacity', () => {
@@ -424,5 +431,159 @@ describe('drawVisibleCompositeStack', () => {
     });
 
     expect(result.invalidCompositeBitmap).toBe(true);
+  });
+
+  it('does not draw stale full-composite fallback during active sequential capture', () => {
+    const compositeCanvas = document.createElement('canvas');
+    const { ctx, drawCalls } = createRecordingContext();
+
+    mockGetState.mockReturnValue({
+      project: { width: 16, height: 16 },
+      colorCyclePlayback: { desiredPlaying: false },
+      layers: [{ layerType: 'sequential' }],
+      activeLayerId: 'layer-seq',
+      sequentialRecord: { currentFrame: 4, isPointerDown: true },
+    });
+
+    const result = drawVisibleCompositeStack({
+      ctx,
+      visibleRect: { x: 0, y: 0, width: 16, height: 16 },
+      useSplitOverlay: false,
+      underCompositeCanvas: null,
+      isActivelyErasing: false,
+      drawNonActiveVisibleLayers: jest.fn(),
+      segments: [],
+      layerMap: new Map([
+        [
+          'layer-seq',
+          createLayer({
+            id: 'layer-seq',
+            layerType: 'sequential',
+            sequentialData: {
+              frameCount: 12,
+              fps: 12,
+              durationMs: 1000,
+              events: [],
+            },
+          }),
+        ],
+      ]),
+      compositeBitmap: null,
+      compositeCanvas,
+    });
+
+    expect(result.invalidCompositeBitmap).toBe(false);
+    expect(drawCalls).toHaveLength(0);
+  });
+
+  it('allows full-composite fallback when pointer is down on a non-sequential layer', () => {
+    const compositeCanvas = document.createElement('canvas');
+    const { ctx, drawCalls } = createRecordingContext();
+
+    mockGetState.mockReturnValue({
+      project: { width: 16, height: 16 },
+      colorCyclePlayback: { desiredPlaying: false },
+      layers: [{ layerType: 'normal' }],
+      activeLayerId: 'layer-normal',
+      sequentialRecord: { currentFrame: 4, isPointerDown: true },
+    });
+
+    const layer = createLayer({
+      id: 'layer-normal',
+      layerType: 'normal',
+    });
+
+    const result = drawVisibleCompositeStack({
+      ctx,
+      visibleRect: { x: 0, y: 0, width: 16, height: 16 },
+      useSplitOverlay: false,
+      underCompositeCanvas: null,
+      isActivelyErasing: false,
+      drawNonActiveVisibleLayers: jest.fn(),
+      segments: [],
+      layerMap: new Map([[layer.id, layer]]),
+      compositeBitmap: null,
+      compositeCanvas,
+    });
+
+    expect(result.invalidCompositeBitmap).toBe(false);
+    expect(drawCalls).toHaveLength(1);
+    expect(drawCalls[0].source).toBe(compositeCanvas);
+  });
+
+  it('draws active sequential preview fallback when segments are not ready during capture', () => {
+    const compositeCanvas = document.createElement('canvas');
+    const seqCanvas = document.createElement('canvas');
+    const livePreviewCanvas = document.createElement('canvas');
+    const { ctx, drawCalls } = createRecordingContext();
+    const drawNonActiveVisibleLayers = jest.fn();
+
+    mockGetState.mockReturnValue({
+      project: { width: 16, height: 16 },
+      colorCyclePlayback: { desiredPlaying: false },
+      layers: [{ layerType: 'sequential' }],
+      activeLayerId: 'layer-seq',
+      sequentialRecord: { currentFrame: 4, isPointerDown: true, sessionStartMs: 1000 },
+    });
+    mockGetSequentialLivePreviewFrame.mockReturnValue({
+      canvas: livePreviewCanvas,
+      bounds: { x: 2, y: 3, width: 10, height: 8 },
+    });
+    mockGetSequentialLayerRenderCanvas.mockReturnValue(seqCanvas);
+
+    const layer = createLayer({
+      id: 'layer-seq',
+      layerType: 'sequential',
+      opacity: 0.6,
+      blendMode: 'multiply',
+      sequentialData: {
+        frameCount: 12,
+        fps: 12,
+        durationMs: 1000,
+        events: [],
+      },
+    });
+
+    const result = drawVisibleCompositeStack({
+      ctx,
+      visibleRect: { x: 0, y: 0, width: 16, height: 16 },
+      useSplitOverlay: false,
+      underCompositeCanvas: null,
+      isActivelyErasing: false,
+      drawNonActiveVisibleLayers,
+      segments: [],
+      layerMap: new Map([[layer.id, layer]]),
+      compositeBitmap: null,
+      compositeCanvas,
+    });
+
+    expect(result.invalidCompositeBitmap).toBe(false);
+    expect(drawNonActiveVisibleLayers).toHaveBeenCalledWith(ctx);
+    expect(mockGetSequentialLivePreviewFrame).toHaveBeenCalledWith({
+      layerId: 'layer-seq',
+      sessionKey: 'layer-seq:1000',
+      width: 16,
+      height: 16,
+      frameIndex: 4,
+      frameCount: 12,
+    });
+    expect(mockGetSequentialLayerRenderCanvas).toHaveBeenCalledWith({
+      layer,
+      width: 16,
+      height: 16,
+      frameIndex: 4,
+      holdPreviousOnEmptyFrames: true,
+    });
+    expect(drawCalls).toHaveLength(2);
+    expect(drawCalls[0]).toEqual({
+      source: seqCanvas,
+      alpha: 0.6,
+      blend: 'multiply',
+    });
+    expect(drawCalls[1]).toEqual({
+      source: livePreviewCanvas,
+      alpha: 0.6,
+      blend: 'multiply',
+    });
   });
 });

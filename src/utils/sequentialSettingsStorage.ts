@@ -36,7 +36,7 @@ const sanitizeTimeSmear = (value: unknown): number | undefined => {
   if (typeof value !== 'number' || !Number.isFinite(value)) {
     return undefined;
   }
-  return Math.max(0.1, Math.min(80, value));
+  return Math.max(0.1, Math.min(160, value));
 };
 
 export const loadSequentialSettings = (): SequentialSettingsPayload | null => {

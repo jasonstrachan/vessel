@@ -52,6 +52,7 @@ export const startNonColorCycleBrushStroke = ({
   }) => CustomBrushStrokeData | undefined;
   resamplerBrushDataRef: React.MutableRefObject<CustomBrushStrokeData | undefined>;
 }): void => {
+  const captureNowMs = Date.now();
   let customBrushData: CustomBrushStrokeData | undefined = resolveCustomBrushData(currentState);
   const isCustomBrushShape = currentState.tools.brushSettings.brushShape === BrushShape.CUSTOM;
   if (!customBrushData && isCustomBrushShape) {
@@ -98,5 +99,6 @@ export const startNonColorCycleBrushStroke = ({
         ? emittedStamps
         : [createFallbackSequentialStamp(worldPos, pressure, captureState.tools.brushSettings)],
     customBrushData,
+    nowMs: captureNowMs,
   });
 };

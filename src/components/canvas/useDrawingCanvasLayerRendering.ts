@@ -6,7 +6,6 @@ import { selectSequentialPlaybackActive, type AppState } from '@/stores/useAppSt
 import {
   getSequentialLayerRenderCanvas,
 } from '@/lib/sequential/SequentialLayerRenderer';
-import { getBufferedSequentialLayerFrameEvents } from '@/hooks/canvas/handlers/sequential/sequentialCapture';
 import { getLayerTransferCanvas, type LayerTransferCacheEntry } from './layerTransferCache';
 
 interface UseDrawingCanvasLayerRenderingOptions {
@@ -80,20 +79,11 @@ export const useDrawingCanvasLayerRendering = ({
           // ignore transient color cycle draw errors
         }
       } else if (layer.layerType === 'sequential' && layer.sequentialData) {
-        const includePreviewEvents =
-          Boolean(storeState.sequentialRecord?.isPointerDown) && storeState.activeLayerId === layer.id;
-        const previewEvents = includePreviewEvents
-          ? getBufferedSequentialLayerFrameEvents({
-              layerId: layer.id,
-              frameIndex: sequentialFrameIndex,
-            })
-          : undefined;
         const source = getSequentialLayerRenderCanvas({
           layer,
           width: project.width,
           height: project.height,
           frameIndex: sequentialFrameIndex,
-          previewEvents,
           holdPreviousOnEmptyFrames: shouldHoldPreviousSequentialFrame,
         });
         if (source) {

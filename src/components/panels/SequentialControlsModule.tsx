@@ -194,7 +194,7 @@ const SequentialControlsModule: React.FC<SequentialControlsModuleProps> = ({
               <input
                 type="range"
                 min={0.1}
-                max={80}
+                max={160}
                 step={0.1}
                 value={timeSmear}
                 onChange={onTimeSmearChange}

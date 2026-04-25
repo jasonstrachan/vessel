@@ -6,6 +6,7 @@ import { selectSequentialPlaybackActive, type AppState } from '@/stores/useAppSt
 import {
   getSequentialLayerRenderCanvas,
 } from '@/lib/sequential/SequentialLayerRenderer';
+import { getSequentialLivePreviewFrame } from '@/lib/sequential/SequentialLivePreviewRuntime';
 import { getLayerTransferCanvas, type LayerTransferCacheEntry } from './layerTransferCache';
 
 interface UseDrawingCanvasCompositeBuffersOptions {
@@ -24,6 +25,17 @@ interface UseDrawingCanvasCompositeBuffersOptions {
   renderStaticComposite: (canvas: HTMLCanvasElement) => boolean | Promise<boolean>;
   setCurrentOffscreenCanvas: (canvas: HTMLCanvasElement | null) => void;
 }
+
+const resolveSequentialLivePreviewSessionKey = (
+  layerId: string,
+  state: AppState
+): string | null => {
+  const sessionStartMs = state.sequentialRecord?.sessionStartMs;
+  if (!Number.isFinite(sessionStartMs)) {
+    return null;
+  }
+  return `${layerId}:${sessionStartMs}`;
+};
 
 export const useDrawingCanvasCompositeBuffers = ({
   project,
@@ -162,6 +174,8 @@ export const useDrawingCanvasCompositeBuffers = ({
           // ignore draw errors for transient states
         }
       } else if (layer.layerType === 'sequential' && layer.sequentialData) {
+        const includePreviewEvents =
+          Boolean(storeState.sequentialRecord?.isPointerDown) && storeState.activeLayerId === layer.id;
         const source = getSequentialLayerRenderCanvas({
           layer,
           width: project.width,
@@ -172,6 +186,29 @@ export const useDrawingCanvasCompositeBuffers = ({
         if (source) {
           try {
             targetCtx.drawImage(source as CanvasImageSource, 0, 0);
+            const livePreviewFrame = includePreviewEvents
+              ? getSequentialLivePreviewFrame({
+                  layerId: layer.id,
+                  sessionKey: resolveSequentialLivePreviewSessionKey(layer.id, storeState),
+                  width: project.width,
+                  height: project.height,
+                  frameIndex: sequentialFrameIndex,
+                  frameCount: layer.sequentialData.frameCount,
+                })
+              : null;
+            if (livePreviewFrame) {
+              targetCtx.drawImage(
+                livePreviewFrame.canvas as CanvasImageSource,
+                livePreviewFrame.bounds.x,
+                livePreviewFrame.bounds.y,
+                livePreviewFrame.bounds.width,
+                livePreviewFrame.bounds.height,
+                livePreviewFrame.bounds.x,
+                livePreviewFrame.bounds.y,
+                livePreviewFrame.bounds.width,
+                livePreviewFrame.bounds.height
+              );
+            }
             drewLayer = true;
           } catch {
             // ignore draw errors for transient states

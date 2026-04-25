@@ -6,7 +6,10 @@ import { selectSequentialPlaybackActive, type AppState } from '@/stores/useAppSt
 import {
   getSequentialLayerRenderCanvas,
 } from '@/lib/sequential/SequentialLayerRenderer';
-import { getBufferedSequentialLayerFrameEvents } from '@/hooks/canvas/handlers/sequential/sequentialCapture';
+import {
+  getSequentialLivePreviewFrame,
+  type SequentialLivePreviewFrame,
+} from '@/lib/sequential/SequentialLivePreviewRuntime';
 
 interface VisibleRect {
   x: number;
@@ -40,6 +43,59 @@ interface DrawVisibleCompositeStackResult {
   invalidCompositeBitmap: boolean;
 }
 
+const resolveSequentialLivePreviewSessionKey = (
+  layerId: string,
+  state: AppState
+): string | null => {
+  const sessionStartMs = state.sequentialRecord?.sessionStartMs;
+  if (!Number.isFinite(sessionStartMs)) {
+    return null;
+  }
+  return `${layerId}:${sessionStartMs}`;
+};
+
+const drawLivePreviewFrame = ({
+  ctx,
+  livePreview,
+  visibleRect,
+  destination,
+}: {
+  ctx: CanvasRenderingContext2D;
+  livePreview: SequentialLivePreviewFrame;
+  visibleRect: VisibleRect;
+  destination: TargetRect;
+}): void => {
+  const sourceX = Math.max(visibleRect.x, livePreview.bounds.x);
+  const sourceY = Math.max(visibleRect.y, livePreview.bounds.y);
+  const sourceMaxX = Math.min(
+    visibleRect.x + visibleRect.width,
+    livePreview.bounds.x + livePreview.bounds.width
+  );
+  const sourceMaxY = Math.min(
+    visibleRect.y + visibleRect.height,
+    livePreview.bounds.y + livePreview.bounds.height
+  );
+  const sourceWidth = sourceMaxX - sourceX;
+  const sourceHeight = sourceMaxY - sourceY;
+  if (sourceWidth <= 0 || sourceHeight <= 0) {
+    return;
+  }
+
+  const scaleX = destination.width / visibleRect.width;
+  const scaleY = destination.height / visibleRect.height;
+  ctx.drawImage(
+    livePreview.canvas as CanvasImageSource,
+    sourceX,
+    sourceY,
+    sourceWidth,
+    sourceHeight,
+    destination.x + (sourceX - visibleRect.x) * scaleX,
+    destination.y + (sourceY - visibleRect.y) * scaleY,
+    sourceWidth * scaleX,
+    sourceHeight * scaleY
+  );
+};
+
 export const drawVisibleCompositeStack = ({
   ctx,
   visibleRect,
@@ -55,6 +111,15 @@ export const drawVisibleCompositeStack = ({
 }: DrawVisibleCompositeStackOptions): DrawVisibleCompositeStackResult => {
   const storeState = getAppStoreState() as AppState;
   const shouldHoldPreviousSequentialFrame = !selectSequentialPlaybackActive(storeState);
+  const activeCaptureLayerId = storeState.sequentialRecord?.isPointerDown
+    ? storeState.activeLayerId
+    : null;
+  const activeCaptureLayer = activeCaptureLayerId ? layerMap.get(activeCaptureLayerId) : null;
+  const isSequentialCaptureActive = Boolean(
+    activeCaptureLayer?.visible &&
+      activeCaptureLayer.layerType === 'sequential' &&
+      activeCaptureLayer.sequentialData
+  );
 
   let invalidCompositeBitmap = false;
   if (!visibleRect) {
@@ -146,32 +211,36 @@ export const drawVisibleCompositeStack = ({
       }
 
       const layer = layerMap.get(segment.layerId);
-      if (!layer || !layer.visible || layer.layerType !== 'sequential') {
+      if (!layer || !layer.visible || layer.layerType !== 'sequential' || !layer.sequentialData) {
         return;
       }
 
       const projectWidth = storeState.project?.width ?? layer.framebuffer?.width ?? width;
       const projectHeight = storeState.project?.height ?? layer.framebuffer?.height ?? height;
       const frameIndex = storeState.sequentialRecord?.currentFrame ?? 0;
+      const frameCount = layer.sequentialData.frameCount;
       const includePreviewEvents =
         Boolean(storeState.sequentialRecord?.isPointerDown) && storeState.activeLayerId === layer.id;
-      const previewEvents = includePreviewEvents
-        ? getBufferedSequentialLayerFrameEvents({
-            layerId: layer.id,
-            frameIndex,
-          })
-        : undefined;
       const sequentialCanvas = getSequentialLayerRenderCanvas({
         layer,
         width: projectWidth,
         height: projectHeight,
         frameIndex,
-        previewEvents,
         holdPreviousOnEmptyFrames: shouldHoldPreviousSequentialFrame,
       });
       if (!sequentialCanvas) {
         return;
       }
+      const livePreviewFrame = includePreviewEvents
+        ? getSequentialLivePreviewFrame({
+            layerId: layer.id,
+            sessionKey: resolveSequentialLivePreviewSessionKey(layer.id, storeState),
+            width: projectWidth,
+            height: projectHeight,
+            frameIndex,
+            frameCount,
+          })
+        : null;
 
       ctx.save();
       ctx.globalAlpha = segment.opacity;
@@ -187,12 +256,74 @@ export const drawVisibleCompositeStack = ({
         destination.width,
         destination.height,
       );
+      if (livePreviewFrame) {
+        drawLivePreviewFrame({
+          ctx,
+          livePreview: livePreviewFrame,
+          visibleRect,
+          destination,
+        });
+      }
       ctx.restore();
     });
 
   }
 
-  if (!compositeDrawn && compositeBitmap) {
+  if (!compositeDrawn && isSequentialCaptureActive) {
+    const activeLayer = activeCaptureLayer;
+    if (activeLayer?.visible && activeLayer.layerType === 'sequential' && activeLayer.sequentialData) {
+      const projectWidth = storeState.project?.width ?? activeLayer.framebuffer?.width ?? width;
+      const projectHeight = storeState.project?.height ?? activeLayer.framebuffer?.height ?? height;
+      const frameIndex = storeState.sequentialRecord?.currentFrame ?? 0;
+      const sequentialCanvas = getSequentialLayerRenderCanvas({
+        layer: activeLayer,
+        width: projectWidth,
+        height: projectHeight,
+        frameIndex,
+        holdPreviousOnEmptyFrames: shouldHoldPreviousSequentialFrame,
+      });
+      if (sequentialCanvas) {
+        const livePreviewFrame = getSequentialLivePreviewFrame({
+          layerId: activeLayer.id,
+          sessionKey: resolveSequentialLivePreviewSessionKey(activeLayer.id, storeState),
+          width: projectWidth,
+          height: projectHeight,
+          frameIndex,
+          frameCount: activeLayer.sequentialData.frameCount,
+        });
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(x, y, width, height);
+        ctx.clip();
+        drawNonActiveVisibleLayers(ctx);
+        ctx.globalAlpha = activeLayer.opacity;
+        ctx.globalCompositeOperation = activeLayer.blendMode ?? 'source-over';
+        ctx.drawImage(
+          sequentialCanvas as CanvasImageSource,
+          x,
+          y,
+          width,
+          height,
+          destination.x,
+          destination.y,
+          destination.width,
+          destination.height,
+        );
+        if (livePreviewFrame) {
+          drawLivePreviewFrame({
+            ctx,
+            livePreview: livePreviewFrame,
+            visibleRect,
+            destination,
+          });
+        }
+        ctx.restore();
+        compositeDrawn = true;
+      }
+    }
+  }
+
+  if (!compositeDrawn && compositeBitmap && !isSequentialCaptureActive) {
     try {
       ctx.drawImage(
         compositeBitmap,
@@ -220,7 +351,7 @@ export const drawVisibleCompositeStack = ({
     }
   }
 
-  if (!compositeDrawn && compositeCanvas) {
+  if (!compositeDrawn && compositeCanvas && !isSequentialCaptureActive) {
     ctx.drawImage(
       compositeCanvas,
       x,
