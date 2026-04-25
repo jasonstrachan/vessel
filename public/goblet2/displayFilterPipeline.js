@@ -9,6 +9,32 @@ export const getSeamlessNoisePatternSize = (tileStep) => {
   return normalizedTileStep * cellsPerAxis;
 };
 
+export const resolveDisplayNoiseTileStep = (scale) => (
+  Math.max(1, Math.round(getNumeric(scale, 1)))
+);
+
+export const resolveFilmNoiseSampleStep = (tileStep) => (
+  Math.max(1, Math.min(4, resolveDisplayNoiseTileStep(tileStep)))
+);
+
+export const resolveDisplayFilterPixelSize = (value, fallback = 1, minimum = 1) => (
+  Math.max(minimum, Math.round(getNumeric(value, fallback)))
+);
+
+export const resolveDisplayFilterRadius = (value, fallback = 0, minimum = 0) => (
+  Math.max(minimum, getNumeric(value, fallback))
+);
+
+export const resolveDownsampledDisplayFilterRadius = (
+  value,
+  fallback = 0,
+  downsampleFactor = 1,
+  minimum = 0,
+) => {
+  const normalizedDownsampleFactor = Math.max(1, getNumeric(downsampleFactor, 1));
+  return Math.max(minimum, getNumeric(value, fallback) / normalizedDownsampleFactor);
+};
+
 const hashNoise = (x, y, seed) => {
   const value = Math.sin((x + 1) * 127.1 + (y + 1) * 311.7 + seed * 17.13) * 43758.5453123;
   return value - Math.floor(value);
@@ -53,6 +79,8 @@ export const createDisplayFilterPipelineState = () => ({
   filmNoiseCombinedKey: '',
   filmNoiseCombinedField: null,
   filmNoiseImageData: null,
+  filmNoiseToneKey: '',
+  filmNoiseToneLookup: null,
 });
 
 export const getNextFilterWorkCanvas = (currentCanvas, workCanvasA, workCanvasB) => (
@@ -166,6 +194,26 @@ const buildFilmNoiseCombinedField = ({
   return field;
 };
 
+const buildFilmNoiseToneLookup = ({ opacity, shadowBias }) => {
+  const lookup = new Float32Array(256);
+  const clampedOpacity = clamp01(opacity);
+  const clampedShadowBias = clamp01(shadowBias);
+  for (let luma = 0; luma < 256; luma += 1) {
+    const normalizedLuma = luma / 255;
+    const shadowFactor = Math.pow(1 - normalizedLuma, 1.35);
+    lookup[luma] = (0.42 + shadowFactor * (0.58 + clampedShadowBias * 1.1)) * clampedOpacity * 34;
+  }
+  return lookup;
+};
+
+const clampByte = (value) => (
+  value <= 0 ? 0 : value >= 255 ? 255 : Math.round(value)
+);
+
+const getFastLumaByte = (r, g, b) => (
+  Math.min(255, Math.max(0, (54 * r + 183 * g + 19 * b) >> 8))
+);
+
 const sampleChannelNearest = (data, width, height, x, y, channel) => {
   const ix = Math.round(x);
   const iy = Math.round(y);
@@ -265,7 +313,6 @@ const buildCrtBloomOverlay = ({
   workCanvas,
   radius,
   intensity,
-  lengthScale,
 }) => {
   if (!bloomCanvas || !workCanvas || radius <= 0 || intensity <= 0) {
     return null;
@@ -287,7 +334,7 @@ const buildCrtBloomOverlay = ({
     return null;
   }
 
-  const blurRadius = Math.max(0, radius * Math.max(0.25, getNumeric(lengthScale, 1) * 0.35));
+  const blurRadius = resolveDownsampledDisplayFilterRadius(radius, 0, 4);
   bloomSourceCtx.imageSmoothingEnabled = true;
   bloomSourceCtx.drawImage(currentCanvas, 0, 0, bloomSourceCanvas.width, bloomSourceCanvas.height);
   extractBrightPass(bloomSourceCtx, bloomSourceCanvas);
@@ -305,7 +352,6 @@ const applyCrtWholeImage = ({
   nextCanvas,
   bloomCanvas,
   workCanvas,
-  lengthScale,
   filter,
   timeSeconds,
 }) => {
@@ -322,11 +368,11 @@ const applyCrtWholeImage = ({
   const width = currentCanvas.width;
   const height = currentCanvas.height;
 
-  const cellSize = Math.max(1, Math.round(getNumeric(filter?.settings?.cellSize, 12) * Math.max(0.5, getNumeric(lengthScale, 1))));
+  const cellSize = resolveDisplayFilterPixelSize(filter?.settings?.cellSize, 12);
   const scanlineIntensity = clamp01(filter?.settings?.scanlineIntensity);
   const maskIntensity = clamp01(filter?.settings?.maskIntensity);
   const barrelDistortion = Math.max(0, getNumeric(filter?.settings?.barrelDistortion, 0.15));
-  const chromaticAberration = Math.max(0, getNumeric(filter?.settings?.chromaticAberration, 2)) * Math.max(0.4, getNumeric(lengthScale, 1) * 0.6);
+  const chromaticAberration = resolveDisplayFilterRadius(filter?.settings?.chromaticAberration, 2);
   const beamFocus = clamp01(filter?.settings?.beamFocus);
   const brightness = Math.max(0, getNumeric(filter?.settings?.brightness, 0.5));
   const shadowLift = Math.max(0, getNumeric(filter?.settings?.shadowLift, 0.16));
@@ -349,7 +395,6 @@ const applyCrtWholeImage = ({
     workCanvas,
     radius: bloomRadius,
     intensity: bloomIntensity,
-    lengthScale,
   });
 
   for (let y = 0; y < height; y += 1) {
@@ -439,7 +484,6 @@ export const applyDisplayFilterStack = ({
   displayFilters,
   filterState,
   visibleRect,
-  lengthScale = 1,
 }) => {
   const workCanvasA = ensureDisplayFilterCanvas(
     filterState.workCanvasA,
@@ -480,7 +524,6 @@ export const applyDisplayFilterStack = ({
   filterState.channelCanvas = channelCanvas;
 
   const origin = visibleRect ?? { x: 0, y: 0 };
-  const normalizedLengthScale = Math.max(0.0001, getNumeric(lengthScale, 1));
   const pixelateFilter = getDisplayFilterByIdFromList(displayFilters, 'pixelate');
   const bloomFilter = getDisplayFilterByIdFromList(displayFilters, 'bloom');
   const roundPixelsFilter = getDisplayFilterByIdFromList(displayFilters, 'round-pixels');
@@ -500,10 +543,7 @@ export const applyDisplayFilterStack = ({
   };
 
   if (pixelateFilter?.enabled && getNumeric(pixelateFilter?.settings?.cellSize, 1) > 1) {
-    const cellSize = Math.max(
-      1,
-      Math.round(getNumeric(pixelateFilter.settings.cellSize, 1) * normalizedLengthScale),
-    );
+    const cellSize = resolveDisplayFilterPixelSize(pixelateFilter.settings.cellSize);
     const downsampleCanvas = ensureDisplayFilterCanvas(
       filterState.pixelateCanvas,
       Math.max(1, Math.round(currentCanvas.width / cellSize)),
@@ -560,7 +600,7 @@ export const applyDisplayFilterStack = ({
     const bloomBlurCtx = clearDisplayFilterCanvas(bloomBlurCanvas);
     const nextCtx = clearDisplayFilterCanvas(nextCanvas);
     if (bloomSourceCanvas && bloomSourceCtx && bloomBlurCanvas && bloomBlurCtx && nextCtx) {
-      const blurRadius = getNumeric(bloomFilter.settings.blurRadius, 0) * normalizedLengthScale;
+      const blurRadius = resolveDownsampledDisplayFilterRadius(bloomFilter.settings.blurRadius, 0, 4);
       const intensity = getNumeric(bloomFilter.settings.intensity, 0);
       bloomSourceCtx.imageSmoothingEnabled = true;
       bloomSourceCtx.drawImage(currentCanvas, 0, 0, bloomSourceCanvas.width, bloomSourceCanvas.height);
@@ -598,10 +638,7 @@ export const applyDisplayFilterStack = ({
   }
 
   if (lcdMaskFilter?.enabled && (getNumeric(lcdMaskFilter?.settings?.stripeOpacity, 0) > 0 || getNumeric(lcdMaskFilter?.settings?.scanlineOpacity, 0) > 0)) {
-    const baseCell = Math.max(
-      1,
-      Math.round(getNumeric(pixelateFilter?.settings?.cellSize, 1) * normalizedLengthScale),
-    );
+    const baseCell = resolveDisplayFilterPixelSize(pixelateFilter?.settings?.cellSize);
     const patternKey = JSON.stringify({
       baseCell,
       stripeOpacity: getNumeric(lcdMaskFilter.settings.stripeOpacity, 0),
@@ -656,7 +693,6 @@ export const applyDisplayFilterStack = ({
     nextCanvas,
     bloomCanvas,
     workCanvas: auxCanvas,
-    lengthScale: normalizedLengthScale,
     filter: crtFilter,
     timeSeconds,
   })) {
@@ -664,10 +700,7 @@ export const applyDisplayFilterStack = ({
   }
 
   if (crtGridFilter?.enabled && getNumeric(crtGridFilter?.settings?.lineOpacity, 0) > 0) {
-    const baseCell = Math.max(
-      1,
-      Math.round(getNumeric(pixelateFilter?.settings?.cellSize, 1) * normalizedLengthScale),
-    );
+    const baseCell = resolveDisplayFilterPixelSize(pixelateFilter?.settings?.cellSize);
     const spacing = Math.max(1, Math.round(getNumeric(crtGridFilter?.settings?.lineSpacing, 4) * baseCell));
     const phosphorOpacity = getNumeric(crtGridFilter.settings.phosphorOpacity, 0.12);
     const scanlineOpacity = getNumeric(crtGridFilter.settings.scanlineOpacity, 0.18);
@@ -764,10 +797,7 @@ export const applyDisplayFilterStack = ({
     const nextCtx = clearDisplayFilterCanvas(nextCanvas);
     const channelCtx = clearDisplayFilterCanvas(channelCanvas);
     if (nextCtx && channelCanvas && channelCtx) {
-      const offset = Math.max(
-        0.5,
-        getNumeric(chromaticAberrationFilter.settings.offset, 0) * normalizedLengthScale,
-      );
+      const offset = resolveDisplayFilterRadius(chromaticAberrationFilter.settings.offset, 0, 0.5);
       const intensity = getNumeric(chromaticAberrationFilter.settings.intensity, 0);
       nextCtx.drawImage(currentCanvas, 0, 0);
 
@@ -806,10 +836,7 @@ export const applyDisplayFilterStack = ({
   }
 
   if (noiseFilter?.enabled && getNumeric(noiseFilter?.settings?.opacity, 0) > 0) {
-    const tileStep = Math.max(
-      1,
-      Math.round(getNumeric(noiseFilter?.settings?.scale, 1) * normalizedLengthScale),
-    );
+    const tileStep = resolveDisplayNoiseTileStep(noiseFilter?.settings?.scale);
     const patternKey = JSON.stringify({ tileStep });
     if (filterState.noisePatternKey !== patternKey) {
       const patternSize = getSeamlessNoisePatternSize(tileStep);
@@ -857,11 +884,8 @@ export const applyDisplayFilterStack = ({
   }
 
   if (filmNoiseFilter?.enabled && getNumeric(filmNoiseFilter?.settings?.opacity, 0) > 0) {
-    const tileStep = Math.max(
-      1,
-      Math.round(getNumeric(filmNoiseFilter?.settings?.scale, 1) * normalizedLengthScale),
-    );
-    const sampleStep = Math.max(1, Math.min(4, Math.round(tileStep / 1.5)));
+    const tileStep = resolveDisplayNoiseTileStep(filmNoiseFilter?.settings?.scale);
+    const sampleStep = resolveFilmNoiseSampleStep(tileStep);
     const clumpStep = Math.max(tileStep + 1, Math.round(tileStep * 3));
     const patternKey = JSON.stringify({ tileStep, clumpStep });
     if (filterState.filmNoisePatternKey !== patternKey) {
@@ -928,6 +952,7 @@ export const applyDisplayFilterStack = ({
       const clumpPatternCanvas = filterState.filmNoiseClumpCanvas;
       const opacity = clamp01(filmNoiseFilter.settings.opacity);
       const shadowBias = clamp01(filmNoiseFilter.settings.shadowBias);
+      const toneKey = JSON.stringify({ opacity, shadowBias });
       const sourceData = sourceImageData.data;
       const width = currentCanvas.width;
       const height = currentCanvas.height;
@@ -968,6 +993,11 @@ export const applyDisplayFilterStack = ({
       outputImageData.data.set(sourceData);
       const outputData = outputImageData.data;
       const combinedField = filterState.filmNoiseCombinedField;
+      if (filterState.filmNoiseToneKey !== toneKey || !filterState.filmNoiseToneLookup) {
+        filterState.filmNoiseToneLookup = buildFilmNoiseToneLookup({ opacity, shadowBias });
+        filterState.filmNoiseToneKey = toneKey;
+      }
+      const toneLookup = filterState.filmNoiseToneLookup;
 
       if (sampleStep > 1) {
         for (let blockY = 0; blockY < height; blockY += sampleStep) {
@@ -981,12 +1011,9 @@ export const applyDisplayFilterStack = ({
             const r = sourceData[blockIndex];
             const g = sourceData[blockIndex + 1];
             const b = sourceData[blockIndex + 2];
-            const luma = (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
-            const shadowFactor = Math.pow(1 - luma, 1.35);
-            const tonalWeight = 0.42 + shadowFactor * (0.58 + shadowBias * 1.1);
+            const luma = getFastLumaByte(r, g, b);
             const grainField = combinedField ? combinedField[blockY * width + blockX] : 0;
-            const delta = grainField * tonalWeight * opacity * 34 * alpha;
-            const nextValue = (channel) => Math.max(0, Math.min(255, Math.round(channel + delta)));
+            const delta = grainField * toneLookup[luma] * alpha;
             const endY = Math.min(height, blockY + sampleStep);
             const endX = Math.min(width, blockX + sampleStep);
 
@@ -997,9 +1024,9 @@ export const applyDisplayFilterStack = ({
                 if (pixelAlpha <= 0) {
                   continue;
                 }
-                outputData[index] = nextValue(sourceData[index]);
-                outputData[index + 1] = nextValue(sourceData[index + 1]);
-                outputData[index + 2] = nextValue(sourceData[index + 2]);
+                outputData[index] = clampByte(sourceData[index] + delta);
+                outputData[index + 1] = clampByte(sourceData[index + 1] + delta);
+                outputData[index + 2] = clampByte(sourceData[index + 2] + delta);
               }
             }
           }
@@ -1016,16 +1043,13 @@ export const applyDisplayFilterStack = ({
             const r = sourceData[index];
             const g = sourceData[index + 1];
             const b = sourceData[index + 2];
-            const luma = (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
-            const shadowFactor = Math.pow(1 - luma, 1.35);
-            const tonalWeight = 0.42 + shadowFactor * (0.58 + shadowBias * 1.1);
+            const luma = getFastLumaByte(r, g, b);
             const grainField = combinedField ? combinedField[y * width + x] : 0;
-            const delta = grainField * tonalWeight * opacity * 34 * alpha;
-            const nextValue = (channel) => Math.max(0, Math.min(255, Math.round(channel + delta)));
+            const delta = grainField * toneLookup[luma] * alpha;
 
-            outputData[index] = nextValue(r);
-            outputData[index + 1] = nextValue(g);
-            outputData[index + 2] = nextValue(b);
+            outputData[index] = clampByte(r + delta);
+            outputData[index + 1] = clampByte(g + delta);
+            outputData[index + 2] = clampByte(b + delta);
           }
         }
       }
