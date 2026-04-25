@@ -23,6 +23,8 @@ export interface DisplayFilterPipelineState {
   filmNoiseCombinedKey: string;
   filmNoiseCombinedField: Float32Array | null;
   filmNoiseImageData: ImageData | null;
+  filmNoiseToneKey: string;
+  filmNoiseToneLookup: Float32Array | null;
 }
 
 export function createDisplayFilterPipelineState(): DisplayFilterPipelineState;
@@ -45,6 +47,16 @@ export function getDisplayFilterByIdFromList<I extends DisplayFilterConfig['id']
 ): Extract<DisplayFilterConfig, { id: I }> | undefined;
 export function hasEnabledDisplayFiltersInList(filters: DisplayFilterConfig[]): boolean;
 export function getSeamlessNoisePatternSize(tileStep: number): number;
+export function resolveDisplayNoiseTileStep(scale: number): number;
+export function resolveFilmNoiseSampleStep(tileStep: number): number;
+export function resolveDisplayFilterPixelSize(value: number, fallback?: number, minimum?: number): number;
+export function resolveDisplayFilterRadius(value: number, fallback?: number, minimum?: number): number;
+export function resolveDownsampledDisplayFilterRadius(
+  value: number,
+  fallback?: number,
+  downsampleFactor?: number,
+  minimum?: number,
+): number;
 export function createTileableNoiseGrid(columns: number, rows: number, seed?: number): number[][];
 export function applyDisplayFilterStack(args: {
   sourceCanvas: HTMLCanvasElement;
