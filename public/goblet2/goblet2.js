@@ -3874,8 +3874,7 @@ class ColorCycleLayerPlayer {
       this.webglRenderer.render(this.baseTimeSeconds, this.legacyOffset01);
       return;
     }
-    const profileEnabled = diagnosticsEnabled
-      && typeof window !== 'undefined'
+    const profileEnabled = typeof window !== 'undefined'
       && window.localStorage
       && window.localStorage.getItem('vesselGobletProfile') === 'true';
     const profileNow = () => (typeof performance !== 'undefined' && typeof performance.now === 'function'
@@ -4560,11 +4559,21 @@ class VesselGoblet {
 
     this.ctx = null;
     this.layerEntries = [];
+    this.sortedLayerEntries = [];
+    this.staticLayerEntries = [];
+    this.dynamicLayerEntries = [];
     this.dynamicPlayers = [];
+    this.dynamicPlayerSet = new Set();
+    this.canUseStaticComposite = false;
+    this.staticCompositeLayerKey = '';
+    this.staticCompositeCanvas = null;
+    this.staticCompositeCtx = null;
+    this.staticCompositeKey = '';
     this.displayFilterState = createDisplayFilterPipelineState();
     this.rafId = null;
     this.lastTimestamp = 0;
     this.lastCcReasonLogAt = 0;
+    this.lastRenderProfile = null;
     this.destroyed = false;
 
     this.summary = {
@@ -4798,9 +4807,60 @@ class VesselGoblet {
     });
 
     this.layerEntries = entries;
+    this.sortedLayerEntries = [...entries];
+    this.sortedLayerEntries.sort((a, b) => {
+      const originalA = entries.indexOf(a);
+      const originalB = entries.indexOf(b);
+      const ai = typeof a.layer.stackIndex === 'number' ? a.layer.stackIndex : originalA;
+      const bi = typeof b.layer.stackIndex === 'number' ? b.layer.stackIndex : originalB;
+      if (ai !== bi) {
+        return ai - bi;
+      }
+      return originalA - originalB;
+    });
     this.dynamicPlayers = entries
+      .filter((entry) => entry.layer.visible !== false)
       .flatMap((entry) => [entry.player, entry.sequentialPlayer])
       .filter((entryPlayer) => entryPlayer && typeof entryPlayer.hasAnimation === 'function' && entryPlayer.hasAnimation());
+    this.dynamicPlayerSet = new Set(this.dynamicPlayers);
+    this.dynamicLayerEntries = this.sortedLayerEntries.filter((entry) => (
+      entry.layer.visible !== false && this.isDynamicEntry(entry)
+    ));
+    this.staticLayerEntries = this.sortedLayerEntries.filter((entry) => (
+      entry.layer.visible !== false && !this.isDynamicEntry(entry)
+    ));
+    const staticLayersRequireBackdrop = this.staticLayerEntries.some((entry) => (
+      (entry.layer.blendMode ?? 'source-over') !== 'source-over'
+    ));
+    let seenDynamicLayer = false;
+    this.canUseStaticComposite = !staticLayersRequireBackdrop;
+    for (const entry of this.sortedLayerEntries) {
+      if (entry.layer.visible === false) {
+        continue;
+      }
+      if (this.isDynamicEntry(entry)) {
+        seenDynamicLayer = true;
+        continue;
+      }
+      if (seenDynamicLayer) {
+        this.canUseStaticComposite = false;
+        break;
+      }
+    }
+    this.staticCompositeLayerKey = JSON.stringify(this.staticLayerEntries.map((entry) => [
+      entry.layer.id,
+      entry.layer.stackIndex,
+      entry.layer.visible,
+      entry.layer.opacity,
+      entry.layer.blendMode,
+      entry.layer.alignment,
+      entry.layer.documentBoundsPx,
+      entry.layer.contentBounds,
+      entry.layer.pixelBoundsPx,
+    ]));
+    this.staticCompositeCanvas = null;
+    this.staticCompositeCtx = null;
+    this.staticCompositeKey = '';
 
     if (diagnosticsEnabled) {
       for (const entry of entries) {
@@ -4837,6 +4897,298 @@ class VesselGoblet {
     if (textureless.length > 0) {
       diagnostics.warn('Some layers are missing textures', textureless.map((entry) => entry.layer.id));
     }
+  }
+
+  isDynamicEntry(entry) {
+    return this.dynamicPlayerSet.has(entry?.player) || this.dynamicPlayerSet.has(entry?.sequentialPlayer);
+  }
+
+  paintLayerEntry(entry, index, renderCtx, renderOptions) {
+    const {
+      documentSize,
+      viewportSize,
+      designSize,
+      isFixed,
+      shouldFilterArtwork,
+      dpr,
+    } = renderOptions;
+    if (diagnosticsEnabled) {
+      diagnostics.log(`[goblet] Processing layer ${index}:`, entry.layer.id);
+    }
+    if (entry.layer.visible === false) {
+      if (diagnosticsEnabled) {
+        diagnostics.log(`[goblet] Skipping invisible layer ${entry.layer.id}`);
+      }
+      return false;
+    }
+    const source = entry.player
+      ? entry.player.getCanvas()
+      : (entry.sequentialPlayer ? entry.sequentialPlayer.getSource() : entry.source);
+    if (!source) {
+      if (diagnosticsEnabled) {
+        diagnostics.log(`[goblet] No source for layer ${entry.layer.id}`);
+      }
+      return false;
+    }
+    if (diagnosticsEnabled) {
+      diagnostics.log(`[goblet] Have source for ${entry.layer.id}, computing placement`);
+    }
+    const pixelBounds = entry.layer.pixelBoundsPx ?? null;
+    const contentBounds = entry.layer.contentBounds ?? null;
+
+    const sourceWidth = source instanceof HTMLImageElement
+      ? source.naturalWidth || source.width
+      : source.width;
+    const sourceHeight = source instanceof HTMLImageElement
+      ? source.naturalHeight || source.height
+      : source.height;
+
+    const normalizedContentBounds = contentBounds
+      ? clampRectToSource(contentBounds, sourceWidth, sourceHeight)
+      : null;
+
+    const normalizedPixelBounds = pixelBounds
+      ? clampRectToSource(pixelBounds, sourceWidth, sourceHeight)
+      : null;
+
+    const isColorCycleLayer = Boolean(entry.layer.colorCycle)
+      || entry.layer.type === 'color-cycle'
+      || entry.layer.layerType === 'color-cycle';
+
+    const paintedRectFromDocument = documentBoundsToSourceRect(
+      entry.layer.documentBoundsPx,
+      documentSize,
+      { width: sourceWidth, height: sourceHeight }
+    );
+
+    const isFullSurfaceRect = (rect) => {
+      if (!rect) {
+        return false;
+      }
+      const tolerance = 0.5;
+      return rect.x <= tolerance
+        && rect.y <= tolerance
+        && rect.width >= sourceWidth - tolerance
+        && rect.height >= sourceHeight - tolerance;
+    };
+
+    const tinyContentBounds = Boolean(
+      normalizedContentBounds
+      && normalizedContentBounds.width <= 1.5
+      && normalizedContentBounds.height <= 1.5
+      && (sourceWidth > 2 || sourceHeight > 2)
+    );
+    const shouldPreferDocumentRect = Boolean(
+      paintedRectFromDocument
+      && (
+        isFixed
+        || (isColorCycleLayer && (!normalizedContentBounds || isFullSurfaceRect(normalizedContentBounds)))
+        || (entry.layer.type === 'sequential' && tinyContentBounds)
+      )
+    );
+
+    const paintedRect = shouldPreferDocumentRect
+      ? paintedRectFromDocument
+      : normalizedContentBounds
+        ?? normalizedPixelBounds
+        ?? {
+          x: 0,
+          y: 0,
+          width: sourceWidth,
+          height: sourceHeight
+        };
+
+    if (paintedRect.x >= sourceWidth) {
+      paintedRect.x = Math.max(0, sourceWidth - 1);
+    }
+    if (paintedRect.y >= sourceHeight) {
+      paintedRect.y = Math.max(0, sourceHeight - 1);
+    }
+    if (paintedRect.x + paintedRect.width > sourceWidth) {
+      paintedRect.width = Math.max(1, sourceWidth - paintedRect.x);
+    }
+    if (paintedRect.y + paintedRect.height > sourceHeight) {
+      paintedRect.height = Math.max(1, sourceHeight - paintedRect.y);
+    }
+
+    const viewportFrame = {
+      x: 0,
+      y: 0,
+      width: viewportSize.width,
+      height: viewportSize.height
+    };
+
+    const autoOffsetPercent = entry.layer.alignment?.positioning === 'auto'
+      ? entry.layer.alignment?.offsetPercent
+      : undefined;
+
+    const align = normalizeAlign(entry.layer.alignment, autoOffsetPercent);
+
+    const basis = {
+      surface: { width: sourceWidth, height: sourceHeight },
+      painted: {
+        width: paintedRect.width,
+        height: paintedRect.height
+      },
+      frame: viewportFrame,
+      design: isFixed ? undefined : designSize,
+      doc: documentSize,
+      align
+    };
+
+    const directFixedPlacement = isFixed && entry.layer.documentBoundsPx
+      ? (() => {
+          const docRect = entry.layer.documentBoundsPx;
+          const scaleX = viewportSize.width / Math.max(1, documentSize.width);
+          const scaleY = viewportSize.height / Math.max(1, documentSize.height);
+          return {
+            dest: {
+              x: Math.round(toNum(docRect.x, 0) * scaleX),
+              y: Math.round(toNum(docRect.y, 0) * scaleY),
+              width: Math.max(1, Math.round(fitPositive(docRect.width, 1) * scaleX)),
+              height: Math.max(1, Math.round(fitPositive(docRect.height, 1) * scaleY))
+            }
+          };
+        })()
+      : null;
+
+    const placement = directFixedPlacement ?? computePlacement(basis);
+
+    let units = null;
+    let destForLog = null;
+    if (diagnosticsEnabled) {
+      units = isFixed ? 'backing' : 'css';
+      destForLog = (() => {
+        const cssRect = placement.dest;
+        if (units === 'css') {
+          return cssRect;
+        }
+        return {
+          x: Math.round(cssRect.x * dpr),
+          y: Math.round(cssRect.y * dpr),
+          width: Math.max(1, Math.round(cssRect.width * dpr)),
+          height: Math.max(1, Math.round(cssRect.height * dpr))
+        };
+      })();
+      diagnostics.log(`[goblet] Placement resolved for ${entry.layer.id}`, {
+        placement,
+        units,
+        destForLog
+      });
+    }
+
+    const blendMode = entry.layer.blendMode ?? 'source-over';
+    const opacity = Number.isFinite(entry.layer.opacity) ? clamp(entry.layer.opacity, 0, 1) : 1;
+
+    renderCtx.save();
+    renderCtx.globalCompositeOperation = blendMode;
+    renderCtx.globalAlpha = opacity;
+
+    if (__DEV__) {
+      if (!(placement.dest.width > 0 && placement.dest.height > 0)) {
+        console.warn('[align] non-positive dest size', { placement, layer: entry.layer.id });
+      }
+    }
+
+    const drawResult = drawLayerWithPlacement(
+      renderCtx,
+      source,
+      placement,
+      {
+        isFixed: isFixed && !shouldFilterArtwork,
+        dpr,
+        paintedRect,
+        fit: directFixedPlacement ? 'none' : align.fit
+      }
+    );
+
+    if (!drawResult.ok) {
+      renderCtx.restore();
+      if (diagnosticsEnabled) {
+        diagnostics.log(`[goblet] Failed to paint layer ${entry.layer.id}`);
+      }
+      return false;
+    }
+
+    if (diagnosticsEnabled) {
+      const transformBeforeDraw = snapshotTransform(renderCtx);
+      if (!isIdentityTransform(transformBeforeDraw)) {
+        warnNonIdentityTransform(entry.layer?.id, transformBeforeDraw);
+      }
+
+      const sampleForLog = drawResult.tileCanvas
+        ? { x: 0, y: 0, width: drawResult.tileCanvas.width, height: drawResult.tileCanvas.height }
+        : null;
+      const sourceForLog = drawResult.tileCanvas ?? source;
+
+      logLayerDraw(entry.layer, sourceForLog, sampleForLog, destForLog, units);
+
+      diagnostics.log('Drew layer successfully', {
+        layerId: entry.layer.id,
+        mode: placement.tile ? 'tile' : 'draw-image',
+        destination: destForLog
+      });
+    }
+
+    renderCtx.restore();
+    return true;
+  }
+
+  getStaticComposite(renderOptions, profile) {
+    if (!this.canUseStaticComposite) {
+      return null;
+    }
+    const staticEntries = this.staticLayerEntries;
+    if (staticEntries.length === 0) {
+      return null;
+    }
+    const targetWidth = Math.max(1, Math.round(renderOptions.renderWidth));
+    const targetHeight = Math.max(1, Math.round(renderOptions.renderHeight));
+    const key = [
+      targetWidth,
+      targetHeight,
+      renderOptions.documentSize.width,
+      renderOptions.documentSize.height,
+      renderOptions.isFixed ? 1 : 0,
+      renderOptions.shouldFilterArtwork ? 1 : 0,
+      renderOptions.dpr,
+      this.staticCompositeLayerKey,
+    ].join('|');
+    if (this.staticCompositeCanvas && this.staticCompositeKey === key) {
+      return this.staticCompositeCanvas;
+    }
+    const canvas = this.staticCompositeCanvas ?? document.createElement('canvas');
+    if (canvas.width !== targetWidth) {
+      canvas.width = targetWidth;
+      this.staticCompositeCtx = null;
+    }
+    if (canvas.height !== targetHeight) {
+      canvas.height = targetHeight;
+      this.staticCompositeCtx = null;
+    }
+    const cacheCtx = this.staticCompositeCtx ?? canvas.getContext('2d');
+    if (!cacheCtx) {
+      return null;
+    }
+    this.staticCompositeCtx = cacheCtx;
+    cacheCtx.setTransform(1, 0, 0, 1, 0, 0);
+    cacheCtx.globalAlpha = 1;
+    cacheCtx.globalCompositeOperation = 'source-over';
+    cacheCtx.clearRect(0, 0, canvas.width, canvas.height);
+    const staticStart = profile?.enabled ? profile.now() : 0;
+    let painted = 0;
+    staticEntries.forEach((entry, index) => {
+      if (this.paintLayerEntry(entry, index, cacheCtx, renderOptions)) {
+        painted += 1;
+      }
+    });
+    if (profile?.enabled) {
+      profile.staticMs += profile.now() - staticStart;
+    }
+    canvas.__vesselStaticPainted = painted;
+    this.staticCompositeCanvas = canvas;
+    this.staticCompositeKey = key;
+    return canvas;
   }
 
   renderOnce() {
@@ -4892,23 +5244,15 @@ class VesselGoblet {
     }
     const renderCtx = filterCtx ?? ctx;
 
-    const sorted = [...this.layerEntries];
-    sorted.sort((a, b) => {
-      const originalA = this.layerEntries.indexOf(a);
-      const originalB = this.layerEntries.indexOf(b);
-      const ai = typeof a.layer.stackIndex === 'number' ? a.layer.stackIndex : originalA;
-      const bi = typeof b.layer.stackIndex === 'number' ? b.layer.stackIndex : originalB;
-      if (ai !== bi) {
-        return ai - bi;
-      }
-      return originalA - originalB;
-    });
+    const sorted = this.sortedLayerEntries;
 
-    diagnostics.log('[goblet] Layers to render:', sorted.map((entry) => ({
-      id: entry.layer.id,
-      hasSource: Boolean(entry.source || entry.player || entry.sequentialPlayer),
-      visible: entry.layer.visible
-    })));
+    if (diagnosticsEnabled) {
+      diagnostics.log('[goblet] Layers to render:', sorted.map((entry) => ({
+        id: entry.layer.id,
+        hasSource: Boolean(entry.source || entry.player || entry.sequentialPlayer),
+        visible: entry.layer.visible
+      })));
+    }
     this.logLayerAnimationReasons(sorted);
 
     const viewportSize = shouldFilterArtwork
@@ -4923,217 +5267,54 @@ class VesselGoblet {
         : Math.max(1, toNum(this.metadata.viewport?.designHeight, cssH))
     };
     let painted = 0;
-    sorted.forEach((entry, index) => {
-      diagnostics.log(`[goblet] Processing layer ${index}:`, entry.layer.id);
-      if (entry.layer.visible === false) {
-        diagnostics.log(`[goblet] Skipping invisible layer ${entry.layer.id}`);
-        return;
-      }
-      const source = entry.player
-        ? entry.player.getCanvas()
-        : (entry.sequentialPlayer ? entry.sequentialPlayer.getSource() : entry.source);
-      if (!source) {
-        diagnostics.log(`[goblet] No source for layer ${entry.layer.id}`);
-        return;
-      }
-      diagnostics.log(`[goblet] Have source for ${entry.layer.id}, computing placement`);
-      const pixelBounds = entry.layer.pixelBoundsPx ?? null;
-      const contentBounds = entry.layer.contentBounds ?? null;
-
-      const sourceWidth = source instanceof HTMLImageElement
-        ? source.naturalWidth || source.width
-        : source.width;
-      const sourceHeight = source instanceof HTMLImageElement
-        ? source.naturalHeight || source.height
-        : source.height;
-
-      const normalizedContentBounds = contentBounds
-        ? clampRectToSource(contentBounds, sourceWidth, sourceHeight)
-        : null;
-
-      const normalizedPixelBounds = pixelBounds
-        ? clampRectToSource(pixelBounds, sourceWidth, sourceHeight)
-        : null;
-
-      const isColorCycleLayer = Boolean(entry.layer.colorCycle)
-        || entry.layer.type === 'color-cycle'
-        || entry.layer.layerType === 'color-cycle';
-
-      const paintedRectFromDocument = documentBoundsToSourceRect(
-        entry.layer.documentBoundsPx,
-        documentSize,
-        { width: sourceWidth, height: sourceHeight }
-      );
-
-      const isFullSurfaceRect = (rect) => {
-        if (!rect) {
-          return false;
+    const profileEnabled = typeof window !== 'undefined'
+      && window.localStorage
+      && window.localStorage.getItem('vesselGobletProfile') === 'true';
+    const profileNow = () => (typeof performance !== 'undefined' && typeof performance.now === 'function'
+      ? performance.now()
+      : Date.now());
+    const profile = {
+      enabled: profileEnabled,
+      now: profileNow,
+      staticMs: 0,
+      dynamicMs: 0,
+      filterMs: 0,
+      blitMs: 0,
+    };
+    const renderOptions = {
+      documentSize,
+      viewportSize,
+      designSize,
+      isFixed,
+      shouldFilterArtwork,
+      dpr,
+      renderWidth: shouldFilterArtwork ? documentSize.width : clearWidth,
+      renderHeight: shouldFilterArtwork ? documentSize.height : clearHeight,
+    };
+    const staticComposite = this.getStaticComposite(renderOptions, profile);
+    if (staticComposite) {
+      renderCtx.drawImage(staticComposite, 0, 0);
+      painted += staticComposite.__vesselStaticPainted ?? 0;
+      const dynamicStart = profile.enabled ? profile.now() : 0;
+      this.dynamicLayerEntries.forEach((entry, index) => {
+        if (this.paintLayerEntry(entry, index, renderCtx, renderOptions)) {
+          painted += 1;
         }
-        const tolerance = 0.5;
-        return rect.x <= tolerance
-          && rect.y <= tolerance
-          && rect.width >= sourceWidth - tolerance
-          && rect.height >= sourceHeight - tolerance;
-      };
-
-      const tinyContentBounds = Boolean(
-        normalizedContentBounds
-        && normalizedContentBounds.width <= 1.5
-        && normalizedContentBounds.height <= 1.5
-        && (sourceWidth > 2 || sourceHeight > 2)
-      );
-      const shouldPreferDocumentRect = Boolean(
-        paintedRectFromDocument
-        && (
-          isFixed
-          || (isColorCycleLayer && (!normalizedContentBounds || isFullSurfaceRect(normalizedContentBounds)))
-          || (entry.layer.type === 'sequential' && tinyContentBounds)
-        )
-      );
-
-      const paintedRect = shouldPreferDocumentRect
-        ? paintedRectFromDocument
-        : normalizedContentBounds
-          ?? normalizedPixelBounds
-          ?? {
-            x: 0,
-            y: 0,
-            width: sourceWidth,
-            height: sourceHeight
-          };
-
-      if (paintedRect.x >= sourceWidth) {
-        paintedRect.x = Math.max(0, sourceWidth - 1);
-      }
-      if (paintedRect.y >= sourceHeight) {
-        paintedRect.y = Math.max(0, sourceHeight - 1);
-      }
-      if (paintedRect.x + paintedRect.width > sourceWidth) {
-        paintedRect.width = Math.max(1, sourceWidth - paintedRect.x);
-      }
-      if (paintedRect.y + paintedRect.height > sourceHeight) {
-        paintedRect.height = Math.max(1, sourceHeight - paintedRect.y);
-      }
-
-      // log removed
-
-      const viewportFrame = {
-        x: 0,
-        y: 0,
-        width: viewportSize.width,
-        height: viewportSize.height
-      };
-
-      const autoOffsetPercent = entry.layer.alignment?.positioning === 'auto'
-        ? entry.layer.alignment?.offsetPercent
-        : undefined;
-
-      const align = normalizeAlign(entry.layer.alignment, autoOffsetPercent);
-
-      const basis = {
-        surface: { width: sourceWidth, height: sourceHeight },
-        painted: {
-          width: paintedRect.width,
-          height: paintedRect.height
-        },
-        frame: viewportFrame,
-        design: isFixed ? undefined : designSize,
-        doc: documentSize,
-        align
-      };
-
-      // log removed
-
-      const directFixedPlacement = isFixed && entry.layer.documentBoundsPx
-        ? (() => {
-            const docRect = entry.layer.documentBoundsPx;
-            const scaleX = viewportSize.width / Math.max(1, documentSize.width);
-            const scaleY = viewportSize.height / Math.max(1, documentSize.height);
-            return {
-              dest: {
-                x: Math.round(toNum(docRect.x, 0) * scaleX),
-                y: Math.round(toNum(docRect.y, 0) * scaleY),
-                width: Math.max(1, Math.round(fitPositive(docRect.width, 1) * scaleX)),
-                height: Math.max(1, Math.round(fitPositive(docRect.height, 1) * scaleY))
-              }
-            };
-          })()
-        : null;
-
-      const placement = directFixedPlacement ?? computePlacement(basis);
-
-      const units = isFixed ? 'backing' : 'css';
-      const destForLog = (() => {
-        const cssRect = placement.dest;
-        if (units === 'css') {
-          return cssRect;
-        }
-        return {
-          x: Math.round(cssRect.x * dpr),
-          y: Math.round(cssRect.y * dpr),
-          width: Math.max(1, Math.round(cssRect.width * dpr)),
-          height: Math.max(1, Math.round(cssRect.height * dpr))
-        };
-      })();
-
-      diagnostics.log(`[goblet] Placement resolved for ${entry.layer.id}`, {
-        placement,
-        units,
-        destForLog
       });
-
-      const blendMode = entry.layer.blendMode ?? 'source-over';
-      const opacity = Number.isFinite(entry.layer.opacity) ? clamp(entry.layer.opacity, 0, 1) : 1;
-
-      renderCtx.save();
-      renderCtx.globalCompositeOperation = blendMode;
-      renderCtx.globalAlpha = opacity;
-
-      if (__DEV__) {
-        if (!(placement.dest.width > 0 && placement.dest.height > 0)) {
-          console.warn('[align] non-positive dest size', { placement, layer: entry.layer.id });
+      if (profile.enabled) {
+        profile.dynamicMs += profile.now() - dynamicStart;
+      }
+    } else {
+      const dynamicStart = profile.enabled ? profile.now() : 0;
+      sorted.forEach((entry, index) => {
+        if (this.paintLayerEntry(entry, index, renderCtx, renderOptions)) {
+          painted += 1;
         }
-      }
-
-      const drawResult = drawLayerWithPlacement(
-        renderCtx,
-        source,
-        placement,
-        {
-          isFixed: isFixed && !shouldFilterArtwork,
-          dpr,
-          paintedRect,
-          fit: directFixedPlacement ? 'none' : align.fit
-        }
-      );
-
-      if (!drawResult.ok) {
-        renderCtx.restore();
-        diagnostics.log(`[goblet] Failed to paint layer ${entry.layer.id}`);
-        return;
-      }
-
-      const transformBeforeDraw = snapshotTransform(renderCtx);
-      if (!isIdentityTransform(transformBeforeDraw)) {
-        warnNonIdentityTransform(entry.layer?.id, transformBeforeDraw);
-      }
-
-      const sampleForLog = drawResult.tileCanvas
-        ? { x: 0, y: 0, width: drawResult.tileCanvas.width, height: drawResult.tileCanvas.height }
-        : null;
-      const sourceForLog = drawResult.tileCanvas ?? source;
-
-      logLayerDraw(entry.layer, sourceForLog, sampleForLog, destForLog, units);
-
-      diagnostics.log('Drew layer successfully', {
-        layerId: entry.layer.id,
-        mode: placement.tile ? 'tile' : 'draw-image',
-        destination: destForLog
       });
-
-      renderCtx.restore();
-      painted += 1;
-    });
+      if (profile.enabled) {
+        profile.dynamicMs += profile.now() - dynamicStart;
+      }
+    }
 
     diagnostics.log(`[goblet] Painted ${painted} of ${sorted.length} layers`);
 
@@ -5152,6 +5333,7 @@ class VesselGoblet {
         Math.abs(documentViewportMapping.scaleY) || 0,
         1e-4,
       );
+      const filterStart = profile.enabled ? profile.now() : 0;
       const finalFilteredCanvas = applyDisplayFilterStack({
         sourceCanvas: filterSurfaceCanvas,
         displayFilters,
@@ -5164,6 +5346,10 @@ class VesselGoblet {
         },
         lengthScale: filterLengthScale,
       });
+      if (profile.enabled) {
+        profile.filterMs += profile.now() - filterStart;
+      }
+      const blitStart = profile.enabled ? profile.now() : 0;
       ctx.drawImage(
         finalFilteredCanvas,
         0,
@@ -5175,9 +5361,20 @@ class VesselGoblet {
         documentSize.width * documentViewportMapping.scaleX,
         documentSize.height * documentViewportMapping.scaleY,
       );
+      if (profile.enabled) {
+        profile.blitMs += profile.now() - blitStart;
+      }
     }
 
     logSummary(painted, sorted.length, startTime);
+    this.lastRenderProfile = profile.enabled
+      ? {
+        staticMs: profile.staticMs,
+        dynamicMs: profile.dynamicMs,
+        filterMs: profile.filterMs,
+        blitMs: profile.blitMs,
+      }
+      : null;
 
     ctx.restore();
   }
@@ -5332,8 +5529,7 @@ class VesselGoblet {
       this.rafId = requestAnimationFrame(this.handleAnimationFrame);
       return;
     }
-    const profileEnabled = diagnosticsEnabled
-      && typeof window !== 'undefined'
+    const profileEnabled = typeof window !== 'undefined'
       && window.localStorage
       && window.localStorage.getItem('vesselGobletProfile') === 'true';
     const profileNow = () => (typeof performance !== 'undefined' && typeof performance.now === 'function'
@@ -5358,10 +5554,15 @@ class VesselGoblet {
     }
     if (profileEnabled) {
       const fps = delta > 0 ? (1 / delta) : 0;
-      diagnostics.log(
+      const renderProfile = this.lastRenderProfile ?? {};
+      console.log(
         '[goblet][profile] frame',
         `advance=${(advanceEnd - advanceStart).toFixed(2)}ms`,
         `render=${renderStart ? (renderEnd - renderStart).toFixed(2) : '0.00'}ms`,
+        `static=${(renderProfile.staticMs ?? 0).toFixed(2)}ms`,
+        `dynamic=${(renderProfile.dynamicMs ?? 0).toFixed(2)}ms`,
+        `filter=${(renderProfile.filterMs ?? 0).toFixed(2)}ms`,
+        `blit=${(renderProfile.blitMs ?? 0).toFixed(2)}ms`,
         `layers=${this.dynamicPlayers.length}`,
         `fps=${fps.toFixed(1)}`
       );

@@ -59,4 +59,45 @@ describe('Goblet 2 runtime export regression guard', () => {
     expect(runtime).toContain('Number.isFinite(recolorSettings?.height) ? recolorSettings.height : this.canvas.height');
     expect(runtime).toContain('this.canvas.width !== sourceWidth || this.canvas.height !== sourceHeight');
   });
+
+  it('keeps hidden animated layers out of the Goblet 2 animation loop', () => {
+    const runtime = read('public/goblet2/goblet2.js');
+
+    expect(runtime).toContain('this.dynamicPlayers = entries\n      .filter((entry) => entry.layer.visible !== false)');
+    expect(runtime).toContain('this.dynamicPlayerSet = new Set(this.dynamicPlayers);');
+  });
+
+  it('caches static Goblet 2 layers before painting dynamic layers', () => {
+    const runtime = read('public/goblet2/goblet2.js');
+
+    expect(runtime).toContain('this.sortedLayerEntries = [...entries];');
+    expect(runtime).toContain('this.staticLayerEntries = this.sortedLayerEntries.filter((entry) => (');
+    expect(runtime).toContain('this.dynamicLayerEntries = this.sortedLayerEntries.filter((entry) => (');
+    expect(runtime).toContain('this.staticCompositeLayerKey = JSON.stringify(this.staticLayerEntries.map((entry) => [');
+    expect(runtime).toContain('this.staticCompositeCtx = null;');
+    expect(runtime).toContain('const staticLayersRequireBackdrop = this.staticLayerEntries.some((entry) => (');
+    expect(runtime).toContain("(entry.layer.blendMode ?? 'source-over') !== 'source-over'");
+    expect(runtime).toContain('this.canUseStaticComposite = !staticLayersRequireBackdrop;');
+    expect(runtime).toContain('getStaticComposite(renderOptions, profile)');
+    expect(runtime).toContain('entry.layer.visible !== false && !this.isDynamicEntry(entry)');
+    expect(runtime).toContain('let seenDynamicLayer = false;');
+    expect(runtime).toContain('if (!this.canUseStaticComposite) {');
+    expect(runtime).toContain('const staticEntries = this.staticLayerEntries;');
+    expect(runtime).toContain('const key = [');
+    expect(runtime).toContain('const cacheCtx = this.staticCompositeCtx ?? canvas.getContext(\'2d\');');
+    expect(runtime).toContain('renderCtx.drawImage(staticComposite, 0, 0);');
+    expect(runtime).toContain('this.dynamicLayerEntries.forEach((entry, index) => {');
+    expect(runtime).toContain('if (diagnosticsEnabled) {\n      const transformBeforeDraw = snapshotTransform(renderCtx);');
+    expect(runtime).toContain('if (diagnosticsEnabled) {\n      units = isFixed ? \'backing\' : \'css\';');
+  });
+
+  it('profiles Goblet 2 render phases without requiring diagnostics logging', () => {
+    const runtime = read('public/goblet2/goblet2.js');
+
+    expect(runtime).toContain("window.localStorage.getItem('vesselGobletProfile') === 'true';");
+    expect(runtime).toContain('`static=${(renderProfile.staticMs ?? 0).toFixed(2)}ms`');
+    expect(runtime).toContain('`dynamic=${(renderProfile.dynamicMs ?? 0).toFixed(2)}ms`');
+    expect(runtime).toContain('`filter=${(renderProfile.filterMs ?? 0).toFixed(2)}ms`');
+    expect(runtime).toContain('`blit=${(renderProfile.blitMs ?? 0).toFixed(2)}ms`');
+  });
 });

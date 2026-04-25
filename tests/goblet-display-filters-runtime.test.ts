@@ -32,6 +32,31 @@ describe('Goblet display filter runtime parity', () => {
     expect(runtime).toContain('const finalFilteredCanvas = applyDisplayFilterStack({');
   });
 
+  it('keeps Goblet 1 static cache and hidden-animation skip in the module runtime', () => {
+    const runtime = read('public/goblet/goblet.js');
+
+    expect(runtime).toContain('this.dynamicPlayers = entries\n      .filter((entry) => entry.layer.visible !== false)');
+    expect(runtime).toContain('this.sortedLayerEntries = [...entries];');
+    expect(runtime).toContain('this.staticLayerEntries = this.sortedLayerEntries.filter((entry) => (');
+    expect(runtime).toContain('this.dynamicLayerEntries = this.sortedLayerEntries.filter((entry) => (');
+    expect(runtime).toContain('this.staticCompositeLayerKey = JSON.stringify(this.staticLayerEntries.map((entry) => [');
+    expect(runtime).toContain('this.staticCompositeCtx = null;');
+    expect(runtime).toContain('const staticLayersRequireBackdrop = this.staticLayerEntries.some((entry) => (');
+    expect(runtime).toContain("(entry.layer.blendMode ?? 'source-over') !== 'source-over'");
+    expect(runtime).toContain('this.canUseStaticComposite = !staticLayersRequireBackdrop;');
+    expect(runtime).toContain('getStaticComposite(renderOptions, profile)');
+    expect(runtime).toContain('entry.layer.visible !== false && !this.isDynamicEntry(entry)');
+    expect(runtime).toContain('let seenDynamicLayer = false;');
+    expect(runtime).toContain('if (!this.canUseStaticComposite) {');
+    expect(runtime).toContain('const staticEntries = this.staticLayerEntries;');
+    expect(runtime).toContain('const key = [');
+    expect(runtime).toContain('const cacheCtx = this.staticCompositeCtx ?? canvas.getContext(\'2d\');');
+    expect(runtime).toContain('renderCtx.drawImage(staticComposite, 0, 0);');
+    expect(runtime).toContain('this.dynamicLayerEntries.forEach((entry, index) => {');
+    expect(runtime).toContain('if (diagnosticsEnabled) {\n      const transformBeforeDraw = snapshotTransform(renderCtx);');
+    expect(runtime).toContain('if (diagnosticsEnabled) {\n      units = isFixed ? \'backing\' : \'css\';');
+  });
+
   it('includes display filter handling in Goblet 2', () => {
     const runtime = read('public/goblet2/goblet2.js');
 
