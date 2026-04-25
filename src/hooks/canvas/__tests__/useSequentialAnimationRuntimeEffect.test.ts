@@ -156,7 +156,15 @@ describe('useSequentialAnimationRuntimeEffect', () => {
     unmount();
   });
 
-  it('limits visible frame advance to one step per tick during large delta catch-up', () => {
+  it('drops huge realtime gaps instead of catching up after tab resume', () => {
+    useAppStore.setState((state) => ({
+      sequentialRecord: {
+        ...state.sequentialRecord,
+        isPointerDown: false,
+        isCaptureActive: false,
+        currentFrame: 0,
+      },
+    }));
     const storeRef = { current: useAppStore.getState() as AppState };
 
     const { unmount } = renderHook(() => {
@@ -171,13 +179,46 @@ describe('useSequentialAnimationRuntimeEffect', () => {
     });
     act(() => {
       // fps=10 => frameDuration=100ms.
-      // delta=5000ms would be 50 frame advances without smoothing.
-      // Runtime now advances at most 1 frame per RAF tick for smoother playback.
+      // delta=5000ms simulates a hidden tab resuming; it should not create catch-up speed.
       rafCallback?.(6000);
     });
 
     const nextState = useAppStore.getState();
-    expect(nextState.sequentialRecord.currentFrame).toBe(1);
+    expect(nextState.sequentialRecord.currentFrame).toBe(0);
+
+    act(() => {
+      rafCallback?.(6100);
+    });
+
+    expect(useAppStore.getState().sequentialRecord.currentFrame).toBe(1);
+
+    unmount();
+  });
+
+  it('advances at most one frame per tick during capture catch-up', () => {
+    const storeRef = { current: useAppStore.getState() as AppState };
+
+    const { unmount } = renderHook(() => {
+      storeRef.current = useAppStore.getState() as AppState;
+      useSequentialAnimationRuntimeEffect({ storeRef });
+    });
+
+    expect(rafCallback).toBeTruthy();
+
+    act(() => {
+      rafCallback?.(1000);
+    });
+    act(() => {
+      rafCallback?.(6000);
+    });
+
+    expect(useAppStore.getState().sequentialRecord.currentFrame).toBe(0);
+
+    act(() => {
+      rafCallback?.(6100);
+    });
+
+    expect(useAppStore.getState().sequentialRecord.currentFrame).toBe(1);
 
     unmount();
   });

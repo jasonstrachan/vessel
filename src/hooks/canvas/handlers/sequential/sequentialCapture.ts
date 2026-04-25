@@ -18,6 +18,10 @@ import {
   recordSequentialFlushPerf,
   recordSequentialTemporalDistributionPerf,
 } from '@/lib/sequential/SequentialPerfCounters';
+import {
+  appendSequentialLivePreviewEvents,
+  clearSequentialLivePreview,
+} from '@/lib/sequential/SequentialLivePreviewRuntime';
 import { selectSequentialCaptureActive, type AppState } from '@/stores/useAppStore';
 import { resolvePressureSizing } from '@/utils/pressureSizing';
 import { resolveBrushPressureRange } from '@/utils/pressureSettings';
@@ -34,7 +38,10 @@ import {
 export const MAX_SEQUENTIAL_STAMPS_PER_SEC = 6000;
 const STAMP_BURST_WINDOW_SECONDS = 0.1;
 const STAMP_BURST_CAPACITY = MAX_SEQUENTIAL_STAMPS_PER_SEC * STAMP_BURST_WINDOW_SECONDS;
-const MAX_TEMPORAL_DISTRIBUTION_FRAMES = 3;
+const BASE_TEMPORAL_DISTRIBUTION_FRAMES = 3;
+const MAX_TEMPORAL_DISTRIBUTION_FRAMES = 6;
+const HIGH_SMEAR_BUCKET_STEP = 30;
+const HIGH_SMEAR_DENSIFY_STEP = 80;
 
 export interface SequentialStampCapRuntime {
   sessionKey: string | null;
@@ -205,6 +212,7 @@ export const flushBufferedSequentialEvents = ({
         fps: entry.fps,
         durationMs: entry.durationMs,
       });
+      clearSequentialLivePreview(layerId);
       entry.byFrame.clear();
       flushedEventCount += entry.events.length;
     });
@@ -330,6 +338,7 @@ export const noteSequentialCaptureActivity = ({
   targetRuntime.lastAcceptedStamp = null;
   targetRuntime.lastAcceptedStampAtMs = null;
   targetRuntime.emittedCustomStampHashes.clear();
+  clearSequentialLivePreview();
 };
 
 const normalizeFrameIndex = (frame: number, frameCount: number): number => {
@@ -401,7 +410,10 @@ const buildTemporalFrameBuckets = ({
   if (smearFactor <= 1.01 && !forceSplit) {
     return [{ frameIndex: baseFrameIndex, stamps }];
   }
-  const requestedBucketCount = Math.round(smearFactor);
+  const requestedBucketCount =
+    smearFactor <= BASE_TEMPORAL_DISTRIBUTION_FRAMES
+      ? Math.round(smearFactor)
+      : Math.ceil(smearFactor / HIGH_SMEAR_BUCKET_STEP);
   const baseDensityBucketCount = Math.min(
     MAX_TEMPORAL_DISTRIBUTION_FRAMES,
     stamps.length >= 12 ? 3 : stamps.length >= 6 ? 2 : 1
@@ -793,16 +805,17 @@ const densifySequentialStampsForSmear = ({
     to: SequentialStampPoint
   ): { segmentPx: number; maxExtraPoints: number } => {
     const avgSize = Math.max(1, (Math.max(0, from.size) + Math.max(0, to.size)) * 0.5);
+    const highSmearMultiplier = Math.max(1, Math.ceil(smearFactor / HIGH_SMEAR_DENSIFY_STEP));
     if (avgSize >= 64) {
-      return { segmentPx: 32, maxExtraPoints: 1 };
+      return { segmentPx: 32, maxExtraPoints: 1 * highSmearMultiplier };
     }
     if (avgSize >= 32) {
-      return { segmentPx: 20, maxExtraPoints: 2 };
+      return { segmentPx: 20, maxExtraPoints: 2 * highSmearMultiplier };
     }
     if (avgSize >= 16) {
-      return { segmentPx: 12, maxExtraPoints: 3 };
+      return { segmentPx: 12, maxExtraPoints: 3 * highSmearMultiplier };
     }
-    return { segmentPx: 8, maxExtraPoints: 4 };
+    return { segmentPx: 8, maxExtraPoints: 4 * highSmearMultiplier };
   };
 
   let totalPointCount = stamps.length;
@@ -1427,6 +1440,14 @@ export const captureSequentialStampsForActiveLayer = ({
       runtime: captureEventBufferRuntime,
     });
   }
+  appendSequentialLivePreviewEvents({
+    layerId: activeLayer.id,
+    sessionKey,
+    width: state.project?.width ?? activeLayer.framebuffer?.width ?? 1,
+    height: state.project?.height ?? activeLayer.framebuffer?.height ?? 1,
+    frameCount,
+    events: distributedEvents,
+  });
   payloadNotificationRuntime.hardCapBlockedAtBytes = null;
   capRuntime.eventCounter += distributedEvents.length;
   const lastAcceptedStamp = cappedStamps[cappedStamps.length - 1];

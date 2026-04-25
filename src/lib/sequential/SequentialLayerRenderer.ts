@@ -19,18 +19,27 @@ interface LayerRuntime {
   layerId: string;
   eventLog: SequentialEventLog;
   frameCache: SequentialFrameCache;
+  presentationCache: Map<number, PresentationCacheEntry>;
   materializer: SequentialMaterializerBackend;
   backendKind: SequentialMaterializerBackendKind;
   renderSignature: string;
   eventCount: number;
   lastEventId: string | null;
   targetCanvas: HTMLCanvasElement | OffscreenCanvas | null;
+  presentationAccessTick: number;
+}
+
+interface PresentationCacheEntry {
+  canvas: HTMLCanvasElement | OffscreenCanvas;
+  lastAccessTick: number;
 }
 
 const layerRuntimes = new Map<string, LayerRuntime>();
 let sequentialGpuUnavailable = false;
 let sequentialGpuFallbackLogged = false;
 const MAX_EMPTY_FRAME_HOLD_LOOKBACK = 2;
+const MAX_PRESENTATION_CACHE_ENTRIES = 48;
+const MAX_PRESENTATION_CACHE_BYTES = 64 * 1024 * 1024;
 
 const createCanvas = (
   width: number,
@@ -73,6 +82,97 @@ const ensureCanvas = (
   return canvas;
 };
 
+const ensurePresentationCanvas = (
+  existing: HTMLCanvasElement | OffscreenCanvas | null,
+  width: number,
+  height: number
+): HTMLCanvasElement | OffscreenCanvas | null => {
+  const canvas = existing ?? createCanvas(width, height);
+  if (!canvas) {
+    return null;
+  }
+  const safeWidth = Math.max(1, Math.round(width));
+  const safeHeight = Math.max(1, Math.round(height));
+  if (canvas.width !== safeWidth || canvas.height !== safeHeight) {
+    canvas.width = safeWidth;
+    canvas.height = safeHeight;
+  }
+  return canvas;
+};
+
+const clearPresentationCache = (runtime: LayerRuntime): void => {
+  runtime.presentationCache.clear();
+  runtime.presentationAccessTick = 0;
+};
+
+const invalidatePresentationFrame = (
+  runtime: LayerRuntime,
+  frameIndex: number
+): void => {
+  runtime.presentationCache.delete(frameIndex);
+};
+
+const getPresentationCacheCanvas = (
+  runtime: LayerRuntime,
+  frameIndex: number
+): HTMLCanvasElement | OffscreenCanvas | null => {
+  const entry = runtime.presentationCache.get(frameIndex);
+  if (!entry) {
+    return null;
+  }
+  runtime.presentationAccessTick += 1;
+  entry.lastAccessTick = runtime.presentationAccessTick;
+  return entry.canvas;
+};
+
+const setPresentationCacheCanvas = ({
+  runtime,
+  frameIndex,
+  tileSet,
+  width,
+  height,
+}: {
+  runtime: LayerRuntime;
+  frameIndex: number;
+  tileSet: FrameTileSet;
+  width: number;
+  height: number;
+}): HTMLCanvasElement | OffscreenCanvas | null => {
+  const existing = runtime.presentationCache.get(frameIndex)?.canvas ?? null;
+  const canvas = ensurePresentationCanvas(existing, width, height);
+  if (!canvas) {
+    return null;
+  }
+  if (!copyTileSetToCanvas({ canvas, tileSet })) {
+    return null;
+  }
+  runtime.presentationAccessTick += 1;
+  runtime.presentationCache.set(frameIndex, {
+    canvas,
+    lastAccessTick: runtime.presentationAccessTick,
+  });
+
+  const approximateBytesPerCanvas = Math.max(1, Math.round(width)) * Math.max(1, Math.round(height)) * 4;
+  const maxEntriesForCanvasSize = Math.max(
+    1,
+    Math.min(
+      MAX_PRESENTATION_CACHE_ENTRIES,
+      Math.floor(MAX_PRESENTATION_CACHE_BYTES / approximateBytesPerCanvas)
+    )
+  );
+
+  if (runtime.presentationCache.size > maxEntriesForCanvasSize) {
+    const candidates = Array.from(runtime.presentationCache.entries()).sort(
+      (a, b) => a[1].lastAccessTick - b[1].lastAccessTick
+    );
+    const overflowCount = runtime.presentationCache.size - maxEntriesForCanvasSize;
+    for (let i = 0; i < overflowCount; i += 1) {
+      runtime.presentationCache.delete(candidates[i][0]);
+    }
+  }
+  return canvas;
+};
+
 const getOrCreateRuntime = (layerId: string): LayerRuntime => {
   const desiredBackend = isFeatureFlagEnabled('enableSequentialGpuAcceleration') && !sequentialGpuUnavailable
     ? 'gpu'
@@ -85,6 +185,7 @@ const getOrCreateRuntime = (layerId: string): LayerRuntime => {
       existing.materializer = nextBackend.materializer;
       existing.backendKind = nextBackend.kind;
       existing.frameCache.clearLayer(layerId);
+      clearPresentationCache(existing);
       existing.renderSignature = '';
       existing.eventCount = 0;
       existing.lastEventId = null;
@@ -96,12 +197,14 @@ const getOrCreateRuntime = (layerId: string): LayerRuntime => {
     layerId,
     eventLog: new SequentialEventLog(),
     frameCache: new SequentialFrameCache({ maxEntries: 128 }),
+    presentationCache: new Map(),
     materializer: initialBackend.materializer,
     backendKind: initialBackend.kind,
     renderSignature: '',
     eventCount: 0,
     lastEventId: null,
     targetCanvas: null,
+    presentationAccessTick: 0,
   };
   layerRuntimes.set(layerId, runtime);
   return runtime;
@@ -329,6 +432,7 @@ export const getSequentialLayerRenderCanvas = ({
     runtime.renderSignature = renderSignature;
     runtime.eventLog.replaceLayer(layer.id, allEvents);
     runtime.frameCache.clearLayer(layer.id);
+    clearPresentationCache(runtime);
     runtime.eventCount = eventCount;
     runtime.lastEventId = eventCount > 0 ? allEvents[eventCount - 1]?.id ?? null : null;
   } else if (
@@ -337,6 +441,7 @@ export const getSequentialLayerRenderCanvas = ({
   ) {
     runtime.eventLog.replaceLayer(layer.id, allEvents);
     runtime.frameCache.clearLayer(layer.id);
+    clearPresentationCache(runtime);
     runtime.eventCount = eventCount;
     runtime.lastEventId = eventCount > 0 ? allEvents[eventCount - 1]?.id ?? null : null;
   } else if (eventCount > runtime.eventCount) {
@@ -350,6 +455,7 @@ export const getSequentialLayerRenderCanvas = ({
       const cachedTileSet = runtime.frameCache.peek(layer.id, appendedFrameIndex);
       if (!cachedTileSet) {
         runtime.frameCache.markDirty(layer.id, appendedFrameIndex);
+        invalidatePresentationFrame(runtime, appendedFrameIndex);
         return { attempted: false, applied: false, fallback: false };
       }
       try {
@@ -396,16 +502,19 @@ export const getSequentialLayerRenderCanvas = ({
           }
         } else {
           runtime.frameCache.markDirty(layer.id, appendedFrameIndex);
+          invalidatePresentationFrame(runtime, appendedFrameIndex);
           return { attempted: false, applied: false, fallback: false };
         }
         if (reasonForPatch) {
           recordSequentialPatchReason(reasonForPatch);
         }
         runtime.frameCache.set(layer.id, appendedFrameIndex, patchedTileSet);
+        invalidatePresentationFrame(runtime, appendedFrameIndex);
         return { attempted: true, applied: true, fallback: false };
       } catch {
         recordSequentialPatchReason('fallback_exception');
         runtime.frameCache.markDirty(layer.id, appendedFrameIndex);
+        invalidatePresentationFrame(runtime, appendedFrameIndex);
         return { attempted: true, applied: false, fallback: true };
       }
     };
@@ -456,13 +565,16 @@ export const getSequentialLayerRenderCanvas = ({
     frameIndex,
     layer.sequentialData.frameCount
   );
+  const framePreviewEvents = previewEvents ?? [];
+  const shouldHoldEmptyFrame =
+    holdPreviousOnEmptyFrames && framePreviewEvents.length === 0;
 
   let sourceFrameIndex = normalizedFrameIndex;
   let committedFrameEvents = runtime.eventLog.getLayerFrameEventsReadonly(
     layer.id,
     sourceFrameIndex
   );
-  if (holdPreviousOnEmptyFrames && committedFrameEvents.length === 0) {
+  if (shouldHoldEmptyFrame && committedFrameEvents.length === 0) {
     const maxLookbackFrames = resolveHoldLookbackFrames({
       fps: layer.sequentialData.fps,
       frameCount: layer.sequentialData.frameCount,
@@ -485,6 +597,14 @@ export const getSequentialLayerRenderCanvas = ({
   }
 
   const shouldUseFallbackFrame = sourceFrameIndex !== normalizedFrameIndex;
+  if (framePreviewEvents.length === 0) {
+    const presentationCanvas = getPresentationCacheCanvas(runtime, sourceFrameIndex);
+    if (presentationCanvas) {
+      void runtime.frameCache.get(layer.id, sourceFrameIndex);
+      return presentationCanvas;
+    }
+  }
+
   let tileSet = shouldUseFallbackFrame
     ? runtime.frameCache.get(layer.id, sourceFrameIndex)
     : runtime.frameCache.get(layer.id, normalizedFrameIndex);
@@ -499,7 +619,6 @@ export const getSequentialLayerRenderCanvas = ({
     runtime.frameCache.set(layer.id, sourceFrameIndex, tileSet);
   }
   let renderTileSet = tileSet;
-  const framePreviewEvents = previewEvents ?? [];
   if (framePreviewEvents.length > 0) {
     if (runtime.materializer.patchFrame) {
       try {
@@ -600,6 +719,16 @@ export const getSequentialLayerRenderCanvas = ({
     }
   }
 
+  if (framePreviewEvents.length === 0) {
+    return setPresentationCacheCanvas({
+      runtime,
+      frameIndex: sourceFrameIndex,
+      tileSet: renderTileSet,
+      width,
+      height,
+    });
+  }
+
   const canvas = ensureCanvas(runtime, width, height);
   if (!canvas) {
     return null;
@@ -640,6 +769,7 @@ export const clearSequentialLayerRendererLayer = (layerId: string): void => {
     return;
   }
   runtime.frameCache.clearLayer(layerId);
+  clearPresentationCache(runtime);
   runtime.eventLog.clearLayer(layerId);
   runtime.renderSignature = '';
   runtime.eventCount = 0;

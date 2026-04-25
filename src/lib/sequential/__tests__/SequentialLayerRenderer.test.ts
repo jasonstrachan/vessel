@@ -76,11 +76,19 @@ const createLayerWithFrameCount = (
 const readCenterPixel = (
   canvas: HTMLCanvasElement | OffscreenCanvas
 ): [number, number, number, number] => {
+  return readPixel(canvas, 8, 8);
+};
+
+const readPixel = (
+  canvas: HTMLCanvasElement | OffscreenCanvas,
+  x: number,
+  y: number
+): [number, number, number, number] => {
   const ctx = canvas.getContext('2d');
   if (!ctx || typeof (ctx as CanvasRenderingContext2D).getImageData !== 'function') {
     return [0, 0, 0, 0];
   }
-  const sample = (ctx as CanvasRenderingContext2D).getImageData(8, 8, 1, 1).data;
+  const sample = (ctx as CanvasRenderingContext2D).getImageData(x, y, 1, 1).data;
   return [sample[0], sample[1], sample[2], sample[3]];
 };
 
@@ -130,8 +138,48 @@ describe('SequentialLayerRenderer', () => {
       height: 16,
       frameIndex: 1,
     });
+    const frame1Again = getSequentialLayerRenderCanvas({
+      layer,
+      width: 16,
+      height: 16,
+      frameIndex: 1,
+    });
+    expect(frame1Again).toBe(frame1);
     const statsAfterHit = getSequentialLayerRendererStats();
     expect(statsAfterHit.hits).toBeGreaterThan(statsAfterMisses.hits);
+  });
+
+  it('reuses rendered presentation canvases for committed frame playback', () => {
+    const materializeFrameSpy = jest.spyOn(
+      SequentialCpuMaterializer.prototype,
+      'materializeFrame'
+    );
+    try {
+      const layer = createLayer([
+        createEvent('f0', 0, '#ff0000'),
+        createEvent('f1', 1, '#00ff00'),
+      ]);
+
+      const first = getSequentialLayerRenderCanvas({
+        layer,
+        width: 16,
+        height: 16,
+        frameIndex: 0,
+      });
+      expect(first).not.toBeNull();
+      const callsAfterFirst = materializeFrameSpy.mock.calls.length;
+
+      const second = getSequentialLayerRenderCanvas({
+        layer,
+        width: 16,
+        height: 16,
+        frameIndex: 0,
+      });
+      expect(second).toBe(first);
+      expect(materializeFrameSpy.mock.calls.length).toBe(callsAfterFirst);
+    } finally {
+      materializeFrameSpy.mockRestore();
+    }
   });
 
   it('falls back to CPU materializer when GPU backend is unavailable', () => {
@@ -300,6 +348,34 @@ describe('SequentialLayerRenderer', () => {
     expect(committedAgain).not.toBeNull();
     const committedAgainPixel = readCenterPixel(committedAgain!);
     expect(committedAgainPixel[0]).toBeGreaterThan(committedAgainPixel[1]);
+  });
+
+  it('renders preview events against the current frame instead of a held previous frame', () => {
+    const layer = createLayerWithFrameCount([createEvent('f0-base', 0, '#ff0000')], 4);
+    const basePreviewEvent = createEvent('f1-preview', 1, '#00ff00');
+    const previewEvent: SequentialStrokeEvent = {
+      ...basePreviewEvent,
+      brush: {
+        ...basePreviewEvent.brush,
+        size: 4,
+      },
+      stamps: [{ x: 2, y: 2, pressure: 1, rotation: 0, size: 4, alpha: 1 }],
+    };
+
+    const previewCanvas = getSequentialLayerRenderCanvas({
+      layer,
+      width: 16,
+      height: 16,
+      frameIndex: 1,
+      previewEvents: [previewEvent],
+      holdPreviousOnEmptyFrames: true,
+    });
+    expect(previewCanvas).not.toBeNull();
+
+    const previewPixel = readPixel(previewCanvas!, 2, 2);
+    expect(previewPixel[1]).toBeGreaterThan(previewPixel[0]);
+    const previousFrameOnlyPixel = readCenterPixel(previewCanvas!);
+    expect(previousFrameOnlyPixel[3]).toBe(0);
   });
 
   it('prefers patchFrame over materializeRect for preview rendering deltas', () => {

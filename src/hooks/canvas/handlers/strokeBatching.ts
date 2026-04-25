@@ -231,6 +231,7 @@ export const processBatchedStrokes = (
       stamps,
       customBrushData,
       pluginBrushId,
+      nowMs: Date.now(),
     });
   };
 

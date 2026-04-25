@@ -15,12 +15,12 @@ describe('sequentialSettingsStorage', () => {
   });
 
   it('saves and loads sanitized time smear values', () => {
-    saveSequentialSettings({ timeSmear: 120 });
+    saveSequentialSettings({ timeSmear: 240 });
 
     expect(window.localStorage.getItem('vessel:sequential-settings')).toBe(
-      JSON.stringify({ timeSmear: 80 })
+      JSON.stringify({ timeSmear: 160 })
     );
-    expect(loadSequentialSettings()).toEqual({ timeSmear: 80 });
+    expect(loadSequentialSettings()).toEqual({ timeSmear: 160 });
   });
 
   it('returns null for invalid payloads', () => {

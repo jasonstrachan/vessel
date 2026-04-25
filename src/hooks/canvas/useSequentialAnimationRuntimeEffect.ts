@@ -30,6 +30,8 @@ const SEQUENTIAL_METRICS_SAMPLE_MS = 250;
 const SEQUENTIAL_CAPTURE_CHECKPOINT_FLUSH_MS = 1000;
 const SEQUENTIAL_CAPTURE_CHECKPOINT_MAX_FLUSH_MS = 4000;
 const SEQUENTIAL_CAPTURE_CHECKPOINT_MIN_PENDING_BYTES = 64 * 1024;
+const MAX_SEQUENTIAL_FRAME_CATCH_UP_STEPS = 3;
+const MAX_SEQUENTIAL_REALTIME_DELTA_MS = 1000;
 
 const hasSequentialRuntimeState = (
   state: Partial<AppState> | null | undefined
@@ -174,14 +176,25 @@ export const useSequentialAnimationRuntimeEffect = ({
             : Date.now();
         const fps = Math.max(1, state.sequentialRecord.fps);
         const frameDurationMs = 1000 / fps;
+        const safeDeltaMs =
+          deltaMs > MAX_SEQUENTIAL_REALTIME_DELTA_MS ? 0 : Math.max(0, deltaMs);
+        if (deltaMs > MAX_SEQUENTIAL_REALTIME_DELTA_MS) {
+          accumMsRef.current = 0;
+        }
 
         let advancedFrames = 0;
         if (shouldAdvanceFrames) {
-          accumMsRef.current += Math.max(0, deltaMs);
+          accumMsRef.current += safeDeltaMs;
           if (accumMsRef.current >= frameDurationMs) {
-            state.stepSequentialFrame(1);
-            accumMsRef.current -= frameDurationMs;
-            advancedFrames = 1;
+            const maxCatchUpSteps = captureActiveNow
+              ? 1
+              : MAX_SEQUENTIAL_FRAME_CATCH_UP_STEPS;
+            advancedFrames = Math.min(
+              maxCatchUpSteps,
+              Math.max(1, Math.floor(accumMsRef.current / frameDurationMs))
+            );
+            state.stepSequentialFrame(advancedFrames);
+            accumMsRef.current -= frameDurationMs * advancedFrames;
           }
         }
 
