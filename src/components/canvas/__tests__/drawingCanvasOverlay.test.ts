@@ -126,4 +126,40 @@ describe('drawCanvasOverlayLayer', () => {
 
     expect(ctx.drawImage).toHaveBeenCalledTimes(1);
   });
+
+  it('does not render seeded active-layer overlay when the active layer is hidden', () => {
+    const ctx = {
+      save: jest.fn(),
+      restore: jest.fn(),
+      clip: jest.fn(),
+      drawImage: jest.fn(),
+      translate: jest.fn(),
+      globalAlpha: 1,
+      globalCompositeOperation: 'source-over',
+    } as unknown as CanvasRenderingContext2D;
+
+    drawCanvasOverlayLayer({
+      ctx,
+      layers: [],
+      activeLayer: {
+        id: 'bottom-layer',
+        visible: false,
+        opacity: 1,
+        blendMode: 'source-over',
+      } as unknown as Layer,
+      visibleRect: { x: 0, y: 0, width: 100, height: 100 },
+      overlayCanvasElement: document.createElement('canvas'),
+      overlayActive: true,
+      isDrawing: false,
+      colorCycleManager: null,
+      selectionStart: null,
+      selectionEnd: null,
+      selectionMask: null,
+      selectionMaskBounds: null,
+      selectionVectorPath: null,
+    });
+
+    expect(ctx.save).not.toHaveBeenCalled();
+    expect(ctx.drawImage).not.toHaveBeenCalled();
+  });
 });

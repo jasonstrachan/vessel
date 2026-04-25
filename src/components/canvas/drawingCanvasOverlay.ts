@@ -50,6 +50,10 @@ export const drawCanvasOverlayLayer = ({
     return;
   }
 
+  if (activeLayer?.visible === false) {
+    return;
+  }
+
   void layers;
   void isDrawing;
   void colorCycleManager;
