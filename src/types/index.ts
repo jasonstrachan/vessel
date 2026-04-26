@@ -401,11 +401,19 @@ export interface SequentialStrokeEvent {
   stamps: SequentialStampPoint[];
 }
 
+export interface SequentialEventChunk {
+  id: string;
+  startEventIndex: number;
+  eventCount: number;
+  frameIndexes: number[];
+}
+
 export interface SequentialLayerData {
   frameCount: number;
   fps: number;
   durationMs: number;
   events: SequentialStrokeEvent[];
+  eventChunks?: SequentialEventChunk[];
 }
 
 export interface ColorCycleGradientDef {

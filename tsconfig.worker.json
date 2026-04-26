@@ -8,6 +8,7 @@
   },
   "include": [
     "next-env.d.ts",
+    "src/lib/sequential/SequentialMaterializer.worker.ts",
     "src/workers/**/*.ts",
     "src/utils/colorCycleWorkerSupport.ts",
     "src/lib/performance/GradientWorkerManager.ts"

@@ -76,3 +76,21 @@ export const dispatchGlobalAnimationFrameUpdate = (): void => {
   }
   window.dispatchEvent(new CustomEvent('vessel:animationFrameUpdate'));
 };
+
+export interface SequentialAnimationFrameUpdateDetail {
+  frameIndex: number;
+  advancedFrames: number;
+}
+
+export const dispatchSequentialAnimationFrameUpdate = (
+  detail: SequentialAnimationFrameUpdateDetail
+): void => {
+  if (typeof window === 'undefined') {
+    return;
+  }
+  window.dispatchEvent(
+    new CustomEvent<SequentialAnimationFrameUpdateDetail>('vessel:sequentialFrameUpdate', {
+      detail,
+    })
+  );
+};

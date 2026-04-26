@@ -25,6 +25,7 @@ import { drawSelectionLayer } from './drawingCanvasSelection';
 import { applyCanvasShapeClip, strokeCanvasShapeOutline } from '@/utils/canvasShape';
 import { isOverlaySeededFromLayer } from '@/hooks/canvas/utils/overlaySeedState';
 import { recordBreadcrumb } from '@/utils/debug';
+import { getSequentialRenderFrame } from '@/runtime/playback/sequentialFrameCursor';
 
 const CANVAS_CHECKER_LIGHT = '#2a2a2e';
 const CANVAS_CHECKER_DARK = '#1c1c1f';
@@ -271,7 +272,8 @@ export const useDrawingCanvasBaseRenderer = ({
         activeLayerId != null ? layers.find((layer) => layer.id === activeLayerId) ?? null : null;
       const runtimeState = getAppStoreState() as {
         activeLayerId?: string | null;
-        sequentialRecord?: { currentFrame?: number; isPointerDown?: boolean };
+        sequentialRecord?: { currentFrame?: number; frameCount?: number; isPointerDown?: boolean };
+        colorCyclePlayback?: { desiredPlaying?: boolean };
         layersNeedRecomposition?: boolean;
       };
       const isSequentialCaptureDrawing =
@@ -305,7 +307,7 @@ export const useDrawingCanvasBaseRenderer = ({
       const splitCompositeRequested = overlayEligibleForSplit || floatingPasteActive;
 
       if (splitCompositeRequested) {
-        const sequentialFrame = runtimeState.sequentialRecord?.currentFrame ?? 0;
+        const sequentialFrame = getSequentialRenderFrame(runtimeState);
         const sequentialFrameChanged =
           activeLayer?.layerType === 'sequential' &&
           sequentialFrame !== lastSplitCompositeSequentialFrameRef.current;

@@ -573,6 +573,7 @@ describe('drawVisibleCompositeStack', () => {
       height: 16,
       frameIndex: 4,
       holdPreviousOnEmptyFrames: true,
+      deferAppendPatching: true,
     });
     expect(drawCalls).toHaveLength(2);
     expect(drawCalls[0]).toEqual({

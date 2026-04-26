@@ -20,6 +20,11 @@ import {
   SEQUENTIAL_PAYLOAD_HARD_LIMIT_BYTES,
   SEQUENTIAL_PAYLOAD_SOFT_LIMIT_BYTES,
 } from '@/lib/sequential/SequentialPayloadBudget';
+import {
+  clearSequentialLivePreview,
+  getSequentialLivePreviewFrame,
+} from '@/lib/sequential/SequentialLivePreviewRuntime';
+import { setSequentialFrameCursor } from '@/runtime/playback/sequentialFrameCursor';
 
 const createLayer = (id: string, layerType: Layer['layerType']): Layer => {
   const canvas = document.createElement('canvas');
@@ -62,6 +67,8 @@ const createLayer = (id: string, layerType: Layer['layerType']): Layer => {
 describe('sequentialCapture', () => {
   beforeEach(() => {
     __TESTING__.resetDefaultRuntime();
+    clearSequentialLivePreview();
+    setSequentialFrameCursor({ nextFrame: 3, nextFrameCount: 12, timestampMs: 0 });
     setFeatureFlag('enableSequentialRecordMode', false);
     setFeatureFlag('enableSequentialTemporalDistribution', true);
     useAppStore.setState((state) => ({
@@ -103,6 +110,10 @@ describe('sequentialCapture', () => {
         notifications: [],
       },
     }));
+  });
+
+  afterEach(() => {
+    clearSequentialLivePreview();
   });
 
   it('caps stamps deterministically with a token bucket', () => {
@@ -252,6 +263,77 @@ describe('sequentialCapture', () => {
     expect(appended).toBe(0);
     const layer = useAppStore.getState().layers.find((entry) => entry.id === 'layer-seq');
     expect(layer?.sequentialData?.events ?? []).toHaveLength(0);
+  });
+
+  it('starts capture on the runtime cursor frame instead of stale published store frame', () => {
+    setFeatureFlag('enableSequentialRecordMode', true);
+    setSequentialFrameCursor({ nextFrame: 8, nextFrameCount: 12, timestampMs: 1234 });
+
+    const runtime = createSequentialStampCapRuntime();
+    const accepted = captureSequentialStampsForActiveLayer({
+      state: useAppStore.getState(),
+      runtime,
+      nowMs: 1000,
+      stamps: [{ x: 5, y: 5, pressure: 1, rotation: 0, size: 4, alpha: 1 }],
+    });
+
+    expect(accepted).toBe(1);
+    const events = getBufferedSequentialLayerFrameEvents({
+      layerId: 'layer-seq',
+      frameIndex: 8,
+    });
+    expect(events).toHaveLength(1);
+    expect(events[0].frameIndex).toBe(8);
+  });
+
+  it('preserves live preview during checkpoint flushes and clears it on final flush', () => {
+    setFeatureFlag('enableSequentialRecordMode', true);
+    setSequentialFrameCursor({ nextFrame: 3, nextFrameCount: 12, timestampMs: 1000 });
+
+    const runtime = createSequentialEventBufferRuntime();
+    const first = captureSequentialStampsForActiveLayer({
+      state: useAppStore.getState(),
+      eventBufferRuntime: runtime,
+      nowMs: 1000,
+      stamps: [{ x: 5, y: 5, pressure: 1, rotation: 0, size: 4, alpha: 1 }],
+    });
+    expect(first).toBe(1);
+
+    flushBufferedSequentialEvents({
+      state: useAppStore.getState(),
+      runtime,
+      preserveLivePreview: true,
+    });
+    const previewWidth = useAppStore.getState().project?.width ?? 1;
+    const previewHeight = useAppStore.getState().project?.height ?? 1;
+
+    expect(getSequentialLivePreviewFrame({
+      layerId: 'layer-seq',
+      sessionKey: 'layer-seq:1000',
+      width: previewWidth,
+      height: previewHeight,
+      frameIndex: 3,
+      frameCount: 12,
+    })).not.toBeNull();
+
+    const second = captureSequentialStampsForActiveLayer({
+      state: useAppStore.getState(),
+      eventBufferRuntime: runtime,
+      nowMs: 1001,
+      stamps: [{ x: 6, y: 6, pressure: 1, rotation: 0, size: 4, alpha: 1 }],
+    });
+    expect(second).toBe(1);
+
+    flushBufferedSequentialEvents({ state: useAppStore.getState(), runtime });
+
+    expect(getSequentialLivePreviewFrame({
+      layerId: 'layer-seq',
+      sessionKey: 'layer-seq:1000',
+      width: previewWidth,
+      height: previewHeight,
+      frameIndex: 3,
+      frameCount: 12,
+    })).toBeNull();
   });
 
   it('shows a soft warning once when sequential payload crosses the warning threshold', () => {

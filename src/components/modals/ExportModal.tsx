@@ -1,6 +1,7 @@
 "use client";
 
 import { getAppStoreState } from '@/stores/appStoreAccess';
+import { setSequentialFrameCursor } from '@/runtime/playback/sequentialFrameCursor';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useAppStore } from '../../stores/useAppStore';
 import { XIcon } from '../icons/XIcon';
@@ -631,6 +632,13 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
     beginAnimationSession: ({ fps, kind }) => {
       const setSequentialExportFrame = (frame: number) => {
         try {
+          const currentState = getAppStoreState() as {
+            sequentialRecord?: { frameCount?: number };
+          };
+          setSequentialFrameCursor({
+            nextFrame: frame,
+            nextFrameCount: currentState.sequentialRecord?.frameCount ?? 1,
+          });
           const rawStore = useAppStore as unknown as {
             setState?: (updater: (state: unknown) => unknown) => void;
             getState: () => unknown;

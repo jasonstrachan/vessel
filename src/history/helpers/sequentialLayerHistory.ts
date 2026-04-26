@@ -1,6 +1,11 @@
 import historyManager from '@/history/historyService';
 import type { HistoryActionId } from '@/history/actionTypes';
-import { createSequentialFrameDelta, cloneSequentialLayerData } from '@/history/deltas/sequentialFrameDelta';
+import {
+  canUseSequentialAppendDelta,
+  createSequentialAppendFrameDelta,
+  createSequentialFrameDelta,
+  cloneSequentialLayerData,
+} from '@/history/deltas/sequentialFrameDelta';
 import { mapCanvasActionToHistoryId } from '@/history/helpers/actions';
 import type { CanvasSnapshot, SequentialLayerData } from '@/types';
 import { useAppStore } from '@/stores/useAppStore';
@@ -104,8 +109,12 @@ export const commitSequentialLayerHistory = async ({
       : undefined
   );
 
+  const createDelta = canUseSequentialAppendDelta(beforeSequentialData, afterSequentialData)
+    ? createSequentialAppendFrameDelta
+    : createSequentialFrameDelta;
+
   txn.push(
-    createSequentialFrameDelta({
+    createDelta({
       layerId,
       before: cloneSequentialLayerData(beforeSequentialData),
       after: cloneSequentialLayerData(afterSequentialData),

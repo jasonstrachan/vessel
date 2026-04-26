@@ -1,4 +1,5 @@
 import type { StateCreator } from 'zustand';
+import { setSequentialFrameCursor } from '@/runtime/playback/sequentialFrameCursor';
 
 type AppState = import('../useAppStore').AppState;
 
@@ -185,22 +186,36 @@ export const createSequentialRecordSlice: StateCreator<AppState, [], [], Sequent
       };
     }),
   stepSequentialFrame: (step = 1) =>
-    set((state) => ({
-      sequentialRecord: {
-        ...state.sequentialRecord,
-        currentFrame: normalizeFrameIndex(
-          state.sequentialRecord.currentFrame + Math.round(step),
-          state.sequentialRecord.frameCount
-        ),
-      },
-    })),
+    set((state) => {
+      const currentFrame = normalizeFrameIndex(
+        state.sequentialRecord.currentFrame + Math.round(step),
+        state.sequentialRecord.frameCount
+      );
+      setSequentialFrameCursor({
+        nextFrame: currentFrame,
+        nextFrameCount: state.sequentialRecord.frameCount,
+      });
+      return {
+        sequentialRecord: {
+          ...state.sequentialRecord,
+          currentFrame,
+        },
+      };
+    }),
   setSequentialFrame: (frame) =>
-    set((state) => ({
-      sequentialRecord: {
-        ...state.sequentialRecord,
-        currentFrame: normalizeFrameIndex(Math.round(frame), state.sequentialRecord.frameCount),
-      },
-    })),
+    set((state) => {
+      const currentFrame = normalizeFrameIndex(Math.round(frame), state.sequentialRecord.frameCount);
+      setSequentialFrameCursor({
+        nextFrame: currentFrame,
+        nextFrameCount: state.sequentialRecord.frameCount,
+      });
+      return {
+        sequentialRecord: {
+          ...state.sequentialRecord,
+          currentFrame,
+        },
+      };
+    }),
   setSequentialPointerDown: (isPointerDown) =>
     set((state) => {
       const previous = state.sequentialRecord;

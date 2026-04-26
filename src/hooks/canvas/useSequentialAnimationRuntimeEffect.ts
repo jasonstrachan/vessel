@@ -2,11 +2,16 @@ import { getAppStoreState } from '@/stores/appStoreAccess';
 import { useEffect, useRef } from 'react';
 import { useFeatureFlag } from '@/config/featureFlags';
 import {
-  dispatchGlobalAnimationFrameUpdate,
+  dispatchSequentialAnimationFrameUpdate,
 } from '@/hooks/canvas/handlers/animation/animationRuntime';
 import {
   getPlaybackRuntimeController,
 } from '@/runtime/playback/PlaybackRuntimeController';
+import {
+  advanceSequentialFrameCursor,
+  getSequentialFrameCursor,
+  resetSequentialFrameCursorFromState,
+} from '@/runtime/playback/sequentialFrameCursor';
 import {
   flushBufferedSequentialEvents,
   getBufferedSequentialPendingPayloadBytes,
@@ -32,6 +37,7 @@ const SEQUENTIAL_CAPTURE_CHECKPOINT_MAX_FLUSH_MS = 4000;
 const SEQUENTIAL_CAPTURE_CHECKPOINT_MIN_PENDING_BYTES = 64 * 1024;
 const MAX_SEQUENTIAL_FRAME_CATCH_UP_STEPS = 3;
 const MAX_SEQUENTIAL_REALTIME_DELTA_MS = 1000;
+const SEQUENTIAL_FRAME_UI_PUBLISH_MS = 200;
 
 const hasSequentialRuntimeState = (
   state: Partial<AppState> | null | undefined
@@ -57,6 +63,7 @@ export const useSequentialAnimationRuntimeEffect = ({
   const lastMetricsSampleMsRef = useRef(-Infinity);
   const lastCheckpointFlushMsRef = useRef(-Infinity);
   const lastCaptureActiveRef = useRef(false);
+  const lastFrameUiPublishMsRef = useRef(-Infinity);
 
   const dispatchClearOverlay = () => {
     try {
@@ -120,6 +127,7 @@ export const useSequentialAnimationRuntimeEffect = ({
       };
     }
     const initialCaptureActive = selectSequentialCaptureActive(initialState);
+    resetSequentialFrameCursorFromState(initialState);
     if (initialState.sequentialRecord.isCaptureActive !== initialCaptureActive) {
       initialState.setSequentialCaptureActive(initialCaptureActive);
     }
@@ -159,6 +167,7 @@ export const useSequentialAnimationRuntimeEffect = ({
         if (!shouldAdvanceFrames) {
           accumMsRef.current = 0;
           lastCheckpointFlushMsRef.current = -Infinity;
+          lastFrameUiPublishMsRef.current = -Infinity;
           flushBufferedSequentialEvents({ state });
           if (lastCaptureActiveRef.current) {
             dispatchClearOverlay();
@@ -180,6 +189,7 @@ export const useSequentialAnimationRuntimeEffect = ({
           deltaMs > MAX_SEQUENTIAL_REALTIME_DELTA_MS ? 0 : Math.max(0, deltaMs);
         if (deltaMs > MAX_SEQUENTIAL_REALTIME_DELTA_MS) {
           accumMsRef.current = 0;
+          resetSequentialFrameCursorFromState(state);
         }
 
         let advancedFrames = 0;
@@ -193,7 +203,21 @@ export const useSequentialAnimationRuntimeEffect = ({
               maxCatchUpSteps,
               Math.max(1, Math.floor(accumMsRef.current / frameDurationMs))
             );
-            state.stepSequentialFrame(advancedFrames);
+            const cursor = advanceSequentialFrameCursor({
+              step: advancedFrames,
+              nextFrameCount: state.sequentialRecord.frameCount,
+              timestampMs,
+            });
+            const shouldPublishFrameToStore =
+              timestampMs - lastFrameUiPublishMsRef.current >= SEQUENTIAL_FRAME_UI_PUBLISH_MS ||
+              captureActiveNow;
+            if (
+              shouldPublishFrameToStore &&
+              state.sequentialRecord.currentFrame !== cursor.frame
+            ) {
+              state.setSequentialFrame(cursor.frame);
+              lastFrameUiPublishMsRef.current = timestampMs;
+            }
             accumMsRef.current -= frameDurationMs * advancedFrames;
           }
         }
@@ -221,7 +245,10 @@ export const useSequentialAnimationRuntimeEffect = ({
           } catch {
             // no-op
           }
-          dispatchGlobalAnimationFrameUpdate();
+          dispatchSequentialAnimationFrameUpdate({
+            frameIndex: getSequentialFrameCursor().frame,
+            advancedFrames,
+          });
         }
 
         if (
@@ -235,7 +262,7 @@ export const useSequentialAnimationRuntimeEffect = ({
             elapsedSinceFlush >= SEQUENTIAL_CAPTURE_CHECKPOINT_FLUSH_MS &&
             pendingPayloadBytes >= SEQUENTIAL_CAPTURE_CHECKPOINT_MIN_PENDING_BYTES;
           if (shouldFlushForSafety || shouldFlushForPayload) {
-            flushBufferedSequentialEvents({ state: nextState });
+            flushBufferedSequentialEvents({ state: nextState, preserveLivePreview: true });
             lastCheckpointFlushMsRef.current = timestampMs;
           }
         }
@@ -272,6 +299,7 @@ export const useSequentialAnimationRuntimeEffect = ({
       accumMsRef.current = 0;
       lastMetricsSampleMsRef.current = -Infinity;
       lastCheckpointFlushMsRef.current = -Infinity;
+      lastFrameUiPublishMsRef.current = -Infinity;
       lastCaptureActiveRef.current = false;
     };
   }, [sequentialRecordModeEnabled]);

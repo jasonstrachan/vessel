@@ -7,6 +7,7 @@ import {
   getSequentialLayerRenderCanvas,
 } from '@/lib/sequential/SequentialLayerRenderer';
 import { getSequentialLivePreviewFrame } from '@/lib/sequential/SequentialLivePreviewRuntime';
+import { getSequentialRenderFrame } from '@/runtime/playback/sequentialFrameCursor';
 import { getLayerTransferCanvas, type LayerTransferCacheEntry } from './layerTransferCache';
 
 interface UseDrawingCanvasCompositeBuffersOptions {
@@ -132,7 +133,7 @@ export const useDrawingCanvasCompositeBuffers = ({
     const activeLayer = activeLayerId ? sortedLayers.find((layer) => layer.id === activeLayerId) ?? null : null;
     const activeOrder = activeLayer ? activeLayer.order : Number.POSITIVE_INFINITY;
     const storeState = getAppStoreState() as AppState;
-    const sequentialFrameIndex = storeState.sequentialRecord?.currentFrame ?? 0;
+    const sequentialFrameIndex = getSequentialRenderFrame(storeState);
     const shouldHoldPreviousSequentialFrame = !selectSequentialPlaybackActive(storeState);
 
     let drewUnder = false;
@@ -182,6 +183,7 @@ export const useDrawingCanvasCompositeBuffers = ({
           height: project.height,
           frameIndex: sequentialFrameIndex,
           holdPreviousOnEmptyFrames: shouldHoldPreviousSequentialFrame,
+          ...(includePreviewEvents ? { deferAppendPatching: true } : {}),
         });
         if (source) {
           try {
