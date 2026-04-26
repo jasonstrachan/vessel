@@ -59,11 +59,19 @@ export const selectColorCyclePlaybackToggleAction = (
 export const selectSequentialRecordState = (state: AppState): SequentialRecordState =>
   state.sequentialRecord;
 
+export const selectHasVisibleSequentialPlaybackContent = (state: AppState): boolean =>
+  state.layers.some((layer) =>
+    layer.visible &&
+    layer.layerType === 'sequential' &&
+    Boolean(layer.sequentialData) &&
+    (layer.sequentialData?.events.length ?? 0) > 0
+  );
+
 export const selectSequentialPlaybackActive = (state: AppState): boolean => {
   if (!selectColorCycleDesiredPlaying(state)) {
     return false;
   }
-  return state.layers.some((layer) => layer.layerType === 'sequential');
+  return selectHasVisibleSequentialPlaybackContent(state);
 };
 
 export const selectSequentialCaptureActive = (state: AppState): boolean =>

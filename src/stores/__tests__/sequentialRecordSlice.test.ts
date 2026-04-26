@@ -39,7 +39,30 @@ const createLayer = (id: string, layerType: Layer['layerType']): Layer => {
             frameCount: 12,
             fps: 12,
             durationMs: 1000,
-            events: [],
+            events: [
+              {
+                id: `${id}-event`,
+                layerId: id,
+                strokeId: `${id}-stroke`,
+                timestampMs: 0,
+                frameIndex: 0,
+                brush: {
+                  tool: 'brush',
+                  brushShape: BrushShape.ROUND,
+                  size: 1,
+                  opacity: 1,
+                  blendMode: 'source-over',
+                  rotation: 0,
+                  spacing: 1,
+                  color: '#000000',
+                  customStampId: null,
+                  customStampHash: null,
+                  customStamp: null,
+                  ditherEnabled: false,
+                },
+                stamps: [{ x: 0, y: 0, pressure: 1, rotation: 0, size: 1, alpha: 1 }],
+              },
+            ],
           }
         : undefined,
   };
@@ -242,7 +265,7 @@ describe('sequentialRecordSlice', () => {
     expect(selectGlobalAnimationActive(state)).toBe(true);
   });
 
-  it('enables sequential playback selector when any sequential layer exists', () => {
+  it('enables sequential playback selector when a visible sequential layer has events', () => {
     useAppStore.setState({
       layers: [
         createLayer('layer-normal', 'normal'),
@@ -269,6 +292,34 @@ describe('sequentialRecordSlice', () => {
     state = useAppStore.getState();
     expect(selectSequentialPlaybackActive(state)).toBe(true);
     expect(selectSequentialCaptureActive(state)).toBe(true);
+    expect(selectGlobalAnimationActive(state)).toBe(true);
+  });
+
+  it('does not run sequential playback for empty or hidden sequential layers', () => {
+    const emptyLayer = createLayer('layer-empty-seq', 'sequential');
+    emptyLayer.sequentialData = {
+      ...emptyLayer.sequentialData!,
+      events: [],
+    };
+    const hiddenLayer = createLayer('layer-hidden-seq', 'sequential');
+    hiddenLayer.visible = false;
+
+    useAppStore.setState({
+      layers: [emptyLayer, hiddenLayer],
+      activeLayerId: emptyLayer.id,
+      colorCyclePlayback: {
+        ...useAppStore.getState().colorCyclePlayback,
+        desiredPlaying: true,
+        suspendDepth: 0,
+      },
+      sequentialRecord: {
+        ...useAppStore.getState().sequentialRecord,
+        isPointerDown: false,
+      },
+    });
+
+    const state = useAppStore.getState();
+    expect(selectSequentialPlaybackActive(state)).toBe(false);
     expect(selectGlobalAnimationActive(state)).toBe(true);
   });
 

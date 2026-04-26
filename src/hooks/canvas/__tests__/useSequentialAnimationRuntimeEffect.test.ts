@@ -2,9 +2,10 @@ import { act, renderHook } from '@testing-library/react';
 import { setFeatureFlag } from '@/config/featureFlags';
 import { useSequentialAnimationRuntimeEffect } from '@/hooks/canvas/useSequentialAnimationRuntimeEffect';
 import { useAppStore, type AppState } from '@/stores/useAppStore';
+import { BrushShape, type Layer } from '@/types';
 import { createDefaultLayerAlignment } from '@/utils/layoutDefaults';
 
-const createSequentialLayer = () => {
+const createSequentialLayer = (): Layer => {
   const framebuffer = document.createElement('canvas');
   framebuffer.width = 8;
   framebuffer.height = 8;
@@ -24,7 +25,30 @@ const createSequentialLayer = () => {
       frameCount: 4,
       fps: 10,
       durationMs: 400,
-      events: [],
+      events: [
+        {
+          id: 'seq-runtime-event',
+          layerId: 'layer-seq-runtime',
+          strokeId: 'seq-runtime-stroke',
+          timestampMs: 0,
+          frameIndex: 0,
+          brush: {
+            tool: 'brush',
+            brushShape: BrushShape.ROUND,
+            size: 1,
+            opacity: 1,
+              blendMode: 'source-over' as const,
+            rotation: 0,
+            spacing: 1,
+            color: '#000000',
+            customStampId: null,
+            customStampHash: null,
+            customStamp: null,
+            ditherEnabled: false,
+          },
+          stamps: [{ x: 0, y: 0, pressure: 1, rotation: 0, size: 1, alpha: 1 }],
+        },
+      ],
     },
   };
 };
@@ -80,7 +104,7 @@ describe('useSequentialAnimationRuntimeEffect', () => {
     const storeRef = { current: useAppStore.getState() as AppState };
     const initialTickCount = useAppStore.getState().sequentialRecord.metrics.tickCount;
     const frameUpdateListener = jest.fn();
-    window.addEventListener('vessel:animationFrameUpdate', frameUpdateListener as EventListener);
+    window.addEventListener('vessel:sequentialFrameUpdate', frameUpdateListener as EventListener);
 
     const { unmount } = renderHook(() => {
       storeRef.current = useAppStore.getState() as AppState;
@@ -104,7 +128,7 @@ describe('useSequentialAnimationRuntimeEffect', () => {
     expect(frameUpdateListener).toHaveBeenCalledTimes(1);
 
     unmount();
-    window.removeEventListener('vessel:animationFrameUpdate', frameUpdateListener as EventListener);
+    window.removeEventListener('vessel:sequentialFrameUpdate', frameUpdateListener as EventListener);
   });
 
   it('advances frames while capturing with playback paused, then stops on pointer up', () => {

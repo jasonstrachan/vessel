@@ -1,4 +1,4 @@
-import type { Layer, SequentialStrokeEvent } from '@/types';
+import type { Layer, SequentialEventChunk, SequentialStrokeEvent } from '@/types';
 
 type SequentialLayerMetadata = {
   frameCount: number;
@@ -64,7 +64,18 @@ export const appendSequentialLayerEventsToLayers = (
   const targetLayer = layers[targetIndex];
   const normalizedMetadata = normalizeSequentialLayerMetadata(metadata);
   const previousSequentialData = targetLayer.sequentialData;
-  const nextEvents = [...(previousSequentialData?.events ?? []), ...events];
+  const previousEvents = previousSequentialData?.events ?? [];
+  const nextEvents = [...previousEvents, ...events];
+  const frameIndexes = Array.from(new Set(events.map((event) => event.frameIndex))).sort(
+    (a, b) => a - b
+  );
+  const nextChunk: SequentialEventChunk = {
+    id: `${layerId}:${previousEvents.length}:${events.length}`,
+    startEventIndex: previousEvents.length,
+    eventCount: events.length,
+    frameIndexes,
+  };
+  const nextEventChunks = [...(previousSequentialData?.eventChunks ?? []), nextChunk];
   const updatedLayer: Layer = {
     ...targetLayer,
     sequentialData: {
@@ -72,6 +83,7 @@ export const appendSequentialLayerEventsToLayers = (
       fps: normalizedMetadata.fps,
       durationMs: normalizedMetadata.durationMs,
       events: nextEvents,
+      eventChunks: nextEventChunks,
     },
   };
   const nextLayers = [...layers];

@@ -22,6 +22,7 @@ import {
   appendSequentialLivePreviewEvents,
   clearSequentialLivePreview,
 } from '@/lib/sequential/SequentialLivePreviewRuntime';
+import { getSequentialRenderFrame } from '@/runtime/playback/sequentialFrameCursor';
 import { selectSequentialCaptureActive, type AppState } from '@/stores/useAppStore';
 import { resolvePressureSizing } from '@/utils/pressureSizing';
 import { resolveBrushPressureRange } from '@/utils/pressureSettings';
@@ -183,9 +184,11 @@ export const createSequentialEventBufferRuntime = (): SequentialEventBufferRunti
 export const flushBufferedSequentialEvents = ({
   state,
   runtime,
+  preserveLivePreview = false,
 }: {
   state: AppState;
   runtime?: SequentialEventBufferRuntime;
+  preserveLivePreview?: boolean;
 }): number => {
   const flushStartMs =
     typeof performance !== 'undefined' && typeof performance.now === 'function'
@@ -212,7 +215,9 @@ export const flushBufferedSequentialEvents = ({
         fps: entry.fps,
         durationMs: entry.durationMs,
       });
-      clearSequentialLivePreview(layerId);
+      if (!preserveLivePreview) {
+        clearSequentialLivePreview(layerId);
+      }
       entry.byFrame.clear();
       flushedEventCount += entry.events.length;
     });
@@ -1272,7 +1277,7 @@ export const captureSequentialStampsForActiveLayer = ({
   const fps = Math.max(1, Math.round(activeLayer.sequentialData?.fps ?? state.sequentialRecord.fps));
   const durationMs = Math.round((frameCount * 1000) / fps);
   const sessionStartFrameIndex =
-    capRuntime.sessionStartFrameIndex ?? normalizeFrameIndex(state.sequentialRecord.currentFrame, frameCount);
+    capRuntime.sessionStartFrameIndex ?? normalizeFrameIndex(getSequentialRenderFrame(state), frameCount);
   if (capRuntime.sessionStartFrameIndex == null) {
     capRuntime.sessionStartFrameIndex = sessionStartFrameIndex;
   }

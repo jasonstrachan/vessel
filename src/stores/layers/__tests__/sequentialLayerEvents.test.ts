@@ -100,6 +100,14 @@ describe('sequentialLayerEvents', () => {
       durationMs: 999,
     });
     expect(result.layers[1].sequentialData?.events.map((event) => event.id)).toEqual(['event-1']);
+    expect(result.layers[1].sequentialData?.eventChunks).toEqual([
+      {
+        id: 'seq:0:1',
+        startEventIndex: 0,
+        eventCount: 1,
+        frameIndexes: [0],
+      },
+    ]);
   });
 
   it('does not append when there are no events or no sequential target', () => {

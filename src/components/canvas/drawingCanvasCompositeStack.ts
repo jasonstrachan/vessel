@@ -6,6 +6,7 @@ import { selectSequentialPlaybackActive, type AppState } from '@/stores/useAppSt
 import {
   getSequentialLayerRenderCanvas,
 } from '@/lib/sequential/SequentialLayerRenderer';
+import { getSequentialRenderFrame } from '@/runtime/playback/sequentialFrameCursor';
 import {
   getSequentialLivePreviewFrame,
   type SequentialLivePreviewFrame,
@@ -217,7 +218,7 @@ export const drawVisibleCompositeStack = ({
 
       const projectWidth = storeState.project?.width ?? layer.framebuffer?.width ?? width;
       const projectHeight = storeState.project?.height ?? layer.framebuffer?.height ?? height;
-      const frameIndex = storeState.sequentialRecord?.currentFrame ?? 0;
+      const frameIndex = getSequentialRenderFrame(storeState);
       const frameCount = layer.sequentialData.frameCount;
       const includePreviewEvents =
         Boolean(storeState.sequentialRecord?.isPointerDown) && storeState.activeLayerId === layer.id;
@@ -227,6 +228,7 @@ export const drawVisibleCompositeStack = ({
         height: projectHeight,
         frameIndex,
         holdPreviousOnEmptyFrames: shouldHoldPreviousSequentialFrame,
+        ...(includePreviewEvents ? { deferAppendPatching: true } : {}),
       });
       if (!sequentialCanvas) {
         return;
@@ -274,13 +276,14 @@ export const drawVisibleCompositeStack = ({
     if (activeLayer?.visible && activeLayer.layerType === 'sequential' && activeLayer.sequentialData) {
       const projectWidth = storeState.project?.width ?? activeLayer.framebuffer?.width ?? width;
       const projectHeight = storeState.project?.height ?? activeLayer.framebuffer?.height ?? height;
-      const frameIndex = storeState.sequentialRecord?.currentFrame ?? 0;
+      const frameIndex = getSequentialRenderFrame(storeState);
       const sequentialCanvas = getSequentialLayerRenderCanvas({
         layer: activeLayer,
         width: projectWidth,
         height: projectHeight,
         frameIndex,
         holdPreviousOnEmptyFrames: shouldHoldPreviousSequentialFrame,
+        deferAppendPatching: true,
       });
       if (sequentialCanvas) {
         const livePreviewFrame = getSequentialLivePreviewFrame({

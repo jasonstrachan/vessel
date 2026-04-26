@@ -3,6 +3,7 @@ import { setFeatureFlag } from '@/config/featureFlags';
 import {
   clearSequentialLayerRendererAll,
   getSequentialLayerRenderCanvas,
+  getSequentialLayerRendererDiagnostics,
   getSequentialLayerRendererStats,
 } from '@/lib/sequential/SequentialLayerRenderer';
 import { SequentialCpuMaterializer } from '@/lib/sequential/materializer/SequentialCpuMaterializer';
@@ -95,11 +96,13 @@ const readPixel = (
 describe('SequentialLayerRenderer', () => {
   beforeEach(() => {
     setFeatureFlag('enableSequentialGpuAcceleration', false);
+    setFeatureFlag('enableSequentialWorkerMaterialization', false);
     clearSequentialLayerRendererAll();
   });
 
   afterEach(() => {
     setFeatureFlag('enableSequentialGpuAcceleration', false);
+    setFeatureFlag('enableSequentialWorkerMaterialization', false);
   });
 
   it('materializes frame-specific canvases and updates cache stats', () => {
@@ -312,6 +315,65 @@ describe('SequentialLayerRenderer', () => {
     } finally {
       materializeRectSpy.mockRestore();
       patchFrameSpy.mockRestore();
+    }
+  });
+
+  it('defers committed append patching during active sequential preview capture', () => {
+    const materializeRectSpy = jest.spyOn(
+      SequentialCpuMaterializer.prototype,
+      'materializeRect'
+    );
+    const materializeFrameSpy = jest.spyOn(
+      SequentialCpuMaterializer.prototype,
+      'materializeFrame'
+    );
+    try {
+      const initialLayer = createLayer([createEvent('f0-initial', 0, '#ff0000')]);
+      const committed = getSequentialLayerRenderCanvas({
+        layer: initialLayer,
+        width: 16,
+        height: 16,
+        frameIndex: 0,
+      });
+      expect(committed).not.toBeNull();
+      const callsAfterCommitted = materializeFrameSpy.mock.calls.length;
+
+      const appendedLayer: Layer = {
+        ...initialLayer,
+        sequentialData: {
+          ...initialLayer.sequentialData!,
+          events: [
+            ...initialLayer.sequentialData!.events,
+            createEvent('f0-appended', 0, '#00ff00'),
+          ],
+        },
+      };
+
+      const deferred = getSequentialLayerRenderCanvas({
+        layer: appendedLayer,
+        width: 16,
+        height: 16,
+        frameIndex: 0,
+        deferAppendPatching: true,
+      });
+      expect(deferred).toBe(committed);
+      expect(materializeRectSpy).not.toHaveBeenCalled();
+      expect(materializeFrameSpy.mock.calls.length).toBe(callsAfterCommitted);
+      expect(getSequentialLayerRendererDiagnostics().deferredAppendPatches).toBe(1);
+
+      const refreshed = getSequentialLayerRenderCanvas({
+        layer: appendedLayer,
+        width: 16,
+        height: 16,
+        frameIndex: 0,
+      });
+      expect(refreshed).not.toBeNull();
+      const refreshedPixel = readCenterPixel(refreshed!);
+      expect(refreshedPixel[1]).toBeGreaterThan(refreshedPixel[0]);
+      expect(materializeFrameSpy.mock.calls.length).toBeGreaterThan(callsAfterCommitted);
+    } finally {
+      materializeRectSpy.mockRestore();
+      materializeFrameSpy.mockRestore();
     }
   });
 
