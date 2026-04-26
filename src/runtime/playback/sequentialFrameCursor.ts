@@ -67,14 +67,12 @@ export const getSequentialRenderFrame = (state: {
   sequentialRecord?: { frameCount?: number; currentFrame?: number; isPointerDown?: boolean };
   colorCyclePlayback?: { desiredPlaying?: boolean };
 }): number => {
-  if (!Number.isFinite(state.sequentialRecord?.frameCount)) {
-    return Math.max(0, Math.round(state.sequentialRecord?.currentFrame ?? frame));
-  }
-  const safeFrameCount = Math.max(1, Math.round(state.sequentialRecord?.frameCount ?? frameCount));
-  const storeFrame = normalizeFrame(state.sequentialRecord?.currentFrame ?? frame, safeFrameCount);
-  const runtimeFrame = normalizeFrame(frame, safeFrameCount);
   const runtimePlaybackActive =
     Boolean(state.colorCyclePlayback?.desiredPlaying) ||
     Boolean(state.sequentialRecord?.isPointerDown);
-  return runtimePlaybackActive ? runtimeFrame : storeFrame;
+  if (!runtimePlaybackActive) {
+    return Math.max(0, Math.round(state.sequentialRecord?.currentFrame ?? frame));
+  }
+  const safeFrameCount = Math.max(1, Math.round(state.sequentialRecord?.frameCount ?? frameCount));
+  return normalizeFrame(frame, safeFrameCount);
 };
