@@ -16,6 +16,21 @@ describe('sequentialFrameCursor', () => {
 
     advanceSequentialFrameCursor({ step: 2, nextFrameCount: 4, timestampMs: 20 });
     expect(getSequentialFrameCursor().frame).toBe(1);
-    expect(getSequentialRenderFrame({ sequentialRecord: { frameCount: 4 } })).toBe(1);
+    expect(getSequentialRenderFrame({
+      sequentialRecord: { frameCount: 4 },
+      colorCyclePlayback: { desiredPlaying: true },
+    })).toBe(1);
+  });
+
+  it('preserves absolute store frames for export callers', () => {
+    setSequentialFrameCursor({ nextFrame: 1, nextFrameCount: 12, timestampMs: 30 });
+
+    expect(getSequentialRenderFrame({
+      sequentialRecord: {
+        currentFrame: 13,
+        frameCount: 12,
+      },
+      colorCyclePlayback: { desiredPlaying: false },
+    })).toBe(13);
   });
 });
