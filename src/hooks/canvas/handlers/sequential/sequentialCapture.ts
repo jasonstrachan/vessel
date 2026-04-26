@@ -1042,16 +1042,6 @@ const resolveBrushSnapshotForCapture = ({
     pluginBrushId,
     gradientSnapshot,
   });
-  const customStampHash = brush.customStampHash ?? null;
-  if (customStampHash && brush.customStamp) {
-    if (runtime.emittedCustomStampHashes.has(customStampHash)) {
-      // Avoid repeating the full RGBA payload for every event.
-      // Replay can hydrate the stamp from prior events by hash.
-      brush.customStamp = null;
-    } else {
-      runtime.emittedCustomStampHashes.add(customStampHash);
-    }
-  }
   const key = buildBrushSnapshotKey(brush, gradientKey);
   runtime.lastBrushSettingsRef = settings;
   runtime.lastToolRef = tool;
@@ -1060,6 +1050,32 @@ const resolveBrushSnapshotForCapture = ({
   runtime.lastResolvedBrushSnapshot = brush;
   runtime.lastResolvedBrushSnapshotKey = key;
   return { brush, key };
+};
+
+const resolveBrushSnapshotForSequentialEvent = ({
+  brush,
+  frameIndex,
+  emittedCustomStampHashes,
+}: {
+  brush: SequentialBrushSnapshot;
+  frameIndex: number;
+  emittedCustomStampHashes: Set<string>;
+}): SequentialBrushSnapshot => {
+  const customStampHash = brush.customStampHash ?? null;
+  if (!customStampHash || !brush.customStamp) {
+    return brush;
+  }
+
+  const frameStampKey = `${customStampHash}:${frameIndex}`;
+  if (emittedCustomStampHashes.has(frameStampKey)) {
+    return {
+      ...brush,
+      customStamp: null,
+    };
+  }
+
+  emittedCustomStampHashes.add(frameStampKey);
+  return brush;
 };
 
 const formatSequentialEventCounter = (value: number): string => {
@@ -1372,12 +1388,19 @@ export const captureSequentialStampsForActiveLayer = ({
   });
   const distributedEvents: SequentialStrokeEvent[] = [];
   const distributedEventPayloadBytes: number[] = [];
+  const nextEmittedCustomStampHashes = new Set(capRuntime.emittedCustomStampHashes);
   let distributedPayloadBytesTotal = 0;
   for (let i = 0; i < distributedFrameBuckets.length; i += 1) {
     const bucket = distributedFrameBuckets[i];
+    const eventBrush = resolveBrushSnapshotForSequentialEvent({
+      brush,
+      frameIndex: bucket.frameIndex,
+      emittedCustomStampHashes: nextEmittedCustomStampHashes,
+    });
     const candidateEvent: SequentialStrokeEvent = {
       ...baseEvent,
       id: `${eventIdPrefix}${formatSequentialEventCounter(capRuntime.eventCounter + i)}`,
+      brush: eventBrush,
       timestampMs: timestampMs + i,
       frameIndex: bucket.frameIndex,
       stamps: bucket.stamps,
@@ -1419,6 +1442,8 @@ export const captureSequentialStampsForActiveLayer = ({
     payloadNotificationRuntime.hardCapBlockedAtBytes = currentTotalPayloadBytes;
     return 0;
   }
+
+  capRuntime.emittedCustomStampHashes = nextEmittedCustomStampHashes;
 
   if (projectedPayloadBytes > softLimitBytes && !payloadNotificationRuntime.softWarningShown) {
     state.addNotification({
