@@ -1,4 +1,5 @@
 import { BrushShape, type Layer } from '@/types';
+import type { CustomBrushStrokeData } from '@/hooks/brushEngine/BrushEngineFacade';
 import {
   __TESTING__,
   applyDeterministicStampCap,
@@ -63,6 +64,25 @@ const createLayer = (id: string, layerType: Layer['layerType']): Layer => {
         : undefined,
   };
 };
+
+const createCustomBrushData = (width = 2, height = 2): CustomBrushStrokeData => ({
+  imageData: new ImageData(
+    new Uint8ClampedArray(
+      Array.from({ length: width * height * 4 }, (_, index) => {
+        if (index % 4 === 3) {
+          return index % 8 === 3 ? 255 : 180;
+        }
+        return (index * 17) % 256;
+      })
+    ),
+    width,
+    height
+  ),
+  width,
+  height,
+  cacheKey: `custom-sequential-test-stamp-${width}x${height}`,
+  isColorizable: false,
+});
 
 describe('sequentialCapture', () => {
   beforeEach(() => {
@@ -174,6 +194,141 @@ describe('sequentialCapture', () => {
     expect(events[0].stamps).toHaveLength(2);
     expect(events[0].brush.brushShape).toBe(BrushShape.ROUND);
     expect(events[0].brush.tipShape).toBe('round');
+  });
+
+  it('keeps a custom stamp seed on each captured sequential frame after brush settings refresh', () => {
+    setFeatureFlag('enableSequentialRecordMode', true);
+    const runtime = createSequentialStampCapRuntime();
+    const eventBufferRuntime = createSequentialEventBufferRuntime();
+    const customBrushData = createCustomBrushData();
+
+    useAppStore.setState((state) => ({
+      tools: {
+        ...state.tools,
+        brushSettings: {
+          ...state.tools.brushSettings,
+          brushShape: BrushShape.CUSTOM,
+          size: 24,
+          color: '#ffffff',
+        },
+      },
+    }));
+
+    captureSequentialStampsForActiveLayer({
+      state: useAppStore.getState(),
+      nowMs: 1250,
+      runtime,
+      eventBufferRuntime,
+      customBrushData,
+      stamps: [{ x: 10, y: 10, pressure: 1, rotation: 0, size: 24, alpha: 1 }],
+    });
+
+    useAppStore.setState((state) => ({
+      tools: {
+        ...state.tools,
+        brushSettings: {
+          ...state.tools.brushSettings,
+          opacity: 0.9,
+        },
+      },
+    }));
+
+    captureSequentialStampsForActiveLayer({
+      state: useAppStore.getState(),
+      nowMs: 1350,
+      runtime,
+      eventBufferRuntime,
+      customBrushData,
+      stamps: [{ x: 12, y: 10, pressure: 1, rotation: 0, size: 24, alpha: 1 }],
+    });
+    flushBufferedSequentialEvents({ state: useAppStore.getState(), runtime: eventBufferRuntime });
+
+    const events =
+      useAppStore
+        .getState()
+        .layers.find((entry) => entry.id === 'layer-seq')?.sequentialData?.events ?? [];
+
+    expect(events).toHaveLength(2);
+    expect(events[0].brush.brushShape).toBe(BrushShape.CUSTOM);
+    expect(events[1].brush.brushShape).toBe(BrushShape.CUSTOM);
+    expect(events[0].frameIndex).not.toBe(events[1].frameIndex);
+    expect(events[0].brush.customStampHash).toBeTruthy();
+    expect(events[1].brush.customStampHash).toBe(events[0].brush.customStampHash);
+    expect(events[0].brush.customStamp?.rgbaBase64).toBeTruthy();
+    expect(events[1].brush.customStamp?.rgbaBase64).toBeTruthy();
+  });
+
+  it('dedupes repeated custom stamp payloads on the same frame without pausing capture', () => {
+    setFeatureFlag('enableSequentialRecordMode', true);
+    const runtime = createSequentialStampCapRuntime();
+    const eventBufferRuntime = createSequentialEventBufferRuntime();
+    const payloadRuntime = createSequentialPayloadBudgetRuntime();
+    const notificationRuntime = createSequentialPayloadNotificationRuntime();
+    const customBrushData = createCustomBrushData(64, 64);
+    const payloadLimits = { softLimitBytes: 0, hardLimitBytes: 80_000 };
+
+    useAppStore.setState((state) => ({
+      tools: {
+        ...state.tools,
+        brushSettings: {
+          ...state.tools.brushSettings,
+          brushShape: BrushShape.CUSTOM,
+          size: 64,
+          color: '#ffffff',
+        },
+      },
+    }));
+
+    const first = captureSequentialStampsForActiveLayer({
+      state: useAppStore.getState(),
+      nowMs: 1250,
+      runtime,
+      eventBufferRuntime,
+      payloadRuntime,
+      notificationRuntime,
+      payloadLimits,
+      customBrushData,
+      stamps: [{ x: 10, y: 10, pressure: 1, rotation: 0, size: 64, alpha: 1 }],
+    });
+
+    useAppStore.setState((state) => ({
+      tools: {
+        ...state.tools,
+        brushSettings: {
+          ...state.tools.brushSettings,
+          opacity: 0.95,
+        },
+      },
+    }));
+
+    const second = captureSequentialStampsForActiveLayer({
+      state: useAppStore.getState(),
+      nowMs: 1300,
+      runtime,
+      eventBufferRuntime,
+      payloadRuntime,
+      notificationRuntime,
+      payloadLimits,
+      customBrushData,
+      stamps: [{ x: 12, y: 10, pressure: 1, rotation: 0, size: 64, alpha: 1 }],
+    });
+    flushBufferedSequentialEvents({ state: useAppStore.getState(), runtime: eventBufferRuntime });
+
+    const events =
+      useAppStore
+        .getState()
+        .layers.find((entry) => entry.id === 'layer-seq')?.sequentialData?.events ?? [];
+
+    expect(first).toBe(1);
+    expect(second).toBe(1);
+    expect(events).toHaveLength(2);
+    expect(events[0].frameIndex).toBe(events[1].frameIndex);
+    expect(events[0].brush.customStamp?.rgbaBase64).toBeTruthy();
+    expect(events[1].brush.customStamp).toBeNull();
+    expect(events[1].brush.customStampHash).toBe(events[0].brush.customStampHash);
+    expect(
+      useAppStore.getState().ui.notifications.some((entry) => entry.title === 'Sequential Capture Paused')
+    ).toBe(false);
   });
 
   it('sizes fallback sequential stamps from the current pressure response', () => {
