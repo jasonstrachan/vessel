@@ -28,6 +28,7 @@ type FillBrush = ColorCycleBrushImplementation & {
       ditherSampledStops?: GradientDitherOptions['ditherSampledStops'];
       ditherBaseOffsetOverride?: GradientDitherOptions['ditherBaseOffsetOverride'];
       paintSlotOverride?: GradientDitherOptions['paintSlotOverride'];
+      paintDefIdOverride?: GradientDitherOptions['paintDefIdOverride'];
       shapePhaseSeedMarkId?: string | null;
       roi?: GradientDitherOptions['roi'];
       lostEdge?: number;
@@ -187,6 +188,7 @@ export const fillColorCycleLinear = async ({
           ditherSampledStops: options?.ditherSampledStops,
           ditherBaseOffsetOverride: options?.ditherBaseOffsetOverride,
           paintSlotOverride: options?.paintSlotOverride,
+          paintDefIdOverride: options?.paintDefIdOverride,
           shapePhaseSeedMarkId: options?.shapePhaseSeedMarkId,
           ditherBackgroundFill,
           roi: options?.roi,
@@ -260,6 +262,10 @@ export const fillColorCycleConcentric = async ({
           ditherLevels: options?.ditherLevels ?? ditherLevels,
           ditherPixelSize: options?.ditherPixelSize,
           ditherPairBandCount: options?.ditherPairBandCount,
+          ditherSampledStops: options?.ditherSampledStops,
+          ditherBaseOffsetOverride: options?.ditherBaseOffsetOverride,
+          paintSlotOverride: options?.paintSlotOverride,
+          paintDefIdOverride: options?.paintDefIdOverride,
           shapePhaseSeedMarkId: options?.shapePhaseSeedMarkId,
           ditherPaletteSpread: options?.ditherPaletteSpread ?? brushSettings.ditherPaletteSpread,
           ditherPatternDiversity:

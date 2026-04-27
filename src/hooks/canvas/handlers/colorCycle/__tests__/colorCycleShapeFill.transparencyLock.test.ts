@@ -1103,6 +1103,7 @@ describe('colorCycleShapeFill transparency lock', () => {
       { x: 1, y: 0 },
       expect.objectContaining({
         paintSlotOverride: 94,
+        paintDefIdOverride: 19,
       })
     );
     expect(updateLayer).toHaveBeenCalledWith(
@@ -1224,6 +1225,7 @@ describe('colorCycleShapeFill transparency lock', () => {
       { x: 1, y: 0 },
       expect.objectContaining({
         paintSlotOverride: 253,
+        paintDefIdOverride: 253,
       })
     );
     expect(updateLayer).toHaveBeenCalledWith(
@@ -1278,6 +1280,7 @@ describe('colorCycleShapeFill transparency lock', () => {
     canvas.height = 4;
 
     const commitCommittedLayerState = jest.fn();
+    const fillCcGradientConcentric = jest.fn(async () => undefined);
     const brush = {
       setActiveGradientSlot: jest.fn(),
       commitCommittedLayerState,
@@ -1318,7 +1321,7 @@ describe('colorCycleShapeFill transparency lock', () => {
       },
       {
         brushEngine: {
-          fillCcGradientConcentric: jest.fn(async () => undefined),
+          fillCcGradientConcentric,
           updateColorCycleTexture: jest.fn(),
         } as never,
         getColorCycleBrushManager: () => ({ getBrush: () => brush as never }),
@@ -1331,12 +1334,22 @@ describe('colorCycleShapeFill transparency lock', () => {
       }
     );
 
+    const concentricFillCall = fillCcGradientConcentric.mock.calls[0] as unknown as
+      | [Array<{ x: number; y: number }>, Record<string, unknown>]
+      | undefined;
+    const concentricFillOptions = concentricFillCall?.[1] as
+      | { paintSlotOverride?: number; paintDefIdOverride?: number }
+      | undefined;
+    expect(concentricFillOptions).toEqual(expect.objectContaining({
+      paintSlotOverride: expect.any(Number),
+      paintDefIdOverride: expect.any(Number),
+    }));
     expect(commitCommittedLayerState).toHaveBeenCalledWith({
       layerId: 'layer-1',
       targetCanvas: canvas,
       binding: expect.objectContaining({
-        defId: expect.any(Number),
-        slot: expect.any(Number),
+        defId: concentricFillOptions?.paintDefIdOverride,
+        slot: concentricFillOptions?.paintSlotOverride,
         bbox: undefined,
         previewSlot: TEMP_SAMPLE_SLOT,
       }),

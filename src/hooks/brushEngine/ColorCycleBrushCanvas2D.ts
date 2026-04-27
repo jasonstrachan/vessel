@@ -152,6 +152,7 @@ type FillOptions = {
   ditherSampledStops?: StoredStop[];
   ditherBaseOffsetOverride?: number;
   paintSlotOverride?: number;
+  paintDefIdOverride?: number;
   shapePhaseSeedMarkId?: string | null;
   roi?: { x: number; y: number; width: number; height: number };
   spacing?: number;
@@ -3608,6 +3609,9 @@ export class ColorCycleBrushCanvas2D {
     const activeSlot = Number.isFinite(options?.paintSlotOverride)
       ? Math.max(0, Math.round(options?.paintSlotOverride as number))
       : strokeData?.flow.activeSlot ?? this.activeGradientSlots.get(id) ?? 0;
+    const activeDefId = Number.isFinite(options?.paintDefIdOverride)
+      ? Math.max(1, Math.min(0xffff, Math.round(options?.paintDefIdOverride as number)))
+      : null;
     if (strokeData) {
       strokeData.flow.activeSlot = activeSlot;
       strokeData.flow.mode = this.flowMode;
@@ -3884,6 +3888,7 @@ export class ColorCycleBrushCanvas2D {
     const linearSpeedData = directLinearHandle.speedData;
     const linearFlowData = directLinearHandle.flowData;
     const linearPhaseData = directLinearHandle.phaseData;
+    const linearDefData = strokeData?.buffers.def;
     if (strokeData) {
       strokeData.buffers.paint = linearBuffer;
       strokeData.buffers.gid = linearGradientId;
@@ -3909,6 +3914,9 @@ export class ColorCycleBrushCanvas2D {
       linearSpeedData[idx] = clamped === 0 ? 0 : speedByte;
       linearFlowData[idx] = clamped === 0 ? 0 : flowByte;
       linearPhaseData[idx] = clamped === 0 ? 0 : phaseByte;
+      if (activeDefId !== null && linearDefData && linearDefData.length === linearBuffer.length) {
+        linearDefData[idx] = clamped === 0 ? 0 : activeDefId;
+      }
       const localX = x - bbox.minX;
       const localY = y - bbox.minY;
       if (localX >= 0 && localY >= 0 && localX < bbox.width && localY < bbox.height) {
@@ -4663,7 +4671,12 @@ export class ColorCycleBrushCanvas2D {
       }
     }
 
-    const activeSlot = strokeData?.flow.activeSlot ?? this.activeGradientSlots.get(id) ?? 0;
+    const activeSlot = Number.isFinite(options?.paintSlotOverride)
+      ? Math.max(0, Math.round(options?.paintSlotOverride as number))
+      : strokeData?.flow.activeSlot ?? this.activeGradientSlots.get(id) ?? 0;
+    const activeDefId = Number.isFinite(options?.paintDefIdOverride)
+      ? Math.max(1, Math.min(0xffff, Math.round(options?.paintDefIdOverride as number)))
+      : null;
     if (strokeData) {
       strokeData.flow.activeSlot = activeSlot;
       strokeData.flow.mode = this.flowMode;
@@ -4942,6 +4955,7 @@ export class ColorCycleBrushCanvas2D {
     const concentricSpeedData = directConcentricHandle.speedData;
     const concentricFlowData = directConcentricHandle.flowData;
     const concentricPhaseData = directConcentricHandle.phaseData;
+    const concentricDefData = strokeData?.buffers.def;
     if (strokeData) {
       strokeData.buffers.paint = concentricBuffer;
       strokeData.buffers.gid = concentricGradientId;
@@ -4967,6 +4981,9 @@ export class ColorCycleBrushCanvas2D {
       concentricSpeedData[idx] = clamped === 0 ? 0 : speedByte;
       concentricFlowData[idx] = clamped === 0 ? 0 : flowByte;
       concentricPhaseData[idx] = clamped === 0 ? 0 : phaseByte;
+      if (activeDefId !== null && concentricDefData && concentricDefData.length === concentricBuffer.length) {
+        concentricDefData[idx] = clamped === 0 ? 0 : activeDefId;
+      }
       const localX = x - bbox.minX;
       const localY = y - bbox.minY;
       if (localX >= 0 && localY >= 0 && localX < bbox.width && localY < bbox.height) {
@@ -4992,6 +5009,9 @@ export class ColorCycleBrushCanvas2D {
           concentricSpeedData[destIndex] = value === 0 ? 0 : speedByte;
           concentricFlowData[destIndex] = value === 0 ? 0 : flowByte;
           concentricPhaseData[destIndex] = resolveConcentricPhaseByte(destX, destY, value);
+          if (activeDefId !== null && concentricDefData && concentricDefData.length === concentricBuffer.length) {
+            concentricDefData[destIndex] = activeDefId;
+          }
           writtenMask[srcRowOffset + col] = 255;
         }
       }

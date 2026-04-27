@@ -708,6 +708,9 @@ export const finalizeColorCycleShapeFillLinear = async (
         ditherSampledStops: sampledStops,
         ditherBaseOffsetOverride: resolvedRenderSession?.source === 'sampled' ? 0 : undefined,
         paintSlotOverride: resolvedRenderSession?.binding?.slot,
+        paintDefIdOverride: resolvedRenderSession?.source === 'sampled'
+          ? resolvedRenderSession?.binding?.defId
+          : undefined,
         shapePhaseSeedMarkId: session?.markId ?? null,
       });
       return resolvedRenderSession;
@@ -1006,6 +1009,10 @@ export const finalizeColorCycleShapeFillConcentric = async (
           });
         }
       }
+      const sampledStops =
+        resolvedRenderSession?.source === 'sampled'
+          ? toStoredStops(resolvedRenderSession.frozenStopsStored)
+          : undefined;
       await deps.brushEngine.fillCcGradientConcentric(args.shapePoints, {
         ...resolveShapeFinalizeDitherOptions({
           brushSettings: liveSettings,
@@ -1013,6 +1020,12 @@ export const finalizeColorCycleShapeFillConcentric = async (
           roi: args.roi,
           pairBandCount: session?.ditherRenderConfig?.pairBandCount,
         }),
+        ditherSampledStops: sampledStops,
+        ditherBaseOffsetOverride: resolvedRenderSession?.source === 'sampled' ? 0 : undefined,
+        paintSlotOverride: resolvedRenderSession?.binding?.slot,
+        paintDefIdOverride: resolvedRenderSession?.source === 'sampled'
+          ? resolvedRenderSession?.binding?.defId
+          : undefined,
         shapePhaseSeedMarkId: session?.markId ?? null,
       });
       return resolvedRenderSession;
