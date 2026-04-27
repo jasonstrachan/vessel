@@ -651,6 +651,135 @@ describe('ColorCycleBrushCanvas2D regression tests', () => {
     ]);
   });
 
+  it('stamps sampled shape def ids onto pixels written over older defs', async () => {
+    const canvas = makeCanvas(6, 6);
+    const brush = new ColorCycleBrushCanvas2D(canvas, { forceCanvas2D: true });
+    const layerId = 'layer-sampled-shape-overlap-def';
+    const oldSlot = 12;
+    const newSlot = 67;
+    const oldDefId = 9;
+    const newDefId = 141;
+    const pixelCount = canvas.width * canvas.height;
+
+    brush.setDitherEnabled(true);
+    brush.setDitherPixelSize(1);
+    brush.setStampDitherAlgorithm('sierra-lite');
+    brush.setGradientBands(1);
+    brush.applyLayerSnapshot(layerId, {
+      paintBuffer: new Uint8Array(pixelCount).fill(1).buffer,
+      gradientIdBuffer: new Uint8Array(pixelCount).fill(oldSlot).buffer,
+      gradientDefIdBuffer: new Uint16Array(pixelCount).fill(oldDefId).buffer,
+      speedBuffer: new Uint8Array(pixelCount).buffer,
+      flowBuffer: new Uint8Array(pixelCount).buffer,
+      phaseBuffer: new Uint8Array(pixelCount).buffer,
+      hasContent: true,
+      strokeCounter: 1,
+    });
+
+    await brush.fillShapeDispatch({
+      mode: 'linear',
+      vertices: [
+        { x: 0, y: 0 },
+        { x: canvas.width - 1, y: 0 },
+        { x: canvas.width - 1, y: canvas.height - 1 },
+        { x: 0, y: canvas.height - 1 },
+      ],
+      layerId,
+      direction: { x: 1, y: 0 },
+      options: {
+        ccGradient: true,
+        ditherLevels: 1,
+        ditherPixelSize: 1,
+        ditherSampledStops: [
+          { position: 0, color: '#000000' },
+          { position: 1, color: '#ffffff' },
+        ],
+        paintSlotOverride: newSlot,
+        paintDefIdOverride: newDefId,
+      },
+    });
+
+    const after = brush.getLayerSnapshot(layerId);
+    const paint = new Uint8Array(after?.paintBuffer ?? new ArrayBuffer(0));
+    const gids = new Uint8Array(after?.gradientIdBuffer ?? new ArrayBuffer(0));
+    const defs = new Uint16Array(after?.gradientDefIdBuffer ?? new ArrayBuffer(0));
+    const defsForNewSlot = new Set<number>();
+    paint.forEach((value, index) => {
+      if (value === 0) {
+        return;
+      }
+      if ((gids[index] & 0x3f) === (newSlot & 0x3f)) {
+        defsForNewSlot.add(defs[index]);
+      }
+    });
+
+    expect(defsForNewSlot).toEqual(new Set([newDefId]));
+  });
+
+  it('stamps sampled concentric shape def ids onto pixels written over older defs', async () => {
+    const canvas = makeCanvas(6, 6);
+    const brush = new ColorCycleBrushCanvas2D(canvas, { forceCanvas2D: true });
+    const layerId = 'layer-sampled-concentric-overlap-def';
+    const oldSlot = 12;
+    const newSlot = 68;
+    const oldDefId = 9;
+    const newDefId = 142;
+    const pixelCount = canvas.width * canvas.height;
+
+    brush.setDitherEnabled(true);
+    brush.setDitherPixelSize(1);
+    brush.setStampDitherAlgorithm('sierra-lite');
+    brush.setGradientBands(1);
+    brush.applyLayerSnapshot(layerId, {
+      paintBuffer: new Uint8Array(pixelCount).fill(1).buffer,
+      gradientIdBuffer: new Uint8Array(pixelCount).fill(oldSlot).buffer,
+      gradientDefIdBuffer: new Uint16Array(pixelCount).fill(oldDefId).buffer,
+      speedBuffer: new Uint8Array(pixelCount).buffer,
+      flowBuffer: new Uint8Array(pixelCount).buffer,
+      phaseBuffer: new Uint8Array(pixelCount).buffer,
+      hasContent: true,
+      strokeCounter: 1,
+    });
+
+    await brush.fillShapeDispatch({
+      mode: 'concentric',
+      vertices: [
+        { x: 0, y: 0 },
+        { x: canvas.width - 1, y: 0 },
+        { x: canvas.width - 1, y: canvas.height - 1 },
+        { x: 0, y: canvas.height - 1 },
+      ],
+      layerId,
+      options: {
+        ccGradient: true,
+        ditherLevels: 1,
+        ditherPixelSize: 1,
+        ditherSampledStops: [
+          { position: 0, color: '#000000' },
+          { position: 1, color: '#ffffff' },
+        ],
+        paintSlotOverride: newSlot,
+        paintDefIdOverride: newDefId,
+      },
+    });
+
+    const after = brush.getLayerSnapshot(layerId);
+    const paint = new Uint8Array(after?.paintBuffer ?? new ArrayBuffer(0));
+    const gids = new Uint8Array(after?.gradientIdBuffer ?? new ArrayBuffer(0));
+    const defs = new Uint16Array(after?.gradientDefIdBuffer ?? new ArrayBuffer(0));
+    const defsForNewSlot = new Set<number>();
+    paint.forEach((value, index) => {
+      if (value === 0) {
+        return;
+      }
+      if ((gids[index] & 0x3f) === (newSlot & 0x3f)) {
+        defsForNewSlot.add(defs[index]);
+      }
+    });
+
+    expect(defsForNewSlot).toEqual(new Set([newDefId]));
+  });
+
   it('authors active sampled strokes into the temp slot before commit rebinding', () => {
     const layerId = 'layer-sampled-stroke-temp-slot';
     const previousCommittedSlot = 12;

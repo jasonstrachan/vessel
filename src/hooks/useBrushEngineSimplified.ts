@@ -1526,6 +1526,7 @@ export const useBrushEngineSimplified = () => {
       ditherSampledStops?: import('@/utils/colorCycleGradientDefs').StoredStop[];
       ditherBaseOffsetOverride?: number;
       paintSlotOverride?: number;
+      paintDefIdOverride?: number;
       shapePhaseSeedMarkId?: string | null;
       roi?: { x: number; y: number; width: number; height: number };
       skipPostRender?: boolean;
@@ -1561,6 +1562,10 @@ export const useBrushEngineSimplified = () => {
       ditherLevels?: number;
       ditherPixelSize?: number;
       ditherPairBandCount?: number;
+      ditherSampledStops?: import('@/utils/colorCycleGradientDefs').StoredStop[];
+      ditherBaseOffsetOverride?: number;
+      paintSlotOverride?: number;
+      paintDefIdOverride?: number;
       shapePhaseSeedMarkId?: string | null;
       roi?: { x: number; y: number; width: number; height: number };
       skipPostRender?: boolean;
