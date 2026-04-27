@@ -505,13 +505,15 @@ describe('colorAdjustSlice preview performance path', () => {
     const updatedLayer = useAppStore.getState().layers[0];
     const updatedSlotCount = updatedLayer?.colorCycleData?.slotPalettes?.length ?? 0;
     const recolorStops = updatedLayer?.colorCycleData?.recolorSettings?.gradient ?? [];
-    const defStoreStops = updatedLayer?.colorCycleData?.gradientDefStore?.[0]?.stops ?? [];
+    const defStore = updatedLayer?.colorCycleData?.gradientDefStore ?? [];
+    const defStoreStops = defStore[0]?.stops ?? [];
 
     expect(updatedSlotCount).toBe(originalSlotCount);
     expect(recolorStops.length).toBe(2);
     expect(defStoreStops.length).toBe(2);
     expect(parseCssColor(recolorStops[0]?.color ?? '#000000').r).toBe(255);
     expect(parseCssColor(defStoreStops[0]?.color ?? '#000000').r).toBe(255);
+    expect(defStore[0]?.hash).not.toBe('test-gradient-def');
   });
 
   it('refreshes gradient-def runtime for brush-mode color-cycle previews', () => {

@@ -570,7 +570,7 @@ export class ColorCycleBrushCanvas2D {
       })),
       slotPalettes: colorCycleData.slotPalettes?.map((entry) => ({
         slot: entry.slot,
-        stops: entry.stops.map((stop) => ({ ...stop })),
+        stops: cloneGradientStops(entry.stops) ?? [],
         seamProfile: (
           entry as { slot: number; seamProfile?: GradientSeamProfile }
         ).seamProfile ?? seamProfileBySlot.get(entry.slot),
@@ -578,7 +578,7 @@ export class ColorCycleBrushCanvas2D {
       gradientDefStore: colorCycleData.gradientDefStore?.map((entry) => ({
         id: entry.id,
         kind: entry.kind,
-        stops: entry.stops.map((stop) => ({ ...stop })),
+        stops: cloneGradientStops(entry.stops) ?? [],
         hash: entry.hash,
         source: entry.source,
         seamProfile: entry.seamProfile,
@@ -1112,11 +1112,23 @@ export class ColorCycleBrushCanvas2D {
   }
 
   private buildDefPaletteSignature(
-    defs: Array<{ id: number; hash: string; seamProfile?: GradientSeamProfile }>
+    defs: Array<{ id: number; hash: string; stops?: GradientStop[]; seamProfile?: GradientSeamProfile }>
   ): string {
     return defs
-      .map((entry) => `${entry.id}:${appendGradientSeamProfileSignature(entry.hash, entry.seamProfile)}`)
+      .map((entry) => {
+        const stopsSignature = this.buildDefStopsSignature(entry.stops);
+        return `${entry.id}:${appendGradientSeamProfileSignature(entry.hash, entry.seamProfile)}:${stopsSignature}`;
+      })
       .sort()
+      .join('|');
+  }
+
+  private buildDefStopsSignature(stops: GradientStop[] | undefined): string {
+    if (!Array.isArray(stops) || stops.length === 0) {
+      return '';
+    }
+    return stops
+      .map((stop) => `${stop.position}:${stop.color}:${Number.isFinite(stop.opacity) ? stop.opacity : 1}`)
       .join('|');
   }
 
@@ -1153,9 +1165,10 @@ export class ColorCycleBrushCanvas2D {
         stops: def.stops,
         seamProfile: normalizeGradientSeamProfile(def.seamProfile),
       });
+      const stopsSignature = this.buildDefStopsSignature(def.stops);
       palettesById.set(def.id, handle.uint32);
       rgbaById.set(def.id, handle.rgba);
-      signaturesById.set(def.id, appendGradientSeamProfileSignature(def.hash, def.seamProfile));
+      signaturesById.set(def.id, `${appendGradientSeamProfileSignature(def.hash, def.seamProfile)}:${stopsSignature}`);
     }
 
     const nextCache: DefPaletteCache = {
