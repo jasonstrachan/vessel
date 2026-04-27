@@ -540,11 +540,27 @@ export interface ColorCycleRuntimeData {
    * PlaybackRuntimeController and colorCyclePlayback.
    */
   isAnimating?: boolean;
+  /**
+   * @deprecated Runtime compatibility surface only. This is not document truth.
+   * Compositor/save/export paths must not read this directly; use the color-cycle
+   * presentation resolver or document-state boundary instead.
+   */
   canvas?: HTMLCanvasElement;
   eraseMask?: HTMLCanvasElement;
   brushState?: unknown;
   runtimeHydrationState?: 'cold' | 'warm' | 'active';
   deferredRuntimeRestore?: boolean;
+  repairStatus?: {
+    ok: false;
+    reason:
+      | 'not-color-cycle'
+      | 'dimension-mismatch'
+      | 'missing-paint-buffer'
+      | 'missing-gradient-bindings'
+      | 'empty-compatibility-snapshot'
+      | 'unsupported-legacy-shape';
+    notes?: string[];
+  };
 }
 
 export type LayerColorCycleData =

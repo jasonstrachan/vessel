@@ -9,6 +9,10 @@ import {
 import { getSequentialLivePreviewFrame } from '@/lib/sequential/SequentialLivePreviewRuntime';
 import { getSequentialRenderFrame } from '@/runtime/playback/sequentialFrameCursor';
 import { getLayerTransferCanvas, type LayerTransferCacheEntry } from './layerTransferCache';
+import {
+  getColorCyclePresentationCanvas,
+  resolveColorCyclePresentation,
+} from './resolveColorCyclePresentation';
 
 interface UseDrawingCanvasCompositeBuffersOptions {
   project: { width: number; height: number } | null;
@@ -152,27 +156,21 @@ export const useDrawingCanvasCompositeBuffers = ({
 
       let drewLayer = false;
 
-      if (
-        layer.layerType === 'color-cycle' &&
-        layer.colorCycleData?.canvas &&
-        layer.colorCycleData.mode !== 'recolor'
-      ) {
-        try {
-          targetCtx.drawImage(layer.colorCycleData.canvas, 0, 0);
-          drewLayer = true;
-        } catch {
-          // ignore draw errors for transient states
-        }
-      } else if (
-        layer.layerType === 'color-cycle' &&
-        layer.colorCycleData?.mode === 'recolor' &&
-        layer.colorCycleData.canvas
-      ) {
-        try {
-          targetCtx.drawImage(layer.colorCycleData.canvas, 0, 0);
-          drewLayer = true;
-        } catch {
-          // ignore draw errors for transient states
+      if (layer.layerType === 'color-cycle') {
+        const presentation = resolveColorCyclePresentation({
+          layer,
+          activeLayerId,
+          projectWidth: project.width,
+          projectHeight: project.height,
+        });
+        const source = getColorCyclePresentationCanvas(presentation);
+        if (source) {
+          try {
+            targetCtx.drawImage(source, 0, 0);
+            drewLayer = true;
+          } catch {
+            // ignore draw errors for transient states
+          }
         }
       } else if (layer.layerType === 'sequential' && layer.sequentialData) {
         const includePreviewEvents =

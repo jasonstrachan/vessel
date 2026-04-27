@@ -8,6 +8,10 @@ import {
 } from '@/lib/sequential/SequentialLayerRenderer';
 import { getSequentialRenderFrame } from '@/runtime/playback/sequentialFrameCursor';
 import { getLayerTransferCanvas, type LayerTransferCacheEntry } from './layerTransferCache';
+import {
+  getColorCyclePresentationCanvas,
+  resolveColorCyclePresentation,
+} from './resolveColorCyclePresentation';
 
 interface UseDrawingCanvasLayerRenderingOptions {
   project: { width: number; height: number; backgroundColor?: string | null } | null;
@@ -59,25 +63,20 @@ export const useDrawingCanvasLayerRendering = ({
       ctx.globalCompositeOperation = layer.blendMode;
       ctx.globalAlpha = layer.opacity;
 
-      if (
-        layer.layerType === 'color-cycle' &&
-        layer.colorCycleData?.canvas &&
-        layer.colorCycleData.mode !== 'recolor'
-      ) {
-        try {
-          ctx.drawImage(layer.colorCycleData.canvas, 0, 0);
-        } catch {
-          // ignore transient color cycle draw errors
-        }
-      } else if (
-        layer.layerType === 'color-cycle' &&
-        layer.colorCycleData?.mode === 'recolor' &&
-        layer.colorCycleData.canvas
-      ) {
-        try {
-          ctx.drawImage(layer.colorCycleData.canvas, 0, 0);
-        } catch {
-          // ignore transient color cycle draw errors
+      if (layer.layerType === 'color-cycle') {
+        const presentation = resolveColorCyclePresentation({
+          layer,
+          activeLayerId,
+          projectWidth: project.width,
+          projectHeight: project.height,
+        });
+        const source = getColorCyclePresentationCanvas(presentation);
+        if (source) {
+          try {
+            ctx.drawImage(source, 0, 0);
+          } catch {
+            // ignore transient color cycle draw errors
+          }
         }
       } else if (layer.layerType === 'sequential' && layer.sequentialData) {
         const source = getSequentialLayerRenderCanvas({

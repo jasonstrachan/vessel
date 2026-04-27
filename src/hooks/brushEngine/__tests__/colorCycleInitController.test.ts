@@ -127,6 +127,37 @@ describe('colorCycleInitController', () => {
     expect(brush.setFlowMode).toHaveBeenCalledWith('forward');
   });
 
+  it('does not initialize a fresh brush while a restored color-cycle layer is cold', () => {
+    const initColorCycleForLayer = jest.fn();
+    const requestGradientApply = jest.fn();
+
+    const result = initializeColorCycleBrushForActiveLayer({
+      activeLayerId: 'layer-cc',
+      projectWidth: 128,
+      projectHeight: 64,
+      brushSettings: makeBrushSettings(),
+      isCCGradientActiveLayer: true,
+      defaultBandSpacing: 12,
+      clampColorCycleBandSpacing: (v) => v ?? 12,
+      resolveBrushPressureRange: () => ({ enabled: false, minPercent: 100, maxPercent: 100 }),
+      getLayers: () => [{
+        id: 'layer-cc',
+        layerType: 'color-cycle',
+        colorCycleData: {
+          runtimeHydrationState: 'cold',
+          deferredRuntimeRestore: true,
+        },
+      }],
+      initColorCycleForLayer,
+      getActiveLayerColorCycleBrush: () => null,
+      requestGradientApply,
+    });
+
+    expect(result).toBeNull();
+    expect(initColorCycleForLayer).not.toHaveBeenCalled();
+    expect(requestGradientApply).not.toHaveBeenCalled();
+  });
+
   it('passes the dedicated checkered stamp shape through to the CC brush', () => {
     const brush = makeBrush();
 

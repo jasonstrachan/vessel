@@ -2,6 +2,7 @@ import { getAppStoreState } from '@/stores/appStoreAccess';
 import { debugWarn } from '@/utils/debug';
 import { flushGradientApply, requestGradientApply } from '@/hooks/brushEngine/ccGradientApplyScheduler';
 import type { ColorCycleBrushImplementation } from '@/hooks/brushEngine/ColorCycleBrushMigration';
+import { resolveColorCycleRuntimeSurface } from '@/lib/colorCycle/materializeColorCycleLayer';
 import type { Layer } from '@/types';
 import { isFgPending } from '@/utils/colorCycleGradients';
 
@@ -39,24 +40,22 @@ export const refreshLayerCCSurface = (
     return null;
   }
 
-  const storedCanvas = layer.colorCycleData?.canvas as HTMLCanvasElement | undefined;
-  const liveCanvas = brush.getCanvas?.() as HTMLCanvasElement | undefined;
-
-  if (liveCanvas && (!storedCanvas || storedCanvas !== liveCanvas)) {
-    try {
-      state.updateLayer(layerId, {
-        colorCycleData: {
-          ...(layer.colorCycleData ?? {}),
-          canvas: liveCanvas
-        }
-      } as Partial<Layer>);
-      return liveCanvas;
-    } catch {
-      // fall through; return best-known surface
-    }
+  try {
+    return resolveColorCycleRuntimeSurface({
+      layer,
+      brush,
+      publishSurface: (canvas) => {
+        state.updateLayer(layerId, {
+          colorCycleData: {
+            ...(layer.colorCycleData ?? {}),
+            canvas,
+          },
+        } as Partial<Layer>);
+      },
+    });
+  } catch {
+    return layer.colorCycleData?.canvas ?? null;
   }
-
-  return storedCanvas ?? liveCanvas ?? null;
 };
 
 export const renderBrushToLayerCanvas = (

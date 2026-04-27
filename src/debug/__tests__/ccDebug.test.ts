@@ -5,28 +5,32 @@ describe('ccDebug overlay bridge', () => {
     window.__DEV_DEBUG_OVERLAY__ = false;
   });
 
-  it('enables the dev debug overlay when CC debug is turned on', async () => {
+  it('does not change the dev debug overlay preference when CC debug is turned on', async () => {
     await import('@/debug/ccDebug');
 
     expect(window.__DEV_DEBUG_OVERLAY__).toBe(false);
 
     window.__CC_DEBUG__ = true;
 
-    expect(window.__DEV_DEBUG_OVERLAY__).toBe(true);
-    expect(window.localStorage.getItem('devDebugOverlay')).toBe('1');
+    expect(window.__DEV_DEBUG_OVERLAY__).toBe(false);
+    expect(window.localStorage.getItem('devDebugOverlay')).toBeNull();
+    expect(window.localStorage.getItem('ccDebug')).toBe('1');
   });
 
-  it('disables the dev debug overlay when CC debug is turned off', async () => {
+  it('does not change the dev debug overlay preference when CC debug is turned off', async () => {
     await import('@/debug/ccDebug');
 
+    window.__DEV_DEBUG_OVERLAY__ = true;
+    window.localStorage.setItem('devDebugOverlay', '1');
     window.__CC_DEBUG__ = true;
     expect(window.__DEV_DEBUG_OVERLAY__).toBe(true);
     expect(window.localStorage.getItem('devDebugOverlay')).toBe('1');
 
     window.__CC_DEBUG__ = false;
 
-    expect(window.__DEV_DEBUG_OVERLAY__).toBe(false);
-    expect(window.localStorage.getItem('devDebugOverlay')).toBeNull();
+    expect(window.__DEV_DEBUG_OVERLAY__).toBe(true);
+    expect(window.localStorage.getItem('devDebugOverlay')).toBe('1');
+    expect(window.localStorage.getItem('ccDebug')).toBeNull();
   });
 
   it('does not write console or overlay logs when the dev overlay is off', async () => {

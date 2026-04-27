@@ -898,8 +898,10 @@ export const __TESTING__ = {
   scaleEncodedSpeedBuffer,
   buildSequentialExportPlayback,
   captureSequentialLayerFrameTextures,
+  minifyProperties,
   extractBrushStateFromSavedSnapshot,
   serializeBrushState,
+  serializeColorCycleData,
   resolveDefBoundSlotPalettes,
   normalizeCanvasSurfaceForExport,
 };

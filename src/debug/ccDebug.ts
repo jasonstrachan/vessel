@@ -1,6 +1,6 @@
 import { useAppStore } from '@/stores/useAppStore';
 import { appendCCDebugOverlayEntry } from '@/utils/colorCycle/ccDebugOverlayStore';
-import { isDevDebugOverlayEnabled, setDevDebugOverlayEnabled } from '@/utils/dev/debugOverlayStore';
+import { isDevDebugOverlayEnabled } from '@/utils/dev/debugOverlayStore';
 
 type ScopedConsole = typeof console;
 type CCDebugState = { on: boolean; verbose: boolean; timing: boolean };
@@ -43,12 +43,10 @@ const resolveInitialVerboseState = (): boolean => readLocalStorageFlag('ccDebugV
 
 const resolveInitialTimingState = (): boolean => readLocalStorageFlag('ccDebugTiming');
 
-const syncDebugOverlayPreference = (enabled: boolean) => {
+const emitDebugPreferenceChange = () => {
   if (typeof window === 'undefined') {
     return;
   }
-
-  setDevDebugOverlayEnabled(enabled);
   emitCcDebugStateChange();
 };
 
@@ -77,7 +75,7 @@ const persistDebugPreference = (enabled: boolean) => {
     }
   } catch {}
 
-  syncDebugOverlayPreference(enabled);
+  emitDebugPreferenceChange();
 };
 
 const persistVerbosePreference = (enabled: boolean) => {
@@ -113,7 +111,7 @@ const persistTimingPreference = (enabled: boolean) => {
 };
 
 if (typeof window !== 'undefined') {
-  syncDebugOverlayPreference(CC_DEBUG.on);
+  emitDebugPreferenceChange();
 
   try {
     Object.defineProperty(window, '__CC_DEBUG__', {

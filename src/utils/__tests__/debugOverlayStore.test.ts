@@ -24,7 +24,7 @@ describe('debugOverlayStore', () => {
 
     setDevDebugOverlayEnabled(false);
     expect(isDevDebugOverlayEnabled()).toBe(false);
-    expect(window.localStorage.getItem('devDebugOverlay')).toBeNull();
+    expect(window.localStorage.getItem('devDebugOverlay')).toBe('0');
   });
 
   it('appends and clears overlay entries while enabled', () => {
