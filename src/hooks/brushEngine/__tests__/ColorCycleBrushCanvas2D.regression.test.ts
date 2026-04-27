@@ -155,6 +155,129 @@ describe('ColorCycleBrushCanvas2D regression tests', () => {
     state.tools.brushSettings = {};
   });
 
+  it('rebuilds def palettes when def stops change even if a stale hash is reused', () => {
+    const canvas = makeCanvas(2, 1);
+    const brush = new ColorCycleBrushCanvas2D(canvas, { forceCanvas2D: true });
+    const layerId = 'layer-def-palette-stale-hash';
+    const staleHash = 'linear:stale';
+    const state = useAppStore.getState() as unknown as MockStoreState;
+    state.layers = [{
+      id: layerId,
+      layerType: 'color-cycle',
+      colorCycleData: {
+        gradientDefStore: [{
+          id: 1,
+          kind: 'linear',
+          stops: [
+            { position: 0, color: 'rgb(255, 0, 0)' },
+            { position: 1, color: 'rgb(255, 255, 0)' },
+          ],
+          hash: staleHash,
+          source: 'manual',
+          createdAtMs: 0,
+          slot: 7,
+        }],
+      },
+    }];
+
+    brush.applyLayerSnapshot(layerId, {
+      paintBuffer: new Uint8Array([1, 1]).buffer,
+      gradientIdBuffer: new Uint8Array([7, 7]).buffer,
+      gradientDefIdBuffer: new Uint16Array([1, 1]).buffer,
+      speedBuffer: new Uint8Array([0, 0]).buffer,
+      flowBuffer: new Uint8Array([0, 0]).buffer,
+      phaseBuffer: new Uint8Array([0, 0]).buffer,
+      hasContent: true,
+      strokeCounter: 1,
+    });
+    brush.renderDirectToCanvas(canvas, layerId);
+
+    const animator = (brush as unknown as { animators: Map<string, unknown> }).animators.get(layerId) as {
+      defPaletteSignaturesById?: Map<number, string>;
+    };
+    const firstSignature = animator.defPaletteSignaturesById?.get(1);
+
+    state.layers = [{
+      id: layerId,
+      layerType: 'color-cycle',
+      colorCycleData: {
+        gradientDefStore: [{
+          id: 1,
+          kind: 'linear',
+          stops: [
+            { position: 0, color: 'rgb(0, 0, 255)' },
+            { position: 1, color: 'rgb(0, 255, 255)' },
+          ],
+          hash: staleHash,
+          source: 'manual',
+          createdAtMs: 0,
+          slot: 7,
+        }],
+      },
+    }];
+
+    brush.syncGradientDefRuntime(layerId);
+    const nextSignature = animator.defPaletteSignaturesById?.get(1);
+
+    expect(firstSignature).toContain('rgb(255, 0, 0)');
+    expect(nextSignature).toContain('rgb(0, 0, 255)');
+    expect(nextSignature).not.toBe(firstSignature);
+  });
+
+  it('skips malformed def entries while building def palette signatures', () => {
+    const canvas = makeCanvas(2, 1);
+    const brush = new ColorCycleBrushCanvas2D(canvas, { forceCanvas2D: true });
+    const layerId = 'layer-def-palette-missing-stops';
+    const state = useAppStore.getState() as unknown as MockStoreState;
+    state.layers = [{
+      id: layerId,
+      layerType: 'color-cycle',
+      colorCycleData: {
+        gradientDefStore: [
+          {
+            id: 1,
+            kind: 'linear',
+            hash: 'linear:missing-stops',
+            source: 'manual',
+            createdAtMs: 0,
+            slot: 7,
+          },
+          {
+            id: 2,
+            kind: 'linear',
+            stops: [
+              { position: 0, color: '#111111' },
+              { position: 1, color: '#eeeeee' },
+            ],
+            hash: 'linear:valid',
+            source: 'manual',
+            createdAtMs: 0,
+            slot: 8,
+          },
+        ],
+      },
+    }];
+
+    brush.applyLayerSnapshot(layerId, {
+      paintBuffer: new Uint8Array([1, 1]).buffer,
+      gradientIdBuffer: new Uint8Array([8, 8]).buffer,
+      gradientDefIdBuffer: new Uint16Array([2, 2]).buffer,
+      speedBuffer: new Uint8Array([0, 0]).buffer,
+      flowBuffer: new Uint8Array([0, 0]).buffer,
+      phaseBuffer: new Uint8Array([0, 0]).buffer,
+      hasContent: true,
+      strokeCounter: 1,
+    });
+
+    expect(() => brush.renderDirectToCanvas(canvas, layerId)).not.toThrow();
+
+    const animator = (brush as unknown as { animators: Map<string, unknown> }).animators.get(layerId) as {
+      defPaletteSignaturesById?: Map<number, string>;
+    };
+    expect(animator.defPaletteSignaturesById?.has(1)).toBe(false);
+    expect(animator.defPaletteSignaturesById?.get(2)).toContain('#111111');
+  });
+
   it('updates indices on endStroke for sierra-lite stamp dither', () => {
     const canvas = makeCanvas(16, 16);
     const brush = new ColorCycleBrushCanvas2D(canvas, { forceCanvas2D: true });
@@ -284,9 +407,10 @@ describe('ColorCycleBrushCanvas2D regression tests', () => {
       defPaletteCacheByLayer: Map<string, { signaturesById: Map<number, string> }>;
       animators: Map<string, { defIdData?: Uint16Array | null }>;
     }).defPaletteCacheByLayer.get(layerId);
-    expect(defCache?.signaturesById.get(defId)).toBe(
+    expect(defCache?.signaturesById.get(defId)).toContain(
       appendGradientSeamProfileSignature(defHash, 'soft')
     );
+    expect(defCache?.signaturesById.get(defId)).toContain('#111111');
 
     const animator = (restored as unknown as {
       animators: Map<string, { defIdData?: Uint16Array | null }>;

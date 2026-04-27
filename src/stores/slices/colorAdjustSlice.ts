@@ -319,10 +319,14 @@ const buildAdjustedColorCycleData = (
         }))
       : original.slotPalettes,
     gradientDefStore: original.gradientDefStore
-      ? original.gradientDefStore.map((entry) => ({
-          ...entry,
-          stops: adjustStops(entry.stops),
-        }))
+      ? original.gradientDefStore.map((entry) => {
+          const stops = adjustStops(entry.stops);
+          return {
+            ...entry,
+            stops,
+            hash: hashColorCycleDefStops(stops, entry.kind),
+          };
+        })
       : original.gradientDefStore,
     recolorSettings: original.recolorSettings
       ? {
