@@ -419,6 +419,17 @@ server.listen(port, host, () => {
 
 server.on('error', async (error) => {
   await removeLockFile();
+  if (error?.code === 'EADDRINUSE') {
+    if (port === 3001) {
+      logger.error(
+        'Port 3001 is already in use. Run "npm run preview:prod:status" to inspect it or "npm run preview:prod:stop" before starting the preview server.',
+      );
+    } else {
+      logger.error(
+        `Port ${port} is already in use. Run "PORT=${port} node scripts/preview-port.mjs status" to inspect it or stop the conflicting process before starting the preview server.`,
+      );
+    }
+  }
   logger.error('Preview server failed', error);
   process.exit(1);
 });
