@@ -41,6 +41,8 @@ const formatFileSize = (bytes: number) => {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 };
 
+const getUniqueMessages = (messages: string[]) => Array.from(new Set(messages.filter(Boolean)));
+
 export function LoadProjectModalBody({
   isProcessing,
   error,
@@ -155,68 +157,79 @@ export function LoadProjectModalBody({
             <div className='text-[#8C8C8C] text-sm'>Pick a project to see details and a live preview here.</div>
           )}
         </div>
-        {warning && (
+        {warning && !preview?.healthReport && (
           <div className='rounded-lg border border-amber-700/60 bg-amber-950/40 p-3 text-amber-200 text-xs flex-shrink-0'>
             {warning}
           </div>
         )}
         {preview?.healthReport && (
-          <div className='rounded-lg border border-[#2A2A2A] bg-[#121312] p-4 text-sm flex flex-col gap-2 flex-shrink-0'>
-            <div className='flex items-center justify-between gap-3'>
-              <div className='text-[#D9D9D9] font-medium'>Project Health</div>
-              <div className='text-[#8C8C8C] text-xs'>
-                Binary {formatFileSize(preview.healthReport.binaryPayloadBytes)}
-              </div>
-            </div>
-            <div className='grid grid-cols-2 gap-x-3 gap-y-1 text-xs text-[#A5AFA5]'>
-              <div>Archive {formatFileSize(preview.healthReport.archiveBytes)}</div>
-              <div>Manifest {formatFileSize(preview.healthReport.combinedManifestBytes)}</div>
-              <div>Compression {(preview.healthReport.compressionRatio * 100).toFixed(1)}%</div>
-              <div>
-                Top {preview.healthReport.sectionBreakdown[0]?.name ?? 'n/a'}
-              </div>
-              <div className='col-span-2'>
-                Largest {preview.healthReport.largestLayers[0]?.layerName ?? 'n/a'}
-                {preview.healthReport.largestLayers[0]
-                  ? ` (${formatFileSize(preview.healthReport.largestLayers[0]?.bytes ?? 0)})`
-                  : ''}
-              </div>
-            </div>
-            {preview.healthReport.warnings.length > 0 && (
-              <div className='rounded border border-amber-700/40 bg-amber-950/30 p-2'>
-                <div className='text-amber-200 text-[11px] uppercase tracking-wide mb-1'>Warnings</div>
-                <div className='space-y-1'>
-                  {preview.healthReport.warnings.slice(0, 2).map((entry) => (
-                    <div key={entry} className='text-amber-100 text-xs'>
-                      {entry}
-                    </div>
-                  ))}
+          (() => {
+            const report = preview.healthReport;
+            const warningMessages = getUniqueMessages(report.warnings);
+            const recommendationMessages = getUniqueMessages(report.recommendations)
+              .filter((entry) => !warningMessages.includes(entry));
+            const primaryWarning = warning ?? report.primaryWarning ?? warningMessages[0] ?? null;
+            const secondaryWarnings = warningMessages.filter((entry) => entry !== primaryWarning);
+            const topSection = report.sectionBreakdown[0]?.name ?? 'n/a';
+            const largestLayer = report.largestLayers[0];
+            const statusLabel = primaryWarning ? 'Needs attention' : 'Ready to load';
+            const statusClass = primaryWarning
+              ? 'border-amber-700/50 bg-amber-950/30 text-amber-100'
+              : 'border-[#314231] bg-[#172017] text-[#B7D0B7]';
+
+            return (
+              <div className='rounded-lg border border-[#2A2A2A] bg-[#121312] p-4 text-sm flex flex-col gap-3 flex-shrink-0'>
+                <div className='flex items-center justify-between gap-3'>
+                  <div className='text-[#D9D9D9] font-medium'>Project Health</div>
+                  <div className={`rounded border px-2 py-1 text-xs ${statusClass}`}>
+                    {statusLabel}
+                  </div>
                 </div>
-              </div>
-            )}
-            {preview.healthReport.colorCycleDuplicationRiskLayers.length > 0 && (
-              <div className='text-amber-300 text-xs'>
-                CC duplication risk: {preview.healthReport.colorCycleDuplicationRiskLayers.join(', ')}
-              </div>
-            )}
-            {preview.healthReport.unresolvedColorCycleDefLayers.length > 0 && (
-              <div className='text-red-300 text-xs'>
-                Unresolved CC defs: {preview.healthReport.unresolvedColorCycleDefLayers.join(', ')}
-              </div>
-            )}
-            {preview.healthReport.recommendations.length > 0 && (
-              <div className='rounded border border-[#273127] bg-[#182018] p-2'>
-                <div className='text-[#B7D0B7] text-[11px] uppercase tracking-wide mb-1'>Recommendations</div>
-                <div className='space-y-1'>
-                  {preview.healthReport.recommendations.slice(0, 2).map((entry) => (
-                    <div key={entry} className='text-[#9FAF9F] text-xs'>
-                      {entry}
-                    </div>
-                  ))}
+
+                {primaryWarning && (
+                  <div className='rounded border border-amber-700/50 bg-amber-950/30 p-2 text-amber-100 text-xs'>
+                    {primaryWarning}
+                  </div>
+                )}
+
+                <div className='grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-[#A5AFA5]'>
+                  <div>Archive {formatFileSize(report.archiveBytes)}</div>
+                  <div>Binary {formatFileSize(report.binaryPayloadBytes)}</div>
+                  <div>Manifest {formatFileSize(report.combinedManifestBytes)}</div>
+                  <div>Compression {(report.compressionRatio * 100).toFixed(1)}%</div>
+                  <div>Top {topSection}</div>
+                  <div>
+                    Largest {largestLayer?.layerName ?? 'n/a'}
+                    {largestLayer ? ` (${formatFileSize(largestLayer.bytes)})` : ''}
+                  </div>
                 </div>
+
+                {(secondaryWarnings.length > 0
+                  || report.colorCycleDuplicationRiskLayers.length > 0
+                  || report.unresolvedColorCycleDefLayers.length > 0
+                  || recommendationMessages.length > 0) && (
+                  <div className='rounded border border-[#273127] bg-[#171B17] p-2 text-xs text-[#A5AFA5] space-y-1'>
+                    {secondaryWarnings.slice(0, 1).map((entry) => (
+                      <div key={entry} className='text-amber-200'>{entry}</div>
+                    ))}
+                    {report.colorCycleDuplicationRiskLayers.length > 0 && (
+                      <div className='text-amber-300'>
+                        CC duplication risk: {report.colorCycleDuplicationRiskLayers.join(', ')}
+                      </div>
+                    )}
+                    {report.unresolvedColorCycleDefLayers.length > 0 && (
+                      <div className='text-red-300'>
+                        Unresolved CC defs: {report.unresolvedColorCycleDefLayers.join(', ')}
+                      </div>
+                    )}
+                    {recommendationMessages.slice(0, 2).map((entry) => (
+                      <div key={entry}>{entry}</div>
+                    ))}
+                  </div>
+                )}
               </div>
-            )}
-          </div>
+            );
+          })()
         )}
       </div>
 

@@ -493,8 +493,9 @@ describe('LoadProjectModal', () => {
         screen.getAllByText('This project contains legacy duplicated color-cycle state. Re-save or repair it before archival sharing.').length,
       ).toBeGreaterThan(0);
     });
-    expect(screen.getByText('Warnings')).toBeInTheDocument();
-    expect(screen.getByText('Recommendations')).toBeInTheDocument();
+    expect(screen.getByText('Needs attention')).toBeInTheDocument();
+    expect(screen.queryByText('Warnings')).not.toBeInTheDocument();
+    expect(screen.queryByText('Recommendations')).not.toBeInTheDocument();
     expect(screen.getByText('Risky project')).toBeInTheDocument();
     expect(screen.getByText('Archive 20 B')).toBeInTheDocument();
     expect(screen.getByText('Manifest 20 B')).toBeInTheDocument();
