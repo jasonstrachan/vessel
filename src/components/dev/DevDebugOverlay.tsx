@@ -31,6 +31,12 @@ const sourceClassName = (source: string): string => {
   if (source === 'cc') {
     return 'border-[#3f556d] bg-[#162433] text-[#9cc9ff]';
   }
+  if (source === 'layer-activation') {
+    return 'border-[#6c5a2c] bg-[#2e2412] text-[#ffd985]';
+  }
+  if (source === 'visible-composite') {
+    return 'border-[#3c5c49] bg-[#14251c] text-[#9ee6bd]';
+  }
   return 'border-[#4d4d4d] bg-[#1b1b1b] text-[#cfcfcf]';
 };
 
@@ -91,7 +97,7 @@ export default function DevDebugOverlay() {
     };
   }, []);
 
-  const visibleEntries = useMemo(() => entries.slice(-24), [entries]);
+  const visibleEntries = useMemo(() => entries.slice(-60), [entries]);
   const sourceCounts = useMemo(() => countEntriesBySource(entries), [entries]);
 
   if (!enabled) {
@@ -102,7 +108,7 @@ export default function DevDebugOverlay() {
     if (typeof navigator === 'undefined' || !navigator.clipboard) {
       return;
     }
-    await navigator.clipboard.writeText(toClipboardText(visibleEntries));
+    await navigator.clipboard.writeText(toClipboardText(entries));
     setCopied(true);
     window.setTimeout(() => setCopied(false), 1200);
   };
@@ -179,7 +185,7 @@ export default function DevDebugOverlay() {
             onClick={() => void copyEntries()}
             className="rounded border border-[#4a4a4a] px-2 py-1 text-[10px] uppercase tracking-[0.12em] text-[#d9d9d9] hover:bg-white/10"
           >
-            {copied ? 'copied' : 'copy'}
+            {copied ? 'copied' : 'copy all'}
           </button>
           <button
             type="button"

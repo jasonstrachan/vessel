@@ -653,6 +653,10 @@ export interface AppState {
   updateLayerAlignment: (layerId: string, alignment: LayerAlignmentSettings) => void;
   scheduleColorCycleSlotRebuild: (reason: string) => void;
   runColorCycleSlotRebuild: (reason: string) => void;
+  ensureColorCycleLayerRuntime: (
+    layerId: string,
+    options?: { target?: 'warm' | 'active' },
+  ) => Promise<boolean>;
   reorderLayers: (sourceIndex: number, destinationIndex: number) => void;
   reorderLayerBlock: (layerIds: string[], destinationIndex: number) => void;
   setSelectedLayerIds: (layerIds: string[]) => void;

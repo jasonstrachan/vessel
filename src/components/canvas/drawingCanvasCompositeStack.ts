@@ -1,5 +1,6 @@
 import { getAppStoreState } from '@/stores/appStoreAccess';
-import { debugWarn } from '@/utils/debug';
+import { debugWarn, recordBreadcrumb } from '@/utils/debug';
+import { createDevDebugOverlayLogger } from '@/utils/dev/debugOverlayStore';
 import type { Layer } from '@/types';
 import type { CompositeSegment } from '@/stores/slices/layersSlice';
 import { selectSequentialPlaybackActive, type AppState } from '@/stores/useAppStore';
@@ -11,6 +12,10 @@ import {
   getSequentialLivePreviewFrame,
   type SequentialLivePreviewFrame,
 } from '@/lib/sequential/SequentialLivePreviewRuntime';
+import {
+  getColorCyclePresentationCanvas,
+  resolveColorCyclePresentation,
+} from './resolveColorCyclePresentation';
 
 interface VisibleRect {
   x: number;
@@ -43,6 +48,71 @@ interface DrawVisibleCompositeStackOptions {
 interface DrawVisibleCompositeStackResult {
   invalidCompositeBitmap: boolean;
 }
+
+const compositeDebug = createDevDebugOverlayLogger('visible-composite');
+const lastCompositeProbeSignatures = new Map<string, string>();
+
+const sampleCanvasAlpha = (
+  canvas: HTMLCanvasElement,
+  rect: VisibleRect,
+): { sampled: number; alphaHits: number; rgbHits: number } => {
+  const ctx = canvas.getContext('2d', { willReadFrequently: true } as CanvasRenderingContext2DSettings);
+  if (!ctx || canvas.width <= 0 || canvas.height <= 0) {
+    return { sampled: 0, alphaHits: 0, rgbHits: 0 };
+  }
+  const x0 = Math.max(0, Math.floor(rect.x));
+  const y0 = Math.max(0, Math.floor(rect.y));
+  const x1 = Math.min(canvas.width - 1, Math.ceil(rect.x + rect.width));
+  const y1 = Math.min(canvas.height - 1, Math.ceil(rect.y + rect.height));
+  if (x1 < x0 || y1 < y0) {
+    return { sampled: 0, alphaHits: 0, rgbHits: 0 };
+  }
+  let sampled = 0;
+  let alphaHits = 0;
+  let rgbHits = 0;
+  const steps = 4;
+  for (let yi = 0; yi < steps; yi += 1) {
+    const py = Math.round(y0 + ((y1 - y0) * yi) / Math.max(1, steps - 1));
+    for (let xi = 0; xi < steps; xi += 1) {
+      const px = Math.round(x0 + ((x1 - x0) * xi) / Math.max(1, steps - 1));
+      try {
+        const pixel = ctx.getImageData(px, py, 1, 1).data;
+        sampled += 1;
+        if (pixel[3] !== 0) {
+          alphaHits += 1;
+        }
+        if (pixel[0] !== 0 || pixel[1] !== 0 || pixel[2] !== 0) {
+          rgbHits += 1;
+        }
+      } catch {
+        return { sampled, alphaHits, rgbHits };
+      }
+    }
+  }
+  return { sampled, alphaHits, rgbHits };
+};
+
+const recordCompositeProbe = (event: string, data: unknown): void => {
+  const key = (() => {
+    if (data && typeof data === 'object' && 'layerId' in data) {
+      return `${event}:${String((data as { layerId?: unknown }).layerId ?? '')}`;
+    }
+    return event;
+  })();
+  const signature = (() => {
+    try {
+      return JSON.stringify(data);
+    } catch {
+      return event;
+    }
+  })();
+  if (lastCompositeProbeSignatures.get(key) === signature) {
+    return;
+  }
+  lastCompositeProbeSignatures.set(key, signature);
+  recordBreadcrumb('visible-composite', { event, data });
+  compositeDebug.log(event, data);
+};
 
 const resolveSequentialLivePreviewSessionKey = (
   layerId: string,
@@ -134,6 +204,13 @@ export const drawVisibleCompositeStack = ({
   }
 
   if (useSplitOverlay && underCompositeCanvas) {
+    recordCompositeProbe('draw-split-overlay', {
+      activeLayerId: storeState.activeLayerId,
+      segmentCount: segments.length,
+      hasCompositeBitmap: Boolean(compositeBitmap),
+      hasCompositeCanvas: Boolean(compositeCanvas),
+      isActivelyErasing,
+    });
     ctx.drawImage(
       underCompositeCanvas,
       x,
@@ -149,6 +226,12 @@ export const drawVisibleCompositeStack = ({
   }
 
   if (isActivelyErasing) {
+    recordCompositeProbe('draw-nonactive-for-erasing', {
+      activeLayerId: storeState.activeLayerId,
+      segmentCount: segments.length,
+      hasCompositeBitmap: Boolean(compositeBitmap),
+      hasCompositeCanvas: Boolean(compositeCanvas),
+    });
     ctx.save();
     ctx.beginPath();
     ctx.rect(x, y, width, height);
@@ -161,6 +244,15 @@ export const drawVisibleCompositeStack = ({
   let compositeDrawn = false;
   if (segments.length > 0) {
     compositeDrawn = true;
+    recordCompositeProbe('draw-segments', {
+      activeLayerId: storeState.activeLayerId,
+      segmentCount: segments.length,
+      segments: segments.map((segment) => ({
+        kind: segment.kind,
+        layerId: 'layerId' in segment ? segment.layerId : null,
+        dirty: 'dirty' in segment ? segment.dirty : null,
+      })),
+    });
     segments.forEach((segment) => {
       if (segment.kind === 'static') {
         const source = segment.bitmap ?? segment.canvas;
@@ -185,19 +277,53 @@ export const drawVisibleCompositeStack = ({
       if (segment.kind === 'color-cycle') {
         const layer = layerMap.get(segment.layerId);
         if (!layer || !layer.visible || layer.layerType !== 'color-cycle') {
+          recordCompositeProbe('skip-cc-segment', {
+            activeLayerId: storeState.activeLayerId,
+            layerId: segment.layerId,
+            reason: !layer ? 'missing-layer' : !layer.visible ? 'hidden' : 'not-color-cycle',
+          });
           return;
         }
 
-        const layerCanvas = layer.colorCycleData?.canvas as HTMLCanvasElement | undefined;
-        if (!layerCanvas) {
+        const projectWidth = storeState.project?.width ?? layer.framebuffer?.width ?? width;
+        const projectHeight = storeState.project?.height ?? layer.framebuffer?.height ?? height;
+        const presentation = resolveColorCyclePresentation({
+          layer,
+          activeLayerId: storeState.activeLayerId ?? null,
+          projectWidth,
+          projectHeight,
+        });
+        const drawCanvas = getColorCyclePresentationCanvas(presentation);
+        if (!drawCanvas) {
+          recordCompositeProbe('skip-cc-segment', {
+            activeLayerId: storeState.activeLayerId,
+            layerId: segment.layerId,
+            reason: presentation.kind === 'none' ? presentation.reason : 'missing-source',
+            hydration: layer.colorCycleData?.runtimeHydrationState ?? null,
+            hasCanvasImageData: Boolean(layer.colorCycleData?.canvasImageData),
+          });
           return;
         }
-
+        recordCompositeProbe('draw-cc-segment', {
+          activeLayerId: storeState.activeLayerId,
+          layerId: segment.layerId,
+          isActiveLayer: storeState.activeLayerId === segment.layerId,
+          hydration: layer.colorCycleData?.runtimeHydrationState ?? null,
+          canvasSize: `${drawCanvas.width}x${drawCanvas.height}`,
+          drawSource: presentation.kind,
+          presentationReason: presentation.reason,
+          hasCanvasImageData: Boolean(layer.colorCycleData?.canvasImageData),
+          canvasSample: drawCanvas instanceof HTMLCanvasElement
+            ? sampleCanvasAlpha(drawCanvas, visibleRect)
+            : null,
+          opacity: segment.opacity,
+          blendMode: segment.blendMode ?? 'source-over',
+        });
         ctx.save();
         ctx.globalAlpha = segment.opacity;
         ctx.globalCompositeOperation = segment.blendMode ?? 'source-over';
         ctx.drawImage(
-          layerCanvas,
+          drawCanvas,
           x,
           y,
           width,
@@ -328,6 +454,11 @@ export const drawVisibleCompositeStack = ({
 
   if (!compositeDrawn && compositeBitmap && !isSequentialCaptureActive) {
     try {
+      recordCompositeProbe('draw-composite-bitmap', {
+        activeLayerId: storeState.activeLayerId,
+        segmentCount: segments.length,
+        hasCompositeCanvas: Boolean(compositeCanvas),
+      });
       ctx.drawImage(
         compositeBitmap,
         x,
@@ -355,6 +486,10 @@ export const drawVisibleCompositeStack = ({
   }
 
   if (!compositeDrawn && compositeCanvas && !isSequentialCaptureActive) {
+    recordCompositeProbe('draw-composite-canvas', {
+      activeLayerId: storeState.activeLayerId,
+      segmentCount: segments.length,
+    });
     ctx.drawImage(
       compositeCanvas,
       x,

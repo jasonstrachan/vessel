@@ -10,6 +10,7 @@ import { packArrayToB64Z } from '@/utils/export/b64z';
 import { ccLog, ccSample } from '@/utils/colorCycle/ccDebug';
 import { deriveForegroundGradientStops } from '@/utils/colorCycleGradients';
 import { captureCanvasImageData } from '@/utils/canvas/canvasImage';
+import { normalizeColorCycleLayerDocumentState } from '@/lib/colorCycle/documentState';
 import { posInt, toNum } from '@/utils/num';
 import type { Layer, Project } from '@/types';
 import { clampRectToDocument as clampBoundsToDocument, scaleMaskBoundsToDocument, type Size2D as CoverageSize } from '@/utils/export/colorCycleBounds';
@@ -1489,6 +1490,47 @@ export const extractBrushStateFromSavedSnapshot = (layer: Layer): WebGLSerialize
   };
 };
 
+const extractBrushStateFromDocumentState = (layer: Layer): WebGLSerializedBrushState | undefined => {
+  const result = normalizeColorCycleLayerDocumentState(layer, {
+    fallbackWidth: layer.imageData?.width ?? layer.colorCycleData?.canvasWidth ?? layer.colorCycleData?.canvas?.width,
+    fallbackHeight: layer.imageData?.height ?? layer.colorCycleData?.canvasHeight ?? layer.colorCycleData?.canvas?.height,
+  });
+  if (!result.ok) {
+    return undefined;
+  }
+
+  const { state } = result;
+  const indexBuffer = decodePersistedNumericBuffer(state.paintBuffer);
+  if (indexBuffer.length === 0) {
+    return undefined;
+  }
+
+  const gradientIdBuffer = decodePersistedNumericBuffer(state.gradientIdBuffer);
+  const gradientDefIdBuffer = decodePersistedDefIdBuffer(state.gradientDefIdBuffer);
+  const speedBuffer = decodePersistedNumericBuffer(state.speedBuffer);
+  const flowBuffer = decodePersistedNumericBuffer(state.flowBuffer);
+  const phaseBuffer = decodePersistedNumericBuffer(state.phaseBuffer);
+  const gradientStops = toSerializableGradientStops(
+    state.slotPalettes?.[0]?.stops,
+    layer.colorCycleData?.gradient ?? [],
+  );
+
+  return {
+    width: state.width,
+    height: state.height,
+    indexBuffer,
+    gradientIdBuffer: gradientIdBuffer.length > 0 ? gradientIdBuffer : undefined,
+    gradientDefIdBuffer: gradientDefIdBuffer.length > 0 ? gradientDefIdBuffer : undefined,
+    speedBuffer: speedBuffer.length > 0 ? speedBuffer : undefined,
+    flowBuffer: flowBuffer.length > 0 ? flowBuffer : undefined,
+    phaseBuffer: phaseBuffer.length > 0 ? phaseBuffer : undefined,
+    gradientStops,
+    animationOffset: 0,
+    animationSpeed: resolveLayerColorCycleBaseSpeed(layer.colorCycleData),
+    alphaMode: 'opaque-indices',
+  };
+};
+
 let cachedBrushManager: Pick<ColorCycleBrushManager, 'getBrush'> | null = null;
 
 const getBrushManagerInstance = (): Pick<ColorCycleBrushManager, 'getBrush'> | null => {
@@ -1895,6 +1937,14 @@ export const serializeBrushState = (layer: Layer): WebGLSerializedBrushState | u
       animatorState.alphaMode = 'opaque-indices';
     }
     return animatorState;
+  }
+
+  const documentState = extractBrushStateFromDocumentState(layer);
+  if (documentState) {
+    if (!documentState.alphaMode) {
+      documentState.alphaMode = 'opaque-indices';
+    }
+    return documentState;
   }
 
   const savedSnapshotState = extractBrushStateFromSavedSnapshot(layer);
@@ -2325,6 +2375,19 @@ export const serializeColorCycleData = async (
     }
   }
 
+  const isStaticPreviewOnlyBrushLayer = Boolean(
+    !data.recolorSettings &&
+    !brushState &&
+    data.repairStatus?.ok === false
+  );
+  if (isStaticPreviewOnlyBrushLayer) {
+    debugWarn(
+      'raw-console',
+      '[webglExporter] Color cycle layer is repair-failed/static-preview-only; exporting without animated brush data.',
+      { layerId: layer.id, reason: data.repairStatus?.reason },
+    );
+  }
+
   const resolvedBrushSpeed = resolveExportBrushSpeed(layer, layerSpeedScale);
   const resolvedControllerSpeed = resolveExportControllerSpeed(layer, layerSpeedScale, options?.toolSpeed);
   const controllerSpeedForExport = data.mode === 'recolor'
@@ -2332,7 +2395,7 @@ export const serializeColorCycleData = async (
     : (resolvedControllerSpeed ?? resolvedBrushSpeed ?? MIN_BRUSH_COLOR_CYCLE_SPEED);
   const shouldAnimate = data.mode === 'recolor'
     ? shouldExportLayerAsAnimating(layer, brushState, layerSpeedScale)
-    : true;
+    : !isStaticPreviewOnlyBrushLayer;
   const serialized: WebGLSerializedColorCycle = {
     mode: data.mode ?? 'brush',
     gradient: data.gradient,

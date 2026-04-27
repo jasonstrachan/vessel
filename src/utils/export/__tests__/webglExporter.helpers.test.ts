@@ -10,8 +10,10 @@ const {
   applyExportPlaybackScale,
   scaleEncodedSpeedBuffer,
   buildSequentialExportPlayback,
+  minifyProperties,
   extractBrushStateFromSavedSnapshot,
   serializeBrushState,
+  serializeColorCycleData,
   resolveDefBoundSlotPalettes,
   normalizeCanvasSurfaceForExport,
 } = __TESTING__;
@@ -192,6 +194,172 @@ describe('webglExporter helpers', () => {
     expect(brushState?.animationOffset).toBe(3);
     expect(brushState?.targetFPS).toBe(24);
     expect(brushState?.alphaMode).toBe('opaque-indices');
+  });
+
+  it('serializes brush state from canonical document buffers when no live brush exists', () => {
+    const defIds = new Uint16Array([0, 5, 5, 0]);
+    const brushState = serializeBrushState({
+      id: 'layer-cc-doc',
+      layerType: 'color-cycle',
+      imageData: null,
+      framebuffer: { width: 2, height: 2 },
+      colorCycleData: {
+        canvasWidth: 2,
+        canvasHeight: 2,
+        gradient: [
+          { position: 0, color: '#000000' },
+          { position: 1, color: '#ffffff' },
+        ],
+        gradientIdBuffer: Uint8Array.from([6, 24, 24, 6]).buffer,
+        gradientDefIdBuffer: defIds.buffer,
+        brushState: {
+          layers: [{
+            layerId: 'layer-cc-doc',
+            strokeData: {
+              hasContent: true,
+              paintBuffer: Uint8Array.from([1, 2, 3, 4]).buffer,
+              speedBuffer: Uint8Array.from([
+                encodeColorCycleSpeedByte(0.5),
+                encodeColorCycleSpeedByte(0.5),
+                encodeColorCycleSpeedByte(0.5),
+                encodeColorCycleSpeedByte(0.5),
+              ]).buffer,
+              flowBuffer: Uint8Array.from([1, 2, 3, 4]).buffer,
+              phaseBuffer: Uint8Array.from([4, 3, 2, 1]).buffer,
+            },
+          }],
+        },
+      },
+    } as any);
+
+    expect(brushState).toBeDefined();
+    expect(brushState?.width).toBe(2);
+    expect(brushState?.height).toBe(2);
+    expect(brushState?.indexBuffer).toEqual([1, 2, 3, 4]);
+    expect(brushState?.gradientIdBuffer).toEqual([6, 24, 24, 6]);
+    expect(brushState?.gradientDefIdBuffer).toEqual([0, 5, 5, 0]);
+    expect(brushState?.speedBuffer).toHaveLength(4);
+    expect(brushState?.flowBuffer).toEqual([1, 2, 3, 4]);
+    expect(brushState?.phaseBuffer).toEqual([4, 3, 2, 1]);
+    expect(brushState?.alphaMode).toBe('opaque-indices');
+  });
+
+  it('does not repair missing-paint color-cycle state from compatibility snapshot colors during export', () => {
+    const brushState = serializeBrushState({
+      id: 'layer-cc-legacy-alpha',
+      layerType: 'color-cycle',
+      imageData: null,
+      colorCycleData: {
+        canvasWidth: 2,
+        canvasHeight: 2,
+        canvasImageData: {
+          width: 2,
+          height: 2,
+          data: Uint8ClampedArray.from([
+            0, 0, 0, 255,
+            0, 0, 0, 0,
+            255, 255, 255, 255,
+            0, 0, 0, 0,
+          ]),
+        },
+        gradient: [
+          { position: 0, color: '#000000' },
+          { position: 1, color: '#ffffff' },
+        ],
+        brushState: {
+          layers: [{
+            layerId: 'layer-cc-legacy-alpha',
+            strokeData: {
+              hasContent: true,
+              gradientIdBuffer: encodeBytes([3, 4, 5, 6]),
+            },
+          }],
+        },
+      },
+    } as any);
+
+    expect(brushState).toBeUndefined();
+  });
+
+  it('exports repair-failed color-cycle layers without animated brush data', async () => {
+    const result = await serializeColorCycleData({
+      id: 'layer-cc-static-preview-only',
+      layerType: 'color-cycle',
+      visible: true,
+      opacity: 1,
+      blendMode: 'source-over',
+      imageData: null,
+      colorCycleData: {
+        mode: 'brush',
+        repairStatus: {
+          ok: false,
+          reason: 'missing-paint-buffer',
+        },
+        runtimeHydrationState: 'cold',
+        deferredRuntimeRestore: false,
+        canvasWidth: 2,
+        canvasHeight: 2,
+        canvasImageData: {
+          width: 2,
+          height: 2,
+          data: Uint8ClampedArray.from([
+            0, 0, 0, 255,
+            0, 0, 0, 0,
+            255, 255, 255, 255,
+            0, 0, 0, 0,
+          ]),
+        },
+        gradient: [
+          { position: 0, color: '#000000' },
+          { position: 1, color: '#ffffff' },
+        ],
+        brushState: {
+          layers: [{
+            layerId: 'layer-cc-static-preview-only',
+            strokeData: {
+              hasContent: true,
+              gradientIdBuffer: encodeBytes([3, 4, 5, 6]),
+            },
+          }],
+        },
+      },
+    } as any, {
+      width: 2,
+      height: 2,
+    } as any);
+
+    expect(result?.colorCycle?.isAnimating).toBe(false);
+    expect(result?.colorCycle?.brushState).toBeUndefined();
+    expect(result?.runtime).toBeUndefined();
+  });
+
+  it('does not minify color-cycle buffer keys unsupported by the bundled Goblet runtime', () => {
+    const minified = minifyProperties({
+      layers: [{
+        colorCycle: {
+          brushState: {
+            indexBuffer: [1, 2, 3, 4],
+            gradientIdBuffer: [5, 6, 7, 8],
+            gradientDefIdBuffer: [0, 1, 1, 0],
+            speedBuffer: [9, 9, 9, 9],
+            flowBuffer: [1, 0, 1, 0],
+            phaseBuffer: [0, 64, 128, 192],
+          },
+        },
+      }],
+    }) as any;
+
+    const brushState = minified.l[0].cc.bs;
+    expect(brushState.ib).toEqual([1, 2, 3, 4]);
+    expect(brushState.gib).toEqual([5, 6, 7, 8]);
+    expect(brushState.gradientDefIdBuffer).toEqual([0, 1, 1, 0]);
+    expect(brushState.speedBuffer).toEqual([9, 9, 9, 9]);
+    expect(brushState.flowBuffer).toEqual([1, 0, 1, 0]);
+    expect(brushState.phaseBuffer).toEqual([0, 64, 128, 192]);
+    expect(brushState.gdib).toBeUndefined();
+    expect(brushState.sb).toBeUndefined();
+    expect(brushState.fbf).toBeUndefined();
+    expect(brushState.phb).toBeUndefined();
   });
 
   it('rebuilds missing slot palettes from gradient def bindings during export', () => {

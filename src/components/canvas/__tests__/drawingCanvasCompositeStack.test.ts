@@ -1,4 +1,5 @@
 import { drawVisibleCompositeStack } from '@/components/canvas/drawingCanvasCompositeStack';
+import { setSequentialFrameCursor } from '@/runtime/playback/sequentialFrameCursor';
 import type { CompositeSegment } from '@/stores/slices/layersSlice';
 import type { Layer } from '@/types';
 import { createDefaultLayerAlignment } from '@/utils/layoutDefaults';
@@ -204,6 +205,69 @@ describe('drawVisibleCompositeStack', () => {
     });
   });
 
+  it('draws a cold restored color-cycle layer from its compatibility snapshot, not its runtime canvas', () => {
+    const staleCanvas = document.createElement('canvas');
+    staleCanvas.width = 16;
+    staleCanvas.height = 16;
+    const imageData = new ImageData(16, 16);
+    imageData.data[3] = 255;
+
+    mockGetState.mockReturnValueOnce({
+      project: { width: 16, height: 16 },
+      colorCyclePlayback: { desiredPlaying: false },
+      layers: [{ layerType: 'color-cycle' }],
+      sequentialRecord: { currentFrame: 0 },
+      activeLayerId: 'other-layer',
+    });
+
+    const segments: CompositeSegment[] = [
+      {
+        kind: 'color-cycle',
+        id: 'cc-1',
+        layerId: 'layer-cc',
+        blendMode: 'multiply',
+        opacity: 0.4,
+      },
+    ];
+    const layerMap = new Map<string, Layer>([
+      [
+        'layer-cc',
+        createLayer({
+          id: 'layer-cc',
+          layerType: 'color-cycle',
+          colorCycleData: {
+            canvas: staleCanvas,
+            canvasImageData: imageData,
+            runtimeHydrationState: 'cold',
+          },
+        }),
+      ],
+    ]);
+    const { ctx, drawCalls } = createRecordingContext();
+
+    drawVisibleCompositeStack({
+      ctx,
+      visibleRect: { x: 0, y: 0, width: 16, height: 16 },
+      useSplitOverlay: false,
+      underCompositeCanvas: null,
+      isActivelyErasing: false,
+      drawNonActiveVisibleLayers: jest.fn(),
+      segments,
+      layerMap,
+      compositeBitmap: null,
+      compositeCanvas: null,
+    });
+
+    expect(drawCalls).toHaveLength(1);
+    expect(drawCalls[0].source).not.toBe(staleCanvas);
+    expect((drawCalls[0].source as HTMLCanvasElement).width).toBe(16);
+    expect((drawCalls[0].source as HTMLCanvasElement).height).toBe(16);
+    expect(drawCalls[0]).toMatchObject({
+      alpha: 0.4,
+      blend: 'multiply',
+    });
+  });
+
   it('keeps sequential-below-cc blend ordering stable across playback and capture draws', () => {
     const ccCanvas = document.createElement('canvas');
     const seqCanvas = document.createElement('canvas');
@@ -268,6 +332,7 @@ describe('drawVisibleCompositeStack', () => {
     ]);
 
     const firstPass = createRecordingContext();
+    setSequentialFrameCursor({ nextFrame: 2, nextFrameCount: 12 });
     drawVisibleCompositeStack({
       ctx: firstPass.ctx,
       visibleRect: { x: 0, y: 0, width: 16, height: 16 },
@@ -282,6 +347,7 @@ describe('drawVisibleCompositeStack', () => {
     });
 
     const secondPass = createRecordingContext();
+    setSequentialFrameCursor({ nextFrame: 3, nextFrameCount: 12 });
     drawVisibleCompositeStack({
       ctx: secondPass.ctx,
       visibleRect: { x: 0, y: 0, width: 16, height: 16 },
@@ -445,6 +511,7 @@ describe('drawVisibleCompositeStack', () => {
       sequentialRecord: { currentFrame: 4, isPointerDown: true },
     });
 
+    setSequentialFrameCursor({ nextFrame: 4, nextFrameCount: 12 });
     const result = drawVisibleCompositeStack({
       ctx,
       visibleRect: { x: 0, y: 0, width: 16, height: 16 },

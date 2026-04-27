@@ -142,6 +142,7 @@ export const MODERN_COLOR_CYCLE_DATA_FIELD_CLASSIFICATION = {
   eraseMaskVersion: 'metadata',
   canvasWidth: 'metadata',
   canvasHeight: 'metadata',
+  repairStatus: 'metadata',
 } as const satisfies Record<string, PersistedFieldClass>;
 
 export const COLOR_CYCLE_STATE_AUTHORITY_FIELDS = [

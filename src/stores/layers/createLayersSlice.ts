@@ -65,6 +65,7 @@ import {
   sanitizeLayerGroups,
 } from '@/stores/layers/layerGroupService';
 import { appendSequentialLayerEventsToLayers } from '@/stores/layers/sequentialLayerEvents';
+import { createDevDebugOverlayLogger } from '@/utils/dev/debugOverlayStore';
 import { requestGradientApply } from '@/hooks/brushEngine/ccGradientApplyScheduler';
 import {
   rebuildGradientSlotUsageAndGC,
@@ -90,6 +91,119 @@ import type {
 import type { LayerStructureSnapshot } from '@/history/deltas/layerStructureDelta';
 import type { AppState, CaptureROI, VesselWindow } from '../useAppStore';
 export type { CompositeSegment } from '@/stores/layers/layerCompositeRenderer';
+
+const layerActivationDebug = createDevDebugOverlayLogger('layer-activation');
+
+const recordLayerActivationProbe = (event: string, data: unknown): void => {
+  recordBreadcrumb('layer-activation', { event, data });
+  layerActivationDebug.log(event, data);
+};
+
+const summarizeLayerForActivationDebug = (
+  layer: Layer | undefined | null,
+): Record<string, unknown> | null => {
+  if (!layer) {
+    return null;
+  }
+  const colorCycleData = layer.colorCycleData;
+  const canvas = colorCycleData?.canvas as HTMLCanvasElement | undefined;
+  return {
+    id: layer.id,
+    name: layer.name,
+    type: layer.layerType,
+    visible: layer.visible,
+    order: layer.order,
+    opacity: layer.opacity,
+    blendMode: layer.blendMode,
+    hydration: getColorCycleHydrationState(colorCycleData),
+    hasCcCanvas: Boolean(canvas),
+    ccCanvasSize: canvas ? `${canvas.width}x${canvas.height}` : null,
+    hasCcCanvasImageData: Boolean(colorCycleData?.canvasImageData),
+    ccImageDataSize: colorCycleData?.canvasImageData
+      ? `${colorCycleData.canvasImageData.width}x${colorCycleData.canvasImageData.height}`
+      : null,
+    gradientIdBytes: colorCycleData?.gradientIdBuffer?.byteLength ?? null,
+    gradientDefIdBytes: colorCycleData?.gradientDefIdBuffer?.byteLength ?? null,
+    brushStateLayers: Array.isArray((colorCycleData?.brushState as { layers?: unknown[] } | undefined)?.layers)
+      ? (colorCycleData?.brushState as { layers: unknown[] }).layers.length
+      : null,
+  };
+};
+
+const captureCanvasHasVisiblePixels = (canvas: HTMLCanvasElement | null | undefined): boolean => {
+  if (!canvas || canvas.width <= 0 || canvas.height <= 0) {
+    return false;
+  }
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
+  if (!ctx) {
+    return false;
+  }
+  try {
+    const pixels = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+    for (let i = 3; i < pixels.length; i += 4) {
+      if (pixels[i] !== 0) {
+        return true;
+      }
+    }
+  } catch {
+    return false;
+  }
+  return false;
+};
+
+const copyImageDataToCanvas = (
+  imageData: ImageData,
+  canvas: HTMLCanvasElement | null | undefined,
+): boolean => {
+  if (!canvas || canvas.width <= 0 || canvas.height <= 0) {
+    return false;
+  }
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
+  if (!ctx) {
+    return false;
+  }
+  try {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.putImageData(imageData, 0, 0);
+    return true;
+  } catch {
+    return false;
+  }
+};
+
+const preserveDeferredColorCycleRestoreSurface = (
+  latestLayer: Layer,
+  restoredLayer: Layer,
+): Layer => {
+  if (
+    latestLayer.layerType !== 'color-cycle' ||
+    restoredLayer.layerType !== 'color-cycle' ||
+    !latestLayer.colorCycleData ||
+    !restoredLayer.colorCycleData
+  ) {
+    return restoredLayer;
+  }
+
+  const fallbackSnapshot =
+    restoredLayer.colorCycleData.canvasImageData ??
+    latestLayer.colorCycleData.canvasImageData;
+  const restoredCanvas = restoredLayer.colorCycleData.canvas ?? null;
+  const restoredCanvasHasPixels = captureCanvasHasVisiblePixels(restoredCanvas);
+  const shouldRestoreSnapshot = Boolean(fallbackSnapshot && !restoredCanvasHasPixels);
+
+  if (shouldRestoreSnapshot && fallbackSnapshot) {
+    copyImageDataToCanvas(fallbackSnapshot, restoredCanvas);
+  }
+
+  return {
+    ...restoredLayer,
+    colorCycleData: {
+      ...restoredLayer.colorCycleData,
+      canvasImageData: fallbackSnapshot,
+      hasContent: restoredLayer.colorCycleData.hasContent || shouldRestoreSnapshot,
+    },
+  };
+};
 
 const normalizeCaptureROI = (
   roi: CaptureROI | undefined,
@@ -246,6 +360,8 @@ export type UpdateLayerOptions = {
   skipColorCycleSync?: boolean;
 };
 
+export type EnsureColorCycleLayerRuntimeTarget = 'warm' | 'active';
+
 export interface LayersSlice {
   layers: Layer[];
   layerGroups: LayerGroup[];
@@ -295,6 +411,10 @@ export interface LayersSlice {
   updateLayerAlignment: (layerId: string, alignment: LayerAlignmentSettings) => void;
   scheduleColorCycleSlotRebuild: (reason: string) => void;
   runColorCycleSlotRebuild: (reason: string) => void;
+  ensureColorCycleLayerRuntime: (
+    layerId: string,
+    options?: { target?: EnsureColorCycleLayerRuntimeTarget },
+  ) => Promise<boolean>;
   initColorCycleForLayer: (layerId: string, width: number, height: number) => void;
   cleanupColorCycleForLayer: (layerId: string) => void;
   getLayerColorCycleBrush: (layerId: string) => ColorCycleBrushImplementation | null;
@@ -347,10 +467,15 @@ export const createLayersSlice = (
     const SLOT_REBUILD_DEBOUNCE_MS = 250;
     const deferredColorCycleRestoreByLayerId = new Map<string, Promise<void>>();
 
-    const scheduleDeferredColorCycleRestore = (layerId: string, markActive: boolean): void => {
-      if (deferredColorCycleRestoreByLayerId.has(layerId)) {
-        return;
+    const scheduleDeferredColorCycleRestore = (
+      layerId: string,
+      target: EnsureColorCycleLayerRuntimeTarget,
+    ): Promise<void> => {
+      const existingPromise = deferredColorCycleRestoreByLayerId.get(layerId);
+      if (existingPromise) {
+        return existingPromise;
       }
+      const markActive = target === 'active';
       const restorePromise = import('@/utils/projectIO')
         .then(async ({ restoreColorCycleBrushes }) => {
           const latestState = get();
@@ -358,7 +483,7 @@ export const createLayersSlice = (
           if (
             !latestLayer ||
             latestLayer.layerType !== 'color-cycle' ||
-            !isColdColorCycleLayer(latestLayer)
+            !latestLayer.colorCycleData?.deferredRuntimeRestore
           ) {
             return;
           }
@@ -366,15 +491,38 @@ export const createLayersSlice = (
             lazy: false,
             activeLayerId: layerId,
           });
+          const publishLayer = preserveDeferredColorCycleRestoreSurface(latestLayer, restoredLayer);
+          const restoredBrush = publishLayer.colorCycleData?.colorCycleBrush;
+          const restoredHydration = restoredBrush
+            ? (markActive ? 'active' : 'warm')
+            : 'cold';
+          recordLayerActivationProbe('deferred-restore-complete', {
+            before: summarizeLayerForActivationDebug(latestLayer),
+            after: summarizeLayerForActivationDebug(publishLayer),
+            markActive,
+            restored: Boolean(restoredBrush),
+            restoredHydration,
+          });
           const now = Date.now();
           set((current) => ({
-            layers: current.layers.map((candidate) => (
-              candidate.id === layerId
-                ? updateLayerColorCycleHydrationState(restoredLayer, markActive ? 'active' : 'warm')
-                : candidate
-            )),
+            layers: current.layers.map((candidate) => {
+              if (candidate.id !== layerId) {
+                return candidate;
+              }
+              const nextLayer = updateLayerColorCycleHydrationState(publishLayer, restoredHydration);
+              if (!restoredBrush && nextLayer.colorCycleData) {
+                return {
+                  ...nextLayer,
+                  colorCycleData: {
+                    ...nextLayer.colorCycleData,
+                    deferredRuntimeRestore: false,
+                  },
+                };
+              }
+              return nextLayer;
+            }),
           }));
-          const brush = restoredLayer.colorCycleData?.colorCycleBrush as ColorCycleBrushImplementation & {
+          const brush = restoredBrush as ColorCycleBrushImplementation & {
             setLayerId?: (nextLayerId: string) => void;
             isUsingWebGL?: () => boolean;
           } | undefined;
@@ -384,8 +532,8 @@ export const createLayersSlice = (
               layerId,
               created: now,
               lastUsed: now,
-              width: restoredLayer.colorCycleData?.canvas?.width ?? latestState.project?.width ?? 0,
-              height: restoredLayer.colorCycleData?.canvas?.height ?? latestState.project?.height ?? 0,
+              width: publishLayer.colorCycleData?.canvas?.width ?? latestState.project?.width ?? 0,
+              height: publishLayer.colorCycleData?.canvas?.height ?? latestState.project?.height ?? 0,
               gradientHash: undefined,
               isActive: markActive,
             });
@@ -410,18 +558,20 @@ export const createLayersSlice = (
             }
           }
           try {
-            syncPlaybackColorCycleLayers([restoredLayer], 'deferred-restore');
+            syncPlaybackColorCycleLayers([publishLayer], 'deferred-restore');
           } catch (error) {
             logError('[layers] Failed to sync CC runtime after deferred restore', error);
           }
         })
         .catch((error) => {
+          layerActivationDebug.warn('deferred-restore-failed', { layerId, error });
           logError('[layers] Deferred color-cycle restore failed', { layerId, error });
         })
         .finally(() => {
           deferredColorCycleRestoreByLayerId.delete(layerId);
         });
       deferredColorCycleRestoreByLayerId.set(layerId, restorePromise);
+      return restorePromise;
     };
 
     const runSlotRebuild = (reason: string) => {
@@ -2236,9 +2386,20 @@ export const createLayersSlice = (
     })();
 
     if (layer?.layerType === 'color-cycle' && state.tools.currentTool !== 'recolor') {
-      const isDeferredRuntimeRestore = isColdColorCycleLayer(layer);
+      const isColdRuntimeLayer = isColdColorCycleLayer(layer);
+      const shouldRestoreDeferredRuntime = Boolean(
+        isColdRuntimeLayer && layer.colorCycleData?.deferredRuntimeRestore,
+      );
+      recordLayerActivationProbe('set-active-cc-enter', {
+        target: summarizeLayerForActivationDebug(layer),
+        previous: summarizeLayerForActivationDebug(currentActiveLayer),
+        selectedLayerIds: state.selectedLayerIds,
+        isDeferredRuntimeRestore: shouldRestoreDeferredRuntime,
+        isColdRuntimeLayer,
+        hasManagerBrush: colorCycleBrushManager.validateColorCycleBrush(id),
+      });
       // Validate and reinitialize if needed
-      if (!isDeferredRuntimeRestore && !colorCycleBrushManager.validateColorCycleBrush(id)) {
+      if (!isColdRuntimeLayer && !colorCycleBrushManager.validateColorCycleBrush(id)) {
 
         const width = state.project?.width || 1024;
         const height = state.project?.height || 1024;
@@ -2260,18 +2421,23 @@ export const createLayersSlice = (
       try { colorCycleBrushManager.setActiveState(id, true); } catch (e) { logError('Color cycle setActiveState error', e); }
 
       // Ensure brush tracks the active layer before runtime sync
-      try {
+      if (!isColdRuntimeLayer) {
+        try {
         const colorCycleBrush = state.getLayerColorCycleBrush(id)
           ?? colorCycleBrushManager.getLayerColorCycleBrush(id);
         if (colorCycleBrush && 'setActiveLayer' in colorCycleBrush && typeof colorCycleBrush.setActiveLayer === 'function') {
           colorCycleBrush.setActiveLayer(id);
         }
-      } catch {
-        // quiet
+        } catch {
+          // quiet
+        }
       }
 
-      if (isDeferredRuntimeRestore) {
-        scheduleDeferredColorCycleRestore(id, true);
+      if (shouldRestoreDeferredRuntime) {
+        recordLayerActivationProbe('deferred-restore-scheduled', {
+          target: summarizeLayerForActivationDebug(layer),
+        });
+        void scheduleDeferredColorCycleRestore(id, 'active');
       }
 
       // Remember the user's current brush context so we can restore it when leaving CC layers
@@ -2327,7 +2493,9 @@ export const createLayersSlice = (
         tools: nextTools,
         layers: state.layers.map((candidate) => {
           if (candidate.id === id && candidate.layerType === 'color-cycle') {
-            return updateLayerColorCycleHydrationState(candidate, isDeferredRuntimeRestore ? 'cold' : 'active');
+            return isColdRuntimeLayer
+              ? candidate
+              : updateLayerColorCycleHydrationState(candidate, 'active');
           }
           if (
             candidate.id === state.activeLayerId &&
@@ -2343,8 +2511,16 @@ export const createLayersSlice = (
 
       try {
         syncPlaybackColorCycleLayers([layer], 'setActiveLayer');
+        recordLayerActivationProbe('set-active-sync-complete', {
+          target: summarizeLayerForActivationDebug(layer),
+          reason: 'setActiveLayer',
+        });
       } catch (error) {
         logError('[setActiveLayer] Failed to sync CC runtime', error);
+        layerActivationDebug.warn('set-active-sync-failed', {
+          target: summarizeLayerForActivationDebug(layer),
+          error: error instanceof Error ? error.message : String(error),
+        });
       }
 
       return result;
@@ -3456,13 +3632,52 @@ export const createLayersSlice = (
       return null; // Never return a CC brush for regular layers
     }
 
-    if (isColdColorCycleLayer(layer)) {
-      scheduleDeferredColorCycleRestore(layerId, state.activeLayerId === layerId);
+    if (isColdColorCycleLayer(layer) && layer?.colorCycleData?.deferredRuntimeRestore) {
+      void scheduleDeferredColorCycleRestore(
+        layerId,
+        state.activeLayerId === layerId ? 'active' : 'warm',
+      );
       return null;
     }
 
     return colorCycleBrushManager.getBrush(layerId) ?? null;
   },
 
-    };
+  ensureColorCycleLayerRuntime: async (layerId, options) => {
+    const target = options?.target ?? 'warm';
+    const state = get();
+    const layer = state.layers.find((candidate) => candidate.id === layerId);
+    if (!layer || layer.layerType !== 'color-cycle' || !layer.colorCycleData) {
+      return false;
+    }
+
+    if (isColdColorCycleLayer(layer)) {
+      if (!layer.colorCycleData.deferredRuntimeRestore) {
+        return false;
+      }
+      await scheduleDeferredColorCycleRestore(layerId, target);
+    } else if (target === 'active' && getColorCycleHydrationState(layer.colorCycleData) !== 'active') {
+      set((current) => ({
+        layers: current.layers.map((candidate) => (
+          candidate.id === layerId && candidate.layerType === 'color-cycle'
+            ? updateLayerColorCycleHydrationState(candidate, 'active')
+            : candidate
+        )),
+      }));
+      try {
+        colorCycleBrushManager.setActiveState(layerId, true);
+      } catch {
+        // quiet
+      }
+    }
+
+    const latestLayer = get().layers.find((candidate) => candidate.id === layerId);
+    if (!latestLayer || latestLayer.layerType !== 'color-cycle' || !latestLayer.colorCycleData) {
+      return false;
+    }
+    const hydration = getColorCycleHydrationState(latestLayer.colorCycleData);
+    return hydration === target || (target === 'warm' && hydration === 'active');
+  },
+
+};
   };

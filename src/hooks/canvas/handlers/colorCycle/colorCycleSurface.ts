@@ -1,4 +1,5 @@
 import type { AppState } from '@/stores/useAppStore';
+import { resolveColorCycleRuntimeSurface } from '@/lib/colorCycle/materializeColorCycleLayer';
 import type { ColorCycleBrushImplementation } from '@/hooks/brushEngine/ColorCycleBrushMigration';
 
 const ensureCanvasPixelSize = (canvas: HTMLCanvasElement): void => {
@@ -61,22 +62,20 @@ export const refreshLayerCCSurface = (
     return null;
   }
 
-  const storedCanvas = layer.colorCycleData?.canvas as HTMLCanvasElement | undefined;
-  const liveCanvas = brush.getCanvas?.() as HTMLCanvasElement | undefined;
-
-  if (liveCanvas && (!storedCanvas || storedCanvas !== liveCanvas)) {
-    try {
-      state.updateLayer(layerId, {
-        colorCycleData: {
-          ...(layer.colorCycleData ?? {}),
-          canvas: liveCanvas
-        }
-      });
-      return liveCanvas;
-    } catch {
-      // Ignore update failures; fall back to best-known canvas.
-    }
+  try {
+    return resolveColorCycleRuntimeSurface({
+      layer,
+      brush,
+      publishSurface: (canvas) => {
+        state.updateLayer(layerId, {
+          colorCycleData: {
+            ...(layer.colorCycleData ?? {}),
+            canvas,
+          },
+        });
+      },
+    });
+  } catch {
+    return layer.colorCycleData?.canvas ?? null;
   }
-
-  return storedCanvas ?? liveCanvas ?? null;
 };

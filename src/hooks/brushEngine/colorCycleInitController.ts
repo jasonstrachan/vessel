@@ -11,6 +11,8 @@ type LayerSummary = {
     layerBaseSpeedCps?: number;
     controllerSpeedCps?: number;
     brushSpeed?: number;
+    runtimeHydrationState?: 'cold' | 'warm' | 'active';
+    deferredRuntimeRestore?: boolean;
   };
 };
 
@@ -95,6 +97,12 @@ export const initializeColorCycleBrushForActiveLayer = <TBrush extends BrushLike
     let colorCycleBrush = getActiveLayerColorCycleBrush();
 
     if (!colorCycleBrush) {
+      if (
+        activeLayer.colorCycleData?.deferredRuntimeRestore ||
+        activeLayer.colorCycleData?.runtimeHydrationState === 'cold'
+      ) {
+        return null;
+      }
       const targetWidth = Math.max(projectWidth || 1024, 1);
       const targetHeight = Math.max(projectHeight || 1024, 1);
       initColorCycleForLayer(activeLayerId, targetWidth, targetHeight);

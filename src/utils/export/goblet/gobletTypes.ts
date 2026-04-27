@@ -46,6 +46,8 @@ export interface WebGLSerializedBrushState {
   gradientIdBuffer?: number[] | string;
   gradientDefIdBuffer?: number[] | string;
   speedBuffer?: number[] | string;
+  flowBuffer?: number[] | string;
+  phaseBuffer?: number[] | string;
   gradientStops: SerializedGradientStops;
   palette?: Array<string | number>;
   animationOffset: number;

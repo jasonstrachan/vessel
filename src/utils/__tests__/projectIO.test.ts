@@ -3510,7 +3510,7 @@ describe('projectIO serialize/deserialize layering', () => {
           alignment: createDefaultLayerAlignment(),
           colorCycleData: {
             mode: 'brush',
-            canvasImageData: encodeRawImageDataUrl(createSolidImageData(2, 2, [20, 30, 40, 255])),
+            canvasImageData: encodeRawImageDataUrl(createSolidImageData(2, 2, [0, 0, 0, 0])),
             canvasWidth: 2,
             canvasHeight: 2,
             gradient: [
@@ -3537,19 +3537,307 @@ describe('projectIO serialize/deserialize layering', () => {
 
     const restored = await deserializeProject(JSON.stringify(projectPayload));
     const [restoredLayer] = await restoreColorCycleBrushes(restored.layers);
-    const restoredBrush = restoredLayer.colorCycleData?.colorCycleBrush as
+    expect(restoredLayer.colorCycleData?.repairStatus).toMatchObject({
+      ok: false,
+      reason: 'empty-compatibility-snapshot',
+    });
+    expect(restoredLayer.colorCycleData?.runtimeHydrationState).toBe('cold');
+    expect(restoredLayer.colorCycleData?.deferredRuntimeRestore).toBe(false);
+    expect(restoredLayer.colorCycleData?.colorCycleBrush).toBeUndefined();
+  });
+
+  it('marks missing brushState paint with incompatible compatibility snapshot as repair-failed', async () => {
+    const brushStateGradientIds = Buffer.from(Uint8Array.from([1, 2, 3])).toString('base64');
+    const snapshotImage = createSolidImageData(2, 2, [0, 0, 0, 0]);
+    snapshotImage.data[3] = 255;
+    snapshotImage.data[8] = 255;
+    snapshotImage.data[9] = 255;
+    snapshotImage.data[10] = 255;
+    snapshotImage.data[11] = 255;
+    const projectPayload = {
+      version: '1.1.0',
+      metadata: {
+        name: 'cc-paint-from-compatibility-colors',
+        created: '2025-01-01T00:00:00.000Z',
+        modified: '2025-01-01T00:00:00.000Z',
+        appVersion: '1.0.0',
+      },
+      project: {
+        id: 'p-cc-paint-from-compatibility-alpha',
+        name: 'cc-paint-from-compatibility-colors',
+        width: 2,
+        height: 2,
+        backgroundColor: '#000000',
+        customBrushes: [],
+        layers: [{
+          id: 'layer-cc-paint-from-compatibility-alpha',
+          name: 'CC Paint From Compatibility Alpha',
+          visible: true,
+          opacity: 1,
+          blendMode: 'source-over',
+          locked: false,
+          transparencyLocked: false,
+          order: 0,
+          layerType: 'color-cycle',
+          alignment: createDefaultLayerAlignment(),
+          colorCycleData: {
+            mode: 'brush',
+            canvasImageData: encodeRawImageDataUrl(snapshotImage),
+            canvasWidth: 3,
+            canvasHeight: 2,
+            gradient: [
+              { position: 0, color: '#000000' },
+              { position: 1, color: '#ffffff' },
+            ],
+            brushState: {
+              cycleSpeed: 0.2,
+              fps: 18,
+              layers: [{
+                layerId: 'layer-cc-paint-from-compatibility-alpha',
+                strokeData: {
+                  hasContent: true,
+                  strokeCounter: 2,
+                  gradientIdBuffer: brushStateGradientIds,
+                },
+              }],
+            },
+          },
+        }],
+      },
+    };
+
+    const restored = await deserializeProjectWithReport(JSON.stringify(projectPayload));
+    expect(restored.colorCycleRepairWarnings).toEqual([expect.objectContaining({
+      layerId: 'layer-cc-paint-from-compatibility-alpha',
+      status: 'static-preview-only',
+      diagnostics: ['static-preview-only', 'repair-failed'],
+      reason: 'dimension-mismatch',
+      notes: expect.arrayContaining([
+        'legacy-color-cycle-import-repair-failed',
+        'diagnostic:static-preview-only',
+        'diagnostic:repair-failed',
+      ]),
+    })]);
+    const [restoredLayer] = await restoreColorCycleBrushes(restored.project.layers);
+    expect(restoredLayer.colorCycleData?.repairStatus).toMatchObject({
+      ok: false,
+      reason: 'dimension-mismatch',
+    });
+    expect(restoredLayer.colorCycleData?.repairStatus?.notes).toEqual(expect.arrayContaining([
+      'diagnostic:static-preview-only',
+      'diagnostic:repair-failed',
+    ]));
+    expect(restoredLayer.colorCycleData?.runtimeHydrationState).toBe('cold');
+    expect(restoredLayer.colorCycleData?.colorCycleBrush).toBeUndefined();
+  });
+
+  it('repairs deferred archive brushState refs on import before runtime restore', async () => {
+    const width = 2;
+    const height = 2;
+    const layerId = 'layer-cc-deferred-ref-repair';
+    const gradientIdPath = `buffers/color-cycle/${layerId}/gradient-id.bin`;
+    const gradientDefIdPath = `buffers/color-cycle/${layerId}/gradient-def-id.bin`;
+    const gradientIdBytes = Uint8Array.from([1, 2, 3, 4]);
+    const gradientDefIdBytes = new Uint8Array(new Uint16Array([1, 1, 1, 1]).buffer);
+    const archive = {
+      version: '1.1.0',
+      metadata: {
+        name: 'deferred-ref-repair',
+        created: '2025-01-01T00:00:00.000Z',
+        modified: '2025-01-01T00:00:00.000Z',
+        appVersion: '1.0.0',
+      },
+      project: {
+        id: 'project-deferred-ref-repair',
+        name: 'deferred-ref-repair',
+        width,
+        height,
+        backgroundColor: '#000000',
+        customBrushes: [],
+        layers: [{
+          id: 'active-raster-deferred-ref-repair',
+          name: 'Active Raster',
+          visible: true,
+          opacity: 1,
+          blendMode: 'source-over',
+          locked: false,
+          order: 0,
+          imageDataUrl: '',
+          layerType: 'normal',
+        }, {
+          id: layerId,
+          name: 'Deferred Ref Repair',
+          visible: true,
+          opacity: 1,
+          blendMode: 'source-over',
+          locked: false,
+          order: 1,
+          imageDataUrl: '',
+          layerType: 'color-cycle',
+          state: {
+            version: 1,
+            dimensions: { width, height },
+            mode: 'brush',
+            gradientIdRef: `zip:${gradientIdPath}`,
+            gradientDefIdRef: `zip:${gradientDefIdPath}`,
+            hasContent: true,
+            strokeCounter: 1,
+          },
+          colorCycleData: {
+            canvasImageData: encodeRawImageDataUrl(createSolidImageData(width, height, [20, 30, 40, 255])),
+            canvasWidth: width,
+            canvasHeight: height,
+            gradient: [
+              { position: 0, color: '#000000' },
+              { position: 1, color: '#ffffff' },
+            ],
+          },
+        }],
+      },
+      binaries: {
+        entries: [{
+          version: 1,
+          path: gradientIdPath,
+          checksum: fnv1aHash(gradientIdBytes),
+          byteLength: gradientIdBytes.byteLength,
+          logicalByteLength: 8 * 1024 * 1024,
+          dtype: inferBinaryManifestDType(gradientIdPath),
+          width,
+          height,
+          compression: 'deflate',
+        }, {
+          version: 1,
+          path: gradientDefIdPath,
+          checksum: fnv1aHash(gradientDefIdBytes),
+          byteLength: gradientDefIdBytes.byteLength,
+          logicalByteLength: 8 * 1024 * 1024,
+          dtype: inferBinaryManifestDType(gradientDefIdPath),
+          width,
+          height,
+          compression: 'deflate',
+        }],
+      },
+    };
+    const zip = new JSZip();
+    zip.file('project.json', JSON.stringify(archive));
+    zip.file(gradientIdPath, gradientIdBytes);
+    zip.file(gradientDefIdPath, gradientDefIdBytes);
+    const payload = await zip.generateAsync({ type: 'uint8array', compression: 'DEFLATE' });
+
+    const restored = await deserializeProject(payload, {
+      lazyColorCycleRuntime: true,
+      activeLayerId: 'active-raster-deferred-ref-repair',
+    });
+    const restoredLayer = restored.layers.find((layer) => layer.id === layerId);
+
+    expect(restoredLayer?.colorCycleData?.repairStatus).toBeUndefined();
+    expect(restoredLayer?.colorCycleData?.gradientIdBuffer).toBeInstanceOf(ArrayBuffer);
+    expect(restoredLayer?.colorCycleData?.gradientDefIdBuffer).toBeInstanceOf(ArrayBuffer);
+    expect(restoredLayer?.colorCycleData?.brushState).toEqual(expect.objectContaining({
+      layers: [expect.objectContaining({
+        layerId,
+        strokeData: expect.objectContaining({
+          paintBuffer: expect.any(ArrayBuffer),
+          gradientIdBuffer: expect.any(ArrayBuffer),
+          gradientDefIdBuffer: expect.any(ArrayBuffer),
+        }),
+      })],
+    }));
+    expect(restoredLayer?.colorCycleData?.colorCycleBrush).toBeUndefined();
+
+    const [runtimeLayer] = await restoreColorCycleBrushes(restored.layers.filter((layer) => layer.id === layerId));
+    const runtimeBrush = runtimeLayer.colorCycleData?.colorCycleBrush as
       | {
-          getLayerSnapshot?: (layerId: string) => {
-            paintBuffer: ArrayBuffer;
+          getLayerSnapshot?: (snapshotLayerId: string) => {
+            paintBuffer?: ArrayBuffer;
             gradientIdBuffer?: ArrayBuffer;
+            gradientDefIdBuffer?: ArrayBuffer;
+            hasContent?: boolean;
           } | null;
         }
       | undefined;
+    const runtimeSnapshot = runtimeBrush?.getLayerSnapshot?.(layerId);
+    expect(runtimeLayer.colorCycleData?.repairStatus).toBeUndefined();
+    expect(runtimeSnapshot?.paintBuffer).toBeInstanceOf(ArrayBuffer);
+    expect(runtimeSnapshot?.gradientIdBuffer).toBeInstanceOf(ArrayBuffer);
+    expect(runtimeSnapshot?.gradientDefIdBuffer).toBeInstanceOf(ArrayBuffer);
+    expect(runtimeSnapshot?.hasContent).toBe(true);
+  });
 
-    const snapshot = restoredBrush?.getLayerSnapshot?.(restoredLayer.id);
-    expect(snapshot).toBeTruthy();
-    expect(Array.from(new Uint8Array(snapshot?.paintBuffer ?? new ArrayBuffer(0)))).toEqual([0, 0, 0, 0]);
-    expect(Array.from(new Uint8Array(snapshot?.gradientIdBuffer ?? new ArrayBuffer(0)))).toEqual([1, 2, 3, 4]);
+  it('persists repair-failed color-cycle metadata through save and reopen', async () => {
+    const width = 2;
+    const height = 2;
+    const canvasImageData = createSolidImageData(width, height, [40, 80, 120, 255]);
+    const layer: Layer = {
+      id: 'layer-cc-repair-failed-save',
+      name: 'CC Repair Failed Save',
+      visible: true,
+      opacity: 1,
+      blendMode: 'source-over',
+      locked: false,
+      transparencyLocked: false,
+      order: 0,
+      imageData: null,
+      framebuffer: createCanvasFromImageData(createSolidImageData(width, height, [0, 0, 0, 0])),
+      alignment: createDefaultLayerAlignment(),
+      layerType: 'color-cycle',
+      version: 1,
+      colorCycleData: {
+        canvas: createCanvasFromImageData(canvasImageData),
+        canvasImageData,
+        canvasWidth: width,
+        canvasHeight: height,
+        mode: 'brush',
+        repairStatus: {
+          ok: false,
+          reason: 'missing-gradient-bindings',
+          notes: ['legacy-color-cycle-import-repair-failed'],
+        },
+      },
+    };
+    const project: Project = {
+      id: 'project-cc-repair-failed-save',
+      name: 'CC Repair Failed Save',
+      width,
+      height,
+      backgroundColor: '#000000',
+      layers: [layer],
+      customBrushes: [],
+      createdAt: new Date('2025-01-01T00:00:00.000Z'),
+      updatedAt: new Date('2025-01-01T00:00:00.000Z'),
+    };
+
+    const payload = await withPatchedCanvasRect(() => serializeProject(project, project.layers));
+    const manifest = await readProjectManifest(payload) as {
+      project: {
+        layers: Array<{
+          colorCycleData?: {
+            repairStatus?: {
+              ok: false;
+              reason: string;
+              notes?: string[];
+            };
+          };
+        }>;
+      };
+    };
+
+    expect(manifest.project.layers[0]?.colorCycleData?.repairStatus).toEqual({
+      ok: false,
+      reason: 'missing-gradient-bindings',
+      notes: ['legacy-color-cycle-import-repair-failed'],
+    });
+
+    const reopened = await deserializeProject(payload);
+    const [reopenedLayer] = await restoreColorCycleBrushes(reopened.layers);
+    expect(reopenedLayer.colorCycleData?.repairStatus).toEqual({
+      ok: false,
+      reason: 'missing-gradient-bindings',
+      notes: ['legacy-color-cycle-import-repair-failed'],
+    });
+    expect(reopenedLayer.colorCycleData?.runtimeHydrationState).toBe('cold');
+    expect(reopenedLayer.colorCycleData?.colorCycleBrush).toBeUndefined();
+    expect(readPixel(reopenedLayer.colorCycleData?.canvasImageData ?? null, 0, 0)).toEqual([40, 80, 120, 255]);
   });
 
   it('preserves deferred brush snapshots across layer object copies', async () => {
@@ -3662,6 +3950,13 @@ describe('projectIO serialize/deserialize layering', () => {
     const snapshot = warmedBrush?.getLayerSnapshot?.(warmedLayer.id);
     expect(warmedLayer.colorCycleData?.deferredRuntimeRestore).toBe(false);
     expect(warmedLayer.colorCycleData?.runtimeHydrationState).toBe('active');
+    expect(warmedLayer.colorCycleData?.canvasImageData).toBeDefined();
+    expect(
+      warmedLayer.colorCycleData?.canvas
+        ?.getContext('2d', { willReadFrequently: true })
+        ?.getImageData(0, 0, 1, 1)
+        .data[3]
+    ).toBeGreaterThan(0);
     expect(snapshot).toBeTruthy();
     expect(Array.from(new Uint8Array(snapshot?.paintBuffer ?? new ArrayBuffer(0)).slice(0, 4))).toEqual([9, 8, 7, 6]);
     expect(Array.from(new Uint8Array(snapshot?.gradientIdBuffer ?? new ArrayBuffer(0)).slice(0, 4))).toEqual([1, 2, 3, 4]);
@@ -4632,6 +4927,75 @@ describe('projectIO serialize/deserialize layering', () => {
     expect(Array.from(new Uint8Array(snapshot?.gradientIdBuffer ?? new ArrayBuffer(0)))).toEqual(
       Array.from(gradientIds),
     );
+  });
+
+  it('materializes a stale empty color-cycle canvas from persisted buffers', async () => {
+    const width = 3;
+    const height = 3;
+    const colorCycleCanvas = createCanvasFromImageData(createSolidImageData(width, height, [0, 0, 0, 0]));
+    const gradientIds = new Uint8Array(width * height);
+    gradientIds[4] = 1;
+    const gradientDefIds = new Uint16Array(width * height);
+    gradientDefIds[4] = 1;
+
+    const layer: Layer = {
+      id: 'layer-cc-stale-empty-runtime',
+      name: 'CC Stale Empty Runtime',
+      visible: true,
+      opacity: 1,
+      blendMode: 'source-over',
+      locked: false,
+      transparencyLocked: false,
+      order: 0,
+      imageData: null,
+      framebuffer: createCanvasFromImageData(createSolidImageData(width, height, [0, 0, 0, 0])),
+      alignment: createDefaultLayerAlignment(),
+      layerType: 'color-cycle',
+      version: 1,
+      colorCycleData: {
+        canvas: colorCycleCanvas,
+        canvasWidth: width,
+        canvasHeight: height,
+        gradient: [
+          { position: 0, color: '#000000' },
+          { position: 1, color: '#ffffff' },
+        ],
+        gradientIdBuffer: gradientIds.buffer.slice(0),
+        gradientDefIdBuffer: gradientDefIds.buffer.slice(0),
+        gradientDefStore: [{
+          id: 1,
+          kind: 'linear',
+          stops: [
+            { position: 0, color: '#000000' },
+            { position: 1, color: '#ffffff' },
+          ],
+          hash: 'def-1',
+          source: 'manual',
+          createdAtMs: 1,
+          slot: 1,
+        }],
+        slotPalettes: [{
+          slot: 1,
+          stops: [
+            { position: 0, color: '#000000' },
+            { position: 1, color: '#ffffff' },
+          ],
+        }],
+        isAnimating: false,
+        mode: 'brush',
+      },
+    };
+
+    const [restoredLayer] = await restoreColorCycleBrushes([layer]);
+    const ctx = restoredLayer.colorCycleData?.canvas?.getContext('2d', { willReadFrequently: true });
+    const imageData = ctx?.getImageData(0, 0, width, height) ?? null;
+    const hasVisiblePixel = imageData
+      ? imageData.data.some((value, index) => index % 4 === 3 && value !== 0)
+      : false;
+
+    expect(restoredLayer.colorCycleData?.runtimeHydrationState).toBe('warm');
+    expect(restoredLayer.colorCycleData?.colorCycleBrush).toBeTruthy();
+    expect(hasVisiblePixel).toBe(true);
   });
 
   it('prefers live color-cycle canvas pixels over stale empty canvasImageData when saving', async () => {

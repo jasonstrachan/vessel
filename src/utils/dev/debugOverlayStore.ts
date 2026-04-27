@@ -17,7 +17,7 @@ declare global {
   }
 }
 
-const MAX_DEV_DEBUG_OVERLAY_ENTRIES = 120;
+const MAX_DEV_DEBUG_OVERLAY_ENTRIES = 240;
 export const DEV_DEBUG_OVERLAY_EVENT = 'dev-debug-overlay-update';
 const DEV_DEBUG_OVERLAY_MINIMIZED_KEY = 'devDebugOverlayMinimized';
 
@@ -119,11 +119,7 @@ export const setDevDebugOverlayEnabled = (enabled: boolean): void => {
   }
   window.__DEV_DEBUG_OVERLAY__ = enabled;
   try {
-    if (enabled) {
-      window.localStorage.setItem('devDebugOverlay', '1');
-    } else {
-      window.localStorage.removeItem('devDebugOverlay');
-    }
+    window.localStorage.setItem('devDebugOverlay', enabled ? '1' : '0');
   } catch {}
   window.dispatchEvent(new CustomEvent(DEV_DEBUG_OVERLAY_EVENT));
 };
