@@ -1,4 +1,3 @@
-import { debugWarn } from '@/utils/debug';
 import type { StoreApi } from 'zustand';
 import historyManager from '@/history/historyService';
 import type { HistoryEntry } from '@/history/actionTypes';
@@ -14,14 +13,7 @@ import {
   waitForAllPendingColorCycleSaves,
 } from '../pendingColorCycleSaves';
 import { flushPendingToolWork } from '@/utils/toolFlushRegistry';
-import { getColorCycleBrushManager, getColorCycleStoreState } from '@/stores/colorCycleBrushManager';
-import { syncPlaybackColorCycleLayers } from '@/stores/ccRuntime';
 import { waitForPendingHistoryCommits } from '@/history/pendingHistoryCommits';
-import {
-  logCCMutation,
-  summarizeColorCycleLayer,
-  summarizeSerializedColorCycleLayer,
-} from '@/utils/colorCycle/ccMutationAudit';
 
 type AppState = import('../useAppStore').AppState;
 type CCReason = import('../useAppStore').CCReason;
@@ -527,148 +519,6 @@ export const createHistoryService = ({
   get,
   runWithColorCycleSuspended,
 }: HistoryServiceOptions): HistoryService => {
-  const rehydrateColorCycleLayersFromStore = (): void => {
-    if (typeof window === 'undefined') {
-      return;
-    }
-
-    const manager = getColorCycleBrushManager();
-    const stateSnapshot = get();
-    const colorCycleLayers = stateSnapshot.layers.filter(
-      (layer) => layer.layerType === 'color-cycle' && layer.colorCycleData
-    );
-
-    if (!colorCycleLayers.length) {
-      return;
-    }
-
-    const fallbackWidth = stateSnapshot.project?.width ?? stateSnapshot.canvas?.canvasWidth ?? 1;
-    const fallbackHeight = stateSnapshot.project?.height ?? stateSnapshot.canvas?.canvasHeight ?? 1;
-    let touchedAnyLayer = false;
-    let mutatedSurface = false;
-
-    for (const layer of colorCycleLayers) {
-      const colorData = layer.colorCycleData!;
-      const width = Math.max(
-        1,
-        colorData.canvas?.width ?? colorData.canvasWidth ?? layer.imageData?.width ?? fallbackWidth
-      );
-      const height = Math.max(
-        1,
-        colorData.canvas?.height ?? colorData.canvasHeight ?? layer.imageData?.height ?? fallbackHeight
-      );
-
-      try {
-        get().initColorCycleForLayer(layer.id, width, height);
-      } catch (error) {
-        if (process.env.NODE_ENV !== 'production') {
-          debugWarn('raw-console', '[history] Failed to init color cycle layer during rehydrate', {
-            layerId: layer.id,
-            error,
-          });
-        }
-        continue;
-      }
-
-      const refreshedState = get();
-      const refreshedLayer = refreshedState.layers.find((candidate) => candidate.id === layer.id);
-      const liveColorData = refreshedLayer?.colorCycleData;
-      if (!liveColorData || !liveColorData.canvas) {
-        continue;
-      }
-
-      touchedAnyLayer = true;
-
-      if (colorData.canvasImageData) {
-        try {
-          const ctx = liveColorData.canvas.getContext(
-            '2d',
-            { willReadFrequently: true } as CanvasRenderingContext2DSettings
-          ) as CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D | null;
-          ctx?.putImageData(colorData.canvasImageData, 0, 0);
-          mutatedSurface = true;
-        } catch {
-          // best-effort canvas hydration
-        }
-      }
-
-      if (liveColorData.eraseMask && colorData.eraseMaskImageData) {
-        try {
-          const maskCtx = liveColorData.eraseMask.getContext(
-            '2d',
-            { willReadFrequently: true } as CanvasRenderingContext2DSettings
-          ) as CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D | null;
-          maskCtx?.putImageData(colorData.eraseMaskImageData, 0, 0);
-          mutatedSurface = true;
-        } catch {
-          // ignore erase mask hydration failures
-        }
-      }
-
-      const brush =
-        getColorCycleStoreState()?.getLayerColorCycleBrush?.(layer.id) ??
-        manager.getBrush(layer.id);
-      const serializedState = (colorData.brushState ?? null) as ColorCycleSerializedState | null;
-      if (brush && serializedState) {
-        const beforeRestore = summarizeColorCycleLayer(refreshedLayer ?? null);
-        const serializedLayer = serializedState.layers?.find(
-          (entry) => entry.layerId === layer.id
-        );
-        const runtimeBrush = brush as typeof brush & {
-          restoreFullState?: (state: ColorCycleSerializedState) => void;
-          updateColorCycleTexture?: () => void;
-          render?: (ping?: boolean) => void;
-        };
-        try {
-          runtimeBrush.restoreFullState?.(serializedState);
-          runtimeBrush.updateColorCycleTexture?.();
-          if (colorData.hasContent) {
-            runtimeBrush.render?.(false);
-          }
-          logCCMutation({
-            event: 'history-rehydrate-restore',
-            layerId: layer.id,
-            reason: 'rehydrateColorCycleLayersFromStore',
-            severity: 'info',
-            before: beforeRestore,
-            after: summarizeColorCycleLayer(
-              get().layers.find((entry) => entry.id === layer.id) ?? refreshedLayer ?? null
-            ),
-            details: {
-              serialized: summarizeSerializedColorCycleLayer({
-                layerId: layer.id,
-                hasContent: serializedLayer?.strokeData?.hasContent,
-                gradientDefBufferBytes:
-                  serializedLayer?.strokeData?.gradientDefIdBuffer?.byteLength ?? 0,
-                gradientIdBufferBytes:
-                  serializedLayer?.strokeData?.gradientIdBuffer?.byteLength ?? 0,
-                gradientDefStoreCount: serializedLayer?.gradientDefStore?.length ?? 0,
-                slotPaletteCount: serializedLayer?.slotPalettes?.length ?? 0,
-              }),
-            },
-          });
-        } catch {
-          // brush restore best-effort
-        }
-      }
-    }
-
-    if (touchedAnyLayer) {
-      const latestLayers = get().layers.filter((layer) => layer.layerType === 'color-cycle');
-      if (latestLayers.length) {
-        try {
-          syncPlaybackColorCycleLayers(latestLayers as Layer[], 'history-rehydrate');
-        } catch {
-          // runtime sync best-effort
-        }
-      }
-    }
-
-    if (touchedAnyLayer || mutatedSurface) {
-      get().setLayersNeedRecomposition(true);
-    }
-  };
-
   const undo = async (): Promise<CanvasSnapshot | null> => {
     return runWithColorCycleSuspended('history-apply', async () => {
       await flushPendingToolWork();
@@ -695,8 +545,6 @@ export const createHistoryService = ({
       if (requiresComposite) {
         get().setLayersNeedRecomposition(true);
       }
-
-      rehydrateColorCycleLayersFromStore();
 
       return null;
     });
@@ -728,8 +576,6 @@ export const createHistoryService = ({
       if (requiresComposite) {
         get().setLayersNeedRecomposition(true);
       }
-
-      rehydrateColorCycleLayersFromStore();
 
       return null;
     });

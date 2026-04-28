@@ -1,6 +1,7 @@
 import { useAppStore } from '@/stores/useAppStore';
 import { getColorCycleBrushManager } from '@/stores/colorCycleBrushManager';
 import { RecolorManager } from '@/lib/colorCycle/RecolorManager';
+import type { ColorCycleBrushImplementation } from '@/stores/colorCycleBrushManager';
 import type {
   HistoryDirection,
   HistoryEntry,
@@ -9,6 +10,86 @@ import type {
 } from './actionTypes';
 
 const isClient = typeof window !== 'undefined';
+
+type SerializedStrokeData = {
+  paintBuffer?: ArrayBuffer | ArrayBufferView | string;
+  gradientIdBuffer?: ArrayBuffer | ArrayBufferView | string;
+  gradientDefIdBuffer?: ArrayBuffer | ArrayBufferView | string;
+  speedBuffer?: ArrayBuffer | ArrayBufferView | string;
+  flowBuffer?: ArrayBuffer | ArrayBufferView | string;
+  phaseBuffer?: ArrayBuffer | ArrayBufferView | string;
+  hasContent?: boolean;
+  strokeCounter?: number;
+};
+
+type SerializedLayerBrushState = {
+  layerId?: string;
+  strokeData?: SerializedStrokeData;
+  data?: {
+    indexBuffer?: {
+      data?: ArrayBuffer | ArrayBufferView | string;
+      gradientId?: ArrayBuffer | ArrayBufferView | string;
+      speedData?: ArrayBuffer | ArrayBufferView | string;
+      flowData?: ArrayBuffer | ArrayBufferView | string;
+      phaseData?: ArrayBuffer | ArrayBufferView | string;
+    };
+  };
+};
+
+type SerializedBrushState = {
+  layers?: SerializedLayerBrushState[];
+};
+
+type RestorableColorCycleBrush = ColorCycleBrushImplementation & {
+  applyLayerSnapshot?: (
+    layerId: string,
+    snapshot: {
+      paintBuffer: ArrayBuffer;
+      gradientIdBuffer?: ArrayBuffer;
+      gradientDefIdBuffer?: ArrayBuffer;
+      speedBuffer?: ArrayBuffer;
+      flowBuffer?: ArrayBuffer;
+      phaseBuffer?: ArrayBuffer;
+      hasContent: boolean;
+      strokeCounter: number;
+    }
+  ) => void;
+  setTargetCanvas?: (canvas: HTMLCanvasElement | null) => void;
+  updateColorCycleTexture?: () => void;
+  renderDirectToCanvas?: (canvas: HTMLCanvasElement, layerId: string) => void;
+  render?: (forceFullOpacity?: boolean) => void;
+};
+
+const cloneBufferLike = (
+  input: ArrayBuffer | ArrayBufferView | string | null | undefined,
+): ArrayBuffer | undefined => {
+  if (!input) {
+    return undefined;
+  }
+  if (input instanceof ArrayBuffer) {
+    return input.slice(0);
+  }
+  if (ArrayBuffer.isView(input)) {
+    const bytes = new Uint8Array(input.buffer, input.byteOffset, input.byteLength);
+    return bytes.slice().buffer;
+  }
+  if (typeof input !== 'string') {
+    return undefined;
+  }
+  if (input.startsWith('archive:') || input.startsWith('buffer:')) {
+    return undefined;
+  }
+  try {
+    const binary = atob(input.replace(/\s+/g, ''));
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i += 1) {
+      bytes[i] = binary.charCodeAt(i);
+    }
+    return bytes.buffer;
+  } catch {
+    return undefined;
+  }
+};
 
 const ensurePositiveDimension = (value: number | undefined, fallback: number): number => {
   if (typeof value === 'number' && Number.isFinite(value) && value > 0) {
@@ -19,6 +100,7 @@ const ensurePositiveDimension = (value: number | undefined, fallback: number): n
 
 const rehydrateColorCycleRuntime = async (
   layerIds: Iterable<string> | null,
+  options?: { restoreBrushState?: boolean },
 ): Promise<void> => {
   if (!isClient) {
     return;
@@ -73,6 +155,68 @@ const rehydrateColorCycleRuntime = async (
         flaggedForRecomposition = true;
       } catch {
         continue;
+      }
+    }
+
+    if (options?.restoreBrushState) {
+      const latestStore = useAppStore.getState();
+      const latestLayer = latestStore.layers.find((candidate) => candidate.id === layer.id);
+      const latestColorState = latestLayer?.layerType === 'color-cycle'
+        ? latestLayer.colorCycleData
+        : null;
+      const brushState = latestColorState?.brushState as SerializedBrushState | null | undefined;
+      const serializedLayer = brushState?.layers?.find((candidate) => candidate.layerId === layer.id);
+      const strokeData = serializedLayer?.strokeData;
+      const paintBuffer = cloneBufferLike(
+        strokeData?.paintBuffer ?? serializedLayer?.data?.indexBuffer?.data,
+      );
+      const brush = (
+        latestStore.getLayerColorCycleBrush?.(layer.id) ??
+        manager.getBrush(layer.id)
+      ) as RestorableColorCycleBrush | null | undefined;
+
+      if (brush?.applyLayerSnapshot && latestColorState && paintBuffer) {
+        try {
+          brush.setTargetCanvas?.(latestColorState.canvas ?? null);
+          brush.applyLayerSnapshot(layer.id, {
+            paintBuffer,
+            gradientIdBuffer: cloneBufferLike(
+              strokeData?.gradientIdBuffer ??
+              serializedLayer?.data?.indexBuffer?.gradientId ??
+              latestColorState.gradientIdBuffer,
+            ),
+            gradientDefIdBuffer: cloneBufferLike(
+              strokeData?.gradientDefIdBuffer ?? latestColorState.gradientDefIdBuffer,
+            ),
+            speedBuffer: cloneBufferLike(
+              strokeData?.speedBuffer ?? serializedLayer?.data?.indexBuffer?.speedData,
+            ),
+            flowBuffer: cloneBufferLike(
+              strokeData?.flowBuffer ?? serializedLayer?.data?.indexBuffer?.flowData,
+            ),
+            phaseBuffer: cloneBufferLike(
+              strokeData?.phaseBuffer ?? serializedLayer?.data?.indexBuffer?.phaseData,
+            ),
+            hasContent: Boolean(strokeData?.hasContent) || paintBuffer.byteLength > 0,
+            strokeCounter: strokeData?.strokeCounter ?? 0,
+          });
+          brush.updateColorCycleTexture?.();
+          if (latestColorState.canvas) {
+            brush.renderDirectToCanvas?.(latestColorState.canvas, layer.id);
+          } else {
+            brush.render?.(false);
+          }
+          latestStore.updateLayer(layer.id, {
+            colorCycleData: {
+              ...latestColorState,
+              colorCycleBrush: brush,
+              hasContent: Boolean(strokeData?.hasContent) || paintBuffer.byteLength > 0,
+            },
+          }, { skipColorCycleSync: true });
+          flaggedForRecomposition = true;
+        } catch {
+          // A failed targeted restore should not block the rest of history replay.
+        }
       }
     }
 
@@ -133,7 +277,9 @@ export const rehydrateEntryResources = async (
   targets: HistoryRehydrationTargets,
 ): Promise<void> => {
   if (targets.colorCycleLayerIds.size > 0) {
-    await rehydrateColorCycleRuntime(targets.colorCycleLayerIds);
+    await rehydrateColorCycleRuntime(targets.colorCycleLayerIds, {
+      restoreBrushState: entry.action === 'layer-structure',
+    });
   }
 
   if (targets.workerScopes.size > 0) {

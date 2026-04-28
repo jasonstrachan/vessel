@@ -687,6 +687,112 @@ describe('ColorCycleBrushCanvas2D regression tests', () => {
     });
   });
 
+  it('refreshes stale hydrated paint snapshots when committing sampled shape bindings', () => {
+    const layerId = 'layer-stale-snapshot-commit';
+    const slot = 9;
+    const defId = 303;
+    const brush = new ColorCycleBrushCanvas2D(makeCanvas(4, 1), { forceCanvas2D: true });
+    const state = useAppStore.getState() as unknown as MockStoreState;
+
+    state.layers = [{
+      id: layerId,
+      layerType: 'color-cycle',
+      colorCycleData: {
+        paintSlot: slot,
+        slotPalettes: [{
+          slot,
+          stops: [
+            { position: 0, color: '#111111' },
+            { position: 1, color: '#eeeeee' },
+          ],
+        }],
+        gradientDefStore: [{
+          id: defId,
+          kind: 'linear',
+          stops: [
+            { position: 0, color: '#111111' },
+            { position: 1, color: '#eeeeee' },
+          ],
+          hash: 'linear:stale-snapshot',
+          source: 'sampled',
+          createdAtMs: 0,
+          slot,
+        }],
+      },
+    }];
+
+    brush.applyLayerSnapshot(layerId, {
+      paintBuffer: new Uint8Array([1, 0, 0, 0]).buffer,
+      gradientIdBuffer: new Uint8Array([slot, 0, 0, 0]).buffer,
+      gradientDefIdBuffer: new Uint16Array([defId, 0, 0, 0]).buffer,
+      speedBuffer: new Uint8Array([0, 0, 0, 0]).buffer,
+      flowBuffer: new Uint8Array([0, 0, 0, 0]).buffer,
+      phaseBuffer: new Uint8Array([0, 0, 0, 0]).buffer,
+      hasContent: true,
+      strokeCounter: 1,
+    });
+
+    const staleSnapshot = brush.getLayerSnapshot(layerId);
+    expect(Array.from(new Uint8Array(staleSnapshot?.paintBuffer ?? new ArrayBuffer(0)))).toEqual([1, 0, 0, 0]);
+
+    brush.applyPaintPatch(layerId, { x: 2, y: 0, width: 1, height: 1 }, new Uint8Array([1]), {
+      gradientIdBytes: new Uint8Array([TEMP_SAMPLE_SLOT]),
+      gradientDefIdBytes: new Uint8Array(new Uint16Array([0]).buffer),
+      speedBytes: new Uint8Array([0]),
+      flowBytes: new Uint8Array([0]),
+      phaseBytes: new Uint8Array([0]),
+    });
+
+    brush.commitCommittedLayerState({
+      layerId,
+      targetCanvas: makeCanvas(4, 1),
+      binding: {
+        defId,
+        slot,
+        bbox: { minX: 2, minY: 0, width: 1, height: 1 },
+        previewSlot: TEMP_SAMPLE_SLOT,
+      },
+    });
+
+    const serialized = brush.serialize();
+    const paint = Array.from(
+      new Uint8Array(serialized.layers[0]?.strokeData?.paintBuffer ?? new ArrayBuffer(0))
+    );
+    const gradientIds = Array.from(
+      new Uint8Array(serialized.layers[0]?.strokeData?.gradientIdBuffer ?? new ArrayBuffer(0))
+    );
+    const defIds = Array.from(
+      new Uint16Array(serialized.layers[0]?.strokeData?.gradientDefIdBuffer ?? new ArrayBuffer(0))
+    );
+
+    expect(paint).toEqual([1, 0, 1, 0]);
+    expect(gradientIds[2]).toBe(slot);
+    expect(defIds[2]).toBe(defId);
+  });
+
+  it('clears loaded external-base canvases when redrawing runtime content', () => {
+    const layerId = 'layer-external-base-redraw';
+    const targetCanvas = makeCanvas(4, 1);
+    const targetCtx = ensureMockContext(targetCanvas);
+    const brush = new ColorCycleBrushCanvas2D(makeCanvas(4, 1), { forceCanvas2D: true });
+
+    brush.applyLayerSnapshot(layerId, {
+      paintBuffer: new Uint8Array([1, 0, 0, 0]).buffer,
+      gradientIdBuffer: new Uint8Array([1, 0, 0, 0]).buffer,
+      gradientDefIdBuffer: new Uint16Array([1, 0, 0, 0]).buffer,
+      speedBuffer: new Uint8Array([0, 0, 0, 0]).buffer,
+      flowBuffer: new Uint8Array([0, 0, 0, 0]).buffer,
+      phaseBuffer: new Uint8Array([0, 0, 0, 0]).buffer,
+      hasContent: true,
+      strokeCounter: 1,
+    });
+    brush.markLayerHasExternalBase(layerId);
+
+    brush.renderDirectToCanvas(targetCanvas, layerId);
+
+    expect(targetCtx.clearRect).toHaveBeenCalledWith(0, 0, targetCanvas.width, targetCanvas.height);
+  });
+
   it('does not rebind already committed sampled pixels when a new sampled commit collides with their slot', () => {
     const layerId = 'layer-sampled-slot-collision';
     const slot = 7;

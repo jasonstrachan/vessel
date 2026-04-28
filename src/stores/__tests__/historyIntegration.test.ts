@@ -5,6 +5,7 @@ import { TextDecoder, TextEncoder } from 'util';
 (global as unknown as { TextDecoder?: typeof TextDecoder }).TextDecoder = TextDecoder;
 
 import { shapeFillBrushPreset, pixelBrushPreset } from '@/presets/brushPresets';
+import { captureColorCycleBrushState } from '@/history/helpers/colorCycle';
 import { commitLayerHistory } from '@/history/helpers/layerHistory';
 import { captureSelectionSnapshot, commitSelectionHistory } from '@/history/helpers/selectionHistory';
 import historyManager from '@/history/historyService';
@@ -338,6 +339,96 @@ describe('history integration', () => {
     await store.redo();
     expect(useAppStore.getState().layers.map((layer) => layer.id)).toEqual(['layer-A']);
     expect(useAppStore.getState().referenceLayerId).toBeNull();
+  });
+
+  it('restores color-cycle brush buffers when undoing layer removal', async () => {
+    const width = 4;
+    const height = 4;
+    const layer = createColorCycleLayer('layer-cc-remove-restore', width, height);
+    layer.colorCycleData = {
+      ...layer.colorCycleData,
+      gradientDefs: [{ id: 'g3', currentSlot: 3 }],
+      activeGradientId: 'g3',
+      paintSlot: 3,
+      slotPalettes: [{
+        slot: 3,
+        stops: [
+          { position: 0, color: '#111111' },
+          { position: 1, color: '#eeeeee' },
+        ],
+      }],
+      gradientDefStore: [{
+        id: 7,
+        kind: 'linear',
+        stops: [
+          { position: 0, color: '#111111' },
+          { position: 1, color: '#eeeeee' },
+        ],
+        hash: 'linear:remove-restore',
+        source: 'manual',
+        createdAtMs: 0,
+        slot: 3,
+      }],
+      nextGradientDefId: 8,
+    };
+
+    useAppStore.setState(() => ({
+      layers: [layer],
+      activeLayerId: layer.id,
+      selectedLayerIds: [layer.id],
+      project: {
+        id: 'proj-cc-remove-restore',
+        name: 'CC Remove Restore',
+        width,
+        height,
+        layers: [layer],
+        backgroundColor: '#00000000',
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        customBrushes: [],
+      },
+    }));
+
+    const store = useAppStore.getState();
+    store.initColorCycleForLayer(layer.id, width, height);
+    const manager = getColorCycleBrushManager();
+    const brush = manager.getLayerColorCycleBrush(layer.id);
+    expect(brush).not.toBeNull();
+
+    const paint = new Uint8Array(width * height);
+    const gradientIds = new Uint8Array(width * height);
+    const gradientDefIds = new Uint16Array(width * height);
+    paint[0] = 55;
+    gradientIds[0] = 3;
+    gradientDefIds[0] = 7;
+    brush?.applyLayerSnapshot?.(layer.id, {
+      paintBuffer: paint.buffer,
+      gradientIdBuffer: gradientIds.buffer,
+      gradientDefIdBuffer: gradientDefIds.buffer,
+      hasContent: true,
+      strokeCounter: 4,
+    });
+
+    store.removeLayer(layer.id);
+    expect(useAppStore.getState().layers).toHaveLength(0);
+    expect(manager.getLayerColorCycleBrush(layer.id)).toBeNull();
+
+    await store.undo();
+
+    const restoredBrush = manager.getLayerColorCycleBrush(layer.id);
+    expect(restoredBrush).not.toBeNull();
+    const restoredSnapshot = restoredBrush?.getLayerSnapshot?.(layer.id);
+    const restoredPaint = restoredSnapshot?.paintBuffer ? new Uint8Array(restoredSnapshot.paintBuffer) : null;
+    const restoredGradientIds = restoredSnapshot?.gradientIdBuffer
+      ? new Uint8Array(restoredSnapshot.gradientIdBuffer)
+      : null;
+    const restoredGradientDefIds = restoredSnapshot?.gradientDefIdBuffer
+      ? new Uint16Array(restoredSnapshot.gradientDefIdBuffer)
+      : null;
+
+    expect(restoredPaint?.[0]).toBe(55);
+    expect(restoredGradientIds?.[0]).toBe(3);
+    expect(restoredGradientDefIds?.[0]).toBe(7);
   });
 
   it('preserves restored pixels when drawing after undoing layer removal', async () => {
@@ -959,6 +1050,141 @@ describe('history integration', () => {
     ]));
     expect(targetGradientIds![1 + (1 * width)]).toBe(9);
     expect(targetGradientDefIds![1 + (1 * width)]).toBe(2);
+  });
+
+  it('does not restore untouched color-cycle layers when undoing a lower-layer commit', async () => {
+    const width = 4;
+    const height = 4;
+    const topLayer = createColorCycleLayer('layer-cc-top', width, height);
+    const bottomLayer = createColorCycleLayer('layer-cc-bottom', width, height);
+    topLayer.order = 0;
+    bottomLayer.order = 1;
+
+    useAppStore.setState(() => ({
+      layers: [topLayer, bottomLayer],
+      activeLayerId: bottomLayer.id,
+      project: {
+        id: 'proj-cc-undo-cross-layer',
+        name: 'CC Undo Cross Layer Test',
+        width,
+        height,
+        layers: [topLayer, bottomLayer],
+        backgroundColor: '#00000000',
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        customBrushes: [],
+      },
+    }));
+
+    const manager = getColorCycleBrushManager();
+    useAppStore.getState().initColorCycleForLayer(topLayer.id, width, height);
+    useAppStore.getState().initColorCycleForLayer(bottomLayer.id, width, height);
+    const topBrush = manager.getLayerColorCycleBrush(topLayer.id);
+    const bottomBrush = manager.getLayerColorCycleBrush(bottomLayer.id);
+    expect(topBrush).not.toBeNull();
+    expect(bottomBrush).not.toBeNull();
+
+    const topPaint = new Uint8Array(width * height);
+    topPaint[0] = 77;
+    topBrush?.applyLayerSnapshot?.(topLayer.id, {
+      paintBuffer: topPaint.slice().buffer,
+      hasContent: true,
+      strokeCounter: 1,
+    });
+
+    const bottomBefore = new Uint8Array(width * height);
+    bottomBefore[5] = 11;
+    bottomBrush?.applyLayerSnapshot?.(bottomLayer.id, {
+      paintBuffer: bottomBefore.slice().buffer,
+      hasContent: true,
+      strokeCounter: 1,
+    });
+    const beforeBottomState = captureColorCycleBrushState(bottomLayer.id);
+
+    const bottomAfter = bottomBefore.slice();
+    bottomAfter[6] = 22;
+    bottomBrush?.applyLayerSnapshot?.(bottomLayer.id, {
+      paintBuffer: bottomAfter.buffer,
+      hasContent: true,
+      strokeCounter: 2,
+    });
+
+    useAppStore.setState((state) => ({
+      layers: state.layers.map((layer) =>
+        layer.id === topLayer.id && layer.colorCycleData
+          ? {
+              ...layer,
+              colorCycleData: {
+                ...layer.colorCycleData,
+                brushState: {
+                  layers: [{
+                    layerId: topLayer.id,
+                    strokeData: {
+                      paintBuffer: new Uint8Array(width * height).buffer,
+                      hasContent: false,
+                      strokeCounter: 0,
+                    },
+                  }],
+                },
+              },
+            }
+          : layer
+      ),
+      project: state.project
+        ? {
+            ...state.project,
+            layers: state.layers.map((layer) =>
+              layer.id === topLayer.id && layer.colorCycleData
+                ? {
+                    ...layer,
+                    colorCycleData: {
+                      ...layer.colorCycleData,
+                      brushState: {
+                        layers: [{
+                          layerId: topLayer.id,
+                          strokeData: {
+                            paintBuffer: new Uint8Array(width * height).buffer,
+                            hasContent: false,
+                            strokeCounter: 0,
+                          },
+                        }],
+                      },
+                    },
+                  }
+                : layer
+            ),
+          }
+        : state.project,
+    }));
+
+    await commitLayerHistory({
+      layerId: bottomLayer.id,
+      beforeImage: null,
+      beforeColorState: beforeBottomState,
+      actionType: 'fill',
+      description: 'Bottom CC shape',
+      tool: 'shape',
+      skipBitmapDelta: true,
+    });
+
+    const restoreTopSpy = jest.spyOn(
+      topBrush as NonNullable<typeof topBrush> & { restoreFullState: (state: unknown) => void },
+      'restoreFullState'
+    );
+
+    await useAppStore.getState().undo();
+
+    expect(restoreTopSpy).not.toHaveBeenCalled();
+    const topSnapshot = topBrush?.getLayerSnapshot?.(topLayer.id);
+    const topAfterUndo = topSnapshot?.paintBuffer ? new Uint8Array(topSnapshot.paintBuffer) : null;
+    expect(topAfterUndo).not.toBeNull();
+    expect(topAfterUndo![0]).toBe(77);
+
+    const bottomSnapshot = bottomBrush?.getLayerSnapshot?.(bottomLayer.id);
+    const bottomAfterUndo = bottomSnapshot?.paintBuffer ? new Uint8Array(bottomSnapshot.paintBuffer) : null;
+    expect(bottomAfterUndo).not.toBeNull();
+    expect(bottomAfterUndo![5]).toBe(11);
+    expect(bottomAfterUndo![6]).toBe(0);
   });
 
   it('commits resized marquee transforms on color-cycle layers', async () => {
