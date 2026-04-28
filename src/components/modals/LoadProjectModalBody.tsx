@@ -270,7 +270,15 @@ export function LoadProjectModalBody({
                   onDoubleClick={() => onSelectEntryAtIndex(index, true, true)}
                   className={buttonClass}
                 >
-                  <div className='text-sm truncate'>{entry.name}</div>
+                  <div
+                    className='text-sm truncate'
+                    onDoubleClick={(event) => {
+                      event.stopPropagation();
+                      onSelectEntryAtIndex(index, true, true);
+                    }}
+                  >
+                    {entry.name}
+                  </div>
                   {entry.lastModified && (
                     <div className={timestampClass}>{new Date(entry.lastModified).toLocaleString()}</div>
                   )}

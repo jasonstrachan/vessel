@@ -261,6 +261,68 @@ describe('global brush persistence', () => {
     );
   });
 
+  it('persists color cycle gradient dither resolution settings per brush', async () => {
+    loadMock.mockReturnValue({
+      brushSpecificSettings: {
+        'color-cycle-gradient': {
+          fillResolution: 7,
+          pressureLinkedFillResolution: true,
+          pressureLinkedFillMaxResolution: 19,
+          pressureDitherSmoosh: true,
+          pxlEdge: false,
+          gradientBands: 12,
+          ditherPatternDiversity: 44,
+          ditherPaletteSpread: 55,
+          ditherGradBgFill: false,
+        },
+      },
+      lastBrushId: 'color-cycle-gradient',
+    });
+
+    const { useAppStore } = await import('@/stores/useAppStore');
+    const store = useAppStore.getState();
+    const active = store.tools.brushSettings;
+
+    expect(store.currentBrushPreset?.id).toBe('color-cycle-gradient');
+    expect(active.fillResolution).toBe(7);
+    expect(active.pressureLinkedFillResolution).toBe(true);
+    expect(active.pressureLinkedFillMaxResolution).toBe(19);
+    expect(active.pressureDitherSmoosh).toBe(true);
+    expect(active.pxlEdge).toBe(false);
+    expect(active.gradientBands).toBe(12);
+    expect(active.ditherPatternDiversity).toBe(44);
+    expect(active.ditherPaletteSpread).toBe(55);
+    expect(active.ditherGradBgFill).toBe(false);
+
+    store.setBrushSettings({
+      fillResolution: 9,
+      pressureLinkedFillResolution: false,
+      pressureLinkedFillMaxResolution: 23,
+      pressureDitherSmoosh: false,
+      pxlEdge: true,
+      gradientBands: 14,
+      ditherPatternDiversity: 66,
+      ditherPaletteSpread: 77,
+      ditherGradBgFill: true,
+    });
+
+    jest.advanceTimersByTime(300);
+    const payload = saveMock.mock.calls.at(-1)?.[0];
+    expect(payload?.brushSpecificSettings?.['color-cycle-gradient']).toEqual(
+      expect.objectContaining({
+        fillResolution: 9,
+        pressureLinkedFillResolution: false,
+        pressureLinkedFillMaxResolution: 23,
+        pressureDitherSmoosh: false,
+        pxlEdge: true,
+        gradientBands: 14,
+        ditherPatternDiversity: 66,
+        ditherPaletteSpread: 77,
+        ditherGradBgFill: true,
+      })
+    );
+  });
+
   it('persists shared CC dither selection without saving it per brush', async () => {
     loadMock.mockReturnValue(null);
 

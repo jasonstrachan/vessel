@@ -299,6 +299,33 @@ describe('LoadProjectModal', () => {
     });
   });
 
+  it('loads a folder project when its name is double-clicked', async () => {
+    const handle = createFileHandle('open-me.vs');
+    (window as any).showDirectoryPicker = jest.fn(async () => createDirectoryHandle([
+      ['open-me.vs', handle],
+    ]));
+
+    const onClose = jest.fn();
+    render(<LoadProjectModal isOpen onClose={onClose} />);
+    act(() => {
+      jest.runAllTimers();
+    });
+
+    fireEvent.click(screen.getByText('Browse Folder'));
+    const projectName = await screen.findByText('open-me.vs');
+
+    fireEvent.doubleClick(projectName);
+
+    await waitFor(() => {
+      expect(mockStore.importProject).toHaveBeenCalledTimes(1);
+    });
+    expect(mockStore.importProject).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'p1', name: 'demo' }),
+      expect.objectContaining({ fileName: 'open-me.vs', fileHandle: handle }),
+    );
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
   it('refreshes cached directory entries when modal is reopened', async () => {
     const entries: Array<[string, ReturnType<typeof createFileHandle>]> = [
       ['first.vs', createFileHandle('first.vs')],
