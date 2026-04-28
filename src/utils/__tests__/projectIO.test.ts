@@ -3104,7 +3104,7 @@ describe('projectIO serialize/deserialize layering', () => {
     }
   });
 
-  it('preserves recovered color-cycle canvas pixels on first commit when runtime has external base only', async () => {
+  it('keeps external-base-only color-cycle layers as static preview when canonical paint is missing', async () => {
     const canvasImageData = createSolidImageData(3, 3, [240, 120, 60, 255]);
     const colorCycleCanvas = document.createElement('canvas');
     colorCycleCanvas.width = 3;
@@ -3135,29 +3135,65 @@ describe('projectIO serialize/deserialize layering', () => {
 
     const [restoredLayer] = await restoreColorCycleBrushes([layer]);
     const restoredCanvas = restoredLayer.colorCycleData?.canvas;
-    const restoredBrush = restoredLayer.colorCycleData?.colorCycleBrush as
-      | {
-          commitToLayer?: (canvas: HTMLCanvasElement, layerId: string) => void;
-        }
-      | undefined;
 
     expect(restoredCanvas).toBeTruthy();
-    expect(restoredBrush?.commitToLayer).toBeDefined();
-    if (!restoredCanvas || !restoredBrush?.commitToLayer) {
-      throw new Error('Expected restored color cycle runtime');
+    expect(restoredLayer.colorCycleData?.colorCycleBrush).toBeUndefined();
+    expect(restoredLayer.colorCycleData?.runtimeHydrationState).toBe('cold');
+    expect(restoredLayer.colorCycleData?.repairStatus).toEqual(expect.objectContaining({
+      ok: false,
+      reason: 'missing-paint-buffer',
+    }));
+    if (!restoredCanvas) {
+      throw new Error('Expected restored color cycle canvas');
     }
 
-    const before = restoredCanvas.getContext('2d', { willReadFrequently: true })?.getImageData(1, 1, 1, 1);
+    const before = restoredLayer.colorCycleData?.canvasImageData?.data;
     expect(before).toBeTruthy();
-    const beforePixel = before?.data ?? new Uint8ClampedArray([0, 0, 0, 0]);
-    expect(beforePixel[3]).toBeGreaterThan(0);
+    expect(before?.[3]).toBeGreaterThan(0);
+  });
 
-    restoredBrush.commitToLayer(restoredCanvas, restoredLayer.id);
+  it('preserves legacy color-cycle layer.imageData pixels as static preview when canonical paint is missing', async () => {
+    const legacyImageData = createSolidImageData(3, 3, [80, 160, 220, 255]);
+    const colorCycleCanvas = document.createElement('canvas');
+    colorCycleCanvas.width = 3;
+    colorCycleCanvas.height = 3;
 
-    const after = restoredCanvas.getContext('2d', { willReadFrequently: true })?.getImageData(1, 1, 1, 1);
-    expect(after).toBeTruthy();
-    const afterPixel = after?.data ?? new Uint8ClampedArray([0, 0, 0, 0]);
-    expect(Array.from(afterPixel)).toEqual(Array.from(beforePixel));
+    const layer: Layer = {
+      id: 'layer-cc-legacy-image-data-only',
+      name: 'CC Legacy ImageData Only',
+      visible: true,
+      opacity: 1,
+      blendMode: 'source-over',
+      locked: false,
+      transparencyLocked: false,
+      order: 0,
+      imageData: legacyImageData,
+      framebuffer: createCanvasFromImageData(legacyImageData),
+      alignment: createDefaultLayerAlignment(),
+      layerType: 'color-cycle',
+      version: 1,
+      colorCycleData: {
+        canvas: colorCycleCanvas,
+        canvasWidth: 3,
+        canvasHeight: 3,
+        isAnimating: false,
+        mode: 'brush',
+      },
+    };
+
+    const [restoredLayer] = await restoreColorCycleBrushes([layer]);
+
+    expect(restoredLayer.colorCycleData?.colorCycleBrush).toBeUndefined();
+    expect(restoredLayer.colorCycleData?.runtimeHydrationState).toBe('cold');
+    expect(restoredLayer.colorCycleData?.deferredRuntimeRestore).toBe(false);
+    expect(restoredLayer.colorCycleData?.repairStatus).toEqual(expect.objectContaining({
+      ok: false,
+      reason: 'missing-paint-buffer',
+    }));
+    expect(restoredLayer.colorCycleData?.canvasImageData).toBe(legacyImageData);
+    expect(restoredLayer.colorCycleData?.canvasWidth).toBe(3);
+    expect(restoredLayer.colorCycleData?.canvasHeight).toBe(3);
+    expect(Array.from(restoredLayer.colorCycleData?.canvasImageData?.data.slice(0, 4) ?? [])).toEqual([80, 160, 220, 255]);
   });
 
   it('prefers actual color-cycle canvas dimensions over stale saved metadata', async () => {
@@ -3309,7 +3345,12 @@ describe('projectIO serialize/deserialize layering', () => {
 
     expect(restoredLayer.colorCycleData?.canvas?.width).toBe(3);
     expect(restoredLayer.colorCycleData?.canvas?.height).toBe(2);
-    expect(restoredLayer.colorCycleData?.colorCycleBrush).toBeDefined();
+    expect(restoredLayer.colorCycleData?.colorCycleBrush).toBeUndefined();
+    expect(restoredLayer.colorCycleData?.runtimeHydrationState).toBe('cold');
+    expect(restoredLayer.colorCycleData?.repairStatus).toEqual(expect.objectContaining({
+      ok: false,
+      reason: 'missing-paint-buffer',
+    }));
     expect(debugWarn).toHaveBeenCalledWith(
       'raw-console',
       '[projectIO] Dropping incompatible color cycle brushState during load',
@@ -4113,7 +4154,7 @@ describe('projectIO serialize/deserialize layering', () => {
     expect(restoredLayer.colorCycleData?.colorCycleBrush).toBeTruthy();
   });
 
-  it('keeps oversized duplicated legacy snapshots on the persisted-buffer fast path', async () => {
+  it('does not seed oversized duplicated legacy snapshots from top-level gradient buffers', async () => {
     const width = 3;
     const height = 3;
     const gradientIds = new Uint8Array(width * height);
@@ -4213,66 +4254,11 @@ describe('projectIO serialize/deserialize layering', () => {
     }));
 
     const [restoredLayer] = await restoreColorCycleBrushes(restored.layers);
-    const restoredBrush = restoredLayer.colorCycleData?.colorCycleBrush as
-      | {
-          getLayerSnapshot?: (layerId: string) => {
-            gradientIdBuffer?: ArrayBuffer;
-            hasContent: boolean;
-          } | null;
-        }
-      | undefined;
-    const snapshot = restoredBrush?.getLayerSnapshot?.(restoredLayer.id);
-
-    expect(snapshot).toBeTruthy();
-    expect(snapshot?.hasContent).toBe(true);
-    expect(Array.from(new Uint8Array(snapshot?.gradientIdBuffer ?? new ArrayBuffer(0)))).toEqual(
+    expect(restoredLayer.colorCycleData?.colorCycleBrush).toBeUndefined();
+    expect(restoredLayer.colorCycleData?.runtimeHydrationState).toBe('cold');
+    expect(Array.from(new Uint8Array(restoredLayer.colorCycleData?.gradientIdBuffer ?? new ArrayBuffer(0)))).toEqual(
       Array.from(gradientIds),
     );
-    expect(restoredLayer.colorCycleData?.brushState).toEqual(expect.objectContaining({
-      layers: [expect.objectContaining({
-        layerId: 'layer-cc-oversized-legacy-brush-state',
-        strokeData: expect.objectContaining({
-          hasContent: true,
-          strokeCounter: 1,
-        }),
-        animator: {
-          indexBuffer: {
-            width,
-            height,
-            data: undefined,
-            gradientId: undefined,
-            speedData: undefined,
-            flowData: undefined,
-            phaseData: undefined,
-            palette: ['#000000', '#ffffff'],
-          },
-          gradient: {
-            gradientStops: [
-              { position: 0, color: '#000000' },
-              { position: 1, color: '#ffffff' },
-            ],
-          },
-          animation: {
-            offset: 0,
-            stats: {
-              targetFPS: 24,
-              actualFPS: 24,
-              frameCount: 1,
-              totalTime: 0,
-              averageFrameTime: 0,
-              isAnimating: false,
-            },
-          },
-        },
-      })],
-      cycleSpeed: 0.5,
-      fps: 24,
-      brushSize: 8,
-      ditherEnabled: true,
-      ditherStrength: 1,
-      ditherPixelSize: 38,
-      perceptualDither: false,
-    }));
   });
 
   it('defers runtime restore for hidden heavy color-cycle layers when lazy mode is enabled', async () => {
@@ -4708,8 +4694,12 @@ describe('projectIO serialize/deserialize layering', () => {
     });
 
     expect(restoredLayer.colorCycleData?.deferredRuntimeRestore).toBe(false);
-    expect(restoredLayer.colorCycleData?.runtimeHydrationState).toBe('warm');
-    expect(restoredLayer.colorCycleData?.colorCycleBrush).toBeDefined();
+    expect(restoredLayer.colorCycleData?.runtimeHydrationState).toBe('cold');
+    expect(restoredLayer.colorCycleData?.colorCycleBrush).toBeUndefined();
+    expect(restoredLayer.colorCycleData?.repairStatus).toEqual(expect.objectContaining({
+      ok: false,
+      reason: 'missing-paint-buffer',
+    }));
   });
 
   it('does not defer runtime restore for the active heavy color-cycle layer when lazy mode is enabled', async () => {
@@ -4756,8 +4746,12 @@ describe('projectIO serialize/deserialize layering', () => {
     });
 
     expect(restoredLayer.colorCycleData?.deferredRuntimeRestore).toBe(false);
-    expect(restoredLayer.colorCycleData?.runtimeHydrationState).toBe('active');
-    expect(restoredLayer.colorCycleData?.colorCycleBrush).toBeDefined();
+    expect(restoredLayer.colorCycleData?.runtimeHydrationState).toBe('cold');
+    expect(restoredLayer.colorCycleData?.colorCycleBrush).toBeUndefined();
+    expect(restoredLayer.colorCycleData?.repairStatus).toEqual(expect.objectContaining({
+      ok: false,
+      reason: 'missing-paint-buffer',
+    }));
   });
 
   describe('large-project smoke benchmarks', () => {
@@ -4858,8 +4852,12 @@ describe('projectIO serialize/deserialize layering', () => {
         layer.id.startsWith('benchmark-hidden-heavy-'),
       );
 
-      expect(activeLayer?.colorCycleData?.runtimeHydrationState).toBe('active');
-      expect(activeLayer?.colorCycleData?.colorCycleBrush).toBeDefined();
+      expect(activeLayer?.colorCycleData?.runtimeHydrationState).toBe('cold');
+      expect(activeLayer?.colorCycleData?.colorCycleBrush).toBeUndefined();
+      expect(activeLayer?.colorCycleData?.repairStatus).toEqual(expect.objectContaining({
+        ok: false,
+        reason: 'missing-paint-buffer',
+      }));
       expect(coldHiddenLayers).toHaveLength(hiddenLayers.length);
       expect(coldHiddenLayers.every((layer) => (
         layer.colorCycleData?.runtimeHydrationState === 'cold'
@@ -4870,7 +4868,7 @@ describe('projectIO serialize/deserialize layering', () => {
     });
   });
 
-  it('seeds color-cycle runtime from persisted gradient buffers when brushState is missing', async () => {
+  it('does not seed color-cycle runtime paint from persisted gradient buffers when brushState paint is missing', async () => {
     const width = 3;
     const height = 3;
     const canvasImageData = createSolidImageData(width, height, [240, 120, 60, 255]);
@@ -4911,25 +4909,20 @@ describe('projectIO serialize/deserialize layering', () => {
     };
 
     const [restoredLayer] = await restoreColorCycleBrushes([layer]);
-    const restoredBrush = restoredLayer.colorCycleData?.colorCycleBrush as
-      | {
-          getLayerSnapshot?: (layerId: string) => {
-            paintBuffer: ArrayBuffer;
-            gradientIdBuffer?: ArrayBuffer;
-            hasContent: boolean;
-          } | null;
-        }
-      | undefined;
 
-    const snapshot = restoredBrush?.getLayerSnapshot?.(restoredLayer.id);
-    expect(snapshot).toBeTruthy();
-    expect(snapshot?.hasContent).toBe(true);
-    expect(Array.from(new Uint8Array(snapshot?.gradientIdBuffer ?? new ArrayBuffer(0)))).toEqual(
+    expect(restoredLayer.colorCycleData?.colorCycleBrush).toBeUndefined();
+    expect(restoredLayer.colorCycleData?.runtimeHydrationState).toBe('cold');
+    expect(restoredLayer.colorCycleData?.deferredRuntimeRestore).toBe(false);
+    expect(restoredLayer.colorCycleData?.repairStatus).toEqual(expect.objectContaining({
+      ok: false,
+      reason: 'missing-paint-buffer',
+    }));
+    expect(Array.from(new Uint8Array(restoredLayer.colorCycleData?.gradientIdBuffer ?? new ArrayBuffer(0)))).toEqual(
       Array.from(gradientIds),
     );
   });
 
-  it('materializes a stale empty color-cycle canvas from persisted buffers', async () => {
+  it('keeps stale empty color-cycle runtime cold when canonical paint is missing', async () => {
     const width = 3;
     const height = 3;
     const colorCycleCanvas = createCanvasFromImageData(createSolidImageData(width, height, [0, 0, 0, 0]));
@@ -4993,9 +4986,14 @@ describe('projectIO serialize/deserialize layering', () => {
       ? imageData.data.some((value, index) => index % 4 === 3 && value !== 0)
       : false;
 
-    expect(restoredLayer.colorCycleData?.runtimeHydrationState).toBe('warm');
-    expect(restoredLayer.colorCycleData?.colorCycleBrush).toBeTruthy();
-    expect(hasVisiblePixel).toBe(true);
+    expect(restoredLayer.colorCycleData?.runtimeHydrationState).toBe('cold');
+    expect(restoredLayer.colorCycleData?.deferredRuntimeRestore).toBe(false);
+    expect(restoredLayer.colorCycleData?.colorCycleBrush).toBeUndefined();
+    expect(restoredLayer.colorCycleData?.repairStatus).toEqual(expect.objectContaining({
+      ok: false,
+      reason: 'missing-paint-buffer',
+    }));
+    expect(hasVisiblePixel).toBe(false);
   });
 
   it('prefers live color-cycle canvas pixels over stale empty canvasImageData when saving', async () => {

@@ -159,16 +159,6 @@ export const materializeRestoredColorCycleSurface = (
     return true;
   }
 
-  const compatibilitySnapshot = colorCycleData.canvasImageData;
-  if (imageDataHasVisiblePixels(compatibilitySnapshot) && compatibilitySnapshot) {
-    try {
-      const ctx = canvas.getContext('2d', { willReadFrequently: true });
-      ctx?.clearRect(0, 0, canvas.width, canvas.height);
-      ctx?.putImageData(compatibilitySnapshot, 0, 0);
-      colorCycleData.hasContent = true;
-    } catch {}
-  }
-
   if (materializeSnapshotPreviewToCanvas(layer, brush, canvas)) {
     return true;
   }
