@@ -25,7 +25,6 @@ export const resetColorCycleStroke = ({
   initializeColorCycleBrush,
   activeLayerId,
   getLayers,
-  isColorCycleDesiredPlaying,
   bindBrushToCanvas,
   firstStampImmediateRef,
 }: {
@@ -34,7 +33,6 @@ export const resetColorCycleStroke = ({
   initializeColorCycleBrush: (options?: { skipGradientReinit?: boolean }) => ColorCycleBrushImplementation | null;
   activeLayerId: string | null;
   getLayers: () => LayerLike[];
-  isColorCycleDesiredPlaying: () => boolean;
   bindBrushToCanvas: (
     brush: ColorCycleBrushImplementation | null | undefined,
     canvas: HTMLCanvasElement | null | undefined
@@ -79,9 +77,6 @@ export const resetColorCycleStroke = ({
               brush.commitToLayer(layerCanvas, layerId);
             } else {
               brush.renderDirectToCanvas?.(layerCanvas, layerId);
-            }
-            if (!isColorCycleDesiredPlaying()) {
-              brush.clearPaintBuffer?.(layerId);
             }
           }
         }

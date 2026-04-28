@@ -13,6 +13,8 @@ describe('shapeDrawing pressure-linked dither resolution', () => {
     shouldKeepColorCycleShapeOverlayAfterFinalize,
     canStartShapeDrawing,
     canContinueShapeDrawing,
+    resolveCapturedShapeFinalizeLayer,
+    shouldSkipRasterFallbackAfterColorCycleFinalize,
   } = __TESTING__;
 
   it('uses pressure-linked resolution when pressure is valid', () => {
@@ -102,6 +104,40 @@ describe('shapeDrawing pressure-linked dither resolution', () => {
     expect(canContinueShapeDrawing({ current: 'drawing' })).toBe(true);
     expect(canContinueShapeDrawing({ current: 'idle' })).toBe(false);
     expect(canContinueShapeDrawing({ current: 'finalizing' })).toBe(false);
+  });
+
+  it('keeps the captured shape finalize layer even if the active layer changes', () => {
+    const bottomLayer = { id: 'bottom-cc', layerType: 'color-cycle' };
+    const topLayer = { id: 'top-cc', layerType: 'color-cycle' };
+    const state = {
+      activeLayerId: 'top-cc',
+      layers: [topLayer, bottomLayer],
+    } as unknown as Pick<AppState, 'activeLayerId' | 'layers'>;
+
+    expect(resolveCapturedShapeFinalizeLayer(state, 'bottom-cc')).toBe(bottomLayer);
+  });
+
+  it('falls back to the active layer only when no shape finalize target was captured', () => {
+    const activeLayer = { id: 'active-cc', layerType: 'color-cycle' };
+    const state = {
+      activeLayerId: 'active-cc',
+      layers: [activeLayer],
+    } as unknown as Pick<AppState, 'activeLayerId' | 'layers'>;
+
+    expect(resolveCapturedShapeFinalizeLayer(state, null)).toBe(activeLayer);
+  });
+
+  it('skips raster fallback based on the finalized color-cycle target, not the current active layer', () => {
+    const finalizedTarget = { id: 'bottom-cc', layerType: 'color-cycle' };
+    const activeRasterLayer = { id: 'top-raster', layerType: 'raster' };
+    const state = {
+      activeLayerId: 'top-raster',
+      layers: [activeRasterLayer, finalizedTarget],
+    } as unknown as Pick<AppState, 'activeLayerId' | 'layers'>;
+
+    expect(shouldSkipRasterFallbackAfterColorCycleFinalize(state, true, 'bottom-cc')).toBe(true);
+    expect(shouldSkipRasterFallbackAfterColorCycleFinalize(state, true, 'top-raster')).toBe(false);
+    expect(shouldSkipRasterFallbackAfterColorCycleFinalize(state, false, 'bottom-cc')).toBe(false);
   });
 
   it('snaps points to grid for dither shape and dither stroke presets when enabled', () => {
