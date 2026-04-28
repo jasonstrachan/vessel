@@ -240,13 +240,13 @@ export const normalizeColorCycleLayerDocumentState = (
     cloneArrayBuffer(strokeData?.paintBuffer) ??
     legacyRefs.paintBuffer;
   const gradientIdBuffer =
+    cloneArrayBuffer(colorCycleData.gradientIdBuffer) ??
     cloneArrayBuffer(strokeData?.gradientIdBuffer) ??
-    legacyRefs.gradientIdBuffer ??
-    cloneArrayBuffer(colorCycleData.gradientIdBuffer);
+    legacyRefs.gradientIdBuffer;
   const gradientDefIdBuffer =
+    cloneArrayBuffer(colorCycleData.gradientDefIdBuffer) ??
     cloneArrayBuffer(strokeData?.gradientDefIdBuffer) ??
-    legacyRefs.gradientDefIdBuffer ??
-    cloneArrayBuffer(colorCycleData.gradientDefIdBuffer);
+    legacyRefs.gradientDefIdBuffer;
   const speedBuffer =
     cloneArrayBuffer(strokeData?.speedBuffer) ??
     legacyRefs.speedBuffer;
@@ -254,9 +254,9 @@ export const normalizeColorCycleLayerDocumentState = (
     cloneArrayBuffer(strokeData?.flowBuffer) ??
     legacyRefs.flowBuffer;
   const phaseBuffer =
+    cloneArrayBuffer(colorCycleData.phaseBuffer) ??
     cloneArrayBuffer(strokeData?.phaseBuffer) ??
-    legacyRefs.phaseBuffer ??
-    cloneArrayBuffer(colorCycleData.phaseBuffer);
+    legacyRefs.phaseBuffer;
 
   const state: ColorCycleLayerDocumentState = {
     layerId: layer.id,

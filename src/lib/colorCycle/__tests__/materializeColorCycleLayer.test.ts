@@ -195,6 +195,28 @@ describe('materializeColorCycleLayer', () => {
     expect(layer.colorCycleData?.hasContent).toBeUndefined();
   });
 
+  it('does not synthesize white pixels from a paint snapshot when runtime render is blank', () => {
+    const canvas = createCanvas(2, 2);
+    const layer = createColorCycleLayer(canvas);
+    const brush = {
+      getLayerSnapshot: jest.fn(() => ({
+        paintBuffer: new Uint8Array([1, 1, 1, 1]).buffer,
+        hasContent: true,
+      })),
+      renderDirectToCanvas: jest.fn((target: HTMLCanvasElement) => {
+        target.getContext('2d')?.clearRect(0, 0, target.width, target.height);
+      }),
+    };
+
+    const materialized = materializeRestoredColorCycleSurface(layer, brush);
+    const pixel = canvas.getContext('2d')?.getImageData(0, 0, 1, 1).data;
+
+    expect(materialized).toBe(false);
+    expect(pixel?.[0]).toBe(0);
+    expect(pixel?.[3]).toBe(0);
+    expect(layer.colorCycleData?.hasContent).toBeUndefined();
+  });
+
   it('publishes the live runtime surface through the shared ownership helper', () => {
     const storedCanvas = createCanvas(2, 2);
     const liveCanvas = createCanvas(3, 3);

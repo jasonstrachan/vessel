@@ -169,8 +169,7 @@ class BackgroundStorageService {
       throw new Error('IndexedDB not available');
     }
 
-    const serializableLayers = this.prepareLayersForArchivePersistence(layers);
-    const serializedProject = await serializeProject(project, serializableLayers);
+    const serializedProject = await serializeProject(project, layers);
 
     const autosaveRecord: AutosaveArchiveRecord = {
       projectId: project.id,

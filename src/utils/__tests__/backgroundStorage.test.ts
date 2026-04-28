@@ -131,6 +131,33 @@ describe('BackgroundStorageService', () => {
     }));
   });
 
+  it('passes live color-cycle runtime state to the archive serializer before IndexedDB storage', async () => {
+    const dbStub = createDbStub();
+    const serializedProject = new Uint8Array([5, 6, 7, 8]);
+    const canvas = document.createElement('canvas');
+    const brush = { getFullState: jest.fn() };
+    const colorCycleLayer: Layer = {
+      ...baseLayer,
+      id: 'layer-cc-autosave-live',
+      layerType: 'color-cycle',
+      colorCycleData: {
+        canvas,
+        colorCycleBrush: brush as unknown as NonNullable<Layer['colorCycleData']>['colorCycleBrush'],
+        canvasImageData: new ImageData(2, 2),
+        canvasWidth: 2,
+        canvasHeight: 2,
+        mode: 'brush',
+      },
+    };
+    (serializeProject as jest.Mock).mockResolvedValue(serializedProject);
+    (backgroundStorageService as unknown as { ensureDb: () => Promise<unknown> }).ensureDb =
+      jest.fn().mockResolvedValue(dbStub.db);
+
+    await backgroundStorageService.saveProjectInBackground(baseProject, [colorCycleLayer]);
+
+    expect(serializeProject).toHaveBeenCalledWith(baseProject, [colorCycleLayer]);
+  });
+
   it('restores archive-backed autosaves through deserializeProject', async () => {
     const serializedProject = new Uint8Array([7, 8, 9]);
     const restoredProject = {

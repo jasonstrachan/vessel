@@ -132,6 +132,8 @@ const rehydrateColorCycleRuntime = async (
       continue;
     }
 
+    let restoredCanonicalSurface = false;
+
     const hasValidBrush = manager.validateColorCycleBrush(layer.id);
     if (!hasValidBrush) {
       const canvasWidth = ensurePositiveDimension(
@@ -206,6 +208,7 @@ const rehydrateColorCycleRuntime = async (
           } else {
             brush.render?.(false);
           }
+          restoredCanonicalSurface = true;
           latestStore.updateLayer(layer.id, {
             colorCycleData: {
               ...latestColorState,
@@ -220,7 +223,7 @@ const rehydrateColorCycleRuntime = async (
       }
     }
 
-    if (colorState.canvas && colorState.canvasImageData) {
+    if (!restoredCanonicalSurface && colorState.canvas && colorState.canvasImageData) {
       try {
         const ctx = colorState.canvas.getContext('2d', {
           willReadFrequently: true,

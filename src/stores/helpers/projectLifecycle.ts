@@ -56,6 +56,19 @@ type CustomBrushSnapshot = {
 
 type SyncPercentOffsetsFn = (layers: Layer[], project: Project | null) => Layer[];
 
+const imageDataHasVisiblePixels = (imageData: ImageData | null | undefined): boolean => {
+  if (!imageData) {
+    return false;
+  }
+  const data = imageData.data;
+  for (let index = 3; index < data.length; index += 4) {
+    if (data[index] !== 0) {
+      return true;
+    }
+  }
+  return false;
+};
+
 export interface ProjectLifecycleOptions {
   set: StoreSet;
   get: StoreGet;
@@ -395,11 +408,9 @@ export const createProjectLifecycle = ({
             return layer;
           }
           const colorCycleData = layer.colorCycleData;
-          let canvasImageData =
-            colorCycleData.canvasImageData ??
-            captureCanvasImageData(colorCycleData.canvas ?? null);
+          let canvasImageData = captureCanvasImageData(colorCycleData.canvas ?? null);
 
-          if (!canvasImageData) {
+          if (!imageDataHasVisiblePixels(canvasImageData)) {
             const brush = freshState.getLayerColorCycleBrush(layer.id) as
               | { renderDirectToCanvas?: (canvas: HTMLCanvasElement, layerId: string) => void }
               | null
@@ -422,11 +433,18 @@ export const createProjectLifecycle = ({
               tempCanvas.height = Math.max(1, height);
               try {
                 brush.renderDirectToCanvas(tempCanvas, layer.id);
-                canvasImageData = captureCanvasImageData(tempCanvas) ?? undefined;
+                const renderedImageData = captureCanvasImageData(tempCanvas) ?? undefined;
+                if (imageDataHasVisiblePixels(renderedImageData)) {
+                  canvasImageData = renderedImageData;
+                }
               } catch {
                 // best effort; keep existing state
               }
             }
+          }
+
+          if (!imageDataHasVisiblePixels(canvasImageData)) {
+            canvasImageData = colorCycleData.canvasImageData;
           }
 
           if (!canvasImageData) {

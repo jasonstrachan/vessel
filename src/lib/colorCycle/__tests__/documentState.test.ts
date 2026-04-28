@@ -131,6 +131,43 @@ describe('normalizeColorCycleLayerDocumentState', () => {
     expect(result.state.sources.topLevelBuffers).toBe(true);
   });
 
+  it('prefers current layer binding buffers over stale brushState binding buffers', () => {
+    const currentGradientIds = makeBuffer(4, 4);
+    const currentGradientDefIds = makeBuffer(8, 5);
+    const currentPhase = makeBuffer(4, 6);
+    const layer = makeColorCycleLayer({
+      colorCycleData: {
+        ...makeColorCycleLayer().colorCycleData,
+        gradientIdBuffer: currentGradientIds,
+        gradientDefIdBuffer: currentGradientDefIds,
+        phaseBuffer: currentPhase,
+        brushState: {
+          layers: [{
+            layerId: 'cc-layer',
+            strokeData: {
+              hasContent: true,
+              paintBuffer: makeBuffer(4, 1),
+              gradientIdBuffer: makeBuffer(4, 2),
+              gradientDefIdBuffer: makeBuffer(8, 3),
+              phaseBuffer: makeBuffer(4, 9),
+            },
+          }],
+        },
+      },
+    });
+
+    const result = normalizeColorCycleLayerDocumentState(layer);
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+    expect(Array.from(new Uint8Array(result.state.gradientIdBuffer ?? new ArrayBuffer(0)))).toEqual([4, 4, 4, 4]);
+    expect(Array.from(new Uint8Array(result.state.gradientDefIdBuffer ?? new ArrayBuffer(0)))).toEqual([5, 5, 5, 5, 5, 5, 5, 5]);
+    expect(Array.from(new Uint8Array(result.state.phaseBuffer ?? new ArrayBuffer(0)))).toEqual([6, 6, 6, 6]);
+    expect(Array.from(new Uint8Array(result.state.paintBuffer ?? new ArrayBuffer(0)))).toEqual([1, 1, 1, 1]);
+  });
+
   it('rejects dimension mismatches with a clear reason', () => {
     const result = normalizeColorCycleLayerDocumentState(makeColorCycleLayer({
       colorCycleData: {
