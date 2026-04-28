@@ -43,6 +43,11 @@ export const getStoredDisplayFilterDefaults = (): DisplayFilterConfig[] =>
     readLocalSettings().canvas?.displayFilterDefaults ?? createDefaultDisplayFilters(),
   );
 
+export const getStoredTransparencyBackgroundMode = (): CanvasState['transparencyBackgroundMode'] => {
+  const storedMode = readLocalSettings().canvas?.transparencyBackgroundMode;
+  return storedMode === 'gray' || storedMode === 'checker' ? storedMode : 'checker';
+};
+
 const persistDisplayFilterDefaults = (filters: DisplayFilterConfig[]): void => {
   mergeLocalSettings({
     canvas: {
@@ -57,7 +62,7 @@ export const defaultCanvasState: CanvasState = {
   gridSize: 16,
   showRulers: false,
   showFPSMeter: true,
-  transparencyBackgroundMode: 'checker',
+  transparencyBackgroundMode: getStoredTransparencyBackgroundMode(),
   displayMode: 'pixelated',
   displayFilters: getStoredDisplayFilterDefaults(),
   canvasWidth: 2000,
@@ -137,6 +142,11 @@ export const createCanvasSlice: StateCreator<AppState, [], [], CanvasSlice> = (s
       if (state.canvas.transparencyBackgroundMode === mode) {
         return state;
       }
+      mergeLocalSettings({
+        canvas: {
+          transparencyBackgroundMode: mode,
+        },
+      });
       return {
         canvas: { ...state.canvas, transparencyBackgroundMode: mode },
       };

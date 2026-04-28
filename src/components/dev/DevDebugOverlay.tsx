@@ -139,7 +139,7 @@ export default function DevDebugOverlay() {
 
   return (
     <div
-      className="fixed right-[532px] top-2 bottom-2 z-[80] flex w-[380px] max-w-[calc(100vw-548px)] flex-col rounded border border-[#3b3b3b] bg-black/85 text-[11px] shadow-2xl"
+      className="fixed right-[532px] top-2 bottom-2 z-[40] flex w-[380px] max-w-[calc(100vw-548px)] flex-col rounded border border-[#3b3b3b] bg-black/85 text-[11px] shadow-2xl"
       style={{ pointerEvents: 'auto' }}
       aria-label="dev-debug-overlay"
     >

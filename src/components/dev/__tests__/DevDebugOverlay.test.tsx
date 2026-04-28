@@ -52,6 +52,16 @@ describe('DevDebugOverlay', () => {
     );
   });
 
+  it('renders below modal stacking level so Settings remains clickable', () => {
+    act(() => {
+      setDevDebugOverlayEnabled(true);
+    });
+
+    render(<DevDebugOverlay />);
+
+    expect(screen.getByLabelText('dev-debug-overlay')).toHaveClass('z-[40]');
+  });
+
   it('stays mounted while minimized and expands again', () => {
     act(() => {
       setDevDebugOverlayEnabled(true);

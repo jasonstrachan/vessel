@@ -1,7 +1,7 @@
 import { MIN_CANVAS_ZOOM, MAX_CANVAS_ZOOM } from '@/constants/canvas';
 import { readLocalSettings } from '@/utils/localSettings';
 import { useAppStore } from '@/stores/useAppStore';
-import { getStoredDisplayFilterDefaults } from '@/stores/slices/canvasSlice';
+import { getStoredDisplayFilterDefaults, getStoredTransparencyBackgroundMode } from '@/stores/slices/canvasSlice';
 
 describe('canvas slice invariants', () => {
   const reset = () => {
@@ -75,6 +75,27 @@ describe('canvas slice invariants', () => {
 
     useAppStore.getState().setTransparencyBackgroundMode('gray');
     expect(useAppStore.getState().canvas.transparencyBackgroundMode).toBe('gray');
+    expect(readLocalSettings().canvas?.transparencyBackgroundMode).toBe('gray');
+  });
+
+  it('restores locally remembered transparency background mode', () => {
+    localStorage.setItem('vessel-settings', JSON.stringify({
+      canvas: {
+        transparencyBackgroundMode: 'gray',
+      },
+    }));
+
+    expect(getStoredTransparencyBackgroundMode()).toBe('gray');
+  });
+
+  it('falls back to checker for invalid stored transparency background mode', () => {
+    localStorage.setItem('vessel-settings', JSON.stringify({
+      canvas: {
+        transparencyBackgroundMode: 'blue',
+      },
+    }));
+
+    expect(getStoredTransparencyBackgroundMode()).toBe('checker');
   });
 
   it('toggles display filters and sanitizes updates', () => {
