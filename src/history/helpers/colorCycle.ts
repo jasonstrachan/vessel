@@ -1,6 +1,7 @@
 import { getColorCycleBrushManager, getColorCycleStoreState } from '@/stores/colorCycleBrushManager';
 import { useAppStore } from '@/stores/useAppStore';
 import type { ColorCycleBrushImplementation } from '@/stores/colorCycleBrushManager';
+import { captureColorCyclePersistenceSnapshot } from '@/lib/colorCycle/persistence';
 
 type BaseColorCycleSerializedState = ReturnType<ColorCycleBrushImplementation['serialize']>;
 type BaseColorCycleSerializedLayer = NonNullable<BaseColorCycleSerializedState['layers']>[number];
@@ -80,8 +81,48 @@ const captureEraseMaskSnapshot = (layerId: string): ColorCycleEraseMaskSnapshot 
   }
 };
 
+const bufferLikeByteLength = (value: unknown): number => {
+  if (value instanceof ArrayBuffer) {
+    return value.byteLength;
+  }
+  if (ArrayBuffer.isView(value)) {
+    return value.byteLength;
+  }
+  return 0;
+};
+
+const isEmptyColorCycleHistoryState = (
+  state: BaseColorCycleSerializedState,
+  layerId: string,
+): boolean => {
+  const snapshot = state.layers?.find((entry) => entry.layerId === layerId);
+  if (!snapshot) {
+    return false;
+  }
+  const strokeData = snapshot.strokeData;
+  if (!strokeData) {
+    return true;
+  }
+  if (strokeData.hasContent === true) {
+    return false;
+  }
+  return [
+    strokeData.paintBuffer,
+    strokeData.gradientIdBuffer,
+    strokeData.gradientDefIdBuffer,
+    strokeData.speedBuffer,
+    strokeData.flowBuffer,
+    strokeData.phaseBuffer,
+  ].every((buffer) => bufferLikeByteLength(buffer) === 0);
+};
+
 export const captureColorCycleBrushState = (layerId: string): ColorCycleSerializedState =>
   (() => {
+    const state = useAppStore.getState();
+    const layer = state.layers.find((candidate) => candidate.id === layerId);
+    if (!layer || layer.layerType !== 'color-cycle') {
+      return null;
+    }
     const manager = getColorCycleBrushManager();
     const brush =
       getColorCycleStoreState()?.getLayerColorCycleBrush?.(layerId) ??
@@ -90,7 +131,22 @@ export const captureColorCycleBrushState = (layerId: string): ColorCycleSerializ
       return null;
     }
     try {
-      const snapshot = brush.serialize();
+      const rawSnapshot = brush.serialize();
+      const snapshotResult = captureColorCyclePersistenceSnapshot(layer, {
+        projectWidth: state.project?.width ?? layer.colorCycleData?.canvasWidth ?? layer.imageData?.width ?? 1,
+        projectHeight: state.project?.height ?? layer.colorCycleData?.canvasHeight ?? layer.imageData?.height ?? 1,
+        requirePaint: true,
+        mode: 'history',
+        runtimeBrush: {
+          serialize: () => rawSnapshot,
+        },
+      });
+      if (!snapshotResult.ok && !isEmptyColorCycleHistoryState(rawSnapshot, layerId)) {
+        return null;
+      }
+      const snapshot = snapshotResult.ok
+        ? snapshotResult.brushState as unknown as BaseColorCycleSerializedState
+        : rawSnapshot;
       return snapshot
         ? {
             ...snapshot,

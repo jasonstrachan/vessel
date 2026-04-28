@@ -39,8 +39,13 @@ import {
 } from '@/lib/colorCycle/materializeColorCycleLayer';
 import {
   normalizeColorCycleLayerDocumentState,
-  type ColorCycleLayerDocumentState,
 } from '@/lib/colorCycle/documentState';
+import {
+  captureColorCyclePersistenceSnapshot,
+  type ColorCyclePersistenceDocumentState,
+  type DeferredColorCycleArchiveRuntime,
+  type PersistedColorCycleBrushState as PersistenceBrushState,
+} from '@/lib/colorCycle/persistence';
 import { repairLegacyColorCycleLayer, type ColorCycleLegacyRepairResult } from '@/lib/colorCycle/legacyRepair';
 import {
   PROJECT_ARCHIVE_MANIFEST_VERSION,
@@ -437,6 +442,7 @@ export interface ProjectSaveSizeReport {
   binaryPayloadBytes: number;
   colorCycleDuplicationRiskLayers: string[];
   unresolvedColorCycleDefLayers: string[];
+  staticPreviewColorCycleLayers?: string[];
   sectionBreakdown: ProjectSizeReportSection[];
   largestLayers: ProjectSizeReportLayer[];
   recommendations: string[];
@@ -619,6 +625,10 @@ interface SerializedStrokeSnapshot {
 
 interface SerializedBrushLayerSnapshot {
   layerId: string;
+  canonicalPaint?: boolean;
+  schemaVersion?: number;
+  dimensions?: { width: number; height: number };
+  capturedAtStrokeCounter?: number;
   strokeData?: SerializedStrokeSnapshot;
   animator?: SerializedAnimatorSnapshot;
   gradientDefs?: Array<{ id: string; name?: string; currentSlot: number }>;
@@ -675,6 +685,9 @@ interface SerializedBrushLayerSnapshot {
 }
 
 interface PersistedColorCycleBrushState {
+  canonicalPaint?: boolean;
+  schemaVersion?: number;
+  dimensionsByLayerId?: Record<string, { width: number; height: number }>;
   cycleSpeed?: number;
   fps?: number;
   brushSize?: number;
@@ -1008,9 +1021,24 @@ const writeColorCycleRepairState = (
 
   const canonicalBrushState: CanonicalRepairBrushState = {
     ...(existingSavedBrushState ?? { layers: [] }),
+    canonicalPaint: true,
+    schemaVersion: 1,
+    dimensionsByLayerId: {
+      ...(existingSavedBrushState?.dimensionsByLayerId ?? {}),
+      [layer.id]: {
+        width: state.width,
+        height: state.height,
+      },
+    },
     layers: [{
       ...(existingSnapshot ?? { layerId: layer.id }),
       layerId: layer.id,
+      canonicalPaint: true,
+      schemaVersion: 1,
+      dimensions: {
+        width: state.width,
+        height: state.height,
+      },
       strokeData: {
         hasContent: state.hasContent,
         strokeCounter: existingSnapshot?.strokeData?.strokeCounter,
@@ -1032,6 +1060,9 @@ const writeColorCycleRepairState = (
 
   const serializedBrushState: PersistedColorCycleBrushState = {
     ...(existingSavedBrushState ?? { layers: [] }),
+    canonicalPaint: true,
+    schemaVersion: 1,
+    dimensionsByLayerId: canonicalBrushState.dimensionsByLayerId,
     layers: canonicalBrushState.layers.map((snapshot) => ({
       ...snapshot,
       strokeData: snapshot.strokeData
@@ -1182,6 +1213,9 @@ const applyLegacyColorCycleImportRepair = async (layers: Layer[]): Promise<Color
 const toFastPathMetadataBrushState = (
   brushState: PersistedColorCycleBrushState
 ): PersistedColorCycleBrushState => ({
+  canonicalPaint: brushState.canonicalPaint,
+  schemaVersion: brushState.schemaVersion,
+  dimensionsByLayerId: brushState.dimensionsByLayerId,
   cycleSpeed: brushState.cycleSpeed,
   fps: brushState.fps,
   brushSize: brushState.brushSize,
@@ -1200,6 +1234,10 @@ const toFastPathMetadataBrushState = (
   pxlEdgeEnabled: brushState.pxlEdgeEnabled,
   layers: brushState.layers.map((layer) => ({
     layerId: layer.layerId,
+    canonicalPaint: layer.canonicalPaint,
+    schemaVersion: layer.schemaVersion,
+    dimensions: layer.dimensions,
+    capturedAtStrokeCounter: layer.capturedAtStrokeCounter,
     strokeData: layer.strokeData
       ? {
           hasContent: layer.strokeData.hasContent,
@@ -1942,38 +1980,16 @@ const buildColorCycleStateSource = (
     : undefined,
 });
 
-const captureRuntimeColorCycleBrushStateForSave = (
-  brush: unknown,
-  layerId: string,
-): PersistedColorCycleBrushState | undefined => {
-  if (!brush || typeof brush !== 'object') {
-    return undefined;
-  }
-  const candidateBrush = brush as {
-    getFullState?: () => unknown;
-    serialize?: () => unknown;
-  };
-  let state: unknown;
-  try {
-    state = typeof candidateBrush.getFullState === 'function'
-      ? candidateBrush.getFullState()
-      : typeof candidateBrush.serialize === 'function'
-        ? candidateBrush.serialize()
-        : undefined;
-  } catch (error) {
-    debugWarn('raw-console', '[projectIO] Failed to capture live color cycle brush state during save:', error);
-    return undefined;
-  }
-  if (!state || typeof state !== 'object' || !Array.isArray((state as { layers?: unknown }).layers)) {
-    return undefined;
-  }
-  return serializeBrushStateForCanonicalSave(state as ColorCycleBrushState, layerId);
-};
-
 const applyColorCycleDocumentStateToSerializedSource = (
   source: SerializedColorCycleStateSource,
-  documentState: ColorCycleLayerDocumentState,
+  documentState: ColorCyclePersistenceDocumentState,
 ): SerializedColorCycleStateSource => {
+  const encodeBufferRef = (value: ArrayBuffer | string | undefined): string | undefined => {
+    if (!value) {
+      return undefined;
+    }
+    return typeof value === 'string' ? value : arrayBufferToBase64(value);
+  };
   const shouldWriteSnapshot = Boolean(
     source.currentLayerSnapshot ||
     documentState.paintBuffer ||
@@ -1985,20 +2001,15 @@ const applyColorCycleDocumentStateToSerializedSource = (
     ? {
         ...(source.currentLayerSnapshot ?? { layerId: documentState.layerId }),
         layerId: documentState.layerId,
+        canonicalPaint: true,
+        schemaVersion: 1,
+        dimensions: { width: documentState.width, height: documentState.height },
         strokeData: {
           ...(source.currentLayerSnapshot?.strokeData ?? {}),
-          paintBuffer: documentState.paintBuffer
-            ? arrayBufferToBase64(documentState.paintBuffer)
-            : source.currentLayerSnapshot?.strokeData?.paintBuffer,
-          speedBuffer: documentState.speedBuffer
-            ? arrayBufferToBase64(documentState.speedBuffer)
-            : source.currentLayerSnapshot?.strokeData?.speedBuffer,
-          flowBuffer: documentState.flowBuffer
-            ? arrayBufferToBase64(documentState.flowBuffer)
-            : source.currentLayerSnapshot?.strokeData?.flowBuffer,
-          phaseBuffer: documentState.phaseBuffer
-            ? arrayBufferToBase64(documentState.phaseBuffer)
-            : source.currentLayerSnapshot?.strokeData?.phaseBuffer,
+          paintBuffer: encodeBufferRef(documentState.paintBuffer) ?? source.currentLayerSnapshot?.strokeData?.paintBuffer,
+          speedBuffer: encodeBufferRef(documentState.speedBuffer) ?? source.currentLayerSnapshot?.strokeData?.speedBuffer,
+          flowBuffer: encodeBufferRef(documentState.flowBuffer) ?? source.currentLayerSnapshot?.strokeData?.flowBuffer,
+          phaseBuffer: encodeBufferRef(documentState.phaseBuffer) ?? source.currentLayerSnapshot?.strokeData?.phaseBuffer,
           hasContent: documentState.hasContent,
           strokeCounter: source.currentLayerSnapshot?.strokeData?.strokeCounter,
         },
@@ -2019,12 +2030,8 @@ const applyColorCycleDocumentStateToSerializedSource = (
     activeGradientId: documentState.activeGradientId ?? source.activeGradientId,
     layerBaseSpeedCps: documentState.layerBaseSpeedCps ?? source.layerBaseSpeedCps,
     flowMode: documentState.flowMode ?? source.flowMode,
-    gradientIdRef: documentState.gradientIdBuffer
-      ? arrayBufferToBase64(documentState.gradientIdBuffer)
-      : source.gradientIdRef,
-    gradientDefIdRef: documentState.gradientDefIdBuffer
-      ? arrayBufferToBase64(documentState.gradientDefIdBuffer)
-      : source.gradientDefIdRef,
+    gradientIdRef: encodeBufferRef(documentState.gradientIdBuffer) ?? source.gradientIdRef,
+    gradientDefIdRef: encodeBufferRef(documentState.gradientDefIdBuffer) ?? source.gradientDefIdRef,
     currentLayerSnapshot,
   };
 };
@@ -2651,23 +2658,33 @@ async function serializeLayer(layer: Layer): Promise<SerializedLayer> {
   if (layer.layerType === 'color-cycle') {
     const sourceColorCycleData = layer.colorCycleData || {};
     const lazyRuntime = getLazyColorCycleArchiveRuntime(layer);
-    const runtimeBrushState = captureRuntimeColorCycleBrushStateForSave(
-      sourceColorCycleData.colorCycleBrush,
-      layer.id,
-    );
+    const snapshot = captureColorCyclePersistenceSnapshot(layer, {
+      projectWidth: layer.imageData?.width ?? (layer.framebuffer as { width?: number } | null)?.width ?? 1,
+      projectHeight: layer.imageData?.height ?? (layer.framebuffer as { height?: number } | null)?.height ?? 1,
+      requirePaint: sourceColorCycleData.mode !== 'recolor',
+      mode: 'canonical-save',
+      runtimeBrush: sourceColorCycleData.colorCycleBrush as { getFullState?: () => unknown; serialize?: () => unknown } | undefined,
+      serializeRuntimeBrushState: (state, layerId) => (
+        serializeBrushStateForCanonicalSave(state as ColorCycleBrushState, layerId) as PersistenceBrushState | undefined
+      ),
+      deferredRuntime: lazyRuntime
+        ? {
+            brushState: lazyRuntime.brushState as DeferredColorCycleArchiveRuntime['brushState'],
+            gradientIdRef: lazyRuntime.gradientIdRef,
+            gradientDefIdRef: lazyRuntime.gradientDefIdRef,
+          }
+        : undefined,
+      diagnostics: (diagnostic) => {
+        debugLog('raw-console', '[projectIO] color cycle persistence snapshot diagnostic', {
+          layerId: layer.id,
+          ...diagnostic,
+        });
+      },
+    });
     const brushStateForSave =
-      runtimeBrushState ??
-      (sourceColorCycleData.brushState as PersistedColorCycleBrushState | undefined) ??
-      lazyRuntime?.brushState;
-    const documentStateLayer = runtimeBrushState
-      ? {
-          ...layer,
-          colorCycleData: {
-            ...sourceColorCycleData,
-            brushState: runtimeBrushState,
-          },
-        }
-      : layer;
+      snapshot.ok
+        ? snapshot.brushState as PersistedColorCycleBrushState
+        : (sourceColorCycleData.brushState as PersistedColorCycleBrushState | undefined) ?? lazyRuntime?.brushState;
     let colorCycleStateSource: SerializedColorCycleStateSource = {
       ...buildSerializedColorCycleCanonicalState(sourceColorCycleData),
       ...buildColorCycleStateSource(
@@ -2682,26 +2699,23 @@ async function serializeLayer(layer: Layer): Promise<SerializedLayer> {
         gradientDefIdRef: colorCycleStateSource.gradientDefIdRef ?? lazyRuntime.gradientDefIdRef,
       };
     }
-    const documentStateResult = normalizeColorCycleLayerDocumentState(documentStateLayer, {
-      fallbackWidth: layer.imageData?.width ?? (layer.framebuffer as { width?: number } | null)?.width,
-      fallbackHeight: layer.imageData?.height ?? (layer.framebuffer as { height?: number } | null)?.height,
-    });
-    if (documentStateResult.ok) {
+    if (snapshot.ok) {
       colorCycleStateSource = applyColorCycleDocumentStateToSerializedSource(
         colorCycleStateSource,
-        documentStateResult.state,
+        snapshot.documentState,
       );
     } else {
       debugWarn('raw-console', '[projectIO] Skipping canonical color cycle document state during save:', {
         layerId: layer.id,
-        reason: documentStateResult.reason,
+        reason: snapshot.reason,
+        damageKind: snapshot.damageKind,
       });
     }
     const canvasImageData = await resolveColorCycleCanvasImageDataForSave(layer);
     const eraseMaskImageData = sourceColorCycleData.eraseMaskImageData ?? captureCanvasImageData(sourceColorCycleData.eraseMask ?? null);
     const colorCycleData = {
       ...sourceColorCycleData,
-      brushState: runtimeBrushState ?? sourceColorCycleData.brushState,
+      brushState: snapshot.ok ? snapshot.brushState : sourceColorCycleData.brushState,
       canvasImageData: canvasImageData ?? sourceColorCycleData.canvasImageData,
       eraseMaskImageData: eraseMaskImageData ?? sourceColorCycleData.eraseMaskImageData
     };
@@ -2781,32 +2795,6 @@ async function serializeLayer(layer: Layer): Promise<SerializedLayer> {
       serializedColorCycle.recolorSettings = serializedRecolor;
     }
 
-    if (colorCycleData.colorCycleBrush) {
-      try {
-        const brush = colorCycleData.colorCycleBrush;
-        const fullState = brush.getFullState() as ColorCycleBrushState;
-        const serializedBrushState = serializeBrushStateForCanonicalSave(fullState, layer.id);
-        if (serializedBrushState) {
-          const currentLayerSnapshot = getSerializedBrushSnapshotForLayer(serializedBrushState, layer.id);
-          const currentLayerStrokeData = currentLayerSnapshot?.strokeData;
-          colorCycleStateSource = {
-            ...colorCycleStateSource,
-            ...buildColorCycleStateSource(serializedBrushState, layer.id),
-          };
-          if (currentLayerStrokeData?.gradientIdBuffer) {
-            colorCycleStateSource.gradientIdRef = currentLayerStrokeData.gradientIdBuffer;
-          }
-          if (serializedStrokeDataHasResolvableDefs(currentLayerStrokeData, colorCycleStateSource.gradientDefStore)) {
-            if (currentLayerStrokeData?.gradientDefIdBuffer) {
-              colorCycleStateSource.gradientDefIdRef = currentLayerStrokeData.gradientDefIdBuffer;
-            }
-          }
-        }
-      } catch (error) {
-        debugWarn('raw-console', '[projectIO] Failed to serialize color cycle brush state:', error);
-      }
-    }
-
     // Avoid duplicating the same raster payload in both layer.imageDataUrl and
     // colorCycleData snapshots when we already have restorable CC pixel state.
     const hasColorCyclePixelSnapshot = Boolean(serializedColorCycle.canvasImageData);
@@ -2859,6 +2847,8 @@ function serializeBrushStateForCanonicalSave(
   const sourceLayer = (state.layers ?? []).find((layer) => layer.layerId === layerId);
   if (!sourceLayer) {
     return {
+      canonicalPaint: true,
+      schemaVersion: 1,
       ditherEnabled: state.ditherEnabled,
       ditherStrength: state.ditherStrength,
       ditherPixelSize: state.ditherPixelSize,
@@ -2881,6 +2871,8 @@ function serializeBrushStateForCanonicalSave(
   };
 
   return {
+    canonicalPaint: true,
+    schemaVersion: 1,
     ditherEnabled: state.ditherEnabled,
     ditherStrength: state.ditherStrength,
     ditherPixelSize: state.ditherPixelSize,
@@ -2896,6 +2888,8 @@ function serializeBrushStateForCanonicalSave(
     pxlEdgeEnabled: state.pxlEdgeEnabled,
     layers: [{
       layerId: sourceLayer.layerId,
+      canonicalPaint: true,
+      schemaVersion: 1,
       paintSlot: layerWithPaletteMeta.paintSlot,
       activeGradientId: sourceLayer.activeGradientId,
       strokeData: sourceLayer.strokeData
@@ -3431,6 +3425,10 @@ const buildProjectSizeRecommendations = (report: ProjectSaveSizeReport): string[
     recommendations.push('Color-cycle duplication risk detected. Re-save with the current format or run repair before archival sharing.');
   }
 
+  if ((report.staticPreviewColorCycleLayers ?? []).length > 0) {
+    recommendations.push('Some color-cycle layers are static-preview only. Keep the original source archive if animated playback matters.');
+  }
+
   if (report.unresolvedColorCycleDefLayers.length > 0) {
     recommendations.push('Color-cycle layers reference unresolved gradient defs. Repair these layers before relying on archival playback.');
   }
@@ -3456,6 +3454,10 @@ const buildProjectHealthWarnings = (report: ProjectSaveSizeReport): string[] => 
 
   if (report.colorCycleDuplicationRiskLayers.length > 0) {
     warnings.push('This project contains legacy duplicated color-cycle state. Re-save or repair it before archival sharing.');
+  }
+
+  if ((report.staticPreviewColorCycleLayers ?? []).length > 0) {
+    warnings.push('This project contains color-cycle layers with missing canonical paint. They will reopen as static previews, not healthy animated layers.');
   }
 
   if (report.binaryPayloadBytes >= 32 * MB) {
@@ -3535,6 +3537,9 @@ const buildProjectSaveSizeReport = (
   const unresolvedColorCycleDefLayers = vesselProject.project.layers
     .filter((layer) => layerHasUnresolvedColorCycleDefs(layer))
     .map((layer) => layer.id);
+  const staticPreviewColorCycleLayers = vesselProject.project.layers
+    .filter((layer) => layer.colorCycleData?.repairStatus?.ok === false)
+    .map((layer) => layer.id);
 
   const layersBytes = layerRows.reduce((total, row) => total + row.bytes, 0);
   const customBrushesBytes = vesselProject.project.customBrushes.reduce((total, brush) => total + byteCountForJson(brush), 0);
@@ -3552,6 +3557,7 @@ const buildProjectSaveSizeReport = (
     binaryPayloadBytes,
     colorCycleDuplicationRiskLayers,
     unresolvedColorCycleDefLayers,
+    staticPreviewColorCycleLayers,
     sectionBreakdown: [
       { name: 'projectEnvelope', bytes: projectEnvelopeBytes },
       { name: 'layers', bytes: layersBytes },
@@ -4428,6 +4434,15 @@ const hydrateSerializedLayerArchiveRefs = async (
             layers: [],
           }
     ) as PersistedColorCycleBrushState;
+    metadataBrushState.canonicalPaint = true;
+    metadataBrushState.schemaVersion = 1;
+    metadataBrushState.dimensionsByLayerId = {
+      ...(metadataBrushState.dimensionsByLayerId ?? {}),
+      [layer.id]: {
+        width: layer.state.dimensions.width,
+        height: layer.state.dimensions.height,
+      },
+    };
     if (!deferRuntimeBuffers && !colorCycleData.gradientIdBuffer) {
       colorCycleData.gradientIdBuffer = await hydrateArchiveBinaryRef(layer.state.gradientIdRef, zip, binaryManifest, cache);
     }
@@ -4436,6 +4451,12 @@ const hydrateSerializedLayerArchiveRefs = async (
     }
     const currentLayerSnapshot = getSerializedBrushSnapshotForLayer(metadataBrushState, layer.id) ?? {
       layerId: layer.id,
+    };
+    currentLayerSnapshot.canonicalPaint = true;
+    currentLayerSnapshot.schemaVersion = 1;
+    currentLayerSnapshot.dimensions = {
+      width: layer.state.dimensions.width,
+      height: layer.state.dimensions.height,
     };
     const currentLayerStrokeData = currentLayerSnapshot.strokeData ?? {};
     currentLayerStrokeData.paintBuffer = deferRuntimeBuffers
