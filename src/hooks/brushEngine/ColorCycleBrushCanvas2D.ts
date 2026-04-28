@@ -2579,19 +2579,7 @@ export class ColorCycleBrushCanvas2D {
       this.applyDefBindingsForLayer(layerId, animator, strokeData, defs, { forceDefDirty: true });
     } catch {}
 
-    strokeData.snapshot = {
-      ...(strokeData.snapshot ?? {
-        paintBuffer: strokeData.buffers.paint.slice().buffer,
-        gradientIdBuffer: strokeData.buffers.gid.slice().buffer,
-        speedBuffer: strokeData.buffers.spd.slice().buffer,
-        flowBuffer: strokeData.buffers.flow.slice().buffer,
-        phaseBuffer: strokeData.buffers.phase.slice().buffer,
-        hasContent: strokeData.hasContent,
-        strokeCounter: strokeData.strokeCounter,
-      }),
-      gradientIdBuffer: gidBuffer.slice().buffer,
-      gradientDefIdBuffer: defBuffer.slice().buffer,
-    };
+    this.snapshotFromBuffers(strokeData);
   }
 
   private syncCommittedBuffersToLayerStore(layerId: string): void {
@@ -5531,10 +5519,7 @@ export class ColorCycleBrushCanvas2D {
       } catch {}
       ctx.imageSmoothingEnabled = false;
 
-      const shouldPreserveExternalBase = Boolean(strokeData?.externalBase.hasExternalBase);
-      if (!shouldPreserveExternalBase) {
-        ctx.clearRect(0, 0, targetCanvas.width, targetCanvas.height);
-      }
+      ctx.clearRect(0, 0, targetCanvas.width, targetCanvas.height);
       this.renderAnimatorToContext(animator, ctx, targetCanvas);
       try {
         const maskManager = getMaskManager();
@@ -5728,10 +5713,7 @@ export class ColorCycleBrushCanvas2D {
       try { ctx.setTransform(1, 0, 0, 1, 0, 0); } catch {}
       ctx.imageSmoothingEnabled = false;
 
-      const shouldPreserveExternalBase = Boolean(strokeData?.externalBase.hasExternalBase);
-      if (!shouldPreserveExternalBase) {
-        ctx.clearRect(0, 0, targetCanvas.width, targetCanvas.height);
-      }
+      ctx.clearRect(0, 0, targetCanvas.width, targetCanvas.height);
       this.renderAnimatorToContext(animator, ctx, targetCanvas);
 
       try {
@@ -6753,7 +6735,7 @@ export class ColorCycleBrushCanvas2D {
         this.snapshotFromBuffers(strokeData);
       }
       const snapshot = strokeData?.snapshot;
-      const hasContent = snapshot?.hasContent ?? strokeData?.hasContent ?? false;
+      const hasContent = strokeData?.hasContent ?? snapshot?.hasContent ?? false;
 
       let paintBuffer: ArrayBuffer = new ArrayBuffer(0);
       let gradientIdBuffer: ArrayBuffer | undefined = undefined;
@@ -6770,35 +6752,35 @@ export class ColorCycleBrushCanvas2D {
       const hasBuffers =
         (snapshot?.paintBuffer?.byteLength ?? 0) > 0 || (paintU8?.length ?? 0) > 0;
       if (hasBuffers) {
-        if (snapshot?.paintBuffer && snapshot.paintBuffer.byteLength > 0) {
-          paintBuffer = snapshot.paintBuffer.slice(0);
-        } else if (paintU8 && paintU8.length > 0) {
+        if (paintU8 && paintU8.length > 0) {
           paintBuffer = paintU8.slice().buffer;
+        } else if (snapshot?.paintBuffer && snapshot.paintBuffer.byteLength > 0) {
+          paintBuffer = snapshot.paintBuffer.slice(0);
         }
-        if (snapshot?.gradientIdBuffer && snapshot.gradientIdBuffer.byteLength > 0) {
-          gradientIdBuffer = snapshot.gradientIdBuffer.slice(0);
-        } else if (gidU8 && gidU8.length > 0) {
+        if (gidU8 && gidU8.length > 0) {
           gradientIdBuffer = gidU8.slice().buffer;
+        } else if (snapshot?.gradientIdBuffer && snapshot.gradientIdBuffer.byteLength > 0) {
+          gradientIdBuffer = snapshot.gradientIdBuffer.slice(0);
         }
-        if (snapshot?.gradientDefIdBuffer && snapshot.gradientDefIdBuffer.byteLength > 0) {
-          gradientDefIdBuffer = snapshot.gradientDefIdBuffer.slice(0);
-        } else if (defU16 && defU16.length > 0) {
+        if (defU16 && defU16.length > 0) {
           gradientDefIdBuffer = defU16.slice().buffer;
+        } else if (snapshot?.gradientDefIdBuffer && snapshot.gradientDefIdBuffer.byteLength > 0) {
+          gradientDefIdBuffer = snapshot.gradientDefIdBuffer.slice(0);
         }
-        if (snapshot?.speedBuffer && snapshot.speedBuffer.byteLength > 0) {
-          speedBuffer = snapshot.speedBuffer.slice(0);
-        } else if (spdU8 && spdU8.length > 0) {
+        if (spdU8 && spdU8.length > 0) {
           speedBuffer = spdU8.slice().buffer;
+        } else if (snapshot?.speedBuffer && snapshot.speedBuffer.byteLength > 0) {
+          speedBuffer = snapshot.speedBuffer.slice(0);
         }
-        if (snapshot?.flowBuffer && snapshot.flowBuffer.byteLength > 0) {
-          flowBuffer = snapshot.flowBuffer.slice(0);
-        } else if (flowU8 && flowU8.length > 0) {
+        if (flowU8 && flowU8.length > 0) {
           flowBuffer = flowU8.slice().buffer;
+        } else if (snapshot?.flowBuffer && snapshot.flowBuffer.byteLength > 0) {
+          flowBuffer = snapshot.flowBuffer.slice(0);
         }
-        if (snapshot?.phaseBuffer && snapshot.phaseBuffer.byteLength > 0) {
-          phaseBuffer = snapshot.phaseBuffer.slice(0);
-        } else if (phaseU8 && phaseU8.length > 0) {
+        if (phaseU8 && phaseU8.length > 0) {
           phaseBuffer = phaseU8.slice().buffer;
+        } else if (snapshot?.phaseBuffer && snapshot.phaseBuffer.byteLength > 0) {
+          phaseBuffer = snapshot.phaseBuffer.slice(0);
         }
       }
       const strokeCounter = strokeData?.strokeCounter ?? snapshot?.strokeCounter ?? this.strokeCounter;
@@ -7044,35 +7026,35 @@ export class ColorCycleBrushCanvas2D {
     const strokeData = this.layerStrokes.get(layerId);
     if (!strokeData) return null;
     const snapshot = strokeData.snapshot;
-    const paintBuffer = snapshot?.paintBuffer && snapshot.paintBuffer.byteLength > 0
-      ? snapshot.paintBuffer.slice(0)
-      : strokeData.buffers.paint.length > 0
+    const paintBuffer = strokeData.buffers.paint.length > 0
         ? strokeData.buffers.paint.slice().buffer
+      : snapshot?.paintBuffer && snapshot.paintBuffer.byteLength > 0
+        ? snapshot.paintBuffer.slice(0)
         : new ArrayBuffer(0);
-    const gradientIdBuffer = snapshot?.gradientIdBuffer && snapshot.gradientIdBuffer.byteLength > 0
-      ? snapshot.gradientIdBuffer.slice(0)
-      : strokeData.buffers.gid.length > 0
+    const gradientIdBuffer = strokeData.buffers.gid.length > 0
         ? strokeData.buffers.gid.slice().buffer
+      : snapshot?.gradientIdBuffer && snapshot.gradientIdBuffer.byteLength > 0
+        ? snapshot.gradientIdBuffer.slice(0)
         : undefined;
-    const gradientDefIdBuffer = snapshot?.gradientDefIdBuffer && snapshot.gradientDefIdBuffer.byteLength > 0
-      ? snapshot.gradientDefIdBuffer.slice(0)
-      : strokeData.buffers.def.length > 0
+    const gradientDefIdBuffer = strokeData.buffers.def.length > 0
         ? strokeData.buffers.def.slice().buffer
+      : snapshot?.gradientDefIdBuffer && snapshot.gradientDefIdBuffer.byteLength > 0
+        ? snapshot.gradientDefIdBuffer.slice(0)
         : undefined;
-    const speedBuffer = snapshot?.speedBuffer && snapshot.speedBuffer.byteLength > 0
-      ? snapshot.speedBuffer.slice(0)
-      : strokeData.buffers.spd.length > 0
+    const speedBuffer = strokeData.buffers.spd.length > 0
         ? strokeData.buffers.spd.slice().buffer
+      : snapshot?.speedBuffer && snapshot.speedBuffer.byteLength > 0
+        ? snapshot.speedBuffer.slice(0)
         : undefined;
-    const flowBuffer = snapshot?.flowBuffer && snapshot.flowBuffer.byteLength > 0
-      ? snapshot.flowBuffer.slice(0)
-      : strokeData.buffers.flow.length > 0
+    const flowBuffer = strokeData.buffers.flow.length > 0
         ? strokeData.buffers.flow.slice().buffer
+      : snapshot?.flowBuffer && snapshot.flowBuffer.byteLength > 0
+        ? snapshot.flowBuffer.slice(0)
         : undefined;
-    const phaseBuffer = snapshot?.phaseBuffer && snapshot.phaseBuffer.byteLength > 0
-      ? snapshot.phaseBuffer.slice(0)
-      : strokeData.buffers.phase.length > 0
+    const phaseBuffer = strokeData.buffers.phase.length > 0
         ? strokeData.buffers.phase.slice().buffer
+      : snapshot?.phaseBuffer && snapshot.phaseBuffer.byteLength > 0
+        ? snapshot.phaseBuffer.slice(0)
         : undefined;
     return {
       paintBuffer,
@@ -7081,7 +7063,7 @@ export class ColorCycleBrushCanvas2D {
       speedBuffer,
       flowBuffer,
       phaseBuffer,
-      hasContent: snapshot?.hasContent ?? !!strokeData.hasContent,
+      hasContent: !!strokeData.hasContent,
       strokeCounter: strokeData.strokeCounter ?? snapshot?.strokeCounter ?? 0
     };
   }
