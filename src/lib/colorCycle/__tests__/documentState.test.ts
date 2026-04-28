@@ -131,7 +131,7 @@ describe('normalizeColorCycleLayerDocumentState', () => {
     expect(result.state.sources.topLevelBuffers).toBe(true);
   });
 
-  it('prefers current layer binding buffers over stale brushState binding buffers', () => {
+  it('prefers current layer binding buffers without overriding fresher stroke phase', () => {
     const currentGradientIds = makeBuffer(4, 4);
     const currentGradientDefIds = makeBuffer(8, 5);
     const currentPhase = makeBuffer(4, 6);
@@ -164,7 +164,7 @@ describe('normalizeColorCycleLayerDocumentState', () => {
     }
     expect(Array.from(new Uint8Array(result.state.gradientIdBuffer ?? new ArrayBuffer(0)))).toEqual([4, 4, 4, 4]);
     expect(Array.from(new Uint8Array(result.state.gradientDefIdBuffer ?? new ArrayBuffer(0)))).toEqual([5, 5, 5, 5, 5, 5, 5, 5]);
-    expect(Array.from(new Uint8Array(result.state.phaseBuffer ?? new ArrayBuffer(0)))).toEqual([6, 6, 6, 6]);
+    expect(Array.from(new Uint8Array(result.state.phaseBuffer ?? new ArrayBuffer(0)))).toEqual([9, 9, 9, 9]);
     expect(Array.from(new Uint8Array(result.state.paintBuffer ?? new ArrayBuffer(0)))).toEqual([1, 1, 1, 1]);
   });
 
