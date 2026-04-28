@@ -7,7 +7,6 @@ import { getAppStoreState } from '@/stores/appStoreAccess';
 import { debugWarn, logError } from '@/utils/debug';
 import { useCallback, useMemo, useRef, useEffect } from 'react';
 import {
-  selectColorCycleDesiredPlaying,
   selectEffectiveColorCyclePlaying,
   selectPlaybackSpeedScale,
   useAppStore
@@ -1494,7 +1493,6 @@ export const useBrushEngineSimplified = () => {
       initializeColorCycleBrush,
       activeLayerId,
       getLayers: () => getAppStoreState().layers,
-      isColorCycleDesiredPlaying: () => selectColorCycleDesiredPlaying(getAppStoreState()),
       bindBrushToCanvas,
       firstStampImmediateRef,
     });

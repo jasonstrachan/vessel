@@ -113,6 +113,28 @@ const canContinueShapeDrawing = (
   phaseRef: React.MutableRefObject<ShapeInteractionPhase>
 ): boolean => phaseRef.current === 'drawing';
 
+const resolveCapturedShapeFinalizeLayer = (
+  state: Pick<AppState, 'activeLayerId' | 'layers'>,
+  capturedLayerId: string | null
+): Layer | null => {
+  const layerId = capturedLayerId ?? state.activeLayerId ?? null;
+  if (!layerId) {
+    return null;
+  }
+  return state.layers.find((layer) => layer.id === layerId) ?? null;
+};
+
+const shouldSkipRasterFallbackAfterColorCycleFinalize = (
+  state: Pick<AppState, 'layers'>,
+  handledColorCycleShape: boolean,
+  finalizedTargetLayerId: string | null
+): boolean => {
+  if (!handledColorCycleShape || !finalizedTargetLayerId) {
+    return false;
+  }
+  return state.layers.find((layer) => layer.id === finalizedTargetLayerId)?.layerType === 'color-cycle';
+};
+
 const buildFallbackMarkSession = (
   layer: Layer,
   state: AppState,
@@ -980,9 +1002,12 @@ export const finalizeShapeDrawing = async (
     });
   }
 
+  const finalizeTargetLayerId = deps.storeRef.current.activeLayerId ?? null;
+
   void args.refs.finalizeQueueRef.current.enqueue(async () => {
     let finalizeTriggered = false;
     let handledColorCycleShape = false;
+    let handledColorCycleTargetLayerId: string | null = null;
 
     let shapeLayerId: string | null = null;
     let shapeBeforeColorState: ColorCycleSerializedState | null = null;
@@ -1031,7 +1056,7 @@ export const finalizeShapeDrawing = async (
         const drawCtx = deps.drawingCtxRef.current;
         if (drawCtx && deps.brushEngine && args.refs.shapePointsRef.current.length >= 3) {
           const beforeState = deps.storeRef.current;
-          const beforeLayer = beforeState.layers.find(l => l.id === beforeState.activeLayerId);
+          const beforeLayer = resolveCapturedShapeFinalizeLayer(beforeState, finalizeTargetLayerId);
           shapeLayerId = beforeLayer?.id ?? null;
           if (!shapeLayerId || !beforeLayer?.colorCycleData?.canvas) {
             deps.drawingCanvasHasContent.current = true;
@@ -1063,9 +1088,9 @@ export const finalizeShapeDrawing = async (
           deps.drawingCanvasHasContent.current = false;
 
           const currentState = deps.storeRef.current;
-          const activeLayer = currentState.layers.find(l => l.id === currentState.activeLayerId);
-          const isColorCycleLayer = activeLayer?.layerType === 'color-cycle';
-          const activeLayerCanvas = activeLayer?.colorCycleData?.canvas ?? null;
+          const targetLayer = resolveCapturedShapeFinalizeLayer(currentState, shapeLayerIdString);
+          const isColorCycleLayer = targetLayer?.layerType === 'color-cycle';
+          const targetLayerCanvas = targetLayer?.colorCycleData?.canvas ?? null;
           const activeSettings = beforeState.tools.brushSettings;
 
           const shapePointsSnapshot = [...args.refs.shapePointsRef.current];
@@ -1087,15 +1112,21 @@ export const finalizeShapeDrawing = async (
 
           deps.drawingCanvasHasContent.current = false;
 
-          const activeLayerId = deps.storeRef.current.activeLayerId;
-          if (isColorCycleLayer && activeLayerCanvas && activeLayerId) {
+          const activeLayerId = shapeLayerIdString;
+          if (isColorCycleLayer && targetLayerCanvas && activeLayerId) {
+            if (process.env.NODE_ENV !== 'production' && currentState.activeLayerId !== activeLayerId) {
+              debugWarn('raw-console', '[CC] Shape finalize target differs from current active layer; using captured target', {
+                targetLayerId: activeLayerId,
+                currentActiveLayerId: currentState.activeLayerId,
+              });
+            }
             const ccBrush = (
               typeof currentState.getLayerColorCycleBrush === 'function'
                 ? currentState.getLayerColorCycleBrush(activeLayerId)
                 : null
             ) ?? deps.getColorCycleBrushManager().getBrush(activeLayerId) ?? null;
-            if (activeLayer) {
-              deps.ensureActiveColorCycleGradientSlot(currentState, activeLayer, ccBrush);
+            if (targetLayer) {
+              deps.ensureActiveColorCycleGradientSlot(currentState, targetLayer, ccBrush);
             }
             let ditherPixelSize: number | undefined;
             if (ccBrush && typeof (ccBrush as { setDitherPixelSize?: (value: number) => void }).setDitherPixelSize === 'function') {
@@ -1111,24 +1142,24 @@ export const finalizeShapeDrawing = async (
             const keepOverlayAfter = shouldKeepColorCycleShapeOverlayAfterFinalize();
             const currentFinalizeState = deps.storeRef.current;
             const sampledFinalizeSource = isSampledCcShapeDrag(currentFinalizeState);
-            if (sampledFinalizeSource && activeLayer) {
+            if (sampledFinalizeSource && targetLayer) {
               deps.ccLog('shape: sampled session begin', {
-                layerId: activeLayer.id,
+                layerId: targetLayer.id,
                 pointCount: shapePointsSnapshot.length,
               });
               beginFinalSampledShapeSession({
-                layer: activeLayer,
+                layer: targetLayer,
                 state: currentFinalizeState,
                 shapePoints: shapePointsSnapshot,
                 deps,
               });
               deps.ccLog('shape: sampled session end', {
-                layerId: activeLayer.id,
+                layerId: targetLayer.id,
               });
             }
             const session = finalizeMarkGradientSession(shapeLayerIdString)
-              ?? (activeLayer
-                ? buildFallbackMarkSession(activeLayer, deps.storeRef.current, 'linear')
+              ?? (targetLayer
+                ? buildFallbackMarkSession(targetLayer, deps.storeRef.current, 'linear')
                 : null);
             if (!session) {
               debugWarn('raw-console', '[CC] Missing mark session before shape finalize (linear selection)', {
@@ -1142,7 +1173,7 @@ export const finalizeShapeDrawing = async (
               shapePoints: shapePointsSnapshot,
               direction: directionSnapshot,
               activeLayerId,
-              activeLayerCanvas,
+              activeLayerCanvas: targetLayerCanvas,
               overlayCanvas: deps.drawingCanvasRef.current,
               overlayCtx: deps.drawingCtxRef.current,
               fallbackBlendMode: (activeSettings.blendMode || 'source-over') as GlobalCompositeOperation,
@@ -1184,6 +1215,7 @@ export const finalizeShapeDrawing = async (
 
         args.refs.ccShapePreviewPauseStartedRef.current = false;
         handledColorCycleShape = true;
+        handledColorCycleTargetLayerId = shapeLayerId;
 
         deps.resetCcGradientSample();
         await deps.resumeColorCycleAfterInteraction();
@@ -1214,7 +1246,7 @@ export const finalizeShapeDrawing = async (
           drawCtx.globalCompositeOperation = 'source-over';
 
           const beforeState = deps.storeRef.current;
-          const beforeLayer = beforeState.layers.find(l => l.id === beforeState.activeLayerId);
+          const beforeLayer = resolveCapturedShapeFinalizeLayer(beforeState, finalizeTargetLayerId);
           const shapeLayerIdLocal = beforeLayer?.id ?? null;
           if (!shapeLayerIdLocal) {
             deps.drawingCanvasHasContent.current = false;
@@ -1230,8 +1262,8 @@ export const finalizeShapeDrawing = async (
             : null;
 
           const currentState = deps.storeRef.current;
-          const activeLayer = currentState.layers.find(l => l.id === currentState.activeLayerId);
-          const isColorCycleLayer = activeLayer?.layerType === 'color-cycle';
+          const targetLayer = resolveCapturedShapeFinalizeLayer(currentState, shapeLayerIdString);
+          const isColorCycleLayer = targetLayer?.layerType === 'color-cycle';
 
           if (!isColorCycleLayer) {
             deps.finalizeRasterShapeFill({
@@ -1267,7 +1299,7 @@ export const finalizeShapeDrawing = async (
               );
               const shapePointsSnapshot = [...points];
               const currentFinalizeState = deps.storeRef.current;
-              const activeLayerCanvas = activeLayer?.colorCycleData?.canvas ?? null;
+              const targetLayerCanvas = targetLayer?.colorCycleData?.canvas ?? null;
               const overlayCtx = drawCtx;
               const overlayCanvas = deps.drawingCanvasRef.current;
               const fallbackBlendMode = (liveBrushSettings?.blendMode || 'source-over') as GlobalCompositeOperation;
@@ -1289,15 +1321,21 @@ export const finalizeShapeDrawing = async (
 
               deps.drawingCanvasHasContent.current = false;
 
-              const activeLayerId = deps.storeRef.current.activeLayerId;
-              if (activeLayerId && activeLayerCanvas) {
+              const activeLayerId = shapeLayerIdString;
+              if (activeLayerId && targetLayerCanvas) {
+                if (process.env.NODE_ENV !== 'production' && currentState.activeLayerId !== activeLayerId) {
+                  debugWarn('raw-console', '[CC] Shape finalize target differs from current active layer; using captured target', {
+                    targetLayerId: activeLayerId,
+                    currentActiveLayerId: currentState.activeLayerId,
+                  });
+                }
                 const ccBrush = (
                   typeof deps.storeRef.current.getLayerColorCycleBrush === 'function'
                     ? deps.storeRef.current.getLayerColorCycleBrush(activeLayerId)
                     : null
                 ) ?? deps.getColorCycleBrushManager().getBrush(activeLayerId) ?? null;
-                if (activeLayer) {
-                  deps.ensureActiveColorCycleGradientSlot(deps.storeRef.current, activeLayer, ccBrush);
+                if (targetLayer) {
+                  deps.ensureActiveColorCycleGradientSlot(deps.storeRef.current, targetLayer, ccBrush);
                 }
                 let ditherPixelSize: number | undefined;
                 if (ccBrush && typeof (ccBrush as { setDitherPixelSize?: (value: number) => void }).setDitherPixelSize === 'function') {
@@ -1312,24 +1350,24 @@ export const finalizeShapeDrawing = async (
                 }
                 const keepOverlayAfter = shouldKeepColorCycleShapeOverlayAfterFinalize();
                 const sampledFinalizeSource = isSampledCcShapeDrag(currentFinalizeState);
-                if (sampledFinalizeSource && activeLayer) {
+                if (sampledFinalizeSource && targetLayer) {
                   deps.ccLog('shape: sampled session begin', {
-                    layerId: activeLayer.id,
+                    layerId: targetLayer.id,
                     pointCount: shapePointsSnapshot.length,
                   });
                   beginFinalSampledShapeSession({
-                    layer: activeLayer,
+                    layer: targetLayer,
                     state: currentFinalizeState,
                     shapePoints: shapePointsSnapshot,
                     deps,
                   });
                   deps.ccLog('shape: sampled session end', {
-                    layerId: activeLayer.id,
+                    layerId: targetLayer.id,
                   });
                 }
                 const session = finalizeMarkGradientSession(shapeLayerIdString)
-                  ?? (activeLayer
-                    ? buildFallbackMarkSession(activeLayer, deps.storeRef.current, fillMode)
+                  ?? (targetLayer
+                    ? buildFallbackMarkSession(targetLayer, deps.storeRef.current, fillMode)
                     : null);
                 if (!session) {
                   debugWarn('raw-console', '[CC] Missing mark session before shape finalize', {
@@ -1348,7 +1386,7 @@ export const finalizeShapeDrawing = async (
                     ? deps.computeFallbackLinearDirection(shapePointsSnapshot)
                     : undefined,
                   activeLayerId,
-                  activeLayerCanvas,
+                  activeLayerCanvas: targetLayerCanvas,
                   overlayCanvas,
                   overlayCtx,
                   fallbackBlendMode,
@@ -1374,7 +1412,10 @@ export const finalizeShapeDrawing = async (
                   debugTime: deps.debugTime,
                   debugTimeEnd: deps.debugTimeEnd,
                 });
-                handledColorCycleShape = handledColorCycleShape || Boolean(deps.storeRef.current.activeLayerId && activeLayer?.colorCycleData?.canvas);
+                if (targetLayer?.colorCycleData?.canvas) {
+                  handledColorCycleShape = true;
+                  handledColorCycleTargetLayerId = activeLayerId;
+                }
                 if (shouldResetLinearMode) {
                   args.refs.isSelectingDirectionRef.current = false;
                   args.refs.directionPreviewRef.current = null;
@@ -1400,10 +1441,12 @@ export const finalizeShapeDrawing = async (
         }
 
         const currentState = deps.storeRef.current;
-        const activeLayer = currentState.layers.find(l => l.id === currentState.activeLayerId);
-        const isColorCycleLayer = activeLayer?.layerType === 'color-cycle';
 
-        if (isColorCycleLayer && handledColorCycleShape) {
+        if (shouldSkipRasterFallbackAfterColorCycleFinalize(
+          currentState,
+          handledColorCycleShape,
+          handledColorCycleTargetLayerId
+        )) {
           deps.resetAutoSampleState(false);
           deps.resetCcGradientSample();
           args.refs.ccShapePreviewPauseStartedRef.current = false;
@@ -1557,4 +1600,6 @@ export const __TESTING__ = {
   shouldKeepColorCycleShapeOverlayAfterFinalize,
   canStartShapeDrawing,
   canContinueShapeDrawing,
+  resolveCapturedShapeFinalizeLayer,
+  shouldSkipRasterFallbackAfterColorCycleFinalize,
 };

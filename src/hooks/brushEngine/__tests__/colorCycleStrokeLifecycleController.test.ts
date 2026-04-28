@@ -42,13 +42,35 @@ describe('colorCycleStrokeLifecycleController', () => {
         layerType: 'color-cycle',
         colorCycleData: { canvas: document.createElement('canvas') },
       }],
-      isColorCycleDesiredPlaying: () => false,
       bindBrushToCanvas: jest.fn(),
       firstStampImmediateRef,
     });
 
     expect(brush.startStroke).toHaveBeenCalledWith('layer-1', true);
+    expect(brush.clearPaintBuffer).not.toHaveBeenCalled();
     expect(firstStampImmediateRef.current).toBe(true);
+  });
+
+  it('does not clear committed layer buffers when playback is paused', () => {
+    const brush = createBrush();
+    const firstStampImmediateRef = { current: false };
+
+    resetColorCycleStroke({
+      clearBuffer: false,
+      initializeColorCycleBrush: () => brush as unknown as ColorCycleBrushImplementation,
+      activeLayerId: 'layer-1',
+      getLayers: () => [{
+        id: 'layer-1',
+        layerType: 'color-cycle',
+        colorCycleData: { canvas: document.createElement('canvas') },
+      }],
+      bindBrushToCanvas: jest.fn(),
+      firstStampImmediateRef,
+    });
+
+    expect(brush.commitCurrentStroke).toHaveBeenCalledWith('layer-1');
+    expect(brush.clearPaintBuffer).not.toHaveBeenCalled();
+    expect(brush.startStroke).toHaveBeenCalledWith('layer-1', false);
   });
 
   it('noops when initializer returns null', () => {
@@ -59,7 +81,6 @@ describe('colorCycleStrokeLifecycleController', () => {
       initializeColorCycleBrush: () => null,
       activeLayerId: 'layer-1',
       getLayers: () => [],
-      isColorCycleDesiredPlaying: () => false,
       bindBrushToCanvas: jest.fn(),
       firstStampImmediateRef,
     });
