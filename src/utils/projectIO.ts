@@ -1942,6 +1942,34 @@ const buildColorCycleStateSource = (
     : undefined,
 });
 
+const captureRuntimeColorCycleBrushStateForSave = (
+  brush: unknown,
+  layerId: string,
+): PersistedColorCycleBrushState | undefined => {
+  if (!brush || typeof brush !== 'object') {
+    return undefined;
+  }
+  const candidateBrush = brush as {
+    getFullState?: () => unknown;
+    serialize?: () => unknown;
+  };
+  let state: unknown;
+  try {
+    state = typeof candidateBrush.getFullState === 'function'
+      ? candidateBrush.getFullState()
+      : typeof candidateBrush.serialize === 'function'
+        ? candidateBrush.serialize()
+        : undefined;
+  } catch (error) {
+    debugWarn('raw-console', '[projectIO] Failed to capture live color cycle brush state during save:', error);
+    return undefined;
+  }
+  if (!state || typeof state !== 'object' || !Array.isArray((state as { layers?: unknown }).layers)) {
+    return undefined;
+  }
+  return serializeBrushStateForCanonicalSave(state as ColorCycleBrushState, layerId);
+};
+
 const applyColorCycleDocumentStateToSerializedSource = (
   source: SerializedColorCycleStateSource,
   documentState: ColorCycleLayerDocumentState,
@@ -2622,14 +2650,31 @@ async function serializeLayer(layer: Layer): Promise<SerializedLayer> {
   // Serialize color cycle data if present
   if (layer.layerType === 'color-cycle') {
     const sourceColorCycleData = layer.colorCycleData || {};
+    const lazyRuntime = getLazyColorCycleArchiveRuntime(layer);
+    const runtimeBrushState = captureRuntimeColorCycleBrushStateForSave(
+      sourceColorCycleData.colorCycleBrush,
+      layer.id,
+    );
+    const brushStateForSave =
+      runtimeBrushState ??
+      (sourceColorCycleData.brushState as PersistedColorCycleBrushState | undefined) ??
+      lazyRuntime?.brushState;
+    const documentStateLayer = runtimeBrushState
+      ? {
+          ...layer,
+          colorCycleData: {
+            ...sourceColorCycleData,
+            brushState: runtimeBrushState,
+          },
+        }
+      : layer;
     let colorCycleStateSource: SerializedColorCycleStateSource = {
       ...buildSerializedColorCycleCanonicalState(sourceColorCycleData),
       ...buildColorCycleStateSource(
-      sourceColorCycleData.brushState as PersistedColorCycleBrushState | undefined,
-      layer.id,
+        brushStateForSave,
+        layer.id,
       ),
     };
-    const lazyRuntime = getLazyColorCycleArchiveRuntime(layer);
     if (lazyRuntime) {
       colorCycleStateSource = {
         ...colorCycleStateSource,
@@ -2637,7 +2682,7 @@ async function serializeLayer(layer: Layer): Promise<SerializedLayer> {
         gradientDefIdRef: colorCycleStateSource.gradientDefIdRef ?? lazyRuntime.gradientDefIdRef,
       };
     }
-    const documentStateResult = normalizeColorCycleLayerDocumentState(layer, {
+    const documentStateResult = normalizeColorCycleLayerDocumentState(documentStateLayer, {
       fallbackWidth: layer.imageData?.width ?? (layer.framebuffer as { width?: number } | null)?.width,
       fallbackHeight: layer.imageData?.height ?? (layer.framebuffer as { height?: number } | null)?.height,
     });
@@ -2656,6 +2701,7 @@ async function serializeLayer(layer: Layer): Promise<SerializedLayer> {
     const eraseMaskImageData = sourceColorCycleData.eraseMaskImageData ?? captureCanvasImageData(sourceColorCycleData.eraseMask ?? null);
     const colorCycleData = {
       ...sourceColorCycleData,
+      brushState: runtimeBrushState ?? sourceColorCycleData.brushState,
       canvasImageData: canvasImageData ?? sourceColorCycleData.canvasImageData,
       eraseMaskImageData: eraseMaskImageData ?? sourceColorCycleData.eraseMaskImageData
     };
