@@ -4863,7 +4863,7 @@ const restoreColorCycleLayerRuntimeForMaterialization = async (
             });
             colorCycleData.brushState = toFastPathMetadataBrushState(savedBrushState);
             deleteSavedColorCycleBrushState(layer);
-          } else {
+          }
           const layerSnapshots = (savedBrushState.layers ?? []).map(snapshot => {
             const fallbackGradientIdBuffer = snapshot.layerId === layer.id
               ? colorCycleData.gradientIdBuffer
@@ -5092,7 +5092,9 @@ const restoreColorCycleLayerRuntimeForMaterialization = async (
           }
 
           colorCycleData.colorCycleBrush = colorCycleBrush;
-          colorCycleData.brushState = savedBrushState;
+          colorCycleData.brushState = shouldUseOversizedFastPath
+            ? toFastPathMetadataBrushState(savedBrushState)
+            : savedBrushState;
           deleteSavedColorCycleBrushState(layer);
 
           if (colorCycleData.isAnimating) {
@@ -5121,7 +5123,6 @@ const restoreColorCycleLayerRuntimeForMaterialization = async (
             hasCanvasImageData: Boolean(colorCycleData.canvasImageData),
           });
           return { brush: colorCycleBrush as ColorCycleRuntimeBrush, materialized };
-          }
         } catch (error) {
           ccWarmRestoreDebug.warn('brush-state-restore-failed', {
             layerId: layer.id,
@@ -5179,6 +5180,38 @@ const restoreColorCycleLayerRuntimeForMaterialization = async (
         return { brush: colorCycleBrush as ColorCycleRuntimeBrush, materialized };
       } else {
         // No saved state, create a new brush with the gradient
+        const legacyStaticPreviewImageData =
+          colorCycleData.canvasImageData ??
+          (imageDataHasVisiblePixels(layer.imageData) ? layer.imageData ?? undefined : undefined);
+        const documentStateResult = normalizeColorCycleLayerDocumentState(layer, {
+          fallbackWidth: colorCycleData.canvas?.width ?? colorCycleData.canvasWidth ?? layer.imageData?.width,
+          fallbackHeight: colorCycleData.canvas?.height ?? colorCycleData.canvasHeight ?? layer.imageData?.height,
+        });
+        if (
+          documentStateResult.ok &&
+          !documentStateResult.state.paintBuffer &&
+          (
+            documentStateResult.state.hasContent ||
+            Boolean(documentStateResult.state.gradientIdBuffer) ||
+            Boolean(documentStateResult.state.gradientDefIdBuffer) ||
+            imageDataHasVisiblePixels(legacyStaticPreviewImageData)
+          )
+        ) {
+          if (!colorCycleData.canvasImageData && legacyStaticPreviewImageData) {
+            colorCycleData.canvasImageData = legacyStaticPreviewImageData;
+            colorCycleData.canvasWidth ??= legacyStaticPreviewImageData.width;
+            colorCycleData.canvasHeight ??= legacyStaticPreviewImageData.height;
+          }
+          ccWarmRestoreDebug.warn('missing-paint-buffer-skip-runtime-restore', {
+            layerId: layer.id,
+            hasContent: documentStateResult.state.hasContent,
+            gradientIdBuffer: describeBufferForDebug(documentStateResult.state.gradientIdBuffer),
+            gradientDefIdBuffer: describeBufferForDebug(documentStateResult.state.gradientDefIdBuffer),
+            hasCanvasImageData: Boolean(colorCycleData.canvasImageData),
+            usedLayerImageDataPreview: legacyStaticPreviewImageData === layer.imageData,
+          });
+          return { brush: null, materialized: false, reason: 'missing-paint-buffer' };
+        }
         const colorCycleBrush = createColorCycleBrush(colorCycleData.canvas!);
         const existingBrushState = colorCycleData.brushState as
           | PersistedColorCycleBrushState
@@ -5233,97 +5266,10 @@ const restoreColorCycleLayerRuntimeForMaterialization = async (
           }
         }
 
-        const persistedGradientIdBuffer = colorCycleData.gradientIdBuffer;
-        const persistedGradientDefIdBuffer = colorCycleData.gradientDefIdBuffer;
-        const canSeedFromBuffers = canSeedFromPersistedBuffers(
-          colorCycleBrush as {
-            applyLayerSnapshot?: (
-              layerId: string,
-              snapshot: {
-                paintBuffer: ArrayBuffer;
-                gradientIdBuffer?: ArrayBuffer;
-                gradientDefIdBuffer?: ArrayBuffer;
-                hasContent: boolean;
-                strokeCounter: number;
-              },
-            ) => void;
-          },
-          colorCycleData,
-        );
-
-        if (canSeedFromBuffers) {
-          try {
-            const seededGradientIdBuffer = persistedGradientIdBuffer as ArrayBuffer;
-            const seededPaint = new Uint8Array(seededGradientIdBuffer.slice(0));
-            const hasPersistedContent = seededPaint.some((value) => value !== 0);
-            (
-              colorCycleBrush as {
-                applyLayerSnapshot: (
-                  layerId: string,
-                  snapshot: {
-                    paintBuffer: ArrayBuffer;
-                    gradientIdBuffer?: ArrayBuffer;
-                    gradientDefIdBuffer?: ArrayBuffer;
-                    hasContent: boolean;
-                    strokeCounter: number;
-                  },
-                  animatorIndex?: {
-                    width: number;
-                    height: number;
-                    data: ArrayBuffer;
-                    gradientIdData?: ArrayBuffer;
-                    gradientDefIdData?: ArrayBuffer;
-                    gradientStops: Array<{ position: number; color: string }>;
-                    gradientDefs?: Array<{ id: string; name?: string; currentSlot: number }>;
-                    slotPalettes?: Array<{ slot: number; stops: Array<{ position: number; color: string }> }>;
-                    paintSlot?: number;
-                    activeGradientId?: string;
-                  },
-                ) => void;
-              }
-            ).applyLayerSnapshot(layer.id, {
-              paintBuffer: seededPaint.buffer,
-              gradientIdBuffer: seededGradientIdBuffer.slice(0),
-              gradientDefIdBuffer: persistedGradientDefIdBuffer?.slice(0),
-              hasContent: hasPersistedContent,
-              strokeCounter: 0,
-            }, {
-              width: colorCycleData.canvas?.width ?? colorCycleData.canvasWidth ?? layer.imageData?.width ?? 1,
-              height: colorCycleData.canvas?.height ?? colorCycleData.canvasHeight ?? layer.imageData?.height ?? 1,
-              data: seededPaint.buffer.slice(0),
-              gradientIdData: seededGradientIdBuffer.slice(0),
-              gradientDefIdData: persistedGradientDefIdBuffer?.slice(0),
-              gradientStops: colorCycleData.gradient ?? [],
-              gradientDefs: colorCycleData.gradientDefs,
-              slotPalettes: colorCycleData.slotPalettes,
-              paintSlot: colorCycleData.paintSlot,
-              activeGradientId: colorCycleData.activeGradientId,
-            });
-          } catch (error) {
-            debugWarn('raw-console', '[projectIO] Failed to seed color cycle runtime from persisted buffers:', error);
-          }
-        }
-
         if (metadataOnlyExistingBrushState) {
           colorCycleData.brushState = metadataOnlyExistingBrushState;
         }
         colorCycleData.colorCycleBrush = colorCycleBrush;
-
-        const externalBaseImageData = colorCycleData.canvasImageData ?? layer.imageData;
-        if (imageDataHasVisiblePixels(externalBaseImageData)) {
-          if (externalBaseImageData) {
-            try {
-              const ctx = colorCycleData.canvas?.getContext('2d', { willReadFrequently: true });
-              ctx?.putImageData(externalBaseImageData, 0, 0);
-            } catch {}
-          }
-          colorCycleData.hasContent = true;
-          if (typeof colorCycleBrush.markLayerHasExternalBase === 'function') {
-            try {
-              colorCycleBrush.markLayerHasExternalBase(layer.id);
-            } catch {}
-          }
-        }
         flushGradientApply(layer.id);
         const materialized = materializeRestoredColorCycleSurface(layer, colorCycleBrush);
         return { brush: colorCycleBrush as ColorCycleRuntimeBrush, materialized };

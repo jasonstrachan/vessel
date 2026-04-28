@@ -356,7 +356,59 @@ describe('layers slice integration', () => {
     expect(warmedLayer?.colorCycleData?.deferredRuntimeRestore).toBe(false);
     expect(warmedLayer?.colorCycleData?.runtimeHydrationState).toBe('active');
     expect(warmedLayer?.colorCycleData?.canvasImageData).toBe(snapshotImageData);
-    expect(restoredCanvasCtx.putImageData).toHaveBeenCalledWith(snapshotImageData, 0, 0);
+    expect(restoredCanvasCtx.putImageData).not.toHaveBeenCalled();
+  });
+
+  it('does not publish a deferred restore as active after the user selects another layer', async () => {
+    const store = useAppStore.getState();
+    const layerId = store.addLayer({
+      ...createColorCycleLayerInput('Deferred Race CC Layer'),
+      colorCycleData: {
+        ...createColorCycleLayerInput('Deferred Race CC Layer').colorCycleData,
+        deferredRuntimeRestore: true,
+        runtimeHydrationState: 'cold',
+        colorCycleBrush: undefined,
+        canvas: makeCanvas(),
+      },
+    });
+    const normalLayerId = store.addLayer(createNormalLayerInput('Normal Layer'));
+
+    (restoreColorCycleBrushes as jest.Mock).mockImplementationOnce((layers: Layer[]) =>
+      new Promise<Layer[]>((resolve) => {
+        setTimeout(() => {
+          resolve(layers.map((layer) =>
+            layer.id === layerId
+              ? {
+                  ...layer,
+                  colorCycleData: {
+                    ...(layer.colorCycleData as NonNullable<Layer['colorCycleData']>),
+                    deferredRuntimeRestore: false,
+                    runtimeHydrationState: 'active',
+                    colorCycleBrush: mockBrush as unknown as NonNullable<Layer['colorCycleData']>['colorCycleBrush'],
+                    canvas: makeCanvas(),
+                  },
+                }
+              : layer,
+          ));
+        }, 0);
+      })
+    );
+
+    useAppStore.getState().setActiveLayer(layerId);
+    useAppStore.getState().setActiveLayer(normalLayerId);
+
+    for (let attempt = 0; attempt < 10; attempt += 1) {
+      const raceLayer = useAppStore.getState().layers.find((candidate) => candidate.id === layerId);
+      if (raceLayer?.colorCycleData?.deferredRuntimeRestore === false) {
+        break;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    }
+
+    const raceLayer = useAppStore.getState().layers.find((candidate) => candidate.id === layerId);
+    expect(useAppStore.getState().activeLayerId).toBe(normalLayerId);
+    expect(raceLayer?.colorCycleData?.runtimeHydrationState).toBe('warm');
+    expect(mockManager.setActiveState).toHaveBeenLastCalledWith(layerId, false);
   });
 
   it('ensures a deferred color-cycle layer runtime explicitly', async () => {

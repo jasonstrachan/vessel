@@ -170,7 +170,7 @@ describe('materializeColorCycleLayer', () => {
     });
   });
 
-  it('keeps compatibility snapshot pixels when restored runtime render is blank', () => {
+  it('does not copy compatibility snapshot pixels into a blank runtime surface', () => {
     const canvas = createCanvas(2, 2);
     const imageData = new ImageData(2, 2);
     imageData.data[0] = 200;
@@ -190,9 +190,9 @@ describe('materializeColorCycleLayer', () => {
     const pixel = canvas.getContext('2d')?.getImageData(0, 0, 1, 1).data;
 
     expect(materialized).toBe(false);
-    expect(pixel?.[0]).toBe(200);
-    expect(pixel?.[3]).toBe(255);
-    expect(layer.colorCycleData?.hasContent).toBe(true);
+    expect(pixel?.[0]).toBe(0);
+    expect(pixel?.[3]).toBe(0);
+    expect(layer.colorCycleData?.hasContent).toBeUndefined();
   });
 
   it('publishes the live runtime surface through the shared ownership helper', () => {

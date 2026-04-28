@@ -130,47 +130,6 @@ const summarizeLayerForActivationDebug = (
   };
 };
 
-const captureCanvasHasVisiblePixels = (canvas: HTMLCanvasElement | null | undefined): boolean => {
-  if (!canvas || canvas.width <= 0 || canvas.height <= 0) {
-    return false;
-  }
-  const ctx = canvas.getContext('2d', { willReadFrequently: true });
-  if (!ctx) {
-    return false;
-  }
-  try {
-    const pixels = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
-    for (let i = 3; i < pixels.length; i += 4) {
-      if (pixels[i] !== 0) {
-        return true;
-      }
-    }
-  } catch {
-    return false;
-  }
-  return false;
-};
-
-const copyImageDataToCanvas = (
-  imageData: ImageData,
-  canvas: HTMLCanvasElement | null | undefined,
-): boolean => {
-  if (!canvas || canvas.width <= 0 || canvas.height <= 0) {
-    return false;
-  }
-  const ctx = canvas.getContext('2d', { willReadFrequently: true });
-  if (!ctx) {
-    return false;
-  }
-  try {
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    ctx.putImageData(imageData, 0, 0);
-    return true;
-  } catch {
-    return false;
-  }
-};
-
 const preserveDeferredColorCycleRestoreSurface = (
   latestLayer: Layer,
   restoredLayer: Layer,
@@ -187,20 +146,11 @@ const preserveDeferredColorCycleRestoreSurface = (
   const fallbackSnapshot =
     restoredLayer.colorCycleData.canvasImageData ??
     latestLayer.colorCycleData.canvasImageData;
-  const restoredCanvas = restoredLayer.colorCycleData.canvas ?? null;
-  const restoredCanvasHasPixels = captureCanvasHasVisiblePixels(restoredCanvas);
-  const shouldRestoreSnapshot = Boolean(fallbackSnapshot && !restoredCanvasHasPixels);
-
-  if (shouldRestoreSnapshot && fallbackSnapshot) {
-    copyImageDataToCanvas(fallbackSnapshot, restoredCanvas);
-  }
-
   return {
     ...restoredLayer,
     colorCycleData: {
       ...restoredLayer.colorCycleData,
       canvasImageData: fallbackSnapshot,
-      hasContent: restoredLayer.colorCycleData.hasContent || shouldRestoreSnapshot,
     },
   };
 };
@@ -493,13 +443,16 @@ export const createLayersSlice = (
           });
           const publishLayer = preserveDeferredColorCycleRestoreSurface(latestLayer, restoredLayer);
           const restoredBrush = publishLayer.colorCycleData?.colorCycleBrush;
+          const stateAtRestoreCompletion = get();
+          const shouldPublishActive = stateAtRestoreCompletion.activeLayerId === layerId;
           const restoredHydration = restoredBrush
-            ? (markActive ? 'active' : 'warm')
+            ? (shouldPublishActive ? 'active' : 'warm')
             : 'cold';
           recordLayerActivationProbe('deferred-restore-complete', {
             before: summarizeLayerForActivationDebug(latestLayer),
             after: summarizeLayerForActivationDebug(publishLayer),
             markActive,
+            shouldPublishActive,
             restored: Boolean(restoredBrush),
             restoredHydration,
           });
@@ -509,7 +462,10 @@ export const createLayersSlice = (
               if (candidate.id !== layerId) {
                 return candidate;
               }
-              const nextLayer = updateLayerColorCycleHydrationState(publishLayer, restoredHydration);
+              const hydrationForCurrentSelection = restoredBrush
+                ? (current.activeLayerId === layerId ? 'active' : 'warm')
+                : 'cold';
+              const nextLayer = updateLayerColorCycleHydrationState(publishLayer, hydrationForCurrentSelection);
               if (!restoredBrush && nextLayer.colorCycleData) {
                 return {
                   ...nextLayer,
@@ -527,6 +483,7 @@ export const createLayersSlice = (
             isUsingWebGL?: () => boolean;
           } | undefined;
           if (brush) {
+            const shouldRegisterActive = get().activeLayerId === layerId;
             colorCycleBrushManager.brushes.set(layerId, brush);
             colorCycleBrushManager.brushMetadata.set(layerId, {
               layerId,
@@ -535,7 +492,7 @@ export const createLayersSlice = (
               width: publishLayer.colorCycleData?.canvas?.width ?? latestState.project?.width ?? 0,
               height: publishLayer.colorCycleData?.canvas?.height ?? latestState.project?.height ?? 0,
               gradientHash: undefined,
-              isActive: markActive,
+              isActive: shouldRegisterActive,
             });
             colorCycleBrushManager.activeResources.add(layerId);
             colorCycleBrushManager.activeResources.add(`canvas_${layerId}`);
@@ -552,7 +509,7 @@ export const createLayersSlice = (
               // quiet
             }
             try {
-              colorCycleBrushManager.setActiveState(layerId, markActive);
+              colorCycleBrushManager.setActiveState(layerId, shouldRegisterActive);
             } catch {
               // quiet
             }
