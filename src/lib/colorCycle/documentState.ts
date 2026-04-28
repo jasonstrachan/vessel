@@ -254,8 +254,8 @@ export const normalizeColorCycleLayerDocumentState = (
     cloneArrayBuffer(strokeData?.flowBuffer) ??
     legacyRefs.flowBuffer;
   const phaseBuffer =
-    cloneArrayBuffer(colorCycleData.phaseBuffer) ??
     cloneArrayBuffer(strokeData?.phaseBuffer) ??
+    cloneArrayBuffer(colorCycleData.phaseBuffer) ??
     legacyRefs.phaseBuffer;
 
   const state: ColorCycleLayerDocumentState = {
