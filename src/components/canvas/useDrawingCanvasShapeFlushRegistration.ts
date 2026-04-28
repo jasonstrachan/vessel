@@ -10,6 +10,8 @@ export const useDrawingCanvasShapeFlushRegistration = ({
     const key = 'drawing-canvas:finalize-shapes';
     registerToolFlush(key, async () => {
       await finalizeActiveShape();
+    }, {
+      passive: false,
     });
     return () => unregisterToolFlush(key);
   }, [finalizeActiveShape]);

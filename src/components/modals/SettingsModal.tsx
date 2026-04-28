@@ -9,7 +9,7 @@ import { useKeyboardScope } from '../../hooks/useKeyboardScope';
 import { devLog } from '../../utils/devLog';
 import { getProjectSaveSizeReport, type ProjectHealthReport } from '@/utils/projectIO';
 import type { SettingsSectionId } from '@/types';
-import { writeLocalSettings } from '@/utils/localSettings';
+import { mergeLocalSettings } from '@/utils/localSettings';
 import {
   DEV_DEBUG_OVERLAY_EVENT,
   isDevDebugOverlayEnabled,
@@ -92,7 +92,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
         maxHistorySize: currentState.history.maxHistorySize,
       },
     };
-    const saved = writeLocalSettings(settings);
+    const saved = mergeLocalSettings(settings);
     if (!saved) {
       settingsLog.warn('Failed to persist settings to localStorage; keeping in-memory values only.');
       currentState.addNotification?.({

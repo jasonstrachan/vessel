@@ -27,6 +27,15 @@ Research and Discovery
 - Check nearby tests (tests/, src/**/__tests__/) and fixtures (assets/, public/).
 - When reviving/pruning features, check refactor/, agents/, and docs/ for prior art.
 
+Secrets and Environment Files
+
+- Never print or quote real secret values from `.env*`, shell environments, logs, screenshots, or config files.
+- Do not include `.env*` in broad `rg`, `grep`, `cat`, or `sed` discovery commands. Search source/docs first; inspect env files only when the task explicitly requires it.
+- When checking env files, redact values in the command output, for example `sed -E 's/(^[A-Z0-9_]*KEY=).+/\1[REDACTED]/' .env`.
+- Keep `.env*` ignored and use `.env.example` with placeholder values only.
+- If a secret is printed into chat/tool output or committed, treat it as compromised: tell the user which key prefix/suffix was exposed, recommend immediate server-side revocation, and remove the local copy.
+- Before committing, avoid staging secret-bearing files and prefer running a secret scanner such as `gitleaks` or `detect-secrets` when secret exposure is a risk.
+
 Project Overview
 
 - Tech: Next.js + TypeScript. Static export for GitHub Pages with basePath='/vessel'.

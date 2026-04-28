@@ -141,7 +141,7 @@ class AutosaveService {
     store.setSaveStatus('saving', 'autosave', 'Autosaving...');
 
     try {
-      await flushPendingToolWork();
+      await flushPendingToolWork({ passiveOnly: true });
       await waitForFinalizeQueueIdle();
       await waitForAllPendingColorCycleSaves();
 

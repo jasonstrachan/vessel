@@ -19,4 +19,24 @@ describe('toolFlushRegistry', () => {
 
     expect(steps).toEqual(['start', 'end']);
   });
+
+  it('skips active flush tasks during passive-only flushes', async () => {
+    const activeKey = `${TEST_KEY}:active`;
+    const steps: string[] = [];
+
+    registerToolFlush(TEST_KEY, () => {
+      steps.push('passive');
+    });
+    registerToolFlush(activeKey, () => {
+      steps.push('active');
+    }, {
+      passive: false,
+    });
+
+    await flushPendingToolWork({ passiveOnly: true });
+
+    expect(steps).toEqual(['passive']);
+
+    unregisterToolFlush(activeKey);
+  });
 });

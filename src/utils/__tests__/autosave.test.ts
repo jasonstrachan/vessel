@@ -225,6 +225,7 @@ describe('AutosaveService', () => {
     await autosaveService.triggerAutosave();
 
     expect(flushPendingToolWork).toHaveBeenCalledTimes(1);
+    expect(flushPendingToolWork).toHaveBeenCalledWith({ passiveOnly: true });
     expect(waitForFinalizeQueueIdle).toHaveBeenCalledTimes(1);
     expect(waitForAllPendingColorCycleSaves).toHaveBeenCalledTimes(1);
     expect(backgroundStorageService.saveProjectInBackground).toHaveBeenCalledWith(

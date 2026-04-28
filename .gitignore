@@ -53,5 +53,23 @@ next-env.d.ts
 # local captures
 /screenshots/
 
+# local scratch / agent artifacts
+/artifacts/
+/output/
+/scratch/
+/temp/
+/tmp/
+/scripts/scratch/
+/scripts/temp/
+/scripts/tmp/
+*.tmp
+*.temp
+*.bak
+*.backup
+*.orig
+*.log
+*-scratch.*
+scratch-*.*
+
 # local temp docs
 docs/temp/
