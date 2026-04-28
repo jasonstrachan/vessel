@@ -231,6 +231,64 @@ describe('project slice lifecycle flows', () => {
     );
   });
 
+  it('captures live color-cycle canvas pixels before stale compatibility snapshots when saving', async () => {
+    const staleSnapshot = new ImageData(new Uint8ClampedArray([0, 0, 0, 255]), 1, 1);
+    const liveCanvas = document.createElement('canvas');
+    liveCanvas.width = 1;
+    liveCanvas.height = 1;
+    liveCanvas.getContext('2d')?.putImageData(
+      new ImageData(new Uint8ClampedArray([12, 34, 56, 255]), 1, 1),
+      0,
+      0,
+    );
+    const layer = makeLayer('layer-cc-save-live', {
+      layerType: 'color-cycle',
+      imageData: null,
+      colorCycleData: {
+        canvas: liveCanvas,
+        canvasImageData: staleSnapshot,
+        canvasWidth: 1,
+        canvasHeight: 1,
+        mode: 'brush',
+      },
+    });
+    const project: Project = {
+      id: 'project-cc-save-live',
+      name: 'CC Save Live',
+      width: 1,
+      height: 1,
+      layers: [layer],
+      backgroundColor: '#000000',
+      createdAt: new Date('2024-04-01'),
+      updatedAt: new Date('2024-04-02'),
+      customBrushes: [],
+      defaultCustomBrushId: null,
+      exportLayout: createDefaultExportLayout(),
+      palette: {
+        foregroundColor: '#ffffff',
+        backgroundColor: '#000000',
+        activeSlot: 'foreground',
+      },
+      brushSpecificSettings: {},
+    };
+
+    useAppStore.setState({
+      project,
+      layers: [layer],
+      layerGroups: [],
+    });
+    (saveProjectToFile as jest.Mock).mockResolvedValue({
+      fileName: 'cc-save-live.vessel',
+      fileHandle: null,
+    });
+
+    await useAppStore.getState().saveProject('cc-save-live.vessel');
+
+    const [, , layersArg] = (saveProjectToFile as jest.Mock).mock.calls[0] as [Project, string, Layer[]];
+    const savedImageData = layersArg[0]?.colorCycleData?.canvasImageData;
+    expect(Array.from(savedImageData?.data.slice(0, 4) ?? [])).toEqual([12, 34, 56, 255]);
+  });
+
   it('does not merge composite canvas pixels into the active layer while saving', async () => {
     const layer = makeLayer('layer-save-guard', {
       imageData: new ImageData(new Uint8ClampedArray([12, 34, 56, 255]), 1, 1),
@@ -579,7 +637,7 @@ describe('project slice lifecycle flows', () => {
     expect(nextState.colorCyclePlayback.desiredPlaying).toBe(false);
   });
 
-  it('hydrates only the active heavy CC runtime during import', async () => {
+  it('keeps heavy CC layers cold when import lacks canonical paint', async () => {
     const actualProjectIO = jest.requireActual('@/utils/projectIO') as typeof import('@/utils/projectIO');
     const restoreColorCycleBrushesMock = jest.requireMock('@/utils/projectIO').restoreColorCycleBrushes as jest.Mock;
     restoreColorCycleBrushesMock.mockImplementation(actualProjectIO.restoreColorCycleBrushes);
@@ -646,9 +704,13 @@ describe('project slice lifecycle flows', () => {
       const visibleColdLayer = nextState.layers.find((layer) => layer.id === 'layer-import-visible-cold-cc');
       const hiddenColdLayer = nextState.layers.find((layer) => layer.id === 'layer-import-hidden-cold-cc');
 
-      expect(activeLayer?.colorCycleData?.runtimeHydrationState).toBe('active');
+      expect(activeLayer?.colorCycleData?.runtimeHydrationState).toBe('cold');
       expect(activeLayer?.colorCycleData?.deferredRuntimeRestore).toBe(false);
-      expect(activeLayer?.colorCycleData?.colorCycleBrush).toBeTruthy();
+      expect(activeLayer?.colorCycleData?.colorCycleBrush).toBeUndefined();
+      expect(activeLayer?.colorCycleData?.repairStatus).toEqual(expect.objectContaining({
+        ok: false,
+        reason: 'missing-paint-buffer',
+      }));
 
       expect(visibleColdLayer?.colorCycleData?.runtimeHydrationState).toBe('cold');
       expect(visibleColdLayer?.colorCycleData?.deferredRuntimeRestore).toBe(true);

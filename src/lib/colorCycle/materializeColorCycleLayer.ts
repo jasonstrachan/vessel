@@ -71,48 +71,6 @@ const imageDataHasVisiblePixels = (imageData: ImageData | null | undefined): boo
   return false;
 };
 
-const materializeSnapshotPreviewToCanvas = (
-  layer: Layer,
-  brush: ColorCycleRuntimeBrush,
-  canvas: HTMLCanvasElement,
-): boolean => {
-  const snapshot = brush.getLayerSnapshot?.(layer.id);
-  const paintBuffer = snapshot?.paintBuffer;
-  if (!paintBuffer || paintBuffer.byteLength === 0) {
-    return false;
-  }
-
-  const width = Math.max(1, canvas.width);
-  const height = Math.max(1, canvas.height);
-  const pixelCount = width * height;
-  const paint = new Uint8Array(paintBuffer);
-  const imageData = new ImageData(width, height);
-  let hasVisiblePixel = false;
-  for (let index = 0; index < pixelCount && index < paint.length; index += 1) {
-    if (paint[index] === 0) {
-      continue;
-    }
-    const offset = index * 4;
-    imageData.data[offset] = 255;
-    imageData.data[offset + 1] = 255;
-    imageData.data[offset + 2] = 255;
-    imageData.data[offset + 3] = 255;
-    hasVisiblePixel = true;
-  }
-  if (!hasVisiblePixel) {
-    return false;
-  }
-
-  const ctx = canvas.getContext('2d', { willReadFrequently: true });
-  if (!ctx) {
-    return false;
-  }
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
-  ctx.putImageData(imageData, 0, 0);
-  layer.colorCycleData!.hasContent = true;
-  return true;
-};
-
 const isHtmlCanvas = (
   canvas: HTMLCanvasElement | OffscreenCanvas | null | undefined,
 ): canvas is HTMLCanvasElement => (
@@ -156,10 +114,6 @@ export const materializeRestoredColorCycleSurface = (
   const renderedImageData = captureCanvasImageData(canvas) ?? undefined;
   if (imageDataHasVisiblePixels(renderedImageData)) {
     colorCycleData.hasContent = true;
-    return true;
-  }
-
-  if (materializeSnapshotPreviewToCanvas(layer, brush, canvas)) {
     return true;
   }
 
