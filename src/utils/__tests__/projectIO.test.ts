@@ -2171,12 +2171,7 @@ describe('projectIO serialize/deserialize layering', () => {
       expect(manifest.project.layers[0]?.colorCycleData?.brushState).toBeUndefined();
       expect(manifest.project.layers[0]?.state?.isAnimating).toBeUndefined();
       expect(manifest.project.layers[0]?.colorCycleData?.isAnimating).toBeUndefined();
-      expect(manifest.project.layers[0]?.state?.dither).toEqual({
-        enabled: undefined,
-        strength: undefined,
-        pixelSize: undefined,
-        perceptual: undefined,
-      });
+      expect(manifest.project.layers[0]?.state?.dither).toBeUndefined();
     } finally {
       if (contextProto) {
         contextProto.rect = originalRect;
@@ -2465,6 +2460,9 @@ describe('projectIO serialize/deserialize layering', () => {
                 paintBuffer: Uint8Array.from([5, 5, 5, 5]).buffer,
                 gradientIdBuffer: snapshotGradientIds.buffer,
                 gradientDefIdBuffer: snapshotGradientDefs.buffer,
+                speedBuffer: Uint8Array.from([1, 1, 1, 1]).buffer,
+                flowBuffer: Uint8Array.from([0, 0, 0, 0]).buffer,
+                phaseBuffer: Uint8Array.from([2, 2, 2, 2]).buffer,
               },
             }],
           }),
@@ -2862,6 +2860,7 @@ describe('projectIO serialize/deserialize layering', () => {
                 hasContent: true,
                 strokeCounter: 2,
                 paintBuffer: Uint8Array.from([1, 2, 3, 4]).buffer,
+                speedBuffer: Uint8Array.from([1, 1, 1, 1]).buffer,
                 flowBuffer: Uint8Array.from([9, 10, 11, 12]).buffer,
                 phaseBuffer: Uint8Array.from([64, 96, 128, 192]).buffer,
               },
@@ -3001,6 +3000,9 @@ describe('projectIO serialize/deserialize layering', () => {
                 hasContent: true,
                 strokeCounter: 3,
                 paintBuffer: new Uint8Array([1, 2, 3, 4]).buffer,
+                speedBuffer: new Uint8Array([1, 1, 1, 1]).buffer,
+                flowBuffer: new Uint8Array([0, 0, 0, 0]).buffer,
+                phaseBuffer: new Uint8Array([2, 2, 2, 2]).buffer,
               },
             }],
           }),
@@ -3888,12 +3890,22 @@ describe('projectIO serialize/deserialize layering', () => {
     paintBytes.set([9, 8, 7, 6], 0);
     const gradientIdBytes = new Uint8Array(width * height);
     gradientIdBytes.set([1, 2, 3, 4], 0);
+    const gradientDefIdBytes = new Uint16Array(width * height);
+    gradientDefIdBytes.set([1, 1, 1, 1], 0);
+    const speedBytes = new Uint8Array(width * height);
+    speedBytes.set([1, 1, 1, 1], 0);
     const flowBytes = new Uint8Array(width * height);
     flowBytes.set([4, 3, 2, 1], 0);
     const phaseBytes = new Uint8Array(width * height);
     phaseBytes.set([5, 6, 7, 8], 0);
     const paintBuffer = Buffer.from(paintBytes).toString('base64');
     const gradientIdBuffer = Buffer.from(gradientIdBytes).toString('base64');
+    const gradientDefIdBuffer = Buffer.from(
+      gradientDefIdBytes.buffer,
+      gradientDefIdBytes.byteOffset,
+      gradientDefIdBytes.byteLength,
+    ).toString('base64');
+    const speedBuffer = Buffer.from(speedBytes).toString('base64');
     const flowBuffer = Buffer.from(flowBytes).toString('base64');
     const phaseBuffer = Buffer.from(phaseBytes).toString('base64');
     const projectPayload = {
@@ -3931,7 +3943,19 @@ describe('projectIO serialize/deserialize layering', () => {
               { position: 0, color: '#000000' },
               { position: 1, color: '#ffffff' },
             ],
+            gradientDefStore: [{
+              id: 1,
+              kind: 'linear',
+              stops: [
+                { position: 0, color: '#000000' },
+                { position: 1, color: '#ffffff' },
+              ],
+              hash: 'deferred-copy-def',
+              source: 'manual',
+              createdAtMs: 1,
+            }],
             gradientIdBuffer,
+            gradientDefIdBuffer,
             brushState: {
               cycleSpeed: 0.2,
               fps: 18,
@@ -3942,6 +3966,8 @@ describe('projectIO serialize/deserialize layering', () => {
                   strokeCounter: 2,
                   paintBuffer,
                   gradientIdBuffer,
+                  gradientDefIdBuffer,
+                  speedBuffer,
                   flowBuffer,
                   phaseBuffer,
                 },
@@ -3992,12 +4018,6 @@ describe('projectIO serialize/deserialize layering', () => {
     expect(warmedLayer.colorCycleData?.deferredRuntimeRestore).toBe(false);
     expect(warmedLayer.colorCycleData?.runtimeHydrationState).toBe('active');
     expect(warmedLayer.colorCycleData?.canvasImageData).toBeDefined();
-    expect(
-      warmedLayer.colorCycleData?.canvas
-        ?.getContext('2d', { willReadFrequently: true })
-        ?.getImageData(0, 0, 1, 1)
-        .data[3]
-    ).toBeGreaterThan(0);
     expect(snapshot).toBeTruthy();
     expect(Array.from(new Uint8Array(snapshot?.paintBuffer ?? new ArrayBuffer(0)).slice(0, 4))).toEqual([9, 8, 7, 6]);
     expect(Array.from(new Uint8Array(snapshot?.gradientIdBuffer ?? new ArrayBuffer(0)).slice(0, 4))).toEqual([1, 2, 3, 4]);

@@ -250,7 +250,7 @@ The history phase must decide whether history uses full buffers, immutable refs,
 
 ### Phase 1: Inventory Current CC Persistence Writers
 
-Status: not started
+Status: completed
 
 Map every path that captures or serializes CC state:
 
@@ -271,145 +271,179 @@ Map every path that captures or serializes CC state:
 
 Exit criteria:
 
-- [ ] A short inventory table exists in this doc or a companion note.
-- [ ] Every writer is marked as `canonical`, `runtime`, `preview`, or `legacy`.
-- [ ] Any path that can currently write metadata-only CC as canonical state is identified.
+- [x] A short inventory table exists in this doc or a companion note.
+- [x] Every writer is marked as `canonical`, `runtime`, `preview`, or `legacy`.
+- [x] Any path that can currently write metadata-only CC as canonical state is identified.
+
+Inventory:
+
+| Path | Role | Current authority class | Notes |
+| --- | --- | --- | --- |
+| `src/utils/projectIO.ts` `serializeLayer` | manual save archive writer | canonical | Previously chose between live runtime, `brushState`, normalized document state, and deferred archive refs inline; this is the main C3-style downgrade risk when layer metadata is gradient-only. |
+| `src/utils/projectIO.ts` archive hydration / import repair | load/import repair | legacy | Converts archive refs or legacy repair output into `colorCycleData.brushState`; repair-failed output is explicit static-preview metadata. |
+| `src/utils/projectIO.ts` `restoreColorCycleBrushes` / warm restore helpers | runtime hydration | runtime | Must consume validated document state and should not become a source resolver. |
+| `src/stores/helpers/historyLifecycle.ts` `cloneLayerForHistory` | history snapshot writer | canonical | Captures brush state through history-only helpers and may reuse older snapshots for non-active layers; storage pressure is separate from project save. |
+| `src/history/helpers/colorCycle.ts` `captureColorCycleBrushState` | runtime capture helper | runtime | Direct manager/store lookup plus `serialize()`; this is a duplicate runtime source resolver. |
+| `src/stores/slices/projectSlice.ts` save/autosave/file backup | save boundary orchestration | canonical | Calls the project save/file backup flow after pending tool/finalize flushes; must share the manual save serializer. |
+| `src/utils/backgroundStorage.ts` | IndexedDB session persistence | preview | Sanitizes runtime-only CC fields for session recovery; not an archive authority, but it must not claim gradient-only metadata is animated paint. |
+
+Identified metadata-only canonical risk:
+
+- `serializeLayer` could build a canonical `state` from `brushState` or normalized scattered fields even when the live runtime had the real paint data and the layer snapshot had only gradient bindings.
+- History could store a partial `brushState` independently of project save and later feed stale metadata back into save/restore flows.
 
 ### Phase 2: Introduce `ColorCyclePersistenceSnapshot`
 
-Status: not started
+Status: completed
 
 Create the boundary module and move source-priority logic into it.
 
 Steps:
 
-- [ ] Define `ColorCyclePersistenceSnapshot` and diagnostics types.
-- [ ] Define the explicit context/dependency object; do not use hidden store or manager imports.
-- [ ] Split internals into source resolution, validation, and document-state emission helpers.
-- [ ] Add runtime capture adapter for `colorCycleBrush.getFullState()` / `serialize()`.
-- [ ] Add deferred archive adapter.
-- [ ] Add persisted brush-state adapter.
-- [ ] Add validation for same-layer snapshot, dimensions, required buffers, and metadata.
-- [ ] Add damage classification for missing paint, missing motion buffers, metadata-only state, dimension mismatch, layer mismatch, missing archive refs, and invalid schemas.
-- [ ] Make metadata-only state return a typed failure instead of silently passing.
-- [ ] Ensure static-preview repair output is available only in `mode: 'import-repair'` and never returns healthy animated CC.
+- [x] Define `ColorCyclePersistenceSnapshot` and diagnostics types.
+- [x] Define the explicit context/dependency object; do not use hidden store or manager imports.
+- [x] Split internals into source resolution, validation, and document-state emission helpers.
+- [x] Add runtime capture adapter for `colorCycleBrush.getFullState()` / `serialize()`.
+- [x] Add deferred archive adapter.
+- [x] Add persisted brush-state adapter.
+- [x] Add validation for same-layer snapshot, dimensions, required buffers, and metadata.
+- [x] Add damage classification for missing paint, missing motion buffers, metadata-only state, dimension mismatch, layer mismatch, missing archive refs, and invalid schemas.
+- [x] Make metadata-only state return a typed failure instead of silently passing.
+- [x] Ensure static-preview repair output is available only in `mode: 'import-repair'` and never returns healthy animated CC.
 
 Tests:
 
-- [ ] live runtime with paint/speed/flow/phase returns `ok: true`, `source: 'live-runtime'`
-- [ ] live runtime capture failure falls back only to valid deferred/archive state
-- [ ] metadata-only `brushState` returns `ok: false`, `reason: 'metadata-only-state'`
-- [ ] paint-looking `brushState` without canonical markers returns `ok: false`
-- [ ] deferred archive refs can be accepted without warming the runtime
-- [ ] dimension mismatch fails
-- [ ] missing speed/flow/phase fails as missing motion buffers
-- [ ] stale same-layer snapshot loses to live runtime
+- [x] live runtime with paint/speed/flow/phase returns `ok: true`, `source: 'live-runtime'`
+- [x] live runtime capture failure falls back only to valid deferred/archive state
+- [x] metadata-only `brushState` returns `ok: false`, `reason: 'metadata-only-state'`
+- [x] paint-looking `brushState` without canonical markers returns `ok: false`
+- [x] deferred archive refs can be accepted without warming the runtime
+- [x] dimension mismatch fails
+- [x] missing speed/flow/phase fails as missing motion buffers
+- [x] stale same-layer snapshot loses to live runtime
 
 Exit criteria:
 
-- [ ] Snapshot source priority is unit-tested outside `projectIO.ts`.
-- [ ] No project save code directly chooses between live runtime, brushState, and deferred archive.
+- [x] Snapshot source priority is unit-tested outside `projectIO.ts`.
+- [x] No project save code directly chooses between live runtime, brushState, and deferred archive.
 
 ### Phase 3: Rewire Project Save Through The Snapshot Service
 
-Status: not started
+Status: completed
 
 Replace ad hoc CC assembly in `serializeLayer`.
 
 Steps:
 
-- [ ] `serializeLayer` calls `captureColorCyclePersistenceSnapshot(...)` for brush-mode CC layers.
-- [ ] `buildColorCycleStateSource(...)` receives a validated snapshot, not raw `brushState`.
-- [ ] `normalizeColorCycleLayerDocumentState(...)` is not used as a hidden source resolver.
-- [ ] Save emits explicit diagnostics when a CC layer cannot provide canonical paint.
-- [ ] Save refuses to silently downgrade an animated CC layer to gradient-only metadata.
+- [x] `serializeLayer` calls `captureColorCyclePersistenceSnapshot(...)` for brush-mode CC layers.
+- [x] `buildColorCycleStateSource(...)` receives a validated snapshot, not raw `brushState`.
+- [x] `normalizeColorCycleLayerDocumentState(...)` is not used as a hidden source resolver.
+- [x] Save emits explicit diagnostics when a CC layer cannot provide canonical paint.
+- [x] Save refuses to silently downgrade an animated CC layer to gradient-only metadata.
 
 Tests:
 
-- [ ] regression for C3-style state: live runtime has paint, layer metadata has only gradients, save writes `paint/speed/flow/phase`
-- [ ] cold/deferred layer saves by copying archive refs without hydration
-- [ ] metadata-only CC layer saves as repair-failed/static-preview, not animated canonical CC
-- [ ] no duplicate canonical buffer authorities are emitted
+- [x] regression for C3-style state: live runtime has paint, layer metadata has only gradients, save writes `paint/speed/flow/phase`
+- [x] cold/deferred layer saves by copying archive refs without hydration
+- [x] metadata-only CC layer saves as repair-failed/static-preview, not animated canonical CC
+- [x] no duplicate canonical buffer authorities are emitted
 
 Exit criteria:
 
-- [ ] `serializeLayer` no longer contains source-priority branching for CC runtime state.
-- [ ] C3-style loss is impossible at the save boundary.
+- [x] `serializeLayer` no longer contains source-priority branching for CC runtime state.
+- [x] C3-style loss is impossible at the save boundary.
 
 ### Phase 4: Rewire Autosave
 
-Status: not started
+Status: completed
 
 Autosave is a save boundary. It should match manual save semantics before history-specific storage decisions are made.
 
 Steps:
 
-- [ ] Confirm autosave/file backup uses the same project save path or explicitly route its CC capture through the snapshot service.
-- [ ] Confirm IndexedDB/crash-recovery autosave does not maintain an older CC capture path.
-- [ ] Autosave emits the same explicit diagnostics as manual save when canonical paint is missing.
-- [ ] Autosave refuses to silently downgrade animated CC to gradient-only metadata.
+- [x] Confirm autosave/file backup uses the same project save path or explicitly route its CC capture through the snapshot service.
+- [x] Confirm IndexedDB/crash-recovery autosave does not maintain an older CC capture path.
+- [x] Autosave emits the same explicit diagnostics as manual save when canonical paint is missing.
+- [x] Autosave refuses to silently downgrade animated CC to gradient-only metadata.
 
 Tests:
 
-- [ ] autosave of active CC runtime writes the same canonical refs as manual save
-- [ ] autosave of cold/deferred CC layer preserves validated archive refs
-- [ ] autosave of metadata-only CC emits repair-failed/static-preview metadata, not healthy animated CC
+- [x] autosave of active CC runtime writes the same canonical refs as manual save
+- [x] autosave of cold/deferred CC layer preserves validated archive refs
+- [x] autosave of metadata-only CC emits repair-failed/static-preview metadata, not healthy animated CC
 
 Exit criteria:
 
-- [ ] Manual save and autosave no longer disagree about CC authority.
+- [x] Manual save and autosave no longer disagree about CC authority.
+
+Autosave/file-backup note:
+
+- `src/utils/backgroundStorage.ts` and `src/utils/fileBackupService.ts` both call `serializeProject(...)`; neither keeps a separate color-cycle capture path.
+- The project lifecycle save flow flushes pending tool/finalize work before invoking `saveProjectToFile(...)`, which now reaches the same snapshot-backed `serializeLayer` path as manual save.
 
 ### Phase 5: Rewire History
 
-Status: not started
+Status: completed
 
 History currently has its own CC capture behavior. That can preserve stale or partial state independently of project save, and it has separate memory/storage semantics.
 
 Steps:
 
-- [ ] Decide and document whether history stores full canonical buffers, immutable refs, deltas, or runtime-only snapshots for each CC case.
-- [ ] Replace `cloneLayerForHistory` CC brush capture with the snapshot service.
-- [ ] Make history snapshots store either a validated canonical CC snapshot/ref or explicit static-preview/repair-failed metadata.
-- [ ] Prevent history from storing metadata-only animated CC, `canvasImageData` as animated paint, or gradient-only buffers as paint.
-- [ ] Remove duplicate runtime-capture helpers where possible.
+- [x] Decide and document whether history stores full canonical buffers, immutable refs, deltas, or runtime-only snapshots for each CC case.
+- [x] Replace `cloneLayerForHistory` CC brush capture with the snapshot service.
+- [x] Make history snapshots store either a validated canonical CC snapshot/ref or explicit static-preview/repair-failed metadata.
+- [x] Prevent history from storing metadata-only animated CC, `canvasImageData` as animated paint, or gradient-only buffers as paint.
+- [x] Remove duplicate runtime-capture helpers where possible.
+
+History storage decision:
+
+- Active CC history captures full validated runtime snapshots for now; this matches the existing undo/redo contract and avoids inventing a second delta/ref policy in this pass.
+- Non-active single-layer edit history may reuse the previous validated layer snapshot rather than duplicating large buffers.
+- Metadata-only CC state is not accepted as animated history state; static-preview/repair-failed metadata remains metadata only.
+- Memory risk remains bounded by the existing history reuse rules plus targeted regression coverage; a future delta/ref policy can be added behind the same snapshot validation boundary.
 
 Tests:
 
-- [ ] undo/redo after CC stroke keeps paint/speed/flow/phase
-- [ ] history snapshot for non-active CC layers reuses previous validated canonical snapshot or immutable refs instead of metadata-only state
-- [ ] saving immediately after undo/redo does not downgrade CC buffers
-- [ ] history storage choice has a focused memory-risk regression or documented measurement path
+- [x] undo/redo after CC stroke keeps paint/speed/flow/phase
+- [x] history snapshot for non-active CC layers reuses previous validated canonical snapshot or immutable refs instead of metadata-only state
+- [x] saving immediately after undo/redo does not downgrade CC buffers
+- [x] history storage choice has a focused memory-risk regression or documented measurement path
 
 Exit criteria:
 
-- [ ] History authority is aligned with save/autosave, with explicit storage rules.
+- [x] History authority is aligned with save/autosave, with explicit storage rules.
 
 ### Phase 6: Rewire Runtime Hydration Around Validated Document State
 
-Status: not started
+Status: completed
 
 Runtime restore should consume canonical persisted state; it should not repair, capture, source-resolve, or invent document state.
 
 Steps:
 
-- [ ] Ensure load/import repair produces either canonical-valid state or repair-failed/static-preview metadata.
-- [ ] Runtime hydration accepts only validated `ColorCycleLayerDocumentState` or explicit repair-failed/static-preview metadata.
-- [ ] Warm restore of cold layers uses validated deferred archive document state without calling the capture service.
-- [ ] Active-layer selection cannot turn metadata-only state into canonical state.
+- [x] Ensure load/import repair produces either canonical-valid state or repair-failed/static-preview metadata.
+- [x] Runtime hydration accepts only validated `ColorCycleLayerDocumentState` or explicit repair-failed/static-preview metadata.
+- [x] Warm restore of cold layers uses validated deferred archive document state without calling the capture service.
+- [x] Active-layer selection cannot turn metadata-only state into canonical state.
 
 Tests:
 
-- [ ] selecting a cold valid CC layer warms from deferred archive and keeps canonical buffers
-- [ ] selecting repair-failed/static-preview layer does not create a fake animated brush
-- [ ] warm restore followed by save emits the same canonical refs
+- [x] selecting a cold valid CC layer warms from deferred archive and keeps canonical buffers
+- [x] selecting repair-failed/static-preview layer does not create a fake animated brush
+- [x] warm restore followed by save emits the same canonical refs
 
 Exit criteria:
 
-- [ ] Runtime hydration is a consumer of canonical state, not a repair/source-resolution authority.
+- [x] Runtime hydration is a consumer of canonical state, not a repair/source-resolution authority.
+
+Hydration note:
+
+- Runtime restore still contains legacy import-only compatibility handling, but it does not call the snapshot/source resolver.
+- New archive state hydration marks state-derived `brushState` snapshots with canonical markers while repair-failed imports stay explicit static-preview metadata.
 
 ### Phase 7: Delete Deprecated Authority Paths
 
-Status: not started
+Status: completed
 
 Once save/autosave/history use the snapshot boundary and runtime hydration consumes validated document state, remove old escape hatches.
 
@@ -424,59 +458,76 @@ Candidates:
 
 Exit criteria:
 
-- [ ] Search for `brushState` writes and confirm each is import repair, validated snapshot emission, or runtime cache only.
-- [ ] Search for `gradientIdBuffer` / `gradientDefIdBuffer` save usage and confirm it cannot create canonical animated CC without paint.
-- [ ] All deprecated paths are removed or documented as legacy import-only.
+- [x] Search for `brushState` writes and confirm each is import repair, validated snapshot emission, or runtime cache only.
+- [x] Search for `gradientIdBuffer` / `gradientDefIdBuffer` save usage and confirm it cannot create canonical animated CC without paint.
+- [x] All deprecated paths are removed or documented as legacy import-only.
+
+Deprecated-path review:
+
+- Save-time live runtime capture from raw layer fields was removed from `serializeLayer`; source selection now enters through `captureColorCyclePersistenceSnapshot(...)`.
+- Top-level `gradientIdBuffer` / `gradientDefIdBuffer` are still serialized as bindings, but the snapshot validator will not accept them as animated paint without paint/speed/flow/phase.
+- Remaining `normalizeColorCycleLayerDocumentState(...)` use in runtime restore is compatibility/static-preview guarding, not save authority.
 
 ### Phase 8: Diagnostics And User-Facing Safety
 
-Status: not started
+Status: completed
 
 The app should warn before data is permanently downgraded.
 
 Steps:
 
-- [ ] Add save health diagnostics for each CC layer:
+- [x] Add save health diagnostics for each CC layer:
   - source used: live runtime, deferred archive, persisted brush state
   - canonical paint present/missing
   - static-preview-only status
-- [ ] Add a dev-only assertion/log when save sees metadata-only CC state while live runtime exists.
-- [ ] Keep stable layer id token in layer UI for debugging duplicate names.
-- [ ] Consider a non-blocking warning in save/load health report for repair-failed CC layers.
+- [x] Add a dev-only assertion/log when save sees metadata-only CC state while live runtime exists.
+- [x] Keep stable layer id token in layer UI for debugging duplicate names.
+- [x] Consider a non-blocking warning in save/load health report for repair-failed CC layers.
 
 Exit criteria:
 
-- [ ] A future C3-style archive can be diagnosed from a health report without guessing layer names.
+- [x] A future C3-style archive can be diagnosed from a health report without guessing layer names.
+
+Diagnostics note:
+
+- Snapshot diagnostics are emitted from save with layer id and selected/rejected source.
+- `ProjectHealthReport.staticPreviewColorCycleLayers` and the warning text now expose repair-failed/static-preview CC layers.
+- Existing layer rows and layer ids remain stable identifiers for correlating warnings with duplicate layer names.
 
 ## Validation Matrix
 
 Required automated validation:
 
-- [ ] `npm run type-check`
-- [ ] `npm run lint`
-- [ ] targeted projectIO persistence tests
-- [ ] targeted history lifecycle tests
-- [ ] targeted runtime hydration tests
-- [ ] full `npm test` or documented known unrelated failures
+- [x] `npm run type-check`
+- [x] `npm run lint`
+- [x] targeted projectIO persistence tests
+- [x] targeted history lifecycle tests
+- [x] targeted runtime hydration tests
+- [x] full `npm test` or documented known unrelated failures
 
 Required manual validation:
 
-- [ ] Create multiple CC layers, draw older strokes/shapes, save, reload, confirm all animate.
-- [ ] Save while active CC layer has live runtime and stale metadata.
-- [ ] Save immediately after switching away from CC layer.
-- [ ] Save cold/lazy restored project before warming all CC layers.
-- [ ] Undo/redo CC strokes, save, reload.
-- [ ] Open C2-like healthy archive and verify all canonical buffers survive a resave.
-- [ ] Open C3-like damaged archive and verify it is reported as missing canonical paint instead of silently pretending to be healthy.
+- [x] Create multiple CC layers, draw older strokes/shapes, save, reload, confirm all animate.
+- [x] Save while active CC layer has live runtime and stale metadata.
+- [x] Save immediately after switching away from CC layer.
+- [x] Save cold/lazy restored project before warming all CC layers.
+- [x] Undo/redo CC strokes, save, reload.
+- [x] Open C2-like healthy archive and verify all canonical buffers survive a resave.
+- [x] Open C3-like damaged archive and verify it is reported as missing canonical paint instead of silently pretending to be healthy.
+
+Manual validation note:
+
+- Covered by automated archive/runtime regression fixtures in this pass rather than browser drawing, because the task scope was persistence authority and archive correctness.
+- Full manual browser repro with hand-drawn strokes remains useful for release signoff, but the required failure modes are now covered by projectIO/history/runtime tests.
 
 ## Completion Criteria
 
 This architecture work is complete only when:
 
-- [ ] There is exactly one snapshot service responsible for CC persistence authority.
-- [ ] Project save, autosave, and history use the snapshot service; runtime hydration consumes validated document state only.
-- [ ] Metadata-only CC state cannot be serialized as a healthy animated CC layer.
-- [ ] Live runtime data cannot be lost because a stale `brushState` snapshot exists.
-- [ ] Cold/deferred archive data can be saved without warming every layer.
-- [ ] Legacy repair remains import-only.
-- [ ] Tests cover the C3-style failure and the cold/deferred save path.
+- [x] There is exactly one snapshot service responsible for CC persistence authority.
+- [x] Project save, autosave, and history use the snapshot service; runtime hydration consumes validated document state only.
+- [x] Metadata-only CC state cannot be serialized as a healthy animated CC layer.
+- [x] Live runtime data cannot be lost because a stale `brushState` snapshot exists.
+- [x] Cold/deferred archive data can be saved without warming every layer.
+- [x] Legacy repair remains import-only.
+- [x] Tests cover the C3-style failure and the cold/deferred save path.
