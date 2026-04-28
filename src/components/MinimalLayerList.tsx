@@ -21,6 +21,37 @@ import { selectProjectDimensions } from '@/stores/selectors/projectSelectors';
 // Removed floating color cycle panel integration; panel now lives in Brush Settings
 
 export const LAYER_TAG_CLASS = 'px-1 rounded text-[9px] leading-4 bg-[#3A3A3A] text-[#D9D9D9] border border-[#545454]';
+
+const escapeRegExp = (value: string): string => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+export const createUniqueLayerName = (
+  layers: Layer[],
+  prefix: string,
+  matchesLayer: (layer: Layer) => boolean,
+): string => {
+  const namePattern = new RegExp(`^${escapeRegExp(prefix)} (\\d+)$`);
+  const highestSuffix = layers.reduce((highest, layer) => {
+    if (!matchesLayer(layer)) {
+      return highest;
+    }
+    const match = layer.name.match(namePattern);
+    if (!match) {
+      return highest;
+    }
+    const suffix = Number(match[1]);
+    return Number.isFinite(suffix) ? Math.max(highest, suffix) : highest;
+  }, 0);
+  return `${prefix} ${highestSuffix + 1}`;
+};
+
+export const formatLayerDebugToken = (layerId: string): string => {
+  const timestampMatch = layerId.match(/^layer-(\d+)/);
+  if (timestampMatch) {
+    return timestampMatch[1].slice(-6);
+  }
+  return layerId.slice(-6);
+};
+
 export const LayerColorSwatches = memo<{ 
   layer: Layer;
   visible: boolean;
@@ -112,6 +143,8 @@ const LayerRow = memo<LayerRowProps>(
     generateGradientCSS,
   }) => {
     const isHighlighted = isActive || isSelected;
+    const layerDebugToken = formatLayerDebugToken(layer.id);
+    const layerTitle = `${layer.name}\nLayer ID: ${layer.id}`;
 
     const rowClassName = `
       relative group cursor-move select-none rounded-sm transition-all duration-150 border-l-4
@@ -190,6 +223,9 @@ const LayerRow = memo<LayerRowProps>(
               <span className={LAYER_TAG_CLASS}>
                 {layer.colorCycleData?.mode === 'recolor' ? 'Recolor' : 'Brush'}
               </span>
+              <span className={LAYER_TAG_CLASS} title={layerTitle}>
+                #{layerDebugToken}
+              </span>
               {layer.colorCycleData?.deferredRuntimeRestore ? (
                 <span
                   className={LAYER_TAG_CLASS}
@@ -202,6 +238,9 @@ const LayerRow = memo<LayerRowProps>(
           ) : (
             <div className="ml-1 flex items-center gap-1">
               <span className={LAYER_TAG_CLASS}>Layer</span>
+              <span className={LAYER_TAG_CLASS} title={layerTitle}>
+                #{layerDebugToken}
+              </span>
             </div>
           )}
 
@@ -392,7 +431,11 @@ const MinimalLayerList = () => {
 
     // Create a color-cycle layer
     const newLayer: Omit<Layer, 'id' | 'order'> = {
-      name: `CC Layer ${layersSnapshot.filter(l => l.layerType === 'color-cycle').length + 1}`,
+      name: createUniqueLayerName(
+        layersSnapshot,
+        'CC Layer',
+        (existingLayer) => existingLayer.layerType === 'color-cycle',
+      ),
       visible: true,
       opacity: 1,
       blendMode: 'source-over',
@@ -459,7 +502,11 @@ const MinimalLayerList = () => {
     
     // Create a regular layer
     const newLayer: Omit<Layer, 'id' | 'order'> = {
-      name: `Layer ${layersSnapshot.length + 1}`,
+      name: createUniqueLayerName(
+        layersSnapshot,
+        'Layer',
+        (existingLayer) => existingLayer.layerType === 'normal',
+      ),
       visible: true,
       opacity: 1,
       blendMode: 'source-over',
@@ -503,13 +550,16 @@ const MinimalLayerList = () => {
       return canvas;
     };
 
-    const sequentialLayerCount = layersSnapshot.filter((layer) => layer.layerType === 'sequential').length;
     const frameCount = 24;
     const fps = 24;
     const durationMs = Math.round((frameCount * 1000) / fps);
 
     const newLayer: Omit<Layer, 'id' | 'order'> = {
-      name: `Sequence ${sequentialLayerCount + 1}`,
+      name: createUniqueLayerName(
+        layersSnapshot,
+        'Sequence',
+        (existingLayer) => existingLayer.layerType === 'sequential',
+      ),
       visible: true,
       opacity: 1,
       blendMode: 'source-over',

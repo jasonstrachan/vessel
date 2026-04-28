@@ -4649,6 +4649,118 @@ describe('projectIO serialize/deserialize layering', () => {
     expect((restoredStrokeData?.flowBuffer ?? '').length).toBeGreaterThan(0);
   });
 
+  it('captures live color-cycle brush buffers when layer metadata only has gradient bindings', async () => {
+    const width = 4;
+    const height = 4;
+    const layerId = 'layer-cc-live-save-source';
+    const pixelCount = width * height;
+    const paint = Uint8Array.from({ length: pixelCount }, (_, index) => (index < 6 ? index + 1 : 0));
+    const gradientId = Uint8Array.from({ length: pixelCount }, (_, index) => (index < 6 ? 8 : 0));
+    const gradientDefId = new Uint16Array(pixelCount);
+    const speed = new Uint8Array(pixelCount);
+    const flow = new Uint8Array(pixelCount);
+    const phase = new Uint8Array(pixelCount);
+    for (let i = 0; i < 6; i += 1) {
+      gradientDefId[i] = 12;
+      speed[i] = 33;
+      flow[i] = 1;
+      phase[i] = 44;
+    }
+
+    const liveBrushState = {
+      cycleSpeed: 1,
+      fps: 30,
+      brushSize: 1,
+      layers: [{
+        layerId,
+        gradientDefs: [{ id: 'g8', currentSlot: 8 }],
+        slotPalettes: [{ slot: 8, stops: [{ position: 0, color: '#000000' }, { position: 1, color: '#ffffff' }] }],
+        gradientDefStore: [{
+          id: 12,
+          kind: 'linear' as const,
+          stops: [{ position: 0, color: '#000000' }, { position: 1, color: '#ffffff' }],
+          hash: 'linear:live',
+          source: 'sampled' as const,
+          createdAtMs: 1,
+          slot: 8,
+        }],
+        nextGradientDefId: 13,
+        paintSlot: 8,
+        strokeData: {
+          hasContent: true,
+          strokeCounter: 9,
+          paintBuffer: paint.buffer.slice(0),
+          gradientIdBuffer: gradientId.buffer.slice(0),
+          gradientDefIdBuffer: gradientDefId.buffer.slice(0),
+          speedBuffer: speed.buffer.slice(0),
+          flowBuffer: flow.buffer.slice(0),
+          phaseBuffer: phase.buffer.slice(0),
+        },
+      }],
+    };
+
+    const layer: Layer = {
+      id: layerId,
+      name: 'Live CC Save Source',
+      visible: true,
+      opacity: 1,
+      blendMode: 'source-over',
+      locked: false,
+      transparencyLocked: false,
+      order: 0,
+      imageData: null,
+      framebuffer: createCanvasFromImageData(createSolidImageData(width, height, [0, 0, 0, 0])),
+      alignment: createDefaultLayerAlignment(),
+      layerType: 'color-cycle',
+      colorCycleData: {
+        canvas: createCanvasFromImageData(createSolidImageData(width, height, [20, 30, 40, 255])),
+        canvasWidth: width,
+        canvasHeight: height,
+        gradientIdBuffer: gradientId.buffer.slice(0),
+        gradientDefIdBuffer: gradientDefId.buffer.slice(0),
+        colorCycleBrush: {
+          serialize: () => liveBrushState,
+        } as never,
+      },
+      version: 1,
+    };
+    const project: Project = {
+      id: 'project-live-cc-save-source',
+      name: 'Live CC Save Source',
+      width,
+      height,
+      backgroundColor: '#000000',
+      layers: [layer],
+      customBrushes: [],
+      createdAt: new Date('2025-01-01T00:00:00.000Z'),
+      updatedAt: new Date('2025-01-01T00:00:00.000Z'),
+    };
+
+    const payload = await withPatchedCanvasRect(() => serializeProject(project, project.layers));
+    const zip = await JSZip.loadAsync(payload);
+    const projectJson = await zip.file('project.json')?.async('string');
+    if (!projectJson) {
+      throw new Error('Missing project.json');
+    }
+    const manifest = JSON.parse(projectJson) as {
+      project: { layers: Array<{ id: string; state?: Record<string, unknown> }> };
+      binaries?: { entries?: Array<{ path: string }> };
+    };
+    const persistedLayer = manifest.project.layers.find((entry) => entry.id === layerId);
+    const binaryPaths = new Set((manifest.binaries?.entries ?? []).map((entry) => entry.path));
+
+    expect(persistedLayer?.state?.paintRef).toBe(`zip:buffers/color-cycle/${layerId}/paint.bin`);
+    expect(persistedLayer?.state?.speedRef).toBe(`zip:buffers/color-cycle/${layerId}/speed.bin`);
+    expect(persistedLayer?.state?.flowRef).toBe(`zip:buffers/color-cycle/${layerId}/flow.bin`);
+    expect(persistedLayer?.state?.phaseRef).toBe(`zip:buffers/color-cycle/${layerId}/phase.bin`);
+    expect(persistedLayer?.state?.hasContent).toBe(true);
+    expect(persistedLayer?.state?.strokeCounter).toBe(9);
+    expect(persistedLayer?.state?.paintSlot).toBe(8);
+    expect(binaryPaths.has(`buffers/color-cycle/${layerId}/paint.bin`)).toBe(true);
+    expect(binaryPaths.has(`buffers/color-cycle/${layerId}/flow.bin`)).toBe(true);
+    expect(zip.file(`buffers/color-cycle/${layerId}/paint.bin`)).toBeTruthy();
+  });
+
   it('does not defer runtime restore for animating non-active heavy color-cycle layers when lazy mode is enabled', async () => {
     const width = 2048;
     const height = 2048;

@@ -2,7 +2,10 @@
 import React from 'react';
 import { render, fireEvent, screen, act } from '@testing-library/react';
 import { BrushShape, type Layer, type Project } from '@/types';
-import MinimalLayerList from '@/components/MinimalLayerList';
+import MinimalLayerList, {
+  createUniqueLayerName,
+  formatLayerDebugToken,
+} from '@/components/MinimalLayerList';
 
 jest.mock('@/stores/useAppStore', () => {
   const listeners = new Set<(state: any) => void>();
@@ -13,6 +16,8 @@ jest.mock('@/stores/useAppStore', () => {
     activeLayerId: null as string | null,
     selectedLayerIds: [] as string[],
     tools: { brushSettings: { brushShape: BrushShape.ROUND } },
+    brushPresets: [],
+    currentBrushPreset: null,
     setSelectedLayerIds: (ids: string[]) => {
       state.selectedLayerIds = ids;
       listeners.forEach((l) => l(state));
@@ -164,6 +169,48 @@ const createProject = (layers: Layer[]): Project => ({
   customBrushes: [],
   createdAt: new Date(),
   updatedAt: new Date(),
+});
+
+describe('MinimalLayerList layer identity labels', () => {
+  it('generates the next layer name from the highest existing suffix', () => {
+    const layers = [
+      { ...createLayer('layer-a', 0), name: 'CC Layer 1', layerType: 'color-cycle' as const },
+      { ...createLayer('layer-b', 1), name: 'CC Layer 3', layerType: 'color-cycle' as const },
+      { ...createLayer('layer-c', 2), name: 'Layer 9', layerType: 'normal' as const },
+    ];
+
+    expect(createUniqueLayerName(
+      layers,
+      'CC Layer',
+      (layer) => layer.layerType === 'color-cycle',
+    )).toBe('CC Layer 4');
+  });
+
+  it('shows a stable short layer id token in each row', () => {
+    const layers = [
+      createLayer('layer-1777355997260-0.34674496318479386', 0),
+    ];
+    const project = createProject(layers);
+
+    act(() => {
+      useAppStore.setState((state) => ({
+        ...state,
+        project,
+        layers,
+        activeLayerId: layers[0].id,
+        selectedLayerIds: [layers[0].id],
+      }));
+    });
+
+    render(<MinimalLayerList />);
+
+    const token = formatLayerDebugToken(layers[0].id);
+    expect(screen.getByText(`#${token}`)).toBeInTheDocument();
+    expect(screen.getByTitle((title) => (
+      title.includes(layers[0].name) &&
+      title.includes(`Layer ID: ${layers[0].id}`)
+    ))).toBeInTheDocument();
+  });
 });
 
 describe('MinimalLayerList visibility toggling', () => {
