@@ -61,6 +61,7 @@ function isManagedDevCommand(command) {
 
   return [
     'next dev',
+    'next-server',
     'npm run dev:safe',
     'scripts/dev-server.js',
   ].some((segment) => command.includes(segment));
