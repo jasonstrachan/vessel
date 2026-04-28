@@ -474,6 +474,42 @@ describe('tools slice', () => {
     expect(useAppStore.getState().tools.shapeMode).toBe(true);
   });
 
+  it('switches color cycle gradient source tabs in one action', () => {
+    const store = useAppStore.getState();
+    const gradientPreset = brushPresets.find((preset) => preset.id === 'color-cycle-gradient');
+    expect(gradientPreset).toBeTruthy();
+    if (!gradientPreset) {
+      return;
+    }
+
+    store.setBrushPreset(gradientPreset);
+    useAppStore.setState((state) => ({
+      tools: {
+        ...state.tools,
+        ccGradientSource: 'fg',
+        brushSettings: {
+          ...state.tools.brushSettings,
+          ccGradientSource: 'fg',
+          colorCycleUseForegroundGradient: true,
+          autoSampleGradientRealtime: false,
+        },
+      },
+    }));
+
+    useAppStore.getState().setCcGradientSource('sampled');
+    let state = useAppStore.getState();
+    expect(state.tools.ccGradientSource).toBe('sampled');
+    expect(state.tools.brushSettings.ccGradientSource).toBe('sampled');
+    expect(state.tools.brushSettings.colorCycleUseForegroundGradient).toBe(false);
+
+    useAppStore.getState().setCcGradientSource('fg');
+    state = useAppStore.getState();
+    expect(state.tools.ccGradientSource).toBe('fg');
+    expect(state.tools.brushSettings.ccGradientSource).toBe('fg');
+    expect(state.tools.brushSettings.colorCycleUseForegroundGradient).toBe(true);
+    expect(state.tools.brushSettings.autoSampleGradientRealtime).toBe(false);
+  });
+
   it('forces shape mode off for regular pixel presets', () => {
     const store = useAppStore.getState();
     store.setShapeMode(true);

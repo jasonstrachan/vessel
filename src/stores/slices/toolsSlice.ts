@@ -215,6 +215,7 @@ const getSerializableBrushSettings = (settings: BrushSettings): Partial<BrushSet
   pressureLinkedFillResolution: settings.pressureLinkedFillResolution,
   pressureLinkedFillMaxResolution: settings.pressureLinkedFillMaxResolution,
   pressureDitherSmoosh: settings.pressureDitherSmoosh,
+  pxlEdge: settings.pxlEdge,
   pigmentLiftEnabled: settings.pigmentLiftEnabled,
   pigmentLiftStrength: settings.pigmentLiftStrength,
   pigmentLiftFeather: settings.pigmentLiftFeather,
@@ -862,6 +863,9 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
       if (settings.pressureDitherSmoosh !== undefined) {
         settingsToSave.pressureDitherSmoosh = newSettings.pressureDitherSmoosh;
       }
+      if (settings.pxlEdge !== undefined) {
+        settingsToSave.pxlEdge = newSettings.pxlEdge;
+      }
       if (settings.fillResolution !== undefined) settingsToSave.fillResolution = newSettings.fillResolution;
       if (settings.rotationEnabled !== undefined) settingsToSave.rotationEnabled = newSettings.rotationEnabled;
       if (settings.dashedEnabled !== undefined) settingsToSave.dashedEnabled = newSettings.dashedEnabled;
@@ -1084,21 +1088,28 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
     }
 
     // Clear temporary brush when switching away from custom brushes
+    const hasExplicitCcGradientSource = Object.prototype.hasOwnProperty.call(settings, 'ccGradientSource');
     let nextCcGradientSource = state.tools.ccGradientSource;
-    if (Object.prototype.hasOwnProperty.call(settings, 'ccGradientSource')) {
+    if (hasExplicitCcGradientSource) {
       const desired = settings.ccGradientSource;
       if (desired) {
         nextCcGradientSource = desired;
       }
     }
-    if (Object.prototype.hasOwnProperty.call(settings, 'colorCycleUseForegroundGradient')) {
+    if (
+      !hasExplicitCcGradientSource &&
+      Object.prototype.hasOwnProperty.call(settings, 'colorCycleUseForegroundGradient')
+    ) {
       if (settings.colorCycleUseForegroundGradient) {
         nextCcGradientSource = 'fg';
       } else if (state.tools.ccGradientSource === 'fg') {
         nextCcGradientSource = 'manual';
       }
     }
-    if (Object.prototype.hasOwnProperty.call(settings, 'autoSampleGradientRealtime')) {
+    if (
+      !hasExplicitCcGradientSource &&
+      Object.prototype.hasOwnProperty.call(settings, 'autoSampleGradientRealtime')
+    ) {
       if (settings.autoSampleGradientRealtime) {
         nextCcGradientSource = 'sampled';
       } else if (state.tools.ccGradientSource === 'sampled') {
