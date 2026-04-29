@@ -56,13 +56,13 @@ const LeftToolbar = () => {
       { id: 'fill' as Tool, label: 'Fill', abbr: 'Fi' },
       { id: 'magic-wand' as ToolbarItemId, label: 'Magic Wand', abbr: 'Mw' },
       { id: 'color-adjust' as Tool, label: 'Hue/Sat', abbr: 'Hs' },
+      { id: 'filters' as ToolbarItemId, label: 'Filters', abbr: 'Fl' },
     ],
     [
       { id: 'save' as Tool, label: 'Save File', abbr: 'Sv' },
       { id: 'load' as Tool, label: 'Load File', abbr: 'Ld' },
       { id: 'export' as Tool, label: 'Export', abbr: 'Ex' },
       { id: 'grid-toggle' as ToolbarItemId, label: 'Grid', abbr: 'Gd' },
-      { id: 'filters' as ToolbarItemId, label: 'Filters', abbr: 'Fl' },
       { id: 'options' as Tool, label: 'Options', abbr: 'St' },
     ],
   ];
@@ -158,6 +158,9 @@ const LeftToolbar = () => {
                   </span>
                 </button>
                 {groupIndex === 0 && toolIndex === 0 && (
+                  <div className="h-[2px] w-full my-2 flex-shrink-0" style={{ backgroundColor: '#D9D9D9' }} />
+                )}
+                {tool.id === 'export' && (
                   <div className="h-[2px] w-full my-2 flex-shrink-0" style={{ backgroundColor: '#D9D9D9' }} />
                 )}
               </React.Fragment>
