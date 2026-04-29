@@ -16,12 +16,31 @@ import { Eye, EyeOff } from 'lucide-react';
 import { createDefaultExportLayout } from '@/utils/layoutDefaults';
 import { runExport } from '@/utils/export/exportService';
 import { buildGobletExportSnapshotRequest } from '@/utils/export/goblet/gobletSnapshot';
-import type { FrameProvider } from '@/utils/export/types';
+import type { ExportProgress, FrameProvider } from '@/utils/export/types';
+import type { WebGLExportLayerStatus, WebGLExportProgressPhase } from '@/utils/export/goblet/gobletTypes';
 import type { Layer, WebGLExportBundleFormat, WebGLExportGobletVersion } from '@/types';
 
 type ExportKind = 'png' | 'gif' | 'mp4' | 'webgl';
 type RasterExportScale = 0.2 | 0.5 | 1 | 2 | 3 | 4;
 type WebglExportPreset = 'single-html' | 'bundle' | 'json';
+type ExportLayerProgressRow = {
+  id: string;
+  name: string;
+  status: WebGLExportLayerStatus;
+  message?: string;
+};
+type ExportProgressModalState = {
+  isOpen: boolean;
+  kind: ExportKind;
+  phase: WebGLExportProgressPhase;
+  percent: number;
+  message: string;
+  layers: ExportLayerProgressRow[];
+  error?: {
+    message: string;
+    stack?: string;
+  };
+};
 
 const BUNDLE_FORMAT_LABELS: Record<WebGLExportBundleFormat, string> = {
   zip: 'Goblet bundle zip',
@@ -46,6 +65,23 @@ const TOGGLE_ACTIVE_CLASS = 'bg-[#D9D9D9] border-[#D9D9D9] text-[#1B1B1B]';
 const TOGGLE_INACTIVE_CLASS = 'bg-[#1F1F1F] text-[#D4D4D4] hover:bg-[#2A2A2A] hover:text-white';
 const INLINE_FIELD_CLASS = 'bg-[#4a4a4a] border border-[#343434] text-sm text-[#E5E5E5] px-3 py-2 focus:outline-none focus:ring-1 focus:ring-[#D9D9D9] disabled:text-[#5C5C5C] disabled:bg-[#151515]';
 const INPUT_OVERRIDE_CLASS = '!bg-[#4a4a4a] !border-[#343434] !text-[#E5E5E5] !px-3 !py-2 !h-9 focus:!border-[#D9D9D9] focus:!ring-0 focus:!outline-none disabled:!text-[#5C5C5C] disabled:!bg-[#151515]';
+
+const WEBGL_PROGRESS_PHASE_LABELS: Record<WebGLExportProgressPhase, string> = {
+  preparing: 'Preparing',
+  layers: 'Exporting layers',
+  packaging: 'Packaging',
+  complete: 'Complete',
+  failed: 'Failed',
+};
+
+const LAYER_PROGRESS_LABELS: Record<WebGLExportLayerStatus, string> = {
+  waiting: 'Waiting',
+  exporting: 'Exporting',
+  'static-preview': 'Static preview',
+  done: 'Done',
+  failed: 'Failed',
+  skipped: 'Skipped',
+};
 
 const WEBGL_VIEWPORT_PRESETS = [
   { value: 'default', label: 'Default export' },
@@ -234,6 +270,137 @@ const CollapsibleSection: React.FC<CollapsibleSectionProps> = ({
   );
 };
 
+const buildInitialExportLayerRows = (
+  layers: Layer[],
+  includeHiddenLayers: boolean
+): ExportLayerProgressRow[] => (
+  layers.map((layer) => ({
+    id: layer.id,
+    name: layer.name || layer.id,
+    status: includeHiddenLayers || layer.visible !== false ? 'waiting' : 'skipped',
+    message: includeHiddenLayers || layer.visible !== false ? undefined : 'Hidden layer excluded',
+  }))
+);
+
+const upsertExportLayerRow = (
+  rows: ExportLayerProgressRow[],
+  next: ExportLayerProgressRow
+): ExportLayerProgressRow[] => {
+  const index = rows.findIndex((row) => row.id === next.id);
+  if (index < 0) {
+    return [...rows, next];
+  }
+  return rows.map((row, rowIndex) => (
+    rowIndex === index
+      ? { ...row, ...next }
+      : row
+  ));
+};
+
+interface ExportProgressModalProps {
+  state: ExportProgressModalState | null;
+  onCancel: () => void;
+  onClose: () => void;
+}
+
+const ExportProgressModal: React.FC<ExportProgressModalProps> = ({
+  state,
+  onCancel,
+  onClose,
+}) => {
+  if (!state?.isOpen) {
+    return null;
+  }
+
+  const canClose = state.phase === 'complete' || state.phase === 'failed';
+  const progressWidth = `${Math.max(0, Math.min(100, state.percent))}%`;
+
+  return (
+    <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/55">
+      <div className={`${MODAL_PANEL_CLASS} w-[520px] max-w-[calc(100vw-32px)] max-h-[calc(100vh-48px)] overflow-hidden shadow-2xl`}>
+        <div className="flex items-center justify-between border-b border-[#424242] px-5 py-3">
+          <div>
+            <h2 className={`${MODAL_TEXT_PRIMARY} text-base font-semibold`}>
+              Export progress
+            </h2>
+            <p className={`${MODAL_TEXT_SECONDARY} text-sm`}>
+              {state.kind === 'webgl' ? 'Goblet' : state.kind.toUpperCase()} - {WEBGL_PROGRESS_PHASE_LABELS[state.phase]}
+            </p>
+          </div>
+          {canClose && (
+            <button
+              type="button"
+              className="text-[#9C9C9C] hover:text-white"
+              onClick={onClose}
+              aria-label="Close export progress"
+            >
+              <XIcon size={18} />
+            </button>
+          )}
+        </div>
+
+        <div className="space-y-4 overflow-y-auto px-5 py-4">
+          <div className="space-y-2">
+            <div className="flex items-center justify-between gap-3 text-sm">
+              <span className={MODAL_TEXT_PRIMARY}>{state.message}</span>
+              <span className={MODAL_TEXT_SECONDARY}>{Math.round(state.percent)}%</span>
+            </div>
+            <div className="h-2 overflow-hidden bg-[#353535]">
+              <div className="h-full bg-[#D9D9D9] transition-all" style={{ width: progressWidth }} />
+            </div>
+          </div>
+
+          {state.layers.length > 0 && (
+            <div className="space-y-2">
+              {state.layers.map((layer) => (
+                <div
+                  key={layer.id}
+                  className="grid grid-cols-[1fr_auto] gap-3 border border-[#343434] bg-[#1F1F1F] px-3 py-2"
+                >
+                  <div className="min-w-0">
+                    <div className={`${MODAL_TEXT_PRIMARY} truncate text-sm`}>
+                      {layer.name}
+                    </div>
+                    {layer.message && (
+                      <div className={`${MODAL_TEXT_SECONDARY} truncate text-xs`}>
+                        {layer.message}
+                      </div>
+                    )}
+                  </div>
+                  <div className={`${MODAL_TEXT_SECONDARY} whitespace-nowrap text-xs`}>
+                    {LAYER_PROGRESS_LABELS[layer.status]}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {state.error && (
+            <div className="border border-[#7A3A3A] bg-[#2A1717] px-3 py-2">
+              <div className="text-sm font-semibold text-[#F1B3B3]">Export failed</div>
+              <div className="mt-1 text-sm text-[#F1D0D0]">{state.error.message}</div>
+              {state.error.stack && (
+                <details className="mt-2 text-xs text-[#D7B8B8]">
+                  <summary className="cursor-pointer">Details</summary>
+                  <pre className="mt-2 max-h-36 overflow-auto whitespace-pre-wrap">{state.error.stack}</pre>
+                </details>
+              )}
+            </div>
+          )}
+        </div>
+
+        <div className="flex justify-end gap-2 border-t border-[#424242] px-5 py-3">
+          {canClose ? (
+            <Button variant="primary" onClick={onClose}>Close</Button>
+          ) : (
+            <Button variant="secondary" onClick={onCancel}>Cancel</Button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+};
+
 interface ExportModalProps {
   isOpen: boolean;
   onClose: () => void;
@@ -355,6 +522,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
 
   const [isExporting, setIsExporting] = useState(false);
   const [progress, setProgress] = useState(0);
+  const [progressModal, setProgressModal] = useState<ExportProgressModalState | null>(null);
   const exportAbortRef = useRef<AbortController | null>(null);
   const scaleOptions = exportKind === 'gif' || exportKind === 'mp4'
     ? [
@@ -382,6 +550,9 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
       setTimeout(() => setIsVisible(true), 10);
     } else {
       setIsVisible(false);
+      exportAbortRef.current?.abort();
+      exportAbortRef.current = null;
+      setProgressModal(null);
       setTimeout(() => setShouldRender(false), 300);
     }
   }, [isOpen]);
@@ -830,6 +1001,41 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
     URL.revokeObjectURL(url);
   };
 
+  const updateExportProgress = useCallback((nextProgress: ExportProgress) => {
+    setProgress(nextProgress.percent);
+    setProgressModal((current) => {
+      if (!current) {
+        return current;
+      }
+
+      if (!nextProgress.webgl) {
+        return {
+          ...current,
+          percent: nextProgress.percent,
+          message: nextProgress.message ?? current.message,
+          phase: nextProgress.percent >= 100 ? 'complete' : current.phase,
+        };
+      }
+
+      const { webgl } = nextProgress;
+      return {
+        ...current,
+        phase: webgl.phase,
+        percent: webgl.percent,
+        message: webgl.message ?? current.message,
+        error: webgl.error ?? current.error,
+        layers: webgl.layer
+          ? upsertExportLayerRow(current.layers, {
+              id: webgl.layer.id,
+              name: webgl.layer.name,
+              status: webgl.layer.status,
+              message: webgl.layer.message,
+            })
+          : current.layers,
+      };
+    });
+  }, []);
+
   const handleExport = async () => {
     if (!project) return;
     if (exportKind === 'webgl' && webglPreflightError) {
@@ -844,6 +1050,16 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
     }
     setIsExporting(true);
     setProgress(0);
+    setProgressModal({
+      isOpen: true,
+      kind: exportKind,
+      phase: 'preparing',
+      percent: 0,
+      message: exportKind === 'webgl' ? 'Preparing Goblet export...' : 'Preparing export...',
+      layers: exportKind === 'webgl'
+        ? buildInitialExportLayerRows(layers, webglIncludeHidden)
+        : [],
+    });
     const controller = new AbortController();
     exportAbortRef.current = controller;
     try {
@@ -941,9 +1157,17 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
               }
             };
 
-      const result = await runExport(request, (progress) => setProgress(progress.percent), controller.signal);
+      const result = await runExport(request, updateExportProgress, controller.signal);
 
       if (result.kind === 'webgl') {
+        setProgressModal((current) => current
+          ? {
+              ...current,
+              phase: 'complete',
+              percent: 100,
+              message: 'Goblet export complete',
+            }
+          : current);
         addNotification({
           type: 'success',
           title: 'Goblet bundle saved',
@@ -952,6 +1176,14 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
           duration: 5000
         });
       } else {
+        setProgressModal((current) => current
+          ? {
+              ...current,
+              phase: 'complete',
+              percent: 100,
+              message: 'Export complete',
+            }
+          : current);
         if (result.kind === 'video' && videoMime === 'video/mp4' && !result.mimeType.includes('mp4')) {
           addNotification({
             type: 'warning',
@@ -963,8 +1195,29 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
         }
         downloadBlob(result.blob, result.filename);
       }
-      onClose();
     } catch (e) {
+      const error = e instanceof Error
+        ? { message: e.message, stack: e.stack }
+        : { message: 'Unknown error' };
+      setProgressModal((current) => current
+        ? {
+            ...current,
+            phase: 'failed',
+            percent: 100,
+            message: error.message,
+            error,
+          }
+        : {
+            isOpen: true,
+            kind: exportKind,
+            phase: 'failed',
+            percent: 100,
+            message: error.message,
+            layers: exportKind === 'webgl'
+              ? buildInitialExportLayerRows(layers, webglIncludeHidden)
+              : [],
+            error,
+          });
       addNotification({
         type: 'error',
         title: 'Export failed',
@@ -982,6 +1235,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
   if (!shouldRender) return null;
 
   return (
+    <>
     <div
       className={`fixed inset-0 z-50 ${isVisible ? 'opacity-100' : 'opacity-0'} transition-opacity duration-300`}
       onClick={() => { if (!isExporting) onClose(); }}
@@ -1595,6 +1849,12 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
         </div>
       </div>
     </div>
+    <ExportProgressModal
+      state={progressModal}
+      onCancel={() => { exportAbortRef.current?.abort(); }}
+      onClose={() => setProgressModal(null)}
+    />
+    </>
   );
 };
 

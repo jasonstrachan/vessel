@@ -103,6 +103,30 @@ const gobletDebugWarn = (...args: Array<unknown>) => {
   }
 };
 
+const toProgressError = (error: unknown): { message: string; stack?: string } => {
+  if (error instanceof Error) {
+    return {
+      message: error.message,
+      stack: error.stack,
+    };
+  }
+  return { message: String(error ?? 'Unknown error') };
+};
+
+const createAbortError = (): Error => {
+  if (typeof DOMException !== 'undefined') {
+    return new DOMException('Export cancelled', 'AbortError');
+  }
+  const error = new Error('Export cancelled');
+  error.name = 'AbortError';
+  return error;
+};
+
+const throwIfExportAborted = (signal?: AbortSignal): void => {
+  if (signal?.aborted) {
+    throw createAbortError();
+  }
+};
 
 type LayerExportMetrics = LayerContentMetrics;
 
@@ -234,6 +258,19 @@ export const exportProjectAsWebGL = async (
   const previousDiagnostics = gobletDiagnosticsActive;
   gobletDiagnosticsActive = diagnosticsEnabled;
   setGobletColorCycleDiagnosticsActive(diagnosticsEnabled);
+  const emitProgress = options.onProgress;
+  let currentProgressLayer: { id: string; name: string; staticPreviewReason?: string } | null = null;
+  const progressLayerTotal = Math.max(
+    1,
+    options.layers.filter((layer) => options.includeHiddenLayers || layer.visible).length
+  );
+  let progressLayerIndex = 0;
+  throwIfExportAborted(options.signal);
+  emitProgress?.({
+    phase: 'preparing',
+    percent: 1,
+    message: 'Preparing Goblet export...',
+  });
 
   try {
     const resolvedHtmlTitle = sanitizeHtmlTitle(options.htmlTitle ?? DEFAULT_HTML_TITLE);
@@ -309,9 +346,48 @@ export const exportProjectAsWebGL = async (
   );
 
   for (let index = 0; index < options.layers.length; index += 1) {
+    throwIfExportAborted(options.signal);
     const layer = options.layers[index];
     if (!options.includeHiddenLayers && !layer.visible) {
+      emitProgress?.({
+        phase: 'layers',
+        percent: Math.min(80, 5 + Math.round((progressLayerIndex / progressLayerTotal) * 70)),
+        message: `Skipping hidden layer ${layer.name || layer.id}`,
+        layer: {
+          id: layer.id,
+          name: layer.name || layer.id,
+          status: 'skipped',
+          message: 'Hidden layer excluded',
+        },
+      });
       continue;
+    }
+    const staticPreviewReason = layer.colorCycleData?.repairStatus?.reason;
+    currentProgressLayer = { id: layer.id, name: layer.name || layer.id, staticPreviewReason };
+    const layerPercent = Math.min(80, 5 + Math.round((progressLayerIndex / progressLayerTotal) * 70));
+    const isStaticPreviewLayer = layer.colorCycleData?.repairStatus?.ok === false;
+    emitProgress?.({
+      phase: 'layers',
+      percent: layerPercent,
+      message: `Exporting ${layer.name || layer.id}`,
+      layer: {
+        id: layer.id,
+        name: layer.name || layer.id,
+        status: 'exporting',
+      },
+    });
+    if (isStaticPreviewLayer) {
+      emitProgress?.({
+        phase: 'layers',
+        percent: layerPercent,
+        message: `${layer.name || layer.id} is static preview only`,
+        layer: {
+          id: layer.id,
+          name: layer.name || layer.id,
+          status: 'static-preview',
+          message: layer.colorCycleData?.repairStatus?.reason ?? 'Missing canonical color-cycle paint',
+        },
+      });
     }
 
     const metrics = metricsMap.get(layer.id) ?? computeLayerExportMetrics(layer, options.project);
@@ -327,6 +403,7 @@ export const exportProjectAsWebGL = async (
     }
 
     let textureInfo = await captureLayerTextureInfo(layer);
+    throwIfExportAborted(options.signal);
     let texture = textureInfo?.dataUrl;
     const sequentialFrameCount = Math.max(
       1,
@@ -341,6 +418,7 @@ export const exportProjectAsWebGL = async (
       // Cropping them here makes the exported playback appear inset/clipped.
       cropBounds: undefined,
     });
+    throwIfExportAborted(options.signal);
     if (sequentialFrames && sequentialFrames.frames.length > 0) {
       texture = sequentialFrames.frames[0] ?? texture;
       surfaceSize.width = sequentialFrames.sourceSize.width;
@@ -351,6 +429,7 @@ export const exportProjectAsWebGL = async (
       layerSpeedScale: exportLayerSpeedScale,
       toolSpeed: options.colorCycleToolSpeed,
     });
+    throwIfExportAborted(options.signal);
     const colorCycle = colorCycleResult?.colorCycle;
     const colorCycleRuntime = colorCycleResult?.runtime;
     const brushRuntime = colorCycleRuntime?.brushState;
@@ -376,6 +455,7 @@ export const exportProjectAsWebGL = async (
         bounds: colorCycleRuntime.sourceCropPx,
         basis: colorCycleRuntime.sourceCropBasis,
       });
+      throwIfExportAborted(options.signal);
       if (croppedTextureInfo) {
         textureInfo = croppedTextureInfo;
         texture = croppedTextureInfo.dataUrl;
@@ -394,6 +474,7 @@ export const exportProjectAsWebGL = async (
     let syntheticTextureApplied = false;
     if (needsSyntheticTexture && brushRuntime) {
       const syntheticTexture = await synthesizeBrushTextureFromIndices(brushRuntime);
+      throwIfExportAborted(options.signal);
       if (syntheticTexture) {
         texture = syntheticTexture;
         textureInfo = { dataUrl: syntheticTexture, hasVisibleAlpha: true };
@@ -575,7 +656,24 @@ export const exportProjectAsWebGL = async (
     });
 
     metadataLayers.push(stripLayerDefaults(baseLayerMetadata));
+    progressLayerIndex += 1;
+    emitProgress?.({
+      phase: 'layers',
+      percent: Math.min(85, 5 + Math.round((progressLayerIndex / progressLayerTotal) * 70)),
+      message: isStaticPreviewLayer
+        ? `${layer.name || layer.id} exported as static preview`
+        : `${layer.name || layer.id} exported`,
+      layer: {
+        id: layer.id,
+        name: layer.name || layer.id,
+        status: isStaticPreviewLayer ? 'static-preview' : 'done',
+        message: isStaticPreviewLayer
+          ? (layer.colorCycleData?.repairStatus?.reason ?? 'Missing canonical color-cycle paint')
+          : undefined,
+      },
+    });
   }
+  currentProgressLayer = null;
 
   let placementByLayerId: Map<string, ResolvedLayerLayout> | null = null;
   if (useIdentityPixelPerfectStack) {
@@ -754,6 +852,12 @@ export const exportProjectAsWebGL = async (
   }
 
   deduplicateGradients(metadata);
+  throwIfExportAborted(options.signal);
+  emitProgress?.({
+    phase: 'packaging',
+    percent: 88,
+    message: 'Packaging Goblet export...',
+  });
 
   if (gobletDiagnosticsActive) {
     metadata.layers.forEach((layer, index) => {
@@ -774,6 +878,7 @@ export const exportProjectAsWebGL = async (
 
   const metadataPayload = options.minify ? minifyProperties(metadata) : metadata;
   const json = JSON.stringify(metadataPayload, null, options.minify ? undefined : 2);
+  throwIfExportAborted(options.signal);
   if (gobletDiagnosticsActive) {
     gobletDebugLog('[webglExporter] JSON size after stringify', {
       bytes: json.length,
@@ -783,14 +888,21 @@ export const exportProjectAsWebGL = async (
   const jsonFilename = `${options.filenameBase}-goblet.json`;
 
   if (bundleFormat === 'json') {
+    throwIfExportAborted(options.signal);
     const blob = new Blob([json], { type: 'application/json' });
     downloadBlob(blob, jsonFilename);
+    emitProgress?.({
+      phase: 'complete',
+      percent: 100,
+      message: 'Goblet export complete',
+    });
     return metadata;
   }
 
   let indexHtml: string;
   try {
     indexHtml = await fetchGobletAsset('index.html', options.assetPrefix, gobletAssetRoot);
+    throwIfExportAborted(options.signal);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error ?? 'Unknown error');
       throw new Error(`[webglExporter] Failed to load Goblet template: ${message}`);
@@ -825,6 +937,7 @@ export const exportProjectAsWebGL = async (
 
   if (bundleFormat === 'single-html') {
     const bundledRuntime = await loadBundledRuntime();
+    throwIfExportAborted(options.signal);
     if (bundledRuntime) {
       const singleFileHtml = createSingleFileGobletHtmlFromBundledRuntime(
         indexHtmlWithPresentation,
@@ -835,6 +948,11 @@ export const exportProjectAsWebGL = async (
       );
       const htmlBlob = new Blob([singleFileHtml], { type: 'text/html' });
       downloadBlob(htmlBlob, `${options.filenameBase}-goblet.html`);
+      emitProgress?.({
+        phase: 'complete',
+        percent: 100,
+        message: 'Goblet export complete',
+      });
       return metadata;
     }
 
@@ -845,6 +963,7 @@ export const exportProjectAsWebGL = async (
     let inflateJs: string;
     try {
       [gobletJs, alignJs, displayFilterJs, numJs, inflateJs] = await ensureBaseRuntimeAssets();
+      throwIfExportAborted(options.signal);
     } catch (error) {
       baseRuntimeAssetsPromise = null;
       const message = error instanceof Error ? error.message : String(error ?? 'Unknown error');
@@ -868,6 +987,11 @@ export const exportProjectAsWebGL = async (
     );
     const htmlBlob = new Blob([singleFileHtml], { type: 'text/html' });
     downloadBlob(htmlBlob, `${options.filenameBase}-goblet.html`);
+    emitProgress?.({
+      phase: 'complete',
+      percent: 100,
+      message: 'Goblet export complete',
+    });
     return metadata;
   }
 
@@ -879,6 +1003,7 @@ export const exportProjectAsWebGL = async (
     let inflateJs: string;
     try {
       [gobletJs, alignJs, displayFilterJs, numJs, inflateJs] = await ensureBaseRuntimeAssets();
+      throwIfExportAborted(options.signal);
     } catch (error) {
       baseRuntimeAssetsPromise = null;
       const message = error instanceof Error ? error.message : String(error ?? 'Unknown error');
@@ -898,15 +1023,46 @@ export const exportProjectAsWebGL = async (
       inflateJs,
       minify: options.minify,
     });
+    throwIfExportAborted(options.signal);
     downloadBlob(zipBlob, `${options.filenameBase}-goblet.zip`);
+    emitProgress?.({
+      phase: 'complete',
+      percent: 100,
+      message: 'Goblet export complete',
+    });
     return metadata;
   }
 
   // Fallback to raw JSON if an unknown bundle format is supplied.
+  throwIfExportAborted(options.signal);
   const fallbackBlob = new Blob([json], { type: 'application/json' });
   downloadBlob(fallbackBlob, jsonFilename);
+  emitProgress?.({
+    phase: 'complete',
+    percent: 100,
+    message: 'Goblet export complete',
+  });
 
   return metadata;
+  } catch (error) {
+    const progressError = toProgressError(error);
+    emitProgress?.({
+      phase: 'failed',
+      percent: 100,
+      message: progressError.message,
+      layer: currentProgressLayer
+        ? {
+            id: currentProgressLayer.id,
+            name: currentProgressLayer.name,
+            status: 'failed',
+            message: currentProgressLayer.staticPreviewReason
+              ? `Static preview: ${currentProgressLayer.staticPreviewReason}. ${progressError.message}`
+              : progressError.message,
+          }
+        : undefined,
+      error: progressError,
+    });
+    throw error;
   } finally {
     gobletDiagnosticsActive = previousDiagnostics;
     setGobletColorCycleDiagnosticsActive(previousDiagnostics);

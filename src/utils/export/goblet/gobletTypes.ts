@@ -12,6 +12,37 @@ import type {
 
 export type WebGLViewportMode = 'fixed' | 'fill' | 'fit' | 'cover';
 
+export type WebGLExportProgressPhase =
+  | 'preparing'
+  | 'layers'
+  | 'packaging'
+  | 'complete'
+  | 'failed';
+
+export type WebGLExportLayerStatus =
+  | 'waiting'
+  | 'exporting'
+  | 'static-preview'
+  | 'done'
+  | 'failed'
+  | 'skipped';
+
+export interface WebGLExportProgressEvent {
+  phase: WebGLExportProgressPhase;
+  percent: number;
+  message?: string;
+  layer?: {
+    id: string;
+    name: string;
+    status: WebGLExportLayerStatus;
+    message?: string;
+  };
+  error?: {
+    message: string;
+    stack?: string;
+  };
+}
+
 export interface WebGLViewport {
   mode: WebGLViewportMode;
   designWidth: number;
@@ -272,4 +303,6 @@ export interface WebGLExportRequest {
   colorCycleLayerSpeedScale?: number;
   colorCycleToolSpeed?: number;
   viewportPreset?: 'default' | 'embed-fill' | 'embed-fit' | 'fixed';
+  onProgress?: (event: WebGLExportProgressEvent) => void;
+  signal?: AbortSignal;
 }

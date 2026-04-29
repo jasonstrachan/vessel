@@ -270,4 +270,62 @@ describe('webglExporter bundle contracts', () => {
 
     expect(metadata.settings.displayFilters[0]).toEqual(displayFilters[0]);
   });
+
+  it('reports static-preview color-cycle layers through Goblet progress', async () => {
+    const progress: string[] = [];
+    const project = createProject();
+    const layer = {
+      id: 'cc-static',
+      name: 'Static CC',
+      visible: true,
+      opacity: 1,
+      blendMode: 'source-over',
+      locked: false,
+      order: 0,
+      layerType: 'color-cycle',
+      alignment: {
+        fit: 'contain',
+        horizontal: 'center',
+        vertical: 'center',
+        positioning: 'auto',
+        offsetPx: { x: 0, y: 0 },
+      },
+      colorCycleData: {
+        repairStatus: {
+          ok: false,
+          reason: 'missing-canonical-paint',
+        },
+      },
+    };
+
+    await expect(exportProjectAsWebGL({
+      ...baseExportRequest(),
+      project,
+      layers: [layer as Project['layers'][number]],
+      bundleFormat: 'json',
+      onProgress: (event) => {
+        if (event.layer) {
+          progress.push(`${event.layer.name}:${event.layer.status}:${event.layer.message ?? ''}`);
+        }
+      },
+    })).rejects.toThrow('missing animated brush data');
+
+    expect(progress).toContain('Static CC:static-preview:missing-canonical-paint');
+    expect(progress.some((entry) => (
+      entry.startsWith('Static CC:failed:Static preview: missing-canonical-paint.')
+    ))).toBe(true);
+  });
+
+  it('honors an aborted Goblet export signal before downloading', async () => {
+    const controller = new AbortController();
+    controller.abort();
+
+    await expect(exportProjectAsWebGL({
+      ...baseExportRequest(),
+      bundleFormat: 'json',
+      signal: controller.signal,
+    })).rejects.toThrow('Export cancelled');
+
+    expect(downloadedBlobs).toHaveLength(0);
+  });
 });
