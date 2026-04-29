@@ -68,6 +68,7 @@ export function LoadProjectModal({ isOpen, onClose }: LoadProjectModalProps) {
     warning,
     preview,
     projectData,
+    requiresRepair,
     processProjectFile,
     setError,
     confirmLoad,
@@ -343,7 +344,7 @@ export function LoadProjectModal({ isOpen, onClose }: LoadProjectModalProps) {
               >
                 {repairExportInFlight ? 'Repairing…' : 'Repair & Save Copy'}
               </Button>
-              <Button onClick={confirmLoad} disabled={!projectData || isProcessing || applyInFlight}>
+              <Button onClick={confirmLoad} disabled={!projectData || requiresRepair || isProcessing || applyInFlight}>
                 {applyInFlight ? 'Loading…' : 'Load Project'}
               </Button>
             </div>

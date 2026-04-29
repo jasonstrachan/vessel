@@ -8,12 +8,14 @@ jest.mock('@/utils/debug', () => ({
 import { debugWarn } from '@/utils/debug';
 import { ColorCycleBrushCanvas2D } from '@/hooks/brushEngine/ColorCycleBrushCanvas2D';
 import {
+  analyzeProjectArchiveRefs,
   deserializeProject,
   deserializeProjectWithReport,
   getProjectSaveSizeReport,
   readProjectHealthReport,
   readProjectManifest,
   readProjectPreviewManifest,
+  repairDanglingColorCycleArchiveRefs,
   restoreColorCycleBrushes,
   saveProjectToFile,
   serializeProject
@@ -590,6 +592,155 @@ describe('projectIO readProjectManifest', () => {
     );
     await expect(deserializeProjectWithReport(payload)).rejects.toThrow(
       'Project archive manifest is missing binary entry buffers/color-cycle/layer-cc/paint.bin',
+    );
+  });
+
+  it('analyzes and explicitly repairs C4-style dangling canonical color-cycle refs', async () => {
+    const zip = new JSZip();
+    const canvasImage = 'data:image/png;base64,preview';
+    const canvasImageBytes = new TextEncoder().encode(canvasImage);
+    const projectJson = {
+      ...minimalVesselProject,
+      manifestVersion: 1,
+      project: {
+        ...minimalVesselProject.project,
+        width: 2,
+        height: 2,
+        layers: [{
+          id: 'layer-cc',
+          name: 'cc damaged',
+          visible: true,
+          opacity: 1,
+          blendMode: 'source-over',
+          locked: false,
+          order: 0,
+          imageDataUrl: '',
+          layerType: 'color-cycle',
+          state: {
+            version: 1,
+            dimensions: { width: 2, height: 2 },
+            paintRef: 'zip:buffers/color-cycle/layer-cc/paint.bin',
+            speedRef: 'zip:buffers/color-cycle/layer-cc/speed.bin',
+            flowRef: 'zip:buffers/color-cycle/layer-cc/flow.bin',
+            gradientIdRef: 'zip:buffers/color-cycle/layer-cc/gradient-id.bin',
+            gradientDefIdRef: 'zip:buffers/color-cycle/layer-cc/gradient-def-id.bin',
+            hasContent: true,
+            strokeCounter: 0,
+          },
+          colorCycleData: {
+            canvasImageData: 'zip:buffers/color-cycle/layer-cc/canvas-image.txt',
+          },
+        }],
+      },
+      binaries: {
+        entries: [
+          {
+            version: 1,
+            path: 'buffers/color-cycle/layer-cc/canvas-image.txt',
+            checksum: fnv1aHash(canvasImageBytes),
+            byteLength: canvasImageBytes.byteLength,
+            dtype: 'unknown',
+            compression: 'deflate',
+          },
+        ],
+      },
+    };
+
+    zip.file('project.json', JSON.stringify(projectJson));
+    zip.file('buffers/color-cycle/layer-cc/canvas-image.txt', canvasImage);
+    const payload = await zip.generateAsync({ type: 'uint8array', compression: 'DEFLATE' });
+
+    await expect(readProjectManifest(payload)).rejects.toThrow(
+      'Project archive manifest is missing binary entry buffers/color-cycle/layer-cc/paint.bin',
+    );
+
+    const analysis = await analyzeProjectArchiveRefs(payload);
+    expect(analysis.missingCanonicalColorCycleRefs.map((issue) => issue.path)).toEqual([
+      'buffers/color-cycle/layer-cc/paint.bin',
+      'buffers/color-cycle/layer-cc/speed.bin',
+      'buffers/color-cycle/layer-cc/flow.bin',
+      'buffers/color-cycle/layer-cc/gradient-id.bin',
+      'buffers/color-cycle/layer-cc/gradient-def-id.bin',
+    ]);
+    expect(analysis.canRepairDanglingColorCycleRefs).toBe(true);
+
+    const repaired = await repairDanglingColorCycleArchiveRefs(payload);
+    expect(repaired.report.repairedLayerIds).toEqual(['layer-cc']);
+    expect(repaired.report.removedRefs.map((entry) => entry.path)).toEqual([
+      'buffers/color-cycle/layer-cc/paint.bin',
+      'buffers/color-cycle/layer-cc/speed.bin',
+      'buffers/color-cycle/layer-cc/flow.bin',
+      'buffers/color-cycle/layer-cc/gradient-id.bin',
+      'buffers/color-cycle/layer-cc/gradient-def-id.bin',
+    ]);
+
+    const repairedAnalysis = await analyzeProjectArchiveRefs(repaired.archiveData);
+    expect(repairedAnalysis.issues).toEqual([]);
+    const repairedManifest = await readProjectManifest(repaired.archiveData);
+    expect(repairedManifest.project.layers[0]?.layerType).toBe('color-cycle');
+    expect(repairedManifest.project.layers[0]?.colorCycleData?.repairStatus).toEqual(
+      expect.objectContaining({
+        ok: false,
+        reason: 'missing-paint-buffer',
+      }),
+    );
+  });
+
+  it('refuses to save dangling canonical color-cycle archive refs', async () => {
+    const canvas = document.createElement('canvas');
+    canvas.width = 2;
+    canvas.height = 2;
+    const colorCycleLayer: Layer = {
+      id: 'layer-cc-stale-save',
+      name: 'Stale CC',
+      visible: true,
+      opacity: 1,
+      blendMode: 'source-over',
+      locked: false,
+      order: 0,
+      imageData: null,
+      framebuffer: canvas,
+      alignment: createDefaultLayerAlignment(),
+      layerType: 'color-cycle',
+      colorCycleData: {
+        canvas,
+        canvasWidth: 2,
+        canvasHeight: 2,
+        brushState: {
+          canonicalPaint: true,
+          schemaVersion: 1,
+          layers: [{
+            layerId: 'layer-cc-stale-save',
+            canonicalPaint: true,
+            schemaVersion: 1,
+            strokeData: {
+              paintBuffer: 'zip:buffers/color-cycle/layer-cc-stale-save/paint.bin',
+              speedBuffer: 'zip:buffers/color-cycle/layer-cc-stale-save/speed.bin',
+              flowBuffer: 'zip:buffers/color-cycle/layer-cc-stale-save/flow.bin',
+              phaseBuffer: 'zip:buffers/color-cycle/layer-cc-stale-save/phase.bin',
+              gradientIdBuffer: 'zip:buffers/color-cycle/layer-cc-stale-save/gradient-id.bin',
+              gradientDefIdBuffer: 'zip:buffers/color-cycle/layer-cc-stale-save/gradient-def-id.bin',
+              hasContent: true,
+              strokeCounter: 1,
+            },
+          }],
+        },
+      },
+    } as Layer;
+    const project: Project = {
+      id: 'project-stale-save',
+      name: 'Stale Save',
+      width: 2,
+      height: 2,
+      backgroundColor: 'transparent',
+      layers: [colorCycleLayer],
+      customBrushes: [],
+      createdAt: new Date('2025-01-01T00:00:00.000Z'),
+      updatedAt: new Date('2025-01-01T00:00:00.000Z'),
+    };
+
+    await expect(withPatchedCanvasRect(() => serializeProject(project, project.layers))).rejects.toThrow(
+      'Project save produced dangling archive ref buffers/color-cycle/layer-cc-stale-save/paint.bin',
     );
   });
 
