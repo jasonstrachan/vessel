@@ -1,6 +1,6 @@
 import React from 'react';
 import { render, screen } from '@testing-library/react';
-import DitherControls from '../DitherControls';
+import DitherControls, { DITHER_OPTIONS } from '../DitherControls';
 import type { BrushSettings } from '@/types';
 
 const baseSettings: BrushSettings = {
@@ -56,6 +56,16 @@ describe('DitherControls', () => {
       />
     );
     expect(screen.getByText(/Sierra Lite/i)).toBeInTheDocument();
+  });
+
+  it('orders Bayer and Pattern directly after Sierra 3-row', () => {
+    expect(DITHER_OPTIONS.map((option) => option.value).slice(0, 5)).toEqual([
+      'sierra-lite',
+      'sierra-2',
+      'sierra-3',
+      'bayer',
+      'pattern',
+    ]);
   });
 });
 // @ts-nocheck

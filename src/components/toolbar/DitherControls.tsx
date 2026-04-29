@@ -38,15 +38,15 @@ export const DITHER_OPTIONS: { value: DitherAlgorithm; label: string }[] = [
   { value: 'sierra-lite', label: 'Sierra Lite' },
   { value: 'sierra-2', label: 'Sierra 2-row' },
   { value: 'sierra-3', label: 'Sierra 3-row' },
+  { value: 'bayer', label: 'Bayer ordered' },
+  { value: 'pattern', label: 'Pattern' },
   { value: 'floyd-steinberg', label: 'Floyd–Steinberg' },
   { value: 'jarvis-judice-ninke', label: 'Jarvis–Judice–Ninke' },
   { value: 'stucki', label: 'Stucki' },
   { value: 'burkes', label: 'Burkes' },
   { value: 'atkinson', label: 'Atkinson' },
-  { value: 'bayer', label: 'Bayer ordered' },
   { value: 'blue-noise', label: 'Blue noise' },
-  { value: 'void-and-cluster', label: 'Void & cluster' },
-  { value: 'pattern', label: 'Pattern' }
+  { value: 'void-and-cluster', label: 'Void & cluster' }
 ];
 
 const labelClass = 'text-[#D9D9D9] w-16';

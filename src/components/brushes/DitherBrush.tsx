@@ -196,12 +196,18 @@ export const DitherBrushControls: React.FC<DitherBrushControlsProps> = ({
           onChange={(e) => onChange({ ditherAlgorithm: e.target.value as DitherAlgorithm })}
           className="w-full bg-gray-800 border border-gray-600 rounded px-2 py-1 text-xs text-white"
         >
-          <option value="bayer">Bayer Matrix</option>
-          <option value="floyd-steinberg">Floyd-Steinberg</option>
           <option value="sierra-lite">Sierra Lite</option>
+          <option value="sierra-2">Sierra 2-row</option>
+          <option value="sierra-3">Sierra 3-row</option>
+          <option value="bayer">Bayer ordered</option>
+          <option value="pattern">Pattern</option>
+          <option value="floyd-steinberg">Floyd-Steinberg</option>
+          <option value="jarvis-judice-ninke">Jarvis-Judice-Ninke</option>
+          <option value="stucki">Stucki</option>
+          <option value="burkes">Burkes</option>
           <option value="atkinson">Atkinson</option>
           <option value="blue-noise">Blue Noise</option>
-          <option value="pattern">Pattern</option>
+          <option value="void-and-cluster">Void & cluster</option>
         </select>
       </div>
 
