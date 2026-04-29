@@ -143,6 +143,8 @@ const createBrushModeLayer = (canvas: HTMLCanvasElement): Layer => {
 
   const brushIndices = new Uint8Array(Array.from({ length: 64 }, (_, idx) => idx % 16));
   const gradientIdBuffer = new Uint8Array(Array.from({ length: 64 }, (_, idx) => idx % 2));
+  const flowBuffer = new Uint8Array(Array.from({ length: 64 }, (_, idx) => (idx % 3 === 0 ? 2 : 1)));
+  const phaseBuffer = new Uint8Array(Array.from({ length: 64 }, (_, idx) => (idx * 4) & 255));
   const slotPalettes = [
     {
       slot: 0,
@@ -191,7 +193,9 @@ const createBrushModeLayer = (canvas: HTMLCanvasElement): Layer => {
               height: 8,
               data: brushIndices,
               palette: ['#ffd700', '#adff2f', '#1e90ff'],
-              gradientId: gradientIdBuffer
+              gradientId: gradientIdBuffer,
+              flowData: flowBuffer,
+              phaseData: phaseBuffer
             },
             gradient: {
               gradientStops
@@ -1008,13 +1012,15 @@ describe('exportProjectAsWebGL color cycle integration', () => {
       expect(gradientIdBuffer.length).toBeGreaterThan(0);
     }
 
-    expect(exportedLayer.colorCycle?.speedMode).toBe('slot');
-    const slotSpeeds = exportedLayer.colorCycle?.slotSpeeds ?? [];
-    expect(slotSpeeds).toHaveLength(2);
-    const speedBySlot = new Map(slotSpeeds.map((entry) => [entry.slot, entry.speed]));
-    expect(speedBySlot.get(0)).toBeCloseTo(0.25, 5);
-    expect(speedBySlot.get(1)).toBeCloseTo(0.5, 5);
-  });
+      expect(exportedLayer.colorCycle?.speedMode).toBe('slot');
+      const slotSpeeds = exportedLayer.colorCycle?.slotSpeeds ?? [];
+      expect(slotSpeeds).toHaveLength(2);
+      const speedBySlot = new Map(slotSpeeds.map((entry) => [entry.slot, entry.speed]));
+      expect(speedBySlot.get(0)).toBeCloseTo(0.25, 5);
+      expect(speedBySlot.get(1)).toBeCloseTo(0.5, 5);
+      expect(exportedLayer.colorCycle?.brushState?.flowBuffer).toBeDefined();
+      expect(exportedLayer.colorCycle?.brushState?.phaseBuffer).toBeDefined();
+    });
 
   it('exports Goblet 2 brush-mode slot speeds without a forced per-pixel speed buffer', async () => {
     const canvas = document.createElement('canvas');
@@ -1042,11 +1048,13 @@ describe('exportProjectAsWebGL color cycle integration', () => {
       gobletVersion: 'goblet2'
     });
 
-    const exportedLayer = metadata.layers[0];
-    expect(exportedLayer.colorCycle?.speedMode).toBe('slot');
-    expect(exportedLayer.colorCycle?.slotSpeeds).toHaveLength(2);
-    expect(exportedLayer.colorCycle?.brushState?.speedBuffer).toBeUndefined();
-  });
+      const exportedLayer = metadata.layers[0];
+      expect(exportedLayer.colorCycle?.speedMode).toBe('slot');
+      expect(exportedLayer.colorCycle?.slotSpeeds).toHaveLength(2);
+      expect(exportedLayer.colorCycle?.brushState?.speedBuffer).toBeUndefined();
+      expect(exportedLayer.colorCycle?.brushState?.flowBuffer).toBeDefined();
+      expect(exportedLayer.colorCycle?.brushState?.phaseBuffer).toBeDefined();
+    });
 
   it('crops sparse Goblet 2 brush payloads before packing', async () => {
     const canvas = document.createElement('canvas');

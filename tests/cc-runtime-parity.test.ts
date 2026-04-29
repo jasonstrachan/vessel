@@ -136,6 +136,27 @@ const decodeSpeed = (byte: number, speedMin: number, speedMax: number): number =
   return speedMin + normalized * (speedMax - speedMin);
 };
 
+const samplePalette = (params: {
+  palette: Uint8Array;
+  paletteSize: number;
+  slot: number;
+  position: number;
+}): { r: number; g: number; b: number; a: number } => {
+  const { palette, paletteSize, slot, position } = params;
+  const wrapped = mod(position, paletteSize);
+  const lower = Math.floor(wrapped);
+  const upper = (lower + 1) % paletteSize;
+  const t = wrapped - lower;
+  const lowerBase = (slot * paletteSize + lower) * 4;
+  const upperBase = (slot * paletteSize + upper) * 4;
+  return {
+    r: clamp255(palette[lowerBase] + (palette[upperBase] - palette[lowerBase]) * t),
+    g: clamp255(palette[lowerBase + 1] + (palette[upperBase + 1] - palette[lowerBase + 1]) * t),
+    b: clamp255(palette[lowerBase + 2] + (palette[upperBase + 2] - palette[lowerBase + 2]) * t),
+    a: clamp255(palette[lowerBase + 3] + (palette[upperBase + 3] - palette[lowerBase + 3]) * t),
+  };
+};
+
 const buildReferencePaletteTable = (
   slotPalettes: Map<number, { stops: Goblet2GradientStop[]; seamProfile?: GradientSeamProfile }> | null,
   fallbackGradient: Goblet2GradientStop[],
@@ -212,12 +233,12 @@ const renderVesselReferenceFrame = (params: {
 
     const baseIndex = Math.max(0, Math.min(paletteSize - 1, index - 1));
     const shifted = mod(baseIndex + shift, paletteSize);
-    const paletteIndex = (slot * paletteSize + shifted) * 4;
+    const sampled = samplePalette({ palette, paletteSize, slot, position: shifted });
 
-    output[outIndex] = palette[paletteIndex];
-    output[outIndex + 1] = palette[paletteIndex + 1];
-    output[outIndex + 2] = palette[paletteIndex + 2];
-    output[outIndex + 3] = 255;
+    output[outIndex] = sampled.r;
+    output[outIndex + 1] = sampled.g;
+    output[outIndex + 2] = sampled.b;
+    output[outIndex + 3] = sampled.a;
   }
 
   return output;

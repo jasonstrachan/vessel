@@ -352,6 +352,25 @@ const canSynthesizeEmptyBackwardPaint = (
   if (strokeData.hasContent === true) {
     return false;
   }
+  if (strokeData.hasContent === false) {
+    const directBuffers = [
+      strokeData.paintBuffer,
+      strokeData.gradientIdBuffer,
+      strokeData.gradientDefIdBuffer,
+      strokeData.speedBuffer,
+      strokeData.flowBuffer,
+      strokeData.phaseBuffer,
+    ];
+    return directBuffers.every((value) => {
+      if (!value) {
+        return true;
+      }
+      if (value instanceof ArrayBuffer) {
+        return value.byteLength === 0;
+      }
+      return false;
+    });
+  }
   return COLOR_CYCLE_PIXEL_BUFFER_SPECS.every((spec) => {
     const value = spec.read(layer);
     if (!value) {

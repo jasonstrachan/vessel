@@ -16,6 +16,10 @@ export type Goblet2PaletteTable = {
   height: number;
 };
 
+export const GOBLET2_FLOW_FORWARD = 1;
+export const GOBLET2_FLOW_REVERSE = 2;
+export const GOBLET2_FLOW_PINGPONG = 3;
+
 const clamp01 = (value: number): number => {
   if (value <= 0) {
     return 0;
@@ -57,6 +61,11 @@ const parseColor = (value: string): { r: number; g: number; b: number; a: number
     }
   }
   return { r: 255, g: 255, b: 255, a: 255 };
+};
+
+const mod = (value: number, divisor: number): number => {
+  const remainder = value % divisor;
+  return remainder < 0 ? remainder + divisor : remainder;
 };
 
 const normalizeStops = (stops: Goblet2GradientStop[]): Array<{ position: number; rgba: { r: number; g: number; b: number; a: number } }> => {
@@ -151,10 +160,64 @@ export const bakePaletteTable = (
   return { data, width: size, height: slotCount };
 };
 
+const resolveFlowMode = (value: number): number => {
+  if (value === GOBLET2_FLOW_REVERSE) {
+    return GOBLET2_FLOW_REVERSE;
+  }
+  if (value === GOBLET2_FLOW_PINGPONG) {
+    return GOBLET2_FLOW_PINGPONG;
+  }
+  return GOBLET2_FLOW_FORWARD;
+};
+
+const foldPingpongPhase = (phase: number): number => {
+  const wrapped = mod(phase, 1);
+  return wrapped < 0.5 ? wrapped * 2 : (1 - wrapped) * 2;
+};
+
+const resolvePalettePosition = (
+  baseIndex: number,
+  phase: number,
+  flowMode: number,
+  paletteSize: number
+): number => {
+  const size = Math.max(1, paletteSize);
+  if (flowMode === GOBLET2_FLOW_REVERSE) {
+    return mod(baseIndex + phase * size, size);
+  }
+  if (flowMode === GOBLET2_FLOW_PINGPONG) {
+    return mod(baseIndex - foldPingpongPhase(phase) * size, size);
+  }
+  return mod(baseIndex - phase * size, size);
+};
+
+const samplePaletteTable = (
+  paletteTable: Goblet2PaletteTable,
+  slot: number,
+  position: number,
+  out: Uint8ClampedArray,
+  outIndex: number
+): void => {
+  const paletteSize = Math.max(1, paletteTable.width);
+  const row = Math.max(0, Math.min(Math.max(1, paletteTable.height) - 1, slot));
+  const wrapped = mod(position, paletteSize);
+  const lower = Math.floor(wrapped);
+  const upper = (lower + 1) % paletteSize;
+  const t = wrapped - lower;
+  const lowerBase = (row * paletteSize + lower) * 4;
+  const upperBase = (row * paletteSize + upper) * 4;
+  out[outIndex] = clamp255(paletteTable.data[lowerBase] + (paletteTable.data[upperBase] - paletteTable.data[lowerBase]) * t);
+  out[outIndex + 1] = clamp255(paletteTable.data[lowerBase + 1] + (paletteTable.data[upperBase + 1] - paletteTable.data[lowerBase + 1]) * t);
+  out[outIndex + 2] = clamp255(paletteTable.data[lowerBase + 2] + (paletteTable.data[upperBase + 2] - paletteTable.data[lowerBase + 2]) * t);
+  out[outIndex + 3] = clamp255(paletteTable.data[lowerBase + 3] + (paletteTable.data[upperBase + 3] - paletteTable.data[lowerBase + 3]) * t);
+};
+
 export const renderBrushFrame = (params: {
   indexBuffer: Uint8Array;
   gradientIdBuffer: Uint8Array;
   speedBuffer: Uint8Array;
+  flowBuffer?: Uint8Array | null;
+  phaseBuffer?: Uint8Array | null;
   paletteTable: Goblet2PaletteTable;
   speedMin: number;
   speedMax: number;
@@ -165,6 +228,8 @@ export const renderBrushFrame = (params: {
     indexBuffer,
     gradientIdBuffer,
     speedBuffer,
+    flowBuffer = null,
+    phaseBuffer = null,
     paletteTable,
     speedMin,
     speedMax,
@@ -182,31 +247,25 @@ export const renderBrushFrame = (params: {
       out[outIndex + 3] = 0;
       continue;
     }
-    const slot = Math.min(gradientIdBuffer[i] ?? 0, slotCount - 1);
+    const rawGradientId = gradientIdBuffer[i] ?? 0;
+    const slot = Math.min(rawGradientId & 255, slotCount - 1);
     const speedByte = speedBuffer[i] ?? 0;
-    let shift = 0;
-    if (speedByte === 0) {
-      shift = -legacyOffset01 * paletteSize;
-    } else {
-      const speed = decodeSpeedByte(speedByte, speedMin, speedMax);
-      shift = -((timeSeconds * speed) % 1) * paletteSize;
-    }
+    const basePhase = speedByte === 0
+      ? legacyOffset01
+      : timeSeconds * decodeSpeedByte(speedByte, speedMin, speedMax);
+    const phaseByte = phaseBuffer?.[i] ?? 0;
+    const phase = mod(basePhase + phaseByte / 256, 1);
+    const flowMode = flowBuffer
+      ? resolveFlowMode(flowBuffer[i] ?? GOBLET2_FLOW_FORWARD)
+      : resolveFlowMode(rawGradientId >> 8);
     let paletteIndex = idx - 1;
     if (paletteIndex < 0) {
       paletteIndex = 0;
     } else if (paletteIndex >= paletteSize) {
       paletteIndex = paletteSize - 1;
     }
-    let shifted = paletteIndex + shift;
-    shifted %= paletteSize;
-    if (shifted < 0) {
-      shifted += paletteSize;
-    }
-    const base = (slot * paletteSize + shifted) * 4;
-    out[outIndex] = paletteTable.data[base];
-    out[outIndex + 1] = paletteTable.data[base + 1];
-    out[outIndex + 2] = paletteTable.data[base + 2];
-    out[outIndex + 3] = 255;
+    const palettePosition = resolvePalettePosition(paletteIndex, phase, flowMode, paletteSize);
+    samplePaletteTable(paletteTable, slot, palettePosition, out, outIndex);
   }
   return out;
 };

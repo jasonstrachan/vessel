@@ -1343,13 +1343,31 @@ const extractBrushStateFromAnimator = (brush: unknown, layer: Layer): WebGLSeria
   try {
     const animatorAny = animator as {
       serialize?: () => unknown;
-      indexBuffer?: { serialize?: () => unknown; getDirectData?: () => Uint8Array; width?: number; height?: number; palette?: string[] };
+      indexBuffer?: {
+        serialize?: () => unknown;
+        getDirectData?: () => Uint8Array;
+        getDirectSpeedData?: () => Uint8Array;
+        getDirectFlowData?: () => Uint8Array;
+        getDirectPhaseData?: () => Uint8Array;
+        width?: number;
+        height?: number;
+        palette?: string[];
+      };
       getCanvas?: () => HTMLCanvasElement;
     };
 
     const serialized = typeof animatorAny.serialize === 'function'
       ? animatorAny.serialize() as {
-          indexBuffer?: { width?: number; height?: number; data?: Uint8Array | number[]; palette?: string[] };
+          indexBuffer?: {
+            width?: number;
+            height?: number;
+            data?: Uint8Array | number[];
+            palette?: string[];
+            gradientId?: Uint8Array | number[];
+            speedData?: Uint8Array | number[];
+            flowData?: Uint8Array | number[];
+            phaseData?: Uint8Array | number[];
+          };
           gradient?: { gradientStops?: Array<{ position?: number; color?: string }> };
           animation?: { offset?: number; stats?: { targetFPS?: number } };
         }
@@ -1362,6 +1380,8 @@ const extractBrushStateFromAnimator = (brush: unknown, layer: Layer): WebGLSeria
       palette?: string[];
       gradientId?: Uint8Array | number[];
       speedData?: Uint8Array | number[];
+      flowData?: Uint8Array | number[];
+      phaseData?: Uint8Array | number[];
     } | undefined;
     if ((!indexBuffer || !indexBuffer.data) && animatorAny.indexBuffer) {
       try {
@@ -1373,6 +1393,8 @@ const extractBrushStateFromAnimator = (brush: unknown, layer: Layer): WebGLSeria
               palette?: string[];
               gradientId?: Uint8Array | number[];
               speedData?: Uint8Array | number[];
+              flowData?: Uint8Array | number[];
+              phaseData?: Uint8Array | number[];
             }
           : undefined;
         if (fromIndexBuffer?.data) {
@@ -1384,7 +1406,9 @@ const extractBrushStateFromAnimator = (brush: unknown, layer: Layer): WebGLSeria
           height: animatorAny.indexBuffer.height,
           data: directData,
           palette: animatorAny.indexBuffer.palette,
-          speedData: (animatorAny.indexBuffer as { getDirectSpeedData?: () => Uint8Array }).getDirectSpeedData?.()
+          speedData: animatorAny.indexBuffer.getDirectSpeedData?.(),
+          flowData: animatorAny.indexBuffer.getDirectFlowData?.(),
+          phaseData: animatorAny.indexBuffer.getDirectPhaseData?.()
         } as {
           width?: number;
           height?: number;
@@ -1392,6 +1416,8 @@ const extractBrushStateFromAnimator = (brush: unknown, layer: Layer): WebGLSeria
           palette?: string[];
           gradientId?: Uint8Array | number[];
           speedData?: Uint8Array | number[];
+          flowData?: Uint8Array | number[];
+          phaseData?: Uint8Array | number[];
         };
         }
       } catch (error) {
@@ -1438,6 +1464,10 @@ const extractBrushStateFromAnimator = (brush: unknown, layer: Layer): WebGLSeria
     const gradientDefIdBuffer = decodePersistedDefIdBuffer(layer.colorCycleData?.gradientDefIdBuffer);
     const speedValues = toSerializableNumberArray(indexBuffer.speedData);
     const speedBuffer = speedValues.length > 0 ? speedValues : undefined;
+    const flowValues = toSerializableNumberArray(indexBuffer.flowData);
+    const flowBuffer = flowValues.length > 0 ? flowValues : undefined;
+    const phaseValues = toSerializableNumberArray(indexBuffer.phaseData);
+    const phaseBuffer = phaseValues.length > 0 ? phaseValues : undefined;
     const palette = paletteValues && paletteValues.length > 0 ? paletteValues : undefined;
 
     if (gobletDiagnosticsActive) {
@@ -1457,6 +1487,8 @@ const extractBrushStateFromAnimator = (brush: unknown, layer: Layer): WebGLSeria
       gradientIdBuffer,
       gradientDefIdBuffer: gradientDefIdBuffer.length > 0 ? gradientDefIdBuffer : undefined,
       speedBuffer,
+      flowBuffer,
+      phaseBuffer,
       gradientStops,
       palette,
       animationOffset,
@@ -1501,6 +1533,8 @@ export const extractBrushStateFromSavedSnapshot = (layer: Layer): WebGLSerialize
           data?: unknown;
           gradientId?: unknown;
           speedData?: unknown;
+          flowData?: unknown;
+          phaseData?: unknown;
           palette?: unknown;
         };
         gradient?: {
@@ -1517,6 +1551,8 @@ export const extractBrushStateFromSavedSnapshot = (layer: Layer): WebGLSerialize
         paintBuffer?: unknown;
         gradientIdBuffer?: unknown;
         speedBuffer?: unknown;
+        flowBuffer?: unknown;
+        phaseBuffer?: unknown;
       };
     }>;
   } | undefined;
@@ -1566,6 +1602,14 @@ export const extractBrushStateFromSavedSnapshot = (layer: Layer): WebGLSerialize
   const fallbackSpeedBuffer = speedBuffer.length > 0
     ? speedBuffer
     : decodePersistedNumericBuffer(strokeData?.speedBuffer);
+  const flowBuffer = decodePersistedNumericBuffer(animatorIndexBuffer?.flowData);
+  const fallbackFlowBuffer = flowBuffer.length > 0
+    ? flowBuffer
+    : decodePersistedNumericBuffer(strokeData?.flowBuffer);
+  const phaseBuffer = decodePersistedNumericBuffer(animatorIndexBuffer?.phaseData);
+  const fallbackPhaseBuffer = phaseBuffer.length > 0
+    ? phaseBuffer
+    : decodePersistedNumericBuffer(strokeData?.phaseBuffer);
   const paletteValues = animatorIndexBuffer?.palette
     ? toSerializablePaletteArray(animatorIndexBuffer.palette)
     : undefined;
@@ -1590,6 +1634,8 @@ export const extractBrushStateFromSavedSnapshot = (layer: Layer): WebGLSerialize
     gradientIdBuffer: fallbackGradientIdBuffer.length > 0 ? fallbackGradientIdBuffer : undefined,
     gradientDefIdBuffer: fallbackGradientDefIdBuffer.length > 0 ? fallbackGradientDefIdBuffer : undefined,
     speedBuffer: fallbackSpeedBuffer.length > 0 ? fallbackSpeedBuffer : undefined,
+    flowBuffer: fallbackFlowBuffer.length > 0 ? fallbackFlowBuffer : undefined,
+    phaseBuffer: fallbackPhaseBuffer.length > 0 ? fallbackPhaseBuffer : undefined,
     gradientStops,
     palette: paletteValues && paletteValues.length > 0 ? paletteValues : undefined,
     animationOffset,
@@ -1685,29 +1731,34 @@ export const serializeBrushState = (layer: Layer): WebGLSerializedBrushState | u
   if (brush?.serialize) {
     try {
       const raw = brush.serialize() as {
-      layers?: Array<{
-        layerId?: string;
-        data?: {
-          indexBuffer?: {
-            width?: number;
-            height?: number;
-            data?: Uint8Array | number[];
-            palette?: string[];
-            gradientId?: Uint8Array | number[];
+        layers?: Array<{
+          layerId?: string;
+          data?: {
+            indexBuffer?: {
+              width?: number;
+              height?: number;
+              data?: Uint8Array | number[];
+              palette?: string[];
+              gradientId?: Uint8Array | number[];
+              speedData?: Uint8Array | number[];
+              flowData?: Uint8Array | number[];
+              phaseData?: Uint8Array | number[];
+            };
+            gradient?: { gradientStops?: Array<{ position?: number; color?: string }> };
+            animation?: {
+              offset?: number;
+              stats?: { targetFPS?: number };
+            };
           };
-          gradient?: { gradientStops?: Array<{ position?: number; color?: string }> };
-          animation?: {
-            offset?: number;
-            stats?: { targetFPS?: number };
+          strokeData?: {
+            paintBuffer?: unknown;
+            gradientIdBuffer?: unknown;
+            gradientDefIdBuffer?: unknown;
+            speedBuffer?: unknown;
+            flowBuffer?: unknown;
+            phaseBuffer?: unknown;
           };
-        };
-        strokeData?: {
-          paintBuffer?: unknown;
-          gradientIdBuffer?: unknown;
-          gradientDefIdBuffer?: unknown;
-          speedBuffer?: unknown;
-        };
-      }>;
+        }>;
       } | undefined;
 
       ccLog('serializeBrushState.raw', {
@@ -1911,8 +1962,12 @@ export const serializeBrushState = (layer: Layer): WebGLSerializedBrushState | u
               );
               const gradientIdValues = toSerializableNumberArray(ib.gradientId);
               const gradientIdBuffer = gradientIdValues.length > 0 ? gradientIdValues : undefined;
-              const speedValues = toSerializableNumberArray((ib as { speedData?: unknown }).speedData);
+              const speedValues = toSerializableNumberArray(ib.speedData);
               const speedBuffer = speedValues.length > 0 ? speedValues : undefined;
+              const flowValues = toSerializableNumberArray(ib.flowData ?? strokeData?.flowBuffer);
+              const flowBuffer = flowValues.length > 0 ? flowValues : undefined;
+              const phaseValues = toSerializableNumberArray(ib.phaseData ?? strokeData?.phaseBuffer);
+              const phaseBuffer = phaseValues.length > 0 ? phaseValues : undefined;
               const animationOffset = typeof entry.data?.animation?.offset === 'number'
                 ? entry.data.animation.offset
                 : 0;
@@ -1928,6 +1983,8 @@ export const serializeBrushState = (layer: Layer): WebGLSerializedBrushState | u
                 indexBuffer: indexArray,
                 gradientIdBuffer,
                 speedBuffer,
+                flowBuffer,
+                phaseBuffer,
                 gradientStops,
                 palette,
                 animationOffset,
@@ -1990,6 +2047,8 @@ export const serializeBrushState = (layer: Layer): WebGLSerializedBrushState | u
             strokeData?.gradientDefIdBuffer ?? layer.colorCycleData?.gradientDefIdBuffer
           );
           const speedValues = decodePersistedNumericBuffer(strokeData?.speedBuffer);
+          const flowValues = decodePersistedNumericBuffer(strokeData?.flowBuffer);
+          const phaseValues = decodePersistedNumericBuffer(strokeData?.phaseBuffer);
           const animationOffset = typeof entry.data?.animation?.offset === 'number'
             ? entry.data.animation.offset
             : 0;
@@ -2004,6 +2063,8 @@ export const serializeBrushState = (layer: Layer): WebGLSerializedBrushState | u
             gradientIdBuffer: gradientIdValues.length > 0 ? gradientIdValues : undefined,
             gradientDefIdBuffer: gradientDefIdValues.length > 0 ? gradientDefIdValues : undefined,
             speedBuffer: speedValues.length > 0 ? speedValues : undefined,
+            flowBuffer: flowValues.length > 0 ? flowValues : undefined,
+            phaseBuffer: phaseValues.length > 0 ? phaseValues : undefined,
             gradientStops,
             animationOffset,
             targetFPS,
@@ -2778,18 +2839,26 @@ export const serializeColorCycleData = async (
           : undefined;
     const encodedGradientIdBuffer = await resolvePackedBuffer(gradientIdFallback);
     const encodedSpeedBuffer = await resolvePackedBuffer(preparedSource.speedBuffer ?? undefined);
-    const fallbackSpeedBuffer = (() => {
-      const raw = preparedSource.speedBuffer;
+    const resolveFallbackBuffer = (
+      raw: number[] | Uint8Array | string | undefined
+    ): number[] | string | undefined => {
       if (!raw || typeof raw === 'string') {
         return raw;
       }
       return Array.isArray(raw) ? raw : (Array.from(raw) as number[]);
-    })();
+    };
+    const encodedFlowBuffer = await resolvePackedBuffer(preparedSource.flowBuffer ?? undefined);
+    const encodedPhaseBuffer = await resolvePackedBuffer(preparedSource.phaseBuffer ?? undefined);
+    const fallbackSpeedBuffer = resolveFallbackBuffer(preparedSource.speedBuffer);
+    const fallbackFlowBuffer = resolveFallbackBuffer(preparedSource.flowBuffer);
+    const fallbackPhaseBuffer = resolveFallbackBuffer(preparedSource.phaseBuffer);
     const preparedBrushState: WebGLSerializedBrushState = {
       ...preparedSource,
       indexBuffer: encodedIndexBuffer ?? [],
       gradientIdBuffer: encodedGradientIdBuffer ?? gradientIdFallback,
       speedBuffer: encodedSpeedBuffer ?? fallbackSpeedBuffer,
+      flowBuffer: encodedFlowBuffer ?? fallbackFlowBuffer,
+      phaseBuffer: encodedPhaseBuffer ?? fallbackPhaseBuffer,
       legacySpeedCps: controllerSpeedForExport ?? undefined
     };
     // Flow direction has been removed in-app; normalize export to forward.
