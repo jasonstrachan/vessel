@@ -11,6 +11,7 @@ import { decodeColorCycleSpeedByte } from '@/utils/colorCycleSpeed';
 import { appendGradientSeamProfileSignature } from '@/lib/colorCycle/gradientSeamProfile';
 import { hashStops, type StoredStop } from '@/utils/colorCycleGradientDefs';
 import { useAppStore } from '@/stores/useAppStore';
+import { getPersistedCCMutationLog } from '@/utils/colorCycle/ccMutationAudit';
 
 type MockContext = CanvasRenderingContext2D & {
   _lastImageData?: ImageData;
@@ -2266,5 +2267,190 @@ describe('ColorCycleBrushCanvas2D regression tests', () => {
       globalThis.requestAnimationFrame = previousRaf;
       globalThis.cancelAnimationFrame = previousCaf;
     }
+  });
+
+  it('persists a runtime clear event when clearPaintBuffer empties populated paint', () => {
+    window.localStorage.clear();
+    delete (window as Window & { __VESSEL_CC_MUTATION_LOG__?: unknown }).__VESSEL_CC_MUTATION_LOG__;
+
+    const canvas = makeCanvas(4, 4);
+    const brush = new ColorCycleBrushCanvas2D(canvas, { forceCanvas2D: true });
+    const layerId = 'layer-runtime-clear-audit';
+    brush.applyLayerSnapshot(layerId, {
+      paintBuffer: new Uint8Array(16).fill(3).buffer,
+      gradientIdBuffer: new Uint8Array(16).fill(2).buffer,
+      gradientDefIdBuffer: new Uint16Array(16).fill(4).buffer,
+      speedBuffer: new Uint8Array(16).fill(5).buffer,
+      flowBuffer: new Uint8Array(16).fill(6).buffer,
+      phaseBuffer: new Uint8Array(16).fill(7).buffer,
+      hasContent: true,
+      strokeCounter: 1,
+    });
+
+    brush.clearPaintBuffer(layerId, 'manual-clear-layer');
+
+    expect(getPersistedCCMutationLog()).toEqual([
+      expect.objectContaining({
+        event: 'color-cycle-layer-cleared',
+        layerId,
+        reason: 'manual-clear-layer',
+        severity: 'error',
+        details: expect.objectContaining({
+          source: 'clear',
+          expectedDestructive: true,
+          paintBefore: expect.objectContaining({ nonZeroCount: 16 }),
+          paintAfter: expect.objectContaining({ nonZeroCount: 0 }),
+          gradientDefIdBefore: expect.objectContaining({ nonZeroCount: 16 }),
+          gradientDefIdAfter: expect.objectContaining({ nonZeroCount: 0 }),
+        }),
+      }),
+    ]);
+  });
+
+  it('captures populated paint before startStroke clearBuffer clears animator-bound buffers', () => {
+    window.localStorage.clear();
+    delete (window as Window & { __VESSEL_CC_MUTATION_LOG__?: unknown }).__VESSEL_CC_MUTATION_LOG__;
+
+    const canvas = makeCanvas(4, 4);
+    const brush = new ColorCycleBrushCanvas2D(canvas, { forceCanvas2D: true });
+    const layerId = 'layer-start-stroke-clear-audit';
+    brush.applyLayerSnapshot(layerId, {
+      paintBuffer: new Uint8Array(16).fill(3).buffer,
+      gradientIdBuffer: new Uint8Array(16).fill(2).buffer,
+      gradientDefIdBuffer: new Uint16Array(16).fill(4).buffer,
+      speedBuffer: new Uint8Array(16).fill(5).buffer,
+      flowBuffer: new Uint8Array(16).fill(6).buffer,
+      phaseBuffer: new Uint8Array(16).fill(7).buffer,
+      hasContent: true,
+      strokeCounter: 1,
+    });
+
+    brush.startStroke(layerId, true);
+
+    expect(getPersistedCCMutationLog()).toEqual([
+      expect.objectContaining({
+        event: 'color-cycle-layer-cleared',
+        layerId,
+        reason: 'brush-stroke-write',
+        severity: 'error',
+        details: expect.objectContaining({
+          source: 'stroke',
+          expectedDestructive: true,
+          paintBefore: expect.objectContaining({ nonZeroCount: 16 }),
+          paintAfter: expect.objectContaining({ nonZeroCount: 0 }),
+          gradientDefIdBefore: expect.objectContaining({ nonZeroCount: 16 }),
+          gradientDefIdAfter: expect.objectContaining({ nonZeroCount: 0 }),
+        }),
+      }),
+    ]);
+  });
+
+  it('persists a runtime clear event when an empty snapshot replaces populated paint', () => {
+    window.localStorage.clear();
+    delete (window as Window & { __VESSEL_CC_MUTATION_LOG__?: unknown }).__VESSEL_CC_MUTATION_LOG__;
+
+    const canvas = makeCanvas(4, 4);
+    const brush = new ColorCycleBrushCanvas2D(canvas, { forceCanvas2D: true });
+    const layerId = 'layer-empty-snapshot-audit';
+    brush.applyLayerSnapshot(layerId, {
+      paintBuffer: new Uint8Array(16).fill(9).buffer,
+      gradientIdBuffer: new Uint8Array(16).fill(2).buffer,
+      gradientDefIdBuffer: new Uint16Array(16).fill(4).buffer,
+      speedBuffer: new Uint8Array(16).fill(5).buffer,
+      flowBuffer: new Uint8Array(16).fill(6).buffer,
+      phaseBuffer: new Uint8Array(16).fill(7).buffer,
+      hasContent: true,
+      strokeCounter: 1,
+    });
+
+    brush.applyLayerSnapshot(layerId, {
+      paintBuffer: new ArrayBuffer(0),
+      hasContent: false,
+      strokeCounter: 2,
+    });
+
+    expect(getPersistedCCMutationLog()).toEqual([
+      expect.objectContaining({
+        event: 'color-cycle-layer-cleared',
+        layerId,
+        reason: 'snapshot-apply',
+        details: expect.objectContaining({
+          source: 'snapshot',
+          expectedDestructive: true,
+          paintBefore: expect.objectContaining({ nonZeroCount: 16 }),
+          paintAfter: expect.objectContaining({ nonZeroCount: 0 }),
+        }),
+      }),
+    ]);
+  });
+
+  it('persists a project-load restore clear event before replacing populated runtime paint', () => {
+    window.localStorage.clear();
+    delete (window as Window & { __VESSEL_CC_MUTATION_LOG__?: unknown }).__VESSEL_CC_MUTATION_LOG__;
+
+    const canvas = makeCanvas(4, 4);
+    const brush = new ColorCycleBrushCanvas2D(canvas, { forceCanvas2D: true });
+    const layerId = 'layer-restore-clear-audit';
+    brush.applyLayerSnapshot(layerId, {
+      paintBuffer: new Uint8Array(16).fill(8).buffer,
+      gradientIdBuffer: new Uint8Array(16).fill(2).buffer,
+      gradientDefIdBuffer: new Uint16Array(16).fill(4).buffer,
+      speedBuffer: new Uint8Array(16).fill(5).buffer,
+      flowBuffer: new Uint8Array(16).fill(6).buffer,
+      phaseBuffer: new Uint8Array(16).fill(7).buffer,
+      hasContent: true,
+      strokeCounter: 1,
+    });
+
+    brush.restoreFullState({
+      layerSnapshots: [{
+        layerId,
+        paintBuffer: new Uint8Array(16).fill(1).buffer,
+        gradientIdBuffer: new Uint8Array(16).fill(2).buffer,
+        gradientDefIdBuffer: new Uint16Array(16).fill(4).buffer,
+        speedBuffer: new Uint8Array(16).fill(5).buffer,
+        flowBuffer: new Uint8Array(16).fill(6).buffer,
+        phaseBuffer: new Uint8Array(16).fill(7).buffer,
+        hasContent: true,
+        strokeCounter: 2,
+      }],
+    });
+
+    expect(getPersistedCCMutationLog()).toEqual([
+      expect.objectContaining({
+        event: 'color-cycle-layer-cleared',
+        layerId,
+        reason: 'project-load-restore',
+        details: expect.objectContaining({
+          source: 'project-load',
+          expectedDestructive: true,
+          paintBefore: expect.objectContaining({ nonZeroCount: 16 }),
+          paintAfter: expect.objectContaining({ nonZeroCount: 0 }),
+        }),
+      }),
+    ]);
+  });
+
+  it('does not report orphan brush cleanup as a layer clear', () => {
+    window.localStorage.clear();
+    delete (window as Window & { __VESSEL_CC_MUTATION_LOG__?: unknown }).__VESSEL_CC_MUTATION_LOG__;
+
+    const canvas = makeCanvas(4, 4);
+    const brush = new ColorCycleBrushCanvas2D(canvas, { forceCanvas2D: true });
+    const layerId = 'layer-cleanup-not-layer-clear';
+    brush.applyLayerSnapshot(layerId, {
+      paintBuffer: new Uint8Array(16).fill(3).buffer,
+      gradientIdBuffer: new Uint8Array(16).fill(2).buffer,
+      gradientDefIdBuffer: new Uint16Array(16).fill(4).buffer,
+      speedBuffer: new Uint8Array(16).fill(5).buffer,
+      flowBuffer: new Uint8Array(16).fill(6).buffer,
+      phaseBuffer: new Uint8Array(16).fill(7).buffer,
+      hasContent: true,
+      strokeCounter: 1,
+    });
+
+    brush.cleanup();
+
+    expect(getPersistedCCMutationLog()).toEqual([]);
   });
 });

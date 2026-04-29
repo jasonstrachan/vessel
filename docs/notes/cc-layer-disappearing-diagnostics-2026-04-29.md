@@ -46,11 +46,13 @@ That entry should include:
 
 - `layerId`
 - `reason`
+- `details.source`
+- `details.expectedDestructive`
 - `href`
 - timestamp `t`
 - `stack`
 - before/after layer summaries
-- compact buffer summaries for paint, gradient id, speed, flow, and phase
+- compact buffer summaries for paint, gradient id, gradient def id, speed, flow, and phase
 
 The paint summaries include:
 
@@ -61,7 +63,7 @@ The paint summaries include:
 - checksum
 - first 16 non-zero samples with index/x/y/value
 
-If this event exists, start from the stack trace and the triggering operation. It is a live-memory clear, not only a save/load problem.
+If this event exists, start from the stack trace, `reason`, and `details.source`. It is a live-memory clear, not only a save/load problem. `details.expectedDestructive: true` means the clear came through an intentional destructive runtime path, but it is still persisted so the event can explain why the layer became empty.
 
 ### Runtime Logging Scope
 
@@ -137,7 +139,7 @@ After repair, review affected layers manually. Repaired layers may reopen, but m
 
 ## Playback/Presentation Check
 
-If the clear log is empty and the archive contains valid canonical buffers, treat the issue as playback/presentation until disproven.
+After the runtime mutation single-authority refactor, an empty clear log means no covered live CC runtime paint buffer transitioned from non-empty to empty through app logic in the current origin/profile. If the archive also contains valid canonical buffers, treat the issue as playback/presentation until disproven.
 
 Check:
 
@@ -151,7 +153,18 @@ Do not patch save/load or clear handling from a blank visual symptom alone. Firs
 
 ## Current Diagnostic Coverage
 
-Runtime clear coverage exists for CC region mutations that empty the paint buffer. It records compact data rather than raw full buffers so logs can persist in `localStorage` without exceeding quota.
+Runtime clear coverage exists for the core CC runtime mutation paths that can empty paint:
+
+- region mutations through `mutateColorCycleLayer`,
+- `ColorCycleBrushCanvas2D.clearPaintBuffer`,
+- `ColorCycleBrushCanvas2D.startStroke(clearBuffer = true)`,
+- `ColorCycleBrushCanvas2D.applyLayerSnapshot` populated-to-empty replacement,
+- `ColorCycleBrushCanvas2D.restoreFullState` non-history replacement,
+- explicit runtime reset paths such as `ColorCycleBrushCanvas2D.clear()`.
+
+Lifecycle teardown paths such as orphan brush `cleanup()` / `destroy()` during project load are intentionally excluded. Disposing an orphaned brush is not evidence that a live project layer was cleared.
+
+It records compact data rather than raw full buffers so logs can persist in `localStorage` without exceeding quota.
 
 Save/archive coverage is not a passive log. It is a hard postcondition on serialization: a corrupt archive should not be written if serialized refs and binary payloads disagree.
 
