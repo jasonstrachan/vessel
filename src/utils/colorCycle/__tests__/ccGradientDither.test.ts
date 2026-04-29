@@ -530,6 +530,175 @@ describe('fillCcGradientDither', () => {
     expect(Array.from(values).some((value) => value >= 128)).toBe(true);
   });
 
+  it('renders ASCII pattern differently from Bayer for CC gradient dither', async () => {
+    const width = 16;
+    const height = 16;
+    const run = async (algorithm: 'bayer' | 'pattern', patternStyle?: 'ascii') => {
+      const out = new Uint8Array(width * height);
+      await fillCcGradientDither({
+        vertices: [
+          { x: 0, y: 0 },
+          { x: width - 1, y: 0 },
+          { x: width - 1, y: height - 1 },
+          { x: 0, y: height - 1 },
+        ],
+        minX: 0,
+        minY: 0,
+        maxX: width - 1,
+        maxY: height - 1,
+        pixelSize: 1,
+        levels: 2,
+        pairBandCount: 2,
+        baseOffset: 0,
+        algorithm,
+        patternStyle,
+        sampleNormalized: () => 0.5,
+        writeIndex: (x, y, index) => {
+          out[y * width + x] = index;
+        },
+      });
+      return Array.from(out);
+    };
+
+    const bayer = await run('bayer');
+    const ascii = await run('pattern', 'ascii');
+
+    expect(ascii.some((value) => value > 0)).toBe(true);
+    expect(ascii).not.toEqual(bayer);
+  });
+
+  it('renders selected CC pattern styles differently from each other', async () => {
+    const width = 16;
+    const height = 16;
+    const patternStyles = [
+      'dots',
+      'lines',
+      'vertical-lines',
+      'horizontal-lines',
+      'crosshatch',
+      'diagonal',
+      'ascii',
+      'tone-adaptive',
+    ] as const;
+    const rendered = await Promise.all(patternStyles.map(async (patternStyle) => {
+      const out = new Uint8Array(width * height);
+      await fillCcGradientDither({
+        vertices: [
+          { x: 0, y: 0 },
+          { x: width - 1, y: 0 },
+          { x: width - 1, y: height - 1 },
+          { x: 0, y: height - 1 },
+        ],
+        minX: 0,
+        minY: 0,
+        maxX: width - 1,
+        maxY: height - 1,
+        pixelSize: 1,
+        levels: 2,
+        pairBandCount: 2,
+        baseOffset: 0,
+        algorithm: 'pattern',
+        patternStyle,
+        sampleNormalized: () => 0.5,
+        writeIndex: (x, y, index) => {
+          out[y * width + x] = index;
+        },
+      });
+      return Array.from(out).join(',');
+    }));
+
+    expect(new Set(rendered).size).toBeGreaterThan(1);
+  });
+
+  it('keeps tone-adaptive distinct from lines when CC gradient tone varies', async () => {
+    const width = 16;
+    const height = 16;
+    const run = async (patternStyle: 'lines' | 'tone-adaptive') => {
+      const out = new Uint8Array(width * height);
+      await fillCcGradientDither({
+        vertices: [
+          { x: 0, y: 0 },
+          { x: width - 1, y: 0 },
+          { x: width - 1, y: height - 1 },
+          { x: 0, y: height - 1 },
+        ],
+        minX: 0,
+        minY: 0,
+        maxX: width - 1,
+        maxY: height - 1,
+        pixelSize: 1,
+        levels: 2,
+        pairBandCount: 2,
+        baseOffset: 0,
+        algorithm: 'pattern',
+        patternStyle,
+        sampleNormalized: (x) => x / Math.max(1, width - 1),
+        writeIndex: (x, y, index) => {
+          out[y * width + x] = index;
+        },
+      });
+      return Array.from(out);
+    };
+
+    await expect(run('tone-adaptive')).resolves.not.toEqual(await run('lines'));
+  });
+
+  it('renders ASCII pattern differently from Bayer in flat pattern mode', () => {
+    const width = 16;
+    const height = 16;
+    const run = (algorithm: 'bayer' | 'pattern', patternStyle?: 'ascii') => {
+      const out = new Uint16Array(width * height);
+      fillFlatPatternMode({
+        algorithm,
+        patternStyle,
+        tone: 0.5,
+        flatPosition: 0.5,
+        gridW: width,
+        gridH: height,
+        fillBackground: true,
+        baseOffset: 0,
+        phaseX: 0,
+        phaseY: 0,
+        writeCellIndex: (cellIdx, index) => {
+          out[cellIdx] = index;
+        },
+      });
+      return Array.from(out);
+    };
+
+    const bayer = run('bayer');
+    const ascii = run('pattern', 'ascii');
+
+    expect(ascii.some((value) => value > 0)).toBe(true);
+    expect(ascii).not.toEqual(bayer);
+  });
+
+  it('keeps tone-adaptive distinct from lines in flat pattern mode', () => {
+    const width = 16;
+    const height = 16;
+    const run = (patternStyle: 'lines' | 'tone-adaptive') => {
+      const out = new Uint16Array(width * height);
+      fillFlatPatternMode({
+        algorithm: 'pattern',
+        patternStyle,
+        tone: 0.2,
+        flatPosition: 0.2,
+        gridW: width,
+        gridH: height,
+        fillBackground: true,
+        baseOffset: 0,
+        phaseX: 0,
+        phaseY: 0,
+        writeCellIndex: (cellIdx, index) => {
+          out[cellIdx] = index;
+        },
+      });
+      return Array.from(out);
+    };
+
+    expect(run('tone-adaptive')).not.toEqual(run('lines'));
+  });
+
   it('keeps a single Sierra Lite flat ink pair across the shape in levels=1 mode', async () => {
     const width = 8;
     const height = 4;

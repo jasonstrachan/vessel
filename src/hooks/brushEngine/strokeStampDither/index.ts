@@ -1,6 +1,7 @@
 import type { ColorCycleAnimator } from '@/lib/ColorCycleAnimator';
 import { BAYER_8x8_MATRIX, BLUE_NOISE_16x16, VOID_CLUSTER_8x8 } from '@/utils/ditherAlgorithms';
 import type { PatternStyle } from '@/utils/ditherAlgorithms';
+import { resolveCcPatternThreshold } from '@/utils/colorCycle/ccPatternThreshold';
 import { encodeColorCycleSpeedByte } from '@/utils/colorCycleSpeed';
 import {
   computePressureResolution,
@@ -133,7 +134,6 @@ const CHECKERED_4_MASK: ReadonlyArray<number> = [
   1, 0, 1, 0,
   0, 1, 0, 1,
 ];
-
 export const STAMP_DITHER_FINALIZE_ERROR_DIFFUSION_ALGOS: ReadonlySet<StampDitherAlgorithm> = new Set([
   'floyd-steinberg',
   'jarvis-judice-ninke',
@@ -692,66 +692,10 @@ const buildBaseStampDitherTile = (
   const clampedBucket = Math.max(0, Math.min(STAMP_DITHER_BUCKETS - 1, bucket));
   const coverage = clampedBucket / Math.max(1, STAMP_DITHER_BUCKETS - 1);
   if (algo === 'pattern') {
-    const mod = (value: number, base: number) => ((value % base) + base) % base;
     const result = new Uint8Array(tileSize * tileSize);
     for (let y = 0; y < tileSize; y += 1) {
       for (let x = 0; x < tileSize; x += 1) {
-        let patternValue = 0;
-        switch (pattern) {
-          case 'dots': {
-            const dotSize = 4;
-            const dx = mod(x, dotSize) - dotSize / 2;
-            const dy = mod(y, dotSize) - dotSize / 2;
-            const distance = Math.sqrt(dx * dx + dy * dy) / (dotSize / 2);
-            patternValue = Math.min(1, distance);
-            break;
-          }
-          case 'lines': {
-            const spacing = 4;
-            const diagonal = mod(x + y, spacing);
-            patternValue = diagonal / spacing;
-            break;
-          }
-          case 'vertical-lines': {
-            const spacing = 4;
-            patternValue = mod(x, spacing) / spacing;
-            break;
-          }
-          case 'horizontal-lines': {
-            const spacing = 4;
-            patternValue = mod(y, spacing) / spacing;
-            break;
-          }
-          case 'crosshatch': {
-            const spacing = 4;
-            const vertical = mod(x, spacing) / spacing;
-            const horizontal = mod(y, spacing) / spacing;
-            patternValue = Math.min(vertical, horizontal);
-            break;
-          }
-          case 'diagonal': {
-            const spacing = 8;
-            const dx = Math.abs(mod(x, spacing) - spacing / 2);
-            const dy = Math.abs(mod(y, spacing) - spacing / 2);
-            patternValue = (dx + dy) / spacing;
-            break;
-          }
-          case 'tone-adaptive': {
-            const lum = coverage;
-            if (lum < 0.33) {
-              const spacing = 3;
-              patternValue = mod(x, spacing) / spacing;
-            } else if (lum < 0.66) {
-              const spacing = 4;
-              const diag = mod(x + y, spacing);
-              patternValue = diag / spacing;
-            } else {
-              const spacing = 5;
-              patternValue = mod(y, spacing) / spacing;
-            }
-            break;
-          }
-        }
+        const patternValue = resolveCcPatternThreshold(pattern, x, y, coverage);
         result[y * tileSize + x] = patternValue <= coverage ? 1 : 0;
       }
     }
@@ -853,6 +797,19 @@ const getStampDitherTile = (
 };
 
 const replayStampDitherRuntime: StampDitherRuntime = createStampDitherRuntime();
+
+const hasRecordedStampScales = (strokeData: StampDitherStrokeData): boolean =>
+  Array.isArray(strokeData.stampSeqMeta) && strokeData.stampSeqMeta.length > 0;
+
+const resolvePatternFinalizeFallbackScale = (
+  strokeData: StampDitherStrokeData,
+  config: StampDitherConfig
+): number => {
+  if (hasRecordedStampScales(strokeData)) {
+    return Math.max(1, strokeData.stampDitherStrokeScale ?? config.pixelSize);
+  }
+  return Math.max(1, config.pixelSize);
+};
 
 export const sampleStampDitherReplayMask = ({
   x,
@@ -1392,7 +1349,9 @@ export const finalizeStampDither = (args: {
   const isTileMask = isTileMaskAlgorithm(algo);
   if (!isErrorDiffusion && !isTileMask) return false;
 
-  const fallbackScale = Math.max(1, state.stampDitherStrokeScale ?? config.pixelSize);
+  const fallbackScale = algo === 'pattern'
+    ? resolvePatternFinalizeFallbackScale(state, config)
+    : Math.max(1, state.stampDitherStrokeScale ?? config.pixelSize);
   const lut = buildStampSeqToTileScale(state, fallbackScale);
 
   const minX = Math.max(0, Math.min(width - 1, bounds.minX));

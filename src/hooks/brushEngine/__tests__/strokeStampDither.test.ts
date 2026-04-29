@@ -382,6 +382,228 @@ describe('strokeStampDither', () => {
     expect(bayer).not.toEqual(pattern);
   });
 
+  it('uses the selected ASCII pattern style for stamp dither pattern finalization', () => {
+    const width = 16;
+    const height = 16;
+    const size = width * height;
+    const tag = new Uint32Array(size);
+    for (let i = 0; i < size; i += 1) {
+      tag[i] = (1 << 16) | 1;
+    }
+    const animator = buildAnimator(width, height);
+    const state = {
+      paintBuffer: new Uint8Array(size),
+      gradientIdBuffer: new Uint8Array(size),
+      speedBuffer: new Uint8Array(size),
+      stampDitherPrimaryBuffer: new Uint8Array(size).fill(11),
+      stampDitherTag: tag,
+      stampDitherBounds: { minX: 0, minY: 0, maxX: width - 1, maxY: height - 1 },
+      stampDitherStrokeEpoch: 1,
+      stampDitherStampSeq: 1,
+      stampDitherStrokeScale: 1,
+      stampDitherLockedBucket: Math.floor(stampDither.STAMP_DITHER_BUCKETS / 2),
+    };
+
+    const didFinalize = stampDither.finalizeStampDither({
+      animator: animator as unknown as Parameters<typeof stampDither.finalizeStampDither>[0]['animator'],
+      state,
+      config: {
+        algorithm: 'pattern',
+        pixelSize: 1,
+        patternStyle: 'ascii',
+        bgFill: true,
+        pressureLinked: false,
+        seed: 17,
+      },
+      width,
+      height,
+      flowSlot: 3,
+      cycleSpeed: 1,
+      ditherStrength: 1,
+    });
+
+    expect(didFinalize).toBe(true);
+    expect(animator.handle.data.some((value) => value === 11)).toBe(true);
+    expect(animator.handle.data.some((value) => value === stampDither.resolveStampDitherSecondaryIndex(11))).toBe(true);
+  });
+
+  it('uses every selected pattern style for stamp dither pattern finalization', () => {
+    const width = 32;
+    const height = 32;
+    const size = width * height;
+    const patternStyles = [
+      'dots',
+      'lines',
+      'vertical-lines',
+      'horizontal-lines',
+      'crosshatch',
+      'diagonal',
+      'ascii',
+      'tone-adaptive',
+    ] as const;
+
+    const buildState = () => {
+      const tag = new Uint32Array(size);
+      for (let i = 0; i < size; i += 1) {
+        tag[i] = (1 << 16) | 1;
+      }
+      return {
+        paintBuffer: new Uint8Array(size),
+        gradientIdBuffer: new Uint8Array(size),
+        speedBuffer: new Uint8Array(size),
+        stampDitherPrimaryBuffer: new Uint8Array(size).fill(11),
+        stampDitherTag: tag,
+        stampDitherBounds: { minX: 0, minY: 0, maxX: width - 1, maxY: height - 1 },
+        stampDitherStrokeEpoch: 1,
+        stampDitherStampSeq: 1,
+        stampDitherLockedBucket: Math.floor(stampDither.STAMP_DITHER_BUCKETS / 2),
+      };
+    };
+
+    const rendered = patternStyles.map((patternStyle) => {
+      const animator = buildAnimator(width, height);
+      const didFinalize = stampDither.finalizeStampDither({
+        animator: animator as unknown as Parameters<typeof stampDither.finalizeStampDither>[0]['animator'],
+        state: buildState(),
+        config: {
+          algorithm: 'pattern',
+          pixelSize: 1,
+          patternStyle,
+          bgFill: true,
+          pressureLinked: false,
+          seed: 17,
+        },
+        width,
+        height,
+        flowSlot: 3,
+        cycleSpeed: 1,
+        ditherStrength: 1,
+      });
+
+      expect(didFinalize).toBe(true);
+      expect(animator.handle.data.some((value) => value === 11)).toBe(true);
+      expect(animator.handle.data.some((value) => value === stampDither.resolveStampDitherSecondaryIndex(11))).toBe(true);
+      return [patternStyle, Array.from(animator.handle.data).join(',')] as const;
+    });
+
+    const uniqueOutputs = new Set(rendered.map(([, output]) => output));
+    expect(uniqueOutputs.size).toBeGreaterThan(1);
+    for (const [, output] of rendered) {
+      expect(output).not.toHaveLength(0);
+    }
+  });
+
+  it('uses the current resolution slider value when no per-stamp scale metadata exists', () => {
+    const width = 32;
+    const height = 32;
+    const size = width * height;
+    const buildState = () => {
+      const tag = new Uint32Array(size);
+      for (let i = 0; i < size; i += 1) {
+        tag[i] = (1 << 16) | 1;
+      }
+      return {
+        paintBuffer: new Uint8Array(size),
+        gradientIdBuffer: new Uint8Array(size),
+        speedBuffer: new Uint8Array(size),
+        stampDitherPrimaryBuffer: new Uint8Array(size).fill(11),
+        stampDitherTag: tag,
+        stampDitherBounds: { minX: 0, minY: 0, maxX: width - 1, maxY: height - 1 },
+        stampDitherStrokeEpoch: 1,
+        stampDitherStampSeq: 1,
+        stampDitherStrokeScale: 1,
+        stampDitherLockedBucket: Math.floor(stampDither.STAMP_DITHER_BUCKETS / 2),
+      };
+    };
+    const runFinalize = (pixelSize: number) => {
+      const animator = buildAnimator(width, height);
+      const didFinalize = stampDither.finalizeStampDither({
+        animator: animator as unknown as Parameters<typeof stampDither.finalizeStampDither>[0]['animator'],
+        state: buildState(),
+        config: {
+          algorithm: 'pattern',
+          pixelSize,
+          patternStyle: 'diagonal',
+          bgFill: true,
+          pressureLinked: false,
+          seed: 17,
+        },
+        width,
+        height,
+        flowSlot: 3,
+        cycleSpeed: 1,
+        ditherStrength: 1,
+      });
+
+      expect(didFinalize).toBe(true);
+      return Array.from(animator.handle.data);
+    };
+
+    expect(runFinalize(1)).not.toEqual(runFinalize(8));
+  });
+
+  it('uses selected pattern styles and resolution during live stamp application', () => {
+    const width = 32;
+    const height = 32;
+    const size = width * height;
+    const runtime = stampDither.createStampDitherRuntime();
+    const patternStyles = [
+      'dots',
+      'lines',
+      'vertical-lines',
+      'horizontal-lines',
+      'crosshatch',
+      'diagonal',
+      'ascii',
+      'tone-adaptive',
+    ] as const;
+
+    const runApply = (patternStyle: (typeof patternStyles)[number], pixelSize: number) => {
+      const animator = buildAnimator(width, height);
+      const state = {
+        paintBuffer: new Uint8Array(size),
+        gradientIdBuffer: new Uint8Array(size),
+        speedBuffer: new Uint8Array(size),
+        stampDitherStrokeEpoch: 1,
+        stampDitherStampSeq: 0,
+      };
+      const result = stampDither.applyStampDitherStamp({
+        animator: animator as unknown as Parameters<typeof stampDither.applyStampDitherStamp>[0]['animator'],
+        state,
+        config: {
+          algorithm: 'pattern',
+          pixelSize,
+          patternStyle,
+          bgFill: true,
+          pressureLinked: false,
+          seed: 17,
+        },
+        runtime,
+        stampShape: 'square',
+        x: 16,
+        y: 16,
+        pressure: 1,
+        pressureSize: 24,
+        primaryIndex: 11,
+        flowSlot: 3,
+        cycleSpeed: 1,
+        width,
+        height,
+        isAnimating: false,
+      });
+
+      expect(result.didApply).toBe(true);
+      expect(animator.handle.data.some((value) => value === 11)).toBe(true);
+      expect(animator.handle.data.some((value) => value === stampDither.resolveStampDitherSecondaryIndex(11))).toBe(true);
+      return Array.from(animator.handle.data);
+    };
+
+    for (const style of patternStyles) {
+      runApply(style, 1);
+    }
+    expect(runApply('diagonal', 1)).not.toEqual(runApply('diagonal', 8));
+  });
+
   it('scales the checkered stamp cells with brush size', () => {
     const width = 20;
     const height = 20;

@@ -1128,16 +1128,16 @@ export const finalizeShapeDrawing = async (
             if (targetLayer) {
               deps.ensureActiveColorCycleGradientSlot(currentState, targetLayer, ccBrush);
             }
-            let ditherPixelSize: number | undefined;
+            const { pixelSize } = resolveColorCycleDitherPixelSize({
+              settings: activeSettings,
+              hadValidPressure: deps.hadValidShapePressureRef.current,
+              lastStablePressure: deps.lastStablePressureRef.current,
+              computeShapePixelSize: deps.computeShapePixelSize,
+            });
+            deps.latestShapePixelSizeRef.current = pixelSize;
+            const ditherPixelSize = pixelSize;
             if (ccBrush && typeof (ccBrush as { setDitherPixelSize?: (value: number) => void }).setDitherPixelSize === 'function') {
-              const { pixelSize } = resolveColorCycleDitherPixelSize({
-                settings: activeSettings,
-                hadValidPressure: deps.hadValidShapePressureRef.current,
-                lastStablePressure: deps.lastStablePressureRef.current,
-                computeShapePixelSize: deps.computeShapePixelSize,
-              });
-              deps.latestShapePixelSizeRef.current = pixelSize;
-              ditherPixelSize = pixelSize;
+              (ccBrush as { setDitherPixelSize: (value: number) => void }).setDitherPixelSize(pixelSize);
             }
             const keepOverlayAfter = shouldKeepColorCycleShapeOverlayAfterFinalize();
             const currentFinalizeState = deps.storeRef.current;
@@ -1337,16 +1337,16 @@ export const finalizeShapeDrawing = async (
                 if (targetLayer) {
                   deps.ensureActiveColorCycleGradientSlot(deps.storeRef.current, targetLayer, ccBrush);
                 }
-                let ditherPixelSize: number | undefined;
+                const { pixelSize } = resolveColorCycleDitherPixelSize({
+                  settings: liveBrushSettings,
+                  hadValidPressure: deps.hadValidShapePressureRef.current,
+                  lastStablePressure: deps.lastStablePressureRef.current,
+                  computeShapePixelSize: deps.computeShapePixelSize,
+                });
+                deps.latestShapePixelSizeRef.current = pixelSize;
+                const ditherPixelSize = pixelSize;
                 if (ccBrush && typeof (ccBrush as { setDitherPixelSize?: (value: number) => void }).setDitherPixelSize === 'function') {
-                  const { pixelSize } = resolveColorCycleDitherPixelSize({
-                    settings: liveBrushSettings,
-                    hadValidPressure: deps.hadValidShapePressureRef.current,
-                    lastStablePressure: deps.lastStablePressureRef.current,
-                    computeShapePixelSize: deps.computeShapePixelSize,
-                  });
-                  deps.latestShapePixelSizeRef.current = pixelSize;
-                  ditherPixelSize = pixelSize;
+                  (ccBrush as { setDitherPixelSize: (value: number) => void }).setDitherPixelSize(pixelSize);
                 }
                 const keepOverlayAfter = shouldKeepColorCycleShapeOverlayAfterFinalize();
                 const sampledFinalizeSource = isSampledCcShapeDrag(currentFinalizeState);
