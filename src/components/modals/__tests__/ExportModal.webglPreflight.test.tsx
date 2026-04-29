@@ -123,13 +123,13 @@ describe('ExportModal webgl preflight', () => {
     jest.useRealTimers();
   });
 
-  it('applies Goblet2 single-html production preset', () => {
+  it('applies the Goblet2 single-html preset', () => {
     render(<ExportModal isOpen onClose={jest.fn()} />);
     act(() => {
       jest.runAllTimers();
     });
 
-    fireEvent.click(screen.getByRole('button', { name: /Apply Goblet2 Single-HTML \(Production\)/i }));
+    fireEvent.click(screen.getByRole('button', { name: /^Single HTML$/i }));
     expect(store.updateWebglExportSettings).toHaveBeenCalledWith({
       gobletVersion: 'goblet2',
       bundleFormat: 'single-html',
@@ -138,6 +138,25 @@ describe('ExportModal webgl preflight', () => {
       embedCanvasFallback: false,
       includeHiddenLayers: false,
       htmlTitle: 'Goblet',
+    });
+  });
+
+  it('toggles Goblet debug mode from the preset row', () => {
+    store.webglExportSettings = {
+      ...store.webglExportSettings,
+      enableGobletDiagnostics: false,
+      minifyOutput: true,
+    };
+
+    render(<ExportModal isOpen onClose={jest.fn()} />);
+    act(() => {
+      jest.runAllTimers();
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: /^Debug mode$/i }));
+    expect(store.updateWebglExportSettings).toHaveBeenCalledWith({
+      enableGobletDiagnostics: true,
+      minifyOutput: false,
     });
   });
 
