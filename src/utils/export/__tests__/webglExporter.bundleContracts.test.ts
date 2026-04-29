@@ -19,6 +19,11 @@ const readBlobArrayBuffer = (blob: Blob): Promise<ArrayBuffer> => new Promise((r
   reader.readAsArrayBuffer(blob);
 });
 
+const getModuleScriptContent = (html: string): string => {
+  const match = html.match(/<script type="module">([\s\S]*?)<\/script>/);
+  return match?.[1] ?? '';
+};
+
 const createProject = (): Project => ({
   id: 'project-1',
   name: 'Bundle Contracts',
@@ -88,10 +93,18 @@ const assetContentFor = (target: string): string => {
   if (target.endsWith('index.html')) {
     return gobletTemplate;
   }
-  if (target.endsWith('goblet2-inline.js') || target.endsWith('goblet2.js')) {
+  if (target.endsWith('goblet2-inline.js')) {
     return [
       'export const expandVesselMetadata = (metadata) => metadata;',
       'export async function renderVesselWebGL() { return { ok: true }; }',
+    ].join('\n');
+  }
+  if (target.endsWith('goblet2.js')) {
+    return [
+      "import { createDisplayFilterPipelineState } from './displayFilterPipeline.js';",
+      'function clamp01(value) { return Math.max(0, Math.min(1, value)); }',
+      'export const expandVesselMetadata = (metadata) => metadata;',
+      'export async function renderVesselWebGL() { createDisplayFilterPipelineState(); return { ok: clamp01(1) }; }',
     ].join('\n');
   }
   if (target.endsWith('alignFitResolver.js')) {
@@ -99,6 +112,20 @@ const assetContentFor = (target: string): string => {
       'export const normalizeAlignment = () => ({});',
       'export const computeLayerTransform = () => ({});',
       'export const computeLayerDestination = () => ({});',
+    ].join('\n');
+  }
+  if (target.endsWith('displayFilterPipeline.js')) {
+    return [
+      'const clamp01 = (value) => Math.max(0, Math.min(1, value));',
+      'export const getSeamlessNoisePatternSize = () => 1;',
+      'export const createTileableNoiseGrid = () => [];',
+      'export const createDisplayFilterPipelineState = () => ({});',
+      'export const getNextFilterWorkCanvas = (currentCanvas, workCanvasA) => workCanvasA ?? currentCanvas;',
+      'export const ensureDisplayFilterCanvas = () => null;',
+      'export const clearDisplayFilterCanvas = () => null;',
+      'export const getDisplayFilterByIdFromList = () => undefined;',
+      'export const hasEnabledDisplayFiltersInList = () => false;',
+      'export const applyDisplayFilterStack = ({ sourceCanvas }) => clamp01(1) ? sourceCanvas : sourceCanvas;',
     ].join('\n');
   }
   if (target.endsWith('num.js')) {
@@ -163,6 +190,35 @@ describe('webglExporter bundle contracts', () => {
     expect(html).toContain('"bundleFormat": "single-html"');
   });
 
+  it('wraps display-filter runtime in legacy single-file fallback', async () => {
+    (global.fetch as jest.Mock).mockImplementation(async (target: RequestInfo | URL) => {
+      const url = String(target);
+      if (url.endsWith('goblet2-inline.js')) {
+        return {
+          ok: false,
+          status: 404,
+          text: async () => '',
+        } as Response;
+      }
+      return {
+        ok: true,
+        status: 200,
+        text: async () => assetContentFor(url),
+      } as Response;
+    });
+
+    await exportProjectAsWebGL({
+      ...baseExportRequest(),
+      bundleFormat: 'single-html',
+    });
+
+    const html = await readBlobText(downloadedBlobs[0]);
+    const script = getModuleScriptContent(html);
+    expect(script).toContain('const { getSeamlessNoisePatternSize, createTileableNoiseGrid');
+    expect(script).not.toContain("from './displayFilterPipeline.js'");
+    expect(() => new Function(script)).not.toThrow();
+  });
+
   it('packages the template, runtime assets, and metadata JSON in zip exports', async () => {
     const metadata = await exportProjectAsWebGL({
       ...baseExportRequest(),
@@ -177,6 +233,7 @@ describe('webglExporter bundle contracts', () => {
     expect(Object.keys(zip.files).sort()).toEqual([
       'alignFitResolver.js',
       'bundle-contract-goblet.json',
+      'displayFilterPipeline.js',
       'fflate-inflate.js',
       'goblet2.js',
       'index.html',

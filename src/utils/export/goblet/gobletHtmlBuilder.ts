@@ -331,6 +331,32 @@ const buildInlineNumRuntime = (numJs: string): string => {
   return sanitized ? `${sanitized}\n` : '';
 };
 
+const buildInlineDisplayFilterRuntime = (displayFilterJs: string): string => {
+  const sanitized = displayFilterJs
+    .replace(/export\s+const\s+/g, 'const ')
+    .replace(/export\s+function\s+/g, 'function ')
+    .replace(/export\s+default\s+[^;\n]+;?/g, '')
+    .replace(/export\s+\{[^}]*\};?/g, '')
+    .trim();
+  if (!sanitized) {
+    return '';
+  }
+
+  const exports = [
+    'getSeamlessNoisePatternSize',
+    'createTileableNoiseGrid',
+    'createDisplayFilterPipelineState',
+    'getNextFilterWorkCanvas',
+    'ensureDisplayFilterCanvas',
+    'clearDisplayFilterCanvas',
+    'getDisplayFilterByIdFromList',
+    'hasEnabledDisplayFiltersInList',
+    'applyDisplayFilterStack',
+  ];
+  const exportList = exports.join(', ');
+  return `const { ${exportList} } = (() => {\n${sanitized}\nreturn { ${exportList} };\n})();`;
+};
+
 const buildSingleFileRenderSnippet = (metadataJson: string, diagnosticsEnabled: boolean): string => {
   const metadataLiteral = encodeMetadataForInlineScript(metadataJson);
   const diagnosticsLiteral = diagnosticsEnabled ? 'true' : 'false';
@@ -493,6 +519,7 @@ const buildSingleFileScript = (
   gobletRuntime: string,
   runtimeModulePath: string,
   alignRuntime: string,
+  displayFilterRuntime: string,
   numRuntime: string,
   inflateRuntime: string,
   metadataJson: string,
@@ -502,13 +529,18 @@ const buildSingleFileScript = (
   const runtimeWithoutAlignImport = stripModuleImportStatement(gobletRuntime, './alignFitResolver.js');
   const runtimeWithoutNumImport = stripModuleImportStatement(runtimeWithoutAlignImport, './num.js');
   const runtimeWithoutInflateImport = stripModuleImportStatement(runtimeWithoutNumImport, './fflate-inflate.js');
-  const inlineInflateAlreadyPresent = /const\s+inflateRaw\s*=\s*\(\s*\(\s*\)\s*=>/.test(runtimeWithoutInflateImport);
+  const runtimeWithoutDisplayFilterImport = stripModuleImportStatement(runtimeWithoutInflateImport, './displayFilterPipeline.js');
+  const inlineInflateAlreadyPresent = /const\s+inflateRaw\s*=\s*\(\s*\(\s*\)\s*=>/.test(runtimeWithoutDisplayFilterImport);
   const inlineInflate = inlineInflateAlreadyPresent ? '' : buildInlineInflateRuntime(inflateRuntime);
   const inlineAlign = buildInlineAlignRuntime(alignRuntime);
   const inlineNum = buildInlineNumRuntime(numRuntime);
+  const inlineDisplayFilter = buildInlineDisplayFilterRuntime(displayFilterRuntime);
   const runtimePrefixParts = [] as string[];
   if (inlineNum) {
     runtimePrefixParts.push(inlineNum);
+  }
+  if (inlineDisplayFilter) {
+    runtimePrefixParts.push(inlineDisplayFilter);
   }
   if (inlineAlign) {
     runtimePrefixParts.push(inlineAlign);
@@ -517,7 +549,7 @@ const buildSingleFileScript = (
     runtimePrefixParts.push(inlineInflate);
   }
   const runtimePrefix = runtimePrefixParts.length > 0 ? `\n${runtimePrefixParts.join('\n')}\n` : '\n';
-  const runtime = `${runtimePrefix}${runtimeWithoutInflateImport}\n`;
+  const runtime = `${runtimePrefix}${runtimeWithoutDisplayFilterImport}\n`;
   const snippet = buildSingleFileRenderSnippet(metadataJson, diagnosticsEnabled);
   return `${runtime}${withoutImport}${snippet}`;
 };
@@ -546,6 +578,8 @@ export const createZipGobletHtml = (
 
 const stripGobletExports = (gobletJs: string): string => {
   return gobletJs.replace(/export\s+const\s+/g, 'const ')
+    .replace(/export\s+async\s+function\s+/g, 'async function ')
+    .replace(/export\s+function\s+/g, 'function ')
     .replace(/export\s+\{[^}]*\};?/g, '');
 };
 
@@ -554,6 +588,7 @@ export const createSingleFileGobletHtml = (
   gobletJs: string,
   runtimeModulePath: string,
   alignJs: string,
+  displayFilterJs: string,
   numJs: string,
   inflateJs: string,
   metadataJson: string,
@@ -607,7 +642,7 @@ export const createSingleFileGobletHtml = (
 
   const runtime = stripGobletExports(gobletJs);
   return transformModuleScript(template, (script) =>
-    buildSingleFileScript(script, runtime, runtimeModulePath, alignJs, numJs, inflateJs, metadataJson, diagnosticsEnabled)
+    buildSingleFileScript(script, runtime, runtimeModulePath, alignJs, displayFilterJs, numJs, inflateJs, metadataJson, diagnosticsEnabled)
   );
 };
 
