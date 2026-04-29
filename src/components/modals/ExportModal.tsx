@@ -36,6 +36,11 @@ type ExportProgressModalState = {
   percent: number;
   message: string;
   layers: ExportLayerProgressRow[];
+  issue?: {
+    title: string;
+    detailLines: string[];
+    repairHint?: string;
+  };
   error?: {
     message: string;
     stack?: string;
@@ -67,6 +72,7 @@ const INLINE_FIELD_CLASS = 'bg-[#4a4a4a] border border-[#343434] text-sm text-[#
 const INPUT_OVERRIDE_CLASS = '!bg-[#4a4a4a] !border-[#343434] !text-[#E5E5E5] !px-3 !py-2 !h-9 focus:!border-[#D9D9D9] focus:!ring-0 focus:!outline-none disabled:!text-[#5C5C5C] disabled:!bg-[#151515]';
 
 const WEBGL_PROGRESS_PHASE_LABELS: Record<WebGLExportProgressPhase, string> = {
+  blocked: 'Needs attention',
   preparing: 'Preparing',
   layers: 'Exporting layers',
   packaging: 'Packaging',
@@ -297,22 +303,42 @@ const upsertExportLayerRow = (
   ));
 };
 
+const getGobletExportIssueRows = (
+  layers: Layer[],
+  includeHiddenLayers: boolean
+): ExportLayerProgressRow[] => (
+  layers
+    .filter((layer) => includeHiddenLayers || layer.visible !== false)
+    .filter((layer) => layer.layerType === 'color-cycle' && layer.colorCycleData?.repairStatus?.ok === false)
+    .map((layer) => ({
+      id: layer.id,
+      name: layer.name || layer.id,
+      status: 'static-preview',
+      message: layer.colorCycleData?.repairStatus?.reason ?? 'Missing canonical color-cycle paint',
+    }))
+);
+
 interface ExportProgressModalProps {
   state: ExportProgressModalState | null;
   onCancel: () => void;
   onClose: () => void;
+  onContinueAnyway: () => void;
+  onRepair: () => void;
 }
 
 const ExportProgressModal: React.FC<ExportProgressModalProps> = ({
   state,
   onCancel,
   onClose,
+  onContinueAnyway,
+  onRepair,
 }) => {
   if (!state?.isOpen) {
     return null;
   }
 
   const canClose = state.phase === 'complete' || state.phase === 'failed';
+  const isBlocked = state.phase === 'blocked';
   const progressWidth = `${Math.max(0, Math.min(100, state.percent))}%`;
 
   return (
@@ -340,6 +366,20 @@ const ExportProgressModal: React.FC<ExportProgressModalProps> = ({
         </div>
 
         <div className="space-y-4 overflow-y-auto px-5 py-4">
+          {state.issue && (
+            <div className="border border-[#735B2D] bg-[#261F12] px-3 py-2">
+              <div className="text-sm font-semibold text-[#F0D9A0]">{state.issue.title}</div>
+              <div className="mt-2 space-y-1">
+                {state.issue.detailLines.map((line) => (
+                  <div key={line} className="text-sm text-[#E7D6B4]">{line}</div>
+                ))}
+              </div>
+              {state.issue.repairHint && (
+                <div className="mt-2 text-xs text-[#C8B88E]">{state.issue.repairHint}</div>
+              )}
+            </div>
+          )}
+
           <div className="space-y-2">
             <div className="flex items-center justify-between gap-3 text-sm">
               <span className={MODAL_TEXT_PRIMARY}>{state.message}</span>
@@ -390,7 +430,13 @@ const ExportProgressModal: React.FC<ExportProgressModalProps> = ({
         </div>
 
         <div className="flex justify-end gap-2 border-t border-[#424242] px-5 py-3">
-          {canClose ? (
+          {isBlocked ? (
+            <>
+              <Button variant="secondary" onClick={onClose}>Close</Button>
+              <Button variant="secondary" onClick={onRepair}>Repair...</Button>
+              <Button variant="primary" onClick={onContinueAnyway}>Continue anyway</Button>
+            </>
+          ) : canClose ? (
             <Button variant="primary" onClick={onClose}>Close</Button>
           ) : (
             <Button variant="secondary" onClick={onCancel}>Cancel</Button>
@@ -417,6 +463,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
   const activeLayerId = useAppStore((s) => s.activeLayerId);
   const setActiveLayer = useAppStore((s) => s.setActiveLayer);
   const addNotification = useAppStore((s) => s.addNotification);
+  const toggleModal = useAppStore((s) => s.toggleModal);
   const webglExportSettings = useAppStore((s) => s.webglExportSettings);
   const updateWebglExportSettings = useAppStore((s) => s.updateWebglExportSettings);
   const transparencyBackgroundMode = useAppStore((s) => s.canvas.transparencyBackgroundMode);
@@ -524,6 +571,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
   const [progress, setProgress] = useState(0);
   const [progressModal, setProgressModal] = useState<ExportProgressModalState | null>(null);
   const exportAbortRef = useRef<AbortController | null>(null);
+  const continueAnywayRef = useRef(false);
   const scaleOptions = exportKind === 'gif' || exportKind === 'mp4'
     ? [
       { value: 0.2 as const, label: '20%' },
@@ -1048,6 +1096,32 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
       });
       return;
     }
+    const shouldContinueAnyway = continueAnywayRef.current;
+    continueAnywayRef.current = false;
+    if (exportKind === 'webgl' && !shouldContinueAnyway) {
+      const issueRows = getGobletExportIssueRows(layers, webglIncludeHidden);
+      if (issueRows.length > 0) {
+        const initialRows = buildInitialExportLayerRows(layers, webglIncludeHidden);
+        setProgress(0);
+        setProgressModal({
+          isOpen: true,
+          kind: exportKind,
+          phase: 'blocked',
+          percent: 0,
+          message: 'Goblet export stopped before starting.',
+          layers: issueRows.reduce(
+            (rows, issueRow) => upsertExportLayerRow(rows, issueRow),
+            initialRows
+          ),
+          issue: {
+            title: `Goblet export found ${issueRows.length} layer issue${issueRows.length === 1 ? '' : 's'}.`,
+            detailLines: issueRows.map((row) => `${row.name}: ${row.message ?? 'Static preview only'}`),
+            repairHint: 'Repair opens the Load Project repair flow. It needs the original project file to save a repaired copy.',
+          },
+        });
+        return;
+      }
+    }
     setIsExporting(true);
     setProgress(0);
     setProgressModal({
@@ -1230,6 +1304,18 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
       setProgress(0);
       exportAbortRef.current = null;
     }
+  };
+
+  const continueBlockedExport = () => {
+    continueAnywayRef.current = true;
+    setProgressModal(null);
+    void handleExport();
+  };
+
+  const openRepairFlow = () => {
+    setProgressModal(null);
+    onClose();
+    toggleModal('loadProject');
   };
 
   if (!shouldRender) return null;
@@ -1853,6 +1939,8 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
       state={progressModal}
       onCancel={() => { exportAbortRef.current?.abort(); }}
       onClose={() => setProgressModal(null)}
+      onContinueAnyway={continueBlockedExport}
+      onRepair={openRepairFlow}
     />
     </>
   );
