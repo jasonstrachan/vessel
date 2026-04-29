@@ -1072,6 +1072,7 @@ export const createSelectionSlice: StateCreator<AppState, [], [], SelectionSlice
         selectionEnd,
         selectionMask,
         selectionMaskBounds,
+        selectionMaskLayerId,
         layers,
         activeLayerId,
         project,
@@ -1167,7 +1168,17 @@ export const createSelectionSlice: StateCreator<AppState, [], [], SelectionSlice
           activeLayer,
           project,
           { x, y, width, height },
-          buildColorCycleMaskClearOptions({ x, y, width, height }, selectionMask, selectionMaskBounds)
+          {
+            ...buildColorCycleMaskClearOptions({ x, y, width, height }, selectionMask, selectionMaskBounds),
+            auditSource: 'delete-selected',
+            auditDetails: {
+              activeLayerId,
+              selectionStart,
+              selectionEnd,
+              selectionMaskBounds,
+              selectionMaskLayerId,
+            },
+          }
         );
         if (cleared) {
           const eraseMask = activeLayer.colorCycleData?.eraseMask;
@@ -1331,7 +1342,18 @@ export const createSelectionSlice: StateCreator<AppState, [], [], SelectionSlice
           y: capture.bounds.y,
           width: capture.bounds.width,
           height: capture.bounds.height,
-        }, buildColorCycleMaskClearOptions(capture.bounds, selectionMask, selectionMaskBounds));
+        }, {
+          ...buildColorCycleMaskClearOptions(capture.bounds, selectionMask, selectionMaskBounds),
+          auditSource: 'extract-selection-transform',
+          auditDetails: {
+            activeLayerId,
+            captureBounds: capture.bounds,
+            selectionStart,
+            selectionEnd,
+            selectionMaskBounds,
+            selectionMaskLayerId: state.selectionMaskLayerId,
+          },
+        });
         if (cleared) {
           const eraseMask = activeLayer.colorCycleData?.eraseMask;
           clearColorCycleEraseMask(eraseMask, capture.bounds, selectionMask, selectionMaskBounds);
@@ -1685,7 +1707,18 @@ export const createSelectionSlice: StateCreator<AppState, [], [], SelectionSlice
                   y: capture.bounds.y,
                   width: capture.bounds.width,
                   height: capture.bounds.height,
-                }, buildColorCycleMaskClearOptions(capture.bounds, state.selectionMask, state.selectionMaskBounds));
+                }, {
+                  ...buildColorCycleMaskClearOptions(capture.bounds, state.selectionMask, state.selectionMaskBounds),
+                  auditSource: 'cut-selection',
+                  auditDetails: {
+                    activeLayerId,
+                    captureBounds: capture.bounds,
+                    selectionStart,
+                    selectionEnd,
+                    selectionMaskBounds: state.selectionMaskBounds,
+                    selectionMaskLayerId: state.selectionMaskLayerId,
+                  },
+                });
                 if (skipImageUpdate) {
                   const eraseMask = activeLayer.colorCycleData?.eraseMask;
                   clearColorCycleEraseMask(eraseMask, capture.bounds, state.selectionMask, state.selectionMaskBounds);

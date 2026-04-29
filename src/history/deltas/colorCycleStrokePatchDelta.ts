@@ -1,6 +1,11 @@
 import type { ColorCycleBrushCanvas2D } from '@/hooks/brushEngine/ColorCycleBrushCanvas2D';
 import { getColorCycleBrushManager, getColorCycleStoreState } from '@/stores/colorCycleBrushManager';
 import { useAppStore } from '@/stores/useAppStore';
+import {
+  logCCMutation,
+  summarizeColorCycleLayer,
+  summarizeScalarBuffer,
+} from '@/utils/colorCycle/ccMutationAudit';
 import type { HistoryDelta, HistoryDirection, HistoryRehydrationTargets } from '../actionTypes';
 import { readBlob, releaseBlob, storeBlob } from '../blobStore';
 
@@ -305,12 +310,60 @@ const synthesizeMissingBackwardPatches = (
   roi: { width: number; height: number }
 ): ColorCyclePixelPatchBytes => {
   const next = { ...backward };
+  if (!next.paint) {
+    return next;
+  }
   for (const spec of COLOR_CYCLE_PIXEL_BUFFER_SPECS) {
+    if (spec.key === 'paint') {
+      continue;
+    }
     if (!next[spec.key] && forward[spec.key]) {
       next[spec.key] = new Uint8Array(roi.width * roi.height * spec.bytesPerPixel);
     }
   }
   return next;
+};
+
+const synthesizeEmptyBackwardPatches = (
+  forward: ColorCyclePixelPatchBytes,
+  roi: { width: number; height: number }
+): ColorCyclePixelPatchBytes => {
+  const next = emptyColorCyclePatchBytes();
+  for (const spec of COLOR_CYCLE_PIXEL_BUFFER_SPECS) {
+    if (forward[spec.key]) {
+      next[spec.key] = new Uint8Array(roi.width * roi.height * spec.bytesPerPixel);
+    }
+  }
+  return next;
+};
+
+const canSynthesizeEmptyBackwardPaint = (
+  backwardState: ColorCycleBrushState | null,
+  layerId: string
+): boolean => {
+  const layer = findSerializedLayer(backwardState, layerId);
+  if (!layer) {
+    return false;
+  }
+  const strokeData = layer.strokeData;
+  if (!strokeData) {
+    return true;
+  }
+  if (strokeData.hasContent === true) {
+    return false;
+  }
+  return COLOR_CYCLE_PIXEL_BUFFER_SPECS.every((spec) => {
+    const value = spec.read(layer);
+    if (!value) {
+      return true;
+    }
+    const byteLength = value instanceof ArrayBuffer
+      ? value.byteLength
+      : ArrayBuffer.isView(value)
+        ? value.byteLength
+        : 0;
+    return byteLength === 0;
+  });
 };
 
 const encodeColorCyclePatchBytes = async (
@@ -447,12 +500,55 @@ class ColorCycleStrokePatchDelta implements HistoryDelta {
       return;
     }
 
+    const beforeAudit = summarizeColorCycleLayer(layer);
+    const beforeHasContent = Boolean(layer.colorCycleData.hasContent);
+    const patchPaintSummary = summarizeScalarBuffer(decoded.paint, patch.roi.width, patch.roi.height);
     const hasContent = brush.applyPaintPatch(
       this.layerId,
       patch.roi,
       decoded.paint,
       patchSetRuntimeExtras(decoded)
     );
+    if (beforeHasContent && !hasContent) {
+      logCCMutation({
+        event: 'color-cycle-layer-cleared',
+        layerId: this.layerId,
+        reason: direction === 'backward' ? 'history-undo-patch' : 'history-redo-patch',
+        severity: 'error',
+        before: beforeAudit,
+        after: beforeAudit ? { ...beforeAudit, hasContent: false } : null,
+        details: {
+          source: 'history-color-cycle-stroke-patch',
+          operation: direction === 'backward' ? 'undo' : 'redo',
+          expectedDestructive: true,
+          direction,
+          roi: this.roi,
+          patchRoi: patch.roi,
+          width: this.width,
+          height: this.height,
+          patchPaint: patchPaintSummary,
+          patchGradientId: decoded.gradientId
+            ? summarizeScalarBuffer(decoded.gradientId, patch.roi.width, patch.roi.height)
+            : null,
+          patchGradientDefId: decoded.gradientDefId
+            ? summarizeScalarBuffer(new Uint16Array(
+              decoded.gradientDefId.buffer,
+              decoded.gradientDefId.byteOffset,
+              Math.floor(decoded.gradientDefId.byteLength / Uint16Array.BYTES_PER_ELEMENT)
+            ), patch.roi.width, patch.roi.height)
+            : null,
+          patchSpeed: decoded.speed
+            ? summarizeScalarBuffer(decoded.speed, patch.roi.width, patch.roi.height)
+            : null,
+          patchFlow: decoded.flow
+            ? summarizeScalarBuffer(decoded.flow, patch.roi.width, patch.roi.height)
+            : null,
+          patchPhase: decoded.phase
+            ? summarizeScalarBuffer(decoded.phase, patch.roi.width, patch.roi.height)
+            : null,
+        },
+      });
+    }
 
     try {
       brush.updateColorCycleTexture?.();
@@ -532,6 +628,32 @@ export const createColorCycleStrokePatchDelta = async (
     height,
     roi
   );
+  if (forwardPatchBytes.paint && !backwardPatchBytes.paint) {
+    if (canSynthesizeEmptyBackwardPaint(options.backwardState, options.layerId)) {
+      backwardPatchBytes = synthesizeEmptyBackwardPatches(forwardPatchBytes, roi);
+    } else {
+      const state = useAppStore.getState();
+      const layer = state.layers.find((candidate) => candidate.id === options.layerId) ?? null;
+      logCCMutation({
+        event: 'history-cc-before-state-missing',
+        layerId: options.layerId,
+        reason: 'missing-backward-paint-patch',
+        severity: 'warn',
+        before: null,
+        after: summarizeColorCycleLayer(layer),
+        details: {
+          source: 'history-color-cycle-stroke-patch',
+          expectedDestructive: false,
+          roi,
+          width,
+          height,
+          forwardPaint: summarizeScalarBuffer(forwardPatchBytes.paint, roi.width, roi.height),
+          message: 'Skipped CC history delta because undo would synthesize an empty backward paint patch.',
+        },
+      });
+      return null;
+    }
+  }
   if (!forwardPatchBytes.paint && !backwardPatchBytes.paint) {
     return null;
   }

@@ -3,6 +3,7 @@ import historyManager from '@/history/historyService';
 import { BrushShape, type Layer } from '@/types';
 import { createDefaultLayerAlignment } from '@/utils/layoutDefaults';
 import { clearSequentialLayerRendererAll } from '@/lib/sequential/SequentialLayerRenderer';
+import { getPersistedCCMutationLog } from '@/utils/colorCycle/ccMutationAudit';
 
 const resetStore = () => {
   useAppStore.setState((state) => ({
@@ -32,6 +33,7 @@ describe('selection delete updates framebuffer', () => {
     resetStore();
     historyManager.clear();
     clearSequentialLayerRendererAll();
+    window.localStorage.clear();
   });
 
   it('clears pixels on framebuffer and imageData, flags recomposition, and clears selection', () => {
@@ -282,5 +284,81 @@ describe('selection delete updates framebuffer', () => {
 
     const afterUndo = useAppStore.getState().layers.find((layer) => layer.id === layerId);
     expect(afterUndo?.sequentialData?.events).toHaveLength(1);
+  });
+
+  it('deletes a full CC selection, persists hasContent false, and records forensic clear context', () => {
+    const canvas = document.createElement('canvas');
+    canvas.width = 4;
+    canvas.height = 4;
+
+    const layerId = 'layer-cc-delete';
+    const ccLayer: Layer = {
+      id: layerId,
+      name: 'CC Delete',
+      visible: true,
+      opacity: 1,
+      blendMode: 'source-over',
+      locked: false,
+      order: 0,
+      imageData: null,
+      framebuffer: canvas,
+      alignment: createDefaultLayerAlignment(),
+      layerType: 'color-cycle',
+      colorCycleData: {
+        canvas,
+        hasContent: true,
+      },
+    } as Layer;
+
+    useAppStore.setState((state) => ({
+      ...state,
+      project: state.project!,
+      layers: [ccLayer],
+      activeLayerId: layerId,
+      selectionStart: { x: 0, y: 0 },
+      selectionEnd: { x: 4, y: 4 },
+    }));
+
+    useAppStore.getState().initColorCycleForLayer(layerId, 4, 4);
+    const brush = useAppStore.getState().getLayerColorCycleBrush(layerId);
+    brush?.applyLayerSnapshot?.(layerId, {
+      paintBuffer: new Uint8Array(16).fill(9).buffer,
+      gradientIdBuffer: new Uint8Array(16).fill(1).buffer,
+      gradientDefIdBuffer: new Uint16Array(16).fill(2).buffer,
+      speedBuffer: new Uint8Array(16).buffer,
+      flowBuffer: new Uint8Array(16).buffer,
+      phaseBuffer: new Uint8Array(16).buffer,
+      hasContent: true,
+      strokeCounter: 1,
+    });
+
+    useAppStore.getState().deleteSelectedPixels();
+
+    const afterDelete = useAppStore.getState();
+    const updatedLayer = afterDelete.layers.find((layer) => layer.id === layerId);
+    expect(updatedLayer?.layerType).toBe('color-cycle');
+    expect(updatedLayer?.colorCycleData?.hasContent).toBe(false);
+
+    expect(getPersistedCCMutationLog()).toEqual([
+      expect.objectContaining({
+        event: 'color-cycle-layer-cleared',
+        layerId,
+        reason: 'delete-selected',
+        severity: 'error',
+        details: expect.objectContaining({
+          source: 'selection-region-clear',
+          operation: 'delete-selected',
+          expectedDestructive: true,
+          activeLayerId: layerId,
+          rect: { x: 0, y: 0, width: 4, height: 4 },
+          clampedRect: { x: 0, y: 0, width: 4, height: 4 },
+          selectionStart: { x: 0, y: 0 },
+          selectionEnd: { x: 4, y: 4 },
+          selectionMaskBounds: null,
+          paintBefore: expect.objectContaining({ nonZeroCount: 16 }),
+          paintAfter: expect.objectContaining({ nonZeroCount: 0 }),
+        }),
+      }),
+    ]);
   });
 });

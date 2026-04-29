@@ -21,6 +21,12 @@ describe('ccMutationAudit', () => {
     delete (window as Window & { __VESSEL_GET_CC_MUTATION_LOG__?: unknown }).__VESSEL_GET_CC_MUTATION_LOG__;
   });
 
+  it('exposes the mutation log helper before the first persisted event', () => {
+    expect(getPersistedCCMutationLog()).toEqual([]);
+    expect(typeof (window as Window & { __VESSEL_GET_CC_MUTATION_LOG__?: unknown })
+      .__VESSEL_GET_CC_MUTATION_LOG__).toBe('function');
+  });
+
   it('logs destructive CC layer transitions', () => {
     const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
     const before = summarizeColorCycleLayer({
@@ -195,6 +201,8 @@ describe('ccMutationAudit', () => {
 
     expect((window as Window & { __VESSEL_CC_MUTATION_LOG__?: unknown }).__VESSEL_CC_MUTATION_LOG__)
       .toBeUndefined();
+    expect(typeof (window as Window & { __VESSEL_GET_CC_MUTATION_LOG__?: unknown })
+      .__VESSEL_GET_CC_MUTATION_LOG__).toBe('function');
     expect(window.localStorage.getItem('VESSEL_CC_MUTATION_LOG')).toBeNull();
     expect(getProductionPersistedCCMutationLog()).toEqual([]);
   });

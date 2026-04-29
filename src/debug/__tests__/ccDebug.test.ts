@@ -48,4 +48,63 @@ describe('ccDebug overlay bridge', () => {
 
     consoleLogSpy.mockRestore();
   });
+
+  it('exposes a read-only active CC layer diagnostic helper', async () => {
+    await import('@/debug/ccDebug');
+    const { useAppStore } = await import('@/stores/useAppStore');
+    const canvas = document.createElement('canvas');
+    canvas.width = 12;
+    canvas.height = 8;
+
+    useAppStore.setState({
+      activeLayerId: 'layer-cc-debug',
+      layers: [{
+        id: 'layer-cc-debug',
+        name: 'CC',
+        visible: true,
+        opacity: 0.75,
+        blendMode: 'source-over',
+        locked: false,
+        order: 0,
+        imageData: null,
+        framebuffer: null,
+        layerType: 'color-cycle',
+        colorCycleData: {
+          hasContent: true,
+          canvas,
+          paintRef: 'zip:paint.bin',
+        },
+      } as never],
+    });
+
+    expect(window.__VESSEL_GET_ACTIVE_CC_LAYER_DIAGNOSTIC__?.()).toEqual(
+      expect.objectContaining({
+        activeLayerId: 'layer-cc-debug',
+        layerType: 'color-cycle',
+        visible: true,
+        opacity: 0.75,
+        hasColorCycleData: true,
+        hasContent: true,
+        hasCanvas: true,
+        canvasSize: '12x8',
+        paintRef: 'zip:paint.bin',
+      })
+    );
+    expect(window.__VESSEL_DUMP_CC_DIAGNOSTICS__?.()).toEqual(
+      expect.objectContaining({
+        activeLayer: expect.objectContaining({
+          activeLayerId: 'layer-cc-debug',
+          hasContent: true,
+        }),
+        colorCycleLayers: [
+          expect.objectContaining({
+            activeLayerId: 'layer-cc-debug',
+            hasContent: true,
+          }),
+        ],
+        mutationLog: expect.any(Array),
+        storageKeys: expect.any(Array),
+      })
+    );
+  });
 });
