@@ -7,17 +7,18 @@ const read = (relativePath: string) => fs.readFileSync(path.join(rootDir, relati
 const countMatches = (source: string, pattern: RegExp) => [...source.matchAll(pattern)].length;
 
 describe('Goblet 2 runtime export regression guard', () => {
-  it('keeps the viewer-only CC time multiplier in the module runtime', () => {
+  it('keeps Goblet 2 WebGL brush playback on the same timebase as the CPU path', () => {
     const runtime = read('public/goblet2/goblet2.js');
 
-    expect(runtime).toContain('const CC_TIME_MULTIPLIER = 3.0;');
-    expect(runtime).toContain('gl.uniform1f(this.uniforms.u_time, timeSeconds * CC_TIME_MULTIPLIER);');
+    expect(runtime).toContain('gl.uniform1f(this.uniforms.u_time, timeSeconds);');
+    expect(runtime).not.toContain('CC_TIME_MULTIPLIER');
   });
 
-  it('keeps the viewer-only CC time multiplier in the inline runtime', () => {
+  it('keeps Goblet 2 inline WebGL brush playback on the same timebase as the CPU path', () => {
     const runtime = read('public/goblet2/goblet2-inline.js');
 
-    expect(runtime).toContain('uniform1f(this.uniforms.u_time,3*e)');
+    expect(runtime).toContain('uniform1f(this.uniforms.u_time,e)');
+    expect(runtime).not.toContain('CC_TIME_MULTIPLIER');
   });
 
   it('scopes the inlined display filter pipeline to avoid helper name collisions', () => {
@@ -110,11 +111,34 @@ describe('Goblet 2 runtime export regression guard', () => {
     expect(runtime).toContain('`blit=${(renderProfile.blitMs ?? 0).toFixed(2)}ms`');
   });
 
-  it('keeps Goblet 2 slot-speed brush exports out of the per-pixel speed path', () => {
+  it('keeps Goblet 2 slot-speed brush exports out of the per-pixel speed export path', () => {
     const runtime = read('public/goblet2/goblet2.js');
 
     expect(runtime).toContain("if (colorCycle?.speedMode !== 'buffer') {\n      return false;\n    }");
     expect(runtime).toContain('if (!hasNumericPayload(brushState.speedBuffer)) {\n      return false;\n    }');
     expect(runtime).not.toContain('if (this.isGoblet2 && this.speedBuffer) {');
+  });
+
+  it('uses fractional brush sampling with exported phase and flow buffers', () => {
+    const runtime = read('public/goblet2/goblet2.js');
+
+    expect(runtime).toContain('const fillPixelsFromIndicesWithFractionalSpeedFlowPhase = (');
+    expect(runtime).toContain('const fillPixelsFromIndicesWithFractionalSlotSpeeds = (');
+    expect(runtime).toContain('const rawFlowBuffer = brushState.flowBuffer');
+    expect(runtime).toContain('const rawPhaseBuffer = brushState.phaseBuffer');
+    expect(runtime).toContain('this.flowBuffer = normalizeFlowBuffer');
+    expect(runtime).toContain('this.phaseBuffer = phaseBuffer');
+    expect(runtime).toContain('u_phase: gl.getUniformLocation(program, \'u_phase\')');
+    expect(runtime).toContain('renderer.setBuffers(\n        indexBuffer,\n        gradientIdBuffer ?? new Uint8Array(expectedLength),\n        speedBuffer ?? new Uint8Array(expectedLength),\n        flowBuffer ?? new Uint8Array(expectedLength).fill(FLOW_MODE_FORWARD),\n        phaseBuffer ?? new Uint8Array(expectedLength)\n      );');
+    expect(runtime).not.toContain('if (!this.maybeAdvanceShiftKeysPerPixel(distinct, n))');
+  });
+
+  it('does not gate slot-speed brush playback on integer palette shifts', () => {
+    const runtime = read('public/goblet2/goblet2.js');
+
+    expect(runtime).toContain('fillPixelsFromIndicesWithFractionalSlotSpeeds(');
+    expect(runtime).toContain('buildPaletteFractionalShiftLUT256({');
+    expect(runtime).toContain("canUseSlots ? '[goblet][profile] renderFrame(slots/fractional-lut)'");
+    expect(runtime).not.toContain('if (!this.maybeAdvanceShiftKeysSlotMode(shiftKey, slotSpeedMap, n, canUseSlots))');
   });
 });

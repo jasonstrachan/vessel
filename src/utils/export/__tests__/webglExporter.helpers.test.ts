@@ -244,6 +244,58 @@ describe('webglExporter helpers', () => {
     expect(brushState?.alphaMode).toBe('opaque-indices');
   });
 
+  it('preserves flow and phase buffers from live brush serialize payloads', () => {
+    const brushState = serializeBrushState({
+      id: 'layer-cc-live',
+      layerType: 'color-cycle',
+      imageData: null,
+      framebuffer: { width: 2, height: 2 },
+      colorCycleData: {
+        canvasWidth: 2,
+        canvasHeight: 2,
+        gradient: [
+          { position: 0, color: '#000000' },
+          { position: 1, color: '#ffffff' },
+        ],
+        colorCycleBrush: {
+          serialize: () => ({
+            layers: [{
+              layerId: 'layer-cc-live',
+              data: {
+                indexBuffer: {
+                  width: 2,
+                  height: 2,
+                  data: Uint8Array.from([1, 2, 3, 4]),
+                  gradientId: Uint8Array.from([0, 1, 1, 0]),
+                  speedData: Uint8Array.from([10, 20, 30, 40]),
+                  flowData: Uint8Array.from([1, 2, 3, 1]),
+                  phaseData: Uint8Array.from([0, 64, 128, 192]),
+                },
+                gradient: {
+                  gradientStops: [
+                    { position: 0, color: '#000000' },
+                    { position: 1, color: '#ffffff' },
+                  ],
+                },
+                animation: {
+                  offset: 0,
+                  stats: { targetFPS: 24 },
+                },
+              },
+            }],
+          }),
+        },
+      },
+    } as any);
+
+    expect(brushState).toBeDefined();
+    expect(brushState?.indexBuffer).toEqual([1, 2, 3, 4]);
+    expect(brushState?.gradientIdBuffer).toEqual([0, 1, 1, 0]);
+    expect(brushState?.speedBuffer).toEqual([10, 20, 30, 40]);
+    expect(brushState?.flowBuffer).toEqual([1, 2, 3, 1]);
+    expect(brushState?.phaseBuffer).toEqual([0, 64, 128, 192]);
+  });
+
   it('does not repair missing-paint color-cycle state from compatibility snapshot colors during export', () => {
     const brushState = serializeBrushState({
       id: 'layer-cc-legacy-alpha',
