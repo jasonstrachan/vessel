@@ -10,11 +10,13 @@ Treat these as separate until evidence proves otherwise:
    - The live CC paint buffer goes from non-empty to empty.
    - Expected diagnostic: `color-cycle-layer-cleared`.
    - This means something actually cleared the layer content in memory.
+   - This is separate from save/load corruption. If it happens before saving or reopening, investigate runtime mutation first.
 
 2. Save/archive corruption
    - The live layer may be fine, but the saved `.vs` archive has stale or missing CC binary refs.
    - Example: `project.json` references `buffers/color-cycle/<layer>/paint.bin`, but the zip payload or `binaries.entries` entry is missing.
    - This can produce `Project archive manifest is missing binary entry .../paint.bin`.
+   - Save and autosave use the same serialization guard. A save that would produce dangling refs should fail before writing the archive.
 
 3. Playback/presentation failure
    - Canonical CC buffers exist, but playback, materialization, compositor, or presentation draws blank/wrong.
@@ -61,6 +63,17 @@ The paint summaries include:
 
 If this event exists, start from the stack trace and the triggering operation. It is a live-memory clear, not only a save/load problem.
 
+### Runtime Logging Scope
+
+The persistent mutation log is intentionally scoped:
+
+- destructive/error events persist to `localStorage`,
+- `color-cycle-layer-cleared` persists and includes stack/buffer summaries,
+- normal production mutation events such as routine stroke commits do not persist or create stack traces,
+- development builds can still keep broader in-memory/dev diagnostics.
+
+This keeps the log useful for data-loss review without turning every normal drawing action into synchronous storage work.
+
 ## Save/Archive Check
 
 If there is no `color-cycle-layer-cleared` event, inspect the saved archive.
@@ -87,6 +100,41 @@ Canonical CC runtime refs are not optional:
 
 If these refs are missing from the archive or binary manifest, this is save/archive corruption even if the app looked correct before saving.
 
+### Save/Autosave Guard
+
+Current save behavior should fail closed for dangling archive refs:
+
+```txt
+Project save produced dangling archive ref buffers/color-cycle/<layer>/paint.bin at ...
+```
+
+That error means the serializer produced a `zip:` ref that did not have a matching binary manifest entry or zip payload. Treat it as a save-path bug until proven otherwise.
+
+Autosave goes through the same serialization path, so the same guard should catch autosave attempts that would otherwise write corrupt CC archive refs.
+
+The guard covers canonical color-cycle refs including:
+
+- `paint.bin`
+- `speed.bin`
+- `flow.bin`
+- `phase.bin` when present
+- `gradient-id.bin`
+- `gradient-def-id.bin`
+
+## Repair Path
+
+Strict open/read remains strict for missing canonical CC buffers. If a damaged archive has dangling canonical CC refs, direct load should not silently pretend the animated CC data exists.
+
+For a repairable damaged `.vs` file, use `Repair & Save Copy` from the load modal. That path:
+
+- analyzes dangling archive refs,
+- strips missing canonical CC refs, including gradient id and gradient def refs,
+- marks affected layers with `colorCycleData.repairStatus`,
+- keeps the repaired layer as preview/static-only if canonical animated paint data is missing,
+- saves a separate repaired copy instead of overwriting the damaged source file.
+
+After repair, review affected layers manually. Repaired layers may reopen, but missing canonical paint/playback data cannot be reconstructed from the archive.
+
 ## Playback/Presentation Check
 
 If the clear log is empty and the archive contains valid canonical buffers, treat the issue as playback/presentation until disproven.
@@ -104,5 +152,7 @@ Do not patch save/load or clear handling from a blank visual symptom alone. Firs
 ## Current Diagnostic Coverage
 
 Runtime clear coverage exists for CC region mutations that empty the paint buffer. It records compact data rather than raw full buffers so logs can persist in `localStorage` without exceeding quota.
+
+Save/archive coverage is not a passive log. It is a hard postcondition on serialization: a corrupt archive should not be written if serialized refs and binary payloads disagree.
 
 Known limitation: localStorage is browser/profile/origin-local. Clearing site data, switching browser/profile, or using a different localhost/origin can separate or remove the log.
