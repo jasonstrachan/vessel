@@ -322,6 +322,7 @@ interface ExportProgressModalProps {
   state: ExportProgressModalState | null;
   onCancel: () => void;
   onClose: () => void;
+  onDismissComplete: () => void;
   onContinueAnyway: () => void;
   onRepair: () => void;
 }
@@ -330,6 +331,7 @@ const ExportProgressModal: React.FC<ExportProgressModalProps> = ({
   state,
   onCancel,
   onClose,
+  onDismissComplete,
   onContinueAnyway,
   onRepair,
 }) => {
@@ -342,8 +344,15 @@ const ExportProgressModal: React.FC<ExportProgressModalProps> = ({
   const progressWidth = `${Math.max(0, Math.min(100, state.percent))}%`;
 
   return (
-    <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/55">
-      <div className={`${MODAL_PANEL_CLASS} w-[520px] max-w-[calc(100vw-32px)] max-h-[calc(100vh-48px)] overflow-hidden shadow-2xl`}>
+    <div
+      className="fixed inset-0 z-[70] flex items-center justify-center bg-black/55"
+      data-testid="export-progress-backdrop"
+      onClick={canClose ? onDismissComplete : undefined}
+    >
+      <div
+        className={`${MODAL_PANEL_CLASS} w-[520px] max-w-[calc(100vw-32px)] max-h-[calc(100vh-48px)] overflow-hidden shadow-2xl`}
+        onClick={(event) => event.stopPropagation()}
+      >
         <div className="flex items-center justify-between border-b border-[#424242] px-5 py-3">
           <div>
             <h2 className={`${MODAL_TEXT_PRIMARY} text-base font-semibold`}>
@@ -357,7 +366,7 @@ const ExportProgressModal: React.FC<ExportProgressModalProps> = ({
             <button
               type="button"
               className="text-[#9C9C9C] hover:text-white"
-              onClick={onClose}
+              onClick={onDismissComplete}
               aria-label="Close export progress"
             >
               <XIcon size={18} />
@@ -437,7 +446,7 @@ const ExportProgressModal: React.FC<ExportProgressModalProps> = ({
               <Button variant="primary" onClick={onContinueAnyway}>Continue anyway</Button>
             </>
           ) : canClose ? (
-            <Button variant="primary" onClick={onClose}>Close</Button>
+            <Button variant="primary" onClick={onDismissComplete}>Close</Button>
           ) : (
             <Button variant="secondary" onClick={onCancel}>Cancel</Button>
           )}
@@ -1939,6 +1948,10 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
       state={progressModal}
       onCancel={() => { exportAbortRef.current?.abort(); }}
       onClose={() => setProgressModal(null)}
+      onDismissComplete={() => {
+        setProgressModal(null);
+        onClose();
+      }}
       onContinueAnyway={continueBlockedExport}
       onRepair={openRepairFlow}
     />
