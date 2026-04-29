@@ -1,5 +1,5 @@
 import { debugWarn } from '@/utils/debug';
-import { logCCMutation, summarizeColorCycleLayer } from '@/utils/colorCycle/ccMutationAudit';
+import { logCCMutation, summarizeColorCycleLayer, summarizeScalarBuffer } from '@/utils/colorCycle/ccMutationAudit';
 import { getColorCycleBrushManager } from '@/stores/colorCycleBrushManager';
 import { copyScalarRegion } from '@/stores/helpers/selectionCapture';
 import type { Layer, Project, Rectangle } from '@/types';
@@ -28,81 +28,6 @@ type BufferMutator = (buffers: {
   width: number;
   height: number;
 }) => boolean;
-
-type ScalarBufferSummary = {
-  byteLength: number;
-  nonZeroCount: number;
-  firstNonZeroIndex: number | null;
-  lastNonZeroIndex: number | null;
-  checksum: string;
-  bounds: {
-    x: number;
-    y: number;
-    width: number;
-    height: number;
-  } | null;
-  samples: Array<{
-    index: number;
-    x: number;
-    y: number;
-    value: number;
-  }>;
-};
-
-const summarizeScalarBuffer = (
-  buffer: Uint8Array,
-  width: number,
-  height: number,
-): ScalarBufferSummary => {
-  let checksum = 0x811c9dc5;
-  let nonZeroCount = 0;
-  let firstNonZeroIndex: number | null = null;
-  let lastNonZeroIndex: number | null = null;
-  let minX = width;
-  let minY = height;
-  let maxX = -1;
-  let maxY = -1;
-  const samples: ScalarBufferSummary['samples'] = [];
-
-  for (let index = 0; index < buffer.length; index += 1) {
-    const value = buffer[index] ?? 0;
-    checksum ^= value;
-    checksum = Math.imul(checksum, 0x01000193);
-    if (value === 0) {
-      continue;
-    }
-
-    const x = width > 0 ? index % width : 0;
-    const y = width > 0 ? Math.floor(index / width) : 0;
-    nonZeroCount += 1;
-    firstNonZeroIndex ??= index;
-    lastNonZeroIndex = index;
-    minX = Math.min(minX, x);
-    minY = Math.min(minY, y);
-    maxX = Math.max(maxX, x);
-    maxY = Math.max(maxY, y);
-    if (samples.length < 16) {
-      samples.push({ index, x, y, value });
-    }
-  }
-
-  return {
-    byteLength: buffer.byteLength,
-    nonZeroCount,
-    firstNonZeroIndex,
-    lastNonZeroIndex,
-    checksum: (checksum >>> 0).toString(16).padStart(8, '0'),
-    bounds: nonZeroCount > 0
-      ? {
-          x: minX,
-          y: minY,
-          width: maxX - minX + 1,
-          height: maxY - minY + 1,
-        }
-      : null,
-    samples,
-  };
-};
 
 const getCanvasForLayer = (
   state: Pick<AppState, 'getLayerColorCycleBrush'> | null | undefined,
@@ -312,7 +237,22 @@ const mutateColorCycleLayer = (
     });
   }
 
-  brush.applyLayerSnapshot(layer.id, {
+  (brush.applyLayerSnapshot as (
+    layerId: string,
+    snapshot: {
+      paintBuffer: ArrayBufferLike;
+      gradientIdBuffer?: ArrayBufferLike;
+      gradientDefIdBuffer?: ArrayBufferLike;
+      speedBuffer?: ArrayBufferLike;
+      flowBuffer?: ArrayBufferLike;
+      phaseBuffer?: ArrayBufferLike;
+      hasContent: boolean;
+      strokeCounter: number;
+    },
+    animatorIndex?: unknown,
+    reason?: string,
+    options?: { suppressClearAudit?: boolean }
+  ) => void)(layer.id, {
     paintBuffer: working.buffer,
     gradientIdBuffer: workingGradientId.buffer,
     gradientDefIdBuffer: workingGradientDefId.buffer,
@@ -321,7 +261,7 @@ const mutateColorCycleLayer = (
     phaseBuffer: workingPhase.buffer,
     hasContent,
     strokeCounter: snapshot.strokeCounter,
-  });
+  }, undefined, 'selection-region-clear', { suppressClearAudit: true });
 
   const skipMaterialize = options?.skipMaterialize === true;
   let syncedImage: ImageData | undefined;

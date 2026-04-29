@@ -60,6 +60,13 @@ import type { StoredStop } from '@/utils/colorCycleGradientDefs';
 import type { CommitCommittedLayerStateOptions } from '@/hooks/brushEngine/colorCycleCommittedState';
 import { getActiveMarkGradientSession } from '@/hooks/canvas/utils/colorCycleMarkSession';
 import { TEMP_SAMPLE_SLOT } from '@/constants/colorCycle';
+import {
+  logCCMutation,
+  summarizeScalarBuffer,
+  summarizeSerializedColorCycleLayer,
+  type CCMutationSnapshot,
+  type ScalarBufferSummary,
+} from '@/utils/colorCycle/ccMutationAudit';
 
 type CcCustomStampPerfStats = {
   sourceHit: number;
@@ -186,6 +193,40 @@ type LayerStrokeState = {
   };
   stampDither?: StampDitherState;
   snapshot?: StrokeDataSnapshot;
+};
+
+type ColorCycleRuntimeMutationReason =
+  | 'brush-stroke-write'
+  | 'selection-region-clear'
+  | 'shape-erase'
+  | 'transparency-lock-erase'
+  | 'manual-clear-layer'
+  | 'non-cc-brush-cleanup'
+  | 'snapshot-apply'
+  | 'history-restore'
+  | 'project-load-restore'
+  | 'runtime-reset';
+
+type ColorCycleRuntimeMutationSource =
+  | 'stroke'
+  | 'region'
+  | 'clear'
+  | 'snapshot'
+  | 'restore'
+  | 'history'
+  | 'project-load'
+  | 'reset';
+
+type ColorCycleRuntimeMutationAuditSnapshot = {
+  layer: CCMutationSnapshot;
+  buffers: {
+    paint: ScalarBufferSummary;
+    gradientId: ScalarBufferSummary;
+    gradientDefId: ScalarBufferSummary;
+    speed: ScalarBufferSummary;
+    flow: ScalarBufferSummary;
+    phase: ScalarBufferSummary;
+  };
 };
 
 type AnimatorSerializedState = ReturnType<ColorCycleAnimator['serialize']>;
@@ -547,6 +588,159 @@ export class ColorCycleBrushCanvas2D {
   private customStampSourceCache: WeakMap<ImageData, HTMLCanvasElement> = new WeakMap();
   private customStampCanvasCache: Map<string, HTMLCanvasElement> = new Map();
   private customStampMaskCache: Map<string, StampMaskCacheEntry> = new Map();
+
+  private captureRuntimeMutationAuditSnapshot(
+    layerId: string,
+    strokeData: LayerStrokeState | null | undefined,
+  ): ColorCycleRuntimeMutationAuditSnapshot | null {
+    if (!strokeData) {
+      return null;
+    }
+
+    const width = Math.max(1, this.width);
+    const height = Math.max(1, this.height);
+    const paint = summarizeScalarBuffer(strokeData.buffers.paint, width, height);
+    const gradientId = summarizeScalarBuffer(strokeData.buffers.gid, width, height);
+    const gradientDefId = summarizeScalarBuffer(strokeData.buffers.def, width, height);
+    const speed = summarizeScalarBuffer(strokeData.buffers.spd, width, height);
+    const flow = summarizeScalarBuffer(strokeData.buffers.flow, width, height);
+    const phase = summarizeScalarBuffer(strokeData.buffers.phase, width, height);
+    const hasContent = Boolean(strokeData.hasContent || paint.nonZeroCount > 0);
+
+    return {
+      layer: summarizeSerializedColorCycleLayer({
+        layerId,
+        hasContent,
+        gradientDefBufferBytes: strokeData.buffers.def.byteLength,
+        gradientIdBufferBytes: strokeData.buffers.gid.byteLength,
+        gradientDefStoreCount: this.getLayerColorCycleMeta(layerId)?.gradientDefStore?.length ?? 0,
+        slotPaletteCount: this.getLayerColorCycleMeta(layerId)?.slotPalettes?.length ?? 0,
+      }),
+      buffers: {
+        paint,
+        gradientId,
+        gradientDefId,
+        speed,
+        flow,
+        phase,
+      },
+    };
+  }
+
+  private recordRuntimeMutationIfCleared(params: {
+    layerId: string;
+    reason: ColorCycleRuntimeMutationReason;
+    source: ColorCycleRuntimeMutationSource;
+    expectedDestructive?: boolean;
+    before: ColorCycleRuntimeMutationAuditSnapshot | null;
+    after: ColorCycleRuntimeMutationAuditSnapshot | null;
+  }): void {
+    const beforeHadContent = Boolean(
+      params.before?.layer.hasContent ||
+      (params.before?.buffers.paint.nonZeroCount ?? 0) > 0,
+    );
+    const afterHasContent = Boolean(
+      params.after?.layer.hasContent ||
+      (params.after?.buffers.paint.nonZeroCount ?? 0) > 0,
+    );
+
+    if (!beforeHadContent || afterHasContent) {
+      return;
+    }
+
+    logCCMutation({
+      event: 'color-cycle-layer-cleared',
+      layerId: params.layerId,
+      reason: params.reason,
+      severity: 'error',
+      before: params.before?.layer ?? null,
+      after: params.after?.layer ?? null,
+      details: {
+        source: params.source,
+        expectedDestructive: params.expectedDestructive === true,
+        paintBefore: params.before?.buffers.paint ?? null,
+        paintAfter: params.after?.buffers.paint ?? null,
+        gradientIdBefore: params.before?.buffers.gradientId ?? null,
+        gradientIdAfter: params.after?.buffers.gradientId ?? null,
+        gradientDefIdBefore: params.before?.buffers.gradientDefId ?? null,
+        gradientDefIdAfter: params.after?.buffers.gradientDefId ?? null,
+        speedBefore: params.before?.buffers.speed ?? null,
+        speedAfter: params.after?.buffers.speed ?? null,
+        flowBefore: params.before?.buffers.flow ?? null,
+        flowAfter: params.after?.buffers.flow ?? null,
+        phaseBefore: params.before?.buffers.phase ?? null,
+        phaseAfter: params.after?.buffers.phase ?? null,
+      },
+    });
+  }
+
+  private mutateLayerStrokeState(params: {
+    layerId: string;
+    reason: ColorCycleRuntimeMutationReason;
+    source: ColorCycleRuntimeMutationSource;
+    expectedDestructive?: boolean;
+    mutate: (strokeData: LayerStrokeState) => void;
+    after?: {
+      hasContent?: boolean;
+      strokeCounter?: number;
+    };
+    markDirty?: boolean;
+  }): LayerStrokeState {
+    const strokeData = this.ensureStrokeState(params.layerId);
+    const before = this.captureRuntimeMutationAuditSnapshot(params.layerId, strokeData);
+
+    params.mutate(strokeData);
+
+    if (typeof params.after?.hasContent === 'boolean') {
+      strokeData.hasContent = params.after.hasContent;
+    }
+    if (typeof params.after?.strokeCounter === 'number') {
+      strokeData.strokeCounter = params.after.strokeCounter;
+    }
+    this.layerStrokes.set(params.layerId, strokeData);
+    if (params.markDirty !== false) {
+      this.dirtyLayers.add(params.layerId);
+    }
+
+    const after = this.captureRuntimeMutationAuditSnapshot(params.layerId, strokeData);
+    this.recordRuntimeMutationIfCleared({
+      layerId: params.layerId,
+      reason: params.reason,
+      source: params.source,
+      expectedDestructive: params.expectedDestructive,
+      before,
+      after,
+    });
+
+    return strokeData;
+  }
+
+  private clearLayerStrokeStatesForReset(reason: ColorCycleRuntimeMutationReason): void {
+    for (const [layerId, strokeData] of this.layerStrokes.entries()) {
+      const before = this.captureRuntimeMutationAuditSnapshot(layerId, strokeData);
+      const after = this.captureRuntimeMutationAuditSnapshot(layerId, {
+        ...strokeData,
+        hasContent: false,
+        buffers: {
+          paint: new Uint8Array(strokeData.buffers.paint.length),
+          gid: new Uint8Array(strokeData.buffers.gid.length),
+          spd: new Uint8Array(strokeData.buffers.spd.length),
+          flow: new Uint8Array(strokeData.buffers.flow.length),
+          phase: new Uint8Array(strokeData.buffers.phase.length),
+          def: new Uint16Array(strokeData.buffers.def.length),
+        },
+      });
+      this.recordRuntimeMutationIfCleared({
+        layerId,
+        reason,
+        source: 'reset',
+        expectedDestructive: true,
+        before,
+        after,
+      });
+    }
+    this.layerStrokes.clear();
+  }
 
   private readLayerColorCycleMetaFromStore(layerId: string): SerializedLayerColorCycleMeta | null {
     const layer = getAppStoreState().layers.find((entry) => entry.id === layerId);
@@ -2456,7 +2650,10 @@ export class ColorCycleBrushCanvas2D {
   /**
    * Clear paint buffer for a layer (used for shape mode)
    */
-  clearPaintBuffer(layerId?: string) {
+  clearPaintBuffer(
+    layerId?: string,
+    reason: ColorCycleRuntimeMutationReason = 'manual-clear-layer'
+  ) {
     const id = layerId || this.activeLayerId || 'default';
     if (this._isHistoryRestore) {
       if (process.env.NODE_ENV !== 'production') {
@@ -2464,15 +2661,22 @@ export class ColorCycleBrushCanvas2D {
       }
       return;
     }
-    const strokeData = this.ensureStrokeState(id);
-    strokeData.buffers.paint.fill(0);
-    strokeData.buffers.gid.fill(0);
-    strokeData.buffers.spd.fill(0);
-    strokeData.buffers.flow.fill(0);
-    strokeData.buffers.phase.fill(0);
-    strokeData.buffers.def.fill(0);
-    strokeData.hasContent = false;
-    strokeData.externalBase.hasExternalBase = false;
+    const strokeData = this.mutateLayerStrokeState({
+      layerId: id,
+      reason,
+      source: 'clear',
+      expectedDestructive: true,
+      mutate: (state) => {
+        state.buffers.paint.fill(0);
+        state.buffers.gid.fill(0);
+        state.buffers.spd.fill(0);
+        state.buffers.flow.fill(0);
+        state.buffers.phase.fill(0);
+        state.buffers.def.fill(0);
+        state.externalBase.hasExternalBase = false;
+      },
+      after: { hasContent: false },
+    });
 
     const animator = this.ensureFullResolution(id, 'stroke');
     animator.setIndexBufferFromArray(
@@ -3029,13 +3233,13 @@ export class ColorCycleBrushCanvas2D {
     // cross-layer writes; renderDirectToCanvas will be called by higher-level
     // handlers during finalize.
     const animator = this.ensureFullResolution(id, 'stroke');
-    if (clearBuffer && !this._isHistoryRestore) {
-      try { animator.clear(); } catch {}
-    }
     if (typeof animator.startStroke === 'function') {
       animator.startStroke();
     }
     const strokeData = this.layerStrokes.get(id);
+    if (clearBuffer && !this._isHistoryRestore && !strokeData) {
+      try { animator.clear(); } catch {}
+    }
     const strokeStartSpeed = this.getResolvedWriteCycleSpeed();
     const speedByte = encodeColorCycleSpeedByte(strokeStartSpeed);
     try {
@@ -3088,12 +3292,24 @@ export class ColorCycleBrushCanvas2D {
       if (clearBuffer && !this._isHistoryRestore) {
         const preservedStampCounter = this.stampDitherEnabled ? strokeData.stampCounter : 0;
         const preservedPhaseUnits = this.stampDitherEnabled ? strokeData.strokePhaseUnits : 0;
-        strokeData.buffers.paint.fill(0);
-        strokeData.buffers.gid.fill(0);
-        strokeData.buffers.spd.fill(0);
-        strokeData.buffers.flow.fill(0);
-        strokeData.buffers.def.fill(0);
-        strokeData.hasContent = false;
+        this.mutateLayerStrokeState({
+          layerId: id,
+          reason: 'brush-stroke-write',
+          source: 'stroke',
+          expectedDestructive: true,
+          mutate: (state) => {
+            state.buffers.paint.fill(0);
+            state.buffers.gid.fill(0);
+            state.buffers.spd.fill(0);
+            state.buffers.flow.fill(0);
+            state.buffers.phase.fill(0);
+            state.buffers.def.fill(0);
+            state.stampCounter = preservedStampCounter;
+            state.strokePhaseUnits = preservedPhaseUnits;
+          },
+          after: { hasContent: false },
+        });
+        try { animator.clear(); } catch {}
         strokeData.stampCounter = preservedStampCounter;
         strokeData.strokePhaseUnits = preservedPhaseUnits;
       }
@@ -5389,7 +5605,7 @@ export class ColorCycleBrushCanvas2D {
       return;
     }
     this.animators.forEach(animator => animator.clear());
-    this.layerStrokes.clear();
+    this.clearLayerStrokeStatesForReset('runtime-reset');
     this.render(false);
   }
 
@@ -6606,19 +6822,27 @@ export class ColorCycleBrushCanvas2D {
           const sd = this.layerStrokes.get(layerId);
           if (sd) {
             debugLog('raw-console', '[ColorCycleBrush] Paint buffer cleared during restore for layer:', layerId?.substring(0, 20));
-            sd.buffers.paint.fill(0);
-            sd.buffers.gid.fill(0);
-            sd.buffers.spd.fill(0);
-            sd.buffers.flow.fill(0);
-            sd.buffers.phase.fill(0);
-            sd.buffers.def.fill(0);
-            sd.hasContent = false;
-            sd.strokeCounter = 0;
-            sd.lastPoint = null;
-            sd.stampCounter = 0;
-            sd.strokePhaseUnits = 0;
-            sd.snapshot = undefined;
-            sd.stampDither = undefined;
+            this.mutateLayerStrokeState({
+              layerId,
+              reason: 'project-load-restore',
+              source: 'project-load',
+              expectedDestructive: true,
+              mutate: (state) => {
+                state.buffers.paint.fill(0);
+                state.buffers.gid.fill(0);
+                state.buffers.spd.fill(0);
+                state.buffers.flow.fill(0);
+                state.buffers.phase.fill(0);
+                state.buffers.def.fill(0);
+                state.strokeCounter = 0;
+                state.lastPoint = null;
+                state.stampCounter = 0;
+                state.strokePhaseUnits = 0;
+                state.snapshot = undefined;
+                state.stampDither = undefined;
+              },
+              after: { hasContent: false, strokeCounter: 0 },
+            });
           }
           const animator = this.animators.get(layerId);
           if (animator) {
@@ -6646,7 +6870,7 @@ export class ColorCycleBrushCanvas2D {
               gradientIdBuffer: undefined,
               hasContent: !!buffer && (buffer as ArrayBuffer).byteLength > 0,
               strokeCounter: 0
-            }, /*extra*/ undefined);
+            }, /*extra*/ undefined, asHistory ? 'history-restore' : 'project-load-restore');
           });
         } else if (Array.isArray(layerSnapshots)) {
           layerSnapshots.forEach((snapshot) => {
@@ -6677,7 +6901,7 @@ export class ColorCycleBrushCanvas2D {
               phaseBuffer,
               hasContent: Boolean(hasContent) || buffer.byteLength > 0,
               strokeCounter: strokeCounter ?? 0
-            }, animatorIndex);
+            }, animatorIndex, asHistory ? 'history-restore' : 'project-load-restore');
           });
         }
       }
@@ -7071,7 +7295,13 @@ export class ColorCycleBrushCanvas2D {
   /**
    * Apply a snapshot to a layer's stroke data
    */
-  applyLayerSnapshot(layerId: string, snapshot: StrokeDataSnapshot, animatorIndex?: AnimatorIndexSnapshot) {
+  applyLayerSnapshot(
+    layerId: string,
+    snapshot: StrokeDataSnapshot,
+    animatorIndex?: AnimatorIndexSnapshot,
+    reason: ColorCycleRuntimeMutationReason = 'snapshot-apply',
+    options?: { suppressClearAudit?: boolean },
+  ) {
     // Ensure animator exists for this layer
     const animator = this.ensureFullResolution(layerId, 'restore');
     const buffer =
@@ -7108,6 +7338,14 @@ export class ColorCycleBrushCanvas2D {
     const incomingPhase = phaseBuffer ? new Uint8Array(phaseBuffer) : null;
     const expectsContent = Boolean(snapshot.hasContent);
     const hadExistingContent = existing?.hasContent ?? false;
+    const shouldAuditPotentialClear =
+      options?.suppressClearAudit !== true &&
+      hadExistingContent &&
+      !expectsContent &&
+      !animatorIndex?.data;
+    const beforeMutation = shouldAuditPotentialClear
+      ? this.captureRuntimeMutationAuditSnapshot(layerId, existing)
+      : null;
     try {
       if (incoming.length !== expectedSize) {
         // Ensure animator is at the correct size for the current canvas
@@ -7316,6 +7554,21 @@ export class ColorCycleBrushCanvas2D {
       strokeCounter: strokeData.strokeCounter
     };
     this.layerStrokes.set(layerId, strokeData);
+    if (shouldAuditPotentialClear && !hasLayerContent) {
+      const afterMutation = this.captureRuntimeMutationAuditSnapshot(layerId, strokeData);
+      this.recordRuntimeMutationIfCleared({
+        layerId,
+        reason,
+        source: reason === 'history-restore'
+          ? 'history'
+          : reason === 'project-load-restore'
+            ? 'project-load'
+            : 'snapshot',
+        expectedDestructive: !expectsContent,
+        before: beforeMutation,
+        after: afterMutation,
+      });
+    }
 
     // Keep animator in sync with externally supplied paint buffer so renders reflect new data.
     try {

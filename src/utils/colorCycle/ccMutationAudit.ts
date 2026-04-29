@@ -34,6 +34,26 @@ type CCMutationEntry = {
   stack?: string | null;
 };
 
+export type ScalarBufferSummary = {
+  byteLength: number;
+  nonZeroCount: number;
+  firstNonZeroIndex: number | null;
+  lastNonZeroIndex: number | null;
+  checksum: string;
+  bounds: {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  } | null;
+  samples: Array<{
+    index: number;
+    x: number;
+    y: number;
+    value: number;
+  }>;
+};
+
 type CCMutationAuditWindow = Window & {
   __VESSEL_CC_MUTATION_LOG__?: CCMutationEntry[];
   __VESSEL_GET_CC_MUTATION_LOG__?: () => CCMutationEntry[];
@@ -115,6 +135,61 @@ export const summarizeSerializedColorCycleLayer = (params: {
   visible: null,
   opacity: null,
 });
+
+export const summarizeScalarBuffer = (
+  buffer: Uint8Array | Uint16Array,
+  width: number,
+  height: number,
+): ScalarBufferSummary => {
+  let checksum = 0x811c9dc5;
+  let nonZeroCount = 0;
+  let firstNonZeroIndex: number | null = null;
+  let lastNonZeroIndex: number | null = null;
+  let minX = width;
+  let minY = height;
+  let maxX = -1;
+  let maxY = -1;
+  const samples: ScalarBufferSummary['samples'] = [];
+
+  for (let index = 0; index < buffer.length; index += 1) {
+    const value = buffer[index] ?? 0;
+    checksum ^= value;
+    checksum = Math.imul(checksum, 0x01000193);
+    if (value === 0) {
+      continue;
+    }
+
+    const x = width > 0 ? index % width : 0;
+    const y = width > 0 ? Math.floor(index / width) : 0;
+    nonZeroCount += 1;
+    firstNonZeroIndex ??= index;
+    lastNonZeroIndex = index;
+    minX = Math.min(minX, x);
+    minY = Math.min(minY, y);
+    maxX = Math.max(maxX, x);
+    maxY = Math.max(maxY, y);
+    if (samples.length < 16) {
+      samples.push({ index, x, y, value });
+    }
+  }
+
+  return {
+    byteLength: buffer.byteLength,
+    nonZeroCount,
+    firstNonZeroIndex,
+    lastNonZeroIndex,
+    checksum: (checksum >>> 0).toString(16).padStart(8, '0'),
+    bounds: nonZeroCount > 0
+      ? {
+          x: minX,
+          y: minY,
+          width: maxX - minX + 1,
+          height: maxY - minY + 1,
+        }
+      : null,
+    samples,
+  };
+};
 
 const persistEntry = (entry: CCMutationEntry): void => {
   const auditWindow = getAuditWindow();
