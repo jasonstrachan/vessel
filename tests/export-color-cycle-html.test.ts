@@ -691,7 +691,76 @@ describe('exportProjectAsWebGL color cycle integration', () => {
     expect(exportedLayer.colorCycle?.brushState).toBeDefined();
     expect(exportedLayer.colorCycle?.brushState?.indexBuffer).toBeDefined();
     expect(exportedLayer.colorCycle?.brushState?.gradientStops).toHaveLength(3);
-    expect(exportedLayer.colorCycle?.brushState?.alphaMode).toBe('source');
+    expect(exportedLayer.colorCycle?.brushState?.alphaMode).toBe('opaque-indices');
+  });
+
+  it('preserves source alpha for brush-mode color-cycle layers with visible texture alpha', async () => {
+    const canvas = document.createElement('canvas');
+    canvas.width = 128;
+    canvas.height = 128;
+    const ctx = canvas.getContext('2d');
+    ctx!.fillStyle = '#ffffff';
+    ctx!.fillRect(0, 0, 16, 16);
+
+    const layer = createBrushModeLayer(canvas);
+    const project = createProject(layer);
+    const layout = createDefaultExportLayout();
+
+    const metadata = await exportProjectAsWebGL({
+      project,
+      layers: [layer],
+      layout,
+      viewport: { designWidth: project.width, designHeight: project.height, mode: 'fixed' },
+      fps: 24,
+      totalFrames: 48,
+      durationSeconds: 2,
+      perfectLoop: false,
+      includeHiddenLayers: true,
+      embedCanvasFallback: false,
+      minify: false,
+      filenameBase: 'color-cycle-brush-visible-texture',
+      bundleFormat: 'json'
+    });
+
+    expect(metadata.layers[0].colorCycle?.brushState?.alphaMode).toBe('source');
+  });
+
+  it('preserves source alpha for brush-mode color-cycle layers when texture alpha cannot be inspected', async () => {
+    const canvas = document.createElement('canvas');
+    canvas.width = 128;
+    canvas.height = 128;
+    const originalGetContext = canvas.getContext.bind(canvas);
+    Object.defineProperty(canvas, 'getContext', {
+      configurable: true,
+      value: ((contextId: string, options?: unknown) => {
+        if (contextId === '2d') {
+          return null;
+        }
+        return originalGetContext(contextId as never, options as never);
+      }) as HTMLCanvasElement['getContext']
+    });
+
+    const layer = createBrushModeLayer(canvas);
+    const project = createProject(layer);
+    const layout = createDefaultExportLayout();
+
+    const metadata = await exportProjectAsWebGL({
+      project,
+      layers: [layer],
+      layout,
+      viewport: { designWidth: project.width, designHeight: project.height, mode: 'fixed' },
+      fps: 24,
+      totalFrames: 48,
+      durationSeconds: 2,
+      perfectLoop: false,
+      includeHiddenLayers: true,
+      embedCanvasFallback: false,
+      minify: false,
+      filenameBase: 'color-cycle-brush-uninspectable-texture',
+      bundleFormat: 'json'
+    });
+
+    expect(metadata.layers[0].colorCycle?.brushState?.alphaMode).toBe('source');
   });
 
   it('includes display filters in Goblet export metadata', async () => {

@@ -4077,6 +4077,8 @@ class VesselGoblet {
         && rect.width >= sourceWidth - tolerance
         && rect.height >= sourceHeight - tolerance;
     };
+    const sourceMatchesDocument = Math.abs(sourceWidth - documentSize.width) <= 0.5
+      && Math.abs(sourceHeight - documentSize.height) <= 0.5;
 
     const tinyContentBounds = Boolean(
       normalizedContentBounds
@@ -4087,8 +4089,8 @@ class VesselGoblet {
     const shouldPreferDocumentRect = Boolean(
       paintedRectFromDocument
       && (
-        isFixed
-        || (isColorCycleLayer && (!normalizedContentBounds || isFullSurfaceRect(normalizedContentBounds)))
+        (isFixed && sourceMatchesDocument)
+        || (isColorCycleLayer && sourceMatchesDocument && (!normalizedContentBounds || isFullSurfaceRect(normalizedContentBounds)))
         || (entry.layer.type === 'sequential' && tinyContentBounds)
       )
     );
