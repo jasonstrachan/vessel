@@ -304,4 +304,28 @@ describe('ExportModal webgl preflight', () => {
 
     expect(screen.queryByText('Export progress')).not.toBeInTheDocument();
   });
+
+  it('dismisses completed export progress and parent export modal from the progress backdrop', async () => {
+    const onClose = jest.fn();
+    runExportMock.mockResolvedValue({
+      kind: 'webgl',
+      filename: 'Demo',
+      metadata: { layers: [] },
+    });
+
+    render(<ExportModal isOpen onClose={onClose} />);
+    act(() => {
+      jest.runAllTimers();
+    });
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /^Export$/i }));
+    });
+    expect(await screen.findByText('Export progress')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId('export-progress-backdrop'));
+
+    expect(onClose).toHaveBeenCalled();
+    expect(screen.queryByText('Export progress')).not.toBeInTheDocument();
+  });
 });
