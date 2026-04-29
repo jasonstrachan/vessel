@@ -6,6 +6,7 @@ import { ColorCycleAnimator } from '@/lib/ColorCycleAnimator';
 import { useAppStore } from '@/stores/useAppStore';
 import type { Layer } from '@/types';
 import { createDefaultLayerAlignment } from '@/utils/layoutDefaults';
+import { getPersistedCCMutationLog } from '@/utils/colorCycle/ccMutationAudit';
 
 type PatchExtras = {
   gradientIdBytes?: Uint8Array;
@@ -116,6 +117,7 @@ const createLayer = (layerId: string, width: number, height: number): Layer => {
 describe('ColorCycleStrokePatchDelta', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    window.localStorage.clear();
     const layer = createLayer('layer-cc-patch', 2, 2);
     useAppStore.setState((state) => ({
       layers: [layer],
@@ -194,7 +196,7 @@ describe('ColorCycleStrokePatchDelta', () => {
     expect(Array.from(extras.phaseBytes ?? [])).toEqual([50, 60, 0, 0]);
   });
 
-  it('undoes the first CC gradient when no before brush state was captured', async () => {
+  it('does not synthesize an empty undo patch when before brush state is missing', async () => {
     const layerId = 'layer-cc-patch';
     const forwardState = makeState({
       layerId,
@@ -215,6 +217,67 @@ describe('ColorCycleStrokePatchDelta', () => {
       roi: { x: 0, y: 0, width: 2, height: 2 },
       forwardState,
       backwardState: null,
+    });
+
+    expect(delta).toBeNull();
+    expect(mockBrush.applyPaintPatch).not.toHaveBeenCalled();
+    const missingBeforeReports = getPersistedCCMutationLog().filter(
+      (entry) => entry.event === 'history-cc-before-state-missing'
+    );
+    expect(missingBeforeReports).toEqual([
+      expect.objectContaining({
+        event: 'history-cc-before-state-missing',
+        layerId,
+        reason: 'missing-backward-paint-patch',
+        severity: 'warn',
+        details: expect.objectContaining({
+          source: 'history-color-cycle-stroke-patch',
+          expectedDestructive: false,
+          roi: { x: 0, y: 0, width: 2, height: 2 },
+          forwardPaint: expect.objectContaining({
+            byteLength: 4,
+            nonZeroCount: 2,
+          }),
+        }),
+      }),
+    ]);
+  });
+
+  it('synthesizes an empty undo patch for an explicitly empty first CC stroke state', async () => {
+    const layerId = 'layer-cc-patch';
+    const backwardState = {
+      cycleSpeed: 1,
+      fps: 30,
+      brushSize: 1,
+      layers: [{
+        layerId,
+        data: makeAnimatorState(2, 2),
+        strokeData: {
+          paintBuffer: new ArrayBuffer(0),
+          hasContent: false,
+          strokeCounter: 0,
+        },
+      }],
+    };
+    const forwardState = makeState({
+      layerId,
+      width: 2,
+      height: 2,
+      paint: [5, 6, 0, 0],
+      gradientId: [8, 8, 0, 0],
+      gradientDefId: [12, 12, 0, 0],
+      speed: [70, 80, 0, 0],
+      flow: [90, 100, 0, 0],
+      phase: [110, 120, 0, 0],
+    });
+
+    const delta = await createColorCycleStrokePatchDelta({
+      layerId,
+      width: 2,
+      height: 2,
+      roi: { x: 0, y: 0, width: 2, height: 2 },
+      forwardState,
+      backwardState,
     });
 
     expect(delta).not.toBeNull();

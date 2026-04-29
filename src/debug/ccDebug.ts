@@ -1,10 +1,39 @@
 import { useAppStore } from '@/stores/useAppStore';
+import { getPersistedCCMutationLog } from '@/utils/colorCycle/ccMutationAudit';
 import { appendCCDebugOverlayEntry } from '@/utils/colorCycle/ccDebugOverlayStore';
 import { isDevDebugOverlayEnabled } from '@/utils/dev/debugOverlayStore';
 
 type ScopedConsole = typeof console;
 type CCDebugState = { on: boolean; verbose: boolean; timing: boolean };
 export const CC_DEBUG_STATE_EVENT = 'cc-debug-state-change';
+
+type ActiveCCLayerDiagnostic = {
+  href: string | null;
+  activeLayerId: string | null;
+  layerCount: number;
+  layerType: string | null;
+  visible: boolean | null;
+  opacity: number | null;
+  hasColorCycleData: boolean;
+  hasContent: boolean | null;
+  hasCanvas: boolean;
+  canvasSize: string | null;
+  hasImageData: boolean;
+  imageDataSize: string | null;
+  paintRef: unknown;
+  gradientIdRef: unknown;
+  gradientDefIdRef: unknown;
+  speedRef: unknown;
+  flowRef: unknown;
+  phaseRef: unknown;
+};
+
+type CCDiagnosticsDump = {
+  activeLayer: ActiveCCLayerDiagnostic;
+  colorCycleLayers: ActiveCCLayerDiagnostic[];
+  mutationLog: unknown[];
+  storageKeys: string[];
+};
 
 declare global {
   interface Window {
@@ -13,6 +42,8 @@ declare global {
     __CC_DEBUG_TIMING__?: boolean;
     CC_DEBUG?: CCDebugState;
     __CC_RUN_SLOT_GC__?: (reason?: string) => void;
+    __VESSEL_GET_ACTIVE_CC_LAYER_DIAGNOSTIC__?: () => ActiveCCLayerDiagnostic;
+    __VESSEL_DUMP_CC_DIAGNOSTICS__?: () => CCDiagnosticsDump;
   }
 }
 
@@ -48,6 +79,66 @@ const emitDebugPreferenceChange = () => {
     return;
   }
   emitCcDebugStateChange();
+};
+
+const getActiveCCLayerDiagnostic = (): ActiveCCLayerDiagnostic => {
+  const state = useAppStore.getState();
+  const layer = state.layers.find((entry) => entry.id === state.activeLayerId) ?? null;
+  return getLayerDiagnostic(layer);
+};
+
+const getLayerDiagnostic = (
+  layer: ReturnType<typeof useAppStore.getState>['layers'][number] | null,
+): ActiveCCLayerDiagnostic => {
+  const state = useAppStore.getState();
+  const cc = layer?.layerType === 'color-cycle' ? layer.colorCycleData : null;
+  const ccRecord = (cc ?? {}) as Record<string, unknown>;
+
+  return {
+    href: typeof window !== 'undefined' ? window.location.href : null,
+    activeLayerId: state.activeLayerId ?? null,
+    layerCount: state.layers.length,
+    layerType: layer?.layerType ?? null,
+    visible: layer?.visible ?? null,
+    opacity: layer?.opacity ?? null,
+    hasColorCycleData: Boolean(cc),
+    hasContent: cc?.hasContent ?? null,
+    hasCanvas: Boolean(cc?.canvas),
+    canvasSize: cc?.canvas ? `${cc.canvas.width}x${cc.canvas.height}` : null,
+    hasImageData: Boolean(layer?.imageData),
+    imageDataSize: layer?.imageData ? `${layer.imageData.width}x${layer.imageData.height}` : null,
+    paintRef: ccRecord.paintRef ?? null,
+    gradientIdRef: ccRecord.gradientIdRef ?? null,
+    gradientDefIdRef: ccRecord.gradientDefIdRef ?? null,
+    speedRef: ccRecord.speedRef ?? null,
+    flowRef: ccRecord.flowRef ?? null,
+    phaseRef: ccRecord.phaseRef ?? null,
+  };
+};
+
+const dumpCCDiagnostics = (): CCDiagnosticsDump => {
+  const state = useAppStore.getState();
+  const storageKeys = (() => {
+    if (typeof window === 'undefined') {
+      return [];
+    }
+    try {
+      return Object.keys(window.localStorage)
+        .filter((key) => /VESSEL|CC|TB/i.test(key))
+        .sort();
+    } catch {
+      return [];
+    }
+  })();
+
+  return {
+    activeLayer: getActiveCCLayerDiagnostic(),
+    colorCycleLayers: state.layers
+      .filter((layer) => layer.layerType === 'color-cycle')
+      .map((layer) => getLayerDiagnostic(layer)),
+    mutationLog: getPersistedCCMutationLog(),
+    storageKeys,
+  };
 };
 
 export const CC_DEBUG: CCDebugState = (() => {
@@ -168,6 +259,8 @@ if (typeof window !== 'undefined') {
       console.warn('[CC] manual slot GC failed', error);
     }
   };
+  window.__VESSEL_GET_ACTIVE_CC_LAYER_DIAGNOSTIC__ = getActiveCCLayerDiagnostic;
+  window.__VESSEL_DUMP_CC_DIAGNOSTICS__ = dumpCCDiagnostics;
 }
 
 export function ccLog(message: string, data?: unknown) {

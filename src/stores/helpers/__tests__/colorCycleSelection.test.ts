@@ -238,6 +238,12 @@ describe('colorCycleSelection helpers', () => {
       y: 0,
       width: 4,
       height: 4,
+    }, {
+      auditSource: 'delete-selected',
+      auditDetails: {
+        activeLayerId: 'layer-cc',
+        selectionMaskBounds: null,
+      },
     });
 
     expect(cleared).toBe(true);
@@ -245,10 +251,28 @@ describe('colorCycleSelection helpers', () => {
       expect.objectContaining({
         event: 'color-cycle-layer-cleared',
         layerId: 'layer-cc',
-        reason: 'mutateColorCycleLayer',
+        reason: 'delete-selected',
         severity: 'error',
         stack: expect.stringContaining('color-cycle-layer-cleared'),
         details: expect.objectContaining({
+          source: 'selection-region-clear',
+          operation: 'delete-selected',
+          expectedDestructive: true,
+          activeLayerId: 'layer-cc',
+          selectionMaskBounds: null,
+          layerName: 'CC',
+          layerVisible: true,
+          layerOpacity: 1,
+          layerBlendMode: 'source-over',
+          projectId: 'project-test',
+          projectWidth: 4,
+          projectHeight: 4,
+          canvasWidth: 4,
+          canvasHeight: 4,
+          bufferLength: 16,
+          rect: { x: 0, y: 0, width: 4, height: 4 },
+          clampedRect: { x: 0, y: 0, width: 4, height: 4 },
+          hasAlphaMask: false,
           paintBefore: expect.objectContaining({
             byteLength: 16,
             nonZeroCount: 16,
@@ -269,6 +293,15 @@ describe('colorCycleSelection helpers', () => {
         }),
       }),
     ]);
+    expect(state.updateLayer).toHaveBeenCalledWith(
+      'layer-cc',
+      expect.objectContaining({
+        colorCycleData: expect.objectContaining({
+          hasContent: false,
+        }),
+      }),
+      expect.objectContaining({ skipColorCycleSync: true })
+    );
   });
 
   it('clears only masked pixels when alphaData is provided', () => {

@@ -29,6 +29,11 @@ type BufferMutator = (buffers: {
   height: number;
 }) => boolean;
 
+type ColorCycleClearAuditOptions = {
+  source?: string;
+  details?: Record<string, unknown>;
+};
+
 const getCanvasForLayer = (
   state: Pick<AppState, 'getLayerColorCycleBrush'> | null | undefined,
   layer: Layer,
@@ -61,6 +66,7 @@ const mutateColorCycleLayer = (
   mutator: BufferMutator,
   options?: {
     skipMaterialize?: boolean;
+    audit?: ColorCycleClearAuditOptions;
   }
 ): boolean => {
   if (layer.layerType !== 'color-cycle') {
@@ -209,10 +215,11 @@ const mutateColorCycleLayer = (
   const hasContent = working.some((value) => value !== 0);
   if (hadContentBeforeMutation && !hasContent) {
     const before = summarizeColorCycleLayer(layer);
+    const auditSource = options?.audit?.source ?? 'clear-color-cycle-region';
     logCCMutation({
       event: 'color-cycle-layer-cleared',
       layerId: layer.id,
-      reason: 'mutateColorCycleLayer',
+      reason: auditSource,
       severity: 'error',
       before,
       after: before
@@ -224,9 +231,20 @@ const mutateColorCycleLayer = (
           }
         : null,
       details: {
+        source: 'selection-region-clear',
+        operation: auditSource,
+        expectedDestructive: true,
+        layerName: layer.name,
+        layerVisible: layer.visible,
+        layerOpacity: layer.opacity,
+        layerBlendMode: layer.blendMode,
+        projectId: project.id,
+        projectWidth: project.width,
+        projectHeight: project.height,
         canvasWidth: canvas.width,
         canvasHeight: canvas.height,
         bufferLength,
+        ...(options?.audit?.details ?? {}),
         paintBefore: beforePaintSummary,
         paintAfter: summarizeScalarBuffer(working, canvas.width, canvas.height),
         gradientIdAfter: summarizeScalarBuffer(workingGradientId, canvas.width, canvas.height),
@@ -296,6 +314,9 @@ const mutateColorCycleLayer = (
     if (syncedImage) {
       update.canvasImageData = syncedImage;
     }
+    if (base.hasContent !== hasContent) {
+      update.hasContent = hasContent;
+    }
     update.gradientIdBuffer = workingGradientId.buffer.slice(0) as ArrayBuffer;
     update.gradientDefIdBuffer = workingGradientDefId.buffer.slice(0) as ArrayBuffer;
     update.phaseBuffer = workingPhase.buffer.slice(0) as ArrayBuffer;
@@ -349,10 +370,32 @@ export const clearColorCycleRegion = (
     alphaStride?: number;
     alphaChannelOffset?: number;
     alphaThreshold?: number;
+    auditSource?: string;
+    auditDetails?: Record<string, unknown>;
   }
-): boolean =>
-  mutateColorCycleLayer(state, layer, project, ({ paint: buffer, width: bufferWidth, height: bufferHeight }) => {
+): boolean => {
+  const auditDetails: Record<string, unknown> = {
+    rect: {
+      x: rect.x,
+      y: rect.y,
+      width: rect.width,
+      height: rect.height,
+    },
+    hasAlphaMask: Boolean(options?.alphaData),
+    alphaWidth: options?.alphaWidth ?? null,
+    alphaHeight: options?.alphaHeight ?? null,
+    alphaThreshold: options?.alphaThreshold ?? null,
+    ...(options?.auditDetails ?? {}),
+  };
+
+  return mutateColorCycleLayer(state, layer, project, ({ paint: buffer, width: bufferWidth, height: bufferHeight }) => {
     const { startX, startY, endX, endY } = clampRect(rect, bufferWidth, bufferHeight);
+    auditDetails.clampedRect = {
+      x: startX,
+      y: startY,
+      width: Math.max(0, endX - startX),
+      height: Math.max(0, endY - startY),
+    };
     if (startX >= endX || startY >= endY) {
       return false;
     }
@@ -392,7 +435,13 @@ export const clearColorCycleRegion = (
       }
     }
     return changed;
+  }, {
+    audit: {
+      source: options?.auditSource,
+      details: auditDetails,
+    },
   });
+};
 
 export const writeColorCycleRegion = (
   state: AppState,

@@ -71,6 +71,14 @@ const getAuditWindow = (): CCMutationAuditWindow | null => {
   return window as CCMutationAuditWindow;
 };
 
+const installMutationLogHelper = (): void => {
+  const auditWindow = getAuditWindow();
+  if (!auditWindow) {
+    return;
+  }
+  auditWindow.__VESSEL_GET_CC_MUTATION_LOG__ = getPersistedCCMutationLog;
+};
+
 const getByteLength = (value: ArrayBufferLike | null | undefined): number =>
   value?.byteLength ?? 0;
 
@@ -206,7 +214,7 @@ const persistEntry = (entry: CCMutationEntry): void => {
       auditWindow.__VESSEL_CC_MUTATION_LOG__.length - MAX_MEMORY_ENTRIES
     );
   }
-  auditWindow.__VESSEL_GET_CC_MUTATION_LOG__ = getPersistedCCMutationLog;
+  installMutationLogHelper();
 
   try {
     const parsed = JSON.parse(auditWindow.localStorage.getItem(STORAGE_KEY) || '[]');
@@ -228,6 +236,7 @@ export const getPersistedCCMutationLog = (): CCMutationEntry[] => {
   if (!auditWindow) {
     return [];
   }
+  installMutationLogHelper();
   try {
     const raw = auditWindow.localStorage.getItem(STORAGE_KEY);
     if (!raw) {
@@ -261,6 +270,7 @@ export const logCCMutation = ({
   after?: CCMutationSnapshot | null;
   severity?: AuditSeverity;
 }): void => {
+  installMutationLogHelper();
   const shouldPersist = __DEV__ || severity === 'error' || transitionLooksDestructive(before ?? null, after ?? null);
   const entry: CCMutationEntry = {
     t: Date.now(),
@@ -355,3 +365,5 @@ export const auditColorCycleLayerTransition = ({
     severity: 'warn',
   });
 };
+
+installMutationLogHelper();

@@ -1,6 +1,7 @@
 import { captureColorCycleBrushState } from '@/history/helpers/colorCycle';
 import { getColorCycleBrushManager } from '@/stores/colorCycleBrushManager';
 import { useAppStore } from '@/stores/useAppStore';
+import { getPersistedCCMutationLog } from '@/utils/colorCycle/ccMutationAudit';
 
 jest.mock('@/stores/colorCycleBrushManager', () => ({
   getColorCycleStoreState: () => null,
@@ -16,6 +17,7 @@ jest.mock('@/stores/useAppStore', () => ({
 describe('captureColorCycleBrushState', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    window.localStorage.clear();
   });
 
   it('reuses cached erase mask snapshots when version is unchanged', () => {
@@ -154,5 +156,43 @@ describe('captureColorCycleBrushState', () => {
     });
 
     expect(captureColorCycleBrushState('layer-painted-metadata')).toBeNull();
+    expect(getPersistedCCMutationLog()).toContainEqual(
+      expect.objectContaining({
+        event: 'history-cc-before-state-capture-failed',
+        layerId: 'layer-painted-metadata',
+        reason: 'missing-canonical-paint',
+        severity: 'warn',
+        details: expect.objectContaining({
+          source: 'captureColorCycleBrushState',
+          expectedDestructive: false,
+          project: expect.objectContaining({
+            width: 4,
+            height: 4,
+            layerCount: 1,
+          }),
+          colorCycleData: expect.objectContaining({
+            canvasWidth: 4,
+            canvasHeight: 4,
+          }),
+          runtimeBrush: expect.objectContaining({
+            present: true,
+            hasSerialize: true,
+          }),
+          damageKind: 'missing-paint-buffer',
+          rawSnapshot: expect.objectContaining({
+            hasSnapshot: true,
+            strokeHasContent: true,
+            paintBytes: 0,
+            buffers: expect.objectContaining({
+              paint: expect.objectContaining({
+                present: false,
+                byteLength: 0,
+                summary: null,
+              }),
+            }),
+          }),
+        }),
+      })
+    );
   });
 });
