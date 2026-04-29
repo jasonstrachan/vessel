@@ -97,6 +97,8 @@ export interface BrushStateRuntimePayload {
 
 export interface ColorCycleRuntimeMetadata {
   brushState?: BrushStateRuntimePayload;
+  sourceCropPx?: WebGLLayerBounds;
+  sourceCropBasis?: { width: number; height: number };
 }
 
 export interface ColorCycleSerializationResult {

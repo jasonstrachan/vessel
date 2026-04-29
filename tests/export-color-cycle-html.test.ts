@@ -4,6 +4,7 @@ import { buildForegroundDerivedGradientSpec, deriveForegroundGradientStops } fro
 import { FLOW_SLOT_MASK } from '@/lib/colorCycle/flowEncoding';
 import { useAppStore } from '@/stores/useAppStore';
 import { hashStops } from '@/utils/colorCycleGradientDefs';
+import { captureLayerTexture } from '@/utils/export/goblet/gobletTextureEncoder';
 import { BrushShape, type Layer, type Project } from '@/types';
 
 jest.mock('@/stores/colorCycleBrushManager', () => {
@@ -238,6 +239,66 @@ const createBrushModeLayer = (canvas: HTMLCanvasElement): Layer => {
     },
     version: 1
   };
+};
+
+const createSparseBrushModeLayer = (canvas: HTMLCanvasElement): Layer => {
+  const layer = createBrushModeLayer(canvas);
+  const width = 8;
+  const height = 8;
+  const brushIndices = new Uint8Array(width * height);
+  const gradientIdBuffer = new Uint8Array(width * height);
+  const speedBuffer = new Uint8Array(width * height);
+
+  for (let y = 2; y < 4; y += 1) {
+    for (let x = 3; x < 5; x += 1) {
+      const index = y * width + x;
+      brushIndices[index] = 12 + index;
+      gradientIdBuffer[index] = 1;
+      speedBuffer[index] = 64;
+    }
+  }
+
+  layer.id = 'cc-sparse-brush-layer';
+  layer.name = 'Sparse Color Cycle Brush';
+  layer.colorCycleData = {
+    ...layer.colorCycleData!,
+    colorCycleBrush: {
+      serialize: () => ({
+        layers: [
+          {
+            layerId: layer.id,
+            data: {
+              indexBuffer: {
+                width,
+                height,
+                data: brushIndices,
+                palette: ['#ffd700', '#adff2f', '#1e90ff'],
+                gradientId: gradientIdBuffer,
+                speedData: speedBuffer,
+              },
+              gradient: {
+                gradientStops: layer.colorCycleData?.gradient ?? [],
+              },
+              animation: {
+                offset: 0,
+                stats: {
+                  targetFPS: 24,
+                },
+              },
+            },
+          },
+        ],
+        cycleSpeed: 0.35,
+        fps: 24,
+        brushSize: 14,
+      }),
+      commitCurrentStroke: jest.fn(),
+      getCanvas: () => canvas,
+      isPlaying: () => true,
+    } as unknown as Layer['colorCycleData']['colorCycleBrush'],
+  };
+
+  return layer;
 };
 
 const createBrushModeLayerWithStrippedAnimatorPayload = (canvas: HTMLCanvasElement): Layer => {
@@ -916,6 +977,150 @@ describe('exportProjectAsWebGL color cycle integration', () => {
     expect(exportedLayer.colorCycle?.speedMode).toBe('slot');
     expect(exportedLayer.colorCycle?.slotSpeeds).toHaveLength(2);
     expect(exportedLayer.colorCycle?.brushState?.speedBuffer).toBeUndefined();
+  });
+
+  it('crops sparse Goblet 2 brush payloads before packing', async () => {
+    const canvas = document.createElement('canvas');
+    canvas.width = 128;
+    canvas.height = 128;
+
+    const layer = createSparseBrushModeLayer(canvas);
+    const project = createProject(layer);
+    const layout = createDefaultExportLayout();
+
+    const metadata = await exportProjectAsWebGL({
+      project,
+      layers: [layer],
+      layout,
+      viewport: { designWidth: project.width, designHeight: project.height, mode: 'fixed' },
+      fps: 24,
+      totalFrames: 48,
+      durationSeconds: 2,
+      perfectLoop: false,
+      includeHiddenLayers: true,
+      embedCanvasFallback: false,
+      minify: false,
+      filenameBase: 'color-cycle-brush-cropped-goblet2',
+      bundleFormat: 'json',
+      gobletVersion: 'goblet2'
+    });
+
+    const exportedLayer = metadata.layers[0];
+    const brushState = exportedLayer.colorCycle?.brushState;
+    expect(exportedLayer.source).toEqual({ width: 2, height: 2 });
+    expect(brushState?.width).toBe(2);
+    expect(brushState?.height).toBe(2);
+    expect(exportedLayer.colorCycle?.coverageBoundsSourcePx).toEqual({
+      x: 0,
+      y: 0,
+      width: 2,
+      height: 2,
+    });
+    expect(exportedLayer.documentBoundsPx).toEqual({
+      x: 48,
+      y: 32,
+      width: 32,
+      height: 32,
+    });
+    expect(exportedLayer.contentBounds).toEqual({
+      x: 0,
+      y: 0,
+      width: 2,
+      height: 2,
+    });
+  });
+
+  it('crops sparse Goblet 2 alpha masks with brush payloads', async () => {
+    const canvas = document.createElement('canvas');
+    canvas.width = 128;
+    canvas.height = 128;
+
+    const layer = createSparseBrushModeLayer(canvas);
+    layer.colorCycleData!.eraseMaskImageData = createEraseMaskData(
+      8,
+      8,
+      (x, y) => x === 3 && y === 2
+    );
+    const project = createProject(layer);
+    const layout = createDefaultExportLayout();
+
+    const metadata = await exportProjectAsWebGL({
+      project,
+      layers: [layer],
+      layout,
+      viewport: { designWidth: project.width, designHeight: project.height, mode: 'fixed' },
+      fps: 24,
+      totalFrames: 48,
+      durationSeconds: 2,
+      perfectLoop: false,
+      includeHiddenLayers: true,
+      embedCanvasFallback: false,
+      minify: false,
+      filenameBase: 'color-cycle-brush-cropped-mask-goblet2',
+      bundleFormat: 'json',
+      gobletVersion: 'goblet2'
+    });
+
+    const exportedLayer = metadata.layers[0];
+    expect(exportedLayer.source).toEqual({ width: 2, height: 2 });
+    expect(exportedLayer.colorCycle?.brushState?.width).toBe(2);
+    expect(exportedLayer.colorCycle?.brushState?.height).toBe(2);
+    expect(exportedLayer.colorCycle?.alphaMask?.width).toBe(2);
+    expect(exportedLayer.colorCycle?.alphaMask?.height).toBe(2);
+    expect(exportedLayer.colorCycle?.coverageBoundsSourcePx).toEqual({
+      x: 0,
+      y: 0,
+      width: 2,
+      height: 2,
+    });
+  });
+
+  it('preserves ImageBitmap crop contents when capturing cropped textures', async () => {
+    const previousImageBitmap = global.ImageBitmap;
+    class MockImageBitmap {
+      width = 8;
+      height = 8;
+      close = jest.fn();
+    }
+    Object.defineProperty(global, 'ImageBitmap', {
+      configurable: true,
+      writable: true,
+      value: MockImageBitmap,
+    });
+    const bitmap = new MockImageBitmap() as unknown as ImageBitmap;
+    const drawImageSpy = jest.spyOn(CanvasRenderingContext2D.prototype, 'drawImage');
+    const clearRectSpy = jest.spyOn(CanvasRenderingContext2D.prototype, 'clearRect');
+
+    try {
+      const texture = await captureLayerTexture(
+        {
+          id: 'bitmap-layer',
+          imageBitmap: bitmap,
+        } as unknown as Layer,
+        {
+          bounds: { x: 3, y: 2, width: 2, height: 2 },
+          basis: { width: 8, height: 8 },
+        }
+      );
+
+      expect(texture).toMatch(/^data:image\//);
+      expect(drawImageSpy).toHaveBeenCalledWith(bitmap, 3, 2, 2, 2, 0, 0, 2, 2);
+      expect(clearRectSpy).toHaveBeenCalledWith(0, 0, 2, 2);
+      expect(clearRectSpy).not.toHaveBeenCalledWith(0, 0, 8, 8);
+      expect((bitmap as unknown as { close: jest.Mock }).close).toHaveBeenCalledTimes(1);
+    } finally {
+      drawImageSpy.mockRestore();
+      clearRectSpy.mockRestore();
+      if (previousImageBitmap === undefined) {
+        delete (global as { ImageBitmap?: unknown }).ImageBitmap;
+      } else {
+        Object.defineProperty(global, 'ImageBitmap', {
+          configurable: true,
+          writable: true,
+          value: previousImageBitmap,
+        });
+      }
+    }
   });
 
   it('exports brush payloads from live strokeData when animator buffers are intentionally stripped', async () => {
