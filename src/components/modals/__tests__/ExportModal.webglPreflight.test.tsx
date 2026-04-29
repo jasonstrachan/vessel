@@ -74,6 +74,7 @@ const makeStore = () => ({
   compositeLayersToCanvas: jest.fn(),
   setActiveLayer: jest.fn(),
   addNotification: jest.fn(),
+  toggleModal: jest.fn(),
   setSequentialFrame: jest.fn(),
   getLayerColorCycleBrush: jest.fn(() => null),
   updateLayer: jest.fn(),
@@ -231,11 +232,48 @@ describe('ExportModal webgl preflight', () => {
     await act(async () => {
       fireEvent.click(screen.getByRole('button', { name: /^Export$/i }));
     });
+    expect(await screen.findByText('Continue anyway')).toBeInTheDocument();
+
+    await act(async () => {
+      fireEvent.click(screen.getByText('Continue anyway'));
+    });
 
     expect(await screen.findByText('Export failed')).toBeInTheDocument();
     expect(screen.getByText('Damaged CC')).toBeInTheDocument();
     expect(screen.getByText('Static preview')).toBeInTheDocument();
     expect(screen.getAllByText('Goblet exploded').length).toBeGreaterThan(0);
+  });
+
+  it('stops Goblet export on static-preview issues and can open repair flow', async () => {
+    const onClose = jest.fn();
+    store.layers = [{
+      ...store.layers[0],
+      id: 'cc1',
+      name: 'Damaged CC',
+      layerType: 'color-cycle',
+      colorCycleData: {
+        repairStatus: {
+          ok: false,
+          reason: 'missing-canonical-paint',
+        },
+      },
+    }] as any;
+
+    render(<ExportModal isOpen onClose={onClose} />);
+    act(() => {
+      jest.runAllTimers();
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: /^Export$/i }));
+
+    expect(await screen.findByText('Goblet export stopped before starting.')).toBeInTheDocument();
+    expect(screen.getByText('Damaged CC: missing-canonical-paint')).toBeInTheDocument();
+    expect(runExportMock).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByText('Repair...'));
+
+    expect(onClose).toHaveBeenCalled();
+    expect(store.toggleModal).toHaveBeenCalledWith('loadProject');
   });
 
   it('clears progress state when the parent modal closes', async () => {

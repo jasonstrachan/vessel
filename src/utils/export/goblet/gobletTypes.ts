@@ -13,6 +13,7 @@ import type {
 export type WebGLViewportMode = 'fixed' | 'fill' | 'fit' | 'cover';
 
 export type WebGLExportProgressPhase =
+  | 'blocked'
   | 'preparing'
   | 'layers'
   | 'packaging'
