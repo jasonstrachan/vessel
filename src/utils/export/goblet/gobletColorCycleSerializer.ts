@@ -2375,6 +2375,26 @@ export const serializeColorCycleData = async (
     }
   }
 
+  const requiresBrushPayload = Boolean(
+    !data.recolorSettings &&
+    !brushState &&
+    (
+      data.hasContent ||
+      data.deferredRuntimeRestore ||
+      data.runtimeHydrationState === 'cold' ||
+      data.repairStatus?.ok === false
+    )
+  );
+  if (requiresBrushPayload) {
+    const reason = data.repairStatus?.reason
+      ?? (data.deferredRuntimeRestore || data.runtimeHydrationState === 'cold'
+        ? 'cold-color-cycle-runtime'
+        : 'missing-brush-state');
+    throw new Error(
+      `Goblet export blocked: color-cycle layer "${layer.name ?? layer.id}" is missing animated brush data (${reason}).`
+    );
+  }
+
   const isStaticPreviewOnlyBrushLayer = Boolean(
     !data.recolorSettings &&
     !brushState &&
@@ -2527,6 +2547,10 @@ export const serializeColorCycleData = async (
   if (coverage) {
     serialized.coverageBoundsSourcePx = coverage.source;
     serialized.coverageBoundsPx = coverage.document;
+  }
+
+  if (!data.recolorSettings && !coverage) {
+    serialized.isAnimating = false;
   }
 
   if (brushState) {
