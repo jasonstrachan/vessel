@@ -4,11 +4,13 @@ import { useCallback, useRef, useState } from 'react';
 import type { ProjectPreview } from '@/components/modals/types';
 import type { Project } from '@/types';
 import {
+  analyzeProjectArchiveRefs,
   deserializeProject,
   generateProjectThumbnail,
   getProjectHealthWarning,
   readProjectHealthReport,
   readProjectPreviewManifest,
+  type ProjectHealthReport,
 } from '@/utils/projectIO';
 import { repairAndExportProject } from '@/utils/projectRepairExport';
 
@@ -38,6 +40,23 @@ const EMPTY_FILE_INITIAL_RETRY_DELAY_MS = 120;
 const EMPTY_FILE_MAX_RETRY_DELAY_MS = 1200;
 const waitFor = (ms: number) => new Promise<void>((resolve) => {
   setTimeout(resolve, ms);
+});
+
+const buildRepairOnlyHealthReport = (warning: string): ProjectHealthReport => ({
+  projectManifestBytes: 0,
+  previewManifestBytes: 0,
+  combinedManifestBytes: 0,
+  archiveBytes: 0,
+  compressionRatio: 1,
+  binaryPayloadBytes: 0,
+  colorCycleDuplicationRiskLayers: [],
+  unresolvedColorCycleDefLayers: [],
+  staticPreviewColorCycleLayers: [],
+  sectionBreakdown: [],
+  largestLayers: [],
+  recommendations: ['Use Repair & Save Copy to create an openable project copy.'],
+  warnings: [warning],
+  primaryWarning: warning,
 });
 
 const refreshPossiblyIncompleteFile = async (
@@ -76,6 +95,7 @@ export function useProjectPreviewLoader({
   const [cachedProject, setCachedProject] = useState<Project | null>(null);
   const [preview, setPreview] = useState<ProjectPreview | null>(null);
   const [selectedFileHandle, setSelectedFileHandle] = useState<FileSystemFileHandle | null>(null);
+  const [requiresRepair, setRequiresRepair] = useState(false);
 
   const previewRequestVersionRef = useRef(0);
 
@@ -89,6 +109,7 @@ export function useProjectPreviewLoader({
     setCachedProject(null);
     setPreview(null);
     setSelectedFileHandle(null);
+    setRequiresRepair(false);
     previewRequestVersionRef.current += 1;
   }, []);
 
@@ -127,6 +148,7 @@ export function useProjectPreviewLoader({
       if (isStale()) {
         return;
       }
+      setRequiresRepair(false);
 
       const vesselProject = await readProjectPreviewManifest(buffer);
       if (isStale()) {
@@ -213,9 +235,41 @@ export function useProjectPreviewLoader({
         return;
       }
       logError('[LoadProjectModal] Failed to process project file', processError);
+      try {
+        const resolvedFile = await refreshPossiblyIncompleteFile(file, options?.fileHandle);
+        const buffer = await resolvedFile.arrayBuffer();
+        const analysis = await analyzeProjectArchiveRefs(buffer);
+        if (analysis.canRepairDanglingColorCycleRefs) {
+          const vesselProject = await readProjectPreviewManifest(buffer);
+          const warning = 'This project has damaged color-cycle archive refs. Use Repair & Save Copy to open a preview-only repaired copy.';
+          setProjectData(buffer);
+          setSelectedFileHandle(options?.fileHandle ?? null);
+          setRequiresRepair(true);
+          setWarning(warning);
+          setError(null);
+          setCachedProject(null);
+          setPreview({
+            projectName: vesselProject.project.name,
+            width: vesselProject.project.width,
+            height: vesselProject.project.height,
+            createdAt: vesselProject.metadata?.created,
+            modifiedAt: vesselProject.metadata?.modified,
+            thumbnail: vesselProject.project.thumbnail,
+            hasEmbeddedThumbnail: Boolean(vesselProject.project.thumbnail),
+            fileName: resolvedFile.name,
+            fileSize: resolvedFile.size,
+            healthReport: buildRepairOnlyHealthReport(warning),
+            healthWarning: warning,
+          });
+          return;
+        }
+      } catch (repairCheckError) {
+        debugWarn('raw-console', '[LoadProjectModal] Failed to analyze repairability', repairCheckError);
+      }
       setProjectData(null);
       setPreview(null);
       setCachedProject(null);
+      setRequiresRepair(false);
       setError(processError instanceof Error ? processError.message : 'Failed to read project file');
     } finally {
       if (!isStale()) {
@@ -300,6 +354,7 @@ export function useProjectPreviewLoader({
     preview,
     projectData,
     selectedFileHandle,
+    requiresRepair,
     processProjectFile,
     setError,
     confirmLoad,

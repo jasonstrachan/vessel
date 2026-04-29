@@ -3,6 +3,7 @@ import {
   deserializeProjectWithReport,
   getProjectHealthReport,
   readProjectHealthReport,
+  repairDanglingColorCycleArchiveRefs,
   saveProjectToFile,
   type ProjectFileData,
   type ProjectHealthReport,
@@ -19,6 +20,23 @@ export interface ProjectRepairExportSummary {
   detailLines: string[];
   confirmationMessage: string;
 }
+
+const emptyHealthReport: ProjectHealthReport = {
+  projectManifestBytes: 0,
+  previewManifestBytes: 0,
+  combinedManifestBytes: 0,
+  archiveBytes: 0,
+  compressionRatio: 1,
+  binaryPayloadBytes: 0,
+  colorCycleDuplicationRiskLayers: [],
+  unresolvedColorCycleDefLayers: [],
+  staticPreviewColorCycleLayers: [],
+  sectionBreakdown: [],
+  largestLayers: [],
+  recommendations: [],
+  warnings: [],
+  primaryWarning: null,
+};
 
 export interface ProjectRepairExportResult {
   project: Awaited<ReturnType<typeof deserializeProjectWithReport>>['project'];
@@ -86,10 +104,51 @@ export async function repairAndExportProject(
     confirmWrite?: (summary: ProjectRepairExportSummary) => boolean | Promise<boolean>;
   },
 ): Promise<ProjectRepairExportResult | null> {
-  const beforeHealth = await readProjectHealthReport(projectData);
-  const { project, migration } = await deserializeProjectWithReport(projectData);
+  let repairInput = projectData;
+  let beforeHealth: ProjectHealthReport;
+  let explicitArchiveRepairDetailLines: string[] = [];
+  let explicitArchiveRepairCount = 0;
+  try {
+    beforeHealth = await readProjectHealthReport(projectData);
+  } catch (error) {
+    const repairedArchive = await repairDanglingColorCycleArchiveRefs(projectData);
+    repairInput = repairedArchive.archiveData;
+    explicitArchiveRepairCount = repairedArchive.report.removedRefs.length;
+    beforeHealth = {
+      ...emptyHealthReport,
+      warnings: [repairedArchive.report.warning],
+      primaryWarning: repairedArchive.report.warning,
+      recommendations: [
+        'Review affected color-cycle layers; repaired layers are static previews because canonical animated paint data was missing.',
+      ],
+    };
+    explicitArchiveRepairDetailLines = repairedArchive.report.removedRefs
+      .slice(0, 5)
+      .map((ref) => `Removed dangling ${ref.kind} ref ${ref.path} from ${ref.layerId}`);
+    if (explicitArchiveRepairDetailLines.length === 0 && error instanceof Error) {
+      explicitArchiveRepairDetailLines = [error.message];
+    }
+  }
+
+  const { project, migration } = await deserializeProjectWithReport(repairInput);
   const afterHealth = await getProjectHealthReport(project, project.layers);
   const summary = buildRepairExportSummary(migration, beforeHealth, afterHealth);
+  if (explicitArchiveRepairCount > 0) {
+    const nextRepairCount = summary.repairCount + explicitArchiveRepairCount;
+    summary.detailLines = [
+      ...explicitArchiveRepairDetailLines,
+      ...summary.detailLines,
+    ];
+    summary.repairCount = nextRepairCount;
+    summary.semanticRepairCount += explicitArchiveRepairCount;
+    summary.headline = `Repair ${nextRepairCount} archive issue${nextRepairCount === 1 ? '' : 's'} and save a canonical copy?`;
+    summary.confirmationMessage = [
+      summary.headline,
+      ...summary.detailLines,
+      `Warnings before save: ${summary.beforeWarningCount}`,
+      `Warnings after canonical save: ${summary.afterWarningCount}`,
+    ].join('\n');
+  }
 
   if (options?.confirmWrite) {
     const shouldContinue = await options.confirmWrite(summary);
@@ -99,11 +158,12 @@ export async function repairAndExportProject(
   }
 
   const suggestedName = buildRepairExportFileName(options?.fileName, project.name);
+  const outputHandle = explicitArchiveRepairCount > 0 ? null : options?.existingHandle ?? null;
   const { fileName, fileHandle } = await saveProjectToFile(
     project,
     suggestedName,
     project.layers,
-    options?.existingHandle ?? null,
+    outputHandle,
   );
 
   return {

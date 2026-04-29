@@ -3,6 +3,7 @@ import {
   clearColorCycleRegion,
   deriveColorCycleIndicesFromImageData,
 } from '@/stores/helpers/colorCycleSelection';
+import { getPersistedCCMutationLog } from '@/utils/colorCycle/ccMutationAudit';
 import { createDefaultLayerAlignment } from '@/utils/layoutDefaults';
 import type { Layer, Project } from '@/types';
 
@@ -76,6 +77,7 @@ describe('colorCycleSelection helpers', () => {
     mockApplyLayerSnapshot.mockClear();
     mockGetLayerSnapshot.mockClear();
     mockRenderDirect.mockClear();
+    window.localStorage.clear();
   });
 
   it('writes pasted CC indices into brush + invalidates composites', () => {
@@ -196,6 +198,77 @@ describe('colorCycleSelection helpers', () => {
     expect(incoming[1]).toBe(0);
     expect(incoming[4]).toBe(0);
     expect(incoming[5]).toBe(0);
+  });
+
+  it('permanently logs when a CC clear empties the whole layer', () => {
+    const buffer = new Uint8Array(16).fill(5);
+    mockGetLayerSnapshot.mockReturnValue({
+      paintBuffer: buffer.buffer,
+      hasContent: true,
+      strokeCounter: 0,
+    });
+
+    const imageData = new FakeImageData(new Uint8ClampedArray(4 * 4 * 4), 4, 4);
+    const canvas = makeCanvas(4, 4, imageData);
+
+    const layer: Layer = {
+      id: 'layer-cc',
+      name: 'CC',
+      layerType: 'color-cycle',
+      visible: true,
+      opacity: 1,
+      blendMode: 'source-over',
+      locked: false,
+      order: 0,
+      imageData: null,
+      framebuffer: makeOffscreenCanvas(4, 4),
+      alignment: { ...createDefaultLayerAlignment(), positioning: 'auto' },
+      colorCycleData: { canvas, hasContent: true },
+    } as Layer;
+
+    const state = {
+      updateLayer: jest.fn(),
+      setCurrentCompositeBitmap: jest.fn(),
+      setLayersNeedRecomposition: jest.fn(),
+      markCompositeSegmentsDirtyByLayerIds: jest.fn(),
+    } as unknown as import('@/stores/useAppStore').AppState;
+
+    const cleared = clearColorCycleRegion(state, layer, project, {
+      x: 0,
+      y: 0,
+      width: 4,
+      height: 4,
+    });
+
+    expect(cleared).toBe(true);
+    expect(getPersistedCCMutationLog()).toEqual([
+      expect.objectContaining({
+        event: 'color-cycle-layer-cleared',
+        layerId: 'layer-cc',
+        reason: 'mutateColorCycleLayer',
+        severity: 'error',
+        stack: expect.stringContaining('color-cycle-layer-cleared'),
+        details: expect.objectContaining({
+          paintBefore: expect.objectContaining({
+            byteLength: 16,
+            nonZeroCount: 16,
+            bounds: { x: 0, y: 0, width: 4, height: 4 },
+            samples: expect.arrayContaining([
+              expect.objectContaining({ index: 0, x: 0, y: 0, value: 5 }),
+            ]),
+          }),
+          paintAfter: expect.objectContaining({
+            byteLength: 16,
+            nonZeroCount: 0,
+            bounds: null,
+          }),
+          gradientIdAfter: expect.objectContaining({ byteLength: 16 }),
+          speedAfter: expect.objectContaining({ byteLength: 16 }),
+          flowAfter: expect.objectContaining({ byteLength: 16 }),
+          phaseAfter: expect.objectContaining({ byteLength: 16 }),
+        }),
+      }),
+    ]);
   });
 
   it('clears only masked pixels when alphaData is provided', () => {

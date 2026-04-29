@@ -453,6 +453,49 @@ export interface ProjectHealthReport extends ProjectSaveSizeReport {
   primaryWarning: string | null;
 }
 
+export type ProjectArchiveRefKind =
+  | 'canonical-color-cycle'
+  | 'optional-color-cycle'
+  | 'raster'
+  | 'sequential'
+  | 'unknown';
+
+export interface ProjectArchiveRefIssue {
+  path: string;
+  kind: ProjectArchiveRefKind;
+  layerId?: string;
+  layerName?: string;
+  layerType?: string;
+  locations: string[];
+  missingManifestEntry: boolean;
+  missingArchivePayload: boolean;
+}
+
+export interface ProjectArchiveRefAnalysis {
+  issues: ProjectArchiveRefIssue[];
+  missingCanonicalColorCycleRefs: ProjectArchiveRefIssue[];
+  missingOptionalColorCycleRefs: ProjectArchiveRefIssue[];
+  canRepairDanglingColorCycleRefs: boolean;
+}
+
+export interface ProjectArchiveRepairReport {
+  repairedAt: string;
+  repairedLayerIds: string[];
+  removedRefs: Array<{
+    layerId: string;
+    layerName?: string;
+    path: string;
+    locations: string[];
+    kind: ProjectArchiveRefKind;
+  }>;
+  warning: string;
+}
+
+export interface ProjectArchiveRepairResult {
+  archiveData: Uint8Array;
+  report: ProjectArchiveRepairReport;
+}
+
 type ArchiveBinaryEntry = {
   path: string;
   bytes: Uint8Array;
@@ -1868,6 +1911,168 @@ const buildArchiveBinaryManifest = (
   crop: entry.crop,
   compression: 'deflate',
 }));
+
+type ArchiveRefLocation = {
+  path: string;
+  location: string;
+  layer?: SerializedLayer;
+};
+
+const collectArchiveRefLocationsFromValue = (
+  value: unknown,
+  location: string,
+  refs: ArchiveRefLocation[],
+  layer?: SerializedLayer,
+): void => {
+  if (isPersistedArchiveBinaryRef(value)) {
+    refs.push({
+      path: value.slice(ARCHIVE_BINARY_REF_PREFIX.length),
+      location,
+      layer,
+    });
+    return;
+  }
+
+  if (Array.isArray(value)) {
+    value.forEach((entry, index) => {
+      collectArchiveRefLocationsFromValue(entry, `${location}[${index}]`, refs, layer);
+    });
+    return;
+  }
+
+  if (!value || typeof value !== 'object') {
+    return;
+  }
+
+  Object.entries(value).forEach(([key, entry]) => {
+    collectArchiveRefLocationsFromValue(entry, `${location}.${key}`, refs, layer);
+  });
+};
+
+const collectArchiveRefLocations = (layers: SerializedLayer[]): ArchiveRefLocation[] => {
+  const refs: ArchiveRefLocation[] = [];
+  layers.forEach((layer, index) => {
+    collectArchiveRefLocationsFromValue(layer, `project.layers[${index}]`, refs, layer);
+  });
+  return refs;
+};
+
+const classifyArchiveRefPath = (path: string): ProjectArchiveRefKind => {
+  if (path.startsWith('buffers/color-cycle/')) {
+    if (isOptionalColorCycleArchivePath(path)) {
+      return 'optional-color-cycle';
+    }
+    if (
+      path.endsWith('/paint.bin') ||
+      path.endsWith('/speed.bin') ||
+      path.endsWith('/flow.bin') ||
+      path.endsWith('/phase.bin') ||
+      path.endsWith('/gradient-id.bin') ||
+      path.endsWith('/gradient-def-id.bin')
+    ) {
+      return 'canonical-color-cycle';
+    }
+  }
+  if (path.startsWith('buffers/raster/')) {
+    return 'raster';
+  }
+  if (path.startsWith('buffers/sequential/')) {
+    return 'sequential';
+  }
+  return 'unknown';
+};
+
+const analyzeVesselProjectArchiveRefs = (
+  vesselProject: VesselProject,
+  options: {
+    binaryPaths: Set<string>;
+    payloadPaths?: Set<string>;
+  },
+): ProjectArchiveRefAnalysis => {
+  const grouped = new Map<string, ProjectArchiveRefIssue>();
+  collectArchiveRefLocations(vesselProject.project.layers).forEach((ref) => {
+    const missingManifestEntry = !options.binaryPaths.has(ref.path);
+    const missingArchivePayload = options.payloadPaths
+      ? !options.payloadPaths.has(ref.path)
+      : false;
+    if (!missingManifestEntry && !missingArchivePayload) {
+      return;
+    }
+
+    const existing = grouped.get(ref.path);
+    if (existing) {
+      existing.locations.push(ref.location);
+      existing.missingManifestEntry ||= missingManifestEntry;
+      existing.missingArchivePayload ||= missingArchivePayload;
+      return;
+    }
+
+    grouped.set(ref.path, {
+      path: ref.path,
+      kind: classifyArchiveRefPath(ref.path),
+      layerId: ref.layer?.id,
+      layerName: ref.layer?.name,
+      layerType: ref.layer?.layerType,
+      locations: [ref.location],
+      missingManifestEntry,
+      missingArchivePayload,
+    });
+  });
+
+  const issues = Array.from(grouped.values());
+  const missingCanonicalColorCycleRefs = issues.filter((issue) => issue.kind === 'canonical-color-cycle');
+  const missingOptionalColorCycleRefs = issues.filter((issue) => issue.kind === 'optional-color-cycle');
+  return {
+    issues,
+    missingCanonicalColorCycleRefs,
+    missingOptionalColorCycleRefs,
+    canRepairDanglingColorCycleRefs: missingCanonicalColorCycleRefs.length > 0,
+  };
+};
+
+export const analyzeProjectArchiveRefs = async (
+  projectData: ProjectFileData,
+): Promise<ProjectArchiveRefAnalysis> => {
+  const projectBytes = await toProjectDataBytes(projectData);
+  let archiveZip: JSZip | null = null;
+  let projectJson: string;
+
+  if (projectBytes && isZipBytes(projectBytes)) {
+    archiveZip = await JSZip.loadAsync(projectBytes);
+    const projectEntry = archiveZip.file(PROJECT_ARCHIVE_ENTRY);
+    const normalizedProjectEntry = Array.isArray(projectEntry) ? projectEntry[0] ?? null : projectEntry;
+    if (!normalizedProjectEntry) {
+      throw new Error('Project archive is missing project.json');
+    }
+    projectJson = utf8Decoder.decode(await normalizedProjectEntry.async('uint8array'));
+  } else {
+    projectJson = await decodeProjectData(projectData);
+  }
+
+  const vesselProject = parseVesselProjectJsonRaw(projectJson);
+  const binaryPaths = new Set((vesselProject.binaries?.entries ?? []).map((entry) => entry.path));
+  const payloadPaths = archiveZip
+    ? new Set(Object.keys(archiveZip.files).filter((path) => !archiveZip!.files[path]?.dir))
+    : undefined;
+  return analyzeVesselProjectArchiveRefs(vesselProject, { binaryPaths, payloadPaths });
+};
+
+const assertSerializedArchiveRefsComplete = (
+  vesselProject: VesselProject,
+  archiveBinaryEntries: ArchiveBinaryEntry[],
+): void => {
+  const binaryPaths = new Set((vesselProject.binaries?.entries ?? []).map((entry) => entry.path));
+  const payloadPaths = new Set(archiveBinaryEntries.map((entry) => entry.path));
+  const analysis = analyzeVesselProjectArchiveRefs(vesselProject, { binaryPaths, payloadPaths });
+  if (analysis.issues.length === 0) {
+    return;
+  }
+
+  const first = analysis.issues[0];
+  throw new Error(
+    `Project save produced dangling archive ref ${first.path} at ${first.locations.join(', ')}`
+  );
+};
 
 const buildSerializedColorCycleLayerState = (
   layer: SerializedLayer,
@@ -3664,6 +3869,7 @@ const buildSerializedProjectArtifacts = async (
   vesselProject.binaries = {
     entries: buildArchiveBinaryManifest(archiveBinaryEntries),
   };
+  assertSerializedArchiveRefsComplete(vesselProject, archiveBinaryEntries);
 
   const projectJson = JSON.stringify(vesselProject);
   const previewJson = JSON.stringify(previewManifest);
@@ -3995,6 +4201,12 @@ const removeDanglingColorCycleArchiveRefs = (
     if (isMissingRef(colorCycleState.phaseRef)) {
       colorCycleState.phaseRef = undefined;
     }
+    if (isMissingRef(colorCycleState.gradientIdRef)) {
+      colorCycleState.gradientIdRef = undefined;
+    }
+    if (isMissingRef(colorCycleState.gradientDefIdRef)) {
+      colorCycleState.gradientDefIdRef = undefined;
+    }
   }
 
   const colorCycleData = layer.colorCycleData;
@@ -4002,6 +4214,12 @@ const removeDanglingColorCycleArchiveRefs = (
     return;
   }
 
+  if (isMissingRef(colorCycleData.gradientIdBuffer)) {
+    colorCycleData.gradientIdBuffer = undefined;
+  }
+  if (isMissingRef(colorCycleData.gradientDefIdBuffer)) {
+    colorCycleData.gradientDefIdBuffer = undefined;
+  }
   if (isMissingRef(colorCycleData.canvasImageData)) {
     colorCycleData.canvasImageData = undefined;
   }
@@ -4036,6 +4254,12 @@ const removeDanglingColorCycleArchiveRefs = (
       }
       if (isMissingRef(snapshot.strokeData.phaseBuffer)) {
         snapshot.strokeData.phaseBuffer = undefined;
+      }
+      if (isMissingRef(snapshot.strokeData.gradientIdBuffer)) {
+        snapshot.strokeData.gradientIdBuffer = undefined;
+      }
+      if (isMissingRef(snapshot.strokeData.gradientDefIdBuffer)) {
+        snapshot.strokeData.gradientDefIdBuffer = undefined;
       }
     }
     if (snapshot.animator?.indexBuffer) {
@@ -4072,6 +4296,122 @@ const sanitizeDanglingColorCycleArchiveRefs = (
     removeDanglingColorCycleArchiveRefs(layer, missingPaths);
   });
 };
+
+const applyExplicitDanglingColorCycleRepair = (
+  vesselProject: VesselProject,
+  issues: ProjectArchiveRefIssue[],
+): ProjectArchiveRepairReport => {
+  const repairedAt = new Date().toISOString();
+  const canonicalIssues = issues.filter((issue) => issue.kind === 'canonical-color-cycle');
+  const missingPathsByLayerId = new Map<string, Set<string>>();
+  canonicalIssues.forEach((issue) => {
+    if (!issue.layerId) {
+      return;
+    }
+    const paths = missingPathsByLayerId.get(issue.layerId) ?? new Set<string>();
+    paths.add(issue.path);
+    missingPathsByLayerId.set(issue.layerId, paths);
+  });
+
+  const repairedLayerIds: string[] = [];
+  vesselProject.project.layers.forEach((layer) => {
+    const missingPaths = missingPathsByLayerId.get(layer.id);
+    if (!missingPaths?.size || normalizePersistedLayerType(layer.layerType) !== 'color-cycle') {
+      return;
+    }
+
+    removeDanglingColorCycleArchiveRefs(layer, missingPaths);
+    if (layer.state && 'dimensions' in layer.state) {
+      const colorCycleState = layer.state as SerializedColorCycleLayerStateV1;
+      if (!colorCycleState.paintRef) {
+        colorCycleState.hasContent = false;
+      }
+    }
+    layer.colorCycleData ??= {};
+    layer.colorCycleData.repairStatus = {
+      ok: false,
+      reason: 'missing-paint-buffer',
+      notes: [
+        'Explicit repair removed dangling canonical color-cycle archive refs.',
+        'Layer can reopen from compatibility preview only; canonical animated paint data was missing.',
+      ],
+    };
+    repairedLayerIds.push(layer.id);
+  });
+
+  return {
+    repairedAt,
+    repairedLayerIds,
+    removedRefs: canonicalIssues.map((issue) => ({
+      layerId: issue.layerId ?? 'unknown',
+      layerName: issue.layerName,
+      path: issue.path,
+      locations: [...issue.locations],
+      kind: issue.kind,
+    })),
+    warning: 'Repaired archive removed dangling canonical color-cycle refs. Affected layers are preview-only/static until repainted.',
+  };
+};
+
+export async function repairDanglingColorCycleArchiveRefs(
+  projectData: ProjectFileData,
+): Promise<ProjectArchiveRepairResult> {
+  const projectBytes = await toProjectDataBytes(projectData);
+  if (!projectBytes || !isZipBytes(projectBytes)) {
+    throw new Error('Dangling color-cycle archive repair requires a .vs zip archive');
+  }
+
+  const archiveZip = await JSZip.loadAsync(projectBytes);
+  const projectEntry = archiveZip.file(PROJECT_ARCHIVE_ENTRY);
+  const normalizedProjectEntry = Array.isArray(projectEntry) ? projectEntry[0] ?? null : projectEntry;
+  if (!normalizedProjectEntry) {
+    throw new Error('Project archive is missing project.json');
+  }
+
+  const projectJson = utf8Decoder.decode(await normalizedProjectEntry.async('uint8array'));
+  const vesselProject = parseVesselProjectJsonRaw(projectJson);
+  vesselProject.binaries = await buildRepairedArchiveBinaryManifest(vesselProject, archiveZip);
+  sanitizeDanglingColorCycleArchiveRefs(vesselProject, archiveZip);
+
+  const binaryPaths = new Set((vesselProject.binaries?.entries ?? []).map((entry) => entry.path));
+  const payloadPaths = new Set(Object.keys(archiveZip.files).filter((path) => !archiveZip.files[path]?.dir));
+  const analysis = analyzeVesselProjectArchiveRefs(vesselProject, { binaryPaths, payloadPaths });
+  if (analysis.missingCanonicalColorCycleRefs.length === 0) {
+    throw new Error('No dangling canonical color-cycle archive refs were found to repair');
+  }
+
+  const report = applyExplicitDanglingColorCycleRepair(
+    vesselProject,
+    analysis.missingCanonicalColorCycleRefs,
+  );
+  vesselProject.metadata.modified = report.repairedAt;
+
+  validateSerializedProjectEnvelope(vesselProject);
+  archiveZip.file(PROJECT_ARCHIVE_ENTRY, JSON.stringify(vesselProject));
+  archiveZip.file(PROJECT_PREVIEW_ARCHIVE_ENTRY, JSON.stringify({
+    version: vesselProject.version,
+    manifestVersion: PROJECT_ARCHIVE_MANIFEST_VERSION,
+    metadata: vesselProject.metadata,
+    project: {
+      id: vesselProject.project.id,
+      name: vesselProject.project.name,
+      width: vesselProject.project.width,
+      height: vesselProject.project.height,
+      thumbnail: vesselProject.project.thumbnail,
+    },
+  } satisfies VesselProjectPreview));
+
+  const archiveData = await archiveZip.generateAsync({
+    type: 'uint8array',
+    compression: 'DEFLATE',
+    compressionOptions: { level: 9 },
+  });
+
+  return {
+    archiveData,
+    report,
+  };
+}
 
 async function parseVesselProjectJson(
   json: string,

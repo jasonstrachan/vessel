@@ -30,14 +30,19 @@ type CCMutationEntry = {
   details?: Record<string, unknown>;
   before?: CCMutationSnapshot | null;
   after?: CCMutationSnapshot | null;
+  href?: string | null;
+  stack?: string | null;
 };
 
 type CCMutationAuditWindow = Window & {
   __VESSEL_CC_MUTATION_LOG__?: CCMutationEntry[];
+  __VESSEL_GET_CC_MUTATION_LOG__?: () => CCMutationEntry[];
 };
 
 const LOG_PREFIX = '[CC-MUTATION]';
-const MAX_ENTRIES = 200;
+const STORAGE_KEY = 'VESSEL_CC_MUTATION_LOG';
+const MAX_MEMORY_ENTRIES = 500;
+const MAX_PERSISTED_ENTRIES = 2000;
 const isTestEnv = (): boolean => process.env.NODE_ENV === 'test';
 const getAuditWindow = (): CCMutationAuditWindow | null => {
   if (typeof window === 'undefined') {
@@ -120,11 +125,47 @@ const persistEntry = (entry: CCMutationEntry): void => {
     auditWindow.__VESSEL_CC_MUTATION_LOG__ = [];
   }
   auditWindow.__VESSEL_CC_MUTATION_LOG__.push(entry);
-  if (auditWindow.__VESSEL_CC_MUTATION_LOG__.length > MAX_ENTRIES) {
+  if (auditWindow.__VESSEL_CC_MUTATION_LOG__.length > MAX_MEMORY_ENTRIES) {
     auditWindow.__VESSEL_CC_MUTATION_LOG__.splice(
       0,
-      auditWindow.__VESSEL_CC_MUTATION_LOG__.length - MAX_ENTRIES
+      auditWindow.__VESSEL_CC_MUTATION_LOG__.length - MAX_MEMORY_ENTRIES
     );
+  }
+  auditWindow.__VESSEL_GET_CC_MUTATION_LOG__ = getPersistedCCMutationLog;
+
+  try {
+    const parsed = JSON.parse(auditWindow.localStorage.getItem(STORAGE_KEY) || '[]');
+    const persisted: CCMutationEntry[] = Array.isArray(parsed) ? parsed : [];
+    persisted.push(entry);
+    if (persisted.length > MAX_PERSISTED_ENTRIES) {
+      persisted.splice(0, persisted.length - MAX_PERSISTED_ENTRIES);
+    }
+    auditWindow.localStorage.setItem(STORAGE_KEY, JSON.stringify(persisted));
+  } catch {
+    try {
+      auditWindow.localStorage.setItem(STORAGE_KEY, JSON.stringify([entry]));
+    } catch {}
+  }
+};
+
+export const getPersistedCCMutationLog = (): CCMutationEntry[] => {
+  const auditWindow = getAuditWindow();
+  if (!auditWindow) {
+    return [];
+  }
+  try {
+    const raw = auditWindow.localStorage.getItem(STORAGE_KEY);
+    if (!raw) {
+      return Array.isArray(auditWindow.__VESSEL_CC_MUTATION_LOG__)
+        ? [...auditWindow.__VESSEL_CC_MUTATION_LOG__]
+        : [];
+    }
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed as CCMutationEntry[] : [];
+  } catch {
+    return Array.isArray(auditWindow.__VESSEL_CC_MUTATION_LOG__)
+      ? [...auditWindow.__VESSEL_CC_MUTATION_LOG__]
+      : [];
   }
 };
 
@@ -145,6 +186,7 @@ export const logCCMutation = ({
   after?: CCMutationSnapshot | null;
   severity?: AuditSeverity;
 }): void => {
+  const shouldPersist = __DEV__ || severity === 'error' || transitionLooksDestructive(before ?? null, after ?? null);
   const entry: CCMutationEntry = {
     t: Date.now(),
     event,
@@ -154,14 +196,18 @@ export const logCCMutation = ({
     details,
     before: before ?? null,
     after: after ?? null,
+    href: getAuditWindow()?.location?.href ?? null,
+    stack: shouldPersist ? new Error(`${LOG_PREFIX} ${event}`).stack ?? null : null,
   };
+
+  if (shouldPersist) {
+    persistEntry(entry);
+  }
+  recordBreadcrumb('cc-mutation', entry);
 
   if (!__DEV__) {
     return;
   }
-
-  persistEntry(entry);
-  recordBreadcrumb('cc-mutation', entry);
 
   if (isTestEnv()) {
     return;
