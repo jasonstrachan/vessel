@@ -23,6 +23,7 @@ export interface GobletZipBuildRequest {
   runtimeAsset: GobletAssetName;
   runtimeJs: string;
   alignJs: string;
+  displayFilterJs: string;
   numJs: string;
   inflateJs: string;
   minify: boolean;
@@ -36,6 +37,7 @@ export const createGobletZipBlob = async ({
   runtimeAsset,
   runtimeJs,
   alignJs,
+  displayFilterJs,
   numJs,
   inflateJs,
   minify,
@@ -45,6 +47,7 @@ export const createGobletZipBlob = async ({
   zip.file('index.html', createZipGobletHtml(indexHtml, metadataFilename, metadataJson, diagnosticsEnabled));
   zip.file(runtimeAsset, runtimeJs);
   zip.file('alignFitResolver.js', alignJs);
+  zip.file('displayFilterPipeline.js', displayFilterJs);
   zip.file('num.js', numJs);
   zip.file('fflate-inflate.js', inflateJs);
   zip.file(metadataFilename, metadataJson);

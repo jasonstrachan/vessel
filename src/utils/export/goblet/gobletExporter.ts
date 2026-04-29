@@ -780,12 +780,13 @@ export const exportProjectAsWebGL = async (
     resolvedHtmlBackgroundColor
   );
 
-  let baseRuntimeAssetsPromise: Promise<[string, string, string, string]> | null = null;
+  let baseRuntimeAssetsPromise: Promise<[string, string, string, string, string]> | null = null;
   const ensureBaseRuntimeAssets = () => {
     if (!baseRuntimeAssetsPromise) {
       baseRuntimeAssetsPromise = Promise.all([
         fetchGobletAsset(gobletRuntimeAsset, options.assetPrefix, gobletAssetRoot),
         fetchGobletAsset('alignFitResolver.js', options.assetPrefix, gobletAssetRoot),
+        fetchGobletAsset('displayFilterPipeline.js', options.assetPrefix, gobletAssetRoot),
         fetchGobletAsset('num.js', options.assetPrefix, gobletAssetRoot),
         fetchGobletAsset('fflate-inflate.js', options.assetPrefix, gobletAssetRoot)
       ]);
@@ -819,10 +820,11 @@ export const exportProjectAsWebGL = async (
 
     let gobletJs: string;
     let alignJs: string;
+    let displayFilterJs: string;
     let numJs: string;
     let inflateJs: string;
     try {
-      [gobletJs, alignJs, numJs, inflateJs] = await ensureBaseRuntimeAssets();
+      [gobletJs, alignJs, displayFilterJs, numJs, inflateJs] = await ensureBaseRuntimeAssets();
     } catch (error) {
       baseRuntimeAssetsPromise = null;
       const message = error instanceof Error ? error.message : String(error ?? 'Unknown error');
@@ -834,6 +836,7 @@ export const exportProjectAsWebGL = async (
       gobletJs,
       gobletRuntimeModulePath,
       alignJs,
+      displayFilterJs,
       numJs,
       inflateJs,
       json,
@@ -851,10 +854,11 @@ export const exportProjectAsWebGL = async (
   if (bundleFormat === 'zip') {
     let gobletJs: string;
     let alignJs: string;
+    let displayFilterJs: string;
     let numJs: string;
     let inflateJs: string;
     try {
-      [gobletJs, alignJs, numJs, inflateJs] = await ensureBaseRuntimeAssets();
+      [gobletJs, alignJs, displayFilterJs, numJs, inflateJs] = await ensureBaseRuntimeAssets();
     } catch (error) {
       baseRuntimeAssetsPromise = null;
       const message = error instanceof Error ? error.message : String(error ?? 'Unknown error');
@@ -869,6 +873,7 @@ export const exportProjectAsWebGL = async (
       runtimeAsset: gobletRuntimeAsset,
       runtimeJs: gobletJs,
       alignJs,
+      displayFilterJs,
       numJs,
       inflateJs,
       minify: options.minify,

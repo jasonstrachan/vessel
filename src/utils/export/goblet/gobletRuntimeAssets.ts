@@ -3,6 +3,7 @@ export type GobletAssetName =
   | 'goblet.js'
   | 'goblet2.js'
   | 'alignFitResolver.js'
+  | 'displayFilterPipeline.js'
   | 'num.js'
   | 'fflate-inflate.js'
   | 'goblet-inline.js'
