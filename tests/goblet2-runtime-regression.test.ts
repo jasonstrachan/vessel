@@ -100,4 +100,12 @@ describe('Goblet 2 runtime export regression guard', () => {
     expect(runtime).toContain('`filter=${(renderProfile.filterMs ?? 0).toFixed(2)}ms`');
     expect(runtime).toContain('`blit=${(renderProfile.blitMs ?? 0).toFixed(2)}ms`');
   });
+
+  it('keeps Goblet 2 slot-speed brush exports out of the per-pixel speed path', () => {
+    const runtime = read('public/goblet2/goblet2.js');
+
+    expect(runtime).toContain("if (colorCycle?.speedMode !== 'buffer') {\n      return false;\n    }");
+    expect(runtime).toContain('if (!hasNumericPayload(brushState.speedBuffer)) {\n      return false;\n    }');
+    expect(runtime).not.toContain('if (this.isGoblet2 && this.speedBuffer) {');
+  });
 });

@@ -2410,17 +2410,18 @@ export const serializeColorCycleData = async (
 
   const resolvedBrushSpeed = resolveExportBrushSpeed(layer, layerSpeedScale);
   const resolvedControllerSpeed = resolveExportControllerSpeed(layer, layerSpeedScale, options?.toolSpeed);
-  const controllerSpeedForExport = data.mode === 'recolor'
+  const exportMode = data.recolorSettings ? 'recolor' : data.mode ?? 'brush';
+  const controllerSpeedForExport = exportMode === 'recolor'
     ? resolvedControllerSpeed
     : (resolvedControllerSpeed ?? resolvedBrushSpeed ?? MIN_BRUSH_COLOR_CYCLE_SPEED);
-  const shouldAnimate = data.mode === 'recolor'
+  const shouldAnimate = exportMode === 'recolor'
     ? shouldExportLayerAsAnimating(layer, brushState, layerSpeedScale)
     : !isStaticPreviewOnlyBrushLayer;
   const serialized: WebGLSerializedColorCycle = {
-    mode: data.mode ?? 'brush',
+    mode: exportMode,
     gradient: data.gradient,
     brushSpeed: resolvedBrushSpeed,
-    layerBaseSpeedCps: data.mode === 'recolor' ? undefined : resolvedControllerSpeed,
+    layerBaseSpeedCps: exportMode === 'recolor' ? undefined : resolvedControllerSpeed,
     controllerSpeedCps: controllerSpeedForExport,
     speedMin: MIN_BRUSH_COLOR_CYCLE_SPEED,
     speedMax: MAX_BRUSH_COLOR_CYCLE_SPEED,

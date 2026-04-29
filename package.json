@@ -33,6 +33,7 @@
     "test": "jest",
     "test:e2e:load-project-modal": "playwright test tests/load-project-modal.spec.ts --reporter=line",
     "test:goblet2:single-file-smoke": "playwright test tests/goblet2-single-file-smoke.spec.ts --reporter=line",
+    "test:goblet2:cc-gradient-shapes-perf": "playwright test tests/goblet2-cc-gradient-shapes-perf.spec.ts --reporter=line",
     "test:load-project-modal:guardrails": "jest --runInBand LoadProjectModal projectIO",
     "test:load-project-modal:perf": "jest --runInBand src/components/modals/__tests__/LoadProjectModal.perf.smoke.test.tsx",
     "perf:sequential": "jest --runInBand src/lib/sequential/__tests__/SequentialPerformance.smoke.test.ts",
