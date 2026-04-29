@@ -1092,6 +1092,18 @@ describe('exportProjectAsWebGL color cycle integration', () => {
       '};'
     ].join('\n');
 
+    const displayFilterRuntime = [
+      'export const getSeamlessNoisePatternSize = () => 1;',
+      'export const createTileableNoiseGrid = () => [];',
+      'export const createDisplayFilterPipelineState = () => ({});',
+      'export const getNextFilterWorkCanvas = (currentCanvas) => currentCanvas;',
+      'export const ensureDisplayFilterCanvas = () => null;',
+      'export const clearDisplayFilterCanvas = () => null;',
+      'export const getDisplayFilterByIdFromList = () => undefined;',
+      'export const hasEnabledDisplayFiltersInList = () => false;',
+      'export const applyDisplayFilterStack = ({ sourceCanvas }) => sourceCanvas;',
+    ].join('\n');
+
     const inflateRuntime = 'export const inflateRaw = () => new Uint8Array();';
 
     const originalFetch = (globalThis as unknown as { fetch?: typeof fetch }).fetch;
@@ -1108,6 +1120,9 @@ describe('exportProjectAsWebGL color cycle integration', () => {
       }
       if (target.endsWith('num.js')) {
         return { ok: true, text: async () => numRuntime, status: 200 } as Response;
+      }
+      if (target.endsWith('displayFilterPipeline.js')) {
+        return { ok: true, text: async () => displayFilterRuntime, status: 200 } as Response;
       }
       if (target.endsWith('fflate-inflate.js')) {
         return { ok: true, text: async () => inflateRuntime, status: 200 } as Response;

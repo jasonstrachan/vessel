@@ -281,9 +281,10 @@ describe('webglExporter helpers', () => {
     expect(brushState).toBeUndefined();
   });
 
-  it('exports repair-failed color-cycle layers without animated brush data', async () => {
-    const result = await serializeColorCycleData({
+  it('blocks repair-failed color-cycle layers without animated brush data', async () => {
+    await expect(serializeColorCycleData({
       id: 'layer-cc-static-preview-only',
+      name: 'Static Preview Only',
       layerType: 'color-cycle',
       visible: true,
       opacity: 1,
@@ -326,11 +327,131 @@ describe('webglExporter helpers', () => {
     } as any, {
       width: 2,
       height: 2,
+    } as any)).rejects.toThrow(
+      'Goblet export blocked: color-cycle layer "Static Preview Only" is missing animated brush data (missing-paint-buffer).'
+    );
+  });
+
+  it('does not mark empty brush-mode color-cycle layers as animated', async () => {
+    const canvas = document.createElement('canvas');
+    canvas.width = 2;
+    canvas.height = 2;
+    const gradientStops = [
+      { position: 0, color: '#000000' },
+      { position: 1, color: '#ffffff' },
+    ];
+    const result = await serializeColorCycleData({
+      id: 'layer-cc-empty-brush',
+      layerType: 'color-cycle',
+      visible: true,
+      opacity: 1,
+      blendMode: 'source-over',
+      imageData: null,
+      framebuffer: canvas,
+      colorCycleData: {
+        mode: 'brush',
+        isAnimating: true,
+        brushSpeed: 0.5,
+        gradient: gradientStops,
+        canvas,
+        colorCycleBrush: {
+          serialize: () => ({
+            layers: [{
+              layerId: 'layer-cc-empty-brush',
+              data: {
+                indexBuffer: {
+                  width: 2,
+                  height: 2,
+                  data: new Uint8Array([0, 0, 0, 0]),
+                  palette: ['#000000', '#ffffff'],
+                  gradientId: new Uint8Array([0, 0, 0, 0]),
+                },
+                gradient: { gradientStops },
+              },
+            }],
+            cycleSpeed: 0.5,
+            fps: 24,
+            brushSize: 2,
+          }),
+          commitCurrentStroke: jest.fn(),
+          getCanvas: () => canvas,
+          isPlaying: () => true,
+        },
+      },
+    } as any, {
+      width: 2,
+      height: 2,
     } as any);
 
     expect(result?.colorCycle?.isAnimating).toBe(false);
-    expect(result?.colorCycle?.brushState).toBeUndefined();
-    expect(result?.runtime).toBeUndefined();
+    expect(result?.colorCycle?.coverageBoundsPx).toBeUndefined();
+    expect(result?.colorCycle?.brushState).toBeDefined();
+  });
+
+  it('does not mark fully erased brush-mode color-cycle layers as animated', async () => {
+    const canvas = document.createElement('canvas');
+    canvas.width = 2;
+    canvas.height = 2;
+    const gradientStops = [
+      { position: 0, color: '#000000' },
+      { position: 1, color: '#ffffff' },
+    ];
+    const result = await serializeColorCycleData({
+      id: 'layer-cc-erased-brush',
+      layerType: 'color-cycle',
+      visible: true,
+      opacity: 1,
+      blendMode: 'source-over',
+      imageData: null,
+      framebuffer: canvas,
+      colorCycleData: {
+        mode: 'brush',
+        isAnimating: true,
+        brushSpeed: 0.5,
+        gradient: gradientStops,
+        canvas,
+        eraseMaskImageData: {
+          width: 2,
+          height: 2,
+          data: Uint8ClampedArray.from([
+            0, 0, 0, 255,
+            0, 0, 0, 255,
+            0, 0, 0, 255,
+            0, 0, 0, 255,
+          ]),
+        },
+        colorCycleBrush: {
+          serialize: () => ({
+            layers: [{
+              layerId: 'layer-cc-erased-brush',
+              data: {
+                indexBuffer: {
+                  width: 2,
+                  height: 2,
+                  data: new Uint8Array([1, 2, 3, 4]),
+                  palette: ['#000000', '#ffffff'],
+                  gradientId: new Uint8Array([0, 0, 0, 0]),
+                },
+                gradient: { gradientStops },
+              },
+            }],
+            cycleSpeed: 0.5,
+            fps: 24,
+            brushSize: 2,
+          }),
+          commitCurrentStroke: jest.fn(),
+          getCanvas: () => canvas,
+          isPlaying: () => true,
+        },
+      },
+    } as any, {
+      width: 2,
+      height: 2,
+    } as any);
+
+    expect(result?.colorCycle?.isAnimating).toBe(false);
+    expect(result?.colorCycle?.coverageBoundsPx).toBeUndefined();
+    expect(result?.colorCycle?.brushState).toBeDefined();
   });
 
   it('does not minify color-cycle buffer keys unsupported by the bundled Goblet runtime', () => {
