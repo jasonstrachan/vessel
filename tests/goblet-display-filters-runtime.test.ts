@@ -57,6 +57,14 @@ describe('Goblet display filter runtime parity', () => {
     expect(runtime).toContain('if (diagnosticsEnabled) {\n      units = isFixed ? \'backing\' : \'css\';');
   });
 
+  it('does not sample cropped fixed-mode sources through document bounds in Goblet 1', () => {
+    const runtime = read('public/goblet/goblet.js');
+
+    expect(runtime).toContain('const sourceMatchesDocument = Math.abs(sourceWidth - documentSize.width) <= 0.5');
+    expect(runtime).toContain('(isFixed && sourceMatchesDocument)');
+    expect(runtime).toContain('isColorCycleLayer && sourceMatchesDocument');
+  });
+
   it('includes display filter handling in Goblet 2', () => {
     const runtime = read('public/goblet2/goblet2.js');
 

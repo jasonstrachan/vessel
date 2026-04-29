@@ -67,6 +67,15 @@ describe('Goblet 2 runtime export regression guard', () => {
     expect(runtime).toContain('this.dynamicPlayerSet = new Set(this.dynamicPlayers);');
   });
 
+  it('does not sample cropped fixed-mode sources through document bounds', () => {
+    const runtime = read('public/goblet2/goblet2.js');
+
+    expect(runtime).toContain('const sourceMatchesDocument = Math.abs(sourceWidth - documentSize.width) <= 0.5');
+    expect(runtime).toContain('(isFixed && sourceMatchesDocument)');
+    expect(runtime).toContain('isColorCycleLayer && sourceMatchesDocument');
+    expect(runtime).not.toContain('(\n        isFixed\n        || (isColorCycleLayer');
+  });
+
   it('caches static Goblet 2 layers before painting dynamic layers', () => {
     const runtime = read('public/goblet2/goblet2.js');
 

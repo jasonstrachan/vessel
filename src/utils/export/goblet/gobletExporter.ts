@@ -41,7 +41,7 @@ import {
 } from '@/utils/export/goblet/gobletHtmlBuilder';
 import {
   canvasToDataURL,
-  captureLayerTexture,
+  captureLayerTextureInfo,
   createExportPreviewCanvas,
   normalizeCanvasSurfaceForExport,
   normalizeImageDataUrl,
@@ -326,7 +326,8 @@ export const exportProjectAsWebGL = async (
       documentBoundsPx = sequentialContentBounds;
     }
 
-    let texture = await captureLayerTexture(layer);
+    let textureInfo = await captureLayerTextureInfo(layer);
+    let texture = textureInfo?.dataUrl;
     const sequentialFrameCount = Math.max(
       1,
       Math.round(layer.sequentialData?.frameCount ?? options.totalFrames)
@@ -371,15 +372,17 @@ export const exportProjectAsWebGL = async (
     }
 
     if (texture && brushRuntime && colorCycleRuntime?.sourceCropPx) {
-      const croppedTexture = await captureLayerTexture(layer, {
+      const croppedTextureInfo = await captureLayerTextureInfo(layer, {
         bounds: colorCycleRuntime.sourceCropPx,
         basis: colorCycleRuntime.sourceCropBasis,
       });
-      if (croppedTexture) {
-        texture = croppedTexture;
+      if (croppedTextureInfo) {
+        textureInfo = croppedTextureInfo;
+        texture = croppedTextureInfo.dataUrl;
         surfaceSize.width = Math.max(1, brushRuntime.width);
         surfaceSize.height = Math.max(1, brushRuntime.height);
       } else {
+        textureInfo = undefined;
         texture = undefined;
       }
     }
@@ -393,6 +396,7 @@ export const exportProjectAsWebGL = async (
       const syntheticTexture = await synthesizeBrushTextureFromIndices(brushRuntime);
       if (syntheticTexture) {
         texture = syntheticTexture;
+        textureInfo = { dataUrl: syntheticTexture, hasVisibleAlpha: true };
         syntheticTextureApplied = true;
         surfaceSize.width = Math.max(surfaceSize.width, Math.max(1, brushRuntime.width));
         surfaceSize.height = Math.max(surfaceSize.height, Math.max(1, brushRuntime.height));
@@ -401,7 +405,9 @@ export const exportProjectAsWebGL = async (
 
     if (colorCycle?.mode === 'brush' && colorCycle.brushState) {
       // Preserve brush alpha/texture detail in Goblet when an exported texture exists.
-      colorCycle.brushState.alphaMode = texture ? 'source' : 'opaque-indices';
+      colorCycle.brushState.alphaMode = texture && textureInfo?.hasVisibleAlpha
+        ? 'source'
+        : 'opaque-indices';
     }
 
     if (colorCycle?.coverageBoundsPx) {

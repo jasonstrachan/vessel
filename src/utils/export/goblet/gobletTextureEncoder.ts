@@ -353,6 +353,27 @@ const cropDrawableSource = (
   return canvas;
 };
 
+const hasVisibleCanvasAlpha = (canvas: HTMLCanvasElement | OffscreenCanvas): boolean | undefined => {
+  try {
+    const width = Math.max(1, Math.round(canvas.width));
+    const height = Math.max(1, Math.round(canvas.height));
+    const ctx = canvas.getContext('2d', { willReadFrequently: true, alpha: true });
+    if (!isCanvas2DReadContextLike(ctx)) {
+      return undefined;
+    }
+    const data = ctx.getImageData(0, 0, width, height).data;
+    for (let i = 3; i < data.length; i += 4) {
+      if (data[i] > 0) {
+        return true;
+      }
+    }
+  } catch (error) {
+    debugLog('raw-console', '[webglExporter] Failed to inspect texture alpha', error);
+    return undefined;
+  }
+  return false;
+};
+
 const KNOWN_LAYER_CANVAS_KEYS = [
   'canvas',
   'webglCanvas',
@@ -487,19 +508,28 @@ export const captureLayerTexture = async (
   layer: Layer,
   crop?: TextureCropOptions
 ): Promise<string | undefined> => {
+  const result = await captureLayerTextureInfo(layer, crop);
+  return result?.dataUrl;
+};
+
+export const captureLayerTextureInfo = async (
+  layer: Layer,
+  crop?: TextureCropOptions
+): Promise<{ dataUrl: string; hasVisibleAlpha: boolean } | undefined> => {
   try {
     const surface = resolveLayerCanvasSurface(layer);
     if (surface) {
       const sourceWidth = Math.max(1, Math.round(surface.width));
       const sourceHeight = Math.max(1, Math.round(surface.height));
       const croppedSurface = cropDrawableSource(surface, sourceWidth, sourceHeight, crop);
-      const { dataUrl } = await canvasToDataURL(croppedSurface ?? surface);
+      const exportSurface = croppedSurface ?? surface;
+      const { dataUrl } = await canvasToDataURL(exportSurface);
       const normalized = normalizeImageDataUrl(dataUrl);
       if (!normalized) {
         logError('[webglExporter] Invalid data URL generated from canvas surface for layer', layer.id);
         return undefined;
       }
-      return normalized;
+      return { dataUrl: normalized, hasVisibleAlpha: hasVisibleCanvasAlpha(exportSurface) ?? true };
     }
     if (layer.imageData) {
       const dataUrl = await imageDataToDataURL(layer.imageData, crop);
@@ -508,13 +538,23 @@ export const captureLayerTexture = async (
         logError('[webglExporter] Invalid data URL generated from ImageData for layer', layer.id);
         return undefined;
       }
-      return normalized;
+      const sourceCanvas = createTextureCanvas(layer.imageData.width, layer.imageData.height);
+      if (sourceCanvas) {
+        const ctx = sourceCanvas.getContext('2d');
+        if (isCanvas2DContext(ctx)) {
+          ctx.putImageData(layer.imageData, 0, 0);
+        }
+      }
+      const croppedSource = sourceCanvas
+        ? cropDrawableSource(sourceCanvas, sourceCanvas.width, sourceCanvas.height, crop) ?? sourceCanvas
+        : undefined;
+      return { dataUrl: normalized, hasVisibleAlpha: croppedSource ? hasVisibleCanvasAlpha(croppedSource) ?? true : true };
     }
     const bitmap = resolveLayerImageBitmap(layer);
     if (bitmap) {
       const normalized = await imageBitmapToDataURL(bitmap, crop);
       if (normalized) {
-        return normalized;
+        return { dataUrl: normalized, hasVisibleAlpha: true };
       }
     }
     return undefined;
