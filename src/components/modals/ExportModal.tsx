@@ -21,6 +21,7 @@ import type { Layer, WebGLExportBundleFormat, WebGLExportGobletVersion } from '@
 
 type ExportKind = 'png' | 'gif' | 'mp4' | 'webgl';
 type RasterExportScale = 0.2 | 0.5 | 1 | 2 | 3 | 4;
+type WebglExportPreset = 'single-html' | 'bundle' | 'json';
 
 const BUNDLE_FORMAT_LABELS: Record<WebGLExportBundleFormat, string> = {
   zip: 'Goblet bundle zip',
@@ -54,6 +55,12 @@ const WEBGL_VIEWPORT_PRESETS = [
 ] as const;
 
 type WebglViewportPreset = typeof WEBGL_VIEWPORT_PRESETS[number]['value'];
+
+const WEBGL_EXPORT_PRESETS: Array<{ value: WebglExportPreset; label: string; format: WebGLExportBundleFormat }> = [
+  { value: 'single-html', label: 'Single HTML', format: 'single-html' },
+  { value: 'bundle', label: 'Bundle', format: 'zip' },
+  { value: 'json', label: 'JSON', format: 'json' },
+];
 
 const WEBGL_DESIGN_SCALE_PRESETS = [50, 100, 200, 300, 400] as const;
 
@@ -306,10 +313,17 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
       : 'default';
   const webglDesignScalePercent = clampWebglDesignScalePercent(webglExportSettings.designScalePercent ?? 100);
 
-  const applyGoblet2SingleHtmlProductionPreset = useCallback(() => {
+  const webglExportPreset: WebglExportPreset = webglBundleFormat === 'single-html'
+    ? 'single-html'
+    : webglBundleFormat === 'json'
+      ? 'json'
+      : 'bundle';
+
+  const applyWebglExportPreset = useCallback((preset: WebglExportPreset) => {
+    const nextFormat = WEBGL_EXPORT_PRESETS.find((item) => item.value === preset)?.format ?? 'single-html';
     updateWebglExportSettings({
       gobletVersion: 'goblet2',
-      bundleFormat: 'single-html',
+      bundleFormat: nextFormat,
       minifyOutput: true,
       enableGobletDiagnostics: false,
       embedCanvasFallback: false,
@@ -317,6 +331,14 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
       htmlTitle: (webglHtmlTitle || 'Goblet').trim() || 'Goblet',
     });
   }, [updateWebglExportSettings, webglHtmlTitle]);
+
+  const toggleWebglDebugMode = useCallback(() => {
+    const enabled = !webglEnableDiagnostics;
+    updateWebglExportSettings({
+      enableGobletDiagnostics: enabled,
+      minifyOutput: !enabled,
+    });
+  }, [updateWebglExportSettings, webglEnableDiagnostics]);
 
   const webglPreflightError = useMemo<string | null>(() => {
     const visibleLayers = layers.filter((layer) => layer.visible !== false);
@@ -1334,15 +1356,28 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
 
               <div className={`${MODAL_SURFACE_CLASS} p-4 space-y-4`}>
                 <div className="flex items-center justify-between gap-3 flex-wrap">
-                  <h3 className={`${MODAL_TEXT_PRIMARY} text-base font-semibold`}>Export preset</h3>
-                  <button
-                    type="button"
-                    onClick={applyGoblet2SingleHtmlProductionPreset}
-                    className={`${TOGGLE_BASE_CLASS} ${TOGGLE_INACTIVE_CLASS}`}
-                    disabled={isExporting}
-                  >
-                    Apply Goblet2 Single-HTML (Production)
-                  </button>
+                  <h3 className={`${MODAL_TEXT_PRIMARY} text-base font-semibold`}>Preset</h3>
+                  <div className="flex flex-wrap gap-2">
+                    {WEBGL_EXPORT_PRESETS.map((preset) => (
+                      <button
+                        key={preset.value}
+                        type="button"
+                        onClick={() => applyWebglExportPreset(preset.value)}
+                        className={`${TOGGLE_BASE_CLASS} ${webglExportPreset === preset.value && webglGobletVersion === 'goblet2' && !webglEnableDiagnostics ? TOGGLE_ACTIVE_CLASS : TOGGLE_INACTIVE_CLASS}`}
+                        disabled={isExporting}
+                      >
+                        {preset.label}
+                      </button>
+                    ))}
+                    <button
+                      type="button"
+                      onClick={toggleWebglDebugMode}
+                      className={`${TOGGLE_BASE_CLASS} ${webglEnableDiagnostics ? TOGGLE_ACTIVE_CLASS : TOGGLE_INACTIVE_CLASS}`}
+                      disabled={isExporting}
+                    >
+                      Debug mode
+                    </button>
+                  </div>
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <label className="flex items-center justify-between gap-3 text-sm text-[#E0E0E0]">
@@ -1376,7 +1411,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
                     />
                   </label>
                   <label className="flex items-center justify-between gap-3 text-sm text-[#E0E0E0]">
-                    <span>Embed diagnostics helpers</span>
+                    <span>Diagnostics helpers</span>
                     <input
                       type="checkbox"
                       className="accent-[#D9D9D9]"
