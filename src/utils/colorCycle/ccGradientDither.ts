@@ -9,6 +9,7 @@ import {
   fillFlatPatternMode,
   resolveFlatInkSetForPosition,
 } from '@/utils/colorCycle/ccFlatModePatterns';
+import { resolveCcPatternThreshold } from '@/utils/colorCycle/ccPatternThreshold';
 import { resolveFlatSierraBandMixInfo } from '@/utils/colorCycle/ccDitherRenderPalette';
 import { getActiveMarkGradientSession } from '@/hooks/canvas/utils/colorCycleMarkSession';
 import type { StoredStop } from '@/utils/colorCycleGradientDefs';
@@ -649,7 +650,8 @@ const resolveOrderedThreshold = (
   algorithm: DitherAlgorithm,
   patternStyle: PatternStyle | undefined,
   x: number,
-  y: number
+  y: number,
+  tone?: number
 ): number => {
   if (algorithm === 'bayer') {
     return BAYER_8x8_MATRIX[y & 7][x & 7];
@@ -661,24 +663,7 @@ const resolveOrderedThreshold = (
     return VOID_CLUSTER_8x8[y & 7][x & 7];
   }
 
-  const style = patternStyle ?? 'dots';
-  switch (style) {
-    case 'lines':
-      return ((x + y) & 1) === 0 ? 0.3 : 0.7;
-    case 'vertical-lines':
-      return (x & 1) === 0 ? 0.3 : 0.7;
-    case 'horizontal-lines':
-      return (y & 1) === 0 ? 0.3 : 0.7;
-    case 'crosshatch':
-      return (((x & 1) + (y & 1)) * 0.25) + 0.25;
-    case 'diagonal':
-      return (((x + y) & 3) + 0.5) / 4;
-    case 'tone-adaptive':
-      return 0.5 + (BAYER_8x8_MATRIX[y & 7][x & 7] - 0.5) * 0.55;
-    case 'dots':
-    default:
-      return BAYER_8x8_MATRIX[y & 7][x & 7];
-  }
+  return resolveCcPatternThreshold(patternStyle, x, y, tone);
 };
 
 export const fillCcGradientDither = async ({
@@ -896,7 +881,8 @@ export const fillCcGradientDither = async ({
             algorithm,
             patternStyle,
             cx + phaseX,
-            cy + phaseY
+            cy + phaseY,
+            local
           );
           const usePrimary = local >= threshold;
           cellIndices[cellIdx] = usePrimary ? highIndexForBand(band) : (fillBackground ? lowIndexForBand(band) : 0);
@@ -1094,7 +1080,8 @@ export const fillCcGradientDither = async ({
           algorithm,
           patternStyle,
           cx + phaseX,
-          cy + phaseY
+          cy + phaseY,
+          frac
         );
         const chooseUpper = lower < clampedLevels - 1 && frac >= threshold;
         const level = chooseUpper ? lower + 1 : lower;

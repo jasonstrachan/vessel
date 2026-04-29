@@ -5,6 +5,7 @@ import {
   type DitherAlgorithm,
   type PatternStyle,
 } from '@/utils/ditherAlgorithms';
+import { resolveCcPatternThreshold } from '@/utils/colorCycle/ccPatternThreshold';
 export type FlatInkCount = 2;
 
 type FlatInkSet = {
@@ -126,7 +127,8 @@ const resolveOrderedThreshold = (
   algorithm: DitherAlgorithm,
   patternStyle: PatternStyle | undefined,
   x: number,
-  y: number
+  y: number,
+  tone?: number
 ): number => {
   if (algorithm === 'bayer') {
     return BAYER_8x8_MATRIX[y & 7][x & 7];
@@ -138,24 +140,7 @@ const resolveOrderedThreshold = (
     return VOID_CLUSTER_8x8[y & 7][x & 7];
   }
 
-  const style = patternStyle ?? 'dots';
-  switch (style) {
-    case 'lines':
-      return ((x + y) & 1) === 0 ? 0.3 : 0.7;
-    case 'vertical-lines':
-      return (x & 1) === 0 ? 0.3 : 0.7;
-    case 'horizontal-lines':
-      return (y & 1) === 0 ? 0.3 : 0.7;
-    case 'crosshatch':
-      return (((x & 1) + (y & 1)) * 0.25) + 0.25;
-    case 'diagonal':
-      return (((x + y) & 3) + 0.5) / 4;
-    case 'tone-adaptive':
-      return 0.5 + (BAYER_8x8_MATRIX[y & 7][x & 7] - 0.5) * 0.55;
-    case 'dots':
-    default:
-      return BAYER_8x8_MATRIX[y & 7][x & 7];
-  }
+  return resolveCcPatternThreshold(patternStyle, x, y, tone);
 };
 
 const resolveBandMixAmount = (
@@ -317,6 +302,7 @@ const fillOrderedFlatPatternMode = ({
     undefined,
     spread
   );
+  const adaptiveTone = Number.isFinite(flatPosition) ? (flatPosition as number) : tone;
 
   for (let y = 0; y < gridH; y += 1) {
     const rowOffset = y * gridW;
@@ -326,7 +312,7 @@ const fillOrderedFlatPatternMode = ({
         continue;
       }
       const bit =
-        orderedMix >= resolveOrderedThreshold(algorithm, patternStyle, x + phaseX, y + phaseY) ? 1 : 0;
+        orderedMix >= resolveOrderedThreshold(algorithm, patternStyle, x + phaseX, y + phaseY, adaptiveTone) ? 1 : 0;
       const index = !fillBackground && bit === 0
         ? 0
         : (bit === 0 ? inkSet.indices[0] : inkSet.indices[1]);
