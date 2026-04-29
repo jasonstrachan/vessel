@@ -3460,7 +3460,13 @@ class ColorCycleLayerPlayer {
     if (!this.isGoblet2) {
       return false;
     }
+    if (colorCycle?.speedMode !== 'buffer') {
+      return false;
+    }
     if (!brushState || !hasNumericPayload(brushState.indexBuffer)) {
+      return false;
+    }
+    if (!hasNumericPayload(brushState.speedBuffer)) {
       return false;
     }
 
@@ -3650,10 +3656,6 @@ class ColorCycleLayerPlayer {
       this.speedBuffer = null;
     } else if (!this.slotSpeeds && this.speedBuffer && this.speedMode === 'slot') {
       this.speedMode = 'buffer';
-    }
-    if (this.isGoblet2 && this.speedBuffer) {
-      this.speedMode = 'buffer';
-      this.slotSpeeds = null;
     }
     this.cycleColors = this.isGoblet2
       ? DEFAULT_PALETTE_SIZE

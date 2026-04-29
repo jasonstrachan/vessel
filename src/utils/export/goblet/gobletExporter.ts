@@ -346,7 +346,7 @@ export const exportProjectAsWebGL = async (
       surfaceSize.height = sequentialFrames.sourceSize.height;
     }
     const colorCycleResult = await serializeColorCycleData(layer, options.project, speedWarning, {
-      forceSpeedBuffer: gobletVersion === 'goblet2',
+      forceSpeedBuffer: false,
       layerSpeedScale: exportLayerSpeedScale,
       toolSpeed: options.colorCycleToolSpeed,
     });

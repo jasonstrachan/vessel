@@ -562,6 +562,39 @@ describe('exportProjectAsWebGL color cycle integration', () => {
     expect(exportedLayer.colorCycle?.recolorSettings?.height).toBe(4);
   });
 
+  it('exports legacy recolor color-cycle layers when mode is missing', async () => {
+    const canvas = document.createElement('canvas');
+    canvas.width = 4;
+    canvas.height = 4;
+
+    const layer = createColorCycleLayer(canvas);
+    delete layer.colorCycleData!.mode;
+
+    const project = createProject(layer);
+    const layout = createDefaultExportLayout();
+
+    const metadata = await exportProjectAsWebGL({
+      project,
+      layers: [layer],
+      layout,
+      viewport: { designWidth: project.width, designHeight: project.height, mode: 'fixed' },
+      fps: 30,
+      totalFrames: 60,
+      durationSeconds: 2,
+      perfectLoop: false,
+      includeHiddenLayers: true,
+      embedCanvasFallback: false,
+      minify: false,
+      filenameBase: 'color-cycle-legacy-recolor-mode',
+      bundleFormat: 'json'
+    });
+
+    const exportedLayer = metadata.layers[0];
+    expect(exportedLayer.colorCycle?.mode).toBe('recolor');
+    expect(exportedLayer.colorCycle?.recolorSettings).toBeDefined();
+    expect(exportedLayer.colorCycle?.brushState).toBeUndefined();
+  });
+
   it('serializes brush state metadata for brush-mode color-cycle layers', async () => {
     const canvas = document.createElement('canvas');
     canvas.width = 128;
@@ -851,6 +884,38 @@ describe('exportProjectAsWebGL color cycle integration', () => {
     const speedBySlot = new Map(slotSpeeds.map((entry) => [entry.slot, entry.speed]));
     expect(speedBySlot.get(0)).toBeCloseTo(0.25, 5);
     expect(speedBySlot.get(1)).toBeCloseTo(0.5, 5);
+  });
+
+  it('exports Goblet 2 brush-mode slot speeds without a forced per-pixel speed buffer', async () => {
+    const canvas = document.createElement('canvas');
+    canvas.width = 128;
+    canvas.height = 128;
+
+    const layer = createBrushModeLayer(canvas);
+    const project = createProject(layer);
+    const layout = createDefaultExportLayout();
+
+    const metadata = await exportProjectAsWebGL({
+      project,
+      layers: [layer],
+      layout,
+      viewport: { designWidth: project.width, designHeight: project.height, mode: 'fixed' },
+      fps: 24,
+      totalFrames: 48,
+      durationSeconds: 2,
+      perfectLoop: false,
+      includeHiddenLayers: true,
+      embedCanvasFallback: false,
+      minify: false,
+      filenameBase: 'color-cycle-brush-slots-goblet2',
+      bundleFormat: 'json',
+      gobletVersion: 'goblet2'
+    });
+
+    const exportedLayer = metadata.layers[0];
+    expect(exportedLayer.colorCycle?.speedMode).toBe('slot');
+    expect(exportedLayer.colorCycle?.slotSpeeds).toHaveLength(2);
+    expect(exportedLayer.colorCycle?.brushState?.speedBuffer).toBeUndefined();
   });
 
   it('exports brush payloads from live strokeData when animator buffers are intentionally stripped', async () => {
