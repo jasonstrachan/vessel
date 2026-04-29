@@ -179,4 +179,91 @@ describe('ExportModal webgl preflight', () => {
     }));
     expect(runExportMock).not.toHaveBeenCalled();
   });
+
+  it('shows Goblet layer progress and export errors in the progress modal', async () => {
+    store.layers = [{
+      ...store.layers[0],
+      id: 'cc1',
+      name: 'Damaged CC',
+      layerType: 'color-cycle',
+      colorCycleData: {
+        repairStatus: {
+          ok: false,
+          reason: 'missing-canonical-paint',
+        },
+      },
+    }] as any;
+    runExportMock.mockImplementation(async (_request, onProgress) => {
+      onProgress({
+        phase: 'prepare',
+        percent: 5,
+        message: 'Preparing Goblet export...',
+        webgl: {
+          phase: 'preparing',
+          percent: 5,
+          message: 'Preparing Goblet export...',
+        },
+      });
+      onProgress({
+        phase: 'prepare',
+        percent: 25,
+        message: 'Damaged CC is static preview only',
+        webgl: {
+          phase: 'layers',
+          percent: 25,
+          message: 'Damaged CC is static preview only',
+          layer: {
+            id: 'cc1',
+            name: 'Damaged CC',
+            status: 'static-preview',
+            message: 'missing-canonical-paint',
+          },
+        },
+      });
+      throw new Error('Goblet exploded');
+    });
+
+    render(<ExportModal isOpen onClose={jest.fn()} />);
+    act(() => {
+      jest.runAllTimers();
+    });
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /^Export$/i }));
+    });
+
+    expect(await screen.findByText('Export failed')).toBeInTheDocument();
+    expect(screen.getByText('Damaged CC')).toBeInTheDocument();
+    expect(screen.getByText('Static preview')).toBeInTheDocument();
+    expect(screen.getAllByText('Goblet exploded').length).toBeGreaterThan(0);
+  });
+
+  it('clears progress state when the parent modal closes', async () => {
+    runExportMock.mockResolvedValue({
+      kind: 'webgl',
+      filename: 'Demo',
+      metadata: { layers: [] },
+    });
+
+    const { rerender } = render(<ExportModal isOpen onClose={jest.fn()} />);
+    act(() => {
+      jest.runAllTimers();
+    });
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /^Export$/i }));
+    });
+    expect(await screen.findByText('Export progress')).toBeInTheDocument();
+
+    rerender(<ExportModal isOpen={false} onClose={jest.fn()} />);
+    act(() => {
+      jest.runAllTimers();
+    });
+    rerender(<ExportModal isOpen onClose={jest.fn()} />);
+    act(() => {
+      jest.runAllTimers();
+    });
+
+    expect(screen.queryByText('Export progress')).not.toBeInTheDocument();
+  });
 });

@@ -493,8 +493,23 @@ const runVideoExport = async (
   }
 };
 
-const runWebglExport = async (request: WebglExportRequest): Promise<ExportResult> => {
-  const metadata = await exportProjectAsWebGL(request.options.request);
+const runWebglExport = async (
+  request: WebglExportRequest,
+  onProgress: (progress: ExportProgress) => void,
+  signal: AbortSignal
+): Promise<ExportResult> => {
+  const metadata = await exportProjectAsWebGL({
+    ...request.options.request,
+    signal,
+    onProgress: (event) => {
+      onProgress({
+        phase: event.phase === 'packaging' ? 'encode' : event.phase === 'complete' ? 'finalize' : 'prepare',
+        percent: event.percent,
+        message: event.message,
+        webgl: event,
+      });
+    },
+  });
   return {
     kind: 'webgl',
     filename: request.filenameBase,
@@ -628,7 +643,7 @@ export const runExport = async (
     return result;
   }
 
-  const result = await runWebglExport(request);
+  const result = await runWebglExport(request, onProgress, signal);
   onProgress({ phase: 'finalize', percent: 100 });
   return result;
 };
