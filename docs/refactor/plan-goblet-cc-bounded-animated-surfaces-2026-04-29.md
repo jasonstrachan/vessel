@@ -22,13 +22,37 @@ This plan is retained as a follow-up only. The speculative implementation attemp
     result before brush-payload cropping is `68.4 FPS`, `12.36ms` average RAF
     callback cost, and `30.60ms` max RAF callback cost.
 
-- [ ] Crop brush payloads before packing.
+- [x] Crop brush payloads before packing.
   - Intended benefit: reduce decode cost, memory, frame fill loops, and `putImageData`.
-  - Not currently implemented.
+  - 2026-04-29: Goblet brush-mode export now crops array-backed brush payloads
+    to computed coverage before numeric buffers are packed. Cropped payloads
+    export with local source bounds while preserving document bounds, so
+    placement remains unchanged. Added a sparse Goblet 2 brush export regression
+    covering cropped `brushState`, local source bounds, document bounds, and
+    content bounds.
+  - 2026-04-29 review fix: Cropped/rebased serialized alpha masks with cropped
+    brush payloads so offset erase masks stay aligned to the local Goblet source
+    surface. Added sparse Goblet 2 mask coverage.
+  - Verified:
+    `npm test -- tests/export-color-cycle-html.test.ts --runInBand`,
+    `npm run type-check`, and
+    `npm run test:goblet2:cc-gradient-shapes-perf`
+    (`fps=67.3 avgCallback=12.60ms maxCallback=33.60ms`).
 
-- [ ] Crop matching alpha/texture source.
+- [x] Crop matching alpha/texture source.
   - Intended benefit: keep alpha/texture data aligned with any future bounded brush payload.
-  - Not currently implemented.
+  - 2026-04-29: Goblet brush export now carries the original brush crop
+    rectangle internally so the exporter can crop/re-encode the matching texture
+    source before enabling source-alpha mode. Texture crops are scaled from brush
+    coordinates into the actual source texture dimensions, and the exported
+    source surface is reduced to the cropped brush dimensions. If a cropped
+    texture cannot be encoded, export falls back to synthetic/opaque-index
+    behavior instead of using a misaligned full-surface alpha source.
+  - Verified:
+    `npm test -- tests/export-color-cycle-html.test.ts --runInBand`,
+    `npm run type-check`, `npm run lint`, and
+    `npm run test:goblet2:cc-gradient-shapes-perf`
+    (`fps=67.1 avgCallback=12.57ms maxCallback=30.60ms`).
 
 - [x] Avoid forced per-pixel speed buffers when slot speeds are enough.
   - Intended benefit: use smaller and cheaper slot-speed mode when per-pixel speed is not semantically required.

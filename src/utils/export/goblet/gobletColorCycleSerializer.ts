@@ -980,6 +980,115 @@ const prepareBrushSpeedExport = (params: {
   };
 };
 
+const cropNumericBufferToBounds = (
+  input: number[] | string | undefined,
+  sourceWidth: number,
+  sourceHeight: number,
+  bounds: WebGLLayerBounds
+): number[] | string | undefined => {
+  if (!Array.isArray(input)) {
+    return input;
+  }
+
+  const width = Math.max(1, Math.floor(sourceWidth));
+  const height = Math.max(1, Math.floor(sourceHeight));
+  const expectedLength = width * height;
+  if (input.length < expectedLength) {
+    return input;
+  }
+
+  const x = Math.max(0, Math.floor(bounds.x));
+  const y = Math.max(0, Math.floor(bounds.y));
+  const cropWidth = Math.max(1, Math.floor(bounds.width));
+  const cropHeight = Math.max(1, Math.floor(bounds.height));
+  const clampedWidth = Math.min(cropWidth, width - x);
+  const clampedHeight = Math.min(cropHeight, height - y);
+  if (clampedWidth >= width && clampedHeight >= height && x === 0 && y === 0) {
+    return input;
+  }
+
+  const output = new Array<number>(clampedWidth * clampedHeight);
+  let outIndex = 0;
+  for (let row = 0; row < clampedHeight; row += 1) {
+    const sourceStart = (y + row) * width + x;
+    for (let col = 0; col < clampedWidth; col += 1) {
+      output[outIndex] = input[sourceStart + col] ?? 0;
+      outIndex += 1;
+    }
+  }
+  return output;
+};
+
+const cropMaskValuesToBounds = (
+  input: Uint8Array,
+  sourceWidth: number,
+  sourceHeight: number,
+  bounds: WebGLLayerBounds
+): Uint8Array => {
+  const width = Math.max(1, Math.floor(sourceWidth));
+  const height = Math.max(1, Math.floor(sourceHeight));
+  const expectedLength = width * height;
+  if (input.length < expectedLength) {
+    return input;
+  }
+
+  const x = Math.max(0, Math.floor(bounds.x));
+  const y = Math.max(0, Math.floor(bounds.y));
+  const cropWidth = Math.min(Math.max(1, Math.floor(bounds.width)), width - x);
+  const cropHeight = Math.min(Math.max(1, Math.floor(bounds.height)), height - y);
+  if (x === 0 && y === 0 && cropWidth >= width && cropHeight >= height) {
+    return input;
+  }
+
+  const output = new Uint8Array(cropWidth * cropHeight);
+  let outIndex = 0;
+  for (let row = 0; row < cropHeight; row += 1) {
+    const sourceStart = (y + row) * width + x;
+    for (let col = 0; col < cropWidth; col += 1) {
+      output[outIndex] = input[sourceStart + col] ?? 0;
+      outIndex += 1;
+    }
+  }
+  return output;
+};
+
+const cropBrushStateToCoverage = (
+  brushState: WebGLSerializedBrushState,
+  coverage: WebGLLayerBounds | undefined
+): WebGLSerializedBrushState => {
+  if (!coverage) {
+    return brushState;
+  }
+
+  const sourceWidth = Math.max(1, Math.floor(brushState.width));
+  const sourceHeight = Math.max(1, Math.floor(brushState.height));
+  const x = Math.max(0, Math.floor(coverage.x));
+  const y = Math.max(0, Math.floor(coverage.y));
+  const cropWidth = Math.min(Math.max(1, Math.floor(coverage.width)), sourceWidth - x);
+  const cropHeight = Math.min(Math.max(1, Math.floor(coverage.height)), sourceHeight - y);
+  if (
+    x === 0 &&
+    y === 0 &&
+    cropWidth >= sourceWidth &&
+    cropHeight >= sourceHeight
+  ) {
+    return brushState;
+  }
+
+  return {
+    ...brushState,
+    width: cropWidth,
+    height: cropHeight,
+    indexBuffer: cropNumericBufferToBounds(brushState.indexBuffer, sourceWidth, sourceHeight, coverage)
+      ?? brushState.indexBuffer,
+    gradientIdBuffer: cropNumericBufferToBounds(brushState.gradientIdBuffer, sourceWidth, sourceHeight, coverage),
+    gradientDefIdBuffer: cropNumericBufferToBounds(brushState.gradientDefIdBuffer, sourceWidth, sourceHeight, coverage),
+    speedBuffer: cropNumericBufferToBounds(brushState.speedBuffer, sourceWidth, sourceHeight, coverage),
+    flowBuffer: cropNumericBufferToBounds(brushState.flowBuffer, sourceWidth, sourceHeight, coverage),
+    phaseBuffer: cropNumericBufferToBounds(brushState.phaseBuffer, sourceWidth, sourceHeight, coverage),
+  };
+};
+
 const resolveFgDerivedStops = (
   data: Layer['colorCycleData'] | undefined,
   slotPalettes: Array<{ slot: number; stops: SerializedGradientStops }> | undefined
@@ -2508,19 +2617,9 @@ export const serializeColorCycleData = async (
     alphaMaskDataset
   );
   if (alphaMaskResult) {
-    serialized.alphaMask = alphaMaskResult.payload;
     if (brushState && Array.isArray(brushState.indexBuffer)) {
       applyAlphaMaskToIndexBuffer(brushState.indexBuffer, alphaMaskResult.values);
     }
-  }
-
-  if (brushState && Array.isArray(brushState.indexBuffer)) {
-    runtimeBrushState = {
-      width: brushState.width,
-      height: brushState.height,
-      indices: [...brushState.indexBuffer],
-      palette: brushState.palette ? [...brushState.palette] : undefined
-    };
   }
 
   let coverageMaskDataset: ColorCycleMaskDataset | undefined;
@@ -2546,12 +2645,76 @@ export const serializeColorCycleData = async (
   });
 
   if (coverage) {
-    serialized.coverageBoundsSourcePx = coverage.source;
     serialized.coverageBoundsPx = coverage.document;
   }
 
   if (!data.recolorSettings && !coverage) {
     serialized.isAnimating = false;
+  }
+
+  let brushCoverageSource = coverage?.source;
+  let croppedAlphaMaskValues: Uint8Array | undefined;
+  let sourceCropPx: WebGLLayerBounds | undefined;
+  let sourceCropBasis: { width: number; height: number } | undefined;
+  if (brushState) {
+    const croppedBrushState = cropBrushStateToCoverage(brushState, coverage?.source);
+    if (croppedBrushState !== brushState) {
+      if (coverage?.source) {
+        sourceCropPx = coverage.source;
+        sourceCropBasis = {
+          width: brushState.width,
+          height: brushState.height,
+        };
+      }
+      if (
+        alphaMaskResult &&
+        coverage?.source &&
+        alphaMaskResult.payload.width === brushState.width &&
+        alphaMaskResult.payload.height === brushState.height
+      ) {
+        croppedAlphaMaskValues = cropMaskValuesToBounds(
+          alphaMaskResult.values,
+          brushState.width,
+          brushState.height,
+          coverage.source
+        );
+      }
+      brushState = croppedBrushState;
+      brushCoverageSource = {
+        x: 0,
+        y: 0,
+        width: brushState.width,
+        height: brushState.height,
+      };
+    }
+  }
+
+  if (alphaMaskResult) {
+    if (croppedAlphaMaskValues) {
+      const encodedAlphaMask = await packNumericArrayForExport(croppedAlphaMaskValues);
+      if (encodedAlphaMask) {
+        serialized.alphaMask = {
+          width: brushState?.width ?? alphaMaskResult.payload.width,
+          height: brushState?.height ?? alphaMaskResult.payload.height,
+          data: encodedAlphaMask
+        };
+      }
+    } else {
+      serialized.alphaMask = alphaMaskResult.payload;
+    }
+  }
+
+  if (brushCoverageSource) {
+    serialized.coverageBoundsSourcePx = brushCoverageSource;
+  }
+
+  if (brushState && Array.isArray(brushState.indexBuffer)) {
+    runtimeBrushState = {
+      width: brushState.width,
+      height: brushState.height,
+      indices: [...brushState.indexBuffer],
+      palette: brushState.palette ? [...brushState.palette] : undefined
+    };
   }
 
   if (brushState) {
@@ -2690,6 +2853,8 @@ export const serializeColorCycleData = async (
 
   return {
     colorCycle: serialized,
-    runtime: runtimeBrushState ? { brushState: runtimeBrushState } : undefined
+    runtime: runtimeBrushState
+      ? { brushState: runtimeBrushState, sourceCropPx, sourceCropBasis }
+      : undefined
   };
 };

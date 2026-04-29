@@ -370,6 +370,20 @@ export const exportProjectAsWebGL = async (
       }
     }
 
+    if (texture && brushRuntime && colorCycleRuntime?.sourceCropPx) {
+      const croppedTexture = await captureLayerTexture(layer, {
+        bounds: colorCycleRuntime.sourceCropPx,
+        basis: colorCycleRuntime.sourceCropBasis,
+      });
+      if (croppedTexture) {
+        texture = croppedTexture;
+        surfaceSize.width = Math.max(1, brushRuntime.width);
+        surfaceSize.height = Math.max(1, brushRuntime.height);
+      } else {
+        texture = undefined;
+      }
+    }
+
     const needsSyntheticTexture = Boolean(
       brushRuntime && (!texture || originalSurfaceSize.width <= 1 || originalSurfaceSize.height <= 1)
     );
