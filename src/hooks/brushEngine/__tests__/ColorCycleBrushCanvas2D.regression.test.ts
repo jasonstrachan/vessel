@@ -2637,6 +2637,52 @@ describe('ColorCycleBrushCanvas2D regression tests', () => {
     expect(serializedLayer?.strokeData?.hasContent).toBe(true);
   });
 
+  it('does not mark slot-zero color-cycle content empty on endStroke', () => {
+    const canvas = makeCanvas(4, 4);
+    const brush = new ColorCycleBrushCanvas2D(canvas, { forceCanvas2D: true });
+    const layerId = 'layer-slot-zero-content';
+
+    brush.applyLayerSnapshot(layerId, {
+      paintBuffer: new Uint8Array(16).fill(0).buffer,
+      gradientIdBuffer: new Uint8Array(16).fill(2).buffer,
+      gradientDefIdBuffer: new Uint16Array(16).fill(4).buffer,
+      speedBuffer: new Uint8Array(16).fill(5).buffer,
+      flowBuffer: new Uint8Array(16).fill(1).buffer,
+      phaseBuffer: new Uint8Array(16).fill(7).buffer,
+      hasContent: true,
+      strokeCounter: 1,
+    });
+
+    brush.endStroke(layerId);
+
+    const snapshot = brush.getLayerSnapshot(layerId);
+    expect(snapshot?.hasContent).toBe(true);
+    const serializedLayer = brush.serialize().layers.find((layer) => layer.layerId === layerId);
+    expect(serializedLayer?.strokeData?.hasContent).toBe(true);
+  });
+
+  it('does not serialize an optimistic zero-write stroke as content', () => {
+    const canvas = makeCanvas(4, 4);
+    const brush = new ColorCycleBrushCanvas2D(canvas, { forceCanvas2D: true });
+    const layerId = 'layer-zero-write-stroke';
+    const internals = brush as unknown as {
+      ensureStrokeState: (id: string) => {
+        hasContent: boolean;
+        buffers: { paint: Uint8Array };
+      };
+    };
+
+    internals.ensureStrokeState(layerId);
+    brush.startStroke(layerId);
+    brush.endStroke(layerId);
+
+    const snapshot = brush.getLayerSnapshot(layerId);
+    expect(snapshot?.hasContent).toBe(false);
+    expect(Array.from(new Uint8Array(snapshot?.paintBuffer ?? new ArrayBuffer(0)))).toEqual(new Array(16).fill(0));
+    const serializedLayer = brush.serialize().layers.find((layer) => layer.layerId === layerId);
+    expect(serializedLayer?.strokeData?.hasContent).toBe(false);
+  });
+
   it('treats empty animator paint as explicit empty when applying a snapshot', () => {
     const canvas = makeCanvas(4, 4);
     const brush = new ColorCycleBrushCanvas2D(canvas, { forceCanvas2D: true });

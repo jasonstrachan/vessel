@@ -26,6 +26,7 @@ import {
   fnv1aHash,
   inferBinaryManifestDType,
 } from '@/utils/projectPersistence';
+import { getPersistedCCMutationLog } from '@/utils/colorCycle/ccMutationAudit';
 import { createDefaultLayerAlignment } from '@/utils/layoutDefaults';
 import { BrushShape, type Layer, type Project } from '@/types';
 
@@ -687,6 +688,7 @@ describe('projectIO readProjectManifest', () => {
   });
 
   it('refuses to save dangling canonical color-cycle archive refs', async () => {
+    window.localStorage.clear();
     const canvas = document.createElement('canvas');
     canvas.width = 2;
     canvas.height = 2;
@@ -742,6 +744,26 @@ describe('projectIO readProjectManifest', () => {
     await expect(withPatchedCanvasRect(() => serializeProject(project, project.layers))).rejects.toThrow(
       'Project save produced dangling archive ref buffers/color-cycle/layer-cc-stale-save/paint.bin',
     );
+    expect(getPersistedCCMutationLog()).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        event: 'project-save-dangling-archive-ref',
+        severity: 'error',
+        layerId: 'layer-cc-stale-save',
+        reason: 'serializeProject',
+        details: expect.objectContaining({
+          firstIssue: expect.objectContaining({
+            path: 'buffers/color-cycle/layer-cc-stale-save/paint.bin',
+            locations: expect.arrayContaining(['project.layers[0].state.paintRef']),
+          }),
+          serializedLayer: expect.objectContaining({
+            state: expect.objectContaining({
+              paintRef: 'zip:buffers/color-cycle/layer-cc-stale-save/paint.bin',
+            }),
+            brushState: null,
+          }),
+        }),
+      }),
+    ]));
   });
 
   it('drops dangling optional color-cycle runtime refs when the archive payload is gone', async () => {
