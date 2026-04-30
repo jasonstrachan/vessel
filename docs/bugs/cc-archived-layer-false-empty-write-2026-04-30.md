@@ -2,7 +2,186 @@
 
 ## Status
 
-Partially fixed. Evidence captured from `http://localhost:3001/` on 2026-04-30.
+Fixed for the identified C7 cold/warm runtime edit path and the identified false-empty write path. Evidence captured from `http://localhost:3001/` and `http://localhost:3000/` on 2026-04-30.
+
+Older C5/C5-wiped archive evidence remains in this note because it is part of the same CC archive/runtime authority family. The current C7 fix is the complete fix for the reproduced behavior where a loaded CC layer could not finalize gradients/shapes until a CC stroke warmed the runtime, and where finalize could publish an empty layer state.
+
+## Complete Bug Record: C7 Cold/Warm CC Runtime Edit Failure
+
+### User-visible symptoms
+
+The failing file was:
+
+```txt
+/Users/jasonstrachan/+Projects/2026/supervised portraits/testing/C7.vs
+```
+
+Observed in the app:
+
+- `CC Layer 2` loaded with visible/canonical color-cycle content.
+- Attempting to draw/finalize CC gradient shapes on that layer did not produce new committed shape content.
+- Shape finalize logs showed `shape-commit-linear`, but the layer stayed `hasContent: false`.
+- The failed shape commits reported zero live scalar buffers:
+  - `gradientDefBufferBytes: 0`
+  - `gradientIdBufferBytes: 0`
+  - `hasContent: false`
+- Drawing a CC stroke later could create full-size runtime buffers and make the layer editable again.
+- A finalize path could publish a false empty layer state after seeing an incomplete live runtime, even though archive/state CC payloads still existed.
+
+### Affected layer evidence
+
+The active/failing layer in the captured C7 session was:
+
+```txt
+layer-1777515099706-0.6006024489485631
+```
+
+The diagnostic log showed failed shape finalize attempts with:
+
+```json
+{
+  "event": "shape-commit-linear",
+  "layerId": "layer-1777515099706-0.6006024489485631",
+  "before": {
+    "hasContent": false,
+    "gradientDefBufferBytes": 0,
+    "gradientIdBufferBytes": 0
+  },
+  "after": {
+    "hasContent": false,
+    "gradientDefBufferBytes": 0,
+    "gradientIdBufferBytes": 0
+  }
+}
+```
+
+A later stroke on the same layer showed runtime creation was possible:
+
+```json
+{
+  "event": "stroke-commit",
+  "layerId": "layer-1777515099706-0.6006024489485631",
+  "after": {
+    "hasContent": true,
+    "gradientDefBufferBytes": 8000000,
+    "gradientIdBufferBytes": 4000000
+  }
+}
+```
+
+Archive inspection of `C7.vs` showed the layer still had canonical sparse buffer payloads (`paint.bin`, `gradient-id.bin`, `gradient-def-id.bin`, `speed.bin`, and `flow.bin`) with non-zero data. The persisted `colorCycleData` was damaged/preview-like (`repairStatus.ok: false`, `reason: "missing-gradient-bindings"`), but the layer still had state refs that could be used as the edit source.
+
+### Root cause
+
+There were three cooperating failures.
+
+1. `restoreColorCycleBrushes()` skipped layers with `repairStatus.ok === false` too broadly.
+
+   That made sense for true preview-only damaged layers, but it was wrong for C7-style layers that had failed repair metadata and still had real canonical state refs/buffers. Those layers were treated as non-editable even though materialization was possible from their archive/state payloads.
+
+2. The stroke/shape edit path could begin against a cold or missing CC runtime.
+
+   Shape finalize was allowed to proceed while the live runtime buffers were absent or incomplete. The commit code then operated on empty live buffers rather than first warming/materializing the layer from its canonical CC source.
+
+3. `ensureColorCycleLayerRuntime()` originally treated hydration state as sufficient.
+
+   The first warmup fix called `ensureColorCycleLayerRuntime()` before allowing edits. Review caught the remaining hole: a layer could be marked `warm` or `active` while the brush manager no longer had the brush runtime. In that state, `ensureColorCycleLayerRuntime()` only updated hydration state and returned based on metadata, so the runtime stayed missing and future edits stayed blocked/misreported as preview-only.
+
+The core authority bug was this: live runtime buffer state was allowed to override or block canonical archive/state CC content, when canonical content should remain authoritative until a real runtime has been materialized.
+
+### Fix implemented
+
+The fix separates three cases explicitly:
+
+- Editable cold/warm CC layer with canonical payload refs: block the gesture, warm/materialize runtime, then let the user retry.
+- Preview-only damaged CC layer with no canonical edit source: block the gesture and show a clear message.
+- Warm/active CC layer with missing brush runtime: restore/register a brush runtime; do not treat hydration metadata alone as success.
+
+Files changed:
+
+- `src/hooks/canvas/handlers/colorCycle/colorCycleRuntimeWarmup.ts`
+  - Added `startColorCycleRuntimeWarmupForEdit()`.
+  - Detects canonical edit sources from layer state refs, persisted CC buffers, and brush snapshots.
+  - Blocks stroke/shape start while warming.
+  - Uses the existing bottom feedback strip:
+    - `Preparing color-cycle layer... 0%`
+    - `Preparing color-cycle layer... 56%`
+    - `Color-cycle layer ready`
+  - Shows `This color-cycle layer is preview-only and cannot be edited` when no canonical edit source exists.
+
+- `src/hooks/canvas/handlers/strokeStartPrelude.ts`
+  - Calls the warmup guard before a CC stroke can start on a cold/missing runtime layer.
+
+- `src/hooks/canvas/handlers/shapes/shapeDrawing.ts`
+  - Calls the warmup guard before a CC shape gesture can start.
+
+- `src/hooks/canvas/useDrawingShapeRuntime.ts`
+  - Passes the existing `feedbackMessageRef` into shape drawing so shape warmup uses the bottom app message.
+
+- `src/utils/projectIO.ts`
+  - Allows repair-failed CC layers to attempt runtime restore when they still have a canonical runtime source.
+  - Still keeps true preview-only damaged layers cold/non-editable.
+
+- `src/stores/layers/createLayersSlice.ts`
+  - `ensureColorCycleLayerRuntime()` now restores a missing brush runtime for archive-backed layers even when hydration says `warm` or `active`.
+  - `ensureColorCycleLayerRuntime()` now returns success only when a live brush exists and the requested hydration state is satisfied.
+  - Deferred restore eligibility now checks canonical payload presence rather than relying only on `deferredRuntimeRestore`.
+
+- `src/hooks/brushEngine/ColorCycleBrushCanvas2D.ts`
+  - `endStroke()` now refuses to publish `hasContent: false` if the layer still has canonical CC content refs/buffers or a failed repair marker.
+  - The guard logs `cc-empty-live-buffer-write-blocked` so future captures show when an empty live runtime tried to overwrite canonical content.
+
+### Behavior after fix
+
+When the user starts a CC stroke or CC shape on a cold/warm archive-backed layer whose runtime is missing:
+
+1. The gesture is blocked before finalize can run against empty live buffers.
+2. The bottom feedback strip shows warming progress.
+3. The app attempts to restore/materialize the CC runtime from canonical state refs/buffers.
+4. If a runtime brush is registered, the feedback strip reports `Color-cycle layer ready`.
+5. The user can retry the stroke/shape; the edit now starts with a live runtime.
+
+When the layer truly has no editable CC source:
+
+1. The gesture is blocked.
+2. The feedback strip says `This color-cycle layer is preview-only and cannot be edited`.
+3. No fake empty runtime is allowed to publish over the layer.
+
+### Regression coverage
+
+Added/updated tests:
+
+- `src/hooks/canvas/handlers/colorCycle/__tests__/colorCycleRuntimeWarmup.test.ts`
+  - Verifies cold editable layers block edits, call runtime ensure, and report `0%`, `56%`, and ready messages.
+  - Verifies preview-only layers are blocked without trying restore.
+
+- `src/stores/__tests__/layersSlice.integration.test.ts`
+  - Verifies warm archive-backed layers with missing runtime brushes are restored through `restoreColorCycleBrushes()`.
+  - Verifies success requires the live brush to be registered.
+
+- `src/hooks/brushEngine/__tests__/ColorCycleBrushCanvas2D.test.ts`
+  - Verifies `endStroke()` does not call `updateLayer()` with a false empty write when canonical CC content still exists.
+
+Validation after the fix:
+
+```txt
+npm run type-check
+npm run lint
+npm test
+```
+
+Final test result:
+
+```txt
+366 test suites passed
+2182 tests passed
+```
+
+### Remaining risks / not part of this fix
+
+- Existing already-damaged project files may still contain visual/static previews without enough canonical CC data to edit. Those should remain preview-only rather than silently inventing editable runtime state.
+- Slot `0` occupancy remains a separate risk if a valid layer uses slot `0` as meaningful paint and some path treats zero as empty.
+- This fix was validated by code-level tests and diagnostics; a manual browser reload/edit pass against `C7.vs` is still useful as final UX confirmation.
 
 Fixed in this pass:
 
@@ -11,12 +190,16 @@ Fixed in this pass:
 - Dev restore no longer hard-pauses on already damaged files that contain orphaned def ids; `ColorCycleAnimator` warns and falls back instead of using `console.assert`.
 - The `delete-selected` CC clear path now clears all selected scalar buffers (`paint`, `gradientId`, `gradientDefId`, `speed`, `flow`, `phase`) instead of leaving stale auxiliary buffers after paint goes empty.
 - Selection delete diagnostics now record selection provenance, delete source, and playback state at delete time. Playback toolbar toggles are also recorded in the CC mutation timeline.
+- The C7-style cold/warm runtime edit path now blocks stroke/shape start while the CC runtime is warming and reports progress through the bottom feedback strip.
+- Warm/active archive-backed CC layers whose brush runtime was cleaned up are now restored through the same materialization path instead of being permanently blocked as preview-only.
+- `ColorCycleBrushCanvas2D.endStroke()` now blocks a false empty live-buffer write when canonical archive/state CC content still exists.
 - Added regression coverage in `src/hooks/brushEngine/__tests__/ColorCycleBrushCanvas2D.test.ts`.
 - Added regression coverage in `src/stores/helpers/__tests__/colorCycleSelection.test.ts`.
+- Added regression coverage in `src/hooks/canvas/handlers/colorCycle/__tests__/colorCycleRuntimeWarmup.test.ts`.
+- Added regression coverage in `src/stores/__tests__/layersSlice.integration.test.ts`.
 
 Still open / not proven fixed:
 
-- The false-empty `hasContent: true -> false` write from `endStroke()` when a cold/archive-backed layer has canonical refs but incomplete live runtime buffers.
 - Slot-0 occupancy detection if a layer is genuinely painted using valid slot `0`.
 - End-to-end live repro against `C5.vs` / `C5-wiped.vs` in the browser.
 
@@ -35,6 +218,39 @@ The current diagnosis is split into two related failure classes:
 1. Fixed in this pass: restored rich CC metadata could be overwritten by a smaller fallback store metadata set during `ColorCycleBrushCanvas2D` serialization.
 2. Fixed in this pass: explicit `delete-selected` could clear the CC paint buffer while leaving stale CC auxiliary buffers in the selected region.
 3. Still open: an inactive/cold archive-backed CC layer may be finalized, reset, hydrated, or rendered with incomplete runtime buffers. That path can write `colorCycleData.hasContent: false` in memory even while canonical archive refs remain non-empty.
+
+## 2026-04-30 Follow-up: C7 Cold/Warm Edit Block
+
+The C7 investigation exposed a second runtime-authority failure related to the same false-empty family.
+
+Observed behavior:
+
+- A loaded CC layer could contain canonical archive/state payloads but no live brush runtime.
+- Shape finalize attempts reported `shape-commit-linear` with `gradientDefBufferBytes: 0`, `gradientIdBufferBytes: 0`, and `hasContent: false`.
+- A later CC stroke could create a live runtime and show full-size buffers again, proving the project data was not necessarily gone.
+
+Root cause:
+
+- The edit path could start against a cold or missing runtime before materialization completed.
+- The first warmup fix blocked stroke/shape start while calling `ensureColorCycleLayerRuntime()`, but review found a remaining hole: if the layer was marked `warm` or `active` while the brush manager no longer had the brush, `ensureColorCycleLayerRuntime()` only updated hydration and did not recreate/register a runtime brush.
+- That meant the gesture stayed blocked and future attempts could be misreported as preview-only.
+
+Fix:
+
+- `startColorCycleRuntimeWarmupForEdit()` blocks CC stroke/shape starts while warming and uses the existing bottom feedback strip:
+  - `Preparing color-cycle layer... 0%`
+  - `Preparing color-cycle layer... 56%`
+  - `Color-cycle layer ready`
+- Preview-only layers with no canonical edit source remain blocked with `This color-cycle layer is preview-only and cannot be edited`.
+- `ensureColorCycleLayerRuntime()` now treats missing brush runtime as a restore requirement when the layer has canonical CC refs/buffers, even if hydration is already `warm` or `active`.
+- `ensureColorCycleLayerRuntime()` now returns success only when a live runtime brush exists and the requested hydration state is satisfied.
+- `ColorCycleBrushCanvas2D.endStroke()` refuses to publish `hasContent: false` over a layer that still has canonical CC content refs/buffers or a failed repair marker.
+
+Regression coverage:
+
+- `src/hooks/canvas/handlers/colorCycle/__tests__/colorCycleRuntimeWarmup.test.ts` covers warmup feedback, edit blocking, and preview-only rejection.
+- `src/stores/__tests__/layersSlice.integration.test.ts` covers warm/active archive-backed layers with missing runtime brushes being restored through `restoreColorCycleBrushes()`.
+- `src/hooks/brushEngine/__tests__/ColorCycleBrushCanvas2D.test.ts` covers blocking the false-empty live-buffer write.
 
 ## Latest Prod Capture: Delete-Selected Full Canvas
 

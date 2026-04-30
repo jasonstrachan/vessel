@@ -31,6 +31,7 @@ import {
   snapToGridPure,
 } from '@/hooks/brushEngine/utilities';
 import { buildSampledStops } from '@/hooks/canvas/handlers/colorCycle/ccSampling';
+import { startColorCycleRuntimeWarmupForEdit } from '@/hooks/canvas/handlers/colorCycle/colorCycleRuntimeWarmup';
 
 type ShapeDrawingRefs = {
   isDrawingShapeRef: React.MutableRefObject<boolean>;
@@ -336,7 +337,7 @@ type ShapeDrawingDeps = {
   lastStablePressureRef: React.MutableRefObject<number>;
   brushEngine: BrushEngine;
   getColorCycleBrushManager: () => { getBrush: (layerId: string) => ColorCycleBrushImplementation | null | undefined };
-  getColorCycleBrushFlags: (settings: BrushSettings) => { isAny: boolean };
+  getColorCycleBrushFlags: (settings: BrushSettings) => { isAny: boolean; isShapeVariant?: boolean };
   sampleColorAt?: (x: number, y: number) => string | null;
   sampleHexAt: (x: number, y: number) => string | null;
   initDrawingCanvas: () => void;
@@ -528,6 +529,7 @@ type ShapeDrawingDeps = {
   isColorCycleLayerWithData: (layer: Layer) => boolean;
   setSharedColorCycleGradient: (stops: AutoSampleStops | null) => void;
   logError: (message: string, error?: unknown) => void;
+  feedbackMessageRef?: React.MutableRefObject<((message: string) => void) | null>;
   withTiming: <T>(label: string, task: () => Promise<T> | T) => Promise<T>;
   timeAsync: <T>(label: string, task: () => Promise<T>) => Promise<T>;
   timeSync: <T>(label: string, task: () => T) => T;
@@ -610,6 +612,19 @@ export const startShapeDrawing = (
     const currentTool = store.tools.currentTool;
     const brushSettings = store.tools.brushSettings;
     const ccFlags = deps.getColorCycleBrushFlags(brushSettings);
+    if (ccFlags.isShapeVariant) {
+      const activeLayer = store.layers.find((layer) => layer.id === store.activeLayerId);
+      if (
+        activeLayer?.layerType === 'color-cycle' &&
+        startColorCycleRuntimeWarmupForEdit({
+          layerId: activeLayer.id,
+          reason: 'shape-start',
+          feedback: deps.feedbackMessageRef?.current,
+        })
+      ) {
+        return false;
+      }
+    }
     const shouldAutoSample =
       currentTool === 'brush' &&
       brushSettings.autoSampleColor &&

@@ -10,6 +10,7 @@ import { initializeStrokeStartCaptureBounds } from '@/hooks/canvas/handlers/stro
 import type { CustomBrushStrokeData } from '@/hooks/brushEngine/BrushEngineFacade';
 import { resolveStrokeStartRuntimeContext } from '@/hooks/canvas/handlers/strokeStartRuntime';
 import { runStrokeStartLayerGuards } from '@/hooks/canvas/handlers/strokeStartLayerGuards';
+import { startColorCycleRuntimeWarmupForEdit } from '@/hooks/canvas/handlers/colorCycle/colorCycleRuntimeWarmup';
 
 type Point = { x: number; y: number };
 
@@ -121,6 +122,17 @@ export const prepareStrokeStartPrelude = ({
       ensureActiveColorCycleGradientSlot,
     });
     if (!canStartStroke) {
+      return null;
+    }
+    if (
+      activeLayer.layerType === 'color-cycle' &&
+      ccFlags.isAny &&
+      startColorCycleRuntimeWarmupForEdit({
+        layerId: activeLayer.id,
+        reason: 'stroke-start',
+        feedback: feedbackMessageRef.current,
+      })
+    ) {
       return null;
     }
   }

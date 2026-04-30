@@ -5713,10 +5713,55 @@ export async function restoreColorCycleBrushes(
       persistedGradientIdBuffer.byteLength === expectedSize
     );
   };
+  const hasPotentialColorCycleRuntimeSource = (layer: Layer): boolean => {
+    const colorCycleData = layer.colorCycleData;
+    const documentState = (layer as unknown as {
+      state?: {
+        hasContent?: boolean;
+        paintRef?: unknown;
+        gradientIdRef?: unknown;
+        gradientDefIdRef?: unknown;
+      };
+    }).state;
+    const brushState = colorCycleData?.brushState as {
+      layers?: Array<{
+        strokeData?: {
+          hasContent?: boolean;
+          paintBuffer?: unknown;
+          gradientIdBuffer?: unknown;
+          gradientDefIdBuffer?: unknown;
+        };
+      }>;
+    } | undefined;
+    const hasPayload = (value: unknown): boolean => (
+      value instanceof ArrayBuffer
+        ? value.byteLength > 0
+        : ArrayBuffer.isView(value)
+          ? value.byteLength > 0
+          : typeof value === 'string' && value.length > 0
+    );
+    return Boolean(
+      documentState?.hasContent === true ||
+      hasPayload(documentState?.paintRef) ||
+      hasPayload(documentState?.gradientIdRef) ||
+      hasPayload(documentState?.gradientDefIdRef) ||
+      hasPayload(colorCycleData?.gradientIdBuffer) ||
+      hasPayload(colorCycleData?.gradientDefIdBuffer) ||
+      brushState?.layers?.some((snapshot) => (
+        snapshot.strokeData?.hasContent === true ||
+        hasPayload(snapshot.strokeData?.paintBuffer) ||
+        hasPayload(snapshot.strokeData?.gradientIdBuffer) ||
+        hasPayload(snapshot.strokeData?.gradientDefIdBuffer)
+      ))
+    );
+  };
 
   for (const layer of layers) {
     if (layer.layerType === 'color-cycle' && layer.colorCycleData) {
-      if (layer.colorCycleData.repairStatus?.ok === false) {
+      if (
+        layer.colorCycleData.repairStatus?.ok === false &&
+        !hasPotentialColorCycleRuntimeSource(layer)
+      ) {
         const repairStatus = layer.colorCycleData.repairStatus;
         layer.colorCycleData = {
           ...setColorCycleHydrationState(layer.colorCycleData, 'cold'),

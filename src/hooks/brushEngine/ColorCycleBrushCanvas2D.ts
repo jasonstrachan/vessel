@@ -62,6 +62,7 @@ import { getActiveMarkGradientSession } from '@/hooks/canvas/utils/colorCycleMar
 import { TEMP_SAMPLE_SLOT } from '@/constants/colorCycle';
 import {
   logCCMutation,
+  summarizeColorCycleLayer,
   summarizeScalarBuffer,
   summarizeSerializedColorCycleLayer,
   type CCMutationSnapshot,
@@ -78,6 +79,16 @@ type CcCustomStampPerfStats = {
   paintCalls: number;
   paintTotalMs: number;
   writePixels: number;
+};
+
+const hasCcPayload = (value: unknown): boolean => {
+  if (value instanceof ArrayBuffer) {
+    return value.byteLength > 0;
+  }
+  if (ArrayBuffer.isView(value)) {
+    return value.byteLength > 0;
+  }
+  return typeof value === 'string' && value.length > 0;
 };
 
 type BrushPerfWindow = Window & {
@@ -3660,6 +3671,41 @@ export class ColorCycleBrushCanvas2D {
         const storeState = getAppStoreState();
         const layer = storeState.layers.find(layerItem => layerItem.id === id);
         if (layer?.colorCycleData) {
+          const documentState = (layer as unknown as {
+            state?: {
+              hasContent?: boolean;
+              paintRef?: unknown;
+              gradientIdRef?: unknown;
+              gradientDefIdRef?: unknown;
+            };
+          }).state;
+          const hasCanonicalContentSource = Boolean(
+            documentState?.hasContent === true ||
+            hasCcPayload(documentState?.paintRef) ||
+            hasCcPayload(documentState?.gradientIdRef) ||
+            hasCcPayload(documentState?.gradientDefIdRef) ||
+            hasCcPayload(layer.colorCycleData.gradientIdBuffer) ||
+            hasCcPayload(layer.colorCycleData.gradientDefIdBuffer) ||
+            layer.colorCycleData.repairStatus?.ok === false
+          );
+          if (!hasContent && hasCanonicalContentSource) {
+            logCCMutation({
+              event: 'cc-empty-live-buffer-write-blocked',
+              layerId: layer.id,
+              reason: 'endStroke',
+              severity: 'warn',
+              before: summarizeColorCycleLayer(layer),
+              after: summarizeColorCycleLayer(layer),
+              details: {
+                paintBufferBytes: strokeData.buffers.paint.byteLength,
+                gradientIdBufferBytes: strokeData.buffers.gid.byteLength,
+                gradientDefIdBufferBytes: strokeData.buffers.def.byteLength,
+                repairStatus: layer.colorCycleData.repairStatus?.reason ?? null,
+                stateHasContent: documentState?.hasContent ?? null,
+              },
+            });
+            return;
+          }
           storeState.updateLayer(layer.id, {
             colorCycleData: {
               ...layer.colorCycleData,

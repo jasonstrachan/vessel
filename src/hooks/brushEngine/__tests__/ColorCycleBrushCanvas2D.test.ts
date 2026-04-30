@@ -1049,6 +1049,44 @@ describe('ColorCycleBrushCanvas2D', () => {
     expect(serialized.layers[0].strokeData?.paintBuffer.byteLength).toBe(canvas.width * canvas.height);
   });
 
+  it('does not let an empty live stroke finalize clear canonical color-cycle layer content', () => {
+    const canvas = makeCanvas();
+    const brush = new ColorCycleBrushCanvas2D(canvas, { brushSize: 4, fps: 60 });
+    const updateLayer = jest.fn();
+    const { useAppStore } = jest.requireMock('@/stores/useAppStore') as {
+      useAppStore: {
+        getState: () => {
+          layers: Array<unknown>;
+          updateLayer?: jest.Mock;
+        };
+      };
+    };
+    useAppStore.getState().layers = [
+      {
+        id: 'layer-cold-canonical',
+        layerType: 'color-cycle',
+        state: {
+          hasContent: true,
+          paintRef: 'state/paint.bin',
+          gradientIdRef: 'state/gradient-id.bin',
+          gradientDefIdRef: 'state/gradient-def-id.bin',
+        },
+        colorCycleData: {
+          repairStatus: {
+            ok: false,
+            reason: 'missing-gradient-bindings',
+          },
+        },
+      },
+    ];
+    useAppStore.getState().updateLayer = updateLayer;
+
+    brush.startStroke('layer-cold-canonical');
+    brush.endStroke('layer-cold-canonical');
+
+    expect(updateLayer).not.toHaveBeenCalled();
+  });
+
   it('forces full-size animator before restore upload', () => {
     const canvas = makeCanvas();
     canvas.width = 512;

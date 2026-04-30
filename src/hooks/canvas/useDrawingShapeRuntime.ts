@@ -226,6 +226,7 @@ export const useDrawingShapeRuntime = ({
     isColorCycleLayerWithData,
     setSharedColorCycleGradient,
     logError,
+    feedbackMessageRef: refs.feedbackMessageRef,
     withTiming,
     timeAsync,
     timeSync,
