@@ -296,6 +296,101 @@ describe('webglExporter helpers', () => {
     expect(brushState?.phaseBuffer).toEqual([0, 64, 128, 192]);
   });
 
+  it('preserves gradient def ids from live brush stroke data during export', () => {
+    const gradientDefIds = new Uint16Array([0, 8, 8, 0]);
+    const brushState = serializeBrushState({
+      id: 'layer-cc-live-defs',
+      layerType: 'color-cycle',
+      imageData: null,
+      framebuffer: { width: 2, height: 2 },
+      colorCycleData: {
+        canvasWidth: 2,
+        canvasHeight: 2,
+        gradient: [
+          { position: 0, color: '#000000' },
+          { position: 1, color: '#ffffff' },
+        ],
+        colorCycleBrush: {
+          serialize: () => ({
+            layers: [{
+              layerId: 'layer-cc-live-defs',
+              data: {
+                indexBuffer: {
+                  width: 2,
+                  height: 2,
+                  data: Uint8Array.from([1, 2, 3, 4]),
+                  gradientId: Uint8Array.from([0, 1, 1, 0]),
+                },
+                gradient: {
+                  gradientStops: [
+                    { position: 0, color: '#000000' },
+                    { position: 1, color: '#ffffff' },
+                  ],
+                },
+              },
+              strokeData: {
+                gradientDefIdBuffer: gradientDefIds.buffer,
+              },
+            }],
+          }),
+        },
+      },
+    } as any);
+
+    expect(brushState).toBeDefined();
+    expect(brushState?.gradientDefIdBuffer).toEqual([0, 8, 8, 0]);
+  });
+
+  it('does not commit live color-cycle strokes while serializing for Goblet export', async () => {
+    const commitCurrentStroke = jest.fn();
+    await serializeColorCycleData({
+      id: 'layer-cc-readonly-export',
+      layerType: 'color-cycle',
+      visible: true,
+      opacity: 1,
+      blendMode: 'source-over',
+      imageData: null,
+      framebuffer: { width: 2, height: 2 },
+      colorCycleData: {
+        mode: 'brush',
+        hasContent: true,
+        canvasWidth: 2,
+        canvasHeight: 2,
+        gradient: [
+          { position: 0, color: '#000000' },
+          { position: 1, color: '#ffffff' },
+        ],
+        colorCycleBrush: {
+          commitCurrentStroke,
+          serialize: () => ({
+            layers: [{
+              layerId: 'layer-cc-readonly-export',
+              data: {
+                indexBuffer: {
+                  width: 2,
+                  height: 2,
+                  data: Uint8Array.from([1, 2, 3, 4]),
+                  gradientId: Uint8Array.from([0, 1, 1, 0]),
+                },
+                gradient: {
+                  gradientStops: [
+                    { position: 0, color: '#000000' },
+                    { position: 1, color: '#ffffff' },
+                  ],
+                },
+              },
+            }],
+          }),
+        },
+      },
+    } as any, {
+      width: 2,
+      height: 2,
+    } as any);
+
+    expect(commitCurrentStroke).not.toHaveBeenCalled();
+  });
+
   it('does not repair missing-paint color-cycle state from compatibility snapshot colors during export', () => {
     const brushState = serializeBrushState({
       id: 'layer-cc-legacy-alpha',

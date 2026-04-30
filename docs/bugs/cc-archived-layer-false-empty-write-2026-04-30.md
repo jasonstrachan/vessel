@@ -797,3 +797,21 @@ Capture if the bug still reproduces:
 ```js
 copy(JSON.stringify((window.__VESSEL_GET_CC_MUTATION_LOG__?.() ?? []).filter(e => e.event === 'project-save-dangling-archive-ref' || e.event === 'cc-empty-live-buffer-write-blocked' || e.event === 'layer-update-destructive' || e.event === 'color-cycle-layer-cleared').slice(-20), null, 2))
 ```
+
+2026-04-30 Goblet export warm-runtime guard:
+
+- A follow-up report linked the wipe to Goblet export / CC layer warmup:
+  - Goblet displayed CC layer colors that differed from Vessel.
+  - Returning to Vessel showed the layer data wiped.
+- Export had two unsafe seams:
+  - `serializeColorCycleData()` called `colorCycleBrush.commitCurrentStroke(layer.id)` during export, so a read-only Goblet export could mutate the live Vessel CC runtime/store path.
+  - The live `brush.serialize()` export path copied `gradientIdBuffer`, `speedBuffer`, `flowBuffer`, and `phaseBuffer`, but omitted `gradientDefIdBuffer` unless it fell back to stroke-data-only serialization. Goblet could therefore render painted pixels through the wrong gradient definitions.
+- Fix:
+  - Goblet export no longer calls `commitCurrentStroke()`.
+  - Live brush export now includes `gradientDefIdBuffer` from live stroke data or the layer top-level CC buffer.
+- Regression coverage:
+  - `src/utils/export/__tests__/webglExporter.helpers.test.ts` asserts Goblet serialization is read-only with respect to `commitCurrentStroke()`.
+  - The same test file asserts live brush export preserves gradient def ids.
+- Verified:
+  - `npm test -- src/utils/export/__tests__/webglExporter.helpers.test.ts --runInBand`
+  - `npm test -- tests/export-color-cycle-html.test.ts --runInBand`
