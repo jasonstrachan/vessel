@@ -1962,6 +1962,10 @@ export const serializeBrushState = (layer: Layer): WebGLSerializedBrushState | u
               );
               const gradientIdValues = toSerializableNumberArray(ib.gradientId);
               const gradientIdBuffer = gradientIdValues.length > 0 ? gradientIdValues : undefined;
+              const gradientDefIdValues = decodePersistedDefIdBuffer(
+                strokeData?.gradientDefIdBuffer ?? layer.colorCycleData?.gradientDefIdBuffer
+              );
+              const gradientDefIdBuffer = gradientDefIdValues.length > 0 ? gradientDefIdValues : undefined;
               const speedValues = toSerializableNumberArray(ib.speedData);
               const speedBuffer = speedValues.length > 0 ? speedValues : undefined;
               const flowValues = toSerializableNumberArray(ib.flowData ?? strokeData?.flowBuffer);
@@ -1982,6 +1986,7 @@ export const serializeBrushState = (layer: Layer): WebGLSerializedBrushState | u
                 height,
                 indexBuffer: indexArray,
                 gradientIdBuffer,
+                gradientDefIdBuffer,
                 speedBuffer,
                 flowBuffer,
                 phaseBuffer,
@@ -2525,15 +2530,6 @@ export const serializeColorCycleData = async (
   const data = layer.colorCycleData;
   if (!data) {
     return undefined;
-  }
-
-  const brushInstance = data.colorCycleBrush as { commitCurrentStroke?: (layerId?: string) => void } | null | undefined;
-  if (brushInstance && typeof brushInstance.commitCurrentStroke === 'function') {
-    try {
-      brushInstance.commitCurrentStroke(layer.id);
-    } catch (error) {
-      debugWarn('raw-console', '[webglExporter] Failed to commit current color cycle stroke before export', error);
-    }
   }
 
   const layerSpeedScale = clampExportLayerSpeedScale(options?.layerSpeedScale);
