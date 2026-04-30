@@ -1087,6 +1087,94 @@ describe('ColorCycleBrushCanvas2D', () => {
     expect(updateLayer).not.toHaveBeenCalled();
   });
 
+  it('allows a fresh blank color-cycle layer with allocated zero buffers to sync empty state', () => {
+    const canvas = makeCanvas();
+    const brush = new ColorCycleBrushCanvas2D(canvas, { brushSize: 4, fps: 60 });
+    const updateLayer = jest.fn();
+    const { useAppStore } = jest.requireMock('@/stores/useAppStore') as {
+      useAppStore: {
+        getState: () => {
+          layers: Array<unknown>;
+          updateLayer?: jest.Mock;
+        };
+      };
+    };
+    useAppStore.getState().layers = [
+      {
+        id: 'layer-fresh-blank',
+        layerType: 'color-cycle',
+        colorCycleData: {
+          hasContent: false,
+          gradientIdBuffer: new Uint8Array(canvas.width * canvas.height).buffer,
+          gradientDefIdBuffer: new Uint16Array(canvas.width * canvas.height).buffer,
+          brushState: {
+            layers: [
+              {
+                strokeData: {
+                  hasContent: false,
+                  paintBuffer: new Uint8Array(canvas.width * canvas.height).buffer,
+                  gradientIdBuffer: new Uint8Array(canvas.width * canvas.height).buffer,
+                  gradientDefIdBuffer: new Uint16Array(canvas.width * canvas.height).buffer,
+                },
+              },
+            ],
+          },
+        },
+      },
+    ];
+    useAppStore.getState().updateLayer = updateLayer;
+
+    brush.startStroke('layer-fresh-blank');
+    brush.endStroke('layer-fresh-blank');
+
+    expect(updateLayer).toHaveBeenCalledWith('layer-fresh-blank', {
+      colorCycleData: expect.objectContaining({
+        hasContent: false,
+      }),
+    });
+  });
+
+  it('does not let an empty live stroke clear string-backed brush-state content', () => {
+    const canvas = makeCanvas();
+    const brush = new ColorCycleBrushCanvas2D(canvas, { brushSize: 4, fps: 60 });
+    const updateLayer = jest.fn();
+    const { useAppStore } = jest.requireMock('@/stores/useAppStore') as {
+      useAppStore: {
+        getState: () => {
+          layers: Array<unknown>;
+          updateLayer?: jest.Mock;
+        };
+      };
+    };
+    useAppStore.getState().layers = [
+      {
+        id: 'layer-string-brush-state',
+        layerType: 'color-cycle',
+        colorCycleData: {
+          hasContent: false,
+          brushState: {
+            layers: [
+              {
+                strokeData: {
+                  hasContent: false,
+                  paintBuffer: 'archive/paint.bin',
+                  gradientIdBuffer: '',
+                  gradientDefIdBuffer: '',
+                },
+              },
+            ],
+          },
+        },
+      },
+    ];
+    useAppStore.getState().updateLayer = updateLayer;
+
+    brush.startStroke('layer-string-brush-state');
+    brush.endStroke('layer-string-brush-state');
+
+    expect(updateLayer).not.toHaveBeenCalled();
+  });
+
   it('forces full-size animator before restore upload', () => {
     const canvas = makeCanvas();
     canvas.width = 512;

@@ -301,5 +301,22 @@ describe('ColorCycleStrokePatchDelta', () => {
     expect(Array.from(extras.speedBytes ?? [])).toEqual([0, 0, 0, 0]);
     expect(Array.from(extras.flowBytes ?? [])).toEqual([0, 0, 0, 0]);
     expect(Array.from(extras.phaseBytes ?? [])).toEqual([0, 0, 0, 0]);
+    const clearReports = getPersistedCCMutationLog().filter(
+      (entry) => entry.event === 'color-cycle-layer-cleared'
+    );
+    expect(clearReports).toEqual([
+      expect.objectContaining({
+        event: 'color-cycle-layer-cleared',
+        layerId,
+        reason: 'history-undo-patch',
+        severity: 'info',
+        details: expect.objectContaining({
+          source: 'history-color-cycle-stroke-patch',
+          operation: 'undo',
+          expectedDestructive: true,
+        }),
+        stack: expect.stringContaining('color-cycle-layer-cleared'),
+      }),
+    ]);
   });
 });

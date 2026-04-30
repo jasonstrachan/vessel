@@ -533,7 +533,7 @@ class ColorCycleStrokePatchDelta implements HistoryDelta {
         event: 'color-cycle-layer-cleared',
         layerId: this.layerId,
         reason: direction === 'backward' ? 'history-undo-patch' : 'history-redo-patch',
-        severity: 'error',
+        severity: 'info',
         before: beforeAudit,
         after: beforeAudit ? { ...beforeAudit, hasContent: false } : null,
         details: {
