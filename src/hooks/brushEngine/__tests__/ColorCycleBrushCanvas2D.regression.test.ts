@@ -464,6 +464,195 @@ describe('ColorCycleBrushCanvas2D regression tests', () => {
     expect(serialized.layers[0]?.slotPalettes?.[0]?.seamProfile).toBe('soft');
   });
 
+  it('prefers richer restored metadata over duplicate fallback store entries during serialize', () => {
+    const state = useAppStore.getState() as unknown as MockStoreState & {
+      layers: Array<Record<string, unknown>>;
+    };
+    const layerId = 'layer-restored-rich-metadata';
+
+    const restored = ColorCycleBrushCanvas2D.deserialize({
+      layers: [{
+        layerId,
+        data: {},
+        gradientDefs: [{ id: 'archive-gradient', currentSlot: 0 }],
+        slotPalettes: [{
+          slot: 0,
+          stops: [
+            { position: 0, color: '#123456' },
+            { position: 1, color: '#abcdef' },
+          ],
+          seamProfile: 'hard',
+        }],
+        gradientDefStore: [{
+          id: 42,
+          kind: 'linear',
+          slot: 0,
+          stops: [
+            { position: 0, color: '#123456' },
+            { position: 1, color: '#abcdef' },
+          ],
+          hash: 'archive-hash',
+          source: 'sampled',
+          seamProfile: 'hard',
+          createdAtMs: 10,
+        }],
+        nextGradientDefId: 43,
+        activeGradientId: 'archive-gradient',
+        paintSlot: 0,
+        strokeData: {
+          paintBuffer: new Uint8Array([1, 0, 0, 0]).buffer,
+          gradientIdBuffer: new Uint8Array([0, 0, 0, 0]).buffer,
+          gradientDefIdBuffer: new Uint16Array([42, 0, 0, 0]).buffer,
+          hasContent: true,
+          strokeCounter: 1,
+        },
+      }],
+    } as never, makeCanvas(4, 1));
+
+    state.layers = [{
+      id: layerId,
+      layerType: 'color-cycle',
+      colorCycleData: {
+        slotPalettes: [{
+          slot: 0,
+          stops: [
+            { position: 0, color: '#000000' },
+            { position: 1, color: '#ffffff' },
+          ],
+        }],
+        gradientDefStore: [{
+          id: 42,
+          kind: 'linear',
+          slot: 0,
+          stops: [
+            { position: 0, color: '#000000' },
+            { position: 1, color: '#ffffff' },
+          ],
+          hash: 'fallback-hash',
+          source: 'manual',
+          createdAtMs: 0,
+        }],
+      },
+    }];
+
+    const serialized = restored.serialize();
+    expect(serialized.layers[0]?.slotPalettes?.find((entry) => entry.slot === 0)?.stops[0]?.color).toBe('#123456');
+    expect(serialized.layers[0]?.gradientDefStore?.find((entry) => entry.id === 42)).toMatchObject({
+      hash: 'archive-hash',
+      seamProfile: 'hard',
+      source: 'sampled',
+    });
+  });
+
+  it('keeps live store active gradient and paint slot ahead of stale restored metadata', () => {
+    const state = useAppStore.getState() as unknown as MockStoreState & {
+      layers: Array<Record<string, unknown>>;
+    };
+    const layerId = 'layer-live-selection';
+
+    const restored = ColorCycleBrushCanvas2D.deserialize({
+      layers: [{
+        layerId,
+        data: {},
+        gradientDefs: [
+          { id: 'archive-gradient', currentSlot: 8 },
+          { id: 'archive-secondary', currentSlot: 2 },
+        ],
+        slotPalettes: [
+          {
+            slot: 8,
+            stops: [
+              { position: 0, color: '#331100' },
+              { position: 1, color: '#ffeecc' },
+            ],
+          },
+          {
+            slot: 2,
+            stops: [
+              { position: 0, color: '#112233' },
+              { position: 1, color: '#ddeeff' },
+            ],
+          },
+        ],
+        gradientDefStore: [
+          {
+            id: 80,
+            kind: 'linear',
+            slot: 8,
+            stops: [
+              { position: 0, color: '#331100' },
+              { position: 1, color: '#ffeecc' },
+            ],
+            hash: 'archive-80',
+            source: 'sampled',
+            createdAtMs: 80,
+          },
+          {
+            id: 81,
+            kind: 'linear',
+            slot: 2,
+            stops: [
+              { position: 0, color: '#112233' },
+              { position: 1, color: '#ddeeff' },
+            ],
+            hash: 'archive-81',
+            source: 'sampled',
+            createdAtMs: 81,
+          },
+        ],
+        nextGradientDefId: 82,
+        activeGradientId: 'archive-gradient',
+        paintSlot: 8,
+        strokeData: {
+          paintBuffer: new Uint8Array([1, 0, 0, 0]).buffer,
+          gradientIdBuffer: new Uint8Array([8, 0, 0, 0]).buffer,
+          gradientDefIdBuffer: new Uint16Array([80, 0, 0, 0]).buffer,
+          hasContent: true,
+          strokeCounter: 1,
+        },
+      }],
+    } as never, makeCanvas(4, 1));
+
+    state.layers = [{
+      id: layerId,
+      layerType: 'color-cycle',
+      colorCycleData: {
+        gradientDefs: [{ id: 'live-gradient', currentSlot: 9 }],
+        slotPalettes: [{
+          slot: 9,
+          stops: [
+            { position: 0, color: '#004488' },
+            { position: 1, color: '#88ccff' },
+          ],
+        }],
+        gradientDefStore: [{
+          id: 90,
+          kind: 'linear',
+          slot: 9,
+          stops: [
+            { position: 0, color: '#004488' },
+            { position: 1, color: '#88ccff' },
+          ],
+          hash: 'live-90',
+          source: 'manual',
+          createdAtMs: 90,
+        }],
+        nextGradientDefId: 91,
+        activeGradientId: 'live-gradient',
+        paintSlot: 9,
+      },
+    }];
+
+    const serialized = restored.serialize();
+    expect(serialized.layers[0]?.activeGradientId).toBe('live-gradient');
+    expect(serialized.layers[0]?.paintSlot).toBe(9);
+    expect(serialized.layers[0]?.gradientDefs?.map((entry) => entry.id)).toEqual([
+      'archive-gradient',
+      'archive-secondary',
+      'live-gradient',
+    ]);
+  });
+
   it('keeps finalized sampled shapes stable across a second sampled commit and serialize/deserialize after a tight ROI', () => {
     const layerId = 'layer-sampled-shape-stability';
     const canvas = makeCanvas(4, 1);
