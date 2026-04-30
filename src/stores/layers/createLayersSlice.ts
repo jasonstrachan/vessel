@@ -306,6 +306,56 @@ const omitUndefinedEntries = <T extends Record<string, unknown>>(value: T): Part
   return Object.fromEntries(entries) as Partial<T>;
 };
 
+const hasBufferLikePayload = (value: unknown): boolean => {
+  if (value instanceof ArrayBuffer) {
+    return value.byteLength > 0;
+  }
+  if (ArrayBuffer.isView(value)) {
+    return value.byteLength > 0;
+  }
+  return typeof value === 'string' && value.length > 0;
+};
+
+const hasColorCycleCanonicalRuntimeSource = (layer: Layer | null | undefined): boolean => {
+  if (!layer || layer.layerType !== 'color-cycle') {
+    return false;
+  }
+  const documentState = (layer as unknown as {
+    state?: {
+      hasContent?: boolean;
+      paintRef?: unknown;
+      gradientIdRef?: unknown;
+      gradientDefIdRef?: unknown;
+    };
+  }).state;
+  const colorCycleData = layer.colorCycleData;
+  const brushState = colorCycleData?.brushState as {
+    layers?: Array<{
+      strokeData?: {
+        hasContent?: boolean;
+        paintBuffer?: unknown;
+        gradientIdBuffer?: unknown;
+        gradientDefIdBuffer?: unknown;
+      };
+    }>;
+  } | undefined;
+
+  return Boolean(
+    documentState?.hasContent === true ||
+    hasBufferLikePayload(documentState?.paintRef) ||
+    hasBufferLikePayload(documentState?.gradientIdRef) ||
+    hasBufferLikePayload(documentState?.gradientDefIdRef) ||
+    hasBufferLikePayload(colorCycleData?.gradientIdBuffer) ||
+    hasBufferLikePayload(colorCycleData?.gradientDefIdBuffer) ||
+    brushState?.layers?.some((snapshot) => (
+      snapshot.strokeData?.hasContent === true ||
+      hasBufferLikePayload(snapshot.strokeData?.paintBuffer) ||
+      hasBufferLikePayload(snapshot.strokeData?.gradientIdBuffer) ||
+      hasBufferLikePayload(snapshot.strokeData?.gradientDefIdBuffer)
+    ))
+  );
+};
+
 export type UpdateLayerOptions = {
   skipColorCycleSync?: boolean;
 };
@@ -433,7 +483,11 @@ export const createLayersSlice = (
           if (
             !latestLayer ||
             latestLayer.layerType !== 'color-cycle' ||
-            !latestLayer.colorCycleData?.deferredRuntimeRestore
+            !latestLayer.colorCycleData ||
+            (
+              !latestLayer.colorCycleData.deferredRuntimeRestore &&
+              !hasColorCycleCanonicalRuntimeSource(latestLayer)
+            )
           ) {
             return;
           }
@@ -3608,10 +3662,18 @@ export const createLayersSlice = (
       return false;
     }
 
+    const hasRuntimeBrush = Boolean(colorCycleBrushManager.getBrush(layerId));
+    const hasCanonicalRuntimeSource = hasColorCycleCanonicalRuntimeSource(layer);
+
     if (isColdColorCycleLayer(layer)) {
-      if (!layer.colorCycleData.deferredRuntimeRestore) {
+      if (
+        !layer.colorCycleData.deferredRuntimeRestore &&
+        !hasCanonicalRuntimeSource
+      ) {
         return false;
       }
+      await scheduleDeferredColorCycleRestore(layerId, target);
+    } else if (!hasRuntimeBrush && hasCanonicalRuntimeSource) {
       await scheduleDeferredColorCycleRestore(layerId, target);
     } else if (target === 'active' && getColorCycleHydrationState(layer.colorCycleData) !== 'active') {
       set((current) => ({
@@ -3630,6 +3692,10 @@ export const createLayersSlice = (
 
     const latestLayer = get().layers.find((candidate) => candidate.id === layerId);
     if (!latestLayer || latestLayer.layerType !== 'color-cycle' || !latestLayer.colorCycleData) {
+      return false;
+    }
+    const latestBrush = colorCycleBrushManager.getBrush(layerId);
+    if (!latestBrush) {
       return false;
     }
     const hydration = getColorCycleHydrationState(latestLayer.colorCycleData);

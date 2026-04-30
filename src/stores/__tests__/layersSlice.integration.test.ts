@@ -560,6 +560,53 @@ describe('layers slice integration', () => {
     expect(restoreColorCycleBrushes).not.toHaveBeenCalled();
   });
 
+  it('restores a missing runtime brush for warm archive-backed color-cycle layers', async () => {
+    const store = useAppStore.getState();
+    const layerId = store.addLayer({
+      ...createColorCycleLayerInput('Warm Missing Runtime CC Layer'),
+      colorCycleData: {
+        ...createColorCycleLayerInput('Warm Missing Runtime CC Layer').colorCycleData,
+        deferredRuntimeRestore: false,
+        runtimeHydrationState: 'warm',
+        colorCycleBrush: undefined,
+        canvas: makeCanvas(),
+        gradientIdBuffer: new Uint8Array(32 * 32).buffer,
+        gradientDefIdBuffer: new Uint16Array(32 * 32).buffer,
+      },
+    });
+
+    brushRegistry.delete(layerId);
+    mockManager.initColorCycleForLayer.mockClear();
+    (restoreColorCycleBrushes as jest.Mock).mockImplementationOnce(async (layers: Layer[]) =>
+      layers.map((layer) =>
+        layer.id === layerId
+          ? {
+              ...layer,
+              colorCycleData: {
+                ...(layer.colorCycleData as NonNullable<Layer['colorCycleData']>),
+                deferredRuntimeRestore: false,
+                runtimeHydrationState: 'active',
+                colorCycleBrush: mockBrush,
+                canvas: makeCanvas(),
+              },
+            }
+          : layer,
+      ),
+    );
+
+    const ensured = await useAppStore.getState().ensureColorCycleLayerRuntime(layerId, {
+      target: 'active',
+    });
+
+    expect(ensured).toBe(true);
+    expect(restoreColorCycleBrushes).toHaveBeenCalledWith(
+      [expect.objectContaining({ id: layerId })],
+      { lazy: false, activeLayerId: layerId },
+    );
+    expect(useAppStore.getState().getLayerColorCycleBrush(layerId)).toBe(mockBrush);
+    expect(mockManager.initColorCycleForLayer).not.toHaveBeenCalled();
+  });
+
   it('rebuilds slot usage from canonical gradientDefIdBuffer state', () => {
     const colorCycleLayer: Layer = {
       id: 'layer-slot-gc',
