@@ -91,6 +91,19 @@ const hasCcPayload = (value: unknown): boolean => {
   return typeof value === 'string' && value.length > 0;
 };
 
+const brushStateHasCcPayload = (brushState: unknown): boolean => {
+  const snapshots = (brushState as { layers?: Array<{ strokeData?: Record<string, unknown> }> } | undefined)?.layers;
+  return Boolean(snapshots?.some((snapshot) => {
+    const strokeData = snapshot.strokeData;
+    return Boolean(
+      strokeData?.hasContent === true ||
+      hasCcPayload(strokeData?.paintBuffer) ||
+      hasCcPayload(strokeData?.gradientIdBuffer) ||
+      hasCcPayload(strokeData?.gradientDefIdBuffer)
+    );
+  }));
+};
+
 type BrushPerfWindow = Window & {
   __vesselBrushProfileEnabled?: boolean;
   __vesselBrushProfile?: {
@@ -179,6 +192,7 @@ type FillOptions = {
 
 type LayerStrokeState = {
   hasContent: boolean;
+  contentIsOptimistic: boolean;
   strokeCounter: number;
   stampCounter: number;
   strokePhaseUnits: number;
@@ -704,6 +718,9 @@ export class ColorCycleBrushCanvas2D {
 
     if (typeof params.after?.hasContent === 'boolean') {
       strokeData.hasContent = params.after.hasContent;
+      if (!params.after.hasContent) {
+        strokeData.contentIsOptimistic = false;
+      }
     }
     if (typeof params.after?.strokeCounter === 'number') {
       strokeData.strokeCounter = params.after.strokeCounter;
@@ -1130,12 +1147,13 @@ export class ColorCycleBrushCanvas2D {
     });
   }
 
-  private createLayerStrokeState(options?: { hasContent?: boolean; bufferSize?: number }): LayerStrokeState {
+  private createLayerStrokeState(options?: { hasContent?: boolean; bufferSize?: number; contentIsOptimistic?: boolean }): LayerStrokeState {
     const size = Math.max(0, Math.floor(options?.bufferSize ?? this.width * this.height));
     const initialStrokeCycleSpeed = this.getResolvedWriteCycleSpeed();
     const initialStrokeSpeedByte = encodeColorCycleSpeedByte(initialStrokeCycleSpeed);
     return {
       hasContent: Boolean(options?.hasContent),
+      contentIsOptimistic: Boolean(options?.contentIsOptimistic),
       strokeCounter: 0,
       stampCounter: 0,
       strokePhaseUnits: 0,
@@ -1474,10 +1492,11 @@ export class ColorCycleBrushCanvas2D {
     const animator = this.ensureFullResolution(id, 'stroke');
     let strokeData = this.layerStrokes.get(id);
     if (!strokeData) {
-      strokeData = this.createLayerStrokeState({ hasContent: true });
+      strokeData = this.createLayerStrokeState({ hasContent: true, contentIsOptimistic: true });
       this.layerStrokes.set(id, strokeData);
     } else if (!strokeData.hasContent) {
       strokeData.hasContent = true;
+      strokeData.contentIsOptimistic = true;
       if (strokeData.buffers.paint.length !== this.width * this.height) {
         strokeData.buffers.paint = new Uint8Array(this.width * this.height);
       }
@@ -2103,6 +2122,13 @@ export class ColorCycleBrushCanvas2D {
       }
 
       // Paint with specific color index and pressure-modulated size
+      const halfPressureSize = Math.max(0.5, pressureSize / 2);
+      const stampMayTouchCanvas =
+        pressureSize > 0 &&
+        x + halfPressureSize >= 0 &&
+        y + halfPressureSize >= 0 &&
+        x - halfPressureSize < this.width &&
+        y - halfPressureSize < this.height;
       if (useStampDither) {
         const config: StampDitherConfig = {
           algorithm: this.stampDitherAlgorithm ?? 'sierra-lite',
@@ -2283,6 +2309,9 @@ export class ColorCycleBrushCanvas2D {
       }
 
       // Update tracking
+      if (stampMayTouchCanvas) {
+        this.markStrokeStateContentWritten(strokeData);
+      }
       strokeData.lastPoint = { x, y };
       strokeData.stampCounter++;
     }
@@ -2467,6 +2496,9 @@ export class ColorCycleBrushCanvas2D {
     }
 
     strokeData.lastPoint = { x, y };
+    if (wrotePixels > 0) {
+      this.markStrokeStateContentWritten(strokeData);
+    }
     strokeData.stampCounter++;
 
     this.dirtyLayers.add(id);
@@ -3024,6 +3056,28 @@ export class ColorCycleBrushCanvas2D {
     }
   }
 
+  private strokeStateHasContent(strokeData: LayerStrokeState | undefined): boolean {
+    if (!strokeData) {
+      return false;
+    }
+    return Boolean(
+      (strokeData.hasContent && !strokeData.contentIsOptimistic) ||
+      this.paintBufferHasContent(
+        strokeData.buffers.paint,
+        this.width,
+        this.height
+      )
+    );
+  }
+
+  private markStrokeStateContentWritten(strokeData: LayerStrokeState | undefined): void {
+    if (!strokeData) {
+      return;
+    }
+    strokeData.hasContent = true;
+    strokeData.contentIsOptimistic = false;
+  }
+
 
   private captureRegionU8(
     src: Uint8Array,
@@ -3302,6 +3356,7 @@ export class ColorCycleBrushCanvas2D {
 
     if (strokeData && !strokeData.hasContent) {
       strokeData.hasContent = true;
+      strokeData.contentIsOptimistic = true;
     }
     if (strokeData) {
       const expected = this.width * this.height;
@@ -3637,11 +3692,7 @@ export class ColorCycleBrushCanvas2D {
       const snapshotFlowBuffer: ArrayBuffer | undefined = strokeData.buffers.flow.slice().buffer;
       const snapshotGradientDefIdBuffer: ArrayBuffer | undefined = strokeData.buffers.def.slice().buffer;
 
-      const hasContent = this.paintBufferHasContent(
-        strokeData.buffers.paint,
-        this.width,
-        this.height
-      );
+      const hasContent = this.strokeStateHasContent(strokeData);
       strokeData.hasContent = hasContent;
       strokeData.snapshot = {
         paintBuffer: snapshotBuffer,
@@ -3686,6 +3737,7 @@ export class ColorCycleBrushCanvas2D {
             hasCcPayload(documentState?.gradientDefIdRef) ||
             hasCcPayload(layer.colorCycleData.gradientIdBuffer) ||
             hasCcPayload(layer.colorCycleData.gradientDefIdBuffer) ||
+            brushStateHasCcPayload(layer.colorCycleData.brushState) ||
             layer.colorCycleData.repairStatus?.ok === false
           );
           if (!hasContent && hasCanonicalContentSource) {
@@ -3693,13 +3745,15 @@ export class ColorCycleBrushCanvas2D {
               event: 'cc-empty-live-buffer-write-blocked',
               layerId: layer.id,
               reason: 'endStroke',
-              severity: 'warn',
+              severity: 'error',
               before: summarizeColorCycleLayer(layer),
               after: summarizeColorCycleLayer(layer),
               details: {
                 paintBufferBytes: strokeData.buffers.paint.byteLength,
                 gradientIdBufferBytes: strokeData.buffers.gid.byteLength,
                 gradientDefIdBufferBytes: strokeData.buffers.def.byteLength,
+                strokeDataHadContent: strokeData.hasContent,
+                brushStateHasPayload: brushStateHasCcPayload(layer.colorCycleData.brushState),
                 repairStatus: layer.colorCycleData.repairStatus?.reason ?? null,
                 stateHasContent: documentState?.hasContent ?? null,
               },
@@ -3729,11 +3783,7 @@ export class ColorCycleBrushCanvas2D {
     const flow = strokeData.buffers.flow;
     const phase = strokeData.buffers.phase;
     const def = strokeData.buffers.def;
-    const hasContent = this.paintBufferHasContent(
-      paint,
-      this.width,
-      this.height
-    );
+    const hasContent = this.strokeStateHasContent(strokeData);
     strokeData.hasContent = hasContent;
     strokeData.snapshot = {
       paintBuffer: paint.length > 0 ? paint.slice().buffer : new ArrayBuffer(0),
@@ -3875,12 +3925,13 @@ export class ColorCycleBrushCanvas2D {
     const yieldIfNeeded = createYieldController();
     // Initialize stroke data BEFORE getting animator
     if (!this.layerStrokes.has(id)) {
-      this.layerStrokes.set(id, this.createLayerStrokeState({ hasContent: true }));
+      this.layerStrokes.set(id, this.createLayerStrokeState({ hasContent: true, contentIsOptimistic: true }));
     }
 
     const strokeData = this.layerStrokes.get(id);
     if (strokeData) {
       strokeData.hasContent = true;
+      strokeData.contentIsOptimistic = true;
       strokeData.skipStampDitherFinalize = true;
       this.refreshShapeFillWriteSpeed(strokeData);
       if (strokeData.buffers.paint.length === 0) {
@@ -4214,6 +4265,7 @@ export class ColorCycleBrushCanvas2D {
       const clamped = Math.max(0, Math.min(255, colorIndex | 0));
       const idx = y * linearBufferWidth + x;
       linearBuffer[idx] = clamped;
+      this.markStrokeStateContentWritten(strokeData);
       linearGradientId[idx] = clamped === 0 ? 0 : flowSlot;
       linearSpeedData[idx] = clamped === 0 ? 0 : speedByte;
       linearFlowData[idx] = clamped === 0 ? 0 : flowByte;
@@ -4952,12 +5004,13 @@ export class ColorCycleBrushCanvas2D {
 
     // Initialize stroke data BEFORE getting animator
     if (!this.layerStrokes.has(id)) {
-      this.layerStrokes.set(id, this.createLayerStrokeState({ hasContent: true }));
+      this.layerStrokes.set(id, this.createLayerStrokeState({ hasContent: true, contentIsOptimistic: true }));
     }
 
     const strokeData = this.layerStrokes.get(id);
     if (strokeData) {
       strokeData.hasContent = true;
+      strokeData.contentIsOptimistic = true;
       strokeData.skipStampDitherFinalize = true;
       this.refreshShapeFillWriteSpeed(strokeData);
       // Ensure full-size buffer
@@ -5281,6 +5334,7 @@ export class ColorCycleBrushCanvas2D {
       const clamped = Math.max(0, Math.min(255, colorIndex | 0));
       const idx = y * concentricWidth + x;
       concentricBuffer[idx] = clamped;
+      this.markStrokeStateContentWritten(strokeData);
       concentricGradientId[idx] = clamped === 0 ? 0 : flowSlot;
       concentricSpeedData[idx] = clamped === 0 ? 0 : speedByte;
       concentricFlowData[idx] = clamped === 0 ? 0 : flowByte;
@@ -7098,7 +7152,9 @@ export class ColorCycleBrushCanvas2D {
         this.width,
         this.height,
       );
-      const hasContent = Boolean(serializedPaintHasContent);
+      const hasContent = strokeData
+        ? this.strokeStateHasContent(strokeData)
+        : Boolean(snapshot?.hasContent ?? serializedPaintHasContent);
       if (strokeData) {
         strokeData.hasContent = hasContent;
       }
@@ -7375,11 +7431,7 @@ export class ColorCycleBrushCanvas2D {
       : snapshot?.phaseBuffer && snapshot.phaseBuffer.byteLength > 0
         ? snapshot.phaseBuffer.slice(0)
         : undefined;
-    const hasContent = this.paintBufferHasContent(
-      paintBuffer.byteLength > 0 ? new Uint8Array(paintBuffer) : undefined,
-      this.width,
-      this.height,
-    );
+    const hasContent = this.strokeStateHasContent(strokeData);
     strokeData.hasContent = hasContent;
     return {
       paintBuffer,
@@ -7601,6 +7653,7 @@ export class ColorCycleBrushCanvas2D {
     }
 
     strokeData.hasContent = hasLayerContent;
+    strokeData.contentIsOptimistic = false;
     strokeData.externalBase.hasExternalBase = false;
     strokeData.strokeCounter = snapshot.strokeCounter || 0;
     strokeData.lastPoint = null;

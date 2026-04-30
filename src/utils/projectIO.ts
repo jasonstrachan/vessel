@@ -46,6 +46,10 @@ import {
   type DeferredColorCycleArchiveRuntime,
   type PersistedColorCycleBrushState as PersistenceBrushState,
 } from '@/lib/colorCycle/persistence';
+import {
+  logCCMutation,
+  summarizeSerializedColorCycleLayer,
+} from '@/utils/colorCycle/ccMutationAudit';
 import { repairLegacyColorCycleLayer, type ColorCycleLegacyRepairResult } from '@/lib/colorCycle/legacyRepair';
 import {
   PROJECT_ARCHIVE_MANIFEST_VERSION,
@@ -2057,6 +2061,55 @@ export const analyzeProjectArchiveRefs = async (
   return analyzeVesselProjectArchiveRefs(vesselProject, { binaryPaths, payloadPaths });
 };
 
+const summarizeSerializedLayerArchiveRefState = (
+  layer: SerializedLayer | undefined,
+): Record<string, unknown> | null => {
+  if (!layer) {
+    return null;
+  }
+
+  const state = layer.state && 'dimensions' in layer.state
+    ? layer.state as SerializedColorCycleLayerStateV1
+    : undefined;
+  const brushSnapshot = getSerializedBrushSnapshotForLayer(
+    layer.colorCycleData?.brushState as PersistedColorCycleBrushState | undefined,
+    layer.id,
+  );
+  return {
+    id: layer.id,
+    name: layer.name,
+    layerType: layer.layerType,
+    state: state
+      ? {
+          hasContent: state.hasContent,
+          paintSlot: state.paintSlot,
+          strokeCounter: state.strokeCounter,
+          paintRef: state.paintRef,
+          gradientIdRef: state.gradientIdRef,
+          gradientDefIdRef: state.gradientDefIdRef,
+          speedRef: state.speedRef,
+          flowRef: state.flowRef,
+          phaseRef: state.phaseRef,
+          gradientDefStoreCount: state.gradientDefStore?.length ?? 0,
+          slotPaletteCount: state.slotPalettes?.length ?? 0,
+        }
+      : null,
+    brushState: brushSnapshot
+      ? {
+          hasContent: brushSnapshot.strokeData?.hasContent,
+          paintSlot: brushSnapshot.paintSlot,
+          strokeCounter: brushSnapshot.strokeData?.strokeCounter,
+          paintBuffer: brushSnapshot.strokeData?.paintBuffer,
+          gradientIdBuffer: brushSnapshot.strokeData?.gradientIdBuffer,
+          gradientDefIdBuffer: brushSnapshot.strokeData?.gradientDefIdBuffer,
+          speedBuffer: brushSnapshot.strokeData?.speedBuffer,
+          flowBuffer: brushSnapshot.strokeData?.flowBuffer,
+          phaseBuffer: brushSnapshot.strokeData?.phaseBuffer,
+        }
+      : null,
+  };
+};
+
 const assertSerializedArchiveRefsComplete = (
   vesselProject: VesselProject,
   archiveBinaryEntries: ArchiveBinaryEntry[],
@@ -2069,6 +2122,36 @@ const assertSerializedArchiveRefsComplete = (
   }
 
   const first = analysis.issues[0];
+  const layer = first.layerId
+    ? vesselProject.project.layers.find((candidate) => candidate.id === first.layerId)
+    : undefined;
+  const colorCycleState = layer?.state && 'dimensions' in layer.state
+    ? layer.state as SerializedColorCycleLayerStateV1
+    : undefined;
+  logCCMutation({
+    event: 'project-save-dangling-archive-ref',
+    layerId: first.layerId ?? 'unknown',
+    reason: 'serializeProject',
+    severity: 'error',
+    before: layer?.layerType === 'color-cycle'
+      ? summarizeSerializedColorCycleLayer({
+          layerId: layer.id,
+          hasContent: colorCycleState?.hasContent,
+          gradientDefStoreCount: colorCycleState?.gradientDefStore?.length,
+          slotPaletteCount: colorCycleState?.slotPalettes?.length,
+        })
+      : null,
+    after: null,
+    details: {
+      firstIssue: first,
+      issueCount: analysis.issues.length,
+      issues: analysis.issues.slice(0, 12),
+      manifestEntryCount: binaryPaths.size,
+      payloadEntryCount: payloadPaths.size,
+      archiveBinaryEntryCount: archiveBinaryEntries.length,
+      serializedLayer: summarizeSerializedLayerArchiveRefState(layer),
+    },
+  });
   throw new Error(
     `Project save produced dangling archive ref ${first.path} at ${first.locations.join(', ')}`
   );
@@ -2512,6 +2595,10 @@ type LazyColorCycleArchiveRuntime = {
   archiveZip: JSZip;
   binaryManifest: ArchiveBinaryManifestIndex;
   cache: Map<string, string>;
+  paintRef?: string;
+  speedRef?: string;
+  flowRef?: string;
+  phaseRef?: string;
   gradientIdRef?: string;
   gradientDefIdRef?: string;
   brushState?: PersistedColorCycleBrushState;
@@ -4950,6 +5037,10 @@ export async function deserializeProjectWithReport(
           archiveZip,
           binaryManifest,
           cache: archiveCache,
+          paintRef: colorCycleState.paintRef,
+          speedRef: colorCycleState.speedRef,
+          flowRef: colorCycleState.flowRef,
+          phaseRef: colorCycleState.phaseRef,
           gradientIdRef: colorCycleState.gradientIdRef,
           gradientDefIdRef: colorCycleState.gradientDefIdRef,
           brushState: layer.colorCycleData?.brushState,

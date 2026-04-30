@@ -776,3 +776,24 @@ The smoking gun is an `endStroke -> updateLayer` stack where `before.hasContent 
   - `npm test -- src/stores/helpers/__tests__/colorCycleSelection.test.ts src/stores/__tests__/selectionFramebufferDelete.test.ts --runInBand`
   - `npm run type-check`
   - `npm run lint`
+
+2026-04-30 follow-up:
+
+- `endStroke()` no longer re-derives layer occupancy only from non-zero paint bytes. It preserves the tracked stroke `hasContent` flag, so valid slot-0 CC content is not rewritten as empty during stroke finalization, snapshot export, or brush serialization.
+- The empty-live-buffer store-sync blocker now treats persisted `brushState` CC payloads as canonical content, not only hydrated top-level gradient buffers.
+- Deferred archive runtime now stores `paintRef`, `speedRef`, `flowRef`, and `phaseRef` alongside gradient refs so cold archive-backed layers can be serialized from full canonical refs before warm hydration.
+- If save/autosave still produces a dangling archive ref, it now persists a `project-save-dangling-archive-ref` entry in `VESSEL_CC_MUTATION_LOG` with the first missing path, all nearby issues, manifest/payload entry counts, and the serialized layer state refs.
+- If `endStroke()` still tries to sync an empty live buffer over canonical CC content, the `cc-empty-live-buffer-write-blocked` event is now persisted as severity `error` in production logs.
+- Added regression coverage for slot-0 content surviving `endStroke()` and serialize.
+- Added regression coverage that the dangling-save failure writes the concrete mutation-log event.
+- Verified:
+  - `npm test -- --runTestsByPath src/hooks/brushEngine/__tests__/ColorCycleBrushCanvas2D.regression.test.ts --runInBand`
+  - `npm test -- --runTestsByPath src/lib/colorCycle/persistence/__tests__/captureColorCyclePersistenceSnapshot.test.ts src/utils/__tests__/projectIO.test.ts --runInBand`
+  - `npm test -- --runTestsByPath src/utils/__tests__/projectIO.test.ts --runInBand`
+  - `npm run type-check`
+
+Capture if the bug still reproduces:
+
+```js
+copy(JSON.stringify((window.__VESSEL_GET_CC_MUTATION_LOG__?.() ?? []).filter(e => e.event === 'project-save-dangling-archive-ref' || e.event === 'cc-empty-live-buffer-write-blocked' || e.event === 'layer-update-destructive' || e.event === 'color-cycle-layer-cleared').slice(-20), null, 2))
+```
