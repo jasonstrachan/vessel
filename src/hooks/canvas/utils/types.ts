@@ -33,6 +33,7 @@ export interface FloatingPaste {
   colorCycleGradientDefs?: TransferredColorCycleGradientDef[] | null;
   colorCycleSpeed?: Uint8Array | null;
   colorCycleFlow?: Uint8Array | null;
+  colorCyclePhase?: Uint8Array | null;
 }
 
 export interface CanvasState {

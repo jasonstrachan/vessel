@@ -5,6 +5,7 @@ import { captureColorCycleBrushState } from '@/history/helpers/colorCycle';
 import type { ColorCycleSerializedState } from '@/history/helpers/colorCycle';
 import { commitLayerHistory } from '@/history/helpers/layerHistory';
 import { requestGradientApply } from '@/hooks/brushEngine/ccGradientApplyScheduler';
+import { showAppFeedback } from '@/utils/appFeedback';
 import { debugLog, debugWarn, logError } from '@/utils/debug';
 import {
   mergeTransferredColorCycleSlotPalettes,
@@ -445,13 +446,14 @@ export const createSelectionPasteHelpers = ({
   captureCanvasToActiveLayer: CaptureFn;
 }) => {
   const commitFloatingPaste = async (): Promise<void> => {
-    const state = get();
+    let state = get();
     const { floatingPaste, layers, activeLayerId, project } = state;
 
     if (!floatingPaste || !project) {
       return;
     }
 
+    const originalFloatingPaste = floatingPaste;
     const targetLayerId = activeLayerId ?? layers[0]?.id;
     if (!targetLayerId) {
       return;
@@ -462,6 +464,44 @@ export const createSelectionPasteHelpers = ({
       return;
     }
     let targetLayer = activeLayer;
+
+    if (
+      targetLayer.layerType === 'color-cycle' &&
+      targetLayer.colorCycleData &&
+      (
+        targetLayer.colorCycleData.deferredRuntimeRestore === true ||
+        targetLayer.colorCycleData.runtimeHydrationState === 'cold'
+      ) &&
+      typeof state.ensureColorCycleLayerRuntime === 'function'
+    ) {
+      showAppFeedback('Preparing color-cycle layer... 0%');
+      const progressTimer = globalThis.setTimeout(() => {
+        showAppFeedback('Preparing color-cycle layer... 56%');
+      }, 120);
+      const warmed = await state.ensureColorCycleLayerRuntime(targetLayer.id, { target: 'active' });
+      globalThis.clearTimeout(progressTimer);
+      state = get();
+      if (
+        state.floatingPaste !== originalFloatingPaste ||
+        (state.activeLayerId ?? state.layers[0]?.id) !== targetLayerId ||
+        state.project !== project
+      ) {
+        return;
+      }
+      const warmedLayer = state.layers.find((layer) => layer.id === targetLayer.id);
+      if (!warmed || !warmedLayer || warmedLayer.layerType !== 'color-cycle') {
+        showAppFeedback('This color-cycle layer is preview-only and cannot be edited');
+        state.addNotification?.({
+          type: 'warning',
+          title: 'Paste blocked',
+          message: 'This color-cycle layer is still preparing. Try again when it is ready.',
+          timestamp: new Date(),
+        });
+        return;
+      }
+      showAppFeedback('Color-cycle layer ready');
+      targetLayer = warmedLayer;
+    }
 
     const beforeColorState =
       targetLayer.layerType === 'color-cycle'

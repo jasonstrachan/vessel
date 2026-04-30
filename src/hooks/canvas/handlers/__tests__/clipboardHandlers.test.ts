@@ -46,6 +46,7 @@ describe('createClipboardHandlers', () => {
     }];
     const ccSpeed = new Uint8Array([13, 14, 15, 16]);
     const ccFlow = new Uint8Array([17, 18, 19, 20]);
+    const ccPhase = new Uint8Array([21, 22, 23, 24]);
     deps.selectionClipboardRef = {
       current: {
         imageData: new ImageData(2, 2),
@@ -59,6 +60,7 @@ describe('createClipboardHandlers', () => {
         colorCycleGradientDefs: ccGradientDefs,
         colorCycleSpeed: ccSpeed,
         colorCycleFlow: ccFlow,
+        colorCyclePhase: ccPhase,
         colorCycleSourceLayerId: 'layer-cc',
       },
     } as ClipboardDeps['selectionClipboardRef'];
@@ -91,6 +93,7 @@ describe('createClipboardHandlers', () => {
         colorCycleGradientDefs: ccGradientDefs,
         colorCycleSpeed: ccSpeed,
         colorCycleFlow: ccFlow,
+        colorCyclePhase: ccPhase,
       })
     );
   });

@@ -7046,7 +7046,6 @@ export class ColorCycleBrushCanvas2D {
         this.snapshotFromBuffers(strokeData);
       }
       const snapshot = strokeData?.snapshot;
-      const hasContent = strokeData?.hasContent ?? snapshot?.hasContent ?? false;
 
       let paintBuffer: ArrayBuffer = new ArrayBuffer(0);
       let gradientIdBuffer: ArrayBuffer | undefined = undefined;
@@ -7093,6 +7092,15 @@ export class ColorCycleBrushCanvas2D {
         } else if (snapshot?.phaseBuffer && snapshot.phaseBuffer.byteLength > 0) {
           phaseBuffer = snapshot.phaseBuffer.slice(0);
         }
+      }
+      const serializedPaintHasContent = this.paintBufferHasContent(
+        paintBuffer.byteLength > 0 ? new Uint8Array(paintBuffer) : undefined,
+        this.width,
+        this.height,
+      );
+      const hasContent = Boolean(serializedPaintHasContent);
+      if (strokeData) {
+        strokeData.hasContent = hasContent;
       }
       const strokeCounter = strokeData?.strokeCounter ?? snapshot?.strokeCounter ?? this.strokeCounter;
       const colorCycleMeta = this.getLayerColorCycleMeta(layerId);
@@ -7367,6 +7375,12 @@ export class ColorCycleBrushCanvas2D {
       : snapshot?.phaseBuffer && snapshot.phaseBuffer.byteLength > 0
         ? snapshot.phaseBuffer.slice(0)
         : undefined;
+    const hasContent = this.paintBufferHasContent(
+      paintBuffer.byteLength > 0 ? new Uint8Array(paintBuffer) : undefined,
+      this.width,
+      this.height,
+    );
+    strokeData.hasContent = hasContent;
     return {
       paintBuffer,
       gradientIdBuffer,
@@ -7374,7 +7388,7 @@ export class ColorCycleBrushCanvas2D {
       speedBuffer,
       flowBuffer,
       phaseBuffer,
-      hasContent: !!strokeData.hasContent,
+      hasContent,
       strokeCounter: strokeData.strokeCounter ?? snapshot?.strokeCounter ?? 0
     };
   }
@@ -7417,19 +7431,22 @@ export class ColorCycleBrushCanvas2D {
         : animatorIndex?.phaseData;
     const existing = this.layerStrokes.get(layerId);
     const expectedSize = this.width * this.height;
-    const incoming = new Uint8Array(buffer);
-    const incomingGradient = gradientBuffer ? new Uint8Array(gradientBuffer) : null;
-    const incomingGradientDef = gradientDefBuffer ? new Uint16Array(gradientDefBuffer) : null;
-    const incomingSpeed = speedBuffer ? new Uint8Array(speedBuffer) : null;
-    const incomingFlow = flowBuffer ? new Uint8Array(flowBuffer) : null;
-    const incomingPhase = phaseBuffer ? new Uint8Array(phaseBuffer) : null;
     const expectsContent = Boolean(snapshot.hasContent);
+    const selectedPaint = new Uint8Array(buffer);
+    const selectedPaintHasContent = selectedPaint.some((value) => value !== 0);
+    const isExplicitEmptySnapshot = !expectsContent && !selectedPaintHasContent;
+    const incoming = isExplicitEmptySnapshot ? new Uint8Array(0) : selectedPaint;
+    const incomingGradient = !isExplicitEmptySnapshot && gradientBuffer ? new Uint8Array(gradientBuffer) : null;
+    const incomingGradientDef = !isExplicitEmptySnapshot && gradientDefBuffer ? new Uint16Array(gradientDefBuffer) : null;
+    const incomingSpeed = !isExplicitEmptySnapshot && speedBuffer ? new Uint8Array(speedBuffer) : null;
+    const incomingFlow = !isExplicitEmptySnapshot && flowBuffer ? new Uint8Array(flowBuffer) : null;
+    const incomingPhase = !isExplicitEmptySnapshot && phaseBuffer ? new Uint8Array(phaseBuffer) : null;
     const hadExistingContent = existing?.hasContent ?? false;
     const shouldAuditPotentialClear =
       options?.suppressClearAudit !== true &&
       hadExistingContent &&
       !expectsContent &&
-      !animatorIndex?.data;
+      !selectedPaintHasContent;
     const beforeMutation = shouldAuditPotentialClear
       ? this.captureRuntimeMutationAuditSnapshot(layerId, existing)
       : null;
@@ -7467,7 +7484,7 @@ export class ColorCycleBrushCanvas2D {
         strokeData.buffers.paint.fill(0);
         strokeData.buffers.paint.set(incoming.subarray(0, copyLen));
       }
-    } else if (!expectsContent && hadExistingContent) {
+    } else if (isExplicitEmptySnapshot) {
       // Snapshot explicitly represents an empty state — clear prior contents lazily.
       strokeData.buffers.paint.fill(0);
       strokeData.buffers.def.fill(0);
@@ -7489,7 +7506,7 @@ export class ColorCycleBrushCanvas2D {
         }
         strokeData.buffers.gid[i] = raw;
       }
-    } else if (!expectsContent && hadExistingContent) {
+    } else if (isExplicitEmptySnapshot) {
       strokeData.buffers.gid.fill(0);
     }
     if (incomingGradientDef) {
@@ -7500,7 +7517,7 @@ export class ColorCycleBrushCanvas2D {
         strokeData.buffers.def.fill(0);
         strokeData.buffers.def.set(incomingGradientDef.subarray(0, copyLen));
       }
-    } else if (!expectsContent && hadExistingContent) {
+    } else if (isExplicitEmptySnapshot) {
       strokeData.buffers.def.fill(0);
     }
     if (incomingSpeed) {
@@ -7511,7 +7528,7 @@ export class ColorCycleBrushCanvas2D {
         strokeData.buffers.spd.fill(0);
         strokeData.buffers.spd.set(incomingSpeed.subarray(0, copyLen));
       }
-    } else if (!expectsContent && hadExistingContent) {
+    } else if (isExplicitEmptySnapshot) {
       strokeData.buffers.spd.fill(0);
     }
     if (incomingFlow) {
@@ -7522,7 +7539,7 @@ export class ColorCycleBrushCanvas2D {
         strokeData.buffers.flow.fill(0);
         strokeData.buffers.flow.set(incomingFlow.subarray(0, copyLen));
       }
-    } else if (!expectsContent && hadExistingContent) {
+    } else if (isExplicitEmptySnapshot) {
       strokeData.buffers.flow.fill(0);
     }
     if (incomingPhase) {
@@ -7533,7 +7550,7 @@ export class ColorCycleBrushCanvas2D {
         strokeData.buffers.phase.fill(0);
         strokeData.buffers.phase.set(incomingPhase.subarray(0, copyLen));
       }
-    } else if (!expectsContent && hadExistingContent) {
+    } else if (isExplicitEmptySnapshot) {
       strokeData.buffers.phase.fill(0);
     }
     if (!incomingSpeed && strokeData.buffers.spd.length === expectedSize) {
@@ -7565,13 +7582,8 @@ export class ColorCycleBrushCanvas2D {
       } catch {}
     }
     let hasLayerContent = expectsContent;
-    if (!hasLayerContent && animatorIndex?.data) {
-      try {
-        const dataArr = new Uint8Array(animatorIndex.data);
-        if (dataArr.some((value) => value !== 0)) {
-          hasLayerContent = true;
-        }
-      } catch {}
+    if (!hasLayerContent && selectedPaintHasContent) {
+      hasLayerContent = true;
     }
 
     if (animatorIndex?.slotPalettes?.length) {
