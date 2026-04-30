@@ -597,13 +597,16 @@ export const createSelectionPasteHelpers = ({
       const hasColorCycleData = Boolean(resolvedColorCycleIndices && resolvedColorCycleIndices.length > 0);
 
       if (targetLayer.layerType === 'color-cycle' && !hasColorCycleData) {
+        const feedbackMessage = 'Cannot paste bitmap pixels into a CC layer';
+        const notificationMessage = 'Bitmap paste into a color-cycle layer is blocked. Paste onto a normal layer, or copy from a color-cycle layer to preserve color-cycle data.';
         debugWarn('selection-paste-cc', 'Missing color cycle indices for paste commit', {
           layerId: targetLayer.id,
         });
+        showAppFeedback(feedbackMessage);
         addNotification?.({
           type: 'warning',
           title: 'Paste blocked',
-          message: 'Bitmap paste into a color-cycle layer is blocked. Paste onto a normal layer, or copy from a color-cycle layer to preserve color-cycle data.',
+          message: notificationMessage,
           timestamp: new Date(),
         });
         return;
