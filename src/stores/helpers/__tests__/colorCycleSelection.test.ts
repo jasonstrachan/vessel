@@ -153,8 +153,18 @@ describe('colorCycleSelection helpers', () => {
 
   it('clears CC region and writes zeros', () => {
     const buffer = new Uint8Array(16).fill(5);
+    const gradientId = new Uint8Array(16).fill(6);
+    const gradientDefId = new Uint16Array(16).fill(7);
+    const speed = new Uint8Array(16).fill(8);
+    const flow = new Uint8Array(16).fill(9);
+    const phase = new Uint8Array(16).fill(10);
     mockGetLayerSnapshot.mockReturnValue({
       paintBuffer: buffer.buffer,
+      gradientIdBuffer: gradientId.buffer,
+      gradientDefIdBuffer: gradientDefId.buffer,
+      speedBuffer: speed.buffer,
+      flowBuffer: flow.buffer,
+      phaseBuffer: phase.buffer,
       hasContent: true,
       strokeCounter: 0,
     });
@@ -198,12 +208,39 @@ describe('colorCycleSelection helpers', () => {
     expect(incoming[1]).toBe(0);
     expect(incoming[4]).toBe(0);
     expect(incoming[5]).toBe(0);
+    const incomingGradientId = new Uint8Array(snapshotArg.gradientIdBuffer);
+    const incomingGradientDefId = new Uint16Array(snapshotArg.gradientDefIdBuffer);
+    const incomingSpeed = new Uint8Array(snapshotArg.speedBuffer);
+    const incomingFlow = new Uint8Array(snapshotArg.flowBuffer);
+    const incomingPhase = new Uint8Array(snapshotArg.phaseBuffer);
+    [0, 1, 4, 5].forEach((index) => {
+      expect(incomingGradientId[index]).toBe(0);
+      expect(incomingGradientDefId[index]).toBe(0);
+      expect(incomingSpeed[index]).toBe(0);
+      expect(incomingFlow[index]).toBe(0);
+      expect(incomingPhase[index]).toBe(0);
+    });
+    expect(incomingGradientId[2]).toBe(6);
+    expect(incomingGradientDefId[2]).toBe(7);
+    expect(incomingSpeed[2]).toBe(8);
+    expect(incomingFlow[2]).toBe(9);
+    expect(incomingPhase[2]).toBe(10);
   });
 
   it('permanently logs when a CC clear empties the whole layer', () => {
     const buffer = new Uint8Array(16).fill(5);
+    const gradientId = new Uint8Array(16).fill(6);
+    const gradientDefId = new Uint16Array(16).fill(7);
+    const speed = new Uint8Array(16).fill(8);
+    const flow = new Uint8Array(16).fill(9);
+    const phase = new Uint8Array(16).fill(10);
     mockGetLayerSnapshot.mockReturnValue({
       paintBuffer: buffer.buffer,
+      gradientIdBuffer: gradientId.buffer,
+      gradientDefIdBuffer: gradientDefId.buffer,
+      speedBuffer: speed.buffer,
+      flowBuffer: flow.buffer,
+      phaseBuffer: phase.buffer,
       hasContent: true,
       strokeCounter: 0,
     });
@@ -286,10 +323,11 @@ describe('colorCycleSelection helpers', () => {
             nonZeroCount: 0,
             bounds: null,
           }),
-          gradientIdAfter: expect.objectContaining({ byteLength: 16 }),
-          speedAfter: expect.objectContaining({ byteLength: 16 }),
-          flowAfter: expect.objectContaining({ byteLength: 16 }),
-          phaseAfter: expect.objectContaining({ byteLength: 16 }),
+          gradientIdAfter: expect.objectContaining({ byteLength: 16, nonZeroCount: 0 }),
+          gradientDefIdAfter: expect.objectContaining({ byteLength: 32, nonZeroCount: 0 }),
+          speedAfter: expect.objectContaining({ byteLength: 16, nonZeroCount: 0 }),
+          flowAfter: expect.objectContaining({ byteLength: 16, nonZeroCount: 0 }),
+          phaseAfter: expect.objectContaining({ byteLength: 16, nonZeroCount: 0 }),
         }),
       }),
     ]);

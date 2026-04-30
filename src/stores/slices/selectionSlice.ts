@@ -35,6 +35,14 @@ import {
 
 type AppState = import('../useAppStore').AppState;
 
+export interface SelectionActionProvenance {
+  action: 'set-bounds' | 'select-all' | 'delete-selected';
+  source: string;
+  t: number;
+  activeLayerId?: string | null;
+  bounds?: Rectangle | null;
+}
+
 export interface FloatingPasteHistoryContext {
   sourceLayerId: string;
   sourceBounds: Rectangle;
@@ -60,6 +68,7 @@ export interface SelectionSlice {
   selectionMask: ImageData | null;
   selectionMaskBounds: Rectangle | null;
   selectionMaskLayerId: string | null;
+  selectionLastAction: SelectionActionProvenance | null;
   setSelectionBounds: (
     start: { x: number; y: number } | null,
     end: { x: number; y: number } | null
@@ -75,10 +84,10 @@ export interface SelectionSlice {
   }) => void;
   clearSelection: () => void;
   adjustMarqueeSelection: (delta: number) => void;
-  selectAllActiveLayerPixels: () => void;
+  selectAllActiveLayerPixels: (source?: string) => void;
   selectLayerAlpha: (layerId?: string | null) => void;
   invertSelection: () => void;
-  deleteSelectedPixels: () => void;
+  deleteSelectedPixels: (source?: string) => void;
   extractSelectionToFloatingPaste: () => boolean;
   floatingPaste: {
     active: boolean;
@@ -728,15 +737,25 @@ export const createSelectionSlice: StateCreator<AppState, [], [], SelectionSlice
     selectionMask: null,
     selectionMaskBounds: null,
     selectionMaskLayerId: null,
+    selectionLastAction: null,
     setSelectionBounds: (start, end) =>
-      set({
+      set((state) => ({
         selectionStart: start,
         selectionEnd: end,
         selectionVectorPath: null,
         selectionMask: null,
         selectionMaskBounds: null,
         selectionMaskLayerId: null,
-      }),
+        selectionLastAction: start && end
+          ? {
+              action: 'set-bounds',
+              source: 'setSelectionBounds',
+              t: Date.now(),
+              activeLayerId: state.activeLayerId,
+              bounds: computeBoundsFromSelection(start, end),
+            }
+          : null,
+      })),
     appendSelectionBounds: (start, end) =>
       set((state) => {
         if (!start || !end) {
@@ -801,6 +820,7 @@ export const createSelectionSlice: StateCreator<AppState, [], [], SelectionSlice
         selectionMask: null,
         selectionMaskBounds: null,
         selectionMaskLayerId: null,
+        selectionLastAction: null,
       }),
     adjustMarqueeSelection: (delta) =>
       set((state) => {
@@ -858,7 +878,7 @@ export const createSelectionSlice: StateCreator<AppState, [], [], SelectionSlice
           selectionMaskLayerId: null,
         };
       }),
-    selectAllActiveLayerPixels: () => {
+    selectAllActiveLayerPixels: (source = 'selectAllActiveLayerPixels') => {
       const state = get();
       const { project, layers, activeLayerId } = state;
 
@@ -882,6 +902,13 @@ export const createSelectionSlice: StateCreator<AppState, [], [], SelectionSlice
         selectionMask: null,
         selectionMaskBounds: null,
         selectionMaskLayerId: null,
+        selectionLastAction: {
+          action: 'select-all',
+          source,
+          t: Date.now(),
+          activeLayerId,
+          bounds: { x: 0, y: 0, width, height },
+        },
       });
     },
     selectLayerAlpha: (layerId) => {
@@ -1065,7 +1092,7 @@ export const createSelectionSlice: StateCreator<AppState, [], [], SelectionSlice
         selectionMaskLayerId: state.activeLayerId ?? state.selectionMaskLayerId ?? null,
       });
     },
-    deleteSelectedPixels: () => {
+    deleteSelectedPixels: (source = 'deleteSelectedPixels') => {
       const state = get();
       const {
         selectionStart,
@@ -1073,9 +1100,11 @@ export const createSelectionSlice: StateCreator<AppState, [], [], SelectionSlice
         selectionMask,
         selectionMaskBounds,
         selectionMaskLayerId,
+        selectionLastAction,
         layers,
         activeLayerId,
         project,
+        colorCyclePlayback,
       } = state;
 
       if (!selectionStart || !selectionEnd || !project) {
@@ -1177,6 +1206,14 @@ export const createSelectionSlice: StateCreator<AppState, [], [], SelectionSlice
               selectionEnd,
               selectionMaskBounds,
               selectionMaskLayerId,
+              selectionLastAction,
+              deleteSource: source,
+              deleteTimestamp: Date.now(),
+              playbackBeforeDelete: {
+                desiredPlaying: colorCyclePlayback.desiredPlaying,
+                suspendDepth: colorCyclePlayback.suspendDepth,
+                lastReason: colorCyclePlayback.lastReason ?? null,
+              },
             },
           }
         );

@@ -266,6 +266,7 @@ import {
 } from '@/stores/helpers/layerStructureHistory';
 import { createSelectionSlice } from '@/stores/slices/selectionSlice';
 import type { FloatingPasteHistoryContext } from '@/stores/slices/selectionSlice';
+import type { SelectionActionProvenance } from '@/stores/slices/selectionSlice';
 import type { SelectionClipboardPayload } from '@/stores/slices/selectionSlice';
 import { createCanvasSlice } from '@/stores/slices/canvasSlice';
 import { createCanvasShapeSlice, type CanvasShapeEditorState } from '@/stores/slices/canvasShapeSlice';
@@ -423,6 +424,7 @@ export interface AppState {
   selectionMask: ImageData | null;
   selectionMaskBounds: Rectangle | null;
   selectionMaskLayerId: string | null;
+  selectionLastAction: SelectionActionProvenance | null;
   setSelectionBounds: (start: { x: number; y: number } | null, end: { x: number; y: number } | null) => void;
   appendSelectionBounds: (start: { x: number; y: number } | null, end: { x: number; y: number } | null) => void;
   appendSelectionMask: (payload: {
@@ -432,10 +434,10 @@ export interface AppState {
   }) => void;
   clearSelection: () => void;
   adjustMarqueeSelection: (delta: number) => void;
-  selectAllActiveLayerPixels: () => void;
+  selectAllActiveLayerPixels: (source?: string) => void;
   selectLayerAlpha: (layerId?: string | null) => void;
   invertSelection: () => void;
-  deleteSelectedPixels: () => void;
+  deleteSelectedPixels: (source?: string) => void;
   extractSelectionToFloatingPaste: () => boolean;
   copySelectionToClipboard: (options?: { mode?: 'copy' | 'cut' }) => Promise<boolean>;
   clearSelectionClipboard: () => void;

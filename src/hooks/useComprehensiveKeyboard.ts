@@ -451,7 +451,7 @@ export function useComprehensiveKeyboard({
 
     if (scopedShortcut === 'select-all') {
       event.preventDefault();
-      selectAllActiveLayerPixels();
+      selectAllActiveLayerPixels('keyboard-select-all');
       await switchTool('selection');
       return;
     }
@@ -601,7 +601,7 @@ export function useComprehensiveKeyboard({
         return;
       }
       if (selectionStart && selectionEnd) {
-        deleteSelectedPixels();
+        deleteSelectedPixels('keyboard-delete');
       }
       return;
     }

@@ -12,6 +12,7 @@ import {
   type CCReason
 } from '@/stores/useAppStore';
 import type { Layer } from '@/types';
+import { logCCMutation } from '@/utils/colorCycle/ccMutationAudit';
 
 declare global {
   interface Window {
@@ -142,6 +143,23 @@ export const toggleGlobalColorCyclePlayback = async (
 export const toggleToolbarColorCyclePlayback = async (): Promise<void> => {
   const snapshot = useAppStore.getState();
   const action = selectColorCyclePlaybackToggleAction(snapshot);
+  logCCMutation({
+    event: 'color-cycle-playback-toggle',
+    severity: 'info',
+    layerId: snapshot.activeLayerId ?? 'global',
+    reason: 'toolbar',
+    details: {
+      action,
+      desiredPlayingBefore: snapshot.colorCyclePlayback.desiredPlaying,
+      suspendDepthBefore: snapshot.colorCyclePlayback.suspendDepth,
+      activeLayerId: snapshot.activeLayerId,
+      activeLayerType: snapshot.layers.find((layer) => layer.id === snapshot.activeLayerId)?.layerType ?? null,
+      selectionStart: snapshot.selectionStart,
+      selectionEnd: snapshot.selectionEnd,
+      selectionMaskBounds: snapshot.selectionMaskBounds,
+      selectionLastAction: snapshot.selectionLastAction,
+    },
+  });
 
   if (action === 'pause') {
     await toggleGlobalColorCyclePlayback(false, 'toolbar');

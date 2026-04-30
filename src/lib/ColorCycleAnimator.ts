@@ -292,7 +292,9 @@ export class ColorCycleAnimator implements CCIndexSurface {
       }
     }
     if (missing !== null) {
-      console.assert(false, '[CC] Missing def palette for defId', { defId: missing });
+      debugWarn('cc-render', '[CC] Missing def palette for defId; falling back to base/slot palette', {
+        defId: missing,
+      });
     }
   }
 
