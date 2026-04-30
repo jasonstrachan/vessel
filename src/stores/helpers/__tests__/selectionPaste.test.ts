@@ -394,6 +394,9 @@ describe('selection paste commit', () => {
     expect(mockDeriveColorCycleIndicesFromImageData).not.toHaveBeenCalled();
     expect(commitLayerHistory).not.toHaveBeenCalled();
     expect(captureCanvasToActiveLayer).not.toHaveBeenCalled();
+    expect(showAppFeedback).toHaveBeenCalledWith(
+      'Cannot paste bitmap pixels into a CC layer'
+    );
     expect(state.addNotification).toHaveBeenCalledTimes(1);
     expect(state.floatingPaste).not.toBeNull();
   });
