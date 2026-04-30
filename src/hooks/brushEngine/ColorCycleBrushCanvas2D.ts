@@ -820,15 +820,50 @@ export class ColorCycleBrushCanvas2D {
     if (!persisted) {
       return fromStore;
     }
-    const preferNonEmptyArray = <T,>(primary: T[] | undefined, fallback: T[] | undefined): T[] | undefined => {
-      if (primary && primary.length > 0) {
-        return primary;
+    // During project restore the store can temporarily hold a smaller fallback
+    // palette set, while new commits can add defs to that smaller store before
+    // the restored snapshot has been refreshed. Merge identity-bearing arrays
+    // from the richer metadata source first so temporary fallback entries do
+    // not shadow archive entries for pixels that already reference them.
+    const metadataWeight = (meta: SerializedLayerColorCycleMeta | null): number => {
+      if (!meta) {
+        return 0;
       }
-      return fallback;
+      return (
+        (meta.gradientDefs?.length ?? 0) +
+        (meta.slotPalettes?.length ?? 0) +
+        (meta.gradientDefStore?.length ?? 0) +
+        (typeof meta.paintSlot === 'number' ? 1 : 0) +
+        (typeof meta.activeGradientId === 'string' && meta.activeGradientId.length > 0 ? 1 : 0) +
+        (typeof meta.nextGradientDefId === 'number' ? 1 : 0)
+      );
     };
-    const gradientDefs = preferNonEmptyArray(fromStore.gradientDefs, persisted.gradientDefs);
-    const slotPalettes = preferNonEmptyArray(fromStore.slotPalettes, persisted.slotPalettes);
-    const gradientDefStore = preferNonEmptyArray(fromStore.gradientDefStore, persisted.gradientDefStore);
+    const primaryMeta = metadataWeight(persisted) > metadataWeight(fromStore)
+      ? persisted
+      : fromStore;
+    const fallbackMeta = primaryMeta === persisted ? fromStore : persisted;
+    const mergeByKey = <T, K>(
+      primary: T[] | undefined,
+      fallback: T[] | undefined,
+      getKey: (entry: T) => K | null | undefined,
+    ): T[] | undefined => {
+      const merged: T[] = [];
+      const seen = new Set<K>();
+      const append = (entry: T) => {
+        const key = getKey(entry);
+        if (key === null || typeof key === 'undefined' || seen.has(key)) {
+          return;
+        }
+        seen.add(key);
+        merged.push(entry);
+      };
+      primary?.forEach(append);
+      fallback?.forEach(append);
+      return merged.length > 0 ? merged : undefined;
+    };
+    const gradientDefs = mergeByKey(primaryMeta.gradientDefs, fallbackMeta.gradientDefs, (entry) => entry.id);
+    const slotPalettes = mergeByKey(primaryMeta.slotPalettes, fallbackMeta.slotPalettes, (entry) => entry.slot);
+    const gradientDefStore = mergeByKey(primaryMeta.gradientDefStore, fallbackMeta.gradientDefStore, (entry) => entry.id);
     const hasSlot = (slot: number | undefined): boolean => {
       if (typeof slot !== 'number') {
         return false;
@@ -839,14 +874,20 @@ export class ColorCycleBrushCanvas2D {
         || gradientDefStore?.some((entry) => entry.slot === slot)
       );
     };
-    const activeGradientId = typeof fromStore.activeGradientId === 'string'
-      && fromStore.activeGradientId.length > 0
-      && (gradientDefs?.some((entry) => entry.id === fromStore.activeGradientId) ?? false)
-      ? fromStore.activeGradientId
-      : persisted.activeGradientId;
+    const resolveActiveGradientId = (): string | undefined => {
+      const candidates = [fromStore.activeGradientId, persisted.activeGradientId];
+      return candidates.find((candidate) => (
+        typeof candidate === 'string' &&
+        candidate.length > 0 &&
+        (gradientDefs?.some((entry) => entry.id === candidate) ?? false)
+      ));
+    };
+    const activeGradientId = resolveActiveGradientId();
     const paintSlot = hasSlot(fromStore.paintSlot)
       ? fromStore.paintSlot
-      : persisted.paintSlot;
+      : hasSlot(persisted.paintSlot)
+        ? persisted.paintSlot
+        : undefined;
     const nextGradientDefId = Math.max(
       fromStore.nextGradientDefId ?? 0,
       persisted.nextGradientDefId ?? 0,
@@ -857,11 +898,11 @@ export class ColorCycleBrushCanvas2D {
       gradientDefStore,
       nextGradientDefId,
       paintSlot,
-      legacyRemap: fromStore.legacyRemap ?? persisted.legacyRemap,
-      fgActiveSlot: fromStore.fgActiveSlot ?? persisted.fgActiveSlot,
-      fgDerivedKey: fromStore.fgDerivedKey ?? persisted.fgDerivedKey,
-      fgDerivedGradients: fromStore.fgDerivedGradients ?? persisted.fgDerivedGradients,
-      derivedGradients: fromStore.derivedGradients ?? persisted.derivedGradients,
+      legacyRemap: primaryMeta.legacyRemap ?? fallbackMeta.legacyRemap,
+      fgActiveSlot: primaryMeta.fgActiveSlot ?? fallbackMeta.fgActiveSlot,
+      fgDerivedKey: primaryMeta.fgDerivedKey ?? fallbackMeta.fgDerivedKey,
+      fgDerivedGradients: primaryMeta.fgDerivedGradients ?? fallbackMeta.fgDerivedGradients,
+      derivedGradients: primaryMeta.derivedGradients ?? fallbackMeta.derivedGradients,
       activeGradientId,
     };
   }
