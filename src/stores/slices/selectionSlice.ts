@@ -10,6 +10,7 @@ import {
   type ColorCycleSerializedState,
 } from '@/history/helpers/colorCycle';
 import { clearColorCycleRegion } from '@/stores/helpers/colorCycleSelection';
+import { logCCMutation, summarizeColorCycleLayer } from '@/utils/colorCycle/ccMutationAudit';
 import { createSelectionPasteHelpers } from '@/stores/helpers/selectionPaste';
 import {
   captureSelectionBitmap,
@@ -1113,6 +1114,41 @@ export const createSelectionSlice: StateCreator<AppState, [], [], SelectionSlice
 
       const activeLayer = layers.find((layer) => layer.id === activeLayerId);
       if (!activeLayer || !activeLayerId) {
+        return;
+      }
+
+      const selectionSourceLayerId = selectionLastAction?.activeLayerId ?? null;
+      if (
+        selectionLastAction?.action === 'select-all' &&
+        selectionSourceLayerId &&
+        selectionSourceLayerId !== activeLayerId
+      ) {
+        if (activeLayer.layerType === 'color-cycle') {
+          logCCMutation({
+            event: 'selection-delete-skipped-layer-mismatch',
+            layerId: activeLayerId,
+            reason: source,
+            severity: 'warn',
+            before: summarizeColorCycleLayer(activeLayer),
+            after: summarizeColorCycleLayer(activeLayer),
+            details: {
+              source,
+              selectionSource: selectionLastAction.source,
+              selectionSourceLayerId,
+              activeLayerId,
+              selectionStart,
+              selectionEnd,
+              selectionBounds: selectionLastAction.bounds ?? null,
+            },
+          });
+        } else if (process.env.NODE_ENV !== 'production') {
+          debugWarn('raw-console', '[selection] skipped stale select-all delete on different layer', {
+            source,
+            selectionSourceLayerId,
+            activeLayerId,
+          });
+        }
+        state.clearSelection();
         return;
       }
 
