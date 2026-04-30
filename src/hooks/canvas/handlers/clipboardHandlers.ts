@@ -44,6 +44,7 @@ export const createClipboardHandlers = (
       colorCycleGradientDefs: clipboardPayload.colorCycleGradientDefs ?? null,
       colorCycleSpeed: clipboardPayload.colorCycleSpeed ?? null,
       colorCycleFlow: clipboardPayload.colorCycleFlow ?? null,
+      colorCyclePhase: clipboardPayload.colorCyclePhase ?? null,
     });
 
     requestAnimationFrame(() => {

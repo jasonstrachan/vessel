@@ -2573,6 +2573,118 @@ describe('ColorCycleBrushCanvas2D regression tests', () => {
     ]);
   });
 
+  it('does not preserve stale auxiliary buffers from an explicit empty snapshot', () => {
+    const canvas = makeCanvas(4, 4);
+    const brush = new ColorCycleBrushCanvas2D(canvas, { forceCanvas2D: true });
+    const layerId = 'layer-empty-snapshot-stale-aux';
+    brush.applyLayerSnapshot(layerId, {
+      paintBuffer: new Uint8Array(16).fill(9).buffer,
+      gradientIdBuffer: new Uint8Array(16).fill(2).buffer,
+      gradientDefIdBuffer: new Uint16Array(16).fill(4).buffer,
+      speedBuffer: new Uint8Array(16).fill(5).buffer,
+      flowBuffer: new Uint8Array(16).fill(6).buffer,
+      phaseBuffer: new Uint8Array(16).fill(7).buffer,
+      hasContent: true,
+      strokeCounter: 1,
+    });
+
+    brush.applyLayerSnapshot(layerId, {
+      paintBuffer: new Uint8Array(16).fill(0).buffer,
+      gradientIdBuffer: new Uint8Array(16).fill(22).buffer,
+      gradientDefIdBuffer: new Uint16Array(16).fill(23).buffer,
+      speedBuffer: new Uint8Array(16).fill(11).buffer,
+      flowBuffer: new Uint8Array(16).fill(1).buffer,
+      phaseBuffer: new Uint8Array(16).fill(7).buffer,
+      hasContent: false,
+      strokeCounter: 2,
+    });
+
+    const snapshot = brush.getLayerSnapshot(layerId);
+    expect(snapshot?.hasContent).toBe(false);
+    expect(Array.from(new Uint8Array(snapshot?.paintBuffer ?? new ArrayBuffer(0)))).toEqual(new Array(16).fill(0));
+    expect(Array.from(new Uint8Array(snapshot?.gradientIdBuffer ?? new ArrayBuffer(0)))).toEqual(new Array(16).fill(0));
+    expect(Array.from(new Uint16Array(snapshot?.gradientDefIdBuffer ?? new ArrayBuffer(0)))).toEqual(new Array(16).fill(0));
+    expect(Array.from(new Uint8Array(snapshot?.speedBuffer ?? new ArrayBuffer(0)))).toEqual(new Array(16).fill(0));
+    expect(Array.from(new Uint8Array(snapshot?.flowBuffer ?? new ArrayBuffer(0)))).toEqual(new Array(16).fill(0));
+    expect(Array.from(new Uint8Array(snapshot?.phaseBuffer ?? new ArrayBuffer(0)))).toEqual(new Array(16).fill(0));
+  });
+
+  it('preserves non-empty paint when stale snapshot metadata says empty', () => {
+    const canvas = makeCanvas(4, 4);
+    const brush = new ColorCycleBrushCanvas2D(canvas, { forceCanvas2D: true });
+    const layerId = 'layer-false-empty-snapshot-paint';
+    brush.applyLayerSnapshot(layerId, {
+      paintBuffer: new Uint8Array(16).fill(9).buffer,
+      gradientIdBuffer: new Uint8Array(16).fill(2).buffer,
+      gradientDefIdBuffer: new Uint16Array(16).fill(4).buffer,
+      speedBuffer: new Uint8Array(16).fill(5).buffer,
+      flowBuffer: new Uint8Array(16).fill(6).buffer,
+      phaseBuffer: new Uint8Array(16).fill(7).buffer,
+      hasContent: false,
+      strokeCounter: 1,
+    });
+
+    const snapshot = brush.getLayerSnapshot(layerId);
+    expect(snapshot?.hasContent).toBe(true);
+    expect(Array.from(new Uint8Array(snapshot?.paintBuffer ?? new ArrayBuffer(0)))).toEqual(new Array(16).fill(9));
+    expect(Array.from(new Uint8Array(snapshot?.gradientIdBuffer ?? new ArrayBuffer(0)))).toEqual(new Array(16).fill(2));
+    expect(Array.from(new Uint16Array(snapshot?.gradientDefIdBuffer ?? new ArrayBuffer(0)))).toEqual(new Array(16).fill(4));
+    expect(Array.from(new Uint8Array(snapshot?.speedBuffer ?? new ArrayBuffer(0)))).toEqual(new Array(16).fill(5));
+    expect(Array.from(new Uint8Array(snapshot?.flowBuffer ?? new ArrayBuffer(0)))).toEqual(new Array(16).fill(6));
+    expect(Array.from(new Uint8Array(snapshot?.phaseBuffer ?? new ArrayBuffer(0)))).toEqual(new Array(16).fill(7));
+
+    const serializedLayer = brush.serialize().layers.find((layer) => layer.layerId === layerId);
+    expect(serializedLayer?.strokeData?.hasContent).toBe(true);
+  });
+
+  it('treats empty animator paint as explicit empty when applying a snapshot', () => {
+    const canvas = makeCanvas(4, 4);
+    const brush = new ColorCycleBrushCanvas2D(canvas, { forceCanvas2D: true });
+    const layerId = 'layer-empty-animator-stale-aux';
+    brush.applyLayerSnapshot(layerId, {
+      paintBuffer: new Uint8Array(16).fill(9).buffer,
+      gradientIdBuffer: new Uint8Array(16).fill(2).buffer,
+      gradientDefIdBuffer: new Uint16Array(16).fill(4).buffer,
+      speedBuffer: new Uint8Array(16).fill(5).buffer,
+      flowBuffer: new Uint8Array(16).fill(6).buffer,
+      phaseBuffer: new Uint8Array(16).fill(7).buffer,
+      hasContent: true,
+      strokeCounter: 1,
+    });
+
+    brush.applyLayerSnapshot(
+      layerId,
+      {
+        paintBuffer: new Uint8Array(16).fill(0).buffer,
+        gradientIdBuffer: new Uint8Array(16).fill(22).buffer,
+        gradientDefIdBuffer: new Uint16Array(16).fill(23).buffer,
+        speedBuffer: new Uint8Array(16).fill(11).buffer,
+        flowBuffer: new Uint8Array(16).fill(1).buffer,
+        phaseBuffer: new Uint8Array(16).fill(7).buffer,
+        hasContent: false,
+        strokeCounter: 2,
+      },
+      {
+        width: 4,
+        height: 4,
+        data: new Uint8Array(16).fill(0).buffer,
+        gradientIdData: new Uint8Array(16).fill(22).buffer,
+        speedData: new Uint8Array(16).fill(11).buffer,
+        flowData: new Uint8Array(16).fill(1).buffer,
+        phaseData: new Uint8Array(16).fill(7).buffer,
+      }
+    );
+
+    const snapshot = brush.getLayerSnapshot(layerId);
+    expect(snapshot?.hasContent).toBe(false);
+    expect(Array.from(new Uint8Array(snapshot?.paintBuffer ?? new ArrayBuffer(0)))).toEqual(new Array(16).fill(0));
+    expect(Array.from(new Uint8Array(snapshot?.gradientIdBuffer ?? new ArrayBuffer(0)))).toEqual(new Array(16).fill(0));
+    expect(Array.from(new Uint16Array(snapshot?.gradientDefIdBuffer ?? new ArrayBuffer(0)))).toEqual(new Array(16).fill(0));
+    expect(Array.from(new Uint8Array(snapshot?.speedBuffer ?? new ArrayBuffer(0)))).toEqual(new Array(16).fill(0));
+    expect(Array.from(new Uint8Array(snapshot?.flowBuffer ?? new ArrayBuffer(0)))).toEqual(new Array(16).fill(0));
+    expect(Array.from(new Uint8Array(snapshot?.phaseBuffer ?? new ArrayBuffer(0)))).toEqual(new Array(16).fill(0));
+  });
+
   it('persists a project-load restore clear event before replacing populated runtime paint', () => {
     window.localStorage.clear();
     delete (window as Window & { __VESSEL_CC_MUTATION_LOG__?: unknown }).__VESSEL_CC_MUTATION_LOG__;

@@ -57,10 +57,18 @@ jest.mock('@/utils/debug', () => ({
   logError: jest.fn(),
 }));
 
+jest.mock('@/utils/appFeedback', () => ({
+  showAppFeedback: jest.fn(),
+}));
+
 const { requestGradientApply } = jest.requireMock('@/hooks/brushEngine/ccGradientApplyScheduler') as {
   requestGradientApply: jest.MockedFunction<
     typeof import('@/hooks/brushEngine/ccGradientApplyScheduler')['requestGradientApply']
   >;
+};
+
+const { showAppFeedback } = jest.requireMock('@/utils/appFeedback') as {
+  showAppFeedback: jest.MockedFunction<typeof import('@/utils/appFeedback')['showAppFeedback']>;
 };
 
 type StoreSet = StoreApi<AppState>['setState'];
@@ -490,6 +498,176 @@ describe('selection paste commit', () => {
     expect(state.setCurrentCompositeBitmap).toHaveBeenCalledWith(null);
     expect(captureCanvasToActiveLayer).not.toHaveBeenCalled();
     expect(state.floatingPaste).toBeNull();
+  });
+
+  it('warms a cold color-cycle target before committing pasted indices', async () => {
+    const { helpers, state, layer } = setupHelpers(
+      {
+        colorCycleIndices: new Uint8Array([1, 2, 3, 4]),
+        width: 2,
+        height: 2,
+        displayWidth: 2,
+        displayHeight: 2,
+      },
+      {
+        layerType: 'color-cycle',
+        colorCycleData: {
+          deferredRuntimeRestore: true,
+          runtimeHydrationState: 'cold',
+        } as Layer['colorCycleData'],
+      }
+    );
+    const warmedLayer = {
+      ...layer,
+      colorCycleData: {
+        ...(layer.colorCycleData ?? {}),
+        deferredRuntimeRestore: false,
+        runtimeHydrationState: 'active',
+      },
+    } as Layer;
+    state.ensureColorCycleLayerRuntime = jest.fn(async () => {
+      state.layers = [warmedLayer];
+      return true;
+    }) as AppState['ensureColorCycleLayerRuntime'];
+    mockWriteColorCycleRegion.mockReturnValueOnce(true);
+
+    await helpers.commitFloatingPaste();
+
+    expect(state.ensureColorCycleLayerRuntime).toHaveBeenCalledWith(layer.id, { target: 'active' });
+    expect(showAppFeedback).toHaveBeenCalledWith('Preparing color-cycle layer... 0%');
+    expect(showAppFeedback).toHaveBeenCalledWith('Color-cycle layer ready');
+    expect(mockWriteColorCycleRegion).toHaveBeenCalledWith(
+      state,
+      warmedLayer,
+      state.project,
+      { x: 0, y: 0, width: 2, height: 2 },
+      new Uint8Array([1, 2, 3, 4]),
+      2,
+      2,
+      expect.any(Object)
+    );
+    expect(state.floatingPaste).toBeNull();
+  });
+
+  it('shows delayed bottom-strip progress while pasted CC runtime warms', async () => {
+    jest.useFakeTimers();
+    try {
+      const { helpers, state, layer } = setupHelpers(
+        {
+          colorCycleIndices: new Uint8Array([1, 2, 3, 4]),
+          width: 2,
+          height: 2,
+          displayWidth: 2,
+          displayHeight: 2,
+        },
+        {
+          layerType: 'color-cycle',
+          colorCycleData: {
+            deferredRuntimeRestore: true,
+            runtimeHydrationState: 'cold',
+          } as Layer['colorCycleData'],
+        }
+      );
+      const warmedLayer = {
+        ...layer,
+        colorCycleData: {
+          ...(layer.colorCycleData ?? {}),
+          deferredRuntimeRestore: false,
+          runtimeHydrationState: 'active',
+        },
+      } as Layer;
+      const warmupDeferred: {
+        resolve?: (value: boolean) => void;
+      } = {};
+      state.ensureColorCycleLayerRuntime = jest.fn(() => new Promise<boolean>((resolve) => {
+        warmupDeferred.resolve = resolve;
+      })) as AppState['ensureColorCycleLayerRuntime'];
+      mockWriteColorCycleRegion.mockReturnValueOnce(true);
+
+      const commitPromise = helpers.commitFloatingPaste();
+
+      expect(showAppFeedback).toHaveBeenCalledWith('Preparing color-cycle layer... 0%');
+      jest.advanceTimersByTime(120);
+      expect(showAppFeedback).toHaveBeenCalledWith('Preparing color-cycle layer... 56%');
+
+      state.layers = [warmedLayer];
+      warmupDeferred.resolve?.(true);
+      await commitPromise;
+
+      expect(showAppFeedback).toHaveBeenCalledWith('Color-cycle layer ready');
+      expect(mockWriteColorCycleRegion).toHaveBeenCalled();
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('does not commit stale CC paste after async warmup if paste state changes', async () => {
+    const { helpers, state, layer } = setupHelpers(
+      {
+        colorCycleIndices: new Uint8Array([1, 2, 3, 4]),
+        width: 2,
+        height: 2,
+        displayWidth: 2,
+        displayHeight: 2,
+      },
+      {
+        layerType: 'color-cycle',
+        colorCycleData: {
+          deferredRuntimeRestore: true,
+          runtimeHydrationState: 'cold',
+        } as Layer['colorCycleData'],
+      }
+    );
+    const replacementPaste = {
+      ...(state.floatingPaste as NonNullable<AppState['floatingPaste']>),
+      position: { x: 8, y: 8 },
+    };
+    state.ensureColorCycleLayerRuntime = jest.fn(async () => {
+      state.floatingPaste = replacementPaste;
+      return true;
+    }) as AppState['ensureColorCycleLayerRuntime'];
+
+    await helpers.commitFloatingPaste();
+
+    expect(state.ensureColorCycleLayerRuntime).toHaveBeenCalledWith(layer.id, { target: 'active' });
+    expect(mockWriteColorCycleRegion).not.toHaveBeenCalled();
+    expect(state.floatingPaste).toBe(replacementPaste);
+  });
+
+  it('does not commit stale CC paste after async warmup if active layer changes', async () => {
+    const { helpers, state, layer } = setupHelpers(
+      {
+        colorCycleIndices: new Uint8Array([1, 2, 3, 4]),
+        width: 2,
+        height: 2,
+        displayWidth: 2,
+        displayHeight: 2,
+      },
+      {
+        layerType: 'color-cycle',
+        colorCycleData: {
+          deferredRuntimeRestore: true,
+          runtimeHydrationState: 'cold',
+        } as Layer['colorCycleData'],
+      }
+    );
+    state.layers = [
+      layer,
+      {
+        ...createBaseLayer(64),
+        id: 'layer-2',
+      } as Layer,
+    ];
+    state.ensureColorCycleLayerRuntime = jest.fn(async () => {
+      state.activeLayerId = 'layer-2';
+      return true;
+    }) as AppState['ensureColorCycleLayerRuntime'];
+
+    await helpers.commitFloatingPaste();
+
+    expect(state.ensureColorCycleLayerRuntime).toHaveBeenCalledWith(layer.id, { target: 'active' });
+    expect(mockWriteColorCycleRegion).not.toHaveBeenCalled();
+    expect(state.floatingPaste).not.toBeNull();
   });
 
   it('merges transferred CC slot palettes and remaps gradient ids for slot-bound stroke paste', async () => {

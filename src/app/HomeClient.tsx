@@ -31,6 +31,7 @@ import { preloadRisographTexture } from '@/utils/risographTexture';
 import { autosaveService } from '@/utils/autosave';
 import { devLog } from '@/utils/devLog';
 import { readLocalSettings } from '@/utils/localSettings';
+import { setAppFeedbackHandler } from '@/utils/appFeedback';
 // import TestPluginBrushes from '../components/TestPluginBrushes'; // TEST COMPONENT - Disabled due to render loop
 
 const homeLog = devLog.scope('HOME');
@@ -68,6 +69,11 @@ export default function Home() {
   const showFeedback = useCallback((message: string) => {
     setFeedbackMessage(message);
   }, []);
+
+  useEffect(() => {
+    setAppFeedbackHandler(showFeedback);
+    return () => setAppFeedbackHandler(null);
+  }, [showFeedback]);
 
   // Create default project on initial load if no layers exist
   useEffect(() => {

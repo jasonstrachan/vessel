@@ -189,6 +189,7 @@ Fixed in this pass:
 - The follow-up orphaned-def path where a new committed shape/stroke writes pixels with a new `gradientDefIdBuffer` id while serialization drops that new def because restored metadata is richer but stale.
 - Dev restore no longer hard-pauses on already damaged files that contain orphaned def ids; `ColorCycleAnimator` warns and falls back instead of using `console.assert`.
 - The `delete-selected` CC clear path now clears all selected scalar buffers (`paint`, `gradientId`, `gradientDefId`, `speed`, `flow`, `phase`) instead of leaving stale auxiliary buffers after paint goes empty.
+- Follow-up hardening: `ColorCycleBrushCanvas2D.applyLayerSnapshot()` now treats `hasContent: false` as authoritative empty state and clears all scalar buffers even if a stale caller passes non-zero auxiliary buffers with empty paint.
 - Selection delete diagnostics now record selection provenance, delete source, and playback state at delete time. Playback toolbar toggles are also recorded in the CC mutation timeline.
 - The C7-style cold/warm runtime edit path now blocks stroke/shape start while the CC runtime is warming and reports progress through the bottom feedback strip.
 - Warm/active archive-backed CC layers whose brush runtime was cleaned up are now restored through the same materialization path instead of being permanently blocked as preview-only.
