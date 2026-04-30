@@ -91,15 +91,36 @@ const hasCcPayload = (value: unknown): boolean => {
   return typeof value === 'string' && value.length > 0;
 };
 
+const bufferHasNonZeroPayload = (value: unknown): boolean => {
+  let bytes: Uint8Array | null = null;
+  if (value instanceof ArrayBuffer) {
+    bytes = new Uint8Array(value);
+  } else if (ArrayBuffer.isView(value)) {
+    bytes = new Uint8Array(value.buffer, value.byteOffset, value.byteLength);
+  }
+  if (!bytes) {
+    return false;
+  }
+  for (let i = 0; i < bytes.length; i += 1) {
+    if (bytes[i] !== 0) {
+      return true;
+    }
+  }
+  return false;
+};
+
+const serializedOrNonZeroBufferHasPayload = (value: unknown): boolean =>
+  (typeof value === 'string' && value.length > 0) || bufferHasNonZeroPayload(value);
+
 const brushStateHasCcPayload = (brushState: unknown): boolean => {
   const snapshots = (brushState as { layers?: Array<{ strokeData?: Record<string, unknown> }> } | undefined)?.layers;
   return Boolean(snapshots?.some((snapshot) => {
     const strokeData = snapshot.strokeData;
     return Boolean(
       strokeData?.hasContent === true ||
-      hasCcPayload(strokeData?.paintBuffer) ||
-      hasCcPayload(strokeData?.gradientIdBuffer) ||
-      hasCcPayload(strokeData?.gradientDefIdBuffer)
+      serializedOrNonZeroBufferHasPayload(strokeData?.paintBuffer) ||
+      serializedOrNonZeroBufferHasPayload(strokeData?.gradientIdBuffer) ||
+      serializedOrNonZeroBufferHasPayload(strokeData?.gradientDefIdBuffer)
     );
   }));
 };
@@ -3735,8 +3756,9 @@ export class ColorCycleBrushCanvas2D {
             hasCcPayload(documentState?.paintRef) ||
             hasCcPayload(documentState?.gradientIdRef) ||
             hasCcPayload(documentState?.gradientDefIdRef) ||
-            hasCcPayload(layer.colorCycleData.gradientIdBuffer) ||
-            hasCcPayload(layer.colorCycleData.gradientDefIdBuffer) ||
+            layer.colorCycleData.hasContent === true ||
+            bufferHasNonZeroPayload(layer.colorCycleData.gradientIdBuffer) ||
+            bufferHasNonZeroPayload(layer.colorCycleData.gradientDefIdBuffer) ||
             brushStateHasCcPayload(layer.colorCycleData.brushState) ||
             layer.colorCycleData.repairStatus?.ok === false
           );
