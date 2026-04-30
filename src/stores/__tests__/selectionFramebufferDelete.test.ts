@@ -23,6 +23,7 @@ const resetStore = () => {
     activeLayerId: null,
     selectionStart: null,
     selectionEnd: null,
+    selectionLastAction: null,
     layersNeedRecomposition: false,
     currentCompositeBitmap: null,
   }));
@@ -90,6 +91,53 @@ describe('selection delete updates framebuffer', () => {
     expect(state.selectionStart).toBeNull();
     expect(state.selectionEnd).toBeNull();
     expect(state.currentCompositeBitmap).toBeNull();
+  });
+
+  it('does not delete pixels when a select-all selection belongs to a different layer', () => {
+    const makeFilledLayer = (id: string): Layer => {
+      const canvas = document.createElement('canvas');
+      canvas.width = 4;
+      canvas.height = 4;
+      const ctx = canvas.getContext('2d', { willReadFrequently: true });
+      expect(ctx).not.toBeNull();
+      ctx!.fillStyle = 'rgba(0,0,0,1)';
+      ctx!.fillRect(0, 0, 4, 4);
+
+      return {
+        id,
+        name: id,
+        visible: true,
+        opacity: 1,
+        blendMode: 'source-over',
+        locked: false,
+        order: 0,
+        imageData: ctx!.getImageData(0, 0, 4, 4),
+        framebuffer: canvas,
+        alignment: createDefaultLayerAlignment(),
+        layerType: 'normal',
+      };
+    };
+
+    const sourceLayer = makeFilledLayer('layer-source');
+    const activeLayer = makeFilledLayer('layer-active');
+    useAppStore.setState((state) => ({
+      ...state,
+      project: state.project!,
+      layers: [sourceLayer, activeLayer],
+      activeLayerId: sourceLayer.id,
+    }));
+    useAppStore.getState().selectAllActiveLayerPixels('keyboard-select-all');
+    useAppStore.setState({ activeLayerId: activeLayer.id });
+
+    useAppStore.getState().deleteSelectedPixels('keyboard-delete');
+
+    const state = useAppStore.getState();
+    const updatedActive = state.layers.find((layer) => layer.id === activeLayer.id);
+    expect(updatedActive?.imageData?.data[(1 * 4 + 1) * 4 + 3]).toBe(255);
+    const activeCtx = (updatedActive?.framebuffer as HTMLCanvasElement).getContext('2d', { willReadFrequently: true });
+    expect(activeCtx?.getImageData(1, 1, 1, 1).data[3]).toBe(255);
+    expect(state.selectionStart).toBeNull();
+    expect(state.selectionEnd).toBeNull();
   });
 
   it('extractSelectionToFloatingPaste clears source framebuffer before floating transform', () => {
