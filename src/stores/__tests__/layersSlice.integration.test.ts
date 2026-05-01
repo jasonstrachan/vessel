@@ -20,8 +20,11 @@ const makeCanvas = () => {
 
 const mockBrush = {
   getCanvas: jest.fn(() => makeCanvas()),
+  getLayerSnapshot: jest.fn(),
+  applyLayerSnapshot: jest.fn(),
   setSpeed: jest.fn(),
   setTargetCanvas: jest.fn(),
+  updateColorCycleTexture: jest.fn(),
   renderDirectToCanvas: jest.fn(),
   setActiveLayer: jest.fn(),
   setLayerId: jest.fn(),
@@ -1174,6 +1177,29 @@ describe('layers slice integration', () => {
     mockManager.initColorCycleForLayer.mockClear();
     mockManager.createBrush.mockClear();
     mockBrush.setTargetCanvas.mockClear();
+    mockBrush.applyLayerSnapshot.mockClear();
+    mockBrush.updateColorCycleTexture.mockClear();
+    mockBrush.renderDirectToCanvas.mockClear();
+    const sourcePaintBuffer = Uint8Array.from([0, 12, 0, 44]).buffer;
+    const sourceGradientIdBuffer = Uint8Array.from([0, 3, 0, 7]).buffer;
+    const sourceGradientDefIdBuffer = Uint16Array.from([0, 5, 0, 9]).buffer;
+    const sourceSpeedBuffer = Uint8Array.from([0, 88, 0, 99]).buffer;
+    const sourceFlowBuffer = Uint8Array.from([0, 1, 0, 2]).buffer;
+    const sourcePhaseBuffer = Uint8Array.from([0, 64, 0, 128]).buffer;
+    mockBrush.getLayerSnapshot.mockImplementation((layerId: string) => (
+      layerId === originalId
+        ? {
+            paintBuffer: sourcePaintBuffer,
+            gradientIdBuffer: sourceGradientIdBuffer,
+            gradientDefIdBuffer: sourceGradientDefIdBuffer,
+            speedBuffer: sourceSpeedBuffer,
+            flowBuffer: sourceFlowBuffer,
+            phaseBuffer: sourcePhaseBuffer,
+            hasContent: true,
+            strokeCounter: 3,
+          }
+        : null
+    ));
 
     const duplicatedId = useAppStore.getState().duplicateLayer(originalId);
     expect(duplicatedId).toBeTruthy();
@@ -1186,14 +1212,104 @@ describe('layers slice integration', () => {
     );
     expect(mockManager.initColorCycleForLayer).not.toHaveBeenCalled();
     expect(mockBrush.setTargetCanvas).toHaveBeenCalled();
+    expect(mockBrush.applyLayerSnapshot).toHaveBeenCalledWith(
+      duplicatedId,
+      expect.objectContaining({
+        paintBuffer: expect.any(ArrayBuffer),
+        gradientIdBuffer: expect.any(ArrayBuffer),
+        gradientDefIdBuffer: expect.any(ArrayBuffer),
+        speedBuffer: expect.any(ArrayBuffer),
+        flowBuffer: expect.any(ArrayBuffer),
+        phaseBuffer: expect.any(ArrayBuffer),
+        hasContent: true,
+        strokeCounter: 3,
+      })
+    );
+    const appliedSnapshot = mockBrush.applyLayerSnapshot.mock.calls[0]?.[1];
+    expect(Array.from(new Uint8Array(appliedSnapshot.paintBuffer))).toEqual([0, 12, 0, 44]);
+    expect(Array.from(new Uint8Array(appliedSnapshot.gradientIdBuffer))).toEqual([0, 3, 0, 7]);
+    expect(Array.from(new Uint16Array(appliedSnapshot.gradientDefIdBuffer))).toEqual([0, 5, 0, 9]);
+    expect(Array.from(new Uint8Array(appliedSnapshot.speedBuffer))).toEqual([0, 88, 0, 99]);
+    expect(Array.from(new Uint8Array(appliedSnapshot.flowBuffer))).toEqual([0, 1, 0, 2]);
+    expect(Array.from(new Uint8Array(appliedSnapshot.phaseBuffer))).toEqual([0, 64, 0, 128]);
+    expect(appliedSnapshot.paintBuffer).not.toBe(sourcePaintBuffer);
+    expect(mockBrush.updateColorCycleTexture).toHaveBeenCalled();
+    expect(mockBrush.renderDirectToCanvas).toHaveBeenCalledWith(expect.anything(), duplicatedId);
 
     const nextState = useAppStore.getState();
     const duplicateLayer = nextState.layers.find((layer) => layer.id === duplicatedId);
     const sourceLayer = nextState.layers.find((layer) => layer.id === originalId);
     expect(duplicateLayer?.colorCycleData?.gradient).toEqual(sourceLayer?.colorCycleData?.gradient);
-    expect(duplicateLayer?.colorCycleData?.colorCycleBrush).toBeUndefined();
-    expect(duplicateLayer?.imageData).toBeNull();
+    expect(duplicateLayer?.colorCycleData?.colorCycleBrush).toBe(mockBrush);
+    expect(duplicateLayer?.colorCycleData?.hasContent).toBe(true);
+    expect(Array.from(new Uint8Array(duplicateLayer?.colorCycleData?.gradientIdBuffer ?? new ArrayBuffer(0))))
+      .toEqual([0, 3, 0, 7]);
+    expect(Array.from(new Uint16Array(duplicateLayer?.colorCycleData?.gradientDefIdBuffer ?? new ArrayBuffer(0))))
+      .toEqual([0, 5, 0, 9]);
+    expect(duplicateLayer?.imageData).not.toBeNull();
     expect(duplicateLayer?.framebuffer).not.toBe(sourceLayer?.framebuffer);
+  });
+
+  it('remaps persisted color-cycle brushState snapshots when duplicating cold layers', () => {
+    const store = useAppStore.getState();
+    const ccLayerInput = createColorCycleLayerInput('Cold CC Layer');
+    const originalId = store.addLayer(ccLayerInput);
+    const persistedPaintBuffer = Uint8Array.from([1, 2, 3, 4]).buffer;
+    const persistedGradientIdBuffer = Uint8Array.from([4, 3, 2, 1]).buffer;
+
+    useAppStore.setState((state) => ({
+      layers: state.layers.map((layer) => (
+        layer.id === originalId && layer.layerType === 'color-cycle'
+          ? {
+              ...layer,
+              colorCycleData: {
+                ...(layer.colorCycleData ?? {}),
+                brushState: {
+                  cycleSpeed: 0.25,
+                  layers: [
+                    {
+                      layerId: originalId,
+                      strokeData: {
+                        paintBuffer: persistedPaintBuffer,
+                        gradientIdBuffer: persistedGradientIdBuffer,
+                        hasContent: true,
+                        strokeCounter: 4,
+                      },
+                    },
+                  ],
+                },
+              },
+            }
+          : layer
+      )),
+    }));
+
+    const duplicatedId = useAppStore.getState().duplicateLayer(originalId);
+    expect(duplicatedId).toBeTruthy();
+
+    const duplicateLayer = useAppStore.getState().layers.find((layer) => layer.id === duplicatedId);
+    const duplicateBrushState = duplicateLayer?.colorCycleData?.brushState as {
+      layers?: Array<{
+        layerId?: string;
+        strokeData?: {
+          paintBuffer?: ArrayBuffer;
+          gradientIdBuffer?: ArrayBuffer;
+          hasContent?: boolean;
+          strokeCounter?: number;
+        };
+      }>;
+    } | undefined;
+    const duplicateSnapshot = duplicateBrushState?.layers?.[0];
+
+    expect(duplicateSnapshot?.layerId).toBe(duplicatedId);
+    expect(duplicateSnapshot?.strokeData?.paintBuffer).not.toBe(persistedPaintBuffer);
+    expect(duplicateSnapshot?.strokeData?.gradientIdBuffer).not.toBe(persistedGradientIdBuffer);
+    expect(Array.from(new Uint8Array(duplicateSnapshot?.strokeData?.paintBuffer ?? new ArrayBuffer(0))))
+      .toEqual([1, 2, 3, 4]);
+    expect(Array.from(new Uint8Array(duplicateSnapshot?.strokeData?.gradientIdBuffer ?? new ArrayBuffer(0))))
+      .toEqual([4, 3, 2, 1]);
+    expect(duplicateSnapshot?.strokeData?.hasContent).toBe(true);
+    expect(duplicateSnapshot?.strokeData?.strokeCounter).toBe(4);
   });
 
   it('preserves bitmap data when legacy layers have stale colorCycleData without canvases', () => {

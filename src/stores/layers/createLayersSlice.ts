@@ -316,6 +316,128 @@ const hasBufferLikePayload = (value: unknown): boolean => {
   return typeof value === 'string' && value.length > 0;
 };
 
+type ColorCycleLayerSnapshot = {
+  paintBuffer: ArrayBuffer;
+  gradientIdBuffer?: ArrayBuffer;
+  gradientDefIdBuffer?: ArrayBuffer;
+  speedBuffer?: ArrayBuffer;
+  flowBuffer?: ArrayBuffer;
+  phaseBuffer?: ArrayBuffer;
+  hasContent: boolean;
+  strokeCounter: number;
+};
+
+type ColorCycleSnapshotBrush = ColorCycleBrushImplementation & {
+  getLayerSnapshot?: (layerId: string) => ColorCycleLayerSnapshot | null;
+  applyLayerSnapshot?: (layerId: string, snapshot: ColorCycleLayerSnapshot) => void;
+  setTargetCanvas?: (canvas: HTMLCanvasElement | OffscreenCanvas | null) => void;
+  updateColorCycleTexture?: () => void;
+  renderDirectToCanvas?: (canvas: HTMLCanvasElement | OffscreenCanvas, layerId: string) => void;
+  render?: (forceFullOpacity?: boolean) => void;
+};
+
+const cloneBuffer = (buffer: ArrayBuffer | undefined): ArrayBuffer | undefined => (
+  buffer ? buffer.slice(0) : undefined
+);
+
+const cloneColorCycleLayerSnapshot = (
+  snapshot: ColorCycleLayerSnapshot | null | undefined,
+): ColorCycleLayerSnapshot | null => {
+  if (!snapshot?.paintBuffer) {
+    return null;
+  }
+  return {
+    paintBuffer: snapshot.paintBuffer.slice(0),
+    gradientIdBuffer: cloneBuffer(snapshot.gradientIdBuffer),
+    gradientDefIdBuffer: cloneBuffer(snapshot.gradientDefIdBuffer),
+    speedBuffer: cloneBuffer(snapshot.speedBuffer),
+    flowBuffer: cloneBuffer(snapshot.flowBuffer),
+    phaseBuffer: cloneBuffer(snapshot.phaseBuffer),
+    hasContent: snapshot.hasContent,
+    strokeCounter: snapshot.strokeCounter,
+  };
+};
+
+const cloneUnknownBufferLike = (value: unknown): unknown => {
+  if (value instanceof ArrayBuffer) {
+    return value.slice(0);
+  }
+  if (ArrayBuffer.isView(value)) {
+    return new Uint8Array(value.buffer, value.byteOffset, value.byteLength).slice().buffer;
+  }
+  return value;
+};
+
+const cloneRecord = (value: unknown): Record<string, unknown> | null => (
+  value && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : null
+);
+
+const cloneSerializedBrushLayerForDuplicate = (
+  snapshot: unknown,
+  sourceLayerId: string,
+  targetLayerId: string,
+): unknown => {
+  const record = cloneRecord(snapshot);
+  if (!record) {
+    return snapshot;
+  }
+  const strokeData = cloneRecord(record.strokeData);
+  const data = cloneRecord(record.data);
+  const indexBuffer = cloneRecord(data?.indexBuffer);
+  const clonedData = data
+    ? {
+        ...data,
+        indexBuffer: indexBuffer
+          ? {
+              ...indexBuffer,
+              data: cloneUnknownBufferLike(indexBuffer.data),
+              gradientId: cloneUnknownBufferLike(indexBuffer.gradientId),
+              speedData: cloneUnknownBufferLike(indexBuffer.speedData),
+              flowData: cloneUnknownBufferLike(indexBuffer.flowData),
+              phaseData: cloneUnknownBufferLike(indexBuffer.phaseData),
+            }
+          : data.indexBuffer,
+      }
+    : record.data;
+
+  return {
+    ...record,
+    layerId: record.layerId === sourceLayerId ? targetLayerId : record.layerId,
+    data: clonedData,
+    strokeData: strokeData
+      ? {
+          ...strokeData,
+          paintBuffer: cloneUnknownBufferLike(strokeData.paintBuffer),
+          gradientIdBuffer: cloneUnknownBufferLike(strokeData.gradientIdBuffer),
+          gradientDefIdBuffer: cloneUnknownBufferLike(strokeData.gradientDefIdBuffer),
+          speedBuffer: cloneUnknownBufferLike(strokeData.speedBuffer),
+          flowBuffer: cloneUnknownBufferLike(strokeData.flowBuffer),
+          phaseBuffer: cloneUnknownBufferLike(strokeData.phaseBuffer),
+        }
+      : record.strokeData,
+  };
+};
+
+const cloneColorCycleBrushStateForDuplicate = (
+  brushState: unknown,
+  sourceLayerId: string,
+  targetLayerId: string,
+): unknown => {
+  const record = cloneRecord(brushState);
+  if (!record) {
+    return brushState;
+  }
+  const layers = Array.isArray(record.layers)
+    ? record.layers.map((snapshot) => cloneSerializedBrushLayerForDuplicate(snapshot, sourceLayerId, targetLayerId))
+    : record.layers;
+  return {
+    ...record,
+    layers,
+  };
+};
+
 const hasColorCycleCanonicalRuntimeSource = (layer: Layer | null | undefined): boolean => {
   if (!layer || layer.layerType !== 'color-cycle') {
     return false;
@@ -1298,6 +1420,20 @@ export const createLayersSlice = (
     const duplicateColorCycleData = treatAsColorCycle
       ? cloneColorCycleData(targetLayer.colorCycleData, { stripSurfaces: false })
       : undefined;
+    if (duplicateColorCycleData && targetLayer.colorCycleData?.brushState) {
+      duplicateColorCycleData.brushState = cloneColorCycleBrushStateForDuplicate(
+        targetLayer.colorCycleData.brushState,
+        layerId,
+        newLayerId
+      ) as NonNullable<Layer['colorCycleData']>['brushState'];
+    }
+    const sourceColorCycleBrush = targetLayer.layerType === 'color-cycle'
+      ? (stateBeforeDuplicate.getLayerColorCycleBrush?.(layerId) ??
+          colorCycleBrushManager.getBrush(layerId)) as ColorCycleSnapshotBrush | null | undefined
+      : null;
+    const sourceColorCycleSnapshot = cloneColorCycleLayerSnapshot(
+      sourceColorCycleBrush?.getLayerSnapshot?.(layerId)
+    );
 
     // Debug logging removed after verification
 
@@ -1336,7 +1472,7 @@ export const createLayersSlice = (
     const duplicatedLayer = stateAfterInsert.layers.find((layer) => layer.id === newLayerId);
 
     if (targetLayer.layerType === 'color-cycle') {
-      const adoptedCanvas = duplicatedLayer?.colorCycleData?.canvas as HTMLCanvasElement | OffscreenCanvas | undefined;
+      const adoptedCanvas = duplicatedLayer?.colorCycleData?.canvas as HTMLCanvasElement | undefined;
       if (adoptedCanvas) {
         try {
           const width = adoptedCanvas.width || project?.width || 1024;
@@ -1344,10 +1480,48 @@ export const createLayersSlice = (
           const gradientStops =
             resolveActiveGradientStops(duplicatedLayer?.colorCycleData) ?? DEFAULT_CC_GRADIENT;
           const gradientArray = gradientStopsToUint8Array(gradientStops);
-          const brush = colorCycleBrushManager.createBrush(newLayerId, width, height, gradientArray) as ColorCycleBrushImplementation & {
-            setTargetCanvas?: (canvas: HTMLCanvasElement | OffscreenCanvas | null) => void;
-          };
+          const brush = colorCycleBrushManager.createBrush(
+            newLayerId,
+            width,
+            height,
+            gradientArray
+          ) as ColorCycleSnapshotBrush;
           brush.setTargetCanvas?.(adoptedCanvas);
+          if (sourceColorCycleSnapshot) {
+            brush.applyLayerSnapshot?.(newLayerId, sourceColorCycleSnapshot);
+            brush.updateColorCycleTexture?.();
+            brush.renderDirectToCanvas?.(adoptedCanvas, newLayerId);
+            brush.render?.(false);
+            const ctx = adoptedCanvas.getContext(
+              '2d',
+              { willReadFrequently: true } as CanvasRenderingContext2DSettings
+            );
+            const renderedImageData = ctx?.getImageData(0, 0, adoptedCanvas.width, adoptedCanvas.height);
+            set((state) => ({
+              layers: state.layers.map((layer) => {
+                if (layer.id !== newLayerId || layer.layerType !== 'color-cycle' || !layer.colorCycleData) {
+                  return layer;
+                }
+                return {
+                  ...layer,
+                  imageData: renderedImageData ?? layer.imageData,
+                  colorCycleData: {
+                    ...layer.colorCycleData,
+                    canvas: adoptedCanvas,
+                    canvasImageData: renderedImageData ?? layer.colorCycleData.canvasImageData,
+                    colorCycleBrush: brush,
+                    gradientIdBuffer:
+                      sourceColorCycleSnapshot.gradientIdBuffer?.slice(0) ??
+                      layer.colorCycleData.gradientIdBuffer,
+                    gradientDefIdBuffer:
+                      sourceColorCycleSnapshot.gradientDefIdBuffer?.slice(0) ??
+                      layer.colorCycleData.gradientDefIdBuffer,
+                    hasContent: sourceColorCycleSnapshot.hasContent,
+                  },
+                };
+              }),
+            }));
+          }
         } catch (error) {
           logError('duplicateLayer: failed to adopt CC canvas, falling back to init', error);
           colorCycleBrushManager.initColorCycleForLayer(
