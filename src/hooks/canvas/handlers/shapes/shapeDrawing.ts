@@ -31,6 +31,10 @@ import {
   snapToGridPure,
 } from '@/hooks/brushEngine/utilities';
 import { buildSampledStops } from '@/hooks/canvas/handlers/colorCycle/ccSampling';
+import {
+  resolveColorCycleGradientSource,
+  resolveColorCycleGradientSourceState,
+} from '@/hooks/canvas/handlers/colorCycle/colorCycleGradientSourceContract';
 import { startColorCycleRuntimeWarmupForEdit } from '@/hooks/canvas/handlers/colorCycle/colorCycleRuntimeWarmup';
 
 type ShapeDrawingRefs = {
@@ -97,13 +101,10 @@ const resolveColorCycleFillMode = (
 };
 
 const resolveFallbackMarkSource = (state: AppState): GradientDefSource => {
-  if (state.tools.ccGradientSource === 'sampled') {
-    return 'sampled';
-  }
-  if (state.tools.ccGradientSource === 'fg') {
-    return 'fg';
-  }
-  return 'manual';
+  return resolveColorCycleGradientSource({
+    ccGradientSource: state.tools.ccGradientSource,
+    useForegroundGradient: state.tools.brushSettings.colorCycleUseForegroundGradient,
+  });
 };
 
 const isSampledCcShapeDrag = (state: AppState): boolean =>
@@ -738,7 +739,11 @@ export const startShapeDrawing = (
         if (isCCShape && st.activeLayerId && !sampledSource) {
           const activeLayer = st.layers.find((layer) => layer.id === st.activeLayerId);
           if (activeLayer?.layerType === 'color-cycle') {
-            const resolved = resolveActiveColorCycleGradient(activeLayer, st.tools.brushSettings, {
+            const resolved = resolveColorCycleGradientSourceState({
+              layer: activeLayer,
+              brushSettings: st.tools.brushSettings,
+              ccGradientSource: st.tools.ccGradientSource,
+              fgParams: {
               fgColorHex: st.palette.foregroundColor,
               fgLightness: st.tools.brushSettings.colorCycleFgLightness,
               fgVariance: st.tools.brushSettings.colorCycleFgVariance,
@@ -746,20 +751,12 @@ export const startShapeDrawing = (
               fgSaturationShift: st.tools.brushSettings.colorCycleFgSaturationShift,
               fgOpacity: st.tools.brushSettings.colorCycleFgOpacity,
               fgStops: st.tools.brushSettings.colorCycleFgStops,
+              },
             });
             const gradientKind =
               resolveColorCycleFillMode(st.tools.brushSettings.colorCycleFillMode) === 'linear'
                 ? 'linear'
                 : 'concentric';
-            const desiredSource =
-              st.tools.ccGradientSource ??
-              (st.tools.brushSettings.colorCycleUseForegroundGradient ? 'fg' : 'manual');
-            const source =
-              desiredSource === 'sampled'
-                ? 'sampled'
-                : desiredSource === 'fg'
-                  ? 'fg'
-                  : 'manual';
             const s = getAppStoreState();
             const logCcFg = isDebugEnabled('cc-fg');
             if (logCcFg) {
@@ -790,7 +787,7 @@ export const startShapeDrawing = (
               layerId: activeLayer.id,
               markKind: 'shape',
               gradientKind,
-              source,
+              source: resolved.source,
               stops: resolved.activeStops,
               speedCps: s.tools.brushSettings.colorCycleSpeed,
             });

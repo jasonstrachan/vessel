@@ -54,7 +54,6 @@ import {
   normalizeGradientSeamProfile,
   type GradientSeamProfile,
 } from '@/lib/colorCycle/gradientSeamProfile';
-import { ensurePalette } from '@/lib/colorCycle/paletteService';
 import { resolveLayerColorCycleBaseSpeedFromLayer } from '@/utils/colorCycleLayerSpeed';
 import type { StoredStop } from '@/utils/colorCycleGradientDefs';
 import type { CommitCommittedLayerStateOptions } from '@/hooks/brushEngine/colorCycleCommittedState';
@@ -68,6 +67,26 @@ import {
   type CCMutationSnapshot,
   type ScalarBufferSummary,
 } from '@/utils/colorCycle/ccMutationAudit';
+import {
+  brushStateHasCcPayload,
+  bufferHasNonZeroPayload,
+  hasCcPayload,
+} from '@/hooks/brushEngine/colorCyclePayloadGuards';
+import {
+  buildDefPaletteSignature,
+  createDefPaletteCache,
+  type DefPaletteCache,
+} from '@/hooks/brushEngine/colorCycleDefPaletteCache';
+import {
+  cloneStrokeSnapshotBuffers,
+  type ColorCycleStrokeSnapshot,
+} from '@/hooks/brushEngine/colorCycleStrokeSnapshot';
+import {
+  buildStampMaskCacheKey,
+  quantizeStampMaskRotation,
+  STAMP_MASK_CACHE_LIMIT,
+  stampMaskHasVisiblePixels,
+} from '@/hooks/brushEngine/colorCycleStampMask';
 
 type CcCustomStampPerfStats = {
   sourceHit: number;
@@ -79,50 +98,6 @@ type CcCustomStampPerfStats = {
   paintCalls: number;
   paintTotalMs: number;
   writePixels: number;
-};
-
-const hasCcPayload = (value: unknown): boolean => {
-  if (value instanceof ArrayBuffer) {
-    return value.byteLength > 0;
-  }
-  if (ArrayBuffer.isView(value)) {
-    return value.byteLength > 0;
-  }
-  return typeof value === 'string' && value.length > 0;
-};
-
-const bufferHasNonZeroPayload = (value: unknown): boolean => {
-  let bytes: Uint8Array | null = null;
-  if (value instanceof ArrayBuffer) {
-    bytes = new Uint8Array(value);
-  } else if (ArrayBuffer.isView(value)) {
-    bytes = new Uint8Array(value.buffer, value.byteOffset, value.byteLength);
-  }
-  if (!bytes) {
-    return false;
-  }
-  for (let i = 0; i < bytes.length; i += 1) {
-    if (bytes[i] !== 0) {
-      return true;
-    }
-  }
-  return false;
-};
-
-const serializedOrNonZeroBufferHasPayload = (value: unknown): boolean =>
-  (typeof value === 'string' && value.length > 0) || bufferHasNonZeroPayload(value);
-
-const brushStateHasCcPayload = (brushState: unknown): boolean => {
-  const snapshots = (brushState as { layers?: Array<{ strokeData?: Record<string, unknown> }> } | undefined)?.layers;
-  return Boolean(snapshots?.some((snapshot) => {
-    const strokeData = snapshot.strokeData;
-    return Boolean(
-      strokeData?.hasContent === true ||
-      serializedOrNonZeroBufferHasPayload(strokeData?.paintBuffer) ||
-      serializedOrNonZeroBufferHasPayload(strokeData?.gradientIdBuffer) ||
-      serializedOrNonZeroBufferHasPayload(strokeData?.gradientDefIdBuffer)
-    );
-  }));
 };
 
 type BrushPerfWindow = Window & {
@@ -293,16 +268,7 @@ interface AnimatorIndexSnapshot {
   legacyRemap?: { from: number; to: number };
 }
 
-interface StrokeDataSnapshot {
-  paintBuffer: ArrayBuffer;
-  gradientIdBuffer?: ArrayBuffer;
-  gradientDefIdBuffer?: ArrayBuffer;
-  speedBuffer?: ArrayBuffer;
-  flowBuffer?: ArrayBuffer;
-  phaseBuffer?: ArrayBuffer;
-  hasContent: boolean;
-  strokeCounter: number;
-}
+type StrokeDataSnapshot = ColorCycleStrokeSnapshot;
 
 interface SerializedLayerState {
   layerId: string;
@@ -393,13 +359,6 @@ interface ColorCycleBrushCanvasState {
 
 type StampShape = 'square' | 'round' | 'triangle' | 'diamond' | 'diamond5' | 'diamond7' | 'diamond9' | 'checkered';
 
-type DefPaletteCache = {
-  signature: string;
-  palettesById: Map<number, Uint32Array>;
-  rgbaById: Map<number, Uint8ClampedArray | Uint8Array>;
-  signaturesById: Map<number, string>;
-};
-
 interface ColorCycleBrushCanvasSerialized {
   layers: SerializedLayerState[];
   cycleSpeed: number;
@@ -429,8 +388,6 @@ interface StampMaskCacheEntry {
   rotationBucket: number;
 }
 
-const STAMP_MASK_ROTATION_TOLERANCE = Math.PI / 180; // ~1°
-const STAMP_MASK_CACHE_LIMIT = 80;
 const COLOR_CYCLE_FILL_WORKER_AREA = 240_000; // pixels
 const nowMs = () => (typeof performance !== 'undefined' ? performance.now() : Date.now());
 
@@ -1396,27 +1353,6 @@ export class ColorCycleBrushCanvas2D {
     return strokeData?.flow.activeSlot ?? this.activeGradientSlots.get(layerId) ?? 0;
   }
 
-  private buildDefPaletteSignature(
-    defs: Array<{ id: number; hash: string; stops?: GradientStop[]; seamProfile?: GradientSeamProfile }>
-  ): string {
-    return defs
-      .map((entry) => {
-        const stopsSignature = this.buildDefStopsSignature(entry.stops);
-        return `${entry.id}:${appendGradientSeamProfileSignature(entry.hash, entry.seamProfile)}:${stopsSignature}`;
-      })
-      .sort()
-      .join('|');
-  }
-
-  private buildDefStopsSignature(stops: GradientStop[] | undefined): string {
-    if (!Array.isArray(stops) || stops.length === 0) {
-      return '';
-    }
-    return stops
-      .map((stop) => `${stop.position}:${stop.color}:${Number.isFinite(stop.opacity) ? stop.opacity : 1}`)
-      .join('|');
-  }
-
   private getDefPaletteCache(
     layerId: string,
     defs: Array<{
@@ -1432,36 +1368,13 @@ export class ColorCycleBrushCanvas2D {
       return null;
     }
 
-    const signature = this.buildDefPaletteSignature(defs);
+    const signature = buildDefPaletteSignature(defs);
     const existing = this.defPaletteCacheByLayer.get(layerId);
     if (existing && existing.signature === signature) {
       return existing;
     }
 
-    const palettesById = new Map<number, Uint32Array>();
-    const rgbaById = new Map<number, Uint8ClampedArray | Uint8Array>();
-    const signaturesById = new Map<number, string>();
-
-    for (const def of defs) {
-      if (!def || !def.stops || def.stops.length === 0) {
-        continue;
-      }
-      const handle = ensurePalette({
-        stops: def.stops,
-        seamProfile: normalizeGradientSeamProfile(def.seamProfile),
-      });
-      const stopsSignature = this.buildDefStopsSignature(def.stops);
-      palettesById.set(def.id, handle.uint32);
-      rgbaById.set(def.id, handle.rgba);
-      signaturesById.set(def.id, `${appendGradientSeamProfileSignature(def.hash, def.seamProfile)}:${stopsSignature}`);
-    }
-
-    const nextCache: DefPaletteCache = {
-      signature,
-      palettesById,
-      rgbaById,
-      signaturesById,
-    };
+    const nextCache = createDefPaletteCache(defs);
     this.defPaletteCacheByLayer.set(layerId, nextCache);
     return nextCache;
   }
@@ -1933,22 +1846,20 @@ export class ColorCycleBrushCanvas2D {
     return cached;
   }
 
-  private static quantizeRotation(rotation: number): number {
-    if (!Number.isFinite(rotation) || Math.abs(rotation) < STAMP_MASK_ROTATION_TOLERANCE * 0.5) {
-      return 0;
-    }
-    return Math.round(rotation / STAMP_MASK_ROTATION_TOLERANCE);
-  }
-
   private getStampMaskCacheKey(
     stamp: CustomStampInput,
     width: number,
     height: number,
     rotation: number
   ): string {
-    const baseKey = stamp.cacheKey || `anon:${stamp.imageData.width}x${stamp.imageData.height}`;
-    const rotationBucket = ColorCycleBrushCanvas2D.quantizeRotation(rotation);
-    return `${baseKey}:${width}x${height}:rot=${rotationBucket}`;
+    return buildStampMaskCacheKey({
+      cacheKey: stamp.cacheKey,
+      imageWidth: stamp.imageData.width,
+      imageHeight: stamp.imageData.height,
+      width,
+      height,
+      rotation,
+    });
   }
 
   private getStampMask(
@@ -2010,7 +1921,7 @@ export class ColorCycleBrushCanvas2D {
       alpha,
       width: targetWidth,
       height: targetHeight,
-      rotationBucket: ColorCycleBrushCanvas2D.quantizeRotation(rotation)
+      rotationBucket: quantizeStampMaskRotation(rotation)
     };
 
     this.customStampMaskCache.set(cacheKey, entry);
@@ -2440,7 +2351,7 @@ export class ColorCycleBrushCanvas2D {
     const originX = Math.round(x - maskEntry.width / 2);
     const originY = Math.round(y - maskEntry.height / 2);
     const alpha = maskEntry.alpha;
-    const hasVisiblePixels = alpha.some((value) => value >= 16);
+    const hasVisiblePixels = stampMaskHasVisiblePixels(alpha);
     if (!hasVisiblePixels) {
       return;
     }
@@ -7178,52 +7089,16 @@ export class ColorCycleBrushCanvas2D {
       }
       const snapshot = strokeData?.snapshot;
 
-      let paintBuffer: ArrayBuffer = new ArrayBuffer(0);
-      let gradientIdBuffer: ArrayBuffer | undefined = undefined;
-      let gradientDefIdBuffer: ArrayBuffer | undefined = undefined;
-      let speedBuffer: ArrayBuffer | undefined = undefined;
-      let flowBuffer: ArrayBuffer | undefined = undefined;
-      let phaseBuffer: ArrayBuffer | undefined = undefined;
-      const paintU8 = strokeData?.buffers.paint instanceof Uint8Array ? strokeData.buffers.paint : undefined;
-      const gidU8 = strokeData?.buffers.gid instanceof Uint8Array ? strokeData.buffers.gid : undefined;
-      const defU16 = strokeData?.buffers.def instanceof Uint16Array ? strokeData.buffers.def : undefined;
-      const spdU8 = strokeData?.buffers.spd instanceof Uint8Array ? strokeData.buffers.spd : undefined;
-      const flowU8 = strokeData?.buffers.flow instanceof Uint8Array ? strokeData.buffers.flow : undefined;
-      const phaseU8 = strokeData?.buffers.phase instanceof Uint8Array ? strokeData.buffers.phase : undefined;
-      const hasBuffers =
-        (snapshot?.paintBuffer?.byteLength ?? 0) > 0 || (paintU8?.length ?? 0) > 0;
-      if (hasBuffers) {
-        if (paintU8 && paintU8.length > 0) {
-          paintBuffer = paintU8.slice().buffer;
-        } else if (snapshot?.paintBuffer && snapshot.paintBuffer.byteLength > 0) {
-          paintBuffer = snapshot.paintBuffer.slice(0);
-        }
-        if (gidU8 && gidU8.length > 0) {
-          gradientIdBuffer = gidU8.slice().buffer;
-        } else if (snapshot?.gradientIdBuffer && snapshot.gradientIdBuffer.byteLength > 0) {
-          gradientIdBuffer = snapshot.gradientIdBuffer.slice(0);
-        }
-        if (defU16 && defU16.length > 0) {
-          gradientDefIdBuffer = defU16.slice().buffer;
-        } else if (snapshot?.gradientDefIdBuffer && snapshot.gradientDefIdBuffer.byteLength > 0) {
-          gradientDefIdBuffer = snapshot.gradientDefIdBuffer.slice(0);
-        }
-        if (spdU8 && spdU8.length > 0) {
-          speedBuffer = spdU8.slice().buffer;
-        } else if (snapshot?.speedBuffer && snapshot.speedBuffer.byteLength > 0) {
-          speedBuffer = snapshot.speedBuffer.slice(0);
-        }
-        if (flowU8 && flowU8.length > 0) {
-          flowBuffer = flowU8.slice().buffer;
-        } else if (snapshot?.flowBuffer && snapshot.flowBuffer.byteLength > 0) {
-          flowBuffer = snapshot.flowBuffer.slice(0);
-        }
-        if (phaseU8 && phaseU8.length > 0) {
-          phaseBuffer = phaseU8.slice().buffer;
-        } else if (snapshot?.phaseBuffer && snapshot.phaseBuffer.byteLength > 0) {
-          phaseBuffer = snapshot.phaseBuffer.slice(0);
-        }
-      }
+      const {
+        paintBuffer,
+        gradientIdBuffer,
+        gradientDefIdBuffer,
+        speedBuffer,
+        flowBuffer,
+        phaseBuffer,
+      } = strokeData
+        ? cloneStrokeSnapshotBuffers(strokeData)
+        : { paintBuffer: new ArrayBuffer(0) };
       const serializedPaintHasContent = this.paintBufferHasContent(
         paintBuffer.byteLength > 0 ? new Uint8Array(paintBuffer) : undefined,
         this.width,
@@ -7478,36 +7353,14 @@ export class ColorCycleBrushCanvas2D {
     const strokeData = this.layerStrokes.get(layerId);
     if (!strokeData) return null;
     const snapshot = strokeData.snapshot;
-    const paintBuffer = strokeData.buffers.paint.length > 0
-        ? strokeData.buffers.paint.slice().buffer
-      : snapshot?.paintBuffer && snapshot.paintBuffer.byteLength > 0
-        ? snapshot.paintBuffer.slice(0)
-        : new ArrayBuffer(0);
-    const gradientIdBuffer = strokeData.buffers.gid.length > 0
-        ? strokeData.buffers.gid.slice().buffer
-      : snapshot?.gradientIdBuffer && snapshot.gradientIdBuffer.byteLength > 0
-        ? snapshot.gradientIdBuffer.slice(0)
-        : undefined;
-    const gradientDefIdBuffer = strokeData.buffers.def.length > 0
-        ? strokeData.buffers.def.slice().buffer
-      : snapshot?.gradientDefIdBuffer && snapshot.gradientDefIdBuffer.byteLength > 0
-        ? snapshot.gradientDefIdBuffer.slice(0)
-        : undefined;
-    const speedBuffer = strokeData.buffers.spd.length > 0
-        ? strokeData.buffers.spd.slice().buffer
-      : snapshot?.speedBuffer && snapshot.speedBuffer.byteLength > 0
-        ? snapshot.speedBuffer.slice(0)
-        : undefined;
-    const flowBuffer = strokeData.buffers.flow.length > 0
-        ? strokeData.buffers.flow.slice().buffer
-      : snapshot?.flowBuffer && snapshot.flowBuffer.byteLength > 0
-        ? snapshot.flowBuffer.slice(0)
-        : undefined;
-    const phaseBuffer = strokeData.buffers.phase.length > 0
-        ? strokeData.buffers.phase.slice().buffer
-      : snapshot?.phaseBuffer && snapshot.phaseBuffer.byteLength > 0
-        ? snapshot.phaseBuffer.slice(0)
-        : undefined;
+    const {
+      paintBuffer,
+      gradientIdBuffer,
+      gradientDefIdBuffer,
+      speedBuffer,
+      flowBuffer,
+      phaseBuffer,
+    } = cloneStrokeSnapshotBuffers(strokeData);
     const hasContent = this.strokeStateHasContent(strokeData);
     strokeData.hasContent = hasContent;
     return {

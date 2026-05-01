@@ -1,5 +1,6 @@
 import type { MarkGradientSession } from '@/hooks/canvas/utils/colorCycleMarkSession';
 import type { StoredStop } from '@/utils/colorCycleGradientDefs';
+import { resolveColorCycleGradientSourceBehavior } from '@/hooks/canvas/handlers/colorCycle/colorCycleGradientSourceContract';
 
 type ShapeFillRenderSession = Pick<MarkGradientSession, 'source' | 'frozenStopsStored' | 'binding'> | null | undefined;
 
@@ -24,12 +25,18 @@ export const resolveColorCycleShapeFillSourceOptions = ({
 }: {
   session: Pick<MarkGradientSession, 'markId'> | null | undefined;
   renderSession: ShapeFillRenderSession;
-}): ColorCycleShapeFillSourceOptions => ({
-  ditherSampledStops: renderSession?.source === 'sampled'
-    ? cloneStoredStops(renderSession.frozenStopsStored)
-    : undefined,
-  ditherBaseOffsetOverride: renderSession?.source === 'sampled' ? 0 : undefined,
-  paintSlotOverride: renderSession?.binding?.slot,
-  paintDefIdOverride: renderSession?.binding?.defId,
-  shapePhaseSeedMarkId: session?.markId ?? null,
-});
+}): ColorCycleShapeFillSourceOptions => {
+  const behavior = renderSession
+    ? resolveColorCycleGradientSourceBehavior(renderSession.source)
+    : null;
+
+  return {
+    ditherSampledStops: behavior?.usesSampledStops
+      ? cloneStoredStops(renderSession?.frozenStopsStored)
+      : undefined,
+    ditherBaseOffsetOverride: behavior?.usesSampledBaseOffset ? 0 : undefined,
+    paintSlotOverride: renderSession?.binding?.slot,
+    paintDefIdOverride: renderSession?.binding?.defId,
+    shapePhaseSeedMarkId: session?.markId ?? null,
+  };
+};

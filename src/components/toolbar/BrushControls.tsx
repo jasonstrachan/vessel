@@ -32,9 +32,15 @@ import ProgressSlider from "../ui/ProgressSlider";
 // Using ProgressSlider to match pixel square brush opacity style
 import Dropdown from "../ui/Dropdown";
 import ButtonGroup from "../ui/ButtonGroup";
+import {
+  CcGradientSourceModeControl,
+  type CcGradientModeValue,
+} from '@/components/toolbar/CcGradientSourceModeControl';
+import { CcForegroundGradientControls } from '@/components/toolbar/CcForegroundGradientControls';
+import { CcSampledGradientPreview } from '@/components/toolbar/CcSampledGradientPreview';
+import { resolveColorCycleGradientSourceState } from '@/hooks/canvas/handlers/colorCycle/colorCycleGradientSourceContract';
 import { drawTestSwatches } from "@/utils/drawTestSwatches";
 import { GradientEditor, type GradientEditorHandle } from "../ui/GradientEditor";
-import { GradientPalette } from '@/lib/GradientPalette';
 import CustomSwitch from "../ui/CustomSwitch";
 import { isStrokeBrush, supportsDither } from "@/utils/brushCategories";
 import {
@@ -53,7 +59,6 @@ import {
   setSharedColorCycleGradient
 } from "../../utils/colorCycleGradients";
 import { getPreviewGradientForActiveMark } from '@/hooks/canvas/utils/colorCycleMarkSession';
-import { resolveActiveColorCycleGradient } from '@/hooks/canvas/utils/colorCycleHelpers';
 import {
   PRESSURE_BASE_PERCENT,
   clampPressureDeltaPercent,
@@ -61,7 +66,6 @@ import {
 } from '@/utils/pressureSettings';
 import {
   DEFAULT_BRUSH_COLOR_CYCLE_SPEED,
-  MAX_BRUSH_COLOR_CYCLE_SPEED,
 } from '@/constants/colorCycle';
 import {
   brushColorCycleSpeedToSliderPosition,
@@ -78,7 +82,6 @@ const PRESSURE_MIN_BOUND = 0;
 const CONTROL_LABEL_CLASS = 'text-[#D9D9D9] w-16';
 const CONTROL_LABEL_STYLE: React.CSSProperties = { fontSize: '14px' };
 type SliderComponent = React.ComponentType<React.ComponentProps<typeof ProgressSlider>>;
-const PREVIEW_PALETTE_SIZE = 256;
 const BRUSH_COLOR_CYCLE_SLIDER_MIN = 0;
 const BRUSH_COLOR_CYCLE_SLIDER_MAX = 1;
 const BRUSH_COLOR_CYCLE_SLIDER_STEP = 0.001;
@@ -466,155 +469,6 @@ const PigmentLiftControls: React.FC<PigmentLiftControlsProps> = ({ settings, onC
   );
 };
 
-type SampledGradientPreviewProps = {
-  stops: Array<{ position: number; color: string; opacity?: number }>;
-  speed: number;
-  flowMode?: 'forward' | 'reverse' | 'pingpong' | 'bounce' | 'backward';
-  isPaused: boolean;
-};
-
-const SampledGradientPreview: React.FC<SampledGradientPreviewProps> = ({
-  stops,
-  speed,
-  flowMode,
-  isPaused,
-}) => {
-  const canvasRef = React.useRef<HTMLCanvasElement | null>(null);
-  const canvasCtxRef = React.useRef<CanvasRenderingContext2D | null>(null);
-  const paletteRef = React.useRef<Uint8ClampedArray | null>(null);
-  const stripCanvasRef = React.useRef<HTMLCanvasElement | null>(null);
-  const stripCtxRef = React.useRef<CanvasRenderingContext2D | null>(null);
-  const stripImageRef = React.useRef<ImageData | null>(null);
-  const stripDataRef = React.useRef<Uint8ClampedArray | null>(null);
-  const rafRef = React.useRef<number | null>(null);
-  const t0Ref = React.useRef<number | null>(null);
-  const pausePhaseRef = React.useRef<number>(0);
-  const lastPhaseRef = React.useRef<number>(0);
-  const isPausedRef = React.useRef<boolean>(isPaused);
-  isPausedRef.current = isPaused;
-
-  React.useEffect(() => {
-    try {
-      const palette = new GradientPalette(stops);
-      paletteRef.current = palette.getPaletteColors();
-    } catch {
-      paletteRef.current = null;
-    }
-  }, [stops]);
-
-  React.useEffect(() => {
-    if (!stripCanvasRef.current) {
-      const stripCanvas = document.createElement('canvas');
-      stripCanvas.width = PREVIEW_PALETTE_SIZE;
-      stripCanvas.height = 1;
-      stripCanvasRef.current = stripCanvas;
-      stripCtxRef.current = stripCanvas.getContext('2d', { willReadFrequently: false });
-    }
-    if (!stripDataRef.current) {
-      stripDataRef.current = new Uint8ClampedArray(PREVIEW_PALETTE_SIZE * 4);
-    }
-    if (!stripImageRef.current && stripCtxRef.current) {
-      stripImageRef.current = stripCtxRef.current.createImageData(PREVIEW_PALETTE_SIZE, 1);
-    }
-  }, []);
-
-  React.useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) {
-      return;
-    }
-    canvas.width = PREVIEW_PALETTE_SIZE;
-    canvas.height = 24;
-    canvasCtxRef.current = canvas.getContext('2d', { willReadFrequently: false });
-  }, []);
-
-  const drawFrame = React.useCallback((phase: number) => {
-    const canvas = canvasRef.current;
-    const ctx = canvasCtxRef.current;
-    const palette = paletteRef.current;
-    const stripData = stripDataRef.current;
-    const stripImage = stripImageRef.current;
-    const stripCtx = stripCtxRef.current;
-    const stripCanvas = stripCanvasRef.current;
-    if (!canvas || !ctx || !palette || !stripData || !stripImage || !stripCtx || !stripCanvas) {
-      return;
-    }
-
-    const shift = (Math.floor(phase * PREVIEW_PALETTE_SIZE) & 255) * 4;
-    for (let i = 0; i < PREVIEW_PALETTE_SIZE; i += 1) {
-      const src = (shift + i * 4) & (PREVIEW_PALETTE_SIZE * 4 - 1);
-      const dst = i * 4;
-      stripData[dst] = palette[src];
-      stripData[dst + 1] = palette[src + 1];
-      stripData[dst + 2] = palette[src + 2];
-      stripData[dst + 3] = palette[src + 3];
-    }
-
-    stripImage.data.set(stripData);
-    stripCtx.putImageData(stripImage, 0, 0);
-
-    ctx.save();
-    ctx.imageSmoothingEnabled = false;
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    ctx.drawImage(stripCanvas, 0, 0, stripCanvas.width, stripCanvas.height, 0, 0, canvas.width, canvas.height);
-    ctx.restore();
-  }, []);
-
-  React.useEffect(() => {
-    const resolvedSpeed = Math.max(0, Math.min(MAX_BRUSH_COLOR_CYCLE_SPEED, Math.abs(speed)));
-    const direction = flowMode === 'reverse' || flowMode === 'backward' ? -1 : 1;
-    const effectiveSpeed = resolvedSpeed * direction;
-    const canAnimate =
-      typeof window !== 'undefined' && typeof window.requestAnimationFrame === 'function';
-
-    const stop = () => {
-      if (rafRef.current !== null && typeof cancelAnimationFrame === 'function') {
-        cancelAnimationFrame(rafRef.current);
-        rafRef.current = null;
-      }
-    };
-
-    const tick = (timestamp: number) => {
-      const tSeconds = timestamp / 1000;
-      if (t0Ref.current === null) {
-        t0Ref.current = tSeconds;
-      }
-      let phase = pausePhaseRef.current;
-      if (!isPausedRef.current) {
-        const raw = (tSeconds - t0Ref.current) * effectiveSpeed;
-        phase = ((raw % 1) + 1) % 1;
-        pausePhaseRef.current = phase;
-      }
-      lastPhaseRef.current = phase;
-      drawFrame(phase);
-      rafRef.current = requestAnimationFrame(tick);
-    };
-
-    stop();
-    if (resolvedSpeed > 0 && !isPaused && canAnimate) {
-      const nowSeconds = (typeof performance !== 'undefined' ? performance.now() : Date.now()) / 1000;
-      if (effectiveSpeed !== 0) {
-        t0Ref.current = nowSeconds - pausePhaseRef.current / effectiveSpeed;
-      } else {
-        t0Ref.current = nowSeconds;
-      }
-      rafRef.current = requestAnimationFrame(tick);
-      return () => stop();
-    }
-
-    drawFrame(lastPhaseRef.current);
-    return () => stop();
-  }, [drawFrame, flowMode, isPaused, speed]);
-
-  return (
-    <canvas
-      ref={canvasRef}
-      className="h-6 w-full rounded border border-white/10"
-      style={{ imageRendering: 'pixelated' }}
-    />
-  );
-};
-
 const BrushControls = () => {
   // Use individual selectors to avoid unstable object references
   const setBrushSettings = useAppStore(state => state.setBrushSettings);
@@ -865,7 +719,7 @@ const BrushControls = () => {
   const resolvedGradientSource = ccGradientSource ?? 'manual';
   const useForegroundDerivedGradient = resolvedGradientSource === 'fg';
   const isGradientSampleMode = resolvedGradientSource === 'sampled';
-  const gradientModeValue = resolvedGradientSource === 'sampled'
+  const gradientModeValue: CcGradientModeValue = resolvedGradientSource === 'sampled'
     ? 'sample'
     : resolvedGradientSource === 'fg'
       ? 'fg'
@@ -2015,18 +1869,10 @@ const BrushControls = () => {
           </div>
         </div>
 
-        <div className="mb-2">
-          <ButtonGroup
-            options={[
-              { label: 'FG Grad', value: 'fg' },
-              { label: 'Man Grad', value: 'manual' },
-              { label: 'Sample', value: 'sample' }
-            ]}
-            value={gradientModeValue}
-            onChange={handleGradientSourceChange}
-            size="sm"
-          />
-        </div>
+        <CcGradientSourceModeControl
+          value={gradientModeValue}
+          onChange={handleGradientSourceChange}
+        />
 
         {isColorCycleGradientPreset && (
           <div className="mb-2">
@@ -2049,33 +1895,24 @@ const BrushControls = () => {
         )}
 
         {useForegroundDerivedGradient ? (
-          <div className="mb-3">
-            <div className="flex items-center justify-between text-xs text-[#D9D9D9] mb-1">
-              <span>Foreground Gradient</span>
-              <span className="text-[#A0A0A0]">{fgColor.toUpperCase()}</span>
-            </div>
-            <div
-              className="h-6 rounded border border-white/10"
-              style={{ background: foregroundDerivedCss }}
-            />
-            {showColorCycleBands && (
-              <div className="flex items-center gap-2 mt-2">
-                <label className={CONTROL_LABEL_CLASS} style={CONTROL_LABEL_STYLE}>
-                  Bands
-                </label>
-                <NonCcSlider
-                  value={bandsSlider.value}
-                  min={2}
-                  max={64}
-                  step={1}
-                  onChange={(value) => bandsSlider.onChange(Math.round(value))}
-                  onCommit={bandsSlider.onCommit}
-                  aria-label="Gradient Bands"
-                  className="flex-1"
-                />
-              </div>
-            )}
-          </div>
+          <CcForegroundGradientControls
+            fgColor={fgColor}
+            foregroundDerivedCss={foregroundDerivedCss}
+            showColorCycleBands={showColorCycleBands}
+            bandsSlider={bandsSlider}
+            fgDerivedLightness={fgDerivedLightness}
+            fgDerivedHueShift={fgDerivedHueShift}
+            fgDerivedSaturationShift={fgDerivedSaturationShift}
+            fgOpacitySlider={fgOpacitySlider}
+            fgStopsSlider={fgStopsSlider}
+            NonCcSlider={NonCcSlider}
+            labelClassName={CONTROL_LABEL_CLASS}
+            labelStyle={CONTROL_LABEL_STYLE}
+            setActiveSettings={setActiveSettings}
+            clampFgLightness={clampFgLightness}
+            clampFgHueShift={clampFgHueShift}
+            clampFgSatShift={clampFgSatShift}
+          />
         ) : isGradientSampleMode ? (
           <div className="mb-3">
             <div className="flex items-center justify-between text-xs text-[#D9D9D9] mb-1">
@@ -2090,7 +1927,11 @@ const BrushControls = () => {
                 const expectsSampled = resolvedGradientSource === 'sampled';
                 const resolvedLayerStops =
                   activeLayer?.layerType === 'color-cycle'
-                    ? resolveActiveColorCycleGradient(activeLayer, activeSettings, {
+                    ? resolveColorCycleGradientSourceState({
+                        layer: activeLayer,
+                        brushSettings: activeSettings,
+                        ccGradientSource: resolvedGradientSource,
+                        fgParams: {
                         fgColorHex: fgColor,
                         fgLightness: fgDerivedLightness,
                         fgVariance: activeSettings.colorCycleFgVariance,
@@ -2098,6 +1939,7 @@ const BrushControls = () => {
                         fgSaturationShift: fgDerivedSaturationShift,
                         fgOpacity: fgDerivedOpacity,
                         fgStops: activeSettings.colorCycleFgStops,
+                        },
                       }).activeStops
                     : null;
                 const previewStops =
@@ -2106,7 +1948,7 @@ const BrushControls = () => {
                   activeSettings.colorCycleGradient ??
                   DEFAULT_GRADIENT_STOPS;
                 return (
-                  <SampledGradientPreview
+                  <CcSampledGradientPreview
                     stops={previewStops}
                     speed={activeSettings.colorCycleSpeed ?? DEFAULT_BRUSH_COLOR_CYCLE_SPEED}
                     flowMode={activeSettings.colorCycleFlowMode}
@@ -2129,103 +1971,6 @@ const BrushControls = () => {
         ) : (
           <div className="mb-3">
             {renderBrushGradientEditor({ syncBands: true })}
-          </div>
-        )}
-
-        {useForegroundDerivedGradient && (
-          <div className="mb-3">
-            <div className="mb-2">
-              <div className="flex items-center gap-2">
-                <label className={CONTROL_LABEL_CLASS} style={CONTROL_LABEL_STYLE}>
-                  Light
-                </label>
-                <ProgressSlider
-                  value={fgDerivedLightness}
-                  min={0}
-                  max={100}
-                  step={1}
-                  onChange={(value) =>
-                    setActiveSettings({ colorCycleFgLightness: clampFgLightness(value) })
-                  }
-                  aria-label="Foreground Gradient Lightness"
-                  className="flex-1"
-                />
-              </div>
-            </div>
-            <div className="mb-2">
-              <div className="flex items-center gap-2">
-                <label className={CONTROL_LABEL_CLASS} style={CONTROL_LABEL_STYLE}>
-                  Hue
-                </label>
-                <ProgressSlider
-                  value={fgDerivedHueShift}
-                  min={-320}
-                  max={320}
-                  step={1}
-                  onChange={(value) =>
-                    setActiveSettings({ colorCycleFgHueShift: clampFgHueShift(value) })
-                  }
-                  aria-label="Foreground Gradient Hue Shift"
-                  className="flex-1"
-                />
-              </div>
-            </div>
-            <div className="mb-2">
-              <div className="flex items-center gap-2">
-                <label className={CONTROL_LABEL_CLASS} style={CONTROL_LABEL_STYLE}>
-                  Sat
-                </label>
-                <ProgressSlider
-                  value={fgDerivedSaturationShift}
-                  min={-45}
-                  max={45}
-                  step={1}
-                  onChange={(value) =>
-                    setActiveSettings({ colorCycleFgSaturationShift: clampFgSatShift(value) })
-                  }
-                  aria-label="Foreground Gradient Saturation Shift"
-                  className="flex-1"
-                />
-              </div>
-            </div>
-            <div className="mb-2">
-              <div className="flex items-center gap-2">
-                <label className={CONTROL_LABEL_CLASS} style={CONTROL_LABEL_STYLE}>
-                  Opacity
-                </label>
-                <NonCcSlider
-                  value={fgOpacitySlider.value}
-                  min={0}
-                  max={100}
-                  step={1}
-                  onChange={(value) =>
-                    fgOpacitySlider.onChange(Math.max(0, Math.min(100, Math.round(value))))
-                  }
-                  onCommit={fgOpacitySlider.onCommit}
-                  aria-label="Foreground Gradient Opacity"
-                  className="flex-1"
-                />
-              </div>
-            </div>
-            <div className="mb-2">
-              <div className="flex items-center gap-2">
-                <label className={CONTROL_LABEL_CLASS} style={CONTROL_LABEL_STYLE}>
-                  Stops
-                </label>
-                <NonCcSlider
-                  value={fgStopsSlider.value}
-                  min={2}
-                  max={6}
-                  step={1}
-                  onChange={(value) =>
-                    fgStopsSlider.onChange(Math.max(2, Math.min(6, Math.round(value))))
-                  }
-                  onCommit={fgStopsSlider.onCommit}
-                  aria-label="Foreground Gradient Stops"
-                  className="flex-1"
-                />
-              </div>
-            </div>
           </div>
         )}
 
