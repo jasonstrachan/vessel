@@ -425,7 +425,12 @@ export interface AppState {
   selectionMaskBounds: Rectangle | null;
   selectionMaskLayerId: string | null;
   selectionLastAction: SelectionActionProvenance | null;
-  setSelectionBounds: (start: { x: number; y: number } | null, end: { x: number; y: number } | null) => void;
+  setSelectionBounds: (
+    start: { x: number; y: number } | null,
+    end: { x: number; y: number } | null,
+    source?: string,
+    provenanceOverride?: Partial<SelectionActionProvenance>
+  ) => void;
   appendSelectionBounds: (start: { x: number; y: number } | null, end: { x: number; y: number } | null) => void;
   appendSelectionMask: (payload: {
     mask: ImageData;

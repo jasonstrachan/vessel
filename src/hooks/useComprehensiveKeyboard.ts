@@ -12,6 +12,7 @@ import {
   resolveAlwaysShortcutAction,
   resolveScopedShortcutAction,
 } from '@/hooks/keyboard/shortcutRegistry';
+import { logCCMutation, summarizeColorCycleLayer } from '@/utils/colorCycle/ccMutationAudit';
 
 const MIN_BRUSH_SIZE = 1;
 const MAX_BRUSH_SIZE = 500;
@@ -101,6 +102,72 @@ const selectFloatingPaste = (state: AppState) => state.floatingPaste;
 const selectPalette = (state: AppState) => state.palette;
 const selectCurrentBrushPresetId = (state: AppState) => state.currentBrushPreset?.id ?? null;
 const selectShapeDrawingActive = (state: AppState) => state.shapeState.isDrawing;
+
+const summarizeSelectionBounds = (
+  start: { x: number; y: number } | null,
+  end: { x: number; y: number } | null
+) => {
+  if (!start || !end) {
+    return null;
+  }
+  const x = Math.min(start.x, end.x);
+  const y = Math.min(start.y, end.y);
+  return {
+    x,
+    y,
+    width: Math.abs(end.x - start.x),
+    height: Math.abs(end.y - start.y),
+  };
+};
+
+const logDeleteKeydownTrace = (
+  event: KeyboardEvent,
+  params: {
+    currentScope: KeyboardScope;
+    target: HTMLElement | null;
+    targetIsTextEntry: boolean;
+    floatingPasteActive: boolean;
+  }
+): void => {
+  const state = getAppStoreState();
+  const activeLayer = state.layers.find((layer) => layer.id === state.activeLayerId) ?? null;
+  const activeLayerSummary = activeLayer?.layerType === 'color-cycle'
+    ? summarizeColorCycleLayer(activeLayer)
+    : null;
+  logCCMutation({
+    event: 'keyboard-delete-keydown',
+    layerId: activeLayer?.id ?? 'no-active-layer',
+    reason: 'context-delete',
+    severity: 'info',
+    before: activeLayerSummary,
+    after: activeLayerSummary,
+    details: {
+      keydownTimestamp: Date.now(),
+      key: event.key,
+      code: event.code,
+      repeat: event.repeat,
+      altKey: event.altKey,
+      ctrlKey: event.ctrlKey,
+      metaKey: event.metaKey,
+      shiftKey: event.shiftKey,
+      currentScope: params.currentScope,
+      targetTag: params.target?.tagName ?? null,
+      targetType: params.target instanceof HTMLInputElement ? params.target.type : null,
+      targetIsTextEntry: params.targetIsTextEntry,
+      activeLayerId: activeLayer?.id ?? null,
+      activeLayerName: activeLayer?.name ?? null,
+      activeLayerType: activeLayer?.layerType ?? null,
+      activeTool: state.tools.currentTool,
+      selectionStart: state.selectionStart,
+      selectionEnd: state.selectionEnd,
+      selectionBounds: summarizeSelectionBounds(state.selectionStart, state.selectionEnd),
+      selectionMaskBounds: state.selectionMaskBounds,
+      selectionMaskLayerId: state.selectionMaskLayerId,
+      selectionLastAction: state.selectionLastAction,
+      floatingPasteActive: params.floatingPasteActive,
+    },
+  });
+};
 
 const clampCcGradientColors = (value: number): number => {
   if (value < 1) return 1;
@@ -595,6 +662,12 @@ export function useComprehensiveKeyboard({
 
     // Delete key for deleting selected pixels
     if (scopedShortcut === 'context-delete') {
+      logDeleteKeydownTrace(event, {
+        currentScope,
+        target,
+        targetIsTextEntry,
+        floatingPasteActive: Boolean(floatingPaste),
+      });
       event.preventDefault();
       if (floatingPaste) {
         setFloatingPaste(null);

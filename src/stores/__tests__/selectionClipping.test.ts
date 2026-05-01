@@ -138,7 +138,7 @@ describe('selection-based clipping', () => {
     expect(getPixel(updated, 3, 3)[3]).toBe(0);
   });
 
-  it('deleteSelectedPixels clears only masked pixels even on another layer', () => {
+  it('deleteSelectedPixels blocks masked deletes from another layer', () => {
     const layer = createLayer('l1', 3, 3);
     const project = createProject(layer, 3, 3);
 
@@ -172,10 +172,13 @@ describe('selection-based clipping', () => {
 
     useAppStore.getState().deleteSelectedPixels();
 
+    const state = useAppStore.getState();
+    expect(state.selectionStart).toBeNull();
+    expect(state.selectionEnd).toBeNull();
+
     const updated = useAppStore.getState().layers[0]?.imageData;
-    // Center cleared
-    expect(getPixel(updated, 1, 1)[3]).toBe(0);
-    // Corners untouched
+    // No pixels are cleared when mask ownership does not match the active layer.
+    expect(getPixel(updated, 1, 1)[3]).toBe(255);
     expect(getPixel(updated, 0, 0)[3]).toBe(255);
     expect(getPixel(updated, 2, 2)[3]).toBe(255);
   });

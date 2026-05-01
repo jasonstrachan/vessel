@@ -33,14 +33,23 @@ import {
   type TransferredColorCycleGradientDef,
   type TransferredColorCycleSlotPalette,
 } from '@/stores/helpers/colorCycleGradientDefTransfer';
+import {
+  authorizeSelectionDelete,
+  type ColorCycleSelectionPaintSummary,
+  type SelectionDeleteAuthorization,
+  type SelectionOwnerKind,
+} from '@/stores/helpers/selectionDeleteAuthorization';
 
 type AppState = import('../useAppStore').AppState;
 
 export interface SelectionActionProvenance {
   action: 'set-bounds' | 'select-all' | 'delete-selected';
   source: string;
+  ownerKind?: SelectionOwnerKind;
+  restoredFromHistory?: boolean;
   t: number;
   activeLayerId?: string | null;
+  maskLayerId?: string | null;
   bounds?: Rectangle | null;
 }
 
@@ -72,7 +81,9 @@ export interface SelectionSlice {
   selectionLastAction: SelectionActionProvenance | null;
   setSelectionBounds: (
     start: { x: number; y: number } | null,
-    end: { x: number; y: number } | null
+    end: { x: number; y: number } | null,
+    source?: string,
+    provenanceOverride?: Partial<SelectionActionProvenance>
   ) => void;
   appendSelectionBounds: (
     start: { x: number; y: number } | null,
@@ -203,6 +214,212 @@ const computeBoundsFromSelection = (
   width: Math.abs(end.x - start.x),
   height: Math.abs(end.y - start.y),
 });
+
+const inferSelectionOwnerKind = (source: string): SelectionOwnerKind => {
+  if (source.startsWith('history-selection-')) {
+    return 'history-restored';
+  }
+  if (source === 'selection-handle') {
+    return 'selection-handle';
+  }
+  if (
+    source === 'selection-marquee-start' ||
+    source === 'selection-marquee-preview' ||
+    source === 'selection-marquee-final' ||
+    source === 'custom-selection-final'
+  ) {
+    return 'direct-marquee';
+  }
+  if (
+    source.includes('freehand') ||
+    source.includes('magic-wand') ||
+    source.includes('select-layer-alpha') ||
+    source.includes('invert-selection') ||
+    source.includes('mask')
+  ) {
+    return 'mask-selection';
+  }
+  if (source === 'setSelectionBounds') {
+    return 'unknown';
+  }
+  return 'programmatic';
+};
+
+const createSelectionProvenance = (args: {
+  action: SelectionActionProvenance['action'];
+  source: string;
+  activeLayerId?: string | null;
+  maskLayerId?: string | null;
+  bounds?: Rectangle | null;
+  override?: Partial<SelectionActionProvenance>;
+}): SelectionActionProvenance => {
+  const ownerKind = args.override?.ownerKind ?? inferSelectionOwnerKind(args.source);
+  return {
+    action: args.override?.action ?? args.action,
+    source: args.override?.source ?? args.source,
+    ownerKind,
+    restoredFromHistory: args.override?.restoredFromHistory ?? ownerKind === 'history-restored',
+    t: args.override?.t ?? Date.now(),
+    activeLayerId: args.override?.activeLayerId ?? args.activeLayerId ?? null,
+    maskLayerId: args.override?.maskLayerId ?? args.maskLayerId ?? null,
+    bounds: args.override?.bounds ?? args.bounds ?? null,
+  };
+};
+
+const resolveMergedSelectionLayerId = (
+  existingLayerId: string | null | undefined,
+  incomingLayerId: string | null | undefined
+): string | null => {
+  if (existingLayerId && incomingLayerId && existingLayerId !== incomingLayerId) {
+    return existingLayerId;
+  }
+  return existingLayerId ?? incomingLayerId ?? null;
+};
+
+const buildColorCyclePaintAfterClearSummary = (
+  paintSummary: ColorCycleSelectionPaintSummary | null | undefined
+) => paintSummary
+  ? {
+      width: paintSummary.paintWidth,
+      height: paintSummary.paintHeight,
+      nonZeroCount: Math.max(0, paintSummary.totalNonZeroPaint - paintSummary.selectedNonZeroPaint),
+    }
+  : null;
+
+const logSelectionDeleteAuthorizationBlocked = (args: {
+  authorization: Extract<SelectionDeleteAuthorization, { ok: false }>;
+  activeLayer: Layer | null;
+  activeLayerId: string | null;
+  source: string;
+  projectId?: string | null;
+  selectionStart: { x: number; y: number } | null;
+  selectionEnd: { x: number; y: number } | null;
+  selectionMaskBounds: Rectangle | null;
+  selectionMaskLayerId: string | null;
+  selectionLastAction: SelectionActionProvenance | null;
+}): void => {
+  const {
+    authorization,
+    activeLayer,
+    activeLayerId,
+    source,
+    projectId,
+    selectionStart,
+    selectionEnd,
+    selectionMaskBounds,
+    selectionMaskLayerId,
+    selectionLastAction,
+  } = args;
+  const details = {
+    source,
+    reason: authorization.reason,
+    clearSelection: authorization.clearSelection,
+    activeLayerId,
+    activeLayerName: activeLayer?.name ?? null,
+    activeLayerType: activeLayer?.layerType ?? null,
+    selectionStart,
+    selectionEnd,
+    selectionBounds: selectionLastAction?.bounds ?? null,
+    selectionOwnerLayerId: selectionLastAction?.activeLayerId ?? null,
+    selectionOwnerKind: selectionLastAction?.ownerKind ?? null,
+    restoredFromHistory: selectionLastAction?.restoredFromHistory ?? false,
+    selectionMaskBounds,
+    selectionMaskLayerId,
+    selectionLastAction,
+    projectId: projectId ?? null,
+    colorCyclePaintSummary: authorization.colorCyclePaintSummary ?? null,
+    ...authorization.details,
+  };
+
+  if (activeLayer?.layerType === 'color-cycle' && activeLayerId) {
+    const summary = summarizeColorCycleLayer(activeLayer);
+    logCCMutation({
+      event: 'selection-delete-authorization-blocked',
+      layerId: activeLayerId,
+      reason: authorization.reason,
+      severity: authorization.reason === 'missing-canonical-paint' ? 'error' : 'warn',
+      before: summary,
+      after: summary,
+      details,
+    });
+
+    if (authorization.reason === 'selection-layer-mismatch') {
+      logCCMutation({
+        event: 'selection-delete-skipped-layer-mismatch',
+        layerId: activeLayerId,
+        reason: source,
+        severity: 'warn',
+        before: summary,
+        after: summary,
+        details: {
+          source,
+          selectionSource: selectionLastAction?.source ?? null,
+          selectionAction: selectionLastAction?.action ?? null,
+          selectionSourceLayerId: selectionLastAction?.activeLayerId ?? null,
+          activeLayerId,
+          selectionStart,
+          selectionEnd,
+          selectionBounds: selectionLastAction?.bounds ?? null,
+        },
+      });
+    }
+
+    if (authorization.reason === 'keyboard-full-content-clear-blocked') {
+      const paintSummary = authorization.colorCyclePaintSummary ?? null;
+      logCCMutation({
+        event: 'color-cycle-keyboard-delete-full-content-blocked',
+        layerId: activeLayerId,
+        reason: 'delete-selected',
+        severity: 'error',
+        before: summary,
+        after: summary,
+        details: {
+          source: 'selection-region-clear',
+          operation: 'delete-selected',
+          expectedDestructive: true,
+          blockedTimestamp: Date.now(),
+          layerName: activeLayer.name,
+          projectId: projectId ?? null,
+          deleteSource: source,
+          selectionLastAction,
+          paintBefore: paintSummary
+            ? {
+                width: paintSummary.paintWidth,
+                height: paintSummary.paintHeight,
+                nonZeroCount: paintSummary.totalNonZeroPaint,
+              }
+            : null,
+          paintAfter: buildColorCyclePaintAfterClearSummary(paintSummary),
+        },
+      });
+    }
+
+    if (authorization.reason === 'missing-canonical-paint') {
+      logCCMutation({
+        event: 'color-cycle-selection-clear-skipped-missing-canonical-paint',
+        layerId: activeLayerId,
+        reason: 'delete-selected',
+        severity: 'error',
+        before: summary,
+        after: summary,
+        details: {
+          source: 'selection-region-clear',
+          operation: 'delete-selected',
+          expectedDestructive: true,
+          clearTimestamp: Date.now(),
+          layerName: activeLayer.name,
+          projectId: projectId ?? null,
+          deleteSource: source,
+          selectionLastAction,
+          hasGradientIdBuffer: Boolean(activeLayer.colorCycleData?.gradientIdBuffer),
+          hasGradientDefIdBuffer: Boolean(activeLayer.colorCycleData?.gradientDefIdBuffer),
+        },
+      });
+    }
+  } else if (process.env.NODE_ENV !== 'production') {
+    debugWarn('raw-console', '[selection] delete authorization blocked', details);
+  }
+};
 
 const normalizeSelectionRect = (rect: Rectangle): Rectangle | null => {
   const x = Math.floor(rect.x);
@@ -467,9 +684,12 @@ const extractImageDataRegion = (imageData: ImageData | null, bounds: Rectangle):
 const extractColorCycleRegion = (
   state: ColorCycleSerializedState | null,
   bounds: Rectangle,
-  field: 'gradientIdBuffer' | 'speedBuffer' | 'flowBuffer' | 'phaseBuffer'
+  field: 'gradientIdBuffer' | 'speedBuffer' | 'flowBuffer' | 'phaseBuffer',
+  layerId?: string | null
 ): Uint8Array | null => {
-  const layer = state?.layers?.[0];
+  const layer = layerId
+    ? state?.layers?.find((entry) => entry.layerId === layerId)
+    : state?.layers?.[0];
   if (!layer?.strokeData) {
     return null;
   }
@@ -478,8 +698,11 @@ const extractColorCycleRegion = (
     return null;
   }
   const bytes = new Uint8Array(source);
-  const width = layer.data?.indexBuffer?.width ?? 0;
-  const height = layer.data?.indexBuffer?.height ?? 0;
+  const layerDimensions = layer as typeof layer & {
+    dimensions?: { width?: number; height?: number };
+  };
+  const width = layer.data?.indexBuffer?.width ?? layerDimensions.dimensions?.width ?? 0;
+  const height = layer.data?.indexBuffer?.height ?? layerDimensions.dimensions?.height ?? 0;
   if (!width || !height || bytes.length < width * height) {
     return null;
   }
@@ -493,16 +716,22 @@ const extractColorCycleRegion = (
 
 const extractColorCycleDefRegion = (
   state: ColorCycleSerializedState | null,
-  bounds: Rectangle
+  bounds: Rectangle,
+  layerId?: string | null
 ): Uint16Array | null => {
-  const layer = state?.layers?.[0];
+  const layer = layerId
+    ? state?.layers?.find((entry) => entry.layerId === layerId)
+    : state?.layers?.[0];
   const source = layer?.strokeData?.gradientDefIdBuffer;
   if (!source) {
     return null;
   }
   const values = new Uint16Array(source);
-  const width = layer.data?.indexBuffer?.width ?? 0;
-  const height = layer.data?.indexBuffer?.height ?? 0;
+  const layerDimensions = layer as typeof layer & {
+    dimensions?: { width?: number; height?: number };
+  };
+  const width = layer.data?.indexBuffer?.width ?? layerDimensions.dimensions?.width ?? 0;
+  const height = layer.data?.indexBuffer?.height ?? layerDimensions.dimensions?.height ?? 0;
   if (!width || !height || values.length < width * height) {
     return null;
   }
@@ -739,24 +968,58 @@ export const createSelectionSlice: StateCreator<AppState, [], [], SelectionSlice
     selectionMaskBounds: null,
     selectionMaskLayerId: null,
     selectionLastAction: null,
-    setSelectionBounds: (start, end) =>
-      set((state) => ({
-        selectionStart: start,
-        selectionEnd: end,
-        selectionVectorPath: null,
-        selectionMask: null,
-        selectionMaskBounds: null,
-        selectionMaskLayerId: null,
-        selectionLastAction: start && end
-          ? {
+    setSelectionBounds: (start, end, source = 'setSelectionBounds', provenanceOverride) =>
+      set((state) => {
+        const activeLayer = state.layers.find((layer) => layer.id === state.activeLayerId) ?? null;
+        const bounds = start && end ? computeBoundsFromSelection(start, end) : null;
+        const provenance = start && end
+          ? createSelectionProvenance({
               action: 'set-bounds',
-              source: 'setSelectionBounds',
-              t: Date.now(),
+              source,
               activeLayerId: state.activeLayerId,
-              bounds: computeBoundsFromSelection(start, end),
-            }
-          : null,
-      })),
+              bounds,
+              override: provenanceOverride,
+            })
+          : null;
+        if (activeLayer?.layerType === 'color-cycle') {
+          logCCMutation({
+            event: 'selection-bounds-set',
+            layerId: activeLayer.id,
+            reason: source,
+            severity: 'info',
+            before: summarizeColorCycleLayer(activeLayer),
+            after: summarizeColorCycleLayer(activeLayer),
+            details: {
+              source,
+              setTimestamp: provenance?.t ?? Date.now(),
+              activeLayerId: state.activeLayerId,
+              activeLayerName: activeLayer.name,
+              activeLayerType: activeLayer.layerType,
+              ownerKind: provenance?.ownerKind ?? null,
+              restoredFromHistory: provenance?.restoredFromHistory ?? false,
+              start,
+              end,
+              bounds,
+              previousSelectionStart: state.selectionStart,
+              previousSelectionEnd: state.selectionEnd,
+              previousSelectionMaskBounds: state.selectionMaskBounds,
+              previousSelectionLastAction: state.selectionLastAction,
+              projectId: state.project?.id ?? null,
+              projectWidth: state.project?.width ?? null,
+              projectHeight: state.project?.height ?? null,
+            },
+          });
+        }
+        return {
+          selectionStart: start,
+          selectionEnd: end,
+          selectionVectorPath: null,
+          selectionMask: null,
+          selectionMaskBounds: null,
+          selectionMaskLayerId: null,
+          selectionLastAction: provenance,
+        };
+      }),
     appendSelectionBounds: (start, end) =>
       set((state) => {
         if (!start || !end) {
@@ -773,6 +1036,11 @@ export const createSelectionSlice: StateCreator<AppState, [], [], SelectionSlice
           return state;
         }
 
+        const mergedLayerId = resolveMergedSelectionLayerId(
+          state.selectionMaskLayerId ?? state.selectionLastAction?.maskLayerId ?? state.selectionLastAction?.activeLayerId,
+          state.activeLayerId,
+        );
+
         return {
           selectionStart: { x: merged.bounds.x, y: merged.bounds.y },
           selectionEnd: {
@@ -782,7 +1050,15 @@ export const createSelectionSlice: StateCreator<AppState, [], [], SelectionSlice
           selectionVectorPath: null,
           selectionMask: merged.mask,
           selectionMaskBounds: merged.bounds,
-          selectionMaskLayerId: state.activeLayerId ?? state.selectionMaskLayerId ?? null,
+          selectionMaskLayerId: mergedLayerId,
+          selectionLastAction: createSelectionProvenance({
+            action: 'set-bounds',
+            source: 'append-selection-bounds',
+            activeLayerId: mergedLayerId,
+            maskLayerId: mergedLayerId,
+            bounds: merged.bounds,
+            override: { ownerKind: 'mask-selection' },
+          }),
         };
       }),
     appendSelectionMask: ({ mask, bounds, layerId }) =>
@@ -801,6 +1077,12 @@ export const createSelectionSlice: StateCreator<AppState, [], [], SelectionSlice
           return state;
         }
 
+        const incomingLayerId = layerId ?? state.activeLayerId ?? null;
+        const mergedLayerId = resolveMergedSelectionLayerId(
+          state.selectionMaskLayerId ?? state.selectionLastAction?.maskLayerId ?? state.selectionLastAction?.activeLayerId,
+          incomingLayerId,
+        );
+
         return {
           selectionStart: { x: merged.bounds.x, y: merged.bounds.y },
           selectionEnd: {
@@ -810,7 +1092,15 @@ export const createSelectionSlice: StateCreator<AppState, [], [], SelectionSlice
           selectionVectorPath: null,
           selectionMask: merged.mask,
           selectionMaskBounds: merged.bounds,
-          selectionMaskLayerId: layerId ?? state.activeLayerId ?? state.selectionMaskLayerId ?? null,
+          selectionMaskLayerId: mergedLayerId,
+          selectionLastAction: createSelectionProvenance({
+            action: 'set-bounds',
+            source: 'append-selection-mask',
+            activeLayerId: mergedLayerId,
+            maskLayerId: mergedLayerId,
+            bounds: merged.bounds,
+            override: { ownerKind: 'mask-selection' },
+          }),
         };
       }),
     clearSelection: () =>
@@ -906,8 +1196,11 @@ export const createSelectionSlice: StateCreator<AppState, [], [], SelectionSlice
         selectionLastAction: {
           action: 'select-all',
           source,
+          ownerKind: 'select-all',
+          restoredFromHistory: false,
           t: Date.now(),
           activeLayerId,
+          maskLayerId: null,
           bounds: { x: 0, y: 0, width, height },
         },
       });
@@ -938,6 +1231,7 @@ export const createSelectionSlice: StateCreator<AppState, [], [], SelectionSlice
           selectionMask: null,
           selectionMaskBounds: null,
           selectionMaskLayerId: null,
+          selectionLastAction: null,
         });
         return;
       }
@@ -958,6 +1252,7 @@ export const createSelectionSlice: StateCreator<AppState, [], [], SelectionSlice
           selectionMask: null,
           selectionMaskBounds: null,
           selectionMaskLayerId: null,
+          selectionLastAction: null,
         });
         return;
       }
@@ -990,6 +1285,14 @@ export const createSelectionSlice: StateCreator<AppState, [], [], SelectionSlice
         selectionMask: maskData,
         selectionMaskBounds: { x: clampedX, y: clampedY, width: clampedWidth, height: clampedHeight },
         selectionMaskLayerId: targetLayerId,
+        selectionLastAction: createSelectionProvenance({
+          action: 'set-bounds',
+          source: 'select-layer-alpha',
+          activeLayerId: targetLayerId,
+          maskLayerId: targetLayerId,
+          bounds: { x: clampedX, y: clampedY, width: clampedWidth, height: clampedHeight },
+          override: { ownerKind: 'mask-selection' },
+        }),
       });
     },
     invertSelection: () => {
@@ -1063,6 +1366,7 @@ export const createSelectionSlice: StateCreator<AppState, [], [], SelectionSlice
           selectionMask: null,
           selectionMaskBounds: null,
           selectionMaskLayerId: null,
+          selectionLastAction: null,
         });
         return;
       }
@@ -1076,6 +1380,7 @@ export const createSelectionSlice: StateCreator<AppState, [], [], SelectionSlice
           selectionMask: null,
           selectionMaskBounds: null,
           selectionMaskLayerId: null,
+          selectionLastAction: null,
         });
         return;
       }
@@ -1091,9 +1396,17 @@ export const createSelectionSlice: StateCreator<AppState, [], [], SelectionSlice
         selectionMask: croppedMask,
         selectionMaskBounds: invertedBounds,
         selectionMaskLayerId: state.activeLayerId ?? state.selectionMaskLayerId ?? null,
+        selectionLastAction: createSelectionProvenance({
+          action: 'set-bounds',
+          source: 'invert-selection',
+          activeLayerId: state.activeLayerId ?? state.selectionLastAction?.activeLayerId ?? null,
+          maskLayerId: state.activeLayerId ?? state.selectionMaskLayerId ?? null,
+          bounds: invertedBounds,
+          override: { ownerKind: 'mask-selection' },
+        }),
       });
     },
-    deleteSelectedPixels: (source = 'deleteSelectedPixels') => {
+    deleteSelectedPixels: (source = 'api-delete') => {
       const state = get();
       const {
         selectionStart,
@@ -1117,45 +1430,56 @@ export const createSelectionSlice: StateCreator<AppState, [], [], SelectionSlice
         return;
       }
 
-      const selectionSourceLayerId = selectionLastAction?.activeLayerId ?? null;
-      if (
-        selectionLastAction?.action === 'select-all' &&
-        selectionSourceLayerId &&
-        selectionSourceLayerId !== activeLayerId
-      ) {
-        if (activeLayer.layerType === 'color-cycle') {
-          logCCMutation({
-            event: 'selection-delete-skipped-layer-mismatch',
-            layerId: activeLayerId,
-            reason: source,
-            severity: 'warn',
-            before: summarizeColorCycleLayer(activeLayer),
-            after: summarizeColorCycleLayer(activeLayer),
-            details: {
-              source,
-              selectionSource: selectionLastAction.source,
-              selectionSourceLayerId,
-              activeLayerId,
-              selectionStart,
-              selectionEnd,
-              selectionBounds: selectionLastAction.bounds ?? null,
-            },
-          });
-        } else if (process.env.NODE_ENV !== 'production') {
-          debugWarn('raw-console', '[selection] skipped stale select-all delete on different layer', {
-            source,
-            selectionSourceLayerId,
-            activeLayerId,
-          });
+      const colorCyclePaint = (() => {
+        if (activeLayer.layerType !== 'color-cycle') {
+          return null;
         }
-        state.clearSelection();
+        const brush = typeof state.getLayerColorCycleBrush === 'function'
+          ? state.getLayerColorCycleBrush(activeLayerId)
+          : null;
+        const snapshot = brush?.getLayerSnapshot?.(activeLayerId) ?? null;
+        const canvas = activeLayer.colorCycleData?.canvas ?? activeLayer.framebuffer ?? null;
+        return {
+          buffer: snapshot?.paintBuffer ? new Uint8Array(snapshot.paintBuffer) : null,
+          width: canvas?.width ?? project.width,
+          height: canvas?.height ?? project.height,
+        };
+      })();
+
+      const authorization = authorizeSelectionDelete({
+        source,
+        activeLayer,
+        activeLayerId,
+        project,
+        selectionStart,
+        selectionEnd,
+        selectionMask,
+        selectionMaskBounds,
+        selectionMaskLayerId,
+        selectionLastAction,
+        colorCyclePaint,
+      });
+
+      if (!authorization.ok) {
+        logSelectionDeleteAuthorizationBlocked({
+          authorization,
+          activeLayer,
+          activeLayerId,
+          source,
+          projectId: project.id,
+          selectionStart,
+          selectionEnd,
+          selectionMaskBounds,
+          selectionMaskLayerId,
+          selectionLastAction,
+        });
+        if (authorization.clearSelection) {
+          state.clearSelection();
+        }
         return;
       }
 
-      const { x, y, width, height } = computeBoundsFromSelection(selectionStart, selectionEnd);
-      if (width <= 0 || height <= 0) {
-        return;
-      }
+      const { x, y, width, height } = authorization.bounds;
 
       const selectionBefore = selectionSnapshotFromValues(selectionStart, selectionEnd);
 
@@ -1500,11 +1824,11 @@ export const createSelectionSlice: StateCreator<AppState, [], [], SelectionSlice
             height: capture.bounds.height,
           },
           sourceBeforeImage: extractImageDataRegion(sourceImageData, capture.bounds),
-          sourceGradientIds: extractColorCycleRegion(beforeColorState, capture.bounds, 'gradientIdBuffer'),
-          sourceGradientDefIds: extractColorCycleDefRegion(beforeColorState, capture.bounds),
-          sourceSpeed: extractColorCycleRegion(beforeColorState, capture.bounds, 'speedBuffer'),
-          sourceFlow: extractColorCycleRegion(beforeColorState, capture.bounds, 'flowBuffer'),
-          sourcePhase: extractColorCycleRegion(beforeColorState, capture.bounds, 'phaseBuffer'),
+          sourceGradientIds: extractColorCycleRegion(beforeColorState, capture.bounds, 'gradientIdBuffer', activeLayerId),
+          sourceGradientDefIds: extractColorCycleDefRegion(beforeColorState, capture.bounds, activeLayerId),
+          sourceSpeed: extractColorCycleRegion(beforeColorState, capture.bounds, 'speedBuffer', activeLayerId),
+          sourceFlow: extractColorCycleRegion(beforeColorState, capture.bounds, 'flowBuffer', activeLayerId),
+          sourcePhase: extractColorCycleRegion(beforeColorState, capture.bounds, 'phaseBuffer', activeLayerId),
           beforeImage,
           beforeColorState,
           selectionBefore,

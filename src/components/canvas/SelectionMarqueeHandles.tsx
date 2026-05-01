@@ -125,6 +125,7 @@ const SelectionMarqueeHandles: React.FC<SelectionMarqueeHandlesProps> = ({
       setSelectionBounds(
         { x: rect.x, y: rect.y },
         { x: rect.x + rect.width, y: rect.y + rect.height },
+        'selection-handle',
       );
     },
     [setSelectionBounds],

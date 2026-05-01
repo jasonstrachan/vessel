@@ -1,5 +1,9 @@
 import { debugWarn } from '@/utils/debug';
-import { logCCMutation, summarizeColorCycleLayer, summarizeScalarBuffer } from '@/utils/colorCycle/ccMutationAudit';
+import {
+  logCCMutation,
+  summarizeColorCycleLayer,
+  summarizeScalarBuffer,
+} from '@/utils/colorCycle/ccMutationAudit';
 import { getColorCycleBrushManager } from '@/stores/colorCycleBrushManager';
 import { copyScalarRegion } from '@/stores/helpers/selectionCapture';
 import type { Layer, Project, Rectangle } from '@/types';
@@ -97,28 +101,39 @@ const mutateColorCycleLayer = (
     return false;
   }
 
-  let snapshot = brush.getLayerSnapshot(layer.id);
-  if (!snapshot || !snapshot.paintBuffer || snapshot.paintBuffer.byteLength === 0) {
-    const persisted = layer.colorCycleData?.gradientIdBuffer;
-    if (persisted) {
-      const persistedView = new Uint8Array(persisted);
-      const expectedLength = canvas.width * canvas.height;
-      if (persistedView.length === expectedLength) {
-        const seeded = persistedView.slice();
-        brush.applyLayerSnapshot(layer.id, {
-          paintBuffer: seeded.buffer,
-          hasContent: seeded.some((value) => value !== 0),
-          strokeCounter: snapshot?.strokeCounter ?? 0,
-        });
-        snapshot = brush.getLayerSnapshot(layer.id);
-      }
-    }
-  }
+  const snapshot = brush.getLayerSnapshot(layer.id);
   if (!snapshot) {
     if (process.env.NODE_ENV !== 'production') {
       debugWarn('raw-console', '[cc] no snapshot in mutateColorCycleLayer', { layerId: layer.id });
     }
     return false;
+  }
+  if (!snapshot.paintBuffer || snapshot.paintBuffer.byteLength === 0) {
+    const isDestructiveClear = Boolean(options?.audit?.source);
+    if (isDestructiveClear) {
+      logCCMutation({
+        event: 'color-cycle-selection-clear-skipped-missing-canonical-paint',
+        layerId: layer.id,
+        reason: options?.audit?.source ?? 'clear-color-cycle-region',
+        severity: 'error',
+        before: summarizeColorCycleLayer(layer),
+        after: summarizeColorCycleLayer(layer),
+        details: {
+          source: 'selection-region-clear',
+          operation: options?.audit?.source ?? 'clear-color-cycle-region',
+          expectedDestructive: true,
+          clearTimestamp: Date.now(),
+          layerName: layer.name,
+          projectId: project.id,
+          canvasWidth: canvas.width,
+          canvasHeight: canvas.height,
+          hasGradientIdBuffer: Boolean(layer.colorCycleData?.gradientIdBuffer),
+          hasGradientDefIdBuffer: Boolean(layer.colorCycleData?.gradientDefIdBuffer),
+          ...(options?.audit?.details ?? {}),
+        },
+      });
+      return false;
+    }
   }
 
   const bufferLength = canvas.width * canvas.height;
@@ -213,9 +228,10 @@ const mutateColorCycleLayer = (
   }
 
   const hasContent = working.some((value) => value !== 0);
+  const afterPaintSummary = summarizeScalarBuffer(working, canvas.width, canvas.height);
+  const auditSource = options?.audit?.source ?? 'clear-color-cycle-region';
   if (hadContentBeforeMutation && !hasContent) {
     const before = summarizeColorCycleLayer(layer);
-    const auditSource = options?.audit?.source ?? 'clear-color-cycle-region';
     logCCMutation({
       event: 'color-cycle-layer-cleared',
       layerId: layer.id,
@@ -234,6 +250,7 @@ const mutateColorCycleLayer = (
         source: 'selection-region-clear',
         operation: auditSource,
         expectedDestructive: true,
+        clearTimestamp: Date.now(),
         layerName: layer.name,
         layerVisible: layer.visible,
         layerOpacity: layer.opacity,
@@ -246,7 +263,7 @@ const mutateColorCycleLayer = (
         bufferLength,
         ...(options?.audit?.details ?? {}),
         paintBefore: beforePaintSummary,
-        paintAfter: summarizeScalarBuffer(working, canvas.width, canvas.height),
+        paintAfter: afterPaintSummary,
         gradientIdAfter: summarizeScalarBuffer(workingGradientId, canvas.width, canvas.height),
         gradientDefIdAfter: summarizeScalarBuffer(workingGradientDefId, canvas.width, canvas.height),
         speedAfter: summarizeScalarBuffer(workingSpeed, canvas.width, canvas.height),

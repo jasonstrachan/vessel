@@ -181,7 +181,7 @@ export interface EventHandlerDependencies {
   currentBrushPresetId: string | null;
 
   // Store actions
-  setSelectionBounds: (start: { x: number; y: number }, end: { x: number; y: number }) => void;
+  setSelectionBounds: (start: { x: number; y: number }, end: { x: number; y: number }, source?: string) => void;
   clearSelection: () => void;
   setCurrentTool: (tool: string) => void;
   setActiveColor: (color: string) => void;

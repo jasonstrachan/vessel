@@ -25,9 +25,19 @@ class SelectionBoundsDelta implements HistoryDelta {
     const store = useAppStore.getState();
 
     if (normalized.start && normalized.end) {
+      const historySource = `history-selection-${direction}`;
       store.setSelectionBounds(
         { x: normalized.start.x, y: normalized.start.y },
         { x: normalized.end.x, y: normalized.end.y },
+        historySource,
+        {
+          ...(normalized.provenance ?? {}),
+          source: historySource,
+          ownerKind: 'history-restored',
+          restoredFromHistory: true,
+          activeLayerId: normalized.provenance?.activeLayerId ?? null,
+          maskLayerId: normalized.provenance?.maskLayerId ?? null,
+        },
       );
     } else {
       store.clearSelection();

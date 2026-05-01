@@ -138,7 +138,11 @@ describe('selectionHandlers marquee auto-pan', () => {
     });
 
     expect(handled).toBe(true);
-    expect(setSelectionBounds).toHaveBeenCalledWith({ x: 10, y: 10 }, { x: 98, y: 40 });
+    expect(setSelectionBounds).toHaveBeenCalledWith(
+      { x: 10, y: 10 },
+      { x: 98, y: 40 },
+      'selection-marquee-preview'
+    );
     expect(rafCallbacks).toHaveLength(1);
 
     rafCallbacks[0](16);
@@ -147,7 +151,8 @@ describe('selectionHandlers marquee auto-pan', () => {
     expect(panState.offsetX).toBeLessThan(0);
     expect(setSelectionBounds).toHaveBeenLastCalledWith(
       { x: 10, y: 10 },
-      expect.objectContaining({ x: expect.any(Number), y: 40 })
+      expect.objectContaining({ x: expect.any(Number), y: 40 }),
+      'selection-marquee-preview'
     );
     const latestEnd = setSelectionBounds.mock.calls.at(-1)?.[1];
     expect(latestEnd?.x).toBeGreaterThan(98);

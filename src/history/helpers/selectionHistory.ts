@@ -11,6 +11,7 @@ export const captureSelectionSnapshot = (): SelectionSnapshot =>
   selectionSnapshotFromValues(
     useAppStore.getState().selectionStart,
     useAppStore.getState().selectionEnd,
+    useAppStore.getState().selectionLastAction,
   );
 
 interface CommitSelectionHistoryOptions {
