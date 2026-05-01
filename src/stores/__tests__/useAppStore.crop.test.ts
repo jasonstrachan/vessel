@@ -420,7 +420,7 @@ describe('useAppStore commitCrop', () => {
     const brush = useAppStore.getState().getLayerColorCycleBrush(layer.id);
     expect(brush).toBeDefined();
 
-    const paint = new Uint8Array(24).fill(1);
+    const paint = new Uint8Array(24).fill(0);
     const gradientIds = Uint8Array.from({ length: 24 }, (_, idx) => idx);
     const gradientDefIds = Uint16Array.from({ length: 24 }, (_, idx) => idx + 100);
     const speed = new Uint8Array(24).fill(12);
@@ -450,6 +450,7 @@ describe('useAppStore commitCrop', () => {
     expect(snapshot?.gradientDefIdBuffer).toBeDefined();
     expect(snapshot?.flowBuffer).toBeDefined();
     expect(snapshot?.phaseBuffer).toBeDefined();
+    expect(snapshot?.hasContent).toBe(true);
 
     expect(Array.from(new Uint8Array(snapshot?.gradientIdBuffer ?? new ArrayBuffer(0)))).toEqual([
       7, 8, 9,
@@ -467,6 +468,57 @@ describe('useAppStore commitCrop', () => {
       47, 48, 49,
       53, 54, 55,
     ]);
+  });
+
+  it('does not preserve phantom color-cycle content when the crop region is empty', async () => {
+    const layer = createColorCycleLayer(6, 4);
+    const ccCanvas = layer.colorCycleData?.canvas;
+    const ccCtx = ccCanvas?.getContext('2d');
+    ccCtx?.clearRect(0, 0, 6, 4);
+    ccCtx!.fillStyle = 'rgba(255, 0, 0, 1)';
+    ccCtx?.fillRect(0, 0, 1, 1);
+    layer.imageData = ccCtx?.getImageData(0, 0, 6, 4) ?? layer.imageData;
+    primeStoreForCrop(layer, 6, 4);
+
+    useAppStore.getState().initColorCycleForLayer(layer.id, 6, 4);
+    const brush = useAppStore.getState().getLayerColorCycleBrush(layer.id);
+    expect(brush).toBeDefined();
+
+    const paint = new Uint8Array(24);
+    const gradientIds = new Uint8Array(24);
+    const gradientDefIds = new Uint16Array(24);
+    const speed = new Uint8Array(24);
+    const flow = new Uint8Array(24);
+    const phase = new Uint8Array(24);
+    paint[0] = 1;
+    gradientIds[0] = 1;
+    gradientDefIds[0] = 1;
+    speed[0] = 1;
+    flow[0] = 1;
+    phase[0] = 1;
+
+    brush?.applyLayerSnapshot?.(layer.id, {
+      paintBuffer: paint.buffer.slice(0),
+      gradientIdBuffer: gradientIds.buffer.slice(0),
+      gradientDefIdBuffer: gradientDefIds.buffer.slice(0),
+      speedBuffer: speed.buffer.slice(0),
+      flowBuffer: flow.buffer.slice(0),
+      phaseBuffer: phase.buffer.slice(0),
+      hasContent: true,
+      strokeCounter: 4
+    });
+
+    await useAppStore.getState().commitCrop();
+    await new Promise((resolve) => setTimeout(resolve, 25));
+
+    const updatedLayer = useAppStore.getState().layers[0];
+    const updatedBrush = updatedLayer.colorCycleData?.colorCycleBrush;
+    const snapshot = updatedBrush?.getLayerSnapshot?.(layer.id);
+
+    expect(snapshot?.paintBuffer).toBeDefined();
+    expect(snapshot?.hasContent).toBe(false);
+    expect(new Uint8Array(snapshot?.paintBuffer ?? new ArrayBuffer(0)).some((value) => value !== 0)).toBe(false);
+    expect(updatedLayer.imageData?.data.some((value, index) => index % 4 === 3 && value !== 0)).toBe(false);
   });
 
   it('restores color-cycle gradient slot runtime metadata after cropping', async () => {

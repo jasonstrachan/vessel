@@ -48,6 +48,7 @@ import {
 } from '@/lib/colorCycle/persistence';
 import {
   logCCMutation,
+  summarizeColorCycleLayer,
   summarizeSerializedColorCycleLayer,
 } from '@/utils/colorCycle/ccMutationAudit';
 import { repairLegacyColorCycleLayer, type ColorCycleLegacyRepairResult } from '@/lib/colorCycle/legacyRepair';
@@ -1644,6 +1645,7 @@ const externalizeBase64Buffer = (
   path: string,
   entries: ArchiveBinaryEntry[],
   dimensions?: { width?: number; height?: number },
+  options?: { preserveAllZero?: boolean },
 ): string | undefined => {
   if (!base64 || isArchiveBinaryRef(base64)) {
     return base64;
@@ -1655,7 +1657,11 @@ const externalizeBase64Buffer = (
   const bytesPerPixel = getBytesPerColorCyclePixel(path);
   const bounds = findNonZeroBufferBounds(bytes, dimensions, bytesPerPixel);
   if (bounds === null) {
-    return undefined;
+    if (!options?.preserveAllZero) {
+      return undefined;
+    }
+    entries.push({ path, bytes, width: dimensions?.width, height: dimensions?.height });
+    return toArchiveBinaryRef(path);
   }
   if (bounds && dimensions?.width && dimensions?.height) {
     const cropped = cropBufferToBounds(bytes, dimensions.width, bounds, bytesPerPixel);
@@ -1810,12 +1816,14 @@ const collectLayerArchiveBinaryEntries = (
     `buffers/color-cycle/${layer.id}/gradient-id.bin`,
     entries,
     canvasDimensions,
+    { preserveAllZero: true },
   );
   stateSource.gradientDefIdRef = externalizeBase64Buffer(
     stateSource.gradientDefIdRef,
     `buffers/color-cycle/${layer.id}/gradient-def-id.bin`,
     entries,
     canvasDimensions,
+    { preserveAllZero: true },
   );
 
   const currentSnapshot = stateSource?.currentLayerSnapshot;
@@ -1825,24 +1833,28 @@ const collectLayerArchiveBinaryEntries = (
       `buffers/color-cycle/${layer.id}/paint.bin`,
       entries,
       canvasDimensions,
+      { preserveAllZero: true },
     );
     currentSnapshot.strokeData.speedBuffer = externalizeBase64Buffer(
       currentSnapshot.strokeData.speedBuffer,
       `buffers/color-cycle/${layer.id}/speed.bin`,
       entries,
       canvasDimensions,
+      { preserveAllZero: true },
     );
     currentSnapshot.strokeData.flowBuffer = externalizeBase64Buffer(
       currentSnapshot.strokeData.flowBuffer,
       `buffers/color-cycle/${layer.id}/flow.bin`,
       entries,
       canvasDimensions,
+      { preserveAllZero: true },
     );
     currentSnapshot.strokeData.phaseBuffer = externalizeBase64Buffer(
       currentSnapshot.strokeData.phaseBuffer,
       `buffers/color-cycle/${layer.id}/phase.bin`,
       entries,
       canvasDimensions,
+      { preserveAllZero: true },
     );
   }
 
@@ -2689,6 +2701,7 @@ const shouldDeferColorCycleRuntimeRestore = (
 const hydratePersistedBrushStateArchiveRefs = async (
   brushState: PersistedColorCycleBrushState | undefined,
   runtime: LazyColorCycleArchiveRuntime,
+  layerId: string,
 ): Promise<PersistedColorCycleBrushState | undefined> => {
   if (!brushState?.layers?.length) {
     return brushState;
@@ -2732,10 +2745,26 @@ const hydratePersistedBrushStateArchiveRefs = async (
     };
   }));
 
-  return {
+  const nextBrushState = {
     ...brushState,
     layers: hydratedLayers,
   };
+
+  const targetSnapshot = nextBrushState.layers.find((snapshot) => snapshot.layerId === layerId);
+  if (!targetSnapshot) {
+    return nextBrushState;
+  }
+
+  const strokeData = targetSnapshot.strokeData ?? {};
+  strokeData.paintBuffer ??= await hydrateArchiveBinaryRef(runtime.paintRef, runtime.archiveZip, runtime.binaryManifest, runtime.cache);
+  strokeData.gradientIdBuffer ??= await hydrateArchiveBinaryRef(runtime.gradientIdRef, runtime.archiveZip, runtime.binaryManifest, runtime.cache);
+  strokeData.gradientDefIdBuffer ??= await hydrateArchiveBinaryRef(runtime.gradientDefIdRef, runtime.archiveZip, runtime.binaryManifest, runtime.cache);
+  strokeData.speedBuffer ??= await hydrateArchiveBinaryRef(runtime.speedRef, runtime.archiveZip, runtime.binaryManifest, runtime.cache);
+  strokeData.flowBuffer ??= await hydrateArchiveBinaryRef(runtime.flowRef, runtime.archiveZip, runtime.binaryManifest, runtime.cache);
+  strokeData.phaseBuffer ??= await hydrateArchiveBinaryRef(runtime.phaseRef, runtime.archiveZip, runtime.binaryManifest, runtime.cache);
+  targetSnapshot.strokeData = strokeData;
+
+  return nextBrushState;
 };
 
 const hydrateLazyColorCycleArchiveRuntime = async (layer: Layer): Promise<void> => {
@@ -2763,12 +2792,28 @@ const hydrateLazyColorCycleArchiveRuntime = async (layer: Layer): Promise<void> 
     ? base64ToArrayBuffer(gradientDefIdBase64)
     : undefined;
 
-  const hydratedBrushState = await hydratePersistedBrushStateArchiveRefs(runtime.brushState, runtime);
+  const hydratedBrushState = await hydratePersistedBrushStateArchiveRefs(runtime.brushState, runtime, layer.id);
   if (hydratedBrushState) {
     layer.colorCycleData.brushState = hydratedBrushState;
     setSavedColorCycleBrushState(layer, hydratedBrushState);
   }
   deleteLazyColorCycleArchiveRuntime(layer);
+};
+
+const isPrimaryColorCyclePayloadFailure = (reason: string): boolean => (
+  reason === 'missing-canonical-paint' ||
+  reason === 'missing-gradient-bindings' ||
+  reason === 'missing-motion-buffers' ||
+  reason === 'missing-archive-ref'
+);
+
+type ColorCycleRepairStatusReason = NonNullable<NonNullable<Layer['colorCycleData']>['repairStatus']>['reason'];
+
+const toRepairStatusReasonForPrimaryPayloadFailure = (reason: string): ColorCycleRepairStatusReason => {
+  if (reason === 'missing-gradient-bindings' || reason === 'missing-motion-buffers') {
+    return reason;
+  }
+  return 'missing-paint-buffer';
 };
 
 const applyLegacyColorCycleBrushSettingsFallback = (
@@ -2962,6 +3007,10 @@ async function serializeLayer(layer: Layer): Promise<SerializedLayer> {
       deferredRuntime: lazyRuntime
         ? {
             brushState: lazyRuntime.brushState as DeferredColorCycleArchiveRuntime['brushState'],
+            paintRef: lazyRuntime.paintRef,
+            speedRef: lazyRuntime.speedRef,
+            flowRef: lazyRuntime.flowRef,
+            phaseRef: lazyRuntime.phaseRef,
             gradientIdRef: lazyRuntime.gradientIdRef,
             gradientDefIdRef: lazyRuntime.gradientDefIdRef,
           }
@@ -2973,10 +3022,13 @@ async function serializeLayer(layer: Layer): Promise<SerializedLayer> {
         });
       },
     });
+    const primaryPayloadFailure = !snapshot.ok && isPrimaryColorCyclePayloadFailure(snapshot.reason);
     const brushStateForSave =
       snapshot.ok
         ? snapshot.brushState as PersistedColorCycleBrushState
-        : (sourceColorCycleData.brushState as PersistedColorCycleBrushState | undefined) ?? lazyRuntime?.brushState;
+        : primaryPayloadFailure
+          ? undefined
+          : (sourceColorCycleData.brushState as PersistedColorCycleBrushState | undefined) ?? lazyRuntime?.brushState;
     let colorCycleStateSource: SerializedColorCycleStateSource = {
       ...buildSerializedColorCycleCanonicalState(sourceColorCycleData),
       ...buildColorCycleStateSource(
@@ -2984,7 +3036,12 @@ async function serializeLayer(layer: Layer): Promise<SerializedLayer> {
         layer.id,
       ),
     };
-    if (lazyRuntime) {
+    if (primaryPayloadFailure) {
+      colorCycleStateSource.gradientIdRef = undefined;
+      colorCycleStateSource.gradientDefIdRef = undefined;
+      colorCycleStateSource.currentLayerSnapshot = undefined;
+    }
+    if (lazyRuntime && !primaryPayloadFailure) {
       colorCycleStateSource = {
         ...colorCycleStateSource,
         gradientIdRef: colorCycleStateSource.gradientIdRef ?? lazyRuntime.gradientIdRef,
@@ -2997,6 +3054,21 @@ async function serializeLayer(layer: Layer): Promise<SerializedLayer> {
         snapshot.documentState,
       );
     } else {
+      if (primaryPayloadFailure) {
+        logCCMutation({
+          event: 'cc-save-primary-payload-drop-blocked',
+          layerId: layer.id,
+          reason: 'serializeLayer',
+          severity: 'error',
+          before: summarizeColorCycleLayer(layer),
+          after: summarizeColorCycleLayer(layer),
+          details: {
+            snapshotReason: snapshot.reason,
+            damageKind: snapshot.damageKind ?? null,
+            diagnostics: snapshot.diagnostics,
+          },
+        });
+      }
       debugWarn('raw-console', '[projectIO] Skipping canonical color cycle document state during save:', {
         layerId: layer.id,
         reason: snapshot.reason,
@@ -5885,12 +5957,78 @@ export async function restoreColorCycleBrushes(
         continue;
       }
       const targetRuntimeState = options?.activeLayerId === layer.id ? 'active' : 'warm';
+      const hadLazyArchiveRuntime = Boolean(getLazyColorCycleArchiveRuntime(layer));
+      const shouldValidateWarmupPrimaryPayload = Boolean(
+        hadLazyArchiveRuntime ||
+        layer.colorCycleData.deferredRuntimeRestore === true ||
+        getColorCycleHydrationState(layer.colorCycleData) === 'cold'
+      );
       await hydrateLazyColorCycleArchiveRuntime(layer);
       ccWarmRestoreDebug.log('archive-runtime-hydrated', {
         layerId: layer.id,
         gradientIdBuffer: describeBufferForDebug(layer.colorCycleData?.gradientIdBuffer),
         gradientDefIdBuffer: describeBufferForDebug(layer.colorCycleData?.gradientDefIdBuffer),
       });
+      const savedBrushStateForWarmup = getSavedColorCycleBrushState(layer);
+      if (savedBrushStateForWarmup && !layer.colorCycleData.brushState) {
+        layer.colorCycleData.brushState = savedBrushStateForWarmup;
+      }
+      const warmupSnapshot = captureColorCyclePersistenceSnapshot(layer, {
+        projectWidth: layer.colorCycleData.canvasWidth ?? layer.imageData?.width ?? layer.framebuffer.width ?? 1,
+        projectHeight: layer.colorCycleData.canvasHeight ?? layer.imageData?.height ?? layer.framebuffer.height ?? 1,
+        requirePaint: true,
+        mode: 'diagnostic',
+        runtimeBrush: null,
+        serializeRuntimeBrushState: (state, layerId) => (
+          serializeBrushStateForCanonicalSave(state as ColorCycleBrushState, layerId) as PersistenceBrushState | undefined
+        ),
+        diagnostics: (diagnostic) => {
+          ccWarmRestoreDebug.log('canonical-payload-diagnostic', {
+            layerId: layer.id,
+            ...diagnostic,
+          });
+        },
+      });
+      if (
+        !warmupSnapshot.ok &&
+        shouldValidateWarmupPrimaryPayload &&
+        hasPotentialColorCycleRuntimeSource(layer) &&
+        isPrimaryColorCyclePayloadFailure(warmupSnapshot.reason)
+      ) {
+        const before = summarizeColorCycleLayer(layer);
+        layer.colorCycleData = {
+          ...setColorCycleHydrationState(layer.colorCycleData, 'cold'),
+          deferredRuntimeRestore: false,
+          repairStatus: layer.colorCycleData.repairStatus ?? {
+            ok: false,
+            reason: toRepairStatusReasonForPrimaryPayloadFailure(warmupSnapshot.reason),
+            notes: withColorCycleDiagnosticNotes(
+              ['color-cycle-runtime-restore-primary-payload-drop-blocked'],
+              ['static-preview-only', 'repair-failed'],
+            ),
+          },
+        };
+        ccWarmRestoreDebug.warn('cc-warmup-canonical-payload-drop-blocked', {
+          layerId: layer.id,
+          reason: warmupSnapshot.reason,
+          damageKind: warmupSnapshot.damageKind,
+          diagnostics: warmupSnapshot.diagnostics,
+        });
+        logCCMutation({
+          event: 'cc-warmup-canonical-payload-drop-blocked',
+          layerId: layer.id,
+          reason: 'restoreColorCycleBrushes',
+          severity: 'error',
+          before,
+          after: summarizeColorCycleLayer(layer),
+          details: {
+            snapshotReason: warmupSnapshot.reason,
+            damageKind: warmupSnapshot.damageKind ?? null,
+            diagnostics: warmupSnapshot.diagnostics,
+          },
+        });
+        continue;
+      }
       layer.colorCycleData = setColorCycleHydrationState(layer.colorCycleData, targetRuntimeState);
       const restored = await restoreColorCycleLayerRuntimeForMaterialization(
         layer,

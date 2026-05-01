@@ -62,6 +62,8 @@ describe('captureColorCycleBrushState', () => {
             dimensions: { width: 4, height: 4 },
             strokeData: {
               paintBuffer: new Uint8Array(16).fill(1).buffer,
+              gradientIdBuffer: new Uint8Array(16).fill(1).buffer,
+              gradientDefIdBuffer: new Uint16Array(16).fill(1).buffer,
               speedBuffer: new Uint8Array(16).fill(1).buffer,
               flowBuffer: new Uint8Array(16).buffer,
               phaseBuffer: new Uint8Array(16).buffer,

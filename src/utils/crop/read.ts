@@ -39,6 +39,22 @@ const isTwoDContext = (ctx: unknown): ctx is TwoDContext => {
   return false;
 };
 
+const imageDataHasVisiblePixels = (imageData: ImageData | null | undefined): boolean => {
+  if (!imageData) {
+    return false;
+  }
+  for (let index = 3; index < imageData.data.length; index += 4) {
+    if (imageData.data[index] !== 0) {
+      return true;
+    }
+  }
+  return false;
+};
+
+const hasAnyNonZeroByte = (buffer: ArrayBuffer | undefined): boolean => (
+  buffer ? new Uint8Array(buffer).some((value) => value !== 0) : false
+);
+
 const createCanvas = (width: number, height: number): HTMLCanvasElement => {
   if (typeof document === 'undefined') {
     throw new Error('Canvas APIs unavailable for crop operation.');
@@ -531,8 +547,6 @@ export function readLayerSourcesForCrop(
                 srcHeight,
                 rect
               );
-              const hasContent =
-                Boolean(rawSnapshot.hasContent) && croppedBuffer.some((value) => value !== 0);
               let croppedGradientIds: ArrayBuffer | undefined;
               if (rawSnapshot.gradientIdBuffer) {
                 const gradientSource = new Uint8Array(rawSnapshot.gradientIdBuffer);
@@ -585,7 +599,15 @@ export function readLayerSourcesForCrop(
                 speedBuffer: croppedSpeed,
                 flowBuffer: croppedFlow,
                 phaseBuffer: croppedPhase,
-                hasContent,
+                hasContent: Boolean(rawSnapshot.hasContent) && (
+                  imageDataHasVisiblePixels(croppedImageData) ||
+                  croppedBuffer.some((value) => value !== 0) ||
+                  hasAnyNonZeroByte(croppedGradientIds) ||
+                  hasAnyNonZeroByte(croppedGradientDefIds) ||
+                  hasAnyNonZeroByte(croppedSpeed) ||
+                  hasAnyNonZeroByte(croppedFlow) ||
+                  hasAnyNonZeroByte(croppedPhase)
+                ),
                 strokeCounter: rawSnapshot.strokeCounter
               };
             }

@@ -166,6 +166,8 @@ describe('captureColorCyclePersistenceSnapshot', () => {
       mode: 'canonical-save',
       deferredRuntime: {
         paintRef: 'zip:paint',
+        gradientIdRef: 'zip:gradient-id',
+        gradientDefIdRef: 'zip:gradient-def-id',
         speedRef: 'zip:speed',
         flowRef: 'zip:flow',
         phaseRef: 'zip:phase',
@@ -175,6 +177,40 @@ describe('captureColorCyclePersistenceSnapshot', () => {
     expect(result.ok).toBe(true);
     if (result.ok) {
       expect(result.source).toBe('deferred-archive');
+    }
+  });
+
+  it('backfills missing brushState channels from deferred archive refs', () => {
+    const brushState = canonicalBrushState();
+    brushState.layers![0]!.strokeData = {
+      hasContent: true,
+      strokeCounter: 8,
+    };
+    const result = captureColorCyclePersistenceSnapshot(makeLayer(), {
+      projectWidth: 2,
+      projectHeight: 2,
+      requirePaint: true,
+      mode: 'canonical-save',
+      deferredRuntime: {
+        brushState,
+        paintRef: 'zip:paint',
+        gradientIdRef: 'zip:gradient-id',
+        gradientDefIdRef: 'zip:gradient-def-id',
+        speedRef: 'zip:speed',
+        flowRef: 'zip:flow',
+        phaseRef: 'zip:phase',
+      },
+    });
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.source).toBe('deferred-archive');
+      expect(result.documentState.paintBuffer).toBe('zip:paint');
+      expect(result.documentState.gradientIdBuffer).toBe('zip:gradient-id');
+      expect(result.documentState.gradientDefIdBuffer).toBe('zip:gradient-def-id');
+      expect(result.documentState.speedBuffer).toBe('zip:speed');
+      expect(result.documentState.flowBuffer).toBe('zip:flow');
+      expect(result.documentState.phaseBuffer).toBe('zip:phase');
     }
   });
 
@@ -188,9 +224,13 @@ describe('captureColorCyclePersistenceSnapshot', () => {
         ['speed', { byteLength: 4 }],
         ['flow', { byteLength: 4 }],
         ['phase', { byteLength: 4 }],
+        ['gradient-id', { byteLength: 4 }],
+        ['gradient-def-id', { byteLength: 8 }],
       ]),
       deferredRuntime: {
         paintRef: 'zip:paint',
+        gradientIdRef: 'zip:gradient-id',
+        gradientDefIdRef: 'zip:gradient-def-id',
         speedRef: 'zip:speed',
         flowRef: 'zip:flow',
         phaseRef: 'zip:phase',
@@ -247,6 +287,54 @@ describe('captureColorCyclePersistenceSnapshot', () => {
     expect(result).toMatchObject({
       ok: false,
       reason: 'missing-motion-buffers',
+    });
+  });
+
+  it('fails missing gradient binding buffers', () => {
+    const state = canonicalBrushState();
+    delete state.layers![0]!.strokeData!.gradientDefIdBuffer;
+    const result = captureColorCyclePersistenceSnapshot(makeLayer({
+      colorCycleData: {
+        mode: 'brush',
+        canvasWidth: 2,
+        canvasHeight: 2,
+        brushState: state,
+      },
+    }), {
+      projectWidth: 2,
+      projectHeight: 2,
+      requirePaint: true,
+      mode: 'canonical-save',
+    });
+
+    expect(result).toMatchObject({
+      ok: false,
+      reason: 'missing-gradient-bindings',
+      damageKind: 'missing-gradient-bindings',
+    });
+  });
+
+  it('does not count empty string refs as canonical payload presence', () => {
+    const state = canonicalBrushState();
+    (state.layers![0]!.strokeData as Record<string, unknown>).gradientDefIdBuffer = '';
+    const result = captureColorCyclePersistenceSnapshot(makeLayer({
+      colorCycleData: {
+        mode: 'brush',
+        canvasWidth: 2,
+        canvasHeight: 2,
+        brushState: state,
+      },
+    }), {
+      projectWidth: 2,
+      projectHeight: 2,
+      requirePaint: true,
+      mode: 'canonical-save',
+    });
+
+    expect(result).toMatchObject({
+      ok: false,
+      reason: 'missing-gradient-bindings',
+      damageKind: 'missing-gradient-bindings',
     });
   });
 

@@ -97,8 +97,12 @@ export const emitColorCycleDocumentStateFromDeferredArchive = (
     if (state) {
       return {
         ...state,
+        paintBuffer: state.paintBuffer ?? deferred.paintRef,
         gradientIdBuffer: state.gradientIdBuffer ?? deferred.gradientIdRef,
         gradientDefIdBuffer: state.gradientDefIdBuffer ?? deferred.gradientDefIdRef,
+        speedBuffer: state.speedBuffer ?? deferred.speedRef,
+        flowBuffer: state.flowBuffer ?? deferred.flowRef,
+        phaseBuffer: state.phaseBuffer ?? deferred.phaseRef,
       };
     }
   }

@@ -15,6 +15,7 @@ export type ColorCyclePersistenceSource =
 
 export type ColorCycleDamageKind =
   | 'missing-paint-buffer'
+  | 'missing-gradient-bindings'
   | 'missing-motion-buffers'
   | 'metadata-only'
   | 'dimension-mismatch'
@@ -25,6 +26,7 @@ export type ColorCycleDamageKind =
 export type ColorCyclePersistenceFailureReason =
   | 'missing-color-cycle-data'
   | 'missing-canonical-paint'
+  | 'missing-gradient-bindings'
   | 'runtime-capture-failed'
   | 'dimension-mismatch'
   | 'missing-motion-buffers'

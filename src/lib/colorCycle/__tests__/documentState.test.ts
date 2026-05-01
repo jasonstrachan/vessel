@@ -208,6 +208,32 @@ describe('normalizeColorCycleLayerDocumentState', () => {
     expect(result.state.hasContent).toBe(false);
     expect(hasCanonicalColorCyclePaint(result.state)).toBe(false);
   });
+
+  it('treats zero-valued paint bytes as canonical paint presence', () => {
+    const layer = makeColorCycleLayer({
+      colorCycleData: {
+        ...makeColorCycleLayer().colorCycleData,
+        brushState: {
+          layers: [{
+            layerId: 'cc-layer',
+            strokeData: {
+              hasContent: true,
+              paintBuffer: makeBuffer(4, 0),
+            },
+          }],
+        },
+      },
+    });
+
+    const result = normalizeColorCycleLayerDocumentState(layer);
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+    expect(result.state.paintBuffer?.byteLength).toBe(4);
+    expect(hasCanonicalColorCyclePaint(result.state)).toBe(true);
+  });
 });
 
 describe('validateColorCycleDocumentStateDimensions', () => {
