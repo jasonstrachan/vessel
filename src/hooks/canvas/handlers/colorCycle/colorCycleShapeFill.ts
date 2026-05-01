@@ -9,16 +9,20 @@ import type { DeferredSaveWithStateArgs } from '@/hooks/canvas/handlers/colorCyc
 import { clearColorCycleEraseMaskInRegion } from '@/hooks/canvas/handlers/colorCycle/colorCycleStrokeCommit';
 import { useAppStore } from '@/stores/useAppStore';
 import { ensureForegroundGradientSlot } from '@/utils/colorCycleGradients';
-import { buildCcDitherRuntimePalette, resolveCcDitherBandMode } from '@/utils/colorCycle/ccDitherRenderPalette';
+import { resolveCcDitherBandMode } from '@/utils/colorCycle/ccDitherRenderPalette';
 import { applyRuntimeToBrush, flushGradientApply, requestGradientApply } from '@/hooks/brushEngine/ccGradientApplyScheduler';
 import type { MarkGradientSession } from '@/hooks/canvas/utils/colorCycleMarkSession';
-import { resolveMarkSessionRuntimeStops } from '@/hooks/canvas/utils/colorCycleMarkSession';
 import { stampCcHangProbe, type CcHangProbePhase } from '@/hooks/canvas/utils/ccHangProbe';
 import { TEMP_SAMPLE_SLOT } from '@/constants/colorCycle';
-import { ensureGradientDefForStops, hashStops, type StoredStop } from '@/utils/colorCycleGradientDefs';
+import type { StoredStop } from '@/utils/colorCycleGradientDefs';
 import { logCCMutation, summarizeColorCycleLayer } from '@/utils/colorCycle/ccMutationAudit';
 import { persistCommittedSampledSlot } from '@/hooks/canvas/handlers/colorCycle/colorCycleSampledSlotPersistence';
 import { resolveColorCycleShapeFillSourceOptions } from '@/hooks/canvas/handlers/colorCycle/colorCycleShapeFillOptions';
+import { computeFallbackLinearDirection } from '@/hooks/canvas/handlers/colorCycle/colorCycleShapeGeometry';
+import {
+  resolveColorCycleGradientRenderSession,
+  type ColorCycleGradientRenderSession,
+} from '@/hooks/canvas/handlers/colorCycle/colorCycleGradientSourceContract';
 
 type ColorCycleBrush = ColorCycleBrushImplementation;
 type SnapshotCapableBrush = ColorCycleBrush & ColorCycleCommittedStateBrush & {
@@ -332,258 +336,98 @@ const resolveShapeFinalizeDitherOptions = ({
   };
 };
 
-type CcDitherRenderSession = Pick<
-  MarkGradientSession,
-  'binding' | 'frozenStopsStored' | 'frozenHash' | 'source' | 'gradientKind' | 'speedCps'
->;
-
-const resolveDitherRenderSession = ({
+const ensureForegroundRuntimePaletteForShapeFinalize = ({
   layerId,
+  layer,
   session,
-  brushSettings,
+  useForegroundGradient,
 }: {
   layerId: string;
+  layer: ReturnType<typeof useAppStore.getState>['layers'][number] | undefined;
   session: MarkGradientSession | null;
-  brushSettings: ReturnType<typeof useAppStore.getState>['tools']['brushSettings'];
-}): CcDitherRenderSession | null => {
-  if (!session) {
-    return null;
-  }
-  const shouldUseSessionDither =
-    Boolean(session.ditherRenderConfig?.enabled) || (!session.ditherRenderConfig && brushSettings.ditherEnabled);
-  if (!session.frozenStopsStored?.length || !shouldUseSessionDither) {
-    const runtimeStops = resolveMarkSessionRuntimeStops(session, session.frozenStopsStored);
-    return {
-      binding: session.binding,
-      frozenStopsStored: runtimeStops,
-      frozenHash: session.frozenHash,
-      source: session.source,
-      gradientKind: session.gradientKind,
-      speedCps: session.speedCps,
-    };
+  useForegroundGradient: boolean;
+}): { refreshed: boolean; hasPalette: boolean } => {
+  const shouldRefreshForegroundRuntime = shouldRefreshForegroundRuntimeForShapeFinalize(useForegroundGradient, session);
+  if (!shouldRefreshForegroundRuntime) {
+    return { refreshed: false, hasPalette: true };
   }
 
-  const renderPalette = buildCcDitherRuntimePalette({
-    baseStops: session.frozenStopsStored,
-    bands: session.ditherRenderConfig?.pairBandCount ??
-      resolveCcDitherBandMode(brushSettings.gradientBands ?? 16).pairBandCount,
-    spread: session.ditherRenderConfig?.spread ?? brushSettings.ditherPaletteSpread,
-    algorithm: session.ditherRenderConfig?.algorithm ?? brushSettings.ditherAlgorithm,
-    preserveSourceStops:
-      session.source !== 'sampled' &&
-      (session.ditherRenderConfig?.pairBandCount ??
-        resolveCcDitherBandMode(brushSettings.gradientBands ?? 16).pairBandCount) <= 0 &&
-      (session.ditherRenderConfig?.algorithm ?? brushSettings.ditherAlgorithm ?? 'sierra-lite') === 'sierra-lite',
-    debugContext: 'finalize-render-session',
-  });
-  const renderHash = hashStops(renderPalette.renderStops, session.gradientKind);
-  if (session.binding && renderHash === session.frozenHash) {
-    return {
-      binding: session.binding,
-      frozenStopsStored: renderPalette.renderStops,
-      frozenHash: renderHash,
-      source: session.source,
-      gradientKind: session.gradientKind,
-      speedCps: session.speedCps,
-    };
-  }
-  const renderDef = ensureGradientDefForStops({
-    layerId,
-    kind: session.gradientKind,
-    stops: renderPalette.renderStops,
-    source: session.source,
-    speedCps: session.speedCps ?? undefined,
-    seamProfile: session.seamProfile,
-    updateOptions: { skipColorCycleSync: true },
-  });
-  if (!renderDef) {
-    return {
-      binding: session.binding,
-      frozenStopsStored: session.frozenStopsStored,
-      frozenHash: session.frozenHash,
-      source: session.source,
-      gradientKind: session.gradientKind,
-      speedCps: session.speedCps,
-    };
+  let fgSlot = layer?.colorCycleData?.fgActiveSlot;
+  let fgPalette = layer?.colorCycleData?.slotPalettes?.find((entry) => entry.slot === fgSlot);
+  if (typeof fgSlot !== 'number' || !fgPalette?.stops?.length) {
+    const ensured = ensureForegroundGradientSlot(layerId);
+    fgSlot = ensured?.slot ?? fgSlot;
+    fgPalette = ensured?.stops?.length
+      ? { slot: ensured.slot, stops: ensured.stops }
+      : fgPalette;
   }
 
   return {
-    binding: { kind: 'def', defId: renderDef.def.id, slot: renderDef.slot },
-    frozenStopsStored: renderPalette.renderStops,
-    frozenHash: renderDef.hash,
-    source: session.source,
-    gradientKind: session.gradientKind,
-    speedCps: session.speedCps,
+    refreshed: true,
+    hasPalette: typeof fgSlot === 'number' && Boolean(fgPalette?.stops?.length),
   };
 };
 
-export const computeFallbackLinearDirection = (
-  points: Array<{ x: number; y: number }>
-): { x: number; y: number } => {
-  const finitePoints = points
-    .map((point, index) => ({ ...point, index }))
-    .filter((point) => Number.isFinite(point.x) && Number.isFinite(point.y));
-  const n = finitePoints.length;
-  if (n === 0) {
-    return { x: 1, y: 0 };
+const applyResolvedShapeFillRuntimeBinding = ({
+  layerId,
+  deps,
+  layer,
+  renderSession,
+}: {
+  layerId: string;
+  deps: ColorCycleShapeFillDeps;
+  layer: ReturnType<typeof useAppStore.getState>['layers'][number] | undefined;
+  renderSession: ColorCycleGradientRenderSession | null;
+}): void => {
+  const frozenStops = renderSession?.frozenStopsStored;
+  if (renderSession?.binding?.slot === undefined || !frozenStops?.length) {
+    return;
   }
-  if (n === 1) {
-    return { x: 1, y: 0 };
+
+  const brush = resolveShapeFillBrush(layerId, deps);
+  if (!brush) {
+    return;
   }
 
-  const hull = buildConvexHull(finitePoints);
-  const candidates = hull.length >= 2 ? hull : finitePoints;
-  const pair = findFarthestPair(candidates);
-  const ax = pair.a.index <= pair.b.index ? pair.a : pair.b;
-  const bx = pair.a.index <= pair.b.index ? pair.b : pair.a;
-
-  let dx = bx.x - ax.x;
-  let dy = bx.y - ax.y;
-  const len = Math.hypot(dx, dy);
-  if (!Number.isFinite(len) || len < 1e-6) {
-    return { x: 1, y: 0 };
-  }
-  dx /= len;
-  dy /= len;
-
-  return { x: dx, y: dy };
-};
-
-type IndexedPoint = { x: number; y: number; index: number };
-
-const pointKey = (point: { x: number; y: number }): string => `${point.x}:${point.y}`;
-
-const cross = (
-  origin: { x: number; y: number },
-  a: { x: number; y: number },
-  b: { x: number; y: number }
-): number =>
-  (a.x - origin.x) * (b.y - origin.y) -
-  (a.y - origin.y) * (b.x - origin.x);
-
-const buildConvexHull = (
-  points: IndexedPoint[]
-): IndexedPoint[] => {
-  const sorted = [...points].sort((a, b) => {
-    if (a.x !== b.x) {
-      return a.x - b.x;
-    }
-    if (a.y !== b.y) {
-      return a.y - b.y;
-    }
-    return a.index - b.index;
+  applyRuntimeToBrush(brush, layerId, {
+    layerId,
+    paintSlot: renderSession.binding.slot,
+    slotPalettes: [{ slot: renderSession.binding.slot, stops: frozenStops }],
+    flowMode: layer?.colorCycleData?.flowMode,
   });
-  const unique: IndexedPoint[] = [];
-  let previousKey: string | null = null;
-  for (const point of sorted) {
-    const key = pointKey(point);
-    if (key === previousKey) {
-      continue;
-    }
-    unique.push(point);
-    previousKey = key;
-  }
-
-  if (unique.length <= 2) {
-    return unique;
-  }
-
-  const lower: IndexedPoint[] = [];
-  for (const point of unique) {
-    while (lower.length >= 2 && cross(lower[lower.length - 2], lower[lower.length - 1], point) <= 0) {
-      lower.pop();
-    }
-    lower.push(point);
-  }
-
-  const upper: IndexedPoint[] = [];
-  for (let i = unique.length - 1; i >= 0; i -= 1) {
-    const point = unique[i];
-    while (upper.length >= 2 && cross(upper[upper.length - 2], upper[upper.length - 1], point) <= 0) {
-      upper.pop();
-    }
-    upper.push(point);
-  }
-
-  lower.pop();
-  upper.pop();
-  return [...lower, ...upper];
 };
 
-const distanceSquared = (
-  a: { x: number; y: number },
-  b: { x: number; y: number }
-): number => {
-  const dx = b.x - a.x;
-  const dy = b.y - a.y;
-  return dx * dx + dy * dy;
+const requestForegroundGradientApplyAfterShapeFinalize = ({
+  layerId,
+  session,
+  modeLabel,
+  logError,
+}: {
+  layerId: string;
+  session: MarkGradientSession | null;
+  modeLabel: 'linear' | 'concentric';
+  logError: ColorCycleShapeFillDeps['logError'];
+}): void => {
+  const state = getAppStoreState();
+  const layer = state.layers.find((candidate) => candidate.id === layerId);
+  const result = ensureForegroundRuntimePaletteForShapeFinalize({
+    layerId,
+    layer,
+    session,
+    useForegroundGradient: Boolean(state.tools.brushSettings.colorCycleUseForegroundGradient),
+  });
+  if (!result.refreshed) {
+    return;
+  }
+  if (!result.hasPalette) {
+    logError(`[CC] Missing foreground runtime palette after ${modeLabel} shape finalize; continuing commit.`);
+    return;
+  }
+  requestGradientApply(layerId, 'shape-render-fg');
+  flushGradientApply(layerId);
 };
 
-const triangleArea2 = (
-  a: { x: number; y: number },
-  b: { x: number; y: number },
-  c: { x: number; y: number }
-): number => Math.abs(cross(a, b, c));
-
-const findFarthestPair = (
-  points: IndexedPoint[]
-): { a: IndexedPoint; b: IndexedPoint } => {
-  const n = points.length;
-  if (n <= 1) {
-    const fallback = points[0] ?? { x: 0, y: 0, index: 0 };
-    return { a: fallback, b: fallback };
-  }
-  if (n <= 3) {
-    return findFarthestPairBruteForce(points);
-  }
-
-  let bestD2 = -1;
-  let ax = points[0];
-  let bx = points[1];
-
-  const updateBest = (a: IndexedPoint, b: IndexedPoint) => {
-    const d2 = distanceSquared(a, b);
-    if (d2 > bestD2) {
-      bestD2 = d2;
-      ax = a;
-      bx = b;
-    }
-  };
-
-  let j = 1;
-  for (let i = 0; i < n; i += 1) {
-    const nextI = (i + 1) % n;
-    while (
-      triangleArea2(points[i], points[nextI], points[(j + 1) % n]) >
-      triangleArea2(points[i], points[nextI], points[j])
-    ) {
-      j = (j + 1) % n;
-    }
-    updateBest(points[i], points[j]);
-    updateBest(points[nextI], points[j]);
-  }
-
-  return { a: ax, b: bx };
-};
-
-const findFarthestPairBruteForce = (
-  points: IndexedPoint[]
-): { a: IndexedPoint; b: IndexedPoint } => {
-  let bestD2 = -1;
-  let ax = points[0];
-  let bx = points[1] ?? points[0];
-  for (let i = 0; i < points.length; i += 1) {
-    for (let j = i + 1; j < points.length; j += 1) {
-      const d2 = distanceSquared(points[i], points[j]);
-      if (d2 > bestD2) {
-        bestD2 = d2;
-        ax = points[i];
-        bx = points[j];
-      }
-    }
-  }
-  return { a: ax, b: bx };
-};
+export { computeFallbackLinearDirection };
 
 export type ColorCycleShapeLinearArgs = {
   session: MarkGradientSession | null;
@@ -653,36 +497,27 @@ export const finalizeColorCycleShapeFillLinear = async (
       const liveSettings = live.tools.brushSettings;
       const useFG = Boolean(liveSettings.colorCycleUseForegroundGradient);
       const session = args.session;
-      const resolvedRenderSession = resolveDitherRenderSession({
+      const resolvedRenderSession = resolveColorCycleGradientRenderSession({
         layerId: args.activeLayerId,
         session,
         brushSettings: liveSettings,
       });
-      const shouldRefreshForegroundRuntime = shouldRefreshForegroundRuntimeForShapeFinalize(useFG, session);
-      let fgSlot = liveLayer?.colorCycleData?.fgActiveSlot;
-      let fgPalette = liveLayer?.colorCycleData?.slotPalettes?.find((entry) => entry.slot === fgSlot);
-      if (shouldRefreshForegroundRuntime && (typeof fgSlot !== 'number' || !fgPalette?.stops?.length)) {
-        const ensured = ensureForegroundGradientSlot(args.activeLayerId);
-        fgSlot = ensured?.slot ?? fgSlot;
-        fgPalette = ensured?.stops?.length
-          ? { slot: ensured.slot, stops: ensured.stops }
-          : fgPalette;
-      }
+      ensureForegroundRuntimePaletteForShapeFinalize({
+        layerId: args.activeLayerId,
+        layer: liveLayer,
+        session,
+        useForegroundGradient: useFG,
+      });
       const frozenStops = resolvedRenderSession?.frozenStopsStored;
       if (!frozenStops?.length) {
         deps.logError('[CC] Missing mark session on shape finalize (linear).');
       }
-      if (resolvedRenderSession?.binding?.slot !== undefined && frozenStops?.length) {
-        const brush = resolveShapeFillBrush(args.activeLayerId, deps);
-        if (brush) {
-          applyRuntimeToBrush(brush, args.activeLayerId, {
-            layerId: args.activeLayerId,
-            paintSlot: resolvedRenderSession.binding.slot,
-            slotPalettes: [{ slot: resolvedRenderSession.binding.slot, stops: frozenStops }],
-            flowMode: liveLayer?.colorCycleData?.flowMode,
-          });
-        }
-      }
+      applyResolvedShapeFillRuntimeBinding({
+        layerId: args.activeLayerId,
+        deps,
+        layer: liveLayer,
+        renderSession: resolvedRenderSession,
+      });
       await deps.brushEngine.fillCcGradientLinear(args.shapePoints, args.direction, {
         ...resolveShapeFinalizeDitherOptions({
           brushSettings: liveSettings,
@@ -716,27 +551,12 @@ export const finalizeColorCycleShapeFillLinear = async (
     if (colorCycleBrush) {
       const st = getAppStoreState();
       const sampledCommitNeedsFullRebind = renderSession?.source === 'sampled';
-      if (shouldRefreshForegroundRuntimeForShapeFinalize(
-        Boolean(st.tools.brushSettings.colorCycleUseForegroundGradient),
-        args.session
-      )) {
-        const layer = st.layers.find((candidate) => candidate.id === args.activeLayerId);
-        let fgSlot = layer?.colorCycleData?.fgActiveSlot;
-        let fgPalette = layer?.colorCycleData?.slotPalettes?.find((entry) => entry.slot === fgSlot);
-        if (typeof fgSlot !== 'number' || !fgPalette?.stops?.length) {
-          const ensured = ensureForegroundGradientSlot(args.activeLayerId);
-          fgSlot = ensured?.slot ?? fgSlot;
-          fgPalette = ensured?.stops?.length
-            ? { slot: ensured.slot, stops: ensured.stops }
-            : fgPalette;
-        }
-        if (typeof fgSlot !== 'number' || !fgPalette?.stops?.length) {
-          deps.logError('[CC] Missing foreground runtime palette after linear shape finalize; continuing commit.');
-        } else {
-          requestGradientApply(args.activeLayerId, 'shape-render-fg');
-          flushGradientApply(args.activeLayerId);
-        }
-      }
+      requestForegroundGradientApplyAfterShapeFinalize({
+        layerId: args.activeLayerId,
+        session: args.session,
+        modeLabel: 'linear',
+        logError: deps.logError,
+      });
       deps.bindBrushToCanvas(colorCycleBrush, args.activeLayerCanvas);
       const binding: CommitCommittedLayerStateOptions['binding'] = renderSession?.binding
         ? {
@@ -961,36 +781,27 @@ export const finalizeColorCycleShapeFillConcentric = async (
       const liveSettings = live.tools.brushSettings;
       const useFG = Boolean(liveSettings.colorCycleUseForegroundGradient);
       const session = args.session;
-      const resolvedRenderSession = resolveDitherRenderSession({
+      const resolvedRenderSession = resolveColorCycleGradientRenderSession({
         layerId: args.activeLayerId,
         session,
         brushSettings: liveSettings,
       });
-      const shouldRefreshForegroundRuntime = shouldRefreshForegroundRuntimeForShapeFinalize(useFG, session);
-      let fgSlot = liveLayer?.colorCycleData?.fgActiveSlot;
-      let fgPalette = liveLayer?.colorCycleData?.slotPalettes?.find((entry) => entry.slot === fgSlot);
-      if (shouldRefreshForegroundRuntime && (typeof fgSlot !== 'number' || !fgPalette?.stops?.length)) {
-        const ensured = ensureForegroundGradientSlot(args.activeLayerId);
-        fgSlot = ensured?.slot ?? fgSlot;
-        fgPalette = ensured?.stops?.length
-          ? { slot: ensured.slot, stops: ensured.stops }
-          : fgPalette;
-      }
+      ensureForegroundRuntimePaletteForShapeFinalize({
+        layerId: args.activeLayerId,
+        layer: liveLayer,
+        session,
+        useForegroundGradient: useFG,
+      });
       const frozenStops = resolvedRenderSession?.frozenStopsStored;
       if (!frozenStops?.length) {
         deps.logError('[CC] Missing mark session on shape finalize (concentric).');
       }
-      if (resolvedRenderSession?.binding?.slot !== undefined && frozenStops?.length) {
-        const brush = resolveShapeFillBrush(args.activeLayerId, deps);
-        if (brush) {
-          applyRuntimeToBrush(brush, args.activeLayerId, {
-            layerId: args.activeLayerId,
-            paintSlot: resolvedRenderSession.binding.slot,
-            slotPalettes: [{ slot: resolvedRenderSession.binding.slot, stops: frozenStops }],
-            flowMode: liveLayer?.colorCycleData?.flowMode,
-          });
-        }
-      }
+      applyResolvedShapeFillRuntimeBinding({
+        layerId: args.activeLayerId,
+        deps,
+        layer: liveLayer,
+        renderSession: resolvedRenderSession,
+      });
       await deps.brushEngine.fillCcGradientConcentric(args.shapePoints, {
         ...resolveShapeFinalizeDitherOptions({
           brushSettings: liveSettings,
@@ -1024,27 +835,12 @@ export const finalizeColorCycleShapeFillConcentric = async (
     if (colorCycleBrush) {
       const st = getAppStoreState();
       const sampledCommitNeedsFullRebind = renderSession?.source === 'sampled';
-      if (shouldRefreshForegroundRuntimeForShapeFinalize(
-        Boolean(st.tools.brushSettings.colorCycleUseForegroundGradient),
-        args.session
-      )) {
-        const layer = st.layers.find((candidate) => candidate.id === args.activeLayerId);
-        let fgSlot = layer?.colorCycleData?.fgActiveSlot;
-        let fgPalette = layer?.colorCycleData?.slotPalettes?.find((entry) => entry.slot === fgSlot);
-        if (typeof fgSlot !== 'number' || !fgPalette?.stops?.length) {
-          const ensured = ensureForegroundGradientSlot(args.activeLayerId);
-          fgSlot = ensured?.slot ?? fgSlot;
-          fgPalette = ensured?.stops?.length
-            ? { slot: ensured.slot, stops: ensured.stops }
-            : fgPalette;
-        }
-        if (typeof fgSlot !== 'number' || !fgPalette?.stops?.length) {
-          deps.logError('[CC] Missing foreground runtime palette after concentric shape finalize; continuing commit.');
-        } else {
-          requestGradientApply(args.activeLayerId, 'shape-render-fg');
-          flushGradientApply(args.activeLayerId);
-        }
-      }
+      requestForegroundGradientApplyAfterShapeFinalize({
+        layerId: args.activeLayerId,
+        session: args.session,
+        modeLabel: 'concentric',
+        logError: deps.logError,
+      });
       deps.bindBrushToCanvas(colorCycleBrush, args.activeLayerCanvas);
       const binding: CommitCommittedLayerStateOptions['binding'] = renderSession?.binding
         ? {

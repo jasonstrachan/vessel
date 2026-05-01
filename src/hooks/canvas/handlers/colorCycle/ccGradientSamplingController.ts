@@ -4,7 +4,7 @@ import type { AppState } from '@/stores/useAppStore';
 import { useAppStore } from '@/stores/useAppStore';
 import { flushGradientApply, requestGradientApply } from '@/hooks/brushEngine/ccGradientApplyScheduler';
 import type { ForegroundGradientParams } from '@/hooks/canvas/utils/colorCycleHelpers';
-import { resolveActiveColorCycleGradient } from '@/hooks/canvas/utils/colorCycleHelpers';
+import { resolveColorCycleGradientSourceState } from '@/hooks/canvas/handlers/colorCycle/colorCycleGradientSourceContract';
 import { setLayerColorCycleGradient, setSharedColorCycleGradient } from '@/utils/colorCycleGradients';
 import {
   beginMarkGradientSession,
@@ -74,18 +74,19 @@ export const updateCcSampledGradientController = (
     const currentState = deps.storeRef.current;
     const layer = currentState.layers.find((entry) => entry.id === targetLayerId);
     if (layer?.layerType === 'color-cycle' && currentState.tools.ccGradientSource === 'sampled') {
-      const resolved = resolveActiveColorCycleGradient(
+      const resolved = resolveColorCycleGradientSourceState({
         layer,
-        currentState.tools.brushSettings,
-        deps.resolveFgParamsFromState(currentState)
-      );
+        brushSettings: currentState.tools.brushSettings,
+        fgParams: deps.resolveFgParamsFromState(currentState),
+        ccGradientSource: currentState.tools.ccGradientSource,
+      });
       const gradientKind =
         currentState.tools.brushSettings.colorCycleFillMode === 'linear' ? 'linear' : 'concentric';
       session = beginMarkGradientSession({
         layerId: targetLayerId,
         markKind: options?.markKind ?? 'stroke',
         gradientKind,
-        source: 'sampled',
+        source: resolved.source,
         stops: resolved.activeStops,
         speedCps: currentState.tools.brushSettings.colorCycleSpeed,
       });

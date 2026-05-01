@@ -244,6 +244,52 @@ describe('webglExporter helpers', () => {
     expect(brushState?.alphaMode).toBe('opaque-indices');
   });
 
+  it('prefers canonical document buffers over loose brush property fallbacks', () => {
+    const defIds = new Uint16Array([0, 7, 7, 0]);
+    const brushState = serializeBrushState({
+      id: 'layer-cc-doc-priority',
+      layerType: 'color-cycle',
+      imageData: null,
+      framebuffer: { width: 2, height: 2 },
+      colorCycleData: {
+        canvasWidth: 2,
+        canvasHeight: 2,
+        gradient: [
+          { position: 0, color: '#000000' },
+          { position: 1, color: '#ffffff' },
+        ],
+        gradientIdBuffer: Uint8Array.from([4, 5, 5, 4]).buffer,
+        gradientDefIdBuffer: defIds.buffer,
+        colorCycleBrush: {
+          indexBuffer: Uint8Array.from([9, 9, 9, 9]),
+          gradientIdBuffer: Uint8Array.from([8, 8, 8, 8]),
+          width: 2,
+          height: 2,
+        },
+        brushState: {
+          layers: [{
+            layerId: 'layer-cc-doc-priority',
+            strokeData: {
+              hasContent: true,
+              paintBuffer: Uint8Array.from([1, 2, 3, 4]).buffer,
+              speedBuffer: Uint8Array.from([10, 20, 30, 40]).buffer,
+              flowBuffer: Uint8Array.from([1, 1, 2, 2]).buffer,
+              phaseBuffer: Uint8Array.from([0, 64, 128, 192]).buffer,
+            },
+          }],
+        },
+      },
+    } as any);
+
+    expect(brushState).toBeDefined();
+    expect(brushState?.indexBuffer).toEqual([1, 2, 3, 4]);
+    expect(brushState?.gradientIdBuffer).toEqual([4, 5, 5, 4]);
+    expect(brushState?.gradientDefIdBuffer).toEqual([0, 7, 7, 0]);
+    expect(brushState?.speedBuffer).toEqual([10, 20, 30, 40]);
+    expect(brushState?.flowBuffer).toEqual([1, 1, 2, 2]);
+    expect(brushState?.phaseBuffer).toEqual([0, 64, 128, 192]);
+  });
+
   it('preserves flow and phase buffers from live brush serialize payloads', () => {
     const brushState = serializeBrushState({
       id: 'layer-cc-live',
@@ -674,6 +720,75 @@ describe('webglExporter helpers', () => {
           { position: 0, color: '#112233' },
           { position: 1, color: '#445566' },
         ],
+      }),
+    ]));
+  });
+
+  it.each([
+    {
+      source: 'manual',
+      stops: [{ position: 0, color: '#112233' }],
+    },
+    {
+      source: 'manual',
+      stops: [
+        { position: 0, color: '#112233' },
+        { position: 1, color: '#445566' },
+      ],
+    },
+    {
+      source: 'sampled',
+      stops: [{ position: 0, color: '#223344' }],
+    },
+    {
+      source: 'sampled',
+      stops: [
+        { position: 0, color: '#223344' },
+        { position: 0.5, color: '#556677' },
+        { position: 1, color: '#8899aa' },
+      ],
+    },
+    {
+      source: 'fg',
+      stops: [{ position: 0, color: '#334455' }],
+    },
+    {
+      source: 'fg',
+      stops: [
+        { position: 0, color: '#334455' },
+        { position: 1, color: '#99aabb' },
+      ],
+    },
+  ])('rebuilds $source Goblet slot palettes for 1-color and multi-color defs', ({ source, stops }) => {
+    const slotPalettes = resolveDefBoundSlotPalettes({
+      data: {
+        gradientDefIdBuffer: new Uint16Array([0, 9, 9, 0]).buffer,
+        gradientDefStore: [{
+          id: 9,
+          kind: 'linear',
+          stops,
+          hash: `def-${source}-${stops.length}`,
+          source,
+          createdAtMs: 0,
+          slot: 3,
+        }],
+      } as any,
+      brushState: {
+        width: 2,
+        height: 2,
+        indexBuffer: [1, 1, 1, 1],
+        gradientIdBuffer: [3, 12, 12, 3],
+        gradientDefIdBuffer: [0, 9, 9, 0],
+        gradientStops: [],
+        animationOffset: 0,
+      },
+      slotPalettes: [],
+    });
+
+    expect(slotPalettes).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        slot: 12,
+        stops,
       }),
     ]));
   });

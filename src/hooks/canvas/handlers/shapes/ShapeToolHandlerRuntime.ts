@@ -37,6 +37,7 @@ import {
   deriveForegroundGradientStops,
 } from '@/utils/colorCycleGradients';
 import { buildCcDitherRuntimePalette, resolveCcDitherBandMode } from '@/utils/colorCycle/ccDitherRenderPalette';
+import { resolveColorCycleGradientSource } from '@/hooks/canvas/handlers/colorCycle/colorCycleGradientSourceContract';
 import { getPreviewGradientForActiveMark } from '@/hooks/canvas/utils/colorCycleMarkSession';
 import { parseCssColorToRgba } from '@/hooks/canvas/utils/colorCycleHelpers';
 import { stampCcHangProbe } from '@/hooks/canvas/utils/ccHangProbe';
@@ -129,7 +130,10 @@ const getPolygonPreviewAnchors = (previewModel: PolygonPreviewModel): PreviewPoi
 
 const isSampledCcShapePreview = (brushSettings: BrushSettings): boolean =>
   brushSettings.brushShape === BrushShape.COLOR_CYCLE_SHAPE &&
-  brushSettings.ccGradientSource === 'sampled';
+  resolveColorCycleGradientSource({
+    ccGradientSource: brushSettings.ccGradientSource,
+    useForegroundGradient: brushSettings.colorCycleUseForegroundGradient,
+  }) === 'sampled';
 
 type ShapeAdjustHelperUpdate = {
   spacing: number;
@@ -3058,8 +3062,12 @@ export const createShapeToolHandler = (
           overlayCtx.globalAlpha = 0.8;
         } else if (tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE_SHAPE) {
           if (isColorCycleGradientPreset || isColorCycleGradientPreview) {
-            const useForegroundDerived = Boolean(brushNow.colorCycleUseForegroundGradient);
-            const isSampledPreviewMode = brushNow.ccGradientSource === 'sampled';
+            const previewGradientSource = resolveColorCycleGradientSource({
+              ccGradientSource: brushNow.ccGradientSource,
+              useForegroundGradient: brushNow.colorCycleUseForegroundGradient,
+            });
+            const useForegroundDerived = previewGradientSource === 'fg';
+            const isSampledPreviewMode = previewGradientSource === 'sampled';
             const ccPreview = storeNow.activeLayerId
               ? getPreviewGradientForActiveMark(storeNow.activeLayerId)
               : null;
@@ -3140,7 +3148,7 @@ export const createShapeToolHandler = (
               ctx: overlayCtx,
               incrementPreviewFrame: true,
               markKind: 'shape',
-              source: brushNow.ccGradientSource ?? null,
+              source: previewGradientSource,
               algorithm: brushNow.ditherAlgorithm ?? 'sierra-lite',
               levels,
               colors: typeof brushNow.colors === 'number' ? brushNow.colors : null,
@@ -3163,7 +3171,7 @@ export const createShapeToolHandler = (
                 levels,
                 inFlight: ditherGradPreviewState.ccJobInFlight,
                 dirty: ditherGradPreviewState.ccJobDirty,
-                source: brushNow.ccGradientSource ?? null,
+                source: previewGradientSource,
               });
             }
             if (shouldDitherPreview) {
@@ -3193,7 +3201,7 @@ export const createShapeToolHandler = (
                   levels: previewRenderSettings.levels,
                   inFlight: ditherGradPreviewState.ccJobInFlight,
                   dirty: ditherGradPreviewState.ccJobDirty,
-                  source: brushNow.ccGradientSource ?? null,
+                  source: previewGradientSource,
                 });
               }
               stampCcHangProbe({
@@ -3201,7 +3209,7 @@ export const createShapeToolHandler = (
                 canvas: overlayCanvas,
                 ctx: overlayCtx,
                 markKind: 'shape',
-                source: brushNow.ccGradientSource ?? null,
+                source: previewGradientSource,
                 algorithm: previewRenderSettings.algorithm,
                 levels: previewRenderSettings.levels,
                 colors: typeof brushNow.colors === 'number' ? brushNow.colors : null,
@@ -3241,7 +3249,7 @@ export const createShapeToolHandler = (
                       patternStyle: brushNow.patternStyle,
                       useForegroundDerived,
                       foregroundDerivedKey,
-                      previewSource: ccPreview?.source ?? (useForegroundDerived ? 'fg' : 'manual'),
+                      previewSource: ccPreview?.source ?? previewGradientSource,
                     });
                     const preparedGradient =
                       ditherGradPreviewState.ccPreparedGradientKey === preparedGradientKey &&
@@ -3281,7 +3289,7 @@ export const createShapeToolHandler = (
                 canvas: overlayCanvas,
                 ctx: overlayCtx,
                 markKind: 'shape',
-                source: brushNow.ccGradientSource ?? null,
+                source: previewGradientSource,
                 algorithm: previewRenderSettings.algorithm,
                 levels: previewRenderSettings.levels,
                 colors: typeof brushNow.colors === 'number' ? brushNow.colors : null,
@@ -3680,16 +3688,20 @@ export const createShapeToolHandler = (
     }
 
     if (isCCShape) {
+      const pointerUpGradientSource = resolveColorCycleGradientSource({
+        ccGradientSource: liveBrushForUp.ccGradientSource,
+        useForegroundGradient: liveBrushForUp.colorCycleUseForegroundGradient,
+      });
       ccLog('shape: pointerup', {
         pointCount: drawingHandlers.shapePointsRef.current.length,
-        source: liveBrushForUp.ccGradientSource ?? null,
+        source: pointerUpGradientSource,
       });
-      if (liveBrushForUp.ccGradientSource === 'sampled') {
+      if (pointerUpGradientSource === 'sampled') {
         recordSampledCcShapeBreadcrumb({
           event: 'pointer-up',
           activeLayerId: activeLayerId ?? null,
           pointCount: drawingHandlers.shapePointsRef.current.length,
-          source: liveBrushForUp.ccGradientSource ?? null,
+          source: pointerUpGradientSource,
         });
       }
       resetDitherGradOrigin();

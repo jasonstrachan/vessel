@@ -631,6 +631,28 @@ describe('BrushControls – Color Cycle stroke essentials', () => {
     expect(lastCall?.[1]).toEqual({ fork: true });
   });
 
+  it('switches between foreground and sampled gradient source panels', async () => {
+    const user = userEvent.setup();
+    useAppStore.setState((state) => ({
+      ...state,
+      palette: {
+        ...(state as unknown as { palette?: Record<string, unknown> }).palette,
+        foregroundColor: '#336699',
+        backgroundColor: '#ffffff',
+        activeSlot: 'foreground',
+      },
+    }));
+    render(<BrushControls />);
+
+    await user.click(screen.getByRole('button', { name: 'FG Grad' }));
+    expect(screen.getByText('Foreground Gradient')).toBeInTheDocument();
+    expect(screen.getByRole('slider', { name: 'Foreground Gradient Lightness' })).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Sample' }));
+    expect(screen.getByText('Sampled Gradient')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Reset' })).toBeInTheDocument();
+  });
+
   it('does not flush gradient on unmount when there are no pending edits', () => {
     const setSharedSpy = jest.spyOn(colorCycleGradients, 'setSharedColorCycleGradient');
     const { unmount } = render(<BrushControls />);

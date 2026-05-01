@@ -15,6 +15,7 @@ import { posInt, toNum } from '@/utils/num';
 import type { Layer, Project } from '@/types';
 import { clampRectToDocument as clampBoundsToDocument, scaleMaskBoundsToDocument, type Size2D as CoverageSize } from '@/utils/export/colorCycleBounds';
 import { getLayerSurfaceSize } from '@/utils/export/goblet/gobletLayerSerializer';
+import { resolveGobletBrushStateFallback } from '@/utils/export/goblet/gobletBrushStateFallbacks';
 import type { BrushStateRuntimePayload, ColorCycleCoverageResult, ColorCycleMaskDataset, ColorCycleSerializationResult, SerializedAlphaMaskResult, SerializedGradientStops, SerializedSlotPalette, WebGLExportMetadata, WebGLLayerBounds, WebGLSerializedBrushState, WebGLSerializedColorCycle } from '@/utils/export/goblet/gobletTypes';
 
 const gobletDiagnosticsDefault = process.env.NEXT_PUBLIC_VESSEL_GOBLET_DEBUG === 'true';
@@ -2098,39 +2099,12 @@ export const serializeBrushState = (layer: Layer): WebGLSerializedBrushState | u
     }
   }
 
-  const propertyState = extractBrushStateFromBrushProperties(brush, layer);
-  if (propertyState) {
-    if (!propertyState.alphaMode) {
-      propertyState.alphaMode = 'opaque-indices';
-    }
-    return propertyState;
-  }
-
-  const animatorState = extractBrushStateFromAnimator(brush, layer);
-  if (animatorState) {
-    if (!animatorState.alphaMode) {
-      animatorState.alphaMode = 'opaque-indices';
-    }
-    return animatorState;
-  }
-
-  const documentState = extractBrushStateFromDocumentState(layer);
-  if (documentState) {
-    if (!documentState.alphaMode) {
-      documentState.alphaMode = 'opaque-indices';
-    }
-    return documentState;
-  }
-
-  const savedSnapshotState = extractBrushStateFromSavedSnapshot(layer);
-  if (savedSnapshotState) {
-    if (!savedSnapshotState.alphaMode) {
-      savedSnapshotState.alphaMode = 'opaque-indices';
-    }
-    return savedSnapshotState;
-  }
-
-  return undefined;
+  return resolveGobletBrushStateFallback({
+    documentState: () => extractBrushStateFromDocumentState(layer),
+    brushProperties: () => extractBrushStateFromBrushProperties(brush, layer),
+    animator: () => extractBrushStateFromAnimator(brush, layer),
+    savedSnapshot: () => extractBrushStateFromSavedSnapshot(layer),
+  });
 };
 
 const resolveColorCycleMaskImage = (layer: Layer): ImageData | undefined => {

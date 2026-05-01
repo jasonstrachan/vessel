@@ -1,12 +1,12 @@
 import { getAppStoreState } from '@/stores/appStoreAccess';
 import type React from 'react';
 import type { AppState } from '@/stores/useAppStore';
-import { resolveActiveColorCycleGradient } from '@/hooks/canvas/utils/colorCycleHelpers';
 import { getFgParamsFromState } from '@/hooks/canvas/handlers/colorCycle/ensureActiveColorCycleGradientSlot';
 import {
   beginMarkGradientSession,
 } from '@/hooks/canvas/utils/colorCycleMarkSession';
 import { flushGradientApply, requestGradientApply } from '@/hooks/brushEngine/ccGradientApplyScheduler';
+import { resolveColorCycleGradientSourceState } from '@/hooks/canvas/handlers/colorCycle/colorCycleGradientSourceContract';
 
 export const runStrokeStartLayerGuards = ({
   activeLayer,
@@ -79,27 +79,19 @@ export const runStrokeStartLayerGuards = ({
     const refreshedState = getAppStoreState();
     const refreshedLayer =
       refreshedState.layers.find((layer) => layer.id === activeLayer.id) ?? activeLayer;
-    const resolved = resolveActiveColorCycleGradient(
-      refreshedLayer,
-      refreshedState.tools.brushSettings,
-      getFgParamsFromState(refreshedState)
-    );
+    const resolved = resolveColorCycleGradientSourceState({
+      layer: refreshedLayer,
+      brushSettings: refreshedState.tools.brushSettings,
+      fgParams: getFgParamsFromState(refreshedState),
+      ccGradientSource: refreshedState.tools.ccGradientSource,
+    });
     const gradientKind =
       refreshedState.tools.brushSettings.colorCycleFillMode === 'linear' ? 'linear' : 'concentric';
-    const desiredSource =
-      refreshedState.tools.ccGradientSource ??
-      (refreshedState.tools.brushSettings.colorCycleUseForegroundGradient ? 'fg' : 'manual');
-    const source =
-      desiredSource === 'sampled'
-        ? 'sampled'
-        : desiredSource === 'fg'
-          ? 'fg'
-          : 'manual';
     beginMarkGradientSession({
       layerId: activeLayer.id,
       markKind: 'stroke',
       gradientKind,
-      source,
+      source: resolved.source,
       stops: resolved.activeStops,
       speedCps: refreshedState.tools.brushSettings.colorCycleSpeed,
     });

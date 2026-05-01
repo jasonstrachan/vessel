@@ -22,6 +22,7 @@ import {
   resolveActiveColorCycleGradient,
 } from '@/hooks/canvas/utils/colorCycleHelpers';
 import { getActiveMarkGradientSession } from '@/hooks/canvas/utils/colorCycleMarkSession';
+import { resolveColorCycleGradientSource } from '@/hooks/canvas/handlers/colorCycle/colorCycleGradientSourceContract';
 import type { Layer } from '@/types';
 
 const shouldLogCcGradientDebug = (): boolean => {
@@ -139,13 +140,10 @@ export const ensureActiveColorCycleGradientSlot = ({
 
   const preserveGradientPhase = true;
   if (shouldLogCcGradientDebug()) {
-    const useForegroundGradient = Boolean(brushSettings.colorCycleUseForegroundGradient);
-    const source: 'manual' | 'fg' | 'sampled' =
-      state.tools.ccGradientSource === 'sampled'
-        ? 'sampled'
-        : useForegroundGradient
-          ? 'fg'
-          : 'manual';
+    const source = resolveColorCycleGradientSource({
+      ccGradientSource: state.tools.ccGradientSource,
+      useForegroundGradient: brushSettings.colorCycleUseForegroundGradient,
+    });
     const sig = gradientSig(activeStops);
     const previous = gradientTraceByLayer.get(layer.id);
     const gray = isLikelyGrayGradient(activeStops);
