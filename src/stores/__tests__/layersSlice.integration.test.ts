@@ -239,6 +239,30 @@ describe('layers slice integration', () => {
     expect(mockManager.initColorCycleForLayer).not.toHaveBeenCalled();
   });
 
+  it('clears stale static-preview repair status when reinitializing a color-cycle layer', () => {
+    const store = useAppStore.getState();
+    const layerId = store.addLayer({
+      ...createColorCycleLayerInput('Repair Status CC Layer'),
+      colorCycleData: {
+        ...createColorCycleLayerInput('Repair Status CC Layer').colorCycleData,
+        repairStatus: {
+          ok: false,
+          reason: 'missing-paint-buffer',
+          notes: ['Imported as static preview only'],
+        },
+      },
+    });
+
+    mockManager.getBrush.mockReset();
+    mockManager.getBrush.mockReturnValue(mockBrush);
+
+    useAppStore.getState().initColorCycleForLayer(layerId, 256, 256);
+
+    const updatedLayer = useAppStore.getState().layers.find((candidate) => candidate.id === layerId);
+    expect(updatedLayer?.colorCycleData?.colorCycleBrush).toBe(mockBrush);
+    expect(updatedLayer?.colorCycleData?.repairStatus).toBeUndefined();
+  });
+
   it('warms deferred color-cycle layers on brush lookup using the active target when selected', async () => {
     const store = useAppStore.getState();
     const layerId = store.addLayer({

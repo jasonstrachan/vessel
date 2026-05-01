@@ -91,6 +91,14 @@ const cloneBufferLike = (
   }
 };
 
+const bufferHasNonZeroPayload = (input: ArrayBuffer | undefined): boolean => {
+  if (!input || input.byteLength === 0) {
+    return false;
+  }
+  const bytes = new Uint8Array(input);
+  return bytes.some((value) => value !== 0);
+};
+
 const ensurePositiveDimension = (value: number | undefined, fallback: number): number => {
   if (typeof value === 'number' && Number.isFinite(value) && value > 0) {
     return Math.floor(value);
@@ -133,6 +141,7 @@ const rehydrateColorCycleRuntime = async (
     }
 
     let restoredCanonicalSurface = false;
+    let rejectedEmptySerializedBrushState = false;
 
     const hasValidBrush = manager.validateColorCycleBrush(layer.id);
     if (!hasValidBrush) {
@@ -172,12 +181,28 @@ const rehydrateColorCycleRuntime = async (
       const paintBuffer = cloneBufferLike(
         strokeData?.paintBuffer ?? serializedLayer?.data?.indexBuffer?.data,
       );
+      const paintBufferHasContent = bufferHasNonZeroPayload(paintBuffer);
+      const serializedHasContent = Boolean(strokeData?.hasContent) || paintBufferHasContent;
+      const serializedIsExplicitlyEmpty =
+        strokeData?.hasContent === false &&
+        paintBuffer !== undefined &&
+        !paintBufferHasContent &&
+        latestColorState?.hasContent === false;
       const brush = (
         latestStore.getLayerColorCycleBrush?.(layer.id) ??
         manager.getBrush(layer.id)
       ) as RestorableColorCycleBrush | null | undefined;
 
-      if (brush?.applyLayerSnapshot && latestColorState && paintBuffer) {
+      const shouldApplySerializedBrushState =
+        Boolean(paintBuffer) &&
+        (serializedHasContent || serializedIsExplicitlyEmpty);
+      rejectedEmptySerializedBrushState =
+        Boolean(paintBuffer) &&
+        !shouldApplySerializedBrushState &&
+        !paintBufferHasContent &&
+        latestColorState?.hasContent === true;
+
+      if (brush?.applyLayerSnapshot && latestColorState && paintBuffer && shouldApplySerializedBrushState) {
         try {
           brush.setTargetCanvas?.(latestColorState.canvas ?? null);
           brush.applyLayerSnapshot(layer.id, {
@@ -199,7 +224,7 @@ const rehydrateColorCycleRuntime = async (
             phaseBuffer: cloneBufferLike(
               strokeData?.phaseBuffer ?? serializedLayer?.data?.indexBuffer?.phaseData,
             ),
-            hasContent: Boolean(strokeData?.hasContent) || paintBuffer.byteLength > 0,
+            hasContent: serializedHasContent,
             strokeCounter: strokeData?.strokeCounter ?? 0,
           });
           brush.updateColorCycleTexture?.();
@@ -213,13 +238,27 @@ const rehydrateColorCycleRuntime = async (
             colorCycleData: {
               ...latestColorState,
               colorCycleBrush: brush,
-              hasContent: Boolean(strokeData?.hasContent) || paintBuffer.byteLength > 0,
+              hasContent: serializedHasContent,
             },
           }, { skipColorCycleSync: true });
           flaggedForRecomposition = true;
         } catch {
           // A failed targeted restore should not block the rest of history replay.
         }
+      }
+
+      if (rejectedEmptySerializedBrushState) {
+        try {
+          if (brush && latestColorState?.canvas) {
+            brush.setTargetCanvas?.(latestColorState.canvas);
+            brush.updateColorCycleTexture?.();
+            brush.renderDirectToCanvas?.(latestColorState.canvas, layer.id);
+          }
+          flaggedForRecomposition = true;
+        } catch {
+          // Treat the stale empty snapshot as rejected even if an opportunistic render fails.
+        }
+        restoredCanonicalSurface = true;
       }
     }
 

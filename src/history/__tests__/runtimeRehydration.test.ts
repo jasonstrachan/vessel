@@ -88,6 +88,7 @@ describe('runtimeRehydration', () => {
     mockBrushManager.getBrush.mockReturnValue(brush);
 
     const targets = createRehydrationTargets();
+    targets.layerIds.add(layer.id);
     targets.colorCycleLayerIds.add(layer.id);
     await rehydrateEntryResources(
       { id: 'entry', action: 'layer-structure', label: 'test', ts: 1, docId: 'doc', deltas: [] },
@@ -112,5 +113,202 @@ describe('runtimeRehydration', () => {
       { skipColorCycleSync: true },
     );
     expect(putImageDataSpy).not.toHaveBeenCalled();
+  });
+
+  it('does not overwrite a valid live brush with an all-zero serialized brush state', async () => {
+    const canvas = document.createElement('canvas');
+    canvas.width = 2;
+    canvas.height = 2;
+    const ctx = canvas.getContext('2d')!;
+    const putImageDataSpy = jest.spyOn(ctx, 'putImageData');
+    const layer = makeLayer(canvas, new ImageData(2, 2));
+    layer.colorCycleData = {
+      ...layer.colorCycleData!,
+      hasContent: true,
+      brushState: {
+        layers: [{
+          layerId: layer.id,
+          strokeData: {
+            paintBuffer: new Uint8Array([0, 0, 0, 0]).buffer,
+            gradientIdBuffer: new Uint8Array([0, 0, 0, 0]).buffer,
+            hasContent: false,
+            strokeCounter: 0,
+          },
+        }],
+      },
+    };
+    const brush = {
+      applyLayerSnapshot: jest.fn(),
+      setTargetCanvas: jest.fn(),
+      updateColorCycleTexture: jest.fn(),
+      renderDirectToCanvas: jest.fn(),
+    };
+    mockStoreState.layers = [layer];
+    mockStoreState.getLayerColorCycleBrush.mockReturnValue(brush);
+    mockBrushManager.validateColorCycleBrush.mockReturnValue(true);
+    mockBrushManager.getBrush.mockReturnValue(brush);
+
+    const targets = createRehydrationTargets();
+    targets.layerIds.add(layer.id);
+    targets.colorCycleLayerIds.add(layer.id);
+    await rehydrateEntryResources(
+      { id: 'entry', action: 'layer-structure', label: 'test', ts: 1, docId: 'doc', deltas: [] },
+      'backward',
+      targets,
+    );
+
+    expect(brush.applyLayerSnapshot).not.toHaveBeenCalled();
+    expect(brush.renderDirectToCanvas).toHaveBeenCalledWith(canvas, layer.id);
+    expect(mockStoreState.updateLayer).not.toHaveBeenCalled();
+    expect(mockStoreState.setLayersNeedRecomposition).toHaveBeenCalled();
+    expect(putImageDataSpy).not.toHaveBeenCalled();
+  });
+
+  it('does not repaint stale compatibility pixels when rejecting an empty serialized brush without a brush handle', async () => {
+    const canvas = document.createElement('canvas');
+    canvas.width = 2;
+    canvas.height = 2;
+    const ctx = canvas.getContext('2d')!;
+    const putImageDataSpy = jest.spyOn(ctx, 'putImageData');
+    const staleImageData = new ImageData(2, 2);
+    staleImageData.data[3] = 255;
+    const layer = makeLayer(canvas, staleImageData);
+    layer.colorCycleData = {
+      ...layer.colorCycleData!,
+      hasContent: true,
+      brushState: {
+        layers: [{
+          layerId: layer.id,
+          strokeData: {
+            paintBuffer: new Uint8Array([0, 0, 0, 0]).buffer,
+            hasContent: false,
+            strokeCounter: 0,
+          },
+        }],
+      },
+    };
+    mockStoreState.layers = [layer];
+    mockStoreState.getLayerColorCycleBrush.mockReturnValue(null);
+    mockBrushManager.validateColorCycleBrush.mockReturnValue(true);
+    mockBrushManager.getBrush.mockReturnValue(null);
+
+    const targets = createRehydrationTargets();
+    targets.layerIds.add(layer.id);
+    targets.colorCycleLayerIds.add(layer.id);
+    await rehydrateEntryResources(
+      { id: 'entry', action: 'layer-structure', label: 'test', ts: 1, docId: 'doc', deltas: [] },
+      'backward',
+      targets,
+    );
+
+    expect(mockStoreState.updateLayer).not.toHaveBeenCalled();
+    expect(mockStoreState.setLayersNeedRecomposition).toHaveBeenCalled();
+    expect(putImageDataSpy).not.toHaveBeenCalled();
+  });
+
+  it('does not apply an all-zero serialized brush state after brush reinit', async () => {
+    const canvas = document.createElement('canvas');
+    canvas.width = 2;
+    canvas.height = 2;
+    const fallbackImageData = new ImageData(2, 2);
+    fallbackImageData.data[3] = 255;
+    const layer = makeLayer(canvas, fallbackImageData);
+    layer.colorCycleData = {
+      ...layer.colorCycleData!,
+      hasContent: true,
+      brushState: {
+        layers: [{
+          layerId: layer.id,
+          strokeData: {
+            paintBuffer: new Uint8Array([0, 0, 0, 0]).buffer,
+            gradientIdBuffer: new Uint8Array([0, 0, 0, 0]).buffer,
+            hasContent: false,
+            strokeCounter: 0,
+          },
+        }],
+      },
+    };
+    const brush = {
+      applyLayerSnapshot: jest.fn(),
+      setTargetCanvas: jest.fn(),
+      updateColorCycleTexture: jest.fn(),
+      renderDirectToCanvas: jest.fn(),
+    };
+    mockStoreState.layers = [layer];
+    mockStoreState.getLayerColorCycleBrush.mockReturnValue(brush);
+    mockBrushManager.validateColorCycleBrush.mockReturnValue(false);
+    mockBrushManager.initColorCycleForLayer.mockReturnValue(true);
+    mockBrushManager.getBrush.mockReturnValue(brush);
+
+    const targets = createRehydrationTargets();
+    targets.layerIds.add(layer.id);
+    targets.colorCycleLayerIds.add(layer.id);
+    await rehydrateEntryResources(
+      { id: 'entry', action: 'layer-structure', label: 'test', ts: 1, docId: 'doc', deltas: [] },
+      'backward',
+      targets,
+    );
+
+    expect(mockBrushManager.initColorCycleForLayer).toHaveBeenCalledWith(layer.id, 2, 2, undefined);
+    expect(brush.applyLayerSnapshot).not.toHaveBeenCalled();
+    expect(mockStoreState.updateLayer).not.toHaveBeenCalled();
+    expect(mockStoreState.setLayersNeedRecomposition).toHaveBeenCalled();
+  });
+
+  it('applies an explicit empty serialized brush state to clear canonical runtime state', async () => {
+    const canvas = document.createElement('canvas');
+    canvas.width = 2;
+    canvas.height = 2;
+    const layer = makeLayer(canvas, new ImageData(2, 2));
+    layer.colorCycleData = {
+      ...layer.colorCycleData!,
+      hasContent: false,
+      brushState: {
+        layers: [{
+          layerId: layer.id,
+          strokeData: {
+            paintBuffer: new Uint8Array([0, 0, 0, 0]).buffer,
+            gradientIdBuffer: new Uint8Array([0, 0, 0, 0]).buffer,
+            hasContent: false,
+            strokeCounter: 0,
+          },
+        }],
+      },
+    };
+    const brush = {
+      applyLayerSnapshot: jest.fn(),
+      setTargetCanvas: jest.fn(),
+      updateColorCycleTexture: jest.fn(),
+      renderDirectToCanvas: jest.fn(),
+    };
+    mockStoreState.layers = [layer];
+    mockStoreState.getLayerColorCycleBrush.mockReturnValue(brush);
+    mockBrushManager.validateColorCycleBrush.mockReturnValue(true);
+    mockBrushManager.getBrush.mockReturnValue(brush);
+
+    const targets = createRehydrationTargets();
+    targets.layerIds.add(layer.id);
+    targets.colorCycleLayerIds.add(layer.id);
+    await rehydrateEntryResources(
+      { id: 'entry', action: 'layer-structure', label: 'test', ts: 1, docId: 'doc', deltas: [] },
+      'backward',
+      targets,
+    );
+
+    expect(brush.applyLayerSnapshot).toHaveBeenCalledWith(layer.id, expect.objectContaining({
+      paintBuffer: expect.any(ArrayBuffer),
+      hasContent: false,
+      strokeCounter: 0,
+    }));
+    expect(mockStoreState.updateLayer).toHaveBeenCalledWith(
+      layer.id,
+      expect.objectContaining({
+        colorCycleData: expect.objectContaining({
+          colorCycleBrush: brush,
+          hasContent: false,
+        }),
+      }),
+      { skipColorCycleSync: true },
+    );
   });
 });
