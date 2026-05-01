@@ -16,9 +16,9 @@ import { resolveMarkSessionRuntimeStops } from '@/hooks/canvas/utils/colorCycleM
 import { stampCcHangProbe, type CcHangProbePhase } from '@/hooks/canvas/utils/ccHangProbe';
 import { TEMP_SAMPLE_SLOT } from '@/constants/colorCycle';
 import { ensureGradientDefForStops, hashStops, type StoredStop } from '@/utils/colorCycleGradientDefs';
-import type { GradientStop } from '@/hooks/brushEngine/ccGradientRuntime';
 import { logCCMutation, summarizeColorCycleLayer } from '@/utils/colorCycle/ccMutationAudit';
 import { persistCommittedSampledSlot } from '@/hooks/canvas/handlers/colorCycle/colorCycleSampledSlotPersistence';
+import { resolveColorCycleShapeFillSourceOptions } from '@/hooks/canvas/handlers/colorCycle/colorCycleShapeFillOptions';
 
 type ColorCycleBrush = ColorCycleBrushImplementation;
 type SnapshotCapableBrush = ColorCycleBrush & ColorCycleCommittedStateBrush & {
@@ -330,17 +330,6 @@ const resolveShapeFinalizeDitherOptions = ({
     roi,
     skipPostRender: true,
   };
-};
-
-const toStoredStops = (stops: GradientStop[] | null | undefined): StoredStop[] | undefined => {
-  if (!stops?.length) {
-    return undefined;
-  }
-  return stops.map((stop) => ({
-    position: stop.position,
-    color: stop.color,
-    opacity: stop.opacity,
-  }));
 };
 
 type CcDitherRenderSession = Pick<
@@ -694,10 +683,6 @@ export const finalizeColorCycleShapeFillLinear = async (
           });
         }
       }
-      const sampledStops =
-        resolvedRenderSession?.source === 'sampled'
-          ? toStoredStops(resolvedRenderSession.frozenStopsStored)
-          : undefined;
       await deps.brushEngine.fillCcGradientLinear(args.shapePoints, args.direction, {
         ...resolveShapeFinalizeDitherOptions({
           brushSettings: liveSettings,
@@ -705,13 +690,10 @@ export const finalizeColorCycleShapeFillLinear = async (
           roi: args.roi,
           pairBandCount: session?.ditherRenderConfig?.pairBandCount,
         }),
-        ditherSampledStops: sampledStops,
-        ditherBaseOffsetOverride: resolvedRenderSession?.source === 'sampled' ? 0 : undefined,
-        paintSlotOverride: resolvedRenderSession?.binding?.slot,
-        paintDefIdOverride: resolvedRenderSession?.source === 'sampled'
-          ? resolvedRenderSession?.binding?.defId
-          : undefined,
-        shapePhaseSeedMarkId: session?.markId ?? null,
+        ...resolveColorCycleShapeFillSourceOptions({
+          session,
+          renderSession: resolvedRenderSession,
+        }),
       });
       return resolvedRenderSession;
     });
@@ -1009,10 +991,6 @@ export const finalizeColorCycleShapeFillConcentric = async (
           });
         }
       }
-      const sampledStops =
-        resolvedRenderSession?.source === 'sampled'
-          ? toStoredStops(resolvedRenderSession.frozenStopsStored)
-          : undefined;
       await deps.brushEngine.fillCcGradientConcentric(args.shapePoints, {
         ...resolveShapeFinalizeDitherOptions({
           brushSettings: liveSettings,
@@ -1020,13 +998,10 @@ export const finalizeColorCycleShapeFillConcentric = async (
           roi: args.roi,
           pairBandCount: session?.ditherRenderConfig?.pairBandCount,
         }),
-        ditherSampledStops: sampledStops,
-        ditherBaseOffsetOverride: resolvedRenderSession?.source === 'sampled' ? 0 : undefined,
-        paintSlotOverride: resolvedRenderSession?.binding?.slot,
-        paintDefIdOverride: resolvedRenderSession?.source === 'sampled'
-          ? resolvedRenderSession?.binding?.defId
-          : undefined,
-        shapePhaseSeedMarkId: session?.markId ?? null,
+        ...resolveColorCycleShapeFillSourceOptions({
+          session,
+          renderSession: resolvedRenderSession,
+        }),
       });
       return resolvedRenderSession;
     });

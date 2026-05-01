@@ -1071,6 +1071,367 @@ describe('ColorCycleBrushCanvas2D regression tests', () => {
     ]);
   });
 
+  it('does not rebind already committed manual pixels when a new manual commit uses the same slot', () => {
+    const layerId = 'layer-manual-slot-collision';
+    const slot = 9;
+    const oldDefId = 301;
+    const newDefId = 302;
+    const brush = new ColorCycleBrushCanvas2D(makeCanvas(4, 1), { forceCanvas2D: true });
+    const state = useAppStore.getState() as unknown as MockStoreState;
+
+    state.layers = [
+      {
+        id: layerId,
+        layerType: 'color-cycle',
+        colorCycleData: {
+          paintSlot: slot,
+          slotPalettes: [
+            {
+              slot,
+              stops: [
+                { position: 0, color: '#111111' },
+                { position: 1, color: '#eeeeee' },
+              ],
+            },
+          ],
+          gradientDefStore: [
+            {
+              id: oldDefId,
+              kind: 'linear',
+              stops: [
+                { position: 0, color: '#111111' },
+                { position: 1, color: '#eeeeee' },
+              ],
+              hash: 'linear:old-manual',
+              source: 'manual',
+              createdAtMs: 1,
+              slot,
+            },
+            {
+              id: newDefId,
+              kind: 'linear',
+              stops: [
+                { position: 0, color: '#aa3300' },
+                { position: 1, color: '#ffee99' },
+              ],
+              hash: 'linear:new-manual',
+              source: 'manual',
+              createdAtMs: 2,
+              slot,
+            },
+          ],
+        },
+      },
+    ];
+
+    brush.applyLayerSnapshot(layerId, {
+      paintBuffer: new Uint8Array([1, 1, 1, 1]).buffer,
+      gradientIdBuffer: new Uint8Array([slot, slot, slot, slot]).buffer,
+      gradientDefIdBuffer: new Uint16Array([oldDefId, oldDefId, 0, newDefId]).buffer,
+      speedBuffer: new Uint8Array([0, 0, 0, 0]).buffer,
+      flowBuffer: new Uint8Array([0, 0, 0, 0]).buffer,
+      phaseBuffer: new Uint8Array([0, 0, 0, 0]).buffer,
+      hasContent: true,
+      strokeCounter: 1,
+    });
+
+    brush.commitCommittedLayerState({
+      layerId,
+      binding: {
+        defId: newDefId,
+        slot,
+        previewSlot: null,
+      },
+    });
+
+    const after = brush.getLayerSnapshot(layerId);
+    expect(Array.from(new Uint16Array(after?.gradientDefIdBuffer ?? new ArrayBuffer(0)))).toEqual([
+      oldDefId,
+      oldDefId,
+      newDefId,
+      newDefId,
+    ]);
+  });
+
+  it('stamps manual shape def ids for pixels written by the GPU fill path', async () => {
+    const layerId = 'layer-manual-gpu-def-stamp';
+    const slot = 9;
+    const oldDefId = 401;
+    const newDefId = 402;
+    const canvas = makeCanvas(4, 2);
+    const brush = new ColorCycleBrushCanvas2D(canvas, { forceCanvas2D: true });
+    const state = useAppStore.getState() as unknown as MockStoreState;
+
+    state.layers = [
+      {
+        id: layerId,
+        layerType: 'color-cycle',
+        colorCycleData: {
+          paintSlot: slot,
+          slotPalettes: [
+            {
+              slot,
+              stops: [
+                { position: 0, color: '#111111' },
+                { position: 1, color: '#eeeeee' },
+              ],
+            },
+          ],
+          gradientDefStore: [
+            {
+              id: oldDefId,
+              kind: 'linear',
+              stops: [
+                { position: 0, color: '#111111' },
+                { position: 1, color: '#eeeeee' },
+              ],
+              hash: 'linear:old-manual-gpu',
+              source: 'manual',
+              createdAtMs: 1,
+              slot,
+            },
+            {
+              id: newDefId,
+              kind: 'linear',
+              stops: [
+                { position: 0, color: '#aa3300' },
+                { position: 1, color: '#ffee99' },
+              ],
+              hash: 'linear:new-manual-gpu',
+              source: 'manual',
+              createdAtMs: 2,
+              slot,
+            },
+          ],
+        },
+      },
+    ];
+
+    brush.applyLayerSnapshot(layerId, {
+      paintBuffer: new Uint8Array(canvas.width * canvas.height).fill(1).buffer,
+      gradientIdBuffer: new Uint8Array(canvas.width * canvas.height).fill(slot).buffer,
+      gradientDefIdBuffer: new Uint16Array(canvas.width * canvas.height).fill(oldDefId).buffer,
+      speedBuffer: new Uint8Array(canvas.width * canvas.height).buffer,
+      flowBuffer: new Uint8Array(canvas.width * canvas.height).buffer,
+      phaseBuffer: new Uint8Array(canvas.width * canvas.height).buffer,
+      hasContent: true,
+      strokeCounter: 1,
+    });
+
+    const animator = (brush as unknown as {
+      ensureFullResolution: (layerId: string, reason: string) => {
+        hasWebGL: jest.Mock;
+        getGLFillMaxVerts: jest.Mock;
+        gpuFillShape: jest.Mock;
+        getIndexBuffers: () => {
+          data: Uint8Array;
+          gid?: Uint8Array;
+          spd?: Uint8Array;
+          flow?: Uint8Array;
+          phase?: Uint8Array;
+        };
+      };
+    }).ensureFullResolution(layerId, 'fill');
+    animator.hasWebGL = jest.fn(() => true);
+    animator.getGLFillMaxVerts = jest.fn(() => 256);
+    animator.gpuFillShape = jest.fn((_vertices, options, gradientSlot, speedByte, flowByte) => {
+      const { data, gid, spd, flow, phase } = animator.getIndexBuffers();
+      const bbox = options.bbox as { minX: number; minY: number; width: number; height: number };
+      for (let y = bbox.minY; y < bbox.minY + bbox.height; y += 1) {
+        const start = y * canvas.width + bbox.minX;
+        const end = start + bbox.width;
+        data.fill(0, start, end);
+        gid!.fill(0, start, end);
+        spd!.fill(0, start, end);
+        flow!.fill(0, start, end);
+        phase!.fill(0, start, end);
+      }
+      const row = bbox.minY * canvas.width + bbox.minX;
+      data[row] = 1;
+      data[row + 1] = 2;
+      gid![row] = gradientSlot;
+      gid![row + 1] = gradientSlot;
+      spd![row] = speedByte;
+      spd![row + 1] = speedByte;
+      flow![row] = flowByte;
+      flow![row + 1] = flowByte;
+      phase![row] = 0;
+      phase![row + 1] = 0;
+      return true;
+    });
+
+    await brush.fillShapeDispatch({
+      mode: 'linear',
+      vertices: [
+        { x: 0, y: 0 },
+        { x: 1, y: 0 },
+        { x: 0, y: 1 },
+      ],
+      layerId,
+      direction: { x: 1, y: 0 },
+      options: {
+        ccGradient: true,
+        paintSlotOverride: slot,
+        paintDefIdOverride: newDefId,
+      },
+    });
+
+    expect(animator.gpuFillShape).toHaveBeenCalled();
+    const after = brush.getLayerSnapshot(layerId);
+    expect(Array.from(new Uint16Array(after?.gradientDefIdBuffer ?? new ArrayBuffer(0)))).toEqual([
+      newDefId,
+      newDefId,
+      oldDefId,
+      oldDefId,
+      0,
+      0,
+      oldDefId,
+      oldDefId,
+    ]);
+  });
+
+  it('keeps concentric GPU snapshots internally consistent after def stamping', async () => {
+    const layerId = 'layer-concentric-gpu-buffer-sync';
+    const slot = 11;
+    const oldDefId = 501;
+    const newDefId = 502;
+    const canvas = makeCanvas(4, 2);
+    const brush = new ColorCycleBrushCanvas2D(canvas, { forceCanvas2D: true });
+    const state = useAppStore.getState() as unknown as MockStoreState;
+
+    state.layers = [
+      {
+        id: layerId,
+        layerType: 'color-cycle',
+        colorCycleData: {
+          paintSlot: slot,
+          slotPalettes: [{ slot, stops: [{ position: 0, color: '#111111' }, { position: 1, color: '#eeeeee' }] }],
+          gradientDefStore: [
+            {
+              id: oldDefId,
+              kind: 'concentric',
+              stops: [{ position: 0, color: '#111111' }, { position: 1, color: '#eeeeee' }],
+              hash: 'concentric:old-gpu',
+              source: 'manual',
+              createdAtMs: 1,
+              slot,
+            },
+            {
+              id: newDefId,
+              kind: 'concentric',
+              stops: [{ position: 0, color: '#aa3300' }, { position: 1, color: '#ffee99' }],
+              hash: 'concentric:new-gpu',
+              source: 'manual',
+              createdAtMs: 2,
+              slot,
+            },
+          ],
+        },
+      },
+    ];
+
+    brush.applyLayerSnapshot(layerId, {
+      paintBuffer: new Uint8Array(canvas.width * canvas.height).fill(1).buffer,
+      gradientIdBuffer: new Uint8Array(canvas.width * canvas.height).fill(slot).buffer,
+      gradientDefIdBuffer: new Uint16Array(canvas.width * canvas.height).fill(oldDefId).buffer,
+      speedBuffer: new Uint8Array(canvas.width * canvas.height).buffer,
+      flowBuffer: new Uint8Array(canvas.width * canvas.height).buffer,
+      phaseBuffer: new Uint8Array(canvas.width * canvas.height).buffer,
+      hasContent: true,
+      strokeCounter: 1,
+    });
+
+    const animator = (brush as unknown as {
+      ensureFullResolution: (layerId: string, reason: string) => {
+        hasWebGL: jest.Mock;
+        getGLFillMaxVerts: jest.Mock;
+        gpuFillShape: jest.Mock;
+        getIndexBuffers: () => {
+          data: Uint8Array;
+          gid?: Uint8Array;
+          spd?: Uint8Array;
+          flow?: Uint8Array;
+          phase?: Uint8Array;
+        };
+      };
+    }).ensureFullResolution(layerId, 'fill');
+    animator.hasWebGL = jest.fn(() => true);
+    animator.getGLFillMaxVerts = jest.fn(() => 256);
+    animator.gpuFillShape = jest.fn((_vertices, options, gradientSlot, speedByte, flowByte) => {
+      const { data, gid, spd, flow, phase } = animator.getIndexBuffers();
+      const bbox = options.bbox as { minX: number; minY: number; width: number; height: number };
+      for (let y = bbox.minY; y < bbox.minY + bbox.height; y += 1) {
+        const start = y * canvas.width + bbox.minX;
+        const end = start + bbox.width;
+        data.fill(0, start, end);
+        gid!.fill(0, start, end);
+        spd!.fill(0, start, end);
+        flow!.fill(0, start, end);
+        phase!.fill(0, start, end);
+      }
+      const row = bbox.minY * canvas.width + bbox.minX;
+      data[row] = 1;
+      data[row + 1] = 2;
+      gid![row] = gradientSlot;
+      gid![row + 1] = gradientSlot;
+      spd![row] = speedByte;
+      spd![row + 1] = speedByte;
+      flow![row] = flowByte;
+      flow![row + 1] = flowByte;
+      phase![row] = 0;
+      phase![row + 1] = 0;
+      return true;
+    });
+
+    await brush.fillShapeDispatch({
+      mode: 'concentric',
+      vertices: [
+        { x: 0, y: 0 },
+        { x: 1, y: 0 },
+        { x: 0, y: 1 },
+      ],
+      layerId,
+      options: {
+        ccGradient: true,
+        paintSlotOverride: slot,
+        paintDefIdOverride: newDefId,
+      },
+    });
+
+    expect(animator.gpuFillShape).toHaveBeenCalled();
+    const after = brush.getLayerSnapshot(layerId);
+    expect(Array.from(new Uint8Array(after?.paintBuffer ?? new ArrayBuffer(0)))).toEqual([
+      1,
+      2,
+      1,
+      1,
+      0,
+      0,
+      1,
+      1,
+    ]);
+    expect(Array.from(new Uint8Array(after?.gradientIdBuffer ?? new ArrayBuffer(0)))).toEqual([
+      slot,
+      slot,
+      slot,
+      slot,
+      0,
+      0,
+      slot,
+      slot,
+    ]);
+    expect(Array.from(new Uint16Array(after?.gradientDefIdBuffer ?? new ArrayBuffer(0)))).toEqual([
+      newDefId,
+      newDefId,
+      oldDefId,
+      oldDefId,
+      0,
+      0,
+      oldDefId,
+      oldDefId,
+    ]);
+  });
+
   it('stamps sampled shape def ids onto pixels written over older defs', async () => {
     const canvas = makeCanvas(6, 6);
     const brush = new ColorCycleBrushCanvas2D(canvas, { forceCanvas2D: true });

@@ -2856,10 +2856,7 @@ export class ColorCycleBrushCanvas2D {
         if (effectivePreviewSlot !== null && curSlot === effectivePreviewSlot) {
           gidBuffer[idx] = (gid & ~FLOW_SLOT_MASK) | committedSlotMasked;
           defBuffer[idx] = defId;
-        } else if (
-          curSlot === committedSlotMasked &&
-          (effectivePreviewSlot === null || defBuffer[idx] === 0)
-        ) {
+        } else if (curSlot === committedSlotMasked && defBuffer[idx] === 0) {
           defBuffer[idx] = defId;
         }
         if (process.env.NODE_ENV !== 'production' && effectivePreviewSlot !== null) {
@@ -2889,6 +2886,51 @@ export class ColorCycleBrushCanvas2D {
     } catch {}
 
     this.snapshotFromBuffers(strokeData);
+  }
+
+  private stampGradientDefForGpuShapeFillResult(
+    strokeData: LayerStrokeState,
+    animator: ColorCycleAnimator,
+    bbox: {
+      minX: number;
+      minY: number;
+      width: number;
+      height: number;
+    },
+    defId: number | null,
+    slot: number
+  ): void {
+    if (defId === null) {
+      return;
+    }
+    const expected = this.width * this.height;
+    if (strokeData.buffers.def.length !== expected) {
+      strokeData.buffers.def = new Uint16Array(expected);
+    }
+    const buffers = animator.getIndexBuffers();
+    const paintBuffer = buffers.data ?? strokeData.buffers.paint;
+    const gidBuffer = buffers.gid ?? strokeData.buffers.gid;
+    const defBuffer = strokeData.buffers.def;
+    const minX = Math.max(0, Math.floor(bbox.minX));
+    const minY = Math.max(0, Math.floor(bbox.minY));
+    const maxX = Math.min(this.width - 1, Math.floor(bbox.minX + bbox.width - 1));
+    const maxY = Math.min(this.height - 1, Math.floor(bbox.minY + bbox.height - 1));
+    const slotMasked = slot & FLOW_SLOT_MASK;
+
+    for (let y = minY; y <= maxY; y += 1) {
+      const row = y * this.width;
+      for (let x = minX; x <= maxX; x += 1) {
+        const idx = row + x;
+        if (paintBuffer[idx] === 0) {
+          defBuffer[idx] = 0;
+          continue;
+        }
+        if ((gidBuffer[idx] & FLOW_SLOT_MASK) === slotMasked) {
+          defBuffer[idx] = defId;
+        }
+      }
+    }
+    animator.setDefIdData(defBuffer, { forceDirty: true });
   }
 
   private syncCommittedBuffersToLayerStore(layerId: string): void {
@@ -4186,7 +4228,7 @@ export class ColorCycleBrushCanvas2D {
         }
 
         if (gpuVertices.length >= 3 && gpuVertices.length <= GPU_MAX_VERTS) {
-      const ditherStrength = this.ditherEnabled ? this.ditherStrength : 0;
+          const ditherStrength = this.ditherEnabled ? this.ditherStrength : 0;
           const ditherPixelSize = this.ditherEnabled ? Math.max(1, this.ditherPixelSize) : 1;
           const noiseSeed = (this.stampCounter & 0xffff) / 65535;
           const colorStep = numBands > 1 ? 254 / (numBands - 1) : 254;
@@ -4206,6 +4248,9 @@ export class ColorCycleBrushCanvas2D {
             noiseSeed,
           }, flowSlot, speedByte, flowByte, resolveLinearPhaseByte);
           if (ok) {
+            if (strokeData) {
+              this.stampGradientDefForGpuShapeFillResult(strokeData, animator, bbox, activeDefId, flowSlot);
+            }
             if (logCcFill) {
               debugLog('cc-fill', '[CC fill] linear USED GPU', { bbox, bands: numBands });
               const gpuBuffers = animator.getIndexBuffers();
@@ -5073,6 +5118,11 @@ export class ColorCycleBrushCanvas2D {
     }
 
     const animator = this.ensureFullResolution(id, 'fill');
+    if (strokeData) {
+      try {
+        this.bindStrokeBuffersToAnimator(strokeData, animator);
+      } catch {}
+    }
 
     // Find bounds with proper initialization
     let minX = Infinity, maxX = -Infinity;
@@ -5163,7 +5213,9 @@ export class ColorCycleBrushCanvas2D {
       ? Math.max(1, Math.min(254, Math.floor(options?.ditherLevels as number)))
       : null;
     const baseOffset = this.stampCounter % 255;
-    const numBands = this.deriveBandCountFromDistance(maxDist, spacingValue);
+    const numBands = ccGradient
+      ? Math.max(2, Math.min(254, Math.floor(this.gradientBands || 12)))
+      : this.deriveBandCountFromDistance(maxDist, spacingValue);
     const stepPerBand = numBands > 1 ? 254 / (numBands - 1) : 254;
     const fillAlgorithm = this.stampDitherAlgorithm ?? 'sierra-lite';
     const pairBandCount = Math.max(0, Math.floor(options?.ditherPairBandCount ?? 0));
@@ -5264,42 +5316,45 @@ export class ColorCycleBrushCanvas2D {
               ditherStrength: ditherStrengthGpu,
               ditherPixelSize: ditherPixelSizeGpu,
               noiseSeed,
-        }, flowSlot, speedByte, flowByte, resolveConcentricPhaseByte);
-        if (ok) {
-          if (logCcFill) {
-            const gpuBuffers = animator.getIndexBuffers();
-            this.logShapeFillBufferSnapshot({
-              layerId: id,
-              mode: 'concentric',
-              path: 'gpu',
-              ccGradient,
-              ditherEnabled: this.ditherEnabled,
-              colors: numBands,
-              bbox,
-              width: this.width,
-              paint: gpuBuffers.data,
-              speed: gpuBuffers.spd ?? new Uint8Array(0),
-              flow: gpuBuffers.flow ?? new Uint8Array(0),
-              phase: gpuBuffers.phase ?? new Uint8Array(0),
-            });
-          }
-          this.stampCounter += numBands;
-          if (strokeData) strokeData.stampCounter = this.stampCounter;
-          this.dirtyLayers.add(id);
-          animator.forceRender();
-          this.render(false);
-          recordColorCycleFillPerf({
-            path: 'gpu',
-            mode: 'concentric',
-            durationMs: nowMs() - gpuStart,
-            area: bbox.width * bbox.height,
-            vertices: gpuVertices.length,
-          });
-          if (strokeData) {
-            this.snapshotFromBuffers(strokeData);
-          }
-          return;
-        }
+            }, flowSlot, speedByte, flowByte, resolveConcentricPhaseByte);
+            if (ok) {
+              if (strokeData) {
+                this.stampGradientDefForGpuShapeFillResult(strokeData, animator, bbox, activeDefId, flowSlot);
+              }
+              if (logCcFill) {
+                const gpuBuffers = animator.getIndexBuffers();
+                this.logShapeFillBufferSnapshot({
+                  layerId: id,
+                  mode: 'concentric',
+                  path: 'gpu',
+                  ccGradient,
+                  ditherEnabled: this.ditherEnabled,
+                  colors: numBands,
+                  bbox,
+                  width: this.width,
+                  paint: gpuBuffers.data,
+                  speed: gpuBuffers.spd ?? new Uint8Array(0),
+                  flow: gpuBuffers.flow ?? new Uint8Array(0),
+                  phase: gpuBuffers.phase ?? new Uint8Array(0),
+                });
+              }
+              this.stampCounter += numBands;
+              if (strokeData) strokeData.stampCounter = this.stampCounter;
+              this.dirtyLayers.add(id);
+              animator.forceRender();
+              this.render(false);
+              recordColorCycleFillPerf({
+                path: 'gpu',
+                mode: 'concentric',
+                durationMs: nowMs() - gpuStart,
+                area: bbox.width * bbox.height,
+                vertices: gpuVertices.length,
+              });
+              if (strokeData) {
+                this.snapshotFromBuffers(strokeData);
+              }
+              return;
+            }
           } catch (error) {
             ccWarn('[ColorCycleBrush] Concentric GPU path threw; falling back to CPU', error);
           }
