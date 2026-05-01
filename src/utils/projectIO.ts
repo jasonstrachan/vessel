@@ -1172,6 +1172,32 @@ const hasSavedColorCyclePaintBuffer = (layer: Layer): boolean => {
   return Boolean(snapshot?.strokeData?.paintBuffer);
 };
 
+type ColorCycleImportRepairClassification =
+  | 'canonical'
+  | 'repairable-legacy'
+  | 'preview-only'
+  | 'metadata-only-empty'
+  | 'empty';
+
+const classifyColorCycleImportRepairState = (layer: Layer): ColorCycleImportRepairClassification => {
+  if (hasSavedColorCyclePaintBuffer(layer)) {
+    return 'canonical';
+  }
+  if (hasLegacyColorCycleRepairCandidateData(layer)) {
+    return 'repairable-legacy';
+  }
+  const preview = layer.colorCycleData?.canvasImageData ?? null;
+  if (preview && imageDataHasVisiblePixels(preview)) {
+    return 'preview-only';
+  }
+  const savedBrushState = getSavedColorCycleBrushState(layer)
+    ?? (layer.colorCycleData?.brushState as PersistedColorCycleBrushState | undefined);
+  if (savedBrushState && typeof savedBrushState === 'object') {
+    return 'metadata-only-empty';
+  }
+  return 'empty';
+};
+
 const prepareColorCycleRepairBindingsFromSavedSnapshot = (layer: Layer): void => {
   const colorCycleData = layer.colorCycleData;
   if (!colorCycleData) {
@@ -1209,7 +1235,11 @@ const applyLegacyColorCycleImportRepair = async (layers: Layer[]): Promise<Color
     if (layer.layerType !== 'color-cycle' || layer.colorCycleData?.mode === 'recolor' || !layer.colorCycleData) {
       continue;
     }
-    if (hasSavedColorCyclePaintBuffer(layer)) {
+    const importClassification = classifyColorCycleImportRepairState(layer);
+    if (importClassification === 'canonical') {
+      continue;
+    }
+    if (layer.colorCycleData.repairStatus?.ok === false) {
       continue;
     }
 
@@ -1233,9 +1263,10 @@ const applyLegacyColorCycleImportRepair = async (layers: Layer[]): Promise<Color
       continue;
     }
 
-    if (!layer.colorCycleData.canvasImageData || !hasLegacyColorCycleRepairCandidateData(layer)) {
+    if (importClassification !== 'repairable-legacy' && importClassification !== 'preview-only') {
       continue;
     }
+    const hasRepairCandidateData = importClassification === 'repairable-legacy';
 
     layer.colorCycleData.runtimeHydrationState = 'cold';
     layer.colorCycleData.deferredRuntimeRestore = false;
@@ -1243,7 +1274,11 @@ const applyLegacyColorCycleImportRepair = async (layers: Layer[]): Promise<Color
     layer.colorCycleData.repairStatus = {
       ok: false,
       reason: repair.reason,
-      notes: withColorCycleDiagnosticNotes(['legacy-color-cycle-import-repair-failed'], diagnostics),
+      notes: withColorCycleDiagnosticNotes([
+        hasRepairCandidateData
+          ? 'legacy-color-cycle-import-repair-failed'
+          : 'color-cycle-import-missing-canonical-payload',
+      ], diagnostics),
     };
     warnings.push({
       layerId: layer.id,
@@ -1251,7 +1286,11 @@ const applyLegacyColorCycleImportRepair = async (layers: Layer[]): Promise<Color
       status: 'static-preview-only',
       diagnostics,
       reason: repair.reason,
-      notes: withColorCycleDiagnosticNotes(['legacy-color-cycle-import-repair-failed'], diagnostics),
+      notes: withColorCycleDiagnosticNotes([
+        hasRepairCandidateData
+          ? 'legacy-color-cycle-import-repair-failed'
+          : 'color-cycle-import-missing-canonical-payload',
+      ], diagnostics),
     });
   }
 

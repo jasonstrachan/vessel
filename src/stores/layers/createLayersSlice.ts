@@ -3115,11 +3115,13 @@ export const createLayersSlice = (
             brushWithControls.setTargetCanvas(layerCanvas);
           }
           const canvas = existingBrush.getCanvas ? existingBrush.getCanvas() : layerCanvas ?? existingCanvas;
+          const { repairStatus: _discardRepairStatus, ...existingColorCycleData } = l.colorCycleData || {};
+          void _discardRepairStatus;
           return {
             ...l,
             layerType: 'color-cycle' as const,
               colorCycleData: {
-                ...(l.colorCycleData || {}),
+                ...existingColorCycleData,
                 gradient: activeStops,
                 gradientDefs,
                 slotPalettes,
@@ -3225,10 +3227,14 @@ export const createLayersSlice = (
         }
       }
 
+      const { repairStatus: _discardRepairStatus, ...existingColorCycleData } = l.colorCycleData || {};
+      void _discardRepairStatus;
+
       return {
         ...l,
         layerType: 'color-cycle' as const,
         colorCycleData: {
+          ...existingColorCycleData,
           gradient: activeStops || [],
           gradientDefs,
           slotPalettes,

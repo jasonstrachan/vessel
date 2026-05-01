@@ -2841,7 +2841,7 @@ describe('projectIO serialize/deserialize layering', () => {
           alignment: createDefaultLayerAlignment(),
           colorCycleData: {
             mode: 'brush',
-            canvasImageData: encodeRawImageDataUrl(createSolidImageData(2, 2, [60, 80, 100, 255])),
+            canvasImageData: encodeRawImageDataUrl(createSolidImageData(2, 2, [0, 0, 0, 0])),
             canvasWidth: 2,
             canvasHeight: 2,
             gradient: [
@@ -3814,6 +3814,223 @@ describe('projectIO serialize/deserialize layering', () => {
     expect(restoredLayer.colorCycleData?.runtimeHydrationState).toBe('cold');
     expect(restoredLayer.colorCycleData?.deferredRuntimeRestore).toBe(false);
     expect(restoredLayer.colorCycleData?.colorCycleBrush).toBeUndefined();
+  });
+
+  it('marks preview-only color-cycle layers with no canonical payload as repair-failed', async () => {
+    const projectPayload = {
+      version: '1.1.0',
+      metadata: {
+        name: 'cc-preview-only-no-canonical-payload',
+        created: '2025-01-01T00:00:00.000Z',
+        modified: '2025-01-01T00:00:00.000Z',
+        appVersion: '1.0.0',
+      },
+      project: {
+        id: 'p-cc-preview-only-no-canonical-payload',
+        name: 'cc-preview-only-no-canonical-payload',
+        width: 2,
+        height: 2,
+        backgroundColor: '#000000',
+        customBrushes: [],
+        layers: [{
+          id: 'layer-cc-preview-only-no-canonical-payload',
+          name: 'CC Preview Only No Canonical Payload',
+          visible: true,
+          opacity: 1,
+          blendMode: 'source-over',
+          locked: false,
+          transparencyLocked: false,
+          order: 0,
+          layerType: 'color-cycle',
+          alignment: createDefaultLayerAlignment(),
+          colorCycleData: {
+            mode: 'brush',
+            canvasImageData: encodeRawImageDataUrl(createSolidImageData(2, 2, [60, 80, 100, 255])),
+            canvasWidth: 2,
+            canvasHeight: 2,
+            gradient: [
+              { position: 0, color: '#000000' },
+              { position: 1, color: '#ffffff' },
+            ],
+            gradientDefStore: [],
+            slotPalettes: [],
+          },
+        }],
+      },
+    };
+
+    const restored = await deserializeProjectWithReport(JSON.stringify(projectPayload));
+    expect(restored.colorCycleRepairWarnings).toEqual([expect.objectContaining({
+      layerId: 'layer-cc-preview-only-no-canonical-payload',
+      status: 'static-preview-only',
+      diagnostics: ['static-preview-only', 'repair-failed'],
+      reason: 'missing-gradient-bindings',
+      notes: expect.arrayContaining([
+        'color-cycle-import-missing-canonical-payload',
+        'diagnostic:static-preview-only',
+        'diagnostic:repair-failed',
+      ]),
+    })]);
+
+    const [restoredLayer] = await restoreColorCycleBrushes(restored.project.layers);
+    expect(restoredLayer.colorCycleData?.repairStatus).toMatchObject({
+      ok: false,
+      reason: 'missing-gradient-bindings',
+    });
+    expect(restoredLayer.colorCycleData?.repairStatus?.notes).toEqual(expect.arrayContaining([
+      'color-cycle-import-missing-canonical-payload',
+      'diagnostic:static-preview-only',
+      'diagnostic:repair-failed',
+    ]));
+    expect(restoredLayer.colorCycleData?.runtimeHydrationState).toBe('cold');
+    expect(restoredLayer.colorCycleData?.deferredRuntimeRestore).toBe(false);
+    expect(restoredLayer.colorCycleData?.colorCycleBrush).toBeUndefined();
+    expect(readPixel(restoredLayer.colorCycleData?.canvasImageData ?? null, 0, 0)).toEqual([60, 80, 100, 255]);
+  });
+
+  it('marks preview-only color-cycle layers with canonical metadata-only brushState as repair-failed', async () => {
+    const projectPayload = {
+      version: '1.1.0',
+      metadata: {
+        name: 'cc-preview-only-metadata-brush-state',
+        created: '2025-01-01T00:00:00.000Z',
+        modified: '2025-01-01T00:00:00.000Z',
+        appVersion: '1.0.0',
+      },
+      project: {
+        id: 'p-cc-preview-only-metadata-brush-state',
+        name: 'cc-preview-only-metadata-brush-state',
+        width: 2,
+        height: 2,
+        backgroundColor: '#000000',
+        customBrushes: [],
+        layers: [{
+          id: 'layer-cc-preview-only-metadata-brush-state',
+          name: 'CC Preview Only Metadata Brush State',
+          visible: true,
+          opacity: 1,
+          blendMode: 'source-over',
+          locked: false,
+          transparencyLocked: false,
+          order: 0,
+          layerType: 'color-cycle',
+          alignment: createDefaultLayerAlignment(),
+          colorCycleData: {
+            mode: 'brush',
+            canvasImageData: encodeRawImageDataUrl(createSolidImageData(2, 2, [30, 90, 140, 255])),
+            canvasWidth: 2,
+            canvasHeight: 2,
+            gradient: [
+              { position: 0, color: '#000000' },
+              { position: 1, color: '#ffffff' },
+            ],
+            gradientDefStore: [],
+            slotPalettes: [],
+            brushState: {
+              schemaVersion: 1,
+              canonicalPaint: true,
+              layers: [],
+            },
+          },
+        }],
+      },
+    };
+
+    const restored = await deserializeProjectWithReport(JSON.stringify(projectPayload));
+    expect(restored.colorCycleRepairWarnings).toEqual([expect.objectContaining({
+      layerId: 'layer-cc-preview-only-metadata-brush-state',
+      status: 'static-preview-only',
+      diagnostics: ['static-preview-only', 'repair-failed'],
+      reason: 'missing-gradient-bindings',
+      notes: expect.arrayContaining([
+        'color-cycle-import-missing-canonical-payload',
+        'diagnostic:static-preview-only',
+        'diagnostic:repair-failed',
+      ]),
+    })]);
+
+    const [restoredLayer] = await restoreColorCycleBrushes(restored.project.layers);
+    expect(restoredLayer.colorCycleData?.repairStatus).toMatchObject({
+      ok: false,
+      reason: 'missing-gradient-bindings',
+    });
+    expect(restoredLayer.colorCycleData?.runtimeHydrationState).toBe('cold');
+    expect(restoredLayer.colorCycleData?.deferredRuntimeRestore).toBe(false);
+    expect(restoredLayer.colorCycleData?.colorCycleBrush).toBeUndefined();
+    expect(readPixel(restoredLayer.colorCycleData?.canvasImageData ?? null, 0, 0)).toEqual([30, 90, 140, 255]);
+  });
+
+  it('marks preview-only color-cycle layers with runtime metadata-only brushState as repair-failed', async () => {
+    const projectPayload = {
+      version: '1.1.0',
+      metadata: {
+        name: 'cc-preview-only-runtime-metadata-brush-state',
+        created: '2025-01-01T00:00:00.000Z',
+        modified: '2025-01-01T00:00:00.000Z',
+        appVersion: '1.0.0',
+      },
+      project: {
+        id: 'p-cc-preview-only-runtime-metadata-brush-state',
+        name: 'cc-preview-only-runtime-metadata-brush-state',
+        width: 2,
+        height: 2,
+        backgroundColor: '#000000',
+        customBrushes: [],
+        layers: [{
+          id: 'layer-cc-preview-only-runtime-metadata-brush-state',
+          name: 'CC Preview Only Runtime Metadata Brush State',
+          visible: true,
+          opacity: 1,
+          blendMode: 'source-over',
+          locked: false,
+          transparencyLocked: false,
+          order: 0,
+          layerType: 'color-cycle',
+          alignment: createDefaultLayerAlignment(),
+          colorCycleData: {
+            mode: 'brush',
+            canvasImageData: encodeRawImageDataUrl(createSolidImageData(2, 2, [80, 40, 120, 255])),
+            canvasWidth: 2,
+            canvasHeight: 2,
+            gradient: [
+              { position: 0, color: '#000000' },
+              { position: 1, color: '#ffffff' },
+            ],
+            gradientDefStore: [],
+            slotPalettes: [],
+            brushState: {
+              cycleSpeed: 0.35,
+              fps: 24,
+              ditherEnabled: true,
+              layers: [],
+            },
+          },
+        }],
+      },
+    };
+
+    const restored = await deserializeProjectWithReport(JSON.stringify(projectPayload));
+    expect(restored.colorCycleRepairWarnings).toEqual([expect.objectContaining({
+      layerId: 'layer-cc-preview-only-runtime-metadata-brush-state',
+      status: 'static-preview-only',
+      diagnostics: ['static-preview-only', 'repair-failed'],
+      reason: 'missing-gradient-bindings',
+      notes: expect.arrayContaining([
+        'color-cycle-import-missing-canonical-payload',
+        'diagnostic:static-preview-only',
+        'diagnostic:repair-failed',
+      ]),
+    })]);
+
+    const [restoredLayer] = await restoreColorCycleBrushes(restored.project.layers);
+    expect(restoredLayer.colorCycleData?.repairStatus).toMatchObject({
+      ok: false,
+      reason: 'missing-gradient-bindings',
+    });
+    expect(restoredLayer.colorCycleData?.runtimeHydrationState).toBe('cold');
+    expect(restoredLayer.colorCycleData?.deferredRuntimeRestore).toBe(false);
+    expect(restoredLayer.colorCycleData?.colorCycleBrush).toBeUndefined();
+    expect(readPixel(restoredLayer.colorCycleData?.canvasImageData ?? null, 0, 0)).toEqual([80, 40, 120, 255]);
   });
 
   it('marks missing brushState paint with incompatible compatibility snapshot as repair-failed', async () => {
