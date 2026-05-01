@@ -16,7 +16,7 @@ const isArchiveRef = (value: ColorCycleBufferRef | undefined): value is string =
 );
 
 const hasBufferRef = (value: ColorCycleBufferRef | undefined): boolean => (
-  value instanceof ArrayBuffer || typeof value === 'string'
+  value instanceof ArrayBuffer || (typeof value === 'string' && value.length > 0)
 );
 
 export const cloneBufferRef = <T extends ColorCycleBufferRef | undefined>(value: T): T => (
@@ -106,6 +106,23 @@ export const validatePersistenceDocumentState = (
         kind: 'missing-paint-buffer',
         fields: ['paintBuffer'],
         message: 'Color-cycle document state is missing canonical paint.',
+      }],
+    };
+  }
+
+  const missingGradientBindings = ['gradientIdBuffer', 'gradientDefIdBuffer'].filter((field) => (
+    !hasBufferRef(state[field as 'gradientIdBuffer' | 'gradientDefIdBuffer'])
+  ));
+  if (missingGradientBindings.length > 0) {
+    return {
+      ok: false,
+      reason: 'missing-gradient-bindings',
+      damageKind: 'missing-gradient-bindings',
+      diagnostics: [{
+        source,
+        kind: 'missing-gradient-bindings',
+        fields: missingGradientBindings,
+        message: 'Color-cycle document state is missing gradient binding buffers.',
       }],
     };
   }

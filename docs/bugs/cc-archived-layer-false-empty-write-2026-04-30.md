@@ -815,3 +815,22 @@ copy(JSON.stringify((window.__VESSEL_GET_CC_MUTATION_LOG__?.() ?? []).filter(e =
 - Verified:
   - `npm test -- src/utils/export/__tests__/webglExporter.helpers.test.ts --runInBand`
   - `npm test -- tests/export-color-cycle-html.test.ts --runInBand`
+
+2026-05-01 canonical payload presence guard:
+
+- Code fixed:
+  - The canonical CC payload invariant is now presence-based across six required channels: `paintBuffer`, `gradientIdBuffer`, `gradientDefIdBuffer`, `speedBuffer`, `flowBuffer`, and `phaseBuffer`.
+  - Hydrated archive refs are treated as canonical presence once materialized into valid buffers; save/warmup no longer compare archive refs to hydrated buffers by identity.
+  - Empty string refs are not canonical presence.
+  - Deferred archive emission and lazy archive hydration backfill missing snapshot channels from top-level archive refs before validating canonical state.
+  - Save-side primary payload failures log `cc-save-primary-payload-drop-blocked` and do not serialize rejected partial brush state or partial top-level gradient bindings as healthy canonical refs.
+  - Warmup-side primary payload failures log `cc-warmup-canonical-payload-drop-blocked`, leave the layer cold/static-preview/repair-failed, and do not publish a misleading editable runtime.
+  - Zero-valued paint bytes are valid canonical paint data; absence is missing buffer/ref presence, not byte value `0`. CC crop readback preserves this too when an authoritative snapshot says the cropped region has content.
+- Existing project files:
+  - No damaged `.vs` artifact was healed by this change.
+  - Damaged preview-only files should remain visibly preview-only until explicitly repaired; the code change prevents fresh save/warmup paths from silently promoting partial payloads to editable canonical state.
+- Verified:
+  - `npm run type-check`
+  - `npm run lint`
+  - focused Jest for changed persistence/runtime tests
+  - `npm test`

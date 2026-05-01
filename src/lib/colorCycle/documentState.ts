@@ -71,14 +71,6 @@ const cloneArrayBuffer = (value: unknown): ArrayBuffer | undefined => {
   return buffer ? buffer.slice(0) : undefined;
 };
 
-const hasAnyByte = (buffer: ArrayBuffer | undefined): boolean => {
-  if (!buffer) {
-    return false;
-  }
-  const bytes = new Uint8Array(buffer);
-  return bytes.some((value) => value !== 0);
-};
-
 const cloneStops = <T extends { position: number; color: string; opacity?: number }>(
   stops: T[],
 ): T[] => stops.map((stop) => ({ ...stop }));
@@ -212,7 +204,7 @@ export const validateColorCycleDocumentStateDimensions = (
 
 export const hasCanonicalColorCyclePaint = (
   state: Pick<ColorCycleLayerDocumentState, 'paintBuffer' | 'hasContent'>,
-): boolean => Boolean(state.paintBuffer && (state.hasContent || hasAnyByte(state.paintBuffer)));
+): boolean => Boolean(state.paintBuffer);
 
 export const hasGradientBindingBuffers = (
   state: Pick<ColorCycleLayerDocumentState, 'gradientIdBuffer' | 'gradientDefIdBuffer'>,
@@ -276,7 +268,7 @@ export const normalizeColorCycleLayerDocumentState = (
     fgActiveSlot: snapshot?.fgActiveSlot ?? colorCycleData.fgActiveSlot,
     layerBaseSpeedCps: colorCycleData.layerBaseSpeedCps ?? colorCycleData.controllerSpeedCps,
     flowMode: colorCycleData.flowMode,
-    hasContent: Boolean(strokeData?.hasContent ?? colorCycleData.hasContent ?? hasAnyByte(paintBuffer)),
+    hasContent: Boolean(strokeData?.hasContent ?? colorCycleData.hasContent ?? false),
     sources: {
       brushStateSnapshot: Boolean(snapshot),
       topLevelBuffers: Boolean(colorCycleData.gradientIdBuffer || colorCycleData.gradientDefIdBuffer || colorCycleData.phaseBuffer),

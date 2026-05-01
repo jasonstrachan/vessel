@@ -2195,8 +2195,12 @@ describe('projectIO serialize/deserialize layering', () => {
   });
 
   it('emits a binary manifest for externalized color-cycle buffers', async () => {
+    const paintBuffer = new Uint8Array([0, 0, 0, 0]).buffer;
     const gradientIdBuffer = new Uint8Array([1, 2, 3, 4]).buffer;
     const gradientDefIdBuffer = new Uint16Array([1, 2, 3, 4]).buffer;
+    const speedBuffer = new Uint8Array([5, 6, 7, 8]).buffer;
+    const flowBuffer = new Uint8Array([0, 0, 0, 0]).buffer;
+    const phaseBuffer = new Uint8Array([0, 0, 0, 0]).buffer;
     const project: Project = {
       id: 'project-bin-manifest',
       name: 'Binary manifest',
@@ -2221,8 +2225,26 @@ describe('projectIO serialize/deserialize layering', () => {
         colorCycleData: {
           canvasWidth: 2,
           canvasHeight: 2,
-          gradientIdBuffer,
-          gradientDefIdBuffer,
+          mode: 'brush',
+          brushState: {
+            canonicalPaint: true,
+            schemaVersion: 1,
+            layers: [{
+              layerId: 'cc-layer',
+              canonicalPaint: true,
+              schemaVersion: 1,
+              dimensions: { width: 2, height: 2 },
+              strokeData: {
+                hasContent: true,
+                paintBuffer,
+                gradientIdBuffer,
+                gradientDefIdBuffer,
+                speedBuffer,
+                flowBuffer,
+                phaseBuffer,
+              },
+            }],
+          },
         },
       }],
       layerGroups: [],
@@ -2236,6 +2258,12 @@ describe('projectIO serialize/deserialize layering', () => {
     expect(entries).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
+          path: 'buffers/color-cycle/cc-layer/paint.bin',
+          dtype: 'uint8',
+          width: 2,
+          height: 2,
+        }),
+        expect.objectContaining({
           path: 'buffers/color-cycle/cc-layer/gradient-id.bin',
           dtype: 'uint8',
           width: 2,
@@ -2247,13 +2275,35 @@ describe('projectIO serialize/deserialize layering', () => {
           width: 2,
           height: 2,
         }),
+        expect.objectContaining({
+          path: 'buffers/color-cycle/cc-layer/speed.bin',
+          dtype: 'uint8',
+          width: 2,
+          height: 2,
+        }),
+        expect.objectContaining({
+          path: 'buffers/color-cycle/cc-layer/flow.bin',
+          dtype: 'uint8',
+          width: 2,
+          height: 2,
+        }),
+        expect.objectContaining({
+          path: 'buffers/color-cycle/cc-layer/phase.bin',
+          dtype: 'uint8',
+          width: 2,
+          height: 2,
+        }),
       ]),
     );
     expect(manifest.project.layers[0]?.state).toEqual(expect.objectContaining({
       version: 1,
       dimensions: { width: 2, height: 2 },
+      paintRef: 'zip:buffers/color-cycle/cc-layer/paint.bin',
       gradientIdRef: 'zip:buffers/color-cycle/cc-layer/gradient-id.bin',
       gradientDefIdRef: 'zip:buffers/color-cycle/cc-layer/gradient-def-id.bin',
+      speedRef: 'zip:buffers/color-cycle/cc-layer/speed.bin',
+      flowRef: 'zip:buffers/color-cycle/cc-layer/flow.bin',
+      phaseRef: 'zip:buffers/color-cycle/cc-layer/phase.bin',
     }));
     expect((manifest.project.layers[0]?.state as { isAnimating?: boolean } | undefined)?.isAnimating).toBeUndefined();
     expect(manifest.project.layers[0]?.colorCycleData?.isAnimating).toBeUndefined();
@@ -3033,6 +3083,8 @@ describe('projectIO serialize/deserialize layering', () => {
                 hasContent: true,
                 strokeCounter: 2,
                 paintBuffer: Uint8Array.from([1, 2, 3, 4]).buffer,
+                gradientIdBuffer: Uint8Array.from([1, 1, 1, 1]).buffer,
+                gradientDefIdBuffer: new Uint16Array([1, 1, 1, 1]).buffer,
                 speedBuffer: Uint8Array.from([1, 1, 1, 1]).buffer,
                 flowBuffer: Uint8Array.from([9, 10, 11, 12]).buffer,
                 phaseBuffer: Uint8Array.from([64, 96, 128, 192]).buffer,
@@ -3173,6 +3225,8 @@ describe('projectIO serialize/deserialize layering', () => {
                 hasContent: true,
                 strokeCounter: 3,
                 paintBuffer: new Uint8Array([1, 2, 3, 4]).buffer,
+                gradientIdBuffer: new Uint8Array([1, 1, 1, 1]).buffer,
+                gradientDefIdBuffer: new Uint16Array([1, 1, 1, 1]).buffer,
                 speedBuffer: new Uint8Array([1, 1, 1, 1]).buffer,
                 flowBuffer: new Uint8Array([0, 0, 0, 0]).buffer,
                 phaseBuffer: new Uint8Array([2, 2, 2, 2]).buffer,
@@ -3853,8 +3907,14 @@ describe('projectIO serialize/deserialize layering', () => {
     const layerId = 'layer-cc-deferred-ref-repair';
     const gradientIdPath = `buffers/color-cycle/${layerId}/gradient-id.bin`;
     const gradientDefIdPath = `buffers/color-cycle/${layerId}/gradient-def-id.bin`;
+    const speedPath = `buffers/color-cycle/${layerId}/speed.bin`;
+    const flowPath = `buffers/color-cycle/${layerId}/flow.bin`;
+    const phasePath = `buffers/color-cycle/${layerId}/phase.bin`;
     const gradientIdBytes = Uint8Array.from([1, 2, 3, 4]);
     const gradientDefIdBytes = new Uint8Array(new Uint16Array([1, 1, 1, 1]).buffer);
+    const speedBytes = Uint8Array.from([1, 1, 1, 1]);
+    const flowBytes = Uint8Array.from([1, 1, 1, 1]);
+    const phaseBytes = Uint8Array.from([2, 2, 2, 2]);
     const archive = {
       version: '1.1.0',
       metadata: {
@@ -3896,6 +3956,9 @@ describe('projectIO serialize/deserialize layering', () => {
             mode: 'brush',
             gradientIdRef: `zip:${gradientIdPath}`,
             gradientDefIdRef: `zip:${gradientDefIdPath}`,
+            speedRef: `zip:${speedPath}`,
+            flowRef: `zip:${flowPath}`,
+            phaseRef: `zip:${phasePath}`,
             hasContent: true,
             strokeCounter: 1,
           },
@@ -3931,6 +3994,36 @@ describe('projectIO serialize/deserialize layering', () => {
           width,
           height,
           compression: 'deflate',
+        }, {
+          version: 1,
+          path: speedPath,
+          checksum: fnv1aHash(speedBytes),
+          byteLength: speedBytes.byteLength,
+          logicalByteLength: speedBytes.byteLength,
+          dtype: inferBinaryManifestDType(speedPath),
+          width,
+          height,
+          compression: 'deflate',
+        }, {
+          version: 1,
+          path: flowPath,
+          checksum: fnv1aHash(flowBytes),
+          byteLength: flowBytes.byteLength,
+          logicalByteLength: flowBytes.byteLength,
+          dtype: inferBinaryManifestDType(flowPath),
+          width,
+          height,
+          compression: 'deflate',
+        }, {
+          version: 1,
+          path: phasePath,
+          checksum: fnv1aHash(phaseBytes),
+          byteLength: phaseBytes.byteLength,
+          logicalByteLength: phaseBytes.byteLength,
+          dtype: inferBinaryManifestDType(phasePath),
+          width,
+          height,
+          compression: 'deflate',
         }],
       },
     };
@@ -3938,6 +4031,9 @@ describe('projectIO serialize/deserialize layering', () => {
     zip.file('project.json', JSON.stringify(archive));
     zip.file(gradientIdPath, gradientIdBytes);
     zip.file(gradientDefIdPath, gradientDefIdBytes);
+    zip.file(speedPath, speedBytes);
+    zip.file(flowPath, flowBytes);
+    zip.file(phasePath, phaseBytes);
     const payload = await zip.generateAsync({ type: 'uint8array', compression: 'DEFLATE' });
 
     const restored = await deserializeProject(payload, {
@@ -4840,6 +4936,142 @@ describe('projectIO serialize/deserialize layering', () => {
     expect((restoredStrokeData?.paintBuffer ?? '').length).toBeGreaterThan(0);
     expect(typeof restoredStrokeData?.flowBuffer).toBe('string');
     expect((restoredStrokeData?.flowBuffer ?? '').length).toBeGreaterThan(0);
+  });
+
+  it('blocks partial canonical color-cycle state during save instead of serializing primary refs', async () => {
+    window.localStorage.clear();
+    const layerId = 'layer-cc-partial-save-blocked';
+    const layer: Layer = {
+      id: layerId,
+      name: 'Partial CC Save Blocked',
+      visible: true,
+      opacity: 1,
+      blendMode: 'source-over',
+      locked: false,
+      transparencyLocked: false,
+      order: 0,
+      imageData: null,
+      framebuffer: createCanvasFromImageData(createSolidImageData(2, 2, [0, 0, 0, 0])),
+      alignment: createDefaultLayerAlignment(),
+      layerType: 'color-cycle',
+      version: 1,
+      colorCycleData: {
+        canvasWidth: 2,
+        canvasHeight: 2,
+        mode: 'brush',
+        canvasImageData: createSolidImageData(2, 2, [12, 34, 56, 255]),
+        gradientIdBuffer: Uint8Array.from([1, 1, 1, 1]).buffer,
+        gradientDefIdBuffer: new Uint16Array([1, 1, 1, 1]).buffer,
+        brushState: {
+          canonicalPaint: true,
+          schemaVersion: 1,
+          layers: [{
+            layerId,
+            canonicalPaint: true,
+            schemaVersion: 1,
+            dimensions: { width: 2, height: 2 },
+            strokeData: {
+              hasContent: true,
+              paintBuffer: Uint8Array.from([0, 0, 0, 0]).buffer,
+            },
+          }],
+        },
+      },
+    };
+    const project: Project = {
+      id: 'project-cc-partial-save-blocked',
+      name: 'Partial CC Save Blocked',
+      width: 2,
+      height: 2,
+      backgroundColor: '#000000',
+      layers: [layer],
+      customBrushes: [],
+      createdAt: new Date('2025-01-01T00:00:00.000Z'),
+      updatedAt: new Date('2025-01-01T00:00:00.000Z'),
+    };
+
+    const payload = await withPatchedCanvasRect(() => serializeProject(project, project.layers));
+    const zip = await JSZip.loadAsync(payload);
+    const projectJson = await zip.file('project.json')?.async('string');
+    if (!projectJson) {
+      throw new Error('Missing project.json');
+    }
+    const manifest = JSON.parse(projectJson) as {
+      project: { layers: Array<{ id: string; state?: Record<string, unknown> }> };
+    };
+    const persistedLayer = manifest.project.layers.find((entry) => entry.id === layerId);
+
+    expect(persistedLayer?.state?.paintRef).toBeUndefined();
+    expect(persistedLayer?.state?.gradientIdRef).toBeUndefined();
+    expect(persistedLayer?.state?.gradientDefIdRef).toBeUndefined();
+    expect(persistedLayer?.state?.speedRef).toBeUndefined();
+    expect(persistedLayer?.state?.flowRef).toBeUndefined();
+    expect(persistedLayer?.state?.phaseRef).toBeUndefined();
+    expect(getPersistedCCMutationLog().some((entry) => (
+      entry.event === 'cc-save-primary-payload-drop-blocked' &&
+      entry.layerId === layerId
+    ))).toBe(true);
+  });
+
+  it('blocks partial canonical color-cycle state during warmup before publishing a brush', async () => {
+    window.localStorage.clear();
+    const layerId = 'layer-cc-partial-warmup-blocked';
+    const layer: Layer = {
+      id: layerId,
+      name: 'Partial CC Warmup Blocked',
+      visible: true,
+      opacity: 1,
+      blendMode: 'source-over',
+      locked: false,
+      transparencyLocked: false,
+      order: 0,
+      imageData: null,
+      framebuffer: createCanvasFromImageData(createSolidImageData(2, 2, [0, 0, 0, 0])),
+      alignment: createDefaultLayerAlignment(),
+      layerType: 'color-cycle',
+      version: 1,
+      colorCycleData: {
+        canvas: createCanvasFromImageData(createSolidImageData(2, 2, [0, 0, 0, 0])),
+        canvasWidth: 2,
+        canvasHeight: 2,
+        mode: 'brush',
+        runtimeHydrationState: 'cold',
+        deferredRuntimeRestore: true,
+        canvasImageData: createSolidImageData(2, 2, [60, 80, 100, 255]),
+        brushState: {
+          canonicalPaint: true,
+          schemaVersion: 1,
+          layers: [{
+            layerId,
+            canonicalPaint: true,
+            schemaVersion: 1,
+            dimensions: { width: 2, height: 2 },
+            strokeData: {
+              hasContent: true,
+              paintBuffer: Uint8Array.from([0, 0, 0, 0]).buffer,
+              gradientIdBuffer: Uint8Array.from([1, 1, 1, 1]).buffer,
+              gradientDefIdBuffer: new Uint16Array([1, 1, 1, 1]).buffer,
+            },
+          }],
+        },
+      },
+    };
+
+    const [restoredLayer] = await restoreColorCycleBrushes([layer], {
+      lazy: false,
+      activeLayerId: layerId,
+    });
+
+    expect(restoredLayer.colorCycleData?.colorCycleBrush).toBeUndefined();
+    expect(restoredLayer.colorCycleData?.runtimeHydrationState).toBe('cold');
+    expect(restoredLayer.colorCycleData?.repairStatus).toEqual(expect.objectContaining({
+      ok: false,
+      reason: 'missing-motion-buffers',
+    }));
+    expect(getPersistedCCMutationLog().some((entry) => (
+      entry.event === 'cc-warmup-canonical-payload-drop-blocked' &&
+      entry.layerId === layerId
+    ))).toBe(true);
   });
 
   it('captures live color-cycle brush buffers when layer metadata only has gradient bindings', async () => {

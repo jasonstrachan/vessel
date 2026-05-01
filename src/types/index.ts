@@ -557,6 +557,7 @@ export interface ColorCycleRuntimeData {
       | 'dimension-mismatch'
       | 'missing-paint-buffer'
       | 'missing-gradient-bindings'
+      | 'missing-motion-buffers'
       | 'empty-compatibility-snapshot'
       | 'unsupported-legacy-shape';
     notes?: string[];
