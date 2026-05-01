@@ -771,7 +771,11 @@ describe('pointerHandlers main flows', () => {
     handlers.handlePointerDown(makePointerEvent({ clientX: 90, clientY: 90 }));
 
     expect(deps.clearSelection).toHaveBeenCalledTimes(1);
-    expect(deps.setSelectionBounds).toHaveBeenCalledWith({ x: 90, y: 90 }, { x: 90, y: 90 });
+    expect(deps.setSelectionBounds).toHaveBeenCalledWith(
+      { x: 90, y: 90 },
+      { x: 90, y: 90 },
+      'selection-marquee-start'
+    );
     expect(deps.interaction.dispatch).toHaveBeenCalledWith({ type: 'SELECTION_START' });
     expect(deps.isMouseDownRef.current).toBe(true);
   });
@@ -811,7 +815,8 @@ describe('pointerHandlers main flows', () => {
 
     expect(deps.setSelectionBounds).toHaveBeenLastCalledWith(
       { x: 5, y: 5 },
-      { x: 11, y: 11 }
+      { x: 11, y: 11 },
+      'selection-marquee-final'
     );
   });
 
@@ -852,7 +857,8 @@ describe('pointerHandlers main flows', () => {
 
     expect(deps.setSelectionBounds).toHaveBeenLastCalledWith(
       { x: 10, y: 10 },
-      { x: 100, y: 100 }
+      { x: 100, y: 100 },
+      'selection-marquee-final'
     );
   });
 
@@ -1023,7 +1029,11 @@ describe('pointerHandlers main flows', () => {
     handlers.handlePointerDown(makePointerEvent({ clientX: 10, clientY: 10 }));
 
     expect(deps.clearSelection).toHaveBeenCalled();
-    expect(deps.setSelectionBounds).toHaveBeenCalledWith({ x: 10, y: 10 }, { x: 10, y: 10 });
+    expect(deps.setSelectionBounds).toHaveBeenCalledWith(
+      { x: 10, y: 10 },
+      { x: 10, y: 10 },
+      'selection-marquee-start'
+    );
     expect(deps.interaction.dispatch).toHaveBeenCalledWith({ type: 'SELECTION_START' });
     expect(deps.isMouseDownRef.current).toBe(true);
   });
@@ -1320,7 +1330,8 @@ describe('pointerHandlers main flows', () => {
 
     expect(deps.setSelectionBounds).toHaveBeenCalledWith(
       { x: -8, y: -12 },
-      { x: -8, y: -12 }
+      { x: -8, y: -12 },
+      'selection-marquee-start'
     );
     expect(deps.interaction.dispatch).toHaveBeenCalledWith({ type: 'SELECTION_START' });
     expect(deps.isMouseDownRef.current).toBe(true);
@@ -1445,7 +1456,8 @@ describe('pointerHandlers main flows', () => {
 
     expect(deps.setSelectionBounds).toHaveBeenLastCalledWith(
       { x: 20, y: 24 },
-      { x: 30, y: 34 }
+      { x: 30, y: 34 },
+      'selection-marquee-preview'
     );
   });
 

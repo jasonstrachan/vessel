@@ -64,6 +64,7 @@ describe('selection slice bounds helpers', () => {
       selectionMask: null,
       selectionMaskBounds: null,
       selectionMaskLayerId: null,
+      selectionLastAction: null,
       floatingPaste: null,
     });
   };
@@ -94,6 +95,11 @@ describe('selection slice bounds helpers', () => {
     expect(useAppStore.getState().selectionMask).toBeNull();
     expect(useAppStore.getState().selectionMaskBounds).toBeNull();
     expect(useAppStore.getState().selectionMaskLayerId).toBeNull();
+    expect(useAppStore.getState().selectionLastAction).toEqual(expect.objectContaining({
+      action: 'select-all',
+      ownerKind: 'select-all',
+      activeLayerId: layer.id,
+    }));
   });
 
   it('clearSelection resets bounds and masks to null', () => {
@@ -112,6 +118,7 @@ describe('selection slice bounds helpers', () => {
     expect(useAppStore.getState().selectionMask).toBeNull();
     expect(useAppStore.getState().selectionMaskBounds).toBeNull();
     expect(useAppStore.getState().selectionMaskLayerId).toBeNull();
+    expect(useAppStore.getState().selectionLastAction).toBeNull();
   });
 
   it('setSelectionBounds replaces bounds and drops stale mask references', () => {
@@ -123,13 +130,21 @@ describe('selection slice bounds helpers', () => {
       selectionMaskLayerId: 'layer-previous',
     } as Partial<ReturnType<typeof useAppStore.getState>>);
 
-    useAppStore.getState().setSelectionBounds({ x: 2, y: 3 }, { x: 6, y: 8 });
+    useAppStore.setState({ activeLayerId: 'layer-current' });
+    useAppStore.getState().setSelectionBounds({ x: 2, y: 3 }, { x: 6, y: 8 }, 'selection-marquee-final');
 
     expect(useAppStore.getState().selectionStart).toEqual({ x: 2, y: 3 });
     expect(useAppStore.getState().selectionEnd).toEqual({ x: 6, y: 8 });
     expect(useAppStore.getState().selectionMask).toBeNull();
     expect(useAppStore.getState().selectionMaskBounds).toBeNull();
     expect(useAppStore.getState().selectionMaskLayerId).toBeNull();
+    expect(useAppStore.getState().selectionLastAction).toEqual(expect.objectContaining({
+      action: 'set-bounds',
+      source: 'selection-marquee-final',
+      ownerKind: 'direct-marquee',
+      activeLayerId: 'layer-current',
+      bounds: { x: 2, y: 3, width: 4, height: 5 },
+    }));
   });
 
   it('appendSelectionBounds merges an incoming marquee with an existing marquee', () => {
@@ -149,6 +164,11 @@ describe('selection slice bounds helpers', () => {
     expect(state.selectionEnd).toEqual({ x: 8, y: 7 });
     expect(state.selectionMaskBounds).toEqual({ x: 2, y: 3, width: 6, height: 4 });
     expect(state.selectionMaskLayerId).toBe('layer-1');
+    expect(state.selectionLastAction).toEqual(expect.objectContaining({
+      ownerKind: 'mask-selection',
+      activeLayerId: 'layer-1',
+      maskLayerId: 'layer-1',
+    }));
     expect(alphaAt(state.selectionMask as ImageData, 0, 0)).toBe(255);
     expect(alphaAt(state.selectionMask as ImageData, 4, 1)).toBe(255);
   });
@@ -171,6 +191,11 @@ describe('selection slice bounds helpers', () => {
     const state = useAppStore.getState();
     expect(state.selectionMaskBounds).toEqual({ x: 2, y: 2, width: 5, height: 5 });
     expect(state.selectionMaskLayerId).toBe('layer-1');
+    expect(state.selectionLastAction).toEqual(expect.objectContaining({
+      ownerKind: 'mask-selection',
+      activeLayerId: 'layer-1',
+      maskLayerId: 'layer-1',
+    }));
     expect(alphaAt(state.selectionMask as ImageData, 0, 0)).toBe(255);
     expect(alphaAt(state.selectionMask as ImageData, 4, 4)).toBe(255);
     expect(alphaAt(state.selectionMask as ImageData, 3, 3)).toBe(0);
@@ -190,10 +215,50 @@ describe('selection slice bounds helpers', () => {
 
     const state = useAppStore.getState();
     expect(state.selectionMaskBounds).toEqual({ x: 0, y: 0, width: 6, height: 6 });
-    expect(state.selectionMaskLayerId).toBe('layer-active');
+    expect(state.selectionMaskLayerId).toBe('layer-mask');
+    expect(state.selectionLastAction).toEqual(expect.objectContaining({
+      ownerKind: 'mask-selection',
+      activeLayerId: 'layer-mask',
+      maskLayerId: 'layer-mask',
+    }));
     expect(alphaAt(state.selectionMask as ImageData, 0, 0)).toBe(255);
     expect(alphaAt(state.selectionMask as ImageData, 5, 4)).toBe(255);
     expect(alphaAt(state.selectionMask as ImageData, 3, 3)).toBe(0);
+  });
+
+  it('appendSelectionMask preserves existing owner after a layer switch', () => {
+    useAppStore.setState({
+      activeLayerId: 'layer-active',
+      selectionStart: { x: 1, y: 1 },
+      selectionEnd: { x: 3, y: 3 },
+      selectionMask: createMask(2, 2, [{ x: 1, y: 0 }]),
+      selectionMaskBounds: { x: 4, y: 4, width: 2, height: 2 },
+      selectionMaskLayerId: 'layer-mask',
+      selectionLastAction: {
+        action: 'set-bounds',
+        source: 'selection-freehand',
+        ownerKind: 'mask-selection',
+        t: Date.now(),
+        activeLayerId: 'layer-mask',
+        maskLayerId: 'layer-mask',
+        bounds: { x: 4, y: 4, width: 2, height: 2 },
+      },
+    } as Partial<ReturnType<typeof useAppStore.getState>>);
+
+    useAppStore.getState().appendSelectionMask({
+      mask: createMask(2, 2, [{ x: 0, y: 0 }]),
+      bounds: { x: 0, y: 0, width: 2, height: 2 },
+      layerId: 'layer-active',
+    });
+
+    const state = useAppStore.getState();
+    expect(state.selectionMaskBounds).toEqual({ x: 0, y: 0, width: 6, height: 6 });
+    expect(state.selectionMaskLayerId).toBe('layer-mask');
+    expect(state.selectionLastAction).toEqual(expect.objectContaining({
+      ownerKind: 'mask-selection',
+      activeLayerId: 'layer-mask',
+      maskLayerId: 'layer-mask',
+    }));
   });
 
   it('invertSelection inverts marquee bounds across the active layer dimensions', () => {
@@ -218,6 +283,11 @@ describe('selection slice bounds helpers', () => {
     expect(state.selectionMaskBounds).toEqual({ x: 0, y: 0, width: 4, height: 3 });
     expect(state.selectionStart).toEqual({ x: 0, y: 0 });
     expect(state.selectionEnd).toEqual({ x: 4, y: 3 });
+    expect(state.selectionLastAction).toEqual(expect.objectContaining({
+      ownerKind: 'mask-selection',
+      activeLayerId: layer.id,
+      maskLayerId: layer.id,
+    }));
     expect(alphaAt(state.selectionMask as ImageData, 1, 1)).toBe(0);
     expect(alphaAt(state.selectionMask as ImageData, 0, 0)).toBe(255);
   });

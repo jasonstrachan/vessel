@@ -24,7 +24,7 @@ export type SelectionHandlerDeps = {
       selectionStart: React.MutableRefObject<Point | null>;
     };
   };
-  setSelectionBounds: (start: Point, end: Point) => void;
+  setSelectionBounds: (start: Point, end: Point, source?: string) => void;
   clearSelection: () => void;
   setShowBrushCursor: React.Dispatch<React.SetStateAction<boolean>>;
   canvasRef: React.RefObject<HTMLCanvasElement>;
@@ -381,7 +381,7 @@ export const createSelectionHandlers = (
   };
 
   const redrawSelectionPreview = (start: Point, end: Point) => {
-    deps.setSelectionBounds(start, end);
+    deps.setSelectionBounds(start, end, 'selection-marquee-preview');
     const canvas = deps.canvasRef.current;
     const ctx = canvas?.getContext('2d', { willReadFrequently: true });
     if (ctx) {
@@ -561,7 +561,7 @@ export const createSelectionHandlers = (
     stopMarqueeAutoPan();
     deps.interaction.refs.selectionStart.current = worldPos;
     if (!shiftKey) {
-      deps.setSelectionBounds(worldPos, worldPos);
+      deps.setSelectionBounds(worldPos, worldPos, 'selection-marquee-start');
     }
     if (tools.currentTool === 'custom') {
       deps.setShowBrushCursor(false);
@@ -714,7 +714,11 @@ export const createSelectionHandlers = (
           worldPos
         );
       } else {
-        deps.setSelectionBounds(deps.interaction.refs.selectionStart.current, worldPos);
+        deps.setSelectionBounds(
+          deps.interaction.refs.selectionStart.current,
+          worldPos,
+          dynamic.tools.currentTool === 'custom' ? 'custom-selection-final' : 'selection-marquee-final'
+        );
       }
       if (dynamic.tools.currentTool === 'custom') {
         void deps.flushAndSetCurrentTool('brush');

@@ -387,7 +387,7 @@ describe('selection delete updates framebuffer', () => {
     expect(updatedLayer?.layerType).toBe('color-cycle');
     expect(updatedLayer?.colorCycleData?.hasContent).toBe(false);
 
-    expect(getPersistedCCMutationLog()).toEqual([
+    expect(getPersistedCCMutationLog()).toEqual(expect.arrayContaining([
       expect.objectContaining({
         event: 'color-cycle-layer-cleared',
         layerId,
@@ -407,6 +407,464 @@ describe('selection delete updates framebuffer', () => {
           paintAfter: expect.objectContaining({ nonZeroCount: 0 }),
         }),
       }),
-    ]);
+    ]));
+  });
+
+  it('allows keyboard delete to clear all CC paint after explicit same-layer select-all', () => {
+    const canvas = document.createElement('canvas');
+    canvas.width = 4;
+    canvas.height = 4;
+
+    const layerId = 'layer-cc-explicit-select-all-delete';
+    const ccLayer: Layer = {
+      id: layerId,
+      name: 'CC Explicit Select All Delete',
+      visible: true,
+      opacity: 1,
+      blendMode: 'source-over',
+      locked: false,
+      order: 0,
+      imageData: null,
+      framebuffer: canvas,
+      alignment: createDefaultLayerAlignment(),
+      layerType: 'color-cycle',
+      colorCycleData: {
+        canvas,
+        hasContent: true,
+      },
+    } as Layer;
+
+    useAppStore.setState((state) => ({
+      ...state,
+      project: state.project!,
+      layers: [ccLayer],
+      activeLayerId: layerId,
+    }));
+    useAppStore.getState().selectAllActiveLayerPixels('keyboard-select-all');
+    useAppStore.getState().initColorCycleForLayer(layerId, 4, 4);
+    const brush = useAppStore.getState().getLayerColorCycleBrush(layerId);
+    brush?.applyLayerSnapshot?.(layerId, {
+      paintBuffer: new Uint8Array(16).fill(9).buffer,
+      gradientIdBuffer: new Uint8Array(16).fill(1).buffer,
+      gradientDefIdBuffer: new Uint16Array(16).fill(2).buffer,
+      speedBuffer: new Uint8Array(16).buffer,
+      flowBuffer: new Uint8Array(16).buffer,
+      phaseBuffer: new Uint8Array(16).buffer,
+      hasContent: true,
+      strokeCounter: 1,
+    });
+
+    useAppStore.getState().deleteSelectedPixels('keyboard-delete');
+
+    const snapshot = brush?.getLayerSnapshot?.(layerId);
+    expect(snapshot?.hasContent).toBe(false);
+    expect(useAppStore.getState().selectionStart).toBeNull();
+    expect(getPersistedCCMutationLog()).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        event: 'color-cycle-keyboard-delete-full-content-blocked',
+      }),
+    ]));
+  });
+
+  it('blocks keyboard delete when set-bounds selection would clear all CC paint', () => {
+    const canvas = document.createElement('canvas');
+    canvas.width = 4;
+    canvas.height = 4;
+
+    const layerId = 'layer-cc-keyboard-delete-full-content';
+    const ccLayer: Layer = {
+      id: layerId,
+      name: 'CC Keyboard Delete Full Content',
+      visible: true,
+      opacity: 1,
+      blendMode: 'source-over',
+      locked: false,
+      order: 0,
+      imageData: null,
+      framebuffer: canvas,
+      alignment: createDefaultLayerAlignment(),
+      layerType: 'color-cycle',
+      colorCycleData: {
+        canvas,
+        hasContent: true,
+      },
+    } as Layer;
+
+    useAppStore.setState((state) => ({
+      ...state,
+      project: state.project!,
+      layers: [ccLayer],
+      activeLayerId: layerId,
+      selectionStart: { x: 0, y: 0 },
+      selectionEnd: { x: 4, y: 4 },
+      selectionLastAction: {
+        action: 'set-bounds',
+        source: 'setSelectionBounds',
+        t: Date.now(),
+        activeLayerId: layerId,
+        bounds: { x: 0, y: 0, width: 4, height: 4 },
+      },
+    }));
+
+    useAppStore.getState().initColorCycleForLayer(layerId, 4, 4);
+    const brush = useAppStore.getState().getLayerColorCycleBrush(layerId);
+    brush?.applyLayerSnapshot?.(layerId, {
+      paintBuffer: new Uint8Array(16).fill(9).buffer,
+      gradientIdBuffer: new Uint8Array(16).fill(1).buffer,
+      gradientDefIdBuffer: new Uint16Array(16).fill(2).buffer,
+      speedBuffer: new Uint8Array(16).buffer,
+      flowBuffer: new Uint8Array(16).buffer,
+      phaseBuffer: new Uint8Array(16).buffer,
+      hasContent: true,
+      strokeCounter: 1,
+    });
+
+    useAppStore.getState().deleteSelectedPixels('keyboard-delete');
+
+    const updatedLayer = useAppStore.getState().layers.find((layer) => layer.id === layerId);
+    expect(updatedLayer?.colorCycleData?.hasContent).toBe(true);
+    expect(brush?.getLayerSnapshot?.(layerId)?.hasContent).toBe(true);
+
+    expect(getPersistedCCMutationLog()).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        event: 'color-cycle-keyboard-delete-full-content-blocked',
+        layerId,
+        reason: 'delete-selected',
+        severity: 'error',
+        details: expect.objectContaining({
+          deleteSource: 'keyboard-delete',
+          selectionLastAction: expect.objectContaining({
+            action: 'set-bounds',
+          }),
+          paintBefore: expect.objectContaining({ nonZeroCount: 16 }),
+          paintAfter: expect.objectContaining({ nonZeroCount: 0 }),
+        }),
+      }),
+    ]));
+  });
+
+  it('does not delete CC pixels when set-bounds selection belongs to another layer', () => {
+    const sourceCanvas = document.createElement('canvas');
+    sourceCanvas.width = 4;
+    sourceCanvas.height = 4;
+    const ccCanvas = document.createElement('canvas');
+    ccCanvas.width = 4;
+    ccCanvas.height = 4;
+
+    const sourceLayer: Layer = {
+      id: 'layer-selection-source',
+      name: 'Selection Source',
+      visible: true,
+      opacity: 1,
+      blendMode: 'source-over',
+      locked: false,
+      order: 0,
+      imageData: null,
+      framebuffer: sourceCanvas,
+      alignment: createDefaultLayerAlignment(),
+      layerType: 'normal',
+    } as Layer;
+    const ccLayer: Layer = {
+      id: 'layer-cc-mismatch-delete',
+      name: 'CC Mismatch Delete',
+      visible: true,
+      opacity: 1,
+      blendMode: 'source-over',
+      locked: false,
+      order: 1,
+      imageData: null,
+      framebuffer: ccCanvas,
+      alignment: createDefaultLayerAlignment(),
+      layerType: 'color-cycle',
+      colorCycleData: {
+        canvas: ccCanvas,
+        hasContent: true,
+      },
+    } as Layer;
+
+    useAppStore.setState((state) => ({
+      ...state,
+      project: state.project!,
+      layers: [sourceLayer, ccLayer],
+      activeLayerId: sourceLayer.id,
+      selectionStart: null,
+      selectionEnd: null,
+      selectionLastAction: null,
+    }));
+    useAppStore.getState().setSelectionBounds(
+      { x: 0, y: 0 },
+      { x: 4, y: 4 },
+      'selection-marquee-final'
+    );
+    useAppStore.setState({ activeLayerId: ccLayer.id });
+
+    useAppStore.getState().initColorCycleForLayer(ccLayer.id, 4, 4);
+    const brush = useAppStore.getState().getLayerColorCycleBrush(ccLayer.id);
+    brush?.applyLayerSnapshot?.(ccLayer.id, {
+      paintBuffer: new Uint8Array(16).fill(7).buffer,
+      gradientIdBuffer: new Uint8Array(16).fill(1).buffer,
+      gradientDefIdBuffer: new Uint16Array(16).fill(2).buffer,
+      speedBuffer: new Uint8Array(16).buffer,
+      flowBuffer: new Uint8Array(16).buffer,
+      phaseBuffer: new Uint8Array(16).buffer,
+      hasContent: true,
+      strokeCounter: 1,
+    });
+
+    useAppStore.getState().deleteSelectedPixels('keyboard-delete');
+
+    const state = useAppStore.getState();
+    const updatedLayer = state.layers.find((layer) => layer.id === ccLayer.id);
+    expect(updatedLayer?.colorCycleData?.hasContent).toBe(true);
+    expect(brush?.getLayerSnapshot?.(ccLayer.id)?.hasContent).toBe(true);
+    expect(state.selectionStart).toBeNull();
+    expect(state.selectionEnd).toBeNull();
+    expect(getPersistedCCMutationLog()).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        event: 'selection-delete-skipped-layer-mismatch',
+        layerId: ccLayer.id,
+        reason: 'keyboard-delete',
+        details: expect.objectContaining({
+          selectionAction: 'set-bounds',
+          selectionSource: 'selection-marquee-final',
+          selectionSourceLayerId: sourceLayer.id,
+          activeLayerId: ccLayer.id,
+        }),
+      }),
+    ]));
+  });
+
+  it('does not delete CC pixels when an appended selection preserves an earlier layer owner', () => {
+    const sourceCanvas = document.createElement('canvas');
+    sourceCanvas.width = 4;
+    sourceCanvas.height = 4;
+    const ccCanvas = document.createElement('canvas');
+    ccCanvas.width = 4;
+    ccCanvas.height = 4;
+
+    const sourceLayer: Layer = {
+      id: 'layer-append-source',
+      name: 'Append Source',
+      visible: true,
+      opacity: 1,
+      blendMode: 'source-over',
+      locked: false,
+      order: 0,
+      imageData: null,
+      framebuffer: sourceCanvas,
+      alignment: createDefaultLayerAlignment(),
+      layerType: 'normal',
+    } as Layer;
+    const ccLayer: Layer = {
+      id: 'layer-cc-append-delete',
+      name: 'CC Append Delete',
+      visible: true,
+      opacity: 1,
+      blendMode: 'source-over',
+      locked: false,
+      order: 1,
+      imageData: null,
+      framebuffer: ccCanvas,
+      alignment: createDefaultLayerAlignment(),
+      layerType: 'color-cycle',
+      colorCycleData: {
+        canvas: ccCanvas,
+        hasContent: true,
+      },
+    } as Layer;
+
+    useAppStore.setState((state) => ({
+      ...state,
+      project: state.project!,
+      layers: [sourceLayer, ccLayer],
+      activeLayerId: sourceLayer.id,
+      selectionStart: null,
+      selectionEnd: null,
+      selectionMask: null,
+      selectionMaskBounds: null,
+      selectionMaskLayerId: null,
+      selectionLastAction: null,
+    }));
+    useAppStore.getState().setSelectionBounds(
+      { x: 0, y: 0 },
+      { x: 2, y: 2 },
+      'selection-marquee-final'
+    );
+    useAppStore.setState({ activeLayerId: ccLayer.id });
+    useAppStore.getState().appendSelectionBounds({ x: 2, y: 2 }, { x: 4, y: 4 });
+
+    expect(useAppStore.getState().selectionMaskLayerId).toBe(sourceLayer.id);
+    expect(useAppStore.getState().selectionLastAction).toEqual(expect.objectContaining({
+      activeLayerId: sourceLayer.id,
+      maskLayerId: sourceLayer.id,
+    }));
+
+    useAppStore.getState().initColorCycleForLayer(ccLayer.id, 4, 4);
+    const brush = useAppStore.getState().getLayerColorCycleBrush(ccLayer.id);
+    brush?.applyLayerSnapshot?.(ccLayer.id, {
+      paintBuffer: new Uint8Array(16).fill(7).buffer,
+      gradientIdBuffer: new Uint8Array(16).fill(1).buffer,
+      gradientDefIdBuffer: new Uint16Array(16).fill(2).buffer,
+      speedBuffer: new Uint8Array(16).buffer,
+      flowBuffer: new Uint8Array(16).buffer,
+      phaseBuffer: new Uint8Array(16).buffer,
+      hasContent: true,
+      strokeCounter: 1,
+    });
+
+    useAppStore.getState().deleteSelectedPixels('keyboard-delete');
+
+    const state = useAppStore.getState();
+    const updatedLayer = state.layers.find((layer) => layer.id === ccLayer.id);
+    expect(updatedLayer?.colorCycleData?.hasContent).toBe(true);
+    expect(brush?.getLayerSnapshot?.(ccLayer.id)?.hasContent).toBe(true);
+    expect(state.selectionStart).toBeNull();
+    expect(state.selectionEnd).toBeNull();
+    expect(getPersistedCCMutationLog()).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        event: 'selection-delete-skipped-layer-mismatch',
+        layerId: ccLayer.id,
+        reason: 'keyboard-delete',
+        details: expect.objectContaining({
+          selectionSourceLayerId: sourceLayer.id,
+          activeLayerId: ccLayer.id,
+        }),
+      }),
+    ]));
+  });
+
+  it('does not keyboard-delete CC pixels from a history-restored selection on the same layer', () => {
+    const canvas = document.createElement('canvas');
+    canvas.width = 4;
+    canvas.height = 4;
+
+    const layerId = 'layer-cc-history-restored-delete';
+    const ccLayer: Layer = {
+      id: layerId,
+      name: 'CC History Delete',
+      visible: true,
+      opacity: 1,
+      blendMode: 'source-over',
+      locked: false,
+      order: 0,
+      imageData: null,
+      framebuffer: canvas,
+      alignment: createDefaultLayerAlignment(),
+      layerType: 'color-cycle',
+      colorCycleData: {
+        canvas,
+        hasContent: true,
+      },
+    } as Layer;
+
+    useAppStore.setState((state) => ({
+      ...state,
+      project: state.project!,
+      layers: [ccLayer],
+      activeLayerId: layerId,
+      selectionStart: { x: 0, y: 0 },
+      selectionEnd: { x: 2, y: 2 },
+      selectionLastAction: {
+        action: 'set-bounds',
+        source: 'history-selection-backward',
+        ownerKind: 'history-restored',
+        restoredFromHistory: true,
+        t: Date.now(),
+        activeLayerId: layerId,
+        bounds: { x: 0, y: 0, width: 2, height: 2 },
+      },
+    }));
+
+    useAppStore.getState().initColorCycleForLayer(layerId, 4, 4);
+    const brush = useAppStore.getState().getLayerColorCycleBrush(layerId);
+    brush?.applyLayerSnapshot?.(layerId, {
+      paintBuffer: new Uint8Array(16).fill(3).buffer,
+      gradientIdBuffer: new Uint8Array(16).fill(1).buffer,
+      gradientDefIdBuffer: new Uint16Array(16).fill(2).buffer,
+      speedBuffer: new Uint8Array(16).buffer,
+      flowBuffer: new Uint8Array(16).buffer,
+      phaseBuffer: new Uint8Array(16).buffer,
+      hasContent: true,
+      strokeCounter: 1,
+    });
+
+    useAppStore.getState().deleteSelectedPixels('keyboard-delete');
+
+    expect(brush?.getLayerSnapshot?.(layerId)?.hasContent).toBe(true);
+    expect(useAppStore.getState().selectionStart).toEqual({ x: 0, y: 0 });
+    expect(getPersistedCCMutationLog()).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        event: 'selection-delete-authorization-blocked',
+        layerId,
+        reason: 'history-restored-keyboard-delete',
+      }),
+    ]));
+  });
+
+  it('does not seed CC selection delete paint from gradient ids when canonical paint is missing', () => {
+    const canvas = document.createElement('canvas');
+    canvas.width = 4;
+    canvas.height = 4;
+
+    const layerId = 'layer-cc-delete-no-paint';
+    const ccLayer: Layer = {
+      id: layerId,
+      name: 'CC Delete No Paint',
+      visible: true,
+      opacity: 1,
+      blendMode: 'source-over',
+      locked: false,
+      order: 0,
+      imageData: null,
+      framebuffer: canvas,
+      alignment: createDefaultLayerAlignment(),
+      layerType: 'color-cycle',
+      colorCycleData: {
+        canvas,
+        hasContent: true,
+        gradientIdBuffer: new Uint8Array(16).fill(4).buffer,
+        gradientDefIdBuffer: new Uint16Array(16).fill(8).buffer,
+      },
+    } as Layer;
+
+    useAppStore.setState((state) => ({
+      ...state,
+      project: state.project!,
+      layers: [ccLayer],
+      activeLayerId: layerId,
+      selectionStart: { x: 0, y: 0 },
+      selectionEnd: { x: 4, y: 4 },
+    }));
+
+    useAppStore.getState().initColorCycleForLayer(layerId, 4, 4);
+    useAppStore.getState().deleteSelectedPixels('keyboard-delete');
+
+    const updatedLayer = useAppStore.getState().layers.find((layer) => layer.id === layerId);
+    expect(updatedLayer?.colorCycleData?.hasContent).toBe(true);
+    expect(Array.from(new Uint8Array(updatedLayer?.colorCycleData?.gradientIdBuffer ?? new ArrayBuffer(0))))
+      .toEqual(new Array(16).fill(4));
+    expect(Array.from(new Uint16Array(updatedLayer?.colorCycleData?.gradientDefIdBuffer ?? new ArrayBuffer(0))))
+      .toEqual(new Array(16).fill(8));
+
+    expect(getPersistedCCMutationLog()).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        event: 'selection-delete-authorization-blocked',
+        layerId,
+        reason: 'missing-canonical-paint',
+      }),
+      expect.objectContaining({
+        event: 'color-cycle-selection-clear-skipped-missing-canonical-paint',
+        layerId,
+        reason: 'delete-selected',
+        severity: 'error',
+        details: expect.objectContaining({
+          source: 'selection-region-clear',
+          operation: 'delete-selected',
+          deleteSource: 'keyboard-delete',
+          hasGradientIdBuffer: true,
+          hasGradientDefIdBuffer: true,
+        }),
+      }),
+    ]));
   });
 });

@@ -56,6 +56,12 @@ const clearLayers = (): void => {
     activeLayerId: null,
     selectionStart: null,
     selectionEnd: null,
+    selectionMask: null,
+    selectionMaskBounds: null,
+    selectionMaskLayerId: null,
+    selectionLastAction: null,
+    floatingPaste: null,
+    floatingPasteHistoryContext: null,
     project: state.project
       ? {
           ...state.project,
@@ -253,12 +259,22 @@ describe('history integration', () => {
     await historyManager.undo();
     const restoredSelection = useAppStore.getState().selectionStart;
     expect(restoredSelection).toEqual({ x: 2, y: 4 });
+    expect(useAppStore.getState().selectionLastAction).toEqual(expect.objectContaining({
+      ownerKind: 'history-restored',
+      restoredFromHistory: true,
+      source: 'history-selection-backward',
+    }));
 
     await historyManager.undo();
     expect(useAppStore.getState().selectionStart).toBeNull();
 
     await historyManager.redo();
     expect(useAppStore.getState().selectionStart).toEqual({ x: 2, y: 4 });
+    expect(useAppStore.getState().selectionLastAction).toEqual(expect.objectContaining({
+      ownerKind: 'history-restored',
+      restoredFromHistory: true,
+      source: 'history-selection-forward',
+    }));
 
     await historyManager.redo();
     expect(useAppStore.getState().selectionStart).toBeNull();
@@ -1024,6 +1040,8 @@ describe('history integration', () => {
     const store = useAppStore.getState();
     const extracted = store.extractSelectionToFloatingPaste();
     expect(extracted).toBe(true);
+    expect(useAppStore.getState().floatingPaste?.colorCycleGradientIds).not.toBeNull();
+    expect(useAppStore.getState().floatingPaste?.colorCycleGradientDefIds).not.toBeNull();
 
     const sourceAfterExtract = sourceBrush?.getLayerSnapshot?.(sourceLayer.id);
     const sourceAfterPaint = sourceAfterExtract?.paintBuffer ? new Uint8Array(sourceAfterExtract.paintBuffer) : null;
@@ -1032,19 +1050,28 @@ describe('history integration', () => {
     expect(sourceAfterPaint![2 + (1 * width)]).toBe(0);
 
     useAppStore.setState({ activeLayerId: targetLayer.id });
-    await store.commitFloatingPaste();
+    await useAppStore.getState().commitFloatingPaste();
 
-    const targetSnapshot = targetBrush?.getLayerSnapshot?.(targetLayer.id);
+    const updatedTargetBrush = useAppStore.getState().getLayerColorCycleBrush(targetLayer.id) ?? targetBrush;
+    const updatedTargetLayer = useAppStore.getState().layers.find((layer) => layer.id === targetLayer.id);
+    const targetSnapshot = updatedTargetBrush?.getLayerSnapshot?.(targetLayer.id);
     const targetPaint = targetSnapshot?.paintBuffer ? new Uint8Array(targetSnapshot.paintBuffer) : null;
-    const targetGradientIds = targetSnapshot?.gradientIdBuffer ? new Uint8Array(targetSnapshot.gradientIdBuffer) : null;
-    const targetGradientDefIds = targetSnapshot?.gradientDefIdBuffer ? new Uint16Array(targetSnapshot.gradientDefIdBuffer) : null;
+    const targetGradientIds = targetSnapshot?.gradientIdBuffer
+      ? new Uint8Array(targetSnapshot.gradientIdBuffer)
+      : (updatedTargetLayer?.colorCycleData?.gradientIdBuffer
+        ? new Uint8Array(updatedTargetLayer.colorCycleData.gradientIdBuffer)
+        : null);
+    const targetGradientDefIds = targetSnapshot?.gradientDefIdBuffer
+      ? new Uint16Array(targetSnapshot.gradientDefIdBuffer)
+      : (updatedTargetLayer?.colorCycleData?.gradientDefIdBuffer
+        ? new Uint16Array(updatedTargetLayer.colorCycleData.gradientDefIdBuffer)
+        : null);
     expect(targetPaint).not.toBeNull();
     expect(targetGradientIds).not.toBeNull();
     expect(targetGradientDefIds).not.toBeNull();
     expect(targetPaint![1 + (1 * width)]).toBe(1);
     expect(targetPaint![2 + (1 * width)]).toBe(1);
 
-    const updatedTargetLayer = useAppStore.getState().layers.find((layer) => layer.id === targetLayer.id);
     expect(updatedTargetLayer?.colorCycleData?.slotPalettes).toEqual(expect.arrayContaining([
       expect.objectContaining({ slot: 9 }),
     ]));

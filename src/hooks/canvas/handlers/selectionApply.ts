@@ -29,6 +29,16 @@ export const buildMaskSelectionState = ({
   selectionMask: mask,
   selectionMaskBounds: bounds,
   selectionMaskLayerId: layerId,
+  selectionLastAction: {
+    action: 'set-bounds' as const,
+    source: vectorPath?.mode === 'freehand' ? 'selection-freehand' : 'selection-mask',
+    ownerKind: 'mask-selection' as const,
+    restoredFromHistory: false,
+    t: Date.now(),
+    activeLayerId: layerId,
+    maskLayerId: layerId,
+    bounds,
+  },
 });
 
 export const applyMaskSelectionResult = ({
