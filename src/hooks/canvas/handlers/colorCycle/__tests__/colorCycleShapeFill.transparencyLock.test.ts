@@ -318,6 +318,7 @@ describe('colorCycleShapeFill transparency lock', () => {
 
     const renderDirectToCanvas = jest.fn();
     const commitCommittedLayerState = jest.fn();
+    const fillCcGradientLinear = jest.fn(async () => undefined);
     const ccBrush = {
       renderDirectToCanvas,
       commitCommittedLayerState,
@@ -357,7 +358,7 @@ describe('colorCycleShapeFill transparency lock', () => {
       },
       {
         brushEngine: {
-          fillCcGradientLinear: jest.fn(async () => undefined),
+          fillCcGradientLinear,
           updateColorCycleTexture: jest.fn(),
         } as never,
         getColorCycleBrushManager: () => ({ getBrush: () => ccBrush as never }),
@@ -380,6 +381,14 @@ describe('colorCycleShapeFill transparency lock', () => {
         previewSlot: null,
       },
     });
+    expect(fillCcGradientLinear).toHaveBeenCalledWith(
+      expect.any(Array),
+      { x: 1, y: 0 },
+      expect.objectContaining({
+        paintSlotOverride: 7,
+        paintDefIdOverride: 11,
+      })
+    );
     expect(renderDirectToCanvas).not.toHaveBeenCalled();
 
     getStateSpy.mockRestore();
@@ -659,6 +668,89 @@ describe('colorCycleShapeFill transparency lock', () => {
       })
     );
     expect(concentricOptions).toHaveProperty('ditherPairBandCount', 0);
+
+    getStateSpy.mockRestore();
+  });
+
+  it('forwards manual concentric shape def binding into fill options', async () => {
+    const getStateSpy = jest.spyOn(useAppStore, 'getState');
+    getStateSpy.mockReturnValue({
+      layers: [
+        {
+          id: 'layer-1',
+          transparencyLocked: false,
+          colorCycleData: {},
+        },
+      ],
+      tools: {
+        brushSettings: {
+          colorCycleUseForegroundGradient: false,
+          ditherEnabled: false,
+        },
+      },
+      setCcGradientSampleCount: jest.fn(),
+      updateLayer: jest.fn(),
+    } as unknown as ReturnType<typeof useAppStore.getState>);
+
+    const canvas = document.createElement('canvas');
+    canvas.width = 3;
+    canvas.height = 3;
+    const fillCcGradientConcentric = jest.fn(async () => undefined);
+    const session: MarkGradientSession = {
+      markId: 'mark-manual-concentric-def',
+      layerId: 'layer-1',
+      markKind: 'shape',
+      gradientKind: 'concentric',
+      source: 'manual',
+      frozenStopsStored: [
+        { position: 0, color: '#112233' },
+        { position: 1, color: '#ddeeff' },
+      ],
+      frozenHash: 'hash-manual-concentric-def',
+      binding: { kind: 'def', defId: 31, slot: 12 },
+      speedCps: null,
+    };
+
+    await finalizeColorCycleShapeFillConcentric(
+      {
+        session,
+        shapePoints: [
+          { x: 0, y: 0 },
+          { x: 2, y: 0 },
+          { x: 0, y: 2 },
+        ],
+        activeLayerId: 'layer-1',
+        activeLayerCanvas: canvas,
+        overlayCanvas: null,
+        overlayCtx: null,
+        fallbackBlendMode: 'source-over',
+        fallbackOpacity: 1,
+        shapeLayerId: 'layer-1',
+        beforeColorState: null,
+        tool: 'brush',
+      },
+      {
+        brushEngine: {
+          fillCcGradientConcentric,
+          updateColorCycleTexture: jest.fn(),
+        } as never,
+        getColorCycleBrushManager: () => ({ getBrush: () => null }),
+        bindBrushToCanvas: jest.fn(),
+        timeAsync: async (_label, task) => task(),
+        timeSync: (_label, task) => task(),
+        ccLog: jest.fn(),
+        scheduleDeferredColorCycleSaveWithState: jest.fn(async () => undefined),
+        logError: jest.fn(),
+      }
+    );
+
+    expect(fillCcGradientConcentric).toHaveBeenCalledWith(
+      expect.any(Array),
+      expect.objectContaining({
+        paintSlotOverride: 12,
+        paintDefIdOverride: 31,
+      })
+    );
 
     getStateSpy.mockRestore();
   });

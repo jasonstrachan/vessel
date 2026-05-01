@@ -780,6 +780,35 @@ describe('BrushControls – Color Cycle gradient fill mode', () => {
     expect(useAppStore.getState().tools.brushSettings.colorCycleFillMode).toBe('concentric');
   });
 
+  it('shows and applies the CC gradient Colors slider when concentric dither is off', () => {
+    useAppStore.setState((state) => ({
+      ...state,
+      tools: {
+        ...state.tools,
+        brushSettings: {
+          ...state.tools.brushSettings,
+          brushShape: 'color_cycle_shape' as BrushSettings['brushShape'],
+          customBrushColorCycle: false,
+          customBrushColorCycleMode: 'tip',
+          colorCycleFillMode: 'concentric',
+          ditherEnabled: false,
+          gradientBands: 7,
+        },
+      },
+      brushPresets: [{ id: 'color-cycle-gradient', name: 'CC Gradient' } as AppState['brushPresets'][number]],
+      currentBrushPreset: { id: 'color-cycle-gradient', name: 'CC Gradient' } as AppState['currentBrushPreset'],
+    }));
+
+    render(<BrushControls />);
+    const slider = screen.getByLabelText('CC Gradient Colors');
+    expect(slider).toBeInTheDocument();
+    expect(screen.queryByLabelText('Dither Pattern Diversity')).not.toBeInTheDocument();
+
+    fireEvent.change(slider, { target: { value: '11' } });
+
+    expect(useAppStore.getState().tools.brushSettings.gradientBands).toBe(11);
+  });
+
   it('shows spread inside the CC gradient dither controls', () => {
     useAppStore.setState((state) => ({
       ...state,
