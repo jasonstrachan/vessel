@@ -1246,6 +1246,38 @@ describe('layers slice integration', () => {
       .toEqual([0, 3, 0, 7]);
     expect(Array.from(new Uint16Array(duplicateLayer?.colorCycleData?.gradientDefIdBuffer ?? new ArrayBuffer(0))))
       .toEqual([0, 5, 0, 9]);
+    const duplicateBrushState = duplicateLayer?.colorCycleData?.brushState as {
+      canonicalPaint?: boolean;
+      layers?: Array<{
+        layerId?: string;
+        canonicalPaint?: boolean;
+        strokeData?: {
+          paintBuffer?: ArrayBuffer;
+          gradientIdBuffer?: ArrayBuffer;
+          gradientDefIdBuffer?: ArrayBuffer;
+          speedBuffer?: ArrayBuffer;
+          flowBuffer?: ArrayBuffer;
+          phaseBuffer?: ArrayBuffer;
+          hasContent?: boolean;
+        };
+      }>;
+    } | undefined;
+    const duplicateSnapshot = duplicateBrushState?.layers?.find((snapshot) => snapshot.layerId === duplicatedId);
+    expect(duplicateBrushState?.canonicalPaint).toBe(true);
+    expect(duplicateSnapshot?.canonicalPaint).toBe(true);
+    expect(Array.from(new Uint8Array(duplicateSnapshot?.strokeData?.paintBuffer ?? new ArrayBuffer(0))))
+      .toEqual([0, 12, 0, 44]);
+    expect(Array.from(new Uint8Array(duplicateSnapshot?.strokeData?.gradientIdBuffer ?? new ArrayBuffer(0))))
+      .toEqual([0, 3, 0, 7]);
+    expect(Array.from(new Uint16Array(duplicateSnapshot?.strokeData?.gradientDefIdBuffer ?? new ArrayBuffer(0))))
+      .toEqual([0, 5, 0, 9]);
+    expect(Array.from(new Uint8Array(duplicateSnapshot?.strokeData?.speedBuffer ?? new ArrayBuffer(0))))
+      .toEqual([0, 88, 0, 99]);
+    expect(Array.from(new Uint8Array(duplicateSnapshot?.strokeData?.flowBuffer ?? new ArrayBuffer(0))))
+      .toEqual([0, 1, 0, 2]);
+    expect(Array.from(new Uint8Array(duplicateSnapshot?.strokeData?.phaseBuffer ?? new ArrayBuffer(0))))
+      .toEqual([0, 64, 0, 128]);
+    expect(duplicateSnapshot?.strokeData?.hasContent).toBe(true);
     expect(duplicateLayer?.imageData).not.toBeNull();
     expect(duplicateLayer?.framebuffer).not.toBe(sourceLayer?.framebuffer);
   });
