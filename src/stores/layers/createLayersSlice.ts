@@ -76,6 +76,7 @@ import {
   type ColorCycleBrushImplementation,
   type ColorCycleBrushManager,
 } from '@/stores/colorCycleBrushManager';
+import type { PersistedColorCycleBrushState } from '@/lib/colorCycle/persistence';
 import { compositeBitmapManager } from '@/lib/performance/CompositeBitmapManager';
 import {
   clearSequentialLayerRendererAll,
@@ -435,6 +436,76 @@ const cloneColorCycleBrushStateForDuplicate = (
   return {
     ...record,
     layers,
+  };
+};
+
+const buildCanonicalBrushStateFromSnapshot = (
+  layer: Layer,
+  layerId: string,
+  snapshot: ColorCycleLayerSnapshot,
+  existingBrushState: unknown,
+): PersistedColorCycleBrushState => {
+  const record = cloneRecord(existingBrushState);
+  const existingLayers = Array.isArray(record?.layers) ? record.layers : [];
+  const existingSnapshot = existingLayers.find((entry) => (
+    cloneRecord(entry)?.layerId === layerId
+  ));
+  const colorCycleData = layer.colorCycleData;
+  const width = Math.max(1, Math.floor(
+    colorCycleData?.canvasWidth ??
+    colorCycleData?.canvas?.width ??
+    colorCycleData?.canvasImageData?.width ??
+    layer.imageData?.width ??
+    1
+  ));
+  const height = Math.max(1, Math.floor(
+    colorCycleData?.canvasHeight ??
+    colorCycleData?.canvas?.height ??
+    colorCycleData?.canvasImageData?.height ??
+    layer.imageData?.height ??
+    1
+  ));
+  const existingDimensionsByLayerId = (
+    record?.dimensionsByLayerId &&
+    typeof record.dimensionsByLayerId === 'object' &&
+    !Array.isArray(record.dimensionsByLayerId)
+  )
+    ? record.dimensionsByLayerId as NonNullable<PersistedColorCycleBrushState['dimensionsByLayerId']>
+    : {};
+  const persistedSnapshot = {
+    ...(cloneRecord(existingSnapshot) ?? {}),
+    layerId,
+    canonicalPaint: true,
+    schemaVersion: 1,
+    dimensions: { width, height },
+    strokeData: {
+      ...(cloneRecord(cloneRecord(existingSnapshot)?.strokeData) ?? {}),
+      hasContent: snapshot.hasContent,
+      strokeCounter: snapshot.strokeCounter,
+      paintBuffer: snapshot.paintBuffer.slice(0),
+      gradientIdBuffer: cloneBuffer(snapshot.gradientIdBuffer),
+      gradientDefIdBuffer: cloneBuffer(snapshot.gradientDefIdBuffer),
+      speedBuffer: cloneBuffer(snapshot.speedBuffer),
+      flowBuffer: cloneBuffer(snapshot.flowBuffer),
+      phaseBuffer: cloneBuffer(snapshot.phaseBuffer),
+    },
+    gradientDefs: colorCycleData?.gradientDefs,
+    slotPalettes: colorCycleData?.slotPalettes,
+    gradientDefStore: colorCycleData?.gradientDefStore,
+    paintSlot: colorCycleData?.paintSlot,
+    fgActiveSlot: colorCycleData?.fgActiveSlot,
+    activeGradientId: colorCycleData?.activeGradientId,
+  };
+  const filteredLayers = existingLayers.filter((entry) => cloneRecord(entry)?.layerId !== layerId);
+  return {
+    ...(record ?? {}),
+    canonicalPaint: true,
+    schemaVersion: 1,
+    dimensionsByLayerId: {
+      ...existingDimensionsByLayerId,
+      [layerId]: { width, height },
+    },
+    layers: [...filteredLayers, persistedSnapshot],
   };
 };
 
@@ -1516,6 +1587,12 @@ export const createLayersSlice = (
                     gradientDefIdBuffer:
                       sourceColorCycleSnapshot.gradientDefIdBuffer?.slice(0) ??
                       layer.colorCycleData.gradientDefIdBuffer,
+                    brushState: buildCanonicalBrushStateFromSnapshot(
+                      layer,
+                      newLayerId,
+                      sourceColorCycleSnapshot,
+                      layer.colorCycleData.brushState
+                    ) as NonNullable<Layer['colorCycleData']>['brushState'],
                     hasContent: sourceColorCycleSnapshot.hasContent,
                   },
                 };
