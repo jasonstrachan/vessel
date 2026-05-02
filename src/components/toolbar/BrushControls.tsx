@@ -1361,6 +1361,7 @@ const BrushControls = () => {
     setSelectedGradientId(gradient.id);
     pendingGradientRef.current = nextStops;
     gradientDirtyRef.current = true;
+    gradientForkRef.current = true;
     flushPendingGradient();
   }, [flushGradientEditorDraft, flushPendingGradient, savedGradients]);
 

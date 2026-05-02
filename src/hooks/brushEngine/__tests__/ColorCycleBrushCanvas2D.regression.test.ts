@@ -1620,6 +1620,92 @@ describe('ColorCycleBrushCanvas2D regression tests', () => {
     }
   });
 
+  it('clears stale sampled shape def ids where a normal CC stroke paints over the same layer', () => {
+    const canvas = makeCanvas(16, 16);
+    const brush = new ColorCycleBrushCanvas2D(canvas, { forceCanvas2D: true });
+    const layerId = 'layer-stroke-over-shape-def';
+    const oldSlot = 12;
+    const strokeSlot = 5;
+    const oldDefId = 77;
+    const pixelCount = canvas.width * canvas.height;
+
+    brush.applyLayerSnapshot(layerId, {
+      paintBuffer: new Uint8Array(pixelCount).fill(9).buffer,
+      gradientIdBuffer: new Uint8Array(pixelCount).fill(oldSlot).buffer,
+      gradientDefIdBuffer: new Uint16Array(pixelCount).fill(oldDefId).buffer,
+      speedBuffer: new Uint8Array(pixelCount).buffer,
+      flowBuffer: new Uint8Array(pixelCount).buffer,
+      phaseBuffer: new Uint8Array(pixelCount).buffer,
+      hasContent: true,
+      strokeCounter: 1,
+    });
+
+    brush.setBrushSize(5);
+    brush.setActiveGradientSlot(layerId, strokeSlot);
+    brush.startStroke(layerId);
+    brush.paint(8, 8, layerId, 1);
+    brush.endStroke(layerId);
+
+    const snapshot = brush.getLayerSnapshot(layerId);
+    const paint = new Uint8Array(snapshot?.paintBuffer ?? new ArrayBuffer(0));
+    const gradientIds = new Uint8Array(snapshot?.gradientIdBuffer ?? new ArrayBuffer(0));
+    const defIds = new Uint16Array(snapshot?.gradientDefIdBuffer ?? new ArrayBuffer(0));
+    let strokePixelCount = 0;
+    gradientIds.forEach((gid, index) => {
+      if (paint[index] !== 0 && (gid & 0x3f) === strokeSlot) {
+        strokePixelCount += 1;
+        expect(defIds[index]).toBe(0);
+      }
+    });
+
+    expect(strokePixelCount).toBeGreaterThan(0);
+  });
+
+  it('clears stale sampled shape def ids where a stamp-dither CC stroke paints over the same layer', () => {
+    const canvas = makeCanvas(16, 16);
+    const brush = new ColorCycleBrushCanvas2D(canvas, { forceCanvas2D: true });
+    const layerId = 'layer-stamp-dither-stroke-over-shape-def';
+    const oldSlot = 12;
+    const strokeSlot = 6;
+    const oldDefId = 88;
+    const pixelCount = canvas.width * canvas.height;
+
+    brush.applyLayerSnapshot(layerId, {
+      paintBuffer: new Uint8Array(pixelCount).fill(9).buffer,
+      gradientIdBuffer: new Uint8Array(pixelCount).fill(oldSlot).buffer,
+      gradientDefIdBuffer: new Uint16Array(pixelCount).fill(oldDefId).buffer,
+      speedBuffer: new Uint8Array(pixelCount).buffer,
+      flowBuffer: new Uint8Array(pixelCount).buffer,
+      phaseBuffer: new Uint8Array(pixelCount).buffer,
+      hasContent: true,
+      strokeCounter: 1,
+    });
+
+    brush.setBrushSize(7);
+    brush.setStampDitherEnabled(true);
+    brush.setStampDitherAlgorithm('sierra-lite');
+    brush.setStampDitherPixelSize(1);
+    brush.setStampDitherBgFill(true);
+    brush.setActiveGradientSlot(layerId, strokeSlot);
+    brush.startStroke(layerId);
+    brush.paint(8, 8, layerId, 1);
+    brush.endStroke(layerId);
+
+    const snapshot = brush.getLayerSnapshot(layerId);
+    const paint = new Uint8Array(snapshot?.paintBuffer ?? new ArrayBuffer(0));
+    const gradientIds = new Uint8Array(snapshot?.gradientIdBuffer ?? new ArrayBuffer(0));
+    const defIds = new Uint16Array(snapshot?.gradientDefIdBuffer ?? new ArrayBuffer(0));
+    let strokePixelCount = 0;
+    gradientIds.forEach((gid, index) => {
+      if (paint[index] !== 0 && (gid & 0x3f) === strokeSlot) {
+        strokePixelCount += 1;
+        expect(defIds[index]).toBe(0);
+      }
+    });
+
+    expect(strokePixelCount).toBeGreaterThan(0);
+  });
+
   it('linear fill is monotonic along x (with at most one wrap)', async () => {
     const canvas = makeCanvas(24, 12);
     const brush = new ColorCycleBrushCanvas2D(canvas, { forceCanvas2D: true });

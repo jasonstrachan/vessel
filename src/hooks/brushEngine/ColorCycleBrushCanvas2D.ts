@@ -27,6 +27,7 @@ import {
   type StampDitherConfig,
   type StampDitherState,
 } from './strokeStampDither';
+import { clearStrokeDefIdsForStamp } from './strokeDefClear';
 import { canvasPool } from '@/utils/canvasPool';
 import { ccWarn } from '@/utils/colorCycle/ccDebug';
 import { fillCcGradientDither } from '@/utils/colorCycle/ccGradientDither';
@@ -1295,6 +1296,7 @@ export class ColorCycleBrushCanvas2D {
   ): StampDitherState & {
     paintBuffer: Uint8Array;
     gradientIdBuffer?: Uint8Array;
+    gradientDefIdBuffer?: Uint16Array;
     speedBuffer?: Uint8Array;
     flowBuffer?: Uint8Array;
     phaseBuffer?: Uint8Array;
@@ -1303,12 +1305,14 @@ export class ColorCycleBrushCanvas2D {
     const stampStroke = stampDither as StampDitherState & {
       paintBuffer: Uint8Array;
       gradientIdBuffer?: Uint8Array;
+      gradientDefIdBuffer?: Uint16Array;
       speedBuffer?: Uint8Array;
       flowBuffer?: Uint8Array;
       phaseBuffer?: Uint8Array;
     };
     stampStroke.paintBuffer = strokeData.buffers.paint;
     stampStroke.gradientIdBuffer = strokeData.buffers.gid;
+    stampStroke.gradientDefIdBuffer = strokeData.buffers.def;
     stampStroke.speedBuffer = strokeData.buffers.spd;
     stampStroke.flowBuffer = strokeData.buffers.flow;
     stampStroke.phaseBuffer = strokeData.buffers.phase;
@@ -2216,6 +2220,19 @@ export class ColorCycleBrushCanvas2D {
           perf.durations.stampTotalMs += Math.max(0, nowMs() - stampStart);
           perf.stampCounter += 1;
         }
+      }
+
+      if (!useStampDither) {
+        clearStrokeDefIdsForStamp({
+          buffers: strokeData.buffers,
+          width: this.width,
+          height: this.height,
+          x,
+          y,
+          brushSize: pressureSize,
+          flowSlot,
+          shape: this.stampShape,
+        });
       }
 
       if (
@@ -3443,6 +3460,7 @@ export class ColorCycleBrushCanvas2D {
         } else {
           stampStroke.stampDitherBaseIdx = undefined;
           stampStroke.stampDitherBaseGid = undefined;
+          stampStroke.stampDitherBaseDef = undefined;
           stampStroke.stampDitherBaseTag = undefined;
         }
         if (perf) perf.durations.allocOrResizeMs += Math.max(0, nowMs() - allocStart);

@@ -111,4 +111,50 @@ describe('ccGradientController', () => {
     expect(colorCycleData.slotPalettes[0].stops).toEqual(editedStops);
     expect(colorCycleData.gradientDefStore).toEqual([]);
   });
+
+  it('forks future manual edits into a new slot without mutating the previous slot palette', () => {
+    const updateLayer = jest.fn();
+    const oldStops = [
+      { position: 0, color: '#111111' },
+      { position: 1, color: '#222222' },
+    ];
+    const layer = {
+      id: 'layer-3',
+      layerType: 'color-cycle',
+      colorCycleData: {
+        paintSlot: 3,
+        activeGradientId: 'g0',
+        gradientDefs: [{ id: 'g0', currentSlot: 3 }],
+        slotPalettes: [{ slot: 3, stops: oldStops }],
+        gradientDefStore: [],
+      },
+    };
+    const state = {
+      activeLayerId: 'layer-3',
+      layers: [layer],
+      tools: {
+        brushSettings: {
+          ditherEnabled: false,
+        },
+      },
+      updateLayer,
+    };
+    getStateMock.mockReturnValue(state);
+
+    applyGradientEdit({
+      stops: editedStops,
+      layerId: 'layer-3',
+      intent: 'commitFuture',
+    });
+
+    const colorCycleData = updateLayer.mock.calls[0]?.[1]?.colorCycleData;
+    expect(colorCycleData.paintSlot).toBe(0);
+    expect(colorCycleData.activeGradientId).toBe('g0');
+    expect(colorCycleData.gradientDefs).toEqual([{ id: 'g0', currentSlot: 0 }]);
+    expect(colorCycleData.slotPalettes).toEqual([
+      { slot: 3, stops: oldStops },
+      { slot: 0, stops: editedStops },
+    ]);
+    expect(requestGradientApply).toHaveBeenCalledWith('layer-3', 'commit-future');
+  });
 });
