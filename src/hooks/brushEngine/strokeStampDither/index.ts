@@ -48,6 +48,7 @@ export type StampDitherState = {
   stampDitherPrimaryBuffer?: Uint8Array;
   stampDitherBaseIdx?: Uint8Array;
   stampDitherBaseGid?: Uint8Array;
+  stampDitherBaseDef?: Uint16Array;
   stampDitherBaseTag?: Uint16Array;
   stampDitherLockedBucket?: number;
   stampDitherStrokeScale?: number;
@@ -82,6 +83,7 @@ type ErrorDiffusionTap = { dx: number; dy: number; weight: number };
 type StampDitherStrokeData = StampDitherState & {
   paintBuffer: Uint8Array;
   gradientIdBuffer?: Uint8Array;
+  gradientDefIdBuffer?: Uint16Array;
   speedBuffer?: Uint8Array;
   stampSeqMeta?: Array<[number, number]>;
   stampSeqToTileScale?: Uint16Array;
@@ -431,6 +433,9 @@ export const ensureStampDitherBaseBuffers = (
   if (!strokeData.stampDitherBaseGid || strokeData.stampDitherBaseGid.length !== size) {
     strokeData.stampDitherBaseGid = new Uint8Array(size);
   }
+  if (!strokeData.stampDitherBaseDef || strokeData.stampDitherBaseDef.length !== size) {
+    strokeData.stampDitherBaseDef = new Uint16Array(size);
+  }
   if (!strokeData.stampDitherBaseTag || strokeData.stampDitherBaseTag.length !== size) {
     strokeData.stampDitherBaseTag = new Uint16Array(size);
   }
@@ -491,8 +496,10 @@ const applyStampDitherMask = (
   const baseTag = strokeData.stampDitherBaseTag;
   const baseIdx = strokeData.stampDitherBaseIdx;
   const baseGid = strokeData.stampDitherBaseGid;
+  const baseDef = strokeData.stampDitherBaseDef;
   const paint = strokeData.paintBuffer;
   const gid = strokeData.gradientIdBuffer;
+  const def = strokeData.gradientDefIdBuffer;
   const strokeEpoch = strokeData.stampDitherStrokeEpoch ?? 1;
   const captureIfNeeded = (idx: number) => {
     if (!captureBase || !baseTag || !baseIdx) return;
@@ -501,6 +508,9 @@ const applyStampDitherMask = (
     baseIdx[idx] = paint[idx];
     if (baseGid && gid) {
       baseGid[idx] = gid[idx];
+    }
+    if (baseDef && def) {
+      baseDef[idx] = def[idx];
     }
   };
 
@@ -883,6 +893,7 @@ const applyStampDitherToRegion = (
   const data = handle.data;
   const gradientId = handle.gradientId;
   const speedData = handle.speedData;
+  const defData = strokeData.gradientDefIdBuffer;
   const speedByte = encodeColorCycleSpeedByte(cycleSpeed);
   const width = handle.width;
   const minX = Math.max(0, Math.min(width - 1, bounds.minX));
@@ -914,6 +925,7 @@ const applyStampDitherToRegion = (
       if (bgFillOff && !usePrimary) {
         const base = strokeData.stampDitherBaseIdx;
         const baseG = strokeData.stampDitherBaseGid;
+        const baseD = strokeData.stampDitherBaseDef;
         const baseTag = strokeData.stampDitherBaseTag;
         if (base && baseTag && base.length === data.length && baseTag[idx] === strokeEpoch) {
           const v = base[idx];
@@ -921,10 +933,15 @@ const applyStampDitherToRegion = (
           if (v === 0) {
             gradientId[idx] = 0;
             speedData[idx] = 0;
+            if (defData) defData[idx] = 0;
           } else if (baseG && baseG.length === gradientId.length) {
             gradientId[idx] = baseG[idx];
+            if (defData) {
+              defData[idx] = baseD && baseD.length === defData.length ? baseD[idx] : 0;
+            }
           } else {
             gradientId[idx] = flowSlot;
+            if (defData) defData[idx] = 0;
           }
         } else {
           localX += 1;
@@ -941,6 +958,7 @@ const applyStampDitherToRegion = (
         data[idx] = primaryIndex;
         gradientId[idx] = primaryIndex === 0 ? 0 : flowSlot;
         speedData[idx] = primaryIndex === 0 ? 0 : speedByte;
+        if (defData) defData[idx] = 0;
         localX += 1;
         if (localX === tileClamp) localX = 0;
         continue;
@@ -950,6 +968,7 @@ const applyStampDitherToRegion = (
       data[idx] = secondary;
       gradientId[idx] = secondary === 0 ? 0 : flowSlot;
       speedData[idx] = secondary === 0 ? 0 : speedByte;
+      if (defData) defData[idx] = 0;
       localX += 1;
       if (localX === tileClamp) localX = 0;
     }
@@ -1175,6 +1194,7 @@ export const recomposeStampDitherOverlay = (args: {
   const primary = state.stampDitherPrimaryBuffer;
   const base = state.stampDitherBaseIdx;
   const baseG = state.stampDitherBaseGid;
+  const baseD = state.stampDitherBaseDef;
   const baseTag = state.stampDitherBaseTag;
   if (!bounds || !tag || !primary) return;
   const rawAlgo = config.algorithm || 'sierra-lite';
@@ -1196,6 +1216,7 @@ export const recomposeStampDitherOverlay = (args: {
   const data = handle.data;
   const gid = handle.gradientId;
   const spd = handle.speedData;
+  const def = state.gradientDefIdBuffer;
   const speedByte = encodeColorCycleSpeedByte(cycleSpeed);
   const w = handle.width;
   const h = handle.height;
@@ -1249,6 +1270,7 @@ export const recomposeStampDitherOverlay = (args: {
         data[idx] = p;
         gid[idx] = p === 0 ? 0 : flowSlot;
         spd[idx] = p === 0 ? 0 : speedByte;
+        if (def) def[idx] = 0;
         continue;
       }
       if (bgFillOff) {
@@ -1258,10 +1280,15 @@ export const recomposeStampDitherOverlay = (args: {
           if (v === 0) {
             gid[idx] = 0;
             spd[idx] = 0;
+            if (def) def[idx] = 0;
           } else if (baseG && baseG.length === gid.length) {
             gid[idx] = baseG[idx];
+            if (def) {
+              def[idx] = baseD && baseD.length === def.length ? baseD[idx] : 0;
+            }
           } else {
             gid[idx] = flowSlot;
+            if (def) def[idx] = 0;
           }
         }
         continue;
@@ -1270,6 +1297,7 @@ export const recomposeStampDitherOverlay = (args: {
       data[idx] = secondary;
       gid[idx] = secondary === 0 ? 0 : flowSlot;
       spd[idx] = secondary === 0 ? 0 : speedByte;
+      if (def) def[idx] = 0;
     }
   }
 
@@ -1532,7 +1560,9 @@ export const finalizeStampDither = (args: {
   const bgFillOff = !config.bgFill;
   const base = state.stampDitherBaseIdx;
   const baseG = state.stampDitherBaseGid;
+  const baseD = state.stampDitherBaseDef;
   const baseTag = state.stampDitherBaseTag;
+  const def = state.gradientDefIdBuffer;
 
   for (let y = minY; y <= maxY; y += 1) {
     const row = y * width;
@@ -1547,6 +1577,7 @@ export const finalizeStampDither = (args: {
         data[idx] = primaryIndex;
         gid[idx] = primaryIndex === 0 ? 0 : flowSlot;
         spd[idx] = primaryIndex === 0 ? 0 : speedByte;
+        if (def) def[idx] = 0;
         continue;
       }
       if (bgFillOff) {
@@ -1556,10 +1587,15 @@ export const finalizeStampDither = (args: {
           if (v === 0) {
             gid[idx] = 0;
             spd[idx] = 0;
+            if (def) def[idx] = 0;
           } else if (baseG && baseG.length === gid.length) {
             gid[idx] = baseG[idx];
+            if (def) {
+              def[idx] = baseD && baseD.length === def.length ? baseD[idx] : 0;
+            }
           } else {
             gid[idx] = flowSlot;
+            if (def) def[idx] = 0;
           }
         }
         continue;
@@ -1568,6 +1604,7 @@ export const finalizeStampDither = (args: {
       data[idx] = secondary;
       gid[idx] = secondary === 0 ? 0 : flowSlot;
       spd[idx] = secondary === 0 ? 0 : speedByte;
+      if (def) def[idx] = 0;
     }
   }
 
