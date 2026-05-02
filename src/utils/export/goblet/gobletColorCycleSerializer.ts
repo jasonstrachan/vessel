@@ -11,6 +11,19 @@ import { ccLog, ccSample } from '@/utils/colorCycle/ccDebug';
 import { deriveForegroundGradientStops } from '@/utils/colorCycleGradients';
 import { captureCanvasImageData } from '@/utils/canvas/canvasImage';
 import { normalizeColorCycleLayerDocumentState } from '@/lib/colorCycle/documentState';
+import { captureColorCyclePersistenceSnapshot } from '@/lib/colorCycle/persistence';
+import {
+  COLOR_CYCLE_PERSISTENCE_SCHEMA_VERSION,
+  getLayerSnapshot,
+  hasCanonicalBrushStateMarkers,
+  validatePersistenceDocumentState,
+} from '@/lib/colorCycle/persistence/colorCyclePersistenceValidation';
+import type {
+  ColorCycleBufferRef,
+  ColorCyclePersistenceDocumentState,
+  ColorCyclePersistenceSnapshot,
+  PersistedColorCycleBrushState,
+} from '@/lib/colorCycle/persistence';
 import { posInt, toNum } from '@/utils/num';
 import type { Layer, Project } from '@/types';
 import { clampRectToDocument as clampBoundsToDocument, scaleMaskBoundsToDocument, type Size2D as CoverageSize } from '@/utils/export/colorCycleBounds';
@@ -520,6 +533,9 @@ const normalizeIndexBufferValues = (source: unknown, visited: Set<unknown> = new
 };
 
 const decodePersistedNumericBuffer = (source: unknown): number[] => {
+  if (typeof source === 'string' && source.startsWith('zip:')) {
+    return [];
+  }
   if (typeof source === 'string') {
     return Array.from(decodeBase64Bytes(source));
   }
@@ -528,6 +544,9 @@ const decodePersistedNumericBuffer = (source: unknown): number[] => {
 
 const decodePersistedDefIdBuffer = (source: unknown): number[] => {
   if (!source) {
+    return [];
+  }
+  if (typeof source === 'string' && source.startsWith('zip:')) {
     return [];
   }
   if (typeof source === 'string') {
@@ -552,6 +571,487 @@ const decodePersistedDefIdBuffer = (source: unknown): number[] => {
   }
   return toSerializableNumberArray(source);
 };
+
+type ExportRuntimeBrushState = {
+  cycleSpeed?: unknown;
+  fps?: unknown;
+  ditherEnabled?: unknown;
+  ditherStrength?: unknown;
+  ditherPixelSize?: unknown;
+  perceptualDither?: unknown;
+  stampShape?: unknown;
+  stampDitherEnabled?: unknown;
+  stampDitherPixelSize?: unknown;
+  stampDitherAlgorithm?: unknown;
+  stampDitherPatternStyle?: unknown;
+  stampDitherBgFill?: unknown;
+  stampDitherClears?: unknown;
+  stampDitherPressureLinked?: unknown;
+  pxlEdgeEnabled?: unknown;
+  layers?: Array<{
+    layerId?: string;
+    activeGradientId?: string;
+    paintSlot?: number;
+    data?: {
+      indexBuffer?: {
+        width?: number;
+        height?: number;
+        data?: unknown;
+        gradientId?: unknown;
+        speedData?: unknown;
+        flowData?: unknown;
+        phaseData?: unknown;
+        palette?: unknown;
+      };
+      gradient?: { gradientStops?: Array<{ position?: number; color?: string }> };
+      animation?: {
+        offset?: unknown;
+        stats?: { targetFPS?: unknown };
+      };
+    };
+    strokeData?: {
+      hasContent?: boolean;
+      strokeCounter?: number;
+      paintBuffer?: ArrayBuffer;
+      gradientIdBuffer?: ArrayBuffer;
+      gradientDefIdBuffer?: ArrayBuffer;
+      speedBuffer?: ArrayBuffer;
+      flowBuffer?: ArrayBuffer;
+      phaseBuffer?: ArrayBuffer;
+    };
+  }>;
+};
+
+type ExportRuntimeBrushLayer = NonNullable<ExportRuntimeBrushState['layers']>[number];
+
+type ExportRuntimeBrushMetadata = {
+  exportCycleSpeed?: unknown;
+  exportFps?: unknown;
+  exportGradientStops?: Array<{ position?: number; color?: string }>;
+  exportAnimationOffset?: unknown;
+  exportTargetFPS?: unknown;
+  exportPalette?: unknown;
+  cycleSpeed?: unknown;
+  fps?: unknown;
+  animator?: {
+    indexBuffer?: {
+      palette?: unknown;
+    };
+    gradient?: { gradientStops?: Array<{ position?: number; color?: string }> };
+    animation?: {
+      offset?: unknown;
+      stats?: { targetFPS?: unknown };
+    };
+  };
+};
+
+const numericBytesToBuffer = (
+  source: unknown,
+  length: number,
+): ArrayBuffer | undefined => {
+  const values = toSerializableNumberArray(source);
+  if (values.length === 0) {
+    return undefined;
+  }
+  const out = new Uint8Array(length);
+  for (let index = 0; index < Math.min(length, values.length); index += 1) {
+    out[index] = Math.max(0, Math.min(255, Math.round(values[index] ?? 0)));
+  }
+  return out.buffer;
+};
+
+const numericDefIdsToBuffer = (
+  source: unknown,
+  length: number,
+): ArrayBuffer | undefined => {
+  const values = decodePersistedDefIdBuffer(source);
+  if (values.length === 0) {
+    return undefined;
+  }
+  const out = new Uint16Array(length);
+  for (let index = 0; index < Math.min(length, values.length); index += 1) {
+    out[index] = Math.max(0, Math.min(65535, Math.round(values[index] ?? 0)));
+  }
+  return out.buffer;
+};
+
+const defaultByteBuffer = (length: number): ArrayBuffer => new Uint8Array(length).buffer;
+
+const defaultDefIdBuffer = (length: number): ArrayBuffer => new Uint16Array(length).buffer;
+
+const resolveLayerDimension = (...values: Array<unknown>): number | undefined => {
+  for (const value of values) {
+    if (typeof value === 'number' && Number.isFinite(value)) {
+      return value;
+    }
+  }
+  return undefined;
+};
+
+const dimensionsApproxEqual = (a?: number, b?: number): boolean => (
+  typeof a === 'number' && typeof b === 'number' && Math.abs(a - b) <= 2
+);
+
+const selectRuntimeBrushLayerForExport = (
+  sourceLayers: ExportRuntimeBrushLayer[] | undefined,
+  layer: Layer,
+): { entry: ExportRuntimeBrushLayer; reason: 'direct' | 'default' | 'single' | 'dimensions' | 'density' } | undefined => {
+  const layers = (sourceLayers ?? []).filter((entry): entry is ExportRuntimeBrushLayer => Boolean(entry));
+  if (layers.length === 0) {
+    return undefined;
+  }
+
+  const directMatch = layers.find((candidate) => candidate.layerId === layer.id);
+  if (directMatch) {
+    return { entry: directMatch, reason: 'direct' };
+  }
+
+  const defaultMatch = layers.find((candidate) => candidate.layerId === 'default');
+  if (defaultMatch) {
+    return { entry: defaultMatch, reason: 'default' };
+  }
+
+  if (layers.length === 1) {
+    return { entry: layers[0], reason: 'single' };
+  }
+
+  const layerWidth = resolveLayerDimension(
+    layer.imageData?.width,
+    layer.colorCycleData?.canvas?.width,
+    layer.colorCycleData?.canvasWidth,
+    (layer.framebuffer as HTMLCanvasElement | OffscreenCanvas | undefined)?.width,
+  );
+  const layerHeight = resolveLayerDimension(
+    layer.imageData?.height,
+    layer.colorCycleData?.canvas?.height,
+    layer.colorCycleData?.canvasHeight,
+    (layer.framebuffer as HTMLCanvasElement | OffscreenCanvas | undefined)?.height,
+  );
+
+  const dimensionMatch = layers.find((candidate) => (
+    dimensionsApproxEqual(resolveLayerDimension(candidate.data?.indexBuffer?.width), layerWidth) &&
+    dimensionsApproxEqual(resolveLayerDimension(candidate.data?.indexBuffer?.height), layerHeight)
+  ));
+  if (dimensionMatch) {
+    return { entry: dimensionMatch, reason: 'dimensions' };
+  }
+
+  const densityMatch = [...layers].sort((a, b) => {
+    const aLength = (a.data?.indexBuffer?.data as ArrayLike<number> | undefined)?.length ?? 0;
+    const bLength = (b.data?.indexBuffer?.data as ArrayLike<number> | undefined)?.length ?? 0;
+    return bLength - aLength;
+  })[0];
+
+  return densityMatch ? { entry: densityMatch, reason: 'density' } : undefined;
+};
+
+const normalizeExportRuntimeStrokeData = (
+  sourceLayer: ExportRuntimeBrushLayer,
+  layer: Layer,
+): NonNullable<NonNullable<PersistedColorCycleBrushState['layers']>[number]['strokeData']> | undefined => {
+  const existing = sourceLayer.strokeData;
+  const indexBuffer = sourceLayer.data?.indexBuffer;
+  if (existing?.paintBuffer) {
+    const pixelCount = existing.paintBuffer.byteLength;
+    return {
+      hasContent: existing.hasContent,
+      strokeCounter: existing.strokeCounter,
+      paintBuffer: existing.paintBuffer,
+      gradientIdBuffer: existing.gradientIdBuffer
+        ?? numericBytesToBuffer(indexBuffer?.gradientId ?? layer.colorCycleData?.gradientIdBuffer, pixelCount)
+        ?? defaultByteBuffer(pixelCount),
+      gradientDefIdBuffer: existing.gradientDefIdBuffer
+        ?? numericDefIdsToBuffer(layer.colorCycleData?.gradientDefIdBuffer, pixelCount)
+        ?? defaultDefIdBuffer(pixelCount),
+      speedBuffer: existing.speedBuffer
+        ?? numericBytesToBuffer(indexBuffer?.speedData, pixelCount)
+        ?? defaultByteBuffer(pixelCount),
+      flowBuffer: existing.flowBuffer
+        ?? numericBytesToBuffer(indexBuffer?.flowData, pixelCount)
+        ?? defaultByteBuffer(pixelCount),
+      phaseBuffer: existing.phaseBuffer
+        ?? numericBytesToBuffer(indexBuffer?.phaseData ?? layer.colorCycleData?.phaseBuffer, pixelCount)
+        ?? defaultByteBuffer(pixelCount),
+    };
+  }
+
+  const indexValues = toSerializableNumberArray(indexBuffer?.data);
+  const width = Math.max(1, Math.round(toNum(indexBuffer?.width, layer.colorCycleData?.canvasWidth ?? layer.imageData?.width ?? 1)));
+  const height = Math.max(1, Math.round(toNum(indexBuffer?.height, layer.colorCycleData?.canvasHeight ?? layer.imageData?.height ?? 1)));
+  const pixelCount = width * height;
+  if (indexValues.length === 0 || pixelCount <= 0) {
+    return undefined;
+  }
+  const paint = new Uint8Array(pixelCount);
+  for (let index = 0; index < Math.min(pixelCount, indexValues.length); index += 1) {
+    paint[index] = Math.max(0, Math.min(255, Math.round(indexValues[index] ?? 0)));
+  }
+
+  return {
+    hasContent: paint.some((value) => value !== 0),
+    paintBuffer: paint.buffer,
+    gradientIdBuffer: numericBytesToBuffer(indexBuffer?.gradientId ?? layer.colorCycleData?.gradientIdBuffer, pixelCount)
+      ?? defaultByteBuffer(pixelCount),
+    gradientDefIdBuffer: numericDefIdsToBuffer(layer.colorCycleData?.gradientDefIdBuffer, pixelCount)
+      ?? defaultDefIdBuffer(pixelCount),
+    speedBuffer: numericBytesToBuffer(indexBuffer?.speedData, pixelCount)
+      ?? defaultByteBuffer(pixelCount),
+    flowBuffer: numericBytesToBuffer(indexBuffer?.flowData, pixelCount)
+      ?? defaultByteBuffer(pixelCount),
+    phaseBuffer: numericBytesToBuffer(indexBuffer?.phaseData ?? layer.colorCycleData?.phaseBuffer, pixelCount)
+      ?? defaultByteBuffer(pixelCount),
+  };
+};
+
+const serializeRuntimeBrushStateForExport = (
+  state: unknown,
+  layer: Layer,
+): PersistedColorCycleBrushState | undefined => {
+  if (!state || typeof state !== 'object') {
+    return undefined;
+  }
+  const sourceState = state as ExportRuntimeBrushState;
+  const layerId = layer.id;
+  const sourceLayerSelection = selectRuntimeBrushLayerForExport(sourceState.layers, layer);
+  if (!sourceLayerSelection) {
+    return {
+      canonicalPaint: true,
+      schemaVersion: 1,
+      ditherEnabled: sourceState.ditherEnabled,
+      ditherStrength: sourceState.ditherStrength,
+      ditherPixelSize: sourceState.ditherPixelSize,
+      perceptualDither: sourceState.perceptualDither,
+      stampShape: sourceState.stampShape,
+      stampDitherEnabled: sourceState.stampDitherEnabled,
+      stampDitherPixelSize: sourceState.stampDitherPixelSize,
+      stampDitherAlgorithm: sourceState.stampDitherAlgorithm,
+      stampDitherPatternStyle: sourceState.stampDitherPatternStyle,
+      stampDitherBgFill: sourceState.stampDitherBgFill,
+      stampDitherClears: sourceState.stampDitherClears,
+      stampDitherPressureLinked: sourceState.stampDitherPressureLinked,
+      pxlEdgeEnabled: sourceState.pxlEdgeEnabled,
+      layers: [],
+    };
+  }
+  const { entry: sourceLayer, reason } = sourceLayerSelection;
+  const strokeData = normalizeExportRuntimeStrokeData(sourceLayer, layer);
+  if (!strokeData) {
+    return {
+      canonicalPaint: true,
+      schemaVersion: 1,
+      ditherEnabled: sourceState.ditherEnabled,
+      ditherStrength: sourceState.ditherStrength,
+      ditherPixelSize: sourceState.ditherPixelSize,
+      perceptualDither: sourceState.perceptualDither,
+      stampShape: sourceState.stampShape,
+      stampDitherEnabled: sourceState.stampDitherEnabled,
+      stampDitherPixelSize: sourceState.stampDitherPixelSize,
+      stampDitherAlgorithm: sourceState.stampDitherAlgorithm,
+      stampDitherPatternStyle: sourceState.stampDitherPatternStyle,
+      stampDitherBgFill: sourceState.stampDitherBgFill,
+      stampDitherClears: sourceState.stampDitherClears,
+      stampDitherPressureLinked: sourceState.stampDitherPressureLinked,
+      pxlEdgeEnabled: sourceState.pxlEdgeEnabled,
+      layers: [],
+    };
+  }
+
+  if (reason !== 'direct') {
+    const reasonDescription = (() => {
+      switch (reason) {
+        case 'default':
+          return 'default layerId match';
+        case 'single':
+          return 'single serialized layer';
+        case 'dimensions':
+          return 'dimension-based match';
+        case 'density':
+          return 'largest non-zero index buffer';
+        default:
+          return undefined;
+      }
+    })();
+    debugWarn(
+      'raw-console',
+      '[webglExporter] Falling back to brush state from layerId',
+      sourceLayer.layerId ?? 'unknown',
+      'for layer',
+      layerId,
+      reasonDescription ? `(${reasonDescription})` : '',
+    );
+  }
+
+  return {
+    canonicalPaint: true,
+    schemaVersion: 1,
+    exportCycleSpeed: sourceState.cycleSpeed,
+    exportFps: sourceState.fps,
+    ditherEnabled: sourceState.ditherEnabled,
+    ditherStrength: sourceState.ditherStrength,
+    ditherPixelSize: sourceState.ditherPixelSize,
+    perceptualDither: sourceState.perceptualDither,
+    stampShape: sourceState.stampShape,
+    stampDitherEnabled: sourceState.stampDitherEnabled,
+    stampDitherPixelSize: sourceState.stampDitherPixelSize,
+    stampDitherAlgorithm: sourceState.stampDitherAlgorithm,
+    stampDitherPatternStyle: sourceState.stampDitherPatternStyle,
+    stampDitherBgFill: sourceState.stampDitherBgFill,
+    stampDitherClears: sourceState.stampDitherClears,
+    stampDitherPressureLinked: sourceState.stampDitherPressureLinked,
+    pxlEdgeEnabled: sourceState.pxlEdgeEnabled,
+    layers: [{
+      layerId,
+      canonicalPaint: true,
+      schemaVersion: 1,
+      exportGradientStops: sourceLayer.data?.gradient?.gradientStops,
+      exportAnimationOffset: sourceLayer.data?.animation?.offset,
+      exportTargetFPS: sourceLayer.data?.animation?.stats?.targetFPS,
+      exportPalette: sourceLayer.data?.indexBuffer?.palette,
+      paintSlot: sourceLayer.paintSlot,
+      activeGradientId: sourceLayer.activeGradientId,
+      dimensions: sourceLayer.data?.indexBuffer?.width && sourceLayer.data?.indexBuffer?.height
+        ? {
+            width: Math.max(1, Math.round(toNum(sourceLayer.data.indexBuffer.width, 1))),
+            height: Math.max(1, Math.round(toNum(sourceLayer.data.indexBuffer.height, 1))),
+          }
+        : undefined,
+      strokeData,
+    } as NonNullable<PersistedColorCycleBrushState['layers']>[number] & ExportRuntimeBrushMetadata],
+  };
+};
+
+const canExportBufferRef = (value: ColorCycleBufferRef | undefined): boolean => (
+  value instanceof ArrayBuffer || (typeof value === 'string' && value.length > 0 && !value.startsWith('zip:'))
+);
+
+const persistenceDocumentStateToBrushState = (
+  layer: Layer,
+  state: ColorCyclePersistenceDocumentState,
+  brushState?: PersistedColorCycleBrushState,
+): WebGLSerializedBrushState | undefined => {
+  if (
+    !canExportBufferRef(state.paintBuffer) ||
+    !canExportBufferRef(state.gradientIdBuffer) ||
+    !canExportBufferRef(state.gradientDefIdBuffer) ||
+    !canExportBufferRef(state.speedBuffer) ||
+    !canExportBufferRef(state.flowBuffer) ||
+    !canExportBufferRef(state.phaseBuffer)
+  ) {
+    return undefined;
+  }
+
+  const indexBuffer = decodePersistedNumericBuffer(state.paintBuffer);
+  const gradientIdBuffer = decodePersistedNumericBuffer(state.gradientIdBuffer);
+  const gradientDefIdBuffer = decodePersistedDefIdBuffer(state.gradientDefIdBuffer);
+  const speedBuffer = decodePersistedNumericBuffer(state.speedBuffer);
+  const flowBuffer = decodePersistedNumericBuffer(state.flowBuffer);
+  const phaseBuffer = decodePersistedNumericBuffer(state.phaseBuffer);
+  if (
+    indexBuffer.length === 0 ||
+    gradientIdBuffer.length === 0 ||
+    gradientDefIdBuffer.length === 0 ||
+    speedBuffer.length === 0 ||
+    flowBuffer.length === 0 ||
+    phaseBuffer.length === 0
+  ) {
+    return undefined;
+  }
+
+  const metadata = brushState as (PersistedColorCycleBrushState & ExportRuntimeBrushMetadata) | undefined;
+  const layerMetadata = brushState?.layers?.find((entry) => entry.layerId === layer.id) as
+    | (NonNullable<PersistedColorCycleBrushState['layers']>[number] & ExportRuntimeBrushMetadata)
+    | undefined;
+  const gradientStops = toSerializableGradientStops(
+    layerMetadata?.exportGradientStops ?? layerMetadata?.animator?.gradient?.gradientStops ?? state.slotPalettes?.[0]?.stops,
+    layer.colorCycleData?.gradient ?? [],
+  );
+  const animationOffsetSource = layerMetadata?.exportAnimationOffset ?? layerMetadata?.animator?.animation?.offset;
+  const animationOffset = typeof animationOffsetSource === 'number'
+    ? animationOffsetSource
+    : 0;
+  const targetFPSSource = layerMetadata?.exportTargetFPS
+    ?? layerMetadata?.animator?.animation?.stats?.targetFPS
+    ?? metadata?.exportFps
+    ?? metadata?.fps;
+  const targetFPS = typeof targetFPSSource === 'number'
+    ? targetFPSSource
+    : undefined;
+  const animationSpeedSource = metadata?.exportCycleSpeed ?? metadata?.cycleSpeed;
+  const animationSpeed = typeof animationSpeedSource === 'number'
+    ? animationSpeedSource
+    : resolveLayerColorCycleBaseSpeed(layer.colorCycleData);
+  const paletteSource = layerMetadata?.exportPalette ?? layerMetadata?.animator?.indexBuffer?.palette;
+  const palette = paletteSource
+    ? toSerializablePaletteArray(paletteSource)
+    : undefined;
+
+  return {
+    width: state.width,
+    height: state.height,
+    indexBuffer,
+    gradientIdBuffer,
+    gradientDefIdBuffer,
+    speedBuffer,
+    flowBuffer,
+    phaseBuffer,
+    gradientStops,
+    palette: palette && palette.length > 0 ? palette : undefined,
+    animationOffset,
+    animationSpeed,
+    targetFPS,
+    alphaMode: 'opaque-indices',
+  };
+};
+
+const captureSavedGobletColorCycleDocumentState = (
+  layer: Layer,
+): ColorCyclePersistenceDocumentState | undefined => {
+  const brushState = layer.colorCycleData?.brushState as PersistedColorCycleBrushState | undefined;
+  const layerSnapshot = getLayerSnapshot(brushState, layer.id);
+  const hasUnsupportedSchemaVersion = (
+    (brushState?.schemaVersion !== undefined && brushState.schemaVersion !== COLOR_CYCLE_PERSISTENCE_SCHEMA_VERSION) ||
+    (layerSnapshot?.schemaVersion !== undefined && layerSnapshot.schemaVersion !== COLOR_CYCLE_PERSISTENCE_SCHEMA_VERSION)
+  );
+  if (
+    !hasCanonicalBrushStateMarkers(brushState, layerSnapshot) ||
+    hasUnsupportedSchemaVersion
+  ) {
+    return undefined;
+  }
+
+  const result = normalizeColorCycleLayerDocumentState(layer, {
+    fallbackWidth: layer.colorCycleData?.canvasWidth ?? layer.imageData?.width ?? layer.framebuffer?.width,
+    fallbackHeight: layer.colorCycleData?.canvasHeight ?? layer.imageData?.height ?? layer.framebuffer?.height,
+  });
+  if (!result.ok) {
+    return undefined;
+  }
+  const validation = validatePersistenceDocumentState(result.state, {
+    requirePaint: layer.colorCycleData?.mode !== 'recolor',
+    source: 'persisted-brush-state',
+  });
+  return validation.ok ? result.state : undefined;
+};
+
+export const captureGobletColorCyclePersistenceSnapshot = (
+  layer: Layer,
+  project: Project,
+): ColorCyclePersistenceSnapshot => (
+  captureColorCyclePersistenceSnapshot(layer, {
+    projectWidth: layer.colorCycleData?.canvasWidth ?? layer.imageData?.width ?? layer.framebuffer?.width ?? project.width,
+    projectHeight: layer.colorCycleData?.canvasHeight ?? layer.imageData?.height ?? layer.framebuffer?.height ?? project.height,
+    requirePaint: layer.colorCycleData?.mode !== 'recolor',
+    mode: 'export',
+    runtimeBrush: resolveColorCycleBrushInstance(layer) as { getFullState?: () => unknown; serialize?: () => unknown } | undefined,
+    serializeRuntimeBrushState: (state) => serializeRuntimeBrushStateForExport(state, layer),
+    diagnostics: (diagnostic) => {
+      gobletDebugLog('[webglExporter] color cycle export persistence diagnostic', {
+        layerId: layer.id,
+        ...diagnostic,
+      });
+    },
+  })
+);
 
 const isByteRangeArray = (values: number[]): boolean => {
   for (let i = 0; i < values.length; i += 1) {
@@ -1209,13 +1709,19 @@ export const resolveDefBoundSlotPalettes = (params: {
 
 const resolveExportSlotPalettes = (
   data: Layer['colorCycleData'] | undefined,
-  brushState?: WebGLSerializedBrushState
+  brushState?: WebGLSerializedBrushState,
+  documentState?: ColorCyclePersistenceDocumentState
 ): SerializedSlotPalette[] | undefined => {
   if (!data) {
     return undefined;
   }
 
-  let slotPalettes = data.slotPalettes?.length
+  let slotPalettes = documentState?.slotPalettes?.length
+      ? documentState.slotPalettes.map((entry) => ({
+          slot: entry.slot,
+          stops: toSerializableGradientStops(entry.stops, []),
+        }))
+    : data.slotPalettes?.length
       ? data.slotPalettes.map((entry) => ({
           slot: entry.slot,
           stops: toSerializableGradientStops(entry.stops, []),
@@ -2107,6 +2613,16 @@ export const serializeBrushState = (layer: Layer): WebGLSerializedBrushState | u
   });
 };
 
+const serializeRuntimeBrushFallbackState = (layer: Layer): WebGLSerializedBrushState | undefined => {
+  const brush = resolveColorCycleBrushInstance(layer);
+  return resolveGobletBrushStateFallback({
+    documentState: () => undefined,
+    brushProperties: () => extractBrushStateFromBrushProperties(brush, layer),
+    animator: () => extractBrushStateFromAnimator(brush, layer),
+    savedSnapshot: () => undefined,
+  });
+};
+
 const resolveColorCycleMaskImage = (layer: Layer): ImageData | undefined => {
   const data = layer.colorCycleData;
   if (!data) {
@@ -2508,10 +3024,35 @@ export const serializeColorCycleData = async (
 
   const layerSpeedScale = clampExportLayerSpeedScale(options?.layerSpeedScale);
   let brushState: WebGLSerializedBrushState | undefined;
+  let exportSnapshot: ColorCyclePersistenceSnapshot | undefined;
+  let exportDocumentState: ColorCyclePersistenceDocumentState | undefined;
   if (!data.recolorSettings) {
-    brushState = serializeBrushState(layer);
+    exportSnapshot = captureGobletColorCyclePersistenceSnapshot(layer, project);
+    if (exportSnapshot.ok) {
+      exportDocumentState = exportSnapshot.documentState;
+      brushState = persistenceDocumentStateToBrushState(layer, exportDocumentState, exportSnapshot.brushState);
+    }
     if (!brushState) {
-      debugWarn('raw-console', '[webglExporter] No brush state could be extracted for layer', layer.id);
+      const savedDocumentState = captureSavedGobletColorCycleDocumentState(layer);
+      const persistedBrushState = layer.colorCycleData?.brushState as PersistedColorCycleBrushState | undefined;
+      const savedBrushState = savedDocumentState
+        ? persistenceDocumentStateToBrushState(layer, savedDocumentState, persistedBrushState)
+        : undefined;
+      if (savedBrushState) {
+        exportDocumentState = savedDocumentState;
+        brushState = savedBrushState;
+      }
+    }
+    if (!brushState) {
+      brushState = serializeRuntimeBrushFallbackState(layer);
+    }
+    if (!brushState) {
+      debugWarn('raw-console', '[webglExporter] No validated canonical brush state could be extracted for layer', {
+        layerId: layer.id,
+        reason: exportSnapshot.ok ? 'unresolved-export-buffer-ref' : exportSnapshot.reason,
+        damageKind: exportSnapshot.ok ? null : exportSnapshot.damageKind ?? null,
+        diagnostics: exportSnapshot.diagnostics,
+      });
     }
   }
 
@@ -2529,7 +3070,9 @@ export const serializeColorCycleData = async (
     const reason = data.repairStatus?.reason
       ?? (data.deferredRuntimeRestore || data.runtimeHydrationState === 'cold'
         ? 'cold-color-cycle-runtime'
-        : 'missing-brush-state');
+        : exportSnapshot?.ok === false
+          ? exportSnapshot.reason
+          : 'missing-brush-state');
     throw new Error(
       `Goblet export blocked: color-cycle layer "${layer.name ?? layer.id}" is missing animated brush data (${reason}).`
     );
@@ -2627,7 +3170,7 @@ export const serializeColorCycleData = async (
   let exportSlotPalettes: Array<{ slot: number; stops: SerializedGradientStops }> | undefined;
   let fgDerivedStops: SerializedGradientStops | undefined;
   if (!data.recolorSettings) {
-    exportSlotPalettes = resolveExportSlotPalettes(data, brushState);
+    exportSlotPalettes = resolveExportSlotPalettes(data, brushState, exportDocumentState);
     fgDerivedStops = resolveFgDerivedStops(data, exportSlotPalettes);
     if (exportSlotPalettes && exportSlotPalettes.length > 0) {
       serialized.slotPalettes = exportSlotPalettes.map((entry) => ({
@@ -2841,7 +3384,9 @@ export const serializeColorCycleData = async (
 
     serialized.brushState = preparedBrushState;
     const brushStops = preparedBrushState.gradientStops;
-    if (brushStops && brushStops.length > 0) {
+    if (fgDerivedStops && fgDerivedStops.length > 0) {
+      serialized.gradient = fgDerivedStops;
+    } else if (brushStops && brushStops.length > 0) {
       // Prefer the live brush gradient to avoid exporting stale layer gradients.
       serialized.gradient = brushStops;
     } else if (!serialized.gradient || serialized.gradient.length === 0) {

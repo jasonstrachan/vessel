@@ -185,7 +185,11 @@ export const classifyBrushStateFailure = (
       }],
     };
   }
-  if (brushState?.schemaVersion !== undefined && brushState.schemaVersion !== COLOR_CYCLE_PERSISTENCE_SCHEMA_VERSION) {
+  const hasUnsupportedSchemaVersion = (
+    (brushState?.schemaVersion !== undefined && brushState.schemaVersion !== COLOR_CYCLE_PERSISTENCE_SCHEMA_VERSION) ||
+    (snapshot.schemaVersion !== undefined && snapshot.schemaVersion !== COLOR_CYCLE_PERSISTENCE_SCHEMA_VERSION)
+  );
+  if (hasUnsupportedSchemaVersion) {
     return {
       reason: 'invalid-schema-version',
       damageKind: 'invalid-schema-version',

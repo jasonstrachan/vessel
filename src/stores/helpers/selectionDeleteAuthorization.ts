@@ -39,6 +39,7 @@ export interface SelectionDeleteRequest {
     buffer: Uint8Array | null;
     width: number;
     height: number;
+    hasFullCanonicalPayload?: boolean;
   } | null;
 }
 
@@ -247,12 +248,19 @@ export const authorizeSelectionDelete = (
   let colorCyclePaintSummary: ColorCycleSelectionPaintSummary | null = null;
   if (activeLayer.layerType === 'color-cycle') {
     const paint = request.colorCyclePaint;
-    if (!paint?.buffer || paint.buffer.byteLength === 0 || paint.width <= 0 || paint.height <= 0) {
+    if (
+      !paint?.buffer ||
+      paint.buffer.byteLength === 0 ||
+      paint.width <= 0 ||
+      paint.height <= 0 ||
+      paint.hasFullCanonicalPayload !== true
+    ) {
       return reject('missing-canonical-paint', false, {
         source,
         activeLayerId,
         selectionLastAction: request.selectionLastAction,
         hasPaintBuffer: Boolean(paint?.buffer?.byteLength),
+        hasFullCanonicalPayload: paint?.hasFullCanonicalPayload ?? false,
         paintWidth: paint?.width ?? null,
         paintHeight: paint?.height ?? null,
       });

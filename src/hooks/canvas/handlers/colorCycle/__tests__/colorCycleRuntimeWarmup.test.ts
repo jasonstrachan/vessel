@@ -37,6 +37,9 @@ describe('startColorCycleRuntimeWarmupForEdit', () => {
           paintRef: 'state/paint.bin',
           gradientIdRef: 'state/gradient-id.bin',
           gradientDefIdRef: 'state/gradient-def-id.bin',
+          speedRef: 'state/speed.bin',
+          flowRef: 'state/flow.bin',
+          phaseRef: 'state/phase.bin',
         },
         colorCycleData: {
           runtimeHydrationState: 'cold',
@@ -84,6 +87,81 @@ describe('startColorCycleRuntimeWarmupForEdit', () => {
 
     const blocked = startColorCycleRuntimeWarmupForEdit({
       layerId: 'layer-preview-only',
+      reason: 'stroke-start',
+      feedback,
+    });
+
+    expect(blocked).toBe(true);
+    expect(mockState.ensureColorCycleLayerRuntime).not.toHaveBeenCalled();
+    expect(feedback).toHaveBeenCalledWith('This color-cycle layer is preview-only and cannot be edited');
+  });
+
+  it('does not treat gradient-only color-cycle refs as editable canonical payload', () => {
+    const feedback = jest.fn();
+    mockState.layers = [
+      {
+        id: 'layer-gradient-only',
+        layerType: 'color-cycle',
+        state: {
+          hasContent: true,
+          gradientIdRef: 'state/gradient-id.bin',
+          gradientDefIdRef: 'state/gradient-def-id.bin',
+        },
+        colorCycleData: {
+          runtimeHydrationState: 'cold',
+          deferredRuntimeRestore: false,
+        },
+      },
+    ];
+    mockState.getLayerColorCycleBrush.mockReturnValue(null);
+
+    const blocked = startColorCycleRuntimeWarmupForEdit({
+      layerId: 'layer-gradient-only',
+      reason: 'stroke-start',
+      feedback,
+    });
+
+    expect(blocked).toBe(true);
+    expect(mockState.ensureColorCycleLayerRuntime).not.toHaveBeenCalled();
+    expect(feedback).toHaveBeenCalledWith('This color-cycle layer is preview-only and cannot be edited');
+  });
+
+  it('does not treat unsupported persisted brush state as editable canonical payload', () => {
+    const feedback = jest.fn();
+    mockState.layers = [
+      {
+        id: 'layer-unsupported-schema',
+        layerType: 'color-cycle',
+        colorCycleData: {
+          runtimeHydrationState: 'cold',
+          deferredRuntimeRestore: false,
+          canvasWidth: 2,
+          canvasHeight: 2,
+          brushState: {
+            canonicalPaint: true,
+            schemaVersion: 1,
+            layers: [{
+              layerId: 'layer-unsupported-schema',
+              canonicalPaint: true,
+              schemaVersion: 999,
+              strokeData: {
+                hasContent: true,
+                paintBuffer: Uint8Array.from([1, 2, 3, 4]).buffer,
+                gradientIdBuffer: Uint8Array.from([0, 1, 1, 0]).buffer,
+                gradientDefIdBuffer: new Uint16Array([0, 0, 0, 0]).buffer,
+                speedBuffer: Uint8Array.from([1, 1, 1, 1]).buffer,
+                flowBuffer: Uint8Array.from([0, 0, 0, 0]).buffer,
+                phaseBuffer: Uint8Array.from([0, 0, 0, 0]).buffer,
+              },
+            }],
+          },
+        },
+      },
+    ];
+    mockState.getLayerColorCycleBrush.mockReturnValue(null);
+
+    const blocked = startColorCycleRuntimeWarmupForEdit({
+      layerId: 'layer-unsupported-schema',
       reason: 'stroke-start',
       feedback,
     });

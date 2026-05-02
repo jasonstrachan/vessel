@@ -5,6 +5,7 @@ export type ColorCyclePersistenceMode =
   | 'canonical-save'
   | 'autosave'
   | 'history'
+  | 'export'
   | 'import-repair'
   | 'diagnostic';
 

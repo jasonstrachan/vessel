@@ -1439,10 +1439,20 @@ export const createSelectionSlice: StateCreator<AppState, [], [], SelectionSlice
           : null;
         const snapshot = brush?.getLayerSnapshot?.(activeLayerId) ?? null;
         const canvas = activeLayer.colorCycleData?.canvas ?? activeLayer.framebuffer ?? null;
+        const expectedPixels = Math.max(1, (canvas?.width ?? project.width) * (canvas?.height ?? project.height));
+        const hasFullCanonicalPayload = Boolean(
+          snapshot?.paintBuffer?.byteLength === expectedPixels &&
+          snapshot?.gradientIdBuffer?.byteLength === expectedPixels &&
+          snapshot?.gradientDefIdBuffer?.byteLength === expectedPixels * 2 &&
+          snapshot?.speedBuffer?.byteLength === expectedPixels &&
+          snapshot?.flowBuffer?.byteLength === expectedPixels &&
+          snapshot?.phaseBuffer?.byteLength === expectedPixels
+        );
         return {
           buffer: snapshot?.paintBuffer ? new Uint8Array(snapshot.paintBuffer) : null,
           width: canvas?.width ?? project.width,
           height: canvas?.height ?? project.height,
+          hasFullCanonicalPayload,
         };
       })();
 
