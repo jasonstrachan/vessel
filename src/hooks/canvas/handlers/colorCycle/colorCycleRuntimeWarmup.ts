@@ -1,4 +1,7 @@
 import { useAppStore } from '@/stores/useAppStore';
+import { captureColorCyclePersistenceSnapshot } from '@/lib/colorCycle/persistence';
+import type { ColorCycleBufferRef } from '@/lib/colorCycle/persistence';
+import { validatePersistenceDocumentState } from '@/lib/colorCycle/persistence/colorCyclePersistenceValidation';
 import type { Layer } from '@/types';
 
 type WarmupReason = 'stroke-start' | 'shape-start' | 'shape-finalize';
@@ -12,6 +15,9 @@ const getLayerDocumentState = (layer: Layer | null | undefined): {
   paintRef?: unknown;
   gradientIdRef?: unknown;
   gradientDefIdRef?: unknown;
+  speedRef?: unknown;
+  flowRef?: unknown;
+  phaseRef?: unknown;
 } | null => {
   const state = (layer as unknown as { state?: unknown } | null | undefined)?.state;
   if (!state || typeof state !== 'object') {
@@ -22,6 +28,9 @@ const getLayerDocumentState = (layer: Layer | null | undefined): {
     paintRef?: unknown;
     gradientIdRef?: unknown;
     gradientDefIdRef?: unknown;
+    speedRef?: unknown;
+    flowRef?: unknown;
+    phaseRef?: unknown;
   };
 };
 
@@ -35,42 +44,71 @@ const hasBufferLikePayload = (value: unknown): boolean => {
   return typeof value === 'string' && value.length > 0;
 };
 
+const toColorCycleBufferRef = (value: unknown): ColorCycleBufferRef | undefined => (
+  hasBufferLikePayload(value) && (value instanceof ArrayBuffer || typeof value === 'string')
+    ? value
+    : undefined
+);
+
 export const hasColorCycleCanonicalEditSource = (layer: Layer | null | undefined): boolean => {
   if (!layer || layer.layerType !== 'color-cycle') {
     return false;
   }
   const data = layer.colorCycleData;
   const documentState = getLayerDocumentState(layer);
+  const width = Math.max(1, Math.floor(
+    data?.canvasWidth ??
+    data?.canvas?.width ??
+    layer.imageData?.width ??
+    layer.framebuffer?.width ??
+    1,
+  ));
+  const height = Math.max(1, Math.floor(
+    data?.canvasHeight ??
+    data?.canvas?.height ??
+    layer.imageData?.height ??
+    layer.framebuffer?.height ??
+    1,
+  ));
+
   if (
-    documentState?.hasContent === true ||
-    hasBufferLikePayload(documentState?.paintRef) ||
-    hasBufferLikePayload(documentState?.gradientIdRef) ||
-    hasBufferLikePayload(documentState?.gradientDefIdRef)
+    documentState &&
+    validatePersistenceDocumentState({
+      layerId: layer.id,
+      width,
+      height,
+      paintBuffer: toColorCycleBufferRef(documentState.paintRef),
+      gradientIdBuffer: toColorCycleBufferRef(documentState.gradientIdRef),
+      gradientDefIdBuffer: toColorCycleBufferRef(documentState.gradientDefIdRef),
+      speedBuffer: toColorCycleBufferRef(documentState.speedRef),
+      flowBuffer: toColorCycleBufferRef(documentState.flowRef),
+      phaseBuffer: toColorCycleBufferRef(documentState.phaseRef),
+      hasContent: Boolean(documentState.hasContent),
+      sources: {
+        brushStateSnapshot: false,
+        topLevelBuffers: false,
+        legacyStateRefs: true,
+      },
+    }, {
+      requirePaint: true,
+      source: 'deferred-archive',
+    }).ok
   ) {
     return true;
   }
-  if (
-    hasBufferLikePayload(data?.gradientIdBuffer) ||
-    hasBufferLikePayload(data?.gradientDefIdBuffer)
-  ) {
+
+  const snapshot = captureColorCyclePersistenceSnapshot(layer, {
+    projectWidth: width,
+    projectHeight: height,
+    requirePaint: true,
+    mode: 'diagnostic',
+    runtimeBrush: data?.colorCycleBrush as { getFullState?: () => unknown; serialize?: () => unknown } | undefined,
+  });
+  if (snapshot.ok) {
     return true;
   }
-  const brushState = data?.brushState as {
-    layers?: Array<{
-      strokeData?: {
-        hasContent?: boolean;
-        paintBuffer?: unknown;
-        gradientIdBuffer?: unknown;
-        gradientDefIdBuffer?: unknown;
-      };
-    }>;
-  } | null | undefined;
-  return Boolean(brushState?.layers?.some((snapshot) => (
-    snapshot.strokeData?.hasContent === true ||
-    hasBufferLikePayload(snapshot.strokeData?.paintBuffer) ||
-    hasBufferLikePayload(snapshot.strokeData?.gradientIdBuffer) ||
-    hasBufferLikePayload(snapshot.strokeData?.gradientDefIdBuffer)
-  )));
+
+  return false;
 };
 
 const isColdOrMissingEditableRuntime = (layer: Layer, hasBrush: boolean): boolean => (

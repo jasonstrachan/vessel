@@ -267,6 +267,35 @@ describe('captureColorCyclePersistenceSnapshot', () => {
     });
   });
 
+  it('rejects unsupported per-layer schema versions', () => {
+    const state = canonicalBrushState({
+      schemaVersion: 1,
+      layers: [{
+        ...canonicalBrushState().layers![0]!,
+        schemaVersion: 999,
+      }],
+    });
+    const result = captureColorCyclePersistenceSnapshot(makeLayer({
+      colorCycleData: {
+        mode: 'brush',
+        canvasWidth: 2,
+        canvasHeight: 2,
+        brushState: state,
+      },
+    }), {
+      projectWidth: 2,
+      projectHeight: 2,
+      requirePaint: true,
+      mode: 'canonical-save',
+    });
+
+    expect(result).toMatchObject({
+      ok: false,
+      reason: 'invalid-schema-version',
+      damageKind: 'invalid-schema-version',
+    });
+  });
+
   it('fails missing motion buffers', () => {
     const state = canonicalBrushState();
     delete state.layers![0]!.strokeData!.flowBuffer;

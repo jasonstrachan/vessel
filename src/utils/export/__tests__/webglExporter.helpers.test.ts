@@ -437,6 +437,524 @@ describe('webglExporter helpers', () => {
     expect(commitCurrentStroke).not.toHaveBeenCalled();
   });
 
+  it.each([
+    {
+      name: 'default layer id',
+      runtimeLayers: [{
+        layerId: 'default',
+        data: {
+          indexBuffer: {
+            width: 2,
+            height: 2,
+            data: Uint8Array.from([1, 2, 3, 4]),
+            gradientId: Uint8Array.from([0, 1, 1, 0]),
+          },
+        },
+      }],
+      expected: [1, 2, 3, 4],
+    },
+    {
+      name: 'single non-matching layer id',
+      runtimeLayers: [{
+        layerId: 'runtime-layer-id',
+        data: {
+          indexBuffer: {
+            width: 2,
+            height: 2,
+            data: Uint8Array.from([5, 6, 7, 8]),
+            gradientId: Uint8Array.from([1, 1, 0, 0]),
+          },
+        },
+      }],
+      expected: [5, 6, 7, 8],
+    },
+    {
+      name: 'dimension-matched layer',
+      runtimeLayers: [
+        {
+          layerId: 'wrong-size',
+          data: {
+            indexBuffer: {
+              width: 5,
+              height: 5,
+              data: Uint8Array.from(Array.from({ length: 25 }, () => 9)),
+              gradientId: Uint8Array.from(Array.from({ length: 25 }, () => 1)),
+            },
+          },
+        },
+        {
+          layerId: 'dimension-match',
+          data: {
+            indexBuffer: {
+              width: 2,
+              height: 2,
+              data: Uint8Array.from([9, 8, 7, 6]),
+              gradientId: Uint8Array.from([0, 1, 0, 1]),
+            },
+          },
+        },
+      ],
+      expected: [9, 8, 7, 6],
+    },
+  ])('exports Goblet brush data from runtime fallback payloads: $name', async ({ runtimeLayers, expected }) => {
+    const result = await serializeColorCycleData({
+      id: 'layer-cc-fallback-export',
+      name: 'Fallback Export',
+      layerType: 'color-cycle',
+      visible: true,
+      opacity: 1,
+      blendMode: 'source-over',
+      imageData: null,
+      framebuffer: { width: 2, height: 2 },
+      colorCycleData: {
+        mode: 'brush',
+        hasContent: true,
+        canvasWidth: 2,
+        canvasHeight: 2,
+        gradient: [
+          { position: 0, color: '#000000' },
+          { position: 1, color: '#ffffff' },
+        ],
+        colorCycleBrush: {
+          commitCurrentStroke: jest.fn(),
+          serialize: () => ({
+            layers: runtimeLayers,
+            cycleSpeed: 0.5,
+            fps: 24,
+          }),
+        },
+      },
+    } as any, {
+      width: 2,
+      height: 2,
+    } as any);
+
+    expect(result?.colorCycle?.brushState?.indexBuffer).toEqual(expected);
+  });
+
+  it('preserves live brush animation and gradient metadata during canonical Goblet export', async () => {
+    const runtimeStops = [
+      { position: 0, color: '#112233' },
+      { position: 1, color: '#445566' },
+    ];
+    const result = await serializeColorCycleData({
+      id: 'layer-cc-live-metadata',
+      name: 'Live Metadata',
+      layerType: 'color-cycle',
+      visible: true,
+      opacity: 1,
+      blendMode: 'source-over',
+      imageData: null,
+      framebuffer: { width: 2, height: 2 },
+      colorCycleData: {
+        mode: 'brush',
+        hasContent: true,
+        canvasWidth: 2,
+        canvasHeight: 2,
+        brushSpeed: 0.15,
+        gradient: [
+          { position: 0, color: '#000000' },
+          { position: 1, color: '#ffffff' },
+        ],
+        colorCycleBrush: {
+          commitCurrentStroke: jest.fn(),
+          serialize: () => ({
+            layers: [{
+              layerId: 'layer-cc-live-metadata',
+              data: {
+                indexBuffer: {
+                  width: 2,
+                  height: 2,
+                  data: Uint8Array.from([1, 2, 3, 4]),
+                  gradientId: Uint8Array.from([0, 1, 1, 0]),
+                  palette: ['#112233', '#445566'],
+                },
+                gradient: {
+                  gradientStops: runtimeStops,
+                },
+                animation: {
+                  offset: 13,
+                  stats: {
+                    targetFPS: 17,
+                  },
+                },
+              },
+            }],
+            cycleSpeed: 0.75,
+            fps: 23,
+          }),
+        },
+      },
+    } as any, {
+      width: 2,
+      height: 2,
+    } as any);
+
+    expect(result?.colorCycle?.gradient).toEqual(runtimeStops);
+    expect(result?.colorCycle?.brushState?.gradientStops).toEqual(runtimeStops);
+    expect(result?.colorCycle?.brushState?.animationSpeed).toBe(0.75);
+    expect(result?.colorCycle?.brushState?.animationOffset).toBe(13);
+    expect(result?.colorCycle?.brushState?.targetFPS).toBe(17);
+    expect(result?.colorCycle?.brushState?.palette).toEqual(['#112233', '#445566']);
+  });
+
+  it('falls back to saved canonical brush state when live Goblet runtime has no usable buffers', async () => {
+    const savedStops = [
+      { position: 0, color: '#aa0000' },
+      { position: 1, color: '#00aa00' },
+    ];
+    const result = await serializeColorCycleData({
+      id: 'layer-cc-saved-fallback',
+      name: 'Saved Fallback',
+      layerType: 'color-cycle',
+      visible: true,
+      opacity: 1,
+      blendMode: 'source-over',
+      imageData: null,
+      framebuffer: { width: 2, height: 2 },
+      colorCycleData: {
+        mode: 'brush',
+        hasContent: true,
+        canvasWidth: 2,
+        canvasHeight: 2,
+        gradient: [
+          { position: 0, color: '#000000' },
+          { position: 1, color: '#ffffff' },
+        ],
+        colorCycleBrush: {
+          serialize: () => ({
+            layers: [{
+              layerId: 'layer-cc-saved-fallback',
+              data: {
+                indexBuffer: {
+                  width: 2,
+                  height: 2,
+                  data: new Uint8Array(0),
+                  gradientId: new Uint8Array(0),
+                },
+              },
+            }],
+          }),
+        },
+        brushState: {
+          canonicalPaint: true,
+          schemaVersion: 1,
+          cycleSpeed: 0.33,
+          fps: 19,
+          layers: [{
+            layerId: 'layer-cc-saved-fallback',
+            canonicalPaint: true,
+            schemaVersion: 1,
+            dimensions: { width: 2, height: 2 },
+            animator: {
+              indexBuffer: {
+                palette: ['#aa0000', '#00aa00'],
+              },
+              gradient: {
+                gradientStops: savedStops,
+              },
+              animation: {
+                offset: 4,
+                stats: {
+                  targetFPS: 11,
+                },
+              },
+            },
+            strokeData: {
+              hasContent: true,
+              paintBuffer: Uint8Array.from([7, 8, 9, 10]).buffer,
+              gradientIdBuffer: Uint8Array.from([0, 1, 1, 0]).buffer,
+              gradientDefIdBuffer: new Uint16Array([0, 0, 0, 0]).buffer,
+              speedBuffer: Uint8Array.from([1, 1, 1, 1]).buffer,
+              flowBuffer: Uint8Array.from([0, 0, 0, 0]).buffer,
+              phaseBuffer: Uint8Array.from([0, 0, 0, 0]).buffer,
+            },
+          }],
+        },
+      },
+    } as any, {
+      width: 2,
+      height: 2,
+    } as any);
+
+    expect(result?.colorCycle?.brushState?.indexBuffer).toEqual([7, 8, 9, 10]);
+    expect(result?.colorCycle?.gradient).toEqual(savedStops);
+    expect(result?.colorCycle?.brushState?.gradientStops).toEqual(savedStops);
+    expect(result?.colorCycle?.brushState?.animationSpeed).toBe(0.33);
+    expect(result?.colorCycle?.brushState?.animationOffset).toBe(4);
+    expect(result?.colorCycle?.brushState?.targetFPS).toBe(11);
+    expect(result?.colorCycle?.brushState?.palette).toEqual(['#aa0000', '#00aa00']);
+  });
+
+  it('exports Goblet brush data from direct runtime brush properties when canonical runtime capture has no buffers', async () => {
+    const result = await serializeColorCycleData({
+      id: 'layer-cc-runtime-direct',
+      name: 'Runtime Direct',
+      layerType: 'color-cycle',
+      visible: true,
+      opacity: 1,
+      blendMode: 'source-over',
+      imageData: null,
+      framebuffer: { width: 2, height: 2 },
+      colorCycleData: {
+        mode: 'brush',
+        hasContent: true,
+        canvasWidth: 2,
+        canvasHeight: 2,
+        gradient: [
+          { position: 0, color: '#000000' },
+          { position: 1, color: '#ffffff' },
+        ],
+        colorCycleBrush: {
+          serialize: () => ({
+            layers: [{
+              layerId: 'layer-cc-runtime-direct',
+              data: {
+                indexBuffer: {
+                  width: 2,
+                  height: 2,
+                  data: new Uint8Array(0),
+                },
+              },
+            }],
+          }),
+          indexBuffer: Uint8Array.from([3, 4, 5, 6]),
+          gradientIdBuffer: Uint8Array.from([0, 1, 1, 0]),
+          speedBuffer: Uint8Array.from([7, 8, 9, 10]),
+          width: 2,
+          height: 2,
+        },
+      },
+    } as any, {
+      width: 2,
+      height: 2,
+    } as any);
+
+    expect(result?.colorCycle?.brushState?.indexBuffer).toEqual([3, 4, 5, 6]);
+    expect(result?.colorCycle?.brushState?.gradientIdBuffer).toEqual([0, 1, 1, 0]);
+    expect(result?.colorCycle?.brushState?.speedBuffer).toEqual([7, 8, 9, 10]);
+  });
+
+  it('exports Goblet brush data from runtime animator maps when canonical runtime capture has no buffers', async () => {
+    const result = await serializeColorCycleData({
+      id: 'layer-cc-runtime-animator',
+      name: 'Runtime Animator',
+      layerType: 'color-cycle',
+      visible: true,
+      opacity: 1,
+      blendMode: 'source-over',
+      imageData: null,
+      framebuffer: { width: 2, height: 2 },
+      colorCycleData: {
+        mode: 'brush',
+        hasContent: true,
+        canvasWidth: 2,
+        canvasHeight: 2,
+        gradient: [
+          { position: 0, color: '#000000' },
+          { position: 1, color: '#ffffff' },
+        ],
+        colorCycleBrush: {
+          serialize: () => ({
+            layers: [{
+              layerId: 'layer-cc-runtime-animator',
+              data: {
+                indexBuffer: {
+                  width: 2,
+                  height: 2,
+                  data: new Uint8Array(0),
+                },
+              },
+            }],
+          }),
+          animators: new Map([[
+            'layer-cc-runtime-animator',
+            {
+              serialize: () => ({
+                indexBuffer: {
+                  width: 2,
+                  height: 2,
+                  data: Uint8Array.from([8, 7, 6, 5]),
+                  gradientId: Uint8Array.from([1, 1, 0, 0]),
+                  speedData: Uint8Array.from([11, 12, 13, 14]),
+                },
+                animation: {
+                  offset: 9,
+                  stats: {
+                    targetFPS: 15,
+                  },
+                },
+              }),
+            },
+          ]]),
+        },
+      },
+    } as any, {
+      width: 2,
+      height: 2,
+    } as any);
+
+    expect(result?.colorCycle?.brushState?.indexBuffer).toEqual([8, 7, 6, 5]);
+    expect(result?.colorCycle?.brushState?.gradientIdBuffer).toEqual([1, 1, 0, 0]);
+    expect(result?.colorCycle?.brushState?.speedBuffer).toEqual([11, 12, 13, 14]);
+    expect(result?.colorCycle?.brushState?.animationOffset).toBe(9);
+    expect(result?.colorCycle?.brushState?.targetFPS).toBe(15);
+  });
+
+  it.each([
+    {
+      name: 'missing canonical markers',
+      brushState: {
+        schemaVersion: 1,
+        layers: [{
+          layerId: 'layer-cc-unsafe-saved',
+          dimensions: { width: 2, height: 2 },
+          strokeData: {
+            hasContent: true,
+            paintBuffer: Uint8Array.from([1, 2, 3, 4]).buffer,
+            gradientIdBuffer: Uint8Array.from([0, 1, 1, 0]).buffer,
+            gradientDefIdBuffer: new Uint16Array([0, 0, 0, 0]).buffer,
+            speedBuffer: Uint8Array.from([1, 1, 1, 1]).buffer,
+            flowBuffer: Uint8Array.from([0, 0, 0, 0]).buffer,
+            phaseBuffer: Uint8Array.from([0, 0, 0, 0]).buffer,
+          },
+        }],
+      },
+      reason: 'metadata-only-state',
+    },
+    {
+      name: 'unsupported top-level schema',
+      brushState: {
+        canonicalPaint: true,
+        schemaVersion: 999,
+        layers: [{
+          layerId: 'layer-cc-unsafe-saved',
+          canonicalPaint: true,
+          dimensions: { width: 2, height: 2 },
+          strokeData: {
+            hasContent: true,
+            paintBuffer: Uint8Array.from([1, 2, 3, 4]).buffer,
+            gradientIdBuffer: Uint8Array.from([0, 1, 1, 0]).buffer,
+            gradientDefIdBuffer: new Uint16Array([0, 0, 0, 0]).buffer,
+            speedBuffer: Uint8Array.from([1, 1, 1, 1]).buffer,
+            flowBuffer: Uint8Array.from([0, 0, 0, 0]).buffer,
+            phaseBuffer: Uint8Array.from([0, 0, 0, 0]).buffer,
+          },
+        }],
+      },
+      reason: 'invalid-schema-version',
+    },
+    {
+      name: 'unsupported per-layer schema',
+      brushState: {
+        canonicalPaint: true,
+        schemaVersion: 1,
+        layers: [{
+          layerId: 'layer-cc-unsafe-saved',
+          canonicalPaint: true,
+          schemaVersion: 999,
+          dimensions: { width: 2, height: 2 },
+          strokeData: {
+            hasContent: true,
+            paintBuffer: Uint8Array.from([1, 2, 3, 4]).buffer,
+            gradientIdBuffer: Uint8Array.from([0, 1, 1, 0]).buffer,
+            gradientDefIdBuffer: new Uint16Array([0, 0, 0, 0]).buffer,
+            speedBuffer: Uint8Array.from([1, 1, 1, 1]).buffer,
+            flowBuffer: Uint8Array.from([0, 0, 0, 0]).buffer,
+            phaseBuffer: Uint8Array.from([0, 0, 0, 0]).buffer,
+          },
+        }],
+      },
+      reason: 'invalid-schema-version',
+    },
+  ])('does not export unsafe saved canonical fallback when persisted brushState has $name', async ({ brushState, reason }) => {
+    await expect(serializeColorCycleData({
+      id: 'layer-cc-unsafe-saved',
+      name: 'Unsafe Saved',
+      layerType: 'color-cycle',
+      visible: true,
+      opacity: 1,
+      blendMode: 'source-over',
+      imageData: null,
+      framebuffer: { width: 2, height: 2 },
+      colorCycleData: {
+        mode: 'brush',
+        hasContent: true,
+        canvasWidth: 2,
+        canvasHeight: 2,
+        gradient: [
+          { position: 0, color: '#000000' },
+          { position: 1, color: '#ffffff' },
+        ],
+        brushState,
+      },
+    } as any, {
+      width: 2,
+      height: 2,
+    } as any)).rejects.toThrow(
+      `Goblet export blocked: color-cycle layer "Unsafe Saved" is missing animated brush data (${reason}).`
+    );
+  });
+
+  it('exports persisted snapshot palettes instead of stale layer gradients', async () => {
+    const snapshotStops = [
+      { position: 0, color: '#ff0000' },
+      { position: 1, color: '#00ff00' },
+    ];
+    const result = await serializeColorCycleData({
+      id: 'layer-cc-snapshot-palette',
+      name: 'Snapshot Palette',
+      layerType: 'color-cycle',
+      visible: true,
+      opacity: 1,
+      blendMode: 'source-over',
+      imageData: null,
+      framebuffer: { width: 2, height: 2 },
+      colorCycleData: {
+        mode: 'brush',
+        hasContent: true,
+        canvasWidth: 2,
+        canvasHeight: 2,
+        gradient: [
+          { position: 0, color: '#000000' },
+          { position: 1, color: '#ffffff' },
+        ],
+        brushState: {
+          canonicalPaint: true,
+          schemaVersion: 1,
+          layers: [{
+            layerId: 'layer-cc-snapshot-palette',
+            canonicalPaint: true,
+            schemaVersion: 1,
+            dimensions: { width: 2, height: 2 },
+            slotPalettes: [{
+              slot: 0,
+              stops: snapshotStops,
+            }],
+            strokeData: {
+              hasContent: true,
+              paintBuffer: Uint8Array.from([1, 2, 3, 4]).buffer,
+              gradientIdBuffer: Uint8Array.from([0, 0, 0, 0]).buffer,
+              gradientDefIdBuffer: new Uint16Array([0, 0, 0, 0]).buffer,
+              speedBuffer: Uint8Array.from([1, 1, 1, 1]).buffer,
+              flowBuffer: Uint8Array.from([0, 0, 0, 0]).buffer,
+              phaseBuffer: Uint8Array.from([0, 0, 0, 0]).buffer,
+            },
+          }],
+        },
+      },
+    } as any, {
+      width: 2,
+      height: 2,
+    } as any);
+
+    expect(result?.colorCycle?.gradient).toEqual(snapshotStops);
+    expect(result?.colorCycle?.slotPalettes).toEqual([{
+      slot: 0,
+      stops: snapshotStops,
+    }]);
+  });
+
   it('does not repair missing-paint color-cycle state from compatibility snapshot colors during export', () => {
     const brushState = serializeBrushState({
       id: 'layer-cc-legacy-alpha',

@@ -9,6 +9,7 @@ import type {
 } from './colorCyclePersistenceTypes';
 import {
   classifyBrushStateFailure,
+  COLOR_CYCLE_PERSISTENCE_SCHEMA_VERSION,
   getLayerSnapshot,
   hasCanonicalBrushStateMarkers,
 } from './colorCyclePersistenceValidation';
@@ -173,21 +174,29 @@ export const resolveColorCyclePersistenceSource = (
   const persistedBrushState = layer.colorCycleData?.brushState as PersistedColorCycleBrushState | undefined;
   const persistedSnapshot = getLayerSnapshot(persistedBrushState, layer.id);
   if (persistedBrushState && hasCanonicalBrushStateMarkers(persistedBrushState, persistedSnapshot)) {
-    diagnostics.push({
-      source: 'persisted-brush-state',
-      kind: 'source-selected',
-      message: 'Selected marked persisted brush state as color-cycle persistence source.',
-    });
-    emitDiagnostics(diagnostics, context);
-    return {
-      ok: true,
-      source: 'persisted-brush-state',
-      brushState: persistedBrushState,
-      diagnostics,
-    };
+    const hasUnsupportedSchemaVersion = (
+      (persistedBrushState.schemaVersion !== undefined && persistedBrushState.schemaVersion !== COLOR_CYCLE_PERSISTENCE_SCHEMA_VERSION) ||
+      (persistedSnapshot?.schemaVersion !== undefined && persistedSnapshot.schemaVersion !== COLOR_CYCLE_PERSISTENCE_SCHEMA_VERSION)
+    );
+    if (hasUnsupportedSchemaVersion) {
+      diagnostics.push(...classifyBrushStateFailure(persistedBrushState, persistedSnapshot).diagnostics);
+    } else {
+      diagnostics.push({
+        source: 'persisted-brush-state',
+        kind: 'source-selected',
+        message: 'Selected marked persisted brush state as color-cycle persistence source.',
+      });
+      emitDiagnostics(diagnostics, context);
+      return {
+        ok: true,
+        source: 'persisted-brush-state',
+        brushState: persistedBrushState,
+        diagnostics,
+      };
+    }
   }
 
-  if (persistedBrushState) {
+  if (persistedBrushState && diagnostics.length === 0) {
     diagnostics.push(...classifyBrushStateFailure(persistedBrushState, persistedSnapshot).diagnostics);
   }
   emitDiagnostics(diagnostics, context);

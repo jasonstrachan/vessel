@@ -161,6 +161,7 @@ describe('selectionDeleteAuthorization', () => {
         buffer: new Uint8Array(16).fill(1),
         width: 4,
         height: 4,
+        hasFullCanonicalPayload: true,
       },
     });
 
@@ -194,6 +195,7 @@ describe('selectionDeleteAuthorization', () => {
         buffer: new Uint8Array(16).fill(1),
         width: 4,
         height: 4,
+        hasFullCanonicalPayload: true,
       },
     });
 
@@ -232,6 +234,7 @@ describe('selectionDeleteAuthorization', () => {
         buffer: new Uint8Array(16).fill(1),
         width: 4,
         height: 4,
+        hasFullCanonicalPayload: true,
       },
     });
 
@@ -239,6 +242,40 @@ describe('selectionDeleteAuthorization', () => {
       ok: true,
       allowFullContentClear: true,
       destructiveIntent: 'explicit-full-clear',
+    });
+  });
+
+  it('blocks CC deletes when only paint is present without the full canonical channel set', () => {
+    const authorization = authorizeSelectionDelete({
+      source: 'keyboard-delete',
+      activeLayer: createLayer({ id: 'active', layerType: 'color-cycle' }),
+      activeLayerId: 'active',
+      project: createProject(),
+      selectionStart: { x: 0, y: 0 },
+      selectionEnd: { x: 2, y: 2 },
+      selectionMask: null,
+      selectionMaskBounds: null,
+      selectionMaskLayerId: null,
+      selectionLastAction: {
+        action: 'set-bounds',
+        source: 'selection-marquee-final',
+        ownerKind: 'direct-marquee',
+        t: 1,
+        activeLayerId: 'active',
+        bounds: { x: 0, y: 0, width: 2, height: 2 },
+      },
+      colorCyclePaint: {
+        buffer: new Uint8Array(16).fill(1),
+        width: 4,
+        height: 4,
+        hasFullCanonicalPayload: false,
+      },
+    });
+
+    expect(authorization).toMatchObject({
+      ok: false,
+      reason: 'missing-canonical-paint',
+      clearSelection: false,
     });
   });
 });

@@ -4,6 +4,7 @@ export { resolveColorCyclePersistenceSource } from './resolveColorCyclePersisten
 export { COLOR_CYCLE_PERSISTENCE_SCHEMA_VERSION } from './colorCyclePersistenceValidation';
 export type {
   CaptureColorCyclePersistenceSnapshotContext,
+  ColorCycleBufferRef,
   ColorCycleDamageKind,
   ColorCyclePersistenceDiagnostic,
   ColorCyclePersistenceDocumentState,
