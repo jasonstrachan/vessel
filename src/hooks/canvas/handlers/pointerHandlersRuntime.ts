@@ -18,6 +18,42 @@ import { ensurePresResDebugBridge, isPresResDebugEnabled } from '@/hooks/canvas/
 
 const SHAPE_PREVIEW_OPACITY = 0.8;
 
+export const resolvePreviewDitherPixelSize = ({
+  worldPixelSize,
+  scaleX,
+  scaleY,
+}: {
+  worldPixelSize: number | null | undefined;
+  scaleX: number;
+  scaleY: number;
+}): number | undefined => {
+  if (worldPixelSize == null || !Number.isFinite(worldPixelSize)) {
+    return undefined;
+  }
+  const previewScale = Math.max(0.001, Math.min(scaleX, scaleY));
+  return Math.max(1, Math.round(Math.max(1, worldPixelSize) * previewScale));
+};
+
+export const resolveDitherShapePreviewBufferSize = ({
+  worldWidth,
+  worldHeight,
+  maxSize,
+}: {
+  worldWidth: number;
+  worldHeight: number;
+  maxSize: number;
+}): { width: number; height: number } => {
+  const safeWidth = Math.max(1, Math.ceil(worldWidth));
+  const safeHeight = Math.max(1, Math.ceil(worldHeight));
+  const safeMaxSize = Math.max(1, Math.floor(maxSize));
+  const scale = Math.min(1, safeMaxSize / Math.max(safeWidth, safeHeight));
+
+  return {
+    width: Math.max(1, Math.ceil(safeWidth * scale)),
+    height: Math.max(1, Math.ceil(safeHeight * scale)),
+  };
+};
+
 // ---- ContourLines DEBUG ----------------------------------
 const CL_DEBUG_STORAGE_KEY = 'vessel.debug.cl';
 
@@ -507,6 +543,7 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
   const PREVIEW_DITHER_PADDING_SCREEN = 3;
   // Allow larger previews before we have to downscale (prevents dither holes collapsing on big shapes)
   const PREVIEW_DITHER_BUFFER_SIZE = 2048;
+  const DITHER_SHAPE_PREVIEW_BUFFER_SIZE = 512;
 
   const ensurePointRef = (
     ref: React.MutableRefObject<Point | null> | undefined
@@ -1116,8 +1153,18 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
     };
 
     // Resize buffer to match *world* size (not screen size) so dithering stays stable at any zoom
-    const targetW = Math.max(1, Math.min(PREVIEW_DITHER_BUFFER_SIZE, Math.ceil(worldWidth)));
-    const targetH = Math.max(1, Math.min(PREVIEW_DITHER_BUFFER_SIZE, Math.ceil(worldHeight)));
+    const targetSize = isDitherShapePreview
+      ? resolveDitherShapePreviewBufferSize({
+          worldWidth,
+          worldHeight,
+          maxSize: DITHER_SHAPE_PREVIEW_BUFFER_SIZE,
+        })
+      : {
+          width: Math.max(1, Math.min(PREVIEW_DITHER_BUFFER_SIZE, Math.ceil(worldWidth))),
+          height: Math.max(1, Math.min(PREVIEW_DITHER_BUFFER_SIZE, Math.ceil(worldHeight))),
+        };
+    const targetW = targetSize.width;
+    const targetH = targetSize.height;
     if (bufferCanvas.width !== targetW || bufferCanvas.height !== targetH) {
       bufferCanvas.width = targetW;
       bufferCanvas.height = targetH;
@@ -1248,6 +1295,11 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
       const effectivePixelSize = hadValidShapePressureRef?.current
         ? latestShapePixelSizeRef?.current ?? undefined
         : undefined;
+      const previewPixelSize = resolvePreviewDitherPixelSize({
+        worldPixelSize: effectivePixelSize ?? liveBrushSettings.fillResolution,
+        scaleX,
+        scaleY,
+      });
 
       // Skip heavy dither preview for extremely large overlays to reduce lag.
       const overlayArea = overlayRegion.width * overlayRegion.height;
@@ -1265,7 +1317,7 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
           // When BG fill is off, do not merge with the freshly painted fill
           mergeExisting: liveBgFillOn,
           overridePressure: effectivePressure,
-          overridePixelSize: effectivePixelSize
+          overridePixelSize: previewPixelSize
         });
         } catch (error) {
         if (process.env.NODE_ENV !== 'production') {
