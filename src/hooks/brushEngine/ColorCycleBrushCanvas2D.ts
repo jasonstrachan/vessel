@@ -42,6 +42,7 @@ import { runConcentricFillJob, runPerceptualDitherJob } from '@/workers/colorCyc
 import type { PaletteMapEntry } from '@/workers/colorCycleFillTypes';
 import type { PatternStyle } from '@/utils/ditherAlgorithms';
 import { applySierraLiteLostEdgeMask } from '@/utils/ditherAlgorithms';
+import { LOST_EDGE_TILE_MAX, LOST_EDGE_TILE_MIN } from '@/utils/ditherConstants';
 import type { CustomBrushColorCycleData, DerivedGradientSpec } from '@/types';
 import { FLOW_SLOT_MASK, type FlowMode } from '@/lib/colorCycle/flowEncoding';
 import {
@@ -3069,6 +3070,16 @@ export class ColorCycleBrushCanvas2D {
     strokeData.contentIsOptimistic = false;
   }
 
+  private resolveLostEdgeTileSize(): number | undefined {
+    if (!this.pxlEdgeEnabled) {
+      return undefined;
+    }
+    return Math.max(
+      LOST_EDGE_TILE_MIN,
+      Math.min(LOST_EDGE_TILE_MAX, Math.floor(this.ditherPixelSize))
+    );
+  }
+
 
   private captureRegionU8(
     src: Uint8Array,
@@ -3084,6 +3095,20 @@ export class ColorCycleBrushCanvas2D {
     return out;
   }
 
+  private captureRegionU16(
+    src: Uint16Array,
+    fullW: number,
+    bbox: { minX: number; minY: number; width: number; height: number }
+  ): Uint16Array {
+    const out = new Uint16Array(bbox.width * bbox.height);
+    for (let row = 0; row < bbox.height; row += 1) {
+      const y = bbox.minY + row;
+      const srcOff = y * fullW + bbox.minX;
+      out.set(src.subarray(srcOff, srcOff + bbox.width), row * bbox.width);
+    }
+    return out;
+  }
+
   private applyLostEdgeFromWrittenMask(options: {
     writtenMask: Uint8Array;
     prevIdx: Uint8Array;
@@ -3091,14 +3116,17 @@ export class ColorCycleBrushCanvas2D {
     prevSpd: Uint8Array;
     prevFlow: Uint8Array;
     prevPhase: Uint8Array;
+    prevDef?: Uint16Array;
     paint: Uint8Array;
     gid: Uint8Array;
     spd: Uint8Array;
     flow: Uint8Array;
     phase: Uint8Array;
+    def?: Uint16Array;
     fullW: number;
     bbox: { minX: number; minY: number; width: number; height: number };
     lostEdge: number;
+    tileSize?: number;
   }) {
     const {
       writtenMask,
@@ -3107,16 +3135,50 @@ export class ColorCycleBrushCanvas2D {
       prevSpd,
       prevFlow,
       prevPhase,
+      prevDef,
       paint,
       gid,
       spd,
       flow,
       phase,
+      def,
       fullW,
       bbox,
       lostEdge,
+      tileSize,
     } = options;
-    const keep = applySierraLiteLostEdgeMask(writtenMask, bbox.width, bbox.height, lostEdge);
+    const lostEdgeTile = Number.isFinite(tileSize) && (tileSize as number) > 1
+      ? Math.max(2, Math.floor(tileSize as number))
+      : null;
+    let keep: Uint8ClampedArray;
+    let keepWidth = bbox.width;
+    let keepOffsetX = 0;
+    let keepOffsetY = 0;
+    if (lostEdgeTile) {
+      const modX = ((bbox.minX % lostEdgeTile) + lostEdgeTile) % lostEdgeTile;
+      const modY = ((bbox.minY % lostEdgeTile) + lostEdgeTile) % lostEdgeTile;
+      keepOffsetX = modX + lostEdgeTile;
+      keepOffsetY = modY + lostEdgeTile;
+      const paddedW = Math.max(
+        lostEdgeTile,
+        Math.ceil((keepOffsetX + bbox.width + lostEdgeTile) / lostEdgeTile) * lostEdgeTile
+      );
+      const paddedH = Math.max(
+        lostEdgeTile,
+        Math.ceil((keepOffsetY + bbox.height + lostEdgeTile) / lostEdgeTile) * lostEdgeTile
+      );
+      const paddedWrittenMask = new Uint8Array(paddedW * paddedH);
+      for (let row = 0; row < bbox.height; row += 1) {
+        paddedWrittenMask.set(
+          writtenMask.subarray(row * bbox.width, row * bbox.width + bbox.width),
+          (row + keepOffsetY) * paddedW + keepOffsetX
+        );
+      }
+      keep = applySierraLiteLostEdgeMask(paddedWrittenMask, paddedW, paddedH, lostEdge, lostEdgeTile);
+      keepWidth = paddedW;
+    } else {
+      keep = applySierraLiteLostEdgeMask(writtenMask, bbox.width, bbox.height, lostEdge);
+    }
     for (let row = 0; row < bbox.height; row += 1) {
       const y = bbox.minY + row;
       const dstRow = y * fullW + bbox.minX;
@@ -3124,13 +3186,17 @@ export class ColorCycleBrushCanvas2D {
       for (let col = 0; col < bbox.width; col += 1) {
         const p = localRow + col;
         if (writtenMask[p] === 0) continue;
-        if (keep[p] >= 128) continue;
+        const keepIndex = (row + keepOffsetY) * keepWidth + col + keepOffsetX;
+        if (keep[keepIndex] >= 128) continue;
         const dst = dstRow + col;
         paint[dst] = prevIdx[p];
         gid[dst] = prevGid[p];
         spd[dst] = prevSpd[p];
         flow[dst] = prevFlow[p];
         phase[dst] = prevPhase[p];
+        if (def && prevDef) {
+          def[dst] = prevDef[p] ?? 0;
+        }
       }
     }
     if (process.env.NODE_ENV !== 'production') {
@@ -3148,7 +3214,8 @@ export class ColorCycleBrushCanvas2D {
             gid[dst] !== prevGid[p] ||
             spd[dst] !== prevSpd[p] ||
             flow[dst] !== prevFlow[p] ||
-            phase[dst] !== prevPhase[p]
+            phase[dst] !== prevPhase[p] ||
+            (def && prevDef && def[dst] !== (prevDef[p] ?? 0))
           ) {
             violations.push({ x: bbox.minX + col, y });
             paint[dst] = prevIdx[p];
@@ -3156,6 +3223,9 @@ export class ColorCycleBrushCanvas2D {
             spd[dst] = prevSpd[p];
             flow[dst] = prevFlow[p];
             phase[dst] = prevPhase[p];
+            if (def && prevDef) {
+              def[dst] = prevDef[p] ?? 0;
+            }
             if (violations.length >= 5) break;
           }
         }
@@ -4130,6 +4200,9 @@ export class ColorCycleBrushCanvas2D {
     const prevPhase = strokeData?.buffers.phase
       ? this.captureRegionU8(strokeData.buffers.phase, this.width, bbox)
       : new Uint8Array(bbox.width * bbox.height);
+    const prevDef = strokeData?.buffers.def
+      ? this.captureRegionU16(strokeData.buffers.def, this.width, bbox)
+      : new Uint16Array(bbox.width * bbox.height);
     const writtenMask = new Uint8Array(bbox.width * bbox.height);
     const dirNorm = { x: dirX, y: dirY };
 
@@ -4371,14 +4444,17 @@ export class ColorCycleBrushCanvas2D {
                 prevSpd,
                 prevFlow,
                 prevPhase,
+                prevDef,
                 paint: linearBuffer,
                 gid: linearGradientId,
                 spd: linearSpeedData,
                 flow: linearFlowData,
                 phase: linearPhaseData,
+                def: linearDefData,
                 fullW: linearBufferWidth,
                 bbox,
                 lostEdge,
+                tileSize: this.resolveLostEdgeTileSize(),
               });
             }
 
@@ -4541,14 +4617,17 @@ export class ColorCycleBrushCanvas2D {
             prevSpd,
             prevFlow,
             prevPhase,
+            prevDef,
             paint: linearBuffer,
             gid: linearGradientId,
             spd: linearSpeedData,
             flow: linearFlowData,
             phase: linearPhaseData,
+            def: linearDefData,
             fullW: linearBufferWidth,
             bbox,
             lostEdge,
+            tileSize: this.resolveLostEdgeTileSize(),
           });
             }
             this.stampCounter += quantLevels;
@@ -4617,14 +4696,17 @@ export class ColorCycleBrushCanvas2D {
             prevSpd,
             prevFlow,
             prevPhase,
+            prevDef,
             paint: linearBuffer,
             gid: linearGradientId,
             spd: linearSpeedData,
             flow: linearFlowData,
             phase: linearPhaseData,
+            def: linearDefData,
             fullW: linearBufferWidth,
             bbox,
             lostEdge,
+            tileSize: this.resolveLostEdgeTileSize(),
           });
         }
         this.stampCounter += quantLevels;
@@ -4921,14 +5003,17 @@ export class ColorCycleBrushCanvas2D {
         prevSpd,
         prevFlow,
         prevPhase,
+        prevDef,
         paint: linearBuffer,
         gid: linearGradientId,
         spd: linearSpeedData,
         flow: linearFlowData,
         phase: linearPhaseData,
+        def: linearDefData,
         fullW: linearBufferWidth,
         bbox,
         lostEdge,
+        tileSize: this.resolveLostEdgeTileSize(),
       });
     }
 
@@ -5130,6 +5215,9 @@ export class ColorCycleBrushCanvas2D {
     const prevPhase = strokeData?.buffers.phase
       ? this.captureRegionU8(strokeData.buffers.phase, this.width, bbox)
       : new Uint8Array(bbox.width * bbox.height);
+    const prevDef = strokeData?.buffers.def
+      ? this.captureRegionU16(strokeData.buffers.def, this.width, bbox)
+      : new Uint16Array(bbox.width * bbox.height);
     const writtenMask = new Uint8Array(bbox.width * bbox.height);
     // Hoist invariants
     const spacingValue = this.normalizeBandSpacingValue(spacing);
@@ -5390,14 +5478,17 @@ export class ColorCycleBrushCanvas2D {
           prevSpd,
           prevFlow,
           prevPhase,
+          prevDef,
           paint: concentricBuffer,
           gid: concentricGradientId,
           spd: concentricSpeedData,
           flow: concentricFlowData,
           phase: concentricPhaseData,
+          def: concentricDefData,
           fullW: concentricWidth,
           bbox,
           lostEdge,
+          tileSize: this.resolveLostEdgeTileSize(),
         });
       }
       this.stampCounter += count;

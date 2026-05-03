@@ -248,6 +248,58 @@ describe('Dithering Algorithms', () => {
       return coverage;
     };
 
+    const makeInsetCoverage = (size: number, border: number) => {
+      const coverage = makeCoverage(size);
+      for (let i = 0; i < size; i++) {
+        for (let b = 0; b < border; b++) {
+          coverage[b * size + i] = 0;
+          coverage[(size - 1 - b) * size + i] = 0;
+          coverage[i * size + b] = 0;
+          coverage[i * size + (size - 1 - b)] = 0;
+        }
+      }
+      return coverage;
+    };
+
+    const removedRatio = (mask: Uint8ClampedArray, coverage: Uint8Array) => {
+      let covered = 0;
+      let removed = 0;
+      for (let index = 0; index < mask.length; index += 1) {
+        if (coverage[index] === 0) continue;
+        covered += 1;
+        if (mask[index] < 128) {
+          removed += 1;
+        }
+      }
+      return covered > 0 ? removed / covered : 0;
+    };
+
+    const outerEdgeKeepRatio = (mask: Uint8ClampedArray, coverage: Uint8Array, size: number) => {
+      let edgePixels = 0;
+      let kept = 0;
+      for (let y = 0; y < size; y++) {
+        for (let x = 0; x < size; x++) {
+          const index = y * size + x;
+          if (coverage[index] === 0) continue;
+          const touchesOutside =
+            x === 0 ||
+            y === 0 ||
+            x === size - 1 ||
+            y === size - 1 ||
+            coverage[index - 1] === 0 ||
+            coverage[index + 1] === 0 ||
+            coverage[index - size] === 0 ||
+            coverage[index + size] === 0;
+          if (!touchesOutside) continue;
+          edgePixels += 1;
+          if (mask[index] >= 128) {
+            kept += 1;
+          }
+        }
+      }
+      return edgePixels > 0 ? kept / edgePixels : 0;
+    };
+
     it('returns full keep mask when lostEdge is zero', () => {
       const coverage = makeCoverage(8);
       const mask = applySierraLiteLostEdgeMask(coverage, 8, 8, 0, 4);
@@ -255,24 +307,60 @@ describe('Dithering Algorithms', () => {
     });
 
     it('reduces edge alpha when lostEdge is high', () => {
-      const size = 16;
-      const coverage = makeCoverage(size);
-      // simulate real stroke region by zeroing a 4px border (outside stroke) to avoid bailout
-      const border = 4;
-      for (let i = 0; i < size; i++) {
-        for (let b = 0; b < border; b++) {
-          coverage[b * size + i] = 0; // top band
-          coverage[(size - 1 - b) * size + i] = 0; // bottom band
-          coverage[i * size + b] = 0; // left band
-          coverage[i * size + (size - 1 - b)] = 0; // right band
-        }
-      }
+      const size = 64;
+      const coverage = makeInsetCoverage(size, 8);
 
       const mask = applySierraLiteLostEdgeMask(coverage, size, size, 100, 4);
       const minAlpha = mask.reduce((min, v) => Math.min(min, v), 255);
       const maxAlpha = mask.reduce((max, v) => Math.max(max, v), 0);
       expect(minAlpha).toBeLessThan(255);
       expect(maxAlpha).toBeGreaterThan(0);
+    });
+
+    it('ramps lost-edge removal density smoothly across slider values', () => {
+      const size = 96;
+      const coverage = makeInsetCoverage(size, 8);
+      const low = removedRatio(applySierraLiteLostEdgeMask(coverage, size, size, 10), coverage);
+      const mid = removedRatio(applySierraLiteLostEdgeMask(coverage, size, size, 50), coverage);
+      const high = removedRatio(applySierraLiteLostEdgeMask(coverage, size, size, 100), coverage);
+
+      expect(low).toBeGreaterThan(0);
+      expect(low).toBeLessThan(0.18);
+      expect(mid).toBeGreaterThan(low);
+      expect(mid).toBeLessThan(0.5);
+      expect(high).toBeGreaterThan(mid);
+    });
+
+    it('leaves only sparse pixels on the very outer edge at max lostEdge', () => {
+      const size = 96;
+      const coverage = makeInsetCoverage(size, 8);
+      const mask = applySierraLiteLostEdgeMask(coverage, size, size, 100);
+      const keepRatio = outerEdgeKeepRatio(mask, coverage, size);
+
+      expect(keepRatio).toBeGreaterThan(0);
+      expect(keepRatio).toBeLessThan(0.25);
+    });
+
+    it('uses pxl-edge sized cells for max lostEdge when a larger tile is supplied', () => {
+      const size = 96;
+      const tileSize = 4;
+      const coverage = makeInsetCoverage(size, 8);
+      const mask = applySierraLiteLostEdgeMask(coverage, size, size, 100, tileSize);
+      const keepRatio = outerEdgeKeepRatio(mask, coverage, size);
+
+      expect(keepRatio).toBeGreaterThan(0);
+      expect(keepRatio).toBeLessThan(0.25);
+
+      for (let y = 0; y < size; y += tileSize) {
+        for (let x = 0; x < size; x += tileSize) {
+          const first = mask[y * size + x];
+          for (let yy = y; yy < Math.min(size, y + tileSize); yy += 1) {
+            for (let xx = x; xx < Math.min(size, x + tileSize); xx += 1) {
+              expect(mask[yy * size + xx]).toBe(first);
+            }
+          }
+        }
+      }
     });
   });
   
@@ -384,9 +472,9 @@ describe('Dithering Algorithms', () => {
     });
 
     it('keeps interior opaque with coarse tiling', () => {
-      const coverage = buildCoverage(16, 16, 4, 12);
-      const mask = applySierraLiteLostEdgeMask(coverage, 16, 16, 80, 4);
-      const center = mask[8 * 16 + 8];
+      const coverage = buildCoverage(64, 64, 16, 48);
+      const mask = applySierraLiteLostEdgeMask(coverage, 64, 64, 40, 4);
+      const center = mask[32 * 64 + 32];
       expect(center).toBeGreaterThan(200);
     });
   });

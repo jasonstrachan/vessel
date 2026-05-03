@@ -10,6 +10,7 @@ import {
   LOST_EDGE_TILE_DEFAULT,
   LOST_EDGE_BAND_MIN_PX,
   LOST_EDGE_BAND_MAX_PX,
+  LOST_EDGE_MAX_DIM_FRACTION,
   LOST_EDGE_INTENSITY_EXP,
   LOST_EDGE_SEARCH_SCALE,
   LOST_EDGE_FADE_FRACTION,
@@ -954,10 +955,18 @@ export const applySierraLiteLostEdgeMask = (
   // Edge band grows with intensity; clamp to avoid large kernels.
   // edgeBand is the thickness of the fade zone; bandRadius is search distance for edges.
   // Edge band target: eased mapping up to ~100px at max for dramatic edges, but with softer growth.
+  const minDimPx = Math.min(width, height);
+  const maxBandPx = Math.max(
+    LOST_EDGE_BAND_MIN_PX,
+    Math.min(
+      LOST_EDGE_BAND_MAX_PX,
+      Math.round(minDimPx * LOST_EDGE_MAX_DIM_FRACTION)
+    )
+  );
   const eased = Math.pow(intensity, LOST_EDGE_INTENSITY_EXP);
   const edgeBandPx = Math.max(
     LOST_EDGE_BAND_MIN_PX,
-    Math.min(LOST_EDGE_BAND_MAX_PX, Math.round(LOST_EDGE_BAND_MIN_PX + eased * (LOST_EDGE_BAND_MAX_PX - LOST_EDGE_BAND_MIN_PX)))
+    Math.min(maxBandPx, Math.round(LOST_EDGE_BAND_MIN_PX + eased * (maxBandPx - LOST_EDGE_BAND_MIN_PX)))
   );
   const edgeBand = Math.max(1, Math.round(edgeBandPx / tile));
   // Search radius slightly larger than the band to find nearby transparency.
@@ -966,7 +975,6 @@ export const applySierraLiteLostEdgeMask = (
   const effectiveFadeZone = Math.max(1, Math.min(fadeZone, Math.floor(Math.min(coarseW, coarseH) / 2)));
 
   // Early bailout for very small regions: lostedge becomes no-op to avoid overwork and artifacts.
-  const minDimPx = Math.min(width, height);
   if (minDimPx < tile * LOST_EDGE_MIN_DIM_TILE_MULTIPLIER || (minAlpha === 255 && edgeBandPx <= LOST_EDGE_SOLID_SKIP_BAND_PX)) {
     keepMask.fill(255);
     return keepMask;
@@ -1025,9 +1033,11 @@ export const applySierraLiteLostEdgeMask = (
 
       const dist = Math.min(distCoarse[idx], bandRadius);
 
-      if (dist < effectiveFadeZone) {
-        const fade = Math.min(1, Math.max(0, dist / effectiveFadeZone));
-        const value = Math.max(0, Math.min(255, Math.round(255 * fade)));
+      if (dist <= effectiveFadeZone) {
+        const fade = Math.min(1, Math.max(0, (dist - 1) / effectiveFadeZone));
+        const edgeWeight = Math.pow(1 - fade, 1.75);
+        const erosion = Math.min(0.72, Math.pow(intensity, 0.25) * edgeWeight);
+        const value = Math.max(0, Math.min(255, Math.round(255 * (1 - erosion))));
         edgeData[rgbaIndex] = value;
         edgeData[rgbaIndex + 1] = value;
         edgeData[rgbaIndex + 2] = value;
