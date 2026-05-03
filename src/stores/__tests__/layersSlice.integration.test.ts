@@ -210,6 +210,38 @@ describe('layers slice integration', () => {
     expect(mockManager.getBrush).toHaveBeenCalledWith(newLayerId);
   });
 
+  it('blocks store updates from downgrading a color-cycle layer to normal', () => {
+    const store = useAppStore.getState();
+    const layerId = store.addLayer(createColorCycleLayerInput('Protected CC Layer'));
+
+    const before = useAppStore.getState().layers.find((layer) => layer.id === layerId);
+    expect(before?.layerType).toBe('color-cycle');
+    expect(before?.colorCycleData).toBeDefined();
+
+    store.updateLayer(layerId, { layerType: 'normal' });
+
+    const after = useAppStore.getState().layers.find((layer) => layer.id === layerId);
+    expect(after?.layerType).toBe('color-cycle');
+    expect(after?.colorCycleData).toBeDefined();
+  });
+
+  it('blocks store updates from clearing colorCycleData on a color-cycle layer', () => {
+    const store = useAppStore.getState();
+    const layerId = store.addLayer(createColorCycleLayerInput('Protected CC Payload'));
+
+    const before = useAppStore.getState().layers.find((layer) => layer.id === layerId);
+    expect(before?.colorCycleData?.gradient).toEqual([
+      { position: 0, color: '#112233' },
+      { position: 1, color: '#445566' },
+    ]);
+
+    store.updateLayer(layerId, { colorCycleData: undefined });
+
+    const after = useAppStore.getState().layers.find((layer) => layer.id === layerId);
+    expect(after?.layerType).toBe('color-cycle');
+    expect(after?.colorCycleData?.gradient).toEqual(before?.colorCycleData?.gradient);
+  });
+
   it('hydrates an existing color-cycle brush without reinitializing', () => {
     const store = useAppStore.getState();
     const newLayerId = store.addLayer(createColorCycleLayerInput('Hydrate CC Layer'));
