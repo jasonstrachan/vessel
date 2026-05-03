@@ -928,6 +928,9 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
       if (settings.colorCycleSpeed !== undefined) {
         settingsToSave.colorCycleSpeed = newSettings.colorCycleSpeed;
       }
+      if (settings.colorCycleFPS !== undefined) {
+        settingsToSave.colorCycleFPS = newSettings.colorCycleFPS;
+      }
       if (settings.customBrushColorCycle !== undefined) {
         settingsToSave.customBrushColorCycle = newSettings.customBrushColorCycle;
       }
