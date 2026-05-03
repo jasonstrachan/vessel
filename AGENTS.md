@@ -268,6 +268,7 @@ Agent Directives
 
 - Respect repo scope and conventions.
 - Keep changes minimal and surgical; fix root causes.
+- Practice evidence discipline: prove the failing path before patching, prove the fix on that same path, and keep the commit scoped to the evidence-backed change. Treat this as the difference between fast autocomplete and reliable engineering assistance.
 - If a fix attempt is rejected or proven wrong, revert that attempt fully before starting the next approach; do not stack speculative patches.
 - If a patch does not fix the issue and does not clearly improve code quality/clarity, back it out before trying a new approach. Do not stack ineffective patches.
 - Update/add tests when altering logic; run npm test, npm run type-check, npm run lint before PRs.
