@@ -23,6 +23,7 @@ const sanitizeColorCycleData = (
     colorCycleBrush,
     canvas,
     eraseMask,
+    softEdgeMask,
     ...rest
   } = colorCycleData;
   void colorCycleBrush;
@@ -36,12 +37,16 @@ const sanitizeColorCycleData = (
     canvasWidth: rest.canvasWidth ?? canvas?.width,
     canvasHeight: rest.canvasHeight ?? canvas?.height,
     eraseMaskImageData: captureCanvasImageData(eraseMask) ?? rest.eraseMaskImageData,
+    softEdgeMaskImageData: captureCanvasImageData(softEdgeMask) ?? rest.softEdgeMaskImageData,
     colorCycleBrush: undefined,
     canvas: undefined
   };
 
   if (typeof HTMLCanvasElement !== 'undefined' && eraseMask instanceof HTMLCanvasElement) {
     sanitized.eraseMaskVersion = rest.eraseMaskVersion ?? colorCycleData.eraseMaskVersion;
+  }
+  if (typeof HTMLCanvasElement !== 'undefined' && softEdgeMask instanceof HTMLCanvasElement) {
+    sanitized.softEdgeMaskVersion = rest.softEdgeMaskVersion ?? colorCycleData.softEdgeMaskVersion;
   }
 
   if (recolorSettings) {
@@ -53,6 +58,7 @@ const sanitizeColorCycleData = (
   }
 
   delete (sanitized as Record<string, unknown>).eraseMask;
+  delete (sanitized as Record<string, unknown>).softEdgeMask;
 
   return sanitized;
 };
@@ -400,24 +406,35 @@ class BackgroundStorageService {
 
       if (
         layer.layerType === 'color-cycle' &&
-        layer.colorCycleData?.eraseMaskImageData &&
+        (layer.colorCycleData?.eraseMaskImageData || layer.colorCycleData?.softEdgeMaskImageData) &&
         typeof document !== 'undefined'
       ) {
         try {
-          const maskCanvas = document.createElement('canvas');
-          maskCanvas.width = layer.colorCycleData.eraseMaskImageData.width;
-          maskCanvas.height = layer.colorCycleData.eraseMaskImageData.height;
-          const maskCtx = maskCanvas.getContext('2d', {
-            willReadFrequently: true
-          } as CanvasRenderingContext2DSettings);
-          maskCtx?.putImageData(layer.colorCycleData.eraseMaskImageData, 0, 0);
-
+          const eraseMaskCanvas = layer.colorCycleData.eraseMaskImageData
+            ? document.createElement('canvas')
+            : undefined;
+          if (eraseMaskCanvas && layer.colorCycleData.eraseMaskImageData) {
+            eraseMaskCanvas.width = layer.colorCycleData.eraseMaskImageData.width;
+            eraseMaskCanvas.height = layer.colorCycleData.eraseMaskImageData.height;
+            eraseMaskCanvas.getContext('2d', { willReadFrequently: true } as CanvasRenderingContext2DSettings)
+              ?.putImageData(layer.colorCycleData.eraseMaskImageData, 0, 0);
+          }
+          const softEdgeMaskCanvas = layer.colorCycleData.softEdgeMaskImageData
+            ? document.createElement('canvas')
+            : undefined;
+          if (softEdgeMaskCanvas && layer.colorCycleData.softEdgeMaskImageData) {
+            softEdgeMaskCanvas.width = layer.colorCycleData.softEdgeMaskImageData.width;
+            softEdgeMaskCanvas.height = layer.colorCycleData.softEdgeMaskImageData.height;
+            softEdgeMaskCanvas.getContext('2d', { willReadFrequently: true } as CanvasRenderingContext2DSettings)
+              ?.putImageData(layer.colorCycleData.softEdgeMaskImageData, 0, 0);
+          }
           restoredColorCycleData = {
             ...layer.colorCycleData,
-            eraseMask: maskCanvas
+            eraseMask: eraseMaskCanvas,
+            softEdgeMask: softEdgeMaskCanvas
           };
         } catch (error) {
-          debugWarn('raw-console', '[BackgroundStorage] Failed to restore erase mask.', error);
+          debugWarn('raw-console', '[BackgroundStorage] Failed to restore color cycle masks.', error);
         }
       }
 

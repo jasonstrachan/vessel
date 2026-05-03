@@ -57,4 +57,48 @@ describe('buildLayersHash', () => {
 
     expect(baseHash).not.toBe(nextHash);
   });
+
+  it('changes when color-cycle soft edge mask version changes', () => {
+    const ccBase = createLayer({
+      layerType: 'color-cycle',
+      colorCycleData: {
+        gradient: [],
+        isAnimating: false,
+        softEdgeMaskVersion: 1,
+      },
+    });
+    const ccNext = createLayer({
+      layerType: 'color-cycle',
+      colorCycleData: {
+        gradient: [],
+        isAnimating: false,
+        softEdgeMaskVersion: 2,
+      },
+    });
+
+    expect(buildLayersHash([ccBase])).not.toBe(buildLayersHash([ccNext]));
+  });
+
+  it('changes when color-cycle soft edge mask enabled state changes', () => {
+    const ccBase = createLayer({
+      layerType: 'color-cycle',
+      colorCycleData: {
+        gradient: [],
+        isAnimating: false,
+        softEdgeMaskVersion: 1,
+        softEdgeMaskEnabled: true,
+      },
+    });
+    const ccNext = createLayer({
+      layerType: 'color-cycle',
+      colorCycleData: {
+        gradient: [],
+        isAnimating: false,
+        softEdgeMaskVersion: 1,
+        softEdgeMaskEnabled: false,
+      },
+    });
+
+    expect(buildLayersHash([ccBase])).not.toBe(buildLayersHash([ccNext]));
+  });
 });

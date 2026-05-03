@@ -734,6 +734,9 @@ export interface AppState {
   newProject: (width: number, height: number, name?: string) => void;
   compositeLayersToCanvas: (targetCanvas: HTMLCanvasElement) => void;
   compositeLayersToCanvasSync: (targetCanvas: HTMLCanvasElement) => boolean;
+  applyColorCycleSoftEdgeMask: (layerId: string, radius: number) => Promise<boolean>;
+  setColorCycleSoftEdgeMaskEnabled: (layerId: string, enabled: boolean) => void;
+  clearColorCycleSoftEdgeMask: (layerId: string) => void;
   captureCanvasToActiveLayer: (
     sourceCanvas?: HTMLCanvasElement,
     roi?: CaptureROI,

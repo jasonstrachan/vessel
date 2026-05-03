@@ -15,6 +15,7 @@ export const mapCanvasActionToHistoryId = (
     case 'delete':
       return 'layer-bitmap';
     case 'color-adjust':
+    case 'color-cycle-soft-edge-mask':
       return 'layer-bitmap';
     case 'layer':
     case 'layers':

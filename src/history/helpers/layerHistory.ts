@@ -1,6 +1,7 @@
 import historyManager from '@/history/historyService';
 import { createBitmapTileDelta } from '@/history/deltas/bitmapDelta';
 import { createColorCycleEraseMaskPatchDelta } from '@/history/deltas/colorCycleEraseMaskPatchDelta';
+import { createColorCycleSoftEdgeMaskDelta } from '@/history/deltas/colorCycleSoftEdgeMaskDelta';
 import { createColorCycleStrokePatchDelta } from '@/history/deltas/colorCycleStrokePatchDelta';
 import { mapCanvasActionToHistoryId } from './actions';
 import { captureColorCycleBrushState, type ColorCycleSerializedState } from './colorCycle';
@@ -328,6 +329,11 @@ export const commitLayerHistory = async ({
             })
           : null;
         pushDelta(eraseMaskDelta);
+        pushDelta(createColorCycleSoftEdgeMaskDelta({
+          layerId,
+          forwardState: afterColorState,
+          backwardState: beforeColorState,
+        }));
       }
 
       if (selectionBeforeSnapshot) {

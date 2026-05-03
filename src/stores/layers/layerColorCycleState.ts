@@ -692,6 +692,15 @@ export const cloneColorCycleData = (
     eraseMaskImageData: stripSurfaces
       ? undefined
       : cloneImageData(data.eraseMaskImageData ?? null) ?? undefined,
+    softEdgeMask: stripSurfaces
+      ? undefined
+      : data.softEdgeMask
+        ? (cloneCanvasLike(data.softEdgeMask, null, { forceDom: true }) as HTMLCanvasElement | null) || undefined
+        : undefined,
+    softEdgeMaskImageData: stripSurfaces
+      ? undefined
+      : cloneImageData(data.softEdgeMaskImageData ?? null) ?? undefined,
+    softEdgeMaskEnabled: data.softEdgeMaskEnabled,
     hasContent: stripSurfaces ? false : data.hasContent,
     recolorSettings: clonedRecolorSettings,
   };

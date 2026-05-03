@@ -2634,6 +2634,20 @@ const resolveColorCycleMaskImage = (layer: Layer): ImageData | undefined => {
   return captureCanvasImageData(data.eraseMask ?? null) ?? undefined;
 };
 
+const resolveColorCycleSoftEdgeMaskImage = (layer: Layer): ImageData | undefined => {
+  const data = layer.colorCycleData;
+  if (!data) {
+    return undefined;
+  }
+  if (data.softEdgeMaskEnabled === false) {
+    return undefined;
+  }
+  if (data.softEdgeMaskImageData) {
+    return data.softEdgeMaskImageData;
+  }
+  return captureCanvasImageData(data.softEdgeMask ?? null) ?? undefined;
+};
+
 const extractAlphaChannel = (imageData: ImageData): Uint8Array => {
   const width = Math.max(1, Math.floor(imageData.width));
   const height = Math.max(1, Math.floor(imageData.height));
@@ -2728,6 +2742,24 @@ const captureColorCycleMaskDataset = (
     height: normalizedHeight,
     values,
     coverage
+  };
+};
+
+const captureColorCycleSoftEdgeMaskDataset = (
+  layer: Layer,
+  width: number,
+  height: number
+): ColorCycleMaskDataset | undefined => {
+  const maskSource = resolveColorCycleSoftEdgeMaskImage(layer);
+  if (!maskSource) {
+    return undefined;
+  }
+  const normalizedWidth = Math.max(1, Math.floor(width));
+  const normalizedHeight = Math.max(1, Math.floor(height));
+  return {
+    width: normalizedWidth,
+    height: normalizedHeight,
+    values: resampleAlphaChannel(maskSource, normalizedWidth, normalizedHeight),
   };
 };
 
@@ -3190,6 +3222,13 @@ export const serializeColorCycleData = async (
     maskDimensions.height,
     alphaMaskDataset
   );
+  const softEdgeMaskDataset = captureColorCycleSoftEdgeMaskDataset(layer, maskDimensions.width, maskDimensions.height);
+  const softEdgeMaskResult = await serializeColorCycleAlphaMask(
+    layer,
+    maskDimensions.width,
+    maskDimensions.height,
+    softEdgeMaskDataset
+  );
   if (alphaMaskResult) {
     if (brushState && Array.isArray(brushState.indexBuffer)) {
       applyAlphaMaskToIndexBuffer(brushState.indexBuffer, alphaMaskResult.values);
@@ -3228,6 +3267,7 @@ export const serializeColorCycleData = async (
 
   let brushCoverageSource = coverage?.source;
   let croppedAlphaMaskValues: Uint8Array | undefined;
+  let croppedSoftEdgeMaskValues: Uint8Array | undefined;
   let sourceCropPx: WebGLLayerBounds | undefined;
   let sourceCropBasis: { width: number; height: number } | undefined;
   if (brushState) {
@@ -3248,6 +3288,19 @@ export const serializeColorCycleData = async (
       ) {
         croppedAlphaMaskValues = cropMaskValuesToBounds(
           alphaMaskResult.values,
+          brushState.width,
+          brushState.height,
+          coverage.source
+        );
+      }
+      if (
+        softEdgeMaskResult &&
+        coverage?.source &&
+        softEdgeMaskResult.payload.width === brushState.width &&
+        softEdgeMaskResult.payload.height === brushState.height
+      ) {
+        croppedSoftEdgeMaskValues = cropMaskValuesToBounds(
+          softEdgeMaskResult.values,
           brushState.width,
           brushState.height,
           coverage.source
@@ -3275,6 +3328,21 @@ export const serializeColorCycleData = async (
       }
     } else {
       serialized.alphaMask = alphaMaskResult.payload;
+    }
+  }
+
+  if (softEdgeMaskResult) {
+    if (croppedSoftEdgeMaskValues) {
+      const encodedSoftEdgeMask = await packNumericArrayForExport(croppedSoftEdgeMaskValues);
+      if (encodedSoftEdgeMask) {
+        serialized.softEdgeMask = {
+          width: brushState?.width ?? softEdgeMaskResult.payload.width,
+          height: brushState?.height ?? softEdgeMaskResult.payload.height,
+          data: encodedSoftEdgeMask
+        };
+      }
+    } else {
+      serialized.softEdgeMask = softEdgeMaskResult.payload;
     }
   }
 

@@ -510,6 +510,15 @@ export const createProjectSlice =
               { forceDom: true }
             )
           : null;
+        const scaledSoftEdgeMask = layer.colorCycleData.softEdgeMask || layer.colorCycleData.softEdgeMaskImageData
+          ? scaleCanvasContent(
+              layer.colorCycleData.softEdgeMask,
+              layer.colorCycleData.softEdgeMaskImageData,
+              width,
+              height,
+              { forceDom: true }
+            )
+          : null;
         const scaledOriginalImage = layer.colorCycleData.recolorSettings?.originalImageData
           ? scaleCanvasContent(
               null,
@@ -575,6 +584,12 @@ export const createProjectSlice =
             eraseMaskImageData:
               scaledEraseMask?.imageData ??
               layer.colorCycleData.eraseMaskImageData,
+            softEdgeMask:
+              (scaledSoftEdgeMask?.canvas as HTMLCanvasElement | null) ??
+              layer.colorCycleData.softEdgeMask,
+            softEdgeMaskImageData:
+              scaledSoftEdgeMask?.imageData ??
+              layer.colorCycleData.softEdgeMaskImageData,
             recolorSettings: layer.colorCycleData.recolorSettings
               ? {
                   ...layer.colorCycleData.recolorSettings,

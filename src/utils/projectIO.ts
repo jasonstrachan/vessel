@@ -844,6 +844,9 @@ interface SerializedColorCycleLayerData {
   canvasHeight?: number;
   eraseMaskImageData?: string;
   eraseMaskVersion?: number;
+  softEdgeMaskImageData?: string;
+  softEdgeMaskEnabled?: boolean;
+  softEdgeMaskVersion?: number;
   repairStatus?: NonNullable<NonNullable<Layer['colorCycleData']>['repairStatus']>;
   // Legacy fallback data retained for backward compatibility
   webGLState?: {
@@ -1905,6 +1908,11 @@ const collectLayerArchiveBinaryEntries = (
   colorCycleData.eraseMaskImageData = externalizeArchiveTextValue(
     colorCycleData.eraseMaskImageData,
     `buffers/color-cycle/${layer.id}/erase-mask.txt`,
+    entries,
+  );
+  colorCycleData.softEdgeMaskImageData = externalizeArchiveTextValue(
+    colorCycleData.softEdgeMaskImageData,
+    `buffers/color-cycle/${layer.id}/soft-edge-mask.txt`,
     entries,
   );
   if (colorCycleData.recolorSettings) {
@@ -3116,11 +3124,13 @@ async function serializeLayer(layer: Layer): Promise<SerializedLayer> {
     }
     const canvasImageData = await resolveColorCycleCanvasImageDataForSave(layer);
     const eraseMaskImageData = sourceColorCycleData.eraseMaskImageData ?? captureCanvasImageData(sourceColorCycleData.eraseMask ?? null);
+    const softEdgeMaskImageData = sourceColorCycleData.softEdgeMaskImageData ?? captureCanvasImageData(sourceColorCycleData.softEdgeMask ?? null);
     const colorCycleData = {
       ...sourceColorCycleData,
       brushState: snapshot.ok ? snapshot.brushState : sourceColorCycleData.brushState,
       canvasImageData: canvasImageData ?? sourceColorCycleData.canvasImageData,
-      eraseMaskImageData: eraseMaskImageData ?? sourceColorCycleData.eraseMaskImageData
+      eraseMaskImageData: eraseMaskImageData ?? sourceColorCycleData.eraseMaskImageData,
+      softEdgeMaskImageData: softEdgeMaskImageData ?? sourceColorCycleData.softEdgeMaskImageData,
     };
     const serializedColorCycle: SerializedColorCycleLayerData = {
       gradient: shouldPersistLegacyColorCycleGradient(colorCycleData)
@@ -3146,6 +3156,22 @@ async function serializeLayer(layer: Layer): Promise<SerializedLayer> {
 
     if (typeof colorCycleData.eraseMaskVersion === 'number') {
       serializedColorCycle.eraseMaskVersion = colorCycleData.eraseMaskVersion;
+    }
+
+    if (colorCycleData.softEdgeMaskImageData) {
+      try {
+        serializedColorCycle.softEdgeMaskImageData = await imageDataToDataUrl(colorCycleData.softEdgeMaskImageData);
+      } catch (error) {
+        debugWarn('raw-console', '[projectIO] Failed to serialize color cycle soft edge mask:', error);
+      }
+    }
+
+    if (typeof colorCycleData.softEdgeMaskVersion === 'number') {
+      serializedColorCycle.softEdgeMaskVersion = colorCycleData.softEdgeMaskVersion;
+    }
+
+    if (typeof colorCycleData.softEdgeMaskEnabled === 'boolean') {
+      serializedColorCycle.softEdgeMaskEnabled = colorCycleData.softEdgeMaskEnabled;
     }
 
     if (colorCycleData.repairStatus?.ok === false) {
@@ -3506,6 +3532,23 @@ async function deserializeLayer(serializedLayer: SerializedLayer, projectWidth: 
         baseColorCycleData.eraseMaskVersion = serializedLayer.colorCycleData.eraseMaskVersion ?? 0;
       } catch (error) {
         debugWarn('raw-console', '[projectIO] Failed to restore color cycle erase mask:', error);
+      }
+    }
+
+    if (serializedLayer.colorCycleData.softEdgeMaskImageData) {
+      try {
+        const softEdgeMaskData = await dataUrlToImageData(serializedLayer.colorCycleData.softEdgeMaskImageData);
+        const maskCanvas = document.createElement('canvas');
+        maskCanvas.width = softEdgeMaskData.width;
+        maskCanvas.height = softEdgeMaskData.height;
+        const maskCtx = maskCanvas.getContext('2d', { willReadFrequently: true } as CanvasRenderingContext2DSettings);
+        maskCtx?.putImageData(softEdgeMaskData, 0, 0);
+        baseColorCycleData.softEdgeMask = maskCanvas;
+        baseColorCycleData.softEdgeMaskImageData = softEdgeMaskData;
+        baseColorCycleData.softEdgeMaskEnabled = serializedLayer.colorCycleData.softEdgeMaskEnabled ?? true;
+        baseColorCycleData.softEdgeMaskVersion = serializedLayer.colorCycleData.softEdgeMaskVersion ?? 0;
+      } catch (error) {
+        debugWarn('raw-console', '[projectIO] Failed to restore color cycle soft edge mask:', error);
       }
     }
 
@@ -4424,6 +4467,9 @@ const removeDanglingColorCycleArchiveRefs = (
   if (isMissingRef(colorCycleData.eraseMaskImageData)) {
     colorCycleData.eraseMaskImageData = undefined;
   }
+  if (isMissingRef(colorCycleData.softEdgeMaskImageData)) {
+    colorCycleData.softEdgeMaskImageData = undefined;
+  }
   if (colorCycleData.recolorSettings) {
     if (isMissingRef(colorCycleData.recolorSettings.indexBuffer)) {
       colorCycleData.recolorSettings.indexBuffer = undefined;
@@ -5052,6 +5098,7 @@ const hydrateSerializedLayerArchiveRefs = async (
 
   colorCycleData.canvasImageData = (await hydrateArchiveTextRef(colorCycleData.canvasImageData, zip, binaryManifest, cache)) ?? colorCycleData.canvasImageData;
   colorCycleData.eraseMaskImageData = (await hydrateArchiveTextRef(colorCycleData.eraseMaskImageData, zip, binaryManifest, cache)) ?? colorCycleData.eraseMaskImageData;
+  colorCycleData.softEdgeMaskImageData = (await hydrateArchiveTextRef(colorCycleData.softEdgeMaskImageData, zip, binaryManifest, cache)) ?? colorCycleData.softEdgeMaskImageData;
   if (colorCycleData.recolorSettings) {
     colorCycleData.recolorSettings.indexBuffer =
       await hydrateArchiveBinaryRef(colorCycleData.recolorSettings.indexBuffer, zip, binaryManifest, cache);

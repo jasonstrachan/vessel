@@ -44,6 +44,7 @@ const cloneLayerForReplay = (layer: Layer): Layer => ({
         isAnimating: false,
         canvasImageData: cloneImageData(layer.colorCycleData.canvasImageData) ?? undefined,
         eraseMaskImageData: cloneImageData(layer.colorCycleData.eraseMaskImageData) ?? undefined,
+        softEdgeMaskImageData: cloneImageData(layer.colorCycleData.softEdgeMaskImageData) ?? undefined,
         gradient: layer.colorCycleData.gradient
           ? layer.colorCycleData.gradient.map((stop) => ({ ...stop }))
           : undefined,

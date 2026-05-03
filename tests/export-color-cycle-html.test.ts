@@ -1118,6 +1118,11 @@ describe('exportProjectAsWebGL color cycle integration', () => {
       8,
       (x, y) => x === 3 && y === 2
     );
+    layer.colorCycleData!.softEdgeMaskImageData = createEraseMaskData(
+      8,
+      8,
+      (x, y) => x >= 2 && x <= 4 && y >= 1 && y <= 3
+    );
     const project = createProject(layer);
     const layout = createDefaultExportLayout();
 
@@ -1144,6 +1149,8 @@ describe('exportProjectAsWebGL color cycle integration', () => {
     expect(exportedLayer.colorCycle?.brushState?.height).toBe(2);
     expect(exportedLayer.colorCycle?.alphaMask?.width).toBe(2);
     expect(exportedLayer.colorCycle?.alphaMask?.height).toBe(2);
+    expect(exportedLayer.colorCycle?.softEdgeMask?.width).toBe(2);
+    expect(exportedLayer.colorCycle?.softEdgeMask?.height).toBe(2);
     expect(exportedLayer.colorCycle?.coverageBoundsSourcePx).toEqual({
       x: 0,
       y: 0,

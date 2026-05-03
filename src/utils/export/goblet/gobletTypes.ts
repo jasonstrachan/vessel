@@ -109,6 +109,7 @@ export interface WebGLSerializedColorCycle {
   brushState?: WebGLSerializedBrushState;
   slotPalettes?: SerializedSlotPalette[];
   alphaMask?: WebGLSerializedAlphaMask;
+  softEdgeMask?: WebGLSerializedAlphaMask;
   coverageBoundsPx?: WebGLLayerBounds;
   coverageBoundsSourcePx?: WebGLLayerBounds;
 }

@@ -516,6 +516,9 @@ export interface ColorCyclePersistedCompatibilityData {
   canvasHeight?: number;
   eraseMaskImageData?: ImageData;
   eraseMaskVersion?: number;
+  softEdgeMaskImageData?: ImageData;
+  softEdgeMaskEnabled?: boolean;
+  softEdgeMaskVersion?: number;
   recolorSettings?: ColorCycleRecolorSettings;
 }
 
@@ -547,6 +550,7 @@ export interface ColorCycleRuntimeData {
    */
   canvas?: HTMLCanvasElement;
   eraseMask?: HTMLCanvasElement;
+  softEdgeMask?: HTMLCanvasElement;
   brushState?: unknown;
   runtimeHydrationState?: 'cold' | 'warm' | 'active';
   deferredRuntimeRestore?: boolean;
@@ -1197,7 +1201,7 @@ export interface CanvasSnapshot {
   layers: Layer[];  // Full layers state
   activeLayerId: string;  // Active layer at time of snapshot
   // Expanded to include structural layer operations captured in history
-  actionType: 'brush' | 'eraser' | 'fill' | 'selection' | 'crop' | 'paste' | 'delete' | 'color-adjust'
+  actionType: 'brush' | 'eraser' | 'fill' | 'selection' | 'crop' | 'paste' | 'delete' | 'color-adjust' | 'color-cycle-soft-edge-mask'
             | 'layer' | 'layers' | 'structure'
             | 'layer-add' | 'layer-remove' | 'layer-reorder' | 'layer-duplicate' | 'layer-merge';
   description: string;
