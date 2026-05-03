@@ -1448,6 +1448,9 @@ export class ColorCycleBrushCanvas2D {
       if (strokeData.buffers.flow.length !== this.width * this.height) {
         strokeData.buffers.flow = new Uint8Array(this.width * this.height);
       }
+      if (strokeData.buffers.phase.length !== this.width * this.height) {
+        strokeData.buffers.phase = new Uint8Array(this.width * this.height);
+      }
       if (strokeData.buffers.def.length !== this.width * this.height) {
         strokeData.buffers.def = new Uint16Array(this.width * this.height);
       }
@@ -4009,8 +4012,8 @@ export class ColorCycleBrushCanvas2D {
       if (strokeData.buffers.flow.length === 0) {
         strokeData.buffers.flow = new Uint8Array(this.width * this.height);
       }
-      if (strokeData.buffers.flow.length === 0) {
-        strokeData.buffers.flow = new Uint8Array(this.width * this.height);
+      if (strokeData.buffers.phase.length === 0) {
+        strokeData.buffers.phase = new Uint8Array(this.width * this.height);
       }
       if (strokeData.buffers.def.length === 0) {
         strokeData.buffers.def = new Uint16Array(this.width * this.height);
@@ -5103,6 +5106,12 @@ export class ColorCycleBrushCanvas2D {
       }
       if (strokeData.buffers.spd.length === 0) {
         strokeData.buffers.spd = new Uint8Array(this.width * this.height);
+      }
+      if (strokeData.buffers.flow.length === 0) {
+        strokeData.buffers.flow = new Uint8Array(this.width * this.height);
+      }
+      if (strokeData.buffers.phase.length === 0) {
+        strokeData.buffers.phase = new Uint8Array(this.width * this.height);
       }
       if (strokeData.buffers.def.length === 0) {
         strokeData.buffers.def = new Uint16Array(this.width * this.height);

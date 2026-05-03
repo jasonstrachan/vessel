@@ -3379,4 +3379,29 @@ describe('ColorCycleBrushCanvas2D regression tests', () => {
 
     expect(getPersistedCCMutationLog()).toEqual([]);
   });
+
+  it('serializes all canonical motion channels after filling a reduced-init shape layer', async () => {
+    const canvas = makeCanvas(4, 4);
+    const brush = new ColorCycleBrushCanvas2D(canvas, { forceCanvas2D: true });
+    const layerId = 'layer-reduced-init-shape-fill';
+
+    (brush as unknown as {
+      createAnimator: (id: string, options: { initial: 'reduced' | 'full' }) => unknown;
+    }).createAnimator(layerId, { initial: 'reduced' });
+
+    await brush.fillShape([
+      { x: 0, y: 0 },
+      { x: 3, y: 0 },
+      { x: 3, y: 3 },
+      { x: 0, y: 3 },
+    ], layerId, 1);
+
+    const serializedLayer = brush.serialize().layers.find((layer) => layer.layerId === layerId);
+    expect(serializedLayer?.strokeData?.paintBuffer?.byteLength).toBe(16);
+    expect(serializedLayer?.strokeData?.gradientIdBuffer?.byteLength).toBe(16);
+    expect(serializedLayer?.strokeData?.gradientDefIdBuffer?.byteLength).toBe(32);
+    expect(serializedLayer?.strokeData?.speedBuffer?.byteLength).toBe(16);
+    expect(serializedLayer?.strokeData?.flowBuffer?.byteLength).toBe(16);
+    expect(serializedLayer?.strokeData?.phaseBuffer?.byteLength).toBe(16);
+  });
 });
