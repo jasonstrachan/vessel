@@ -6,6 +6,8 @@ import { render, fireEvent } from '@testing-library/react';
 import {
   createPointerHandlers,
   createDefaultContourLinesState,
+  resolveDitherShapePreviewBufferSize,
+  resolvePreviewDitherPixelSize,
   shouldAllowOutOfBoundsPointerDown,
 } from '@/hooks/canvas/handlers/pointerHandlers';
 import { BrushShape } from '@/types';
@@ -227,6 +229,35 @@ describe('pointerHandlers smoke', () => {
     expect(
       shouldAllowOutOfBoundsPointerDown(deps.dynamicDepsRef.current.tools, 'dither-shape')
     ).toBe(true);
+  });
+
+  it('scales dither-shape preview pixel size into capped preview-buffer coordinates', () => {
+    const wideBuffer = resolveDitherShapePreviewBufferSize({
+      worldWidth: 2048,
+      worldHeight: 128,
+      maxSize: 512,
+    });
+
+    expect(wideBuffer).toEqual({
+      width: 512,
+      height: 32,
+    });
+
+    expect(
+      resolvePreviewDitherPixelSize({
+        worldPixelSize: 28,
+        scaleX: wideBuffer.width / 2048,
+        scaleY: wideBuffer.height / 128,
+      })
+    ).toBe(7);
+
+    expect(
+      resolvePreviewDitherPixelSize({
+        worldPixelSize: 28,
+        scaleX: 1,
+        scaleY: 1,
+      })
+    ).toBe(28);
   });
 
   it('allows out-of-bounds starts for color-cycle-gradient preset in shape mode', () => {
