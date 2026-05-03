@@ -987,6 +987,14 @@ export const createSelectionPasteHelpers = ({
     ) {
       const targetLayer = state.layers.find((layer) => layer.id === floatingPaste.sourceLayerId);
       if (targetLayer && targetLayer.layerType === 'color-cycle') {
+        const bitmapAlphaData = floatingPaste.imageData?.data ?? null;
+        const hasBitmapAlpha = bitmapAlphaData
+          ? bitmapAlphaData.some((value, index) => index % 4 === 3 && value > 0)
+          : false;
+        const synthesizedAlpha = hasBitmapAlpha
+          ? null
+          : buildOpaqueAlphaFromIndices(floatingPaste.colorCycleIndices);
+        const alphaData = hasBitmapAlpha ? bitmapAlphaData : synthesizedAlpha;
         writeColorCycleRegion(
           state,
           targetLayer,
@@ -1006,8 +1014,14 @@ export const createSelectionPasteHelpers = ({
             sourceSpeed: floatingPaste.colorCycleSpeed,
             sourceFlow: floatingPaste.colorCycleFlow,
             sourcePhase: floatingPaste.colorCyclePhase,
+            alphaData,
+            alphaStride: hasBitmapAlpha ? 4 : 1,
+            alphaChannelOffset: hasBitmapAlpha ? 3 : 0,
+            alphaThreshold: 0,
           }
         );
+        state.scheduleColorCycleSlotRebuild?.('selection-paste-cancel');
+        requestGradientApply(targetLayer.id, 'selection-paste-cancel');
         state.setLayersNeedRecomposition(true);
         state.setCurrentCompositeBitmap(null);
         set({ floatingPaste: null, floatingPasteHistoryContext: null });

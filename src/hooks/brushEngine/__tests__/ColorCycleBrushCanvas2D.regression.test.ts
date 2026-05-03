@@ -1955,6 +1955,138 @@ describe('ColorCycleBrushCanvas2D regression tests', () => {
     expect(violations).toBe(0);
   });
 
+  it('keeps max lost-edge sparse on every high-resolution pxl-edge side for off-grid bounds', async () => {
+    const canvas = makeCanvas(64, 64);
+    const brush = new ColorCycleBrushCanvas2D(canvas, { forceCanvas2D: true });
+    const layerId = 'layer-lost-edge-pxl-edge';
+
+    brush.setDitherEnabled(false);
+    brush.setDitherPixelSize(28);
+    brush.setPxlEdgeEnabled(true);
+    brush.setGradientBands(16);
+    brush.setBandSpacing(1);
+    brush.startStroke(layerId);
+
+    const vertices = [
+      { x: 5, y: 5 },
+      { x: 38, y: 5 },
+      { x: 38, y: 38 },
+      { x: 5, y: 38 },
+    ];
+
+    await brush.fillShapeDispatch({
+      mode: 'linear',
+      vertices,
+      layerId,
+      direction: { x: 1, y: 0 },
+      options: { spacing: 1, lostEdge: 100 },
+    });
+
+    const animator = (brush as unknown as {
+      animators: Map<string, { getIndexBuffers: () => { data: Uint8Array } }>;
+    }).animators.get(layerId);
+    if (!animator) {
+      throw new Error('Missing animator for pxl-edge lost-edge test');
+    }
+
+    const data = animator.getIndexBuffers().data;
+    const sideBandCount = (side: 'top' | 'bottom' | 'left' | 'right') => {
+      let count = 0;
+      for (let y = 5; y <= 38; y += 1) {
+        for (let x = 5; x <= 38; x += 1) {
+          const inBand =
+            (side === 'top' && y < 13) ||
+            (side === 'bottom' && y > 30) ||
+            (side === 'left' && x < 13) ||
+            (side === 'right' && x > 30);
+          if (inBand && data[y * canvas.width + x] > 0) {
+            count += 1;
+          }
+        }
+      }
+      return count;
+    };
+    const sideBandArea = 34 * 8;
+
+    for (const count of [
+      sideBandCount('top'),
+      sideBandCount('bottom'),
+      sideBandCount('left'),
+      sideBandCount('right'),
+    ]) {
+      expect(count).toBeGreaterThan(0);
+      expect(count).toBeLessThan(sideBandArea);
+    }
+  });
+
+  it('restores overlapped gradient def ids when lost-edge drops current-fill pixels', async () => {
+    const canvas = makeCanvas(64, 64);
+    const brush = new ColorCycleBrushCanvas2D(canvas, { forceCanvas2D: true });
+    const layerId = 'layer-lost-edge-overlap-def';
+    const firstDefId = 11;
+    const secondDefId = 22;
+
+    brush.setDitherEnabled(false);
+    brush.setDitherPixelSize(4);
+    brush.setPxlEdgeEnabled(true);
+    brush.setGradientBands(16);
+    brush.setBandSpacing(1);
+    brush.startStroke(layerId);
+
+    await brush.fillShapeDispatch({
+      mode: 'linear',
+      vertices: [
+        { x: 8, y: 8 },
+        { x: 42, y: 8 },
+        { x: 42, y: 42 },
+        { x: 8, y: 42 },
+      ],
+      layerId,
+      direction: { x: 1, y: 0 },
+      options: { spacing: 1, lostEdge: 0, paintDefIdOverride: firstDefId },
+    });
+
+    await brush.fillShapeDispatch({
+      mode: 'linear',
+      vertices: [
+        { x: 20, y: 20 },
+        { x: 52, y: 20 },
+        { x: 52, y: 52 },
+        { x: 20, y: 52 },
+      ],
+      layerId,
+      direction: { x: 1, y: 0 },
+      options: { spacing: 1, lostEdge: 100, paintDefIdOverride: secondDefId },
+    });
+
+    const strokeData = (brush as unknown as {
+      layerStrokes: Map<string, { buffers: { paint: Uint8Array; def: Uint16Array } }>;
+    }).layerStrokes.get(layerId);
+    if (!strokeData) {
+      throw new Error('Missing stroke data for lost-edge overlap test');
+    }
+
+    let restoredFirstDef = 0;
+    let keptSecondDef = 0;
+    for (let y = 20; y <= 42; y += 1) {
+      for (let x = 20; x <= 42; x += 1) {
+        const index = y * canvas.width + x;
+        if (strokeData.buffers.paint[index] === 0) {
+          continue;
+        }
+        if (strokeData.buffers.def[index] === firstDefId) {
+          restoredFirstDef += 1;
+        }
+        if (strokeData.buffers.def[index] === secondDefId) {
+          keptSecondDef += 1;
+        }
+      }
+    }
+
+    expect(restoredFirstDef).toBeGreaterThan(0);
+    expect(keptSecondDef).toBeGreaterThan(0);
+  });
+
   it('keeps non-dither live preview speed static but enables playback speed on stroke end', () => {
     const canvas = makeCanvas(16, 16);
     const brush = new ColorCycleBrushCanvas2D(canvas, { forceCanvas2D: true });

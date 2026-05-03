@@ -503,6 +503,107 @@ describe('selection paste commit', () => {
     expect(state.floatingPaste).toBeNull();
   });
 
+  it('uses floating paste alpha when cancel restores a moved freehand color-cycle selection', () => {
+    const colorCycleIndices = new Uint8Array([
+      1, 0,
+      0, 4,
+    ]);
+    const imageData = new ImageData(
+      new Uint8ClampedArray([
+        255, 0, 0, 255, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 255, 255,
+      ]),
+      2,
+      2
+    );
+    const { helpers, state, layer } = setupHelpers(
+      {
+        imageData,
+        colorCycleIndices,
+        width: 2,
+        height: 2,
+        displayWidth: 2,
+        displayHeight: 2,
+        originalPosition: { x: 6, y: 7 },
+        position: { x: 20, y: 21 },
+      },
+      {
+        layerType: 'color-cycle',
+      }
+    );
+
+    helpers.cancelFloatingPaste();
+
+    expect(mockWriteColorCycleRegion).toHaveBeenCalledTimes(1);
+    expect(mockWriteColorCycleRegion).toHaveBeenCalledWith(
+      state,
+      layer,
+      state.project,
+      { x: 6, y: 7, width: 2, height: 2 },
+      colorCycleIndices,
+      2,
+      2,
+      expect.objectContaining({
+        alphaData: imageData.data,
+        alphaStride: 4,
+        alphaChannelOffset: 3,
+        alphaThreshold: 0,
+      })
+    );
+    expect(state.scheduleColorCycleSlotRebuild).toHaveBeenCalledWith('selection-paste-cancel');
+    expect(requestGradientApply).toHaveBeenCalledWith(layer.id, 'selection-paste-cancel');
+    expect(state.setLayersNeedRecomposition).toHaveBeenCalledWith(true);
+    expect(state.setCurrentCompositeBitmap).toHaveBeenCalledWith(null);
+    expect(state.floatingPaste).toBeNull();
+  });
+
+  it('synthesizes alpha from color-cycle indices when cancel bitmap alpha is blank', () => {
+    const colorCycleIndices = new Uint8Array([
+      1, 0,
+      0, 4,
+    ]);
+    const imageData = new ImageData(new Uint8ClampedArray(2 * 2 * 4), 2, 2);
+    const { helpers, state, layer } = setupHelpers(
+      {
+        imageData,
+        colorCycleIndices,
+        width: 2,
+        height: 2,
+        displayWidth: 2,
+        displayHeight: 2,
+        originalPosition: { x: 6, y: 7 },
+        position: { x: 20, y: 21 },
+      },
+      {
+        layerType: 'color-cycle',
+      }
+    );
+
+    helpers.cancelFloatingPaste();
+
+    expect(mockWriteColorCycleRegion).toHaveBeenCalledTimes(1);
+    expect(mockWriteColorCycleRegion).toHaveBeenCalledWith(
+      state,
+      layer,
+      state.project,
+      { x: 6, y: 7, width: 2, height: 2 },
+      colorCycleIndices,
+      2,
+      2,
+      expect.objectContaining({
+        alphaData: new Uint8Array([255, 0, 0, 255]),
+        alphaStride: 1,
+        alphaChannelOffset: 0,
+        alphaThreshold: 0,
+      })
+    );
+    expect(state.scheduleColorCycleSlotRebuild).toHaveBeenCalledWith('selection-paste-cancel');
+    expect(requestGradientApply).toHaveBeenCalledWith(layer.id, 'selection-paste-cancel');
+    expect(state.setLayersNeedRecomposition).toHaveBeenCalledWith(true);
+    expect(state.setCurrentCompositeBitmap).toHaveBeenCalledWith(null);
+    expect(state.floatingPaste).toBeNull();
+  });
+
   it('warms a cold color-cycle target before committing pasted indices', async () => {
     const { helpers, state, layer } = setupHelpers(
       {
