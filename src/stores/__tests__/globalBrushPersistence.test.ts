@@ -274,6 +274,10 @@ describe('global brush persistence', () => {
           ditherPatternDiversity: 44,
           ditherPaletteSpread: 55,
           ditherGradBgFill: false,
+          colorCycleSpeed: 0.25,
+          colorCycleFPS: 24,
+          colorCycleFillMode: 'concentric',
+          velocityAnimationSpeedEnabled: true,
         },
       },
       lastBrushId: 'color-cycle-gradient',
@@ -293,6 +297,10 @@ describe('global brush persistence', () => {
     expect(active.ditherPatternDiversity).toBe(44);
     expect(active.ditherPaletteSpread).toBe(55);
     expect(active.ditherGradBgFill).toBe(false);
+    expect(active.colorCycleSpeed).toBe(0.25);
+    expect(active.colorCycleFPS).toBe(24);
+    expect(active.colorCycleFillMode).toBe('concentric');
+    expect(active.velocityAnimationSpeedEnabled).toBe(true);
 
     store.setBrushSettings({
       fillResolution: 9,
@@ -304,6 +312,10 @@ describe('global brush persistence', () => {
       ditherPatternDiversity: 66,
       ditherPaletteSpread: 77,
       ditherGradBgFill: true,
+      colorCycleSpeed: 0.5,
+      colorCycleFPS: 48,
+      colorCycleFillMode: 'linear',
+      velocityAnimationSpeedEnabled: false,
     });
 
     jest.advanceTimersByTime(300);
@@ -319,6 +331,10 @@ describe('global brush persistence', () => {
         ditherPatternDiversity: 66,
         ditherPaletteSpread: 77,
         ditherGradBgFill: true,
+        colorCycleSpeed: 0.5,
+        colorCycleFPS: 48,
+        colorCycleFillMode: 'linear',
+        velocityAnimationSpeedEnabled: false,
       })
     );
   });

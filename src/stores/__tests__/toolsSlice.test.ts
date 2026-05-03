@@ -111,6 +111,40 @@ describe('tools slice', () => {
     expect(state.brushSpecificSettings[presetId]?.colorCycleLayerSpeedScale).toBe(0.6);
   });
 
+  it('persists color cycle gradient timing and mode settings when changed incrementally', () => {
+    const store = useAppStore.getState();
+    const gradientPreset = brushPresets.find((preset) => preset.id === 'color-cycle-gradient');
+    expect(gradientPreset).toBeTruthy();
+    if (!gradientPreset) {
+      return;
+    }
+
+    store.setBrushPreset(gradientPreset, true);
+    store.setBrushSettings({
+      colorCycleSpeed: 0.42,
+      colorCycleFPS: 48,
+      colorCycleFillMode: 'concentric',
+      velocityAnimationSpeedEnabled: true,
+      fillResolution: 9,
+      pressureLinkedFillResolution: true,
+      pressureLinkedFillMaxResolution: 21,
+    });
+
+    const state = useAppStore.getState();
+    const saved = state.brushSpecificSettings['color-cycle-gradient'];
+    expect(saved).toEqual(
+      expect.objectContaining({
+        colorCycleSpeed: 0.42,
+        colorCycleFPS: 48,
+        colorCycleFillMode: 'concentric',
+        velocityAnimationSpeedEnabled: true,
+        fillResolution: 9,
+        pressureLinkedFillResolution: true,
+        pressureLinkedFillMaxResolution: 21,
+      })
+    );
+  });
+
   it('mirrors playback speed scale into persisted brush settings', () => {
     const store = useAppStore.getState();
     store.setPlaybackSpeedScale(0.6);
