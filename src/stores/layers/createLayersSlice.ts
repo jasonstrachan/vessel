@@ -68,6 +68,10 @@ import { appendSequentialLayerEventsToLayers } from '@/stores/layers/sequentialL
 import { createDevDebugOverlayLogger } from '@/utils/dev/debugOverlayStore';
 import { requestGradientApply } from '@/hooks/brushEngine/ccGradientApplyScheduler';
 import {
+  buildColorCycleSoftEdgeMask,
+  type ColorCycleSoftEdgeCoverage,
+} from '@/utils/colorCycleSoftEdgeMask';
+import {
   rebuildGradientSlotUsageAndGC,
   buildDefaultReservedSlots,
 } from '@/utils/colorCycleSlotGC';
@@ -89,6 +93,7 @@ import type {
   CommitLayerStructureHistoryOptions,
   LayerHistorySnapshotOptions,
 } from '@/stores/helpers/layerStructureHistory';
+import type { ColorCycleSerializedState } from '@/history/helpers/colorCycle';
 import type { LayerStructureSnapshot } from '@/history/deltas/layerStructureDelta';
 import type { AppState, CaptureROI, VesselWindow } from '../useAppStore';
 export type { CompositeSegment } from '@/stores/layers/layerCompositeRenderer';
@@ -299,6 +304,204 @@ const applyColorCycleEraseMask = (
     // ignore transient erase-mask draw failures
   } finally {
     canvasCtx.restore();
+  }
+};
+
+const applyColorCycleSoftEdgeMaskToCanvas = (
+  layer: Layer,
+  targetCanvas: HTMLCanvasElement | OffscreenCanvas
+): void => {
+  const softEdgeMask = layer.colorCycleData?.softEdgeMask;
+  if (!softEdgeMask || layer.colorCycleData?.softEdgeMaskEnabled === false) {
+    return;
+  }
+  const canvasCtx = targetCanvas.getContext(
+    '2d',
+    { willReadFrequently: true } as CanvasRenderingContext2DSettings
+  ) as CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D | null;
+  if (!canvasCtx) {
+    return;
+  }
+
+  canvasCtx.save();
+  canvasCtx.globalCompositeOperation = 'destination-in';
+  canvasCtx.globalAlpha = 1;
+  try {
+    canvasCtx.drawImage(softEdgeMask as CanvasImageSource, 0, 0);
+  } catch {
+    // ignore transient soft-edge-mask draw failures
+  } finally {
+    canvasCtx.restore();
+  }
+};
+
+const prepareColorCycleCompositeSource = (
+  layer: Layer,
+  sourceCanvas: HTMLCanvasElement | OffscreenCanvas,
+  createCanvas: (width: number, height: number) => HTMLCanvasElement | OffscreenCanvas | null,
+): HTMLCanvasElement | OffscreenCanvas => {
+  const hasEraseMask = Boolean(layer.colorCycleData?.eraseMask);
+  const hasSoftEdgeMask = Boolean(layer.colorCycleData?.softEdgeMask)
+    && layer.colorCycleData?.softEdgeMaskEnabled !== false;
+  if (!hasEraseMask && !hasSoftEdgeMask) {
+    return sourceCanvas;
+  }
+
+  const maskedCanvas = createCanvas(sourceCanvas.width, sourceCanvas.height);
+  const maskedCtx = maskedCanvas?.getContext(
+    '2d',
+    { willReadFrequently: true } as CanvasRenderingContext2DSettings
+  ) as CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D | null;
+  if (!maskedCanvas || !maskedCtx) {
+    return sourceCanvas;
+  }
+
+  maskedCtx.clearRect(0, 0, maskedCanvas.width, maskedCanvas.height);
+  try {
+    maskedCtx.drawImage(sourceCanvas as CanvasImageSource, 0, 0);
+  } catch {
+    return sourceCanvas;
+  }
+  applyColorCycleEraseMask(layer, maskedCanvas);
+  applyColorCycleSoftEdgeMaskToCanvas(layer, maskedCanvas);
+  return maskedCanvas;
+};
+
+const captureSoftEdgeMaskOnlyState = (layer: Layer): ColorCycleSerializedState => {
+  const toState = (
+    snapshot?: NonNullable<ColorCycleSerializedState>['layers'][number]['softEdgeMaskSnapshot'],
+  ): ColorCycleSerializedState => ({
+    layers: [{
+      layerId: layer.id,
+      softEdgeMaskSnapshot: snapshot,
+    } as NonNullable<ColorCycleSerializedState>['layers'][number]],
+  } as ColorCycleSerializedState);
+  const mask = layer.colorCycleData?.softEdgeMask;
+  const imageData = layer.colorCycleData?.softEdgeMaskImageData;
+  const version = layer.colorCycleData?.softEdgeMaskVersion ?? 0;
+  if (!mask && !imageData) {
+    return toState();
+  }
+  try {
+    const sourceImage = (() => {
+      if (imageData) {
+        return imageData;
+      }
+      if (!mask || mask.width <= 0 || mask.height <= 0) {
+        return null;
+      }
+      const ctx = mask.getContext('2d', { willReadFrequently: true });
+      if (!ctx) {
+        return null;
+      }
+      return ctx.getImageData(0, 0, mask.width, mask.height);
+    })();
+    if (!sourceImage || sourceImage.width <= 0 || sourceImage.height <= 0) {
+      return toState();
+    }
+    const alpha = new Uint8ClampedArray(sourceImage.width * sourceImage.height);
+    for (let src = 3, dst = 0; src < sourceImage.data.length; src += 4, dst += 1) {
+      alpha[dst] = sourceImage.data[src] ?? 0;
+    }
+    return toState({
+      width: sourceImage.width,
+      height: sourceImage.height,
+      alpha,
+      enabled: layer.colorCycleData?.softEdgeMaskEnabled !== false,
+      version,
+    });
+  } catch {
+    return toState();
+  }
+};
+
+const removeColorCycleSoftEdgeMaskFromLayer = (layer: Layer, nextVersion: number): Layer => {
+  if (!layer.colorCycleData) {
+    return layer;
+  }
+  const colorCycleData = { ...layer.colorCycleData };
+  delete colorCycleData.softEdgeMask;
+  delete colorCycleData.softEdgeMaskImageData;
+  return {
+    ...layer,
+    colorCycleData: {
+      ...colorCycleData,
+      softEdgeMaskEnabled: undefined,
+      softEdgeMaskVersion: nextVersion,
+    },
+  };
+};
+
+const bufferLikeToUint8Array = (value: unknown): Uint8Array | null => {
+  if (value instanceof ArrayBuffer) {
+    return new Uint8Array(value);
+  }
+  if (ArrayBuffer.isView(value)) {
+    return new Uint8Array(value.buffer, value.byteOffset, value.byteLength);
+  }
+  return null;
+};
+
+const resolveSoftEdgeCoverageFromBrush = (
+  layer: Layer,
+  brush: ColorCycleBrushImplementation | null | undefined,
+): ColorCycleSoftEdgeCoverage | null => {
+  if (!brush || typeof brush.serialize !== 'function') {
+    return null;
+  }
+  try {
+    const snapshot = brush.serialize() as {
+      layers?: Array<{
+        layerId?: string;
+        id?: string;
+        dimensions?: { width?: unknown; height?: unknown };
+        width?: unknown;
+        height?: unknown;
+        strokeData?: { paintBuffer?: unknown };
+        paintBuffer?: unknown;
+      }>;
+    };
+    const serializedLayer = snapshot.layers?.find((entry) => (
+      entry.layerId === layer.id || entry.id === layer.id
+    )) ?? snapshot.layers?.[0];
+    const paintBuffer = bufferLikeToUint8Array(
+      serializedLayer?.strokeData?.paintBuffer ?? serializedLayer?.paintBuffer,
+    );
+    if (!paintBuffer || paintBuffer.length === 0) {
+      return null;
+    }
+    const width = Math.max(
+      1,
+      Math.floor(
+        Number(serializedLayer?.dimensions?.width)
+        || Number(serializedLayer?.width)
+        || layer.colorCycleData?.canvasWidth
+        || layer.colorCycleData?.canvas?.width
+        || layer.imageData?.width
+        || 0,
+      ),
+    );
+    const height = Math.max(
+      1,
+      Math.floor(
+        Number(serializedLayer?.dimensions?.height)
+        || Number(serializedLayer?.height)
+        || layer.colorCycleData?.canvasHeight
+        || layer.colorCycleData?.canvas?.height
+        || layer.imageData?.height
+        || 0,
+      ),
+    );
+    if (paintBuffer.length < width * height) {
+      return null;
+    }
+    const alpha = new Uint8ClampedArray(width * height);
+    for (let index = 0; index < alpha.length; index += 1) {
+      alpha[index] = (paintBuffer[index] ?? 0) > 0 ? 255 : 0;
+    }
+    return { width, height, alpha };
+  } catch {
+    return null;
   }
 };
 
@@ -608,6 +811,9 @@ export interface LayersSlice {
     layerId: string,
     options?: { target?: EnsureColorCycleLayerRuntimeTarget },
   ) => Promise<boolean>;
+  applyColorCycleSoftEdgeMask: (layerId: string, radius: number) => Promise<boolean>;
+  setColorCycleSoftEdgeMaskEnabled: (layerId: string, enabled: boolean) => void;
+  clearColorCycleSoftEdgeMask: (layerId: string) => void;
   initColorCycleForLayer: (layerId: string, width: number, height: number) => void;
   cleanupColorCycleForLayer: (layerId: string) => void;
   getLayerColorCycleBrush: (layerId: string) => ColorCycleBrushImplementation | null;
@@ -992,12 +1198,12 @@ export const createLayersSlice = (
             }
           }
 
-          applyColorCycleEraseMask(layer, canvas);
+          const source = prepareColorCycleCompositeSource(layer, canvas, createLayerTransferCanvas);
 
           try {
             ctx.globalCompositeOperation = layer.blendMode;
             ctx.globalAlpha = layer.opacity;
-            ctx.drawImage(canvas, 0, 0);
+            ctx.drawImage(source, 0, 0);
           } catch (error) {
             logError('[compose] Layer compose error', error);
           }
@@ -1082,12 +1288,12 @@ export const createLayersSlice = (
           }
         }
 
-        applyColorCycleEraseMask(layer, canvas);
+        const source = prepareColorCycleCompositeSource(layer, canvas, createLayerTransferCanvas);
 
         try {
           ctx.globalCompositeOperation = layer.blendMode;
           ctx.globalAlpha = layer.opacity;
-          ctx.drawImage(canvas, 0, 0);
+          ctx.drawImage(source, 0, 0);
           drewLayer = true;
         } catch (error) {
           logError('[compose] Layer compose error', error);
@@ -3957,6 +4163,144 @@ export const createLayersSlice = (
     }
     const hydration = getColorCycleHydrationState(latestLayer.colorCycleData);
     return hydration === target || (target === 'warm' && hydration === 'active');
+  },
+
+  applyColorCycleSoftEdgeMask: async (layerId, radius) => {
+    const { captureColorCycleBrushState } = await import('@/history/helpers/colorCycle');
+    const { commitLayerHistory } = await import('@/history/helpers/layerHistory');
+    const beforeColorState = captureColorCycleBrushState(layerId);
+    const warmed = await get().ensureColorCycleLayerRuntime(layerId, { target: 'active' });
+    if (!warmed) {
+      return false;
+    }
+
+    const state = get();
+    const layer = state.layers.find((candidate) => candidate.id === layerId);
+    if (!layer || layer.layerType !== 'color-cycle' || !layer.colorCycleData) {
+      return false;
+    }
+
+    const canvas = layer.colorCycleData.canvas;
+    const brush = colorCycleBrushManager.getBrush(layerId);
+    if (canvas && brush?.renderDirectToCanvas) {
+      try {
+        brush.renderDirectToCanvas(canvas, layerId);
+      } catch (error) {
+        logError('[soft-edge-mask] Failed to render color-cycle frame before mask capture', error);
+      }
+    }
+
+    const result = buildColorCycleSoftEdgeMask(
+      layer,
+      radius,
+      resolveSoftEdgeCoverageFromBrush(layer, brush),
+    );
+    if (!result) {
+      return false;
+    }
+
+    const nextVersion = (layer.colorCycleData.softEdgeMaskVersion ?? 0) + 1;
+    state.updateLayer(
+      layerId,
+      {
+        colorCycleData: {
+          softEdgeMask: result.softEdgeMask,
+          softEdgeMaskImageData: result.softEdgeMaskImageData,
+          softEdgeMaskEnabled: true,
+          softEdgeMaskVersion: nextVersion,
+        },
+      },
+      { skipColorCycleSync: true },
+    );
+    state.markCompositeSegmentsDirtyByLayerIds([layerId]);
+    state.setLayersNeedRecomposition(true);
+    state.markAutosaveDirty('layer-change');
+
+    await commitLayerHistory({
+      layerId,
+      beforeImage: null,
+      beforeColorState,
+      actionType: 'color-cycle-soft-edge-mask',
+      description: 'Bake color-cycle soft edge mask',
+      tool: 'color-cycle',
+      skipBitmapDelta: true,
+    }).catch((error) => {
+      if (process.env.NODE_ENV !== 'production') {
+        debugWarn('raw-console', '[history] Failed to record color-cycle soft edge mask', error);
+      }
+    });
+
+    return true;
+  },
+
+  setColorCycleSoftEdgeMaskEnabled: (layerId, enabled) => {
+    const state = get();
+    const layer = state.layers.find((candidate) => candidate.id === layerId);
+    if (
+      !layer ||
+      layer.layerType !== 'color-cycle' ||
+      !layer.colorCycleData ||
+      (!layer.colorCycleData.softEdgeMask && !layer.colorCycleData.softEdgeMaskImageData) ||
+      (layer.colorCycleData.softEdgeMaskEnabled !== false) === enabled
+    ) {
+      return;
+    }
+
+    const nextVersion = (layer.colorCycleData.softEdgeMaskVersion ?? 0) + 1;
+    state.updateLayer(
+      layerId,
+      {
+        colorCycleData: {
+          softEdgeMaskEnabled: enabled,
+          softEdgeMaskVersion: nextVersion,
+        },
+      },
+      { skipColorCycleSync: true },
+    );
+    state.markCompositeSegmentsDirtyByLayerIds([layerId]);
+    state.setLayersNeedRecomposition(true);
+    state.markAutosaveDirty('layer-change');
+  },
+
+  clearColorCycleSoftEdgeMask: (layerId) => {
+    const state = get();
+    const layer = state.layers.find((candidate) => candidate.id === layerId);
+    if (!layer || layer.layerType !== 'color-cycle' || !layer.colorCycleData) {
+      return;
+    }
+    if (!layer.colorCycleData.softEdgeMask && !layer.colorCycleData.softEdgeMaskImageData) {
+      return;
+    }
+    const beforeColorState = captureSoftEdgeMaskOnlyState(layer);
+
+    const nextVersion = (layer.colorCycleData.softEdgeMaskVersion ?? 0) + 1;
+    set((current) => ({
+      layers: current.layers.map((candidate) => (
+        candidate.id === layerId
+          ? removeColorCycleSoftEdgeMaskFromLayer(candidate, nextVersion)
+          : candidate
+      )),
+    }));
+    state.markCompositeSegmentsDirtyByLayerIds([layerId]);
+    state.setLayersNeedRecomposition(true);
+    state.markAutosaveDirty('layer-change');
+
+    void (async () => {
+      const { commitLayerHistory } = await import('@/history/helpers/layerHistory');
+      await commitLayerHistory({
+        layerId,
+        beforeImage: null,
+        beforeColorState,
+        actionType: 'color-cycle-soft-edge-mask',
+        description: 'Clear color-cycle soft edge mask',
+        tool: 'color-cycle',
+        skipBitmapDelta: true,
+      });
+    })().catch((error) => {
+      if (process.env.NODE_ENV !== 'production') {
+        debugWarn('raw-console', '[history] Failed to record color-cycle soft edge mask clear', error);
+      }
+    });
   },
 
 };

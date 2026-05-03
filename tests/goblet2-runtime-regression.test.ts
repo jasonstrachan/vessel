@@ -133,6 +133,28 @@ describe('Goblet 2 runtime export regression guard', () => {
     expect(runtime).not.toContain('if (!this.maybeAdvanceShiftKeysPerPixel(distinct, n))');
   });
 
+  it('applies exported soft-edge masks as keep-alpha masks in CPU and WebGL playback', () => {
+    const runtime = read('public/goblet2/goblet2.js');
+
+    expect(runtime).toContain("sem: 'softEdgeMask'");
+    expect(runtime).toContain('if (colorCycle.softEdgeMask) {');
+    expect(runtime).toContain('await this.applySoftEdgeMask(colorCycle.softEdgeMask);');
+    expect(runtime).toContain('applySoftEdgeMaskToAlphaChannel(this.alpha, resized);');
+    expect(runtime).toContain('await this.applyWebGLSoftEdgeMask(colorCycle.softEdgeMask);');
+    expect(runtime).toContain('alpha *= texture(u_softMask, sampleUV).r;');
+    expect(runtime).toContain('renderer.setSoftMaskTexture(null);');
+  });
+
+  it('includes soft-edge mask playback support in the inline Goblet 2 runtime', () => {
+    const runtime = read('public/goblet2/goblet2-inline.js');
+
+    expect(runtime).toContain('sem:"softEdgeMask"');
+    expect(runtime).toContain('softEdgeMask');
+    expect(runtime).toContain('applySoftEdgeMaskToAlphaChannel');
+    expect(runtime).toContain('setSoftMaskTexture');
+    expect(runtime).toContain('u_softMask');
+  });
+
   it('does not gate slot-speed brush playback on integer palette shifts', () => {
     const runtime = read('public/goblet2/goblet2.js');
 

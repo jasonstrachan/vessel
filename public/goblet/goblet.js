@@ -1414,6 +1414,7 @@ const PROPERTY_UNMINIFY_MAP = {
   ia: 'isAnimating',
   bs: 'brushState',
   amk: 'alphaMask',
+  sem: 'softEdgeMask',
   gs: 'gradientStops',
   gib: 'gradientIdBuffer',
   ib: 'indexBuffer',

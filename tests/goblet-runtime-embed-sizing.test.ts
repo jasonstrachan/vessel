@@ -16,6 +16,14 @@ describe('Goblet embed sizing runtime', () => {
     expect(runtime).toContain('createCanvasStrategy(metadata, canvas, this.options.scale ?? null)');
   });
 
+  it('decodes minified soft-edge mask metadata in the Goblet 1 runtime', () => {
+    const runtime = read('public/goblet/goblet.js');
+    const inlineRuntime = read('public/goblet/goblet-inline.js');
+
+    expect(runtime).toContain("sem: 'softEdgeMask'");
+    expect(inlineRuntime).toContain('sem:"softEdgeMask"');
+  });
+
   it('sizes Goblet 2 against the canvas host before falling back to window metrics', () => {
     const runtime = read('public/goblet2/goblet2.js');
 

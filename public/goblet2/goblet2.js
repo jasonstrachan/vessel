@@ -1433,6 +1433,7 @@ const PROPERTY_UNMINIFY_MAP = {
   ia: 'isAnimating',
   bs: 'brushState',
   amk: 'alphaMask',
+  sem: 'softEdgeMask',
   gs: 'gradientStops',
   gib: 'gradientIdBuffer',
   ib: 'indexBuffer',
@@ -2060,6 +2061,18 @@ const applyMaskToAlphaChannel = (alphaBuffer, maskBuffer) => {
   }
 };
 
+const applySoftEdgeMaskToAlphaChannel = (alphaBuffer, maskBuffer) => {
+  if (!alphaBuffer || !maskBuffer) {
+    return;
+  }
+  const pixelCount = Math.min(maskBuffer.length, Math.floor(alphaBuffer.length / 4));
+  for (let i = 0, alphaIndex = 3; i < pixelCount; i += 1, alphaIndex += 4) {
+    const keep = maskBuffer[i];
+    const current = alphaBuffer[alphaIndex] || 0;
+    alphaBuffer[alphaIndex] = Math.max(0, Math.round((current * keep) / 255));
+  }
+};
+
 const hasVisibleAlpha = (alphaBuffer) => {
   if (!alphaBuffer || alphaBuffer.length < 4) {
     return false;
@@ -2649,6 +2662,7 @@ class BrushWebGLRenderer {
       uniform sampler2D u_palette;
       uniform sampler2D u_alpha;
       uniform sampler2D u_mask;
+      uniform sampler2D u_softMask;
 
       uniform float u_time;
       uniform float u_speedMin;
@@ -2659,6 +2673,7 @@ class BrushWebGLRenderer {
       uniform int u_slotCount;
       uniform bool u_hasAlpha;
       uniform bool u_hasMask;
+      uniform bool u_hasSoftMask;
       uniform bool u_opaqueIndices;
 
       void main() {
@@ -2712,6 +2727,9 @@ class BrushWebGLRenderer {
         if (u_hasMask) {
           alpha *= 1.0 - texture(u_mask, sampleUV).r;
         }
+        if (u_hasSoftMask) {
+          alpha *= texture(u_softMask, sampleUV).r;
+        }
         outColor = vec4(color, alpha);
       }`;
 
@@ -2750,6 +2768,7 @@ class BrushWebGLRenderer {
       u_palette: gl.getUniformLocation(program, 'u_palette'),
       u_alpha: gl.getUniformLocation(program, 'u_alpha'),
       u_mask: gl.getUniformLocation(program, 'u_mask'),
+      u_softMask: gl.getUniformLocation(program, 'u_softMask'),
       u_time: gl.getUniformLocation(program, 'u_time'),
       u_speedMin: gl.getUniformLocation(program, 'u_speedMin'),
       u_speedMax: gl.getUniformLocation(program, 'u_speedMax'),
@@ -2758,6 +2777,7 @@ class BrushWebGLRenderer {
       u_slotCount: gl.getUniformLocation(program, 'u_slotCount'),
       u_hasAlpha: gl.getUniformLocation(program, 'u_hasAlpha'),
       u_hasMask: gl.getUniformLocation(program, 'u_hasMask'),
+      u_hasSoftMask: gl.getUniformLocation(program, 'u_hasSoftMask'),
       u_opaqueIndices: gl.getUniformLocation(program, 'u_opaqueIndices'),
       u_legacyOffset01: gl.getUniformLocation(program, 'u_legacyOffset01')
     };
@@ -2770,7 +2790,8 @@ class BrushWebGLRenderer {
       phase: gl.createTexture(),
       palette: gl.createTexture(),
       alpha: gl.createTexture(),
-      mask: gl.createTexture()
+      mask: gl.createTexture(),
+      softMask: gl.createTexture()
     };
 
     gl.uniform1i(this.uniforms.u_index, 0);
@@ -2781,6 +2802,7 @@ class BrushWebGLRenderer {
     gl.uniform1i(this.uniforms.u_palette, 5);
     gl.uniform1i(this.uniforms.u_alpha, 6);
     gl.uniform1i(this.uniforms.u_mask, 7);
+    gl.uniform1i(this.uniforms.u_softMask, 8);
     gl.uniform1f(this.uniforms.u_speedMin, this.speedMin);
     gl.uniform1f(this.uniforms.u_speedMax, this.speedMax);
     gl.uniform1f(this.uniforms.u_startOffset, this.startOffset01);
@@ -2881,6 +2903,23 @@ class BrushWebGLRenderer {
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
     gl.uniform1i(this.uniforms.u_hasMask, 1);
+  }
+
+  setSoftMaskTexture(maskData, width, height) {
+    const gl = this.gl;
+    if (!maskData) {
+      gl.uniform1i(this.uniforms.u_hasSoftMask, 0);
+      return;
+    }
+    gl.activeTexture(gl.TEXTURE8);
+    gl.bindTexture(gl.TEXTURE_2D, this.textures.softMask);
+    gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.R8, width, height, 0, gl.RED, gl.UNSIGNED_BYTE, maskData);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    gl.uniform1i(this.uniforms.u_hasSoftMask, 1);
   }
 
   render(timeSeconds, legacyOffset01) {
@@ -3641,6 +3680,15 @@ class ColorCycleLayerPlayer {
       }
     }
 
+    if (colorCycle.softEdgeMask) {
+      if (this.useWebGL && this.webglRenderer) {
+        await this.applyWebGLSoftEdgeMask(colorCycle.softEdgeMask);
+      } else {
+        await this.applySoftEdgeMask(colorCycle.softEdgeMask);
+        probeAlphaMask();
+      }
+    }
+
     this._hasVisibleAlpha = this.useWebGL ? true : hasVisibleAlpha(this.alpha);
 
     this.startTimeMs = typeof performance !== 'undefined' && typeof performance.now === 'function'
@@ -3690,6 +3738,47 @@ class ColorCycleLayerPlayer {
     applyMaskToAlphaChannel(this.alpha, resized);
   }
 
+  async applySoftEdgeMask(maskConfig) {
+    if (!maskConfig || !maskConfig.data) {
+      return;
+    }
+    const width = Number.isFinite(maskConfig.width) ? Math.max(1, Math.round(maskConfig.width)) : this.width;
+    const height = Number.isFinite(maskConfig.height) ? Math.max(1, Math.round(maskConfig.height)) : this.height;
+    const payload = await resolveNumericBuffer(maskConfig.data);
+    if (!payload || !payload.length) {
+      return;
+    }
+
+    const expected = width * height;
+    let working = payload;
+    if (working.length !== expected) {
+      diagnostics.warn('[goblet] Soft-edge mask payload length mismatch', {
+        layerId: this.layer?.id ?? null,
+        expected,
+        actual: working.length
+      });
+      const normalized = new Uint8Array(expected);
+      normalized.set(working.subarray(0, Math.min(working.length, normalized.length)));
+      working = normalized;
+    }
+
+    const resized = resizeAlphaMaskBuffer(working, width, height, this.width, this.height);
+    if (!resized || !resized.length) {
+      return;
+    }
+
+    const alphaSize = this.width * this.height * 4;
+    if (!this.alpha || this.alpha.length < alphaSize) {
+      const buffer = new Uint8ClampedArray(alphaSize);
+      for (let i = 3; i < buffer.length; i += 4) {
+        buffer[i] = 255;
+      }
+      this.alpha = buffer;
+    }
+
+    applySoftEdgeMaskToAlphaChannel(this.alpha, resized);
+  }
+
   async applyWebGLAlphaMask(maskConfig) {
     if (!maskConfig || !maskConfig.data || !this.webglRenderer) {
       return;
@@ -3712,6 +3801,30 @@ class ColorCycleLayerPlayer {
       return;
     }
     this.webglRenderer.setMaskTexture(resized, this.width, this.height);
+  }
+
+  async applyWebGLSoftEdgeMask(maskConfig) {
+    if (!maskConfig || !maskConfig.data || !this.webglRenderer) {
+      return;
+    }
+    const width = Number.isFinite(maskConfig.width) ? Math.max(1, Math.round(maskConfig.width)) : this.width;
+    const height = Number.isFinite(maskConfig.height) ? Math.max(1, Math.round(maskConfig.height)) : this.height;
+    const payload = await resolveNumericBuffer(maskConfig.data);
+    if (!payload || !payload.length) {
+      return;
+    }
+    const expected = width * height;
+    let working = payload;
+    if (working.length !== expected) {
+      const normalized = new Uint8Array(expected);
+      normalized.set(working.subarray(0, Math.min(working.length, normalized.length)));
+      working = normalized;
+    }
+    const resized = resizeAlphaMaskBuffer(working, width, height, this.width, this.height);
+    if (!resized || !resized.length) {
+      return;
+    }
+    this.webglRenderer.setSoftMaskTexture(resized, this.width, this.height);
   }
 
   async initializeBrushModeWebGL(colorCycle, brushState) {
@@ -3848,6 +3961,7 @@ class ColorCycleLayerPlayer {
         renderer.setAlphaTexture(alphaTexture);
       }
       renderer.setMaskTexture(null);
+      renderer.setSoftMaskTexture(null);
       this.webglRenderer = renderer;
       this.webglCanvas = renderer.canvas;
       this.canvas = renderer.canvas;

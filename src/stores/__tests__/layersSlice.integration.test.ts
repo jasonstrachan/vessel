@@ -1559,7 +1559,7 @@ describe('layers slice integration', () => {
     expect(ctx.drawImage).toHaveBeenCalledWith(framebuffer, 0, 0);
   });
 
-  it('applies color-cycle erase mask before compositing color-cycle layer canvas', () => {
+  it('applies color-cycle masks on a scratch canvas without mutating the source layer canvas', () => {
     useAppStore.setState((state) => ({
       project: state.project ?? {
         id: 'proj-cc-mask-composite',
@@ -1574,23 +1574,42 @@ describe('layers slice integration', () => {
       },
     }));
 
-    const layerCanvasCtx = {
+    const sourceCtx = {
+      save: jest.fn(),
+      restore: jest.fn(),
+      drawImage: jest.fn(),
+    } as unknown as CanvasRenderingContext2D;
+    const layerCanvas = {
+      width: 64,
+      height: 64,
+      getContext: jest.fn(() => sourceCtx),
+    } as unknown as HTMLCanvasElement;
+    const softEdgeMaskCanvas = {
+      width: 64,
+      height: 64,
+      getContext: jest.fn(),
+    } as unknown as HTMLCanvasElement;
+    const scratchCtx = {
+      clearRect: jest.fn(),
       save: jest.fn(),
       restore: jest.fn(),
       drawImage: jest.fn(),
       globalCompositeOperation: 'source-over' as GlobalCompositeOperation,
       globalAlpha: 1,
     } as unknown as CanvasRenderingContext2D;
-    const layerCanvas = {
+    const scratchCanvas = {
       width: 64,
       height: 64,
-      getContext: jest.fn(() => layerCanvasCtx),
+      getContext: jest.fn(() => scratchCtx),
     } as unknown as HTMLCanvasElement;
-    const eraseMaskCanvas = {
-      width: 64,
-      height: 64,
-      getContext: jest.fn(),
-    } as unknown as HTMLCanvasElement;
+    const createElement = document.createElement.bind(document);
+    const createElementSpy = jest
+      .spyOn(document, 'createElement')
+      .mockImplementation((tagName: string, options?: ElementCreationOptions) => (
+        tagName === 'canvas'
+          ? scratchCanvas
+          : createElement(tagName, options)
+      ));
 
     const store = useAppStore.getState();
     store.addLayer({
@@ -1601,7 +1620,7 @@ describe('layers slice integration', () => {
         isAnimating: false,
         mode: 'recolor',
         canvas: layerCanvas,
-        eraseMask: eraseMaskCanvas,
+        softEdgeMask: softEdgeMaskCanvas,
       },
     });
 
@@ -1618,13 +1637,71 @@ describe('layers slice integration', () => {
       height: 64,
       getContext: jest.fn(() => targetCtx),
     } as unknown as HTMLCanvasElement;
+    expect(useAppStore.getState().compositeLayersToCanvasSync(targetCanvas)).toBe(true);
+    expect(useAppStore.getState().compositeLayersToCanvasSync(targetCanvas)).toBe(true);
 
-    useAppStore.getState().compositeLayersToCanvas(targetCanvas);
+    expect(sourceCtx.save).not.toHaveBeenCalled();
+    expect(sourceCtx.drawImage).not.toHaveBeenCalled();
+    expect(scratchCtx.drawImage).toHaveBeenCalledWith(layerCanvas, 0, 0);
+    expect(scratchCtx.drawImage).toHaveBeenCalledWith(softEdgeMaskCanvas, 0, 0);
+    expect(targetCtx.drawImage).toHaveBeenCalledWith(scratchCanvas, 0, 0);
+    expect(targetCtx.drawImage).not.toHaveBeenCalledWith(layerCanvas, 0, 0);
 
-    expect(layerCanvasCtx.save).toHaveBeenCalledTimes(1);
-    expect(layerCanvasCtx.drawImage).toHaveBeenCalledWith(eraseMaskCanvas, 0, 0);
-    expect(layerCanvasCtx.restore).toHaveBeenCalledTimes(1);
-    expect(targetCtx.drawImage).toHaveBeenCalledWith(layerCanvas, 0, 0);
+    createElementSpy.mockRestore();
+  });
+
+  it('clears baked color-cycle soft-edge mask fields instead of merging undefined patches', () => {
+    const store = useAppStore.getState();
+    const softEdgeMask = makeCanvas();
+    const layerId = store.addLayer({
+      ...createColorCycleLayerInput('CC Soft Edge Clear'),
+      colorCycleData: {
+        ...createColorCycleLayerInput('CC Soft Edge Clear').colorCycleData,
+        softEdgeMask,
+        softEdgeMaskImageData: new ImageData(32, 32),
+        softEdgeMaskEnabled: false,
+        softEdgeMaskVersion: 4,
+      },
+    });
+
+    useAppStore.getState().clearColorCycleSoftEdgeMask(layerId);
+
+    const layer = useAppStore.getState().layers.find((candidate) => candidate.id === layerId);
+    expect(layer?.colorCycleData?.softEdgeMask).toBeUndefined();
+    expect(layer?.colorCycleData?.softEdgeMaskImageData).toBeUndefined();
+    expect(layer?.colorCycleData?.softEdgeMaskEnabled).toBeUndefined();
+    expect(layer?.colorCycleData?.softEdgeMaskVersion).toBe(5);
+    expect(useAppStore.getState().layersNeedRecomposition).toBe(true);
+  });
+
+  it('toggles baked color-cycle soft-edge masks without deleting the baked mask', () => {
+    const store = useAppStore.getState();
+    const softEdgeMask = makeCanvas();
+    const layerId = store.addLayer({
+      ...createColorCycleLayerInput('CC Soft Edge Toggle'),
+      colorCycleData: {
+        ...createColorCycleLayerInput('CC Soft Edge Toggle').colorCycleData,
+        softEdgeMask,
+        softEdgeMaskImageData: new ImageData(32, 32),
+        softEdgeMaskEnabled: true,
+        softEdgeMaskVersion: 8,
+      },
+    });
+
+    useAppStore.getState().setColorCycleSoftEdgeMaskEnabled(layerId, false);
+
+    let layer = useAppStore.getState().layers.find((candidate) => candidate.id === layerId);
+    expect(layer?.colorCycleData?.softEdgeMask).toBe(softEdgeMask);
+    expect(layer?.colorCycleData?.softEdgeMaskImageData).toBeInstanceOf(ImageData);
+    expect(layer?.colorCycleData?.softEdgeMaskEnabled).toBe(false);
+    expect(layer?.colorCycleData?.softEdgeMaskVersion).toBe(9);
+
+    useAppStore.getState().setColorCycleSoftEdgeMaskEnabled(layerId, true);
+
+    layer = useAppStore.getState().layers.find((candidate) => candidate.id === layerId);
+    expect(layer?.colorCycleData?.softEdgeMask).toBe(softEdgeMask);
+    expect(layer?.colorCycleData?.softEdgeMaskEnabled).toBe(true);
+    expect(layer?.colorCycleData?.softEdgeMaskVersion).toBe(10);
   });
 
   it('respects interleaved layer ordering across normal and color-cycle layers during composite', () => {

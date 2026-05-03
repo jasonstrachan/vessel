@@ -2078,6 +2078,7 @@ describe('projectIO serialize/deserialize layering', () => {
   it('externalizes color-cycle image-like payloads into archive entries', async () => {
     const ccImageData = createSolidImageData(3, 3, [12, 34, 56, 255]);
     const eraseMaskImageData = createSolidImageData(3, 3, [0, 0, 0, 255]);
+    const softEdgeMaskImageData = createSolidImageData(3, 3, [255, 255, 255, 128]);
     const recolorOriginalImageData = createSolidImageData(3, 3, [200, 100, 50, 255]);
     const layer: Layer = {
       id: 'layer-cc-image-payloads',
@@ -2099,6 +2100,9 @@ describe('projectIO serialize/deserialize layering', () => {
         canvasHeight: 3,
         eraseMaskImageData,
         eraseMaskVersion: 2,
+        softEdgeMaskImageData,
+        softEdgeMaskEnabled: false,
+        softEdgeMaskVersion: 3,
         recolorSettings: {
           quantizationMode: 'rgb332',
           ditherMode: 'bayer4',
@@ -2157,6 +2161,10 @@ describe('projectIO serialize/deserialize layering', () => {
       expect(persistedLayer?.colorCycleData?.eraseMaskImageData).toBe(
         'zip:buffers/color-cycle/layer-cc-image-payloads/erase-mask.txt',
       );
+      expect(persistedLayer?.colorCycleData?.softEdgeMaskImageData).toBe(
+        'zip:buffers/color-cycle/layer-cc-image-payloads/soft-edge-mask.txt',
+      );
+      expect(persistedLayer?.colorCycleData?.softEdgeMaskEnabled).toBe(false);
       expect(persistedLayer?.colorCycleData?.recolorSettings?.originalImageData).toBe(
         'zip:buffers/color-cycle/layer-cc-image-payloads/recolor-original-image.txt',
       );
@@ -2171,6 +2179,7 @@ describe('projectIO serialize/deserialize layering', () => {
       );
       expect(zip.file('buffers/color-cycle/layer-cc-image-payloads/canvas-image.txt')).toBeTruthy();
       expect(zip.file('buffers/color-cycle/layer-cc-image-payloads/erase-mask.txt')).toBeTruthy();
+      expect(zip.file('buffers/color-cycle/layer-cc-image-payloads/soft-edge-mask.txt')).toBeTruthy();
       expect(zip.file('buffers/color-cycle/layer-cc-image-payloads/recolor-original-image.txt')).toBeTruthy();
       expect(zip.file('buffers/color-cycle/layer-cc-image-payloads/recolor-index.bin')).toBeTruthy();
       expect(zip.file('buffers/color-cycle/layer-cc-image-payloads/recolor-index-phase.bin')).toBeTruthy();
@@ -2182,6 +2191,10 @@ describe('projectIO serialize/deserialize layering', () => {
       expect(restoredLayer?.colorCycleData?.canvasImageData?.height).toBe(3);
       expect(restoredLayer?.colorCycleData?.eraseMaskImageData?.width).toBe(3);
       expect(restoredLayer?.colorCycleData?.eraseMaskImageData?.height).toBe(3);
+      expect(restoredLayer?.colorCycleData?.softEdgeMaskImageData?.width).toBe(3);
+      expect(restoredLayer?.colorCycleData?.softEdgeMaskImageData?.height).toBe(3);
+      expect(restoredLayer?.colorCycleData?.softEdgeMaskEnabled).toBe(false);
+      expect(restoredLayer?.colorCycleData?.softEdgeMaskVersion).toBe(3);
       expect(restoredLayer?.colorCycleData?.recolorSettings?.originalImageData?.width).toBe(3);
       expect(restoredLayer?.colorCycleData?.recolorSettings?.originalImageData?.height).toBe(3);
       expect(Array.from(restoredLayer?.colorCycleData?.recolorSettings?.indexBuffer ?? [])).toEqual([1, 2, 3, 4]);

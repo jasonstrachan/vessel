@@ -12,11 +12,13 @@ export type ColorCycleEraseMaskSnapshot = {
   width: number;
   height: number;
   alpha: Uint8ClampedArray;
+  enabled?: boolean;
   version: number;
 };
 
 export type ColorCycleSerializedLayerState = BaseColorCycleSerializedLayer & {
   eraseMaskSnapshot?: ColorCycleEraseMaskSnapshot;
+  softEdgeMaskSnapshot?: ColorCycleEraseMaskSnapshot;
 };
 
 export type ColorCycleSerializedState = (Omit<BaseColorCycleSerializedState, 'layers'> & {
@@ -28,27 +30,37 @@ type EraseMaskSnapshotCacheEntry = {
   width: number;
   height: number;
   version: number;
+  enabled?: boolean;
   snapshot: ColorCycleEraseMaskSnapshot;
 };
 
 const eraseMaskSnapshotCacheByLayerId = new Map<string, EraseMaskSnapshotCacheEntry>();
 
-const captureEraseMaskSnapshot = (layerId: string): ColorCycleEraseMaskSnapshot | undefined => {
+const captureMaskSnapshot = (
+  layerId: string,
+  field: 'eraseMask' | 'softEdgeMask',
+  versionField: 'eraseMaskVersion' | 'softEdgeMaskVersion',
+  cache: Map<string, EraseMaskSnapshotCacheEntry>,
+): ColorCycleEraseMaskSnapshot | undefined => {
   const layer = useAppStore.getState().layers.find((candidate) => candidate.id === layerId);
-  const mask = layer?.layerType === 'color-cycle' ? layer.colorCycleData?.eraseMask : null;
-  const version = layer?.colorCycleData?.eraseMaskVersion ?? 0;
+  const mask = layer?.layerType === 'color-cycle' ? layer.colorCycleData?.[field] : null;
+  const version = layer?.colorCycleData?.[versionField] ?? 0;
+  const enabled = field === 'softEdgeMask'
+    ? layer?.colorCycleData?.softEdgeMaskEnabled !== false
+    : undefined;
   if (!mask) {
-    eraseMaskSnapshotCacheByLayerId.delete(layerId);
+    cache.delete(layerId);
     return undefined;
   }
 
-  const cached = eraseMaskSnapshotCacheByLayerId.get(layerId);
+  const cached = cache.get(layerId);
   if (
     cached &&
     cached.mask === mask &&
     cached.width === mask.width &&
     cached.height === mask.height &&
-    cached.version === version
+    cached.version === version &&
+    cached.enabled === enabled
   ) {
     return cached.snapshot;
   }
@@ -68,13 +80,15 @@ const captureEraseMaskSnapshot = (layerId: string): ColorCycleEraseMaskSnapshot 
       width: mask.width,
       height: mask.height,
       alpha,
+      enabled,
       version,
     };
-    eraseMaskSnapshotCacheByLayerId.set(layerId, {
+    cache.set(layerId, {
       mask,
       width: mask.width,
       height: mask.height,
       version,
+      enabled,
       snapshot,
     });
     return snapshot;
@@ -82,6 +96,16 @@ const captureEraseMaskSnapshot = (layerId: string): ColorCycleEraseMaskSnapshot 
     return undefined;
   }
 };
+
+const softEdgeMaskSnapshotCacheByLayerId = new Map<string, EraseMaskSnapshotCacheEntry>();
+
+const captureEraseMaskSnapshot = (layerId: string): ColorCycleEraseMaskSnapshot | undefined => (
+  captureMaskSnapshot(layerId, 'eraseMask', 'eraseMaskVersion', eraseMaskSnapshotCacheByLayerId)
+);
+
+const captureSoftEdgeMaskSnapshot = (layerId: string): ColorCycleEraseMaskSnapshot | undefined => (
+  captureMaskSnapshot(layerId, 'softEdgeMask', 'softEdgeMaskVersion', softEdgeMaskSnapshotCacheByLayerId)
+);
 
 const bufferLikeByteLength = (value: unknown): number => {
   if (value instanceof ArrayBuffer) {
@@ -311,6 +335,19 @@ export const captureColorCycleBrushState = (layerId: string): ColorCycleSerializ
       getColorCycleStoreState()?.getLayerColorCycleBrush?.(layerId) ??
       manager.getBrush(layerId);
     if (!brush || typeof brush.serialize !== 'function') {
+      const eraseMaskSnapshot = captureEraseMaskSnapshot(layerId);
+      const softEdgeMaskSnapshot = captureSoftEdgeMaskSnapshot(layerId);
+      if (eraseMaskSnapshot || softEdgeMaskSnapshot) {
+        return {
+          layers: [
+            {
+              layerId,
+              eraseMaskSnapshot,
+              softEdgeMaskSnapshot,
+            } as ColorCycleSerializedLayerState,
+          ],
+        } as ColorCycleSerializedState;
+      }
       if (layer.colorCycleData?.hasContent) {
         logCCMutation({
           event: 'history-cc-before-state-capture-failed',
@@ -420,6 +457,7 @@ export const captureColorCycleBrushState = (layerId: string): ColorCycleSerializ
                     }
                   : undefined,
                 eraseMaskSnapshot: captureEraseMaskSnapshot(layer.layerId),
+                softEdgeMaskSnapshot: captureSoftEdgeMaskSnapshot(layer.layerId),
               })) ?? [],
           }
         : null;

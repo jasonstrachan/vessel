@@ -187,6 +187,7 @@ const PROPERTY_MINIFY_MAP = {
   isAnimating: 'ia',
   brushState: 'bs',
   alphaMask: 'amk',
+  softEdgeMask: 'sem',
   gradientStops: 'gs',
   gradientIdBuffer: 'gib',
   indexBuffer: 'ib',
