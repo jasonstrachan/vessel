@@ -373,9 +373,9 @@ describe('selection delete updates framebuffer', () => {
       paintBuffer: new Uint8Array(16).fill(9).buffer,
       gradientIdBuffer: new Uint8Array(16).fill(1).buffer,
       gradientDefIdBuffer: new Uint16Array(16).fill(2).buffer,
-      speedBuffer: new Uint8Array(16).buffer,
-      flowBuffer: new Uint8Array(16).buffer,
-      phaseBuffer: new Uint8Array(16).buffer,
+      speedBuffer: new Uint8Array(16).fill(3).buffer,
+      flowBuffer: new Uint8Array(16).fill(4).buffer,
+      phaseBuffer: new Uint8Array(16).fill(5).buffer,
       hasContent: true,
       strokeCounter: 1,
     });
@@ -447,9 +447,9 @@ describe('selection delete updates framebuffer', () => {
       paintBuffer: new Uint8Array(16).fill(9).buffer,
       gradientIdBuffer: new Uint8Array(16).fill(1).buffer,
       gradientDefIdBuffer: new Uint16Array(16).fill(2).buffer,
-      speedBuffer: new Uint8Array(16).buffer,
-      flowBuffer: new Uint8Array(16).buffer,
-      phaseBuffer: new Uint8Array(16).buffer,
+      speedBuffer: new Uint8Array(16).fill(3).buffer,
+      flowBuffer: new Uint8Array(16).fill(4).buffer,
+      phaseBuffer: new Uint8Array(16).fill(5).buffer,
       hasContent: true,
       strokeCounter: 1,
     });
@@ -464,6 +464,89 @@ describe('selection delete updates framebuffer', () => {
         event: 'color-cycle-keyboard-delete-full-content-blocked',
       }),
     ]));
+  });
+
+  it('partial CC delete clears every selected scalar buffer through the store path', () => {
+    const canvas = document.createElement('canvas');
+    canvas.width = 4;
+    canvas.height = 4;
+
+    const layerId = 'layer-cc-partial-delete-scalars';
+    const ccLayer: Layer = {
+      id: layerId,
+      name: 'CC Partial Delete Scalars',
+      visible: true,
+      opacity: 1,
+      blendMode: 'source-over',
+      locked: false,
+      order: 0,
+      imageData: null,
+      framebuffer: canvas,
+      alignment: createDefaultLayerAlignment(),
+      layerType: 'color-cycle',
+      colorCycleData: {
+        canvas,
+        hasContent: true,
+      },
+    } as Layer;
+
+    useAppStore.setState((state) => ({
+      ...state,
+      project: state.project!,
+      layers: [ccLayer],
+      activeLayerId: layerId,
+      selectionStart: { x: 0, y: 0 },
+      selectionEnd: { x: 2, y: 2 },
+      selectionLastAction: {
+        action: 'set-bounds',
+        source: 'selection-marquee-final',
+        ownerKind: 'direct-marquee',
+        t: Date.now(),
+        activeLayerId: layerId,
+        bounds: { x: 0, y: 0, width: 2, height: 2 },
+      },
+    }));
+
+    useAppStore.getState().initColorCycleForLayer(layerId, 4, 4);
+    const brush = useAppStore.getState().getLayerColorCycleBrush(layerId);
+    brush?.applyLayerSnapshot?.(layerId, {
+      paintBuffer: new Uint8Array(16).fill(9).buffer,
+      gradientIdBuffer: new Uint8Array(16).fill(1).buffer,
+      gradientDefIdBuffer: new Uint16Array(16).fill(2).buffer,
+      speedBuffer: new Uint8Array(16).fill(3).buffer,
+      flowBuffer: new Uint8Array(16).fill(4).buffer,
+      phaseBuffer: new Uint8Array(16).fill(5).buffer,
+      hasContent: true,
+      strokeCounter: 1,
+    });
+
+    useAppStore.getState().deleteSelectedPixels('keyboard-delete');
+
+    const snapshot = brush?.getLayerSnapshot?.(layerId);
+    expect(snapshot?.hasContent).toBe(true);
+    const paint = new Uint8Array(snapshot?.paintBuffer ?? new ArrayBuffer(0));
+    const gradientId = new Uint8Array(snapshot?.gradientIdBuffer ?? new ArrayBuffer(0));
+    const gradientDefId = new Uint16Array(snapshot?.gradientDefIdBuffer ?? new ArrayBuffer(0));
+    const speed = new Uint8Array(snapshot?.speedBuffer ?? new ArrayBuffer(0));
+    const flow = new Uint8Array(snapshot?.flowBuffer ?? new ArrayBuffer(0));
+    const phase = new Uint8Array(snapshot?.phaseBuffer ?? new ArrayBuffer(0));
+
+    [0, 1, 4, 5].forEach((index) => {
+      expect(paint[index]).toBe(0);
+      expect(gradientId[index]).toBe(0);
+      expect(gradientDefId[index]).toBe(0);
+      expect(speed[index]).toBe(0);
+      expect(flow[index]).toBe(0);
+      expect(phase[index]).toBe(0);
+    });
+    [2, 6, 10, 15].forEach((index) => {
+      expect(paint[index]).toBe(9);
+      expect(gradientId[index]).toBe(1);
+      expect(gradientDefId[index]).toBe(2);
+      expect(speed[index]).toBe(3);
+      expect(flow[index]).toBe(4);
+      expect(phase[index]).toBe(5);
+    });
   });
 
   it('blocks keyboard delete when set-bounds selection would clear all CC paint', () => {
@@ -512,9 +595,9 @@ describe('selection delete updates framebuffer', () => {
       paintBuffer: new Uint8Array(16).fill(9).buffer,
       gradientIdBuffer: new Uint8Array(16).fill(1).buffer,
       gradientDefIdBuffer: new Uint16Array(16).fill(2).buffer,
-      speedBuffer: new Uint8Array(16).buffer,
-      flowBuffer: new Uint8Array(16).buffer,
-      phaseBuffer: new Uint8Array(16).buffer,
+      speedBuffer: new Uint8Array(16).fill(3).buffer,
+      flowBuffer: new Uint8Array(16).fill(4).buffer,
+      phaseBuffer: new Uint8Array(16).fill(5).buffer,
       hasContent: true,
       strokeCounter: 1,
     });
@@ -781,12 +864,16 @@ describe('selection delete updates framebuffer', () => {
       paintBuffer: new Uint8Array(16).fill(9).buffer,
       gradientIdBuffer: new Uint8Array(16).fill(1).buffer,
       gradientDefIdBuffer: new Uint16Array(16).fill(2).buffer,
-      speedBuffer: new Uint8Array(16).buffer,
-      flowBuffer: new Uint8Array(16).buffer,
-      phaseBuffer: new Uint8Array(16).buffer,
+      speedBuffer: new Uint8Array(16).fill(3).buffer,
+      flowBuffer: new Uint8Array(16).fill(4).buffer,
+      phaseBuffer: new Uint8Array(16).fill(5).buffer,
       hasContent: true,
       strokeCounter: 1,
     });
+    const beforeExtractSnapshot = brush?.getLayerSnapshot?.(layerId);
+    expect(Array.from(new Uint8Array(beforeExtractSnapshot?.speedBuffer ?? new ArrayBuffer(0)))).toEqual(new Array(16).fill(3));
+    expect(Array.from(new Uint8Array(beforeExtractSnapshot?.flowBuffer ?? new ArrayBuffer(0)))).toEqual(new Array(16).fill(4));
+    expect(Array.from(new Uint8Array(beforeExtractSnapshot?.phaseBuffer ?? new ArrayBuffer(0)))).toEqual(new Array(16).fill(5));
 
     const extracted = useAppStore.getState().extractSelectionToFloatingPaste();
 
@@ -796,7 +883,101 @@ describe('selection delete updates framebuffer', () => {
     expect(Array.from(floatingPaste?.colorCycleIndices ?? [])).toEqual(new Array(16).fill(9));
     expect(Array.from(floatingPaste?.colorCycleGradientIds ?? [])).toEqual(new Array(16).fill(1));
     expect(Array.from(floatingPaste?.colorCycleGradientDefIds ?? [])).toEqual(new Array(16).fill(2));
+    expect(Array.from(floatingPaste?.colorCycleSpeed ?? [])).toEqual(new Array(16).fill(3));
+    expect(Array.from(floatingPaste?.colorCycleFlow ?? [])).toEqual(new Array(16).fill(4));
+    expect(Array.from(floatingPaste?.colorCyclePhase ?? [])).toEqual(new Array(16).fill(5));
     expect(brush?.getLayerSnapshot?.(layerId)?.hasContent).toBe(false);
+  });
+
+  it('does not create a CC floating paste when source clear fails after payload capture', () => {
+    const canvas = document.createElement('canvas');
+    canvas.width = 4;
+    canvas.height = 4;
+
+    const layerId = 'layer-cc-extract-clear-fails';
+    const originalGetLayerColorCycleBrush = useAppStore.getState().getLayerColorCycleBrush;
+    const snapshot = {
+      paintBuffer: new Uint8Array(16).fill(9).buffer,
+      gradientIdBuffer: new Uint8Array(16).fill(1).buffer,
+      gradientDefIdBuffer: new Uint16Array(16).fill(2).buffer,
+      speedBuffer: new Uint8Array(16).fill(3).buffer,
+      flowBuffer: new Uint8Array(16).fill(4).buffer,
+      phaseBuffer: new Uint8Array(16).fill(5).buffer,
+      hasContent: true,
+      strokeCounter: 1,
+    };
+    const ccLayer: Layer = {
+      id: layerId,
+      name: 'CC Extract Clear Fails',
+      visible: true,
+      opacity: 1,
+      blendMode: 'source-over',
+      locked: false,
+      order: 0,
+      imageData: null,
+      framebuffer: canvas,
+      alignment: createDefaultLayerAlignment(),
+      layerType: 'color-cycle',
+      colorCycleData: {
+        canvas,
+        hasContent: true,
+        gradientDefStore: [
+          {
+            id: 2,
+            kind: 'linear',
+            stops: [
+              { position: 0, color: '#000000' },
+              { position: 1, color: '#ffffff' },
+            ],
+            hash: 'def-2',
+            source: 'manual',
+            createdAtMs: 1,
+          },
+        ],
+      },
+    } as Layer;
+
+    useAppStore.setState((state) => ({
+      ...state,
+      project: state.project!,
+      layers: [ccLayer],
+      activeLayerId: layerId,
+      selectionStart: { x: 0, y: 0 },
+      selectionEnd: { x: 4, y: 4 },
+      selectionLastAction: {
+        action: 'set-bounds',
+        source: 'selection-marquee-final',
+        ownerKind: 'direct-marquee',
+        t: Date.now(),
+        activeLayerId: layerId,
+        bounds: { x: 0, y: 0, width: 4, height: 4 },
+      },
+      floatingPaste: null,
+      getLayerColorCycleBrush: ((() => ({
+        getLayerSnapshot: () => snapshot,
+        getCanvas: () => canvas,
+      })) as unknown) as typeof originalGetLayerColorCycleBrush,
+    }));
+
+    try {
+      const extracted = useAppStore.getState().extractSelectionToFloatingPaste();
+
+      expect(extracted).toBe(false);
+      expect(useAppStore.getState().floatingPaste).toBeNull();
+      expect(useAppStore.getState().selectionStart).toEqual({ x: 0, y: 0 });
+      expect(getPersistedCCMutationLog()).toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          event: 'cc-selection-transaction-failed',
+          layerId,
+          reason: 'extract-selection-transform',
+          details: expect.objectContaining({
+            reason: 'source-clear-failed',
+          }),
+        }),
+      ]));
+    } finally {
+      useAppStore.setState({ getLayerColorCycleBrush: originalGetLayerColorCycleBrush });
+    }
   });
 
   it('does not keyboard-delete CC pixels from a history-restored selection on the same layer', () => {

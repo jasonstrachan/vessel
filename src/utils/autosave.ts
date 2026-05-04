@@ -164,6 +164,11 @@ class AutosaveService {
         freshState.clearSaveStatus();
         return;
       }
+      if (freshState.floatingPaste?.active) {
+        autosaveLog.warn('Skipping autosave while a floating selection is active.');
+        freshState.clearSaveStatus();
+        return;
+      }
 
       // Save to background storage (IndexedDB) - silent, non-blocking
       const projectForBackground = {

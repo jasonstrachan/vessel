@@ -400,6 +400,9 @@ export const createProjectLifecycle = ({
       await waitForAllPendingColorCycleSaves();
 
       const freshState = get();
+      if (freshState.floatingPaste?.active) {
+        throw new Error('Finish or cancel the floating selection before saving.');
+      }
       const requestOptions =
         typeof request === 'string' ? { filename: request } : request ?? {};
       const layersForSave = await Promise.all(

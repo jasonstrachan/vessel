@@ -145,6 +145,7 @@ const createStoreStub = () => ({
   captureCanvasToActiveLayer: jest.fn().mockResolvedValue(undefined),
   clearDirtyState: jest.fn(),
   setSaveStatus: jest.fn(),
+  clearSaveStatus: jest.fn(),
   markAutosaveDirty: jest.fn(),
   updateFileBackupTime: jest.fn(),
   addNotification: jest.fn(),
@@ -241,6 +242,31 @@ describe('AutosaveService', () => {
     expect(updated?.autosave.lastSaveTime).toBeInstanceOf(Date);
     expect(setStateMock).toHaveBeenCalledWith({ paletteDirty: false });
     expect(backgroundStorageService.updateSession).toHaveBeenCalledWith(store.project.id, false);
+  });
+
+  it('skips autosave while a floating paste is active', async () => {
+    const store = getStateMock();
+    store.autosave.isEnabled = true;
+    store.floatingPaste = {
+      active: true,
+      imageData: new ImageData(1, 1),
+      position: { x: 0, y: 0 },
+      originalPosition: { x: 0, y: 0 },
+      width: 1,
+      height: 1,
+      displayWidth: 1,
+      displayHeight: 1,
+      rotation: 0,
+      sourceLayerId: 'layer-1',
+    };
+
+    await autosaveService.triggerAutosave();
+
+    expect(flushPendingToolWork).toHaveBeenCalledWith({ passiveOnly: true });
+    expect(backgroundStorageService.saveProjectInBackground).not.toHaveBeenCalled();
+    expect(fileBackupService.saveProjectBackup).not.toHaveBeenCalled();
+    expect(store.clearDirtyState).not.toHaveBeenCalled();
+    expect(store.clearSaveStatus).toHaveBeenCalledTimes(1);
   });
 
   it('should not perform autosave when disabled', async () => {

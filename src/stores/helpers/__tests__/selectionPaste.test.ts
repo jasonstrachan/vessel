@@ -55,6 +55,7 @@ jest.mock('@/utils/debug', () => ({
   debugLog: jest.fn(),
   debugWarn: jest.fn(),
   logError: jest.fn(),
+  recordBreadcrumb: jest.fn(),
 }));
 
 jest.mock('@/utils/appFeedback', () => ({
@@ -140,6 +141,24 @@ const setupHelpers = (
     setCurrentCompositeBitmap: jest.fn(),
     updateLayer: jest.fn(),
     addNotification: jest.fn(),
+    getLayerColorCycleBrush: jest.fn((layerId: string) => {
+      if (layerId !== layer.id || layer.layerType !== 'color-cycle') {
+        return null;
+      }
+      const pixelCount = project.width * project.height;
+      return {
+        getLayerSnapshot: () => ({
+          paintBuffer: new Uint8Array(pixelCount).fill(1).buffer,
+          gradientIdBuffer: new Uint8Array(pixelCount).fill(1).buffer,
+          gradientDefIdBuffer: new Uint16Array(pixelCount).buffer,
+          speedBuffer: new Uint8Array(pixelCount).fill(2).buffer,
+          flowBuffer: new Uint8Array(pixelCount).fill(3).buffer,
+          phaseBuffer: new Uint8Array(pixelCount).fill(4).buffer,
+          hasContent: true,
+          strokeCounter: 1,
+        }),
+      };
+    }) as AppState['getLayerColorCycleBrush'],
   };
 
   const get = () => state as AppState;
@@ -165,6 +184,77 @@ const setupHelpers = (
   });
 
   return { helpers, state, captureCanvasToActiveLayer, layer };
+};
+
+const setMatchingCcSnapshotForFloatingPaste = (
+  state: Partial<AppState>,
+  layer: Layer,
+  floatingPaste: NonNullable<AppState['floatingPaste']>,
+) => {
+  const project = state.project as NonNullable<AppState['project']>;
+  const pixelCount = project.width * project.height;
+  const paint = new Uint8Array(pixelCount);
+  const gradientIds = new Uint8Array(pixelCount);
+  const gradientDefIds = new Uint16Array(pixelCount);
+  const speed = new Uint8Array(pixelCount);
+  const flow = new Uint8Array(pixelCount);
+  const phase = new Uint8Array(pixelCount);
+  const startX = floatingPaste.originalPosition.x;
+  const startY = floatingPaste.originalPosition.y;
+  for (let y = 0; y < floatingPaste.height; y += 1) {
+    for (let x = 0; x < floatingPaste.width; x += 1) {
+      const srcIndex = y * floatingPaste.width + x;
+      const destIndex = (startY + y) * project.width + startX + x;
+      paint[destIndex] = floatingPaste.colorCycleIndices?.[srcIndex] ?? 0;
+      gradientIds[destIndex] = floatingPaste.colorCycleGradientIds?.[srcIndex] ?? 0;
+      gradientDefIds[destIndex] = floatingPaste.colorCycleGradientDefIds?.[srcIndex] ?? 0;
+      speed[destIndex] = floatingPaste.colorCycleSpeed?.[srcIndex] ?? 0;
+      flow[destIndex] = floatingPaste.colorCycleFlow?.[srcIndex] ?? 0;
+      phase[destIndex] = floatingPaste.colorCyclePhase?.[srcIndex] ?? 0;
+    }
+  }
+  state.getLayerColorCycleBrush = jest.fn((layerId: string) => {
+    if (layerId !== layer.id) {
+      return null;
+    }
+    return {
+      getLayerSnapshot: () => ({
+        paintBuffer: paint.buffer,
+        gradientIdBuffer: gradientIds.buffer,
+        gradientDefIdBuffer: gradientDefIds.buffer,
+        speedBuffer: speed.buffer,
+        flowBuffer: flow.buffer,
+        phaseBuffer: phase.buffer,
+        hasContent: true,
+        strokeCounter: 1,
+      }),
+    };
+  }) as AppState['getLayerColorCycleBrush'];
+};
+
+const setIncompleteCcSnapshot = (
+  state: Partial<AppState>,
+  layer: Layer,
+) => {
+  const project = state.project as NonNullable<AppState['project']>;
+  const pixelCount = project.width * project.height;
+  state.getLayerColorCycleBrush = jest.fn((layerId: string) => {
+    if (layerId !== layer.id) {
+      return null;
+    }
+    return {
+      getLayerSnapshot: () => ({
+        paintBuffer: new Uint8Array(pixelCount).fill(1).buffer,
+        gradientIdBuffer: new Uint8Array(pixelCount).fill(1).buffer,
+        gradientDefIdBuffer: new Uint16Array(pixelCount).buffer,
+        speedBuffer: new Uint8Array(pixelCount).buffer,
+        flowBuffer: undefined,
+        phaseBuffer: new Uint8Array(pixelCount).buffer,
+        hasContent: true,
+        strokeCounter: 1,
+      }),
+    };
+  }) as AppState['getLayerColorCycleBrush'];
 };
 
 describe('selection paste commit', () => {
@@ -503,6 +593,67 @@ describe('selection paste commit', () => {
     expect(state.floatingPaste).toBeNull();
   });
 
+  it('keeps a CC floating paste active when destination write fails during commit', async () => {
+    const { helpers, state } = setupHelpers(
+      {
+        colorCycleIndices: new Uint8Array([1, 2, 3, 4]),
+        colorCycleGradientIds: new Uint8Array([11, 12, 13, 14]),
+        colorCycleGradientDefIds: new Uint16Array([101, 102, 103, 104]),
+        colorCycleSpeed: new Uint8Array([21, 22, 23, 24]),
+        colorCycleFlow: new Uint8Array([31, 32, 33, 34]),
+        colorCyclePhase: new Uint8Array([41, 42, 43, 44]),
+        width: 2,
+        height: 2,
+        displayWidth: 2,
+        displayHeight: 2,
+        position: { x: 5, y: 8 },
+      },
+      {
+        layerType: 'color-cycle',
+      }
+    );
+
+    mockWriteColorCycleRegion.mockReturnValueOnce(false);
+
+    await helpers.commitFloatingPaste();
+
+    expect(mockWriteColorCycleRegion).toHaveBeenCalledTimes(1);
+    expect(commitLayerHistory).not.toHaveBeenCalled();
+    expect(state.floatingPaste).not.toBeNull();
+  });
+
+  it('blocks CC paste commit when the target canonical payload is incomplete', async () => {
+    const { helpers, state, layer } = setupHelpers(
+      {
+        colorCycleIndices: new Uint8Array([1, 2, 3, 4]),
+        colorCycleGradientIds: new Uint8Array([11, 12, 13, 14]),
+        colorCycleGradientDefIds: new Uint16Array([101, 102, 103, 104]),
+        colorCycleSpeed: new Uint8Array([21, 22, 23, 24]),
+        colorCycleFlow: new Uint8Array([31, 32, 33, 34]),
+        colorCyclePhase: new Uint8Array([41, 42, 43, 44]),
+        width: 2,
+        height: 2,
+        displayWidth: 2,
+        displayHeight: 2,
+        position: { x: 5, y: 8 },
+      },
+      {
+        layerType: 'color-cycle',
+      }
+    );
+    setIncompleteCcSnapshot(state, layer);
+
+    await helpers.commitFloatingPaste();
+
+    expect(mockWriteColorCycleRegion).not.toHaveBeenCalled();
+    expect(commitLayerHistory).not.toHaveBeenCalled();
+    expect(state.floatingPaste).not.toBeNull();
+    expect(state.addNotification).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'warning',
+      title: 'Paste blocked',
+    }));
+  });
+
   it('uses floating paste alpha when cancel restores a moved freehand color-cycle selection', () => {
     const colorCycleIndices = new Uint8Array([
       1, 0,
@@ -532,6 +683,8 @@ describe('selection paste commit', () => {
       }
     );
 
+    mockWriteColorCycleRegion.mockReturnValueOnce(true);
+
     helpers.cancelFloatingPaste();
 
     expect(mockWriteColorCycleRegion).toHaveBeenCalledTimes(1);
@@ -557,6 +710,135 @@ describe('selection paste commit', () => {
     expect(state.floatingPaste).toBeNull();
   });
 
+  it('keeps a CC floating paste active when cancel restore fails', () => {
+    const colorCycleIndices = new Uint8Array([
+      1, 0,
+      0, 4,
+    ]);
+    const imageData = new ImageData(new Uint8ClampedArray(2 * 2 * 4), 2, 2);
+    const { helpers, state } = setupHelpers(
+      {
+        imageData,
+        colorCycleIndices,
+        width: 2,
+        height: 2,
+        displayWidth: 2,
+        displayHeight: 2,
+        originalPosition: { x: 6, y: 7 },
+        position: { x: 20, y: 21 },
+      },
+      {
+        layerType: 'color-cycle',
+      }
+    );
+
+    mockWriteColorCycleRegion.mockReturnValueOnce(false);
+
+    helpers.cancelFloatingPaste();
+
+    expect(mockWriteColorCycleRegion).toHaveBeenCalledTimes(1);
+    expect(state.scheduleColorCycleSlotRebuild).not.toHaveBeenCalled();
+    expect(state.floatingPaste).not.toBeNull();
+  });
+
+  it('blocks CC cancel restore when the target canonical payload is incomplete', () => {
+    const colorCycleIndices = new Uint8Array([
+      1, 0,
+      0, 4,
+    ]);
+    const imageData = new ImageData(new Uint8ClampedArray(2 * 2 * 4), 2, 2);
+    const { helpers, state, layer } = setupHelpers(
+      {
+        imageData,
+        colorCycleIndices,
+        width: 2,
+        height: 2,
+        displayWidth: 2,
+        displayHeight: 2,
+        originalPosition: { x: 6, y: 7 },
+        position: { x: 20, y: 21 },
+      },
+      {
+        layerType: 'color-cycle',
+      }
+    );
+    setIncompleteCcSnapshot(state, layer);
+
+    helpers.cancelFloatingPaste();
+
+    expect(mockWriteColorCycleRegion).not.toHaveBeenCalled();
+    expect(state.scheduleColorCycleSlotRebuild).not.toHaveBeenCalled();
+    expect(state.floatingPaste).not.toBeNull();
+  });
+
+  it('dismisses a CC floating paste when cancel restore is already a no-op', () => {
+    const colorCycleIndices = new Uint8Array([
+      1, 0,
+      0, 4,
+    ]);
+    const colorCycleGradientIds = new Uint8Array([
+      11, 0,
+      0, 14,
+    ]);
+    const colorCycleGradientDefIds = new Uint16Array([
+      101, 0,
+      0, 104,
+    ]);
+    const colorCycleSpeed = new Uint8Array([
+      21, 0,
+      0, 24,
+    ]);
+    const colorCycleFlow = new Uint8Array([
+      31, 0,
+      0, 34,
+    ]);
+    const colorCyclePhase = new Uint8Array([
+      41, 0,
+      0, 44,
+    ]);
+    const imageData = new ImageData(
+      new Uint8ClampedArray([
+        0, 0, 0, 255, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 255,
+      ]),
+      2,
+      2
+    );
+    const { helpers, state, layer } = setupHelpers(
+      {
+        imageData,
+        colorCycleIndices,
+        colorCycleGradientIds,
+        colorCycleGradientDefIds,
+        colorCycleSpeed,
+        colorCycleFlow,
+        colorCyclePhase,
+        width: 2,
+        height: 2,
+        displayWidth: 2,
+        displayHeight: 2,
+        originalPosition: { x: 6, y: 7 },
+        position: { x: 20, y: 21 },
+      },
+      {
+        layerType: 'color-cycle',
+      }
+    );
+    setMatchingCcSnapshotForFloatingPaste(
+      state,
+      layer,
+      state.floatingPaste as NonNullable<AppState['floatingPaste']>
+    );
+    mockWriteColorCycleRegion.mockReturnValueOnce(false);
+
+    helpers.cancelFloatingPaste();
+
+    expect(mockWriteColorCycleRegion).toHaveBeenCalledTimes(1);
+    expect(state.scheduleColorCycleSlotRebuild).toHaveBeenCalledWith('selection-paste-cancel');
+    expect(state.setLayersNeedRecomposition).toHaveBeenCalledWith(true);
+    expect(state.floatingPaste).toBeNull();
+  });
+
   it('synthesizes alpha from color-cycle indices when cancel bitmap alpha is blank', () => {
     const colorCycleIndices = new Uint8Array([
       1, 0,
@@ -578,6 +860,8 @@ describe('selection paste commit', () => {
         layerType: 'color-cycle',
       }
     );
+
+    mockWriteColorCycleRegion.mockReturnValueOnce(true);
 
     helpers.cancelFloatingPaste();
 

@@ -153,6 +153,8 @@ describe('project slice lifecycle flows', () => {
       paletteDirty: false,
       projectFilename: null,
       projectFileHandle: null,
+      floatingPaste: null,
+      floatingPasteHistoryContext: null,
       layers: state.layers.length ? state.layers : [],
       autosave: {
         ...state.autosave,
@@ -287,6 +289,51 @@ describe('project slice lifecycle flows', () => {
     const [, , layersArg] = (saveProjectToFile as jest.Mock).mock.calls[0] as [Project, string, Layer[]];
     const savedImageData = layersArg[0]?.colorCycleData?.canvasImageData;
     expect(Array.from(savedImageData?.data.slice(0, 4) ?? [])).toEqual([12, 34, 56, 255]);
+  });
+
+  it('blocks manual save while a floating paste is active', async () => {
+    const layer = makeLayer('layer-active-floating-save-guard');
+    const project: Project = {
+      id: 'project-active-floating-save-guard',
+      name: 'Active Floating Save Guard',
+      width: 8,
+      height: 8,
+      layers: [layer],
+      backgroundColor: '#000000',
+      createdAt: new Date('2024-04-01'),
+      updatedAt: new Date('2024-04-02'),
+      customBrushes: [],
+      defaultCustomBrushId: null,
+      exportLayout: createDefaultExportLayout(),
+      palette: {
+        foregroundColor: '#ffffff',
+        backgroundColor: '#000000',
+        activeSlot: 'foreground',
+      },
+      brushSpecificSettings: {},
+    };
+
+    useAppStore.setState({
+      project,
+      layers: [layer],
+      floatingPaste: {
+        active: true,
+        imageData: new ImageData(1, 1),
+        position: { x: 0, y: 0 },
+        originalPosition: { x: 0, y: 0 },
+        width: 1,
+        height: 1,
+        displayWidth: 1,
+        displayHeight: 1,
+        rotation: 0,
+        sourceLayerId: layer.id,
+      },
+    });
+
+    await expect(useAppStore.getState().saveProject('active-floating.vessel')).rejects.toThrow(
+      'Finish or cancel the floating selection before saving.'
+    );
+    expect(saveProjectToFile).not.toHaveBeenCalled();
   });
 
   it('does not merge composite canvas pixels into the active layer while saving', async () => {

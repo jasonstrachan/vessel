@@ -39,6 +39,12 @@ import {
   type SelectionDeleteAuthorization,
   type SelectionOwnerKind,
 } from '@/stores/helpers/selectionDeleteAuthorization';
+import {
+  captureCcSelectionBefore,
+  runCcSelectionTransaction,
+  type CcSelectionPreflight,
+  type CcCanonicalSelectionPayload,
+} from '@/stores/helpers/colorCycleSelectionTransaction';
 
 type AppState = import('../useAppStore').AppState;
 
@@ -204,6 +210,37 @@ const buildTransferredColorCyclePayload = (
   colorCycleFlow: capture.colorCycleFlow ?? null,
   colorCyclePhase: capture.colorCyclePhase ?? null,
 });
+
+const buildCanonicalColorCycleSelectionPayload = (
+  layer: Layer,
+  snapshot: {
+    paintBuffer?: ArrayBuffer | null;
+    gradientIdBuffer?: ArrayBuffer | null;
+    gradientDefIdBuffer?: ArrayBuffer | null;
+    speedBuffer?: ArrayBuffer | null;
+    flowBuffer?: ArrayBuffer | null;
+    phaseBuffer?: ArrayBuffer | null;
+  } | null,
+  width: number,
+  height: number
+): CcCanonicalSelectionPayload => {
+  const paintBuffer = snapshot?.paintBuffer ? new Uint8Array(snapshot.paintBuffer) : null;
+  const layerClaimsContent = Boolean(layer.colorCycleData?.hasContent);
+  const hasPersistedCcPayload = Boolean(
+    layer.colorCycleData?.gradientIdBuffer || layer.colorCycleData?.gradientDefIdBuffer
+  );
+  const hasCanonicalPaint = paintBuffer?.some((value) => value !== 0) ?? false;
+  return {
+    paintBuffer: (layerClaimsContent || hasPersistedCcPayload) && !hasCanonicalPaint ? null : paintBuffer,
+    gradientIdBuffer: snapshot?.gradientIdBuffer ? new Uint8Array(snapshot.gradientIdBuffer) : null,
+    gradientDefIdBuffer: snapshot?.gradientDefIdBuffer ? new Uint16Array(snapshot.gradientDefIdBuffer) : null,
+    speedBuffer: snapshot?.speedBuffer ? new Uint8Array(snapshot.speedBuffer) : null,
+    flowBuffer: snapshot?.flowBuffer ? new Uint8Array(snapshot.flowBuffer) : null,
+    phaseBuffer: snapshot?.phaseBuffer ? new Uint8Array(snapshot.phaseBuffer) : null,
+    width,
+    height,
+  };
+};
 
 const computeBoundsFromSelection = (
   start: { x: number; y: number },
@@ -481,6 +518,90 @@ const logSelectionExtractBlocked = (args: {
           }
         : null,
       paintAfter: buildColorCyclePaintAfterClearSummary(paintSummary),
+      ...details,
+    },
+  });
+};
+
+const logCcSelectionTransactionBlocked = (args: {
+  activeLayer: Layer;
+  activeLayerId: string;
+  projectId?: string | null;
+  source: string;
+  transactionId: string;
+  kind: string;
+  operation: string;
+  clearSelection: boolean;
+  details: Record<string, unknown>;
+}): void => {
+  const {
+    activeLayer,
+    activeLayerId,
+    projectId,
+    source,
+    transactionId,
+    kind,
+    operation,
+    clearSelection,
+    details,
+  } = args;
+  const summary = summarizeColorCycleLayer(activeLayer);
+  logCCMutation({
+    event: 'cc-selection-transaction-preflight-blocked',
+    layerId: activeLayerId,
+    reason: operation,
+    severity: kind === 'missing-canonical-payload' || kind === 'missing-gradient-definition' ? 'error' : 'warn',
+    before: summary,
+    after: summary,
+    details: {
+      source,
+      transactionId,
+      operation,
+      kind,
+      clearSelection,
+      projectId: projectId ?? null,
+      ...details,
+    },
+  });
+};
+
+const logCcSelectionTransactionEvent = (args: {
+  activeLayer: Layer;
+  activeLayerId: string;
+  projectId?: string | null;
+  event:
+    | 'cc-selection-transaction-source-cleared'
+    | 'cc-selection-transaction-failed';
+  transactionId: string;
+  operation: string;
+  kind: string;
+  severity?: 'warn' | 'error';
+  details?: Record<string, unknown>;
+}): void => {
+  const {
+    activeLayer,
+    activeLayerId,
+    projectId,
+    event,
+    transactionId,
+    operation,
+    kind,
+    severity = 'warn',
+    details = {},
+  } = args;
+  const summary = summarizeColorCycleLayer(activeLayer);
+  logCCMutation({
+    event,
+    layerId: activeLayerId,
+    reason: operation,
+    severity,
+    before: summary,
+    after: summary,
+    details: {
+      transactionId,
+      operation,
+      kind,
+      projectId: projectId ?? null,
       ...details,
     },
   });
@@ -1495,66 +1616,145 @@ export const createSelectionSlice: StateCreator<AppState, [], [], SelectionSlice
         return;
       }
 
-      const colorCyclePaint = (() => {
-        if (activeLayer.layerType !== 'color-cycle') {
-          return null;
-        }
+      let deleteBounds: Rectangle | null = null;
+
+      if (activeLayer.layerType === 'color-cycle') {
         const brush = typeof state.getLayerColorCycleBrush === 'function'
           ? state.getLayerColorCycleBrush(activeLayerId)
           : null;
         const snapshot = brush?.getLayerSnapshot?.(activeLayerId) ?? null;
         const canvas = activeLayer.colorCycleData?.canvas ?? activeLayer.framebuffer ?? null;
-        const expectedPixels = Math.max(1, (canvas?.width ?? project.width) * (canvas?.height ?? project.height));
-        const hasFullCanonicalPayload = Boolean(
-          snapshot?.paintBuffer?.byteLength === expectedPixels &&
-          snapshot?.gradientIdBuffer?.byteLength === expectedPixels &&
-          snapshot?.gradientDefIdBuffer?.byteLength === expectedPixels * 2 &&
-          snapshot?.speedBuffer?.byteLength === expectedPixels &&
-          snapshot?.flowBuffer?.byteLength === expectedPixels &&
-          snapshot?.phaseBuffer?.byteLength === expectedPixels
+        const canonical = buildCanonicalColorCycleSelectionPayload(
+          activeLayer,
+          snapshot,
+          canvas?.width ?? project.width,
+          canvas?.height ?? project.height
         );
-        return {
-          buffer: snapshot?.paintBuffer ? new Uint8Array(snapshot.paintBuffer) : null,
-          width: canvas?.width ?? project.width,
-          height: canvas?.height ?? project.height,
-          hasFullCanonicalPayload,
-        };
-      })();
 
-      const authorization = authorizeSelectionDelete({
-        source,
-        activeLayer,
-        activeLayerId,
-        project,
-        selectionStart,
-        selectionEnd,
-        selectionMask,
-        selectionMaskBounds,
-        selectionMaskLayerId,
-        selectionLastAction,
-        colorCyclePaint,
-      });
-
-      if (!authorization.ok) {
-        logSelectionDeleteAuthorizationBlocked({
-          authorization,
+        const preflight = runCcSelectionTransaction({
+          operation: 'delete-selected',
+          source,
           activeLayer,
           activeLayerId,
-          source,
-          projectId: project.id,
+          project,
           selectionStart,
           selectionEnd,
+          selectionMask,
           selectionMaskBounds,
           selectionMaskLayerId,
           selectionLastAction,
+          canonical,
+          requireGradientDefinitionPresence: false,
         });
-        if (authorization.clearSelection) {
-          state.clearSelection();
+
+        if (!preflight.ok) {
+          const authorization = authorizeSelectionDelete({
+            source,
+            activeLayer,
+            activeLayerId,
+            project,
+            selectionStart,
+            selectionEnd,
+            selectionMask,
+            selectionMaskBounds,
+            selectionMaskLayerId,
+            selectionLastAction,
+            colorCyclePaint: {
+              buffer: canonical.paintBuffer,
+              width: canonical.width,
+              height: canonical.height,
+              hasFullCanonicalPayload: preflight.kind !== 'missing-canonical-payload',
+            },
+          });
+          if (!authorization.ok) {
+            logSelectionDeleteAuthorizationBlocked({
+              authorization,
+              activeLayer,
+              activeLayerId,
+              source,
+              projectId: project.id,
+              selectionStart,
+              selectionEnd,
+              selectionMaskBounds,
+              selectionMaskLayerId,
+              selectionLastAction,
+            });
+          }
+          logCcSelectionTransactionBlocked({
+            activeLayer,
+            activeLayerId,
+            projectId: project.id,
+            source,
+            transactionId: preflight.transactionId,
+            kind: preflight.kind,
+            operation: preflight.operation,
+            clearSelection: preflight.clearSelection,
+            details: preflight.details,
+          });
+          if (preflight.clearSelection) {
+            state.clearSelection();
+          }
+          return;
+        }
+
+        deleteBounds = preflight.bounds;
+      } else {
+        const authorization = authorizeSelectionDelete({
+          source,
+          activeLayer,
+          activeLayerId,
+          project,
+          selectionStart,
+          selectionEnd,
+          selectionMask,
+          selectionMaskBounds,
+          selectionMaskLayerId,
+          selectionLastAction,
+          colorCyclePaint: null,
+        });
+
+        if (!authorization.ok) {
+          logSelectionDeleteAuthorizationBlocked({
+            authorization,
+            activeLayer,
+            activeLayerId,
+            source,
+            projectId: project.id,
+            selectionStart,
+            selectionEnd,
+            selectionMaskBounds,
+            selectionMaskLayerId,
+            selectionLastAction,
+          });
+          if (authorization.clearSelection) {
+            state.clearSelection();
+          }
+          return;
+        }
+
+        deleteBounds = authorization.bounds;
+      }
+
+      if (!deleteBounds) {
+        if (activeLayer.layerType === 'color-cycle') {
+          logCcSelectionTransactionBlocked({
+            activeLayer,
+            activeLayerId,
+            projectId: project.id,
+            source,
+            transactionId: `cc-selection-delete-selected-missing-bounds-${Date.now()}`,
+            kind: 'invalid-selection',
+            operation: 'delete-selected',
+            clearSelection: false,
+            details: {
+              reason: 'missing-delete-bounds-after-preflight',
+            },
+          });
         }
         return;
       }
 
-      const { x, y, width, height } = authorization.bounds;
+      const { x, y, width, height } = deleteBounds;
 
       const selectionBefore = selectionSnapshotFromValues(selectionStart, selectionEnd);
 
@@ -1789,94 +1989,119 @@ export const createSelectionSlice: StateCreator<AppState, [], [], SelectionSlice
       const beforeColorState = activeLayer.layerType === 'color-cycle'
         ? captureColorCycleBrushState(activeLayer.id)
         : null;
+      let ccExtractPreflight: Extract<CcSelectionPreflight, { ok: true }> | null = null;
 
       if (activeLayer.layerType === 'color-cycle') {
-        const selectionOwnerLayerId = selectionLastAction?.activeLayerId ?? null;
-        if (selectionOwnerLayerId && selectionOwnerLayerId !== activeLayerId) {
-          logSelectionExtractBlocked({
-            activeLayer,
-            activeLayerId,
-            projectId: project.id,
-            reason: 'selection-layer-mismatch',
-            selectionStart,
-            selectionEnd,
-            selectionMaskBounds,
-            selectionMaskLayerId,
-            selectionLastAction,
-          });
-          state.clearSelection();
-          return false;
-        }
-
-        if (selectionMaskLayerId && selectionMaskLayerId !== activeLayerId) {
-          logSelectionExtractBlocked({
-            activeLayer,
-            activeLayerId,
-            projectId: project.id,
-            reason: 'selection-mask-layer-mismatch',
-            selectionStart,
-            selectionEnd,
-            selectionMaskBounds,
-            selectionMaskLayerId,
-            selectionLastAction,
-          });
-          state.clearSelection();
-          return false;
-        }
-
         const brush = state.getLayerColorCycleBrush?.(activeLayerId);
         const snapshot = brush?.getLayerSnapshot?.(activeLayerId) ?? null;
         const canvas = activeLayer.colorCycleData?.canvas ?? activeLayer.framebuffer ?? null;
-        const paintWidth = canvas?.width ?? project.width;
-        const paintHeight = canvas?.height ?? project.height;
-        const expectedPixels = Math.max(1, paintWidth * paintHeight);
-        const hasFullCanonicalPayload = Boolean(
-          snapshot?.paintBuffer?.byteLength === expectedPixels &&
-          snapshot?.gradientIdBuffer?.byteLength === expectedPixels &&
-          snapshot?.gradientDefIdBuffer?.byteLength === expectedPixels * 2 &&
-          snapshot?.speedBuffer?.byteLength === expectedPixels &&
-          snapshot?.flowBuffer?.byteLength === expectedPixels &&
-          snapshot?.phaseBuffer?.byteLength === expectedPixels
+        const canonical = buildCanonicalColorCycleSelectionPayload(
+          activeLayer,
+          snapshot,
+          canvas?.width ?? project.width,
+          canvas?.height ?? project.height
         );
+        const preflight = runCcSelectionTransaction({
+          operation: 'extract-selection-transform',
+          activeLayer,
+          activeLayerId,
+          project,
+          selectionStart,
+          selectionEnd,
+          selectionMask,
+          selectionMaskBounds,
+          selectionMaskLayerId,
+          selectionLastAction,
+          canonical,
+          requireGradientDefinitionPresence: false,
+        });
 
-        if (!snapshot?.paintBuffer || !hasFullCanonicalPayload || paintWidth <= 0 || paintHeight <= 0) {
+        if (!preflight.ok) {
           logSelectionExtractBlocked({
             activeLayer,
             activeLayerId,
             projectId: project.id,
-            reason: 'missing-canonical-paint',
+            reason: preflight.kind === 'missing-canonical-payload' ? 'missing-canonical-paint' : preflight.kind,
             selectionStart,
             selectionEnd,
             selectionMaskBounds,
             selectionMaskLayerId,
             selectionLastAction,
-            details: {
-              hasPaintBuffer: Boolean(snapshot?.paintBuffer?.byteLength),
-              hasFullCanonicalPayload,
-              paintWidth,
-              paintHeight,
-            },
+            details: preflight.details,
           });
+          logCcSelectionTransactionBlocked({
+            activeLayer,
+            activeLayerId,
+            projectId: project.id,
+            source: 'extract-selection-transform',
+            transactionId: preflight.transactionId,
+            kind: preflight.kind,
+            operation: preflight.operation,
+            clearSelection: preflight.clearSelection,
+            details: preflight.details,
+          });
+          if (preflight.clearSelection) {
+            state.clearSelection();
+          }
           return false;
         }
-
+        ccExtractPreflight = preflight;
       }
 
-      const capture = selectionMask && selectionMaskBounds
-        ? captureSelectionBitmapFromMask({
-            mask: selectionMask,
-            maskBounds: selectionMaskBounds,
-            project,
-            layer: activeLayer,
-            clearSource: true,
-          })
-        : captureSelectionBitmap({
-            selectionStart,
-            selectionEnd,
-            project,
-            layer: activeLayer,
-            clearSource: true,
-          });
+      const capture = activeLayer.layerType === 'color-cycle' && ccExtractPreflight
+        ? (() => {
+            const captured = captureCcSelectionBefore({
+              preflight: ccExtractPreflight,
+              layer: activeLayer,
+              project,
+              selectionStart,
+              selectionEnd,
+              selectionMask,
+              selectionMaskBounds,
+            });
+            if (!captured.ok) {
+              logSelectionExtractBlocked({
+                activeLayer,
+                activeLayerId,
+                projectId: project.id,
+                reason: captured.kind === 'missing-canonical-payload' ? 'missing-canonical-paint' : captured.kind,
+                selectionStart,
+                selectionEnd,
+                selectionMaskBounds,
+                selectionMaskLayerId,
+                selectionLastAction,
+                details: captured.details,
+              });
+              logCcSelectionTransactionBlocked({
+                activeLayer,
+                activeLayerId,
+                projectId: project.id,
+                source: 'extract-selection-transform',
+                transactionId: captured.transactionId,
+                kind: captured.kind,
+                operation: 'extract-selection-transform',
+                clearSelection: false,
+                details: captured.details,
+              });
+              return null;
+            }
+            return captured.capture;
+          })()
+        : (selectionMask && selectionMaskBounds
+            ? captureSelectionBitmapFromMask({
+                mask: selectionMask,
+                maskBounds: selectionMaskBounds,
+                project,
+                layer: activeLayer,
+                clearSource: true,
+              })
+            : captureSelectionBitmap({
+                selectionStart,
+                selectionEnd,
+                project,
+                layer: activeLayer,
+                clearSource: true,
+              }));
 
       if (!capture || !capture.updatedLayerImageData) {
         return false;
@@ -1904,6 +2129,36 @@ export const createSelectionSlice: StateCreator<AppState, [], [], SelectionSlice
           const eraseMask = activeLayer.colorCycleData?.eraseMask;
           clearColorCycleEraseMask(eraseMask, capture.bounds, selectionMask, selectionMaskBounds);
           state.scheduleColorCycleSlotRebuild?.('extract-selection-transform');
+          logCcSelectionTransactionEvent({
+            activeLayer,
+            activeLayerId,
+            projectId: project.id,
+            event: 'cc-selection-transaction-source-cleared',
+            transactionId: ccExtractPreflight?.transactionId ?? 'unknown',
+            operation: 'extract-selection-transform',
+            kind: ccExtractPreflight?.kind ?? 'partial-clear',
+            details: {
+              bounds: capture.bounds,
+              selectionMaskBounds,
+            },
+          });
+        } else {
+          logCcSelectionTransactionEvent({
+            activeLayer,
+            activeLayerId,
+            projectId: project.id,
+            event: 'cc-selection-transaction-failed',
+            transactionId: ccExtractPreflight?.transactionId ?? 'unknown',
+            operation: 'extract-selection-transform',
+            kind: ccExtractPreflight?.kind ?? 'partial-clear',
+            severity: 'error',
+            details: {
+              reason: 'source-clear-failed',
+              bounds: capture.bounds,
+              selectionMaskBounds,
+            },
+          });
+          return false;
         }
       } else {
         const updatedImageData = capture.updatedLayerImageData;

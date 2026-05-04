@@ -42,6 +42,16 @@ Look for:
 event: 'color-cycle-layer-cleared'
 ```
 
+For selection-driven CC changes, correlate the lower-level clear with transaction events:
+
+- `cc-selection-transaction-preflight-blocked`: selection ownership, canonical payload, gradient def, or other dry-run policy blocked before mutation.
+- `cc-selection-transaction-source-cleared`: extract/move preflight and payload capture succeeded, then the source region was cleared.
+- `cc-selection-transaction-paste-committed`: floating CC payload was written to the destination and then discarded.
+- `cc-selection-transaction-restored`: cancel restored the floating CC payload to its source.
+- `cc-selection-transaction-failed`: capture, source clear, destination write, or restore failed; the floating payload should remain active when needed for recovery.
+
+All selection transaction events include `details.transactionId`, `details.operation`, and `details.kind`. Use that id to tie preflight, clear/write/restore, and failure logs together.
+
 That entry should include:
 
 - `layerId`

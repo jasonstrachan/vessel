@@ -16,11 +16,189 @@ import {
   hasColorCycleIndices,
   writeColorCycleRegion,
 } from '@/stores/helpers/colorCycleSelection';
+import {
+  buildCcSelectionHistoryPayload,
+  runCcSelectionTransaction,
+  type CcCanonicalSelectionPayload,
+  type CcSelectionOperation,
+} from '@/stores/helpers/colorCycleSelectionTransaction';
+import { logCCMutation, summarizeColorCycleLayer } from '@/utils/colorCycle/ccMutationAudit';
 
 type StoreGet = StoreApi<AppState>['getState'];
 type StoreSet = StoreApi<AppState>['setState'];
 
 type CaptureFn = AppState['captureCanvasToActiveLayer'];
+
+const buildCcCanonicalPayload = (
+  state: AppState,
+  layerId: string,
+  fallbackWidth: number,
+  fallbackHeight: number
+): CcCanonicalSelectionPayload => {
+  const brush = typeof state.getLayerColorCycleBrush === 'function'
+    ? state.getLayerColorCycleBrush(layerId)
+    : null;
+  const snapshot = brush?.getLayerSnapshot?.(layerId) ?? null;
+  return {
+    paintBuffer: snapshot?.paintBuffer ? new Uint8Array(snapshot.paintBuffer) : null,
+    gradientIdBuffer: snapshot?.gradientIdBuffer ? new Uint8Array(snapshot.gradientIdBuffer) : null,
+    gradientDefIdBuffer: snapshot?.gradientDefIdBuffer ? new Uint16Array(snapshot.gradientDefIdBuffer) : null,
+    speedBuffer: snapshot?.speedBuffer ? new Uint8Array(snapshot.speedBuffer) : null,
+    flowBuffer: snapshot?.flowBuffer ? new Uint8Array(snapshot.flowBuffer) : null,
+    phaseBuffer: snapshot?.phaseBuffer ? new Uint8Array(snapshot.phaseBuffer) : null,
+    width: fallbackWidth,
+    height: fallbackHeight,
+  };
+};
+
+const hasCompleteCcCanonicalPayload = (payload: CcCanonicalSelectionPayload): boolean => {
+  const expectedPixels = Math.max(1, payload.width * payload.height);
+  return Boolean(
+    payload.paintBuffer?.byteLength === expectedPixels &&
+    payload.gradientIdBuffer?.byteLength === expectedPixels &&
+    payload.gradientDefIdBuffer?.byteLength === expectedPixels * Uint16Array.BYTES_PER_ELEMENT &&
+    payload.speedBuffer?.byteLength === expectedPixels &&
+    payload.flowBuffer?.byteLength === expectedPixels &&
+    payload.phaseBuffer?.byteLength === expectedPixels
+  );
+};
+
+const colorCyclePayloadAlreadyMatchesRegion = (
+  target: CcCanonicalSelectionPayload,
+  rect: Rectangle,
+  source: Uint8Array,
+  sourceWidth: number,
+  sourceHeight: number,
+  options?: {
+    alphaData?: Uint8ClampedArray | Uint8Array | null;
+    alphaStride?: number;
+    alphaChannelOffset?: number;
+    alphaThreshold?: number;
+    sourceGradientIds?: Uint8Array | null;
+    sourceGradientDefIds?: Uint16Array | null;
+    sourceSpeed?: Uint8Array | null;
+    sourceFlow?: Uint8Array | null;
+    sourcePhase?: Uint8Array | null;
+  }
+): boolean => {
+  if (!hasCompleteCcCanonicalPayload(target) || sourceWidth <= 0 || sourceHeight <= 0) {
+    return false;
+  }
+
+  const paint = target.paintBuffer;
+  const gradientIds = target.gradientIdBuffer;
+  const gradientDefIds = target.gradientDefIdBuffer;
+  const speed = target.speedBuffer;
+  const flow = target.flowBuffer;
+  const phase = target.phaseBuffer;
+  if (!paint || !gradientIds || !gradientDefIds || !speed || !flow || !phase) {
+    return false;
+  }
+
+  const startX = clamp(Math.floor(rect.x), 0, target.width);
+  const startY = clamp(Math.floor(rect.y), 0, target.height);
+  const endX = clamp(Math.ceil(rect.x + rect.width), 0, target.width);
+  const endY = clamp(Math.ceil(rect.y + rect.height), 0, target.height);
+  if (startX >= endX || startY >= endY) {
+    return true;
+  }
+
+  const alphaData = options?.alphaData ?? null;
+  const alphaStride = Math.max(1, options?.alphaStride ?? 4);
+  const alphaChannelOffset = Math.max(0, options?.alphaChannelOffset ?? 3);
+  const alphaThreshold = Math.max(0, options?.alphaThreshold ?? 0);
+
+  for (let y = startY; y < endY; y += 1) {
+    const srcY = y - startY;
+    if (srcY < 0 || srcY >= sourceHeight) {
+      continue;
+    }
+    for (let x = startX; x < endX; x += 1) {
+      const srcX = x - startX;
+      if (srcX < 0 || srcX >= sourceWidth) {
+        continue;
+      }
+      if (alphaData) {
+        const alphaIndex = (srcY * sourceWidth + srcX) * alphaStride + alphaChannelOffset;
+        const alpha = alphaData[alphaIndex] ?? 0;
+        if (alpha <= alphaThreshold) {
+          continue;
+        }
+      }
+
+      const srcIndex = srcY * sourceWidth + srcX;
+      const destIndex = y * target.width + x;
+      if (
+        paint[destIndex] !== source[srcIndex] ||
+        gradientIds[destIndex] !== (options?.sourceGradientIds?.[srcIndex] ?? gradientIds[destIndex]) ||
+        gradientDefIds[destIndex] !== (options?.sourceGradientDefIds?.[srcIndex] ?? gradientDefIds[destIndex]) ||
+        speed[destIndex] !== (options?.sourceSpeed?.[srcIndex] ?? speed[destIndex]) ||
+        flow[destIndex] !== (options?.sourceFlow?.[srcIndex] ?? flow[destIndex]) ||
+        phase[destIndex] !== (options?.sourcePhase?.[srcIndex] ?? phase[destIndex])
+      ) {
+        return false;
+      }
+    }
+  }
+
+  return true;
+};
+
+const logCcPasteTransactionBlocked = (args: {
+  layerId: string;
+  layer: AppState['layers'][number];
+  operation: CcSelectionOperation;
+  transactionId: string;
+  kind: string;
+  details: Record<string, unknown>;
+}): void => {
+  const summary = summarizeColorCycleLayer(args.layer);
+  logCCMutation({
+    event: 'cc-selection-transaction-preflight-blocked',
+    layerId: args.layerId,
+    reason: args.operation,
+    severity: args.kind === 'missing-canonical-payload' || args.kind === 'missing-gradient-definition' ? 'error' : 'warn',
+    before: summary,
+    after: summary,
+    details: {
+      transactionId: args.transactionId,
+      operation: args.operation,
+      kind: args.kind,
+      clearSelection: false,
+      ...args.details,
+    },
+  });
+};
+
+const logCcPasteTransactionEvent = (args: {
+  layerId: string;
+  layer: AppState['layers'][number];
+  operation: CcSelectionOperation;
+  transactionId: string;
+  event:
+    | 'cc-selection-transaction-paste-committed'
+    | 'cc-selection-transaction-restored'
+    | 'cc-selection-transaction-failed';
+  kind: string;
+  severity?: 'warn' | 'error';
+  details?: Record<string, unknown>;
+}): void => {
+  const summary = summarizeColorCycleLayer(args.layer);
+  logCCMutation({
+    event: args.event,
+    layerId: args.layerId,
+    reason: args.operation,
+    severity: args.severity ?? 'warn',
+    before: summary,
+    after: summary,
+    details: {
+      transactionId: args.transactionId,
+      operation: args.operation,
+      kind: args.kind,
+      ...(args.details ?? {}),
+    },
+  });
+};
 
 const clamp = (value: number, min: number, max: number) => {
   return Math.max(min, Math.min(max, value));
@@ -613,6 +791,53 @@ export const createSelectionPasteHelpers = ({
       }
 
       if (targetLayer.layerType === 'color-cycle' && hasColorCycleData) {
+        let pasteTransactionId: string | null = null;
+        let pasteTransactionKind = 'paste-commit';
+        const targetCanvas = targetLayer.colorCycleData?.canvas ?? targetLayer.framebuffer ?? null;
+        const targetCanonical = buildCcCanonicalPayload(
+          state,
+          targetLayer.id,
+          targetCanvas?.width ?? project.width,
+          targetCanvas?.height ?? project.height
+        );
+        const pastePreflight = runCcSelectionTransaction({
+          operation: 'commit-floating-paste',
+          activeLayer: targetLayer,
+          activeLayerId: targetLayer.id,
+          project,
+          selectionStart: { x: colorCycleDestRect.x, y: colorCycleDestRect.y },
+          selectionEnd: {
+            x: colorCycleDestRect.x + colorCycleDestRect.width,
+            y: colorCycleDestRect.y + colorCycleDestRect.height,
+          },
+          selectionMask: null,
+          selectionMaskBounds: null,
+          selectionMaskLayerId: null,
+          selectionLastAction: null,
+          canonical: targetCanonical,
+          requireGradientDefinitionPresence: false,
+        });
+        if (!pastePreflight.ok) {
+          logCcPasteTransactionBlocked({
+            layerId: targetLayer.id,
+            layer: targetLayer,
+            operation: 'commit-floating-paste',
+            transactionId: pastePreflight.transactionId,
+            kind: pastePreflight.kind,
+            details: pastePreflight.details,
+          });
+          showAppFeedback('Paste blocked');
+          addNotification?.({
+            type: 'warning',
+            title: 'Paste blocked',
+            message: 'This color-cycle layer is not ready for paste. The floating selection was kept active.',
+            timestamp: new Date(),
+          });
+          return;
+        }
+        pasteTransactionId = pastePreflight.transactionId;
+        pasteTransactionKind = pastePreflight.kind;
+
         const requiresResample =
           colorCycleDestRect.width !== floatingPaste.width ||
           colorCycleDestRect.height !== floatingPaste.height;
@@ -777,6 +1002,18 @@ export const createSelectionPasteHelpers = ({
         });
 
         if (applied) {
+          logCcPasteTransactionEvent({
+            layerId: targetLayer.id,
+            layer: targetLayer,
+            operation: 'commit-floating-paste',
+            transactionId: pasteTransactionId ?? 'unknown',
+            event: 'cc-selection-transaction-paste-committed',
+            kind: pasteTransactionKind,
+            details: {
+              bounds: colorCycleDestRect,
+              sourceLayerId: floatingPaste.sourceLayerId ?? null,
+            },
+          });
           const eraseMask = targetLayer.colorCycleData?.eraseMask;
           const eraseMaskCtx = eraseMask?.getContext('2d', { willReadFrequently: true });
         if (eraseMaskCtx) {
@@ -802,7 +1039,9 @@ export const createSelectionPasteHelpers = ({
         state.setLayersNeedRecomposition(true);
         state.setCurrentCompositeBitmap(null);
 
-          await commitLayerHistory({
+          await commitLayerHistory(buildCcSelectionHistoryPayload({
+            transactionId: pasteTransactionId ?? 'unknown',
+            operation: 'commit-floating-paste',
             layerId: targetLayer.id,
             beforeImage,
             beforeColorState: historyBeforeColorState,
@@ -811,7 +1050,7 @@ export const createSelectionPasteHelpers = ({
             description: 'Committed paste',
             tool: 'paste',
             selectionBefore: useMoveHistoryContext ? floatingPasteHistoryContext?.selectionBefore : undefined,
-          });
+          }));
 
           set({ floatingPaste: null, floatingPasteHistoryContext: null });
           return;
@@ -820,6 +1059,20 @@ export const createSelectionPasteHelpers = ({
         debugWarn('selection-paste-cc', 'Failed to write color-cycle paste region', {
           layerId: targetLayer.id,
           rect: colorCycleDestRect,
+        });
+        logCcPasteTransactionEvent({
+          layerId: targetLayer.id,
+          layer: targetLayer,
+          operation: 'commit-floating-paste',
+          transactionId: pasteTransactionId ?? 'unknown',
+          event: 'cc-selection-transaction-failed',
+          kind: pasteTransactionKind,
+          severity: 'error',
+          details: {
+            reason: 'destination-write-failed',
+            bounds: colorCycleDestRect,
+            sourceLayerId: floatingPaste.sourceLayerId ?? null,
+          },
         });
         return;
       }
@@ -987,6 +1240,52 @@ export const createSelectionPasteHelpers = ({
     ) {
       const targetLayer = state.layers.find((layer) => layer.id === floatingPaste.sourceLayerId);
       if (targetLayer && targetLayer.layerType === 'color-cycle') {
+        let restoreTransactionId: string | null = null;
+        let restoreTransactionKind = 'paste-cancel-restore';
+        const targetCanvas = targetLayer.colorCycleData?.canvas ?? targetLayer.framebuffer ?? null;
+        const restoreRect = {
+          x: floatingPaste.originalPosition.x,
+          y: floatingPaste.originalPosition.y,
+          width: floatingPaste.width,
+          height: floatingPaste.height,
+        };
+        const targetCanonical = buildCcCanonicalPayload(
+          state,
+          targetLayer.id,
+          targetCanvas?.width ?? project.width,
+          targetCanvas?.height ?? project.height
+        );
+        const restorePreflight = runCcSelectionTransaction({
+          operation: 'cancel-floating-paste',
+          activeLayer: targetLayer,
+          activeLayerId: targetLayer.id,
+          project,
+          selectionStart: { x: restoreRect.x, y: restoreRect.y },
+          selectionEnd: {
+            x: restoreRect.x + restoreRect.width,
+            y: restoreRect.y + restoreRect.height,
+          },
+          selectionMask: null,
+          selectionMaskBounds: null,
+          selectionMaskLayerId: null,
+          selectionLastAction: null,
+          canonical: targetCanonical,
+          requireGradientDefinitionPresence: false,
+        });
+        if (!restorePreflight.ok) {
+          logCcPasteTransactionBlocked({
+            layerId: targetLayer.id,
+            layer: targetLayer,
+            operation: 'cancel-floating-paste',
+            transactionId: restorePreflight.transactionId,
+            kind: restorePreflight.kind,
+            details: restorePreflight.details,
+          });
+          return;
+        }
+        restoreTransactionId = restorePreflight.transactionId;
+        restoreTransactionKind = restorePreflight.kind;
+
         const bitmapAlphaData = floatingPaste.imageData?.data ?? null;
         const hasBitmapAlpha = bitmapAlphaData
           ? bitmapAlphaData.some((value, index) => index % 4 === 3 && value > 0)
@@ -995,16 +1294,9 @@ export const createSelectionPasteHelpers = ({
           ? null
           : buildOpaqueAlphaFromIndices(floatingPaste.colorCycleIndices);
         const alphaData = hasBitmapAlpha ? bitmapAlphaData : synthesizedAlpha;
-        writeColorCycleRegion(
-          state,
-          targetLayer,
-          project,
-          {
-            x: floatingPaste.originalPosition.x,
-            y: floatingPaste.originalPosition.y,
-            width: floatingPaste.width,
-            height: floatingPaste.height,
-          },
+        const restoreAlreadyMatches = colorCyclePayloadAlreadyMatchesRegion(
+          targetCanonical,
+          restoreRect,
           floatingPaste.colorCycleIndices,
           floatingPaste.width,
           floatingPaste.height,
@@ -1020,6 +1312,56 @@ export const createSelectionPasteHelpers = ({
             alphaThreshold: 0,
           }
         );
+        const restored = writeColorCycleRegion(
+          state,
+          targetLayer,
+          project,
+          restoreRect,
+          floatingPaste.colorCycleIndices,
+          floatingPaste.width,
+          floatingPaste.height,
+          {
+            sourceGradientIds: floatingPaste.colorCycleGradientIds,
+            sourceGradientDefIds: floatingPaste.colorCycleGradientDefIds,
+            sourceSpeed: floatingPaste.colorCycleSpeed,
+            sourceFlow: floatingPaste.colorCycleFlow,
+            sourcePhase: floatingPaste.colorCyclePhase,
+            alphaData,
+            alphaStride: hasBitmapAlpha ? 4 : 1,
+            alphaChannelOffset: hasBitmapAlpha ? 3 : 0,
+            alphaThreshold: 0,
+          }
+        );
+        if (!restored && !restoreAlreadyMatches) {
+          logCcPasteTransactionEvent({
+            layerId: targetLayer.id,
+            layer: targetLayer,
+            operation: 'cancel-floating-paste',
+            transactionId: restoreTransactionId ?? 'unknown',
+            event: 'cc-selection-transaction-failed',
+            kind: restoreTransactionKind,
+            severity: 'error',
+            details: {
+              reason: 'restore-write-failed',
+              bounds: restoreRect,
+              sourceLayerId: floatingPaste.sourceLayerId,
+            },
+          });
+          return;
+        }
+        logCcPasteTransactionEvent({
+          layerId: targetLayer.id,
+          layer: targetLayer,
+          operation: 'cancel-floating-paste',
+          transactionId: restoreTransactionId ?? 'unknown',
+          event: 'cc-selection-transaction-restored',
+          kind: restoreTransactionKind,
+          details: {
+            bounds: restoreRect,
+            sourceLayerId: floatingPaste.sourceLayerId,
+            noOpRestore: !restored,
+          },
+        });
         state.scheduleColorCycleSlotRebuild?.('selection-paste-cancel');
         requestGradientApply(targetLayer.id, 'selection-paste-cancel');
         state.setLayersNeedRecomposition(true);
