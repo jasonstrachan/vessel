@@ -1,5 +1,5 @@
 import React from 'react';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { DisplayFiltersSection } from '../DisplayFiltersSection';
 
 const mockStore = {
@@ -39,8 +39,19 @@ const mockStore = {
       { id: 'film-noise', enabled: true, settings: { opacity: 0.16, scale: 1.5, shadowBias: 0.62 } },
     ],
   },
+  activeLayerId: null as string | null,
+  layers: [] as Array<{
+    id: string;
+    layerType: string;
+    colorCycleData?: {
+      softEdgeMaskImageData?: ImageData;
+      softEdgeMaskEnabled?: boolean;
+    };
+  }>,
   setDisplayFilterEnabled: jest.fn(),
   updateDisplayFilter: jest.fn(),
+  applyColorCycleSoftEdgeMask: jest.fn(),
+  setColorCycleSoftEdgeMaskEnabled: jest.fn(),
 };
 
 jest.mock('@/stores/useAppStore', () => ({
@@ -51,6 +62,9 @@ jest.mock('@/stores/useAppStore', () => ({
 describe('DisplayFiltersSection', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    mockStore.activeLayerId = null;
+    mockStore.layers = [];
+    mockStore.applyColorCycleSoftEdgeMask.mockResolvedValue(true);
   });
 
   it('renders the filter controls stack', () => {
@@ -114,5 +128,49 @@ describe('DisplayFiltersSection', () => {
     expect(mockStore.updateDisplayFilter).toHaveBeenCalledWith('noise', { scale: 3 });
     expect(mockStore.updateDisplayFilter).toHaveBeenCalledWith('film-noise', { scale: 2.25 });
     expect(mockStore.updateDisplayFilter).toHaveBeenCalledWith('film-noise', { shadowBias: 0.71 });
+  });
+
+  it('rebakes an existing CC soft-edge mask when edge width is committed', async () => {
+    mockStore.activeLayerId = 'cc-layer';
+    mockStore.layers = [{
+      id: 'cc-layer',
+      layerType: 'color-cycle',
+      colorCycleData: {
+        softEdgeMaskImageData: new ImageData(1, 1),
+        softEdgeMaskEnabled: true,
+      },
+    }];
+    render(<DisplayFiltersSection />);
+
+    const slider = screen.getByLabelText('Color cycle dither edge mask width');
+    fireEvent.pointerDown(slider);
+    fireEvent.change(slider, { target: { value: '32' } });
+    fireEvent.pointerUp(slider);
+
+    await waitFor(() => {
+      expect(mockStore.applyColorCycleSoftEdgeMask).toHaveBeenCalledWith('cc-layer', 32, 1, 'sierra-lite');
+    });
+  });
+
+  it('rebakes an existing CC soft-edge mask when dither size is committed', async () => {
+    mockStore.activeLayerId = 'cc-layer';
+    mockStore.layers = [{
+      id: 'cc-layer',
+      layerType: 'color-cycle',
+      colorCycleData: {
+        softEdgeMaskImageData: new ImageData(1, 1),
+        softEdgeMaskEnabled: true,
+      },
+    }];
+    render(<DisplayFiltersSection />);
+
+    const slider = screen.getByLabelText('Color cycle soft edge dither size');
+    fireEvent.pointerDown(slider);
+    fireEvent.change(slider, { target: { value: '6' } });
+    fireEvent.pointerUp(slider);
+
+    await waitFor(() => {
+      expect(mockStore.applyColorCycleSoftEdgeMask).toHaveBeenCalledWith('cc-layer', 16, 6, 'sierra-lite');
+    });
   });
 });

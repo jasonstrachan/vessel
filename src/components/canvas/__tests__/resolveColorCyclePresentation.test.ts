@@ -172,4 +172,89 @@ describe('resolveColorCyclePresentation', () => {
     expect(canvas?.width).toBe(4);
     expect(canvas?.height).toBe(4);
   });
+
+  it('applies enabled soft-edge masks to the drawable presentation canvas without mutating the source', () => {
+    const sourceCanvas = createCanvas(2, 1);
+    const sourceCtx = sourceCanvas.getContext('2d', { willReadFrequently: true });
+    if (!sourceCtx) {
+      throw new Error('Expected source context');
+    }
+    sourceCtx.fillStyle = 'rgba(255, 0, 0, 1)';
+    sourceCtx.fillRect(0, 0, 2, 1);
+
+    const softEdgeMask = createCanvas(2, 1);
+    const maskCtx = softEdgeMask.getContext('2d');
+    if (!maskCtx) {
+      throw new Error('Expected mask context');
+    }
+    maskCtx.fillStyle = 'rgba(255, 255, 255, 0.5)';
+    maskCtx.fillRect(0, 0, 1, 1);
+    maskCtx.fillStyle = 'rgba(255, 255, 255, 1)';
+    maskCtx.fillRect(1, 0, 1, 1);
+
+    const layer = createLayer({
+      colorCycleData: {
+        canvas: sourceCanvas,
+        runtimeHydrationState: 'active',
+        softEdgeMask,
+        softEdgeMaskEnabled: true,
+        softEdgeMaskVersion: 1,
+      },
+    });
+    const presentation = resolve(layer);
+
+    const drawOperations: Array<GlobalCompositeOperation | undefined> = [];
+    const drawImageSpy = jest
+      .spyOn(CanvasRenderingContext2D.prototype, 'drawImage')
+      .mockImplementation(function recordDrawOperation(this: CanvasRenderingContext2D) {
+        drawOperations.push(this.globalCompositeOperation);
+      });
+    const maskedCanvas = getColorCyclePresentationCanvas(presentation, layer);
+    const maskedCtx = maskedCanvas?.getContext(
+      '2d',
+      { willReadFrequently: true } as CanvasRenderingContext2DSettings,
+    ) as CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D | null | undefined;
+    if (!maskedCtx) {
+      throw new Error('Expected masked context');
+    }
+
+    const source = sourceCtx.getImageData(0, 0, 2, 1).data;
+    expect(maskedCanvas).not.toBe(sourceCanvas);
+    expect(drawImageSpy).toHaveBeenCalledWith(sourceCanvas, 0, 0);
+    expect(drawImageSpy).toHaveBeenCalledWith(softEdgeMask, 0, 0);
+    expect(drawOperations).toContain('destination-in');
+    expect(source[3]).toBe(255);
+    expect(source[7]).toBe(255);
+    drawImageSpy.mockRestore();
+  });
+
+  it('leaves baked soft-edge masks out of the presentation canvas when disabled', () => {
+    const sourceCanvas = createCanvas(1, 1);
+    const sourceCtx = sourceCanvas.getContext('2d', { willReadFrequently: true });
+    if (!sourceCtx) {
+      throw new Error('Expected source context');
+    }
+    sourceCtx.fillStyle = 'rgba(255, 0, 0, 1)';
+    sourceCtx.fillRect(0, 0, 1, 1);
+
+    const softEdgeMask = createCanvas(1, 1);
+    const maskCtx = softEdgeMask.getContext('2d');
+    if (!maskCtx) {
+      throw new Error('Expected mask context');
+    }
+    maskCtx.clearRect(0, 0, 1, 1);
+
+    const layer = createLayer({
+      colorCycleData: {
+        canvas: sourceCanvas,
+        runtimeHydrationState: 'active',
+        softEdgeMask,
+        softEdgeMaskEnabled: false,
+        softEdgeMaskVersion: 1,
+      },
+    });
+    const presentation = resolve(layer);
+
+    expect(getColorCyclePresentationCanvas(presentation, layer)).toBe(sourceCanvas);
+  });
 });

@@ -293,7 +293,7 @@ export const drawVisibleCompositeStack = ({
           projectWidth,
           projectHeight,
         });
-        const drawCanvas = getColorCyclePresentationCanvas(presentation);
+        const drawCanvas = getColorCyclePresentationCanvas(presentation, layer);
         if (!drawCanvas) {
           recordCompositeProbe('skip-cc-segment', {
             activeLayerId: storeState.activeLayerId,

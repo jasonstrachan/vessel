@@ -304,6 +304,9 @@ const patchesMatch = (
     );
   });
 
+const patchHasNonZero = (patch: Uint8Array | null): boolean =>
+  Boolean(patch?.some((value) => value !== 0));
+
 const synthesizeMissingBackwardPatches = (
   forward: ColorCyclePixelPatchBytes,
   backward: ColorCyclePixelPatchBytes,
@@ -347,7 +350,7 @@ const canSynthesizeEmptyBackwardPaint = (
   }
   const strokeData = layer.strokeData;
   if (!strokeData) {
-    return true;
+    return false;
   }
   if (strokeData.hasContent === true) {
     return false;
@@ -647,6 +650,37 @@ export const createColorCycleStrokePatchDelta = async (
     height,
     roi
   );
+  const backwardLayer = findSerializedLayer(options.backwardState, options.layerId);
+  const forwardPaintHasContent = patchHasNonZero(forwardPatchBytes.paint);
+  if (
+    forwardPaintHasContent &&
+    backwardLayer &&
+    !backwardLayer.strokeData &&
+    !backwardPatchBytes.paint
+  ) {
+    const state = useAppStore.getState();
+    const layer = state.layers.find((candidate) => candidate.id === options.layerId) ?? null;
+    logCCMutation({
+      event: 'history-cc-before-state-missing',
+      layerId: options.layerId,
+      reason: 'missing-backward-paint-patch',
+      severity: 'warn',
+      before: null,
+      after: summarizeColorCycleLayer(layer),
+      details: {
+        source: 'history-color-cycle-stroke-patch',
+        expectedDestructive: false,
+        roi,
+        width,
+        height,
+        forwardPaint: forwardPatchBytes.paint
+          ? summarizeScalarBuffer(forwardPatchBytes.paint, roi.width, roi.height)
+          : null,
+        message: 'Skipped CC history delta because undo would rely on a layer shell without stroke data.',
+      },
+    });
+    return null;
+  }
   if (forwardPatchBytes.paint && !backwardPatchBytes.paint) {
     if (canSynthesizeEmptyBackwardPaint(options.backwardState, options.layerId)) {
       backwardPatchBytes = synthesizeEmptyBackwardPatches(forwardPatchBytes, roi);

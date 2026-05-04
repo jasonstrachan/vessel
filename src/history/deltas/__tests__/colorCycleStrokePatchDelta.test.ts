@@ -243,6 +243,119 @@ describe('ColorCycleStrokePatchDelta', () => {
     ]);
   });
 
+  it('does not synthesize an empty undo patch from a layer shell with missing stroke data', async () => {
+    const layerId = 'layer-cc-patch';
+    const shellData = makeAnimatorState(2, 2);
+    const backwardState = {
+      cycleSpeed: 1,
+      fps: 30,
+      brushSize: 1,
+      layers: [{
+        layerId,
+        data: {
+          ...shellData,
+          indexBuffer: undefined,
+        },
+      }],
+    };
+    const forwardState = makeState({
+      layerId,
+      width: 2,
+      height: 2,
+      paint: [5, 6, 0, 0],
+      gradientId: [8, 8, 0, 0],
+      gradientDefId: [12, 12, 0, 0],
+      speed: [70, 80, 0, 0],
+      flow: [90, 100, 0, 0],
+      phase: [110, 120, 0, 0],
+    });
+
+    const delta = await createColorCycleStrokePatchDelta({
+      layerId,
+      width: 2,
+      height: 2,
+      roi: { x: 0, y: 0, width: 2, height: 2 },
+      forwardState,
+      backwardState: backwardState as unknown as Parameters<
+        typeof createColorCycleStrokePatchDelta
+      >[0]['backwardState'],
+    });
+
+    expect(delta).toBeNull();
+    expect(mockBrush.applyPaintPatch).not.toHaveBeenCalled();
+    const missingBeforeReports = getPersistedCCMutationLog().filter(
+      (entry) => entry.event === 'history-cc-before-state-missing'
+    );
+    expect(missingBeforeReports).toEqual([
+      expect.objectContaining({
+        event: 'history-cc-before-state-missing',
+        layerId,
+        reason: 'missing-backward-paint-patch',
+        severity: 'warn',
+      }),
+    ]);
+  });
+
+  it('preserves all-zero legacy index-buffer undo patches without stroke data', async () => {
+    const layerId = 'layer-cc-patch';
+    const backwardData = makeAnimatorState(2, 2);
+    const backwardState = {
+      cycleSpeed: 1,
+      fps: 30,
+      brushSize: 1,
+      layers: [{
+        layerId,
+        data: {
+          ...backwardData,
+          indexBuffer: {
+            ...backwardData.indexBuffer,
+            data: new Uint8Array([0, 0, 0, 0]),
+            gradientId: new Uint8Array([0, 0, 0, 0]),
+            speedData: new Uint8Array([0, 0, 0, 0]),
+            flowData: new Uint8Array([0, 0, 0, 0]),
+            phaseData: new Uint8Array([0, 0, 0, 0]),
+          },
+        },
+      }],
+    };
+    const forwardState = makeState({
+      layerId,
+      width: 2,
+      height: 2,
+      paint: [5, 6, 0, 0],
+      gradientId: [8, 8, 0, 0],
+      gradientDefId: [0, 0, 0, 0],
+      speed: [70, 80, 0, 0],
+      flow: [90, 100, 0, 0],
+      phase: [110, 120, 0, 0],
+    });
+
+    const delta = await createColorCycleStrokePatchDelta({
+      layerId,
+      width: 2,
+      height: 2,
+      roi: { x: 0, y: 0, width: 2, height: 2 },
+      forwardState,
+      backwardState,
+    });
+
+    expect(delta).not.toBeNull();
+    await delta!.apply('backward');
+
+    expect(mockBrush.applyPaintPatch).toHaveBeenCalledTimes(1);
+    const [, , paintBytes, extras] = mockBrush.applyPaintPatch.mock.calls[0] as unknown as [
+      string,
+      unknown,
+      Uint8Array,
+      PatchExtras,
+    ];
+    expect(Array.from(paintBytes)).toEqual([0, 0, 0, 0]);
+    expect(Array.from(extras.gradientIdBytes ?? [])).toEqual([0, 0, 0, 0]);
+    expect(Array.from(extras.speedBytes ?? [])).toEqual([0, 0, 0, 0]);
+    expect(Array.from(extras.flowBytes ?? [])).toEqual([0, 0, 0, 0]);
+    expect(Array.from(extras.phaseBytes ?? [])).toEqual([0, 0, 0, 0]);
+  });
+
   it('synthesizes an empty undo patch for an explicitly empty first CC stroke state', async () => {
     const layerId = 'layer-cc-patch';
     const backwardState = {

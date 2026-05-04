@@ -734,7 +734,12 @@ export interface AppState {
   newProject: (width: number, height: number, name?: string) => void;
   compositeLayersToCanvas: (targetCanvas: HTMLCanvasElement) => void;
   compositeLayersToCanvasSync: (targetCanvas: HTMLCanvasElement) => boolean;
-  applyColorCycleSoftEdgeMask: (layerId: string, radius: number) => Promise<boolean>;
+  applyColorCycleSoftEdgeMask: (
+    layerId: string,
+    radius: number,
+    ditherSize?: number,
+    ditherAlgorithm?: import('@/utils/colorCycleSoftEdgeMask').ColorCycleSoftEdgeDitherAlgorithm,
+  ) => Promise<boolean>;
   setColorCycleSoftEdgeMaskEnabled: (layerId: string, enabled: boolean) => void;
   clearColorCycleSoftEdgeMask: (layerId: string) => void;
   captureCanvasToActiveLayer: (

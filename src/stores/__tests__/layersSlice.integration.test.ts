@@ -1704,6 +1704,33 @@ describe('layers slice integration', () => {
     expect(layer?.colorCycleData?.softEdgeMaskVersion).toBe(10);
   });
 
+  it('keeps disabled color-cycle soft-edge masks disabled when refreshing mask settings', async () => {
+    const store = useAppStore.getState();
+    const { canvas } = createSourceCanvas(32, 32);
+    const softEdgeMask = makeCanvas();
+    const layerId = store.addLayer({
+      ...createColorCycleLayerInput('CC Soft Edge Disabled Refresh'),
+      colorCycleData: {
+        ...createColorCycleLayerInput('CC Soft Edge Disabled Refresh').colorCycleData,
+        canvas,
+        canvasWidth: 32,
+        canvasHeight: 32,
+        softEdgeMask,
+        softEdgeMaskImageData: new ImageData(32, 32),
+        softEdgeMaskEnabled: false,
+        softEdgeMaskVersion: 3,
+      },
+    });
+
+    await useAppStore.getState().applyColorCycleSoftEdgeMask(layerId, 8, 2, 'sierra-lite');
+
+    const layer = useAppStore.getState().layers.find((candidate) => candidate.id === layerId);
+    expect(layer?.colorCycleData?.softEdgeMask).not.toBe(softEdgeMask);
+    expect(layer?.colorCycleData?.softEdgeMaskImageData).toBeInstanceOf(ImageData);
+    expect(layer?.colorCycleData?.softEdgeMaskEnabled).toBe(false);
+    expect(layer?.colorCycleData?.softEdgeMaskVersion).toBe(4);
+  });
+
   it('respects interleaved layer ordering across normal and color-cycle layers during composite', () => {
     useAppStore.setState((state) => ({
       project: state.project ?? {

@@ -1,8 +1,10 @@
 import React from 'react';
 import { Switch } from '@/components/retroui/Switch';
+import Dropdown from '@/components/ui/Dropdown';
 import ProgressSlider from '@/components/ui/ProgressSlider';
 import { useAppStore } from '@/stores/useAppStore';
 import type { DisplayFilterConfig, DisplayFilterId } from '@/types';
+import type { ColorCycleSoftEdgeDitherAlgorithm } from '@/utils/colorCycleSoftEdgeMask';
 
 const FILTER_COPY: Record<
   DisplayFilterId,
@@ -41,6 +43,12 @@ const FILTER_COPY: Record<
     title: 'Film Noise',
   },
 };
+
+const CC_SOFT_EDGE_DITHER_OPTIONS: Array<{ value: ColorCycleSoftEdgeDitherAlgorithm; label: string }> = [
+  { value: 'sierra-lite', label: 'Sierra Lite' },
+  { value: 'ordered', label: 'Ordered' },
+];
+const DEFAULT_CC_SOFT_EDGE_DITHER_ALGORITHM: ColorCycleSoftEdgeDitherAlgorithm = 'sierra-lite';
 
 interface FilterCardProps {
   filter: DisplayFilterConfig;
@@ -619,11 +627,171 @@ const FilterCard = ({ filter }: FilterCardProps) => {
   );
 };
 
+const ColorCycleSoftEdgeMaskControls = () => {
+  const activeLayerId = useAppStore((state) => state.activeLayerId);
+  const activeLayer = useAppStore((state) => state.layers?.find((layer) => layer.id === state.activeLayerId));
+  const applyColorCycleSoftEdgeMask = useAppStore((state) => state.applyColorCycleSoftEdgeMask ?? (async () => false));
+  const setColorCycleSoftEdgeMaskEnabled = useAppStore((state) => state.setColorCycleSoftEdgeMaskEnabled ?? (() => undefined));
+  const [radius, setRadius] = React.useState(16);
+  const radiusRef = React.useRef(radius);
+  const [ditherSize, setDitherSize] = React.useState(1);
+  const ditherSizeRef = React.useRef(ditherSize);
+  const [ditherAlgorithm, setDitherAlgorithm] = React.useState<ColorCycleSoftEdgeDitherAlgorithm>(
+    DEFAULT_CC_SOFT_EDGE_DITHER_ALGORITHM,
+  );
+  const ditherAlgorithmRef = React.useRef<ColorCycleSoftEdgeDitherAlgorithm>(ditherAlgorithm);
+  const [isApplying, setIsApplying] = React.useState(false);
+  const isColorCycleLayer = activeLayer?.layerType === 'color-cycle';
+  const hasMask = Boolean(activeLayer?.colorCycleData?.softEdgeMaskImageData || activeLayer?.colorCycleData?.softEdgeMask);
+  const isEnabled = hasMask && activeLayer?.colorCycleData?.softEdgeMaskEnabled !== false;
+  const canEdit = Boolean(activeLayerId && isColorCycleLayer && !isApplying);
+
+  if (!isColorCycleLayer && !hasMask) {
+    return null;
+  }
+
+  const applyCurrentMask = async (
+    nextRadius = radiusRef.current,
+    nextDitherSize = ditherSizeRef.current,
+    nextDitherAlgorithm = ditherAlgorithmRef.current,
+  ) => {
+    if (!activeLayerId || !canEdit) {
+      return;
+    }
+    setIsApplying(true);
+    try {
+      await applyColorCycleSoftEdgeMask(
+        activeLayerId,
+        nextRadius,
+        nextDitherSize,
+        nextDitherAlgorithm,
+      );
+    } finally {
+      setIsApplying(false);
+    }
+  };
+
+  const handleRadiusChange = (value: number) => {
+    const nextRadius = Math.round(value);
+    radiusRef.current = nextRadius;
+    setRadius(nextRadius);
+  };
+
+  const handleDitherSizeChange = (value: number) => {
+    const nextDitherSize = Math.round(value);
+    ditherSizeRef.current = nextDitherSize;
+    setDitherSize(nextDitherSize);
+  };
+
+  const handleDitherAlgorithmChange = (value: string) => {
+    const nextAlgorithm = value as ColorCycleSoftEdgeDitherAlgorithm;
+    ditherAlgorithmRef.current = nextAlgorithm;
+    setDitherAlgorithm(nextAlgorithm);
+    if (hasMask || isEnabled) {
+      void applyCurrentMask(radiusRef.current, ditherSizeRef.current, nextAlgorithm);
+    }
+  };
+
+  const handleMaskSliderCommit = () => {
+    if (hasMask || isEnabled) {
+      void applyCurrentMask();
+    }
+  };
+
+  const handleToggle = (checked: boolean) => {
+    if (!activeLayerId || !isColorCycleLayer || isApplying) {
+      return;
+    }
+    if (checked) {
+      if (hasMask) {
+        setColorCycleSoftEdgeMaskEnabled(activeLayerId, true);
+      } else {
+        void applyCurrentMask();
+      }
+      return;
+    }
+    setColorCycleSoftEdgeMaskEnabled(activeLayerId, false);
+  };
+
+  return (
+    <>
+      <section className="py-3" aria-labelledby="cc-soft-edge-mask-controls">
+        <div className="flex items-start justify-between gap-3">
+          <h4 id="cc-soft-edge-mask-controls" className="text-sm font-medium text-[#E5E5E5]">
+            CC Edge Mask
+          </h4>
+          <Switch
+            id="cc-soft-edge-mask-toggle"
+            checked={isEnabled}
+            onChange={handleToggle}
+            aria-label="CC soft edge enabled"
+          />
+        </div>
+        {(isColorCycleLayer || hasMask) && (
+          <div className="mt-3 space-y-3">
+            <div>
+              <label className="mb-1 block text-[11px] uppercase tracking-[0.08em] text-[#8F8F8F]">
+                Edge Width
+              </label>
+              <ProgressSlider
+                value={radius}
+                min={0}
+                max={64}
+                step={1}
+                onChange={handleRadiusChange}
+                onCommit={handleMaskSliderCommit}
+                aria-label="Color cycle dither edge mask width"
+                disabled={!canEdit}
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-[11px] uppercase tracking-[0.08em] text-[#8F8F8F]">
+                Edge Dither
+              </label>
+              <Dropdown
+                value={ditherAlgorithm}
+                options={CC_SOFT_EDGE_DITHER_OPTIONS}
+                onChange={handleDitherAlgorithmChange}
+                className="w-full"
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-[11px] uppercase tracking-[0.08em] text-[#8F8F8F]">
+                Dither Size
+              </label>
+              <ProgressSlider
+                value={ditherSize}
+                min={1}
+                max={16}
+                step={1}
+                onChange={handleDitherSizeChange}
+                onCommit={handleMaskSliderCommit}
+                aria-label="Color cycle soft edge dither size"
+                disabled={!canEdit}
+              />
+            </div>
+            <button
+              type="button"
+              className="w-full rounded border border-[#3A3A3A] bg-[#242424] px-3 py-1.5 text-xs font-medium text-[#E5E5E5] transition hover:border-[#4A4A4A] hover:bg-[#2A2A2A] disabled:cursor-not-allowed disabled:opacity-50"
+              onClick={() => void applyCurrentMask()}
+              disabled={!canEdit}
+            >
+              {isApplying ? 'Saving...' : hasMask ? 'Refresh Mask' : 'Save Mask'}
+            </button>
+          </div>
+        )}
+      </section>
+      <div className="border-t border-[#2E2E2E]" aria-hidden="true" />
+    </>
+  );
+};
+
 export const DisplayFiltersSection = () => {
   const displayFilters = useAppStore((state) => state.canvas.displayFilters);
 
   return (
     <div>
+      <ColorCycleSoftEdgeMaskControls />
       {displayFilters.map((filter, index) => (
         <React.Fragment key={filter.id}>
           {index > 0 && <div className="border-t border-[#2E2E2E]" aria-hidden="true" />}

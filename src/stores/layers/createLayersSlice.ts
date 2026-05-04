@@ -69,6 +69,7 @@ import { createDevDebugOverlayLogger } from '@/utils/dev/debugOverlayStore';
 import { requestGradientApply } from '@/hooks/brushEngine/ccGradientApplyScheduler';
 import {
   buildColorCycleSoftEdgeMask,
+  type ColorCycleSoftEdgeDitherAlgorithm,
   type ColorCycleSoftEdgeCoverage,
 } from '@/utils/colorCycleSoftEdgeMask';
 import {
@@ -811,7 +812,12 @@ export interface LayersSlice {
     layerId: string,
     options?: { target?: EnsureColorCycleLayerRuntimeTarget },
   ) => Promise<boolean>;
-  applyColorCycleSoftEdgeMask: (layerId: string, radius: number) => Promise<boolean>;
+  applyColorCycleSoftEdgeMask: (
+    layerId: string,
+    radius: number,
+    ditherSize?: number,
+    ditherAlgorithm?: ColorCycleSoftEdgeDitherAlgorithm,
+  ) => Promise<boolean>;
   setColorCycleSoftEdgeMaskEnabled: (layerId: string, enabled: boolean) => void;
   clearColorCycleSoftEdgeMask: (layerId: string) => void;
   initColorCycleForLayer: (layerId: string, width: number, height: number) => void;
@@ -4165,7 +4171,7 @@ export const createLayersSlice = (
     return hydration === target || (target === 'warm' && hydration === 'active');
   },
 
-  applyColorCycleSoftEdgeMask: async (layerId, radius) => {
+  applyColorCycleSoftEdgeMask: async (layerId, radius, ditherSize, ditherAlgorithm) => {
     const { captureColorCycleBrushState } = await import('@/history/helpers/colorCycle');
     const { commitLayerHistory } = await import('@/history/helpers/layerHistory');
     const beforeColorState = captureColorCycleBrushState(layerId);
@@ -4194,19 +4200,23 @@ export const createLayersSlice = (
       layer,
       radius,
       resolveSoftEdgeCoverageFromBrush(layer, brush),
+      { ditherSize, ditherAlgorithm },
     );
     if (!result) {
       return false;
     }
 
     const nextVersion = (layer.colorCycleData.softEdgeMaskVersion ?? 0) + 1;
+    const nextEnabled = layer.colorCycleData.softEdgeMask || layer.colorCycleData.softEdgeMaskImageData
+      ? layer.colorCycleData.softEdgeMaskEnabled !== false
+      : true;
     state.updateLayer(
       layerId,
       {
         colorCycleData: {
           softEdgeMask: result.softEdgeMask,
           softEdgeMaskImageData: result.softEdgeMaskImageData,
-          softEdgeMaskEnabled: true,
+          softEdgeMaskEnabled: nextEnabled,
           softEdgeMaskVersion: nextVersion,
         },
       },

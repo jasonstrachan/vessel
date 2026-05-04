@@ -479,12 +479,16 @@ describe('colorCyclePlayback shared runtime integration', () => {
     expect(state.layers[0].colorCycleData?.canvas).toBe(initializedCanvas);
   });
 
-  it('defers cold color-cycle hydration until after playback has started', () => {
+  it('hydrates and starts cold color-cycle layers after playback has started', async () => {
     jest.useFakeTimers();
     registerSharedRuntimeConsumer.mockImplementation(() => jest.fn());
-    mockGetBrush.mockReturnValue(null);
+    const coldBrush = {
+      isPlaying: jest.fn(() => false),
+      startAnimation: jest.fn(),
+    };
+    mockGetBrush.mockReturnValue(coldBrush);
 
-    const getLayerColorCycleBrush = jest.fn();
+    const renderAllColorCycleLayers = jest.fn(() => true);
     const state = {
       tools: {
         brushSettings: {
@@ -508,7 +512,17 @@ describe('colorCyclePlayback shared runtime integration', () => {
       project: { width: 64, height: 64 },
       initColorCycleForLayer: jest.fn(),
       updateLayer: jest.fn(),
-      getLayerColorCycleBrush,
+      ensureColorCycleLayerRuntime: jest.fn(async () => {
+        const layer = state.layers[0];
+        if (layer.layerType === 'color-cycle' && layer.colorCycleData) {
+          layer.colorCycleData = {
+            ...layer.colorCycleData,
+            deferredRuntimeRestore: false,
+            runtimeHydrationState: 'active',
+          };
+        }
+        return true;
+      }),
     } as unknown as AppState;
 
     try {
@@ -519,7 +533,7 @@ describe('colorCyclePlayback shared runtime integration', () => {
           isColorCycleAnimating: jest.fn(() => false),
         } as unknown as BrushEngine,
         ensureOverlayInitialized: jest.fn(() => true),
-        renderAllColorCycleLayers: jest.fn(() => true),
+        renderAllColorCycleLayers,
         storeRef: { current: state } as React.MutableRefObject<AppState>,
         getEffectiveColorCyclePlaying: jest.fn(() => true),
         cancelDeferredOverlayRender: jest.fn(),
@@ -542,11 +556,21 @@ describe('colorCyclePlayback shared runtime integration', () => {
       });
 
       expect(state.initColorCycleForLayer).not.toHaveBeenCalled();
-      expect(getLayerColorCycleBrush).not.toHaveBeenCalled();
+      expect(state.ensureColorCycleLayerRuntime).not.toHaveBeenCalled();
 
       jest.runOnlyPendingTimers();
+      await Promise.resolve();
+      await Promise.resolve();
 
-      expect(getLayerColorCycleBrush).toHaveBeenCalledWith('layer-cold');
+      expect(state.ensureColorCycleLayerRuntime).toHaveBeenCalledWith('layer-cold', { target: 'active' });
+      expect(state.updateLayer).toHaveBeenCalledWith('layer-cold', {
+        colorCycleData: expect.objectContaining({
+          isAnimating: true,
+          runtimeHydrationState: 'active',
+        }),
+      });
+      expect(coldBrush.startAnimation).toHaveBeenCalledTimes(1);
+      expect(renderAllColorCycleLayers).toHaveBeenCalledTimes(2);
     } finally {
       jest.useRealTimers();
     }
