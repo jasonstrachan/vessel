@@ -733,6 +733,72 @@ describe('selection delete updates framebuffer', () => {
     ]));
   });
 
+  it('allows a marquee transform to extract all CC paint into a floating paste', () => {
+    const canvas = document.createElement('canvas');
+    canvas.width = 4;
+    canvas.height = 4;
+
+    const layerId = 'layer-cc-extract-full-content';
+    const ccLayer: Layer = {
+      id: layerId,
+      name: 'CC Extract Full Content',
+      visible: true,
+      opacity: 1,
+      blendMode: 'source-over',
+      locked: false,
+      order: 0,
+      imageData: null,
+      framebuffer: canvas,
+      alignment: createDefaultLayerAlignment(),
+      layerType: 'color-cycle',
+      colorCycleData: {
+        canvas,
+        hasContent: true,
+      },
+    } as Layer;
+
+    useAppStore.setState((state) => ({
+      ...state,
+      project: state.project!,
+      layers: [ccLayer],
+      activeLayerId: layerId,
+      selectionStart: { x: 0, y: 0 },
+      selectionEnd: { x: 4, y: 4 },
+      selectionLastAction: {
+        action: 'set-bounds',
+        source: 'selection-marquee-final',
+        ownerKind: 'direct-marquee',
+        t: Date.now(),
+        activeLayerId: layerId,
+        bounds: { x: 0, y: 0, width: 4, height: 4 },
+      },
+      floatingPaste: null,
+    }));
+
+    useAppStore.getState().initColorCycleForLayer(layerId, 4, 4);
+    const brush = useAppStore.getState().getLayerColorCycleBrush(layerId);
+    brush?.applyLayerSnapshot?.(layerId, {
+      paintBuffer: new Uint8Array(16).fill(9).buffer,
+      gradientIdBuffer: new Uint8Array(16).fill(1).buffer,
+      gradientDefIdBuffer: new Uint16Array(16).fill(2).buffer,
+      speedBuffer: new Uint8Array(16).buffer,
+      flowBuffer: new Uint8Array(16).buffer,
+      phaseBuffer: new Uint8Array(16).buffer,
+      hasContent: true,
+      strokeCounter: 1,
+    });
+
+    const extracted = useAppStore.getState().extractSelectionToFloatingPaste();
+
+    expect(extracted).toBe(true);
+    const floatingPaste = useAppStore.getState().floatingPaste;
+    expect(floatingPaste).not.toBeNull();
+    expect(Array.from(floatingPaste?.colorCycleIndices ?? [])).toEqual(new Array(16).fill(9));
+    expect(Array.from(floatingPaste?.colorCycleGradientIds ?? [])).toEqual(new Array(16).fill(1));
+    expect(Array.from(floatingPaste?.colorCycleGradientDefIds ?? [])).toEqual(new Array(16).fill(2));
+    expect(brush?.getLayerSnapshot?.(layerId)?.hasContent).toBe(false);
+  });
+
   it('does not keyboard-delete CC pixels from a history-restored selection on the same layer', () => {
     const canvas = document.createElement('canvas');
     canvas.width = 4;

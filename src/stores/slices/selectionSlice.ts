@@ -421,6 +421,71 @@ const logSelectionDeleteAuthorizationBlocked = (args: {
   }
 };
 
+const logSelectionExtractBlocked = (args: {
+  activeLayer: Layer;
+  activeLayerId: string;
+  projectId?: string | null;
+  reason: string;
+  selectionStart: { x: number; y: number } | null;
+  selectionEnd: { x: number; y: number } | null;
+  selectionMaskBounds: Rectangle | null;
+  selectionMaskLayerId: string | null;
+  selectionLastAction: SelectionActionProvenance | null;
+  paintSummary?: ColorCycleSelectionPaintSummary | null;
+  details?: Record<string, unknown>;
+}): void => {
+  const {
+    activeLayer,
+    activeLayerId,
+    projectId,
+    reason,
+    selectionStart,
+    selectionEnd,
+    selectionMaskBounds,
+    selectionMaskLayerId,
+    selectionLastAction,
+    paintSummary = null,
+    details = {},
+  } = args;
+  const summary = summarizeColorCycleLayer(activeLayer);
+  logCCMutation({
+    event: 'selection-extract-authorization-blocked',
+    layerId: activeLayerId,
+    reason: 'extract-selection-transform',
+    severity: reason === 'missing-canonical-paint' ? 'error' : 'warn',
+    before: summary,
+    after: summary,
+    details: {
+      source: 'selection-region-clear',
+      operation: 'extract-selection-transform',
+      expectedDestructive: true,
+      blockedTimestamp: Date.now(),
+      blockReason: reason,
+      layerName: activeLayer.name,
+      projectId: projectId ?? null,
+      activeLayerId,
+      selectionStart,
+      selectionEnd,
+      selectionBounds: selectionLastAction?.bounds ?? null,
+      selectionOwnerLayerId: selectionLastAction?.activeLayerId ?? null,
+      selectionOwnerKind: selectionLastAction?.ownerKind ?? null,
+      restoredFromHistory: selectionLastAction?.restoredFromHistory ?? false,
+      selectionMaskBounds,
+      selectionMaskLayerId,
+      selectionLastAction,
+      paintBefore: paintSummary
+        ? {
+            width: paintSummary.paintWidth,
+            height: paintSummary.paintHeight,
+            nonZeroCount: paintSummary.totalNonZeroPaint,
+          }
+        : null,
+      paintAfter: buildColorCyclePaintAfterClearSummary(paintSummary),
+      ...details,
+    },
+  });
+};
+
 const normalizeSelectionRect = (rect: Rectangle): Rectangle | null => {
   const x = Math.floor(rect.x);
   const y = Math.floor(rect.y);
@@ -1699,6 +1764,8 @@ export const createSelectionSlice: StateCreator<AppState, [], [], SelectionSlice
         selectionEnd,
         selectionMask,
         selectionMaskBounds,
+        selectionMaskLayerId,
+        selectionLastAction,
         selectionVectorPath,
         project,
         layers,
@@ -1722,6 +1789,78 @@ export const createSelectionSlice: StateCreator<AppState, [], [], SelectionSlice
       const beforeColorState = activeLayer.layerType === 'color-cycle'
         ? captureColorCycleBrushState(activeLayer.id)
         : null;
+
+      if (activeLayer.layerType === 'color-cycle') {
+        const selectionOwnerLayerId = selectionLastAction?.activeLayerId ?? null;
+        if (selectionOwnerLayerId && selectionOwnerLayerId !== activeLayerId) {
+          logSelectionExtractBlocked({
+            activeLayer,
+            activeLayerId,
+            projectId: project.id,
+            reason: 'selection-layer-mismatch',
+            selectionStart,
+            selectionEnd,
+            selectionMaskBounds,
+            selectionMaskLayerId,
+            selectionLastAction,
+          });
+          state.clearSelection();
+          return false;
+        }
+
+        if (selectionMaskLayerId && selectionMaskLayerId !== activeLayerId) {
+          logSelectionExtractBlocked({
+            activeLayer,
+            activeLayerId,
+            projectId: project.id,
+            reason: 'selection-mask-layer-mismatch',
+            selectionStart,
+            selectionEnd,
+            selectionMaskBounds,
+            selectionMaskLayerId,
+            selectionLastAction,
+          });
+          state.clearSelection();
+          return false;
+        }
+
+        const brush = state.getLayerColorCycleBrush?.(activeLayerId);
+        const snapshot = brush?.getLayerSnapshot?.(activeLayerId) ?? null;
+        const canvas = activeLayer.colorCycleData?.canvas ?? activeLayer.framebuffer ?? null;
+        const paintWidth = canvas?.width ?? project.width;
+        const paintHeight = canvas?.height ?? project.height;
+        const expectedPixels = Math.max(1, paintWidth * paintHeight);
+        const hasFullCanonicalPayload = Boolean(
+          snapshot?.paintBuffer?.byteLength === expectedPixels &&
+          snapshot?.gradientIdBuffer?.byteLength === expectedPixels &&
+          snapshot?.gradientDefIdBuffer?.byteLength === expectedPixels * 2 &&
+          snapshot?.speedBuffer?.byteLength === expectedPixels &&
+          snapshot?.flowBuffer?.byteLength === expectedPixels &&
+          snapshot?.phaseBuffer?.byteLength === expectedPixels
+        );
+
+        if (!snapshot?.paintBuffer || !hasFullCanonicalPayload || paintWidth <= 0 || paintHeight <= 0) {
+          logSelectionExtractBlocked({
+            activeLayer,
+            activeLayerId,
+            projectId: project.id,
+            reason: 'missing-canonical-paint',
+            selectionStart,
+            selectionEnd,
+            selectionMaskBounds,
+            selectionMaskLayerId,
+            selectionLastAction,
+            details: {
+              hasPaintBuffer: Boolean(snapshot?.paintBuffer?.byteLength),
+              hasFullCanonicalPayload,
+              paintWidth,
+              paintHeight,
+            },
+          });
+          return false;
+        }
+
+      }
 
       const capture = selectionMask && selectionMaskBounds
         ? captureSelectionBitmapFromMask({
