@@ -508,6 +508,18 @@ describe('tools slice', () => {
     expect(useAppStore.getState().tools.shapeMode).toBe(true);
   });
 
+  it('uses 0.03 as the default color cycle speed for the gradient preset', () => {
+    const store = useAppStore.getState();
+    const gradientPreset = brushPresets.find((preset) => preset.id === 'color-cycle-gradient');
+    expect(gradientPreset).toBeTruthy();
+
+    if (gradientPreset) {
+      store.setBrushPreset(gradientPreset);
+    }
+
+    expect(useAppStore.getState().tools.brushSettings.colorCycleSpeed).toBe(0.03);
+  });
+
   it('switches color cycle gradient source tabs in one action', () => {
     const store = useAppStore.getState();
     const gradientPreset = brushPresets.find((preset) => preset.id === 'color-cycle-gradient');
