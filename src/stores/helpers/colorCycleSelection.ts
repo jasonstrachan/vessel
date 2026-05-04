@@ -230,13 +230,16 @@ const mutateColorCycleLayer = (
   const hasContent = working.some((value) => value !== 0);
   const afterPaintSummary = summarizeScalarBuffer(working, canvas.width, canvas.height);
   const auditSource = options?.audit?.source ?? 'clear-color-cycle-region';
+  const isExpectedFullObjectMove =
+    auditSource === 'extract-selection-transform' &&
+    options?.audit?.details?.transactionKind === 'full-object-move';
   if (hadContentBeforeMutation && !hasContent) {
     const before = summarizeColorCycleLayer(layer);
     logCCMutation({
       event: 'color-cycle-layer-cleared',
       layerId: layer.id,
       reason: auditSource,
-      severity: 'error',
+      severity: isExpectedFullObjectMove ? 'info' : 'error',
       before,
       after: before
         ? {

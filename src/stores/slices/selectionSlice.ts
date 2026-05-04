@@ -2118,6 +2118,8 @@ export const createSelectionSlice: StateCreator<AppState, [], [], SelectionSlice
           auditSource: 'extract-selection-transform',
           auditDetails: {
             activeLayerId,
+            transactionId: ccExtractPreflight?.transactionId ?? null,
+            transactionKind: ccExtractPreflight?.kind ?? null,
             captureBounds: capture.bounds,
             selectionStart,
             selectionEnd,

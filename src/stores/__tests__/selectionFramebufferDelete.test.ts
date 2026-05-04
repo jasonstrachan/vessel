@@ -887,6 +887,18 @@ describe('selection delete updates framebuffer', () => {
     expect(Array.from(floatingPaste?.colorCycleFlow ?? [])).toEqual(new Array(16).fill(4));
     expect(Array.from(floatingPaste?.colorCyclePhase ?? [])).toEqual(new Array(16).fill(5));
     expect(brush?.getLayerSnapshot?.(layerId)?.hasContent).toBe(false);
+    expect(getPersistedCCMutationLog()).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        event: 'color-cycle-layer-cleared',
+        layerId,
+        reason: 'extract-selection-transform',
+        severity: 'info',
+        details: expect.objectContaining({
+          transactionKind: 'full-object-move',
+          expectedDestructive: true,
+        }),
+      }),
+    ]));
   });
 
   it('does not create a CC floating paste when source clear fails after payload capture', () => {
