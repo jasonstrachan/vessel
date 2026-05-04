@@ -80,11 +80,17 @@ describe('ccDebug overlay bridge', () => {
     expect(window.__VESSEL_GET_ACTIVE_CC_LAYER_DIAGNOSTIC__?.()).toEqual(
       expect.objectContaining({
         activeLayerId: 'layer-cc-debug',
+        layerId: 'layer-cc-debug',
+        layerName: 'CC',
+        layerOrder: 0,
         layerType: 'color-cycle',
         visible: true,
         opacity: 0.75,
         hasColorCycleData: true,
         hasContent: true,
+        isAnimating: null,
+        runtimeHydrationState: null,
+        hasRuntimeBrush: false,
         hasCanvas: true,
         canvasSize: '12x8',
         paintRef: 'zip:paint.bin',
@@ -99,6 +105,7 @@ describe('ccDebug overlay bridge', () => {
         colorCycleLayers: [
           expect.objectContaining({
             activeLayerId: 'layer-cc-debug',
+            layerId: 'layer-cc-debug',
             hasContent: true,
           }),
         ],

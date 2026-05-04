@@ -420,6 +420,56 @@ export const startContinuousColorCycleAnimationCore = (
     } catch {}
   };
 
+  const hydrateAndStartColdLayer = (layerId: string): void => {
+    const ensureRuntime = storeRef.current.ensureColorCycleLayerRuntime;
+    if (typeof ensureRuntime !== 'function') {
+      return;
+    }
+
+    void ensureRuntime(layerId, { target: 'active' }).then((hydrated) => {
+      if (!hydrated || !getEffectiveColorCyclePlaying()) {
+        return;
+      }
+
+      try {
+        const st = storeRef.current;
+        const freshLayer = st.layers.find((entry) => entry.id === layerId);
+        if (!freshLayer || freshLayer.layerType !== 'color-cycle' || !freshLayer.colorCycleData) {
+          return;
+        }
+
+        st.updateLayer(layerId, {
+          colorCycleData: {
+            ...freshLayer.colorCycleData,
+            isAnimating: true,
+          },
+        });
+
+        const brush = getColorCycleBrushManager().getBrush(layerId);
+        if (brush) {
+          const isPlaying = typeof brush.isPlaying === 'function' ? brush.isPlaying() : false;
+          if (!isPlaying) {
+            if (typeof brush.startAnimation === 'function') {
+              brush.startAnimation();
+            } else if (typeof brush.setPlaying === 'function') {
+              brush.setPlaying(true);
+            }
+          }
+        }
+
+        renderAllColorCycleLayers(undefined, false);
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent('colorCycleFrameUpdate'));
+        }
+        ccLog('hydrated cold CC layer for playback', { id: layerId.slice(-6), reason });
+      } catch (error) {
+        debugWarn('[DrawingHandlers] Failed to start hydrated cold CC layer', error);
+      }
+    }).catch((error) => {
+      debugWarn('[DrawingHandlers] Failed to hydrate cold CC layer for playback', error);
+    });
+  };
+
   if (
     continuousColorCycleAnimationActiveRef.current ||
     startingColorCycleAnimationRef.current
@@ -525,6 +575,9 @@ export const startContinuousColorCycleAnimationCore = (
       try {
         const mgr = getColorCycleBrushManager();
         ccLayers.forEach((layer) => {
+          if (isColdColorCycleLayer(layer)) {
+            return;
+          }
           const brush = mgr.getBrush(layer.id);
           if (!brush) {
             return;
@@ -555,16 +608,11 @@ export const startContinuousColorCycleAnimationCore = (
         .map((layer) => layer.id);
       if (coldLayerIds.length > 0 && typeof window !== 'undefined') {
         window.setTimeout(() => {
-          try {
-            const latestState = storeRef.current;
-            coldLayerIds.forEach((layerId) => {
-              latestState.getLayerColorCycleBrush?.(layerId);
-            });
-            ccLog('scheduled cold CC playback hydration', {
-              reason,
-              count: coldLayerIds.length,
-            });
-          } catch {}
+          coldLayerIds.forEach(hydrateAndStartColdLayer);
+          ccLog('scheduled cold CC playback hydration', {
+            reason,
+            count: coldLayerIds.length,
+          });
         }, 0);
       }
     }

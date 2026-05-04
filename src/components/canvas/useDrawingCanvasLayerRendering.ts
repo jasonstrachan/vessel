@@ -70,7 +70,7 @@ export const useDrawingCanvasLayerRendering = ({
           projectWidth: project.width,
           projectHeight: project.height,
         });
-        const source = getColorCyclePresentationCanvas(presentation);
+        const source = getColorCyclePresentationCanvas(presentation, layer);
         if (source) {
           try {
             ctx.drawImage(source, 0, 0);

@@ -1,4 +1,5 @@
 import { useAppStore } from '@/stores/useAppStore';
+import { getColorCycleBrushManager } from '@/stores/colorCycleBrushManager';
 import { getPersistedCCMutationLog } from '@/utils/colorCycle/ccMutationAudit';
 import { appendCCDebugOverlayEntry } from '@/utils/colorCycle/ccDebugOverlayStore';
 import { isDevDebugOverlayEnabled } from '@/utils/dev/debugOverlayStore';
@@ -10,12 +11,18 @@ export const CC_DEBUG_STATE_EVENT = 'cc-debug-state-change';
 type ActiveCCLayerDiagnostic = {
   href: string | null;
   activeLayerId: string | null;
+  layerId: string | null;
+  layerName: string | null;
+  layerOrder: number | null;
   layerCount: number;
   layerType: string | null;
   visible: boolean | null;
   opacity: number | null;
   hasColorCycleData: boolean;
   hasContent: boolean | null;
+  isAnimating: boolean | null;
+  runtimeHydrationState: string | null;
+  hasRuntimeBrush: boolean;
   hasCanvas: boolean;
   canvasSize: string | null;
   hasImageData: boolean;
@@ -93,16 +100,34 @@ const getLayerDiagnostic = (
   const state = useAppStore.getState();
   const cc = layer?.layerType === 'color-cycle' ? layer.colorCycleData : null;
   const ccRecord = (cc ?? {}) as Record<string, unknown>;
+  const hasRuntimeBrush = (() => {
+    if (!layer || layer.layerType !== 'color-cycle') {
+      return false;
+    }
+    try {
+      return Boolean(getColorCycleBrushManager().getBrush(layer.id));
+    } catch {
+      return false;
+    }
+  })();
 
   return {
     href: typeof window !== 'undefined' ? window.location.href : null,
     activeLayerId: state.activeLayerId ?? null,
+    layerId: layer?.id ?? null,
+    layerName: layer?.name ?? null,
+    layerOrder: layer?.order ?? null,
     layerCount: state.layers.length,
     layerType: layer?.layerType ?? null,
     visible: layer?.visible ?? null,
     opacity: layer?.opacity ?? null,
     hasColorCycleData: Boolean(cc),
     hasContent: cc?.hasContent ?? null,
+    isAnimating: cc?.isAnimating ?? null,
+    runtimeHydrationState: typeof ccRecord.runtimeHydrationState === 'string'
+      ? ccRecord.runtimeHydrationState
+      : null,
+    hasRuntimeBrush,
     hasCanvas: Boolean(cc?.canvas),
     canvasSize: cc?.canvas ? `${cc.canvas.width}x${cc.canvas.height}` : null,
     hasImageData: Boolean(layer?.imageData),

@@ -163,7 +163,7 @@ export const useDrawingCanvasCompositeBuffers = ({
           projectWidth: project.width,
           projectHeight: project.height,
         });
-        const source = getColorCyclePresentationCanvas(presentation);
+        const source = getColorCyclePresentationCanvas(presentation, layer);
         if (source) {
           try {
             targetCtx.drawImage(source, 0, 0);
