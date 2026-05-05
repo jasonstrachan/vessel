@@ -463,6 +463,7 @@ export const captureSelectionBitmapFromMask = (
   }
 
   const selectionBuffer = new Uint8ClampedArray(safeWidth * safeHeight * 4);
+  const selectionMaskAlpha = new Uint8Array(safeWidth * safeHeight);
   const updatedLayerBuffer = clearSource ? new Uint8ClampedArray(layerImageData.data) : null;
 
   for (let sy = 0; sy < safeHeight; sy += 1) {
@@ -477,6 +478,7 @@ export const captureSelectionBitmapFromMask = (
 
       const srcIndex = (globalY * layerWidth + globalX) * 4;
       const destIndex = (sy * safeWidth + sx) * 4;
+      selectionMaskAlpha[sy * safeWidth + sx] = maskAlpha;
 
       selectionBuffer[destIndex] = layerImageData.data[srcIndex];
       selectionBuffer[destIndex + 1] = layerImageData.data[srcIndex + 1];
@@ -513,40 +515,45 @@ export const captureSelectionBitmapFromMask = (
       width: safeWidth,
       height: safeHeight,
     });
-    if (indices) {
-      colorCycleIndices = new Uint8Array(indices.length);
-      for (let i = 0; i < indices.length; i += 1) {
-        // Map mask alpha to indices so only masked pixels are retained.
-        const alpha = selectionBuffer[(i * 4) + 3];
-        colorCycleIndices[i] = alpha > 0 ? indices[i] : 0;
-      }
-    }
-
     const gradientIds = captureColorCycleSnapshotScalar(layer, {
       x: clampedX,
       y: clampedY,
       width: safeWidth,
       height: safeHeight,
     }, 'gradientIdBuffer');
-    if (gradientIds) {
-      colorCycleGradientIds = new Uint8Array(gradientIds.length);
-      for (let i = 0; i < gradientIds.length; i += 1) {
-        const alpha = selectionBuffer[(i * 4) + 3];
-        colorCycleGradientIds[i] = alpha > 0 ? gradientIds[i] : 0;
-      }
-    }
-
     const gradientDefIds = captureColorCycleGradientDefIds(layer, {
       x: clampedX,
       y: clampedY,
       width: safeWidth,
       height: safeHeight,
     });
+    const shouldRetainColorCycleSample = (index: number): boolean => (
+      selectionMaskAlpha[index] > 0 &&
+      (
+        selectionBuffer[(index * 4) + 3] > 0 ||
+        (indices?.[index] ?? 0) !== 0 ||
+        (gradientIds?.[index] ?? 0) !== 0 ||
+        (gradientDefIds?.[index] ?? 0) !== 0
+      )
+    );
+    if (indices) {
+      colorCycleIndices = new Uint8Array(indices.length);
+      for (let i = 0; i < indices.length; i += 1) {
+        colorCycleIndices[i] = shouldRetainColorCycleSample(i) ? indices[i] : 0;
+      }
+    }
+
+    if (gradientIds) {
+      colorCycleGradientIds = new Uint8Array(gradientIds.length);
+      for (let i = 0; i < gradientIds.length; i += 1) {
+        colorCycleGradientIds[i] = shouldRetainColorCycleSample(i) ? gradientIds[i] : 0;
+      }
+    }
+
     if (gradientDefIds) {
       colorCycleGradientDefIds = new Uint16Array(gradientDefIds.length);
       for (let i = 0; i < gradientDefIds.length; i += 1) {
-        const alpha = selectionBuffer[(i * 4) + 3];
-        colorCycleGradientDefIds[i] = alpha > 0 ? gradientDefIds[i] : 0;
+        colorCycleGradientDefIds[i] = shouldRetainColorCycleSample(i) ? gradientDefIds[i] : 0;
       }
     }
 
@@ -559,8 +566,7 @@ export const captureSelectionBitmapFromMask = (
     if (speed) {
       colorCycleSpeed = new Uint8Array(speed.length);
       for (let i = 0; i < speed.length; i += 1) {
-        const alpha = selectionBuffer[(i * 4) + 3];
-        colorCycleSpeed[i] = alpha > 0 ? speed[i] : 0;
+        colorCycleSpeed[i] = shouldRetainColorCycleSample(i) ? speed[i] : 0;
       }
     }
 
@@ -573,8 +579,7 @@ export const captureSelectionBitmapFromMask = (
     if (flow) {
       colorCycleFlow = new Uint8Array(flow.length);
       for (let i = 0; i < flow.length; i += 1) {
-        const alpha = selectionBuffer[(i * 4) + 3];
-        colorCycleFlow[i] = alpha > 0 ? flow[i] : 0;
+        colorCycleFlow[i] = shouldRetainColorCycleSample(i) ? flow[i] : 0;
       }
     }
 
@@ -587,8 +592,7 @@ export const captureSelectionBitmapFromMask = (
     if (phase) {
       colorCyclePhase = new Uint8Array(phase.length);
       for (let i = 0; i < phase.length; i += 1) {
-        const alpha = selectionBuffer[(i * 4) + 3];
-        colorCyclePhase[i] = alpha > 0 ? phase[i] : 0;
+        colorCyclePhase[i] = shouldRetainColorCycleSample(i) ? phase[i] : 0;
       }
     }
   }

@@ -74,10 +74,18 @@ jest.mock('@/stores/useAppStore', () => ({
     state.colorCyclePlayback.desiredPlaying && state.colorCyclePlayback.suspendDepth === 0
 }));
 
+jest.mock('@/utils/colorCycle/ccMutationAudit', () => ({
+  __esModule: true as const,
+  logCCMutation: jest.fn(),
+}));
+
 import {
   toggleGlobalColorCyclePlayback,
   toggleToolbarColorCyclePlayback,
 } from '@/utils/colorCyclePlayback';
+import { logCCMutation } from '@/utils/colorCycle/ccMutationAudit';
+
+const mockLogCCMutation = logCCMutation as jest.Mock;
 
 const makeRecolorLayer = (id: string, visible: boolean): Layer =>
   ({
@@ -160,6 +168,40 @@ describe('colorCyclePlayback visibility behavior', () => {
     expect(runtimeStart).not.toHaveBeenCalled();
     expect(registerExistingLayer).not.toHaveBeenCalled();
     expect(mockState.colorCyclePlayback.desiredPlaying).toBe(false);
+    expect(mockLogCCMutation).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: 'cc-playback-warmup-failed',
+        layerId: 'visible-brush-cc',
+      }),
+    );
+  });
+
+  it('does not warm hidden cold brush CC layers during toolbar playback', async () => {
+    mockState.layers = [
+      {
+        ...makeRecolorLayer('hidden-cold-brush-cc', false),
+        colorCycleData: {
+          mode: 'brush',
+          hasContent: true,
+          deferredRuntimeRestore: true,
+          runtimeHydrationState: 'cold',
+        },
+      } as Layer,
+      {
+        ...makeRecolorLayer('visible-brush-cc', true),
+        colorCycleData: {
+          mode: 'brush',
+          hasContent: true,
+        },
+      } as Layer,
+    ];
+
+    await toggleGlobalColorCyclePlayback(true, 'toolbar');
+
+    expect(ensureColorCycleLayerRuntime).toHaveBeenCalledTimes(1);
+    expect(ensureColorCycleLayerRuntime).toHaveBeenCalledWith('visible-brush-cc', { target: 'warm' });
+    expect(ensureColorCycleLayerRuntime).not.toHaveBeenCalledWith('hidden-cold-brush-cc', expect.anything());
+    expect(runtimeStart).toHaveBeenCalledWith('store-sync');
   });
 
   it('does not block playback on an empty visible brush CC layer without a runtime', async () => {
@@ -242,6 +284,42 @@ describe('colorCyclePlayback visibility behavior', () => {
     expect(runtimeStart).not.toHaveBeenCalled();
     expect(registerExistingLayer).not.toHaveBeenCalled();
     expect(mockState.colorCyclePlayback.desiredPlaying).toBe(false);
+  });
+
+  it('keeps canonical summaries idempotent across repeated play/pause toggles', async () => {
+    mockState.layers = [
+      {
+        ...makeRecolorLayer('visible-brush-cc', true),
+        colorCycleData: {
+          mode: 'brush',
+          hasContent: true,
+          gradientIdBuffer: new ArrayBuffer(4),
+          gradientDefIdBuffer: new ArrayBuffer(4),
+          phaseBuffer: new ArrayBuffer(4),
+          brushState: { canonicalPaint: true },
+        },
+      } as Layer,
+    ];
+
+    for (let index = 0; index < 10; index += 1) {
+      await toggleGlobalColorCyclePlayback(true, 'toolbar');
+      await toggleGlobalColorCyclePlayback(false, 'toolbar');
+    }
+
+    expect(mockLogCCMutation).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: 'cc-playback-canonical-mutated',
+      }),
+    );
+    expect(mockState.layers[0].colorCycleData).toEqual(
+      expect.objectContaining({
+        hasContent: true,
+        gradientIdBuffer: expect.any(ArrayBuffer),
+        gradientDefIdBuffer: expect.any(ArrayBuffer),
+        phaseBuffer: expect.any(ArrayBuffer),
+        brushState: { canonicalPaint: true },
+      }),
+    );
   });
 
   it('uses pause as the single toolbar action when playback is already active', async () => {

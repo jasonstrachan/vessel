@@ -39,13 +39,18 @@ const buildCcCanonicalPayload = (
     ? state.getLayerColorCycleBrush(layerId)
     : null;
   const snapshot = brush?.getLayerSnapshot?.(layerId) ?? null;
+  const layer = state.layers.find((candidate) => candidate.id === layerId);
+  const canUseEmptyInitializedCcRuntime = Boolean(brush && layer?.layerType === 'color-cycle' && layer.colorCycleData);
+  const expectedPixels = Math.max(1, fallbackWidth * fallbackHeight);
+  const emptyBytes = () => new Uint8Array(expectedPixels);
+  const emptyDefBytes = () => new Uint16Array(expectedPixels);
   return {
-    paintBuffer: snapshot?.paintBuffer ? new Uint8Array(snapshot.paintBuffer) : null,
-    gradientIdBuffer: snapshot?.gradientIdBuffer ? new Uint8Array(snapshot.gradientIdBuffer) : null,
-    gradientDefIdBuffer: snapshot?.gradientDefIdBuffer ? new Uint16Array(snapshot.gradientDefIdBuffer) : null,
-    speedBuffer: snapshot?.speedBuffer ? new Uint8Array(snapshot.speedBuffer) : null,
-    flowBuffer: snapshot?.flowBuffer ? new Uint8Array(snapshot.flowBuffer) : null,
-    phaseBuffer: snapshot?.phaseBuffer ? new Uint8Array(snapshot.phaseBuffer) : null,
+    paintBuffer: snapshot?.paintBuffer?.byteLength ? new Uint8Array(snapshot.paintBuffer) : (canUseEmptyInitializedCcRuntime ? emptyBytes() : null),
+    gradientIdBuffer: snapshot?.gradientIdBuffer?.byteLength ? new Uint8Array(snapshot.gradientIdBuffer) : (canUseEmptyInitializedCcRuntime ? emptyBytes() : null),
+    gradientDefIdBuffer: snapshot?.gradientDefIdBuffer?.byteLength ? new Uint16Array(snapshot.gradientDefIdBuffer) : (canUseEmptyInitializedCcRuntime ? emptyDefBytes() : null),
+    speedBuffer: snapshot?.speedBuffer?.byteLength ? new Uint8Array(snapshot.speedBuffer) : (canUseEmptyInitializedCcRuntime ? emptyBytes() : null),
+    flowBuffer: snapshot?.flowBuffer?.byteLength ? new Uint8Array(snapshot.flowBuffer) : (canUseEmptyInitializedCcRuntime ? emptyBytes() : null),
+    phaseBuffer: snapshot?.phaseBuffer?.byteLength ? new Uint8Array(snapshot.phaseBuffer) : (canUseEmptyInitializedCcRuntime ? emptyBytes() : null),
     width: fallbackWidth,
     height: fallbackHeight,
   };

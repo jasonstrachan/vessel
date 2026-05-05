@@ -33,6 +33,127 @@ const isVisibleBrushColorCycleLayer = (layer: Layer): boolean => (
   layer.colorCycleData?.mode !== 'recolor'
 );
 
+type PlaybackCanonicalSummary = {
+  hasContent: boolean;
+  paintBytes: number;
+  gradientIdBytes: number;
+  gradientDefIdBytes: number;
+  phaseBytes: number;
+  brushState: boolean;
+};
+
+const getDocumentStateBufferBytes = (
+  layer: Layer,
+  key: 'paintRef' | 'gradientIdRef' | 'gradientDefIdRef' | 'phaseRef',
+): number => {
+  const state = (layer as unknown as {
+    state?: Record<string, unknown>;
+  }).state;
+  const value = state?.[key] as { byteLength?: number } | string | undefined;
+  return typeof value === 'object' && typeof value.byteLength === 'number'
+    ? value.byteLength
+    : 0;
+};
+
+const summarizePlaybackCanonicalPayload = (layer: Layer): PlaybackCanonicalSummary | null => {
+  if (layer.layerType !== 'color-cycle' || !layer.colorCycleData) {
+    return null;
+  }
+  const data = layer.colorCycleData;
+  const documentState = (layer as unknown as {
+    state?: {
+      hasContent?: boolean;
+      paintRef?: unknown;
+      gradientIdRef?: unknown;
+      gradientDefIdRef?: unknown;
+      phaseRef?: unknown;
+    };
+  }).state;
+  return {
+    hasContent: Boolean(data.hasContent === true || documentState?.hasContent === true),
+    paintBytes: getDocumentStateBufferBytes(layer, 'paintRef'),
+    gradientIdBytes: data.gradientIdBuffer?.byteLength ?? getDocumentStateBufferBytes(layer, 'gradientIdRef'),
+    gradientDefIdBytes: data.gradientDefIdBuffer?.byteLength ?? getDocumentStateBufferBytes(layer, 'gradientDefIdRef'),
+    phaseBytes: data.phaseBuffer?.byteLength ?? getDocumentStateBufferBytes(layer, 'phaseRef'),
+    brushState: Boolean(data.brushState),
+  };
+};
+
+const logPlaybackAuditEvent = (
+  event: string,
+  layer: Layer,
+  reason: CCReason,
+  details?: Record<string, unknown>,
+): void => {
+  const colorCycleData = layer.layerType === 'color-cycle' ? layer.colorCycleData : undefined;
+  const brush = colorCycleData?.colorCycleBrush;
+  let brushIsPlaying: boolean | null = null;
+  try {
+    brushIsPlaying = typeof brush?.isPlaying === 'function' ? brush.isPlaying() : null;
+  } catch {
+    brushIsPlaying = null;
+  }
+  logCCMutation({
+    event,
+    severity: event.endsWith('failed') ? 'error' : 'info',
+    layerId: layer.id,
+    reason,
+    details: {
+      visible: layer.visible !== false,
+      runtimeHydrationState: getColorCycleHydrationState(colorCycleData),
+      deferredRuntimeRestore: colorCycleData?.deferredRuntimeRestore ?? null,
+      hasRuntimeBrush: Boolean(brush),
+      brushIsPlaying,
+      canonicalSummary: summarizePlaybackCanonicalPayload(layer),
+      ...details,
+    },
+  });
+};
+
+const logPlaybackCanonicalSummary = (
+  event: string,
+  layers: Layer[],
+  reason: CCReason,
+): Map<string, PlaybackCanonicalSummary> => {
+  const summaries = new Map<string, PlaybackCanonicalSummary>();
+  layers.forEach((layer) => {
+    const summary = summarizePlaybackCanonicalPayload(layer);
+    if (!summary) {
+      return;
+    }
+    summaries.set(layer.id, summary);
+    logPlaybackAuditEvent(event, layer, reason, { canonicalSummary: summary });
+  });
+  return summaries;
+};
+
+const logPlaybackCanonicalMutation = (
+  before: Map<string, PlaybackCanonicalSummary>,
+  layers: Layer[],
+  reason: CCReason,
+): void => {
+  layers.forEach((layer) => {
+    const beforeSummary = before.get(layer.id);
+    const afterSummary = summarizePlaybackCanonicalPayload(layer);
+    if (!beforeSummary || !afterSummary) {
+      return;
+    }
+    if (JSON.stringify(beforeSummary) === JSON.stringify(afterSummary)) {
+      return;
+    }
+    logCCMutation({
+      event: 'cc-playback-canonical-mutated',
+      severity: 'error',
+      layerId: layer.id,
+      reason,
+      details: {
+        before: beforeSummary,
+        after: afterSummary,
+      },
+    });
+  });
+};
+
 const hasColorCyclePlaybackWarmupSource = (layer: Layer): boolean => {
   if (layer.layerType !== 'color-cycle' || !layer.colorCycleData) {
     return false;
@@ -147,35 +268,23 @@ const warmVisibleBrushColorCycleLayersForPlayback = async (
 
   const results = await Promise.all(targets.map(async (layer) => {
     try {
+      logPlaybackAuditEvent('cc-playback-warmup-started', layer, reason);
       const warmed = await ensureRuntime(layer.id, {
         target: state.activeLayerId === layer.id ? 'active' : 'warm',
       });
+      const latestLayer = useAppStore.getState().layers.find((candidate) => candidate.id === layer.id) ?? layer;
       if (!warmed) {
-        logCCMutation({
-          event: 'cc-playback-warmup-skipped',
-          severity: 'warn',
-          layerId: layer.id,
-          reason,
-          details: {
-            hydrationState: getColorCycleHydrationState(layer.colorCycleData),
-            deferredRuntimeRestore: layer.colorCycleData?.deferredRuntimeRestore ?? null,
-            hasRuntimeBrush: Boolean(layer.colorCycleData?.colorCycleBrush),
-          },
+        logPlaybackAuditEvent('cc-playback-warmup-failed', latestLayer, reason, {
+          warmed,
         });
+        logPlaybackAuditEvent('cc-playback-warmup-skipped', latestLayer, reason, { warmed });
+        return false;
       }
+      logPlaybackAuditEvent('cc-playback-warmup-complete', latestLayer, reason, { warmed });
       return warmed;
     } catch (error) {
-      logCCMutation({
-        event: 'cc-playback-warmup-failed',
-        severity: 'error',
-        layerId: layer.id,
-        reason,
-        details: {
-          message: error instanceof Error ? error.message : String(error),
-          hydrationState: getColorCycleHydrationState(layer.colorCycleData),
-          deferredRuntimeRestore: layer.colorCycleData?.deferredRuntimeRestore ?? null,
-          hasRuntimeBrush: Boolean(layer.colorCycleData?.colorCycleBrush),
-        },
+      logPlaybackAuditEvent('cc-playback-warmup-failed', layer, reason, {
+        message: error instanceof Error ? error.message : String(error),
       });
       return false;
     }
@@ -192,6 +301,27 @@ export const toggleGlobalColorCyclePlayback = async (
   }
 
   ccGroup('toggleGlobalColorCyclePlayback()', { shouldPlay, reason });
+
+  const layersBeforeToggle = useAppStore.getState().layers;
+  const beforeCanonicalSummaries = logPlaybackCanonicalSummary(
+    'cc-playback-canonical-summary-before',
+    layersBeforeToggle,
+    reason,
+  );
+  layersBeforeToggle
+    .filter((layer) => layer.layerType === 'color-cycle')
+    .forEach((layer) => {
+      logPlaybackAuditEvent('cc-playback-toggle-requested', layer, reason, { shouldPlay });
+    });
+  const finishPlaybackAudit = (): void => {
+    const layersAfterToggle = useAppStore.getState().layers;
+    logPlaybackCanonicalSummary(
+      'cc-playback-canonical-summary-after',
+      layersAfterToggle,
+      reason,
+    );
+    logPlaybackCanonicalMutation(beforeCanonicalSummaries, layersAfterToggle, reason);
+  };
 
   const { playColorCycle, pauseColorCycle } = useAppStore.getState();
   if (shouldPlay) {
@@ -224,6 +354,7 @@ export const toggleGlobalColorCyclePlayback = async (
         ccLog('blocked playback start because CC warmup failed', { reason });
         dumpLayerFlags();
         ccGroupEnd();
+        finishPlaybackAudit();
         return;
       }
       const currentState = useAppStore.getState();
@@ -237,19 +368,32 @@ export const toggleGlobalColorCyclePlayback = async (
         });
         dumpLayerFlags();
         ccGroupEnd();
+        finishPlaybackAudit();
         return;
       }
       const playbackController = getPlaybackRuntimeController();
       playbackController.requestColorCycleRuntimeStart(currentState, 'store-sync');
+      useAppStore.getState().layers
+        .filter((layer) => layer.layerType === 'color-cycle')
+        .forEach((layer) => {
+          logPlaybackAuditEvent('cc-playback-runtime-started', layer, reason);
+        });
       playbackController.sync(currentState, 'store-sync');
       ccLog('synced playback controller start from toggleGlobalColorCyclePlayback', { reason });
     } else {
       useAppStore.getState().colorCycleRuntimeHandlers?.stop?.('store-sync');
+      useAppStore.getState().layers
+        .filter((layer) => layer.layerType === 'color-cycle')
+        .forEach((layer) => {
+          logPlaybackAuditEvent('cc-playback-runtime-stopped', layer, reason);
+        });
       ccLog('invoked colorCycleRuntimeHandlers.stop from toggleGlobalColorCyclePlayback', { reason });
     }
   } catch {}
 
   await reconcileRecolorPlayback(snapshot.layers, desiredPlaying, reason);
+
+  finishPlaybackAudit();
 
   dumpLayerFlags();
   ccGroupEnd();
@@ -259,7 +403,7 @@ export const toggleToolbarColorCyclePlayback = async (): Promise<void> => {
   const snapshot = useAppStore.getState();
   const action = selectColorCyclePlaybackToggleAction(snapshot);
   logCCMutation({
-    event: 'color-cycle-playback-toggle',
+    event: 'cc-playback-toggle-requested',
     severity: 'info',
     layerId: snapshot.activeLayerId ?? 'global',
     reason: 'toolbar',

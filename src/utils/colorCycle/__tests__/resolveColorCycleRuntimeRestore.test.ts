@@ -50,6 +50,17 @@ describe('resolveColorCycleRuntimeRestore', () => {
     })).toBe(false);
   });
 
+  it('treats unresolved string paint refs as canonical brush-state authority', () => {
+    expect(brushStateHasColorCyclePaintPayload({
+      layers: [{
+        strokeData: {
+          hasContent: false,
+          paintBuffer: 'archive/paint.bin',
+        },
+      }],
+    }, 'layer-cc')).toBe(true);
+  });
+
   it('extracts canonical brush-state paint from persisted base64 snapshots', () => {
     const layer = makeLayer({
       mode: 'brush',

@@ -130,13 +130,20 @@ export const brushStateHasColorCyclePaintPayload = (
 ): boolean => {
   const snapshots = (brushState as SerializedBrushStateLike | undefined)?.layers;
   return Boolean(snapshots?.some((snapshot) => {
-    if (targetLayerId && snapshot.layerId !== targetLayerId) {
+    if (targetLayerId && snapshot.layerId && snapshot.layerId !== targetLayerId) {
       return false;
     }
     const strokeData = snapshot.strokeData;
+    const paintBuffer = strokeData?.paintBuffer;
+    const hasSerializedPaintRef = (
+      typeof paintBuffer === 'string' &&
+      paintBuffer.length > 0 &&
+      !decodeBase64ArrayBuffer(paintBuffer)
+    );
     return Boolean(
       strokeData?.hasContent === true ||
-      ccPayloadHasNonZeroByte(strokeData?.paintBuffer)
+      ccPayloadHasNonZeroByte(paintBuffer) ||
+      hasSerializedPaintRef
     );
   }));
 };
