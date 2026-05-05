@@ -209,12 +209,18 @@ import LayersPanel from '@/components/panels/LayersPanel';
 
 const createLayer = ({
   id,
+  name = id,
   order,
   visible,
+  layerType = 'normal',
+  colorCycleData,
 }: {
   id: string;
+  name?: string;
   order: number;
   visible: boolean;
+  layerType?: Layer['layerType'];
+  colorCycleData?: Layer['colorCycleData'];
 }): Layer => {
   const canvas = document.createElement('canvas');
   canvas.width = 4;
@@ -222,14 +228,15 @@ const createLayer = ({
 
   return {
     id,
-    name: id,
+    name,
     order,
     visible,
     opacity: 1,
     blendMode: 'source-over',
     locked: false,
     transparencyLocked: false,
-    layerType: 'normal',
+    layerType,
+    colorCycleData,
     framebuffer: canvas,
     imageData: new ImageData(4, 4),
     alignment: {
@@ -303,6 +310,33 @@ describe('LayersPanel interactions', () => {
     expect(screen.queryByText('Show selected')).toBeNull();
     expect(screen.queryByText('Hide selected')).toBeNull();
     expect(screen.queryByText('Toggle selected')).toBeNull();
+  });
+
+  it('shows compact one-line layer names with fixed-size type and id tags', () => {
+    state.layers = [
+      createLayer({
+        id: 'layer-1777941667172-0.6293618476877367',
+        name: 'CC Layer 2',
+        order: 0,
+        visible: true,
+        layerType: 'color-cycle',
+        colorCycleData: {
+          gradient: [
+            { position: 0, color: '#000000' },
+            { position: 1, color: '#ffffff' },
+          ],
+        },
+      }),
+    ];
+    state.activeLayerId = state.layers[0].id;
+    state.selectedLayerIds = [state.layers[0].id];
+
+    render(<LayersPanel />);
+
+    expect(screen.getByText('CC Layer 2')).toBeInTheDocument();
+    expect(screen.getAllByText('CC').length).toBeGreaterThan(0);
+    expect(screen.getByText('#667172')).toBeInTheDocument();
+    expect(screen.queryByText('Type')).not.toBeInTheDocument();
   });
 
   it('keeps single-layer eye toggle behavior unchanged', () => {

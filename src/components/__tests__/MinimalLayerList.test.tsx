@@ -206,10 +206,41 @@ describe('MinimalLayerList layer identity labels', () => {
 
     const token = formatLayerDebugToken(layers[0].id);
     expect(screen.getByText(`#${token}`)).toBeInTheDocument();
-    expect(screen.getByTitle((title) => (
+    expect(screen.getAllByTitle((title) => (
       title.includes(layers[0].name) &&
       title.includes(`Layer ID: ${layers[0].id}`)
-    ))).toBeInTheDocument();
+    )).length).toBeGreaterThan(0);
+  });
+
+  it('shows color-cycle layer names as visible row labels', () => {
+    const layers = [
+      {
+        ...createLayer('layer-1777941667172-0.6293618476877367', 0),
+        name: 'CC Layer 2',
+        layerType: 'color-cycle' as const,
+        colorCycleData: {
+          gradient: [
+            { position: 0, color: '#000000' },
+            { position: 1, color: '#ffffff' },
+          ],
+        },
+      },
+    ];
+    const project = createProject(layers);
+
+    act(() => {
+      useAppStore.setState((state) => ({
+        ...state,
+        project,
+        layers,
+        activeLayerId: layers[0].id,
+        selectedLayerIds: [layers[0].id],
+      }));
+    });
+
+    render(<MinimalLayerList />);
+
+    expect(screen.getByText('CC Layer 2')).toBeInTheDocument();
   });
 });
 

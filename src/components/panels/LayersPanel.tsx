@@ -26,6 +26,14 @@ const decodeGroupDragPayload = (payload: string): string | null => (
     : null
 );
 
+const formatLayerPanelDebugToken = (layerId: string): string => {
+  const timestampMatch = layerId.match(/^layer-(\d+)/);
+  if (timestampMatch) {
+    return timestampMatch[1].slice(-6);
+  }
+  return layerId.slice(-6);
+};
+
 const loadCollapsedLayerGroups = (): Set<string> => {
   if (typeof window === 'undefined') {
     return new Set();
@@ -690,18 +698,26 @@ const LayersPanel: React.FC = () => {
           const visibleIconClass = layer.visible
             ? (isHighlighted ? 'text-[#1A1A1A]' : 'text-[#D9D9D9]')
             : (isHighlighted ? 'text-[#5A5A5A]' : 'text-[#666]');
-          const badgeBackgroundClass = isHighlighted
-            ? 'bg-[#CFCFCF]'
-            : 'bg-[#3A3A3A]';
-          const badgeTextClass = isHighlighted
-            ? 'text-[#1A1A1A]'
-            : 'text-[#D9D9D9]';
           const deleteButtonColor = isHighlighted
             ? 'text-[#5A5A5A]'
             : 'text-[#666]';
           const hoverDeleteColor = isHighlighted
             ? 'hover:text-red-600'
             : 'hover:text-red-500';
+          const layerDebugToken = formatLayerPanelDebugToken(layer.id);
+          const layerTitle = `${layer.name}\nLayer ID: ${layer.id}`;
+          const debugTagClass = 'inline-flex h-4 w-10 shrink-0 items-center justify-center rounded border text-[8px] font-semibold leading-none';
+          const labelClass = `${debugTagClass} ${
+            isHighlighted
+              ? 'bg-[#D7E7F7] text-[#23425C] border-[#9BC7E8]'
+              : 'bg-[#2E2E34] text-[#AEB6C2] border-[#4B4B55]'
+          }`;
+          const layerKindLabel = isColorCycle ? 'CC' : isSequential ? 'Seq' : 'Reg';
+          const layerKindTitle = isColorCycle
+            ? `Color-cycle ${layer.colorCycleData?.mode === 'recolor' ? 'recolor' : 'brush'} layer${layer.colorCycleData?.deferredRuntimeRestore ? ' (cold runtime)' : ''}`
+            : isSequential
+              ? `Sequence layer, ${Math.max(1, Math.round(layer.sequentialData?.frameCount ?? sequentialRecord.frameCount))} frames`
+              : 'Regular layer';
 
           return (
             <React.Fragment key={`${layer.id}-${layer.order}-${index}`}>
@@ -810,13 +826,13 @@ const LayersPanel: React.FC = () => {
                 onDrop={event => handleDrop(event, layer.id)}
                 onDragEnd={handleDragEnd}
               >
-                <div className={`flex items-center px-2 py-1.5 ${groupId ? 'pl-4' : ''}`}>
+                <div className={`flex items-start gap-2 px-2 py-1.5 ${groupId ? 'pl-4' : ''}`}>
                 <button
                   onClick={event => {
                     event.stopPropagation();
                     handleToggleVisibility(layer.id);
                   }}
-                  className={`mr-1 flex h-4 w-4 items-center justify-center ${
+                  className={`mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center ${
                     visibleIconClass
                   } ${isActive ? 'hover:text-[#000]' : 'hover:text-white'}`}
                   title={layer.visible ? 'Hide Layer' : 'Show Layer'}
@@ -824,79 +840,35 @@ const LayersPanel: React.FC = () => {
                   {layer.visible ? <Eye size={12} /> : <EyeOff size={12} />}
                 </button>
 
-                <div className="ml-2 flex items-center gap-2 w-56">
-                  <div className="flex h-4 w-40 items-center">
+                <div className="flex min-w-0 flex-1 items-center gap-1 overflow-hidden">
+                  <div className="flex h-3 w-6 shrink-0 items-center overflow-hidden rounded">
                     {isColorCycle ? (
                       <div
-                        className="h-4 w-full"
+                        className="h-3 w-full"
                         style={{
                           background: generateGradientCSS(gradient),
                           opacity: layer.visible ? 1 : 0.5
                         }}
                       />
                     ) : (
-                      <div className="flex h-4 w-full items-center overflow-hidden">
-                        <LayerColorSwatches layer={layer} visible={layer.visible} />
-                      </div>
+                      <LayerColorSwatches layer={layer} visible={layer.visible} />
                     )}
                   </div>
-
-                  <div className="flex items-center gap-1">
-                    {isColorCycle ? (
-                      <>
-                        <span className={`px-1 text-[9px] leading-4 ${badgeBackgroundClass} ${badgeTextClass}`}>CC</span>
-                        <span className={`px-1 text-[9px] leading-4 ${badgeBackgroundClass} ${badgeTextClass}`}>
-                          {layer.colorCycleData?.mode === 'recolor' ? 'Recolor' : 'Brush'}
-                        </span>
-                        {layer.colorCycleData?.deferredRuntimeRestore && (
-                          <span
-                            className={`px-1 text-[9px] leading-4 ${badgeBackgroundClass} ${badgeTextClass}`}
-                            title="Runtime restore deferred until this layer becomes active"
-                          >
-                            Cold
-                          </span>
-                        )}
-                        {isReferenceLayer && (
-                          <span
-                            className="px-1 text-[9px] leading-4 bg-[#2F3C27] text-[#C9F6B5] border border-[#47603D]"
-                            title="Reference layer for sampling"
-                          >
-                            Reference
-                          </span>
-                        )}
-                      </>
-                    ) : isSequential ? (
-                      <>
-                        <span className={`px-1 text-[9px] leading-4 ${badgeBackgroundClass} ${badgeTextClass}`}>Sequence</span>
-                        <span className={`px-1 text-[9px] leading-4 ${badgeBackgroundClass} ${badgeTextClass}`}>
-                          {Math.max(1, Math.round(layer.sequentialData?.frameCount ?? sequentialRecord.frameCount))}f
-                        </span>
-                        {isReferenceLayer && (
-                          <span
-                            className="px-1 text-[9px] leading-4 bg-[#2F3C27] text-[#C9F6B5] border border-[#47603D]"
-                            title="Reference layer for sampling"
-                          >
-                            Reference
-                          </span>
-                        )}
-                      </>
-                    ) : (
-                      <>
-                        <span className={`px-1 text-[9px] leading-4 ${badgeBackgroundClass} ${badgeTextClass}`}>Regular</span>
-                        {isReferenceLayer && (
-                          <span
-                            className="px-1 text-[9px] leading-4 bg-[#2F3C27] text-[#C9F6B5] border border-[#47603D]"
-                            title="Reference layer for sampling"
-                          >
-                            Reference
-                          </span>
-                        )}
-                      </>
-                    )}
-                  </div>
+                  <span
+                    className={`min-w-0 flex-1 truncate text-[11px] font-semibold leading-4 ${isHighlighted ? 'text-[#0F172A]' : 'text-[#F2F2F2]'}`}
+                    title={layerTitle}
+                  >
+                    {layer.name}
+                  </span>
+                    <span className={labelClass} title={layerKindTitle}>
+                      {layerKindLabel}
+                    </span>
+                    <span className={labelClass} title={layerTitle}>
+                      #{layerDebugToken}
+                    </span>
                 </div>
 
-                <div className="ml-2 flex items-center gap-1">
+                <div className="ml-1 flex shrink-0 items-center gap-1">
                   {layers.length > 1 && (
                     <button
                       onClick={event => {

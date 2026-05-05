@@ -157,7 +157,7 @@ const LayerRow = memo<LayerRowProps>(
         if (ccGradient && ccGradient.length > 0) {
           return (
             <div
-              className="flex-1 h-4 rounded mr-1"
+              className="h-2 w-full rounded"
               style={{
                 background: generateGradientCSS(ccGradient),
                 minWidth: '30px',
@@ -170,7 +170,7 @@ const LayerRow = memo<LayerRowProps>(
 
         return (
           <div
-            className="flex-1 h-4 rounded mr-1"
+            className="h-2 w-full rounded"
             style={{
               background: '#555',
               minWidth: '30px',
@@ -182,13 +182,15 @@ const LayerRow = memo<LayerRowProps>(
       }
 
       if (layer.layerType === 'normal') {
-        return <LayerColorSwatches layer={layer} visible={layer.visible} />;
+        return (
+          <div className="h-2 w-full overflow-hidden rounded">
+            <LayerColorSwatches layer={layer} visible={layer.visible} />
+          </div>
+        );
       }
 
       return (
-        <span className="text-[#D9D9D9] text-xs flex-1 truncate">
-          {layer.name}
-        </span>
+        <div className="h-2 w-full rounded bg-[#555]" title={layer.name} />
       );
     };
 
@@ -203,7 +205,7 @@ const LayerRow = memo<LayerRowProps>(
         {isSelected && (
           <div className={`absolute left-0 top-0 h-full w-[6px] ${isActive ? 'bg-[#0EA5E9]' : 'bg-[#5EC7FF]'} opacity-90 pointer-events-none`} />
         )}
-        <div className="relative flex items-center h-7 pl-2 pr-8">
+        <div className="relative flex min-h-11 items-center pl-2 pr-8 py-1">
           <button
             onClick={(event) => onToggleVisibility(event, layer.id)}
             className={`
@@ -215,10 +217,18 @@ const LayerRow = memo<LayerRowProps>(
             {layer.visible ? <Eye size={12} /> : <EyeOff size={12} />}
           </button>
 
-          {renderColorPreview()}
+          <div className="flex min-w-0 flex-1 flex-col gap-1">
+            <span
+              className={`truncate text-xs font-medium leading-4 ${isHighlighted ? 'text-[#0F172A]' : 'text-[#F2F2F2]'}`}
+              title={layerTitle}
+            >
+              {layer.name}
+            </span>
+            {renderColorPreview()}
+          </div>
 
           {layer.layerType === 'color-cycle' ? (
-            <div className="ml-1 flex items-center gap-1">
+            <div className="ml-2 flex shrink-0 items-center gap-1">
               <span className={LAYER_TAG_CLASS}>CC</span>
               <span className={LAYER_TAG_CLASS}>
                 {layer.colorCycleData?.mode === 'recolor' ? 'Recolor' : 'Brush'}
@@ -236,7 +246,7 @@ const LayerRow = memo<LayerRowProps>(
               ) : null}
             </div>
           ) : (
-            <div className="ml-1 flex items-center gap-1">
+            <div className="ml-2 flex shrink-0 items-center gap-1">
               <span className={LAYER_TAG_CLASS}>Layer</span>
               <span className={LAYER_TAG_CLASS} title={layerTitle}>
                 #{layerDebugToken}
