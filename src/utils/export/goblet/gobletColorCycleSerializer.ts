@@ -1655,13 +1655,16 @@ export const resolveDefBoundSlotPalettes = (params: {
     ...entry,
     seamProfile: entry.seamProfile ?? seamProfilesBySlot.get(entry.slot),
   }));
-  const existingSlots = new Set(resolved.map((entry) => entry.slot));
-  const missingUsedSlots = [...collectUsedSlots(gradientIds, indices)].filter((slot) => !existingSlots.has(slot));
-  if (missingUsedSlots.length === 0) {
+  const resolvedBySlot = new Map<number, SerializedSlotPalette>(
+    resolved.map((entry) => [entry.slot, entry])
+  );
+  const usedSlots = [...collectUsedSlots(gradientIds, indices)];
+  if (usedSlots.length === 0) {
     return resolved;
   }
 
-  const missingSet = new Set(missingUsedSlots);
+  const usedSet = new Set(usedSlots);
+  const paintedCountsBySlot = new Map<number, number>();
   const defCountsBySlot = new Map<number, Map<number, number>>();
   const length = Math.min(gradientIds.length, defIds.length, indices?.length ?? gradientIds.length);
   for (let index = 0; index < length; index += 1) {
@@ -1669,9 +1672,10 @@ export const resolveDefBoundSlotPalettes = (params: {
       continue;
     }
     const slot = (gradientIds[index] ?? 0) & FLOW_SLOT_MASK;
-    if (!missingSet.has(slot)) {
+    if (!usedSet.has(slot)) {
       continue;
     }
+    paintedCountsBySlot.set(slot, (paintedCountsBySlot.get(slot) ?? 0) + 1);
     const defId = Number(defIds[index] ?? 0);
     if (!Number.isFinite(defId) || defId <= 0) {
       continue;
@@ -1684,12 +1688,12 @@ export const resolveDefBoundSlotPalettes = (params: {
     counts.set(defId, (counts.get(defId) ?? 0) + 1);
   }
 
-  for (const slot of missingUsedSlots) {
+  for (const slot of usedSlots) {
     const counts = defCountsBySlot.get(slot);
     if (!counts || counts.size === 0) {
       continue;
     }
-    const [defId] = [...counts.entries()].sort((a, b) => b[1] - a[1])[0] ?? [];
+    const [defId, defCount = 0] = [...counts.entries()].sort((a, b) => b[1] - a[1])[0] ?? [];
     if (!Number.isFinite(defId)) {
       continue;
     }
@@ -1697,14 +1701,19 @@ export const resolveDefBoundSlotPalettes = (params: {
     if (!def?.stops?.length) {
       continue;
     }
-    resolved.push({
+    const hasExistingPalette = resolvedBySlot.has(slot);
+    const paintedCount = paintedCountsBySlot.get(slot) ?? 0;
+    if (hasExistingPalette && defCount <= paintedCount / 2) {
+      continue;
+    }
+    resolvedBySlot.set(slot, {
       slot,
       stops: toSerializableGradientStops(def.stops, []),
       seamProfile: normalizeGradientSeamProfile(def.seamProfile),
     });
   }
 
-  return resolved;
+  return [...resolvedBySlot.values()];
 };
 
 const resolveExportSlotPalettes = (

@@ -1242,6 +1242,98 @@ describe('webglExporter helpers', () => {
     ]));
   });
 
+  it('replaces stale existing slot palettes with dominant gradient def bindings during export', () => {
+    const slotPalettes = resolveDefBoundSlotPalettes({
+      data: {
+        gradientDefIdBuffer: new Uint16Array([42, 42, 0, 0]).buffer,
+        gradientDefStore: [{
+          id: 42,
+          kind: 'linear',
+          stops: [
+            { position: 0, color: '#223344' },
+            { position: 1, color: '#556677' },
+          ],
+          hash: 'def-42',
+          source: 'sampled',
+          seamProfile: 'hard',
+          createdAtMs: 0,
+          slot: 9,
+        }],
+      } as any,
+      brushState: {
+        width: 2,
+        height: 2,
+        indexBuffer: [1, 1, 0, 0],
+        gradientIdBuffer: [9, 9, 0, 0],
+        gradientDefIdBuffer: [42, 42, 0, 0],
+        gradientStops: [],
+        animationOffset: 0,
+      },
+      slotPalettes: [{
+        slot: 9,
+        stops: [
+          { position: 0, color: '#000000' },
+          { position: 1, color: '#ffffff' },
+        ],
+      }],
+    });
+
+    expect(slotPalettes?.find((entry) => entry.slot === 9)).toEqual(expect.objectContaining({
+      slot: 9,
+      seamProfile: 'hard',
+      stops: [
+        { position: 0, color: '#223344' },
+        { position: 1, color: '#556677' },
+      ],
+    }));
+  });
+
+  it('preserves existing slot palettes when gradient def coverage is partial', () => {
+    const slotPalettes = resolveDefBoundSlotPalettes({
+      data: {
+        gradientDefIdBuffer: new Uint16Array([0, 0, 42, 42]).buffer,
+        gradientDefStore: [{
+          id: 42,
+          kind: 'linear',
+          stops: [
+            { position: 0, color: '#223344' },
+            { position: 1, color: '#556677' },
+          ],
+          hash: 'def-42',
+          source: 'sampled',
+          seamProfile: 'hard',
+          createdAtMs: 0,
+          slot: 9,
+        }],
+      } as any,
+      brushState: {
+        width: 2,
+        height: 2,
+        indexBuffer: [1, 1, 1, 1],
+        gradientIdBuffer: [9, 9, 9, 9],
+        gradientDefIdBuffer: [0, 0, 42, 42],
+        gradientStops: [],
+        animationOffset: 0,
+      },
+      slotPalettes: [{
+        slot: 9,
+        stops: [
+          { position: 0, color: '#000000' },
+          { position: 1, color: '#ffffff' },
+        ],
+      }],
+    });
+
+    expect(slotPalettes?.find((entry) => entry.slot === 9)).toEqual(expect.objectContaining({
+      slot: 9,
+      seamProfile: 'hard',
+      stops: [
+        { position: 0, color: '#000000' },
+        { position: 1, color: '#ffffff' },
+      ],
+    }));
+  });
+
   it.each([
     {
       source: 'manual',
