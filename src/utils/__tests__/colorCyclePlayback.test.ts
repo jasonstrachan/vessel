@@ -18,6 +18,7 @@ const pauseColorCycle = jest.fn();
 const forceResumeColorCycle = jest.fn();
 const runtimeStart = jest.fn();
 const runtimeStop = jest.fn();
+const ensureColorCycleLayerRuntime = jest.fn(async () => true);
 
 const mockState = {
   layers: [] as Layer[],
@@ -38,6 +39,8 @@ const mockState = {
     mockState.colorCyclePlayback.suspendDepth = 0;
   },
   updateLayer,
+  activeLayerId: null as string | null,
+  ensureColorCycleLayerRuntime,
   colorCycleRuntimeHandlers: {
     start: runtimeStart,
     stop: runtimeStop
@@ -101,13 +104,15 @@ describe('colorCyclePlayback visibility behavior', () => {
     jest.clearAllMocks();
     mockState.colorCyclePlayback.desiredPlaying = false;
     mockState.colorCyclePlayback.suspendDepth = 0;
+    mockState.activeLayerId = null;
     mockState.layers = [
       makeRecolorLayer('visible-recolor', true),
       makeRecolorLayer('hidden-recolor', false),
       {
         ...makeRecolorLayer('visible-brush-cc', true),
         colorCycleData: {
-          mode: 'brush'
+          mode: 'brush',
+          hasContent: true,
         }
       } as Layer
     ];
@@ -116,6 +121,7 @@ describe('colorCyclePlayback visibility behavior', () => {
   it('registers only visible recolor layers when playback starts', async () => {
     await toggleGlobalColorCyclePlayback(true, 'toolbar');
 
+    expect(ensureColorCycleLayerRuntime).toHaveBeenCalledWith('visible-brush-cc', { target: 'warm' });
     expect(runtimeStart).toHaveBeenCalledWith('store-sync');
     expect(registerExistingLayer).toHaveBeenCalledTimes(1);
     expect(registerExistingLayer).toHaveBeenCalledWith(
@@ -132,6 +138,79 @@ describe('colorCyclePlayback visibility behavior', () => {
         })
       })
     );
+  });
+
+  it('warms the active visible brush CC layer before playback starts', async () => {
+    mockState.activeLayerId = 'visible-brush-cc';
+
+    await toggleGlobalColorCyclePlayback(true, 'toolbar');
+
+    expect(ensureColorCycleLayerRuntime).toHaveBeenCalledWith('visible-brush-cc', { target: 'active' });
+    expect(runtimeStart).toHaveBeenCalledWith('store-sync');
+  });
+
+  it('does not start playback when a visible brush CC layer fails to warm', async () => {
+    ensureColorCycleLayerRuntime.mockResolvedValueOnce(false);
+
+    await toggleGlobalColorCyclePlayback(true, 'toolbar');
+
+    expect(ensureColorCycleLayerRuntime).toHaveBeenCalledWith('visible-brush-cc', { target: 'warm' });
+    expect(playColorCycle).toHaveBeenCalledWith('toolbar');
+    expect(pauseColorCycle).toHaveBeenCalledWith('toolbar');
+    expect(runtimeStart).not.toHaveBeenCalled();
+    expect(registerExistingLayer).not.toHaveBeenCalled();
+    expect(mockState.colorCyclePlayback.desiredPlaying).toBe(false);
+  });
+
+  it('does not block playback on an empty visible brush CC layer without a runtime', async () => {
+    mockState.layers = [
+      makeRecolorLayer('visible-recolor', true),
+      {
+        ...makeRecolorLayer('empty-visible-brush-cc', true),
+        colorCycleData: {
+          mode: 'brush',
+          hasContent: false,
+        },
+      } as Layer,
+      {
+        ...makeRecolorLayer('populated-visible-brush-cc', true),
+        colorCycleData: {
+          mode: 'brush',
+          hasContent: true,
+        },
+      } as Layer,
+    ];
+
+    await toggleGlobalColorCyclePlayback(true, 'toolbar');
+
+    expect(ensureColorCycleLayerRuntime).toHaveBeenCalledTimes(1);
+    expect(ensureColorCycleLayerRuntime).toHaveBeenCalledWith('populated-visible-brush-cc', { target: 'warm' });
+    expect(runtimeStart).toHaveBeenCalledWith('store-sync');
+    expect(mockState.colorCyclePlayback.desiredPlaying).toBe(true);
+  });
+
+  it('does not restart playback when the user pauses while cold CC warmup is pending', async () => {
+    let resolveWarmup: (value: boolean) => void = () => {};
+    ensureColorCycleLayerRuntime.mockImplementationOnce(() => (
+      new Promise<boolean>((resolve) => {
+        resolveWarmup = resolve;
+      })
+    ));
+
+    const playPromise = toggleGlobalColorCyclePlayback(true, 'toolbar');
+    expect(playColorCycle).toHaveBeenCalledWith('toolbar');
+    expect(mockState.colorCyclePlayback.desiredPlaying).toBe(true);
+
+    await toggleGlobalColorCyclePlayback(false, 'toolbar');
+    expect(pauseColorCycle).toHaveBeenCalledWith('toolbar');
+    expect(mockState.colorCyclePlayback.desiredPlaying).toBe(false);
+
+    resolveWarmup(true);
+    await playPromise;
+
+    expect(runtimeStart).not.toHaveBeenCalled();
+    expect(registerExistingLayer).not.toHaveBeenCalled();
+    expect(mockState.colorCyclePlayback.desiredPlaying).toBe(false);
   });
 
   it('uses pause as the single toolbar action when playback is already active', async () => {

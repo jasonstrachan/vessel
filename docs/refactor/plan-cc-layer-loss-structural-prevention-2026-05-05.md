@@ -2,7 +2,7 @@
 
 Date: 2026-05-05
 
-Status: planned
+Status: Phase 2 helper started; cold warmup atomicity patched
 
 ## Problem
 
@@ -297,21 +297,21 @@ The difference is that this plan makes the invariant global: every seam must pro
 
 ### Phase 1. Define The Global Contract And Summary
 
-- [ ] Add typed `CcDestructiveOperation` and authorization payloads.
-- [ ] Add typed CC content state: `populated`, `empty`, `unknown-unhydrated`, `damaged-partial`.
-- [ ] Add `CcPayloadSummary` with width, height, non-zero counts, gradient-binding presence, and hash.
-- [ ] Add one shared populated-to-empty classifier for canonical CC payload summaries.
-- [ ] Document the invariant in the relevant CC persistence/runtime modules.
-- [ ] Add tests for the classifier and authorization rules.
+- [x] Add typed `CcDestructiveOperation` and authorization payloads.
+- [x] Add typed CC content state: `populated`, `empty`, `unknown-unhydrated`, `damaged-partial`.
+- [x] Add `CcPayloadSummary` with width, height, non-zero counts, gradient-binding presence, and hash.
+- [x] Add one shared populated-to-empty classifier for canonical CC payload summaries.
+- [x] Document the invariant in the relevant CC persistence/runtime modules.
+- [x] Add tests for the classifier and authorization rules.
 
 ### Phase 2. Guard Canonical Writes
 
-- [ ] Add `commitCanonicalCcPayload(...)` as the named canonical write boundary.
+- [x] Add `commitCanonicalCcPayload(...)` as the named canonical write boundary.
 - [ ] Route committed CC payload writes through `commitCanonicalCcPayload(...)`.
-- [ ] Block unauthorized populated-to-empty canonical writes.
-- [ ] Preserve the previous verified payload when a write is blocked.
+- [x] Block unauthorized populated-to-empty canonical writes.
+- [x] Preserve the previous verified payload when a write is blocked.
 - [ ] Emit diagnostics with operation, transaction id, and before/after summaries.
-- [ ] Add tests proving unauthorized empty writes cannot replace populated canonical data.
+- [x] Add tests proving unauthorized empty writes cannot replace populated canonical data.
 
 ### Phase 3. Split Dangerous APIs
 
@@ -333,7 +333,7 @@ The difference is that this plan makes the invariant global: every seam must pro
 
 - [ ] Confirm selection extract/move/cancel/commit never serializes a temporarily empty source.
 - [ ] Confirm Goblet export reads a verified snapshot and cannot mutate canonical state.
-- [ ] Confirm warmup/restore cannot downgrade `unknown-unhydrated` to `empty`.
+- [x] Confirm warmup/restore cannot downgrade `unknown-unhydrated` to `empty`.
 - [ ] Add transaction-level tests that fail if empty mid-states escape.
 
 ### Phase 6. Recovery Vault

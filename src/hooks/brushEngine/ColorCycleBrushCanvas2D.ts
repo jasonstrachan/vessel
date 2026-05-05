@@ -70,10 +70,13 @@ import {
   type ScalarBufferSummary,
 } from '@/utils/colorCycle/ccMutationAudit';
 import {
-  brushStateHasCcPayload,
-  bufferHasNonZeroPayload,
   hasCcPayload,
 } from '@/hooks/brushEngine/colorCyclePayloadGuards';
+import {
+  brushStateHasColorCyclePaintPayload,
+  layerHasCanonicalColorCyclePaintPayload,
+  resolveColorCycleRuntimeRestore,
+} from '@/utils/colorCycle/resolveColorCycleRuntimeRestore';
 import {
   buildDefPaletteSignature,
   createDefPaletteCache,
@@ -239,6 +242,10 @@ type ColorCycleRuntimeMutationSource =
   | 'history'
   | 'project-load'
   | 'reset';
+
+const shouldBlockEmptySnapshotFromCanonicalPayload = (
+  reason: ColorCycleRuntimeMutationReason,
+): boolean => reason === 'project-load-restore';
 
 type ColorCycleRuntimeMutationAuditSnapshot = {
   layer: CCMutationSnapshot;
@@ -677,6 +684,20 @@ export class ColorCycleBrushCanvas2D {
         phaseAfter: params.after?.buffers.phase ?? null,
       },
     });
+  }
+
+  private brushStateHasColorCyclePaintPayload(brushState: unknown, layerId?: string): boolean {
+    return brushStateHasColorCyclePaintPayload(brushState, layerId);
+  }
+
+  private layerHasCanonicalColorCyclePaintPayload(layerId: string): boolean {
+    try {
+      const state = getAppStoreState();
+      const layer = state.layers.find((candidate) => candidate.id === layerId);
+      return layerHasCanonicalColorCyclePaintPayload(layer);
+    } catch {
+      return false;
+    }
   }
 
   private mutateLayerStrokeState(params: {
@@ -3791,19 +3812,13 @@ export class ColorCycleBrushCanvas2D {
             state?: {
               hasContent?: boolean;
               paintRef?: unknown;
-              gradientIdRef?: unknown;
-              gradientDefIdRef?: unknown;
             };
           }).state;
           const hasCanonicalContentSource = Boolean(
             documentState?.hasContent === true ||
             hasCcPayload(documentState?.paintRef) ||
-            hasCcPayload(documentState?.gradientIdRef) ||
-            hasCcPayload(documentState?.gradientDefIdRef) ||
             layer.colorCycleData.hasContent === true ||
-            bufferHasNonZeroPayload(layer.colorCycleData.gradientIdBuffer) ||
-            bufferHasNonZeroPayload(layer.colorCycleData.gradientDefIdBuffer) ||
-            brushStateHasCcPayload(layer.colorCycleData.brushState) ||
+            this.brushStateHasColorCyclePaintPayload(layer.colorCycleData.brushState, layer.id) ||
             layer.colorCycleData.repairStatus?.ok === false
           );
           if (!hasContent && hasCanonicalContentSource) {
@@ -3819,7 +3834,7 @@ export class ColorCycleBrushCanvas2D {
                 gradientIdBufferBytes: strokeData.buffers.gid.byteLength,
                 gradientDefIdBufferBytes: strokeData.buffers.def.byteLength,
                 strokeDataHadContent: strokeData.hasContent,
-                brushStateHasPayload: brushStateHasCcPayload(layer.colorCycleData.brushState),
+                brushStateHasPayload: this.brushStateHasColorCyclePaintPayload(layer.colorCycleData.brushState, layer.id),
                 repairStatus: layer.colorCycleData.repairStatus?.reason ?? null,
                 stateHasContent: documentState?.hasContent ?? null,
               },
@@ -7063,8 +7078,55 @@ export class ColorCycleBrushCanvas2D {
         this.setPxlEdgeEnabled(state.pxlEdgeEnabled);
       }
 
+      const snapshotHasPaintPayload = (snapshot: {
+        paintBuffer?: ArrayBuffer;
+        hasContent?: boolean;
+      } | ArrayBuffer | null | undefined): boolean => {
+        if (snapshot instanceof ArrayBuffer) {
+          return snapshot.byteLength > 0;
+        }
+        if (snapshot?.hasContent === true) {
+          return true;
+        }
+        const buffer = snapshot?.paintBuffer;
+        if (!(buffer instanceof ArrayBuffer) || buffer.byteLength === 0) {
+          return false;
+        }
+        const bytes = new Uint8Array(buffer);
+        for (let index = 0; index < bytes.length; index += 1) {
+          if (bytes[index] !== 0) {
+            return true;
+          }
+        }
+        return false;
+      };
+
       if (layerSnapshots && !asHistory) {
-        const clearForLayer = (layerId: string) => {
+        const clearForLayer = (
+          layerId: string,
+          incomingSnapshot: { paintBuffer?: ArrayBuffer } | ArrayBuffer | null | undefined,
+        ) => {
+          if (!snapshotHasPaintPayload(incomingSnapshot) && this.layerHasCanonicalColorCyclePaintPayload(layerId)) {
+            const layer = getAppStoreState().layers.find((candidate) => candidate.id === layerId);
+            logCCMutation({
+              event: 'cc-empty-live-buffer-write-blocked',
+              layerId,
+              reason: 'restoreFullState',
+              severity: 'error',
+              before: summarizeColorCycleLayer(layer),
+              after: summarizeColorCycleLayer(layer),
+              details: {
+                source: 'project-load',
+                snapshotReason: 'project-load-restore',
+                existingHasContent: this.layerStrokes.get(layerId)?.hasContent ?? null,
+                brushStateHasPayload: this.brushStateHasColorCyclePaintPayload(
+                  layer?.layerType === 'color-cycle' ? layer.colorCycleData?.brushState : undefined,
+                  layerId,
+                ),
+              },
+            });
+            return;
+          }
           clearedDuringRestore = true;
           const sd = this.layerStrokes.get(layerId);
           if (sd) {
@@ -7098,11 +7160,11 @@ export class ColorCycleBrushCanvas2D {
         };
 
         if (layerSnapshots instanceof Map) {
-          layerSnapshots.forEach((_buffer, layerId) => clearForLayer(layerId));
+          layerSnapshots.forEach((buffer, layerId) => clearForLayer(layerId, buffer));
         } else if (Array.isArray(layerSnapshots)) {
           for (const snapshot of layerSnapshots) {
             if (snapshot?.layerId) {
-              clearForLayer(snapshot.layerId);
+              clearForLayer(snapshot.layerId, snapshot);
             }
           }
         }
@@ -7115,7 +7177,7 @@ export class ColorCycleBrushCanvas2D {
             this.applyLayerSnapshot(layerId, {
               paintBuffer: buffer,
               gradientIdBuffer: undefined,
-              hasContent: !!buffer && (buffer as ArrayBuffer).byteLength > 0,
+              hasContent: snapshotHasPaintPayload(buffer),
               strokeCounter: 0
             }, /*extra*/ undefined, asHistory ? 'history-restore' : 'project-load-restore');
           });
@@ -7146,7 +7208,7 @@ export class ColorCycleBrushCanvas2D {
               speedBuffer,
               flowBuffer,
               phaseBuffer,
-              hasContent: Boolean(hasContent) || buffer.byteLength > 0,
+              hasContent: Boolean(hasContent) || snapshotHasPaintPayload(snapshot),
               strokeCounter: strokeCounter ?? 0
             }, animatorIndex, asHistory ? 'history-restore' : 'project-load-restore');
           });
@@ -7503,6 +7565,62 @@ export class ColorCycleBrushCanvas2D {
     reason: ColorCycleRuntimeMutationReason = 'snapshot-apply',
     options?: { suppressClearAudit?: boolean },
   ) {
+    const earlyPaintBuffer =
+      snapshot.paintBuffer && snapshot.paintBuffer.byteLength > 0
+        ? snapshot.paintBuffer
+        : (animatorIndex?.data ?? new ArrayBuffer(0));
+    const earlyPaint = new Uint8Array(earlyPaintBuffer);
+    const layer = getAppStoreState().layers.find((candidate) => candidate.id === layerId);
+    const projectLoadRestoreAction = layer
+      ? resolveColorCycleRuntimeRestore({
+          layer,
+          incomingSnapshot: {
+            paintBuffer: earlyPaintBuffer,
+            hasContent: snapshot.hasContent,
+          },
+          projectLoadRestore: shouldBlockEmptySnapshotFromCanonicalPayload(reason),
+        })
+      : null;
+    if (
+      options?.suppressClearAudit !== true &&
+      shouldBlockEmptySnapshotFromCanonicalPayload(reason) &&
+      (
+        projectLoadRestoreAction?.kind === 'recover-from-canonical' ||
+        projectLoadRestoreAction?.kind === 'block'
+      )
+    ) {
+      logCCMutation({
+        event: 'cc-empty-live-buffer-write-blocked',
+        layerId,
+        reason: 'applyLayerSnapshot',
+        severity: 'error',
+        before: summarizeColorCycleLayer(layer),
+        after: summarizeColorCycleLayer(layer),
+        details: {
+          source: 'snapshot',
+          snapshotReason: reason,
+          paintBufferBytes: earlyPaint.byteLength,
+          paintBufferNonZero: false,
+          snapshotHasContent: snapshot.hasContent ?? null,
+          existingHasContent: this.layerStrokes.get(layerId)?.hasContent ?? false,
+          brushStateHasPayload: this.brushStateHasColorCyclePaintPayload(
+            layer?.layerType === 'color-cycle' ? layer.colorCycleData?.brushState : undefined,
+            layerId,
+          ),
+          restoredFromCanonicalBrushState: projectLoadRestoreAction.kind === 'recover-from-canonical',
+        },
+      });
+      if (projectLoadRestoreAction.kind === 'recover-from-canonical') {
+        this.applyLayerSnapshot(
+          layerId,
+          projectLoadRestoreAction.snapshot,
+          projectLoadRestoreAction.animatorIndex,
+          reason,
+          { suppressClearAudit: true },
+        );
+      }
+      return;
+    }
     // Ensure animator exists for this layer
     const animator = this.ensureFullResolution(layerId, 'restore');
     const buffer =
@@ -7542,14 +7660,43 @@ export class ColorCycleBrushCanvas2D {
     const incomingFlow = !isExplicitEmptySnapshot && flowBuffer ? new Uint8Array(flowBuffer) : null;
     const incomingPhase = !isExplicitEmptySnapshot && phaseBuffer ? new Uint8Array(phaseBuffer) : null;
     const hadExistingContent = existing?.hasContent ?? false;
+    const hasCanonicalPaintPayload = this.layerHasCanonicalColorCyclePaintPayload(layerId);
     const shouldAuditPotentialClear =
       options?.suppressClearAudit !== true &&
-      hadExistingContent &&
+      (hadExistingContent || hasCanonicalPaintPayload) &&
       !expectsContent &&
       !selectedPaintHasContent;
     const beforeMutation = shouldAuditPotentialClear
       ? this.captureRuntimeMutationAuditSnapshot(layerId, existing)
       : null;
+    if (
+      shouldAuditPotentialClear &&
+      shouldBlockEmptySnapshotFromCanonicalPayload(reason) &&
+      hasCanonicalPaintPayload
+    ) {
+      const layer = getAppStoreState().layers.find((candidate) => candidate.id === layerId);
+      logCCMutation({
+        event: 'cc-empty-live-buffer-write-blocked',
+        layerId,
+        reason: 'applyLayerSnapshot',
+        severity: 'error',
+        before: summarizeColorCycleLayer(layer),
+        after: summarizeColorCycleLayer(layer),
+        details: {
+          source: 'snapshot',
+          snapshotReason: reason,
+          paintBufferBytes: selectedPaint.byteLength,
+          paintBufferNonZero: selectedPaintHasContent,
+          snapshotHasContent: snapshot.hasContent ?? null,
+          existingHasContent: hadExistingContent,
+          brushStateHasPayload: this.brushStateHasColorCyclePaintPayload(
+            layer?.layerType === 'color-cycle' ? layer.colorCycleData?.brushState : undefined,
+            layerId,
+          ),
+        },
+      });
+      return;
+    }
     try {
       if (incoming.length !== expectedSize) {
         // Ensure animator is at the correct size for the current canvas
