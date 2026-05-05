@@ -219,6 +219,27 @@ export const layerHasCanonicalColorCyclePaintPayload = (layer: Layer | undefined
   );
 };
 
+export const hasRecoverableColorCycleRuntimeSource = (layer: Layer | undefined): boolean => {
+  if (!layer || layer.layerType !== 'color-cycle' || !layer.colorCycleData) {
+    return false;
+  }
+  const documentState = (layer as unknown as {
+    state?: {
+      paintRef?: unknown;
+      gradientIdRef?: unknown;
+      gradientDefIdRef?: unknown;
+    };
+  }).state;
+  return Boolean(
+    ccPayloadHasNonZeroByte(documentState?.paintRef) ||
+    ccPayloadHasNonZeroByte(documentState?.gradientIdRef) ||
+    ccPayloadHasNonZeroByte(documentState?.gradientDefIdRef) ||
+    ccPayloadHasNonZeroByte(layer.colorCycleData.gradientIdBuffer) ||
+    ccPayloadHasNonZeroByte(layer.colorCycleData.gradientDefIdBuffer) ||
+    brushStateHasColorCyclePaintPayload(layer.colorCycleData.brushState, layer.id)
+  );
+};
+
 export const resolveColorCycleRuntimeRestore = (params: {
   layer: Layer;
   incomingSnapshot?: { paintBuffer?: ArrayBuffer; hasContent?: boolean } | ArrayBuffer | null;

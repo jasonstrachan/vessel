@@ -14,6 +14,9 @@ import {
 import { getColorCycleHydrationState } from '@/stores/layerHydration';
 import type { Layer } from '@/types';
 import { logCCMutation } from '@/utils/colorCycle/ccMutationAudit';
+import {
+  hasRecoverableColorCycleRuntimeSource,
+} from '@/utils/colorCycle/resolveColorCycleRuntimeRestore';
 
 declare global {
   interface Window {
@@ -30,38 +33,6 @@ const isVisibleBrushColorCycleLayer = (layer: Layer): boolean => (
   layer.colorCycleData?.mode !== 'recolor'
 );
 
-const hasBufferLikePayload = (value: unknown): boolean => {
-  if (value instanceof ArrayBuffer) {
-    return value.byteLength > 0;
-  }
-  if (ArrayBuffer.isView(value)) {
-    return value.byteLength > 0;
-  }
-  return typeof value === 'string' && value.length > 0;
-};
-
-const brushStateHasPlaybackPayload = (brushState: unknown): boolean => {
-  const snapshots = (brushState as {
-    layers?: Array<{
-      strokeData?: {
-        hasContent?: boolean;
-        paintBuffer?: unknown;
-        gradientIdBuffer?: unknown;
-        gradientDefIdBuffer?: unknown;
-      };
-    }>;
-  } | undefined)?.layers;
-  return Boolean(snapshots?.some((snapshot) => {
-    const strokeData = snapshot.strokeData;
-    return Boolean(
-      strokeData?.hasContent === true ||
-      hasBufferLikePayload(strokeData?.paintBuffer) ||
-      hasBufferLikePayload(strokeData?.gradientIdBuffer) ||
-      hasBufferLikePayload(strokeData?.gradientDefIdBuffer)
-    );
-  }));
-};
-
 const hasColorCyclePlaybackWarmupSource = (layer: Layer): boolean => {
   if (layer.layerType !== 'color-cycle' || !layer.colorCycleData) {
     return false;
@@ -74,14 +45,15 @@ const hasColorCyclePlaybackWarmupSource = (layer: Layer): boolean => {
       gradientDefIdRef?: unknown;
     };
   }).state;
+  const hasRecoverablePayload = hasRecoverableColorCycleRuntimeSource(layer);
+  if (layer.colorCycleData.repairStatus?.ok === false) {
+    return hasRecoverablePayload;
+  }
   return Boolean(
     layer.colorCycleData.hasContent === true ||
     layer.colorCycleData.deferredRuntimeRestore === true ||
     documentState?.hasContent === true ||
-    hasBufferLikePayload(documentState?.paintRef) ||
-    hasBufferLikePayload(documentState?.gradientIdRef) ||
-    hasBufferLikePayload(documentState?.gradientDefIdRef) ||
-    brushStateHasPlaybackPayload(layer.colorCycleData.brushState)
+    hasRecoverablePayload
   );
 };
 

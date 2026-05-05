@@ -52,8 +52,8 @@ import {
   summarizeSerializedColorCycleLayer,
 } from '@/utils/colorCycle/ccMutationAudit';
 import {
-  brushStateHasColorCyclePaintPayload,
   ccPayloadHasNonZeroByte,
+  hasRecoverableColorCycleRuntimeSource,
 } from '@/utils/colorCycle/resolveColorCycleRuntimeRestore';
 import { repairLegacyColorCycleLayer, type ColorCycleLegacyRepairResult } from '@/lib/colorCycle/legacyRepair';
 import {
@@ -5992,31 +5992,11 @@ export async function restoreColorCycleBrushes(
       persistedGradientIdBuffer.byteLength === expectedSize
     );
   };
-  const hasPotentialColorCycleRuntimeSource = (layer: Layer): boolean => {
-    const colorCycleData = layer.colorCycleData;
-    const documentState = (layer as unknown as {
-      state?: {
-        hasContent?: boolean;
-        paintRef?: unknown;
-        gradientIdRef?: unknown;
-        gradientDefIdRef?: unknown;
-      };
-    }).state;
-    return Boolean(
-      ccPayloadHasNonZeroByte(documentState?.paintRef) ||
-      ccPayloadHasNonZeroByte(documentState?.gradientIdRef) ||
-      ccPayloadHasNonZeroByte(documentState?.gradientDefIdRef) ||
-      ccPayloadHasNonZeroByte(colorCycleData?.gradientIdBuffer) ||
-      ccPayloadHasNonZeroByte(colorCycleData?.gradientDefIdBuffer) ||
-      brushStateHasColorCyclePaintPayload(colorCycleData?.brushState, layer.id)
-    );
-  };
-
   for (const layer of layers) {
     if (layer.layerType === 'color-cycle' && layer.colorCycleData) {
       if (
         layer.colorCycleData.repairStatus?.ok === false &&
-        !hasPotentialColorCycleRuntimeSource(layer)
+        !hasRecoverableColorCycleRuntimeSource(layer)
       ) {
         const repairStatus = layer.colorCycleData.repairStatus;
         layer.colorCycleData = {
@@ -6085,7 +6065,7 @@ export async function restoreColorCycleBrushes(
       if (
         !warmupSnapshot.ok &&
         shouldValidateWarmupPrimaryPayload &&
-        hasPotentialColorCycleRuntimeSource(layer) &&
+        hasRecoverableColorCycleRuntimeSource(layer) &&
         isPrimaryColorCyclePayloadFailure(warmupSnapshot.reason)
       ) {
         const before = summarizeColorCycleLayer(layer);

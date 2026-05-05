@@ -3,6 +3,7 @@ import {
   brushStateHasColorCyclePaintPayload,
   ccPayloadHasNonZeroByte,
   extractCanonicalBrushStateLayerSnapshot,
+  hasRecoverableColorCycleRuntimeSource,
   resolveColorCycleRuntimeRestore,
 } from '@/utils/colorCycle/resolveColorCycleRuntimeRestore';
 
@@ -152,6 +153,37 @@ describe('resolveColorCycleRuntimeRestore', () => {
       incomingSnapshot: { paintBuffer: new ArrayBuffer(0), hasContent: false },
       projectLoadRestore: true,
     })).toEqual({ kind: 'allow-empty' });
+  });
+
+  it('does not treat repair-failed metadata as a recoverable runtime source', () => {
+    const layer = makeLayer({
+      mode: 'brush',
+      hasContent: true,
+      repairStatus: {
+        ok: false,
+        reason: 'missing-gradient-bindings',
+      },
+    });
+
+    expect(hasRecoverableColorCycleRuntimeSource(layer)).toBe(false);
+  });
+
+  it('treats target-layer brushState paint as a recoverable runtime source', () => {
+    const layer = makeLayer({
+      mode: 'brush',
+      hasContent: false,
+      brushState: {
+        layers: [{
+          layerId: 'layer-cc',
+          strokeData: {
+            hasContent: true,
+            paintBuffer: bytesToBase64(new Uint8Array([0, 0, 0, 0])),
+          },
+        }],
+      },
+    });
+
+    expect(hasRecoverableColorCycleRuntimeSource(layer)).toBe(true);
   });
 
   it('allows empty project-load snapshots when canonical brushState is all-zero cleared paint', () => {

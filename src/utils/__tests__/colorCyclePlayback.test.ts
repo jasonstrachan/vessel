@@ -189,6 +189,37 @@ describe('colorCyclePlayback visibility behavior', () => {
     expect(mockState.colorCyclePlayback.desiredPlaying).toBe(true);
   });
 
+  it('does not block playback on a visible repair-failed metadata-only brush CC layer', async () => {
+    mockState.layers = [
+      makeRecolorLayer('visible-recolor', true),
+      {
+        ...makeRecolorLayer('repair-failed-preview-cc', true),
+        colorCycleData: {
+          mode: 'brush',
+          hasContent: true,
+          repairStatus: {
+            ok: false,
+            reason: 'missing-gradient-bindings',
+          },
+        },
+      } as Layer,
+      {
+        ...makeRecolorLayer('populated-visible-brush-cc', true),
+        colorCycleData: {
+          mode: 'brush',
+          hasContent: true,
+        },
+      } as Layer,
+    ];
+
+    await toggleGlobalColorCyclePlayback(true, 'toolbar');
+
+    expect(ensureColorCycleLayerRuntime).toHaveBeenCalledTimes(1);
+    expect(ensureColorCycleLayerRuntime).toHaveBeenCalledWith('populated-visible-brush-cc', { target: 'warm' });
+    expect(runtimeStart).toHaveBeenCalledWith('store-sync');
+    expect(mockState.colorCyclePlayback.desiredPlaying).toBe(true);
+  });
+
   it('does not restart playback when the user pauses while cold CC warmup is pending', async () => {
     let resolveWarmup: (value: boolean) => void = () => {};
     ensureColorCycleLayerRuntime.mockImplementationOnce(() => (
