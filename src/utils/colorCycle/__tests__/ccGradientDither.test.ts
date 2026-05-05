@@ -375,6 +375,153 @@ describe('fillCcGradientDither', () => {
     expect(usedIndices).toEqual(expectedPair);
   });
 
+  it('uses sampled-stop pair selection for every flat pattern style instead of geometric tone', async () => {
+    const width = 12;
+    const height = 12;
+    const patternStyles = [
+      'dots',
+      'lines',
+      'vertical-lines',
+      'horizontal-lines',
+      'crosshatch',
+      'diagonal',
+      'ascii',
+      'tone-adaptive',
+    ] as const;
+    const sampledStops = [
+      { position: 0, color: '#202020' },
+      { position: 1, color: '#202020' },
+    ];
+    const representativeTone = 32 / 255;
+    const expectedPair = resolveFlatInkSetForPosition(representativeTone, 2, 0, 84).indices;
+    const geometricPair = resolveFlatInkSetForPosition(0.5, 2, 0, 84).indices;
+
+    for (const patternStyle of patternStyles) {
+      const out = new Uint8Array(width * height);
+      await fillCcGradientDither({
+        vertices: [
+          { x: 0, y: 0 },
+          { x: width - 1, y: 0 },
+          { x: width - 1, y: height - 1 },
+          { x: 0, y: height - 1 },
+        ],
+        minX: 0,
+        minY: 0,
+        maxX: width - 1,
+        maxY: height - 1,
+        pixelSize: 1,
+        levels: 1,
+        baseOffset: 0,
+        flatPairSpread: 84,
+        algorithm: 'pattern',
+        patternStyle,
+        sampledStopsOverride: sampledStops,
+        sampleNormalized: () => 0.5,
+        writeIndex: (x, y, index) => {
+          out[y * width + x] = index;
+        },
+      });
+
+      const usedIndices = Array.from(new Set(out)).filter((value) => value > 0).sort((a, b) => a - b);
+      expect(usedIndices).toEqual(expectedPair);
+      expect(usedIndices).not.toEqual(geometricPair);
+    }
+  });
+
+  it('applies spread to sampled flat ink pairs for every pattern style', async () => {
+    const width = 12;
+    const height = 12;
+    const patternStyles = [
+      'dots',
+      'lines',
+      'vertical-lines',
+      'horizontal-lines',
+      'crosshatch',
+      'diagonal',
+      'ascii',
+      'tone-adaptive',
+    ] as const;
+    const sampledStops = [
+      { position: 0, color: '#808080' },
+      { position: 1, color: '#808080' },
+    ];
+    const run = async (patternStyle: (typeof patternStyles)[number], spread: number) => {
+      const out = new Uint8Array(width * height);
+      await fillCcGradientDither({
+        vertices: [
+          { x: 0, y: 0 },
+          { x: width - 1, y: 0 },
+          { x: width - 1, y: height - 1 },
+          { x: 0, y: height - 1 },
+        ],
+        minX: 0,
+        minY: 0,
+        maxX: width - 1,
+        maxY: height - 1,
+        pixelSize: 1,
+        levels: 1,
+        baseOffset: 0,
+        flatPairSpread: spread,
+        algorithm: 'pattern',
+        patternStyle,
+        sampledStopsOverride: sampledStops,
+        sampleNormalized: () => 0.5,
+        writeIndex: (x, y, index) => {
+          out[y * width + x] = index;
+        },
+      });
+      return Array.from(new Set(out)).filter((value) => value > 0).sort((a, b) => a - b);
+    };
+
+    for (const patternStyle of patternStyles) {
+      const tight = await run(patternStyle, 0);
+      const wide = await run(patternStyle, 100);
+
+      expect(tight).toHaveLength(2);
+      expect(wide).toHaveLength(2);
+      expect(wide[1] - wide[0]).toBeGreaterThan(tight[1] - tight[0]);
+    }
+  });
+
+  it('keeps sampled preview pattern color selection aligned with Sierra Lite preview', async () => {
+    const width = 12;
+    const height = 12;
+    const sampledStops = [
+      { position: 0, color: '#202020' },
+      { position: 1, color: '#202020' },
+    ];
+    const run = async (algorithm: 'sierra-lite' | 'pattern') => {
+      const out = new Uint8Array(width * height);
+      await fillCcGradientDither({
+        vertices: [
+          { x: 0, y: 0 },
+          { x: width - 1, y: 0 },
+          { x: width - 1, y: height - 1 },
+          { x: 0, y: height - 1 },
+        ],
+        minX: 0,
+        minY: 0,
+        maxX: width - 1,
+        maxY: height - 1,
+        pixelSize: 1,
+        levels: 1,
+        baseOffset: 0,
+        flatPairSpread: 84,
+        algorithm,
+        patternStyle: 'lines',
+        sampledStopsOverride: sampledStops,
+        sampledFlatTraceStage: 'preview',
+        sampleNormalized: () => 0.5,
+        writeIndex: (x, y, index) => {
+          out[y * width + x] = index;
+        },
+      });
+      return Array.from(new Set(out)).filter((value) => value > 0).sort((a, b) => a - b);
+    };
+
+    expect(await run('pattern')).toEqual(await run('sierra-lite'));
+  });
+
   it('derives sampled flat Sierra-Lite from the averaged sampled target instead of geometric flat position', async () => {
     const width = 12;
     const height = 12;

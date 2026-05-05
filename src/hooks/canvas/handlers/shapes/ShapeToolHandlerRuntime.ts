@@ -3116,8 +3116,7 @@ export const createShapeToolHandler = (
             const effectiveStops = stops ?? [];
             const preserveSourceStops =
               ccPreview?.source === 'sampled' &&
-              resolveCcDitherBandMode(brushNow.gradientBands ?? 16).pairBandCount <= 0 &&
-              (brushNow.ditherAlgorithm ?? 'sierra-lite') === 'sierra-lite';
+              resolveCcDitherBandMode(brushNow.gradientBands ?? 16).pairBandCount <= 0;
             const foregroundDerivedKey = derivedSpec
               ? [
                   fgBaseColor,

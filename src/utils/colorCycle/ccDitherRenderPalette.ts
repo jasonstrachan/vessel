@@ -517,13 +517,13 @@ export const buildCcDitherRuntimePalette = ({
   void debugContext;
   const normalizedBandCount = Math.max(0, Math.floor(bands || 0));
   const resolvedAlgorithm = algorithm ?? 'sierra-lite';
+  if (normalizedBandCount <= 0 && preserveSourceStops) {
+    return {
+      bandCount: 0,
+      renderStops: baseStops.slice(),
+    };
+  }
   if (normalizedBandCount <= 0 && resolvedAlgorithm === 'sierra-lite') {
-    if (preserveSourceStops) {
-      return {
-        bandCount: 0,
-        renderStops: baseStops.slice(),
-      };
-    }
     return buildCcFlatSierraContrastRenderPalette({
       baseStops,
       spread,

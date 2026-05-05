@@ -894,12 +894,9 @@ export const fillCcGradientDither = async ({
     const phaseY = Math.floor(minY / Math.max(1, cellSize));
     const flatPosition = resolveAverageActiveTone(cellCoverage, activeMask);
     const brushSettings = useAppStore.getState().tools?.brushSettings;
-    const isPreviewSampledFlatSierraLite =
-      sampledFlatTraceStage === 'preview' &&
-      algorithm === 'sierra-lite';
+    const isPreviewSampledFlatDither = sampledFlatTraceStage === 'preview';
     const preferSampledFlatSolver =
-      !isPreviewSampledFlatSierraLite &&
-      algorithm === 'sierra-lite' &&
+      !isPreviewSampledFlatDither &&
       !flatMixByBand &&
       (sampledStopsOverride?.length
         ? true

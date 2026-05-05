@@ -1163,8 +1163,7 @@ export const runSampledCcDitherPreviewRuntime = (args: {
           ditherPaletteSpread: sampledBrushSettings.ditherPaletteSpread,
           ditherAlgorithm: sampledBrushSettings.ditherAlgorithm,
           preserveSourceStops:
-            resolveCcDitherBandMode(sampledBrushSettings.gradientBands ?? 16).pairBandCount <= 0 &&
-            (sampledBrushSettings.ditherAlgorithm ?? 'sierra-lite') === 'sierra-lite',
+            resolveCcDitherBandMode(sampledBrushSettings.gradientBands ?? 16).pairBandCount <= 0,
         });
 
         const origin = sampledGeometry.roi.origin;

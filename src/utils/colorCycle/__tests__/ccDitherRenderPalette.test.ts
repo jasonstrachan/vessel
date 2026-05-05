@@ -212,22 +212,24 @@ describe('buildCcDitherRuntimePalette', () => {
     expect(runtime.renderStops).toHaveLength(3);
   });
 
-  it('can preserve source stops for flat Sierra runtime playback', () => {
+  it('can preserve source stops for flat runtime playback across algorithms', () => {
     const baseStops = [
       { position: 0, color: '#112233' },
       { position: 0.5, color: '#445566' },
       { position: 1, color: '#778899' },
     ];
 
-    const runtime = buildCcDitherRuntimePalette({
-      baseStops,
-      bands: 0,
-      spread: 100,
-      algorithm: 'sierra-lite',
-      preserveSourceStops: true,
-    });
+    for (const algorithm of ['sierra-lite', 'pattern'] as const) {
+      const runtime = buildCcDitherRuntimePalette({
+        baseStops,
+        bands: 0,
+        spread: 100,
+        algorithm,
+        preserveSourceStops: true,
+      });
 
-    expect(runtime.bandCount).toBe(0);
-    expect(runtime.renderStops).toEqual(baseStops);
+      expect(runtime.bandCount).toBe(0);
+      expect(runtime.renderStops).toEqual(baseStops);
+    }
   });
 });

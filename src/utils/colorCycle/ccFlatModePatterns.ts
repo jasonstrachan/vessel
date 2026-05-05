@@ -275,6 +275,8 @@ const fillOrderedFlatPatternMode = ({
   flatBand,
   flatLowIndex,
   flatHighIndex,
+  flatMix,
+  flatMixByBand,
   spread,
   gridW,
   gridH,
@@ -298,8 +300,8 @@ const fillOrderedFlatPatternMode = ({
   const orderedMix = resolveBandMixAmount(
     band,
     flatPosition,
-    undefined,
-    undefined,
+    flatMix,
+    flatMixByBand,
     spread
   );
   const adaptiveTone = Number.isFinite(flatPosition) ? (flatPosition as number) : tone;
