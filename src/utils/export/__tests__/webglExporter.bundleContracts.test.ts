@@ -1,7 +1,8 @@
 import JSZip from 'jszip';
 
 import { exportProjectAsWebGL } from '@/utils/export/webglExporter';
-import type { DisplayFilterConfig, ExportContainerLayout, Project } from '@/types';
+import { createDefaultLayerAlignment } from '@/utils/layoutDefaults';
+import type { DisplayFilterConfig, ExportContainerLayout, Layer, Project } from '@/types';
 
 const downloadedBlobs: Blob[] = [];
 
@@ -46,6 +47,75 @@ const layout: ExportContainerLayout = {
   sizeMode: 'fixed',
   width: 64,
   height: 32,
+};
+
+const createDenseBrushLayer = (): Layer => {
+  const canvas = document.createElement('canvas');
+  canvas.width = 64;
+  canvas.height = 32;
+  const width = 64;
+  const height = 32;
+  const length = width * height;
+  const brushIndices = new Uint8Array(Array.from({ length }, (_, idx) => (idx % 251) + 1));
+  const gradientIdBuffer = new Uint8Array(Array.from({ length }, (_, idx) => idx % 2));
+  const flowBuffer = new Uint8Array(Array.from({ length }, () => 1));
+  const phaseBuffer = new Uint8Array(Array.from({ length }, (_, idx) => idx & 255));
+  const gradientStops = [
+    { position: 0, color: '#000000' },
+    { position: 1, color: '#ffffff' },
+  ];
+
+  return {
+    id: 'dense-brush',
+    name: 'Dense Brush',
+    visible: true,
+    opacity: 1,
+    blendMode: 'source-over',
+    locked: false,
+    transparencyLocked: false,
+    order: 0,
+    imageData: null,
+    framebuffer: canvas,
+    alignment: createDefaultLayerAlignment(),
+    layerType: 'color-cycle',
+    colorCycleData: {
+      mode: 'brush',
+      isAnimating: true,
+      brushSpeed: 0.25,
+      gradient: gradientStops,
+      canvas,
+      colorCycleBrush: {
+        serialize: () => ({
+          layers: [
+            {
+              layerId: 'dense-brush',
+              data: {
+                indexBuffer: {
+                  width,
+                  height,
+                  data: brushIndices,
+                  palette: ['#000000', '#ffffff'],
+                  gradientId: gradientIdBuffer,
+                  flowData: flowBuffer,
+                  phaseData: phaseBuffer,
+                },
+                gradient: { gradientStops },
+                animation: {
+                  offset: 0,
+                  stats: { targetFPS: 24 },
+                },
+              },
+            },
+          ],
+          cycleSpeed: 0.25,
+          fps: 24,
+        }),
+        getCanvas: () => canvas,
+        isPlaying: () => true,
+      },
+    },
+    version: 1,
+  } as Layer;
 };
 
 const baseExportRequest = () => {
@@ -140,6 +210,13 @@ const assetContentFor = (target: string): string => {
 beforeEach(() => {
   downloadedBlobs.length = 0;
 
+  Object.defineProperty(HTMLCanvasElement.prototype, 'toBlob', {
+    configurable: true,
+    writable: true,
+    value: function toBlob(callback: BlobCallback, type?: string): void {
+      callback(new Blob([new Uint8Array([1])], { type: type ?? 'image/png' }));
+    },
+  });
   Object.defineProperty(URL, 'createObjectURL', {
     configurable: true,
     writable: true,
@@ -165,6 +242,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  delete (HTMLCanvasElement.prototype as unknown as Record<string, unknown>).toBlob;
   delete (URL as unknown as Record<string, unknown>).createObjectURL;
   delete (URL as unknown as Record<string, unknown>).revokeObjectURL;
   delete (global as Record<string, unknown>).fetch;
@@ -247,6 +325,68 @@ describe('webglExporter bundle contracts', () => {
     const html = await zip.file('index.html')?.async('string');
     expect(html).toContain('<title>Custom &lt;Goblet&gt;</title>');
     expect(html).toContain('bundle-contract-goblet.json');
+    expect(html).not.toContain('"format": "vessel-goblet2"');
+  });
+
+  it('keeps diagnostic sidecar zip exports safe without embedded fallback metadata', async () => {
+    await exportProjectAsWebGL({
+      ...baseExportRequest(),
+      bundleFormat: 'zip',
+      enableGobletDiagnostics: true,
+    });
+
+    const zip = await JSZip.loadAsync(await readBlobArrayBuffer(downloadedBlobs[0]));
+    const html = await zip.file('index.html')?.async('string');
+    expect(html).toContain('const packagedMetadataRaw = null;');
+    expect(html).toContain('packagedMetadata?.layers?.forEach');
+    expect(html).not.toContain('packagedMetadata.layers?.forEach');
+  });
+
+  it('keeps metadata fallback in compatibility zip exports', async () => {
+    await exportProjectAsWebGL({
+      ...baseExportRequest(),
+      bundleFormat: 'zip-compat',
+    });
+
+    const zip = await JSZip.loadAsync(await readBlobArrayBuffer(downloadedBlobs[0]));
+    const html = await zip.file('index.html')?.async('string');
+    expect(html).toContain('bundle-contract-goblet.json');
+    expect(html).toContain('"format": "vessel-goblet2"');
+    const json = await zip.file('bundle-contract-goblet.json')?.async('string');
+    expect(json).toContain('"bundleFormat": "zip-compat"');
+  });
+
+  it('moves large Goblet ZIP numeric payloads into binary sidecars', async () => {
+    const layer = createDenseBrushLayer();
+    const project = createProject();
+    project.layers = [layer];
+
+    await exportProjectAsWebGL({
+      ...baseExportRequest(),
+      project,
+      layers: [layer],
+      bundleFormat: 'zip',
+      minify: true,
+    });
+
+    const zip = await JSZip.loadAsync(await readBlobArrayBuffer(downloadedBlobs[0]));
+    const entries = Object.keys(zip.files).sort();
+    const sidecars = entries.filter((entry) => entry.startsWith('buffers/'));
+    expect(sidecars).toEqual(expect.arrayContaining([
+      expect.stringContaining('brush-indexBuffer.bin'),
+      expect.stringContaining('brush-gradientIdBuffer.bin'),
+      expect.stringContaining('brush-flowBuffer.bin'),
+      expect.stringContaining('brush-phaseBuffer.bin'),
+    ]));
+
+    const json = await zip.file('bundle-contract-goblet.json')?.async('string');
+    expect(json).toContain('"ref":"buffers/');
+    expect(json).not.toContain('"indexBuffer":[');
+
+    const indexEntry = sidecars.find((entry) => entry.endsWith('brush-indexBuffer.bin'));
+    expect(indexEntry).toBeDefined();
+    const bytes = await zip.file(indexEntry!)?.async('uint8array');
+    expect(bytes?.byteLength).toBe(64 * 32);
   });
 
   it('uses explicit snapshot display filters before persisted project view state', async () => {

@@ -1924,6 +1924,18 @@ const resolveNumericBuffer = async (value) => {
   if (!value) {
     return null;
   }
+  if (typeof value === 'object' && typeof value.ref === 'string') {
+    const response = await fetch(value.ref, { cache: 'no-store' });
+    if (!response.ok) {
+      throw new Error(`Failed to load Goblet binary payload ${value.ref}: HTTP ${response.status}`);
+    }
+    const bytes = new Uint8Array(await response.arrayBuffer());
+    const expectedLength = Number(value.byteLength);
+    if (Number.isFinite(expectedLength) && expectedLength >= 0 && bytes.byteLength !== expectedLength) {
+      throw new Error(`Goblet binary payload length mismatch for ${value.ref}`);
+    }
+    return bytes;
+  }
   if (typeof value === 'string') {
     if (value.startsWith(B64Z_PREFIX)) {
       return await decompressB64ZPayload(value);
@@ -1954,6 +1966,9 @@ const hasNumericPayload = (value) => {
   }
   if (typeof value === 'string') {
     return value.startsWith(B64Z_PREFIX);
+  }
+  if (typeof value === 'object' && typeof value.ref === 'string') {
+    return true;
   }
   if (Array.isArray(value) || value instanceof Uint8Array) {
     return value.length > 0;

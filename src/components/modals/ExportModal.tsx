@@ -48,7 +48,8 @@ type ExportProgressModalState = {
 };
 
 const BUNDLE_FORMAT_LABELS: Record<WebGLExportBundleFormat, string> = {
-  zip: 'Goblet bundle zip',
+  zip: 'smaller Goblet zip',
+  'zip-compat': 'compatible Goblet zip',
   'single-html': 'single-file Goblet',
   json: 'Goblet JSON bundle'
 };
@@ -100,7 +101,7 @@ type WebglViewportPreset = typeof WEBGL_VIEWPORT_PRESETS[number]['value'];
 
 const WEBGL_EXPORT_PRESETS: Array<{ value: WebglExportPreset; label: string; format: WebGLExportBundleFormat }> = [
   { value: 'single-html', label: 'Single HTML', format: 'single-html' },
-  { value: 'bundle', label: 'Bundle', format: 'zip' },
+  { value: 'bundle', label: 'Compatible ZIP', format: 'zip-compat' },
   { value: 'json', label: 'JSON', format: 'json' },
 ];
 
@@ -1778,7 +1779,8 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
                     onChange={(event) => updateWebglExportSettings({ bundleFormat: event.target.value as WebGLExportBundleFormat })}
                     disabled={isExporting}
                   >
-                    <option value="zip">Goblet bundle (HTML + runtime + JSON)</option>
+                    <option value="zip">Goblet ZIP smaller (sidecar JSON + binary buffers)</option>
+                    <option value="zip-compat">Goblet ZIP compatible (embedded metadata fallback)</option>
                     <option value="single-html">Single Goblet HTML (self-contained)</option>
                     <option value="json">Goblet JSON only</option>
                   </select>

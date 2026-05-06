@@ -133,6 +133,18 @@ describe('Goblet 2 runtime export regression guard', () => {
     expect(runtime).not.toContain('if (!this.maybeAdvanceShiftKeysPerPixel(distinct, n))');
   });
 
+  it('loads ZIP binary sidecar payload refs through the numeric buffer resolver', () => {
+    const runtime = read('public/goblet2/goblet2.js');
+    const inlineRuntime = read('public/goblet2/goblet2-inline.js');
+
+    expect(runtime).toContain("typeof value === 'object' && typeof value.ref === 'string'");
+    expect(runtime).toContain("fetch(value.ref, { cache: 'no-store' })");
+    expect(runtime).toContain('Failed to load Goblet binary payload');
+    expect(runtime).toContain('Goblet binary payload length mismatch');
+    expect(inlineRuntime).toContain('Failed to load Goblet binary payload');
+    expect(inlineRuntime).toContain('Goblet binary payload length mismatch');
+  });
+
   it('applies exported soft-edge masks as keep-alpha masks in CPU and WebGL playback', () => {
     const runtime = read('public/goblet2/goblet2.js');
 

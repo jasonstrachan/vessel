@@ -2,6 +2,7 @@ import { debugWarn } from '@/utils/debug';
 import type { WebGLExportSettings } from '@/types';
 
 const STORAGE_KEY = 'vessel:webgl-export-settings';
+const STORAGE_VERSION = 2;
 
 let storageOverride: Storage | null = null;
 
@@ -31,7 +32,7 @@ const getLocalStorage = (): Storage | null => {
 };
 
 const sanitizeBundleFormat = (value: unknown): WebGLExportSettings['bundleFormat'] | undefined => {
-  if (value === 'zip' || value === 'single-html' || value === 'json') {
+  if (value === 'zip' || value === 'zip-compat' || value === 'single-html' || value === 'json') {
     return value;
   }
   return undefined;
@@ -162,6 +163,14 @@ export const loadWebglExportSettings = (): Partial<WebGLExportSettings> | null =
       return null;
     }
     const parsed = JSON.parse(raw);
+    if (
+      parsed
+      && typeof parsed === 'object'
+      && (parsed as Record<string, unknown>).storageVersion !== STORAGE_VERSION
+      && (parsed as Record<string, unknown>).bundleFormat === 'zip'
+    ) {
+      (parsed as Record<string, unknown>).bundleFormat = 'zip-compat';
+    }
     const sanitized = sanitizeWebglExportSettings(parsed);
     return Object.keys(sanitized).length > 0 ? sanitized : null;
   } catch (error) {
@@ -178,7 +187,10 @@ export const saveWebglExportSettings = (payload: WebGLExportSettings): void => {
 
   try {
     const sanitized = sanitizeWebglExportSettings(payload);
-    storage.setItem(STORAGE_KEY, JSON.stringify(sanitized));
+    storage.setItem(STORAGE_KEY, JSON.stringify({
+      storageVersion: STORAGE_VERSION,
+      ...sanitized,
+    }));
   } catch (error) {
     debugWarn('raw-console', '[WebglExportSettingsStorage] Failed to save settings', error);
   }

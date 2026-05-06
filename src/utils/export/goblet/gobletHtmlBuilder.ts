@@ -112,11 +112,14 @@ const stripGobletImport = (content: string, runtimeModulePath = './goblet.js'): 
 const appendZipAutoloadSnippet = (
   scriptContent: string,
   bundleFilename: string,
-  metadataJson: string,
+  metadataJson: string | null,
   diagnosticsEnabled: boolean
 ): string => {
-  const metadataLiteral = encodeMetadataForInlineScript(metadataJson);
+  const metadataLiteral = metadataJson === null ? null : encodeMetadataForInlineScript(metadataJson);
   const diagnosticsLiteral = diagnosticsEnabled ? 'true' : 'false';
+  const packagedMetadataLiteral = metadataLiteral === null
+    ? 'null'
+    : `JSON.parse(\`${metadataLiteral}\`)`;
   const snippet = `
       const diagnosticsDefault = ${diagnosticsLiteral};
       let enableDiagnostics = diagnosticsDefault;
@@ -178,10 +181,10 @@ const appendZipAutoloadSnippet = (
         }
         return raw;
       };
-      const packagedMetadataRaw = JSON.parse(\`${metadataLiteral}\`);
+      const packagedMetadataRaw = ${packagedMetadataLiteral};
       if (enableDiagnostics) {
-        emitLog('Parsed metadata layers (raw):', packagedMetadataRaw.layers || packagedMetadataRaw.l);
-        emitLog('Layer details (raw):', (packagedMetadataRaw.layers || packagedMetadataRaw.l)?.map((layer) => ({
+        emitLog('Parsed metadata layers (raw):', packagedMetadataRaw ? (packagedMetadataRaw.layers || packagedMetadataRaw.l) : null);
+        emitLog('Layer details (raw):', (packagedMetadataRaw ? (packagedMetadataRaw.layers || packagedMetadataRaw.l) : null)?.map((layer) => ({
           id: layer?.id ?? layer?.i,
           hasTexture: Boolean(
             layer?.assets?.texture
@@ -192,10 +195,10 @@ const appendZipAutoloadSnippet = (
           visible: layer?.visible ?? layer?.vi
         })));
       }
-      const packagedMetadata = expandPackagedMetadata(packagedMetadataRaw);
+      const packagedMetadata = packagedMetadataRaw ? expandPackagedMetadata(packagedMetadataRaw) : null;
       if (enableDiagnostics) {
         emitLog('[DEBUG] Checking parsed metadata:');
-        packagedMetadata.layers?.forEach((layer) => {
+        packagedMetadata?.layers?.forEach((layer) => {
           if (layer.colorCycle?.brushState) {
             const bs = layer.colorCycle.brushState;
             emitLog('[DEBUG] Layer diagnostics', {
@@ -570,7 +573,7 @@ const buildSingleFileScriptFromBundledRuntime = (
 export const createZipGobletHtml = (
   template: string,
   bundleFilename: string,
-  metadataJson: string,
+  metadataJson: string | null,
   diagnosticsEnabled: boolean
 ): string => {
   return transformModuleScript(template, (script) => appendZipAutoloadSnippet(script, bundleFilename, metadataJson, diagnosticsEnabled));

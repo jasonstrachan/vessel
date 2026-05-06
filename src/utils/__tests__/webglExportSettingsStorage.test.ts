@@ -59,7 +59,10 @@ describe('webglExportSettingsStorage', () => {
     saveWebglExportSettings(sampleSettings);
     const setCalls = (storage.setItem as jest.Mock).mock.calls;
     expect(setCalls[0][0]).toBe('vessel:webgl-export-settings');
-    expect(JSON.parse(setCalls[0][1])).toEqual(sampleSettings);
+    expect(JSON.parse(setCalls[0][1])).toEqual({
+      storageVersion: 2,
+      ...sampleSettings,
+    });
   });
 
   it('loads and sanitizes persisted values', () => {
@@ -82,7 +85,7 @@ describe('webglExportSettingsStorage', () => {
       includeHiddenLayers: false,
       embedCanvasFallback: true,
       minifyOutput: false,
-      bundleFormat: 'zip',
+      bundleFormat: 'zip-compat',
       gobletVersion: 'goblet1',
       enableGobletDiagnostics: true,
       htmlTitle: 'My Title',
@@ -90,6 +93,17 @@ describe('webglExportSettingsStorage', () => {
       transparencyBackgroundMode: 'gray',
       viewportPreset: 'embed-fill',
       designScalePercent: 800,
+    });
+  });
+
+  it('preserves explicit smaller zip selections saved with the current settings version', () => {
+    storage.setItem('vessel:webgl-export-settings', JSON.stringify({
+      storageVersion: 2,
+      bundleFormat: 'zip',
+    }));
+
+    expect(loadWebglExportSettings()).toEqual({
+      bundleFormat: 'zip',
     });
   });
 

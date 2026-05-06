@@ -76,6 +76,12 @@ import {
   summarizeEncodedBuffer,
 } from '@/utils/export/goblet/gobletColorCycleSerializer';
 import { createGobletZipBlob } from '@/utils/export/goblet/gobletZipBuilder';
+import {
+  createGobletSizeReport,
+  createGobletZipPayloadPlan,
+  updateGobletSizeReportPayloadTotals,
+  type GobletBinaryPayloadEntry,
+} from '@/utils/export/goblet/gobletSizeReport';
 import { ccLog, ccWarn, ccSample } from '@/utils/colorCycle/ccDebug';
 import { cloneDisplayFilters } from '@/lib/displayFilters';
 import { clampRectToDocument as clampBoundsToDocument } from '@/utils/export/colorCycleBounds';
@@ -100,6 +106,21 @@ const gobletDebugLog = (...args: Array<unknown>) => {
 const gobletDebugWarn = (...args: Array<unknown>) => {
   if (gobletDiagnosticsActive) {
     debugWarn('raw-console', ...args);
+  }
+};
+
+const hydrateColorCycleArchiveRuntimeForExport = async (layer: Layer): Promise<void> => {
+  if (layer.layerType !== 'color-cycle' || !layer.colorCycleData) {
+    return;
+  }
+  try {
+    const projectIO = await import('@/utils/projectIO');
+    await projectIO.hydrateColorCycleArchiveRuntimeForExport(layer);
+  } catch (error) {
+    gobletDebugWarn('[webglExporter] Failed to hydrate color-cycle archive runtime before Goblet export', {
+      layerId: layer.id,
+      error,
+    });
   }
 };
 
@@ -363,6 +384,8 @@ export const exportProjectAsWebGL = async (
       });
       continue;
     }
+    await hydrateColorCycleArchiveRuntimeForExport(layer);
+    throwIfExportAborted(options.signal);
     const staticPreviewReason = layer.colorCycleData?.repairStatus?.reason;
     currentProgressLayer = { id: layer.id, name: layer.name || layer.id, staticPreviewReason };
     const layerPercent = Math.min(80, 5 + Math.round((progressLayerIndex / progressLayerTotal) * 70));
@@ -608,7 +631,8 @@ export const exportProjectAsWebGL = async (
         }
       : contentBoundsPayload;
 
-    const metadataDocumentBoundsPx = useIdentityPixelPerfectStack
+    const shouldPreserveColorCycleDocumentBounds = Boolean(colorCycle?.coverageBoundsPx);
+    const metadataDocumentBoundsPx = useIdentityPixelPerfectStack && !shouldPreserveColorCycleDocumentBounds
       ? {
           x: 0,
           y: 0,
@@ -622,7 +646,7 @@ export const exportProjectAsWebGL = async (
           height: round3(documentBoundsPx.height)
         };
 
-    const metadataDocumentBoundsPercent = useIdentityPixelPerfectStack
+    const metadataDocumentBoundsPercent = useIdentityPixelPerfectStack && !shouldPreserveColorCycleDocumentBounds
       ? {
           x: 0,
           y: 0,
@@ -788,7 +812,7 @@ export const exportProjectAsWebGL = async (
     }
   }
 
-  const bundleFormat: WebGLExportBundleFormat = options.bundleFormat ?? 'zip';
+  const bundleFormat: WebGLExportBundleFormat = options.bundleFormat ?? 'zip-compat';
   const transparencyBackgroundMode =
     options.transparencyBackgroundMode
     ?? 'checker';
@@ -996,7 +1020,7 @@ export const exportProjectAsWebGL = async (
     return metadata;
   }
 
-  if (bundleFormat === 'zip') {
+  if (bundleFormat === 'zip' || bundleFormat === 'zip-compat') {
     let gobletJs: string;
     let alignJs: string;
     let displayFilterJs: string;
@@ -1011,10 +1035,43 @@ export const exportProjectAsWebGL = async (
       throw new Error(`[webglExporter] Failed to load Goblet assets: ${message}`);
     }
 
+    const runtimeBytes = [gobletJs, alignJs, displayFilterJs, numJs, inflateJs]
+      .reduce((sum, asset) => sum + new TextEncoder().encode(asset).byteLength, 0);
+    const htmlBytes = new TextEncoder().encode(indexHtmlWithPresentation).byteLength;
+    const zipMetadataSource = bundleFormat === 'zip'
+      ? createGobletZipPayloadPlan({
+          metadata,
+          metadataJson: json,
+          runtimeBytes,
+          htmlBytes,
+        })
+      : {
+          metadata,
+          binaryEntries: [] as GobletBinaryPayloadEntry[],
+          report: createGobletSizeReport({
+            metadata,
+            metadataJson: json,
+            format: 'zip',
+            runtimeBytes,
+            htmlBytes,
+            duplicatedMetadataBytes: json.length,
+          }),
+        };
+    const zipMetadataPayload = options.minify ? minifyProperties(zipMetadataSource.metadata) : zipMetadataSource.metadata;
+    const zipJson = JSON.stringify(zipMetadataPayload, null, options.minify ? undefined : 2);
+    zipMetadataSource.report = updateGobletSizeReportPayloadTotals(
+      zipMetadataSource.report,
+      zipJson,
+      zipMetadataSource.binaryEntries
+    );
+    if (gobletDiagnosticsActive) {
+      gobletDebugLog('[webglExporter] Goblet ZIP size report', zipMetadataSource.report);
+    }
+
     const zipBlob = await createGobletZipBlob({
       indexHtml: indexHtmlWithPresentation,
       metadataFilename: jsonFilename,
-      metadataJson: json,
+      metadataJson: zipJson,
       diagnosticsEnabled,
       runtimeAsset: gobletRuntimeAsset,
       runtimeJs: gobletJs,
@@ -1023,6 +1080,8 @@ export const exportProjectAsWebGL = async (
       numJs,
       inflateJs,
       minify: options.minify,
+      embedMetadataFallback: bundleFormat === 'zip-compat',
+      binaryEntries: zipMetadataSource.binaryEntries,
     });
     throwIfExportAborted(options.signal);
     downloadBlob(zipBlob, `${options.filenameBase}-goblet.zip`);

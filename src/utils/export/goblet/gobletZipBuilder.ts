@@ -1,5 +1,6 @@
 import type { GobletAssetName } from '@/utils/export/goblet/gobletRuntimeAssets';
 import { createZipGobletHtml } from '@/utils/export/goblet/gobletHtmlBuilder';
+import type { GobletBinaryPayloadEntry } from '@/utils/export/goblet/gobletSizeReport';
 
 type JSZipConstructor = typeof import('jszip');
 
@@ -27,6 +28,8 @@ export interface GobletZipBuildRequest {
   numJs: string;
   inflateJs: string;
   minify: boolean;
+  embedMetadataFallback?: boolean;
+  binaryEntries?: GobletBinaryPayloadEntry[];
 }
 
 export const createGobletZipBlob = async ({
@@ -41,16 +44,29 @@ export const createGobletZipBlob = async ({
   numJs,
   inflateJs,
   minify,
+  embedMetadataFallback = false,
+  binaryEntries = [],
 }: GobletZipBuildRequest): Promise<Blob> => {
   const JSZip = await loadJSZip();
   const zip = new JSZip();
-  zip.file('index.html', createZipGobletHtml(indexHtml, metadataFilename, metadataJson, diagnosticsEnabled));
+  zip.file(
+    'index.html',
+    createZipGobletHtml(
+      indexHtml,
+      metadataFilename,
+      embedMetadataFallback ? metadataJson : null,
+      diagnosticsEnabled
+    )
+  );
   zip.file(runtimeAsset, runtimeJs);
   zip.file('alignFitResolver.js', alignJs);
   zip.file('displayFilterPipeline.js', displayFilterJs);
   zip.file('num.js', numJs);
   zip.file('fflate-inflate.js', inflateJs);
   zip.file(metadataFilename, metadataJson);
+  binaryEntries.forEach((entry) => {
+    zip.file(entry.path, entry.bytes);
+  });
   return await zip.generateAsync({
     type: 'blob',
     compression: 'DEFLATE',

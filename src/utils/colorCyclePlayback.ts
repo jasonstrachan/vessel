@@ -127,6 +127,18 @@ const logPlaybackCanonicalSummary = (
   return summaries;
 };
 
+const playbackCanonicalSummaryHasDestructiveChange = (
+  before: PlaybackCanonicalSummary,
+  after: PlaybackCanonicalSummary,
+): boolean => (
+  (before.hasContent && !after.hasContent) ||
+  (before.paintBytes > 0 && after.paintBytes === 0) ||
+  (before.gradientIdBytes > 0 && after.gradientIdBytes === 0) ||
+  (before.gradientDefIdBytes > 0 && after.gradientDefIdBytes === 0) ||
+  (before.phaseBytes > 0 && after.phaseBytes === 0) ||
+  (before.brushState && !after.brushState)
+);
+
 const logPlaybackCanonicalMutation = (
   before: Map<string, PlaybackCanonicalSummary>,
   layers: Layer[],
@@ -139,6 +151,9 @@ const logPlaybackCanonicalMutation = (
       return;
     }
     if (JSON.stringify(beforeSummary) === JSON.stringify(afterSummary)) {
+      return;
+    }
+    if (!playbackCanonicalSummaryHasDestructiveChange(beforeSummary, afterSummary)) {
       return;
     }
     logCCMutation({

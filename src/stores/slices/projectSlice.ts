@@ -1003,7 +1003,7 @@ export const createProjectSlice =
         includeHiddenLayers: true,
         embedCanvasFallback: false,
         minifyOutput: true,
-        bundleFormat: 'single-html',
+        bundleFormat: 'zip-compat',
         gobletVersion: 'goblet2',
         // Verbose Goblet/WebGL export logs are noisy in day-to-day use; keep them
         // opt-in via explicit env or UI toggle instead of defaulting on in dev.

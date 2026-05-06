@@ -6,9 +6,10 @@ Vessel now ships multiple packaging modes so finished canvases can be shared wit
 
 The **Packaging** selector inside the Goblet export tab controls how the runtime and bundle are delivered:
 
-- **Goblet bundle (HTML + runtime + JSON)** — produces a zip containing `index.html`, `goblet.js`, and `<project>-goblet.json`. The HTML auto-renders using an embedded copy of the bundle and falls back to the standalone JSON if available, so the archive opens instantly offline while still shipping the raw data file for integrations.
-- **Single Goblet HTML (self-contained)** — writes a single `*.html` file with the runtime and bundle inlined. Ideal for drag-and-drop demos or quick email shares. The Goblet UI still accepts dropped JSON bundles for comparison.
-- **Goblet JSON only** — matches the legacy behaviour and saves `<project>-goblet.json` without any Goblet assets.
+- **Goblet ZIP smaller** — produces a zip containing `index.html`, the Goblet runtime, `<project>-goblet.json`, and binary sidecars for large Color Cycle buffers. This is the smallest production-oriented packaging for substantial work. Serve the extracted folder over HTTP so the page can fetch its JSON and sidecar buffers.
+- **Goblet ZIP compatible** — keeps the older zip shape with a full metadata fallback embedded in `index.html` as well as the standalone JSON. Use this only when local `file://` fallback behavior matters more than file size.
+- **Single Goblet HTML (self-contained)** — writes a single `*.html` file with the runtime and bundle inlined. Ideal for drag-and-drop demos or quick email shares. It is portable, but larger for substantial artwork because metadata and payloads must stay inline.
+- **Goblet JSON only** — matches the legacy behaviour and saves `<project>-goblet.json` without any Goblet assets. This is useful for inspection and debugging, not compact sharing.
 
 ### Viewport Presets
 
@@ -21,19 +22,20 @@ Goblet exports expose four viewport intents:
 
 ### Zip Contents
 
-When using the Goblet bundle format the archive contains:
+When using the smaller Goblet ZIP format the archive contains:
 
 | File | Purpose |
 | ---- | ------- |
 | `index.html` | Standalone Goblet page with inline CSS and automatic bundle playback. |
 | `goblet.js` | Runtime renderer reused by the Goblet page. |
 | `<project>-goblet.json` | The Vessel Goblet metadata and texture payload. |
+| `buffers/**.bin` | Binary sidecars for large eligible Color Cycle buffers. |
 
-Open `index.html` directly in a browser to preview the artwork. Goblet attempts to load the JSON file first and will fall back to the embedded copy if the browser blocks local fetches (common with `file://` URLs), ensuring the bundle still renders offline.
+Serve the extracted folder over HTTP and open `index.html` to preview the artwork. The smaller ZIP does not duplicate full metadata inside the HTML shell. If direct offline `file://` opening is required, use **Goblet ZIP compatible** or **Single Goblet HTML** instead.
 
 ### Single-File HTML
 
-The single-file mode bundles the runtime, metadata, and textures into one HTML document. This is the lightest shareable artifact—just drop the file into a browser window or send it as an email attachment. Because the JSON is inlined, minifying the export is recommended to keep the file size manageable.
+The single-file mode bundles the runtime, metadata, and textures into one HTML document. It is the most portable shareable artifact: just drop the file into a browser window or send it as an email attachment. It is not the smallest format for large work because the JSON is inlined, so minifying the export is recommended.
 
 ### Respecting Base Paths
 
@@ -57,9 +59,10 @@ Goblet assets are fetched using the current Next.js `assetPrefix`/`basePath`, so
 
 ### Tips
 
-- Enable **Minify bundle output** to remove whitespace from both the JSON and, for zip exports, compress the archive more aggressively.
+- Enable **Minify bundle output** to remove whitespace from JSON and use stronger archive compression.
 - Adjust **Include hidden layers** and **Embed Canvas2D fallback** before exporting—both options are preserved inside the metadata and reflected in the Goblet info panel.
-- For automation or CLI integration, call `exportProjectAsWebGL` with the `bundleFormat` option (`'zip' | 'single-html' | 'json'`).
+- Use **Goblet ZIP compatible** when the export may be opened directly from disk. **Goblet ZIP smaller** stores JSON and binary buffers as sidecar files and must be served over HTTP so Goblet can fetch those files.
+- For automation or CLI integration, call `exportProjectAsWebGL` with the `bundleFormat` option (`'zip' | 'zip-compat' | 'single-html' | 'json'`).
 
 
 6) Consistent semantics recap (use this as a mental model)

@@ -12,6 +12,7 @@ import {
   deserializeProject,
   deserializeProjectWithReport,
   getProjectSaveSizeReport,
+  hydrateColorCycleArchiveRuntimeForExport,
   readProjectHealthReport,
   readProjectManifest,
   readProjectPreviewManifest,
@@ -5030,6 +5031,43 @@ describe('projectIO serialize/deserialize layering', () => {
 
     expect(lazyLayer?.colorCycleData?.gradientIdBuffer?.byteLength ?? 0).toBeLessThan(width * height);
     expect(lazyLayer?.colorCycleData?.gradientDefIdBuffer?.byteLength ?? 0).toBeLessThan(width * height * 2);
+
+    const exportDeserialized = await deserializeProject(payload, {
+      lazyColorCycleRuntime: true,
+      activeLayerId,
+    });
+    const exportLazyLayer = exportDeserialized.layers.find((layer) => layer.id === colorCycleLayerId);
+    expect(exportLazyLayer).toBeDefined();
+    if (!exportLazyLayer) {
+      throw new Error('Expected lazy color-cycle layer');
+    }
+    exportLazyLayer.colorCycleData!.brushState = {
+      canonicalPaint: true,
+      schemaVersion: 1,
+      layers: [],
+    };
+    await hydrateColorCycleArchiveRuntimeForExport(exportLazyLayer);
+    const exportBrushState = exportLazyLayer.colorCycleData?.brushState as {
+      layers?: Array<{
+        layerId?: string;
+        strokeData?: {
+          paintBuffer?: unknown;
+          gradientIdBuffer?: unknown;
+          gradientDefIdBuffer?: unknown;
+          speedBuffer?: unknown;
+          flowBuffer?: unknown;
+          phaseBuffer?: unknown;
+        };
+      }>;
+    } | undefined;
+    const exportSnapshot = exportBrushState?.layers?.find((snapshot) => snapshot.layerId === colorCycleLayerId);
+    expect(exportSnapshot?.strokeData?.paintBuffer).toEqual(expect.any(String));
+    expect(exportSnapshot?.strokeData?.paintBuffer).not.toBe(ref(entries[0].path));
+    expect(exportSnapshot?.strokeData?.gradientIdBuffer).toEqual(expect.any(String));
+    expect(exportSnapshot?.strokeData?.gradientDefIdBuffer).toEqual(expect.any(String));
+    expect(exportSnapshot?.strokeData?.speedBuffer).toEqual(expect.any(String));
+    expect(exportSnapshot?.strokeData?.flowBuffer).toEqual(expect.any(String));
+    expect(exportSnapshot?.strokeData?.phaseBuffer).toEqual(expect.any(String));
 
     const restoredColdLayers = await restoreColorCycleBrushes(deserialized.layers, {
       lazy: true,

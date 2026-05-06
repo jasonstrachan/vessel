@@ -68,7 +68,7 @@ export interface ExportContainerLayout {
   justify: ExportLayoutJustify;
 }
 
-export type WebGLExportBundleFormat = 'zip' | 'single-html' | 'json';
+export type WebGLExportBundleFormat = 'zip' | 'zip-compat' | 'single-html' | 'json';
 export type WebGLExportGobletVersion = 'goblet1' | 'goblet2';
 
 export interface WebGLExportSettings {

@@ -3068,10 +3068,24 @@ export const serializeColorCycleData = async (
   let exportSnapshot: ColorCyclePersistenceSnapshot | undefined;
   let exportDocumentState: ColorCyclePersistenceDocumentState | undefined;
   if (!data.recolorSettings) {
-    exportSnapshot = captureGobletColorCyclePersistenceSnapshot(layer, project);
-    if (exportSnapshot.ok) {
-      exportDocumentState = exportSnapshot.documentState;
-      brushState = persistenceDocumentStateToBrushState(layer, exportDocumentState, exportSnapshot.brushState);
+    const shouldPreferHydratedArchiveState = data.runtimeHydrationState === 'warm';
+    if (shouldPreferHydratedArchiveState) {
+      const savedDocumentState = captureSavedGobletColorCycleDocumentState(layer);
+      const persistedBrushState = layer.colorCycleData?.brushState as PersistedColorCycleBrushState | undefined;
+      const savedBrushState = savedDocumentState
+        ? persistenceDocumentStateToBrushState(layer, savedDocumentState, persistedBrushState)
+        : undefined;
+      if (savedBrushState) {
+        exportDocumentState = savedDocumentState;
+        brushState = savedBrushState;
+      }
+    }
+    if (!brushState) {
+      exportSnapshot = captureGobletColorCyclePersistenceSnapshot(layer, project);
+      if (exportSnapshot.ok) {
+        exportDocumentState = exportSnapshot.documentState;
+        brushState = persistenceDocumentStateToBrushState(layer, exportDocumentState, exportSnapshot.brushState);
+      }
     }
     if (!brushState) {
       const savedDocumentState = captureSavedGobletColorCycleDocumentState(layer);
@@ -3088,11 +3102,12 @@ export const serializeColorCycleData = async (
       brushState = serializeRuntimeBrushFallbackState(layer);
     }
     if (!brushState) {
+      const failedSnapshot = exportSnapshot && !exportSnapshot.ok ? exportSnapshot : undefined;
       debugWarn('raw-console', '[webglExporter] No validated canonical brush state could be extracted for layer', {
         layerId: layer.id,
-        reason: exportSnapshot.ok ? 'unresolved-export-buffer-ref' : exportSnapshot.reason,
-        damageKind: exportSnapshot.ok ? null : exportSnapshot.damageKind ?? null,
-        diagnostics: exportSnapshot.diagnostics,
+        reason: failedSnapshot?.reason ?? 'unresolved-export-buffer-ref',
+        damageKind: failedSnapshot?.damageKind ?? null,
+        diagnostics: exportSnapshot?.diagnostics ?? [],
       });
     }
   }

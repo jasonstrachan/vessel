@@ -2754,11 +2754,24 @@ const hydratePersistedBrushStateArchiveRefs = async (
   runtime: LazyColorCycleArchiveRuntime,
   layerId: string,
 ): Promise<PersistedColorCycleBrushState | undefined> => {
-  if (!brushState?.layers?.length) {
-    return brushState;
-  }
+  const sourceBrushState = brushState ?? {
+    canonicalPaint: true,
+    schemaVersion: 1,
+    layers: [],
+  };
+  const sourceLayers = sourceBrushState.layers ?? [];
+  const layersWithTarget = sourceLayers.some((snapshot) => snapshot.layerId === layerId)
+    ? sourceLayers
+    : [
+        ...sourceLayers,
+        {
+          layerId,
+          canonicalPaint: true,
+          schemaVersion: 1,
+        },
+      ];
 
-  const hydratedLayers = await Promise.all(brushState.layers.map(async (snapshot) => {
+  const hydratedLayers = await Promise.all(layersWithTarget.map(async (snapshot) => {
     if (!snapshot.strokeData && !snapshot.animator?.indexBuffer) {
       return snapshot;
     }
@@ -2797,7 +2810,9 @@ const hydratePersistedBrushStateArchiveRefs = async (
   }));
 
   const nextBrushState = {
-    ...brushState,
+    ...sourceBrushState,
+    canonicalPaint: true,
+    schemaVersion: 1,
     layers: hydratedLayers,
   };
 
@@ -2857,7 +2872,13 @@ const hydrateLazyColorCycleArchiveRuntime = async (layer: Layer): Promise<void> 
     layer.colorCycleData.brushState = hydratedBrushState;
     setSavedColorCycleBrushState(layer, hydratedBrushState);
   }
+  layer.colorCycleData.runtimeHydrationState = 'warm';
+  layer.colorCycleData.deferredRuntimeRestore = false;
   deleteLazyColorCycleArchiveRuntime(layer);
+};
+
+export const hydrateColorCycleArchiveRuntimeForExport = async (layer: Layer): Promise<void> => {
+  await hydrateLazyColorCycleArchiveRuntime(layer);
 };
 
 const isPrimaryColorCyclePayloadFailure = (reason: string): boolean => (

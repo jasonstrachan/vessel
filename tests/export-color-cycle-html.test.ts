@@ -1107,6 +1107,58 @@ describe('exportProjectAsWebGL color cycle integration', () => {
     });
   });
 
+  it('preserves cropped brush document placement in fixed pixel-perfect exports', async () => {
+    const canvas = document.createElement('canvas');
+    canvas.width = 128;
+    canvas.height = 128;
+
+    const layer = createSparseBrushModeLayer(canvas);
+    const project = createProject(layer);
+    const layout = createDefaultExportLayout();
+
+    const metadata = await exportProjectAsWebGL({
+      project,
+      layers: [layer],
+      layout,
+      viewport: { designWidth: project.width, designHeight: project.height, mode: 'fixed' },
+      fps: 24,
+      totalFrames: 48,
+      durationSeconds: 2,
+      perfectLoop: false,
+      includeHiddenLayers: true,
+      embedCanvasFallback: false,
+      minify: false,
+      filenameBase: 'color-cycle-brush-fixed-cropped-goblet2',
+      bundleFormat: 'json',
+      gobletVersion: 'goblet2',
+      pixelPerfectStack: true,
+    });
+
+    const exportedLayer = metadata.layers[0];
+    expect(exportedLayer.source).toEqual({ width: 2, height: 2 });
+    expect(exportedLayer.colorCycle?.brushState?.width).toBe(2);
+    expect(exportedLayer.colorCycle?.brushState?.height).toBe(2);
+    expect(exportedLayer.colorCycle?.coverageBoundsSourcePx).toEqual({
+      x: 0,
+      y: 0,
+      width: 2,
+      height: 2,
+    });
+    expect(exportedLayer.colorCycle?.coverageBoundsPx).toEqual({
+      x: 48,
+      y: 32,
+      width: 32,
+      height: 32,
+    });
+    expect(exportedLayer.documentBoundsPx).toEqual(exportedLayer.colorCycle?.coverageBoundsPx);
+    expect(exportedLayer.documentBoundsPercent).toEqual({
+      x: 37.5,
+      y: 25,
+      width: 25,
+      height: 25,
+    });
+  });
+
   it('crops sparse Goblet 2 alpha masks with brush payloads', async () => {
     const canvas = document.createElement('canvas');
     canvas.width = 128;

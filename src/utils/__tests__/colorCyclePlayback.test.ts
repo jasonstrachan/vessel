@@ -322,6 +322,74 @@ describe('colorCyclePlayback visibility behavior', () => {
     );
   });
 
+  it('does not report benign playback warmup hydration as a canonical mutation', async () => {
+    mockState.layers = [
+      {
+        ...makeRecolorLayer('visible-brush-cc', true),
+        colorCycleData: {
+          mode: 'brush',
+          hasContent: true,
+        },
+      } as Layer,
+    ];
+    ensureColorCycleLayerRuntime.mockImplementationOnce(async () => {
+      mockState.layers[0] = {
+        ...mockState.layers[0],
+        colorCycleData: {
+          ...mockState.layers[0].colorCycleData,
+          gradientIdBuffer: new ArrayBuffer(4),
+          gradientDefIdBuffer: new ArrayBuffer(4),
+          phaseBuffer: new ArrayBuffer(4),
+          brushState: { canonicalPaint: true },
+        },
+      } as Layer;
+      return true;
+    });
+
+    await toggleGlobalColorCyclePlayback(true, 'toolbar');
+
+    expect(mockLogCCMutation).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: 'cc-playback-canonical-mutated',
+      }),
+    );
+  });
+
+  it('reports playback canonical mutation when warmup drops existing canonical payload', async () => {
+    mockState.layers = [
+      {
+        ...makeRecolorLayer('visible-brush-cc', true),
+        colorCycleData: {
+          mode: 'brush',
+          hasContent: true,
+          gradientIdBuffer: new ArrayBuffer(4),
+          gradientDefIdBuffer: new ArrayBuffer(4),
+          phaseBuffer: new ArrayBuffer(4),
+          brushState: { canonicalPaint: true },
+        },
+      } as Layer,
+    ];
+    ensureColorCycleLayerRuntime.mockImplementationOnce(async () => {
+      mockState.layers[0] = {
+        ...mockState.layers[0],
+        colorCycleData: {
+          mode: 'brush',
+          hasContent: false,
+        },
+      } as Layer;
+      return true;
+    });
+
+    await toggleGlobalColorCyclePlayback(true, 'toolbar');
+
+    expect(mockLogCCMutation).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: 'cc-playback-canonical-mutated',
+        layerId: 'visible-brush-cc',
+      }),
+    );
+  });
+
   it('uses pause as the single toolbar action when playback is already active', async () => {
     mockState.colorCyclePlayback.desiredPlaying = true;
 
