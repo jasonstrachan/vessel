@@ -1436,10 +1436,13 @@ const PROPERTY_UNMINIFY_MAP = {
   sem: 'softEdgeMask',
   gs: 'gradientStops',
   gib: 'gradientIdBuffer',
+  gdib: 'gradientDefIdBuffer',
   ib: 'indexBuffer',
+  sbf: 'speedBuffer',
   flb: 'flowBuffer',
   phb: 'phaseBuffer',
   sp: 'slotPalettes',
+  gds: 'gradientDefStore',
   pl: 'palette',
   ao: 'animationOffset',
   tf: 'targetFPS',
@@ -1449,6 +1452,7 @@ const PROPERTY_UNMINIFY_MAP = {
   gr: 'gradient',
   grf: 'gradientRef',
   spd: 'brushSpeed',
+  lbsc: 'layerBaseSpeedCps',
   csc: 'controllerSpeedCps',
   lsc: 'legacySpeedCps',
   smd: 'speedMode',
@@ -1466,6 +1470,8 @@ const PROPERTY_UNMINIFY_MAP = {
   fps: 'fps',
   tfm: 'totalFrames',
   ds: 'durationSeconds',
+  cbp: 'coverageBoundsPx',
+  cbsp: 'coverageBoundsSourcePx',
   pm: 'phaseMap',
   sq: 'sequential'
 };
@@ -2086,6 +2092,18 @@ const applySoftEdgeMaskToAlphaChannel = (alphaBuffer, maskBuffer) => {
     const current = alphaBuffer[alphaIndex] || 0;
     alphaBuffer[alphaIndex] = Math.max(0, Math.round((current * keep) / 255));
   }
+};
+
+const hasAnyMaskValue = (maskBuffer) => {
+  if (!maskBuffer) {
+    return false;
+  }
+  for (let i = 0; i < maskBuffer.length; i += 1) {
+    if (maskBuffer[i] > 0) {
+      return true;
+    }
+  }
+  return false;
 };
 
 const hasVisibleAlpha = (alphaBuffer) => {
@@ -3740,7 +3758,6 @@ class ColorCycleLayerPlayer {
     if (!resized || !resized.length) {
       return;
     }
-
     const alphaSize = this.width * this.height * 4;
     if (!this.alpha || this.alpha.length < alphaSize) {
       const buffer = new Uint8ClampedArray(alphaSize);
@@ -3779,6 +3796,12 @@ class ColorCycleLayerPlayer {
 
     const resized = resizeAlphaMaskBuffer(working, width, height, this.width, this.height);
     if (!resized || !resized.length) {
+      return;
+    }
+    if (!hasAnyMaskValue(resized)) {
+      diagnostics.warn('[goblet] Ignoring empty soft-edge mask', {
+        layerId: this.layer?.id ?? null,
+      });
       return;
     }
 
@@ -3837,6 +3860,12 @@ class ColorCycleLayerPlayer {
     }
     const resized = resizeAlphaMaskBuffer(working, width, height, this.width, this.height);
     if (!resized || !resized.length) {
+      return;
+    }
+    if (!hasAnyMaskValue(resized)) {
+      diagnostics.warn('[goblet] Ignoring empty WebGL soft-edge mask', {
+        layerId: this.layer?.id ?? null,
+      });
       return;
     }
     this.webglRenderer.setSoftMaskTexture(resized, this.width, this.height);

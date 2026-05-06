@@ -21,6 +21,12 @@ import type {
   WebGLViewport,
   WebGLViewportMode,
 } from '@/utils/export/goblet/gobletTypes';
+import {
+  GOBLET_PROPERTY_MINIFY_MAP,
+  type GobletPropertyMinifyKey,
+} from '@/utils/export/goblet/gobletMetadataSchema';
+import { buildGobletColorCyclePayload } from '@/utils/export/goblet/colorCyclePayloadBuilder';
+import { hasGobletColorCycleLiveBrush } from '@/utils/export/goblet/colorCycleLiveBrushResolver';
 import { downloadBlob } from '@/utils/export/goblet/downloadBlob';
 import {
   fetchGobletAsset,
@@ -71,7 +77,7 @@ import {
   sanitizePositiveDimension,
   scaleEncodedSpeedBuffer,
   serializeBrushState,
-  serializeColorCycleData,
+  serializeColorCycleDataFromResolvedLayer,
   setGobletColorCycleDiagnosticsActive,
   summarizeEncodedBuffer,
 } from '@/utils/export/goblet/gobletColorCycleSerializer';
@@ -109,21 +115,6 @@ const gobletDebugWarn = (...args: Array<unknown>) => {
   }
 };
 
-const hydrateColorCycleArchiveRuntimeForExport = async (layer: Layer): Promise<void> => {
-  if (layer.layerType !== 'color-cycle' || !layer.colorCycleData) {
-    return;
-  }
-  try {
-    const projectIO = await import('@/utils/projectIO');
-    await projectIO.hydrateColorCycleArchiveRuntimeForExport(layer);
-  } catch (error) {
-    gobletDebugWarn('[webglExporter] Failed to hydrate color-cycle archive runtime before Goblet export', {
-      layerId: layer.id,
-      error,
-    });
-  }
-};
-
 const toProgressError = (error: unknown): { message: string; stack?: string } => {
   if (error instanceof Error) {
     return {
@@ -154,99 +145,27 @@ type LayerExportMetrics = LayerContentMetrics;
 const computeLayerExportMetrics = (layer: Layer, project: Project): LayerExportMetrics =>
   computeLayerContentMetrics(layer, project);
 
-const PROPERTY_MINIFY_MAP = {
-  format: 'f',
-  version: 'v',
-  exportedAt: 'e',
-  project: 'p',
-  viewport: 'vp',
-  container: 'c',
-  animation: 'an',
-  settings: 's',
-  layers: 'l',
-  gradients: 'grl',
-  fallback: 'fb',
-  schemaVersion: 'csv',
-  id: 'i',
-  name: 'n',
-  type: 't',
-  visible: 'vi',
-  opacity: 'o',
-  blendMode: 'bm',
-  source: 'src',
-  bounds: 'bnd',
-  pixelBoundsPx: 'pbpx',
-  pixelBoundsPercent: 'pbpr',
-  documentBoundsPx: 'dbpx',
-  documentBoundsPercent: 'dbpr',
-  layoutPlacement: 'lp',
-  frame: 'fr',
-  transform: 'tr',
-  anchor: 'anc',
-  alignment: 'al',
-  fit: 'ft',
-  horizontal: 'hz',
-  vertical: 'vt',
-  positioning: 'ps',
-  offsetPx: 'opx',
-  offsetPercent: 'opc',
-  contentBounds: 'cb',
-  paintedSize: 'psz',
-  assets: 'as',
-  colorCycle: 'cc',
-  stackIndex: 'si',
-  width: 'w',
-  height: 'h',
-  x: 'x',
-  y: 'y',
-  designWidth: 'dw',
-  designHeight: 'dh',
-  texture: 'txr',
-  textureFrames: 'txf',
-  textureFrameMap: 'txfm',
-  mode: 'md',
-  isAnimating: 'ia',
-  brushState: 'bs',
-  alphaMask: 'amk',
-  softEdgeMask: 'sem',
-  gradientStops: 'gs',
-  gradientIdBuffer: 'gib',
-  indexBuffer: 'ib',
-  slotPalettes: 'sp',
-  palette: 'pl',
-  animationOffset: 'ao',
-  targetFPS: 'tf',
-  flowDirection: 'fd',
-  alphaMode: 'am',
-  recolorSettings: 'rs',
-  gradient: 'gr',
-  gradientRef: 'grf',
-  brushSpeed: 'spd',
-  layerBaseSpeedCps: 'lbsc',
-  controllerSpeedCps: 'csc',
-  legacySpeedCps: 'lsc',
-  speedMode: 'smd',
-  slotSpeeds: 'ss',
-  speedMin: 'smin',
-  speedMax: 'smax',
-  bundleFormat: 'bf',
-  viewportPreset: 'vpp',
-  includeHiddenLayers: 'ihl',
-  embedCanvasFallback: 'ecf',
-  minifyOutput: 'mo',
-  htmlTitle: 'htl',
-  htmlBackgroundColor: 'hbc',
-  transparencyBackgroundMode: 'tbm',
-  perfectLoop: 'plp',
-  fps: 'fps',
-  totalFrames: 'tfm',
-  durationSeconds: 'ds',
-  phaseMap: 'pm',
-  coverageBoundsSourcePx: 'cbsp',
-  sequential: 'sq'
-} as const;
-
-type PropertyMinifyKey = keyof typeof PROPERTY_MINIFY_MAP;
+// Boundary: exporter flow only. Empty/hidden layer skipping lives here; CC source
+// eligibility, serialization, and payload validation live in Goblet CC modules.
+const shouldSkipEmptyColorCycleLayerForGobletExport = (
+  layer: Layer,
+  textureInfo: Awaited<ReturnType<typeof captureLayerTextureInfo>> | undefined,
+): boolean => {
+  const data = layer.colorCycleData;
+  return Boolean(
+    layer.layerType === 'color-cycle' &&
+    data &&
+    !data.recolorSettings &&
+    data.hasContent !== true &&
+    data.runtimeHydrationState !== 'cold' &&
+    data.deferredRuntimeRestore !== true &&
+    data.repairStatus?.ok !== false &&
+    !data.brushState &&
+    !data.colorCycleBrush &&
+    !hasGobletColorCycleLiveBrush(layer) &&
+    !textureInfo?.hasVisibleAlpha
+  );
+};
 
 const minifyProperties = (value: unknown): unknown => {
   if (Array.isArray(value)) {
@@ -258,7 +177,7 @@ const minifyProperties = (value: unknown): unknown => {
 
   const result: Record<string, unknown> = {};
   for (const [key, nested] of Object.entries(value as Record<string, unknown>)) {
-    const mappedKey = PROPERTY_MINIFY_MAP[key as PropertyMinifyKey] ?? key;
+    const mappedKey = GOBLET_PROPERTY_MINIFY_MAP[key as GobletPropertyMinifyKey] ?? key;
     result[mappedKey] = minifyProperties(nested);
   }
   return result;
@@ -378,14 +297,12 @@ export const exportProjectAsWebGL = async (
         layer: {
           id: layer.id,
           name: layer.name || layer.id,
-          status: 'skipped',
+          status: 'skipped-hidden',
           message: 'Hidden layer excluded',
         },
       });
       continue;
     }
-    await hydrateColorCycleArchiveRuntimeForExport(layer);
-    throwIfExportAborted(options.signal);
     const staticPreviewReason = layer.colorCycleData?.repairStatus?.reason;
     currentProgressLayer = { id: layer.id, name: layer.name || layer.id, staticPreviewReason };
     const layerPercent = Math.min(80, 5 + Math.round((progressLayerIndex / progressLayerTotal) * 70));
@@ -448,11 +365,91 @@ export const exportProjectAsWebGL = async (
       surfaceSize.width = sequentialFrames.sourceSize.width;
       surfaceSize.height = sequentialFrames.sourceSize.height;
     }
-    const colorCycleResult = await serializeColorCycleData(layer, options.project, speedWarning, {
-      forceSpeedBuffer: false,
-      layerSpeedScale: exportLayerSpeedScale,
-      toolSpeed: options.colorCycleToolSpeed,
-    });
+    if (shouldSkipEmptyColorCycleLayerForGobletExport(layer, textureInfo)) {
+      progressLayerIndex += 1;
+      emitProgress?.({
+        phase: 'layers',
+        percent: Math.min(85, 5 + Math.round((progressLayerIndex / progressLayerTotal) * 70)),
+        message: `Skipping empty color-cycle layer ${layer.name || layer.id}`,
+        layer: {
+          id: layer.id,
+          name: layer.name || layer.id,
+          status: 'skipped-empty',
+          message: 'Empty color-cycle layer has no exportable animated payload',
+        },
+      });
+      continue;
+    }
+    let colorCycleResult: Awaited<ReturnType<typeof serializeColorCycleDataFromResolvedLayer>> | undefined;
+    let colorCycleSource: string | undefined;
+    let colorCycleDiagnostics: string[] | undefined;
+    let colorCycleStats: {
+      payloadPixels?: number;
+      nonZeroPaint?: number;
+      usedSlots?: number;
+      paletteSlots?: number;
+    } | undefined;
+    if (layer.layerType === 'color-cycle' && layer.colorCycleData) {
+      emitProgress?.({
+        phase: 'layers',
+        percent: layerPercent,
+        message: `Building color-cycle payload for ${layer.name || layer.id}`,
+        layer: {
+          id: layer.id,
+          name: layer.name || layer.id,
+          status: layer.colorCycleData.runtimeHydrationState === 'cold' ? 'hydrating-cc-archive' : 'building-cc-payload',
+        },
+      });
+      const payloadResult = await buildGobletColorCyclePayload(layer, options.project, {
+        forceSpeedBuffer: false,
+        layerSpeedScale: exportLayerSpeedScale,
+        toolSpeed: options.colorCycleToolSpeed,
+        speedWarning,
+        serializeResolvedLayer: serializeColorCycleDataFromResolvedLayer,
+      });
+      throwIfExportAborted(options.signal);
+      colorCycleDiagnostics = payloadResult.diagnostics.map((diagnostic) => `${diagnostic.code}: ${diagnostic.message}`);
+      if (!payloadResult.ok) {
+        emitProgress?.({
+          phase: 'layers',
+          percent: layerPercent,
+          message: `${layer.name || layer.id} failed color-cycle payload validation`,
+          layer: {
+            id: layer.id,
+            name: layer.name || layer.id,
+            status: 'failed',
+            message: payloadResult.reason,
+            colorCycle: {
+              diagnostics: colorCycleDiagnostics,
+            },
+          },
+        });
+        throw new Error(
+          `Goblet export blocked: color-cycle layer "${layer.name ?? layer.id}" is missing animated brush data (${payloadResult.reason}).`
+        );
+      }
+      colorCycleResult = payloadResult.payload;
+      colorCycleSource = payloadResult.source;
+      colorCycleStats = payloadResult.stats;
+      emitProgress?.({
+        phase: 'layers',
+        percent: layerPercent,
+        message: `Validated color-cycle payload for ${layer.name || layer.id}`,
+        layer: {
+          id: layer.id,
+          name: layer.name || layer.id,
+          status: 'packing-cc-payload',
+          colorCycle: {
+            source: colorCycleSource,
+            payloadPixels: colorCycleStats?.payloadPixels,
+            nonZeroPaint: colorCycleStats?.nonZeroPaint,
+            usedSlots: colorCycleStats?.usedSlots,
+            paletteSlots: colorCycleStats?.paletteSlots,
+            diagnostics: colorCycleDiagnostics,
+          },
+        },
+      });
+    }
     throwIfExportAborted(options.signal);
     const colorCycle = colorCycleResult?.colorCycle;
     const colorCycleRuntime = colorCycleResult?.runtime;
@@ -691,9 +688,19 @@ export const exportProjectAsWebGL = async (
       layer: {
         id: layer.id,
         name: layer.name || layer.id,
-        status: isStaticPreviewLayer ? 'static-preview' : 'done',
+        status: isStaticPreviewLayer ? 'static-preview' : 'exported',
         message: isStaticPreviewLayer
           ? (layer.colorCycleData?.repairStatus?.reason ?? 'Missing canonical color-cycle paint')
+          : undefined,
+        colorCycle: colorCycleSource
+          ? {
+              source: colorCycleSource,
+              payloadPixels: colorCycleStats?.payloadPixels,
+              nonZeroPaint: colorCycleStats?.nonZeroPaint,
+              usedSlots: colorCycleStats?.usedSlots,
+              paletteSlots: colorCycleStats?.paletteSlots,
+              diagnostics: colorCycleDiagnostics,
+            }
           : undefined,
       },
     });
@@ -1142,7 +1149,7 @@ export const __TESTING__ = {
   minifyProperties,
   extractBrushStateFromSavedSnapshot,
   serializeBrushState,
-  serializeColorCycleData,
+  serializeColorCycleData: serializeColorCycleDataFromResolvedLayer,
   resolveDefBoundSlotPalettes,
   normalizeCanvasSurfaceForExport,
 };

@@ -101,10 +101,14 @@ describe('webglExporter helpers', () => {
           { position: 1, color: '#ffffff' },
         ],
         brushState: {
+          canonicalPaint: true,
+          schemaVersion: 1,
           cycleSpeed: 0.2,
           fps: 18,
           layers: [{
             layerId: 'layer-cc',
+            canonicalPaint: true,
+            schemaVersion: 1,
             strokeData: {
               paintBuffer: encodeBytes([1, 2, 3, 4]),
               gradientIdBuffer: encodeBytes([9, 9, 10, 10]),
@@ -1165,7 +1169,7 @@ describe('webglExporter helpers', () => {
     expect(result?.colorCycle?.brushState).toBeDefined();
   });
 
-  it('does not minify color-cycle buffer keys unsupported by the bundled Goblet runtime', () => {
+  it('minifies color-cycle buffer keys covered by the bundled Goblet runtime schema', () => {
     const minified = minifyProperties({
       layers: [{
         colorCycle: {
@@ -1184,14 +1188,14 @@ describe('webglExporter helpers', () => {
     const brushState = minified.l[0].cc.bs;
     expect(brushState.ib).toEqual([1, 2, 3, 4]);
     expect(brushState.gib).toEqual([5, 6, 7, 8]);
-    expect(brushState.gradientDefIdBuffer).toEqual([0, 1, 1, 0]);
-    expect(brushState.speedBuffer).toEqual([9, 9, 9, 9]);
-    expect(brushState.flowBuffer).toEqual([1, 0, 1, 0]);
-    expect(brushState.phaseBuffer).toEqual([0, 64, 128, 192]);
-    expect(brushState.gdib).toBeUndefined();
-    expect(brushState.sb).toBeUndefined();
-    expect(brushState.fbf).toBeUndefined();
-    expect(brushState.phb).toBeUndefined();
+    expect(brushState.gdib).toEqual([0, 1, 1, 0]);
+    expect(brushState.sbf).toEqual([9, 9, 9, 9]);
+    expect(brushState.flb).toEqual([1, 0, 1, 0]);
+    expect(brushState.phb).toEqual([0, 64, 128, 192]);
+    expect(brushState.gradientDefIdBuffer).toBeUndefined();
+    expect(brushState.speedBuffer).toBeUndefined();
+    expect(brushState.flowBuffer).toBeUndefined();
+    expect(brushState.phaseBuffer).toBeUndefined();
   });
 
   it('rebuilds missing slot palettes from gradient def bindings during export', () => {

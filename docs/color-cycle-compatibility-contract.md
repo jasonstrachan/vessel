@@ -14,10 +14,35 @@ For each brush CC layer:
 
 - `brushState.indexBuffer`: per-pixel palette index (`0` means transparent).
 - `brushState.gradientIdBuffer`: per-pixel slot id.
+- `brushState.gradientDefIdBuffer`: per-pixel gradient definition id when sampled/def-bound gradients are present.
 - `brushState.speedBuffer`: per-pixel encoded speed byte.
+- `brushState.flowBuffer`: per-pixel flow mode byte.
+- `brushState.phaseBuffer`: per-pixel phase byte.
 - `speedMin` / `speedMax`: decode range for non-zero speed bytes.
 - `slotPalettes`: optional per-slot gradient stops.
 - `brushState.gradientStops`: fallback gradient when slot palette is missing.
+
+## Export Source Contract
+
+Goblet export source selection is explicit:
+
+1. Hydrated archive/document state for cold or warm archive-backed layers.
+2. Persisted brush state with a same-layer snapshot.
+3. Live runtime state only when no persisted export source exists.
+4. Recolor runtime for `mode: "recolor"`.
+
+The exporter resolves this into an export-local layer snapshot before packing the payload. It must not clear, compact, rewrite, or save over canonical Vessel CC buffers while exporting.
+
+## Validation Contract
+
+Before packaging an animated brush payload, export validates:
+
+- payload dimensions against paint, slot, speed, flow, phase, and def-id buffers;
+- non-empty paint when the layer is marked as content-bearing;
+- slot palette coverage, with `brushState.gradientStops` allowed as a warning-level fallback;
+- alpha and soft-edge mask dimensions against the brush payload.
+
+Malformed animated CC payloads fail the layer export visibly. Static-preview export remains a separate repair/import path and is not used as a silent fallback for animated CC data.
 
 ## Buffer Semantics
 

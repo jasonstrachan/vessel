@@ -1,5 +1,5 @@
 import { debugWarn } from '@/utils/debug';
-import { deflateSync } from 'fflate';
+import { deflateSync, inflateSync } from 'fflate';
 
 const B64Z_PREFIX = 'b64z:';
 const DEFAULT_THRESHOLD = 1024;
@@ -12,6 +12,15 @@ const encodeBase64 = (bytes: Uint8Array): string => {
     binary += String.fromCharCode(...chunk);
   }
   return btoa(binary);
+};
+
+const decodeBase64 = (base64: string): Uint8Array => {
+  const binary = atob(base64.trim());
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i += 1) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+  return bytes;
 };
 
 const toUint8Array = (value: Uint8Array | number[]): Uint8Array => {
@@ -112,6 +121,15 @@ export const packArrayToB64Z = async (
 
 export const isB64ZString = (value: unknown): value is string => {
   return typeof value === 'string' && value.startsWith(B64Z_PREFIX);
+};
+
+export const unpackB64ZToUint8Array = (payload: string): Uint8Array => {
+  if (!isB64ZString(payload)) {
+    throw new Error('Expected b64z payload');
+  }
+
+  const compressed = decodeBase64(payload.slice(B64Z_PREFIX.length));
+  return inflateSync(compressed);
 };
 
 export const B64Z_MIN_LENGTH = DEFAULT_THRESHOLD;

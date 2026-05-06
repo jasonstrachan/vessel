@@ -11,6 +11,12 @@ The **Packaging** selector inside the Goblet export tab controls how the runtime
 - **Single Goblet HTML (self-contained)** — writes a single `*.html` file with the runtime and bundle inlined. Ideal for drag-and-drop demos or quick email shares. It is portable, but larger for substantial artwork because metadata and payloads must stay inline.
 - **Goblet JSON only** — matches the legacy behaviour and saves `<project>-goblet.json` without any Goblet assets. This is useful for inspection and debugging, not compact sharing.
 
+### Color Cycle Export Contract
+
+Goblet color-cycle export builds animated CC metadata through a single payload builder. The builder resolves an export-local source snapshot, validates the brush/recolor payload, and only then lets the exporter package the layer. Export does not hydrate archived CC data by mutating the live layer object.
+
+When diagnostics are enabled, the export progress modal reports the selected CC source, payload pixel counts, non-zero paint counts, slot/palette counts, and validation diagnostics per layer. Failed animated CC payloads are surfaced as failed layer rows instead of silently falling back to blank static output.
+
 ### Viewport Presets
 
 Goblet exports expose four viewport intents:

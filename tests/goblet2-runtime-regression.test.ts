@@ -151,10 +151,30 @@ describe('Goblet 2 runtime export regression guard', () => {
     expect(runtime).toContain("sem: 'softEdgeMask'");
     expect(runtime).toContain('if (colorCycle.softEdgeMask) {');
     expect(runtime).toContain('await this.applySoftEdgeMask(colorCycle.softEdgeMask);');
+    expect(runtime).toContain('hasAnyMaskValue(resized)');
+    expect(runtime).toContain('Ignoring empty soft-edge mask');
     expect(runtime).toContain('applySoftEdgeMaskToAlphaChannel(this.alpha, resized);');
     expect(runtime).toContain('await this.applyWebGLSoftEdgeMask(colorCycle.softEdgeMask);');
+    expect(runtime).toContain('Ignoring empty WebGL soft-edge mask');
     expect(runtime).toContain('alpha *= texture(u_softMask, sampleUV).r;');
     expect(runtime).toContain('renderer.setSoftMaskTexture(null);');
+  });
+
+  it('keeps the empty soft-edge mask guard on soft-edge paths only', () => {
+    const runtime = read('public/goblet2/goblet2.js');
+    const alphaMaskSection = runtime.slice(
+      runtime.indexOf('async applyAlphaMask(maskConfig)'),
+      runtime.indexOf('async applySoftEdgeMask(maskConfig)')
+    );
+    const softEdgeSection = runtime.slice(
+      runtime.indexOf('async applySoftEdgeMask(maskConfig)'),
+      runtime.indexOf('async applyWebGLAlphaMask(maskConfig)')
+    );
+
+    expect(alphaMaskSection).not.toContain('Ignoring empty soft-edge mask');
+    expect(alphaMaskSection).not.toContain('hasAnyMaskValue(resized)');
+    expect(softEdgeSection).toContain('hasAnyMaskValue(resized)');
+    expect(softEdgeSection).toContain('Ignoring empty soft-edge mask');
   });
 
   it('includes soft-edge mask playback support in the inline Goblet 2 runtime', () => {
@@ -162,6 +182,7 @@ describe('Goblet 2 runtime export regression guard', () => {
 
     expect(runtime).toContain('sem:"softEdgeMask"');
     expect(runtime).toContain('softEdgeMask');
+    expect(runtime).toContain('hasAnyMaskValue');
     expect(runtime).toContain('applySoftEdgeMaskToAlphaChannel');
     expect(runtime).toContain('setSoftMaskTexture');
     expect(runtime).toContain('u_softMask');

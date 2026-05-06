@@ -1,6 +1,4 @@
 import { debugLog, debugWarn } from '@/utils/debug';
-import { getColorCycleBrushManager } from '@/stores/colorCycleBrushManager';
-import type { ColorCycleBrushManager } from '@/stores/colorCycleBrushManager';
 import { FLOW_SLOT_MASK } from '@/lib/colorCycle/flowEncoding';
 import { normalizeGradientSeamProfile, type GradientSeamProfile } from '@/lib/colorCycle/gradientSeamProfile';
 import { MAX_BRUSH_COLOR_CYCLE_SPEED, MAX_CC_LAYER_SPEED_SCALE, MIN_BRUSH_COLOR_CYCLE_SPEED, MIN_CC_LAYER_SPEED_SCALE } from '@/constants/colorCycle';
@@ -13,9 +11,6 @@ import { captureCanvasImageData } from '@/utils/canvas/canvasImage';
 import { normalizeColorCycleLayerDocumentState } from '@/lib/colorCycle/documentState';
 import { captureColorCyclePersistenceSnapshot } from '@/lib/colorCycle/persistence';
 import {
-  COLOR_CYCLE_PERSISTENCE_SCHEMA_VERSION,
-  getLayerSnapshot,
-  hasCanonicalBrushStateMarkers,
   validatePersistenceDocumentState,
 } from '@/lib/colorCycle/persistence/colorCyclePersistenceValidation';
 import type {
@@ -24,6 +19,12 @@ import type {
   ColorCyclePersistenceSnapshot,
   PersistedColorCycleBrushState,
 } from '@/lib/colorCycle/persistence';
+import {
+  hasPersistedColorCycleCanonicalMarkers,
+  hasSupportedPersistedColorCycleSchema,
+  resolvePersistedColorCycleExportEligibility,
+} from '@/utils/export/goblet/colorCycleExportSourceEligibility';
+import { resolveGobletColorCycleLiveBrush } from '@/utils/export/goblet/colorCycleLiveBrushResolver';
 import { posInt, toNum } from '@/utils/num';
 import type { Layer, Project } from '@/types';
 import { clampRectToDocument as clampBoundsToDocument, scaleMaskBoundsToDocument, type Size2D as CoverageSize } from '@/utils/export/colorCycleBounds';
@@ -31,6 +32,8 @@ import { getLayerSurfaceSize } from '@/utils/export/goblet/gobletLayerSerializer
 import { resolveGobletBrushStateFallback } from '@/utils/export/goblet/gobletBrushStateFallbacks';
 import type { BrushStateRuntimePayload, ColorCycleCoverageResult, ColorCycleMaskDataset, ColorCycleSerializationResult, SerializedAlphaMaskResult, SerializedGradientStops, SerializedSlotPalette, WebGLExportMetadata, WebGLLayerBounds, WebGLSerializedBrushState, WebGLSerializedColorCycle } from '@/utils/export/goblet/gobletTypes';
 
+// Boundary: serialization only. Source availability is decided before this module;
+// this module converts the resolved layer/source into Goblet payload data.
 const gobletDiagnosticsDefault = process.env.NEXT_PUBLIC_VESSEL_GOBLET_DEBUG === 'true';
 
 let gobletDiagnosticsActive = gobletDiagnosticsDefault;
@@ -679,6 +682,8 @@ const defaultByteBuffer = (length: number): ArrayBuffer => new Uint8Array(length
 
 const defaultDefIdBuffer = (length: number): ArrayBuffer => new Uint16Array(length).buffer;
 
+const defaultNumericArray = (length: number): number[] => new Array<number>(length).fill(0);
+
 const resolveLayerDimension = (...values: Array<unknown>): number | undefined => {
   for (const value of values) {
     if (typeof value === 'number' && Number.isFinite(value)) {
@@ -1007,15 +1012,11 @@ const captureSavedGobletColorCycleDocumentState = (
   layer: Layer,
 ): ColorCyclePersistenceDocumentState | undefined => {
   const brushState = layer.colorCycleData?.brushState as PersistedColorCycleBrushState | undefined;
-  const layerSnapshot = getLayerSnapshot(brushState, layer.id);
-  const hasUnsupportedSchemaVersion = (
-    (brushState?.schemaVersion !== undefined && brushState.schemaVersion !== COLOR_CYCLE_PERSISTENCE_SCHEMA_VERSION) ||
-    (layerSnapshot?.schemaVersion !== undefined && layerSnapshot.schemaVersion !== COLOR_CYCLE_PERSISTENCE_SCHEMA_VERSION)
-  );
-  if (
-    !hasCanonicalBrushStateMarkers(brushState, layerSnapshot) ||
-    hasUnsupportedSchemaVersion
-  ) {
+  const eligibility = resolvePersistedColorCycleExportEligibility(layer);
+  if (!hasPersistedColorCycleCanonicalMarkers(brushState, eligibility.layerSnapshot)) {
+    return undefined;
+  }
+  if (!hasSupportedPersistedColorCycleSchema(brushState, eligibility.layerSnapshot)) {
     return undefined;
   }
 
@@ -1036,13 +1037,16 @@ const captureSavedGobletColorCycleDocumentState = (
 export const captureGobletColorCyclePersistenceSnapshot = (
   layer: Layer,
   project: Project,
+  options: { includeRuntimeBrush?: boolean } = {},
 ): ColorCyclePersistenceSnapshot => (
   captureColorCyclePersistenceSnapshot(layer, {
     projectWidth: layer.colorCycleData?.canvasWidth ?? layer.imageData?.width ?? layer.framebuffer?.width ?? project.width,
     projectHeight: layer.colorCycleData?.canvasHeight ?? layer.imageData?.height ?? layer.framebuffer?.height ?? project.height,
     requirePaint: layer.colorCycleData?.mode !== 'recolor',
     mode: 'export',
-    runtimeBrush: resolveColorCycleBrushInstance(layer) as { getFullState?: () => unknown; serialize?: () => unknown } | undefined,
+    runtimeBrush: options.includeRuntimeBrush === false
+      ? undefined
+      : resolveGobletColorCycleLiveBrush(layer) as { getFullState?: () => unknown; serialize?: () => unknown } | undefined,
     serializeRuntimeBrushState: (state) => serializeRuntimeBrushStateForExport(state, layer),
     diagnostics: (diagnostic) => {
       gobletDebugLog('[webglExporter] color cycle export persistence diagnostic', {
@@ -2066,6 +2070,7 @@ export const extractBrushStateFromSavedSnapshot = (layer: Layer): WebGLSerialize
       strokeData?: {
         paintBuffer?: unknown;
         gradientIdBuffer?: unknown;
+        gradientDefIdBuffer?: unknown;
         speedBuffer?: unknown;
         flowBuffer?: unknown;
         phaseBuffer?: unknown;
@@ -2079,6 +2084,15 @@ export const extractBrushStateFromSavedSnapshot = (layer: Layer): WebGLSerialize
 
   const entry = savedState.layers.find((candidate) => candidate?.layerId === layer.id) ?? savedState.layers[0];
   if (!entry) {
+    return undefined;
+  }
+  const eligibility = resolvePersistedColorCycleExportEligibility(layer);
+  if (eligibility.ok === false && (
+    eligibility.reason === 'missing-brush-state' ||
+    eligibility.reason === 'missing-layer-entry' ||
+    eligibility.reason === 'non-canonical' ||
+    eligibility.reason === 'unsupported-schema'
+  )) {
     return undefined;
   }
 
@@ -2097,7 +2111,13 @@ export const extractBrushStateFromSavedSnapshot = (layer: Layer): WebGLSerialize
     Math.round(
       Number.isFinite(Number(animatorIndexBuffer?.width))
         ? Number(animatorIndexBuffer?.width)
-        : (layer.imageData?.width ?? layer.colorCycleData?.canvas?.width ?? layer.colorCycleData?.canvasWidth ?? 1)
+        : (
+            layer.imageData?.width ??
+            layer.colorCycleData?.canvas?.width ??
+            layer.colorCycleData?.canvasWidth ??
+            (layer.framebuffer as HTMLCanvasElement | OffscreenCanvas | undefined)?.width ??
+            1
+          )
     )
   );
   const height = Math.max(
@@ -2105,15 +2125,24 @@ export const extractBrushStateFromSavedSnapshot = (layer: Layer): WebGLSerialize
     Math.round(
       Number.isFinite(Number(animatorIndexBuffer?.height))
         ? Number(animatorIndexBuffer?.height)
-        : (layer.imageData?.height ?? layer.colorCycleData?.canvas?.height ?? layer.colorCycleData?.canvasHeight ?? 1)
+        : (
+            layer.imageData?.height ??
+            layer.colorCycleData?.canvas?.height ??
+            layer.colorCycleData?.canvasHeight ??
+            (layer.framebuffer as HTMLCanvasElement | OffscreenCanvas | undefined)?.height ??
+            1
+          )
     )
   );
+  const pixelCount = width * height;
 
   const gradientIdBuffer = decodePersistedNumericBuffer(animatorIndexBuffer?.gradientId);
   const fallbackGradientIdBuffer = gradientIdBuffer.length > 0
     ? gradientIdBuffer
     : decodePersistedNumericBuffer(strokeData?.gradientIdBuffer);
-  const fallbackGradientDefIdBuffer = decodePersistedDefIdBuffer(layer.colorCycleData?.gradientDefIdBuffer);
+  const fallbackGradientDefIdBuffer = decodePersistedDefIdBuffer(
+    strokeData?.gradientDefIdBuffer ?? layer.colorCycleData?.gradientDefIdBuffer
+  );
   const speedBuffer = decodePersistedNumericBuffer(animatorIndexBuffer?.speedData);
   const fallbackSpeedBuffer = speedBuffer.length > 0
     ? speedBuffer
@@ -2150,8 +2179,8 @@ export const extractBrushStateFromSavedSnapshot = (layer: Layer): WebGLSerialize
     gradientIdBuffer: fallbackGradientIdBuffer.length > 0 ? fallbackGradientIdBuffer : undefined,
     gradientDefIdBuffer: fallbackGradientDefIdBuffer.length > 0 ? fallbackGradientDefIdBuffer : undefined,
     speedBuffer: fallbackSpeedBuffer.length > 0 ? fallbackSpeedBuffer : undefined,
-    flowBuffer: fallbackFlowBuffer.length > 0 ? fallbackFlowBuffer : undefined,
-    phaseBuffer: fallbackPhaseBuffer.length > 0 ? fallbackPhaseBuffer : undefined,
+    flowBuffer: fallbackFlowBuffer.length > 0 ? fallbackFlowBuffer : defaultNumericArray(pixelCount),
+    phaseBuffer: fallbackPhaseBuffer.length > 0 ? fallbackPhaseBuffer : defaultNumericArray(pixelCount),
     gradientStops,
     palette: paletteValues && paletteValues.length > 0 ? paletteValues : undefined,
     animationOffset,
@@ -2193,8 +2222,8 @@ const extractBrushStateFromDocumentState = (layer: Layer): WebGLSerializedBrushS
     gradientIdBuffer: gradientIdBuffer.length > 0 ? gradientIdBuffer : undefined,
     gradientDefIdBuffer: gradientDefIdBuffer.length > 0 ? gradientDefIdBuffer : undefined,
     speedBuffer: speedBuffer.length > 0 ? speedBuffer : undefined,
-    flowBuffer: flowBuffer.length > 0 ? flowBuffer : undefined,
-    phaseBuffer: phaseBuffer.length > 0 ? phaseBuffer : undefined,
+    flowBuffer: flowBuffer.length > 0 ? flowBuffer : defaultNumericArray(state.width * state.height),
+    phaseBuffer: phaseBuffer.length > 0 ? phaseBuffer : defaultNumericArray(state.width * state.height),
     gradientStops,
     animationOffset: 0,
     animationSpeed: resolveLayerColorCycleBaseSpeed(layer.colorCycleData),
@@ -2202,47 +2231,8 @@ const extractBrushStateFromDocumentState = (layer: Layer): WebGLSerializedBrushS
   };
 };
 
-let cachedBrushManager: Pick<ColorCycleBrushManager, 'getBrush'> | null = null;
-
-const getBrushManagerInstance = (): Pick<ColorCycleBrushManager, 'getBrush'> | null => {
-  if (cachedBrushManager) {
-    return cachedBrushManager;
-  }
-
-  try {
-    cachedBrushManager = getColorCycleBrushManager();
-    return cachedBrushManager;
-  } catch (error) {
-    debugLog('raw-console', '[webglExporter] Unable to load color cycle brush manager', error);
-    cachedBrushManager = null;
-  }
-
-  return null;
-};
-
-const resolveColorCycleBrushInstance = (layer: Layer): { serialize?: () => unknown } | undefined => {
-  const directBrush = layer.colorCycleData?.colorCycleBrush as { serialize?: () => unknown } | undefined;
-  if (directBrush && typeof directBrush.serialize === 'function') {
-    return directBrush;
-  }
-
-  try {
-    const manager = getBrushManagerInstance();
-    if (manager?.getBrush) {
-      const managedBrush = manager.getBrush(layer.id) as { serialize?: () => unknown } | undefined;
-      if (managedBrush && typeof managedBrush.serialize === 'function') {
-        return managedBrush;
-      }
-    }
-  } catch (error) {
-    debugLog('raw-console', '[webglExporter] Failed to resolve color cycle brush via manager', error);
-  }
-
-  return directBrush;
-};
-
 export const serializeBrushState = (layer: Layer): WebGLSerializedBrushState | undefined => {
-  const brush = resolveColorCycleBrushInstance(layer);
+  const brush = resolveGobletColorCycleLiveBrush(layer);
 
   if (brush?.serialize) {
     try {
@@ -2472,22 +2462,23 @@ export const serializeBrushState = (layer: Layer): WebGLSerializedBrushState | u
 
               const width = Math.max(1, Math.round(Number.isFinite(widthRaw) ? widthRaw : fallbackWidth));
               const height = Math.max(1, Math.round(Number.isFinite(heightRaw) ? heightRaw : fallbackHeight));
+              const pixelCount = width * height;
               const gradientStops = toSerializableGradientStops(
                 entry.data?.gradient?.gradientStops as Array<{ position?: number; color?: string }> | undefined,
                 layer.colorCycleData?.gradient ?? []
               );
               const gradientIdValues = toSerializableNumberArray(ib.gradientId);
-              const gradientIdBuffer = gradientIdValues.length > 0 ? gradientIdValues : undefined;
+              const gradientIdBuffer = gradientIdValues.length > 0 ? gradientIdValues : defaultNumericArray(pixelCount);
               const gradientDefIdValues = decodePersistedDefIdBuffer(
                 strokeData?.gradientDefIdBuffer ?? layer.colorCycleData?.gradientDefIdBuffer
               );
-              const gradientDefIdBuffer = gradientDefIdValues.length > 0 ? gradientDefIdValues : undefined;
+              const gradientDefIdBuffer = gradientDefIdValues.length > 0 ? gradientDefIdValues : defaultNumericArray(pixelCount);
               const speedValues = toSerializableNumberArray(ib.speedData);
               const speedBuffer = speedValues.length > 0 ? speedValues : undefined;
               const flowValues = toSerializableNumberArray(ib.flowData ?? strokeData?.flowBuffer);
-              const flowBuffer = flowValues.length > 0 ? flowValues : undefined;
+              const flowBuffer = flowValues.length > 0 ? flowValues : defaultNumericArray(pixelCount);
               const phaseValues = toSerializableNumberArray(ib.phaseData ?? strokeData?.phaseBuffer);
-              const phaseBuffer = phaseValues.length > 0 ? phaseValues : undefined;
+              const phaseBuffer = phaseValues.length > 0 ? phaseValues : defaultNumericArray(pixelCount);
               const animationOffset = typeof entry.data?.animation?.offset === 'number'
                 ? entry.data.animation.offset
                 : 0;
@@ -2559,6 +2550,7 @@ export const serializeBrushState = (layer: Layer): WebGLSerializedBrushState | u
             : (layer.imageData?.height ?? layer.colorCycleData?.canvasHeight ?? layer.colorCycleData?.canvas?.height ?? 1);
           const width = Math.max(1, Math.round(Number.isFinite(fallbackWidth) ? fallbackWidth : 1));
           const height = Math.max(1, Math.round(Number.isFinite(fallbackHeight) ? fallbackHeight : 1));
+          const pixelCount = width * height;
           const gradientStops = toSerializableGradientStops(
             entry.data?.gradient?.gradientStops as Array<{ position?: number; color?: string }> | undefined,
             layer.colorCycleData?.gradient ?? []
@@ -2581,11 +2573,11 @@ export const serializeBrushState = (layer: Layer): WebGLSerializedBrushState | u
             width,
             height,
             indexBuffer: strokeIndexBuffer,
-            gradientIdBuffer: gradientIdValues.length > 0 ? gradientIdValues : undefined,
-            gradientDefIdBuffer: gradientDefIdValues.length > 0 ? gradientDefIdValues : undefined,
+            gradientIdBuffer: gradientIdValues.length > 0 ? gradientIdValues : defaultNumericArray(pixelCount),
+            gradientDefIdBuffer: gradientDefIdValues.length > 0 ? gradientDefIdValues : defaultNumericArray(pixelCount),
             speedBuffer: speedValues.length > 0 ? speedValues : undefined,
-            flowBuffer: flowValues.length > 0 ? flowValues : undefined,
-            phaseBuffer: phaseValues.length > 0 ? phaseValues : undefined,
+            flowBuffer: flowValues.length > 0 ? flowValues : defaultNumericArray(pixelCount),
+            phaseBuffer: phaseValues.length > 0 ? phaseValues : defaultNumericArray(pixelCount),
             gradientStops,
             animationOffset,
             targetFPS,
@@ -2623,7 +2615,7 @@ export const serializeBrushState = (layer: Layer): WebGLSerializedBrushState | u
 };
 
 const serializeRuntimeBrushFallbackState = (layer: Layer): WebGLSerializedBrushState | undefined => {
-  const brush = resolveColorCycleBrushInstance(layer);
+  const brush = resolveGobletColorCycleLiveBrush(layer);
   return resolveGobletBrushStateFallback({
     documentState: () => undefined,
     brushProperties: () => extractBrushStateFromBrushProperties(brush, layer),
@@ -2696,6 +2688,15 @@ const resampleAlphaChannel = (imageData: ImageData, width: number, height: numbe
   return result;
 };
 
+const hasAnyMaskValue = (values: Uint8Array): boolean => {
+  for (let i = 0; i < values.length; i += 1) {
+    if (values[i] > 0) {
+      return true;
+    }
+  }
+  return false;
+};
+
 const captureColorCycleMaskDataset = (
   layer: Layer,
   width: number,
@@ -2765,10 +2766,14 @@ const captureColorCycleSoftEdgeMaskDataset = (
   }
   const normalizedWidth = Math.max(1, Math.floor(width));
   const normalizedHeight = Math.max(1, Math.floor(height));
+  const values = resampleAlphaChannel(maskSource, normalizedWidth, normalizedHeight);
+  if (!hasAnyMaskValue(values)) {
+    return undefined;
+  }
   return {
     width: normalizedWidth,
     height: normalizedHeight,
-    values: resampleAlphaChannel(maskSource, normalizedWidth, normalizedHeight),
+    values,
   };
 };
 
@@ -3048,7 +3053,7 @@ const shouldExportLayerAsAnimating = (
   return false;
 };
 
-export const serializeColorCycleData = async (
+export const serializeColorCycleDataFromResolvedLayer = async (
   layer: Layer,
   project: Project,
   speedWarning?: { warned: boolean },
@@ -3056,6 +3061,7 @@ export const serializeColorCycleData = async (
     forceSpeedBuffer?: boolean;
     layerSpeedScale?: number;
     toolSpeed?: number | null;
+    resolvedSource?: 'hydrated-archive-document-state' | 'persisted-brush-state' | 'live-runtime' | 'recolor-runtime';
   }
 ): Promise<ColorCycleSerializationResult | undefined> => {
   const data = layer.colorCycleData;
@@ -3068,7 +3074,12 @@ export const serializeColorCycleData = async (
   let exportSnapshot: ColorCyclePersistenceSnapshot | undefined;
   let exportDocumentState: ColorCyclePersistenceDocumentState | undefined;
   if (!data.recolorSettings) {
-    const shouldPreferHydratedArchiveState = data.runtimeHydrationState === 'warm';
+    const resolvedSource = options?.resolvedSource;
+    const canUseArchiveState = !resolvedSource || resolvedSource === 'hydrated-archive-document-state';
+    const canUsePersistedState = !resolvedSource || resolvedSource === 'persisted-brush-state';
+    const canUseDefaultableSavedSnapshot = canUsePersistedState || resolvedSource === 'hydrated-archive-document-state';
+    const canUseLiveRuntime = !resolvedSource || resolvedSource === 'live-runtime';
+    const shouldPreferHydratedArchiveState = canUseArchiveState && data.runtimeHydrationState === 'warm';
     if (shouldPreferHydratedArchiveState) {
       const savedDocumentState = captureSavedGobletColorCycleDocumentState(layer);
       const persistedBrushState = layer.colorCycleData?.brushState as PersistedColorCycleBrushState | undefined;
@@ -3080,14 +3091,16 @@ export const serializeColorCycleData = async (
         brushState = savedBrushState;
       }
     }
-    if (!brushState) {
-      exportSnapshot = captureGobletColorCyclePersistenceSnapshot(layer, project);
+    if (!brushState && (canUseArchiveState || canUsePersistedState)) {
+      exportSnapshot = captureGobletColorCyclePersistenceSnapshot(layer, project, {
+        includeRuntimeBrush: !options?.resolvedSource,
+      });
       if (exportSnapshot.ok) {
         exportDocumentState = exportSnapshot.documentState;
         brushState = persistenceDocumentStateToBrushState(layer, exportDocumentState, exportSnapshot.brushState);
       }
     }
-    if (!brushState) {
+    if (!brushState && canUsePersistedState) {
       const savedDocumentState = captureSavedGobletColorCycleDocumentState(layer);
       const persistedBrushState = layer.colorCycleData?.brushState as PersistedColorCycleBrushState | undefined;
       const savedBrushState = savedDocumentState
@@ -3098,8 +3111,13 @@ export const serializeColorCycleData = async (
         brushState = savedBrushState;
       }
     }
-    if (!brushState) {
-      brushState = serializeRuntimeBrushFallbackState(layer);
+    if (!brushState && canUseDefaultableSavedSnapshot) {
+      brushState = extractBrushStateFromSavedSnapshot(layer);
+    }
+    if (!brushState && canUseLiveRuntime) {
+      brushState = options?.resolvedSource === 'live-runtime'
+        ? serializeBrushState(layer) ?? serializeRuntimeBrushFallbackState(layer)
+        : serializeRuntimeBrushFallbackState(layer);
     }
     if (!brushState) {
       const failedSnapshot = exportSnapshot && !exportSnapshot.ok ? exportSnapshot : undefined;
@@ -3534,3 +3552,5 @@ export const serializeColorCycleData = async (
       : undefined
   };
 };
+
+export const serializeColorCycleData = serializeColorCycleDataFromResolvedLayer;

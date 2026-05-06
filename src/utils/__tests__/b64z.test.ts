@@ -3,7 +3,7 @@ jest.mock('fflate', () => {
   return { ...actual, deflateSync: jest.fn(actual.deflateSync) };
 });
 
-import { packArrayToB64Z, isB64ZString, B64Z_HEADER_PREFIX } from '@/utils/export/b64z';
+import { packArrayToB64Z, unpackB64ZToUint8Array, isB64ZString, B64Z_HEADER_PREFIX } from '@/utils/export/b64z';
 import * as fflate from 'fflate';
 
 describe('b64z utilities', () => {
@@ -18,6 +18,14 @@ describe('b64z utilities', () => {
     expect(result).not.toBeNull();
     expect(result?.startsWith(B64Z_HEADER_PREFIX)).toBe(true);
     expect(isB64ZString(result)).toBe(true);
+  });
+
+  it('decodes packed b64z data back to bytes', async () => {
+    const data = new Uint8Array(2048).fill(7);
+    const result = await packArrayToB64Z(data, 32);
+    expect(result).not.toBeNull();
+
+    expect(Array.from(unpackB64ZToUint8Array(result ?? ''))).toEqual(Array.from(data));
   });
 
   it('falls back to null when compression fails', async () => {

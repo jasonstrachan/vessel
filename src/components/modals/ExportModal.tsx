@@ -28,6 +28,14 @@ type ExportLayerProgressRow = {
   name: string;
   status: WebGLExportLayerStatus;
   message?: string;
+  colorCycle?: {
+    source?: string;
+    payloadPixels?: number;
+    nonZeroPaint?: number;
+    usedSlots?: number;
+    paletteSlots?: number;
+    diagnostics?: string[];
+  };
 };
 type ExportProgressModalState = {
   isOpen: boolean;
@@ -84,6 +92,13 @@ const WEBGL_PROGRESS_PHASE_LABELS: Record<WebGLExportProgressPhase, string> = {
 const LAYER_PROGRESS_LABELS: Record<WebGLExportLayerStatus, string> = {
   waiting: 'Waiting',
   exporting: 'Exporting',
+  'skipped-hidden': 'Skipped hidden',
+  'skipped-empty': 'Skipped empty',
+  'hydrating-cc-archive': 'Hydrating CC',
+  'building-cc-payload': 'Building CC',
+  'validating-cc-payload': 'Validating CC',
+  'packing-cc-payload': 'Packing CC',
+  exported: 'Exported',
   'static-preview': 'Static preview',
   done: 'Done',
   failed: 'Failed',
@@ -343,6 +358,15 @@ const ExportProgressModal: React.FC<ExportProgressModalProps> = ({
   const canClose = state.phase === 'complete' || state.phase === 'failed';
   const isBlocked = state.phase === 'blocked';
   const progressWidth = `${Math.max(0, Math.min(100, state.percent))}%`;
+  const diagnosticsText = state.layers
+    .flatMap((layer) => layer.colorCycle?.diagnostics?.map((diagnostic) => `${layer.name}: ${diagnostic}`) ?? [])
+    .join('\n');
+  const copyDiagnostics = () => {
+    if (!diagnosticsText || typeof navigator === 'undefined') {
+      return;
+    }
+    void navigator.clipboard?.writeText(diagnosticsText);
+  };
 
   return (
     <div
@@ -416,12 +440,37 @@ const ExportProgressModal: React.FC<ExportProgressModalProps> = ({
                         {layer.message}
                       </div>
                     )}
+                    {layer.colorCycle?.source && (
+                      <div className={`${MODAL_TEXT_SECONDARY} truncate text-xs`}>
+                        {layer.colorCycle.source}
+                        {typeof layer.colorCycle.nonZeroPaint === 'number' && layer.colorCycle.nonZeroPaint >= 0
+                          ? ` - ${layer.colorCycle.nonZeroPaint}/${layer.colorCycle.payloadPixels ?? '?'} px`
+                          : ''}
+                      </div>
+                    )}
+                    {layer.colorCycle?.diagnostics && layer.colorCycle.diagnostics.length > 0 && (
+                      <div className="mt-1 space-y-1">
+                        {layer.colorCycle.diagnostics.slice(0, 2).map((diagnostic) => (
+                          <div key={diagnostic} className="truncate text-xs text-[#F0D9A0]">
+                            {diagnostic}
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
                   <div className={`${MODAL_TEXT_SECONDARY} whitespace-nowrap text-xs`}>
                     {LAYER_PROGRESS_LABELS[layer.status]}
                   </div>
                 </div>
               ))}
+            </div>
+          )}
+
+          {diagnosticsText && (
+            <div className="flex justify-end">
+              <Button type="button" variant="secondary" size="sm" onClick={copyDiagnostics}>
+                Copy diagnostics
+              </Button>
             </div>
           )}
 
@@ -1088,6 +1137,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
               name: webgl.layer.name,
               status: webgl.layer.status,
               message: webgl.layer.message,
+              colorCycle: webgl.layer.colorCycle,
             })
           : current.layers,
       };

@@ -5,6 +5,7 @@ import { FLOW_SLOT_MASK } from '@/lib/colorCycle/flowEncoding';
 import { useAppStore } from '@/stores/useAppStore';
 import { hashStops } from '@/utils/colorCycleGradientDefs';
 import { captureLayerTexture } from '@/utils/export/goblet/gobletTextureEncoder';
+import * as colorCycleBrushManager from '@/stores/colorCycleBrushManager';
 import { BrushShape, type Layer, type Project } from '@/types';
 
 jest.mock('@/stores/colorCycleBrushManager', () => {
@@ -591,6 +592,117 @@ describe('exportProjectAsWebGL color cycle integration', () => {
     expect(exportedLayer.colorCycle?.recolorSettings).toBeDefined();
     expect(exportedLayer.colorCycle?.recolorSettings?.indexBuffer).toBeDefined();
     expect(exportedLayer.colorCycle?.recolorSettings?.gradient).toHaveLength(3);
+  });
+
+  it('skips empty color-cycle brush layers before payload validation', async () => {
+    const canvas = document.createElement('canvas');
+    canvas.width = 16;
+    canvas.height = 16;
+    const layer = createBrushModeLayer(canvas);
+    layer.id = 'empty-cc-layer';
+    layer.name = 'Empty CC Layer';
+    layer.colorCycleData = {
+      mode: 'brush',
+      isAnimating: true,
+      hasContent: false,
+      gradient: layer.colorCycleData?.gradient ?? [],
+    };
+    const project = createProject(layer);
+    const progress: string[] = [];
+
+    const metadata = await exportProjectAsWebGL({
+      project,
+      layers: [layer],
+      layout: createDefaultExportLayout(),
+      viewport: { designWidth: project.width, designHeight: project.height, mode: 'fixed' },
+      fps: 30,
+      totalFrames: 60,
+      durationSeconds: 2,
+      perfectLoop: false,
+      includeHiddenLayers: true,
+      embedCanvasFallback: false,
+      minify: false,
+      filenameBase: 'empty-color-cycle-export',
+      bundleFormat: 'json',
+      onProgress: (event) => {
+        if (event.layer) {
+          progress.push(event.layer.status);
+        }
+      },
+    });
+
+    expect(metadata.layers).toHaveLength(0);
+    expect(progress).toContain('skipped-empty');
+  });
+
+  it('does not skip empty-looking color-cycle layers with manager-backed live runtime', async () => {
+    const canvas = document.createElement('canvas');
+    canvas.width = 16;
+    canvas.height = 16;
+    const layer = createBrushModeLayer(canvas);
+    layer.id = 'manager-backed-cc-layer';
+    layer.name = 'Manager Backed CC Layer';
+    layer.colorCycleData = {
+      mode: 'brush',
+      isAnimating: true,
+      hasContent: false,
+      gradient: layer.colorCycleData?.gradient ?? [],
+      colorCycleBrush: undefined,
+    };
+    const liveRuntime = {
+      serialize: jest.fn(() => ({
+        layers: [{
+          layerId: 'manager-backed-cc-layer',
+          data: {
+            indexBuffer: {
+              width: 2,
+              height: 2,
+              data: Uint8Array.from([1, 2, 3, 4]),
+              gradientId: Uint8Array.from([0, 0, 0, 0]),
+              speedData: Uint8Array.from([128, 128, 128, 128]),
+              flowData: Uint8Array.from([1, 1, 1, 1]),
+              phaseData: Uint8Array.from([0, 64, 128, 192]),
+            },
+            gradient: {
+              gradientStops: layer.colorCycleData.gradient,
+            },
+          },
+        }],
+      })),
+    };
+    const mockManager = colorCycleBrushManager.getColorCycleBrushManager() as {
+      getBrush: jest.Mock;
+    };
+    mockManager.getBrush.mockReturnValue(liveRuntime);
+    const project = createProject(layer);
+    const progress: string[] = [];
+
+    const metadata = await exportProjectAsWebGL({
+      project,
+      layers: [layer],
+      layout: createDefaultExportLayout(),
+      viewport: { designWidth: project.width, designHeight: project.height, mode: 'fixed' },
+      fps: 30,
+      totalFrames: 60,
+      durationSeconds: 2,
+      perfectLoop: false,
+      includeHiddenLayers: true,
+      embedCanvasFallback: false,
+      minify: false,
+      filenameBase: 'manager-backed-color-cycle-export',
+      bundleFormat: 'json',
+      onProgress: (event) => {
+        if (event.layer) {
+          progress.push(event.layer.status);
+        }
+      },
+    });
+
+    expect(progress).not.toContain('skipped-empty');
+    expect(liveRuntime.serialize).toHaveBeenCalled();
+    expect(metadata.layers).toHaveLength(1);
+    expect(metadata.layers[0].colorCycle?.brushState?.indexBuffer).toBeDefined();
+    mockManager.getBrush.mockReset();
   });
 
   it('sizes recolor exports from the recolor surface instead of the framebuffer', async () => {
@@ -1209,6 +1321,42 @@ describe('exportProjectAsWebGL color cycle integration', () => {
       width: 2,
       height: 2,
     });
+  });
+
+  it('does not export all-zero soft-edge masks for brush payloads', async () => {
+    const canvas = document.createElement('canvas');
+    canvas.width = 128;
+    canvas.height = 128;
+
+    const layer = createSparseBrushModeLayer(canvas);
+    layer.colorCycleData!.softEdgeMaskImageData = createEraseMaskData(
+      8,
+      8,
+      () => false
+    );
+    const project = createProject(layer);
+    const layout = createDefaultExportLayout();
+
+    const metadata = await exportProjectAsWebGL({
+      project,
+      layers: [layer],
+      layout,
+      viewport: { designWidth: project.width, designHeight: project.height, mode: 'fixed' },
+      fps: 24,
+      totalFrames: 48,
+      durationSeconds: 2,
+      perfectLoop: false,
+      includeHiddenLayers: true,
+      embedCanvasFallback: false,
+      minify: false,
+      filenameBase: 'color-cycle-brush-empty-soft-edge-mask-goblet2',
+      bundleFormat: 'json',
+      gobletVersion: 'goblet2'
+    });
+
+    const exportedLayer = metadata.layers[0];
+    expect(exportedLayer.colorCycle?.brushState?.indexBuffer).toBeDefined();
+    expect(exportedLayer.colorCycle?.softEdgeMask).toBeUndefined();
   });
 
   it('preserves ImageBitmap crop contents when capturing cropped textures', async () => {

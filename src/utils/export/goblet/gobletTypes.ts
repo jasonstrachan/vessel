@@ -23,6 +23,13 @@ export type WebGLExportProgressPhase =
 export type WebGLExportLayerStatus =
   | 'waiting'
   | 'exporting'
+  | 'skipped-hidden'
+  | 'skipped-empty'
+  | 'hydrating-cc-archive'
+  | 'building-cc-payload'
+  | 'validating-cc-payload'
+  | 'packing-cc-payload'
+  | 'exported'
   | 'static-preview'
   | 'done'
   | 'failed'
@@ -37,6 +44,14 @@ export interface WebGLExportProgressEvent {
     name: string;
     status: WebGLExportLayerStatus;
     message?: string;
+    colorCycle?: {
+      source?: string;
+      payloadPixels?: number;
+      nonZeroPaint?: number;
+      usedSlots?: number;
+      paletteSlots?: number;
+      diagnostics?: string[];
+    };
   };
   error?: {
     message: string;

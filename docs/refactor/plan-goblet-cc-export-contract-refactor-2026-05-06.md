@@ -4,6 +4,28 @@
 
 Make Goblet export deterministic and inspectable for color-cycle layers by replacing the current fallback-heavy export path with one canonical export contract.
 
+## Completion Evidence - 2026-05-06
+
+Implemented in this change:
+
+- `src/utils/export/goblet/colorCycleExportSourceResolver.ts` resolves CC export sources into cloned/export-local layer snapshots.
+- `src/utils/export/goblet/colorCyclePayloadBuilder.ts` is the canonical Goblet CC payload builder used by `exportProjectAsWebGL()`.
+- `src/utils/export/goblet/colorCyclePayloadValidation.ts` validates dimensions, paint presence, slot palette coverage, and mask dimensions before packaging.
+- `src/utils/export/goblet/gobletMetadataSchema.ts` centralizes minify/unminify schema coverage; Goblet 1 and Goblet 2 runtime maps were updated and inline runtimes regenerated.
+- `ExportModal.tsx` now surfaces CC source, payload stats, diagnostics, skipped-hidden rows, failed rows, and copyable diagnostics.
+- `tests/helpers/gobletArtifactHarness.ts` plus `tests/goblet2-artifact-cc-export.spec.ts` render a synthetic Ada-like Goblet artifact, isolate visible CC layers, and pixel-check each layer.
+- `docs/bugs/goblet-cc-export-ada-evidence-2026-05-06.md`, `docs/exporting.md`, and `docs/color-cycle-compatibility-contract.md` record the export contract and evidence.
+
+Validation run:
+
+- `npm run type-check -- --pretty false`
+- `npm run lint`
+- `npm test -- --runInBand`
+- `npm run build:goblet-inline`
+- `npm run verify:goblet2-inline`
+- `node scripts/build-goblet-runtime.mjs --check --target=all`
+- `npx playwright test tests/goblet2-single-file-smoke.spec.ts tests/goblet2-binary-sidecar-smoke.spec.ts tests/goblet2-artifact-cc-export.spec.ts --reporter=line`
+
 The export path must:
 
 - preserve Vessel project color-cycle data; export is read/materialize-only and must not wipe or rewrite canonical CC data;
@@ -258,18 +280,18 @@ Do not commit the user’s portrait `.vs` fixture unless they explicitly approve
 
 ### Phase 0 - Freeze Current Evidence
 
-- [ ] Add a short bug note under `docs/bugs/` summarizing the Ada Lovelace export evidence:
+- [x] Add a short bug note under `docs/bugs/` summarizing the Ada Lovelace export evidence:
   - archive contains non-empty `CC Layer 1`;
   - exported HTML metadata contains non-empty `CC Layer 1`;
   - isolated runtime render is non-empty;
   - stale running Vessel can still produce old exporter code.
-- [ ] Triage current uncommitted Goblet/export patches before refactor:
+- [x] Triage current uncommitted Goblet/export patches before refactor:
   - mark each patch as `keep`, `revert`, or `supersede`;
   - record the evidence for that decision;
   - split file-size work from correctness work before committing either.
-- [ ] Do not add more broad fallback behavior.
-- [ ] Identify all files touched by current Goblet export changes and split unrelated size-work from correctness-work before commit.
-- [ ] Add a minimal artifact characterization harness before changing architecture:
+- [x] Do not add more broad fallback behavior.
+- [x] Identify all files touched by current Goblet export changes and split unrelated size-work from correctness-work before commit.
+- [x] Add a minimal artifact characterization harness before changing architecture:
   - export or use a generated single-file Goblet artifact;
   - isolate every visible layer in the artifact;
   - assert visible CC layers render non-zero non-background pixels;
@@ -277,19 +299,19 @@ Do not commit the user’s portrait `.vs` fixture unless they explicitly approve
 
 Validation:
 
-- [ ] `git diff --stat` reviewed for scope.
-- [ ] No destructive project mutation code added.
-- [ ] Source layer data is snapshotted before/after export and remains byte-identical.
-- [ ] Minimal artifact harness runs and captures the current baseline.
+- [x] `git diff --stat` reviewed for scope.
+- [x] No destructive project mutation code added.
+- [x] Source layer data is snapshotted before/after export and remains byte-identical.
+- [x] Minimal artifact harness runs and captures the current baseline.
 
 ### Phase 1 - Extract Source Resolver
 
-- [ ] Create `colorCycleExportSourceResolver.ts`.
-- [ ] Move lazy archive export hydration and document-state preference into this resolver.
-- [ ] Resolver returns export-local data structures; it must not patch the live `Layer` object.
-- [ ] Return an explicit source result instead of mutating layer state implicitly.
-- [ ] Preserve current `hydrateColorCycleArchiveRuntimeForExport()` as a compatibility adapter until callers migrate.
-- [ ] Add tests for:
+- [x] Create `colorCycleExportSourceResolver.ts`.
+- [x] Move lazy archive export hydration and document-state preference into this resolver.
+- [x] Resolver returns export-local data structures; it must not patch the live `Layer` object.
+- [x] Return an explicit source result instead of mutating layer state implicitly.
+- [x] Preserve current `hydrateColorCycleArchiveRuntimeForExport()` as a compatibility adapter until callers migrate.
+- [x] Add tests for:
   - cold archive layer with no brush snapshot creates a same-layer export snapshot;
   - blank live runtime cannot override non-empty archive state;
   - missing archive refs fail visibly;
@@ -298,75 +320,75 @@ Validation:
 
 Validation:
 
-- [ ] `npm test -- --runInBand src/utils/__tests__/projectIO.test.ts -t "lazy|archive|color-cycle"`
-- [ ] `npm run type-check -- --pretty false`
+- [x] `npm test -- --runInBand src/utils/__tests__/projectIO.test.ts -t "lazy|archive|color-cycle"`
+- [x] `npm run type-check -- --pretty false`
 
 ### Phase 2 - Build Canonical Payload Builder
 
-- [ ] Create `colorCyclePayloadBuilder.ts`.
-- [ ] Move these responsibilities out of `gobletColorCycleSerializer.ts`:
+- [x] Create `colorCyclePayloadBuilder.ts`.
+- [x] Move these responsibilities out of `gobletColorCycleSerializer.ts`:
   - `captureGobletColorCyclePersistenceSnapshot`;
   - saved document-state conversion;
   - runtime fallback selection;
   - slot palette resolution;
   - alpha/soft-edge mask attachment;
   - crop bounds generation.
-- [ ] Keep `gobletColorCycleSerializer.ts` as a packing/encoding layer only.
-- [ ] Remove duplicate source-selection paths after tests pass.
-- [ ] Add typed diagnostics for every fallback or rejection.
-- [ ] Builder accepts resolver output, not live mutable `Layer` state, once Phase 1 is complete.
+- [x] Keep `gobletColorCycleSerializer.ts` as a packing/encoding layer only.
+- [x] Remove duplicate source-selection paths after tests pass.
+- [x] Add typed diagnostics for every fallback or rejection.
+- [x] Builder accepts resolver output, not live mutable `Layer` state, once Phase 1 is complete.
 
 Validation:
 
-- [ ] Existing export tests pass.
-- [ ] New builder tests cover each source type.
-- [ ] No source path mutates canonical CC buffers.
-- [ ] Before/after immutability tests cover archive hydration, crop/mask handling, and packing.
+- [x] Existing export tests pass.
+- [x] New builder tests cover each source type.
+- [x] No source path mutates canonical CC buffers.
+- [x] Before/after immutability tests cover archive hydration, crop/mask handling, and packing.
 
 ### Phase 3 - Add Payload Validation
 
-- [ ] Create `colorCyclePayloadValidation.ts`.
-- [ ] Validate before packing and after packing.
-- [ ] Add non-zero paint summaries without scanning huge buffers more than once.
-- [ ] Emit progress diagnostics from validation.
-- [ ] Block export of malformed animated CC payloads unless user explicitly chooses static preview export.
+- [x] Create `colorCyclePayloadValidation.ts`.
+- [x] Validate before packing and after packing.
+- [x] Add non-zero paint summaries without scanning huge buffers more than once.
+- [x] Emit progress diagnostics from validation.
+- [x] Block export of malformed animated CC payloads unless user explicitly chooses static preview export.
 
 Validation:
 
-- [ ] Unit tests for mismatched buffer dimensions.
-- [ ] Unit tests for missing gradient def ids.
-- [ ] Unit tests for empty paint with `hasContent`.
-- [ ] Unit tests for crop/mask dimension mismatch.
+- [x] Unit tests for mismatched buffer dimensions.
+- [x] Unit tests for missing gradient def ids.
+- [x] Unit tests for empty paint with `hasContent`.
+- [x] Unit tests for crop/mask dimension mismatch.
 
 ### Phase 4 - Progress UI Preservation
 
-- [ ] Extend `WebGLExportProgress` types with CC diagnostics.
-- [ ] Update `exportProjectAsWebGL()` to emit phase-level progress for each CC source/build/validate/pack step.
-- [ ] Emit skipped progress entries for hidden/excluded layers when diagnostics/progress detail is enabled.
-- [ ] Update `ExportModal.tsx` to show:
+- [x] Extend `WebGLExportProgress` types with CC diagnostics.
+- [x] Update `exportProjectAsWebGL()` to emit phase-level progress for each CC source/build/validate/pack step.
+- [x] Emit skipped progress entries for hidden/excluded layers when diagnostics/progress detail is enabled.
+- [x] Update `ExportModal.tsx` to show:
   - current layer name;
   - source selected;
   - warnings/failure reason;
   - final exported/static/failed status.
-- [ ] Add tests for progress events.
+- [x] Add tests for progress events.
 
 Validation:
 
-- [ ] Existing export modal tests pass.
-- [ ] New test proves layer-by-layer progress still reports CC layers.
-- [ ] New test proves hidden/excluded layers are reported as skipped, not silently absent.
+- [x] Existing export modal tests pass.
+- [x] New test proves layer-by-layer progress still reports CC layers.
+- [x] New test proves hidden/excluded layers are reported as skipped, not silently absent.
 
 ### Phase 5 - Shared Metadata Schema
 
-- [ ] Extract property minify map.
-- [ ] Generate or share unminify map with Goblet runtime.
-- [ ] Cover every supported runtime artifact:
+- [x] Extract property minify map.
+- [x] Generate or share unminify map with Goblet runtime.
+- [x] Cover every supported runtime artifact:
   - `public/goblet/goblet.js`;
   - `public/goblet/goblet-inline.js`;
   - `public/goblet2/goblet2.js`;
   - `public/goblet2/goblet2-inline.js`.
-- [ ] If Goblet 1 is no longer supported for CC export, explicitly remove/de-scope it in UI/docs/tests instead of leaving it half-covered.
-- [ ] Add parity test:
+- [x] If Goblet 1 is no longer supported for CC export, explicitly remove/de-scope it in UI/docs/tests instead of leaving it half-covered.
+- [x] Add parity test:
   - every export minify key has runtime unminify support;
   - no duplicate minified keys;
   - critical CC keys are covered:
@@ -383,66 +405,66 @@ Validation:
     - `coverageBoundsSourcePx`;
     - `alphaMask`;
     - `softEdgeMask`.
-- [ ] Rebuild Goblet runtime assets.
+- [x] Rebuild Goblet runtime assets.
 
 Validation:
 
-- [ ] `npm run build:goblet-inline`
-- [ ] Runtime map parity test passes.
-- [ ] Existing Goblet 1 and Goblet 2 runtime regression tests pass, or Goblet 1 is explicitly de-scoped.
+- [x] `npm run build:goblet-inline`
+- [x] Runtime map parity test passes.
+- [x] Existing Goblet 1 and Goblet 2 runtime regression tests pass, or Goblet 1 is explicitly de-scoped.
 
 ### Phase 6 - Artifact Harness
 
-- [ ] Add Playwright artifact harness.
-- [ ] Add synthetic Ada-like fixture generator:
+- [x] Add Playwright artifact harness.
+- [x] Add synthetic Ada-like fixture generator:
   - full 2000x2000 CC layer;
   - sparse cropped CC layer;
   - many gradient defs;
   - erase mask present;
   - fixed pixel-perfect viewport.
-- [ ] Test single-file Goblet export.
-- [ ] Test compatible ZIP export.
-- [ ] Test smaller ZIP sidecar export through HTTP server, not `file://`.
-- [ ] Isolate each layer and pixel-check output.
-- [ ] Capture and fail on runtime console/page errors.
+- [x] Test single-file Goblet export.
+- [x] Test compatible ZIP export.
+- [x] Test smaller ZIP sidecar export through HTTP server, not `file://`.
+- [x] Isolate each layer and pixel-check output.
+- [x] Capture and fail on runtime console/page errors.
 
 Validation:
 
-- [ ] `npx playwright test tests/goblet2-artifact-cc-export.spec.ts --reporter=line`
-- [ ] Test fails if a visible CC layer renders blank.
+- [x] `npx playwright test tests/goblet2-artifact-cc-export.spec.ts --reporter=line`
+- [x] Test fails if a visible CC layer renders blank.
 
 ### Phase 7 - Remove Old Fallbacks
 
-- [ ] Delete obsolete fallback extraction branches that are now replaced by source resolver + payload builder.
-- [ ] Remove code that accepts gradient-only animated brush payloads.
-- [ ] Remove duplicate live-runtime preference checks.
-- [ ] Keep legacy static-preview import repair separate from Goblet animated export.
-- [ ] Update docs:
+- [x] Delete obsolete fallback extraction branches that are now replaced by source resolver + payload builder.
+- [x] Remove code that accepts gradient-only animated brush payloads.
+- [x] Remove duplicate live-runtime preference checks.
+- [x] Keep legacy static-preview import repair separate from Goblet animated export.
+- [x] Update docs:
   - `docs/exporting.md`;
   - `docs/color-cycle-compatibility-contract.md`;
   - this plan’s status checklist.
 
 Validation:
 
-- [ ] `rg` confirms only one Goblet CC source-selection path remains.
-- [ ] `npm test -- --runInBand src/utils/export tests/export-color-cycle-html.test.ts`
-- [ ] `npm run type-check -- --pretty false`
-- [ ] `npx eslint src/utils/export src/components/modals/ExportModal.tsx src/utils/projectIO.ts`
+- [x] `rg` confirms only one Goblet CC source-selection path remains.
+- [x] `npm test -- --runInBand src/utils/export tests/export-color-cycle-html.test.ts`
+- [x] `npm run type-check -- --pretty false`
+- [x] `npx eslint src/utils/export src/components/modals/ExportModal.tsx src/utils/projectIO.ts`
 
 ## Definition of Done
 
-- [ ] Goblet export has one canonical CC payload builder.
-- [ ] Export source selection is explicit and tested.
-- [ ] Export cannot silently produce a blank animated CC layer from non-empty Vessel CC data.
-- [ ] Export does not wipe or rewrite CC project data.
-- [ ] Export operates on cloned/export-local CC state; before/after source layer snapshots are byte-identical in tests.
-- [ ] Export UI still reports layer-by-layer progress.
-- [ ] Hidden/excluded layers are reported as skipped when detailed progress/diagnostics are enabled.
-- [ ] Minify/unminify maps cannot drift without test failure.
-- [ ] Goblet 1/Goblet 2 runtime schema coverage is explicit: both tested if supported, or Goblet 1 deliberately de-scoped.
-- [ ] Single-file, compatible ZIP, and smaller ZIP paths are artifact-tested.
-- [ ] Each exported visible CC layer is isolated and pixel-checked in Playwright.
-- [ ] Existing Ada-like structural repro passes using a synthetic fixture.
+- [x] Goblet export has one canonical CC payload builder.
+- [x] Export source selection is explicit and tested.
+- [x] Export cannot silently produce a blank animated CC layer from non-empty Vessel CC data.
+- [x] Export does not wipe or rewrite CC project data.
+- [x] Export operates on cloned/export-local CC state; before/after source layer snapshots are byte-identical in tests.
+- [x] Export UI still reports layer-by-layer progress.
+- [x] Hidden/excluded layers are reported as skipped when detailed progress/diagnostics are enabled.
+- [x] Minify/unminify maps cannot drift without test failure.
+- [x] Goblet 1/Goblet 2 runtime schema coverage is explicit: both tested if supported, or Goblet 1 deliberately de-scoped.
+- [x] Single-file, compatible ZIP, and smaller ZIP paths are artifact-tested.
+- [x] Each exported visible CC layer is isolated and pixel-checked in Playwright.
+- [x] Existing Ada-like structural repro passes using a synthetic fixture.
 
 ## Rollback Strategy
 

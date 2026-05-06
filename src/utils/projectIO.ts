@@ -2881,6 +2881,57 @@ export const hydrateColorCycleArchiveRuntimeForExport = async (layer: Layer): Pr
   await hydrateLazyColorCycleArchiveRuntime(layer);
 };
 
+export const hydrateColorCycleArchiveRuntimeSnapshotForExport = async (layer: Layer): Promise<Layer> => {
+  const snapshot = {
+    ...layer,
+    colorCycleData: layer.colorCycleData
+      ? {
+          ...layer.colorCycleData,
+          gradientIdBuffer: cloneBuffer(layer.colorCycleData.gradientIdBuffer),
+          gradientDefIdBuffer: cloneBuffer(layer.colorCycleData.gradientDefIdBuffer),
+          phaseBuffer: cloneBuffer(layer.colorCycleData.phaseBuffer),
+        }
+      : layer.colorCycleData,
+  };
+  const runtime = getLazyColorCycleArchiveRuntime(layer);
+  if (!runtime || !snapshot.colorCycleData) {
+    return snapshot;
+  }
+
+  const [
+    gradientIdBase64,
+    gradientDefIdBase64,
+    hydratedBrushState,
+  ] = await Promise.all([
+    hydrateArchiveBinaryRef(
+      runtime.gradientIdRef,
+      runtime.archiveZip,
+      runtime.binaryManifest,
+      runtime.cache,
+    ),
+    hydrateArchiveBinaryRef(
+      runtime.gradientDefIdRef,
+      runtime.archiveZip,
+      runtime.binaryManifest,
+      runtime.cache,
+    ),
+    hydratePersistedBrushStateArchiveRefs(runtime.brushState, runtime, layer.id),
+  ]);
+
+  snapshot.colorCycleData.gradientIdBuffer = gradientIdBase64
+    ? base64ToArrayBuffer(gradientIdBase64)
+    : undefined;
+  snapshot.colorCycleData.gradientDefIdBuffer = gradientDefIdBase64
+    ? base64ToArrayBuffer(gradientDefIdBase64)
+    : undefined;
+  if (hydratedBrushState) {
+    snapshot.colorCycleData.brushState = hydratedBrushState;
+  }
+  snapshot.colorCycleData.runtimeHydrationState = 'warm';
+  snapshot.colorCycleData.deferredRuntimeRestore = false;
+  return snapshot;
+};
+
 const isPrimaryColorCyclePayloadFailure = (reason: string): boolean => (
   reason === 'missing-canonical-paint' ||
   reason === 'missing-gradient-bindings' ||
