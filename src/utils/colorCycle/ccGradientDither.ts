@@ -316,16 +316,29 @@ const resolveRepresentativeSampledTarget = (
   if (!stops?.length) {
     return null;
   }
+  const samples = stops
+    .map((stop) => {
+      const rgb = parseCssRgb(stop.color);
+      return {
+        rgb,
+        tone: rgbToTone(rgb),
+      };
+    })
+    .sort((a, b) => a.tone - b.tone);
+  const trimCount = samples.length >= 5
+    ? Math.min(Math.floor(samples.length * 0.2), Math.floor((samples.length - 1) / 2))
+    : 0;
+  const representativeSamples = samples.slice(trimCount, samples.length - trimCount);
   let totalR = 0;
   let totalG = 0;
   let totalB = 0;
-  for (let i = 0; i < stops.length; i += 1) {
-    const rgb = parseCssRgb(stops[i].color);
+  for (let i = 0; i < representativeSamples.length; i += 1) {
+    const { rgb } = representativeSamples[i];
     totalR += rgb[0];
     totalG += rgb[1];
     totalB += rgb[2];
   }
-  const count = Math.max(1, stops.length);
+  const count = Math.max(1, representativeSamples.length);
   const rgb: [number, number, number] = [
     Math.round(totalR / count),
     Math.round(totalG / count),

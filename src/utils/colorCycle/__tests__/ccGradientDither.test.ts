@@ -637,6 +637,30 @@ describe('fillCcGradientDither', () => {
     expect(payload?.highIndex).toBeGreaterThan(payload?.lowIndex ?? 0);
   });
 
+  it('trims sampled extremes before choosing the flat sampled ink target', () => {
+    const sampledStops = [
+      { position: 0, color: '#000000' },
+      { position: 0.17, color: '#806040' },
+      { position: 0.33, color: '#806040' },
+      { position: 0.5, color: '#806040' },
+      { position: 0.67, color: '#806040' },
+      { position: 0.83, color: '#806040' },
+      { position: 1, color: '#ffffff' },
+    ];
+
+    const payload = resolveCcSampledFlatPatternPayload({
+      sampledSourceStops: sampledStops,
+      flatPosition: 0.5,
+      baseOffset: 0,
+      spread: 84,
+      flatSeed: 7,
+      ditherPatternDiversity: 100,
+    });
+
+    expect(payload?.targetRgb).toEqual([128, 96, 64]);
+    expect(payload?.targetColor).toBe('rgb(128, 96, 64)');
+  });
+
   it('has flat-mode coverage for every current pattern style', async () => {
     const width = 16;
     const height = 16;

@@ -169,6 +169,8 @@ Follow-up completed: sampled source capture now uses the CC sampled-gradient sam
 
 Follow-up completed: sampled shape finalize now keeps the reduced flat render palette separate from sampled source stops. Final fill options, sampled slot persistence, and the post-commit runtime palette use the sampled source stops, so a `Colors = 1` pattern can render with two inks without collapsing the Sampled Gradient Live UI data to the flat render palette.
 
+Follow-up completed: the sampled flat ink target now uses a tone-trimmed representative sample instead of a raw average. For five or more sampled stops, the darkest and lightest outliers are trimmed before averaging RGB, which keeps the two selected inks closer to the dominant sampled region and reduces abrupt color-cycle jumps.
+
 ### Step 1: Add Regression Tests First
 
 Status: done.
