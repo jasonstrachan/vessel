@@ -1628,6 +1628,28 @@ describe('ColorCycleBrushCanvas2D regression tests', () => {
     }
   });
 
+  it('preserves slot seam profile when activating an inactive sampled slot', () => {
+    const layerId = 'layer-sampled-soft-seam-activation';
+    const slot = 17;
+    const brush = new ColorCycleBrushCanvas2D(makeCanvas(4, 4), { forceCanvas2D: true });
+
+    brush.setGradientSlotStops(
+      layerId,
+      slot,
+      [
+        { position: 0, color: '#102030' },
+        { position: 1, color: '#90a0b0' },
+      ],
+      'soft'
+    );
+    brush.setActiveGradientSlot(layerId, slot);
+
+    const signature = (brush as unknown as {
+      gradientSignatures: Map<string, string>;
+    }).gradientSignatures.get(layerId);
+    expect(signature).toContain('|seam:soft');
+  });
+
   it('clears stale sampled shape def ids where a normal CC stroke paints over the same layer', () => {
     const canvas = makeCanvas(16, 16);
     const brush = new ColorCycleBrushCanvas2D(canvas, { forceCanvas2D: true });

@@ -85,6 +85,7 @@ describe('colorCycleMarkSession rebuild', () => {
     });
 
     expect(session).not.toBeNull();
+    expect(session?.seamProfile).toBe('soft');
     expect(session?.binding).toBeNull();
     expect(useAppStore.getState().layers[0]?.colorCycleData?.gradientDefStore).toEqual([]);
 
@@ -94,6 +95,7 @@ describe('colorCycleMarkSession rebuild', () => {
     expect(finalized?.binding).not.toBeNull();
     expect(finalizedLayer?.colorCycleData?.gradientDefStore).toHaveLength(1);
     expect(finalizedLayer?.colorCycleData?.gradientDefStore?.[0]?.source).toBe('sampled');
+    expect(finalizedLayer?.colorCycleData?.gradientDefStore?.[0]?.seamProfile).toBe('soft');
   });
 
   it('keeps sampled preview and finalized sampled stops unchanged', () => {
@@ -141,6 +143,36 @@ describe('colorCycleMarkSession rebuild', () => {
     expect(finalizedStops?.map((stop) => stop.color)).toEqual(
       session.previewStopsStored.map((stop) => stop.color)
     );
+  });
+
+  it('uses a hard seam for sampled sessions when sampled soft seam is disabled', () => {
+    const layer = createLayer();
+
+    useAppStore.setState((state) => ({
+      layers: [layer],
+      activeLayerId: layer.id,
+      tools: {
+        ...state.tools,
+        brushSettings: {
+          ...state.tools.brushSettings,
+          ccSampledSoftSeamEnabled: false,
+        },
+      },
+      project: state.project
+        ? { ...state.project, width: 2, height: 2, layers: [layer] }
+        : state.project,
+    }));
+
+    const session = beginMarkGradientSession({
+      layerId: layer.id,
+      markKind: 'shape',
+      gradientKind: 'linear',
+      source: 'sampled',
+      stops,
+    });
+
+    expect(session?.seamProfile).toBe('hard');
+    finalizeMarkGradientSession(layer.id);
   });
 
   it('freezes sampled dither render settings at mark start so later slider changes do not recolor the mark', () => {

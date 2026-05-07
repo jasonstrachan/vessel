@@ -425,6 +425,7 @@ export interface ColorCycleGradientDef {
 export interface ColorCycleSlotPalette {
   slot: number;
   stops: Array<{ position: number; color: string }>;
+  seamProfile?: GradientSeamProfile;
 }
 
 export interface ColorCycleGradientDefStoreEntry {
@@ -980,6 +981,7 @@ export interface BrushSettings {
   ditherEnabled: boolean; // true = use Sierra Lite dithering with colors palette
   ditherPaletteSpread?: number; // 0-100: how far apart palette colors spread to approximate selected color
   ditherPatternDiversity?: number; // 0-100: how strongly flat pattern mix is amplified and seeded for CC sampled dithers
+  ccSampledSoftSeamEnabled?: boolean; // sampled CC gradients: soften the loop seam during playback
   ditherPhaseJitter?: number; // 0-100: how much to offset dither tiles between stamps
   /** Link dither resolution/pixel size to input pressure */
   pressureLinkedFillResolution?: boolean;

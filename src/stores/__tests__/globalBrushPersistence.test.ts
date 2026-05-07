@@ -273,6 +273,7 @@ describe('global brush persistence', () => {
           gradientBands: 12,
           ditherPatternDiversity: 44,
           ditherPaletteSpread: 55,
+          ccSampledSoftSeamEnabled: false,
           ditherGradBgFill: false,
           colorCycleSpeed: 0.25,
           colorCycleFPS: 24,
@@ -296,6 +297,7 @@ describe('global brush persistence', () => {
     expect(active.gradientBands).toBe(12);
     expect(active.ditherPatternDiversity).toBe(44);
     expect(active.ditherPaletteSpread).toBe(55);
+    expect(active.ccSampledSoftSeamEnabled).toBe(false);
     expect(active.ditherGradBgFill).toBe(false);
     expect(active.colorCycleSpeed).toBe(0.25);
     expect(active.colorCycleFPS).toBe(24);
@@ -311,6 +313,7 @@ describe('global brush persistence', () => {
       gradientBands: 14,
       ditherPatternDiversity: 66,
       ditherPaletteSpread: 77,
+      ccSampledSoftSeamEnabled: true,
       ditherGradBgFill: true,
       colorCycleSpeed: 0.5,
       colorCycleFPS: 48,
@@ -330,6 +333,7 @@ describe('global brush persistence', () => {
         gradientBands: 14,
         ditherPatternDiversity: 66,
         ditherPaletteSpread: 77,
+        ccSampledSoftSeamEnabled: true,
         ditherGradBgFill: true,
         colorCycleSpeed: 0.5,
         colorCycleFPS: 48,

@@ -968,6 +968,7 @@ export class ColorCycleBrushCanvas2D {
   private gradientSignatures: Map<string, string> = new Map();
   private gradientSlotsByLayer: Map<string, Map<number, GradientStop[]>> = new Map();
   private gradientSlotSignaturesByLayer: Map<string, Map<number, string>> = new Map();
+  private gradientSlotSeamProfilesByLayer: Map<string, Map<number, GradientSeamProfile>> = new Map();
   private activeGradientSlots: Map<string, number> = new Map();
   private stampDitherEnabled: boolean = false;
   private stampDitherPixelSize: number = 1;
@@ -2595,6 +2596,11 @@ export class ColorCycleBrushCanvas2D {
       signatureMap = new Map();
       this.gradientSlotSignaturesByLayer.set(id, signatureMap);
     }
+    let seamProfileMap = this.gradientSlotSeamProfilesByLayer.get(id);
+    if (!seamProfileMap) {
+      seamProfileMap = new Map();
+      this.gradientSlotSeamProfilesByLayer.set(id, seamProfileMap);
+    }
 
     const signature = ColorCycleBrushCanvas2D.computeGradientSignature(stops, seamProfile);
     const previousSignature = signatureMap.get(clampedSlot);
@@ -2610,6 +2616,7 @@ export class ColorCycleBrushCanvas2D {
 
     signatureMap.set(clampedSlot, signature);
     slotMap.set(clampedSlot, stops);
+    seamProfileMap.set(clampedSlot, seamProfile);
 
     if (this.activeGradientSlots.get(id) === clampedSlot) {
       this.applyGradientForLayer(id, stops, seamProfile);
@@ -2640,6 +2647,11 @@ export class ColorCycleBrushCanvas2D {
       signatureMap = new Map();
       this.gradientSlotSignaturesByLayer.set(id, signatureMap);
     }
+    let seamProfileMap = this.gradientSlotSeamProfilesByLayer.get(id);
+    if (!seamProfileMap) {
+      seamProfileMap = new Map();
+      this.gradientSlotSeamProfilesByLayer.set(id, seamProfileMap);
+    }
 
     const signature = ColorCycleBrushCanvas2D.computeGradientSignature(stops, seamProfile);
     const previousSignature = signatureMap.get(clampedSlot);
@@ -2651,6 +2663,7 @@ export class ColorCycleBrushCanvas2D {
 
     signatureMap.set(clampedSlot, signature);
     slotMap.set(clampedSlot, stops);
+    seamProfileMap.set(clampedSlot, seamProfile);
 
     if (this.activeGradientSlots.get(id) === clampedSlot) {
       this.applyGradientForLayer(id, stops, seamProfile);
@@ -2682,7 +2695,9 @@ export class ColorCycleBrushCanvas2D {
     const slotMap = this.gradientSlotsByLayer.get(id);
     const stops = slotMap?.get(clampedSlot);
     if (stops && stops.length > 0) {
-      this.applyGradientForLayer(id, stops);
+      const seamProfile =
+        this.gradientSlotSeamProfilesByLayer.get(id)?.get(clampedSlot) ?? 'hard';
+      this.applyGradientForLayer(id, stops, seamProfile);
     }
   }
 
@@ -8230,6 +8245,7 @@ export class ColorCycleBrushCanvas2D {
     this.gradientSignatures.clear();
     this.gradientSlotsByLayer.clear();
     this.gradientSlotSignaturesByLayer.clear();
+    this.gradientSlotSeamProfilesByLayer.clear();
     this.activeGradientSlots.clear();
     this.defPaletteCacheByLayer.clear();
     this.appliedDefPaletteCacheByLayer.clear();

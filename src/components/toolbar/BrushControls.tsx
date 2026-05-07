@@ -39,6 +39,7 @@ import {
 import { CcForegroundGradientControls } from '@/components/toolbar/CcForegroundGradientControls';
 import { CcSampledGradientPreview } from '@/components/toolbar/CcSampledGradientPreview';
 import { resolveColorCycleGradientSourceState } from '@/hooks/canvas/handlers/colorCycle/colorCycleGradientSourceContract';
+import type { GradientSeamProfile } from '@/lib/colorCycle/gradientSeamProfile';
 import { drawTestSwatches } from "@/utils/drawTestSwatches";
 import { GradientEditor, type GradientEditorHandle } from "../ui/GradientEditor";
 import CustomSwitch from "../ui/CustomSwitch";
@@ -2024,10 +2025,13 @@ const BrushControls = () => {
                   unique: uniquePreviewColors,
                   samples: ccGradientSampleCount,
                 };
+                const previewSeamProfile: GradientSeamProfile =
+                  expectsSampled && activeSettings.ccSampledSoftSeamEnabled !== false ? 'soft' : 'hard';
                 return (
                   <CcSampledGradientPreviewWithDebug
                     stops={previewStops}
                     speed={activeSettings.colorCycleSpeed ?? DEFAULT_BRUSH_COLOR_CYCLE_SPEED}
+                    seamProfile={previewSeamProfile}
                     flowMode={activeSettings.colorCycleFlowMode}
                     isPaused={!effectiveColorCyclePlaying}
                     debug={previewDebug}
@@ -2043,6 +2047,14 @@ const BrushControls = () => {
                 >
                   Reset
                 </button>
+              </div>
+              <div className="mt-2 flex items-center justify-between text-xs text-[#D9D9D9]">
+                <span>Soft seam</span>
+                <CustomSwitch
+                  checked={activeSettings.ccSampledSoftSeamEnabled !== false}
+                  onChange={(checked) => setActiveSettings({ ccSampledSoftSeamEnabled: checked })}
+                  aria-label="Sampled gradient soft seam"
+                />
               </div>
             </>
           </div>

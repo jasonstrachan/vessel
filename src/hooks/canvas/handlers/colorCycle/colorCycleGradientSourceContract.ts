@@ -26,7 +26,7 @@ export type ColorCycleGradientSourceState = ReturnType<typeof resolveActiveColor
 
 export type ColorCycleGradientRenderSession = Pick<
   MarkGradientSession,
-  'binding' | 'frozenStopsStored' | 'frozenHash' | 'source' | 'gradientKind' | 'speedCps'
+  'binding' | 'frozenStopsStored' | 'frozenHash' | 'source' | 'gradientKind' | 'speedCps' | 'seamProfile'
 > & {
   sourceStopsStored?: MarkGradientSession['frozenStopsStored'];
 };
@@ -123,6 +123,7 @@ export const resolveColorCycleGradientRenderSession = ({
       source: session.source,
       gradientKind: session.gradientKind,
       speedCps: session.speedCps,
+      seamProfile: session.seamProfile,
     };
   }
 
@@ -151,6 +152,7 @@ export const resolveColorCycleGradientRenderSession = ({
       source: session.source,
       gradientKind: session.gradientKind,
       speedCps: session.speedCps,
+      seamProfile: session.seamProfile,
     };
   }
 
@@ -172,6 +174,7 @@ export const resolveColorCycleGradientRenderSession = ({
       source: session.source,
       gradientKind: session.gradientKind,
       speedCps: session.speedCps,
+      seamProfile: session.seamProfile,
     };
   }
 
@@ -183,5 +186,6 @@ export const resolveColorCycleGradientRenderSession = ({
     source: session.source,
     gradientKind: session.gradientKind,
     speedCps: session.speedCps,
+    seamProfile: session.seamProfile,
   };
 };

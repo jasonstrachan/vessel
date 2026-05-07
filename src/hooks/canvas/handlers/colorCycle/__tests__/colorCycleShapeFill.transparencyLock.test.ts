@@ -1173,6 +1173,7 @@ describe('colorCycleShapeFill transparency lock', () => {
       frozenHash: hashStops(sampledStops, 'linear'),
       binding: { kind: 'def', defId: 19, slot: 94 },
       speedCps: null,
+      seamProfile: 'soft',
     };
 
     await finalizeColorCycleShapeFillLinear(
@@ -1220,7 +1221,7 @@ describe('colorCycleShapeFill transparency lock', () => {
         colorCycleData: expect.objectContaining({
           paintSlot: 94,
           slotPalettes: expect.arrayContaining([
-            expect.objectContaining({ slot: 94, stops: sampledStops }),
+            expect.objectContaining({ slot: 94, stops: sampledStops, seamProfile: 'soft' }),
           ]),
         }),
       }),

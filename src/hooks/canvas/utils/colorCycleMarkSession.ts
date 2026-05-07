@@ -160,7 +160,9 @@ export const beginMarkGradientSession = (params: {
   if (!layer || layer.layerType !== 'color-cycle') {
     return null;
   }
-  const seamProfile: GradientSeamProfile = 'hard';
+  const sampledSoftSeamEnabled = state.tools.brushSettings.ccSampledSoftSeamEnabled !== false;
+  const seamProfile: GradientSeamProfile =
+    params.source === 'sampled' && sampledSoftSeamEnabled ? 'soft' : 'hard';
   const frozenStops = cloneStops(params.stops);
   const ditherRenderConfig = captureFrozenCcDitherRenderConfig();
   if (params.source === 'sampled') {

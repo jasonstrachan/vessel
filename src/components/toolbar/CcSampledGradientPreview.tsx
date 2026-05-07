@@ -2,12 +2,14 @@ import React from 'react';
 
 import { MAX_BRUSH_COLOR_CYCLE_SPEED } from '@/constants/colorCycle';
 import { GradientPalette } from '@/lib/GradientPalette';
+import type { GradientSeamProfile } from '@/lib/colorCycle/gradientSeamProfile';
 
 const PREVIEW_PALETTE_SIZE = 256;
 
 type CcSampledGradientPreviewProps = {
   stops: Array<{ position: number; color: string; opacity?: number }>;
   speed: number;
+  seamProfile?: GradientSeamProfile;
   flowMode?: 'forward' | 'reverse' | 'pingpong' | 'bounce' | 'backward';
   isPaused: boolean;
 };
@@ -15,6 +17,7 @@ type CcSampledGradientPreviewProps = {
 export const CcSampledGradientPreview = ({
   stops,
   speed,
+  seamProfile,
   flowMode,
   isPaused,
 }: CcSampledGradientPreviewProps) => {
@@ -31,15 +34,21 @@ export const CcSampledGradientPreview = ({
   const lastPhaseRef = React.useRef<number>(0);
   const isPausedRef = React.useRef<boolean>(isPaused);
   isPausedRef.current = isPaused;
+  const stopsSignature = React.useMemo(
+    () => stops
+      .map((stop) => `${stop.position}:${stop.color}:${Number.isFinite(stop.opacity) ? stop.opacity : 1}`)
+      .join('|'),
+    [stops]
+  );
 
   React.useEffect(() => {
     try {
-      const palette = new GradientPalette(stops);
+      const palette = new GradientPalette(stops, { seamProfile });
       paletteRef.current = palette.getPaletteColors();
     } catch {
       paletteRef.current = null;
     }
-  }, [stops]);
+  }, [seamProfile, stops, stopsSignature]);
 
   React.useEffect(() => {
     if (!stripCanvasRef.current) {
@@ -143,7 +152,7 @@ export const CcSampledGradientPreview = ({
 
     drawFrame(lastPhaseRef.current);
     return () => stop();
-  }, [drawFrame, flowMode, isPaused, speed]);
+  }, [drawFrame, flowMode, isPaused, seamProfile, speed, stopsSignature]);
 
   return (
     <canvas

@@ -309,6 +309,7 @@ describe('commitRasterOverlay', () => {
       frozenHash: 'hash-sampled',
       binding: { kind: 'def', defId: 22, slot: 6 },
       speedCps: 0.3,
+      seamProfile: 'soft',
     });
 
     const commitCommittedLayerState = jest.fn();
@@ -348,6 +349,15 @@ describe('commitRasterOverlay', () => {
       }
     );
 
+    expect(brush.setGradientSlotStops).toHaveBeenCalledWith(
+      layer.id,
+      6,
+      [
+        { position: 0, color: '#102030' },
+        { position: 1, color: '#90a0b0' },
+      ],
+      'soft'
+    );
     expect(commitCommittedLayerState).toHaveBeenCalledWith({
       layerId: layer.id,
       targetCanvas: canvas,
@@ -373,6 +383,7 @@ describe('commitRasterOverlay', () => {
           slotPalettes: [
             {
               slot: 6,
+              seamProfile: 'soft',
               stops: [
                 expect.objectContaining({ position: 0, color: '#081018' }),
                 expect.objectContaining({ position: 0.5, color: '#506070' }),

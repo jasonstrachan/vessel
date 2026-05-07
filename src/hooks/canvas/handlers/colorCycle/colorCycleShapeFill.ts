@@ -392,7 +392,7 @@ const applyResolvedShapeFillRuntimeBinding = ({
   applyRuntimeToBrush(brush, layerId, {
     layerId,
     paintSlot: renderSession.binding.slot,
-    slotPalettes: [{ slot: renderSession.binding.slot, stops: frozenStops }],
+    slotPalettes: [{ slot: renderSession.binding.slot, stops: frozenStops, seamProfile: renderSession.seamProfile }],
     flowMode: layer?.colorCycleData?.flowMode,
   });
 };
@@ -630,12 +630,13 @@ export const finalizeColorCycleShapeFillLinear = async (
           slot: renderSession.binding.slot,
           stops: persistStops,
           defId: undefined,
+          seamProfile: renderSession.seamProfile,
           reason: 'shape-commit-sampled-slot',
         });
         applyRuntimeToBrush(colorCycleBrush, args.activeLayerId, {
           layerId: args.activeLayerId,
           paintSlot: renderSession.binding.slot,
-          slotPalettes: [{ slot: renderSession.binding.slot, stops: persistStops }],
+          slotPalettes: [{ slot: renderSession.binding.slot, stops: persistStops, seamProfile: renderSession.seamProfile }],
           flowMode: getAppStoreState().layers.find((layer) => layer.id === args.activeLayerId)?.colorCycleData?.flowMode,
         });
         deps.ccLog('shape: sampled persist end', {
@@ -917,12 +918,13 @@ export const finalizeColorCycleShapeFillConcentric = async (
           slot: renderSession.binding.slot,
           stops: persistStops,
           defId: undefined,
+          seamProfile: renderSession.seamProfile,
           reason: 'shape-commit-sampled-slot',
         });
         applyRuntimeToBrush(colorCycleBrush, args.activeLayerId, {
           layerId: args.activeLayerId,
           paintSlot: renderSession.binding.slot,
-          slotPalettes: [{ slot: renderSession.binding.slot, stops: persistStops }],
+          slotPalettes: [{ slot: renderSession.binding.slot, stops: persistStops, seamProfile: renderSession.seamProfile }],
           flowMode: getAppStoreState().layers.find((layer) => layer.id === args.activeLayerId)?.colorCycleData?.flowMode,
         });
         deps.ccLog('shape: sampled persist end', {

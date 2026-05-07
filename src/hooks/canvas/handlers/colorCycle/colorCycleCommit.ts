@@ -13,7 +13,10 @@ import type {
 } from '@/hooks/brushEngine/colorCycleCommittedState';
 import type { DeferredColorCycleSaveOptions } from '@/hooks/canvas/handlers/colorCycle/colorCycleHistory';
 import type { BrushSettings, CanvasSnapshot, Layer } from '@/types';
-import { finalizeMarkGradientSession } from '@/hooks/canvas/utils/colorCycleMarkSession';
+import {
+  finalizeMarkGradientSession,
+  type MarkGradientSession,
+} from '@/hooks/canvas/utils/colorCycleMarkSession';
 import { FLOW_SLOT_MASK } from '@/lib/colorCycle/flowEncoding';
 import { TEMP_SAMPLE_SLOT } from '@/constants/colorCycle';
 import type { StoredStop } from '@/utils/colorCycleGradientDefs';
@@ -122,7 +125,12 @@ export type ManagedColorCycleBrush = ColorCycleBrushImplementation & {
   getCommittedGradientIdData?: (layerId: string) => Uint8Array | null;
   getCommittedDimensions?: (layerId: string) => { width: number; height: number } | null;
   getCommittedPaletteRGBABySlot?: (layerId: string) => Array<Uint8ClampedArray | Uint8Array | null> | null;
-  setGradientSlotStops?: (layerId: string, slot: number, stops: StoredStop[]) => void;
+  setGradientSlotStops?: (
+    layerId: string,
+    slot: number,
+    stops: StoredStop[],
+    seamProfile?: MarkGradientSession['seamProfile']
+  ) => void;
   remapCommittedGradientSlot?: (
     layerId: string,
     fromSlot: number,
@@ -485,7 +493,8 @@ export const commitColorCycleLayerStroke = async (
         brush.setGradientSlotStops(
           targetLayerId,
           committedSession.binding.slot,
-          committedSession.frozenStopsStored
+          committedSession.frozenStopsStored,
+          committedSession.seamProfile
         );
       }
 
@@ -606,6 +615,7 @@ export const commitColorCycleLayerStroke = async (
               slot: committedSession.binding.slot,
               stops: committedSession.frozenStopsStored,
               defId: committedSession.binding.defId,
+              seamProfile: committedSession.seamProfile,
               reason: 'stroke-commit-sampled-slot',
             });
           }

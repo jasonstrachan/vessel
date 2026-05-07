@@ -1,18 +1,35 @@
 import { getAppStoreState } from '@/stores/appStoreAccess';
 import { flushGradientApply, requestGradientApply } from '@/hooks/brushEngine/ccGradientApplyScheduler';
+import type { GradientSeamProfile } from '@/lib/colorCycle/gradientSeamProfile';
 import type { StoredStop } from '@/utils/colorCycleGradientDefs';
+
+type SampledSlotPalette = {
+  slot: number;
+  stops: Array<{ position: number; color: string; opacity?: number }>;
+  seamProfile?: GradientSeamProfile;
+};
+
+const buildSampledSlotPalette = (
+  slot: number,
+  stops: SampledSlotPalette['stops'],
+  seamProfile?: GradientSeamProfile,
+): SampledSlotPalette => (
+  seamProfile ? { slot, stops, seamProfile } : { slot, stops }
+);
 
 export const persistCommittedSampledSlot = ({
   layerId,
   slot,
   stops,
   defId,
+  seamProfile,
   reason,
 }: {
   layerId: string;
   slot: number;
   stops: StoredStop[];
   defId?: number;
+  seamProfile?: GradientSeamProfile;
   reason: string;
 }): void => {
   const state = getAppStoreState();
@@ -36,10 +53,10 @@ export const persistCommittedSampledSlot = ({
   const nextSlotPalettes = hasSlot
     ? slotPalettes.map((entry) =>
         entry.slot === slot
-          ? { slot, stops: nextStops }
+          ? buildSampledSlotPalette(slot, nextStops, seamProfile ?? entry.seamProfile)
           : entry
       )
-    : [...slotPalettes, { slot, stops: nextStops }];
+    : [...slotPalettes, buildSampledSlotPalette(slot, nextStops, seamProfile)];
   const effectivePlaying =
     state.colorCyclePlayback?.desiredPlaying === true && state.colorCyclePlayback.suspendDepth === 0;
 
