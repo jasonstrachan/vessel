@@ -165,7 +165,7 @@ The preferred rule:
 
 Status: implementation completed for the current pattern set on 2026-05-07. Future portrait-relative/object pattern entries still need their own writer/tests when those dropdown values are added.
 
-Follow-up completed: sampled source capture now uses the CC sampled-gradient sampler budget instead of the generic six-stop auto-sample cap, so the Sampled Gradient Live UI and sampled session data can carry richer source stops before `Colors = 1` resolves them to two output inks.
+Follow-up completed: sampled source capture now uses the CC sampled-gradient sampler budget instead of the generic six-stop auto-sample cap, so the Sampled Gradient Live UI and sampled session data can carry richer source stops before `Colors = 1` resolves them to two output inks. The first budget was 32 stops at 16px spacing; it was reduced to 16 stops at 32px spacing after live testing showed the animated color shifts felt too steppy.
 
 Follow-up completed: sampled shape finalize now keeps the reduced flat render palette separate from sampled source stops. Final fill options, sampled slot persistence, and the post-commit runtime palette use the sampled source stops, so a `Colors = 1` pattern can render with two inks without collapsing the Sampled Gradient Live UI data to the flat render palette.
 

@@ -13,8 +13,8 @@ import { hashStops, type StoredStop } from '@/utils/colorCycleGradientDefs';
 import { parseCssColorToRgba } from '@/hooks/canvas/utils/colorCycleHelpers';
 
 export const CC_SAMPLED_THROTTLE_MS = 120;
-export const CC_SAMPLED_MAX_STOPS = 32;
-export const CC_SAMPLED_SAMPLE_SPACING_PX = 16;
+export const CC_SAMPLED_MAX_STOPS = 16;
+export const CC_SAMPLED_SAMPLE_SPACING_PX = 32;
 
 export type CcSampledUpdateArgs = {
   session: MarkGradientSession;
