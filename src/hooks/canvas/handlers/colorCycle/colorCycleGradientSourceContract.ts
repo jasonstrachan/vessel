@@ -27,7 +27,9 @@ export type ColorCycleGradientSourceState = ReturnType<typeof resolveActiveColor
 export type ColorCycleGradientRenderSession = Pick<
   MarkGradientSession,
   'binding' | 'frozenStopsStored' | 'frozenHash' | 'source' | 'gradientKind' | 'speedCps'
->;
+> & {
+  sourceStopsStored?: MarkGradientSession['frozenStopsStored'];
+};
 
 export const resolveColorCycleGradientSource = ({
   ccGradientSource,
@@ -116,6 +118,7 @@ export const resolveColorCycleGradientRenderSession = ({
     return {
       binding: session.binding,
       frozenStopsStored: runtimeStops,
+      sourceStopsStored: session.source === 'sampled' ? runtimeStops : undefined,
       frozenHash: session.frozenHash,
       source: session.source,
       gradientKind: session.gradientKind,
@@ -143,6 +146,7 @@ export const resolveColorCycleGradientRenderSession = ({
     return {
       binding: session.binding,
       frozenStopsStored: renderPalette.renderStops,
+      sourceStopsStored: session.source === 'sampled' ? session.frozenStopsStored : undefined,
       frozenHash: renderHash,
       source: session.source,
       gradientKind: session.gradientKind,
@@ -163,6 +167,7 @@ export const resolveColorCycleGradientRenderSession = ({
     return {
       binding: session.binding,
       frozenStopsStored: session.frozenStopsStored,
+      sourceStopsStored: session.source === 'sampled' ? session.frozenStopsStored : undefined,
       frozenHash: session.frozenHash,
       source: session.source,
       gradientKind: session.gradientKind,
@@ -173,6 +178,7 @@ export const resolveColorCycleGradientRenderSession = ({
   return {
     binding: { kind: 'def', defId: renderDef.def.id, slot: renderDef.slot },
     frozenStopsStored: renderPalette.renderStops,
+    sourceStopsStored: session.source === 'sampled' ? session.frozenStopsStored : undefined,
     frozenHash: renderDef.hash,
     source: session.source,
     gradientKind: session.gradientKind,

@@ -1,4 +1,5 @@
 import { BrushShape, type BrushSettings } from '@/types';
+import { appendCCDebugOverlayEntry } from '@/utils/colorCycle/ccDebugOverlayStore';
 import type { ColorCycleBrushImplementation } from './ColorCycleBrushMigration';
 
 type SettingsBrush = ColorCycleBrushImplementation & {
@@ -9,6 +10,13 @@ type SettingsBrush = ColorCycleBrushImplementation & {
   setStampDitherPressureLinked?: (enabled: boolean) => void;
   setStampDitherBgFill?: (enabled: boolean) => void;
   setStampDitherClears?: (enabled: boolean) => void;
+};
+
+const logCcBrushSettingsPath = (event: string, data: Record<string, unknown>): void => {
+  if (process.env.NODE_ENV === 'test') {
+    return;
+  }
+  appendCCDebugOverlayEntry('log', `cc brush settings path: ${event}`, data);
 };
 
 export const updateColorCycleGradientBandsForLayer = ({
@@ -41,6 +49,11 @@ export const updateColorCycleGradientBandsForLayer = ({
   }
 
   const bands = gradientBands || 12;
+  logCcBrushSettingsPath('applyGradientBands', {
+    activeLayerId,
+    requestedGradientBands: gradientBands ?? null,
+    appliedBands: bands,
+  });
   brush.setGradientBands(bands);
   renderBrushToLayerCanvas(brush, activeLayerId);
   window.dispatchEvent(new CustomEvent('colorCycleFrameReady'));
@@ -162,6 +175,15 @@ export const updateColorCycleDitherSettings = ({
 
   try {
     instance.setDitherEnabled(enable);
+    logCcBrushSettingsPath('applyDitherSettings', {
+      enable,
+      isCCGradientActiveLayer,
+      shouldApplyToolbarSettings,
+      ditherEnabled: ditherEnabled ?? null,
+      stampDitherEnabled: stampDitherEnabled ?? null,
+      ditherAlgorithm: ditherAlgorithm ?? null,
+      patternStyle: patternStyle ?? null,
+    });
     if (typeof instance.setDitherStrength === 'function') {
       instance.setDitherStrength(enable ? 1 : 0);
     }

@@ -63,6 +63,34 @@ describe('resolveColorCycleShapeFillSourceOptions', () => {
     expect(options.ditherSampledStops).not.toBe(renderSession.frozenStopsStored);
   });
 
+  it('uses sampled source stops when a sampled render session has a reduced render palette', () => {
+    const sourceStops = [
+      { position: 0, color: '#112233' },
+      { position: 0.33, color: '#445566' },
+      { position: 0.66, color: '#778899' },
+      { position: 1, color: '#ddeeff' },
+    ];
+    const renderSession = makeSession({
+      source: 'sampled',
+      frozenStopsStored: [
+        { position: 0, color: '#112233' },
+        { position: 0.5, color: '#112233' },
+        { position: 1, color: '#ddeeff' },
+      ],
+      binding: { kind: 'def', defId: 41, slot: 15 },
+    }) as ReturnType<typeof makeSession> & { sourceStopsStored: typeof sourceStops };
+    renderSession.sourceStopsStored = sourceStops;
+
+    const options = resolveColorCycleShapeFillSourceOptions({
+      session: renderSession,
+      renderSession,
+    });
+
+    expect(options.ditherSampledStops).toEqual(sourceStops);
+    expect(options.ditherSampledStops).not.toBe(sourceStops);
+    expect(options.ditherSampledStops).not.toBe(renderSession.frozenStopsStored);
+  });
+
   it('handles fallback or missing render sessions without inventing source data', () => {
     expect(resolveColorCycleShapeFillSourceOptions({
       session: null,

@@ -2,7 +2,9 @@ import type { MarkGradientSession } from '@/hooks/canvas/utils/colorCycleMarkSes
 import type { StoredStop } from '@/utils/colorCycleGradientDefs';
 import { resolveColorCycleGradientSourceBehavior } from '@/hooks/canvas/handlers/colorCycle/colorCycleGradientSourceContract';
 
-type ShapeFillRenderSession = Pick<MarkGradientSession, 'source' | 'frozenStopsStored' | 'binding'> | null | undefined;
+type ShapeFillRenderSession = Pick<MarkGradientSession, 'source' | 'frozenStopsStored' | 'binding'> & {
+  sourceStopsStored?: MarkGradientSession['frozenStopsStored'];
+} | null | undefined;
 
 export type ColorCycleShapeFillSourceOptions = {
   ditherSampledStops?: StoredStop[];
@@ -32,7 +34,7 @@ export const resolveColorCycleShapeFillSourceOptions = ({
 
   return {
     ditherSampledStops: behavior?.usesSampledStops
-      ? cloneStoredStops(renderSession?.frozenStopsStored)
+      ? cloneStoredStops(renderSession?.sourceStopsStored ?? renderSession?.frozenStopsStored)
       : undefined,
     ditherBaseOffsetOverride: behavior?.usesSampledBaseOffset ? 0 : undefined,
     paintSlotOverride: renderSession?.binding?.slot,

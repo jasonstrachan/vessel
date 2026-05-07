@@ -1099,7 +1099,14 @@ describe('colorCycleShapeFill transparency lock', () => {
   it('persists sampled linear shape binding as the active paint slot', async () => {
     const sampledStops: StoredStop[] = [
       { position: 0, color: '#123456' },
+      { position: 0.33, color: '#345678' },
+      { position: 0.66, color: '#789abc' },
       { position: 1, color: '#abcdef' },
+    ];
+    const reducedRenderStops: StoredStop[] = [
+      { position: 0, color: '#000000' },
+      { position: 0.5, color: '#000000' },
+      { position: 1, color: '#ffffff' },
     ];
     const updateLayer = jest.fn();
     const setActiveGradientSlot = jest.fn();
@@ -1113,6 +1120,15 @@ describe('colorCycleShapeFill transparency lock', () => {
           colorCycleData: {
             paintSlot: 0,
             slotPalettes: [],
+            gradientDefStore: [
+              {
+                id: 19,
+                kind: 'linear',
+                slot: 94,
+                stops: reducedRenderStops,
+                hash: hashStops(reducedRenderStops, 'linear'),
+              },
+            ],
           },
         },
       ],
@@ -1204,7 +1220,7 @@ describe('colorCycleShapeFill transparency lock', () => {
         colorCycleData: expect.objectContaining({
           paintSlot: 94,
           slotPalettes: expect.arrayContaining([
-            expect.objectContaining({ slot: 94 }),
+            expect.objectContaining({ slot: 94, stops: sampledStops }),
           ]),
         }),
       }),

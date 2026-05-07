@@ -11,7 +11,15 @@ import {
   getActiveMarkGradientSession,
   cancelMarkGradientSession,
 } from '@/hooks/canvas/utils/colorCycleMarkSession';
+import { appendCCDebugOverlayEntry } from '@/utils/colorCycle/ccDebugOverlayStore';
 import { updateCcSampledSession } from './ccSampling';
+
+const logSampledController = (event: string, payload: Record<string, unknown>): void => {
+  if (process.env.NODE_ENV === 'test') {
+    return;
+  }
+  appendCCDebugOverlayEntry('log', `sampled controller: ${event}`, payload);
+};
 
 export interface CcGradientSampleCountWriterDeps {
   sampleCountRef: React.MutableRefObject<number>;
@@ -60,6 +68,11 @@ export const updateCcSampledGradientController = (
   const targetLayerId = options?.layerId ?? deps.storeRef.current.activeLayerId;
   const isShapeSampledUpdate = options?.markKind === 'shape';
   if (!targetLayerId) {
+    logSampledController('skipped missing layer', {
+      sourcePts: sourcePts.length,
+      optionLayerId: options?.layerId ?? null,
+      activeLayerId: deps.storeRef.current.activeLayerId ?? null,
+    });
     deps.ccLog('sampled tick skipped', {
       reason: 'missing-layer',
       sourcePtsLen: sourcePts.length,
@@ -96,10 +109,26 @@ export const updateCcSampledGradientController = (
         sourcePtsLen: sourcePts.length,
         activeStopsLen: resolved.activeStops.length,
       });
+      logSampledController('session bootstrap', {
+        layerId: targetLayerId,
+        started: Boolean(session),
+        sourcePts: sourcePts.length,
+        activeStopsLen: resolved.activeStops.length,
+        gradientBands: currentState.tools.brushSettings.gradientBands ?? null,
+        ditherAlgorithm: currentState.tools.brushSettings.ditherAlgorithm ?? null,
+        patternStyle: currentState.tools.brushSettings.patternStyle ?? null,
+      });
     }
   }
 
   if (!session || session.source !== 'sampled') {
+    logSampledController('skipped session', {
+      reason: !session ? 'missing-session' : 'non-sampled-session',
+      layerId: targetLayerId,
+      sessionSource: session?.source ?? null,
+      sourcePts: sourcePts.length,
+      ccGradientSource: deps.storeRef.current.tools.ccGradientSource,
+    });
     deps.ccLog('sampled tick skipped', {
       reason: !session ? 'missing-session' : 'non-sampled-session',
       layerId: targetLayerId,
@@ -110,6 +139,14 @@ export const updateCcSampledGradientController = (
   }
 
   const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
+  logSampledController('tick', {
+    layerId: targetLayerId,
+    markKind: options?.markKind ?? null,
+    sourcePts: sourcePts.length,
+    previewLen: session.previewStopsStored?.length ?? 0,
+    fallbackLen: session.fallbackStopsStored?.length ?? 0,
+    frozenLen: session.frozenStopsStored?.length ?? 0,
+  });
   deps.ccLog('sampled tick', {
     layerId: targetLayerId,
     markId: session.markId,
@@ -125,9 +162,22 @@ export const updateCcSampledGradientController = (
   });
 
   if (!result) {
+    logSampledController('no sampled result', {
+      layerId: targetLayerId,
+      sourcePts: sourcePts.length,
+      previewLen: session.previewStopsStored?.length ?? 0,
+      samplesLen: session.samples?.length ?? 0,
+    });
     return;
   }
 
+  logSampledController('sampled result', {
+    layerId: targetLayerId,
+    sampleCount: result.sampleCount,
+    stopCount: result.stops.length,
+    uniqueColors: new Set(result.stops.map((stop) => stop.color)).size,
+    updated: result.updated,
+  });
   deps.writeCcGradientSampleCount(result.sampleCount, now);
   if (result.updated) {
     requestGradientApply(targetLayerId, 'sampled-tick');

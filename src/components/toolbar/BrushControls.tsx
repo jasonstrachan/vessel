@@ -59,6 +59,7 @@ import {
   setSharedColorCycleGradient
 } from "../../utils/colorCycleGradients";
 import { getPreviewGradientForActiveMark } from '@/hooks/canvas/utils/colorCycleMarkSession';
+import { appendCCDebugOverlayEntry } from '@/utils/colorCycle/ccDebugOverlayStore';
 import {
   PRESSURE_BASE_PERCENT,
   clampPressureDeltaPercent,
@@ -88,6 +89,13 @@ const BRUSH_COLOR_CYCLE_SLIDER_STEP = 0.001;
 const CUSTOM_GRADIENTS_STORAGE_KEY = 'vessel_custom_gradients';
 
 type BrushGradientStop = NonNullable<BrushSettings['colorCycleGradient']>[number];
+type CcSampledGradientDebugPayload = {
+  source: string;
+  phase: string;
+  stops: number;
+  unique: number;
+  samples: number;
+};
 type SavedBrushGradient = {
   id: string;
   name: string;
@@ -98,6 +106,30 @@ type SavedBrushGradient = {
 
 const DEFAULT_PRESET_ID_SET = new Set(GRADIENT_PRESETS.map((gradient) => gradient.id));
 let savedGradientIdSequence = 0;
+
+const CcSampledGradientPreviewWithDebug = ({
+  debug,
+  ...previewProps
+}: React.ComponentProps<typeof CcSampledGradientPreview> & {
+  debug: CcSampledGradientDebugPayload;
+}) => {
+  const { source, phase, stops, unique, samples } = debug;
+
+  React.useEffect(() => {
+    if (process.env.NODE_ENV === 'test') {
+      return;
+    }
+    appendCCDebugOverlayEntry('log', 'sampled gradient ui', {
+      source,
+      phase,
+      stops,
+      unique,
+      samples,
+    });
+  }, [source, phase, stops, unique, samples]);
+
+  return <CcSampledGradientPreview {...previewProps} />;
+};
 
 const cloneGradientStops = (stops: BrushGradientStop[]): BrushGradientStop[] =>
   stops.map((stop) => ({ ...stop }));
@@ -1427,6 +1459,17 @@ const BrushControls = () => {
 
   const handleGradientSourceChange = React.useCallback((value: string) => {
     const nextSource = value === 'fg' ? 'fg' : value === 'sample' ? 'sampled' : 'manual';
+    if (process.env.NODE_ENV !== 'test') {
+      appendCCDebugOverlayEntry('log', 'cc gradient source control changed', {
+        rawValue: value,
+        nextSource,
+        activeLayerId,
+        isColorCycleGradientPreset,
+        gradientBands: activeSettings.gradientBands ?? null,
+        ditherAlgorithm: activeSettings.ditherAlgorithm ?? null,
+        patternStyle: activeSettings.patternStyle ?? null,
+      });
+    }
     flushGradientEditorDraft();
     editingGradientIdRef.current = null;
     persistedGradientIdRef.current = null;
@@ -1441,6 +1484,11 @@ const BrushControls = () => {
     flushGradientEditorDraft,
     flushPendingGradient,
     setCcGradientSource,
+    activeLayerId,
+    isColorCycleGradientPreset,
+    activeSettings.gradientBands,
+    activeSettings.ditherAlgorithm,
+    activeSettings.patternStyle,
   ]);
 
   const renderSavedGradientOption = React.useCallback((option: { value: string; label: string; isAction?: boolean }) => {
@@ -1517,6 +1565,16 @@ const BrushControls = () => {
               return;
             }
             if (action === 'toggle-sampled') {
+              if (process.env.NODE_ENV !== 'test') {
+                appendCCDebugOverlayEntry('log', 'cc gradient sample action selected', {
+                  activeLayerId,
+                  isColorCycleGradientPreset,
+                  gradientBands: activeSettings.gradientBands ?? null,
+                  ditherAlgorithm: activeSettings.ditherAlgorithm ?? null,
+                  patternStyle: activeSettings.patternStyle ?? null,
+                  ccGradientSource: resolvedGradientSource,
+                });
+              }
               flushGradientEditorDraft();
               setActiveSettings({ autoSampleGradient: true });
               addNotification?.({
@@ -1573,6 +1631,11 @@ const BrushControls = () => {
     scheduleGradientFlush,
     selectedGradientId,
     setActiveSettings,
+    activeLayerId,
+    isColorCycleGradientPreset,
+    resolvedGradientSource,
+    activeSettings.ditherAlgorithm,
+    activeSettings.patternStyle,
   ]);
 
   const handleToggleCustomColorCycle = React.useCallback((checked: boolean) => {
@@ -1948,12 +2011,26 @@ const BrushControls = () => {
                   (expectsSampled ? null : resolvedLayerStops) ??
                   activeSettings.colorCycleGradient ??
                   DEFAULT_GRADIENT_STOPS;
+                const uniquePreviewColors = new Set(
+                  previewStops.map((stop) => {
+                    const opacity = 'opacity' in stop ? stop.opacity ?? 1 : 1;
+                    return `${stop.color}|${opacity}`;
+                  })
+                ).size;
+                const previewDebug = {
+                  source: previewResult?.source ?? (expectsSampled ? 'missing-sampled-preview' : 'fallback'),
+                  phase: previewResult?.phase ?? 'none',
+                  stops: previewStops.length,
+                  unique: uniquePreviewColors,
+                  samples: ccGradientSampleCount,
+                };
                 return (
-                  <CcSampledGradientPreview
+                  <CcSampledGradientPreviewWithDebug
                     stops={previewStops}
                     speed={activeSettings.colorCycleSpeed ?? DEFAULT_BRUSH_COLOR_CYCLE_SPEED}
                     flowMode={activeSettings.colorCycleFlowMode}
                     isPaused={!effectiveColorCyclePlaying}
+                    debug={previewDebug}
                   />
                 );
               })()}

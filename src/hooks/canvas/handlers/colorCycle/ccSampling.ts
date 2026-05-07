@@ -2,17 +2,19 @@ import { getAppStoreState } from '@/stores/appStoreAccess';
 import type React from 'react';
 import type { MarkGradientSession } from '@/hooks/canvas/utils/colorCycleMarkSession';
 import {
-  AUTO_SAMPLE_MAX_STOPS,
   MIN_AUTO_SAMPLE_PREVIEW_DISTANCE,
   computePolylineLength,
   dedupePolylineForSampling,
 } from '@/hooks/canvas/utils/autoSampleGradient';
 import { equidistantPointsOnPolyline } from '@/hooks/canvas/handlers/brushSampling';
 import { resolveStrokeDitherPalette } from '@/hooks/brushEngine/engineShared';
+import { appendCCDebugOverlayEntry } from '@/utils/colorCycle/ccDebugOverlayStore';
 import { hashStops, type StoredStop } from '@/utils/colorCycleGradientDefs';
 import { parseCssColorToRgba } from '@/hooks/canvas/utils/colorCycleHelpers';
 
 export const CC_SAMPLED_THROTTLE_MS = 120;
+export const CC_SAMPLED_MAX_STOPS = 32;
+export const CC_SAMPLED_SAMPLE_SPACING_PX = 16;
 
 export type CcSampledUpdateArgs = {
   session: MarkGradientSession;
@@ -27,6 +29,13 @@ export type CcSampledUpdateResult = {
   updated: boolean;
   sampleCount: number;
   stops: StoredStop[];
+};
+
+const logSampledPipeline = (event: string, payload: Record<string, unknown>): void => {
+  if (process.env.NODE_ENV === 'test') {
+    return;
+  }
+  appendCCDebugOverlayEntry('log', `sampled pipeline: ${event}`, payload);
 };
 
 const buildSingleSampleAnimatedStops = (color: string): StoredStop[] => {
@@ -59,11 +68,19 @@ export const buildSampledStops = (params: {
 }): { stops: StoredStop[]; samples: Array<{ t01: number; rgba: [number, number, number, number] }>; sampleCount: number } | null => {
   const deduped = dedupePolylineForSampling(params.sourcePts);
   if (deduped.length === 0) {
+    logSampledPipeline('buildSampledStops empty', {
+      sourcePts: params.sourcePts.length,
+    });
     return null;
   }
   if (deduped.length === 1) {
     const color = params.sampleColor(deduped[0].x, deduped[0].y);
     const rgba = parseCssColorToRgba(color);
+    logSampledPipeline('buildSampledStops single', {
+      sourcePts: params.sourcePts.length,
+      deduped: deduped.length,
+      color,
+    });
     return {
       stops: buildSingleSampleAnimatedStops(color),
       samples: [{ t01: 0, rgba }],
@@ -73,15 +90,27 @@ export const buildSampledStops = (params: {
 
   const totalLen = computePolylineLength(deduped);
   if (!params.allowTiny && totalLen < MIN_AUTO_SAMPLE_PREVIEW_DISTANCE) {
+    logSampledPipeline('buildSampledStops too short', {
+      sourcePts: params.sourcePts.length,
+      deduped: deduped.length,
+      totalLen: Number(totalLen.toFixed(2)),
+      allowTiny: params.allowTiny,
+    });
     return null;
   }
 
   const sampleCount = Math.min(
-    AUTO_SAMPLE_MAX_STOPS,
-    Math.max(2, Math.floor(totalLen / 64) + 2)
+    CC_SAMPLED_MAX_STOPS,
+    Math.max(2, Math.floor(totalLen / CC_SAMPLED_SAMPLE_SPACING_PX) + 2)
   );
   const sampledPoints = equidistantPointsOnPolyline(deduped, sampleCount);
   if (sampledPoints.length === 0) {
+    logSampledPipeline('buildSampledStops no sampled points', {
+      sourcePts: params.sourcePts.length,
+      deduped: deduped.length,
+      totalLen: Number(totalLen.toFixed(2)),
+      requestedSampleCount: sampleCount,
+    });
     return null;
   }
 
@@ -96,14 +125,35 @@ export const buildSampledStops = (params: {
     samples.push({ t01, rgba: parseCssColorToRgba(color) });
   }
 
+  logSampledPipeline('buildSampledStops', {
+    sourcePts: params.sourcePts.length,
+    deduped: deduped.length,
+    totalLen: Number(totalLen.toFixed(2)),
+    requestedSampleCount: sampleCount,
+    sampledPoints: sampledPoints.length,
+    stopCount: stops.length,
+    uniqueColors: new Set(stops.map((stop) => stop.color)).size,
+  });
+
   return { stops, samples, sampleCount: sampledPoints.length };
 };
 
 export const updateCcSampledSession = (args: CcSampledUpdateArgs): CcSampledUpdateResult | null => {
   if (args.now - args.lastUpdateRef.current < CC_SAMPLED_THROTTLE_MS) {
+    logSampledPipeline('updateCcSampledSession throttled', {
+      now: Number(args.now.toFixed(2)),
+      last: Number(args.lastUpdateRef.current.toFixed(2)),
+      delta: Number((args.now - args.lastUpdateRef.current).toFixed(2)),
+      sourcePts: args.sourcePts.length,
+    });
     return null;
   }
   if (!args.session || args.session.source !== 'sampled') {
+    logSampledPipeline('updateCcSampledSession skipped session', {
+      hasSession: Boolean(args.session),
+      source: args.session?.source ?? null,
+      sourcePts: args.sourcePts.length,
+    });
     return null;
   }
 
@@ -113,6 +163,11 @@ export const updateCcSampledSession = (args: CcSampledUpdateArgs): CcSampledUpda
     allowTiny: Boolean(args.allowTiny),
   });
   if (!result || result.stops.length < 2) {
+    logSampledPipeline('updateCcSampledSession no result', {
+      hasResult: Boolean(result),
+      stopCount: result?.stops.length ?? 0,
+      sourcePts: args.sourcePts.length,
+    });
     return null;
   }
 
@@ -125,6 +180,12 @@ export const updateCcSampledSession = (args: CcSampledUpdateArgs): CcSampledUpda
     fallbackStops.length > result.stops.length &&
     isDegenerateSampledPreview;
   if (shouldPreserveFallback) {
+    logSampledPipeline('updateCcSampledSession preserve fallback', {
+      resultSampleCount: result.sampleCount,
+      resultStops: result.stops.length,
+      resultUniqueColors: sampledUniqueColors,
+      fallbackStops: fallbackStops?.length ?? 0,
+    });
     args.lastUpdateRef.current = args.now;
     return {
       updated: false,
@@ -139,6 +200,12 @@ export const updateCcSampledSession = (args: CcSampledUpdateArgs): CcSampledUpda
   args.session.previewHash = nextHash;
   args.session.samples = result.samples;
   args.lastUpdateRef.current = args.now;
+  logSampledPipeline('updateCcSampledSession commit preview', {
+    sampleCount: result.sampleCount,
+    stopCount: result.stops.length,
+    uniqueColors: sampledUniqueColors,
+    previewHash: nextHash,
+  });
 
   return {
     updated,

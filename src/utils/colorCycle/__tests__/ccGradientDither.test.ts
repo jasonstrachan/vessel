@@ -1,7 +1,9 @@
 import {
   fillCcGradientDither,
+  resolveCcSampledFlatPatternPayload,
   resolveSampledFlatPositionMix,
 } from '@/utils/colorCycle/ccGradientDither';
+import type { PatternStyle } from '@/utils/ditherAlgorithms';
 import {
   fillFlatPatternMode,
   resolveFlatInkSetForBand,
@@ -520,6 +522,169 @@ describe('fillCcGradientDither', () => {
     };
 
     expect(await run('pattern')).toEqual(await run('sierra-lite'));
+  });
+
+  it('uses sampledStopsOverride for preview flat solving instead of geometric tone', async () => {
+    const width = 16;
+    const height = 16;
+    const sampledStops = [
+      { position: 0, color: '#202020' },
+      { position: 1, color: '#202020' },
+    ];
+    const representativeTone = 32 / 255;
+    const expectedPair = resolveFlatInkSetForPosition(representativeTone, 2, 0, 84).indices;
+    const geometricPair = resolveFlatInkSetForPosition(0.5, 2, 0, 84).indices;
+
+    const run = async (algorithm: 'sierra-lite' | 'pattern') => {
+      const out = new Uint8Array(width * height);
+      await fillCcGradientDither({
+        vertices: [
+          { x: 0, y: 0 },
+          { x: width - 1, y: 0 },
+          { x: width - 1, y: height - 1 },
+          { x: 0, y: height - 1 },
+        ],
+        minX: 0,
+        minY: 0,
+        maxX: width - 1,
+        maxY: height - 1,
+        pixelSize: 1,
+        levels: 1,
+        baseOffset: 0,
+        flatPairSpread: 84,
+        algorithm,
+        patternStyle: 'lines',
+        sampledStopsOverride: sampledStops,
+        sampledFlatTraceStage: 'preview',
+        sampleNormalized: () => 0.5,
+        writeIndex: (x, y, index) => {
+          out[y * width + x] = index;
+        },
+      });
+      return Array.from(new Set(out)).filter((value) => value > 0).sort((a, b) => a - b);
+    };
+
+    expect(await run('sierra-lite')).toEqual(expectedPair);
+    expect(await run('pattern')).toEqual(expectedPair);
+    expect(expectedPair).not.toEqual(geometricPair);
+  });
+
+  it('writes sampled flat phase data while using the sampled two-ink pair', async () => {
+    const width = 12;
+    const height = 12;
+    const out = new Uint8Array(width * height);
+    const phases = new Uint8Array(width * height);
+    const sampledStops = [
+      { position: 0, color: '#808080' },
+      { position: 1, color: '#808080' },
+    ];
+    const expectedPair = resolveFlatInkSetForPosition(128 / 255, 2, 0, 84).indices;
+
+    await fillCcGradientDither({
+      vertices: [
+        { x: 0, y: 0 },
+        { x: width - 1, y: 0 },
+        { x: width - 1, y: height - 1 },
+        { x: 0, y: height - 1 },
+      ],
+      minX: 0,
+      minY: 0,
+      maxX: width - 1,
+      maxY: height - 1,
+      pixelSize: 1,
+      levels: 1,
+      baseOffset: 0,
+      flatPairSpread: 84,
+      algorithm: 'sierra-lite',
+      sampledStopsOverride: sampledStops,
+      sampleNormalized: (x) => x / Math.max(1, width - 1),
+      writeIndex: (x, y, index) => {
+        out[y * width + x] = index;
+      },
+      writePhase: (x, y, phaseByte) => {
+        phases[y * width + x] = phaseByte;
+      },
+    });
+
+    const usedPair = Array.from(new Set(out)).filter((value) => value > 0).sort((a, b) => a - b);
+    const nonZeroPhases = Array.from(phases).filter((value) => value > 0);
+
+    expect(usedPair).toEqual(expectedPair);
+    expect(nonZeroPhases.length).toBeGreaterThan(0);
+    expect(new Set(nonZeroPhases).size).toBeGreaterThan(1);
+  });
+
+  it('keeps sampled source stops on the flat payload while resolving two output inks', () => {
+    const sampledStops = [
+      { position: 0, color: '#201010' },
+      { position: 0.5, color: '#ffb347' },
+      { position: 1, color: '#fff2cc' },
+    ];
+
+    const payload = resolveCcSampledFlatPatternPayload({
+      sampledSourceStops: sampledStops,
+      flatPosition: 0.5,
+      baseOffset: 0,
+      spread: 84,
+      flatSeed: 7,
+      ditherPatternDiversity: 100,
+    });
+
+    expect(payload).not.toBeNull();
+    expect(payload?.sampledSourceStops).toBe(sampledStops);
+    expect(payload?.sampledSourceStops).toHaveLength(3);
+    expect(payload?.lowIndex).toBeGreaterThan(0);
+    expect(payload?.highIndex).toBeGreaterThan(payload?.lowIndex ?? 0);
+  });
+
+  it('has flat-mode coverage for every current pattern style', async () => {
+    const width = 16;
+    const height = 16;
+    const patternStyles = [
+      'dots',
+      'lines',
+      'vertical-lines',
+      'horizontal-lines',
+      'crosshatch',
+      'diagonal',
+      'ascii',
+      'tone-adaptive',
+    ] satisfies PatternStyle[];
+    const sampledStops = [
+      { position: 0, color: '#808080' },
+      { position: 1, color: '#808080' },
+    ];
+    const expectedPair = resolveFlatInkSetForPosition(128 / 255, 2, 0, 84).indices;
+
+    for (const patternStyle of patternStyles) {
+      const out = new Uint8Array(width * height);
+      await fillCcGradientDither({
+        vertices: [
+          { x: 0, y: 0 },
+          { x: width - 1, y: 0 },
+          { x: width - 1, y: height - 1 },
+          { x: 0, y: height - 1 },
+        ],
+        minX: 0,
+        minY: 0,
+        maxX: width - 1,
+        maxY: height - 1,
+        pixelSize: 1,
+        levels: 1,
+        baseOffset: 0,
+        flatPairSpread: 84,
+        algorithm: 'pattern',
+        patternStyle,
+        sampledStopsOverride: sampledStops,
+        sampleNormalized: () => 0.5,
+        writeIndex: (x, y, index) => {
+          out[y * width + x] = index;
+        },
+      });
+
+      const usedPair = Array.from(new Set(out)).filter((value) => value > 0).sort((a, b) => a - b);
+      expect(usedPair).toEqual(expectedPair);
+    }
   });
 
   it('derives sampled flat Sierra-Lite from the averaged sampled target instead of geometric flat position', async () => {

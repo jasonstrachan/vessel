@@ -249,14 +249,14 @@ export const buildRuntimeSnapshot = (
     stops: cloneStops(entry.stops),
     seamProfile: resolveSlotSeamProfile(layer, entry.slot, activeSession),
   }));
+  const paintPaletteStops = normalizedPalettes.find((entry) => entry.slot === paintSlot)?.stops ?? fallbackStops;
   ccVerboseLog('runtime snapshot layer palettes', {
     layerId: layer.id,
     paintSlot,
     paletteCount: normalizedPalettes.length,
     paletteSlots: normalizedPalettes.map((entry) => entry.slot),
-    paintStops: summarizeStopsForDebug(
-      normalizedPalettes.find((entry) => entry.slot === paintSlot)?.stops ?? fallbackStops,
-    ),
+    paintStopCount: paintPaletteStops.length,
+    paintStops: summarizeStopsForDebug(paintPaletteStops),
   });
 
   const hasPaintPalette = normalizedPalettes.some((entry) => entry.slot === paintSlot);

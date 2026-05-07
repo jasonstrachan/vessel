@@ -30,6 +30,7 @@ import {
 import { clearStrokeDefIdsForStamp } from './strokeDefClear';
 import { canvasPool } from '@/utils/canvasPool';
 import { ccWarn } from '@/utils/colorCycle/ccDebug';
+import { appendCCDebugOverlayEntry } from '@/utils/colorCycle/ccDebugOverlayStore';
 import { fillCcGradientDither } from '@/utils/colorCycle/ccGradientDither';
 import { resolveStableFlatSeed } from '@/utils/colorCycle/ccFlatSeed';
 import { computeConcentricMaxDistance, fillConcentricIndices } from '@/utils/colorCycle/concentricFillCore';
@@ -116,6 +117,20 @@ const getBrushProfileNow = (): number =>
   typeof performance !== 'undefined' && typeof performance.now === 'function'
     ? performance.now()
     : Date.now();
+
+const logCcGradientDitherCall = (event: string, data: Record<string, unknown>): void => {
+  if (process.env.NODE_ENV === 'test') {
+    return;
+  }
+  appendCCDebugOverlayEntry('log', `cc gradient dither call: ${event}`, data);
+};
+
+const logCcGradientBrushPath = (event: string, data: Record<string, unknown>): void => {
+  if (process.env.NODE_ENV === 'test') {
+    return;
+  }
+  appendCCDebugOverlayEntry('log', `cc gradient brush path: ${event}`, data);
+};
 
 const getCcCustomStampProfile = (): CcCustomStampPerfStats | null => {
   if (typeof window === 'undefined') {
@@ -4403,6 +4418,30 @@ export class ColorCycleBrushCanvas2D {
           },
           points: vertices,
         });
+        logCcGradientDitherCall('brush-linear before fill', {
+          layerId: id,
+          algorithm: fillAlgorithm,
+          patternStyle: fillPatternStyle,
+          levels: quantLevels,
+          pairBandCount,
+          numBands,
+          gradientBands: this.gradientBands,
+          ditherEnabled: this.ditherEnabled,
+          sampledStopsOverrideCount: sampledStopsOverride?.length ?? 0,
+          activeSessionSource: activeSession?.source ?? null,
+          traceStage: 'brush-linear',
+          traceId: phaseSeedMarkId
+            ? `${phaseSeedMarkId}:brush-linear`
+            : (sampledStopsOverride ? `${id}:brush-linear` : null),
+          flatSeed,
+          vertexCount: vertices.length,
+          bounds: {
+            minX: bbox.minX,
+            minY: bbox.minY,
+            width: bbox.width,
+            height: bbox.height,
+          },
+        });
         await fillCcGradientDither({
           vertices,
           minX: fillMinX,
@@ -5569,6 +5608,27 @@ export class ColorCycleBrushCanvas2D {
           edges[i] = { v1x: v1.x, v1y: v1.y, dx, dy, len2: dx * dx + dy * dy };
         }
         const safeMaxDist = Math.max(1e-6, maxDist);
+        logCcGradientDitherCall('brush-concentric before fill', {
+          layerId: id,
+          algorithm: fillAlgorithm,
+          patternStyle: fillPatternStyle,
+          levels: quantLevels,
+          pairBandCount,
+          numBands,
+          gradientBands: this.gradientBands,
+          ditherEnabled: this.ditherEnabled,
+          activeSessionSource: activeSession?.source ?? null,
+          traceStage: 'brush-concentric',
+          traceId: phaseSeedMarkId ? `${phaseSeedMarkId}:brush-concentric` : null,
+          flatSeed,
+          vertexCount: vertices.length,
+          bounds: {
+            minX: bbox.minX,
+            minY: bbox.minY,
+            width: bbox.width,
+            height: bbox.height,
+          },
+        });
         await fillCcGradientDither({
           vertices,
           minX: bbox.minX,
@@ -6572,7 +6632,15 @@ export class ColorCycleBrushCanvas2D {
       debugWarn('raw-console', `Invalid gradient bands: ${bands}, using default`);
       return;
     }
-    this.gradientBands = Math.max(1, Math.min(254, Math.floor(bands)));
+    const next = Math.max(1, Math.min(254, Math.floor(bands)));
+    this.gradientBands = next;
+    logCcGradientBrushPath('setGradientBands', {
+      requested: bands,
+      applied: next,
+      ditherEnabled: this.ditherEnabled,
+      ditherAlgorithm: this.stampDitherAlgorithm,
+      patternStyle: this.stampDitherPatternStyle,
+    });
   }
 
   /**
@@ -6664,6 +6732,12 @@ export class ColorCycleBrushCanvas2D {
       // Default to maximum strength when toggled ON
       this.ditherStrength = 1.0;
     }
+    logCcGradientBrushPath('setDitherEnabled', {
+      enabled: this.ditherEnabled,
+      gradientBands: this.gradientBands,
+      ditherAlgorithm: this.stampDitherAlgorithm,
+      patternStyle: this.stampDitherPatternStyle,
+    });
   }
 
   /** Optionally adjust dithering strength (0..1). */
@@ -6698,9 +6772,21 @@ export class ColorCycleBrushCanvas2D {
   setStampDitherAlgorithm(algorithm?: StampDitherAlgorithm) {
     const next = algorithm || 'sierra-lite';
     if (next === this.stampDitherAlgorithm) {
+      logCcGradientBrushPath('setStampDitherAlgorithm unchanged', {
+        algorithm: next,
+        gradientBands: this.gradientBands,
+        ditherEnabled: this.ditherEnabled,
+        patternStyle: this.stampDitherPatternStyle,
+      });
       return;
     }
     this.stampDitherAlgorithm = next;
+    logCcGradientBrushPath('setStampDitherAlgorithm', {
+      algorithm: next,
+      gradientBands: this.gradientBands,
+      ditherEnabled: this.ditherEnabled,
+      patternStyle: this.stampDitherPatternStyle,
+    });
     this.clearStampDitherCache();
   }
 
@@ -6708,9 +6794,21 @@ export class ColorCycleBrushCanvas2D {
   setStampDitherPatternStyle(style?: PatternStyle) {
     const next = style || 'dots';
     if (next === this.stampDitherPatternStyle) {
+      logCcGradientBrushPath('setStampDitherPatternStyle unchanged', {
+        patternStyle: next,
+        gradientBands: this.gradientBands,
+        ditherEnabled: this.ditherEnabled,
+        ditherAlgorithm: this.stampDitherAlgorithm,
+      });
       return;
     }
     this.stampDitherPatternStyle = next;
+    logCcGradientBrushPath('setStampDitherPatternStyle', {
+      patternStyle: next,
+      gradientBands: this.gradientBands,
+      ditherEnabled: this.ditherEnabled,
+      ditherAlgorithm: this.stampDitherAlgorithm,
+    });
     this.clearStampDitherCache();
   }
 

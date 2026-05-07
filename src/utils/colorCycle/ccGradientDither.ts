@@ -9,6 +9,7 @@ import {
   fillFlatPatternMode,
   resolveFlatInkSetForPosition,
 } from '@/utils/colorCycle/ccFlatModePatterns';
+import { appendCCDebugOverlayEntry } from '@/utils/colorCycle/ccDebugOverlayStore';
 import { resolveCcPatternThreshold } from '@/utils/colorCycle/ccPatternThreshold';
 import { resolveFlatSierraBandMixInfo } from '@/utils/colorCycle/ccDitherRenderPalette';
 import { getActiveMarkGradientSession } from '@/hooks/canvas/utils/colorCycleMarkSession';
@@ -16,6 +17,19 @@ import type { StoredStop } from '@/utils/colorCycleGradientDefs';
 import { useAppStore } from '@/stores/useAppStore';
 
 type Point = { x: number; y: number };
+
+export type CcFlatPatternInkPayload = {
+  targetColor: string;
+  targetRgb: [number, number, number];
+  flatPosition: number;
+  flatMix: number;
+  lowIndex: number;
+  highIndex: number;
+  sampledSourceStops?: StoredStop[];
+  flatSeed?: number;
+  spread?: number;
+  ditherPatternDiversity?: number;
+};
 
 export type CcGradientDitherOptions = {
   vertices: Point[];
@@ -47,6 +61,13 @@ export type CcGradientDitherOptions = {
 };
 
 const clamp01 = (value: number): number => Math.max(0, Math.min(1, value));
+
+const logFlatPatternPath = (event: string, data: Record<string, unknown>): void => {
+  if (process.env.NODE_ENV === 'test') {
+    return;
+  }
+  appendCCDebugOverlayEntry('log', `flat pattern path: ${event}`, data);
+};
 
 const resolveSampledFlatDiversityMix = ({
   flatPosition,
@@ -397,6 +418,58 @@ export const resolveSampledFlatPositionMix = ({
     highIndex,
     lowColor,
     highColor,
+  };
+};
+
+export const resolveCcSampledFlatPatternPayload = ({
+  sampledSourceStops,
+  flatPosition,
+  baseOffset = 0,
+  spread,
+  flatSeed,
+  ditherPatternDiversity,
+}: {
+  sampledSourceStops: StoredStop[];
+  flatPosition: number;
+  baseOffset?: number;
+  spread?: number;
+  flatSeed?: number;
+  ditherPatternDiversity?: number;
+}): CcFlatPatternInkPayload | null => {
+  const representativeSampledTarget = resolveRepresentativeSampledTarget(sampledSourceStops);
+  if (!representativeSampledTarget) {
+    return null;
+  }
+
+  const sampledFlatSolver = resolveSampledFlatPositionMix({
+    stops: sampledSourceStops,
+    sampledSourceStops,
+    flatPosition: representativeSampledTarget.tone,
+    baseOffset,
+    spread,
+    targetRgbOverride: representativeSampledTarget.rgb,
+  });
+  if (!sampledFlatSolver) {
+    return null;
+  }
+
+  return {
+    targetColor: sampledFlatSolver.targetColor,
+    targetRgb: representativeSampledTarget.rgb,
+    flatPosition: sampledFlatSolver.flatPosition,
+    flatMix: resolveSampledFlatDiversityMix({
+      flatPosition,
+      flatSeed,
+      ditherPatternDiversity,
+      minMix: 0.08,
+      maxMix: 0.92,
+    }),
+    lowIndex: sampledFlatSolver.lowIndex,
+    highIndex: sampledFlatSolver.highIndex,
+    sampledSourceStops,
+    flatSeed,
+    spread,
+    ditherPatternDiversity,
   };
 };
 
@@ -894,45 +967,58 @@ export const fillCcGradientDither = async ({
     const phaseY = Math.floor(minY / Math.max(1, cellSize));
     const flatPosition = resolveAverageActiveTone(cellCoverage, activeMask);
     const brushSettings = useAppStore.getState().tools?.brushSettings;
+    const hasSampledStopsOverride = Boolean(sampledStopsOverride?.length);
     const isPreviewSampledFlatDither = sampledFlatTraceStage === 'preview';
     const preferSampledFlatSolver =
-      !isPreviewSampledFlatDither &&
       !flatMixByBand &&
-      (sampledStopsOverride?.length
+      (hasSampledStopsOverride
         ? true
-        : useAppStore.getState().tools?.ccGradientSource === 'sampled') &&
+        : (!isPreviewSampledFlatDither && useAppStore.getState().tools?.ccGradientSource === 'sampled')) &&
       !brushSettings?.colorCycleUseForegroundGradient;
     const sampledFlatSourceStops =
-      sampledStopsOverride?.length
-        ? sampledStopsOverride
+      hasSampledStopsOverride
+        ? (sampledStopsOverride ?? [])
         : (resolveActiveSampledStops() ?? []);
-    const representativeSampledTarget = preferSampledFlatSolver
-      ? resolveRepresentativeSampledTarget(sampledFlatSourceStops)
-      : null;
-    const sampledFlatSolver =
-      preferSampledFlatSolver && representativeSampledTarget
-        ? resolveSampledFlatPositionMix({
-            stops: sampledFlatSourceStops,
+    const sampledFlatPayload =
+      preferSampledFlatSolver && sampledFlatSourceStops.length
+        ? resolveCcSampledFlatPatternPayload({
             sampledSourceStops: sampledFlatSourceStops,
-            flatPosition: representativeSampledTarget.tone,
+            flatPosition,
             baseOffset,
             spread: flatPairSpread,
-            targetRgbOverride: representativeSampledTarget.rgb,
+            flatSeed,
+            ditherPatternDiversity,
           })
         : null;
-    if (sampledFlatSolver) {
-      sampledFlatSolver.flatMix = resolveSampledFlatDiversityMix({
-        flatPosition,
-        flatSeed,
-        ditherPatternDiversity,
-        minMix: 0.08,
-        maxMix: 0.92,
-      });
-    }
+    logFlatPatternPath('resolve', {
+      algorithm,
+      patternStyle,
+      traceStage: sampledFlatTraceStage ?? null,
+      traceId: sampledFlatTraceId ?? null,
+      levels: clampedLevels,
+      pairBandCount,
+      hasSampledStopsOverride,
+      sampledSourceStopCount: sampledFlatSourceStops.length,
+      sampledSourceUniqueColors: new Set(sampledFlatSourceStops.map((stop) => stop.color)).size,
+      preferSampledFlatSolver,
+      usedSampledFlatPayload: Boolean(sampledFlatPayload),
+      flatPosition: Number(flatPosition.toFixed(4)),
+      payloadFlatPosition: sampledFlatPayload
+        ? Number(sampledFlatPayload.flatPosition.toFixed(4))
+        : null,
+      payloadFlatMix: sampledFlatPayload
+        ? Number(sampledFlatPayload.flatMix.toFixed(4))
+        : null,
+      payloadLowIndex: sampledFlatPayload?.lowIndex ?? null,
+      payloadHighIndex: sampledFlatPayload?.highIndex ?? null,
+      flatMixByBandProvided: Boolean(flatMixByBand),
+      colorCycleUseForegroundGradient: Boolean(brushSettings?.colorCycleUseForegroundGradient),
+      ccGradientSource: useAppStore.getState().tools?.ccGradientSource ?? null,
+    });
     const runtimeFlat = algorithm === 'sierra-lite'
       ? resolveRuntimeFlatMixByBand(0, flatPairSpread)
       : {};
-    const resolvedFlatMixByBand = sampledFlatSolver
+    const resolvedFlatMixByBand = sampledFlatPayload
       ? undefined
       : preferSampledFlatSolver
       ? undefined
@@ -942,10 +1028,10 @@ export const fillCcGradientDither = async ({
       algorithm,
       patternStyle,
       tone: flatPosition,
-      flatPosition: sampledFlatSolver?.flatPosition ?? (sampledFlatSolver ? undefined : flatPosition),
-      flatLowIndex: sampledFlatSolver?.lowIndex,
-      flatHighIndex: sampledFlatSolver?.highIndex,
-      flatMix: sampledFlatSolver?.flatMix,
+      flatPosition: sampledFlatPayload?.flatPosition ?? (sampledFlatPayload ? undefined : flatPosition),
+      flatLowIndex: sampledFlatPayload?.lowIndex,
+      flatHighIndex: sampledFlatPayload?.highIndex,
+      flatMix: sampledFlatPayload?.flatMix,
       flatMixByBand: resolvedFlatMixByBand,
       flatSeed,
       ditherPatternDiversity,
@@ -962,7 +1048,24 @@ export const fillCcGradientDither = async ({
       },
     });
 
-    summarizeFlatPatternOutput(cellIndices, activeMask);
+    const flatSummary = summarizeFlatPatternOutput(cellIndices, activeMask);
+    logFlatPatternPath('output', {
+      algorithm,
+      patternStyle,
+      traceStage: sampledFlatTraceStage ?? null,
+      traceId: sampledFlatTraceId ?? null,
+      usedSampledFlatPayload: Boolean(sampledFlatPayload),
+      activeCellCount: flatSummary.activeCellCount,
+      backgroundCount: flatSummary.backgroundCount,
+      lowInkIndex: flatSummary.lowInkIndex,
+      lowInkCount: flatSummary.lowInkCount,
+      highInkIndex: flatSummary.highInkIndex,
+      highInkCount: flatSummary.highInkCount,
+      uniqueActiveIndices: flatSummary.uniqueActiveIndices.slice(0, 12),
+      uniqueActiveIndexCount: flatSummary.uniqueActiveIndices.length,
+      sampleCellIndices: flatSummary.sampleCellIndices,
+      sampleHash: flatSummary.sampleHash,
+    });
   } else if (algorithm === 'sierra-lite') {
     let errCurr = new Float32Array(gridW);
     let errNext = new Float32Array(gridW);

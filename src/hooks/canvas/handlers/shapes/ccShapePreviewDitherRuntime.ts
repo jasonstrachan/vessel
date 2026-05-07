@@ -19,6 +19,10 @@ import { parseCssColorToRgba } from '@/hooks/canvas/utils/colorCycleHelpers';
 import { buildSampledStops } from '@/hooks/canvas/handlers/colorCycle/ccSampling';
 import { runIdleAsync } from '@/hooks/canvas/utils/idle';
 import { recordSampledCcShapeBreadcrumb } from '@/hooks/canvas/utils/sampledCcShapeBreadcrumbs';
+import {
+  buildSampledCcShapePreviewShapeKey,
+  rememberSampledCcShapePreviewStops,
+} from '@/hooks/canvas/utils/sampledCcShapePreviewStops';
 import { ccLog } from '@/debug/ccDebug';
 
 export type PreparedPreviewGradient = {
@@ -1157,6 +1161,15 @@ export const runSampledCcDitherPreviewRuntime = (args: {
           sampledPreview?.stops && sampledPreview.stops.length >= 2
             ? sampledPreview.stops
             : request.fallbackStops;
+        rememberSampledCcShapePreviewStops({
+          layerId: getAppStoreState().activeLayerId,
+          stops: effectiveStops,
+          replayKey: request.replayKey,
+          shapeKey: buildSampledCcShapePreviewShapeKey(committedPolygon),
+          rawPointCount: committedPolygon.length,
+          seq: mySeq,
+          pointCount: sampledGeometry.previewPolygon.length,
+        });
         const preparedGradient = prepareCcShapePreviewGradient({
           effectiveStops,
           gradientBands: sampledBrushSettings.gradientBands ?? 16,

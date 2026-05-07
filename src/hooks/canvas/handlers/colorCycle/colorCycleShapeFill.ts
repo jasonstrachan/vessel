@@ -397,6 +397,14 @@ const applyResolvedShapeFillRuntimeBinding = ({
   });
 };
 
+const resolveSampledShapePersistStops = (
+  renderSession: ColorCycleGradientRenderSession
+): StoredStop[] => (
+  renderSession.source === 'sampled' && renderSession.sourceStopsStored?.length
+    ? renderSession.sourceStopsStored
+    : renderSession.frozenStopsStored
+);
+
 const requestForegroundGradientApplyAfterShapeFinalize = ({
   layerId,
   session,
@@ -609,22 +617,25 @@ export const finalizeColorCycleShapeFillLinear = async (
         colors: typeof st.tools.brushSettings.colors === 'number' ? st.tools.brushSettings.colors : null,
       });
       if (renderSession?.source === 'sampled' && renderSession.binding?.slot !== undefined) {
+        const persistStops = resolveSampledShapePersistStops(renderSession);
         deps.ccLog('shape: sampled persist begin', {
           layerId: args.activeLayerId,
           bindingSlot: renderSession.binding.slot,
-          stopCount: renderSession.frozenStopsStored.length,
+          renderStopCount: renderSession.frozenStopsStored.length,
+          sourceStopCount: renderSession.sourceStopsStored?.length ?? null,
+          stopCount: persistStops.length,
         });
         persistCommittedSampledSlot({
           layerId: args.activeLayerId,
           slot: renderSession.binding.slot,
-          stops: renderSession.frozenStopsStored,
-          defId: renderSession.binding.defId,
+          stops: persistStops,
+          defId: undefined,
           reason: 'shape-commit-sampled-slot',
         });
         applyRuntimeToBrush(colorCycleBrush, args.activeLayerId, {
           layerId: args.activeLayerId,
           paintSlot: renderSession.binding.slot,
-          slotPalettes: [{ slot: renderSession.binding.slot, stops: renderSession.frozenStopsStored }],
+          slotPalettes: [{ slot: renderSession.binding.slot, stops: persistStops }],
           flowMode: getAppStoreState().layers.find((layer) => layer.id === args.activeLayerId)?.colorCycleData?.flowMode,
         });
         deps.ccLog('shape: sampled persist end', {
@@ -893,22 +904,25 @@ export const finalizeColorCycleShapeFillConcentric = async (
         colors: typeof st.tools.brushSettings.colors === 'number' ? st.tools.brushSettings.colors : null,
       });
       if (renderSession?.source === 'sampled' && renderSession.binding?.slot !== undefined) {
+        const persistStops = resolveSampledShapePersistStops(renderSession);
         deps.ccLog('shape: sampled persist begin', {
           layerId: args.activeLayerId,
           bindingSlot: renderSession.binding.slot,
-          stopCount: renderSession.frozenStopsStored.length,
+          renderStopCount: renderSession.frozenStopsStored.length,
+          sourceStopCount: renderSession.sourceStopsStored?.length ?? null,
+          stopCount: persistStops.length,
         });
         persistCommittedSampledSlot({
           layerId: args.activeLayerId,
           slot: renderSession.binding.slot,
-          stops: renderSession.frozenStopsStored,
-          defId: renderSession.binding.defId,
+          stops: persistStops,
+          defId: undefined,
           reason: 'shape-commit-sampled-slot',
         });
         applyRuntimeToBrush(colorCycleBrush, args.activeLayerId, {
           layerId: args.activeLayerId,
           paintSlot: renderSession.binding.slot,
-          slotPalettes: [{ slot: renderSession.binding.slot, stops: renderSession.frozenStopsStored }],
+          slotPalettes: [{ slot: renderSession.binding.slot, stops: persistStops }],
           flowMode: getAppStoreState().layers.find((layer) => layer.id === args.activeLayerId)?.colorCycleData?.flowMode,
         });
         deps.ccLog('shape: sampled persist end', {

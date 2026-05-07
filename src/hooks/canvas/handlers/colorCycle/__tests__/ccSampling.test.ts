@@ -1,4 +1,7 @@
-import { updateCcSampledSession } from '../ccSampling';
+import {
+  CC_SAMPLED_MAX_STOPS,
+  updateCcSampledSession,
+} from '../ccSampling';
 import type { MarkGradientSession } from '@/hooks/canvas/utils/colorCycleMarkSession';
 
 const makeSession = (): MarkGradientSession => ({
@@ -114,5 +117,29 @@ describe('ccSampling', () => {
     expect(result?.sampleCount).toBeGreaterThan(1);
     expect(result?.stops).not.toEqual(session.fallbackStopsStored);
     expect(session.previewStopsStored).toEqual(result?.stops);
+  });
+
+  it('uses dense sampled-gradient stops instead of the generic six-stop auto-sample cap', () => {
+    const session = makeSession();
+    const lastUpdateRef = { current: 0 };
+
+    const result = updateCcSampledSession({
+      session,
+      sourcePts: [
+        { x: 0, y: 0 },
+        { x: 640, y: 0 },
+      ],
+      now: 200,
+      lastUpdateRef,
+      sampleColor: (x) => {
+        const value = Math.max(0, Math.min(255, Math.round(x / 640 * 255)));
+        return `rgb(${value}, ${value}, ${value})`;
+      },
+      allowTiny: true,
+    });
+
+    expect(result?.sampleCount).toBe(CC_SAMPLED_MAX_STOPS);
+    expect(result?.stops).toHaveLength(CC_SAMPLED_MAX_STOPS);
+    expect(session.samples).toHaveLength(CC_SAMPLED_MAX_STOPS);
   });
 });

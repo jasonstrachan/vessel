@@ -27,6 +27,10 @@ import { hashStops, type GradientDefSource, type StoredStop } from '@/utils/colo
 import { debugLog, isDebugEnabled, debugWarn } from '@/utils/debug';
 import { recordSampledCcShapeBreadcrumb } from '@/hooks/canvas/utils/sampledCcShapeBreadcrumbs';
 import {
+  buildSampledCcShapePreviewShapeKey,
+  consumeSampledCcShapePreviewStops,
+} from '@/hooks/canvas/utils/sampledCcShapePreviewStops';
+import {
   calculatePressureAwareGridSpacing,
   snapToGridPure,
 } from '@/hooks/brushEngine/utilities';
@@ -188,7 +192,7 @@ const beginFinalSampledShapeSession = (params: {
   layer: Layer;
   state: AppState;
   shapePoints: Array<{ x: number; y: number }>;
-  deps: Pick<ShapeDrawingDeps, 'sampleColorAt' | 'sampleHexAt'>;
+  deps: Pick<ShapeDrawingDeps, 'sampleColorAt' | 'sampleHexAt' | 'ccLog'>;
 }): MarkGradientSession | null => {
   if (params.layer.layerType !== 'color-cycle') {
     return null;
@@ -218,6 +222,27 @@ const beginFinalSampledShapeSession = (params: {
     sampledPreview?.stops && sampledPreview.stops.length >= 2
       ? sampledPreview.stops
       : null;
+  const previewShapeKey = buildSampledCcShapePreviewShapeKey(params.shapePoints);
+  const previewStopsFromLivePreview = consumeSampledCcShapePreviewStops({
+    layerId: params.layer.id,
+    shapeKey: previewShapeKey,
+    rawPointCount: params.shapePoints.length,
+  });
+  const finalPreviewStops =
+    previewStopsFromLivePreview?.stops && previewStopsFromLivePreview.stops.length > (previewStops?.length ?? 0)
+      ? previewStopsFromLivePreview.stops
+      : previewStops;
+  params.deps.ccLog('shape: sampled final stops selected', {
+    layerId: params.layer.id,
+    rebuiltStopCount: previewStops?.length ?? 0,
+    livePreviewStopCount: previewStopsFromLivePreview?.stops.length ?? 0,
+    finalStopCount: finalPreviewStops?.length ?? 0,
+    usedLivePreviewStops: finalPreviewStops === previewStopsFromLivePreview?.stops,
+    replayKey: previewStopsFromLivePreview?.replayKey ?? null,
+    previewSeq: previewStopsFromLivePreview?.seq ?? null,
+    previewPointCount: previewStopsFromLivePreview?.pointCount ?? null,
+    previewRawPointCount: previewStopsFromLivePreview?.rawPointCount ?? null,
+  });
 
   const session = beginMarkGradientSession({
     layerId: params.layer.id,
@@ -232,8 +257,20 @@ const beginFinalSampledShapeSession = (params: {
   }
 
   session.fallbackStopsStored = fallbackStops;
-  session.previewStopsStored = previewStops;
-  session.previewHash = previewStops ? hashStops(previewStops, gradientKind) : '';
+  session.previewStopsStored = finalPreviewStops;
+  session.previewHash = finalPreviewStops ? hashStops(finalPreviewStops, gradientKind) : '';
+  recordSampledCcShapeBreadcrumb({
+    event: 'sampled-final-session-stops',
+    activeLayerId: params.layer.id,
+    rebuiltStopCount: previewStops?.length ?? 0,
+    livePreviewStopCount: previewStopsFromLivePreview?.stops.length ?? 0,
+    finalStopCount: finalPreviewStops?.length ?? 0,
+    usedLivePreviewStops: finalPreviewStops === previewStopsFromLivePreview?.stops,
+    replayKey: previewStopsFromLivePreview?.replayKey ?? null,
+    previewSeq: previewStopsFromLivePreview?.seq ?? null,
+    previewPointCount: previewStopsFromLivePreview?.pointCount ?? null,
+    previewRawPointCount: previewStopsFromLivePreview?.rawPointCount ?? null,
+  });
 
   return session;
 };

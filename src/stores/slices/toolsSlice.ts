@@ -49,6 +49,7 @@ import { brushCache } from '@/utils/brushCache';
 import { scaledBrushCache } from '@/utils/scaledBrushCache';
 import { adjustHueLightnessSaturation } from '@/utils/imageProcessing';
 import { debugLog } from '@/utils/debug';
+import { appendCCDebugOverlayEntry } from '@/utils/colorCycle/ccDebugOverlayStore';
 import { createDefaultColorAdjustState } from '@/stores/slices/colorAdjustSlice';
 
 const DEBUG_LOSTEDGE =
@@ -1355,6 +1356,12 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
   })),
   setCcGradientSource: (source) => {
     const nextSource = source ?? 'manual';
+    if (process.env.NODE_ENV !== 'test') {
+      appendCCDebugOverlayEntry('log', 'cc gradient source selected', {
+        requestedSource: source ?? null,
+        nextSource,
+      });
+    }
     const updates: Partial<BrushSettings> = {
       ccGradientSource: nextSource,
     };
