@@ -23,8 +23,11 @@ type Props = {
 
 const ADD_NEW_VALUE = '__add_cc_tile_pattern__';
 const FALLBACK_PREVIEW_COLORS: [string, string] = ['#ff1f1f', '#9f00e8'];
+const TILE_PATTERN_SCALE_STEPS = [0.0625, 0.125, 0.25, 0.5, 1, 2, 3, 4, 6, 8, 12, 16] as const;
+const DEFAULT_TILE_PATTERN_SCALE = 1;
 
 type RgbaColor = [number, number, number, number];
+type TilePatternScale = typeof TILE_PATTERN_SCALE_STEPS[number];
 
 const clampByte = (value: number): number => Math.max(0, Math.min(255, Math.round(value)));
 
@@ -201,6 +204,64 @@ export const renderTilePreviewImageData = (
   return preview;
 };
 
+export const resizeTilePatternImageData = (
+  imageData: ImageData,
+  scale: number
+): ImageData => {
+  const normalizedScale = TILE_PATTERN_SCALE_STEPS.includes(scale as TilePatternScale)
+    ? scale
+    : DEFAULT_TILE_PATTERN_SCALE;
+  if (normalizedScale === DEFAULT_TILE_PATTERN_SCALE) {
+    return new ImageData(new Uint8ClampedArray(imageData.data), imageData.width, imageData.height);
+  }
+  const sourceWidth = Math.max(1, imageData.width);
+  const sourceHeight = Math.max(1, imageData.height);
+  const targetWidth = Math.max(1, Math.floor(sourceWidth * normalizedScale));
+  const targetHeight = Math.max(1, Math.floor(sourceHeight * normalizedScale));
+  const resized = new ImageData(targetWidth, targetHeight);
+  for (let y = 0; y < targetHeight; y += 1) {
+    const sourceY = Math.min(sourceHeight - 1, Math.floor(y / normalizedScale));
+    for (let x = 0; x < targetWidth; x += 1) {
+      const sourceX = Math.min(sourceWidth - 1, Math.floor(x / normalizedScale));
+      const sourceIdx = (sourceY * sourceWidth + sourceX) * 4;
+      const targetIdx = (y * targetWidth + x) * 4;
+      resized.data[targetIdx] = imageData.data[sourceIdx] ?? 0;
+      resized.data[targetIdx + 1] = imageData.data[sourceIdx + 1] ?? 0;
+      resized.data[targetIdx + 2] = imageData.data[sourceIdx + 2] ?? 0;
+      resized.data[targetIdx + 3] = imageData.data[sourceIdx + 3] ?? 0;
+    }
+  }
+  return resized;
+};
+
+const getNextTilePatternScale = (
+  currentScale: TilePatternScale,
+  direction: -1 | 1
+): TilePatternScale => {
+  const currentIndex = TILE_PATTERN_SCALE_STEPS.indexOf(currentScale);
+  const nextIndex = Math.max(
+    0,
+    Math.min(TILE_PATTERN_SCALE_STEPS.length - 1, currentIndex + direction)
+  );
+  return TILE_PATTERN_SCALE_STEPS[nextIndex];
+};
+
+const formatTilePatternScale = (scale: TilePatternScale): string => {
+  if (scale === 0.0625) {
+    return '1/16x';
+  }
+  if (scale === 0.125) {
+    return '1/8x';
+  }
+  if (scale === 0.25) {
+    return '1/4x';
+  }
+  if (scale === 0.5) {
+    return '1/2x';
+  }
+  return `${scale}x`;
+};
+
 const readImageFile = async (file: File): Promise<ImageData | null> => {
   if (!file.type.startsWith('image/')) {
     return null;
@@ -288,6 +349,7 @@ const AddTilePatternModal = ({
   onSave: (imageData: ImageData) => void;
 }) => {
   const [imageData, setImageData] = useState<ImageData | null>(null);
+  const [tileScale, setTileScale] = useState<TilePatternScale>(DEFAULT_TILE_PATTERN_SCALE);
   const [error, setError] = useState<string | null>(null);
   const modalRef = useRef<HTMLDivElement | null>(null);
   const rawCanvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -304,16 +366,20 @@ const AddTilePatternModal = ({
     () => resolveVisibleTilePreviewColors(previewColors),
     [previewColors]
   );
+  const scaledImageData = useMemo(
+    () => imageData ? resizeTilePatternImageData(imageData, tileScale) : null,
+    [imageData, tileScale]
+  );
 
   useEffect(() => {
     const draw = () => {
-      drawImageData(rawCanvasRef.current, imageData);
-      drawPreview(previewCanvasRef.current, imageData, visiblePreviewColors);
+      drawImageData(rawCanvasRef.current, scaledImageData);
+      drawPreview(previewCanvasRef.current, scaledImageData, visiblePreviewColors);
     };
 
     draw();
     return undefined;
-  }, [imageData, visiblePreviewColors]);
+  }, [scaledImageData, visiblePreviewColors]);
 
   const loadFile = useCallback(async (file: File) => {
     setError(null);
@@ -394,7 +460,28 @@ const AddTilePatternModal = ({
         </div>
         <div className="grid grid-cols-2 gap-3">
           <div>
-            <div className="mb-1 text-xs text-[#aaa]">Pixels</div>
+            <div className="mb-1 flex items-center justify-between gap-2">
+              <div className="text-xs text-[#aaa]">Pixels</div>
+              <div className="flex items-center gap-1 text-xs text-[#aaa]" aria-label="Tile size">
+                <button
+                  type="button"
+                  className="border border-[#555] px-2 py-0.5 text-[#d9d9d9] hover:bg-[#333] disabled:cursor-not-allowed disabled:opacity-40"
+                  disabled={tileScale === TILE_PATTERN_SCALE_STEPS[0]}
+                  onClick={() => setTileScale((currentScale) => getNextTilePatternScale(currentScale, -1))}
+                >
+                  -
+                </button>
+                <span className="min-w-8 text-center">{formatTilePatternScale(tileScale)}</span>
+                <button
+                  type="button"
+                  className="border border-[#555] px-2 py-0.5 text-[#d9d9d9] hover:bg-[#333] disabled:cursor-not-allowed disabled:opacity-40"
+                  disabled={tileScale === TILE_PATTERN_SCALE_STEPS[TILE_PATTERN_SCALE_STEPS.length - 1]}
+                  onClick={() => setTileScale((currentScale) => getNextTilePatternScale(currentScale, 1))}
+                >
+                  +
+                </button>
+              </div>
+            </div>
             <div className="h-80 overflow-auto border border-[#333] bg-[#101010]">
               <canvas ref={rawCanvasRef} />
             </div>
@@ -433,8 +520,8 @@ const AddTilePatternModal = ({
             className="border border-[#d9d9d9] px-3 py-1 text-xs hover:bg-[#333] disabled:cursor-not-allowed disabled:opacity-40"
             disabled={!imageData}
             onClick={() => {
-              if (imageData) {
-                onSave(imageData);
+              if (scaledImageData) {
+                onSave(scaledImageData);
               }
             }}
           >

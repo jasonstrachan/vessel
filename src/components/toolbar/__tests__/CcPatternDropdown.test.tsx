@@ -2,6 +2,7 @@ import { act, fireEvent, render, screen } from '@testing-library/react';
 
 import CcPatternDropdown, {
   renderTilePreviewImageData,
+  resizeTilePatternImageData,
   resolveVisibleTilePreviewColors,
 } from '@/components/toolbar/CcPatternDropdown';
 import { useAppStore } from '@/stores/useAppStore';
@@ -134,6 +135,61 @@ describe('CcPatternDropdown', () => {
       0, 0, 0, 255,
       255, 255, 255, 0,
     ]);
+  });
+
+  it('scales tile pattern image data up with nearest-neighbor pixels', () => {
+    const tile = new ImageData(2, 1);
+    tile.data.set([
+      10, 20, 30, 255,
+      200, 210, 220, 128,
+    ]);
+
+    const scaled = resizeTilePatternImageData(tile, 2);
+
+    expect(scaled.width).toBe(4);
+    expect(scaled.height).toBe(2);
+    expect(Array.from(scaled.data)).toEqual([
+      10, 20, 30, 255,
+      10, 20, 30, 255,
+      200, 210, 220, 128,
+      200, 210, 220, 128,
+      10, 20, 30, 255,
+      10, 20, 30, 255,
+      200, 210, 220, 128,
+      200, 210, 220, 128,
+    ]);
+  });
+
+  it('scales tile pattern image data down on pixel-safe half steps', () => {
+    const tile = new ImageData(4, 4);
+    for (let y = 0; y < 4; y += 1) {
+      for (let x = 0; x < 4; x += 1) {
+        const idx = (y * 4 + x) * 4;
+        tile.data[idx] = x + y * 4;
+        tile.data[idx + 1] = 0;
+        tile.data[idx + 2] = 0;
+        tile.data[idx + 3] = 255;
+      }
+    }
+
+    const half = resizeTilePatternImageData(tile, 0.5);
+    const quarter = resizeTilePatternImageData(tile, 0.25);
+    const sixteenth = resizeTilePatternImageData(tile, 0.0625);
+
+    expect(half.width).toBe(2);
+    expect(half.height).toBe(2);
+    expect(Array.from(half.data)).toEqual([
+      0, 0, 0, 255,
+      2, 0, 0, 255,
+      8, 0, 0, 255,
+      10, 0, 0, 255,
+    ]);
+    expect(quarter.width).toBe(1);
+    expect(quarter.height).toBe(1);
+    expect(Array.from(quarter.data)).toEqual([0, 0, 0, 255]);
+    expect(sixteenth.width).toBe(1);
+    expect(sixteenth.height).toBe(1);
+    expect(Array.from(sixteenth.data)).toEqual([0, 0, 0, 255]);
   });
 
 });
