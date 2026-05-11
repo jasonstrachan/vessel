@@ -2,7 +2,7 @@ import type { NextConfig } from "next";
 import path from "path";
 
 const isProd = process.env.NODE_ENV === 'production'
-const distDir = process.env.NEXT_DIST_DIR || '.next';
+const distDir = process.env.NEXT_DIST_DIR || (isProd ? '.next-build' : '.next');
 
 const nextConfig: NextConfig = {
   distDir,

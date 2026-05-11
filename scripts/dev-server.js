@@ -10,6 +10,7 @@ const { mergeNodeOptions, stripLocalStorageFlag } = require('./node-options.cjs'
 const CACHE_DIRS = ['.next', 'node_modules/.cache', '.turbo'];
 const MAX_RETRIES = 3;
 const RESTART_DELAY = 2000;
+const CORRUPTION_CHECK_INTERVAL_MS = 2000;
 const PORT = process.env.PORT || 3000;
 const PROJECT_ROOT = process.cwd();
 const logger = createRuntimeLogger('dev-server');
@@ -17,6 +18,7 @@ const logger = createRuntimeLogger('dev-server');
 let server = null;
 let retryCount = 0;
 let isShuttingDown = false;
+let cleanRestartPending = false;
 let stopWatchdog = null;
 
 function isPortAvailable(port) {
@@ -164,39 +166,43 @@ function shouldCleanStaleNextDist() {
     return true;
   }
 
-  const devAppChunkPath = path.join(nextDir, 'static', 'chunks', 'app', 'page.js');
-  const hashedAppChunkDir = path.join(nextDir, 'static', 'chunks', 'app');
-  if (!fs.existsSync(devAppChunkPath) && fs.existsSync(hashedAppChunkDir)) {
-    try {
-      const chunkNames = fs.readdirSync(hashedAppChunkDir);
-      const hasHashedPageChunk = chunkNames.some((name) => /^page-[^.]+\.(js|js\.map)$/.test(name));
-      if (hasHashedPageChunk) {
-        logger.warn('Detected hashed app chunks without dev aliases; forcing a clean dev rebuild.');
-        return true;
-      }
-    } catch (err) {
-      logger.warn(`Failed to inspect .next chunk layout: ${err.message}`);
-    }
+  return false;
+}
+
+function restartWithCleanCache(reason) {
+  if (isShuttingDown || cleanRestartPending) {
+    return;
   }
 
-  return false;
+  cleanRestartPending = true;
+  logger.warn(reason);
+
+  if (server) {
+    server.kill('SIGTERM');
+  }
+
+  setTimeout(() => {
+    retryCount = 0;
+    cleanRestartPending = false;
+    startServer(true);
+  }, RESTART_DELAY);
 }
 
 async function startServer(cleanFirst = false) {
   if (isShuttingDown) return;
-  
+
   if (cleanFirst || shouldCleanStaleNextDist()) {
     cleanCache();
   }
-  
+
   // Stop only this repo's existing listener on the requested port.
   await killPortProcess(PORT);
-  
+
   logger.log(`Starting Next.js dev server on port ${PORT} (attempt ${retryCount + 1}).`);
-  
+
   // Force memory cache and WSL2 optimizations
-  const env = { 
-    ...process.env, 
+  const env = {
+    ...process.env,
     WEBPACK_CACHE_TYPE: 'memory',
     WSL_DISTRO_NAME: '1', // Force WSL2 optimizations
     NODE_OPTIONS: mergeNodeOptions(
@@ -205,30 +211,35 @@ async function startServer(cleanFirst = false) {
     ),
     PORT: PORT
   };
-  
+
   server = spawn('npm', ['run', 'dev:safe'], {
     stdio: ['inherit', 'pipe', 'pipe'],
     env,
     shell: true
   });
   logger.attachChild(server, 'next-dev');
-  
+
   server.on('exit', (code, signal) => {
     if (isShuttingDown) return;
-    
+
     logger.warn(`Dev server exited with code ${code} (signal: ${signal})`);
-    
+
+    if (cleanRestartPending) {
+      logger.warn('Dev server stopped for a clean-cache restart; wrapper will stay alive.');
+      return;
+    }
+
     // Only restart on actual failures (non-zero exit codes)
     // Code 0 means normal exit - don't restart
     if (code !== 0 && code !== null) {
       if (retryCount < MAX_RETRIES) {
         retryCount++;
-        
+
         logger.warn(`Auto-restarting in ${RESTART_DELAY/1000} seconds (attempt ${retryCount}/${MAX_RETRIES}).`);
-        
+
         // Clean cache on every other retry
         const shouldClean = retryCount % 2 === 0;
-        
+
         setTimeout(() => {
           startServer(shouldClean);
         }, RESTART_DELAY);
@@ -245,7 +256,7 @@ async function startServer(cleanFirst = false) {
       process.exit(0);
     }
   });
-  
+
   server.on('error', (err) => {
     logger.error('Failed to start dev child process', err);
     process.exit(1);
@@ -281,10 +292,15 @@ let corruptionCheckInterval = setInterval(() => {
     clearInterval(corruptionCheckInterval);
     return;
   }
-  
+
   const nextDir = path.join(process.cwd(), '.next');
   if (fs.existsSync(nextDir)) {
     try {
+      if (shouldCleanStaleNextDist()) {
+        restartWithCleanCache('Restarting dev server after production artifact appeared in .next.');
+        return;
+      }
+
       // Check if we can access the cache
       const cacheDir = path.join(nextDir, 'cache');
       if (fs.existsSync(cacheDir)) {
@@ -292,19 +308,10 @@ let corruptionCheckInterval = setInterval(() => {
       }
     } catch (err) {
       logger.warn(`Detected cache corruption: ${err.message}`);
-      logger.warn('Restarting with clean cache.');
-      
-      if (server) {
-        server.kill('SIGTERM');
-      }
-      
-      setTimeout(() => {
-        retryCount = 0;
-        startServer(true);
-      }, 1000);
+      restartWithCleanCache('Restarting with clean cache.');
     }
   }
-}, 30000); // Check every 30 seconds
+}, CORRUPTION_CHECK_INTERVAL_MS);
 
 // Check for monitor mode
 const args = process.argv.slice(2);
@@ -334,7 +341,7 @@ if (monitorMode) {
   logger.log('Monitoring mode activated.');
   console.log('ℹ️  Watching for server on port', PORT);
   console.log('   (Server will be auto-started if it crashes)\n');
-  
+
   // Check if server is running
   let checkInterval = setInterval(async () => {
     const available = await isPortAvailable(PORT);
@@ -344,7 +351,7 @@ if (monitorMode) {
       startServer(false);
     }
   }, 5000);
-  
+
   console.log('Press Ctrl+C to stop monitoring\n');
 } else {
   startServer(false);
