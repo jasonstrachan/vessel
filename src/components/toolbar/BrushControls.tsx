@@ -76,7 +76,8 @@ import {
   sliderPositionToBrushColorCycleSpeed,
 } from '@/utils/colorCycleSpeed';
 import ShapeFillControls from "./ShapeFillControls";
-import DitherControls, { DITHER_OPTIONS, PATTERN_STYLES } from './DitherControls';
+import DitherControls, { DITHER_OPTIONS } from './DitherControls';
+import CcPatternDropdown from './CcPatternDropdown';
 import { getPresetCapabilities, type BrushCapabilities } from '@/presets/brushPresets';
 import EraserTipControls from './EraserTipControls';
 
@@ -2195,15 +2196,10 @@ const BrushControls = () => {
                 {activeSettings.ditherAlgorithm === 'pattern' && (
                   <div className="flex items-center gap-2 mt-2">
                     <div className={CONTROL_LABEL_CLASS} style={CONTROL_LABEL_STYLE} />
-                    <Dropdown
+                    <CcPatternDropdown
                       value={activeSettings.patternStyle || 'dots'}
-                      options={PATTERN_STYLES}
-                      onChange={(value) =>
-                        setActiveSettings({
-                          ditherAlgorithm: 'pattern',
-                          patternStyle: value as NonNullable<BrushSettings['patternStyle']>
-                        })
-                      }
+                      patternTileId={activeSettings.patternTileId}
+                      onChange={setActiveSettings}
                       className="flex-1"
                     />
                   </div>

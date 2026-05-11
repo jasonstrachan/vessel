@@ -4,6 +4,7 @@ import type {
   ExportContainerLayout,
   WebGLExportSettings,
   CustomBrush,
+  CcCustomTilePattern,
   Layer,
   BrushSettings,
 } from '@/types';
@@ -24,6 +25,10 @@ import { flushPendingToolWork } from '@/utils/toolFlushRegistry';
 import { DEFAULT_CANVAS_WIDTH, DEFAULT_CANVAS_HEIGHT } from '../../constants/canvas';
 import { adjustHueLightnessSaturation } from '@/utils/imageProcessing';
 import { createCustomBrushPreset } from '@/utils/customBrushPreset';
+import {
+  clearCcCustomTilePatternCache,
+  normalizeCcCustomTilePattern,
+} from '@/utils/colorCycle/ccCustomTilePattern';
 
 type AppState = import('../useAppStore').AppState;
 type CustomBrushSnapshot = {
@@ -40,6 +45,62 @@ type ColorCycleLayerSnapshot = {
   phaseBuffer?: ArrayBuffer;
   hasContent: boolean;
   strokeCounter: number;
+};
+
+const objectReferencesCcTilePattern = (
+  value: unknown,
+  patternId: string,
+  seen = new WeakSet<object>()
+): boolean => {
+  if (!value || typeof value !== 'object') {
+    return false;
+  }
+  if (
+    value instanceof ArrayBuffer ||
+    ArrayBuffer.isView(value) ||
+    (typeof ImageData !== 'undefined' && value instanceof ImageData)
+  ) {
+    return false;
+  }
+  if (seen.has(value)) {
+    return false;
+  }
+  seen.add(value);
+
+  const record = value as Record<string, unknown>;
+  if (record.stampDitherPatternTileId === patternId || record.patternTileId === patternId) {
+    return true;
+  }
+
+  return Object.values(record).some((entry) => objectReferencesCcTilePattern(entry, patternId, seen));
+};
+
+const layerReferencesCcTilePattern = (layer: Layer, patternId: string): boolean => {
+  if (objectReferencesCcTilePattern(layer.colorCycleData?.brushState, patternId)) {
+    return true;
+  }
+  const colorCycleBrush = layer.colorCycleData?.colorCycleBrush as
+    | { serialize?: () => unknown }
+    | undefined;
+  if (typeof colorCycleBrush?.serialize === 'function') {
+    try {
+      return objectReferencesCcTilePattern(colorCycleBrush.serialize(), patternId);
+    } catch {
+      return false;
+    }
+  }
+  return false;
+};
+
+const projectReferencesCcTilePattern = (
+  state: Pick<AppState, 'layers' | 'project'>,
+  patternId: string
+): boolean => {
+  const layers = [
+    ...(state.layers ?? []),
+    ...(state.project?.layers ?? []),
+  ];
+  return layers.some((layer) => layerReferencesCcTilePattern(layer, patternId));
 };
 
 const cloneImageData = (source: ImageData): ImageData => {
@@ -367,6 +428,9 @@ export interface ProjectSlice {
   addCustomBrush: (brush: CustomBrush) => void;
   updateCustomBrush: (brushId: string, updates: Partial<CustomBrush>) => void;
   removeCustomBrush: (brushId: string) => void;
+  addCcCustomTilePattern: (pattern: CcCustomTilePattern) => void;
+  removeCcCustomTilePattern: (patternId: string) => void;
+  renameCcCustomTilePattern: (patternId: string, name: string) => void;
   setDefaultCustomBrush: (brushId: string | null) => void;
   saveCustomBrushAsPreset: (customBrushId: string) => void;
   getCustomBrushById: (brushId: string) => CustomBrush | null;
@@ -770,6 +834,118 @@ export const createProjectSlice =
       persistCustomBrushes();
     };
 
+    const addCcCustomTilePattern = (pattern: CcCustomTilePattern) => {
+      const normalized = normalizeCcCustomTilePattern(pattern);
+      if (!normalized) {
+        return;
+      }
+      clearCcCustomTilePatternCache(normalized.id);
+      set((state) => {
+        if (!state.project) {
+          return state;
+        }
+        const existing = state.project.ccCustomTilePatterns ?? [];
+        const withoutExisting = existing.filter((entry) => entry.id !== normalized.id);
+        return {
+          project: {
+            ...state.project,
+            ccCustomTilePatterns: [...withoutExisting, normalized],
+            updatedAt: new Date(),
+          },
+          tools: {
+            ...state.tools,
+            brushSettings: {
+              ...state.tools.brushSettings,
+              ditherAlgorithm: 'pattern',
+              patternStyle: 'image-tile',
+              patternTileId: normalized.id,
+            },
+          },
+          ccBrushDitherSelection: {
+            ...state.ccBrushDitherSelection,
+            ditherAlgorithm: 'pattern',
+            patternStyle: 'image-tile',
+            patternTileId: normalized.id,
+          },
+        };
+      });
+    };
+
+    const removeCcCustomTilePattern = (patternId: string) => {
+      let didRemove = false;
+      set((state) => {
+        if (!state.project) {
+          return state;
+        }
+        if (projectReferencesCcTilePattern(state, patternId)) {
+          return state;
+        }
+        const remaining = (state.project.ccCustomTilePatterns ?? []).filter(
+          (entry) => entry.id !== patternId
+        );
+        didRemove = remaining.length !== (state.project.ccCustomTilePatterns ?? []).length;
+        const selectedToolTileId = state.tools.brushSettings.patternTileId;
+        const shouldResetToolSelection =
+          selectedToolTileId === patternId &&
+          state.tools.brushSettings.patternStyle === 'image-tile';
+        const selectedSharedTileId = state.ccBrushDitherSelection.patternTileId;
+        const shouldResetSharedSelection =
+          selectedSharedTileId === patternId &&
+          state.ccBrushDitherSelection.patternStyle === 'image-tile';
+        const brushSettings = shouldResetToolSelection
+          ? {
+              ...state.tools.brushSettings,
+              patternStyle: 'dots' as const,
+              patternTileId: null,
+            }
+          : state.tools.brushSettings;
+        return {
+          project: {
+            ...state.project,
+            ccCustomTilePatterns: remaining,
+            updatedAt: new Date(),
+          },
+          tools: {
+            ...state.tools,
+            brushSettings,
+          },
+          ccBrushDitherSelection: shouldResetSharedSelection
+            ? {
+                ...state.ccBrushDitherSelection,
+                patternStyle: 'dots',
+                patternTileId: null,
+              }
+            : state.ccBrushDitherSelection,
+        };
+      });
+      if (didRemove) {
+        clearCcCustomTilePatternCache(patternId);
+      }
+    };
+
+    const renameCcCustomTilePattern = (patternId: string, name: string) => {
+      const nextName = name.trim();
+      if (!nextName) {
+        return;
+      }
+      set((state) => {
+        if (!state.project) {
+          return state;
+        }
+        return {
+          project: {
+            ...state.project,
+            ccCustomTilePatterns: (state.project.ccCustomTilePatterns ?? []).map((pattern) =>
+              pattern.id === patternId
+                ? { ...pattern, name: nextName, updatedAt: Date.now() }
+                : pattern
+            ),
+            updatedAt: new Date(),
+          },
+        };
+      });
+    };
+
     const updateCustomBrush = (brushId: string, updates: Partial<CustomBrush>) => {
       set((state) => {
         if (!state.project) {
@@ -992,6 +1168,7 @@ export const createProjectSlice =
         createdAt: new Date(),
         updatedAt: new Date(),
         customBrushes: [],
+        ccCustomTilePatterns: [],
         defaultCustomBrushId: null,
         brushSpecificSettings: {},
         exportLayout: createDefaultExportLayout(),
@@ -1074,6 +1251,9 @@ export const createProjectSlice =
       addCustomBrush,
       updateCustomBrush,
       removeCustomBrush,
+      addCcCustomTilePattern,
+      removeCcCustomTilePattern,
+      renameCcCustomTilePattern,
       setDefaultCustomBrush,
       saveCustomBrushAsPreset,
       getCustomBrushById,

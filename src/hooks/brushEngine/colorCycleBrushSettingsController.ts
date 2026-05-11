@@ -7,6 +7,15 @@ type SettingsBrush = ColorCycleBrushImplementation & {
   setPxlEdgeEnabled?: (enabled: boolean) => void;
   setStampDitherAlgorithm?: (algorithm?: BrushSettings['ditherAlgorithm']) => void;
   setStampDitherPatternStyle?: (style?: BrushSettings['patternStyle']) => void;
+  setStampDitherPatternTileSettings?: (settings: Pick<
+    BrushSettings,
+    | 'patternTileId'
+    | 'patternTileScale'
+    | 'patternTileInvert'
+    | 'patternTileThreshold'
+    | 'patternTileOffsetX'
+    | 'patternTileOffsetY'
+  >) => void;
   setStampDitherPressureLinked?: (enabled: boolean) => void;
   setStampDitherBgFill?: (enabled: boolean) => void;
   setStampDitherClears?: (enabled: boolean) => void;
@@ -146,6 +155,12 @@ export const updateColorCycleDitherSettings = ({
   stampDitherEnabled,
   ditherAlgorithm,
   patternStyle,
+  patternTileId,
+  patternTileScale,
+  patternTileInvert,
+  patternTileThreshold,
+  patternTileOffsetX,
+  patternTileOffsetY,
   stampDitherPressureLinked,
   stampDitherBgFill,
   stampDitherClears,
@@ -158,6 +173,12 @@ export const updateColorCycleDitherSettings = ({
   stampDitherEnabled?: boolean;
   ditherAlgorithm?: BrushSettings['ditherAlgorithm'];
   patternStyle?: BrushSettings['patternStyle'];
+  patternTileId?: BrushSettings['patternTileId'];
+  patternTileScale?: BrushSettings['patternTileScale'];
+  patternTileInvert?: BrushSettings['patternTileInvert'];
+  patternTileThreshold?: BrushSettings['patternTileThreshold'];
+  patternTileOffsetX?: BrushSettings['patternTileOffsetX'];
+  patternTileOffsetY?: BrushSettings['patternTileOffsetY'];
   stampDitherPressureLinked?: boolean;
   stampDitherBgFill?: boolean;
   stampDitherClears?: boolean;
@@ -183,6 +204,7 @@ export const updateColorCycleDitherSettings = ({
       stampDitherEnabled: stampDitherEnabled ?? null,
       ditherAlgorithm: ditherAlgorithm ?? null,
       patternStyle: patternStyle ?? null,
+      patternTileId: patternTileId ?? null,
     });
     if (typeof instance.setDitherStrength === 'function') {
       instance.setDitherStrength(enable ? 1 : 0);
@@ -194,6 +216,16 @@ export const updateColorCycleDitherSettings = ({
     }
     if (typeof instance.setStampDitherPatternStyle === 'function') {
       instance.setStampDitherPatternStyle(patternStyle ?? 'dots');
+    }
+    if (typeof instance.setStampDitherPatternTileSettings === 'function') {
+      instance.setStampDitherPatternTileSettings({
+        patternTileId,
+        patternTileScale,
+        patternTileInvert,
+        patternTileThreshold,
+        patternTileOffsetX,
+        patternTileOffsetY,
+      });
     }
     if (typeof instance.setStampDitherPressureLinked === 'function') {
       instance.setStampDitherPressureLinked(!!stampDitherPressureLinked);

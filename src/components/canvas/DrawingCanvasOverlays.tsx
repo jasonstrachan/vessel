@@ -28,6 +28,7 @@ export const DrawingCanvasOverlays = ({
   displayProjectName,
 }: DrawingCanvasOverlaysProps) => {
   const grid = useAppStore(selectGridState);
+  const setZoom = useAppStore((state) => state.setZoom);
 
   return (
     <>
@@ -80,9 +81,24 @@ export const DrawingCanvasOverlays = ({
         <div className="bg-black/60 px-2 py-1 rounded max-w-[240px] truncate" title={displayProjectName}>
           {displayProjectName}
         </div>
-        <div className="bg-black/60 px-2 py-1 rounded min-w-[58px] text-center">
+        <button
+          type="button"
+          className="bg-black/60 px-2 py-1 rounded min-w-[58px] text-center cursor-pointer select-none hover:bg-black/75 transition-colors"
+          onPointerDown={(event) => {
+            event.stopPropagation();
+          }}
+          onClick={(event) => {
+            event.stopPropagation();
+          }}
+          onDoubleClick={(event) => {
+            event.stopPropagation();
+            setZoom(1);
+          }}
+          aria-label="Reset canvas zoom to 100%"
+          title="Double-click to reset zoom to 100%"
+        >
           {Math.round((canvasZoom || 1) * 100)}%
-        </div>
+        </button>
       </div>
     </>
   );

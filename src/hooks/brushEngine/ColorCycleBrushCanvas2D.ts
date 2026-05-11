@@ -31,6 +31,10 @@ import { clearStrokeDefIdsForStamp } from './strokeDefClear';
 import { canvasPool } from '@/utils/canvasPool';
 import { ccWarn } from '@/utils/colorCycle/ccDebug';
 import { appendCCDebugOverlayEntry } from '@/utils/colorCycle/ccDebugOverlayStore';
+import {
+  createCcCustomTileThresholdResolver,
+  type CcCustomTilePatternSettings,
+} from '@/utils/colorCycle/ccCustomTilePattern';
 import { fillCcGradientDither } from '@/utils/colorCycle/ccGradientDither';
 import { resolveStableFlatSeed } from '@/utils/colorCycle/ccFlatSeed';
 import { computeConcentricMaxDistance, fillConcentricIndices } from '@/utils/colorCycle/concentricFillCore';
@@ -44,7 +48,12 @@ import type { PaletteMapEntry } from '@/workers/colorCycleFillTypes';
 import type { PatternStyle } from '@/utils/ditherAlgorithms';
 import { applySierraLiteLostEdgeMask } from '@/utils/ditherAlgorithms';
 import { LOST_EDGE_TILE_MAX, LOST_EDGE_TILE_MIN } from '@/utils/ditherConstants';
-import type { CustomBrushColorCycleData, DerivedGradientSpec } from '@/types';
+import type {
+  BrushSettings,
+  CcCustomTilePattern,
+  CustomBrushColorCycleData,
+  DerivedGradientSpec,
+} from '@/types';
 import { FLOW_SLOT_MASK, type FlowMode } from '@/lib/colorCycle/flowEncoding';
 import {
   decodeColorCycleSpeedByte,
@@ -374,6 +383,12 @@ interface ColorCycleBrushCanvasState {
   stampDitherPixelSize?: number;
   stampDitherAlgorithm?: StampDitherAlgorithm;
   stampDitherPatternStyle?: PatternStyle;
+  stampDitherPatternTileId?: string | null;
+  stampDitherPatternTileScale?: number | null;
+  stampDitherPatternTileInvert?: boolean | null;
+  stampDitherPatternTileThreshold?: number | null;
+  stampDitherPatternTileOffsetX?: number | null;
+  stampDitherPatternTileOffsetY?: number | null;
   stampDitherBgFill?: boolean;
   stampDitherClears?: boolean;
   stampDitherPressureLinked?: boolean;
@@ -399,6 +414,12 @@ interface ColorCycleBrushCanvasSerialized {
   stampDitherPixelSize?: number;
   stampDitherAlgorithm?: StampDitherAlgorithm;
   stampDitherPatternStyle?: PatternStyle;
+  stampDitherPatternTileId?: string | null;
+  stampDitherPatternTileScale?: number | null;
+  stampDitherPatternTileInvert?: boolean | null;
+  stampDitherPatternTileThreshold?: number | null;
+  stampDitherPatternTileOffsetX?: number | null;
+  stampDitherPatternTileOffsetY?: number | null;
   stampDitherBgFill?: boolean;
   stampDitherClears?: boolean;
   stampDitherPressureLinked?: boolean;
@@ -974,6 +995,16 @@ export class ColorCycleBrushCanvas2D {
   private stampDitherPixelSize: number = 1;
   private stampDitherAlgorithm: StampDitherAlgorithm = 'sierra-lite';
   private stampDitherPatternStyle: PatternStyle = 'dots';
+  private stampDitherPatternTileId: string | null = null;
+  private stampDitherPatternTileScale: number | null = null;
+  private stampDitherPatternTileInvert: boolean | null = null;
+  private stampDitherPatternTileThreshold: number | null = null;
+  private stampDitherPatternTileOffsetX: number | null = null;
+  private stampDitherPatternTileOffsetY: number | null = null;
+  private stampDitherImageTileResolverKey: string | null = null;
+  private stampDitherImageTileResolver:
+    | ((x: number, y: number) => number | null)
+    | undefined;
   private stampDitherRuntime: ReturnType<typeof createStampDitherRuntime> = createStampDitherRuntime();
   private stampDitherBgFill: boolean = true;
   private stampDitherPressureLinked: boolean = false;
@@ -2111,6 +2142,7 @@ export class ColorCycleBrushCanvas2D {
           algorithm: this.stampDitherAlgorithm ?? 'sierra-lite',
           pixelSize: this.stampDitherPixelSize,
           patternStyle: this.stampDitherPatternStyle,
+          imageTileThresholdResolver: this.getStampDitherImageTileThresholdResolver(),
           bgFill: this.stampDitherBgFill,
           pressureLinked: this.stampDitherPressureLinked,
           seed: strokeData.stampDither?.stampDitherSeed ?? 0,
@@ -3716,6 +3748,7 @@ export class ColorCycleBrushCanvas2D {
           algorithm: algo,
           pixelSize: this.stampDitherPixelSize,
           patternStyle: this.stampDitherPatternStyle,
+          imageTileThresholdResolver: this.getStampDitherImageTileThresholdResolver(),
           bgFill: this.stampDitherBgFill,
           pressureLinked: this.stampDitherPressureLinked,
           seed: strokeData.stampDither?.stampDitherSeed ?? 0,
@@ -4472,6 +4505,7 @@ export class ColorCycleBrushCanvas2D {
           flatSeed,
           algorithm: fillAlgorithm,
           patternStyle: fillPatternStyle,
+          imageTileThresholdResolver: this.getStampDitherImageTileThresholdResolver(),
           sampledFlatTraceId: phaseSeedMarkId
             ? `${phaseSeedMarkId}:brush-linear`
             : (sampledStopsOverride ? `${id}:brush-linear` : undefined),
@@ -5659,6 +5693,7 @@ export class ColorCycleBrushCanvas2D {
           flatSeed,
           algorithm: fillAlgorithm,
           patternStyle: fillPatternStyle,
+          imageTileThresholdResolver: this.getStampDitherImageTileThresholdResolver(),
           sampledFlatTraceId: phaseSeedMarkId
             ? `${phaseSeedMarkId}:brush-concentric`
             : undefined,
@@ -6827,6 +6862,102 @@ export class ColorCycleBrushCanvas2D {
     this.clearStampDitherCache();
   }
 
+  setStampDitherPatternTileSettings(settings: Pick<
+    BrushSettings,
+    | 'patternTileId'
+    | 'patternTileScale'
+    | 'patternTileInvert'
+    | 'patternTileThreshold'
+    | 'patternTileOffsetX'
+    | 'patternTileOffsetY'
+  > = {}) {
+    const nextTileId = settings.patternTileId ?? null;
+    const nextScale = Number.isFinite(settings.patternTileScale)
+      ? Math.max(1, Math.round(Number(settings.patternTileScale)))
+      : null;
+    const nextInvert = typeof settings.patternTileInvert === 'boolean'
+      ? settings.patternTileInvert
+      : null;
+    const nextThreshold = Number.isFinite(settings.patternTileThreshold)
+      ? Math.max(0, Math.min(1, Number(settings.patternTileThreshold)))
+      : null;
+    const nextOffsetX = Number.isFinite(settings.patternTileOffsetX)
+      ? Math.round(Number(settings.patternTileOffsetX))
+      : null;
+    const nextOffsetY = Number.isFinite(settings.patternTileOffsetY)
+      ? Math.round(Number(settings.patternTileOffsetY))
+      : null;
+
+    if (
+      nextTileId === this.stampDitherPatternTileId &&
+      nextScale === this.stampDitherPatternTileScale &&
+      nextInvert === this.stampDitherPatternTileInvert &&
+      nextThreshold === this.stampDitherPatternTileThreshold &&
+      nextOffsetX === this.stampDitherPatternTileOffsetX &&
+      nextOffsetY === this.stampDitherPatternTileOffsetY
+    ) {
+      return;
+    }
+
+    this.stampDitherPatternTileId = nextTileId;
+    this.stampDitherPatternTileScale = nextScale;
+    this.stampDitherPatternTileInvert = nextInvert;
+    this.stampDitherPatternTileThreshold = nextThreshold;
+    this.stampDitherPatternTileOffsetX = nextOffsetX;
+    this.stampDitherPatternTileOffsetY = nextOffsetY;
+    this.clearStampDitherCache();
+  }
+
+  private getStampDitherPatternTileSettings(): CcCustomTilePatternSettings {
+    return {
+      patternTileId: this.stampDitherPatternTileId,
+      patternTileScale: this.stampDitherPatternTileScale,
+      patternTileInvert: this.stampDitherPatternTileInvert,
+      patternTileThreshold: this.stampDitherPatternTileThreshold,
+      patternTileOffsetX: this.stampDitherPatternTileOffsetX,
+      patternTileOffsetY: this.stampDitherPatternTileOffsetY,
+    };
+  }
+
+  private getStampDitherImageTileThresholdResolver():
+    | ((x: number, y: number) => number | null)
+    | undefined {
+    const settings = this.getStampDitherPatternTileSettings();
+    const patterns = getAppStoreState().project?.ccCustomTilePatterns;
+    const tile = patterns?.find((pattern) => pattern.id === settings.patternTileId);
+    const resolverKey = this.getStampDitherImageTileResolverKey(tile, settings);
+    if (resolverKey === this.stampDitherImageTileResolverKey) {
+      return this.stampDitherImageTileResolver;
+    }
+    this.stampDitherImageTileResolverKey = resolverKey;
+    this.stampDitherImageTileResolver = createCcCustomTileThresholdResolver(
+      patterns,
+      settings
+    ) ?? undefined;
+    return this.stampDitherImageTileResolver;
+  }
+
+  private getStampDitherImageTileResolverKey(
+    tile: CcCustomTilePattern | undefined,
+    settings: CcCustomTilePatternSettings
+  ): string {
+    if (!settings.patternTileId || !tile) {
+      return 'none';
+    }
+    return [
+      settings.patternTileId,
+      tile.width,
+      tile.height,
+      tile.updatedAt,
+      tile.rgbaBase64,
+      settings.patternTileScale ?? 'auto',
+      settings.patternTileInvert ?? 'auto',
+      settings.patternTileThreshold ?? 'auto',
+      settings.patternTileOffsetX ?? 'auto',
+      settings.patternTileOffsetY ?? 'auto',
+    ].join('|');
+  }
+
   /** Adjust stamp dithering pixel size multiplier (>=1). */
   setStampDitherPixelSize(size: number) {
     const next = Math.max(1, Math.floor(size));
@@ -7179,6 +7310,14 @@ export class ColorCycleBrushCanvas2D {
       if (state.stampDitherPatternStyle) {
         this.setStampDitherPatternStyle(state.stampDitherPatternStyle);
       }
+      this.setStampDitherPatternTileSettings({
+        patternTileId: state.stampDitherPatternTileId,
+        patternTileScale: state.stampDitherPatternTileScale,
+        patternTileInvert: state.stampDitherPatternTileInvert,
+        patternTileThreshold: state.stampDitherPatternTileThreshold,
+        patternTileOffsetX: state.stampDitherPatternTileOffsetX,
+        patternTileOffsetY: state.stampDitherPatternTileOffsetY,
+      });
       if (typeof state.stampDitherBgFill === 'boolean') {
         this.setStampDitherBgFill(state.stampDitherBgFill);
       } else if (typeof state.stampDitherClears === 'boolean') {
@@ -7476,6 +7615,12 @@ export class ColorCycleBrushCanvas2D {
       stampDitherPixelSize: this.stampDitherPixelSize,
       stampDitherAlgorithm: this.stampDitherAlgorithm,
       stampDitherPatternStyle: this.stampDitherPatternStyle,
+      stampDitherPatternTileId: this.stampDitherPatternTileId,
+      stampDitherPatternTileScale: this.stampDitherPatternTileScale,
+      stampDitherPatternTileInvert: this.stampDitherPatternTileInvert,
+      stampDitherPatternTileThreshold: this.stampDitherPatternTileThreshold,
+      stampDitherPatternTileOffsetX: this.stampDitherPatternTileOffsetX,
+      stampDitherPatternTileOffsetY: this.stampDitherPatternTileOffsetY,
       stampDitherBgFill: this.stampDitherBgFill,
       stampDitherClears: !this.stampDitherBgFill,
       stampDitherPressureLinked: this.stampDitherPressureLinked,
@@ -7529,6 +7674,14 @@ export class ColorCycleBrushCanvas2D {
     if (data.stampDitherPatternStyle) {
       instance.setStampDitherPatternStyle(data.stampDitherPatternStyle);
     }
+    instance.setStampDitherPatternTileSettings({
+      patternTileId: data.stampDitherPatternTileId,
+      patternTileScale: data.stampDitherPatternTileScale,
+      patternTileInvert: data.stampDitherPatternTileInvert,
+      patternTileThreshold: data.stampDitherPatternTileThreshold,
+      patternTileOffsetX: data.stampDitherPatternTileOffsetX,
+      patternTileOffsetY: data.stampDitherPatternTileOffsetY,
+    });
     if (typeof data.stampDitherPressureLinked === 'boolean') {
       instance.setStampDitherPressureLinked(data.stampDitherPressureLinked);
     }

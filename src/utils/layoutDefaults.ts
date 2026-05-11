@@ -218,6 +218,9 @@ export const normalizePalette = (palette?: PaletteState | null): PaletteState =>
 
 export const normalizeProject = (project: Project): Project => {
   const customBrushes = Array.isArray(project.customBrushes) ? project.customBrushes : [];
+  const ccCustomTilePatterns = Array.isArray(project.ccCustomTilePatterns)
+    ? project.ccCustomTilePatterns
+    : [];
   const defaultCustomBrushId =
     customBrushes.find((brush) => brush.id === project.defaultCustomBrushId) !== undefined
       ? project.defaultCustomBrushId ?? null
@@ -253,6 +256,7 @@ export const normalizeProject = (project: Project): Project => {
   return {
     ...project,
     customBrushes,
+    ccCustomTilePatterns,
     defaultCustomBrushId,
     exportLayout: cloneExportLayout(project.exportLayout),
     layers: layersWithValidGroups,

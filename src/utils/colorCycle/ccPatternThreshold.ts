@@ -3,6 +3,42 @@ import type { PatternStyle } from '@/utils/ditherAlgorithms';
 const mod = (value: number, modulo: number): number => ((value % modulo) + modulo) % modulo;
 const hashPatternCell = (x: number, y: number): number => ((x * 73856093) ^ (y * 19349663)) >>> 0;
 
+type CcImageTileThresholdResolver = (x: number, y: number) => number | null;
+
+let ccImageTileThresholdResolver: CcImageTileThresholdResolver | null = null;
+const scopedCcImageTileThresholdResolvers: CcImageTileThresholdResolver[] = [];
+
+export const setCcImageTileThresholdResolver = (
+  resolver: CcImageTileThresholdResolver | null
+): void => {
+  ccImageTileThresholdResolver = resolver;
+};
+
+export const withCcImageTileThresholdResolver = <T>(
+  resolver: CcImageTileThresholdResolver | null | undefined,
+  callback: () => T
+): T => {
+  if (!resolver) {
+    return callback();
+  }
+  scopedCcImageTileThresholdResolvers.push(resolver);
+  const popResolver = () => {
+    scopedCcImageTileThresholdResolvers.pop();
+  };
+  try {
+    const result = callback();
+    const maybePromise = result as unknown as Promise<unknown>;
+    if (result && typeof maybePromise.then === 'function') {
+      return maybePromise.finally(popResolver) as T;
+    }
+    popResolver();
+    return result;
+  } catch (error) {
+    popResolver();
+    throw error;
+  }
+};
+
 const ASCII_PATTERN_CELL_WIDTH = 5;
 const ASCII_PATTERN_CELL_HEIGHT = 7;
 const ASCII_PATTERN_GLYPHS: ReadonlyArray<ReadonlyArray<string>> = [
@@ -94,6 +130,11 @@ export const resolveCcPatternThreshold = (
       const glyphX = mod(x, ASCII_PATTERN_CELL_WIDTH);
       const glyphY = mod(y, ASCII_PATTERN_CELL_HEIGHT);
       return glyph[glyphY][glyphX] === '1' ? 0.12 : 0.88;
+    }
+    case 'image-tile': {
+      const scopedResolver =
+        scopedCcImageTileThresholdResolvers[scopedCcImageTileThresholdResolvers.length - 1];
+      return scopedResolver?.(x, y) ?? ccImageTileThresholdResolver?.(x, y) ?? 0.5;
     }
     case 'tone-adaptive': {
       if (!Number.isFinite(tone)) {

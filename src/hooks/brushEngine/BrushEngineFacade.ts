@@ -1321,9 +1321,18 @@ export class BrushEngineFacade {
     numColors: number,
     algorithm?: string,
     patternStyle?: string,
-    customPalette?: string[]
+    customPalette?: string[],
+    imageTileThresholdResolver?: (x: number, y: number) => number | null
   ): ImageData {
-    return applyDithering(imageData, numColors, algorithm, patternStyle, customPalette);
+    return applyDithering(
+      imageData,
+      numColors,
+      algorithm,
+      patternStyle,
+      customPalette,
+      undefined,
+      imageTileThresholdResolver
+    );
   }
 
   /**

@@ -1,7 +1,10 @@
 import type { ColorCycleAnimator } from '@/lib/ColorCycleAnimator';
 import { BAYER_8x8_MATRIX, BLUE_NOISE_16x16, VOID_CLUSTER_8x8 } from '@/utils/ditherAlgorithms';
 import type { PatternStyle } from '@/utils/ditherAlgorithms';
-import { resolveCcPatternThreshold } from '@/utils/colorCycle/ccPatternThreshold';
+import {
+  resolveCcPatternThreshold,
+  withCcImageTileThresholdResolver,
+} from '@/utils/colorCycle/ccPatternThreshold';
 import { encodeColorCycleSpeedByte } from '@/utils/colorCycleSpeed';
 import {
   computePressureResolution,
@@ -27,6 +30,7 @@ export type StampDitherConfig = {
   algorithm: StampDitherAlgorithm;
   pixelSize: number;
   patternStyle?: PatternStyle;
+  imageTileThresholdResolver?: (x: number, y: number) => number | null;
   bgFill: boolean;
   pressureLinked: boolean;
   seed: number;
@@ -119,6 +123,24 @@ const DIAMOND_7_MASK: ReadonlyArray<number> = [
   0, 0, 1, 1, 1, 0, 0,
   0, 0, 0, 1, 0, 0, 0,
 ];
+
+const imageTileResolverIds = new WeakMap<(x: number, y: number) => number | null, number>();
+let nextImageTileResolverId = 1;
+
+const getImageTileResolverCacheKey = (
+  resolver?: (x: number, y: number) => number | null
+): string => {
+  if (!resolver) {
+    return 'none';
+  }
+  let id = imageTileResolverIds.get(resolver);
+  if (!id) {
+    id = nextImageTileResolverId;
+    nextImageTileResolverId += 1;
+    imageTileResolverIds.set(resolver, id);
+  }
+  return String(id);
+};
 const DIAMOND_9_MASK: ReadonlyArray<number> = [
   0, 0, 0, 0, 1, 0, 0, 0, 0,
   0, 0, 0, 1, 1, 1, 0, 0, 0,
@@ -696,7 +718,8 @@ const buildBaseStampDitherTile = (
   bucket: number,
   baseSize: number,
   algo: StampDitherAlgorithm,
-  pattern: PatternStyle
+  pattern: PatternStyle,
+  imageTileThresholdResolver?: (x: number, y: number) => number | null
 ): Uint8Array => {
   const tileSize = Math.max(1, Math.floor(baseSize));
   const clampedBucket = Math.max(0, Math.min(STAMP_DITHER_BUCKETS - 1, bucket));
@@ -705,7 +728,10 @@ const buildBaseStampDitherTile = (
     const result = new Uint8Array(tileSize * tileSize);
     for (let y = 0; y < tileSize; y += 1) {
       for (let x = 0; x < tileSize; x += 1) {
-        const patternValue = resolveCcPatternThreshold(pattern, x, y, coverage);
+        const patternValue = withCcImageTileThresholdResolver(
+          imageTileThresholdResolver,
+          () => resolveCcPatternThreshold(pattern, x, y, coverage)
+        );
         result[y * tileSize + x] = patternValue <= coverage ? 1 : 0;
       }
     }
@@ -768,16 +794,26 @@ const getBaseStampDitherTile = (
   bucket: number,
   baseSize: number,
   algoOverride: StampDitherAlgorithm,
-  patternOverride: PatternStyle
+  patternOverride: PatternStyle,
+  imageTileThresholdResolver?: (x: number, y: number) => number | null
 ): Uint8Array => {
   const normalizedBucket = Math.max(0, Math.min(STAMP_DITHER_BUCKETS - 1, bucket | 0));
   const algo = algoOverride;
   const pattern = patternOverride;
   const sizeKey = Math.max(1, Math.floor(baseSize));
-  const cacheKey = `${algo}|${pattern}|${normalizedBucket}|${sizeKey}`;
+  const imageTileKey = pattern === 'image-tile'
+    ? getImageTileResolverCacheKey(imageTileThresholdResolver)
+    : 'none';
+  const cacheKey = `${algo}|${pattern}|${imageTileKey}|${normalizedBucket}|${sizeKey}`;
   let tile = runtime.baseTiles.get(cacheKey);
   if (!tile) {
-    tile = buildBaseStampDitherTile(normalizedBucket, sizeKey, algo, pattern);
+    tile = buildBaseStampDitherTile(
+      normalizedBucket,
+      sizeKey,
+      algo,
+      pattern,
+      imageTileThresholdResolver
+    );
     runtime.baseTiles.set(cacheKey, tile);
   }
   return tile;
@@ -789,17 +825,28 @@ const getStampDitherTile = (
   overrideScale: number,
   baseSize: number,
   algoOverride: StampDitherAlgorithm,
-  patternOverride: PatternStyle
+  patternOverride: PatternStyle,
+  imageTileThresholdResolver?: (x: number, y: number) => number | null
 ): Uint8Array => {
   const normalizedBucket = Math.max(0, Math.min(STAMP_DITHER_BUCKETS - 1, bucket | 0));
   const algo = algoOverride;
   const pattern = patternOverride;
   const scale = Math.max(1, Math.floor(overrideScale));
   const sizeKey = Math.max(1, Math.floor(baseSize));
-  const cacheKey = `${algo}|${pattern}|${normalizedBucket}|${sizeKey}|${scale}`;
+  const imageTileKey = pattern === 'image-tile'
+    ? getImageTileResolverCacheKey(imageTileThresholdResolver)
+    : 'none';
+  const cacheKey = `${algo}|${pattern}|${imageTileKey}|${normalizedBucket}|${sizeKey}|${scale}`;
   let tile = runtime.tiles.get(cacheKey);
   if (!tile) {
-    const baseTile = getBaseStampDitherTile(runtime, normalizedBucket, sizeKey, algo, pattern);
+    const baseTile = getBaseStampDitherTile(
+      runtime,
+      normalizedBucket,
+      sizeKey,
+      algo,
+      pattern,
+      imageTileThresholdResolver
+    );
     tile = scale === 1 ? baseTile : scaleStampDitherTile(baseTile, scale, sizeKey);
     runtime.tiles.set(cacheKey, tile);
   }
@@ -831,6 +878,7 @@ export const sampleStampDitherReplayMask = ({
   originY,
   algorithm,
   patternStyle,
+  imageTileThresholdResolver,
 }: {
   x: number;
   y: number;
@@ -841,6 +889,7 @@ export const sampleStampDitherReplayMask = ({
   originY: number;
   algorithm: StampDitherAlgorithm;
   patternStyle: PatternStyle;
+  imageTileThresholdResolver?: (x: number, y: number) => number | null;
 }): number => {
   const scale = Math.max(1, Math.floor(tileScale));
   const clampedCoverage = Math.max(0, Math.min(1, coverage));
@@ -852,7 +901,8 @@ export const sampleStampDitherReplayMask = ({
     scale,
     baseSize,
     algorithm,
-    patternStyle
+    patternStyle,
+    imageTileThresholdResolver
   );
   return resolveStampDitherTileSample(
     tile,
@@ -1100,7 +1150,8 @@ export const applyStampDitherStamp = (args: {
     tileScaleInt,
     baseSize,
     algo,
-    config.patternStyle ?? 'dots'
+    config.patternStyle ?? 'dots',
+    config.imageTileThresholdResolver
   );
 
   const nextSeq = (state.stampDitherStampSeq ?? 0) + 1;
@@ -1252,7 +1303,8 @@ export const recomposeStampDitherOverlay = (args: {
           seqScale,
           baseSize,
           algo === 'pattern' ? 'pattern' : 'sierra-lite',
-          config.patternStyle ?? 'dots'
+          config.patternStyle ?? 'dots',
+          config.imageTileThresholdResolver
         );
         tileEntry = { tile, tileClamp, originX, originY };
         tileCache.set(seqScale, tileEntry);
@@ -1534,7 +1586,8 @@ export const finalizeStampDither = (args: {
             seqScale,
             baseSize,
             algo,
-            config.patternStyle ?? 'dots'
+            config.patternStyle ?? 'dots',
+            config.imageTileThresholdResolver
           );
           tileEntry = { tile, tileClamp, originX, originY };
           tileCache.set(seqScale, tileEntry);

@@ -6,6 +6,8 @@ import Input from '../ui/Input';
 import type { BrushSettings } from '@/types';
 import { BrushShape } from '@/types';
 import type { DitherAlgorithm } from '@/utils/ditherAlgorithms';
+import CcPatternDropdown from './CcPatternDropdown';
+import { PATTERN_STYLES } from './patternOptions';
 
 type Props = {
   settings: BrushSettings;
@@ -23,16 +25,7 @@ type Props = {
   showPxlEdgeToggle?: boolean;
 };
 
-export const PATTERN_STYLES: { value: NonNullable<BrushSettings['patternStyle']>; label: string }[] = [
-  { value: 'dots', label: 'Dots' },
-  { value: 'lines', label: 'Diagonal Lines' },
-  { value: 'vertical-lines', label: 'Vertical Lines' },
-  { value: 'horizontal-lines', label: 'Horizontal Lines' },
-  { value: 'crosshatch', label: 'Crosshatch' },
-  { value: 'diagonal', label: 'Diamond' },
-  { value: 'ascii', label: 'ASCII Cells' },
-  { value: 'tone-adaptive', label: 'Tone Adaptive' }
-];
+export { PATTERN_STYLES };
 
 export const DITHER_OPTIONS: { value: DitherAlgorithm; label: string }[] = [
   { value: 'sierra-lite', label: 'Sierra Lite' },
@@ -112,12 +105,10 @@ export const DitherControls: React.FC<Props> = ({
           {settings.ditherAlgorithm === 'pattern' && (
             <div className="flex items-center gap-2 mt-2">
               <div className={labelWidth} />
-              <Dropdown
+              <CcPatternDropdown
                 value={settings.patternStyle || 'dots'}
-                options={PATTERN_STYLES}
-                onChange={(value) =>
-                  onChange({ patternStyle: value as NonNullable<BrushSettings['patternStyle']> })
-                }
+                patternTileId={settings.patternTileId}
+                onChange={onChange}
                 className="flex-1"
               />
             </div>

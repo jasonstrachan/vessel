@@ -1,6 +1,8 @@
 import { debugWarn } from '@/utils/debug';
 import type { Point2D, PolygonGradientData, PolygonGradientSettings } from './shapeTypes';
 import { spreadPaletteColors } from './engineShared';
+import { getAppStoreState } from '@/stores/appStoreAccess';
+import { createCcCustomTileThresholdResolver } from '@/utils/colorCycle/ccCustomTilePattern';
 
 type CanvasPoolLike = {
   acquire: (width: number, height: number) => HTMLCanvasElement;
@@ -20,7 +22,9 @@ export type DrawPolygonGradientArgs = {
     numColors: number,
     algorithm?: string,
     patternStyle?: string,
-    customPalette?: string[]
+    customPalette?: string[],
+    phaseOffset?: { x: number; y: number },
+    imageTileThresholdResolver?: (x: number, y: number) => number | null
   ) => ImageData;
   applyDitheringWithFillResolution: (
     imageData: ImageData,
@@ -28,7 +32,9 @@ export type DrawPolygonGradientArgs = {
     fillResolution: number,
     algorithm?: string,
     patternStyle?: string,
-    customPalette?: string[]
+    customPalette?: string[],
+    phaseOffset?: { x: number; y: number },
+    imageTileThresholdResolver?: (x: number, y: number) => number | null
   ) => ImageData;
   applyRisographEffect: (
     ctx: CanvasRenderingContext2D,
@@ -270,18 +276,52 @@ export const drawPolygonGradient = ({
         const fillResolution = brushSettings.fillResolution || 1;
         const algorithm = brushSettings.ditherAlgorithm || 'sierra-lite';
         const patternStyle = brushSettings.patternStyle || 'dots';
+        const imageTileThresholdResolver = patternStyle === 'image-tile'
+          ? createCcCustomTileThresholdResolver(
+              getAppStoreState().project?.ccCustomTilePatterns,
+              {
+                patternTileId: brushSettings.patternTileId,
+                patternTileScale: brushSettings.patternTileScale,
+                patternTileInvert: brushSettings.patternTileInvert,
+                patternTileThreshold: brushSettings.patternTileThreshold,
+                patternTileOffsetX: brushSettings.patternTileOffsetX,
+                patternTileOffsetY: brushSettings.patternTileOffsetY,
+              }
+            ) ?? undefined
+          : undefined;
 
         const paletteColors = spreadPaletteColors(validColors, brushSettings.ditherPaletteSpread);
         const ditheredData = fillResolution > 1
-          ? applyDitheringWithFillResolution(
-              gradientImageData,
-              numColors,
-              fillResolution,
-              algorithm,
-              patternStyle,
-              paletteColors
-            )
-          : applyDithering(gradientImageData, numColors, algorithm, patternStyle, paletteColors);
+          ? imageTileThresholdResolver
+            ? applyDitheringWithFillResolution(
+                gradientImageData,
+                numColors,
+                fillResolution,
+                algorithm,
+                patternStyle,
+                paletteColors,
+                undefined,
+                imageTileThresholdResolver
+              )
+            : applyDitheringWithFillResolution(
+                gradientImageData,
+                numColors,
+                fillResolution,
+                algorithm,
+                patternStyle,
+                paletteColors
+              )
+          : imageTileThresholdResolver
+            ? applyDithering(
+                gradientImageData,
+                numColors,
+                algorithm,
+                patternStyle,
+                paletteColors,
+                undefined,
+                imageTileThresholdResolver
+              )
+            : applyDithering(gradientImageData, numColors, algorithm, patternStyle, paletteColors);
 
         tempCtx.putImageData(ditheredData, 0, 0);
 

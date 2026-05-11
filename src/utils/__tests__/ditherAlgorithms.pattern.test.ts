@@ -126,3 +126,52 @@ describe('applyPatternDither ascii', () => {
     expect(midInk).toBeLessThan(shadowInk);
   });
 });
+
+describe('applyPatternDither image-tile', () => {
+  const palette: [number, number, number][] = [
+    [0, 0, 0],
+    [255, 255, 255]
+  ];
+
+  const makeMidImage = () => {
+    const width = 2;
+    const height = 1;
+    const data = new Uint8ClampedArray(width * height * 4);
+    for (let x = 0; x < width; x++) {
+      const idx = x * 4;
+      data[idx] = 128;
+      data[idx + 1] = 128;
+      data[idx + 2] = 128;
+      data[idx + 3] = 255;
+    }
+    return new ImageData(data, width, height);
+  };
+
+  it('uses the supplied image tile threshold resolver', () => {
+    const result = applyPatternDither(makeMidImage(), {
+      algorithm: 'pattern',
+      pressure: 1,
+      intensity: 1,
+      bayerMatrixSize: 8,
+      palette,
+      patternStyle: 'image-tile',
+      imageTileThresholdResolver: (x) => (x === 0 ? 0 : 1),
+    });
+
+    expect(result.data[0]).toBe(0);
+    expect(result.data[4]).toBe(255);
+  });
+
+  it('falls back to dots when no image tile resolver is available', () => {
+    const result = applyPatternDither(makeMidImage(), {
+      algorithm: 'pattern',
+      pressure: 1,
+      intensity: 1,
+      bayerMatrixSize: 8,
+      palette,
+      patternStyle: 'image-tile',
+    });
+
+    expect(Array.from(result.data)).not.toEqual([0, 0, 0, 255, 0, 0, 0, 255]);
+  });
+});

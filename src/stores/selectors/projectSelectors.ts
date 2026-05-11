@@ -1,8 +1,10 @@
 import type { AppState } from '@/stores/useAppStore';
-import type { CustomBrush } from '@/types';
+import type { CcCustomTilePattern, CustomBrush } from '@/types';
 
 const EMPTY_CUSTOM_BRUSHES: CustomBrush[] = [];
 Object.freeze(EMPTY_CUSTOM_BRUSHES);
+const EMPTY_CC_CUSTOM_TILE_PATTERNS: CcCustomTilePattern[] = [];
+Object.freeze(EMPTY_CC_CUSTOM_TILE_PATTERNS);
 
 export const selectProject = (state: AppState) => state.project;
 
@@ -21,6 +23,9 @@ export const selectProjectActions = (state: AppState) => ({
 
 export const selectCustomBrushes = (state: AppState) =>
   state.project?.customBrushes ?? EMPTY_CUSTOM_BRUSHES;
+
+export const selectCcCustomTilePatterns = (state: AppState) =>
+  state.project?.ccCustomTilePatterns ?? EMPTY_CC_CUSTOM_TILE_PATTERNS;
 
 export const selectDefaultCustomBrushId = (state: AppState) =>
   state.project?.defaultCustomBrushId ?? null;
@@ -50,6 +55,12 @@ export const selectCustomBrushActions = (state: AppState) => ({
   setDefaultCustomBrush: state.setDefaultCustomBrush,
   saveCustomBrushAsPreset: state.saveCustomBrushAsPreset,
   ensureCustomBrushHydrated: state.ensureCustomBrushHydrated,
+});
+
+export const selectCcCustomTilePatternActions = (state: AppState) => ({
+  addCcCustomTilePattern: state.addCcCustomTilePattern,
+  removeCcCustomTilePattern: state.removeCcCustomTilePattern,
+  renameCcCustomTilePattern: state.renameCcCustomTilePattern,
 });
 
 export const selectCustomBrushHelpers = (state: AppState) => ({

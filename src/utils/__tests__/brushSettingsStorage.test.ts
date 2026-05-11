@@ -136,6 +136,39 @@ describe('brushSettingsStorage', () => {
     });
   });
 
+  it('does not persist project-local custom tile ids in global dither selection', () => {
+    saveGlobalBrushSettings({
+      ccBrushDitherSelection: {
+        ditherAlgorithm: 'pattern',
+        patternStyle: 'image-tile',
+        patternTileId: 'tile-1',
+      },
+    });
+
+    const payload = JSON.parse((storage.setItem as jest.Mock).mock.calls[0][1]);
+    expect(payload).toEqual({
+      ccBrushDitherSelection: {
+        ditherAlgorithm: 'pattern',
+      },
+    });
+  });
+
+  it('drops legacy project-local custom tile ids when loading global settings', () => {
+    storage.setItem('vessel:brush-settings', JSON.stringify({
+      ccBrushDitherSelection: {
+        ditherAlgorithm: 'pattern',
+        patternStyle: 'image-tile',
+        patternTileId: 'tile-1',
+      },
+    }));
+
+    expect(loadGlobalBrushSettings()).toEqual({
+      ccBrushDitherSelection: {
+        ditherAlgorithm: 'pattern',
+      },
+    });
+  });
+
   it('sanitizes and saves pressure settings', () => {
     saveGlobalBrushSettings({
       pressureSettings: { enabled: true, min: -5, max: 2000 },

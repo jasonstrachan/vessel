@@ -587,6 +587,12 @@ type ExportRuntimeBrushState = {
   stampDitherPixelSize?: unknown;
   stampDitherAlgorithm?: unknown;
   stampDitherPatternStyle?: unknown;
+  stampDitherPatternTileId?: unknown;
+  stampDitherPatternTileScale?: unknown;
+  stampDitherPatternTileInvert?: unknown;
+  stampDitherPatternTileThreshold?: unknown;
+  stampDitherPatternTileOffsetX?: unknown;
+  stampDitherPatternTileOffsetY?: unknown;
   stampDitherBgFill?: unknown;
   stampDitherClears?: unknown;
   stampDitherPressureLinked?: unknown;
@@ -831,6 +837,12 @@ const serializeRuntimeBrushStateForExport = (
       stampDitherPixelSize: sourceState.stampDitherPixelSize,
       stampDitherAlgorithm: sourceState.stampDitherAlgorithm,
       stampDitherPatternStyle: sourceState.stampDitherPatternStyle,
+      stampDitherPatternTileId: sourceState.stampDitherPatternTileId,
+      stampDitherPatternTileScale: sourceState.stampDitherPatternTileScale,
+      stampDitherPatternTileInvert: sourceState.stampDitherPatternTileInvert,
+      stampDitherPatternTileThreshold: sourceState.stampDitherPatternTileThreshold,
+      stampDitherPatternTileOffsetX: sourceState.stampDitherPatternTileOffsetX,
+      stampDitherPatternTileOffsetY: sourceState.stampDitherPatternTileOffsetY,
       stampDitherBgFill: sourceState.stampDitherBgFill,
       stampDitherClears: sourceState.stampDitherClears,
       stampDitherPressureLinked: sourceState.stampDitherPressureLinked,
@@ -853,6 +865,12 @@ const serializeRuntimeBrushStateForExport = (
       stampDitherPixelSize: sourceState.stampDitherPixelSize,
       stampDitherAlgorithm: sourceState.stampDitherAlgorithm,
       stampDitherPatternStyle: sourceState.stampDitherPatternStyle,
+      stampDitherPatternTileId: sourceState.stampDitherPatternTileId,
+      stampDitherPatternTileScale: sourceState.stampDitherPatternTileScale,
+      stampDitherPatternTileInvert: sourceState.stampDitherPatternTileInvert,
+      stampDitherPatternTileThreshold: sourceState.stampDitherPatternTileThreshold,
+      stampDitherPatternTileOffsetX: sourceState.stampDitherPatternTileOffsetX,
+      stampDitherPatternTileOffsetY: sourceState.stampDitherPatternTileOffsetY,
       stampDitherBgFill: sourceState.stampDitherBgFill,
       stampDitherClears: sourceState.stampDitherClears,
       stampDitherPressureLinked: sourceState.stampDitherPressureLinked,
@@ -900,6 +918,12 @@ const serializeRuntimeBrushStateForExport = (
     stampDitherPixelSize: sourceState.stampDitherPixelSize,
     stampDitherAlgorithm: sourceState.stampDitherAlgorithm,
     stampDitherPatternStyle: sourceState.stampDitherPatternStyle,
+    stampDitherPatternTileId: sourceState.stampDitherPatternTileId,
+    stampDitherPatternTileScale: sourceState.stampDitherPatternTileScale,
+    stampDitherPatternTileInvert: sourceState.stampDitherPatternTileInvert,
+    stampDitherPatternTileThreshold: sourceState.stampDitherPatternTileThreshold,
+    stampDitherPatternTileOffsetX: sourceState.stampDitherPatternTileOffsetX,
+    stampDitherPatternTileOffsetY: sourceState.stampDitherPatternTileOffsetY,
     stampDitherBgFill: sourceState.stampDitherBgFill,
     stampDitherClears: sourceState.stampDitherClears,
     stampDitherPressureLinked: sourceState.stampDitherPressureLinked,

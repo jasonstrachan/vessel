@@ -1070,9 +1070,17 @@ export const useBrushEngineSimplified = () => {
     numColors: number,
     algorithm?: string,
     patternStyle?: string,
-    customPalette?: string[]
+    customPalette?: string[],
+    imageTileThresholdResolver?: (x: number, y: number) => number | null
   ) => {
-    return brushEngine.applyDithering(imageData, numColors, algorithm, patternStyle, customPalette);
+    return brushEngine.applyDithering(
+      imageData,
+      numColors,
+      algorithm,
+      patternStyle,
+      customPalette,
+      imageTileThresholdResolver
+    );
   }, [brushEngine]);
 
   const rectangleGradientSettings = useMemo(() => ({
@@ -1085,6 +1093,12 @@ export const useBrushEngineSimplified = () => {
     fillResolution: tools.brushSettings.fillResolution,
     ditherAlgorithm: tools.brushSettings.ditherAlgorithm,
     patternStyle: tools.brushSettings.patternStyle,
+    patternTileId: tools.brushSettings.patternTileId,
+    patternTileScale: tools.brushSettings.patternTileScale,
+    patternTileInvert: tools.brushSettings.patternTileInvert,
+    patternTileThreshold: tools.brushSettings.patternTileThreshold,
+    patternTileOffsetX: tools.brushSettings.patternTileOffsetX,
+    patternTileOffsetY: tools.brushSettings.patternTileOffsetY,
     risographColorShift: tools.brushSettings.risographColorShift,
   }), [
     tools.brushSettings.opacity,
@@ -1096,6 +1110,12 @@ export const useBrushEngineSimplified = () => {
     tools.brushSettings.fillResolution,
     tools.brushSettings.ditherAlgorithm,
     tools.brushSettings.patternStyle,
+    tools.brushSettings.patternTileId,
+    tools.brushSettings.patternTileScale,
+    tools.brushSettings.patternTileInvert,
+    tools.brushSettings.patternTileThreshold,
+    tools.brushSettings.patternTileOffsetX,
+    tools.brushSettings.patternTileOffsetY,
     tools.brushSettings.risographColorShift,
   ]);
 
@@ -1109,6 +1129,12 @@ export const useBrushEngineSimplified = () => {
     fillResolution: tools.brushSettings.fillResolution,
     ditherAlgorithm: tools.brushSettings.ditherAlgorithm,
     patternStyle: tools.brushSettings.patternStyle,
+    patternTileId: tools.brushSettings.patternTileId,
+    patternTileScale: tools.brushSettings.patternTileScale,
+    patternTileInvert: tools.brushSettings.patternTileInvert,
+    patternTileThreshold: tools.brushSettings.patternTileThreshold,
+    patternTileOffsetX: tools.brushSettings.patternTileOffsetX,
+    patternTileOffsetY: tools.brushSettings.patternTileOffsetY,
   }), [
     tools.brushSettings.opacity,
     tools.brushSettings.color,
@@ -1119,6 +1145,12 @@ export const useBrushEngineSimplified = () => {
     tools.brushSettings.fillResolution,
     tools.brushSettings.ditherAlgorithm,
     tools.brushSettings.patternStyle,
+    tools.brushSettings.patternTileId,
+    tools.brushSettings.patternTileScale,
+    tools.brushSettings.patternTileInvert,
+    tools.brushSettings.patternTileThreshold,
+    tools.brushSettings.patternTileOffsetX,
+    tools.brushSettings.patternTileOffsetY,
   ]);
 
   const drawColorCycleSettings = useMemo(() => ({
@@ -1773,6 +1805,12 @@ export const useBrushEngineSimplified = () => {
       stampDitherEnabled: tools.brushSettings.colorCycleStampDitherEnabled,
       ditherAlgorithm: tools.brushSettings.ditherAlgorithm,
       patternStyle: tools.brushSettings.patternStyle,
+      patternTileId: tools.brushSettings.patternTileId,
+      patternTileScale: tools.brushSettings.patternTileScale,
+      patternTileInvert: tools.brushSettings.patternTileInvert,
+      patternTileThreshold: tools.brushSettings.patternTileThreshold,
+      patternTileOffsetX: tools.brushSettings.patternTileOffsetX,
+      patternTileOffsetY: tools.brushSettings.patternTileOffsetY,
       stampDitherPressureLinked: tools.brushSettings.colorCycleStampDitherPressureLinked,
       stampDitherBgFill: tools.brushSettings.colorCycleStampDitherBgFill,
       stampDitherClears: tools.brushSettings.colorCycleStampDitherClears,
@@ -1789,6 +1827,12 @@ export const useBrushEngineSimplified = () => {
     tools.brushSettings.pxlEdge,
     tools.brushSettings.ditherAlgorithm,
     tools.brushSettings.patternStyle,
+    tools.brushSettings.patternTileId,
+    tools.brushSettings.patternTileScale,
+    tools.brushSettings.patternTileInvert,
+    tools.brushSettings.patternTileThreshold,
+    tools.brushSettings.patternTileOffsetX,
+    tools.brushSettings.patternTileOffsetY,
     activeLayerId,
     getActiveLayerColorCycleBrush
   ]);

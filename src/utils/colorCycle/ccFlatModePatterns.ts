@@ -5,7 +5,10 @@ import {
   type DitherAlgorithm,
   type PatternStyle,
 } from '@/utils/ditherAlgorithms';
-import { resolveCcPatternThreshold } from '@/utils/colorCycle/ccPatternThreshold';
+import {
+  resolveCcPatternThreshold,
+  withCcImageTileThresholdResolver,
+} from '@/utils/colorCycle/ccPatternThreshold';
 export type FlatInkCount = 2;
 
 type FlatInkSet = {
@@ -32,6 +35,7 @@ export type FlatPatternFillOptions = {
   baseOffset: number;
   phaseX: number;
   phaseY: number;
+  imageTileThresholdResolver?: (x: number, y: number) => number | null;
   writeCellIndex: (cellIdx: number, index: number) => void;
   debugCollector?: (info: {
     baseMix: number;
@@ -128,7 +132,8 @@ const resolveOrderedThreshold = (
   patternStyle: PatternStyle | undefined,
   x: number,
   y: number,
-  tone?: number
+  tone?: number,
+  imageTileThresholdResolver?: (x: number, y: number) => number | null
 ): number => {
   if (algorithm === 'bayer') {
     return BAYER_8x8_MATRIX[y & 7][x & 7];
@@ -140,7 +145,10 @@ const resolveOrderedThreshold = (
     return VOID_CLUSTER_8x8[y & 7][x & 7];
   }
 
-  return resolveCcPatternThreshold(patternStyle, x, y, tone);
+  return withCcImageTileThresholdResolver(
+    imageTileThresholdResolver,
+    () => resolveCcPatternThreshold(patternStyle, x, y, tone)
+  );
 };
 
 const resolveBandMixAmount = (
@@ -285,6 +293,7 @@ const fillOrderedFlatPatternMode = ({
   baseOffset,
   phaseX,
   phaseY,
+  imageTileThresholdResolver,
   writeCellIndex,
 }: FlatPatternFillOptions): void => {
   const band = Number.isFinite(flatBand)
@@ -314,7 +323,14 @@ const fillOrderedFlatPatternMode = ({
         continue;
       }
       const bit =
-        orderedMix >= resolveOrderedThreshold(algorithm, patternStyle, x + phaseX, y + phaseY, adaptiveTone) ? 1 : 0;
+        orderedMix >= resolveOrderedThreshold(
+          algorithm,
+          patternStyle,
+          x + phaseX,
+          y + phaseY,
+          adaptiveTone,
+          imageTileThresholdResolver
+        ) ? 1 : 0;
       const index = !fillBackground && bit === 0
         ? 0
         : (bit === 0 ? inkSet.indices[0] : inkSet.indices[1]);

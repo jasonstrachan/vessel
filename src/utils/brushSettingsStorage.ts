@@ -22,10 +22,12 @@ const sanitizeBrushSpecificSettings = (
       ccGradientSamplePerShape?: never;
       ditherAlgorithm?: never;
       patternStyle?: never;
+      patternTileId?: never;
     };
     delete sanitizedSettings.ccGradientSamplePerShape;
     delete sanitizedSettings.ditherAlgorithm;
     delete sanitizedSettings.patternStyle;
+    delete sanitizedSettings.patternTileId;
 
     return [[brushId, sanitizedSettings] as const];
   });
@@ -42,6 +44,7 @@ export interface PressureSettingsPayload {
 export interface CcBrushDitherSelectionPayload {
   ditherAlgorithm?: BrushSettings['ditherAlgorithm'];
   patternStyle?: BrushSettings['patternStyle'];
+  patternTileId?: BrushSettings['patternTileId'];
 }
 
 export interface GlobalBrushSettingsPayload {
@@ -54,6 +57,22 @@ export interface GlobalBrushSettingsPayload {
 }
 
 let storageOverride: Storage | null = null;
+
+const sanitizeCcBrushDitherSelection = (
+  selection: CcBrushDitherSelectionPayload | undefined
+): CcBrushDitherSelectionPayload | undefined => {
+  if (!selection || typeof selection !== 'object') {
+    return undefined;
+  }
+  const nextSelection: CcBrushDitherSelectionPayload = {};
+  if (typeof selection.ditherAlgorithm === 'string') {
+    nextSelection.ditherAlgorithm = selection.ditherAlgorithm;
+  }
+  if (typeof selection.patternStyle === 'string' && selection.patternStyle !== 'image-tile') {
+    nextSelection.patternStyle = selection.patternStyle;
+  }
+  return Object.keys(nextSelection).length > 0 ? nextSelection : undefined;
+};
 
 export const __setBrushSettingsStorageOverride = (storage: Storage | null): void => {
   storageOverride = storage;
@@ -102,6 +121,7 @@ export const loadGlobalBrushSettings = (): GlobalBrushSettingsPayload | null => 
     return {
       ...parsed,
       brushSpecificSettings: sanitizeBrushSpecificSettings(parsed.brushSpecificSettings),
+      ccBrushDitherSelection: sanitizeCcBrushDitherSelection(parsed.ccBrushDitherSelection),
     };
   } catch (error) {
     debugWarn('raw-console', '[BrushSettingsStorage] Failed to load global brush settings', error);
@@ -151,14 +171,8 @@ export const saveGlobalBrushSettings = (payload: GlobalBrushSettingsPayload): vo
       }
     }
     if (payload.ccBrushDitherSelection && typeof payload.ccBrushDitherSelection === 'object') {
-      const nextSelection: CcBrushDitherSelectionPayload = {};
-      if (typeof payload.ccBrushDitherSelection.ditherAlgorithm === 'string') {
-        nextSelection.ditherAlgorithm = payload.ccBrushDitherSelection.ditherAlgorithm;
-      }
-      if (typeof payload.ccBrushDitherSelection.patternStyle === 'string') {
-        nextSelection.patternStyle = payload.ccBrushDitherSelection.patternStyle;
-      }
-      if (Object.keys(nextSelection).length > 0) {
+      const nextSelection = sanitizeCcBrushDitherSelection(payload.ccBrushDitherSelection);
+      if (nextSelection) {
         sanitized.ccBrushDitherSelection = nextSelection;
       }
     }

@@ -303,6 +303,7 @@ export interface ToolsSlice {
   ccBrushDitherSelection: {
     ditherAlgorithm?: BrushSettings['ditherAlgorithm'];
     patternStyle?: BrushSettings['patternStyle'];
+    patternTileId?: BrushSettings['patternTileId'];
   };
   shapeModeByBrush: Record<string, boolean>;
   setShapeDrawing: (isDrawing: boolean) => void;
@@ -383,6 +384,7 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
   ccBrushDitherSelection: {
     ditherAlgorithm: defaultBrushSettingsForStore.ditherAlgorithm,
     patternStyle: defaultBrushSettingsForStore.patternStyle,
+    patternTileId: defaultBrushSettingsForStore.patternTileId,
   },
   shapeModeByBrush: {},
 
@@ -1146,7 +1148,11 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
       pressureSettings: nextPressure,
       ccBrushDitherSelection:
         isCurrentColorCycleBrush &&
-        (settings.ditherAlgorithm !== undefined || settings.patternStyle !== undefined)
+        (
+          settings.ditherAlgorithm !== undefined ||
+          settings.patternStyle !== undefined ||
+          settings.patternTileId !== undefined
+        )
           ? {
               ...state.ccBrushDitherSelection,
               ...(settings.ditherAlgorithm !== undefined
@@ -1154,6 +1160,9 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
                 : {}),
               ...(settings.patternStyle !== undefined
                 ? { patternStyle: newSettings.patternStyle }
+                : {}),
+              ...(settings.patternTileId !== undefined
+                ? { patternTileId: newSettings.patternTileId }
                 : {}),
             }
           : state.ccBrushDitherSelection,
@@ -1821,6 +1830,9 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
       }
       if (state.ccBrushDitherSelection.patternStyle !== undefined) {
         newBrushSettings.patternStyle = state.ccBrushDitherSelection.patternStyle;
+      }
+      if (state.ccBrushDitherSelection.patternTileId !== undefined) {
+        newBrushSettings.patternTileId = state.ccBrushDitherSelection.patternTileId;
       }
     }
 

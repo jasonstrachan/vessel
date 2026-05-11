@@ -398,7 +398,8 @@ export const applyDithering = (
   algorithm?: string,
   patternStyle?: string,
   customPalette?: string[],  // Accept custom palette
-  phaseOffset?: { x: number; y: number }
+  phaseOffset?: { x: number; y: number },
+  imageTileThresholdResolver?: (x: number, y: number) => number | null
 ): ImageData => {
   const palette = resolveDitherPalette(imageData, numColors, customPalette);
   const resolvedAlgorithm = (algorithm as DitherAlgorithmType) || 'sierra-lite';
@@ -444,7 +445,8 @@ export const applyDithering = (
     bayerMatrixSize: 8,
     palette,
     patternStyle: (patternStyle as PatternStyle) || 'dots',
-    phaseOffset: orderedPhaseAlgorithms.has(resolvedAlgorithm) ? phaseOffset : undefined
+    phaseOffset: orderedPhaseAlgorithms.has(resolvedAlgorithm) ? phaseOffset : undefined,
+    imageTileThresholdResolver,
   };
 
   const dithered = applyPressureDither(input, ditherSettings);
@@ -603,13 +605,22 @@ export const applyDitheringWithFillResolution = (
   algorithm?: string,
   patternStyle?: string,
   customPalette?: string[],  // Accept custom palette
-  phaseOffset?: { x: number; y: number }
+  phaseOffset?: { x: number; y: number },
+  imageTileThresholdResolver?: (x: number, y: number) => number | null
 ): ImageData => {
   const pixelSize = Math.max(1, Math.floor(fillResolution));
   const resolvedAlgorithm = algorithm || 'sierra-lite';
 
   if (pixelSize <= 1) {
-    return applyDithering(imageData, numColors, resolvedAlgorithm, patternStyle, customPalette, phaseOffset);
+    return applyDithering(
+      imageData,
+      numColors,
+      resolvedAlgorithm,
+      patternStyle,
+      customPalette,
+      phaseOffset,
+      imageTileThresholdResolver
+    );
   }
 
   if (resolvedAlgorithm === 'sierra-lite') {
@@ -628,7 +639,8 @@ export const applyDitheringWithFillResolution = (
     resolvedAlgorithm,
     patternStyle,
     customPalette,
-    phaseOffset
+    phaseOffset,
+    imageTileThresholdResolver
   );
 };
 
@@ -655,7 +667,8 @@ const downsampleDitherAndScale = (
   algorithm: string,
   patternStyle?: string,
   customPalette?: string[],
-  phaseOffset?: { x: number; y: number }
+  phaseOffset?: { x: number; y: number },
+  imageTileThresholdResolver?: (x: number, y: number) => number | null
 ): ImageData => {
   const downsampled = createDownsampledImageData(imageData, pixelSize);
   const resolvedPhase = phaseOffset
@@ -664,7 +677,15 @@ const downsampleDitherAndScale = (
         y: Math.floor(phaseOffset.y / pixelSize)
       }
     : undefined;
-  const dithered = applyDithering(downsampled, numColors, algorithm, patternStyle, customPalette, resolvedPhase);
+  const dithered = applyDithering(
+    downsampled,
+    numColors,
+    algorithm,
+    patternStyle,
+    customPalette,
+    resolvedPhase,
+    imageTileThresholdResolver
+  );
   return expandNearestNeighbor(dithered, imageData.width, imageData.height, pixelSize);
 };
 

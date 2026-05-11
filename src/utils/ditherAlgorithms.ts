@@ -180,6 +180,7 @@ export type PatternStyle =
   | 'crosshatch'
   | 'diagonal'
   | 'ascii'
+  | 'image-tile'
   | 'tone-adaptive';
 
 export interface DitherSettings {
@@ -190,6 +191,7 @@ export interface DitherSettings {
   palette: [number, number, number][];
   patternStyle?: PatternStyle; // For pattern dithering
   phaseOffset?: { x: number; y: number }; // Optional phase offset for ordered patterns
+  imageTileThresholdResolver?: (x: number, y: number) => number | null;
 }
 
 const mod = (value: number, modulo: number) => ((value % modulo) + modulo) % modulo;
@@ -1102,6 +1104,7 @@ export const applyPatternDither = (
   const patternStyle = settings.patternStyle || 'dots';
   const offsetX = settings.phaseOffset?.x ?? 0;
   const offsetY = settings.phaseOffset?.y ?? 0;
+  const imageTileThresholdResolver = settings.imageTileThresholdResolver;
 
   // Pressure affects pattern density
   const thresholdMultiplier = calculatePressureDitherThreshold(settings.pressure, settings.intensity, 0.2, 1.0);
@@ -1117,6 +1120,20 @@ export const applyPatternDither = (
       const py = y + offsetY;
 
       switch (patternStyle) {
+        case 'image-tile': {
+          const tileThreshold = imageTileThresholdResolver?.(px, py);
+          if (tileThreshold !== null && tileThreshold !== undefined) {
+            patternValue = tileThreshold;
+            break;
+          }
+          // Fall back to dots when a generic caller has no project tile resolver.
+          const dotSize = 4;
+          const dx = mod(px, dotSize) - dotSize / 2;
+          const dy = mod(py, dotSize) - dotSize / 2;
+          const distance = Math.sqrt(dx * dx + dy * dy) / (dotSize / 2);
+          patternValue = Math.min(1, distance);
+          break;
+        }
         case 'dots': {
           // Circular dot pattern
           const dotSize = 4;

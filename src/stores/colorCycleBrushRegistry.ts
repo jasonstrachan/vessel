@@ -25,6 +25,15 @@ type BrushWithOptionalControls = ColorCycleBrushImplementation & {
   setLayerId?: (layerId: string) => void;
   setSpeed?: (speed: number) => void;
   setPlaybackSpeedScale?: (scale: number) => void;
+  setStampDitherPatternTileSettings?: (settings: Pick<
+    BrushSettings,
+    | 'patternTileId'
+    | 'patternTileScale'
+    | 'patternTileInvert'
+    | 'patternTileThreshold'
+    | 'patternTileOffsetX'
+    | 'patternTileOffsetY'
+  >) => void;
   setUseCanvas2D?: (useCanvas2D: boolean) => void;
   isUsingWebGL?: () => boolean;
   setTargetCanvas?: (canvas: HTMLCanvasElement | null) => void;
@@ -177,6 +186,16 @@ export const createColorCycleBrushRegistry = (deps: ColorCycleBrushRegistryDeps)
       }
       if (typeof brush.setStampDitherPatternStyle === 'function') {
         brush.setStampDitherPatternStyle(currentSettings.patternStyle ?? 'dots');
+      }
+      if (typeof brush.setStampDitherPatternTileSettings === 'function') {
+        brush.setStampDitherPatternTileSettings({
+          patternTileId: currentSettings.patternTileId,
+          patternTileScale: currentSettings.patternTileScale,
+          patternTileInvert: currentSettings.patternTileInvert,
+          patternTileThreshold: currentSettings.patternTileThreshold,
+          patternTileOffsetX: currentSettings.patternTileOffsetX,
+          patternTileOffsetY: currentSettings.patternTileOffsetY,
+        });
       }
       if (typeof currentSettings.colorCycleStampDitherPixelSize === 'number') {
         brush.setStampDitherPixelSize(

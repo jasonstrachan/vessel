@@ -4,6 +4,10 @@ import type { BrushSettings } from '@/types';
 import { canvasPool } from '@/utils/canvasPool';
 import { simplifyToVertexLimit } from '@/utils/polygonSimplify';
 import type { DitherAlgorithm, PatternStyle } from '@/utils/ditherAlgorithms';
+import {
+  createCcCustomTileThresholdResolver,
+  type CcCustomTilePatternSettings,
+} from '@/utils/colorCycle/ccCustomTilePattern';
 import { buildCcDitherRuntimePalette, resolveCcDitherBandMode } from '@/utils/colorCycle/ccDitherRenderPalette';
 import { hashStops, type StoredStop } from '@/utils/colorCycleGradientDefs';
 import {
@@ -40,8 +44,21 @@ export type CcPreviewRenderSettings = {
   levels: number;
   algorithm: DitherAlgorithm;
   patternStyle: PatternStyle;
+  patternTileId?: BrushSettings['patternTileId'];
+  patternTileScale?: BrushSettings['patternTileScale'];
+  patternTileInvert?: BrushSettings['patternTileInvert'];
+  patternTileThreshold?: BrushSettings['patternTileThreshold'];
+  patternTileOffsetX?: BrushSettings['patternTileOffsetX'];
+  patternTileOffsetY?: BrushSettings['patternTileOffsetY'];
   isFastPreview: boolean;
 };
+
+const getPreviewImageTileThresholdResolver = (
+  settings: CcCustomTilePatternSettings
+): ((x: number, y: number) => number | null) | undefined => createCcCustomTileThresholdResolver(
+  getAppStoreState().project?.ccCustomTilePatterns,
+  settings
+) ?? undefined;
 
 const MAX_CC_PREVIEW_VERTICES = 256;
 const MAX_CC_PREVIEW_SCALED_DIMENSION = 512;
@@ -296,6 +313,12 @@ export const buildCcPreviewReplayKey = ({
   levels,
   algorithm,
   patternStyle,
+  patternTileId,
+  patternTileScale,
+  patternTileInvert,
+  patternTileThreshold,
+  patternTileOffsetX,
+  patternTileOffsetY,
 }: {
   points: Array<{ x: number; y: number }>;
   preparedGradientKey: string;
@@ -304,6 +327,12 @@ export const buildCcPreviewReplayKey = ({
   levels: number;
   algorithm: DitherAlgorithm;
   patternStyle: PatternStyle;
+  patternTileId?: BrushSettings['patternTileId'];
+  patternTileScale?: BrushSettings['patternTileScale'];
+  patternTileInvert?: BrushSettings['patternTileInvert'];
+  patternTileThreshold?: BrushSettings['patternTileThreshold'];
+  patternTileOffsetX?: BrushSettings['patternTileOffsetX'];
+  patternTileOffsetY?: BrushSettings['patternTileOffsetY'];
 }): string => {
   const geometryKey = points
     .map(point => `${Math.round(point.x * 100) / 100},${Math.round(point.y * 100) / 100}`)
@@ -316,6 +345,11 @@ export const buildCcPreviewReplayKey = ({
     `levels:${levels}`,
     `algo:${algorithm}`,
     `pattern:${patternStyle}`,
+    `tile:${patternTileId ?? 'none'}`,
+    `tileScale:${patternTileScale ?? 'default'}`,
+    `tileInvert:${patternTileInvert ?? 'default'}`,
+    `tileThreshold:${patternTileThreshold ?? 'default'}`,
+    `tileOffset:${patternTileOffsetX ?? 'default'},${patternTileOffsetY ?? 'default'}`,
     `points:${geometryKey}`,
   ].join('||');
 };
@@ -643,6 +677,12 @@ export const runCcDitherPreviewRuntime = (args: {
     levels,
     algorithm: fillAlgorithm,
     patternStyle: fillPatternStyle,
+    patternTileId: previewRenderSettings.patternTileId,
+    patternTileScale: previewRenderSettings.patternTileScale,
+    patternTileInvert: previewRenderSettings.patternTileInvert,
+    patternTileThreshold: previewRenderSettings.patternTileThreshold,
+    patternTileOffsetX: previewRenderSettings.patternTileOffsetX,
+    patternTileOffsetY: previewRenderSettings.patternTileOffsetY,
   });
   const canReplayCurrentPreview =
     ditherGradPreviewState.ccLastCanvas &&
@@ -838,6 +878,7 @@ export const runCcDitherPreviewRuntime = (args: {
             flatSeed,
             algorithm: previewRenderSettings.algorithm,
             patternStyle: previewRenderSettings.patternStyle,
+            imageTileThresholdResolver: getPreviewImageTileThresholdResolver(previewRenderSettings),
             sampledFlatTraceId: liveSession?.markId
               ? `${liveSession.markId}:preview`
               : undefined,
@@ -1296,6 +1337,7 @@ export const runSampledCcDitherPreviewRuntime = (args: {
           flatSeed,
           algorithm: sampledPreviewRenderSettings.algorithm,
           patternStyle: sampledPreviewRenderSettings.patternStyle,
+          imageTileThresholdResolver: getPreviewImageTileThresholdResolver(sampledPreviewRenderSettings),
           sampledFlatTraceId: liveSession?.markId
             ? `${liveSession.markId}:preview`
             : undefined,

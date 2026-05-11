@@ -256,6 +256,16 @@ export interface LayerGroup {
   name: string;
 }
 
+export interface CcCustomTilePattern {
+  id: string;
+  name: string;
+  width: number;
+  height: number;
+  rgbaBase64: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
 export interface Project {
   id: string;
   name: string;
@@ -267,6 +277,7 @@ export interface Project {
   createdAt: Date;
   updatedAt: Date;
   customBrushes: CustomBrush[];
+  ccCustomTilePatterns?: CcCustomTilePattern[];
   defaultCustomBrushId?: string | null;
   canvasShape?: CanvasShape;
   // Canvas view state
@@ -349,8 +360,15 @@ export interface SequentialBrushSnapshot {
       | 'crosshatch'
       | 'diagonal'
       | 'ascii'
+      | 'image-tile'
       | 'tone-adaptive'
       | null;
+    patternTileId?: string | null;
+    patternTileScale?: number | null;
+    patternTileInvert?: boolean | null;
+    patternTileThreshold?: number | null;
+    patternTileOffsetX?: number | null;
+    patternTileOffsetY?: number | null;
     particleDensity?: number | null;
     particleScatterRadius?: number | null;
   } | null;
@@ -1018,7 +1036,14 @@ export interface BrushSettings {
     | 'crosshatch'
     | 'diagonal'
     | 'ascii'
+    | 'image-tile'
     | 'tone-adaptive';
+  patternTileId?: string | null;
+  patternTileScale?: number | null;
+  patternTileInvert?: boolean | null;
+  patternTileThreshold?: number | null;
+  patternTileOffsetX?: number | null;
+  patternTileOffsetY?: number | null;
   /** Dither Stroke only: stamp tip shape selection */
   ditherStrokeTipShape?: 'square' | 'round' | 'triangle' | 'diamond' | 'diamond5' | 'diamond7' | 'diamond9' | 'checkered';
   // Pigment lift mask: erode existing pigment before applying a new stamp

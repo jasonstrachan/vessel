@@ -1,6 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { ColorCycleBrushCanvas2D } from '../ColorCycleBrushCanvas2D';
 import * as stampDither from '../strokeStampDither';
+import { encodeRgbaToBase64 } from '@/utils/colorCycle/ccCustomTilePattern';
 const animatorMocks = jest.requireMock('@/lib/ColorCycleAnimator').__mocks__ as {
   setIndexBufferFromArrayMock: jest.Mock;
   deserializeSpy: jest.Mock;
@@ -356,6 +357,14 @@ describe('ColorCycleBrushCanvas2D', () => {
     brush.setStampDitherPixelSize(3);
     brush.setStampDitherAlgorithm('pattern');
     brush.setStampDitherPatternStyle('crosshatch');
+    brush.setStampDitherPatternTileSettings({
+      patternTileId: 'tile-a',
+      patternTileScale: 2,
+      patternTileInvert: true,
+      patternTileThreshold: 0.4,
+      patternTileOffsetX: 3,
+      patternTileOffsetY: 4,
+    });
     brush.setStampDitherBgFill(false);
     brush.setStampDitherPressureLinked(true);
 
@@ -373,6 +382,12 @@ describe('ColorCycleBrushCanvas2D', () => {
     expect(serialized.stampDitherPixelSize).toBe(3);
     expect(serialized.stampDitherAlgorithm).toBe('pattern');
     expect(serialized.stampDitherPatternStyle).toBe('crosshatch');
+    expect(serialized.stampDitherPatternTileId).toBe('tile-a');
+    expect(serialized.stampDitherPatternTileScale).toBe(2);
+    expect(serialized.stampDitherPatternTileInvert).toBe(true);
+    expect(serialized.stampDitherPatternTileThreshold).toBe(0.4);
+    expect(serialized.stampDitherPatternTileOffsetX).toBe(3);
+    expect(serialized.stampDitherPatternTileOffsetY).toBe(4);
     expect(serialized.stampDitherBgFill).toBe(false);
     expect(serialized.stampDitherClears).toBe(true);
     expect(serialized.stampDitherPressureLinked).toBe(true);
@@ -387,7 +402,62 @@ describe('ColorCycleBrushCanvas2D', () => {
     expect(roundTripped.serialize().perceptualDither).toBe(true);
     expect(roundTripped.serialize().stampDitherAlgorithm).toBe('pattern');
     expect(roundTripped.serialize().stampDitherPatternStyle).toBe('crosshatch');
+    expect(roundTripped.serialize().stampDitherPatternTileId).toBe('tile-a');
+    expect(roundTripped.serialize().stampDitherPatternTileScale).toBe(2);
+    expect(roundTripped.serialize().stampDitherPatternTileInvert).toBe(true);
+    expect(roundTripped.serialize().stampDitherPatternTileThreshold).toBe(0.4);
+    expect(roundTripped.serialize().stampDitherPatternTileOffsetX).toBe(3);
+    expect(roundTripped.serialize().stampDitherPatternTileOffsetY).toBe(4);
     expect(roundTripped.serialize().stampDitherPressureLinked).toBe(true);
+  });
+
+  it('reuses the image-tile resolver while tile settings and project tile data are unchanged', () => {
+    const { useAppStore } = jest.requireMock('@/stores/useAppStore') as {
+      useAppStore: { getState: () => any };
+    };
+    useAppStore.getState().project = {
+      ccCustomTilePatterns: [
+        {
+          id: 'tile-a',
+          name: 'Tile A',
+          width: 1,
+          height: 1,
+          rgbaBase64: encodeRgbaToBase64(Uint8Array.from([0, 0, 0, 255])),
+          createdAt: 1,
+          updatedAt: 1,
+        },
+      ],
+    };
+
+    const brush = new ColorCycleBrushCanvas2D(makeCanvas(), { brushSize: 10, fps: 60 });
+    brush.setStampDitherPatternTileSettings({
+      patternTileId: 'tile-a',
+      patternTileScale: 1,
+      patternTileInvert: false,
+      patternTileThreshold: null,
+      patternTileOffsetX: 0,
+      patternTileOffsetY: 0,
+    });
+
+    const firstResolver = (brush as any).getStampDitherImageTileThresholdResolver();
+    const secondResolver = (brush as any).getStampDitherImageTileThresholdResolver();
+
+    expect(firstResolver).toBeDefined();
+    expect(secondResolver).toBe(firstResolver);
+
+    useAppStore.getState().project.ccCustomTilePatterns = [
+      {
+        id: 'tile-a',
+        name: 'Tile A',
+        width: 1,
+        height: 1,
+        rgbaBase64: encodeRgbaToBase64(Uint8Array.from([255, 255, 255, 255])),
+        createdAt: 1,
+        updatedAt: 2,
+      },
+    ];
+
+    expect((brush as any).getStampDitherImageTileThresholdResolver()).not.toBe(firstResolver);
   });
 
   it('does not duplicate animator index buffers when stroke snapshots already own restore data', () => {

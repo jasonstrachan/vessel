@@ -50,6 +50,38 @@ describe('fillCcGradientDither', () => {
     expect(values.has(255)).toBe(false);
   });
 
+  it('uses the scoped image-tile resolver supplied with the render call', async () => {
+    const render = async (resolver: (x: number, y: number) => number | null) => {
+      const width = 5;
+      const height = 5;
+      const out = new Uint8Array(width * height);
+      await fillCcGradientDither({
+        vertices,
+        minX: 0,
+        minY: 0,
+        maxX: 4,
+        maxY: 4,
+        pixelSize: 1,
+        levels: 2,
+        baseOffset: 0,
+        algorithm: 'pattern',
+        patternStyle: 'image-tile',
+        imageTileThresholdResolver: resolver,
+        sampleNormalized: () => 0.5,
+        writeIndex: (x, y, index) => {
+          if (x < 0 || y < 0 || x >= width || y >= height) return;
+          out[y * width + x] = index;
+        },
+      });
+      return out;
+    };
+
+    const inkOne = await render(() => 0);
+    const inkTwo = await render(() => 1);
+
+    expect(Array.from(inkOne)).not.toEqual(Array.from(inkTwo));
+  });
+
   it('keeps the final write pass synchronous when a yield callback is provided', async () => {
     const width = 16;
     const height = 16;

@@ -81,6 +81,7 @@ import {
   PROJECT_FILE_MIME,
   PROJECT_FILE_MIME_ACCEPT
 } from '@/constants/projectFiles';
+import { normalizeCcCustomTilePattern } from '@/utils/colorCycle/ccCustomTilePattern';
 // Vessel project file format version
 const PROJECT_VERSION = '1.1.0';
 const MAX_PROJECT_ARCHIVE_BYTES = 512 * 1024 * 1024;
@@ -389,6 +390,7 @@ export interface VesselProject {
     layers: SerializedLayer[];
     layerGroups?: LayerGroup[];
     customBrushes: SerializedCustomBrush[];
+    ccCustomTilePatterns?: Project['ccCustomTilePatterns'];
     defaultCustomBrushId?: string | null;
     thumbnail?: string;
     brushSpecificSettings?: Record<string, unknown>;
@@ -573,6 +575,12 @@ type SerializedColorCycleLayerStateV1 = {
     stampDitherPixelSize?: number;
     stampDitherAlgorithm?: BrushSettings['ditherAlgorithm'];
     stampDitherPatternStyle?: BrushSettings['patternStyle'];
+    stampDitherPatternTileId?: BrushSettings['patternTileId'];
+    stampDitherPatternTileScale?: BrushSettings['patternTileScale'];
+    stampDitherPatternTileInvert?: BrushSettings['patternTileInvert'];
+    stampDitherPatternTileThreshold?: BrushSettings['patternTileThreshold'];
+    stampDitherPatternTileOffsetX?: BrushSettings['patternTileOffsetX'];
+    stampDitherPatternTileOffsetY?: BrushSettings['patternTileOffsetY'];
     stampDitherBgFill?: boolean;
     stampDitherClears?: boolean;
     stampDitherPressureLinked?: boolean;
@@ -752,6 +760,12 @@ interface PersistedColorCycleBrushState {
   stampDitherPixelSize?: number;
   stampDitherAlgorithm?: BrushSettings['ditherAlgorithm'];
   stampDitherPatternStyle?: BrushSettings['patternStyle'];
+  stampDitherPatternTileId?: BrushSettings['patternTileId'];
+  stampDitherPatternTileScale?: BrushSettings['patternTileScale'];
+  stampDitherPatternTileInvert?: BrushSettings['patternTileInvert'];
+  stampDitherPatternTileThreshold?: BrushSettings['patternTileThreshold'];
+  stampDitherPatternTileOffsetX?: BrushSettings['patternTileOffsetX'];
+  stampDitherPatternTileOffsetY?: BrushSettings['patternTileOffsetY'];
   stampDitherBgFill?: boolean;
   stampDitherClears?: boolean;
   stampDitherPressureLinked?: boolean;
@@ -976,6 +990,12 @@ interface ColorCycleBrushState {
   stampDitherPixelSize?: number;
   stampDitherAlgorithm?: BrushSettings['ditherAlgorithm'];
   stampDitherPatternStyle?: BrushSettings['patternStyle'];
+  stampDitherPatternTileId?: BrushSettings['patternTileId'];
+  stampDitherPatternTileScale?: BrushSettings['patternTileScale'];
+  stampDitherPatternTileInvert?: BrushSettings['patternTileInvert'];
+  stampDitherPatternTileThreshold?: BrushSettings['patternTileThreshold'];
+  stampDitherPatternTileOffsetX?: BrushSettings['patternTileOffsetX'];
+  stampDitherPatternTileOffsetY?: BrushSettings['patternTileOffsetY'];
   stampDitherBgFill?: boolean;
   stampDitherClears?: boolean;
   stampDitherPressureLinked?: boolean;
@@ -1322,6 +1342,12 @@ const toFastPathMetadataBrushState = (
   stampDitherPixelSize: brushState.stampDitherPixelSize,
   stampDitherAlgorithm: brushState.stampDitherAlgorithm,
   stampDitherPatternStyle: brushState.stampDitherPatternStyle,
+  stampDitherPatternTileId: brushState.stampDitherPatternTileId,
+  stampDitherPatternTileScale: brushState.stampDitherPatternTileScale,
+  stampDitherPatternTileInvert: brushState.stampDitherPatternTileInvert,
+  stampDitherPatternTileThreshold: brushState.stampDitherPatternTileThreshold,
+  stampDitherPatternTileOffsetX: brushState.stampDitherPatternTileOffsetX,
+  stampDitherPatternTileOffsetY: brushState.stampDitherPatternTileOffsetY,
   stampDitherBgFill: brushState.stampDitherBgFill,
   stampDitherClears: brushState.stampDitherClears,
   stampDitherPressureLinked: brushState.stampDitherPressureLinked,
@@ -2323,6 +2349,12 @@ const buildColorCycleStateSource = (
         stampDitherPixelSize: brushState.stampDitherPixelSize,
         stampDitherAlgorithm: brushState.stampDitherAlgorithm,
         stampDitherPatternStyle: brushState.stampDitherPatternStyle,
+        stampDitherPatternTileId: brushState.stampDitherPatternTileId,
+        stampDitherPatternTileScale: brushState.stampDitherPatternTileScale,
+        stampDitherPatternTileInvert: brushState.stampDitherPatternTileInvert,
+        stampDitherPatternTileThreshold: brushState.stampDitherPatternTileThreshold,
+        stampDitherPatternTileOffsetX: brushState.stampDitherPatternTileOffsetX,
+        stampDitherPatternTileOffsetY: brushState.stampDitherPatternTileOffsetY,
         stampDitherBgFill: brushState.stampDitherBgFill,
         stampDitherClears: brushState.stampDitherClears,
         stampDitherPressureLinked: brushState.stampDitherPressureLinked,
@@ -2973,6 +3005,12 @@ const applyLegacyColorCycleBrushSettingsFallback = (
     brushState.stampDitherPixelSize ??= fallback.colorCycleStampDitherPixelSize;
     brushState.stampDitherAlgorithm ??= fallback.ditherAlgorithm;
     brushState.stampDitherPatternStyle ??= fallback.patternStyle;
+    brushState.stampDitherPatternTileId ??= fallback.patternTileId;
+    brushState.stampDitherPatternTileScale ??= fallback.patternTileScale;
+    brushState.stampDitherPatternTileInvert ??= fallback.patternTileInvert;
+    brushState.stampDitherPatternTileThreshold ??= fallback.patternTileThreshold;
+    brushState.stampDitherPatternTileOffsetX ??= fallback.patternTileOffsetX;
+    brushState.stampDitherPatternTileOffsetY ??= fallback.patternTileOffsetY;
     brushState.stampDitherBgFill ??= fallback.colorCycleStampDitherBgFill;
     brushState.stampDitherClears ??= fallback.colorCycleStampDitherClears;
     brushState.stampDitherPressureLinked ??= fallback.colorCycleStampDitherPressureLinked;
@@ -3372,6 +3410,12 @@ function serializeBrushStateForCanonicalSave(
       stampDitherPixelSize: state.stampDitherPixelSize,
       stampDitherAlgorithm: state.stampDitherAlgorithm,
       stampDitherPatternStyle: state.stampDitherPatternStyle,
+      stampDitherPatternTileId: state.stampDitherPatternTileId,
+      stampDitherPatternTileScale: state.stampDitherPatternTileScale,
+      stampDitherPatternTileInvert: state.stampDitherPatternTileInvert,
+      stampDitherPatternTileThreshold: state.stampDitherPatternTileThreshold,
+      stampDitherPatternTileOffsetX: state.stampDitherPatternTileOffsetX,
+      stampDitherPatternTileOffsetY: state.stampDitherPatternTileOffsetY,
       stampDitherBgFill: state.stampDitherBgFill,
       stampDitherClears: state.stampDitherClears,
       stampDitherPressureLinked: state.stampDitherPressureLinked,
@@ -3396,6 +3440,12 @@ function serializeBrushStateForCanonicalSave(
     stampDitherPixelSize: state.stampDitherPixelSize,
     stampDitherAlgorithm: state.stampDitherAlgorithm,
     stampDitherPatternStyle: state.stampDitherPatternStyle,
+    stampDitherPatternTileId: state.stampDitherPatternTileId,
+    stampDitherPatternTileScale: state.stampDitherPatternTileScale,
+    stampDitherPatternTileInvert: state.stampDitherPatternTileInvert,
+    stampDitherPatternTileThreshold: state.stampDitherPatternTileThreshold,
+    stampDitherPatternTileOffsetX: state.stampDitherPatternTileOffsetX,
+    stampDitherPatternTileOffsetY: state.stampDitherPatternTileOffsetY,
     stampDitherBgFill: state.stampDitherBgFill,
     stampDitherClears: state.stampDitherClears,
     stampDitherPressureLinked: state.stampDitherPressureLinked,
@@ -4121,6 +4171,9 @@ const buildSerializedProjectArtifacts = async (
   const layersToSerialize = layers || project.layers || [];
   const serializedLayers = await Promise.all(layersToSerialize.map((layer) => serializeLayer(layer)));
   const serializedCustomBrushes = await Promise.all(project.customBrushes.map((brush) => serializeCustomBrush(brush)));
+  const ccCustomTilePatterns = (project.ccCustomTilePatterns ?? [])
+    .map(normalizeCcCustomTilePattern)
+    .filter((pattern): pattern is NonNullable<Project['ccCustomTilePatterns']>[number] => Boolean(pattern));
 
   let previewThumbnail = '';
   let previewEncoding: 'image/png' | 'image/webp' = 'image/png';
@@ -4152,6 +4205,7 @@ const buildSerializedProjectArtifacts = async (
       layers: serializedLayers,
       layerGroups: project.layerGroups,
       customBrushes: serializedCustomBrushes,
+      ccCustomTilePatterns,
       defaultCustomBrushId: project.defaultCustomBrushId ?? null,
       brushSpecificSettings: project.brushSpecificSettings,
       globalBrushSize: project.globalBrushSize,
@@ -5167,6 +5221,12 @@ const hydrateSerializedLayerArchiveRefs = async (
       metadataBrushState.stampDitherPixelSize = layer.state.dither.stampDitherPixelSize;
       metadataBrushState.stampDitherAlgorithm = layer.state.dither.stampDitherAlgorithm;
       metadataBrushState.stampDitherPatternStyle = layer.state.dither.stampDitherPatternStyle;
+      metadataBrushState.stampDitherPatternTileId = layer.state.dither.stampDitherPatternTileId;
+      metadataBrushState.stampDitherPatternTileScale = layer.state.dither.stampDitherPatternTileScale;
+      metadataBrushState.stampDitherPatternTileInvert = layer.state.dither.stampDitherPatternTileInvert;
+      metadataBrushState.stampDitherPatternTileThreshold = layer.state.dither.stampDitherPatternTileThreshold;
+      metadataBrushState.stampDitherPatternTileOffsetX = layer.state.dither.stampDitherPatternTileOffsetX;
+      metadataBrushState.stampDitherPatternTileOffsetY = layer.state.dither.stampDitherPatternTileOffsetY;
       metadataBrushState.stampDitherBgFill = layer.state.dither.stampDitherBgFill;
       metadataBrushState.stampDitherClears = layer.state.dither.stampDitherClears;
       metadataBrushState.stampDitherPressureLinked = layer.state.dither.stampDitherPressureLinked;
@@ -5300,6 +5360,9 @@ export async function deserializeProjectWithReport(
   const customBrushes = await Promise.all(
     serializedProject.customBrushes.map(deserializeCustomBrush)
   );
+  const ccCustomTilePatterns = (serializedProject.ccCustomTilePatterns ?? [])
+    .map(normalizeCcCustomTilePattern)
+    .filter((pattern): pattern is NonNullable<Project['ccCustomTilePatterns']>[number] => Boolean(pattern));
 
   applyLegacyColorCycleBrushSettingsFallback(
     layers,
@@ -5325,6 +5388,7 @@ export async function deserializeProjectWithReport(
     layers,
     layerGroups: serializedProject.layerGroups ?? [],
     customBrushes,
+    ccCustomTilePatterns,
     defaultCustomBrushId,
     createdAt: new Date(vesselProject.metadata.created),
     updatedAt: new Date(vesselProject.metadata.modified),
@@ -5728,6 +5792,12 @@ const restoreColorCycleLayerRuntimeForMaterialization = async (
             stampDitherPixelSize: savedBrushState.stampDitherPixelSize,
             stampDitherAlgorithm: savedBrushState.stampDitherAlgorithm,
             stampDitherPatternStyle: savedBrushState.stampDitherPatternStyle,
+            stampDitherPatternTileId: savedBrushState.stampDitherPatternTileId,
+            stampDitherPatternTileScale: savedBrushState.stampDitherPatternTileScale,
+            stampDitherPatternTileInvert: savedBrushState.stampDitherPatternTileInvert,
+            stampDitherPatternTileThreshold: savedBrushState.stampDitherPatternTileThreshold,
+            stampDitherPatternTileOffsetX: savedBrushState.stampDitherPatternTileOffsetX,
+            stampDitherPatternTileOffsetY: savedBrushState.stampDitherPatternTileOffsetY,
             stampDitherBgFill: savedBrushState.stampDitherBgFill,
             stampDitherClears: savedBrushState.stampDitherClears,
             stampDitherPressureLinked: savedBrushState.stampDitherPressureLinked,
@@ -6003,6 +6073,12 @@ const restoreColorCycleLayerRuntimeForMaterialization = async (
               stampDitherPixelSize: metadataOnlyExistingBrushState.stampDitherPixelSize,
               stampDitherAlgorithm: metadataOnlyExistingBrushState.stampDitherAlgorithm,
               stampDitherPatternStyle: metadataOnlyExistingBrushState.stampDitherPatternStyle,
+              stampDitherPatternTileId: metadataOnlyExistingBrushState.stampDitherPatternTileId,
+              stampDitherPatternTileScale: metadataOnlyExistingBrushState.stampDitherPatternTileScale,
+              stampDitherPatternTileInvert: metadataOnlyExistingBrushState.stampDitherPatternTileInvert,
+              stampDitherPatternTileThreshold: metadataOnlyExistingBrushState.stampDitherPatternTileThreshold,
+              stampDitherPatternTileOffsetX: metadataOnlyExistingBrushState.stampDitherPatternTileOffsetX,
+              stampDitherPatternTileOffsetY: metadataOnlyExistingBrushState.stampDitherPatternTileOffsetY,
               stampDitherBgFill: metadataOnlyExistingBrushState.stampDitherBgFill,
               stampDitherClears: metadataOnlyExistingBrushState.stampDitherClears,
               stampDitherPressureLinked: metadataOnlyExistingBrushState.stampDitherPressureLinked,

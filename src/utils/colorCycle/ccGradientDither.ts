@@ -10,7 +10,10 @@ import {
   resolveFlatInkSetForPosition,
 } from '@/utils/colorCycle/ccFlatModePatterns';
 import { appendCCDebugOverlayEntry } from '@/utils/colorCycle/ccDebugOverlayStore';
-import { resolveCcPatternThreshold } from '@/utils/colorCycle/ccPatternThreshold';
+import {
+  resolveCcPatternThreshold,
+  withCcImageTileThresholdResolver,
+} from '@/utils/colorCycle/ccPatternThreshold';
 import { resolveFlatSierraBandMixInfo } from '@/utils/colorCycle/ccDitherRenderPalette';
 import { getActiveMarkGradientSession } from '@/hooks/canvas/utils/colorCycleMarkSession';
 import type { StoredStop } from '@/utils/colorCycleGradientDefs';
@@ -46,6 +49,7 @@ export type CcGradientDitherOptions = {
   flatSeed?: number;
   algorithm?: DitherAlgorithm;
   patternStyle?: PatternStyle;
+  imageTileThresholdResolver?: (x: number, y: number) => number | null;
   pairBandCount?: number;
   sampledStopsOverride?: StoredStop[];
   fillBackground?: boolean;
@@ -737,7 +741,8 @@ const resolveOrderedThreshold = (
   patternStyle: PatternStyle | undefined,
   x: number,
   y: number,
-  tone?: number
+  tone?: number,
+  imageTileThresholdResolver?: (x: number, y: number) => number | null
 ): number => {
   if (algorithm === 'bayer') {
     return BAYER_8x8_MATRIX[y & 7][x & 7];
@@ -749,7 +754,10 @@ const resolveOrderedThreshold = (
     return VOID_CLUSTER_8x8[y & 7][x & 7];
   }
 
-  return resolveCcPatternThreshold(patternStyle, x, y, tone);
+  return withCcImageTileThresholdResolver(
+    imageTileThresholdResolver,
+    () => resolveCcPatternThreshold(patternStyle, x, y, tone)
+  );
 };
 
 export const fillCcGradientDither = async ({
@@ -767,6 +775,7 @@ export const fillCcGradientDither = async ({
   flatSeed,
   algorithm = 'sierra-lite',
   patternStyle = 'dots',
+  imageTileThresholdResolver,
   pairBandCount,
   sampledStopsOverride,
   fillBackground = true,
@@ -968,7 +977,8 @@ export const fillCcGradientDither = async ({
             patternStyle,
             cx + phaseX,
             cy + phaseY,
-            local
+            local,
+            imageTileThresholdResolver
           );
           const usePrimary = local >= threshold;
           cellIndices[cellIdx] = usePrimary ? highIndexForBand(band) : (fillBackground ? lowIndexForBand(band) : 0);
@@ -1056,6 +1066,7 @@ export const fillCcGradientDither = async ({
       baseOffset,
       phaseX,
       phaseY,
+      imageTileThresholdResolver,
       writeCellIndex: (cellIdx, index) => {
         cellIndices[cellIdx] = index;
       },
@@ -1194,7 +1205,8 @@ export const fillCcGradientDither = async ({
           patternStyle,
           cx + phaseX,
           cy + phaseY,
-          frac
+          frac,
+          imageTileThresholdResolver
         );
         const chooseUpper = lower < clampedLevels - 1 && frac >= threshold;
         const level = chooseUpper ? lower + 1 : lower;

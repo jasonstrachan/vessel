@@ -276,6 +276,10 @@ import { loadWebglExportSettings, saveWebglExportSettings } from '@/utils/webglE
 import { loadSequentialSettings, saveSequentialSettings } from '@/utils/sequentialSettingsStorage';
 import { setGradientApplyStateGetter } from '@/hooks/brushEngine/ccGradientApplyScheduler';
 import { backgroundStorageService } from '@/utils/backgroundStorage';
+import { setCcImageTileThresholdResolver } from '@/utils/colorCycle/ccPatternThreshold';
+import {
+  createCcCustomTileThresholdResolver,
+} from '@/utils/colorCycle/ccCustomTilePattern';
 export {
   selectColorCyclePlayback,
   selectColorCycleDesiredPlaying,
@@ -360,6 +364,7 @@ export interface AppState {
   ccBrushDitherSelection: {
     ditherAlgorithm?: BrushSettings['ditherAlgorithm'];
     patternStyle?: BrushSettings['patternStyle'];
+    patternTileId?: BrushSettings['patternTileId'];
   };
   shapeModeByBrush: Record<string, boolean>;
   saveBrushSettings: (brushId: string, settings: Partial<BrushSettings>) => void;
@@ -679,6 +684,9 @@ export interface AppState {
   addCustomBrush: (brush: CustomBrush) => void;
   updateCustomBrush: (brushId: string, updates: Partial<CustomBrush>) => void;
   removeCustomBrush: (brushId: string) => void;
+  addCcCustomTilePattern: (pattern: NonNullable<Project['ccCustomTilePatterns']>[number]) => void;
+  removeCcCustomTilePattern: (patternId: string) => void;
+  renameCcCustomTilePattern: (patternId: string, name: string) => void;
   setDefaultCustomBrush: (brushId: string | null) => void;
   saveCustomBrushAsPreset: (customBrushId: string) => void;
   getCustomBrushById: (brushId: string) => CustomBrush | null;
@@ -887,6 +895,19 @@ configureMaskManager({
   }
 });
 
+setCcImageTileThresholdResolver((x, y) => {
+  const state = useAppStore.getState();
+  const settings = state.tools.brushSettings;
+  return createCcCustomTileThresholdResolver(state.project?.ccCustomTilePatterns, {
+    patternTileId: settings.patternTileId,
+    patternTileScale: settings.patternTileScale,
+    patternTileInvert: settings.patternTileInvert,
+    patternTileThreshold: settings.patternTileThreshold,
+    patternTileOffsetX: settings.patternTileOffsetX,
+    patternTileOffsetY: settings.patternTileOffsetY,
+  })?.(x, y) ?? null;
+});
+
 // Corruption detector removed - bug is fixed
 
 // Subscribe to track all layer changes
@@ -1003,6 +1024,9 @@ const hydrateGlobalBrushSettings = (): void => {
               : {}),
             ...(payload.ccBrushDitherSelection.patternStyle !== undefined
               ? { patternStyle: payload.ccBrushDitherSelection.patternStyle }
+              : {}),
+            ...(payload.ccBrushDitherSelection.patternTileId !== undefined
+              ? { patternTileId: payload.ccBrushDitherSelection.patternTileId }
               : {}),
           },
         };

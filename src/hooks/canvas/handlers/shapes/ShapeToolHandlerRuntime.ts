@@ -293,6 +293,12 @@ type CcPreviewRenderSettings = {
   levels: number;
   algorithm: DitherAlgorithm;
   patternStyle: PatternStyle;
+  patternTileId?: BrushSettings['patternTileId'];
+  patternTileScale?: BrushSettings['patternTileScale'];
+  patternTileInvert?: BrushSettings['patternTileInvert'];
+  patternTileThreshold?: BrushSettings['patternTileThreshold'];
+  patternTileOffsetX?: BrushSettings['patternTileOffsetX'];
+  patternTileOffsetY?: BrushSettings['patternTileOffsetY'];
   isFastPreview: boolean;
 };
 
@@ -301,11 +307,23 @@ const resolveCcShapePreviewRenderSettings = ({
   levels,
   algorithm,
   patternStyle,
+  patternTileId,
+  patternTileScale,
+  patternTileInvert,
+  patternTileThreshold,
+  patternTileOffsetX,
+  patternTileOffsetY,
 }: {
   pixelSize: number;
   levels: number;
   algorithm: DitherAlgorithm;
   patternStyle?: PatternStyle;
+  patternTileId?: BrushSettings['patternTileId'];
+  patternTileScale?: BrushSettings['patternTileScale'];
+  patternTileInvert?: BrushSettings['patternTileInvert'];
+  patternTileThreshold?: BrushSettings['patternTileThreshold'];
+  patternTileOffsetX?: BrushSettings['patternTileOffsetX'];
+  patternTileOffsetY?: BrushSettings['patternTileOffsetY'];
 }): CcPreviewRenderSettings => {
   const clampedPixelSize = Math.max(1, Math.round(pixelSize));
   const clampedLevels = Math.max(1, Math.min(16, Math.round(levels)));
@@ -315,6 +333,12 @@ const resolveCcShapePreviewRenderSettings = ({
     levels: clampedLevels,
     algorithm,
     patternStyle: patternStyle ?? 'dots',
+    patternTileId,
+    patternTileScale,
+    patternTileInvert,
+    patternTileThreshold,
+    patternTileOffsetX,
+    patternTileOffsetY,
     isFastPreview: false,
   };
 };
@@ -406,6 +430,12 @@ const buildCcShapePreviewGradientCacheKey = ({
   ditherPaletteSpread,
   ditherAlgorithm,
   patternStyle,
+  patternTileId,
+  patternTileScale,
+  patternTileInvert,
+  patternTileThreshold,
+  patternTileOffsetX,
+  patternTileOffsetY,
   useForegroundDerived,
   foregroundDerivedKey,
   previewSource,
@@ -415,6 +445,12 @@ const buildCcShapePreviewGradientCacheKey = ({
   ditherPaletteSpread?: number;
   ditherAlgorithm?: DitherAlgorithm;
   patternStyle?: PatternStyle;
+  patternTileId?: BrushSettings['patternTileId'];
+  patternTileScale?: BrushSettings['patternTileScale'];
+  patternTileInvert?: BrushSettings['patternTileInvert'];
+  patternTileThreshold?: BrushSettings['patternTileThreshold'];
+  patternTileOffsetX?: BrushSettings['patternTileOffsetX'];
+  patternTileOffsetY?: BrushSettings['patternTileOffsetY'];
   useForegroundDerived: boolean;
   foregroundDerivedKey: string;
   previewSource: string;
@@ -426,6 +462,11 @@ const buildCcShapePreviewGradientCacheKey = ({
     `spread:${Math.round(ditherPaletteSpread ?? 0)}`,
     `algo:${ditherAlgorithm ?? 'sierra-lite'}`,
     `pattern:${patternStyle ?? 'dots'}`,
+    `tile:${patternTileId ?? 'none'}`,
+    `tileScale:${patternTileScale ?? 'default'}`,
+    `tileInvert:${patternTileInvert ?? 'default'}`,
+    `tileThreshold:${patternTileThreshold ?? 'default'}`,
+    `tileOffset:${patternTileOffsetX ?? 'default'},${patternTileOffsetY ?? 'default'}`,
     `fg:${useForegroundDerived ? foregroundDerivedKey : 'off'}`,
     `source:${previewSource}`,
   ].join('|');
@@ -3179,6 +3220,12 @@ export const createShapeToolHandler = (
                 levels,
                 algorithm: brushNow.ditherAlgorithm ?? 'sierra-lite',
                 patternStyle: brushNow.patternStyle ?? 'dots',
+                patternTileId: brushNow.patternTileId,
+                patternTileScale: brushNow.patternTileScale,
+                patternTileInvert: brushNow.patternTileInvert,
+                patternTileThreshold: brushNow.patternTileThreshold,
+                patternTileOffsetX: brushNow.patternTileOffsetX,
+                patternTileOffsetY: brushNow.patternTileOffsetY,
               });
               if (isSampledPreviewMode) {
                 ccLog('shape: sampled preview dispatch', {
@@ -3246,6 +3293,12 @@ export const createShapeToolHandler = (
                       ditherPaletteSpread: brushNow.ditherPaletteSpread,
                       ditherAlgorithm: brushNow.ditherAlgorithm,
                       patternStyle: brushNow.patternStyle,
+                      patternTileId: brushNow.patternTileId,
+                      patternTileScale: brushNow.patternTileScale,
+                      patternTileInvert: brushNow.patternTileInvert,
+                      patternTileThreshold: brushNow.patternTileThreshold,
+                      patternTileOffsetX: brushNow.patternTileOffsetX,
+                      patternTileOffsetY: brushNow.patternTileOffsetY,
                       useForegroundDerived,
                       foregroundDerivedKey,
                       previewSource: ccPreview?.source ?? previewGradientSource,
