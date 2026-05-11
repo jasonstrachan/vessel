@@ -1,5 +1,5 @@
 import type { StoreApi } from 'zustand';
-import type { AppState, CaptureROI } from '@/stores/useAppStore';
+import type { AppState } from '@/stores/useAppStore';
 import type { Rectangle } from '@/types';
 import { captureColorCycleBrushState } from '@/history/helpers/colorCycle';
 import type { ColorCycleSerializedState } from '@/history/helpers/colorCycle';
@@ -7,6 +7,12 @@ import { commitLayerHistory } from '@/history/helpers/layerHistory';
 import { requestGradientApply } from '@/hooks/brushEngine/ccGradientApplyScheduler';
 import { showAppFeedback } from '@/utils/appFeedback';
 import { debugLog, debugWarn, logError } from '@/utils/debug';
+import {
+  getFloatingPasteDestinationRect,
+  getFloatingPasteRotatedBounds,
+  rasterizeFloatingPasteBitmap,
+  type FloatingPasteFloatRect,
+} from '@/utils/selection/floatingPasteRaster';
 import {
   mergeTransferredColorCycleSlotPalettes,
   mergeTransferredColorCycleGradientDefs,
@@ -209,96 +215,16 @@ const clamp = (value: number, min: number, max: number) => {
   return Math.max(min, Math.min(max, value));
 };
 
-type FloatRect = {
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-};
-
 const getDestinationRect = (
   floatingPaste: NonNullable<AppState['floatingPaste']>
-): FloatRect => {
-  const width = Math.max(1, floatingPaste.displayWidth ?? floatingPaste.width);
-  const height = Math.max(1, floatingPaste.displayHeight ?? floatingPaste.height);
-  return {
-    x: floatingPaste.position.x,
-    y: floatingPaste.position.y,
-    width,
-    height,
-  };
-};
+): FloatingPasteFloatRect => getFloatingPasteDestinationRect(floatingPaste);
 
-const getRotatedBoundingRect = (rect: FloatRect, rotation: number): FloatRect => {
-  if (!rotation) {
-    return rect;
-  }
-  const radians = (rotation * Math.PI) / 180;
-  const cos = Math.cos(radians);
-  const sin = Math.sin(radians);
-  const bboxWidth = Math.abs(rect.width * cos) + Math.abs(rect.height * sin);
-  const bboxHeight = Math.abs(rect.width * sin) + Math.abs(rect.height * cos);
-  const centerX = rect.x + rect.width / 2;
-  const centerY = rect.y + rect.height / 2;
-  return {
-    x: centerX - bboxWidth / 2,
-    y: centerY - bboxHeight / 2,
-    width: bboxWidth,
-    height: bboxHeight,
-  };
-};
+const getRotatedBoundingRect = (
+  rect: FloatingPasteFloatRect,
+  rotation: number
+): FloatingPasteFloatRect => getFloatingPasteRotatedBounds(rect, rotation);
 
-const intersectWithProject = (rect: FloatRect, project: { width: number; height: number }): CaptureROI | null => {
-  const x = Math.max(rect.x, 0);
-  const y = Math.max(rect.y, 0);
-  const maxX = Math.min(rect.x + rect.width, project.width);
-  const maxY = Math.min(rect.y + rect.height, project.height);
-  const width = maxX - x;
-  const height = maxY - y;
-  if (width <= 0 || height <= 0) {
-    return null;
-  }
-  return { x, y, width, height };
-};
-
-const deriveSourceCrop = (
-  visibleRect: FloatRect,
-  destRect: FloatRect,
-  intrinsicWidth: number,
-  intrinsicHeight: number
-): FloatRect | null => {
-  const safeSourceWidth = Math.max(1, intrinsicWidth);
-  const safeSourceHeight = Math.max(1, intrinsicHeight);
-  const scaleX = destRect.width / safeSourceWidth;
-  const scaleY = destRect.height / safeSourceHeight;
-  const safeScaleX = Number.isFinite(scaleX) && scaleX !== 0 ? scaleX : 1;
-  const safeScaleY = Number.isFinite(scaleY) && scaleY !== 0 ? scaleY : 1;
-
-  const sourceX = (visibleRect.x - destRect.x) / safeScaleX;
-  const sourceY = (visibleRect.y - destRect.y) / safeScaleY;
-  const sourceWidth = visibleRect.width / safeScaleX;
-  const sourceHeight = visibleRect.height / safeScaleY;
-
-  if (sourceWidth <= 0 || sourceHeight <= 0) {
-    return null;
-  }
-
-  const clampToSource = (value: number, max: number) => clamp(value, 0, max);
-
-  const clampedX = clampToSource(sourceX, safeSourceWidth);
-  const clampedY = clampToSource(sourceY, safeSourceHeight);
-  const maxWidth = safeSourceWidth - clampedX;
-  const maxHeight = safeSourceHeight - clampedY;
-
-  return {
-    x: clampedX,
-    y: clampedY,
-    width: Math.min(sourceWidth, maxWidth),
-    height: Math.min(sourceHeight, maxHeight),
-  };
-};
-
-const roundRect = (rect: FloatRect): Rectangle => {
+const roundRect = (rect: FloatingPasteFloatRect): Rectangle => {
   const x = Math.floor(rect.x);
   const y = Math.floor(rect.y);
   const right = Math.ceil(rect.x + rect.width);
@@ -311,7 +237,7 @@ const roundRect = (rect: FloatRect): Rectangle => {
   };
 };
 
-const toRoundedDestinationRect = (rect: FloatRect): Rectangle => ({
+const toRoundedDestinationRect = (rect: FloatingPasteFloatRect): Rectangle => ({
   x: Math.round(rect.x),
   y: Math.round(rect.y),
   width: Math.max(1, Math.round(rect.width)),
@@ -458,6 +384,51 @@ const extractImageDataRoi = (
   }
 
   return new ImageData(result, roi.width, roi.height);
+};
+
+const compositeImageDataSourceOver = (
+  destination: ImageData,
+  source: ImageData
+): ImageData => {
+  const output = new ImageData(destination.data, destination.width, destination.height);
+  const pixelCount = Math.min(destination.width * destination.height, source.width * source.height);
+
+  for (let pixelIndex = 0; pixelIndex < pixelCount; pixelIndex += 1) {
+    const index = pixelIndex * 4;
+    const sourceAlpha = (source.data[index + 3] ?? 0) / 255;
+    if (sourceAlpha <= 0) {
+      continue;
+    }
+
+    const destinationAlpha = (output.data[index + 3] ?? 0) / 255;
+    const outAlpha = sourceAlpha + destinationAlpha * (1 - sourceAlpha);
+    if (outAlpha <= 0) {
+      output.data[index] = 0;
+      output.data[index + 1] = 0;
+      output.data[index + 2] = 0;
+      output.data[index + 3] = 0;
+      continue;
+    }
+
+    output.data[index] = Math.round(
+      (((source.data[index] ?? 0) * sourceAlpha) +
+        ((output.data[index] ?? 0) * destinationAlpha * (1 - sourceAlpha))) /
+        outAlpha
+    );
+    output.data[index + 1] = Math.round(
+      (((source.data[index + 1] ?? 0) * sourceAlpha) +
+        ((output.data[index + 1] ?? 0) * destinationAlpha * (1 - sourceAlpha))) /
+        outAlpha
+    );
+    output.data[index + 2] = Math.round(
+      (((source.data[index + 2] ?? 0) * sourceAlpha) +
+        ((output.data[index + 2] ?? 0) * destinationAlpha * (1 - sourceAlpha))) /
+        outAlpha
+    );
+    output.data[index + 3] = Math.round(outAlpha * 255);
+  }
+
+  return output;
 };
 
 const synthesizeMoveBeforeImage = ({
@@ -1087,11 +1058,15 @@ export const createSelectionPasteHelpers = ({
         return;
       }
 
-      const captureArea = intersectWithProject(rotatedBounds, project);
-      if (!captureArea) {
+      const raster = rasterizeFloatingPasteBitmap(
+        { ...floatingPaste, imageData: floatingPaste.imageData },
+        project
+      );
+      if (!raster) {
         set({ floatingPaste: null, floatingPasteHistoryContext: null });
         return;
       }
+      const captureArea = raster.roi;
 
       const tempCanvas = document.createElement('canvas');
       tempCanvas.width = project.width;
@@ -1111,25 +1086,7 @@ export const createSelectionPasteHelpers = ({
         } catch {}
       }
 
-      const roundedDestRect = {
-        x: Math.round(destinationRect.x),
-        y: Math.round(destinationRect.y),
-        width: Math.round(destinationRect.width),
-        height: Math.round(destinationRect.height),
-      };
-      const roiX = clamp(roundedDestRect.x, 0, project.width);
-      const roiY = clamp(roundedDestRect.y, 0, project.height);
-      const roiWidth = clamp(roundedDestRect.width, 0, project.width - roiX);
-      const roiHeight = clamp(roundedDestRect.height, 0, project.height - roiY);
-      const bitmapRoi =
-        roiWidth > 0 && roiHeight > 0
-          ? {
-              x: roiX,
-              y: roiY,
-              width: roiWidth,
-              height: roiHeight,
-            }
-          : null;
+      const bitmapRoi = raster.roi;
       if (
         !beforeImage &&
         useMoveHistoryContext &&
@@ -1150,67 +1107,21 @@ export const createSelectionPasteHelpers = ({
           : null;
       }
 
-      const pasteCanvas = document.createElement('canvas');
-      pasteCanvas.width = floatingPaste.width;
-      pasteCanvas.height = floatingPaste.height;
-      const pasteCtx = pasteCanvas.getContext('2d', { willReadFrequently: true });
-      if (pasteCtx) {
-        try {
-          pasteCtx.putImageData(floatingPaste.imageData, 0, 0);
-        } catch {}
-
-        // Selection scale/transform should preserve exact pixel alpha values.
-        tempCtx.imageSmoothingEnabled = false;
-        const isPixelExactPaste =
-          !rotation &&
-          Math.round(destinationRect.width) === floatingPaste.width &&
-          Math.round(destinationRect.height) === floatingPaste.height;
-
-        if (rotation) {
-          const centerX = destinationRect.x + destinationRect.width / 2;
-          const centerY = destinationRect.y + destinationRect.height / 2;
-          const radians = (rotation * Math.PI) / 180;
-          tempCtx.save();
-          tempCtx.translate(centerX, centerY);
-          tempCtx.rotate(radians);
-          tempCtx.drawImage(
-            pasteCanvas,
-            -destinationRect.width / 2,
-            -destinationRect.height / 2,
-            destinationRect.width,
-            destinationRect.height
-          );
-          tempCtx.restore();
-        } else if (isPixelExactPaste) {
-          tempCtx.putImageData(
-            floatingPaste.imageData,
-            Math.round(destinationRect.x),
-            Math.round(destinationRect.y)
-          );
-        } else {
-          const sourceCrop = deriveSourceCrop(
-            captureArea,
-            destinationRect,
-            floatingPaste.width,
-            floatingPaste.height
-          );
-          if (!sourceCrop) {
-            set({ floatingPaste: null });
-            return;
-          }
-
-          tempCtx.drawImage(
-            pasteCanvas,
-            sourceCrop.x,
-            sourceCrop.y,
-            sourceCrop.width,
-            sourceCrop.height,
-            captureArea.x,
-            captureArea.y,
-            captureArea.width,
-            captureArea.height
-          );
-        }
+      tempCtx.imageSmoothingEnabled = false;
+      const rasterCtx = raster.canvas.getContext('2d', { willReadFrequently: true });
+      if (rasterCtx) {
+        const destinationImage = tempCtx.getImageData(
+          raster.roi.x,
+          raster.roi.y,
+          raster.roi.width,
+          raster.roi.height
+        );
+        const sourceImage = rasterCtx.getImageData(0, 0, raster.roi.width, raster.roi.height);
+        tempCtx.putImageData(
+          compositeImageDataSourceOver(destinationImage, sourceImage),
+          raster.roi.x,
+          raster.roi.y
+        );
       }
 
       await captureCanvasToActiveLayer(tempCanvas, captureArea);

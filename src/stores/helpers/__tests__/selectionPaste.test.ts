@@ -3,6 +3,7 @@ import type { StoreApi } from 'zustand';
 import { createSelectionPasteHelpers } from '@/stores/helpers/selectionPaste';
 import type { AppState } from '@/stores/useAppStore';
 import type { Layer } from '@/types';
+import { rasterizeFloatingPasteBitmap } from '@/utils/selection/floatingPasteRaster';
 
 jest.mock('@/stores/helpers/colorCycleSelection', () => ({
   writeColorCycleRegion: jest.fn(() => false),
@@ -263,9 +264,8 @@ describe('selection paste commit', () => {
     jest.clearAllMocks();
   });
 
-  it('crops the source bitmap instead of scaling when the rect extends past the canvas', async () => {
-    const drawImageSpy = jest.spyOn(CanvasRenderingContext2D.prototype, 'drawImage');
-    const { helpers } = setupHelpers({
+  it('captures the shared baked bitmap ROI when the rect extends past the canvas', async () => {
+    const { helpers, captureCanvasToActiveLayer } = setupHelpers({
       position: { x: -10, y: -6 },
       displayWidth: 32,
       displayHeight: 24,
@@ -275,20 +275,9 @@ describe('selection paste commit', () => {
 
     await helpers.commitFloatingPaste();
 
-    const pasteCall = drawImageSpy.mock.calls.find((call) => call.length === 9);
-    expect(pasteCall).toBeDefined();
-    if (!pasteCall) {
-      return;
-    }
-    const [, sx, sy, sWidth, sHeight, dx, dy, dWidth, dHeight] = pasteCall;
-    expect(sx).toBeCloseTo(5);
-    expect(sy).toBeCloseTo(3);
-    expect(sWidth).toBeCloseTo(11);
-    expect(sHeight).toBeCloseTo(9);
-    expect(dx).toBeCloseTo(0);
-    expect(dy).toBeCloseTo(0);
-    expect(dWidth).toBeCloseTo(22);
-    expect(dHeight).toBeCloseTo(18);
+    expect(captureCanvasToActiveLayer).toHaveBeenCalledTimes(1);
+    const [, roi] = captureCanvasToActiveLayer.mock.calls[0];
+    expect(roi).toMatchObject({ x: 0, y: 0, width: 22, height: 18 });
   });
 
   it('captures only the visible intersection when extending past the bottom/right edges', async () => {
@@ -320,9 +309,103 @@ describe('selection paste commit', () => {
 
     expect(commitLayerHistory).toHaveBeenCalledTimes(1);
     const args = commitLayerHistory.mock.calls[0]?.[0];
-    expect(args?.bitmapRoi).toEqual({ x: 10, y: 13, width: 20, height: 17 });
-    expect(args?.beforeImage?.width).toBe(20);
-    expect(args?.beforeImage?.height).toBe(17);
+    expect(args?.bitmapRoi).toEqual({ x: 10, y: 12, width: 21, height: 18 });
+    expect(args?.beforeImage?.width).toBe(21);
+    expect(args?.beforeImage?.height).toBe(18);
+  });
+
+  it('commits the same bitmap pixels produced by the preview raster helper', async () => {
+    const imageData = new ImageData(4, 1);
+    imageData.data.set([
+      10, 0, 0, 255,
+      20, 0, 0, 255,
+      30, 0, 0, 255,
+      40, 0, 0, 255,
+    ]);
+    const { helpers, state, captureCanvasToActiveLayer } = setupHelpers({
+      imageData,
+      position: { x: 3, y: 2 },
+      displayWidth: 2,
+      displayHeight: 1,
+      width: 4,
+      height: 1,
+    });
+    const project = state.project as NonNullable<AppState['project']>;
+    const floatingPaste = state.floatingPaste as NonNullable<AppState['floatingPaste']>;
+    const expected = rasterizeFloatingPasteBitmap(floatingPaste, project);
+
+    await helpers.commitFloatingPaste();
+
+    expect(expected).not.toBeNull();
+    expect(captureCanvasToActiveLayer).toHaveBeenCalledTimes(1);
+    const [committedCanvas, roi] = captureCanvasToActiveLayer.mock.calls[0] as [
+      HTMLCanvasElement,
+      { x: number; y: number; width: number; height: number },
+    ];
+    expect(roi).toEqual(expected?.roi);
+
+    const committedCtx = committedCanvas.getContext('2d', { willReadFrequently: true });
+    const expectedCtx = expected?.canvas.getContext('2d', { willReadFrequently: true });
+    expect(committedCtx).not.toBeNull();
+    expect(expectedCtx).not.toBeNull();
+    if (!expected || !committedCtx || !expectedCtx) {
+      return;
+    }
+    const committed = committedCtx.getImageData(roi.x, roi.y, roi.width, roi.height);
+    const preview = expectedCtx.getImageData(0, 0, expected.roi.width, expected.roi.height);
+    expect(Array.from(committed.data)).toEqual(Array.from(preview.data));
+
+    const args = commitLayerHistory.mock.calls[0]?.[0];
+    expect(args?.bitmapRoi).toEqual(expected.roi);
+  });
+
+  it('composites transparent raster pixels without erasing destination artwork', async () => {
+    const source = new ImageData(2, 2);
+    source.data.set([
+      255, 0, 0, 255, 0, 0, 0, 0,
+      0, 0, 0, 0, 0, 0, 255, 255,
+    ]);
+    const layerImage = new ImageData(8, 8);
+    for (let y = 0; y < layerImage.height; y += 1) {
+      for (let x = 0; x < layerImage.width; x += 1) {
+        const index = (y * layerImage.width + x) * 4;
+        layerImage.data[index] = 20;
+        layerImage.data[index + 1] = 30;
+        layerImage.data[index + 2] = 40;
+        layerImage.data[index + 3] = 255;
+      }
+    }
+    const { helpers, captureCanvasToActiveLayer } = setupHelpers(
+      {
+        imageData: source,
+        position: { x: 2, y: 2 },
+        width: 2,
+        height: 2,
+        displayWidth: 2,
+        displayHeight: 2,
+      },
+      { imageData: layerImage }
+    );
+
+    await helpers.commitFloatingPaste();
+
+    expect(captureCanvasToActiveLayer).toHaveBeenCalledTimes(1);
+    const [committedCanvas, roi] = captureCanvasToActiveLayer.mock.calls[0] as [
+      HTMLCanvasElement,
+      { x: number; y: number; width: number; height: number },
+    ];
+    expect(roi).toEqual({ x: 2, y: 2, width: 2, height: 2 });
+
+    const committedCtx = committedCanvas.getContext('2d', { willReadFrequently: true });
+    expect(committedCtx).not.toBeNull();
+    if (!committedCtx) {
+      return;
+    }
+    const committed = committedCtx.getImageData(2, 2, 2, 2);
+    expect(Array.from(committed.data)).toEqual([
+      255, 0, 0, 255, 20, 30, 40, 255,
+      20, 30, 40, 255, 0, 0, 255, 255,
+    ]);
   });
 
   it('uses extraction history context ROI so undo can restore source and destination', async () => {
