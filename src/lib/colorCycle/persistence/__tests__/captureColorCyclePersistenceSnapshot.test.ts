@@ -396,4 +396,46 @@ describe('captureColorCyclePersistenceSnapshot', () => {
       expect(result.brushState.layers?.[0]?.strokeData?.strokeCounter).toBe(2);
     }
   });
+
+  it('falls back to persisted brush state when live runtime is preview-only', () => {
+    const persisted = canonicalBrushState();
+    persisted.layers![0]!.strokeData!.strokeCounter = 42;
+    const runtime = canonicalBrushState();
+    delete runtime.layers![0]!.strokeData!.paintBuffer;
+    delete runtime.layers![0]!.strokeData!.speedBuffer;
+    delete runtime.layers![0]!.strokeData!.flowBuffer;
+    delete runtime.layers![0]!.strokeData!.phaseBuffer;
+
+    const result = captureColorCyclePersistenceSnapshot(makeLayer({
+      colorCycleData: {
+        mode: 'brush',
+        canvasWidth: 2,
+        canvasHeight: 2,
+        gradientIdBuffer: buffer(4, 9),
+        gradientDefIdBuffer: buffer(8, 10),
+        brushState: persisted,
+      },
+    }), {
+      projectWidth: 2,
+      projectHeight: 2,
+      requirePaint: true,
+      mode: 'canonical-save',
+      runtimeBrush: {
+        serialize: () => runtime,
+      },
+    });
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.source).toBe('persisted-brush-state');
+      expect(result.brushState.layers?.[0]?.strokeData?.strokeCounter).toBe(42);
+      expect(result.documentState.paintBuffer).toBeInstanceOf(ArrayBuffer);
+      expect(result.diagnostics).toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          source: 'live-runtime',
+          kind: 'source-rejected',
+        }),
+      ]));
+    }
+  });
 });

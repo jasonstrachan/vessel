@@ -5,8 +5,10 @@ import {
   emitColorCycleDocumentStateFromDeferredArchive,
 } from './emitColorCycleDocumentState';
 import { resolveColorCyclePersistenceSource } from './resolveColorCyclePersistenceSource';
+import type { ResolvedColorCyclePersistenceSource } from './resolveColorCyclePersistenceSource';
 import type {
   CaptureColorCyclePersistenceSnapshotContext,
+  ColorCyclePersistenceDocumentState,
   ColorCyclePersistenceSnapshot,
 } from './colorCyclePersistenceTypes';
 import {
@@ -14,6 +16,87 @@ import {
   getLayerSnapshot,
   validatePersistenceDocumentState,
 } from './colorCyclePersistenceValidation';
+
+const emitDocumentState = (
+  layer: Layer,
+  context: CaptureColorCyclePersistenceSnapshotContext,
+  sourceResult: Extract<ResolvedColorCyclePersistenceSource, { ok: true }>,
+): ColorCyclePersistenceDocumentState | undefined => (
+  sourceResult.source === 'deferred-archive'
+    ? sourceResult.deferredRuntime
+      ? emitColorCycleDocumentStateFromDeferredArchive(
+          layer,
+          sourceResult.deferredRuntime,
+          context.projectWidth,
+          context.projectHeight,
+        )
+      : undefined
+    : emitColorCycleDocumentStateFromBrushState(
+        layer,
+        sourceResult.brushState,
+        context.projectWidth,
+        context.projectHeight,
+      )
+);
+
+const captureFromResolvedSource = (
+  layer: Layer,
+  context: CaptureColorCyclePersistenceSnapshotContext,
+  sourceResult: Extract<ResolvedColorCyclePersistenceSource, { ok: true }>,
+): ColorCyclePersistenceSnapshot => {
+  const documentState = emitDocumentState(layer, context, sourceResult);
+
+  if (!documentState) {
+    return {
+      ok: false,
+      layerId: layer.id,
+      mode: context.mode,
+      reason: 'missing-canonical-paint',
+      damageKind: 'missing-paint-buffer',
+      diagnostics: sourceResult.diagnostics,
+    };
+  }
+
+  const validation = validatePersistenceDocumentState(documentState, {
+    requirePaint: context.requirePaint,
+    source: sourceResult.source,
+  });
+  if (!validation.ok) {
+    return {
+      ok: false,
+      layerId: layer.id,
+      mode: context.mode,
+      reason: validation.reason,
+      damageKind: validation.damageKind,
+      previewImageData: context.mode === 'import-repair' ? layer.colorCycleData?.canvasImageData : undefined,
+      diagnostics: [...sourceResult.diagnostics, ...validation.diagnostics],
+    };
+  }
+  const paintBuffer = documentState.paintBuffer;
+  if (!paintBuffer) {
+    return {
+      ok: false,
+      layerId: layer.id,
+      mode: context.mode,
+      reason: 'missing-canonical-paint',
+      damageKind: 'missing-paint-buffer',
+      diagnostics: sourceResult.diagnostics,
+    };
+  }
+
+  return {
+    ok: true,
+    source: sourceResult.source,
+    mode: context.mode,
+    layerId: layer.id,
+    documentState: {
+      ...documentState,
+      paintBuffer,
+    },
+    brushState: sourceResult.brushState,
+    diagnostics: sourceResult.diagnostics,
+  };
+};
 
 export const captureColorCyclePersistenceSnapshot = (
   layer: Layer,
@@ -62,70 +145,36 @@ export const captureColorCyclePersistenceSnapshot = (
     };
   }
 
-  const documentState = sourceResult.source === 'deferred-archive'
-    ? sourceResult.deferredRuntime
-      ? emitColorCycleDocumentStateFromDeferredArchive(
-          layer,
-          sourceResult.deferredRuntime,
-          context.projectWidth,
-          context.projectHeight,
-        )
-      : undefined
-    : emitColorCycleDocumentStateFromBrushState(
-        layer,
-        sourceResult.brushState,
-        context.projectWidth,
-        context.projectHeight,
-      );
-
-  if (!documentState) {
-    return {
-      ok: false,
-      layerId: layer.id,
-      mode: context.mode,
-      reason: 'missing-canonical-paint',
-      damageKind: 'missing-paint-buffer',
-      diagnostics: sourceResult.diagnostics,
-    };
+  const captured = captureFromResolvedSource(layer, context, sourceResult);
+  if (
+    captured?.ok === false &&
+    sourceResult.source === 'live-runtime' &&
+    !context.skipRuntime
+  ) {
+    const fallbackSourceResult = resolveColorCyclePersistenceSource(layer, {
+      ...context,
+      runtimeBrush: null,
+      runtimeBrushManager: undefined,
+      skipRuntime: true,
+    });
+    if (fallbackSourceResult.ok) {
+      const fallbackCaptured = captureFromResolvedSource(layer, context, fallbackSourceResult);
+      if (fallbackCaptured?.ok) {
+        return {
+          ...fallbackCaptured,
+          diagnostics: [
+            ...captured.diagnostics,
+            {
+              source: 'live-runtime',
+              kind: 'source-rejected',
+              message: 'Rejected incomplete live runtime state and preserved the next canonical color-cycle source.',
+            },
+            ...fallbackCaptured.diagnostics,
+          ],
+        };
+      }
+    }
   }
 
-  const validation = validatePersistenceDocumentState(documentState, {
-    requirePaint: context.requirePaint,
-    source: sourceResult.source,
-  });
-  if (!validation.ok) {
-    return {
-      ok: false,
-      layerId: layer.id,
-      mode: context.mode,
-      reason: validation.reason,
-      damageKind: validation.damageKind,
-      previewImageData: context.mode === 'import-repair' ? layer.colorCycleData.canvasImageData : undefined,
-      diagnostics: [...sourceResult.diagnostics, ...validation.diagnostics],
-    };
-  }
-  const paintBuffer = documentState.paintBuffer;
-  if (!paintBuffer) {
-    return {
-      ok: false,
-      layerId: layer.id,
-      mode: context.mode,
-      reason: 'missing-canonical-paint',
-      damageKind: 'missing-paint-buffer',
-      diagnostics: sourceResult.diagnostics,
-    };
-  }
-
-  return {
-    ok: true,
-    source: sourceResult.source,
-    mode: context.mode,
-    layerId: layer.id,
-    documentState: {
-      ...documentState,
-      paintBuffer,
-    },
-    brushState: sourceResult.brushState,
-    diagnostics: sourceResult.diagnostics,
-  };
+  return captured;
 };

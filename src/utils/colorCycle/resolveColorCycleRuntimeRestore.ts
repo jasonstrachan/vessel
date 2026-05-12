@@ -233,16 +233,10 @@ export const hasRecoverableColorCycleRuntimeSource = (layer: Layer | undefined):
   const documentState = (layer as unknown as {
     state?: {
       paintRef?: unknown;
-      gradientIdRef?: unknown;
-      gradientDefIdRef?: unknown;
     };
   }).state;
   return Boolean(
     ccPayloadHasNonZeroByte(documentState?.paintRef) ||
-    ccPayloadHasNonZeroByte(documentState?.gradientIdRef) ||
-    ccPayloadHasNonZeroByte(documentState?.gradientDefIdRef) ||
-    ccPayloadHasNonZeroByte(layer.colorCycleData.gradientIdBuffer) ||
-    ccPayloadHasNonZeroByte(layer.colorCycleData.gradientDefIdBuffer) ||
     brushStateHasColorCyclePaintPayload(layer.colorCycleData.brushState, layer.id)
   );
 };

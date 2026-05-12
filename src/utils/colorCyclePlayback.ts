@@ -176,9 +176,6 @@ const hasColorCyclePlaybackWarmupSource = (layer: Layer): boolean => {
   const documentState = (layer as unknown as {
     state?: {
       hasContent?: boolean;
-      paintRef?: unknown;
-      gradientIdRef?: unknown;
-      gradientDefIdRef?: unknown;
     };
   }).state;
   const hasRecoverablePayload = hasRecoverableColorCycleRuntimeSource(layer);

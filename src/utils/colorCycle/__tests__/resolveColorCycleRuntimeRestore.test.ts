@@ -197,6 +197,34 @@ describe('resolveColorCycleRuntimeRestore', () => {
     expect(hasRecoverableColorCycleRuntimeSource(layer)).toBe(true);
   });
 
+  it('does not treat gradient-only buffers as a recoverable runtime source', () => {
+    const layer = makeLayer({
+      mode: 'brush',
+      hasContent: true,
+      gradientIdBuffer: new Uint8Array([0, 1, 0, 0]).buffer,
+      gradientDefIdBuffer: new Uint16Array([0, 2, 0, 0]).buffer,
+    });
+
+    expect(hasRecoverableColorCycleRuntimeSource(layer)).toBe(false);
+  });
+
+  it('treats document paint refs as a recoverable runtime source', () => {
+    const layer = {
+      ...makeLayer({
+        mode: 'brush',
+        hasContent: true,
+      }),
+      state: {
+        hasContent: true,
+        paintRef: new Uint8Array([0, 3, 0, 0]).buffer,
+        gradientIdRef: new Uint8Array([0, 1, 0, 0]).buffer,
+        gradientDefIdRef: new Uint16Array([0, 2, 0, 0]).buffer,
+      },
+    } as Layer;
+
+    expect(hasRecoverableColorCycleRuntimeSource(layer)).toBe(true);
+  });
+
   it('allows empty project-load snapshots when canonical brushState is all-zero cleared paint', () => {
     const layer = makeLayer({
       mode: 'brush',

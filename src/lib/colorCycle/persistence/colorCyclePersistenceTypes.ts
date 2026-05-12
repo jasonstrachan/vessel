@@ -156,6 +156,7 @@ export type CaptureColorCyclePersistenceSnapshotContext = {
   mode: ColorCyclePersistenceMode;
   runtimeBrushManager?: ColorCycleRuntimeBrushManager;
   runtimeBrush?: ColorCycleRuntimeBrush | null;
+  skipRuntime?: boolean;
   serializeRuntimeBrushState?: (state: unknown, layerId: string) => PersistedColorCycleBrushState | undefined;
   archiveManifest?: ColorCycleArchiveManifest;
   deferredRuntime?: DeferredColorCycleArchiveRuntime;

@@ -38,6 +38,9 @@ const captureRuntimeBrushState = (
   layer: Layer,
   context: CaptureColorCyclePersistenceSnapshotContext,
 ): PersistedColorCycleBrushState | undefined => {
+  if (context.skipRuntime) {
+    return undefined;
+  }
   const brush =
     context.runtimeBrush ??
     context.runtimeBrushManager?.getLayerColorCycleBrush?.(layer.id) ??
