@@ -11,6 +11,8 @@ const CACHE_DIRS = ['.next', 'node_modules/.cache', '.turbo'];
 const MAX_RETRIES = 3;
 const RESTART_DELAY = 2000;
 const CORRUPTION_CHECK_INTERVAL_MS = 2000;
+const INCOMPLETE_NEXT_ARTIFACT_IDLE_MS = 30000;
+const NEXT_DIST_SCAN_MAX_ENTRIES = 1000;
 const PORT = process.env.PORT || 3000;
 const PROJECT_ROOT = process.cwd();
 const logger = createRuntimeLogger('dev-server');
@@ -20,6 +22,8 @@ let retryCount = 0;
 let isShuttingDown = false;
 let cleanRestartPending = false;
 let stopWatchdog = null;
+let nextDevErrorTail = '';
+let nextDevCompileActive = false;
 
 function isPortAvailable(port) {
   return new Promise((resolve) => {
@@ -169,6 +173,95 @@ function shouldCleanStaleNextDist() {
   return false;
 }
 
+function getNewestMtimeMs(dirPath, scanState = { entries: 0 }, depth = 0) {
+  if (scanState.entries > NEXT_DIST_SCAN_MAX_ENTRIES) {
+    return Date.now();
+  }
+
+  try {
+    const stat = fs.statSync(dirPath);
+    scanState.entries += 1;
+    let newest = stat.mtimeMs;
+
+    if (!stat.isDirectory() || depth >= 4) {
+      return newest;
+    }
+
+    const entries = fs.readdirSync(dirPath, { withFileTypes: true });
+    for (const entry of entries) {
+      if (scanState.entries > NEXT_DIST_SCAN_MAX_ENTRIES) {
+        return Date.now();
+      }
+
+      const childPath = path.join(dirPath, entry.name);
+      const childNewest = getNewestMtimeMs(childPath, scanState, depth + 1);
+      newest = Math.max(newest, childNewest);
+    }
+
+    return newest;
+  } catch (err) {
+    return Date.now();
+  }
+}
+
+function isNextDistIdle(nextDir) {
+  return Date.now() - getNewestMtimeMs(nextDir) > INCOMPLETE_NEXT_ARTIFACT_IDLE_MS;
+}
+
+function shouldCleanCorruptNextDist() {
+  const nextDir = path.join(process.cwd(), '.next');
+  if (!fs.existsSync(nextDir)) {
+    return false;
+  }
+
+  const serverDir = path.join(nextDir, 'server');
+  if (!fs.existsSync(serverDir)) {
+    return false;
+  }
+
+  const routeManifestPath = path.join(nextDir, 'routes-manifest.json');
+  if (!fs.existsSync(routeManifestPath)) {
+    if (nextDevCompileActive || !isNextDistIdle(nextDir)) {
+      return false;
+    }
+
+    logger.warn('Detected incomplete .next server artifact: routes-manifest.json is missing.');
+    return true;
+  }
+
+  return false;
+}
+
+function isNextDistCorruptionOutput(text) {
+  if (text.includes('.next/routes-manifest.json')) {
+    return true;
+  }
+
+  return /Cannot find module '\.\/[^']+\.js'/.test(text)
+    && text.includes('.next/server/webpack-runtime.js');
+}
+
+function observeNextDevOutput(chunk) {
+  const text = typeof chunk === 'string' ? chunk : chunk.toString('utf8');
+  if (text.includes('Compiling')) {
+    nextDevCompileActive = true;
+  }
+  if (text.includes('Compiled') || text.includes('Ready')) {
+    nextDevCompileActive = false;
+  }
+}
+
+function observeNextDevErrorOutput(chunk) {
+  const text = typeof chunk === 'string' ? chunk : chunk.toString('utf8');
+  observeNextDevOutput(text);
+  nextDevErrorTail = `${nextDevErrorTail}${text}`.slice(-8000);
+
+  if (isNextDistCorruptionOutput(nextDevErrorTail)) {
+    nextDevErrorTail = '';
+    restartWithCleanCache('Restarting dev server after Next reported corrupt .next server output.');
+  }
+}
+
 function restartWithCleanCache(reason) {
   if (isShuttingDown || cleanRestartPending) {
     return;
@@ -191,7 +284,7 @@ function restartWithCleanCache(reason) {
 async function startServer(cleanFirst = false) {
   if (isShuttingDown) return;
 
-  if (cleanFirst || shouldCleanStaleNextDist()) {
+  if (cleanFirst || shouldCleanStaleNextDist() || shouldCleanCorruptNextDist()) {
     cleanCache();
   }
 
@@ -217,6 +310,10 @@ async function startServer(cleanFirst = false) {
     env,
     shell: true
   });
+  nextDevErrorTail = '';
+  nextDevCompileActive = false;
+  server.stdout?.on('data', observeNextDevOutput);
+  server.stderr?.on('data', observeNextDevErrorOutput);
   logger.attachChild(server, 'next-dev');
 
   server.on('exit', (code, signal) => {
@@ -298,6 +395,11 @@ let corruptionCheckInterval = setInterval(() => {
     try {
       if (shouldCleanStaleNextDist()) {
         restartWithCleanCache('Restarting dev server after production artifact appeared in .next.');
+        return;
+      }
+
+      if (shouldCleanCorruptNextDist()) {
+        restartWithCleanCache('Restarting dev server after incomplete .next artifact was detected.');
         return;
       }
 
