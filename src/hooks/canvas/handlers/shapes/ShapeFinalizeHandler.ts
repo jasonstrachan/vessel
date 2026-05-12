@@ -15,6 +15,7 @@ import {
   resolveDitherGradPalette,
 } from '@/utils/orderedDitherGradient';
 import { canvasPool } from '@/utils/canvasPool';
+import { computeRegularDitherShapeSeed } from '@/hooks/brushEngine/regularDitherVariety';
 
 export type ShapePoint = { x: number; y: number };
 
@@ -967,7 +968,8 @@ export const finalizeRasterShapeFill = ({
             mergeExisting: settingsForDither.ditherBackgroundFill !== false,
             overridePressure: effectivePressure,
             overridePixelSize: forcedPixelSize,
-            settingsOverride: settingsForDither
+            settingsOverride: settingsForDither,
+            regularDitherVarietySeed: computeRegularDitherShapeSeed(shapePoints),
           }
         );
       }

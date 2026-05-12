@@ -74,6 +74,7 @@ const reportSlotAllocationFailure = (params: {
   layerId: string;
   usedSlots: Set<number>;
   context: string;
+  rebuild?: ReturnType<typeof rebuildOnDemandAndRetryAllocate>;
 }) => {
   if (process.env.NODE_ENV === 'production' || process.env.NODE_ENV === 'test') {
     return;
@@ -84,6 +85,13 @@ const reportSlotAllocationFailure = (params: {
     usedSlotsSize: params.usedSlots.size,
     editorReserved: params.usedSlots.has(EDITOR_SLOT),
     tempSampleReserved: params.usedSlots.has(TEMP_SAMPLE_SLOT),
+    rebuild: params.rebuild
+      ? {
+          didRebuild: params.rebuild.didRebuild,
+          throttled: params.rebuild.throttled ?? false,
+          stats: params.rebuild.stats,
+        }
+      : undefined,
   });
 };
 
@@ -131,7 +139,15 @@ export const ensureGradientDefForStops = (params: {
     skipColorCycleSync?: boolean;
   };
 }): { def: ColorCycleGradientDefStore; slot: number; hash: string } | null => {
-  const attemptEnsure = (): { result: { def: ColorCycleGradientDefStore; slot: number; hash: string } | null; failure?: 'no-slot' } => {
+  type SlotFailure = {
+    reason: 'no-slot';
+    usedSlots: Set<number>;
+    context: string;
+  };
+  const attemptEnsure = (): {
+    result: { def: ColorCycleGradientDefStore; slot: number; hash: string } | null;
+    failure?: SlotFailure;
+  } => {
     const state = useAppStore.getState();
     const layer = state.layers.find((entry) => entry.id === params.layerId);
     if (!layer || layer.layerType !== 'color-cycle') {
@@ -184,8 +200,7 @@ export const ensureGradientDefForStops = (params: {
           ? preferredSlot
           : getNextGradientSlot(usedSlots);
       if (typeof slot !== 'number') {
-        reportSlotAllocationFailure({ layerId: params.layerId, usedSlots, context: 'existing-def' });
-        return { result: null, failure: 'no-slot' };
+        return { result: null, failure: { reason: 'no-slot', usedSlots, context: 'existing-def' } };
       }
       const nextSpeed = incomingSpeed !== null ? incomingSpeed : existing.speedCps;
       if (
@@ -205,8 +220,7 @@ export const ensureGradientDefForStops = (params: {
         slot = getNextGradientSlot(usedSlots);
       }
       if (typeof slot !== 'number') {
-        reportSlotAllocationFailure({ layerId: params.layerId, usedSlots, context: 'new-def' });
-        return { result: null, failure: 'no-slot' };
+        return { result: null, failure: { reason: 'no-slot', usedSlots, context: 'new-def' } };
       }
       const allocation = allocateNextColorCycleDefId({
         ids: defStore.map((entry) => entry.id),
@@ -286,17 +300,21 @@ export const ensureGradientDefForStops = (params: {
   if (initial.result) {
     return initial.result;
   }
-  if (initial.failure !== 'no-slot') {
+  if (initial.failure?.reason !== 'no-slot') {
     return null;
   }
 
   let retryResult: { def: ColorCycleGradientDefStore; slot: number; hash: string } | null = null;
-  rebuildOnDemandAndRetryAllocate({
+  let lastFailure = initial.failure;
+  const rebuild = rebuildOnDemandAndRetryAllocate({
     attemptAllocate: () => {
       const retry = attemptEnsure();
       if (retry.result) {
         retryResult = retry.result;
         return retry.result.slot;
+      }
+      if (retry.failure?.reason === 'no-slot') {
+        lastFailure = retry.failure;
       }
       return null;
     },
@@ -304,6 +322,15 @@ export const ensureGradientDefForStops = (params: {
     throttleKey: `cc-slot-rebuild:${params.layerId}`,
     throttleMs: process.env.NODE_ENV === 'test' ? 0 : undefined,
   });
+
+  if (!retryResult) {
+    reportSlotAllocationFailure({
+      layerId: params.layerId,
+      usedSlots: lastFailure.usedSlots,
+      context: lastFailure.context,
+      rebuild,
+    });
+  }
 
   return retryResult;
 };

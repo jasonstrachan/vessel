@@ -15,6 +15,7 @@ import { getPreviewGradientForActiveMark } from '@/hooks/canvas/utils/colorCycle
 import { applyPolygonMaskToCanvasContext } from '@/hooks/canvas/handlers/shapes/shapePreviewMask';
 import { logLivePreview } from '@/hooks/canvas/utils/livePreviewDebug';
 import { ensurePresResDebugBridge, isPresResDebugEnabled } from '@/hooks/canvas/utils/presResDebug';
+import { computeRegularDitherShapeSeed } from '@/hooks/brushEngine/regularDitherVariety';
 
 const SHAPE_PREVIEW_OPACITY = 0.8;
 
@@ -1317,7 +1318,8 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
           // When BG fill is off, do not merge with the freshly painted fill
           mergeExisting: liveBgFillOn,
           overridePressure: effectivePressure,
-          overridePixelSize: previewPixelSize
+          overridePixelSize: previewPixelSize,
+          regularDitherVarietySeed: computeRegularDitherShapeSeed(rawPoints),
         });
         } catch (error) {
         if (process.env.NODE_ENV !== 'production') {

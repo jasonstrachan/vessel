@@ -106,6 +106,7 @@ type ApplyStrokeDitherArgs = {
     bgOffMode?: 'direct' | 'accumulate';
     bgOffComposite?: 'copy' | 'source-over';
     settingsOverride?: BrushSettings;
+    regularDitherVarietySeed?: number;
   };
   toolsBrushSettings: BrushSettings;
   shouldApplyStrokeDitherForSettings: (settings: BrushSettings) => boolean;

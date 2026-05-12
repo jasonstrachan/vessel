@@ -18,6 +18,8 @@ describe('ShapeFinalizeHandler', () => {
       ditherEnabled: true,
       ditherBackgroundFill: true,
       fillResolution: 4,
+      ditherPaletteSpread: 55,
+      ditherPatternDiversity: 72,
       pressureLinkedFillResolution: false,
       antialiasing: false,
       opacity: 1,
@@ -93,6 +95,9 @@ describe('ShapeFinalizeHandler', () => {
     expect(applyStrokeDither).toHaveBeenCalled();
     const ditherArgs = applyStrokeDither.mock.calls[0]?.[3];
     expect(ditherArgs.settingsOverride.color).toBe('#FF00AA');
+    expect(ditherArgs.settingsOverride.ditherPaletteSpread).toBe(55);
+    expect(ditherArgs.settingsOverride.ditherPatternDiversity).toBe(72);
+    expect(typeof ditherArgs.regularDitherVarietySeed).toBe('number');
   });
 
   it('does not persist temporary pressure-linked dither overrides back to the store on finalize', () => {

@@ -1,6 +1,10 @@
 import { debugWarn } from '@/utils/debug';
 import { parseColor } from './colorUtils';
 import { applyDithering as applyDitheringImport, applyDitheringWithFillResolution } from './dithering';
+import {
+  applyRegularDitherVarietyToImageData,
+  resolveRegularDitherVariety,
+} from './regularDitherVariety';
 
 import type { BrushSettings } from '@/types';
 
@@ -11,6 +15,7 @@ export type StrokeDitherRegionOptions = {
   bgOffMode?: 'direct' | 'accumulate';
   bgOffComposite?: 'copy' | 'source-over';
   settingsOverride?: BrushSettings;
+  regularDitherVarietySeed?: number;
 };
 
 type ReusableCanvas2D = { canvas: HTMLCanvasElement; ctx: CanvasRenderingContext2D };
@@ -199,24 +204,40 @@ export const ditherRegionWithCurrentPressure = ({
   const phaseOffset = !fillBackground
     ? (strokePhaseOriginRef.current ?? { x: 0, y: 0 })
     : undefined;
+  const variety = options?.regularDitherVarietySeed != null
+    ? resolveRegularDitherVariety({
+        settings,
+        palette,
+        seed: options.regularDitherVarietySeed,
+      })
+    : null;
+  const sourceForDither = variety
+    ? applyRegularDitherVarietyToImageData(src, variety)
+    : src;
+  const ditherPhaseOffset = variety?.phaseOffset
+    ? {
+        x: (phaseOffset?.x ?? 0) + variety.phaseOffset.x,
+        y: (phaseOffset?.y ?? 0) + variety.phaseOffset.y,
+      }
+    : phaseOffset;
 
   const dithered = pixelSize > 1
     ? applyDitheringWithFillResolution(
-        src,
+        sourceForDither,
         palette.length,
         pixelSize,
         algorithm,
         patternStyle,
         palette,
-        phaseOffset
+        ditherPhaseOffset
       )
     : applyDitheringImport(
-        src,
+        sourceForDither,
         palette.length,
         algorithm,
         patternStyle,
         palette,
-        phaseOffset
+        ditherPhaseOffset
       );
 
   const data = dithered.data;

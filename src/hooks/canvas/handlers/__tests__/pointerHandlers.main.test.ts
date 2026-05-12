@@ -4,6 +4,7 @@ import { createPointerHandlers } from '../pointerHandlers';
 import { useAppStore } from '@/stores/useAppStore';
 import { BrushShape, type Project } from '@/types';
 import { RecolorManager } from '@/lib/colorCycle/RecolorManager';
+import { computeRegularDitherShapeSeed } from '@/hooks/brushEngine/regularDitherVariety';
 import type { EventHandlerDynamicDeps, EventHandlerDependencies } from '../../utils/types';
 
 type PartialDeps = Partial<EventHandlerDependencies>;
@@ -30,6 +31,8 @@ const createCanvas = () => {
     restore: jest.fn(),
     fillRect: jest.fn(),
     drawImage: jest.fn(),
+    setTransform: jest.fn(),
+    createPattern: jest.fn(() => null),
     getImageData: jest.fn(() => ({ data: new Uint8ClampedArray(), width: 0, height: 0 })),
     putImageData: jest.fn(),
     setLineDash: jest.fn(),
@@ -1883,6 +1886,50 @@ describe('pointerHandlers main flows', () => {
     expect((deps.drawingHandlers.continueShapeDrawing as jest.Mock).mock.invocationCallOrder[0]).toBeLessThan(
       (deps.drawingHandlers.finalizeShapeDrawing as jest.Mock).mock.invocationCallOrder[0]
     );
+  });
+
+  it('uses raw shape geometry for dither-shape preview variety seed when preview points are decimated', () => {
+    const rawPoints = Array.from({ length: 501 }, (_, index) => ({
+      x: 20 + Math.cos(index / 11) * 12 + index * 0.03,
+      y: 20 + Math.sin(index / 13) * 12,
+    }));
+    const applyStrokeDither = jest.fn();
+    const { deps, dynamicDepsRef } = createDeps(
+      {
+        currentBrushPresetId: 'dither-shape',
+        tools: {
+          ...baseDynamic.tools,
+          currentTool: 'brush',
+          shapeMode: true,
+          brushSettings: {
+            ...baseDynamic.tools.brushSettings,
+            brushShape: BrushShape.PIXEL_DITHER,
+            color: '#b34a22',
+            ditherEnabled: true,
+            ditherBackgroundFill: true,
+            fillResolution: 4,
+            ditherPatternDiversity: 100,
+          } as any,
+        },
+      },
+      {
+        brushEngine: {
+          applyStrokeDither,
+        } as any,
+      }
+    );
+    deps.drawingHandlers.shapePointsRef.current = rawPoints;
+    dynamicDepsRef.current.currentBrushPresetId = 'dither-shape';
+
+    createPointerHandlers(deps);
+    const renderer = (deps.drawingHandlers.setSimpleShapePreviewRenderer as jest.Mock).mock.calls[0]?.[0];
+    expect(typeof renderer).toBe('function');
+
+    renderer();
+
+    expect(applyStrokeDither).toHaveBeenCalled();
+    const options = applyStrokeDither.mock.calls[0]?.[3];
+    expect(options.regularDitherVarietySeed).toBe(computeRegularDitherShapeSeed(rawPoints));
   });
 
   it('finalizes shape drawing on pointer up', async () => {

@@ -739,6 +739,7 @@ export const useBrushEngineSimplified = () => {
       bgOffMode?: 'direct' | 'accumulate';
       bgOffComposite?: 'copy' | 'source-over';
       settingsOverride?: BrushSettings;
+      regularDitherVarietySeed?: number;
     }
   ) => {
     applyStrokeDitherController({

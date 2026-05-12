@@ -171,6 +171,7 @@ describe('colorCycleGradientDefs', () => {
   });
 
   it('rebuilds slots on allocation failure and succeeds', () => {
+    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
     const slotPalettes = Array.from({ length: 254 }, (_, slot) => ({
       slot,
       stops: baseStops,
@@ -209,10 +210,12 @@ describe('colorCycleGradientDefs', () => {
     });
 
     expect(result).not.toBeNull();
+    expect(errorSpy).not.toHaveBeenCalled();
     const updatedLayer = useAppStore.getState().layers.find((entry) => entry.id === layer.id);
     const updatedStore = updatedLayer?.colorCycleData?.gradientDefStore ?? [];
     const deadDef = updatedStore.find((entry) => entry.id === 2);
     expect(deadDef?.slot).toBeUndefined();
+    errorSpy.mockRestore();
   });
 
   it('allocates slot 253 as the final committed sampled slot before reserved slots', () => {
