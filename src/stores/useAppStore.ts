@@ -365,6 +365,8 @@ export interface AppState {
     ditherAlgorithm?: BrushSettings['ditherAlgorithm'];
     patternStyle?: BrushSettings['patternStyle'];
     patternTileId?: BrushSettings['patternTileId'];
+    patternTilePackId?: BrushSettings['patternTilePackId'];
+    patternTileSelectionMode?: BrushSettings['patternTileSelectionMode'];
   };
   shapeModeByBrush: Record<string, boolean>;
   saveBrushSettings: (brushId: string, settings: Partial<BrushSettings>) => void;
@@ -687,6 +689,11 @@ export interface AppState {
   addCcCustomTilePattern: (pattern: NonNullable<Project['ccCustomTilePatterns']>[number]) => void;
   removeCcCustomTilePattern: (patternId: string) => void;
   renameCcCustomTilePattern: (patternId: string, name: string) => void;
+  addCcCustomTilePatternPack: (pack: NonNullable<Project['ccCustomTilePatternPacks']>[number]) => void;
+  renameCcCustomTilePatternPack: (packId: string, name: string) => void;
+  removeCcCustomTilePatternPack: (packId: string) => void;
+  addCcCustomTilePatternToPack: (packId: string, patternId: string) => void;
+  removeCcCustomTilePatternFromPack: (packId: string, patternId: string) => void;
   setDefaultCustomBrush: (brushId: string | null) => void;
   saveCustomBrushAsPreset: (customBrushId: string) => void;
   getCustomBrushById: (brushId: string) => CustomBrush | null;
@@ -1027,6 +1034,12 @@ const hydrateGlobalBrushSettings = (): void => {
               : {}),
             ...(payload.ccBrushDitherSelection.patternTileId !== undefined
               ? { patternTileId: payload.ccBrushDitherSelection.patternTileId }
+              : {}),
+            ...(payload.ccBrushDitherSelection.patternTilePackId !== undefined
+              ? { patternTilePackId: payload.ccBrushDitherSelection.patternTilePackId }
+              : {}),
+            ...(payload.ccBrushDitherSelection.patternTileSelectionMode !== undefined
+              ? { patternTileSelectionMode: payload.ccBrushDitherSelection.patternTileSelectionMode }
               : {}),
           },
         };

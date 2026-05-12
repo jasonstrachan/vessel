@@ -108,6 +108,8 @@ export const DitherControls: React.FC<Props> = ({
               <CcPatternDropdown
                 value={settings.patternStyle || 'dots'}
                 patternTileId={settings.patternTileId}
+                patternTilePackId={settings.patternTilePackId}
+                patternTileSelectionMode={settings.patternTileSelectionMode}
                 onChange={onChange}
                 className="flex-1"
               />

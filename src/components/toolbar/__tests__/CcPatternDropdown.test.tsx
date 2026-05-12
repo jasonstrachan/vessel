@@ -33,6 +33,15 @@ describe('CcPatternDropdown', () => {
                 updatedAt: 1,
               },
             ],
+            ccCustomTilePatternPacks: [
+              {
+                id: 'pack-1',
+                name: 'Pack 1',
+                patternIds: ['tile-1'],
+                createdAt: 1,
+                updatedAt: 1,
+              },
+            ],
           }
         : state.project,
     }));
@@ -57,11 +66,85 @@ describe('CcPatternDropdown', () => {
     expect(screen.getByText('+ Add New')).toBeInTheDocument();
     expect(screen.getAllByText('Dots').length).toBeGreaterThan(0);
     expect(screen.getByText('Tile 1')).toBeInTheDocument();
+    expect(screen.getByText('Pack 1')).toBeInTheDocument();
 
     fireEvent.click(screen.getByLabelText('Remove Tile 1'));
 
     expect(onChange).not.toHaveBeenCalled();
     expect(useAppStore.getState().project?.ccCustomTilePatterns).toEqual([]);
+  });
+
+  it('selects pack-random mode from a pattern pack option', () => {
+    const onChange = jest.fn();
+    render(
+      <CcPatternDropdown
+        value="dots"
+        patternTileId={null}
+        onChange={onChange}
+      />
+    );
+
+    fireEvent.click(screen.getByRole('button'));
+    const packOption = screen.getByText('Pack 1').closest('[role="option"]');
+    expect(packOption).not.toBeNull();
+    const pointerUp = new Event('pointerup', { bubbles: true, cancelable: true });
+    Object.defineProperty(pointerUp, 'button', { value: 0 });
+    act(() => {
+      (packOption as Element).dispatchEvent(pointerUp);
+    });
+
+    expect(onChange).toHaveBeenCalledWith({
+      ditherAlgorithm: 'pattern',
+      patternStyle: 'image-tile',
+      patternTileId: 'tile-1',
+      patternTilePackId: 'pack-1',
+      patternTileSelectionMode: 'pack-random',
+    });
+  });
+
+  it('falls back to a built-in pattern when a selected pack has no valid tiles', () => {
+    useAppStore.setState((state) => ({
+      project: state.project
+        ? {
+            ...state.project,
+            ccCustomTilePatterns: [],
+            ccCustomTilePatternPacks: [
+              {
+                id: 'pack-empty',
+                name: 'Empty Pack',
+                patternIds: [],
+                createdAt: 1,
+                updatedAt: 1,
+              },
+            ],
+          }
+        : state.project,
+    }));
+    const onChange = jest.fn();
+    render(
+      <CcPatternDropdown
+        value="dots"
+        patternTileId={null}
+        onChange={onChange}
+      />
+    );
+
+    fireEvent.click(screen.getByRole('button'));
+    const packOption = screen.getByText('Empty Pack').closest('[role="option"]');
+    expect(packOption).not.toBeNull();
+    const pointerUp = new Event('pointerup', { bubbles: true, cancelable: true });
+    Object.defineProperty(pointerUp, 'button', { value: 0 });
+    act(() => {
+      (packOption as Element).dispatchEvent(pointerUp);
+    });
+
+    expect(onChange).toHaveBeenCalledWith({
+      ditherAlgorithm: 'pattern',
+      patternStyle: 'dots',
+      patternTileId: null,
+      patternTilePackId: 'pack-empty',
+      patternTileSelectionMode: 'pack-random',
+    });
   });
 
   it('captures image paste while add-new modal is open so the canvas paste handler does not run', async () => {

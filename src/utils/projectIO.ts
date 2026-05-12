@@ -81,7 +81,10 @@ import {
   PROJECT_FILE_MIME,
   PROJECT_FILE_MIME_ACCEPT
 } from '@/constants/projectFiles';
-import { normalizeCcCustomTilePattern } from '@/utils/colorCycle/ccCustomTilePattern';
+import {
+  normalizeCcCustomTilePattern,
+  normalizeCcCustomTilePatternPack,
+} from '@/utils/colorCycle/ccCustomTilePattern';
 // Vessel project file format version
 const PROJECT_VERSION = '1.1.0';
 const MAX_PROJECT_ARCHIVE_BYTES = 512 * 1024 * 1024;
@@ -391,6 +394,7 @@ export interface VesselProject {
     layerGroups?: LayerGroup[];
     customBrushes: SerializedCustomBrush[];
     ccCustomTilePatterns?: Project['ccCustomTilePatterns'];
+    ccCustomTilePatternPacks?: Project['ccCustomTilePatternPacks'];
     defaultCustomBrushId?: string | null;
     thumbnail?: string;
     brushSpecificSettings?: Record<string, unknown>;
@@ -4174,6 +4178,10 @@ const buildSerializedProjectArtifacts = async (
   const ccCustomTilePatterns = (project.ccCustomTilePatterns ?? [])
     .map(normalizeCcCustomTilePattern)
     .filter((pattern): pattern is NonNullable<Project['ccCustomTilePatterns']>[number] => Boolean(pattern));
+  const validTileIds = new Set(ccCustomTilePatterns.map((pattern) => pattern.id));
+  const ccCustomTilePatternPacks = (project.ccCustomTilePatternPacks ?? [])
+    .map((pack) => normalizeCcCustomTilePatternPack(pack, validTileIds))
+    .filter((pack): pack is NonNullable<Project['ccCustomTilePatternPacks']>[number] => Boolean(pack));
 
   let previewThumbnail = '';
   let previewEncoding: 'image/png' | 'image/webp' = 'image/png';
@@ -4206,6 +4214,7 @@ const buildSerializedProjectArtifacts = async (
       layerGroups: project.layerGroups,
       customBrushes: serializedCustomBrushes,
       ccCustomTilePatterns,
+      ccCustomTilePatternPacks,
       defaultCustomBrushId: project.defaultCustomBrushId ?? null,
       brushSpecificSettings: project.brushSpecificSettings,
       globalBrushSize: project.globalBrushSize,
@@ -5363,6 +5372,10 @@ export async function deserializeProjectWithReport(
   const ccCustomTilePatterns = (serializedProject.ccCustomTilePatterns ?? [])
     .map(normalizeCcCustomTilePattern)
     .filter((pattern): pattern is NonNullable<Project['ccCustomTilePatterns']>[number] => Boolean(pattern));
+  const validTileIds = new Set(ccCustomTilePatterns.map((pattern) => pattern.id));
+  const ccCustomTilePatternPacks = (serializedProject.ccCustomTilePatternPacks ?? [])
+    .map((pack) => normalizeCcCustomTilePatternPack(pack, validTileIds))
+    .filter((pack): pack is NonNullable<Project['ccCustomTilePatternPacks']>[number] => Boolean(pack));
 
   applyLegacyColorCycleBrushSettingsFallback(
     layers,
@@ -5389,6 +5402,7 @@ export async function deserializeProjectWithReport(
     layerGroups: serializedProject.layerGroups ?? [],
     customBrushes,
     ccCustomTilePatterns,
+    ccCustomTilePatternPacks,
     defaultCustomBrushId,
     createdAt: new Date(vesselProject.metadata.created),
     updatedAt: new Date(vesselProject.metadata.modified),

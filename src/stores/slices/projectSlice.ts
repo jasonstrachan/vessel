@@ -5,6 +5,7 @@ import type {
   WebGLExportSettings,
   CustomBrush,
   CcCustomTilePattern,
+  CcCustomTilePatternPack,
   Layer,
   BrushSettings,
 } from '@/types';
@@ -28,6 +29,7 @@ import { createCustomBrushPreset } from '@/utils/customBrushPreset';
 import {
   clearCcCustomTilePatternCache,
   normalizeCcCustomTilePattern,
+  normalizeCcCustomTilePatternPack,
 } from '@/utils/colorCycle/ccCustomTilePattern';
 
 type AppState = import('../useAppStore').AppState;
@@ -431,6 +433,11 @@ export interface ProjectSlice {
   addCcCustomTilePattern: (pattern: CcCustomTilePattern) => void;
   removeCcCustomTilePattern: (patternId: string) => void;
   renameCcCustomTilePattern: (patternId: string, name: string) => void;
+  addCcCustomTilePatternPack: (pack: CcCustomTilePatternPack) => void;
+  renameCcCustomTilePatternPack: (packId: string, name: string) => void;
+  removeCcCustomTilePatternPack: (packId: string) => void;
+  addCcCustomTilePatternToPack: (packId: string, patternId: string) => void;
+  removeCcCustomTilePatternFromPack: (packId: string, patternId: string) => void;
   setDefaultCustomBrush: (brushId: string | null) => void;
   saveCustomBrushAsPreset: (customBrushId: string) => void;
   getCustomBrushById: (brushId: string) => CustomBrush | null;
@@ -884,6 +891,11 @@ export const createProjectSlice =
           (entry) => entry.id !== patternId
         );
         didRemove = remaining.length !== (state.project.ccCustomTilePatterns ?? []).length;
+        const packs = (state.project.ccCustomTilePatternPacks ?? []).map((pack) => ({
+          ...pack,
+          patternIds: pack.patternIds.filter((entry) => entry !== patternId),
+          updatedAt: pack.patternIds.includes(patternId) ? Date.now() : pack.updatedAt,
+        }));
         const selectedToolTileId = state.tools.brushSettings.patternTileId;
         const shouldResetToolSelection =
           selectedToolTileId === patternId &&
@@ -903,6 +915,7 @@ export const createProjectSlice =
           project: {
             ...state.project,
             ccCustomTilePatterns: remaining,
+            ccCustomTilePatternPacks: packs,
             updatedAt: new Date(),
           },
           tools: {
@@ -939,6 +952,144 @@ export const createProjectSlice =
               pattern.id === patternId
                 ? { ...pattern, name: nextName, updatedAt: Date.now() }
                 : pattern
+            ),
+            updatedAt: new Date(),
+          },
+        };
+      });
+    };
+
+    const addCcCustomTilePatternPack = (pack: CcCustomTilePatternPack) => {
+      set((state) => {
+        if (!state.project) {
+          return state;
+        }
+        const validPatternIds = new Set((state.project.ccCustomTilePatterns ?? []).map((pattern) => pattern.id));
+        const normalized = normalizeCcCustomTilePatternPack(pack, validPatternIds);
+        if (!normalized) {
+          return state;
+        }
+        const existing = state.project.ccCustomTilePatternPacks ?? [];
+        return {
+          project: {
+            ...state.project,
+            ccCustomTilePatternPacks: [
+              ...existing.filter((entry) => entry.id !== normalized.id),
+              normalized,
+            ],
+            updatedAt: new Date(),
+          },
+        };
+      });
+    };
+
+    const renameCcCustomTilePatternPack = (packId: string, name: string) => {
+      const nextName = name.trim();
+      if (!nextName) {
+        return;
+      }
+      set((state) => {
+        if (!state.project) {
+          return state;
+        }
+        return {
+          project: {
+            ...state.project,
+            ccCustomTilePatternPacks: (state.project.ccCustomTilePatternPacks ?? []).map((pack) =>
+              pack.id === packId ? { ...pack, name: nextName, updatedAt: Date.now() } : pack
+            ),
+            updatedAt: new Date(),
+          },
+        };
+      });
+    };
+
+    const removeCcCustomTilePatternPack = (packId: string) => {
+      set((state) => {
+        if (!state.project) {
+          return state;
+        }
+        const remaining = (state.project.ccCustomTilePatternPacks ?? []).filter((pack) => pack.id !== packId);
+        const didRemovePack = remaining.length !== (state.project.ccCustomTilePatternPacks ?? []).length;
+        if (!didRemovePack) {
+          return state;
+        }
+        const shouldResetToolSelection =
+          state.tools.brushSettings.patternTileSelectionMode === 'pack-random' &&
+          state.tools.brushSettings.patternTilePackId === packId;
+        const shouldResetSharedSelection =
+          state.ccBrushDitherSelection.patternTileSelectionMode === 'pack-random' &&
+          state.ccBrushDitherSelection.patternTilePackId === packId;
+        return {
+          project: {
+            ...state.project,
+            ccCustomTilePatternPacks: remaining,
+            updatedAt: new Date(),
+          },
+          tools: shouldResetToolSelection
+            ? {
+                ...state.tools,
+                brushSettings: {
+                  ...state.tools.brushSettings,
+                  patternStyle: 'dots',
+                  patternTileId: null,
+                  patternTilePackId: null,
+                  patternTileSelectionMode: 'single',
+                },
+              }
+            : state.tools,
+          ccBrushDitherSelection: shouldResetSharedSelection
+            ? {
+                ...state.ccBrushDitherSelection,
+                patternStyle: 'dots',
+                patternTileId: null,
+                patternTilePackId: null,
+                patternTileSelectionMode: 'single',
+              }
+            : state.ccBrushDitherSelection,
+        };
+      });
+    };
+
+    const addCcCustomTilePatternToPack = (packId: string, patternId: string) => {
+      set((state) => {
+        if (!state.project) {
+          return state;
+        }
+        const hasPattern = (state.project.ccCustomTilePatterns ?? []).some((pattern) => pattern.id === patternId);
+        if (!hasPattern) {
+          return state;
+        }
+        return {
+          project: {
+            ...state.project,
+            ccCustomTilePatternPacks: (state.project.ccCustomTilePatternPacks ?? []).map((pack) =>
+              pack.id === packId && !pack.patternIds.includes(patternId)
+                ? { ...pack, patternIds: [...pack.patternIds, patternId], updatedAt: Date.now() }
+                : pack
+            ),
+            updatedAt: new Date(),
+          },
+        };
+      });
+    };
+
+    const removeCcCustomTilePatternFromPack = (packId: string, patternId: string) => {
+      set((state) => {
+        if (!state.project) {
+          return state;
+        }
+        return {
+          project: {
+            ...state.project,
+            ccCustomTilePatternPacks: (state.project.ccCustomTilePatternPacks ?? []).map((pack) =>
+              pack.id === packId && pack.patternIds.includes(patternId)
+                ? {
+                    ...pack,
+                    patternIds: pack.patternIds.filter((entry) => entry !== patternId),
+                    updatedAt: Date.now(),
+                  }
+                : pack
             ),
             updatedAt: new Date(),
           },
@@ -1169,6 +1320,7 @@ export const createProjectSlice =
         updatedAt: new Date(),
         customBrushes: [],
         ccCustomTilePatterns: [],
+        ccCustomTilePatternPacks: [],
         defaultCustomBrushId: null,
         brushSpecificSettings: {},
         exportLayout: createDefaultExportLayout(),
@@ -1254,6 +1406,11 @@ export const createProjectSlice =
       addCcCustomTilePattern,
       removeCcCustomTilePattern,
       renameCcCustomTilePattern,
+      addCcCustomTilePatternPack,
+      renameCcCustomTilePatternPack,
+      removeCcCustomTilePatternPack,
+      addCcCustomTilePatternToPack,
+      removeCcCustomTilePatternFromPack,
       setDefaultCustomBrush,
       saveCustomBrushAsPreset,
       getCustomBrushById,

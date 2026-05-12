@@ -40,6 +40,7 @@ import {
   resolveColorCycleGradientSourceState,
 } from '@/hooks/canvas/handlers/colorCycle/colorCycleGradientSourceContract';
 import { startColorCycleRuntimeWarmupForEdit } from '@/hooks/canvas/handlers/colorCycle/colorCycleRuntimeWarmup';
+import { resolveCcPatternPackBrushSettings } from '@/utils/colorCycle/ccCustomTilePattern';
 
 type ShapeDrawingRefs = {
   isDrawingShapeRef: React.MutableRefObject<boolean>;
@@ -650,6 +651,29 @@ export const startShapeDrawing = (
     const currentTool = store.tools.currentTool;
     const brushSettings = store.tools.brushSettings;
     const ccFlags = deps.getColorCycleBrushFlags(brushSettings);
+    if (isNewShape && brushSettings.brushShape === BrushShape.COLOR_CYCLE_SHAPE) {
+      const frozenPattern = resolveCcPatternPackBrushSettings({
+        settings: brushSettings,
+        packs: store.project?.ccCustomTilePatternPacks,
+        patterns: store.project?.ccCustomTilePatterns,
+        seed: [
+          store.activeLayerId ?? 'no-layer',
+          refs.shapePointsRef.current.length,
+          timestamp ?? Date.now(),
+          Math.round(drawPos.x * 100) / 100,
+          Math.round(drawPos.y * 100) / 100,
+        ].join(':'),
+      });
+      if (frozenPattern) {
+        store.setBrushSettings(frozenPattern);
+        deps.brushEngine.engine?.updateConfig?.({
+          brushSettings: {
+            ...brushSettings,
+            ...frozenPattern,
+          },
+        });
+      }
+    }
     if (ccFlags.isShapeVariant) {
       const activeLayer = store.layers.find((layer) => layer.id === store.activeLayerId);
       if (

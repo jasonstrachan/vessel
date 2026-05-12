@@ -24,6 +24,15 @@ const makeProject = (): Project => ({
       updatedAt: 1,
     },
   ],
+  ccCustomTilePatternPacks: [
+    {
+      id: 'pack-1',
+      name: 'Pack 1',
+      patternIds: ['tile-1'],
+      createdAt: 1,
+      updatedAt: 1,
+    },
+  ],
   defaultCustomBrushId: null,
 });
 
@@ -34,5 +43,30 @@ describe('projectIO custom tile patterns', () => {
     const restored = await deserializeProject(data);
 
     expect(restored.ccCustomTilePatterns).toEqual(project.ccCustomTilePatterns);
+  });
+
+  it('round-trips project-local CC custom tile pattern packs', async () => {
+    const project = makeProject();
+    const data = await serializeProject(project);
+    const restored = await deserializeProject(data);
+
+    expect(restored.ccCustomTilePatternPacks).toEqual(project.ccCustomTilePatternPacks);
+  });
+
+  it('prunes missing tile ids from pattern packs on load', async () => {
+    const project = makeProject();
+    project.ccCustomTilePatternPacks = [
+      {
+        id: 'pack-1',
+        name: 'Pack 1',
+        patternIds: ['tile-1', 'missing-tile', 'tile-1'],
+        createdAt: 1,
+        updatedAt: 1,
+      },
+    ];
+    const data = await serializeProject(project);
+    const restored = await deserializeProject(data);
+
+    expect(restored.ccCustomTilePatternPacks?.[0]?.patternIds).toEqual(['tile-1']);
   });
 });

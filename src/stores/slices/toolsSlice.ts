@@ -304,6 +304,8 @@ export interface ToolsSlice {
     ditherAlgorithm?: BrushSettings['ditherAlgorithm'];
     patternStyle?: BrushSettings['patternStyle'];
     patternTileId?: BrushSettings['patternTileId'];
+    patternTilePackId?: BrushSettings['patternTilePackId'];
+    patternTileSelectionMode?: BrushSettings['patternTileSelectionMode'];
   };
   shapeModeByBrush: Record<string, boolean>;
   setShapeDrawing: (isDrawing: boolean) => void;
@@ -385,6 +387,8 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
     ditherAlgorithm: defaultBrushSettingsForStore.ditherAlgorithm,
     patternStyle: defaultBrushSettingsForStore.patternStyle,
     patternTileId: defaultBrushSettingsForStore.patternTileId,
+    patternTilePackId: defaultBrushSettingsForStore.patternTilePackId,
+    patternTileSelectionMode: defaultBrushSettingsForStore.patternTileSelectionMode,
   },
   shapeModeByBrush: {},
 
@@ -1151,7 +1155,9 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
         (
           settings.ditherAlgorithm !== undefined ||
           settings.patternStyle !== undefined ||
-          settings.patternTileId !== undefined
+          settings.patternTileId !== undefined ||
+          settings.patternTilePackId !== undefined ||
+          settings.patternTileSelectionMode !== undefined
         )
           ? {
               ...state.ccBrushDitherSelection,
@@ -1163,6 +1169,12 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
                 : {}),
               ...(settings.patternTileId !== undefined
                 ? { patternTileId: newSettings.patternTileId }
+                : {}),
+              ...(settings.patternTilePackId !== undefined
+                ? { patternTilePackId: newSettings.patternTilePackId }
+                : {}),
+              ...(settings.patternTileSelectionMode !== undefined
+                ? { patternTileSelectionMode: newSettings.patternTileSelectionMode }
                 : {}),
             }
           : state.ccBrushDitherSelection,
@@ -1833,6 +1845,12 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
       }
       if (state.ccBrushDitherSelection.patternTileId !== undefined) {
         newBrushSettings.patternTileId = state.ccBrushDitherSelection.patternTileId;
+      }
+      if (state.ccBrushDitherSelection.patternTilePackId !== undefined) {
+        newBrushSettings.patternTilePackId = state.ccBrushDitherSelection.patternTilePackId;
+      }
+      if (state.ccBrushDitherSelection.patternTileSelectionMode !== undefined) {
+        newBrushSettings.patternTileSelectionMode = state.ccBrushDitherSelection.patternTileSelectionMode;
       }
     }
 

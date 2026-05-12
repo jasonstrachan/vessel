@@ -1,10 +1,12 @@
 import {
   encodeRgbaToBase64,
   makeCcCustomTilePattern,
+  normalizeCcCustomTilePatternPack,
+  resolveCcPatternPackBrushSettings,
   resolveCcCustomTileThreshold,
   toCcCustomTileRuntime,
 } from '@/utils/colorCycle/ccCustomTilePattern';
-import type { CcCustomTilePattern } from '@/types';
+import type { BrushSettings, CcCustomTilePattern } from '@/types';
 
 const makeTile = (rgba: number[]): CcCustomTilePattern => ({
   id: 'tile-1',
@@ -95,5 +97,83 @@ describe('cc custom tile pattern threshold', () => {
 
     expect(pattern.width).toBe(576);
     expect(pattern.height).toBe(260);
+  });
+
+  it('normalizes pattern packs by pruning duplicate and missing tile ids', () => {
+    const pack = normalizeCcCustomTilePatternPack(
+      {
+        id: 'pack-1',
+        name: '',
+        patternIds: ['tile-1', 'missing', 'tile-1'],
+        createdAt: 1,
+        updatedAt: 1,
+      },
+      new Set(['tile-1'])
+    );
+
+    expect(pack).toEqual({
+      id: 'pack-1',
+      name: 'Pack',
+      patternIds: ['tile-1'],
+      createdAt: 1,
+      updatedAt: 1,
+    });
+  });
+
+  it('freezes a concrete tile id from pack-random brush settings', () => {
+    const settings = resolveCcPatternPackBrushSettings({
+      settings: {
+        ditherAlgorithm: 'pattern',
+        patternStyle: 'image-tile',
+        patternTilePackId: 'pack-1',
+        patternTileSelectionMode: 'pack-random',
+      } as BrushSettings,
+      packs: [
+        {
+          id: 'pack-1',
+          name: 'Pack 1',
+          patternIds: ['tile-1', 'missing'],
+          createdAt: 1,
+          updatedAt: 1,
+        },
+      ],
+      patterns: [makeTile([0, 0, 0, 255, 255, 255, 255, 255])],
+      seed: 'layer-1:shape-1',
+    });
+
+    expect(settings).toEqual({
+      ditherAlgorithm: 'pattern',
+      patternStyle: 'image-tile',
+      patternTileId: 'tile-1',
+    });
+  });
+
+  it('retries pack-random resolution after an empty-pack dots fallback', () => {
+    const settings = resolveCcPatternPackBrushSettings({
+      settings: {
+        ditherAlgorithm: 'pattern',
+        patternStyle: 'dots',
+        patternTileId: null,
+        patternTilePackId: 'pack-1',
+        patternTileSelectionMode: 'pack-random',
+      } as BrushSettings,
+      packs: [
+        {
+          id: 'pack-1',
+          name: 'Pack 1',
+          patternIds: ['tile-1'],
+          createdAt: 1,
+          updatedAt: 1,
+        },
+      ],
+      patterns: [makeTile([0, 0, 0, 255, 255, 255, 255, 255])],
+      seed: 'layer-1:shape-2',
+    });
+
+    expect(settings).toEqual({
+      ditherAlgorithm: 'pattern',
+      patternStyle: 'image-tile',
+      patternTileId: 'tile-1',
+    });
   });
 });

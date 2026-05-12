@@ -23,11 +23,15 @@ const sanitizeBrushSpecificSettings = (
       ditherAlgorithm?: never;
       patternStyle?: never;
       patternTileId?: never;
+      patternTilePackId?: never;
+      patternTileSelectionMode?: never;
     };
     delete sanitizedSettings.ccGradientSamplePerShape;
     delete sanitizedSettings.ditherAlgorithm;
     delete sanitizedSettings.patternStyle;
     delete sanitizedSettings.patternTileId;
+    delete sanitizedSettings.patternTilePackId;
+    delete sanitizedSettings.patternTileSelectionMode;
 
     return [[brushId, sanitizedSettings] as const];
   });
@@ -45,6 +49,8 @@ export interface CcBrushDitherSelectionPayload {
   ditherAlgorithm?: BrushSettings['ditherAlgorithm'];
   patternStyle?: BrushSettings['patternStyle'];
   patternTileId?: BrushSettings['patternTileId'];
+  patternTilePackId?: BrushSettings['patternTilePackId'];
+  patternTileSelectionMode?: BrushSettings['patternTileSelectionMode'];
 }
 
 export interface GlobalBrushSettingsPayload {

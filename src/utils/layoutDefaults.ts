@@ -13,6 +13,7 @@ import type {
 } from '@/types';
 import { normalizeAlignment } from '@/utils/alignment/alignFitResolver';
 import { normalizeCanvasShape } from '@/utils/canvasShape';
+import { normalizeCcCustomTilePatternPack } from '@/utils/colorCycle/ccCustomTilePattern';
 
 const normalizeHorizontalAxis = (value?: string): LayerHorizontalAlignment => {
   switch (value) {
@@ -221,6 +222,12 @@ export const normalizeProject = (project: Project): Project => {
   const ccCustomTilePatterns = Array.isArray(project.ccCustomTilePatterns)
     ? project.ccCustomTilePatterns
     : [];
+  const validTileIds = new Set(ccCustomTilePatterns.map((pattern) => pattern.id));
+  const ccCustomTilePatternPacks = Array.isArray(project.ccCustomTilePatternPacks)
+    ? project.ccCustomTilePatternPacks
+        .map((pack) => normalizeCcCustomTilePatternPack(pack, validTileIds))
+        .filter((pack): pack is NonNullable<Project['ccCustomTilePatternPacks']>[number] => Boolean(pack))
+    : [];
   const defaultCustomBrushId =
     customBrushes.find((brush) => brush.id === project.defaultCustomBrushId) !== undefined
       ? project.defaultCustomBrushId ?? null
@@ -257,6 +264,7 @@ export const normalizeProject = (project: Project): Project => {
     ...project,
     customBrushes,
     ccCustomTilePatterns,
+    ccCustomTilePatternPacks,
     defaultCustomBrushId,
     exportLayout: cloneExportLayout(project.exportLayout),
     layers: layersWithValidGroups,

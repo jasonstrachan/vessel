@@ -819,6 +819,7 @@ export const createProjectLifecycle = ({
       updatedAt: new Date(),
       customBrushes: existingCustomBrushes,
       ccCustomTilePatterns: [],
+      ccCustomTilePatternPacks: [],
       defaultCustomBrushId: existingDefaultCustomBrushId,
       brushSpecificSettings: {},
       exportLayout: createDefaultExportLayout(),

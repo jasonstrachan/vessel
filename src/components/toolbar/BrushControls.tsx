@@ -2199,6 +2199,8 @@ const BrushControls = () => {
                     <CcPatternDropdown
                       value={activeSettings.patternStyle || 'dots'}
                       patternTileId={activeSettings.patternTileId}
+                      patternTilePackId={activeSettings.patternTilePackId}
+                      patternTileSelectionMode={activeSettings.patternTileSelectionMode}
                       onChange={setActiveSettings}
                       className="flex-1"
                     />

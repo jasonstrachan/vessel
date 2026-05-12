@@ -27,6 +27,52 @@ describe('cc custom tile pattern store actions', () => {
     expect(state.tools.brushSettings.patternTileId).toBe('tile-1');
   });
 
+  it('adds a tile to an existing pack', () => {
+    useAppStore.getState().addCcCustomTilePattern(makePattern());
+    useAppStore.getState().addCcCustomTilePatternPack({
+      id: 'pack-1',
+      name: 'Pack 1',
+      patternIds: [],
+      createdAt: 1,
+      updatedAt: 1,
+    });
+
+    useAppStore.getState().addCcCustomTilePatternToPack('pack-1', 'tile-1');
+
+    expect(useAppStore.getState().project?.ccCustomTilePatternPacks).toEqual([
+      expect.objectContaining({
+        id: 'pack-1',
+        patternIds: ['tile-1'],
+      }),
+    ]);
+  });
+
+  it('removing a pack does not remove tile patterns and resets selected pack mode', () => {
+    useAppStore.getState().addCcCustomTilePattern(makePattern());
+    useAppStore.getState().addCcCustomTilePatternPack({
+      id: 'pack-1',
+      name: 'Pack 1',
+      patternIds: ['tile-1'],
+      createdAt: 1,
+      updatedAt: 1,
+    });
+    useAppStore.getState().setBrushSettings({
+      ditherAlgorithm: 'pattern',
+      patternStyle: 'image-tile',
+      patternTilePackId: 'pack-1',
+      patternTileSelectionMode: 'pack-random',
+    });
+
+    useAppStore.getState().removeCcCustomTilePatternPack('pack-1');
+
+    const state = useAppStore.getState();
+    expect(state.project?.ccCustomTilePatterns).toEqual([makePattern()]);
+    expect(state.project?.ccCustomTilePatternPacks).toEqual([]);
+    expect(state.tools.brushSettings.patternStyle).toBe('dots');
+    expect(state.tools.brushSettings.patternTilePackId).toBeNull();
+    expect(state.tools.brushSettings.patternTileSelectionMode).toBe('single');
+  });
+
   it('removing the selected tile falls back without clearing committed project content', () => {
     const state = useAppStore.getState();
     const framebuffer = document.createElement('canvas');
@@ -62,6 +108,7 @@ describe('cc custom tile pattern store actions', () => {
 
     const nextState = useAppStore.getState();
     expect(nextState.project?.ccCustomTilePatterns).toEqual([]);
+    expect(nextState.project?.ccCustomTilePatternPacks).toEqual([]);
     expect(nextState.tools.brushSettings.patternStyle).toBe('dots');
     expect(nextState.tools.brushSettings.patternTileId).toBeNull();
     expect(nextState.project?.layers).toHaveLength(1);
@@ -161,6 +208,13 @@ describe('cc custom tile pattern store actions', () => {
 
   it('resets shared dither selection even when the active brush no longer points at the removed tile', () => {
     useAppStore.getState().addCcCustomTilePattern(makePattern());
+    useAppStore.getState().addCcCustomTilePatternPack({
+      id: 'pack-1',
+      name: 'Pack 1',
+      patternIds: ['tile-1'],
+      createdAt: 1,
+      updatedAt: 1,
+    });
     useAppStore.setState((state) => ({
       tools: {
         ...state.tools,
@@ -182,6 +236,7 @@ describe('cc custom tile pattern store actions', () => {
 
     const state = useAppStore.getState();
     expect(state.project?.ccCustomTilePatterns).toEqual([]);
+    expect(state.project?.ccCustomTilePatternPacks?.[0]?.patternIds).toEqual([]);
     expect(state.tools.brushSettings.patternStyle).toBe('dots');
     expect(state.tools.brushSettings.patternTileId).toBeNull();
     expect(state.ccBrushDitherSelection.patternStyle).toBe('dots');

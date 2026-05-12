@@ -5,11 +5,14 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Dropdown from '@/components/ui/Dropdown';
 import { useAppStore } from '@/stores/useAppStore';
 import {
+  selectCcCustomTilePatternPacks,
   selectCcCustomTilePatterns,
 } from '@/stores/selectors/projectSelectors';
 import type { BrushSettings } from '@/types';
 import {
+  makeCcCustomTilePatternPack,
   makeCcCustomTilePattern,
+  resolveCcPatternPackTileId,
 } from '@/utils/colorCycle/ccCustomTilePattern';
 
 import { PATTERN_STYLES } from './patternOptions';
@@ -17,11 +20,14 @@ import { PATTERN_STYLES } from './patternOptions';
 type Props = {
   value: NonNullable<BrushSettings['patternStyle']>;
   patternTileId?: string | null;
+  patternTilePackId?: string | null;
+  patternTileSelectionMode?: BrushSettings['patternTileSelectionMode'];
   onChange: (updates: Partial<BrushSettings>) => void;
   className?: string;
 };
 
 const ADD_NEW_VALUE = '__add_cc_tile_pattern__';
+const NEW_PACK_VALUE = '__new_cc_tile_pattern_pack__';
 const FALLBACK_PREVIEW_COLORS: [string, string] = ['#ff1f1f', '#9f00e8'];
 const TILE_PATTERN_SCALE_STEPS = [0.0625, 0.125, 0.25, 0.5, 1, 2, 3, 4, 6, 8, 12, 16] as const;
 const DEFAULT_TILE_PATTERN_SCALE = 1;
@@ -346,14 +352,26 @@ const AddTilePatternModal = ({
   onSave,
 }: {
   onClose: () => void;
-  onSave: (imageData: ImageData) => void;
+  onSave: (imageData: ImageData, packTarget: { mode: 'existing'; packId: string } | { mode: 'new'; name: string }) => void;
 }) => {
   const [imageData, setImageData] = useState<ImageData | null>(null);
   const [tileScale, setTileScale] = useState<TilePatternScale>(DEFAULT_TILE_PATTERN_SCALE);
   const [error, setError] = useState<string | null>(null);
+  const packs = useAppStore(selectCcCustomTilePatternPacks);
+  const renameCcCustomTilePatternPack = useAppStore((state) => state.renameCcCustomTilePatternPack);
+  const [packTarget, setPackTarget] = useState<string>(packs[0]?.id ?? NEW_PACK_VALUE);
+  const [packName, setPackName] = useState('Pack');
+  const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
   const modalRef = useRef<HTMLDivElement | null>(null);
   const rawCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const previewCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const dragRef = useRef<{
+    pointerId: number;
+    startX: number;
+    startY: number;
+    originX: number;
+    originY: number;
+  } | null>(null);
   const gradient = useAppStore((state) => state.tools.brushSettings.colorCycleGradient);
   const previewColors = useMemo<[string, string]>(() => {
     const stops = gradient && gradient.length >= 2 ? gradient : null;
@@ -439,12 +457,47 @@ const AddTilePatternModal = ({
     void loadFile(file);
   }, [loadFile]);
 
+  const handleHeaderPointerDown = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+    if (event.button !== 0) {
+      return;
+    }
+    event.currentTarget.setPointerCapture(event.pointerId);
+    dragRef.current = {
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      originX: dragOffset.x,
+      originY: dragOffset.y,
+    };
+  }, [dragOffset.x, dragOffset.y]);
+
+  const handleHeaderPointerMove = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+    const drag = dragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) {
+      return;
+    }
+    setDragOffset({
+      x: drag.originX + event.clientX - drag.startX,
+      y: drag.originY + event.clientY - drag.startY,
+    });
+  }, []);
+
+  const stopHeaderDrag = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+    if (dragRef.current?.pointerId === event.pointerId) {
+      dragRef.current = null;
+    }
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+  }, []);
+
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70">
       <div
         ref={modalRef}
         tabIndex={-1}
-        className="w-[1120px] max-w-[calc(100vw-24px)] border border-[#555] bg-[#1a1a1a] p-3 text-[#D9D9D9] shadow-xl"
+        className="max-h-[calc(100vh-32px)] w-[1600px] max-w-[calc(100vw-32px)] overflow-y-auto border border-[#555] bg-[#1a1a1a] p-3 text-[#D9D9D9] shadow-xl"
+        style={{ transform: `translate(${dragOffset.x}px, ${dragOffset.y}px)` }}
         onPaste={handlePaste}
         onDragOver={(event) => {
           event.preventDefault();
@@ -452,13 +505,24 @@ const AddTilePatternModal = ({
         }}
         onDrop={handleDrop}
       >
-        <div className="mb-3 flex items-center justify-between">
+        <div
+          className="mb-3 flex cursor-move select-none items-center justify-between border-b border-[#333] pb-2"
+          onPointerDown={handleHeaderPointerDown}
+          onPointerMove={handleHeaderPointerMove}
+          onPointerUp={stopHeaderDrag}
+          onPointerCancel={stopHeaderDrag}
+        >
           <h2 className="text-sm font-semibold">Add Tile Pattern</h2>
-          <button type="button" className="px-2 text-xs hover:bg-[#333]" onClick={onClose}>
+          <button
+            type="button"
+            className="px-2 text-xs hover:bg-[#333]"
+            onPointerDown={(event) => event.stopPropagation()}
+            onClick={onClose}
+          >
             x
           </button>
         </div>
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
           <div>
             <div className="mb-1 flex items-center justify-between gap-2">
               <div className="text-xs text-[#aaa]">Pixels</div>
@@ -482,13 +546,13 @@ const AddTilePatternModal = ({
                 </button>
               </div>
             </div>
-            <div className="h-80 overflow-auto border border-[#333] bg-[#101010]">
+            <div className="h-[56vh] min-h-[420px] max-h-[720px] overflow-auto border border-[#333] bg-[#101010]">
               <canvas ref={rawCanvasRef} />
             </div>
           </div>
           <div>
             <div className="mb-1 text-xs text-[#aaa]">Tile Preview</div>
-            <div className="h-80 overflow-auto border border-[#333] bg-[#101010]">
+            <div className="h-[56vh] min-h-[420px] max-h-[720px] overflow-auto border border-[#333] bg-[#101010]">
               <canvas ref={previewCanvasRef} />
             </div>
           </div>
@@ -510,6 +574,49 @@ const AddTilePatternModal = ({
           </label>
           <span className="text-xs text-[#777]">Paste image pixels into this window.</span>
         </div>
+        <div className="mt-3 grid grid-cols-[96px_1fr_auto] items-center gap-2 text-xs">
+          <label className="text-[#aaa]" htmlFor="cc-tile-pack-select">Pack</label>
+          <select
+            id="cc-tile-pack-select"
+            className="border border-[#555] bg-[#111] px-2 py-1 text-[#d9d9d9]"
+            value={packTarget}
+            onChange={(event) => setPackTarget(event.target.value)}
+          >
+            <option value={NEW_PACK_VALUE}>New pack</option>
+            {packs.map((pack) => (
+              <option key={pack.id} value={pack.id}>{pack.name}</option>
+            ))}
+          </select>
+          {packTarget !== NEW_PACK_VALUE ? (
+            <button
+              type="button"
+              className="border border-[#555] px-2 py-1 hover:bg-[#333]"
+              onClick={() => {
+                const currentPack = packs.find((pack) => pack.id === packTarget);
+                const nextName = window.prompt('Pack name', currentPack?.name ?? 'Pack')?.trim();
+                if (nextName) {
+                  renameCcCustomTilePatternPack(packTarget, nextName);
+                }
+              }}
+            >
+              Rename
+            </button>
+          ) : (
+            <div />
+          )}
+          {packTarget === NEW_PACK_VALUE ? (
+            <>
+              <label className="text-[#aaa]" htmlFor="cc-tile-pack-name">Name</label>
+              <input
+                id="cc-tile-pack-name"
+                className="border border-[#555] bg-[#111] px-2 py-1 text-[#d9d9d9]"
+                value={packName}
+                onChange={(event) => setPackName(event.target.value)}
+              />
+              <div />
+            </>
+          ) : null}
+        </div>
         {error ? <div className="mt-2 text-xs text-amber-400">{error}</div> : null}
         <div className="mt-4 flex justify-end gap-2">
           <button type="button" className="border border-[#555] px-3 py-1 text-xs hover:bg-[#333]" onClick={onClose}>
@@ -521,7 +628,12 @@ const AddTilePatternModal = ({
             disabled={!imageData}
             onClick={() => {
               if (scaledImageData) {
-                onSave(scaledImageData);
+                onSave(
+                  scaledImageData,
+                  packTarget === NEW_PACK_VALUE
+                    ? { mode: 'new', name: packName }
+                    : { mode: 'existing', packId: packTarget }
+                );
               }
             }}
           >
@@ -536,15 +648,22 @@ const AddTilePatternModal = ({
 export const CcPatternDropdown = ({
   value,
   patternTileId,
+  patternTilePackId,
+  patternTileSelectionMode,
   onChange,
   className,
 }: Props) => {
   const [isAdding, setIsAdding] = useState(false);
   const tilePatterns = useAppStore(selectCcCustomTilePatterns);
+  const patternPacks = useAppStore(selectCcCustomTilePatternPacks);
   const addCcCustomTilePattern = useAppStore((state) => state.addCcCustomTilePattern);
   const removeCcCustomTilePattern = useAppStore((state) => state.removeCcCustomTilePattern);
+  const addCcCustomTilePatternPack = useAppStore((state) => state.addCcCustomTilePatternPack);
+  const addCcCustomTilePatternToPack = useAppStore((state) => state.addCcCustomTilePatternToPack);
 
-  const selectedValue = value === 'image-tile' && patternTileId
+  const selectedValue = patternTileSelectionMode === 'pack-random' && patternTilePackId
+    ? `pack:${patternTilePackId}`
+    : value === 'image-tile' && patternTileId
     ? `tile:${patternTileId}`
     : value;
 
@@ -555,7 +674,11 @@ export const CcPatternDropdown = ({
       value: `tile:${pattern.id}`,
       label: pattern.name,
     })),
-  ], [tilePatterns]);
+    ...patternPacks.map((pack) => ({
+      value: `pack:${pack.id}`,
+      label: pack.name,
+    })),
+  ], [patternPacks, tilePatterns]);
 
   return (
     <>
@@ -573,6 +696,25 @@ export const CcPatternDropdown = ({
               ditherAlgorithm: 'pattern',
               patternStyle: 'image-tile',
               patternTileId: nextValue.slice('tile:'.length),
+              patternTilePackId: null,
+              patternTileSelectionMode: 'single',
+            });
+            return;
+          }
+          if (nextValue.startsWith('pack:')) {
+            const packId = nextValue.slice('pack:'.length);
+            const tileId = resolveCcPatternPackTileId({
+              packs: patternPacks,
+              patterns: tilePatterns,
+              packId,
+              seed: `${packId}:${Date.now()}`,
+            });
+            onChange({
+              ditherAlgorithm: 'pattern',
+              patternStyle: tileId ? 'image-tile' : 'dots',
+              patternTileId: tileId,
+              patternTilePackId: packId,
+              patternTileSelectionMode: 'pack-random',
             });
             return;
           }
@@ -580,10 +722,13 @@ export const CcPatternDropdown = ({
             ditherAlgorithm: 'pattern',
             patternStyle: nextValue as NonNullable<BrushSettings['patternStyle']>,
             patternTileId: nextValue === 'image-tile' ? patternTileId ?? null : null,
+            patternTilePackId: null,
+            patternTileSelectionMode: 'single',
           });
         }}
         renderOption={(option) => {
           const tileId = option.value.startsWith('tile:') ? option.value.slice('tile:'.length) : null;
+          const packId = option.value.startsWith('pack:') ? option.value.slice('pack:'.length) : null;
           return (
             <div className="flex items-center justify-between gap-2">
               <span className="min-w-0 flex-1 truncate">{option.label}</span>
@@ -602,6 +747,7 @@ export const CcPatternDropdown = ({
                   x
                 </button>
               ) : null}
+              {packId ? <span className="shrink-0 text-[10px] uppercase text-[#888]">Pack</span> : null}
             </div>
           );
         }}
@@ -610,17 +756,31 @@ export const CcPatternDropdown = ({
       {isAdding ? (
         <AddTilePatternModal
           onClose={() => setIsAdding(false)}
-          onSave={(imageData) => {
+          onSave={(imageData, packTarget) => {
             const patternNumber = tilePatterns.length + 1;
             const pattern = makeCcCustomTilePattern({
               name: `Tile ${patternNumber}`,
               imageData,
             });
             addCcCustomTilePattern(pattern);
+            let selectedPackId: string | null = null;
+            if (packTarget.mode === 'new') {
+              const pack = makeCcCustomTilePatternPack({
+                name: packTarget.name,
+                patternIds: [pattern.id],
+              });
+              addCcCustomTilePatternPack(pack);
+              selectedPackId = pack.id;
+            } else {
+              addCcCustomTilePatternToPack(packTarget.packId, pattern.id);
+              selectedPackId = packTarget.packId;
+            }
             onChange({
               ditherAlgorithm: 'pattern',
               patternStyle: 'image-tile',
               patternTileId: pattern.id,
+              patternTilePackId: selectedPackId,
+              patternTileSelectionMode: selectedPackId ? 'pack-random' : 'single',
             });
             setIsAdding(false);
           }}

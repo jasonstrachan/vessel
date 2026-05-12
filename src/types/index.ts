@@ -266,6 +266,14 @@ export interface CcCustomTilePattern {
   updatedAt: number;
 }
 
+export interface CcCustomTilePatternPack {
+  id: string;
+  name: string;
+  patternIds: string[];
+  createdAt: number;
+  updatedAt: number;
+}
+
 export interface Project {
   id: string;
   name: string;
@@ -278,6 +286,7 @@ export interface Project {
   updatedAt: Date;
   customBrushes: CustomBrush[];
   ccCustomTilePatterns?: CcCustomTilePattern[];
+  ccCustomTilePatternPacks?: CcCustomTilePatternPack[];
   defaultCustomBrushId?: string | null;
   canvasShape?: CanvasShape;
   // Canvas view state
@@ -1039,6 +1048,8 @@ export interface BrushSettings {
     | 'image-tile'
     | 'tone-adaptive';
   patternTileId?: string | null;
+  patternTilePackId?: string | null;
+  patternTileSelectionMode?: 'single' | 'pack-random';
   patternTileScale?: number | null;
   patternTileInvert?: boolean | null;
   patternTileThreshold?: number | null;

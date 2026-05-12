@@ -1,4 +1,4 @@
-import type { CcCustomTilePattern } from '@/types';
+import type { BrushSettings, CcCustomTilePattern, CcCustomTilePatternPack } from '@/types';
 
 export type CcCustomTilePatternRuntime = {
   id: string;
@@ -89,6 +89,112 @@ export const normalizeCcCustomTilePattern = (
     rgbaBase64: pattern.rgbaBase64,
     createdAt: Number.isFinite(pattern.createdAt) ? pattern.createdAt : Date.now(),
     updatedAt: Number.isFinite(pattern.updatedAt) ? pattern.updatedAt : Date.now(),
+  };
+};
+
+export const makeCcCustomTilePatternPack = ({
+  name,
+  patternIds = [],
+}: {
+  name: string;
+  patternIds?: string[];
+}): CcCustomTilePatternPack => {
+  const now = Date.now();
+  return {
+    id: `cc_tile_pack_${now}_${Math.random().toString(36).slice(2, 8)}`,
+    name: name.trim() || 'Pack',
+    patternIds: Array.from(new Set(patternIds.filter((id) => typeof id === 'string' && id.length > 0))),
+    createdAt: now,
+    updatedAt: now,
+  };
+};
+
+export const normalizeCcCustomTilePatternPack = (
+  pack: CcCustomTilePatternPack,
+  validPatternIds?: ReadonlySet<string>
+): CcCustomTilePatternPack | null => {
+  const id = typeof pack.id === 'string' && pack.id.trim() ? pack.id.trim() : `cc_tile_pack_${Date.now()}`;
+  const name = typeof pack.name === 'string' && pack.name.trim() ? pack.name.trim() : 'Pack';
+  const patternIds = Array.isArray(pack.patternIds)
+    ? Array.from(new Set(pack.patternIds.filter((patternId): patternId is string => {
+        if (typeof patternId !== 'string' || patternId.length === 0) {
+          return false;
+        }
+        return validPatternIds ? validPatternIds.has(patternId) : true;
+      })))
+    : [];
+  return {
+    id,
+    name,
+    patternIds,
+    createdAt: Number.isFinite(pack.createdAt) ? pack.createdAt : Date.now(),
+    updatedAt: Number.isFinite(pack.updatedAt) ? pack.updatedAt : Date.now(),
+  };
+};
+
+const hashString32 = (value: string): number => {
+  let hash = 2166136261;
+  for (let index = 0; index < value.length; index += 1) {
+    hash ^= value.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return hash >>> 0;
+};
+
+export const resolveCcPatternPackTileId = ({
+  packs,
+  patterns,
+  packId,
+  seed,
+}: {
+  packs: readonly CcCustomTilePatternPack[] | undefined;
+  patterns: readonly CcCustomTilePattern[] | undefined;
+  packId?: string | null;
+  seed: string;
+}): string | null => {
+  if (!packId) {
+    return null;
+  }
+  const pack = packs?.find((entry) => entry.id === packId);
+  if (!pack) {
+    return null;
+  }
+  const validTileIds = new Set((patterns ?? []).map((pattern) => pattern.id));
+  const members = pack.patternIds.filter((patternId) => validTileIds.has(patternId));
+  if (members.length === 0) {
+    return null;
+  }
+  const index = hashString32(`${seed}:${packId}:${members.join(',')}`) % members.length;
+  return members[index] ?? null;
+};
+
+export const resolveCcPatternPackBrushSettings = ({
+  settings,
+  packs,
+  patterns,
+  seed,
+}: {
+  settings: BrushSettings;
+  packs: readonly CcCustomTilePatternPack[] | undefined;
+  patterns: readonly CcCustomTilePattern[] | undefined;
+  seed: string;
+}): Partial<BrushSettings> | null => {
+  if (
+    settings.patternTileSelectionMode !== 'pack-random' ||
+    !settings.patternTilePackId
+  ) {
+    return null;
+  }
+  const tileId = resolveCcPatternPackTileId({
+    packs,
+    patterns,
+    packId: settings.patternTilePackId,
+    seed,
+  });
+  return {
+    ditherAlgorithm: 'pattern',
+    patternStyle: tileId ? 'image-tile' : 'dots',
+    patternTileId: tileId,
   };
 };
 
