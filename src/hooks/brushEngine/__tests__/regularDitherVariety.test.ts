@@ -5,12 +5,16 @@ import {
   resolveRegularDitherVariety,
 } from '../regularDitherVariety';
 import { computeStrokeDitherPaletteForSettings } from '../engineShared';
-import { applyDithering } from '../dithering';
+import { applyDithering, applyDitheringWithFillResolution } from '../dithering';
 
 import type { BrushSettings } from '@/types';
 
-const makeSolidImage = (color: [number, number, number]): ImageData => {
-  const imageData = new ImageData(16, 16);
+const makeSolidImage = (
+  color: [number, number, number],
+  width = 16,
+  height = 16
+): ImageData => {
+  const imageData = new ImageData(width, height);
   for (let i = 0; i < imageData.data.length; i += 4) {
     imageData.data[i] = color[0];
     imageData.data[i + 1] = color[1];
@@ -97,5 +101,67 @@ describe('regularDitherVariety', () => {
     expect(variety.phaseOffset).toBeUndefined();
     expect(variety.toneBias).toBe(0);
     expect(Array.from(varied.data)).toEqual(Array.from(source.data));
+  });
+
+  it('does not darken already-dark regular dither colors into black', () => {
+    const settings = {
+      brushShape: BrushShape.PIXEL_DITHER,
+      color: '#0e0f14',
+      ditherAlgorithm: 'sierra-lite',
+      patternStyle: 'dots',
+      ditherPaletteSpread: 3,
+      ditherPatternDiversity: 100,
+    } as BrushSettings;
+    const palette = computeStrokeDitherPaletteForSettings(settings);
+    const variety = resolveRegularDitherVariety({
+      settings,
+      palette,
+      seed: 448128265,
+    });
+
+    expect(variety.toneBias).toBeGreaterThanOrEqual(0);
+  });
+
+  it('pulls white endpoint fills inward so the interior receives dither texture', () => {
+    const settings = {
+      brushShape: BrushShape.PIXEL_DITHER,
+      color: '#ffffff',
+      ditherAlgorithm: 'sierra-lite',
+      patternStyle: 'dots',
+      ditherPaletteSpread: 3,
+      ditherPatternDiversity: 100,
+      fillResolution: 7,
+    } as BrushSettings;
+    const palette = computeStrokeDitherPaletteForSettings(settings);
+    const variety = resolveRegularDitherVariety({
+      settings,
+      palette,
+      seed: 2859782508,
+    });
+    const varied = applyRegularDitherVarietyToImageData(makeSolidImage([255, 255, 255], 70, 70), variety);
+    const dithered = applyDitheringWithFillResolution(
+      varied,
+      palette.length,
+      settings.fillResolution ?? 7,
+      settings.ditherAlgorithm,
+      settings.patternStyle,
+      palette,
+      variety.phaseOffset
+    );
+
+    let interiorPixels = 0;
+    let texturedPixels = 0;
+    for (let y = 14; y < 56; y += 1) {
+      for (let x = 14; x < 56; x += 1) {
+        const idx = (y * dithered.width + x) * 4;
+        interiorPixels += 1;
+        if (dithered.data[idx] < 250 || dithered.data[idx + 1] < 250 || dithered.data[idx + 2] < 250) {
+          texturedPixels += 1;
+        }
+      }
+    }
+
+    expect(variety.toneBias).toBeLessThanOrEqual(-20);
+    expect(texturedPixels / interiorPixels).toBeGreaterThan(0.1);
   });
 });

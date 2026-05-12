@@ -19,6 +19,22 @@ import { computeRegularDitherShapeSeed } from '@/hooks/brushEngine/regularDither
 
 const SHAPE_PREVIEW_OPACITY = 0.8;
 
+export const resolveShapePreviewOpacity = ({
+  isColorCycleGradientPreview,
+  isDitherShapePreview,
+}: {
+  isColorCycleGradientPreview: boolean;
+  isDitherShapePreview: boolean;
+}): number => {
+  if (isColorCycleGradientPreview) {
+    return SHAPE_PREVIEW_OPACITY;
+  }
+  if (isDitherShapePreview) {
+    return 1;
+  }
+  return 1;
+};
+
 export const resolvePreviewDitherPixelSize = ({
   worldPixelSize,
   scaleX,
@@ -1073,10 +1089,10 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
     const isColorCycleGradientPreview =
       isColorCycleShapePreview && brushSettings.colorCycleFillMode === 'linear';
     const isDitherShapePreview = currentBrushPresetId === 'dither-shape';
-    const previewOpacity =
-      isColorCycleGradientPreview || isDitherShapePreview
-        ? SHAPE_PREVIEW_OPACITY
-        : 1;
+    const previewOpacity = resolveShapePreviewOpacity({
+      isColorCycleGradientPreview,
+      isDitherShapePreview,
+    });
     const skipOutline =
       isColorCycleShapePreview ||
       isShapeFillBrush(activeBrushShape) ||

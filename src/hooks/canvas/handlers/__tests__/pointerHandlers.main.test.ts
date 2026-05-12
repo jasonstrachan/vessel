@@ -1,6 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import React from 'react';
 import { createPointerHandlers } from '../pointerHandlers';
+import { resolveShapePreviewOpacity } from '../pointerHandlersRuntime';
 import { useAppStore } from '@/stores/useAppStore';
 import { BrushShape, type Project } from '@/types';
 import { RecolorManager } from '@/lib/colorCycle/RecolorManager';
@@ -302,6 +303,17 @@ describe('pointerHandlers main flows', () => {
 
   afterAll(() => {
     global.requestAnimationFrame = originalRaf;
+  });
+
+  it('keeps regular dither-shape preview opaque to match finalize alpha', () => {
+    expect(resolveShapePreviewOpacity({
+      isColorCycleGradientPreview: false,
+      isDitherShapePreview: true,
+    })).toBe(1);
+    expect(resolveShapePreviewOpacity({
+      isColorCycleGradientPreview: true,
+      isDitherShapePreview: false,
+    })).toBe(0.8);
   });
 
   it('skips pointer down when busy and not adjusting', () => {

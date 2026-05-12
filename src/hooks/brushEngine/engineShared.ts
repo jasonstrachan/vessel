@@ -260,6 +260,13 @@ const buildDitherPalette = (baseHex: string, spreadPercent?: number): string[] =
 
   const spread = clamp01((spreadPercent ?? 0) / 100);
   const baseUnit = [r, g, b].map((v) => v / 255);
+  const neutralDark = baseUnit.map((channel) => clamp01(channel * 0.6));
+  const neutralLight = baseUnit.map((channel) => clamp01(channel * 1.35));
+  const mixUnit = (from: number[], to: number[], amount: number): number[] => [
+    from[0] + (to[0] - from[0]) * amount,
+    from[1] + (to[1] - from[1]) * amount,
+    from[2] + (to[2] - from[2]) * amount,
+  ];
 
   const alignToBase = (units: number[][], strength = 0.85) => {
     const avg = units.reduce(
@@ -298,18 +305,14 @@ const buildDitherPalette = (baseHex: string, spreadPercent?: number): string[] =
   }
 
   if (spread <= 0.01) {
-    const darker = (channel: number) => clamp(Math.round(channel * 0.6), 0, 255);
-    const lighter = (channel: number) => clamp(Math.round(channel * 1.35), 0, 255);
-    return [
-      `rgb(${darker(r)}, ${darker(g)}, ${darker(b)})`,
-      `rgb(${lighter(r)}, ${lighter(g)}, ${lighter(b)})`
-    ];
+    return [neutralDark, neutralLight].map(toRgbString);
   }
 
-  const hueSwing = 60 + 120 * spread;
-  const sBoost = 1.1 + 0.4 * spread;
-  const lDark = clamp01(l * 0.2 + 0.05);
-  const lLight = clamp01(1 - (1 - l) * 0.2 - 0.05);
+  const hueSwing = 180 * spread;
+  const sBoost = 1 + 0.5 * spread;
+  const lowSpreadMix = clamp01((spread - 0.01) / 0.24);
+  const lDark = clamp01((l * 0.6) + ((l * 0.2 + 0.05) - l * 0.6) * lowSpreadMix);
+  const lLight = clamp01((l * 1.35) + ((1 - (1 - l) * 0.2 - 0.05) - l * 1.35) * lowSpreadMix);
 
   const inks: Array<[number, number, number]> = [
     [wrapHue(h - hueSwing), clamp01(s * sBoost), lDark],
@@ -322,6 +325,12 @@ const buildDitherPalette = (baseHex: string, spreadPercent?: number): string[] =
     const [rr, gg, bb] = hslToRgb(hh, ss, ll);
     return [rr / 255, gg / 255, bb / 255];
   });
+
+  if (spread < 0.25) {
+    return paletteUnits
+      .map((unit, index) => mixUnit(index % 2 === 0 ? neutralDark : neutralLight, unit, lowSpreadMix))
+      .map(toRgbString);
+  }
 
   return alignToBase(paletteUnits, 0.9).map(toRgbString);
 };

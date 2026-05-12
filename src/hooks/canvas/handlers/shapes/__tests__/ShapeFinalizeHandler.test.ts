@@ -6,6 +6,7 @@ import {
   applyTransparencyLockMaskToContext,
   finalizeRasterShapeFill,
 } from '@/hooks/canvas/handlers/shapes/ShapeFinalizeHandler';
+import { boundingBoxToCaptureRegion } from '@/hooks/canvas/utils/captureRegions';
 
 describe('ShapeFinalizeHandler', () => {
   it('uses latest brush color from store for dither-shape finalize override', () => {
@@ -178,6 +179,82 @@ describe('ShapeFinalizeHandler', () => {
     expect(ditherArgs.overridePixelSize).toBe(5);
     expect(ditherArgs.settingsOverride.fillResolution).toBe(5);
     expect(ditherArgs.settingsOverride.pressureLinkedFillResolution).toBe(false);
+  });
+
+  it('dithers the full shape bounds when the stroke bbox is stale or too small', () => {
+    const applyStrokeDither = jest.fn();
+    const liveBrushSettings = {
+      brushShape: BrushShape.PIXEL_DITHER,
+      color: '#336699',
+      ditherEnabled: true,
+      ditherBackgroundFill: true,
+      fillResolution: 4,
+      pressureLinkedFillResolution: false,
+      antialiasing: false,
+      opacity: 1,
+      blendMode: 'source-over',
+    } as unknown as BrushSettings;
+    const storeRef = {
+      current: {
+        layers: [],
+        activeLayerId: null,
+        tools: { brushSettings: liveBrushSettings },
+      },
+    } as unknown as React.MutableRefObject<AppState>;
+    const drawCtx = {
+      canvas: { width: 80, height: 80 },
+      globalAlpha: 1,
+      globalCompositeOperation: 'source-over',
+      imageSmoothingEnabled: true,
+      imageSmoothingQuality: 'low',
+      fillStyle: '',
+      beginPath: jest.fn(),
+      moveTo: jest.fn(),
+      lineTo: jest.fn(),
+      closePath: jest.fn(),
+      fill: jest.fn(),
+      save: jest.fn(),
+      restore: jest.fn(),
+      clearRect: jest.fn(),
+      createPattern: jest.fn(() => null),
+      fillRect: jest.fn(),
+    } as unknown as CanvasRenderingContext2D;
+
+    finalizeRasterShapeFill({
+      drawCtx,
+      brushEngine: {
+        applyStrokeDither,
+      } as unknown as Parameters<typeof finalizeRasterShapeFill>[0]['brushEngine'],
+      storeRef,
+      liveBrushSettings,
+      shapePoints: [
+        { x: 10, y: 10 },
+        { x: 50, y: 10 },
+        { x: 50, y: 50 },
+        { x: 10, y: 50 },
+      ],
+      ditherGradPoints: null,
+      strokeBoundingBox: { minX: 10, minY: 10, maxX: 20, maxY: 20 },
+      project: { width: 80, height: 80 },
+      roiPadding: 4,
+      computeAutoSampleStops: jest.fn(() => null),
+      setSharedColorCycleGradient: jest.fn(),
+      computeShapePixelSize: jest.fn(() => 4),
+      hadValidShapePressureRef: { current: false },
+      lastStablePressureRef: { current: 0.5 },
+      latestShapePixelSizeRef: { current: null },
+      boundingBoxToCaptureRegion,
+      logError: jest.fn(),
+      ccDebug: { on: false, verbose: false },
+    });
+
+    expect(applyStrokeDither).toHaveBeenCalled();
+    expect(applyStrokeDither.mock.calls[0]?.[1]).toEqual({
+      x: 0,
+      y: 0,
+      width: 62,
+      height: 62,
+    });
   });
 
   it('applies transparency-lock mask from layer framebuffer', () => {

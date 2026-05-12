@@ -62,4 +62,20 @@ describe('engineShared palette spread helpers', () => {
       expect(color.startsWith('rgb(')).toBe(true);
     });
   });
+
+  it('keeps low-spread dark stroke palettes near the selected color instead of jumping to black', () => {
+    const settings = {
+      color: '#1a1919',
+      ditherPaletteSpread: 3,
+      ditherBackgroundFill: true,
+    } satisfies Pick<BrushSettings, 'color' | 'ditherPaletteSpread' | 'ditherBackgroundFill'>;
+
+    const palette = computeStrokeDitherPaletteForSettings(settings as BrushSettings);
+    const parsed = palette.map(parseRgb);
+
+    expect(parsed.some(([r, g, b]) => r === 0 && g === 0 && b === 0)).toBe(false);
+    parsed.forEach((color) => {
+      expect(distance(color, [26, 25, 25])).toBeLessThan(45);
+    });
+  });
 });

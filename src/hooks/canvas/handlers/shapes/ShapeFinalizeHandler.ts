@@ -16,6 +16,14 @@ import {
 } from '@/utils/orderedDitherGradient';
 import { canvasPool } from '@/utils/canvasPool';
 import { computeRegularDitherShapeSeed } from '@/hooks/brushEngine/regularDitherVariety';
+import {
+  captureRegionFromPoints,
+  unionCaptureRegions,
+} from '@/hooks/canvas/utils/captureRegions';
+import {
+  createDevDebugOverlayLogger,
+  isDevDebugOverlayEnabled,
+} from '@/utils/dev/debugOverlayStore';
 
 export type ShapePoint = { x: number; y: number };
 
@@ -29,6 +37,95 @@ export type BoundingBox = {
 export type CaptureRegion = { x: number; y: number; width: number; height: number };
 
 export type AutoSampleStops = Array<{ position: number; color: string }>;
+
+const ditherShapeFinalizeDebug = createDevDebugOverlayLogger('dither-shape');
+
+type RegionPixelSummary = {
+  width: number;
+  height: number;
+  sampled: number;
+  alphaPixels: number;
+  blackishPixels: number;
+  transparentPixels: number;
+  blackishRatio: number;
+  avgRgb: [number, number, number];
+  colors: Array<{ rgb: string; count: number }>;
+};
+
+const summarizeRegionPixels = (
+  ctx: CanvasRenderingContext2D,
+  region: CaptureRegion
+): RegionPixelSummary | null => {
+  if (!isDevDebugOverlayEnabled()) {
+    return null;
+  }
+
+  let image: ImageData;
+  try {
+    image = ctx.getImageData(region.x, region.y, region.width, region.height);
+  } catch {
+    return null;
+  }
+
+  const { data, width, height } = image;
+  const totalPixels = width * height;
+  const maxSamples = 4096;
+  const stride = Math.max(1, Math.floor(totalPixels / maxSamples));
+  const colorCounts = new Map<string, number>();
+
+  let sampled = 0;
+  let alphaPixels = 0;
+  let blackishPixels = 0;
+  let transparentPixels = 0;
+  let sumR = 0;
+  let sumG = 0;
+  let sumB = 0;
+
+  for (let pixel = 0; pixel < totalPixels; pixel += stride) {
+    const idx = pixel * 4;
+    const alpha = data[idx + 3];
+    sampled += 1;
+    if (alpha === 0) {
+      transparentPixels += 1;
+      continue;
+    }
+
+    const r = data[idx];
+    const g = data[idx + 1];
+    const b = data[idx + 2];
+    alphaPixels += 1;
+    sumR += r;
+    sumG += g;
+    sumB += b;
+    if (r <= 10 && g <= 10 && b <= 10) {
+      blackishPixels += 1;
+    }
+    const key = `${r},${g},${b}`;
+    colorCounts.set(key, (colorCounts.get(key) ?? 0) + 1);
+  }
+
+  const colors = Array.from(colorCounts.entries())
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 6)
+    .map(([rgb, count]) => ({ rgb, count }));
+  const denom = Math.max(1, alphaPixels);
+
+  return {
+    width,
+    height,
+    sampled,
+    alphaPixels,
+    blackishPixels,
+    transparentPixels,
+    blackishRatio: Number((blackishPixels / denom).toFixed(3)),
+    avgRgb: [
+      Math.round(sumR / denom),
+      Math.round(sumG / denom),
+      Math.round(sumB / denom),
+    ],
+    colors,
+  };
+};
 
 export const buildLostEdgePolygon = (
   points: ShapePoint[],
@@ -892,34 +989,17 @@ export const finalizeRasterShapeFill = ({
 
   if (brushEngine.applyStrokeDither && liveBrushSettings.brushShape !== BrushShape.DITHER_GRADIENT) {
     try {
-      let ditherRegion = boundingBoxToCaptureRegion(
+      const strokeDitherRegion = boundingBoxToCaptureRegion(
         strokeBoundingBox,
         roiPadding,
         project
       );
-
-      if (!ditherRegion && shapePoints.length >= 3) {
-        const pts = shapePoints;
-        let minX = pts[0].x;
-        let maxX = pts[0].x;
-        let minY = pts[0].y;
-        let maxY = pts[0].y;
-        for (let i = 1; i < pts.length; i += 1) {
-          const p = pts[i];
-          if (p.x < minX) minX = p.x;
-          if (p.x > maxX) maxX = p.x;
-          if (p.y < minY) minY = p.y;
-          if (p.y > maxY) maxY = p.y;
-        }
-        const pad = roiPadding + 8;
-        const padded = {
-          minX: minX - pad,
-          maxX: maxX + pad,
-          minY: minY - pad,
-          maxY: maxY + pad
-        };
-        ditherRegion = boundingBoxToCaptureRegion(padded, 0, project);
-      }
+      const shapePointDitherRegion = captureRegionFromPoints(
+        shapePoints,
+        roiPadding + 8,
+        project
+      );
+      const ditherRegion = unionCaptureRegions(strokeDitherRegion, shapePointDitherRegion);
 
       if (ditherRegion && ditherRegion.width > 0 && ditherRegion.height > 0) {
         const state = storeRef.current;
@@ -955,6 +1035,31 @@ export const finalizeRasterShapeFill = ({
           });
         }
 
+        const beforeDitherSummary = summarizeRegionPixels(drawCtx, ditherRegion);
+        if (beforeDitherSummary) {
+          ditherShapeFinalizeDebug.log('finalize before applyStrokeDither', {
+            region: ditherRegion,
+            strokeDitherRegion,
+            shapePointDitherRegion,
+            pointCount: shapePoints.length,
+            shapeSeed: computeRegularDitherShapeSeed(shapePoints),
+            settings: {
+              color: settingsForDither.color,
+              ditherEnabled: settingsForDither.ditherEnabled,
+              ditherAlgorithm: settingsForDither.ditherAlgorithm,
+              patternStyle: settingsForDither.patternStyle,
+              fillResolution: settingsForDither.fillResolution,
+              ditherPaletteSpread: settingsForDither.ditherPaletteSpread,
+              ditherPatternDiversity: settingsForDither.ditherPatternDiversity,
+              ditherBackgroundFill: settingsForDither.ditherBackgroundFill,
+              pxlEdge: settingsForDither.pxlEdge,
+              lostEdge: settingsForDither.lostEdge,
+            },
+            before: beforeDitherSummary,
+          });
+        }
+
+        const regularDitherVarietySeed = computeRegularDitherShapeSeed(shapePoints);
         brushEngine.applyStrokeDither(
           drawCtx,
           {
@@ -969,11 +1074,31 @@ export const finalizeRasterShapeFill = ({
             overridePressure: effectivePressure,
             overridePixelSize: forcedPixelSize,
             settingsOverride: settingsForDither,
-            regularDitherVarietySeed: computeRegularDitherShapeSeed(shapePoints),
+            regularDitherVarietySeed,
           }
         );
+
+        const afterDitherSummary = summarizeRegionPixels(drawCtx, ditherRegion);
+        if (afterDitherSummary) {
+          const logPayload = {
+            region: ditherRegion,
+            pointCount: shapePoints.length,
+            shapeSeed: regularDitherVarietySeed,
+            before: beforeDitherSummary,
+            after: afterDitherSummary,
+          };
+          if (afterDitherSummary.blackishRatio >= 0.9 && beforeDitherSummary?.blackishRatio !== afterDitherSummary.blackishRatio) {
+            ditherShapeFinalizeDebug.warn('finalize after applyStrokeDither mostly black', logPayload);
+          } else {
+            ditherShapeFinalizeDebug.log('finalize after applyStrokeDither', logPayload);
+          }
+        }
       }
     } catch (error) {
+      ditherShapeFinalizeDebug.warn('finalize applyStrokeDither threw', {
+        error: error instanceof Error ? error.message : String(error),
+        pointCount: shapePoints.length,
+      });
       logError('Shape dithering failed', error);
     }
   }

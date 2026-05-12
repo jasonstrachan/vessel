@@ -68,7 +68,16 @@ export const resolveRegularDitherVariety = ({
   const luminance01 = clamp01((0.2126 * r + 0.7152 * g + 0.0722 * b) / 255);
   const colorTone = ((hash >>> 8) & 0xff) / 255 - 0.5;
   const contrastTone = 0.5 - luminance01;
-  const toneBias = Math.round((colorTone * 26 + contrastTone * 18) * diversity);
+  const rawToneBias = Math.round((colorTone * 26 + contrastTone * 18) * diversity);
+  const toneBias = (() => {
+    if (luminance01 < 0.18) {
+      return Math.max(Math.round(18 * diversity), rawToneBias);
+    }
+    if (luminance01 > 0.92) {
+      return Math.min(-Math.round(28 * diversity), rawToneBias);
+    }
+    return rawToneBias;
+  })();
 
   return {
     phaseOffset: {
