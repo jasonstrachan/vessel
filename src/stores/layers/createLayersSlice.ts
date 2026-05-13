@@ -3279,7 +3279,10 @@ export const createLayersSlice = (
       const migratedGradientIdBuffer = migrated.buffer;
       const migratedLegacyRemap = migrated.legacyRemap ?? legacyRemap;
       const defKind: 'linear' | 'concentric' =
-        state.tools.brushSettings.colorCycleFillMode === 'linear' ? 'linear' : 'concentric';
+        state.tools.brushSettings.colorCycleFillMode === 'concentric' ||
+        state.tools.brushSettings.colorCycleFillMode === 'circular'
+          ? 'concentric'
+          : 'linear';
       const existingDefStore = layer.colorCycleData?.gradientDefStore ?? [];
       const existingNextDefId = layer.colorCycleData?.nextGradientDefId;
       const seededDefId = typeof existingNextDefId === 'number'

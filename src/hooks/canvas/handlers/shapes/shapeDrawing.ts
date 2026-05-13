@@ -41,12 +41,18 @@ import {
 } from '@/hooks/canvas/handlers/colorCycle/colorCycleGradientSourceContract';
 import { startColorCycleRuntimeWarmupForEdit } from '@/hooks/canvas/handlers/colorCycle/colorCycleRuntimeWarmup';
 import { resolveCcPatternPackBrushSettings } from '@/utils/colorCycle/ccCustomTilePattern';
+import {
+  buildCcStrokeShapeGeometry,
+  type CcStrokeSample,
+} from '@/hooks/canvas/handlers/shapes/ccStrokeShapeGeometry';
 
 type ShapeDrawingRefs = {
   isDrawingShapeRef: React.MutableRefObject<boolean>;
   isSelectingDirectionRef: React.MutableRefObject<boolean>;
   directionPreviewRef: React.MutableRefObject<{ x: number; y: number } | null>;
   shapePointsRef: React.MutableRefObject<Array<{ x: number; y: number }>>;
+  ccStrokeSamplesRef: React.MutableRefObject<CcStrokeSample[]>;
+  ccStrokeDirectionRef: React.MutableRefObject<{ x: number; y: number } | null>;
   shapeDragStartRef: React.MutableRefObject<{ x: number; y: number } | null>;
   shapeDragLastRef: React.MutableRefObject<{ x: number; y: number } | null>;
   shapeDragMovedRef: React.MutableRefObject<boolean>;
@@ -100,7 +106,7 @@ const resolveColorCycleDitherPixelSize = ({
 };
 
 const resolveColorCycleFillMode = (
-  mode?: 'linear' | 'concentric' | 'circular'
+  mode?: 'linear' | 'concentric' | 'circular' | 'stroke'
 ): 'linear' | 'concentric' => {
   return mode === 'concentric' || mode === 'circular' ? 'concentric' : 'linear';
 };
@@ -115,6 +121,41 @@ const resolveFallbackMarkSource = (state: AppState): GradientDefSource => {
 const isSampledCcShapeDrag = (state: AppState): boolean =>
   state.tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE_SHAPE &&
   state.tools.ccGradientSource === 'sampled';
+
+const isCcGradientStrokeMode = (state: AppState): boolean =>
+  state.currentBrushPreset?.id === 'color-cycle-gradient' &&
+  state.tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE_SHAPE &&
+  state.tools.brushSettings.colorCycleFillMode === 'stroke';
+
+const rebuildCcStrokeShapeFromSamples = (
+  refs: Pick<ShapeDrawingRefs, 'ccStrokeSamplesRef' | 'ccStrokeDirectionRef' | 'shapePointsRef'>,
+  brushSettings: BrushSettings
+): boolean => {
+  const geometry = buildCcStrokeShapeGeometry({
+    samples: refs.ccStrokeSamplesRef.current,
+    brushSettings,
+  });
+  if (!geometry) {
+    refs.shapePointsRef.current = [];
+    refs.ccStrokeDirectionRef.current = null;
+    return false;
+  }
+  refs.shapePointsRef.current = geometry.shapePoints;
+  refs.ccStrokeDirectionRef.current = geometry.direction;
+  return true;
+};
+
+const resolveFinalSampledShapeSourcePoints = (
+  isStrokeFillFinalize: boolean,
+  refs: Pick<ShapeDrawingRefs, 'ccStrokeSamplesRef'>,
+  shapePointsSnapshot: Array<{ x: number; y: number }>
+): Array<{ x: number; y: number }> => {
+  if (!isStrokeFillFinalize) {
+    return shapePointsSnapshot;
+  }
+
+  return refs.ccStrokeSamplesRef.current.map(({ x, y }) => ({ x, y }));
+};
 
 const canContinueShapeDrawing = (
   phaseRef: React.MutableRefObject<ShapeInteractionPhase>
@@ -193,6 +234,7 @@ const beginFinalSampledShapeSession = (params: {
   layer: Layer;
   state: AppState;
   shapePoints: Array<{ x: number; y: number }>;
+  samplePoints?: Array<{ x: number; y: number }>;
   deps: Pick<ShapeDrawingDeps, 'sampleColorAt' | 'sampleHexAt' | 'ccLog'>;
 }): MarkGradientSession | null => {
   if (params.layer.layerType !== 'color-cycle') {
@@ -215,7 +257,7 @@ const beginFinalSampledShapeSession = (params: {
     params.state.tools.brushSettings.color ??
     '#000000';
   const sampledPreview = buildSampledStops({
-    sourcePts: params.shapePoints,
+    sourcePts: params.samplePoints ?? params.shapePoints,
     sampleColor: resolveShapeSampleColor(params.deps, fallbackColor),
     allowTiny: true,
   });
@@ -711,6 +753,8 @@ export const startShapeDrawing = (
   } catch {}
 
   if (shapeMode) {
+    const shapeStoreSnapshot = deps.storeRef.current;
+    const isCcStrokeMode = isCcGradientStrokeMode(shapeStoreSnapshot);
     const shouldResetBounding =
       !refs.isDrawingShapeRef.current || refs.shapePointsRef.current.length === 0;
     if (shouldResetBounding) {
@@ -735,7 +779,6 @@ export const startShapeDrawing = (
     } catch {
       deps.initDrawingCanvas();
     }
-    const shapeStoreSnapshot = deps.storeRef.current;
     const activeShape = shapeStoreSnapshot.tools.brushSettings.brushShape;
     const isAdvancedShape =
       activeShape === BrushShape.CONTOUR_POLYGON ||
@@ -746,7 +789,26 @@ export const startShapeDrawing = (
       activeShape === BrushShape.COLOR_CYCLE_SHAPE ||
       activeShape === BrushShape.SHAPE_FILL;
 
-    if (isAdvancedShape && refs.isDrawingShapeRef.current && refs.shapePointsRef.current.length > 0) {
+    if (isCcStrokeMode) {
+      const nextSample = { x: drawPos.x, y: drawPos.y, pressure: rawVal };
+      if (!refs.isDrawingShapeRef.current || refs.ccStrokeSamplesRef.current.length === 0) {
+        refs.ccStrokeSamplesRef.current = [nextSample];
+        refs.shapePointsRef.current = [];
+        refs.ccStrokeDirectionRef.current = null;
+        refs.isDrawingShapeRef.current = true;
+        getAppStoreState().setShapeDrawing(true);
+        refs.shapeDragStartRef.current = drawPos;
+        refs.shapeDragLastRef.current = drawPos;
+        refs.shapeDragMovedRef.current = false;
+      } else {
+        refs.ccStrokeSamplesRef.current = [...refs.ccStrokeSamplesRef.current, nextSample];
+        rebuildCcStrokeShapeFromSamples(refs, shapeStoreSnapshot.tools.brushSettings);
+      }
+      deps.seedManualStrokeBoundingBox(refs.ccStrokeSamplesRef.current, 2);
+      if (renderPreview && refs.shapePointsRef.current.length >= 3 && shouldUseSimpleShapePreview(deps.storeRef.current)) {
+        deps.triggerSimpleShapePreview();
+      }
+    } else if (isAdvancedShape && refs.isDrawingShapeRef.current && refs.shapePointsRef.current.length > 0) {
       refs.shapePointsRef.current.push(drawPos);
       deps.seedManualStrokeBoundingBox(refs.shapePointsRef.current, 2);
       if (renderPreview && shouldUseSimpleShapePreview(deps.storeRef.current)) {
@@ -954,6 +1016,7 @@ export const continueShapeDrawing = (
 
   if (shapeMode && refs.isDrawingShapeRef.current) {
     const store = deps.storeRef.current;
+    const isCcStrokeMode = isCcGradientStrokeMode(store);
     const zoom = store.canvas?.zoom || 1;
     const brushSize = store.tools.brushSettings.size || 20;
     refs.latestShapePressureRef.current = pressure;
@@ -967,6 +1030,40 @@ export const continueShapeDrawing = (
         refs.shapeDragMovedRef.current = true;
       }
     }
+
+    if (isCcStrokeMode) {
+      const previousLength = refs.ccStrokeSamplesRef.current.length;
+      const previous = refs.ccStrokeSamplesRef.current[previousLength - 1];
+      if (!previous || Math.hypot(drawPos.x - previous.x, drawPos.y - previous.y) >= 0.25) {
+        refs.ccStrokeSamplesRef.current = [
+          ...refs.ccStrokeSamplesRef.current,
+          { x: drawPos.x, y: drawPos.y, pressure: rawVal },
+        ];
+      }
+      const hasGeometry = rebuildCcStrokeShapeFromSamples(refs, store.tools.brushSettings);
+      if (hasGeometry || refs.shapeDragMovedRef.current) {
+        deps.seedManualStrokeBoundingBox(
+          refs.shapePointsRef.current.length >= 3
+            ? refs.shapePointsRef.current
+            : refs.ccStrokeSamplesRef.current,
+          2
+        );
+        if (renderPreview && hasGeometry && shouldUseSimpleShapePreview(store)) {
+          deps.capturePendingShapeSnapshot();
+          deps.triggerSimpleShapePreview();
+        }
+        const autoSampleEnabled =
+          store.tools.brushSettings.autoSampleGradient ||
+          store.tools.brushSettings.autoSampleGradientRealtime;
+        if (autoSampleEnabled && !isSampledCcShapeDrag(store)) {
+          refs.autoSamplePointsRef.current = refs.ccStrokeSamplesRef.current.map(({ x, y }) => ({ x, y }));
+          refs.autoSampleForkRef.current = true;
+          deps.updateAutoSampledGradient(refs.autoSamplePointsRef.current);
+        }
+      }
+      return;
+    }
+
     const added = deps.appendSegmentWithDynamicResampling(
       refs.shapePointsRef.current,
       drawPos,
@@ -1076,6 +1173,10 @@ export const finalizeShapeDrawing = async (
   }
 
   const finalizeTargetLayerId = deps.storeRef.current.activeLayerId ?? null;
+  const isStrokeFillFinalize = isCcGradientStrokeMode(deps.storeRef.current);
+  if (isStrokeFillFinalize) {
+    rebuildCcStrokeShapeFromSamples(args.refs, liveBrushSettings);
+  }
 
   void args.refs.finalizeQueueRef.current.enqueue(async () => {
     let finalizeTriggered = false;
@@ -1224,6 +1325,11 @@ export const finalizeShapeDrawing = async (
                 layer: targetLayer,
                 state: currentFinalizeState,
                 shapePoints: shapePointsSnapshot,
+                samplePoints: resolveFinalSampledShapeSourcePoints(
+                  isStrokeFillFinalize,
+                  args.refs,
+                  shapePointsSnapshot
+                ),
                 deps,
               });
               deps.ccLog('shape: sampled session end', {
@@ -1432,6 +1538,11 @@ export const finalizeShapeDrawing = async (
                     layer: targetLayer,
                     state: currentFinalizeState,
                     shapePoints: shapePointsSnapshot,
+                    samplePoints: resolveFinalSampledShapeSourcePoints(
+                      isStrokeFillFinalize,
+                      args.refs,
+                      shapePointsSnapshot
+                    ),
                     deps,
                   });
                   deps.ccLog('shape: sampled session end', {
@@ -1456,7 +1567,9 @@ export const finalizeShapeDrawing = async (
                   session,
                   shapePoints: shapePointsSnapshot,
                   direction: isLinearMode
-                    ? deps.computeFallbackLinearDirection(shapePointsSnapshot)
+                    ? (isStrokeFillFinalize && args.refs.ccStrokeDirectionRef.current
+                      ? args.refs.ccStrokeDirectionRef.current
+                      : deps.computeFallbackLinearDirection(shapePointsSnapshot))
                     : undefined,
                   activeLayerId,
                   activeLayerCanvas: targetLayerCanvas,
@@ -1504,6 +1617,8 @@ export const finalizeShapeDrawing = async (
 
         if (!args.refs.isSelectingDirectionRef.current) {
           args.refs.shapePointsRef.current = [];
+          args.refs.ccStrokeSamplesRef.current = [];
+          args.refs.ccStrokeDirectionRef.current = null;
           if (shouldUseSimpleShapePreview(deps.storeRef.current)) {
             deps.triggerSimpleShapePreview();
           }
@@ -1614,6 +1729,8 @@ export const finalizeShapeDrawing = async (
 
       if (args.refs.isDrawingShapeRef.current) {
         args.refs.shapePointsRef.current = [];
+        args.refs.ccStrokeSamplesRef.current = [];
+        args.refs.ccStrokeDirectionRef.current = null;
         if (shouldUseSimpleShapePreview(deps.storeRef.current)) {
           deps.triggerSimpleShapePreview();
         }
@@ -1675,4 +1792,5 @@ export const __TESTING__ = {
   canContinueShapeDrawing,
   resolveCapturedShapeFinalizeLayer,
   shouldSkipRasterFallbackAfterColorCycleFinalize,
+  resolveFinalSampledShapeSourcePoints,
 };

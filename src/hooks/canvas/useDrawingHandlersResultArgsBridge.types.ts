@@ -16,6 +16,8 @@ export interface UseDrawingHandlersResultArgsBridgeOptions {
     drawingCanvasHasContent: DrawingHandlerRefs['drawingCanvasHasContent'];
     isCapturing: DrawingHandlerRefs['isCapturing'];
     shapePointsRef: DrawingHandlerRefs['shapePointsRef'];
+    ccStrokeSamplesRef: DrawingHandlerRefs['ccStrokeSamplesRef'];
+    ccStrokeDirectionRef: DrawingHandlerRefs['ccStrokeDirectionRef'];
     isDrawingShapeRef: DrawingHandlerRefs['isDrawingShapeRef'];
     isSelectingDirectionRef: DrawingHandlerRefs['isSelectingDirectionRef'];
     ccShapePreviewCacheRef: DrawingHandlerRefs['ccShapePreviewCacheRef'];

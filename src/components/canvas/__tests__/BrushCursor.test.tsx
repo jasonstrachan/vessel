@@ -151,4 +151,109 @@ describe('BrushCursor', () => {
 
     expect(context.clearRect).toHaveBeenCalledWith(0, 0, 200, 100);
   });
+
+  it('renders stroke mode as a line cursor', () => {
+    const ref = React.createRef<{ setPosition: (x: number, y: number) => void }>();
+
+    render(
+      <BrushCursor
+        ref={ref}
+        descriptor={{
+          kind: 'stroke-line',
+          pixelSize: 24,
+          rotationEnabled: false,
+          rotationRadians: 0,
+        }}
+        zoom={1}
+        visible
+      />
+    );
+
+    ref.current?.setPosition(110, 70);
+
+    expect(context.moveTo).toHaveBeenCalled();
+    expect(context.lineTo).toHaveBeenCalled();
+    expect(context.stroke).toHaveBeenCalled();
+    expect(context.arc).not.toHaveBeenCalled();
+  });
+
+  it('rotates the stroke mode line cursor when rotation is enabled', () => {
+    const ref = React.createRef<{ setPosition: (x: number, y: number) => void }>();
+
+    render(
+      <BrushCursor
+        ref={ref}
+        descriptor={{
+          kind: 'stroke-line',
+          pixelSize: 24,
+          rotationEnabled: true,
+          rotationRadians: Math.PI / 2,
+        }}
+        zoom={1}
+        visible
+      />
+    );
+
+    ref.current?.setPosition(110, 70);
+
+    expect(context.moveTo).toHaveBeenCalledWith(100.5, 38.5);
+    expect(context.lineTo).toHaveBeenCalledWith(100.5, 62.5);
+  });
+
+  it('tracks stroke mode line cursor direction from pointer movement', () => {
+    const ref = React.createRef<{ setPosition: (x: number, y: number) => void }>();
+
+    render(
+      <BrushCursor
+        ref={ref}
+        descriptor={{
+          kind: 'stroke-line',
+          pixelSize: 24,
+          rotationEnabled: false,
+          rotationRadians: 0,
+        }}
+        zoom={1}
+        visible
+      />
+    );
+
+    ref.current?.setPosition(110, 70);
+    context.moveTo.mockClear();
+    context.lineTo.mockClear();
+
+    ref.current?.setPosition(110, 95);
+
+    expect(context.moveTo).toHaveBeenCalledWith(112.5, 75.5);
+    expect(context.lineTo).toHaveBeenCalledWith(88.5, 75.5);
+  });
+
+  it('smooths stroke mode line cursor direction after the first movement vector', () => {
+    const ref = React.createRef<{ setPosition: (x: number, y: number) => void }>();
+
+    render(
+      <BrushCursor
+        ref={ref}
+        descriptor={{
+          kind: 'stroke-line',
+          pixelSize: 24,
+          rotationEnabled: false,
+          rotationRadians: 0,
+        }}
+        zoom={1}
+        visible
+      />
+    );
+
+    ref.current?.setPosition(110, 70);
+    ref.current?.setPosition(110, 95);
+    context.moveTo.mockClear();
+    context.lineTo.mockClear();
+
+    ref.current?.setPosition(135, 95);
+
+    expect(context.moveTo).not.toHaveBeenCalledWith(135.5, 83.5);
+    expect(context.lineTo).not.toHaveBeenCalledWith(135.5, 107.5);
+    expect(context.moveTo).toHaveBeenCalled();
+    expect(context.lineTo).toHaveBeenCalled();
+  });
 });

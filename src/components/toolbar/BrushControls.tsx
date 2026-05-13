@@ -759,7 +759,12 @@ const BrushControls = () => {
       ? 'fg'
       : 'manual';
   const colorCycleFillModeValue =
-    activeSettings.colorCycleFillMode === 'linear' ? 'linear' : 'concentric';
+    activeSettings.colorCycleFillMode === 'stroke'
+      ? 'stroke'
+      : activeSettings.colorCycleFillMode === 'linear'
+        ? 'linear'
+        : 'concentric';
+  const isColorCycleGradientStrokeMode = isColorCycleGradientPreset && colorCycleFillModeValue === 'stroke';
   const fgDerivedLightness = activeSettings.colorCycleFgLightness ?? 50;
   const fgDerivedHueShift = activeSettings.colorCycleFgHueShift ?? 0;
   const fgDerivedSaturationShift = activeSettings.colorCycleFgSaturationShift ?? 0;
@@ -1946,11 +1951,13 @@ const BrushControls = () => {
               <ButtonGroup
                 options={[
                   { label: 'Grad', value: 'linear' },
+                  { label: 'Stroke', value: 'stroke' },
                   { label: 'Concentric', value: 'concentric' },
                 ]}
                 value={colorCycleFillModeValue}
                 onChange={(value) => {
-                  const nextMode = value === 'linear' ? 'linear' : 'concentric';
+                  const nextMode =
+                    value === 'stroke' ? 'stroke' : value === 'linear' ? 'linear' : 'concentric';
                   setActiveSettings({ colorCycleFillMode: nextMode });
                 }}
                 className="flex-1 justify-start"
@@ -2267,7 +2274,8 @@ const BrushControls = () => {
 
         {/* Pressure - only for Color Cycle stroke variants */}
         {(activeSettings.brushShape === BrushShape.COLOR_CYCLE ||
-          activeSettings.brushShape === BrushShape.COLOR_CYCLE_TRIANGLE) && (
+          activeSettings.brushShape === BrushShape.COLOR_CYCLE_TRIANGLE ||
+          isColorCycleGradientStrokeMode) && (
           <div className="mb-2">
             <div className="flex items-center gap-2">
               <label
@@ -2316,7 +2324,8 @@ const BrushControls = () => {
 
         {/* Rotation - only for stroke variants */}
         {(activeSettings.brushShape === BrushShape.COLOR_CYCLE ||
-          activeSettings.brushShape === BrushShape.COLOR_CYCLE_TRIANGLE) && (
+          activeSettings.brushShape === BrushShape.COLOR_CYCLE_TRIANGLE ||
+          isColorCycleGradientStrokeMode) && (
           <div className="mb-2">
             <div className="flex items-center gap-2">
               <label

@@ -15,6 +15,7 @@ describe('shapeDrawing pressure-linked dither resolution', () => {
     canContinueShapeDrawing,
     resolveCapturedShapeFinalizeLayer,
     shouldSkipRasterFallbackAfterColorCycleFinalize,
+    resolveFinalSampledShapeSourcePoints,
   } = __TESTING__;
 
   it('uses pressure-linked resolution when pressure is valid', () => {
@@ -97,7 +98,46 @@ describe('shapeDrawing pressure-linked dither resolution', () => {
   it('defaults color cycle fill mode to linear', () => {
     expect(resolveColorCycleFillMode(undefined)).toBe('linear');
     expect(resolveColorCycleFillMode('linear')).toBe('linear');
+    expect(resolveColorCycleFillMode('stroke')).toBe('linear');
     expect(resolveColorCycleFillMode('concentric')).toBe('concentric');
+  });
+
+  it('samples stroke-mode finalization from raw stroke centerline points', () => {
+    const outlinePolygon = [
+      { x: 0, y: 0 },
+      { x: 20, y: 0 },
+      { x: 20, y: 10 },
+      { x: 0, y: 10 },
+    ];
+    const refs = {
+      ccStrokeSamplesRef: {
+        current: [
+          { x: 5, y: 5, pressure: 0.25 },
+          { x: 15, y: 5, pressure: 0.75 },
+        ],
+      },
+    };
+
+    expect(resolveFinalSampledShapeSourcePoints(true, refs, outlinePolygon)).toEqual([
+      { x: 5, y: 5 },
+      { x: 15, y: 5 },
+    ]);
+  });
+
+  it('samples non-stroke finalization from the finalized shape polygon', () => {
+    const outlinePolygon = [
+      { x: 0, y: 0 },
+      { x: 20, y: 0 },
+      { x: 20, y: 10 },
+      { x: 0, y: 10 },
+    ];
+    const refs = {
+      ccStrokeSamplesRef: {
+        current: [{ x: 5, y: 5, pressure: 0.25 }],
+      },
+    };
+
+    expect(resolveFinalSampledShapeSourcePoints(false, refs, outlinePolygon)).toBe(outlinePolygon);
   });
 
   it('only allows shape continues while interaction phase is drawing', () => {

@@ -486,6 +486,38 @@ describe('useComprehensiveKeyboard – brush size shortcuts', () => {
     expect(useAppStore.getState().tools.brushSettings.size).toBe(10);
     keyboard.unmount();
   });
+
+  it('uses bracket shortcuts for brush size in CC gradient stroke mode', async () => {
+    const keyboard = render(React.createElement(KeyboardHarness));
+
+    act(() => {
+      const store = useAppStore.getState();
+      store.setGlobalBrushSize(12);
+      store.setBrushSettings({
+        brushShape: BrushShape.COLOR_CYCLE_SHAPE,
+        colorCycleFillMode: 'stroke',
+        gradientBands: 7,
+      });
+      useAppStore.setState({
+        currentBrushPreset: { id: 'color-cycle-gradient', name: 'CC Gradient' } as ReturnType<typeof useAppStore.getState>['currentBrushPreset'],
+      });
+    });
+
+    await act(async () => {
+      fireEvent.keyDown(window, { key: ']', code: 'BracketRight' });
+      jest.advanceTimersByTime(20);
+    });
+
+    const state = useAppStore.getState();
+    expect(state.tools.brushSettings.size).toBe(13);
+    expect(state.tools.brushSettings.gradientBands).toBe(7);
+
+    await act(async () => {
+      fireEvent.keyUp(window, { key: ']', code: 'BracketRight' });
+    });
+
+    keyboard.unmount();
+  });
 });
 
 describe('useComprehensiveKeyboard – space safety release', () => {

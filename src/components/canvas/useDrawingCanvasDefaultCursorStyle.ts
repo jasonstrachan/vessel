@@ -1,17 +1,19 @@
 import { useMemo } from 'react';
-import type { BrushShape } from '@/types';
+import type { BrushSettings, BrushShape } from '@/types';
 import { resolveDefaultCursorStyle } from './defaultCursorStyle';
 
 interface UseDrawingCanvasDefaultCursorStyleOptions {
   currentTool: string;
   brushShape: BrushShape | undefined;
   shapeMode: boolean;
+  colorCycleFillMode?: BrushSettings['colorCycleFillMode'];
 }
 
 export const useDrawingCanvasDefaultCursorStyle = ({
   currentTool,
   brushShape,
   shapeMode,
+  colorCycleFillMode,
 }: UseDrawingCanvasDefaultCursorStyleOptions) => {
   return useMemo(
     () =>
@@ -19,7 +21,8 @@ export const useDrawingCanvasDefaultCursorStyle = ({
         currentTool: currentTool as Parameters<typeof resolveDefaultCursorStyle>[0]['currentTool'],
         brushShape,
         shapeMode,
+        colorCycleFillMode,
       }),
-    [brushShape, currentTool, shapeMode]
+    [brushShape, colorCycleFillMode, currentTool, shapeMode]
   );
 };

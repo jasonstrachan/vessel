@@ -34,6 +34,7 @@ export const useDrawingCanvasRuntimeVisualStage = ({
       currentTool: state.tools.currentTool,
       brushShape: state.tools.brushSettings.brushShape,
       shapeMode: state.tools.shapeMode,
+      colorCycleFillMode: state.tools.brushSettings.colorCycleFillMode,
     },
   });
 

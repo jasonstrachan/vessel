@@ -30,6 +30,7 @@ export interface UseDrawingCanvasVisualSetupBridgeOptions {
   currentTool: DefaultCursorOptions['currentTool'];
   brushShape: DefaultCursorOptions['brushShape'];
   shapeMode: DefaultCursorOptions['shapeMode'];
+  colorCycleFillMode: DefaultCursorOptions['colorCycleFillMode'];
 }
 
 export const useDrawingCanvasVisualSetupBridge = ({
@@ -51,6 +52,7 @@ export const useDrawingCanvasVisualSetupBridge = ({
   currentTool,
   brushShape,
   shapeMode,
+  colorCycleFillMode,
 }: UseDrawingCanvasVisualSetupBridgeOptions) => {
   useDrawingCanvasBrushManagerInit({
     colorCycleBrushManagerRef,
@@ -85,6 +87,7 @@ export const useDrawingCanvasVisualSetupBridge = ({
     currentTool,
     brushShape,
     shapeMode,
+    colorCycleFillMode,
   });
 
   const { cursorStyle, setCursorStyle } = useDrawingCanvasCursorStyleState({

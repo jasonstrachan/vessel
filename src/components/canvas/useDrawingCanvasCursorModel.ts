@@ -11,6 +11,12 @@ export type BrushCursorDescriptor =
       tipShape?: BrushSettings['ditherStrokeTipShape'];
     }
   | {
+      kind: 'stroke-line';
+      pixelSize: number;
+      rotationEnabled: boolean;
+      rotationRadians: number;
+    }
+  | {
       kind: 'custom-brush';
       pixelSize: number;
       pixelWidth: number;
@@ -28,6 +34,8 @@ interface UseDrawingCanvasCursorModelOptions {
       mosaicBlocksCount?: number;
       antialiasing: boolean;
       rotationEnabled: boolean;
+      rotation?: number;
+      colorCycleFillMode?: BrushSettings['colorCycleFillMode'];
       ditherStrokeTipShape?: BrushSettings['ditherStrokeTipShape'];
       colorCycleStampShape?: BrushSettings['colorCycleStampShape'];
       currentBrushTip?: BrushSettings['currentBrushTip'];

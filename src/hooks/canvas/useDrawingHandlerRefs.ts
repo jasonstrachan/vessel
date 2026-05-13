@@ -9,6 +9,7 @@ import type { BoundingBox } from '@/hooks/canvas/utils/captureRegions';
 import { EraserTool } from '@/tools/EraserTool';
 import { createPixelQueue } from '@/hooks/brushEngine/strokeProcessor';
 import type { CcFlowVelocityState } from '@/utils/colorCycleFlowVelocity';
+import type { CcStrokeSample } from '@/hooks/canvas/handlers/shapes/ccStrokeShapeGeometry';
 
 export type ShapeInteractionPhase = 'idle' | 'drawing' | 'finalizing';
 
@@ -33,6 +34,8 @@ export const useDrawingHandlerRefs = () => {
   const lastDrawTimestampRef = useRef<number | null>(null);
 
   const shapePointsRef = useRef<Array<{ x: number; y: number }>>([]);
+  const ccStrokeSamplesRef = useRef<CcStrokeSample[]>([]);
+  const ccStrokeDirectionRef = useRef<{ x: number; y: number } | null>(null);
   const isDrawingShapeRef = useRef(false);
   const shapeInteractionPhaseRef = useRef<ShapeInteractionPhase>('idle');
   const isSelectingDirectionRef = useRef(false);
@@ -119,6 +122,8 @@ export const useDrawingHandlerRefs = () => {
     lastProcessedTimeRef,
     lastDrawTimestampRef,
     shapePointsRef,
+    ccStrokeSamplesRef,
+    ccStrokeDirectionRef,
     isDrawingShapeRef,
     shapeInteractionPhaseRef,
     isSelectingDirectionRef,

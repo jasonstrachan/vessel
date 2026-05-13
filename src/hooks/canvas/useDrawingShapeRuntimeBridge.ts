@@ -29,6 +29,8 @@ export const useDrawingShapeRuntimeBridge = ({
     shapePointsRef,
     isDrawingShapeRef,
     shapeInteractionPhaseRef,
+    ccStrokeSamplesRef,
+    ccStrokeDirectionRef,
   } = refs;
 
   const {
@@ -70,6 +72,8 @@ export const useDrawingShapeRuntimeBridge = ({
     strokeBoundingBoxRef,
     strokeCapturePaddingRef,
     shapePointsRef,
+    ccStrokeSamplesRef,
+    ccStrokeDirectionRef,
     isDrawingShapeRef,
     shapeInteractionPhaseRef,
   });

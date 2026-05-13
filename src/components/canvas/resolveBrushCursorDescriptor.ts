@@ -4,14 +4,17 @@ import type { BrushCursorDescriptor } from './useDrawingCanvasCursorModel';
 
 type CursorToolSettings = {
   currentTool: Tool;
-    brushSettings: {
-      size?: number;
-      brushShape?: BrushShape;
-      mosaicTilePx?: number;
-      mosaicBlocksCount?: number;
-      ditherStrokeTipShape?: BrushSettings['ditherStrokeTipShape'];
-      colorCycleStampShape?: BrushSettings['colorCycleStampShape'];
-      currentBrushTip?: BrushSettings['currentBrushTip'];
+  brushSettings: {
+    size?: number;
+    brushShape?: BrushShape;
+    mosaicTilePx?: number;
+    mosaicBlocksCount?: number;
+    rotationEnabled?: boolean;
+    rotation?: number;
+    colorCycleFillMode?: BrushSettings['colorCycleFillMode'];
+    ditherStrokeTipShape?: BrushSettings['ditherStrokeTipShape'];
+    colorCycleStampShape?: BrushSettings['colorCycleStampShape'];
+    currentBrushTip?: BrushSettings['currentBrushTip'];
     selectedCustomBrush?: string | null;
   };
   eraserSettings: {
@@ -95,6 +98,22 @@ export const resolveBrushCursorDescriptor = ({
                 ? resolvePixelDitherCursorSize(baseBrushSize, 'checkered')
               : baseBrushSize)
         );
+
+  if (
+    tools.currentTool !== 'eraser' &&
+    tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE_SHAPE &&
+    tools.brushSettings.colorCycleFillMode === 'stroke'
+  ) {
+    return {
+      kind: 'stroke-line',
+      pixelSize: cursorSize,
+      rotationEnabled: Boolean(tools.brushSettings.rotationEnabled),
+      rotationRadians: Number.isFinite(tools.brushSettings.rotation)
+        ? tools.brushSettings.rotation ?? 0
+        : 0,
+    };
+  }
+
   const activeSettings =
     tools.currentTool === 'eraser' ? tools.eraserSettings : tools.brushSettings;
   const currentBrushTip = activeSettings.currentBrushTip;

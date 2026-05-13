@@ -12,6 +12,8 @@ type UseShapePressureResetEffectsArgs = {
   strokeBoundingBoxRef: React.MutableRefObject<BoundingBox | null>;
   strokeCapturePaddingRef: React.MutableRefObject<number>;
   shapePointsRef: React.MutableRefObject<Array<{ x: number; y: number }>>;
+  ccStrokeSamplesRef?: React.MutableRefObject<Array<{ x: number; y: number; pressure?: number }>>;
+  ccStrokeDirectionRef?: React.MutableRefObject<{ x: number; y: number } | null>;
   isDrawingShapeRef: React.MutableRefObject<boolean>;
   shapeInteractionPhaseRef: React.MutableRefObject<ShapeInteractionPhase>;
 };
@@ -22,6 +24,8 @@ export const useShapePressureResetEffects = ({
   strokeBoundingBoxRef,
   strokeCapturePaddingRef,
   shapePointsRef,
+  ccStrokeSamplesRef,
+  ccStrokeDirectionRef,
   isDrawingShapeRef,
   shapeInteractionPhaseRef,
 }: UseShapePressureResetEffectsArgs): void => {
@@ -64,6 +68,12 @@ export const useShapePressureResetEffects = ({
         strokeBoundingBoxRef.current = null;
         strokeCapturePaddingRef.current = 0;
         shapePointsRef.current = [];
+        if (ccStrokeSamplesRef) {
+          ccStrokeSamplesRef.current = [];
+        }
+        if (ccStrokeDirectionRef) {
+          ccStrokeDirectionRef.current = null;
+        }
         isDrawingShapeRef.current = false;
         shapeInteractionPhaseRef.current = 'idle';
         resetShapeDragRefs();
@@ -77,6 +87,8 @@ export const useShapePressureResetEffects = ({
     resetShapeDragRefs,
     resetShapePressureState,
     shapePointsRef,
+    ccStrokeDirectionRef,
+    ccStrokeSamplesRef,
     shapeInteractionPhaseRef,
     strokeBoundingBoxRef,
     strokeCapturePaddingRef,

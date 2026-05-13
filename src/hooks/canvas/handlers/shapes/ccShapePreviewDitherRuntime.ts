@@ -607,6 +607,7 @@ const drawCachedCcPreview = ({
 type SampledCcPreviewRequest = {
   replayKey: string;
   previewGeometry: PreparedCcPreviewGeometry;
+  sampleSourcePoints: Array<{ x: number; y: number }>;
   brushSettings: BrushSettings;
   previewRenderSettings: CcPreviewRenderSettings;
   fallbackStops: StoredStop[];
@@ -621,6 +622,7 @@ type DrawingHandlersSubset = {
   ccShapePreviewCacheRef?: React.MutableRefObject<{ canvas: HTMLCanvasElement; origin: { x: number; y: number } } | null>;
   isDrawingShapeRef: React.MutableRefObject<boolean>;
   shapePointsRef: React.MutableRefObject<Array<{ x: number; y: number }>>;
+  ccStrokeSamplesRef?: React.MutableRefObject<Array<{ x: number; y: number; pressure?: number }>>;
 };
 
 export const runCcDitherPreviewRuntime = (args: {
@@ -1074,6 +1076,7 @@ export const runSampledCcDitherPreviewRuntime = (args: {
   previewRenderSettings: CcPreviewRenderSettings;
   sampleColor: (x: number, y: number) => string;
   fallbackStops: StoredStop[];
+  sampleSourcePoints?: Array<{ x: number; y: number }>;
   schedulePolygonShapePreviewFrame: (
     resolvePreviewPoint: () => { x: number; y: number } | null
   ) => void;
@@ -1091,6 +1094,7 @@ export const runSampledCcDitherPreviewRuntime = (args: {
     previewRenderSettings,
     sampleColor,
     fallbackStops,
+    sampleSourcePoints,
     schedulePolygonShapePreviewFrame,
     getLatestPolygonPreviewPoint,
   } = args;
@@ -1104,7 +1108,9 @@ export const runSampledCcDitherPreviewRuntime = (args: {
     brushSettings,
     previewRenderSettings,
     fallbackStops,
-  });
+  }) + `|sample:${(sampleSourcePoints ?? previewGeometry.previewPolygon)
+    .map(point => `${Math.round(point.x * 10) / 10},${Math.round(point.y * 10) / 10}`)
+    .join(';')}`;
   const cachedPreview = drawCachedCcPreview({
     overlayCtx,
     overlayCanvas,
@@ -1125,6 +1131,7 @@ export const runSampledCcDitherPreviewRuntime = (args: {
   ditherGradPreviewState.ccPendingSampledRequest = {
     replayKey,
     previewGeometry,
+    sampleSourcePoints: (sampleSourcePoints ?? previewGeometry.previewPolygon).map(point => ({ ...point })),
     brushSettings: { ...brushSettings },
     previewRenderSettings,
     fallbackStops: fallbackStops.map(stop => ({ ...stop })),
@@ -1157,6 +1164,7 @@ export const runSampledCcDitherPreviewRuntime = (args: {
           brushSettings: sampledBrushSettings,
           previewRenderSettings: sampledPreviewRenderSettings,
           sampleColor: sampledColorFn,
+          sampleSourcePoints: sampledSourcePoints,
         } = request;
         ccLog('shape: sampled preview worker begin', {
           pointCount: sampledGeometry.previewPolygon.length,
@@ -1175,7 +1183,7 @@ export const runSampledCcDitherPreviewRuntime = (args: {
         });
 
         const sampledPreview = buildSampledStops({
-          sourcePts: sampledGeometry.previewPolygon,
+          sourcePts: sampledSourcePoints,
           sampleColor: sampledColorFn,
           allowTiny: true,
         });

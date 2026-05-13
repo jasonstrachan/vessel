@@ -11,6 +11,8 @@ export const buildDrawingHandlersResultRefsArgs = ({
   drawingCanvasHasContent: refs.drawingCanvasHasContent,
   isCapturing: refs.isCapturing,
   shapePointsRef: refs.shapePointsRef,
+  ccStrokeSamplesRef: refs.ccStrokeSamplesRef,
+  ccStrokeDirectionRef: refs.ccStrokeDirectionRef,
   isDrawingShapeRef: refs.isDrawingShapeRef,
   isSelectingDirectionRef: refs.isSelectingDirectionRef,
   ccShapePreviewCacheRef: refs.ccShapePreviewCacheRef,

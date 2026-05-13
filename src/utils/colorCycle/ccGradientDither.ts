@@ -21,6 +21,12 @@ import { useAppStore } from '@/stores/useAppStore';
 
 type Point = { x: number; y: number };
 
+type RowSpan = [number, number];
+type WindingIntersection = {
+  x: number;
+  delta: number;
+};
+
 export type CcFlatPatternInkPayload = {
   targetColor: string;
   targetRgb: [number, number, number];
@@ -65,6 +71,63 @@ export type CcGradientDitherOptions = {
 };
 
 const clamp01 = (value: number): number => Math.max(0, Math.min(1, value));
+
+export const buildNonZeroWindingRowSpans = ({
+  vertices,
+  minX,
+  minY,
+  maxX,
+  maxY,
+  useWholeEdgeCells = false,
+}: {
+  vertices: Point[];
+  minX: number;
+  minY: number;
+  maxX: number;
+  maxY: number;
+  useWholeEdgeCells?: boolean;
+}): RowSpan[][] => {
+  const bboxHeight = Math.max(1, maxY - minY + 1);
+  const rowSpans: RowSpan[][] = Array.from({ length: bboxHeight }, () => []);
+
+  for (let row = 0; row < bboxHeight; row += 1) {
+    const y = minY + row;
+    const intersections: WindingIntersection[] = [];
+    for (let i = 0; i < vertices.length; i += 1) {
+      const v1 = vertices[i];
+      const v2 = vertices[(i + 1) % vertices.length];
+      if (Math.abs(v2.y - v1.y) < 1e-4) continue;
+      const upward = v1.y <= y && v2.y > y;
+      const downward = v2.y <= y && v1.y > y;
+      if (!upward && !downward) continue;
+      const t = (y - v1.y) / (v2.y - v1.y);
+      const x = v1.x + t * (v2.x - v1.x);
+      intersections.push({ x, delta: upward ? 1 : -1 });
+    }
+
+    intersections.sort((a, b) => a.x - b.x || b.delta - a.delta);
+    let winding = 0;
+    let spanStart: number | null = null;
+    for (const intersection of intersections) {
+      if (winding !== 0 && spanStart !== null && intersection.x > spanStart) {
+        const startX = Math.max(minX, Math.floor(spanStart));
+        const endX = Math.min(
+          maxX,
+          useWholeEdgeCells
+            ? Math.ceil(intersection.x) - 1
+            : Math.ceil(intersection.x)
+        );
+        if (endX >= startX) {
+          rowSpans[row].push([startX, endX]);
+        }
+      }
+      winding += intersection.delta;
+      spanStart = winding !== 0 ? intersection.x : null;
+    }
+  }
+
+  return rowSpans;
+};
 
 const logFlatPatternPath = (event: string, data: Record<string, unknown>): void => {
   if (process.env.NODE_ENV === 'test') {
@@ -802,7 +865,14 @@ export const fillCcGradientDither = async ({
   const cellCoverage = new Uint8Array(gridW * gridH);
   const activeMask = new Uint8Array(gridW * gridH);
   const activeCellsByRow: number[][] = Array.from({ length: gridH }, () => []);
-  const rowSpans: Array<Array<[number, number]>> = Array.from({ length: bboxHeight }, () => []);
+  const rowSpans = buildNonZeroWindingRowSpans({
+    vertices,
+    minX,
+    minY,
+    maxX,
+    maxY,
+    useWholeEdgeCells,
+  });
 
   const activeCells: number[] = [];
   const cellSeen = new Uint8Array(gridW);
@@ -828,35 +898,6 @@ export const fillCcGradientDither = async ({
     }
     writePhase(x, y, phaseByte);
   };
-
-  for (let row = 0; row < bboxHeight; row += 1) {
-    const y = minY + row;
-    const intersections: number[] = [];
-    for (let i = 0; i < vertices.length; i += 1) {
-      const v1 = vertices[i];
-      const v2 = vertices[(i + 1) % vertices.length];
-      if (Math.abs(v2.y - v1.y) < 1e-4) continue;
-      if ((v1.y <= y && v2.y > y) || (v2.y <= y && v1.y > y)) {
-        const t = (y - v1.y) / (v2.y - v1.y);
-        const x = v1.x + t * (v2.x - v1.x);
-        intersections.push(x);
-      }
-    }
-
-    intersections.sort((a, b) => a - b);
-    for (let i = 0; i < intersections.length - 1; i += 2) {
-      const startFloat = intersections[i];
-      const endFloat = intersections[i + 1];
-      if (endFloat <= startFloat) continue;
-      const startX = Math.floor(startFloat);
-      const endX = useWholeEdgeCells
-        ? Math.ceil(endFloat) - 1
-        : Math.ceil(endFloat);
-      if (endX >= startX) {
-        rowSpans[row].push([startX, endX]);
-      }
-    }
-  }
 
   for (let cy = 0; cy < gridH; cy += 1) {
     cellSeen.fill(0);

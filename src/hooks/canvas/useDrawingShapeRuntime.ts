@@ -157,6 +157,8 @@ export const useDrawingShapeRuntime = ({
     isSelectingDirectionRef: refs.isSelectingDirectionRef,
     directionPreviewRef: refs.directionPreviewRef,
     shapePointsRef: refs.shapePointsRef,
+    ccStrokeSamplesRef: refs.ccStrokeSamplesRef,
+    ccStrokeDirectionRef: refs.ccStrokeDirectionRef,
     shapeDragStartRef: refs.shapeDragStartRef,
     shapeDragLastRef: refs.shapeDragLastRef,
     shapeDragMovedRef: refs.shapeDragMovedRef,

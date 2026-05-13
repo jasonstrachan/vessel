@@ -94,7 +94,10 @@ export const updateCcSampledGradientController = (
         ccGradientSource: currentState.tools.ccGradientSource,
       });
       const gradientKind =
-        currentState.tools.brushSettings.colorCycleFillMode === 'linear' ? 'linear' : 'concentric';
+        currentState.tools.brushSettings.colorCycleFillMode === 'concentric' ||
+        currentState.tools.brushSettings.colorCycleFillMode === 'circular'
+          ? 'concentric'
+          : 'linear';
       session = beginMarkGradientSession({
         layerId: targetLayerId,
         markKind: options?.markKind ?? 'stroke',

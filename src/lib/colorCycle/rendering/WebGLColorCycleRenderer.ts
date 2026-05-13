@@ -768,14 +768,14 @@ export class WebGLColorCycleRenderer {
         return hash(cellCoord, u_noiseSeed);
       }
 
-      // Compute min distance to polygon edges and inside/outside via crossing parity
+      // Compute min distance to polygon edges and inside/outside via non-zero winding.
       void main() {
         // Map fragment to top-left pixel coordinates in canvas space
         float x = u_minX + v_uv.x * u_bboxW;
         float yGL = v_uv.y * u_bboxH;             // 0..bboxH bottom->top
         float y = u_minY + (u_bboxH - 1.0 - yGL); // convert to top-left origin
 
-        // Crossing parity inside test and min distance to segments
+        // Non-zero winding inside test and min distance to segments
         float cell = max(u_ditherPixelSize, 1.0);
         vec2 actualPos = vec2(x, y);
         vec2 samplePos = actualPos;
@@ -786,7 +786,7 @@ export class WebGLColorCycleRenderer {
         }
 
         float minDistSq = 1.0e20;
-        bool inside = false;
+        float winding = 0.0;
         for (int i = 0; i < ${MAX}; i++) {
           if (i >= u_count) break;
           int j = (i + 1) >= u_count ? 0 : (i + 1);
@@ -794,9 +794,14 @@ export class WebGLColorCycleRenderer {
           vec2 b = u_verts[j];
 
           // Crossing test (top-left coords)
-          bool cond = ((a.y > actualPos.y) != (b.y > actualPos.y)) &&
-            (actualPos.x < (b.x - a.x) * (actualPos.y - a.y) / (b.y - a.y) + a.x);
-          if (cond) inside = !inside;
+          bool upward = a.y <= actualPos.y && b.y > actualPos.y;
+          bool downward = b.y <= actualPos.y && a.y > actualPos.y;
+          if (upward || downward) {
+            float crossX = (b.x - a.x) * (actualPos.y - a.y) / (b.y - a.y) + a.x;
+            if (actualPos.x < crossX) {
+              winding += upward ? 1.0 : -1.0;
+            }
+          }
 
           // Distance to segment squared (for concentric mode)
           vec2 pa = samplePos - a;
@@ -809,7 +814,7 @@ export class WebGLColorCycleRenderer {
           if (dsq < minDistSq) minDistSq = dsq;
         }
 
-        if (!inside) {
+        if (abs(winding) < 0.5) {
           gl_FragColor = vec4(0.0, 0.0, 0.0, 1.0);
           return;
         }

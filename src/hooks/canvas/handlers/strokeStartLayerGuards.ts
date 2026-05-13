@@ -86,7 +86,10 @@ export const runStrokeStartLayerGuards = ({
       ccGradientSource: refreshedState.tools.ccGradientSource,
     });
     const gradientKind =
-      refreshedState.tools.brushSettings.colorCycleFillMode === 'linear' ? 'linear' : 'concentric';
+      refreshedState.tools.brushSettings.colorCycleFillMode === 'concentric' ||
+      refreshedState.tools.brushSettings.colorCycleFillMode === 'circular'
+        ? 'concentric'
+        : 'linear';
     beginMarkGradientSession({
       layerId: activeLayer.id,
       markKind: 'stroke',

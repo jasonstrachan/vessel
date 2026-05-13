@@ -3280,6 +3280,9 @@ export const createShapeToolHandler = (
                     previewRenderSettings,
                     sampleColor: sampleColorAtPosition,
                     fallbackStops: effectiveStops,
+                    sampleSourcePoints: brushNow.colorCycleFillMode === 'stroke'
+                      ? drawingHandlers.ccStrokeSamplesRef?.current.map(({ x, y }) => ({ x, y }))
+                      : undefined,
                     schedulePolygonShapePreviewFrame,
                     getLatestPolygonPreviewPoint: () =>
                       latestPolygonPreviewPoint

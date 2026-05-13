@@ -1,4 +1,4 @@
-import { BrushShape, type Tool } from '@/types';
+import { BrushShape, type BrushSettings, type Tool } from '@/types';
 
 const CROSSHAIR_TOOLS = new Set<Tool>(['fill', 'crop', 'recolor', 'selection', 'custom']);
 
@@ -6,13 +6,23 @@ export const resolveDefaultCursorStyle = ({
   currentTool,
   brushShape,
   shapeMode,
+  colorCycleFillMode,
 }: {
   currentTool: Tool;
   brushShape: BrushShape | undefined;
   shapeMode: boolean;
+  colorCycleFillMode?: BrushSettings['colorCycleFillMode'];
 }): string => {
   if (CROSSHAIR_TOOLS.has(currentTool)) {
     return 'crosshair';
+  }
+
+  if (
+    currentTool === 'brush' &&
+    brushShape === BrushShape.COLOR_CYCLE_SHAPE &&
+    colorCycleFillMode === 'stroke'
+  ) {
+    return 'none';
   }
 
   if (brushShape === BrushShape.PIXEL_DITHER && shapeMode) {

@@ -1,7 +1,7 @@
 import { getAppStoreState } from '@/stores/appStoreAccess';
 import { useEffect, useRef, useCallback } from 'react';
 import { useAppStore, type AppState } from '@/stores/useAppStore';
-import { BrushShape, Tool } from '@/types';
+import { BrushShape, type BrushSettings, Tool } from '@/types';
 import { flushPendingToolWork } from '@/utils/toolFlushRegistry';
 import { useStoreSelectorRef } from './useStoreSelectorRef';
 import {
@@ -177,9 +177,14 @@ const clampCcGradientColors = (value: number): number => {
 
 const resolveBracketShortcutTarget = (
   currentTool: Tool,
-  currentBrushPresetId: string | null
+  currentBrushPresetId: string | null,
+  brushSettings: Pick<BrushSettings, 'colorCycleFillMode'>
 ): BracketShortcutTarget => {
-  if (currentTool === 'brush' && currentBrushPresetId === 'color-cycle-gradient') {
+  if (
+    currentTool === 'brush' &&
+    currentBrushPresetId === 'color-cycle-gradient' &&
+    brushSettings.colorCycleFillMode !== 'stroke'
+  ) {
     return 'cc-gradient-colors';
   }
   return 'brush-size';
@@ -589,7 +594,8 @@ export function useComprehensiveKeyboard({
     if (isBracketShortcut) {
       const bracketTarget = resolveBracketShortcutTarget(
         tools.currentTool,
-        currentBrushPresetIdRef.current
+        currentBrushPresetIdRef.current,
+        tools.brushSettings
       );
       const direction: -1 | 1 = isBracketLeftEvent(event) ? -1 : 1;
       if (bracketTarget !== 'brush-size') {

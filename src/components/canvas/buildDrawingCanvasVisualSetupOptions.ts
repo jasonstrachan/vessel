@@ -24,7 +24,7 @@ interface BuildDrawingCanvasVisualSetupOptionsArgs {
   >;
   cursor: Pick<
     UseDrawingCanvasVisualSetupBridgeOptions,
-    'currentTool' | 'brushShape' | 'shapeMode'
+    'currentTool' | 'brushShape' | 'shapeMode' | 'colorCycleFillMode'
   >;
 }
 

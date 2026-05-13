@@ -21,4 +21,26 @@ describe('resolveDefaultCursorStyle', () => {
       })
     ).toBe('crosshair');
   });
+
+  it('uses the brush cursor path for color cycle gradient stroke mode', () => {
+    expect(
+      resolveDefaultCursorStyle({
+        currentTool: 'brush',
+        brushShape: BrushShape.COLOR_CYCLE_SHAPE,
+        shapeMode: true,
+        colorCycleFillMode: 'stroke',
+      })
+    ).toBe('none');
+  });
+
+  it('keeps crosshair for non-stroke color cycle shape modes', () => {
+    expect(
+      resolveDefaultCursorStyle({
+        currentTool: 'brush',
+        brushShape: BrushShape.COLOR_CYCLE_SHAPE,
+        shapeMode: true,
+        colorCycleFillMode: 'linear',
+      })
+    ).toBe('crosshair');
+  });
 });

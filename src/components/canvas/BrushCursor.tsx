@@ -28,9 +28,24 @@ type CursorRect = {
   height: number;
 };
 
+const STROKE_LINE_ANGLE_SMOOTHING = 0.35;
+
+const normalizeAngleDelta = (angle: number): number => {
+  let normalized = angle;
+  while (normalized > Math.PI) normalized -= Math.PI * 2;
+  while (normalized < -Math.PI) normalized += Math.PI * 2;
+  return normalized;
+};
+
+const smoothAngle = (current: number, target: number): number =>
+  current + normalizeAngleDelta(target - current) * STROKE_LINE_ANGLE_SMOOTHING;
+
 const getDescriptorCacheKey = (descriptor: BrushCursorDescriptor): string => {
   if (descriptor.kind === 'custom-brush') {
     return `custom:${descriptor.pixelWidth}x${descriptor.pixelHeight}:${descriptor.pixelSize}`;
+  }
+  if (descriptor.kind === 'stroke-line') {
+    return `stroke-line:${descriptor.pixelSize}:${descriptor.rotationEnabled}:${descriptor.rotationRadians}`;
   }
   return `shape:${descriptor.shape}:${descriptor.pixelSize}:${descriptor.tipShape ?? ''}`;
 };
@@ -70,13 +85,47 @@ const drawShapeCursor = (
   centerX: number,
   centerY: number,
   screenWidth: number,
-  screenHeight: number
+  screenHeight: number,
+  strokeLineRotationRadians: number
 ) => {
   const halfWidth = screenWidth / 2;
   const halfHeight = screenHeight / 2;
   const lineOffset = 0.5;
 
   ctx.beginPath();
+
+  if (descriptor.kind === 'stroke-line') {
+    const angle = strokeLineRotationRadians;
+    const directionX = Math.cos(angle);
+    const directionY = Math.sin(angle);
+    const normalX = -directionY;
+    const normalY = directionX;
+    const x0 = centerX - directionX * halfWidth;
+    const y0 = centerY - directionY * halfWidth;
+    const x1 = centerX + directionX * halfWidth;
+    const y1 = centerY + directionY * halfWidth;
+    const tick = Math.max(3, Math.min(12, screenHeight / 3));
+    ctx.moveTo(Math.round(x0) + lineOffset, Math.round(y0) + lineOffset);
+    ctx.lineTo(Math.round(x1) + lineOffset, Math.round(y1) + lineOffset);
+    ctx.moveTo(
+      Math.round(x0 - normalX * tick) + lineOffset,
+      Math.round(y0 - normalY * tick) + lineOffset
+    );
+    ctx.lineTo(
+      Math.round(x0 + normalX * tick) + lineOffset,
+      Math.round(y0 + normalY * tick) + lineOffset
+    );
+    ctx.moveTo(
+      Math.round(x1 - normalX * tick) + lineOffset,
+      Math.round(y1 - normalY * tick) + lineOffset
+    );
+    ctx.lineTo(
+      Math.round(x1 + normalX * tick) + lineOffset,
+      Math.round(y1 + normalY * tick) + lineOffset
+    );
+    ctx.stroke();
+    return;
+  }
 
   if (descriptor.kind === 'custom-brush') {
     ctx.rect(
@@ -159,6 +208,9 @@ const BrushCursorComponent = ({
 }: BrushCursorProps, ref: React.Ref<BrushCursorHandle>) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const lastPositionRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
+  const hasPositionRef = useRef(false);
+  const strokeLineRotationRef = useRef(0);
+  const hasStrokeLineDirectionRef = useRef(false);
   const lastPaintedRectRef = useRef<CursorRect | null>(null);
   const dprRef = useRef(1);
   const lastZoomRef = useRef<number | null>(null);
@@ -188,6 +240,9 @@ const BrushCursorComponent = ({
     if (shouldClearWholeCanvas) {
       ctx.clearRect(0, 0, width, height);
       lastPaintedRectRef.current = null;
+      strokeLineRotationRef.current =
+        descriptor.kind === 'stroke-line' ? descriptor.rotationRadians : 0;
+      hasStrokeLineDirectionRef.current = false;
     }
 
     const previousRect = lastPaintedRectRef.current;
@@ -214,7 +269,15 @@ const BrushCursorComponent = ({
     ctx.lineWidth = 1;
     ctx.imageSmoothingEnabled = false;
 
-    drawShapeCursor(ctx, descriptor, centerX, centerY, screenWidth, screenHeight);
+    drawShapeCursor(
+      ctx,
+      descriptor,
+      centerX,
+      centerY,
+      screenWidth,
+      screenHeight,
+      strokeLineRotationRef.current
+    );
     lastPaintedRectRef.current = getCursorRect(centerX, centerY, screenWidth, screenHeight);
   }, [descriptor, visible, zoom]);
 
@@ -243,10 +306,22 @@ const BrushCursorComponent = ({
 
   useImperativeHandle(ref, () => ({
     setPosition: (screenX: number, screenY: number) => {
+      if (descriptor.kind === 'stroke-line' && hasPositionRef.current) {
+        const dx = screenX - lastPositionRef.current.x;
+        const dy = screenY - lastPositionRef.current.y;
+        if (Math.hypot(dx, dy) > 0.5) {
+          const targetLineAngle = Math.atan2(dy, dx) + Math.PI / 2;
+          strokeLineRotationRef.current = hasStrokeLineDirectionRef.current
+            ? smoothAngle(strokeLineRotationRef.current, targetLineAngle)
+            : targetLineAngle;
+          hasStrokeLineDirectionRef.current = true;
+        }
+      }
       lastPositionRef.current = { x: screenX, y: screenY };
+      hasPositionRef.current = true;
       paintCursor();
     },
-  }), [paintCursor]);
+  }), [descriptor, paintCursor]);
 
   useLayoutEffect(() => {
     resizeCanvas();

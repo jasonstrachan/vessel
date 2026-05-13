@@ -3,6 +3,8 @@ import {
   resolveCcSampledFlatPatternPayload,
   resolveSampledFlatPositionMix,
 } from '@/utils/colorCycle/ccGradientDither';
+import { buildCcStrokeShapeGeometry } from '@/hooks/canvas/handlers/shapes/ccStrokeShapeGeometry';
+import type { BrushSettings } from '@/types';
 import type { PatternStyle } from '@/utils/ditherAlgorithms';
 import {
   fillFlatPatternMode,
@@ -114,6 +116,47 @@ describe('fillCcGradientDither', () => {
 
     expect(yieldIfNeeded).not.toHaveBeenCalled();
     expect(out.some((value) => value > 0)).toBe(true);
+  });
+
+  it('fills self-crossing stroke outlines without punching an overlap hole', async () => {
+    const geometry = buildCcStrokeShapeGeometry({
+      samples: [
+        { x: 4, y: 4, pressure: 0.5 },
+        { x: 20, y: 20, pressure: 0.5 },
+        { x: 4, y: 20, pressure: 0.5 },
+        { x: 20, y: 4, pressure: 0.5 },
+      ],
+      brushSettings: {
+        size: 8,
+        pressureEnabled: false,
+        minPressure: 50,
+        maxPressure: 100,
+      } as BrushSettings,
+    });
+    expect(geometry).not.toBeNull();
+
+    const width = 25;
+    const height = 25;
+    const out = new Uint8Array(width * height);
+
+    await fillCcGradientDither({
+      vertices: geometry!.shapePoints,
+      minX: 0,
+      minY: 0,
+      maxX: width - 1,
+      maxY: height - 1,
+      pixelSize: 1,
+      levels: 2,
+      baseOffset: 0,
+      algorithm: 'sierra-lite',
+      sampleNormalized: () => 0.5,
+      writeIndex: (x, y, index) => {
+        if (x < 0 || y < 0 || x >= width || y >= height) return;
+        out[y * width + x] = index;
+      },
+    });
+
+    expect(out[12 * width + 12]).toBeGreaterThan(0);
   });
 
   it('resolves Sierra Lite flat tones into local ink pairs centered on the sampled position', async () => {

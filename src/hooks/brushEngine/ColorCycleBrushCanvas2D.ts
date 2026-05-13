@@ -35,7 +35,10 @@ import {
   createCcCustomTileThresholdResolver,
   type CcCustomTilePatternSettings,
 } from '@/utils/colorCycle/ccCustomTilePattern';
-import { fillCcGradientDither } from '@/utils/colorCycle/ccGradientDither';
+import {
+  buildNonZeroWindingRowSpans,
+  fillCcGradientDither,
+} from '@/utils/colorCycle/ccGradientDither';
 import { resolveStableFlatSeed } from '@/utils/colorCycle/ccFlatSeed';
 import { computeConcentricMaxDistance, fillConcentricIndices } from '@/utils/colorCycle/concentricFillCore';
 import { applyEdgePadding } from '@/utils/colorCycle/fillMath';
@@ -4603,33 +4606,14 @@ export class ColorCycleBrushCanvas2D {
         const x0 = Math.floor(minX);
         const y0 = Math.floor(minY);
 
-        const spans: Array<Array<[number, number]>> = [];
-        for (let y = y0; y <= Math.ceil(maxY); y++) {
-          await yieldIfNeeded(y - y0);
-          const ints: number[] = [];
-          for (let i = 0; i < vertices.length; i++) {
-            const v1 = vertices[i];
-            const v2 = vertices[(i + 1) % vertices.length];
-            if (Math.abs(v2.y - v1.y) < 1e-4) continue;
-            if ((v1.y <= y && v2.y > y) || (v2.y <= y && v1.y > y)) {
-              const t = (y - v1.y) / (v2.y - v1.y);
-              const x = v1.x + t * (v2.x - v1.x);
-              ints.push(x);
-            }
-          }
-          ints.sort((a, b) => a - b);
-          const row: [number, number][] = [];
-          for (let i = 0; i < ints.length - 1; i += 2) {
-            const startX = Math.floor(ints[i]);
-            const endX = this.pxlEdgeEnabled
-              ? Math.ceil(ints[i + 1]) - 1
-              : Math.ceil(ints[i + 1]);
-            if (endX >= startX) {
-              row.push([startX, endX]);
-            }
-          }
-          spans.push(row);
-        }
+        const spans = buildNonZeroWindingRowSpans({
+          vertices,
+          minX: x0,
+          minY: y0,
+          maxX: Math.ceil(maxX),
+          maxY: Math.ceil(maxY),
+          useWholeEdgeCells: this.pxlEdgeEnabled,
+        });
 
         const dirLength = Math.sqrt(direction.x * direction.x + direction.y * direction.y) || 1;
         const dirX = direction.x / dirLength;
@@ -4873,6 +4857,14 @@ export class ColorCycleBrushCanvas2D {
     let cErrNext = new Float32Array(cellsAcross);
     // Cache per-cell output index so each cell uses one decision across its full height
     const cellOutIdx: Int16Array[] = Array.from({ length: cellsDown }, () => new Int16Array(cellsAcross).fill(-1));
+    const scanlineSpans = buildNonZeroWindingRowSpans({
+      vertices,
+      minX: ixBase,
+      minY: iyBase,
+      maxX: Math.ceil(maxX),
+      maxY: Math.ceil(maxY),
+      useWholeEdgeCells: this.pxlEdgeEnabled,
+    });
 
     for (let y = Math.floor(minY), rowIdx = 0; y <= Math.ceil(maxY); y++, rowIdx++) {
       await yieldIfNeeded(rowIdx);
@@ -4891,37 +4883,9 @@ export class ColorCycleBrushCanvas2D {
 
       const serpentine = (rowIdx & 1) === 1; // per-pixel path serpentine
       const serpentineCell = ((Math.floor(rowIdx / Math.max(1, cellSize)) & 1) === 1); // block path serpentine
-      const intersections: number[] = [];
+      const rowSpans = scanlineSpans[rowIdx] ?? [];
 
-      // Find all edge intersections with this scanline
-      for (let i = 0; i < vertices.length; i++) {
-        const v1 = vertices[i];
-        const v2 = vertices[(i + 1) % vertices.length];
-
-        if (Math.abs(v2.y - v1.y) < 0.0001) continue;
-
-        if ((v1.y <= y && v2.y > y) || (v2.y <= y && v1.y > y)) {
-          const t = (y - v1.y) / (v2.y - v1.y);
-          const x = v1.x + t * (v2.x - v1.x);
-          intersections.push(x);
-        }
-      }
-
-      intersections.sort((a, b) => a - b);
-
-      // Fill between pairs of intersections
-      for (let i = 0; i < intersections.length - 1; i += 2) {
-        const startFloat = intersections[i];
-        const endFloat = intersections[i + 1];
-        if (endFloat <= startFloat) continue;
-
-        const startX = Math.floor(startFloat);
-        const endX = this.pxlEdgeEnabled
-          ? Math.ceil(endFloat) - 1
-          : Math.ceil(endFloat);
-        if (endX < startX) {
-          continue;
-        }
+      for (const [startX, endX] of rowSpans) {
 
         const quantizeCoord = (value: number, base: number, limit: number) => {
           const local = value - base;

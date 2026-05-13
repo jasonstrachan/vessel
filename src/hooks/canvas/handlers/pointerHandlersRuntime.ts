@@ -391,6 +391,15 @@ export const shouldAllowOutOfBoundsPointerDown = (
 const shouldUseMagicWandSelectionMode = (tools: EventHandlerDynamicDeps['tools']): boolean =>
   tools.currentTool === 'selection' && (tools.selectionMode ?? 'marquee') === 'magic-wand';
 
+const isColorCycleGradientStrokeMode = (
+  tools: EventHandlerDynamicDeps['tools'],
+  brushPresetId: string | null
+): boolean =>
+  tools.currentTool === 'brush' &&
+  brushPresetId === 'color-cycle-gradient' &&
+  tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE_SHAPE &&
+  tools.brushSettings.colorCycleFillMode === 'stroke';
+
 const computeOpposingAxis = (points: Array<{ x: number; y: number }>) => {
   if (points.length < 2) {
     return {
@@ -1087,7 +1096,8 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
     const activeBrushShape = brushSettings.brushShape ?? BrushShape.ROUND;
     const isColorCycleShapePreview = activeBrushShape === BrushShape.COLOR_CYCLE_SHAPE;
     const isColorCycleGradientPreview =
-      isColorCycleShapePreview && brushSettings.colorCycleFillMode === 'linear';
+      isColorCycleShapePreview &&
+      (brushSettings.colorCycleFillMode === 'linear' || brushSettings.colorCycleFillMode === 'stroke');
     const isDitherShapePreview = currentBrushPresetId === 'dither-shape';
     const previewOpacity = resolveShapePreviewOpacity({
       isColorCycleGradientPreview,
@@ -1242,7 +1252,10 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
       } else {
         bufferCtx.fillStyle = strokeColor;
       }
-    } else if (isColorCycleShapePreview && brushSettings.colorCycleFillMode === 'linear') {
+    } else if (
+      isColorCycleShapePreview &&
+      (brushSettings.colorCycleFillMode === 'linear' || brushSettings.colorCycleFillMode === 'stroke')
+    ) {
       const ccPreview = activeLayerId
         ? getPreviewGradientForActiveMark(activeLayerId)
         : null;
@@ -2476,13 +2489,17 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
     const shouldRouteToShapeHandler =
       tools.currentTool === 'brush' &&
       isAdvancedShapeBrush(tools.brushSettings.brushShape);
+    const isCcGradientStrokeMode = isColorCycleGradientStrokeMode(
+      tools,
+      getDynamicDeps().currentBrushPresetId
+    );
 
     // Cursor rule: shapes use crosshair; stroke brushes use brush-size cursor when allowed
     applyToolCursor({
       isColorPicker: false,
       useCrosshair:
-        shouldRouteToShapeHandler ||
-        tools.shapeMode ||
+        (shouldRouteToShapeHandler && !isCcGradientStrokeMode) ||
+        (tools.shapeMode && !isCcGradientStrokeMode) ||
         shouldUseMagicWandSelectionMode(tools),
     });
 
@@ -3200,6 +3217,10 @@ function resampleStopsToColors(stops: Stop[], count: number): string[] {
     const shouldRouteToShapeHandler =
       tools.currentTool === 'brush' &&
       isAdvancedShapeBrush(tools.brushSettings.brushShape);
+    const isCcGradientStrokeMode = isColorCycleGradientStrokeMode(
+      tools,
+      getDynamicDeps().currentBrushPresetId
+    );
 
     // Check if we're in hatch adjustment mode
     if (shouldRouteToShapeHandler && shapeHandler.handlePointerMove(event as React.PointerEvent<HTMLCanvasElement>)) {
@@ -3233,8 +3254,8 @@ function resampleStopsToColors(stops: Stop[], count: number): string[] {
       applyToolCursor({
         isColorPicker: false,
         useCrosshair:
-          shouldRouteToShapeHandler ||
-          tools.shapeMode ||
+          (shouldRouteToShapeHandler && !isCcGradientStrokeMode) ||
+          (tools.shapeMode && !isCcGradientStrokeMode) ||
           shouldUseMagicWandSelectionMode(tools),
       });
     }

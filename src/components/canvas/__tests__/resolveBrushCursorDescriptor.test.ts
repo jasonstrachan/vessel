@@ -90,4 +90,50 @@ describe('resolveBrushCursorDescriptor', () => {
       tipShape: 'checkered',
     });
   });
+
+  it('uses a line cursor for CC gradient stroke fill mode', () => {
+    const descriptor = resolveBrushCursorDescriptor({
+      tools: {
+        ...baseTools,
+        brushSettings: {
+          ...baseTools.brushSettings,
+          size: 24,
+          brushShape: BrushShape.COLOR_CYCLE_SHAPE,
+          colorCycleFillMode: 'stroke',
+        },
+      },
+      globalBrushSize: 24,
+    });
+
+    expect(descriptor).toEqual({
+      kind: 'stroke-line',
+      pixelSize: 24,
+      rotationEnabled: false,
+      rotationRadians: 0,
+    });
+  });
+
+  it('carries rotation settings for the CC gradient stroke line cursor', () => {
+    const descriptor = resolveBrushCursorDescriptor({
+      tools: {
+        ...baseTools,
+        brushSettings: {
+          ...baseTools.brushSettings,
+          size: 24,
+          brushShape: BrushShape.COLOR_CYCLE_SHAPE,
+          colorCycleFillMode: 'stroke',
+          rotationEnabled: true,
+          rotation: Math.PI / 4,
+        },
+      },
+      globalBrushSize: 24,
+    });
+
+    expect(descriptor).toEqual({
+      kind: 'stroke-line',
+      pixelSize: 24,
+      rotationEnabled: true,
+      rotationRadians: Math.PI / 4,
+    });
+  });
 });

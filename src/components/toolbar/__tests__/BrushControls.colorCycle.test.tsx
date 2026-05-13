@@ -766,7 +766,9 @@ describe('BrushControls – Color Cycle gradient fill mode', () => {
     }));
 
     const { unmount } = render(<BrushControls />);
+    expect(screen.getByRole('button', { name: 'Grad' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Concentric' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Stroke' })).toBeInTheDocument();
     unmount();
 
     useAppStore.setState((state) => ({
@@ -800,6 +802,59 @@ describe('BrushControls – Color Cycle gradient fill mode', () => {
     render(<BrushControls />);
     await user.click(screen.getByRole('button', { name: 'Concentric' }));
     expect(useAppStore.getState().tools.brushSettings.colorCycleFillMode).toBe('concentric');
+    await user.click(screen.getByRole('button', { name: 'Stroke' }));
+    expect(useAppStore.getState().tools.brushSettings.colorCycleFillMode).toBe('stroke');
+  });
+
+  it('places stroke immediately after grad in the gradient fill mode tabs', () => {
+    useAppStore.setState((state) => ({
+      ...state,
+      tools: {
+        ...state.tools,
+        brushSettings: {
+          ...state.tools.brushSettings,
+          brushShape: 'color_cycle_shape' as BrushSettings['brushShape'],
+          customBrushColorCycle: false,
+          customBrushColorCycleMode: 'tip',
+          colorCycleFillMode: 'linear',
+        },
+      },
+      brushPresets: [{ id: 'color-cycle-gradient', name: 'CC Gradient' } as AppState['brushPresets'][number]],
+      currentBrushPreset: { id: 'color-cycle-gradient', name: 'CC Gradient' } as AppState['currentBrushPreset'],
+    }));
+
+    render(<BrushControls />);
+
+    const grad = screen.getByRole('button', { name: 'Grad' });
+    const stroke = screen.getByRole('button', { name: 'Stroke' });
+    const concentric = screen.getByRole('button', { name: 'Concentric' });
+    expect(grad.compareDocumentPosition(stroke) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(stroke.compareDocumentPosition(concentric) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('shows pressure controls in CC gradient stroke mode', () => {
+    useAppStore.setState((state) => ({
+      ...state,
+      tools: {
+        ...state.tools,
+        brushSettings: {
+          ...state.tools.brushSettings,
+          brushShape: 'color_cycle_shape' as BrushSettings['brushShape'],
+          customBrushColorCycle: false,
+          customBrushColorCycleMode: 'tip',
+          colorCycleFillMode: 'stroke',
+          pressureEnabled: false,
+        },
+      },
+      brushPresets: [{ id: 'color-cycle-gradient', name: 'CC Gradient' } as AppState['brushPresets'][number]],
+      currentBrushPreset: { id: 'color-cycle-gradient', name: 'CC Gradient' } as AppState['currentBrushPreset'],
+    }));
+
+    render(<BrushControls />);
+
+    expect(screen.getByRole('button', { name: 'Stroke' })).toBeInTheDocument();
+    expect(document.getElementById('pressure-enabled-color-cycle')).toBeInTheDocument();
+    expect(document.getElementById('rotation-enabled-color-cycle')).toBeInTheDocument();
   });
 
   it('shows and applies the CC gradient Colors slider when concentric dither is off', () => {
