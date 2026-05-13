@@ -159,6 +159,14 @@ const createCanvasFromImageData = (imageData: ImageData): HTMLCanvasElement => {
   return canvas;
 };
 
+const bytesToBase64 = (bytes: Uint8Array): string => {
+  let binary = '';
+  bytes.forEach((byte) => {
+    binary += String.fromCharCode(byte);
+  });
+  return btoa(binary);
+};
+
 const encodeRawImageDataUrl = (imageData: ImageData): string => {
   const rawData = {
     width: imageData.width,
@@ -5967,6 +5975,223 @@ describe('projectIO serialize/deserialize layering', () => {
       reason: 'missing-paint-buffer',
     }));
     expect(hasVisiblePixel).toBe(false);
+  });
+
+  it('restores explicit cleared brushState snapshots without failing runtime verification', async () => {
+    const layerId = 'layer-cc-explicit-cleared-brush-state';
+    const projectPayload = {
+      version: '1.1.0',
+      metadata: {
+        name: 'cc-explicit-cleared-brush-state',
+        created: '2025-01-01T00:00:00.000Z',
+        modified: '2025-01-01T00:00:00.000Z',
+        appVersion: '1.0.0',
+      },
+      project: {
+        id: 'p-cc-explicit-cleared-brush-state',
+        name: 'cc-explicit-cleared-brush-state',
+        width: 2,
+        height: 2,
+        backgroundColor: '#000000',
+        customBrushes: [],
+        layers: [{
+          id: layerId,
+          name: 'CC Explicit Cleared Brush State',
+          visible: true,
+          opacity: 1,
+          blendMode: 'source-over',
+          locked: false,
+          transparencyLocked: false,
+          order: 0,
+          layerType: 'color-cycle',
+          alignment: createDefaultLayerAlignment(),
+          colorCycleData: {
+            mode: 'brush',
+            canvasImageData: encodeRawImageDataUrl(createSolidImageData(2, 2, [0, 0, 0, 0])),
+            canvasWidth: 2,
+            canvasHeight: 2,
+            gradient: [
+              { position: 0, color: '#000000' },
+              { position: 1, color: '#ffffff' },
+            ],
+            brushState: {
+              layers: [{
+                layerId,
+                strokeData: {
+                  hasContent: false,
+                  paintBuffer: bytesToBase64(new Uint8Array(4).fill(0)),
+                  gradientIdBuffer: bytesToBase64(new Uint8Array(4).fill(0)),
+                  gradientDefIdBuffer: bytesToBase64(new Uint8Array(new Uint16Array(4).fill(0).buffer)),
+                  speedBuffer: bytesToBase64(new Uint8Array(4).fill(0)),
+                  flowBuffer: bytesToBase64(new Uint8Array(4).fill(0)),
+                  phaseBuffer: bytesToBase64(new Uint8Array(4).fill(0)),
+                },
+              }],
+            },
+          },
+        }],
+      },
+    };
+
+    const restored = await deserializeProjectWithReport(JSON.stringify(projectPayload));
+    const [restoredLayer] = await restoreColorCycleBrushes(restored.project.layers);
+    const brush = restoredLayer.colorCycleData?.colorCycleBrush as
+      | { getLayerSnapshot?: (id: string) => { hasContent?: boolean; paintBuffer?: ArrayBuffer } | undefined }
+      | undefined;
+    const snapshot = brush?.getLayerSnapshot?.(layerId);
+
+    expect(restoredLayer.colorCycleData?.runtimeHydrationState).toBe('warm');
+    expect(restoredLayer.colorCycleData?.repairStatus).toBeUndefined();
+    expect(brush).toBeDefined();
+    expect(snapshot?.hasContent).toBe(false);
+    expect(Array.from(new Uint8Array(snapshot?.paintBuffer ?? new ArrayBuffer(0)))).toEqual([0, 0, 0, 0]);
+  });
+
+  it('verifies marked canonical all-zero brushState snapshots with missing content flags as expected runtime content', async () => {
+    const layerId = 'layer-cc-canonical-slot-zero-brush-state';
+    const projectPayload = {
+      version: '1.1.0',
+      metadata: {
+        name: 'cc-canonical-slot-zero-brush-state',
+        created: '2025-01-01T00:00:00.000Z',
+        modified: '2025-01-01T00:00:00.000Z',
+        appVersion: '1.0.0',
+      },
+      project: {
+        id: 'p-cc-canonical-slot-zero-brush-state',
+        name: 'cc-canonical-slot-zero-brush-state',
+        width: 2,
+        height: 2,
+        backgroundColor: '#000000',
+        customBrushes: [],
+        layers: [{
+          id: layerId,
+          name: 'CC Canonical Slot Zero Brush State',
+          visible: true,
+          opacity: 1,
+          blendMode: 'source-over',
+          locked: false,
+          transparencyLocked: false,
+          order: 0,
+          layerType: 'color-cycle',
+          alignment: createDefaultLayerAlignment(),
+          colorCycleData: {
+            mode: 'brush',
+            canvasImageData: encodeRawImageDataUrl(createSolidImageData(2, 2, [0, 0, 0, 0])),
+            canvasWidth: 2,
+            canvasHeight: 2,
+            gradient: [
+              { position: 0, color: '#000000' },
+              { position: 1, color: '#ffffff' },
+            ],
+            brushState: {
+              canonicalPaint: true,
+              schemaVersion: 1,
+              layers: [{
+                layerId,
+                canonicalPaint: true,
+                schemaVersion: 1,
+                strokeData: {
+                  paintBuffer: bytesToBase64(new Uint8Array(4).fill(0)),
+                  gradientIdBuffer: bytesToBase64(new Uint8Array(4).fill(0)),
+                  gradientDefIdBuffer: bytesToBase64(new Uint8Array(new Uint16Array(4).fill(1).buffer)),
+                  speedBuffer: bytesToBase64(new Uint8Array(4).fill(0)),
+                  flowBuffer: bytesToBase64(new Uint8Array(4).fill(0)),
+                  phaseBuffer: bytesToBase64(new Uint8Array(4).fill(0)),
+                },
+              }],
+            },
+          },
+        }],
+      },
+    };
+
+    const restored = await deserializeProjectWithReport(JSON.stringify(projectPayload));
+    const [restoredLayer] = await restoreColorCycleBrushes(restored.project.layers);
+    const brush = restoredLayer.colorCycleData?.colorCycleBrush as
+      | { getLayerSnapshot?: (id: string) => { hasContent?: boolean; paintBuffer?: ArrayBuffer } | undefined }
+      | undefined;
+    const snapshot = brush?.getLayerSnapshot?.(layerId);
+
+    expect(restoredLayer.colorCycleData?.runtimeHydrationState).toBe('warm');
+    expect(restoredLayer.colorCycleData?.repairStatus).toBeUndefined();
+    expect(brush).toBeDefined();
+    expect(snapshot?.hasContent).toBe(true);
+    expect(Array.from(new Uint8Array(snapshot?.paintBuffer ?? new ArrayBuffer(0)))).toEqual([0, 0, 0, 0]);
+  });
+
+  it('preserves explicit false on marked canonical all-zero brushState snapshots', async () => {
+    const layerId = 'layer-cc-canonical-explicit-clear-brush-state';
+    const projectPayload = {
+      version: '1.1.0',
+      metadata: {
+        name: 'cc-canonical-explicit-clear-brush-state',
+        created: '2025-01-01T00:00:00.000Z',
+        modified: '2025-01-01T00:00:00.000Z',
+        appVersion: '1.0.0',
+      },
+      project: {
+        id: 'p-cc-canonical-explicit-clear-brush-state',
+        name: 'cc-canonical-explicit-clear-brush-state',
+        width: 2,
+        height: 2,
+        backgroundColor: '#000000',
+        customBrushes: [],
+        layers: [{
+          id: layerId,
+          name: 'CC Canonical Explicit Clear Brush State',
+          visible: true,
+          opacity: 1,
+          blendMode: 'source-over',
+          locked: false,
+          transparencyLocked: false,
+          order: 0,
+          layerType: 'color-cycle',
+          alignment: createDefaultLayerAlignment(),
+          colorCycleData: {
+            mode: 'brush',
+            canvasImageData: encodeRawImageDataUrl(createSolidImageData(2, 2, [0, 0, 0, 0])),
+            canvasWidth: 2,
+            canvasHeight: 2,
+            gradient: [
+              { position: 0, color: '#000000' },
+              { position: 1, color: '#ffffff' },
+            ],
+            brushState: {
+              canonicalPaint: true,
+              schemaVersion: 1,
+              layers: [{
+                layerId,
+                canonicalPaint: true,
+                schemaVersion: 1,
+                strokeData: {
+                  hasContent: false,
+                  paintBuffer: bytesToBase64(new Uint8Array(4).fill(0)),
+                  gradientIdBuffer: bytesToBase64(new Uint8Array(4).fill(0)),
+                  gradientDefIdBuffer: bytesToBase64(new Uint8Array(new Uint16Array(4).fill(1).buffer)),
+                  speedBuffer: bytesToBase64(new Uint8Array(4).fill(0)),
+                  flowBuffer: bytesToBase64(new Uint8Array(4).fill(0)),
+                  phaseBuffer: bytesToBase64(new Uint8Array(4).fill(0)),
+                },
+              }],
+            },
+          },
+        }],
+      },
+    };
+
+    const restored = await deserializeProjectWithReport(JSON.stringify(projectPayload));
+    const [restoredLayer] = await restoreColorCycleBrushes(restored.project.layers);
+    const brush = restoredLayer.colorCycleData?.colorCycleBrush as
+      | { getLayerSnapshot?: (id: string) => { hasContent?: boolean; paintBuffer?: ArrayBuffer } | undefined }
+      | undefined;
+    const snapshot = brush?.getLayerSnapshot?.(layerId);
+
+    expect(restoredLayer.colorCycleData?.runtimeHydrationState).toBe('warm');
+    expect(restoredLayer.colorCycleData?.repairStatus).toBeUndefined();
+    expect(brush).toBeDefined();
+    expect(snapshot?.hasContent).toBe(false);
+    expect(Array.from(new Uint8Array(snapshot?.paintBuffer ?? new ArrayBuffer(0)))).toEqual([0, 0, 0, 0]);
   });
 
   it('prefers live color-cycle canvas pixels over stale empty canvasImageData when saving', async () => {

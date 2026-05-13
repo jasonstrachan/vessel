@@ -112,6 +112,10 @@ export const ccPayloadHasNonZeroByte = (value: unknown): boolean => {
   return false;
 };
 
+export const ccPayloadHasBytes = (value: unknown): boolean => Boolean(
+  normalizeCcPayloadArrayBuffer(value)?.byteLength,
+);
+
 export const ccSnapshotHasPaintPayload = (
   snapshot: { paintBuffer?: ArrayBuffer; hasContent?: boolean } | ArrayBuffer | null | undefined,
 ): boolean => {
@@ -128,13 +132,16 @@ export const brushStateHasColorCyclePaintPayload = (
   brushState: unknown,
   targetLayerId?: string,
 ): boolean => {
-  const snapshots = (brushState as SerializedBrushStateLike | undefined)?.layers;
+  const state = brushState as (SerializedBrushStateLike & { canonicalPaint?: boolean }) | undefined;
+  const snapshots = state?.layers;
   return Boolean(snapshots?.some((snapshot) => {
     if (targetLayerId && snapshot.layerId && snapshot.layerId !== targetLayerId) {
       return false;
     }
     const strokeData = snapshot.strokeData;
     const paintBuffer = strokeData?.paintBuffer;
+    const hasCanonicalMarker = state?.canonicalPaint === true || (snapshot as { canonicalPaint?: boolean }).canonicalPaint === true;
+    const hasExplicitContentFlag = strokeData?.hasContent !== undefined;
     const hasSerializedPaintRef = (
       typeof paintBuffer === 'string' &&
       paintBuffer.length > 0 &&
@@ -142,6 +149,7 @@ export const brushStateHasColorCyclePaintPayload = (
     );
     return Boolean(
       strokeData?.hasContent === true ||
+      (!hasExplicitContentFlag && hasCanonicalMarker && ccPayloadHasBytes(paintBuffer)) ||
       ccPayloadHasNonZeroByte(paintBuffer) ||
       hasSerializedPaintRef
     );
@@ -162,7 +170,19 @@ export const extractCanonicalBrushStateLayerSnapshot = (
   }
   const paintBuffer = normalizeCcPayloadArrayBuffer(strokeData.paintBuffer);
   const hasContent = strokeData.hasContent === true;
-  if (!paintBuffer || (!hasContent && !ccPayloadHasNonZeroByte(paintBuffer))) {
+  const hasExplicitContentFlag = strokeData.hasContent !== undefined;
+  const hasCanonicalMarker = (
+    (brushState as { canonicalPaint?: boolean }).canonicalPaint === true ||
+    (serializedSnapshot as { canonicalPaint?: boolean }).canonicalPaint === true
+  );
+  if (
+    !paintBuffer ||
+    (
+      !hasContent &&
+      !ccPayloadHasNonZeroByte(paintBuffer) &&
+      (hasExplicitContentFlag || !hasCanonicalMarker)
+    )
+  ) {
     return null;
   }
   const gradientIdBuffer = normalizeCcPayloadArrayBuffer(strokeData.gradientIdBuffer)
@@ -219,7 +239,7 @@ export const layerHasCanonicalColorCyclePaintPayload = (layer: Layer | undefined
   }).state;
   return Boolean(
     documentState?.hasContent === true ||
-    ccPayloadHasNonZeroByte(documentState?.paintRef) ||
+    ccPayloadHasBytes(documentState?.paintRef) ||
     layer.colorCycleData.hasContent === true ||
     brushStateHasColorCyclePaintPayload(layer.colorCycleData.brushState, layer.id) ||
     layer.colorCycleData.repairStatus?.ok === false
@@ -236,7 +256,7 @@ export const hasRecoverableColorCycleRuntimeSource = (layer: Layer | undefined):
     };
   }).state;
   return Boolean(
-    ccPayloadHasNonZeroByte(documentState?.paintRef) ||
+    ccPayloadHasBytes(documentState?.paintRef) ||
     brushStateHasColorCyclePaintPayload(layer.colorCycleData.brushState, layer.id)
   );
 };

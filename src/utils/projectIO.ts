@@ -52,7 +52,6 @@ import {
   summarizeSerializedColorCycleLayer,
 } from '@/utils/colorCycle/ccMutationAudit';
 import {
-  ccPayloadHasNonZeroByte,
   hasRecoverableColorCycleRuntimeSource,
 } from '@/utils/colorCycle/resolveColorCycleRuntimeRestore';
 import { repairLegacyColorCycleLayer, type ColorCycleLegacyRepairResult } from '@/lib/colorCycle/legacyRepair';
@@ -5712,6 +5711,14 @@ const restoreColorCycleLayerRuntimeForMaterialization = async (
             const phaseBuffer = snapshot.strokeData?.phaseBuffer
               ? base64ToArrayBuffer(snapshot.strokeData.phaseBuffer)
               : undefined;
+            const hasCanonicalPaintMarker = Boolean(
+              savedBrushState.canonicalPaint === true ||
+              snapshot.canonicalPaint === true,
+            );
+            const hasPaintBytes = paintBuffer instanceof ArrayBuffer && paintBuffer.byteLength > 0;
+            const inferredHasContent = snapshot.strokeData?.hasContent === undefined
+              ? hasCanonicalPaintMarker && hasPaintBytes
+              : snapshot.strokeData.hasContent === true;
             const animatorIndex = snapshot.animator
               ? {
                   width: snapshot.animator.indexBuffer.width,
@@ -5748,7 +5755,7 @@ const restoreColorCycleLayerRuntimeForMaterialization = async (
               speedBuffer,
               flowBuffer,
               phaseBuffer,
-              hasContent: snapshot.strokeData?.hasContent,
+              hasContent: inferredHasContent,
               strokeCounter: snapshot.strokeData?.strokeCounter,
               animatorIndex
             };
@@ -5897,9 +5904,20 @@ const restoreColorCycleLayerRuntimeForMaterialization = async (
             }
           }
 
+          const currentSavedLayerSnapshot = (savedBrushState.layers ?? [])
+            .find((snapshot) => snapshot.layerId === layer.id);
+          const currentLayerHasCanonicalPaintMarker = Boolean(
+            savedBrushState.canonicalPaint === true ||
+            currentSavedLayerSnapshot?.canonicalPaint === true,
+          );
+          const currentLayerHasExplicitContentFlag = currentSavedLayerSnapshot?.strokeData?.hasContent !== undefined;
+          const currentLayerHasPaintBytes = Boolean(
+            currentLayerSnapshot?.paintBuffer instanceof ArrayBuffer &&
+            currentLayerSnapshot.paintBuffer.byteLength > 0,
+          );
           const expectsCurrentLayerContent = Boolean(
             currentLayerSnapshot?.hasContent === true ||
-            ccPayloadHasNonZeroByte(currentLayerSnapshot?.paintBuffer),
+            (!currentLayerHasExplicitContentFlag && currentLayerHasCanonicalPaintMarker && currentLayerHasPaintBytes),
           );
           if (expectsCurrentLayerContent && typeof colorCycleBrush.getLayerSnapshot === 'function') {
             const restoredCurrentLayerSnapshot = colorCycleBrush.getLayerSnapshot(layer.id);

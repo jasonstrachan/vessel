@@ -144,6 +144,43 @@ describe('resolveColorCycleRuntimeRestore', () => {
     ).toEqual([0, 0, 0, 0]);
   });
 
+  it('recovers all-slot-zero marked canonical paint even when legacy hasContent is missing', () => {
+    const layer = makeLayer({
+      mode: 'brush',
+      hasContent: false,
+      brushState: {
+        canonicalPaint: true,
+        schemaVersion: 1,
+        layers: [{
+          layerId: 'layer-cc',
+          strokeData: {
+            paintBuffer: bytesToBase64(new Uint8Array([0, 0, 0, 0])),
+            gradientIdBuffer: bytesToBase64(new Uint8Array([0, 0, 0, 0])),
+            gradientDefIdBuffer: bytesToBase64(new Uint8Array(new Uint16Array([1, 1, 1, 1]).buffer)),
+            speedBuffer: bytesToBase64(new Uint8Array([0, 0, 0, 0])),
+            flowBuffer: bytesToBase64(new Uint8Array([0, 0, 0, 0])),
+            phaseBuffer: bytesToBase64(new Uint8Array([0, 0, 0, 0])),
+          },
+        }],
+      },
+    });
+
+    expect(brushStateHasColorCyclePaintPayload(layer.colorCycleData?.brushState, layer.id)).toBe(true);
+    expect(hasRecoverableColorCycleRuntimeSource(layer)).toBe(true);
+
+    const action = resolveColorCycleRuntimeRestore({
+      layer,
+      incomingSnapshot: { paintBuffer: new ArrayBuffer(0), hasContent: false },
+      projectLoadRestore: true,
+    });
+
+    expect(action.kind).toBe('recover-from-canonical');
+    expect(action.kind === 'recover-from-canonical'
+      ? Array.from(new Uint8Array(action.snapshot.paintBuffer))
+      : []
+    ).toEqual([0, 0, 0, 0]);
+  });
+
   it('does not treat another layer brushState snapshot as canonical payload for this layer', () => {
     const layer = makeLayer({
       mode: 'brush',

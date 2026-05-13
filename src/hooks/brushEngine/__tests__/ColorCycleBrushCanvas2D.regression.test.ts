@@ -3572,6 +3572,157 @@ describe('ColorCycleBrushCanvas2D regression tests', () => {
     ]));
   });
 
+  it('recovers marked canonical slot-zero project restore when content flag is missing', () => {
+    window.localStorage.clear();
+    delete (window as Window & { __VESSEL_CC_MUTATION_LOG__?: unknown }).__VESSEL_CC_MUTATION_LOG__;
+
+    const canvas = makeCanvas(4, 4);
+    const brush = new ColorCycleBrushCanvas2D(canvas, { forceCanvas2D: true });
+    const layerId = 'layer-marked-canonical-slot-zero-restore';
+    brush.applyLayerSnapshot(layerId, {
+      paintBuffer: new Uint8Array(16).fill(9).buffer,
+      gradientIdBuffer: new Uint8Array(16).fill(2).buffer,
+      gradientDefIdBuffer: new Uint16Array(16).fill(4).buffer,
+      speedBuffer: new Uint8Array(16).fill(5).buffer,
+      flowBuffer: new Uint8Array(16).fill(6).buffer,
+      phaseBuffer: new Uint8Array(16).fill(7).buffer,
+      hasContent: true,
+      strokeCounter: 1,
+    });
+    const state = useAppStore.getState() as unknown as MockStoreState;
+    state.layers = [{
+      id: layerId,
+      layerType: 'color-cycle',
+      colorCycleData: {
+        hasContent: false,
+        brushState: {
+          canonicalPaint: true,
+          schemaVersion: 1,
+          layers: [{
+            layerId,
+            strokeData: {
+              paintBuffer: bytesToBase64(new Uint8Array(16).fill(0)),
+              gradientIdBuffer: bytesToBase64(new Uint8Array(16).fill(0)),
+              gradientDefIdBuffer: bytesToBase64(new Uint8Array(new Uint16Array(16).fill(1).buffer)),
+              speedBuffer: bytesToBase64(new Uint8Array(16).fill(0)),
+              flowBuffer: bytesToBase64(new Uint8Array(16).fill(0)),
+              phaseBuffer: bytesToBase64(new Uint8Array(16).fill(0)),
+            },
+          }],
+        },
+      },
+    }];
+    window.localStorage.clear();
+    delete (window as Window & { __VESSEL_CC_MUTATION_LOG__?: unknown }).__VESSEL_CC_MUTATION_LOG__;
+
+    brush.restoreFullState({
+      layerSnapshots: [{
+        layerId,
+        paintBuffer: new Uint8Array(16).fill(0).buffer,
+        gradientIdBuffer: new Uint8Array(16).fill(0).buffer,
+        gradientDefIdBuffer: new Uint16Array(16).fill(1).buffer,
+        speedBuffer: new Uint8Array(16).fill(0).buffer,
+        flowBuffer: new Uint8Array(16).fill(0).buffer,
+        phaseBuffer: new Uint8Array(16).fill(0).buffer,
+        strokeCounter: 2,
+      }],
+    });
+
+    const snapshot = brush.getLayerSnapshot(layerId);
+    expect(snapshot?.hasContent).toBe(true);
+    expect(Array.from(new Uint8Array(snapshot?.paintBuffer ?? new ArrayBuffer(0)))).toEqual(new Array(16).fill(0));
+    expect(Array.from(new Uint16Array(snapshot?.gradientDefIdBuffer ?? new ArrayBuffer(0)))).toEqual(new Array(16).fill(1));
+    expect(getPersistedCCMutationLog()).toEqual([
+      expect.objectContaining({
+        event: 'cc-empty-live-buffer-write-blocked',
+        layerId,
+        reason: 'restoreFullState',
+        details: expect.objectContaining({
+          snapshotReason: 'project-load-restore',
+          brushStateHasPayload: true,
+        }),
+      }),
+      expect.objectContaining({
+        event: 'cc-empty-live-buffer-write-blocked',
+        layerId,
+        reason: 'applyLayerSnapshot',
+        details: expect.objectContaining({
+          restoredFromCanonicalBrushState: true,
+        }),
+      }),
+    ]);
+  });
+
+  it('does not recover marked canonical slot-zero project restore when content flag is explicitly false', () => {
+    window.localStorage.clear();
+    delete (window as Window & { __VESSEL_CC_MUTATION_LOG__?: unknown }).__VESSEL_CC_MUTATION_LOG__;
+
+    const canvas = makeCanvas(4, 4);
+    const brush = new ColorCycleBrushCanvas2D(canvas, { forceCanvas2D: true });
+    const layerId = 'layer-marked-canonical-slot-zero-explicit-clear';
+    brush.applyLayerSnapshot(layerId, {
+      paintBuffer: new Uint8Array(16).fill(9).buffer,
+      gradientIdBuffer: new Uint8Array(16).fill(2).buffer,
+      gradientDefIdBuffer: new Uint16Array(16).fill(4).buffer,
+      speedBuffer: new Uint8Array(16).fill(5).buffer,
+      flowBuffer: new Uint8Array(16).fill(6).buffer,
+      phaseBuffer: new Uint8Array(16).fill(7).buffer,
+      hasContent: true,
+      strokeCounter: 1,
+    });
+    const state = useAppStore.getState() as unknown as MockStoreState;
+    state.layers = [{
+      id: layerId,
+      layerType: 'color-cycle',
+      colorCycleData: {
+        hasContent: false,
+        brushState: {
+          canonicalPaint: true,
+          schemaVersion: 1,
+          layers: [{
+            layerId,
+            strokeData: {
+              hasContent: false,
+              paintBuffer: bytesToBase64(new Uint8Array(16).fill(0)),
+              gradientIdBuffer: bytesToBase64(new Uint8Array(16).fill(0)),
+              gradientDefIdBuffer: bytesToBase64(new Uint8Array(new Uint16Array(16).fill(1).buffer)),
+              speedBuffer: bytesToBase64(new Uint8Array(16).fill(0)),
+              flowBuffer: bytesToBase64(new Uint8Array(16).fill(0)),
+              phaseBuffer: bytesToBase64(new Uint8Array(16).fill(0)),
+            },
+          }],
+        },
+      },
+    }];
+    window.localStorage.clear();
+    delete (window as Window & { __VESSEL_CC_MUTATION_LOG__?: unknown }).__VESSEL_CC_MUTATION_LOG__;
+
+    brush.restoreFullState({
+      layerSnapshots: [{
+        layerId,
+        paintBuffer: new Uint8Array(16).fill(0).buffer,
+        gradientIdBuffer: new Uint8Array(16).fill(0).buffer,
+        gradientDefIdBuffer: new Uint16Array(16).fill(1).buffer,
+        speedBuffer: new Uint8Array(16).fill(0).buffer,
+        flowBuffer: new Uint8Array(16).fill(0).buffer,
+        phaseBuffer: new Uint8Array(16).fill(0).buffer,
+        hasContent: false,
+        strokeCounter: 2,
+      }],
+    });
+
+    const snapshot = brush.getLayerSnapshot(layerId);
+    expect(snapshot?.hasContent).toBe(false);
+    expect(Array.from(new Uint8Array(snapshot?.paintBuffer ?? new ArrayBuffer(0)))).toEqual(new Array(16).fill(0));
+    expect(getPersistedCCMutationLog()).toEqual([
+      expect.objectContaining({
+        event: 'color-cycle-layer-cleared',
+        layerId,
+        reason: 'project-load-restore',
+      }),
+    ]);
+  });
+
   it('allows history restore to clear paint when current layer metadata is stale', () => {
     window.localStorage.clear();
     delete (window as Window & { __VESSEL_CC_MUTATION_LOG__?: unknown }).__VESSEL_CC_MUTATION_LOG__;
