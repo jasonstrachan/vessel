@@ -19,10 +19,10 @@ const CANVAS_PRESETS = [
     description: 'Standard for Procreate "Square" preset.',
   },
   {
-    name: '3:4 Tablet/Portrait (2048×2732)',
-    width: 2048,
-    height: 2732,
-    description: 'Native resolution of an iPad Pro 12.9".',
+    name: '3:4 Tablet/Portrait (1920×2560)',
+    width: 1920,
+    height: 2560,
+    description: 'Slightly lower 3:4 tablet portrait preset.',
   },
   {
     name: '2:3 Vertical Art (2000×3000)',
