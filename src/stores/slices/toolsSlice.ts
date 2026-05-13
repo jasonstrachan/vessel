@@ -1816,9 +1816,15 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
       maxPressure: globalPressure.max,
     };
 
-    // Preserve Color Cycle dynamics across preset switches unless user changes them
-    // This keeps animation feel consistent between Color Cycle variants
-    if (currentSettings.colorCycleSpeed !== undefined && !hasUserColorCycleSpeed) {
+    const shouldPreserveColorCycleSpeed = preset.id !== 'color-cycle-gradient';
+
+    // Preserve Color Cycle dynamics across preset switches unless user changes them.
+    // CC Gradient is intentionally slower by default; only a saved gradient speed should override it.
+    if (
+      currentSettings.colorCycleSpeed !== undefined &&
+      !hasUserColorCycleSpeed &&
+      shouldPreserveColorCycleSpeed
+    ) {
       newBrushSettings.colorCycleSpeed = currentSettings.colorCycleSpeed;
     }
     if (

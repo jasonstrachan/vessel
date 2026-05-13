@@ -520,6 +520,51 @@ describe('tools slice', () => {
     expect(useAppStore.getState().tools.brushSettings.colorCycleSpeed).toBe(0.03);
   });
 
+  it('keeps the gradient preset speed at 0.03 after switching from another color cycle brush', () => {
+    const store = useAppStore.getState();
+    const strokePreset = brushPresets.find((preset) => preset.id === 'color-cycle-stroke');
+    const gradientPreset = brushPresets.find((preset) => preset.id === 'color-cycle-gradient');
+    expect(strokePreset).toBeTruthy();
+    expect(gradientPreset).toBeTruthy();
+
+    if (!strokePreset || !gradientPreset) {
+      return;
+    }
+
+    store.setBrushPreset(strokePreset);
+    expect(useAppStore.getState().tools.brushSettings.colorCycleSpeed).toBe(0.1);
+
+    store.setBrushPreset(gradientPreset);
+
+    expect(useAppStore.getState().tools.brushSettings.colorCycleSpeed).toBe(0.03);
+  });
+
+  it('restores saved color cycle speed for the gradient preset', () => {
+    useAppStore.setState((state) => ({
+      brushSpecificSettings: {
+        ...state.brushSpecificSettings,
+        'color-cycle-gradient': {
+          colorCycleSpeed: 0.25,
+        },
+      },
+    }));
+
+    const store = useAppStore.getState();
+    const strokePreset = brushPresets.find((preset) => preset.id === 'color-cycle-stroke');
+    const gradientPreset = brushPresets.find((preset) => preset.id === 'color-cycle-gradient');
+    expect(strokePreset).toBeTruthy();
+    expect(gradientPreset).toBeTruthy();
+
+    if (!strokePreset || !gradientPreset) {
+      return;
+    }
+
+    store.setBrushPreset(strokePreset);
+    store.setBrushPreset(gradientPreset);
+
+    expect(useAppStore.getState().tools.brushSettings.colorCycleSpeed).toBe(0.25);
+  });
+
   it('switches color cycle gradient source tabs in one action', () => {
     const store = useAppStore.getState();
     const gradientPreset = brushPresets.find((preset) => preset.id === 'color-cycle-gradient');
