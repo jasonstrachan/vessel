@@ -311,7 +311,7 @@ describe('fillCcGradientDither', () => {
     });
 
     expect(solved).not.toBeNull();
-    expect([solved?.lowIndex, solved?.highIndex]).toEqual([65, 191]);
+    expect([solved?.lowIndex, solved?.highIndex]).toEqual([32, 224]);
     expect(solved?.flatMix).toBeGreaterThan(0.43);
     expect(solved?.flatMix).toBeLessThan(0.44);
   });
@@ -341,8 +341,8 @@ describe('fillCcGradientDither', () => {
     expect((wide?.highIndex ?? 0) - (wide?.lowIndex ?? 0)).toBeGreaterThan(
       (tight?.highIndex ?? 0) - (tight?.lowIndex ?? 0)
     );
-    expect([tight?.lowIndex, tight?.highIndex]).toEqual([127, 129]);
-    expect([wide?.lowIndex, wide?.highIndex]).toEqual([65, 191]);
+    expect([tight?.lowIndex, tight?.highIndex]).toEqual([104, 152]);
+    expect([wide?.lowIndex, wide?.highIndex]).toEqual([32, 224]);
   });
 
   it('maps sampled-flat tone monotonically through the projected pair solve', () => {
@@ -819,7 +819,7 @@ describe('fillCcGradientDither', () => {
     });
 
     const usedPair = Array.from(new Set(out)).filter((value) => value > 0).sort((a, b) => a - b);
-    expect(usedPair).toEqual([127, 129]);
+    expect(usedPair).toEqual([104, 152]);
     expect(usedPair).not.toEqual(resolveFlatInkSetForPosition(0.1, 2, 0, 0).indices);
   });
 
@@ -1475,23 +1475,23 @@ describe('fillCcGradientDither', () => {
     for (let band = 0; band < 5; band += 1) {
       const indices = resolveFlatInkSetForBand(band, 2, 0).indices;
       expect(indices).toHaveLength(2);
-      expect(indices[1] - indices[0]).toBe(8);
+      expect(indices[1] - indices[0]).toBeGreaterThanOrEqual(48);
       expect(resolveFlatInkCountForBand()).toBe(2);
     }
   });
 
   it('uses explicit stable CC ink pairs for Sierra Lite flat tone bands', () => {
-    expect(resolveFlatInkSetForBand(0, 2, 0).indices).toEqual([22, 30]);
-    expect(resolveFlatInkSetForBand(1, 2, 0).indices).toEqual([73, 81]);
-    expect(resolveFlatInkSetForBand(2, 2, 0).indices).toEqual([124, 132]);
-    expect(resolveFlatInkSetForBand(3, 2, 0).indices).toEqual([175, 183]);
-    expect(resolveFlatInkSetForBand(4, 2, 0).indices).toEqual([226, 234]);
+    expect(resolveFlatInkSetForBand(0, 2, 0).indices).toEqual([1, 58]);
+    expect(resolveFlatInkSetForBand(1, 2, 0).indices).toEqual([45, 109]);
+    expect(resolveFlatInkSetForBand(2, 2, 0).indices).toEqual([96, 160]);
+    expect(resolveFlatInkSetForBand(3, 2, 0).indices).toEqual([147, 211]);
+    expect(resolveFlatInkSetForBand(4, 2, 0).indices).toEqual([198, 255]);
   });
 
-  it('lets flat Sierra pair spread tighten down to adjacent local indices', () => {
-    expect(resolveFlatInkSetForBand(0, 2, 0, 0).indices).toEqual([25, 27]);
-    expect(resolveFlatInkSetForBand(2, 2, 0, 0).indices).toEqual([127, 129]);
-    expect(resolveFlatInkSetForBand(4, 2, 0, 0).indices).toEqual([229, 231]);
+  it('keeps flat Sierra pair spread visibly separated even at the tightest setting', () => {
+    expect(resolveFlatInkSetForBand(0, 2, 0, 0).indices).toEqual([2, 50]);
+    expect(resolveFlatInkSetForBand(2, 2, 0, 0).indices).toEqual([104, 152]);
+    expect(resolveFlatInkSetForBand(4, 2, 0, 0).indices).toEqual([206, 254]);
   });
 
   it('widens flat Sierra pair spread as the slider increases', () => {
@@ -1501,7 +1501,7 @@ describe('fillCcGradientDither', () => {
 
     expect(tight[1] - tight[0]).toBeLessThan(medium[1] - medium[0]);
     expect(medium[1] - medium[0]).toBeLessThan(wide[1] - wide[0]);
-    expect(wide).toEqual([65, 191]);
+    expect(wide).toEqual([32, 224]);
   });
 
   it('shifts local flat ink pairs with baseOffset while keeping them centered on the sampled position', async () => {
