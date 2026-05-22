@@ -12,6 +12,8 @@ import { OpController, CanvasManager } from '@/lib/canvas';
 import { MIN_LINE_SPACING } from '@/utils/contourLines';
 import { getPreviewRenderer } from '@/shapeFill/paramPreview';
 import { getFillStrategy } from '@/shapeFill/strategies';
+import { renderFill } from '@/shapeFill/renderers/cpuRenderer';
+import { toPixelPerfectFill } from '@/shapeFill/pixelPerfect';
 import { FillStage, type FillParams, type ShapeFillSession, type ShapeFillParamKey } from '@/shapeFill/types';
 import { registerToolFlush } from '@/utils/toolFlushRegistry';
 import { canvasPool } from '@/utils/canvasPool';
@@ -61,7 +63,6 @@ import {
 import {
   computeShapeFillBoundingBox,
   getShapeFillPolygonForMode,
-  shapeFillBoundingBoxToRoi,
   type ShapeFillBoundingBox,
 } from '@/hooks/canvas/handlers/shapes/shapeFill/shapeFillGeometry';
 import {
@@ -225,9 +226,6 @@ class ShapeAdjustHelper {
 }
 
   const getShapeFillScheduler = (): ShapeFillScheduler | null => null;
-
-  const LOST_EDGE_TILE_SIZE = 4;
-
 
 const CONTOUR_DEBUG_STORAGE_KEY = 'vessel.debug.contour';
 
@@ -801,7 +799,7 @@ export const createShapeToolHandler = (
     const bounds = session.shape.bounds;
     const scaledWidth = (bounds.maxX - bounds.minX) * scale;
     const scaledHeight = (bounds.maxY - bounds.minY) * scale;
-    const rect: OverlayRect = isParamPreview
+    const rect: ShapeFillPreviewRect = isParamPreview
       ? {
           x: 0,
           y: 0,
@@ -926,7 +924,7 @@ export const createShapeToolHandler = (
       paramsWithColor.backgroundColor = secondaryColor;
     }
     const pixelPerfect = store.shapeFill.pixelPerfectMode;
-    const polygonPoints = getPolygonForMode(session.shape.points, pixelPerfect);
+    const polygonPoints = getShapeFillPolygonForMode(session.shape.points, pixelPerfect);
     const previewResult = strategy.apply(session.shape, paramsWithColor);
     const renderedResult = pixelPerfect ? toPixelPerfectFill(previewResult) : previewResult;
     drawCtx.save();
@@ -961,9 +959,9 @@ export const createShapeToolHandler = (
 
   // Shape Fill rendering/finalization overview (non color-cycle):
   //  - During preview we paint strategy output onto drawingHandlers.drawingCanvas (overlay).
-  //  - On finalize we composite that overlay with the active raster layer snapshot here,
-  //    persist via captureCanvasToActiveLayer, and write explicit history so undo works.
-  //  - Color-cycle layers (or other brushes) fall back to drawingHandlers.finalizeDrawing().
+  //  - On finalize we validate the raster target before mutating the session, render the
+  //    final overlay, prove it contains visible pixels in the ROI, and then commit it.
+  //  - Color-cycle layers are blocked until there is a canonical CC-compatible commit path.
   const trackPendingShapeFillFinalize = <T>(promise: Promise<T>): Promise<T> => {
     const tracker = promise
       .then(() => undefined)
@@ -977,13 +975,23 @@ export const createShapeToolHandler = (
     return promise;
   };
 
-  const runShapeFillFinalize = async (): Promise<boolean> => {
-    const store = getAppStoreState();
-    const payload = store.finalizeShapeFillSession();
-    if (!payload) {
-      return false;
+  const completeShapeFillFinalizeInteraction = (outcome: ShapeFillFinalizeOutcome) => {
+    logLivePreview('shape-fill-finalize-outcome', { outcome });
+    stateMachine.finalizationComplete();
+    if (project) {
+      try {
+        getAppStoreState().setLayersNeedRecomposition(true);
+      } catch {
+        // quiet
+      }
+      compositeCanvasDirtyRef.current = true;
     }
+    clearCurrentPreview();
+    interaction.dispatch({ type: 'DRAWING_END' });
+    setNeedsRedraw(prev => prev + 1);
+  };
 
+  const runShapeFillFinalize = async (): Promise<boolean> => {
     if (!drawingHandlers.drawingCanvasRef.current) {
       drawingHandlers.initDrawingCanvas();
     }
@@ -994,187 +1002,95 @@ export const createShapeToolHandler = (
       return false;
     }
 
+    const activeSnapshot = getAppStoreState();
+    const activeLayer = activeSnapshot.layers.find(layer => layer.id === activeSnapshot.activeLayerId);
+    const projectSnapshot = activeSnapshot.project ?? project ?? null;
+
+    const target = validateShapeFillFinalizeTarget({
+      activeLayer,
+      project: projectSnapshot,
+    });
+
+    if (!target.ok) {
+      feedback?.(target.message);
+      getAppStoreState().cancelShapeFillSession();
+      resetShapeFillHistoryContext();
+      drawCtx.clearRect(0, 0, drawingCanvas.width, drawingCanvas.height);
+      drawingHandlers.drawingCanvasHasContent.current = false;
+      completeShapeFillFinalizeInteraction(target.outcome);
+      return true;
+    }
+
+    const store = getAppStoreState();
+    const payload = store.finalizeShapeFillSession();
+    if (!payload) {
+      return false;
+    }
+    const historyDescription = `Shape Fill: ${payload.strategy.label ?? payload.fillId}`;
+
+    const storeSnapshot = getAppStoreState();
     const colors = resolveShapeFillColors(payload.shape.points);
     const primaryColor = getPrimaryColor(colors);
     const secondaryColor = getSecondaryColor(colors);
-    const paramsWithColor: FillParams = {
-      ...payload.params,
-      fillColor: primaryColor,
-    };
-    if (secondaryColor) {
-      paramsWithColor.backgroundColor = secondaryColor;
-    }
-    const pixelPerfect = store.shapeFill.pixelPerfectMode;
-    const polygonPoints = getPolygonForMode(payload.shape.points, pixelPerfect);
-    const renderBounds = (() => {
-      if (!polygonPoints.length) {
-        return payload.shape.bounds;
-      }
-      if (!pixelPerfect) {
-        return payload.shape.bounds;
-      }
-      let minX = polygonPoints[0].x;
-      let maxX = polygonPoints[0].x;
-      let minY = polygonPoints[0].y;
-      let maxY = polygonPoints[0].y;
-      for (let i = 1; i < polygonPoints.length; i += 1) {
-        const pt = polygonPoints[i];
-        if (pt.x < minX) minX = pt.x;
-        if (pt.x > maxX) maxX = pt.x;
-        if (pt.y < minY) minY = pt.y;
-        if (pt.y > maxY) maxY = pt.y;
-      }
-      return { minX, maxX, minY, maxY };
-    })();
-    const finalResult = payload.strategy.apply(payload.shape, paramsWithColor);
-    const renderedResult = pixelPerfect ? toPixelPerfectFill(finalResult) : finalResult;
-    payload.params = paramsWithColor;
-    payload.result = renderedResult;
-
-    const storeSnapshot = getAppStoreState();
     const byFill = (storeSnapshot.shapeFill.paramsByFill as Record<string, Partial<FillParams>>)[
       payload.fillId
     ] ?? {};
     const sessionParams = storeSnapshot.shapeFill.session?.params ?? {};
-    const uiLostEdge = sessionParams.lostEdge ?? byFill.lostEdge;
-    const perFillEdge = byFill.lostEdge;
-    const payloadEdge = payload.params.lostEdge;
-    const rawLostEdge = uiLostEdge ?? perFillEdge ?? payloadEdge ?? 0;
-    const lostEdge = Math.max(0, Math.min(100, rawLostEdge));
-
-    // lostEdge is used for both shape fill and polygon gradient paths below
-
-    const drawFillToContext = (
-      targetCtx: CanvasRenderingContext2D,
-      offset: { x: number; y: number }
-    ) => {
-      targetCtx.save();
-      targetCtx.translate(offset.x, offset.y);
-      targetCtx.globalAlpha = store.tools.brushSettings.opacity ?? 1;
-      targetCtx.globalCompositeOperation = 'source-over';
-      if (secondaryColor && polygonPoints.length >= 3) {
-        fillShapeArea(targetCtx, polygonPoints, secondaryColor);
-      }
-      targetCtx.lineWidth = pixelPerfect ? 1 : paramsWithColor.thickness ?? 1;
-      targetCtx.strokeStyle = primaryColor;
-      targetCtx.fillStyle = primaryColor;
-      renderFill(targetCtx, renderedResult);
-      if (store.shapeFill.showOutline && polygonPoints.length >= 3) {
-        targetCtx.strokeStyle = 'rgba(0,0,0,0.35)';
-        targetCtx.beginPath();
-        targetCtx.moveTo(polygonPoints[0].x, polygonPoints[0].y);
-        for (let i = 1; i < polygonPoints.length; i += 1) {
-          const pt = polygonPoints[i];
-          targetCtx.lineTo(pt.x, pt.y);
-        }
-        targetCtx.closePath();
-        targetCtx.stroke();
-      }
-      targetCtx.restore();
+    const rawLostEdge = sessionParams.lostEdge ?? byFill.lostEdge ?? payload.params.lostEdge ?? 0;
+    const fillParams: FillParams = {
+      ...payload.params,
+      lostEdge: Math.max(0, Math.min(100, rawLostEdge)),
     };
-    // Always draw clean fill first
-    drawCtx.save();
-    drawCtx.clearRect(0, 0, drawingCanvas.width, drawingCanvas.height);
-    drawCtx.imageSmoothingEnabled = !pixelPerfect;
-    drawFillToContext(drawCtx, { x: 0, y: 0 });
-    drawCtx.restore();
-
-    if (lostEdge > 0) {
-      const bounds = renderBounds;
-      const padding = Math.max(
-        4,
-        Math.ceil((paramsWithColor.thickness ?? 1) * 2 + (paramsWithColor.spacing ?? 0))
-      );
-
-      applyLostEdgeErosionToContext(drawCtx, polygonPoints, bounds, padding, lostEdge, LOST_EDGE_TILE_SIZE);
-    }
-    drawingHandlers.drawingCanvasHasContent.current = true;
-
-    const activeSnapshot = getAppStoreState();
-    const activeLayer = activeSnapshot.layers.find(layer => layer.id === activeSnapshot.activeLayerId);
-    const projectSnapshot = activeSnapshot.project ?? project ?? null;
-    const historyDescription = `Shape Fill: ${payload.strategy.label ?? payload.fillId}`;
-
-    const fallbackFinalize = async () => {
-      // Close the shape session now so its history transaction completes before layer history begins.
-      store.cancelShapeFillSession();
-      await drawingHandlers.finalizeDrawing({ historyActionType: 'fill', historyDescription });
-      resetShapeFillHistoryContext();
-      return true;
-    };
-
-    if (!activeLayer || activeLayer.layerType === 'color-cycle') {
-      // Color-cycle layers or missing active layer: defer to the generic finalizeDrawing path,
-      // which already knows how to persist CC content and guard redo/undo semantics.
-      const result = await fallbackFinalize();
-      stateMachine.finalizationComplete();
-      if (project) {
-        try {
-          getAppStoreState().setLayersNeedRecomposition(true);
-        } catch {
-          // quiet
-        }
-        compositeCanvasDirtyRef.current = true;
-      }
-      clearCurrentPreview();
-      interaction.dispatch({ type: 'DRAWING_END' });
-      setNeedsRedraw(prev => prev + 1);
-      return result;
-    }
-
-    const effectiveBoundingBox = computeBoundingBox(payload.shape.points);
+    const effectiveBoundingBox = computeShapeFillBoundingBox(payload.shape.points);
     if (effectiveBoundingBox) {
       shapeFillHistoryContext.bbox = effectiveBoundingBox;
     }
 
-    const liveLayerSnapshot = snapshotLayerImageData(activeLayer);
-    applyTransparencyLockMaskToContext(drawCtx, activeLayer, liveLayerSnapshot);
+    const liveLayerSnapshot = snapshotLayerImageData(target.layer);
     const beforeImage =
-      shapeFillHistoryContext.layerId === activeLayer.id
+      shapeFillHistoryContext.layerId === target.layer.id
         ? shapeFillHistoryContext.beforeImage ?? liveLayerSnapshot
         : liveLayerSnapshot;
 
-    const canvasWidth =
-      projectSnapshot?.width ??
-      activeLayer.imageData?.width ??
-      drawingCanvas.width;
-    const canvasHeight =
-      projectSnapshot?.height ??
-      activeLayer.imageData?.height ??
-      drawingCanvas.height;
+    const renderResult = renderShapeFillFinalOverlay({
+      canvas: drawingCanvas,
+      ctx: drawCtx,
+      payload,
+      fillParams,
+      primaryColor,
+      secondaryColor,
+      pixelPerfect: storeSnapshot.shapeFill.pixelPerfectMode,
+      showOutline: storeSnapshot.shapeFill.showOutline,
+      opacity: storeSnapshot.tools.brushSettings.opacity ?? 1,
+      boundingBox: shapeFillHistoryContext.bbox ?? effectiveBoundingBox,
+      project: target.project,
+      applyTransparencyLock: () => applyTransparencyLockMaskToContext(drawCtx, target.layer, liveLayerSnapshot),
+    });
+    payload.params = renderResult.params;
+    payload.result = renderResult.result;
+    drawingHandlers.drawingCanvasHasContent.current = renderResult.hasVisibleOverlay;
 
-    if (canvasWidth <= 0 || canvasHeight <= 0) {
-      const result = await fallbackFinalize();
-      stateMachine.finalizationComplete();
-      if (project) {
-        try {
-          getAppStoreState().setLayersNeedRecomposition(true);
-        } catch {
-          // quiet
-        }
-        compositeCanvasDirtyRef.current = true;
-      }
-      clearCurrentPreview();
-      interaction.dispatch({ type: 'DRAWING_END' });
-      setNeedsRedraw(prev => prev + 1);
-      return result;
+    if (!renderResult.hasVisibleOverlay) {
+      feedback?.('Shape Fill produced no visible pixels to commit.');
+      getAppStoreState().cancelShapeFillSession();
+      resetShapeFillHistoryContext();
+      drawCtx.clearRect(0, 0, drawingCanvas.width, drawingCanvas.height);
+      drawingHandlers.drawingCanvasHasContent.current = false;
+      completeShapeFillFinalizeInteraction('failed-empty-overlay');
+      return true;
     }
 
     // Close the shape session now so its history transaction completes before layer history begins.
     store.cancelShapeFillSession();
 
     const postCancelState = getAppStoreState();
-    const roiProject =
-      projectSnapshot ?? { width: drawingCanvas.width, height: drawingCanvas.height };
-    const roi = boundingBoxToRoi(shapeFillHistoryContext.bbox ?? effectiveBoundingBox, roiProject);
-
     const coalesce =
-      shapeFillHistoryContext.layerId === activeLayer.id && shapeFillHistoryContext.coalesceKey
+      shapeFillHistoryContext.layerId === target.layer.id && shapeFillHistoryContext.coalesceKey
         ? { key: shapeFillHistoryContext.coalesceKey, maxIntervalMs: 300 }
         : undefined;
 
     await drawingHandlers.commitRasterOverlay({
-      layer: activeLayer,
+      layer: target.layer,
       overlayCanvas: drawingCanvas,
       beforeImage,
       beforeColorState: null,
@@ -1182,7 +1098,7 @@ export const createShapeToolHandler = (
       historyDescription,
       tool: postCancelState.tools.currentTool,
       coalesce,
-      bitmapRoi: roi ?? undefined,
+      bitmapRoi: renderResult.roi ?? undefined,
     });
 
     resetShapeFillHistoryContext();
@@ -1190,20 +1106,7 @@ export const createShapeToolHandler = (
     drawCtx.clearRect(0, 0, drawingCanvas.width, drawingCanvas.height);
     drawingHandlers.drawingCanvasHasContent.current = false;
 
-    stateMachine.finalizationComplete();
-
-    if (project) {
-      try {
-        getAppStoreState().setLayersNeedRecomposition(true);
-      } catch {
-        // quiet
-      }
-      compositeCanvasDirtyRef.current = true;
-    }
-
-    clearCurrentPreview();
-    interaction.dispatch({ type: 'DRAWING_END' });
-    setNeedsRedraw(prev => prev + 1);
+    completeShapeFillFinalizeInteraction('committed-raster');
     return true;
   };
 
@@ -1859,19 +1762,6 @@ export const createShapeToolHandler = (
     ctx.closePath();
     ctx.fill();
     ctx.fillStyle = previousFill;
-  };
-
-  const getPolygonForMode = (
-    points: Array<{ x: number; y: number }>,
-    pixelPerfect: boolean
-  ): Array<{ x: number; y: number }> => {
-    if (!pixelPerfect) {
-      return points;
-    }
-    return points.map(point => {
-      const snapped = snapPointToPixel(point, { strategy: 'nearest' });
-      return { x: snapped.x, y: snapped.y };
-    });
   };
 
   const getPrimaryColor = (colors: ShapeFillColors): string => {
@@ -2888,6 +2778,19 @@ export const createShapeToolHandler = (
           event.pressure,
           { renderPreview: false }
         );
+        const overlayCanvas = overlayCanvasRef.current;
+        if (overlayCanvas) {
+          const resolvedColors = resolveShapeFillColors(drawingHandlers.shapePointsRef.current);
+          lastPreviewRect = renderShapeFillDraftPreview({
+            overlayCanvas,
+            points: drawingHandlers.shapePointsRef.current,
+            previewPoint: previewWorld,
+            transform: viewTransformRef.current,
+            fillStyle: getPrimaryColor(resolvedColors) ?? tools.brushSettings.color ?? '#ffffff',
+            previousRect: lastPreviewRect,
+          });
+        }
+        latestPolygonPreviewPoint = { ...previewWorld };
       }
 
       const store = getAppStoreState();
@@ -2899,7 +2802,7 @@ export const createShapeToolHandler = (
         drawShapeFillPreview(updatedSession ?? null);
         return true;
       }
-      // Continue to shared preview logic so shape outline renders while drawing.
+      return true;
     }
 
     let shouldShowPreview: boolean;
@@ -3743,7 +3646,7 @@ export const createShapeToolHandler = (
           shapeFillHistoryContext.layerId = activeLayer.id;
           shapeFillHistoryContext.beforeImage = snapshotLayerImageData(activeLayer);
           shapeFillHistoryContext.coalesceKey = `shape-fill:${activeLayer.id}:${store.shapeFill.activeFillId ?? 'unknown'}:${Date.now().toString(36)}`;
-          shapeFillHistoryContext.bbox = computeBoundingBox(points);
+          shapeFillHistoryContext.bbox = computeShapeFillBoundingBox(points);
         } else {
           resetShapeFillHistoryContext();
         }

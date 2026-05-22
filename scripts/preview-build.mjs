@@ -59,6 +59,7 @@ const runBuild = async (cwd) => {
     storagePath: env.LOCALSTORAGE_FILE_PATH,
     scope: 'preview-build',
   });
+  env.VESSEL_STATIC_EXPORT = '1';
   env.NEXT_DIST_DIR = previewDistDirName;
 
   const nextBin = path.resolve(projectRoot, 'node_modules/next/dist/bin/next');

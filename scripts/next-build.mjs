@@ -13,10 +13,12 @@ env.NODE_OPTIONS = normalizeNodeOptionsWithLocalStorage({
   scope: 'next-build',
 });
 env.NEXT_DIST_DIR = env.NEXT_DIST_DIR || '.next-build';
+env.VESSEL_STATIC_EXPORT = '1';
 
-// Next 15 occasionally leaves a partially valid dist tree behind after
-// interrupted/failed builds, which can break later route manifest resolution.
+// Next 15 still writes some internal route state under .next during custom
+// export-output builds, so clear it alongside the requested output directory.
 rmSync(env.NEXT_DIST_DIR, { recursive: true, force: true });
+rmSync('.next', { recursive: true, force: true });
 
 const nextBin = path.resolve('node_modules/next/dist/bin/next');
 
