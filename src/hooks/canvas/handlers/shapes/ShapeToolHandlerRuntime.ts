@@ -12,12 +12,8 @@ import { OpController, CanvasManager } from '@/lib/canvas';
 import { MIN_LINE_SPACING } from '@/utils/contourLines';
 import { getPreviewRenderer } from '@/shapeFill/paramPreview';
 import { getFillStrategy } from '@/shapeFill/strategies';
-import { renderFill } from '@/shapeFill/renderers/cpuRenderer';
-import { toPixelPerfectFill } from '@/shapeFill/pixelPerfect';
 import { FillStage, type FillParams, type ShapeFillSession, type ShapeFillParamKey } from '@/shapeFill/types';
 import { registerToolFlush } from '@/utils/toolFlushRegistry';
-import { snapPointToPixel } from '@/utils/pixelSharp';
-import { applyLostEdgeErosionToContext } from '@/shapeFill/lostEdgeErosion';
 import { canvasPool } from '@/utils/canvasPool';
 import {
   scaleOrderedAxis,
@@ -46,6 +42,7 @@ import { logLivePreview } from '@/hooks/canvas/utils/livePreviewDebug';
 import { recordSampledCcShapeBreadcrumb } from '@/hooks/canvas/utils/sampledCcShapeBreadcrumbs';
 import { hashStops, type StoredStop } from '@/utils/colorCycleGradientDefs';
 import { simplifyToVertexLimit } from '@/utils/polygonSimplify';
+import { isDragDefinedCcGradientShape } from '@/hooks/canvas/handlers/shapes/ccGradientDrawingGeometry';
 import {
   canReplayCcPreview,
   computeCcPreviewRoi,
@@ -56,6 +53,22 @@ import {
   type PreparedPreviewGradient,
 } from '@/hooks/canvas/handlers/shapes/ccShapePreviewDitherRuntime';
 import { ccLog } from '@/debug/ccDebug';
+import {
+  renderShapeFillFinalOverlay,
+  validateShapeFillFinalizeTarget,
+  type ShapeFillFinalizeOutcome,
+} from '@/hooks/canvas/handlers/shapes/shapeFill/shapeFillFinalize';
+import {
+  computeShapeFillBoundingBox,
+  getShapeFillPolygonForMode,
+  shapeFillBoundingBoxToRoi,
+  type ShapeFillBoundingBox,
+} from '@/hooks/canvas/handlers/shapes/shapeFill/shapeFillGeometry';
+import {
+  clearShapeFillPreviewRect,
+  renderShapeFillDraftPreview,
+  type ShapeFillPreviewRect,
+} from '@/hooks/canvas/handlers/shapes/shapeFill/shapeFillPreview';
 
 const SHAPE_PREVIEW_OPACITY = 0.8;
 
@@ -278,15 +291,6 @@ const contourDebug = (label: string, payload?: Record<string, unknown>) => {
     debugLog('raw-console', '[ContourShape]', label);
   }
 };
-
-type ShapeFillBoundingBox = {
-  minX: number;
-  minY: number;
-  maxX: number;
-  maxY: number;
-};
-
-const SHAPE_FILL_ROI_PADDING = 2;
 
 type CcPreviewRenderSettings = {
   pixelSize: number;
@@ -584,40 +588,6 @@ const applyTransparencyLockMaskToContext = (
   }
 };
 
-const computeBoundingBox = (points: Array<{ x: number; y: number }>): ShapeFillBoundingBox | null => {
-  if (points.length === 0) {
-    return null;
-  }
-  let minX = points[0].x;
-  let maxX = points[0].x;
-  let minY = points[0].y;
-  let maxY = points[0].y;
-  for (let i = 1; i < points.length; i += 1) {
-    const point = points[i];
-    if (point.x < minX) minX = point.x;
-    if (point.x > maxX) maxX = point.x;
-    if (point.y < minY) minY = point.y;
-    if (point.y > maxY) maxY = point.y;
-  }
-  return { minX, minY, maxX, maxY };
-};
-
-const boundingBoxToRoi = (
-  bbox: ShapeFillBoundingBox | null,
-  project: { width: number; height: number } | null | undefined
-): { x: number; y: number; width: number; height: number } | undefined => {
-  if (!bbox || !project) {
-    return undefined;
-  }
-  const x = Math.max(0, Math.floor(Math.min(bbox.minX, bbox.maxX)) - SHAPE_FILL_ROI_PADDING);
-  const y = Math.max(0, Math.floor(Math.min(bbox.minY, bbox.maxY)) - SHAPE_FILL_ROI_PADDING);
-  const right = Math.min(project.width, Math.ceil(Math.max(bbox.minX, bbox.maxX)) + SHAPE_FILL_ROI_PADDING);
-  const bottom = Math.min(project.height, Math.ceil(Math.max(bbox.minY, bbox.maxY)) + SHAPE_FILL_ROI_PADDING);
-  const width = Math.max(1, right - x);
-  const height = Math.max(1, bottom - y);
-  return { x, y, width, height };
-};
-
 type ShapeFillHistoryContext = {
   layerId?: string;
   beforeImage: ImageData | null;
@@ -766,26 +736,10 @@ export const createShapeToolHandler = (
   });
 
   let shapeAdjustHelper: ShapeAdjustHelper | null = null;
-  type OverlayRect = { x: number; y: number; width: number; height: number };
-  let lastPreviewRect: OverlayRect | null = null;
+  let lastPreviewRect: ShapeFillPreviewRect | null = null;
   const PREVIEW_CLEAR_PADDING = 16;
 
-  const inflateRect = (rect: OverlayRect, padding: number): OverlayRect => ({
-    x: rect.x - padding,
-    y: rect.y - padding,
-    width: rect.width + padding * 2,
-    height: rect.height + padding * 2,
-  });
-
-  const clearRegion = (ctx: CanvasRenderingContext2D, rect: OverlayRect | null) => {
-    ctx.setTransform(1, 0, 0, 1, 0, 0);
-    if (!rect) {
-      ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
-      return;
-    }
-    const padded = inflateRect(rect, 2);
-    ctx.clearRect(padded.x, padded.y, padded.width, padded.height);
-  };
+  const clearRegion = clearShapeFillPreviewRect;
 
   const clearCurrentPreview = () => {
     const hadCleanup = Boolean(currentPreviewCleanup);
@@ -2905,7 +2859,11 @@ export const createShapeToolHandler = (
       }
     }
 
-    if (event.shiftKey) {
+    const isDragDefinedCcGradientShapeMode =
+      context.deps.dynamicDepsRef.current.currentBrushPresetId === 'color-cycle-gradient' &&
+      liveBrushForMove.brushShape === BrushShape.COLOR_CYCLE_SHAPE &&
+      isDragDefinedCcGradientShape(liveBrushForMove.ccGradientDrawingShape);
+    if (event.shiftKey && !isDragDefinedCcGradientShapeMode) {
       const polygonState = getPolygonState();
       const points = (isPolygonGradient || isContourPolygon)
         ? polygonState.points
@@ -2984,6 +2942,7 @@ export const createShapeToolHandler = (
         });
         drawingHandlers.continueShapeDrawing(previewWorld, pressure, nowTs, event.pressure, {
           renderPreview,
+          constrainAspect: event.shiftKey,
         });
       }
 
@@ -3280,9 +3239,11 @@ export const createShapeToolHandler = (
                     previewRenderSettings,
                     sampleColor: sampleColorAtPosition,
                     fallbackStops: effectiveStops,
-                    sampleSourcePoints: brushNow.colorCycleFillMode === 'stroke'
-                      ? drawingHandlers.ccStrokeSamplesRef?.current.map(({ x, y }) => ({ x, y }))
-                      : undefined,
+                    sampleSourcePoints: drawingHandlers.ccGradientDrawingGeometryRef?.current?.sampleSourcePoints
+                      ? drawingHandlers.ccGradientDrawingGeometryRef.current.sampleSourcePoints.map(({ x, y }) => ({ x, y }))
+                      : brushNow.colorCycleFillMode === 'stroke'
+                        ? drawingHandlers.ccStrokeSamplesRef?.current.map(({ x, y }) => ({ x, y }))
+                        : undefined,
                     schedulePolygonShapePreviewFrame,
                     getLatestPolygonPreviewPoint: () =>
                       latestPolygonPreviewPoint

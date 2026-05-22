@@ -249,6 +249,7 @@ const getSerializableBrushSettings = (settings: BrushSettings): Partial<BrushSet
   colorCycleFPS: settings.colorCycleFPS,
   colorCycleFlowMode: settings.colorCycleFlowMode,
   colorCycleFillMode: settings.colorCycleFillMode,
+  ccGradientDrawingShape: settings.ccGradientDrawingShape,
   gradientBands: settings.gradientBands,
   gradientLength: settings.gradientLength,
   colorCycleBandSpacingPx: settings.colorCycleBandSpacingPx,
@@ -991,6 +992,11 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
         settingsToSave.colorCycleFillMode = newSettings.colorCycleFillMode;
       } else if (currentBrushId !== 'color-cycle-gradient' && settingsToSave.colorCycleFillMode !== undefined) {
         delete settingsToSave.colorCycleFillMode;
+      }
+      if (currentBrushId === 'color-cycle-gradient' && settings.ccGradientDrawingShape !== undefined) {
+        settingsToSave.ccGradientDrawingShape = newSettings.ccGradientDrawingShape;
+      } else if (currentBrushId !== 'color-cycle-gradient' && settingsToSave.ccGradientDrawingShape !== undefined) {
+        delete settingsToSave.ccGradientDrawingShape;
       }
       if (settings.gradientBands !== undefined) {
         settingsToSave.gradientBands = newSettings.gradientBands;
@@ -1760,6 +1766,9 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
       delete userOverrides.maxPressure;
       if (preset.id !== 'color-cycle-gradient' && userOverrides.colorCycleFillMode !== undefined) {
         delete userOverrides.colorCycleFillMode;
+      }
+      if (preset.id !== 'color-cycle-gradient' && userOverrides.ccGradientDrawingShape !== undefined) {
+        delete userOverrides.ccGradientDrawingShape;
       }
     }
     const hasUserColorCycleSpeed = userOverrides?.colorCycleSpeed !== undefined;
@@ -2630,6 +2639,9 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
       if (brushIdToSave !== 'color-cycle-gradient' && settingsToSave.colorCycleFillMode !== undefined) {
         delete settingsToSave.colorCycleFillMode;
       }
+      if (brushIdToSave !== 'color-cycle-gradient' && settingsToSave.ccGradientDrawingShape !== undefined) {
+        delete settingsToSave.ccGradientDrawingShape;
+      }
       set(prevState => ({
         brushSpecificSettings: {
             ...prevState.brushSpecificSettings,
@@ -2646,6 +2658,9 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
       delete newSettings.patternStyle;
       if (newSettings.colorCycleFlowMode && newSettings.colorCycleFlowMode !== 'forward') {
         newSettings.colorCycleFlowMode = 'forward';
+      }
+      if (brushId !== 'color-cycle-gradient' && newSettings.ccGradientDrawingShape !== undefined) {
+        delete newSettings.ccGradientDrawingShape;
       }
 
       return {
@@ -2673,6 +2688,9 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
     }
     if (normalized.colorCycleFlowMode && normalized.colorCycleFlowMode !== 'forward') {
       normalized.colorCycleFlowMode = 'forward';
+    }
+    if (brushId !== 'color-cycle-gradient' && normalized.ccGradientDrawingShape !== undefined) {
+      delete normalized.ccGradientDrawingShape;
     }
 
     return normalized;

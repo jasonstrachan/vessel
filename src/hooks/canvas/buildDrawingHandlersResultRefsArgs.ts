@@ -13,6 +13,7 @@ export const buildDrawingHandlersResultRefsArgs = ({
   shapePointsRef: refs.shapePointsRef,
   ccStrokeSamplesRef: refs.ccStrokeSamplesRef,
   ccStrokeDirectionRef: refs.ccStrokeDirectionRef,
+  ccGradientDrawingGeometryRef: refs.ccGradientDrawingGeometryRef,
   isDrawingShapeRef: refs.isDrawingShapeRef,
   isSelectingDirectionRef: refs.isSelectingDirectionRef,
   ccShapePreviewCacheRef: refs.ccShapePreviewCacheRef,

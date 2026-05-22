@@ -764,6 +764,7 @@ const BrushControls = () => {
       : activeSettings.colorCycleFillMode === 'linear'
         ? 'linear'
         : 'concentric';
+  const ccGradientDrawingShapeValue = activeSettings.ccGradientDrawingShape ?? 'freehand';
   const isColorCycleGradientStrokeMode = isColorCycleGradientPreset && colorCycleFillModeValue === 'stroke';
   const fgDerivedLightness = activeSettings.colorCycleFgLightness ?? 50;
   const fgDerivedHueShift = activeSettings.colorCycleFgHueShift ?? 0;
@@ -1939,6 +1940,31 @@ const BrushControls = () => {
             />
           </div>
         </div>
+
+        {isColorCycleGradientPreset && (
+          <div className="mb-2">
+            <div className="flex items-center gap-1">
+              <ButtonGroup
+                options={[
+                  { label: 'Free', value: 'freehand' },
+                  { label: 'Rect', value: 'rectangle' },
+                  { label: 'Oval', value: 'ellipse' },
+                  { label: 'Line', value: 'line' },
+                  { label: 'Tri', value: 'triangle' },
+                  { label: 'Poly', value: 'polygon' },
+                ]}
+                value={ccGradientDrawingShapeValue}
+                onChange={(value) => {
+                  setActiveSettings({
+                    ccGradientDrawingShape: value as NonNullable<BrushSettings['ccGradientDrawingShape']>,
+                  });
+                }}
+                className="flex-1 justify-start"
+                size="sm"
+              />
+            </div>
+          </div>
+        )}
 
         <CcGradientSourceModeControl
           value={gradientModeValue}

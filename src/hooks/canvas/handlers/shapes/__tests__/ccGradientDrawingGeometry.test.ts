@@ -1,0 +1,131 @@
+import {
+  buildCcGradientDrawingGeometry,
+  buildEllipseGeometry,
+  buildLineGeometry,
+  buildRectangleGeometry,
+  buildTriangleGeometry,
+} from '@/hooks/canvas/handlers/shapes/ccGradientDrawingGeometry';
+import type { BrushSettings } from '@/types';
+
+const brushSettings = (overrides: Partial<BrushSettings> = {}) =>
+  ({
+    size: 10,
+    pressureEnabled: false,
+    minPressure: 50,
+    maxPressure: 100,
+    ...overrides,
+  }) as BrushSettings;
+
+describe('ccGradientDrawingGeometry', () => {
+  it('builds rectangle points with stable bounds and diagonal sample source', () => {
+    const geometry = buildRectangleGeometry({
+      start: { x: 30, y: 40 },
+      end: { x: 10, y: 20 },
+    });
+
+    expect(geometry?.shapePoints).toEqual([
+      { x: 10, y: 20 },
+      { x: 30, y: 20 },
+      { x: 30, y: 40 },
+      { x: 10, y: 40 },
+    ]);
+    expect(geometry?.sampleSourcePoints).toEqual([
+      { x: 30, y: 40 },
+      { x: 10, y: 20 },
+    ]);
+    expect(geometry?.bounds).toEqual({ minX: 10, minY: 20, maxX: 30, maxY: 40 });
+  });
+
+  it('constrains rectangle drags to a square', () => {
+    const geometry = buildRectangleGeometry({
+      start: { x: 0, y: 0 },
+      end: { x: 10, y: 4 },
+      constrainAspect: true,
+    });
+
+    expect(geometry?.bounds).toEqual({ minX: 0, minY: 0, maxX: 10, maxY: 10 });
+  });
+
+  it('builds deterministic ellipse polygons with capped point count', () => {
+    const geometry = buildEllipseGeometry({
+      start: { x: 0, y: 0 },
+      end: { x: 200, y: 100 },
+    });
+
+    expect(geometry).not.toBeNull();
+    expect(geometry!.shapePoints.length).toBeLessThanOrEqual(48);
+    expect(geometry!.shapePoints.length).toBeGreaterThanOrEqual(12);
+    expect(geometry!.bounds.minX).toBeCloseTo(0, 5);
+    expect(geometry!.bounds.maxX).toBeCloseTo(200, 5);
+  });
+
+  it('builds line geometry through swept-stroke width rules', () => {
+    const geometry = buildLineGeometry({
+      start: { x: 10, y: 20 },
+      end: { x: 30, y: 20 },
+      brushSettings: brushSettings({ size: 12 }),
+      pressure: 0.5,
+    });
+
+    expect(geometry?.shapePoints).toEqual([
+      { x: 4, y: 26 },
+      { x: 36, y: 26 },
+      { x: 36, y: 14 },
+      { x: 4, y: 14 },
+    ]);
+    expect(geometry?.sampleSourcePoints).toEqual([
+      { x: 10, y: 20 },
+      { x: 30, y: 20 },
+    ]);
+    expect(geometry?.direction).toEqual({ x: 1, y: 0 });
+  });
+
+  it('snaps line geometry to 45 degree increments when constrained', () => {
+    const geometry = buildLineGeometry({
+      start: { x: 10, y: 20 },
+      end: { x: 30, y: 28 },
+      brushSettings: brushSettings({ size: 4 }),
+      pressure: 0.5,
+      constrainAspect: true,
+    });
+
+    expect(geometry?.sampleSourcePoints[0]).toEqual({ x: 10, y: 20 });
+    expect(geometry?.sampleSourcePoints[1].x).toBeCloseTo(31.54, 2);
+    expect(geometry?.sampleSourcePoints[1].y).toBeCloseTo(20, 5);
+    expect(geometry?.direction?.x).toBeCloseTo(1, 5);
+    expect(geometry?.direction?.y).toBeCloseTo(0, 5);
+  });
+
+  it('builds triangle geometry from drag bounds', () => {
+    const geometry = buildTriangleGeometry({
+      start: { x: 0, y: 0 },
+      end: { x: 10, y: 20 },
+    });
+
+    expect(geometry?.shapePoints).toEqual([
+      { x: 5, y: 0 },
+      { x: 10, y: 20 },
+      { x: 0, y: 20 },
+    ]);
+    expect(geometry?.sampleSourcePoints).toEqual([
+      { x: 0, y: 0 },
+      { x: 10, y: 20 },
+    ]);
+  });
+
+  it('keeps polygon sample points identical to authored vertices', () => {
+    const points = [
+      { x: 0, y: 0 },
+      { x: 20, y: 0 },
+      { x: 10, y: 10 },
+    ];
+    const geometry = buildCcGradientDrawingGeometry({
+      drawingShape: 'polygon',
+      points,
+      brushSettings: brushSettings(),
+    });
+
+    expect(geometry?.shapePoints).toEqual(points);
+    expect(geometry?.sampleSourcePoints).toEqual(points);
+  });
+});

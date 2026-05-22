@@ -31,6 +31,7 @@ export const useDrawingShapeRuntimeBridge = ({
     shapeInteractionPhaseRef,
     ccStrokeSamplesRef,
     ccStrokeDirectionRef,
+    ccGradientDrawingGeometryRef,
   } = refs;
 
   const {
@@ -74,6 +75,7 @@ export const useDrawingShapeRuntimeBridge = ({
     shapePointsRef,
     ccStrokeSamplesRef,
     ccStrokeDirectionRef,
+    ccGradientDrawingGeometryRef,
     isDrawingShapeRef,
     shapeInteractionPhaseRef,
   });

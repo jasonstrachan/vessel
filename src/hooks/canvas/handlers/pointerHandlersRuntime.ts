@@ -16,6 +16,7 @@ import { applyPolygonMaskToCanvasContext } from '@/hooks/canvas/handlers/shapes/
 import { logLivePreview } from '@/hooks/canvas/utils/livePreviewDebug';
 import { ensurePresResDebugBridge, isPresResDebugEnabled } from '@/hooks/canvas/utils/presResDebug';
 import { computeRegularDitherShapeSeed } from '@/hooks/brushEngine/regularDitherVariety';
+import { isDragDefinedCcGradientShape } from '@/hooks/canvas/handlers/shapes/ccGradientDrawingGeometry';
 
 const SHAPE_PREVIEW_OPACITY = 0.8;
 
@@ -4228,7 +4229,10 @@ function resampleStopsToColors(stops: Stop[], count: number): string[] {
         const isColorCycleShape = tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE_SHAPE;
         if (isColorCycleShape) {
           let shapeWorld = worldPosOnPointerUp;
-          if (event.shiftKey) {
+          const isDragDefinedCcGradientShapeMode =
+            getDynamicDeps().currentBrushPresetId === 'color-cycle-gradient' &&
+            isDragDefinedCcGradientShape(tools.brushSettings.ccGradientDrawingShape);
+          if (event.shiftKey && !isDragDefinedCcGradientShapeMode) {
             const pts = drawingHandlers.shapePointsRef?.current || [];
             if (pts.length >= 1) {
               const anchor = pts[pts.length - 1];
@@ -4239,8 +4243,40 @@ function resampleStopsToColors(stops: Stop[], count: number): string[] {
             shapeWorld,
             pressureOnPointerUp,
             event.timeStamp,
-            rawPressureOnPointerUp
+            rawPressureOnPointerUp,
+            { constrainAspect: event.shiftKey }
           );
+        }
+
+        const isCcGradientPolygonDrawingShape =
+          isColorCycleShape &&
+          getDynamicDeps().currentBrushPresetId === 'color-cycle-gradient' &&
+          tools.brushSettings.ccGradientDrawingShape === 'polygon';
+        if (isCcGradientPolygonDrawingShape) {
+          const pts = drawingHandlers.shapePointsRef.current;
+          const firstPoint = pts[0];
+          const closeThreshold = Math.max(6, (tools.brushSettings.size ?? 12) * 0.5);
+          const closeToStart =
+            pts.length >= 3 &&
+            firstPoint &&
+            Math.hypot(worldPosOnPointerUp.x - firstPoint.x, worldPosOnPointerUp.y - firstPoint.y) <=
+              closeThreshold;
+          const doubleClick = (event.detail ?? 0) >= 2;
+          if (!doubleClick && !closeToStart) {
+            resetSequentialPointerDown();
+            return;
+          }
+          if (closeToStart && firstPoint) {
+            const lastIndex = pts.length - 1;
+            const lastPoint = pts[lastIndex];
+            if (
+              lastIndex > 0 &&
+              lastPoint &&
+              Math.hypot(lastPoint.x - firstPoint.x, lastPoint.y - firstPoint.y) <= closeThreshold
+            ) {
+              drawingHandlers.shapePointsRef.current = pts.slice(0, lastIndex);
+            }
+          }
         }
 
         // Guard: require at least 3 points to finalize a polygon

@@ -42,9 +42,20 @@ import {
 import { startColorCycleRuntimeWarmupForEdit } from '@/hooks/canvas/handlers/colorCycle/colorCycleRuntimeWarmup';
 import { resolveCcPatternPackBrushSettings } from '@/utils/colorCycle/ccCustomTilePattern';
 import {
-  buildCcStrokeShapeGeometry,
   type CcStrokeSample,
 } from '@/hooks/canvas/handlers/shapes/ccStrokeShapeGeometry';
+import {
+  type CcGradientDrawingGeometry,
+} from '@/hooks/canvas/handlers/shapes/ccGradientDrawingGeometry';
+import {
+  isCcGradientDragDefinedShapeMode,
+  isCcGradientPolygonDrawingShapeMode,
+  isCcGradientStrokeMode,
+  rebuildCcGradientDragGeometry,
+  rebuildCcGradientPolygonGeometry,
+  rebuildCcStrokeShapeFromSamples,
+  resolveFinalSampledShapeSourcePoints,
+} from '@/hooks/canvas/handlers/shapes/ccGradientDrawingRuntime';
 
 type ShapeDrawingRefs = {
   isDrawingShapeRef: React.MutableRefObject<boolean>;
@@ -53,6 +64,7 @@ type ShapeDrawingRefs = {
   shapePointsRef: React.MutableRefObject<Array<{ x: number; y: number }>>;
   ccStrokeSamplesRef: React.MutableRefObject<CcStrokeSample[]>;
   ccStrokeDirectionRef: React.MutableRefObject<{ x: number; y: number } | null>;
+  ccGradientDrawingGeometryRef: React.MutableRefObject<CcGradientDrawingGeometry | null>;
   shapeDragStartRef: React.MutableRefObject<{ x: number; y: number } | null>;
   shapeDragLastRef: React.MutableRefObject<{ x: number; y: number } | null>;
   shapeDragMovedRef: React.MutableRefObject<boolean>;
@@ -121,41 +133,6 @@ const resolveFallbackMarkSource = (state: AppState): GradientDefSource => {
 const isSampledCcShapeDrag = (state: AppState): boolean =>
   state.tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE_SHAPE &&
   state.tools.ccGradientSource === 'sampled';
-
-const isCcGradientStrokeMode = (state: AppState): boolean =>
-  state.currentBrushPreset?.id === 'color-cycle-gradient' &&
-  state.tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE_SHAPE &&
-  state.tools.brushSettings.colorCycleFillMode === 'stroke';
-
-const rebuildCcStrokeShapeFromSamples = (
-  refs: Pick<ShapeDrawingRefs, 'ccStrokeSamplesRef' | 'ccStrokeDirectionRef' | 'shapePointsRef'>,
-  brushSettings: BrushSettings
-): boolean => {
-  const geometry = buildCcStrokeShapeGeometry({
-    samples: refs.ccStrokeSamplesRef.current,
-    brushSettings,
-  });
-  if (!geometry) {
-    refs.shapePointsRef.current = [];
-    refs.ccStrokeDirectionRef.current = null;
-    return false;
-  }
-  refs.shapePointsRef.current = geometry.shapePoints;
-  refs.ccStrokeDirectionRef.current = geometry.direction;
-  return true;
-};
-
-const resolveFinalSampledShapeSourcePoints = (
-  isStrokeFillFinalize: boolean,
-  refs: Pick<ShapeDrawingRefs, 'ccStrokeSamplesRef'>,
-  shapePointsSnapshot: Array<{ x: number; y: number }>
-): Array<{ x: number; y: number }> => {
-  if (!isStrokeFillFinalize) {
-    return shapePointsSnapshot;
-  }
-
-  return refs.ccStrokeSamplesRef.current.map(({ x, y }) => ({ x, y }));
-};
 
 const canContinueShapeDrawing = (
   phaseRef: React.MutableRefObject<ShapeInteractionPhase>
@@ -795,6 +772,7 @@ export const startShapeDrawing = (
         refs.ccStrokeSamplesRef.current = [nextSample];
         refs.shapePointsRef.current = [];
         refs.ccStrokeDirectionRef.current = null;
+        refs.ccGradientDrawingGeometryRef.current = null;
         refs.isDrawingShapeRef.current = true;
         getAppStoreState().setShapeDrawing(true);
         refs.shapeDragStartRef.current = drawPos;
@@ -810,6 +788,11 @@ export const startShapeDrawing = (
       }
     } else if (isAdvancedShape && refs.isDrawingShapeRef.current && refs.shapePointsRef.current.length > 0) {
       refs.shapePointsRef.current.push(drawPos);
+      if (isCcGradientPolygonDrawingShapeMode(shapeStoreSnapshot)) {
+        rebuildCcGradientPolygonGeometry(refs, shapeStoreSnapshot.tools.brushSettings);
+      } else {
+        refs.ccGradientDrawingGeometryRef.current = null;
+      }
       deps.seedManualStrokeBoundingBox(refs.shapePointsRef.current, 2);
       if (renderPreview && shouldUseSimpleShapePreview(deps.storeRef.current)) {
         deps.triggerSimpleShapePreview();
@@ -833,6 +816,7 @@ export const startShapeDrawing = (
       }
     } else {
       refs.shapePointsRef.current = [drawPos];
+      refs.ccGradientDrawingGeometryRef.current = null;
       deps.seedManualStrokeBoundingBox(refs.shapePointsRef.current, 2);
       refs.isDrawingShapeRef.current = true;
       getAppStoreState().setShapeDrawing(true);
@@ -946,6 +930,7 @@ export const continueShapeDrawing = (
     shapeMode: boolean;
     refs: ShapeDrawingRefs;
     renderPreview?: boolean;
+    constrainAspect?: boolean;
   },
   deps: ShapeDrawingDeps
 ): void => {
@@ -956,6 +941,7 @@ export const continueShapeDrawing = (
   const { worldPos, pressure = 0, timestamp, rawPressure, shapeMode, refs } = args;
   const drawPos = resolveDitherGridSnapPoint(worldPos, deps.storeRef.current, pressure);
   const renderPreview = args.renderPreview !== false;
+  const constrainAspect = args.constrainAspect === true;
   const rawVal = typeof rawPressure === 'number' ? rawPressure : pressure;
   deps.updateShapePressure(pressure, timestamp, rawVal);
 
@@ -1017,6 +1003,7 @@ export const continueShapeDrawing = (
   if (shapeMode && refs.isDrawingShapeRef.current) {
     const store = deps.storeRef.current;
     const isCcStrokeMode = isCcGradientStrokeMode(store);
+    const isCcDragDefinedMode = isCcGradientDragDefinedShapeMode(store);
     const zoom = store.canvas?.zoom || 1;
     const brushSize = store.tools.brushSettings.size || 20;
     refs.latestShapePressureRef.current = pressure;
@@ -1064,6 +1051,40 @@ export const continueShapeDrawing = (
       return;
     }
 
+    if (isCcDragDefinedMode) {
+      const hasGeometry = rebuildCcGradientDragGeometry({
+        refs,
+        brushSettings: store.tools.brushSettings,
+        pressure: rawVal,
+        constrainAspect,
+      });
+      if (hasGeometry || refs.shapeDragMovedRef.current) {
+        deps.seedManualStrokeBoundingBox(
+          refs.shapePointsRef.current.length >= 3
+            ? refs.shapePointsRef.current
+            : [refs.shapeDragStartRef.current, refs.shapeDragLastRef.current].filter(
+                (point): point is { x: number; y: number } => Boolean(point)
+              ),
+          2
+        );
+        if (renderPreview && hasGeometry && shouldUseSimpleShapePreview(store)) {
+          deps.capturePendingShapeSnapshot();
+          deps.triggerSimpleShapePreview();
+        }
+        const autoSampleEnabled =
+          store.tools.brushSettings.autoSampleGradient ||
+          store.tools.brushSettings.autoSampleGradientRealtime;
+        if (autoSampleEnabled && !isSampledCcShapeDrag(store)) {
+          refs.autoSamplePointsRef.current =
+            refs.ccGradientDrawingGeometryRef.current?.sampleSourcePoints.map(point => ({ ...point })) ??
+            refs.shapePointsRef.current.map(point => ({ ...point }));
+          refs.autoSampleForkRef.current = true;
+          deps.updateAutoSampledGradient(refs.autoSamplePointsRef.current);
+        }
+      }
+      return;
+    }
+
     const added = deps.appendSegmentWithDynamicResampling(
       refs.shapePointsRef.current,
       drawPos,
@@ -1078,6 +1099,11 @@ export const continueShapeDrawing = (
       pressure
     );
     if (added > 0 || refs.shapeDragMovedRef.current) {
+      if (isCcGradientPolygonDrawingShapeMode(store)) {
+        rebuildCcGradientPolygonGeometry(refs, store.tools.brushSettings);
+      } else {
+        refs.ccGradientDrawingGeometryRef.current = null;
+      }
       deps.seedManualStrokeBoundingBox(refs.shapePointsRef.current, 2);
       if (renderPreview && shouldUseSimpleShapePreview(store)) {
         deps.capturePendingShapeSnapshot();
@@ -1176,6 +1202,17 @@ export const finalizeShapeDrawing = async (
   const isStrokeFillFinalize = isCcGradientStrokeMode(deps.storeRef.current);
   if (isStrokeFillFinalize) {
     rebuildCcStrokeShapeFromSamples(args.refs, liveBrushSettings);
+  } else if (
+    isCcGradientDragDefinedShapeMode(deps.storeRef.current) &&
+    !args.refs.ccGradientDrawingGeometryRef.current
+  ) {
+    rebuildCcGradientDragGeometry({
+      refs: args.refs,
+      brushSettings: liveBrushSettings,
+      pressure: args.refs.latestShapePressureRef.current,
+    });
+  } else if (isCcGradientPolygonDrawingShapeMode(deps.storeRef.current)) {
+    rebuildCcGradientPolygonGeometry(args.refs, liveBrushSettings);
   }
 
   void args.refs.finalizeQueueRef.current.enqueue(async () => {
@@ -1567,9 +1604,7 @@ export const finalizeShapeDrawing = async (
                   session,
                   shapePoints: shapePointsSnapshot,
                   direction: isLinearMode
-                    ? (isStrokeFillFinalize && args.refs.ccStrokeDirectionRef.current
-                      ? args.refs.ccStrokeDirectionRef.current
-                      : deps.computeFallbackLinearDirection(shapePointsSnapshot))
+                    ? (args.refs.ccStrokeDirectionRef.current ?? deps.computeFallbackLinearDirection(shapePointsSnapshot))
                     : undefined,
                   activeLayerId,
                   activeLayerCanvas: targetLayerCanvas,
@@ -1619,6 +1654,7 @@ export const finalizeShapeDrawing = async (
           args.refs.shapePointsRef.current = [];
           args.refs.ccStrokeSamplesRef.current = [];
           args.refs.ccStrokeDirectionRef.current = null;
+          args.refs.ccGradientDrawingGeometryRef.current = null;
           if (shouldUseSimpleShapePreview(deps.storeRef.current)) {
             deps.triggerSimpleShapePreview();
           }
@@ -1731,6 +1767,7 @@ export const finalizeShapeDrawing = async (
         args.refs.shapePointsRef.current = [];
         args.refs.ccStrokeSamplesRef.current = [];
         args.refs.ccStrokeDirectionRef.current = null;
+        args.refs.ccGradientDrawingGeometryRef.current = null;
         if (shouldUseSimpleShapePreview(deps.storeRef.current)) {
           deps.triggerSimpleShapePreview();
         }

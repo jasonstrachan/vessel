@@ -1900,6 +1900,143 @@ describe('pointerHandlers main flows', () => {
     );
   });
 
+  it('does not angle-snap Shift pointer-up for drag-defined CC gradient shapes', async () => {
+    const { deps } = createDeps({
+      currentBrushPresetId: 'color-cycle-gradient',
+      tools: {
+        ...baseDynamic.tools,
+        currentTool: 'brush',
+        shapeMode: true,
+        brushSettings: {
+          ...baseDynamic.tools.brushSettings,
+          brushShape: BrushShape.COLOR_CYCLE_SHAPE,
+          colorCycleFillMode: 'linear',
+          ccGradientDrawingShape: 'rectangle',
+        } as any,
+      },
+    });
+
+    deps.interaction.state = { isDrawing: true, isSelecting: false, mode: 'drawing' } as any;
+    deps.getMousePos = jest.fn(() => ({ x: 20, y: 8 }));
+    deps.drawingHandlers.isDrawingShapeRef.current = true;
+    deps.drawingHandlers.shapePointsRef.current = [{ x: 0, y: 0 }, { x: 100, y: 0 }];
+    deps.drawingHandlers.isSelectingDirectionRef.current = false;
+
+    const handlers = createPointerHandlers(deps);
+    handlers.handlePointerUp(makePointerEvent({ clientX: 20, clientY: 8, shiftKey: true, timeStamp: 123 }));
+
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(deps.drawingHandlers.continueShapeDrawing).toHaveBeenCalledWith(
+      expect.objectContaining({ x: 20, y: 8 }),
+      expect.any(Number),
+      expect.any(Number),
+      expect.any(Number),
+      { constrainAspect: true }
+    );
+  });
+
+  it('keeps CC gradient polygon drawing open until an explicit completion gesture', async () => {
+    const { deps } = createDeps({
+      currentBrushPresetId: 'color-cycle-gradient',
+      tools: {
+        ...baseDynamic.tools,
+        currentTool: 'brush',
+        shapeMode: true,
+        brushSettings: {
+          ...baseDynamic.tools.brushSettings,
+          brushShape: BrushShape.COLOR_CYCLE_SHAPE,
+          colorCycleFillMode: 'linear',
+          ccGradientDrawingShape: 'polygon',
+        } as any,
+      },
+    });
+
+    deps.interaction.state = { isDrawing: true, isSelecting: false, mode: 'drawing' } as any;
+    deps.getMousePos = jest.fn(() => ({ x: 30, y: 30 }));
+    deps.drawingHandlers.isDrawingShapeRef.current = true;
+    deps.drawingHandlers.shapePointsRef.current = [{ x: 0, y: 0 }, { x: 20, y: 0 }, { x: 20, y: 20 }];
+
+    const handlers = createPointerHandlers(deps);
+    handlers.handlePointerUp(makePointerEvent({ clientX: 30, clientY: 30, detail: 1 }));
+
+    await Promise.resolve();
+    expect(deps.drawingHandlers.finalizeShapeDrawing).not.toHaveBeenCalled();
+    expect(deps.stateMachine.finalizationComplete).not.toHaveBeenCalled();
+  });
+
+  it('finalizes CC gradient polygon drawing on double click', async () => {
+    const { deps } = createDeps({
+      currentBrushPresetId: 'color-cycle-gradient',
+      tools: {
+        ...baseDynamic.tools,
+        currentTool: 'brush',
+        shapeMode: true,
+        brushSettings: {
+          ...baseDynamic.tools.brushSettings,
+          brushShape: BrushShape.COLOR_CYCLE_SHAPE,
+          colorCycleFillMode: 'linear',
+          ccGradientDrawingShape: 'polygon',
+        } as any,
+      },
+    });
+
+    deps.interaction.state = { isDrawing: true, isSelecting: false, mode: 'drawing' } as any;
+    deps.getMousePos = jest.fn(() => ({ x: 30, y: 30 }));
+    deps.drawingHandlers.isDrawingShapeRef.current = true;
+    deps.drawingHandlers.shapePointsRef.current = [{ x: 0, y: 0 }, { x: 20, y: 0 }, { x: 20, y: 20 }];
+
+    const handlers = createPointerHandlers(deps);
+    handlers.handlePointerUp(makePointerEvent({ clientX: 30, clientY: 30, detail: 2 }));
+
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(deps.drawingHandlers.finalizeShapeDrawing).toHaveBeenCalled();
+  });
+
+  it('drops the near-start close click before finalizing a CC gradient polygon', async () => {
+    const { deps } = createDeps({
+      currentBrushPresetId: 'color-cycle-gradient',
+      tools: {
+        ...baseDynamic.tools,
+        currentTool: 'brush',
+        shapeMode: true,
+        brushSettings: {
+          ...baseDynamic.tools.brushSettings,
+          brushShape: BrushShape.COLOR_CYCLE_SHAPE,
+          colorCycleFillMode: 'linear',
+          ccGradientDrawingShape: 'polygon',
+          size: 10,
+        } as any,
+      },
+    });
+
+    deps.interaction.state = { isDrawing: true, isSelecting: false, mode: 'drawing' } as any;
+    deps.getMousePos = jest.fn(() => ({ x: 3, y: 4 }));
+    deps.drawingHandlers.isDrawingShapeRef.current = true;
+    deps.drawingHandlers.shapePointsRef.current = [{ x: 0, y: 0 }, { x: 20, y: 0 }, { x: 20, y: 20 }];
+    deps.drawingHandlers.continueShapeDrawing = jest.fn((point) => {
+      deps.drawingHandlers.shapePointsRef.current = [
+        ...deps.drawingHandlers.shapePointsRef.current,
+        { x: point.x, y: point.y },
+      ];
+    });
+
+    const handlers = createPointerHandlers(deps);
+    handlers.handlePointerUp(makePointerEvent({ clientX: 3, clientY: 4, detail: 1 }));
+
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(deps.drawingHandlers.finalizeShapeDrawing).toHaveBeenCalled();
+    expect(deps.drawingHandlers.shapePointsRef.current).toEqual([
+      { x: 0, y: 0 },
+      { x: 20, y: 0 },
+      { x: 20, y: 20 },
+    ]);
+  });
+
   it('uses raw shape geometry for dither-shape preview variety seed when preview points are decimated', () => {
     const rawPoints = Array.from({ length: 501 }, (_, index) => ({
       x: 20 + Math.cos(index / 11) * 12 + index * 0.03,

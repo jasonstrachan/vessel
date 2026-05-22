@@ -5,6 +5,7 @@ import type { AppState } from '@/stores/useAppStore';
 import { useAppStore } from '@/stores/useAppStore';
 import type { BoundingBox } from '@/hooks/canvas/utils/captureRegions';
 import type { ShapeInteractionPhase } from '@/hooks/canvas/useDrawingHandlerRefs';
+import type { CcGradientDrawingGeometry } from '@/hooks/canvas/handlers/shapes/ccGradientDrawingGeometry';
 
 type UseShapePressureResetEffectsArgs = {
   resetShapePressureState: () => void;
@@ -14,6 +15,7 @@ type UseShapePressureResetEffectsArgs = {
   shapePointsRef: React.MutableRefObject<Array<{ x: number; y: number }>>;
   ccStrokeSamplesRef?: React.MutableRefObject<Array<{ x: number; y: number; pressure?: number }>>;
   ccStrokeDirectionRef?: React.MutableRefObject<{ x: number; y: number } | null>;
+  ccGradientDrawingGeometryRef?: React.MutableRefObject<CcGradientDrawingGeometry | null>;
   isDrawingShapeRef: React.MutableRefObject<boolean>;
   shapeInteractionPhaseRef: React.MutableRefObject<ShapeInteractionPhase>;
 };
@@ -26,6 +28,7 @@ export const useShapePressureResetEffects = ({
   shapePointsRef,
   ccStrokeSamplesRef,
   ccStrokeDirectionRef,
+  ccGradientDrawingGeometryRef,
   isDrawingShapeRef,
   shapeInteractionPhaseRef,
 }: UseShapePressureResetEffectsArgs): void => {
@@ -74,6 +77,9 @@ export const useShapePressureResetEffects = ({
         if (ccStrokeDirectionRef) {
           ccStrokeDirectionRef.current = null;
         }
+        if (ccGradientDrawingGeometryRef) {
+          ccGradientDrawingGeometryRef.current = null;
+        }
         isDrawingShapeRef.current = false;
         shapeInteractionPhaseRef.current = 'idle';
         resetShapeDragRefs();
@@ -88,6 +94,7 @@ export const useShapePressureResetEffects = ({
     resetShapePressureState,
     shapePointsRef,
     ccStrokeDirectionRef,
+    ccGradientDrawingGeometryRef,
     ccStrokeSamplesRef,
     shapeInteractionPhaseRef,
     strokeBoundingBoxRef,

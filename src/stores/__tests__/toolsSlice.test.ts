@@ -494,6 +494,28 @@ describe('tools slice', () => {
     );
   });
 
+  it('stores CC gradient drawing shape only for the gradient preset', () => {
+    const store = useAppStore.getState();
+    store.saveBrushSettings('color-cycle-gradient', { ccGradientDrawingShape: 'ellipse' });
+    store.saveBrushSettings('color-cycle-stroke', { ccGradientDrawingShape: 'rectangle' });
+
+    const gradientPreset = brushPresets.find((preset) => preset.id === 'color-cycle-gradient');
+    const strokePreset = brushPresets.find((preset) => preset.id === 'color-cycle-stroke');
+    expect(gradientPreset).toBeTruthy();
+    expect(strokePreset).toBeTruthy();
+
+    if (gradientPreset) {
+      store.setBrushPreset(gradientPreset);
+    }
+    expect(useAppStore.getState().tools.brushSettings.ccGradientDrawingShape).toBe('ellipse');
+
+    if (strokePreset) {
+      store.setBrushPreset(strokePreset);
+    }
+    expect(useAppStore.getState().tools.brushSettings.ccGradientDrawingShape).toBeUndefined();
+    expect(useAppStore.getState().brushSpecificSettings['color-cycle-stroke']?.ccGradientDrawingShape).toBeUndefined();
+  });
+
   it('forces shape mode for the color cycle gradient preset', () => {
     const store = useAppStore.getState();
     store.setShapeMode(false);

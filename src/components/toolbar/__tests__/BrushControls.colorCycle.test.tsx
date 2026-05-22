@@ -749,6 +749,63 @@ describe('BrushControls – Custom brush captured data mode', () => {
 });
 
 describe('BrushControls – Color Cycle gradient fill mode', () => {
+  it('shows drawing shape toggle only for the color cycle gradient preset', () => {
+    useAppStore.setState((state) => ({
+      ...state,
+      tools: {
+        ...state.tools,
+        brushSettings: {
+          ...state.tools.brushSettings,
+          brushShape: 'color_cycle_shape' as BrushSettings['brushShape'],
+          customBrushColorCycle: false,
+          customBrushColorCycleMode: 'tip',
+        },
+      },
+      brushPresets: [{ id: 'color-cycle-gradient', name: 'CC Gradient' } as AppState['brushPresets'][number]],
+      currentBrushPreset: { id: 'color-cycle-gradient', name: 'CC Gradient' } as AppState['currentBrushPreset'],
+    }));
+
+    const { unmount } = render(<BrushControls />);
+    expect(screen.getByRole('button', { name: 'Free' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Rect' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Poly' })).toBeInTheDocument();
+    unmount();
+
+    useAppStore.setState((state) => ({
+      ...state,
+      brushPresets: [{ id: 'color-cycle-stroke', name: 'CC Stroke' } as AppState['brushPresets'][number]],
+      currentBrushPreset: { id: 'color-cycle-stroke', name: 'CC Stroke' } as AppState['currentBrushPreset'],
+    }));
+
+    render(<BrushControls />);
+    expect(screen.queryByRole('button', { name: 'Rect' })).not.toBeInTheDocument();
+  });
+
+  it('updates drawing shape when toggled on the gradient preset', async () => {
+    const user = userEvent.setup();
+    useAppStore.setState((state) => ({
+      ...state,
+      tools: {
+        ...state.tools,
+        brushSettings: {
+          ...state.tools.brushSettings,
+          brushShape: 'color_cycle_shape' as BrushSettings['brushShape'],
+          customBrushColorCycle: false,
+          customBrushColorCycleMode: 'tip',
+          ccGradientDrawingShape: 'freehand',
+        },
+      },
+      brushPresets: [{ id: 'color-cycle-gradient', name: 'CC Gradient' } as AppState['brushPresets'][number]],
+      currentBrushPreset: { id: 'color-cycle-gradient', name: 'CC Gradient' } as AppState['currentBrushPreset'],
+    }));
+
+    render(<BrushControls />);
+    await user.click(screen.getByRole('button', { name: 'Oval' }));
+    expect(useAppStore.getState().tools.brushSettings.ccGradientDrawingShape).toBe('ellipse');
+    await user.click(screen.getByRole('button', { name: 'Line' }));
+    expect(useAppStore.getState().tools.brushSettings.ccGradientDrawingShape).toBe('line');
+  });
+
   it('shows fill mode toggle only for the color cycle gradient preset', () => {
     useAppStore.setState((state) => ({
       ...state,

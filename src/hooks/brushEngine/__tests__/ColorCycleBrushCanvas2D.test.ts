@@ -288,6 +288,7 @@ jest.mock('../ccGradientFillDither', () => ({
 }));
 
 jest.mock('@/utils/colorCycle/ccGradientDither', () => ({
+  ...jest.requireActual('@/utils/colorCycle/ccGradientDither'),
   fillCcGradientDither: jest.fn(async () => {}),
 }));
 

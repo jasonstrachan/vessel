@@ -12,7 +12,7 @@ type ContinueDeps = Parameters<typeof continueShapeDrawingExternal>[1];
 type FinalizeArgs = Parameters<typeof finalizeShapeDrawingExternal>[0];
 type FinalizeDeps = Parameters<typeof finalizeShapeDrawingExternal>[1];
 type WorldPos = { x: number; y: number };
-type DrawOptions = { renderPreview?: boolean };
+type DrawOptions = { renderPreview?: boolean; constrainAspect?: boolean };
 
 export const dispatchStartShapeDrawing = (
   args: Omit<StartArgs, 'refs'> & { refs: StartArgs['refs'] },
@@ -94,6 +94,7 @@ export const createShapeDrawingDispatchers = ({
         shapeMode,
         refs: shapeDrawingRefs,
         renderPreview: options?.renderPreview,
+        constrainAspect: options?.constrainAspect,
       },
       shapeDrawingDeps
     );
