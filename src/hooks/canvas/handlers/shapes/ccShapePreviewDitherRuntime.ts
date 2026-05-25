@@ -547,6 +547,7 @@ const drawCachedCcPreview = ({
   previewOpacity,
   ditherGradPreviewState,
   shouldKeepCachedCcPreviewVisible,
+  retainStalePreviewOnCacheMiss = false,
   nextPreviewRoi,
   replayKey,
 }: {
@@ -559,6 +560,7 @@ const drawCachedCcPreview = ({
     canReplayCurrentPreview: boolean;
     jobInFlight: boolean;
   }) => boolean;
+  retainStalePreviewOnCacheMiss?: boolean;
   nextPreviewRoi: CcPreviewRoi;
   replayKey: string;
 }): { shouldUseCustomFill: boolean; canReplayCurrentPreview: boolean } => {
@@ -576,6 +578,7 @@ const drawCachedCcPreview = ({
     Boolean(ditherGradPreviewState.ccLastOrigin);
   const shouldDrawCachedPreview =
     Boolean(canReplayCurrentPreview) ||
+    (retainStalePreviewOnCacheMiss && hasCachedPreview) ||
     shouldKeepCachedCcPreviewVisible({
       hasCachedPreview,
       canReplayCurrentPreview: Boolean(canReplayCurrentPreview),
@@ -596,7 +599,7 @@ const drawCachedCcPreview = ({
       ditherGradPreviewState.ccLastOrigin.y
     );
     overlayCtx.restore();
-  } else {
+  } else if (!retainStalePreviewOnCacheMiss || !hasCachedPreview) {
     overlayCtx.save();
     overlayCtx.setTransform(1, 0, 0, 1, 0, 0);
     overlayCtx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
@@ -644,6 +647,8 @@ export const runCcDitherPreviewRuntime = (args: {
     canReplayCurrentPreview: boolean;
     jobInFlight: boolean;
   }) => boolean;
+  retainStalePreviewOnCacheMiss?: boolean;
+  suppressChromeForCachedPreview?: boolean;
   previewOpacity: number;
   schedulePolygonShapePreviewFrame: (
     resolvePreviewPoint: () => { x: number; y: number } | null
@@ -661,6 +666,8 @@ export const runCcDitherPreviewRuntime = (args: {
     ditherGradPreviewState,
     drawingHandlers,
     shouldKeepCachedCcPreviewVisible,
+    retainStalePreviewOnCacheMiss = false,
+    suppressChromeForCachedPreview = true,
     previewOpacity,
     schedulePolygonShapePreviewFrame,
     getLatestPolygonPreviewPoint,
@@ -705,16 +712,18 @@ export const runCcDitherPreviewRuntime = (args: {
     Boolean(ditherGradPreviewState.ccLastOrigin);
   const shouldDrawCachedPreview =
     Boolean(canReplayCurrentPreview) ||
+    (retainStalePreviewOnCacheMiss && hasCachedPreview) ||
     shouldKeepCachedCcPreviewVisible({
       hasCachedPreview,
       canReplayCurrentPreview: Boolean(canReplayCurrentPreview),
       jobInFlight: ditherGradPreviewState.ccJobInFlight,
     });
-  const shouldUseCustomFill = shouldUseRenderedCcPreviewFill({
-    canReplayCurrentPreview: Boolean(canReplayCurrentPreview),
-    shouldDrawCachedPreview: Boolean(shouldDrawCachedPreview),
-  });
-  const suppressLivePreviewChrome = shouldUseCustomFill;
+  const shouldUseCustomFill =
+    shouldUseRenderedCcPreviewFill({
+      canReplayCurrentPreview: Boolean(canReplayCurrentPreview),
+      shouldDrawCachedPreview: Boolean(shouldDrawCachedPreview),
+    });
+  const suppressLivePreviewChrome = suppressChromeForCachedPreview && shouldUseCustomFill;
 
   if (shouldDrawCachedPreview && ditherGradPreviewState.ccLastCanvas && ditherGradPreviewState.ccLastOrigin) {
     overlayCtx.save();
@@ -730,7 +739,7 @@ export const runCcDitherPreviewRuntime = (args: {
       ditherGradPreviewState.ccLastOrigin.y
     );
     overlayCtx.restore();
-  } else {
+  } else if (!retainStalePreviewOnCacheMiss || !hasCachedPreview) {
     overlayCtx.save();
     overlayCtx.setTransform(1, 0, 0, 1, 0, 0);
     overlayCtx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
@@ -1086,6 +1095,8 @@ export const runSampledCcDitherPreviewRuntime = (args: {
     canReplayCurrentPreview: boolean;
     jobInFlight: boolean;
   }) => boolean;
+  retainStalePreviewOnCacheMiss?: boolean;
+  suppressChromeForCachedPreview?: boolean;
   previewOpacity: number;
   previewRenderSettings: CcPreviewRenderSettings;
   sampleColor: (x: number, y: number) => string;
@@ -1104,6 +1115,8 @@ export const runSampledCcDitherPreviewRuntime = (args: {
     ditherGradPreviewState,
     drawingHandlers,
     shouldKeepCachedCcPreviewVisible,
+    retainStalePreviewOnCacheMiss = false,
+    suppressChromeForCachedPreview = true,
     previewOpacity,
     previewRenderSettings,
     sampleColor,
@@ -1131,6 +1144,7 @@ export const runSampledCcDitherPreviewRuntime = (args: {
     previewOpacity,
     ditherGradPreviewState,
     shouldKeepCachedCcPreviewVisible,
+    retainStalePreviewOnCacheMiss,
     nextPreviewRoi: previewGeometry.roi,
     replayKey,
   });
@@ -1138,7 +1152,7 @@ export const runSampledCcDitherPreviewRuntime = (args: {
   if (cachedPreview.canReplayCurrentPreview && !ditherGradPreviewState.ccJobInFlight) {
     return {
       didCustomFill: cachedPreview.shouldUseCustomFill,
-      suppressLivePreviewChrome: cachedPreview.shouldUseCustomFill,
+      suppressLivePreviewChrome: suppressChromeForCachedPreview && cachedPreview.shouldUseCustomFill,
     };
   }
 
@@ -1156,7 +1170,7 @@ export const runSampledCcDitherPreviewRuntime = (args: {
     ditherGradPreviewState.ccJobDirty = true;
     return {
       didCustomFill: cachedPreview.shouldUseCustomFill,
-      suppressLivePreviewChrome: cachedPreview.shouldUseCustomFill,
+      suppressLivePreviewChrome: suppressChromeForCachedPreview && cachedPreview.shouldUseCustomFill,
     };
   }
 
@@ -1495,6 +1509,6 @@ export const runSampledCcDitherPreviewRuntime = (args: {
 
   return {
     didCustomFill: cachedPreview.shouldUseCustomFill,
-    suppressLivePreviewChrome: cachedPreview.shouldUseCustomFill,
+    suppressLivePreviewChrome: suppressChromeForCachedPreview && cachedPreview.shouldUseCustomFill,
   };
 };

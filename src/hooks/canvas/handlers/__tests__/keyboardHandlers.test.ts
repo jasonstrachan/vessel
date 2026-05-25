@@ -1,6 +1,7 @@
 import type React from 'react';
 import { createKeyboardHandlers } from '@/hooks/canvas/handlers/keyboardHandlers';
 import { useAppStore } from '@/stores/useAppStore';
+import { BrushShape } from '@/types';
 
 jest.mock('@/stores/useAppStore', () => ({
   useAppStore: {
@@ -66,6 +67,15 @@ const createDeps = (): KeyboardDeps => {
       endStrokeSession: jest.fn(),
       clearStrokeSession: jest.fn(),
       finalizeDrawing: jest.fn().mockResolvedValue(undefined),
+      finalizeShapeDrawing: jest.fn().mockResolvedValue(undefined),
+      triggerSimpleShapePreview: jest.fn(),
+      shapePointsRef: { current: [] },
+      ccStrokeDirectionRef: { current: null },
+      ccGradientDrawingGeometryRef: { current: null },
+      ccGradientClickLineSessionRef: {
+        current: { active: false, points: [], previewPoint: null },
+      },
+      ccShapePreviewCacheRef: { current: null },
     },
     compositeCanvasDirtyRef: { current: false },
     wrapperRef: { current: document.createElement('div') },
@@ -103,6 +113,7 @@ const createDeps = (): KeyboardDeps => {
     viewTransformRef: { current: { scale: 1, offsetX: 0, offsetY: 0 } },
     defaultCursorStyle: 'crosshair',
     isPointerInsideCanvas: jest.fn(() => true),
+    restartColorCycleAnimation: jest.fn(),
   } as unknown as KeyboardDeps;
 
   return deps;
@@ -202,6 +213,98 @@ describe('createKeyboardHandlers', () => {
 
     expect(deps.isSpacePressedRef.current).toBe(false);
     expect(deps.setCursorStyle).toHaveBeenCalledWith('crosshair');
+  });
+
+  it('finalizes CC gradient click-line on Enter and clears the overlay', async () => {
+    const deps = createDeps();
+    const handlers = createKeyboardHandlers(deps);
+    const setShapeDrawing = jest.fn();
+    mockedUseAppStore.getState.mockReturnValue({
+      ui: { keyboardScope: { active: 'canvas' } },
+      brushEditor: { status: 'IDLE' },
+      clearSelection: jest.fn(),
+      setShapeDrawing,
+    });
+
+    deps.dynamicDepsRef.current.currentBrushPresetId = 'color-cycle-gradient';
+    deps.dynamicDepsRef.current.tools = {
+      ...deps.dynamicDepsRef.current.tools,
+      currentTool: 'brush',
+      shapeMode: true,
+      brushSettings: {
+        brushShape: BrushShape.COLOR_CYCLE_SHAPE,
+        ccGradientDrawingShape: 'click-line',
+        size: 10,
+        pressureEnabled: false,
+      },
+    } as typeof deps.dynamicDepsRef.current.tools;
+    deps.drawingHandlers.ccGradientClickLineSessionRef.current = {
+      active: true,
+      points: [
+        { x: 10, y: 10 },
+        { x: 30, y: 10 },
+        { x: 30, y: 30 },
+      ],
+      previewPoint: null,
+    };
+    deps.drawingHandlers.ccShapePreviewCacheRef.current = {
+      canvas: document.createElement('canvas'),
+      origin: { x: 0, y: 0 },
+    };
+
+    handlers.handleKeyDown(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter' }));
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(deps.drawingHandlers.finalizeShapeDrawing).toHaveBeenCalled();
+    expect(deps.drawingHandlers.ccGradientClickLineSessionRef.current.active).toBe(false);
+    expect(deps.drawingHandlers.ccShapePreviewCacheRef.current).toBeNull();
+    expect(deps.overlayCanvasRef.current?.getContext('2d')?.clearRect).toHaveBeenCalledWith(0, 0, 100, 100);
+    expect(deps.selectionRuntimeRef.current.clickLineSession.active).toBe(false);
+    expect(deps.restartColorCycleAnimation).toHaveBeenCalled();
+  });
+
+  it('cancels CC gradient click-line on Escape', () => {
+    const deps = createDeps();
+    const handlers = createKeyboardHandlers(deps);
+    const setShapeDrawing = jest.fn();
+    mockedUseAppStore.getState.mockReturnValue({
+      ui: { keyboardScope: { active: 'canvas' } },
+      brushEditor: { status: 'IDLE' },
+      clearSelection: jest.fn(),
+      setShapeDrawing,
+    });
+
+    deps.dynamicDepsRef.current.currentBrushPresetId = 'color-cycle-gradient';
+    deps.dynamicDepsRef.current.tools = {
+      ...deps.dynamicDepsRef.current.tools,
+      currentTool: 'brush',
+      shapeMode: true,
+      brushSettings: {
+        brushShape: BrushShape.COLOR_CYCLE_SHAPE,
+        ccGradientDrawingShape: 'click-line',
+        size: 10,
+        pressureEnabled: false,
+      },
+    } as typeof deps.dynamicDepsRef.current.tools;
+    deps.drawingHandlers.ccGradientClickLineSessionRef.current = {
+      active: true,
+      points: [{ x: 10, y: 10 }],
+      previewPoint: { x: 20, y: 20 },
+    };
+    deps.drawingHandlers.ccGradientDrawingGeometryRef.current = {
+      shapePoints: [{ x: 0, y: 0 }, { x: 1, y: 0 }, { x: 1, y: 1 }],
+      sampleSourcePoints: [{ x: 10, y: 10 }],
+      bounds: { minX: 0, minY: 0, maxX: 1, maxY: 1 },
+    };
+
+    handlers.handleKeyDown(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape' }));
+
+    expect(deps.drawingHandlers.ccGradientClickLineSessionRef.current.active).toBe(false);
+    expect(deps.drawingHandlers.shapePointsRef.current).toHaveLength(0);
+    expect(deps.drawingHandlers.triggerSimpleShapePreview).toHaveBeenCalled();
+    expect(setShapeDrawing).toHaveBeenCalledWith(false);
+    expect(deps.restartColorCycleAnimation).toHaveBeenCalled();
   });
 
   it('finalizes click-line selection on Enter', () => {

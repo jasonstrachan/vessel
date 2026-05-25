@@ -1950,6 +1950,7 @@ const BrushControls = () => {
                   { label: 'Rect', value: 'rectangle' },
                   { label: 'Oval', value: 'ellipse' },
                   { label: 'Line', value: 'line' },
+                  { label: 'Click Line', value: 'click-line' },
                   { label: 'Tri', value: 'triangle' },
                   { label: 'Poly', value: 'polygon' },
                 ]}

@@ -45,6 +45,7 @@ export const buildDrawingHandlersResultArgs = ({
     ccStrokeSamplesRef: refs.ccStrokeSamplesRef,
     ccStrokeDirectionRef: refs.ccStrokeDirectionRef,
     ccGradientDrawingGeometryRef: refs.ccGradientDrawingGeometryRef,
+    ccGradientClickLineSessionRef: refs.ccGradientClickLineSessionRef,
     isDrawingShapeRef: refs.isDrawingShapeRef,
     isSelectingDirectionRef: refs.isSelectingDirectionRef,
     ccShapePreviewCacheRef: refs.ccShapePreviewCacheRef,

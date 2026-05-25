@@ -48,10 +48,13 @@ import {
   type CcGradientDrawingGeometry,
 } from '@/hooks/canvas/handlers/shapes/ccGradientDrawingGeometry';
 import {
+  type CcGradientClickLineSession,
   isCcGradientDragDefinedShapeMode,
+  isCcGradientClickLineDrawingShapeMode,
   isCcGradientPolygonDrawingShapeMode,
   isCcGradientStrokeMode,
   rebuildCcGradientDragGeometry,
+  rebuildCcGradientClickLineGeometry,
   rebuildCcGradientPolygonGeometry,
   rebuildCcStrokeShapeFromSamples,
   resolveFinalSampledShapeSourcePoints,
@@ -65,6 +68,7 @@ type ShapeDrawingRefs = {
   ccStrokeSamplesRef: React.MutableRefObject<CcStrokeSample[]>;
   ccStrokeDirectionRef: React.MutableRefObject<{ x: number; y: number } | null>;
   ccGradientDrawingGeometryRef: React.MutableRefObject<CcGradientDrawingGeometry | null>;
+  ccGradientClickLineSessionRef: React.MutableRefObject<CcGradientClickLineSession>;
   shapeDragStartRef: React.MutableRefObject<{ x: number; y: number } | null>;
   shapeDragLastRef: React.MutableRefObject<{ x: number; y: number } | null>;
   shapeDragMovedRef: React.MutableRefObject<boolean>;
@@ -1213,6 +1217,16 @@ export const finalizeShapeDrawing = async (
     });
   } else if (isCcGradientPolygonDrawingShapeMode(deps.storeRef.current)) {
     rebuildCcGradientPolygonGeometry(args.refs, liveBrushSettings);
+  } else if (
+    isCcGradientClickLineDrawingShapeMode(deps.storeRef.current) &&
+    args.refs.ccGradientClickLineSessionRef.current.points.length >= 3 &&
+    !args.refs.ccGradientDrawingGeometryRef.current
+  ) {
+    rebuildCcGradientClickLineGeometry({
+      refs: args.refs,
+      session: args.refs.ccGradientClickLineSessionRef.current,
+      brushSettings: liveBrushSettings,
+    });
   }
 
   void args.refs.finalizeQueueRef.current.enqueue(async () => {

@@ -46,6 +46,12 @@ import { hashStops, type StoredStop } from '@/utils/colorCycleGradientDefs';
 import { simplifyToVertexLimit } from '@/utils/polygonSimplify';
 import { isDragDefinedCcGradientShape } from '@/hooks/canvas/handlers/shapes/ccGradientDrawingGeometry';
 import {
+  appendCcGradientClickLinePoint,
+  isCcGradientClickLineDrawingShapeMode,
+  prepareCcGradientClickLineFinalize,
+  previewCcGradientClickLinePoint,
+} from '@/hooks/canvas/handlers/shapes/ccGradientDrawingRuntime';
+import {
   canReplayCcPreview,
   computeCcPreviewRoi,
   createCcShapePreviewSampleNormalized,
@@ -2558,6 +2564,131 @@ export const createShapeToolHandler = (
     return pressure;
   };
 
+  const resolveClickLinePoint = (point: PreviewPoint, shiftKey: boolean): PreviewPoint => {
+    const session = drawingHandlers.ccGradientClickLineSessionRef?.current;
+    const anchor = session?.active && session.points.length > 0
+      ? session.points[session.points.length - 1]
+      : null;
+    return shiftKey && anchor ? snapPointToAngle(anchor, point, 45) : point;
+  };
+
+  const handleCcGradientClickLinePointerDown = (
+    event: React.PointerEvent<HTMLCanvasElement>
+  ): boolean => {
+    if (event.button !== 0) {
+      return false;
+    }
+    const state = getAppStoreState();
+    if (!isCcGradientClickLineDrawingShapeMode(state)) {
+      return false;
+    }
+    const session = drawingHandlers.ccGradientClickLineSessionRef?.current;
+    if (!session) {
+      return false;
+    }
+    const activeLayer = state.layers.find(layer => layer.id === state.activeLayerId);
+    if (activeLayer?.layerType !== 'color-cycle') {
+      feedback?.("Can't use Color Cycle shape on a normal layer. Create/select a Color Cycle layer.");
+      return true;
+    }
+
+    resetDitherGradOrigin();
+    drawingHandlers.stopContinuousColorCycleAnimation?.('shape-tool-click-line');
+    const pressure = computePointerPressure(event);
+    const worldPos = resolveClickLinePoint(computeWorldPointer(event), event.shiftKey);
+    const hadGeometry = appendCcGradientClickLinePoint({
+      refs: drawingHandlers,
+      session,
+      point: worldPos,
+      brushSettings: state.tools.brushSettings,
+      pressure,
+      rawPressure: event.pressure,
+    });
+    drawingHandlers.isDrawingShapeRef.current = true;
+    getAppStoreState().setShapeDrawing(true);
+    drawingHandlers.seedManualStrokeBoundingBox?.(
+      drawingHandlers.shapePointsRef.current.length >= 3
+        ? drawingHandlers.shapePointsRef.current
+        : session.points,
+      2
+    );
+    if (hadGeometry) {
+      drawingHandlers.triggerSimpleShapePreview?.();
+    }
+    return true;
+  };
+
+  const handleCcGradientClickLinePointerMove = (
+    event: React.PointerEvent<HTMLCanvasElement>
+  ): boolean => {
+    const state = getAppStoreState();
+    if (!isCcGradientClickLineDrawingShapeMode(state)) {
+      return false;
+    }
+    const session = drawingHandlers.ccGradientClickLineSessionRef?.current;
+    if (!session?.active) {
+      return false;
+    }
+
+    const pressure = computePointerPressure(event);
+    const worldPos = resolveClickLinePoint(computeWorldPointer(event), event.shiftKey);
+    const hadGeometry = previewCcGradientClickLinePoint({
+      refs: drawingHandlers,
+      session,
+      point: worldPos,
+      brushSettings: state.tools.brushSettings,
+      pressure,
+      rawPressure: event.pressure,
+    });
+    drawingHandlers.seedManualStrokeBoundingBox?.(
+      drawingHandlers.shapePointsRef.current.length >= 3
+        ? drawingHandlers.shapePointsRef.current
+        : session.points,
+      2
+    );
+    if (hadGeometry || session.points.length >= 1) {
+      drawingHandlers.triggerSimpleShapePreview?.();
+    }
+    return true;
+  };
+
+  const handleCcGradientClickLinePointerUp = (
+    event: React.PointerEvent<HTMLCanvasElement>
+  ): boolean => {
+    const state = getAppStoreState();
+    if (!isCcGradientClickLineDrawingShapeMode(state)) {
+      return false;
+    }
+    const session = drawingHandlers.ccGradientClickLineSessionRef?.current;
+    if (!session?.active) {
+      return false;
+    }
+
+    const doubleClick = (event.detail ?? 0) >= 2;
+    if (!doubleClick) {
+      if (session.points.length >= 2) {
+        drawingHandlers.triggerSimpleShapePreview?.();
+      }
+      return true;
+    }
+
+    const canFinalize = prepareCcGradientClickLineFinalize({
+      refs: drawingHandlers,
+      session,
+      brushSettings: state.tools.brushSettings,
+    });
+    if (!canFinalize) {
+      restartColorCycleAnimation?.();
+      return true;
+    }
+
+    const finalizePromise = drawingHandlers.finalizeShapeDrawing();
+    finalizePromise.finally(() => {
+      restartColorCycleAnimation?.();
+    });
+    return true;
+  };
+
   const polygonShapePointerDown = (event: React.PointerEvent<HTMLCanvasElement>) => {
     if (event.button !== 0) return false;
 
@@ -3044,6 +3175,11 @@ export const createShapeToolHandler = (
               : basePixelSize;
             const pixelSize = Math.max(1, Math.round(pressurePixelSize || basePixelSize));
             const levels = Math.max(1, Math.min(16, Math.round(brushNow.gradientBands ?? 16)));
+            const isClickLinePreview =
+              isColorCycleGradientPreset &&
+              tools.shapeMode &&
+              brushNow.ccGradientDrawingShape === 'click-line' &&
+              Boolean(drawingHandlers.ccGradientClickLineSessionRef?.current?.active);
             stampCcHangProbe({
               phase: 'shape-preview-frame-start',
               canvas: overlayCanvas,
@@ -3138,6 +3274,8 @@ export const createShapeToolHandler = (
                     ditherGradPreviewState,
                     drawingHandlers,
                     shouldKeepCachedCcPreviewVisible,
+                    retainStalePreviewOnCacheMiss: isClickLinePreview,
+                    suppressChromeForCachedPreview: !isClickLinePreview,
                     previewOpacity: SHAPE_PREVIEW_OPACITY,
                     previewRenderSettings,
                     sampleColor: sampleColorAtPosition,
@@ -3194,6 +3332,8 @@ export const createShapeToolHandler = (
                       ditherGradPreviewState,
                       drawingHandlers,
                       shouldKeepCachedCcPreviewVisible,
+                      retainStalePreviewOnCacheMiss: isClickLinePreview,
+                      suppressChromeForCachedPreview: !isClickLinePreview,
                       previewOpacity: SHAPE_PREVIEW_OPACITY,
                       schedulePolygonShapePreviewFrame,
                       getLatestPolygonPreviewPoint: () =>
@@ -4208,6 +4348,9 @@ export const createShapeToolHandler = (
       if (handleCrosshatchPointerDown(event)) {
         return true;
       }
+      if (handleCcGradientClickLinePointerDown(event)) {
+        return true;
+      }
       if (polygonShapePointerDown(event)) {
         return true;
       }
@@ -4230,6 +4373,9 @@ export const createShapeToolHandler = (
       if (handleCrosshatchPointerMove(event)) {
         return true;
       }
+      if (handleCcGradientClickLinePointerMove(event)) {
+        return true;
+      }
       if (polygonShapePointerMove(event)) {
         return true;
       }
@@ -4246,6 +4392,9 @@ export const createShapeToolHandler = (
         return true;
       }
       if (handleCrosshatchPointerUp(event)) {
+        return true;
+      }
+      if (handleCcGradientClickLinePointerUp(event)) {
         return true;
       }
       if (polygonShapePointerUp(event)) {

@@ -16,6 +16,7 @@ export const buildDrawingHandlersResultShapeArgs = ({
   resetShapePressureState: shapeRuntime.resetShapePressureState,
   updateShapePressure: shapeRuntime.updateShapePressure,
   computeShapePixelSize: shapeRuntime.computeShapePixelSize,
+  triggerSimpleShapePreview: shapeRuntime.triggerSimpleShapePreview,
   setSimpleShapePreviewRenderer: shapeRuntime.setSimpleShapePreviewRenderer,
   seedManualStrokeBoundingBox: shapeRuntime.seedManualStrokeBoundingBox,
 });

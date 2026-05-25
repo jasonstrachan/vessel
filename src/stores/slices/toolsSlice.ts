@@ -394,9 +394,11 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
   shapeModeByBrush: {},
 
   setShapeDrawing: (isDrawing) =>
-    set((state) => ({
-      shapeState: { ...state.shapeState, isDrawing },
-    })),
+    set((state) => (
+      state.shapeState.isDrawing === isDrawing
+        ? state
+        : { shapeState: { ...state.shapeState, isDrawing } }
+    )),
 
   addShapePoint: (point) =>
     set((state) => ({

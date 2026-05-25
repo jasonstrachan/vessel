@@ -1,4 +1,5 @@
 import {
+  buildClickLineGeometry,
   buildCcGradientDrawingGeometry,
   buildEllipseGeometry,
   buildLineGeometry,
@@ -127,5 +128,71 @@ describe('ccGradientDrawingGeometry', () => {
 
     expect(geometry?.shapePoints).toEqual(points);
     expect(geometry?.sampleSourcePoints).toEqual(points);
+  });
+
+  it('builds click-line geometry from committed boundary points', () => {
+    const points = [
+      { x: 10, y: 10 },
+      { x: 30, y: 10 },
+      { x: 30, y: 30 },
+    ];
+    const geometry = buildClickLineGeometry({
+      points,
+    });
+
+    expect(geometry).not.toBeNull();
+    expect(geometry!.shapePoints).toEqual(points);
+    expect(geometry!.sampleSourcePoints).toEqual(points);
+    expect(geometry!.bounds).toEqual({ minX: 10, minY: 10, maxX: 30, maxY: 30 });
+  });
+
+  it('rejects click-line geometry with fewer than three boundary points', () => {
+    expect(
+      buildClickLineGeometry({
+        points: [{ x: 10, y: 10 }],
+      })
+    ).toBeNull();
+
+    expect(
+      buildClickLineGeometry({
+        points: [
+          { x: 10, y: 10 },
+          { x: 30, y: 10 },
+        ],
+      })
+    ).toBeNull();
+  });
+
+  it('rejects duplicate final click-line points as boundary points', () => {
+    expect(
+      buildClickLineGeometry({
+        points: [
+          { x: 10, y: 10 },
+          { x: 30, y: 10 },
+          { x: 30, y: 10 },
+        ],
+      })
+    ).toBeNull();
+  });
+
+  it('includes preview point only in click-line preview geometry', () => {
+    const committed = [
+      { x: 0, y: 0 },
+      { x: 20, y: 0 },
+    ];
+    const preview = buildClickLineGeometry({
+      points: committed,
+      previewPoint: { x: 20, y: 20 },
+    });
+    const final = buildClickLineGeometry({
+      points: committed,
+    });
+
+    expect(preview?.sampleSourcePoints).toEqual([
+      { x: 0, y: 0 },
+      { x: 20, y: 0 },
+      { x: 20, y: 20 },
+    ]);
+    expect(final).toBeNull();
   });
 });

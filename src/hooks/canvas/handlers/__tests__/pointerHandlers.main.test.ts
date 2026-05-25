@@ -18,6 +18,7 @@ const createCanvas = () => {
   };
 
   canvas.getContext = jest.fn(() => ({
+    canvas,
     clearRect: jest.fn(),
     save: jest.fn(),
     translate: jest.fn(),
@@ -209,11 +210,19 @@ const createDeps = (dynamicOverrides: PartialDynamic = {}, depOverrides: Partial
       continueShapeDrawing: jest.fn(),
       finalizeDrawing: jest.fn().mockResolvedValue(undefined),
       finalizeShapeDrawing: jest.fn().mockResolvedValue(undefined),
+      triggerSimpleShapePreview: jest.fn(),
       endStrokeSession: jest.fn(),
       clearStrokeSession: jest.fn(),
       isDrawingShapeRef: { current: false },
       shapePointsRef: { current: [] },
+      ccStrokeDirectionRef: { current: null },
+      ccGradientDrawingGeometryRef: { current: null },
+      ccGradientClickLineSessionRef: {
+        current: { active: false, points: [], previewPoint: null },
+      },
+      ccShapePreviewCacheRef: { current: null },
       coerceDragShapeToPolygon: jest.fn(),
+      seedManualStrokeBoundingBox: jest.fn(),
       updateDitherGradSamples: jest.fn(),
     } as any,
     brushEngine: null,
@@ -1964,6 +1973,314 @@ describe('pointerHandlers main flows', () => {
     await Promise.resolve();
     expect(deps.drawingHandlers.finalizeShapeDrawing).not.toHaveBeenCalled();
     expect(deps.stateMachine.finalizationComplete).not.toHaveBeenCalled();
+  });
+
+  it('appends CC gradient click-line points and previews without ordinary-click finalize', async () => {
+    const ccLayer = { id: 'cc-layer', layerType: 'color-cycle' } as any;
+    const brushSettings = {
+      ...baseDynamic.tools.brushSettings,
+      brushShape: BrushShape.COLOR_CYCLE_SHAPE,
+      colorCycleFillMode: 'linear',
+      ccGradientDrawingShape: 'click-line',
+      size: 10,
+      pressureEnabled: false,
+    } as any;
+    useAppStore.setState((state) => ({
+      ...state,
+      currentBrushPreset: { id: 'color-cycle-gradient', name: 'CC Gradient' } as any,
+      activeLayerId: 'cc-layer',
+      layers: [ccLayer],
+      tools: {
+        ...state.tools,
+        currentTool: 'brush',
+        shapeMode: true,
+        brushSettings,
+      },
+    }));
+    const { deps } = createDeps({
+      currentBrushPresetId: 'color-cycle-gradient',
+      activeLayerId: 'cc-layer',
+      layers: [ccLayer],
+      tools: {
+        ...baseDynamic.tools,
+        currentTool: 'brush',
+        shapeMode: true,
+        brushSettings,
+      },
+    });
+
+    const handlers = createPointerHandlers(deps);
+    handlers.handlePointerDown(makePointerEvent({ clientX: 10, clientY: 10, detail: 1 }));
+    handlers.handlePointerUp(makePointerEvent({ clientX: 10, clientY: 10, detail: 1 }));
+    (deps.drawingHandlers.triggerSimpleShapePreview as jest.Mock).mockClear();
+    handlers.handlePointerMove(makePointerEvent({ clientX: 20, clientY: 20, buttons: 0 } as any));
+    expect(deps.drawingHandlers.triggerSimpleShapePreview).toHaveBeenCalledTimes(1);
+    expect(deps.drawingHandlers.shapePointsRef.current).toEqual([
+      { x: 10, y: 10 },
+      { x: 20, y: 20 },
+    ]);
+    handlers.handlePointerDown(makePointerEvent({ clientX: 30, clientY: 10, detail: 1 }));
+    (deps.drawingHandlers.triggerSimpleShapePreview as jest.Mock).mockClear();
+    handlers.handlePointerUp(makePointerEvent({ clientX: 30, clientY: 10, detail: 1 }));
+    expect(deps.drawingHandlers.triggerSimpleShapePreview).toHaveBeenCalledTimes(1);
+    (deps.restartColorCycleAnimation as jest.Mock).mockClear();
+    handlers.handlePointerMove(makePointerEvent({ clientX: 30, clientY: 30, buttons: 0 } as any));
+    handlers.handlePointerUp(makePointerEvent({ clientX: 30, clientY: 30, detail: 1 }));
+
+    await Promise.resolve();
+    expect(deps.drawingHandlers.ccGradientClickLineSessionRef.current.active).toBe(true);
+    expect(deps.drawingHandlers.ccGradientClickLineSessionRef.current.points).toEqual([
+      { x: 10, y: 10 },
+      { x: 30, y: 10 },
+    ]);
+    expect(deps.drawingHandlers.shapePointsRef.current).toEqual([
+      { x: 10, y: 10 },
+      { x: 30, y: 10 },
+      { x: 30, y: 30 },
+    ]);
+    expect(deps.drawingHandlers.finalizeShapeDrawing).not.toHaveBeenCalled();
+    expect(deps.drawingHandlers.triggerSimpleShapePreview).toHaveBeenCalled();
+    expect(deps.restartColorCycleAnimation).not.toHaveBeenCalled();
+  });
+
+  it('snaps CC gradient click-line preview segments to 45 degree increments while Shift is held', async () => {
+    const ccLayer = { id: 'cc-layer', layerType: 'color-cycle' } as any;
+    const brushSettings = {
+      ...baseDynamic.tools.brushSettings,
+      brushShape: BrushShape.COLOR_CYCLE_SHAPE,
+      colorCycleFillMode: 'linear',
+      ccGradientDrawingShape: 'click-line',
+      size: 10,
+      pressureEnabled: false,
+    } as any;
+    useAppStore.setState((state) => ({
+      ...state,
+      currentBrushPreset: { id: 'color-cycle-gradient', name: 'CC Gradient' } as any,
+      activeLayerId: 'cc-layer',
+      layers: [ccLayer],
+      tools: {
+        ...state.tools,
+        currentTool: 'brush',
+        shapeMode: true,
+        brushSettings,
+      },
+    }));
+    const { deps } = createDeps({
+      currentBrushPresetId: 'color-cycle-gradient',
+      activeLayerId: 'cc-layer',
+      layers: [ccLayer],
+      tools: {
+        ...baseDynamic.tools,
+        currentTool: 'brush',
+        shapeMode: true,
+        brushSettings,
+      },
+    });
+
+    const handlers = createPointerHandlers(deps);
+    handlers.handlePointerDown(makePointerEvent({ clientX: 10, clientY: 10, detail: 1 }));
+    handlers.handlePointerUp(makePointerEvent({ clientX: 10, clientY: 10, detail: 1 }));
+    handlers.handlePointerDown(makePointerEvent({ clientX: 30, clientY: 10, detail: 1 }));
+    handlers.handlePointerUp(makePointerEvent({ clientX: 30, clientY: 10, detail: 1 }));
+    handlers.handlePointerMove(makePointerEvent({ clientX: 50, clientY: 20, buttons: 0, shiftKey: true } as any));
+
+    await Promise.resolve();
+    const snappedPreviewPoint = deps.drawingHandlers.shapePointsRef.current[2];
+    const segmentLength = Math.hypot(20, 10);
+    const snappedDelta = Math.cos(Math.PI / 4) * segmentLength;
+    expect(snappedPreviewPoint.x).toBeCloseTo(30 + snappedDelta, 6);
+    expect(snappedPreviewPoint.y).toBeCloseTo(10 + snappedDelta, 6);
+    expect(deps.drawingHandlers.triggerSimpleShapePreview).toHaveBeenCalled();
+  });
+
+  it('does not intercept CC gradient click-line when shape mode is disabled', async () => {
+    const ccLayer = { id: 'cc-layer', layerType: 'color-cycle' } as any;
+    const brushSettings = {
+      ...baseDynamic.tools.brushSettings,
+      brushShape: BrushShape.COLOR_CYCLE_SHAPE,
+      colorCycleFillMode: 'linear',
+      ccGradientDrawingShape: 'click-line',
+      size: 10,
+      pressureEnabled: false,
+    } as any;
+    useAppStore.setState((state) => ({
+      ...state,
+      currentBrushPreset: { id: 'color-cycle-gradient', name: 'CC Gradient' } as any,
+      activeLayerId: 'cc-layer',
+      layers: [ccLayer],
+      tools: {
+        ...state.tools,
+        currentTool: 'brush',
+        shapeMode: false,
+        brushSettings,
+      },
+    }));
+    const { deps } = createDeps({
+      currentBrushPresetId: 'color-cycle-gradient',
+      activeLayerId: 'cc-layer',
+      layers: [ccLayer],
+      tools: {
+        ...baseDynamic.tools,
+        currentTool: 'brush',
+        shapeMode: false,
+        brushSettings,
+      },
+    });
+
+    const handlers = createPointerHandlers(deps);
+    handlers.handlePointerDown(makePointerEvent({ clientX: 10, clientY: 10, detail: 1 }));
+
+    await Promise.resolve();
+    expect(deps.drawingHandlers.ccGradientClickLineSessionRef.current.active).toBe(false);
+    expect(deps.drawingHandlers.shapePointsRef.current).toEqual([]);
+  });
+
+  it('blocks CC gradient click-line on raster layers with feedback', async () => {
+    const feedback = jest.fn();
+    const rasterLayer = { id: 'raster-layer', layerType: 'raster' } as any;
+    const brushSettings = {
+      ...baseDynamic.tools.brushSettings,
+      brushShape: BrushShape.COLOR_CYCLE_SHAPE,
+      colorCycleFillMode: 'linear',
+      ccGradientDrawingShape: 'click-line',
+      size: 10,
+      pressureEnabled: false,
+    } as any;
+    useAppStore.setState((state) => ({
+      ...state,
+      currentBrushPreset: { id: 'color-cycle-gradient', name: 'CC Gradient' } as any,
+      activeLayerId: 'raster-layer',
+      layers: [rasterLayer],
+      tools: {
+        ...state.tools,
+        currentTool: 'brush',
+        shapeMode: true,
+        brushSettings,
+      },
+    }));
+    const { deps } = createDeps({
+      currentBrushPresetId: 'color-cycle-gradient',
+      activeLayerId: 'raster-layer',
+      layers: [rasterLayer],
+      tools: {
+        ...baseDynamic.tools,
+        currentTool: 'brush',
+        shapeMode: true,
+        brushSettings,
+      },
+    }, {
+      feedback,
+    });
+
+    const handlers = createPointerHandlers(deps);
+    handlers.handlePointerDown(makePointerEvent({ clientX: 10, clientY: 10, detail: 1 }));
+
+    await Promise.resolve();
+    expect(feedback).toHaveBeenCalledWith("Can't use Color Cycle shape on a normal layer. Create/select a Color Cycle layer.");
+    expect(deps.drawingHandlers.ccGradientClickLineSessionRef.current.active).toBe(false);
+    expect(deps.drawingHandlers.shapePointsRef.current).toEqual([]);
+    expect(deps.drawingHandlers.finalizeShapeDrawing).not.toHaveBeenCalled();
+  });
+
+  it('restarts color-cycle animation after invalid early click-line double click', async () => {
+    const ccLayer = { id: 'cc-layer', layerType: 'color-cycle' } as any;
+    const brushSettings = {
+      ...baseDynamic.tools.brushSettings,
+      brushShape: BrushShape.COLOR_CYCLE_SHAPE,
+      colorCycleFillMode: 'linear',
+      ccGradientDrawingShape: 'click-line',
+      size: 10,
+      pressureEnabled: false,
+    } as any;
+    useAppStore.setState((state) => ({
+      ...state,
+      currentBrushPreset: { id: 'color-cycle-gradient', name: 'CC Gradient' } as any,
+      activeLayerId: 'cc-layer',
+      layers: [ccLayer],
+      tools: {
+        ...state.tools,
+        currentTool: 'brush',
+        shapeMode: true,
+        brushSettings,
+      },
+    }));
+    const { deps } = createDeps({
+      currentBrushPresetId: 'color-cycle-gradient',
+      activeLayerId: 'cc-layer',
+      layers: [ccLayer],
+      tools: {
+        ...baseDynamic.tools,
+        currentTool: 'brush',
+        shapeMode: true,
+        brushSettings,
+      },
+    });
+
+    const handlers = createPointerHandlers(deps);
+    handlers.handlePointerDown(makePointerEvent({ clientX: 10, clientY: 10, detail: 1 }));
+    handlers.handlePointerUp(makePointerEvent({ clientX: 10, clientY: 10, detail: 1 }));
+    handlers.handlePointerDown(makePointerEvent({ clientX: 30, clientY: 10, detail: 1 }));
+    handlers.handlePointerUp(makePointerEvent({ clientX: 30, clientY: 10, detail: 1 }));
+    (deps.restartColorCycleAnimation as jest.Mock).mockClear();
+    handlers.handlePointerDown(makePointerEvent({ clientX: 30, clientY: 10, detail: 2 }));
+    handlers.handlePointerUp(makePointerEvent({ clientX: 30, clientY: 10, detail: 2 }));
+
+    await Promise.resolve();
+    expect(deps.drawingHandlers.finalizeShapeDrawing).not.toHaveBeenCalled();
+    expect(deps.drawingHandlers.ccGradientClickLineSessionRef.current.active).toBe(true);
+    expect(deps.drawingHandlers.ccGradientClickLineSessionRef.current.points).toEqual([
+      { x: 10, y: 10 },
+      { x: 30, y: 10 },
+    ]);
+    expect(deps.restartColorCycleAnimation).toHaveBeenCalled();
+  });
+
+  it('finalizes CC gradient click-line on double click after three committed boundary points', async () => {
+    const ccLayer = { id: 'cc-layer', layerType: 'color-cycle' } as any;
+    const brushSettings = {
+      ...baseDynamic.tools.brushSettings,
+      brushShape: BrushShape.COLOR_CYCLE_SHAPE,
+      colorCycleFillMode: 'linear',
+      ccGradientDrawingShape: 'click-line',
+      size: 10,
+      pressureEnabled: false,
+    } as any;
+    useAppStore.setState((state) => ({
+      ...state,
+      currentBrushPreset: { id: 'color-cycle-gradient', name: 'CC Gradient' } as any,
+      activeLayerId: 'cc-layer',
+      layers: [ccLayer],
+      tools: {
+        ...state.tools,
+        currentTool: 'brush',
+        shapeMode: true,
+        brushSettings,
+      },
+    }));
+    const { deps } = createDeps({
+      currentBrushPresetId: 'color-cycle-gradient',
+      activeLayerId: 'cc-layer',
+      layers: [ccLayer],
+      tools: {
+        ...baseDynamic.tools,
+        currentTool: 'brush',
+        shapeMode: true,
+        brushSettings,
+      },
+    });
+
+    const handlers = createPointerHandlers(deps);
+    handlers.handlePointerDown(makePointerEvent({ clientX: 10, clientY: 10, detail: 1 }));
+    handlers.handlePointerUp(makePointerEvent({ clientX: 10, clientY: 10, detail: 1 }));
+    handlers.handlePointerDown(makePointerEvent({ clientX: 30, clientY: 10, detail: 1 }));
+    handlers.handlePointerUp(makePointerEvent({ clientX: 30, clientY: 10, detail: 1 }));
+    handlers.handlePointerDown(makePointerEvent({ clientX: 30, clientY: 30, detail: 2 }));
+    handlers.handlePointerUp(makePointerEvent({ clientX: 30, clientY: 30, detail: 2 }));
+
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(deps.drawingHandlers.finalizeShapeDrawing).toHaveBeenCalled();
+    expect(deps.drawingHandlers.ccGradientClickLineSessionRef.current.active).toBe(false);
   });
 
   it('finalizes CC gradient polygon drawing on double click', async () => {

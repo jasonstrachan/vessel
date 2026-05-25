@@ -21,6 +21,20 @@ const MIN_ELLIPSE_POINTS = 12;
 
 const clonePoint = (point: Point): Point => ({ x: point.x, y: point.y });
 
+export const arePointsDistinct = (a: Point, b: Point): boolean =>
+  Math.hypot(a.x - b.x, a.y - b.y) >= MIN_DRAG_DISTANCE;
+
+const dedupeConsecutivePoints = (points: Point[]): Point[] => {
+  const deduped: Point[] = [];
+  for (const point of points) {
+    const lastPoint = deduped[deduped.length - 1];
+    if (!lastPoint || arePointsDistinct(lastPoint, point)) {
+      deduped.push(point);
+    }
+  }
+  return deduped;
+};
+
 const computeBounds = (points: Point[]): CcGradientDrawingGeometry['bounds'] => {
   let minX = Infinity;
   let minY = Infinity;
@@ -239,6 +253,27 @@ export const buildLineGeometry = ({
   };
 };
 
+export const buildClickLineGeometry = ({
+  points,
+  previewPoint,
+}: {
+  points: Point[];
+  previewPoint?: Point | null;
+}): CcGradientDrawingGeometry | null => {
+  const shapePoints = [
+    ...points.map(clonePoint),
+    ...(previewPoint ? [clonePoint(previewPoint)] : []),
+  ];
+  const distinctShapePoints = dedupeConsecutivePoints(shapePoints);
+  return fromShapePoints({
+    shapePoints: distinctShapePoints,
+    sampleSourcePoints: distinctShapePoints,
+    direction: distinctShapePoints.length >= 2
+      ? normalizeDirection(distinctShapePoints[0], distinctShapePoints[distinctShapePoints.length - 1])
+      : undefined,
+  });
+};
+
 export const buildPolygonGeometry = (points: Point[]): CcGradientDrawingGeometry | null =>
   fromShapePoints({
     shapePoints: points,
@@ -251,6 +286,7 @@ export const buildCcGradientDrawingGeometry = ({
   start,
   end,
   points,
+  previewPoint,
   brushSettings,
   pressure,
   constrainAspect = false,
@@ -259,12 +295,16 @@ export const buildCcGradientDrawingGeometry = ({
   start?: Point | null;
   end?: Point | null;
   points?: Point[];
+  previewPoint?: Point | null;
   brushSettings: Pick<BrushSettings, 'size' | 'pressureEnabled' | 'minPressure' | 'maxPressure' | 'brushShape'>;
   pressure?: number;
   constrainAspect?: boolean;
 }): CcGradientDrawingGeometry | null => {
   if (drawingShape === 'polygon') {
     return buildPolygonGeometry(points ?? []);
+  }
+  if (drawingShape === 'click-line') {
+    return buildClickLineGeometry({ points: points ?? [], previewPoint });
   }
   if (!start || !end) {
     return null;
@@ -294,3 +334,7 @@ export const isDragDefinedCcGradientShape = (
 export const isPolygonCcGradientShape = (
   drawingShape: BrushSettings['ccGradientDrawingShape']
 ): drawingShape is 'polygon' => drawingShape === 'polygon';
+
+export const isClickLineCcGradientShape = (
+  drawingShape: BrushSettings['ccGradientDrawingShape']
+): drawingShape is 'click-line' => drawingShape === 'click-line';

@@ -5,7 +5,9 @@ import {
   type CcStrokeSample,
 } from '@/hooks/canvas/handlers/shapes/ccStrokeShapeGeometry';
 import {
+  arePointsDistinct,
   buildCcGradientDrawingGeometry,
+  isClickLineCcGradientShape,
   isDragDefinedCcGradientShape,
   isPolygonCcGradientShape,
   type CcGradientDrawingGeometry,
@@ -19,6 +21,20 @@ type CcGradientDrawingRefs = {
   ccStrokeDirectionRef: MutableRef<Point | null>;
   ccGradientDrawingGeometryRef: MutableRef<CcGradientDrawingGeometry | null>;
 };
+
+export type CcGradientClickLineSession = {
+  active: boolean;
+  points: Point[];
+  previewPoint: Point | null;
+  pressure?: number;
+  rawPressure?: number;
+};
+
+export const createCcGradientClickLineSession = (): CcGradientClickLineSession => ({
+  active: false,
+  points: [],
+  previewPoint: null,
+});
 
 export const isCcGradientStrokeMode = (state: AppState): boolean =>
   state.currentBrushPreset?.id === 'color-cycle-gradient' &&
@@ -36,6 +52,12 @@ export const isCcGradientPolygonDrawingShapeMode = (state: AppState): boolean =>
   state.currentBrushPreset?.id === 'color-cycle-gradient' &&
   state.tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE_SHAPE &&
   isPolygonCcGradientShape(state.tools.brushSettings.ccGradientDrawingShape);
+
+export const isCcGradientClickLineDrawingShapeMode = (state: AppState): boolean =>
+  state.currentBrushPreset?.id === 'color-cycle-gradient' &&
+  state.tools.shapeMode &&
+  state.tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE_SHAPE &&
+  isClickLineCcGradientShape(state.tools.brushSettings.ccGradientDrawingShape);
 
 export const rebuildCcStrokeShapeFromSamples = (
   refs: CcGradientDrawingRefs & { ccStrokeSamplesRef: MutableRef<CcStrokeSample[]> },
@@ -125,6 +147,167 @@ export const rebuildCcGradientPolygonGeometry = (
   refs.shapePointsRef.current = geometry.shapePoints.map(point => ({ ...point }));
   refs.ccStrokeDirectionRef.current = geometry.direction ?? null;
   refs.ccGradientDrawingGeometryRef.current = geometry;
+  return true;
+};
+
+export const rebuildCcGradientClickLineGeometry = ({
+  refs,
+  session,
+  brushSettings,
+  previewPoint = null,
+  pressure,
+}: {
+  refs: CcGradientDrawingRefs;
+  session: CcGradientClickLineSession;
+  brushSettings: BrushSettings;
+  previewPoint?: Point | null;
+  pressure?: number;
+}): boolean => {
+  if (!isClickLineCcGradientShape(brushSettings.ccGradientDrawingShape)) {
+    return false;
+  }
+
+  const geometry = buildCcGradientDrawingGeometry({
+    drawingShape: 'click-line',
+    points: session.points,
+    previewPoint,
+    brushSettings,
+    pressure,
+  });
+  if (!geometry) {
+    const previewShapePoints = previewPoint
+      ? [...session.points, previewPoint]
+      : session.points;
+    refs.shapePointsRef.current = previewShapePoints.map(point => ({ ...point }));
+    refs.ccGradientDrawingGeometryRef.current = null;
+    refs.ccStrokeDirectionRef.current = null;
+    return false;
+  }
+
+  refs.shapePointsRef.current = geometry.shapePoints.map(point => ({ ...point }));
+  refs.ccStrokeDirectionRef.current = geometry.direction ?? null;
+  refs.ccGradientDrawingGeometryRef.current = geometry;
+  return true;
+};
+
+export const appendCcGradientClickLinePoint = ({
+  refs,
+  session,
+  point,
+  brushSettings,
+  pressure,
+  rawPressure,
+}: {
+  refs: CcGradientDrawingRefs;
+  session: CcGradientClickLineSession;
+  point: Point;
+  brushSettings: BrushSettings;
+  pressure?: number;
+  rawPressure?: number;
+}): boolean => {
+  if (!isClickLineCcGradientShape(brushSettings.ccGradientDrawingShape)) {
+    return false;
+  }
+
+  if (!session.active) {
+    session.points = [];
+  }
+  session.active = true;
+  session.previewPoint = null;
+  session.pressure = pressure;
+  session.rawPressure = rawPressure;
+  const lastPoint = session.points[session.points.length - 1];
+  if (lastPoint && !arePointsDistinct(lastPoint, point)) {
+    return rebuildCcGradientClickLineGeometry({
+      refs,
+      session,
+      brushSettings,
+      pressure,
+    });
+  }
+  session.points = [...session.points, { x: point.x, y: point.y }];
+  return rebuildCcGradientClickLineGeometry({
+    refs,
+    session,
+    brushSettings,
+    pressure,
+  });
+};
+
+export const previewCcGradientClickLinePoint = ({
+  refs,
+  session,
+  point,
+  brushSettings,
+  pressure,
+  rawPressure,
+}: {
+  refs: CcGradientDrawingRefs;
+  session: CcGradientClickLineSession;
+  point: Point;
+  brushSettings: BrushSettings;
+  pressure?: number;
+  rawPressure?: number;
+}): boolean => {
+  if (!session.active || !isClickLineCcGradientShape(brushSettings.ccGradientDrawingShape)) {
+    return false;
+  }
+
+  session.previewPoint = { x: point.x, y: point.y };
+  session.pressure = pressure;
+  session.rawPressure = rawPressure;
+  return rebuildCcGradientClickLineGeometry({
+    refs,
+    session,
+    brushSettings,
+    previewPoint: session.previewPoint,
+    pressure,
+  });
+};
+
+export const prepareCcGradientClickLineFinalize = ({
+  refs,
+  session,
+  brushSettings,
+}: {
+  refs: CcGradientDrawingRefs;
+  session: CcGradientClickLineSession;
+  brushSettings: BrushSettings;
+}): boolean => {
+  if (!session.active || session.points.length < 3 || !isClickLineCcGradientShape(brushSettings.ccGradientDrawingShape)) {
+    return false;
+  }
+
+  const hasGeometry = rebuildCcGradientClickLineGeometry({
+    refs,
+    session,
+    brushSettings,
+    pressure: session.pressure,
+  });
+  if (!hasGeometry) {
+    return false;
+  }
+
+  session.active = false;
+  session.points = [];
+  session.previewPoint = null;
+  return true;
+};
+
+export const cancelCcGradientClickLineSession = (
+  refs: CcGradientDrawingRefs,
+  session: CcGradientClickLineSession
+): boolean => {
+  if (!session.active && session.points.length === 0 && !refs.ccGradientDrawingGeometryRef.current) {
+    return false;
+  }
+
+  session.active = false;
+  session.points = [];
+  session.previewPoint = null;
+  refs.shapePointsRef.current = [];
+  refs.ccStrokeDirectionRef.current = null;
+  refs.ccGradientDrawingGeometryRef.current = null;
   return true;
 };
 

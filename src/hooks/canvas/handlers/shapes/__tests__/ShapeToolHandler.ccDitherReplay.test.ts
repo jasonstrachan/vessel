@@ -1,6 +1,9 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { createShapeToolHandler } from '../ShapeToolHandler';
-import { runSampledCcDitherPreviewRuntime } from '../ccShapePreviewDitherRuntime';
+import {
+  runCcDitherPreviewRuntime,
+  runSampledCcDitherPreviewRuntime,
+} from '../ccShapePreviewDitherRuntime';
 import { BrushShape } from '@/types';
 
 const fillCcGradientDither = jest.fn<Promise<void>, [unknown]>();
@@ -579,6 +582,134 @@ describe('ShapeToolHandler CC dither preview replay', () => {
         liveSeq: 2,
       })
     );
+  });
+
+  it('retains stale cached CC preview and allows chrome for click-line cache misses', () => {
+    const overlayCtx = makeMockContext();
+    const overlayCanvas = document.createElement('canvas');
+    overlayCanvas.width = 256;
+    overlayCanvas.height = 256;
+    (overlayCanvas as any).getContext = jest.fn(() => overlayCtx);
+    const cachedCanvas = document.createElement('canvas');
+    cachedCanvas.width = 24;
+    cachedCanvas.height = 24;
+
+    const result = runCcDitherPreviewRuntime({
+      overlayCtx,
+      overlayCanvas,
+      committedPolygon: [{ x: 20, y: 20 }, { x: 60, y: 20 }, { x: 60, y: 60 }],
+      brushSettings: storeState.tools.brushSettings,
+      preparedGradientKey: 'new-gradient',
+      preparedGradient: {
+        renderStops: [
+          { position: 0, color: '#000000' },
+          { position: 1, color: '#ffffff' },
+        ],
+        sortedStops: [
+          { position: 0, rgba: [0, 0, 0, 255] },
+          { position: 1, rgba: [255, 255, 255, 255] },
+        ],
+      },
+      ditherGradPreviewState: {
+        origin: null,
+        lastPx: -1,
+        resState: {} as any,
+        ccJobInFlight: true,
+        ccJobDirty: false,
+        ccJobSeq: 7,
+        ccLastCanvas: cachedCanvas,
+        ccLastOrigin: { x: 0, y: 0 },
+        ccLastSize: { width: 24, height: 24 },
+        ccLastReplayKey: 'old-replay-key',
+      },
+      drawingHandlers: {
+        isDrawingShapeRef: { current: true },
+        shapePointsRef: { current: [{ x: 20, y: 20 }, { x: 60, y: 20 }, { x: 60, y: 60 }] },
+        ccShapePreviewCacheRef: { current: null },
+      },
+      shouldKeepCachedCcPreviewVisible: () => false,
+      retainStalePreviewOnCacheMiss: true,
+      suppressChromeForCachedPreview: false,
+      previewOpacity: 0.8,
+      schedulePolygonShapePreviewFrame: jest.fn(),
+      getLatestPolygonPreviewPoint: () => ({ x: 60, y: 60 }),
+      previewRenderSettings: {
+        pixelSize: 1,
+        levels: 8,
+        algorithm: 'sierra-lite',
+        patternStyle: 'dots',
+        isFastPreview: false,
+      },
+    });
+
+    expect(result).toEqual({
+      didCustomFill: true,
+      suppressLivePreviewChrome: false,
+    });
+    expect(overlayCtx.drawImage).toHaveBeenCalledWith(cachedCanvas, 0, 0);
+    expect(fillCcGradientDither).not.toHaveBeenCalled();
+  });
+
+  it('falls back to caller fill when stale click-line preview has no cache yet', () => {
+    const overlayCtx = makeMockContext();
+    const overlayCanvas = document.createElement('canvas');
+    overlayCanvas.width = 256;
+    overlayCanvas.height = 256;
+    (overlayCanvas as any).getContext = jest.fn(() => overlayCtx);
+    const ditherGradPreviewState = {
+      origin: null,
+      lastPx: -1,
+      resState: {} as any,
+      ccJobInFlight: true,
+      ccJobDirty: false,
+      ccJobSeq: 7,
+    };
+
+    const result = runCcDitherPreviewRuntime({
+      overlayCtx,
+      overlayCanvas,
+      committedPolygon: [{ x: 20, y: 20 }, { x: 60, y: 20 }, { x: 60, y: 60 }],
+      brushSettings: storeState.tools.brushSettings,
+      preparedGradientKey: 'new-gradient',
+      preparedGradient: {
+        renderStops: [
+          { position: 0, color: '#000000' },
+          { position: 1, color: '#ffffff' },
+        ],
+        sortedStops: [
+          { position: 0, rgba: [0, 0, 0, 255] },
+          { position: 1, rgba: [255, 255, 255, 255] },
+        ],
+      },
+      ditherGradPreviewState,
+      drawingHandlers: {
+        isDrawingShapeRef: { current: true },
+        shapePointsRef: { current: [{ x: 20, y: 20 }, { x: 60, y: 20 }, { x: 60, y: 60 }] },
+        ccShapePreviewCacheRef: { current: null },
+      },
+      shouldKeepCachedCcPreviewVisible: () => false,
+      retainStalePreviewOnCacheMiss: true,
+      suppressChromeForCachedPreview: false,
+      previewOpacity: 0.8,
+      schedulePolygonShapePreviewFrame: jest.fn(),
+      getLatestPolygonPreviewPoint: () => ({ x: 60, y: 60 }),
+      previewRenderSettings: {
+        pixelSize: 1,
+        levels: 8,
+        algorithm: 'sierra-lite',
+        patternStyle: 'dots',
+        isFastPreview: false,
+      },
+    });
+
+    expect(result).toEqual({
+      didCustomFill: false,
+      suppressLivePreviewChrome: false,
+    });
+    expect(ditherGradPreviewState.ccJobDirty).toBe(true);
+    expect(overlayCtx.clearRect).toHaveBeenCalledWith(0, 0, 256, 256);
+    expect(overlayCtx.drawImage).not.toHaveBeenCalled();
+    expect(fillCcGradientDither).not.toHaveBeenCalled();
   });
 
   it('renders CC dither previews at reduced cell resolution before scaling back to the ROI when pixel edge is off', async () => {

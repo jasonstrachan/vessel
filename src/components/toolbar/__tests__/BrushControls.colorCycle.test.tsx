@@ -768,6 +768,7 @@ describe('BrushControls – Color Cycle gradient fill mode', () => {
     const { unmount } = render(<BrushControls />);
     expect(screen.getByRole('button', { name: 'Free' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Rect' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Click Line' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Poly' })).toBeInTheDocument();
     unmount();
 
@@ -804,6 +805,8 @@ describe('BrushControls – Color Cycle gradient fill mode', () => {
     expect(useAppStore.getState().tools.brushSettings.ccGradientDrawingShape).toBe('ellipse');
     await user.click(screen.getByRole('button', { name: 'Line' }));
     expect(useAppStore.getState().tools.brushSettings.ccGradientDrawingShape).toBe('line');
+    await user.click(screen.getByRole('button', { name: 'Click Line' }));
+    expect(useAppStore.getState().tools.brushSettings.ccGradientDrawingShape).toBe('click-line');
   });
 
   it('shows fill mode toggle only for the color cycle gradient preset', () => {

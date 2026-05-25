@@ -1177,7 +1177,7 @@ export interface BrushSettings {
   colorCycleGradientVersion?: number;
   colorCycleFPS?: number; // 15-60 (frames per second for animation)
   colorCycleFillMode?: 'concentric' | 'linear' | 'circular' | 'stroke'; // Fill mode for Color Cycle Shape
-  ccGradientDrawingShape?: 'freehand' | 'rectangle' | 'ellipse' | 'line' | 'triangle' | 'polygon';
+  ccGradientDrawingShape?: 'freehand' | 'rectangle' | 'ellipse' | 'line' | 'triangle' | 'polygon' | 'click-line';
   colorCycleBandSpacingPx?: number; // Pixel distance between color-cycle bands for shapes
   ccGradientSource?: 'manual' | 'fg' | 'sampled';
   // Foreground-derived gradient controls for Color Cycle brushes

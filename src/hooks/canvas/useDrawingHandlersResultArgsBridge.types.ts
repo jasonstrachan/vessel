@@ -19,6 +19,7 @@ export interface UseDrawingHandlersResultArgsBridgeOptions {
     ccStrokeSamplesRef: DrawingHandlerRefs['ccStrokeSamplesRef'];
     ccStrokeDirectionRef: DrawingHandlerRefs['ccStrokeDirectionRef'];
     ccGradientDrawingGeometryRef: DrawingHandlerRefs['ccGradientDrawingGeometryRef'];
+    ccGradientClickLineSessionRef: DrawingHandlerRefs['ccGradientClickLineSessionRef'];
     isDrawingShapeRef: DrawingHandlerRefs['isDrawingShapeRef'];
     isSelectingDirectionRef: DrawingHandlerRefs['isSelectingDirectionRef'];
     ccShapePreviewCacheRef: DrawingHandlerRefs['ccShapePreviewCacheRef'];

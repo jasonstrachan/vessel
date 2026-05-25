@@ -11,6 +11,10 @@ import { createPixelQueue } from '@/hooks/brushEngine/strokeProcessor';
 import type { CcFlowVelocityState } from '@/utils/colorCycleFlowVelocity';
 import type { CcStrokeSample } from '@/hooks/canvas/handlers/shapes/ccStrokeShapeGeometry';
 import type { CcGradientDrawingGeometry } from '@/hooks/canvas/handlers/shapes/ccGradientDrawingGeometry';
+import {
+  createCcGradientClickLineSession,
+  type CcGradientClickLineSession,
+} from '@/hooks/canvas/handlers/shapes/ccGradientDrawingRuntime';
 
 export type ShapeInteractionPhase = 'idle' | 'drawing' | 'finalizing';
 
@@ -38,6 +42,7 @@ export const useDrawingHandlerRefs = () => {
   const ccStrokeSamplesRef = useRef<CcStrokeSample[]>([]);
   const ccStrokeDirectionRef = useRef<{ x: number; y: number } | null>(null);
   const ccGradientDrawingGeometryRef = useRef<CcGradientDrawingGeometry | null>(null);
+  const ccGradientClickLineSessionRef = useRef<CcGradientClickLineSession>(createCcGradientClickLineSession());
   const isDrawingShapeRef = useRef(false);
   const shapeInteractionPhaseRef = useRef<ShapeInteractionPhase>('idle');
   const isSelectingDirectionRef = useRef(false);
@@ -127,6 +132,7 @@ export const useDrawingHandlerRefs = () => {
     ccStrokeSamplesRef,
     ccStrokeDirectionRef,
     ccGradientDrawingGeometryRef,
+    ccGradientClickLineSessionRef,
     isDrawingShapeRef,
     shapeInteractionPhaseRef,
     isSelectingDirectionRef,

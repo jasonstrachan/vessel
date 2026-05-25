@@ -1090,8 +1090,6 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
     const activeLayer = layers.find((layer) => layer.id === activeLayerId);
     const isColorCycleLayer = activeLayer?.layerType === 'color-cycle';
 
-    ctx.clearRect(0, 0, overlay.width, overlay.height);
-
     const strokeColor = brushSettings.color || '#ffffff';
     const strokeWidth = Math.max(1, brushSettings.size ?? 1);
     const activeBrushShape = brushSettings.brushShape ?? BrushShape.ROUND;
@@ -1119,6 +1117,7 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
 
     const overlayRegion = computeOverlayDitherRegion(points, overlay);
     if (!bufferCtx || !bufferCanvas || !overlayRegion) {
+      ctx.clearRect(0, 0, overlay.width, overlay.height);
       overlayCtx.save();
       overlayCtx.translate(transform.offsetX, transform.offsetY);
       overlayCtx.scale(transform.scale, transform.scale);
@@ -1375,6 +1374,7 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
     clipPreviewBufferToShape();
 
     overlayCtx.save();
+    overlayCtx.clearRect(0, 0, overlay.width, overlay.height);
     overlayCtx.imageSmoothingEnabled = false;
     overlayCtx.globalAlpha = previewOpacity;
     overlayCtx.drawImage(

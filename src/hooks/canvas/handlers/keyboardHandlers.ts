@@ -4,8 +4,13 @@ import {
   cancelClickLineSelectionSession,
   finalizeClickLineSelectionSession,
 } from '@/hooks/canvas/handlers/selectionHandlers';
+import {
+  cancelCcGradientClickLineSession,
+  prepareCcGradientClickLineFinalize,
+} from '@/hooks/canvas/handlers/shapes/ccGradientDrawingRuntime';
 import { CURSOR_FALLBACK_CROSSHAIR } from '@/hooks/canvas/handlers/utils/cursorFallbacks';
 import { resolveSpacePanCursor } from '@/hooks/canvas/handlers/utils/spacePanCursor';
+import { BrushShape } from '@/types';
 import type { EventHandlerDependencies, KeyboardHandlers } from '../utils/types';
 
 const TEXTUAL_INPUT_TYPES = new Set(['text', 'search', 'email', 'url', 'password', 'tel', 'number', 'color']);
@@ -171,6 +176,51 @@ export const createKeyboardHandlers = (
     }
 
     const dynamic = deps.dynamicDepsRef.current;
+    const ccClickLineSession = deps.drawingHandlers.ccGradientClickLineSessionRef?.current;
+    const ccClickLineActive =
+      dynamic.tools.currentTool === 'brush' &&
+      dynamic.tools.shapeMode &&
+      dynamic.currentBrushPresetId === 'color-cycle-gradient' &&
+      dynamic.tools.brushSettings?.brushShape === BrushShape.COLOR_CYCLE_SHAPE &&
+      dynamic.tools.brushSettings?.ccGradientDrawingShape === 'click-line' &&
+      Boolean(ccClickLineSession?.active);
+
+    if (ccClickLineActive && ccClickLineSession) {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        event.stopPropagation();
+        if (cancelCcGradientClickLineSession(deps.drawingHandlers, ccClickLineSession)) {
+          deps.drawingHandlers.ccShapePreviewCacheRef.current = null;
+          deps.drawingHandlers.triggerSimpleShapePreview?.();
+          getAppStoreState().setShapeDrawing(false);
+          redrawCanvas();
+          deps.restartColorCycleAnimation?.();
+        }
+        return;
+      }
+
+      if (event.key === 'Enter' || event.code === 'NumpadEnter') {
+        event.preventDefault();
+        event.stopPropagation();
+        if (
+          prepareCcGradientClickLineFinalize({
+            refs: deps.drawingHandlers,
+            session: ccClickLineSession,
+            brushSettings: dynamic.tools.brushSettings,
+          })
+        ) {
+          void deps.drawingHandlers.finalizeShapeDrawing().then(() => {
+            deps.drawingHandlers.ccShapePreviewCacheRef.current = null;
+            clearSelectionOverlay();
+            redrawCanvas();
+          }).finally(() => {
+            deps.restartColorCycleAnimation?.();
+          });
+        }
+        return;
+      }
+    }
+
     const runtime = deps.selectionRuntimeRef.current;
     const clickLineActive =
       dynamic.tools.currentTool === 'selection' &&
