@@ -25,6 +25,12 @@ const CANVAS_PRESETS = [
     description: 'Slightly lower 3:4 tablet portrait preset.',
   },
   {
+    name: '4:5 Portrait (2048×2560)',
+    width: 2048,
+    height: 2560,
+    description: 'Portrait document preset with a 4:5 aspect ratio.',
+  },
+  {
     name: '2:3 Vertical Art (2000×3000)',
     width: 2000,
     height: 3000,
