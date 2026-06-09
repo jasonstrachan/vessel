@@ -101,14 +101,11 @@ describe('Goblet 2 runtime export regression guard', () => {
     expect(runtime).toContain('if (diagnosticsEnabled) {\n      units = isFixed ? \'backing\' : \'css\';');
   });
 
-  it('profiles Goblet 2 render phases without requiring diagnostics logging', () => {
+  it('does not carry the persistent Goblet 2 profile console path', () => {
     const runtime = read('public/goblet2/goblet2.js');
 
-    expect(runtime).toContain("window.localStorage.getItem('vesselGobletProfile') === 'true';");
-    expect(runtime).toContain('`static=${(renderProfile.staticMs ?? 0).toFixed(2)}ms`');
-    expect(runtime).toContain('`dynamic=${(renderProfile.dynamicMs ?? 0).toFixed(2)}ms`');
-    expect(runtime).toContain('`filter=${(renderProfile.filterMs ?? 0).toFixed(2)}ms`');
-    expect(runtime).toContain('`blit=${(renderProfile.blitMs ?? 0).toFixed(2)}ms`');
+    expect(runtime).not.toContain('vesselGobletProfile');
+    expect(runtime).not.toContain('[goblet][profile]');
   });
 
   it('keeps Goblet 2 slot-speed brush exports out of the per-pixel speed export path', () => {
@@ -193,7 +190,7 @@ describe('Goblet 2 runtime export regression guard', () => {
 
     expect(runtime).toContain('fillPixelsFromIndicesWithFractionalSlotSpeeds(');
     expect(runtime).toContain('buildPaletteFractionalShiftLUT256({');
-    expect(runtime).toContain("canUseSlots ? '[goblet][profile] renderFrame(slots/fractional-lut)'");
+    expect(runtime).toContain('fillPixelsFromIndicesWithGradientIds(');
     expect(runtime).not.toContain('if (!this.maybeAdvanceShiftKeysSlotMode(shiftKey, slotSpeedMap, n, canUseSlots))');
   });
 });

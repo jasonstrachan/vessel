@@ -4320,18 +4320,15 @@ class ColorCycleLayerPlayer {
       this.webglRenderer.render(this.baseTimeSeconds, this.legacyOffset01);
       return;
     }
-    const profileEnabled = typeof window !== 'undefined'
-      && window.localStorage
-      && window.localStorage.getItem('vesselGobletProfile') === 'true';
-    const profileNow = () => (typeof performance !== 'undefined' && typeof performance.now === 'function'
+    const now = () => (typeof performance !== 'undefined' && typeof performance.now === 'function'
       ? performance.now()
       : Date.now());
-    const nowMs = profileNow();
+    const nowMs = now();
     let fillMs = 0;
     let usePerPixelPath = this.usePerPixelSpeed && this.speedBuffer && (this.flowMapping === 'palette' || !this.phaseMap);
     if (usePerPixelPath) {
       const n = this._basePaletteSize || (this.cycleColors | 0) || 1;
-      const fillStart = profileEnabled ? profileNow() : 0;
+      const fillStart = now();
       fillPixelsFromIndicesWithFractionalSpeedFlowPhase(
         this.indexBuffer,
         this.gradientIdBuffer,
@@ -4355,16 +4352,8 @@ class ColorCycleLayerPlayer {
           subtractOne: this.subtractIndexOffset
         }
       );
-      const fillEnd = profileEnabled ? profileNow() : 0;
+      const fillEnd = now();
       fillMs = fillEnd - fillStart;
-      if (profileEnabled) {
-        diagnostics.log(
-          '[goblet][profile] renderFrame(per-pixel/fractional)',
-          this.layer?.id ?? null,
-          `speed=${Number.isFinite(this.speed) ? this.speed.toFixed(4) : 'n/a'}`,
-          `fill=${fillMs.toFixed(2)}ms`
-        );
-      }
       this.ctx.putImageData(this.imageData, 0, 0);
       if (this.renderScale !== 1 && this.outputCtx && this.renderCanvas) {
         this.outputCtx.clearRect(0, 0, this.canvas.width, this.canvas.height);
@@ -4374,7 +4363,6 @@ class ColorCycleLayerPlayer {
       return;
     }
 
-    const lutStart = profileEnabled ? profileNow() : 0;
     const speed = Number.isFinite(this.speed) ? this.speed : 0;
     const slotSpeedMap = this.slotSpeeds;
     const baseSpeed = Number.isFinite(slotSpeedMap?.get(0)) ? slotSpeedMap.get(0) : speed;
@@ -4383,7 +4371,7 @@ class ColorCycleLayerPlayer {
     if (this.flowMapping === 'palette' || !this.phaseMap) {
       const needsPerPixelFractional = hasAnyNonZeroByte(this.phaseBuffer) || hasNonForwardFlow(this.flowBuffer);
       if (needsPerPixelFractional) {
-        const fillStart = profileEnabled ? profileNow() : 0;
+        const fillStart = now();
         fillPixelsFromIndicesWithFractionalSlotSpeeds(
           this.indexBuffer,
           this.gradientIdBuffer,
@@ -4405,17 +4393,8 @@ class ColorCycleLayerPlayer {
             subtractOne: this.subtractIndexOffset
           }
         );
-        const fillEnd = profileEnabled ? profileNow() : 0;
+        const fillEnd = now();
         fillMs = fillEnd - fillStart;
-        if (profileEnabled) {
-          diagnostics.log(
-            canUseSlots ? '[goblet][profile] renderFrame(slots/fractional-per-pixel)' : '[goblet][profile] renderFrame(fractional-per-pixel)',
-            this.layer?.id ?? null,
-            `speed=${Number.isFinite(this.speed) ? this.speed.toFixed(4) : 'n/a'}`,
-            `lut=${(fillStart - lutStart).toFixed(2)}ms`,
-            `fill=${(fillEnd - fillStart).toFixed(2)}ms`
-          );
-        }
       } else {
         const baseOffset01 = (((this.baseTimeSeconds * baseSpeed) % 1) + 1) % 1;
         const basePal = this._basePalette32BySlot.get(0);
@@ -4424,8 +4403,7 @@ class ColorCycleLayerPlayer {
           cycleColors: this.cycleColors,
           offset01: baseOffset01
         });
-        const lutEnd = profileEnabled ? profileNow() : 0;
-        const fillStart = profileEnabled ? profileNow() : 0;
+        const fillStart = now();
         if (canUseSlots) {
           const lutsBySlot = new Map();
           this._basePalette32BySlot.forEach((pal, slot) => {
@@ -4458,17 +4436,8 @@ class ColorCycleLayerPlayer {
             subtractOne: this.subtractIndexOffset
           });
         }
-        const fillEnd = profileEnabled ? profileNow() : 0;
+        const fillEnd = now();
         fillMs = fillEnd - fillStart;
-        if (profileEnabled) {
-          diagnostics.log(
-            canUseSlots ? '[goblet][profile] renderFrame(slots/fractional-lut)' : '[goblet][profile] renderFrame(fractional-lut)',
-            this.layer?.id ?? null,
-            `speed=${Number.isFinite(this.speed) ? this.speed.toFixed(4) : 'n/a'}`,
-            `lut=${(lutEnd - lutStart).toFixed(2)}ms`,
-            `fill=${(fillEnd - fillStart).toFixed(2)}ms`
-          );
-        }
       }
     } else {
       const offset01 = (((this.baseTimeSeconds * baseSpeed) % 1) + 1) % 1;
@@ -4478,20 +4447,10 @@ class ColorCycleLayerPlayer {
         cycleColors: this.cycleColors,
         offset01
       });
-      const lutEnd = profileEnabled ? profileNow() : 0;
-      const fillStart = profileEnabled ? profileNow() : 0;
+      const fillStart = now();
       fillPixelsFromPhaseMap(this.phaseMap, baseLut, this.pixels32, this.alpha);
-      const fillEnd = profileEnabled ? profileNow() : 0;
+      const fillEnd = now();
       fillMs = fillEnd - fillStart;
-      if (profileEnabled) {
-        diagnostics.log(
-          '[goblet][profile] renderFrame(phaseMap)',
-          this.layer?.id ?? null,
-          `speed=${Number.isFinite(this.speed) ? this.speed.toFixed(4) : 'n/a'}`,
-          `lut=${(lutEnd - lutStart).toFixed(2)}ms`,
-          `fill=${(fillEnd - fillStart).toFixed(2)}ms`
-        );
-      }
     }
     this.ctx.putImageData(this.imageData, 0, 0);
     if (this.renderScale !== 1 && this.outputCtx && this.renderCanvas) {
@@ -5533,15 +5492,9 @@ class VesselGoblet {
         : Math.max(1, toNum(this.metadata.viewport?.designHeight, cssH))
     };
     let painted = 0;
-    const profileEnabled = typeof window !== 'undefined'
-      && window.localStorage
-      && window.localStorage.getItem('vesselGobletProfile') === 'true';
-    const profileNow = () => (typeof performance !== 'undefined' && typeof performance.now === 'function'
-      ? performance.now()
-      : Date.now());
     const profile = {
-      enabled: profileEnabled,
-      now: profileNow,
+      enabled: false,
+      now: () => 0,
       staticMs: 0,
       dynamicMs: 0,
       filterMs: 0,
@@ -5795,13 +5748,6 @@ class VesselGoblet {
       this.rafId = requestAnimationFrame(this.handleAnimationFrame);
       return;
     }
-    const profileEnabled = typeof window !== 'undefined'
-      && window.localStorage
-      && window.localStorage.getItem('vesselGobletProfile') === 'true';
-    const profileNow = () => (typeof performance !== 'undefined' && typeof performance.now === 'function'
-      ? performance.now()
-      : Date.now());
-    const advanceStart = profileEnabled ? profileNow() : 0;
     const delta = (timestamp - this.lastTimestamp) / 1000;
     this.lastTimestamp = timestamp;
     let needsRender = false;
@@ -5810,28 +5756,8 @@ class VesselGoblet {
         needsRender = true;
       }
     }
-    const advanceEnd = profileEnabled ? profileNow() : 0;
-    let renderEnd = 0;
-    let renderStart = 0;
     if (needsRender) {
-      renderStart = profileEnabled ? profileNow() : 0;
       this.renderOnce();
-      renderEnd = profileEnabled ? profileNow() : 0;
-    }
-    if (profileEnabled) {
-      const fps = delta > 0 ? (1 / delta) : 0;
-      const renderProfile = this.lastRenderProfile ?? {};
-      console.log(
-        '[goblet][profile] frame',
-        `advance=${(advanceEnd - advanceStart).toFixed(2)}ms`,
-        `render=${renderStart ? (renderEnd - renderStart).toFixed(2) : '0.00'}ms`,
-        `static=${(renderProfile.staticMs ?? 0).toFixed(2)}ms`,
-        `dynamic=${(renderProfile.dynamicMs ?? 0).toFixed(2)}ms`,
-        `filter=${(renderProfile.filterMs ?? 0).toFixed(2)}ms`,
-        `blit=${(renderProfile.blitMs ?? 0).toFixed(2)}ms`,
-        `layers=${this.dynamicPlayers.length}`,
-        `fps=${fps.toFixed(1)}`
-      );
     }
     this.rafId = requestAnimationFrame(this.handleAnimationFrame);
   }
