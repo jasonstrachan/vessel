@@ -4933,7 +4933,13 @@ export async function readProjectPreviewManifest(projectData: ProjectFileData): 
         throw new Error('Project archive is missing project.json');
       }
       const projectJson = utf8Decoder.decode(await normalizedProjectEntry.async('uint8array'));
-      return toProjectPreview(await parseVesselProjectJson(projectJson, { archiveZip: zip }));
+      const vesselProject = parseVesselProjectJsonRaw(projectJson);
+      validateProjectDimensions(
+        vesselProject.project.width,
+        vesselProject.project.height,
+        'project preview dimensions'
+      );
+      return toProjectPreview(vesselProject);
     }
   }
 

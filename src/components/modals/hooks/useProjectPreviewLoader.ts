@@ -154,6 +154,36 @@ export function useProjectPreviewLoader({
       if (isStale()) {
         return;
       }
+
+      const archiveAnalysis = await analyzeProjectArchiveRefs(buffer);
+      if (isStale()) {
+        return;
+      }
+      if (archiveAnalysis.canRepairDanglingColorCycleRefs) {
+        const warning = 'This project has damaged color-cycle archive refs. Use Repair & Save Copy to open a preview-only repaired copy.';
+        const { project, metadata } = vesselProject;
+        setProjectData(buffer);
+        setSelectedFileHandle(options?.fileHandle ?? null);
+        setRequiresRepair(true);
+        setWarning(warning);
+        setError(null);
+        setCachedProject(null);
+        setPreview({
+          projectName: project.name,
+          width: project.width,
+          height: project.height,
+          createdAt: metadata?.created,
+          modifiedAt: metadata?.modified,
+          thumbnail: project.thumbnail,
+          hasEmbeddedThumbnail: Boolean(project.thumbnail),
+          fileName: resolvedFile.name,
+          fileSize: resolvedFile.size,
+          healthReport: buildRepairOnlyHealthReport(warning),
+          healthWarning: warning,
+        });
+        return;
+      }
+
       const healthReport = await readProjectHealthReport(buffer);
       if (isStale()) {
         return;

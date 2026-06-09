@@ -605,6 +605,51 @@ describe('projectIO readProjectManifest', () => {
     );
   });
 
+  it('reads zip-backed project preview metadata without validating damaged layer binaries', async () => {
+    const zip = new JSZip();
+    zip.file('project.json', JSON.stringify({
+      ...minimalVesselProject,
+      manifestVersion: 1,
+      project: {
+        ...minimalVesselProject.project,
+        name: 'damaged preview',
+        width: 2,
+        height: 2,
+        layers: [{
+          id: 'layer-cc',
+          name: 'cc',
+          visible: true,
+          opacity: 1,
+          blendMode: 'normal',
+          locked: false,
+          order: 0,
+          imageDataUrl: '',
+          layerType: 'color-cycle',
+          state: {
+            version: 1,
+            dimensions: { width: 2, height: 2 },
+            gradientDefStore: [],
+            paintRef: 'zip:buffers/color-cycle/layer-cc/paint.bin',
+          },
+          colorCycleData: {
+            canvasWidth: 2,
+            canvasHeight: 2,
+          },
+        }],
+      },
+      binaries: {
+        entries: [],
+      },
+    }));
+
+    const payload = await zip.generateAsync({ type: 'uint8array', compression: 'DEFLATE' });
+    const preview = await readProjectPreviewManifest(payload);
+
+    expect(preview.project.name).toBe('damaged preview');
+    expect(preview.project.width).toBe(2);
+    expect(preview.project.height).toBe(2);
+  });
+
   it('analyzes and explicitly repairs C4-style dangling canonical color-cycle refs', async () => {
     const zip = new JSZip();
     const canvasImage = 'data:image/png;base64,preview';

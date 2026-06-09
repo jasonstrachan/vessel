@@ -3,6 +3,7 @@ import React from 'react';
 import { render, screen, fireEvent, act, waitFor } from '@testing-library/react';
 import LoadProjectModal from '../LoadProjectModal';
 import {
+  analyzeProjectArchiveRefs,
   deserializeProject,
   generateProjectThumbnail,
   getProjectHealthWarning,
@@ -16,6 +17,7 @@ jest.mock('@/hooks/useKeyboardScope', () => ({
 }));
 
 jest.mock('@/utils/projectIO', () => ({
+  analyzeProjectArchiveRefs: jest.fn(),
   deserializeProject: jest.fn(),
   generateProjectThumbnail: jest.fn(),
   getProjectHealthWarning: jest.fn((report) => report?.primaryWarning ?? null),
@@ -52,6 +54,7 @@ const createDeferred = <T,>(): Deferred<T> => {
 
 const mockReadProjectPreviewManifest = readProjectPreviewManifest as jest.MockedFunction<typeof readProjectPreviewManifest>;
 const mockReadProjectHealthReport = readProjectHealthReport as jest.MockedFunction<typeof readProjectHealthReport>;
+const mockAnalyzeProjectArchiveRefs = analyzeProjectArchiveRefs as jest.MockedFunction<typeof analyzeProjectArchiveRefs>;
 const mockDeserializeProject = deserializeProject as jest.MockedFunction<typeof deserializeProject>;
 const mockGenerateProjectThumbnail = generateProjectThumbnail as jest.MockedFunction<typeof generateProjectThumbnail>;
 const mockGetProjectHealthWarning = getProjectHealthWarning as jest.MockedFunction<typeof getProjectHealthWarning>;
@@ -162,6 +165,12 @@ describe('LoadProjectModal', () => {
       recommendations: ['Looks fine'],
       warnings: [],
       primaryWarning: null,
+    });
+    mockAnalyzeProjectArchiveRefs.mockResolvedValue({
+      issues: [],
+      missingCanonicalColorCycleRefs: [],
+      missingOptionalColorCycleRefs: [],
+      canRepairDanglingColorCycleRefs: false,
     });
     mockGenerateProjectThumbnail.mockReturnValue('data:image/png;base64,generated');
     mockGetProjectHealthWarning.mockImplementation((report) => report?.primaryWarning ?? null);
@@ -530,6 +539,55 @@ describe('LoadProjectModal', () => {
     expect(screen.getByText('Largest Risk Layer (12 B)')).toBeInTheDocument();
     expect(mockStore.importProject).not.toHaveBeenCalled();
     expect(screen.getByText('Project Health')).toBeInTheDocument();
+  });
+
+  it('shows repair-only preview for damaged archive refs before health validation', async () => {
+    const damagedHandle = createFileHandle('damaged.vs');
+    (window as any).showDirectoryPicker = jest.fn(async () => createDirectoryHandle([
+      ['damaged.vs', damagedHandle],
+    ]));
+    mockAnalyzeProjectArchiveRefs.mockResolvedValue({
+      issues: [{
+        path: 'buffers/color-cycle/layer-cc/paint.bin',
+        kind: 'canonical-color-cycle',
+        layerId: 'layer-cc',
+        layerName: 'Layer CC',
+        layerType: 'color-cycle',
+        locations: ['project.layers[0].state.paintRef'],
+        missingManifestEntry: true,
+        missingArchivePayload: true,
+      }],
+      missingCanonicalColorCycleRefs: [{
+        path: 'buffers/color-cycle/layer-cc/paint.bin',
+        kind: 'canonical-color-cycle',
+        layerId: 'layer-cc',
+        layerName: 'Layer CC',
+        layerType: 'color-cycle',
+        locations: ['project.layers[0].state.paintRef'],
+        missingManifestEntry: true,
+        missingArchivePayload: true,
+      }],
+      missingOptionalColorCycleRefs: [],
+      canRepairDanglingColorCycleRefs: true,
+    });
+
+    render(<LoadProjectModal isOpen onClose={jest.fn()} />);
+    act(() => {
+      jest.runAllTimers();
+    });
+
+    fireEvent.click(screen.getByText('Browse Folder'));
+    expect(await screen.findByText('damaged.vs')).toBeInTheDocument();
+
+    fireEvent.doubleClick(screen.getByText('damaged.vs'));
+
+    await waitFor(() => {
+      expect(screen.getByText('Repair & Save Copy')).toBeEnabled();
+    });
+    expect(screen.getAllByText('This project has damaged color-cycle archive refs. Use Repair & Save Copy to open a preview-only repaired copy.').length)
+      .toBeGreaterThan(0);
+    expect(mockReadProjectHealthReport).not.toHaveBeenCalled();
+    expect(mockStore.importProject).not.toHaveBeenCalled();
   });
 
   it('repairs and saves a canonical copy for risky files', async () => {
