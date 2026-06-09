@@ -1222,7 +1222,7 @@ export const shapeDitherPreset: BrushPreset = {
     ditherPhaseJitter: 0,
     ditherStrokeTipShape: 'round',
     lostEdge: 0,
-    pxlEdge: true,
+    pxlEdge: false,
     shapeEnabled: true,
     pressureLinkedFillResolution: true,
     fillResolution: 28,

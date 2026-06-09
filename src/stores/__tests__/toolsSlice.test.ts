@@ -246,6 +246,14 @@ describe('tools slice', () => {
     );
   });
 
+  it('defaults Dither Shape to fill-only edges', () => {
+    const ditherShapePreset = brushPresets.find((candidate) => candidate.id === 'dither-shape');
+
+    expect(ditherShapePreset?.preferredSettings).toEqual(
+      expect.objectContaining({ pxlEdge: false })
+    );
+  });
+
   it('stores CC dither selection globally instead of per brush', () => {
     const store = useAppStore.getState();
     const colorCycleStrokePreset = brushPresets.find((candidate) => candidate.id === 'color-cycle-stroke');
