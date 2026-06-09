@@ -527,6 +527,59 @@ describe('useComprehensiveKeyboard – space safety release', () => {
     });
   });
 
+  it('starts space interaction when a numeric input has focus', async () => {
+    const onSpacePressed = jest.fn();
+    const onSpaceReleased = jest.fn();
+    const keyboard = render(
+      React.createElement(KeyboardHarness, { onSpacePressed, onSpaceReleased })
+    );
+    const numericInput = document.createElement('input');
+    numericInput.type = 'number';
+    document.body.appendChild(numericInput);
+    numericInput.focus();
+
+    await act(async () => {
+      fireEvent.keyDown(numericInput, { key: ' ', code: 'Space' });
+    });
+
+    expect(onSpacePressed).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      fireEvent.keyUp(numericInput, { key: ' ', code: 'Space' });
+    });
+
+    expect(onSpaceReleased).toHaveBeenCalledTimes(1);
+    numericInput.blur();
+    document.body.removeChild(numericInput);
+    keyboard.unmount();
+  });
+
+  it('releases space interaction when keyup is routed through a text input', async () => {
+    const onSpacePressed = jest.fn();
+    const onSpaceReleased = jest.fn();
+    const keyboard = render(
+      React.createElement(KeyboardHarness, { onSpacePressed, onSpaceReleased })
+    );
+    const textInput = document.createElement('input');
+    textInput.type = 'text';
+    document.body.appendChild(textInput);
+
+    await act(async () => {
+      fireEvent.keyDown(window, { key: ' ', code: 'Space' });
+    });
+    expect(onSpacePressed).toHaveBeenCalledTimes(1);
+
+    textInput.focus();
+    await act(async () => {
+      fireEvent.keyUp(textInput, { key: ' ', code: 'Space' });
+    });
+
+    expect(onSpaceReleased).toHaveBeenCalledTimes(1);
+    textInput.blur();
+    document.body.removeChild(textInput);
+    keyboard.unmount();
+  });
+
   it('releases space interaction when pointer leaves the window', async () => {
     const onSpacePressed = jest.fn();
     const onSpaceReleased = jest.fn();

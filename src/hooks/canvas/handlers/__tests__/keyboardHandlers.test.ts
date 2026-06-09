@@ -164,6 +164,18 @@ describe('createKeyboardHandlers', () => {
     expect(deps.stateMachine.dispatch).toHaveBeenCalledWith({ type: 'SPACE_DOWN' });
   });
 
+  it('allows space-pan when a number input has focus', () => {
+    const deps = createDeps();
+    const handlers = createKeyboardHandlers(deps);
+    const numberInput = document.createElement('input');
+    numberInput.type = 'number';
+
+    handlers.handleKeyDown(createKeyboardEventWithTarget('Space', numberInput));
+
+    expect(deps.isSpacePressedRef.current).toBe(true);
+    expect(deps.stateMachine.dispatch).toHaveBeenCalledWith({ type: 'SPACE_DOWN' });
+  });
+
   it('releases stuck space on keyup even when scope no longer allows space', () => {
     const deps = createDeps();
     const handlers = createKeyboardHandlers(deps);

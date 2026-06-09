@@ -32,6 +32,27 @@ const isTextEntryTarget = (target: EventTarget | null): boolean => {
   return false;
 };
 
+const isSpacePanTextEntryTarget = (target: EventTarget | null): boolean => {
+  if (!(target instanceof HTMLElement)) {
+    return false;
+  }
+
+  if (
+    target instanceof HTMLTextAreaElement ||
+    target.isContentEditable ||
+    target.getAttribute('contenteditable')?.toLowerCase() === 'true'
+  ) {
+    return true;
+  }
+
+  if (target instanceof HTMLInputElement) {
+    const inputType = (target.type || 'text').toLowerCase();
+    return inputType !== 'number' && inputType !== 'range' && inputType !== 'color';
+  }
+
+  return false;
+};
+
 const scopeAllowsSpace = (): boolean => {
   const state = getAppStoreState();
   const currentScope = state.ui.keyboardScope.active;
@@ -133,7 +154,7 @@ export const createKeyboardHandlers = (
     const target = event.target as HTMLElement | null;
 
     if (event.code === 'Space' && !deps.isSpacePressedRef.current) {
-      if (!scopeAllowsSpace() || isTextEntryTarget(target)) {
+      if (!scopeAllowsSpace() || isSpacePanTextEntryTarget(target)) {
         return;
       }
 

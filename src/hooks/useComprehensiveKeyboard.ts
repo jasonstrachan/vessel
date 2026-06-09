@@ -80,6 +80,27 @@ const isTextEntryTarget = (target: EventTarget | null): boolean => {
   return false;
 };
 
+const isSpacePanTextEntryTarget = (target: EventTarget | null): boolean => {
+  if (!(target instanceof HTMLElement)) {
+    return false;
+  }
+
+  if (
+    target instanceof HTMLTextAreaElement ||
+    target.isContentEditable ||
+    target.getAttribute('contenteditable')?.toLowerCase() === 'true'
+  ) {
+    return true;
+  }
+
+  if (target instanceof HTMLInputElement) {
+    const type = (target.type || 'text').toLowerCase();
+    return type !== 'number' && type !== 'range' && type !== 'color';
+  }
+
+  return false;
+};
+
 export const __keyboardTestUtils = { isTextEntryTarget };
 
 interface KeyboardState {
@@ -424,6 +445,7 @@ export function useComprehensiveKeyboard({
 
     const target = event.target as HTMLElement | null;
     const targetIsTextEntry = isTextEntryTarget(target);
+    const targetBlocksSpacePan = isSpacePanTextEntryTarget(target);
     const allowBracketInTextEntry = targetIsTextEntry && isBracketShortcut;
 
     const alwaysShortcut = resolveAlwaysShortcutAction(event);
@@ -476,7 +498,12 @@ export function useComprehensiveKeyboard({
     // Ignore if typing in text-focused inputs or editable elements.
     // Exception: allow floating-paste commit/cancel keys so paste can be finalized
     // even when focus remains in a numeric/text input control.
-    if (targetIsTextEntry && !allowBracketInTextEntry && !isFloatingPasteKey) {
+    if (
+      targetIsTextEntry &&
+      !allowBracketInTextEntry &&
+      !isFloatingPasteKey &&
+      !(event.code === 'Space' && !targetBlocksSpacePan)
+    ) {
       return;
     }
 
@@ -719,10 +746,7 @@ export function useComprehensiveKeyboard({
     }
 
     const target = event.target as HTMLElement | null;
-    if (isTextEntryTarget(target)) {
-      return;
-    }
-    // Allow non-text form controls to release keys normally so pressedKeys bookkeeping stays in sync.
+    const targetIsTextEntry = isTextEntryTarget(target);
 
     // Update modifier states
     keyboardStateRef.current.isShiftPressed = event.shiftKey;
@@ -732,8 +756,10 @@ export function useComprehensiveKeyboard({
 
     // Handle Space release
     if (event.code === 'Space' && onSpaceReleasedRef.current) {
-      event.preventDefault();
-      
+      if (!targetIsTextEntry) {
+        event.preventDefault();
+      }
+
       // Only process if space was actually pressed
       if (keyboardStateRef.current.isSpacePressed) {
         keyboardStateRef.current.isSpacePressed = false;
@@ -742,6 +768,11 @@ export function useComprehensiveKeyboard({
       }
       return;
     }
+
+    if (targetIsTextEntry) {
+      return;
+    }
+    // Allow non-text form controls to release keys normally so pressedKeys bookkeeping stays in sync.
     
     // Always clear pressed map on keyup (even if text field prevented us earlier)
     const pressedKeyId = getPressedKeyId(event);
