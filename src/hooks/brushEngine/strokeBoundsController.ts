@@ -1,6 +1,9 @@
 import { BrushShape, type BrushSettings } from '@/types';
+import { resolveBrushPressureRange } from '@/utils/pressureSettings';
+import { resolvePressureSizing } from '@/utils/pressureSizing';
 
 import type { Rect } from './engineShared';
+import { DEFAULT_MOSAIC_SIZE } from './mosaic';
 
 type CustomBrushData = {
   width?: number;
@@ -26,8 +29,16 @@ export const estimateStrokeBounds = ({
   inflateRect: (rect: Rect, padding: number) => Rect;
 }): Rect => {
   const brushSize = Math.max(brushSettings.size || 1, 1);
-  const pressureFactor = Number.isFinite(pressure) ? Math.max(pressure, 1) : 1;
-  let effectiveSize = brushSize * pressureFactor;
+  const resolvedRange = resolveBrushPressureRange(brushSettings);
+  const pressureSizing = resolvePressureSizing(brushSize, {
+    enabled: resolvedRange.enabled,
+    minPercent: resolvedRange.minPercent,
+    maxPercent: resolvedRange.maxPercent,
+  });
+  const safePressure = Number.isFinite(pressure) ? pressure : 1;
+  const pressureSize = Math.max(1, Math.round(pressureSizing.sample(safePressure) * 2));
+  const pressureFactor = pressureSize / brushSize;
+  let effectiveSize = pressureSize;
 
   if (brushSettings.brushShape === BrushShape.MOSAIC) {
     const tilePx = clamp(Math.round(brushSettings.mosaicTilePx ?? 8), 1, 128);
@@ -35,7 +46,8 @@ export const estimateStrokeBounds = ({
     const rows = 1;
     const stampW = tilePx * blocksCount;
     const stampH = tilePx * rows;
-    const mosaicExtent = Math.max(stampW, stampH) * pressureFactor;
+    const mosaicScale = pressureSize / DEFAULT_MOSAIC_SIZE;
+    const mosaicExtent = Math.max(stampW, stampH) * mosaicScale;
     effectiveSize = Math.max(effectiveSize, mosaicExtent);
   }
 
@@ -43,8 +55,8 @@ export const estimateStrokeBounds = ({
     const maxDimension = Math.max(customBrushData.width || 0, customBrushData.height || 0);
     if (maxDimension > 0) {
       const stampSize = customBrushData.isResampler
-        ? brushSize * pressureFactor
-        : Math.max(1, (brushSize / 100) * maxDimension * pressureFactor);
+        ? pressureSize
+        : Math.max(1, (pressureSize / 100) * maxDimension);
       effectiveSize = Math.max(effectiveSize, stampSize);
     }
   }

@@ -802,6 +802,21 @@ describe('tools slice', () => {
     expect(useAppStore.getState().tools.brushSettings.size).toBe(12);
   });
 
+  it('enables mosaic pressure defaults when selecting the mosaic preset', () => {
+    const store = useAppStore.getState();
+    store.setPressureSettings({ enabled: false, min: 0, max: 0 });
+
+    store.setBrushPreset(mosaicBrushPreset);
+
+    const state = useAppStore.getState();
+    expect(state.pressureSettings.enabled).toBe(true);
+    expect(state.pressureSettings.min).toBe(50);
+    expect(state.pressureSettings.max).toBe(150);
+    expect(state.tools.brushSettings.pressureEnabled).toBe(true);
+    expect(state.tools.brushSettings.minPressure).toBe(50);
+    expect(state.tools.brushSettings.maxPressure).toBe(150);
+  });
+
   it('merges rectangle brush state updates', () => {
     const store = useAppStore.getState();
     store.setRectangleBrushState({ width: 42 });

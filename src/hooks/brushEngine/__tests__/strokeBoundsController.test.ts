@@ -39,6 +39,7 @@ describe('strokeBoundsController', () => {
       to: { x: 0, y: 0 },
       pressure: 1,
       brushSettings: createSettings({
+        size: 60,
         brushShape: BrushShape.MOSAIC,
         mosaicTilePx: 16,
         mosaicBlocksCount: 6,
@@ -55,5 +56,31 @@ describe('strokeBoundsController', () => {
     expect(result.width).toBeGreaterThan(100);
     expect(result.height).toBeGreaterThan(100);
   });
-});
 
+  it('uses pressure-expanded mosaic extent for dirty bounds', () => {
+    const result = estimateStrokeBounds({
+      from: { x: 0, y: 0 },
+      to: { x: 0, y: 0 },
+      pressure: 1,
+      brushSettings: createSettings({
+        size: 120,
+        pressureEnabled: true,
+        minPressure: 50,
+        maxPressure: 150,
+        brushShape: BrushShape.MOSAIC,
+        mosaicTilePx: 16,
+        mosaicBlocksCount: 6,
+      }),
+      clamp: (value, min, max) => Math.max(min, Math.min(max, value)),
+      inflateRect: (rect, padding) => ({
+        x: rect.x - padding,
+        y: rect.y - padding,
+        width: rect.width + padding * 2,
+        height: rect.height + padding * 2,
+      }),
+    });
+
+    expect(result.width).toBeGreaterThanOrEqual(576);
+    expect(result.height).toBeGreaterThanOrEqual(576);
+  });
+});

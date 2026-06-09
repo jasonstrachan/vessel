@@ -1849,7 +1849,14 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
       newBrushSettings.lastRegularBrushSize = previousRegularSize;
     }
 
-    const globalPressure = state.pressureSettings;
+    const shouldUsePresetPressureDefaults = preset.id === 'mosaic';
+    const globalPressure = shouldUsePresetPressureDefaults
+      ? applyPressureUpdate(state.pressureSettings, {
+          enabled: presetDefaults.pressureEnabled,
+          min: presetDefaults.minPressure,
+          max: presetDefaults.maxPressure,
+        })
+      : state.pressureSettings;
     newBrushSettings = {
       ...newBrushSettings,
       pressureEnabled: globalPressure.enabled,
