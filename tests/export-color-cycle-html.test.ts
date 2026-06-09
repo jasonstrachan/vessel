@@ -1,4 +1,5 @@
 import { exportProjectAsWebGL } from '@/utils/export/webglExporter';
+import { materializeDefBoundBrushSlots } from '@/utils/export/goblet/gobletColorCycleSerializer';
 import { createDefaultLayerAlignment, createDefaultExportLayout } from '@/utils/layoutDefaults';
 import { buildForegroundDerivedGradientSpec, deriveForegroundGradientStops } from '@/utils/colorCycleGradients';
 import { FLOW_SLOT_MASK } from '@/lib/colorCycle/flowEncoding';
@@ -1605,6 +1606,62 @@ describe('exportProjectAsWebGL color cycle integration', () => {
       expect(max).toBeGreaterThan(63);
       expect(max).toBeLessThanOrEqual(FLOW_SLOT_MASK);
     }
+  });
+
+  it('materializes mixed gradient definitions as concrete Goblet slots', () => {
+    const gradientStops = [
+      { position: 0, color: '#111111' },
+      { position: 1, color: '#eeeeee' },
+    ];
+    const alternateStops = [
+      { position: 0, color: '#ff0000' },
+      { position: 1, color: '#00ff00' },
+    ];
+    const result = materializeDefBoundBrushSlots({
+      data: {
+        mode: 'brush',
+        isAnimating: true,
+        gradient: gradientStops,
+        gradientDefStore: [
+          {
+            id: 1,
+            kind: 'linear',
+            stops: gradientStops,
+            hash: 'a',
+            source: 'manual',
+            createdAtMs: 1,
+            slot: 0,
+          },
+          {
+            id: 2,
+            kind: 'linear',
+            stops: alternateStops,
+            hash: 'b',
+            source: 'manual',
+            createdAtMs: 2,
+            slot: 0,
+          },
+        ],
+      } as Layer['colorCycleData'],
+      brushState: {
+        width: 4,
+        height: 1,
+        indexBuffer: [10, 20, 30, 0],
+        gradientIdBuffer: [0, 0, 0, 0],
+        gradientDefIdBuffer: [1, 2, 2, 0],
+        speedBuffer: [255, 255, 255, 0],
+        flowBuffer: [1, 1, 1, 1],
+        phaseBuffer: [0, 0, 0, 0],
+        gradientStops,
+        animationOffset: 0,
+      },
+      slotPalettes: [{ slot: 0, stops: gradientStops }],
+    });
+
+    expect(result.remapped).toBe(true);
+    expect(result.brushState?.gradientIdBuffer).toEqual([0, 1, 1, 0]);
+    expect(result.slotPalettes?.find((entry) => entry.slot === 0)?.stops).toEqual(gradientStops);
+    expect(result.slotPalettes?.find((entry) => entry.slot === 1)?.stops).toEqual(alternateStops);
   });
 
   it('embeds brush-mode color cycle data in single-file HTML bundle', async () => {

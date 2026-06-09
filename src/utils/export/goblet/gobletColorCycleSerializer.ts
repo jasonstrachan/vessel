@@ -1744,6 +1744,141 @@ export const resolveDefBoundSlotPalettes = (params: {
   return [...resolvedBySlot.values()];
 };
 
+export const materializeDefBoundBrushSlots = (params: {
+  data: Layer['colorCycleData'] | undefined;
+  brushState?: WebGLSerializedBrushState;
+  slotPalettes?: SerializedSlotPalette[];
+}): {
+  brushState?: WebGLSerializedBrushState;
+  slotPalettes?: SerializedSlotPalette[];
+  remapped: boolean;
+} => {
+  const { data, brushState } = params;
+  if (!data || !brushState) {
+    return { brushState, slotPalettes: params.slotPalettes, remapped: false };
+  }
+
+  const gradientIds = Array.isArray(brushState.gradientIdBuffer) ? brushState.gradientIdBuffer : null;
+  const defIds = Array.isArray(brushState.gradientDefIdBuffer)
+    ? brushState.gradientDefIdBuffer
+    : decodePersistedDefIdBuffer(data.gradientDefIdBuffer);
+  const indices = Array.isArray(brushState.indexBuffer) ? brushState.indexBuffer : undefined;
+  const defs = data.gradientDefStore ?? [];
+
+  if (!gradientIds || gradientIds.length === 0 || defIds.length === 0 || defs.length === 0) {
+    return { brushState, slotPalettes: params.slotPalettes, remapped: false };
+  }
+
+  type GradientDefStoreEntry = NonNullable<NonNullable<Layer['colorCycleData']>['gradientDefStore']>[number];
+  const defsById = new Map<number, GradientDefStoreEntry>();
+  defs.forEach((entry) => {
+    if (Number.isFinite(entry.id) && entry.stops?.length) {
+      defsById.set(Math.round(entry.id), entry);
+    }
+  });
+  if (defsById.size === 0) {
+    return { brushState, slotPalettes: params.slotPalettes, remapped: false };
+  }
+
+  const length = Math.min(gradientIds.length, defIds.length, indices?.length ?? gradientIds.length);
+  const paintedDefIds = new Set<number>();
+  const usedSlots = new Set<number>();
+  for (let index = 0; index < length; index += 1) {
+    if (indices && indices[index] === 0) {
+      continue;
+    }
+    usedSlots.add((gradientIds[index] ?? 0) & FLOW_SLOT_MASK);
+    const defId = Number(defIds[index] ?? 0);
+    if (Number.isFinite(defId) && defId > 0 && defsById.has(Math.round(defId))) {
+      paintedDefIds.add(Math.round(defId));
+    }
+  }
+
+  if (paintedDefIds.size === 0) {
+    return { brushState, slotPalettes: params.slotPalettes, remapped: false };
+  }
+
+  const resolvedBySlot = new Map<number, SerializedSlotPalette>();
+  (params.slotPalettes ?? []).forEach((entry) => {
+    resolvedBySlot.set(entry.slot & FLOW_SLOT_MASK, {
+      ...entry,
+      slot: entry.slot & FLOW_SLOT_MASK,
+    });
+  });
+
+  const defIdsByPreferredSlot = new Map<number, number[]>();
+  paintedDefIds.forEach((defId) => {
+    const preferredSlot = (defsById.get(defId)?.slot ?? 0) & FLOW_SLOT_MASK;
+    const ids = defIdsByPreferredSlot.get(preferredSlot) ?? [];
+    ids.push(defId);
+    defIdsByPreferredSlot.set(preferredSlot, ids);
+  });
+
+  const defSlotMap = new Map<number, number>();
+  const reservedSlots = new Set<number>([
+    ...usedSlots,
+    ...resolvedBySlot.keys(),
+  ]);
+  const allocateSlot = (): number | null => {
+    for (let slot = 0; slot <= FLOW_SLOT_MASK; slot += 1) {
+      if (!reservedSlots.has(slot)) {
+        reservedSlots.add(slot);
+        return slot;
+      }
+    }
+    return null;
+  };
+
+  [...paintedDefIds].sort((a, b) => a - b).forEach((defId) => {
+    const def = defsById.get(defId);
+    if (!def) {
+      return;
+    }
+    const preferredSlot = (def.slot ?? 0) & FLOW_SLOT_MASK;
+    const preferredIds = defIdsByPreferredSlot.get(preferredSlot) ?? [];
+    const canUsePreferred = preferredIds[0] === defId && (!resolvedBySlot.has(preferredSlot) || usedSlots.has(preferredSlot));
+    const slot = canUsePreferred ? preferredSlot : allocateSlot();
+    if (slot === null) {
+      return;
+    }
+    defSlotMap.set(defId, slot);
+    resolvedBySlot.set(slot, {
+      slot,
+      stops: toSerializableGradientStops(def.stops, []),
+      seamProfile: normalizeGradientSeamProfile(def.seamProfile),
+    });
+    reservedSlots.add(slot);
+  });
+
+  if (defSlotMap.size === 0) {
+    return { brushState, slotPalettes: [...resolvedBySlot.values()], remapped: false };
+  }
+
+  let remapped = false;
+  const remappedGradientIds = gradientIds.slice();
+  for (let index = 0; index < length; index += 1) {
+    if (indices && indices[index] === 0) {
+      continue;
+    }
+    const defId = Math.round(Number(defIds[index] ?? 0));
+    const slot = defSlotMap.get(defId);
+    if (slot === undefined) {
+      continue;
+    }
+    const current = remappedGradientIds[index] ?? 0;
+    if ((current & FLOW_SLOT_MASK) !== slot) {
+      remapped = true;
+    }
+    remappedGradientIds[index] = slot;
+  }
+
+  return {
+    brushState: remapped ? { ...brushState, gradientIdBuffer: remappedGradientIds } : brushState,
+    slotPalettes: [...resolvedBySlot.values()].sort((a, b) => a.slot - b.slot),
+    remapped,
+  };
+};
+
 const resolveExportSlotPalettes = (
   data: Layer['colorCycleData'] | undefined,
   brushState?: WebGLSerializedBrushState,
@@ -3265,15 +3400,25 @@ export const serializeColorCycleDataFromResolvedLayer = async (
     };
   }
 
-  let exportSlotPalettes: Array<{ slot: number; stops: SerializedGradientStops }> | undefined;
+  let exportSlotPalettes: SerializedSlotPalette[] | undefined;
   let fgDerivedStops: SerializedGradientStops | undefined;
+  let remappedDefBoundSlots = false;
   if (!data.recolorSettings) {
     exportSlotPalettes = resolveExportSlotPalettes(data, brushState, exportDocumentState);
+    const defBoundSlots = materializeDefBoundBrushSlots({
+      data,
+      brushState,
+      slotPalettes: exportSlotPalettes,
+    });
+    brushState = defBoundSlots.brushState;
+    exportSlotPalettes = defBoundSlots.slotPalettes;
+    remappedDefBoundSlots = defBoundSlots.remapped;
     fgDerivedStops = resolveFgDerivedStops(data, exportSlotPalettes);
     if (exportSlotPalettes && exportSlotPalettes.length > 0) {
       serialized.slotPalettes = exportSlotPalettes.map((entry) => ({
         slot: entry.slot,
-        stops: toSerializableGradientStops(entry.stops, [])
+        stops: toSerializableGradientStops(entry.stops, []),
+        seamProfile: entry.seamProfile,
       }));
     }
   }
@@ -3441,7 +3586,7 @@ export const serializeColorCycleDataFromResolvedLayer = async (
       layer,
       brushState,
       warnOnce: warnOnceMissingSpeed,
-      forceBuffer: options?.forceSpeedBuffer === true,
+      forceBuffer: options?.forceSpeedBuffer === true || remappedDefBoundSlots,
       layerSpeedScale,
       fallbackToolSpeed: options?.toolSpeed,
     });
