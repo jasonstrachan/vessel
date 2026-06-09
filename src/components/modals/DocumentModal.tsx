@@ -31,10 +31,34 @@ const CANVAS_PRESETS = [
     description: 'Portrait document preset with a 4:5 aspect ratio.',
   },
   {
+    name: '4:3 Landscape (2560×1920)',
+    width: 2560,
+    height: 1920,
+    description: 'Landscape document preset with a 4:3 aspect ratio.',
+  },
+  {
+    name: '5:4 Landscape (2560×2048)',
+    width: 2560,
+    height: 2048,
+    description: 'Landscape document preset with a 5:4 aspect ratio.',
+  },
+  {
+    name: '3:2 Landscape (3000×2000)',
+    width: 3000,
+    height: 2000,
+    description: 'Classic landscape art and print ratio.',
+  },
+  {
     name: '2:3 Vertical Art (2000×3000)',
     width: 2000,
     height: 3000,
     description: 'Great for high-res mobile wallpapers.',
+  },
+  {
+    name: '2:1 Wide Landscape (3000×1500)',
+    width: 3000,
+    height: 1500,
+    description: 'Wide landscape canvas for panoramic compositions.',
   },
   {
     name: '16:9 Cinematic (2560×1440)',
