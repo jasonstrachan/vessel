@@ -1163,7 +1163,7 @@ describe('ShapeToolHandler CC dither preview replay', () => {
     const callArgs = fillCcGradientDither.mock.calls[0]?.[0] as { vertices: Array<{ x: number; y: number }> };
     expect(callArgs).toBeDefined();
     const { vertices } = callArgs;
-    expect(vertices.length).toBeLessThanOrEqual(256);
+    expect(vertices.length).toBeLessThanOrEqual(1024);
   });
 
   it('caps oversized CC preview render buffers by increasing preview scale', async () => {
@@ -1257,8 +1257,8 @@ describe('ShapeToolHandler CC dither preview replay', () => {
     expect(fillCcGradientDither.mock.calls[0][0]).toMatchObject({
       minX: 0,
       minY: 0,
-      maxX: 450,
-      maxY: 450,
+      maxX: 600,
+      maxY: 600,
     });
   });
 });

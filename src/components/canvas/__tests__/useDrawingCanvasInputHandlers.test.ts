@@ -123,6 +123,21 @@ describe('useDrawingCanvasInputHandlers', () => {
     ).toBe(true);
   });
 
+  it('allows pointer down outside canvas shape for dither gradient mode', () => {
+    renderHook(() =>
+      useDrawingCanvasInputHandlers(
+        buildOptions({
+          tools: buildTools({ shapeMode: true }),
+          currentBrushPresetId: 'dither-grad',
+        })
+      )
+    );
+
+    expect(
+      mockUseDrawingCanvasPointerHandlers.mock.calls.at(-1)?.[0]?.allowPointerDownOutsideCanvasShape
+    ).toBe(true);
+  });
+
   it('allows pointer down outside canvas shape for color-cycle-gradient shape mode', () => {
     renderHook(() =>
       useDrawingCanvasInputHandlers(

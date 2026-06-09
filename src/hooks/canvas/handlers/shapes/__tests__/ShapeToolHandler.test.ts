@@ -318,7 +318,7 @@ describe('ShapeToolHandler – shape fill tool detection', () => {
   });
 
   it('caps live preview polygon points without mutating the underlying shape inputs', () => {
-    const rawPoints = Array.from({ length: 600 }, (_, index) => ({
+    const rawPoints = Array.from({ length: 1200 }, (_, index) => ({
       x: index,
       y: Math.sin(index / 20) * 10,
     }));
@@ -328,8 +328,8 @@ describe('ShapeToolHandler – shape fill tool detection', () => {
       { x: 700, y: 20 },
     );
 
-    expect(rawPoints).toHaveLength(600);
-    expect(previewModel.committedPolygon.length).toBeLessThanOrEqual(256);
+    expect(rawPoints).toHaveLength(1200);
+    expect(previewModel.committedPolygon.length).toBeLessThanOrEqual(1024);
     expect(previewModel.committedPolygon[0]).toEqual(rawPoints[0]);
     expect(previewModel.committedPolygon[previewModel.committedPolygon.length - 1]).toEqual(
       rawPoints[rawPoints.length - 1]

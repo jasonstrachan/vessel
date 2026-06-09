@@ -60,9 +60,9 @@ const getPreviewImageTileThresholdResolver = (
   settings
 ) ?? undefined;
 
-const MAX_CC_PREVIEW_VERTICES = 256;
-const MAX_CC_PREVIEW_SCALED_DIMENSION = 512;
-const MAX_CC_PREVIEW_SCALED_AREA = 512 * 512;
+const MAX_CC_PREVIEW_VERTICES = 1024;
+const MAX_CC_PREVIEW_SCALED_DIMENSION = 768;
+const MAX_CC_PREVIEW_SCALED_AREA = 768 * 768;
 
 const simplifyPreviewPolygon = (
   points: Array<{ x: number; y: number }>

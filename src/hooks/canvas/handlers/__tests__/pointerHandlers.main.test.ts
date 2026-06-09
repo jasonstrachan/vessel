@@ -1339,6 +1339,37 @@ describe('pointerHandlers main flows', () => {
     store.setBrushSettings({ brushShape: originalShape });
   });
 
+  it('keeps dither gradient pointer capture after starting outside canvas', () => {
+    const store = useAppStore.getState();
+    const originalShape = store.tools.brushSettings.brushShape;
+    store.setBrushSettings({ brushShape: BrushShape.DITHER_GRADIENT });
+
+    const { deps, dynamicDepsRef } = createDeps({
+      tools: {
+        ...baseDynamic.tools,
+        currentTool: 'brush',
+        brushSettings: { ...baseDynamic.tools.brushSettings, brushShape: BrushShape.DITHER_GRADIENT },
+      },
+    });
+    dynamicDepsRef.current.tools = deps.tools;
+
+    const handlers = createPointerHandlers(deps);
+    const target = {
+      setPointerCapture: jest.fn(),
+      releasePointerCapture: jest.fn(),
+      hasPointerCapture: jest.fn().mockReturnValue(true),
+    } as unknown as EventTarget & {
+      setPointerCapture: jest.Mock;
+      releasePointerCapture: jest.Mock;
+      hasPointerCapture: jest.Mock;
+    };
+    handlers.handlePointerDown(makePointerEvent({ clientX: -5, clientY: -5, target }));
+
+    expect(target.releasePointerCapture).not.toHaveBeenCalled();
+
+    store.setBrushSettings({ brushShape: originalShape });
+  });
+
   it('allows marquee selection start outside canvas', () => {
     const { deps, dynamicDepsRef } = createDeps({
       tools: {

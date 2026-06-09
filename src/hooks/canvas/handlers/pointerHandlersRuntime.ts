@@ -2508,7 +2508,10 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
       const rewriteHandled = shapeHandler.handlePointerDown(event as React.PointerEvent<HTMLCanvasElement>);
       if (rewriteHandled) {
         const polygonState = getDynamicDeps().polygonGradientState;
-        if (polygonState.drawingState === 'idle') {
+        const shouldKeepShapePointerCapture =
+          drawingHandlers.isDrawingShapeRef.current ||
+          tools.brushSettings.brushShape === BrushShape.DITHER_GRADIENT;
+        if (polygonState.drawingState === 'idle' && !shouldKeepShapePointerCapture) {
           isMouseDownRef.current = false;
           if (withPointerCaptureTarget(event).hasPointerCapture?.(event.pointerId)) {
             withPointerCaptureTarget(event).releasePointerCapture?.(event.pointerId);

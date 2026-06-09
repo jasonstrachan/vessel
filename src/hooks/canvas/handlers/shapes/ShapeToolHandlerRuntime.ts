@@ -91,7 +91,7 @@ const shouldKeepCachedCcPreviewVisible = (params: {
   jobInFlight: boolean;
 }): boolean => params.hasCachedPreview && (!params.canReplayCurrentPreview || params.jobInFlight);
 
-const LIVE_SHAPE_PREVIEW_MAX_POINTS = 256;
+const LIVE_SHAPE_PREVIEW_MAX_POINTS = 1024;
 
 const simplifyLiveShapePreviewPoints = (points: PreviewPoint[]): PreviewPoint[] => {
   if (points.length <= LIVE_SHAPE_PREVIEW_MAX_POINTS) {

@@ -63,6 +63,7 @@ export const useDrawingCanvasInputHandlers = ({
   const isShapePresetAllowingOutsideStart =
     eventHandlerArgs.tools.shapeMode === true &&
     (eventHandlerArgs.currentBrushPresetId === 'dither-shape' ||
+      eventHandlerArgs.currentBrushPresetId === 'dither-grad' ||
       eventHandlerArgs.currentBrushPresetId === 'color-cycle-gradient');
   const allowPointerDownOutsideCanvasShape =
     (eventHandlerArgs.tools.currentTool === 'selection' &&
