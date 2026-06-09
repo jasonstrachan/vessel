@@ -55,6 +55,7 @@ next-env.d.ts
 
 # local scratch / agent artifacts
 /artifacts/
+/.local/
 /output/
 /scratch/
 /temp/
