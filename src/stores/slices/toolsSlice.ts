@@ -62,6 +62,8 @@ type RecolorSamplingState = AppState['recolorSampling'];
 const initialBrushPreset = mosaicBrushPreset;
 const { settings: defaultPresetSettings } = applyBrushPreset(initialBrushPreset);
 const DITHER_BRUSH_IDS = ['dither-stroke', 'dither-shape'];
+const DITHER_ALWAYS_ON_BRUSH_IDS = [...DITHER_BRUSH_IDS, 'dither-grad'];
+const BRUSH_SPECIFIC_DITHER_PATTERN_IDS = ['dither-grad'];
 
 const resolveActiveColorCycleLayerGradient = (state: AppState): BrushSettings['colorCycleGradient'] => {
   const activeLayer = state.layers.find((layer) => layer.id === state.activeLayerId);
@@ -179,6 +181,25 @@ export const createDefaultRecolorSamplingState = (): RecolorSamplingState => ({
   target: 'recolor',
 });
 
+const shouldPersistBrushSpecificDitherPattern = (brushId: string | null | undefined): boolean =>
+  Boolean(brushId && BRUSH_SPECIFIC_DITHER_PATTERN_IDS.includes(brushId));
+
+const sanitizeBrushSpecificDitherPatternSettings = (
+  brushId: string | null | undefined,
+  settings: Partial<BrushSettings>
+): void => {
+  if (!shouldPersistBrushSpecificDitherPattern(brushId)) {
+    delete settings.ditherAlgorithm;
+    delete settings.patternStyle;
+  } else if (settings.patternStyle === 'image-tile') {
+    delete settings.patternStyle;
+  }
+
+  delete settings.patternTileId;
+  delete settings.patternTilePackId;
+  delete settings.patternTileSelectionMode;
+};
+
 export const defaultPressureSettings: PressureSettings = {
   enabled: Boolean(defaultBrushSettingsForStore.pressureEnabled),
   min: clampPressurePercent(defaultBrushSettingsForStore.minPressure ?? 0),
@@ -199,6 +220,8 @@ const getSerializableBrushSettings = (settings: BrushSettings): Partial<BrushSet
   ditherPaletteSpread: settings.ditherPaletteSpread,
   ditherPatternDiversity: settings.ditherPatternDiversity,
   ccSampledSoftSeamEnabled: settings.ccSampledSoftSeamEnabled,
+  ditherAlgorithm: settings.ditherAlgorithm,
+  patternStyle: settings.patternStyle,
   ditherStrokeTipShape: settings.ditherStrokeTipShape,
   ditherBackgroundFill: settings.ditherBackgroundFill,
   ditherGradBgFill: settings.ditherGradBgFill,
@@ -775,7 +798,7 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
     const isCurrentColorCycleBrush = Boolean(currentBrushId && isColorCyclePresetId(currentBrushId));
 
     // The dedicated dither brush should never disable dithering
-    if (DITHER_BRUSH_IDS.includes(currentBrushId ?? '') && newSettings.ditherEnabled !== true) {
+    if (DITHER_ALWAYS_ON_BRUSH_IDS.includes(currentBrushId ?? '') && newSettings.ditherEnabled !== true) {
       newSettings = { ...newSettings, ditherEnabled: true };
     }
 
@@ -790,8 +813,6 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
       const settingsToSave: Partial<BrushSettings> = {
         ...existingSavedSettings
       };
-      delete settingsToSave.ditherAlgorithm;
-      delete settingsToSave.patternStyle;
 
       delete settingsToSave.pressureEnabled;
       delete settingsToSave.minPressure;
@@ -812,6 +833,14 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
       }
       if (settings.ditherPatternDiversity !== undefined) {
         settingsToSave.ditherPatternDiversity = newSettings.ditherPatternDiversity;
+      }
+      if (shouldPersistBrushSpecificDitherPattern(currentBrushId)) {
+        if (settings.ditherAlgorithm !== undefined) {
+          settingsToSave.ditherAlgorithm = newSettings.ditherAlgorithm;
+        }
+        if (settings.patternStyle !== undefined) {
+          settingsToSave.patternStyle = newSettings.patternStyle;
+        }
       }
       if (settings.ccSampledSoftSeamEnabled !== undefined) {
         settingsToSave.ccSampledSoftSeamEnabled = newSettings.ccSampledSoftSeamEnabled;
@@ -1013,6 +1042,7 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
         settingsToSave.colorCycleGradientVersion = newSettings.colorCycleGradientVersion;
       }
 
+      sanitizeBrushSpecificDitherPatternSettings(currentBrushId, settingsToSave);
       brushSettingsToSave = [{ brushId: currentBrushId, settings: settingsToSave }];
 
       if (DITHER_BRUSH_IDS.includes(currentBrushId)) {
@@ -1915,7 +1945,7 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
     }
 
     // Keep dithering always enabled for the dedicated dither brush
-    if (DITHER_BRUSH_IDS.includes(preset.id)) {
+    if (DITHER_ALWAYS_ON_BRUSH_IDS.includes(preset.id)) {
       newBrushSettings.ditherEnabled = true;
     }
 
@@ -2636,8 +2666,7 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
         ...existingSettings,
         ...getSerializableBrushSettings(currentBrushSettings),
       };
-      delete settingsToSave.ditherAlgorithm;
-      delete settingsToSave.patternStyle;
+      sanitizeBrushSpecificDitherPatternSettings(brushIdToSave, settingsToSave);
       if (brushIdToSave !== 'color-cycle-gradient' && settingsToSave.colorCycleFillMode !== undefined) {
         delete settingsToSave.colorCycleFillMode;
       }
@@ -2656,8 +2685,7 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
     set((state) => {
       const existingSettings = state.brushSpecificSettings[brushId] || {};
       const newSettings = { ...existingSettings, ...settings };
-      delete newSettings.ditherAlgorithm;
-      delete newSettings.patternStyle;
+      sanitizeBrushSpecificDitherPatternSettings(brushId, newSettings);
       if (newSettings.colorCycleFlowMode && newSettings.colorCycleFlowMode !== 'forward') {
         newSettings.colorCycleFlowMode = 'forward';
       }
@@ -2681,8 +2709,7 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
     }) as Partial<BrushSettings> & { colorCycleFlowForward?: boolean };
 
     delete (normalized as Partial<BrushSettings> & { ccGradientSamplePerShape?: unknown }).ccGradientSamplePerShape;
-    delete normalized.ditherAlgorithm;
-    delete normalized.patternStyle;
+    sanitizeBrushSpecificDitherPatternSettings(brushId, normalized);
 
     if (normalized.colorCycleFlowForward !== undefined) {
       normalized.colorCycleFlowMode = 'forward';

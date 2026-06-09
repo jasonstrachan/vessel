@@ -74,6 +74,28 @@ describe('brushSettingsStorage', () => {
     });
   });
 
+  it('keeps dither gradient pattern settings on load', () => {
+    storage.setItem('vessel:brush-settings', JSON.stringify({
+      brushSpecificSettings: {
+        'dither-grad': {
+          spacing: 4,
+          ditherAlgorithm: 'pattern',
+          patternStyle: 'crosshatch',
+        },
+      },
+    }));
+
+    expect(loadGlobalBrushSettings()).toEqual({
+      brushSpecificSettings: {
+        'dither-grad': {
+          spacing: 4,
+          ditherAlgorithm: 'pattern',
+          patternStyle: 'crosshatch',
+        },
+      },
+    });
+  });
+
   it('saves sanitized payload', () => {
     saveGlobalBrushSettings({ globalBrushSize: 20, brushSpecificSettings: { demo: { spacing: 4 } }, lastBrushId: 'pixel-square' });
     const setCalls = (storage.setItem as jest.Mock).mock.calls;
@@ -102,6 +124,50 @@ describe('brushSettingsStorage', () => {
       brushSpecificSettings: {
         'color-cycle-gradient': {
           spacing: 4,
+        },
+      },
+    });
+  });
+
+  it('persists dither gradient pattern settings', () => {
+    saveGlobalBrushSettings({
+      brushSpecificSettings: {
+        'dither-grad': {
+          spacing: 4,
+          ditherAlgorithm: 'pattern',
+          patternStyle: 'crosshatch',
+        },
+      },
+    });
+
+    const payload = JSON.parse((storage.setItem as jest.Mock).mock.calls[0][1]);
+    expect(payload).toEqual({
+      brushSpecificSettings: {
+        'dither-grad': {
+          spacing: 4,
+          ditherAlgorithm: 'pattern',
+          patternStyle: 'crosshatch',
+        },
+      },
+    });
+  });
+
+  it('does not persist project-local dither gradient tile style globally', () => {
+    saveGlobalBrushSettings({
+      brushSpecificSettings: {
+        'dither-grad': {
+          ditherAlgorithm: 'pattern',
+          patternStyle: 'image-tile',
+          patternTileId: 'tile-1',
+        },
+      },
+    });
+
+    const payload = JSON.parse((storage.setItem as jest.Mock).mock.calls[0][1]);
+    expect(payload).toEqual({
+      brushSpecificSettings: {
+        'dither-grad': {
+          ditherAlgorithm: 'pattern',
         },
       },
     });

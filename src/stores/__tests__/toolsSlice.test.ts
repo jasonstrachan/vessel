@@ -180,6 +180,40 @@ describe('tools slice', () => {
     expect(saved?.ditherGradStops).toEqual(['#111111', '#222222']);
   });
 
+  it('clears project-local dither gradient tile settings from brush persistence', () => {
+    const store = useAppStore.getState();
+    const preset = brushPresets.find((candidate) => candidate.id === 'dither-grad');
+    expect(preset).toBeTruthy();
+    store.setBrushPreset(preset!, true);
+
+    store.saveBrushSettings(preset!.id, {
+      ditherAlgorithm: 'pattern',
+      patternStyle: 'crosshatch',
+      patternTileId: 'old-tile',
+      patternTilePackId: 'old-pack',
+      patternTileSelectionMode: 'pack-random',
+    });
+    store.setBrushSettings({
+      patternStyle: 'image-tile',
+      patternTileId: 'new-tile',
+      patternTilePackId: 'new-pack',
+      patternTileSelectionMode: 'single',
+    });
+
+    const saved = useAppStore.getState().brushSpecificSettings[preset!.id];
+    expect(saved?.ditherAlgorithm).toBe('pattern');
+    expect(saved?.patternStyle).toBeUndefined();
+    expect(saved?.patternTileId).toBeUndefined();
+    expect(saved?.patternTilePackId).toBeUndefined();
+    expect(saved?.patternTileSelectionMode).toBeUndefined();
+
+    const loaded = useAppStore.getState().loadBrushSettings(preset!.id);
+    expect(loaded.patternStyle).toBeUndefined();
+    expect(loaded.patternTileId).toBeUndefined();
+    expect(loaded.patternTilePackId).toBeUndefined();
+    expect(loaded.patternTileSelectionMode).toBeUndefined();
+  });
+
   it('keeps pressure-linked dither resolution settings in sync across dither stroke and shape presets', () => {
     const store = useAppStore.getState();
     const ditherShapePreset = brushPresets.find((candidate) => candidate.id === 'dither-shape');

@@ -154,11 +154,24 @@ describe('orderedDitherGradient', () => {
     expect(encountered.has('0-255-0')).toBe(true); // middle green stop appears
   });
 
-  it('applies transparent tail based on explicit transparent count', () => {
+  it('ignores transparent count while dither gradient BG Fill is enabled', () => {
     const paletteRGBA = resolveDitherGradPalette(
       fg,
       bg,
       true,
+      ['#ff0000', '#00ff00', '#0000ff', '#ffffff'],
+      2
+    );
+    expect(paletteRGBA).toHaveLength(4);
+    expect(paletteRGBA[2]?.[3]).toBe(255);
+    expect(paletteRGBA[3]?.[3]).toBe(255);
+  });
+
+  it('applies transparent tail when dither gradient BG Fill is disabled', () => {
+    const paletteRGBA = resolveDitherGradPalette(
+      fg,
+      bg,
+      false,
       ['#ff0000', '#00ff00', '#0000ff', '#ffffff'],
       2
     );

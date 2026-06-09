@@ -3907,6 +3907,21 @@ const BrushControls = () => {
                     className="flex-1"
                   />
                 </div>
+
+                <div className="flex items-center gap-2 mt-2">
+                  <label
+                    className="text-[#D9D9D9] w-16"
+                    style={{ fontSize: '14px' }}
+                    title="Keep a solid fill behind the dither gradient pattern"
+                  >
+                    BG Fill
+                  </label>
+                  <CustomSwitch
+                    checked={(activeSettings.ditherGradBgFill ?? activeSettings.ditherBackgroundFill) !== false}
+                    onChange={(checked) => setActiveSettings({ ditherGradBgFill: checked })}
+                    aria-label="Dither Gradient Background Fill"
+                  />
+                </div>
               </>
             }
           />

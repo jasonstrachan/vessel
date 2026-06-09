@@ -119,7 +119,7 @@ export const resolveDitherGradPalette = (
   const evenStops = normalizeStops(palette, targetLength);
   const hasTransparentCount = typeof transparentCount === 'number' && Number.isFinite(transparentCount);
 
-  if (hasTransparentCount) {
+  if (bgFill === false && hasTransparentCount) {
     const safeCount = Math.max(0, Math.min(targetLength - 1, Math.round(transparentCount)));
     if (safeCount > 0) {
       for (let i = targetLength - safeCount; i < targetLength; i += 1) {

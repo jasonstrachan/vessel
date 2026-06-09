@@ -3,6 +3,7 @@ import type { BrushSettings } from '@/types';
 import { clampPressureDeltaPercent } from '@/utils/pressureSettings';
 
 const STORAGE_KEY = 'vessel:brush-settings';
+const BRUSH_SPECIFIC_DITHER_PATTERN_IDS = new Set(['dither-grad']);
 
 type StoredBrushMap = Record<string, Partial<BrushSettings>>;
 
@@ -20,15 +21,17 @@ const sanitizeBrushSpecificSettings = (
 
     const sanitizedSettings = { ...settings } as Partial<BrushSettings> & {
       ccGradientSamplePerShape?: never;
-      ditherAlgorithm?: never;
-      patternStyle?: never;
       patternTileId?: never;
       patternTilePackId?: never;
       patternTileSelectionMode?: never;
     };
     delete sanitizedSettings.ccGradientSamplePerShape;
-    delete sanitizedSettings.ditherAlgorithm;
-    delete sanitizedSettings.patternStyle;
+    if (!BRUSH_SPECIFIC_DITHER_PATTERN_IDS.has(brushId)) {
+      delete sanitizedSettings.ditherAlgorithm;
+      delete sanitizedSettings.patternStyle;
+    } else if (sanitizedSettings.patternStyle === 'image-tile') {
+      delete sanitizedSettings.patternStyle;
+    }
     delete sanitizedSettings.patternTileId;
     delete sanitizedSettings.patternTilePackId;
     delete sanitizedSettings.patternTileSelectionMode;

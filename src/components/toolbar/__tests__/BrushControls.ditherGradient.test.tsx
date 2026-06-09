@@ -8,10 +8,20 @@ import { useAppStore } from '@/stores/useAppStore';
 
 jest.mock('../../ui/CustomSwitch', () => ({
   __esModule: true,
-  default: ({ checked, onChange, id }: { checked: boolean; onChange: (v: boolean) => void; id?: string }) => (
+  default: ({
+    checked,
+    onChange,
+    id,
+    'aria-label': ariaLabel,
+  }: {
+    checked: boolean;
+    onChange: (v: boolean) => void;
+    id?: string;
+    'aria-label'?: string;
+  }) => (
     <input
       type="checkbox"
-      aria-label={id}
+      aria-label={ariaLabel ?? id}
       checked={checked}
       onChange={(e) => onChange(e.target.checked)}
     />
@@ -107,6 +117,8 @@ function getBaseBrush(): BrushSettings {
     ditherGradSampleEnabled: false,
     gradientLength: 100,
     trans: 0,
+    ditherBackgroundFill: true,
+    ditherGradBgFill: true,
   };
 }
 
@@ -235,6 +247,17 @@ describe('BrushControls – Dither Gradient', () => {
 
     const store = useAppStore.getState();
     expect(store.setBrushSettings).toHaveBeenCalledWith({ gradientLength: 150 });
+  });
+
+  it('toggles dither gradient background fill', () => {
+    render(<BrushControls />);
+    const bgFillToggle = screen.getByLabelText('Dither Gradient Background Fill') as HTMLInputElement;
+
+    expect(bgFillToggle.checked).toBe(true);
+    fireEvent.click(bgFillToggle);
+
+    const store = useAppStore.getState();
+    expect(store.setBrushSettings).toHaveBeenCalledWith({ ditherGradBgFill: false });
   });
 
   it('clamps trans when reducing color count', () => {

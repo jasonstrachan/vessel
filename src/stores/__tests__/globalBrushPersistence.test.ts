@@ -173,9 +173,24 @@ describe('global brush persistence', () => {
     loadMock.mockReturnValue({
       brushSpecificSettings: {
         'dither-grad': {
+          ditherEnabled: false,
           ditherGradSampleEnabled: true,
           ditherGradStops: ['#111111', '#222222', '#333333'],
+          ditherGradBgFill: false,
           trans: 1,
+          gradientLength: 145,
+          fillResolution: 8,
+          pressureLinkedFillResolution: true,
+          pressureLinkedFillMaxResolution: 17,
+          pressureDitherSmoosh: true,
+          pxlEdge: false,
+          lostEdge: 12,
+          pigmentLiftEnabled: true,
+          pigmentLiftStrength: 33,
+          pigmentLiftFeather: 4,
+          pigmentLiftNoise: 9,
+          ditherAlgorithm: 'pattern',
+          patternStyle: 'crosshatch',
         },
       },
     });
@@ -188,22 +203,67 @@ describe('global brush persistence', () => {
 
     store.setBrushPreset(ditherGradientBrushPreset);
     const active = useAppStore.getState().tools.brushSettings;
+    expect(active.ditherEnabled).toBe(true);
     expect(active.ditherGradSampleEnabled).toBe(true);
     expect(active.ditherGradStops).toEqual(['#111111', '#222222', '#333333']);
+    expect(active.ditherGradBgFill).toBe(false);
     expect(active.trans).toBe(1);
+    expect(active.gradientLength).toBe(145);
+    expect(active.fillResolution).toBe(8);
+    expect(active.pressureLinkedFillResolution).toBe(true);
+    expect(active.pressureLinkedFillMaxResolution).toBe(17);
+    expect(active.pressureDitherSmoosh).toBe(true);
+    expect(active.pxlEdge).toBe(false);
+    expect(active.lostEdge).toBe(12);
+    expect(active.pigmentLiftEnabled).toBe(true);
+    expect(active.pigmentLiftStrength).toBe(33);
+    expect(active.pigmentLiftFeather).toBe(4);
+    expect(active.pigmentLiftNoise).toBe(9);
+    expect(active.ditherAlgorithm).toBe('pattern');
+    expect(active.patternStyle).toBe('crosshatch');
 
     store.setBrushSettings({
+      ditherEnabled: false,
       ditherGradSampleEnabled: false,
       ditherGradStops: ['#aaaaaa', '#bbbbbb'],
+      ditherGradBgFill: true,
       trans: 0,
+      gradientLength: 80,
+      fillResolution: 5,
+      pressureLinkedFillResolution: false,
+      pressureLinkedFillMaxResolution: 11,
+      pressureDitherSmoosh: false,
+      pxlEdge: true,
+      lostEdge: 22,
+      pigmentLiftEnabled: false,
+      pigmentLiftStrength: 44,
+      pigmentLiftFeather: 6,
+      pigmentLiftNoise: 7,
+      ditherAlgorithm: 'bayer',
+      patternStyle: 'dots',
     });
     jest.advanceTimersByTime(300);
     const payload = saveMock.mock.calls.at(-1)?.[0];
     expect(payload?.brushSpecificSettings?.['dither-grad']).toEqual(
       expect.objectContaining({
+        ditherEnabled: true,
         ditherGradSampleEnabled: false,
         ditherGradStops: ['#aaaaaa', '#bbbbbb'],
+        ditherGradBgFill: true,
         trans: 0,
+        gradientLength: 80,
+        fillResolution: 5,
+        pressureLinkedFillResolution: false,
+        pressureLinkedFillMaxResolution: 11,
+        pressureDitherSmoosh: false,
+        pxlEdge: true,
+        lostEdge: 22,
+        pigmentLiftEnabled: false,
+        pigmentLiftStrength: 44,
+        pigmentLiftFeather: 6,
+        pigmentLiftNoise: 7,
+        ditherAlgorithm: 'bayer',
+        patternStyle: 'dots',
       })
     );
   });

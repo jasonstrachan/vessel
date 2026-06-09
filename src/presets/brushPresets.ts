@@ -10,6 +10,7 @@ export type BrushCapabilities = {
 export const BRUSH_PRESET_CAPABILITIES: Record<string, BrushCapabilities> = {
   'dither-stroke': { canDither: true, forceDither: true },
   'dither-shape': { canDither: true, forceDither: true },
+  'dither-grad': { canDither: true, forceDither: true },
   'checkered': { canDither: false },
   'color-cycle-stroke': { canDither: false },
   'color-cycle-shape': { canDither: false },
