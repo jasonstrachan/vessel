@@ -98,6 +98,7 @@ describe('ShapeFinalizeHandler', () => {
     expect(ditherArgs.settingsOverride.color).toBe('#FF00AA');
     expect(ditherArgs.settingsOverride.ditherPaletteSpread).toBe(55);
     expect(ditherArgs.settingsOverride.ditherPatternDiversity).toBe(72);
+    expect(ditherArgs.quantizeSourceAlpha).toBe(true);
     expect(typeof ditherArgs.regularDitherVarietySeed).toBe('number');
   });
 

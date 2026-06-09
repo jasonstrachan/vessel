@@ -16,6 +16,7 @@ export type StrokeDitherRegionOptions = {
   bgOffComposite?: 'copy' | 'source-over';
   settingsOverride?: BrushSettings;
   regularDitherVarietySeed?: number;
+  quantizeSourceAlpha?: boolean;
 };
 
 type ReusableCanvas2D = { canvas: HTMLCanvasElement; ctx: CanvasRenderingContext2D };
@@ -64,6 +65,15 @@ const promoteWholePixelCellsForDitherEdges = (imageData: ImageData, pixelSize: n
         }
       }
     }
+  }
+};
+
+const quantizeImageDataAlpha = (imageData: ImageData, threshold = 128): void => {
+  const { data } = imageData;
+  const cutoff = Math.max(0, Math.min(255, Math.round(threshold)));
+
+  for (let i = 3; i < data.length; i += 4) {
+    data[i] = data[i] >= cutoff ? 255 : 0;
   }
 };
 
@@ -195,6 +205,10 @@ export const ditherRegionWithCurrentPressure = ({
       height,
       settings.lostEdge
     );
+  }
+
+  if (options?.quantizeSourceAlpha) {
+    quantizeImageDataAlpha(src);
   }
 
   if (settings.pxlEdge && pixelSize > 1) {
@@ -350,4 +364,5 @@ export const ditherRegionWithCurrentPressure = ({
 
 export const __TESTING__ = {
   promoteWholePixelCellsForDitherEdges,
+  quantizeImageDataAlpha,
 };

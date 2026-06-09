@@ -1075,6 +1075,7 @@ export const finalizeRasterShapeFill = ({
             overridePixelSize: forcedPixelSize,
             settingsOverride: settingsForDither,
             regularDitherVarietySeed,
+            quantizeSourceAlpha: isPixelBrush,
           }
         );
 

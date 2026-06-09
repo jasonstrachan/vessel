@@ -76,4 +76,19 @@ describe('strokeDitherRegion', () => {
       expect(data[idx + 3]).toBe(255);
     }
   });
+
+  it('quantizes antialiased edge alpha before dither finalization', () => {
+    const imageData = new ImageData(3, 1);
+    const { data } = imageData;
+
+    data[3] = 24;
+    data[7] = 128;
+    data[11] = 240;
+
+    __TESTING__.quantizeImageDataAlpha(imageData);
+
+    expect(data[3]).toBe(0);
+    expect(data[7]).toBe(255);
+    expect(data[11]).toBe(255);
+  });
 });

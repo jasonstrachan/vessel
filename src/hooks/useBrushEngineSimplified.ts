@@ -740,6 +740,7 @@ export const useBrushEngineSimplified = () => {
       bgOffComposite?: 'copy' | 'source-over';
       settingsOverride?: BrushSettings;
       regularDitherVarietySeed?: number;
+      quantizeSourceAlpha?: boolean;
     }
   ) => {
     applyStrokeDitherController({
