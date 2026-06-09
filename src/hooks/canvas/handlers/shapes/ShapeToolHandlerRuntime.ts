@@ -682,6 +682,13 @@ export const createShapeToolHandler = (
     ditherGradPreviewState.ccScratchBuffer = undefined;
     ditherGradPreviewState.ccPreparedGradientKey = undefined;
     ditherGradPreviewState.ccPreparedGradient = undefined;
+    ditherGradPreviewState.ccSmoothedSampledStops = undefined;
+    ditherGradPreviewState.ccPreviewFlatSeed = undefined;
+    ditherGradPreviewState.ccLastSampledPreviewPublishAt = undefined;
+    if (ditherGradPreviewState.ccSampledPreviewThrottleTimer) {
+      clearTimeout(ditherGradPreviewState.ccSampledPreviewThrottleTimer);
+      ditherGradPreviewState.ccSampledPreviewThrottleTimer = undefined;
+    }
     if (drawingHandlers.ccShapePreviewCacheRef) {
       drawingHandlers.ccShapePreviewCacheRef.current = null;
     }
@@ -3275,7 +3282,7 @@ export const createShapeToolHandler = (
                     drawingHandlers,
                     shouldKeepCachedCcPreviewVisible,
                     retainStalePreviewOnCacheMiss: isClickLinePreview,
-                    suppressChromeForCachedPreview: !isClickLinePreview,
+                    suppressChromeForCachedPreview: false,
                     previewOpacity: SHAPE_PREVIEW_OPACITY,
                     previewRenderSettings,
                     sampleColor: sampleColorAtPosition,

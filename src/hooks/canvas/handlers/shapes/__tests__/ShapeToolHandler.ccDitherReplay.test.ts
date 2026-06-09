@@ -3,6 +3,7 @@ import { createShapeToolHandler } from '../ShapeToolHandler';
 import {
   runCcDitherPreviewRuntime,
   runSampledCcDitherPreviewRuntime,
+  smoothSampledPreviewStops,
 } from '../ccShapePreviewDitherRuntime';
 import { BrushShape } from '@/types';
 
@@ -428,7 +429,7 @@ describe('ShapeToolHandler CC dither preview replay', () => {
     overlayCanvas.height = 256;
     (overlayCanvas as any).getContext = jest.fn(() => overlayCtx);
 
-    runSampledCcDitherPreviewRuntime({
+    const result = runSampledCcDitherPreviewRuntime({
       overlayCtx,
       overlayCanvas,
       committedPolygon: [{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 10, y: 10 }],
@@ -469,6 +470,7 @@ describe('ShapeToolHandler CC dither preview replay', () => {
 
     expect(buildSampledStops).not.toHaveBeenCalled();
     expect(fillCcGradientDither).not.toHaveBeenCalled();
+    expect(result.suppressLivePreviewChrome).toBe(false);
 
     jest.runOnlyPendingTimers();
     await Promise.resolve();
@@ -476,6 +478,13 @@ describe('ShapeToolHandler CC dither preview replay', () => {
 
     expect(buildSampledStops).toHaveBeenCalledTimes(1);
     expect(fillCcGradientDither).toHaveBeenCalledTimes(1);
+    expect(fillCcGradientDither).toHaveBeenCalledWith(
+      expect.objectContaining({
+        flatSeed: expect.any(Number),
+        patternPhaseOriginX: -1,
+        patternPhaseOriginY: -1,
+      })
+    );
     expect(recordSampledCcShapeBreadcrumb).toHaveBeenCalledWith(
       expect.objectContaining({
         event: 'sampled-worker-begin',
@@ -710,6 +719,155 @@ describe('ShapeToolHandler CC dither preview replay', () => {
     expect(overlayCtx.clearRect).toHaveBeenCalledWith(0, 0, 256, 256);
     expect(overlayCtx.drawImage).not.toHaveBeenCalled();
     expect(fillCcGradientDither).not.toHaveBeenCalled();
+  });
+
+  it('invalidates an in-flight regular CC preview when a newer frame dirties it', () => {
+    const overlayCtx = makeMockContext();
+    const overlayCanvas = document.createElement('canvas');
+    overlayCanvas.width = 256;
+    overlayCanvas.height = 256;
+    (overlayCanvas as any).getContext = jest.fn(() => overlayCtx);
+    const ditherGradPreviewState = {
+      origin: null,
+      lastPx: -1,
+      resState: {} as any,
+      ccJobInFlight: true,
+      ccJobDirty: false,
+      ccJobSeq: 7,
+    };
+
+    const result = runCcDitherPreviewRuntime({
+      overlayCtx,
+      overlayCanvas,
+      committedPolygon: [{ x: 20, y: 20 }, { x: 60, y: 20 }, { x: 60, y: 60 }],
+      brushSettings: storeState.tools.brushSettings,
+      preparedGradientKey: 'new-gradient',
+      preparedGradient: {
+        renderStops: [
+          { position: 0, color: '#000000' },
+          { position: 1, color: '#ffffff' },
+        ],
+        sortedStops: [
+          { position: 0, rgba: [0, 0, 0, 255] },
+          { position: 1, rgba: [255, 255, 255, 255] },
+        ],
+      },
+      ditherGradPreviewState,
+      drawingHandlers: {
+        isDrawingShapeRef: { current: true },
+        shapePointsRef: { current: [{ x: 20, y: 20 }, { x: 60, y: 20 }, { x: 60, y: 60 }] },
+        ccShapePreviewCacheRef: { current: null },
+      },
+      shouldKeepCachedCcPreviewVisible: () => false,
+      previewOpacity: 0.8,
+      schedulePolygonShapePreviewFrame: jest.fn(),
+      getLatestPolygonPreviewPoint: () => ({ x: 60, y: 60 }),
+      previewRenderSettings: {
+        pixelSize: 1,
+        levels: 8,
+        algorithm: 'sierra-lite',
+        patternStyle: 'dots',
+        isFastPreview: false,
+      },
+    });
+
+    expect(result).toEqual({
+      didCustomFill: false,
+      suppressLivePreviewChrome: false,
+    });
+    expect(ditherGradPreviewState.ccJobDirty).toBe(true);
+    expect(ditherGradPreviewState.ccJobSeq).toBe(8);
+    expect(fillCcGradientDither).not.toHaveBeenCalled();
+  });
+
+  it('smooths sampled preview stops toward newly sampled colors', () => {
+    const smoothed = smoothSampledPreviewStops({
+      previousStops: [
+        { position: 0, color: '#000000' },
+        { position: 1, color: '#ffffff' },
+      ],
+      targetStops: [
+        { position: 0, color: '#ff0000' },
+        { position: 1, color: '#00ff00' },
+      ],
+    });
+
+    expect(smoothed).toEqual([
+      { position: 0, color: 'rgba(20, 0, 0, 1)' },
+      { position: 1, color: 'rgba(235, 255, 235, 1)' },
+    ]);
+  });
+
+  it('defers sampled preview recompute shortly after publishing a cached preview', async () => {
+    jest.useFakeTimers();
+    fillCcGradientDither.mockResolvedValueOnce();
+    const overlayCtx = makeMockContext();
+    const overlayCanvas = document.createElement('canvas');
+    overlayCanvas.width = 256;
+    overlayCanvas.height = 256;
+    (overlayCanvas as any).getContext = jest.fn(() => overlayCtx);
+    const cachedCanvas = document.createElement('canvas');
+    cachedCanvas.width = 24;
+    cachedCanvas.height = 24;
+    const ditherGradPreviewState = {
+      origin: null,
+      lastPx: -1,
+      resState: {} as any,
+      ccJobInFlight: false,
+      ccJobDirty: false,
+      ccJobSeq: 7,
+      ccLastCanvas: cachedCanvas,
+      ccLastOrigin: { x: 0, y: 0 },
+      ccLastSize: { width: 24, height: 24 },
+      ccLastReplayKey: 'old-replay-key',
+      ccLastSampledPreviewPublishAt: Date.now(),
+    } as any;
+
+    const result = runSampledCcDitherPreviewRuntime({
+      overlayCtx,
+      overlayCanvas,
+      committedPolygon: [{ x: 20, y: 20 }, { x: 60, y: 20 }, { x: 60, y: 60 }],
+      brushSettings: {
+        ...storeState.tools.brushSettings,
+        ccGradientSource: 'sampled',
+      },
+      ditherGradPreviewState,
+      drawingHandlers: {
+        isDrawingShapeRef: { current: true },
+        shapePointsRef: { current: [{ x: 20, y: 20 }, { x: 60, y: 20 }, { x: 60, y: 60 }] },
+        ccShapePreviewCacheRef: { current: null },
+      },
+      shouldKeepCachedCcPreviewVisible: () => true,
+      previewOpacity: 0.8,
+      previewRenderSettings: {
+        pixelSize: 1,
+        levels: 8,
+        algorithm: 'sierra-lite',
+        patternStyle: 'dots',
+        isFastPreview: false,
+      },
+      sampleColor: jest.fn(() => '#000000'),
+      fallbackStops: [
+        { position: 0, color: '#000000' },
+        { position: 1, color: '#ffffff' },
+      ],
+      schedulePolygonShapePreviewFrame: jest.fn(),
+      getLatestPolygonPreviewPoint: () => ({ x: 60, y: 60 }),
+    });
+
+    expect(result.didCustomFill).toBe(true);
+    expect(result.suppressLivePreviewChrome).toBe(false);
+    expect(ditherGradPreviewState.ccPendingSampledRequest).toBeDefined();
+    expect(ditherGradPreviewState.ccJobInFlight).toBe(false);
+    expect(fillCcGradientDither).not.toHaveBeenCalled();
+
+    jest.advanceTimersByTime(90);
+    jest.runOnlyPendingTimers();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(fillCcGradientDither).toHaveBeenCalledTimes(1);
+    expect(ditherGradPreviewState.ccPendingSampledRequest).toBeUndefined();
   });
 
   it('renders CC dither previews at reduced cell resolution before scaling back to the ROI when pixel edge is off', async () => {

@@ -53,6 +53,8 @@ export type CcGradientDitherOptions = {
   ditherPatternDiversity?: number;
   flatMixByBand?: readonly number[];
   flatSeed?: number;
+  patternPhaseOriginX?: number;
+  patternPhaseOriginY?: number;
   algorithm?: DitherAlgorithm;
   patternStyle?: PatternStyle;
   imageTileThresholdResolver?: (x: number, y: number) => number | null;
@@ -836,6 +838,8 @@ export const fillCcGradientDither = async ({
   ditherPatternDiversity,
   flatMixByBand,
   flatSeed,
+  patternPhaseOriginX,
+  patternPhaseOriginY,
   algorithm = 'sierra-lite',
   patternStyle = 'dots',
   imageTileThresholdResolver,
@@ -1003,8 +1007,8 @@ export const fillCcGradientDither = async ({
         }
       }
     } else {
-      const phaseX = Math.floor(minX / Math.max(1, cellSize));
-      const phaseY = Math.floor(minY / Math.max(1, cellSize));
+      const phaseX = Math.floor((patternPhaseOriginX ?? minX) / Math.max(1, cellSize));
+      const phaseY = Math.floor((patternPhaseOriginY ?? minY) / Math.max(1, cellSize));
       for (let cy = 0; cy < gridH; cy += 1) {
         const activeRow = activeCellsByRow[cy];
         if (!activeRow.length) continue;
@@ -1027,8 +1031,8 @@ export const fillCcGradientDither = async ({
       }
     }
   } else if (clampedLevels === 1) {
-    const phaseX = Math.floor(minX / Math.max(1, cellSize));
-    const phaseY = Math.floor(minY / Math.max(1, cellSize));
+    const phaseX = Math.floor((patternPhaseOriginX ?? minX) / Math.max(1, cellSize));
+    const phaseY = Math.floor((patternPhaseOriginY ?? minY) / Math.max(1, cellSize));
     const flatPosition = resolveAverageActiveTone(cellCoverage, activeMask);
     const brushSettings = useAppStore.getState().tools?.brushSettings;
     const hasSampledStopsOverride = Boolean(sampledStopsOverride?.length);
@@ -1230,8 +1234,8 @@ export const fillCcGradientDither = async ({
       }
     }
   } else {
-    const phaseX = Math.floor(minX / Math.max(1, cellSize));
-    const phaseY = Math.floor(minY / Math.max(1, cellSize));
+    const phaseX = Math.floor((patternPhaseOriginX ?? minX) / Math.max(1, cellSize));
+    const phaseY = Math.floor((patternPhaseOriginY ?? minY) / Math.max(1, cellSize));
     for (let cy = 0; cy < gridH; cy += 1) {
       const activeRow = activeCellsByRow[cy];
       if (!activeRow.length) continue;

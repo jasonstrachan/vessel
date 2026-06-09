@@ -153,6 +153,10 @@ export type DitherGradPreviewState = {
   ccPreparedGradientKey?: string;
   ccPreparedGradient?: PreparedPreviewGradient;
   ccPendingSampledRequest?: SampledCcPreviewRequest;
+  ccSmoothedSampledStops?: StoredStop[];
+  ccPreviewFlatSeed?: number;
+  ccLastSampledPreviewPublishAt?: number;
+  ccSampledPreviewThrottleTimer?: ReturnType<typeof setTimeout>;
 };
 
 const computeAxisOpposingEnds = (verts: Array<{ x: number; y: number }>): {
@@ -513,6 +517,75 @@ const prepareCcShapePreviewGradient = ({
   };
 };
 
+const formatRgbaColor = (rgba: [number, number, number, number]): string => {
+  const r = Math.max(0, Math.min(255, Math.round(rgba[0])));
+  const g = Math.max(0, Math.min(255, Math.round(rgba[1])));
+  const b = Math.max(0, Math.min(255, Math.round(rgba[2])));
+  const a = Math.max(0, Math.min(1, rgba[3] / 255));
+  return `rgba(${r}, ${g}, ${b}, ${Number(a.toFixed(3))})`;
+};
+
+const sampleStoredStopsAt = (
+  stops: StoredStop[],
+  position: number
+): [number, number, number, number] => {
+  const sortedStops = normalizePreparedPreviewStops(stops);
+  const t = Math.max(0, Math.min(1, position));
+  let idx = 0;
+  for (let i = 0; i < sortedStops.length - 1; i += 1) {
+    if (t >= sortedStops[i].position && t <= sortedStops[i + 1].position) {
+      idx = i;
+      break;
+    }
+    if (t > sortedStops[i + 1].position) {
+      idx = i + 1;
+    }
+  }
+  const a = sortedStops[Math.max(0, Math.min(sortedStops.length - 2, idx))];
+  const b = sortedStops[Math.max(1, Math.min(sortedStops.length - 1, idx + 1))];
+  const span = Math.max(1e-6, b.position - a.position);
+  const localT = Math.max(0, Math.min(1, (t - a.position) / span));
+  const lerp = (v0: number, v1: number) => v0 + (v1 - v0) * localT;
+  return [
+    lerp(a.rgba[0], b.rgba[0]),
+    lerp(a.rgba[1], b.rgba[1]),
+    lerp(a.rgba[2], b.rgba[2]),
+    lerp(a.rgba[3], b.rgba[3]),
+  ];
+};
+
+export const smoothSampledPreviewStops = ({
+  previousStops,
+  targetStops,
+  blend = 0.08,
+}: {
+  previousStops: StoredStop[] | null | undefined;
+  targetStops: StoredStop[];
+  blend?: number;
+}): StoredStop[] => {
+  if (!previousStops || previousStops.length < 2 || targetStops.length < 2) {
+    return targetStops.map(stop => ({ ...stop }));
+  }
+
+  const t = Math.max(0, Math.min(1, blend));
+  return targetStops.map((targetStop) => {
+    const targetColor = parseCssColorToRgba(targetStop.color);
+    const previousColor = sampleStoredStopsAt(previousStops, targetStop.position);
+    const lerp = (from: number, to: number) => from + (to - from) * t;
+    return {
+      ...targetStop,
+      color: formatRgbaColor([
+        lerp(previousColor[0], targetColor[0]),
+        lerp(previousColor[1], targetColor[1]),
+        lerp(previousColor[2], targetColor[2]),
+        lerp(previousColor[3], targetColor[3]),
+      ]),
+    };
+  });
+};
+
+const SAMPLED_PREVIEW_UPDATE_INTERVAL_MS = 90;
+
 const buildSampledPreviewRequestKey = ({
   points,
   brushSettings,
@@ -748,6 +821,7 @@ export const runCcDitherPreviewRuntime = (args: {
 
   if (ditherGradPreviewState.ccJobInFlight) {
     ditherGradPreviewState.ccJobDirty = true;
+    ditherGradPreviewState.ccJobSeq += 1;
   } else {
     ditherGradPreviewState.ccJobInFlight = true;
     ditherGradPreviewState.ccJobDirty = false;
@@ -1166,6 +1240,34 @@ export const runSampledCcDitherPreviewRuntime = (args: {
     sampleColor,
   };
 
+  const hasCachedPreview =
+    Boolean(ditherGradPreviewState.ccLastCanvas) &&
+    Boolean(ditherGradPreviewState.ccLastOrigin);
+  const now = Date.now();
+  const lastPublishAt = ditherGradPreviewState.ccLastSampledPreviewPublishAt ?? 0;
+  const msSinceLastPublish = now - lastPublishAt;
+  if (
+    hasCachedPreview &&
+    !ditherGradPreviewState.ccJobInFlight &&
+    msSinceLastPublish < SAMPLED_PREVIEW_UPDATE_INTERVAL_MS
+  ) {
+    if (!ditherGradPreviewState.ccSampledPreviewThrottleTimer) {
+      ditherGradPreviewState.ccSampledPreviewThrottleTimer = setTimeout(() => {
+        ditherGradPreviewState.ccSampledPreviewThrottleTimer = undefined;
+        if (!ditherGradPreviewState.ccPendingSampledRequest || ditherGradPreviewState.ccJobInFlight) {
+          return;
+        }
+        ditherGradPreviewState.ccJobDirty = false;
+        ditherGradPreviewState.ccJobInFlight = true;
+        void runIdleAsync(processPendingSampledRequest);
+      }, Math.max(0, SAMPLED_PREVIEW_UPDATE_INTERVAL_MS - msSinceLastPublish));
+    }
+    return {
+      didCustomFill: cachedPreview.shouldUseCustomFill,
+      suppressLivePreviewChrome: false,
+    };
+  }
+
   if (ditherGradPreviewState.ccJobInFlight) {
     ditherGradPreviewState.ccJobDirty = true;
     return {
@@ -1177,7 +1279,7 @@ export const runSampledCcDitherPreviewRuntime = (args: {
   ditherGradPreviewState.ccJobInFlight = true;
   ditherGradPreviewState.ccJobDirty = false;
 
-  const processPendingSampledRequest = async (): Promise<void> => {
+  async function processPendingSampledRequest(): Promise<void> {
     try {
       while (true) {
         const request = ditherGradPreviewState.ccPendingSampledRequest;
@@ -1247,8 +1349,13 @@ export const runSampledCcDitherPreviewRuntime = (args: {
           seq: mySeq,
           pointCount: sampledGeometry.previewPolygon.length,
         });
+        const previewStops = smoothSampledPreviewStops({
+          previousStops: ditherGradPreviewState.ccSmoothedSampledStops,
+          targetStops: effectiveStops,
+        });
+        ditherGradPreviewState.ccSmoothedSampledStops = previewStops.map(stop => ({ ...stop }));
         const preparedGradient = prepareCcShapePreviewGradient({
-          effectiveStops,
+          effectiveStops: previewStops,
           gradientBands: sampledBrushSettings.gradientBands ?? 16,
           ditherPaletteSpread: sampledBrushSettings.ditherPaletteSpread,
           ditherAlgorithm: sampledBrushSettings.ditherAlgorithm,
@@ -1361,11 +1468,20 @@ export const runSampledCcDitherPreviewRuntime = (args: {
           seq: mySeq,
         });
 
-        const flatSeed = resolveStableFlatSeed({
-          markId: liveSession?.markId ?? null,
-          bounds: { minX: 0, minY: 0, width: w, height: h },
-          points: localVertices,
-        });
+        const patternPhaseOrigin = useFinalCellGrid
+          ? origin
+          : {
+              x: origin.x / sampledGeometry.scale,
+              y: origin.y / sampledGeometry.scale,
+            };
+        if (ditherGradPreviewState.ccPreviewFlatSeed == null) {
+          ditherGradPreviewState.ccPreviewFlatSeed = resolveStableFlatSeed({
+            markId: liveSession?.markId ?? 'sampled-cc-preview',
+            bounds: null,
+            points: sampledSourcePoints,
+          });
+        }
+        const previewFlatSeed = ditherGradPreviewState.ccPreviewFlatSeed;
 
         const fillStartAt = Date.now();
         await fillCcGradientDither({
@@ -1379,7 +1495,9 @@ export const runSampledCcDitherPreviewRuntime = (args: {
           baseOffset: 0,
           flatPairSpread: sampledBrushSettings.ditherPaletteSpread,
           ditherPatternDiversity: sampledBrushSettings.ditherPatternDiversity,
-          flatSeed,
+          flatSeed: previewFlatSeed,
+          patternPhaseOriginX: patternPhaseOrigin.x,
+          patternPhaseOriginY: patternPhaseOrigin.y,
           algorithm: sampledPreviewRenderSettings.algorithm,
           patternStyle: sampledPreviewRenderSettings.patternStyle,
           imageTileThresholdResolver: getPreviewImageTileThresholdResolver(sampledPreviewRenderSettings),
@@ -1472,6 +1590,7 @@ export const runSampledCcDitherPreviewRuntime = (args: {
         ditherGradPreviewState.ccLastOrigin = { ...origin };
         ditherGradPreviewState.ccLastSize = { width: w, height: h };
         ditherGradPreviewState.ccLastReplayKey = request.replayKey;
+        ditherGradPreviewState.ccLastSampledPreviewPublishAt = Date.now();
         if (drawingHandlers.ccShapePreviewCacheRef) {
           drawingHandlers.ccShapePreviewCacheRef.current = {
             canvas: displayCanvas,
@@ -1503,7 +1622,7 @@ export const runSampledCcDitherPreviewRuntime = (args: {
         void runIdleAsync(processPendingSampledRequest);
       }
     }
-  };
+  }
 
   void runIdleAsync(processPendingSampledRequest);
 
