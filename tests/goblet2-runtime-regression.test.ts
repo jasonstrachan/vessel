@@ -193,4 +193,12 @@ describe('Goblet 2 runtime export regression guard', () => {
     expect(runtime).toContain('fillPixelsFromIndicesWithGradientIds(');
     expect(runtime).not.toContain('if (!this.maybeAdvanceShiftKeysSlotMode(shiftKey, slotSpeedMap, n, canUseSlots))');
   });
+
+  it('does not auto-downscale color-cycle playback after the first performance window', () => {
+    const runtime = read('public/goblet2/goblet2.js');
+
+    expect(runtime).toContain('this.renderScale = halfResPref === \'true\' ? 0.5 : 1;');
+    expect(runtime).toContain('this._adaptiveScaleEnabled = false;');
+    expect(runtime).not.toContain('this._adaptiveScaleEnabled = halfResPref !== \'true\';');
+  });
 });

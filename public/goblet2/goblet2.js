@@ -3535,7 +3535,7 @@ class ColorCycleLayerPlayer {
       && window.localStorage
       && window.localStorage.getItem('vesselGobletHalfRes');
     this.renderScale = halfResPref === 'true' ? 0.5 : 1;
-    this._adaptiveScaleEnabled = halfResPref !== 'true';
+    this._adaptiveScaleEnabled = false;
 
     const width = Math.max(1, Math.round(layer.source?.width ?? textureImage?.naturalWidth ?? textureImage?.width ?? 1));
     const height = Math.max(1, Math.round(layer.source?.height ?? textureImage?.naturalHeight ?? textureImage?.height ?? 1));
