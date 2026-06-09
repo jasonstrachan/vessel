@@ -5,6 +5,7 @@ import { FLOW_SLOT_MASK } from '@/lib/colorCycle/flowEncoding';
 import { useAppStore } from '@/stores/useAppStore';
 import { hashStops } from '@/utils/colorCycleGradientDefs';
 import { captureLayerTexture } from '@/utils/export/goblet/gobletTextureEncoder';
+import type { WebGLExportProgressEvent } from '@/utils/export/goblet/gobletTypes';
 import * as colorCycleBrushManager from '@/stores/colorCycleBrushManager';
 import { BrushShape, type Layer, type Project } from '@/types';
 
@@ -675,7 +676,7 @@ describe('exportProjectAsWebGL color cycle integration', () => {
     };
     mockManager.getBrush.mockReturnValue(liveRuntime);
     const project = createProject(layer);
-    const progress: string[] = [];
+    const progressEvents: WebGLExportProgressEvent[] = [];
 
     const metadata = await exportProjectAsWebGL({
       project,
@@ -692,13 +693,19 @@ describe('exportProjectAsWebGL color cycle integration', () => {
       filenameBase: 'manager-backed-color-cycle-export',
       bundleFormat: 'json',
       onProgress: (event) => {
-        if (event.layer) {
-          progress.push(event.layer.status);
-        }
+        progressEvents.push(event);
       },
     });
 
-    expect(progress).not.toContain('skipped-empty');
+    const progressStatuses = progressEvents
+      .map((event) => event.layer?.status)
+      .filter(Boolean);
+    const progressDiagnostics = progressEvents.flatMap((event) => event.layer?.colorCycle?.diagnostics ?? []);
+
+    expect(progressStatuses).not.toContain('skipped-empty');
+    expect(progressDiagnostics).not.toContain(
+      'live-runtime-source-selected: No persisted export snapshot was available; using live runtime state.'
+    );
     expect(liveRuntime.serialize).toHaveBeenCalled();
     expect(metadata.layers).toHaveLength(1);
     expect(metadata.layers[0].colorCycle?.brushState?.indexBuffer).toBeDefined();

@@ -26,6 +26,10 @@ import {
   type GobletPropertyMinifyKey,
 } from '@/utils/export/goblet/gobletMetadataSchema';
 import { buildGobletColorCyclePayload } from '@/utils/export/goblet/colorCyclePayloadBuilder';
+import {
+  formatGobletColorCycleDiagnostics,
+  getUserVisibleGobletColorCycleDiagnostics,
+} from '@/utils/export/goblet/colorCyclePayloadDiagnostics';
 import { hasGobletColorCycleLiveBrush } from '@/utils/export/goblet/colorCycleLiveBrushResolver';
 import { downloadBlob } from '@/utils/export/goblet/downloadBlob';
 import {
@@ -408,7 +412,8 @@ export const exportProjectAsWebGL = async (
         serializeResolvedLayer: serializeColorCycleDataFromResolvedLayer,
       });
       throwIfExportAborted(options.signal);
-      colorCycleDiagnostics = payloadResult.diagnostics.map((diagnostic) => `${diagnostic.code}: ${diagnostic.message}`);
+      colorCycleDiagnostics = getUserVisibleGobletColorCycleDiagnostics(payloadResult.diagnostics);
+      const colorCycleFailureDiagnostics = formatGobletColorCycleDiagnostics(payloadResult.diagnostics);
       if (!payloadResult.ok) {
         emitProgress?.({
           phase: 'layers',
@@ -420,7 +425,7 @@ export const exportProjectAsWebGL = async (
             status: 'failed',
             message: payloadResult.reason,
             colorCycle: {
-              diagnostics: colorCycleDiagnostics,
+              diagnostics: colorCycleFailureDiagnostics,
             },
           },
         });
