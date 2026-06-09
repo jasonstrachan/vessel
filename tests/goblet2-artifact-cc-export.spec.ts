@@ -16,4 +16,23 @@ test.describe('Goblet 2 artifact color-cycle export harness', () => {
       expect(layer.nonBackgroundPixels).toBeGreaterThan(0);
     }
   });
+
+  test('keeps animated stroke-style CC layers painting after playback advances', async ({ page }) => {
+    const { result, pageErrors, consoleErrors } = await renderSingleFileGobletArtifact(
+      page,
+      undefined,
+      { animationFrames: 90 },
+    );
+
+    expect(pageErrors).toEqual([]);
+    expect(consoleErrors).toEqual([]);
+    expect(result.error).toBeUndefined();
+
+    const strokeLayer = result.layers.find((layer) => layer.id === 'cc-layer-1');
+    expect(strokeLayer).toBeDefined();
+    expect(strokeLayer?.nonZeroAlpha).toBeGreaterThan(0);
+    expect(strokeLayer?.nonBackgroundPixels).toBeGreaterThan(0);
+    expect(strokeLayer?.afterAnimationNonZeroAlpha).toBeGreaterThan(0);
+    expect(strokeLayer?.afterAnimationNonBackgroundPixels).toBeGreaterThan(0);
+  });
 });

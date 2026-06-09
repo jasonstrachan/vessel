@@ -205,6 +205,21 @@ const extractRoiPatch = (
   roi: { x: number; y: number; width: number; height: number }
 ): Uint8Array => {
   const output = new Uint8Array(roi.width * roi.height);
+  if (
+    roi.x >= 0 &&
+    roi.y >= 0 &&
+    roi.x + roi.width <= width &&
+    roi.y + roi.height <= height
+  ) {
+    let targetIndex = 0;
+    for (let row = 0; row < roi.height; row += 1) {
+      const srcStart = (roi.y + row) * width + roi.x;
+      output.set(source.subarray(srcStart, srcStart + roi.width), targetIndex);
+      targetIndex += roi.width;
+    }
+    return output;
+  }
+
   let targetIndex = 0;
   for (let row = 0; row < roi.height; row += 1) {
     const srcY = roi.y + row;
@@ -236,6 +251,22 @@ const extractRoiPatchBytes = (
     return extractRoiPatch(source, width, height, roi);
   }
   const output = new Uint8Array(roi.width * roi.height * bytesPerPixel);
+  if (
+    roi.x >= 0 &&
+    roi.y >= 0 &&
+    roi.x + roi.width <= width &&
+    roi.y + roi.height <= height
+  ) {
+    const rowBytes = roi.width * bytesPerPixel;
+    let targetIndex = 0;
+    for (let row = 0; row < roi.height; row += 1) {
+      const srcStart = ((roi.y + row) * width + roi.x) * bytesPerPixel;
+      output.set(source.subarray(srcStart, srcStart + rowBytes), targetIndex);
+      targetIndex += rowBytes;
+    }
+    return output;
+  }
+
   let targetIndex = 0;
   for (let row = 0; row < roi.height; row += 1) {
     const srcY = roi.y + row;

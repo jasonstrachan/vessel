@@ -1,6 +1,6 @@
 import { getAppStoreState } from '@/stores/appStoreAccess';
 import type React from 'react';
-import { useEffect } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import { flushBufferedSequentialEvents } from '@/hooks/canvas/handlers/sequential/sequentialCapture';
 
 interface UseDrawingCanvasUiEffectsOptions {
@@ -46,6 +46,23 @@ export const useDrawingCanvasUiEffects = ({
   canvasOffsetY,
   needsRedraw,
 }: UseDrawingCanvasUiEffectsOptions) => {
+  const cachedCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const cachedContextRef = useRef<CanvasRenderingContext2D | null>(null);
+
+  const getDrawContext = useCallback((): CanvasRenderingContext2D | null => {
+    const canvasElement = canvasRef.current;
+    if (!canvasElement) {
+      cachedCanvasRef.current = null;
+      cachedContextRef.current = null;
+      return null;
+    }
+    if (cachedCanvasRef.current !== canvasElement || !cachedContextRef.current) {
+      cachedCanvasRef.current = canvasElement;
+      cachedContextRef.current = canvasElement.getContext('2d');
+    }
+    return cachedContextRef.current;
+  }, [canvasRef]);
+
   useEffect(() => {
     let animationId: number | null = null;
     let frameCount = 0;
@@ -58,8 +75,7 @@ export const useDrawingCanvasUiEffects = ({
         frameCount += 1;
         if (frameCount % 3 === 0) {
           setMarchingAntsOffset((prev) => (prev + 1) % 10);
-          const canvas = canvasRef.current;
-          const ctx = canvas?.getContext('2d', { willReadFrequently: true });
+          const ctx = getDrawContext();
           if (ctx) {
             draw(ctx, viewTransformRef.current);
           }
@@ -75,7 +91,7 @@ export const useDrawingCanvasUiEffects = ({
         cancelAnimationFrame(animationId);
       }
     };
-  }, [canvasRef, draw, floatingPaste, selectionEnd, selectionStart, setMarchingAntsOffset, viewTransformRef]);
+  }, [draw, floatingPaste, getDrawContext, selectionEnd, selectionStart, setMarchingAntsOffset, viewTransformRef]);
 
   useEffect(() => {
     const handleInteractionReset = () => {
@@ -119,20 +135,39 @@ export const useDrawingCanvasUiEffects = ({
   useEffect(() => {
     if (mode === 'PANNING') return;
 
-    const canvasElement = canvasRef.current;
-    const ctx = canvasElement?.getContext('2d', { willReadFrequently: true });
+    const ctx = getDrawContext();
     if (!ctx) return;
 
     draw(ctx, viewTransformRef.current);
   }, [
-    canvasRef,
     canvasOffsetX,
     canvasOffsetY,
     canvasZoom,
     draw,
     floatingPaste,
+    getDrawContext,
     mode,
     needsRedraw,
     viewTransformRef,
   ]);
+
+  useEffect(() => {
+    const handleColorCycleFrameUpdate = () => {
+      if (mode === 'PANNING') {
+        return;
+      }
+
+      const ctx = getDrawContext();
+      if (!ctx) {
+        return;
+      }
+
+      draw(ctx, viewTransformRef.current);
+    };
+
+    window.addEventListener('colorCycleFrameUpdate', handleColorCycleFrameUpdate);
+    return () => {
+      window.removeEventListener('colorCycleFrameUpdate', handleColorCycleFrameUpdate);
+    };
+  }, [draw, getDrawContext, mode, viewTransformRef]);
 };

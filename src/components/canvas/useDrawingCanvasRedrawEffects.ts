@@ -43,10 +43,6 @@ export const useDrawingCanvasRedrawEffects = ({
       requestRedraw();
     };
 
-    const handleColorCycleFrameUpdate = () => {
-      requestRedraw();
-    };
-
     const handleAnimationFrameUpdate = () => {
       requestRedraw();
     };
@@ -56,13 +52,11 @@ export const useDrawingCanvasRedrawEffects = ({
     };
 
     window.addEventListener('colorCycleFrameReady', handleColorCycleFrameReady);
-    window.addEventListener('colorCycleFrameUpdate', handleColorCycleFrameUpdate);
     window.addEventListener('vessel:animationFrameUpdate', handleAnimationFrameUpdate);
     window.addEventListener('vessel:sequentialFrameUpdate', handleSequentialFrameUpdate);
 
     return () => {
       window.removeEventListener('colorCycleFrameReady', handleColorCycleFrameReady);
-      window.removeEventListener('colorCycleFrameUpdate', handleColorCycleFrameUpdate);
       window.removeEventListener('vessel:animationFrameUpdate', handleAnimationFrameUpdate);
       window.removeEventListener('vessel:sequentialFrameUpdate', handleSequentialFrameUpdate);
     };

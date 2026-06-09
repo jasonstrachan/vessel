@@ -3126,7 +3126,27 @@ export class ColorCycleBrushCanvas2D {
         return false;
       }
       const limit = Math.min(width * height, paint.length);
-      for (let index = 0; index < limit; index += 1) {
+      let index = 0;
+      while (index < limit && ((paint.byteOffset + index) % Uint32Array.BYTES_PER_ELEMENT) !== 0) {
+        if (paint[index] !== 0) {
+          return true;
+        }
+        index += 1;
+      }
+
+      const alignedLength = limit - index;
+      const wordLength = Math.floor(alignedLength / Uint32Array.BYTES_PER_ELEMENT);
+      if (wordLength > 0) {
+        const words = new Uint32Array(paint.buffer, paint.byteOffset + index, wordLength);
+        for (let wordIndex = 0; wordIndex < words.length; wordIndex += 1) {
+          if (words[wordIndex] !== 0) {
+            return true;
+          }
+        }
+        index += wordLength * Uint32Array.BYTES_PER_ELEMENT;
+      }
+
+      for (; index < limit; index += 1) {
         if (paint[index] !== 0) {
           return true;
         }
@@ -6022,7 +6042,7 @@ export class ColorCycleBrushCanvas2D {
     }
 
     const strokeData = this.layerStrokes.get(layerId);
-    const ctx = targetCanvas.getContext('2d', { willReadFrequently: true });
+    const ctx = targetCanvas.getContext('2d');
 
     if (!ctx) {
       debugWarn('raw-console', 'Failed to get 2D context from target canvas');

@@ -268,6 +268,61 @@ describe('drawVisibleCompositeStack', () => {
     });
   });
 
+  it('does not sample color-cycle canvas alpha when the dev debug overlay is disabled', () => {
+    const ccCanvas = document.createElement('canvas');
+    ccCanvas.width = 16;
+    ccCanvas.height = 16;
+    const ccCtx = ccCanvas.getContext('2d');
+    const getImageDataSpy = ccCtx
+      ? jest.spyOn(ccCtx, 'getImageData')
+      : null;
+    const compositeCanvas = document.createElement('canvas');
+
+    window.__DEV_DEBUG_OVERLAY__ = false;
+    mockGetState.mockReturnValue({
+      project: { width: 16, height: 16 },
+      colorCyclePlayback: { desiredPlaying: true },
+      layers: [{ layerType: 'color-cycle' }],
+      sequentialRecord: { currentFrame: 0 },
+      activeLayerId: 'layer-cc',
+    });
+
+    const segments: CompositeSegment[] = [
+      {
+        kind: 'color-cycle',
+        id: 'cc-1',
+        layerId: 'layer-cc',
+        blendMode: 'source-over',
+        opacity: 1,
+      },
+    ];
+    const layer = createLayer({
+      id: 'layer-cc',
+      layerType: 'color-cycle',
+      colorCycleData: {
+        canvas: ccCanvas,
+        runtimeHydrationState: 'active',
+      },
+    });
+    const { ctx } = createRecordingContext();
+
+    drawVisibleCompositeStack({
+      ctx,
+      visibleRect: { x: 0, y: 0, width: 16, height: 16 },
+      useSplitOverlay: false,
+      underCompositeCanvas: null,
+      isActivelyErasing: false,
+      drawNonActiveVisibleLayers: jest.fn(),
+      segments,
+      layerMap: new Map([[layer.id, layer]]),
+      compositeBitmap: null,
+      compositeCanvas,
+    });
+
+    expect(getImageDataSpy).not.toHaveBeenCalled();
+    delete window.__DEV_DEBUG_OVERLAY__;
+  });
+
   it('keeps sequential-below-cc blend ordering stable across playback and capture draws', () => {
     const ccCanvas = document.createElement('canvas');
     const seqCanvas = document.createElement('canvas');

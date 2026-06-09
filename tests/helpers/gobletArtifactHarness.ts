@@ -9,6 +9,8 @@ type GobletArtifactLayerResult = {
   id: string;
   nonZeroAlpha: number;
   nonBackgroundPixels: number;
+  afterAnimationNonZeroAlpha?: number;
+  afterAnimationNonBackgroundPixels?: number;
 };
 
 export type GobletArtifactResult = {
@@ -128,8 +130,12 @@ export const createSyntheticAdaLikeGoblet2Metadata = () => {
   };
 };
 
-const buildSingleFileArtifactHtml = (metadata: unknown): string => {
+const buildSingleFileArtifactHtml = (
+  metadata: unknown,
+  options: { animationFrames?: number } = {},
+): string => {
   const runtime = read('public/goblet2/goblet2-inline.js');
+  const animationFrames = Math.max(0, Math.floor(options.animationFrames ?? 0));
   return [
     '<!DOCTYPE html>',
     '<html lang="en">',
@@ -138,8 +144,14 @@ const buildSingleFileArtifactHtml = (metadata: unknown): string => {
     '<script type="module">',
     runtime,
     `const metadata = ${JSON.stringify(metadata)};`,
+    `const animationFrames = ${animationFrames};`,
     `const canvas = document.getElementById('preview-canvas');
 window.__gobletArtifact = { ready: false, layers: [] };
+const waitFrames = async (count) => {
+  for (let index = 0; index < count; index += 1) {
+    await new Promise((resolve) => requestAnimationFrame(resolve));
+  }
+};
 const countPixels = () => {
   const ctx = canvas.getContext('2d', { willReadFrequently: true });
   const data = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
@@ -160,7 +172,19 @@ try {
       layers: metadata.layers.map((candidate) => ({ ...candidate, visible: candidate.id === layer.id })),
     };
     await renderVesselWebGL(isolated, canvas, {});
-    layers.push({ id: layer.id, ...countPixels() });
+    const initialPixels = countPixels();
+    if (animationFrames > 0) {
+      await waitFrames(animationFrames);
+      const animatedPixels = countPixels();
+      layers.push({
+        id: layer.id,
+        ...initialPixels,
+        afterAnimationNonZeroAlpha: animatedPixels.nonZeroAlpha,
+        afterAnimationNonBackgroundPixels: animatedPixels.nonBackgroundPixels,
+      });
+    } else {
+      layers.push({ id: layer.id, ...initialPixels });
+    }
   }
   window.__gobletArtifact = { ready: true, layers };
 } catch (error) {
@@ -174,6 +198,7 @@ try {
 export const renderSingleFileGobletArtifact = async (
   page: Page,
   metadata = createSyntheticAdaLikeGoblet2Metadata(),
+  options: { animationFrames?: number } = {},
 ): Promise<{
   result: GobletArtifactResult;
   pageErrors: string[];
@@ -194,10 +219,10 @@ export const renderSingleFileGobletArtifact = async (
   const url = 'http://goblet-artifact-harness.test/';
   await page.route(url, async (route) => {
     await route.fulfill({
-      status: 200,
-      contentType: 'text/html',
-      body: buildSingleFileArtifactHtml(metadata),
-    });
+        status: 200,
+        contentType: 'text/html',
+        body: buildSingleFileArtifactHtml(metadata, options),
+      });
   });
 
   await page.goto(url, { waitUntil: 'load' });

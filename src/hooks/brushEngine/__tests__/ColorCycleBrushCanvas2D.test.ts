@@ -1746,4 +1746,25 @@ describe('ColorCycleBrushCanvas2D', () => {
     expect(ctx.globalCompositeOperation).toBe('multiply');
     renderSpy.mockRestore();
   });
+
+  it('detects paint buffer content across word and tail-aligned buffers', () => {
+    const brush = new ColorCycleBrushCanvas2D(makeCanvas(), { brushSize: 4, fps: 60 }) as any;
+
+    const empty = new Uint8Array(17);
+    expect(brush.paintBufferHasContent(empty, 17, 1)).toBe(false);
+
+    const wordContent = new Uint8Array(17);
+    wordContent[12] = 7;
+    expect(brush.paintBufferHasContent(wordContent, 17, 1)).toBe(true);
+
+    const tailContent = new Uint8Array(17);
+    tailContent[16] = 9;
+    expect(brush.paintBufferHasContent(tailContent, 17, 1)).toBe(true);
+
+    const unalignedSource = new Uint8Array(18);
+    const unaligned = unalignedSource.subarray(1);
+    unaligned[15] = 3;
+    expect(brush.paintBufferHasContent(unaligned, 17, 1)).toBe(true);
+  });
+
 });

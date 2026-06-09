@@ -64,19 +64,6 @@ const syncPercentOffsetsFromPixels = (layers: Layer[], project: Project | null):
 
     const percentFromPx = computePercentOffsetFromPixels(alignment.offsetPx, project);
 
-    const alignmentWithoutOffsets: LayerAlignmentSettings = {
-      ...alignment,
-      offsetPercent: undefined,
-      offsetPx: undefined
-    };
-
-    const layerWithoutOffsets: Layer = {
-      ...layer,
-      alignment: alignmentWithoutOffsets
-    };
-
-    const percentFromFrameOrMetrics = computeLayerPercentOffset(layerWithoutOffsets, project);
-
     const frame = (layer as { frame?: { x?: number; y?: number } }).frame;
     const framePx = frame
       ? {
@@ -96,7 +83,26 @@ const syncPercentOffsetsFromPixels = (layers: Layer[], project: Project | null):
 
     const shouldUseFrame = Boolean(framePx && !pxMatchesFrame);
 
+    let percentFromFrameOrMetrics: ReturnType<typeof computeLayerPercentOffset> | null = null;
+    if (!percentFromPx || shouldUseFrame) {
+      const alignmentWithoutOffsets: LayerAlignmentSettings = {
+        ...alignment,
+        offsetPercent: undefined,
+        offsetPx: undefined
+      };
+
+      const layerWithoutOffsets: Layer = {
+        ...layer,
+        alignment: alignmentWithoutOffsets
+      };
+
+      percentFromFrameOrMetrics = computeLayerPercentOffset(layerWithoutOffsets, project);
+    }
+
     let nextPercent = percentFromPx ?? percentFromFrameOrMetrics;
+    if (!nextPercent) {
+      return layer;
+    }
 
     if (shouldUseFrame && percentFromFrameOrMetrics) {
       nextPercent = percentFromFrameOrMetrics;

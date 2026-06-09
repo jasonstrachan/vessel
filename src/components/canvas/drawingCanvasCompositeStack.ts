@@ -1,6 +1,9 @@
 import { getAppStoreState } from '@/stores/appStoreAccess';
 import { debugWarn, recordBreadcrumb } from '@/utils/debug';
-import { createDevDebugOverlayLogger } from '@/utils/dev/debugOverlayStore';
+import {
+  createDevDebugOverlayLogger,
+  isDevDebugOverlayEnabled,
+} from '@/utils/dev/debugOverlayStore';
 import type { Layer } from '@/types';
 import type { CompositeSegment } from '@/stores/slices/layersSlice';
 import { selectSequentialPlaybackActive, type AppState } from '@/stores/useAppStore';
@@ -304,6 +307,7 @@ export const drawVisibleCompositeStack = ({
           });
           return;
         }
+        const shouldSampleCanvas = isDevDebugOverlayEnabled();
         recordCompositeProbe('draw-cc-segment', {
           activeLayerId: storeState.activeLayerId,
           layerId: segment.layerId,
@@ -313,7 +317,7 @@ export const drawVisibleCompositeStack = ({
           drawSource: presentation.kind,
           presentationReason: presentation.reason,
           hasCanvasImageData: Boolean(layer.colorCycleData?.canvasImageData),
-          canvasSample: drawCanvas instanceof HTMLCanvasElement
+          canvasSample: shouldSampleCanvas && drawCanvas instanceof HTMLCanvasElement
             ? sampleCanvasAlpha(drawCanvas, visibleRect)
             : null,
           opacity: segment.opacity,
