@@ -1,4 +1,5 @@
 import { exportProjectAsWebGL } from '@/utils/export/webglExporter';
+import { resolveGobletBrushAlphaMode } from '@/utils/export/goblet/gobletExporter';
 import { materializeDefBoundBrushSlots } from '@/utils/export/goblet/gobletColorCycleSerializer';
 import { createDefaultLayerAlignment, createDefaultExportLayout } from '@/utils/layoutDefaults';
 import { buildForegroundDerivedGradientSpec, deriveForegroundGradientStops } from '@/utils/colorCycleGradients';
@@ -849,6 +850,19 @@ describe('exportProjectAsWebGL color cycle integration', () => {
     expect(metadata.layers[0].colorCycle?.brushState?.alphaMode).toBe('source');
   });
 
+  it('uses index-buffer alpha for live-runtime retry brush exports with sparse texture alpha', () => {
+    expect(resolveGobletBrushAlphaMode({
+      hasVisibleTextureAlpha: true,
+      syntheticTextureApplied: false,
+      usedLiveRuntimeFallback: true,
+    })).toBe('opaque-indices');
+    expect(resolveGobletBrushAlphaMode({
+      hasVisibleTextureAlpha: true,
+      syntheticTextureApplied: false,
+      usedLiveRuntimeFallback: false,
+    })).toBe('source');
+  });
+
   it('preserves source alpha for brush-mode color-cycle layers when texture alpha cannot be inspected', async () => {
     const canvas = document.createElement('canvas');
     canvas.width = 128;
@@ -1141,6 +1155,62 @@ describe('exportProjectAsWebGL color cycle integration', () => {
       expect(exportedLayer.colorCycle?.brushState?.flowBuffer).toBeDefined();
       expect(exportedLayer.colorCycle?.brushState?.phaseBuffer).toBeDefined();
     });
+
+  it('preserves direct animator gradient id data in brush-mode fallback exports', async () => {
+    const canvas = document.createElement('canvas');
+    canvas.width = 128;
+    canvas.height = 128;
+
+    const layer = createBrushModeLayer(canvas);
+    const indexBuffer = Uint8Array.from(Array.from({ length: 64 }, (_, idx) => (idx % 16) + 1));
+    const gradientIdBuffer = Uint8Array.from(Array.from({ length: 64 }, (_, idx) => idx % 2));
+    const gradientDefIdBuffer = Uint16Array.from(Array.from({ length: 64 }, (_, idx) => (idx % 2) + 1));
+    const speedBuffer = Uint8Array.from(Array.from({ length: 64 }, () => 128));
+    const flowBuffer = Uint8Array.from(Array.from({ length: 64 }, () => 1));
+    const phaseBuffer = Uint8Array.from(Array.from({ length: 64 }, (_, idx) => (idx * 4) & 255));
+    layer.colorCycleData = {
+      ...layer.colorCycleData!,
+      gradientDefIdBuffer: gradientDefIdBuffer.buffer,
+      colorCycleBrush: {
+        serialize: jest.fn(() => ({})),
+        animators: new Map([
+          [layer.id, {
+            serialize: () => ({}),
+            indexBuffer: {
+              width: 8,
+              height: 8,
+              getDirectData: () => indexBuffer,
+              getDirectGradientIdData: () => gradientIdBuffer,
+              getDirectSpeedData: () => speedBuffer,
+              getDirectFlowData: () => flowBuffer,
+              getDirectPhaseData: () => phaseBuffer,
+            },
+          }],
+        ]),
+      } as unknown as Layer['colorCycleData']['colorCycleBrush'],
+    };
+    const project = createProject(layer);
+
+    const metadata = await exportProjectAsWebGL({
+      project,
+      layers: [layer],
+      layout: createDefaultExportLayout(),
+      viewport: { designWidth: project.width, designHeight: project.height, mode: 'fixed' },
+      fps: 24,
+      totalFrames: 48,
+      durationSeconds: 2,
+      perfectLoop: false,
+      includeHiddenLayers: true,
+      embedCanvasFallback: false,
+      minify: false,
+      filenameBase: 'color-cycle-brush-direct-animator-gradient-ids',
+      bundleFormat: 'json',
+      gobletVersion: 'goblet2'
+    });
+
+    expect(metadata.layers[0].colorCycle?.brushState?.gradientIdBuffer)
+      .toEqual(Array.from(gradientIdBuffer));
+  });
 
   it('exports Goblet 2 brush-mode slot speeds without a forced per-pixel speed buffer', async () => {
     const canvas = document.createElement('canvas');

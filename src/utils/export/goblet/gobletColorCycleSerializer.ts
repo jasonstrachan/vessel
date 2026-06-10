@@ -2029,6 +2029,7 @@ const extractBrushStateFromAnimator = (brush: unknown, layer: Layer): WebGLSeria
       indexBuffer?: {
         serialize?: () => unknown;
         getDirectData?: () => Uint8Array;
+        getDirectGradientIdData?: () => Uint8Array;
         getDirectSpeedData?: () => Uint8Array;
         getDirectFlowData?: () => Uint8Array;
         getDirectPhaseData?: () => Uint8Array;
@@ -2089,6 +2090,7 @@ const extractBrushStateFromAnimator = (brush: unknown, layer: Layer): WebGLSeria
           height: animatorAny.indexBuffer.height,
           data: directData,
           palette: animatorAny.indexBuffer.palette,
+          gradientId: animatorAny.indexBuffer.getDirectGradientIdData?.(),
           speedData: animatorAny.indexBuffer.getDirectSpeedData?.(),
           flowData: animatorAny.indexBuffer.getDirectFlowData?.(),
           phaseData: animatorAny.indexBuffer.getDirectPhaseData?.()
@@ -3115,6 +3117,24 @@ const applyAlphaMaskToIndexBuffer = (indices: number[] | undefined, mask: Uint8A
   }
 };
 
+const alphaMaskWouldEraseAllPaint = (indices: number[] | undefined, mask: Uint8Array): boolean => {
+  if (!indices || indices.length === 0 || mask.length === 0) {
+    return false;
+  }
+  const length = Math.min(indices.length, mask.length);
+  let hasPaint = false;
+  for (let index = 0; index < length; index += 1) {
+    if ((indices[index] ?? 0) === 0) {
+      continue;
+    }
+    hasPaint = true;
+    if (mask[index] === 0) {
+      return false;
+    }
+  }
+  return hasPaint;
+};
+
 const hasNonZeroMagnitude = (value: unknown): boolean => {
   const numeric = toNum(value, 0);
   return Math.abs(numeric) > 0;
@@ -3443,7 +3463,7 @@ export const serializeColorCycleDataFromResolvedLayer = async (
     ? { width: brushState.width, height: brushState.height }
     : recolorSurface ?? getLayerSurfaceSize(layer);
   const alphaMaskDataset = captureColorCycleMaskDataset(layer, maskDimensions.width, maskDimensions.height);
-  const alphaMaskResult = await serializeColorCycleAlphaMask(
+  let alphaMaskResult = await serializeColorCycleAlphaMask(
     layer,
     maskDimensions.width,
     maskDimensions.height,
@@ -3458,7 +3478,16 @@ export const serializeColorCycleDataFromResolvedLayer = async (
   );
   if (alphaMaskResult) {
     if (brushState && Array.isArray(brushState.indexBuffer)) {
-      applyAlphaMaskToIndexBuffer(brushState.indexBuffer, alphaMaskResult.values);
+      if (alphaMaskWouldEraseAllPaint(brushState.indexBuffer, alphaMaskResult.values) && data.hasContent === true) {
+        debugWarn('raw-console', '[webglExporter] Ignoring stale color-cycle alpha mask that would erase all animated brush paint during Goblet export.', {
+          layerId: layer.id,
+          maskWidth: alphaMaskResult.payload.width,
+          maskHeight: alphaMaskResult.payload.height,
+        });
+        alphaMaskResult = undefined;
+      } else {
+        applyAlphaMaskToIndexBuffer(brushState.indexBuffer, alphaMaskResult.values);
+      }
     }
   }
 

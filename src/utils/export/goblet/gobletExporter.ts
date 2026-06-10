@@ -107,6 +107,23 @@ const gobletDiagnosticsDefault = process.env.NEXT_PUBLIC_VESSEL_GOBLET_DEBUG ===
 
 let gobletDiagnosticsActive = gobletDiagnosticsDefault;
 
+type GobletBrushAlphaModeOptions = {
+  hasVisibleTextureAlpha: boolean;
+  syntheticTextureApplied: boolean;
+  usedLiveRuntimeFallback: boolean;
+};
+
+export const resolveGobletBrushAlphaMode = ({
+  hasVisibleTextureAlpha,
+  syntheticTextureApplied,
+  usedLiveRuntimeFallback,
+}: GobletBrushAlphaModeOptions): 'source' | 'opaque-indices' => {
+  if (usedLiveRuntimeFallback || syntheticTextureApplied) {
+    return 'opaque-indices';
+  }
+  return hasVisibleTextureAlpha ? 'source' : 'opaque-indices';
+};
+
 const gobletDebugLog = (...args: Array<unknown>) => {
   if (gobletDiagnosticsActive) {
     debugLog('raw-console', ...args);
@@ -387,6 +404,7 @@ export const exportProjectAsWebGL = async (
     let colorCycleResult: Awaited<ReturnType<typeof serializeColorCycleDataFromResolvedLayer>> | undefined;
     let colorCycleSource: string | undefined;
     let colorCycleDiagnostics: string[] | undefined;
+    let colorCycleUsedLiveRuntimeFallback = false;
     let colorCycleStats: {
       payloadPixels?: number;
       nonZeroPaint?: number;
@@ -435,6 +453,9 @@ export const exportProjectAsWebGL = async (
       }
       colorCycleResult = payloadResult.payload;
       colorCycleSource = payloadResult.source;
+      colorCycleUsedLiveRuntimeFallback = payloadResult.diagnostics.some(
+        (diagnostic) => diagnostic.code === 'retry-live-runtime'
+      );
       colorCycleStats = payloadResult.stats;
       emitProgress?.({
         phase: 'layers',
@@ -511,10 +532,13 @@ export const exportProjectAsWebGL = async (
     }
 
     if (colorCycle?.mode === 'brush' && colorCycle.brushState) {
-      // Preserve brush alpha/texture detail in Goblet when an exported texture exists.
-      colorCycle.brushState.alphaMode = texture && textureInfo?.hasVisibleAlpha
-        ? 'source'
-        : 'opaque-indices';
+      // Live-runtime brush payloads are authoritative; source texture alpha can
+      // be a stale/sparse preview surface and punch holes in animated strokes.
+      colorCycle.brushState.alphaMode = resolveGobletBrushAlphaMode({
+        hasVisibleTextureAlpha: Boolean(texture && textureInfo?.hasVisibleAlpha),
+        syntheticTextureApplied,
+        usedLiveRuntimeFallback: colorCycleUsedLiveRuntimeFallback,
+      });
     }
 
     if (colorCycle?.coverageBoundsPx) {

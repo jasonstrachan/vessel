@@ -536,6 +536,64 @@ describe('webglExporter helpers', () => {
     expect(result?.colorCycle?.brushState?.indexBuffer).toEqual(expected);
   });
 
+  it('ignores stale all-erasing CC alpha masks during Goblet brush export', async () => {
+    const fullEraseMask = new ImageData(new Uint8ClampedArray([
+      0, 0, 0, 255,
+      0, 0, 0, 255,
+      0, 0, 0, 255,
+      0, 0, 0, 255,
+    ]), 2, 2);
+
+    const result = await serializeColorCycleData({
+      id: 'layer-cc-stale-mask-export',
+      name: 'Stale Mask Export',
+      layerType: 'color-cycle',
+      visible: true,
+      opacity: 1,
+      blendMode: 'source-over',
+      imageData: null,
+      framebuffer: { width: 2, height: 2 },
+      colorCycleData: {
+        mode: 'brush',
+        hasContent: true,
+        canvasWidth: 2,
+        canvasHeight: 2,
+        eraseMaskImageData: fullEraseMask,
+        gradient: [
+          { position: 0, color: '#000000' },
+          { position: 1, color: '#ffffff' },
+        ],
+        colorCycleBrush: {
+          commitCurrentStroke: jest.fn(),
+          serialize: () => ({
+            layers: [{
+              layerId: 'layer-cc-stale-mask-export',
+              data: {
+                indexBuffer: {
+                  width: 2,
+                  height: 2,
+                  data: Uint8Array.from([1, 2, 3, 4]),
+                  gradientId: Uint8Array.from([0, 1, 1, 0]),
+                  speedData: Uint8Array.from([128, 128, 128, 128]),
+                  flowData: Uint8Array.from([1, 1, 1, 1]),
+                  phaseData: Uint8Array.from([0, 64, 128, 192]),
+                },
+              },
+            }],
+            cycleSpeed: 0.5,
+            fps: 24,
+          }),
+        },
+      },
+    } as any, {
+      width: 2,
+      height: 2,
+    } as any);
+
+    expect(result?.colorCycle?.brushState?.indexBuffer).toEqual([1, 2, 3, 4]);
+    expect(result?.colorCycle?.alphaMask).toBeUndefined();
+  });
+
   it('preserves live brush animation and gradient metadata during canonical Goblet export', async () => {
     const runtimeStops = [
       { position: 0, color: '#112233' },

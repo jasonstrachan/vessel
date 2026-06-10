@@ -1,7 +1,12 @@
 import type { Layer, Project } from '@/types';
 import type { ColorCycleSerializationResult } from '@/utils/export/goblet/gobletTypes';
 import type { GobletColorCyclePayloadBuildSource } from '@/utils/export/goblet/colorCycleExportSourceResolver';
-import { resolveGobletColorCycleExportSource } from '@/utils/export/goblet/colorCycleExportSourceResolver';
+import {
+  cloneGobletExportLayer,
+  resolveGobletColorCycleExportSource,
+} from '@/utils/export/goblet/colorCycleExportSourceResolver';
+import { hasExportablePersistedColorCycleSource } from '@/utils/export/goblet/colorCycleExportSourceEligibility';
+import { hasGobletColorCycleLiveBrush } from '@/utils/export/goblet/colorCycleLiveBrushResolver';
 import {
   validateGobletColorCyclePayload,
   type GobletColorCyclePayloadDiagnostic,
@@ -47,6 +52,48 @@ export type GobletColorCyclePayloadBuildOptions = {
   ) => Promise<ColorCycleSerializationResult | undefined>;
 };
 
+type PayloadBuildAttempt = {
+  source: GobletColorCyclePayloadBuildSource;
+  layer: Layer;
+  diagnostics: GobletColorCyclePayloadDiagnostic[];
+};
+
+const buildFallbackAttempts = (
+  layer: Layer,
+  failedSource: GobletColorCyclePayloadBuildSource,
+  existingSources: Set<GobletColorCyclePayloadBuildSource>,
+): PayloadBuildAttempt[] => {
+  const attempts: PayloadBuildAttempt[] = [];
+  const push = (source: GobletColorCyclePayloadBuildSource, attemptLayer: Layer, code: string) => {
+    if (source === failedSource || existingSources.has(source) || attempts.some((attempt) => attempt.source === source)) {
+      return;
+    }
+    attempts.push({
+      source,
+      layer: attemptLayer,
+      diagnostics: [{
+        code,
+        severity: 'warning',
+        message: `Retrying color-cycle Goblet export from ${source} after empty paint validation failed.`,
+      }],
+    });
+  };
+
+  if (hasExportablePersistedColorCycleSource(layer)) {
+    const persistedLayer = cloneGobletExportLayer(layer);
+    if (persistedLayer.colorCycleData) {
+      persistedLayer.colorCycleData.colorCycleBrush = undefined;
+    }
+    push('persisted-brush-state', persistedLayer, 'retry-persisted-brush-state');
+  }
+
+  if (hasGobletColorCycleLiveBrush(layer)) {
+    push('live-runtime', cloneGobletExportLayer(layer), 'retry-live-runtime');
+  }
+
+  return attempts;
+};
+
 export const buildGobletColorCyclePayload = async (
   layer: Layer,
   project: Project,
@@ -57,44 +104,71 @@ export const buildGobletColorCyclePayload = async (
     return source;
   }
 
-  const payload = await options.serializeResolvedLayer(
-    source.layer,
-    project,
-    options.speedWarning,
-    {
-      forceSpeedBuffer: options.forceSpeedBuffer,
-      layerSpeedScale: options.layerSpeedScale,
-      toolSpeed: options.toolSpeed,
-      resolvedSource: source.source,
-    },
-  );
+  const attempts: PayloadBuildAttempt[] = [{
+    source: source.source,
+    layer: source.layer,
+    diagnostics: source.diagnostics,
+  }];
+  const allDiagnostics: GobletColorCyclePayloadDiagnostic[] = [];
+  let lastFailure: {
+    reason: string;
+    diagnostics: GobletColorCyclePayloadDiagnostic[];
+  } | null = null;
 
-  const validation = validateGobletColorCyclePayload(payload?.colorCycle, {
-    layerId: layer.id,
-    hasContent: layer.colorCycleData?.hasContent,
-  });
+  for (let attemptIndex = 0; attemptIndex < attempts.length; attemptIndex += 1) {
+    const attempt = attempts[attemptIndex];
+    const payload = await options.serializeResolvedLayer(
+      attempt.layer,
+      project,
+      options.speedWarning,
+      {
+        forceSpeedBuffer: options.forceSpeedBuffer,
+        layerSpeedScale: options.layerSpeedScale,
+        toolSpeed: options.toolSpeed,
+        resolvedSource: attempt.source,
+      },
+    );
 
-  const diagnostics = [
-    ...source.diagnostics,
-    ...validation.diagnostics,
-  ];
-
-  if (!payload || !validation.ok) {
-    return {
-      ok: false,
+    const validation = validateGobletColorCyclePayload(payload?.colorCycle, {
       layerId: layer.id,
+      hasContent: layer.colorCycleData?.hasContent,
+    });
+    const attemptDiagnostics = [
+      ...attempt.diagnostics,
+      ...validation.diagnostics,
+    ];
+    allDiagnostics.push(...attemptDiagnostics);
+
+    if (payload && validation.ok) {
+      return {
+        ok: true,
+        layerId: layer.id,
+        source: attempt.source,
+        layer: attempt.layer,
+        payload,
+        diagnostics: allDiagnostics,
+        stats: validation.stats,
+      };
+    }
+
+    lastFailure = {
       reason: validation.reason ?? 'missing-color-cycle-payload',
-      diagnostics,
+      diagnostics: allDiagnostics,
     };
+
+    if (validation.reason === 'empty-paint-with-content') {
+      attempts.push(...buildFallbackAttempts(
+        layer,
+        attempt.source,
+        new Set(attempts.map((entry) => entry.source))
+      ));
+    }
   }
 
   return {
-    ok: true,
+    ok: false,
     layerId: layer.id,
-    source: source.source,
-    layer: source.layer,
-    payload,
-    diagnostics,
-    stats: validation.stats,
+    reason: lastFailure?.reason ?? 'missing-color-cycle-payload',
+    diagnostics: lastFailure?.diagnostics ?? allDiagnostics,
   };
 };

@@ -183,6 +183,37 @@ describe('Goblet color-cycle export contract boundaries', () => {
     }
   });
 
+  it('retries live runtime when resolved persisted payload validates as empty paint', async () => {
+    const liveRuntime = createLiveRuntime([5, 6, 7, 8]);
+    const payload = await buildGobletColorCyclePayload(createLayer({
+      colorCycleBrush: liveRuntime as never,
+      brushState: {
+        canonicalPaint: true,
+        schemaVersion: 1,
+        layers: [{
+          layerId: 'cc-layer',
+          strokeData: {
+            ...createCompleteStrokeData(),
+            paintBuffer: Uint8Array.from([0, 0, 0, 0]).buffer,
+          },
+        }],
+      },
+    }), project, {
+      serializeResolvedLayer: serializeColorCycleDataFromResolvedLayer,
+    });
+
+    expect(payload.ok ? payload.source : undefined).toBe('live-runtime');
+    expect(liveRuntime.serialize).toHaveBeenCalled();
+    if (payload.ok) {
+      const indexBuffer = payload.payload.colorCycle?.brushState?.indexBuffer as ArrayLike<number>;
+      expect(Array.from(indexBuffer)).toEqual([5, 6, 7, 8]);
+    }
+    expect(payload.diagnostics).toEqual(expect.arrayContaining([
+      expect.objectContaining({ code: 'empty-paint-with-content' }),
+      expect.objectContaining({ code: 'retry-live-runtime' }),
+    ]));
+  });
+
   it('lets resolved hydrated archive snapshots use persisted motion defaults without live recapture', async () => {
     const liveRuntime = createLiveRuntime([9, 9, 9, 9]);
     jest.spyOn(colorCycleBrushManager, 'getColorCycleBrushManager').mockReturnValue({
