@@ -76,7 +76,7 @@ export const clearStrokeDefIdsForStamp = ({
       return;
     }
     const idx = py * width + px;
-    if (paint[idx] !== 0 && (gid[idx] & FLOW_SLOT_MASK) === slotMasked) {
+    if (def[idx] !== 0 && paint[idx] !== 0 && (gid[idx] & FLOW_SLOT_MASK) === slotMasked) {
       def[idx] = 0;
     }
   };

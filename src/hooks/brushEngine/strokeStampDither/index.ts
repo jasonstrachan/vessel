@@ -498,6 +498,65 @@ const updateStampDitherBounds = (
   strokeData.stampDitherBounds.maxY = Math.max(strokeData.stampDitherBounds.maxY, clampedMaxY);
 };
 
+type StampDitherBgFillWriter = {
+  data: Uint8Array;
+  gradientId: Uint8Array;
+  speedData: Uint8Array;
+  defData?: Uint16Array;
+  tile: Uint8Array;
+  tileClamp: number;
+  maskOriginX: number;
+  maskOriginY: number;
+  flowSlot: number;
+  speedByte: number;
+  coverageByte: number;
+  usePattern: boolean;
+};
+
+const writeStampDitherBgFillSpan = (
+  writer: StampDitherBgFillWriter,
+  primary: Uint8Array,
+  tag: Uint32Array,
+  tagValue: number,
+  rowOffset: number,
+  startX: number,
+  endX: number,
+  y: number,
+  primaryIndex: number
+) => {
+  const start = rowOffset + startX;
+  const end = rowOffset + endX + 1;
+  primary.fill(primaryIndex, start, end);
+  tag.fill(tagValue, start, end);
+
+  if (primaryIndex === 0) {
+    writer.data.fill(0, start, end);
+    writer.gradientId.fill(0, start, end);
+    writer.speedData.fill(0, start, end);
+    if (writer.defData) {
+      writer.defData.fill(0, start, end);
+    }
+    return;
+  }
+
+  writer.gradientId.fill(writer.flowSlot, start, end);
+  writer.speedData.fill(writer.speedByte, start, end);
+  if (writer.defData) {
+    writer.defData.fill(0, start, end);
+  }
+
+  const secondaryIndex = resolveStampDitherSecondaryIndex(primaryIndex);
+  const writerTileRow = (((y - writer.maskOriginY) % writer.tileClamp + writer.tileClamp) % writer.tileClamp) * writer.tileClamp;
+  let writerLocalX = ((startX - writer.maskOriginX) % writer.tileClamp + writer.tileClamp) % writer.tileClamp;
+  for (let idx = start; idx < end; idx += 1) {
+    const t = writer.tile[writerTileRow + writerLocalX] ?? 0;
+    const usePrimary = writer.usePattern ? t === 1 : t <= writer.coverageByte;
+    writer.data[idx] = usePrimary ? primaryIndex : secondaryIndex;
+    writerLocalX += 1;
+    if (writerLocalX === writer.tileClamp) writerLocalX = 0;
+  }
+};
+
 const applyStampDitherMask = (
   strokeData: StampDitherStrokeData,
   width: number,
@@ -508,7 +567,8 @@ const applyStampDitherMask = (
   brushSize: number,
   primaryIndex: number,
   stampSeq: number,
-  bgFill: boolean
+  bgFill: boolean,
+  bgFillWriter?: StampDitherBgFillWriter
 ): { minX: number; minY: number; maxX: number; maxY: number } => {
   ensureStampDitherBuffers(strokeData, width, height);
   ensureStampDitherTag(strokeData, width, height);
@@ -537,6 +597,7 @@ const applyStampDitherMask = (
   };
 
   const tagValue = ((strokeEpoch & 0xffff) << 16) | (stampSeq & 0xffff);
+  const writer = bgFillWriter;
 
   if (shape === 'triangle') {
     const halfSize = brushSize / 2;
@@ -554,6 +615,12 @@ const applyStampDitherMask = (
       (px - bx) * (ay - by) - (ax - bx) * (py - by);
 
     for (let py = minY; py <= maxY; py++) {
+      const writerTileRow = writer
+        ? (((py - writer.maskOriginY) % writer.tileClamp + writer.tileClamp) % writer.tileClamp) * writer.tileClamp
+        : 0;
+      let writerLocalX = writer
+        ? ((minX - writer.maskOriginX) % writer.tileClamp + writer.tileClamp) % writer.tileClamp
+        : 0;
       for (let px = minX; px <= maxX; px++) {
         const sampleX = px + 0.5;
         const sampleY = py + 0.5;
@@ -562,9 +629,24 @@ const applyStampDitherMask = (
         const b3 = sign(sampleX, sampleY, rightX, rightY, topX, topY) <= 0;
         if ((b1 === b2) && (b2 === b3)) {
           const idx = py * width + px;
-          captureIfNeeded(idx);
+          if (captureBase) captureIfNeeded(idx);
           primary[idx] = primaryIndex;
           tag[idx] = tagValue;
+          if (writer) {
+            const t = writer.tile[writerTileRow + writerLocalX] ?? 0;
+            const usePrimary = writer.usePattern ? t === 1 : t <= writer.coverageByte;
+            const nextIndex = usePrimary ? primaryIndex : resolveStampDitherSecondaryIndex(primaryIndex);
+            writer.data[idx] = nextIndex;
+            writer.gradientId[idx] = nextIndex === 0 ? 0 : writer.flowSlot;
+            writer.speedData[idx] = nextIndex === 0 ? 0 : writer.speedByte;
+            if (writer.defData) {
+              writer.defData[idx] = 0;
+            }
+          }
+        }
+        if (writer) {
+          writerLocalX += 1;
+          if (writerLocalX === writer.tileClamp) writerLocalX = 0;
         }
       }
     }
@@ -579,13 +661,37 @@ const applyStampDitherMask = (
     const maxX = Math.min(width - 1, Math.ceil(x + radius));
     const minY = Math.max(0, Math.floor(y - radius));
     const maxY = Math.min(height - 1, Math.ceil(y + radius));
+    if (writer) {
+      for (let py = minY; py <= maxY; py++) {
+        const dy = py + 0.5 - y;
+        const dxLimitSq = radiusSq - dy * dy;
+        if (dxLimitSq < 0) continue;
+        const dxLimit = Math.sqrt(dxLimitSq);
+        const spanMinX = Math.max(minX, Math.ceil(x - dxLimit - 0.5));
+        const spanMaxX = Math.min(maxX, Math.floor(x + dxLimit - 0.5));
+        if (spanMaxX < spanMinX) continue;
+        writeStampDitherBgFillSpan(
+          writer,
+          primary,
+          tag,
+          tagValue,
+          py * width,
+          spanMinX,
+          spanMaxX,
+          py,
+          primaryIndex
+        );
+      }
+      updateStampDitherBounds(strokeData, width, height, minX, minY, maxX, maxY);
+      return { minX, minY, maxX, maxY };
+    }
     for (let py = minY; py <= maxY; py++) {
       for (let px = minX; px <= maxX; px++) {
         const dx = px + 0.5 - x;
         const dy = py + 0.5 - y;
         if (dx * dx + dy * dy > radiusSq) continue;
         const idx = py * width + px;
-        captureIfNeeded(idx);
+        if (captureBase) captureIfNeeded(idx);
         primary[idx] = primaryIndex;
         tag[idx] = tagValue;
       }
@@ -600,13 +706,36 @@ const applyStampDitherMask = (
     const maxX = Math.min(width - 1, Math.floor(x + radius));
     const minY = Math.max(0, Math.floor(y - radius));
     const maxY = Math.min(height - 1, Math.floor(y + radius));
+    if (writer) {
+      for (let py = minY; py <= maxY; py++) {
+        const dy = Math.abs(py + 0.5 - y);
+        const dxLimit = radius - dy;
+        if (dxLimit < 0) continue;
+        const spanMinX = Math.max(minX, Math.ceil(x - dxLimit - 0.5));
+        const spanMaxX = Math.min(maxX, Math.floor(x + dxLimit - 0.5));
+        if (spanMaxX < spanMinX) continue;
+        writeStampDitherBgFillSpan(
+          writer,
+          primary,
+          tag,
+          tagValue,
+          py * width,
+          spanMinX,
+          spanMaxX,
+          py,
+          primaryIndex
+        );
+      }
+      updateStampDitherBounds(strokeData, width, height, minX, minY, maxX, maxY);
+      return { minX, minY, maxX, maxY };
+    }
     for (let py = minY; py <= maxY; py++) {
       for (let px = minX; px <= maxX; px++) {
         const dx = Math.abs(px + 0.5 - x);
         const dy = Math.abs(py + 0.5 - y);
         if (dx + dy > radius) continue;
         const idx = py * width + px;
-        captureIfNeeded(idx);
+        if (captureBase) captureIfNeeded(idx);
         primary[idx] = primaryIndex;
         tag[idx] = tagValue;
       }
@@ -627,14 +756,39 @@ const applyStampDitherMask = (
     for (let py = minY; py <= maxY; py++) {
       const localY = py - originY;
       const cellY = Math.max(0, Math.min(4, Math.floor(localY / pixelScale)));
+      const writerTileRow = writer
+        ? (((py - writer.maskOriginY) % writer.tileClamp + writer.tileClamp) % writer.tileClamp) * writer.tileClamp
+        : 0;
+      let writerLocalX = writer
+        ? ((minX - writer.maskOriginX) % writer.tileClamp + writer.tileClamp) % writer.tileClamp
+        : 0;
       for (let px = minX; px <= maxX; px++) {
         const localX = px - originX;
         const cellX = Math.max(0, Math.min(4, Math.floor(localX / pixelScale)));
-        if (DIAMOND_5_MASK[cellY * 5 + cellX] === 0) continue;
+        if (DIAMOND_5_MASK[cellY * 5 + cellX] === 0) {
+          if (writer) {
+            writerLocalX += 1;
+            if (writerLocalX === writer.tileClamp) writerLocalX = 0;
+          }
+          continue;
+        }
         const idx = py * width + px;
-        captureIfNeeded(idx);
+        if (captureBase) captureIfNeeded(idx);
         primary[idx] = primaryIndex;
         tag[idx] = tagValue;
+        if (writer) {
+          const t = writer.tile[writerTileRow + writerLocalX] ?? 0;
+          const usePrimary = writer.usePattern ? t === 1 : t <= writer.coverageByte;
+          const nextIndex = usePrimary ? primaryIndex : resolveStampDitherSecondaryIndex(primaryIndex);
+          writer.data[idx] = nextIndex;
+          writer.gradientId[idx] = nextIndex === 0 ? 0 : writer.flowSlot;
+          writer.speedData[idx] = nextIndex === 0 ? 0 : writer.speedByte;
+          if (writer.defData) {
+            writer.defData[idx] = 0;
+          }
+          writerLocalX += 1;
+          if (writerLocalX === writer.tileClamp) writerLocalX = 0;
+        }
       }
     }
     updateStampDitherBounds(strokeData, width, height, minX, minY, maxX, maxY);
@@ -655,14 +809,39 @@ const applyStampDitherMask = (
     for (let py = minY; py <= maxY; py++) {
       const localY = py - originY;
       const cellY = Math.max(0, Math.min(gridSize - 1, Math.floor(localY / pixelScale)));
+      const writerTileRow = writer
+        ? (((py - writer.maskOriginY) % writer.tileClamp + writer.tileClamp) % writer.tileClamp) * writer.tileClamp
+        : 0;
+      let writerLocalX = writer
+        ? ((minX - writer.maskOriginX) % writer.tileClamp + writer.tileClamp) % writer.tileClamp
+        : 0;
       for (let px = minX; px <= maxX; px++) {
         const localX = px - originX;
         const cellX = Math.max(0, Math.min(gridSize - 1, Math.floor(localX / pixelScale)));
-        if (mask[cellY * gridSize + cellX] === 0) continue;
+        if (mask[cellY * gridSize + cellX] === 0) {
+          if (writer) {
+            writerLocalX += 1;
+            if (writerLocalX === writer.tileClamp) writerLocalX = 0;
+          }
+          continue;
+        }
         const idx = py * width + px;
-        captureIfNeeded(idx);
+        if (captureBase) captureIfNeeded(idx);
         primary[idx] = primaryIndex;
         tag[idx] = tagValue;
+        if (writer) {
+          const t = writer.tile[writerTileRow + writerLocalX] ?? 0;
+          const usePrimary = writer.usePattern ? t === 1 : t <= writer.coverageByte;
+          const nextIndex = usePrimary ? primaryIndex : resolveStampDitherSecondaryIndex(primaryIndex);
+          writer.data[idx] = nextIndex;
+          writer.gradientId[idx] = nextIndex === 0 ? 0 : writer.flowSlot;
+          writer.speedData[idx] = nextIndex === 0 ? 0 : writer.speedByte;
+          if (writer.defData) {
+            writer.defData[idx] = 0;
+          }
+          writerLocalX += 1;
+          if (writerLocalX === writer.tileClamp) writerLocalX = 0;
+        }
       }
     }
     updateStampDitherBounds(strokeData, width, height, minX, minY, maxX, maxY);
@@ -682,14 +861,39 @@ const applyStampDitherMask = (
     for (let py = minY; py <= maxY; py++) {
       const localY = py - originY;
       const cellY = Math.max(0, Math.min(gridSize - 1, Math.floor(localY / pixelScale)));
+      const writerTileRow = writer
+        ? (((py - writer.maskOriginY) % writer.tileClamp + writer.tileClamp) % writer.tileClamp) * writer.tileClamp
+        : 0;
+      let writerLocalX = writer
+        ? ((minX - writer.maskOriginX) % writer.tileClamp + writer.tileClamp) % writer.tileClamp
+        : 0;
       for (let px = minX; px <= maxX; px++) {
         const localX = px - originX;
         const cellX = Math.max(0, Math.min(gridSize - 1, Math.floor(localX / pixelScale)));
-        if (CHECKERED_4_MASK[cellY * gridSize + cellX] === 0) continue;
+        if (CHECKERED_4_MASK[cellY * gridSize + cellX] === 0) {
+          if (writer) {
+            writerLocalX += 1;
+            if (writerLocalX === writer.tileClamp) writerLocalX = 0;
+          }
+          continue;
+        }
         const idx = py * width + px;
-        captureIfNeeded(idx);
+        if (captureBase) captureIfNeeded(idx);
         primary[idx] = primaryIndex;
         tag[idx] = tagValue;
+        if (writer) {
+          const t = writer.tile[writerTileRow + writerLocalX] ?? 0;
+          const usePrimary = writer.usePattern ? t === 1 : t <= writer.coverageByte;
+          const nextIndex = usePrimary ? primaryIndex : resolveStampDitherSecondaryIndex(primaryIndex);
+          writer.data[idx] = nextIndex;
+          writer.gradientId[idx] = nextIndex === 0 ? 0 : writer.flowSlot;
+          writer.speedData[idx] = nextIndex === 0 ? 0 : writer.speedByte;
+          if (writer.defData) {
+            writer.defData[idx] = 0;
+          }
+          writerLocalX += 1;
+          if (writerLocalX === writer.tileClamp) writerLocalX = 0;
+        }
       }
     }
     updateStampDitherBounds(strokeData, width, height, minX, minY, maxX, maxY);
@@ -702,10 +906,27 @@ const applyStampDitherMask = (
   const maxX = Math.min(width - 1, Math.floor(x + halfSize));
   const minY = Math.max(0, Math.floor(y - halfSize));
   const maxY = Math.min(height - 1, Math.floor(y + halfSize));
+  if (writer) {
+    for (let py = minY; py <= maxY; py++) {
+      writeStampDitherBgFillSpan(
+        writer,
+        primary,
+        tag,
+        tagValue,
+        py * width,
+        minX,
+        maxX,
+        py,
+        primaryIndex
+      );
+    }
+    updateStampDitherBounds(strokeData, width, height, minX, minY, maxX, maxY);
+    return { minX, minY, maxX, maxY };
+  }
   for (let py = minY; py <= maxY; py++) {
     for (let px = minX; px <= maxX; px++) {
       const idx = py * width + px;
-      captureIfNeeded(idx);
+      if (captureBase) captureIfNeeded(idx);
       primary[idx] = primaryIndex;
       tag[idx] = tagValue;
     }
@@ -954,6 +1175,47 @@ const applyStampDitherToRegion = (
   const bgFillOff = !bgFill;
 
   const coverageByte = Math.max(0, Math.min(255, Math.round(coverage * 255)));
+  if (!bgFillOff) {
+    const usePattern = algo === 'pattern';
+    for (let py = minY; py <= maxY; py++) {
+      const rowOffset = py * width;
+      const localY = ((py - maskOriginY) % tileClamp + tileClamp) % tileClamp;
+      const tileRow = localY * tileClamp;
+      let localX = ((minX - maskOriginX) % tileClamp + tileClamp) % tileClamp;
+      for (let px = minX; px <= maxX; px++) {
+        const idx = rowOffset + px;
+        if (tag[idx] !== tagValue) {
+          localX += 1;
+          if (localX === tileClamp) localX = 0;
+          continue;
+        }
+        const t = tile ? tile[tileRow + localX] : 0;
+        const usePrimary = usePattern ? t === 1 : t <= coverageByte;
+        const nextIndex = usePrimary
+          ? primary[idx]
+          : resolveStampDitherSecondaryIndex(primary[idx]);
+        data[idx] = nextIndex;
+        gradientId[idx] = nextIndex === 0 ? 0 : flowSlot;
+        speedData[idx] = nextIndex === 0 ? 0 : speedByte;
+        if (defData) defData[idx] = 0;
+        localX += 1;
+        if (localX === tileClamp) localX = 0;
+      }
+    }
+
+    if (shouldCloseHandle) {
+      const needsUpload = animator.hasWebGL?.() ?? false;
+      animator.endDirectFill({ markDirty: needsUpload });
+    }
+    animator.markDirtyBounds({
+      minX,
+      minY,
+      width: maxX - minX + 1,
+      height: maxY - minY + 1,
+    });
+    return;
+  }
+
   for (let py = minY; py <= maxY; py++) {
     const rowOffset = py * width;
     const localY = ((py - maskOriginY) % tileClamp + tileClamp) % tileClamp;
@@ -1157,6 +1419,26 @@ export const applyStampDitherStamp = (args: {
   const nextSeq = (state.stampDitherStampSeq ?? 0) + 1;
   state.stampDitherStampSeq = nextSeq > 0xffff ? 0xffff : nextSeq;
   const stampSeq = state.stampDitherStampSeq ?? 1;
+  const coverage = bucket / Math.max(1, STAMP_DITHER_BUCKETS - 1);
+  const fusedBgFill = config.bgFill;
+  const fusedHandle = fusedBgFill ? (state.stampDitherFillHandle ?? animator.beginDirectFill()) : undefined;
+  const fusedShouldCloseHandle = fusedBgFill && !state.stampDitherFillHandle;
+  const fusedWriter: StampDitherBgFillWriter | undefined = fusedHandle
+    ? {
+        data: fusedHandle.data,
+        gradientId: fusedHandle.gradientId,
+        speedData: fusedHandle.speedData,
+        defData: state.gradientDefIdBuffer,
+        tile,
+        tileClamp: tileSize,
+        maskOriginX,
+        maskOriginY,
+        flowSlot,
+        speedByte: encodeColorCycleSpeedByte(cycleSpeed),
+        coverageByte: Math.max(0, Math.min(255, Math.round(coverage * 255))),
+        usePattern: algo === 'pattern',
+      }
+    : undefined;
 
   const maskStart = nowMs();
   const stampBounds = applyStampDitherMask(
@@ -1169,7 +1451,8 @@ export const applyStampDitherStamp = (args: {
     pressureSize,
     primaryIndex,
     stampSeq,
-    config.bgFill
+    config.bgFill,
+    fusedWriter
   );
   const maskMs = Math.max(0, nowMs() - maskStart);
   if (stampBounds) {
@@ -1179,7 +1462,21 @@ export const applyStampDitherStamp = (args: {
     state.stampSeqMeta.push([stampSeq, tileScaleInt]);
   }
 
-  const coverage = bucket / Math.max(1, STAMP_DITHER_BUCKETS - 1);
+  if (fusedBgFill) {
+    if (fusedShouldCloseHandle) {
+      const needsUpload = animator.hasWebGL?.() ?? false;
+      animator.endDirectFill({ markDirty: needsUpload });
+    }
+    animator.markDirtyBounds({
+      minX: stampBounds.minX,
+      minY: stampBounds.minY,
+      width: stampBounds.maxX - stampBounds.minX + 1,
+      height: stampBounds.maxY - stampBounds.minY + 1,
+    });
+    args.perf?.onApply?.(0);
+    return { didApply: true, bounds: stampBounds };
+  }
+
   const applyStart = nowMs();
   applyStampDitherToRegion(
     state,

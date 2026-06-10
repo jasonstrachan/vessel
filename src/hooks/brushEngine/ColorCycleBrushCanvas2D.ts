@@ -274,6 +274,12 @@ const shouldBlockEmptySnapshotFromCanonicalPayload = (
   reason: ColorCycleRuntimeMutationReason,
 ): boolean => reason === 'project-load-restore';
 
+const blockedEmptySnapshotSeverity = (
+  reason: ColorCycleRuntimeMutationReason,
+): 'warn' | 'error' => (
+  shouldBlockEmptySnapshotFromCanonicalPayload(reason) ? 'warn' : 'error'
+);
+
 type ColorCycleRuntimeMutationAuditSnapshot = {
   layer: CCMutationSnapshot;
   buffers: {
@@ -7348,7 +7354,7 @@ export class ColorCycleBrushCanvas2D {
               event: 'cc-empty-live-buffer-write-blocked',
               layerId,
               reason: 'restoreFullState',
-              severity: 'error',
+              severity: blockedEmptySnapshotSeverity('project-load-restore'),
               before: summarizeColorCycleLayer(layer),
               after: summarizeColorCycleLayer(layer),
               details: {
@@ -7843,7 +7849,7 @@ export class ColorCycleBrushCanvas2D {
         event: 'cc-empty-live-buffer-write-blocked',
         layerId,
         reason: 'applyLayerSnapshot',
-        severity: 'error',
+        severity: blockedEmptySnapshotSeverity(reason),
         before: summarizeColorCycleLayer(layer),
         after: summarizeColorCycleLayer(layer),
         details: {
@@ -7929,7 +7935,7 @@ export class ColorCycleBrushCanvas2D {
         event: 'cc-empty-live-buffer-write-blocked',
         layerId,
         reason: 'applyLayerSnapshot',
-        severity: 'error',
+        severity: blockedEmptySnapshotSeverity(reason),
         before: summarizeColorCycleLayer(layer),
         after: summarizeColorCycleLayer(layer),
         details: {

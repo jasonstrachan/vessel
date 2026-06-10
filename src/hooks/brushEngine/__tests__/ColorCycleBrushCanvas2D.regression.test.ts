@@ -3269,7 +3269,7 @@ describe('ColorCycleBrushCanvas2D regression tests', () => {
         event: 'cc-empty-live-buffer-write-blocked',
         layerId,
         reason: 'applyLayerSnapshot',
-        severity: 'error',
+        severity: 'warn',
         details: expect.objectContaining({
           source: 'snapshot',
           snapshotReason: 'project-load-restore',
@@ -3428,7 +3428,7 @@ describe('ColorCycleBrushCanvas2D regression tests', () => {
         event: 'cc-empty-live-buffer-write-blocked',
         layerId,
         reason: 'restoreFullState',
-        severity: 'error',
+        severity: 'warn',
         details: expect.objectContaining({
           source: 'project-load',
           snapshotReason: 'project-load-restore',
@@ -3440,7 +3440,7 @@ describe('ColorCycleBrushCanvas2D regression tests', () => {
         event: 'cc-empty-live-buffer-write-blocked',
         layerId,
         reason: 'applyLayerSnapshot',
-        severity: 'error',
+        severity: 'warn',
         details: expect.objectContaining({
           source: 'snapshot',
           snapshotReason: 'project-load-restore',
@@ -3637,6 +3637,7 @@ describe('ColorCycleBrushCanvas2D regression tests', () => {
         event: 'cc-empty-live-buffer-write-blocked',
         layerId,
         reason: 'restoreFullState',
+        severity: 'warn',
         details: expect.objectContaining({
           snapshotReason: 'project-load-restore',
           brushStateHasPayload: true,
@@ -3646,6 +3647,7 @@ describe('ColorCycleBrushCanvas2D regression tests', () => {
         event: 'cc-empty-live-buffer-write-blocked',
         layerId,
         reason: 'applyLayerSnapshot',
+        severity: 'warn',
         details: expect.objectContaining({
           restoredFromCanonicalBrushState: true,
         }),
