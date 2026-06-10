@@ -631,7 +631,6 @@ const drawCachedCcPreview = ({
   shouldKeepCachedCcPreviewVisible: (params: {
     hasCachedPreview: boolean;
     canReplayCurrentPreview: boolean;
-    jobInFlight: boolean;
   }) => boolean;
   retainStalePreviewOnCacheMiss?: boolean;
   nextPreviewRoi: CcPreviewRoi;
@@ -655,7 +654,6 @@ const drawCachedCcPreview = ({
     shouldKeepCachedCcPreviewVisible({
       hasCachedPreview,
       canReplayCurrentPreview: Boolean(canReplayCurrentPreview),
-      jobInFlight: ditherGradPreviewState.ccJobInFlight,
     });
 
   if (shouldDrawCachedPreview && ditherGradPreviewState.ccLastCanvas && ditherGradPreviewState.ccLastOrigin) {
@@ -718,7 +716,6 @@ export const runCcDitherPreviewRuntime = (args: {
   shouldKeepCachedCcPreviewVisible: (params: {
     hasCachedPreview: boolean;
     canReplayCurrentPreview: boolean;
-    jobInFlight: boolean;
   }) => boolean;
   retainStalePreviewOnCacheMiss?: boolean;
   suppressChromeForCachedPreview?: boolean;
@@ -789,7 +786,6 @@ export const runCcDitherPreviewRuntime = (args: {
     shouldKeepCachedCcPreviewVisible({
       hasCachedPreview,
       canReplayCurrentPreview: Boolean(canReplayCurrentPreview),
-      jobInFlight: ditherGradPreviewState.ccJobInFlight,
     });
   const shouldUseCustomFill =
     shouldUseRenderedCcPreviewFill({
@@ -1167,7 +1163,6 @@ export const runSampledCcDitherPreviewRuntime = (args: {
   shouldKeepCachedCcPreviewVisible: (params: {
     hasCachedPreview: boolean;
     canReplayCurrentPreview: boolean;
-    jobInFlight: boolean;
   }) => boolean;
   retainStalePreviewOnCacheMiss?: boolean;
   suppressChromeForCachedPreview?: boolean;

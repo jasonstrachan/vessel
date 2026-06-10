@@ -2006,7 +2006,7 @@ describe('pointerHandlers main flows', () => {
     expect(deps.stateMachine.finalizationComplete).not.toHaveBeenCalled();
   });
 
-  it('appends CC gradient click-line points and previews without ordinary-click finalize', async () => {
+  it('keeps CC gradient click-line open after ordinary third and fourth committed points', async () => {
     const ccLayer = { id: 'cc-layer', layerType: 'color-cycle' } as any;
     const brushSettings = {
       ...baseDynamic.tools.brushSettings,
@@ -2056,18 +2056,24 @@ describe('pointerHandlers main flows', () => {
     expect(deps.drawingHandlers.triggerSimpleShapePreview).toHaveBeenCalledTimes(1);
     (deps.restartColorCycleAnimation as jest.Mock).mockClear();
     handlers.handlePointerMove(makePointerEvent({ clientX: 30, clientY: 30, buttons: 0 } as any));
+    handlers.handlePointerDown(makePointerEvent({ clientX: 30, clientY: 30, detail: 1 }));
     handlers.handlePointerUp(makePointerEvent({ clientX: 30, clientY: 30, detail: 1 }));
+    handlers.handlePointerDown(makePointerEvent({ clientX: 10, clientY: 30, detail: 1 }));
+    handlers.handlePointerUp(makePointerEvent({ clientX: 10, clientY: 30, detail: 1 }));
 
     await Promise.resolve();
     expect(deps.drawingHandlers.ccGradientClickLineSessionRef.current.active).toBe(true);
     expect(deps.drawingHandlers.ccGradientClickLineSessionRef.current.points).toEqual([
       { x: 10, y: 10 },
       { x: 30, y: 10 },
+      { x: 30, y: 30 },
+      { x: 10, y: 30 },
     ]);
     expect(deps.drawingHandlers.shapePointsRef.current).toEqual([
       { x: 10, y: 10 },
       { x: 30, y: 10 },
       { x: 30, y: 30 },
+      { x: 10, y: 30 },
     ]);
     expect(deps.drawingHandlers.finalizeShapeDrawing).not.toHaveBeenCalled();
     expect(deps.drawingHandlers.triggerSimpleShapePreview).toHaveBeenCalled();
@@ -2307,6 +2313,54 @@ describe('pointerHandlers main flows', () => {
     handlers.handlePointerUp(makePointerEvent({ clientX: 30, clientY: 10, detail: 1 }));
     handlers.handlePointerDown(makePointerEvent({ clientX: 30, clientY: 30, detail: 2 }));
     handlers.handlePointerUp(makePointerEvent({ clientX: 30, clientY: 30, detail: 2 }));
+
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(deps.drawingHandlers.finalizeShapeDrawing).toHaveBeenCalled();
+    expect(deps.drawingHandlers.ccGradientClickLineSessionRef.current.active).toBe(false);
+  });
+
+  it('finalizes CC gradient click-line when double click detail is only present on pointer down', async () => {
+    const ccLayer = { id: 'cc-layer', layerType: 'color-cycle' } as any;
+    const brushSettings = {
+      ...baseDynamic.tools.brushSettings,
+      brushShape: BrushShape.COLOR_CYCLE_SHAPE,
+      colorCycleFillMode: 'linear',
+      ccGradientDrawingShape: 'click-line',
+      size: 10,
+      pressureEnabled: false,
+    } as any;
+    useAppStore.setState((state) => ({
+      ...state,
+      currentBrushPreset: { id: 'color-cycle-gradient', name: 'CC Gradient' } as any,
+      activeLayerId: 'cc-layer',
+      layers: [ccLayer],
+      tools: {
+        ...state.tools,
+        currentTool: 'brush',
+        shapeMode: true,
+        brushSettings,
+      },
+    }));
+    const { deps } = createDeps({
+      currentBrushPresetId: 'color-cycle-gradient',
+      activeLayerId: 'cc-layer',
+      layers: [ccLayer],
+      tools: {
+        ...baseDynamic.tools,
+        currentTool: 'brush',
+        shapeMode: true,
+        brushSettings,
+      },
+    });
+
+    const handlers = createPointerHandlers(deps);
+    handlers.handlePointerDown(makePointerEvent({ clientX: 10, clientY: 10, detail: 1 }));
+    handlers.handlePointerUp(makePointerEvent({ clientX: 10, clientY: 10, detail: 1 }));
+    handlers.handlePointerDown(makePointerEvent({ clientX: 30, clientY: 10, detail: 1 }));
+    handlers.handlePointerUp(makePointerEvent({ clientX: 30, clientY: 10, detail: 1 }));
+    handlers.handlePointerDown(makePointerEvent({ clientX: 30, clientY: 30, detail: 2 }));
+    handlers.handlePointerUp(makePointerEvent({ clientX: 30, clientY: 30, detail: 1 }));
 
     await Promise.resolve();
     await Promise.resolve();

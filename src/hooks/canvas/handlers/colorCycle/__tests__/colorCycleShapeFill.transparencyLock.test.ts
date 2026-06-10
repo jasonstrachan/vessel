@@ -755,6 +755,90 @@ describe('colorCycleShapeFill transparency lock', () => {
     getStateSpy.mockRestore();
   });
 
+  it('applies unbound concentric session stops to the brush before finalize fill', async () => {
+    const getStateSpy = jest.spyOn(useAppStore, 'getState');
+    getStateSpy.mockReturnValue({
+      layers: [
+        {
+          id: 'layer-1',
+          transparencyLocked: false,
+          layerType: 'color-cycle',
+          colorCycleData: {},
+        },
+      ],
+      tools: {
+        brushSettings: {
+          colorCycleUseForegroundGradient: false,
+          ditherEnabled: false,
+        },
+      },
+      setCcGradientSampleCount: jest.fn(),
+      updateLayer: jest.fn(),
+    } as unknown as ReturnType<typeof useAppStore.getState>);
+
+    const canvas = document.createElement('canvas');
+    canvas.width = 3;
+    canvas.height = 3;
+    const fillCcGradientConcentric = jest.fn(async () => undefined);
+    const setGradient = jest.fn();
+    const commitCommittedLayerState = jest.fn();
+    const frozenStops: StoredStop[] = [
+      { position: 0, color: '#123456' },
+      { position: 1, color: '#fedcba' },
+    ];
+    const session: MarkGradientSession = {
+      markId: 'mark-unbound-concentric',
+      layerId: 'layer-1',
+      markKind: 'shape',
+      gradientKind: 'concentric',
+      source: 'manual',
+      frozenStopsStored: frozenStops,
+      frozenHash: 'hash-unbound-concentric',
+      binding: null,
+      speedCps: null,
+    };
+
+    await finalizeColorCycleShapeFillConcentric(
+      {
+        session,
+        shapePoints: [
+          { x: 0, y: 0 },
+          { x: 2, y: 0 },
+          { x: 0, y: 2 },
+        ],
+        activeLayerId: 'layer-1',
+        activeLayerCanvas: canvas,
+        overlayCanvas: null,
+        overlayCtx: null,
+        fallbackBlendMode: 'source-over',
+        fallbackOpacity: 1,
+        shapeLayerId: 'layer-1',
+        beforeColorState: null,
+        tool: 'brush',
+      },
+      {
+        brushEngine: {
+          fillCcGradientConcentric,
+          updateColorCycleTexture: jest.fn(),
+        } as never,
+        getColorCycleBrushManager: () => ({
+          getBrush: () => ({ setGradient, commitCommittedLayerState }) as never,
+        }),
+        bindBrushToCanvas: jest.fn(),
+        timeAsync: async (_label, task) => task(),
+        timeSync: (_label, task) => task(),
+        ccLog: jest.fn(),
+        scheduleDeferredColorCycleSaveWithState: jest.fn(async () => undefined),
+        logError: jest.fn(),
+      }
+    );
+
+    expect(setGradient).toHaveBeenCalledWith(frozenStops, 'layer-1');
+    expect(fillCcGradientConcentric).toHaveBeenCalled();
+
+    getStateSpy.mockRestore();
+  });
+
   it('heals stale def-bound slot palettes before linear CC dither finalize', async () => {
     const baseStops: StoredStop[] = [
       { position: 0, color: '#000000' },

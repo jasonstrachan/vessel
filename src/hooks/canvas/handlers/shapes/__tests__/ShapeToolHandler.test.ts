@@ -79,26 +79,23 @@ describe('ShapeToolHandler – shape fill tool detection', () => {
     expect(overlayCtx.restore).toHaveBeenCalled();
   });
 
-  it('keeps the last cc preview visible while a replacement job is pending', () => {
+  it('keeps cached cc preview visible only for the current replay key', () => {
     expect(
       __shapeToolTestUtils.shouldKeepCachedCcPreviewVisible({
         hasCachedPreview: true,
         canReplayCurrentPreview: false,
-        jobInFlight: true,
-      })
-    ).toBe(true);
-    expect(
-      __shapeToolTestUtils.shouldKeepCachedCcPreviewVisible({
-        hasCachedPreview: true,
-        canReplayCurrentPreview: true,
-        jobInFlight: false,
       })
     ).toBe(false);
     expect(
       __shapeToolTestUtils.shouldKeepCachedCcPreviewVisible({
+        hasCachedPreview: true,
+        canReplayCurrentPreview: true,
+      })
+    ).toBe(true);
+    expect(
+      __shapeToolTestUtils.shouldKeepCachedCcPreviewVisible({
         hasCachedPreview: false,
         canReplayCurrentPreview: false,
-        jobInFlight: true,
       })
     ).toBe(false);
   });

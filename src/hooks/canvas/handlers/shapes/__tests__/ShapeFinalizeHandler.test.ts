@@ -5,10 +5,47 @@ import { BrushShape } from '@/types';
 import {
   applyTransparencyLockMaskToContext,
   finalizeRasterShapeFill,
+  resolveDitherGradientFinalizeBrushSettings,
 } from '@/hooks/canvas/handlers/shapes/ShapeFinalizeHandler';
 import { boundingBoxToCaptureRegion } from '@/hooks/canvas/utils/captureRegions';
 
 describe('ShapeFinalizeHandler', () => {
+  it('uses current dither gradient settings over stale session settings on finalize', () => {
+    const sessionBrushSettings = {
+      brushShape: BrushShape.DITHER_GRADIENT,
+      color: '#000000',
+      ditherGradStops: ['#111111', '#111111'],
+      ditherGradSampleEnabled: false,
+      ditherGradBgFill: true,
+      gradientLength: 50,
+      trans: 0,
+    } as unknown as BrushSettings;
+
+    const currentBrushSettings = {
+      ...sessionBrushSettings,
+      brushShape: BrushShape.SQUARE,
+      color: '#FF00AA',
+      ditherGradStops: ['#0033FF', '#00FF66', '#FFEE00'],
+      ditherGradSampleEnabled: true,
+      ditherGradBgFill: false,
+      gradientLength: 125,
+      trans: 1,
+    } as unknown as BrushSettings;
+
+    const resolved = resolveDitherGradientFinalizeBrushSettings(
+      sessionBrushSettings,
+      currentBrushSettings
+    );
+
+    expect(resolved.brushShape).toBe(BrushShape.DITHER_GRADIENT);
+    expect(resolved.color).toBe('#FF00AA');
+    expect(resolved.ditherGradStops).toEqual(['#0033FF', '#00FF66', '#FFEE00']);
+    expect(resolved.ditherGradSampleEnabled).toBe(true);
+    expect(resolved.ditherGradBgFill).toBe(false);
+    expect(resolved.gradientLength).toBe(125);
+    expect(resolved.trans).toBe(1);
+  });
+
   it('uses latest brush color from store for dither-shape finalize override', () => {
     const applyStrokeDither = jest.fn();
     const setBrushSettings = jest.fn();

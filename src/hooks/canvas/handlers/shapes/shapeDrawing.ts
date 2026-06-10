@@ -5,7 +5,10 @@ import { type AppState, type CCReason } from '@/stores/useAppStore';
 import type { ColorCycleSerializedState } from '@/history/helpers/colorCycle';
 import type { CaptureRegion, BoundingBox } from '@/hooks/canvas/utils/captureRegions';
 import type { ShapeBeforeSnapshot } from '@/hooks/canvas/utils/snapshots';
-import type { AutoSampleStops } from '@/hooks/canvas/handlers/shapes/ShapeFinalizeHandler';
+import {
+  resolveDitherGradientFinalizeBrushSettings,
+  type AutoSampleStops,
+} from '@/hooks/canvas/handlers/shapes/ShapeFinalizeHandler';
 import type { BrushStrokeSession } from '@/hooks/canvas/handlers/strokeSession';
 import type { FinalizeQueue } from '@/lib/canvas';
 import type { ColorCycleBrushImplementation } from '@/hooks/brushEngine/ColorCycleBrushMigration';
@@ -1229,6 +1232,14 @@ export const finalizeShapeDrawing = async (
     });
   }
 
+  const ditherGradientFinalizeBrushSettings =
+    liveBrushSettings.brushShape === BrushShape.DITHER_GRADIENT
+      ? resolveDitherGradientFinalizeBrushSettings(
+          liveBrushSettings,
+          { ...deps.storeRef.current.tools.brushSettings }
+        )
+      : null;
+
   void args.refs.finalizeQueueRef.current.enqueue(async () => {
     let finalizeTriggered = false;
     let handledColorCycleShape = false;
@@ -1237,7 +1248,7 @@ export const finalizeShapeDrawing = async (
     let shapeLayerId: string | null = null;
     let shapeBeforeColorState: ColorCycleSerializedState | null = null;
 
-    if (liveBrushSettings.brushShape === BrushShape.DITHER_GRADIENT) {
+    if (ditherGradientFinalizeBrushSettings) {
       const points =
         polygonState.vertices && polygonState.vertices.length >= 3
           ? polygonState.vertices
@@ -1254,7 +1265,7 @@ export const finalizeShapeDrawing = async (
             drawCtx,
             canvas,
             drawingCanvasHasContent: deps.drawingCanvasHasContent,
-            liveBrushSettings,
+            liveBrushSettings: ditherGradientFinalizeBrushSettings,
             polygonState,
             shapePoints: points,
             palette: deps.storeRef.current.palette,

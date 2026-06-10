@@ -246,6 +246,7 @@ export const fillColorCycleConcentric = async ({
     );
 
     brush.setGradientBands(bands);
+    brush.setBandSpacing(spacing);
 
     if (wantDither && typeof options?.ditherPixelSize === 'number') {
       brush.setDitherPixelSize(Math.max(1, Math.floor(options.ditherPixelSize)));

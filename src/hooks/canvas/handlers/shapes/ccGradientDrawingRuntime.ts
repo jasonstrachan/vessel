@@ -26,6 +26,7 @@ export type CcGradientClickLineSession = {
   active: boolean;
   points: Point[];
   previewPoint: Point | null;
+  finalizeOnPointerUp?: boolean;
   pressure?: number;
   rawPressure?: number;
 };
@@ -34,6 +35,7 @@ export const createCcGradientClickLineSession = (): CcGradientClickLineSession =
   active: false,
   points: [],
   previewPoint: null,
+  finalizeOnPointerUp: false,
 });
 
 export const isCcGradientStrokeMode = (state: AppState): boolean =>
@@ -213,6 +215,7 @@ export const appendCcGradientClickLinePoint = ({
     session.points = [];
   }
   session.active = true;
+  session.finalizeOnPointerUp = false;
   session.previewPoint = null;
   session.pressure = pressure;
   session.rawPressure = rawPressure;
@@ -291,6 +294,7 @@ export const prepareCcGradientClickLineFinalize = ({
   session.active = false;
   session.points = [];
   session.previewPoint = null;
+  session.finalizeOnPointerUp = false;
   return true;
 };
 
@@ -305,6 +309,7 @@ export const cancelCcGradientClickLineSession = (
   session.active = false;
   session.points = [];
   session.previewPoint = null;
+  session.finalizeOnPointerUp = false;
   refs.shapePointsRef.current = [];
   refs.ccStrokeDirectionRef.current = null;
   refs.ccGradientDrawingGeometryRef.current = null;

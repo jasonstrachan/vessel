@@ -5351,44 +5351,11 @@ export class ColorCycleBrushCanvas2D {
       bounds: bbox,
       points: vertices,
     });
-    const concentricEdges = vertices.map((vertex, index) => {
-      const next = vertices[(index + 1) % vertices.length];
-      const dx = next.x - vertex.x;
-      const dy = next.y - vertex.y;
-      return {
-        v1x: vertex.x,
-        v1y: vertex.y,
-        dx,
-        dy,
-        len2: dx * dx + dy * dy,
-      };
-    });
-    const safeMaxDist = Math.max(1e-6, maxDist);
-    const resolveConcentricPhaseByte = (x: number, y: number, colorIndex: number) => {
+    const resolveConcentricPhaseByte = (_x: number, _y: number, colorIndex: number) => {
       if (colorIndex <= 0) {
         return 0;
       }
-      let minDistSq = Infinity;
-      const sampleX = x + 0.5;
-      const sampleY = y + 0.5;
-      for (let edgeIndex = 0; edgeIndex < concentricEdges.length; edgeIndex += 1) {
-        const edge = concentricEdges[edgeIndex];
-        if (edge.len2 <= 0) {
-          continue;
-        }
-        const tNum = (sampleX - edge.v1x) * edge.dx + (sampleY - edge.v1y) * edge.dy;
-        const tVal = Math.max(0, Math.min(1, tNum / edge.len2));
-        const px = edge.v1x + tVal * edge.dx;
-        const py = edge.v1y + tVal * edge.dy;
-        const ddx = sampleX - px;
-        const ddy = sampleY - py;
-        const d2 = ddx * ddx + ddy * ddy;
-        if (d2 < minDistSq) {
-          minDistSq = d2;
-        }
-      }
-      const normalized = Math.min(1, Math.sqrt(Math.max(0, minDistSq)) / safeMaxDist);
-      return this.resolveShapePhaseByte(normalized, {
+      return this.resolveShapePhaseByte(1, {
         ccGradient,
         pairBandCount,
         effectiveColorCount: numBands,

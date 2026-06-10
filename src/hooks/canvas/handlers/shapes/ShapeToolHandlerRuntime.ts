@@ -88,8 +88,7 @@ const getClosedCommittedPolygon = (points: PreviewPoint[]): PreviewPoint[] => po
 const shouldKeepCachedCcPreviewVisible = (params: {
   hasCachedPreview: boolean;
   canReplayCurrentPreview: boolean;
-  jobInFlight: boolean;
-}): boolean => params.hasCachedPreview && (!params.canReplayCurrentPreview || params.jobInFlight);
+}): boolean => params.hasCachedPreview && params.canReplayCurrentPreview;
 
 const LIVE_SHAPE_PREVIEW_MAX_POINTS = 1024;
 
@@ -2611,6 +2610,7 @@ export const createShapeToolHandler = (
       pressure,
       rawPressure: event.pressure,
     });
+    session.finalizeOnPointerUp = (event.detail ?? 0) >= 2;
     drawingHandlers.isDrawingShapeRef.current = true;
     getAppStoreState().setShapeDrawing(true);
     drawingHandlers.seedManualStrokeBoundingBox?.(
@@ -2671,8 +2671,9 @@ export const createShapeToolHandler = (
       return false;
     }
 
-    const doubleClick = (event.detail ?? 0) >= 2;
-    if (!doubleClick) {
+    const finalizeRequested = (event.detail ?? 0) >= 2 || session.finalizeOnPointerUp === true;
+    session.finalizeOnPointerUp = false;
+    if (!finalizeRequested) {
       if (session.points.length >= 2) {
         drawingHandlers.triggerSimpleShapePreview?.();
       }
@@ -3029,6 +3030,7 @@ export const createShapeToolHandler = (
       const pts = points as Array<{ x: number; y: number }>;
       let didCustomFill = false;
       let suppressLivePreviewChrome = false;
+      let skipFallbackFill = false;
 
       if (pts.length >= 3) {
         const previewModel = buildPolygonPreviewModel(pts, previewPoint);
@@ -3048,24 +3050,10 @@ export const createShapeToolHandler = (
           isCCShape && (isCCLinear || isColorCycleGradientPreset) && Boolean(brushNow.ditherEnabled);
 
         if (!shouldDitherPreview) {
-          const cachedPreview = drawingHandlers.ccShapePreviewCacheRef?.current;
-          if (cachedPreview) {
-            overlayCtx.save();
-            overlayCtx.setTransform(1, 0, 0, 1, 0, 0);
-            overlayCtx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
-            overlayCtx.restore();
-            overlayCtx.save();
-            overlayCtx.globalAlpha = SHAPE_PREVIEW_OPACITY;
-            overlayCtx.drawImage(
-              cachedPreview.canvas,
-              cachedPreview.origin.x,
-              cachedPreview.origin.y
-            );
-            overlayCtx.restore();
-            didCustomFill = true;
-          } else {
-            overlayCtx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
+          if (drawingHandlers.ccShapePreviewCacheRef) {
+            drawingHandlers.ccShapePreviewCacheRef.current = null;
           }
+          overlayCtx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
         }
         const strokePreviewOutline = () => {
           drawHighContrastStroke(
@@ -3369,6 +3357,7 @@ export const createShapeToolHandler = (
               });
               didCustomFill = runtimeResult.didCustomFill;
               suppressLivePreviewChrome = runtimeResult.suppressLivePreviewChrome;
+              skipFallbackFill = !runtimeResult.didCustomFill;
             } else {
               const axis = computeAxisOpposingEnds(committedPolygon);
               const gradient = overlayCtx.createLinearGradient(
@@ -3589,11 +3578,11 @@ export const createShapeToolHandler = (
             overlayCtx.stroke();
             strokePreviewOutline();
           } else if (isShapeFill) {
-            if (!didCustomFill) {
+            if (!didCustomFill && !skipFallbackFill) {
               overlayCtx.fill();
             }
           } else {
-            if (!didCustomFill) {
+            if (!didCustomFill && !skipFallbackFill) {
               overlayCtx.fill();
             }
             strokePreviewOutline();

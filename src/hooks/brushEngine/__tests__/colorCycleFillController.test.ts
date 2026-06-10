@@ -188,6 +188,7 @@ describe('colorCycleFillController', () => {
     });
 
     expect(brush.fillShapeDispatch).toHaveBeenCalledWith(expect.objectContaining({ mode: 'concentric', layerId: 'layer-1' }));
+    expect(brush.setBandSpacing).toHaveBeenCalledWith(9);
     expect(brush.endStroke).toHaveBeenCalledWith('layer-1');
     expect(renderBrushToLayerCanvas).toHaveBeenCalledWith(brush, 'layer-1');
   });

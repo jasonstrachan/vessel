@@ -52,6 +52,15 @@ type RegionPixelSummary = {
   colors: Array<{ rgb: string; count: number }>;
 };
 
+export const resolveDitherGradientFinalizeBrushSettings = (
+  sessionBrushSettings: BrushSettings,
+  currentBrushSettings: BrushSettings
+): BrushSettings => ({
+  ...sessionBrushSettings,
+  ...currentBrushSettings,
+  brushShape: BrushShape.DITHER_GRADIENT,
+});
+
 const summarizeRegionPixels = (
   ctx: CanvasRenderingContext2D,
   region: CaptureRegion

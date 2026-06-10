@@ -380,12 +380,17 @@ const applyResolvedShapeFillRuntimeBinding = ({
   renderSession: ColorCycleGradientRenderSession | null;
 }): void => {
   const frozenStops = renderSession?.frozenStopsStored;
-  if (renderSession?.binding?.slot === undefined || !frozenStops?.length) {
+  if (!frozenStops?.length) {
     return;
   }
 
   const brush = resolveShapeFillBrush(layerId, deps);
   if (!brush) {
+    return;
+  }
+
+  if (renderSession?.binding?.slot === undefined) {
+    brush.setGradient?.(frozenStops, layerId);
     return;
   }
 
