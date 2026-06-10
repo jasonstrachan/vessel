@@ -17,7 +17,7 @@ const makeSession = (overrides: Partial<MarkGradientSession>): MarkGradientSessi
 });
 
 describe('resolveColorCycleShapeFillSourceOptions', () => {
-  it('forwards manual bindings without sampled-only options', () => {
+  it('forwards manual bindings with preview-parity base offset', () => {
     const renderSession = makeSession({
       source: 'manual',
       binding: { kind: 'def', defId: 31, slot: 12 },
@@ -28,14 +28,14 @@ describe('resolveColorCycleShapeFillSourceOptions', () => {
       renderSession,
     })).toEqual({
       ditherSampledStops: undefined,
-      ditherBaseOffsetOverride: undefined,
+      ditherBaseOffsetOverride: 0,
       paintSlotOverride: 12,
       paintDefIdOverride: 31,
       shapePhaseSeedMarkId: 'mark-1',
     });
   });
 
-  it('isolates sampled stops and base offset to sampled render sessions', () => {
+  it('isolates sampled stops to sampled render sessions', () => {
     const renderSession = makeSession({
       source: 'sampled',
       frozenStopsStored: [
@@ -61,6 +61,24 @@ describe('resolveColorCycleShapeFillSourceOptions', () => {
       shapePhaseSeedMarkId: 'mark-1',
     });
     expect(options.ditherSampledStops).not.toBe(renderSession.frozenStopsStored);
+  });
+
+  it('forwards foreground bindings with preview-parity base offset', () => {
+    const renderSession = makeSession({
+      source: 'fg',
+      binding: { kind: 'def', defId: 51, slot: 4 },
+    });
+
+    expect(resolveColorCycleShapeFillSourceOptions({
+      session: renderSession,
+      renderSession,
+    })).toEqual({
+      ditherSampledStops: undefined,
+      ditherBaseOffsetOverride: 0,
+      paintSlotOverride: 4,
+      paintDefIdOverride: 51,
+      shapePhaseSeedMarkId: 'mark-1',
+    });
   });
 
   it('uses sampled source stops when a sampled render session has a reduced render palette', () => {

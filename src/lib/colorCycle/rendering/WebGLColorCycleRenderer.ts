@@ -33,6 +33,52 @@ export interface GLRendererConfig {
 
 type GL = WebGLRenderingContext | WebGL2RenderingContext;
 
+type TextureRect = { x: number; y: number; width: number; height: number };
+
+export type PackedDefMetaUpload = {
+  data: Uint8Array;
+  isFullCanvasLayout: boolean;
+};
+
+export const packDefMetaDataForUpload = (
+  width: number,
+  height: number,
+  defIdData: Uint16Array | undefined,
+  phaseData: Uint8Array,
+  rect: TextureRect,
+  reusableBuffer?: Uint8Array
+): PackedDefMetaUpload => {
+  const expected = width * height;
+  const isFull = rect.x === 0 && rect.y === 0 && rect.width === width && rect.height === height;
+  const packWidth = isFull ? width : rect.width;
+  const packHeight = isFull ? height : rect.height;
+  const size = packWidth * packHeight * 4;
+  const packed = reusableBuffer && reusableBuffer.length === size
+    ? reusableBuffer
+    : new Uint8Array(size);
+
+  if (phaseData.length !== expected || (defIdData && defIdData.length !== expected)) {
+    packed.fill(0);
+    return { data: packed, isFullCanvasLayout: isFull };
+  }
+
+  let dst = 0;
+  for (let row = 0; row < packHeight; row += 1) {
+    const srcRow = (rect.y + row) * width + rect.x;
+    for (let col = 0; col < packWidth; col += 1) {
+      const src = srcRow + col;
+      const id = defIdData?.[src] ?? 0;
+      packed[dst] = id & 0xff;
+      packed[dst + 1] = (id >> 8) & 0xff;
+      packed[dst + 2] = phaseData[src] ?? 0;
+      packed[dst + 3] = 255;
+      dst += 4;
+    }
+  }
+
+  return { data: packed, isFullCanvasLayout: isFull };
+};
+
 type LoseContextExtension = {
   loseContext?: () => void;
 };
@@ -366,7 +412,7 @@ export class WebGLColorCycleRenderer {
     const phase = phaseData ?? this.getZeroPhaseBuffer();
     const shouldUploadDefMeta = defIdDirty || !this.defIdTexAllocated || Boolean(phaseData);
     const defDataPacked = shouldUploadDefMeta
-      ? this.packDefMetaData(defIdData, phase)
+      ? this.packDefMetaData(defIdData, phase, uploadRect)
       : null;
 
     this.uploadSingleChannelTexture(
@@ -417,12 +463,13 @@ export class WebGLColorCycleRenderer {
       this.uploadDefMetaTexture(
         this.defIdTex,
         4,
-        defDataPacked,
+        defDataPacked.data,
         w,
         h,
         x,
         y,
         isFull,
+        defDataPacked.isFullCanvasLayout,
         'defId'
       );
     }
@@ -1264,28 +1311,31 @@ export class WebGLColorCycleRenderer {
     return this.zeroDefMetaBuffer;
   }
 
-  private packDefMetaData(defIdData: Uint16Array | undefined, phaseData: Uint8Array): Uint8Array {
+  private packDefMetaData(
+    defIdData: Uint16Array | undefined,
+    phaseData: Uint8Array,
+    rect: TextureRect
+  ): PackedDefMetaUpload {
     const expected = this.width * this.height;
-    if (phaseData.length !== expected) {
-      return this.getZeroDefMetaBuffer();
+    if (phaseData.length !== expected || (defIdData && defIdData.length !== expected)) {
+      return {
+        data: this.getZeroDefMetaBuffer(),
+        isFullCanvasLayout: true,
+      };
     }
-    if (defIdData && defIdData.length !== expected) {
-      return this.getZeroDefMetaBuffer();
-    }
-    const size = expected * 4;
+    const isFull = rect.x === 0 && rect.y === 0 && rect.width === this.width && rect.height === this.height;
+    const size = (isFull ? expected : rect.width * rect.height) * 4;
     if (!this.defMetaPackedBuffer || this.defMetaPackedBuffer.length !== size) {
       this.defMetaPackedBuffer = new Uint8Array(size);
     }
-    const packed = this.defMetaPackedBuffer;
-    for (let i = 0; i < expected; i += 1) {
-      const id = defIdData?.[i] ?? 0;
-      const idx = i * 4;
-      packed[idx] = id & 0xff;
-      packed[idx + 1] = (id >> 8) & 0xff;
-      packed[idx + 2] = phaseData[i] ?? 0;
-      packed[idx + 3] = 255;
-    }
-    return packed;
+    return packDefMetaDataForUpload(
+      this.width,
+      this.height,
+      defIdData,
+      phaseData,
+      rect,
+      this.defMetaPackedBuffer
+    );
   }
 
   private uploadSingleChannelTexture(
@@ -1401,6 +1451,7 @@ export class WebGLColorCycleRenderer {
     rectX: number,
     rectY: number,
     isFull: boolean,
+    dataIsFullCanvasLayout: boolean,
     textureKind: 'defId'
   ) {
     void textureKind;
@@ -1417,7 +1468,7 @@ export class WebGLColorCycleRenderer {
         this.defIdTexAllocated = true;
       }
 
-      if (!isFull) {
+      if (!isFull && dataIsFullCanvasLayout) {
         gl2.pixelStorei(gl2.UNPACK_ROW_LENGTH, this.width);
         gl2.pixelStorei(gl2.UNPACK_SKIP_PIXELS, rectX);
         gl2.pixelStorei(gl2.UNPACK_SKIP_ROWS, rectY);
@@ -1439,7 +1490,7 @@ export class WebGLColorCycleRenderer {
         data
       );
 
-      if (!isFull) {
+      if (!isFull && dataIsFullCanvasLayout) {
         gl2.pixelStorei(gl2.UNPACK_ROW_LENGTH, 0);
         gl2.pixelStorei(gl2.UNPACK_SKIP_PIXELS, 0);
         gl2.pixelStorei(gl2.UNPACK_SKIP_ROWS, 0);
@@ -1451,7 +1502,7 @@ export class WebGLColorCycleRenderer {
       }
 
       let uploadData = data;
-      if (!isFull) {
+      if (!isFull && dataIsFullCanvasLayout) {
         const contiguous = new Uint8Array(rectW * rectH * 4);
         for (let row = 0; row < rectH; row++) {
           const srcStart = ((rectY + row) * this.width + rectX) * 4;

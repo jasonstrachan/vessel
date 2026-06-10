@@ -36,7 +36,7 @@ export const resolveColorCycleShapeFillSourceOptions = ({
     ditherSampledStops: behavior?.usesSampledStops
       ? cloneStoredStops(renderSession?.sourceStopsStored ?? renderSession?.frozenStopsStored)
       : undefined,
-    ditherBaseOffsetOverride: behavior?.usesSampledBaseOffset ? 0 : undefined,
+    ditherBaseOffsetOverride: behavior ? 0 : undefined,
     paintSlotOverride: renderSession?.binding?.slot,
     paintDefIdOverride: renderSession?.binding?.defId,
     shapePhaseSeedMarkId: session?.markId ?? null,

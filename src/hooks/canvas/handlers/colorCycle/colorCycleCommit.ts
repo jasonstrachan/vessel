@@ -542,7 +542,9 @@ export const commitColorCycleLayerStroke = async (
           const finalizedSession = committedSession;
           const finalizedBinding = finalizedSession.binding;
           if (finalizedBinding) {
-            logCommittedSlotsInRoi('after-bind', binding.bbox);
+            if (ccDebugVerboseOn()) {
+              logCommittedSlotsInRoi('after-bind', binding.bbox);
+            }
 
             const state = getAppStoreState();
             const layer = state.layers.find((entry) => entry.id === targetLayerId);
