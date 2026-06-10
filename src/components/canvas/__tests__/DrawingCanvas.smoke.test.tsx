@@ -61,7 +61,7 @@ jest.mock('@/stores/useAppStore', () => {
     selectionEnd: null,
     floatingPaste: null,
     layersNeedRecomposition: false,
-    canvas: { zoom: 1, offsetX: 0, offsetY: 0 },
+    canvas: { zoom: 1, offsetX: 0, offsetY: 0, frameColor: '#224466' },
     currentCompositeBitmap: null,
     compositeSegmentsVersion: 0,
     tools: {
@@ -205,6 +205,8 @@ describe('DrawingCanvas smoke', () => {
     expect(handlers.handlePointerDown).toHaveBeenCalled();
     expect(handlers.handlePointerUp).toHaveBeenCalled();
     expect(handlers.handlePointerMove).toHaveBeenCalled();
-    expect(screen.getByLabelText('Drawing canvas workspace')).toBeInTheDocument();
+    expect(screen.getByLabelText('Drawing canvas workspace')).toHaveStyle({
+      backgroundColor: '#224466',
+    });
   });
 });

@@ -5,6 +5,7 @@ import { BrushShape } from '@/types';
 interface UseDrawingCanvasStylesOptions {
   canvasZoom: number;
   displayMode: 'auto' | 'pixelated' | 'smooth';
+  frameColor: string;
   cursorStyle: string;
   rotationEnabled: boolean;
   antialiasing: boolean;
@@ -14,6 +15,7 @@ interface UseDrawingCanvasStylesOptions {
 export const useDrawingCanvasStyles = ({
   canvasZoom,
   displayMode,
+  frameColor,
   cursorStyle,
   rotationEnabled,
   antialiasing,
@@ -66,6 +68,9 @@ export const useDrawingCanvasStyles = ({
       shouldPixelateDisplay,
       canvasStyle,
       overlayCanvasStyle,
+      viewportStyle: {
+        backgroundColor: frameColor,
+      } satisfies React.CSSProperties,
     };
-  }, [antialiasing, brushShape, canvasZoom, cursorStyle, displayMode, rotationEnabled]);
+  }, [antialiasing, brushShape, canvasZoom, cursorStyle, displayMode, frameColor, rotationEnabled]);
 };

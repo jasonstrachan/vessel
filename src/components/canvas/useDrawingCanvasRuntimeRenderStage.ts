@@ -45,6 +45,7 @@ export const useDrawingCanvasRuntimeRenderStage = ({
       displayMode: state.displayMode,
       displayFilters: state.displayFilters,
       transparencyBackgroundMode: state.transparencyBackgroundMode,
+      frameColor: state.frameColor,
       compositeCanvasDirtyRef: state.compositeCanvasDirtyRef,
       compositeSegmentsRef: state.compositeSegmentsRef,
       layerMapRef: state.layerMapRef,

@@ -9,6 +9,7 @@ export interface VesselLocalSettings {
     showRulers?: boolean;
     showFPSMeter?: boolean;
     transparencyBackgroundMode?: CanvasState['transparencyBackgroundMode'];
+    frameColor?: string;
     displayFilterDefaults?: DisplayFilterConfig[];
   };
   history?: {

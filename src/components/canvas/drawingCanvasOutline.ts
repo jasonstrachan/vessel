@@ -5,9 +5,6 @@ interface DrawCanvasOutlineOptions {
   scale: number;
   offsetX: number;
   offsetY: number;
-  projectWidth: number;
-  projectHeight: number;
-  activeCanvasShape: CanvasShape | null;
   editorDraftShape: CanvasShape | null;
   editorActive: boolean;
   strokeCanvasShapeOutline: (
@@ -26,9 +23,6 @@ export const drawCanvasOutlineLayer = ({
   scale,
   offsetX,
   offsetY,
-  projectWidth,
-  projectHeight,
-  activeCanvasShape,
   editorDraftShape,
   editorActive,
   strokeCanvasShapeOutline,
@@ -36,18 +30,6 @@ export const drawCanvasOutlineLayer = ({
   ctx.save();
   ctx.translate(offsetX, offsetY);
   ctx.scale(scale, scale);
-  const outlineWidth = 2 / scale;
-
-  if (activeCanvasShape) {
-    strokeCanvasShapeOutline(ctx, activeCanvasShape, {
-      strokeStyle: '#141514',
-      lineWidth: outlineWidth,
-    });
-  } else {
-    ctx.strokeStyle = '#141514';
-    ctx.lineWidth = outlineWidth;
-    ctx.strokeRect(0, 0, projectWidth, projectHeight);
-  }
 
   if (editorActive && editorDraftShape) {
     strokeCanvasShapeOutline(ctx, editorDraftShape, {

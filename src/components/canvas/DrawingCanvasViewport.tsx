@@ -17,6 +17,7 @@ export interface DrawingCanvasViewportProps {
   onPointerCancel: (event: React.PointerEvent<Element>) => void;
   canvasStyle: React.CSSProperties;
   overlayCanvasStyle: React.CSSProperties;
+  viewportStyle: React.CSSProperties;
   cursorStyle: string;
   project: { width: number; height: number } | null;
   floatingPaste: unknown;
@@ -44,6 +45,7 @@ export const DrawingCanvasViewport = ({
   onPointerCancel,
   canvasStyle,
   overlayCanvasStyle,
+  viewportStyle,
   cursorStyle,
   project,
   floatingPaste,
@@ -61,6 +63,7 @@ export const DrawingCanvasViewport = ({
     ref={wrapperRef}
     className="w-full h-full relative"
     style={{
+      ...viewportStyle,
       overflow: 'hidden',
       cursor: cursorStyle,
       outline: 'none',

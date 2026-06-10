@@ -16,6 +16,7 @@ interface UseDrawingCanvasRuntimeViewportPropsFromOrchestrationOptions {
     | 'canvasZoom'
     | 'displayProjectName'
     | 'displayMode'
+    | 'frameColor'
     | 'temporaryCustomBrush'
     | 'getCustomBrushByIdUnsafe'
   >;

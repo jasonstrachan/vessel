@@ -21,6 +21,7 @@ export const useDrawingCanvasStoreState = () => {
       displayMode: state.canvas.displayMode,
       displayFilters: state.canvas.displayFilters,
       transparencyBackgroundMode: state.canvas.transparencyBackgroundMode,
+      frameColor: state.canvas.frameColor,
       compositeBitmap: state.currentCompositeBitmap,
       compositeSegmentsVersion: state.compositeSegmentsVersion,
       currentTool: state.tools.currentTool,

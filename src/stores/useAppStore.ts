@@ -404,6 +404,7 @@ export interface AppState {
   toggleRulers: () => void;
   setShowFPSMeter: (visible: boolean) => void;
   setTransparencyBackgroundMode: (mode: CanvasState['transparencyBackgroundMode']) => void;
+  setFrameColor: (color: string) => void;
   setDisplayMode: (mode: 'pixelated' | 'smooth') => void;
   setDisplayFilters: (filters: CanvasState['displayFilters']) => void;
   setDisplayFilterEnabled: (id: import('@/types').DisplayFilterId, enabled: boolean) => void;

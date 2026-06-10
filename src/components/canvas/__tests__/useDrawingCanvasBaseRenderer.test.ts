@@ -3,7 +3,25 @@ import {
   getNextFilterWorkCanvas,
   getSeamlessNoisePatternSize,
 } from '@/lib/displayFilterPipeline';
-import { shouldRequestCompositeBitmapRecomposition } from '@/components/canvas/useDrawingCanvasBaseRenderer';
+import {
+  fillCanvasFrameBackdrop,
+  shouldRequestCompositeBitmapRecomposition,
+} from '@/components/canvas/useDrawingCanvasBaseRenderer';
+
+describe('fillCanvasFrameBackdrop', () => {
+  it('fills the full render canvas with the selected frame color', () => {
+    const canvas = document.createElement('canvas');
+    canvas.width = 4;
+    canvas.height = 3;
+    const ctx = canvas.getContext('2d');
+    expect(ctx).not.toBeNull();
+
+    fillCanvasFrameBackdrop(ctx as CanvasRenderingContext2D, canvas.width, canvas.height, '#224466');
+
+    const pixel = (ctx as CanvasRenderingContext2D).getImageData(3, 2, 1, 1).data;
+    expect(Array.from(pixel)).toEqual([34, 68, 102, 255]);
+  });
+});
 
 describe('shouldRequestCompositeBitmapRecomposition', () => {
   it('only requests recomposition for the first invalid bitmap still owned by the store', () => {

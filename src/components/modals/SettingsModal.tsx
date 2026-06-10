@@ -52,6 +52,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
   const showRulers = useAppStore((state) => state.canvas.showRulers);
   const showFPSMeter = useAppStore((state) => state.canvas.showFPSMeter);
   const transparencyBackgroundMode = useAppStore((state) => state.canvas.transparencyBackgroundMode);
+  const frameColor = useAppStore((state) => state.canvas.frameColor);
   const isAutosaveEnabled = useAppStore((state) => state.autosave.isEnabled);
   const autosaveInterval = useAppStore((state) => state.autosave.interval);
   const historySize = useAppStore((state) => state.history.maxHistorySize);
@@ -62,6 +63,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
   const toggleRulers = useAppStore((state) => state.toggleRulers);
   const setShowFPSMeter = useAppStore((state) => state.setShowFPSMeter);
   const setTransparencyBackgroundMode = useAppStore((state) => state.setTransparencyBackgroundMode);
+  const setFrameColor = useAppStore((state) => state.setFrameColor);
   const setSettingsSection = useAppStore((state) => state.setSettingsSection);
   const project = useAppStore((state) => state.project);
   const layers = useAppStore((state) => state.layers);
@@ -87,6 +89,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
         showRulers: currentState.canvas.showRulers,
         showFPSMeter: currentState.canvas.showFPSMeter,
         transparencyBackgroundMode: currentState.canvas.transparencyBackgroundMode,
+        frameColor: currentState.canvas.frameColor,
       },
       history: {
         maxHistorySize: currentState.history.maxHistorySize,
@@ -313,6 +316,24 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
                     <option value="checker">Checkered</option>
                     <option value="gray">Grey</option>
                   </select>
+                </div>
+                <div className="flex items-center justify-between gap-4">
+                  <label htmlFor="frame-color" className="text-base text-[#888]">
+                    Frame Color
+                  </label>
+                  <div className="flex items-center gap-2">
+                    <input
+                      id="frame-color"
+                      type="color"
+                      value={frameColor}
+                      onChange={(event) => setFrameColor(event.target.value)}
+                      className="h-8 w-10 cursor-pointer rounded border border-[#555] bg-[#444] p-1"
+                      aria-label="Frame color"
+                    />
+                    <span className="w-20 font-mono text-sm text-[#A5A5A5]">
+                      {frameColor}
+                    </span>
+                  </div>
                 </div>
               </div>
             </div>

@@ -1,7 +1,12 @@
 import { MIN_CANVAS_ZOOM, MAX_CANVAS_ZOOM } from '@/constants/canvas';
 import { readLocalSettings } from '@/utils/localSettings';
 import { useAppStore } from '@/stores/useAppStore';
-import { getStoredDisplayFilterDefaults, getStoredTransparencyBackgroundMode } from '@/stores/slices/canvasSlice';
+import {
+  DEFAULT_FRAME_COLOR,
+  getStoredDisplayFilterDefaults,
+  getStoredFrameColor,
+  getStoredTransparencyBackgroundMode,
+} from '@/stores/slices/canvasSlice';
 
 describe('canvas slice invariants', () => {
   const reset = () => {
@@ -15,6 +20,7 @@ describe('canvas slice invariants', () => {
         showRulers: false,
         showFPSMeter: true,
         transparencyBackgroundMode: 'checker',
+        frameColor: DEFAULT_FRAME_COLOR,
       },
       canvasViewport: { left: 0, top: 0, width: 0, height: 0 },
     });
@@ -96,6 +102,36 @@ describe('canvas slice invariants', () => {
     }));
 
     expect(getStoredTransparencyBackgroundMode()).toBe('checker');
+  });
+
+  it('persists valid frame colors and ignores invalid values', () => {
+    const before = useAppStore.getState().canvas;
+    useAppStore.getState().setFrameColor('blue');
+    expect(useAppStore.getState().canvas).toBe(before);
+
+    useAppStore.getState().setFrameColor('#335577');
+    expect(useAppStore.getState().canvas.frameColor).toBe('#335577');
+    expect(readLocalSettings().canvas?.frameColor).toBe('#335577');
+  });
+
+  it('restores locally remembered frame color', () => {
+    localStorage.setItem('vessel-settings', JSON.stringify({
+      canvas: {
+        frameColor: '#abcdef',
+      },
+    }));
+
+    expect(getStoredFrameColor()).toBe('#abcdef');
+  });
+
+  it('falls back to the default frame color for invalid stored frame color', () => {
+    localStorage.setItem('vessel-settings', JSON.stringify({
+      canvas: {
+        frameColor: 'transparent',
+      },
+    }));
+
+    expect(getStoredFrameColor()).toBe(DEFAULT_FRAME_COLOR);
   });
 
   it('toggles display filters and sanitizes updates', () => {

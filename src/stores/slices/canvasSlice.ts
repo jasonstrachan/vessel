@@ -22,6 +22,7 @@ export interface CanvasSlice {
   toggleRulers: () => void;
   setShowFPSMeter: (visible: boolean) => void;
   setTransparencyBackgroundMode: (mode: CanvasState['transparencyBackgroundMode']) => void;
+  setFrameColor: (color: string) => void;
   setDisplayMode: (mode: 'pixelated' | 'smooth') => void;
   setDisplayFilters: (filters: CanvasState['displayFilters']) => void;
   setDisplayFilterEnabled: (id: DisplayFilterId, enabled: boolean) => void;
@@ -48,6 +49,16 @@ export const getStoredTransparencyBackgroundMode = (): CanvasState['transparency
   return storedMode === 'gray' || storedMode === 'checker' ? storedMode : 'checker';
 };
 
+const HEX_COLOR_PATTERN = /^#[0-9a-fA-F]{6}$/;
+export const DEFAULT_FRAME_COLOR = '#1A1A1A';
+
+export const getStoredFrameColor = (): string => {
+  const storedColor = readLocalSettings().canvas?.frameColor;
+  return typeof storedColor === 'string' && HEX_COLOR_PATTERN.test(storedColor)
+    ? storedColor
+    : DEFAULT_FRAME_COLOR;
+};
+
 const persistDisplayFilterDefaults = (filters: DisplayFilterConfig[]): void => {
   mergeLocalSettings({
     canvas: {
@@ -63,6 +74,7 @@ export const defaultCanvasState: CanvasState = {
   showRulers: false,
   showFPSMeter: true,
   transparencyBackgroundMode: getStoredTransparencyBackgroundMode(),
+  frameColor: getStoredFrameColor(),
   displayMode: 'pixelated',
   displayFilters: getStoredDisplayFilterDefaults(),
   canvasWidth: 2000,
@@ -149,6 +161,20 @@ export const createCanvasSlice: StateCreator<AppState, [], [], CanvasSlice> = (s
       });
       return {
         canvas: { ...state.canvas, transparencyBackgroundMode: mode },
+      };
+    }),
+  setFrameColor: (color) =>
+    set((state) => {
+      if (!HEX_COLOR_PATTERN.test(color) || state.canvas.frameColor === color) {
+        return state;
+      }
+      mergeLocalSettings({
+        canvas: {
+          frameColor: color,
+        },
+      });
+      return {
+        canvas: { ...state.canvas, frameColor: color },
       };
     }),
   setDisplayMode: (mode) =>

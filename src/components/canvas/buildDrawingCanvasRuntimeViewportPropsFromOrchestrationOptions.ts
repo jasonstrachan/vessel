@@ -16,6 +16,7 @@ interface BuildDrawingCanvasRuntimeViewportPropsFromOrchestrationOptionsArgs {
     | 'canvasZoom'
     | 'displayProjectName'
     | 'displayMode'
+    | 'frameColor'
     | 'temporaryCustomBrush'
     | 'getCustomBrushByIdUnsafe'
   >;
@@ -32,6 +33,7 @@ export const buildDrawingCanvasRuntimeViewportPropsFromOrchestrationOptions = ({
   styleOptions: {
     canvasZoom: state.canvasZoom,
     displayMode: state.displayMode,
+    frameColor: state.frameColor,
     cursorStyle: orchestration.visualRuntime.cursorStyle,
     rotationEnabled: state.tools.brushSettings.rotationEnabled,
     antialiasing: state.tools.brushSettings.antialiasing,

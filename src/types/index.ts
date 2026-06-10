@@ -757,6 +757,7 @@ export interface CanvasState {
   showRulers: boolean;
   showFPSMeter: boolean;
   transparencyBackgroundMode: 'checker' | 'gray';
+  frameColor: string;
   displayMode: 'pixelated' | 'smooth';
   displayFilters: DisplayFilterConfig[];
   canvasWidth: number;

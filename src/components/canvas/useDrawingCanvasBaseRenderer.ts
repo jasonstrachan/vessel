@@ -33,6 +33,19 @@ const CANVAS_TRANSPARENCY_GRAY = '#5a5a5f';
 
 type Point = { x: number; y: number };
 
+export const fillCanvasFrameBackdrop = (
+  ctx: CanvasRenderingContext2D,
+  width: number,
+  height: number,
+  frameColor: string
+): void => {
+  ctx.save();
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.fillStyle = frameColor;
+  ctx.fillRect(0, 0, width, height);
+  ctx.restore();
+};
+
 export const shouldRequestCompositeBitmapRecomposition = (
   invalidBitmap: ImageBitmap | null,
   lastInvalidBitmap: ImageBitmap | null,
@@ -113,6 +126,7 @@ interface UseDrawingCanvasBaseRendererOptions {
   displayMode: 'pixelated' | 'smooth';
   displayFilters: DisplayFilterConfig[];
   transparencyBackgroundMode: 'checker' | 'gray';
+  frameColor: string;
   currentTool: Tool;
   underCompositeCanvasRef: React.MutableRefObject<HTMLCanvasElement | null>;
   underCompositeHasContentRef: React.MutableRefObject<boolean>;
@@ -157,6 +171,7 @@ export const useDrawingCanvasBaseRenderer = ({
   displayMode,
   displayFilters,
   transparencyBackgroundMode,
+  frameColor,
   currentTool,
   underCompositeCanvasRef,
   underCompositeHasContentRef,
@@ -225,11 +240,7 @@ export const useDrawingCanvasBaseRenderer = ({
             project.height
           )
         : null;
-      ctx.save();
-      ctx.setTransform(1, 0, 0, 1, 0, 0);
-      ctx.fillStyle = '#141514';
-      ctx.fillRect(0, 0, canvasPixelWidth, canvasPixelHeight);
-      ctx.restore();
+      fillCanvasFrameBackdrop(ctx, canvasPixelWidth, canvasPixelHeight, frameColor);
 
       if (compositeBitmap == null && lastInvalidCompositeBitmapRef.current !== null) {
         lastInvalidCompositeBitmapRef.current = null;
@@ -465,9 +476,6 @@ export const useDrawingCanvasBaseRenderer = ({
         scale,
         offsetX,
         offsetY,
-        projectWidth: project.width,
-        projectHeight: project.height,
-        activeCanvasShape,
         editorDraftShape: canvasShapeEditor.draft,
         editorActive: canvasShapeEditor.active,
         strokeCanvasShapeOutline,
@@ -506,6 +514,7 @@ export const useDrawingCanvasBaseRenderer = ({
       displayMode,
       displayFilters,
       transparencyBackgroundMode,
+      frameColor,
       currentTool,
       underCompositeCanvasRef,
       underCompositeHasContentRef,

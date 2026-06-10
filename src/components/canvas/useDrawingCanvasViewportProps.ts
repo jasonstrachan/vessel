@@ -24,6 +24,7 @@ interface UseDrawingCanvasViewportPropsOptions {
     ViewportPropSubset,
     | 'canvasStyle'
     | 'overlayCanvasStyle'
+    | 'viewportStyle'
     | 'cursorDescriptor'
     | 'brushCursorVisible'
   >;
@@ -34,7 +35,7 @@ export const useDrawingCanvasViewportProps = ({
   cursorModelOptions,
   viewportOptions,
 }: UseDrawingCanvasViewportPropsOptions): ViewportPropSubset => {
-  const { canvasStyle, overlayCanvasStyle } = useDrawingCanvasStyles(styleOptions);
+  const { canvasStyle, overlayCanvasStyle, viewportStyle } = useDrawingCanvasStyles(styleOptions);
   const { cursorDescriptor, brushCursorVisible } =
     useDrawingCanvasCursorModel(cursorModelOptions);
 
@@ -43,6 +44,7 @@ export const useDrawingCanvasViewportProps = ({
       ...viewportOptions,
       canvasStyle,
       overlayCanvasStyle,
+      viewportStyle,
       cursorDescriptor,
       brushCursorVisible,
     }),
@@ -50,6 +52,7 @@ export const useDrawingCanvasViewportProps = ({
       viewportOptions,
       canvasStyle,
       overlayCanvasStyle,
+      viewportStyle,
       cursorDescriptor,
       brushCursorVisible,
     ]
