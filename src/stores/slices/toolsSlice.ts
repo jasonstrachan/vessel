@@ -16,6 +16,10 @@ import type {
 } from '@/types';
 import { BrushShape } from '@/types';
 import {
+  MAX_CC_LAYER_SPEED_SCALE,
+  MIN_CC_LAYER_SPEED_SCALE,
+} from '@/constants/colorCycle';
+import {
   brushPresets,
   applyBrushPreset,
   defaultBrushSettings,
@@ -64,6 +68,13 @@ const { settings: defaultPresetSettings } = applyBrushPreset(initialBrushPreset)
 const DITHER_BRUSH_IDS = ['dither-stroke', 'dither-shape'];
 const DITHER_ALWAYS_ON_BRUSH_IDS = [...DITHER_BRUSH_IDS, 'dither-grad'];
 const BRUSH_SPECIFIC_DITHER_PATTERN_IDS = ['dither-grad'];
+
+const clampColorCycleLayerSpeedScale = (scale: unknown): number | null => {
+  if (typeof scale !== 'number' || !Number.isFinite(scale)) {
+    return null;
+  }
+  return Math.max(MIN_CC_LAYER_SPEED_SCALE, Math.min(MAX_CC_LAYER_SPEED_SCALE, scale));
+};
 
 const resolveActiveColorCycleLayerGradient = (state: AppState): BrushSettings['colorCycleGradient'] => {
   const activeLayer = state.layers.find((layer) => layer.id === state.activeLayerId);
@@ -2170,9 +2181,21 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
     // Clear temporary brush when switching away from custom brushes
     const brushSpecificSettingsChanged = updatedBrushSpecificSettings !== state.brushSpecificSettings;
 
+    const nextPlaybackSpeedScale = clampColorCycleLayerSpeedScale(
+      newBrushSettings.colorCycleLayerSpeedScale
+    );
+
     const updatedState = {
       ...state,
       ...(brushSpecificSettingsChanged ? { brushSpecificSettings: updatedBrushSpecificSettings } : {}),
+      ...(nextPlaybackSpeedScale !== null
+        ? {
+            colorCyclePlayback: {
+              ...state.colorCyclePlayback,
+              playbackSpeedScale: nextPlaybackSpeedScale,
+            },
+          }
+        : {}),
       currentBrushPreset: preset,
       activeBrushComponents: components,
       globalBrushSize: nextGlobalBrushSize, // Update global size to match new brush

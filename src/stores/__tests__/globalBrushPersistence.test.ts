@@ -390,6 +390,137 @@ describe('global brush persistence', () => {
     );
   });
 
+  it('restores and saves color cycle playback speed scale between sessions', async () => {
+    loadMock.mockReturnValue({
+      brushSpecificSettings: {
+        'color-cycle-stroke': {
+          colorCycleLayerSpeedScale: 0.35,
+        },
+      },
+      lastBrushId: 'color-cycle-stroke',
+    });
+
+    const { useAppStore } = await import('@/stores/useAppStore');
+    const store = useAppStore.getState();
+
+    expect(store.currentBrushPreset?.id).toBe('color-cycle-stroke');
+    expect(store.tools.brushSettings.colorCycleLayerSpeedScale).toBe(0.35);
+    expect(store.colorCyclePlayback.playbackSpeedScale).toBe(0.35);
+
+    store.setPlaybackSpeedScale(0.8);
+    jest.advanceTimersByTime(300);
+
+    const payload = saveMock.mock.calls.at(-1)?.[0];
+    expect(payload?.brushSpecificSettings?.['color-cycle-stroke']).toEqual(
+      expect.objectContaining({
+        colorCycleLayerSpeedScale: 0.8,
+      })
+    );
+  });
+
+  it('hydrates and persists the full color cycle stroke controls bundle', async () => {
+    loadMock.mockReturnValue({
+      brushSpecificSettings: {
+        'color-cycle-stroke': {
+          gradientBands: 64,
+          colorCycleStampDitherEnabled: true,
+          colorCycleStampDitherPixelSize: 1,
+          colorCycleStampDitherPressureLinked: true,
+          colorCycleStampDitherBgFill: false,
+          fillResolution: 1,
+          pressureLinkedFillResolution: true,
+          pressureLinkedFillMaxResolution: 8,
+          lostEdge: 0,
+          rotationEnabled: true,
+          dashedEnabled: true,
+          dashLength: 9,
+          dashGap: 3,
+          gridSnapEnabled: true,
+          gridSnapSize: 12,
+        },
+      },
+      ccBrushDitherSelection: {
+        ditherAlgorithm: 'sierra-lite',
+      },
+      pressureSettings: { enabled: true, min: 12, max: 180 },
+      lastBrushId: 'color-cycle-stroke',
+    });
+
+    const { useAppStore } = await import('@/stores/useAppStore');
+    const store = useAppStore.getState();
+    const active = store.tools.brushSettings;
+
+    expect(store.currentBrushPreset?.id).toBe('color-cycle-stroke');
+    expect(active.gradientBands).toBe(64);
+    expect(active.ditherAlgorithm).toBe('sierra-lite');
+    expect(active.colorCycleStampDitherEnabled).toBe(true);
+    expect(active.colorCycleStampDitherPixelSize).toBe(1);
+    expect(active.colorCycleStampDitherPressureLinked).toBe(true);
+    expect(active.colorCycleStampDitherBgFill).toBe(false);
+    expect(active.fillResolution).toBe(1);
+    expect(active.pressureLinkedFillResolution).toBe(true);
+    expect(active.pressureLinkedFillMaxResolution).toBe(8);
+    expect(active.pressureEnabled).toBe(true);
+    expect(active.minPressure).toBe(12);
+    expect(active.maxPressure).toBe(180);
+    expect(active.lostEdge).toBe(0);
+    expect(active.rotationEnabled).toBe(true);
+    expect(active.dashedEnabled).toBe(true);
+    expect(active.dashLength).toBe(9);
+    expect(active.dashGap).toBe(3);
+    expect(active.gridSnapEnabled).toBe(true);
+    expect(active.gridSnapSize).toBe(12);
+
+    store.setBrushSettings({
+      gradientBands: 64,
+      ditherAlgorithm: 'sierra-lite',
+      colorCycleStampDitherEnabled: true,
+      colorCycleStampDitherPixelSize: 1,
+      colorCycleStampDitherPressureLinked: true,
+      colorCycleStampDitherBgFill: true,
+      fillResolution: 1,
+      pressureLinkedFillResolution: true,
+      pressureLinkedFillMaxResolution: 10,
+      pressureEnabled: true,
+      minPressure: 14,
+      maxPressure: 190,
+      lostEdge: 0,
+      rotationEnabled: true,
+      dashedEnabled: true,
+      dashLength: 11,
+      dashGap: 4,
+      gridSnapEnabled: true,
+      gridSnapSize: 16,
+    });
+
+    jest.advanceTimersByTime(300);
+    const payload = saveMock.mock.calls.at(-1)?.[0];
+    expect(payload?.ccBrushDitherSelection).toEqual({
+      ditherAlgorithm: 'sierra-lite',
+    });
+    expect(payload?.pressureSettings).toEqual({ enabled: true, min: 14, max: 190 });
+    expect(payload?.brushSpecificSettings?.['color-cycle-stroke']).toEqual(
+      expect.objectContaining({
+        gradientBands: 64,
+        colorCycleStampDitherEnabled: true,
+        colorCycleStampDitherPixelSize: 1,
+        colorCycleStampDitherPressureLinked: true,
+        colorCycleStampDitherBgFill: true,
+        fillResolution: 1,
+        pressureLinkedFillResolution: true,
+        pressureLinkedFillMaxResolution: 10,
+        lostEdge: 0,
+        rotationEnabled: true,
+        dashedEnabled: true,
+        dashLength: 11,
+        dashGap: 4,
+        gridSnapEnabled: true,
+        gridSnapSize: 16,
+      })
+    );
+    expect(payload?.brushSpecificSettings?.['color-cycle-stroke']?.ditherAlgorithm).toBeUndefined();
+  });
+
   it('persists color cycle gradient dither resolution settings per brush', async () => {
     loadMock.mockReturnValue({
       brushSpecificSettings: {

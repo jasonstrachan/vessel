@@ -3,6 +3,7 @@ import {
   MAX_CC_LAYER_SPEED_SCALE,
   MIN_CC_LAYER_SPEED_SCALE,
 } from '@/constants/colorCycle';
+import { BrushShape } from '@/types';
 
 type AppState = import('../useAppStore').AppState;
 
@@ -77,20 +78,44 @@ const clampPlaybackSpeedScale = (scale: number): number =>
     ? Math.max(MIN_CC_LAYER_SPEED_SCALE, Math.min(MAX_CC_LAYER_SPEED_SCALE, scale))
     : 1;
 
-const applyPlaybackSpeedScale = (state: AppState, scale: number) => ({
-  colorCyclePlayback: {
-    ...state.colorCyclePlayback,
-    playbackSpeedScale: scale,
-  },
-  // Keep runtime playback state and the persisted brush-settings cache in sync.
-  tools: {
-    ...state.tools,
-    brushSettings: {
-      ...state.tools.brushSettings,
-      colorCycleLayerSpeedScale: scale,
+const getActiveBrushStorageId = (state: AppState): string | null => {
+  if (state.currentBrushPreset?.id) {
+    return state.currentBrushPreset.id;
+  }
+  const settings = state.tools.brushSettings;
+  return settings.brushShape === BrushShape.CUSTOM && settings.selectedCustomBrush
+    ? settings.selectedCustomBrush
+    : null;
+};
+
+const applyPlaybackSpeedScale = (state: AppState, scale: number) => {
+  const activeBrushId = getActiveBrushStorageId(state);
+  return {
+    colorCyclePlayback: {
+      ...state.colorCyclePlayback,
+      playbackSpeedScale: scale,
     },
-  },
-});
+    // Keep runtime playback state and the persisted brush-settings cache in sync.
+    tools: {
+      ...state.tools,
+      brushSettings: {
+        ...state.tools.brushSettings,
+        colorCycleLayerSpeedScale: scale,
+      },
+    },
+    ...(activeBrushId
+      ? {
+          brushSpecificSettings: {
+            ...state.brushSpecificSettings,
+            [activeBrushId]: {
+              ...(state.brushSpecificSettings[activeBrushId] ?? {}),
+              colorCycleLayerSpeedScale: scale,
+            },
+          },
+        }
+      : {}),
+  };
+};
 
 export const createColorCycleSlice: StateCreator<AppState, [], [], ColorCycleSlice> = (set) => {
   const playColorCycle = (reason: CCReason) => {

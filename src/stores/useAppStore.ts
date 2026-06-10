@@ -278,6 +278,10 @@ import { createCanvasSlice } from '@/stores/slices/canvasSlice';
 import { createCanvasShapeSlice, type CanvasShapeEditorState } from '@/stores/slices/canvasShapeSlice';
 import { loadGlobalBrushSettings, saveGlobalBrushSettings } from '@/utils/brushSettingsStorage';
 import type { GlobalBrushSettingsPayload } from '@/utils/brushSettingsStorage';
+import {
+  MAX_CC_LAYER_SPEED_SCALE,
+  MIN_CC_LAYER_SPEED_SCALE,
+} from '@/constants/colorCycle';
 import { loadWebglExportSettings, saveWebglExportSettings } from '@/utils/webglExportSettingsStorage';
 import { loadSequentialSettings, saveSequentialSettings } from '@/utils/sequentialSettingsStorage';
 import { setGradientApplyStateGetter } from '@/hooks/brushEngine/ccGradientApplyScheduler';
@@ -991,6 +995,13 @@ const getActiveBrushStorageId = (state: AppState): string | null => {
   return null;
 };
 
+const clampColorCycleLayerSpeedScale = (scale: unknown): number | null => {
+  if (typeof scale !== 'number' || !Number.isFinite(scale)) {
+    return null;
+  }
+  return Math.max(MIN_CC_LAYER_SPEED_SCALE, Math.min(MAX_CC_LAYER_SPEED_SCALE, scale));
+};
+
 const hydrateGlobalBrushSettings = (): void => {
   const payload = loadGlobalBrushSettings();
   if (!payload) {
@@ -1095,6 +1106,15 @@ const hydrateGlobalBrushSettings = (): void => {
 
     if (nextTools !== state.tools) {
       partial.tools = nextTools;
+    }
+    const storedPlaybackScale = clampColorCycleLayerSpeedScale(
+      nextTools.brushSettings.colorCycleLayerSpeedScale
+    );
+    if (storedPlaybackScale !== null) {
+      partial.colorCyclePlayback = {
+        ...state.colorCyclePlayback,
+        playbackSpeedScale: storedPlaybackScale,
+      };
     }
 
     return Object.keys(partial).length > 0 ? partial : state;

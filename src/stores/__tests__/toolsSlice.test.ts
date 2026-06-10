@@ -147,11 +147,19 @@ describe('tools slice', () => {
 
   it('mirrors playback speed scale into persisted brush settings', () => {
     const store = useAppStore.getState();
+    const strokePreset = brushPresets.find((preset) => preset.id === 'color-cycle-stroke');
+    expect(strokePreset).toBeTruthy();
+    if (!strokePreset) {
+      return;
+    }
+
+    store.setBrushPreset(strokePreset, true);
     store.setPlaybackSpeedScale(0.6);
 
     const state = useAppStore.getState();
     expect(state.colorCyclePlayback.playbackSpeedScale).toBe(0.6);
     expect(state.tools.brushSettings.colorCycleLayerSpeedScale).toBe(0.6);
+    expect(state.brushSpecificSettings['color-cycle-stroke']?.colorCycleLayerSpeedScale).toBe(0.6);
   });
 
   it('enables dither background fill by default', () => {
