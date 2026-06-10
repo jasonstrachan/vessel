@@ -307,6 +307,10 @@ const concentricFillMocks = jest.requireMock('@/utils/colorCycle/concentricFillC
   fillConcentricIndices: jest.Mock;
   computeConcentricMaxDistance: jest.Mock;
 };
+const colorCycleFillClientMocks = jest.requireMock('@/workers/colorCycleFillClient') as {
+  runConcentricFillJob: jest.Mock;
+  runPerceptualDitherJob: jest.Mock;
+};
 
 const makeCanvas = () => {
   const canvas = document.createElement('canvas');
@@ -1495,6 +1499,47 @@ describe('ColorCycleBrushCanvas2D', () => {
 
     expect(new Set(speedData).size).toBe(1);
     expect(new Set(phaseData).size).toBe(1);
+  });
+
+  it('falls back to CPU concentric fill when the worker rejects', async () => {
+    const canvas = document.createElement('canvas');
+    canvas.width = 640;
+    canvas.height = 480;
+    canvas.getContext = jest.fn(() => ({
+      clearRect: jest.fn(),
+      drawImage: jest.fn(),
+      putImageData: jest.fn(),
+      getImageData: jest.fn(() => ({
+        data: new Uint8ClampedArray(canvas.width * canvas.height * 4),
+        width: canvas.width,
+        height: canvas.height,
+      })),
+      save: jest.fn(),
+      restore: jest.fn(),
+    })) as any;
+    const brush = new ColorCycleBrushCanvas2D(canvas);
+
+    brush.setDitherEnabled(false);
+    colorCycleFillClientMocks.runConcentricFillJob.mockRejectedValueOnce(new Error('worker stalled'));
+    concentricFillMocks.fillConcentricIndices.mockResolvedValueOnce(undefined);
+
+    await brush.fillShapeDispatch({
+      mode: 'concentric',
+      vertices: [
+        { x: 0, y: 0 },
+        { x: 639, y: 0 },
+        { x: 639, y: 479 },
+        { x: 0, y: 479 },
+      ],
+      layerId: 'layer-1',
+      options: {
+        ccGradient: true,
+        spacing: 1,
+      },
+    });
+
+    expect(colorCycleFillClientMocks.runConcentricFillJob).toHaveBeenCalled();
+    expect(concentricFillMocks.fillConcentricIndices).toHaveBeenCalled();
   });
 
   it('derives different stable base phases for different shape seeds', () => {

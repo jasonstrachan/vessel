@@ -9,6 +9,7 @@ import type {
 
 let workerPromise: Promise<Worker> | null = null;
 let jobCounter = 0;
+const COLOR_CYCLE_FILL_JOB_TIMEOUT_MS = 10_000;
 
 const getWorker = () => {
   if (!workerPromise) {
@@ -28,26 +29,58 @@ const runWorkerJob = async <TJob extends ColorCycleFillJob, TResult extends Colo
   const worker = await getWorker();
   const id = ++jobCounter;
   return new Promise((resolve, reject) => {
+    let settled = false;
+    let timeoutId: ReturnType<typeof setTimeout> | null = null;
+    const resetWorker = () => {
+      workerPromise = null;
+      try {
+        worker.terminate();
+      } catch {}
+    };
+    const cleanup = () => {
+      if (timeoutId !== null) {
+        clearTimeout(timeoutId);
+        timeoutId = null;
+      }
+      worker.removeEventListener('message', handleMessage);
+      worker.removeEventListener('error', handleError);
+    };
+    const settleResolve = (result: TResult) => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      cleanup();
+      resolve(result);
+    };
+    const settleReject = (error: unknown) => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      cleanup();
+      reject(error);
+    };
     const handleMessage = (event: MessageEvent) => {
       const data = event.data as { id: number; ok: boolean; type: ColorCycleFillJob['type']; result?: ColorCycleFillResult; error?: string };
       if (data.id !== id || data.type !== job.type) {
         return;
       }
-      worker.removeEventListener('message', handleMessage);
-      worker.removeEventListener('error', handleError);
       if (data.ok && data.result) {
-        resolve(data.result as TResult);
+        settleResolve(data.result as TResult);
       } else {
-        reject(new Error(data.error || 'colorCycle fill worker failed'));
+        settleReject(new Error(data.error || 'colorCycle fill worker failed'));
       }
     };
     const handleError = (err: ErrorEvent) => {
-      worker.removeEventListener('message', handleMessage);
-      worker.removeEventListener('error', handleError);
-      reject(err.error || new Error(err.message));
+      resetWorker();
+      settleReject(err.error || new Error(err.message));
     };
     worker.addEventListener('message', handleMessage);
     worker.addEventListener('error', handleError);
+    timeoutId = setTimeout(() => {
+      settleReject(new Error(`colorCycle fill worker timed out after ${COLOR_CYCLE_FILL_JOB_TIMEOUT_MS}ms`));
+    }, COLOR_CYCLE_FILL_JOB_TIMEOUT_MS);
     const transfer: ArrayBuffer[] = [];
     if ('pixels' in job && job.pixels) {
       transfer.push(job.pixels as ArrayBuffer);

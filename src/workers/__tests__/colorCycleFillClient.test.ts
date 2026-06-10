@@ -2,15 +2,43 @@
 import { runPerceptualDitherJob, runConcentricFillJob } from '../colorCycleFillClient';
 
 class FakeWorker implements Worker {
+  static shouldRespond = true;
+  static queueResponses = false;
+  static queuedMessages: Array<{ worker: FakeWorker; payload: any }> = [];
   onmessage: ((this: Worker, ev: MessageEvent<any>) => any) | null = null;
   onmessageerror: ((this: Worker, ev: MessageEvent<any>) => any) | null = null;
   onerror: ((this: AbstractWorker, ev: ErrorEvent) => any) | null = null;
+  private terminated = false;
   private listeners: Record<'message' | 'error', Set<EventListener>> = {
     message: new Set(),
     error: new Set(),
   };
 
   postMessage = jest.fn((payload: any) => {
+    if (!FakeWorker.shouldRespond) {
+      return;
+    }
+    if (FakeWorker.queueResponses) {
+      FakeWorker.queuedMessages.push({ worker: this, payload });
+      return;
+    }
+    this.respond(payload);
+  });
+  terminate = jest.fn(() => {
+    this.terminated = true;
+  });
+  addEventListener = (type: 'message' | 'error', listener: EventListener) => {
+    this.listeners[type].add(listener);
+  };
+  removeEventListener = (type: 'message' | 'error', listener: EventListener) => {
+    this.listeners[type].delete(listener);
+  };
+  dispatchEvent = () => true;
+
+  respond(payload: any) {
+    if (this.terminated) {
+      return;
+    }
     const { id, job } = payload;
     if (!job) return;
     const base = { id, type: job.type, ok: true };
@@ -21,15 +49,7 @@ class FakeWorker implements Worker {
       const response = { ...base, result: { width: 1, height: 1, indices: new ArrayBuffer(3) } };
       this.emit('message', { data: response } as any);
     }
-  });
-  terminate = jest.fn();
-  addEventListener = (type: 'message' | 'error', listener: EventListener) => {
-    this.listeners[type].add(listener);
-  };
-  removeEventListener = (type: 'message' | 'error', listener: EventListener) => {
-    this.listeners[type].delete(listener);
-  };
-  dispatchEvent = () => true;
+  }
 
   emit(type: 'message' | 'error', event: any) {
     this.listeners[type].forEach((l) => l(event));
@@ -40,6 +60,13 @@ class FakeWorker implements Worker {
 (global as any).Worker = FakeWorker as unknown as typeof Worker;
 
 describe('colorCycleFillClient', () => {
+  beforeEach(() => {
+    FakeWorker.shouldRespond = true;
+    FakeWorker.queueResponses = false;
+    FakeWorker.queuedMessages = [];
+    jest.useRealTimers();
+  });
+
   it('resolves perceptual dither job', async () => {
     const result = await runPerceptualDitherJob({
       type: 'perceptual-dither',
@@ -69,5 +96,71 @@ describe('colorCycleFillClient', () => {
       noiseSeed: 1,
     });
     expect(result.width).toBe(1);
+  });
+
+  it('rejects a concentric fill job when the worker never responds', async () => {
+    jest.useFakeTimers();
+    FakeWorker.shouldRespond = false;
+
+    const pending = runConcentricFillJob({
+      type: 'concentric-fill',
+      vertices: new Float32Array([0, 0, 1, 0, 1, 1]),
+      bbox: { minX: 0, minY: 0, width: 1, height: 1 },
+      bands: 4,
+      baseOffset: 0,
+      maxDist: 1,
+      ditherEnabled: false,
+      ditherStrength: 0,
+      ditherPixelSize: 1,
+      noiseSeed: 1,
+    });
+
+    const rejection = expect(pending).rejects.toThrow(/timed out/);
+
+    await jest.advanceTimersByTimeAsync(10_001);
+    await rejection;
+  });
+
+  it('does not terminate the shared worker when one in-flight job times out', async () => {
+    jest.useFakeTimers();
+    FakeWorker.queueResponses = true;
+
+    const timedOut = runConcentricFillJob({
+      type: 'concentric-fill',
+      vertices: new Float32Array([0, 0, 1, 0, 1, 1]),
+      bbox: { minX: 0, minY: 0, width: 1, height: 1 },
+      bands: 4,
+      baseOffset: 0,
+      maxDist: 1,
+      ditherEnabled: false,
+      ditherStrength: 0,
+      ditherPixelSize: 1,
+      noiseSeed: 1,
+    });
+    const timedOutRejection = expect(timedOut).rejects.toThrow(/timed out/);
+
+    await jest.advanceTimersByTimeAsync(5_000);
+
+    const stillValid = runConcentricFillJob({
+      type: 'concentric-fill',
+      vertices: new Float32Array([0, 0, 1, 0, 1, 1]),
+      bbox: { minX: 0, minY: 0, width: 1, height: 1 },
+      bands: 4,
+      baseOffset: 0,
+      maxDist: 1,
+      ditherEnabled: false,
+      ditherStrength: 0,
+      ditherPixelSize: 1,
+      noiseSeed: 1,
+    });
+
+    await jest.advanceTimersByTimeAsync(5_001);
+    await timedOutRejection;
+
+    const secondMessage = FakeWorker.queuedMessages[1];
+    expect(secondMessage).toBeTruthy();
+    secondMessage.worker.respond(secondMessage.payload);
+
+    await expect(stillValid).resolves.toEqual(expect.objectContaining({ width: 1 }));
   });
 });
