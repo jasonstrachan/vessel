@@ -99,6 +99,7 @@ function getBaseBrush(): BrushSettings {
     dashLength: 1,
     dashGap: 1,
     gridSnapEnabled: false,
+    gridSnapSize: 16,
     shapeEnabled: false,
     colorJitter: 0,
     risographIntensity: 0,
@@ -258,6 +259,21 @@ describe('BrushControls – Dither Gradient', () => {
 
     const store = useAppStore.getState();
     expect(store.setBrushSettings).toHaveBeenCalledWith({ ditherGradBgFill: false });
+  });
+
+  it('toggles grid snap and updates grid size', () => {
+    render(<BrushControls />);
+    const gridToggle = screen.getByLabelText('grid-snap-enabled-dither-grad') as HTMLInputElement;
+
+    expect(gridToggle.checked).toBe(false);
+    fireEvent.click(gridToggle);
+
+    const gridSize = screen.getByLabelText('Dither Gradient Grid Size') as HTMLInputElement;
+    fireEvent.change(gridSize, { target: { value: '24' } });
+
+    const store = useAppStore.getState();
+    expect(store.setBrushSettings).toHaveBeenCalledWith({ gridSnapEnabled: true });
+    expect(store.setBrushSettings).toHaveBeenCalledWith({ gridSnapSize: 24 });
   });
 
   it('clamps trans when reducing color count', () => {

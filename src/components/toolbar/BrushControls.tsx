@@ -3944,6 +3944,41 @@ const BrushControls = () => {
             />
           </div>
         </div>
+
+        <div className="mb-2">
+          <div className="flex items-center gap-2">
+            <label
+              htmlFor="grid-snap-enabled-dither-grad"
+              className="text-[#D9D9D9] w-16"
+              style={{ fontSize: '14px' }}
+            >
+              Grid Snap
+            </label>
+            <CustomSwitch
+              id="grid-snap-enabled-dither-grad"
+              checked={activeSettings.gridSnapEnabled || false}
+              onChange={(checked) => setActiveSettings({ gridSnapEnabled: checked })}
+            />
+            <Input
+              type="number"
+              variant="compact"
+              value={Math.max(1, Math.round(activeSettings.gridSnapSize ?? 16))}
+              onChange={(e) => {
+                const next = Number(e.target.value);
+                if (!Number.isFinite(next)) return;
+                setActiveSettings({ gridSnapSize: Math.max(1, Math.min(256, Math.round(next))) });
+              }}
+              min="1"
+              max="256"
+              aria-label="Dither Gradient Grid Size"
+              className="w-14 bg-transparent text-right"
+              title="Grid size in pixels"
+            />
+            <span className="text-[#D9D9D9]" style={{ fontSize: '12px' }}>
+              px
+            </span>
+          </div>
+        </div>
       </div>
     );
   }

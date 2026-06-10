@@ -268,6 +268,75 @@ describe('global brush persistence', () => {
     );
   });
 
+  it('restores and persists grid snap for dither brush presets', async () => {
+    loadMock.mockReturnValue({
+      brushSpecificSettings: {
+        'dither-stroke': {
+          gridSnapEnabled: false,
+          gridSnapSize: 9,
+        },
+        'dither-shape': {
+          gridSnapEnabled: false,
+          gridSnapSize: 11,
+        },
+        'dither-grad': {
+          gridSnapEnabled: false,
+          gridSnapSize: 13,
+        },
+      },
+      lastBrushId: 'dither-stroke',
+    });
+
+    const {
+      pixelDitherPreset,
+      shapeDitherPreset,
+      ditherGradientBrushPreset,
+    } = await import('@/presets/brushPresets');
+    const { useAppStore } = await import('@/stores/useAppStore');
+    const store = useAppStore.getState();
+
+    expect(store.currentBrushPreset?.id).toBe('dither-stroke');
+    expect(store.tools.brushSettings.gridSnapEnabled).toBe(false);
+    expect(store.tools.brushSettings.gridSnapSize).toBe(9);
+
+    store.setBrushPreset(shapeDitherPreset);
+    expect(useAppStore.getState().tools.brushSettings.gridSnapEnabled).toBe(false);
+    expect(useAppStore.getState().tools.brushSettings.gridSnapSize).toBe(11);
+
+    store.setBrushPreset(ditherGradientBrushPreset);
+    expect(useAppStore.getState().tools.brushSettings.gridSnapEnabled).toBe(false);
+    expect(useAppStore.getState().tools.brushSettings.gridSnapSize).toBe(13);
+
+    store.setBrushSettings({
+      gridSnapEnabled: true,
+      gridSnapSize: 21,
+    });
+    jest.advanceTimersByTime(300);
+
+    const payload = saveMock.mock.calls.at(-1)?.[0];
+    expect(payload?.brushSpecificSettings?.['dither-grad']).toEqual(
+      expect.objectContaining({
+        gridSnapEnabled: true,
+        gridSnapSize: 21,
+      })
+    );
+
+    store.setBrushPreset(pixelDitherPreset);
+    store.setBrushSettings({
+      gridSnapEnabled: false,
+      gridSnapSize: 7,
+    });
+    jest.advanceTimersByTime(300);
+
+    const updated = saveMock.mock.calls.at(-1)?.[0];
+    expect(updated?.brushSpecificSettings?.['dither-stroke']).toEqual(
+      expect.objectContaining({
+        gridSnapEnabled: false,
+        gridSnapSize: 7,
+      })
+    );
+  });
+
   it('persists color cycle stroke settings per brush', async () => {
     loadMock.mockReturnValue({
       brushSpecificSettings: {
