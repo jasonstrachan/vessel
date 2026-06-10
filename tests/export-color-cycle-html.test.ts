@@ -1227,6 +1227,48 @@ describe('exportProjectAsWebGL color cycle integration', () => {
     });
   });
 
+  it('keeps stamp-dither brush payloads full-size to preserve Goblet pixel aspect', async () => {
+    const canvas = document.createElement('canvas');
+    canvas.width = 128;
+    canvas.height = 128;
+
+    const layer = createSparseBrushModeLayer(canvas);
+    const sparseBrush = layer.colorCycleData?.colorCycleBrush;
+    layer.colorCycleData!.colorCycleBrush = {
+      ...sparseBrush,
+      serialize: () => ({
+        ...(sparseBrush?.serialize?.() ?? {}),
+        stampDitherEnabled: true,
+        stampDitherBgFill: true,
+      }),
+    } as unknown as Layer['colorCycleData']['colorCycleBrush'];
+    const project = createProject(layer);
+
+    const metadata = await exportProjectAsWebGL({
+      project,
+      layers: [layer],
+      layout: createDefaultExportLayout(),
+      viewport: { designWidth: project.width, designHeight: project.height, mode: 'fixed' },
+      fps: 24,
+      totalFrames: 48,
+      durationSeconds: 2,
+      perfectLoop: false,
+      includeHiddenLayers: true,
+      embedCanvasFallback: false,
+      minify: false,
+      filenameBase: 'color-cycle-brush-stamp-dither-full-surface',
+      bundleFormat: 'json',
+      gobletVersion: 'goblet2'
+    });
+
+    const exportedLayer = metadata.layers[0];
+    expect(exportedLayer.source).toEqual({ width: 128, height: 128 });
+    expect(exportedLayer.colorCycle?.brushState?.width).toBe(8);
+    expect(exportedLayer.colorCycle?.brushState?.height).toBe(8);
+    expect(exportedLayer.colorCycle?.coverageBoundsPx).toBeUndefined();
+    expect(exportedLayer.colorCycle?.coverageBoundsSourcePx).toBeUndefined();
+  });
+
   it('preserves cropped brush document placement in fixed pixel-perfect exports', async () => {
     const canvas = document.createElement('canvas');
     canvas.width = 128;

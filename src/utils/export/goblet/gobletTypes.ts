@@ -103,6 +103,7 @@ export interface WebGLSerializedBrushState {
   targetFPS?: number;
   flowDirection?: 'forward' | 'reverse' | 'pingpong';
   alphaMode?: 'source' | 'opaque-indices';
+  stampDitherEnabled?: boolean;
 }
 
 export interface WebGLSerializedColorCycle {

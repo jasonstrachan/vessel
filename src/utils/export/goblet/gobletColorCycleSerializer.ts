@@ -1009,6 +1009,9 @@ const persistenceDocumentStateToBrushState = (
   const animationSpeed = typeof animationSpeedSource === 'number'
     ? animationSpeedSource
     : resolveLayerColorCycleBaseSpeed(layer.colorCycleData);
+  const stampDitherEnabled = typeof metadata?.stampDitherEnabled === 'boolean'
+    ? metadata.stampDitherEnabled
+    : undefined;
   const paletteSource = layerMetadata?.exportPalette ?? layerMetadata?.animator?.indexBuffer?.palette;
   const palette = paletteSource
     ? toSerializablePaletteArray(paletteSource)
@@ -1029,6 +1032,7 @@ const persistenceDocumentStateToBrushState = (
     animationSpeed,
     targetFPS,
     alphaMode: 'opaque-indices',
+    stampDitherEnabled,
   };
 };
 
@@ -2203,6 +2207,7 @@ export const extractBrushStateFromSavedSnapshot = (layer: Layer): WebGLSerialize
   const savedState = layer.colorCycleData?.brushState as {
     cycleSpeed?: unknown;
     fps?: unknown;
+    stampDitherEnabled?: unknown;
     layers?: Array<{
       layerId?: string;
       animator?: {
@@ -2330,6 +2335,9 @@ export const extractBrushStateFromSavedSnapshot = (layer: Layer): WebGLSerialize
   const animationSpeed = Number.isFinite(Number(savedState.cycleSpeed))
     ? Number(savedState.cycleSpeed)
     : undefined;
+  const stampDitherEnabled = typeof savedState.stampDitherEnabled === 'boolean'
+    ? savedState.stampDitherEnabled
+    : undefined;
 
   return {
     width,
@@ -2345,7 +2353,8 @@ export const extractBrushStateFromSavedSnapshot = (layer: Layer): WebGLSerialize
     animationOffset,
     targetFPS,
     animationSpeed,
-    alphaMode: 'opaque-indices'
+    alphaMode: 'opaque-indices',
+    stampDitherEnabled,
   };
 };
 
@@ -2396,6 +2405,7 @@ export const serializeBrushState = (layer: Layer): WebGLSerializedBrushState | u
   if (brush?.serialize) {
     try {
       const raw = brush.serialize() as {
+        stampDitherEnabled?: unknown;
         layers?: Array<{
           layerId?: string;
           data?: {
@@ -2659,7 +2669,10 @@ export const serializeBrushState = (layer: Layer): WebGLSerializedBrushState | u
                 gradientStops,
                 palette,
                 animationOffset,
-                targetFPS
+                targetFPS,
+                stampDitherEnabled: typeof raw.stampDitherEnabled === 'boolean'
+                  ? raw.stampDitherEnabled
+                  : undefined,
               };
 
               const animationData = entry.data?.animation as { flowDirection?: unknown; stats?: { flowDirection?: unknown } } | undefined;
@@ -2740,7 +2753,10 @@ export const serializeBrushState = (layer: Layer): WebGLSerializedBrushState | u
             gradientStops,
             animationOffset,
             targetFPS,
-            alphaMode: 'opaque-indices'
+            alphaMode: 'opaque-indices',
+            stampDitherEnabled: typeof raw.stampDitherEnabled === 'boolean'
+              ? raw.stampDitherEnabled
+              : undefined,
           };
 
           const flowDirection = detectBrushFlowDirection(brush, layer.id);
@@ -3459,14 +3475,15 @@ export const serializeColorCycleDataFromResolvedLayer = async (
     }
   }
 
-  const coverage = computeColorCycleCoverage({
+  const canCropBrushCoverage = brushState?.stampDitherEnabled !== true;
+  const coverage = canCropBrushCoverage ? computeColorCycleCoverage({
     layer,
     project,
     brushState,
     recolorIndexBuffer: data.recolorSettings?.indexBuffer ?? null,
     recolorSurface,
     maskDataset: coverageMaskDataset
-  });
+  }) : undefined;
 
   if (coverage) {
     serialized.coverageBoundsPx = coverage.document;
