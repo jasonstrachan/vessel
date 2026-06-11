@@ -17,15 +17,17 @@ import type { BrushEngine } from '@/hooks/useBrushEngineSimplified';
 import type { ShapeInteractionPhase } from '@/hooks/canvas/useDrawingHandlerRefs';
 import {
   beginMarkGradientSession,
+  cancelMarkGradientSession,
   captureFrozenCcDitherRenderConfig,
   finalizeMarkGradientSession,
+  getActiveMarkGradientSession,
   type MarkGradientSession,
 } from '@/hooks/canvas/utils/colorCycleMarkSession';
 import {
   dedupeSequentialPoints,
   isColorCycleGradientShapePreset,
 } from '@/hooks/brushEngine/colorCycleGridSnap';
-import { resolveActiveColorCycleGradient } from '@/hooks/canvas/utils/colorCycleHelpers';
+import { cloneStops, resolveActiveColorCycleGradient } from '@/hooks/canvas/utils/colorCycleHelpers';
 import { hashStops, type GradientDefSource, type StoredStop } from '@/utils/colorCycleGradientDefs';
 import { debugLog, isDebugEnabled, debugWarn } from '@/utils/debug';
 import { recordSampledCcShapeBreadcrumb } from '@/hooks/canvas/utils/sampledCcShapeBreadcrumbs';
@@ -214,7 +216,23 @@ const resolveShapeSampleColor = (
   return sampled ?? fallbackColor;
 };
 
-const beginFinalSampledShapeSession = (params: {
+const applyFinalSampledShapeStops = ({
+  session,
+  fallbackStops,
+  finalPreviewStops,
+  gradientKind,
+}: {
+  session: MarkGradientSession;
+  fallbackStops: StoredStop[];
+  finalPreviewStops: StoredStop[] | null;
+  gradientKind: 'linear' | 'concentric';
+}): void => {
+  session.fallbackStopsStored = cloneStops(fallbackStops);
+  session.previewStopsStored = finalPreviewStops ? cloneStops(finalPreviewStops) : null;
+  session.previewHash = finalPreviewStops ? hashStops(finalPreviewStops, gradientKind) : '';
+};
+
+const prepareFinalSampledShapeSession = (params: {
   layer: Layer;
   state: AppState;
   shapePoints: Array<{ x: number; y: number }>;
@@ -271,7 +289,27 @@ const beginFinalSampledShapeSession = (params: {
     previewRawPointCount: previewStopsFromLivePreview?.rawPointCount ?? null,
   });
 
-  const session = beginMarkGradientSession({
+  let session = getActiveMarkGradientSession(params.layer.id);
+  if (session && session.source !== 'sampled') {
+    debugWarn('raw-console', '[CC] Active mark session was not sampled during sampled shape finalize', {
+      layerId: params.layer.id,
+      sessionSource: session.source,
+      markKind: session.markKind,
+    });
+    cancelMarkGradientSession(params.layer.id);
+    session = null;
+  } else if (session && session.gradientKind !== gradientKind) {
+    debugWarn('raw-console', '[CC] Active sampled mark session fill mode changed before sampled shape finalize', {
+      layerId: params.layer.id,
+      sessionGradientKind: session.gradientKind,
+      finalizeGradientKind: gradientKind,
+      markKind: session.markKind,
+    });
+    cancelMarkGradientSession(params.layer.id);
+    session = null;
+  }
+
+  session ??= beginMarkGradientSession({
     layerId: params.layer.id,
     markKind: 'shape',
     gradientKind,
@@ -283,9 +321,12 @@ const beginFinalSampledShapeSession = (params: {
     return null;
   }
 
-  session.fallbackStopsStored = fallbackStops;
-  session.previewStopsStored = finalPreviewStops;
-  session.previewHash = finalPreviewStops ? hashStops(finalPreviewStops, gradientKind) : '';
+  applyFinalSampledShapeStops({
+    session,
+    fallbackStops,
+    finalPreviewStops,
+    gradientKind,
+  });
   recordSampledCcShapeBreadcrumb({
     event: 'sampled-final-session-stops',
     activeLayerId: params.layer.id,
@@ -1383,7 +1424,7 @@ export const finalizeShapeDrawing = async (
                 layerId: targetLayer.id,
                 pointCount: shapePointsSnapshot.length,
               });
-              beginFinalSampledShapeSession({
+              prepareFinalSampledShapeSession({
                 layer: targetLayer,
                 state: currentFinalizeState,
                 shapePoints: shapePointsSnapshot,
@@ -1596,7 +1637,7 @@ export const finalizeShapeDrawing = async (
                     layerId: targetLayer.id,
                     pointCount: shapePointsSnapshot.length,
                   });
-                  beginFinalSampledShapeSession({
+                  prepareFinalSampledShapeSession({
                     layer: targetLayer,
                     state: currentFinalizeState,
                     shapePoints: shapePointsSnapshot,
@@ -1855,4 +1896,6 @@ export const __TESTING__ = {
   resolveCapturedShapeFinalizeLayer,
   shouldSkipRasterFallbackAfterColorCycleFinalize,
   resolveFinalSampledShapeSourcePoints,
+  applyFinalSampledShapeStops,
+  prepareFinalSampledShapeSession,
 };
