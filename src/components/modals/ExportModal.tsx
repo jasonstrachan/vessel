@@ -600,7 +600,6 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
       minifyOutput: true,
       enableGobletDiagnostics: false,
       embedCanvasFallback: false,
-      includeHiddenLayers: false,
       htmlTitle: (webglHtmlTitle || 'Goblet').trim() || 'Goblet',
     });
   }, [updateWebglExportSettings, webglHtmlTitle]);

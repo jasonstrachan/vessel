@@ -291,6 +291,64 @@ describe('project slice lifecycle flows', () => {
     expect(Array.from(savedImageData?.data.slice(0, 4) ?? [])).toEqual([12, 34, 56, 255]);
   });
 
+  it('does not resurrect stale color-cycle preview pixels when saving a cleared layer', async () => {
+    const canvas = document.createElement('canvas');
+    canvas.width = 1;
+    canvas.height = 1;
+    const stalePreview = new ImageData(new Uint8ClampedArray([90, 80, 70, 255]), 1, 1);
+    const layer = makeLayer('layer-cleared-cc-save', {
+      layerType: 'color-cycle',
+      imageData: null,
+      framebuffer: canvas as unknown as OffscreenCanvas,
+      colorCycleData: {
+        canvas,
+        canvasImageData: stalePreview,
+        hasContent: true,
+      },
+    });
+    const project: Project = {
+      id: 'project-cleared-cc-save',
+      name: 'Cleared CC Save',
+      width: 1,
+      height: 1,
+      layers: [layer],
+      backgroundColor: '#000000',
+      createdAt: new Date('2024-04-01'),
+      updatedAt: new Date('2024-04-02'),
+      customBrushes: [],
+      defaultCustomBrushId: null,
+      exportLayout: createDefaultExportLayout(),
+      palette: {
+        foregroundColor: '#ffffff',
+        backgroundColor: '#000000',
+        activeSlot: 'foreground',
+      },
+      brushSpecificSettings: {},
+    };
+    const clearedBrush = {
+      getLayerSnapshot: jest.fn(() => ({ hasContent: false })),
+      renderDirectToCanvas: jest.fn(),
+    };
+
+    mockManager.getBrush.mockReturnValue(clearedBrush);
+    mockManager.getLayerColorCycleBrush.mockReturnValue(clearedBrush);
+    useAppStore.setState({
+      project,
+      layers: [layer],
+      layerGroups: [],
+    });
+    (saveProjectToFile as jest.Mock).mockResolvedValue({
+      fileName: 'cc-cleared-save.vessel',
+      fileHandle: null,
+    });
+
+    await useAppStore.getState().saveProject('cc-cleared-save.vessel');
+
+    const [, , layersArg] = (saveProjectToFile as jest.Mock).mock.calls[0] as [Project, string, Layer[]];
+    const savedImageData = layersArg[0]?.colorCycleData?.canvasImageData;
+    expect(Array.from(savedImageData?.data.slice(0, 4) ?? [])).toEqual([0, 0, 0, 0]);
+  });
+
   it('blocks manual save while a floating paste is active', async () => {
     const layer = makeLayer('layer-active-floating-save-guard');
     const project: Project = {

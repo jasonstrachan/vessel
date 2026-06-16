@@ -413,12 +413,24 @@ export const createProjectLifecycle = ({
           const colorCycleData = layer.colorCycleData;
           let canvasImageData = captureCanvasImageData(colorCycleData.canvas ?? null);
 
+          const brush = freshState.getLayerColorCycleBrush(layer.id) as
+            | {
+                getLayerSnapshot?: (layerId: string) => { hasContent?: boolean } | null | undefined;
+                renderDirectToCanvas?: (canvas: HTMLCanvasElement, layerId: string) => void;
+              }
+            | null
+            | undefined;
+          const savedSnapshot = brush?.getLayerSnapshot?.(layer.id) ?? null;
+          const shouldPreservePersistedPreview =
+            savedSnapshot?.hasContent !== false &&
+            colorCycleData.hasContent !== false;
+
           if (!imageDataHasVisiblePixels(canvasImageData)) {
-            const brush = freshState.getLayerColorCycleBrush(layer.id) as
+            const brushRenderer = brush as
               | { renderDirectToCanvas?: (canvas: HTMLCanvasElement, layerId: string) => void }
               | null
               | undefined;
-            if (brush?.renderDirectToCanvas && typeof document !== 'undefined') {
+            if (brushRenderer?.renderDirectToCanvas && typeof document !== 'undefined') {
               const width =
                 colorCycleData.canvas?.width ??
                 colorCycleData.canvasImageData?.width ??
@@ -435,7 +447,7 @@ export const createProjectLifecycle = ({
               tempCanvas.width = Math.max(1, width);
               tempCanvas.height = Math.max(1, height);
               try {
-                brush.renderDirectToCanvas(tempCanvas, layer.id);
+                brushRenderer.renderDirectToCanvas(tempCanvas, layer.id);
                 const renderedImageData = captureCanvasImageData(tempCanvas) ?? undefined;
                 if (imageDataHasVisiblePixels(renderedImageData)) {
                   canvasImageData = renderedImageData;
@@ -446,7 +458,7 @@ export const createProjectLifecycle = ({
             }
           }
 
-          if (!imageDataHasVisiblePixels(canvasImageData)) {
+          if (!imageDataHasVisiblePixels(canvasImageData) && shouldPreservePersistedPreview) {
             canvasImageData = colorCycleData.canvasImageData;
           }
 

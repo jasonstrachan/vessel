@@ -137,9 +137,25 @@ describe('ExportModal webgl preflight', () => {
       minifyOutput: true,
       enableGobletDiagnostics: false,
       embedCanvasFallback: false,
-      includeHiddenLayers: false,
       htmlTitle: 'Goblet',
     });
+  });
+
+  it('does not reset hidden-layer export when applying a Goblet preset', () => {
+    store.webglExportSettings = {
+      ...store.webglExportSettings,
+      includeHiddenLayers: true,
+    };
+
+    render(<ExportModal isOpen onClose={jest.fn()} />);
+    act(() => {
+      jest.runAllTimers();
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: /^Single HTML$/i }));
+    expect(store.updateWebglExportSettings).not.toHaveBeenCalledWith(
+      expect.objectContaining({ includeHiddenLayers: false })
+    );
   });
 
   it('toggles Goblet debug mode from the preset row', () => {
@@ -179,6 +195,38 @@ describe('ExportModal webgl preflight', () => {
       title: 'Export blocked by preflight',
     }));
     expect(runExportMock).not.toHaveBeenCalled();
+  });
+
+  it('passes includeHiddenLayers through to the Goblet export request', async () => {
+    store.layers = [{
+      ...store.layers[0],
+      visible: false,
+    }] as any;
+    store.webglExportSettings = {
+      ...store.webglExportSettings,
+      includeHiddenLayers: true,
+    };
+
+    render(<ExportModal isOpen onClose={jest.fn()} />);
+    act(() => {
+      jest.runAllTimers();
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: /^Export$/i }));
+    await act(async () => {});
+
+    expect(runExportMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        kind: 'webgl',
+        options: expect.objectContaining({
+          request: expect.objectContaining({
+            includeHiddenLayers: true,
+          }),
+        }),
+      }),
+      expect.any(Function),
+      expect.any(AbortSignal)
+    );
   });
 
   it('shows Goblet layer progress and export errors in the progress modal', async () => {
