@@ -37,7 +37,6 @@ export const estimateStrokeBounds = ({
   });
   const safePressure = Number.isFinite(pressure) ? pressure : 1;
   const pressureSize = Math.max(1, Math.round(pressureSizing.sample(safePressure) * 2));
-  const pressureFactor = pressureSize / brushSize;
   let effectiveSize = pressureSize;
 
   if (brushSettings.brushShape === BrushShape.MOSAIC) {

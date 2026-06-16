@@ -6,7 +6,10 @@ import {
   finalizeMarkGradientSession,
   type MarkGradientSession,
 } from '@/hooks/canvas/utils/colorCycleMarkSession';
-import { ColorCycleBrushCanvas2D } from '../ColorCycleBrushCanvas2D';
+import {
+  ColorCycleBrushCanvas2D,
+  resolveCustomStampIndex,
+} from '../ColorCycleBrushCanvas2D';
 import { decodeColorCycleSpeedByte } from '@/utils/colorCycleSpeed';
 import { appendGradientSeamProfileSignature } from '@/lib/colorCycle/gradientSeamProfile';
 import { hashStops, type StoredStop } from '@/utils/colorCycleGradientDefs';
@@ -49,6 +52,7 @@ const makeMockContext = (canvas: HTMLCanvasElement): MockContext => {
     save: jest.fn(),
     restore: jest.fn(),
     translate: jest.fn(),
+    rotate: jest.fn(),
     scale: jest.fn(),
     fillRect: jest.fn(),
     beginPath: jest.fn(),
@@ -2719,6 +2723,201 @@ describe('ColorCycleBrushCanvas2D regression tests', () => {
     const y = 8 * canvas.width;
     const painted = [data[7 + y], data[8 + y], data[9 + y]].filter((value) => value > 0);
     expect(new Set(painted)).toEqual(new Set([2, 3, 130]));
+  });
+
+  it('resolves captured-data custom stamp indices through tiny rotations', () => {
+    const indices = [
+      resolveCustomStampIndex({
+        isCapturedDataStamp: true,
+        capturedPhaseMap: new Uint16Array([0, 10, 20, 30]),
+        capturedMapWidth: 2,
+        capturedMapHeight: 2,
+        px: 0,
+        py: 0,
+        maskWidth: 2,
+        maskHeight: 2,
+        scaledWidth: 2,
+        scaledHeight: 2,
+        rotation: 0.01,
+        fallbackColorIndex: 77,
+        phaseOffset: 1,
+        cycleSpan: 255,
+      }),
+      resolveCustomStampIndex({
+        isCapturedDataStamp: true,
+        capturedPhaseMap: new Uint16Array([0, 10, 20, 30]),
+        capturedMapWidth: 2,
+        capturedMapHeight: 2,
+        px: 1,
+        py: 1,
+        maskWidth: 2,
+        maskHeight: 2,
+        scaledWidth: 2,
+        scaledHeight: 2,
+        rotation: 0.01,
+        fallbackColorIndex: 77,
+        phaseOffset: 1,
+        cycleSpan: 255,
+      }),
+    ];
+
+    expect(indices.every((value) => value !== null)).toBe(true);
+    expect(new Set(indices).size).toBe(2);
+    expect(indices).not.toContain(77);
+  });
+
+  it('does not flatten captured-data custom stamps when captured maps are missing', () => {
+    expect(resolveCustomStampIndex({
+      isCapturedDataStamp: true,
+      capturedPhaseMap: undefined,
+      capturedMapWidth: 2,
+      capturedMapHeight: 2,
+      px: 0,
+      py: 0,
+      maskWidth: 2,
+      maskHeight: 2,
+      scaledWidth: 2,
+      scaledHeight: 2,
+      rotation: 0,
+      fallbackColorIndex: 77,
+      phaseOffset: 1,
+      cycleSpan: 255,
+    })).toBeNull();
+
+    expect(resolveCustomStampIndex({
+      isCapturedDataStamp: false,
+      capturedPhaseMap: undefined,
+      capturedMapWidth: 0,
+      capturedMapHeight: 0,
+      px: 0,
+      py: 0,
+      maskWidth: 2,
+      maskHeight: 2,
+      scaledWidth: 2,
+      scaledHeight: 2,
+      rotation: 0,
+      fallbackColorIndex: 77,
+      phaseOffset: 1,
+      cycleSpan: 255,
+    })).toBe(77);
+  });
+
+  it('samples captured-data custom stamps proportionally when scaled', () => {
+    const left = resolveCustomStampIndex({
+      isCapturedDataStamp: true,
+      capturedPhaseMap: new Uint16Array([0, 100]),
+      capturedMapWidth: 2,
+      capturedMapHeight: 1,
+      px: 0,
+      py: 0,
+      maskWidth: 4,
+      maskHeight: 1,
+      scaledWidth: 4,
+      scaledHeight: 1,
+      rotation: 0,
+      fallbackColorIndex: 77,
+      phaseOffset: 0,
+      cycleSpan: 255,
+    });
+    const right = resolveCustomStampIndex({
+      isCapturedDataStamp: true,
+      capturedPhaseMap: new Uint16Array([0, 100]),
+      capturedMapWidth: 2,
+      capturedMapHeight: 1,
+      px: 3,
+      py: 0,
+      maskWidth: 4,
+      maskHeight: 1,
+      scaledWidth: 4,
+      scaledHeight: 1,
+      rotation: 0,
+      fallbackColorIndex: 77,
+      phaseOffset: 0,
+      cycleSpan: 255,
+    });
+
+    expect(left).toBe(1);
+    expect(right).toBe(101);
+  });
+
+  it('paints captured-data custom stamp variation when rotation is non-zero', () => {
+    const canvas = makeCanvas(16, 16);
+    const brush = new ColorCycleBrushCanvas2D(canvas, { forceCanvas2D: true });
+    const layerId = 'layer-custom-captured-rotated';
+    const stamp = {
+      imageData: new ImageData(new Uint8ClampedArray([
+        255, 255, 255, 255,
+        255, 255, 255, 255,
+        255, 255, 255, 255,
+        255, 255, 255, 255,
+      ]), 2, 2),
+      width: 2,
+      height: 2,
+      colorCycle: {
+        schemaVersion: 2 as const,
+        mode: 'captured-data' as const,
+        sourceCycleLength: 256,
+        mapWidth: 2,
+        mapHeight: 2,
+        phaseMap: new Uint16Array([0, 10, 20, 30]),
+      },
+    };
+
+    brush.setBrushSize(2);
+    brush.startStroke(layerId);
+    brush.paintCustomStamp(stamp, 8, 8, layerId, 1, 0.01);
+    brush.endStroke(layerId);
+
+    const animator = (brush as unknown as {
+      animators: Map<string, { getIndexBuffers: () => { data: Uint8Array } }>;
+    }).animators.get(layerId);
+    if (!animator) {
+      throw new Error('Missing custom stamp rotated animator');
+    }
+
+    const data = animator.getIndexBuffers().data;
+    const painted = Array.from(data).filter((value) => value > 0);
+    expect(painted.length).toBeGreaterThan(0);
+    expect(new Set(painted).size).toBeGreaterThan(1);
+    expect(new Set(painted)).not.toEqual(new Set([1]));
+  });
+
+  it('does not paint captured-data custom stamps with missing maps as a flat fallback', () => {
+    const canvas = makeCanvas(16, 16);
+    const brush = new ColorCycleBrushCanvas2D(canvas, { forceCanvas2D: true });
+    const layerId = 'layer-custom-captured-missing-map';
+    const stamp = {
+      imageData: new ImageData(new Uint8ClampedArray([
+        255, 255, 255, 255,
+        255, 255, 255, 255,
+        255, 255, 255, 255,
+        255, 255, 255, 255,
+      ]), 2, 2),
+      width: 2,
+      height: 2,
+      colorCycle: {
+        schemaVersion: 2 as const,
+        mode: 'captured-data' as const,
+        sourceCycleLength: 256,
+        mapWidth: 2,
+        mapHeight: 2,
+      },
+    };
+
+    brush.setBrushSize(2);
+    brush.startStroke(layerId);
+    brush.paintCustomStamp(stamp, 8, 8, layerId, 1);
+    brush.endStroke(layerId);
+
+    const animator = (brush as unknown as {
+      animators: Map<string, { getIndexBuffers: () => { data: Uint8Array } }>;
+    }).animators.get(layerId);
+    if (!animator) {
+      throw new Error('Missing custom stamp missing-map animator');
+    }
+
+    const data = animator.getIndexBuffers().data;
+    expect(Array.from(data).filter((value) => value > 0)).toHaveLength(0);
   });
 
   it('treats captured-data phase maps as 0-based and does not skip phase 0 pixels', () => {

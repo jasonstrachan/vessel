@@ -20,6 +20,11 @@ import {
 import { FLOW_SLOT_MASK } from '@/lib/colorCycle/flowEncoding';
 import { TEMP_SAMPLE_SLOT } from '@/constants/colorCycle';
 import type { StoredStop } from '@/utils/colorCycleGradientDefs';
+import {
+  allocateNextColorCycleDefId,
+  EXHAUSTED_COLOR_CYCLE_DEF_ID,
+  normalizeNextColorCycleDefId,
+} from '@/utils/colorCycleDefIds';
 import { ccDebugVerboseOn, ccLog } from '@/utils/colorCycle/ccDebug';
 import { isOverlaySeededFromLayer } from '@/hooks/canvas/utils/overlaySeedState';
 import { logCCMutation, summarizeColorCycleLayer } from '@/utils/colorCycle/ccMutationAudit';
@@ -499,7 +504,7 @@ export const commitColorCycleLayerStroke = async (
       }
 
       const sampledCommitNeedsFullRebind = committedSession?.source === 'sampled';
-      const binding: CommitCommittedLayerStateOptions['binding'] = committedSession?.binding
+      let binding: CommitCommittedLayerStateOptions['binding'] = committedSession?.binding
         ? {
             defId: committedSession.binding.defId,
             slot: committedSession.binding.slot,
@@ -517,6 +522,88 @@ export const commitColorCycleLayerStroke = async (
             previewSlot: sampledCommitNeedsFullRebind ? TEMP_SAMPLE_SLOT : null,
           }
         : undefined;
+      if (binding && committedSession?.binding) {
+        const finalizedSession = committedSession;
+        const finalizedBinding = finalizedSession.binding as NonNullable<MarkGradientSession['binding']>;
+        const state = getAppStoreState();
+        const layer = state.layers.find((entry) => entry.id === targetLayerId);
+        const colorCycleData = layer?.colorCycleData;
+        const existingStore = colorCycleData?.gradientDefStore ?? [];
+        const existingDef = existingStore.find(
+          (entry) => Number(entry.id) === finalizedBinding.defId
+        );
+        let defIdToUse = finalizedBinding.defId;
+        let nextStore = existingStore;
+        let nextGradientDefId = colorCycleData?.nextGradientDefId ?? 1;
+
+        if (colorCycleData && !existingDef) {
+          nextStore = [
+            ...existingStore,
+            {
+              id: finalizedBinding.defId,
+              kind: finalizedSession.gradientKind,
+              stops: finalizedSession.frozenStopsStored,
+              hash: finalizedSession.frozenHash,
+              source: finalizedSession.source,
+              seamProfile: finalizedSession.seamProfile,
+              createdAtMs: Date.now(),
+              slot: finalizedBinding.slot,
+              speedCps: finalizedSession.speedCps ?? undefined,
+            },
+          ];
+          nextGradientDefId = Math.max(nextGradientDefId, finalizedBinding.defId + 1);
+        } else if (colorCycleData && existingDef && existingDef.hash !== finalizedSession.frozenHash) {
+          const allocation = allocateNextColorCycleDefId({
+            ids: existingStore.map((entry) => entry.id),
+            nextId: nextGradientDefId,
+          });
+          nextGradientDefId = allocation.nextGradientDefId;
+          if (allocation.id !== null) {
+            defIdToUse = allocation.id;
+            nextStore = [
+              ...existingStore,
+              {
+                id: defIdToUse,
+                kind: finalizedSession.gradientKind,
+                stops: finalizedSession.frozenStopsStored,
+                hash: finalizedSession.frozenHash,
+                source: finalizedSession.source,
+                seamProfile: finalizedSession.seamProfile,
+                createdAtMs: Date.now(),
+                slot: finalizedBinding.slot,
+                speedCps: finalizedSession.speedCps ?? undefined,
+              },
+            ];
+          }
+        }
+
+        if (colorCycleData && nextStore !== existingStore) {
+          state.updateLayer(targetLayerId, {
+            colorCycleData: {
+              ...colorCycleData,
+              gradientDefStore: nextStore,
+              nextGradientDefId: nextGradientDefId === EXHAUSTED_COLOR_CYCLE_DEF_ID
+                ? EXHAUSTED_COLOR_CYCLE_DEF_ID
+                : normalizeNextColorCycleDefId(
+                    nextStore.map((entry) => entry.id),
+                    nextGradientDefId
+                  ),
+            },
+          });
+        }
+
+        if (defIdToUse !== binding.defId) {
+          binding = {
+            ...binding,
+            defId: defIdToUse,
+          };
+          finalizedSession.binding = {
+            kind: 'def',
+            defId: defIdToUse,
+            slot: finalizedBinding.slot,
+          };
+        }
+      }
 
       if (typeof brush.commitCommittedLayerState === 'function') {
         brush.commitCommittedLayerState({
@@ -577,16 +664,14 @@ export const commitColorCycleLayerStroke = async (
               });
               def = nextDef;
             }
-            console.assert(
-              Boolean(def && def.hash === finalizedSession.frozenHash),
-              '[CC] Commit parity failed (def hash mismatch)',
-              {
+            if (def && def.hash !== finalizedSession.frozenHash) {
+              console.warn('[CC] Commit parity failed', {
                 layerId: targetLayerId,
                 defId: finalizedBinding.defId,
                 frozenHash: finalizedSession.frozenHash,
-                defHash: def?.hash,
-              }
-            );
+                defHash: def.hash,
+              });
+            }
           }
         }
         if (process.env.NODE_ENV !== 'production') {

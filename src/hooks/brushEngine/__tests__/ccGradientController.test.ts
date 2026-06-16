@@ -24,7 +24,7 @@ describe('ccGradientController', () => {
     getStateMock.mockReset();
   });
 
-  it('rebuilds def-bound recolor edits with dither runtime stops', () => {
+  it('preserves existing def ids and appends rebuilt defs for def-bound recolor edits', () => {
     const updateLayer = jest.fn();
     const layer = {
       id: 'layer-1',
@@ -69,8 +69,17 @@ describe('ccGradientController', () => {
     expect(colorCycleData.gradient).toEqual(editedStops);
     expect(colorCycleData.slotPalettes[0].slot).toBe(2);
     expect(colorCycleData.slotPalettes[0].stops).toHaveLength(6);
-    expect(colorCycleData.gradientDefStore[0].stops).toEqual(colorCycleData.slotPalettes[0].stops);
-    expect(colorCycleData.gradientDefStore[0].hash).not.toBe('old-hash');
+    expect(colorCycleData.gradientDefStore).toHaveLength(2);
+    expect(colorCycleData.gradientDefStore[0]).toMatchObject({
+      id: 7,
+      hash: 'old-hash',
+      stops: [{ position: 0, color: '#111111' }, { position: 1, color: '#222222' }],
+    });
+    const appendedDef = colorCycleData.gradientDefStore.find((entry: { id: number }) => entry.id !== 7);
+    expect(appendedDef).toBeDefined();
+    expect(appendedDef.stops).toEqual(colorCycleData.slotPalettes[0].stops);
+    expect(appendedDef.hash).not.toBe('old-hash');
+    expect(appendedDef.slot).toBe(2);
     expect(requestGradientApply).toHaveBeenCalledWith('layer-1', 'commit-recolor');
   });
 

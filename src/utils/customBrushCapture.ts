@@ -410,6 +410,35 @@ const buildAlphaMask = (imageData: ImageData): Uint8Array => {
   return mask;
 };
 
+const toHexByte = (value: number): string =>
+  Math.max(0, Math.min(255, Math.round(value))).toString(16).padStart(2, '0');
+
+const buildCapturedColorIndexMap = (
+  imageData: ImageData
+): { capturedColors: string[]; indexMap: Uint16Array } => {
+  const capturedColors: string[] = [];
+  const colorToIndex = new Map<string, number>();
+  const indexMap = new Uint16Array(imageData.width * imageData.height);
+
+  for (let i = 0, p = 0; i < indexMap.length; i += 1, p += 4) {
+    if (imageData.data[p + 3] === 0) {
+      indexMap[i] = 0;
+      continue;
+    }
+
+    const color = `#${toHexByte(imageData.data[p])}${toHexByte(imageData.data[p + 1])}${toHexByte(imageData.data[p + 2])}`;
+    let colorIndex = colorToIndex.get(color);
+    if (colorIndex === undefined) {
+      colorIndex = capturedColors.length;
+      capturedColors.push(color);
+      colorToIndex.set(color, colorIndex);
+    }
+    indexMap[i] = colorIndex;
+  }
+
+  return { capturedColors, indexMap };
+};
+
 const resolveLayerCaptureGradient = (
   layer: Layer
 ): Array<{ position: number; color: string }> | undefined => {
@@ -447,6 +476,7 @@ export const buildCapturedColorCycleDataFromImage = (
   const mapHeight = captureResult.height;
   const phaseMap = buildLuminancePhaseMap(captureResult.imageData, sourceCycleLength);
   const alphaMask = buildAlphaMask(captureResult.imageData);
+  const { capturedColors, indexMap } = buildCapturedColorIndexMap(captureResult.imageData);
 
   return {
     schemaVersion: 2,
@@ -460,7 +490,9 @@ export const buildCapturedColorCycleDataFromImage = (
     mapWidth,
     mapHeight,
     phaseMap,
+    indexMap,
     alphaMask,
+    capturedColors,
     useAlphaMask: true,
   };
 };
@@ -490,6 +522,6 @@ export const captureColorCycleDataFromLayer = (
     ...basePayload,
     mode: 'captured-data',
     phaseMap: phaseMap ?? basePayload.phaseMap,
-    indexMap: undefined,
+    indexMap: basePayload.indexMap,
   };
 };

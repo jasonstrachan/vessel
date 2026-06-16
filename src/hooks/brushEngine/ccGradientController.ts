@@ -3,6 +3,11 @@ import { FLOW_SLOT_MASK } from '@/lib/colorCycle/flowEncoding';
 import type { Layer } from '@/types';
 import { buildCcDitherRuntimePalette, resolveCcDitherBandMode } from '@/utils/colorCycle/ccDitherRenderPalette';
 import { hashStops } from '@/utils/colorCycleGradientDefs';
+import {
+  allocateNextColorCycleDefId,
+  EXHAUSTED_COLOR_CYCLE_DEF_ID,
+  normalizeNextColorCycleDefId,
+} from '@/utils/colorCycleDefIds';
 import { requestGradientApply } from './ccGradientApplyScheduler';
 import { TEMP_SAMPLE_SLOT } from '@/constants/colorCycle';
 
@@ -190,24 +195,54 @@ export const applyGradientEdit = (params: {
           : entry
       )
     : [...slotPalettes, { slot: targetSlot, stops: cloneStops(runtimeStops.slotStops) }];
-  const gradientDefStore = layer.colorCycleData.gradientDefStore?.map((entry) => {
+  const currentDefStore = layer.colorCycleData.gradientDefStore ?? [];
+  const gradientDefStore = currentDefStore.map((entry) => ({
+    ...entry,
+    stops: cloneStops(entry.stops),
+  }));
+  const existingDefHashes = new Set(gradientDefStore.map((entry) => entry.hash));
+  let nextGradientDefId = normalizeNextColorCycleDefId(
+    gradientDefStore.map((entry) => entry.id),
+    layer.colorCycleData.nextGradientDefId ?? 1
+  );
+  for (const entry of currentDefStore) {
     const nextStops = runtimeStops.defStopsById.get(entry.id);
     const nextHash = runtimeStops.defHashesById.get(entry.id);
-    if (!nextStops || !nextHash) {
-      return entry;
+    if (!nextStops || !nextHash || nextHash === entry.hash || existingDefHashes.has(nextHash)) {
+      continue;
     }
-    return {
+
+    const allocation = allocateNextColorCycleDefId({
+      ids: gradientDefStore.map((candidate) => candidate.id),
+      nextId: nextGradientDefId,
+    });
+    nextGradientDefId = allocation.nextGradientDefId;
+    if (allocation.id === null) {
+      continue;
+    }
+
+    gradientDefStore.push({
       ...entry,
+      id: allocation.id,
       stops: cloneStops(nextStops),
       hash: nextHash,
-    };
-  });
+      createdAtMs: Date.now(),
+    });
+    existingDefHashes.add(nextHash);
+  }
+  const normalizedNextGradientDefId = nextGradientDefId === EXHAUSTED_COLOR_CYCLE_DEF_ID
+    ? EXHAUSTED_COLOR_CYCLE_DEF_ID
+    : normalizeNextColorCycleDefId(
+        gradientDefStore.map((entry) => entry.id),
+        nextGradientDefId
+      );
 
   state.updateLayer(targetLayerId, {
     colorCycleData: {
       ...layer.colorCycleData,
       gradientDefs,
       gradientDefStore,
+      nextGradientDefId: normalizedNextGradientDefId,
       slotPalettes,
       activeGradientId: activeDef.id,
       paintSlot: targetSlot,

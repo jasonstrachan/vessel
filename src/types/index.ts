@@ -744,6 +744,7 @@ export interface CustomBrushColorCycleV2 {
   phaseMap?: Uint16Array;
   indexMap?: Uint16Array;
   alphaMask?: Uint8Array;
+  capturedColors?: string[];
   useAlphaMask?: boolean;
 }
 

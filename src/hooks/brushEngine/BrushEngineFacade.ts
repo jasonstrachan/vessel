@@ -493,6 +493,13 @@ export class BrushEngineFacade {
     };
 
     this.initializeCustomStrokeCycleStateIfNeeded(params, shape);
+    const hasCapturedDataCustomBrush =
+      settings.shape === BrushShape.CUSTOM &&
+      customBrushData?.colorCycle?.schemaVersion === 2 &&
+      customBrushData.colorCycle.mode === 'captured-data';
+    const shouldReplayCustomColorCycle =
+      settings.shape === BrushShape.CUSTOM &&
+      (this.config.brushSettings.customBrushColorCycle === true || hasCapturedDataCustomBrush);
 
     // Apply color for the stroke
     ctx.fillStyle = settings.color;
@@ -535,7 +542,7 @@ export class BrushEngineFacade {
             if (this.canDrawAt(ctx, x, y)) {
               let stampPattern = settings.pattern;
               let stampIsColorizable = settings.isColorizable;
-              if (this.config.brushSettings.customBrushColorCycle && settings.shape === BrushShape.CUSTOM) {
+              if (shouldReplayCustomColorCycle) {
                 const phase = this.getNextCustomCyclePhase();
                 const capturedPattern = customBrushData
                   ? this.getCapturedDataPattern(customBrushData, phase)
@@ -584,12 +591,7 @@ export class BrushEngineFacade {
         this.pixelQueue.lastDrawnY = snappedTo.y;
       } else {
         // Normal rendering with interpolation
-        const forceSmoothForCapturedCustom =
-          settings.shape === BrushShape.CUSTOM &&
-          !!customBrushData?.colorCycle &&
-          customBrushData.colorCycle.schemaVersion === 2 &&
-          customBrushData.colorCycle.mode === 'captured-data' &&
-          this.config.brushSettings.customBrushColorCycle === true;
+        const forceSmoothForCapturedCustom = hasCapturedDataCustomBrush;
 
         if (!forceSmoothForCapturedCustom && (isPixelBrush || isPixelSquare || !brushSettings.antialiasing)) {
           // Ensure pixel-perfect rendering
@@ -618,6 +620,14 @@ export class BrushEngineFacade {
     settings: RenderSettings,
     customBrushData?: CustomBrushStrokeData
   ): void {
+    const hasCapturedDataCustomBrush =
+      settings.shape === BrushShape.CUSTOM &&
+      customBrushData?.colorCycle?.schemaVersion === 2 &&
+      customBrushData.colorCycle.mode === 'captured-data';
+    const shouldReplayCustomColorCycle =
+      settings.shape === BrushShape.CUSTOM &&
+      (this.config.brushSettings.customBrushColorCycle === true || hasCapturedDataCustomBrush);
+
     // Calculate distance (optimized)
     const dx = to.x - from.x;
     const dy = to.y - from.y;
@@ -662,7 +672,7 @@ export class BrushEngineFacade {
           if (this.canDrawAt(ctx, x, y)) {
             let stampPattern = settings.pattern;
             let stampIsColorizable = settings.isColorizable;
-            if (this.config.brushSettings.customBrushColorCycle && settings.shape === BrushShape.CUSTOM) {
+            if (shouldReplayCustomColorCycle) {
               const phase = this.getNextCustomCyclePhase();
               const capturedPattern = customBrushData
                 ? this.getCapturedDataPattern(customBrushData, phase)
@@ -724,7 +734,7 @@ export class BrushEngineFacade {
         ) {
           let stampPattern = settings.pattern;
           let stampIsColorizable = settings.isColorizable;
-          if (this.config.brushSettings.customBrushColorCycle && settings.shape === BrushShape.CUSTOM) {
+          if (shouldReplayCustomColorCycle) {
             const phase = this.getNextCustomCyclePhase();
             const capturedPattern = customBrushData
               ? this.getCapturedDataPattern(customBrushData, phase)
@@ -1074,6 +1084,31 @@ export class BrushEngineFacade {
     return palette;
   }
 
+  private getCapturedColorPalette(colors: string[]): Uint8ClampedArray {
+    const normalized = colors
+      .map((color) => color.trim().toLowerCase())
+      .filter((color) => /^#[0-9a-f]{6}$/.test(color));
+    const key = `captured:${normalized.join('|')}`;
+    const cached = this.customCyclePaletteCache.get(key);
+    if (cached) {
+      return cached;
+    }
+
+    const palette = new Uint8ClampedArray(normalized.length * 4);
+    normalized.forEach((color, index) => {
+      const [r, g, b] = parseColor(color);
+      const p = index * 4;
+      palette[p] = r;
+      palette[p + 1] = g;
+      palette[p + 2] = b;
+      palette[p + 3] = 255;
+    });
+
+    this.customCyclePaletteCache.set(key, palette);
+    this.trimPaletteCache(this.customCyclePaletteCache, BrushEngineFacade.MAX_CAPTURED_PALETTE_CACHE);
+    return palette;
+  }
+
   private getCapturedDataPattern(
     customBrushData: CustomBrushStrokeData,
     phase: number
@@ -1126,28 +1161,51 @@ export class BrushEngineFacade {
       return null;
     }
 
+    const cycleLength = Math.max(1, Math.min(1024, Math.round(colorCycle.sourceCycleLength || 256)));
+    const phaseBucket = ((Math.round(phase * cycleLength) % cycleLength) + cycleLength) % cycleLength;
+
+    const indexMap = colorCycle.indexMap;
+    const phaseMap = colorCycle.phaseMap;
+    const capturedColors = colorCycle.capturedColors?.length ? colorCycle.capturedColors : undefined;
+    const capturedPalette = capturedColors && indexMap && indexMap.length === pixelCount
+      ? this.getCapturedColorPalette(capturedColors)
+      : undefined;
+    const capturedPaletteLength = capturedPalette ? capturedPalette.length / 4 : 0;
+    const canReplayCapturedColors = Boolean(
+      capturedPalette &&
+      indexMap &&
+      capturedPaletteLength > 0
+    );
+    if (capturedColors && !canReplayCapturedColors) {
+      finishProfile(false);
+      return null;
+    }
+
     const stops = colorCycle.gradient?.length
       ? colorCycle.gradient
       : this.config.brushSettings.colorCycleGradient?.length
         ? this.config.brushSettings.colorCycleGradient
         : DEFAULT_COLOR_CYCLE_GRADIENT;
-    const cycleLength = Math.max(1, Math.min(1024, Math.round(colorCycle.sourceCycleLength || 256)));
-    const phaseBucket = ((Math.round(phase * cycleLength) % cycleLength) + cycleLength) % cycleLength;
     const gradientHash = this.hashGradient(stops);
+    const capturedColorsHash = capturedColors?.join(',') ?? 'none';
+    const paletteIdentity = capturedColorsHash !== 'none'
+      ? `captured:${capturedColorsHash}`
+      : `gradient:${gradientHash}`;
     const sourceKey = customBrushData.cacheKey ?? `anon:${width}x${height}`;
-    const useAlphaMask = true;
-    const key = `${sourceKey}:ccd:${gradientHash}:${cycleLength}:${phaseBucket}:${useAlphaMask ? 1 : 0}`;
+    const useAlphaMask = colorCycle.useAlphaMask !== false;
+    const key = `${sourceKey}:ccd:${paletteIdentity}:${cycleLength}:${phaseBucket}:${useAlphaMask ? 1 : 0}`;
     const cached = this.customCapturedPatternCache.get(key);
     if (cached) {
       finishProfile(true);
       return cached;
     }
 
-    const palette = this.getGradientPalette(stops, cycleLength);
+    const palette = capturedColors ? undefined : this.getGradientPalette(stops, cycleLength);
+    const capturedColorShift = capturedPaletteLength > 0
+      ? Math.floor((phaseBucket / cycleLength) * capturedPaletteLength) % capturedPaletteLength
+      : 0;
     const src = customBrushData.imageData.data;
     const output = new Uint8ClampedArray(src.length);
-    const indexMap = colorCycle.indexMap;
-    const phaseMap = colorCycle.phaseMap;
     const alphaMask =
       useAlphaMask && colorCycle.alphaMask && colorCycle.alphaMask.length === pixelCount
         ? colorCycle.alphaMask
@@ -1161,18 +1219,31 @@ export class BrushEngineFacade {
         continue;
       }
 
-      const base =
-        phaseMap && phaseMap.length === pixelCount
-          ? phaseMap[i]
-          : indexMap && indexMap.length === pixelCount
-            ? indexMap[i]
-            : 0;
-      const resolved = (base + phaseBucket) % cycleLength;
-      const paletteOffset = resolved * 4;
-      output[p] = palette[paletteOffset];
-      output[p + 1] = palette[paletteOffset + 1];
-      output[p + 2] = palette[paletteOffset + 2];
-      output[p + 3] = alpha;
+      if (canReplayCapturedColors && capturedPalette && indexMap) {
+        const colorIndex = indexMap[i] % capturedPaletteLength;
+        const resolved = (colorIndex + capturedColorShift) % capturedPaletteLength;
+        const paletteOffset = resolved * 4;
+        output[p] = capturedPalette[paletteOffset];
+        output[p + 1] = capturedPalette[paletteOffset + 1];
+        output[p + 2] = capturedPalette[paletteOffset + 2];
+        output[p + 3] = alpha;
+        continue;
+      }
+
+      if (!capturedColors && palette && (phaseMap || indexMap)) {
+        const base =
+          phaseMap && phaseMap.length === pixelCount
+            ? phaseMap[i]
+            : indexMap && indexMap.length === pixelCount
+              ? indexMap[i]
+              : 0;
+        const resolved = (base + phaseBucket) % cycleLength;
+        const paletteOffset = resolved * 4;
+        output[p] = palette[paletteOffset];
+        output[p + 1] = palette[paletteOffset + 1];
+        output[p + 2] = palette[paletteOffset + 2];
+        output[p + 3] = alpha;
+      }
     }
 
     const imageData = new ImageData(output, width, height);

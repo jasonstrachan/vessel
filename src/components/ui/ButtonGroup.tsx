@@ -4,7 +4,12 @@ import Tabs from './Tabs';
 // Reusable segmented button group with the same styling as Tabs.
 // Use this for any small set of mutually-exclusive options.
 
-export type ButtonGroupOption = { label: string; value: string };
+export type ButtonGroupOption = {
+  label: string;
+  value: string;
+  disabled?: boolean;
+  title?: string;
+};
 
 export interface ButtonGroupProps {
   options: ButtonGroupOption[];
@@ -27,4 +32,3 @@ const ButtonGroup: React.FC<ButtonGroupProps> = ({ options, value, onChange, cla
 };
 
 export default ButtonGroup;
-

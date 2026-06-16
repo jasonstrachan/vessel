@@ -3,7 +3,7 @@
 import React, { CSSProperties, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 
 interface TabsProps {
-  tabs: Array<{ label: string; value: string }>;
+  tabs: Array<{ label: string; value: string; disabled?: boolean; title?: string }>;
   activeTab: string;
   onTabChange: (value: string) => void;
   className?: string;
@@ -87,12 +87,13 @@ const Tabs: React.FC<TabsProps> = ({ tabs, activeTab, onTabChange, className = '
     <div ref={containerRef} className={`flex flex-wrap ${className}`}>
       {tabs.map((tab, index) => {
         const isActive = tab.value === activeTab;
+        const isDisabled = Boolean(tab.disabled);
         const layout = rowMeta[index] ?? { isRowStart: index === 0, isFirstRow: true };
 
         const style: CSSProperties = {
           fontSize,
           borderColor: isActive ? ACCENT_COLOR : '#d9d9d9',
-          color: isActive ? '#1A1A1A' : '#d9d9d9',
+          color: isDisabled ? '#777777' : isActive ? '#1A1A1A' : '#d9d9d9',
           backgroundColor: isActive ? '#F2F2F2' : 'transparent',
           marginLeft: !layout.isRowStart ? '-1px' : undefined,
           marginTop: !layout.isFirstRow ? '-1px' : undefined,
@@ -110,9 +111,11 @@ const Tabs: React.FC<TabsProps> = ({ tabs, activeTab, onTabChange, className = '
           <button
             key={tab.value}
             onClick={() => onTabChange(tab.value)}
+            disabled={isDisabled}
+            title={tab.title}
             className={`
               px-2.5 h-[25px] transition-all duration-200 border bg-transparent
-              ${isActive ? 'font-semibold' : 'hover:text-[#F3F3F7] hover:border-[#F3F3F7]'}
+              ${isActive ? 'font-semibold' : isDisabled ? 'cursor-not-allowed opacity-60' : 'hover:text-[#F3F3F7] hover:border-[#F3F3F7]'}
             `}
             style={style}
           >

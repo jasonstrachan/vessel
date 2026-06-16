@@ -202,7 +202,7 @@ export const CustomBrushPanel = () => {
       activeLayer?.colorCycleData?.gradient?.map((stop) => ({ ...stop })) ?? undefined;
     const sourceSpeed =
       activeLayer?.colorCycleData?.brushSpeed ?? undefined;
-    const colorCycleData = sourceIsColorCycleLayer
+    const capturedColorCycle = sourceIsColorCycleLayer
       ? (
           captureColorCycleDataFromLayer({
             activeLayer,
@@ -220,7 +220,7 @@ export const CustomBrushPanel = () => {
     const enableColorCycle = sourceIsColorCycleLayer;
     setCcImportedHint(enableColorCycle);
     applyCaptureResult(captureResult, {
-      colorCycleData,
+      colorCycleData: capturedColorCycle,
     });
   }, [
     captureMode,
@@ -262,7 +262,7 @@ export const CustomBrushPanel = () => {
       activeLayer?.colorCycleData?.gradient?.map((stop) => ({ ...stop })) ?? undefined;
     const sourceSpeed =
       activeLayer?.colorCycleData?.brushSpeed ?? undefined;
-    const colorCycleData = sourceIsColorCycleLayer
+    const capturedColorCycle = sourceIsColorCycleLayer
       ? (
           captureColorCycleDataFromLayer({
             activeLayer,
@@ -280,7 +280,7 @@ export const CustomBrushPanel = () => {
     const enableColorCycle = sourceIsColorCycleLayer;
     setCcImportedHint(enableColorCycle);
     applyCaptureResult(captureResult, {
-      colorCycleData,
+      colorCycleData: capturedColorCycle,
     });
     setCustomBrushFreehandPath(null);
     setCurrentTool('brush');

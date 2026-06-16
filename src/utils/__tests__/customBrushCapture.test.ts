@@ -1,4 +1,5 @@
 import {
+  buildCapturedColorCycleDataFromImage,
   captureColorCycleDataFromLayer,
   selectionToCaptureBounds,
 } from '@/utils/customBrushCapture';
@@ -83,7 +84,7 @@ describe('captureColorCycleDataFromLayer', () => {
     expect(capture?.schemaVersion).toBe(2);
     expect(capture?.mode).toBe('captured-data');
     expect(Array.from(capture?.phaseMap ?? [])).toEqual([1, 2, 3, 4]);
-    expect(capture?.indexMap).toBeUndefined();
+    expect(Array.from(capture?.indexMap ?? [])).toEqual([0, 0, 0, 0]);
   });
 
   it('falls back to persisted gradientIdBuffer when the runtime paintBuffer is missing', () => {
@@ -119,7 +120,7 @@ describe('captureColorCycleDataFromLayer', () => {
     expect(capture?.schemaVersion).toBe(2);
     expect(capture?.mode).toBe('captured-data');
     expect(Array.from(capture?.phaseMap ?? [])).toEqual([9, 9, 9, 9]);
-    expect(capture?.indexMap).toBeUndefined();
+    expect(Array.from(capture?.indexMap ?? [])).toEqual([0, 0, 0, 0]);
   });
 
   it('captures gradient from active slot palette when defs are present', () => {
@@ -162,6 +163,32 @@ describe('captureColorCycleDataFromLayer', () => {
       { position: 0, color: '#00ff00' },
       { position: 1, color: '#00ff00' },
     ]);
+  });
+});
+
+describe('buildCapturedColorCycleDataFromImage', () => {
+  it('preserves captured tip colors as a palette and per-pixel index map', () => {
+    const capture = buildCapturedColorCycleDataFromImage({
+      imageData: new ImageData(
+        new Uint8ClampedArray([
+          255, 0, 0, 255,
+          0, 255, 0, 255,
+          255, 0, 0, 128,
+          0, 0, 0, 0,
+        ]),
+        2,
+        2
+      ),
+      width: 2,
+      height: 2,
+      naturalWidth: 2,
+      naturalHeight: 2,
+      maxDimension: 2,
+    });
+
+    expect(capture.capturedColors).toEqual(['#ff0000', '#00ff00']);
+    expect(Array.from(capture.indexMap ?? [])).toEqual([0, 1, 0, 0]);
+    expect(Array.from(capture.alphaMask ?? [])).toEqual([255, 255, 128, 0]);
   });
 });
 

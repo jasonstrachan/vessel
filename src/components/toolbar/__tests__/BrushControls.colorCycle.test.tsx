@@ -1,5 +1,5 @@
 import React from 'react';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { create } from 'zustand';
 import userEvent from '@testing-library/user-event';
 
@@ -691,7 +691,7 @@ describe('BrushControls – Custom brush captured data mode', () => {
 
     const spacing = screen.getByLabelText('Spacing');
     const speed = screen.getByLabelText('Custom Brush Color Cycle Speed');
-    const modeButton = screen.getByRole('button', { name: 'Tip Mode' });
+    const modeButton = screen.getByRole('button', { name: 'Color Cycle + Recolor' });
 
     expect(
       spacing.compareDocumentPosition(speed) & Node.DOCUMENT_POSITION_FOLLOWING
@@ -735,16 +735,59 @@ describe('BrushControls – Custom brush captured data mode', () => {
     }));
 
     render(<BrushControls />);
-    expect(screen.getByRole('button', { name: 'Tip Mode' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Color Cycle Data' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Color Cycle + Recolor' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Captured CC Data' })).toBeInTheDocument();
 
-    await user.click(screen.getByRole('button', { name: 'Color Cycle Data' }));
+    await user.click(screen.getByRole('button', { name: 'Captured CC Data' }));
     expect(screen.getByText('Captured')).toBeInTheDocument();
     expect(screen.getByText('Map 2x2')).toBeInTheDocument();
     expect(screen.getByText('Cycle Length 256')).toBeInTheDocument();
     expect(screen.getByLabelText('Custom Brush Color Cycle Speed')).toBeInTheDocument();
     const velocityToggle = document.getElementById('velocity-animation-speed-custom') as HTMLInputElement | null;
     expect(velocityToggle).toBeTruthy();
+  });
+
+  it('promotes valid captured-data custom brushes out of tip mode', async () => {
+    useAppStore.setState((state) => ({
+      ...state,
+      tools: {
+        ...state.tools,
+        brushSettings: {
+          ...state.tools.brushSettings,
+          brushShape: 'custom' as BrushSettings['brushShape'],
+          selectedCustomBrush: 'brush-v2',
+          customBrushColorCycle: true,
+          customBrushColorCycleMode: 'tip',
+        },
+      },
+      temporaryCustomBrush: {
+        id: 'brush-v2',
+        name: 'Brush V2',
+        imageData: new ImageData(2, 2),
+        thumbnail: '',
+        width: 2,
+        height: 2,
+        createdAt: 1,
+        colorCycle: {
+          schemaVersion: 2,
+          mode: 'captured-data',
+          sourceCycleLength: 256,
+          mapWidth: 2,
+          mapHeight: 2,
+          phaseMap: new Uint16Array([0, 1, 2, 3]),
+          indexMap: new Uint16Array([0, 1, 0, 1]),
+          capturedColors: ['#ff0000', '#00ff00'],
+          useAlphaMask: false,
+        },
+      } as unknown as AppState['temporaryCustomBrush'],
+    }));
+
+    render(<BrushControls />);
+
+    await waitFor(() => {
+      expect(useAppStore.getState().tools.brushSettings.customBrushColorCycleMode).toBe('captured-data');
+    });
+    expect(useAppStore.getState().tools.brushSettings.customBrushUseCapturedAlphaMask).toBe(false);
   });
 });
 

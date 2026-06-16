@@ -160,6 +160,7 @@ describe('customBrushPersistence', () => {
         phaseMap: new Uint16Array([0, 64, 128, 255]),
         indexMap: new Uint16Array([1, 2, 3, 4]),
         alphaMask: new Uint8Array([255, 200, 128, 0]),
+        capturedColors: ['#ff0000', '#00ff00'],
         useAlphaMask: true,
       },
     };
@@ -176,6 +177,7 @@ describe('customBrushPersistence', () => {
     expect(Array.from(cc.phaseMap ?? [])).toEqual([0, 64, 128, 255]);
     expect(Array.from(cc.indexMap ?? [])).toEqual([1, 2, 3, 4]);
     expect(Array.from(cc.alphaMask ?? [])).toEqual([255, 200, 128, 0]);
+    expect(cc.capturedColors).toEqual(['#ff0000', '#00ff00']);
   });
 
   it('falls back malformed schema v2 payloads to tip mode', async () => {

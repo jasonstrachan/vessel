@@ -51,6 +51,17 @@ const sanitizeGradient = (
   return stops.length > 0 ? stops : undefined;
 };
 
+const sanitizeCapturedColors = (colors: unknown): string[] | undefined => {
+  if (!Array.isArray(colors)) {
+    return undefined;
+  }
+  const normalized = colors
+    .filter((color): color is string => typeof color === 'string')
+    .map((color) => color.trim().toLowerCase())
+    .filter((color) => /^#[0-9a-f]{6}$/.test(color));
+  return normalized.length > 0 ? normalized : undefined;
+};
+
 const createV1 = (input: Partial<CustomBrushColorCycleV1>): CustomBrushColorCycleV1 => ({
   schemaVersion: 1,
   source: sanitizeSource(input.source),
@@ -125,6 +136,7 @@ const createV2 = (input: Partial<CustomBrushColorCycleV2>): CustomBrushColorCycl
   const phaseMap = ensureUint16ArrayLength(input.phaseMap, dims.area);
   const indexMap = ensureUint16ArrayLength(input.indexMap, dims.area);
   const alphaMask = ensureUint8ArrayLength(input.alphaMask, dims.area);
+  const capturedColors = sanitizeCapturedColors(input.capturedColors);
 
   const hasAnyMap = Boolean(phaseMap || indexMap);
   const requestedMode = sanitizeMode(input.mode);
@@ -144,6 +156,7 @@ const createV2 = (input: Partial<CustomBrushColorCycleV2>): CustomBrushColorCycl
     phaseMap,
     indexMap,
     alphaMask,
+    capturedColors,
     useAlphaMask: input.useAlphaMask !== false,
   };
 };
@@ -240,6 +253,7 @@ export type SerializedCustomBrushColorCycle =
       phaseMapBase64?: string;
       indexMapBase64?: string;
       alphaMaskBase64?: string;
+      capturedColors?: string[];
       useAlphaMask?: boolean;
     };
 
@@ -276,6 +290,7 @@ export const serializeCustomBrushColorCycle = (
     phaseMapBase64: normalized.phaseMap ? encodeUint16Array(normalized.phaseMap) : undefined,
     indexMapBase64: normalized.indexMap ? encodeUint16Array(normalized.indexMap) : undefined,
     alphaMaskBase64: normalized.alphaMask ? encodeUint8Array(normalized.alphaMask) : undefined,
+    capturedColors: normalized.capturedColors?.slice(),
     useAlphaMask: normalized.useAlphaMask !== false,
   };
 };
@@ -329,6 +344,7 @@ export const deserializeCustomBrushColorCycle = (
       phaseMap,
       indexMap,
       alphaMask,
+      capturedColors: input.capturedColors,
       useAlphaMask: input.useAlphaMask,
     });
   }

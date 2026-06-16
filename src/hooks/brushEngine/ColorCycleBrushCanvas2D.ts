@@ -195,6 +195,84 @@ interface CustomStampInput {
   colorCycle?: CustomBrushColorCycleData;
 }
 
+type ResolveCustomStampIndexArgs = {
+  isCapturedDataStamp: boolean;
+  capturedPhaseMap?: Uint16Array;
+  capturedMapWidth: number;
+  capturedMapHeight: number;
+  px: number;
+  py: number;
+  maskWidth: number;
+  maskHeight: number;
+  scaledWidth: number;
+  scaledHeight: number;
+  rotation: number;
+  fallbackColorIndex: number;
+  phaseOffset: number;
+  cycleSpan: number;
+};
+
+export const resolveCustomStampIndex = ({
+  isCapturedDataStamp,
+  capturedPhaseMap,
+  capturedMapWidth,
+  capturedMapHeight,
+  px,
+  py,
+  maskWidth,
+  maskHeight,
+  scaledWidth,
+  scaledHeight,
+  rotation,
+  fallbackColorIndex,
+  phaseOffset,
+  cycleSpan,
+}: ResolveCustomStampIndexArgs): number | null => {
+  if (!isCapturedDataStamp) {
+    return fallbackColorIndex;
+  }
+
+  if (!capturedPhaseMap || capturedMapWidth <= 0 || capturedMapHeight <= 0) {
+    return null;
+  }
+
+  const sampleX = px + 0.5 - maskWidth / 2;
+  const sampleY = py + 0.5 - maskHeight / 2;
+  const invCos = Math.cos(-rotation);
+  const invSin = Math.sin(-rotation);
+  const unrotatedX = sampleX * invCos - sampleY * invSin + scaledWidth / 2;
+  const unrotatedY = sampleX * invSin + sampleY * invCos + scaledHeight / 2;
+
+  if (
+    unrotatedX < 0 ||
+    unrotatedY < 0 ||
+    unrotatedX >= scaledWidth ||
+    unrotatedY >= scaledHeight
+  ) {
+    return null;
+  }
+
+  const srcX = Math.max(
+    0,
+    Math.min(
+      capturedMapWidth - 1,
+      Math.floor((unrotatedX * capturedMapWidth) / Math.max(1, scaledWidth))
+    )
+  );
+  const srcY = Math.max(
+    0,
+    Math.min(
+      capturedMapHeight - 1,
+      Math.floor((unrotatedY * capturedMapHeight) / Math.max(1, scaledHeight))
+    )
+  );
+  const sourceIndex = capturedPhaseMap[srcY * capturedMapWidth + srcX] ?? 0;
+  const normalizedSource = Math.max(0, sourceIndex);
+  const span = Math.max(1, cycleSpan);
+  const mapped = (normalizedSource + phaseOffset) % span;
+  return mapped + 1;
+};
+
 type RgbColor = { r: number; g: number; b: number };
 type Vec2 = { x: number; y: number };
 type FillMode = 'linear' | 'concentric';
@@ -2477,6 +2555,13 @@ export class ColorCycleBrushCanvas2D {
         : undefined;
     const capturedMapWidth = colorCycle?.schemaVersion === 2 ? colorCycle.mapWidth : 0;
     const capturedMapHeight = colorCycle?.schemaVersion === 2 ? colorCycle.mapHeight : 0;
+    const capturedDataAvailable =
+      Boolean(capturedPhaseMap) &&
+      capturedMapWidth > 0 &&
+      capturedMapHeight > 0;
+    if (isCapturedDataStamp && !capturedDataAvailable) {
+      return;
+    }
     const cycleSpan =
       colorCycle?.schemaVersion === 2
         ? Math.max(1, Math.min(255, Math.round(colorCycle.sourceCycleLength || 256) - 1))
@@ -2494,38 +2579,29 @@ export class ColorCycleBrushCanvas2D {
         if (alpha[rowOffset + px] < 16) continue;
         this.logSetIndexSample(id, targetX, targetY);
         const flowSlot = this.resolveFlowSlot(strokeData, strokeData.flow.activeSlot ?? 0);
-        if (
-          capturedPhaseMap &&
-          capturedMapWidth > 0 &&
-          capturedMapHeight > 0 &&
-          rotation === 0
-        ) {
-          const srcX = Math.max(
-            0,
-            Math.min(
-              capturedMapWidth - 1,
-              Math.floor((px * capturedMapWidth) / Math.max(1, maskEntry.width))
-            )
-          );
-          const srcY = Math.max(
-            0,
-            Math.min(
-              capturedMapHeight - 1,
-              Math.floor((py * capturedMapHeight) / Math.max(1, maskEntry.height))
-            )
-          );
-          const sourceIndex = capturedPhaseMap[srcY * capturedMapWidth + srcX] ?? 0;
-          const normalizedSource = Math.max(0, sourceIndex);
-          const mapped = (normalizedSource + phaseOffset) % cycleSpan;
-          animator.setIndex(targetX, targetY, mapped + 1, flowSlot);
-          wrotePixels += 1;
-        } else {
-          animator.setIndex(targetX, targetY, fallbackColorIndex, flowSlot);
-          wrotePixels += 1;
+        const colorIndex = resolveCustomStampIndex({
+          isCapturedDataStamp,
+          capturedPhaseMap,
+          capturedMapWidth,
+          capturedMapHeight,
+          px,
+          py,
+          maskWidth: maskEntry.width,
+          maskHeight: maskEntry.height,
+          scaledWidth,
+          scaledHeight,
+          rotation,
+          fallbackColorIndex,
+          phaseOffset,
+          cycleSpan,
+        });
+        if (colorIndex === null) {
+          continue;
         }
+        animator.setIndex(targetX, targetY, colorIndex, flowSlot);
+        wrotePixels += 1;
       }
     }
-
     strokeData.lastPoint = { x, y };
     if (wrotePixels > 0) {
       this.markStrokeStateContentWritten(strokeData);

@@ -609,12 +609,15 @@ const BrushControls = () => {
     selectedCustomBrushId,
     temporaryCustomBrush
   ]);
+  const capturedColorCycleCandidate =
+    activeSettings.currentBrushTip?.colorCycle ?? activeCustomBrushColorCycle;
   const hasCapturedColorCyclePayload = Boolean(
-    activeCustomBrushColorCycle?.schemaVersion === 2 &&
-    activeCustomBrushColorCycle.mode === 'captured-data' &&
-    activeCustomBrushColorCycle.mapWidth > 0 &&
-    activeCustomBrushColorCycle.mapHeight > 0 &&
-    (activeCustomBrushColorCycle.phaseMap || activeCustomBrushColorCycle.indexMap)
+    capturedColorCycleCandidate?.schemaVersion === 2 &&
+    capturedColorCycleCandidate.mode === 'captured-data' &&
+    capturedColorCycleCandidate.mapWidth > 0 &&
+    capturedColorCycleCandidate.mapHeight > 0 &&
+    capturedColorCycleCandidate.phaseMap?.length ===
+      capturedColorCycleCandidate.mapWidth * capturedColorCycleCandidate.mapHeight
   );
   const customColorCycleMode = activeSettings.customBrushColorCycleMode ?? 'tip';
   const sizeUnit = isActiveCustomBrush ? '%' : 'px';
@@ -862,8 +865,21 @@ const BrushControls = () => {
     }
     if (customColorCycleMode === 'captured-data' && !hasCapturedColorCyclePayload) {
       setActiveSettings({ customBrushColorCycleMode: 'tip' });
+      return;
+    }
+    if (
+      hasCapturedColorCyclePayload &&
+      activeCustomBrushColorCycle?.schemaVersion === 2 &&
+      activeCustomBrushColorCycle.mode === 'captured-data' &&
+      customColorCycleMode !== 'captured-data'
+    ) {
+      setActiveSettings({
+        customBrushColorCycleMode: 'captured-data',
+        customBrushUseCapturedAlphaMask: activeCustomBrushColorCycle.useAlphaMask !== false,
+      });
     }
   }, [
+    activeCustomBrushColorCycle,
     customColorCycleMode,
     hasCapturedColorCyclePayload,
     isCustomColorCycleEnabled,
@@ -1650,7 +1666,7 @@ const BrushControls = () => {
     if (
       checked &&
       activeLayer?.layerType !== 'color-cycle' &&
-      !(hasCapturedColorCyclePayload && customColorCycleMode === 'captured-data')
+      !hasCapturedColorCyclePayload
     ) {
       showColorCycleLayerHint();
       setActiveSettings({ customBrushColorCycle: false });
@@ -1692,7 +1708,6 @@ const BrushControls = () => {
     activeSettings.customBrushCcPhaseJitter,
     activeSettings.customBrushCcPhaseMode,
     activeCustomBrushColorCycle,
-    customColorCycleMode,
     hasCapturedColorCyclePayload,
     setActiveSettings,
     showColorCycleLayerHint,
@@ -4108,8 +4123,15 @@ const BrushControls = () => {
             <div className="mt-2">
               <ButtonGroup
                 options={[
-                  { label: 'Tip Mode', value: 'tip' },
-                  { label: 'Color Cycle Data', value: 'captured-data' },
+                  { label: 'Color Cycle + Recolor', value: 'tip' },
+                  {
+                    label: 'Captured CC Data',
+                    value: 'captured-data',
+                    disabled: !hasCapturedColorCyclePayload,
+                    title: hasCapturedColorCyclePayload
+                      ? 'Replay captured color-cycle data'
+                      : 'Available only for brushes captured from a color-cycle layer',
+                  },
                 ]}
                 value={customColorCycleMode}
                 onChange={(value) => {
@@ -4124,6 +4146,11 @@ const BrushControls = () => {
                 size="sm"
                 className="w-full"
               />
+              {!hasCapturedColorCyclePayload && (
+                <p className="mt-1 text-xs text-gray-500">
+                  Captured CC Data is available only for brushes captured from a color-cycle layer.
+                </p>
+              )}
 
               {isCapturedDataMode && (
                 <div className="mt-2 rounded border border-[#3a3a3a] bg-[#1f1f1f] p-2">
