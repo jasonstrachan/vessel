@@ -166,6 +166,13 @@ describe('ColorCycleBrushCanvas2D regression tests', () => {
     const state = useAppStore.getState() as unknown as MockStoreState;
     state.layers = [];
     state.tools.brushSettings = {};
+    state.updateLayer = jest.fn((id: string, patch: Record<string, unknown>) => {
+      state.layers = state.layers.map((layer) => (
+        typeof layer === 'object' && layer !== null && 'id' in layer && layer.id === id
+          ? { ...layer, ...patch }
+          : layer
+      ));
+    });
   });
 
   it('rebuilds def palettes when def stops change even if a stale hash is reused', () => {
@@ -2787,6 +2794,95 @@ describe('ColorCycleBrushCanvas2D regression tests', () => {
     const y = 8 * canvas.width;
     const painted = [data[7 + y], data[8 + y], data[9 + y]].filter((value) => value > 0);
     expect(new Set(painted)).toEqual(new Set([2, 3, 130]));
+  });
+
+  it('binds captured-data custom stamps to their captured gradient instead of the active layer gradient', () => {
+    const canvas = makeCanvas(16, 16);
+    const brush = new ColorCycleBrushCanvas2D(canvas, { forceCanvas2D: true });
+    const layerId = 'layer-custom-captured-gradient-binding';
+    const activeSlot = 3;
+    const activeDefId = 8;
+    const capturedStops = [
+      { position: 0, color: '#000000' },
+      { position: 1, color: '#ffffff' },
+    ];
+    const state = useAppStore.getState() as unknown as MockStoreState & {
+      layers: Array<Record<string, unknown>>;
+    };
+    state.layers = [{
+      id: layerId,
+      layerType: 'color-cycle',
+      colorCycleData: {
+        slotPalettes: [{
+          slot: activeSlot,
+          stops: [
+            { position: 0, color: '#ff0000' },
+            { position: 1, color: '#0000ff' },
+          ],
+        }],
+        gradientDefStore: [{
+          id: activeDefId,
+          kind: 'linear',
+          slot: activeSlot,
+          stops: [
+            { position: 0, color: '#ff0000' },
+            { position: 1, color: '#0000ff' },
+          ],
+          hash: 'linear:active',
+          source: 'manual',
+          createdAtMs: 0,
+        }],
+        nextGradientDefId: activeDefId + 1,
+        paintSlot: activeSlot,
+      },
+    }];
+    state.updateLayer = jest.fn((id: string, patch: Record<string, unknown>) => {
+      const layers = state.layers as Array<Record<string, unknown>>;
+      state.layers = layers.map((layer) => (
+        layer.id === id ? Object.assign({}, layer, patch) : layer
+      ));
+    });
+
+    const stamp = {
+      imageData: new ImageData(new Uint8ClampedArray([255, 255, 255, 255]), 1, 1),
+      width: 1,
+      height: 1,
+      colorCycle: {
+        schemaVersion: 2 as const,
+        mode: 'captured-data' as const,
+        sourceCycleLength: 256,
+        mapWidth: 1,
+        mapHeight: 1,
+        phaseMap: new Uint16Array([64]),
+        gradient: capturedStops,
+      },
+    };
+
+    brush.setBrushSize(1);
+    brush.setActiveGradientSlot(layerId, activeSlot);
+    brush.startStroke(layerId);
+    brush.paintCustomStamp(stamp, 8, 8, layerId, 1);
+    brush.endStroke(layerId);
+
+    const snapshot = brush.getLayerSnapshot(layerId);
+    const stampIndex = 8 + 8 * canvas.width;
+    const gradientIds = new Uint8Array(snapshot?.gradientIdBuffer ?? new ArrayBuffer(0));
+    const defIds = new Uint16Array(snapshot?.gradientDefIdBuffer ?? new ArrayBuffer(0));
+    const layer = state.layers[0] as {
+      colorCycleData?: {
+        gradientDefStore?: Array<{ id: number; slot?: number; stops: typeof capturedStops }>;
+      };
+    };
+    const capturedDef = layer.colorCycleData?.gradientDefStore?.find((entry) => (
+      entry.stops[0]?.color === '#000000' &&
+      entry.stops[1]?.color === '#ffffff'
+    ));
+
+    expect(capturedDef).toBeDefined();
+    expect(capturedDef?.slot).not.toBe(activeSlot);
+    expect(capturedDef?.id).not.toBe(activeDefId);
+    expect(gradientIds[stampIndex] & 0x3f).toBe(capturedDef?.slot);
+    expect(defIds[stampIndex]).toBe(capturedDef?.id);
   });
 
   it('resolves captured-data custom stamp indices through tiny rotations', () => {

@@ -74,6 +74,7 @@ import type { StoredStop } from '@/utils/colorCycleGradientDefs';
 import type { CommitCommittedLayerStateOptions } from '@/hooks/brushEngine/colorCycleCommittedState';
 import { getActiveMarkGradientSession } from '@/hooks/canvas/utils/colorCycleMarkSession';
 import { TEMP_SAMPLE_SLOT } from '@/constants/colorCycle';
+import { ensureGradientDefForStops } from '@/utils/colorCycleGradientDefs';
 import {
   logCCMutation,
   summarizeColorCycleLayer,
@@ -210,6 +211,11 @@ type ResolveCustomStampIndexArgs = {
   fallbackColorIndex: number;
   phaseOffset: number;
   cycleSpan: number;
+};
+
+type CapturedStampGradientBinding = {
+  slot: number;
+  defId: number;
 };
 
 export const resolveCustomStampIndex = ({
@@ -1524,6 +1530,41 @@ export class ColorCycleBrushCanvas2D {
       : null;
   }
 
+  private resolveCapturedStampGradientBinding(
+    layerId: string,
+    colorCycle: CustomBrushColorCycleData | undefined
+  ): CapturedStampGradientBinding | null {
+    if (
+      colorCycle?.schemaVersion !== 2 ||
+      colorCycle.mode !== 'captured-data' ||
+      !Array.isArray(colorCycle.gradient) ||
+      colorCycle.gradient.length === 0
+    ) {
+      return null;
+    }
+
+    const stops = colorCycle.gradient.map((stop) => ({ ...stop }));
+    const ensured = ensureGradientDefForStops({
+      layerId,
+      kind: 'linear',
+      stops,
+      source: 'sampled',
+      speedCps: colorCycle.speed,
+      seamProfile: 'hard',
+      updateOptions: { skipColorCycleSync: true },
+    });
+    if (!ensured) {
+      return null;
+    }
+
+    this.setGradientSlotStops(layerId, ensured.slot, stops, 'hard');
+    this.setPersistedLayerColorCycleMeta(layerId, this.getLayerColorCycleMeta(layerId));
+    return {
+      slot: ensured.slot,
+      defId: ensured.def.id,
+    };
+  }
+
   private getDefPaletteCache(
     layerId: string,
     defs: Array<{
@@ -2573,10 +2614,11 @@ export class ColorCycleBrushCanvas2D {
     if (isCapturedDataStamp && !capturedDataAvailable) {
       return;
     }
-    const activeSlot = this.resolveActiveStrokeSlot(id, strokeData);
+    const capturedGradientBinding = this.resolveCapturedStampGradientBinding(id, colorCycle);
+    const activeSlot = capturedGradientBinding?.slot ?? this.resolveActiveStrokeSlot(id, strokeData);
     strokeData.flow.activeSlot = activeSlot;
     const flowSlot = this.resolveFlowSlot(strokeData, activeSlot);
-    const activeDefId = this.resolveGradientDefIdForSlot(id, activeSlot);
+    const activeDefId = capturedGradientBinding?.defId ?? this.resolveGradientDefIdForSlot(id, activeSlot);
     const cycleSpan =
       colorCycle?.schemaVersion === 2
         ? Math.max(1, Math.min(255, Math.round(colorCycle.sourceCycleLength || 256) - 1))
