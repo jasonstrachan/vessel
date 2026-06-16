@@ -3,11 +3,12 @@ import type { StoreApi } from 'zustand';
 import { createSelectionPasteHelpers } from '@/stores/helpers/selectionPaste';
 import type { AppState } from '@/stores/useAppStore';
 import type { Layer } from '@/types';
+import { DEFAULT_BRUSH_COLOR_CYCLE_SPEED } from '@/constants/colorCycle';
+import { encodeColorCycleSpeedByte } from '@/utils/colorCycleSpeed';
 import { rasterizeFloatingPasteBitmap } from '@/utils/selection/floatingPasteRaster';
 
 jest.mock('@/stores/helpers/colorCycleSelection', () => ({
   writeColorCycleRegion: jest.fn(() => false),
-  deriveColorCycleIndicesFromImageData: jest.fn(() => null),
   hasColorCycleIndices: jest.fn((payload?: { colorCycleIndices?: Uint8Array | null }) =>
     Boolean(payload?.colorCycleIndices && payload.colorCycleIndices.length)
   ),
@@ -17,17 +18,13 @@ jest.mock('@/stores/helpers/colorCycleSelection', () => ({
 type WriteColorCycleRegion = typeof import('@/stores/helpers/colorCycleSelection')['writeColorCycleRegion'];
 type HasColorCycleIndices = typeof import('@/stores/helpers/colorCycleSelection')['hasColorCycleIndices'];
 
-const { writeColorCycleRegion, deriveColorCycleIndicesFromImageData, hasColorCycleIndices } =
+const { writeColorCycleRegion, hasColorCycleIndices } =
   jest.requireMock('@/stores/helpers/colorCycleSelection') as {
   writeColorCycleRegion: jest.MockedFunction<WriteColorCycleRegion>;
-  deriveColorCycleIndicesFromImageData: jest.MockedFunction<
-    typeof import('@/stores/helpers/colorCycleSelection')['deriveColorCycleIndicesFromImageData']
-  >;
   hasColorCycleIndices: jest.MockedFunction<HasColorCycleIndices>;
 };
 
 const mockWriteColorCycleRegion = writeColorCycleRegion;
-const mockDeriveColorCycleIndicesFromImageData = deriveColorCycleIndicesFromImageData;
 const mockHasColorCycleIndices = hasColorCycleIndices;
 
 type CommitLayerHistory = typeof import('@/history/helpers/layerHistory')['commitLayerHistory'];
@@ -550,10 +547,11 @@ describe('selection paste commit', () => {
     expect(state.floatingPaste).toBeNull();
   });
 
-  it('blocks color-cycle paste when indices are missing and conversion fails', async () => {
+  it('blocks color-cycle paste when indices are missing and bitmap conversion has no image', async () => {
     const { helpers, state, captureCanvasToActiveLayer } = setupHelpers(
       {
         colorCycleIndices: null,
+        imageData: null,
       },
       {
         layerType: 'color-cycle',
@@ -564,7 +562,6 @@ describe('selection paste commit', () => {
     await helpers.commitFloatingPaste();
 
     expect(mockWriteColorCycleRegion).not.toHaveBeenCalled();
-    expect(mockDeriveColorCycleIndicesFromImageData).not.toHaveBeenCalled();
     expect(commitLayerHistory).not.toHaveBeenCalled();
     expect(captureCanvasToActiveLayer).not.toHaveBeenCalled();
     expect(showAppFeedback).toHaveBeenCalledWith(
@@ -574,8 +571,83 @@ describe('selection paste commit', () => {
     expect(state.floatingPaste).not.toBeNull();
   });
 
-  it('does not auto-convert bitmap paste into color-cycle indices', async () => {
-    const { helpers, state } = setupHelpers(
+  it('converts bitmap paste into color-cycle indices on a color-cycle layer', async () => {
+    const { helpers, state, captureCanvasToActiveLayer, layer } = setupHelpers(
+      {
+        colorCycleIndices: null,
+        width: 3,
+        height: 1,
+        displayWidth: 3,
+        displayHeight: 1,
+        imageData: new ImageData(
+          new Uint8ClampedArray([
+            0, 0, 0, 255,
+            128, 128, 128, 255,
+            255, 255, 255, 0,
+          ]),
+          3,
+          1
+        ),
+        position: { x: 4.4, y: 6.6 },
+      },
+      {
+        layerType: 'color-cycle',
+        colorCycleData: {
+          paintSlot: 7,
+          flowMode: 'reverse',
+          gradientDefStore: [{
+            id: 42,
+            kind: 'linear',
+            slot: 7,
+            stops: [],
+            hash: 'active',
+            source: 'manual',
+            createdAtMs: 0,
+          }],
+        },
+      }
+    );
+
+    mockHasColorCycleIndices.mockReturnValueOnce(false);
+    mockWriteColorCycleRegion.mockReturnValueOnce(true);
+
+    await helpers.commitFloatingPaste();
+
+    expect(mockWriteColorCycleRegion).toHaveBeenCalledTimes(1);
+    expect(mockWriteColorCycleRegion).toHaveBeenCalledWith(
+      state,
+      layer,
+      state.project,
+      { x: 4, y: 7, width: 3, height: 1 },
+      new Uint8Array([1, 128, 0]),
+      3,
+      1,
+      expect.objectContaining({
+        alphaData: new Uint8Array([255, 255, 0]),
+        alphaStride: 1,
+        alphaChannelOffset: 0,
+        alphaThreshold: 0,
+        gradientSlot: 7,
+        sourceGradientIds: null,
+        sourceGradientDefIds: new Uint16Array([42, 42, 0]),
+        sourceSpeed: new Uint8Array([
+          encodeColorCycleSpeedByte(DEFAULT_BRUSH_COLOR_CYCLE_SPEED),
+          encodeColorCycleSpeedByte(DEFAULT_BRUSH_COLOR_CYCLE_SPEED),
+          0,
+        ]),
+        sourceFlow: new Uint8Array([2, 2, 0]),
+        sourcePhase: new Uint8Array([0, 0, 0]),
+        clearTransparentPixels: true,
+      })
+    );
+    expect(commitLayerHistory).toHaveBeenCalledTimes(1);
+    expect(captureCanvasToActiveLayer).not.toHaveBeenCalled();
+    expect(state.addNotification).not.toHaveBeenCalled();
+    expect(state.floatingPaste).toBeNull();
+  });
+
+  it('clears old gradient def ids when converted bitmap paste has no active def', async () => {
+    const { helpers, state, layer } = setupHelpers(
       {
         colorCycleIndices: null,
         width: 2,
@@ -584,34 +656,120 @@ describe('selection paste commit', () => {
         displayHeight: 1,
         imageData: new ImageData(
           new Uint8ClampedArray([
-            255, 0, 0, 255,
-            0, 0, 255, 255,
+            0, 0, 0, 255,
+            255, 255, 255, 255,
           ]),
           2,
           1
         ),
-        position: { x: 4.4, y: 6.6 },
+        position: { x: 1, y: 2 },
       },
       {
         layerType: 'color-cycle',
+        colorCycleData: {
+          paintSlot: 7,
+          gradientDefStore: [],
+        },
       }
     );
 
     mockHasColorCycleIndices.mockReturnValueOnce(false);
+    mockWriteColorCycleRegion.mockReturnValueOnce(true);
 
     await helpers.commitFloatingPaste();
 
-    expect(mockDeriveColorCycleIndicesFromImageData).not.toHaveBeenCalled();
-    expect(mockWriteColorCycleRegion).not.toHaveBeenCalled();
-    expect(commitLayerHistory).not.toHaveBeenCalled();
-    expect(state.addNotification).toHaveBeenCalledWith(
+    expect(mockWriteColorCycleRegion).toHaveBeenCalledWith(
+      state,
+      layer,
+      state.project,
+      { x: 1, y: 2, width: 2, height: 1 },
+      expect.any(Uint8Array),
+      2,
+      1,
       expect.objectContaining({
-        type: 'warning',
-        title: 'Paste blocked',
-        message: expect.stringContaining('Bitmap paste into a color-cycle layer is blocked'),
+        gradientSlot: 7,
+        sourceGradientDefIds: new Uint16Array([0, 0]),
+        clearTransparentPixels: true,
       })
     );
-    expect(state.floatingPaste).not.toBeNull();
+  });
+
+  it('uses the rotated raster when converting bitmap paste into color-cycle indices', async () => {
+    const { helpers, state, layer } = setupHelpers(
+      {
+        colorCycleIndices: null,
+        width: 2,
+        height: 1,
+        displayWidth: 2,
+        displayHeight: 1,
+        rotation: 90,
+        imageData: new ImageData(
+          new Uint8ClampedArray([
+            0, 0, 0, 255,
+            255, 255, 255, 255,
+          ]),
+          2,
+          1
+        ),
+        position: { x: 10, y: 10 },
+      },
+      {
+        layerType: 'color-cycle',
+        colorCycleData: {
+          paintSlot: 4,
+          gradientDefStore: [],
+        },
+      }
+    );
+    const floatingPaste = state.floatingPaste as NonNullable<AppState['floatingPaste']>;
+    const expectedRaster = rasterizeFloatingPasteBitmap(floatingPaste, state.project!);
+    if (!expectedRaster) {
+      throw new Error('Expected rotated floating paste raster');
+    }
+    const expectedCtx = expectedRaster.canvas.getContext('2d', { willReadFrequently: true });
+    if (!expectedCtx) {
+      throw new Error('Expected rotated floating paste raster context');
+    }
+    const expectedImage = expectedCtx.getImageData(
+      0,
+      0,
+      expectedRaster.roi.width,
+      expectedRaster.roi.height
+    );
+    const expectedIndices = new Uint8Array(expectedRaster.roi.width * expectedRaster.roi.height);
+    for (let pixel = 0; pixel < expectedIndices.length; pixel += 1) {
+      const offset = pixel * 4;
+      const alpha = expectedImage.data[offset + 3] ?? 0;
+      if (alpha <= 0) {
+        expectedIndices[pixel] = 0;
+        continue;
+      }
+      const luminance =
+        (0.2126 * (expectedImage.data[offset] ?? 0)) +
+        (0.7152 * (expectedImage.data[offset + 1] ?? 0)) +
+        (0.0722 * (expectedImage.data[offset + 2] ?? 0));
+      expectedIndices[pixel] = Math.max(1, Math.min(255, Math.round((luminance / 255) * 254) + 1));
+    }
+
+    mockHasColorCycleIndices.mockReturnValueOnce(false);
+    mockWriteColorCycleRegion.mockReturnValueOnce(true);
+
+    await helpers.commitFloatingPaste();
+
+    expect(mockWriteColorCycleRegion).toHaveBeenCalledWith(
+      state,
+      layer,
+      state.project,
+      expectedRaster.roi,
+      expectedIndices,
+      expectedRaster.roi.width,
+      expectedRaster.roi.height,
+      expect.objectContaining({
+        gradientSlot: 4,
+        sourceGradientDefIds: new Uint16Array(expectedIndices.length),
+        clearTransparentPixels: true,
+      })
+    );
   });
 
   it('writes color-cycle indices directly when committing a floating paste on a color-cycle layer', async () => {

@@ -1740,6 +1740,70 @@ describe('ColorCycleBrushCanvas2D regression tests', () => {
     expect(strokePixelCount).toBeGreaterThan(0);
   });
 
+  it('replaces stale def ids where a custom CC stamp paints over pasted CC pixels', () => {
+    const canvas = makeCanvas(16, 16);
+    const brush = new ColorCycleBrushCanvas2D(canvas, { forceCanvas2D: true });
+    const layerId = 'layer-custom-stamp-over-pasted-def';
+    const oldSlot = 12;
+    const newSlot = 5;
+    const oldDefId = 88;
+    const newDefId = 23;
+    const pixelCount = canvas.width * canvas.height;
+    const state = useAppStore.getState() as unknown as MockStoreState;
+    state.layers = [{
+      id: layerId,
+      layerType: 'color-cycle',
+      colorCycleData: {
+        paintSlot: newSlot,
+        gradientDefStore: [{
+          id: newDefId,
+          kind: 'linear',
+          stops: [
+            { position: 0, color: '#000000' },
+            { position: 1, color: '#ffffff' },
+          ],
+          hash: 'custom-stamp-active-def',
+          source: 'manual',
+          createdAtMs: 0,
+          slot: newSlot,
+        }],
+      },
+    }];
+
+    brush.applyLayerSnapshot(layerId, {
+      paintBuffer: new Uint8Array(pixelCount).fill(120).buffer,
+      gradientIdBuffer: new Uint8Array(pixelCount).fill(oldSlot).buffer,
+      gradientDefIdBuffer: new Uint16Array(pixelCount).fill(oldDefId).buffer,
+      speedBuffer: new Uint8Array(pixelCount).buffer,
+      flowBuffer: new Uint8Array(pixelCount).buffer,
+      phaseBuffer: new Uint8Array(pixelCount).buffer,
+      hasContent: true,
+      strokeCounter: 1,
+    });
+
+    const stamp = {
+      imageData: new ImageData(new Uint8ClampedArray([255, 255, 255, 255]), 1, 1),
+      width: 1,
+      height: 1,
+    };
+
+    brush.setBrushSize(1);
+    brush.setActiveGradientSlot(layerId, newSlot);
+    brush.startStroke(layerId);
+    brush.paintCustomStamp(stamp, 8, 8, layerId, 1);
+    brush.endStroke(layerId);
+
+    const snapshot = brush.getLayerSnapshot(layerId);
+    const paint = new Uint8Array(snapshot?.paintBuffer ?? new ArrayBuffer(0));
+    const gradientIds = new Uint8Array(snapshot?.gradientIdBuffer ?? new ArrayBuffer(0));
+    const defIds = new Uint16Array(snapshot?.gradientDefIdBuffer ?? new ArrayBuffer(0));
+    const stampIndex = 8 + 8 * canvas.width;
+
+    expect(paint[stampIndex]).toBeGreaterThan(0);
+    expect(gradientIds[stampIndex] & 0x3f).toBe(newSlot);
+    expect(defIds[stampIndex]).toBe(newDefId);
+  });
+
   it('linear fill is monotonic along x (with at most one wrap)', async () => {
     const canvas = makeCanvas(24, 12);
     const brush = new ColorCycleBrushCanvas2D(canvas, { forceCanvas2D: true });

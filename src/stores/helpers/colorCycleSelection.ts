@@ -512,6 +512,7 @@ export const writeColorCycleRegion = (
     sourceFlow?: Uint8Array | null;
     sourcePhase?: Uint8Array | null;
     skipMaterialize?: boolean;
+    clearTransparentPixels?: boolean;
   }
 ): boolean =>
   mutateColorCycleLayer(
@@ -537,6 +538,7 @@ export const writeColorCycleRegion = (
     const sourceSpeed = options?.sourceSpeed ?? null;
     const sourceFlow = options?.sourceFlow ?? null;
     const sourcePhase = options?.sourcePhase ?? null;
+    const clearTransparentPixels = options?.clearTransparentPixels === true;
     let changed = false;
     for (let y = startY; y < endY; y += 1) {
       const destRowOffset = y * bufferWidth;
@@ -553,6 +555,25 @@ export const writeColorCycleRegion = (
           const alphaIndex = (srcY * sourceWidth + srcX) * alphaStride + alphaChannelOffset;
           const alpha = alphaData[alphaIndex] ?? 0;
           if (alpha <= alphaThreshold) {
+            if (clearTransparentPixels) {
+              const destIndex = destRowOffset + x;
+              if (
+                buffer[destIndex] !== 0 ||
+                gradientId[destIndex] !== 0 ||
+                gradientDefId[destIndex] !== 0 ||
+                speed[destIndex] !== 0 ||
+                flow[destIndex] !== 0 ||
+                phase[destIndex] !== 0
+              ) {
+                buffer[destIndex] = 0;
+                gradientId[destIndex] = 0;
+                gradientDefId[destIndex] = 0;
+                speed[destIndex] = 0;
+                flow[destIndex] = 0;
+                phase[destIndex] = 0;
+                changed = true;
+              }
+            }
             continue;
           }
         }

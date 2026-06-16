@@ -460,6 +460,94 @@ describe('colorCycleSelection helpers', () => {
     expect(incoming[5]).toBe(4); // opaque
   });
 
+  it('clears destination pixels where source alpha is transparent in replace mode', () => {
+    const buffer = new Uint8Array(16).fill(9);
+    const gradientIds = new Uint8Array(16).fill(8);
+    const gradientDefIds = new Uint16Array(16).fill(7);
+    const speed = new Uint8Array(16).fill(6);
+    const flow = new Uint8Array(16).fill(5);
+    const phase = new Uint8Array(16).fill(4);
+    const src = new Uint8Array([1, 2, 3, 4]);
+    const alphaData = new Uint8ClampedArray([
+      0, 0, 0, 255,
+      0, 0, 0, 0,
+      0, 0, 0, 0,
+      0, 0, 0, 255,
+    ]);
+
+    const imageData = new FakeImageData(new Uint8ClampedArray(4 * 4 * 4), 4, 4);
+    const canvas = makeCanvas(4, 4, imageData);
+
+    mockGetLayerSnapshot.mockReturnValue({
+      paintBuffer: buffer.buffer,
+      gradientIdBuffer: gradientIds.buffer,
+      gradientDefIdBuffer: gradientDefIds.buffer,
+      speedBuffer: speed.buffer,
+      flowBuffer: flow.buffer,
+      phaseBuffer: phase.buffer,
+      hasContent: true,
+      strokeCounter: 0,
+    });
+
+    const layer: Layer = {
+      id: 'layer-cc',
+      name: 'CC',
+      layerType: 'color-cycle',
+      visible: true,
+      opacity: 1,
+      blendMode: 'source-over',
+      locked: false,
+      order: 0,
+      imageData: null,
+      framebuffer: makeOffscreenCanvas(4, 4),
+      alignment: { ...createDefaultLayerAlignment(), positioning: 'auto' },
+      colorCycleData: { canvas },
+    } as Layer;
+
+    const state = {
+      updateLayer: jest.fn(),
+      setCurrentCompositeBitmap: jest.fn(),
+      setLayersNeedRecomposition: jest.fn(),
+      markCompositeSegmentsDirtyByLayerIds: jest.fn(),
+    } as unknown as import('@/stores/useAppStore').AppState;
+
+    const applied = writeColorCycleRegion(
+      state,
+      layer,
+      project,
+      { x: 0, y: 0, width: 2, height: 2 },
+      src,
+      2,
+      2,
+      {
+        alphaData,
+        alphaStride: 4,
+        alphaChannelOffset: 3,
+        alphaThreshold: 0,
+        clearTransparentPixels: true,
+      }
+    );
+
+    expect(applied).toBe(true);
+    const snapshotArg = mockApplyLayerSnapshot.mock.calls[mockApplyLayerSnapshot.mock.calls.length - 1][1];
+    const incoming = new Uint8Array(snapshotArg.paintBuffer);
+    const incomingGradientIds = new Uint8Array(snapshotArg.gradientIdBuffer);
+    const incomingGradientDefIds = new Uint16Array(snapshotArg.gradientDefIdBuffer);
+    const incomingSpeed = new Uint8Array(snapshotArg.speedBuffer);
+    const incomingFlow = new Uint8Array(snapshotArg.flowBuffer);
+    const incomingPhase = new Uint8Array(snapshotArg.phaseBuffer);
+
+    expect(incoming[0]).toBe(1);
+    expect(incoming[1]).toBe(0);
+    expect(incoming[4]).toBe(0);
+    expect(incoming[5]).toBe(4);
+    expect(incomingGradientIds[1]).toBe(0);
+    expect(incomingGradientDefIds[1]).toBe(0);
+    expect(incomingSpeed[1]).toBe(0);
+    expect(incomingFlow[1]).toBe(0);
+    expect(incomingPhase[1]).toBe(0);
+  });
+
   it('does not mutate when all source pixels are transparent', () => {
     const buffer = new Uint8Array(16).fill(7);
     const src = new Uint8Array([1, 2, 3, 4]);

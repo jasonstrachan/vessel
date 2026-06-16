@@ -1,6 +1,6 @@
 import type { StoreApi } from 'zustand';
 import type { AppState } from '@/stores/useAppStore';
-import type { Rectangle } from '@/types';
+import type { Layer, Rectangle } from '@/types';
 import { captureColorCycleBrushState } from '@/history/helpers/colorCycle';
 import type { ColorCycleSerializedState } from '@/history/helpers/colorCycle';
 import { commitLayerHistory } from '@/history/helpers/layerHistory';
@@ -29,6 +29,9 @@ import {
   type CcSelectionOperation,
 } from '@/stores/helpers/colorCycleSelectionTransaction';
 import { logCCMutation, summarizeColorCycleLayer } from '@/utils/colorCycle/ccMutationAudit';
+import { DEFAULT_BRUSH_COLOR_CYCLE_SPEED } from '@/constants/colorCycle';
+import { encodeColorCycleSpeedByte } from '@/utils/colorCycleSpeed';
+import { resolveLayerColorCycleBaseSpeedFromLayer } from '@/utils/colorCycleLayerSpeed';
 
 type StoreGet = StoreApi<AppState>['getState'];
 type StoreSet = StoreApi<AppState>['setState'];
@@ -341,6 +344,103 @@ const buildOpaqueAlphaFromIndices = (indices: Uint8Array | null | undefined): Ui
     alpha[index] = (indices[index] ?? 0) > 0 ? 255 : 0;
   }
   return alpha;
+};
+
+const resolveColorCyclePasteGradientSlot = (layer: Layer): number | undefined => {
+  if (layer.layerType !== 'color-cycle') {
+    return undefined;
+  }
+  const data = layer.colorCycleData;
+  if (typeof data?.paintSlot === 'number' && Number.isFinite(data.paintSlot)) {
+    return data.paintSlot;
+  }
+  const activeDef = data?.activeGradientId
+    ? data.gradientDefs?.find((entry) => entry.id === data.activeGradientId)
+    : (data?.gradientDefs?.[0] ?? null);
+  if (typeof activeDef?.currentSlot === 'number' && Number.isFinite(activeDef.currentSlot)) {
+    return activeDef.currentSlot;
+  }
+  return undefined;
+};
+
+const resolveColorCyclePasteGradientDefId = (
+  layer: Layer,
+  gradientSlot: number | undefined
+): number | null => {
+  if (layer.layerType !== 'color-cycle' || typeof gradientSlot !== 'number') {
+    return null;
+  }
+  const matched = layer.colorCycleData?.gradientDefStore?.find((entry) => entry.slot === gradientSlot);
+  return typeof matched?.id === 'number' && Number.isFinite(matched.id) ? matched.id : null;
+};
+
+const resolveColorCyclePasteFlowByte = (layer: Layer): number => {
+  const flowMode = layer.layerType === 'color-cycle' ? layer.colorCycleData?.flowMode : undefined;
+  if (flowMode === 'reverse') {
+    return 2;
+  }
+  if (flowMode === 'pingpong') {
+    return 3;
+  }
+  return 1;
+};
+
+const buildColorCyclePasteFromBitmap = (
+  imageData: ImageData | null | undefined,
+  targetWidth: number,
+  targetHeight: number,
+  layer: Layer,
+  gradientSlot: number | undefined
+): {
+  indices: Uint8Array;
+  alpha: Uint8Array;
+  speed: Uint8Array;
+  flow: Uint8Array;
+  phase: Uint8Array;
+  gradientDefIds: Uint16Array;
+} | null => {
+  if (!imageData || targetWidth <= 0 || targetHeight <= 0 || imageData.width <= 0 || imageData.height <= 0) {
+    return null;
+  }
+
+  const pixelCount = targetWidth * targetHeight;
+  const indices = new Uint8Array(pixelCount);
+  const alpha = new Uint8Array(pixelCount);
+  const speed = new Uint8Array(pixelCount);
+  const flow = new Uint8Array(pixelCount);
+  const phase = new Uint8Array(pixelCount);
+  const resolvedDefId = resolveColorCyclePasteGradientDefId(layer, gradientSlot);
+  const gradientDefIds = new Uint16Array(pixelCount);
+  const gradientDefIdValue = resolvedDefId ?? 0;
+  const speedByte = encodeColorCycleSpeedByte(
+    resolveLayerColorCycleBaseSpeedFromLayer(layer) ?? DEFAULT_BRUSH_COLOR_CYCLE_SPEED
+  );
+  const flowByte = resolveColorCyclePasteFlowByte(layer);
+
+  for (let y = 0; y < targetHeight; y += 1) {
+    const sourceY = Math.min(imageData.height - 1, Math.floor((y * imageData.height) / targetHeight));
+    for (let x = 0; x < targetWidth; x += 1) {
+      const sourceX = Math.min(imageData.width - 1, Math.floor((x * imageData.width) / targetWidth));
+      const sourceIndex = (sourceY * imageData.width + sourceX) * 4;
+      const destIndex = y * targetWidth + x;
+      const sourceAlpha = imageData.data[sourceIndex + 3] ?? 0;
+      const luminance =
+        (0.2126 * (imageData.data[sourceIndex] ?? 0)) +
+        (0.7152 * (imageData.data[sourceIndex + 1] ?? 0)) +
+        (0.0722 * (imageData.data[sourceIndex + 2] ?? 0));
+      const ccIndex = sourceAlpha > 0
+        ? Math.max(1, Math.min(255, Math.round((luminance / 255) * 254) + 1))
+        : 0;
+      indices[destIndex] = ccIndex;
+      alpha[destIndex] = sourceAlpha;
+      speed[destIndex] = ccIndex > 0 ? speedByte : 0;
+      flow[destIndex] = ccIndex > 0 ? flowByte : 0;
+      phase[destIndex] = 0;
+      gradientDefIds[destIndex] = ccIndex > 0 ? gradientDefIdValue : 0;
+    }
+  }
+
+  return { indices, alpha, speed, flow, phase, gradientDefIds };
 };
 
 const unionWithProjectBounds = (
@@ -721,7 +821,33 @@ export const createSelectionPasteHelpers = ({
           }
         }
       }
-      const colorCycleDestRect = toRoundedDestinationRect(destinationRect);
+      const floatingPasteHasColorCycleIndices = hasColorCycleIndices(floatingPaste);
+      let colorCycleDestRect = toRoundedDestinationRect(destinationRect);
+      let rotatedBitmapPasteImageData: ImageData | null = null;
+      const shouldRasterizeBitmapForColorCycle =
+        targetLayer.layerType === 'color-cycle' &&
+        !floatingPasteHasColorCycleIndices &&
+        Boolean(floatingPaste.imageData) &&
+        Math.abs(rotation) > 0;
+      if (shouldRasterizeBitmapForColorCycle) {
+        const raster = rasterizeFloatingPasteBitmap(
+          { ...floatingPaste, imageData: floatingPaste.imageData },
+          project
+        );
+        if (!raster) {
+          set({ floatingPaste: null, floatingPasteHistoryContext: null });
+          return;
+        }
+        const rasterCtx = raster.canvas.getContext('2d', { willReadFrequently: true });
+        if (!rasterCtx) {
+          debugWarn('selection-paste-cc', 'Missing raster context for rotated bitmap CC paste', {
+            layerId: targetLayer.id,
+          });
+          return;
+        }
+        colorCycleDestRect = raster.roi;
+        rotatedBitmapPasteImageData = rasterCtx.getImageData(0, 0, raster.roi.width, raster.roi.height);
+      }
 
       debugLog('selection-paste-cc', 'CC destRect', {
         layerId: targetLayer.id,
@@ -729,25 +855,19 @@ export const createSelectionPasteHelpers = ({
         indicesLen: floatingPaste.colorCycleIndices?.length ?? 0,
       });
 
-      const resolvedColorCycleIndices = hasColorCycleIndices(floatingPaste)
-        ? floatingPaste.colorCycleIndices
+      const pastedBitmapColorCycle = targetLayer.layerType === 'color-cycle' && !floatingPasteHasColorCycleIndices
+        ? buildColorCyclePasteFromBitmap(
+            rotatedBitmapPasteImageData ?? floatingPaste.imageData,
+            colorCycleDestRect.width,
+            colorCycleDestRect.height,
+            targetLayer,
+            resolveColorCyclePasteGradientSlot(targetLayer)
+          )
         : null;
-      const resolvedGradientSlot = (() => {
-        if (targetLayer.layerType !== 'color-cycle' || !hasColorCycleIndices(floatingPaste)) {
-          return undefined;
-        }
-        const data = targetLayer.colorCycleData;
-        if (typeof data?.paintSlot === 'number') {
-          return data.paintSlot;
-        }
-        const activeDef = data?.activeGradientId
-          ? data.gradientDefs?.find((entry) => entry.id === data.activeGradientId)
-          : (data?.gradientDefs?.[0] ?? null);
-        if (typeof activeDef?.currentSlot === 'number') {
-          return activeDef.currentSlot;
-        }
-        return undefined;
-      })();
+      const resolvedColorCycleIndices = floatingPasteHasColorCycleIndices
+        ? floatingPaste.colorCycleIndices
+        : pastedBitmapColorCycle?.indices ?? null;
+      const resolvedGradientSlot = resolveColorCyclePasteGradientSlot(targetLayer);
       const hasColorCycleData = Boolean(resolvedColorCycleIndices && resolvedColorCycleIndices.length > 0);
 
       if (targetLayer.layerType === 'color-cycle' && !hasColorCycleData) {
@@ -817,7 +937,10 @@ export const createSelectionPasteHelpers = ({
         const requiresResample =
           colorCycleDestRect.width !== floatingPaste.width ||
           colorCycleDestRect.height !== floatingPaste.height;
-        const colorCycleSourceIndices = requiresResample
+        const convertedBitmapPaste = Boolean(pastedBitmapColorCycle);
+        const colorCycleSourceIndices = convertedBitmapPaste
+          ? pastedBitmapColorCycle!.indices
+          : requiresResample
           ? resampleScalarNearest(
               resolvedColorCycleIndices!,
               floatingPaste.width,
@@ -826,7 +949,9 @@ export const createSelectionPasteHelpers = ({
               colorCycleDestRect.height
             )
           : resolvedColorCycleIndices!;
-        const colorCycleSourceGradientIds = floatingPaste.colorCycleGradientIds
+        const colorCycleSourceGradientIds = convertedBitmapPaste
+          ? null
+          : floatingPaste.colorCycleGradientIds
           ? (requiresResample
             ? resampleScalarNearest(
                 floatingPaste.colorCycleGradientIds,
@@ -837,7 +962,7 @@ export const createSelectionPasteHelpers = ({
               )
             : floatingPaste.colorCycleGradientIds)
           : null;
-        let remappedGradientDefs = floatingPaste.colorCycleGradientDefs ?? null;
+        let remappedGradientDefs = convertedBitmapPaste ? null : floatingPaste.colorCycleGradientDefs ?? null;
         let colorCycleRemappedGradientIds = colorCycleSourceGradientIds;
         if (colorCycleRemappedGradientIds?.length) {
           const mergedPalettes = mergeTransferredColorCycleSlotPalettes({
@@ -859,7 +984,9 @@ export const createSelectionPasteHelpers = ({
             state.updateLayer(targetLayer.id, { colorCycleData: targetLayer.colorCycleData }, { skipColorCycleSync: true });
           }
         }
-        let colorCycleSourceGradientDefIds = floatingPaste.colorCycleGradientDefIds
+        let colorCycleSourceGradientDefIds = convertedBitmapPaste
+          ? pastedBitmapColorCycle!.gradientDefIds
+          : floatingPaste.colorCycleGradientDefIds
           ? (requiresResample
             ? resampleScalarNearest16(
                 floatingPaste.colorCycleGradientDefIds,
@@ -870,7 +997,7 @@ export const createSelectionPasteHelpers = ({
               )
             : floatingPaste.colorCycleGradientDefIds)
           : null;
-        if (colorCycleSourceGradientDefIds?.length) {
+        if (!convertedBitmapPaste && colorCycleSourceGradientDefIds?.length) {
           const merged = mergeTransferredColorCycleGradientDefs({
             layer: targetLayer,
             defs: remappedGradientDefs,
@@ -882,7 +1009,9 @@ export const createSelectionPasteHelpers = ({
             state.updateLayer(targetLayer.id, { colorCycleData: targetLayer.colorCycleData }, { skipColorCycleSync: true });
           }
         }
-        const colorCycleSourceSpeed = floatingPaste.colorCycleSpeed
+        const colorCycleSourceSpeed = convertedBitmapPaste
+          ? pastedBitmapColorCycle!.speed
+          : floatingPaste.colorCycleSpeed
           ? (requiresResample
             ? resampleScalarNearest(
                 floatingPaste.colorCycleSpeed,
@@ -893,7 +1022,9 @@ export const createSelectionPasteHelpers = ({
               )
             : floatingPaste.colorCycleSpeed)
           : null;
-        const colorCycleSourceFlow = floatingPaste.colorCycleFlow
+        const colorCycleSourceFlow = convertedBitmapPaste
+          ? pastedBitmapColorCycle!.flow
+          : floatingPaste.colorCycleFlow
           ? (requiresResample
             ? resampleScalarNearest(
                 floatingPaste.colorCycleFlow,
@@ -904,7 +1035,9 @@ export const createSelectionPasteHelpers = ({
               )
             : floatingPaste.colorCycleFlow)
           : null;
-        const colorCycleSourcePhase = floatingPaste.colorCyclePhase
+        const colorCycleSourcePhase = convertedBitmapPaste
+          ? pastedBitmapColorCycle!.phase
+          : floatingPaste.colorCyclePhase
           ? (requiresResample
             ? resampleScalarNearest(
                 floatingPaste.colorCyclePhase,
@@ -915,16 +1048,18 @@ export const createSelectionPasteHelpers = ({
               )
             : floatingPaste.colorCyclePhase)
           : null;
-        const colorCycleSourceWidth = requiresResample ? colorCycleDestRect.width : floatingPaste.width;
-        const colorCycleSourceHeight = requiresResample ? colorCycleDestRect.height : floatingPaste.height;
-        const resampledAlphaData = requiresResample
+        const colorCycleSourceWidth = convertedBitmapPaste || requiresResample ? colorCycleDestRect.width : floatingPaste.width;
+        const colorCycleSourceHeight = convertedBitmapPaste || requiresResample ? colorCycleDestRect.height : floatingPaste.height;
+        const resampledAlphaData = !convertedBitmapPaste && requiresResample
           ? resampleAlphaNearest(
               floatingPaste.imageData,
               colorCycleDestRect.width,
               colorCycleDestRect.height
             )
           : null;
-        const bitmapAlphaData = requiresResample
+        const bitmapAlphaData = convertedBitmapPaste
+          ? pastedBitmapColorCycle!.alpha
+          : requiresResample
           ? resampledAlphaData
           : (floatingPaste.imageData?.data ?? null);
         const hasBitmapAlpha = bitmapAlphaData
@@ -934,10 +1069,14 @@ export const createSelectionPasteHelpers = ({
           ? null
           : buildOpaqueAlphaFromIndices(colorCycleSourceIndices);
         const alphaData = hasBitmapAlpha ? bitmapAlphaData : synthesizedAlpha;
-        const alphaStride = hasBitmapAlpha
+        const alphaStride = convertedBitmapPaste
+          ? 1
+          : hasBitmapAlpha
           ? (requiresResample ? 1 : 4)
           : 1;
-        const alphaChannelOffset = hasBitmapAlpha
+        const alphaChannelOffset = convertedBitmapPaste
+          ? 0
+          : hasBitmapAlpha
           ? (requiresResample ? 0 : 3)
           : 0;
 
@@ -963,6 +1102,7 @@ export const createSelectionPasteHelpers = ({
             sourceSpeed: colorCycleSourceSpeed,
             sourceFlow: colorCycleSourceFlow,
             sourcePhase: colorCycleSourcePhase,
+            clearTransparentPixels: convertedBitmapPaste,
           }
         );
         const afterRegion = debugCaptureColorCycleScalarRegion(targetLayer, project, colorCycleDestRect);

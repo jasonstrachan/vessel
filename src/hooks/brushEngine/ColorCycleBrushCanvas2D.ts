@@ -1513,6 +1513,17 @@ export class ColorCycleBrushCanvas2D {
     return strokeData?.flow.activeSlot ?? this.activeGradientSlots.get(layerId) ?? 0;
   }
 
+  private resolveGradientDefIdForSlot(layerId: string, slot: number): number | null {
+    const defs = this.getLayerColorCycleMeta(layerId)?.gradientDefStore as Array<{
+      id: number;
+      slot?: number;
+    }> | undefined;
+    const matched = defs?.find((entry) => entry.slot === slot);
+    return typeof matched?.id === 'number' && Number.isFinite(matched.id)
+      ? matched.id
+      : null;
+  }
+
   private getDefPaletteCache(
     layerId: string,
     defs: Array<{
@@ -2562,6 +2573,10 @@ export class ColorCycleBrushCanvas2D {
     if (isCapturedDataStamp && !capturedDataAvailable) {
       return;
     }
+    const activeSlot = this.resolveActiveStrokeSlot(id, strokeData);
+    strokeData.flow.activeSlot = activeSlot;
+    const flowSlot = this.resolveFlowSlot(strokeData, activeSlot);
+    const activeDefId = this.resolveGradientDefIdForSlot(id, activeSlot);
     const cycleSpan =
       colorCycle?.schemaVersion === 2
         ? Math.max(1, Math.min(255, Math.round(colorCycle.sourceCycleLength || 256) - 1))
@@ -2578,7 +2593,6 @@ export class ColorCycleBrushCanvas2D {
         if (targetX < 0 || targetX >= this.width) continue;
         if (alpha[rowOffset + px] < 16) continue;
         this.logSetIndexSample(id, targetX, targetY);
-        const flowSlot = this.resolveFlowSlot(strokeData, strokeData.flow.activeSlot ?? 0);
         const colorIndex = resolveCustomStampIndex({
           isCapturedDataStamp,
           capturedPhaseMap,
@@ -2599,12 +2613,23 @@ export class ColorCycleBrushCanvas2D {
           continue;
         }
         animator.setIndex(targetX, targetY, colorIndex, flowSlot);
+        strokeData.buffers.def[targetY * this.width + targetX] = colorIndex > 0
+          ? activeDefId ?? 0
+          : 0;
         wrotePixels += 1;
       }
     }
     strokeData.lastPoint = { x, y };
     if (wrotePixels > 0) {
       this.markStrokeStateContentWritten(strokeData);
+      try {
+        const defs = this.getLayerColorCycleMeta(id)?.gradientDefStore as Array<{
+          id: number;
+          hash: string;
+          stops: GradientStop[];
+        }> | undefined;
+        this.applyDefBindingsForLayer(id, animator, strokeData, defs, { forceDefDirty: true });
+      } catch {}
     }
     strokeData.stampCounter++;
 
