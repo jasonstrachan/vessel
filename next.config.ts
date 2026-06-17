@@ -121,10 +121,10 @@ export const buildVesselNextConfig = (
 
     // Note: assetPrefix now set above for GitHub Pages
 
-    // Removed experimental features that were causing instability
-    // experimental: {
-    //   forceSwcTransforms: true,
-    // },
+    experimental: {
+      cpus: 1,
+      workerThreads: false,
+    },
   };
 };
 

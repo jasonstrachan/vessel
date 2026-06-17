@@ -9,7 +9,6 @@ import {
   logError,
   markCrashReportSeen,
   markHangReportSeen,
-  getPersistedBreadcrumbs,
   persistCrashReport,
   persistHangReport,
   recordBreadcrumb,
@@ -18,21 +17,6 @@ import { getErrorMessage, getErrorStack } from '@/utils/errorMessage';
 
 export default function GlobalErrorHooks() {
   useEffect(() => {
-    const canPostRuntimeEvents = (() => {
-      if (process.env.NODE_ENV === 'development') {
-        return true;
-      }
-
-      if (typeof window === 'undefined') {
-        return false;
-      }
-
-      const { protocol, hostname } = window.location;
-      return protocol === 'http:' && (
-        hostname === 'localhost' ||
-        hostname === '127.0.0.1'
-      );
-    })();
     const ACTIVE_SESSION_KEY = 'TB_ACTIVE_RUNTIME_SESSION';
     const HANG_GAP_MS = 4_000;
     const clientId = (() => {
@@ -89,46 +73,6 @@ export default function GlobalErrorHooks() {
           status,
           lastBeatAt: Date.now(),
         }));
-      } catch {}
-    };
-
-    const postRuntimeEvent = (payload: {
-      event: 'crash' | 'heartbeat' | 'longtask' | 'lag';
-      type?: 'error' | 'unhandledrejection';
-      message: string;
-      durationMs?: number | null;
-      lagMs?: number | null;
-      stack?: string | null;
-      filename?: string | null;
-      lineno?: number | null;
-      colno?: number | null;
-    }) => {
-      if (!canPostRuntimeEvents) {
-        return;
-      }
-      try {
-        const body = JSON.stringify({
-          ...payload,
-          clientId,
-          href: window.location.href,
-          visibilityState: document.visibilityState,
-          ts: Date.now(),
-          userAgent: window.navigator.userAgent,
-          breadcrumbs: payload.event === 'heartbeat' ? undefined : getPersistedBreadcrumbs(),
-        });
-
-        if (typeof navigator.sendBeacon === 'function') {
-          const blob = new Blob([body], { type: 'application/json' });
-          navigator.sendBeacon('/api/client-error', blob);
-          return;
-        }
-
-        void fetch('/api/client-error', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body,
-          keepalive: true,
-        });
       } catch {}
     };
 
@@ -210,15 +154,6 @@ export default function GlobalErrorHooks() {
           message,
           stack,
         });
-        postRuntimeEvent({
-          event: 'crash',
-          type: 'error',
-          message,
-          stack,
-          filename: event.filename ?? null,
-          lineno: event.lineno ?? null,
-          colno: event.colno ?? null,
-        });
         logError('[global-error]', message, event.error || '(no error object)');
         if (report) {
           logError('[global-error-report]', report);
@@ -240,12 +175,6 @@ export default function GlobalErrorHooks() {
           message,
           stack,
         });
-        postRuntimeEvent({
-          event: 'crash',
-          type: 'unhandledrejection',
-          message,
-          stack,
-        });
         logError('[global-unhandled-rejection]', reason);
         if (report) {
           logError('[global-unhandled-rejection-report]', report);
@@ -259,10 +188,6 @@ export default function GlobalErrorHooks() {
 
     const sendHeartbeat = () => {
       writeActiveSession('active');
-      postRuntimeEvent({
-        event: 'heartbeat',
-        message: 'heartbeat',
-      });
     };
 
     sendHeartbeat();
@@ -281,11 +206,6 @@ export default function GlobalErrorHooks() {
           visibilityState: document.visibilityState,
           lastBeatAt: now,
           gapMs: lagMs,
-        });
-        postRuntimeEvent({
-          event: 'lag',
-          message: 'event-loop-lag',
-          lagMs,
         });
       }
     }, 1000);
@@ -309,11 +229,6 @@ export default function GlobalErrorHooks() {
               visibilityState: document.visibilityState,
               lastBeatAt: Date.now(),
               gapMs: durationMs,
-            });
-            postRuntimeEvent({
-              event: 'longtask',
-              message: entry.name || 'longtask',
-              durationMs,
             });
           }
         });
