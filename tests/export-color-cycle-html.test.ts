@@ -1,6 +1,9 @@
 import { exportProjectAsWebGL } from '@/utils/export/webglExporter';
 import { resolveGobletBrushAlphaMode } from '@/utils/export/goblet/gobletExporter';
-import { materializeDefBoundBrushSlots } from '@/utils/export/goblet/gobletColorCycleSerializer';
+import {
+  materializeDefBoundBrushSlots,
+  serializeColorCycleDataFromResolvedLayer,
+} from '@/utils/export/goblet/gobletColorCycleSerializer';
 import { createDefaultLayerAlignment, createDefaultExportLayout } from '@/utils/layoutDefaults';
 import { buildForegroundDerivedGradientSpec, deriveForegroundGradientStops } from '@/utils/colorCycleGradients';
 import { FLOW_SLOT_MASK } from '@/lib/colorCycle/flowEncoding';
@@ -1238,13 +1241,109 @@ describe('exportProjectAsWebGL color cycle integration', () => {
       gobletVersion: 'goblet2'
     });
 
-      const exportedLayer = metadata.layers[0];
-      expect(exportedLayer.colorCycle?.speedMode).toBe('slot');
-      expect(exportedLayer.colorCycle?.slotSpeeds).toHaveLength(2);
-      expect(exportedLayer.colorCycle?.brushState?.speedBuffer).toBeUndefined();
-      expect(exportedLayer.colorCycle?.brushState?.flowBuffer).toBeDefined();
-      expect(exportedLayer.colorCycle?.brushState?.phaseBuffer).toBeDefined();
+    const exportedLayer = metadata.layers[0];
+    expect(exportedLayer.colorCycle?.speedMode).toBe('slot');
+    expect(exportedLayer.colorCycle?.slotSpeeds).toHaveLength(2);
+    expect(exportedLayer.colorCycle?.brushState?.speedBuffer).toBeUndefined();
+    expect(exportedLayer.colorCycle?.brushState?.flowBuffer).toBeDefined();
+    expect(exportedLayer.colorCycle?.brushState?.phaseBuffer).toBeDefined();
+  });
+
+  it('keeps uncropped stamp-dither brush exports animated', async () => {
+    const canvas = document.createElement('canvas');
+    canvas.width = 128;
+    canvas.height = 128;
+
+    const layer = createBrushModeLayer(canvas);
+    const baseBrush = layer.colorCycleData!.colorCycleBrush as { serialize: () => Record<string, unknown> };
+    layer.colorCycleData = {
+      ...layer.colorCycleData!,
+      colorCycleBrush: {
+        ...baseBrush,
+        serialize: () => ({
+          ...baseBrush.serialize(),
+          stampDitherEnabled: true,
+        }),
+      } as unknown as Layer['colorCycleData']['colorCycleBrush'],
+    };
+    const project = createProject(layer);
+
+    const metadata = await exportProjectAsWebGL({
+      project,
+      layers: [layer],
+      layout: createDefaultExportLayout(),
+      viewport: { designWidth: project.width, designHeight: project.height, mode: 'fixed' },
+      fps: 24,
+      totalFrames: 48,
+      durationSeconds: 2,
+      perfectLoop: false,
+      includeHiddenLayers: true,
+      embedCanvasFallback: false,
+      minify: false,
+      filenameBase: 'color-cycle-brush-stamp-dither-animated',
+      bundleFormat: 'json',
+      gobletVersion: 'goblet2',
     });
+
+    const exportedLayer = metadata.layers[0];
+    expect(exportedLayer.colorCycle?.brushState?.stampDitherEnabled).toBe(true);
+    expect(exportedLayer.colorCycle?.coverageBoundsPx).toBeUndefined();
+    expect(exportedLayer.colorCycle?.isAnimating).toBe(true);
+  });
+
+  it('keeps empty typed-array brush payloads static when coverage cropping finds no paint', async () => {
+    const canvas = document.createElement('canvas');
+    canvas.width = 128;
+    canvas.height = 128;
+
+    const layer = createBrushModeLayer(canvas);
+    const emptyPaint = new Uint8Array(64);
+    const gradientDefIds = Uint16Array.from(Array.from({ length: 64 }, (_, index) => (index % 2 === 0 ? 300 : 301)));
+    layer.colorCycleData = {
+      ...layer.colorCycleData!,
+      colorCycleBrush: {
+        serialize: () => ({
+          layers: [
+            {
+              layerId: layer.id,
+              data: {
+                indexBuffer: {
+                  width: 8,
+                  height: 8,
+                  data: emptyPaint,
+                  gradientId: new Uint8Array(64),
+                  speedData: new Uint8Array(64),
+                  flowData: new Uint8Array(64),
+                  phaseData: new Uint8Array(64),
+                },
+                gradient: {
+                  gradientStops: layer.colorCycleData?.gradient ?? [],
+                },
+              },
+              strokeData: {
+                gradientDefIdBuffer: gradientDefIds,
+              },
+            },
+          ],
+        }),
+        isPlaying: () => true,
+      } as unknown as Layer['colorCycleData']['colorCycleBrush'],
+    };
+
+    const result = await serializeColorCycleDataFromResolvedLayer(
+      layer,
+      createProject(layer),
+      undefined,
+      { resolvedSource: 'live-runtime' }
+    );
+
+    expect(result?.colorCycle?.brushState).toBeDefined();
+    const exportedDefIds = result?.colorCycle?.brushState?.gradientDefIdBuffer;
+    expect(typeof exportedDefIds === 'string' || Array.isArray(exportedDefIds)).toBe(true);
+    expect(JSON.stringify(exportedDefIds)).not.toContain('"0":');
+    expect(result?.colorCycle?.coverageBoundsPx).toBeUndefined();
+    expect(result?.colorCycle?.isAnimating).toBe(false);
+  });
 
   it('crops sparse Goblet 2 brush payloads before packing', async () => {
     const canvas = document.createElement('canvas');
@@ -1772,6 +1871,63 @@ describe('exportProjectAsWebGL color cycle integration', () => {
 
     expect(result.remapped).toBe(true);
     expect(result.brushState?.gradientIdBuffer).toEqual([0, 1, 1, 0]);
+    expect(result.slotPalettes?.find((entry) => entry.slot === 0)?.stops).toEqual(gradientStops);
+    expect(result.slotPalettes?.find((entry) => entry.slot === 1)?.stops).toEqual(alternateStops);
+  });
+
+  it('materializes typed-array gradient definitions as concrete Goblet slots', () => {
+    const gradientStops = [
+      { position: 0, color: '#101010' },
+      { position: 1, color: '#f0f0f0' },
+    ];
+    const alternateStops = [
+      { position: 0, color: '#ff00ff' },
+      { position: 1, color: '#00ffff' },
+    ];
+
+    const result = materializeDefBoundBrushSlots({
+      data: {
+        mode: 'brush',
+        isAnimating: true,
+        gradient: gradientStops,
+        gradientDefStore: [
+          {
+            id: 1,
+            kind: 'linear',
+            stops: gradientStops,
+            hash: 'typed-a',
+            source: 'manual',
+            createdAtMs: 1,
+            slot: 0,
+          },
+          {
+            id: 2,
+            kind: 'linear',
+            stops: alternateStops,
+            hash: 'typed-b',
+            source: 'manual',
+            createdAtMs: 2,
+            slot: 0,
+          },
+        ],
+      } as Layer['colorCycleData'],
+      brushState: {
+        width: 4,
+        height: 1,
+        indexBuffer: Uint8Array.from([10, 20, 30, 0]),
+        gradientIdBuffer: Uint8Array.from([0, 0, 0, 0]),
+        gradientDefIdBuffer: Uint16Array.from([1, 2, 2, 0]),
+        speedBuffer: Uint8Array.from([255, 255, 255, 0]),
+        flowBuffer: Uint8Array.from([1, 1, 1, 1]),
+        phaseBuffer: Uint8Array.from([0, 0, 0, 0]),
+        gradientStops,
+        animationOffset: 0,
+      },
+      slotPalettes: [{ slot: 0, stops: gradientStops }],
+    });
+
+    expect(result.remapped).toBe(true);
+    expect(Array.from(result.brushState?.gradientIdBuffer as Uint8Array)).toEqual([0, 1, 1, 0]);
     expect(result.slotPalettes?.find((entry) => entry.slot === 0)?.stops).toEqual(gradientStops);
     expect(result.slotPalettes?.find((entry) => entry.slot === 1)?.stops).toEqual(alternateStops);
   });

@@ -81,6 +81,8 @@ export type SerializedSlotPalette = {
   seamProfile?: GradientSeamProfile;
 };
 
+export type NumericExportBuffer = number[] | Uint8Array | Uint16Array | string;
+
 export interface CanvasExportFormatOption {
   type: CanvasExportMimeType;
   quality?: number;
@@ -89,12 +91,12 @@ export interface CanvasExportFormatOption {
 export interface WebGLSerializedBrushState {
   width: number;
   height: number;
-  indexBuffer: number[] | string;
-  gradientIdBuffer?: number[] | string;
-  gradientDefIdBuffer?: number[] | string;
-  speedBuffer?: number[] | string;
-  flowBuffer?: number[] | string;
-  phaseBuffer?: number[] | string;
+  indexBuffer: NumericExportBuffer;
+  gradientIdBuffer?: NumericExportBuffer;
+  gradientDefIdBuffer?: NumericExportBuffer;
+  speedBuffer?: NumericExportBuffer;
+  flowBuffer?: NumericExportBuffer;
+  phaseBuffer?: NumericExportBuffer;
   gradientStops: SerializedGradientStops;
   palette?: Array<string | number>;
   animationOffset: number;

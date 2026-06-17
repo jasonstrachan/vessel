@@ -1095,9 +1095,20 @@ const isByteRangeArray = (values: number[]): boolean => {
   return true;
 };
 
-type NumericArrayInput = Uint8Array | number[] | string | null | undefined;
+type NumericArrayLike = number[] | Uint8Array | Uint16Array;
+type NumericArrayInput = NumericArrayLike | string | undefined;
 
-const packNumericArrayForExport = async (input: NumericArrayInput): Promise<number[] | string | undefined> => {
+const isNumericArrayLike = (value: unknown): value is NumericArrayLike => (
+  Array.isArray(value) ||
+  value instanceof Uint8Array ||
+  value instanceof Uint16Array
+);
+
+const numericArrayLikeToArray = (value: NumericArrayLike): number[] => (
+  Array.isArray(value) ? value : Array.from(value)
+);
+
+const packNumericArrayForExport = async (input: NumericArrayInput | null): Promise<number[] | string | undefined> => {
   if (!input) {
     return undefined;
   }
@@ -1106,33 +1117,24 @@ const packNumericArrayForExport = async (input: NumericArrayInput): Promise<numb
     return input;
   }
 
-  if (Array.isArray(input)) {
-    if (input.length === 0) {
-      return [];
-    }
-    if (!isByteRangeArray(input)) {
-      return [...input];
-    }
-    const packed = await packArrayToB64Z(input);
-    if (packed) {
-      return packed;
-    }
-    return [...input];
-  }
-
-  if (input.length === 0) {
+  const normalizedInput = numericArrayLikeToArray(input);
+  if (normalizedInput.length === 0) {
     return [];
   }
 
-  const packed = await packArrayToB64Z(input);
+  if (!isByteRangeArray(normalizedInput)) {
+    return normalizedInput;
+  }
+
+  const packed = await packArrayToB64Z(normalizedInput);
   if (packed) {
     return packed;
   }
-  return Array.from(input);
+  return normalizedInput;
 };
 
 export const summarizeEncodedBuffer = (
-  payload: number[] | string | undefined,
+  payload: NumericArrayInput,
   fallbackLength: number
 ): {
   encoding: 'array' | 'b64z' | 'none';
@@ -1143,11 +1145,12 @@ export const summarizeEncodedBuffer = (
     return { encoding: 'none', length: null, preview: 'none' };
   }
 
-  if (Array.isArray(payload)) {
+  if (isNumericArrayLike(payload)) {
+    const values = numericArrayLikeToArray(payload);
     return {
       encoding: 'array',
       length: payload.length,
-      preview: payload.slice(0, 16)
+      preview: values.slice(0, 16)
     };
   }
 
@@ -1326,8 +1329,8 @@ const resolveExportToolSpeed = (
 };
 
 const collectUsedSlots = (
-  gradientIds: number[],
-  indices?: number[]
+  gradientIds: NumericArrayLike,
+  indices?: NumericArrayLike
 ): Set<number> => {
   const used = new Set<number>();
   const length = Math.min(gradientIds.length, indices?.length ?? gradientIds.length);
@@ -1368,9 +1371,9 @@ const resolveSlotSpeedMap = (
 };
 
 const detectSlotSpeedConflicts = (
-  gradientIds: number[],
-  speedBuffer: number[],
-  indices?: number[]
+  gradientIds: NumericArrayLike,
+  speedBuffer: NumericArrayLike,
+  indices?: NumericArrayLike
 ): boolean => {
   const length = Math.min(gradientIds.length, speedBuffer.length, indices?.length ?? gradientIds.length);
   const speedBySlot = new Map<number, number>();
@@ -1393,8 +1396,8 @@ const detectSlotSpeedConflicts = (
 };
 
 const buildSpeedBufferFromSlots = (params: {
-  gradientIds: number[];
-  indices?: number[];
+  gradientIds: NumericArrayLike;
+  indices?: NumericArrayLike;
   speedBySlot: Map<number, number>;
   fallbackSpeed: number | null;
   warnOnce: () => void;
@@ -1432,14 +1435,14 @@ const prepareBrushSpeedExport = (params: {
   slotSpeeds?: Array<{ slot: number; speed: number }>;
   speedBufferOverride?: number[];
 } | null => {
-  const gradientIds = Array.isArray(params.brushState.gradientIdBuffer)
+  const gradientIds = isNumericArrayLike(params.brushState.gradientIdBuffer)
     ? params.brushState.gradientIdBuffer
     : null;
   if (!gradientIds || gradientIds.length === 0) {
     return null;
   }
 
-  const indices = Array.isArray(params.brushState.indexBuffer) ? params.brushState.indexBuffer : undefined;
+  const indices = isNumericArrayLike(params.brushState.indexBuffer) ? params.brushState.indexBuffer : undefined;
   const usedSlots = collectUsedSlots(gradientIds, indices);
   if (usedSlots.size === 0) {
     return null;
@@ -1451,7 +1454,7 @@ const prepareBrushSpeedExport = (params: {
     speedBySlot.set(slot, (speed ?? 0) * params.layerSpeedScale);
   });
   const fallbackSpeed = resolveExportToolSpeed(params.layer, params.layerSpeedScale, params.fallbackToolSpeed);
-  const speedBufferValues = Array.isArray(params.brushState.speedBuffer)
+  const speedBufferValues = isNumericArrayLike(params.brushState.speedBuffer)
     ? params.brushState.speedBuffer
     : null;
 
@@ -1462,7 +1465,7 @@ const prepareBrushSpeedExport = (params: {
 
   if (shouldUseBuffer) {
     const speedBufferOverride = speedBufferValues && speedBufferValues.length > 0
-      ? scaleEncodedSpeedBuffer(speedBufferValues, params.layerSpeedScale)
+      ? scaleEncodedSpeedBuffer(numericArrayLikeToArray(speedBufferValues), params.layerSpeedScale)
       : buildSpeedBufferFromSlots({
           gradientIds,
           indices,
@@ -1514,12 +1517,12 @@ const prepareBrushSpeedExport = (params: {
 };
 
 const cropNumericBufferToBounds = (
-  input: number[] | string | undefined,
+  input: NumericArrayInput,
   sourceWidth: number,
   sourceHeight: number,
   bounds: WebGLLayerBounds
-): number[] | string | undefined => {
-  if (!Array.isArray(input)) {
+): NumericArrayInput => {
+  if (!isNumericArrayLike(input)) {
     return input;
   }
 
@@ -1666,11 +1669,11 @@ export const resolveDefBoundSlotPalettes = (params: {
     return params.slotPalettes;
   }
 
-  const gradientIds = Array.isArray(brushState.gradientIdBuffer) ? brushState.gradientIdBuffer : null;
-  const defIds = Array.isArray(brushState.gradientDefIdBuffer)
+  const gradientIds = isNumericArrayLike(brushState.gradientIdBuffer) ? brushState.gradientIdBuffer : null;
+  const defIds = isNumericArrayLike(brushState.gradientDefIdBuffer)
     ? brushState.gradientDefIdBuffer
     : decodePersistedDefIdBuffer(data.gradientDefIdBuffer);
-  const indices = Array.isArray(brushState.indexBuffer) ? brushState.indexBuffer : undefined;
+  const indices = isNumericArrayLike(brushState.indexBuffer) ? brushState.indexBuffer : undefined;
   const defs = data.gradientDefStore ?? [];
 
   if (!gradientIds || gradientIds.length === 0 || defIds.length === 0 || defs.length === 0) {
@@ -1762,11 +1765,11 @@ export const materializeDefBoundBrushSlots = (params: {
     return { brushState, slotPalettes: params.slotPalettes, remapped: false };
   }
 
-  const gradientIds = Array.isArray(brushState.gradientIdBuffer) ? brushState.gradientIdBuffer : null;
-  const defIds = Array.isArray(brushState.gradientDefIdBuffer)
+  const gradientIds = isNumericArrayLike(brushState.gradientIdBuffer) ? brushState.gradientIdBuffer : null;
+  const defIds = isNumericArrayLike(brushState.gradientDefIdBuffer)
     ? brushState.gradientDefIdBuffer
     : decodePersistedDefIdBuffer(data.gradientDefIdBuffer);
-  const indices = Array.isArray(brushState.indexBuffer) ? brushState.indexBuffer : undefined;
+  const indices = isNumericArrayLike(brushState.indexBuffer) ? brushState.indexBuffer : undefined;
   const defs = data.gradientDefStore ?? [];
 
   if (!gradientIds || gradientIds.length === 0 || defIds.length === 0 || defs.length === 0) {
@@ -3033,7 +3036,7 @@ const computeColorCycleCoverage = (
   const brushState = context.brushState;
   if (
     brushState &&
-    Array.isArray(brushState.indexBuffer) &&
+    isNumericArrayLike(brushState.indexBuffer) &&
     Number.isFinite(brushState.width) &&
     Number.isFinite(brushState.height)
   ) {
@@ -3105,7 +3108,7 @@ const serializeColorCycleAlphaMask = async (
   };
 };
 
-const applyAlphaMaskToIndexBuffer = (indices: number[] | undefined, mask: Uint8Array): void => {
+const applyAlphaMaskToNumericIndexBuffer = (indices: NumericArrayLike | undefined, mask: Uint8Array): void => {
   if (!indices || indices.length === 0 || mask.length === 0) {
     return;
   }
@@ -3117,7 +3120,7 @@ const applyAlphaMaskToIndexBuffer = (indices: number[] | undefined, mask: Uint8A
   }
 };
 
-const alphaMaskWouldEraseAllPaint = (indices: number[] | undefined, mask: Uint8Array): boolean => {
+const numericAlphaMaskWouldEraseAllPaint = (indices: NumericArrayLike | undefined, mask: Uint8Array): boolean => {
   if (!indices || indices.length === 0 || mask.length === 0) {
     return false;
   }
@@ -3477,8 +3480,8 @@ export const serializeColorCycleDataFromResolvedLayer = async (
     softEdgeMaskDataset
   );
   if (alphaMaskResult) {
-    if (brushState && Array.isArray(brushState.indexBuffer)) {
-      if (alphaMaskWouldEraseAllPaint(brushState.indexBuffer, alphaMaskResult.values) && data.hasContent === true) {
+    if (brushState && isNumericArrayLike(brushState.indexBuffer)) {
+      if (numericAlphaMaskWouldEraseAllPaint(brushState.indexBuffer, alphaMaskResult.values) && data.hasContent === true) {
         debugWarn('raw-console', '[webglExporter] Ignoring stale color-cycle alpha mask that would erase all animated brush paint during Goblet export.', {
           layerId: layer.id,
           maskWidth: alphaMaskResult.payload.width,
@@ -3486,7 +3489,7 @@ export const serializeColorCycleDataFromResolvedLayer = async (
         });
         alphaMaskResult = undefined;
       } else {
-        applyAlphaMaskToIndexBuffer(brushState.indexBuffer, alphaMaskResult.values);
+        applyAlphaMaskToNumericIndexBuffer(brushState.indexBuffer, alphaMaskResult.values);
       }
     }
   }
@@ -3518,7 +3521,7 @@ export const serializeColorCycleDataFromResolvedLayer = async (
     serialized.coverageBoundsPx = coverage.document;
   }
 
-  if (!data.recolorSettings && !coverage) {
+  if (!data.recolorSettings && canCropBrushCoverage && !coverage) {
     serialized.isAnimating = false;
   }
 
@@ -3607,11 +3610,11 @@ export const serializeColorCycleDataFromResolvedLayer = async (
     serialized.coverageBoundsSourcePx = brushCoverageSource;
   }
 
-  if (brushState && Array.isArray(brushState.indexBuffer)) {
+  if (brushState && isNumericArrayLike(brushState.indexBuffer)) {
     runtimeBrushState = {
       width: brushState.width,
       height: brushState.height,
-      indices: [...brushState.indexBuffer],
+      indices: numericArrayLikeToArray(brushState.indexBuffer),
       palette: brushState.palette ? [...brushState.palette] : undefined
     };
   }
@@ -3652,7 +3655,7 @@ export const serializeColorCycleDataFromResolvedLayer = async (
       preparedSource = { ...preparedSource, speedBuffer: speedPlan.speedBufferOverride };
     }
     const resolvePackedBuffer = async (
-      input?: number[] | Uint8Array | string
+      input?: NumericArrayInput
     ): Promise<number[] | string | undefined> => {
       if (!input) {
         return undefined;
@@ -3665,28 +3668,33 @@ export const serializeColorCycleDataFromResolvedLayer = async (
 
     const encodedIndexBuffer = await packNumericArrayForExport(preparedSource.indexBuffer);
     const rawGradientIds = preparedSource.gradientIdBuffer;
-    const normalizedGradientIds = typeof rawGradientIds === 'string'
+    const normalizedRawGradientIds = isNumericArrayLike(rawGradientIds)
+      ? numericArrayLikeToArray(rawGradientIds)
+      : rawGradientIds;
+    const normalizedGradientIds = typeof normalizedRawGradientIds === 'string'
       ? undefined
-      : stripFlowBitsFromGradientIds(rawGradientIds ?? undefined);
+      : stripFlowBitsFromGradientIds(normalizedRawGradientIds ?? undefined);
     const gradientIdFallback = Array.isArray(normalizedGradientIds)
       ? normalizedGradientIds
       : normalizedGradientIds
         ? (Array.from(normalizedGradientIds) as number[])
-        : typeof rawGradientIds === 'string'
-          ? rawGradientIds
+        : typeof normalizedRawGradientIds === 'string'
+          ? normalizedRawGradientIds
           : undefined;
     const encodedGradientIdBuffer = await resolvePackedBuffer(gradientIdFallback);
+    const encodedGradientDefIdBuffer = await resolvePackedBuffer(preparedSource.gradientDefIdBuffer ?? undefined);
     const encodedSpeedBuffer = await resolvePackedBuffer(preparedSource.speedBuffer ?? undefined);
     const resolveFallbackBuffer = (
-      raw: number[] | Uint8Array | string | undefined
+      raw: NumericArrayInput
     ): number[] | string | undefined => {
       if (!raw || typeof raw === 'string') {
         return raw;
       }
-      return Array.isArray(raw) ? raw : (Array.from(raw) as number[]);
+      return numericArrayLikeToArray(raw);
     };
     const encodedFlowBuffer = await resolvePackedBuffer(preparedSource.flowBuffer ?? undefined);
     const encodedPhaseBuffer = await resolvePackedBuffer(preparedSource.phaseBuffer ?? undefined);
+    const fallbackGradientDefIdBuffer = resolveFallbackBuffer(preparedSource.gradientDefIdBuffer);
     const fallbackSpeedBuffer = resolveFallbackBuffer(preparedSource.speedBuffer);
     const fallbackFlowBuffer = resolveFallbackBuffer(preparedSource.flowBuffer);
     const fallbackPhaseBuffer = resolveFallbackBuffer(preparedSource.phaseBuffer);
@@ -3694,6 +3702,7 @@ export const serializeColorCycleDataFromResolvedLayer = async (
       ...preparedSource,
       indexBuffer: encodedIndexBuffer ?? [],
       gradientIdBuffer: encodedGradientIdBuffer ?? gradientIdFallback,
+      gradientDefIdBuffer: encodedGradientDefIdBuffer ?? fallbackGradientDefIdBuffer,
       speedBuffer: encodedSpeedBuffer ?? fallbackSpeedBuffer,
       flowBuffer: encodedFlowBuffer ?? fallbackFlowBuffer,
       phaseBuffer: encodedPhaseBuffer ?? fallbackPhaseBuffer,
@@ -3718,7 +3727,10 @@ export const serializeColorCycleDataFromResolvedLayer = async (
       serialized.gradient = fgDerivedStops ?? preparedBrushState.gradientStops;
     }
     if (gobletDiagnosticsActive) {
-      const summary = summarizeEncodedBuffer(preparedBrushState.indexBuffer, Array.isArray(brushState.indexBuffer) ? brushState.indexBuffer.length : 0);
+      const summary = summarizeEncodedBuffer(
+        preparedBrushState.indexBuffer,
+        isNumericArrayLike(brushState.indexBuffer) ? brushState.indexBuffer.length : 0
+      );
       gobletDebugLog('[webglExporter] Brush state included for layer via serialize()', {
         layerId: layer.id,
         width: preparedBrushState.width,
