@@ -10,7 +10,7 @@ import {
   selectLayerGroups,
   selectSelectedLayerIds,
 } from '@/stores/selectors/layersSelectors';
-import { Layer } from '@/types';
+import { BrushShape, Layer } from '@/types';
 import { createDefaultLayerAlignment } from '@/utils/layoutDefaults';
 import { LayerColorSwatches } from '@/components/MinimalLayerList';
 import ProgressSlider from '@/components/ui/ProgressSlider';
@@ -289,18 +289,25 @@ const LayersPanel: React.FC = () => {
       }
 
       const currentPresetId = currentBrushPreset?.id ?? null;
+      const currentBrushSettings = store.tools.brushSettings;
+      const isCurrentCustomCcBrush =
+        currentBrushSettings.brushShape === BrushShape.CUSTOM &&
+        Boolean(currentBrushSettings.selectedCustomBrush) &&
+        currentBrushSettings.customBrushColorCycle === true;
       const isCurrentCcPreset =
         currentPresetId === 'color-cycle-gradient' ||
         currentPresetId === 'color-cycle-stroke' ||
         currentPresetId === 'color-cycle-shape' ||
         currentPresetId === 'color-cycle-triangle';
-      const targetPresetId = isCurrentCcPreset ? currentPresetId : 'color-cycle-gradient';
-      const targetPreset =
-        brushPresets.find((preset) => preset.id === targetPresetId) ??
-        brushPresets.find((preset) => preset.id === 'color-cycle-gradient') ??
-        brushPresets.find((preset) => preset.id === 'color-cycle-stroke');
-      if (targetPreset) {
-        setBrushPreset(targetPreset, true);
+      if (!isCurrentCustomCcBrush) {
+        const targetPresetId = isCurrentCcPreset ? currentPresetId : 'color-cycle-gradient';
+        const targetPreset =
+          brushPresets.find((preset) => preset.id === targetPresetId) ??
+          brushPresets.find((preset) => preset.id === 'color-cycle-gradient') ??
+          brushPresets.find((preset) => preset.id === 'color-cycle-stroke');
+        if (targetPreset) {
+          setBrushPreset(targetPreset, true);
+        }
       }
 
       if (!activeLayerId) {

@@ -1,7 +1,7 @@
 import React from 'react';
 import { fireEvent, render, screen } from '@testing-library/react';
 
-import type { Layer } from '@/types';
+import { BrushShape, type BrushPreset, type Layer } from '@/types';
 
 jest.mock('@/components/MinimalLayerList', () => ({
   LayerColorSwatches: () => <div data-testid="layer-swatches" />,
@@ -45,10 +45,15 @@ type StoreState = {
   };
   tools: {
     brushSettings: {
+      brushShape?: BrushShape;
+      selectedCustomBrush?: string | null;
+      customBrushColorCycle?: boolean;
       colorCycleGradient?: Array<{ position: number; color: string }>;
       colorCycleFlowMode?: 'forward' | 'reverse' | 'pingpong';
     };
   };
+  brushPresets: BrushPreset[];
+  currentBrushPreset: BrushPreset | null;
   project: {
     width: number;
     height: number;
@@ -67,6 +72,7 @@ type StoreState = {
   initColorCycleForLayer: jest.Mock;
   setReferenceLayer: jest.Mock;
   setBrushSettings: jest.Mock;
+  setBrushPreset: jest.Mock;
   mergeLayers: jest.Mock;
   setLayersVisibility: jest.Mock;
   toggleLayersVisibility: jest.Mock;
@@ -91,6 +97,9 @@ const state: StoreState = {
   },
   tools: {
     brushSettings: {
+      brushShape: BrushShape.SQUARE,
+      selectedCustomBrush: null,
+      customBrushColorCycle: false,
       colorCycleGradient: [
         { position: 0, color: '#000000' },
         { position: 1, color: '#ffffff' },
@@ -98,6 +107,11 @@ const state: StoreState = {
       colorCycleFlowMode: 'forward',
     },
   },
+  brushPresets: [
+    { id: 'color-cycle-gradient', name: 'CC Gradient' } as BrushPreset,
+    { id: 'color-cycle-stroke', name: 'CC Stroke' } as BrushPreset,
+  ],
+  currentBrushPreset: null,
   project: {
     width: 64,
     height: 64,
@@ -138,6 +152,7 @@ const state: StoreState = {
     state.referenceLayerId = layerId;
   }),
   setBrushSettings: jest.fn(),
+  setBrushPreset: jest.fn(),
   mergeLayers: jest.fn(),
   setLayersVisibility: jest.fn((layerIds: string[], visible: boolean) => {
     const targetIds = new Set(layerIds);
@@ -260,11 +275,27 @@ const setupLayers = () => {
   state.activeLayerId = 'layer-c';
   state.selectedLayerIds = ['layer-c'];
   state.referenceLayerId = null;
+  state.brushPresets = [
+    { id: 'color-cycle-gradient', name: 'CC Gradient' } as BrushPreset,
+    { id: 'color-cycle-stroke', name: 'CC Stroke' } as BrushPreset,
+  ];
+  state.currentBrushPreset = null;
+  state.tools.brushSettings = {
+    brushShape: BrushShape.SQUARE,
+    selectedCustomBrush: null,
+    customBrushColorCycle: false,
+    colorCycleGradient: [
+      { position: 0, color: '#000000' },
+      { position: 1, color: '#ffffff' },
+    ],
+    colorCycleFlowMode: 'forward',
+  };
 
   state.updateLayer.mockClear();
   state.addLayer.mockClear();
   state.initColorCycleForLayer.mockClear();
   state.setBrushSettings.mockClear();
+  state.setBrushPreset.mockClear();
   state.duplicateLayers.mockClear();
   state.removeLayers.mockClear();
   state.setLayersVisibility.mockClear();
@@ -707,6 +738,24 @@ describe('LayersPanel interactions', () => {
     const payload = state.addLayer.mock.calls[0]?.[0];
     expect(payload?.layerType).toBe('color-cycle');
     expect(payload?.groupId).toBe('group-1');
+  });
+
+  it('preserves an active temporary color-cycle custom brush when adding a color-cycle layer', () => {
+    state.addLayer.mockReturnValueOnce('cc-layer-new');
+    state.tools.brushSettings = {
+      ...state.tools.brushSettings,
+      brushShape: BrushShape.CUSTOM,
+      selectedCustomBrush: 'temp_brush_1',
+      customBrushColorCycle: true,
+    };
+
+    render(<LayersPanel />);
+
+    fireEvent.click(screen.getByTitle('Add CC Layer'));
+
+    expect(state.addLayer).toHaveBeenCalledTimes(1);
+    expect(state.initColorCycleForLayer).toHaveBeenCalledWith('cc-layer-new', 64, 64);
+    expect(state.setBrushPreset).not.toHaveBeenCalled();
   });
 
   it('inherits group membership when adding an animation layer above a grouped active layer', () => {
