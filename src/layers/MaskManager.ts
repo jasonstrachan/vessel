@@ -3,6 +3,7 @@ import type { Layer } from '@/types';
 export type MaskDimensions = { width: number; height: number };
 
 type LayerUpdateOptions = { skipColorCycleSync?: boolean };
+const MASK_UPDATE_OPTIONS: LayerUpdateOptions = { skipColorCycleSync: true };
 
 export interface MaskManagerDeps {
   getLayer: (layerId: string) => Layer | undefined;
@@ -57,11 +58,15 @@ export class MaskManager {
   bumpVersion(layerId: string): void {
     const layer = this.requireColorCycleLayer(layerId);
     const currentVersion = layer.colorCycleData?.eraseMaskVersion ?? 0;
-    this.deps.updateLayer(layerId, {
-      colorCycleData: {
-        eraseMaskVersion: currentVersion + 1
-      }
-    });
+    this.deps.updateLayer(
+      layerId,
+      {
+        colorCycleData: {
+          eraseMaskVersion: currentVersion + 1
+        }
+      },
+      MASK_UPDATE_OPTIONS
+    );
   }
 
   applyMaskToCanvas(
@@ -109,12 +114,16 @@ export class MaskManager {
         ? 1
         : 0;
 
-    this.deps.updateLayer(layerId, {
-      colorCycleData: {
-        eraseMask: mask,
-        eraseMaskVersion: nextVersion
-      }
-    });
+    this.deps.updateLayer(
+      layerId,
+      {
+        colorCycleData: {
+          eraseMask: mask,
+          eraseMaskVersion: nextVersion
+        }
+      },
+      MASK_UPDATE_OPTIONS
+    );
 
     return mask;
   }

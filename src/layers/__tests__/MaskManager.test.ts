@@ -29,38 +29,43 @@ const createLayer = (id: string, width: number, height: number): Layer => {
   };
 };
 
-const setupManager = (layer: Layer): { manager: MaskManager; layers: Map<string, Layer> } => {
+const setupManager = (layer: Layer): {
+  manager: MaskManager;
+  layers: Map<string, Layer>;
+  updateLayer: jest.Mock;
+} => {
   const layers = new Map<string, Layer>();
   layers.set(layer.id, layer);
+  const updateLayer = jest.fn((layerId: string, patch: Partial<Layer>) => {
+    const current = layers.get(layerId);
+    if (!current) return;
+    const nextColorCycleData = patch.colorCycleData
+      ? {
+          ...(current.colorCycleData ?? {}),
+          ...patch.colorCycleData
+        }
+      : current.colorCycleData;
+    layers.set(layerId, {
+      ...current,
+      ...patch,
+      colorCycleData: nextColorCycleData
+    });
+  });
 
   const deps: MaskManagerDeps = {
     getLayer: (layerId) => layers.get(layerId),
-    updateLayer: (layerId, patch) => {
-      const current = layers.get(layerId);
-      if (!current) return;
-      const nextColorCycleData = patch.colorCycleData
-        ? {
-            ...(current.colorCycleData ?? {}),
-            ...patch.colorCycleData
-          }
-        : current.colorCycleData;
-      layers.set(layerId, {
-        ...current,
-        ...patch,
-        colorCycleData: nextColorCycleData
-      });
-    },
+    updateLayer,
     getProjectSize: () => ({ width: 100, height: 80 })
   };
 
-  return { manager: new MaskManager(deps), layers };
+  return { manager: new MaskManager(deps), layers, updateLayer };
 };
 
 describe('MaskManager', () => {
   it('creates a mask when none exists', () => {
     const baseLayer = createLayer('layer-a', 120, 90);
     delete baseLayer.colorCycleData?.eraseMask;
-    const { manager, layers } = setupManager(baseLayer);
+    const { manager, layers, updateLayer } = setupManager(baseLayer);
 
     const mask = manager.getMask(baseLayer.id);
     expect(mask).toBeInstanceOf(HTMLCanvasElement);
@@ -70,6 +75,13 @@ describe('MaskManager', () => {
     const updated = layers.get(baseLayer.id);
     expect(updated?.colorCycleData?.eraseMask).toBe(mask);
     expect(updated?.colorCycleData?.eraseMaskVersion).toBe(0);
+    expect(updateLayer).toHaveBeenCalledWith(
+      baseLayer.id,
+      expect.objectContaining({
+        colorCycleData: expect.objectContaining({ eraseMask: mask })
+      }),
+      { skipColorCycleSync: true }
+    );
   });
 
   it('resizes mask and preserves content', () => {
@@ -85,7 +97,7 @@ describe('MaskManager', () => {
       eraseMaskVersion: 0
     };
 
-    const { manager, layers } = setupManager(layer);
+    const { manager, layers, updateLayer } = setupManager(layer);
     const resizedMask = manager.resize(layer.id, 80, 80);
 
     expect(resizedMask.width).toBe(80);
@@ -94,5 +106,32 @@ describe('MaskManager', () => {
     expect(resizedMask).not.toBe(initialMask);
     const updatedLayer = layers.get(layer.id);
     expect(updatedLayer?.colorCycleData?.eraseMaskVersion).toBe(1);
+    expect(updateLayer).toHaveBeenCalledWith(
+      layer.id,
+      expect.objectContaining({
+        colorCycleData: expect.objectContaining({
+          eraseMask: resizedMask,
+          eraseMaskVersion: 1
+        })
+      }),
+      { skipColorCycleSync: true }
+    );
+  });
+
+  it('bumps mask versions without syncing color-cycle runtime state', () => {
+    const layer = createLayer('layer-c', 60, 60);
+    const { manager, updateLayer } = setupManager(layer);
+
+    manager.bumpVersion(layer.id);
+
+    expect(updateLayer).toHaveBeenCalledWith(
+      layer.id,
+      {
+        colorCycleData: {
+          eraseMaskVersion: 1
+        }
+      },
+      { skipColorCycleSync: true }
+    );
   });
 });
