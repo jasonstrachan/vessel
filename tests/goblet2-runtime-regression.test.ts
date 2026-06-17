@@ -14,6 +14,14 @@ describe('Goblet 2 runtime export regression guard', () => {
     expect(runtime).not.toContain('CC_TIME_MULTIPLIER');
   });
 
+  it('sizes Goblet 2 WebGL palette tables for high exported slot ids', () => {
+    const runtime = read('public/goblet2/goblet2.js');
+
+    expect(runtime).toContain('const MAX_EXPORTED_SLOT_ID = 255;');
+    expect(runtime).toContain('getHighestPaletteSlot(slotGradients) + 1');
+    expect(runtime).toContain('gl.uniform1i(this.uniforms.u_slotCount, this.slotCount);');
+  });
+
   it('keeps Goblet 2 inline WebGL brush playback on the same timebase as the CPU path', () => {
     const runtime = read('public/goblet2/goblet2-inline.js');
 

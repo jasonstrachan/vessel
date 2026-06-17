@@ -4,7 +4,7 @@ import { normalizeGradientSeamProfile, type GradientSeamProfile } from '@/lib/co
 import { MAX_BRUSH_COLOR_CYCLE_SPEED, MAX_CC_LAYER_SPEED_SCALE, MIN_BRUSH_COLOR_CYCLE_SPEED, MIN_CC_LAYER_SPEED_SCALE } from '@/constants/colorCycle';
 import { decodeColorCycleSpeedByte, encodeColorCycleSpeedByte } from '@/utils/colorCycleSpeed';
 import { resolveLayerColorCycleBaseSpeed } from '@/utils/colorCycleLayerSpeed';
-import { packArrayToB64Z } from '@/utils/export/b64z';
+import { packArrayToB64Z, unpackB64ZToUint8Array } from '@/utils/export/b64z';
 import { ccLog, ccSample } from '@/utils/colorCycle/ccDebug';
 import { deriveForegroundGradientStops } from '@/utils/colorCycleGradients';
 import { captureCanvasImageData } from '@/utils/canvas/canvasImage';
@@ -1108,6 +1108,28 @@ const numericArrayLikeToArray = (value: NumericArrayLike): number[] => (
   Array.isArray(value) ? value : Array.from(value)
 );
 
+const numericArrayInputToUint8Array = (value: NumericArrayInput | null): Uint8Array | undefined => {
+  if (!value) {
+    return undefined;
+  }
+
+  if (typeof value === 'string') {
+    try {
+      return unpackB64ZToUint8Array(value);
+    } catch {
+      return undefined;
+    }
+  }
+
+  if (value instanceof Uint8Array) {
+    return new Uint8Array(value);
+  }
+
+  return Uint8Array.from(numericArrayLikeToArray(value), (entry) => (
+    Math.max(0, Math.min(255, Math.round(toNum(entry, 0))))
+  ));
+};
+
 const packNumericArrayForExport = async (input: NumericArrayInput | null): Promise<number[] | string | undefined> => {
   if (!input) {
     return undefined;
@@ -1182,33 +1204,6 @@ const toSerializablePaletteArray = (source: unknown): Array<string | number> => 
   }
 
   return palette;
-};
-
-const stripFlowBitsFromGradientIds = (
-  input: number[] | Uint8Array | undefined
-): number[] | Uint8Array | undefined => {
-  if (!input || input.length === 0) {
-    return input;
-  }
-
-  let needsStrip = false;
-  for (let i = 0; i < input.length; i += 1) {
-    const value = input[i] as number;
-    if (value > FLOW_SLOT_MASK) {
-      needsStrip = true;
-      break;
-    }
-  }
-
-  if (!needsStrip) {
-    return input;
-  }
-
-  const stripped = new Uint8Array(input.length);
-  for (let i = 0; i < input.length; i += 1) {
-    stripped[i] = (input[i] as number) & FLOW_SLOT_MASK;
-  }
-  return stripped;
 };
 
 const toFiniteNumberOrNull = (value: unknown): number | null => {
@@ -3108,7 +3103,7 @@ const serializeColorCycleAlphaMask = async (
   };
 };
 
-const applyAlphaMaskToNumericIndexBuffer = (indices: NumericArrayLike | undefined, mask: Uint8Array): void => {
+const applyAlphaMaskToNumericIndexBuffer = (indices: Uint8Array | undefined, mask: Uint8Array): void => {
   if (!indices || indices.length === 0 || mask.length === 0) {
     return;
   }
@@ -3120,7 +3115,7 @@ const applyAlphaMaskToNumericIndexBuffer = (indices: NumericArrayLike | undefine
   }
 };
 
-const numericAlphaMaskWouldEraseAllPaint = (indices: NumericArrayLike | undefined, mask: Uint8Array): boolean => {
+const numericAlphaMaskWouldEraseAllPaint = (indices: Uint8Array | undefined, mask: Uint8Array): boolean => {
   if (!indices || indices.length === 0 || mask.length === 0) {
     return false;
   }
@@ -3480,16 +3475,21 @@ export const serializeColorCycleDataFromResolvedLayer = async (
     softEdgeMaskDataset
   );
   if (alphaMaskResult) {
-    if (brushState && isNumericArrayLike(brushState.indexBuffer)) {
-      if (numericAlphaMaskWouldEraseAllPaint(brushState.indexBuffer, alphaMaskResult.values) && data.hasContent === true) {
+    if (brushState) {
+      const indexBufferForMask = numericArrayInputToUint8Array(brushState.indexBuffer);
+      if (numericAlphaMaskWouldEraseAllPaint(indexBufferForMask, alphaMaskResult.values) && data.hasContent === true) {
         debugWarn('raw-console', '[webglExporter] Ignoring stale color-cycle alpha mask that would erase all animated brush paint during Goblet export.', {
           layerId: layer.id,
           maskWidth: alphaMaskResult.payload.width,
           maskHeight: alphaMaskResult.payload.height,
         });
         alphaMaskResult = undefined;
-      } else {
-        applyAlphaMaskToNumericIndexBuffer(brushState.indexBuffer, alphaMaskResult.values);
+      } else if (indexBufferForMask) {
+        applyAlphaMaskToNumericIndexBuffer(indexBufferForMask, alphaMaskResult.values);
+        brushState = {
+          ...brushState,
+          indexBuffer: indexBufferForMask,
+        };
       }
     }
   }
@@ -3673,7 +3673,7 @@ export const serializeColorCycleDataFromResolvedLayer = async (
       : rawGradientIds;
     const normalizedGradientIds = typeof normalizedRawGradientIds === 'string'
       ? undefined
-      : stripFlowBitsFromGradientIds(normalizedRawGradientIds ?? undefined);
+      : normalizedRawGradientIds;
     const gradientIdFallback = Array.isArray(normalizedGradientIds)
       ? normalizedGradientIds
       : normalizedGradientIds

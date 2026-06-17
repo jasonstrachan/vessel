@@ -105,18 +105,19 @@ export const createSyntheticAdaLikeGoblet2Metadata = () => {
           ...fullLayer.colorCycle,
           brushState: {
             ...(fullLayer.colorCycle?.brushState as Record<string, unknown>),
+            gradientIdBuffer: [97, 98, 99, 100],
             gradientStops: [
               { position: 0, color: '#330000' },
               { position: 1, color: '#ffcc00' },
             ],
           },
-          slotPalettes: [{
-            slot: 0,
+          slotPalettes: [97, 98, 99, 100].map((slot) => ({
+            slot,
             stops: [
               { position: 0, color: '#330000' },
               { position: 1, color: '#ffcc00' },
             ],
-          }],
+          })),
         },
       },
       sparseLayer,

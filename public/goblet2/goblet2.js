@@ -2558,10 +2558,25 @@ const buildPaletteFractionalShiftLUT256 = ({ basePalette32, cycleColors, offset0
 
 const DEFAULT_PALETTE_SIZE = 256;
 const GOBLET2_SCHEMA_VERSION = 2;
+const MAX_EXPORTED_SLOT_ID = 255;
+
+const getHighestPaletteSlot = (slotGradients) => {
+  let highest = FLOW_SLOT_MASK;
+  if (!slotGradients || typeof slotGradients.forEach !== 'function') {
+    return highest;
+  }
+  slotGradients.forEach((_stops, slot) => {
+    const numeric = Number(slot);
+    if (Number.isFinite(numeric)) {
+      highest = Math.max(highest, Math.max(0, Math.min(MAX_EXPORTED_SLOT_ID, Math.round(numeric))));
+    }
+  });
+  return highest;
+};
 
 const buildPaletteTableRGBA = (slotGradients, fallbackGradient, paletteSize = DEFAULT_PALETTE_SIZE) => {
   const size = Math.max(1, Math.round(paletteSize));
-  const slotCount = FLOW_SLOT_MASK + 1;
+  const slotCount = Math.max(1, getHighestPaletteSlot(slotGradients) + 1);
   const data = new Uint8Array(size * slotCount * 4);
   const fallbackStops = normalizeGradientStops(fallbackGradient);
   for (let slot = 0; slot < slotCount; slot += 1) {
@@ -2647,6 +2662,7 @@ class BrushWebGLRenderer {
     this.width = Math.max(1, Math.round(width));
     this.height = Math.max(1, Math.round(height));
     this.paletteSize = Math.max(1, Math.round(paletteSize));
+    this.slotCount = 1;
     this.speedMin = speedMin;
     this.speedMax = speedMax;
     this.startOffset01 = startOffset01;
@@ -2840,7 +2856,7 @@ class BrushWebGLRenderer {
     gl.uniform1f(this.uniforms.u_speedMax, this.speedMax);
     gl.uniform1f(this.uniforms.u_startOffset, this.startOffset01);
     gl.uniform1i(this.uniforms.u_paletteSize, this.paletteSize);
-    gl.uniform1i(this.uniforms.u_slotCount, FLOW_SLOT_MASK + 1);
+    gl.uniform1i(this.uniforms.u_slotCount, this.slotCount);
     gl.uniform1i(this.uniforms.u_opaqueIndices, this.alphaMode === 'opaque-indices');
   }
 
@@ -2894,6 +2910,7 @@ class BrushWebGLRenderer {
 
   setPalette(paletteData, width, height) {
     const gl = this.gl;
+    this.slotCount = Math.max(1, Math.round(height));
     gl.activeTexture(gl.TEXTURE5);
     gl.bindTexture(gl.TEXTURE_2D, this.textures.palette);
     gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
@@ -2902,6 +2919,7 @@ class BrushWebGLRenderer {
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    gl.uniform1i(this.uniforms.u_slotCount, this.slotCount);
   }
 
   setAlphaTexture(image) {
@@ -3056,7 +3074,7 @@ const collectDistinctSlots = (gradientIdBuffer) => {
   return set;
 };
 
-const normalizeSlotId = (value) => Math.max(0, Math.min(FLOW_SLOT_MASK, value | 0));
+const normalizeSlotId = (value) => Math.max(0, Math.min(MAX_EXPORTED_SLOT_ID, value | 0));
 
 const collectPaletteSlots = (slotPalettes) => {
   if (!Array.isArray(slotPalettes) || slotPalettes.length === 0) {

@@ -1542,6 +1542,48 @@ describe('exportProjectAsWebGL color cycle integration', () => {
     });
   });
 
+  it('omits stale Goblet 2 alpha masks that would erase all visible brush paint', async () => {
+    const canvas = document.createElement('canvas');
+    canvas.width = 128;
+    canvas.height = 128;
+
+    const layer = createSparseBrushModeLayer(canvas);
+    layer.colorCycleData!.hasContent = true;
+    layer.colorCycleData!.eraseMaskImageData = createEraseMaskData(
+      8,
+      8,
+      (x, y) => x >= 3 && x <= 4 && y >= 2 && y <= 3
+    );
+    const project = createProject(layer);
+
+    const metadata = await exportProjectAsWebGL({
+      project,
+      layers: [layer],
+      layout: createDefaultExportLayout(),
+      viewport: { designWidth: project.width, designHeight: project.height, mode: 'fixed' },
+      fps: 24,
+      totalFrames: 48,
+      durationSeconds: 2,
+      perfectLoop: false,
+      includeHiddenLayers: true,
+      embedCanvasFallback: false,
+      minify: false,
+      filenameBase: 'color-cycle-brush-stale-mask-goblet2',
+      bundleFormat: 'json',
+      gobletVersion: 'goblet2',
+    });
+
+    const exportedLayer = metadata.layers[0];
+    expect(exportedLayer.colorCycle?.alphaMask).toBeUndefined();
+    expect(exportedLayer.colorCycle?.brushState?.indexBuffer).toBeDefined();
+    expect(exportedLayer.colorCycle?.coverageBoundsPx).toEqual({
+      x: 48,
+      y: 32,
+      width: 32,
+      height: 32,
+    });
+  });
+
   it('does not export all-zero soft-edge masks for brush payloads', async () => {
     const canvas = document.createElement('canvas');
     canvas.width = 128;
@@ -1817,6 +1859,78 @@ describe('exportProjectAsWebGL color cycle integration', () => {
       expect(max).toBeGreaterThan(63);
       expect(max).toBeLessThanOrEqual(FLOW_SLOT_MASK);
     }
+  });
+
+  it('preserves high numeric Goblet slot ids during export', async () => {
+    const canvas = document.createElement('canvas');
+    canvas.width = 16;
+    canvas.height = 16;
+
+    const layer = createBrushModeLayer(canvas);
+    const highSlotIds = [97, 98, 99, 100];
+    layer.colorCycleData = {
+      ...layer.colorCycleData!,
+      slotPalettes: highSlotIds.map((slot) => ({
+        slot,
+        stops: [
+          { position: 0, color: '#330000' },
+          { position: 1, color: '#ffcc00' },
+        ],
+      })),
+      colorCycleBrush: {
+        serialize: () => ({
+          layers: [
+            {
+              layerId: layer.id,
+              data: {
+                indexBuffer: {
+                  width: 2,
+                  height: 2,
+                  data: Uint8Array.from([1, 2, 3, 4]),
+                  gradientId: Uint8Array.from(highSlotIds),
+                  speedData: Uint8Array.from([128, 128, 128, 128]),
+                  flowData: Uint8Array.from([1, 1, 1, 1]),
+                  phaseData: Uint8Array.from([0, 32, 64, 96]),
+                },
+                gradient: {
+                  gradientStops: layer.colorCycleData?.gradient ?? [],
+                },
+              },
+            },
+          ],
+          cycleSpeed: 0.35,
+          fps: 24,
+          brushSize: 14,
+        }),
+        commitCurrentStroke: jest.fn(),
+        getCanvas: () => canvas,
+        isPlaying: () => true,
+      } as unknown as Layer['colorCycleData']['colorCycleBrush'],
+    };
+
+    const project = createProject(layer);
+
+    const metadata = await exportProjectAsWebGL({
+      project,
+      layers: [layer],
+      layout: createDefaultExportLayout(),
+      viewport: { designWidth: project.width, designHeight: project.height, mode: 'fixed' },
+      fps: 24,
+      totalFrames: 48,
+      durationSeconds: 2,
+      perfectLoop: false,
+      includeHiddenLayers: true,
+      embedCanvasFallback: false,
+      minify: false,
+      filenameBase: 'color-cycle-high-slot-ids',
+      bundleFormat: 'json',
+      gobletVersion: 'goblet2',
+    });
+
+    const exportedLayer = metadata.layers[0];
+    expect(exportedLayer.colorCycle?.brushState?.gradientIdBuffer).toEqual(highSlotIds);
+    expect(exportedLayer.colorCycle?.slotPalettes?.map((entry) => entry.slot))
+      .toEqual(highSlotIds);
   });
 
   it('materializes mixed gradient definitions as concrete Goblet slots', () => {
