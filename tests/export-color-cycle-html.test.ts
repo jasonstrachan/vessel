@@ -1620,6 +1620,47 @@ describe('exportProjectAsWebGL color cycle integration', () => {
     expect(exportedLayer.colorCycle?.softEdgeMask).toBeUndefined();
   });
 
+  it('omits stale Goblet 2 soft-edge masks that do not overlap brush paint', async () => {
+    const canvas = document.createElement('canvas');
+    canvas.width = 128;
+    canvas.height = 128;
+
+    const layer = createSparseBrushModeLayer(canvas);
+    layer.colorCycleData!.softEdgeMaskImageData = createEraseMaskData(
+      8,
+      8,
+      (x, y) => x <= 1 && y <= 1
+    );
+    const project = createProject(layer);
+
+    const metadata = await exportProjectAsWebGL({
+      project,
+      layers: [layer],
+      layout: createDefaultExportLayout(),
+      viewport: { designWidth: project.width, designHeight: project.height, mode: 'fixed' },
+      fps: 24,
+      totalFrames: 48,
+      durationSeconds: 2,
+      perfectLoop: false,
+      includeHiddenLayers: true,
+      embedCanvasFallback: false,
+      minify: false,
+      filenameBase: 'color-cycle-brush-stale-soft-edge-mask-goblet2',
+      bundleFormat: 'json',
+      gobletVersion: 'goblet2',
+    });
+
+    const exportedLayer = metadata.layers[0];
+    expect(exportedLayer.colorCycle?.brushState?.indexBuffer).toBeDefined();
+    expect(exportedLayer.colorCycle?.softEdgeMask).toBeUndefined();
+    expect(exportedLayer.colorCycle?.coverageBoundsPx).toEqual({
+      x: 48,
+      y: 32,
+      width: 32,
+      height: 32,
+    });
+  });
+
   it('preserves ImageBitmap crop contents when capturing cropped textures', async () => {
     const previousImageBitmap = global.ImageBitmap;
     class MockImageBitmap {

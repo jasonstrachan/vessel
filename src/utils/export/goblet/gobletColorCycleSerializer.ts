@@ -3133,6 +3133,24 @@ const numericAlphaMaskWouldEraseAllPaint = (indices: Uint8Array | undefined, mas
   return hasPaint;
 };
 
+const numericSoftEdgeMaskWouldHideAllPaint = (indices: Uint8Array | undefined, mask: Uint8Array): boolean => {
+  if (!indices || indices.length === 0 || mask.length === 0) {
+    return false;
+  }
+  const length = Math.min(indices.length, mask.length);
+  let hasPaint = false;
+  for (let index = 0; index < length; index += 1) {
+    if ((indices[index] ?? 0) === 0) {
+      continue;
+    }
+    hasPaint = true;
+    if (mask[index] > 0) {
+      return false;
+    }
+  }
+  return hasPaint;
+};
+
 const hasNonZeroMagnitude = (value: unknown): boolean => {
   const numeric = toNum(value, 0);
   return Math.abs(numeric) > 0;
@@ -3468,7 +3486,7 @@ export const serializeColorCycleDataFromResolvedLayer = async (
     alphaMaskDataset
   );
   const softEdgeMaskDataset = captureColorCycleSoftEdgeMaskDataset(layer, maskDimensions.width, maskDimensions.height);
-  const softEdgeMaskResult = await serializeColorCycleAlphaMask(
+  let softEdgeMaskResult = await serializeColorCycleAlphaMask(
     layer,
     maskDimensions.width,
     maskDimensions.height,
@@ -3491,6 +3509,17 @@ export const serializeColorCycleDataFromResolvedLayer = async (
           indexBuffer: indexBufferForMask,
         };
       }
+    }
+  }
+  if (softEdgeMaskResult && brushState) {
+    const indexBufferForSoftEdgeMask = numericArrayInputToUint8Array(brushState.indexBuffer);
+    if (numericSoftEdgeMaskWouldHideAllPaint(indexBufferForSoftEdgeMask, softEdgeMaskResult.values)) {
+      debugWarn('raw-console', '[webglExporter] Ignoring stale color-cycle soft-edge mask that would hide all animated brush paint during Goblet export.', {
+        layerId: layer.id,
+        maskWidth: softEdgeMaskResult.payload.width,
+        maskHeight: softEdgeMaskResult.payload.height,
+      });
+      softEdgeMaskResult = undefined;
     }
   }
 
