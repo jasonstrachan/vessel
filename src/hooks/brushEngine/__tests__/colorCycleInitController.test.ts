@@ -183,6 +183,33 @@ describe('colorCycleInitController', () => {
     expect(brush.setStampShape).toHaveBeenCalledWith('checkered');
   });
 
+  it('configures an existing brush without ending a non-active stroke', () => {
+    const brush = makeBrush();
+
+    const result = initializeColorCycleBrushForActiveLayer({
+      activeLayerId: 'layer-cc',
+      projectWidth: 64,
+      projectHeight: 64,
+      brushSettings: makeBrushSettings(),
+      isCCGradientActiveLayer: false,
+      defaultBandSpacing: 12,
+      clampColorCycleBandSpacing: (v) => v ?? 12,
+      resolveBrushPressureRange: () => ({ enabled: false, minPercent: 100, maxPercent: 100 }),
+      getLayers: () => [{
+        id: 'layer-cc',
+        layerType: 'color-cycle',
+        colorCycleData: {},
+      }],
+      initColorCycleForLayer: jest.fn(),
+      getActiveLayerColorCycleBrush: () => brush,
+      requestGradientApply: jest.fn(),
+    });
+
+    expect(result).toBe(brush);
+    expect(brush.endStroke).not.toHaveBeenCalled();
+    expect(brush.setBrushSize).toHaveBeenCalledWith(12);
+  });
+
   it('applies global CC layer speed scale when configuring speed', () => {
     const brush = makeBrush();
 

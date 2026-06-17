@@ -116,8 +116,6 @@ export const initializeColorCycleBrushForActiveLayer = <TBrush extends BrushLike
       colorCycleBrush.setOnFrameRendered(() => {
         window.dispatchEvent(new CustomEvent('colorCycleFrameReady'));
       });
-    } else {
-      colorCycleBrush.endStroke(activeLayerId);
     }
 
     colorCycleBrush.setBrushSize(brushSettings.size || 20);
