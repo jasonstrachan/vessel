@@ -181,6 +181,114 @@ describe('colorCycleDrawController', () => {
     expect(firstStampImmediateRef.current).toBe(false);
   });
 
+  it('heals the erase mask from changed CC paint before rendering live stroke preview', () => {
+    const ctx = createCtx();
+    const brush = createBrush();
+    const healColorCycleEraseMask = jest.fn();
+    const renderColorCycle = jest.fn();
+
+    drawColorCycleStroke({
+      ctx,
+      x: 10,
+      y: 12,
+      pressure: 1,
+      rotation: 0,
+      brushSettings: {
+        size: 8,
+        brushShape: BrushShape.COLOR_CYCLE,
+        colorCycleStampShape: 'square',
+        color: '#ff0000',
+        colorCycleGradient: previewGradient,
+        gridSnapEnabled: false,
+        gridSnapSize: 8,
+        pressureEnabled: false,
+        minPressure: 0,
+        maxPressure: 100,
+      },
+      activeLayerId: 'layer-1',
+      activeLayerTransparencyLock: false,
+      getActiveLayerColorCycleBrush: () => brush as unknown as ColorCycleBrushImplementation,
+      getActiveLayerBitmapCanvas: () => null,
+      maskHasAlphaNear: jest.fn(() => true),
+      resolveBrushPressureRange: () => ({ enabled: false, minPercent: 100, maxPercent: 100 }),
+      requestGradientApply: jest.fn(),
+      flushGradientApply: jest.fn(),
+      renderColorCycle,
+      healColorCycleEraseMask,
+      firstStampImmediateRef: { current: true },
+      mirrorScheduledRef: { current: false },
+      gridSnapStrokePointRef: { current: null },
+      roundedCornerAnchorsRef: { current: [] },
+      roundedCornerBaselineSnapshotRef: { current: null },
+    });
+
+    expect(healColorCycleEraseMask).toHaveBeenCalledWith(
+      'layer-1',
+      expect.objectContaining({
+        data: expect.any(Uint8Array),
+      })
+    );
+    expect(healColorCycleEraseMask.mock.calls[0][1].data.some((value: number) => value === 255)).toBe(true);
+    expect(brush.getLayerSnapshot).not.toHaveBeenCalled();
+    expect(renderColorCycle).toHaveBeenCalledWith(ctx, true, { withOverlay: false });
+  });
+
+  it('heals custom color-cycle stamp erase masks from visible stamp alpha only', () => {
+    const ctx = createCtx();
+    const brush = createBrush();
+    const healColorCycleEraseMask = jest.fn();
+    const stampImage = new ImageData(2, 2);
+    stampImage.data[3] = 255;
+
+    drawColorCycleStroke({
+      ctx,
+      x: 10,
+      y: 10,
+      pressure: 1,
+      rotation: 0,
+      brushSettings: {
+        size: 2,
+        brushShape: BrushShape.CUSTOM,
+        colorCycleStampShape: 'square',
+        color: '#ff0000',
+        colorCycleGradient: previewGradient,
+        gridSnapEnabled: false,
+        gridSnapSize: 8,
+        pressureEnabled: false,
+        minPressure: 0,
+        maxPressure: 100,
+      },
+      activeLayerId: 'layer-1',
+      activeLayerTransparencyLock: false,
+      getActiveLayerColorCycleBrush: () => brush as unknown as ColorCycleBrushImplementation,
+      getActiveLayerBitmapCanvas: () => null,
+      maskHasAlphaNear: jest.fn(() => true),
+      resolveBrushPressureRange: () => ({ enabled: false, minPercent: 100, maxPercent: 100 }),
+      requestGradientApply: jest.fn(),
+      flushGradientApply: jest.fn(),
+      renderColorCycle: jest.fn(),
+      healColorCycleEraseMask,
+      firstStampImmediateRef: { current: true },
+      mirrorScheduledRef: { current: false },
+      gridSnapStrokePointRef: { current: null },
+      roundedCornerAnchorsRef: { current: [] },
+      roundedCornerBaselineSnapshotRef: { current: null },
+      options: {
+        customStamp: {
+          imageData: stampImage,
+          width: 2,
+          height: 2,
+        },
+      },
+    });
+
+    expect(brush.paintCustomStamp).toHaveBeenCalled();
+    expect(healColorCycleEraseMask).toHaveBeenCalledTimes(1);
+    const paintMask = healColorCycleEraseMask.mock.calls[0][1];
+    expect(Array.from(paintMask.data).filter((value) => value === 255)).toHaveLength(1);
+    expect(paintMask.data[0]).toBe(255);
+  });
+
   it('quantizes color-cycle paint coordinates by stamp raster anchor', () => {
     const ctx = createCtx();
     const brush = createBrush();

@@ -21,10 +21,15 @@ export const getColorCycleBrushEraserSettings = ({
 }): ColorCycleEraserSettings => {
   const settings = state.tools.eraserSettings;
   const sanitized = sanitizeEraserTipSettings(settings);
+  const brushSize = state.tools.brushSettings.size ?? state.globalBrushSize ?? 1;
+  const size =
+    settings.linkSizeToBrush === false
+      ? settings.size ?? brushSize
+      : brushSize;
 
   const pressureRange = resolveBrushPressureRange(settings);
   return {
-    size: settings.size ?? state.globalBrushSize ?? 1,
+    size,
     pressureEnabled: !!pressureRange.enabled,
     minPressure: pressureRange.minPercent,
     maxPressure: pressureRange.maxPercent,

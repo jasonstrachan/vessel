@@ -2500,7 +2500,7 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
       isColorPicker: false,
       useCrosshair:
         (shouldRouteToShapeHandler && !isCcGradientStrokeMode) ||
-        (tools.shapeMode && !isCcGradientStrokeMode) ||
+        (tools.currentTool === 'brush' && tools.shapeMode && !isCcGradientStrokeMode) ||
         shouldUseMagicWandSelectionMode(tools),
     });
 
@@ -2541,6 +2541,17 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
       (tools.brushSettings.brushShape === BrushShape.CONTOUR_POLYGON &&
         normalizedShapeMode === 'lines2')
     );
+    const isBrushShapeDrawingTool =
+      tools.currentTool === 'brush' &&
+      (
+        tools.shapeMode ||
+        tools.brushSettings.brushShape === BrushShape.RECTANGLE_GRADIENT ||
+        tools.brushSettings.brushShape === BrushShape.POLYGON_GRADIENT ||
+        tools.brushSettings.brushShape === BrushShape.DITHER_GRADIENT ||
+        tools.brushSettings.brushShape === BrushShape.CONTOUR_POLYGON ||
+        isLines2Active ||
+        tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE_SHAPE
+      );
 
     if (
       event.button === 0 &&
@@ -2587,13 +2598,7 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
     // Use the currentMode captured BEFORE dispatch!
     if (currentMode === 'IDLE' &&
         (tools.currentTool === 'brush' || tools.currentTool === 'eraser') &&
-        !tools.shapeMode &&
-        tools.brushSettings.brushShape !== BrushShape.RECTANGLE_GRADIENT &&
-        tools.brushSettings.brushShape !== BrushShape.POLYGON_GRADIENT &&
-        tools.brushSettings.brushShape !== BrushShape.DITHER_GRADIENT &&
-        tools.brushSettings.brushShape !== BrushShape.CONTOUR_POLYGON &&
-        !isLines2Active &&
-        tools.brushSettings.brushShape !== BrushShape.COLOR_CYCLE_SHAPE) {
+        !isBrushShapeDrawingTool) {
       // Strictly block incompatible brush/layer combinations (but allow eraser on any layer)
       if (tools.currentTool !== 'eraser') {
         const compat = checkLayerBrushCompatibility();
@@ -3259,7 +3264,7 @@ function resampleStopsToColors(stops: Stop[], count: number): string[] {
         isColorPicker: false,
         useCrosshair:
           (shouldRouteToShapeHandler && !isCcGradientStrokeMode) ||
-          (tools.shapeMode && !isCcGradientStrokeMode) ||
+          (tools.currentTool === 'brush' && tools.shapeMode && !isCcGradientStrokeMode) ||
           shouldUseMagicWandSelectionMode(tools),
       });
     }

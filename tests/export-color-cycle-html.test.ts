@@ -562,6 +562,21 @@ const createEraseMaskData = (
   return mask;
 };
 
+const createMaskCanvas = (imageData: ImageData): HTMLCanvasElement => {
+  const canvas = document.createElement('canvas');
+  canvas.width = imageData.width;
+  canvas.height = imageData.height;
+  canvas.getContext('2d', { willReadFrequently: true })?.putImageData(imageData, 0, 0);
+  return canvas;
+};
+
+const decodeNumericExportPayload = (payload: unknown): Uint8Array => {
+  if (Array.isArray(payload)) {
+    return Uint8Array.from(payload);
+  }
+  throw new Error(`Unexpected encoded payload in test: ${String(payload).slice(0, 16)}`);
+};
+
 describe('exportProjectAsWebGL color cycle integration', () => {
   it('includes recolor metadata for color-cycle layers in single HTML exports', async () => {
     const canvas = document.createElement('canvas');
@@ -1582,6 +1597,50 @@ describe('exportProjectAsWebGL color cycle integration', () => {
       width: 32,
       height: 32,
     });
+  });
+
+  it('prefers live Goblet 2 alpha masks over stale cached mask image data', async () => {
+    const canvas = document.createElement('canvas');
+    canvas.width = 128;
+    canvas.height = 128;
+
+    const layer = createSparseBrushModeLayer(canvas);
+    layer.colorCycleData!.hasContent = true;
+    layer.colorCycleData!.eraseMaskImageData = createEraseMaskData(
+      8,
+      8,
+      (x, y) => x >= 3 && x <= 4 && y >= 2 && y <= 3
+    );
+    layer.colorCycleData!.eraseMask = createMaskCanvas(createEraseMaskData(
+      8,
+      8,
+      (x, y) => x === 3 && y === 2
+    ));
+    const project = createProject(layer);
+
+    const metadata = await exportProjectAsWebGL({
+      project,
+      layers: [layer],
+      layout: createDefaultExportLayout(),
+      viewport: { designWidth: project.width, designHeight: project.height, mode: 'fixed' },
+      fps: 24,
+      totalFrames: 48,
+      durationSeconds: 2,
+      perfectLoop: false,
+      includeHiddenLayers: true,
+      embedCanvasFallback: false,
+      minify: false,
+      filenameBase: 'color-cycle-brush-live-mask-goblet2',
+      bundleFormat: 'json',
+      gobletVersion: 'goblet2',
+    });
+
+    const exportedLayer = metadata.layers[0];
+    const alphaMask = exportedLayer.colorCycle?.alphaMask;
+    expect(alphaMask?.width).toBe(2);
+    expect(alphaMask?.height).toBe(2);
+    expect(Array.from(decodeNumericExportPayload(alphaMask?.data))).toEqual([255, 0, 0, 0]);
+    expect(exportedLayer.colorCycle?.brushState?.indexBuffer).toBeDefined();
   });
 
   it('does not export all-zero soft-edge masks for brush payloads', async () => {

@@ -1237,7 +1237,6 @@ const applyStampDitherToRegion = (
       if (bgFillOff && !usePrimary) {
         const base = strokeData.stampDitherBaseIdx;
         const baseG = strokeData.stampDitherBaseGid;
-        const baseD = strokeData.stampDitherBaseDef;
         const baseTag = strokeData.stampDitherBaseTag;
         if (base && baseTag && base.length === data.length && baseTag[idx] === strokeEpoch) {
           const v = base[idx];
@@ -1249,7 +1248,7 @@ const applyStampDitherToRegion = (
           } else if (baseG && baseG.length === gradientId.length) {
             gradientId[idx] = baseG[idx];
             if (defData) {
-              defData[idx] = baseD && baseD.length === defData.length ? baseD[idx] : 0;
+              defData[idx] = 0;
             }
           } else {
             gradientId[idx] = flowSlot;
@@ -1542,7 +1541,6 @@ export const recomposeStampDitherOverlay = (args: {
   const primary = state.stampDitherPrimaryBuffer;
   const base = state.stampDitherBaseIdx;
   const baseG = state.stampDitherBaseGid;
-  const baseD = state.stampDitherBaseDef;
   const baseTag = state.stampDitherBaseTag;
   if (!bounds || !tag || !primary) return;
   const rawAlgo = config.algorithm || 'sierra-lite';
@@ -1633,7 +1631,7 @@ export const recomposeStampDitherOverlay = (args: {
           } else if (baseG && baseG.length === gid.length) {
             gid[idx] = baseG[idx];
             if (def) {
-              def[idx] = baseD && baseD.length === def.length ? baseD[idx] : 0;
+              def[idx] = 0;
             }
           } else {
             gid[idx] = flowSlot;
@@ -1910,7 +1908,6 @@ export const finalizeStampDither = (args: {
   const bgFillOff = !config.bgFill;
   const base = state.stampDitherBaseIdx;
   const baseG = state.stampDitherBaseGid;
-  const baseD = state.stampDitherBaseDef;
   const baseTag = state.stampDitherBaseTag;
   const def = state.gradientDefIdBuffer;
 
@@ -1941,7 +1938,7 @@ export const finalizeStampDither = (args: {
           } else if (baseG && baseG.length === gid.length) {
             gid[idx] = baseG[idx];
             if (def) {
-              def[idx] = baseD && baseD.length === def.length ? baseD[idx] : 0;
+              def[idx] = 0;
             }
           } else {
             gid[idx] = flowSlot;

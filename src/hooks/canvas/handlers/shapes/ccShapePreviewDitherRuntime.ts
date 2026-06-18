@@ -793,6 +793,10 @@ export const runCcDitherPreviewRuntime = (args: {
       shouldDrawCachedPreview: Boolean(shouldDrawCachedPreview),
     });
   const suppressLivePreviewChrome = suppressChromeForCachedPreview && shouldUseCustomFill;
+  const previewTransform =
+    typeof overlayCtx.getTransform === 'function'
+      ? overlayCtx.getTransform()
+      : null;
 
   if (shouldDrawCachedPreview && ditherGradPreviewState.ccLastCanvas && ditherGradPreviewState.ccLastOrigin) {
     overlayCtx.save();
@@ -813,6 +817,13 @@ export const runCcDitherPreviewRuntime = (args: {
     overlayCtx.setTransform(1, 0, 0, 1, 0, 0);
     overlayCtx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
     overlayCtx.restore();
+  }
+
+  if (canReplayCurrentPreview) {
+    return {
+      didCustomFill: shouldUseCustomFill,
+      suppressLivePreviewChrome,
+    };
   }
 
   if (ditherGradPreviewState.ccJobInFlight) {
@@ -1133,6 +1144,18 @@ export const runCcDitherPreviewRuntime = (args: {
               origin: { ...origin },
             };
           }
+          overlayCtx.save();
+          overlayCtx.setTransform(1, 0, 0, 1, 0, 0);
+          overlayCtx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
+          overlayCtx.restore();
+          overlayCtx.save();
+          if (previewTransform) {
+            overlayCtx.setTransform(previewTransform);
+          }
+          overlayCtx.globalAlpha = previewOpacity;
+          overlayCtx.imageSmoothingEnabled = false;
+          overlayCtx.drawImage(displayCanvas, origin.x, origin.y);
+          overlayCtx.restore();
         } catch {
           // Keep scratch buffers for reuse on the next preview job.
         } finally {

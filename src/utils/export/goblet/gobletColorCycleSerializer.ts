@@ -2804,10 +2804,7 @@ const resolveColorCycleMaskImage = (layer: Layer): ImageData | undefined => {
   if (!data) {
     return undefined;
   }
-  if (data.eraseMaskImageData) {
-    return data.eraseMaskImageData;
-  }
-  return captureCanvasImageData(data.eraseMask ?? null) ?? undefined;
+  return captureCanvasImageData(data.eraseMask ?? null) ?? data.eraseMaskImageData;
 };
 
 const resolveColorCycleSoftEdgeMaskImage = (layer: Layer): ImageData | undefined => {

@@ -9,7 +9,15 @@ import type { BrushSettings, Layer } from '@/types';
 import { createDefaultLayerAlignment } from '@/utils/layoutDefaults';
 
 describe('colorCycleStrokeCommit finalize mask clear', () => {
-  it('clears erase mask in ROI and bumps version without CC sync', () => {
+  const getAlpha = (canvas: HTMLCanvasElement, x: number, y: number): number => {
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    if (!ctx) {
+      throw new Error('Missing canvas context');
+    }
+    return ctx.getImageData(x, y, 1, 1).data[3];
+  };
+
+  it('falls back to clearing the erase mask ROI and bumps version without CC sync', () => {
     const clearRect = jest.fn();
     const getContext = jest.fn(() => ({ clearRect }));
     const updateLayer = jest.fn();
@@ -49,6 +57,113 @@ describe('colorCycleStrokeCommit finalize mask clear', () => {
     );
   });
 
+  it('clears only newly painted alpha from the erase mask when an alpha source is provided', () => {
+    const eraseMask = document.createElement('canvas');
+    eraseMask.width = 10;
+    eraseMask.height = 10;
+    const eraseMaskCtx = eraseMask.getContext('2d', { willReadFrequently: true });
+    if (!eraseMaskCtx) {
+      throw new Error('Missing erase mask context');
+    }
+    eraseMaskCtx.fillStyle = 'rgba(0, 0, 0, 1)';
+    eraseMaskCtx.fillRect(0, 0, eraseMask.width, eraseMask.height);
+
+    const strokeCanvas = document.createElement('canvas');
+    strokeCanvas.width = 10;
+    strokeCanvas.height = 10;
+    const strokeCtx = strokeCanvas.getContext('2d', { willReadFrequently: true });
+    if (!strokeCtx) {
+      throw new Error('Missing stroke context');
+    }
+    strokeCtx.fillStyle = 'rgba(255, 0, 0, 1)';
+    strokeCtx.fillRect(4, 4, 1, 1);
+
+    const updateLayer = jest.fn();
+    const layerId = 'layer-1';
+    const state = {
+      layers: [
+        {
+          id: layerId,
+          colorCycleData: {
+            eraseMask,
+            eraseMaskVersion: 4,
+          },
+        },
+      ],
+      updateLayer,
+    };
+
+    const storeRef = {
+      current: state,
+    } as unknown as React.MutableRefObject<AppState>;
+    clearColorCycleEraseMaskInRegion(
+      storeRef,
+      layerId,
+      { x: 2, y: 2, width: 5, height: 5 },
+      { alphaSource: strokeCanvas }
+    );
+
+    expect(getAlpha(eraseMask, 4, 4)).toBe(0);
+    expect(getAlpha(eraseMask, 2, 2)).toBe(255);
+    expect(getAlpha(eraseMask, 6, 6)).toBe(255);
+    expect(updateLayer).toHaveBeenCalledWith(
+      layerId,
+      { colorCycleData: { eraseMaskVersion: 5 } },
+      { skipColorCycleSync: true }
+    );
+  });
+
+  it('clears only committed paint-mask pixels from the erase mask when a paint mask is provided', () => {
+    const eraseMask = document.createElement('canvas');
+    eraseMask.width = 10;
+    eraseMask.height = 10;
+    const eraseMaskCtx = eraseMask.getContext('2d', { willReadFrequently: true });
+    if (!eraseMaskCtx) {
+      throw new Error('Missing erase mask context');
+    }
+    eraseMaskCtx.fillStyle = 'rgba(0, 0, 0, 1)';
+    eraseMaskCtx.fillRect(0, 0, eraseMask.width, eraseMask.height);
+
+    const updateLayer = jest.fn();
+    const layerId = 'layer-1';
+    const state = {
+      layers: [
+        {
+          id: layerId,
+          colorCycleData: {
+            eraseMask,
+            eraseMaskVersion: 4,
+          },
+        },
+      ],
+      updateLayer,
+    };
+
+    clearColorCycleEraseMaskInRegion(
+      { current: state } as unknown as React.MutableRefObject<AppState>,
+      layerId,
+      { x: 2, y: 2, width: 5, height: 5 },
+      {
+        paintMask: {
+          data: new Uint8Array([
+            0, 0, 0, 0, 0,
+            0, 0, 255, 0, 0,
+            0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0,
+          ]),
+          width: 5,
+          height: 5,
+          bounds: { x: 2, y: 2, width: 5, height: 5 },
+        },
+      }
+    );
+
+    expect(getAlpha(eraseMask, 4, 3)).toBe(0);
+    expect(getAlpha(eraseMask, 2, 2)).toBe(255);
+    expect(getAlpha(eraseMask, 6, 6)).toBe(255);
+  });
+
   it('uses finalize capture ROI fallback when stroke bbox ROI is unavailable', async () => {
     const canvas = document.createElement('canvas');
     canvas.width = 64;
@@ -73,10 +188,33 @@ describe('colorCycleStrokeCommit finalize mask clear', () => {
     };
 
     const clearEraseMaskInRegion = jest.fn();
-    const brush: Pick<ManagedColorCycleBrush, 'commitCurrentStroke' | 'updateColorCycleTexture' | 'commitToLayer'> = {
+    const beforePaint = new Uint8Array(64 * 64);
+    const afterPaint = new Uint8Array(64 * 64);
+    afterPaint[9 * 64 + 14] = 8;
+    const beforeGid = new Uint8Array(64 * 64);
+    const afterGid = new Uint8Array(64 * 64);
+    afterGid[9 * 64 + 14] = 2;
+    const getLayerSnapshot = jest.fn()
+      .mockReturnValueOnce({
+        paintBuffer: beforePaint.buffer,
+        gradientIdBuffer: beforeGid.buffer,
+        hasContent: true,
+        strokeCounter: 1,
+      })
+      .mockReturnValueOnce({
+        paintBuffer: afterPaint.buffer,
+        gradientIdBuffer: afterGid.buffer,
+        hasContent: true,
+        strokeCounter: 2,
+      });
+    const brush: Pick<
+      ManagedColorCycleBrush,
+      'commitCurrentStroke' | 'updateColorCycleTexture' | 'commitToLayer' | 'getLayerSnapshot'
+    > = {
       commitCurrentStroke: jest.fn(),
       updateColorCycleTexture: jest.fn(),
       commitToLayer: jest.fn(),
+      getLayerSnapshot,
     };
     const brushSettings: Partial<BrushSettings> = {
       opacity: 1,
@@ -107,7 +245,20 @@ describe('colorCycleStrokeCommit finalize mask clear', () => {
       dispatchFrameUpdate: jest.fn(),
     });
 
-    expect(clearEraseMaskInRegion).toHaveBeenCalledWith(layer.id, { x: 12, y: 8, width: 10, height: 9 });
+    expect(clearEraseMaskInRegion).toHaveBeenCalledWith(
+      layer.id,
+      { x: 12, y: 8, width: 10, height: 9 },
+      {
+        paintMask: expect.objectContaining({
+          width: 10,
+          height: 9,
+          bounds: { x: 12, y: 8, width: 10, height: 9 },
+        }),
+      }
+    );
+    const paintMask = clearEraseMaskInRegion.mock.calls[0][2].paintMask;
+    expect(paintMask.data[(9 - 8) * 10 + (14 - 12)]).toBe(255);
+    expect(paintMask.data[0]).toBe(0);
     expect(result.strokeCaptureRoi).toEqual({ x: 12, y: 8, width: 10, height: 9 });
   });
 });

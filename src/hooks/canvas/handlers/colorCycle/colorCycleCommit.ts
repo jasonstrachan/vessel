@@ -29,6 +29,11 @@ import { ccDebugVerboseOn, ccLog } from '@/utils/colorCycle/ccDebug';
 import { isOverlaySeededFromLayer } from '@/hooks/canvas/utils/overlaySeedState';
 import { logCCMutation, summarizeColorCycleLayer } from '@/utils/colorCycle/ccMutationAudit';
 import { persistCommittedSampledSlot } from '@/hooks/canvas/handlers/colorCycle/colorCycleSampledSlotPersistence';
+import {
+  buildColorCyclePaintDeltaMask,
+  type ColorCyclePaintMask,
+  type ColorCyclePaintSnapshot,
+} from '@/utils/colorCyclePaintMask';
 
 const loggedLegacySlotSummaryByLayer = new Set<string>();
 
@@ -178,6 +183,7 @@ export type CommitColorCycleLayerStrokeResult = {
   strokeCaptureRoi?: CaptureRegion;
   deferredLayerCanvas: HTMLCanvasElement | null;
   brushForCleanup?: ManagedColorCycleBrush;
+  eraseMaskPaintMask?: ColorCyclePaintMask | null;
 };
 
 let sharedRasterCommitCanvas: HTMLCanvasElement | null = null;
@@ -399,6 +405,7 @@ export const commitColorCycleLayerStroke = async (
   deps.startFinalizeVisibleTimer();
   let strokeCaptureRoi: CaptureRegion | undefined = args.captureRoi;
   let committedSession: ReturnType<typeof finalizeMarkGradientSession> | null = null;
+  let eraseMaskPaintMask: ColorCyclePaintMask | null = null;
   if (args.enableCaptureRoi && args.project) {
     deps.perfMark('cc:roi:start');
     strokeCaptureRoi = boundingBoxToCaptureRegion(
@@ -415,6 +422,9 @@ export const commitColorCycleLayerStroke = async (
   try {
     const brush = deps.getBrushForLayer(targetLayerId);
     if (brush) {
+      const beforeStrokeSnapshot = typeof brush.getLayerSnapshot === 'function'
+        ? brush.getLayerSnapshot(targetLayerId)
+        : null;
       const logCommittedSlotsInRoi = (
         label: string,
         bbox?: { minX: number; minY: number; width: number; height: number }
@@ -623,6 +633,15 @@ export const commitColorCycleLayerStroke = async (
 
       deps.markLayerHasContent(targetLayerId);
       brushForCleanup = brush;
+      eraseMaskPaintMask = buildColorCyclePaintDeltaMask({
+        before: beforeStrokeSnapshot as ColorCyclePaintSnapshot | null,
+        after: typeof brush.getLayerSnapshot === 'function'
+          ? brush.getLayerSnapshot(targetLayerId) as ColorCyclePaintSnapshot | null
+          : null,
+        roi: strokeCaptureRoi,
+        width: args.project?.width ?? layerCanvas.width,
+        height: args.project?.height ?? layerCanvas.height,
+      });
 
       try {
         if (binding && committedSession?.binding && process.env.NODE_ENV !== 'production') {
@@ -759,5 +778,6 @@ export const commitColorCycleLayerStroke = async (
     deferredLayerCanvas: layerCanvas,
     strokeCaptureRoi,
     brushForCleanup,
+    eraseMaskPaintMask,
   };
 };

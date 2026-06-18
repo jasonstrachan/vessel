@@ -113,6 +113,8 @@ import {
   drawColorCycleStroke,
   renderColorCycleToContext,
 } from './brushEngine/colorCycleDrawController';
+import { getMaskManager } from '@/layers/MaskManager';
+import type { ColorCyclePaintMask } from '@/utils/colorCyclePaintMask';
 import { renderColorCycleWithBlendAndLock } from './brushEngine/colorCycleBlendLockController';
 import { applyColorCycleRisographOverlay as applyColorCycleRisographOverlayController } from './brushEngine/colorCycleRisographOverlayController';
 import {
@@ -1481,6 +1483,11 @@ export const useBrushEngineSimplified = () => {
     rotation: number = 0,
     options?: DrawColorCycleOptions
   ) => {
+    const healColorCycleEraseMask = (layerId: string, paintMask: ColorCyclePaintMask): void => {
+      try {
+        getMaskManager().addPendingHealMask(layerId, paintMask);
+      } catch {}
+    };
     drawColorCycleStroke({
       ctx,
       x,
@@ -1498,6 +1505,7 @@ export const useBrushEngineSimplified = () => {
       requestGradientApply,
       flushGradientApply,
       renderColorCycle,
+      healColorCycleEraseMask,
       firstStampImmediateRef,
       mirrorScheduledRef,
       gridSnapStrokePointRef: colorCycleGridSnapStrokePointRef,

@@ -159,6 +159,13 @@ const createCanvasFromImageData = (imageData: ImageData): HTMLCanvasElement => {
   return canvas;
 };
 
+const alphaAt = (imageData: ImageData | undefined, x: number, y: number): number | undefined => {
+  if (!imageData) {
+    return undefined;
+  }
+  return imageData.data[(y * imageData.width + x) * 4 + 3];
+};
+
 const bytesToBase64 = (bytes: Uint8Array): string => {
   let binary = '';
   bytes.forEach((byte) => {
@@ -2254,6 +2261,79 @@ describe('projectIO serialize/deserialize layering', () => {
       expect(Array.from(restoredLayer?.colorCycleData?.recolorSettings?.indexBuffer ?? [])).toEqual([1, 2, 3, 4]);
       expect(Array.from(restoredLayer?.colorCycleData?.recolorSettings?.indexPhaseMap ?? [])).toEqual([5, 6, 7, 8]);
       expect(Array.from(restoredLayer?.colorCycleData?.recolorSettings?.phaseMap ?? [])).toEqual([9, 10, 11, 12]);
+    } finally {
+      if (contextProto) {
+        contextProto.rect = originalRect;
+      }
+    }
+  });
+
+  it('serializes live color-cycle erase masks before stale cached mask image data', async () => {
+    const staleEraseMaskImageData = createSolidImageData(3, 3, [0, 0, 0, 255]);
+    const liveEraseMaskImageData = createSolidImageData(3, 3, [0, 0, 0, 0]);
+    liveEraseMaskImageData.data[(1 * 3 + 1) * 4 + 3] = 255;
+    const eraseMask = createCanvasFromImageData(liveEraseMaskImageData);
+    const layer: Layer = {
+      id: 'layer-cc-live-erase-mask',
+      name: 'CC Live Erase Mask',
+      visible: true,
+      opacity: 1,
+      blendMode: 'source-over',
+      locked: false,
+      transparencyLocked: false,
+      order: 0,
+      imageData: createSolidImageData(3, 3, [0, 0, 0, 0]),
+      framebuffer: createCanvasFromImageData(createSolidImageData(3, 3, [0, 0, 0, 0])),
+      alignment: createDefaultLayerAlignment(),
+      layerType: 'color-cycle',
+      version: 1,
+      colorCycleData: {
+        canvasImageData: createSolidImageData(3, 3, [12, 34, 56, 255]),
+        canvasWidth: 3,
+        canvasHeight: 3,
+        eraseMask,
+        eraseMaskImageData: staleEraseMaskImageData,
+        eraseMaskVersion: 7,
+        gradient: [],
+      },
+    };
+    const project: Project = {
+      id: 'project-cc-live-erase-mask',
+      name: 'CC Live Erase Mask',
+      width: 3,
+      height: 3,
+      backgroundColor: '#000000',
+      layers: [layer],
+      customBrushes: [],
+      createdAt: new Date('2025-01-01T00:00:00.000Z'),
+      updatedAt: new Date('2025-01-01T00:00:00.000Z'),
+    };
+
+    const contextProto = (globalThis as unknown as {
+      CanvasRenderingContext2D?: { prototype?: { rect?: (...args: number[]) => void } };
+    }).CanvasRenderingContext2D?.prototype;
+    const originalRect = contextProto?.rect;
+    if (contextProto && typeof contextProto.rect !== 'function') {
+      contextProto.rect = () => {};
+    }
+
+    try {
+      const payload = await serializeProject(project, project.layers);
+      const restored = await deserializeProject(payload);
+      const restoredLayer = restored.layers[0];
+      const restoredMaskData = restoredLayer?.colorCycleData?.eraseMaskImageData;
+      const restoredMaskCanvas = restoredLayer?.colorCycleData?.eraseMask;
+      const restoredMaskCanvasData = restoredMaskCanvas
+        ?.getContext('2d', { willReadFrequently: true })
+        ?.getImageData(0, 0, 3, 3);
+
+      expect(restoredLayer?.colorCycleData?.eraseMaskVersion).toBe(7);
+      expect(alphaAt(restoredMaskData, 0, 0)).toBe(0);
+      expect(alphaAt(restoredMaskData, 1, 1)).toBe(255);
+      expect(alphaAt(restoredMaskData, 2, 2)).toBe(0);
+      expect(alphaAt(restoredMaskCanvasData, 0, 0)).toBe(0);
+      expect(alphaAt(restoredMaskCanvasData, 1, 1)).toBe(255);
+      expect(alphaAt(restoredMaskCanvasData, 2, 2)).toBe(0);
     } finally {
       if (contextProto) {
         contextProto.rect = originalRect;

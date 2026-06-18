@@ -3249,7 +3249,7 @@ async function serializeLayer(layer: Layer): Promise<SerializedLayer> {
       });
     }
     const canvasImageData = await resolveColorCycleCanvasImageDataForSave(layer);
-    const eraseMaskImageData = sourceColorCycleData.eraseMaskImageData ?? captureCanvasImageData(sourceColorCycleData.eraseMask ?? null);
+    const eraseMaskImageData = captureCanvasImageData(sourceColorCycleData.eraseMask ?? null) ?? sourceColorCycleData.eraseMaskImageData;
     const softEdgeMaskImageData = sourceColorCycleData.softEdgeMaskImageData ?? captureCanvasImageData(sourceColorCycleData.softEdgeMask ?? null);
     const colorCycleData = {
       ...sourceColorCycleData,

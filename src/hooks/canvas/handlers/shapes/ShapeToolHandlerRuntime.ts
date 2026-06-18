@@ -3357,7 +3357,7 @@ export const createShapeToolHandler = (
               });
               didCustomFill = runtimeResult.didCustomFill;
               suppressLivePreviewChrome = runtimeResult.suppressLivePreviewChrome;
-              skipFallbackFill = !runtimeResult.didCustomFill;
+              skipFallbackFill = !isClickLinePreview;
             } else {
               const axis = computeAxisOpposingEnds(committedPolygon);
               const gradient = overlayCtx.createLinearGradient(

@@ -25,6 +25,7 @@ jest.mock('@/hooks/canvas/utils/sampledCcShapeBreadcrumbs', () => ({
 
 const makeMockContext = () => {
   const gradient = { addColorStop: jest.fn() };
+  const transform = { a: 0.5, b: 0, c: 0, d: 0.5, e: 12, f: 18 };
   return {
     canvas: { width: 256, height: 256 },
     save: jest.fn(),
@@ -41,6 +42,7 @@ const makeMockContext = () => {
     fill: jest.fn(),
     stroke: jest.fn(),
     setTransform: jest.fn(),
+    getTransform: jest.fn(() => transform),
     createLinearGradient: jest.fn(() => gradient),
     createImageData: jest.fn((width: number, height: number) => new ImageData(width, height)),
     putImageData: jest.fn(),
@@ -239,6 +241,101 @@ describe('ShapeToolHandler CC dither preview replay', () => {
     await Promise.resolve();
 
     expect(fillCcGradientDither).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not draw a smooth fallback while dither preview is pending and publishes the dither result with the preview transform', async () => {
+    let resolveFirst!: () => void;
+    fillCcGradientDither.mockImplementationOnce(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveFirst = resolve;
+        })
+    );
+
+    const overlayCtx = makeMockContext();
+    const overlayCanvas = document.createElement('canvas');
+    overlayCanvas.width = 256;
+    overlayCanvas.height = 256;
+    (overlayCanvas as any).getContext = jest.fn(() => overlayCtx);
+
+    const canvas = document.createElement('canvas');
+    canvas.getBoundingClientRect = jest.fn(
+      () => ({ left: 0, top: 0, width: 256, height: 256, right: 256, bottom: 256 } as DOMRect)
+    );
+
+    const deps = {
+      canvasRef: { current: canvas },
+      canvas: { zoom: 1 },
+      pan: {
+        screenToWorld: (x: number, y: number) => ({ x, y }),
+        worldToScreen: (x: number, y: number) => ({ x, y }),
+      },
+      drawingHandlers: {
+        continueShapeDrawing: jest.fn(),
+        isDrawingShapeRef: { current: true },
+        shapePointsRef: { current: [{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 10, y: 10 }] },
+        latestShapePixelSizeRef: { current: 1 },
+        lastStablePressureRef: { current: 0.5 },
+        hadValidShapePressureRef: { current: false },
+        computeShapePixelSize: jest.fn(() => 1),
+        ccShapePreviewCacheRef: { current: null },
+      },
+      dynamicDepsRef: { current: { currentBrushPresetId: 'color-cycle-gradient' } },
+      currentBrushPresetId: 'color-cycle-gradient',
+      tools: storeState.tools,
+      overlayCanvasRef: { current: overlayCanvas },
+      compositeCanvasRef: { current: null },
+      compositeCanvasDirtyRef: { current: false },
+      compositeLayersToCanvas: jest.fn(),
+      setCurrentOffscreenCanvas: jest.fn(),
+      project: { width: 256, height: 256 },
+      stateMachine: { dispatch: jest.fn(), finalizationComplete: jest.fn(), state: { mode: 'IDLE' } },
+      setNeedsRedraw: jest.fn(),
+      viewTransformRef: { current: { scale: 1, offsetX: 0, offsetY: 0 } },
+      sampleColorAtPosition: jest.fn(() => '#000000'),
+      previewAnimationFrameRef: { current: null },
+      layers: [],
+      activeLayerId: null,
+      interaction: { dispatch: jest.fn() },
+      feedback: jest.fn(),
+      palette: storeState.palette,
+    } as any;
+
+    const handler = createShapeToolHandler(
+      {
+        deps,
+        overlayPreviewFrameMs: 0,
+        getLastOverlayPreviewTs: () => 0,
+        setLastOverlayPreviewTs: jest.fn(),
+      },
+      {}
+    );
+
+    handler.handlePointerMove({
+      clientX: 20,
+      clientY: 20,
+      buttons: 1,
+      pointerType: 'mouse',
+      pressure: 0.5,
+      shiftKey: false,
+      ctrlKey: false,
+      target: canvas,
+    } as any);
+
+    rafQueue.shift()?.(0);
+
+    expect(overlayCtx.createLinearGradient).not.toHaveBeenCalled();
+    expect(overlayCtx.fill).toHaveBeenCalledTimes(6);
+
+    resolveFirst();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(overlayCtx.drawImage).toHaveBeenCalled();
+    expect(overlayCtx.setTransform).toHaveBeenCalledWith(
+      expect.objectContaining({ a: 0.5, d: 0.5, e: 12, f: 18 })
+    );
+    expect(fillCcGradientDither).toHaveBeenCalledTimes(1);
   });
 
   it('clears stale cached cc preview while replacement is pending', async () => {

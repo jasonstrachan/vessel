@@ -220,6 +220,70 @@ describe('strokeStampDither', () => {
     expect(state.stampDitherBaseIdx?.[idx]).toBe(9);
   });
 
+  it('does not preserve shape gradient def bindings when restoring dither base pixels', () => {
+    const width = 16;
+    const height = 16;
+    const animator = buildAnimator(width, height);
+    const state: StampDitherState & {
+      paintBuffer: Uint8Array;
+      gradientIdBuffer: Uint8Array;
+      gradientDefIdBuffer: Uint16Array;
+      speedBuffer: Uint8Array;
+    } = {
+      paintBuffer: new Uint8Array(width * height),
+      gradientIdBuffer: new Uint8Array(width * height),
+      gradientDefIdBuffer: new Uint16Array(width * height),
+      speedBuffer: new Uint8Array(width * height),
+      stampDitherStrokeEpoch: 1,
+      stampDitherStampSeq: 0,
+    };
+    const config = {
+      algorithm: 'sierra-lite' as const,
+      pixelSize: 2,
+      patternStyle: 'dots' as const,
+      bgFill: false,
+      pressureLinked: false,
+      seed: 42,
+    };
+    const runtime = stampDither.createStampDitherRuntime();
+
+    state.paintBuffer.fill(11);
+    state.gradientIdBuffer.fill(3);
+    state.gradientDefIdBuffer.fill(7);
+
+    stampDither.applyStampDitherStamp({
+      animator: animator as unknown as Parameters<typeof stampDither.applyStampDitherStamp>[0]['animator'],
+      state,
+      config,
+      runtime,
+      stampShape: 'round',
+      x: 8,
+      y: 8,
+      pressure: 1,
+      pressureSize: 8,
+      primaryIndex: 5,
+      flowSlot: 1,
+      cycleSpeed: 1,
+      width,
+      height,
+      isAnimating: false,
+    });
+
+    const restoredBasePixels: number[] = [];
+    state.stampDitherTag?.forEach((tag, index) => {
+      const isCurrentStrokePixel = (tag >>> 16) === 1 && (tag & 0xffff) > 0;
+      if (isCurrentStrokePixel && animator.handle.data[index] === 11) {
+        restoredBasePixels.push(index);
+      }
+    });
+
+    expect(restoredBasePixels.length).toBeGreaterThan(0);
+    restoredBasePixels.forEach((index) => {
+      expect(animator.handle.gradientId[index]).toBe(3);
+      expect(state.gradientDefIdBuffer[index]).toBe(0);
+    });
+  });
+
   it('updates pressure-linked tile scale with pressure changes', () => {
     const width = 16;
     const height = 16;

@@ -15,6 +15,8 @@ import {
   quantizeToRasterPoint,
   resolveColorCycleRasterAnchor,
 } from '@/hooks/canvas/utils/strokeRasterPolicy';
+import type { ColorCyclePaintMask } from '@/utils/colorCyclePaintMask';
+import { applyPressureCurve } from '@/utils/pressureCurve';
 
 type DrawColorCycleOptions = {
   customStamp?: CustomBrushStrokeData;
@@ -247,6 +249,7 @@ type DrawColorCycleArgs = {
   requestGradientApply: (layerId: string, reason: string) => void;
   flushGradientApply: (layerId: string) => void;
   renderColorCycle: (ctx: CanvasRenderingContext2D, applyOpacity?: boolean, options?: { withOverlay?: boolean }) => void;
+  healColorCycleEraseMask?: (layerId: string, paintMask: ColorCyclePaintMask) => void;
   firstStampImmediateRef: { current: boolean };
   mirrorScheduledRef: { current: boolean };
   gridSnapStrokePointRef: { current: { x: number; y: number } | null };
@@ -271,6 +274,7 @@ export const drawColorCycleStroke = ({
   requestGradientApply,
   flushGradientApply,
   renderColorCycle,
+  healColorCycleEraseMask,
   firstStampImmediateRef,
   mirrorScheduledRef,
   gridSnapStrokePointRef,
@@ -362,6 +366,217 @@ export const drawColorCycleStroke = ({
     if (!layerId) {
       return;
     }
+    type PaintedStamp = {
+      x: number;
+      y: number;
+      width: number;
+      height: number;
+      shape: BrushShape | NonNullable<BrushSettings['colorCycleStampShape']>;
+      customStamp?: CustomBrushStrokeData;
+      pressure: number;
+      rotation: number;
+    };
+    const resolveStampTargetSize = (stampPressure: number): number => {
+      if (!pressureActive) {
+        return Math.max(1, brushSizeSetting);
+      }
+      const safePressure = Number.isFinite(stampPressure)
+        ? Math.max(0, Math.min(1, stampPressure))
+        : 1;
+      return Math.max(
+        1,
+        brushSizeSetting * applyPressureCurve(safePressure, minPercent, maxPercent, 'linear')
+      );
+    };
+    const getCustomStampMetrics = (
+      customStamp: CustomBrushStrokeData,
+      stampPressure: number,
+      stampRotation: number
+    ): { width: number; height: number } => {
+      const baseWidth = Math.max(1, customStamp.width);
+      const baseHeight = Math.max(1, customStamp.height);
+      const maxDimension = Math.max(baseWidth, baseHeight);
+      const scale = maxDimension > 0 ? resolveStampTargetSize(stampPressure) / maxDimension : 1;
+      const scaledWidth = Math.max(1, Math.round(baseWidth * scale));
+      const scaledHeight = Math.max(1, Math.round(baseHeight * scale));
+      const cos = Math.cos(stampRotation);
+      const sin = Math.sin(stampRotation);
+      return {
+        width: Math.max(1, Math.ceil(Math.abs(scaledWidth * cos) + Math.abs(scaledHeight * sin))),
+        height: Math.max(1, Math.ceil(Math.abs(scaledWidth * sin) + Math.abs(scaledHeight * cos))),
+      };
+    };
+    const paintedStamps: PaintedStamp[] = [];
+    const getStampMetrics = (): {
+      width: number;
+      height: number;
+      shape: PaintedStamp['shape'];
+    } => {
+      const customStamp = options?.customStamp;
+      if (customStamp) {
+        const metrics = getCustomStampMetrics(customStamp, pressure, rotation);
+        return {
+          ...metrics,
+          shape: brushSettings.colorCycleStampShape ?? 'square',
+        };
+      }
+      const shape = brushSettings.brushShape === BrushShape.COLOR_CYCLE_TRIANGLE
+        ? BrushShape.COLOR_CYCLE_TRIANGLE
+        : (brushSettings.colorCycleStampShape ?? 'square');
+      return {
+        width: Math.max(1, Math.ceil(brushSizeSetting) + 4),
+        height: Math.max(1, Math.ceil(brushSizeSetting) + 4),
+        shape,
+      };
+    };
+    const markPaintBounds = (paintX: number, paintY: number): void => {
+      const stamp = getStampMetrics();
+      paintedStamps.push({
+        x: paintX,
+        y: paintY,
+        customStamp: options?.customStamp,
+        pressure,
+        rotation,
+        ...stamp,
+      });
+    };
+    const healPaintedEraseMask = (): void => {
+      if (!healColorCycleEraseMask || paintedStamps.length === 0) {
+        return;
+      }
+      const minX = Math.max(0, Math.floor(Math.min(
+        ...paintedStamps.map((stamp) => stamp.x - stamp.width / 2)
+      )));
+      const minY = Math.max(0, Math.floor(Math.min(
+        ...paintedStamps.map((stamp) => stamp.y - stamp.height / 2)
+      )));
+      const maxX = Math.min(internalCanvas.width - 1, Math.ceil(Math.max(
+        ...paintedStamps.map((stamp) => stamp.x + stamp.width / 2)
+      )));
+      const maxY = Math.min(internalCanvas.height - 1, Math.ceil(Math.max(
+        ...paintedStamps.map((stamp) => stamp.y + stamp.height / 2)
+      )));
+      if (maxX < minX || maxY < minY) {
+        return;
+      }
+      const width = maxX - minX + 1;
+      const height = maxY - minY + 1;
+      const data = new Uint8Array(width * height);
+      const markPixel = (x: number, y: number): void => {
+        if (x < minX || x > maxX || y < minY || y > maxY) {
+          return;
+        }
+        data[(y - minY) * width + (x - minX)] = 255;
+      };
+      const markCustomStampPixels = (stamp: PaintedStamp): void => {
+        const customStamp = stamp.customStamp;
+        const imageData = customStamp?.imageData;
+        if (!customStamp || !imageData) {
+          return;
+        }
+        const baseWidth = Math.max(1, customStamp.width);
+        const baseHeight = Math.max(1, customStamp.height);
+        const maxDimension = Math.max(baseWidth, baseHeight);
+        const scale = maxDimension > 0 ? resolveStampTargetSize(stamp.pressure) / maxDimension : 1;
+        const scaledWidth = Math.max(1, Math.round(baseWidth * scale));
+        const scaledHeight = Math.max(1, Math.round(baseHeight * scale));
+        const cos = Math.cos(stamp.rotation);
+        const sin = Math.sin(stamp.rotation);
+        const originX = Math.round(stamp.x - stamp.width / 2);
+        const originY = Math.round(stamp.y - stamp.height / 2);
+        const centerX = stamp.width / 2;
+        const centerY = stamp.height / 2;
+        for (let py = 0; py < stamp.height; py += 1) {
+          for (let px = 0; px < stamp.width; px += 1) {
+            const relX = px + 0.5 - centerX;
+            const relY = py + 0.5 - centerY;
+            const unrotatedX = relX * cos + relY * sin;
+            const unrotatedY = -relX * sin + relY * cos;
+            const scaledX = unrotatedX + scaledWidth / 2;
+            const scaledY = unrotatedY + scaledHeight / 2;
+            if (scaledX < 0 || scaledX >= scaledWidth || scaledY < 0 || scaledY >= scaledHeight) {
+              continue;
+            }
+            const sourceX = Math.floor((scaledX / scaledWidth) * baseWidth);
+            const sourceY = Math.floor((scaledY / scaledHeight) * baseHeight);
+            if (
+              sourceX < 0 ||
+              sourceY < 0 ||
+              sourceX >= imageData.width ||
+              sourceY >= imageData.height
+            ) {
+              continue;
+            }
+            const alpha = imageData.data[(sourceY * imageData.width + sourceX) * 4 + 3] ?? 0;
+            if (alpha < 16) {
+              continue;
+            }
+            markPixel(originX + px, originY + py);
+          }
+        }
+      };
+      paintedStamps.forEach((stamp) => {
+        if (stamp.customStamp) {
+          markCustomStampPixels(stamp);
+          return;
+        }
+        const left = Math.floor(stamp.x - stamp.width / 2);
+        const top = Math.floor(stamp.y - stamp.height / 2);
+        const right = Math.ceil(stamp.x + stamp.width / 2);
+        const bottom = Math.ceil(stamp.y + stamp.height / 2);
+        const centerX = stamp.x;
+        const centerY = stamp.y;
+        const radiusX = Math.max(1, stamp.width / 2);
+        const radiusY = Math.max(1, stamp.height / 2);
+        for (let py = top; py <= bottom; py += 1) {
+          for (let px = left; px <= right; px += 1) {
+            if (stamp.shape === 'round') {
+              const dx = (px + 0.5 - centerX) / radiusX;
+              const dy = (py + 0.5 - centerY) / radiusY;
+              if (dx * dx + dy * dy > 1) {
+                continue;
+              }
+            } else if (stamp.shape === 'diamond') {
+              const dx = Math.abs(px + 0.5 - centerX) / radiusX;
+              const dy = Math.abs(py + 0.5 - centerY) / radiusY;
+              if (dx + dy > 1) {
+                continue;
+              }
+            } else if (stamp.shape === BrushShape.COLOR_CYCLE_TRIANGLE) {
+              const halfW = stamp.width / 2;
+              const halfH = stamp.height / 2;
+              const ax = centerX;
+              const ay = centerY - halfH;
+              const bx = centerX - halfW;
+              const by = centerY + halfH;
+              const cx = centerX + halfW;
+              const cy = centerY + halfH;
+              const sampleX = px + 0.5;
+              const sampleY = py + 0.5;
+              const sign = (x1: number, y1: number, x2: number, y2: number, x3: number, y3: number) =>
+                (x1 - x3) * (y2 - y3) - (x2 - x3) * (y1 - y3);
+              const d1 = sign(sampleX, sampleY, ax, ay, bx, by);
+              const d2 = sign(sampleX, sampleY, bx, by, cx, cy);
+              const d3 = sign(sampleX, sampleY, cx, cy, ax, ay);
+              const hasNeg = d1 < 0 || d2 < 0 || d3 < 0;
+              const hasPos = d1 > 0 || d2 > 0 || d3 > 0;
+              if (hasNeg && hasPos) {
+                continue;
+              }
+            }
+            markPixel(px, py);
+          }
+        }
+      });
+      if (data.some((value) => value !== 0)) {
+        healColorCycleEraseMask(layerId, {
+          data,
+          width,
+          height,
+          bounds: { x: minX, y: minY, width, height },
+        });
+      }
+    };
 
     const rasterAnchor = resolveColorCycleRasterAnchor(brushSettings);
 
@@ -417,6 +632,7 @@ export const drawColorCycleStroke = ({
       ) {
         return;
       }
+      markPaintBounds(paintX, paintY);
 
       if (options?.customStamp && typeof colorCycleBrush.paintCustomStamp === 'function') {
         if (Number.isFinite(options.speedSamplePxPerMs)) {
@@ -486,6 +702,7 @@ export const drawColorCycleStroke = ({
         }
         gridSnapStrokePointRef.current = snappedPoint;
       }
+      healPaintedEraseMask();
 
       const renderCustomSnapPreview = () => {
         mirrorScheduledRef.current = false;
@@ -581,6 +798,7 @@ export const drawColorCycleStroke = ({
         }
         gridSnapStrokePointRef.current = snappedPoint;
       }
+      healPaintedEraseMask();
 
       const renderGridSnapPreview = () => {
         mirrorScheduledRef.current = false;
@@ -628,6 +846,7 @@ export const drawColorCycleStroke = ({
       lastFreehandRef.y = y;
       paintStrokePoint(x, y);
     }
+    healPaintedEraseMask();
 
     if (firstStampImmediateRef.current) {
       firstStampImmediateRef.current = false;

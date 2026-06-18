@@ -3,10 +3,12 @@ import type { AppState } from '@/stores/useAppStore';
 import type { BrushSettings, Layer } from '@/types';
 import type { ColorCycleBrushImplementation } from '@/hooks/brushEngine/ColorCycleBrushMigration';
 import type { BoundingBox, CaptureRegion } from '@/hooks/canvas/utils/captureRegions';
+import { getMaskManager } from '@/layers/MaskManager';
 import {
   commitColorCycleLayerStroke,
   type ManagedColorCycleBrush,
 } from '@/hooks/canvas/handlers/colorCycle/colorCycleCommit';
+import type { ColorCyclePaintMask } from '@/utils/colorCyclePaintMask';
 
 export type ColorCycleStrokeCommitArgs = {
   isColorCycleLayer: boolean;
@@ -26,7 +28,11 @@ export type ColorCycleStrokeCommitDeps = {
   getBrushForLayer: (layerId: string) => ManagedColorCycleBrush | undefined;
   bindBrushToCanvas: (brush: ColorCycleBrushImplementation, canvas: HTMLCanvasElement) => void;
   markLayerHasContent: (layerId: string) => void;
-  clearEraseMaskInRegion: (layerId: string, roi: CaptureRegion) => void;
+  clearEraseMaskInRegion: (
+    layerId: string,
+    roi: CaptureRegion,
+    options?: ClearColorCycleEraseMaskOptions
+  ) => void;
   perfMark: (label: string) => void;
   perfMeasure: (label: string, startLabel: string, endLabel: string) => void;
   startFinalizeVisibleTimer: () => void;
@@ -66,7 +72,7 @@ export const createColorCycleStrokeCommitDeps = ({
   getBrushForLayer,
   bindBrushToCanvas,
   markLayerHasContent: (layerId) => markColorCycleLayerHasContent(storeRef, layerId),
-  clearEraseMaskInRegion: (layerId, roi) => clearColorCycleEraseMaskInRegion(storeRef, layerId, roi),
+  clearEraseMaskInRegion: (layerId, roi, options) => clearColorCycleEraseMaskInRegion(storeRef, layerId, roi, options),
   perfMark,
   perfMeasure,
   startFinalizeVisibleTimer,
@@ -116,10 +122,160 @@ const clampCaptureRegionToBounds = (
   };
 };
 
+export type ColorCycleEraseMaskAlphaSource = HTMLCanvasElement | OffscreenCanvas;
+
+export type ClearColorCycleEraseMaskOptions = {
+  alphaSource?: ColorCycleEraseMaskAlphaSource | null;
+  alphaSourceBounds?: CaptureRegion | null;
+  paintMask?: ColorCyclePaintMask | null;
+};
+
+const getSourceSize = (
+  source: ColorCycleEraseMaskAlphaSource
+): { width: number; height: number } => ({
+  width: Math.max(0, Math.floor(source.width)),
+  height: Math.max(0, Math.floor(source.height)),
+});
+
+const clearEraseMaskWithAlphaSource = (
+  eraseMaskCtx: CanvasRenderingContext2D,
+  clamped: CaptureRegion,
+  options?: ClearColorCycleEraseMaskOptions
+): boolean => {
+  const alphaSource = options?.alphaSource;
+  if (!alphaSource) {
+    return false;
+  }
+
+  const sourceCtx = alphaSource.getContext('2d', { willReadFrequently: true });
+  if (!sourceCtx) {
+    return false;
+  }
+
+  const sourceSize = getSourceSize(alphaSource);
+  const sourceBounds = options?.alphaSourceBounds
+    ? clampCaptureRegionToBounds(options.alphaSourceBounds, sourceSize)
+    : { x: 0, y: 0, width: sourceSize.width, height: sourceSize.height };
+  if (!sourceBounds) {
+    return false;
+  }
+
+  const sourceRight = sourceBounds.x + sourceBounds.width;
+  const sourceBottom = sourceBounds.y + sourceBounds.height;
+  const targetRight = clamped.x + clamped.width;
+  const targetBottom = clamped.y + clamped.height;
+  const overlapX = Math.max(clamped.x, sourceBounds.x);
+  const overlapY = Math.max(clamped.y, sourceBounds.y);
+  const overlapRight = Math.min(targetRight, sourceRight);
+  const overlapBottom = Math.min(targetBottom, sourceBottom);
+  if (overlapRight <= overlapX || overlapBottom <= overlapY) {
+    return false;
+  }
+
+  const overlapWidth = overlapRight - overlapX;
+  const overlapHeight = overlapBottom - overlapY;
+
+  try {
+    const sourceImageData = sourceCtx.getImageData(
+      overlapX - sourceBounds.x,
+      overlapY - sourceBounds.y,
+      overlapWidth,
+      overlapHeight
+    );
+    const eraseImageData = eraseMaskCtx.getImageData(overlapX, overlapY, overlapWidth, overlapHeight);
+    let changed = false;
+    for (let index = 3; index < sourceImageData.data.length; index += 4) {
+      if (sourceImageData.data[index] === 0) {
+        continue;
+      }
+      const redIndex = index - 3;
+      if (
+        eraseImageData.data[redIndex] !== 0 ||
+        eraseImageData.data[redIndex + 1] !== 0 ||
+        eraseImageData.data[redIndex + 2] !== 0 ||
+        eraseImageData.data[index] !== 0
+      ) {
+        eraseImageData.data[redIndex] = 0;
+        eraseImageData.data[redIndex + 1] = 0;
+        eraseImageData.data[redIndex + 2] = 0;
+        eraseImageData.data[index] = 0;
+        changed = true;
+      }
+    }
+    if (!changed) {
+      return true;
+    }
+    eraseMaskCtx.putImageData(eraseImageData, overlapX, overlapY);
+  } catch {
+    return false;
+  }
+  return true;
+};
+
+const clearEraseMaskWithPaintMask = (
+  eraseMaskCtx: CanvasRenderingContext2D,
+  clamped: CaptureRegion,
+  paintMask: ColorCyclePaintMask | null | undefined
+): boolean => {
+  if (!paintMask || paintMask.width <= 0 || paintMask.height <= 0) {
+    return false;
+  }
+
+  const maskBounds = paintMask.bounds;
+  const maskRight = maskBounds.x + maskBounds.width;
+  const maskBottom = maskBounds.y + maskBounds.height;
+  const targetRight = clamped.x + clamped.width;
+  const targetBottom = clamped.y + clamped.height;
+  const overlapX = Math.max(clamped.x, maskBounds.x);
+  const overlapY = Math.max(clamped.y, maskBounds.y);
+  const overlapRight = Math.min(targetRight, maskRight);
+  const overlapBottom = Math.min(targetBottom, maskBottom);
+  if (overlapRight <= overlapX || overlapBottom <= overlapY) {
+    return false;
+  }
+
+  const overlapWidth = overlapRight - overlapX;
+  const overlapHeight = overlapBottom - overlapY;
+  try {
+    const eraseImageData = eraseMaskCtx.getImageData(overlapX, overlapY, overlapWidth, overlapHeight);
+    let changed = false;
+    for (let row = 0; row < overlapHeight; row += 1) {
+      const maskRowOffset = (overlapY - maskBounds.y + row) * paintMask.width;
+      const eraseRowOffset = row * overlapWidth * 4;
+      for (let col = 0; col < overlapWidth; col += 1) {
+        const maskIndex = maskRowOffset + (overlapX - maskBounds.x + col);
+        if (paintMask.data[maskIndex] === 0) {
+          continue;
+        }
+        const eraseIndex = eraseRowOffset + col * 4;
+        if (
+          eraseImageData.data[eraseIndex] !== 0 ||
+          eraseImageData.data[eraseIndex + 1] !== 0 ||
+          eraseImageData.data[eraseIndex + 2] !== 0 ||
+          eraseImageData.data[eraseIndex + 3] !== 0
+        ) {
+          eraseImageData.data[eraseIndex] = 0;
+          eraseImageData.data[eraseIndex + 1] = 0;
+          eraseImageData.data[eraseIndex + 2] = 0;
+          eraseImageData.data[eraseIndex + 3] = 0;
+          changed = true;
+        }
+      }
+    }
+    if (changed) {
+      eraseMaskCtx.putImageData(eraseImageData, overlapX, overlapY);
+    }
+  } catch {
+    return false;
+  }
+  return true;
+};
+
 export const clearColorCycleEraseMaskInRegion = (
   storeRef: React.MutableRefObject<AppState>,
   layerId: string,
-  roi: CaptureRegion
+  roi: CaptureRegion,
+  options?: ClearColorCycleEraseMaskOptions
 ): void => {
   try {
     const st = storeRef.current;
@@ -136,7 +292,13 @@ export const clearColorCycleEraseMaskInRegion = (
     if (!clamped) {
       return;
     }
-    eraseMaskCtx.clearRect(clamped.x, clamped.y, clamped.width, clamped.height);
+    const clearedWithMask = clearEraseMaskWithPaintMask(eraseMaskCtx, clamped, options?.paintMask);
+    const clearedWithAlpha = clearedWithMask
+      ? true
+      : clearEraseMaskWithAlphaSource(eraseMaskCtx, clamped, options);
+    if (!clearedWithAlpha) {
+      eraseMaskCtx.clearRect(clamped.x, clamped.y, clamped.width, clamped.height);
+    }
     const nextVersion = (freshLayer?.colorCycleData?.eraseMaskVersion ?? 0) + 1;
     st.updateLayer(
       layerId,
@@ -147,7 +309,12 @@ export const clearColorCycleEraseMaskInRegion = (
       },
       { skipColorCycleSync: true }
     );
-  } catch {}
+  } catch {
+  } finally {
+    try {
+      getMaskManager().clearPendingHealMask(layerId);
+    } catch {}
+  }
 };
 
 export const commitColorCycleStrokeIfNeeded = async (
@@ -186,7 +353,9 @@ export const commitColorCycleStrokeIfNeeded = async (
 
   const resolvedStrokeCaptureRoi = commitResult.strokeCaptureRoi ?? args.captureRoi;
   if (resolvedStrokeCaptureRoi) {
-    deps.clearEraseMaskInRegion(args.activeLayer.id, resolvedStrokeCaptureRoi);
+    deps.clearEraseMaskInRegion(args.activeLayer.id, resolvedStrokeCaptureRoi, {
+      paintMask: commitResult.eraseMaskPaintMask,
+    });
   }
 
   return {

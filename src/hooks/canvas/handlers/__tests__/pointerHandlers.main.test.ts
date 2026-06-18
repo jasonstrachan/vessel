@@ -393,6 +393,37 @@ describe('pointerHandlers main flows', () => {
     expect(deps.drawingHandlers.startDrawing).not.toHaveBeenCalled();
   });
 
+  it('starts erasing while the selected brush preset is CC gradient shape mode', () => {
+    const { deps } = createDeps({
+      tools: {
+        ...baseDynamic.tools,
+        currentTool: 'eraser',
+        shapeMode: true,
+        brushSettings: {
+          ...baseDynamic.tools.brushSettings,
+          brushShape: BrushShape.COLOR_CYCLE_SHAPE,
+          colorCycleFillMode: 'linear',
+        } as any,
+      },
+      currentBrushPresetId: 'color-cycle-gradient',
+    });
+    deps.stateMachine.state = { mode: 'IDLE' } as any;
+    const handlers = createPointerHandlers(deps);
+
+    handlers.handlePointerDown(makePointerEvent({ clientX: 12, clientY: 14 }));
+
+    expect(deps.setCursorStyle).toHaveBeenCalledWith('none');
+    expect(deps.setShowBrushCursor).toHaveBeenCalledWith(true);
+    expect(deps.drawingHandlers.beginStrokeSession).toHaveBeenCalledWith({
+      pointerId: 1,
+      layerId: null,
+      tool: 'eraser',
+      brushId: 'color-cycle-gradient',
+    });
+    expect(deps.drawingHandlers.startDrawing).toHaveBeenCalledWith({ x: 12, y: 14 }, expect.any(Number));
+    expect(deps.drawingHandlers.startShapeDrawing).not.toHaveBeenCalled();
+  });
+
   it('starts panning when space is held', () => {
     const { deps } = createDeps();
     deps.isSpacePressedRef.current = true;

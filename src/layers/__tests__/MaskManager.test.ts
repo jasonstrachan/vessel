@@ -62,6 +62,14 @@ const setupManager = (layer: Layer): {
 };
 
 describe('MaskManager', () => {
+  const getAlpha = (canvas: HTMLCanvasElement, x: number, y: number): number => {
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    if (!ctx) {
+      throw new Error('Missing canvas context');
+    }
+    return ctx.getImageData(x, y, 1, 1).data[3];
+  };
+
   it('creates a mask when none exists', () => {
     const baseLayer = createLayer('layer-a', 120, 90);
     delete baseLayer.colorCycleData?.eraseMask;
@@ -131,6 +139,78 @@ describe('MaskManager', () => {
           eraseMaskVersion: 1
         }
       },
+      { skipColorCycleSync: true }
+    );
+  });
+
+  it('applies pending heal masks without updating layer state', () => {
+    const layer = createLayer('layer-d', 8, 8);
+    const eraseMask = document.createElement('canvas');
+    eraseMask.width = 8;
+    eraseMask.height = 8;
+    const eraseMaskCtx = eraseMask.getContext('2d');
+    if (!eraseMaskCtx) {
+      throw new Error('Missing erase mask context');
+    }
+    eraseMaskCtx.fillStyle = 'rgba(0, 0, 0, 1)';
+    eraseMaskCtx.fillRect(0, 0, eraseMask.width, eraseMask.height);
+    layer.colorCycleData = {
+      ...layer.colorCycleData,
+      eraseMask,
+      eraseMaskVersion: 0,
+    };
+
+    const { manager, updateLayer } = setupManager(layer);
+    manager.addPendingHealMask(layer.id, {
+      data: new Uint8Array([255]),
+      width: 1,
+      height: 1,
+      bounds: { x: 3, y: 4, width: 1, height: 1 },
+    });
+
+    expect(updateLayer).not.toHaveBeenCalled();
+
+    updateLayer.mockClear();
+    expect(manager.commitPendingHealMask(layer.id)).toBe(true);
+    expect(getAlpha(eraseMask, 3, 4)).toBe(0);
+    expect(getAlpha(eraseMask, 2, 4)).toBe(255);
+    expect(updateLayer).toHaveBeenCalledTimes(1);
+  });
+
+  it('commits a pending heal mask to the persisted erase mask once', () => {
+    const layer = createLayer('layer-e', 8, 8);
+    const eraseMask = document.createElement('canvas');
+    eraseMask.width = 8;
+    eraseMask.height = 8;
+    const eraseMaskCtx = eraseMask.getContext('2d');
+    if (!eraseMaskCtx) {
+      throw new Error('Missing erase mask context');
+    }
+    eraseMaskCtx.fillStyle = 'rgba(0, 0, 0, 1)';
+    eraseMaskCtx.fillRect(0, 0, eraseMask.width, eraseMask.height);
+    layer.colorCycleData = {
+      ...layer.colorCycleData,
+      eraseMask,
+      eraseMaskVersion: 0,
+    };
+
+    const { manager, updateLayer } = setupManager(layer);
+    manager.addPendingHealMask(layer.id, {
+      data: new Uint8Array([255]),
+      width: 1,
+      height: 1,
+      bounds: { x: 3, y: 4, width: 1, height: 1 },
+    });
+    updateLayer.mockClear();
+
+    expect(manager.commitPendingHealMask(layer.id)).toBe(true);
+
+    expect(getAlpha(eraseMask, 3, 4)).toBe(0);
+    expect(getAlpha(eraseMask, 2, 4)).toBe(255);
+    expect(updateLayer).toHaveBeenCalledTimes(1);
+    expect(updateLayer).toHaveBeenCalledWith(
+      layer.id,
+      { colorCycleData: { eraseMaskVersion: 1 } },
       { skipColorCycleSync: true }
     );
   });

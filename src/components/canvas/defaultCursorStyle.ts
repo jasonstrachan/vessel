@@ -25,19 +25,22 @@ export const resolveDefaultCursorStyle = ({
     return 'none';
   }
 
-  if (brushShape === BrushShape.PIXEL_DITHER && shapeMode) {
+  if (currentTool === 'brush' && brushShape === BrushShape.PIXEL_DITHER && shapeMode) {
     return 'crosshair';
   }
 
   if (
-    brushShape === BrushShape.RECTANGLE_GRADIENT ||
-    brushShape === BrushShape.POLYGON_GRADIENT ||
-    brushShape === BrushShape.DITHER_GRADIENT ||
-    brushShape === BrushShape.CONTOUR_POLYGON ||
-    brushShape === BrushShape.CONTOUR_LINES2 ||
-    brushShape === BrushShape.COLOR_CYCLE_SHAPE ||
-    brushShape === BrushShape.SPAM_TEXT ||
-    brushShape === BrushShape.SHAPE_FILL
+    currentTool === 'brush' &&
+    (
+      brushShape === BrushShape.RECTANGLE_GRADIENT ||
+      brushShape === BrushShape.POLYGON_GRADIENT ||
+      brushShape === BrushShape.DITHER_GRADIENT ||
+      brushShape === BrushShape.CONTOUR_POLYGON ||
+      brushShape === BrushShape.CONTOUR_LINES2 ||
+      brushShape === BrushShape.COLOR_CYCLE_SHAPE ||
+      brushShape === BrushShape.SPAM_TEXT ||
+      brushShape === BrushShape.SHAPE_FILL
+    )
   ) {
     return 'crosshair';
   }

@@ -43,4 +43,15 @@ describe('resolveDefaultCursorStyle', () => {
       })
     ).toBe('crosshair');
   });
+
+  it('uses the eraser cursor path over color cycle gradient shape state', () => {
+    expect(
+      resolveDefaultCursorStyle({
+        currentTool: 'eraser',
+        brushShape: BrushShape.COLOR_CYCLE_SHAPE,
+        shapeMode: true,
+        colorCycleFillMode: 'linear',
+      })
+    ).toBe('none');
+  });
 });
