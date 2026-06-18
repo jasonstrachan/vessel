@@ -50,7 +50,7 @@ export const refreshLayerCCSurface = (
             ...(layer.colorCycleData ?? {}),
             canvas,
           },
-        } as Partial<Layer>);
+        } as Partial<Layer>, { skipColorCycleSync: true });
       },
     });
   } catch {

@@ -39,18 +39,6 @@ const isTwoDContext = (ctx: unknown): ctx is TwoDContext => {
   return false;
 };
 
-const imageDataHasVisiblePixels = (imageData: ImageData | null | undefined): boolean => {
-  if (!imageData) {
-    return false;
-  }
-  for (let index = 3; index < imageData.data.length; index += 4) {
-    if (imageData.data[index] !== 0) {
-      return true;
-    }
-  }
-  return false;
-};
-
 const hasAnyNonZeroByte = (buffer: ArrayBuffer | undefined): boolean => (
   buffer ? new Uint8Array(buffer).some((value) => value !== 0) : false
 );
@@ -253,6 +241,62 @@ const sliceImageData = (
     );
   }
   return destination;
+};
+
+const cloneImageData = (source: ImageData | null | undefined): ImageData | undefined => {
+  if (!source || typeof ImageData === 'undefined') {
+    return undefined;
+  }
+  return new ImageData(
+    new Uint8ClampedArray(source.data),
+    source.width,
+    source.height
+  );
+};
+
+const cropCanvasSurface = (
+  source: HTMLCanvasElement | OffscreenCanvas | null | undefined,
+  rect: NormalizedCropRect,
+  targetWidth: number,
+  targetHeight: number,
+  logger: Logger,
+  message: string
+): HTMLCanvasElement | undefined => {
+  if (!source) {
+    return undefined;
+  }
+
+  try {
+    const target = createCanvas(targetWidth, targetHeight);
+    const ctx = target.getContext('2d', CONTEXT_SETTINGS);
+    if (!ctx) {
+      return undefined;
+    }
+    const sourceCtx = tryGet2dContext(source);
+    if (sourceCtx) {
+      const fullImageData = sourceCtx.getImageData(0, 0, source.width, source.height);
+      ctx.putImageData(sliceImageData(fullImageData, rect, targetWidth, targetHeight), 0, 0);
+      return target;
+    }
+    const placement = computeCropPlacement(rect, source.width, source.height);
+    if (placement.sw > 0 && placement.sh > 0) {
+      ctx.drawImage(
+        source as unknown as CanvasImageSource,
+        placement.sx,
+        placement.sy,
+        placement.sw,
+        placement.sh,
+        placement.dx,
+        placement.dy,
+        placement.sw,
+        placement.sh
+      );
+    }
+    return target;
+  } catch (error) {
+    logger(message, error);
+    return undefined;
+  }
 };
 
 const tryGet2dContext = (
@@ -497,6 +541,31 @@ export function readLayerSourcesForCrop(
       (layer.layerType === 'color-cycle'
         ? targetCanvas
         : layer.colorCycleData.canvas ?? undefined);
+    const croppedCanvasImageData = layer.colorCycleData.canvasImageData
+      ? sliceImageData(layer.colorCycleData.canvasImageData, rect, targetWidth, targetHeight)
+      : cloneImageData(croppedImageData);
+    const croppedEraseMaskImageData = layer.colorCycleData.eraseMaskImageData
+      ? sliceImageData(layer.colorCycleData.eraseMaskImageData, rect, targetWidth, targetHeight)
+      : undefined;
+    const croppedSoftEdgeMaskImageData = layer.colorCycleData.softEdgeMaskImageData
+      ? sliceImageData(layer.colorCycleData.softEdgeMaskImageData, rect, targetWidth, targetHeight)
+      : undefined;
+    const croppedEraseMask = cropCanvasSurface(
+      layer.colorCycleData.eraseMask,
+      rect,
+      targetWidth,
+      targetHeight,
+      logger,
+      '[crop] Failed to crop color-cycle erase mask'
+    );
+    const croppedSoftEdgeMask = cropCanvasSurface(
+      layer.colorCycleData.softEdgeMask,
+      rect,
+      targetWidth,
+      targetHeight,
+      logger,
+      '[crop] Failed to crop color-cycle soft-edge mask'
+    );
 
     if (isColorCycleLayer) {
       const gradientStops = Array.isArray(layer.colorCycleData.gradient)
@@ -600,7 +669,6 @@ export function readLayerSourcesForCrop(
                 flowBuffer: croppedFlow,
                 phaseBuffer: croppedPhase,
                 hasContent: Boolean(rawSnapshot.hasContent) && (
-                  imageDataHasVisiblePixels(croppedImageData) ||
                   croppedBuffer.some((value) => value !== 0) ||
                   hasAnyNonZeroByte(croppedGradientIds) ||
                   hasAnyNonZeroByte(croppedGradientDefIds) ||
@@ -722,6 +790,21 @@ export function readLayerSourcesForCrop(
       ...layer.colorCycleData,
       colorCycleBrush: undefined,
       canvas: nextColorCycleCanvas ?? undefined,
+      canvasImageData: croppedCanvasImageData,
+      canvasWidth: targetWidth,
+      canvasHeight: targetHeight,
+      eraseMaskImageData: croppedEraseMaskImageData,
+      eraseMask: croppedEraseMask,
+      eraseMaskVersion:
+        croppedEraseMask || croppedEraseMaskImageData
+          ? (layer.colorCycleData.eraseMaskVersion ?? 0) + 1
+          : layer.colorCycleData.eraseMaskVersion,
+      softEdgeMaskImageData: croppedSoftEdgeMaskImageData,
+      softEdgeMask: croppedSoftEdgeMask,
+      softEdgeMaskVersion:
+        croppedSoftEdgeMask || croppedSoftEdgeMaskImageData
+          ? (layer.colorCycleData.softEdgeMaskVersion ?? 0) + 1
+          : layer.colorCycleData.softEdgeMaskVersion,
       recolorSettings,
       gradient: Array.isArray(layer.colorCycleData.gradient)
         ? [...layer.colorCycleData.gradient]

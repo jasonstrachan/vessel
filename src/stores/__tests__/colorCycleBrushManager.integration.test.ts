@@ -254,8 +254,12 @@ describe('refreshLayerCCSurface', () => {
     const result = refreshLayerCCSurface(brush, 'layer-a');
 
     expect(result).toBe(newCanvas);
-    expect(mockUpdateLayer).toHaveBeenCalledWith('layer-a', expect.objectContaining({
-      colorCycleData: expect.objectContaining({ canvas: newCanvas }),
-    }));
+    expect(mockUpdateLayer).toHaveBeenCalledWith(
+      'layer-a',
+      expect.objectContaining({
+        colorCycleData: expect.objectContaining({ canvas: newCanvas }),
+      }),
+      { skipColorCycleSync: true }
+    );
   });
 });

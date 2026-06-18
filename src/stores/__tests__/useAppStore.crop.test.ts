@@ -390,6 +390,67 @@ describe('useAppStore commitCrop', () => {
     expect(Array.from(pixels.slice(0, 4))).toEqual([1, 1, 0, 255]);
   });
 
+  it('crops cold color-cycle snapshots to the marquee bounds', async () => {
+    const layer = createColorCycleLayer(6, 4);
+    const snapshot = createImageData(6, 4);
+    layer.colorCycleData = {
+      ...layer.colorCycleData,
+      runtimeHydrationState: 'cold',
+      canvasImageData: snapshot,
+      canvasWidth: 6,
+      canvasHeight: 4,
+    };
+    primeStoreForCrop(layer, 6, 4);
+
+    await useAppStore.getState().commitCrop();
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    const updatedLayer = useAppStore.getState().layers[0];
+    const snapshotAfter = updatedLayer.colorCycleData?.canvasImageData;
+    const pixels = snapshotAfter?.data ?? new Uint8ClampedArray();
+
+    expect(snapshotAfter?.width).toBe(3);
+    expect(snapshotAfter?.height).toBe(2);
+    expect(updatedLayer.colorCycleData?.canvasWidth).toBe(3);
+    expect(updatedLayer.colorCycleData?.canvasHeight).toBe(2);
+    expect(Array.from(pixels.slice(0, 4))).toEqual([1, 1, 0, 255]);
+  });
+
+  it('crops color-cycle masks to the marquee bounds', async () => {
+    const layer = createColorCycleLayer(6, 4);
+    const eraseMask = document.createElement('canvas');
+    eraseMask.width = 6;
+    eraseMask.height = 4;
+    const eraseCtx = eraseMask.getContext('2d');
+    eraseCtx!.fillStyle = 'rgba(255, 255, 255, 1)';
+    eraseCtx!.fillRect(1, 1, 1, 1);
+    const eraseMaskImageData = eraseCtx!.getImageData(0, 0, 6, 4);
+    layer.colorCycleData = {
+      ...layer.colorCycleData,
+      eraseMask,
+      eraseMaskImageData,
+      eraseMaskVersion: 2,
+    };
+    primeStoreForCrop(layer, 6, 4);
+
+    await useAppStore.getState().commitCrop();
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    const updatedLayer = useAppStore.getState().layers[0];
+    const croppedMask = updatedLayer.colorCycleData?.eraseMask;
+    const croppedMaskImageData = updatedLayer.colorCycleData?.eraseMaskImageData;
+    const maskPixel = croppedMask?.getContext('2d')?.getImageData(0, 0, 1, 1).data;
+    const imageDataPixel = croppedMaskImageData?.data.slice(0, 4);
+
+    expect(croppedMask?.width).toBe(3);
+    expect(croppedMask?.height).toBe(2);
+    expect(croppedMaskImageData?.width).toBe(3);
+    expect(croppedMaskImageData?.height).toBe(2);
+    expect(updatedLayer.colorCycleData?.eraseMaskVersion).toBe(3);
+    expect(Array.from(maskPixel ?? [])).toEqual([255, 255, 255, 255]);
+    expect(Array.from(imageDataPixel ?? [])).toEqual([255, 255, 255, 255]);
+  });
+
   it('rebinds color-cycle brushes to the cropped canvas dimensions', async () => {
     const layer = createColorCycleLayer(6, 4);
     primeStoreForCrop(layer, 6, 4);
@@ -519,6 +580,54 @@ describe('useAppStore commitCrop', () => {
     expect(snapshot?.hasContent).toBe(false);
     expect(new Uint8Array(snapshot?.paintBuffer ?? new ArrayBuffer(0)).some((value) => value !== 0)).toBe(false);
     expect(updatedLayer.imageData?.data.some((value, index) => index % 4 === 3 && value !== 0)).toBe(false);
+  });
+
+  it('keeps cropped color-cycle bitmap pixels when cropped canonical buffers are empty', async () => {
+    const layer = createColorCycleLayer(6, 4);
+    primeStoreForCrop(layer, 6, 4);
+
+    useAppStore.getState().initColorCycleForLayer(layer.id, 6, 4);
+    const brush = useAppStore.getState().getLayerColorCycleBrush(layer.id);
+    expect(brush).toBeDefined();
+
+    const paint = new Uint8Array(24);
+    const gradientIds = new Uint8Array(24);
+    const gradientDefIds = new Uint16Array(24);
+    const speed = new Uint8Array(24);
+    const flow = new Uint8Array(24);
+    const phase = new Uint8Array(24);
+    paint[0] = 1;
+    gradientIds[0] = 1;
+    gradientDefIds[0] = 1;
+    speed[0] = 1;
+    flow[0] = 1;
+    phase[0] = 1;
+
+    brush?.applyLayerSnapshot?.(layer.id, {
+      paintBuffer: paint.buffer.slice(0),
+      gradientIdBuffer: gradientIds.buffer.slice(0),
+      gradientDefIdBuffer: gradientDefIds.buffer.slice(0),
+      speedBuffer: speed.buffer.slice(0),
+      flowBuffer: flow.buffer.slice(0),
+      phaseBuffer: phase.buffer.slice(0),
+      hasContent: true,
+      strokeCounter: 5
+    });
+
+    await useAppStore.getState().commitCrop();
+    await new Promise((resolve) => setTimeout(resolve, 25));
+
+    const updatedLayer = useAppStore.getState().layers[0];
+    const updatedBrush = updatedLayer.colorCycleData?.colorCycleBrush;
+    const brushCanvas = updatedLayer.colorCycleData?.canvas;
+    const snapshot = updatedBrush?.getLayerSnapshot?.(layer.id);
+
+    expect(snapshot?.hasContent).toBe(false);
+    expect(new Uint8Array(snapshot?.paintBuffer ?? new ArrayBuffer(0)).some((value) => value !== 0)).toBe(false);
+
+    updatedBrush?.renderDirectToCanvas?.(brushCanvas as HTMLCanvasElement, layer.id);
+    const pixelSample = brushCanvas?.getContext('2d')?.getImageData(0, 0, 1, 1);
+    expect(Array.from(pixelSample?.data ?? [])).toEqual([1, 1, 0, 255]);
   });
 
   it('restores color-cycle gradient slot runtime metadata after cropping', async () => {
