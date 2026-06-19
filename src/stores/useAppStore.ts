@@ -1,24 +1,6 @@
 // Zustand store with state slices
 // Based on /docs/02_System_Architecture/Overall_Design.md (lines 58-64)
 
-const isCcDebugEnabled = (): boolean => {
-  try {
-    const scope = globalThis as { CC_DEBUG?: { on: boolean } };
-    return scope.CC_DEBUG?.on === true;
-  } catch {
-    return false;
-  }
-};
-
-const isCcDebugVerboseEnabled = (): boolean => {
-  try {
-    const scope = globalThis as { CC_DEBUG?: { verbose?: boolean } };
-    return scope.CC_DEBUG?.verbose === true;
-  } catch {
-    return false;
-  }
-};
-
 export type CaptureROI = {
   x: number;
   y: number;
@@ -151,8 +133,7 @@ const syncPercentOffsetsFromPixels = (layers: Layer[], project: Project | null):
   return didChange ? syncedLayers : layers;
 };
 
-// Global watcher to detect unexpected layer mutations
-if (typeof window !== 'undefined') {
+const exposeLayerIntegrityCheck = (): void => {
   const tinyWindow = getVesselWindow();
   if (tinyWindow) {
     tinyWindow.__checkLayerIntegrity = () => {
@@ -179,10 +160,10 @@ if (typeof window !== 'undefined') {
     return issues;
     };
   }
-}
+};
 
 // Import ColorCycleBrush manager
-import { debugLog, logError } from '@/utils/debug';
+import { logError } from '@/utils/debug';
 import { getColorCycleBrushManager, setLayerIdGetter, setColorCycleStoreStateGetter } from './colorCycleBrushManager';
 import { syncPlaybackColorCycleLayers } from './ccRuntime';
 import type { ColorCycleBrushImplementation } from './colorCycleBrushManager';
@@ -192,16 +173,6 @@ import { configureMaskManager } from '@/layers/MaskManager';
 
 // Get global manager instance
 const colorCycleBrushManager = getColorCycleBrushManager();
-
-// Setup layer ID getter for orphan cleanup
-if (typeof window !== 'undefined') {
-  setTimeout(() => {
-    setLayerIdGetter(() => {
-      const state = useAppStore.getState();
-      return new Set(state.layers.map(l => l.id));
-    });
-  }, 0);
-}
 
 // Helper to store brush instance separately (now delegates to manager)
 import type {
@@ -809,14 +780,6 @@ export const useAppStore = createVesselStore<AppState>(
         syncPercentOffsetsFromPixels,
       })(set, get, store);
 
-      // Expose store globally for debugging and test utilities
-      if (typeof window !== 'undefined') {
-        setTimeout(() => {
-          (window as Window & { __vesselStore?: typeof useAppStore }).__vesselStore = useAppStore;
-        }, 0);
-        void ensureCustomBrushHydratedFn();
-      }
-
       setActiveHistoryDocument('default-project');
       const colorCycleSlice = createColorCycleSlice(set, get, store);
       const sequentialRecordSlice = createSequentialRecordSlice(set, get, store);
@@ -895,47 +858,6 @@ type StoreSubscribeWithSelector<TState> = <Slice>(
 
 const storeSubscribeWithSelector = useAppStore.subscribe as unknown as StoreSubscribeWithSelector<AppState>;
 
-setColorCycleStoreStateGetter(() => useAppStore.getState());
-if (typeof setGradientApplyStateGetter === 'function') {
-  setGradientApplyStateGetter(() => useAppStore.getState());
-}
-configureMaskManager({
-  getLayer: (layerId) => {
-    const state = useAppStore.getState();
-    return state.layers.find((layer) => layer.id === layerId);
-  },
-  updateLayer: (layerId, patch, options) => {
-    useAppStore.getState().updateLayer(layerId, patch, options);
-  },
-  getProjectSize: () => {
-    const project = useAppStore.getState().project;
-    return project ? { width: project.width, height: project.height } : null;
-  }
-});
-
-setCcImageTileThresholdResolver((x, y) => {
-  const state = useAppStore.getState();
-  const settings = state.tools.brushSettings;
-  return createCcCustomTileThresholdResolver(state.project?.ccCustomTilePatterns, {
-    patternTileId: settings.patternTileId,
-    patternTileScale: settings.patternTileScale,
-    patternTileInvert: settings.patternTileInvert,
-    patternTileThreshold: settings.patternTileThreshold,
-    patternTileOffsetX: settings.patternTileOffsetX,
-    patternTileOffsetY: settings.patternTileOffsetY,
-  })?.(x, y) ?? null;
-});
-
-// Corruption detector removed - bug is fixed
-
-// Subscribe to track all layer changes
-useAppStore.subscribe((state) => {
-  trackLayerChanges('STORE SUBSCRIPTION', state.layers);
-
-  // Note: Zustand v4 doesn't provide previous state in subscribe
-  // Would need to track manually if we need to compare
-});
-
 const subscribeToAutosaveDirtyTracking = (): void => {
   let isMarkingDirty = false;
   const ensureMarkDirty = (reason: AutosaveDirtyReason) => {
@@ -981,8 +903,6 @@ const subscribeToAutosaveDirtyTracking = (): void => {
   );
 
 };
-
-subscribeToAutosaveDirtyTracking();
 
 const getActiveBrushStorageId = (state: AppState): string | null => {
   if (state.currentBrushPreset?.id) {
@@ -1328,38 +1248,70 @@ const subscribeToSaveInFlightUnloadGuard = (): void => {
   window.addEventListener('beforeunload', handleBeforeUnload);
 };
 
-hydrateGlobalBrushSettings();
-subscribeToGlobalBrushPersistence();
-hydrateWebglExportSettings();
-subscribeToWebglExportSettingsPersistence();
-hydrateSequentialSettings();
-subscribeToSequentialSettingsPersistence();
-subscribeToSaveInFlightUnloadGuard();
+let appStoreRuntimeInitialized = false;
 
-// DEBUG ONLY
-(() => {
-  try {
-    const get = useAppStore.getState;
-    const current = get();
-    const origUpdateLayer = current.updateLayer as typeof current.updateLayer & { __ccTraceWrapped?: boolean };
-    if (origUpdateLayer.__ccTraceWrapped) {
-      return;
+export const initializeAppStoreRuntime = (): void => {
+  if (appStoreRuntimeInitialized) {
+    return;
+  }
+  appStoreRuntimeInitialized = true;
+
+  setColorCycleStoreStateGetter(() => useAppStore.getState());
+  if (typeof setGradientApplyStateGetter === 'function') {
+    setGradientApplyStateGetter(() => useAppStore.getState());
+  }
+  configureMaskManager({
+    getLayer: (layerId) => {
+      const state = useAppStore.getState();
+      return state.layers.find((layer) => layer.id === layerId);
+    },
+    updateLayer: (layerId, patch, options) => {
+      useAppStore.getState().updateLayer(layerId, patch, options);
+    },
+    getProjectSize: () => {
+      const project = useAppStore.getState().project;
+      return project ? { width: project.width, height: project.height } : null;
     }
-    const wrapped: typeof current.updateLayer & { __ccTraceWrapped?: boolean } = (id, patch, options) => {
-      const before = useAppStore.getState().layers.find((l) => l.id === id);
-      const prev = before?.colorCycleData?.isAnimating;
-      const next = patch?.colorCycleData?.isAnimating;
-      if (isCcDebugEnabled() && isCcDebugVerboseEnabled() && typeof next === 'boolean' && next !== prev) {
-        console.groupCollapsed('[CC:TRACE] updateLayer isAnimating flip', { id: id?.slice(-6), prev, next });
-        debugLog('raw-console', 'patch:', patch);
-        debugLog('raw-console', new Error('updateLayer:isAnimating').stack);
-        console.groupEnd();
-        // debugger;
-      }
-      return origUpdateLayer(id, patch, options);
-    };
-    wrapped.__ccTraceWrapped = true;
-    origUpdateLayer.__ccTraceWrapped = true;
-    get().updateLayer = wrapped;
-  } catch {}
-})();
+  });
+
+  setCcImageTileThresholdResolver((x, y) => {
+    const state = useAppStore.getState();
+    const settings = state.tools.brushSettings;
+    return createCcCustomTileThresholdResolver(state.project?.ccCustomTilePatterns, {
+      patternTileId: settings.patternTileId,
+      patternTileScale: settings.patternTileScale,
+      patternTileInvert: settings.patternTileInvert,
+      patternTileThreshold: settings.patternTileThreshold,
+      patternTileOffsetX: settings.patternTileOffsetX,
+      patternTileOffsetY: settings.patternTileOffsetY,
+    })?.(x, y) ?? null;
+  });
+
+  setLayerIdGetter(() => {
+    const state = useAppStore.getState();
+    return new Set(state.layers.map(l => l.id));
+  });
+
+  exposeLayerIntegrityCheck();
+  if (typeof window !== 'undefined') {
+    (window as Window & { __vesselStore?: typeof useAppStore }).__vesselStore = useAppStore;
+  }
+
+  // Subscribe to track all layer changes
+  useAppStore.subscribe((state) => {
+    trackLayerChanges('STORE SUBSCRIPTION', state.layers);
+  });
+
+  subscribeToAutosaveDirtyTracking();
+  hydrateGlobalBrushSettings();
+  subscribeToGlobalBrushPersistence();
+  hydrateWebglExportSettings();
+  subscribeToWebglExportSettingsPersistence();
+  hydrateSequentialSettings();
+  subscribeToSequentialSettingsPersistence();
+  subscribeToSaveInFlightUnloadGuard();
+};
+
+if (process.env.NODE_ENV === 'test') {
+  initializeAppStoreRuntime();
+}
