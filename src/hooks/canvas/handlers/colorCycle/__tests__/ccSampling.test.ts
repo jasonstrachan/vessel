@@ -1,5 +1,6 @@
 import {
   CC_SAMPLED_MAX_STOPS,
+  resolveSampledStopsWithFallback,
   updateCcSampledSession,
 } from '../ccSampling';
 import type { MarkGradientSession } from '@/hooks/canvas/utils/colorCycleMarkSession';
@@ -141,5 +142,47 @@ describe('ccSampling', () => {
     expect(result?.sampleCount).toBe(CC_SAMPLED_MAX_STOPS);
     expect(result?.stops).toHaveLength(CC_SAMPLED_MAX_STOPS);
     expect(session.samples).toHaveLength(CC_SAMPLED_MAX_STOPS);
+  });
+
+  it('preserves fallback stops when sampled stops collapse to one color', () => {
+    const fallbackStops = [
+      { position: 0, color: '#000000' },
+      { position: 0.5, color: '#888888' },
+      { position: 1, color: '#ffffff' },
+    ];
+
+    const result = resolveSampledStopsWithFallback({
+      sampledStops: [
+        { position: 0, color: '#000000' },
+        { position: 0.5, color: '#000000' },
+        { position: 1, color: '#000000' },
+      ],
+      sampleCount: 3,
+      fallbackStops,
+    });
+
+    expect(result.stops).toBe(fallbackStops);
+    expect(result.usedFallbackStops).toBe(true);
+    expect(result.sampledUniqueColors).toBe(1);
+    expect(result.fallbackUniqueColors).toBe(3);
+  });
+
+  it('keeps varied sampled stops instead of fallback stops', () => {
+    const sampledStops = [
+      { position: 0, color: '#112233' },
+      { position: 1, color: '#445566' },
+    ];
+
+    const result = resolveSampledStopsWithFallback({
+      sampledStops,
+      sampleCount: 2,
+      fallbackStops: [
+        { position: 0, color: '#000000' },
+        { position: 1, color: '#ffffff' },
+      ],
+    });
+
+    expect(result.stops).toBe(sampledStops);
+    expect(result.usedFallbackStops).toBe(false);
   });
 });

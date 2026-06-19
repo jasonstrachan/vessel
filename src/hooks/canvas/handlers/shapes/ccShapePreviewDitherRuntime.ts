@@ -20,7 +20,10 @@ import { computeConcentricMaxDistance } from '@/utils/colorCycle/concentricFillC
 import { getActiveMarkGradientSession } from '@/hooks/canvas/utils/colorCycleMarkSession';
 import { stampCcHangProbe } from '@/hooks/canvas/utils/ccHangProbe';
 import { parseCssColorToRgba } from '@/hooks/canvas/utils/colorCycleHelpers';
-import { buildSampledStops } from '@/hooks/canvas/handlers/colorCycle/ccSampling';
+import {
+  buildSampledStops,
+  resolveSampledStopsWithFallback,
+} from '@/hooks/canvas/handlers/colorCycle/ccSampling';
 import { runIdleAsync } from '@/hooks/canvas/utils/idle';
 import { recordSampledCcShapeBreadcrumb } from '@/hooks/canvas/utils/sampledCcShapeBreadcrumbs';
 import {
@@ -94,6 +97,48 @@ const shouldRenderPreviewWithFinalCellGrid = (
   brushSettings: BrushSettings,
   pixelSize: number
 ): boolean => Boolean(brushSettings.pxlEdge) && pixelSize > 1;
+
+const summarizePreviewPixels = (
+  data: Uint8ClampedArray,
+): { alphaPixels: number; colorPixels: number; maxAlpha: number; firstAlphaIndex: number } => {
+  let alphaPixels = 0;
+  let colorPixels = 0;
+  let maxAlpha = 0;
+  let firstAlphaIndex = -1;
+
+  for (let i = 0; i < data.length; i += 4) {
+    const r = data[i] ?? 0;
+    const g = data[i + 1] ?? 0;
+    const b = data[i + 2] ?? 0;
+    const a = data[i + 3] ?? 0;
+    if (a > 0) {
+      alphaPixels += 1;
+      if (firstAlphaIndex < 0) {
+        firstAlphaIndex = i / 4;
+      }
+      if (a > maxAlpha) {
+        maxAlpha = a;
+      }
+    }
+    if (r !== 0 || g !== 0 || b !== 0) {
+      colorPixels += 1;
+    }
+  }
+
+  return {
+    alphaPixels,
+    colorPixels,
+    maxAlpha,
+    firstAlphaIndex,
+  };
+};
+
+const describePreviewError = (error: unknown): string => {
+  if (error instanceof Error) {
+    return error.message;
+  }
+  return typeof error === 'string' ? error : 'unknown';
+};
 
 const prepareCcPreviewGeometry = ({
   committedPolygon,
@@ -1240,8 +1285,35 @@ export const runSampledCcDitherPreviewRuntime = (args: {
     nextPreviewRoi: previewGeometry.roi,
     replayKey,
   });
+  recordSampledCcShapeBreadcrumb({
+    event: 'sampled-runtime-state',
+    activeLayerId: getAppStoreState().activeLayerId ?? null,
+    seq: ditherGradPreviewState.ccJobSeq,
+    canReplayCurrentPreview: cachedPreview.canReplayCurrentPreview,
+    shouldUseCustomFill: cachedPreview.shouldUseCustomFill,
+    hasCachedCanvas: Boolean(ditherGradPreviewState.ccLastCanvas),
+    hasCachedOrigin: Boolean(ditherGradPreviewState.ccLastOrigin),
+    hasCachedSize: Boolean(ditherGradPreviewState.ccLastSize),
+    jobInFlight: ditherGradPreviewState.ccJobInFlight,
+    jobDirty: ditherGradPreviewState.ccJobDirty,
+    sourcePointCount: (sampleSourcePoints ?? previewGeometry.previewPolygon).length,
+    previewPointCount: previewGeometry.previewPolygon.length,
+    roiWidth: previewGeometry.width,
+    roiHeight: previewGeometry.height,
+    scaledWidth: previewGeometry.scaledWidth,
+    scaledHeight: previewGeometry.scaledHeight,
+    replayKey,
+  });
 
   if (cachedPreview.canReplayCurrentPreview && !ditherGradPreviewState.ccJobInFlight) {
+    recordSampledCcShapeBreadcrumb({
+      event: 'sampled-return-cache-hit',
+      activeLayerId: getAppStoreState().activeLayerId ?? null,
+      seq: ditherGradPreviewState.ccJobSeq,
+      didCustomFill: cachedPreview.shouldUseCustomFill,
+      suppressLivePreviewChrome: suppressChromeForCachedPreview && cachedPreview.shouldUseCustomFill,
+      replayKey,
+    });
     return {
       didCustomFill: cachedPreview.shouldUseCustomFill,
       suppressLivePreviewChrome: suppressChromeForCachedPreview && cachedPreview.shouldUseCustomFill,
@@ -1265,7 +1337,7 @@ export const runSampledCcDitherPreviewRuntime = (args: {
   const lastPublishAt = ditherGradPreviewState.ccLastSampledPreviewPublishAt ?? 0;
   const msSinceLastPublish = now - lastPublishAt;
   if (
-    hasCachedPreview &&
+    cachedPreview.shouldUseCustomFill &&
     !ditherGradPreviewState.ccJobInFlight &&
     msSinceLastPublish < SAMPLED_PREVIEW_UPDATE_INTERVAL_MS
   ) {
@@ -1280,6 +1352,14 @@ export const runSampledCcDitherPreviewRuntime = (args: {
         void runIdleAsync(processPendingSampledRequest);
       }, Math.max(0, SAMPLED_PREVIEW_UPDATE_INTERVAL_MS - msSinceLastPublish));
     }
+    recordSampledCcShapeBreadcrumb({
+      event: 'sampled-return-throttled',
+      activeLayerId: getAppStoreState().activeLayerId ?? null,
+      seq: ditherGradPreviewState.ccJobSeq,
+      didCustomFill: cachedPreview.shouldUseCustomFill,
+      msSinceLastPublish,
+      replayKey,
+    });
     return {
       didCustomFill: cachedPreview.shouldUseCustomFill,
       suppressLivePreviewChrome: false,
@@ -1288,6 +1368,13 @@ export const runSampledCcDitherPreviewRuntime = (args: {
 
   if (ditherGradPreviewState.ccJobInFlight) {
     ditherGradPreviewState.ccJobDirty = true;
+    recordSampledCcShapeBreadcrumb({
+      event: 'sampled-return-in-flight',
+      activeLayerId: getAppStoreState().activeLayerId ?? null,
+      seq: ditherGradPreviewState.ccJobSeq,
+      didCustomFill: cachedPreview.shouldUseCustomFill,
+      replayKey,
+    });
     return {
       didCustomFill: cachedPreview.shouldUseCustomFill,
       suppressLivePreviewChrome: suppressChromeForCachedPreview && cachedPreview.shouldUseCustomFill,
@@ -1296,6 +1383,13 @@ export const runSampledCcDitherPreviewRuntime = (args: {
 
   ditherGradPreviewState.ccJobInFlight = true;
   ditherGradPreviewState.ccJobDirty = false;
+  recordSampledCcShapeBreadcrumb({
+    event: 'sampled-start-worker',
+    activeLayerId: getAppStoreState().activeLayerId ?? null,
+    seq: ditherGradPreviewState.ccJobSeq + 1,
+    didCustomFill: cachedPreview.shouldUseCustomFill,
+    replayKey,
+  });
 
   async function processPendingSampledRequest(): Promise<void> {
     try {
@@ -1335,29 +1429,37 @@ export const runSampledCcDitherPreviewRuntime = (args: {
           sampleColor: sampledColorFn,
           allowTiny: true,
         });
+        const resolvedSampledStops = resolveSampledStopsWithFallback({
+          sampledStops: sampledPreview?.stops,
+          sampleCount: sampledPreview?.sampleCount ?? 0,
+          fallbackStops: request.fallbackStops,
+        });
         ccLog('shape: sampled preview stops ready', {
-          stopCount: sampledPreview?.stops?.length ?? request.fallbackStops.length,
+          stopCount: resolvedSampledStops.stops.length,
+          usedFallbackStops: resolvedSampledStops.usedFallbackStops,
+          sampledUniqueColors: resolvedSampledStops.sampledUniqueColors,
+          fallbackUniqueColors: resolvedSampledStops.fallbackUniqueColors,
         });
         recordSampledCcShapeBreadcrumb({
           event: 'sampled-stops-ready',
           activeLayerId: getAppStoreState().activeLayerId ?? null,
           seq: mySeq,
-          stopCount: sampledPreview?.stops?.length ?? request.fallbackStops.length,
-          usedFallbackStops: !sampledPreview?.stops || sampledPreview.stops.length < 2,
+          stopCount: resolvedSampledStops.stops.length,
+          usedFallbackStops: resolvedSampledStops.usedFallbackStops,
+          sampledUniqueColors: resolvedSampledStops.sampledUniqueColors,
+          fallbackUniqueColors: resolvedSampledStops.fallbackUniqueColors,
+          firstStopColor: resolvedSampledStops.stops[0]?.color ?? null,
+          lastStopColor:
+            resolvedSampledStops.stops[Math.max(0, resolvedSampledStops.stops.length - 1)]?.color ?? null,
           stopsHash: hashStops(
-            sampledPreview?.stops && sampledPreview.stops.length >= 2
-              ? sampledPreview.stops
-              : request.fallbackStops,
+            resolvedSampledStops.stops,
             sampledBrushSettings.colorCycleFillMode === 'concentric' || sampledBrushSettings.colorCycleFillMode === 'circular'
               ? 'concentric'
               : 'linear'
           ),
           replayKey: request.replayKey,
         });
-        const effectiveStops =
-          sampledPreview?.stops && sampledPreview.stops.length >= 2
-            ? sampledPreview.stops
-            : request.fallbackStops;
+        const effectiveStops = resolvedSampledStops.stops;
         rememberSampledCcShapePreviewStops({
           layerId: getAppStoreState().activeLayerId,
           stops: effectiveStops,
@@ -1502,6 +1604,9 @@ export const runSampledCcDitherPreviewRuntime = (args: {
         const previewFlatSeed = ditherGradPreviewState.ccPreviewFlatSeed;
 
         const fillStartAt = Date.now();
+        let writeIndexCalls = 0;
+        let positiveIndexWrites = 0;
+        let skippedIndexWrites = 0;
         await fillCcGradientDither({
           vertices: renderVertices,
           minX: 0,
@@ -1528,7 +1633,12 @@ export const runSampledCcDitherPreviewRuntime = (args: {
           yieldIfNeeded,
           sampleNormalized,
           writeIndex: (x, y, index) => {
-            if (index <= 0) return;
+            writeIndexCalls += 1;
+            if (index <= 0) {
+              skippedIndexWrites += 1;
+              return;
+            }
+            positiveIndexWrites += 1;
             const t = (index - 1) / 254;
             const [r, g, b, a] = sampleGradient(t);
             const px = (y * renderW + x) * 4;
@@ -1538,10 +1648,15 @@ export const runSampledCcDitherPreviewRuntime = (args: {
             data[px + 3] = Math.round(a);
           },
         });
+        const pixelSummary = summarizePreviewPixels(data);
         ccLog('shape: sampled preview fill end', {
           pointCount: sampledGeometry.previewPolygon.length,
           scaledW,
           scaledH,
+          writeIndexCalls,
+          positiveIndexWrites,
+          skippedIndexWrites,
+          ...pixelSummary,
         });
         recordSampledCcShapeBreadcrumb({
           event: 'sampled-fill-end',
@@ -1551,6 +1666,10 @@ export const runSampledCcDitherPreviewRuntime = (args: {
           scaledWidth: scaledW,
           scaledHeight: scaledH,
           durationMs: Math.max(0, Date.now() - fillStartAt),
+          writeIndexCalls,
+          positiveIndexWrites,
+          skippedIndexWrites,
+          ...pixelSummary,
           replayKey: request.replayKey,
         });
 
@@ -1618,6 +1737,7 @@ export const runSampledCcDitherPreviewRuntime = (args: {
         ccLog('shape: sampled preview publish', {
           scaledW,
           scaledH,
+          ...pixelSummary,
         });
         recordSampledCcShapeBreadcrumb({
           event: 'sampled-publish',
@@ -1627,10 +1747,20 @@ export const runSampledCcDitherPreviewRuntime = (args: {
           scaledHeight: scaledH,
           roiWidth: w,
           roiHeight: h,
+          writeIndexCalls,
+          positiveIndexWrites,
+          skippedIndexWrites,
+          ...pixelSummary,
         });
         schedulePolygonShapePreviewFrame(() => getLatestPolygonPreviewPoint());
       }
-    } catch {
+    } catch (error) {
+      recordSampledCcShapeBreadcrumb({
+        event: 'sampled-worker-error',
+        activeLayerId: getAppStoreState().activeLayerId ?? null,
+        seq: ditherGradPreviewState.ccJobSeq,
+        message: describePreviewError(error),
+      });
       // Keep scratch buffers for reuse on the next preview job.
     } finally {
       ditherGradPreviewState.ccJobInFlight = false;

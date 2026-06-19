@@ -24,10 +24,21 @@ describe('node-options helpers', () => {
     const result = normalizeNodeOptionsWithLocalStorage({
       nodeOptions: '--trace-warnings',
       scope: 'preview-build',
+      allowLocalStorageFlag: true,
     });
 
     expect(result).toContain('--trace-warnings');
     expect(result).toContain(`${LOCALSTORAGE_FLAG}=`);
     expect(result).toContain('vessel-localstorage-preview-build');
+  });
+
+  it('does not add local storage when the running Node version disallows it', () => {
+    const result = normalizeNodeOptionsWithLocalStorage({
+      nodeOptions: '--trace-warnings',
+      scope: 'preview-build',
+      allowLocalStorageFlag: false,
+    });
+
+    expect(result).toBe('--trace-warnings');
   });
 });

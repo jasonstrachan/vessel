@@ -17,6 +17,29 @@ jest.mock('@/utils/colorCycle/ccGradientDither', () => ({
 
 jest.mock('@/hooks/canvas/handlers/colorCycle/ccSampling', () => ({
   buildSampledStops: (...args: unknown[]) => buildSampledStops(...args),
+  resolveSampledStopsWithFallback: ({
+    sampledStops,
+    sampleCount,
+    fallbackStops,
+  }: {
+    sampledStops?: Array<{ color: string }> | null;
+    sampleCount: number;
+    fallbackStops: Array<{ color: string }>;
+  }) => {
+    const hasUsableSampledStops = Boolean(sampledStops && sampledStops.length >= 2);
+    const sampledUniqueColors = new Set((sampledStops ?? []).map((stop) => stop.color)).size;
+    const fallbackUniqueColors = new Set(fallbackStops.map((stop) => stop.color)).size;
+    const shouldUseFallback =
+      fallbackStops.length >= 2 &&
+      fallbackUniqueColors > 1 &&
+      (!hasUsableSampledStops || sampleCount <= 1 || sampledUniqueColors <= 1);
+    return {
+      stops: shouldUseFallback || !hasUsableSampledStops ? fallbackStops : sampledStops,
+      usedFallbackStops: shouldUseFallback || !hasUsableSampledStops,
+      sampledUniqueColors,
+      fallbackUniqueColors,
+    };
+  },
 }));
 
 jest.mock('@/hooks/canvas/utils/sampledCcShapeBreadcrumbs', () => ({
@@ -116,6 +139,8 @@ describe('ShapeToolHandler CC dither preview replay', () => {
         { position: 0, color: '#000000' },
         { position: 1, color: '#ffffff' },
       ],
+      samples: [],
+      sampleCount: 2,
     });
     rafQueue.length = 0;
     rafId = 1;
@@ -1030,6 +1055,144 @@ describe('ShapeToolHandler CC dither preview replay', () => {
 
     expect(fillCcGradientDither).toHaveBeenCalledTimes(1);
     expect(ditherGradPreviewState.ccPendingSampledRequest).toBeUndefined();
+  });
+
+  it('does not throttle sampled preview when the cached canvas cannot fill the current frame', async () => {
+    jest.useFakeTimers();
+    fillCcGradientDither.mockResolvedValueOnce();
+    const overlayCtx = makeMockContext();
+    const overlayCanvas = document.createElement('canvas');
+    overlayCanvas.width = 256;
+    overlayCanvas.height = 256;
+    (overlayCanvas as any).getContext = jest.fn(() => overlayCtx);
+    const cachedCanvas = document.createElement('canvas');
+    cachedCanvas.width = 24;
+    cachedCanvas.height = 24;
+    const ditherGradPreviewState = {
+      origin: null,
+      lastPx: -1,
+      resState: {} as any,
+      ccJobInFlight: false,
+      ccJobDirty: false,
+      ccJobSeq: 7,
+      ccLastCanvas: cachedCanvas,
+      ccLastOrigin: { x: 0, y: 0 },
+      ccLastSize: { width: 24, height: 24 },
+      ccLastReplayKey: 'old-replay-key',
+      ccLastSampledPreviewPublishAt: Date.now(),
+    } as any;
+
+    const result = runSampledCcDitherPreviewRuntime({
+      overlayCtx,
+      overlayCanvas,
+      committedPolygon: [{ x: 20, y: 20 }, { x: 60, y: 20 }, { x: 60, y: 60 }],
+      brushSettings: {
+        ...storeState.tools.brushSettings,
+        ccGradientSource: 'sampled',
+      },
+      ditherGradPreviewState,
+      drawingHandlers: {
+        isDrawingShapeRef: { current: true },
+        shapePointsRef: { current: [{ x: 20, y: 20 }, { x: 60, y: 20 }, { x: 60, y: 60 }] },
+        ccShapePreviewCacheRef: { current: null },
+      },
+      shouldKeepCachedCcPreviewVisible: () => false,
+      previewOpacity: 0.8,
+      previewRenderSettings: {
+        pixelSize: 1,
+        levels: 8,
+        algorithm: 'sierra-lite',
+        patternStyle: 'dots',
+        isFastPreview: false,
+      },
+      sampleColor: jest.fn(() => '#000000'),
+      fallbackStops: [
+        { position: 0, color: '#000000' },
+        { position: 1, color: '#ffffff' },
+      ],
+      schedulePolygonShapePreviewFrame: jest.fn(),
+      getLatestPolygonPreviewPoint: () => ({ x: 60, y: 60 }),
+    });
+
+    expect(result.didCustomFill).toBe(false);
+    expect(ditherGradPreviewState.ccJobInFlight).toBe(true);
+
+    jest.runOnlyPendingTimers();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(fillCcGradientDither).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps a stale sampled preview fill visible while the current sampled preview catches up', async () => {
+    jest.useFakeTimers();
+    fillCcGradientDither.mockResolvedValueOnce();
+    const overlayCtx = makeMockContext();
+    const overlayCanvas = document.createElement('canvas');
+    overlayCanvas.width = 256;
+    overlayCanvas.height = 256;
+    (overlayCanvas as any).getContext = jest.fn(() => overlayCtx);
+    const cachedCanvas = document.createElement('canvas');
+    cachedCanvas.width = 24;
+    cachedCanvas.height = 24;
+    const ditherGradPreviewState = {
+      origin: null,
+      lastPx: -1,
+      resState: {} as any,
+      ccJobInFlight: false,
+      ccJobDirty: false,
+      ccJobSeq: 7,
+      ccLastCanvas: cachedCanvas,
+      ccLastOrigin: { x: 0, y: 0 },
+      ccLastSize: { width: 24, height: 24 },
+      ccLastReplayKey: 'old-replay-key',
+      ccLastSampledPreviewPublishAt: Date.now(),
+    } as any;
+
+    const result = runSampledCcDitherPreviewRuntime({
+      overlayCtx,
+      overlayCanvas,
+      committedPolygon: [{ x: 20, y: 20 }, { x: 60, y: 20 }, { x: 60, y: 60 }],
+      brushSettings: {
+        ...storeState.tools.brushSettings,
+        ccGradientSource: 'sampled',
+      },
+      ditherGradPreviewState,
+      drawingHandlers: {
+        isDrawingShapeRef: { current: true },
+        shapePointsRef: { current: [{ x: 20, y: 20 }, { x: 60, y: 20 }, { x: 60, y: 60 }] },
+        ccShapePreviewCacheRef: { current: null },
+      },
+      shouldKeepCachedCcPreviewVisible: () => false,
+      retainStalePreviewOnCacheMiss: true,
+      previewOpacity: 0.8,
+      previewRenderSettings: {
+        pixelSize: 1,
+        levels: 8,
+        algorithm: 'sierra-lite',
+        patternStyle: 'dots',
+        isFastPreview: false,
+      },
+      sampleColor: jest.fn(() => '#000000'),
+      fallbackStops: [
+        { position: 0, color: '#000000' },
+        { position: 1, color: '#ffffff' },
+      ],
+      schedulePolygonShapePreviewFrame: jest.fn(),
+      getLatestPolygonPreviewPoint: () => ({ x: 60, y: 60 }),
+    });
+
+    expect(result.didCustomFill).toBe(true);
+    expect(overlayCtx.drawImage).toHaveBeenCalledWith(cachedCanvas, 0, 0);
+    expect(ditherGradPreviewState.ccJobInFlight).toBe(false);
+    expect(fillCcGradientDither).not.toHaveBeenCalled();
+
+    jest.advanceTimersByTime(90);
+    jest.runOnlyPendingTimers();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(fillCcGradientDither).toHaveBeenCalledTimes(1);
   });
 
   it('renders CC dither previews at reduced cell resolution before scaling back to the ROI when pixel edge is off', async () => {

@@ -138,6 +138,41 @@ export const buildSampledStops = (params: {
   return { stops, samples, sampleCount: sampledPoints.length };
 };
 
+export const resolveSampledStopsWithFallback = ({
+  sampledStops,
+  sampleCount,
+  fallbackStops,
+}: {
+  sampledStops: StoredStop[] | null | undefined;
+  sampleCount: number;
+  fallbackStops: StoredStop[];
+}): { stops: StoredStop[]; usedFallbackStops: boolean; sampledUniqueColors: number; fallbackUniqueColors: number } => {
+  const sampledUniqueColors = new Set((sampledStops ?? []).map((stop) => stop.color)).size;
+  const fallbackUniqueColors = new Set(fallbackStops.map((stop) => stop.color)).size;
+  const hasUsableSampledStops = Boolean(sampledStops && sampledStops.length >= 2);
+  const isDegenerateSampledPreview = sampleCount <= 1 || sampledUniqueColors <= 1;
+  const shouldPreserveFallback =
+    fallbackStops.length >= 2 &&
+    fallbackUniqueColors > 1 &&
+    (!hasUsableSampledStops || isDegenerateSampledPreview);
+
+  if (shouldPreserveFallback) {
+    return {
+      stops: fallbackStops,
+      usedFallbackStops: true,
+      sampledUniqueColors,
+      fallbackUniqueColors,
+    };
+  }
+
+  return {
+    stops: hasUsableSampledStops ? (sampledStops ?? fallbackStops) : fallbackStops,
+    usedFallbackStops: !hasUsableSampledStops,
+    sampledUniqueColors,
+    fallbackUniqueColors,
+  };
+};
+
 export const updateCcSampledSession = (args: CcSampledUpdateArgs): CcSampledUpdateResult | null => {
   if (args.now - args.lastUpdateRef.current < CC_SAMPLED_THROTTLE_MS) {
     logSampledPipeline('updateCcSampledSession throttled', {

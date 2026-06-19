@@ -39,7 +39,10 @@ import {
   calculatePressureAwareGridSpacing,
   snapToGridPure,
 } from '@/hooks/brushEngine/utilities';
-import { buildSampledStops } from '@/hooks/canvas/handlers/colorCycle/ccSampling';
+import {
+  buildSampledStops,
+  resolveSampledStopsWithFallback,
+} from '@/hooks/canvas/handlers/colorCycle/ccSampling';
 import {
   resolveColorCycleGradientSource,
   resolveColorCycleGradientSourceState,
@@ -263,10 +266,14 @@ const prepareFinalSampledShapeSession = (params: {
     sampleColor: resolveShapeSampleColor(params.deps, fallbackColor),
     allowTiny: true,
   });
-  const previewStops: StoredStop[] | null =
-    sampledPreview?.stops && sampledPreview.stops.length >= 2
-      ? sampledPreview.stops
-      : null;
+  const resolvedPreviewStops = resolveSampledStopsWithFallback({
+    sampledStops: sampledPreview?.stops,
+    sampleCount: sampledPreview?.sampleCount ?? 0,
+    fallbackStops,
+  });
+  const previewStops: StoredStop[] | null = resolvedPreviewStops.stops.length >= 2
+    ? resolvedPreviewStops.stops
+    : null;
   const previewShapeKey = buildSampledCcShapePreviewShapeKey(params.shapePoints);
   const previewStopsFromLivePreview = consumeSampledCcShapePreviewStops({
     layerId: params.layer.id,
@@ -283,6 +290,9 @@ const prepareFinalSampledShapeSession = (params: {
     livePreviewStopCount: previewStopsFromLivePreview?.stops.length ?? 0,
     finalStopCount: finalPreviewStops?.length ?? 0,
     usedLivePreviewStops: finalPreviewStops === previewStopsFromLivePreview?.stops,
+    usedFallbackStops: resolvedPreviewStops.usedFallbackStops,
+    sampledUniqueColors: resolvedPreviewStops.sampledUniqueColors,
+    fallbackUniqueColors: resolvedPreviewStops.fallbackUniqueColors,
     replayKey: previewStopsFromLivePreview?.replayKey ?? null,
     previewSeq: previewStopsFromLivePreview?.seq ?? null,
     previewPointCount: previewStopsFromLivePreview?.pointCount ?? null,
@@ -334,6 +344,9 @@ const prepareFinalSampledShapeSession = (params: {
     livePreviewStopCount: previewStopsFromLivePreview?.stops.length ?? 0,
     finalStopCount: finalPreviewStops?.length ?? 0,
     usedLivePreviewStops: finalPreviewStops === previewStopsFromLivePreview?.stops,
+    usedFallbackStops: resolvedPreviewStops.usedFallbackStops,
+    sampledUniqueColors: resolvedPreviewStops.sampledUniqueColors,
+    fallbackUniqueColors: resolvedPreviewStops.fallbackUniqueColors,
     replayKey: previewStopsFromLivePreview?.replayKey ?? null,
     previewSeq: previewStopsFromLivePreview?.seq ?? null,
     previewPointCount: previewStopsFromLivePreview?.pointCount ?? null,

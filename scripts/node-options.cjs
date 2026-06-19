@@ -50,9 +50,14 @@ function normalizeNodeOptionsWithLocalStorage(options = {}) {
     nodeOptions,
     storagePath,
     scope = 'default',
+    allowLocalStorageFlag = process.allowedNodeEnvironmentFlags?.has(LOCALSTORAGE_FLAG) ?? false,
   } = options;
 
   const baseOptions = stripLocalStorageFlag(nodeOptions);
+  if (!allowLocalStorageFlag) {
+    return baseOptions;
+  }
+
   const resolvedStoragePath = storagePath || getDefaultLocalStoragePath(scope);
   return mergeNodeOptions(baseOptions, `${LOCALSTORAGE_FLAG}=${resolvedStoragePath}`);
 }

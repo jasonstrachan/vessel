@@ -3269,7 +3269,7 @@ export const createShapeToolHandler = (
                     ditherGradPreviewState,
                     drawingHandlers,
                     shouldKeepCachedCcPreviewVisible,
-                    retainStalePreviewOnCacheMiss: isClickLinePreview,
+                    retainStalePreviewOnCacheMiss: true,
                     suppressChromeForCachedPreview: false,
                     previewOpacity: SHAPE_PREVIEW_OPACITY,
                     previewRenderSettings,
@@ -3358,6 +3358,21 @@ export const createShapeToolHandler = (
               didCustomFill = runtimeResult.didCustomFill;
               suppressLivePreviewChrome = runtimeResult.suppressLivePreviewChrome;
               skipFallbackFill = !isClickLinePreview;
+              if (isSampledPreviewMode) {
+                recordSampledCcShapeBreadcrumb({
+                  event: 'sampled-runtime-result',
+                  activeLayerId: getAppStoreState().activeLayerId ?? null,
+                  didCustomFill,
+                  suppressLivePreviewChrome,
+                  skipFallbackFill,
+                  isClickLinePreview,
+                  inFlight: ditherGradPreviewState.ccJobInFlight,
+                  dirty: ditherGradPreviewState.ccJobDirty,
+                  hasCachedCanvas: Boolean(ditherGradPreviewState.ccLastCanvas),
+                  hasCachedOrigin: Boolean(ditherGradPreviewState.ccLastOrigin),
+                  pointCount: committedPolygon.length,
+                });
+              }
             } else {
               const axis = computeAxisOpposingEnds(committedPolygon);
               const gradient = overlayCtx.createLinearGradient(

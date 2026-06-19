@@ -68,23 +68,25 @@ export const useDrawingCanvasSampling = ({
           const b = image[offset + 2];
           const alpha = image[offset + 3] / 255;
 
-          if (preferSolid && alpha > solidAlpha) {
+          if (preferSolid && alpha > 0 && alpha > solidAlpha) {
             solidAlpha = alpha;
             solidR = r;
             solidG = g;
             solidB = b;
           }
 
-          accR += r;
-          accG += g;
-          accB += b;
-          samples += 1;
+          if (alpha > 0) {
+            accR += r;
+            accG += g;
+            accB += b;
+            samples += 1;
+          }
         }
       }
 
       const toHex = (value: number) => Math.max(0, Math.min(255, Math.round(value))).toString(16).padStart(2, '0');
 
-      if (preferSolid && solidAlpha >= 0) {
+      if (preferSolid && solidAlpha > 0) {
         return `#${toHex(solidR)}${toHex(solidG)}${toHex(solidB)}`;
       }
 
