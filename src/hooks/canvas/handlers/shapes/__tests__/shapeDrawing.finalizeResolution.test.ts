@@ -163,6 +163,47 @@ describe('finalizeShapeDrawing CC dither resolution', () => {
     expect(prepared?.previewHash).toBeTruthy();
   });
 
+  it('replaces an active sampled stroke session when preparing sampled shape finalize stops', () => {
+    storeState.tools.ccGradientSource = 'sampled';
+    const layer = storeState.layers[0];
+    const staleSession = beginMarkGradientSession({
+      layerId: 'layer-1',
+      markKind: 'stroke',
+      gradientKind: 'linear',
+      source: 'sampled',
+      stops: [
+        { position: 0, color: '#111111' },
+        { position: 1, color: '#eeeeee' },
+      ],
+      speedCps: 1,
+    });
+
+    const prepared = __TESTING__.prepareFinalSampledShapeSession({
+      layer,
+      state: storeState,
+      shapePoints: [
+        { x: 0, y: 0 },
+        { x: 10, y: 0 },
+        { x: 10, y: 10 },
+      ],
+      deps: {
+        sampleColorAt: jest.fn(),
+        sampleHexAt: jest.fn((x: number) => (x < 5 ? '#ff0000' : '#0000ff')),
+        ccLog: jest.fn(),
+      },
+    });
+
+    expect(staleSession).toBeTruthy();
+    expect(prepared).toBeTruthy();
+    expect(prepared).not.toBe(staleSession);
+    expect(prepared?.source).toBe('sampled');
+    expect(prepared?.markKind).toBe('shape');
+    expect(getActiveMarkGradientSession('layer-1')).toBe(prepared);
+    expect(prepared?.previewStopsStored?.map((stop) => stop.color)).toContain('#ff0000');
+    expect(prepared?.previewStopsStored?.map((stop) => stop.color)).toContain('#0000ff');
+    expect(prepared?.previewHash).toBeTruthy();
+  });
+
   it('replaces an active sampled mark session when the finalize fill mode changes', () => {
     storeState.tools.ccGradientSource = 'sampled';
     const layer = storeState.layers[0];

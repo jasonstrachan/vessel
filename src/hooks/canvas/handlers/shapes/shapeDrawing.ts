@@ -308,6 +308,14 @@ const prepareFinalSampledShapeSession = (params: {
     });
     cancelMarkGradientSession(params.layer.id);
     session = null;
+  } else if (session && session.markKind !== 'shape') {
+    debugWarn('raw-console', '[CC] Active sampled mark session was not a shape during sampled shape finalize', {
+      layerId: params.layer.id,
+      sessionSource: session.source,
+      markKind: session.markKind,
+    });
+    cancelMarkGradientSession(params.layer.id);
+    session = null;
   } else if (session && session.gradientKind !== gradientKind) {
     debugWarn('raw-console', '[CC] Active sampled mark session fill mode changed before sampled shape finalize', {
       layerId: params.layer.id,
