@@ -1,7 +1,10 @@
 import type { Layer } from '@/types';
+import { DEFAULT_BRUSH_COLOR_CYCLE_SPEED } from '@/constants/colorCycle';
+import { encodeColorCycleSpeedByte } from '@/utils/colorCycleSpeed';
 import { createDefaultLayerAlignment } from '@/utils/layoutDefaults';
 
 import {
+  completeDefaultColorCycleMotionBuffers,
   hasCanonicalColorCyclePaint,
   hasGradientBindingBuffers,
   normalizeColorCycleLayerDocumentState,
@@ -233,6 +236,122 @@ describe('normalizeColorCycleLayerDocumentState', () => {
     }
     expect(result.state.paintBuffer?.byteLength).toBe(4);
     expect(hasCanonicalColorCyclePaint(result.state)).toBe(true);
+  });
+
+  it('defaults missing motion buffers for visible canonical paint', () => {
+    const expectedSpeedByte = encodeColorCycleSpeedByte(DEFAULT_BRUSH_COLOR_CYCLE_SPEED);
+    const layer = makeColorCycleLayer({
+      colorCycleData: {
+        ...makeColorCycleLayer().colorCycleData,
+        brushState: {
+          layers: [{
+            layerId: 'cc-layer',
+            strokeData: {
+              hasContent: true,
+              paintBuffer: makeBuffer(4, 1),
+              gradientIdBuffer: makeBuffer(4, 2),
+              gradientDefIdBuffer: makeBuffer(8, 3),
+            },
+          }],
+        },
+      },
+    });
+
+    const result = normalizeColorCycleLayerDocumentState(layer);
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+    expect(Array.from(new Uint8Array(result.state.speedBuffer ?? new ArrayBuffer(0)))).toEqual([
+      expectedSpeedByte,
+      expectedSpeedByte,
+      expectedSpeedByte,
+      expectedSpeedByte,
+    ]);
+    expect(Array.from(new Uint8Array(result.state.flowBuffer ?? new ArrayBuffer(0)))).toEqual([1, 1, 1, 1]);
+    expect(Array.from(new Uint8Array(result.state.phaseBuffer ?? new ArrayBuffer(0)))).toEqual([0, 0, 0, 0]);
+  });
+
+  it('defaults motion buffers only on painted pixels', () => {
+    const expectedSpeedByte = encodeColorCycleSpeedByte(DEFAULT_BRUSH_COLOR_CYCLE_SPEED);
+    const layer = makeColorCycleLayer({
+      colorCycleData: {
+        ...makeColorCycleLayer().colorCycleData,
+        brushState: {
+          layers: [{
+            layerId: 'cc-layer',
+            strokeData: {
+              hasContent: true,
+              paintBuffer: new Uint8Array([0, 2, 0, 4]).buffer,
+              gradientIdBuffer: makeBuffer(4, 2),
+              gradientDefIdBuffer: makeBuffer(8, 3),
+            },
+          }],
+        },
+      },
+    });
+
+    const result = normalizeColorCycleLayerDocumentState(layer);
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+    expect(Array.from(new Uint8Array(result.state.speedBuffer ?? new ArrayBuffer(0)))).toEqual([
+      0,
+      expectedSpeedByte,
+      0,
+      expectedSpeedByte,
+    ]);
+    expect(Array.from(new Uint8Array(result.state.flowBuffer ?? new ArrayBuffer(0)))).toEqual([0, 1, 0, 1]);
+  });
+
+  it('preserves explicit static speed when defaulting missing motion buffers', () => {
+    const layer = makeColorCycleLayer({
+      colorCycleData: {
+        ...makeColorCycleLayer().colorCycleData,
+        layerBaseSpeedCps: 0,
+        brushState: {
+          layers: [{
+            layerId: 'cc-layer',
+            strokeData: {
+              hasContent: true,
+              paintBuffer: makeBuffer(4, 1),
+              gradientIdBuffer: makeBuffer(4, 2),
+              gradientDefIdBuffer: makeBuffer(8, 3),
+            },
+          }],
+        },
+      },
+    });
+
+    const result = normalizeColorCycleLayerDocumentState(layer);
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+    expect(Array.from(new Uint8Array(result.state.speedBuffer ?? new ArrayBuffer(0)))).toEqual([0, 0, 0, 0]);
+    expect(Array.from(new Uint8Array(result.state.flowBuffer ?? new ArrayBuffer(0)))).toEqual([1, 1, 1, 1]);
+  });
+
+  it('does not default missing motion buffers for empty canonical paint', () => {
+    const state: Parameters<typeof completeDefaultColorCycleMotionBuffers>[0] = {
+      width: 2,
+      height: 2,
+      paintBuffer: makeBuffer(4, 0),
+      speedBuffer: undefined,
+      flowBuffer: undefined,
+      phaseBuffer: undefined,
+      layerBaseSpeedCps: undefined,
+      flowMode: undefined,
+    };
+    const completed = completeDefaultColorCycleMotionBuffers(state);
+
+    expect(completed.speedBuffer).toBeUndefined();
+    expect(completed.flowBuffer).toBeUndefined();
+    expect(completed.phaseBuffer).toBeUndefined();
   });
 });
 

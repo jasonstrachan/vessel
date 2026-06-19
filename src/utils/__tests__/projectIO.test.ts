@@ -1,4 +1,6 @@
 import JSZip from 'jszip';
+import { DEFAULT_BRUSH_COLOR_CYCLE_SPEED } from '@/constants/colorCycle';
+import { encodeColorCycleSpeedByte } from '@/utils/colorCycleSpeed';
 
 jest.mock('@/utils/debug', () => ({
   ...jest.requireActual('@/utils/debug'),
@@ -5580,6 +5582,157 @@ describe('projectIO serialize/deserialize layering', () => {
       entry.event === 'cc-save-primary-payload-drop-blocked' &&
       entry.layerId === layerId
     ))).toBe(true);
+  });
+
+  it('saves visible canonical color-cycle paint when only motion buffers are missing', async () => {
+    window.localStorage.clear();
+    const layerId = 'layer-cc-visible-paint-default-motion-save';
+    const layer: Layer = {
+      id: layerId,
+      name: 'Visible CC Paint Default Motion Save',
+      visible: true,
+      opacity: 1,
+      blendMode: 'source-over',
+      locked: false,
+      transparencyLocked: false,
+      order: 0,
+      imageData: null,
+      framebuffer: createCanvasFromImageData(createSolidImageData(2, 2, [0, 0, 0, 0])),
+      alignment: createDefaultLayerAlignment(),
+      layerType: 'color-cycle',
+      version: 1,
+      colorCycleData: {
+        canvasWidth: 2,
+        canvasHeight: 2,
+        mode: 'brush',
+        canvasImageData: createSolidImageData(2, 2, [12, 34, 56, 255]),
+        gradientIdBuffer: Uint8Array.from([1, 1, 1, 1]).buffer,
+        gradientDefIdBuffer: new Uint16Array([1, 1, 1, 1]).buffer,
+        brushState: {
+          canonicalPaint: true,
+          schemaVersion: 1,
+          layers: [{
+            layerId,
+            canonicalPaint: true,
+            schemaVersion: 1,
+            dimensions: { width: 2, height: 2 },
+            strokeData: {
+              hasContent: true,
+              paintBuffer: Uint8Array.from([1, 2, 3, 4]).buffer,
+            },
+          }],
+        },
+      },
+    };
+    const project: Project = {
+      id: 'project-cc-visible-paint-default-motion-save',
+      name: 'Visible CC Paint Default Motion Save',
+      width: 2,
+      height: 2,
+      backgroundColor: '#000000',
+      layers: [layer],
+      customBrushes: [],
+      createdAt: new Date('2025-01-01T00:00:00.000Z'),
+      updatedAt: new Date('2025-01-01T00:00:00.000Z'),
+    };
+
+    const payload = await withPatchedCanvasRect(() => serializeProject(project, project.layers));
+    const zip = await JSZip.loadAsync(payload);
+    const projectJson = await zip.file('project.json')?.async('string');
+    if (!projectJson) {
+      throw new Error('Missing project.json');
+    }
+    const manifest = JSON.parse(projectJson) as {
+      project: { layers: Array<{ id: string; state?: Record<string, unknown> }> };
+    };
+    const persistedLayer = manifest.project.layers.find((entry) => entry.id === layerId);
+
+    expect(persistedLayer?.state?.paintRef).toBeDefined();
+    expect(persistedLayer?.state?.gradientIdRef).toBeDefined();
+    expect(persistedLayer?.state?.gradientDefIdRef).toBeDefined();
+    expect(persistedLayer?.state?.speedRef).toBeDefined();
+    expect(persistedLayer?.state?.flowRef).toBeDefined();
+    expect(persistedLayer?.state?.phaseRef).toBeDefined();
+    const expectedSpeedByte = encodeColorCycleSpeedByte(DEFAULT_BRUSH_COLOR_CYCLE_SPEED);
+    const speedBytes = await zip.file(`buffers/color-cycle/${layerId}/speed.bin`)?.async('uint8array');
+    const flowBytes = await zip.file(`buffers/color-cycle/${layerId}/flow.bin`)?.async('uint8array');
+    expect(Array.from(speedBytes ?? [])).toEqual([
+      expectedSpeedByte,
+      expectedSpeedByte,
+      expectedSpeedByte,
+      expectedSpeedByte,
+    ]);
+    expect(Array.from(flowBytes ?? [])).toEqual([1, 1, 1, 1]);
+    expect(getPersistedCCMutationLog().some((entry) => (
+      entry.event === 'cc-save-primary-payload-drop-blocked' &&
+      entry.layerId === layerId
+    ))).toBe(false);
+  });
+
+  it('preserves explicit static color-cycle speed when saving repaired motion buffers', async () => {
+    window.localStorage.clear();
+    const layerId = 'layer-cc-static-default-motion-save';
+    const layer: Layer = {
+      id: layerId,
+      name: 'Static CC Default Motion Save',
+      visible: true,
+      opacity: 1,
+      blendMode: 'source-over',
+      locked: false,
+      transparencyLocked: false,
+      order: 0,
+      imageData: null,
+      framebuffer: createCanvasFromImageData(createSolidImageData(2, 2, [0, 0, 0, 0])),
+      alignment: createDefaultLayerAlignment(),
+      layerType: 'color-cycle',
+      version: 1,
+      colorCycleData: {
+        canvasWidth: 2,
+        canvasHeight: 2,
+        mode: 'brush',
+        layerBaseSpeedCps: 0,
+        canvasImageData: createSolidImageData(2, 2, [12, 34, 56, 255]),
+        gradientIdBuffer: Uint8Array.from([1, 1, 1, 1]).buffer,
+        gradientDefIdBuffer: new Uint16Array([1, 1, 1, 1]).buffer,
+        brushState: {
+          canonicalPaint: true,
+          schemaVersion: 1,
+          layers: [{
+            layerId,
+            canonicalPaint: true,
+            schemaVersion: 1,
+            dimensions: { width: 2, height: 2 },
+            strokeData: {
+              hasContent: true,
+              paintBuffer: Uint8Array.from([1, 2, 3, 4]).buffer,
+            },
+          }],
+        },
+      },
+    };
+    const project: Project = {
+      id: 'project-cc-static-default-motion-save',
+      name: 'Static CC Default Motion Save',
+      width: 2,
+      height: 2,
+      backgroundColor: '#000000',
+      layers: [layer],
+      customBrushes: [],
+      createdAt: new Date('2025-01-01T00:00:00.000Z'),
+      updatedAt: new Date('2025-01-01T00:00:00.000Z'),
+    };
+
+    const payload = await withPatchedCanvasRect(() => serializeProject(project, project.layers));
+    const zip = await JSZip.loadAsync(payload);
+    const speedBytes = await zip.file(`buffers/color-cycle/${layerId}/speed.bin`)?.async('uint8array');
+    const flowBytes = await zip.file(`buffers/color-cycle/${layerId}/flow.bin`)?.async('uint8array');
+
+    expect(Array.from(speedBytes ?? [])).toEqual([0, 0, 0, 0]);
+    expect(Array.from(flowBytes ?? [])).toEqual([1, 1, 1, 1]);
+    expect(getPersistedCCMutationLog().some((entry) => (
+      entry.event === 'cc-save-primary-payload-drop-blocked' &&
+      entry.layerId === layerId
+    ))).toBe(false);
   });
 
   it('blocks partial canonical color-cycle state during warmup before publishing a brush', async () => {

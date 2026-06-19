@@ -1,5 +1,7 @@
 import { createDefaultLayerAlignment } from '@/utils/layoutDefaults';
 import type { Layer } from '@/types';
+import { DEFAULT_BRUSH_COLOR_CYCLE_SPEED } from '@/constants/colorCycle';
+import { encodeColorCycleSpeedByte } from '@/utils/colorCycleSpeed';
 
 import { captureColorCyclePersistenceSnapshot } from '../captureColorCyclePersistenceSnapshot';
 import type { PersistedColorCycleBrushState } from '../colorCyclePersistenceTypes';
@@ -296,8 +298,45 @@ describe('captureColorCyclePersistenceSnapshot', () => {
     });
   });
 
-  it('fails missing motion buffers', () => {
+  it('backfills missing motion buffers for visible canonical paint', () => {
     const state = canonicalBrushState();
+    delete state.layers![0]!.strokeData!.speedBuffer;
+    delete state.layers![0]!.strokeData!.flowBuffer;
+    delete state.layers![0]!.strokeData!.phaseBuffer;
+    const result = captureColorCyclePersistenceSnapshot(makeLayer({
+      colorCycleData: {
+        mode: 'brush',
+        canvasWidth: 2,
+        canvasHeight: 2,
+        brushState: state,
+      },
+    }), {
+      projectWidth: 2,
+      projectHeight: 2,
+      requirePaint: true,
+      mode: 'canonical-save',
+    });
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      const expectedSpeedByte = encodeColorCycleSpeedByte(DEFAULT_BRUSH_COLOR_CYCLE_SPEED);
+      expect(result.documentState.paintBuffer).toBeInstanceOf(ArrayBuffer);
+      expect(result.documentState.speedBuffer).toBeInstanceOf(ArrayBuffer);
+      expect(result.documentState.flowBuffer).toBeInstanceOf(ArrayBuffer);
+      expect(result.documentState.phaseBuffer).toBeInstanceOf(ArrayBuffer);
+      expect(new Uint8Array(result.documentState.speedBuffer as ArrayBuffer)).toEqual(new Uint8Array([
+        expectedSpeedByte,
+        expectedSpeedByte,
+        expectedSpeedByte,
+        expectedSpeedByte,
+      ]));
+      expect(new Uint8Array(result.documentState.flowBuffer as ArrayBuffer)).toEqual(new Uint8Array([1, 1, 1, 1]));
+    }
+  });
+
+  it('fails missing motion buffers when canonical paint has no visible pixels', () => {
+    const state = canonicalBrushState();
+    state.layers![0]!.strokeData!.paintBuffer = buffer(4, 0);
     delete state.layers![0]!.strokeData!.flowBuffer;
     const result = captureColorCyclePersistenceSnapshot(makeLayer({
       colorCycleData: {

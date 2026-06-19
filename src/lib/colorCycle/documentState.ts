@@ -4,6 +4,8 @@ import type {
   ColorCycleSlotPalette,
   Layer,
 } from '@/types';
+import { DEFAULT_BRUSH_COLOR_CYCLE_SPEED } from '@/constants/colorCycle';
+import { encodeColorCycleSpeedByte, sanitizeBrushColorCycleSpeed } from '@/utils/colorCycleSpeed';
 
 export type ColorCycleLayerDocumentState = {
   layerId: string;
@@ -210,6 +212,80 @@ export const hasGradientBindingBuffers = (
   state: Pick<ColorCycleLayerDocumentState, 'gradientIdBuffer' | 'gradientDefIdBuffer'>,
 ): boolean => Boolean(state.gradientIdBuffer || state.gradientDefIdBuffer);
 
+const hasVisiblePaintBuffer = (paintBuffer: ArrayBuffer | undefined): boolean => {
+  if (!paintBuffer) {
+    return false;
+  }
+  return new Uint8Array(paintBuffer).some((value) => value !== 0);
+};
+
+const makeDefaultByteBuffer = (length: number): ArrayBuffer => (
+  new Uint8Array(length).buffer
+);
+
+const getFlowByteForMode = (
+  flowMode: ColorCycleLayerDocumentState['flowMode'] = 'forward',
+): number => {
+  if (flowMode === 'reverse') {
+    return 2;
+  }
+  if (flowMode === 'pingpong') {
+    return 3;
+  }
+  return 1;
+};
+
+const makePaintedByteBuffer = (
+  paintBuffer: ArrayBuffer,
+  value: number,
+): ArrayBuffer => {
+  const paint = new Uint8Array(paintBuffer);
+  const buffer = new Uint8Array(paint.length);
+  for (let index = 0; index < paint.length; index += 1) {
+    buffer[index] = paint[index] === 0 ? 0 : value;
+  }
+  return buffer.buffer;
+};
+
+const resolveDefaultMotionSpeedByte = (speed?: number): number => {
+  if (speed === 0) {
+    return encodeColorCycleSpeedByte(0);
+  }
+  if (Number.isFinite(speed)) {
+    return encodeColorCycleSpeedByte(sanitizeBrushColorCycleSpeed(speed));
+  }
+  return encodeColorCycleSpeedByte(DEFAULT_BRUSH_COLOR_CYCLE_SPEED);
+};
+
+export const completeDefaultColorCycleMotionBuffers = <
+  T extends Pick<
+    ColorCycleLayerDocumentState,
+    | 'width'
+    | 'height'
+    | 'paintBuffer'
+    | 'speedBuffer'
+    | 'flowBuffer'
+    | 'phaseBuffer'
+    | 'layerBaseSpeedCps'
+    | 'flowMode'
+  >
+>(state: T): T => {
+  const pixels = state.width * state.height;
+  const paintBuffer = state.paintBuffer;
+  if (!paintBuffer || !hasVisiblePaintBuffer(paintBuffer) || pixels <= 0) {
+    return state;
+  }
+  const speedByte = resolveDefaultMotionSpeedByte(state.layerBaseSpeedCps);
+  const flowByte = getFlowByteForMode(state.flowMode);
+
+  return {
+    ...state,
+    speedBuffer: state.speedBuffer ?? makePaintedByteBuffer(paintBuffer, speedByte),
+    flowBuffer: state.flowBuffer ?? makePaintedByteBuffer(paintBuffer, flowByte),
+    phaseBuffer: state.phaseBuffer ?? makeDefaultByteBuffer(pixels),
+  };
+};
+
 export const normalizeColorCycleLayerDocumentState = (
   layer: Layer,
   options: NormalizeColorCycleDocumentStateOptions = {},
@@ -283,10 +359,11 @@ export const normalizeColorCycleLayerDocumentState = (
     },
   };
 
-  const dimensionValidation = validateColorCycleDocumentStateDimensions(state);
+  const completedState = completeDefaultColorCycleMotionBuffers(state);
+  const dimensionValidation = validateColorCycleDocumentStateDimensions(completedState);
   if (!dimensionValidation.ok) {
     return dimensionValidation;
   }
 
-  return { ok: true, state };
+  return { ok: true, state: completedState };
 };

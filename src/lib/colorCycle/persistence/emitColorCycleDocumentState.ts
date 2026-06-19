@@ -1,4 +1,5 @@
 import type { Layer } from '@/types';
+import { completeDefaultColorCycleMotionBuffers } from '@/lib/colorCycle/documentState';
 
 import type {
   ColorCyclePersistenceDocumentState,
@@ -46,7 +47,7 @@ const snapshotToDocumentState = (
     resolveDimensions(layer, fallbackWidth, fallbackHeight);
   const colorCycleData = layer.colorCycleData;
   const strokeData = snapshot.strokeData;
-  return {
+  const state: ColorCyclePersistenceDocumentState = {
     layerId: layer.id,
     width: dimensions.width,
     height: dimensions.height,
@@ -71,6 +72,24 @@ const snapshotToDocumentState = (
       legacyStateRefs: false,
     },
   };
+
+  if (state.paintBuffer instanceof ArrayBuffer) {
+    const completed = completeDefaultColorCycleMotionBuffers({
+      ...state,
+      paintBuffer: state.paintBuffer,
+      speedBuffer: state.speedBuffer instanceof ArrayBuffer ? state.speedBuffer : undefined,
+      flowBuffer: state.flowBuffer instanceof ArrayBuffer ? state.flowBuffer : undefined,
+      phaseBuffer: state.phaseBuffer instanceof ArrayBuffer ? state.phaseBuffer : undefined,
+    });
+    return {
+      ...state,
+      speedBuffer: state.speedBuffer ?? completed.speedBuffer,
+      flowBuffer: state.flowBuffer ?? completed.flowBuffer,
+      phaseBuffer: state.phaseBuffer ?? completed.phaseBuffer,
+    };
+  }
+
+  return state;
 };
 
 export const emitColorCycleDocumentStateFromBrushState = (
