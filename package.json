@@ -11,7 +11,7 @@
     "dev:memory": "WEBPACK_CACHE_TYPE=memory next dev",
     "dev:safe": "WEBPACK_CACHE_TYPE=memory WSL_DISTRO_NAME=1 next dev",
     "build": "npm run build:next",
-    "build:next": "node scripts/require-node-version.mjs && rm -rf .next out .next-build && env -u NODE_OPTIONS VESSEL_STATIC_EXPORT=1 NEXT_DIST_DIR=.next node node_modules/next/dist/bin/next build && cp -R out .next-build",
+    "build:next": "node scripts/github-pages-build.mjs",
     "build:clean": "rm -rf .next-build .next-preview out node_modules/.cache .turbo && npm run build:align-fit && npm run build:goblet-inline && npm run build:next",
     "build:github": "npm run build:clean && node scripts/prepare-github-pages.mjs",
     "build:goblet-inline": "node scripts/build-goblet-runtime.mjs",

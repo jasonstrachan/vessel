@@ -51,14 +51,18 @@ describe('Next static export build mode', () => {
     };
 
     expect(packageJson.scripts.build).toBe('npm run build:next');
-    expect(packageJson.scripts['build:next']).toContain('node scripts/require-node-version.mjs');
-    expect(packageJson.scripts['build:next']).toContain('rm -rf .next out .next-build');
-    expect(packageJson.scripts['build:next']).toContain('env -u NODE_OPTIONS');
-    expect(packageJson.scripts['build:next']).toContain('VESSEL_STATIC_EXPORT=1');
-    expect(packageJson.scripts['build:next']).toContain('NEXT_DIST_DIR=.next');
-    expect(packageJson.scripts['build:next']).toContain('node node_modules/next/dist/bin/next build');
-    expect(packageJson.scripts['build:next']).toContain('cp -R out .next-build');
+    expect(packageJson.scripts['build:next']).toBe('node scripts/github-pages-build.mjs');
     expect(packageJson.scripts['build:clean']).toContain('npm run build:next');
+  });
+
+  it('keeps the GitHub Pages build isolated from local Next dev state', () => {
+    const source = readFileSync(path.resolve('scripts/github-pages-build.mjs'), 'utf8');
+
+    expect(source).toContain("env.VESSEL_STATIC_EXPORT = '1';");
+    expect(source).toContain("env.NEXT_DIST_DIR = staticDistDirName;");
+    expect(source).toContain("'.next'");
+    expect(source).toContain("await cp(workspaceStaticDir, finalOutDir");
+    expect(source).toContain("await writeFile(path.join(finalOutDir, '.nojekyll')");
   });
 
   it('keeps the legacy next-build wrapper delegated to the package build command', () => {

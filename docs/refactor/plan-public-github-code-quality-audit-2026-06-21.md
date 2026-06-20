@@ -254,12 +254,13 @@ Verification run after implementation:
 - `npm run type-check` passed.
 - `npm run architecture:check` passed, including `createLayersSlice.ts` at 3438/3500 LOC and zero raw console/direct store-access findings.
 - `npm run verify:goblet2-inline` passed.
-- `mise exec node@18.20.8 -- npm run build:github` is blocked by Next.js trace collection before static export writes `out`.
+- `mise exec node@18.20.8 -- npm run build:github` passed after replacing the local inline Next build with an isolated GitHub Pages build wrapper.
 
 Build note:
 
 - The first Node 18 GitHub build attempt failed after static generation with a missing `.next/server/pages/_app.js.nft.json` trace file. A later clean canonical run reproduced the blocker with a missing `.next/server/app/_not-found/page.js.nft.json` trace file. Running export mode without the destructive pre-clean reproduced the `_app.js.nft.json` variant again. A normal non-export Next build succeeds, so this is isolated to the wrapper-owned static export path and is now a Phase 5 release blocker rather than stale local build-state evidence.
 - Direct test evidence: `NEXT_DIST_DIR=.next-build` writes static-export files into `.next-build` but fails because Next's exporter still reads `.next/build-manifest.json`; a pre-created `.next` symlink to `.next-build` gets past trace collection but fails during `/404` export with a missing `.next/server/pages-manifest.json`. Do not ship a symlink workaround without a cleaner wrapper or upstream-compatible fix.
+- 2026-06-21 follow-up fix: `scripts/github-pages-build.mjs` now mirrors the working isolated preview-build pattern, runs `next build` in a temp workspace with `VESSEL_STATIC_EXPORT=1` and `NEXT_DIST_DIR=.next-build`, validates required static artifacts, then copies the artifact to `.next-build` and `out` with `.nojekyll`. The canonical Node 18 command now passes and prepares `out`.
 
 For each cleanup batch:
 
@@ -360,9 +361,31 @@ Hygiene scan evidence:
 Release blockers:
 
 - `npm audit --omit=dev` requires network access and currently fails the production dependency audit: high-severity `next` advisories and moderate `postcss <8.5.10`. `npm audit fix --dry-run --omit=dev` proposes `next@15.5.19`, `postcss@8.5.15`, `nanoid@3.3.14`, `@next/env@15.5.19`, and `@next/swc-darwin-arm64@15.5.19`, but it also prunes dev tooling from the installed tree and still reports the Next advisory range afterward. Do not run that command as-is.
+- `npm audit fix --force --dry-run --omit=dev` also proposes only the `next@15.5.19` path and still reports the high-severity Next advisory afterward; it is not a valid remediation path for this audit.
 - Metadata check shows both `next@15.5.19` and `next@16.2.9` still depend on `postcss@8.4.31`, so the audit blocker needs either an upstream Next release with patched dependency metadata, a tested npm override strategy, or an explicit documented risk acceptance before public release.
-- `mise exec node@18.20.8 -- npm run build:github` remains blocked by Next.js static-export trace collection as recorded in the Phase 3/4 build note.
+- `mise exec node@18.20.8 -- npm run build:github` previously failed in local inline builds, but now passes through the isolated GitHub Pages wrapper.
 - A no-write smoke with `npx -p next@15.5.19 next build` under the same Node 18 static-export env did not prove a safe upgrade path; it failed during `/404` prerender with `TypeError: Cannot read properties of null (reading 'useContext')`, likely due to mixing a temp Next package with the repo-installed React/Next graph.
+- Metadata check on `next@16.3.0-canary.59` shows it is outside the current audit advisory range and depends on `postcss@8.5.10`, but it is a canary release. Treat a canary framework upgrade as a separate explicit upgrade decision, not an audit-cleanup patch.
+
+### GitHub Pages Build Wrapper Update - 2026-06-21
+
+Implemented:
+
+- Added `scripts/github-pages-build.mjs` as the owner for the GitHub Pages static export build.
+- Updated `npm run build:next` to call the wrapper instead of running a fragile inline local `.next` build.
+- Kept `npm run build:github` as the canonical public release gate.
+- Added build-mode coverage proving the wrapper uses the static export signal, isolates local Next state, and writes `.nojekyll`.
+
+Verification:
+
+- `npx jest --runInBand __tests__/next-build-mode.test.ts` passed.
+- `git diff --check` passed.
+- `mise exec node@18.20.8 -- npm run build:github` passed and prepared the GitHub Pages artifact at `out`.
+- `npm run architecture:check` passed.
+- `npm run type-check` passed.
+- `npm run lint` passed.
+- `npm test -- --runInBand` passed: 404 suites, 2704 tests, 1 snapshot.
+- `npm run verify:goblet2-inline` passed.
 
 ## Definition of Done
 
