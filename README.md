@@ -109,7 +109,7 @@ Vessel is built with Next.js (App Router) and a custom Canvas2D rendering pipeli
 - **Monitored dev server**: `npm run dev` (default)
 
 ### Workflow
-- Work directly on the `poc2` branch (no feature branches).
+- Work directly on `main` unless a release manager asks for a separate branch.
 - Recommended local workflow:
   - Terminal A (dev): `npm run dev` → `http://localhost:3000`
   - Terminal B (isolated prod preview): `npm run preview:prod` → `http://localhost:3001/vessel/`
@@ -118,8 +118,8 @@ Vessel is built with Next.js (App Router) and a custom Canvas2D rendering pipeli
 ### Build & Deploy
 
 ```bash
-# Build for production
-npm run build
+# Build the GitHub Pages static export
+mise exec node@18.20.8 -- npm run build:github
 
 # Build an isolated prod preview artifact alongside dev
 npm run preview:prod:build
@@ -130,7 +130,7 @@ npm run preview:prod:serve
 # Build + serve isolated production preview alongside dev (port 3001)
 npm run preview:prod
 
-# Preview static export (serves /out on port 4000)
+# Preview static export after a successful GitHub Pages build (serves /out on port 4000)
 npm run preview
 ```
 

@@ -337,6 +337,33 @@ If `mise` is unavailable, use the known fallback for this checkout:
 npx -p node@18.20.8 -c 'node -v && npm run build:github'
 ```
 
+### Phase 5 Hygiene Update - 2026-06-21
+
+Implemented:
+
+- Removed `docs/temp.md`, which was a one-off pointer-event console snippet and not public documentation.
+- Removed checked-in compiled perf output under `scripts/perf/dist/**`; the owned TypeScript source remains at `scripts/perf/measure-concentric-fill.ts`.
+- Added `.gitignore` coverage for root `.turbo/` and `dist/` generated output.
+- Updated README workflow guidance from stale `poc2` branch instructions to `main`.
+- Updated README build guidance to use the canonical GitHub Pages gate: `mise exec node@18.20.8 -- npm run build:github`.
+- Updated `docs/readme.md` stale `Last Updated` metadata to June 2026.
+
+Hygiene scan evidence:
+
+- `git status --short --branch` after the first cleanup commit: `main...origin/main [ahead 7]`, then only the intentional Phase 5 hygiene edits listed above.
+- `git ls-files | rg '(^|/)(\\.env|\\.local|\\.next|out|dist|coverage|tmp|temp|debug|secret|token|key)'` found no env/build-output files. It did find intentional debug tooling under `src/debug/**`, debug utilities, keyboard files matching `key`, `docs/testing/coverage-gaps.md`, and the now-removed `docs/temp.md` and `scripts/perf/dist/**`.
+- `git check-ignore -v` plus a `--stdin --no-index` check with directory slashes confirms `.env*`, `.next/`, `.next-build/`, `.next-preview/`, `out/`, `coverage`, `node_modules`, root `dist`, and root `.turbo/` are ignored.
+- Secret/local scan found no private-key or token material. Remaining hits are local development URLs in README/scripts/docs, test worker URLs, and intentional spam-brush text containing the word `SECRET`.
+- `gitleaks` was unavailable on PATH, so no dedicated secret scanner result is available in this pass.
+- Hygiene batch verification passed: `git diff --check`, `npm run architecture:check`, `npm run type-check`, and `npm run lint`.
+
+Release blockers:
+
+- `npm audit --omit=dev` requires network access and currently fails the production dependency audit: high-severity `next` advisories and moderate `postcss <8.5.10`. `npm audit fix --dry-run --omit=dev` proposes `next@15.5.19`, `postcss@8.5.15`, `nanoid@3.3.14`, `@next/env@15.5.19`, and `@next/swc-darwin-arm64@15.5.19`, but it also prunes dev tooling from the installed tree and still reports the Next advisory range afterward. Do not run that command as-is.
+- Metadata check shows both `next@15.5.19` and `next@16.2.9` still depend on `postcss@8.4.31`, so the audit blocker needs either an upstream Next release with patched dependency metadata, a tested npm override strategy, or an explicit documented risk acceptance before public release.
+- `mise exec node@18.20.8 -- npm run build:github` remains blocked by Next.js static-export trace collection as recorded in the Phase 3/4 build note.
+- A no-write smoke with `npx -p next@15.5.19 next build` under the same Node 18 static-export env did not prove a safe upgrade path; it failed during `/404` prerender with `TypeError: Cannot read properties of null (reading 'useContext')`, likely due to mixing a temp Next package with the repo-installed React/Next graph.
+
 ## Definition of Done
 
 - Working tree is clean except for intentional, reviewed changes.

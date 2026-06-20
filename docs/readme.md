@@ -56,4 +56,4 @@ When adding or modifying features:
 
 ---
 
-*Last Updated: February 2026*
+*Last Updated: June 2026*
