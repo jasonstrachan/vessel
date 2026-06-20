@@ -148,7 +148,7 @@ const clearEraseMaskWithAlphaSource = (
   }
 
   const sourceCtx = alphaSource.getContext('2d', { willReadFrequently: true });
-  if (!sourceCtx) {
+  if (!sourceCtx || !('getImageData' in sourceCtx)) {
     return false;
   }
 

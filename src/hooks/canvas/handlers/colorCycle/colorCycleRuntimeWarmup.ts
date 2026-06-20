@@ -1,7 +1,8 @@
 import { useAppStore } from '@/stores/useAppStore';
-import { captureColorCyclePersistenceSnapshot } from '@/lib/colorCycle/persistence';
-import type { ColorCycleBufferRef } from '@/lib/colorCycle/persistence';
-import { validatePersistenceDocumentState } from '@/lib/colorCycle/persistence/colorCyclePersistenceValidation';
+import {
+  hasColorCycleEditableRuntimeSource,
+  resolveColorCycleRuntimeSourcePolicy,
+} from '@/lib/colorCycle/runtimeSourcePolicy';
 import type { Layer } from '@/types';
 
 type WarmupReason = 'stroke-start' | 'shape-start' | 'shape-finalize';
@@ -10,106 +11,8 @@ type FeedbackFn = (message: string) => void;
 
 const warmupByLayerId = new Map<string, Promise<boolean>>();
 
-const getLayerDocumentState = (layer: Layer | null | undefined): {
-  hasContent?: boolean;
-  paintRef?: unknown;
-  gradientIdRef?: unknown;
-  gradientDefIdRef?: unknown;
-  speedRef?: unknown;
-  flowRef?: unknown;
-  phaseRef?: unknown;
-} | null => {
-  const state = (layer as unknown as { state?: unknown } | null | undefined)?.state;
-  if (!state || typeof state !== 'object') {
-    return null;
-  }
-  return state as {
-    hasContent?: boolean;
-    paintRef?: unknown;
-    gradientIdRef?: unknown;
-    gradientDefIdRef?: unknown;
-    speedRef?: unknown;
-    flowRef?: unknown;
-    phaseRef?: unknown;
-  };
-};
-
-const hasBufferLikePayload = (value: unknown): boolean => {
-  if (value instanceof ArrayBuffer) {
-    return value.byteLength > 0;
-  }
-  if (ArrayBuffer.isView(value)) {
-    return value.byteLength > 0;
-  }
-  return typeof value === 'string' && value.length > 0;
-};
-
-const toColorCycleBufferRef = (value: unknown): ColorCycleBufferRef | undefined => (
-  hasBufferLikePayload(value) && (value instanceof ArrayBuffer || typeof value === 'string')
-    ? value
-    : undefined
-);
-
-export const hasColorCycleCanonicalEditSource = (layer: Layer | null | undefined): boolean => {
-  if (!layer || layer.layerType !== 'color-cycle') {
-    return false;
-  }
-  const data = layer.colorCycleData;
-  const documentState = getLayerDocumentState(layer);
-  const width = Math.max(1, Math.floor(
-    data?.canvasWidth ??
-    data?.canvas?.width ??
-    layer.imageData?.width ??
-    layer.framebuffer?.width ??
-    1,
-  ));
-  const height = Math.max(1, Math.floor(
-    data?.canvasHeight ??
-    data?.canvas?.height ??
-    layer.imageData?.height ??
-    layer.framebuffer?.height ??
-    1,
-  ));
-
-  if (
-    documentState &&
-    validatePersistenceDocumentState({
-      layerId: layer.id,
-      width,
-      height,
-      paintBuffer: toColorCycleBufferRef(documentState.paintRef),
-      gradientIdBuffer: toColorCycleBufferRef(documentState.gradientIdRef),
-      gradientDefIdBuffer: toColorCycleBufferRef(documentState.gradientDefIdRef),
-      speedBuffer: toColorCycleBufferRef(documentState.speedRef),
-      flowBuffer: toColorCycleBufferRef(documentState.flowRef),
-      phaseBuffer: toColorCycleBufferRef(documentState.phaseRef),
-      hasContent: Boolean(documentState.hasContent),
-      sources: {
-        brushStateSnapshot: false,
-        topLevelBuffers: false,
-        legacyStateRefs: true,
-      },
-    }, {
-      requirePaint: true,
-      source: 'deferred-archive',
-    }).ok
-  ) {
-    return true;
-  }
-
-  const snapshot = captureColorCyclePersistenceSnapshot(layer, {
-    projectWidth: width,
-    projectHeight: height,
-    requirePaint: true,
-    mode: 'diagnostic',
-    runtimeBrush: data?.colorCycleBrush as { getFullState?: () => unknown; serialize?: () => unknown } | undefined,
-  });
-  if (snapshot.ok) {
-    return true;
-  }
-
-  return false;
-};
+export const hasColorCycleCanonicalEditSource = (layer: Layer | null | undefined): boolean =>
+  hasColorCycleEditableRuntimeSource(layer);
 
 const isColdOrMissingEditableRuntime = (layer: Layer, hasBrush: boolean): boolean => (
   layer.colorCycleData?.deferredRuntimeRestore === true ||
@@ -144,7 +47,8 @@ export const startColorCycleRuntimeWarmupForEdit = ({
     return false;
   }
 
-  if (!hasColorCycleCanonicalEditSource(layer)) {
+  const sourcePolicy = resolveColorCycleRuntimeSourcePolicy(layer);
+  if (!sourcePolicy.hasEditableSource) {
     feedback?.('This color-cycle layer is preview-only and cannot be edited');
     return true;
   }

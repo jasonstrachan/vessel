@@ -12,11 +12,11 @@ import {
   type CCReason
 } from '@/stores/useAppStore';
 import { getColorCycleHydrationState } from '@/stores/layerHydration';
+import {
+  resolveColorCycleRuntimeSourcePolicy,
+} from '@/lib/colorCycle/runtimeSourcePolicy';
 import type { Layer } from '@/types';
 import { logCCMutation } from '@/utils/colorCycle/ccMutationAudit';
-import {
-  hasRecoverableColorCycleRuntimeSource,
-} from '@/utils/colorCycle/resolveColorCycleRuntimeRestore';
 
 declare global {
   interface Window {
@@ -170,24 +170,7 @@ const logPlaybackCanonicalMutation = (
 };
 
 const hasColorCyclePlaybackWarmupSource = (layer: Layer): boolean => {
-  if (layer.layerType !== 'color-cycle' || !layer.colorCycleData) {
-    return false;
-  }
-  const documentState = (layer as unknown as {
-    state?: {
-      hasContent?: boolean;
-    };
-  }).state;
-  const hasRecoverablePayload = hasRecoverableColorCycleRuntimeSource(layer);
-  if (layer.colorCycleData.repairStatus?.ok === false) {
-    return hasRecoverablePayload;
-  }
-  return Boolean(
-    layer.colorCycleData.hasContent === true ||
-    layer.colorCycleData.deferredRuntimeRestore === true ||
-    documentState?.hasContent === true ||
-    hasRecoverablePayload
-  );
+  return resolveColorCycleRuntimeSourcePolicy(layer).hasPlaybackWarmupSource;
 };
 
 export const isColorCycleDesired = (): boolean =>

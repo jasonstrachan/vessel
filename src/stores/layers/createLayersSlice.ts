@@ -82,6 +82,9 @@ import {
   type ColorCycleBrushManager,
 } from '@/stores/colorCycleBrushManager';
 import type { PersistedColorCycleBrushState } from '@/lib/colorCycle/persistence';
+import {
+  hasColorCycleWarmableRuntimeSource,
+} from '@/lib/colorCycle/runtimeSourcePolicy';
 import { compositeBitmapManager } from '@/lib/performance/CompositeBitmapManager';
 import {
   clearSequentialLayerRendererAll,
@@ -511,16 +514,6 @@ const omitUndefinedEntries = <T extends Record<string, unknown>>(value: T): Part
   return Object.fromEntries(entries) as Partial<T>;
 };
 
-const hasBufferLikePayload = (value: unknown): boolean => {
-  if (value instanceof ArrayBuffer) {
-    return value.byteLength > 0;
-  }
-  if (ArrayBuffer.isView(value)) {
-    return value.byteLength > 0;
-  }
-  return typeof value === 'string' && value.length > 0;
-};
-
 type ColorCycleLayerSnapshot = {
   paintBuffer: ArrayBuffer;
   gradientIdBuffer?: ArrayBuffer;
@@ -713,46 +706,6 @@ const buildCanonicalBrushStateFromSnapshot = (
   };
 };
 
-const hasColorCycleCanonicalRuntimeSource = (layer: Layer | null | undefined): boolean => {
-  if (!layer || layer.layerType !== 'color-cycle') {
-    return false;
-  }
-  const documentState = (layer as unknown as {
-    state?: {
-      hasContent?: boolean;
-      paintRef?: unknown;
-      gradientIdRef?: unknown;
-      gradientDefIdRef?: unknown;
-    };
-  }).state;
-  const colorCycleData = layer.colorCycleData;
-  const brushState = colorCycleData?.brushState as {
-    layers?: Array<{
-      strokeData?: {
-        hasContent?: boolean;
-        paintBuffer?: unknown;
-        gradientIdBuffer?: unknown;
-        gradientDefIdBuffer?: unknown;
-      };
-    }>;
-  } | undefined;
-
-  return Boolean(
-    documentState?.hasContent === true ||
-    hasBufferLikePayload(documentState?.paintRef) ||
-    hasBufferLikePayload(documentState?.gradientIdRef) ||
-    hasBufferLikePayload(documentState?.gradientDefIdRef) ||
-    hasBufferLikePayload(colorCycleData?.gradientIdBuffer) ||
-    hasBufferLikePayload(colorCycleData?.gradientDefIdBuffer) ||
-    brushState?.layers?.some((snapshot) => (
-      snapshot.strokeData?.hasContent === true ||
-      hasBufferLikePayload(snapshot.strokeData?.paintBuffer) ||
-      hasBufferLikePayload(snapshot.strokeData?.gradientIdBuffer) ||
-      hasBufferLikePayload(snapshot.strokeData?.gradientDefIdBuffer)
-    ))
-  );
-};
-
 export type UpdateLayerOptions = {
   skipColorCycleSync?: boolean;
 };
@@ -891,7 +844,7 @@ export const createLayersSlice = (
             !latestLayer.colorCycleData ||
             (
               !latestLayer.colorCycleData.deferredRuntimeRestore &&
-              !hasColorCycleCanonicalRuntimeSource(latestLayer)
+              !hasColorCycleWarmableRuntimeSource(latestLayer)
             )
           ) {
             return;
@@ -4135,7 +4088,7 @@ export const createLayersSlice = (
     }
 
     const hasRuntimeBrush = Boolean(colorCycleBrushManager.getBrush(layerId));
-    const hasCanonicalRuntimeSource = hasColorCycleCanonicalRuntimeSource(layer);
+    const hasCanonicalRuntimeSource = hasColorCycleWarmableRuntimeSource(layer);
 
     if (isColdColorCycleLayer(layer)) {
       if (
