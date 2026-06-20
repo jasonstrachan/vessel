@@ -399,14 +399,51 @@ Verification:
 - Verification gates have been run and recorded with the canonical Node 18 build path or an explicit fallback reason.
 - Remaining debt is listed as explicit follow-up, not hidden in the release.
 
-## Final Report Template
+## Final Audit Report - 2026-06-21
 
-- Summary of cleanup performed.
-- Dirty-tree scope at start and end.
-- First-batch audit table.
-- Structural risks fixed.
-- Large-file classifications and follow-ups.
-- Public GitHub hygiene changes.
-- Verification commands and results.
-- Remaining non-blocking debt.
-- Any release blockers still open.
+Summary:
+
+- First cleanup batch fixed the three architecture/release-gate blockers found in the audit: layer slice budget overflow, raw production console usage, and direct React/canvas store access.
+- Public hygiene batch removed stale temp/generated artifacts and corrected stale public docs/config guidance.
+- Build wrapper batch fixed the canonical Node 18 GitHub Pages static export by moving the Next build into an isolated temp workspace.
+
+Dirty-tree scope:
+
+- Start of audit: only this plan file was untracked.
+- After cleanup commits: working tree is clean; branch is ahead of `origin/main` with focused audit commits.
+
+Structural risks fixed:
+
+- `src/stores/layers/createLayersSlice.ts` is back under the blocking budget at 3438/3500 LOC.
+- Layer group, capture, soft-edge mask, and capture compositing concerns now live in owner modules under `src/stores/layers/**`.
+- Color-cycle commit diagnostics use the existing debug logger instead of raw console.
+- Color-cycle runtime warmup uses the existing app-store access adapter instead of direct `useAppStore.getState()` in the React/canvas scan.
+- GitHub Pages build no longer depends on fragile local `.next` trace/export state.
+
+Large-file classifications and follow-ups:
+
+- Every inspected production file over 1000 LOC is classified in the large-file table above.
+- Only `createLayersSlice.ts` was marked `extract now` and changed in this pass.
+- Files still over 1000 LOC remain tracked debt or intentional leave items with plausible simplification candidates.
+
+Public GitHub hygiene:
+
+- Removed `docs/temp.md`.
+- Removed checked-in compiled perf output under `scripts/perf/dist/**`.
+- Added `.gitignore` coverage for root `.turbo/` and `dist/`.
+- Updated README branch/build guidance and `docs/readme.md` date metadata.
+- Secret/local scans found no private-key or token material; `gitleaks` was unavailable.
+
+Verification results:
+
+- `npm run architecture:check` passed.
+- `npm run type-check` passed.
+- `npm run lint` passed.
+- `npm test -- --runInBand` passed: 404 suites, 2704 tests, 1 snapshot.
+- `npm run verify:goblet2-inline` passed.
+- `mise exec node@18.20.8 -- npm run build:github` passed and prepared `out`.
+- `npm audit --omit=dev` was run with network access and failed on the production dependency audit blocker below.
+
+Remaining blocker:
+
+- Production dependency audit still fails for `next` advisories and nested `postcss <8.5.10`. Safe stable remediation is not available from the tested metadata: `next@15.5.19` and `next@16.2.9` still carry `postcss@8.4.31`, while `next@16.3.0-canary.59` appears outside the advisory range but is a canary framework upgrade and should be handled as a separate explicit dependency decision.
