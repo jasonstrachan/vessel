@@ -366,6 +366,8 @@ Release blockers:
 - `mise exec node@18.20.8 -- npm run build:github` previously failed in local inline builds, but now passes through the isolated GitHub Pages wrapper.
 - A no-write smoke with `npx -p next@15.5.19 next build` under the same Node 18 static-export env did not prove a safe upgrade path; it failed during `/404` prerender with `TypeError: Cannot read properties of null (reading 'useContext')`, likely due to mixing a temp Next package with the repo-installed React/Next graph.
 - Metadata check on `next@16.3.0-canary.59` shows it is outside the current audit advisory range and depends on `postcss@8.5.10`, but it is a canary release. Treat a canary framework upgrade as a separate explicit upgrade decision, not an audit-cleanup patch.
+- Isolated temp-workspace canary test with `next@16.3.0-canary.59` and `eslint-config-next@16.3.0-canary.59` cleared `npm audit --omit=dev`, and passed `npm run architecture:check` plus `npm run type-check`.
+- The same canary test is not a valid cleanup fix for this release: `npm run lint` failed inside `eslint-config-next` with `TypeError: Converting circular structure to JSON`, and the canonical `mise exec node@18.20.8 -- npm run build:github` failed because Next.js requires Node `>=20.9.0`.
 
 ### GitHub Pages Build Wrapper Update - 2026-06-21
 
@@ -447,3 +449,4 @@ Verification results:
 Remaining blocker:
 
 - Production dependency audit still fails for `next` advisories and nested `postcss <8.5.10`. Safe stable remediation is not available from the tested metadata: `next@15.5.19` and `next@16.2.9` still carry `postcss@8.4.31`, while `next@16.3.0-canary.59` appears outside the advisory range but is a canary framework upgrade and should be handled as a separate explicit dependency decision.
+- The canary path was tested in isolation and rejected for this cleanup pass because it breaks `npm run lint` and the canonical Node 18 build gate.
