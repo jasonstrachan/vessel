@@ -24,8 +24,6 @@ import {
   cloneCanvasLike,
   cloneImageData,
   createCanvas,
-  normalizeImageDataDimensions,
-  snapshotFramebufferRegion,
 } from '@/stores/layers/layerCloneService';
 import {
   hasCleanStaticCompositeSegments,
@@ -60,17 +58,22 @@ import {
   resolveLegacyGradientStops,
 } from '@/stores/layers/layerColorCycleState';
 import {
-  generateLayerGroupName,
   sanitizeHiddenLayerGroupIds,
   sanitizeLayerGroups,
 } from '@/stores/layers/layerGroupService';
+import {
+  createLayerGroupFromSelectionAction,
+  removeLayerGroupAction,
+  renameLayerGroupAction,
+  setLayerGroupVisibilityAction,
+  type LayerGroupActionDeps,
+} from '@/stores/layers/layerGroupActions';
 import { appendSequentialLayerEventsToLayers } from '@/stores/layers/sequentialLayerEvents';
 import { createDevDebugOverlayLogger } from '@/utils/dev/debugOverlayStore';
 import { requestGradientApply } from '@/hooks/brushEngine/ccGradientApplyScheduler';
 import {
   buildColorCycleSoftEdgeMask,
   type ColorCycleSoftEdgeDitherAlgorithm,
-  type ColorCycleSoftEdgeCoverage,
 } from '@/utils/colorCycleSoftEdgeMask';
 import {
   rebuildGradientSlotUsageAndGC,
@@ -97,9 +100,22 @@ import type {
   CommitLayerStructureHistoryOptions,
   LayerHistorySnapshotOptions,
 } from '@/stores/helpers/layerStructureHistory';
-import type { ColorCycleSerializedState } from '@/history/helpers/colorCycle';
 import type { LayerStructureSnapshot } from '@/history/deltas/layerStructureDelta';
 import type { AppState, CaptureROI, VesselWindow } from '../useAppStore';
+import {
+  type CompositeMode,
+} from '@/stores/layers/layerCanvasCapture';
+import {
+  captureCanvasToActiveLayerAction,
+  captureCanvasToLayerAction,
+  type LayerCaptureActionDeps,
+} from '@/stores/layers/layerCaptureActions';
+import {
+  captureSoftEdgeMaskOnlyState,
+  prepareColorCycleCompositeSource,
+  removeColorCycleSoftEdgeMaskFromLayer,
+  resolveSoftEdgeCoverageFromBrush,
+} from '@/stores/layers/layerColorCycleMaskState';
 export type { CompositeSegment } from '@/stores/layers/layerCompositeRenderer';
 
 const layerActivationDebug = createDevDebugOverlayLogger('layer-activation');
@@ -163,350 +179,6 @@ const preserveDeferredColorCycleRestoreSurface = (
       canvasImageData: fallbackSnapshot,
     },
   };
-};
-
-const normalizeCaptureROI = (
-  roi: CaptureROI | undefined,
-  maxWidth: number,
-  maxHeight: number
-): CaptureROI | undefined => {
-  if (!roi) {
-    return undefined;
-  }
-  if (
-    !Number.isFinite(roi.x) ||
-    !Number.isFinite(roi.y) ||
-    !Number.isFinite(roi.width) ||
-    !Number.isFinite(roi.height)
-  ) {
-    return undefined;
-  }
-  if (roi.width <= 0 || roi.height <= 0) {
-    return undefined;
-  }
-  const x = Math.max(0, Math.floor(roi.x));
-  const y = Math.max(0, Math.floor(roi.y));
-  const width = Math.max(1, Math.min(maxWidth - x, Math.ceil(roi.width)));
-  const height = Math.max(1, Math.min(maxHeight - y, Math.ceil(roi.height)));
-  if (width <= 0 || height <= 0) {
-    return undefined;
-  }
-  return { x, y, width, height };
-};
-
-type CompositeMode = 'alpha' | 'replace';
-
-const alphaCompositeImageDataRegion = (
-  base: ImageData | null,
-  region: ImageData,
-  offsetX: number,
-  offsetY: number,
-  fullWidth: number,
-  fullHeight: number,
-  mode: CompositeMode = 'alpha'
-): ImageData => {
-  const targetWidth = Math.max(1, fullWidth);
-  const targetHeight = Math.max(1, fullHeight);
-  const outData = new Uint8ClampedArray(targetWidth * targetHeight * 4);
-
-  if (base) {
-    const src = base.data;
-    const copyWidth = Math.min(base.width, targetWidth);
-    const copyHeight = Math.min(base.height, targetHeight);
-    const srcStride = base.width * 4;
-    const dstStride = targetWidth * 4;
-
-    for (let row = 0; row < copyHeight; row += 1) {
-      const srcRowStart = row * srcStride;
-      const dstRowStart = row * dstStride;
-      const rowLength = copyWidth * 4;
-      outData.set(src.subarray(srcRowStart, srcRowStart + rowLength), dstRowStart);
-    }
-  }
-
-  const src = region.data;
-  const srcStride = region.width * 4;
-
-  for (let row = 0; row < region.height; row += 1) {
-    const dstRow = offsetY + row;
-    if (dstRow < 0 || dstRow >= targetHeight) {
-      continue;
-    }
-
-    for (let col = 0; col < region.width; col += 1) {
-      const dstCol = offsetX + col;
-      if (dstCol < 0 || dstCol >= targetWidth) {
-        continue;
-      }
-
-      const srcIndex = row * srcStride + col * 4;
-      const srcAlpha8 = src[srcIndex + 3];
-
-      const dstIndex = (dstRow * targetWidth + dstCol) * 4;
-
-      if (mode === 'replace') {
-        outData[dstIndex] = src[srcIndex];
-        outData[dstIndex + 1] = src[srcIndex + 1];
-        outData[dstIndex + 2] = src[srcIndex + 2];
-        outData[dstIndex + 3] = srcAlpha8;
-        continue;
-      }
-
-      if (srcAlpha8 === 0) {
-        continue;
-      }
-
-      const srcAlpha = srcAlpha8 / 255;
-      const invSrcAlpha = 1 - srcAlpha;
-
-      const dstAlpha = outData[dstIndex + 3] / 255;
-      const outAlpha = srcAlpha + dstAlpha * invSrcAlpha;
-
-      const dstR = outData[dstIndex];
-      const dstG = outData[dstIndex + 1];
-      const dstB = outData[dstIndex + 2];
-
-      const srcR = src[srcIndex];
-      const srcG = src[srcIndex + 1];
-      const srcB = src[srcIndex + 2];
-
-      const outR = srcR * srcAlpha + dstR * invSrcAlpha;
-      const outG = srcG * srcAlpha + dstG * invSrcAlpha;
-      const outB = srcB * srcAlpha + dstB * invSrcAlpha;
-
-      outData[dstIndex] = Math.round(outR);
-      outData[dstIndex + 1] = Math.round(outG);
-      outData[dstIndex + 2] = Math.round(outB);
-      outData[dstIndex + 3] = Math.round(outAlpha * 255);
-    }
-  }
-  return new ImageData(outData, targetWidth, targetHeight);
-};
-
-const applyColorCycleEraseMask = (
-  layer: Layer,
-  targetCanvas: HTMLCanvasElement | OffscreenCanvas
-): void => {
-  const eraseMask = layer.colorCycleData?.eraseMask;
-  if (!eraseMask) {
-    return;
-  }
-  const canvasCtx = targetCanvas.getContext(
-    '2d',
-    { willReadFrequently: true } as CanvasRenderingContext2DSettings
-  ) as CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D | null;
-  if (!canvasCtx) {
-    return;
-  }
-
-  canvasCtx.save();
-  canvasCtx.globalCompositeOperation = 'destination-out';
-  canvasCtx.globalAlpha = 1;
-  try {
-    canvasCtx.drawImage(eraseMask as CanvasImageSource, 0, 0);
-  } catch {
-    // ignore transient erase-mask draw failures
-  } finally {
-    canvasCtx.restore();
-  }
-};
-
-const applyColorCycleSoftEdgeMaskToCanvas = (
-  layer: Layer,
-  targetCanvas: HTMLCanvasElement | OffscreenCanvas
-): void => {
-  const softEdgeMask = layer.colorCycleData?.softEdgeMask;
-  if (!softEdgeMask || layer.colorCycleData?.softEdgeMaskEnabled === false) {
-    return;
-  }
-  const canvasCtx = targetCanvas.getContext(
-    '2d',
-    { willReadFrequently: true } as CanvasRenderingContext2DSettings
-  ) as CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D | null;
-  if (!canvasCtx) {
-    return;
-  }
-
-  canvasCtx.save();
-  canvasCtx.globalCompositeOperation = 'destination-in';
-  canvasCtx.globalAlpha = 1;
-  try {
-    canvasCtx.drawImage(softEdgeMask as CanvasImageSource, 0, 0);
-  } catch {
-    // ignore transient soft-edge-mask draw failures
-  } finally {
-    canvasCtx.restore();
-  }
-};
-
-const prepareColorCycleCompositeSource = (
-  layer: Layer,
-  sourceCanvas: HTMLCanvasElement | OffscreenCanvas,
-  createCanvas: (width: number, height: number) => HTMLCanvasElement | OffscreenCanvas | null,
-): HTMLCanvasElement | OffscreenCanvas => {
-  const hasEraseMask = Boolean(layer.colorCycleData?.eraseMask);
-  const hasSoftEdgeMask = Boolean(layer.colorCycleData?.softEdgeMask)
-    && layer.colorCycleData?.softEdgeMaskEnabled !== false;
-  if (!hasEraseMask && !hasSoftEdgeMask) {
-    return sourceCanvas;
-  }
-
-  const maskedCanvas = createCanvas(sourceCanvas.width, sourceCanvas.height);
-  const maskedCtx = maskedCanvas?.getContext(
-    '2d',
-    { willReadFrequently: true } as CanvasRenderingContext2DSettings
-  ) as CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D | null;
-  if (!maskedCanvas || !maskedCtx) {
-    return sourceCanvas;
-  }
-
-  maskedCtx.clearRect(0, 0, maskedCanvas.width, maskedCanvas.height);
-  try {
-    maskedCtx.drawImage(sourceCanvas as CanvasImageSource, 0, 0);
-  } catch {
-    return sourceCanvas;
-  }
-  applyColorCycleEraseMask(layer, maskedCanvas);
-  applyColorCycleSoftEdgeMaskToCanvas(layer, maskedCanvas);
-  return maskedCanvas;
-};
-
-const captureSoftEdgeMaskOnlyState = (layer: Layer): ColorCycleSerializedState => {
-  const toState = (
-    snapshot?: NonNullable<ColorCycleSerializedState>['layers'][number]['softEdgeMaskSnapshot'],
-  ): ColorCycleSerializedState => ({
-    layers: [{
-      layerId: layer.id,
-      softEdgeMaskSnapshot: snapshot,
-    } as NonNullable<ColorCycleSerializedState>['layers'][number]],
-  } as ColorCycleSerializedState);
-  const mask = layer.colorCycleData?.softEdgeMask;
-  const imageData = layer.colorCycleData?.softEdgeMaskImageData;
-  const version = layer.colorCycleData?.softEdgeMaskVersion ?? 0;
-  if (!mask && !imageData) {
-    return toState();
-  }
-  try {
-    const sourceImage = (() => {
-      if (imageData) {
-        return imageData;
-      }
-      if (!mask || mask.width <= 0 || mask.height <= 0) {
-        return null;
-      }
-      const ctx = mask.getContext('2d', { willReadFrequently: true });
-      if (!ctx) {
-        return null;
-      }
-      return ctx.getImageData(0, 0, mask.width, mask.height);
-    })();
-    if (!sourceImage || sourceImage.width <= 0 || sourceImage.height <= 0) {
-      return toState();
-    }
-    const alpha = new Uint8ClampedArray(sourceImage.width * sourceImage.height);
-    for (let src = 3, dst = 0; src < sourceImage.data.length; src += 4, dst += 1) {
-      alpha[dst] = sourceImage.data[src] ?? 0;
-    }
-    return toState({
-      width: sourceImage.width,
-      height: sourceImage.height,
-      alpha,
-      enabled: layer.colorCycleData?.softEdgeMaskEnabled !== false,
-      version,
-    });
-  } catch {
-    return toState();
-  }
-};
-
-const removeColorCycleSoftEdgeMaskFromLayer = (layer: Layer, nextVersion: number): Layer => {
-  if (!layer.colorCycleData) {
-    return layer;
-  }
-  const colorCycleData = { ...layer.colorCycleData };
-  delete colorCycleData.softEdgeMask;
-  delete colorCycleData.softEdgeMaskImageData;
-  return {
-    ...layer,
-    colorCycleData: {
-      ...colorCycleData,
-      softEdgeMaskEnabled: undefined,
-      softEdgeMaskVersion: nextVersion,
-    },
-  };
-};
-
-const bufferLikeToUint8Array = (value: unknown): Uint8Array | null => {
-  if (value instanceof ArrayBuffer) {
-    return new Uint8Array(value);
-  }
-  if (ArrayBuffer.isView(value)) {
-    return new Uint8Array(value.buffer, value.byteOffset, value.byteLength);
-  }
-  return null;
-};
-
-const resolveSoftEdgeCoverageFromBrush = (
-  layer: Layer,
-  brush: ColorCycleBrushImplementation | null | undefined,
-): ColorCycleSoftEdgeCoverage | null => {
-  if (!brush || typeof brush.serialize !== 'function') {
-    return null;
-  }
-  try {
-    const snapshot = brush.serialize() as {
-      layers?: Array<{
-        layerId?: string;
-        id?: string;
-        dimensions?: { width?: unknown; height?: unknown };
-        width?: unknown;
-        height?: unknown;
-        strokeData?: { paintBuffer?: unknown };
-        paintBuffer?: unknown;
-      }>;
-    };
-    const serializedLayer = snapshot.layers?.find((entry) => (
-      entry.layerId === layer.id || entry.id === layer.id
-    )) ?? snapshot.layers?.[0];
-    const paintBuffer = bufferLikeToUint8Array(
-      serializedLayer?.strokeData?.paintBuffer ?? serializedLayer?.paintBuffer,
-    );
-    if (!paintBuffer || paintBuffer.length === 0) {
-      return null;
-    }
-    const width = Math.max(
-      1,
-      Math.floor(
-        Number(serializedLayer?.dimensions?.width)
-        || Number(serializedLayer?.width)
-        || layer.colorCycleData?.canvasWidth
-        || layer.colorCycleData?.canvas?.width
-        || layer.imageData?.width
-        || 0,
-      ),
-    );
-    const height = Math.max(
-      1,
-      Math.floor(
-        Number(serializedLayer?.dimensions?.height)
-        || Number(serializedLayer?.height)
-        || layer.colorCycleData?.canvasHeight
-        || layer.colorCycleData?.canvas?.height
-        || layer.imageData?.height
-        || 0,
-      ),
-    );
-    if (paintBuffer.length < width * height) {
-      return null;
-    }
-    const alpha = new Uint8ClampedArray(width * height);
-    for (let index = 0; index < alpha.length; index += 1) {
-      alpha[index] = (paintBuffer[index] ?? 0) > 0 ? 255 : 0;
-    }
-    return { width, height, alpha };
-  } catch {
-    return null;
-  }
 };
 
 const omitUndefinedEntries = <T extends Record<string, unknown>>(value: T): Partial<T> => {
@@ -1013,7 +685,17 @@ export const createLayersSlice = (
         }
       });
     };
-
+    const layerGroupActionDeps: LayerGroupActionDeps = {
+      set,
+      get,
+      captureLayerStructureSnapshot,
+      commitLayerStructureHistory,
+      getGroupVisibilitySnapshot: (groupId) => groupVisibilitySnapshotByGroupId.get(groupId),
+      setGroupVisibilitySnapshot: (groupId, snapshot) => {
+        groupVisibilitySnapshotByGroupId.set(groupId, snapshot);
+      },
+      pruneGroupVisibilitySnapshots,
+    };
     const createLayerTransferCanvas = (width: number, height: number) => {
       if (typeof OffscreenCanvas !== 'undefined') {
         return new OffscreenCanvas(width, height);
@@ -1037,6 +719,13 @@ export const createLayersSlice = (
           Number.isFinite(framebuffer.height) &&
           framebuffer.height > 0,
       );
+    const layerCaptureActionDeps: LayerCaptureActionDeps = {
+      set,
+      get,
+      syncPercentOffsetsFromPixels,
+      createLayerTransferCanvas,
+      hasValidFramebuffer,
+    };
 
     const drawStaticLayers = (
       ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D,
@@ -2287,235 +1976,16 @@ export const createLayersSlice = (
     get().markAllCompositeSegmentsDirty();
   },
   createLayerGroupFromSelection: (layerIds) => {
-    const stateBeforeChange = get();
-    const targetIds = Array.from(
-      new Set(layerIds.filter((id) => stateBeforeChange.layers.some((layer) => layer.id === id)))
-    );
-    if (targetIds.length === 0) {
-      return null;
-    }
-
-    const beforeSnapshot = captureLayerStructureSnapshot(stateBeforeChange, {
-      actionType: 'layers',
-      description: 'Create layer group',
-    });
-
-    const newGroupId = `group-${Date.now()}-${Math.random()}`;
-    const nextGroupName = generateLayerGroupName(stateBeforeChange.layerGroups);
-
-    set((state) => {
-      const targetIdSet = new Set(targetIds);
-      const nextLayers = state.layers.map((layer) => (
-        targetIdSet.has(layer.id)
-          ? { ...layer, groupId: newGroupId }
-          : layer
-      ));
-      const nextGroups = [
-        ...state.layerGroups,
-        { id: newGroupId, name: nextGroupName },
-      ];
-
-      return {
-        layers: nextLayers,
-        layerGroups: sanitizeLayerGroups(nextLayers, nextGroups),
-        hiddenLayerGroupIds: state.hiddenLayerGroupIds,
-      };
-    });
-
-    const stateAfterChange = get();
-    const afterSnapshot = captureLayerStructureSnapshot(stateAfterChange, {
-      actionType: 'layers',
-      description: 'Create layer group',
-      previousSnapshot: beforeSnapshot,
-    });
-
-    commitLayerStructureHistory({
-      set,
-      beforeSnapshot,
-      afterSnapshot,
-      label: 'Create layer group',
-      metadata: {
-        operation: 'create-layer-group',
-        groupId: newGroupId,
-        layerIds: targetIds,
-      },
-    });
-
-    return newGroupId;
+    return createLayerGroupFromSelectionAction(layerIds, layerGroupActionDeps);
   },
   removeLayerGroup: (groupId) => {
-    const stateBeforeChange = get();
-    if (!stateBeforeChange.layerGroups.some((group) => group.id === groupId)) {
-      return;
-    }
-
-    const beforeSnapshot = captureLayerStructureSnapshot(stateBeforeChange, {
-      actionType: 'layers',
-      description: 'Remove layer group',
-    });
-
-    let didChange = false;
-    set((state) => {
-      const nextLayers = state.layers.map((layer) => {
-        if (layer.groupId !== groupId) {
-          return layer;
-        }
-        didChange = true;
-        return { ...layer, groupId: undefined };
-      });
-      const nextGroups = state.layerGroups.filter((group) => group.id !== groupId);
-      if (nextGroups.length !== state.layerGroups.length) {
-        didChange = true;
-      }
-      if (!didChange) {
-        return state;
-      }
-      return {
-        layers: nextLayers,
-        layerGroups: sanitizeLayerGroups(nextLayers, nextGroups),
-        hiddenLayerGroupIds: state.hiddenLayerGroupIds.filter((id) => id !== groupId),
-      };
-    });
-
-    if (!didChange) {
-      return;
-    }
-
-    const stateAfterChange = get();
-    const afterSnapshot = captureLayerStructureSnapshot(stateAfterChange, {
-      actionType: 'layers',
-      description: 'Remove layer group',
-      previousSnapshot: beforeSnapshot,
-    });
-
-    commitLayerStructureHistory({
-      set,
-      beforeSnapshot,
-      afterSnapshot,
-      label: 'Remove layer group',
-      metadata: {
-        operation: 'remove-layer-group',
-        groupId,
-      },
-    });
-    pruneGroupVisibilitySnapshots(new Set(get().layerGroups.map((group) => group.id)));
+    removeLayerGroupAction(groupId, layerGroupActionDeps);
   },
   renameLayerGroup: (groupId, name) => {
-    const normalizedName = name.trim();
-    if (!normalizedName) {
-      return;
-    }
-
-    const stateBeforeChange = get();
-    const targetGroup = stateBeforeChange.layerGroups.find((group) => group.id === groupId);
-    if (!targetGroup || targetGroup.name === normalizedName) {
-      return;
-    }
-
-    const beforeSnapshot = captureLayerStructureSnapshot(stateBeforeChange, {
-      actionType: 'layers',
-      description: 'Rename layer group',
-    });
-
-    set((state) => ({
-      layerGroups: state.layerGroups.map((group) => (
-        group.id === groupId
-          ? { ...group, name: normalizedName }
-          : group
-      )),
-    }));
-
-    const stateAfterChange = get();
-    const afterSnapshot = captureLayerStructureSnapshot(stateAfterChange, {
-      actionType: 'layers',
-      description: 'Rename layer group',
-      previousSnapshot: beforeSnapshot,
-    });
-
-    commitLayerStructureHistory({
-      set,
-      beforeSnapshot,
-      afterSnapshot,
-      label: 'Rename layer group',
-      metadata: {
-        operation: 'rename-layer-group',
-        groupId,
-      },
-    });
+    renameLayerGroupAction(groupId, name, layerGroupActionDeps);
   },
   setLayerGroupVisibility: (groupId, visible) => {
-    const stateBeforeChange = get();
-    if (!stateBeforeChange.layerGroups.some((group) => group.id === groupId)) {
-      return;
-    }
-
-    const memberIds = stateBeforeChange.layers
-      .filter((layer) => layer.groupId === groupId)
-      .map((layer) => layer.id);
-    if (memberIds.length === 0) {
-      return;
-    }
-
-    let didChange = false;
-    let didHiddenStateChange = false;
-    set((state) => {
-      const hiddenGroupIds = new Set(state.hiddenLayerGroupIds);
-      const previousVisibilityByLayerId = groupVisibilitySnapshotByGroupId.get(groupId) ?? new Map<string, boolean>();
-      const nextVisibilityByLayerId = new Map<string, boolean>();
-      const nextLayers = state.layers.map((layer) => {
-        if (layer.groupId !== groupId) {
-          return layer;
-        }
-        if (visible) {
-          const restoredVisibility = previousVisibilityByLayerId.has(layer.id)
-            ? Boolean(previousVisibilityByLayerId.get(layer.id))
-            : layer.visible;
-          nextVisibilityByLayerId.set(layer.id, restoredVisibility);
-          if (layer.visible === restoredVisibility) {
-            return layer;
-          }
-          didChange = true;
-          return { ...layer, visible: restoredVisibility };
-        }
-
-        nextVisibilityByLayerId.set(layer.id, layer.visible);
-        if (!layer.visible) {
-          return layer;
-        }
-        didChange = true;
-        return { ...layer, visible: false };
-      });
-
-      if (visible) {
-        hiddenGroupIds.delete(groupId);
-      } else {
-        hiddenGroupIds.add(groupId);
-      }
-      const nextHiddenLayerGroupIds = Array.from(hiddenGroupIds);
-      didHiddenStateChange = nextHiddenLayerGroupIds.length !== state.hiddenLayerGroupIds.length
-        || nextHiddenLayerGroupIds.some((id, index) => id !== state.hiddenLayerGroupIds[index]);
-      if (!didChange && nextHiddenLayerGroupIds.length === state.hiddenLayerGroupIds.length) {
-        const didHiddenIdsChange = nextHiddenLayerGroupIds.some((id, index) => id !== state.hiddenLayerGroupIds[index]);
-        if (!didHiddenIdsChange) {
-          return state;
-        }
-      }
-
-      groupVisibilitySnapshotByGroupId.set(groupId, nextVisibilityByLayerId);
-
-      return {
-        layers: nextLayers,
-        hiddenLayerGroupIds: nextHiddenLayerGroupIds,
-        layersNeedRecomposition: true,
-      };
-    });
-
-    if (!didChange && !didHiddenStateChange) {
-      return;
-    }
-    if (didChange) {
-      get().markCompositeSegmentsDirtyByLayerIds(memberIds);
-    }
+    setLayerGroupVisibilityAction(groupId, visible, layerGroupActionDeps);
   },
   setSelectedLayerIds: (layerIds) => set((state) => {
     const validIds = layerIds.filter((layerId, index, list) => {
@@ -3747,316 +3217,11 @@ export const createLayersSlice = (
   },
 
   captureCanvasToActiveLayer: async (sourceCanvas, roi, options?: { mode?: CompositeMode }) => {
-    const state = get();
-
-    if (state.history.isCapturing) {
-      return;
-    }
-    if (!state.project || state.layers.length === 0) {
-      return;
-    }
-    if (!sourceCanvas) {
-      return;
-    }
-
-    const ctx = sourceCanvas.getContext(
-      '2d',
-      { willReadFrequently: true } as CanvasRenderingContext2DSettings
-    ) as CanvasRenderingContext2D | null;
-    if (!ctx) {
-      return;
-    }
-
-    try {
-      const projectWidth = state.project.width;
-      const projectHeight = state.project.height;
-      const captureWidth = Math.min(projectWidth, sourceCanvas.width);
-      const captureHeight = Math.min(projectHeight, sourceCanvas.height);
-
-      const normalizedRoi = normalizeCaptureROI(roi, captureWidth, captureHeight);
-      const captureX = normalizedRoi ? normalizedRoi.x : 0;
-      const captureY = normalizedRoi ? normalizedRoi.y : 0;
-      const regionWidth = normalizedRoi ? normalizedRoi.width : captureWidth;
-      const regionHeight = normalizedRoi ? normalizedRoi.height : captureHeight;
-
-      const capturedImageData = ctx.getImageData(captureX, captureY, regionWidth, regionHeight);
-
-      // If a selection is active, zero-out pixels outside the selection before merging.
-      const { selectionMask, selectionMaskBounds, selectionStart, selectionEnd } = state;
-      if (selectionMask && selectionMaskBounds) {
-        const maskData = selectionMask.data;
-        const mb = selectionMaskBounds;
-        const stride = regionWidth * 4;
-        for (let y = 0; y < regionHeight; y += 1) {
-          const globalY = captureY + y;
-          const localY = globalY - mb.y;
-          const rowOffset = y * stride;
-          if (localY < 0 || localY >= mb.height) {
-            // Entire row is outside selection bounds.
-            for (let x = 0; x < regionWidth; x += 1) {
-              const idx = rowOffset + x * 4;
-              capturedImageData.data[idx] = 0;
-              capturedImageData.data[idx + 1] = 0;
-              capturedImageData.data[idx + 2] = 0;
-              capturedImageData.data[idx + 3] = 0;
-            }
-            continue;
-          }
-          for (let x = 0; x < regionWidth; x += 1) {
-            const globalX = captureX + x;
-            const localX = globalX - mb.x;
-            const destIdx = rowOffset + x * 4;
-            if (localX < 0 || localX >= mb.width) {
-              capturedImageData.data[destIdx] = 0;
-              capturedImageData.data[destIdx + 1] = 0;
-              capturedImageData.data[destIdx + 2] = 0;
-              capturedImageData.data[destIdx + 3] = 0;
-              continue;
-            }
-            const maskIdx = (Math.floor(localY) * mb.width + Math.floor(localX)) * 4 + 3;
-            if (maskData[maskIdx] === 0) {
-              capturedImageData.data[destIdx] = 0;
-              capturedImageData.data[destIdx + 1] = 0;
-              capturedImageData.data[destIdx + 2] = 0;
-              capturedImageData.data[destIdx + 3] = 0;
-            }
-          }
-        }
-      } else if (selectionStart && selectionEnd) {
-        const minX = Math.min(selectionStart.x, selectionEnd.x);
-        const maxX = Math.max(selectionStart.x, selectionEnd.x);
-        const minY = Math.min(selectionStart.y, selectionEnd.y);
-        const maxY = Math.max(selectionStart.y, selectionEnd.y);
-
-        const stride = regionWidth * 4;
-        for (let y = 0; y < regionHeight; y += 1) {
-          const globalY = captureY + y;
-          const rowOffset = y * stride;
-          for (let x = 0; x < regionWidth; x += 1) {
-            const globalX = captureX + x;
-            const destIdx = rowOffset + x * 4;
-            const inside =
-              globalX >= minX && globalX < maxX && globalY >= minY && globalY < maxY;
-            if (!inside) {
-              capturedImageData.data[destIdx] = 0;
-              capturedImageData.data[destIdx + 1] = 0;
-              capturedImageData.data[destIdx + 2] = 0;
-              capturedImageData.data[destIdx + 3] = 0;
-            }
-          }
-        }
-      }
-
-      const activeLayerId = state.activeLayerId || state.layers[0]?.id;
-      if (!activeLayerId) {
-        return;
-      }
-
-      const activeLayer = state.layers.find((layer) => layer.id === activeLayerId);
-      if (!activeLayer) {
-        return;
-      }
-
-      if (activeLayer.layerType === 'color-cycle') {
-        get().setLayersNeedRecomposition(true);
-        return;
-      }
-
-      set((currentState) => {
-        const updatedLayers = currentState.layers.map((layer) => {
-          if (layer.id !== activeLayerId) {
-            return layer;
-          }
-
-          const framebufferInitial = hasValidFramebuffer(layer.framebuffer)
-            ? layer.framebuffer
-            : createLayerTransferCanvas(captureWidth, captureHeight) ?? null;
-          const matchedImageData =
-            layer.imageData &&
-            layer.imageData.width === captureWidth &&
-            layer.imageData.height === captureHeight
-              ? layer.imageData
-              : null;
-          const framebufferSnapshot = snapshotFramebufferRegion(
-            framebufferInitial,
-            captureWidth,
-            captureHeight
-          );
-
-          const baseImageDataRaw =
-            framebufferSnapshot ?? matchedImageData;
-
-          const baseImageData =
-            baseImageDataRaw &&
-            (baseImageDataRaw.width !== captureWidth || baseImageDataRaw.height !== captureHeight)
-              ? normalizeImageDataDimensions(baseImageDataRaw, captureWidth, captureHeight)
-              : baseImageDataRaw;
-
-          const targetWidth = baseImageData?.width ?? captureWidth;
-          const targetHeight = baseImageData?.height ?? captureHeight;
-
-      const compositeMode = options?.mode ?? 'alpha';
-      const mergedImageData = alphaCompositeImageDataRegion(
-        baseImageData,
-        capturedImageData,
-        captureX,
-        captureY,
-        targetWidth,
-        targetHeight,
-        compositeMode
-      );
-
-          let framebuffer = framebufferInitial;
-          if (!framebuffer) {
-            framebuffer = createLayerTransferCanvas(mergedImageData.width, mergedImageData.height) ?? null;
-          }
-
-          if (framebuffer) {
-            if (framebuffer.width !== targetWidth || framebuffer.height !== targetHeight) {
-              framebuffer.width = targetWidth;
-              framebuffer.height = targetHeight;
-            }
-
-            const framebufferCtx = framebuffer.getContext(
-              '2d',
-              { willReadFrequently: true } as CanvasRenderingContext2DSettings
-            ) as CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D | null;
-            framebufferCtx?.putImageData(mergedImageData, 0, 0);
-          }
-
-          let nextAlignment = layer.alignment;
-          const project = currentState.project;
-          if (project && nextAlignment && nextAlignment.positioning === 'auto') {
-            try {
-              const layerForMetrics: Layer = {
-                ...layer,
-                imageData: mergedImageData,
-                alignment: {
-                  ...nextAlignment,
-                  offsetPercent: undefined,
-                  offsetPx: undefined,
-                },
-              };
-              const percentOffset = computeLayerPercentOffset(layerForMetrics, project);
-              const safeWidth = Math.max(1, project.width);
-              const safeHeight = Math.max(1, project.height);
-              nextAlignment = {
-                ...nextAlignment,
-                offsetPercent: percentOffset,
-                offsetPx: {
-                  x: Math.round((percentOffset.x / 100) * safeWidth),
-                  y: Math.round((percentOffset.y / 100) * safeHeight),
-                },
-              };
-            } catch (error) {
-              debugWarn('raw-console', '[captureCanvasToActiveLayer] Failed to sync percent alignment', error);
-            }
-          }
-
-          const updatedLayer: Layer = {
-            ...layer,
-            imageData: mergedImageData,
-            framebuffer: framebuffer ?? layer.framebuffer,
-            alignment: nextAlignment,
-            version: (layer.version || 0) + 1,
-          };
-
-          if (updatedLayer.layerType !== layer.layerType) {
-            logError('Layer type corruption detected in captureCanvasToActiveLayer', {
-              layerId: layer.id?.substring(0, 20),
-              originalType: layer.layerType,
-              corruptedType: updatedLayer.layerType,
-            });
-            updatedLayer.layerType = layer.layerType;
-          }
-
-          return updatedLayer;
-        });
-
-        const syncedLayers = syncPercentOffsetsFromPixels(updatedLayers, currentState.project ?? null);
-        return {
-          layers: syncedLayers,
-        };
-      });
-
-      get().setLayersNeedRecomposition(true);
-    } catch (error) {
-      if (error instanceof DOMException && error.name === 'SecurityError') {
-        debugWarn('raw-console', '[captureCanvasToActiveLayer] Canvas capture blocked by CORS/security policy');
-        return;
-      }
-      logError('[captureCanvasToActiveLayer] Failed', error);
-      throw error;
-    }
+    await captureCanvasToActiveLayerAction(sourceCanvas, roi, options, layerCaptureActionDeps);
   },
 
   captureCanvasToLayer: async (sourceCanvas, targetLayerId) => {
-    const state = get();
-    if (state.history.isCapturing) {
-      return;
-    }
-    if (!state.project || state.layers.length === 0) {
-      return;
-    }
-    if (!targetLayerId) {
-      return;
-    }
-
-    const ctx = sourceCanvas.getContext(
-      '2d',
-      { willReadFrequently: true } as CanvasRenderingContext2DSettings
-    ) as CanvasRenderingContext2D | null;
-    if (!ctx) {
-      return;
-    }
-
-    try {
-      const captureWidth = Math.min(state.project.width, sourceCanvas.width);
-      const captureHeight = Math.min(state.project.height, sourceCanvas.height);
-      const imageData = ctx.getImageData(0, 0, captureWidth, captureHeight);
-
-      const targetLayer = state.layers.find((layer) => layer.id === targetLayerId);
-      if (!targetLayer) {
-        return;
-      }
-
-      set((currentState) => {
-        const updatedLayers = currentState.layers.map((layer) => {
-          if (layer.id !== targetLayerId) {
-            return layer;
-          }
-
-          const fb = layer.framebuffer;
-          if (fb.width !== imageData.width || fb.height !== imageData.height) {
-            fb.width = imageData.width;
-            fb.height = imageData.height;
-          }
-
-          const ctx2 = fb.getContext(
-            '2d',
-            { willReadFrequently: true } as CanvasRenderingContext2DSettings
-          ) as CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D | null;
-          if (ctx2) {
-            ctx2.clearRect(0, 0, fb.width, fb.height);
-            ctx2.putImageData(imageData, 0, 0);
-          }
-
-          return {
-            ...layer,
-            imageData,
-          };
-        });
-
-        const syncedLayers = syncPercentOffsetsFromPixels(updatedLayers, currentState.project ?? null);
-        return {
-          layers: syncedLayers,
-        };
-      });
-
-      get().setLayersNeedRecomposition(true);
-    } catch (error) {
-      logError('Capture to specific layer failed', error);
-    }
+    await captureCanvasToLayerAction(sourceCanvas, targetLayerId, layerCaptureActionDeps);
   },
 
   getLayerColorCycleBrush: (layerId) => {

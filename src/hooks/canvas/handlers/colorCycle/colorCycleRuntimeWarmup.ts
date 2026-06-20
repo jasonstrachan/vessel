@@ -1,4 +1,4 @@
-import { useAppStore } from '@/stores/useAppStore';
+import { getAppStoreState } from '@/stores/appStoreAccess';
 import {
   hasColorCycleEditableRuntimeSource,
   resolveColorCycleRuntimeSourcePolicy,
@@ -33,7 +33,7 @@ export const startColorCycleRuntimeWarmupForEdit = ({
     return false;
   }
 
-  const state = useAppStore.getState();
+  const state = getAppStoreState();
   const layer = state.layers.find((candidate) => candidate.id === layerId);
   if (!layer || layer.layerType !== 'color-cycle' || !layer.colorCycleData) {
     return false;
@@ -71,7 +71,7 @@ export const startColorCycleRuntimeWarmupForEdit = ({
       if (warmupByLayerId.get(layerId) === promise) {
         warmupByLayerId.delete(layerId);
       }
-      const nextState = useAppStore.getState();
+      const nextState = getAppStoreState();
       const nextLayer = nextState.layers.find((candidate) => candidate.id === layerId);
       const nextGetLayerColorCycleBrush = (nextState as {
         getLayerColorCycleBrush?: (id: string) => unknown;

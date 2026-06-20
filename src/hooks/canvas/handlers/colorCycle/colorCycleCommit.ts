@@ -34,6 +34,7 @@ import {
   type ColorCyclePaintMask,
   type ColorCyclePaintSnapshot,
 } from '@/utils/colorCyclePaintMask';
+import { debugWarn } from '@/utils/debug';
 
 const loggedLegacySlotSummaryByLayer = new Set<string>();
 
@@ -684,7 +685,7 @@ export const commitColorCycleLayerStroke = async (
               def = nextDef;
             }
             if (def && def.hash !== finalizedSession.frozenHash) {
-              console.warn('[CC] Commit parity failed', {
+              debugWarn('raw-console', '[CC] Commit parity failed', {
                 layerId: targetLayerId,
                 defId: finalizedBinding.defId,
                 frozenHash: finalizedSession.frozenHash,
