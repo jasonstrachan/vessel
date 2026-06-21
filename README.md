@@ -141,7 +141,8 @@ Those logs also include periodic heartbeats and simple event-loop lag warnings, 
 `preview:prod:build` now runs `next build` inside an isolated temp workspace before copying the `.next-preview` artifact back, which avoids the Next 15 dev/build conflict that can corrupt the live `.next` dev directory.
 
 ### Security Checks
-- Production dependency audit (recommended gate): `npm run audit:prod`
+- Production dependency audit (release gate): `npm run audit:prod`
+  - Current release exception: accepts only the documented Next nested `postcss <8.5.10` metadata finding for the static GitHub Pages export. See `docs/refactor/plan-next-audit-remediation-2026-06-21.md`.
 - Full dependency audit (includes dev tooling): `npm run audit:full`
 - Full dependency audit JSON export: `npm run audit:full:json` (writes `audit-full.json`)
 - Full dependency audit summary export: `npm run audit:full:summary` (writes `audit-full-summary.md`)

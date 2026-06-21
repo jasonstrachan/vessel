@@ -27,7 +27,7 @@
     "preview:prod:stop": "PORT=3001 node scripts/preview-port.mjs stop",
     "preview:prod:restart": "npm run preview:prod",
     "lint": "eslint src",
-    "audit:prod": "npm audit --omit=dev",
+    "audit:prod": "node scripts/audit-prod.mjs",
     "audit:full": "npm audit",
     "audit:full:json": "npm audit --json > audit-full.json || true",
     "audit:full:summary": "node scripts/audit-summary.mjs audit-full.json audit-full-summary.md",
