@@ -4,7 +4,7 @@ A browser-based drawing application with advanced brush tooling, color-cycle ani
 
 ## Overview
 
-Vessel is built with Next.js (App Router) and a custom Canvas2D rendering pipeline, with optional WebGL acceleration for color-cycle layers. It combines a modern panel-based workspace with a plugin-friendly brush system, gradient tooling, and export formats tuned for animated artwork. The project ships as a static export for GitHub Pages, using a `/vessel` basePath and assetPrefix.
+Vessel is built with Next.js (App Router), a custom Canvas2D drawing pipeline, and WebGL-powered color-cycle playback/export paths. It combines a modern panel-based workspace with a plugin-friendly brush system, gradient tooling, and export formats tuned for animated artwork. The project ships as a static export for GitHub Pages, using a `/vessel` basePath and assetPrefix.
 
 ## Key Features
 
@@ -57,7 +57,7 @@ Vessel is built with Next.js (App Router) and a custom Canvas2D rendering pipeli
 
 #### Rendering & Color Cycle (`/src/lib/`)
 - **IndexBuffer**, **GradientPalette**, **AnimationController**, **ColorCycleAnimator**
-- Optional WebGL renderer in `src/lib/colorCycle/rendering` with Canvas2D fallback
+- WebGL renderer in `src/lib/colorCycle/rendering` for color-cycle playback/export paths, with Canvas2D used for the main drawing surface and export fallback assets
 
 ### Refactor Notes
 - `docs/refactor/cc-gradient-slots.md` — Slot/def binding rules and reservations
@@ -70,7 +70,7 @@ Vessel is built with Next.js (App Router) and a custom Canvas2D rendering pipeli
 - **Display Filters (2026-04-13):** runtime-only artwork post-processing with persisted filter presets in the brush settings panel, including a film-noise option for monochrome shadow-weighted grain
 - **Canvas Shape Masks (2026-01-03):** non-rectangular canvas bounds, clipped draw/selection, export masking
 - **Color Cycle + Recolor (2025-12-31):** recolor mode with palette extraction and deterministic export
-- **Color Cycle Brush System (2025-08-27):** Canvas2D-first indexed pipeline with optional WebGL accel
+- **Color Cycle Brush System (2025-08-27):** indexed color pipeline with WebGL playback/export support
 
 ## Technical Stack
 
@@ -84,7 +84,7 @@ Vessel is built with Next.js (App Router) and a custom Canvas2D rendering pipeli
 
 ### Prerequisites
 - Node.js 22.22.0 with npm
-- Modern browser with Canvas2D support (WebGL optional for color-cycle acceleration)
+- Modern browser with Canvas2D and WebGL support
 - Optional: `nvm use` (repo includes `.nvmrc`)
 
 ### Getting Started
@@ -175,7 +175,7 @@ src/
 - **Indexed color buffers** via `IndexBuffer` reduce memory pressure
 - **Canvas pooling** and caching reduce per-stroke allocations
 - **Gradient work offloaded** to `gradientWorker` when enabled
-- **Optional WebGL** path for accelerated color-cycle rendering
+- **WebGL color-cycle path** for animated playback and Goblet exports
 
 ## License
 
