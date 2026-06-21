@@ -33,7 +33,7 @@ export const buildVesselNextConfig = (
 
   return {
     distDir,
-    // Only use static export and GitHub Pages config for wrapper-owned export builds.
+    // Only use static export config for wrapper-owned export builds.
     ...(isStaticExport && {
       output: 'export',
       trailingSlash: true,
@@ -119,7 +119,7 @@ export const buildVesselNextConfig = (
     //   return []
     // },
 
-    // Note: assetPrefix now set above for GitHub Pages
+    // Note: assetPrefix now set above for static export builds.
 
     experimental: {
       cpus: 1,

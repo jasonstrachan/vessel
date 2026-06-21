@@ -82,7 +82,7 @@ function runAudit() {
 
   if (isAcceptedNextPostcssFinding(report)) {
     console.warn(
-      'Production dependency audit accepted: Next currently vendors postcss@8.4.31, flagged as postcss <8.5.10. Vessel deploys a static GitHub Pages export with no production Next server runtime. Recheck when stable Next updates nested PostCSS.',
+      'Production dependency audit accepted: Next currently vendors postcss@8.4.31, flagged as postcss <8.5.10. Vessel deploys a static export with no production Next server runtime. Recheck when stable Next updates nested PostCSS.',
     );
     process.exit(0);
   }

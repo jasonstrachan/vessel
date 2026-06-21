@@ -45,7 +45,7 @@ The single-file mode bundles the runtime, metadata, and textures into one HTML d
 
 ### Respecting Base Paths
 
-Goblet assets are fetched using the current Next.js `assetPrefix`/`basePath`, so packaging behaves correctly in local dev (`/`) and on GitHub Pages (`/vessel`). No manual path tweaks are required when exporting from different environments.
+Goblet assets are fetched using the current Next.js `assetPrefix`/`basePath`, so packaging behaves correctly in local dev (`/`) and in the public static export (`/vessel`). No manual path tweaks are required when exporting from different environments.
 
 ### Alignment Runtime Source
 

@@ -1,4 +1,4 @@
-name: Deploy to GitHub Pages
+name: Build Vessel Static Export
 
 on:
   push:
@@ -7,11 +7,9 @@ on:
 
 permissions:
   contents: read
-  pages: write
-  id-token: write
 
 concurrency:
-  group: "pages"
+  group: "vessel-static-export"
   cancel-in-progress: false
 
 jobs:
@@ -81,15 +79,8 @@ jobs:
       - name: Build application
         run: npm run build:github
         
-      - name: Upload artifact
-        uses: actions/upload-pages-artifact@v5
+      - name: Upload static export artifact
+        uses: actions/upload-artifact@v7
         with:
+          name: vessel-static-export
           path: ./out
-
-  deploy:
-    runs-on: ubuntu-latest
-    needs: build
-    steps:
-      - name: Deploy to GitHub Pages
-        id: deployment
-        uses: actions/deploy-pages@v5

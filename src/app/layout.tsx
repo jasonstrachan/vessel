@@ -4,8 +4,8 @@ import GlobalErrorBoundary from '../components/GlobalErrorBoundary';
 import GlobalErrorHooks from '../components/GlobalErrorHooks';
 
 export const metadata: Metadata = {
-  title: 'vessel',
-  description: 'Simple pixel art editor',
+  title: 'Vessel',
+  description: 'Browser drawing workspace for layered artwork, custom brushes, color-cycle animation, and Goblet exports.',
 };
 
 export default function RootLayout({

@@ -19,4 +19,4 @@ await rm(outDir, { recursive: true, force: true });
 await cp(sourceDir, outDir, { recursive: true, force: true });
 await writeFile(path.join(outDir, '.nojekyll'), '', 'utf8');
 
-console.log(`Prepared GitHub Pages artifact at ${outDir}`);
+console.log(`Prepared static export artifact at ${outDir}`);

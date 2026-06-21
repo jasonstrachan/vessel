@@ -94,10 +94,10 @@ npm run preview
 
 ## Build And Deploy
 
-The GitHub Pages build is wrapper-owned by `scripts/github-pages-build.mjs` and `scripts/prepare-github-pages.mjs`.
+The public static export is wrapper-owned by `scripts/github-pages-build.mjs` and `scripts/prepare-github-pages.mjs`.
 
 ```bash
-# Build the GitHub Pages static export
+# Build the static export for /vessel/
 npm run build:github
 
 # Same command under the repo Node version when using mise
@@ -111,7 +111,7 @@ Static export mode uses:
 - `assetPrefix: '/vessel/'`
 - output artifact: `out/`
 
-The deploy workflow is `.github/workflows/deploy.yml`.
+The current public deployment target is `https://jasonstrachan.com/vessel/`.
 
 ## Verification
 
@@ -140,7 +140,7 @@ npm run test:goblet2:cc-gradient-shapes-perf
 ## Security And Audit Status
 
 - `npm run audit:prod` is the production dependency release gate.
-- Current accepted production exception: Next vendors nested `postcss@8.4.31`, which npm flags as `postcss <8.5.10`. Vessel publishes a static GitHub Pages export with no production Next server runtime. See `docs/refactor/plan-next-audit-remediation-2026-06-21.md`.
+- Current accepted production exception: Next vendors nested `postcss@8.4.31`, which npm flags as `postcss <8.5.10`. Vessel publishes a static export with no production Next server runtime. See `docs/refactor/plan-next-audit-remediation-2026-06-21.md`.
 - Full audit is report-only visibility:
 
 ```bash
