@@ -180,4 +180,4 @@ Other important paths:
 
 ## Notes For Public Consumers
 
-This repository is public but still marked `"private": true` in `package.json`. No public license has been published. Treat the code as source-available unless a license is added.
+This repository is public and licensed under the MIT License. It is still marked `"private": true` in `package.json` to prevent accidental npm publishing.
