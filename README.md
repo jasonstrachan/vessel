@@ -83,7 +83,7 @@ Vessel is built with Next.js (App Router) and a custom Canvas2D rendering pipeli
 ## Development
 
 ### Prerequisites
-- Node.js 18+ with npm
+- Node.js 22.22.0 with npm
 - Modern browser with Canvas2D support (WebGL optional for color-cycle acceleration)
 - Optional: `nvm use` (repo includes `.nvmrc`)
 
@@ -179,7 +179,7 @@ src/
 
 ## License
 
-TBD
+No public license has been published for this repository.
 
 ## Security
 

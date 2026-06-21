@@ -1,10 +1,11 @@
 # Dev Tooling Audit Remediation
 
-Last updated: 2026-02-21
+Last updated: 2026-06-21
 
 ## Current Status
 
-- Production dependency audit: clean (`npm run audit:prod` -> 0 vulnerabilities).
+- Production dependency audit: release gate passes through `npm run audit:prod`.
+- Current accepted production exception: Next vendors nested `postcss@8.4.31`, flagged by npm as `postcss <8.5.10`; Vessel publishes a static GitHub Pages export with no production Next server runtime.
 - Full dependency audit: remaining high-severity findings are in dev-tooling chains.
 
 ## Why Findings Remain
@@ -22,7 +23,7 @@ Last updated: 2026-02-21
 ## Safe Baseline (Now Enforced)
 
 - Deploy CI blocks on production audit only (`npm run audit:prod`).
-- Deploy CI runs full audit as non-blocking visibility (`npm run audit:full`).
+- Deploy CI runs full audit as report-only visibility (`npm run audit:full || true`).
 - Deploy CI exports `audit-full.json` and `audit-full-summary.md` and uploads both as build artifacts for tracking.
 
 ## Recommended Next Migration Track
