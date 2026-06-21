@@ -57,6 +57,10 @@ next-env.d.ts
 /screenshots/
 
 # local scratch / agent artifacts
+/.claude/
+/.warp/
+/vessel.code-workspace
+*.skill
 /artifacts/
 /.local/
 /output/
