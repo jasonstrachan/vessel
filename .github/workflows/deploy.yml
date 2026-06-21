@@ -33,9 +33,8 @@ jobs:
       - name: Run production dependency audit
         run: npm run audit:prod
 
-      - name: Run full dependency audit (non-blocking)
-        run: npm run audit:full
-        continue-on-error: true
+      - name: Run full dependency audit (report only)
+        run: npm run audit:full || true
 
       - name: Export full dependency audit report (JSON)
         run: npm run audit:full:json
