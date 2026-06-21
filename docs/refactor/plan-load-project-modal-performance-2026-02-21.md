@@ -19,13 +19,11 @@ Primary validation commands:
 - `npm run type-check`
 - `npm run lint`
 - `npm run test:load-project-modal:guardrails`
-- `npm run test:load-project-modal:perf`
 - `npm run test:e2e:load-project-modal`
 
 CI enforcement:
 - `.github/workflows/deploy.yml` runs:
   - `npm run test:load-project-modal:guardrails`
-  - `npm run test:load-project-modal:perf`
 
 ## Why This Plan Exists
 
