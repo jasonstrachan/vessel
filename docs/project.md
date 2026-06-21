@@ -325,11 +325,11 @@ Leave this as a known bug for now.
   - `src/utils/detectWacom.ts` - Wacom detection and diagnostics
 
 ### Color Cycle Brush System (2025-08-27)
-- **Canvas2D-first color cycling** backed by indexed buffers with optional WebGL acceleration
+- **Canvas2D painting + WebGL-backed playback/export** backed by indexed buffers
 - **Core Components**:
   - **ColorCycleAnimator** (`src/lib/ColorCycleAnimator.ts`)
     - IndexBuffer + GradientPalette + AnimationController integration
-    - Canvas2D rendering with optional WebGL renderer (`WebGLColorCycleRenderer`) fallback
+    - Canvas2D painting/rendering paths with WebGL-backed playback/export support
     - Palette shifting and frame callbacks for animated layers
   - **Brush implementation** (`src/hooks/brushEngine/ColorCycleBrushCanvas2D.ts`)
     - Canvas2D paint + animation surface
@@ -340,7 +340,7 @@ Leave this as a known bug for now.
 - **Rendering Pipeline**:
   1. **Paint** into an indexed buffer (0-255 palette slots).
   2. **Apply palette** via GradientPalette (optionally animated).
-  3. **Render** to Canvas2D, with optional WebGL acceleration for palette cycling.
+  3. **Render** to Canvas2D for the drawing surface, with WebGL-backed runtime paths for color-cycle playback/export.
 - **Integration Points**:
   - **useBrushEngineSimplified** manages per-layer color-cycle brushes.
   - **colorCycleBrushManager.ts** caches per-layer instances.
