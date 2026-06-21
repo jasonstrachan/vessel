@@ -1,186 +1,183 @@
 # Vessel
 
-A browser-based drawing application with advanced brush tooling, color-cycle animation, and layered compositing.
+Vessel is a browser-based drawing application for layered artwork, custom brushes, color-cycle animation, and Goblet exports.
 
-## Overview
+The app is a Next.js App Router project that runs as a client-mounted workspace. The main drawing surface is Canvas2D. Color-cycle playback, Goblet runtime output, and animated export paths use WebGL-backed runtime code; browser WebGL support is part of the current app requirement.
 
-Vessel is built with Next.js (App Router), a custom Canvas2D drawing pipeline, and WebGL-powered color-cycle playback/export paths. It combines a modern panel-based workspace with a plugin-friendly brush system, gradient tooling, and export formats tuned for animated artwork. The project ships as a static export for GitHub Pages, using a `/vessel` basePath and assetPrefix.
+## Current App Shape
 
-## Key Features
+- **Canvas workspace**: `src/app/page.tsx` mounts `HomeClientMount`, which initializes store runtime state and renders `HomeClient`.
+- **Primary UI**: a left toolbar, central `DrawingCanvas`, a layer/alignment/animation column, and a brush/color/settings column.
+- **State**: Zustand store in `src/stores/useAppStore.ts`, composed from slices for project, layers, tools, selection, crop, canvas, history, autosave, color-cycle, sequential recording, and UI.
+- **Drawing engine**: Canvas input and rendering flow through `src/components/canvas/**`, `src/hooks/useDrawingHandlers.ts`, `src/hooks/canvas/**`, and `src/hooks/brushEngine/**`.
+- **Export system**: PNG export lives in `src/utils/projectIO.ts`; GIF/video export lives in `src/utils/export/exportService.ts`; Goblet export is owned by `src/utils/export/goblet/**`.
 
-### Drawing Tools
-- **Brush / Eraser / Fill**: Standard tools with pressure-aware stroke controls
-- **Selection / Crop**: Marquee selection and crop overlays with handle UI
-- **Eyedropper / Zoom**: Sampling and navigation helpers
-- **Color Cycle + Recolor**: Animated gradient layers and recolor workflows
-- **Color Adjust**: Dedicated panel for per-layer color adjustments
+## Features
 
-### Brush System
-- **Preset + Custom Brushes**: Presets, user-defined brushes, and thumbnail generation
-- **Brush Plugins**: Plugin registry for discoverable brush implementations
-- **Spacing & Patterns**: Distance-based spacing, dotted/dash patterns, and pixel-perfect modes
-- **Pressure Handling**: Pointer-pressure mapping via `pressureOptimizer`
-- **Settings Persistence**: Brush-specific slider/toggle values are saved between sessions
+### Drawing And Editing
 
-### Layers & Animation
-- **Layer Stack**: Visibility, ordering, alignment controls, and layer metadata
-- **Color Cycle Animation**: Per-layer animation speed/FPS controls with playback panel
-- **Recolor Mode**: Extract palettes from existing artwork and animate recolor layers
-- **Undo/Redo**: History snapshots with configurable limits
+- Brush, custom brush, eraser, fill, selection, magic wand, eyedropper, color picker, crop, Hue/Sat, grid, save/load, and export tools.
+- Pressure-aware brush controls, spacing, dashed strokes, dither controls, shape mode, grid snapping, and custom brush capture.
+- Selection, crop, paste overlay, alignment, layer ordering, visibility, opacity, blend mode, layer groups, and sequential animation layers.
+- Display filters for the viewport/post-process stack, configured from the brush settings panel.
 
-### Advanced Features
-- **Autosave & Recovery**: Background autosave service with restore flow
-- **Export Modal**: PNG, GIF, MP4/WebM, and WebGL “Goblet” bundles
-- **Keyboard Shortcuts**: Centralized shortcut scope management
-- **Clipboard Paste**: Floating paste overlay support
+### Color Cycle
 
-## Architecture
+- Color-cycle brush layers with indexed color buffers, gradient/slot metadata, speed/flow/phase buffers, erase masks, soft-edge masks, and playback controls.
+- Recolor layers and color-cycle/recolor controls through the brush library/settings flow.
+- Worker-assisted color-cycle composition and WebGL-backed Goblet playback/export paths.
 
-### Core Components
+### Persistence
 
-#### Canvas Suite (`/src/components/canvas/`)
-- **DrawingCanvas.tsx**: Core rendering surface and input bridge
-- **BrushCursor.tsx**: Brush cursor overlay
-- **CropOverlay.tsx** / **SelectionMarqueeHandles.tsx**: Editing overlays
-- **SimplifiedColorCycleManager.ts**: Color-cycle layer management
+- Project save/load through `.vs`/archive payloads handled by `src/utils/projectIO.ts`.
+- Load modal supports file and folder flows, preview manifests, project health reports, and repair/export paths.
+- Autosave and backup state are managed by `src/utils/autosave.ts`, `src/utils/backgroundStorage.ts`, `src/utils/fileBackupService.ts`, and the autosave store slice.
 
-#### Panels & UI (`/src/components/panels/`)
-- **LayersPanel**, **AlignmentPanel**, **AnimationControlsPanel**
-- **ColorPickerPanel**, **BrushLibraryPanel**, **BrushSettingsPanel**
-- **ColorAdjustmentsPanel**, **CropOptionsPanel**, **ColorSlidersPanel**
+### Export
 
-#### Modals (`/src/components/modals/`)
-- **DocumentModal**, **ExportModal**, **SettingsModal**, **LoadProjectModal**
+- PNG export for static images.
+- GIF export through `gifenc`.
+- Video export through `MediaRecorder`, with WebM fallback when MP4 is unsupported by the browser.
+- Goblet export formats:
+  - smaller zip with sidecar JSON/binary buffers,
+  - compatible zip with embedded metadata fallback,
+  - single self-contained HTML,
+  - JSON-only inspection/debug bundle.
 
-#### State Management (`/src/stores/`)
-- **useAppStore.ts**: Centralized Zustand store (project, layers, tools, history, autosave)
-
-#### Rendering & Color Cycle (`/src/lib/`)
-- **IndexBuffer**, **GradientPalette**, **AnimationController**, **ColorCycleAnimator**
-- WebGL renderer in `src/lib/colorCycle/rendering` for color-cycle playback/export paths, with Canvas2D used for the main drawing surface and export fallback assets
-
-### Refactor Notes
-- `docs/refactor/cc-gradient-slots.md` — Slot/def binding rules and reservations
-
-### Project Docs
-- `docs/project.md` — Consolidated architecture notes and recent updates
-- `docs/notes/dev-debug-overlay.md` — Reusable on-screen dev debug overlay usage
-
-### Recent Updates (from `docs/project.md`)
-- **Display Filters (2026-04-13):** runtime-only artwork post-processing with persisted filter presets in the brush settings panel, including a film-noise option for monochrome shadow-weighted grain
-- **Canvas Shape Masks (2026-01-03):** non-rectangular canvas bounds, clipped draw/selection, export masking
-- **Color Cycle + Recolor (2025-12-31):** recolor mode with palette extraction and deterministic export
-- **Color Cycle Brush System (2025-08-27):** indexed color pipeline with WebGL playback/export support
+See `docs/exporting.md` for Goblet packaging details.
 
 ## Technical Stack
 
-- **Next.js 15 (App Router)** + **React 19**
-- **Zustand 5** for state
-- **Tailwind CSS 4** for styling
-- **TypeScript 5**
-- **gifenc** for GIF export
+- Next.js 15 App Router
+- React 19
+- TypeScript 5
+- Zustand 5
+- Tailwind CSS 4
+- Canvas2D, WebGL, Web Workers
+- `gifenc`, `fflate`, and `jszip` for export packaging
+
+## Requirements
+
+- Node.js `22.22.0` with npm. The repo includes `.nvmrc`.
+- A modern browser with Canvas2D, WebGL, IndexedDB, Web Workers, and MediaRecorder support for the full feature set.
 
 ## Development
 
-### Prerequisites
-- Node.js 22.22.0 with npm
-- Modern browser with Canvas2D and WebGL support
-- Optional: `nvm use` (repo includes `.nvmrc`)
+```bash
+npm install
+npm run dev
+```
 
-### Getting Started
+Open:
 
-1. **Install dependencies**
-   ```bash
-   npm install
-   ```
+```text
+http://localhost:3000
+```
 
-2. **Start development server**
-   ```bash
-   npm run dev
-   ```
-
-3. **Open in browser**
-   ```
-   http://localhost:3000
-   ```
-
-### Alternative Dev Modes
-- **Raw Next.js dev**: `npm run dev:raw`
-- **Monitored dev server**: `npm run dev` (default)
-
-### Workflow
-- Work directly on `main` unless a release manager asks for a separate branch.
-- Recommended local workflow:
-  - Terminal A (dev): `npm run dev` → `http://localhost:3000`
-  - Terminal B (isolated prod preview): `npm run preview:prod` → `http://localhost:3001/vessel/`
-  - Use `npm run preview` to serve `out/` on port 4000 for GH Pages parity.
-
-### Build & Deploy
+Useful local commands:
 
 ```bash
-# Build the GitHub Pages static export
-mise exec node@22 -- npm run build:github
+# Raw Next dev server
+npm run dev:raw
 
-# Build an isolated prod preview artifact alongside dev
-npm run preview:prod:build
+# Monitored dev server, default local workflow
+npm run dev
 
-# Serve the isolated prod preview artifact on port 3001
-npm run preview:prod:serve
-
-# Build + serve isolated production preview alongside dev (port 3001)
+# Isolated production preview build + server on /vessel/
 npm run preview:prod
 
-# Preview static export after a successful GitHub Pages build (serves /out on port 4000)
+# Serve the current out/ static export on port 4000
 npm run preview
 ```
 
-`preview:prod` now uses a dedicated `.next-preview` output directory so it can be rebuilt and served without touching the dev server's `.next` state on port `3000`.
-`preview:prod:serve` also uses a per-repo lock file in the system temp directory, so a second preview server instance fails cleanly instead of competing for port `3001`.
-Runtime logs for dev and prod preview now persist under `logs/runtime/dev-server.log` and `logs/runtime/preview-server.log`, including child output, startup/shutdown events, and uncaught errors.
-Those logs also include periodic heartbeats and simple event-loop lag warnings, so a lockup that does not crash still leaves evidence in the log timeline.
-`preview:prod:build` now runs `next build` inside an isolated temp workspace before copying the `.next-preview` artifact back, which avoids the Next 15 dev/build conflict that can corrupt the live `.next` dev directory.
+`preview:prod` builds into `.next-preview` and serves on `http://localhost:3001/vessel/`, separate from the dev server's `.next` state.
 
-### Security Checks
-- Production dependency audit (release gate): `npm run audit:prod`
-  - Current release exception: accepts only the documented Next nested `postcss <8.5.10` metadata finding for the static GitHub Pages export. See `docs/refactor/plan-next-audit-remediation-2026-06-21.md`.
-- Full dependency audit (includes dev tooling): `npm run audit:full`
-- Full dependency audit JSON export: `npm run audit:full:json` (writes `audit-full.json`)
-- Full dependency audit summary export: `npm run audit:full:summary` (writes `audit-full-summary.md`)
-- Dev-tooling remediation plan: `docs/security/dev-tooling-audit-remediation.md`
+## Build And Deploy
+
+The GitHub Pages build is wrapper-owned by `scripts/github-pages-build.mjs` and `scripts/prepare-github-pages.mjs`.
+
+```bash
+# Build the GitHub Pages static export
+npm run build:github
+
+# Same command under the repo Node version when using mise
+mise exec node@22 -- npm run build:github
+```
+
+Static export mode uses:
+
+- `output: 'export'`
+- `basePath: '/vessel'`
+- `assetPrefix: '/vessel/'`
+- output artifact: `out/`
+
+The deploy workflow is `.github/workflows/deploy.yml`.
+
+## Verification
+
+Common checks:
+
+```bash
+npm run audit:prod
+npm run lint
+npm run architecture:check
+npm run type-check
+npm run type-check:workers
+npm run type-check:tests
+npm test
+npm run verify:goblet2-inline
+```
+
+Targeted checks:
+
+```bash
+npm run test:load-project-modal:guardrails
+npm run test:e2e:load-project-modal
+npm run test:goblet2:single-file-smoke
+npm run test:goblet2:cc-gradient-shapes-perf
+```
+
+## Security And Audit Status
+
+- `npm run audit:prod` is the production dependency release gate.
+- Current accepted production exception: Next vendors nested `postcss@8.4.31`, which npm flags as `postcss <8.5.10`. Vessel publishes a static GitHub Pages export with no production Next server runtime. See `docs/refactor/plan-next-audit-remediation-2026-06-21.md`.
+- Full audit is report-only visibility:
+
+```bash
+npm run audit:full
+npm run audit:full:json
+npm run audit:full:summary
+```
+
+See `SECURITY.md` and `docs/security/dev-tooling-audit-remediation.md`.
 
 ## Project Structure
 
-```
+```text
 src/
-├── app/                  # Next.js app directory
-│   ├── page.tsx         # Main application shell
-│   ├── layout.tsx       # Root layout + global styles
-│   └── globals.css      # Global styles
-├── components/          # React components
-│   ├── canvas/          # Drawing canvas system
-│   ├── panels/          # Right-side panels
-│   ├── toolbar/         # Toolbars and tool controls
-│   ├── colorCycle/      # Color-cycle + recolor UI
-│   └── modals/          # Modal dialogs
-├── hooks/               # Custom React hooks (brush engine, input, state machines)
-├── stores/              # Zustand state slices
-├── lib/                 # Core rendering + animation libs
-├── brushes/             # Brush plugins and shapes
-├── utils/               # Utilities (autosave, export, canvas ops)
-└── workers/             # Web workers (e.g., gradient worker)
+├── app/                  # Next app routes and client workspace mount
+├── brushes/              # Brush plugin interface, registry, plugins, shapes
+├── components/           # Toolbar, panels, canvas, modals, color-cycle UI
+├── config/               # Feature flags
+├── constants/            # Shared constants
+├── history/              # History manager, deltas, runtime rehydration
+├── hooks/                # Brush engine, canvas handlers, input/state machines
+├── lib/                  # Rendering, color-cycle, sequential, display-filter libs
+├── presets/              # Brush presets
+├── stores/               # Zustand store, slices, selectors, layer services
+├── styles/               # CSS beyond app globals
+├── types/                # Shared TypeScript types
+├── utils/                # Persistence, export, canvas, color, debug utilities
+└── workers/              # Worker entry points
 ```
 
-## Performance Notes
+Other important paths:
 
-- **Indexed color buffers** via `IndexBuffer` reduce memory pressure
-- **Canvas pooling** and caching reduce per-stroke allocations
-- **Gradient work offloaded** to `gradientWorker` when enabled
-- **WebGL color-cycle path** for animated playback and Goblet exports
+- `tests/` and `src/**/__tests__/` for Jest and Playwright coverage.
+- `scripts/` for build, preview, audit, and architecture guardrails.
+- `docs/` for architecture notes, export docs, bug records, and refactor plans.
+- `public/goblet/` and `public/goblet2/` for Goblet runtime assets.
 
-## License
+## Notes For Public Consumers
 
-No public license has been published for this repository.
-
-## Security
-
-See `SECURITY.md` and `docs/security/dev-tooling-audit-remediation.md`.
+This repository is public but still marked `"private": true` in `package.json`. No public license has been published. Treat the code as source-available unless a license is added.
