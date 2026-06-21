@@ -119,7 +119,7 @@ Vessel is built with Next.js (App Router) and a custom Canvas2D rendering pipeli
 
 ```bash
 # Build the GitHub Pages static export
-mise exec node@18.20.8 -- npm run build:github
+mise exec node@22 -- npm run build:github
 
 # Build an isolated prod preview artifact alongside dev
 npm run preview:prod:build

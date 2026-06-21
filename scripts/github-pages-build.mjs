@@ -62,7 +62,7 @@ const assertNodeVersion = async () => {
     logger.error(
       `Vessel build requires Node ${expectedVersion} from .nvmrc; current Node is ${actualVersion}.`,
     );
-    logger.error('Run `nvm use` or `mise exec node@18.20.8 -- npm run build:github` before building.');
+    logger.error('Run `nvm use` or `mise exec node@22 -- npm run build:github` before building.');
     process.exit(1);
   }
 };
