@@ -293,7 +293,10 @@ This is the process/verification face of problems 1–2. Once semantics are sing
 ### Plan
 
 - [ ] **6.1 Contract-touch checklist.** A short checklist in `AGENTS.md` + PR template: "Does this change affect playback, masking, CC output, alignment, or export? Then: update shared module (not a runtime copy), update contract doc/schema if semantics changed, add/refresh a parity fixture." Reviewers check the box, CI checks the substance.
-- [ ] **6.2 Generated-code freshness gate.** CI runs the goblet runtime build in `--check` mode (already exists) plus the align-fit build; any drift between shared source and generated viewer code fails the build.
+- [ ] **6.2 Generated-code freshness gate.** The goblet runtime build already has a `--check` mode; the align-fit generator does not yet provide a failing gate. Two known gaps to close (flagged in PR review):
+  - `scripts/build-align-fit.mjs` writes only `public/goblet/alignFitResolver.js` and has no `--check` mode, while `build-goblet-runtime.mjs` inlines `alignFitResolver.js` from **both** `public/goblet` and `public/goblet2` — so the goblet2 copy can go stale without any CI failure. Add a `--check`/diff mode and make the generator produce (and verify) both targets, or single-source the goblet2 copy from the same generator output.
+  - Gates must run in check-before-write order (see validation matrix note below); a check that runs after a write-mode build only inspects files it just regenerated.
+  - CI then runs all freshness checks against the committed tree; any drift between shared source and generated viewer code fails the build.
 - [ ] **6.3 One reference renderer.** The parity tests' "Vessel reference path" should be the actual editor playback path, not a third implementation. Audit the current harness for reference-path drift and pin it to the production code path.
 - [ ] **6.4 Feature flags for dual-runtime features.** New playback-affecting features land behind a flag that is only removed when the parity matrix has cells for it — makes "works in Vessel, silently absent in Goblet" a visible intermediate state instead of a bug report.
 
@@ -326,7 +329,7 @@ Rules of engagement (consistent with prior plans):
 - [ ] `npm run type-check`
 - [ ] `npm run lint`
 - [ ] `npm test`
-- [ ] `npm run build:goblet-inline` + `npm run verify:goblet2-inline` + `node scripts/build-goblet-runtime.mjs --check --target=all` (phases touching export/runtime)
+- [ ] Generated-runtime freshness, in check-first order (phases touching export/runtime): run `node scripts/build-goblet-runtime.mjs --check --target=all` (plus the align-fit check once 6.2 adds it) **against the committed tree before any write-mode build**, or equivalently run the write-mode builds and then assert `git diff --exit-code` on `public/goblet*`. Running `npm run build:goblet-inline` first and `--check` second proves nothing — the check would see files the build just regenerated.
 - [ ] Playwright: goblet artifact/smoke suites (phases touching export/runtime)
 - [ ] Manual: draw/undo/save/reload/export session on a large multi-CC-layer project (phases 1.4, 1.5, 3.x, 4.2)
 - [ ] Manual: old-project restore/export pass against the legacy corpus (phases 1.0, 5.x)
