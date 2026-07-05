@@ -19,6 +19,15 @@ These are not six independent problems. Problems 2, 3, 5, and 6 are all consumer
 
 This plan builds on completed prior work and does not re-litigate it. It states what exists, what is still open, and what to build next.
 
+## Revision Note (same day, second pass)
+
+After a full read of the engine, the export pipeline, and the prior plans, four corrections were applied to the first draft. The destination architecture is unchanged; these remove speculative infrastructure and duplicate concepts:
+
+1. **No standalone `DerivedSurfaceRegistry` object.** The essential mechanism is the version counter plus a `builtFromVersion` field on each derived surface. A central registry is infrastructure with no second consumer until the composite scheduler exists — so Phase 1.3 now ships an interface + helper, and the only central list of surfaces is the compositor's rebuild scheduler introduced in Phase 4.1.
+2. **One type spine, not three.** The document snapshot type, `ColorCycleLayerDocumentState` (persistence), and the Goblet payload schema describe the same data at three trust levels. Defining them independently recreates the scattered-authority problem at the type level. The executable contract (old Phase 2.2) moves up to run alongside Phase 1.1: one schema family in one module, with explicit narrowing mappers document → archive → payload.
+3. **`version` supersedes `strokeCounter`, it does not join it.** Two monotonic counters with overlapping meaning is how drift starts. The document version becomes the only staleness/identity token in memory; `strokeCounter` survives only as a serialized archive-compatibility field derived at save time.
+4. **Phase 1.6.7 scoped down.** Narrow `StrokeContext` interfaces are required only for controllers that mutate canonical state or shared caches. Pure-computation controllers (dither kernels, pressure curves, phase math) take plain data arguments — converting all ~70 to context interfaces was ceremony, not safety.
+
 ## Where We Already Are
 
 A lot of the authority work is done. New work must extend these boundaries, not route around them:
@@ -75,21 +84,24 @@ ColorCycleLayerDocument (owned, versioned)
 
 writes:  only via CCDocumentTransaction (wraps existing mutateLayerStrokeState reasons)
 reads:   only via accessor API (readers receive { snapshot, version })
-derived: DerivedSurfaceRegistry — each surface records builtFromVersion; stale ⇔ builtFromVersion !== document.version
+derived: each derived surface carries builtFromVersion; stale ⇔ builtFromVersion !== document.version
+schema:  document snapshot type = the executable contract type family; archive and Goblet payload
+         shapes are explicit narrowings of it, never independent definitions
 ```
 
 Key decisions:
 
 - **The document is a new home for existing state, not a new schema.** Buffer semantics, the compatibility contract, and the `.vs` archive format do not change. `ColorCycleLayerDocumentState` (already defined in `src/lib/colorCycle/documentState.ts`) becomes the serialized form of this object rather than a shape assembled on demand.
 - **Residency is a document property, not a guard-time inference.** `runtimeSourcePolicy.ts`'s four concepts (editable / recoverable / restorable / playback-warmable) become derived getters on the document instead of functions over scattered fields. Cold layers hold archive refs inside the document; warming replaces refs with buffers under a transaction; `static-preview-only` is a terminal residency set only by import repair.
-- **The version counter is the universal invalidation currency.** History entries, export snapshots, autosave, previews, and the compositor all record the document version they consumed. "Is X stale?" becomes an integer comparison everywhere. This is also what problem 4 (performance) and problem 3 (undo validation) consume.
+- **The version counter is the universal invalidation currency.** History entries, export snapshots, autosave, previews, and the compositor all record the document version they consumed. "Is X stale?" becomes an integer comparison everywhere. This is also what problem 4 (performance) and problem 3 (undo validation) consume. It supersedes `strokeCounter` as the in-memory staleness/identity token; `strokeCounter` remains only as an archive-compatibility field derived at serialize time.
+- **One schema family.** The document's snapshot type is defined in the executable contract module shared with export validation and the Goblet loader. `ColorCycleLayerDocumentState` and the Goblet payload become explicit narrowings (mappers) of that type, so a field added to the document cannot silently miss persistence or export — the compiler flags the unmapped field.
 - **The existing boundaries survive as the document's internals.** `mutateLayerStrokeState` reasons/audit become the transaction API's audit log. The persistence snapshot service's validation becomes the document's own `serialize()` validation. Source-priority resolution shrinks to "resident buffers, else archive refs, else fail" because there are no longer competing field sets to arbitrate.
 
 ### Hard Rules (target end state)
 
 - No module outside `src/lib/colorCycle/document/` may hold a direct reference to a canonical CC buffer.
 - Every mutation carries a reason code and bumps `version` exactly once per committed transaction (a stroke = one transaction, matching per-stroke undo).
-- A derived surface may never be promoted to document data. (Already the V2 rule; the document makes it structural — derived surfaces live in the registry, which has no write path into the document.)
+- A derived surface may never be promoted to document data. (Already the V2 rule; the document makes it structural — the `DerivedSurface` interface has no write path into the document.)
 - Save/export/history APIs accept a `ColorCycleLayerDocument`, never a `Layer` with loose fields.
 - Dev builds assert on version mismatches at consumption points (export reads version N, packages payload, re-reads version — mismatch means a mutation raced the export).
 
@@ -105,7 +117,8 @@ Exit: prior CC plans are all status `complete` with no open checkboxes.
 
 #### Phase 1.1: Introduce the document object (no behavior change)
 
-- [ ] Create `src/lib/colorCycle/document/ColorCycleLayerDocument.ts` wrapping the existing per-layer stroke state (buffers, masks, metadata, residency) with a `version` counter.
+- [ ] Create `src/lib/colorCycle/document/ColorCycleLayerDocument.ts` wrapping the existing per-layer stroke state (buffers, masks, metadata, residency) with a `version` counter. `version` is the only new counter; `strokeCounter` is derived at serialize time for archive compatibility and is no longer read as an in-memory staleness signal.
+- [ ] Define the document snapshot type in the executable contract module (see 2.2, co-timed with this phase): one schema family with explicit narrowing mappers to `ColorCycleLayerDocumentState` (archive) and the Goblet payload shape. Exhaustive-mapping tests fail when a document field is added without a mapper decision (persisted / export-only / runtime-only — the decision must be explicit).
 - [ ] Implement `CCDocumentTransaction` by delegating to `mutateLayerStrokeState(...)`; every existing reason code maps 1:1. Version bump on commit.
 - [ ] The document is instantiated and owned by `colorCycleBrushManager` (one per CC layer), replacing the loose brush-instance map entry as the identity object.
 - [ ] Add read accessor returning `{ snapshot, version }`; snapshots are read-only views (no copying of buffers in the hot path — freeze/`DataView` discipline, copies only at persistence/export boundaries where they already happen).
@@ -120,9 +133,11 @@ Exit: document exists and is authoritative for layers touched by the brush engin
 - [ ] Warm restore becomes a `project-load-restore` transaction that swaps refs for buffers; import repair is the only producer of `static-preview-only`.
 - [ ] Tests: cold save without warming still copies archive refs; warming bumps version; static-preview layers refuse edit/playback/animated-export transactions with typed errors.
 
-#### Phase 1.3: Derived surface registry
+#### Phase 1.3: Derived surfaces carry versions
 
-- [ ] Create `DerivedSurfaceRegistry`: register(surfaceId, kind) → surfaces record `builtFromVersion` when rebuilt; `isStale(surfaceId)` is an integer compare.
+Deliberately minimal: no central registry object. The mechanism is a `DerivedSurface` interface (`builtFromVersion`, `rebuild(snapshot, version)`) plus an `isStale(doc, surface)` helper. The only central list of surfaces is the compositor rebuild scheduler, and that belongs to Phase 4.1 — build it there, once, with a real consumer.
+
+- [ ] Add the `DerivedSurface` interface + staleness helper in the document module.
 - [ ] Migrate, in order: animator GPU textures (`ColorCycleAnimator`), worker compositor inputs (`colorCycleCompositor.worker`), layer preview canvas / `canvasImageData`, thumbnails, shape-preview overlays.
 - [ ] Delete the corresponding ad-hoc staleness flags as each surface migrates.
 - [ ] Dev assert: rendering from a stale surface without a scheduled rebuild logs a diagnostic (throttled).
@@ -161,11 +176,11 @@ Strategy: **strangler extraction around the document — never a rewrite.** Algo
 - [ ] **1.6.0 Characterization safety net.** Golden engine fixtures before anything moves: scripted sessions (stroke with pressure + dither, custom stamp stroke, shape fill per mode, slot rebind, playback N frames, snapshot/restore round-trip) that hash canonical buffers and rendered frames. Every extraction step below must leave these hashes identical (frame renders may use the existing channel-delta thresholds). These live next to the existing regression tests and stay after the refactor as the engine's contract tests.
 - [ ] **1.6.1 Settings object.** Replace the ~40 setters with one typed `CCBrushSettings` value and a single `applySettings(patch)` that diffs internally and invalidates only affected caches. The store pushes one object; the class loses ~40 members and a whole class of store/engine drift bugs. (Lowest risk, immediately shrinks the surface.)
 - [ ] **1.6.2 Persistence/history adapter out.** `serialize`/`getFullState`/`restoreFullState`/`getLayerSnapshot`/`applyLayerSnapshot`/`applyPaintPatch` and the committed-state + persisted-meta caches move to the document module. Phase 1.4 already re-pointed the callers; this deletes the class-side remnants so the engine no longer has a persistence face at all.
-- [ ] **1.6.3 PlaybackController.** Owns the `animators` map, the RAF loop, play/pause/FPS/speed/phase state. Reads the document via versioned snapshots (Phase 1.3 registry); the engine no longer schedules frames. Playback timing semantics (accumulator, speed scale) move verbatim — they are contract-relevant (Problem 2).
-- [ ] **1.6.4 Presenter/compositor out.** `render`, `renderDirectToCanvas`, `commitToLayer`, and the composite canvas become a presenter consuming the derived-surface registry. This is the same component Phase 4.2's two-tier composite needs — do 1.6.4 and 4.2 as one arc to avoid building the presenter twice.
+- [ ] **1.6.3 PlaybackController.** Owns the `animators` map, the RAF loop, play/pause/FPS/speed/phase state. Reads the document via versioned snapshots (Phase 1.3 `DerivedSurface` contract); the engine no longer schedules frames. Playback timing semantics (accumulator, speed scale) move verbatim — they are contract-relevant (Problem 2).
+- [ ] **1.6.4 Presenter/compositor out.** `render`, `renderDirectToCanvas`, `commitToLayer`, and the composite canvas become a presenter consuming versioned `DerivedSurface`s via the Phase 4.1 rebuild scheduler. This is the same component Phase 4.2's two-tier composite needs — do 1.6.4 and 4.2 as one arc to avoid building the presenter twice.
 - [ ] **1.6.5 GradientSlotService.** Slot palettes, def-palette caches, gradient signatures, seam profiles. The document owns bindings (which slot/def a pixel references); the service owns derived caches (resolved RGBA rows), registered as derived surfaces.
 - [ ] **1.6.6 ShapeFillService.** Async fill dispatch and worker job lifecycle (`concentricWorkerJobId` and friends), writing results through document transactions with the existing fill reason codes.
-- [ ] **1.6.7 Stroke authoring last.** The riskiest and largest role. Define narrow `StrokeContext` interfaces per controller — each declares exactly what it reads/writes (settings slice, active transaction, stamp caches) instead of receiving the engine. Migrate the ~70 controllers one at a time; the compiler enforces shrinking context. The class ends as a thin composition root (`createColorCycleEngine()` factory wiring document + services), mirroring `createBrushEngineFacade`.
+- [ ] **1.6.7 Stroke authoring last.** The riskiest and largest role. Split the ~70 controllers by what they touch: controllers that **mutate canonical state or shared caches** get narrow `StrokeContext` interfaces declaring exactly what they read/write (settings slice, active transaction, stamp caches) instead of receiving the engine; **pure-computation controllers** (dither kernels, pressure curves, phase math) are converted to plain-data arguments only — no context interface ceremony. The compiler enforces shrinking context on the mutating set. The class ends as a thin composition root (`createColorCycleEngine()` factory wiring document + services), mirroring `createBrushEngineFacade`.
 - [ ] **1.6.8 Delete or shim.** Remove the class, or leave a deprecated shim delegating to the factory for any stragglers; apply the repo's module-size guardrails to `src/hooks/brushEngine/` so no module regrows past the ceiling.
 
 Rules of engagement for 1.6:
@@ -177,7 +192,7 @@ Rules of engagement for 1.6:
 Exit criteria for 1.6:
 
 - [ ] No controller or service receives the engine instance as context; every context interface is explicit and minimal.
-- [ ] Engine state lives only in the document (canonical) and service-local caches (derived, registry-tracked) — the composition root holds no mutable buffers.
+- [ ] Engine state lives only in the document (canonical) and service-local caches (derived, version-tracked) — the composition root holds no mutable buffers.
 - [ ] Golden engine fixtures unchanged end-to-end; CC parity matrix (2.3) green.
 - [ ] No module in `src/hooks/brushEngine/` exceeds the size guardrail.
 
@@ -206,7 +221,7 @@ The export contract work (2026-05-06) made packaging deterministic and validated
 ### Plan
 
 - [ ] **2.1 Expand the shared-source pattern.** `alignFitResolver` is already single-sourced and generated into the viewer (`scripts/build-align-fit.mjs`). Inventory every semantic both runtimes implement (speed decode, frame shift, palette row sampling, mask application, flow modes, fit math, display filters) and move each into a shared module under `src/lib/colorCycle/` compiled into `goblet.js` by the existing runtime build scripts. Hand-edited duplicates are deleted; the build check (`build-goblet-runtime.mjs --check`) fails if generated output drifts.
-- [ ] **2.2 Executable contract.** Encode `docs/color-cycle-compatibility-contract.md`'s payload rules as a schema module (types + runtime validators) consumed by both `colorCyclePayloadValidation.ts` (export side) and the Goblet loader (import side). The prose doc stays, but the schema is the enforcement.
+- [ ] **2.2 Executable contract.** Encode `docs/color-cycle-compatibility-contract.md`'s payload rules as a schema module (types + runtime validators) consumed by both `colorCyclePayloadValidation.ts` (export side) and the Goblet loader (import side). The prose doc stays, but the schema is the enforcement. **Timing: co-timed with Phase 1.1**, because the same schema family defines the document snapshot type — export/persistence/document must not define this shape three times.
 - [ ] **2.3 Parity matrix in CI.** Extend the golden fixture set (`tests/fixtures/cc/`) and the artifact harness (`tests/helpers/gobletArtifactHarness.ts`) into an explicit matrix: {static/animated/mixed pixels} × {erase mask, soft-edge mask, none} × {hidden layers on/off} × {display filters on/off} × {fit/cover/fill/tile/none} × {slot clamp, palette fallback}. Each cell renders N frames in the Vessel reference path and the packaged Goblet artifact and asserts channel/alpha deltas. Target: every contract clause has at least one failing-test witness.
 - [ ] **2.4 Legacy corpus.** Check in (or fetch as test assets) a small corpus of real old `.vs` archives — including a C3-style damaged one and a pre-schema-2 one — with expected outcomes: which layers export animated, which export as static-with-warning, which fail visibly. Run through export in CI.
 - [ ] **2.5 Schema version discipline.** Written rule in the contract doc: any change to payload semantics bumps `colorCycle.schemaVersion`, adds a loader tolerance in Goblet for N-1, and adds a fixture pinned to the old version. No silent semantic changes under the same version.
@@ -292,7 +307,7 @@ Exit criteria: it is procedurally impossible to change playback semantics in one
 Phase 1.0 (close V2.7 + validation)        ── unblocks 1.1 and 5.1
 Phase 1.1–1.2 (document object, residency) ── the keystone; do before anything else structural
 Phase 2.1 + 6.2 (shared modules + build gates)   — parallel with 1.x, different files
-Phase 1.3 (derived registry)               ── enables 4.1/4.2
+Phase 1.3 (derived-surface versions)       ── enables 4.1/4.2
 Phase 1.4 (re-point boundaries)            ── delivers 3.1; enables 1.5
 Phase 2.3–2.4 + 5.2 (parity matrix + corpus)     — parallel once fixtures exist
 Phase 1.5 (delete old paths + lint)        ── after 1.4 proves out
