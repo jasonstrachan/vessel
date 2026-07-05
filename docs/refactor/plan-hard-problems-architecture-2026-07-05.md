@@ -141,15 +141,57 @@ Exit: document exists and is authoritative for layers touched by the brush engin
 - [ ] Delete the pre-document code paths kept during 1.4.
 - [ ] Regression: the full C3 scenario, the 2026-04-29 mutation-audit scenarios, and the golden CC fixtures all pass against the document-backed implementation.
 
+#### Phase 1.6: Decompose the engine (`ColorCycleBrushCanvas2D`)
+
+Only after 1.1–1.5: the document boundary must be stable and enforced before the engine is carved up, otherwise every extraction re-negotiates state ownership at the same time it moves code.
+
+Diagnosis. The class is ~8,500 lines with ~163 members, but it is no longer a monolith of inline logic — roughly 70 controller modules have already been extracted into `src/hooks/brushEngine/` (stroke lifecycle, dither, pressure, shape gradients, finalize, live preview, …). The remaining problem is that those controllers all receive **the engine instance itself as their context**, so the state coupling of the god class is fully intact; extraction moved code without moving ownership. The class currently plays eight roles at once:
+
+1. Per-layer canonical stroke state store (`layerStrokes`) — leaves in Phase 1.1 (becomes the document).
+2. Stroke authoring pipeline — `paint`, `paintCustomStamp`, `startStroke`/`endStroke`/`finalizeCurrentStroke`, pressure/stamp/dither orchestration.
+3. Shape fill service — `fillShape`, `fillShapeLinear`, `fillShapeDispatch`, worker job tracking.
+4. Gradient/slot management — `setGradient*`, slot palette caches, def-palette caches, signatures, seam profiles, `bindGradientDefIdToSlot`, `syncGradientDefRuntime`.
+5. Playback — the `animators` map, RAF loop, `startAnimation`/`stopAnimation`/pause/resume, FPS/speed/phase state.
+6. Presentation — `render`, `renderDirectToCanvas`, `commitToLayer`, the composite canvas.
+7. Persistence/history adapter — `serialize`, `getFullState`/`restoreFullState`, `getLayerSnapshot`/`applyLayerSnapshot`/`applyPaintPatch`, the committed-state cache, `persistedColorCycleMetaByLayer`.
+8. Settings surface — ~40 individual setters mirroring brush settings (`setDitherEnabled`, `setStampDitherPatternTileSettings`, `setMinPressure`, …).
+
+Strategy: **strangler extraction around the document — never a rewrite.** Algorithms (dither kernels, pressure curves, phase math) move verbatim; only ownership and wiring change. Extraction order is easiest/lowest-risk first so the safety net is proven before the dangerous parts move. The `createBrushEngineFacade(...)` factory pattern used by the regular brush engine is the precedent for the end state.
+
+- [ ] **1.6.0 Characterization safety net.** Golden engine fixtures before anything moves: scripted sessions (stroke with pressure + dither, custom stamp stroke, shape fill per mode, slot rebind, playback N frames, snapshot/restore round-trip) that hash canonical buffers and rendered frames. Every extraction step below must leave these hashes identical (frame renders may use the existing channel-delta thresholds). These live next to the existing regression tests and stay after the refactor as the engine's contract tests.
+- [ ] **1.6.1 Settings object.** Replace the ~40 setters with one typed `CCBrushSettings` value and a single `applySettings(patch)` that diffs internally and invalidates only affected caches. The store pushes one object; the class loses ~40 members and a whole class of store/engine drift bugs. (Lowest risk, immediately shrinks the surface.)
+- [ ] **1.6.2 Persistence/history adapter out.** `serialize`/`getFullState`/`restoreFullState`/`getLayerSnapshot`/`applyLayerSnapshot`/`applyPaintPatch` and the committed-state + persisted-meta caches move to the document module. Phase 1.4 already re-pointed the callers; this deletes the class-side remnants so the engine no longer has a persistence face at all.
+- [ ] **1.6.3 PlaybackController.** Owns the `animators` map, the RAF loop, play/pause/FPS/speed/phase state. Reads the document via versioned snapshots (Phase 1.3 registry); the engine no longer schedules frames. Playback timing semantics (accumulator, speed scale) move verbatim — they are contract-relevant (Problem 2).
+- [ ] **1.6.4 Presenter/compositor out.** `render`, `renderDirectToCanvas`, `commitToLayer`, and the composite canvas become a presenter consuming the derived-surface registry. This is the same component Phase 4.2's two-tier composite needs — do 1.6.4 and 4.2 as one arc to avoid building the presenter twice.
+- [ ] **1.6.5 GradientSlotService.** Slot palettes, def-palette caches, gradient signatures, seam profiles. The document owns bindings (which slot/def a pixel references); the service owns derived caches (resolved RGBA rows), registered as derived surfaces.
+- [ ] **1.6.6 ShapeFillService.** Async fill dispatch and worker job lifecycle (`concentricWorkerJobId` and friends), writing results through document transactions with the existing fill reason codes.
+- [ ] **1.6.7 Stroke authoring last.** The riskiest and largest role. Define narrow `StrokeContext` interfaces per controller — each declares exactly what it reads/writes (settings slice, active transaction, stamp caches) instead of receiving the engine. Migrate the ~70 controllers one at a time; the compiler enforces shrinking context. The class ends as a thin composition root (`createColorCycleEngine()` factory wiring document + services), mirroring `createBrushEngineFacade`.
+- [ ] **1.6.8 Delete or shim.** Remove the class, or leave a deprecated shim delegating to the factory for any stragglers; apply the repo's module-size guardrails to `src/hooks/brushEngine/` so no module regrows past the ceiling.
+
+Rules of engagement for 1.6:
+
+- One extraction per change, landed serially — no long-lived refactor branch.
+- Zero algorithm edits inside an extraction commit. A bug found mid-extraction is fixed in a separate commit against the pre-extraction code first, so the fixture change is attributable.
+- Feature work in `brushEngine/` pauses per-area while that area is mid-extraction (scoped freeze, not a repo freeze).
+
+Exit criteria for 1.6:
+
+- [ ] No controller or service receives the engine instance as context; every context interface is explicit and minimal.
+- [ ] Engine state lives only in the document (canonical) and service-local caches (derived, registry-tracked) — the composition root holds no mutable buffers.
+- [ ] Golden engine fixtures unchanged end-to-end; CC parity matrix (2.3) green.
+- [ ] No module in `src/hooks/brushEngine/` exceeds the size guardrail.
+
 Exit criteria for Problem 1:
 
 - [ ] Exactly one module owns CC canonical state; grep for `paintBuffer` outside `document/`, `persistence/`, import repair, and history deltas returns nothing.
 - [ ] Every derived surface has a `builtFromVersion`; no ad-hoc CC staleness flags remain.
 - [ ] Save, export, history, and hydration consume `{ snapshot, version }` and log the version in their diagnostics.
+- [ ] The engine is a composition root over document + services (Phase 1.6), not a state owner.
 
 ### Risks
 
-- **Biggest risk: a stealth rewrite of `ColorCycleBrushCanvas2D`.** Mitigation: Phase 1.1 wraps, it does not move code. Decomposing the 8,500-line engine is explicitly out of scope until the document boundary is stable (same sequencing the 2026-06-20 plan chose).
+- **Biggest risk: a stealth rewrite of `ColorCycleBrushCanvas2D`.** Mitigation: Phase 1.1 wraps, it does not move code. Decomposition is deliberately deferred to Phase 1.6, after the document boundary is stable and characterization fixtures exist (same sequencing the 2026-06-20 plan chose).
+- **1.6-specific: hidden coupling through the god-context.** Controllers may read engine fields nobody documented (order-dependent mutation, cache side effects). Mitigation: narrow `StrokeContext` interfaces make every dependency explicit at compile time, and the characterization fixtures catch behavioral drift the types can't.
 - Version-counter granularity: bumping per pointer-move would thrash derived surfaces. The transaction = stroke rule keeps bump frequency at intent level; live in-stroke rendering stays inside the engine's existing incremental path and only the commit publishes a new version.
 - Read-snapshot aliasing: readers holding buffer views across a transaction commit. Mitigation: dev-mode revocable proxies or debug canary bytes; production relies on the "consume within a task" convention already used by the exporter.
 
@@ -254,7 +296,8 @@ Phase 1.3 (derived registry)               ── enables 4.1/4.2
 Phase 1.4 (re-point boundaries)            ── delivers 3.1; enables 1.5
 Phase 2.3–2.4 + 5.2 (parity matrix + corpus)     — parallel once fixtures exist
 Phase 1.5 (delete old paths + lint)        ── after 1.4 proves out
-Phase 3.2–3.5, 4.x, 5.3–5.5, 6.1/6.3/6.4   ── independent follow-ons
+Phase 1.6 (engine decomposition)           ── after 1.5; 1.6.4 pairs with 4.2 (shared presenter)
+Phase 3.2–3.5, 4.x, 5.3–5.5, 6.1/6.3/6.4   ── independent follow-ons (4.2 waits for 1.6.4)
 ```
 
 Rules of engagement (consistent with prior plans):
@@ -276,6 +319,7 @@ Rules of engagement (consistent with prior plans):
 ## Success Criteria (whole plan)
 
 - [ ] One module owns canonical CC state; every reader consumes versioned snapshots; ESLint enforces the boundary.
+- [ ] The CC engine is decomposed into document + services behind a composition root; no god-context controllers remain and golden engine fixtures pin its behavior.
 - [ ] Derived surfaces (canvases, GPU textures, previews, exports) are provably rebuilt-from-version, never promoted to document data.
 - [ ] Vessel and Goblet share generated semantic modules, and a CI parity matrix covers every contract clause.
 - [ ] History is intent-level, version-anchored, deduped, and budgeted — no dropped entries on large projects.
