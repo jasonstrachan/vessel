@@ -1,6 +1,7 @@
 "use client";
 
 import { getAppStoreState } from '@/stores/appStoreAccess';
+import { getColorCycleBrushManager } from '@/stores/colorCycleBrushManager';
 import { setSequentialFrameCursor } from '@/runtime/playback/sequentialFrameCursor';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useAppStore } from '../../stores/useAppStore';
@@ -975,6 +976,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
       };
 
       const recolorManager = RecolorManager.getInstance();
+      const colorCycleBrushManager = getColorCycleBrushManager();
       const originalStates: Array<{ layerId: string; wasPlaying: boolean; wasAnimating: boolean }> = [];
       const initialStore = getAppStoreState() as {
         layers?: Layer[];
@@ -993,7 +995,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
           const store = getAppStoreState();
           for (const layer of store.layers) {
             if (layer.layerType === 'color-cycle' && layer.colorCycleData) {
-              const brush = store.getLayerColorCycleBrush(layer.id);
+              const brush = colorCycleBrushManager.getExportPlaybackBrush(layer.id);
               const wasPlaying = !!(brush && brush.isPlaying && brush.isPlaying());
               const wasAnimating = !!layer.colorCycleData.isAnimating;
               originalStates.push({ layerId: layer.id, wasPlaying, wasAnimating });
@@ -1007,7 +1009,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
               }
               if (brush) {
                 try {
-                  brush.setFPS(fps);
+                  brush.applySettings?.({ fps });
                 } catch {}
                 if (brush.setPlaying) brush.setPlaying(false);
               }
@@ -1038,12 +1040,12 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
           }
           for (const layer of store.layers) {
             if (layer.layerType === 'color-cycle' && layer.colorCycleData && layer.colorCycleData.mode !== 'recolor') {
-              const brush = store.getLayerColorCycleBrush(layer.id);
+              const brush = colorCycleBrushManager.getExportPlaybackBrush(layer.id);
               if (!brush) continue;
               if (useAbsolutePhase && phase !== null) {
-                brush.setPhase(phase);
+                brush.setPhase?.(phase);
               } else {
-                brush.updateAnimation();
+                brush.updateAnimation?.();
               }
             }
           }
@@ -1080,11 +1082,11 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
                 }
               });
             }
-            const brush = store.getLayerColorCycleBrush(layer.id);
+            const brush = colorCycleBrushManager.getExportPlaybackBrush(layer.id);
             try {
               const fps0 = store.tools?.brushSettings?.colorCycleFPS || 30;
               if (brush) {
-                brush.setFPS(fps0);
+                brush.applySettings?.({ fps: fps0 });
               }
             } catch {}
             if (brush && brush.setPlaying) brush.setPlaying(st.wasPlaying);

@@ -76,7 +76,6 @@ const makeStore = () => ({
   addNotification: jest.fn(),
   toggleModal: jest.fn(),
   setSequentialFrame: jest.fn(),
-  getLayerColorCycleBrush: jest.fn(() => null),
   updateLayer: jest.fn(),
   tools: { brushSettings: { colorCycleFPS: 30 } },
   webglExportSettings: {

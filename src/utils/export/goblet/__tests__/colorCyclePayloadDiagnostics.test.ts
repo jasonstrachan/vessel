@@ -11,9 +11,9 @@ describe('colorCyclePayloadDiagnostics', () => {
       message: 'Color-cycle archive data was materialized into an export-local layer snapshot.',
     },
     {
-      code: 'live-runtime-source-selected',
+      code: 'missing-color-cycle-document',
       severity: 'info' as const,
-      message: 'No persisted export snapshot was available; using live runtime state.',
+      message: 'No color-cycle document is available for Goblet export.',
     },
     {
       code: 'missing-archive-ref',
@@ -30,7 +30,7 @@ describe('colorCyclePayloadDiagnostics', () => {
   it('keeps full diagnostic context for failure display', () => {
     expect(formatGobletColorCycleDiagnostics(diagnostics)).toEqual([
       'hydrated-export-local-archive-state: Color-cycle archive data was materialized into an export-local layer snapshot.',
-      'live-runtime-source-selected: No persisted export snapshot was available; using live runtime state.',
+      'missing-color-cycle-document: No color-cycle document is available for Goblet export.',
       'missing-archive-ref: stale archive ref',
       'missing-required-buffer: indexBuffer is required.',
     ]);

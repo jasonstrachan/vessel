@@ -18,6 +18,15 @@ class FakeWorker implements Worker {
     if (payload.type === 'ping') {
       this.emit('message', { data: { type: 'pong', requestId: payload.requestId } } as any);
     }
+    if (payload.type === 'ensure-layer') {
+      this.emit('message', {
+        data: {
+          type: 'ack',
+          command: 'ensure-layer',
+          requestId: payload.requestId,
+        },
+      } as any);
+    }
   });
   terminate = jest.fn();
   addEventListener = (type: 'message' | 'error', listener: EventListener) => {
@@ -45,6 +54,22 @@ describe('ColorCycleCompositorClient', () => {
     worker.emit('message', { data: { type: 'frame', layers: [{ id: 'L1' }] } } as any);
     expect(listener).toHaveBeenCalledWith([{ id: 'L1' }]);
     unsubscribe();
+    client.dispose();
+  });
+
+  it('sends document versions with layer inputs', async () => {
+    const worker = new FakeWorker();
+    const client = new ColorCycleCompositorClient(worker as unknown as Worker);
+
+    await expect(client.ensureLayer('layer-cc', 8, 6, { documentVersion: 42 })).resolves.toBeUndefined();
+
+    expect(worker.postMessage).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'ensure-layer',
+      layerId: 'layer-cc',
+      width: 8,
+      height: 6,
+      documentVersion: 42,
+    }));
     client.dispose();
   });
 
