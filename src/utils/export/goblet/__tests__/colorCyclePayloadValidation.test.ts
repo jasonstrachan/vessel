@@ -145,6 +145,25 @@ describe('validateGobletColorCyclePayload', () => {
     expect(result.reason).toBe('empty-paint-with-content');
   });
 
+  it('warns when paint exists on a layer marked as empty without blocking export', () => {
+    const result = validateGobletColorCyclePayload(createBrushPayload({
+      indexBuffer: [0, 1, 0, 2],
+    }), {
+      layerId: 'cc-layer',
+      hasContent: false,
+    });
+
+    expect(result.ok).toBe(true);
+    expect(result.reason).toBeUndefined();
+    expect(result.stats?.nonZeroPaint).toBe(2);
+    expect(result.diagnostics).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        code: 'paint-without-content-flag',
+        severity: 'warning',
+      }),
+    ]));
+  });
+
   it('rejects empty packed paint for a layer marked as content-bearing', async () => {
     const width = 32;
     const height = 32;

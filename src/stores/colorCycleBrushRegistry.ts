@@ -940,9 +940,6 @@ export const createColorCycleBrushRegistry = (deps: ColorCycleBrushRegistryDeps)
         currentSettings,
         deps.getPlaybackSpeedScale(),
       ));
-      brushWithOptionalControls.setLayerId?.(layerId);
-      brushWithOptionalControls.setTargetCanvas?.(canvas);
-
       const document = existingDocument ?? new ColorCycleLayerDocument(
         createEmptyRegistryColorCycleLayerDocumentState({ layerId, width, height }),
       );
@@ -951,6 +948,8 @@ export const createColorCycleBrushRegistry = (deps: ColorCycleBrushRegistryDeps)
         archiveRefs: null,
       });
       setRuntime(layerId, brush, document);
+      brushWithOptionalControls.setLayerId?.(layerId);
+      brushWithOptionalControls.setTargetCanvas?.(canvas);
       brushMetadata.set(layerId, {
         layerId,
         created: now(),
@@ -1021,13 +1020,12 @@ export const createColorCycleBrushRegistry = (deps: ColorCycleBrushRegistryDeps)
         }),
       );
 
+      setRuntime(layerId, brush, document);
       try {
         restoredBrush.setLayerId?.(layerId);
       } catch (error) {
         debugLog('[ccBrushRegistry] failed to set restored brush layer id', { layerId, error });
       }
-
-      setRuntime(layerId, brush, document);
       brushMetadata.set(layerId, {
         layerId,
         created: now(),
@@ -1350,7 +1348,6 @@ export const createColorCycleBrushRegistry = (deps: ColorCycleBrushRegistryDeps)
         this.removeColorCycleBrush(toLayerId);
       }
 
-      sourceBrush.setLayerId?.(toLayerId);
       sourceBrush.removeColorCycleLayerDocument?.(fromLayerId);
       const sourceDocumentRead = sourceDocument.read();
       sourceDocument.replaceState({
@@ -1361,6 +1358,7 @@ export const createColorCycleBrushRegistry = (deps: ColorCycleBrushRegistryDeps)
       sourceBrush.setColorCycleLayerDocument?.(toLayerId, sourceDocument);
 
       setRuntime(toLayerId, sourceBrush, sourceDocument);
+      sourceBrush.setLayerId?.(toLayerId);
       brushMetadata.set(toLayerId, {
         ...sourceMetadata,
         layerId: toLayerId,

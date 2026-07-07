@@ -52,6 +52,7 @@ function createMockBrush() {
     setFlowMode: jest.fn(),
     setFlowDirection: jest.fn(),
     setLegacyFlowMode: jest.fn(),
+    setPhase: jest.fn(),
     isPlaying: jest.fn(() => false),
     setPlaying: jest.fn(),
     startAnimation: jest.fn(),
@@ -87,6 +88,13 @@ function createMockBrush() {
     cleanup: jest.fn(),
   };
 }
+
+const expectLastCallBefore = (first: jest.Mock, second: jest.Mock): void => {
+  const firstCallOrder = first.mock.invocationCallOrder[first.mock.invocationCallOrder.length - 1];
+  const secondCallOrder = second.mock.invocationCallOrder[second.mock.invocationCallOrder.length - 1];
+
+  expect(firstCallOrder).toBeLessThan(secondCallOrder);
+};
 
 jest.mock('@/hooks/brushEngine/ColorCycleBrushCanvas2D', () => {
   return {
@@ -182,6 +190,31 @@ describe('colorCycleBrushManager integration', () => {
       'layer-1',
       manager.getDocument('layer-1'),
     );
+    expect(createdBrushes[0].setLayerId).toHaveBeenCalledWith('layer-1');
+    expectLastCallBefore(createdBrushes[0].setColorCycleLayerDocument, createdBrushes[0].setLayerId);
+  });
+
+  it('attaches the registry document before binding a restored brush layer id', () => {
+    const manager = createColorCycleBrushManager();
+    const brush = createMockBrush();
+
+    manager.registerRestoredBrush('layer-restored', brush, {
+      width: 32,
+      height: 24,
+      isActive: true,
+    });
+
+    expect(manager.getRuntime('layer-restored')).toEqual(expect.objectContaining({
+      layerId: 'layer-restored',
+      brush,
+      document: manager.getDocument('layer-restored'),
+    }));
+    expect(brush.setColorCycleLayerDocument).toHaveBeenCalledWith(
+      'layer-restored',
+      manager.getDocument('layer-restored'),
+    );
+    expect(brush.setLayerId).toHaveBeenCalledWith('layer-restored');
+    expectLastCallBefore(brush.setColorCycleLayerDocument, brush.setLayerId);
   });
 
   it('exposes a stable playback-only brush facade', () => {
@@ -694,6 +727,7 @@ describe('colorCycleBrushManager integration', () => {
       'layer-2',
       sourceDocument,
     );
+    expectLastCallBefore(createdBrushes[0].setColorCycleLayerDocument, createdBrushes[0].setLayerId);
   });
 
   it('cleans up inactive brushes using configured thresholds without dropping resident documents', () => {

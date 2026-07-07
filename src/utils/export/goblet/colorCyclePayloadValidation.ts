@@ -239,6 +239,12 @@ export const validateGobletColorCyclePayload = (
       severity: 'error',
       message: 'Layer is marked as having content but the exported paint buffer is empty.',
     });
+  } else if (options.hasContent === false && nonZeroPaint > 0) {
+    diagnostics.push({
+      code: 'paint-without-content-flag',
+      severity: 'warning',
+      message: 'Layer is marked as empty but the exported paint buffer contains content.',
+    });
   }
 
   const paletteSlots = new Set((colorCycle.slotPalettes ?? []).map((entry) => entry.slot));
