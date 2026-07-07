@@ -22,7 +22,6 @@ jest.mock('@/stores/colorCycleBrushManager', () => {
     createBrush: jest.fn(),
     getBrush: jest.fn(),
     getDocument: jest.fn(),
-    updateBrush: jest.fn(),
     deleteBrush: jest.fn(),
     setActiveState: jest.fn(),
     cleanupInactive: jest.fn(),

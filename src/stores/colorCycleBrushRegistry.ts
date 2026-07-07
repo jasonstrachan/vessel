@@ -141,7 +141,6 @@ export interface ColorCycleBrushManager {
   getSpeedSettingsBrush: (layerId: string) => ColorCycleSpeedSettingsBrushContext | null;
   getDocument: (layerId: string) => ColorCycleLayerDocument | undefined;
   getRuntime: (layerId: string) => ColorCycleLayerRuntime | undefined;
-  updateBrush: (layerId: string, brush: ColorCycleBrushRuntimeHost) => void;
   deleteBrush: (layerId: string) => void;
   setActiveState: (layerId: string, isActive: boolean) => void;
   cleanupInactive: (maxInactiveMs?: number) => void;
@@ -1145,22 +1144,6 @@ export const createColorCycleBrushRegistry = (deps: ColorCycleBrushRegistryDeps)
 
     getRuntime(layerId: string): ColorCycleLayerRuntime | undefined {
       return runtimes.get(layerId);
-    },
-
-    updateBrush(layerId: string, brush: ColorCycleBrushRuntimeHost) {
-      const existingDocument = this.getDocument(layerId);
-      const metadata = brushMetadata.get(layerId);
-      const document = existingDocument ?? new ColorCycleLayerDocument(
-        createEmptyRegistryColorCycleLayerDocumentState({
-          layerId,
-          width: metadata?.width ?? 1,
-          height: metadata?.height ?? 1,
-        }),
-      );
-      setRuntime(layerId, brush, document);
-      if (metadata) {
-        metadata.lastUsed = now();
-      }
     },
 
     deleteBrush(layerId: string) {
