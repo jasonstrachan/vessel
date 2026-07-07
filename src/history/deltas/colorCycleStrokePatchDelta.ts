@@ -1,6 +1,7 @@
 import {
   applyColorCycleBrushPaintPatchToRuntime,
   canApplyColorCycleBrushPaintPatchToRuntime,
+  COLOR_CYCLE_DOCUMENT_CANONICAL_PIXEL_BUFFERS,
   type ColorCycleLayerDocumentRead,
   type ColorCycleBrushSerializedState,
   type ColorCycleBrushPaintPatchRuntimeWriter,
@@ -15,6 +16,7 @@ import {
 } from '@/utils/colorCycle/ccMutationAudit';
 import type { HistoryDelta, HistoryDirection, HistoryRehydrationTargets } from '../actionTypes';
 import { readBlob, releaseBlob, storeBlob } from '../blobStore';
+import { HistoryBlobReadError, HistoryReplayDriftError } from '../errors';
 
 type ColorCycleBrushState = ColorCycleBrushSerializedState;
 type ColorCycleSerializedLayer = NonNullable<ColorCycleBrushState['layers']>[number];
@@ -25,14 +27,8 @@ type ManagedColorCycleBrush = ColorCycleHistoryBrushContext & ColorCycleBrushPai
 
 type PatchEncoding = 'raw' | 'rle';
 
-export const COLOR_CYCLE_PIXEL_PATCH_BUFFER_KEYS = [
-  'paint',
-  'gradientId',
-  'gradientDefId',
-  'speed',
-  'flow',
-  'phase',
-] as const;
+export const COLOR_CYCLE_PIXEL_PATCH_BUFFER_KEYS =
+  COLOR_CYCLE_DOCUMENT_CANONICAL_PIXEL_BUFFERS.map((buffer) => buffer.historyKey);
 
 type ColorCyclePixelPatchBufferKey = typeof COLOR_CYCLE_PIXEL_PATCH_BUFFER_KEYS[number];
 type ColorCyclePixelPatchBytes = Record<ColorCyclePixelPatchBufferKey, Uint8Array | null>;
@@ -58,38 +54,36 @@ type ColorCyclePixelBufferSpec = {
   read: (layer: ColorCycleSerializedLayer) => ArrayBuffer | ArrayBufferView | undefined;
 };
 
-const COLOR_CYCLE_PIXEL_BUFFER_SPECS: readonly ColorCyclePixelBufferSpec[] = [
-  {
-    key: 'paint',
-    bytesPerPixel: Uint8Array.BYTES_PER_ELEMENT,
-    read: (layer) => layer.strokeData?.paintBuffer ?? layer.data?.indexBuffer?.data,
-  },
-  {
-    key: 'gradientId',
-    bytesPerPixel: Uint8Array.BYTES_PER_ELEMENT,
-    read: (layer) => layer.strokeData?.gradientIdBuffer ?? layer.data?.indexBuffer?.gradientId,
-  },
-  {
-    key: 'gradientDefId',
-    bytesPerPixel: Uint16Array.BYTES_PER_ELEMENT,
-    read: (layer) => layer.strokeData?.gradientDefIdBuffer,
-  },
-  {
-    key: 'speed',
-    bytesPerPixel: Uint8Array.BYTES_PER_ELEMENT,
-    read: (layer) => layer.strokeData?.speedBuffer ?? layer.data?.indexBuffer?.speedData,
-  },
-  {
-    key: 'flow',
-    bytesPerPixel: Uint8Array.BYTES_PER_ELEMENT,
-    read: (layer) => layer.strokeData?.flowBuffer ?? layer.data?.indexBuffer?.flowData,
-  },
-  {
-    key: 'phase',
-    bytesPerPixel: Uint8Array.BYTES_PER_ELEMENT,
-    read: (layer) => layer.strokeData?.phaseBuffer ?? layer.data?.indexBuffer?.phaseData,
-  },
-];
+const readPixelBuffer = (
+  key: ColorCyclePixelPatchBufferKey,
+  layer: ColorCycleSerializedLayer,
+): ArrayBuffer | ArrayBufferView | undefined => {
+  switch (key) {
+    case 'paint':
+      return layer.strokeData?.paintBuffer ?? layer.data?.indexBuffer?.data;
+    case 'gradientId':
+      return layer.strokeData?.gradientIdBuffer ?? layer.data?.indexBuffer?.gradientId;
+    case 'gradientDefId':
+      return layer.strokeData?.gradientDefIdBuffer;
+    case 'speed':
+      return layer.strokeData?.speedBuffer ?? layer.data?.indexBuffer?.speedData;
+    case 'flow':
+      return layer.strokeData?.flowBuffer ?? layer.data?.indexBuffer?.flowData;
+    case 'phase':
+      return layer.strokeData?.phaseBuffer ?? layer.data?.indexBuffer?.phaseData;
+    default: {
+      const exhaustive: never = key;
+      return exhaustive;
+    }
+  }
+};
+
+const COLOR_CYCLE_PIXEL_BUFFER_SPECS: readonly ColorCyclePixelBufferSpec[] =
+  COLOR_CYCLE_DOCUMENT_CANONICAL_PIXEL_BUFFERS.map((buffer) => ({
+    key: buffer.historyKey,
+    bytesPerPixel: buffer.bytesPerPixel,
+    read: (layer) => readPixelBuffer(buffer.historyKey, layer),
+  }));
 
 export interface ColorCycleStrokePatchDeltaOptions {
   layerId: string;
@@ -432,24 +426,37 @@ const encodedPatchApproxBytes = (patches: EncodedColorCyclePixelPatches): number
     0
   );
 
-const decodePatch = async (patch: PaintPatch | null): Promise<Uint8Array | undefined> => {
+const decodePatch = async (
+  patch: PaintPatch | null,
+  direction: HistoryDirection,
+  layerId: string
+): Promise<Uint8Array | undefined> => {
   if (!patch) {
     return undefined;
   }
   const blob = await readBlob(patch.blobId);
   if (!blob) {
-    return undefined;
+    throw new HistoryBlobReadError({
+      deltaTag: 'color-cycle-stroke-patch',
+      direction,
+      layerId,
+      expected: patch.blobId,
+      actual: null,
+      reason: 'missing-color-cycle-patch-blob',
+    });
   }
   return patch.encoding === 'rle' ? decodeRLE(blob.data) : blob.data;
 };
 
 const decodeColorCyclePatchSet = async (
-  patches: EncodedColorCyclePixelPatches
+  patches: EncodedColorCyclePixelPatches,
+  direction: HistoryDirection,
+  layerId: string
 ): Promise<ColorCyclePixelPatchBytes> => {
   const decoded = emptyColorCyclePatchBytes();
   await Promise.all(
     COLOR_CYCLE_PIXEL_PATCH_BUFFER_KEYS.map(async (key) => {
-      decoded[key] = (await decodePatch(patches[key])) ?? null;
+      decoded[key] = (await decodePatch(patches[key], direction, layerId)) ?? null;
     })
   );
   return decoded;
@@ -548,13 +555,18 @@ class ColorCycleStrokePatchDelta implements HistoryDelta {
       return;
     }
 
+    const decoded = await decodeColorCyclePatchSet(patches, direction, this.layerId);
+    if (!decoded.paint) {
+      return;
+    }
+
     const expectedVersion = direction === 'forward' ? this.beforeVersion : this.afterVersion;
     const documentRead = manager.getDocument(this.layerId)?.read?.() ??
       brush.getColorCycleLayerDocument?.(this.layerId)?.read?.();
     if (
       typeof expectedVersion === 'number' &&
       documentRead &&
-      documentRead.version !== expectedVersion
+      documentRead.pixelVersion !== expectedVersion
     ) {
       logCCMutation({
         event: 'history-cc-document-version-mismatch',
@@ -568,10 +580,18 @@ class ColorCycleStrokePatchDelta implements HistoryDelta {
           operation: direction === 'backward' ? 'undo' : 'redo',
           direction,
           expectedVersion,
-          actualVersion: documentRead.version,
+          actualVersion: documentRead.pixelVersion,
+          documentVersion: documentRead.version,
         },
       });
-      return;
+      throw new HistoryReplayDriftError({
+        deltaTag: this._tag,
+        direction,
+        layerId: this.layerId,
+        expected: expectedVersion,
+        actual: documentRead.pixelVersion,
+        reason: 'pixel-version-mismatch',
+      });
     }
 
     if (
@@ -582,11 +602,6 @@ class ColorCycleStrokePatchDelta implements HistoryDelta {
       try {
         brush.setTargetCanvas(targetCanvas);
       } catch {}
-    }
-
-    const decoded = await decodeColorCyclePatchSet(patches);
-    if (!decoded.paint) {
-      return;
     }
 
     const beforeAudit = summarizeColorCycleLayer(layer);

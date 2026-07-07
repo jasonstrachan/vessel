@@ -306,8 +306,8 @@ export const commitLayerHistory = async ({
               roi: colorCycleRoi,
               width: projectWidth,
               height: projectHeight,
-              beforeVersion: beforeColorState?.documentVersion,
-              afterVersion: afterColorState?.documentVersion,
+              beforeVersion: beforeColorState?.pixelVersion,
+              afterVersion: afterColorState?.pixelVersion,
             })
           : null;
         pushDelta(patchDelta);
@@ -319,6 +319,8 @@ export const commitLayerHistory = async ({
               roi: colorCycleRoi,
               width: projectWidth,
               height: projectHeight,
+              beforeVersion: beforeColorState?.documentVersion,
+              afterVersion: afterColorState?.documentVersion,
             })
           : null;
         pushDelta(eraseMaskDelta);
@@ -326,6 +328,8 @@ export const commitLayerHistory = async ({
           layerId,
           forwardState: afterColorState,
           backwardState: beforeColorState,
+          beforeVersion: beforeColorState?.documentVersion,
+          afterVersion: afterColorState?.documentVersion,
         }));
       }
 

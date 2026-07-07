@@ -176,6 +176,38 @@ describe('ColorCycleLayerDocument', () => {
     ]);
   });
 
+  it('does not bump the version when replacing with identical canonical state', () => {
+    const document = new ColorCycleLayerDocument(makeState(), {
+      initialVersion: 7,
+      now: () => 4567,
+    });
+    const equivalentState = makeState();
+
+    const read = document.replaceState(equivalentState, 'stroke-publish');
+
+    expect(read.version).toBe(7);
+    expect(document.getAuditLog()).toEqual([]);
+    expect(document.consumeDirtyBatch()).toBeNull();
+  });
+
+  it('tracks pixel version separately from metadata-only document changes', () => {
+    const document = new ColorCycleLayerDocument(makeState(), { initialVersion: 7 });
+    const metadataOnly = makeState({ paintSlot: 2 });
+
+    const metadataRead = document.replaceState(metadataOnly, 'metadata-update');
+
+    expect(metadataRead.version).toBe(8);
+    expect(metadataRead.pixelVersion).toBe(7);
+
+    const pixelRead = document.replaceState(
+      makeState({ paintSlot: 2, paintBuffer: makeBuffer([9, 0, 0, 0]) }),
+      'paint-update',
+    );
+
+    expect(pixelRead.version).toBe(9);
+    expect(pixelRead.pixelVersion).toBe(8);
+  });
+
   it('records a versioned full-layer dirty batch for committed transactions', () => {
     const document = new ColorCycleLayerDocument(makeState(), { initialVersion: 4 });
     const transaction = document.beginTransaction('stroke-commit');
@@ -298,7 +330,11 @@ describe('ColorCycleLayerDocument', () => {
     surface.rebuild(document.read().snapshot, document.version);
     expect(isDerivedSurfaceStale(document, surface)).toBe(false);
 
-    document.beginTransaction('stroke-commit').commit();
+    const transaction = document.beginTransaction('stroke-commit');
+    transaction.mutate((draft) => {
+      draft.paintSlot = 2;
+    });
+    transaction.commit();
 
     expect(isDerivedSurfaceStale(document, surface)).toBe(true);
   });

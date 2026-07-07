@@ -187,7 +187,7 @@ const captureFromColdArchiveDocument = (
     return undefined;
   }
 
-  const { version } = document.read();
+  const { version, pixelVersion } = document.read();
   const selectedDiagnostic = {
     source: 'document' as const,
     kind: 'source-selected' as const,
@@ -265,6 +265,7 @@ const captureFromColdArchiveDocument = (
     mode: context.mode,
     layerId: layer.id,
     documentVersion: version,
+    pixelVersion,
     documentState: {
       ...documentState,
       paintBuffer,
@@ -288,7 +289,7 @@ const captureFromDocument = (
     return coldArchiveCaptured;
   }
 
-  const { snapshot, version } = document.read();
+  const { snapshot, version, pixelVersion } = document.read();
   const documentState = cloneDocumentStateForPersistence(snapshot);
   const validation = validatePersistenceDocumentState(documentState, {
     requirePaint: context.requirePaint,
@@ -341,6 +342,7 @@ const captureFromDocument = (
     mode: context.mode,
     layerId: layer.id,
     documentVersion: version,
+    pixelVersion,
     documentState: {
       ...documentState,
       paintBuffer: documentState.paintBuffer,

@@ -19,11 +19,18 @@ import type {
   HistoryDirection,
   HistoryRehydrationTargets,
 } from '../actionTypes';
+import { readBlob, releaseBlob, storeBlob } from '../blobStore';
+import { HistoryBlobReadError, HistoryReplayDriftError } from '../errors';
 
 type ColorCycleBrushState = ColorCycleBrushSerializedState & {
   documentVersion?: number;
 };
 type ColorCycleSerializedLayer = NonNullable<ColorCycleBrushState['layers']>[number];
+type HistoryBufferRef = {
+  __historyBlobRef: true;
+  blobId: string;
+  byteLength: number;
+};
 
 type ManagedColorCycleBrush = ColorCycleHistoryBrushContext & ColorCycleBrushSerializedStateRuntimeWriter & {
   getColorCycleLayerDocument?: (layerId: string) => { read(): ColorCycleLayerDocumentRead } | null | undefined;
@@ -192,7 +199,189 @@ const cloneState = (
   };
 };
 
-export class ColorCycleStrokeDelta implements HistoryDelta {
+const isHistoryBufferRef = (value: unknown): value is HistoryBufferRef =>
+  Boolean(
+    value &&
+    typeof value === 'object' &&
+    (value as { __historyBlobRef?: unknown }).__historyBlobRef === true &&
+    typeof (value as { blobId?: unknown }).blobId === 'string'
+  );
+
+const blobifyBuffer = async (
+  buffer: ArrayBuffer | undefined
+): Promise<ArrayBuffer | HistoryBufferRef | undefined> => {
+  if (!buffer) {
+    return buffer;
+  }
+  return {
+    __historyBlobRef: true,
+    blobId: await storeBlob(buffer),
+    byteLength: buffer.byteLength,
+  };
+};
+
+const blobifyState = async (state: ColorCycleBrushState | null): Promise<ColorCycleBrushState | null> => {
+  if (!state) {
+    return null;
+  }
+  const layers = state.layers
+    ? await Promise.all(
+        state.layers.map(async (layer) => {
+          if (!layer.strokeData) {
+            return layer;
+          }
+          const [
+            paintBuffer,
+            gradientIdBuffer,
+            gradientDefIdBuffer,
+            speedBuffer,
+            flowBuffer,
+            phaseBuffer,
+          ] = await Promise.all([
+            blobifyBuffer(layer.strokeData.paintBuffer),
+            blobifyBuffer(layer.strokeData.gradientIdBuffer),
+            blobifyBuffer(layer.strokeData.gradientDefIdBuffer),
+            blobifyBuffer(layer.strokeData.speedBuffer),
+            blobifyBuffer(layer.strokeData.flowBuffer),
+            blobifyBuffer(layer.strokeData.phaseBuffer),
+          ]);
+          return {
+            ...layer,
+            strokeData: {
+              ...layer.strokeData,
+              paintBuffer,
+              gradientIdBuffer,
+              gradientDefIdBuffer,
+              speedBuffer,
+              flowBuffer,
+              phaseBuffer,
+            } as ColorCycleSerializedLayer['strokeData'],
+          };
+        })
+      )
+    : [];
+
+  return {
+    ...state,
+    layers,
+  };
+};
+
+const bufferApproxBytes = (buffer: unknown): number => {
+  if (isHistoryBufferRef(buffer)) {
+    return buffer.byteLength;
+  }
+  return buffer instanceof ArrayBuffer ? buffer.byteLength : 0;
+};
+
+const materializeBuffer = async (
+  buffer: ArrayBuffer | HistoryBufferRef | undefined,
+  direction: HistoryDirection,
+  deltaTag: string,
+  layerId: string,
+): Promise<ArrayBuffer | undefined> => {
+  if (!buffer || buffer instanceof ArrayBuffer) {
+    return buffer;
+  }
+  if (!isHistoryBufferRef(buffer)) {
+    return undefined;
+  }
+  const blob = await readBlob(buffer.blobId);
+  if (!blob) {
+    throw new HistoryBlobReadError({
+      deltaTag,
+      direction,
+      layerId,
+      expected: buffer.blobId,
+      actual: null,
+      reason: 'missing-color-cycle-full-state-blob',
+    });
+  }
+  return blob.data.buffer.slice(
+    blob.data.byteOffset,
+    blob.data.byteOffset + blob.data.byteLength,
+  ) as ArrayBuffer;
+};
+
+const materializeState = async (
+  state: ColorCycleBrushState,
+  direction: HistoryDirection,
+  deltaTag: string,
+  layerId: string,
+): Promise<ColorCycleBrushState> => ({
+  ...state,
+  layers: state.layers
+    ? await Promise.all(
+        state.layers.map(async (layer) => ({
+          ...layer,
+          strokeData: layer.strokeData
+            ? {
+                ...layer.strokeData,
+                paintBuffer: (await materializeBuffer(
+                  layer.strokeData.paintBuffer as ArrayBuffer | HistoryBufferRef | undefined,
+                  direction,
+                  deltaTag,
+                  layerId,
+                )) ?? new ArrayBuffer(0),
+                gradientIdBuffer: await materializeBuffer(
+                  layer.strokeData.gradientIdBuffer as ArrayBuffer | HistoryBufferRef | undefined,
+                  direction,
+                  deltaTag,
+                  layerId,
+                ),
+                gradientDefIdBuffer: await materializeBuffer(
+                  layer.strokeData.gradientDefIdBuffer as ArrayBuffer | HistoryBufferRef | undefined,
+                  direction,
+                  deltaTag,
+                  layerId,
+                ),
+                speedBuffer: await materializeBuffer(
+                  layer.strokeData.speedBuffer as ArrayBuffer | HistoryBufferRef | undefined,
+                  direction,
+                  deltaTag,
+                  layerId,
+                ),
+                flowBuffer: await materializeBuffer(
+                  layer.strokeData.flowBuffer as ArrayBuffer | HistoryBufferRef | undefined,
+                  direction,
+                  deltaTag,
+                  layerId,
+                ),
+                phaseBuffer: await materializeBuffer(
+                  layer.strokeData.phaseBuffer as ArrayBuffer | HistoryBufferRef | undefined,
+                  direction,
+                  deltaTag,
+                  layerId,
+                ),
+              }
+            : undefined,
+        }))
+      )
+    : [],
+});
+
+const collectStateBlobRefs = (state: ColorCycleBrushState | null, refs: string[]): void => {
+  state?.layers?.forEach((layer) => {
+    const strokeData = layer.strokeData;
+    if (!strokeData) {
+      return;
+    }
+    [
+      strokeData.paintBuffer,
+      strokeData.gradientIdBuffer,
+      strokeData.gradientDefIdBuffer,
+      strokeData.speedBuffer,
+      strokeData.flowBuffer,
+      strokeData.phaseBuffer,
+    ].forEach((buffer) => {
+      if (isHistoryBufferRef(buffer)) {
+        refs.push(buffer.blobId);
+      }
+    });
+  });
+};
+
+class ColorCycleStrokeDelta implements HistoryDelta {
   readonly _tag = 'color-cycle-stroke';
   readonly approxBytes?: number;
 
@@ -211,21 +400,22 @@ export class ColorCycleStrokeDelta implements HistoryDelta {
     const sizeOf = (state: ColorCycleBrushState | null) =>
       state?.layers?.reduce((sum: number, layer: ColorCycleSerializedLayer) => {
         return sum
-          + (layer.strokeData?.paintBuffer?.byteLength ?? 0)
-          + (layer.strokeData?.gradientIdBuffer?.byteLength ?? 0)
-          + (layer.strokeData?.gradientDefIdBuffer?.byteLength ?? 0)
-          + (layer.strokeData?.speedBuffer?.byteLength ?? 0)
-          + (layer.strokeData?.flowBuffer?.byteLength ?? 0)
-          + (layer.strokeData?.phaseBuffer?.byteLength ?? 0);
+          + bufferApproxBytes(layer.strokeData?.paintBuffer)
+          + bufferApproxBytes(layer.strokeData?.gradientIdBuffer)
+          + bufferApproxBytes(layer.strokeData?.gradientDefIdBuffer)
+          + bufferApproxBytes(layer.strokeData?.speedBuffer)
+          + bufferApproxBytes(layer.strokeData?.flowBuffer)
+          + bufferApproxBytes(layer.strokeData?.phaseBuffer);
       }, 0) ?? 0;
     this.approxBytes = sizeOf(this.forwardState) + sizeOf(this.backwardState);
   }
 
   async apply(direction: HistoryDirection): Promise<void> {
-    const state = direction === 'forward' ? this.forwardState : this.backwardState;
-    if (!state) {
+    const storedState = direction === 'forward' ? this.forwardState : this.backwardState;
+    if (!storedState) {
       return;
     }
+    const state = await materializeState(storedState, direction, this._tag, this.layerId);
 
     const manager = getColorCycleBrushManager();
     const initialState = useAppStore.getState();
@@ -284,7 +474,14 @@ export class ColorCycleStrokeDelta implements HistoryDelta {
           actualVersion: documentRead.version,
         },
       });
-      return;
+      throw new HistoryReplayDriftError({
+        deltaTag: this._tag,
+        direction,
+        layerId: this.layerId,
+        expected: expectedVersion,
+        actual: documentRead.version,
+        reason: 'document-version-mismatch',
+      });
     }
 
     const setTargetCanvas = brush.setTargetCanvas;
@@ -561,11 +758,18 @@ export class ColorCycleStrokeDelta implements HistoryDelta {
     targets.colorCycleLayerIds.add(this.layerId);
     targets.workerScopes.add('color-cycle-gradient');
   }
+
+  dispose(): void {
+    const refs: string[] = [];
+    collectStateBlobRefs(this.forwardState, refs);
+    collectStateBlobRefs(this.backwardState, refs);
+    refs.forEach((id) => releaseBlob(id));
+  }
 }
 
-export const createColorCycleStrokeDelta = (
+export const createColorCycleStrokeDelta = async (
   options: ColorCycleStrokeDeltaOptions
-): HistoryDelta | null => {
+): Promise<HistoryDelta | null> => {
   if (!options.forwardState && !options.backwardState) {
     return null;
   }
@@ -585,10 +789,13 @@ export const createColorCycleStrokeDelta = (
   const backwardLengths = measurePaintBufferLengths(options.backwardState);
   const forwardLengths = measurePaintBufferLengths(options.forwardState);
 
+  const forwardState = await blobifyState(cloneState(options.forwardState, forwardLengths));
+  const backwardState = await blobifyState(cloneState(options.backwardState, backwardLengths));
+
   return new ColorCycleStrokeDelta({
     layerId: options.layerId,
-    forwardState: cloneState(options.forwardState, forwardLengths),
-    backwardState: cloneState(options.backwardState, backwardLengths),
+    forwardState,
+    backwardState,
     beforeVersion: options.beforeVersion ?? options.backwardState?.documentVersion,
     afterVersion: options.afterVersion ?? options.forwardState?.documentVersion,
   });

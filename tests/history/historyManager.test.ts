@@ -1,5 +1,6 @@
 import HistoryManager from '@/history/historyManager';
 import type { HistoryDelta, HistoryDirection } from '@/history/actionTypes';
+import { clearBlobStore, getHistoryBlobMetrics } from '@/history/blobStore';
 
 class FakeDelta implements HistoryDelta {
   readonly _tag: string;
@@ -23,6 +24,10 @@ class FakeDelta implements HistoryDelta {
 }
 
 describe('HistoryManager', () => {
+  beforeEach(() => {
+    clearBlobStore();
+  });
+
   it('commits transactions and clears redo stack', () => {
     const manager = new HistoryManager({ maxEntries: 5 });
     const log: Array<{ direction: HistoryDirection }> = [];
@@ -52,6 +57,18 @@ describe('HistoryManager', () => {
     }
     expect(manager.entries()).toHaveLength(2);
     expect(manager.entries()[0]?.label).toBe('Stroke 1');
+    expect(getHistoryBlobMetrics().lastTrimReason).toBe('max-entries-undo');
+  });
+
+  it('retains entries over the old hard cap for blob-backed replay', () => {
+    const manager = new HistoryManager({ maxEntries: 5 });
+    const txn = manager.begin('cc-stroke');
+    txn.push(new FakeDelta('large', [], { approxBytes: 60 * 1024 * 1024 }));
+
+    txn.commit('Large CC State');
+
+    expect(manager.entries()).toHaveLength(1);
+    expect(manager.peekUndo()?.meta?.approxBytes).toBe(60 * 1024 * 1024);
   });
 
   it('tracks redo entries independently per document', async () => {

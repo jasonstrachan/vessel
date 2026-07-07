@@ -10,7 +10,7 @@ import type {
   HistoryCoalesceOptions,
   HistoryRehydrationTargets,
 } from './actionTypes';
-import { recordHistoryEntryMetrics } from './profiling';
+import { recordHistoryEntryMetrics, recordHistoryTrim } from './profiling';
 
 type DocIdResolver = () => string;
 
@@ -99,7 +99,6 @@ class ScopedTxnImpl implements ScopedTxn {
 const DEFAULT_MAX_ENTRIES = 100;
 const DEFAULT_DOC_ID = 'default-document';
 const HISTORY_ENTRY_WARN_BYTES = 25 * 1024 * 1024;
-const HISTORY_ENTRY_MAX_BYTES = 50 * 1024 * 1024;
 
 export class HistoryManager {
   private readonly undoStacks = new Map<string, HistoryEntry[]>();
@@ -135,6 +134,7 @@ export class HistoryManager {
       while (stack.length > this._maxEntries) {
         const removed = stack.shift();
         if (removed) {
+          recordHistoryTrim('max-entries-undo');
           this.disposeEntry(removed);
         }
       }
@@ -143,6 +143,7 @@ export class HistoryManager {
       while (stack.length > this._maxEntries) {
         const removed = stack.shift();
         if (removed) {
+          recordHistoryTrim('max-entries-redo');
           this.disposeEntry(removed);
         }
       }
@@ -285,27 +286,11 @@ export class HistoryManager {
       (sum, delta) => sum + (delta.approxBytes ?? 0),
       0,
     );
-    if (approxBytes >= HISTORY_ENTRY_MAX_BYTES) {
-      if (process.env.NODE_ENV !== 'production') {
-        debugWarn('raw-console', '[history] Dropping history entry exceeding size limit', {
-          action: txn.action,
-          approxBytes,
-        });
-      }
-      for (const delta of deltas) {
-        try {
-          delta.dispose?.();
-        } catch {
-          // ignore dispose errors for oversized entry cleanup
-        }
-      }
-      return;
-    }
     if (
       approxBytes >= HISTORY_ENTRY_WARN_BYTES &&
       process.env.NODE_ENV !== 'production'
     ) {
-      debugWarn('raw-console', '[history] Large history entry recorded', {
+      debugWarn('raw-console', '[history] Large history entry retained under blob spill policy', {
         action: txn.action,
         approxBytes,
       });
@@ -347,6 +332,7 @@ export class HistoryManager {
     while (stack.length > this._maxEntries) {
       const removed = stack.shift();
       if (removed) {
+        recordHistoryTrim('max-entries-undo');
         this.disposeEntry(removed);
       }
     }

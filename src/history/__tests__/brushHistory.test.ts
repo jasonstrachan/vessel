@@ -5,6 +5,8 @@ import { TextDecoder, TextEncoder } from 'util';
 (global as unknown as { TextDecoder?: typeof TextDecoder }).TextDecoder = TextDecoder;
 
 import historyManager from '@/history/historyService';
+import { clearBlobStore } from '@/history/blobStore';
+import { HistoryBlobReadError, HistoryReplayDriftError } from '@/history/errors';
 import { commitLayerHistory } from '@/history/helpers/layerHistory';
 import { useAppStore } from '@/stores/useAppStore';
 import type { Layer, LayerAlignmentSettings } from '@/types';
@@ -309,6 +311,47 @@ describe('brush history coalescing', () => {
     expect(firstEntry.id).not.toBe(secondEntry.id);
   });
 
+  it('replays ROI-sized bitmap before snapshots without redo drift', async () => {
+    const beforeFull = createImage([
+      10, 0, 0, 255,
+      20, 0, 0, 255,
+      30, 0, 0, 255,
+      0, 0, 0, 0,
+    ]);
+    const beforeRoi = createImageOfSize(1, 1, [
+      0, 0, 0, 0,
+    ]);
+    const afterFull = createImage([
+      10, 0, 0, 255,
+      20, 0, 0, 255,
+      30, 0, 0, 255,
+      255, 0, 0, 255,
+    ]);
+
+    const layer = createLayer('layer-roi', cloneImage(afterFull));
+    installLayer(layer);
+
+    await commitLayerHistory({
+      layerId: layer.id,
+      beforeImage: beforeRoi,
+      beforeColorState: null,
+      actionType: 'brush',
+      description: 'ROI stroke',
+      tool: 'brush',
+      bitmapRoi: { x: 1, y: 1, width: 1, height: 1 },
+    });
+
+    await historyManager.undo();
+    let current = useAppStore.getState().layers.find((entry) => entry.id === layer.id)?.imageData;
+    expect(current).toBeDefined();
+    expect(Array.from(current!.data)).toEqual(Array.from(beforeFull.data));
+
+    await expect(historyManager.redo()).resolves.not.toThrow();
+    current = useAppStore.getState().layers.find((entry) => entry.id === layer.id)?.imageData;
+    expect(current).toBeDefined();
+    expect(Array.from(current!.data)).toEqual(Array.from(afterFull.data));
+  });
+
   it('normalizes before-image dimensions when generating bitmap deltas', async () => {
     const beforeSmall = createImageOfSize(
       2,
@@ -362,6 +405,15 @@ describe('brush history coalescing', () => {
 
     expect(getPixel(restoredImage, 0, 0)).toEqual([255, 0, 0, 255]);
     expect(getPixel(restoredImage, 3, 3)).toEqual([0, 0, 0, 0]);
+
+    await expect(historyManager.redo()).resolves.not.toThrow();
+    const redoneLayer = useAppStore.getState().layers.find((l) => l.id === layer.id);
+    const redoneImage = redoneLayer?.imageData;
+    expect(redoneImage).not.toBeNull();
+    if (!redoneImage) {
+      throw new Error('Expected redone image data');
+    }
+    expect(Array.from(redoneImage.data)).toEqual(Array.from(afterLarge.data));
   });
 
   it('restores ROI snapshots at their original offset during undo', async () => {
@@ -401,6 +453,75 @@ describe('brush history coalescing', () => {
 
     expect(getPixel(restored, 1, 1)).toEqual([0, 0, 255, 255]);
     expect(getPixel(restored, 0, 0)).toEqual([0, 0, 255, 255]);
+  });
+
+  it('refuses bitmap undo when the layer content hash has drifted', async () => {
+    const before = createImage([
+      0, 0, 0, 0,
+      0, 0, 0, 0,
+      0, 0, 0, 0,
+      0, 0, 0, 0,
+    ]);
+    const after = cloneImage(before);
+    setPixel(after, 0, 0, [255, 0, 0, 255]);
+    const drifted = cloneImage(after);
+    setPixel(drifted, 1, 1, [0, 0, 255, 255]);
+
+    const layer = createLayer('bitmap-drift-layer', cloneImage(before));
+    installLayer(layer);
+    updateLayerImage(layer.id, cloneImage(after));
+
+    await commitLayerHistory({
+      layerId: layer.id,
+      beforeImage: cloneImage(before),
+      beforeColorState: null,
+      actionType: 'brush',
+      description: 'Anchored stroke',
+      tool: 'brush',
+    });
+
+    expect(historyManager.entries()).toHaveLength(1);
+    updateLayerImage(layer.id, cloneImage(drifted));
+
+    await expect(historyManager.undo()).rejects.toBeInstanceOf(HistoryReplayDriftError);
+
+    expect(historyManager.entries()).toHaveLength(1);
+    expect(historyManager.redoEntries()).toHaveLength(0);
+    const currentLayer = useAppStore.getState().layers.find((candidate) => candidate.id === layer.id);
+    expect(getPixel(currentLayer?.imageData as ImageData, 0, 0)).toEqual([255, 0, 0, 255]);
+    expect(getPixel(currentLayer?.imageData as ImageData, 1, 1)).toEqual([0, 0, 255, 255]);
+  });
+
+  it('refuses bitmap undo when a required tile blob is missing', async () => {
+    const before = createImage([
+      0, 0, 0, 0,
+      0, 0, 0, 0,
+      0, 0, 0, 0,
+      0, 0, 0, 0,
+    ]);
+    const after = cloneImage(before);
+    setPixel(after, 0, 0, [255, 0, 0, 255]);
+
+    const layer = createLayer('bitmap-missing-blob-layer', cloneImage(before));
+    installLayer(layer);
+    updateLayerImage(layer.id, cloneImage(after));
+
+    await commitLayerHistory({
+      layerId: layer.id,
+      beforeImage: cloneImage(before),
+      beforeColorState: null,
+      actionType: 'brush',
+      description: 'Anchored stroke',
+      tool: 'brush',
+    });
+
+    clearBlobStore();
+    await expect(historyManager.undo()).rejects.toBeInstanceOf(HistoryBlobReadError);
+
+    expect(historyManager.entries()).toHaveLength(1);
+    expect(historyManager.redoEntries()).toHaveLength(0);
+    const currentLayer = useAppStore.getState().layers.find((candidate) => candidate.id === layer.id);
+    expect(getPixel(currentLayer?.imageData as ImageData, 0, 0)).toEqual([255, 0, 0, 255]);
   });
 });
 

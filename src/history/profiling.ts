@@ -1,4 +1,9 @@
 import type { HistoryDelta, HistoryEntry } from './actionTypes';
+import {
+  getHistoryBlobMetrics,
+  recordHistoryBlobTrim,
+  type HistoryBlobMetrics,
+} from './blobStore';
 
 interface ColorCycleMetrics {
   sampleCount: number;
@@ -88,6 +93,13 @@ export const getColorCycleHistoryMetrics = (): Readonly<{
   };
 };
 
+export const getHistoryMemoryMetrics = (): Readonly<HistoryBlobMetrics> =>
+  getHistoryBlobMetrics();
+
+export const recordHistoryTrim = (reason: string): void => {
+  recordHistoryBlobTrim(reason);
+};
+
 export const resetColorCycleHistoryMetrics = (): void => {
   metrics.sampleCount = 0;
   metrics.totalBytes = 0;
@@ -116,6 +128,9 @@ if (process.env.NODE_ENV !== 'production') {
   bucket.colorCycleHistory = {
     get: getColorCycleHistoryMetrics,
     reset: resetColorCycleHistoryMetrics,
+  };
+  bucket.historyMemory = {
+    get: getHistoryMemoryMetrics,
   };
   globalScope.__vesselHistoryMetrics = bucket;
 }

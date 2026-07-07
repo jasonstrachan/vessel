@@ -96,6 +96,7 @@ describe('brushPersistenceAdapter', () => {
     const gradientId = new Uint8Array([1, 0, 0, 0]);
     const snapshot = readColorCycleBrushLayerSnapshotFromDocumentRead({
       version: 3,
+      pixelVersion: 3,
       snapshot: {
         layerId: 'layer-a',
         width: 2,
@@ -124,6 +125,7 @@ describe('brushPersistenceAdapter', () => {
 
     const cleared = readColorCycleBrushLayerSnapshotFromDocumentRead({
       version: 4,
+      pixelVersion: 4,
       snapshot: {
         layerId: 'layer-a',
         width: 2,
@@ -250,6 +252,7 @@ describe('brushPersistenceAdapter', () => {
           calls.push(`read:${layerId}`);
           return {
             version: 1,
+            pixelVersion: 1,
             snapshot: {
               layerId,
               width: 2,
@@ -419,6 +422,7 @@ describe('brushPersistenceAdapter', () => {
       getColorCycleLayerDocument: () => ({
         read: () => ({
           version: 7,
+          pixelVersion: 7,
           snapshot: {
             layerId: 'layer-a',
             width: 2,
@@ -549,6 +553,7 @@ describe('brushPersistenceAdapter', () => {
       getStrokeState: () => strokeState,
       getDocumentRead: () => ({
         version: 2,
+        pixelVersion: 2,
         snapshot: {
           layerId: 'layer-a',
           width: 3,

@@ -11,6 +11,7 @@ const makeCanvas = (width = 8, height = 6): HTMLCanvasElement => {
 
 const makeDocumentRead = (version: number): ColorCycleLayerDocumentRead => ({
   version,
+  pixelVersion: version,
   snapshot: {} as ColorCycleLayerDocumentRead['snapshot'],
 });
 

@@ -27,6 +27,7 @@ export type ColorCycleLayerDocumentArchiveRefs = {
 export type ColorCycleLayerDocumentRead = {
   snapshot: ColorCycleLayerDocumentSnapshot;
   version: number;
+  pixelVersion: number;
 };
 
 export type ColorCycleDirtyRect = {
@@ -104,6 +105,7 @@ export type ColorCycleLayerDocumentRuntimePolicy = {
 
 export type ColorCycleLayerDocumentOptions = {
   initialVersion?: number;
+  initialPixelVersion?: number;
   residency?: ColorCycleLayerDocumentResidency;
   archiveRefs?: ColorCycleLayerDocumentArchiveRefs;
   now?: () => number;
@@ -111,6 +113,7 @@ export type ColorCycleLayerDocumentOptions = {
 
 export type ColorCycleLayerDocumentBaselineOptions = {
   version?: number;
+  pixelVersion?: number;
   clearAudit?: boolean;
 };
 
@@ -287,6 +290,118 @@ const cloneDocumentState = (
   sources: { ...state.sources },
 });
 
+const arrayBuffersEqual = (
+  a: ArrayBuffer | undefined,
+  b: ArrayBuffer | undefined,
+): boolean => {
+  if (!a || !b) {
+    return a === b;
+  }
+  if (a.byteLength !== b.byteLength) {
+    return false;
+  }
+  const aBytes = new Uint8Array(a);
+  const bBytes = new Uint8Array(b);
+  for (let index = 0; index < aBytes.length; index += 1) {
+    if (aBytes[index] !== bBytes[index]) {
+      return false;
+    }
+  }
+  return true;
+};
+
+const optionalArrayEqual = <T>(
+  a: T[] | undefined,
+  b: T[] | undefined,
+  equal: (left: T, right: T) => boolean,
+): boolean => {
+  if (!a || !b) {
+    return a === b;
+  }
+  if (a.length !== b.length) {
+    return false;
+  }
+  return a.every((entry, index) => equal(entry, b[index]));
+};
+
+const stopsEqual = (
+  a: Array<{ position: number; color: string }>,
+  b: Array<{ position: number; color: string }>,
+): boolean => (
+  a.length === b.length &&
+  a.every((stop, index) => (
+    stop.position === b[index]?.position &&
+    stop.color === b[index]?.color
+  ))
+);
+
+const gradientDefsEqual = (
+  a: ColorCycleGradientDef,
+  b: ColorCycleGradientDef,
+): boolean => (
+  a.id === b.id &&
+  a.name === b.name &&
+  a.currentSlot === b.currentSlot
+);
+
+const slotPalettesEqual = (
+  a: ColorCycleSlotPalette,
+  b: ColorCycleSlotPalette,
+): boolean => (
+  a.slot === b.slot &&
+  a.seamProfile === b.seamProfile &&
+  stopsEqual(a.stops, b.stops)
+);
+
+const gradientDefStoreEntriesEqual = (
+  a: ColorCycleGradientDefStoreEntry,
+  b: ColorCycleGradientDefStoreEntry,
+): boolean => (
+  a.id === b.id &&
+  a.kind === b.kind &&
+  a.hash === b.hash &&
+  a.source === b.source &&
+  a.seamProfile === b.seamProfile &&
+  a.createdAtMs === b.createdAtMs &&
+  a.slot === b.slot &&
+  a.speedCps === b.speedCps &&
+  stopsEqual(a.stops, b.stops)
+);
+
+const documentPixelBuffersEqual = (
+  a: ColorCycleLayerDocumentState,
+  b: ColorCycleLayerDocumentState,
+): boolean => (
+  arrayBuffersEqual(a.paintBuffer, b.paintBuffer) &&
+  arrayBuffersEqual(a.gradientIdBuffer, b.gradientIdBuffer) &&
+  arrayBuffersEqual(a.gradientDefIdBuffer, b.gradientDefIdBuffer) &&
+  arrayBuffersEqual(a.speedBuffer, b.speedBuffer) &&
+  arrayBuffersEqual(a.flowBuffer, b.flowBuffer) &&
+  arrayBuffersEqual(a.phaseBuffer, b.phaseBuffer)
+);
+
+const documentStatesEqual = (
+  a: ColorCycleLayerDocumentState,
+  b: ColorCycleLayerDocumentState,
+): boolean => (
+  a.layerId === b.layerId &&
+  a.width === b.width &&
+  a.height === b.height &&
+  a.activeGradientId === b.activeGradientId &&
+  a.paintSlot === b.paintSlot &&
+  a.fgActiveSlot === b.fgActiveSlot &&
+  a.layerBaseSpeedCps === b.layerBaseSpeedCps &&
+  a.flowMode === b.flowMode &&
+  a.hasContent === b.hasContent &&
+  a.sources.brushStateSnapshot === b.sources.brushStateSnapshot &&
+  a.sources.topLevelBuffers === b.sources.topLevelBuffers &&
+  a.sources.legacyStateRefs === b.sources.legacyStateRefs &&
+  documentPixelBuffersEqual(a, b) &&
+  optionalArrayEqual(a.slotPalettes, b.slotPalettes, slotPalettesEqual) &&
+  optionalArrayEqual(a.gradientDefs, b.gradientDefs, gradientDefsEqual) &&
+  optionalArrayEqual(a.gradientDefStore, b.gradientDefStore, gradientDefStoreEntriesEqual)
+);
+
 const freezeDocumentSnapshot = (
   state: ColorCycleLayerDocumentState,
 ): ColorCycleLayerDocumentSnapshot => {
@@ -404,6 +519,8 @@ export class ColorCycleLayerDocument {
 
   private currentVersion: number;
 
+  private currentPixelVersion: number;
+
   private readonly auditEntries: ColorCycleLayerDocumentAuditEntry[] = [];
 
   private readonly now: () => number;
@@ -421,6 +538,7 @@ export class ColorCycleLayerDocument {
     this.currentState = cloneDocumentState(initialState);
     this.currentSnapshot = freezeDocumentSnapshot(cloneDocumentState(this.currentState));
     this.currentVersion = options.initialVersion ?? 0;
+    this.currentPixelVersion = options.initialPixelVersion ?? this.currentVersion;
     this.currentResidency = options.residency ?? 'resident';
     this.currentArchiveRefs = options.archiveRefs ? { ...options.archiveRefs } : null;
     this.now = options.now ?? Date.now;
@@ -432,6 +550,10 @@ export class ColorCycleLayerDocument {
 
   get version(): number {
     return this.currentVersion;
+  }
+
+  get pixelVersion(): number {
+    return this.currentPixelVersion;
   }
 
   get residency(): ColorCycleLayerDocumentResidency {
@@ -467,6 +589,7 @@ export class ColorCycleLayerDocument {
     return {
       snapshot: this.currentSnapshot,
       version: this.currentVersion,
+      pixelVersion: this.currentPixelVersion,
     };
   }
 
@@ -502,6 +625,7 @@ export class ColorCycleLayerDocument {
     this.currentState = cloneDocumentState(nextState);
     this.currentSnapshot = freezeDocumentSnapshot(cloneDocumentState(this.currentState));
     this.currentVersion = options.version ?? 0;
+    this.currentPixelVersion = options.pixelVersion ?? this.currentVersion;
     this.dirtyTracker.clear();
     if (options.clearAudit !== false) {
       this.auditEntries.length = 0;
@@ -539,7 +663,7 @@ export class ColorCycleLayerDocument {
     if (nextArchiveRefs !== undefined) {
       this.currentArchiveRefs = nextArchiveRefs ? { ...nextArchiveRefs } : null;
     }
-    return this.commitTransaction(nextReason, this.currentState);
+    return this.commitTransaction(nextReason, this.currentState, undefined, { force: true });
   }
 
   getAuditLog(): readonly ColorCycleLayerDocumentAuditEntry[] {
@@ -550,13 +674,22 @@ export class ColorCycleLayerDocument {
     reason: string,
     draft: ColorCycleLayerDocumentState,
     dirtyRects?: ColorCycleDirtyRect[],
+    options: { force?: boolean } = {},
   ): ColorCycleLayerDocumentRead {
+    if (options.force !== true && documentStatesEqual(this.currentState, draft)) {
+      return this.read();
+    }
+
     const versionBefore = this.currentVersion;
     const versionAfter = versionBefore + 1;
+    const pixelVersionAfter = documentPixelBuffersEqual(this.currentState, draft)
+      ? this.currentPixelVersion
+      : this.currentPixelVersion + 1;
 
     this.currentState = cloneDocumentState(draft);
     this.currentSnapshot = freezeDocumentSnapshot(cloneDocumentState(this.currentState));
     this.currentVersion = versionAfter;
+    this.currentPixelVersion = pixelVersionAfter;
     this.dirtyTracker.markLayerDirty(
       this.currentState.layerId,
       versionAfter,

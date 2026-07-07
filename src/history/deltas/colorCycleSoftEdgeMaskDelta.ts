@@ -1,12 +1,16 @@
+import { getColorCycleBrushManager } from '@/stores/colorCycleBrushManager';
 import { useAppStore } from '@/stores/useAppStore';
 import type { ColorCycleEraseMaskSnapshot, ColorCycleSerializedState } from '@/history/helpers/colorCycle';
 import type { Layer } from '@/types';
 import type { HistoryDelta, HistoryDirection, HistoryRehydrationTargets } from '../actionTypes';
+import { HistoryReplayDriftError } from '../errors';
 
 export interface ColorCycleSoftEdgeMaskDeltaOptions {
   layerId: string;
   forwardState: ColorCycleSerializedState;
   backwardState: ColorCycleSerializedState;
+  beforeVersion?: number;
+  afterVersion?: number;
 }
 
 const extractMask = (
@@ -114,20 +118,42 @@ class ColorCycleSoftEdgeMaskDelta implements HistoryDelta {
   readonly approxBytes?: number;
   private readonly forwardMask: ColorCycleEraseMaskSnapshot | undefined;
   private readonly backwardMask: ColorCycleEraseMaskSnapshot | undefined;
+  private readonly beforeVersion?: number;
+  private readonly afterVersion?: number;
 
   constructor(options: {
     layerId: string;
     forwardMask: ColorCycleEraseMaskSnapshot | undefined;
     backwardMask: ColorCycleEraseMaskSnapshot | undefined;
+    beforeVersion?: number;
+    afterVersion?: number;
   }) {
     this.layerId = options.layerId;
     this.forwardMask = cloneSnapshot(options.forwardMask);
     this.backwardMask = cloneSnapshot(options.backwardMask);
+    this.beforeVersion = options.beforeVersion;
+    this.afterVersion = options.afterVersion;
     this.approxBytes = (this.forwardMask?.alpha.byteLength ?? 0) + (this.backwardMask?.alpha.byteLength ?? 0);
   }
 
   async apply(direction: HistoryDirection): Promise<void> {
     const snapshot = direction === 'forward' ? this.forwardMask : this.backwardMask;
+    const expectedDocumentVersion = this.afterVersion ?? this.beforeVersion;
+    const documentRead = getColorCycleBrushManager().getDocument(this.layerId)?.read?.();
+    if (
+      typeof expectedDocumentVersion === 'number' &&
+      documentRead &&
+      documentRead.version !== expectedDocumentVersion
+    ) {
+      throw new HistoryReplayDriftError({
+        deltaTag: this._tag,
+        direction,
+        layerId: this.layerId,
+        expected: expectedDocumentVersion,
+        actual: documentRead.version,
+        reason: 'document-version-mismatch',
+      });
+    }
     const state = useAppStore.getState();
     const layer = state.layers.find((candidate) => candidate.id === this.layerId);
     if (!layer || layer.layerType !== 'color-cycle') {
@@ -190,5 +216,7 @@ export const createColorCycleSoftEdgeMaskDelta = (
     layerId: options.layerId,
     forwardMask,
     backwardMask,
+    beforeVersion: options.beforeVersion ?? options.backwardState?.documentVersion,
+    afterVersion: options.afterVersion ?? options.forwardState?.documentVersion,
   });
 };

@@ -2538,12 +2538,13 @@ const createCanonicalSaveDocumentReader = (
     return undefined;
   }
 
-  return {
-    read: () => ({
-      snapshot: documentStateResult.state,
-      version: 0,
-    }),
-  };
+	  return {
+	    read: () => ({
+	      snapshot: documentStateResult.state,
+	      version: 0,
+	      pixelVersion: 0,
+	    }),
+	  };
 };
 
 const cloneSerializedGradientStops = (

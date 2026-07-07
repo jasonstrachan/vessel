@@ -254,10 +254,11 @@ export const restoreColorCycleBrushesWithDocumentHydration = async (
     }
     const warmupDocument = warmupDocumentState.ok
       ? {
-          read: () => ({
-            snapshot: warmupDocumentState.state,
-            version: existingWarmupDocumentRead?.version ?? 0,
-          }),
+	          read: () => ({
+	            snapshot: warmupDocumentState.state,
+	            version: existingWarmupDocumentRead?.version ?? 0,
+	            pixelVersion: existingWarmupDocumentRead?.pixelVersion ?? existingWarmupDocumentRead?.version ?? 0,
+	          }),
         }
       : existingWarmupDocument;
     const warmupSnapshot = captureColorCyclePersistenceSnapshot(layer, {

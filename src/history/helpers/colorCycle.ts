@@ -33,6 +33,7 @@ export type ColorCycleSerializedLayerState = BaseColorCycleSerializedLayer & {
 
 export type ColorCycleSerializedState = (Omit<BaseColorCycleSerializedState, 'layers'> & {
   documentVersion?: number;
+  pixelVersion?: number;
   layers: ColorCycleSerializedLayerState[];
 }) | null;
 
@@ -421,6 +422,9 @@ export const captureColorCycleBrushState = (layerId: string): ColorCycleSerializ
             ...snapshot,
             ...(snapshotResult.ok && typeof snapshotResult.documentVersion === 'number'
               ? { documentVersion: snapshotResult.documentVersion }
+              : {}),
+            ...(snapshotResult.ok && typeof snapshotResult.pixelVersion === 'number'
+              ? { pixelVersion: snapshotResult.pixelVersion }
               : {}),
             layers:
               snapshot.layers?.map((layer) => ({

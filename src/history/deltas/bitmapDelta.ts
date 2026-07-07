@@ -3,6 +3,7 @@ import type { Layer } from '@/types';
 
 import type { HistoryDelta, HistoryDirection, HistoryRehydrationTargets } from '../actionTypes';
 import { readBlob, releaseBlob, storeBlob } from '../blobStore';
+import { HistoryBlobReadError, HistoryReplayDriftError } from '../errors';
 
 type TileEncoding = 'raw' | 'rle';
 
@@ -30,6 +31,67 @@ export interface BitmapDeltaOptions {
 }
 
 const TILE_SIZE_DEFAULT = 256;
+
+const fnvMix = (hash: number, value: number): number => {
+  let next = hash ^ (value & 0xff);
+  next = Math.imul(next, 0x01000193) >>> 0;
+  return next;
+};
+
+const hashBitmapBytes = (
+  data: Uint8Array | Uint8ClampedArray | null,
+  width: number,
+  height: number,
+): string => {
+  let hash = 0x811c9dc5;
+  const mixNumber = (value: number) => {
+    hash = fnvMix(hash, value);
+    hash = fnvMix(hash, value >>> 8);
+    hash = fnvMix(hash, value >>> 16);
+    hash = fnvMix(hash, value >>> 24);
+  };
+  mixNumber(width);
+  mixNumber(height);
+  const byteLength = width * height * 4;
+  mixNumber(byteLength);
+  if (data) {
+    for (let i = 0; i < byteLength; i += 1) {
+      hash = fnvMix(hash, data[i] ?? 0);
+    }
+  }
+  return hash.toString(16).padStart(8, '0');
+};
+
+const hashImageData = (
+  imageData: ImageData | null | undefined,
+  width: number,
+  height: number,
+): string => hashBitmapBytes(imageData?.data ?? null, width, height);
+
+const hashRoiBeforeOverAfter = (
+  before: ImageData,
+  after: ImageData,
+  roi: { x: number; y: number; right: number; bottom: number },
+): string => {
+  const merged = new Uint8ClampedArray(after.data);
+  const roiWidth = roi.right - roi.x;
+  const roiHeight = roi.bottom - roi.y;
+  for (let y = 0; y < roiHeight; y += 1) {
+    const targetY = roi.y + y;
+    const sourceRow = y * before.width * 4;
+    const targetRow = targetY * after.width * 4;
+    for (let x = 0; x < roiWidth; x += 1) {
+      const targetX = roi.x + x;
+      const sourceIndex = sourceRow + x * 4;
+      const targetIndex = targetRow + targetX * 4;
+      merged[targetIndex] = before.data[sourceIndex] ?? 0;
+      merged[targetIndex + 1] = before.data[sourceIndex + 1] ?? 0;
+      merged[targetIndex + 2] = before.data[sourceIndex + 2] ?? 0;
+      merged[targetIndex + 3] = before.data[sourceIndex + 3] ?? 0;
+    }
+  }
+  return hashBitmapBytes(merged, after.width, after.height);
+};
 
 const cloneImageData = (imageData: ImageData): ImageData =>
   new ImageData(new Uint8ClampedArray(imageData.data), imageData.width, imageData.height);
@@ -108,6 +170,24 @@ const extractTile = (
   return output;
 };
 
+const hashNormalizedImageData = (
+  imageData: ImageData | null | undefined,
+  width: number,
+  height: number,
+): string => {
+  if (!imageData) {
+    return hashImageData(null, width, height);
+  }
+  if (imageData.width === width && imageData.height === height) {
+    return hashImageData(imageData, width, height);
+  }
+  return hashBitmapBytes(
+    extractTile(new Uint8Array(imageData.data), imageData.width, imageData.height, 0, 0, width, height),
+    width,
+    height,
+  );
+};
+
 const tilesEqual = (
   before: Uint8Array,
   after: Uint8Array
@@ -151,14 +231,27 @@ class BitmapTileDelta implements HistoryDelta {
   private readonly height: number;
   private readonly forward: TilePatch[];
   private readonly backward: TilePatch[];
+  private readonly beforeHash: string;
+  private readonly afterHash: string;
   readonly tileCount: number;
 
-  constructor(layerId: string, width: number, height: number, forward: TilePatch[], backward: TilePatch[]) {
+  constructor(options: {
+    layerId: string;
+    width: number;
+    height: number;
+    forward: TilePatch[];
+    backward: TilePatch[];
+    beforeHash: string;
+    afterHash: string;
+  }) {
+    const { layerId, width, height, forward, backward, beforeHash, afterHash } = options;
     this.layerId = layerId;
     this.width = width;
     this.height = height;
     this.forward = forward;
     this.backward = backward;
+    this.beforeHash = beforeHash;
+    this.afterHash = afterHash;
     this.tileCount = forward.length;
     const total =
       forward.reduce((sum, patch) => sum + patch.approxBytes, 0) +
@@ -171,11 +264,31 @@ class BitmapTileDelta implements HistoryDelta {
     if (patches.length === 0) {
       return;
     }
+    const expectedHash = direction === 'forward' ? this.beforeHash : this.afterHash;
+    const targetLayer = useAppStore.getState().layers.find((layer) => layer.id === this.layerId);
+    const actualHash = hashImageData(targetLayer?.imageData, this.width, this.height);
+    if (actualHash !== expectedHash) {
+      throw new HistoryReplayDriftError({
+        deltaTag: this._tag,
+        direction,
+        layerId: this.layerId,
+        expected: expectedHash,
+        actual: actualHash,
+        reason: 'bitmap-content-hash-mismatch',
+      });
+    }
     const decoded = await Promise.all(
       patches.map(async (patch) => {
         const stored = await readBlob(patch.blobId);
         if (!stored) {
-          return { patch, data: new Uint8Array(patch.width * patch.height * 4) };
+          throw new HistoryBlobReadError({
+            deltaTag: this._tag,
+            direction,
+            layerId: this.layerId,
+            expected: patch.blobId,
+            actual: null,
+            reason: 'missing-bitmap-tile-blob',
+          });
         }
         const buffer =
           patch.encoding === 'rle' ? decodeRLE(stored.data) : stored.data;
@@ -264,15 +377,8 @@ class BitmapTileDelta implements HistoryDelta {
   }
 
   dispose(): void {
-    const unique = new Set<string>();
-    const collect = (patch: TilePatch) => {
-      if (!unique.has(patch.blobId)) {
-        unique.add(patch.blobId);
-        releaseBlob(patch.blobId);
-      }
-    };
-    this.forward.forEach(collect);
-    this.backward.forEach(collect);
+    this.forward.forEach((patch) => releaseBlob(patch.blobId));
+    this.backward.forEach((patch) => releaseBlob(patch.blobId));
   }
 
   collectRehydrationTargets(targets: HistoryRehydrationTargets): void {
@@ -409,5 +515,18 @@ export const createBitmapTileDelta = async ({
     return null;
   }
 
-  return new BitmapTileDelta(layerId, width, height, forwardPatches, backwardPatches);
+  const beforeHash =
+    before && beforeIsRoi && normalizedRoi
+      ? hashRoiBeforeOverAfter(before, after, normalizedRoi)
+      : hashNormalizedImageData(before, width, height);
+
+  return new BitmapTileDelta({
+    layerId,
+    width,
+    height,
+    forward: forwardPatches,
+    backward: backwardPatches,
+    beforeHash,
+    afterHash: hashImageData(after, width, height),
+  });
 };

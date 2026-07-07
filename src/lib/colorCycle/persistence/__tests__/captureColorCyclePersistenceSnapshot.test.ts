@@ -88,12 +88,13 @@ describe('captureColorCyclePersistenceSnapshot', () => {
       projectHeight: 2,
       requirePaint: true,
       mode: 'canonical-save',
-      document: {
-        read: () => ({
-          snapshot: documentState,
-          version: 12,
-        }),
-      },
+	      document: {
+	        read: () => ({
+	          snapshot: documentState,
+	          version: 12,
+	          pixelVersion: 12,
+	        }),
+	      },
       runtimeBrush: {
         serialize: () => runtime,
       },
@@ -137,10 +138,11 @@ describe('captureColorCyclePersistenceSnapshot', () => {
               topLevelBuffers: false,
               legacyStateRefs: false,
             },
-          },
-          version: 3,
-        }),
-      },
+	          },
+	          version: 3,
+	          pixelVersion: 3,
+	        }),
+	      },
       runtimeBrush: {
         serialize: () => runtime,
       },
@@ -235,10 +237,11 @@ describe('captureColorCyclePersistenceSnapshot', () => {
               topLevelBuffers: false,
               legacyStateRefs: false,
             },
-          },
-          version: 19,
-        }),
-      },
+	          },
+	          version: 19,
+	          pixelVersion: 19,
+	        }),
+	      },
     });
 
     expect(result.ok).toBe(true);

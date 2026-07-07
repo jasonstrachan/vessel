@@ -68,6 +68,14 @@ export const COLOR_CYCLE_STROKE_SPEED_KEY = 'speedBuffer';
 export const COLOR_CYCLE_STROKE_FLOW_KEY = 'flowBuffer';
 export const COLOR_CYCLE_STROKE_PHASE_KEY = 'phaseBuffer';
 
+type ColorCycleCanonicalPixelBufferHistoryKey =
+  | 'paint'
+  | 'gradientId'
+  | 'gradientDefId'
+  | 'speed'
+  | 'flow'
+  | 'phase';
+
 type ArchiveMappingRole =
   | 'identity'
   | 'dimension'
@@ -138,6 +146,66 @@ export const COLOR_CYCLE_DOCUMENT_FIELD_MAPPING = {
 } as const satisfies Record<
   keyof ColorCycleLayerDocumentState,
   { archive: ArchiveMappingRole; goblet: GobletMappingRole }
+>;
+
+type CanonicalPixelBufferDocumentKey = {
+  [Key in keyof typeof COLOR_CYCLE_DOCUMENT_FIELD_MAPPING]:
+    typeof COLOR_CYCLE_DOCUMENT_FIELD_MAPPING[Key]['archive'] extends 'canonical-buffer'
+      ? Key
+      : never;
+}[keyof typeof COLOR_CYCLE_DOCUMENT_FIELD_MAPPING];
+
+export const COLOR_CYCLE_DOCUMENT_CANONICAL_PIXEL_BUFFERS = [
+  Object.freeze({
+    documentKey: COLOR_CYCLE_STROKE_PAINT_KEY,
+    historyKey: 'paint',
+    bytesPerPixel: 1,
+    historyBehavior: 'patch-and-full-state',
+  }),
+  Object.freeze({
+    documentKey: COLOR_CYCLE_STROKE_GRADIENT_ID_KEY,
+    historyKey: 'gradientId',
+    bytesPerPixel: 1,
+    historyBehavior: 'patch-and-full-state',
+  }),
+  Object.freeze({
+    documentKey: COLOR_CYCLE_STROKE_GRADIENT_DEF_ID_KEY,
+    historyKey: 'gradientDefId',
+    bytesPerPixel: 2,
+    historyBehavior: 'patch-and-full-state',
+  }),
+  Object.freeze({
+    documentKey: COLOR_CYCLE_STROKE_SPEED_KEY,
+    historyKey: 'speed',
+    bytesPerPixel: 1,
+    historyBehavior: 'patch-and-full-state',
+  }),
+  Object.freeze({
+    documentKey: COLOR_CYCLE_STROKE_FLOW_KEY,
+    historyKey: 'flow',
+    bytesPerPixel: 1,
+    historyBehavior: 'patch-and-full-state',
+  }),
+  Object.freeze({
+    documentKey: COLOR_CYCLE_STROKE_PHASE_KEY,
+    historyKey: 'phase',
+    bytesPerPixel: 1,
+    historyBehavior: 'patch-and-full-state',
+  }),
+] as const satisfies readonly Readonly<{
+  documentKey: CanonicalPixelBufferDocumentKey;
+  historyKey: ColorCycleCanonicalPixelBufferHistoryKey;
+  bytesPerPixel: 1 | 2;
+  historyBehavior: 'patch-and-full-state';
+}>[];
+
+type CanonicalPixelBufferManifestDocumentKey =
+  typeof COLOR_CYCLE_DOCUMENT_CANONICAL_PIXEL_BUFFERS[number]['documentKey'];
+export type ColorCycleCanonicalPixelBufferMissingHistoryDecision = AssertNever<
+  Exclude<CanonicalPixelBufferDocumentKey, CanonicalPixelBufferManifestDocumentKey>
+>;
+export type ColorCycleCanonicalPixelBufferUnexpectedHistoryDecision = AssertNever<
+  Exclude<CanonicalPixelBufferManifestDocumentKey, CanonicalPixelBufferDocumentKey>
 >;
 
 const cloneArrayBuffer = (buffer: ArrayBuffer | undefined): ArrayBuffer | undefined => (

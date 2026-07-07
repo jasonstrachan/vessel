@@ -1,5 +1,6 @@
 import { createColorCycleSoftEdgeMaskDelta } from '@/history/deltas/colorCycleSoftEdgeMaskDelta';
 import { ColorCycleAnimator } from '@/lib/ColorCycleAnimator';
+import * as colorCycleBrushManager from '@/stores/colorCycleBrushManager';
 import { useAppStore } from '@/stores/useAppStore';
 import type { ColorCycleSerializedState } from '@/history/helpers/colorCycle';
 import type { Layer } from '@/types';
@@ -79,6 +80,10 @@ const createColorCycleLayer = (layerId: string, width: number, height: number): 
 };
 
 describe('ColorCycleSoftEdgeMaskDelta', () => {
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
   beforeEach(() => {
     const width = 4;
     const height = 4;
@@ -135,5 +140,29 @@ describe('ColorCycleSoftEdgeMaskDelta', () => {
         rects: [{ x: 0, y: 0, width, height }],
       },
     ]);
+  });
+
+  it('accepts forward replay after an earlier stroke patch advances the document version', async () => {
+    const width = 4;
+    const height = 4;
+    const layerId = 'layer-cc-soft-edge';
+    const forwardAlpha = new Array(width * height).fill(0);
+    forwardAlpha[5] = 255;
+
+    jest.spyOn(colorCycleBrushManager, 'getColorCycleBrushManager').mockReturnValue({
+      getDocument: () => ({
+        read: () => ({ version: 2 }),
+      }),
+    } as never);
+
+    const delta = createColorCycleSoftEdgeMaskDelta({
+      layerId,
+      forwardState: makeState(layerId, width, height, forwardAlpha, 2),
+      backwardState: makeState(layerId, width, height, null, 1),
+      beforeVersion: 1,
+      afterVersion: 2,
+    });
+
+    await expect(delta!.apply('forward')).resolves.toBeUndefined();
   });
 });

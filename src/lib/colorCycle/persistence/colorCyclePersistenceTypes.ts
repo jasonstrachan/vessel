@@ -141,6 +141,7 @@ export type ColorCyclePersistenceSnapshot =
       mode: ColorCyclePersistenceMode;
       layerId: string;
       documentVersion?: number;
+      pixelVersion?: number;
       documentState: ColorCyclePersistenceDocumentState & { paintBuffer: ColorCycleBufferRef };
       brushState: PersistedColorCycleBrushState;
       diagnostics: ColorCyclePersistenceDiagnostic[];
@@ -177,5 +178,6 @@ export type ColorCycleLayerDocumentReader = {
   read: () => {
     snapshot: ColorCycleLayerDocumentState;
     version: number;
+    pixelVersion: number;
   };
 };

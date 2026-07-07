@@ -1,8 +1,10 @@
 import { getMaskManager } from '@/layers/MaskManager';
+import { getColorCycleBrushManager } from '@/stores/colorCycleBrushManager';
 import { useAppStore } from '@/stores/useAppStore';
 import type { ColorCycleSerializedState } from '@/history/helpers/colorCycle';
 import type { HistoryDelta, HistoryDirection, HistoryRehydrationTargets } from '../actionTypes';
 import { readBlob, releaseBlob, storeBlob } from '../blobStore';
+import { HistoryBlobReadError, HistoryReplayDriftError } from '../errors';
 
 type PatchEncoding = 'raw' | 'rle';
 
@@ -20,6 +22,8 @@ export interface ColorCycleEraseMaskPatchDeltaOptions {
   roi: { x: number; y: number; width: number; height: number };
   forwardState: ColorCycleSerializedState;
   backwardState: ColorCycleSerializedState;
+  beforeVersion?: number;
+  afterVersion?: number;
 }
 
 const encodeRLE = (input: Uint8Array): Uint8Array => {
@@ -129,6 +133,8 @@ class ColorCycleEraseMaskPatchDelta implements HistoryDelta {
   private readonly backwardMask: MaskPatch;
   private readonly forwardVersion: number;
   private readonly backwardVersion: number;
+  private readonly beforeVersion?: number;
+  private readonly afterVersion?: number;
 
   constructor(options: {
     layerId: string;
@@ -137,6 +143,8 @@ class ColorCycleEraseMaskPatchDelta implements HistoryDelta {
     backwardMask: MaskPatch;
     forwardVersion: number;
     backwardVersion: number;
+    beforeVersion?: number;
+    afterVersion?: number;
   }) {
     this.layerId = options.layerId;
     this.roi = options.roi;
@@ -144,15 +152,40 @@ class ColorCycleEraseMaskPatchDelta implements HistoryDelta {
     this.backwardMask = options.backwardMask;
     this.forwardVersion = options.forwardVersion;
     this.backwardVersion = options.backwardVersion;
+    this.beforeVersion = options.beforeVersion;
+    this.afterVersion = options.afterVersion;
     this.approxBytes = this.forwardMask.approxBytes + this.backwardMask.approxBytes;
   }
 
   async apply(direction: HistoryDirection): Promise<void> {
     const patch = direction === 'forward' ? this.forwardMask : this.backwardMask;
     const nextVersion = direction === 'forward' ? this.forwardVersion : this.backwardVersion;
+    const expectedDocumentVersion = this.afterVersion ?? this.beforeVersion;
+    const documentRead = getColorCycleBrushManager().getDocument(this.layerId)?.read?.();
+    if (
+      typeof expectedDocumentVersion === 'number' &&
+      documentRead &&
+      documentRead.version !== expectedDocumentVersion
+    ) {
+      throw new HistoryReplayDriftError({
+        deltaTag: this._tag,
+        direction,
+        layerId: this.layerId,
+        expected: expectedDocumentVersion,
+        actual: documentRead.version,
+        reason: 'document-version-mismatch',
+      });
+    }
     const stored = await readBlob(patch.blobId);
     if (!stored) {
-      return;
+      throw new HistoryBlobReadError({
+        deltaTag: this._tag,
+        direction,
+        layerId: this.layerId,
+        expected: patch.blobId,
+        actual: null,
+        reason: 'missing-color-cycle-erase-mask-blob',
+      });
     }
     const decoded = patch.encoding === 'rle' ? decodeRLE(stored.data) : stored.data;
     const maskManager = getMaskManager();
@@ -256,5 +289,7 @@ export const createColorCycleEraseMaskPatchDelta = async (
     backwardMask: { ...encodedBackward, roi },
     forwardVersion: forwardMask.version,
     backwardVersion: backwardMask.version,
+    beforeVersion: options.beforeVersion ?? options.backwardState?.documentVersion,
+    afterVersion: options.afterVersion ?? options.forwardState?.documentVersion,
   });
 };
