@@ -20,6 +20,7 @@ export type CCRuntimeSnapshot = {
   paintSlot: number;
   slotPalettes: ColorCycleSlotPalette[];
   flowMode?: FlowMode;
+  builtFromVersion?: number | null;
 };
 
 const DEFAULT_CC_GRADIENT: GradientStop[] = [

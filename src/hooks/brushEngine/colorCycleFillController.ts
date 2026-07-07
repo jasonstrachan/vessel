@@ -1,15 +1,17 @@
 import { BrushShape, type BrushSettings } from '@/types';
-import type { ColorCycleBrushImplementation } from './ColorCycleBrushMigration';
+import { applyColorCycleBrushSettingsPatch } from './colorCycleBrushSettingsController';
+import type { ColorCycleSettingsPatchBrush } from './colorCycleBrushSettingsPatch';
 import type { GradientDitherOptions, Point2D } from './shapeTypes';
 import {
   snapVerticesToColorCycleGrid,
   type ColorCycleGridSnapSettings,
 } from './colorCycleGridSnap';
 
-type FillBrush = ColorCycleBrushImplementation & {
+export type ColorCycleFillBrush = ColorCycleSettingsPatchBrush & {
   setLayerId?: (layerId: string) => void;
   setActiveLayer?: (layerId: string) => void;
   getLayerId?: () => string | null | undefined;
+  endStroke: (layerId?: string) => void;
   fillShapeDispatch?: (payload: {
     mode: 'linear' | 'concentric';
     vertices: Point2D[];
@@ -33,11 +35,11 @@ type FillBrush = ColorCycleBrushImplementation & {
       roi?: GradientDitherOptions['roi'];
       lostEdge?: number;
     };
-  }) => Promise<void> | void;
+  }) => unknown;
 };
 
-type SharedArgs = {
-  initializeColorCycleBrush: () => ColorCycleBrushImplementation | null;
+type SharedArgs<TBrush extends ColorCycleFillBrush> = {
+  initializeColorCycleBrush: () => TBrush | null;
   activeLayerId: string | null;
   isCCGradientActiveLayer: boolean;
   brushSettings: Pick<
@@ -59,7 +61,7 @@ type SharedArgs = {
   clampColorCycleBandSpacing: (value?: number) => number;
   requestGradientApply: (layerId: string, reason: string) => void;
   flushGradientApply: (layerId: string) => void;
-  renderBrushToLayerCanvas: (brush: ColorCycleBrushImplementation, layerId: string) => void;
+  renderBrushToLayerCanvas: (brush: TBrush, layerId: string) => void;
 };
 
 const snapFillVertices = (
@@ -76,7 +78,7 @@ const prepareFillContext = ({
   requestGradientApply,
   flushGradientApply,
 }: {
-  brush: FillBrush;
+  brush: ColorCycleFillBrush;
   layerId: string;
   reason: 'fill-linear' | 'fill-concentric';
   requestGradientApply: (layerId: string, reason: string) => void;
@@ -99,7 +101,7 @@ const resolveFillSettings = ({
   useShapeSpacing,
 }: {
   isCCGradientActiveLayer: boolean;
-  brushSettings: SharedArgs['brushSettings'];
+  brushSettings: SharedArgs<ColorCycleFillBrush>['brushSettings'];
   defaultBandSpacing: number;
   clampColorCycleBandSpacing: (value?: number) => number;
   useShapeSpacing: boolean;
@@ -122,7 +124,7 @@ const resolveFillSettings = ({
   return { ccGradientMode, wantDither, bands, spacing, ditherLevels, ditherBackgroundFill };
 };
 
-export const fillColorCycleLinear = async ({
+export const fillColorCycleLinear = async <TBrush extends ColorCycleFillBrush>({
   vertices,
   direction,
   options,
@@ -135,12 +137,12 @@ export const fillColorCycleLinear = async ({
   requestGradientApply,
   flushGradientApply,
   renderBrushToLayerCanvas,
-}: SharedArgs & {
+}: SharedArgs<TBrush> & {
   vertices: Point2D[];
   direction: Point2D;
   options?: GradientDitherOptions & { skipPostRender?: boolean };
 }): Promise<void> => {
-  const brush = initializeColorCycleBrush() as FillBrush | null;
+  const brush = initializeColorCycleBrush();
   const layerId = activeLayerId;
   const snappedVertices = snapFillVertices(vertices, brushSettings);
 
@@ -162,12 +164,16 @@ export const fillColorCycleLinear = async ({
       useShapeSpacing,
     });
 
-    brush.setGradientBands(bands);
-    brush.setBandSpacing(spacing);
-
-    if (wantDither && typeof options?.ditherPixelSize === 'number') {
-      brush.setDitherPixelSize(Math.max(1, Math.floor(options.ditherPixelSize)));
-    }
+    const settingsPatch = {
+      gradientBands: bands,
+      bandSpacing: spacing,
+    };
+    applyColorCycleBrushSettingsPatch(brush, wantDither && typeof options?.ditherPixelSize === 'number'
+      ? {
+          ...settingsPatch,
+          ditherPixelSize: Math.max(1, Math.floor(options.ditherPixelSize)),
+        }
+      : settingsPatch);
 
     await Promise.resolve(
       brush.fillShapeDispatch?.({
@@ -204,7 +210,7 @@ export const fillColorCycleLinear = async ({
   }
 };
 
-export const fillColorCycleConcentric = async ({
+export const fillColorCycleConcentric = async <TBrush extends ColorCycleFillBrush>({
   vertices,
   options,
   initializeColorCycleBrush,
@@ -216,11 +222,11 @@ export const fillColorCycleConcentric = async ({
   requestGradientApply,
   flushGradientApply,
   renderBrushToLayerCanvas,
-}: SharedArgs & {
+}: SharedArgs<TBrush> & {
   vertices: Point2D[];
   options?: GradientDitherOptions & { skipPostRender?: boolean };
 }): Promise<void> => {
-  const brush = initializeColorCycleBrush() as FillBrush | null;
+  const brush = initializeColorCycleBrush();
   const layerId = activeLayerId;
   const snappedVertices = snapFillVertices(vertices, brushSettings);
 
@@ -245,12 +251,16 @@ export const fillColorCycleConcentric = async ({
       brushSettings.colorCycleBandSpacingPx ?? brushSettings.spacing ?? defaultBandSpacing
     );
 
-    brush.setGradientBands(bands);
-    brush.setBandSpacing(spacing);
-
-    if (wantDither && typeof options?.ditherPixelSize === 'number') {
-      brush.setDitherPixelSize(Math.max(1, Math.floor(options.ditherPixelSize)));
-    }
+    const settingsPatch = {
+      gradientBands: bands,
+      bandSpacing: spacing,
+    };
+    applyColorCycleBrushSettingsPatch(brush, wantDither && typeof options?.ditherPixelSize === 'number'
+      ? {
+          ...settingsPatch,
+          ditherPixelSize: Math.max(1, Math.floor(options.ditherPixelSize)),
+        }
+      : settingsPatch);
 
     await Promise.resolve(
       brush.fillShapeDispatch?.({

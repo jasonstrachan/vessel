@@ -1,5 +1,9 @@
 import type { Layer } from '@/types';
 import { createDefaultLayerAlignment } from '@/utils/layoutDefaults';
+import {
+  attachLegacyColorCycleTopLevelBuffers,
+  deleteLegacyColorCycleTopLevelBuffers,
+} from '@/lib/colorCycle/document';
 
 import { repairLegacyColorCycleLayer } from '../legacyRepair';
 
@@ -38,14 +42,12 @@ const makeColorCycleLayer = (overrides: Partial<Layer> = {}): Layer => ({
   framebuffer: makeCanvas(),
   alignment: createDefaultLayerAlignment(),
   layerType: 'color-cycle',
-  colorCycleData: {
+  colorCycleData: attachLegacyColorCycleTopLevelBuffers({
     mode: 'brush',
     canvasWidth: 2,
     canvasHeight: 2,
     paintSlot: 1,
     fgActiveSlot: 1,
-    gradientIdBuffer: makeBuffer([1, 0, 1, 0]),
-    gradientDefIdBuffer: makeDefIdBuffer([11, 0, 11, 0]),
     gradientDefs: [{ id: 'def-a', currentSlot: 1 }],
     slotPalettes: [{
       slot: 1,
@@ -66,7 +68,10 @@ const makeColorCycleLayer = (overrides: Partial<Layer> = {}): Layer => ({
       createdAtMs: 1,
       slot: 1,
     }],
-  },
+  }, {
+    gradientIdBuffer: makeBuffer([1, 0, 1, 0]),
+    gradientDefIdBuffer: makeDefIdBuffer([11, 0, 11, 0]),
+  }),
   ...overrides,
 });
 
@@ -105,17 +110,18 @@ describe('repairLegacyColorCycleLayer', () => {
     const gradientIdBuffer = makeBuffer([1, 0, 1, 0]);
     const gradientDefIdBuffer = makeDefIdBuffer([11, 0, 11, 0]);
     const layer = makeColorCycleLayer({
-      colorCycleData: {
+      colorCycleData: attachLegacyColorCycleTopLevelBuffers({
         ...makeColorCycleLayer().colorCycleData,
-        gradientIdBuffer,
-        gradientDefIdBuffer,
         canvasImageData: makeImageData(2, 2, [
           0, 0, 0, 255,
           0, 0, 0, 0,
           255, 255, 255, 255,
           0, 0, 0, 0,
         ]),
-      },
+      }, {
+        gradientIdBuffer,
+        gradientDefIdBuffer,
+      }),
     });
 
     const result = repairLegacyColorCycleLayer(layer);
@@ -146,11 +152,9 @@ describe('repairLegacyColorCycleLayer', () => {
   });
 
   it('returns missing-gradient-bindings instead of fabricating bindings from RGBA', () => {
-    const result = repairLegacyColorCycleLayer(makeColorCycleLayer({
+    const layer = makeColorCycleLayer({
       colorCycleData: {
         ...makeColorCycleLayer().colorCycleData,
-        gradientIdBuffer: undefined,
-        gradientDefIdBuffer: undefined,
         canvasImageData: makeImageData(2, 2, [
           0, 0, 0, 255,
           0, 0, 0, 0,
@@ -158,7 +162,9 @@ describe('repairLegacyColorCycleLayer', () => {
           0, 0, 0, 0,
         ]),
       },
-    }));
+    });
+    deleteLegacyColorCycleTopLevelBuffers(layer.colorCycleData);
+    const result = repairLegacyColorCycleLayer(layer);
 
     expect(result).toMatchObject({
       ok: false,

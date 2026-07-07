@@ -6,8 +6,9 @@
 import { debugLog, logError } from '@/utils/debug';
 import { featureFlags } from '../../config/featureFlags';
 import { ColorCycleBrushCanvas2D } from './ColorCycleBrushCanvas2D';
+import type { ColorCycleBrushRuntimeHost } from './colorCycleBrushContracts';
 
-export type ColorCycleBrushImplementation = ColorCycleBrushCanvas2D;
+export type { ColorCycleBrushRuntimeHost } from './colorCycleBrushContracts';
 
 /**
  * Factory function to create ColorCycleBrush implementation
@@ -15,7 +16,7 @@ export type ColorCycleBrushImplementation = ColorCycleBrushCanvas2D;
 export function createColorCycleBrush(
   canvas: HTMLCanvasElement,
   options?: { brushSize?: number; fps?: number }
-): ColorCycleBrushImplementation {
+): ColorCycleBrushRuntimeHost {
   const useCanvas2D = featureFlags.useCanvas2DColorCycle;
 
   if (featureFlags.logColorCycleOperations) {

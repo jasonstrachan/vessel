@@ -1,24 +1,32 @@
 import { getAppStoreState } from '@/stores/appStoreAccess';
 import { debugWarn } from '@/utils/debug';
 import { flushGradientApply, requestGradientApply } from '@/hooks/brushEngine/ccGradientApplyScheduler';
-import type { ColorCycleBrushImplementation } from '@/hooks/brushEngine/ColorCycleBrushMigration';
 import { resolveColorCycleRuntimeSurface } from '@/lib/colorCycle/materializeColorCycleLayer';
 import type { Layer } from '@/types';
 import { isFgPending } from '@/utils/colorCycleGradients';
 
 import { ensureCanvasPixelSize } from './engineShared';
 
+export type ColorCycleSurfaceSource = {
+  getCanvas?: () => HTMLCanvasElement | OffscreenCanvas | null;
+};
+
+export type ColorCycleSurfaceBrush = ColorCycleSurfaceSource & {
+  setTargetCanvas?: (canvas: HTMLCanvasElement | null) => void;
+};
+
+export type ColorCycleLayerRenderBrush = ColorCycleSurfaceBrush & {
+  renderDirectToCanvas?: (canvas: HTMLCanvasElement, layerId: string) => void;
+};
+
 export const bindBrushToCanvas = (
-  brush: ColorCycleBrushImplementation | null | undefined,
+  brush: ColorCycleSurfaceBrush | null | undefined,
   canvas: HTMLCanvasElement | null | undefined
 ): void => {
   if (!brush || !canvas) {
     return;
   }
-  const brushWithTarget = brush as ColorCycleBrushImplementation & {
-    setTargetCanvas?: (canvas: HTMLCanvasElement | null) => void;
-  };
-  if (typeof brushWithTarget.setTargetCanvas === 'function') {
+  if (typeof brush.setTargetCanvas === 'function') {
     const isConnected =
       typeof (canvas as { isConnected?: unknown }).isConnected === 'boolean'
         ? Boolean((canvas as { isConnected?: unknown }).isConnected)
@@ -26,12 +34,12 @@ export const bindBrushToCanvas = (
     if (isConnected) {
       ensureCanvasPixelSize(canvas);
     }
-    brushWithTarget.setTargetCanvas(canvas);
+    brush.setTargetCanvas(canvas);
   }
 };
 
 export const refreshLayerCCSurface = (
-  brush: ColorCycleBrushImplementation,
+  brush: ColorCycleSurfaceSource,
   layerId: string
 ): HTMLCanvasElement | null => {
   const state = getAppStoreState();
@@ -59,7 +67,7 @@ export const refreshLayerCCSurface = (
 };
 
 export const renderBrushToLayerCanvas = (
-  brush: ColorCycleBrushImplementation | null | undefined,
+  brush: ColorCycleLayerRenderBrush | null | undefined,
   layerId: string | null | undefined
 ): void => {
   if (!brush || !layerId) {

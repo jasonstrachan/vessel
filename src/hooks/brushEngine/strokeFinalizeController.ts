@@ -47,13 +47,13 @@ export const finalizeStrokeEngineBuffers = ({
   ctx,
   strokeBounds,
   rawCtx,
-  brushEngine,
+  finalizeStroke,
   withAlphaLock,
 }: {
   ctx: CanvasRenderingContext2D;
   strokeBounds: Rect | null;
   rawCtx: CanvasRenderingContext2D | null;
-  brushEngine: { finalizeStroke: (ctx: CanvasRenderingContext2D) => void };
+  finalizeStroke: (ctx: CanvasRenderingContext2D) => void;
   withAlphaLock: (
     ctx: CanvasRenderingContext2D,
     draw: (targetCtx: CanvasRenderingContext2D) => void,
@@ -63,12 +63,12 @@ export const finalizeStrokeEngineBuffers = ({
   if (rawCtx) {
     // Finalize without emitting a new stamp; finalizeStroke() may currently place a tail stamp.
     // Guard against the final "large stamp" by flushing normally (finalizeStroke currently ignores pressure).
-    brushEngine.finalizeStroke(rawCtx);
+    finalizeStroke(rawCtx);
     return;
   }
 
   withAlphaLock(ctx, (targetCtx) => {
-    brushEngine.finalizeStroke(targetCtx);
+    finalizeStroke(targetCtx);
   }, strokeBounds ?? undefined);
 };
 

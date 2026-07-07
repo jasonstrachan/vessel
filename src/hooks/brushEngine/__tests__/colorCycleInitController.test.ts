@@ -307,7 +307,7 @@ describe('colorCycleInitController', () => {
         { id: 'cc', layerType: 'color-cycle' },
         { id: 'bmp', layerType: 'bitmap' },
       ],
-      getBrush: (id) => (id === 'cc' ? ccBrush : bitmapBrush),
+      getPlaybackBrush: (id) => (id === 'cc' ? ccBrush : bitmapBrush),
     });
 
     expect(ccBrush.startAnimation).toHaveBeenCalledTimes(1);
@@ -316,7 +316,7 @@ describe('colorCycleInitController', () => {
     ensureColorCycleAnimationForLayers({
       shouldPlay: false,
       layers: [{ id: 'cc', layerType: 'color-cycle' }],
-      getBrush: () => ccBrush,
+      getPlaybackBrush: () => ccBrush,
     });
 
     expect(ccBrush.stopAnimation).toHaveBeenCalledTimes(1);

@@ -19,7 +19,7 @@ describe('strokeFinalizeEntryController', () => {
       liveStrokeDitherRef: { current: null },
       clearLiveStrokeBuffers: jest.fn(),
       clearCoverageMaps: jest.fn(),
-      brushEngine: { finalizeStroke: jest.fn() },
+      finalizeStroke: jest.fn(),
       withAlphaLock: jest.fn(),
       shouldApplyStrokeDither: true,
       finalizeStrokeSettings: {
@@ -41,6 +41,7 @@ describe('strokeFinalizeEntryController', () => {
 
     expect(finalizeStrokeOrchestrated).toHaveBeenCalledWith(expect.objectContaining({
       ctx,
+      finalizeStroke: expect.any(Function),
       lostEdge: 9,
       ditherBackgroundFill: true,
       pressureLinkedFillResolution: false,

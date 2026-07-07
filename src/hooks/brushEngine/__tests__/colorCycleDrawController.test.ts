@@ -2,8 +2,9 @@ import {
   drawColorCycleStroke,
   renderColorCycleToContext,
 } from '../colorCycleDrawController';
+import { registerColorCycleBrushLayerSnapshotRuntime } from '@/lib/colorCycle/document';
 import { BrushShape } from '@/types';
-import type { ColorCycleBrushImplementation } from '../ColorCycleBrushMigration';
+import type { ColorCycleDrawBrush } from '../colorCycleDrawController';
 
 const createCtx = () => {
   const canvas = document.createElement('canvas');
@@ -37,29 +38,37 @@ const previewGradient = [
   { position: 1, color: '#00ff00' },
 ];
 
-const createBrush = () => ({
-  renderDirectToCanvas: jest.fn(),
-  startStroke: jest.fn(),
-  getLayerSnapshot: jest.fn(() => ({
-    paintBuffer: new ArrayBuffer(0),
-    hasContent: false,
-    strokeCounter: 0,
-  })),
-  applyLayerSnapshot: jest.fn(),
-  setPressureEnabled: jest.fn(),
-  setMinPressure: jest.fn(),
-  setMaxPressure: jest.fn(),
-  setStampShape: jest.fn(),
-  setBrushSize: jest.fn(),
-  paint: jest.fn(),
-  paintCustomStamp: jest.fn(),
-  getCanvas: jest.fn(() => {
-    const c = document.createElement('canvas');
-    c.width = 64;
-    c.height = 64;
-    return c;
-  }),
-});
+const createBrush = () => {
+  const applySnapshot = jest.fn();
+  const brush = {
+    renderDirectToCanvas: jest.fn(),
+    startStroke: jest.fn(),
+    getLayerSnapshot: jest.fn(() => ({
+      paintBuffer: new ArrayBuffer(0),
+      hasContent: false,
+      strokeCounter: 0,
+    })),
+    getColorCycleLayerDocument: jest.fn(),
+    applySnapshot,
+    setPressureEnabled: jest.fn(),
+    setMinPressure: jest.fn(),
+    setMaxPressure: jest.fn(),
+    setStampShape: jest.fn(),
+    setBrushSize: jest.fn(),
+    paint: jest.fn(),
+    paintCustomStamp: jest.fn(),
+    getCanvas: jest.fn(() => {
+      const c = document.createElement('canvas');
+      c.width = 64;
+      c.height = 64;
+      return c;
+    }),
+  };
+  registerColorCycleBrushLayerSnapshotRuntime(brush, {
+    apply: applySnapshot,
+  });
+  return brush;
+};
 
 describe('colorCycleDrawController', () => {
   const originalRequestAnimationFrame = global.requestAnimationFrame;
@@ -83,7 +92,7 @@ describe('colorCycleDrawController', () => {
     renderColorCycleToContext({
       ctx,
       activeLayerId: null,
-      getActiveLayerColorCycleBrush: () => brush as unknown as ColorCycleBrushImplementation,
+      getActiveLayerColorCycleBrush: () => brush as unknown as ColorCycleDrawBrush,
       isFgPending: () => false,
       refreshLayerCCSurface: () => document.createElement('canvas'),
       ensureCanvasPixelSize: jest.fn(),
@@ -114,7 +123,7 @@ describe('colorCycleDrawController', () => {
     renderColorCycleToContext({
       ctx,
       activeLayerId: 'layer-1',
-      getActiveLayerColorCycleBrush: () => brush as unknown as ColorCycleBrushImplementation,
+      getActiveLayerColorCycleBrush: () => brush as unknown as ColorCycleDrawBrush,
       isFgPending: () => false,
       refreshLayerCCSurface: () => layerCanvas,
       ensureCanvasPixelSize: jest.fn(),
@@ -162,7 +171,7 @@ describe('colorCycleDrawController', () => {
       },
       activeLayerId: 'layer-1',
       activeLayerTransparencyLock: false,
-      getActiveLayerColorCycleBrush: () => brush as unknown as ColorCycleBrushImplementation,
+      getActiveLayerColorCycleBrush: () => brush as unknown as ColorCycleDrawBrush,
       getActiveLayerBitmapCanvas: () => null,
       maskHasAlphaNear: jest.fn(() => true),
       resolveBrushPressureRange: () => ({ enabled: false, minPercent: 100, maxPercent: 100 }),
@@ -207,7 +216,7 @@ describe('colorCycleDrawController', () => {
       },
       activeLayerId: 'layer-1',
       activeLayerTransparencyLock: false,
-      getActiveLayerColorCycleBrush: () => brush as unknown as ColorCycleBrushImplementation,
+      getActiveLayerColorCycleBrush: () => brush as unknown as ColorCycleDrawBrush,
       getActiveLayerBitmapCanvas: () => null,
       maskHasAlphaNear: jest.fn(() => true),
       resolveBrushPressureRange: () => ({ enabled: false, minPercent: 100, maxPercent: 100 }),
@@ -260,7 +269,7 @@ describe('colorCycleDrawController', () => {
       },
       activeLayerId: 'layer-1',
       activeLayerTransparencyLock: false,
-      getActiveLayerColorCycleBrush: () => brush as unknown as ColorCycleBrushImplementation,
+      getActiveLayerColorCycleBrush: () => brush as unknown as ColorCycleDrawBrush,
       getActiveLayerBitmapCanvas: () => null,
       maskHasAlphaNear: jest.fn(() => true),
       resolveBrushPressureRange: () => ({ enabled: false, minPercent: 100, maxPercent: 100 }),
@@ -311,7 +320,7 @@ describe('colorCycleDrawController', () => {
       },
       activeLayerId: 'layer-1',
       activeLayerTransparencyLock: false,
-      getActiveLayerColorCycleBrush: () => brush as unknown as ColorCycleBrushImplementation,
+      getActiveLayerColorCycleBrush: () => brush as unknown as ColorCycleDrawBrush,
       getActiveLayerBitmapCanvas: () => null,
       maskHasAlphaNear: jest.fn(() => true),
       resolveBrushPressureRange: () => ({ enabled: false, minPercent: 100, maxPercent: 100 }),
@@ -347,7 +356,7 @@ describe('colorCycleDrawController', () => {
       },
       activeLayerId: 'layer-1',
       activeLayerTransparencyLock: false,
-      getActiveLayerColorCycleBrush: () => brush as unknown as ColorCycleBrushImplementation,
+      getActiveLayerColorCycleBrush: () => brush as unknown as ColorCycleDrawBrush,
       getActiveLayerBitmapCanvas: () => null,
       maskHasAlphaNear: jest.fn(() => true),
       resolveBrushPressureRange: () => ({ enabled: false, minPercent: 100, maxPercent: 100 }),
@@ -383,7 +392,7 @@ describe('colorCycleDrawController', () => {
       ctx,
       activeLayerId: 'layer-1',
       activeLayerTransparencyLock: false,
-      getActiveLayerColorCycleBrush: () => brush as unknown as ColorCycleBrushImplementation,
+      getActiveLayerColorCycleBrush: () => brush as unknown as ColorCycleDrawBrush,
       getActiveLayerBitmapCanvas: () => null,
       maskHasAlphaNear: jest.fn(() => true),
       resolveBrushPressureRange: () => ({ enabled: false, minPercent: 100, maxPercent: 100 }),
@@ -440,7 +449,7 @@ describe('colorCycleDrawController', () => {
       ctx,
       activeLayerId: 'layer-1',
       activeLayerTransparencyLock: false,
-      getActiveLayerColorCycleBrush: () => brush as unknown as ColorCycleBrushImplementation,
+      getActiveLayerColorCycleBrush: () => brush as unknown as ColorCycleDrawBrush,
       getActiveLayerBitmapCanvas: () => null,
       maskHasAlphaNear: jest.fn(() => true),
       resolveBrushPressureRange: () => ({ enabled: false, minPercent: 100, maxPercent: 100 }),
@@ -513,7 +522,7 @@ describe('colorCycleDrawController', () => {
       ctx,
       activeLayerId: 'layer-1',
       activeLayerTransparencyLock: false,
-      getActiveLayerColorCycleBrush: () => brush as unknown as ColorCycleBrushImplementation,
+      getActiveLayerColorCycleBrush: () => brush as unknown as ColorCycleDrawBrush,
       getActiveLayerBitmapCanvas: () => null,
       maskHasAlphaNear: jest.fn(() => true),
       resolveBrushPressureRange: () => ({ enabled: false, minPercent: 100, maxPercent: 100 }),
@@ -601,7 +610,7 @@ describe('colorCycleDrawController', () => {
       },
       activeLayerId: 'layer-1',
       activeLayerTransparencyLock: false,
-      getActiveLayerColorCycleBrush: () => brush as unknown as ColorCycleBrushImplementation,
+      getActiveLayerColorCycleBrush: () => brush as unknown as ColorCycleDrawBrush,
       getActiveLayerBitmapCanvas: () => null,
       maskHasAlphaNear: jest.fn(() => true),
       resolveBrushPressureRange: () => ({ enabled: false, minPercent: 100, maxPercent: 100 }),
@@ -618,7 +627,7 @@ describe('colorCycleDrawController', () => {
     const paintedPoints = (brush.paint as jest.Mock).mock.calls.map((call) => [call[0], call[1]]);
     expect(paintedPoints).not.toContainEqual([16, 0]);
     expect(paintedPoints).toContainEqual([15, 1]);
-    expect(brush.applyLayerSnapshot).toHaveBeenCalledWith('layer-1', expect.objectContaining({ hasContent: false }));
+    expect(brush.applySnapshot).toHaveBeenCalledWith('layer-1', expect.objectContaining({ hasContent: false }));
     expect(brush.startStroke).toHaveBeenCalledWith('layer-1', false);
   });
 
@@ -657,7 +666,7 @@ describe('colorCycleDrawController', () => {
       },
       activeLayerId: 'layer-1',
       activeLayerTransparencyLock: false,
-      getActiveLayerColorCycleBrush: () => brush as unknown as ColorCycleBrushImplementation,
+      getActiveLayerColorCycleBrush: () => brush as unknown as ColorCycleDrawBrush,
       getActiveLayerBitmapCanvas: () => null,
       maskHasAlphaNear: jest.fn(() => true),
       resolveBrushPressureRange: () => ({ enabled: false, minPercent: 100, maxPercent: 100 }),
@@ -673,7 +682,7 @@ describe('colorCycleDrawController', () => {
 
     expect(brush.paint).not.toHaveBeenCalled();
     expect(brush.getLayerSnapshot).not.toHaveBeenCalled();
-    expect(brush.applyLayerSnapshot).not.toHaveBeenCalled();
+    expect(brush.applySnapshot).not.toHaveBeenCalled();
     expect(brush.startStroke).not.toHaveBeenCalled();
   });
 
@@ -704,7 +713,7 @@ describe('colorCycleDrawController', () => {
       },
       activeLayerId: 'layer-1',
       activeLayerTransparencyLock: false,
-      getActiveLayerColorCycleBrush: () => brush as unknown as ColorCycleBrushImplementation,
+      getActiveLayerColorCycleBrush: () => brush as unknown as ColorCycleDrawBrush,
       getActiveLayerBitmapCanvas: () => null,
       maskHasAlphaNear: jest.fn(() => true),
       resolveBrushPressureRange: () => ({ enabled: false, minPercent: 100, maxPercent: 100 }),
@@ -742,7 +751,7 @@ describe('colorCycleDrawController', () => {
       ctx,
       activeLayerId: 'layer-1',
       activeLayerTransparencyLock: false,
-      getActiveLayerColorCycleBrush: () => brush as unknown as ColorCycleBrushImplementation,
+      getActiveLayerColorCycleBrush: () => brush as unknown as ColorCycleDrawBrush,
       getActiveLayerBitmapCanvas: () => null,
       maskHasAlphaNear: jest.fn(() => true),
       resolveBrushPressureRange: () => ({ enabled: false, minPercent: 100, maxPercent: 100 }),
@@ -792,7 +801,21 @@ describe('colorCycleDrawController', () => {
       hasContent: true,
       strokeCounter: 12,
     };
-    brush.getLayerSnapshot.mockReturnValue(baselineSnapshot);
+    brush.getColorCycleLayerDocument.mockReturnValue({
+      read: () => ({
+        version: 1,
+        snapshot: {
+          ...baselineSnapshot,
+          width: 3,
+          height: 1,
+          sources: {
+            brushStateSnapshot: true,
+            topLevelBuffers: false,
+            legacyStateRefs: false,
+          },
+        },
+      }),
+    });
 
     const gridSnapStrokePointRef = { current: { x: 0, y: 0 } };
     const roundedCornerAnchorsRef = { current: [{ x: 0, y: 0 }] as Array<{ x: number; y: number }> };
@@ -826,7 +849,7 @@ describe('colorCycleDrawController', () => {
       },
       activeLayerId: 'layer-1',
       activeLayerTransparencyLock: false,
-      getActiveLayerColorCycleBrush: () => brush as unknown as ColorCycleBrushImplementation,
+      getActiveLayerColorCycleBrush: () => brush as unknown as ColorCycleDrawBrush,
       getActiveLayerBitmapCanvas: () => null,
       maskHasAlphaNear: jest.fn(() => true),
       resolveBrushPressureRange: () => ({ enabled: false, minPercent: 100, maxPercent: 100 }),
@@ -840,8 +863,14 @@ describe('colorCycleDrawController', () => {
       roundedCornerBaselineSnapshotRef,
     });
 
-    expect(roundedCornerBaselineSnapshotRef.current).toBe(baselineSnapshot);
-    expect(brush.applyLayerSnapshot).toHaveBeenCalledWith('layer-1', baselineSnapshot);
+    expect(roundedCornerBaselineSnapshotRef.current).toEqual(expect.objectContaining({
+      hasContent: true,
+      strokeCounter: 0,
+    }));
+    expect(brush.applySnapshot).toHaveBeenCalledWith('layer-1', expect.objectContaining({
+      hasContent: true,
+      strokeCounter: 0,
+    }));
     expect(brush.startStroke).toHaveBeenCalledWith('layer-1', false);
     expect(brush.startStroke).not.toHaveBeenCalledWith('layer-1', true);
   });

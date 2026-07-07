@@ -1,4 +1,7 @@
 import type { Layer } from '@/types';
+import {
+  readColorCycleBrushSerializedStateFromRuntime,
+} from '@/lib/colorCycle/document';
 
 import {
   emitColorCycleDocumentStateFromBrushState,
@@ -8,14 +11,353 @@ import { resolveColorCyclePersistenceSource } from './resolveColorCyclePersisten
 import type { ResolvedColorCyclePersistenceSource } from './resolveColorCyclePersistenceSource';
 import type {
   CaptureColorCyclePersistenceSnapshotContext,
+  DeferredColorCycleArchiveRuntime,
+  ColorCycleBufferRef,
+  ColorCycleLayerDocumentReader,
   ColorCyclePersistenceDocumentState,
   ColorCyclePersistenceSnapshot,
+  PersistedColorCycleBrushState,
 } from './colorCyclePersistenceTypes';
 import {
   classifyBrushStateFailure,
+  cloneBufferRef,
   getLayerSnapshot,
   validatePersistenceDocumentState,
 } from './colorCyclePersistenceValidation';
+
+const cloneDocumentStateForPersistence = (
+  state: ColorCyclePersistenceDocumentState,
+): ColorCyclePersistenceDocumentState => ({
+  ...state,
+  paintBuffer: cloneBufferRef(state.paintBuffer),
+  gradientIdBuffer: cloneBufferRef(state.gradientIdBuffer),
+  gradientDefIdBuffer: cloneBufferRef(state.gradientDefIdBuffer),
+  speedBuffer: cloneBufferRef(state.speedBuffer),
+  flowBuffer: cloneBufferRef(state.flowBuffer),
+  phaseBuffer: cloneBufferRef(state.phaseBuffer),
+  slotPalettes: state.slotPalettes?.map((palette) => ({
+    ...palette,
+    stops: palette.stops.map((stop) => ({ ...stop })),
+  })),
+  gradientDefs: state.gradientDefs?.map((entry) => ({ ...entry })),
+  gradientDefStore: state.gradientDefStore?.map((entry) => ({
+    ...entry,
+    stops: entry.stops.map((stop) => ({ ...stop })),
+  })),
+  sources: { ...state.sources },
+});
+
+const createBrushStateFromDocumentState = (
+  documentState: ColorCyclePersistenceDocumentState & { paintBuffer: ColorCycleBufferRef },
+): PersistedColorCycleBrushState => ({
+  canonicalPaint: true,
+  schemaVersion: 1,
+  dimensionsByLayerId: {
+    [documentState.layerId]: {
+      width: documentState.width,
+      height: documentState.height,
+    },
+  },
+  layers: [{
+    layerId: documentState.layerId,
+    canonicalPaint: true,
+    schemaVersion: 1,
+    dimensions: {
+      width: documentState.width,
+      height: documentState.height,
+    },
+    strokeData: {
+      paintBuffer: cloneBufferRef(documentState.paintBuffer),
+      gradientIdBuffer: cloneBufferRef(documentState.gradientIdBuffer),
+      gradientDefIdBuffer: cloneBufferRef(documentState.gradientDefIdBuffer),
+      speedBuffer: cloneBufferRef(documentState.speedBuffer),
+      flowBuffer: cloneBufferRef(documentState.flowBuffer),
+      phaseBuffer: cloneBufferRef(documentState.phaseBuffer),
+      hasContent: documentState.hasContent,
+      strokeCounter: 0,
+    },
+    gradientDefs: documentState.gradientDefs,
+    slotPalettes: documentState.slotPalettes,
+    gradientDefStore: documentState.gradientDefStore,
+    paintSlot: documentState.paintSlot,
+    fgActiveSlot: documentState.fgActiveSlot,
+    activeGradientId: documentState.activeGradientId,
+  }],
+});
+
+const captureSerializedRuntimeBrushMetadata = (
+  layer: Layer,
+  context: CaptureColorCyclePersistenceSnapshotContext,
+): PersistedColorCycleBrushState | undefined => {
+  const brush =
+    context.runtimeBrush ??
+    context.runtimeBrushManager?.getSerializedStateBrush?.(layer.id);
+  if (!brush || !context.serializeRuntimeBrushState) {
+    return layer.colorCycleData?.brushState as PersistedColorCycleBrushState | undefined;
+  }
+
+  const rawState = readColorCycleBrushSerializedStateFromRuntime(brush);
+
+  if (context.serializeRuntimeBrushState) {
+    return context.serializeRuntimeBrushState(rawState, layer.id)
+      ?? layer.colorCycleData?.brushState as PersistedColorCycleBrushState | undefined;
+  }
+
+  return (rawState as PersistedColorCycleBrushState | undefined)
+    ?? layer.colorCycleData?.brushState as PersistedColorCycleBrushState | undefined;
+};
+
+const createDeferredRuntimeFromColdDocument = (
+  layer: Layer,
+  context: CaptureColorCyclePersistenceSnapshotContext,
+  document: ColorCycleLayerDocumentReader,
+): DeferredColorCycleArchiveRuntime | undefined => {
+  if (document.residency !== 'cold-archive-ref') {
+    return undefined;
+  }
+
+  const archiveRefs = document.archiveRefs;
+  if (!archiveRefs) {
+    return undefined;
+  }
+
+  return {
+    brushState: (
+      context.deferredRuntime?.brushState ??
+      layer.colorCycleData?.brushState
+    ) as PersistedColorCycleBrushState | undefined,
+    paintRef: archiveRefs.paintRef ?? context.deferredRuntime?.paintRef,
+    gradientIdRef: archiveRefs.gradientIdRef ?? context.deferredRuntime?.gradientIdRef,
+    gradientDefIdRef: archiveRefs.gradientDefIdRef ?? context.deferredRuntime?.gradientDefIdRef,
+    speedRef: archiveRefs.speedRef ?? context.deferredRuntime?.speedRef,
+    flowRef: archiveRefs.flowRef ?? context.deferredRuntime?.flowRef,
+    phaseRef: archiveRefs.phaseRef ?? context.deferredRuntime?.phaseRef,
+  };
+};
+
+const mergeDocumentBrushStateMetadata = (
+  documentBrushState: PersistedColorCycleBrushState,
+  metadataBrushState: PersistedColorCycleBrushState | undefined,
+  layerId: string,
+): PersistedColorCycleBrushState => {
+  if (!metadataBrushState) {
+    return documentBrushState;
+  }
+
+  const documentLayer = documentBrushState.layers?.find((snapshot) => snapshot.layerId === layerId);
+  const metadataLayer = metadataBrushState.layers?.find((snapshot) => snapshot.layerId === layerId);
+  const mergedLayer = documentLayer
+    ? {
+        ...metadataLayer,
+        ...documentLayer,
+        paintSlot: documentLayer.paintSlot ?? metadataLayer?.paintSlot,
+        activeGradientId: documentLayer.activeGradientId ?? metadataLayer?.activeGradientId,
+        fgActiveSlot: documentLayer.fgActiveSlot ?? metadataLayer?.fgActiveSlot,
+        gradientDefs: documentLayer.gradientDefs ?? metadataLayer?.gradientDefs,
+        slotPalettes: documentLayer.slotPalettes ?? metadataLayer?.slotPalettes,
+        gradientDefStore: documentLayer.gradientDefStore ?? metadataLayer?.gradientDefStore,
+        nextGradientDefId: documentLayer.nextGradientDefId ?? metadataLayer?.nextGradientDefId,
+        strokeData: {
+          ...metadataLayer?.strokeData,
+          ...documentLayer.strokeData,
+          strokeCounter: metadataLayer?.strokeData?.strokeCounter ?? documentLayer.strokeData?.strokeCounter,
+        },
+      }
+    : undefined;
+
+  return {
+    ...metadataBrushState,
+    ...documentBrushState,
+    layers: mergedLayer
+      ? [
+          mergedLayer,
+          ...(documentBrushState.layers ?? []).filter((snapshot) => snapshot.layerId !== layerId),
+        ]
+      : documentBrushState.layers,
+  };
+};
+
+const captureFromColdArchiveDocument = (
+  layer: Layer,
+  context: CaptureColorCyclePersistenceSnapshotContext,
+  document: ColorCycleLayerDocumentReader,
+): ColorCyclePersistenceSnapshot | undefined => {
+  const deferredRuntime = createDeferredRuntimeFromColdDocument(layer, context, document);
+  if (!deferredRuntime) {
+    return undefined;
+  }
+
+  const { version } = document.read();
+  const selectedDiagnostic = {
+    source: 'document' as const,
+    kind: 'source-selected' as const,
+    message: `Selected cold color-cycle document archive refs from version ${version} as persistence source.`,
+    documentVersion: version,
+  };
+  const documentState = emitColorCycleDocumentStateFromDeferredArchive(
+    layer,
+    deferredRuntime,
+    context.projectWidth,
+    context.projectHeight,
+  );
+
+  if (!documentState) {
+    const diagnostics = [selectedDiagnostic, {
+      source: 'document' as const,
+      kind: 'source-rejected' as const,
+      message: 'Cold color-cycle document archive refs could not produce canonical document state.',
+      documentVersion: version,
+    }];
+    diagnostics.forEach((diagnostic) => context.diagnostics?.(diagnostic));
+    return {
+      ok: false,
+      layerId: layer.id,
+      mode: context.mode,
+      reason: 'missing-canonical-paint',
+      damageKind: 'missing-paint-buffer',
+      diagnostics,
+    };
+  }
+
+  const validation = validatePersistenceDocumentState(documentState, {
+    requirePaint: context.requirePaint,
+    source: 'document',
+  });
+  const diagnostics = [selectedDiagnostic, ...(validation.ok ? [] : validation.diagnostics)];
+  diagnostics.forEach((diagnostic) => context.diagnostics?.(diagnostic));
+
+  if (!validation.ok) {
+    return {
+      ok: false,
+      layerId: layer.id,
+      mode: context.mode,
+      reason: validation.reason,
+      damageKind: validation.damageKind,
+      previewImageData: context.mode === 'import-repair' ? layer.colorCycleData?.canvasImageData : undefined,
+      diagnostics,
+    };
+  }
+
+  const paintBuffer = documentState.paintBuffer;
+  if (!paintBuffer) {
+    return {
+      ok: false,
+      layerId: layer.id,
+      mode: context.mode,
+      reason: 'missing-canonical-paint',
+      damageKind: 'missing-paint-buffer',
+      diagnostics,
+    };
+  }
+
+  const brushState = mergeDocumentBrushStateMetadata(
+    createBrushStateFromDocumentState({
+      ...documentState,
+      paintBuffer,
+    }),
+    captureSerializedRuntimeBrushMetadata(layer, context),
+    layer.id,
+  );
+
+  return {
+    ok: true,
+    source: 'document',
+    mode: context.mode,
+    layerId: layer.id,
+    documentVersion: version,
+    documentState: {
+      ...documentState,
+      paintBuffer,
+    },
+    brushState,
+    diagnostics,
+  };
+};
+
+const captureFromDocument = (
+  layer: Layer,
+  context: CaptureColorCyclePersistenceSnapshotContext,
+): ColorCyclePersistenceSnapshot | undefined => {
+  const document = context.document ?? context.runtimeBrushManager?.getDocument?.(layer.id);
+  if (!document) {
+    return undefined;
+  }
+
+  const coldArchiveCaptured = captureFromColdArchiveDocument(layer, context, document);
+  if (coldArchiveCaptured) {
+    return coldArchiveCaptured;
+  }
+
+  const { snapshot, version } = document.read();
+  const documentState = cloneDocumentStateForPersistence(snapshot);
+  const validation = validatePersistenceDocumentState(documentState, {
+    requirePaint: context.requirePaint,
+    source: 'document',
+  });
+  const diagnostics = [{
+    source: 'document' as const,
+    kind: 'source-selected' as const,
+    message: `Selected color-cycle document version ${version} as persistence source.`,
+    documentVersion: version,
+  }, ...(validation.ok ? [] : validation.diagnostics)];
+
+  diagnostics.forEach((diagnostic) => context.diagnostics?.(diagnostic));
+
+  if (!validation.ok) {
+    return {
+      ok: false,
+      layerId: layer.id,
+      mode: context.mode,
+      reason: validation.reason,
+      damageKind: validation.damageKind,
+      previewImageData: context.mode === 'import-repair' ? layer.colorCycleData?.canvasImageData : undefined,
+      diagnostics,
+    };
+  }
+
+  if (!documentState.paintBuffer) {
+    return {
+      ok: false,
+      layerId: layer.id,
+      mode: context.mode,
+      reason: 'missing-canonical-paint',
+      damageKind: 'missing-paint-buffer',
+      diagnostics,
+    };
+  }
+
+  const brushState = mergeDocumentBrushStateMetadata(
+    createBrushStateFromDocumentState({
+      ...documentState,
+      paintBuffer: documentState.paintBuffer,
+    }),
+    captureSerializedRuntimeBrushMetadata(layer, context),
+    layer.id,
+  );
+
+  return {
+    ok: true,
+    source: 'document',
+    mode: context.mode,
+    layerId: layer.id,
+    documentVersion: version,
+    documentState: {
+      ...documentState,
+      paintBuffer: documentState.paintBuffer,
+    },
+    brushState,
+    diagnostics,
+  };
+};
+
+const requiresDocumentSource = (
+  mode: CaptureColorCyclePersistenceSnapshotContext['mode'],
+): boolean => (
+  mode === 'canonical-save' ||
+  mode === 'autosave' ||
+  mode === 'history' ||
+  mode === 'export'
+);
 
 const emitDocumentState = (
   layer: Layer,
@@ -112,6 +454,27 @@ export const captureColorCyclePersistenceSnapshot = (
         kind: 'metadata-only',
         message: 'Layer is not a color-cycle layer or has no color-cycle data.',
       }],
+    };
+  }
+
+  const documentCaptured = captureFromDocument(layer, context);
+  if (documentCaptured) {
+    return documentCaptured;
+  }
+
+  if (requiresDocumentSource(context.mode)) {
+    const diagnostics = [{
+      source: 'document' as const,
+      kind: 'source-rejected' as const,
+      message: 'No color-cycle document is available for this persistence boundary.',
+    }];
+    diagnostics.forEach((diagnostic) => context.diagnostics?.(diagnostic));
+    return {
+      ok: false,
+      layerId: layer.id,
+      mode: context.mode,
+      reason: 'missing-document-source',
+      diagnostics,
     };
   }
 

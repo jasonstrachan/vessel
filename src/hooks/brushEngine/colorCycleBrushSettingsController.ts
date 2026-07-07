@@ -1,25 +1,11 @@
 import { BrushShape, type BrushSettings } from '@/types';
 import { appendCCDebugOverlayEntry } from '@/utils/colorCycle/ccDebugOverlayStore';
-import type { ColorCycleBrushImplementation } from './ColorCycleBrushMigration';
-
-type SettingsBrush = ColorCycleBrushImplementation & {
-  setDitherStrength?: (value: number) => void;
-  setPxlEdgeEnabled?: (enabled: boolean) => void;
-  setStampDitherAlgorithm?: (algorithm?: BrushSettings['ditherAlgorithm']) => void;
-  setStampDitherPatternStyle?: (style?: BrushSettings['patternStyle']) => void;
-  setStampDitherPatternTileSettings?: (settings: Pick<
-    BrushSettings,
-    | 'patternTileId'
-    | 'patternTileScale'
-    | 'patternTileInvert'
-    | 'patternTileThreshold'
-    | 'patternTileOffsetX'
-    | 'patternTileOffsetY'
-  >) => void;
-  setStampDitherPressureLinked?: (enabled: boolean) => void;
-  setStampDitherBgFill?: (enabled: boolean) => void;
-  setStampDitherClears?: (enabled: boolean) => void;
-};
+import {
+  applyColorCycleBrushSettingsPatch,
+  type ColorCycleSettingsPatchBrush,
+} from './colorCycleBrushSettingsPatch';
+import type { CCBrushSettingsPatch } from './colorCycleBrushContracts';
+import { dispatchColorCycleFrameReady } from './colorCycleFrameEvents';
 
 const logCcBrushSettingsPath = (event: string, data: Record<string, unknown>): void => {
   if (process.env.NODE_ENV === 'test') {
@@ -28,7 +14,9 @@ const logCcBrushSettingsPath = (event: string, data: Record<string, unknown>): v
   appendCCDebugOverlayEntry('log', `cc brush settings path: ${event}`, data);
 };
 
-export const updateColorCycleGradientBandsForLayer = ({
+export { applyColorCycleBrushSettingsPatch } from './colorCycleBrushSettingsPatch';
+
+export const updateColorCycleGradientBandsForLayer = <TBrush extends ColorCycleSettingsPatchBrush>({
   activeLayerId,
   getLayers,
   getActiveLayerColorCycleBrush,
@@ -38,10 +26,10 @@ export const updateColorCycleGradientBandsForLayer = ({
 }: {
   activeLayerId: string | null;
   getLayers: () => Array<{ id: string; layerType?: string }>;
-  getActiveLayerColorCycleBrush: () => ColorCycleBrushImplementation | null;
-  initializeColorCycleBrush: () => ColorCycleBrushImplementation | null;
+  getActiveLayerColorCycleBrush: () => TBrush | null;
+  initializeColorCycleBrush: () => TBrush | null;
   gradientBands?: number;
-  renderBrushToLayerCanvas: (brush: ColorCycleBrushImplementation, layerId: string | null | undefined) => void;
+  renderBrushToLayerCanvas: (brush: TBrush, layerId: string | null | undefined) => void;
 }): void => {
   const activeLayer = getLayers().find((layer) => layer.id === activeLayerId);
   if (activeLayer?.layerType !== 'color-cycle') {
@@ -63,12 +51,12 @@ export const updateColorCycleGradientBandsForLayer = ({
     requestedGradientBands: gradientBands ?? null,
     appliedBands: bands,
   });
-  brush.setGradientBands(bands);
+  applyColorCycleBrushSettingsPatch(brush, { gradientBands: bands });
   renderBrushToLayerCanvas(brush, activeLayerId);
-  window.dispatchEvent(new CustomEvent('colorCycleFrameReady'));
+  dispatchColorCycleFrameReady();
 };
 
-export const updateColorCycleDitherPaletteSpreadForLayer = ({
+export const updateColorCycleDitherPaletteSpreadForLayer = <TBrush extends ColorCycleSettingsPatchBrush>({
   activeLayerId,
   getLayers,
   getActiveLayerColorCycleBrush,
@@ -77,9 +65,9 @@ export const updateColorCycleDitherPaletteSpreadForLayer = ({
 }: {
   activeLayerId: string | null;
   getLayers: () => Array<{ id: string; layerType?: string }>;
-  getActiveLayerColorCycleBrush: () => ColorCycleBrushImplementation | null;
-  initializeColorCycleBrush: () => ColorCycleBrushImplementation | null;
-  renderBrushToLayerCanvas: (brush: ColorCycleBrushImplementation, layerId: string | null | undefined) => void;
+  getActiveLayerColorCycleBrush: () => TBrush | null;
+  initializeColorCycleBrush: () => TBrush | null;
+  renderBrushToLayerCanvas: (brush: TBrush, layerId: string | null | undefined) => void;
 }): void => {
   const activeLayer = getLayers().find((layer) => layer.id === activeLayerId);
   if (activeLayer?.layerType !== 'color-cycle') {
@@ -96,10 +84,10 @@ export const updateColorCycleDitherPaletteSpreadForLayer = ({
   }
 
   renderBrushToLayerCanvas(brush, activeLayerId);
-  window.dispatchEvent(new CustomEvent('colorCycleFrameReady'));
+  dispatchColorCycleFrameReady();
 };
 
-export const updateColorCycleBandSpacingForLayer = ({
+export const updateColorCycleBandSpacingForLayer = <TBrush extends ColorCycleSettingsPatchBrush>({
   activeLayerId,
   getLayers,
   getActiveLayerColorCycleBrush,
@@ -113,14 +101,14 @@ export const updateColorCycleBandSpacingForLayer = ({
 }: {
   activeLayerId: string | null;
   getLayers: () => Array<{ id: string; layerType?: string }>;
-  getActiveLayerColorCycleBrush: () => ColorCycleBrushImplementation | null;
-  initializeColorCycleBrush: () => ColorCycleBrushImplementation | null;
+  getActiveLayerColorCycleBrush: () => TBrush | null;
+  initializeColorCycleBrush: () => TBrush | null;
   brushShape?: BrushSettings['brushShape'];
   colorCycleBandSpacingPx?: number;
   spacing?: number;
   defaultBandSpacing: number;
   clampColorCycleBandSpacing: (value?: number) => number;
-  renderBrushToLayerCanvas: (brush: ColorCycleBrushImplementation, layerId: string | null | undefined) => void;
+  renderBrushToLayerCanvas: (brush: TBrush, layerId: string | null | undefined) => void;
 }): void => {
   const activeLayer = getLayers().find((layer) => layer.id === activeLayerId);
   if (activeLayer?.layerType !== 'color-cycle') {
@@ -142,9 +130,9 @@ export const updateColorCycleBandSpacingForLayer = ({
       ? colorCycleBandSpacingPx ?? spacing ?? defaultBandSpacing
       : spacing ?? defaultBandSpacing
   );
-  brush.setBandSpacing(spacingValue);
+  applyColorCycleBrushSettingsPatch(brush, { bandSpacing: spacingValue });
   renderBrushToLayerCanvas(brush, activeLayerId);
-  window.dispatchEvent(new CustomEvent('colorCycleFrameReady'));
+  dispatchColorCycleFrameReady();
 };
 
 export const updateColorCycleDitherSettings = ({
@@ -166,7 +154,7 @@ export const updateColorCycleDitherSettings = ({
   stampDitherClears,
   pxlEdge,
 }: {
-  brush: ColorCycleBrushImplementation | null;
+  brush: ColorCycleSettingsPatchBrush | null;
   isCCGradientActiveLayer: boolean;
   shouldApplyToolbarSettings: boolean;
   ditherEnabled?: boolean;
@@ -191,11 +179,40 @@ export const updateColorCycleDitherSettings = ({
     return;
   }
 
-  const instance = brush as SettingsBrush;
   const enable = isCCGradientActiveLayer && !!ditherEnabled;
 
   try {
-    instance.setDitherEnabled(enable);
+    const resolvedBgFill =
+      typeof stampDitherBgFill === 'boolean'
+        ? stampDitherBgFill
+        : !Boolean(stampDitherClears);
+    const settingsPatch: CCBrushSettingsPatch = {
+      ditherEnabled: enable,
+      ditherStrength: enable ? 1 : 0,
+      stampDitherEnabled: !isCCGradientActiveLayer && !!stampDitherEnabled,
+      stampDitherAlgorithm: ditherAlgorithm ?? 'sierra-lite',
+      stampDitherPatternStyle: patternStyle ?? 'dots',
+      stampDitherPatternTileId: patternTileId ?? null,
+      stampDitherPatternTileScale: Number.isFinite(patternTileScale)
+        ? Number(patternTileScale)
+        : null,
+      stampDitherPatternTileInvert: typeof patternTileInvert === 'boolean'
+        ? patternTileInvert
+        : null,
+      stampDitherPatternTileThreshold: Number.isFinite(patternTileThreshold)
+        ? Number(patternTileThreshold)
+        : null,
+      stampDitherPatternTileOffsetX: Number.isFinite(patternTileOffsetX)
+        ? Number(patternTileOffsetX)
+        : null,
+      stampDitherPatternTileOffsetY: Number.isFinite(patternTileOffsetY)
+        ? Number(patternTileOffsetY)
+        : null,
+      stampDitherPressureLinked: !!stampDitherPressureLinked,
+      stampDitherBgFill: resolvedBgFill,
+      pxlEdgeEnabled: !!pxlEdge,
+    };
+    applyColorCycleBrushSettingsPatch(brush, settingsPatch);
     logCcBrushSettingsPath('applyDitherSettings', {
       enable,
       isCCGradientActiveLayer,
@@ -206,44 +223,6 @@ export const updateColorCycleDitherSettings = ({
       patternStyle: patternStyle ?? null,
       patternTileId: patternTileId ?? null,
     });
-    if (typeof instance.setDitherStrength === 'function') {
-      instance.setDitherStrength(enable ? 1 : 0);
-    }
-    instance.setStampDitherEnabled(!isCCGradientActiveLayer && !!stampDitherEnabled);
-
-    if (typeof instance.setStampDitherAlgorithm === 'function') {
-      instance.setStampDitherAlgorithm(ditherAlgorithm ?? 'sierra-lite');
-    }
-    if (typeof instance.setStampDitherPatternStyle === 'function') {
-      instance.setStampDitherPatternStyle(patternStyle ?? 'dots');
-    }
-    if (typeof instance.setStampDitherPatternTileSettings === 'function') {
-      instance.setStampDitherPatternTileSettings({
-        patternTileId,
-        patternTileScale,
-        patternTileInvert,
-        patternTileThreshold,
-        patternTileOffsetX,
-        patternTileOffsetY,
-      });
-    }
-    if (typeof instance.setStampDitherPressureLinked === 'function') {
-      instance.setStampDitherPressureLinked(!!stampDitherPressureLinked);
-    }
-
-    const resolvedBgFill =
-      typeof stampDitherBgFill === 'boolean'
-        ? stampDitherBgFill
-        : !Boolean(stampDitherClears);
-
-    if (typeof instance.setStampDitherBgFill === 'function') {
-      instance.setStampDitherBgFill(resolvedBgFill);
-    } else if (typeof instance.setStampDitherClears === 'function') {
-      instance.setStampDitherClears(!resolvedBgFill);
-    }
-    if (typeof instance.setPxlEdgeEnabled === 'function') {
-      instance.setPxlEdgeEnabled(!!pxlEdge);
-    }
   } catch {
     // Non-fatal for older brush versions.
   }
@@ -255,7 +234,7 @@ export const updateColorCycleFillDitherPixelSize = ({
   pressureLinkedFillResolution,
   fillResolution,
 }: {
-  brush: ColorCycleBrushImplementation | null;
+  brush: ColorCycleSettingsPatchBrush | null;
   isCCGradientActiveLayer: boolean;
   pressureLinkedFillResolution?: boolean;
   fillResolution?: number;
@@ -271,7 +250,9 @@ export const updateColorCycleFillDitherPixelSize = ({
   }
 
   try {
-    brush.setDitherPixelSize(Math.max(1, Math.floor(fillResolution)));
+    applyColorCycleBrushSettingsPatch(brush, {
+      ditherPixelSize: Math.max(1, Math.floor(fillResolution)),
+    });
   } catch {}
 };
 
@@ -280,7 +261,7 @@ export const updateColorCycleStampDitherPixelSize = ({
   shouldApplyToolbarSettings,
   stampDitherPixelSize,
 }: {
-  brush: ColorCycleBrushImplementation | null;
+  brush: ColorCycleSettingsPatchBrush | null;
   shouldApplyToolbarSettings: boolean;
   stampDitherPixelSize?: number;
 }): void => {
@@ -293,6 +274,6 @@ export const updateColorCycleStampDitherPixelSize = ({
 
   try {
     const resolution = Math.max(1, Math.floor(stampDitherPixelSize ?? 1));
-    brush.setStampDitherPixelSize(resolution);
+    applyColorCycleBrushSettingsPatch(brush, { stampDitherPixelSize: resolution });
   } catch {}
 };

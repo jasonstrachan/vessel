@@ -1,9 +1,9 @@
 import {
   fillColorCycleConcentric,
   fillColorCycleLinear,
+  type ColorCycleFillBrush,
 } from '../colorCycleFillController';
 import { BrushShape } from '@/types';
-import type { ColorCycleBrushImplementation } from '../ColorCycleBrushMigration';
 
 const createBrush = () => ({
   setLayerId: jest.fn(),
@@ -25,7 +25,7 @@ describe('colorCycleFillController', () => {
       vertices: [{ x: 0, y: 0 }, { x: 1, y: 0 }, { x: 1, y: 1 }],
       direction: { x: 1, y: 0 },
       options: { ditherPixelSize: 2 },
-      initializeColorCycleBrush: () => brush as unknown as ColorCycleBrushImplementation,
+      initializeColorCycleBrush: () => brush as unknown as ColorCycleFillBrush,
       activeLayerId: 'layer-1',
       isCCGradientActiveLayer: true,
       brushSettings: {
@@ -58,7 +58,7 @@ describe('colorCycleFillController', () => {
     await fillColorCycleLinear({
       vertices: [{ x: 0, y: 0 }, { x: 1, y: 0 }, { x: 1, y: 1 }],
       direction: { x: 1, y: 0 },
-      initializeColorCycleBrush: () => brush as unknown as ColorCycleBrushImplementation,
+      initializeColorCycleBrush: () => brush as unknown as ColorCycleFillBrush,
       activeLayerId: 'layer-1',
       isCCGradientActiveLayer: true,
       brushSettings: {
@@ -94,7 +94,7 @@ describe('colorCycleFillController', () => {
     await fillColorCycleLinear({
       vertices: [{ x: 0, y: 0 }, { x: 2, y: 0 }, { x: 2, y: 2 }],
       direction: { x: 1, y: 0 },
-      initializeColorCycleBrush: () => brush as unknown as ColorCycleBrushImplementation,
+      initializeColorCycleBrush: () => brush as unknown as ColorCycleFillBrush,
       activeLayerId: 'layer-1',
       isCCGradientActiveLayer: true,
       brushSettings: {
@@ -129,7 +129,7 @@ describe('colorCycleFillController', () => {
     await fillColorCycleLinear({
       vertices: [{ x: 0, y: 0 }, { x: 2, y: 0 }, { x: 2, y: 2 }],
       direction: { x: 1, y: 0 },
-      initializeColorCycleBrush: () => brush as unknown as ColorCycleBrushImplementation,
+      initializeColorCycleBrush: () => brush as unknown as ColorCycleFillBrush,
       activeLayerId: 'layer-1',
       isCCGradientActiveLayer: true,
       brushSettings: {
@@ -165,7 +165,7 @@ describe('colorCycleFillController', () => {
     await fillColorCycleConcentric({
       vertices: [{ x: 2, y: 2 }, { x: 3, y: 2 }, { x: 3, y: 3 }],
       options: { ditherPixelSize: 3 },
-      initializeColorCycleBrush: () => brush as unknown as ColorCycleBrushImplementation,
+      initializeColorCycleBrush: () => brush as unknown as ColorCycleFillBrush,
       activeLayerId: 'layer-1',
       isCCGradientActiveLayer: false,
       brushSettings: {
@@ -198,7 +198,7 @@ describe('colorCycleFillController', () => {
 
     await fillColorCycleConcentric({
       vertices: [{ x: 2, y: 2 }, { x: 3, y: 2 }, { x: 3, y: 3 }],
-      initializeColorCycleBrush: () => brush as unknown as ColorCycleBrushImplementation,
+      initializeColorCycleBrush: () => brush as unknown as ColorCycleFillBrush,
       activeLayerId: 'layer-1',
       isCCGradientActiveLayer: true,
       brushSettings: {
@@ -234,7 +234,7 @@ describe('colorCycleFillController', () => {
 
     await fillColorCycleConcentric({
       vertices: [{ x: 2, y: 2 }, { x: 3, y: 2 }, { x: 3, y: 3 }],
-      initializeColorCycleBrush: () => brush as unknown as ColorCycleBrushImplementation,
+      initializeColorCycleBrush: () => brush as unknown as ColorCycleFillBrush,
       activeLayerId: 'layer-1',
       isCCGradientActiveLayer: true,
       brushSettings: {
@@ -269,7 +269,7 @@ describe('colorCycleFillController', () => {
     await fillColorCycleLinear({
       vertices: [{ x: 3, y: 5 }, { x: 14, y: 18 }, { x: 25, y: 29 }],
       direction: { x: 1, y: 0 },
-      initializeColorCycleBrush: () => brush as unknown as ColorCycleBrushImplementation,
+      initializeColorCycleBrush: () => brush as unknown as ColorCycleFillBrush,
       activeLayerId: 'layer-1',
       isCCGradientActiveLayer: true,
       brushSettings: {
@@ -302,7 +302,7 @@ describe('colorCycleFillController', () => {
 
     await fillColorCycleConcentric({
       vertices,
-      initializeColorCycleBrush: () => brush as unknown as ColorCycleBrushImplementation,
+      initializeColorCycleBrush: () => brush as unknown as ColorCycleFillBrush,
       activeLayerId: 'layer-1',
       isCCGradientActiveLayer: true,
       brushSettings: {

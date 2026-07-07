@@ -2,6 +2,7 @@ import { createDefaultLayerAlignment } from '@/utils/layoutDefaults';
 import type { Layer } from '@/types';
 import { DEFAULT_BRUSH_COLOR_CYCLE_SPEED } from '@/constants/colorCycle';
 import { encodeColorCycleSpeedByte } from '@/utils/colorCycleSpeed';
+import { attachLegacyColorCycleTopLevelBuffers } from '@/lib/colorCycle/document';
 
 import { captureColorCyclePersistenceSnapshot } from '../captureColorCyclePersistenceSnapshot';
 import type { PersistedColorCycleBrushState } from '../colorCyclePersistenceTypes';
@@ -51,15 +52,225 @@ const canonicalBrushState = (overrides: Partial<PersistedColorCycleBrushState> =
 });
 
 describe('captureColorCyclePersistenceSnapshot', () => {
+  it('uses the document read before live runtime or persisted brush state and reports the version', () => {
+    const persisted = canonicalBrushState();
+    const runtime = canonicalBrushState({
+      ditherEnabled: true,
+      stampDitherEnabled: true,
+    });
+    runtime.layers![0]!.strokeData!.paintBuffer = buffer(4, 3);
+    const documentState = {
+      layerId: 'layer-1',
+      width: 2,
+      height: 2,
+      paintBuffer: buffer(4, 8),
+      gradientIdBuffer: buffer(4, 9),
+      gradientDefIdBuffer: buffer(8, 10),
+      speedBuffer: buffer(4, 11),
+      flowBuffer: buffer(4, 12),
+      phaseBuffer: buffer(4, 13),
+      hasContent: true,
+      sources: {
+        brushStateSnapshot: false,
+        topLevelBuffers: false,
+        legacyStateRefs: false,
+      },
+    };
+    const result = captureColorCyclePersistenceSnapshot(makeLayer({
+      colorCycleData: {
+        mode: 'brush',
+        canvasWidth: 2,
+        canvasHeight: 2,
+        brushState: persisted,
+      },
+    }), {
+      projectWidth: 2,
+      projectHeight: 2,
+      requirePaint: true,
+      mode: 'canonical-save',
+      document: {
+        read: () => ({
+          snapshot: documentState,
+          version: 12,
+        }),
+      },
+      runtimeBrush: {
+        serialize: () => runtime,
+      },
+      serializeRuntimeBrushState: (state) => state as PersistedColorCycleBrushState,
+    });
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.source).toBe('document');
+      expect(result.documentVersion).toBe(12);
+      expect(new Uint8Array(result.documentState.paintBuffer as ArrayBuffer)).toEqual(new Uint8Array([8, 8, 8, 8]));
+      expect(new Uint8Array(result.brushState.layers?.[0]?.strokeData?.paintBuffer as ArrayBuffer)).toEqual(new Uint8Array([8, 8, 8, 8]));
+      expect(result.brushState.ditherEnabled).toBe(true);
+      expect(result.brushState.stampDitherEnabled).toBe(true);
+      expect(result.diagnostics).toEqual([
+        expect.objectContaining({
+          source: 'document',
+          kind: 'source-selected',
+          documentVersion: 12,
+        }),
+      ]);
+    }
+  });
+
+  it('rejects an invalid document source instead of falling back to runtime state', () => {
+    const runtime = canonicalBrushState();
+    const result = captureColorCyclePersistenceSnapshot(makeLayer(), {
+      projectWidth: 2,
+      projectHeight: 2,
+      requirePaint: true,
+      mode: 'canonical-save',
+      document: {
+        read: () => ({
+          snapshot: {
+            layerId: 'layer-1',
+            width: 2,
+            height: 2,
+            hasContent: true,
+            sources: {
+              brushStateSnapshot: false,
+              topLevelBuffers: false,
+              legacyStateRefs: false,
+            },
+          },
+          version: 3,
+        }),
+      },
+      runtimeBrush: {
+        serialize: () => runtime,
+      },
+    });
+
+    expect(result).toMatchObject({
+      ok: false,
+      reason: 'missing-canonical-paint',
+      damageKind: 'missing-paint-buffer',
+      diagnostics: [
+        expect.objectContaining({
+          source: 'document',
+          documentVersion: 3,
+        }),
+        expect.objectContaining({
+          source: 'document',
+          kind: 'missing-paint-buffer',
+        }),
+      ],
+    });
+  });
+
+  it('rejects canonical save without a document instead of consulting loose runtime state', () => {
+    const runtimeSerialize = jest.fn(() => canonicalBrushState());
+    const result = captureColorCyclePersistenceSnapshot(makeLayer({
+      colorCycleData: {
+        mode: 'brush',
+        canvasWidth: 2,
+        canvasHeight: 2,
+        brushState: canonicalBrushState(),
+      },
+    }), {
+      projectWidth: 2,
+      projectHeight: 2,
+      requirePaint: true,
+      mode: 'canonical-save',
+      runtimeBrush: {
+        serialize: runtimeSerialize,
+      },
+    });
+
+    expect(result).toMatchObject({
+      ok: false,
+      reason: 'missing-document-source',
+      diagnostics: [
+        expect.objectContaining({
+          source: 'document',
+          kind: 'source-rejected',
+        }),
+      ],
+    });
+    expect(runtimeSerialize).not.toHaveBeenCalled();
+  });
+
+  it('uses cold document archive refs instead of placeholder buffers for canonical save', () => {
+    const result = captureColorCyclePersistenceSnapshot(makeLayer({
+      colorCycleData: {
+        mode: 'brush',
+        canvasWidth: 2,
+        canvasHeight: 2,
+        hasContent: true,
+      },
+    }), {
+      projectWidth: 2,
+      projectHeight: 2,
+      requirePaint: true,
+      mode: 'canonical-save',
+      document: {
+        residency: 'cold-archive-ref',
+        archiveRefs: {
+          paintRef: 'zip:buffers/color-cycle/layer-1/paint.bin',
+          gradientIdRef: 'zip:buffers/color-cycle/layer-1/gradient-id.bin',
+          gradientDefIdRef: 'zip:buffers/color-cycle/layer-1/gradient-def-id.bin',
+          speedRef: 'zip:buffers/color-cycle/layer-1/speed.bin',
+          flowRef: 'zip:buffers/color-cycle/layer-1/flow.bin',
+          phaseRef: 'zip:buffers/color-cycle/layer-1/phase.bin',
+        },
+        read: () => ({
+          snapshot: {
+            layerId: 'layer-1',
+            width: 2,
+            height: 2,
+            paintBuffer: buffer(4, 0),
+            gradientIdBuffer: buffer(4, 0),
+            gradientDefIdBuffer: buffer(8, 0),
+            speedBuffer: buffer(4, 0),
+            flowBuffer: buffer(4, 0),
+            phaseBuffer: buffer(4, 0),
+            hasContent: true,
+            sources: {
+              brushStateSnapshot: false,
+              topLevelBuffers: false,
+              legacyStateRefs: false,
+            },
+          },
+          version: 19,
+        }),
+      },
+    });
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.source).toBe('document');
+      expect(result.documentVersion).toBe(19);
+      expect(result.documentState.paintBuffer).toBe('zip:buffers/color-cycle/layer-1/paint.bin');
+      expect(result.documentState.gradientIdBuffer).toBe('zip:buffers/color-cycle/layer-1/gradient-id.bin');
+      expect(result.documentState.gradientDefIdBuffer).toBe('zip:buffers/color-cycle/layer-1/gradient-def-id.bin');
+      expect(result.documentState.speedBuffer).toBe('zip:buffers/color-cycle/layer-1/speed.bin');
+      expect(result.documentState.flowBuffer).toBe('zip:buffers/color-cycle/layer-1/flow.bin');
+      expect(result.documentState.phaseBuffer).toBe('zip:buffers/color-cycle/layer-1/phase.bin');
+      expect(result.brushState.layers?.[0]?.strokeData?.paintBuffer).toBe('zip:buffers/color-cycle/layer-1/paint.bin');
+      expect(result.diagnostics).toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          source: 'document',
+          kind: 'source-selected',
+          documentVersion: 19,
+        }),
+      ]));
+    }
+  });
+
   it('uses live runtime with canonical paint first', () => {
     const brushState = canonicalBrushState({ canonicalPaint: false });
     const result = captureColorCyclePersistenceSnapshot(makeLayer(), {
       projectWidth: 2,
       projectHeight: 2,
       requirePaint: true,
-      mode: 'canonical-save',
+      mode: 'diagnostic',
       runtimeBrush: {
-        getFullState: () => brushState,
+        serialize: () => brushState,
       },
     });
 
@@ -75,9 +286,9 @@ describe('captureColorCyclePersistenceSnapshot', () => {
       projectWidth: 2,
       projectHeight: 2,
       requirePaint: true,
-      mode: 'canonical-save',
+      mode: 'diagnostic',
       runtimeBrush: {
-        getFullState: () => {
+        serialize: () => {
           throw new Error('runtime unavailable');
         },
       },
@@ -118,7 +329,7 @@ describe('captureColorCyclePersistenceSnapshot', () => {
       projectWidth: 2,
       projectHeight: 2,
       requirePaint: true,
-      mode: 'canonical-save',
+      mode: 'diagnostic',
     });
 
     expect(result).toMatchObject({
@@ -151,7 +362,7 @@ describe('captureColorCyclePersistenceSnapshot', () => {
       projectWidth: 2,
       projectHeight: 2,
       requirePaint: true,
-      mode: 'canonical-save',
+      mode: 'diagnostic',
     });
 
     expect(result).toMatchObject({
@@ -165,7 +376,7 @@ describe('captureColorCyclePersistenceSnapshot', () => {
       projectWidth: 2,
       projectHeight: 2,
       requirePaint: true,
-      mode: 'canonical-save',
+      mode: 'diagnostic',
       deferredRuntime: {
         paintRef: 'zip:paint',
         gradientIdRef: 'zip:gradient-id',
@@ -192,7 +403,7 @@ describe('captureColorCyclePersistenceSnapshot', () => {
       projectWidth: 2,
       projectHeight: 2,
       requirePaint: true,
-      mode: 'canonical-save',
+      mode: 'diagnostic',
       deferredRuntime: {
         brushState,
         paintRef: 'zip:paint',
@@ -221,7 +432,7 @@ describe('captureColorCyclePersistenceSnapshot', () => {
       projectWidth: 2,
       projectHeight: 2,
       requirePaint: true,
-      mode: 'canonical-save',
+      mode: 'diagnostic',
       archiveManifest: new Map([
         ['speed', { byteLength: 4 }],
         ['flow', { byteLength: 4 }],
@@ -260,7 +471,7 @@ describe('captureColorCyclePersistenceSnapshot', () => {
       projectWidth: 2,
       projectHeight: 2,
       requirePaint: true,
-      mode: 'canonical-save',
+      mode: 'diagnostic',
     });
 
     expect(result).toMatchObject({
@@ -288,7 +499,7 @@ describe('captureColorCyclePersistenceSnapshot', () => {
       projectWidth: 2,
       projectHeight: 2,
       requirePaint: true,
-      mode: 'canonical-save',
+      mode: 'diagnostic',
     });
 
     expect(result).toMatchObject({
@@ -314,7 +525,7 @@ describe('captureColorCyclePersistenceSnapshot', () => {
       projectWidth: 2,
       projectHeight: 2,
       requirePaint: true,
-      mode: 'canonical-save',
+      mode: 'diagnostic',
     });
 
     expect(result.ok).toBe(true);
@@ -349,7 +560,7 @@ describe('captureColorCyclePersistenceSnapshot', () => {
       projectWidth: 2,
       projectHeight: 2,
       requirePaint: true,
-      mode: 'canonical-save',
+      mode: 'diagnostic',
     });
 
     expect(result).toMatchObject({
@@ -372,7 +583,7 @@ describe('captureColorCyclePersistenceSnapshot', () => {
       projectWidth: 2,
       projectHeight: 2,
       requirePaint: true,
-      mode: 'canonical-save',
+      mode: 'diagnostic',
     });
 
     expect(result).toMatchObject({
@@ -396,7 +607,7 @@ describe('captureColorCyclePersistenceSnapshot', () => {
       projectWidth: 2,
       projectHeight: 2,
       requirePaint: true,
-      mode: 'canonical-save',
+      mode: 'diagnostic',
     });
 
     expect(result).toMatchObject({
@@ -423,7 +634,7 @@ describe('captureColorCyclePersistenceSnapshot', () => {
       projectWidth: 2,
       projectHeight: 2,
       requirePaint: true,
-      mode: 'canonical-save',
+      mode: 'diagnostic',
       runtimeBrush: {
         serialize: () => runtime,
       },
@@ -436,7 +647,7 @@ describe('captureColorCyclePersistenceSnapshot', () => {
     }
   });
 
-  it('falls back to persisted brush state when live runtime is preview-only', () => {
+  it('uses persisted brush state in diagnostic mode when live runtime is preview-only', () => {
     const persisted = canonicalBrushState();
     persisted.layers![0]!.strokeData!.strokeCounter = 42;
     const runtime = canonicalBrushState();
@@ -446,19 +657,20 @@ describe('captureColorCyclePersistenceSnapshot', () => {
     delete runtime.layers![0]!.strokeData!.phaseBuffer;
 
     const result = captureColorCyclePersistenceSnapshot(makeLayer({
-      colorCycleData: {
+      colorCycleData: attachLegacyColorCycleTopLevelBuffers({
         mode: 'brush',
         canvasWidth: 2,
         canvasHeight: 2,
+        brushState: persisted,
+      }, {
         gradientIdBuffer: buffer(4, 9),
         gradientDefIdBuffer: buffer(8, 10),
-        brushState: persisted,
-      },
+      }),
     }), {
       projectWidth: 2,
       projectHeight: 2,
       requirePaint: true,
-      mode: 'canonical-save',
+      mode: 'diagnostic',
       runtimeBrush: {
         serialize: () => runtime,
       },
