@@ -117,6 +117,22 @@ describe('validateGobletColorCyclePayload', () => {
     expect(result.diagnostics.find((diagnostic) => diagnostic.code === 'missing-required-buffer')).toBeUndefined();
   });
 
+  it('accepts static slot-speed metadata without a speed buffer', () => {
+    const payload = createBrushPayload({
+      speedBuffer: undefined,
+    });
+    payload.speedMode = 'slot';
+    payload.slotSpeeds = [{ slot: 0, speed: 0 }];
+
+    const result = validateGobletColorCyclePayload(payload, {
+      layerId: 'cc-layer',
+      hasContent: true,
+    });
+
+    expect(result.ok).toBe(true);
+    expect(result.diagnostics.find((diagnostic) => diagnostic.code === 'missing-required-buffer')).toBeUndefined();
+  });
+
   it('rejects empty paint for a layer marked as content-bearing', () => {
     const result = validateGobletColorCyclePayload(createBrushPayload({
       indexBuffer: [0, 0, 0, 0],

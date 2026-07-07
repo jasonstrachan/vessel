@@ -1400,29 +1400,51 @@ const resolveSlotSpeedMap = (
   return resolved;
 };
 
-const detectSlotSpeedConflicts = (
+type SlotSpeedByteScan = {
+  hasConflict: boolean;
+  speedByteBySlot: Map<number, number>;
+  zeroOnlySlots: Set<number>;
+  hasNonZeroByte: boolean;
+};
+
+const scanSlotSpeedBytes = (
   gradientIds: NumericArrayLike,
   speedBuffer: NumericArrayLike,
   indices?: NumericArrayLike
-): boolean => {
+): SlotSpeedByteScan => {
   const length = Math.min(gradientIds.length, speedBuffer.length, indices?.length ?? gradientIds.length);
-  const speedBySlot = new Map<number, number>();
+  const speedByteBySlot = new Map<number, number>();
+  const zeroOnlySlots = new Set<number>();
+  const result = (hasConflict: boolean): SlotSpeedByteScan => ({
+    hasConflict,
+    speedByteBySlot,
+    zeroOnlySlots,
+    hasNonZeroByte: speedByteBySlot.size > 0,
+  });
   for (let i = 0; i < length; i += 1) {
     if (indices && indices[i] === 0) {
       continue;
     }
+    const slot = (gradientIds[i] ?? 0) & FLOW_SLOT_MASK;
     const speedByte = speedBuffer[i] | 0;
     if (speedByte <= 0) {
+      if (speedByteBySlot.has(slot)) {
+        return result(true);
+      }
+      zeroOnlySlots.add(slot);
       continue;
     }
-    const slot = (gradientIds[i] ?? 0) & FLOW_SLOT_MASK;
-    const existing = speedBySlot.get(slot);
-    if (existing !== undefined && existing !== speedByte) {
-      return true;
+    if (zeroOnlySlots.has(slot)) {
+      return result(true);
     }
-    speedBySlot.set(slot, speedByte);
+    zeroOnlySlots.delete(slot);
+    const existing = speedByteBySlot.get(slot);
+    if (existing !== undefined && existing !== speedByte) {
+      return result(true);
+    }
+    speedByteBySlot.set(slot, speedByte);
   }
-  return false;
+  return result(false);
 };
 
 const buildSpeedBufferFromSlots = (params: {
@@ -1453,7 +1475,7 @@ const buildSpeedBufferFromSlots = (params: {
   return out;
 };
 
-const prepareBrushSpeedExport = (params: {
+export const prepareBrushSpeedExport = (params: {
   layer: Layer;
   brushState: WebGLSerializedBrushState;
   warnOnce: () => void;
@@ -1488,9 +1510,10 @@ const prepareBrushSpeedExport = (params: {
     ? params.brushState.speedBuffer
     : null;
 
-  const hasConflict = speedBufferValues
-    ? detectSlotSpeedConflicts(gradientIds, speedBufferValues, indices)
-    : false;
+  const speedByteScan = speedBufferValues && speedBufferValues.length > 0
+    ? scanSlotSpeedBytes(gradientIds, speedBufferValues, indices)
+    : null;
+  const hasConflict = speedByteScan?.hasConflict ?? false;
   const shouldUseBuffer = params.forceBuffer || usedSlots.size > SPEED_SLOT_LIMIT || hasConflict;
 
   if (shouldUseBuffer) {
@@ -1513,7 +1536,7 @@ const prepareBrushSpeedExport = (params: {
   }
 
   const slotSpeeds: Array<{ slot: number; speed: number }> = [];
-  usedSlots.forEach((slot) => {
+  const pushFallbackSlotSpeed = (slot: number) => {
     const speed = speedBySlot.get(slot);
     if (Number.isFinite(speed)) {
       slotSpeeds.push({ slot, speed: speed as number });
@@ -1523,7 +1546,29 @@ const prepareBrushSpeedExport = (params: {
     if (Number.isFinite(fallbackSpeed)) {
       slotSpeeds.push({ slot, speed: fallbackSpeed as number });
     }
-  });
+  };
+
+  if (speedByteScan?.hasNonZeroByte) {
+    usedSlots.forEach((slot) => {
+      const speedByte = speedByteScan.speedByteBySlot.get(slot);
+      if (speedByte !== undefined) {
+        slotSpeeds.push({
+          slot,
+          speed: decodeColorCycleSpeedByte(speedByte) * params.layerSpeedScale,
+        });
+        return;
+      }
+      if (speedByteScan.zeroOnlySlots.has(slot)) {
+        slotSpeeds.push({ slot, speed: 0 });
+        return;
+      }
+      pushFallbackSlotSpeed(slot);
+    });
+  } else {
+    // Legacy/defaultable exports may synthesize zero-filled speed buffers for
+    // states that never stored per-pixel speed data; keep those on def/tool fallback.
+    usedSlots.forEach(pushFallbackSlotSpeed);
+  }
 
   if (slotSpeeds.length === 0) {
     const speedBufferOverride = buildSpeedBufferFromSlots({
