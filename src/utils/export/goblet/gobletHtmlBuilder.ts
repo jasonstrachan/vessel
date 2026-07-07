@@ -1,3 +1,8 @@
+import {
+  GOBLET2_FORMAT,
+  GOBLET2_SCHEMA_VERSION,
+} from '@/lib/colorCycle/document/colorCycleDocumentContract';
+
 type GobletHtmlDiagnostics = {
   log: (...args: Array<unknown>) => void;
   warn: (...args: Array<unknown>) => void;
@@ -31,8 +36,7 @@ const encodeMetadataForInlineScript = (metadataJson: string): string => {
 
 export const DEFAULT_HTML_TITLE = 'Goblet';
 export const DEFAULT_HTML_BACKGROUND_COLOR = '#000000';
-export const GOBLET2_FORMAT = 'vessel-goblet2' as const;
-export const GOBLET2_SCHEMA_VERSION = 2;
+export { GOBLET2_FORMAT, GOBLET2_SCHEMA_VERSION };
 
 export const sanitizeHtmlTitle = (value: unknown): string => {
   if (typeof value !== 'string') {
@@ -360,6 +364,79 @@ const buildInlineDisplayFilterRuntime = (displayFilterJs: string): string => {
   return `const { ${exportList} } = (() => {\n${sanitized}\nreturn { ${exportList} };\n})();`;
 };
 
+const buildInlineGobletPlaybackMathRuntime = (playbackMathJs: string): string => {
+  const sanitized = playbackMathJs
+    .replace(/export\s+const\s+/g, 'const ')
+    .replace(/export\s+function\s+/g, 'function ')
+    .replace(/export\s+default\s+[^;\n]+;?/g, '')
+    .replace(/export\s+\{[^}]*\};?/g, '')
+    .trim();
+  if (!sanitized) {
+    return '';
+  }
+
+  const exports = [
+    'GOBLET_SPEED_BYTE_RANGE',
+    'GOBLET_FLOW_MODE_LEGACY',
+    'GOBLET_FLOW_MODE_FORWARD',
+    'GOBLET_FLOW_MODE_REVERSE',
+    'GOBLET_FLOW_MODE_PINGPONG',
+    'GOBLET_MAX_SLOT_ID',
+    'decodeColorCycleSpeedByte',
+    'resolveGobletFlowMode',
+    'getGobletFlowModeIndex',
+    'hasGobletNonForwardFlow',
+    'normalizeGobletFlowBuffer',
+    'wrapGobletPhase01',
+    'resolveGobletPhase01',
+    'foldGobletPingpongPhase',
+    'resolveGobletPalettePosition',
+    'clampGobletSlotId',
+    'resolveGobletGradientSlot',
+    'resolveGobletPaletteRow',
+    'resolveGobletPaletteIndex',
+    'clampGobletByte',
+    'parseGobletColor',
+    'normalizeGobletGradientStops',
+    'normalizeGobletSlotPalettes',
+    'sampleGobletGradient',
+    'resolveGobletAlphaByte',
+    'resolveGobletIndexedAlphaByte',
+    'resizeGobletAlphaMaskBuffer',
+    'applyGobletEraseMaskToAlphaChannel',
+    'applyGobletSoftEdgeMaskToAlphaChannel',
+    'hasAnyGobletMaskValue',
+    'hasVisibleGobletAlpha',
+  ];
+  const exportList = exports.join(', ');
+  return `const { ${exportList} } = (() => {\n${sanitized}\nreturn { ${exportList} };\n})();`;
+};
+
+const buildInlineGobletPayloadContractRuntime = (payloadContractJs: string): string => {
+  const sanitized = payloadContractJs
+    .replace(/export\s+const\s+/g, 'const ')
+    .replace(/export\s+function\s+/g, 'function ')
+    .replace(/export\s+default\s+[^;\n]+;?/g, '')
+    .replace(/export\s+\{[^}]*\};?/g, '')
+    .trim();
+  if (!sanitized) {
+    return '';
+  }
+
+  const exports = [
+    'GOBLET_BRUSH_MASK_FIELDS',
+    'GOBLET_BRUSH_REQUIRED_BUFFERS',
+    'GOBLET_BRUSH_REQUIRED_SCALARS',
+    'GOBLET_COLOR_CYCLE_BRUSH_MODE',
+    'GOBLET_COLOR_CYCLE_RECOLOR_MODE',
+    'GOBLET2_FORMAT',
+    'GOBLET2_LEGACY_SCHEMA_VERSION',
+    'GOBLET2_SCHEMA_VERSION',
+  ];
+  const exportList = exports.join(', ');
+  return `const { ${exportList} } = (() => {\n${sanitized}\nreturn { ${exportList} };\n})();`;
+};
+
 const buildSingleFileRenderSnippet = (metadataJson: string, diagnosticsEnabled: boolean): string => {
   const metadataLiteral = encodeMetadataForInlineScript(metadataJson);
   const diagnosticsLiteral = diagnosticsEnabled ? 'true' : 'false';
@@ -523,6 +600,8 @@ const buildSingleFileScript = (
   runtimeModulePath: string,
   alignRuntime: string,
   displayFilterRuntime: string,
+  payloadContractRuntime: string | null | undefined,
+  playbackMathRuntime: string,
   numRuntime: string,
   inflateRuntime: string,
   metadataJson: string,
@@ -533,11 +612,17 @@ const buildSingleFileScript = (
   const runtimeWithoutNumImport = stripModuleImportStatement(runtimeWithoutAlignImport, './num.js');
   const runtimeWithoutInflateImport = stripModuleImportStatement(runtimeWithoutNumImport, './fflate-inflate.js');
   const runtimeWithoutDisplayFilterImport = stripModuleImportStatement(runtimeWithoutInflateImport, './displayFilterPipeline.js');
-  const inlineInflateAlreadyPresent = /const\s+inflateRaw\s*=\s*\(\s*\(\s*\)\s*=>/.test(runtimeWithoutDisplayFilterImport);
+  const runtimeWithoutPayloadContractImport = stripModuleImportStatement(runtimeWithoutDisplayFilterImport, './gobletPayloadContract.js');
+  const runtimeWithoutPlaybackMathImport = stripModuleImportStatement(runtimeWithoutPayloadContractImport, './gobletPlaybackMath.js');
+  const inlineInflateAlreadyPresent = /const\s+inflateRaw\s*=\s*\(\s*\(\s*\)\s*=>/.test(runtimeWithoutPlaybackMathImport);
   const inlineInflate = inlineInflateAlreadyPresent ? '' : buildInlineInflateRuntime(inflateRuntime);
   const inlineAlign = buildInlineAlignRuntime(alignRuntime);
   const inlineNum = buildInlineNumRuntime(numRuntime);
   const inlineDisplayFilter = buildInlineDisplayFilterRuntime(displayFilterRuntime);
+  const inlinePayloadContract = payloadContractRuntime
+    ? buildInlineGobletPayloadContractRuntime(payloadContractRuntime)
+    : '';
+  const inlinePlaybackMath = buildInlineGobletPlaybackMathRuntime(playbackMathRuntime);
   const runtimePrefixParts = [] as string[];
   if (inlineNum) {
     runtimePrefixParts.push(inlineNum);
@@ -545,14 +630,20 @@ const buildSingleFileScript = (
   if (inlineDisplayFilter) {
     runtimePrefixParts.push(inlineDisplayFilter);
   }
+  if (inlinePayloadContract) {
+    runtimePrefixParts.push(inlinePayloadContract);
+  }
   if (inlineAlign) {
     runtimePrefixParts.push(inlineAlign);
+  }
+  if (inlinePlaybackMath) {
+    runtimePrefixParts.push(inlinePlaybackMath);
   }
   if (inlineInflate) {
     runtimePrefixParts.push(inlineInflate);
   }
   const runtimePrefix = runtimePrefixParts.length > 0 ? `\n${runtimePrefixParts.join('\n')}\n` : '\n';
-  const runtime = `${runtimePrefix}${runtimeWithoutDisplayFilterImport}\n`;
+  const runtime = `${runtimePrefix}${runtimeWithoutPlaybackMathImport}\n`;
   const snippet = buildSingleFileRenderSnippet(metadataJson, diagnosticsEnabled);
   return `${runtime}${withoutImport}${snippet}`;
 };
@@ -592,6 +683,8 @@ export const createSingleFileGobletHtml = (
   runtimeModulePath: string,
   alignJs: string,
   displayFilterJs: string,
+  payloadContractJs: string | null | undefined,
+  playbackMathJs: string,
   numJs: string,
   inflateJs: string,
   metadataJson: string,
@@ -645,7 +738,19 @@ export const createSingleFileGobletHtml = (
 
   const runtime = stripGobletExports(gobletJs);
   return transformModuleScript(template, (script) =>
-    buildSingleFileScript(script, runtime, runtimeModulePath, alignJs, displayFilterJs, numJs, inflateJs, metadataJson, diagnosticsEnabled)
+    buildSingleFileScript(
+      script,
+      runtime,
+      runtimeModulePath,
+      alignJs,
+      displayFilterJs,
+      payloadContractJs,
+      playbackMathJs,
+      numJs,
+      inflateJs,
+      metadataJson,
+      diagnosticsEnabled,
+    )
   );
 };
 

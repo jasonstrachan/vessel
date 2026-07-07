@@ -102,12 +102,132 @@ const buildInlineDisplayFilterRuntime = (pipelineJs) => {
   return `const { ${exportList} } = (() => {\n${sanitized}\nreturn { ${exportList} };\n})();`;
 };
 
+const buildInlineGobletPayloadContractRuntime = (contractJs) => {
+  const sanitized = contractJs
+    .replace(/export\s+const\s+/g, 'const ')
+    .replace(/export\s+function\s+/g, 'function ')
+    .replace(/export\s+default\s+[^;\n]+;?/g, '')
+    .replace(/export\s+\{[^}]*\};?/g, '')
+    .trim();
+  if (!sanitized) {
+    return '';
+  }
+
+  const exports = [
+    'GOBLET2_FORMAT',
+    'GOBLET2_SCHEMA_VERSION',
+    'GOBLET2_LEGACY_SCHEMA_VERSION',
+    'GOBLET_BRUSH_REQUIRED_BUFFERS',
+    'GOBLET_BRUSH_REQUIRED_SCALARS',
+    'GOBLET_BRUSH_MASK_FIELDS',
+    'GOBLET_COLOR_CYCLE_BRUSH_MODE',
+    'GOBLET_COLOR_CYCLE_RECOLOR_MODE',
+  ];
+  const exportList = exports.join(', ');
+  return `const { ${exportList} } = (() => {\n${sanitized}\nreturn { ${exportList} };\n})();`;
+};
+
+const extractNamedExportConst = (source, name) => {
+  const marker = `export const ${name}`;
+  const start = source.indexOf(marker);
+  if (start === -1) {
+    throw new Error(`Missing ${name} in colorCycleDocumentContract.ts`);
+  }
+
+  const equalsIndex = source.indexOf('=', start);
+  if (equalsIndex === -1) {
+    throw new Error(`Missing initializer for ${name} in colorCycleDocumentContract.ts`);
+  }
+
+  let depth = 0;
+  for (let index = equalsIndex + 1; index < source.length; index += 1) {
+    const char = source[index];
+    if (char === '(' || char === '[' || char === '{') {
+      depth += 1;
+    } else if (char === ')' || char === ']' || char === '}') {
+      depth -= 1;
+    } else if (char === ';' && depth === 0) {
+      return source.slice(start, index + 1);
+    }
+  }
+
+  throw new Error(`Unterminated initializer for ${name} in colorCycleDocumentContract.ts`);
+};
+
+const buildGobletPayloadContractRuntimeSource = () => {
+  const documentContract = fs.readFileSync(
+    path.resolve(projectRoot, 'src/lib/colorCycle/document/colorCycleDocumentContract.ts'),
+    'utf8',
+  );
+  const exports = [
+    'GOBLET2_FORMAT',
+    'GOBLET2_SCHEMA_VERSION',
+    'GOBLET2_LEGACY_SCHEMA_VERSION',
+    'GOBLET_BRUSH_REQUIRED_BUFFERS',
+    'GOBLET_BRUSH_REQUIRED_SCALARS',
+    'GOBLET_BRUSH_MASK_FIELDS',
+    'GOBLET_COLOR_CYCLE_BRUSH_MODE',
+    'GOBLET_COLOR_CYCLE_RECOLOR_MODE',
+  ];
+  return exports.map((name) => extractNamedExportConst(documentContract, name)).join('\n\n');
+};
+
+const buildInlineGobletPlaybackMathRuntime = (playbackMathJs) => {
+  const sanitized = playbackMathJs
+    .replace(/export\s+const\s+/g, 'const ')
+    .replace(/export\s+function\s+/g, 'function ')
+    .replace(/export\s+default\s+[^;\n]+;?/g, '')
+    .replace(/export\s+\{[^}]*\};?/g, '')
+    .trim();
+  if (!sanitized) {
+    return '';
+  }
+
+  const exports = [
+    'GOBLET_SPEED_BYTE_RANGE',
+    'GOBLET_FLOW_MODE_LEGACY',
+    'GOBLET_FLOW_MODE_FORWARD',
+    'GOBLET_FLOW_MODE_REVERSE',
+    'GOBLET_FLOW_MODE_PINGPONG',
+    'GOBLET_MAX_SLOT_ID',
+    'decodeColorCycleSpeedByte',
+    'resolveGobletFlowMode',
+    'getGobletFlowModeIndex',
+    'hasGobletNonForwardFlow',
+    'normalizeGobletFlowBuffer',
+    'wrapGobletPhase01',
+    'resolveGobletPhase01',
+    'foldGobletPingpongPhase',
+    'resolveGobletPalettePosition',
+    'clampGobletSlotId',
+    'resolveGobletGradientSlot',
+    'resolveGobletPaletteRow',
+    'resolveGobletPaletteIndex',
+    'clampGobletByte',
+    'parseGobletColor',
+    'normalizeGobletGradientStops',
+    'normalizeGobletSlotPalettes',
+    'sampleGobletGradient',
+    'resolveGobletAlphaByte',
+    'resolveGobletIndexedAlphaByte',
+    'resizeGobletAlphaMaskBuffer',
+    'applyGobletEraseMaskToAlphaChannel',
+    'applyGobletSoftEdgeMaskToAlphaChannel',
+    'hasAnyGobletMaskValue',
+    'hasVisibleGobletAlpha',
+  ];
+  const exportList = exports.join(', ');
+  return `const { ${exportList} } = (() => {\n${sanitized}\nreturn { ${exportList} };\n})();`;
+};
+
 const sanitizeGobletRuntime = (gobletJs) => {
   const withoutAlign = stripModuleImportStatement(gobletJs, './alignFitResolver.js');
   const withoutNum = stripModuleImportStatement(withoutAlign, './num.js');
   const withoutInflate = stripModuleImportStatement(withoutNum, './fflate-inflate.js');
   const withoutDisplayFilter = stripModuleImportStatement(withoutInflate, './displayFilterPipeline.js');
-  const sanitized = stripGobletExports(withoutDisplayFilter).trim();
+  const withoutPlaybackMath = stripModuleImportStatement(withoutDisplayFilter, './gobletPlaybackMath.js');
+  const withoutPayloadContract = stripModuleImportStatement(withoutPlaybackMath, './gobletPayloadContract.js');
+  const sanitized = stripGobletExports(withoutPayloadContract).trim();
   return sanitized;
 };
 
@@ -120,6 +240,14 @@ const buildRuntimeSource = (dir, runtimeFile) => {
     path.resolve(projectRoot, 'src/lib/displayFilterPipeline.js'),
     'utf8',
   );
+  const playbackMathJs = fs.readFileSync(
+    path.resolve(projectRoot, 'src/lib/colorCycle/gobletPlaybackMath.js'),
+    'utf8',
+  );
+  const payloadContractPath = path.resolve(dir, 'gobletPayloadContract.js');
+  const payloadContractJs = fs.existsSync(payloadContractPath)
+    ? fs.readFileSync(payloadContractPath, 'utf8')
+    : '';
 
   const runtimeSections = [];
   const inlineNum = buildInlineNumRuntime(numJs);
@@ -133,6 +261,14 @@ const buildRuntimeSource = (dir, runtimeFile) => {
   const inlineAlign = buildInlineAlignRuntime(alignJs);
   if (inlineAlign) {
     runtimeSections.push(inlineAlign);
+  }
+  const inlinePlaybackMath = buildInlineGobletPlaybackMathRuntime(playbackMathJs);
+  if (inlinePlaybackMath) {
+    runtimeSections.push(inlinePlaybackMath);
+  }
+  const inlinePayloadContract = buildInlineGobletPayloadContractRuntime(payloadContractJs);
+  if (inlinePayloadContract) {
+    runtimeSections.push(inlinePayloadContract);
   }
   const gobletRuntime = sanitizeGobletRuntime(gobletJs);
   const inlineInflatePresent = /const\s+inflateRaw\s*=\s*\(\s*\(\s*\)\s*=>/.test(gobletRuntime);
@@ -159,6 +295,40 @@ const syncDisplayFilterPipeline = (dir, check) => {
     );
   }
   fs.writeFileSync(outputFile, source);
+  console.log(`Wrote ${path.relative(projectRoot, outputFile)}`);
+};
+
+const syncGobletPayloadContract = (dir, check) => {
+  const source = buildGobletPayloadContractRuntimeSource();
+  const output = `// Auto-generated by scripts/build-goblet-runtime.mjs. Do not edit directly.\n${source}`;
+  const outputFile = path.resolve(dir, 'gobletPayloadContract.js');
+  const previous = fs.existsSync(outputFile) ? fs.readFileSync(outputFile, 'utf8') : null;
+  if (previous === output) {
+    return;
+  }
+  if (check) {
+    throw new Error(
+      `${path.relative(projectRoot, outputFile)} is out of date. Run: npm run build:goblet-inline`
+    );
+  }
+  fs.writeFileSync(outputFile, output);
+  console.log(`Wrote ${path.relative(projectRoot, outputFile)}`);
+};
+
+const syncGobletPlaybackMath = (dir, check) => {
+  const source = fs.readFileSync(path.resolve(projectRoot, 'src/lib/colorCycle/gobletPlaybackMath.js'), 'utf8');
+  const output = `// Auto-generated by scripts/build-goblet-runtime.mjs. Do not edit directly.\n${source}`;
+  const outputFile = path.resolve(dir, 'gobletPlaybackMath.js');
+  const previous = fs.existsSync(outputFile) ? fs.readFileSync(outputFile, 'utf8') : null;
+  if (previous === output) {
+    return;
+  }
+  if (check) {
+    throw new Error(
+      `${path.relative(projectRoot, outputFile)} is out of date. Run: npm run build:goblet-inline`
+    );
+  }
+  fs.writeFileSync(outputFile, output);
   console.log(`Wrote ${path.relative(projectRoot, outputFile)}`);
 };
 
@@ -232,6 +402,7 @@ const main = async () => {
 
   if (target === 'all' || target === 'goblet') {
     syncDisplayFilterPipeline(gobletDir, check);
+    syncGobletPlaybackMath(gobletDir, check);
     await buildInlineRuntime({
       dir: gobletDir,
       runtimeFile: 'goblet.js',
@@ -243,6 +414,8 @@ const main = async () => {
 
   if ((target === 'all' || target === 'goblet2') && fs.existsSync(goblet2Dir)) {
     syncDisplayFilterPipeline(goblet2Dir, check);
+    syncGobletPlaybackMath(goblet2Dir, check);
+    syncGobletPayloadContract(goblet2Dir, check);
     await buildInlineRuntime({
       dir: goblet2Dir,
       runtimeFile: 'goblet2.js',

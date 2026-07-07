@@ -28,7 +28,10 @@ export const createGoblet2Bundle = (overrides: Partial<{ layers: Goblet2Layer[] 
         height: 2,
         indexBuffer: [1, 2, 3, 4],
         gradientIdBuffer: [0, 0, 0, 0],
+        gradientDefIdBuffer: [1, 1, 1, 1],
         speedBuffer: [255, 255, 255, 255],
+        flowBuffer: [1, 1, 1, 1],
+        phaseBuffer: [0, 64, 128, 192],
         gradientStops: [
           { position: 0, color: '#000000' },
           { position: 1, color: '#ffffff' }

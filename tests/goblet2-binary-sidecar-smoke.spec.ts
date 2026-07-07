@@ -12,6 +12,7 @@ const readText = (relativePath: string) => fs.readFileSync(path.join(rootDir, re
 const sidecarBytes: Record<string, Uint8Array> = {
   '/buffers/layer-0/brush-indexBuffer.bin': Uint8Array.from([1, 2, 3, 4]),
   '/buffers/layer-0/brush-gradientIdBuffer.bin': Uint8Array.from([0, 0, 0, 0]),
+  '/buffers/layer-0/brush-gradientDefIdBuffer.bin': new Uint8Array(new Uint16Array([1, 1, 1, 1]).buffer),
   '/buffers/layer-0/brush-speedBuffer.bin': Uint8Array.from([255, 255, 255, 255]),
   '/buffers/layer-0/brush-flowBuffer.bin': Uint8Array.from([1, 1, 1, 1]),
   '/buffers/layer-0/brush-phaseBuffer.bin': Uint8Array.from([0, 64, 128, 192]),
@@ -29,6 +30,11 @@ const createSidecarMetadata = () => {
     ref: 'buffers/layer-0/brush-gradientIdBuffer.bin',
     encoding: 'u8',
     byteLength: 4,
+  };
+  brushState.gradientDefIdBuffer = {
+    ref: 'buffers/layer-0/brush-gradientDefIdBuffer.bin',
+    encoding: 'u16',
+    byteLength: 8,
   };
   brushState.speedBuffer = {
     ref: 'buffers/layer-0/brush-speedBuffer.bin',
@@ -92,6 +98,7 @@ test.describe('Goblet 2 binary sidecar runtime smoke', () => {
     const baseUrl = 'http://goblet-sidecar.test/';
     const pageErrors: string[] = [];
     const consoleErrors: string[] = [];
+    const sidecarRequestCounts = new Map<string, number>();
 
     page.on('pageerror', (error) => {
       pageErrors.push(error.message);
@@ -118,6 +125,7 @@ test.describe('Goblet 2 binary sidecar runtime smoke', () => {
       }
       const sidecar = sidecarBytes[url.pathname];
       if (sidecar) {
+        sidecarRequestCounts.set(url.pathname, (sidecarRequestCounts.get(url.pathname) ?? 0) + 1);
         await route.fulfill({
           status: 200,
           contentType: 'application/octet-stream',
@@ -130,6 +138,8 @@ test.describe('Goblet 2 binary sidecar runtime smoke', () => {
         runtimeAsset === 'goblet2.js' ||
         runtimeAsset === 'alignFitResolver.js' ||
         runtimeAsset === 'displayFilterPipeline.js' ||
+        runtimeAsset === 'gobletPayloadContract.js' ||
+        runtimeAsset === 'gobletPlaybackMath.js' ||
         runtimeAsset === 'num.js' ||
         runtimeAsset === 'fflate-inflate.js'
       ) {
@@ -156,5 +166,8 @@ test.describe('Goblet 2 binary sidecar runtime smoke', () => {
     expect(smoke).not.toHaveProperty('error');
     expect((smoke as { nonZeroAlpha: number }).nonZeroAlpha).toBeGreaterThan(0);
     expect((smoke as { nonZeroRgba: number }).nonZeroRgba).toBeGreaterThan(0);
+    expect(Object.fromEntries(sidecarRequestCounts)).toEqual(
+      Object.fromEntries(Object.keys(sidecarBytes).map((sidecarPath) => [sidecarPath, 1]))
+    );
   });
 });

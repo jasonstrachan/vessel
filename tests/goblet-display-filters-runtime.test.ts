@@ -21,15 +21,19 @@ describe('Goblet display filter runtime parity', () => {
     expect(runtime).toContain('const getGobletDisplayFilters = (metadata) => (');
     expect(runtime).toContain("} from './displayFilterPipeline.js';");
     expect(runtime).toContain('this.displayFilterState = createDisplayFilterPipelineState();');
-    expect(runtime).toContain('const computeDocumentViewportMapping = (metadata, canvasWidth, canvasHeight) => {');
-    expect(runtime).toContain('documentSize.width * documentViewportMapping.scaleX');
-    expect(runtime).toContain('const filterLengthScale = Math.max(');
+    expect(runtime).not.toContain('documentSize.width * documentViewportMapping.scaleX');
+    expect(runtime).toContain('const filterLengthScale = isFixed ? Math.max(dpr, 1e-4) : 1;');
     expect(runtime).toContain("const transparencyMode = metadata?.settings?.transparencyBackgroundMode === 'gray' ? 'gray' : 'checker';");
     expect(runtime).toContain('paintGobletBackground(ctx, clearWidth, clearHeight, this.metadata);');
-    expect(runtime).toContain('paintGobletBackground(filterCtx, documentSize.width, documentSize.height, this.metadata);');
+    expect(runtime).toContain('paintGobletBackground(filterCtx, clearWidth, clearHeight, this.metadata);');
+    expect(runtime).toContain('renderWidth: clearWidth,');
+    expect(runtime).toContain('renderHeight: clearHeight,');
     expect(runtime).toContain('visibleRect: {');
+    expect(runtime).toContain('width: clearWidth,');
+    expect(runtime).toContain('height: clearHeight,');
     expect(runtime).toContain('lengthScale: filterLengthScale');
     expect(runtime).toContain('const finalFilteredCanvas = applyDisplayFilterStack({');
+    expect(runtime).toContain('ctx.drawImage(finalFilteredCanvas, 0, 0);');
   });
 
   it('keeps Goblet 1 static cache and hidden-animation skip in the module runtime', () => {
@@ -71,15 +75,19 @@ describe('Goblet display filter runtime parity', () => {
     expect(runtime).toContain('const getGobletDisplayFilters = (metadata) => (');
     expect(runtime).toContain("} from './displayFilterPipeline.js';");
     expect(runtime).toContain('this.displayFilterState = createDisplayFilterPipelineState();');
-    expect(runtime).toContain('const computeDocumentViewportMapping = (metadata, canvasWidth, canvasHeight) => {');
-    expect(runtime).toContain('documentSize.width * documentViewportMapping.scaleX');
-    expect(runtime).toContain('const filterLengthScale = Math.max(');
+    expect(runtime).not.toContain('documentSize.width * documentViewportMapping.scaleX');
+    expect(runtime).toContain('const filterLengthScale = isFixed ? Math.max(dpr, 1e-4) : 1;');
     expect(runtime).toContain("const transparencyMode = metadata?.settings?.transparencyBackgroundMode === 'gray' ? 'gray' : 'checker';");
     expect(runtime).toContain('paintGobletBackground(ctx, clearWidth, clearHeight, this.metadata);');
-    expect(runtime).toContain('paintGobletBackground(filterCtx, documentSize.width, documentSize.height, this.metadata);');
+    expect(runtime).toContain('paintGobletBackground(filterCtx, clearWidth, clearHeight, this.metadata);');
+    expect(runtime).toContain('renderWidth: clearWidth,');
+    expect(runtime).toContain('renderHeight: clearHeight,');
     expect(runtime).toContain('visibleRect: {');
+    expect(runtime).toContain('width: clearWidth,');
+    expect(runtime).toContain('height: clearHeight,');
     expect(runtime).toContain('lengthScale: filterLengthScale');
     expect(runtime).toContain('const finalFilteredCanvas = applyDisplayFilterStack({');
+    expect(runtime).toContain('ctx.drawImage(finalFilteredCanvas, 0, 0);');
   });
 
   it('scopes the display filter pipeline inside the Goblet 2 inline runtime', () => {

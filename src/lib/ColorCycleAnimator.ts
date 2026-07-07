@@ -267,8 +267,8 @@ export class ColorCycleAnimator implements CCIndexSurface, DerivedSurface {
       return;
     }
     this.glRenderer.syncPaletteAtlas(
-      this.paletteController.getPaletteSignaturesBySlot(),
-      this.paletteController.getPaletteRGBABySlot()
+      this.paletteController.getRenderablePaletteSignaturesBySlot(),
+      this.paletteController.getRenderablePaletteRGBABySlot()
     );
   }
 
@@ -431,11 +431,11 @@ export class ColorCycleAnimator implements CCIndexSurface, DerivedSurface {
   }
 
   getPalettesBySlot(): Uint32Array[] {
-    return this.paletteController.getPalettesBySlot();
+    return this.paletteController.getRenderablePalettesBySlot();
   }
 
   getPaletteRGBABySlot(): Array<Uint8ClampedArray | Uint8Array | null> {
-    return this.paletteController.getPaletteRGBABySlot();
+    return this.paletteController.getRenderablePaletteRGBABySlot();
   }
 
 
@@ -759,7 +759,7 @@ export class ColorCycleAnimator implements CCIndexSurface, DerivedSurface {
         speedData,
         flowData,
         phaseData,
-        paletteSlots: this.paletteController.getPalettesBySlot(),
+        paletteSlots: this.paletteController.getRenderablePalettesBySlot(),
         basePalette: basePalette32,
         phase: legacyPhase,
         baseOffset,

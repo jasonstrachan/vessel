@@ -1,0 +1,162 @@
+{
+  "version": 1,
+  "semantics": [
+    {
+      "id": "speed-decode",
+      "label": "Speed byte decode",
+      "status": "covered",
+      "coverage": "rendered-parity",
+      "runtimeTargets": ["cpu-rendered", "gpu-rendered", "gpu-regression", "shared-source"],
+      "witnesses": [
+        "src/lib/colorCycle/gobletPlaybackMath.js",
+        "src/utils/colorCycleSpeed.ts",
+        "src/lib/colorCycle/goblet2Cpu.ts",
+        "tests/cc-runtime-parity.test.ts",
+        "tests/goblet2-cpu-gpu-parity.spec.ts",
+        "tests/goblet2-runtime-regression.test.ts",
+        "tests/fixtures/cc/baseline-parity.json",
+        "tests/fixtures/cc/failing-json-case.json"
+      ],
+      "note": "Speed-byte decode is shared through gobletPlaybackMath for editor/export decode, the Goblet2 CPU fixture helper, and both generated Goblet runtimes. Rendered parity still exercises zero, low, mid, and max speed bytes, and the WebGL2 witness compares GPU pixels against the CPU fallback."
+    },
+    {
+      "id": "frame-phase-shift",
+      "label": "Frame and phase shift",
+      "status": "covered",
+      "coverage": "rendered-parity",
+      "runtimeTargets": ["cpu-rendered", "gpu-rendered", "gpu-regression", "shared-source"],
+      "witnesses": [
+        "src/lib/colorCycle/gobletPlaybackMath.js",
+        "src/lib/colorCycle/goblet2Cpu.ts",
+        "tests/cc-runtime-parity.test.ts",
+        "tests/goblet2-cpu-gpu-parity.spec.ts",
+        "tests/goblet2-runtime-regression.test.ts",
+        "tests/fixtures/cc/baseline-parity.json",
+        "tests/fixtures/cc/failing-json-case.json"
+      ],
+      "note": "Phase wrapping, phase-byte offset, ping-pong folding, and flow-aware palette position resolve through shared gobletPlaybackMath helpers used by the CPU parity helper and generated Goblet runtimes. Rendered CPU parity still compares two frame times, and the WebGL2 witness advances CPU and GPU viewers through the same manual RAF timestamps before pixel comparison."
+    },
+    {
+      "id": "slot-clamp",
+      "label": "Slot clamping",
+      "status": "covered",
+      "coverage": "rendered-parity",
+      "runtimeTargets": ["cpu-rendered", "gpu-rendered", "gpu-regression", "shared-source"],
+      "witnesses": [
+        "src/lib/colorCycle/gobletPlaybackMath.js",
+        "src/lib/colorCycle/goblet2Cpu.ts",
+        "tests/cc-runtime-parity.test.ts",
+        "tests/goblet2-cpu-gpu-parity.spec.ts",
+        "tests/goblet2-runtime-regression.test.ts",
+        "tests/fixtures/cc/failing-json-case.json"
+      ],
+      "note": "Exported slot-id clamping, gradient-slot extraction, CPU palette-row clamping, and CPU palette-index clamping run through shared gobletPlaybackMath helpers used by the CPU parity helper and generated Goblet runtimes. The WebGL2 shader still clamps palette rows in GLSL, and the rendered parity witness compares that path against CPU pixels including slot 255."
+    },
+    {
+      "id": "palette-fallback",
+      "label": "Palette fallback",
+      "status": "covered",
+      "coverage": "rendered-parity",
+      "runtimeTargets": ["cpu-rendered", "gpu-rendered", "shared-source"],
+      "witnesses": [
+        "src/lib/colorCycle/gobletPlaybackMath.js",
+        "src/lib/colorCycle/goblet2Cpu.ts",
+        "tests/cc-runtime-parity.test.ts",
+        "tests/goblet2-cpu-gpu-parity.spec.ts",
+        "tests/goblet2-runtime-regression.test.ts",
+        "tests/fixtures/cc/failing-json-case.json"
+      ],
+      "note": "Sparse slot palettes and fallback slot 0 insertion run through the shared gobletPlaybackMath slot-palette normalizer used by the CPU parity helper and generated Goblet runtimes. Rendered parity still exercises missing and high slot ids, including slot 255."
+    },
+    {
+      "id": "palette-row-sampling",
+      "label": "Palette row sampling",
+      "status": "covered",
+      "coverage": "rendered-parity",
+      "runtimeTargets": ["cpu-rendered", "gpu-rendered", "gpu-regression", "shared-source"],
+      "witnesses": [
+        "src/lib/colorCycle/gobletPlaybackMath.js",
+        "src/lib/colorCycle/goblet2Cpu.ts",
+        "tests/cc-runtime-parity.test.ts",
+        "tests/goblet2-cpu-gpu-parity.spec.ts",
+        "tests/goblet2-runtime-regression.test.ts",
+        "tests/fixtures/cc/baseline-parity.json",
+        "tests/fixtures/cc/failing-json-case.json"
+      ],
+      "note": "Gradient stop normalization, normalized rgba stop support, and gradient sampling run through the shared gobletPlaybackMath helpers used by the CPU parity helper and generated Goblet runtimes. Fractional palette row interpolation remains compared channel-by-channel in CPU rendered parity and CPU-vs-WebGL2 pixel parity."
+    },
+    {
+      "id": "flow-modes",
+      "label": "Flow mode buffer playback",
+      "status": "covered",
+      "coverage": "rendered-parity",
+      "runtimeTargets": ["gpu-rendered", "gpu-regression", "shared-source"],
+      "witnesses": [
+        "src/lib/colorCycle/gobletPlaybackMath.js",
+        "src/lib/colorCycle/flowEncoding.ts",
+        "src/lib/colorCycle/goblet2Cpu.ts",
+        "tests/goblet2-cpu-gpu-parity.spec.ts",
+        "tests/goblet2-runtime-regression.test.ts"
+      ],
+      "note": "Flow mode values, resolution, mode indexing, non-forward detection, and Goblet2 flow-buffer normalization run through gobletPlaybackMath for editor/export constants, the CPU parity helper, and both generated Goblet runtimes. The WebGL2 parity witness still renders exported flowBuffer values 1, 2, and 3 through WebGL2 and forced CPU fallback."
+    },
+    {
+      "id": "mask-alpha",
+      "label": "Mask alpha",
+      "status": "covered",
+      "coverage": "rendered-parity",
+      "runtimeTargets": ["gpu-rendered", "gpu-regression", "viewer-regression", "shared-source"],
+      "witnesses": [
+        "src/lib/colorCycle/gobletPlaybackMath.js",
+        "tests/goblet2-cpu-gpu-parity.spec.ts",
+        "tests/goblet-runtime-embed-sizing.test.ts",
+        "tests/goblet2-runtime-regression.test.ts"
+      ],
+      "note": "Zero-preserving alpha fallback for CPU brush fills runs through shared gobletPlaybackMath helpers used by generated Goblet runtimes. The WebGL2 parity witness renders a brush payload with alphaMask and softEdgeMask data through both WebGL2 and forced CPU fallback paths and compares pixels."
+    },
+    {
+      "id": "fit-modes",
+      "label": "Fit modes",
+      "status": "covered",
+      "coverage": "rendered-parity",
+      "runtimeTargets": ["gpu-rendered", "shared-source", "viewer-regression"],
+      "witnesses": [
+        "src/utils/alignment/alignFitResolver.ts",
+        "scripts/build-align-fit.mjs",
+        "scripts/build-goblet-runtime.mjs",
+        "tests/goblet2-fit-mode-rendered-parity.spec.ts",
+        "tests/goblet-runtime-embed-sizing.test.ts",
+        "tests/goblet-display-filters-runtime.test.ts",
+        "tests/goblet2-runtime-regression.test.ts"
+      ],
+      "note": "Fit placement resolves through the shared alignFitResolver source generated into both Goblet targets and checked by verify:goblet-runtime. The browser parity witness renders layers through none, contain, cover, fill, and tile and compares alpha bounds to the shared fit-mode destinations."
+    },
+    {
+      "id": "hidden-layer-inclusion",
+      "label": "Hidden layer inclusion",
+      "status": "covered",
+      "coverage": "export-contract",
+      "runtimeTargets": ["export-contract", "viewer-regression"],
+      "witnesses": [
+        "tests/goblet-hidden-layer-inclusion.test.ts",
+        "tests/goblet-display-filters-runtime.test.ts",
+        "tests/goblet2-runtime-regression.test.ts"
+      ],
+      "note": "The named parity gate exports the same layer set with includeHiddenLayers off and on, proving hidden layers are excluded or preserved with visible false according to the request. Viewer guards still assert hidden animated layers are not scheduled."
+    },
+    {
+      "id": "display-filters",
+      "label": "Display filters",
+      "status": "covered",
+      "coverage": "rendered-parity",
+      "runtimeTargets": ["gpu-rendered", "shared-source", "viewer-regression"],
+      "witnesses": [
+        "scripts/build-goblet-runtime.mjs",
+        "tests/goblet2-cpu-gpu-parity.spec.ts",
+        "tests/goblet-display-filters-runtime.test.ts",
+        "src/lib/displayFilterPipeline.js"
+      ],
+      "note": "Display filter source is inlined from the shared pipeline and guarded for runtime presence. The WebGL2 parity witness renders a pixelate filter, compares CPU fallback vs WebGL2 pixels, and asserts the filtered output differs from an unfiltered control."
+    }
+  ]
+}

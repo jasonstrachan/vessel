@@ -17,7 +17,8 @@ describe('Goblet 2 runtime export regression guard', () => {
   it('sizes Goblet 2 WebGL palette tables for high exported slot ids', () => {
     const runtime = read('public/goblet2/goblet2.js');
 
-    expect(runtime).toContain('const MAX_EXPORTED_SLOT_ID = 255;');
+    expect(runtime).toContain('GOBLET_MAX_SLOT_ID,');
+    expect(runtime).toContain('const MAX_EXPORTED_SLOT_ID = GOBLET_MAX_SLOT_ID;');
     expect(runtime).toContain('getHighestPaletteSlot(slotGradients) + 1');
     expect(runtime).toContain('gl.uniform1i(this.uniforms.u_slotCount, this.slotCount);');
   });
@@ -124,6 +125,35 @@ describe('Goblet 2 runtime export regression guard', () => {
     expect(runtime).not.toContain('if (this.isGoblet2 && this.speedBuffer) {');
   });
 
+  it('validates Goblet 2 brush payloads against the shared required-buffer contract before playback', () => {
+    const runtime = read('public/goblet2/goblet2.js');
+    const inlineRuntime = read('public/goblet2/goblet2-inline.js');
+
+    expect(runtime).toContain("import {\n  GOBLET_BRUSH_MASK_FIELDS,\n  GOBLET_BRUSH_REQUIRED_BUFFERS,\n  GOBLET_BRUSH_REQUIRED_SCALARS,\n  GOBLET_COLOR_CYCLE_BRUSH_MODE,\n  GOBLET2_FORMAT,\n  GOBLET2_LEGACY_SCHEMA_VERSION,\n  GOBLET2_SCHEMA_VERSION,\n} from './gobletPayloadContract.js';");
+    expect(runtime).toContain('for (const bufferContract of GOBLET_BRUSH_REQUIRED_BUFFERS) {');
+    expect(runtime).toContain('for (const scalarContract of GOBLET_BRUSH_REQUIRED_SCALARS) {');
+    expect(runtime).toContain('for (const maskField of GOBLET_BRUSH_MASK_FIELDS) {');
+    expect(runtime).toContain('gobletPayloadLengthMatches');
+    expect(runtime).toContain('length-${name}-${resolved.length}-expected-${expectedElements}');
+    expect(runtime).toContain('missing-${name}');
+    expect(runtime).toContain('length-${maskField}-${resolved.length}-expected-${expectedElements}');
+    expect(runtime).toContain('mode-${colorCycle?.mode ?? \'missing\'}-expected-${GOBLET_COLOR_CYCLE_BRUSH_MODE}');
+    expect(runtime).toContain('await assertGobletBrushPayloadContract(colorCycle, brushState);');
+    expect(runtime).toContain('assertGobletMetadataContract(expanded);');
+    expect(runtime).toContain('Goblet2 metadata failed contract validation');
+    expect(runtime).toContain('isGobletPayloadContractError(error)');
+    expect(runtime).toContain('Goblet2 brush payload failed contract validation');
+    expect(inlineRuntime).toContain('Goblet2 metadata failed contract validation');
+    expect(inlineRuntime).toContain('Goblet2 brush payload failed contract validation');
+  });
+
+  it('keeps schema-2 strict payload validation separate from legacy Goblet2 format tolerance', () => {
+    const runtime = read('public/goblet2/goblet2.js');
+
+    expect(runtime).toContain('this.isGoblet2 = options?.schemaVersion >= GOBLET2_SCHEMA_VERSION;');
+    expect(runtime).not.toContain("options?.schemaVersion >= GOBLET2_SCHEMA_VERSION || options?.format === 'vessel-goblet2'");
+  });
+
   it('uses fractional brush sampling with exported phase and flow buffers', () => {
     const runtime = read('public/goblet2/goblet2.js');
 
@@ -131,7 +161,8 @@ describe('Goblet 2 runtime export regression guard', () => {
     expect(runtime).toContain('const fillPixelsFromIndicesWithFractionalSlotSpeeds = (');
     expect(runtime).toContain('const rawFlowBuffer = brushState.flowBuffer');
     expect(runtime).toContain('const rawPhaseBuffer = brushState.phaseBuffer');
-    expect(runtime).toContain('this.flowBuffer = normalizeFlowBuffer');
+    expect(runtime).toContain('this.flowBuffer = normalizeGobletFlowBuffer');
+    expect(runtime).toContain('const flowBuffer = normalizeGobletFlowBuffer');
     expect(runtime).toContain('this.phaseBuffer = phaseBuffer');
     expect(runtime).toContain('u_phase: gl.getUniformLocation(program, \'u_phase\')');
     expect(runtime).toContain('renderer.setBuffers(\n        indexBuffer,\n        gradientIdBuffer ?? new Uint8Array(expectedLength),\n        speedBuffer ?? new Uint8Array(expectedLength),\n        flowBuffer ?? new Uint8Array(expectedLength).fill(FLOW_MODE_FORWARD),\n        phaseBuffer ?? new Uint8Array(expectedLength)\n      );');
@@ -155,25 +186,180 @@ describe('Goblet 2 runtime export regression guard', () => {
 
     expect(runtime).toContain("sem: 'softEdgeMask'");
     expect(runtime).toContain('if (colorCycle.softEdgeMask) {');
-    expect(runtime).toContain('await this.applySoftEdgeMask(colorCycle.softEdgeMask);');
+    expect(runtime).toContain('await this.applySoftEdgeMask(colorCycle.softEdgeMask, resolvedSoftEdgeMask);');
     expect(runtime).toContain('hasAnyMaskValue(resized)');
     expect(runtime).toContain('Ignoring empty soft-edge mask');
     expect(runtime).toContain('applySoftEdgeMaskToAlphaChannel(this.alpha, resized);');
-    expect(runtime).toContain('await this.applyWebGLSoftEdgeMask(colorCycle.softEdgeMask);');
+    expect(runtime).toContain('await this.applyWebGLSoftEdgeMask(colorCycle.softEdgeMask, resolvedSoftEdgeMask);');
     expect(runtime).toContain('Ignoring empty WebGL soft-edge mask');
     expect(runtime).toContain('alpha *= texture(u_softMask, sampleUV).r;');
     expect(runtime).toContain('renderer.setSoftMaskTexture(null);');
   });
 
+  it('preserves zero alpha in CPU brush fill paths', () => {
+    const runtime = read('public/goblet2/goblet2.js');
+    const legacyRuntime = read('public/goblet/goblet.js');
+    const playbackMath = read('src/lib/colorCycle/gobletPlaybackMath.js');
+
+    expect(runtime).not.toContain('alpha[aIdx] ||');
+    expect(runtime).toContain("} from './gobletPlaybackMath.js';");
+    expect(runtime).toContain('resolveGobletIndexedAlphaByte(alpha, aIdx, effective)');
+    expect(runtime).toContain('resolveGobletAlphaByte(alpha, aIdx, 255)');
+    expect(legacyRuntime).not.toContain('alpha[aIdx] ||');
+    expect(legacyRuntime).toContain("} from './gobletPlaybackMath.js';");
+    expect(legacyRuntime).toContain('resolveGobletIndexedAlphaByte(alpha, aIdx, effective)');
+    expect(legacyRuntime).toContain('resolveGobletAlphaByte(alpha, aIdx, 255)');
+    expect(playbackMath).toContain('alpha?.[alphaIndex] ?? fallbackAlpha');
+    expect(playbackMath).toContain('effectiveIndex !== 0 ? 255 : 0');
+  });
+
+  it('uses the shared generated playback math for speed-byte decode', () => {
+    const runtime = read('public/goblet2/goblet2.js');
+    const legacyRuntime = read('public/goblet/goblet.js');
+    const playbackMath = read('src/lib/colorCycle/gobletPlaybackMath.js');
+    const generatedPlaybackMath = read('public/goblet2/gobletPlaybackMath.js');
+    const legacyGeneratedPlaybackMath = read('public/goblet/gobletPlaybackMath.js');
+
+    expect(runtime).toContain('decodeColorCycleSpeedByte,');
+    expect(runtime).toContain(
+      'decodeColorCycleSpeedByte(speedByte, speedMin, speedMax, DEFAULT_SPEED_MIN, DEFAULT_SPEED_MAX)'
+    );
+    expect(runtime).not.toContain('const decodeColorCycleSpeedByte = (byte, minSpeed, maxSpeed)');
+
+    expect(legacyRuntime).toContain('decodeColorCycleSpeedByte,');
+    expect(legacyRuntime).toContain(
+      'decodeColorCycleSpeedByte(sb, this.speedMin, this.speedMax, DEFAULT_SPEED_MIN, DEFAULT_SPEED_MAX)'
+    );
+    expect(legacyRuntime).not.toContain('const decodeColorCycleSpeedByte = (byte, minSpeed, maxSpeed)');
+
+    expect(playbackMath).toContain('export const GOBLET_SPEED_BYTE_RANGE = 254;');
+    expect(playbackMath).toContain('export const decodeColorCycleSpeedByte = (');
+    expect(generatedPlaybackMath).toBe(
+      `// Auto-generated by scripts/build-goblet-runtime.mjs. Do not edit directly.\n${playbackMath}`
+    );
+    expect(legacyGeneratedPlaybackMath).toBe(generatedPlaybackMath);
+  });
+
+  it('uses the shared generated playback math for flow-mode semantics', () => {
+    const runtime = read('public/goblet2/goblet2.js');
+    const legacyRuntime = read('public/goblet/goblet.js');
+    const playbackMath = read('src/lib/colorCycle/gobletPlaybackMath.js');
+
+    expect(runtime).toContain('resolveGobletFlowMode,');
+    expect(runtime).toContain('normalizeGobletFlowBuffer,');
+    expect(runtime).toContain('hasGobletNonForwardFlow,');
+    expect(runtime).toContain('getGobletFlowModeIndex,');
+    expect(runtime).not.toContain('const resolveFlowMode = (flowBits)');
+    expect(runtime).not.toContain('const normalizeFlowBuffer = (flowBuffer');
+    expect(runtime).not.toContain('const hasNonForwardFlow = (flowBuffer)');
+
+    expect(legacyRuntime).toContain('resolveGobletFlowMode,');
+    expect(legacyRuntime).toContain('getGobletFlowModeIndex,');
+    expect(legacyRuntime).not.toContain('const resolveFlowMode = (flowBits)');
+
+    expect(playbackMath).toContain('export const GOBLET_FLOW_MODE_FORWARD = 1;');
+    expect(playbackMath).toContain('export const GOBLET_FLOW_MODE_REVERSE = 2;');
+    expect(playbackMath).toContain('export const GOBLET_FLOW_MODE_PINGPONG = 3;');
+    expect(playbackMath).toContain('export const resolveGobletFlowMode = (flowMode) => {');
+    expect(playbackMath).toContain('export const normalizeGobletFlowBuffer = (');
+  });
+
+  it('uses the shared generated playback math for phase and palette-position semantics', () => {
+    const runtime = read('public/goblet2/goblet2.js');
+    const legacyRuntime = read('public/goblet/goblet.js');
+    const playbackMath = read('src/lib/colorCycle/gobletPlaybackMath.js');
+
+    expect(runtime).toContain('resolveGobletPhase01,');
+    expect(runtime).toContain('resolveGobletPalettePosition,');
+    expect(runtime).toContain('wrapGobletPhase01,');
+    expect(runtime).toContain('const phase = resolveGobletPhase01(basePhase, phaseByte);');
+    expect(runtime).toContain('const position = resolveGobletPalettePosition(baseIndex, phase, flowMode, n);');
+    expect(runtime).not.toContain('const foldPingpongPhase = (phase)');
+    expect(runtime).not.toContain('const resolvePalettePosition = (baseIndex, phase, flowMode, paletteSize)');
+    expect(runtime).not.toContain('phase %= 1;');
+
+    expect(legacyRuntime).toContain('wrapGobletPhase01,');
+    expect(legacyRuntime).toContain('const off = wrapGobletPhase01(offset01);');
+    expect(legacyRuntime).not.toContain('let off = offset01 % 1;');
+
+    expect(playbackMath).toContain('export const wrapGobletPhase01 = (phase) => {');
+    expect(playbackMath).toContain('export const resolveGobletPhase01 = (basePhase, phaseByte = 0) => (');
+    expect(playbackMath).toContain('export const foldGobletPingpongPhase = (phase) => {');
+    expect(playbackMath).toContain('export const resolveGobletPalettePosition = (');
+  });
+
+  it('uses the shared generated playback math for slot and palette-index clamping', () => {
+    const runtime = read('public/goblet2/goblet2.js');
+    const legacyRuntime = read('public/goblet/goblet.js');
+    const playbackMath = read('src/lib/colorCycle/gobletPlaybackMath.js');
+
+    expect(runtime).toContain('GOBLET_MAX_SLOT_ID,');
+    expect(runtime).toContain('clampGobletSlotId,');
+    expect(runtime).toContain('resolveGobletGradientSlot,');
+    expect(runtime).toContain('resolveGobletPaletteIndex,');
+    expect(runtime).toContain('const MAX_EXPORTED_SLOT_ID = GOBLET_MAX_SLOT_ID;');
+    expect(runtime).toContain('map.set(clampGobletSlotId(slot), speed);');
+    expect(runtime).toContain('const effective = resolveGobletPaletteIndex(rawIndex, paletteSize, subtractOne);');
+    expect(runtime).toContain('const slot = resolveGobletGradientSlot(gid, FLOW_SLOT_MASK);');
+    expect(runtime).not.toContain('Math.max(0, Math.min(MAX_EXPORTED_SLOT_ID');
+
+    expect(legacyRuntime).toContain('clampGobletSlotId,');
+    expect(legacyRuntime).toContain('map.set(clampGobletSlotId(slot), speed);');
+    expect(legacyRuntime).not.toContain('Math.max(0, Math.min(255, Math.round(slot)))');
+
+    expect(playbackMath).toContain('export const GOBLET_MAX_SLOT_ID = 255;');
+    expect(playbackMath).toContain('export const clampGobletSlotId = (slot, maxSlotId = GOBLET_MAX_SLOT_ID) => {');
+    expect(playbackMath).toContain('export const resolveGobletGradientSlot = (gradientId, flowSlotMask = GOBLET_MAX_SLOT_ID) => (');
+    expect(playbackMath).toContain('export const resolveGobletPaletteRow = (');
+    expect(playbackMath).toContain('export const resolveGobletPaletteIndex = (');
+  });
+
+  it('uses the shared generated playback math for palette fallback and gradient sampling', () => {
+    const runtime = read('public/goblet2/goblet2.js');
+    const legacyRuntime = read('public/goblet/goblet.js');
+    const playbackMath = read('src/lib/colorCycle/gobletPlaybackMath.js');
+
+    expect(runtime).toContain('normalizeGobletGradientStops,');
+    expect(runtime).toContain('normalizeGobletSlotPalettes,');
+    expect(runtime).toContain('sampleGobletGradient,');
+    expect(runtime).toContain('parseGobletColor,');
+    expect(runtime).toContain('const normalizeGradientStops = normalizeGobletGradientStops;');
+    expect(runtime).toContain('const normalizeSlotPalettes = normalizeGobletSlotPalettes;');
+    expect(runtime).toContain('const sampleGradient = sampleGobletGradient;');
+    expect(runtime).not.toContain('const normalizeGradientStops = (stops)');
+    expect(runtime).not.toContain('const normalizeSlotPalettes = (slotPalettes, fallbackGradient)');
+    expect(runtime).not.toContain('const sampleGradient = (gradient, position)');
+    expect(runtime).not.toContain('DEFAULT_GRADIENT');
+
+    expect(legacyRuntime).toContain('normalizeGobletGradientStops,');
+    expect(legacyRuntime).toContain('normalizeGobletSlotPalettes,');
+    expect(legacyRuntime).toContain('sampleGobletGradient,');
+    expect(legacyRuntime).toContain('parseGobletColor,');
+    expect(legacyRuntime).not.toContain('const normalizeGradientStops = (stops)');
+    expect(legacyRuntime).not.toContain('DEFAULT_GRADIENT');
+
+    expect(playbackMath).toContain('export const normalizeGobletGradientStops = (stops) => {');
+    expect(playbackMath).toContain('const DEFAULT_GOBLET_GRADIENT = [');
+    expect(playbackMath).toContain("{ position: 0, rgba: parseGobletColor('#000000') }");
+    expect(playbackMath).toContain("{ position: 1, rgba: parseGobletColor('#ffffff') }");
+    expect(playbackMath).toContain('return cloneGobletGradient(DEFAULT_GOBLET_GRADIENT);');
+    expect(playbackMath).toContain('stop?.rgba && typeof stop.rgba === \'object\'');
+    expect(playbackMath).toContain('export const normalizeGobletSlotPalettes = (slotPalettes, fallbackGradient) => {');
+    expect(playbackMath).toContain('export const sampleGobletGradient = (gradient, position) => {');
+    expect(runtime).toContain('const DEFAULT_PALETTE_SIZE = 256;');
+    expect(runtime).toContain('this.cycleColors = DEFAULT_PALETTE_SIZE;');
+    expect(runtime).toContain('paletteSize: DEFAULT_PALETTE_SIZE');
+  });
+
   it('keeps the empty soft-edge mask guard on soft-edge paths only', () => {
     const runtime = read('public/goblet2/goblet2.js');
     const alphaMaskSection = runtime.slice(
-      runtime.indexOf('async applyAlphaMask(maskConfig)'),
-      runtime.indexOf('async applySoftEdgeMask(maskConfig)')
+      runtime.indexOf('async applyAlphaMask(maskConfig'),
+      runtime.indexOf('async applySoftEdgeMask(maskConfig')
     );
     const softEdgeSection = runtime.slice(
-      runtime.indexOf('async applySoftEdgeMask(maskConfig)'),
-      runtime.indexOf('async applyWebGLAlphaMask(maskConfig)')
+      runtime.indexOf('async applySoftEdgeMask(maskConfig'),
+      runtime.indexOf('async applyWebGLAlphaMask(maskConfig')
     );
 
     expect(alphaMaskSection).not.toContain('Ignoring empty soft-edge mask');

@@ -4,6 +4,8 @@ export type GobletAssetName =
   | 'goblet2.js'
   | 'alignFitResolver.js'
   | 'displayFilterPipeline.js'
+  | 'gobletPayloadContract.js'
+  | 'gobletPlaybackMath.js'
   | 'num.js'
   | 'fflate-inflate.js'
   | 'goblet-inline.js'

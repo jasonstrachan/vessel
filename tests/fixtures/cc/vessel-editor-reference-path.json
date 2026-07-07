@@ -1,0 +1,42 @@
+{
+  "id": "vessel-editor-reference-path",
+  "description": "Vessel editor ColorCycleAnimator reference-path witness with sparse slot fallback and high slot ids.",
+  "coverage": [
+    "vessel-reference-path",
+    "speed-decode",
+    "frame-phase-shift",
+    "slot-clamp",
+    "palette-fallback",
+    "palette-row-sampling"
+  ],
+  "width": 4,
+  "height": 2,
+  "timeSeconds": 0.37,
+  "legacyOffset01": 0,
+  "speedMin": 0,
+  "speedMax": 2.64,
+  "paletteSize": 256,
+  "thresholds": {
+    "maxChannelDelta": 0,
+    "maxAlphaDelta": 0,
+    "maxMismatchedPixels": 0
+  },
+  "brushState": {
+    "indexBuffer": [1, 2, 3, 0, 128, 255, 64, 32],
+    "gradientIdBuffer": [0, 0, 1, 2, 255, 1, 0, 3],
+    "speedBuffer": [255, 128, 0, 0, 32, 220, 0, 1],
+    "gradientStops": [
+      { "position": 0, "color": "#111111" },
+      { "position": 1, "color": "#eeeeee" }
+    ]
+  },
+  "slotPalettes": [
+    {
+      "slot": 1,
+      "stops": [
+        { "position": 0, "color": "#00ff00" },
+        { "position": 1, "color": "#ff00ff" }
+      ]
+    }
+  ]
+}

@@ -1,6 +1,13 @@
 {
   "id": "failing-json-case",
   "description": "Regression fixture for static-vs-animating pixels with sparse slot palettes and out-of-range slot ids.",
+  "coverage": [
+    "speed-decode",
+    "frame-phase-shift",
+    "slot-clamp",
+    "palette-fallback",
+    "palette-row-sampling"
+  ],
   "width": 5,
   "height": 2,
   "timeSeconds": 1.125,

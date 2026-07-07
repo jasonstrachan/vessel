@@ -4,8 +4,11 @@ import {
   MIN_ANIMATED_BRUSH_COLOR_CYCLE_SPEED,
   MIN_BRUSH_COLOR_CYCLE_SPEED,
 } from '@/constants/colorCycle';
+import {
+  decodeColorCycleSpeedByte as decodeSharedColorCycleSpeedByte,
+  GOBLET_SPEED_BYTE_RANGE,
+} from '@/lib/colorCycle/gobletPlaybackMath';
 
-const SPEED_BYTE_RANGE = 254;
 const MIN_SPEED_QUANT_STEP = 0.005;
 const BRUSH_COLOR_CYCLE_SLIDER_CURVE = 2.4;
 
@@ -88,16 +91,15 @@ export const encodeColorCycleSpeedByte = (speed?: number | null): number => {
   );
   const t = (clamped - MIN_BRUSH_COLOR_CYCLE_SPEED)
     / (MAX_BRUSH_COLOR_CYCLE_SPEED - MIN_BRUSH_COLOR_CYCLE_SPEED || 1);
-  const encoded = Math.round(t * SPEED_BYTE_RANGE) + 1;
+  const encoded = Math.round(t * GOBLET_SPEED_BYTE_RANGE) + 1;
   return Math.max(1, Math.min(255, encoded));
 };
 
-export const decodeColorCycleSpeedByte = (byte: number): number => {
-  if (!Number.isFinite(byte) || byte <= 0) {
-    return 0;
-  }
-  const normalized = Math.max(0, Math.min(SPEED_BYTE_RANGE, Math.round(byte) - 1));
-  return MIN_BRUSH_COLOR_CYCLE_SPEED
-    + (normalized / SPEED_BYTE_RANGE)
-      * (MAX_BRUSH_COLOR_CYCLE_SPEED - MIN_BRUSH_COLOR_CYCLE_SPEED);
-};
+export const decodeColorCycleSpeedByte = (byte: number): number =>
+  decodeSharedColorCycleSpeedByte(
+    byte,
+    MIN_BRUSH_COLOR_CYCLE_SPEED,
+    MAX_BRUSH_COLOR_CYCLE_SPEED,
+    MIN_BRUSH_COLOR_CYCLE_SPEED,
+    MAX_BRUSH_COLOR_CYCLE_SPEED,
+  );

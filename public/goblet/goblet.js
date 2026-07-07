@@ -6,6 +6,29 @@ import {
   ensureDisplayFilterCanvas,
   hasEnabledDisplayFiltersInList,
 } from './displayFilterPipeline.js';
+import {
+  decodeColorCycleSpeedByte,
+  getGobletFlowModeIndex,
+  GOBLET_FLOW_MODE_FORWARD,
+  GOBLET_FLOW_MODE_PINGPONG,
+  GOBLET_FLOW_MODE_REVERSE,
+  normalizeGobletGradientStops,
+  normalizeGobletSlotPalettes,
+  parseGobletColor,
+  clampGobletSlotId,
+  resizeGobletAlphaMaskBuffer,
+  applyGobletEraseMaskToAlphaChannel,
+  resolveGobletFlowMode,
+  resolveGobletAlphaByte,
+  resolveGobletIndexedAlphaByte,
+  sampleGobletGradient,
+  hasVisibleGobletAlpha,
+  wrapGobletPhase01,
+} from './gobletPlaybackMath.js';
+
+const resizeAlphaMaskBuffer = resizeGobletAlphaMaskBuffer;
+const applyMaskToAlphaChannel = applyGobletEraseMaskToAlphaChannel;
+const hasVisibleAlpha = hasVisibleGobletAlpha;
 
 const __DEV__ = typeof process !== 'undefined' && process.env && process.env.NODE_ENV
   ? process.env.NODE_ENV !== 'production'
@@ -515,23 +538,12 @@ const fitScaleFor = (fit, painted, frame, uniformK = 1, design) => {
   const sy = fh / sh;
   const uContain = Math.min(sx, sy);
   const uCover = Math.max(sx, sy);
-  let normalizedContain = uContain;
-  if (design) {
-    const dw = fitPositive(design.width);
-    const dh = fitPositive(design.height);
-    if (dw > 0 && dh > 0) {
-      const baseContain = Math.min(dw / sw, dh / sh) || 1;
-      if (baseContain > 0) {
-        normalizedContain = uContain / baseContain;
-      }
-    }
-  }
 
   switch (fit) {
     case 'fill':
       return { sx, sy };
     case 'contain':
-      return { sx: normalizedContain, sy: normalizedContain };
+      return { sx: uContain, sy: uContain };
     case 'cover':
       return { sx: uCover, sy: uCover };
     case 'uniform':
@@ -1989,172 +2001,12 @@ const hasNumericPayload = (value) => {
   return false;
 };
 
-const resizeAlphaMaskBuffer = (source, srcWidth, srcHeight, destWidth, destHeight) => {
-  if (!source || !source.length) {
-    return null;
-  }
-  const targetWidth = Math.max(1, Math.round(destWidth));
-  const targetHeight = Math.max(1, Math.round(destHeight));
-  const width = Math.max(1, Math.round(srcWidth));
-  const height = Math.max(1, Math.round(srcHeight));
-  if (width === targetWidth && height === targetHeight) {
-    if (source.length === width * height) {
-      return source;
-    }
-    const normalized = new Uint8Array(width * height);
-    normalized.set(source.subarray(0, Math.min(source.length, normalized.length)));
-    return normalized;
-  }
-  const output = new Uint8Array(targetWidth * targetHeight);
-  const scaleX = width / targetWidth;
-  const scaleY = height / targetHeight;
-  for (let y = 0; y < targetHeight; y += 1) {
-    const srcY = Math.min(height - 1, Math.max(0, Math.floor(y * scaleY)));
-    for (let x = 0; x < targetWidth; x += 1) {
-      const srcX = Math.min(width - 1, Math.max(0, Math.floor(x * scaleX)));
-      const srcIdx = srcY * width + srcX;
-      const dstIdx = y * targetWidth + x;
-      output[dstIdx] = source[srcIdx] ?? 0;
-    }
-  }
-  return output;
-};
-
-const applyMaskToAlphaChannel = (alphaBuffer, maskBuffer) => {
-  if (!alphaBuffer || !maskBuffer) {
-    return;
-  }
-  const pixelCount = Math.min(maskBuffer.length, Math.floor(alphaBuffer.length / 4));
-  for (let i = 0, alphaIndex = 3; i < pixelCount; i += 1, alphaIndex += 4) {
-    const erase = maskBuffer[i];
-    if (!erase) {
-      continue;
-    }
-    const current = alphaBuffer[alphaIndex] || 0;
-    const next = Math.max(0, Math.round((current * (255 - erase)) / 255));
-    alphaBuffer[alphaIndex] = next;
-  }
-};
-
-const hasVisibleAlpha = (alphaBuffer) => {
-  if (!alphaBuffer || alphaBuffer.length < 4) {
-    return false;
-  }
-  for (let i = 3; i < alphaBuffer.length; i += 4) {
-    if (alphaBuffer[i]) {
-      return true;
-    }
-  }
-  return false;
-};
-
 // ------------------------------------------------------------
 // Gradient + color-cycle helpers
 // ------------------------------------------------------------
-const parseColor = (input) => {
-  if (typeof input !== 'string') {
-    return { r: 255, g: 255, b: 255, a: 255 };
-  }
-  const value = input.trim();
-  if (!value) {
-    return { r: 255, g: 255, b: 255, a: 255 };
-  }
-  if (value.toLowerCase() === 'transparent') {
-    return { r: 0, g: 0, b: 0, a: 0 };
-  }
-  if (value.startsWith('#')) {
-    const hex = value.slice(1);
-    if (hex.length === 3 || hex.length === 4) {
-      const r = parseInt(hex[0] + hex[0], 16);
-      const g = parseInt(hex[1] + hex[1], 16);
-      const b = parseInt(hex[2] + hex[2], 16);
-      const a = hex.length === 4 ? parseInt(hex[3] + hex[3], 16) : 255;
-      return { r, g, b, a };
-    }
-    if (hex.length === 6 || hex.length === 8) {
-      const r = parseInt(hex.slice(0, 2), 16);
-      const g = parseInt(hex.slice(2, 4), 16);
-      const b = parseInt(hex.slice(4, 6), 16);
-      const a = hex.length === 8 ? parseInt(hex.slice(6, 8), 16) : 255;
-      return { r, g, b, a };
-    }
-  }
-  const rgbaMatch = value.match(/^rgba?\(([^)]+)\)$/i);
-  if (rgbaMatch) {
-    const parts = rgbaMatch[1].split(',').map((part) => part.trim());
-    if (parts.length >= 3) {
-      const r = clamp255(parseFloat(parts[0]));
-      const g = clamp255(parseFloat(parts[1]));
-      const b = clamp255(parseFloat(parts[2]));
-      let a = 255;
-      if (parts.length >= 4) {
-        const raw = parts[3].endsWith('%') ? parseFloat(parts[3]) / 100 : parseFloat(parts[3]);
-        if (Number.isFinite(raw)) {
-          a = raw <= 1 ? clamp255(raw * 255) : clamp255(raw);
-        }
-      }
-      return { r, g, b, a };
-    }
-  }
-  return { r: 255, g: 255, b: 255, a: 255 };
-};
-
-const DEFAULT_GRADIENT = [
-  { position: 0, rgba: parseColor('#000000') },
-  { position: 1, rgba: parseColor('#ffffff') }
-];
-
-const normalizeGradientStops = (stops) => {
-  if (!Array.isArray(stops) || stops.length === 0) {
-    return DEFAULT_GRADIENT.map((entry) => ({ position: entry.position, rgba: { ...entry.rgba } }));
-  }
-  const normalized = stops
-    .map((stop) => ({
-      position: clamp01(typeof stop?.position === 'number' ? stop.position : parseFloat(stop?.position ?? 0)),
-      rgba: parseColor(stop?.color ?? '#ffffff')
-    }))
-    .sort((a, b) => a.position - b.position);
-  if (normalized.length === 0) {
-    return DEFAULT_GRADIENT.map((entry) => ({ position: entry.position, rgba: { ...entry.rgba } }));
-  }
-  if (normalized[0].position > 0) {
-    normalized.unshift({ position: 0, rgba: normalized[0].rgba });
-  }
-  const last = normalized[normalized.length - 1];
-  if (last.position < 1) {
-    normalized.push({ position: 1, rgba: last.rgba });
-  }
-  if (normalized.length === 1) {
-    normalized.push({ position: 1, rgba: normalized[0].rgba });
-  }
-  return normalized;
-};
-
-const normalizeSlotPalettes = (slotPalettes, fallbackGradient) => {
-  if (!Array.isArray(slotPalettes) || slotPalettes.length === 0) {
-    return null;
-  }
-  const map = new Map();
-  slotPalettes.forEach((entry) => {
-    if (!entry || typeof entry !== 'object') {
-      return;
-    }
-    const slot = Number(entry.slot);
-    if (!Number.isFinite(slot)) {
-      return;
-    }
-    const stops = Array.isArray(entry.stops) ? entry.stops : [];
-    const normalizedStops = normalizeGradientStops(stops);
-    map.set(Math.max(0, Math.min(255, Math.round(slot))), normalizedStops);
-  });
-  if (map.size === 0) {
-    return null;
-  }
-  if (!map.has(0) && Array.isArray(fallbackGradient) && fallbackGradient.length > 0) {
-    map.set(0, normalizeGradientStops(fallbackGradient));
-  }
-  return map;
-};
+const parseColor = parseGobletColor;
+const normalizeGradientStops = normalizeGobletGradientStops;
+const normalizeSlotPalettes = normalizeGobletSlotPalettes;
 
 const normalizeSlotSpeeds = (slotSpeeds) => {
   if (!Array.isArray(slotSpeeds) || slotSpeeds.length === 0) {
@@ -2166,7 +2018,7 @@ const normalizeSlotSpeeds = (slotSpeeds) => {
       if (!Number.isFinite(speed)) {
         return;
       }
-      map.set(Math.max(0, Math.min(255, Math.round(slot))), speed);
+      map.set(clampGobletSlotId(slot), speed);
     });
     return map.size > 0 ? map : null;
   }
@@ -2179,35 +2031,12 @@ const normalizeSlotSpeeds = (slotSpeeds) => {
     if (!Number.isFinite(slot) || !Number.isFinite(speed)) {
       return;
     }
-    map.set(Math.max(0, Math.min(255, Math.round(slot))), speed);
+    map.set(clampGobletSlotId(slot), speed);
   });
   return map.size > 0 ? map : null;
 };
 
-const sampleGradient = (gradient, position) => {
-  if (!Array.isArray(gradient) || gradient.length === 0) {
-    return { r: 255, g: 255, b: 255, a: 255 };
-  }
-  if (gradient.length === 1) {
-    return { ...gradient[0].rgba };
-  }
-  const pos = clamp01(position);
-  for (let i = 0; i < gradient.length - 1; i += 1) {
-    const left = gradient[i];
-    const right = gradient[i + 1];
-    if (pos >= left.position && pos <= right.position) {
-      const span = right.position - left.position;
-      const t = span > 0 ? (pos - left.position) / span : 0;
-      return {
-        r: clamp255(left.rgba.r + (right.rgba.r - left.rgba.r) * t),
-        g: clamp255(left.rgba.g + (right.rgba.g - left.rgba.g) * t),
-        b: clamp255(left.rgba.b + (right.rgba.b - left.rgba.b) * t),
-        a: clamp255(left.rgba.a + (right.rgba.a - left.rgba.a) * t)
-      };
-    }
-  }
-  return { ...gradient[gradient.length - 1].rgba };
-};
+const sampleGradient = sampleGobletGradient;
 
 const normalizeFlowDirection = (direction, fallback = 'forward') => {
   if (typeof direction !== 'string') {
@@ -2245,7 +2074,7 @@ const fillPixelsFromIndices = (indices, lut, outPixels32, alpha, options = {}) =
       const effective = subtractOne && rawIndex > 0 ? rawIndex - 1 : rawIndex;
       const capped = effective >= 0 && effective < lut.length ? effective : ((effective % lut.length) + lut.length) % lut.length;
       const rgb = lut[capped] & 0x00ffffff;
-      const a = alpha[aIdx] || (effective !== 0 ? 255 : 0);
+      const a = resolveGobletIndexedAlphaByte(alpha, aIdx, effective);
       outPixels32[i] = (a << 24) | rgb;
     }
   } else {
@@ -2285,7 +2114,7 @@ const fillPixelsFromIndicesWithGradientIds = (indices, gradientIds, lutsBySlot, 
       const lut = lutsBySlot?.get(slot) ?? fallbackLut;
       const capped = effective >= 0 && effective < lut.length ? effective : ((effective % lut.length) + lut.length) % lut.length;
       const rgb = lut[capped] & 0x00ffffff;
-      const a = alpha[aIdx] || (effective !== 0 ? 255 : 0);
+      const a = resolveGobletIndexedAlphaByte(alpha, aIdx, effective);
       outPixels32[i] = (a << 24) | rgb;
     }
   } else {
@@ -2309,7 +2138,7 @@ const fillPixelsFromPhaseMap = (phaseMap, lut, outPixels32, alpha) => {
   if (alpha && alpha.length >= length * 4) {
     for (let i = 0, aIdx = 3; i < length; i += 1, aIdx += 4) {
       const rgb = lut[phaseMap[i]] & 0x00ffffff;
-      const a = alpha[aIdx] || 255;
+      const a = resolveGobletAlphaByte(alpha, aIdx, 255);
       outPixels32[i] = (a << 24) | rgb;
     }
   } else {
@@ -2352,21 +2181,16 @@ const buildLuminancePhaseMap = (imageData) => {
 };
 
 const DEFAULT_ANIMATION_SPEED = 0.1;
-const SPEED_BYTE_RANGE = 254;
 const DEFAULT_SPEED_MIN = 0.01;
 const DEFAULT_SPEED_MAX = 0.33;
 const FLOW_SLOT_BITS = 6;
 const FLOW_SLOT_MASK = (1 << FLOW_SLOT_BITS) - 1;
-const FLOW_MODE_FORWARD = 1;
-const FLOW_MODE_REVERSE = 2;
-const FLOW_MODE_PINGPONG = 3;
+const FLOW_MODE_FORWARD = GOBLET_FLOW_MODE_FORWARD;
+const FLOW_MODE_REVERSE = GOBLET_FLOW_MODE_REVERSE;
+const FLOW_MODE_PINGPONG = GOBLET_FLOW_MODE_PINGPONG;
 const MODE_COUNT = 3;
 const SB_COUNT = 256;
 const SLOT_COUNT = FLOW_SLOT_MASK + 1;
-const MODE_TO_IDX = new Int8Array(256);
-MODE_TO_IDX[FLOW_MODE_FORWARD] = 0;
-MODE_TO_IDX[FLOW_MODE_REVERSE] = 1;
-MODE_TO_IDX[FLOW_MODE_PINGPONG] = 2;
 
 const packABGR32 = (c) => (c.a << 24) | (c.b << 16) | (c.g << 8) | c.r;
 
@@ -2388,8 +2212,7 @@ const buildDiscretePalette32FromGradient = (gradientStops, cycleColors) => {
 const buildPaletteShiftLUT256 = ({ basePalette32, cycleColors, offset01 }) => {
   const lut = new Uint32Array(256);
   const n = Math.max(1, cycleColors | 0);
-  let off = offset01 % 1;
-  if (off < 0) off += 1;
+  const off = wrapGobletPhase01(offset01);
   const shift = (off * n) | 0;
   for (let i = 0; i < 256; i += 1) {
     let p = i - 1;
@@ -2427,17 +2250,6 @@ const resolveAnimationSpeed = (rawExportedSpeed, rawFallbackSpeed, shouldAnimate
     return Math.max(0, fallbackSpeed);
   }
   return 0;
-};
-
-const decodeColorCycleSpeedByte = (byte, minSpeed, maxSpeed) => {
-  if (!Number.isFinite(byte) || byte <= 0) {
-    return 0;
-  }
-  const minV = Number.isFinite(minSpeed) ? Number(minSpeed) : DEFAULT_SPEED_MIN;
-  const maxV = Number.isFinite(maxSpeed) ? Number(maxSpeed) : DEFAULT_SPEED_MAX;
-  const normalized = Math.max(0, Math.min(SPEED_BYTE_RANGE, Math.round(byte) - 1));
-  const t = normalized / SPEED_BYTE_RANGE;
-  return minV + t * (maxV - minV);
 };
 
 const collectDistinctSpeedBytes = (speedBuffer) => {
@@ -2512,12 +2324,6 @@ const downsampleBuffer = (source, srcW, srcH, dstW, dstH) => {
   return out;
 };
 
-const resolveFlowMode = (flowBits) => {
-  if (flowBits === FLOW_MODE_REVERSE) return FLOW_MODE_REVERSE;
-  if (flowBits === FLOW_MODE_PINGPONG) return FLOW_MODE_PINGPONG;
-  return FLOW_MODE_FORWARD;
-};
-
 const markTouchedSpeed = (player, sb) => {
   if (player._touchedSpeedBytes[sb] === 0) {
     player._touchedSpeedBytes[sb] = 1;
@@ -2547,10 +2353,6 @@ const clearTouchedTables = (player) => {
   player._touchedSpeedListLen = 0;
 };
 
-const modeIdxFromFlowModeConst = (modeConst) => (
-  modeConst === FLOW_MODE_REVERSE ? 1 : (modeConst === FLOW_MODE_PINGPONG ? 2 : 0)
-);
-
 const populateTablesFromMaps = (player, lutsBySpeedModeSlot, fallbackLutsBySpeedMode) => {
   const slotLuts = player._slotLuts;
   const fallback = player._fallbackLuts;
@@ -2558,7 +2360,7 @@ const populateTablesFromMaps = (player, lutsBySpeedModeSlot, fallbackLutsBySpeed
   for (const [sb, modeMap] of fallbackLutsBySpeedMode.entries()) {
     markTouchedSpeed(player, sb);
     for (const [modeConst, lut] of modeMap.entries()) {
-      const mi = modeIdxFromFlowModeConst(modeConst);
+      const mi = getGobletFlowModeIndex(modeConst);
       fallback[sb][mi] = lut;
     }
   }
@@ -2566,7 +2368,7 @@ const populateTablesFromMaps = (player, lutsBySpeedModeSlot, fallbackLutsBySpeed
   for (const [sb, modeMap] of lutsBySpeedModeSlot.entries()) {
     markTouchedSpeed(player, sb);
     for (const [modeConst, slotMap] of modeMap.entries()) {
-      const mi = modeIdxFromFlowModeConst(modeConst);
+      const mi = getGobletFlowModeIndex(modeConst);
       const arr = slotLuts[sb][mi];
       for (const [slot, lut] of slotMap.entries()) {
         arr[slot & FLOW_SLOT_MASK] = lut;
@@ -2599,7 +2401,7 @@ const fillPixelsFromIndicesWithSpeedAndFlow = (
     const speedByte = speedBytes ? (speedBytes[i] ?? 0) : 0;
     const gid = gradientIds ? (gradientIds[i] ?? 0) : 0;
     const flowBits = gradientIds ? (gid >> FLOW_SLOT_BITS) : FLOW_MODE_FORWARD;
-    const mode = resolveFlowMode(flowBits);
+    const mode = resolveGobletFlowMode(flowBits);
     const modeMap = lutsBySpeedAndMode.get(speedByte) ?? lutsBySpeedAndMode.get(0);
     const lut = modeMap?.get(mode) ?? modeMap?.get(FLOW_MODE_FORWARD);
     if (!lut) {
@@ -2609,7 +2411,7 @@ const fillPixelsFromIndicesWithSpeedAndFlow = (
     const capped = effective >= 0 && effective < lut.length ? effective : ((effective % lut.length) + lut.length) % lut.length;
     if (useAlpha) {
       const rgb = lut[capped] & 0x00ffffff;
-      const a = alpha[aIdx] || (effective !== 0 ? 255 : 0);
+      const a = resolveGobletIndexedAlphaByte(alpha, aIdx, effective);
       outPixels32[i] = (a << 24) | rgb;
     } else {
       outPixels32[i] = lut[capped];
@@ -2653,7 +2455,7 @@ const fillPixelsFromIndicesWithGradientIdsAndSpeedAndFlow = (
     const gid = hasGid ? gradientIds[i] : 0;
     const slot = gid & slotMask;
     const flowBits = hasGid ? (gid >> slotBits) : FLOW_MODE_FORWARD;
-    const mi = flowBits === FLOW_MODE_REVERSE ? 1 : (flowBits === FLOW_MODE_PINGPONG ? 2 : 0);
+    const mi = getGobletFlowModeIndex(flowBits);
 
     let lut =
       (slotLuts[sb] && slotLuts[sb][mi] && slotLuts[sb][mi][slot]) ||
@@ -2671,7 +2473,7 @@ const fillPixelsFromIndicesWithGradientIdsAndSpeedAndFlow = (
 
     if (useAlpha) {
       const rgb = lut[lutIndex] & 0x00ffffff;
-      const a = alpha[aIdx] || (effective !== 0 ? 255 : 0);
+      const a = resolveGobletIndexedAlphaByte(alpha, aIdx, effective);
       outPixels32[i] = (a << 24) | rgb;
     } else {
       outPixels32[i] = lut[lutIndex];
@@ -2704,7 +2506,7 @@ class ColorCycleLayerPlayer {
     this.slotSpeeds = null;
     this.indexPhaseMap = null;
     this.phaseMap = null;
-    this.gradient = DEFAULT_GRADIENT;
+    this.gradient = normalizeGradientStops(null);
     this.slotGradients = null;
     this.cycleColors = 16;
     this.mappingMode = 'banded';
@@ -3236,7 +3038,7 @@ class ColorCycleLayerPlayer {
       for (const sb of distinct) {
         const defaultSpeed = Number.isFinite(this.speed) ? this.speed : 0;
         const speed = sb > 0
-          ? decodeColorCycleSpeedByte(sb, this.speedMin, this.speedMax)
+          ? decodeColorCycleSpeedByte(sb, this.speedMin, this.speedMax, DEFAULT_SPEED_MIN, DEFAULT_SPEED_MAX)
           : defaultSpeed;
         const offsetBase = (((this.baseTimeSeconds * speed) % 1) + 1) % 1;
         const shiftKey = (offsetBase * n) | 0;
@@ -3277,7 +3079,7 @@ class ColorCycleLayerPlayer {
         for (const sb of distinct) {
           const defaultSpeed = Number.isFinite(this.speed) ? this.speed : 0;
           const speed = sb > 0
-            ? decodeColorCycleSpeedByte(sb, this.speedMin, this.speedMax)
+            ? decodeColorCycleSpeedByte(sb, this.speedMin, this.speedMax, DEFAULT_SPEED_MIN, DEFAULT_SPEED_MAX)
             : defaultSpeed;
           const offsetBase = (((this.baseTimeSeconds * speed) % 1) + 1) % 1;
           const shiftKey = (offsetBase * n) | 0;
@@ -3493,7 +3295,7 @@ class ColorCycleLayerPlayer {
     const speedDefault = Number.isFinite(this.speed) ? this.speed : 0;
     for (const sb of distinct) {
       const speed = sb > 0
-        ? decodeColorCycleSpeedByte(sb, this.speedMin, this.speedMax)
+        ? decodeColorCycleSpeedByte(sb, this.speedMin, this.speedMax, DEFAULT_SPEED_MIN, DEFAULT_SPEED_MAX)
         : speedDefault;
       const offsetBase = (((this.baseTimeSeconds * speed) % 1) + 1) % 1;
       const shiftKey = (offsetBase * cycleColors) | 0;
@@ -4229,7 +4031,7 @@ class VesselGoblet {
       source,
       placement,
       {
-        isFixed: isFixed && !shouldFilterArtwork,
+        isFixed,
         dpr,
         paintedRect,
         fit: directFixedPlacement ? 'none' : align.fit
@@ -4367,14 +4169,14 @@ class VesselGoblet {
     const filterSurfaceCanvas = shouldFilterArtwork
       ? ensureDisplayFilterCanvas(
           this.displayFilterState.filterSurfaceCanvas,
-          documentSize.width,
-          documentSize.height,
+          clearWidth,
+          clearHeight,
         )
       : null;
     const filterCtx = shouldFilterArtwork ? clearDisplayFilterCanvas(filterSurfaceCanvas) : null;
     this.displayFilterState.filterSurfaceCanvas = filterSurfaceCanvas;
     if (filterCtx) {
-      paintGobletBackground(filterCtx, documentSize.width, documentSize.height, this.metadata);
+      paintGobletBackground(filterCtx, clearWidth, clearHeight, this.metadata);
     }
     const renderCtx = filterCtx ?? ctx;
 
@@ -4388,16 +4190,10 @@ class VesselGoblet {
       })));
     }
 
-    const viewportSize = shouldFilterArtwork
-      ? { width: documentSize.width, height: documentSize.height }
-      : { width: cssW, height: cssH };
+    const viewportSize = { width: cssW, height: cssH };
     const designSize = {
-      width: shouldFilterArtwork
-        ? documentSize.width
-        : Math.max(1, toNum(this.metadata.viewport?.designWidth, cssW)),
-      height: shouldFilterArtwork
-        ? documentSize.height
-        : Math.max(1, toNum(this.metadata.viewport?.designHeight, cssH))
+      width: Math.max(1, toNum(this.metadata.viewport?.designWidth, cssW)),
+      height: Math.max(1, toNum(this.metadata.viewport?.designHeight, cssH))
     };
     let painted = 0;
     const profileEnabled = typeof window !== 'undefined'
@@ -4421,8 +4217,8 @@ class VesselGoblet {
       isFixed,
       shouldFilterArtwork,
       dpr,
-      renderWidth: shouldFilterArtwork ? documentSize.width : clearWidth,
-      renderHeight: shouldFilterArtwork ? documentSize.height : clearHeight,
+      renderWidth: clearWidth,
+      renderHeight: clearHeight,
     };
     const staticComposite = this.getStaticComposite(renderOptions, profile);
     if (staticComposite) {
@@ -4456,16 +4252,7 @@ class VesselGoblet {
     }
 
     if (filterCtx && filterSurfaceCanvas) {
-      const documentViewportMapping = computeDocumentViewportMapping(
-        this.metadata,
-        clearWidth,
-        clearHeight,
-      );
-      const filterLengthScale = Math.max(
-        Math.abs(documentViewportMapping.scaleX) || 0,
-        Math.abs(documentViewportMapping.scaleY) || 0,
-        1e-4,
-      );
+      const filterLengthScale = isFixed ? Math.max(dpr, 1e-4) : 1;
       const filterStart = profile.enabled ? profile.now() : 0;
       const finalFilteredCanvas = applyDisplayFilterStack({
         sourceCanvas: filterSurfaceCanvas,
@@ -4474,8 +4261,8 @@ class VesselGoblet {
         visibleRect: {
           x: 0,
           y: 0,
-          width: documentSize.width,
-          height: documentSize.height,
+          width: clearWidth,
+          height: clearHeight,
         },
         lengthScale: filterLengthScale,
       });
@@ -4483,17 +4270,7 @@ class VesselGoblet {
         profile.filterMs += profile.now() - filterStart;
       }
       const blitStart = profile.enabled ? profile.now() : 0;
-      ctx.drawImage(
-        finalFilteredCanvas,
-        0,
-        0,
-        documentSize.width,
-        documentSize.height,
-        documentViewportMapping.offsetX,
-        documentViewportMapping.offsetY,
-        documentSize.width * documentViewportMapping.scaleX,
-        documentSize.height * documentViewportMapping.scaleY,
-      );
+      ctx.drawImage(finalFilteredCanvas, 0, 0);
       if (profile.enabled) {
         profile.blitMs += profile.now() - blitStart;
       }

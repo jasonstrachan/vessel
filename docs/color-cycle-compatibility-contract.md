@@ -8,6 +8,16 @@ This contract is the shared source of truth for Color Cycle (CC) brush playback 
 - Recolor mode has its own runtime path and is out-of-scope here.
 - Contract target format: `format: "vessel-goblet2"` with `colorCycle.schemaVersion: 2`.
 
+## Schema Version Discipline
+
+Playback semantics are versioned contract data, not runtime implementation details. Any change that alters exported color-cycle playback semantics must:
+
+1. Bump `colorCycle.schemaVersion` for new Goblet2 payloads.
+2. Add Goblet loader tolerance for the previous schema version (`N-1`) or document why the old version fails visibly.
+3. Add or update a fixture pinned to the old schema version so compatibility behavior is covered in CI.
+
+Silent semantic changes under the same `colorCycle.schemaVersion` are not allowed.
+
 ## Required Payload
 
 For each brush CC layer:
@@ -35,12 +45,16 @@ The exporter resolves this into an export-local layer snapshot before packing th
 
 ## Validation Contract
 
+Executable contract constants live in `src/lib/colorCycle/document/colorCycleDocumentContract.ts`, the same type spine that owns the document snapshot and archive/export narrowing rules. `src/lib/colorCycle/gobletPayloadContract.ts` is only a compatibility re-export facade and must not define payload rules independently.
+The generated Goblet2 runtime copy is `public/goblet2/gobletPayloadContract.js`, generated from `colorCycleDocumentContract.ts`; `npm run verify:goblet-runtime` fails if it drifts from that source module.
+Goblet2 also resolves and validates brush payloads against `GOBLET_BRUSH_REQUIRED_BUFFERS`, `GOBLET_BRUSH_REQUIRED_SCALARS`, and `GOBLET_BRUSH_MASK_FIELDS` before playback starts. Required buffers must be present at the expected per-layer length for inline, packed, and binary-sidecar payloads, and buffer-speed payloads must include finite `speedMin` / `speedMax` values. Masks are optional, but any included alpha or soft-edge mask must match the brush payload dimensions and resolve to one byte per pixel. Malformed schema-2 brush layers fail visibly instead of falling through to a partial CPU fallback.
+
 Before packaging an animated brush payload, export validates:
 
 - payload dimensions against paint, slot, speed, flow, phase, and def-id buffers;
 - non-empty paint when the layer is marked as content-bearing;
 - slot palette coverage, with `brushState.gradientStops` allowed as a warning-level fallback;
-- alpha and soft-edge mask dimensions against the brush payload.
+- alpha and soft-edge mask dimensions and payload lengths against the brush payload.
 
 Malformed animated CC payloads fail the layer export visibly. Static-preview export remains a separate repair/import path and is not used as a silent fallback for animated CC data.
 
@@ -88,9 +102,9 @@ Then:
 - `indexBuffer[i] == 0` => alpha `0`.
 - `indexBuffer[i] > 0` => alpha from sampled palette entry (and any additional alpha sources if enabled by runtime).
 
-## Runtime Defaults
+## Legacy Runtime Defaults
 
-When payload fields are missing/invalid:
+For legacy or non-schema-2 payloads only, missing/invalid fields keep the historical runtime defaults:
 
 - Missing `gradientIdBuffer` => zero-filled buffer.
 - Missing `speedBuffer` => zero-filled buffer (all static).

@@ -30,6 +30,7 @@ import {
   formatGobletColorCycleDiagnostics,
   getUserVisibleGobletColorCycleDiagnostics,
 } from '@/utils/export/goblet/colorCyclePayloadDiagnostics';
+import { validateGobletColorCycleMetadataContract } from '@/utils/export/goblet/colorCyclePayloadValidation';
 import {
   hasGobletColorCycleLiveBrush,
   resolveGobletColorCycleDocument,
@@ -909,6 +910,16 @@ export const exportProjectAsWebGL = async (
     });
   }
 
+  if (gobletVersion === 'goblet2') {
+    const metadataContract = validateGobletColorCycleMetadataContract(metadata);
+    if (!metadataContract.ok) {
+      throw new Error([
+        'Goblet2 color-cycle metadata failed contract validation.',
+        ...formatGobletColorCycleDiagnostics(metadataContract.diagnostics),
+      ].join(' '));
+    }
+  }
+
   deduplicateGradients(metadata);
   throwIfExportAborted(options.signal);
   emitProgress?.({
@@ -970,18 +981,29 @@ export const exportProjectAsWebGL = async (
     resolvedHtmlBackgroundColor
   );
 
-  let baseRuntimeAssetsPromise: Promise<[string, string, string, string, string]> | null = null;
+  let baseRuntimeAssetsPromise: Promise<[string, string, string, string, string, string]> | null = null;
+  let payloadContractAssetPromise: Promise<string | null> | null = null;
   const ensureBaseRuntimeAssets = () => {
     if (!baseRuntimeAssetsPromise) {
       baseRuntimeAssetsPromise = Promise.all([
         fetchGobletAsset(gobletRuntimeAsset, options.assetPrefix, gobletAssetRoot),
         fetchGobletAsset('alignFitResolver.js', options.assetPrefix, gobletAssetRoot),
         fetchGobletAsset('displayFilterPipeline.js', options.assetPrefix, gobletAssetRoot),
+        fetchGobletAsset('gobletPlaybackMath.js', options.assetPrefix, gobletAssetRoot),
         fetchGobletAsset('num.js', options.assetPrefix, gobletAssetRoot),
         fetchGobletAsset('fflate-inflate.js', options.assetPrefix, gobletAssetRoot)
       ]);
     }
     return baseRuntimeAssetsPromise;
+  };
+  const ensurePayloadContractAsset = (): Promise<string | null> => {
+    if (gobletVersion !== 'goblet2') {
+      return Promise.resolve(null);
+    }
+    if (!payloadContractAssetPromise) {
+      payloadContractAssetPromise = fetchGobletAsset('gobletPayloadContract.js', options.assetPrefix, gobletAssetRoot);
+    }
+    return payloadContractAssetPromise;
   };
 
   const loadBundledRuntime = async (): Promise<string | null> => {
@@ -1017,13 +1039,17 @@ export const exportProjectAsWebGL = async (
     let gobletJs: string;
     let alignJs: string;
     let displayFilterJs: string;
+    let payloadContractJs: string | null;
+    let playbackMathJs: string;
     let numJs: string;
     let inflateJs: string;
     try {
-      [gobletJs, alignJs, displayFilterJs, numJs, inflateJs] = await ensureBaseRuntimeAssets();
+      [gobletJs, alignJs, displayFilterJs, playbackMathJs, numJs, inflateJs] = await ensureBaseRuntimeAssets();
+      payloadContractJs = await ensurePayloadContractAsset();
       throwIfExportAborted(options.signal);
     } catch (error) {
       baseRuntimeAssetsPromise = null;
+      payloadContractAssetPromise = null;
       const message = error instanceof Error ? error.message : String(error ?? 'Unknown error');
       throw new Error(`[webglExporter] Failed to load Goblet assets: ${message}`);
     }
@@ -1034,6 +1060,8 @@ export const exportProjectAsWebGL = async (
       gobletRuntimeModulePath,
       alignJs,
       displayFilterJs,
+      payloadContractJs,
+      playbackMathJs,
       numJs,
       inflateJs,
       json,
@@ -1057,18 +1085,22 @@ export const exportProjectAsWebGL = async (
     let gobletJs: string;
     let alignJs: string;
     let displayFilterJs: string;
+    let payloadContractJs: string | null;
+    let playbackMathJs: string;
     let numJs: string;
     let inflateJs: string;
     try {
-      [gobletJs, alignJs, displayFilterJs, numJs, inflateJs] = await ensureBaseRuntimeAssets();
+      [gobletJs, alignJs, displayFilterJs, playbackMathJs, numJs, inflateJs] = await ensureBaseRuntimeAssets();
+      payloadContractJs = await ensurePayloadContractAsset();
       throwIfExportAborted(options.signal);
     } catch (error) {
       baseRuntimeAssetsPromise = null;
+      payloadContractAssetPromise = null;
       const message = error instanceof Error ? error.message : String(error ?? 'Unknown error');
       throw new Error(`[webglExporter] Failed to load Goblet assets: ${message}`);
     }
 
-    const runtimeBytes = [gobletJs, alignJs, displayFilterJs, numJs, inflateJs]
+    const runtimeBytes = [gobletJs, alignJs, displayFilterJs, payloadContractJs ?? '', playbackMathJs, numJs, inflateJs]
       .reduce((sum, asset) => sum + new TextEncoder().encode(asset).byteLength, 0);
     const htmlBytes = new TextEncoder().encode(indexHtmlWithPresentation).byteLength;
     const zipMetadataSource = bundleFormat === 'zip'
@@ -1110,6 +1142,8 @@ export const exportProjectAsWebGL = async (
       runtimeJs: gobletJs,
       alignJs,
       displayFilterJs,
+      payloadContractJs,
+      playbackMathJs,
       numJs,
       inflateJs,
       minify: options.minify,

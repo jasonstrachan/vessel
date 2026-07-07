@@ -16,6 +16,10 @@ export class PaletteController {
   private paletteSignaturesBySlot: Array<string | null>;
   private palettesBySlot: Uint32Array[];
   private paletteRGBABySlot: Array<PaletteRGBA | null>;
+  private renderPaletteSignaturesBySlot: Array<string | null>;
+  private renderPalettesBySlot: Uint32Array[];
+  private renderPaletteRGBABySlot: PaletteRGBA[];
+  private renderPaletteCacheDirty: boolean = true;
   private seamProfilesBySlot: GradientSeamProfile[];
   private activeGradientSlot: number = 0;
 
@@ -29,6 +33,9 @@ export class PaletteController {
     this.paletteSignaturesBySlot = new Array(256).fill(null);
     this.palettesBySlot = Array.from({ length: 256 }, () => new Uint32Array(256));
     this.paletteRGBABySlot = new Array(256).fill(null);
+    this.renderPaletteSignaturesBySlot = new Array(256).fill(null);
+    this.renderPalettesBySlot = new Array(256);
+    this.renderPaletteRGBABySlot = new Array(256);
     this.seamProfilesBySlot = new Array(256).fill(DEFAULT_GRADIENT_SEAM_PROFILE);
     this.refreshBasePalette();
   }
@@ -75,6 +82,21 @@ export class PaletteController {
 
   getPalettesBySlot(): Uint32Array[] {
     return this.palettesBySlot;
+  }
+
+  getRenderablePaletteSignaturesBySlot(): Array<string | null> {
+    this.ensureRenderablePaletteCache();
+    return this.renderPaletteSignaturesBySlot;
+  }
+
+  getRenderablePaletteRGBABySlot(): PaletteRGBA[] {
+    this.ensureRenderablePaletteCache();
+    return this.renderPaletteRGBABySlot;
+  }
+
+  getRenderablePalettesBySlot(): Uint32Array[] {
+    this.ensureRenderablePaletteCache();
+    return this.renderPalettesBySlot;
   }
 
   getPaletteForSlot(slot: number): Uint32Array {
@@ -126,6 +148,7 @@ export class PaletteController {
     const handle = ensurePalette({ stops, seamProfile: normalizedSeamProfile });
     this.palettesBySlot[clampedSlot] = handle.uint32;
     this.paletteRGBABySlot[clampedSlot] = handle.rgba;
+    this.renderPaletteCacheDirty = true;
     return { changed: true, signature };
   }
 
@@ -149,6 +172,30 @@ export class PaletteController {
     this.paletteRGBABySlot[0] = handle.rgba;
     this.paletteSignaturesBySlot[0] = this.gradientSignature ?? 'slot:0';
     this.seamProfilesBySlot[0] = this.gradientPalette.getSeamProfile();
+    this.renderPaletteCacheDirty = true;
+  }
+
+  private ensureRenderablePaletteCache(): void {
+    if (!this.renderPaletteCacheDirty) {
+      return;
+    }
+
+    const baseHandle = this.getPaletteHandle();
+    const baseSignature = this.paletteSignaturesBySlot[0] ?? this.gradientSignature ?? 'slot:0';
+    for (let slot = 0; slot < 256; slot += 1) {
+      const signature = this.paletteSignaturesBySlot[slot];
+      if (signature && this.palettesBySlot[slot] && this.paletteRGBABySlot[slot]) {
+        this.renderPaletteSignaturesBySlot[slot] = signature;
+        this.renderPalettesBySlot[slot] = this.palettesBySlot[slot];
+        this.renderPaletteRGBABySlot[slot] = this.paletteRGBABySlot[slot] as PaletteRGBA;
+      } else {
+        this.renderPaletteSignaturesBySlot[slot] = baseSignature;
+        this.renderPalettesBySlot[slot] = baseHandle.uint32;
+        this.renderPaletteRGBABySlot[slot] = baseHandle.rgba;
+      }
+    }
+
+    this.renderPaletteCacheDirty = false;
   }
 
   static computeSignature(stops: GradientStop[]): string {

@@ -1,6 +1,8 @@
 name: Build Vessel Static Export
 
 on:
+  pull_request:
+    branches: [ main, master, poc1 ]
   push:
     branches: [ main, master, poc1 ]
   workflow_dispatch:
@@ -18,6 +20,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
 
       - name: Setup Node.js
         uses: actions/setup-node@v6
@@ -52,8 +56,11 @@ jobs:
             audit-full-summary.md
           if-no-files-found: ignore
 
-      - name: Verify goblet2 inline runtime is up to date
-        run: npm run verify:goblet2-inline
+      - name: Verify Goblet runtime assets are up to date
+        run: npm run verify:goblet-runtime
+
+      - name: Check playback-sensitive change gates
+        run: npm run verify:cc-render-gate
 
       - name: Run lint
         run: npm run lint
@@ -72,6 +79,15 @@ jobs:
 
       - name: Run load-project guardrail tests
         run: npm run test:load-project-modal:guardrails
+
+      - name: Run color-cycle runtime parity matrix
+        run: npm run test:cc-runtime-parity
+
+      - name: Install Playwright Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Run color-cycle GPU rendered parity
+        run: npm run test:cc-runtime-gpu-parity
 
       - name: Run tests
         run: npm test

@@ -1,0 +1,411 @@
+export const GOBLET_SPEED_BYTE_RANGE = 254;
+
+export const GOBLET_FLOW_MODE_LEGACY = 0;
+export const GOBLET_FLOW_MODE_FORWARD = 1;
+export const GOBLET_FLOW_MODE_REVERSE = 2;
+export const GOBLET_FLOW_MODE_PINGPONG = 3;
+export const GOBLET_MAX_SLOT_ID = 255;
+
+export const decodeColorCycleSpeedByte = (
+  byte,
+  minSpeed,
+  maxSpeed,
+  defaultMinSpeed = 0.01,
+  defaultMaxSpeed = 2.64,
+) => {
+  if (!Number.isFinite(byte) || byte <= 0) {
+    return 0;
+  }
+  const minV = Number.isFinite(minSpeed) ? Number(minSpeed) : defaultMinSpeed;
+  const maxV = Number.isFinite(maxSpeed) ? Number(maxSpeed) : defaultMaxSpeed;
+  const normalized = Math.max(0, Math.min(GOBLET_SPEED_BYTE_RANGE, Math.round(byte) - 1));
+  const t = normalized / GOBLET_SPEED_BYTE_RANGE;
+  return minV + t * (maxV - minV);
+};
+
+export const resolveGobletFlowMode = (flowMode) => {
+  if (flowMode === GOBLET_FLOW_MODE_REVERSE) {
+    return GOBLET_FLOW_MODE_REVERSE;
+  }
+  if (flowMode === GOBLET_FLOW_MODE_PINGPONG) {
+    return GOBLET_FLOW_MODE_PINGPONG;
+  }
+  return GOBLET_FLOW_MODE_FORWARD;
+};
+
+export const getGobletFlowModeIndex = (flowMode) => {
+  const resolved = resolveGobletFlowMode(flowMode);
+  if (resolved === GOBLET_FLOW_MODE_REVERSE) {
+    return 1;
+  }
+  if (resolved === GOBLET_FLOW_MODE_PINGPONG) {
+    return 2;
+  }
+  return 0;
+};
+
+export const hasGobletNonForwardFlow = (flowBuffer) => {
+  if (!flowBuffer || !flowBuffer.length) {
+    return false;
+  }
+  for (let index = 0; index < flowBuffer.length; index += 1) {
+    if (resolveGobletFlowMode(flowBuffer[index] | 0) !== GOBLET_FLOW_MODE_FORWARD) {
+      return true;
+    }
+  }
+  return false;
+};
+
+export const normalizeGobletFlowBuffer = (
+  flowBuffer,
+  gradientIdBuffer,
+  expectedLength,
+  flowSlotBits = 8,
+) => {
+  const length = Math.max(0, Math.round(Number(expectedLength) || 0));
+  const out = new Uint8Array(length);
+  out.fill(GOBLET_FLOW_MODE_FORWARD);
+  if (flowBuffer && flowBuffer.length > 0) {
+    for (let index = 0; index < length; index += 1) {
+      out[index] = resolveGobletFlowMode(flowBuffer[index] ?? GOBLET_FLOW_MODE_FORWARD);
+    }
+    return out;
+  }
+  if (gradientIdBuffer && gradientIdBuffer.length > 0) {
+    for (let index = 0; index < length; index += 1) {
+      out[index] = resolveGobletFlowMode((gradientIdBuffer[index] ?? 0) >> flowSlotBits);
+    }
+  }
+  return out;
+};
+
+export const wrapGobletPhase01 = (phase) => {
+  const wrapped = phase % 1;
+  return wrapped < 0 ? wrapped + 1 : wrapped;
+};
+
+export const resolveGobletPhase01 = (basePhase, phaseByte = 0) => (
+  wrapGobletPhase01((Number.isFinite(basePhase) ? basePhase : 0) + (Number(phaseByte) || 0) / 256)
+);
+
+export const foldGobletPingpongPhase = (phase) => {
+  const wrapped = wrapGobletPhase01(phase);
+  return wrapped < 0.5 ? wrapped * 2 : (1 - wrapped) * 2;
+};
+
+export const resolveGobletPalettePosition = (
+  baseIndex,
+  phase,
+  flowMode,
+  paletteSize,
+) => {
+  const size = Math.max(1, Math.round(Number(paletteSize) || 0));
+  const resolvedPhase = wrapGobletPhase01(phase);
+  let position;
+  if (resolveGobletFlowMode(flowMode) === GOBLET_FLOW_MODE_REVERSE) {
+    position = baseIndex + resolvedPhase * size;
+  } else if (resolveGobletFlowMode(flowMode) === GOBLET_FLOW_MODE_PINGPONG) {
+    position = baseIndex - foldGobletPingpongPhase(resolvedPhase) * size;
+  } else {
+    position = baseIndex - resolvedPhase * size;
+  }
+  const wrapped = position % size;
+  return wrapped < 0 ? wrapped + size : wrapped;
+};
+
+export const clampGobletSlotId = (slot, maxSlotId = GOBLET_MAX_SLOT_ID) => {
+  const maxSlot = Math.max(0, Math.round(Number(maxSlotId) || 0));
+  const numeric = Number(slot);
+  if (!Number.isFinite(numeric)) {
+    return 0;
+  }
+  return Math.max(0, Math.min(maxSlot, Math.round(numeric)));
+};
+
+export const resolveGobletGradientSlot = (gradientId, flowSlotMask = GOBLET_MAX_SLOT_ID) => (
+  (Number(gradientId) || 0) & flowSlotMask
+);
+
+export const resolveGobletPaletteRow = (
+  gradientId,
+  slotCount,
+  flowSlotMask = GOBLET_MAX_SLOT_ID,
+) => {
+  const rowCount = Math.max(1, Math.round(Number(slotCount) || 0));
+  return Math.min(resolveGobletGradientSlot(gradientId, flowSlotMask), rowCount - 1);
+};
+
+export const resolveGobletPaletteIndex = (
+  rawIndex,
+  paletteSize,
+  subtractOne = false,
+) => {
+  const size = Math.max(1, Math.round(Number(paletteSize) || 0));
+  const numeric = Number(rawIndex) || 0;
+  const effective = subtractOne && numeric > 0 ? numeric - 1 : numeric;
+  return Math.max(0, Math.min(size - 1, Math.round(effective)));
+};
+
+const clamp01 = (value) => {
+  if (value <= 0) {
+    return 0;
+  }
+  if (value >= 1) {
+    return 1;
+  }
+  return value;
+};
+
+export const clampGobletByte = (value) => {
+  const rounded = Math.round(value);
+  if (rounded <= 0) {
+    return 0;
+  }
+  if (rounded >= 255) {
+    return 255;
+  }
+  return rounded;
+};
+
+export const parseGobletColor = (input) => {
+  if (typeof input !== 'string') {
+    return { r: 255, g: 255, b: 255, a: 255 };
+  }
+  const value = input.trim();
+  if (!value) {
+    return { r: 255, g: 255, b: 255, a: 255 };
+  }
+  if (value.toLowerCase() === 'transparent') {
+    return { r: 0, g: 0, b: 0, a: 0 };
+  }
+  if (value.startsWith('#')) {
+    const hex = value.slice(1);
+    if (hex.length === 3 || hex.length === 4) {
+      const r = parseInt(hex[0] + hex[0], 16);
+      const g = parseInt(hex[1] + hex[1], 16);
+      const b = parseInt(hex[2] + hex[2], 16);
+      const a = hex.length === 4 ? parseInt(hex[3] + hex[3], 16) : 255;
+      return { r, g, b, a };
+    }
+    if (hex.length === 6 || hex.length === 8) {
+      const r = parseInt(hex.slice(0, 2), 16);
+      const g = parseInt(hex.slice(2, 4), 16);
+      const b = parseInt(hex.slice(4, 6), 16);
+      const a = hex.length === 8 ? parseInt(hex.slice(6, 8), 16) : 255;
+      return { r, g, b, a };
+    }
+  }
+  const rgbaMatch = value.match(/^rgba?\(([^)]+)\)$/i);
+  if (rgbaMatch) {
+    const parts = rgbaMatch[1].split(',').map((part) => part.trim());
+    if (parts.length >= 3) {
+      const r = clampGobletByte(parseFloat(parts[0]));
+      const g = clampGobletByte(parseFloat(parts[1]));
+      const b = clampGobletByte(parseFloat(parts[2]));
+      let a = 255;
+      if (parts.length >= 4) {
+        const raw = parts[3].endsWith('%') ? parseFloat(parts[3]) / 100 : parseFloat(parts[3]);
+        if (Number.isFinite(raw)) {
+          a = raw <= 1 ? clampGobletByte(raw * 255) : clampGobletByte(raw);
+        }
+      }
+      return { r, g, b, a };
+    }
+  }
+  return { r: 255, g: 255, b: 255, a: 255 };
+};
+
+const DEFAULT_GOBLET_GRADIENT = [
+  { position: 0, rgba: parseGobletColor('#000000') },
+  { position: 1, rgba: parseGobletColor('#ffffff') },
+];
+
+const cloneGobletGradient = (gradient) => (
+  gradient.map((entry) => ({ position: entry.position, rgba: { ...entry.rgba } }))
+);
+
+export const normalizeGobletGradientStops = (stops) => {
+  if (!Array.isArray(stops) || stops.length === 0) {
+    return cloneGobletGradient(DEFAULT_GOBLET_GRADIENT);
+  }
+  const normalized = stops
+    .map((stop) => ({
+      position: clamp01(
+        typeof stop?.position === 'number'
+          ? stop.position
+          : parseFloat(stop?.position ?? 0),
+      ),
+      rgba: stop?.rgba && typeof stop.rgba === 'object'
+        ? {
+            r: clampGobletByte(stop.rgba.r),
+            g: clampGobletByte(stop.rgba.g),
+            b: clampGobletByte(stop.rgba.b),
+            a: clampGobletByte(stop.rgba.a ?? 255),
+          }
+        : parseGobletColor(stop?.color ?? '#ffffff'),
+    }))
+    .sort((a, b) => a.position - b.position);
+  if (normalized.length === 0) {
+    return cloneGobletGradient(DEFAULT_GOBLET_GRADIENT);
+  }
+  if (normalized[0].position > 0) {
+    normalized.unshift({ position: 0, rgba: normalized[0].rgba });
+  }
+  const last = normalized[normalized.length - 1];
+  if (last.position < 1) {
+    normalized.push({ position: 1, rgba: last.rgba });
+  }
+  if (normalized.length === 1) {
+    normalized.push({ position: 1, rgba: normalized[0].rgba });
+  }
+  return normalized;
+};
+
+export const normalizeGobletSlotPalettes = (slotPalettes, fallbackGradient) => {
+  if (!Array.isArray(slotPalettes) || slotPalettes.length === 0) {
+    return null;
+  }
+  const map = new Map();
+  slotPalettes.forEach((entry) => {
+    if (!entry || typeof entry !== 'object') {
+      return;
+    }
+    const slot = Number(entry.slot);
+    if (!Number.isFinite(slot)) {
+      return;
+    }
+    const stops = Array.isArray(entry.stops) ? entry.stops : [];
+    map.set(
+      clampGobletSlotId(slot),
+      normalizeGobletGradientStops(stops),
+    );
+  });
+  if (map.size === 0) {
+    return null;
+  }
+  if (!map.has(0) && Array.isArray(fallbackGradient) && fallbackGradient.length > 0) {
+    map.set(0, normalizeGobletGradientStops(fallbackGradient));
+  }
+  return map;
+};
+
+export const sampleGobletGradient = (gradient, position) => {
+  if (!Array.isArray(gradient) || gradient.length === 0) {
+    return { r: 255, g: 255, b: 255, a: 255 };
+  }
+  if (gradient.length === 1) {
+    return { ...gradient[0].rgba };
+  }
+  const pos = clamp01(position);
+  for (let index = 0; index < gradient.length - 1; index += 1) {
+    const left = gradient[index];
+    const right = gradient[index + 1];
+    if (pos >= left.position && pos <= right.position) {
+      const span = right.position - left.position;
+      const t = span > 0 ? (pos - left.position) / span : 0;
+      return {
+        r: clampGobletByte(left.rgba.r + (right.rgba.r - left.rgba.r) * t),
+        g: clampGobletByte(left.rgba.g + (right.rgba.g - left.rgba.g) * t),
+        b: clampGobletByte(left.rgba.b + (right.rgba.b - left.rgba.b) * t),
+        a: clampGobletByte(left.rgba.a + (right.rgba.a - left.rgba.a) * t),
+      };
+    }
+  }
+  return { ...gradient[gradient.length - 1].rgba };
+};
+
+export const resolveGobletAlphaByte = (alpha, alphaIndex, fallbackAlpha = 255) => (
+  alpha?.[alphaIndex] ?? fallbackAlpha
+);
+
+export const resolveGobletIndexedAlphaByte = (alpha, alphaIndex, effectiveIndex) => (
+  resolveGobletAlphaByte(alpha, alphaIndex, effectiveIndex !== 0 ? 255 : 0)
+);
+
+export const resizeGobletAlphaMaskBuffer = (
+  source,
+  srcWidth,
+  srcHeight,
+  destWidth,
+  destHeight,
+) => {
+  if (!source || !source.length) {
+    return null;
+  }
+  const targetWidth = Math.max(1, Math.round(destWidth));
+  const targetHeight = Math.max(1, Math.round(destHeight));
+  const width = Math.max(1, Math.round(srcWidth));
+  const height = Math.max(1, Math.round(srcHeight));
+  if (width === targetWidth && height === targetHeight) {
+    if (source.length === width * height) {
+      return source;
+    }
+    const normalized = new Uint8Array(width * height);
+    normalized.set(source.subarray(0, Math.min(source.length, normalized.length)));
+    return normalized;
+  }
+  const output = new Uint8Array(targetWidth * targetHeight);
+  const scaleX = width / targetWidth;
+  const scaleY = height / targetHeight;
+  for (let y = 0; y < targetHeight; y += 1) {
+    const srcY = Math.min(height - 1, Math.max(0, Math.floor(y * scaleY)));
+    for (let x = 0; x < targetWidth; x += 1) {
+      const srcX = Math.min(width - 1, Math.max(0, Math.floor(x * scaleX)));
+      const srcIdx = srcY * width + srcX;
+      const dstIdx = y * targetWidth + x;
+      output[dstIdx] = source[srcIdx] ?? 0;
+    }
+  }
+  return output;
+};
+
+export const applyGobletEraseMaskToAlphaChannel = (alphaBuffer, maskBuffer) => {
+  if (!alphaBuffer || !maskBuffer) {
+    return;
+  }
+  const pixelCount = Math.min(maskBuffer.length, Math.floor(alphaBuffer.length / 4));
+  for (let index = 0, alphaIndex = 3; index < pixelCount; index += 1, alphaIndex += 4) {
+    const erase = maskBuffer[index];
+    if (!erase) {
+      continue;
+    }
+    const current = alphaBuffer[alphaIndex] || 0;
+    alphaBuffer[alphaIndex] = Math.max(0, Math.round((current * (255 - erase)) / 255));
+  }
+};
+
+export const applyGobletSoftEdgeMaskToAlphaChannel = (alphaBuffer, maskBuffer) => {
+  if (!alphaBuffer || !maskBuffer) {
+    return;
+  }
+  const pixelCount = Math.min(maskBuffer.length, Math.floor(alphaBuffer.length / 4));
+  for (let index = 0, alphaIndex = 3; index < pixelCount; index += 1, alphaIndex += 4) {
+    const keep = maskBuffer[index];
+    const current = alphaBuffer[alphaIndex] || 0;
+    alphaBuffer[alphaIndex] = Math.max(0, Math.round((current * keep) / 255));
+  }
+};
+
+export const hasAnyGobletMaskValue = (maskBuffer) => {
+  if (!maskBuffer) {
+    return false;
+  }
+  for (let index = 0; index < maskBuffer.length; index += 1) {
+    if (maskBuffer[index] > 0) {
+      return true;
+    }
+  }
+  return false;
+};
+
+export const hasVisibleGobletAlpha = (alphaBuffer) => {
+  if (!alphaBuffer || alphaBuffer.length < 4) {
+    return false;
+  }
+  for (let index = 3; index < alphaBuffer.length; index += 4) {
+    if (alphaBuffer[index]) {
+      return true;
+    }
+  }
+  return false;
+};

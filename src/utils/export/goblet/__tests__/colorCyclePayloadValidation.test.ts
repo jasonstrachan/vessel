@@ -1,5 +1,16 @@
-import { validateGobletColorCyclePayload } from '@/utils/export/goblet/colorCyclePayloadValidation';
+import {
+  validateGobletColorCycleMetadataContract,
+  validateGobletColorCyclePayload,
+} from '@/utils/export/goblet/colorCyclePayloadValidation';
 import { packArrayToB64Z } from '@/utils/export/b64z';
+import {
+  GOBLET2_FORMAT,
+  GOBLET2_SCHEMA_VERSION,
+  GOBLET_BRUSH_MASK_FIELDS,
+  GOBLET_BRUSH_REQUIRED_BUFFERS,
+  GOBLET_BRUSH_REQUIRED_SCALARS,
+  GOBLET_COLOR_CYCLE_BRUSH_MODE,
+} from '@/lib/colorCycle/document/colorCycleDocumentContract';
 import type { WebGLSerializedColorCycle } from '@/utils/export/goblet/gobletTypes';
 
 const createBrushPayload = (overrides: Partial<WebGLSerializedColorCycle['brushState']> = {}): WebGLSerializedColorCycle => ({
@@ -34,6 +45,38 @@ const createBrushPayload = (overrides: Partial<WebGLSerializedColorCycle['brushS
 
 const filledBytes = (length: number, value: number): number[] => Array.from(new Uint8Array(length).fill(value));
 
+describe('validateGobletColorCycleMetadataContract', () => {
+  it('accepts the Goblet2 color-cycle metadata root contract', () => {
+    const result = validateGobletColorCycleMetadataContract({
+      format: GOBLET2_FORMAT,
+      colorCycle: { schemaVersion: GOBLET2_SCHEMA_VERSION },
+    });
+
+    expect(result.ok).toBe(true);
+    expect(result.reason).toBeUndefined();
+  });
+
+  it('rejects non-Goblet2 formats for new color-cycle export metadata', () => {
+    const result = validateGobletColorCycleMetadataContract({
+      format: 'vessel-goblet',
+      colorCycle: { schemaVersion: GOBLET2_SCHEMA_VERSION },
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.reason).toBe('invalid-goblet-format');
+  });
+
+  it('rejects color-cycle metadata that is not on the current schema version', () => {
+    const result = validateGobletColorCycleMetadataContract({
+      format: GOBLET2_FORMAT,
+      colorCycle: { schemaVersion: GOBLET2_SCHEMA_VERSION - 1 },
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.reason).toBe('invalid-color-cycle-schema-version');
+  });
+});
+
 describe('validateGobletColorCyclePayload', () => {
   it('accepts a complete animated brush payload and returns pixel stats', () => {
     const result = validateGobletColorCyclePayload(createBrushPayload(), {
@@ -62,14 +105,30 @@ describe('validateGobletColorCyclePayload', () => {
     expect(result.reason).toBe('buffer-length-mismatch');
   });
 
-  it.each([
-    'indexBuffer',
-    'gradientIdBuffer',
-    'gradientDefIdBuffer',
-    'speedBuffer',
-    'flowBuffer',
-    'phaseBuffer',
-  ] as const)('rejects missing required animated brush buffer %s', (bufferName) => {
+  it('rejects brush payloads that do not declare brush mode', () => {
+    const payload = {
+      ...createBrushPayload(),
+      mode: 'recolor',
+    } as WebGLSerializedColorCycle;
+
+    const result = validateGobletColorCyclePayload(payload, {
+      layerId: 'cc-layer',
+      hasContent: true,
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.reason).toBe('invalid-brush-mode');
+    expect(result.diagnostics).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        code: 'invalid-brush-mode',
+        message: expect.stringContaining(GOBLET_COLOR_CYCLE_BRUSH_MODE),
+      }),
+    ]));
+  });
+
+  it.each(GOBLET_BRUSH_REQUIRED_BUFFERS.map((buffer) => buffer.name))(
+    'rejects missing required animated brush buffer %s',
+    (bufferName) => {
     const payload = createBrushPayload({
       [bufferName]: undefined,
     });
@@ -87,7 +146,8 @@ describe('validateGobletColorCyclePayload', () => {
         message: expect.stringContaining(bufferName),
       }),
     ]));
-  });
+    },
+  );
 
   it('rejects empty required animated brush buffers', () => {
     const result = validateGobletColorCyclePayload(createBrushPayload({
@@ -115,6 +175,48 @@ describe('validateGobletColorCyclePayload', () => {
 
     expect(result.ok).toBe(true);
     expect(result.diagnostics.find((diagnostic) => diagnostic.code === 'missing-required-buffer')).toBeUndefined();
+  });
+
+  it.each(GOBLET_BRUSH_REQUIRED_SCALARS.map((scalar) => scalar.name))(
+    'rejects missing required animated brush scalar %s',
+    (scalarName) => {
+      const payload = {
+        ...createBrushPayload(),
+        [scalarName]: undefined,
+      } as WebGLSerializedColorCycle;
+
+      const result = validateGobletColorCyclePayload(payload, {
+        layerId: 'cc-layer',
+        hasContent: true,
+      });
+
+      expect(result.ok).toBe(false);
+      expect(result.reason).toBe('missing-required-scalar');
+      expect(result.diagnostics).toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          code: 'missing-required-scalar',
+          message: expect.stringContaining(scalarName),
+        }),
+      ]));
+    },
+  );
+
+  it('accepts missing speed range when slot-speed metadata is present', () => {
+    const payload = createBrushPayload({
+      speedBuffer: undefined,
+    });
+    payload.speedMode = 'slot';
+    payload.slotSpeeds = [{ slot: 0, speed: 1.25 }];
+    payload.speedMin = undefined;
+    payload.speedMax = undefined;
+
+    const result = validateGobletColorCyclePayload(payload, {
+      layerId: 'cc-layer',
+      hasContent: true,
+    });
+
+    expect(result.ok).toBe(true);
+    expect(result.diagnostics.find((diagnostic) => diagnostic.code === 'missing-required-scalar')).toBeUndefined();
   });
 
   it('accepts static slot-speed metadata without a speed buffer', () => {
@@ -273,20 +375,47 @@ describe('validateGobletColorCyclePayload', () => {
     expect(result.diagnostics.find((diagnostic) => diagnostic.code === 'buffer-length-mismatch')).toBeUndefined();
   });
 
-  it('rejects mask dimension mismatches', () => {
-    const result = validateGobletColorCyclePayload({
-      ...createBrushPayload(),
-      alphaMask: {
-        width: 1,
-        height: 4,
-        data: [255, 255, 255, 255],
-      },
-    }, {
-      layerId: 'cc-layer',
-      hasContent: true,
-    });
+  it.each(GOBLET_BRUSH_MASK_FIELDS)(
+    'rejects %s dimension mismatches',
+    (maskField) => {
+      const result = validateGobletColorCyclePayload({
+        ...createBrushPayload(),
+        [maskField]: {
+          width: 1,
+          height: 4,
+          data: [255, 255, 255, 255],
+        },
+      } as WebGLSerializedColorCycle, {
+        layerId: 'cc-layer',
+        hasContent: true,
+      });
 
-    expect(result.ok).toBe(false);
-    expect(result.reason).toBe('alpha-mask-size-mismatch');
-  });
+      expect(result.ok).toBe(false);
+      expect(result.reason).toBe(maskField === 'alphaMask'
+        ? 'alpha-mask-size-mismatch'
+        : 'soft-edge-mask-size-mismatch');
+    },
+  );
+
+  it.each(GOBLET_BRUSH_MASK_FIELDS)(
+    'rejects %s payload length mismatches',
+    (maskField) => {
+      const result = validateGobletColorCyclePayload({
+        ...createBrushPayload(),
+        [maskField]: {
+          width: 2,
+          height: 2,
+          data: [255, 255, 255],
+        },
+      } as WebGLSerializedColorCycle, {
+        layerId: 'cc-layer',
+        hasContent: true,
+      });
+
+      expect(result.ok).toBe(false);
+      expect(result.reason).toBe(maskField === 'alphaMask'
+        ? 'alpha-mask-length-mismatch'
+        : 'soft-edge-mask-length-mismatch');
+    },
+  );
 });

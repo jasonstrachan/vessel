@@ -1,7 +1,17 @@
 import type {
+  WebGLSerializedBrushState,
   SerializedSlotPalette,
   WebGLSerializedColorCycle,
 } from '@/utils/export/goblet/gobletTypes';
+import {
+  GOBLET2_FORMAT,
+  GOBLET2_SCHEMA_VERSION,
+  GOBLET_BRUSH_MASK_FIELDS,
+  GOBLET_BRUSH_REQUIRED_BUFFERS,
+  GOBLET_BRUSH_REQUIRED_SCALARS,
+  GOBLET_COLOR_CYCLE_BRUSH_MODE,
+  GOBLET_COLOR_CYCLE_RECOLOR_MODE,
+} from '@/lib/colorCycle/document/colorCycleDocumentContract';
 import { FLOW_SLOT_MASK } from '@/lib/colorCycle/flowEncoding';
 import { isB64ZString, unpackB64ZToUint8Array } from '@/utils/export/b64z';
 
@@ -28,6 +38,13 @@ export type GobletColorCyclePayloadValidationResult = {
   reason?: string;
   diagnostics: GobletColorCyclePayloadDiagnostic[];
   stats?: GobletColorCyclePayloadStats;
+};
+
+export type GobletColorCycleMetadataContractInput = {
+  format?: unknown;
+  colorCycle?: {
+    schemaVersion?: unknown;
+  } | null;
 };
 
 type NumericPayloadValues = ArrayLike<number>;
@@ -146,6 +163,96 @@ const hasSlotSpeedPayload = (colorCycle: WebGLSerializedColorCycle): boolean => 
   colorCycle.slotSpeeds.some((entry) => Number.isFinite(entry.slot) && Number.isFinite(entry.speed))
 );
 
+const getBrushBufferValue = (
+  brushState: WebGLSerializedBrushState,
+  name: string,
+): unknown => {
+  switch (name) {
+    case 'indexBuffer':
+      return brushState.indexBuffer;
+    case 'gradientIdBuffer':
+      return brushState.gradientIdBuffer;
+    case 'gradientDefIdBuffer':
+      return brushState.gradientDefIdBuffer;
+    case 'speedBuffer':
+      return brushState.speedBuffer;
+    case 'flowBuffer':
+      return brushState.flowBuffer;
+    case 'phaseBuffer':
+      return brushState.phaseBuffer;
+    default:
+      return undefined;
+  }
+};
+
+const getMaskValue = (
+  colorCycle: WebGLSerializedColorCycle,
+  name: string,
+) => {
+  switch (name) {
+    case 'alphaMask':
+      return colorCycle.alphaMask;
+    case 'softEdgeMask':
+      return colorCycle.softEdgeMask;
+    default:
+      return undefined;
+  }
+};
+
+const getMaskDiagnosticPrefix = (name: string): string => {
+  switch (name) {
+    case 'alphaMask':
+      return 'alpha-mask';
+    case 'softEdgeMask':
+      return 'soft-edge-mask';
+    default:
+      return name;
+  }
+};
+
+const getColorCycleScalarValue = (
+  colorCycle: WebGLSerializedColorCycle,
+  name: string,
+): unknown => {
+  switch (name) {
+    case 'speedMin':
+      return colorCycle.speedMin;
+    case 'speedMax':
+      return colorCycle.speedMax;
+    default:
+      return undefined;
+  }
+};
+
+export const validateGobletColorCycleMetadataContract = (
+  metadata: GobletColorCycleMetadataContractInput,
+): GobletColorCyclePayloadValidationResult => {
+  const diagnostics: GobletColorCyclePayloadDiagnostic[] = [];
+
+  if (metadata.format !== GOBLET2_FORMAT) {
+    diagnostics.push({
+      code: 'invalid-goblet-format',
+      severity: 'error',
+      message: `Goblet2 color-cycle export requires format ${GOBLET2_FORMAT}.`,
+    });
+  }
+
+  if (Number(metadata.colorCycle?.schemaVersion) !== GOBLET2_SCHEMA_VERSION) {
+    diagnostics.push({
+      code: 'invalid-color-cycle-schema-version',
+      severity: 'error',
+      message: `Goblet2 color-cycle export requires colorCycle.schemaVersion ${GOBLET2_SCHEMA_VERSION}.`,
+    });
+  }
+
+  const failed = diagnostics.some((diagnostic) => diagnostic.severity === 'error');
+  return {
+    ok: !failed,
+    reason: failed ? diagnostics.find((diagnostic) => diagnostic.severity === 'error')?.code : undefined,
+    diagnostics,
+  };
+};
+
 export const validateGobletColorCyclePayload = (
   colorCycle: WebGLSerializedColorCycle | undefined,
   options: {
@@ -166,8 +273,16 @@ export const validateGobletColorCyclePayload = (
     };
   }
 
-  if (colorCycle.mode === 'recolor') {
+  if (colorCycle.mode === GOBLET_COLOR_CYCLE_RECOLOR_MODE && !colorCycle.brushState) {
     return { ok: true, diagnostics };
+  }
+
+  if (colorCycle.mode !== GOBLET_COLOR_CYCLE_BRUSH_MODE) {
+    diagnostics.push({
+      code: 'invalid-brush-mode',
+      severity: 'error',
+      message: `Animated brush color-cycle export requires mode ${GOBLET_COLOR_CYCLE_BRUSH_MODE}.`,
+    });
   }
 
   const brushState = colorCycle.brushState;
@@ -187,47 +302,42 @@ export const validateGobletColorCyclePayload = (
   }
 
   const pixels = Math.max(1, Math.round(brushState.width)) * Math.max(1, Math.round(brushState.height));
-  const checkedBuffers: Array<[string, unknown, number]> = [
-    ['indexBuffer', brushState.indexBuffer, pixels],
-    ['gradientIdBuffer', brushState.gradientIdBuffer, pixels],
-    ['speedBuffer', brushState.speedBuffer, pixels],
-    ['flowBuffer', brushState.flowBuffer, pixels],
-    ['phaseBuffer', brushState.phaseBuffer, pixels],
-  ];
   const resolvedBuffers = new Map<string, NumericPayloadResolution>();
   const canOmitSpeedBuffer = hasSlotSpeedPayload(colorCycle);
 
-  for (const [name, value, expected] of checkedBuffers) {
+  for (const bufferContract of GOBLET_BRUSH_REQUIRED_BUFFERS) {
+    const { name, bytesPerElement, optionalWhen } = bufferContract;
+    const value = getBrushBufferValue(brushState, name);
     const resolved = resolveNumericPayload(name, value, diagnostics);
     resolvedBuffers.set(name, resolved);
-    if (!hasRequiredPayload(resolved) && !(name === 'speedBuffer' && canOmitSpeedBuffer)) {
+    if (!hasRequiredPayload(resolved) && !(optionalWhen === 'slot-speed' && canOmitSpeedBuffer)) {
       diagnostics.push({
         code: 'missing-required-buffer',
         severity: 'error',
         message: `${name} is required for animated brush color-cycle export.`,
       });
-    } else if (!hasPayloadLength(resolved, expected)) {
+    } else if (!hasPayloadLength(resolved, pixels, bytesPerElement)) {
       diagnostics.push({
         code: 'buffer-length-mismatch',
         severity: 'error',
-        message: `${name} ${describePayloadLength(resolved)} does not match ${expected} pixels.`,
+        message: `${name} ${describePayloadLength(resolved)} does not match ${pixels} pixels.`,
       });
     }
   }
 
-  const resolvedDefIds = resolveNumericPayload('gradientDefIdBuffer', brushState.gradientDefIdBuffer, diagnostics);
-  if (!hasRequiredPayload(resolvedDefIds)) {
-    diagnostics.push({
-      code: 'missing-required-buffer',
-      severity: 'error',
-      message: 'gradientDefIdBuffer is required for animated brush color-cycle export.',
-    });
-  } else if (!hasPayloadLength(resolvedDefIds, pixels, Uint16Array.BYTES_PER_ELEMENT)) {
-    diagnostics.push({
-      code: 'buffer-length-mismatch',
-      severity: 'error',
-      message: `gradientDefIdBuffer ${describePayloadLength(resolvedDefIds)} does not match ${pixels} pixels.`,
-    });
+  for (const scalarContract of GOBLET_BRUSH_REQUIRED_SCALARS) {
+    const { name, optionalWhen } = scalarContract;
+    if (optionalWhen === 'slot-speed' && canOmitSpeedBuffer) {
+      continue;
+    }
+    const value = Number(getColorCycleScalarValue(colorCycle, name));
+    if (!Number.isFinite(value)) {
+      diagnostics.push({
+        code: 'missing-required-scalar',
+        severity: 'error',
+        message: `${name} is required for animated brush color-cycle export.`,
+      });
+    }
   }
 
   const paintValues = resolvedBuffers.get('indexBuffer')?.values ?? null;
@@ -259,22 +369,33 @@ export const validateGobletColorCyclePayload = (
     }
   }
 
-  const alphaMask = colorCycle.alphaMask;
-  if (alphaMask && (alphaMask.width !== brushState.width || alphaMask.height !== brushState.height)) {
-    diagnostics.push({
-      code: 'alpha-mask-size-mismatch',
-      severity: 'error',
-      message: 'Alpha mask dimensions do not match the brush payload dimensions.',
-    });
-  }
-
-  const softEdgeMask = colorCycle.softEdgeMask;
-  if (softEdgeMask && (softEdgeMask.width !== brushState.width || softEdgeMask.height !== brushState.height)) {
-    diagnostics.push({
-      code: 'soft-edge-mask-size-mismatch',
-      severity: 'error',
-      message: 'Soft-edge mask dimensions do not match the brush payload dimensions.',
-    });
+  for (const maskField of GOBLET_BRUSH_MASK_FIELDS) {
+    const mask = getMaskValue(colorCycle, maskField);
+    if (!mask) {
+      continue;
+    }
+    const diagnosticPrefix = getMaskDiagnosticPrefix(maskField);
+    if (mask.width !== brushState.width || mask.height !== brushState.height) {
+      diagnostics.push({
+        code: `${diagnosticPrefix}-size-mismatch`,
+        severity: 'error',
+        message: `${maskField} dimensions do not match the brush payload dimensions.`,
+      });
+    }
+    const resolved = resolveNumericPayload(maskField, mask.data, diagnostics);
+    if (!hasRequiredPayload(resolved)) {
+      diagnostics.push({
+        code: `${diagnosticPrefix}-missing-data`,
+        severity: 'error',
+        message: `${maskField} data is required when the mask is present.`,
+      });
+    } else if (!hasPayloadLength(resolved, pixels)) {
+      diagnostics.push({
+        code: `${diagnosticPrefix}-length-mismatch`,
+        severity: 'error',
+        message: `${maskField} ${describePayloadLength(resolved)} does not match ${pixels} pixels.`,
+      });
+    }
   }
 
   const failed = diagnostics.some((diagnostic) => diagnostic.severity === 'error');

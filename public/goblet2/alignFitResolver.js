@@ -50,7 +50,7 @@ const normalizeFit = (fit) => {
         case 'uniform':
             return 'contain';
         default:
-            return 'none';
+            return 'contain';
     }
 };
 export const normalizeAlignment = (alignment) => {
@@ -64,7 +64,7 @@ export const normalizeAlignment = (alignment) => {
         fit: normalizeFit(alignment === null || alignment === void 0 ? void 0 : alignment.fit),
         horizontal,
         vertical,
-        positioning: (_c = alignment === null || alignment === void 0 ? void 0 : alignment.positioning) !== null && _c !== void 0 ? _c : 'anchor',
+        positioning: (_c = alignment === null || alignment === void 0 ? void 0 : alignment.positioning) !== null && _c !== void 0 ? _c : 'auto',
         offsetPercent: normalizeOffsetPercent(alignment, horizontal, vertical)
     };
     return normalized;
@@ -91,7 +91,7 @@ const resolvePaintedBounds = (bounds, fallback) => {
 // Fit modes share a single sizing basis so contain/cover/fill behave consistently:
 // - By default we respect the full document bounds, but once painted bounds exist we
 //   scale against the visible pixels so AUTO/ANCHOR don't drift from the user's crop.
-// - Anchor never scales; it just positions the raw painted rectangle inside the viewport.
+// - Anchor affects translation only; fit mode remains responsible for scale.
 const getBasisSize = (document, paintedBounds, alignment) => {
     var _a, _b;
     const usePaintedBounds = alignment.positioning === 'anchor' || alignment.fit === 'tile';
@@ -153,10 +153,6 @@ export const computeLayerTransform = (document, viewport, alignment, _options = 
             scaleY = 1;
             break;
         }
-    }
-    if (isAnchor) {
-        scaleX = 1;
-        scaleY = 1;
     }
     const renderedWidth = basisWidth * scaleX;
     const renderedHeight = basisHeight * scaleY;

@@ -1,0 +1,265 @@
+{
+  "version": 1,
+  "clauses": [
+    {
+      "id": "scope-brush-mode-playback",
+      "docSection": "Scope",
+      "status": "covered",
+      "witnesses": [
+        "src/lib/colorCycle/document/colorCycleDocumentContract.ts",
+        "src/utils/export/goblet/__tests__/colorCyclePayloadValidation.test.ts",
+        "tests/goblet2-runtime-regression.test.ts"
+      ],
+      "note": "Brush playback scope is enforced by shared mode constants, export validation, and generated Goblet2 loader regression checks."
+    },
+    {
+      "id": "scope-recolor-out-of-scope",
+      "docSection": "Scope",
+      "status": "covered",
+      "witnesses": [
+        "src/utils/export/goblet/__tests__/colorCyclePayloadValidation.test.ts"
+      ],
+      "note": "Legitimate recolor payloads return from brush payload validation without being forced through brush-mode rules."
+    },
+    {
+      "id": "target-format-schema-version",
+      "docSection": "Scope",
+      "status": "covered",
+      "witnesses": [
+        "src/lib/colorCycle/document/colorCycleDocumentContract.ts",
+        "src/utils/export/goblet/__tests__/colorCyclePayloadValidation.test.ts",
+        "tests/goblet2-bundle.test.ts",
+        "tests/goblet2-runtime-regression.test.ts"
+      ],
+      "note": "Goblet2 format and schema version originate in the document contract spine and are checked on export and loader paths."
+    },
+    {
+      "id": "schema-version-discipline",
+      "docSection": "Schema Version Discipline",
+      "status": "covered",
+      "witnesses": [
+        "docs/color-cycle-compatibility-contract.md",
+        "tests/fixtures/goblet2/legacy-schema-1-color-cycle.json",
+        "tests/goblet2-bundle.test.ts"
+      ],
+      "note": "The compatibility doc, schema-1 fixture, and named bundle test pin the bump/tolerance/fixture rule."
+    },
+    {
+      "id": "required-brush-buffers",
+      "docSection": "Required Payload",
+      "status": "covered",
+      "witnesses": [
+        "src/lib/colorCycle/document/colorCycleDocumentContract.ts",
+        "src/utils/export/goblet/__tests__/colorCyclePayloadValidation.test.ts",
+        "tests/goblet2-fit-mode-rendered-parity.spec.ts",
+        "tests/goblet2-runtime-regression.test.ts"
+      ],
+      "note": "Required brush buffer names and element sizes are shared from the document contract and enforced before export and schema-2 playback."
+    },
+    {
+      "id": "required-speed-range-scalars",
+      "docSection": "Required Payload",
+      "status": "covered",
+      "witnesses": [
+        "src/lib/colorCycle/document/colorCycleDocumentContract.ts",
+        "src/utils/export/goblet/__tests__/colorCyclePayloadValidation.test.ts",
+        "tests/goblet2-fit-mode-rendered-parity.spec.ts",
+        "tests/goblet2-runtime-regression.test.ts"
+      ],
+      "note": "Buffer-speed payloads require finite speedMin and speedMax values, with slot-speed exceptions encoded in the shared scalar contract."
+    },
+    {
+      "id": "slot-palette-fallback-contract",
+      "docSection": "Required Payload",
+      "status": "covered",
+      "witnesses": [
+        "src/lib/colorCycle/gobletPlaybackMath.js",
+        "src/utils/export/goblet/__tests__/colorCyclePayloadValidation.test.ts",
+        "tests/goblet2-cpu-gpu-parity.spec.ts",
+        "tests/goblet2-runtime-regression.test.ts"
+      ],
+      "note": "Sparse slot palettes are validated with gradientStops as the warning-level fallback and rendered through CPU/WebGL2 parity."
+    },
+    {
+      "id": "export-source-selection-order",
+      "docSection": "Export Source Contract",
+      "status": "covered",
+      "witnesses": [
+        "src/utils/export/goblet/__tests__/colorCycleExportContract.test.ts",
+        "src/utils/export/goblet/__tests__/colorCycleExportSourceResolver.test.ts"
+      ],
+      "note": "Named export-source tests cover document, hydrated archive, persisted brush state, and live-runtime selection boundaries."
+    },
+    {
+      "id": "export-local-no-canonical-mutation",
+      "docSection": "Export Source Contract",
+      "status": "covered",
+      "witnesses": [
+        "src/utils/export/goblet/__tests__/colorCycleExportSourceResolver.test.ts"
+      ],
+      "note": "The source resolver test snapshots the source layer and checks export-local clones do not alias canonical buffers."
+    },
+    {
+      "id": "generated-contract-freshness",
+      "docSection": "Validation Contract",
+      "status": "covered",
+      "witnesses": [
+        "src/lib/colorCycle/document/colorCycleDocumentContract.ts",
+        "scripts/build-goblet-runtime.mjs",
+        "tests/goblet2-bundle.test.ts"
+      ],
+      "note": "The generated Goblet2 payload contract copy is checked byte-for-byte against the document contract spine."
+    },
+    {
+      "id": "malformed-schema-2-visible-failure",
+      "docSection": "Validation Contract",
+      "status": "covered",
+      "witnesses": [
+        "src/utils/export/goblet/__tests__/colorCyclePayloadValidation.test.ts",
+        "tests/goblet2-fit-mode-rendered-parity.spec.ts",
+        "tests/goblet2-runtime-regression.test.ts"
+      ],
+      "note": "Malformed schema-2 brush buffers, masks, and speed scalars fail export validation or visible loader contract errors before playback."
+    },
+    {
+      "id": "buffer-index-alpha-zero",
+      "docSection": "Buffer Semantics",
+      "status": "covered",
+      "witnesses": [
+        "tests/fixtures/cc/baseline-parity.json",
+        "tests/cc-runtime-parity.test.ts",
+        "tests/goblet2-cpu-gpu-parity.spec.ts"
+      ],
+      "note": "CPU fixture parity and CPU-vs-WebGL2 rendered parity include transparent index pixels."
+    },
+    {
+      "id": "buffer-palette-index-base",
+      "docSection": "Buffer Semantics",
+      "status": "covered",
+      "witnesses": [
+        "tests/fixtures/cc/baseline-parity.json",
+        "tests/cc-runtime-parity.test.ts",
+        "tests/goblet2-cpu-gpu-parity.spec.ts"
+      ],
+      "note": "Rendered parity covers indexBuffer values above zero resolving to zero-based palette entries."
+    },
+    {
+      "id": "buffer-slot-row-clamp",
+      "docSection": "Buffer Semantics",
+      "status": "covered",
+      "witnesses": [
+        "src/lib/colorCycle/gobletPlaybackMath.js",
+        "tests/fixtures/cc/failing-json-case.json",
+        "tests/cc-runtime-parity.test.ts",
+        "tests/goblet2-cpu-gpu-parity.spec.ts"
+      ],
+      "note": "Shared slot clamp helpers and rendered parity cover out-of-range slot ids including high slots."
+    },
+    {
+      "id": "buffer-speed-zero-nonzero",
+      "docSection": "Buffer Semantics",
+      "status": "covered",
+      "witnesses": [
+        "src/lib/colorCycle/gobletPlaybackMath.js",
+        "tests/fixtures/cc/baseline-parity.json",
+        "tests/cc-runtime-parity.test.ts",
+        "tests/goblet2-cpu-gpu-parity.spec.ts"
+      ],
+      "note": "Shared speed decode and rendered parity cover static zero-speed pixels and animating non-zero speed bytes."
+    },
+    {
+      "id": "speed-decode-formula",
+      "docSection": "Speed Decode",
+      "status": "covered",
+      "witnesses": [
+        "src/lib/colorCycle/gobletPlaybackMath.js",
+        "src/utils/colorCycleSpeed.ts",
+        "tests/fixtures/cc/baseline-parity.json",
+        "tests/cc-runtime-parity.test.ts",
+        "tests/goblet2-cpu-gpu-parity.spec.ts"
+      ],
+      "note": "Speed byte decode is shared and rendered with zero, low, mid, and max encoded speed values."
+    },
+    {
+      "id": "frame-offset-and-shift",
+      "docSection": "Frame Offset and Shift",
+      "status": "covered",
+      "witnesses": [
+        "src/lib/colorCycle/gobletPlaybackMath.js",
+        "tests/fixtures/cc/baseline-parity.json",
+        "tests/fixtures/cc/failing-json-case.json",
+        "tests/cc-runtime-parity.test.ts",
+        "tests/goblet2-cpu-gpu-parity.spec.ts"
+      ],
+      "note": "Shared phase helpers and rendered parity cover animated time-based shifts plus static legacy offset handling."
+    },
+    {
+      "id": "palette-default-size-256",
+      "docSection": "Palette Table Defaults",
+      "status": "covered",
+      "witnesses": [
+        "public/goblet2/goblet2.js",
+        "tests/goblet2-cpu-gpu-parity.spec.ts",
+        "tests/goblet2-runtime-regression.test.ts"
+      ],
+      "note": "Goblet2 brush mode keeps DEFAULT_PALETTE_SIZE at 256, and the browser parity witness asserts both WebGL2 and CPU fallback players report paletteSize 256."
+    },
+    {
+      "id": "palette-black-white-runtime-fallback",
+      "docSection": "Palette Table Defaults",
+      "status": "covered",
+      "witnesses": [
+        "src/lib/colorCycle/gobletPlaybackMath.js",
+        "tests/goblet2-cpu-gpu-parity.spec.ts",
+        "tests/goblet2-runtime-regression.test.ts"
+      ],
+      "note": "Empty gradient stops normalize through the shared black-to-white fallback, and the browser parity witness renders missing slotPalettes plus missing gradientStops through WebGL2 and CPU fallback."
+    },
+    {
+      "id": "alpha-sampled-palette-entry",
+      "docSection": "Alpha Rules",
+      "status": "covered",
+      "witnesses": [
+        "src/lib/colorCycle/gobletPlaybackMath.js",
+        "tests/cc-runtime-parity.test.ts",
+        "tests/goblet2-cpu-gpu-parity.spec.ts"
+      ],
+      "note": "Rendered parity compares sampled palette alpha and zero-preserving mask alpha across CPU and WebGL2 paths."
+    },
+    {
+      "id": "legacy-runtime-defaults",
+      "docSection": "Legacy Runtime Defaults",
+      "status": "covered",
+      "witnesses": [
+        "tests/fixtures/goblet2/legacy-schema-1-color-cycle.json",
+        "tests/goblet2-fit-mode-rendered-parity.spec.ts",
+        "tests/goblet2-runtime-regression.test.ts"
+      ],
+      "note": "The schema-1 fixture pins N-1 compatibility, and the browser witness renders a schema-1 brush payload with missing gradientIdBuffer, speedBuffer, speedMin, speedMax, slotPalettes, and gradientStops through the documented legacy defaults. Real legacy .vs archives remain tracked separately by the 2.4 corpus manifest."
+    },
+    {
+      "id": "golden-fixture-parity",
+      "docSection": "Golden Fixture Parity",
+      "status": "covered",
+      "witnesses": [
+        "tests/fixtures/cc/parity-matrix.manifest.json",
+        "tests/fixtures/cc/parity-cross-product.manifest.json",
+        "tests/cc-runtime-parity.test.ts",
+        "tests/goblet2-cpu-gpu-parity.spec.ts",
+        "tests/goblet2-fit-mode-rendered-parity.spec.ts"
+      ],
+      "note": "The named parity gates cover semantic fixtures, CPU-vs-WebGL2 rendered parity, and the 360-cell cross-product manifest."
+    },
+    {
+      "id": "vessel-reference-path",
+      "docSection": "Golden Fixture Parity",
+      "status": "covered",
+      "witnesses": [
+        "src/lib/ColorCycleAnimator.ts",
+        "tests/fixtures/cc/vessel-editor-reference-path.json",
+        "tests/cc-runtime-parity.test.ts"
+      ],
+      "note": "The named parity gate renders the vessel-editor-reference-path fixture through ColorCycleAnimator and compares it against Goblet CPU output for sparse slot fallback, high slot ids, speed decode, frame shift, and palette sampling."
+    }
+  ]
+}

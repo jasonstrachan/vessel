@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "requiredArchives": [
+    {
+      "id": "pre-schema-2-vs-archive",
+      "status": "covered",
+      "archivePath": "tests/fixtures/goblet2/legacy-corpus/pre-schema-2-susan-kare-2.vs",
+      "expectedOutcome": "fails-visibly"
+    },
+    {
+      "id": "c3-style-damaged-vs-archive",
+      "status": "covered",
+      "archivePath": "tests/fixtures/goblet2/legacy-corpus/c3-style-damaged-susan-kare-10-repaired.vs",
+      "expectedOutcome": "exports-static-with-warning"
+    }
+  ]
+}

@@ -6,6 +6,49 @@ import {
   ensureDisplayFilterCanvas,
   hasEnabledDisplayFiltersInList,
 } from './displayFilterPipeline.js';
+import {
+  decodeColorCycleSpeedByte,
+  getGobletFlowModeIndex,
+  GOBLET_FLOW_MODE_FORWARD,
+  GOBLET_FLOW_MODE_PINGPONG,
+  GOBLET_FLOW_MODE_REVERSE,
+  hasGobletNonForwardFlow,
+  normalizeGobletFlowBuffer,
+  normalizeGobletGradientStops,
+  normalizeGobletSlotPalettes,
+  parseGobletColor,
+  GOBLET_MAX_SLOT_ID,
+  clampGobletSlotId,
+  resizeGobletAlphaMaskBuffer,
+  applyGobletEraseMaskToAlphaChannel,
+  applyGobletSoftEdgeMaskToAlphaChannel,
+  hasAnyGobletMaskValue,
+  resolveGobletGradientSlot,
+  resolveGobletFlowMode,
+  resolveGobletPaletteIndex,
+  resolveGobletPalettePosition,
+  resolveGobletPhase01,
+  resolveGobletAlphaByte,
+  resolveGobletIndexedAlphaByte,
+  sampleGobletGradient,
+  hasVisibleGobletAlpha,
+  wrapGobletPhase01,
+} from './gobletPlaybackMath.js';
+import {
+  GOBLET_BRUSH_MASK_FIELDS,
+  GOBLET_BRUSH_REQUIRED_BUFFERS,
+  GOBLET_BRUSH_REQUIRED_SCALARS,
+  GOBLET_COLOR_CYCLE_BRUSH_MODE,
+  GOBLET2_FORMAT,
+  GOBLET2_LEGACY_SCHEMA_VERSION,
+  GOBLET2_SCHEMA_VERSION,
+} from './gobletPayloadContract.js';
+
+const resizeAlphaMaskBuffer = resizeGobletAlphaMaskBuffer;
+const applyMaskToAlphaChannel = applyGobletEraseMaskToAlphaChannel;
+const applySoftEdgeMaskToAlphaChannel = applyGobletSoftEdgeMaskToAlphaChannel;
+const hasAnyMaskValue = hasAnyGobletMaskValue;
+const hasVisibleAlpha = hasVisibleGobletAlpha;
 
 const __DEV__ = typeof process !== 'undefined' && process.env && process.env.NODE_ENV
   ? process.env.NODE_ENV !== 'production'
@@ -533,23 +576,12 @@ const fitScaleFor = (fit, painted, frame, uniformK = 1, design) => {
   const sy = fh / sh;
   const uContain = Math.min(sx, sy);
   const uCover = Math.max(sx, sy);
-  let normalizedContain = uContain;
-  if (design) {
-    const dw = fitPositive(design.width);
-    const dh = fitPositive(design.height);
-    if (dw > 0 && dh > 0) {
-      const baseContain = Math.min(dw / sw, dh / sh) || 1;
-      if (baseContain > 0) {
-        normalizedContain = uContain / baseContain;
-      }
-    }
-  }
 
   switch (fit) {
     case 'fill':
       return { sx, sy };
     case 'contain':
-      return { sx: normalizedContain, sy: normalizedContain };
+      return { sx: uContain, sy: uContain };
     case 'cover':
       return { sx: uCover, sy: uCover };
     case 'uniform':
@@ -1774,6 +1806,7 @@ const prepareMetadata = (metadata) => {
     }))
   });
   validateMetadata(expanded);
+  assertGobletMetadataContract(expanded);
   // Bounds from the exporter are the source of truth. Do not re-layout here.
   return expanded;
 };
@@ -2035,196 +2068,207 @@ const hasNumericPayload = (value) => {
   return false;
 };
 
-const resizeAlphaMaskBuffer = (source, srcWidth, srcHeight, destWidth, destHeight) => {
-  if (!source || !source.length) {
-    return null;
+const getGobletBrushBufferPayload = (brushState, name) => {
+  switch (name) {
+    case 'indexBuffer':
+      return brushState?.indexBuffer;
+    case 'gradientIdBuffer':
+      return brushState?.gradientIdBuffer;
+    case 'gradientDefIdBuffer':
+      return brushState?.gradientDefIdBuffer;
+    case 'speedBuffer':
+      return brushState?.speedBuffer;
+    case 'flowBuffer':
+      return brushState?.flowBuffer;
+    case 'phaseBuffer':
+      return brushState?.phaseBuffer;
+    default:
+      return undefined;
   }
-  const targetWidth = Math.max(1, Math.round(destWidth));
-  const targetHeight = Math.max(1, Math.round(destHeight));
-  const width = Math.max(1, Math.round(srcWidth));
-  const height = Math.max(1, Math.round(srcHeight));
-  if (width === targetWidth && height === targetHeight) {
-    if (source.length === width * height) {
-      return source;
-    }
-    const normalized = new Uint8Array(width * height);
-    normalized.set(source.subarray(0, Math.min(source.length, normalized.length)));
-    return normalized;
-  }
-  const output = new Uint8Array(targetWidth * targetHeight);
-  const scaleX = width / targetWidth;
-  const scaleY = height / targetHeight;
-  for (let y = 0; y < targetHeight; y += 1) {
-    const srcY = Math.min(height - 1, Math.max(0, Math.floor(y * scaleY)));
-    for (let x = 0; x < targetWidth; x += 1) {
-      const srcX = Math.min(width - 1, Math.max(0, Math.floor(x * scaleX)));
-      const srcIdx = srcY * width + srcX;
-      const dstIdx = y * targetWidth + x;
-      output[dstIdx] = source[srcIdx] ?? 0;
-    }
-  }
-  return output;
 };
 
-const applyMaskToAlphaChannel = (alphaBuffer, maskBuffer) => {
-  if (!alphaBuffer || !maskBuffer) {
-    return;
+const getGobletBrushMaskPayload = (colorCycle, name) => {
+  switch (name) {
+    case 'alphaMask':
+      return colorCycle?.alphaMask;
+    case 'softEdgeMask':
+      return colorCycle?.softEdgeMask;
+    default:
+      return undefined;
   }
-  const pixelCount = Math.min(maskBuffer.length, Math.floor(alphaBuffer.length / 4));
-  for (let i = 0, alphaIndex = 3; i < pixelCount; i += 1, alphaIndex += 4) {
-    const erase = maskBuffer[i];
-    if (!erase) {
+};
+
+const hasGobletSlotSpeedPayload = (colorCycle) => (
+  colorCycle?.speedMode === 'slot'
+  && Array.isArray(colorCycle?.slotSpeeds)
+  && colorCycle.slotSpeeds.some((entry) => {
+    if (typeof entry === 'number') {
+      return Number.isFinite(entry);
+    }
+    return Number.isFinite(entry?.slot) && Number.isFinite(entry?.speed);
+  })
+);
+
+const gobletPayloadLengthMatches = (payload, expectedElements, bytesPerElement) => (
+  payload.length === expectedElements
+  || (bytesPerElement > 1 && payload.byteLength === expectedElements * bytesPerElement)
+);
+
+const createGobletResolvedPayloadCache = () => ({
+  buffers: new Map(),
+  masks: new Map(),
+});
+
+const resolveGobletPayloadWithCache = async (cache, group, name, payload) => {
+  const cacheGroup = cache?.[group];
+  if (!cacheGroup) {
+    return await resolveNumericBuffer(payload);
+  }
+  if (cacheGroup.has(name)) {
+    return cacheGroup.get(name);
+  }
+  const resolved = await resolveNumericBuffer(payload);
+  cacheGroup.set(name, resolved);
+  return resolved;
+};
+
+const getGobletCachedPayload = (cache, group, name) => {
+  const cacheGroup = cache?.[group];
+  if (!cacheGroup || !cacheGroup.has(name)) {
+    return undefined;
+  }
+  return cacheGroup.get(name);
+};
+
+const resolveGobletBrushBufferPayload = async (cache, name, payload) => (
+  await resolveGobletPayloadWithCache(cache, 'buffers', name, payload)
+);
+
+const resolveGobletBrushMaskPayload = async (cache, name, payload) => (
+  await resolveGobletPayloadWithCache(cache, 'masks', name, payload)
+);
+
+const collectGobletBrushPayloadContractErrors = async (colorCycle, brushState, resolvedPayloads = null) => {
+  if (!brushState) {
+    return ['missing-brush-state'];
+  }
+
+  const errors = [];
+  if (colorCycle?.mode !== GOBLET_COLOR_CYCLE_BRUSH_MODE) {
+    errors.push(`mode-${colorCycle?.mode ?? 'missing'}-expected-${GOBLET_COLOR_CYCLE_BRUSH_MODE}`);
+  }
+
+  const width = Math.max(1, Math.round(Number.isFinite(brushState.width) ? brushState.width : 1));
+  const height = Math.max(1, Math.round(Number.isFinite(brushState.height) ? brushState.height : 1));
+  const expectedElements = width * height;
+  const canOmitSpeedBuffer = hasGobletSlotSpeedPayload(colorCycle);
+  for (const bufferContract of GOBLET_BRUSH_REQUIRED_BUFFERS) {
+    const { name, bytesPerElement, optionalWhen } = bufferContract;
+    if (optionalWhen === 'slot-speed' && canOmitSpeedBuffer) {
       continue;
     }
-    const current = alphaBuffer[alphaIndex] || 0;
-    const next = Math.max(0, Math.round((current * (255 - erase)) / 255));
-    alphaBuffer[alphaIndex] = next;
-  }
-};
-
-const applySoftEdgeMaskToAlphaChannel = (alphaBuffer, maskBuffer) => {
-  if (!alphaBuffer || !maskBuffer) {
-    return;
-  }
-  const pixelCount = Math.min(maskBuffer.length, Math.floor(alphaBuffer.length / 4));
-  for (let i = 0, alphaIndex = 3; i < pixelCount; i += 1, alphaIndex += 4) {
-    const keep = maskBuffer[i];
-    const current = alphaBuffer[alphaIndex] || 0;
-    alphaBuffer[alphaIndex] = Math.max(0, Math.round((current * keep) / 255));
-  }
-};
-
-const hasAnyMaskValue = (maskBuffer) => {
-  if (!maskBuffer) {
-    return false;
-  }
-  for (let i = 0; i < maskBuffer.length; i += 1) {
-    if (maskBuffer[i] > 0) {
-      return true;
+    const payload = getGobletBrushBufferPayload(brushState, name);
+    if (!hasNumericPayload(payload)) {
+      errors.push(`missing-${name}`);
+      continue;
+    }
+    const resolved = await resolveGobletBrushBufferPayload(resolvedPayloads, name, payload);
+    if (!resolved || !resolved.length) {
+      errors.push(`missing-${name}`);
+    } else if (!gobletPayloadLengthMatches(resolved, expectedElements, bytesPerElement)) {
+      errors.push(`length-${name}-${resolved.length}-expected-${expectedElements}`);
     }
   }
-  return false;
-};
-
-const hasVisibleAlpha = (alphaBuffer) => {
-  if (!alphaBuffer || alphaBuffer.length < 4) {
-    return false;
-  }
-  for (let i = 3; i < alphaBuffer.length; i += 4) {
-    if (alphaBuffer[i]) {
-      return true;
+  for (const scalarContract of GOBLET_BRUSH_REQUIRED_SCALARS) {
+    const { name, optionalWhen } = scalarContract;
+    if (optionalWhen === 'slot-speed' && canOmitSpeedBuffer) {
+      continue;
+    }
+    if (!Number.isFinite(Number(colorCycle?.[name]))) {
+      errors.push(`missing-${name}`);
     }
   }
-  return false;
+  for (const maskField of GOBLET_BRUSH_MASK_FIELDS) {
+    const maskConfig = getGobletBrushMaskPayload(colorCycle, maskField);
+    if (!maskConfig) {
+      continue;
+    }
+    const maskWidth = Number.isFinite(maskConfig.width) ? Math.max(1, Math.round(maskConfig.width)) : 0;
+    const maskHeight = Number.isFinite(maskConfig.height) ? Math.max(1, Math.round(maskConfig.height)) : 0;
+    if (maskWidth !== width || maskHeight !== height) {
+      errors.push(`size-${maskField}-${maskWidth}x${maskHeight}-expected-${width}x${height}`);
+      continue;
+    }
+    if (!hasNumericPayload(maskConfig.data)) {
+      errors.push(`missing-${maskField}`);
+      continue;
+    }
+    const resolved = await resolveGobletBrushMaskPayload(resolvedPayloads, maskField, maskConfig.data);
+    if (!resolved || !resolved.length) {
+      errors.push(`missing-${maskField}`);
+    } else if (resolved.length !== expectedElements) {
+      errors.push(`length-${maskField}-${resolved.length}-expected-${expectedElements}`);
+    }
+  }
+  return errors;
 };
+
+const assertGobletBrushPayloadContract = async (colorCycle, brushState) => {
+  const resolvedPayloads = createGobletResolvedPayloadCache();
+  const errors = await collectGobletBrushPayloadContractErrors(colorCycle, brushState, resolvedPayloads);
+  if (errors.length > 0) {
+    throw new Error(`Goblet2 brush payload failed contract validation: ${errors.join(', ')}`);
+  }
+  return resolvedPayloads;
+};
+
+const collectGobletMetadataContractErrors = (metadata) => {
+  const format = metadata?.format;
+  const schemaVersion = Number(metadata?.colorCycle?.schemaVersion);
+  const hasSchema = Number.isFinite(schemaVersion);
+  const isGoblet2Format = format === GOBLET2_FORMAT;
+  const errors = [];
+
+  if (hasSchema && schemaVersion > GOBLET2_SCHEMA_VERSION) {
+    errors.push(`unsupported-colorCycle-schemaVersion-${schemaVersion}-expected-${GOBLET2_SCHEMA_VERSION}`);
+  }
+
+  if (hasSchema && schemaVersion >= GOBLET2_SCHEMA_VERSION && !isGoblet2Format) {
+    errors.push(`format-${format ?? 'missing'}-expected-${GOBLET2_FORMAT}`);
+  }
+
+  if (isGoblet2Format) {
+    if (!hasSchema) {
+      errors.push('missing-colorCycle-schemaVersion');
+    } else if (schemaVersion < GOBLET2_LEGACY_SCHEMA_VERSION) {
+      errors.push(`unsupported-colorCycle-schemaVersion-${schemaVersion}-expected-${GOBLET2_LEGACY_SCHEMA_VERSION}-or-${GOBLET2_SCHEMA_VERSION}`);
+    }
+  }
+
+  return errors;
+};
+
+const assertGobletMetadataContract = (metadata) => {
+  const errors = collectGobletMetadataContractErrors(metadata);
+  if (errors.length > 0) {
+    throw new Error(`Goblet2 metadata failed contract validation: ${errors.join(', ')}`);
+  }
+};
+
+const isGobletPayloadContractError = (error) => (
+  error instanceof Error
+  && (
+    error.message.includes('Goblet2 brush payload failed contract validation')
+    || error.message.includes('Goblet2 metadata failed contract validation')
+  )
+);
 
 // ------------------------------------------------------------
 // Gradient + color-cycle helpers
 // ------------------------------------------------------------
-const parseColor = (input) => {
-  if (typeof input !== 'string') {
-    return { r: 255, g: 255, b: 255, a: 255 };
-  }
-  const value = input.trim();
-  if (!value) {
-    return { r: 255, g: 255, b: 255, a: 255 };
-  }
-  if (value.toLowerCase() === 'transparent') {
-    return { r: 0, g: 0, b: 0, a: 0 };
-  }
-  if (value.startsWith('#')) {
-    const hex = value.slice(1);
-    if (hex.length === 3 || hex.length === 4) {
-      const r = parseInt(hex[0] + hex[0], 16);
-      const g = parseInt(hex[1] + hex[1], 16);
-      const b = parseInt(hex[2] + hex[2], 16);
-      const a = hex.length === 4 ? parseInt(hex[3] + hex[3], 16) : 255;
-      return { r, g, b, a };
-    }
-    if (hex.length === 6 || hex.length === 8) {
-      const r = parseInt(hex.slice(0, 2), 16);
-      const g = parseInt(hex.slice(2, 4), 16);
-      const b = parseInt(hex.slice(4, 6), 16);
-      const a = hex.length === 8 ? parseInt(hex.slice(6, 8), 16) : 255;
-      return { r, g, b, a };
-    }
-  }
-  const rgbaMatch = value.match(/^rgba?\(([^)]+)\)$/i);
-  if (rgbaMatch) {
-    const parts = rgbaMatch[1].split(',').map((part) => part.trim());
-    if (parts.length >= 3) {
-      const r = clamp255(parseFloat(parts[0]));
-      const g = clamp255(parseFloat(parts[1]));
-      const b = clamp255(parseFloat(parts[2]));
-      let a = 255;
-      if (parts.length >= 4) {
-        const raw = parts[3].endsWith('%') ? parseFloat(parts[3]) / 100 : parseFloat(parts[3]);
-        if (Number.isFinite(raw)) {
-          a = raw <= 1 ? clamp255(raw * 255) : clamp255(raw);
-        }
-      }
-      return { r, g, b, a };
-    }
-  }
-  return { r: 255, g: 255, b: 255, a: 255 };
-};
-
-const DEFAULT_GRADIENT = [
-  { position: 0, rgba: parseColor('#000000') },
-  { position: 1, rgba: parseColor('#ffffff') }
-];
-
-const normalizeGradientStops = (stops) => {
-  if (!Array.isArray(stops) || stops.length === 0) {
-    return DEFAULT_GRADIENT.map((entry) => ({ position: entry.position, rgba: { ...entry.rgba } }));
-  }
-  const normalized = stops
-    .map((stop) => ({
-      position: clamp01(typeof stop?.position === 'number' ? stop.position : parseFloat(stop?.position ?? 0)),
-      rgba: parseColor(stop?.color ?? '#ffffff')
-    }))
-    .sort((a, b) => a.position - b.position);
-  if (normalized.length === 0) {
-    return DEFAULT_GRADIENT.map((entry) => ({ position: entry.position, rgba: { ...entry.rgba } }));
-  }
-  if (normalized[0].position > 0) {
-    normalized.unshift({ position: 0, rgba: normalized[0].rgba });
-  }
-  const last = normalized[normalized.length - 1];
-  if (last.position < 1) {
-    normalized.push({ position: 1, rgba: last.rgba });
-  }
-  if (normalized.length === 1) {
-    normalized.push({ position: 1, rgba: normalized[0].rgba });
-  }
-  return normalized;
-};
-
-const normalizeSlotPalettes = (slotPalettes, fallbackGradient) => {
-  if (!Array.isArray(slotPalettes) || slotPalettes.length === 0) {
-    return null;
-  }
-  const map = new Map();
-  slotPalettes.forEach((entry) => {
-    if (!entry || typeof entry !== 'object') {
-      return;
-    }
-    const slot = Number(entry.slot);
-    if (!Number.isFinite(slot)) {
-      return;
-    }
-    const stops = Array.isArray(entry.stops) ? entry.stops : [];
-    const normalizedStops = normalizeGradientStops(stops);
-    map.set(Math.max(0, Math.min(255, Math.round(slot))), normalizedStops);
-  });
-  if (map.size === 0) {
-    return null;
-  }
-  if (!map.has(0) && Array.isArray(fallbackGradient) && fallbackGradient.length > 0) {
-    map.set(0, normalizeGradientStops(fallbackGradient));
-  }
-  return map;
-};
+const parseColor = parseGobletColor;
+const normalizeGradientStops = normalizeGobletGradientStops;
+const normalizeSlotPalettes = normalizeGobletSlotPalettes;
 
 const normalizeSlotSpeeds = (slotSpeeds) => {
   if (!Array.isArray(slotSpeeds) || slotSpeeds.length === 0) {
@@ -2236,7 +2280,7 @@ const normalizeSlotSpeeds = (slotSpeeds) => {
       if (!Number.isFinite(speed)) {
         return;
       }
-      map.set(Math.max(0, Math.min(255, Math.round(slot))), speed);
+      map.set(clampGobletSlotId(slot), speed);
     });
     return map.size > 0 ? map : null;
   }
@@ -2249,35 +2293,12 @@ const normalizeSlotSpeeds = (slotSpeeds) => {
     if (!Number.isFinite(slot) || !Number.isFinite(speed)) {
       return;
     }
-    map.set(Math.max(0, Math.min(255, Math.round(slot))), speed);
+    map.set(clampGobletSlotId(slot), speed);
   });
   return map.size > 0 ? map : null;
 };
 
-const sampleGradient = (gradient, position) => {
-  if (!Array.isArray(gradient) || gradient.length === 0) {
-    return { r: 255, g: 255, b: 255, a: 255 };
-  }
-  if (gradient.length === 1) {
-    return { ...gradient[0].rgba };
-  }
-  const pos = clamp01(position);
-  for (let i = 0; i < gradient.length - 1; i += 1) {
-    const left = gradient[i];
-    const right = gradient[i + 1];
-    if (pos >= left.position && pos <= right.position) {
-      const span = right.position - left.position;
-      const t = span > 0 ? (pos - left.position) / span : 0;
-      return {
-        r: clamp255(left.rgba.r + (right.rgba.r - left.rgba.r) * t),
-        g: clamp255(left.rgba.g + (right.rgba.g - left.rgba.g) * t),
-        b: clamp255(left.rgba.b + (right.rgba.b - left.rgba.b) * t),
-        a: clamp255(left.rgba.a + (right.rgba.a - left.rgba.a) * t)
-      };
-    }
-  }
-  return { ...gradient[gradient.length - 1].rgba };
-};
+const sampleGradient = sampleGobletGradient;
 
 const normalizeFlowDirection = (direction, fallback = 'forward') => {
   if (typeof direction !== 'string') {
@@ -2317,7 +2338,7 @@ const fillPixelsFromIndices = (indices, lut, outPixels32, alpha, options = {}) =
       const color = lut[capped] >>> 0;
       const rgb = color & 0x00ffffff;
       const lutA = (color >>> 24) & 0xff;
-      const srcA = alpha[aIdx] || (effective !== 0 ? 255 : 0);
+      const srcA = resolveGobletIndexedAlphaByte(alpha, aIdx, effective);
       const a = (srcA * lutA + 127) / 255 | 0;
       outPixels32[i] = (a << 24) | rgb;
     }
@@ -2360,7 +2381,7 @@ const fillPixelsFromIndicesWithGradientIds = (indices, gradientIds, lutsBySlot, 
       const color = lut[capped] >>> 0;
       const rgb = color & 0x00ffffff;
       const lutA = (color >>> 24) & 0xff;
-      const srcA = alpha[aIdx] || (effective !== 0 ? 255 : 0);
+      const srcA = resolveGobletIndexedAlphaByte(alpha, aIdx, effective);
       const a = (srcA * lutA + 127) / 255 | 0;
       outPixels32[i] = (a << 24) | rgb;
     }
@@ -2385,7 +2406,7 @@ const fillPixelsFromPhaseMap = (phaseMap, lut, outPixels32, alpha) => {
   if (alpha && alpha.length >= length * 4) {
     for (let i = 0, aIdx = 3; i < length; i += 1, aIdx += 4) {
       const rgb = lut[phaseMap[i]] & 0x00ffffff;
-      const a = alpha[aIdx] || 255;
+      const a = resolveGobletAlphaByte(alpha, aIdx, 255);
       outPixels32[i] = (a << 24) | rgb;
     }
   } else {
@@ -2428,21 +2449,16 @@ const buildLuminancePhaseMap = (imageData) => {
 };
 
 const DEFAULT_ANIMATION_SPEED = 0.1;
-const SPEED_BYTE_RANGE = 255;
 const DEFAULT_SPEED_MIN = 0.01;
 const DEFAULT_SPEED_MAX = 2.64;
 const FLOW_SLOT_BITS = 8;
 const FLOW_SLOT_MASK = (1 << FLOW_SLOT_BITS) - 1;
-const FLOW_MODE_FORWARD = 1;
-const FLOW_MODE_REVERSE = 2;
-const FLOW_MODE_PINGPONG = 3;
+const FLOW_MODE_FORWARD = GOBLET_FLOW_MODE_FORWARD;
+const FLOW_MODE_REVERSE = GOBLET_FLOW_MODE_REVERSE;
+const FLOW_MODE_PINGPONG = GOBLET_FLOW_MODE_PINGPONG;
 const MODE_COUNT = 3;
 const SB_COUNT = 256;
 const SLOT_COUNT = FLOW_SLOT_MASK + 1;
-const MODE_TO_IDX = new Int8Array(256);
-MODE_TO_IDX[FLOW_MODE_FORWARD] = 0;
-MODE_TO_IDX[FLOW_MODE_REVERSE] = 1;
-MODE_TO_IDX[FLOW_MODE_PINGPONG] = 2;
 
 const packABGR32 = (c) => (c.a << 24) | (c.b << 16) | (c.g << 8) | c.r;
 
@@ -2486,8 +2502,7 @@ const buildDiscretePalette32FromExplicitPalette = (palette, cycleColors) => {
 const buildPaletteShiftLUT256 = ({ basePalette32, cycleColors, offset01 }) => {
   const lut = new Uint32Array(256);
   const n = Math.max(1, cycleColors | 0);
-  let off = offset01 % 1;
-  if (off < 0) off += 1;
+  const off = wrapGobletPhase01(offset01);
   const shift = (off * n) | 0;
   for (let i = 0; i < 256; i += 1) {
     let p = i - 1;
@@ -2501,29 +2516,6 @@ const buildPaletteShiftLUT256 = ({ basePalette32, cycleColors, offset01 }) => {
   return lut;
 };
 
-const foldPingpongPhase = (phase) => {
-  let wrapped = phase % 1;
-  if (wrapped < 0) wrapped += 1;
-  return wrapped < 0.5 ? wrapped * 2 : (1 - wrapped) * 2;
-};
-
-const resolvePalettePosition = (baseIndex, phase, flowMode, paletteSize) => {
-  const n = Math.max(1, paletteSize | 0);
-  let resolved = phase % 1;
-  if (resolved < 0) resolved += 1;
-  let position;
-  if (flowMode === FLOW_MODE_REVERSE) {
-    position = baseIndex + resolved * n;
-  } else if (flowMode === FLOW_MODE_PINGPONG) {
-    position = baseIndex - foldPingpongPhase(resolved) * n;
-  } else {
-    position = baseIndex - resolved * n;
-  }
-  position %= n;
-  if (position < 0) position += n;
-  return position;
-};
-
 const lerpByte = (a, b, t) => clamp255(a + (b - a) * t);
 
 const samplePalette32Fractional = (basePalette32, baseIndex, phase, flowMode, paletteSize) => {
@@ -2531,7 +2523,7 @@ const samplePalette32Fractional = (basePalette32, baseIndex, phase, flowMode, pa
   if (!basePalette32 || basePalette32.length === 0) {
     return 0;
   }
-  const position = resolvePalettePosition(baseIndex, phase, flowMode, n);
+  const position = resolveGobletPalettePosition(baseIndex, phase, flowMode, n);
   const lower = Math.floor(position);
   const upper = (lower + 1) % n;
   const t = position - lower;
@@ -2557,8 +2549,7 @@ const buildPaletteFractionalShiftLUT256 = ({ basePalette32, cycleColors, offset0
 };
 
 const DEFAULT_PALETTE_SIZE = 256;
-const GOBLET2_SCHEMA_VERSION = 2;
-const MAX_EXPORTED_SLOT_ID = 255;
+const MAX_EXPORTED_SLOT_ID = GOBLET_MAX_SLOT_ID;
 
 const getHighestPaletteSlot = (slotGradients) => {
   let highest = FLOW_SLOT_MASK;
@@ -2568,7 +2559,7 @@ const getHighestPaletteSlot = (slotGradients) => {
   slotGradients.forEach((_stops, slot) => {
     const numeric = Number(slot);
     if (Number.isFinite(numeric)) {
-      highest = Math.max(highest, Math.max(0, Math.min(MAX_EXPORTED_SLOT_ID, Math.round(numeric))));
+      highest = Math.max(highest, clampGobletSlotId(numeric, MAX_EXPORTED_SLOT_ID));
     }
   });
   return highest;
@@ -3027,17 +3018,6 @@ const resolveAnimationSpeed = (rawExportedSpeed, rawFallbackSpeed, shouldAnimate
   return 0;
 };
 
-const decodeColorCycleSpeedByte = (byte, minSpeed, maxSpeed) => {
-  if (!Number.isFinite(byte) || byte <= 0) {
-    return 0;
-  }
-  const minV = Number.isFinite(minSpeed) ? Number(minSpeed) : DEFAULT_SPEED_MIN;
-  const maxV = Number.isFinite(maxSpeed) ? Number(maxSpeed) : DEFAULT_SPEED_MAX;
-  const normalized = Math.max(0, Math.min(SPEED_BYTE_RANGE - 1, Math.round(byte) - 1));
-  const t = normalized / (SPEED_BYTE_RANGE - 1);
-  return minV + t * (maxV - minV);
-};
-
 const collectDistinctSpeedBytes = (speedBuffer) => {
   const set = new Set();
   set.add(0);
@@ -3074,7 +3054,7 @@ const collectDistinctSlots = (gradientIdBuffer) => {
   return set;
 };
 
-const normalizeSlotId = (value) => Math.max(0, Math.min(MAX_EXPORTED_SLOT_ID, value | 0));
+const normalizeSlotId = (value) => clampGobletSlotId(value, MAX_EXPORTED_SLOT_ID);
 
 const collectPaletteSlots = (slotPalettes) => {
   if (!Array.isArray(slotPalettes) || slotPalettes.length === 0) {
@@ -3189,18 +3169,6 @@ const hasAnyNonZeroByte = (buffer) => {
   return false;
 };
 
-const hasNonForwardFlow = (flowBuffer) => {
-  if (!flowBuffer || !flowBuffer.length) {
-    return false;
-  }
-  for (let i = 0; i < flowBuffer.length; i += 1) {
-    if ((flowBuffer[i] | 0) !== FLOW_MODE_FORWARD) {
-      return true;
-    }
-  }
-  return false;
-};
-
 const downsampleBuffer = (source, srcW, srcH, dstW, dstH) => {
   if (!source) {
     return source;
@@ -3215,29 +3183,6 @@ const downsampleBuffer = (source, srcW, srcH, dstW, dstH) => {
     for (let x = 0; x < dstW; x += 1) {
       const srcX = Math.min(srcW - 1, Math.floor(x * scaleX));
       out[outRow + x] = source[srcRow + srcX] ?? 0;
-    }
-  }
-  return out;
-};
-
-const resolveFlowMode = (flowBits) => {
-  if (flowBits === FLOW_MODE_REVERSE) return FLOW_MODE_REVERSE;
-  if (flowBits === FLOW_MODE_PINGPONG) return FLOW_MODE_PINGPONG;
-  return FLOW_MODE_FORWARD;
-};
-
-const normalizeFlowBuffer = (flowBuffer, gradientIdBuffer, expectedLength) => {
-  const out = new Uint8Array(expectedLength);
-  out.fill(FLOW_MODE_FORWARD);
-  if (flowBuffer && flowBuffer.length > 0) {
-    for (let i = 0; i < expectedLength; i += 1) {
-      out[i] = resolveFlowMode(flowBuffer[i] ?? FLOW_MODE_FORWARD);
-    }
-    return out;
-  }
-  if (gradientIdBuffer && gradientIdBuffer.length > 0) {
-    for (let i = 0; i < expectedLength; i += 1) {
-      out[i] = resolveFlowMode((gradientIdBuffer[i] ?? 0) >> FLOW_SLOT_BITS);
     }
   }
   return out;
@@ -3272,10 +3217,6 @@ const clearTouchedTables = (player) => {
   player._touchedSpeedListLen = 0;
 };
 
-const modeIdxFromFlowModeConst = (modeConst) => (
-  modeConst === FLOW_MODE_REVERSE ? 1 : (modeConst === FLOW_MODE_PINGPONG ? 2 : 0)
-);
-
 const populateTablesFromMaps = (player, lutsBySpeedModeSlot, fallbackLutsBySpeedMode) => {
   const slotLuts = player._slotLuts;
   const fallback = player._fallbackLuts;
@@ -3283,7 +3224,7 @@ const populateTablesFromMaps = (player, lutsBySpeedModeSlot, fallbackLutsBySpeed
   for (const [sb, modeMap] of fallbackLutsBySpeedMode.entries()) {
     markTouchedSpeed(player, sb);
     for (const [modeConst, lut] of modeMap.entries()) {
-      const mi = modeIdxFromFlowModeConst(modeConst);
+      const mi = getGobletFlowModeIndex(modeConst);
       fallback[sb][mi] = lut;
     }
   }
@@ -3291,7 +3232,7 @@ const populateTablesFromMaps = (player, lutsBySpeedModeSlot, fallbackLutsBySpeed
   for (const [sb, modeMap] of lutsBySpeedModeSlot.entries()) {
     markTouchedSpeed(player, sb);
     for (const [modeConst, slotMap] of modeMap.entries()) {
-      const mi = modeIdxFromFlowModeConst(modeConst);
+      const mi = getGobletFlowModeIndex(modeConst);
       const arr = slotLuts[sb][mi];
       for (const [slot, lut] of slotMap.entries()) {
         arr[slot & FLOW_SLOT_MASK] = lut;
@@ -3324,7 +3265,7 @@ const fillPixelsFromIndicesWithSpeedAndFlow = (
     const speedByte = speedBytes ? (speedBytes[i] ?? 0) : 0;
     const gid = gradientIds ? (gradientIds[i] ?? 0) : 0;
     const flowBits = gradientIds ? (gid >> FLOW_SLOT_BITS) : FLOW_MODE_FORWARD;
-    const mode = resolveFlowMode(flowBits);
+    const mode = resolveGobletFlowMode(flowBits);
     const modeMap = lutsBySpeedAndMode.get(speedByte) ?? lutsBySpeedAndMode.get(0);
     const lut = modeMap?.get(mode) ?? modeMap?.get(FLOW_MODE_FORWARD);
     if (!lut) {
@@ -3336,7 +3277,7 @@ const fillPixelsFromIndicesWithSpeedAndFlow = (
       const color = lut[capped] >>> 0;
       const rgb = color & 0x00ffffff;
       const lutA = (color >>> 24) & 0xff;
-      const srcA = alpha[aIdx] || (effective !== 0 ? 255 : 0);
+      const srcA = resolveGobletIndexedAlphaByte(alpha, aIdx, effective);
       const a = (srcA * lutA + 127) / 255 | 0;
       outPixels32[i] = (a << 24) | rgb;
     } else {
@@ -3381,7 +3322,7 @@ const fillPixelsFromIndicesWithGradientIdsAndSpeedAndFlow = (
     const gid = hasGid ? gradientIds[i] : 0;
     const slot = gid & slotMask;
     const flowBits = hasGid ? (gid >> slotBits) : FLOW_MODE_FORWARD;
-    const mi = flowBits === FLOW_MODE_REVERSE ? 1 : (flowBits === FLOW_MODE_PINGPONG ? 2 : 0);
+    const mi = getGobletFlowModeIndex(flowBits);
 
     let lut =
       (slotLuts[sb] && slotLuts[sb][mi] && slotLuts[sb][mi][slot]) ||
@@ -3401,7 +3342,7 @@ const fillPixelsFromIndicesWithGradientIdsAndSpeedAndFlow = (
       const color = lut[lutIndex] >>> 0;
       const rgb = color & 0x00ffffff;
       const lutA = (color >>> 24) & 0xff;
-      const srcA = alpha[aIdx] || (effective !== 0 ? 255 : 0);
+      const srcA = resolveGobletIndexedAlphaByte(alpha, aIdx, effective);
       const a = (srcA * lutA + 127) / 255 | 0;
       outPixels32[i] = (a << 24) | rgb;
     } else {
@@ -3440,25 +3381,21 @@ const fillPixelsFromIndicesWithFractionalSpeedFlowPhase = (
       outPixels32[i] = 0;
       continue;
     }
-    let effective = subtractOne && rawIndex > 0 ? rawIndex - 1 : rawIndex;
-    if (effective < 0) effective = 0;
-    else if (effective >= paletteSize) effective = paletteSize - 1;
+    const effective = resolveGobletPaletteIndex(rawIndex, paletteSize, subtractOne);
 
     const gid = gradientIds ? (gradientIds[i] ?? 0) : 0;
-    const slot = gid & FLOW_SLOT_MASK;
+    const slot = resolveGobletGradientSlot(gid, FLOW_SLOT_MASK);
     const encodedFlow = flowBytes ? (flowBytes[i] ?? FLOW_MODE_FORWARD) : (gid >> FLOW_SLOT_BITS);
-    const flowMode = resolveFlowMode(encodedFlow);
+    const flowMode = resolveGobletFlowMode(encodedFlow);
     const speedByte = speedBytes ? (speedBytes[i] ?? 0) : 0;
     const speed = speedByte > 0
-      ? decodeColorCycleSpeedByte(speedByte, speedMin, speedMax)
+      ? decodeColorCycleSpeedByte(speedByte, speedMin, speedMax, DEFAULT_SPEED_MIN, DEFAULT_SPEED_MAX)
       : defaultSpeed;
     const basePhase = speedByte > 0
       ? timeSeconds * speed
       : legacyOffset01;
     const phaseByte = phaseBytes ? (phaseBytes[i] ?? 0) : 0;
-    let phase = basePhase + phaseByte / 256;
-    phase %= 1;
-    if (phase < 0) phase += 1;
+    const phase = resolveGobletPhase01(basePhase, phaseByte);
 
     const palette = basePalette32BySlot.get(slot) ?? fallbackPalette32;
     if (!palette) {
@@ -3469,7 +3406,7 @@ const fillPixelsFromIndicesWithFractionalSpeedFlowPhase = (
     if (useAlpha) {
       const rgb = color & 0x00ffffff;
       const lutA = (color >>> 24) & 0xff;
-      const srcA = alpha[aIdx] || (effective !== 0 ? 255 : 0);
+      const srcA = resolveGobletIndexedAlphaByte(alpha, aIdx, effective);
       const a = (srcA * lutA + 127) / 255 | 0;
       outPixels32[i] = (a << 24) | rgb;
     } else {
@@ -3506,14 +3443,12 @@ const fillPixelsFromIndicesWithFractionalSlotSpeeds = (
       outPixels32[i] = 0;
       continue;
     }
-    let effective = subtractOne && rawIndex > 0 ? rawIndex - 1 : rawIndex;
-    if (effective < 0) effective = 0;
-    else if (effective >= paletteSize) effective = paletteSize - 1;
+    const effective = resolveGobletPaletteIndex(rawIndex, paletteSize, subtractOne);
 
     const gid = gradientIds ? (gradientIds[i] ?? 0) : 0;
-    const slot = gid & FLOW_SLOT_MASK;
+    const slot = resolveGobletGradientSlot(gid, FLOW_SLOT_MASK);
     const encodedFlow = flowBytes ? (flowBytes[i] ?? FLOW_MODE_FORWARD) : (gid >> FLOW_SLOT_BITS);
-    const flowMode = resolveFlowMode(encodedFlow);
+    const flowMode = resolveGobletFlowMode(encodedFlow);
     const slotSpeed = Number.isFinite(slotSpeedMap?.get(slot))
       ? slotSpeedMap.get(slot)
       : (Number.isFinite(slotSpeedMap?.get(0)) ? slotSpeedMap.get(0) : defaultSpeed);
@@ -3521,9 +3456,7 @@ const fillPixelsFromIndicesWithFractionalSlotSpeeds = (
       ? timeSeconds * slotSpeed
       : legacyOffset01;
     const phaseByte = phaseBytes ? (phaseBytes[i] ?? 0) : 0;
-    let phase = basePhase + phaseByte / 256;
-    phase %= 1;
-    if (phase < 0) phase += 1;
+    const phase = resolveGobletPhase01(basePhase, phaseByte);
 
     const palette = basePalette32BySlot.get(slot) ?? fallbackPalette32;
     if (!palette) {
@@ -3534,7 +3467,7 @@ const fillPixelsFromIndicesWithFractionalSlotSpeeds = (
     if (useAlpha) {
       const rgb = color & 0x00ffffff;
       const lutA = (color >>> 24) & 0xff;
-      const srcA = alpha[aIdx] || (effective !== 0 ? 255 : 0);
+      const srcA = resolveGobletIndexedAlphaByte(alpha, aIdx, effective);
       const a = (srcA * lutA + 127) / 255 | 0;
       outPixels32[i] = (a << 24) | rgb;
     } else {
@@ -3548,7 +3481,7 @@ class ColorCycleLayerPlayer {
     this.layer = layer;
     this.image = textureImage;
     this.options = options;
-    this.isGoblet2 = options?.schemaVersion >= GOBLET2_SCHEMA_VERSION || options?.format === 'vessel-goblet2';
+    this.isGoblet2 = options?.schemaVersion >= GOBLET2_SCHEMA_VERSION;
     const halfResPref = typeof window !== 'undefined'
       && window.localStorage
       && window.localStorage.getItem('vesselGobletHalfRes');
@@ -3572,7 +3505,7 @@ class ColorCycleLayerPlayer {
     this.slotSpeeds = null;
     this.indexPhaseMap = null;
     this.phaseMap = null;
-    this.gradient = DEFAULT_GRADIENT;
+    this.gradient = normalizeGradientStops(null);
     this.slotGradients = null;
     this.cycleColors = 16;
     this.mappingMode = 'banded';
@@ -3601,6 +3534,7 @@ class ColorCycleLayerPlayer {
     this._touchedSpeedList = new Uint8Array(SB_COUNT);
     this._touchedSpeedListLen = 0;
     this._basePalette32BySlot = new Map();
+    this._fallbackPalette32 = null;
     this._basePaletteSize = 0;
     this.usePerPixelSpeed = false;
     this.hasNonZeroSpeedBuffer = false;
@@ -3683,8 +3617,9 @@ class ColorCycleLayerPlayer {
       }
     };
 
+    let resolvedPayloads = null;
     if (hasBrush) {
-      await this.initializeBrushMode(colorCycle, brushState);
+      resolvedPayloads = await this.initializeBrushMode(colorCycle, brushState);
     } else if (hasRecolor) {
       await this.initializeRecolorMode(colorCycle, recolorSettings);
     } else {
@@ -3723,19 +3658,21 @@ class ColorCycleLayerPlayer {
     }
 
     if (colorCycle.alphaMask) {
+      const resolvedAlphaMask = getGobletCachedPayload(resolvedPayloads, 'masks', 'alphaMask');
       if (this.useWebGL && this.webglRenderer) {
-        await this.applyWebGLAlphaMask(colorCycle.alphaMask);
+        await this.applyWebGLAlphaMask(colorCycle.alphaMask, resolvedAlphaMask);
       } else {
-        await this.applyAlphaMask(colorCycle.alphaMask);
+        await this.applyAlphaMask(colorCycle.alphaMask, resolvedAlphaMask);
         probeAlphaMask();
       }
     }
 
     if (colorCycle.softEdgeMask) {
+      const resolvedSoftEdgeMask = getGobletCachedPayload(resolvedPayloads, 'masks', 'softEdgeMask');
       if (this.useWebGL && this.webglRenderer) {
-        await this.applyWebGLSoftEdgeMask(colorCycle.softEdgeMask);
+        await this.applyWebGLSoftEdgeMask(colorCycle.softEdgeMask, resolvedSoftEdgeMask);
       } else {
-        await this.applySoftEdgeMask(colorCycle.softEdgeMask);
+        await this.applySoftEdgeMask(colorCycle.softEdgeMask, resolvedSoftEdgeMask);
         probeAlphaMask();
       }
     }
@@ -3748,13 +3685,15 @@ class ColorCycleLayerPlayer {
     this.renderFrame();
   }
 
-  async applyAlphaMask(maskConfig) {
+  async applyAlphaMask(maskConfig, resolvedPayload = undefined) {
     if (!maskConfig || !maskConfig.data) {
       return;
     }
     const width = Number.isFinite(maskConfig.width) ? Math.max(1, Math.round(maskConfig.width)) : this.width;
     const height = Number.isFinite(maskConfig.height) ? Math.max(1, Math.round(maskConfig.height)) : this.height;
-    const payload = await resolveNumericBuffer(maskConfig.data);
+    const payload = resolvedPayload !== undefined
+      ? resolvedPayload
+      : await resolveNumericBuffer(maskConfig.data);
     if (!payload || !payload.length) {
       return;
     }
@@ -3788,13 +3727,15 @@ class ColorCycleLayerPlayer {
     applyMaskToAlphaChannel(this.alpha, resized);
   }
 
-  async applySoftEdgeMask(maskConfig) {
+  async applySoftEdgeMask(maskConfig, resolvedPayload = undefined) {
     if (!maskConfig || !maskConfig.data) {
       return;
     }
     const width = Number.isFinite(maskConfig.width) ? Math.max(1, Math.round(maskConfig.width)) : this.width;
     const height = Number.isFinite(maskConfig.height) ? Math.max(1, Math.round(maskConfig.height)) : this.height;
-    const payload = await resolveNumericBuffer(maskConfig.data);
+    const payload = resolvedPayload !== undefined
+      ? resolvedPayload
+      : await resolveNumericBuffer(maskConfig.data);
     if (!payload || !payload.length) {
       return;
     }
@@ -3835,13 +3776,15 @@ class ColorCycleLayerPlayer {
     applySoftEdgeMaskToAlphaChannel(this.alpha, resized);
   }
 
-  async applyWebGLAlphaMask(maskConfig) {
+  async applyWebGLAlphaMask(maskConfig, resolvedPayload = undefined) {
     if (!maskConfig || !maskConfig.data || !this.webglRenderer) {
       return;
     }
     const width = Number.isFinite(maskConfig.width) ? Math.max(1, Math.round(maskConfig.width)) : this.width;
     const height = Number.isFinite(maskConfig.height) ? Math.max(1, Math.round(maskConfig.height)) : this.height;
-    const payload = await resolveNumericBuffer(maskConfig.data);
+    const payload = resolvedPayload !== undefined
+      ? resolvedPayload
+      : await resolveNumericBuffer(maskConfig.data);
     if (!payload || !payload.length) {
       return;
     }
@@ -3859,13 +3802,15 @@ class ColorCycleLayerPlayer {
     this.webglRenderer.setMaskTexture(resized, this.width, this.height);
   }
 
-  async applyWebGLSoftEdgeMask(maskConfig) {
+  async applyWebGLSoftEdgeMask(maskConfig, resolvedPayload = undefined) {
     if (!maskConfig || !maskConfig.data || !this.webglRenderer) {
       return;
     }
     const width = Number.isFinite(maskConfig.width) ? Math.max(1, Math.round(maskConfig.width)) : this.width;
     const height = Number.isFinite(maskConfig.height) ? Math.max(1, Math.round(maskConfig.height)) : this.height;
-    const payload = await resolveNumericBuffer(maskConfig.data);
+    const payload = resolvedPayload !== undefined
+      ? resolvedPayload
+      : await resolveNumericBuffer(maskConfig.data);
     if (!payload || !payload.length) {
       return;
     }
@@ -3889,7 +3834,7 @@ class ColorCycleLayerPlayer {
     this.webglRenderer.setSoftMaskTexture(resized, this.width, this.height);
   }
 
-  async initializeBrushModeWebGL(colorCycle, brushState) {
+  async initializeBrushModeWebGL(colorCycle, brushState, resolvedPayloads = null) {
     if (!this.isGoblet2) {
       return false;
     }
@@ -3906,22 +3851,26 @@ class ColorCycleLayerPlayer {
     const sourceWidth = Math.max(1, Math.round(Number.isFinite(brushState.width) ? brushState.width : this.width));
     const sourceHeight = Math.max(1, Math.round(Number.isFinite(brushState.height) ? brushState.height : this.height));
 
-    const rawIndexBuffer = await resolveNumericBuffer(brushState.indexBuffer);
+    const rawIndexBuffer = await resolveGobletBrushBufferPayload(
+      resolvedPayloads,
+      'indexBuffer',
+      brushState.indexBuffer
+    );
     if (!rawIndexBuffer || rawIndexBuffer.length === 0) {
       return false;
     }
 
     const rawGradientIds = brushState.gradientIdBuffer
-      ? await resolveNumericBuffer(brushState.gradientIdBuffer)
+      ? await resolveGobletBrushBufferPayload(resolvedPayloads, 'gradientIdBuffer', brushState.gradientIdBuffer)
       : null;
     const rawSpeedBuffer = brushState.speedBuffer
-      ? await resolveNumericBuffer(brushState.speedBuffer)
+      ? await resolveGobletBrushBufferPayload(resolvedPayloads, 'speedBuffer', brushState.speedBuffer)
       : null;
     const rawFlowBuffer = brushState.flowBuffer
-      ? await resolveNumericBuffer(brushState.flowBuffer)
+      ? await resolveGobletBrushBufferPayload(resolvedPayloads, 'flowBuffer', brushState.flowBuffer)
       : null;
     const rawPhaseBuffer = brushState.phaseBuffer
-      ? await resolveNumericBuffer(brushState.phaseBuffer)
+      ? await resolveGobletBrushBufferPayload(resolvedPayloads, 'phaseBuffer', brushState.phaseBuffer)
       : null;
 
     const expectedLength = sourceWidth * sourceHeight;
@@ -3937,10 +3886,12 @@ class ColorCycleLayerPlayer {
 
     const indexBuffer = clampBuffer(rawIndexBuffer);
     const gradientIdBuffer = clampBuffer(rawGradientIds);
-    const flowBuffer = normalizeFlowBuffer(rawFlowBuffer, rawGradientIds, expectedLength);
+    const flowBuffer = normalizeGobletFlowBuffer(rawFlowBuffer, rawGradientIds, expectedLength, FLOW_SLOT_BITS);
     const phaseBuffer = clampBuffer(rawPhaseBuffer);
     if (gradientIdBuffer) {
-      reconcileGradientIdSlotIndexing(indexBuffer, gradientIdBuffer, colorCycle?.slotPalettes);
+      if (!this.isGoblet2) {
+        reconcileGradientIdSlotIndexing(indexBuffer, gradientIdBuffer, colorCycle?.slotPalettes);
+      }
       for (let i = 0; i < gradientIdBuffer.length; i += 1) {
         gradientIdBuffer[i] = normalizeSlotId(gradientIdBuffer[i]);
       }
@@ -4046,8 +3997,12 @@ class ColorCycleLayerPlayer {
 
   async initializeBrushMode(colorCycle, brushState) {
     this.mode = 'brush';
-    if (await this.initializeBrushModeWebGL(colorCycle, brushState)) {
-      return;
+    let resolvedPayloads = null;
+    if (this.isGoblet2) {
+      resolvedPayloads = await assertGobletBrushPayloadContract(colorCycle, brushState);
+    }
+    if (await this.initializeBrushModeWebGL(colorCycle, brushState, resolvedPayloads)) {
+      return resolvedPayloads;
     }
     const sourceWidth = Math.max(1, Math.round(Number.isFinite(brushState.width) ? brushState.width : this.width));
     const sourceHeight = Math.max(1, Math.round(Number.isFinite(brushState.height) ? brushState.height : this.height));
@@ -4057,7 +4012,11 @@ class ColorCycleLayerPlayer {
       this.createSurface(sourceWidth, sourceHeight);
     }
 
-    const rawIndexBuffer = await resolveNumericBuffer(brushState.indexBuffer);
+    const rawIndexBuffer = await resolveGobletBrushBufferPayload(
+      resolvedPayloads,
+      'indexBuffer',
+      brushState.indexBuffer
+    );
     const indexBuffer = this.renderScale === 1
       ? rawIndexBuffer
       : downsampleBuffer(rawIndexBuffer, sourceWidth, sourceHeight, width, height);
@@ -4067,35 +4026,37 @@ class ColorCycleLayerPlayer {
 
     this.indexBuffer = indexBuffer;
     const gradientIdBuffer = brushState.gradientIdBuffer
-      ? await resolveNumericBuffer(brushState.gradientIdBuffer)
+      ? await resolveGobletBrushBufferPayload(resolvedPayloads, 'gradientIdBuffer', brushState.gradientIdBuffer)
       : null;
     const resizedGradientIds = gradientIdBuffer && this.renderScale !== 1
       ? downsampleBuffer(gradientIdBuffer, sourceWidth, sourceHeight, width, height)
       : gradientIdBuffer;
     this.gradientIdBuffer = resizedGradientIds && resizedGradientIds.length ? resizedGradientIds : null;
     const speedBuffer = brushState.speedBuffer
-      ? await resolveNumericBuffer(brushState.speedBuffer)
+      ? await resolveGobletBrushBufferPayload(resolvedPayloads, 'speedBuffer', brushState.speedBuffer)
       : null;
     const resizedSpeedBuffer = speedBuffer && this.renderScale !== 1
       ? downsampleBuffer(speedBuffer, sourceWidth, sourceHeight, width, height)
       : speedBuffer;
     this.speedBuffer = resizedSpeedBuffer && resizedSpeedBuffer.length ? resizedSpeedBuffer : null;
     const flowBuffer = brushState.flowBuffer
-      ? await resolveNumericBuffer(brushState.flowBuffer)
+      ? await resolveGobletBrushBufferPayload(resolvedPayloads, 'flowBuffer', brushState.flowBuffer)
       : null;
     const resizedFlowBuffer = flowBuffer && this.renderScale !== 1
       ? downsampleBuffer(flowBuffer, sourceWidth, sourceHeight, width, height)
       : flowBuffer;
-    this.flowBuffer = normalizeFlowBuffer(resizedFlowBuffer, resizedGradientIds, width * height);
+    this.flowBuffer = normalizeGobletFlowBuffer(resizedFlowBuffer, resizedGradientIds, width * height, FLOW_SLOT_BITS);
     const phaseBuffer = brushState.phaseBuffer
-      ? await resolveNumericBuffer(brushState.phaseBuffer)
+      ? await resolveGobletBrushBufferPayload(resolvedPayloads, 'phaseBuffer', brushState.phaseBuffer)
       : null;
     const resizedPhaseBuffer = phaseBuffer && this.renderScale !== 1
       ? downsampleBuffer(phaseBuffer, sourceWidth, sourceHeight, width, height)
       : phaseBuffer;
     this.phaseBuffer = resizedPhaseBuffer && resizedPhaseBuffer.length ? resizedPhaseBuffer : null;
     if (this.gradientIdBuffer) {
-      reconcileGradientIdSlotIndexing(this.indexBuffer, this.gradientIdBuffer, colorCycle?.slotPalettes);
+      if (!this.isGoblet2) {
+        reconcileGradientIdSlotIndexing(this.indexBuffer, this.gradientIdBuffer, colorCycle?.slotPalettes);
+      }
       for (let i = 0; i < this.gradientIdBuffer.length; i += 1) {
         this.gradientIdBuffer[i] = normalizeSlotId(this.gradientIdBuffer[i]);
       }
@@ -4203,10 +4164,8 @@ class ColorCycleLayerPlayer {
       brushState.palette,
       this._basePaletteSize
     );
-    this._basePalette32BySlot.set(
-      0,
-      explicitPalette32 ?? buildDiscretePalette32FromGradient(this.gradient, this._basePaletteSize)
-    );
+    this._fallbackPalette32 = explicitPalette32 ?? buildDiscretePalette32FromGradient(this.gradient, this._basePaletteSize);
+    this._basePalette32BySlot.set(0, this._fallbackPalette32);
     if (this.slotGradients && this.slotGradients.size > 0) {
       this.slotGradients.forEach((stops, slot) => {
         this._basePalette32BySlot.set(
@@ -4215,6 +4174,7 @@ class ColorCycleLayerPlayer {
         );
       });
     }
+    return resolvedPayloads;
   }
 
   async initializeRecolorMode(colorCycle, recolorSettings) {
@@ -4297,10 +4257,8 @@ class ColorCycleLayerPlayer {
     this.isAnimating = shouldAnimate;
     this._basePalette32BySlot.clear();
     this._basePaletteSize = this.cycleColors | 0;
-    this._basePalette32BySlot.set(
-      0,
-      buildDiscretePalette32FromGradient(this.gradient, this._basePaletteSize)
-    );
+    this._fallbackPalette32 = buildDiscretePalette32FromGradient(this.gradient, this._basePaletteSize);
+    this._basePalette32BySlot.set(0, this._fallbackPalette32);
   }
 
   hasAnimation() {
@@ -4354,7 +4312,7 @@ class ColorCycleLayerPlayer {
         this.flowBuffer,
         this.phaseBuffer,
         this._basePalette32BySlot,
-        this._basePalette32BySlot.get(0),
+        this._fallbackPalette32 ?? this._basePalette32BySlot.get(0),
         this.pixels32,
         this.alpha,
         {
@@ -4387,7 +4345,7 @@ class ColorCycleLayerPlayer {
     const n = this._basePaletteSize || (this.cycleColors | 0) || 1;
     const canUseSlots = this.gradientIdBuffer && this.slotGradients && this.slotGradients.size > 0;
     if (this.flowMapping === 'palette' || !this.phaseMap) {
-      const needsPerPixelFractional = hasAnyNonZeroByte(this.phaseBuffer) || hasNonForwardFlow(this.flowBuffer);
+      const needsPerPixelFractional = hasAnyNonZeroByte(this.phaseBuffer) || hasGobletNonForwardFlow(this.flowBuffer);
       if (needsPerPixelFractional) {
         const fillStart = now();
         fillPixelsFromIndicesWithFractionalSlotSpeeds(
@@ -4397,7 +4355,7 @@ class ColorCycleLayerPlayer {
           this.flowBuffer,
           this.phaseBuffer,
           this._basePalette32BySlot,
-          this._basePalette32BySlot.get(0),
+          this._fallbackPalette32 ?? this._basePalette32BySlot.get(0),
           this.pixels32,
           this.alpha,
           {
@@ -4415,7 +4373,7 @@ class ColorCycleLayerPlayer {
         fillMs = fillEnd - fillStart;
       } else {
         const baseOffset01 = (((this.baseTimeSeconds * baseSpeed) % 1) + 1) % 1;
-        const basePal = this._basePalette32BySlot.get(0);
+        const basePal = this._fallbackPalette32 ?? this._basePalette32BySlot.get(0);
         const baseLut = buildPaletteFractionalShiftLUT256({
           basePalette32: basePal,
           cycleColors: this.cycleColors,
@@ -4440,7 +4398,7 @@ class ColorCycleLayerPlayer {
             this.indexBuffer,
             this.gradientIdBuffer,
             lutsBySlot,
-            lutsBySlot.get(0) ?? baseLut,
+            baseLut,
             this.pixels32,
             this.alpha,
             {
@@ -4459,7 +4417,7 @@ class ColorCycleLayerPlayer {
       }
     } else {
       const offset01 = (((this.baseTimeSeconds * baseSpeed) % 1) + 1) % 1;
-      const basePal = this._basePalette32BySlot.get(0);
+      const basePal = this._fallbackPalette32 ?? this._basePalette32BySlot.get(0);
       const baseLut = buildPaletteShiftLUT256({
         basePalette32: basePal,
         cycleColors: this.cycleColors,
@@ -4557,6 +4515,7 @@ class ColorCycleLayerPlayer {
     this.alpha = null;
     this.baseImageData = null;
     this.slotGradients = null;
+    this._fallbackPalette32 = null;
     if (this.webglRenderer) {
       this.webglRenderer.destroy();
       this.webglRenderer = null;
@@ -4992,6 +4951,9 @@ class VesselGoblet {
           await player.initialize();
           source = player.getCanvas();
         } catch (error) {
+          if (isGobletPayloadContractError(error)) {
+            throw error;
+          }
           console.error('[goblet2] CC init failed', layerClone.id, error);
           player?.destroy();
           player = null;
@@ -5338,7 +5300,7 @@ class VesselGoblet {
       source,
       placement,
       {
-        isFixed: isFixed && !shouldFilterArtwork,
+        isFixed,
         dpr,
         paintedRect,
         fit: directFixedPlacement ? 'none' : align.fit
@@ -5476,14 +5438,14 @@ class VesselGoblet {
     const filterSurfaceCanvas = shouldFilterArtwork
       ? ensureDisplayFilterCanvas(
           this.displayFilterState.filterSurfaceCanvas,
-          documentSize.width,
-          documentSize.height,
+          clearWidth,
+          clearHeight,
         )
       : null;
     const filterCtx = shouldFilterArtwork ? clearDisplayFilterCanvas(filterSurfaceCanvas) : null;
     this.displayFilterState.filterSurfaceCanvas = filterSurfaceCanvas;
     if (filterCtx) {
-      paintGobletBackground(filterCtx, documentSize.width, documentSize.height, this.metadata);
+      paintGobletBackground(filterCtx, clearWidth, clearHeight, this.metadata);
     }
     const renderCtx = filterCtx ?? ctx;
 
@@ -5498,16 +5460,10 @@ class VesselGoblet {
     }
     this.logLayerAnimationReasons(sorted);
 
-    const viewportSize = shouldFilterArtwork
-      ? { width: documentSize.width, height: documentSize.height }
-      : { width: cssW, height: cssH };
+    const viewportSize = { width: cssW, height: cssH };
     const designSize = {
-      width: shouldFilterArtwork
-        ? documentSize.width
-        : Math.max(1, toNum(this.metadata.viewport?.designWidth, cssW)),
-      height: shouldFilterArtwork
-        ? documentSize.height
-        : Math.max(1, toNum(this.metadata.viewport?.designHeight, cssH))
+      width: Math.max(1, toNum(this.metadata.viewport?.designWidth, cssW)),
+      height: Math.max(1, toNum(this.metadata.viewport?.designHeight, cssH))
     };
     let painted = 0;
     const profile = {
@@ -5525,8 +5481,8 @@ class VesselGoblet {
       isFixed,
       shouldFilterArtwork,
       dpr,
-      renderWidth: shouldFilterArtwork ? documentSize.width : clearWidth,
-      renderHeight: shouldFilterArtwork ? documentSize.height : clearHeight,
+      renderWidth: clearWidth,
+      renderHeight: clearHeight,
     };
     const staticComposite = this.getStaticComposite(renderOptions, profile);
     if (staticComposite) {
@@ -5560,16 +5516,7 @@ class VesselGoblet {
     }
 
     if (filterCtx && filterSurfaceCanvas) {
-      const documentViewportMapping = computeDocumentViewportMapping(
-        this.metadata,
-        clearWidth,
-        clearHeight,
-      );
-      const filterLengthScale = Math.max(
-        Math.abs(documentViewportMapping.scaleX) || 0,
-        Math.abs(documentViewportMapping.scaleY) || 0,
-        1e-4,
-      );
+      const filterLengthScale = isFixed ? Math.max(dpr, 1e-4) : 1;
       const filterStart = profile.enabled ? profile.now() : 0;
       const finalFilteredCanvas = applyDisplayFilterStack({
         sourceCanvas: filterSurfaceCanvas,
@@ -5578,8 +5525,8 @@ class VesselGoblet {
         visibleRect: {
           x: 0,
           y: 0,
-          width: documentSize.width,
-          height: documentSize.height,
+          width: clearWidth,
+          height: clearHeight,
         },
         lengthScale: filterLengthScale,
       });
@@ -5587,17 +5534,7 @@ class VesselGoblet {
         profile.filterMs += profile.now() - filterStart;
       }
       const blitStart = profile.enabled ? profile.now() : 0;
-      ctx.drawImage(
-        finalFilteredCanvas,
-        0,
-        0,
-        documentSize.width,
-        documentSize.height,
-        documentViewportMapping.offsetX,
-        documentViewportMapping.offsetY,
-        documentSize.width * documentViewportMapping.scaleX,
-        documentSize.height * documentViewportMapping.scaleY,
-      );
+      ctx.drawImage(finalFilteredCanvas, 0, 0);
       if (profile.enabled) {
         profile.blitMs += profile.now() - blitStart;
       }

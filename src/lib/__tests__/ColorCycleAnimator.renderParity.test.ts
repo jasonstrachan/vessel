@@ -28,6 +28,27 @@ describe('ColorCycleAnimator render parity', () => {
     expect(readPixel(image, 1, 0, 2)).toEqual([0x11, 0x22, 0x33, 0xff]);
   });
 
+  it('falls back to the base palette for unused gradient slots', () => {
+    const animator = new ColorCycleAnimator({
+      width: 2,
+      height: 1,
+      gradientStops: makeStops('#112233'),
+      forceCanvas2D: true,
+    });
+
+    animator.setGradientSlot(1, makeStops('#ff0000'));
+    animator.setIndexBufferFromArray(
+      new Uint8Array([128, 128]),
+      new Uint8Array([2, 1]),
+      new Uint8Array([0, 0]),
+    );
+    animator.forceRender();
+
+    const image = animator.getImageData().data;
+    expect(readPixel(image, 0, 0, 2)).toEqual([0x11, 0x22, 0x33, 0xff]);
+    expect(readPixel(image, 1, 0, 2)).toEqual([0xff, 0x00, 0x00, 0xff]);
+  });
+
   it('does not assert when restored def ids are missing palette metadata', () => {
     const assertSpy = jest.spyOn(console, 'assert').mockImplementation(() => undefined);
     const animator = new ColorCycleAnimator({

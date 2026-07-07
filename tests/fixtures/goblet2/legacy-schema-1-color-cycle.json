@@ -1,0 +1,29 @@
+{
+  "format": "vessel-goblet2",
+  "colorCycle": {
+    "schemaVersion": 1
+  },
+  "layers": [
+    {
+      "id": "legacy-schema-1-cc-layer",
+      "type": "color-cycle",
+      "colorCycle": {
+        "mode": "brush",
+        "brushState": {
+          "width": 1,
+          "height": 1,
+          "indexBuffer": [1],
+          "gradientIdBuffer": [0],
+          "gradientDefIdBuffer": [1],
+          "speedBuffer": [0],
+          "flowBuffer": [1],
+          "phaseBuffer": [0],
+          "gradientStops": [
+            { "position": 0, "color": "#000000" },
+            { "position": 1, "color": "#ffffff" }
+          ]
+        }
+      }
+    }
+  ]
+}

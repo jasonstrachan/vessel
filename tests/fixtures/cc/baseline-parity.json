@@ -1,6 +1,11 @@
 {
   "id": "baseline-parity",
   "description": "Baseline mixed slot/speed case with transparent pixels.",
+  "coverage": [
+    "speed-decode",
+    "frame-phase-shift",
+    "palette-row-sampling"
+  ],
   "width": 4,
   "height": 2,
   "timeSeconds": 0.37,
