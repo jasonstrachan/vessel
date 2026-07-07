@@ -144,6 +144,12 @@ Inventory:
 | Shape erase / transparency-lock / color-adjust snapshot callers | snapshot apply callers | depends on resulting snapshot | covered by `applyLayerSnapshot()` populated-to-empty detection |
 | Presentation/compositor draw paths | presentation-only | non-destructive | excluded from runtime mutation authority |
 
+Inventory re-audit 2026-07-05:
+
+- `rg -n "this\\.layerStrokes\\.set\\(|layerStrokes\\.set\\(" src/hooks/brushEngine/ColorCycleBrushCanvas2D.ts` returns only the centralized `setLayerStrokeState(...)` helper.
+- `rg -n "recoverCompatibilitySnapshotPaintBuffer|extractBrushStateFromCompatibilitySnapshot|recoveredPaintFromCompatibilitySnapshot" src` returns only the legacy repair helper and `legacyRepair.ts` ownership path.
+- `rg -n "\\.fill\\(0\\)|layerStrokes\\.clear\\(|buffers\\.paint\\.fill|paint\\.fill\\(0\\)" src/hooks/brushEngine src/stores src/utils src/lib src/history -g '!**/__tests__/**'` found no new populated-to-empty live writer bypass. Hits classify as routed `mutateLayerStrokeState(...)` mutations (`clearPaintBuffer`, `startStroke(clearBuffer)`, `restoreFullState` pre-clear), explicit snapshot import/application, lifecycle teardown (`cleanup`/`dispose`), or unrelated scratch-buffer resets.
+
 Exit criteria:
 
 - [x] Every direct runtime buffer mutation path has a reason classification.
