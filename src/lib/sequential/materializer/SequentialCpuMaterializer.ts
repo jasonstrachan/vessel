@@ -14,8 +14,10 @@ import {
   VOID_CLUSTER_8x8,
 } from '@/utils/ditherAlgorithms';
 import {
+  createStampDitherRuntime,
   sampleStampDitherReplayMask,
   type StampDitherAlgorithm,
+  type StampDitherRuntime,
 } from '@/hooks/brushEngine/strokeStampDither';
 import { resolveStrokeDitherPalette } from '@/hooks/brushEngine/engineShared';
 import { parseCssColor } from '@/utils/color/parseCssColor';
@@ -833,12 +835,14 @@ const shouldKeepTexturedPixel = ({
   y,
   alpha,
   ditherConfig,
+  stampDitherReplayRuntime,
 }: {
   mode: SequentialTextureMode;
   x: number;
   y: number;
   alpha: number;
   ditherConfig?: ResolvedDitherTextureConfig | null;
+  stampDitherReplayRuntime?: StampDitherRuntime;
 }): boolean => {
   if (mode === 'solid') {
     return true;
@@ -916,7 +920,11 @@ const shouldKeepTexturedPixel = ({
       config.algorithm === 'sierra-lite' ||
       config.algorithm === 'atkinson'
     ) {
+      if (!stampDitherReplayRuntime) {
+        return false;
+      }
       const sample = sampleStampDitherReplayMask({
+        runtime: stampDitherReplayRuntime,
         x,
         y,
         coverage,
@@ -954,6 +962,7 @@ const paintStamp = ({
   mosaicConfig,
   ditherConfig,
   ditherPalette,
+  stampDitherReplayRuntime,
 }: {
   pixels: Uint8ClampedArray;
   width: number;
@@ -969,6 +978,7 @@ const paintStamp = ({
   mosaicConfig?: SequentialMosaicConfig | null;
   ditherConfig?: ResolvedDitherTextureConfig | null;
   ditherPalette?: ResolvedDitherPalette | null;
+  stampDitherReplayRuntime?: StampDitherRuntime;
 }) => {
   if (stampSize <= 0 || stampAlpha <= 0) {
     return;
@@ -1033,6 +1043,7 @@ const paintStamp = ({
           y,
           alpha: srcA,
           ditherConfig,
+          stampDitherReplayRuntime,
         });
         if (!keepPrimary) {
           if (ditherConfig?.bgFill === false) {
@@ -1054,7 +1065,7 @@ const paintStamp = ({
             a: color.a,
           };
         }
-      } else if (!shouldKeepTexturedPixel({ mode: textureMode, x, y, alpha: srcA })) {
+      } else if (!shouldKeepTexturedPixel({ mode: textureMode, x, y, alpha: srcA, stampDitherReplayRuntime })) {
         continue;
       }
 
@@ -2065,11 +2076,13 @@ const paintEventsToPixels = ({
   width,
   height,
   events,
+  stampDitherReplayRuntime,
 }: {
   pixels: Uint8ClampedArray;
   width: number;
   height: number;
   events: ReadonlyArray<SequentialStrokeEvent>;
+  stampDitherReplayRuntime: StampDitherRuntime;
 }): void => {
   const parsedColorCache = new Map<string, ReturnType<typeof parseCssColor>>();
   for (let eventIndex = 0; eventIndex < events.length; eventIndex += 1) {
@@ -2227,6 +2240,7 @@ const paintEventsToPixels = ({
         mosaicConfig,
         ditherConfig,
         ditherPalette,
+        stampDitherReplayRuntime,
       });
       previousRenderedStampForBudget = { x: stamp.x, y: stamp.y };
       estimatedCostSoFar += estimatedStampCost;
@@ -2267,6 +2281,7 @@ const getFrameEvents = (
 export class SequentialCpuMaterializer implements SequentialMaterializerBackend {
   readonly kind = 'cpu' as const;
   private readonly tileSize: number;
+  private readonly stampDitherReplayRuntime = createStampDitherRuntime(0);
   private scratchPixels: Uint8ClampedArray | null = null;
   private scratchCapacity = 0;
 
@@ -2301,6 +2316,7 @@ export class SequentialCpuMaterializer implements SequentialMaterializerBackend 
       width: safeWidth,
       height: safeHeight,
       events: frameEvents,
+      stampDitherReplayRuntime: this.stampDitherReplayRuntime,
     });
 
     return {
@@ -2386,6 +2402,7 @@ export class SequentialCpuMaterializer implements SequentialMaterializerBackend 
       width: safeWidth,
       height: safeHeight,
       events: frameEvents,
+      stampDitherReplayRuntime: this.stampDitherReplayRuntime,
     });
     const tileKeys = collectTileKeysForRect({
       rect: normalizedRect,
@@ -2431,6 +2448,7 @@ export class SequentialCpuMaterializer implements SequentialMaterializerBackend 
         width: safeWidth,
         height: safeHeight,
         events: frameEvents,
+        stampDitherReplayRuntime: this.stampDitherReplayRuntime,
       });
       return {
         frameIndex,
@@ -2513,6 +2531,7 @@ export class SequentialCpuMaterializer implements SequentialMaterializerBackend 
       width: safeWidth,
       height: safeHeight,
       events: frameEvents,
+      stampDitherReplayRuntime: this.stampDitherReplayRuntime,
     });
 
     const patch = buildPatchFromTileKeys({

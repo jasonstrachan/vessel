@@ -7,8 +7,8 @@ import type { UseDrawingHandlersRuntimeStagesOptions } from '@/hooks/canvas/useD
 import type { useDrawingShapeRuntimeBridge } from '@/hooks/canvas/useDrawingShapeRuntimeBridge';
 import type { useDrawingHandlerRefs } from '@/hooks/canvas/useDrawingHandlerRefs';
 import type { useDrawingHandlersStoreState } from '@/hooks/canvas/useDrawingHandlersStoreState';
-import type { useBrushEngineSimplified } from '@/hooks/useBrushEngineSimplified';
 import type { useUserBrushEngine } from '@/hooks/useUserBrushEngine';
+import type { UseDrawingHandlersRuntimeSetupBridgeOptions } from '@/hooks/canvas/useDrawingHandlersRuntimeSetupBridge.types';
 
 type DrawingHandlerRefs = ReturnType<typeof useDrawingHandlerRefs>;
 type StoreState = ReturnType<typeof useDrawingHandlersStoreState>;
@@ -22,7 +22,10 @@ export interface UseDrawingHandlersBridgeRuntimesOptions {
   captureCanvasToActiveLayer: StoreState['captureCanvasToActiveLayer'];
   activeLayerWidth: StoreState['activeLayerWidth'];
   activeLayerHeight: StoreState['activeLayerHeight'];
-  brushEngine: ReturnType<typeof useBrushEngineSimplified>;
+  strokeBrushRuntime: UseDrawingHandlersRuntimeSetupBridgeOptions['strokeBrushRuntime'];
+  finalizeBrushRuntime: UseDrawingHandlersRuntimeSetupBridgeOptions['finalizeBrushRuntime'];
+  shapeBrushRuntime: UseDrawingHandlersRuntimeSetupBridgeOptions['shapeBrushRuntime'];
+  playbackBrushRuntime: UseDrawingHandlersRuntimeSetupBridgeOptions['playbackBrushRuntime'];
   userBrushEngine: ReturnType<typeof useUserBrushEngine>;
   shapeRuntime: ReturnType<typeof useDrawingShapeRuntimeBridge>;
   brushToolRuntime: ReturnType<typeof useDrawingBrushToolRuntime>;
@@ -37,7 +40,10 @@ export const useDrawingHandlersBridgeRuntimes = ({
   captureCanvasToActiveLayer,
   activeLayerWidth,
   activeLayerHeight,
-  brushEngine,
+  strokeBrushRuntime,
+  finalizeBrushRuntime,
+  shapeBrushRuntime,
+  playbackBrushRuntime,
   userBrushEngine,
   shapeRuntime,
   brushToolRuntime,
@@ -61,7 +67,10 @@ export const useDrawingHandlersBridgeRuntimes = ({
       shapeMode,
       toolsRef,
       captureCanvasToActiveLayer,
-      brushEngine,
+      strokeBrushRuntime,
+      finalizeBrushRuntime,
+      shapeBrushRuntime,
+      playbackBrushRuntime,
       userBrushEngine,
       shapeRuntime,
       brushToolRuntime,

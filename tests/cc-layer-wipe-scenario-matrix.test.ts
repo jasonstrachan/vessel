@@ -1,4 +1,13 @@
-import { captureColorCyclePersistenceSnapshot } from '@/lib/colorCycle/persistence';
+import {
+  captureColorCyclePersistenceSnapshot,
+  emitColorCycleDocumentStateFromBrushState,
+  emitColorCycleDocumentStateFromDeferredArchive,
+  type ColorCycleLayerDocumentReader,
+  type ColorCyclePersistenceDocumentState,
+  type DeferredColorCycleArchiveRuntime,
+  type PersistedColorCycleBrushState,
+} from '@/lib/colorCycle/persistence';
+import * as colorCycleBrushManager from '@/stores/colorCycleBrushManager';
 import { hasColorCycleCanonicalEditSource } from '@/hooks/canvas/handlers/colorCycle/colorCycleRuntimeWarmup';
 import { authorizeSelectionDelete } from '@/stores/helpers/selectionDeleteAuthorization';
 import { __TESTING__ } from '@/utils/export/webglExporter';
@@ -6,6 +15,20 @@ import { createDefaultLayerAlignment } from '@/utils/layoutDefaults';
 import type { Layer, Project } from '@/types';
 
 const { serializeColorCycleData } = __TESTING__;
+
+const managerDocuments = new Map<string, ColorCycleLayerDocumentReader>();
+
+beforeEach(() => {
+  managerDocuments.clear();
+  jest.spyOn(colorCycleBrushManager, 'getColorCycleBrushManager').mockReturnValue({
+    getBrush: () => null,
+    getDocument: (layerId: string) => managerDocuments.get(layerId),
+  } as never);
+});
+
+afterEach(() => {
+  jest.restoreAllMocks();
+});
 
 const project: Project = {
   id: 'project-cc-matrix',
@@ -21,6 +44,50 @@ const project: Project = {
 
 const bytes = (values: number[]): ArrayBuffer => Uint8Array.from(values).buffer;
 const defIds = (values: number[]): ArrayBuffer => Uint16Array.from(values).buffer;
+
+const createDocumentReader = (
+  snapshot: ColorCyclePersistenceDocumentState,
+  version = 1,
+): ColorCycleLayerDocumentReader => ({
+  runtimePolicy: {
+    hasEditableSource: Boolean(
+      snapshot.paintBuffer &&
+      snapshot.gradientIdBuffer &&
+      snapshot.gradientDefIdBuffer &&
+      snapshot.speedBuffer &&
+      snapshot.flowBuffer &&
+      snapshot.phaseBuffer,
+    ),
+    hasRuntimeRestoreSource: Boolean(snapshot.paintBuffer),
+    hasPlaybackWarmupSource: Boolean(snapshot.paintBuffer),
+    isPreviewOnly: !snapshot.paintBuffer,
+  },
+  read: () => ({
+    snapshot: snapshot as ReturnType<ColorCycleLayerDocumentReader['read']>['snapshot'],
+    version,
+  }),
+} as unknown as ColorCycleLayerDocumentReader);
+
+const attachDocumentReader = (layer: Layer, document: ColorCycleLayerDocumentReader): void => {
+  managerDocuments.set(layer.id, document);
+  layer.colorCycleData = {
+    ...layer.colorCycleData!,
+    colorCycleBrush: {
+      getColorCycleLayerDocument: () => document,
+    } as unknown as NonNullable<Layer['colorCycleData']>['colorCycleBrush'],
+  };
+};
+
+const getAttachedDocumentReader = (layer: Layer): ColorCycleLayerDocumentReader => {
+  const brush = layer.colorCycleData?.colorCycleBrush as {
+    getColorCycleLayerDocument?: (layerId: string) => ColorCycleLayerDocumentReader | undefined;
+  } | undefined;
+  const document = brush?.getColorCycleLayerDocument?.(layer.id);
+  if (!document) {
+    throw new Error(`Missing test color-cycle document for ${layer.id}`);
+  }
+  return document;
+};
 
 const makeCanonicalLayer = (overrides: Partial<Layer> = {}): Layer => {
   const paint = bytes([
@@ -45,7 +112,7 @@ const makeCanonicalLayer = (overrides: Partial<Layer> = {}): Layer => {
   const flow = bytes(new Array(16).fill(1));
   const phase = bytes(new Array(16).fill(0));
 
-  return {
+  const layer = {
     id: 'layer-cc-matrix',
     name: 'CC Matrix Layer',
     visible: true,
@@ -92,6 +159,21 @@ const makeCanonicalLayer = (overrides: Partial<Layer> = {}): Layer => {
     version: 1,
     ...overrides,
   } as Layer;
+
+  const brushState = layer.colorCycleData?.brushState as PersistedColorCycleBrushState | undefined;
+  if (brushState) {
+    const documentState = emitColorCycleDocumentStateFromBrushState(
+      layer,
+      brushState,
+      project.width,
+      project.height,
+    );
+    if (documentState) {
+      attachDocumentReader(layer, createDocumentReader(documentState));
+    }
+  }
+
+  return layer;
 };
 
 describe('CC layer wipe/data-loss scenario matrix', () => {
@@ -125,7 +207,7 @@ describe('CC layer wipe/data-loss scenario matrix', () => {
     coldLayer.colorCycleData!.gradientDefIdBuffer = undefined;
     coldLayer.colorCycleData!.phaseBuffer = undefined;
 
-    const deferredRuntime = {
+    const deferredRuntime: DeferredColorCycleArchiveRuntime = {
       paintRef: 'zip:buffers/color-cycle/layer-cold-archive/paint.bin',
       gradientIdRef: 'zip:buffers/color-cycle/layer-cold-archive/gradient-id.bin',
       gradientDefIdRef: 'zip:buffers/color-cycle/layer-cold-archive/gradient-def-id.bin',
@@ -136,6 +218,15 @@ describe('CC layer wipe/data-loss scenario matrix', () => {
     const archiveManifest = {
       has: (path: string) => path.startsWith('buffers/color-cycle/layer-cold-archive/'),
     };
+    const documentState = emitColorCycleDocumentStateFromDeferredArchive(
+      coldLayer,
+      deferredRuntime,
+      project.width,
+      project.height,
+    );
+    expect(documentState).toBeDefined();
+    const document = createDocumentReader(documentState!);
+    attachDocumentReader(coldLayer, document);
 
     for (const mode of ['canonical-save', 'autosave', 'diagnostic'] as const) {
       expect(captureColorCyclePersistenceSnapshot(coldLayer, {
@@ -143,9 +234,10 @@ describe('CC layer wipe/data-loss scenario matrix', () => {
         projectHeight: 4,
         requirePaint: true,
         mode,
+        document,
         deferredRuntime,
         archiveManifest,
-      })).toMatchObject({ ok: true, source: 'deferred-archive' });
+      })).toMatchObject({ ok: true, source: 'document' });
     }
     expect(hasColorCycleCanonicalEditSource(coldLayer)).toBe(true);
     await expect(serializeColorCycleData(coldLayer, project)).rejects.toThrow('missing animated brush data');
@@ -153,6 +245,7 @@ describe('CC layer wipe/data-loss scenario matrix', () => {
 
   it('uses the same canonical payload proof for save, autosave, export, warmup, selection, and reload-like validation', async () => {
     const layer = makeCanonicalLayer();
+    const document = getAttachedDocumentReader(layer);
 
     for (const mode of ['canonical-save', 'autosave', 'export', 'diagnostic'] as const) {
       expect(captureColorCyclePersistenceSnapshot(layer, {
@@ -160,6 +253,7 @@ describe('CC layer wipe/data-loss scenario matrix', () => {
         projectHeight: 4,
         requirePaint: true,
         mode,
+        document,
       })).toMatchObject({ ok: true, layerId: layer.id });
     }
 
@@ -259,7 +353,7 @@ describe('CC layer wipe/data-loss scenario matrix', () => {
       mode: 'export',
     })).toMatchObject({
       ok: false,
-      reason: 'missing-canonical-paint',
+      reason: 'missing-document-source',
     });
     await expect(serializeColorCycleData(layer, project)).rejects.toThrow('missing animated brush data');
   });

@@ -3,20 +3,31 @@ import type { Layer } from '@/types';
 import { useAppStore } from '@/stores/useAppStore';
 import { ColorCycleStrokeDelta, createColorCycleStrokeDelta } from '@/history/deltas/colorCycleStrokeDelta';
 import { ColorCycleAnimator } from '@/lib/ColorCycleAnimator';
+import {
+  attachLegacyColorCycleTopLevelBuffers,
+  getColorCycleLegacyLayerBuffer,
+  registerColorCycleBrushSerializedStateRuntime,
+} from '@/lib/colorCycle/document';
+import { getPersistedCCMutationLog } from '@/utils/colorCycle/ccMutationAudit';
 
 // eslint-disable-next-line no-var
-var mockManager: { getBrush: jest.Mock };
+var mockManager: { getHistoryBrush: jest.Mock; getPlaybackBrush: jest.Mock; getDocument: jest.Mock };
+const restoreSerializedState = jest.fn();
 const mockBrush = {
-  restoreFullState: jest.fn(),
   updateColorCycleTexture: jest.fn(),
   render: jest.fn(),
   setTargetCanvas: jest.fn(),
   commitToLayer: jest.fn(),
 };
+registerColorCycleBrushSerializedStateRuntime(mockBrush, {
+  restore: restoreSerializedState,
+});
 
 jest.mock('@/stores/colorCycleBrushManager', () => {
   mockManager = {
-    getBrush: jest.fn(() => mockBrush),
+    getHistoryBrush: jest.fn(() => mockBrush),
+    getPlaybackBrush: jest.fn(() => null),
+    getDocument: jest.fn(() => undefined),
   };
   return {
     __esModule: true as const,
@@ -44,14 +55,16 @@ const createLayer = (overrides?: Partial<Layer>): Layer => {
     framebuffer: canvas,
     alignment: createDefaultLayerAlignment(),
     layerType: 'color-cycle',
-    colorCycleData: {
-      canvas,
-      gradientDefs: [],
-      slotPalettes: [],
-      gradientDefStore: [],
-      gradientDefIdBuffer: new Uint16Array([0, 0, 0, 0]).buffer,
-      paintSlot: 0,
-    },
+    colorCycleData: attachLegacyColorCycleTopLevelBuffers(
+      {
+        canvas,
+        gradientDefs: [],
+        slotPalettes: [],
+        gradientDefStore: [],
+        paintSlot: 0,
+      },
+      { gradientDefIdBuffer: new Uint16Array([0, 0, 0, 0]).buffer },
+    ),
     version: 1,
     ...(overrides ?? {}),
   };
@@ -69,10 +82,15 @@ const makeAnimatorState = () =>
 
 describe('ColorCycleStrokeDelta undo resurrection', () => {
   beforeEach(() => {
-    mockBrush.restoreFullState.mockClear();
-    mockBrush.restoreFullState.mockReset();
-    mockManager.getBrush.mockClear();
-    mockManager.getBrush.mockReturnValue(mockBrush);
+    restoreSerializedState.mockClear();
+    restoreSerializedState.mockReset();
+    mockManager.getHistoryBrush.mockClear();
+    mockManager.getHistoryBrush.mockReturnValue(mockBrush);
+    mockManager.getPlaybackBrush.mockClear();
+    mockManager.getPlaybackBrush.mockReturnValue(null);
+    mockManager.getDocument.mockClear();
+    mockManager.getDocument.mockReturnValue(undefined);
+    window.localStorage.clear();
     useAppStore.setState((state) => ({
       layers: [],
       activeLayerId: null,
@@ -88,22 +106,24 @@ describe('ColorCycleStrokeDelta undo resurrection', () => {
       { position: 1, color: '#ffffff' },
     ];
     const layer = createLayer({
-      colorCycleData: {
-        gradientDefs: [],
-        slotPalettes: [],
-        gradientDefStore: [
+      colorCycleData: attachLegacyColorCycleTopLevelBuffers(
+        {
+          gradientDefs: [],
+          slotPalettes: [],
+          gradientDefStore: [
           {
             id: 1,
-            kind: 'linear',
+            kind: 'linear' as const,
             stops,
             hash: 'linear:one',
-            source: 'manual',
+            source: 'manual' as const,
             createdAtMs: 0,
           },
-        ],
-        gradientDefIdBuffer: new Uint16Array([0, 0, 0, 0]).buffer,
-        paintSlot: 0,
-      },
+          ],
+          paintSlot: 0,
+        },
+        { gradientDefIdBuffer: new Uint16Array([0, 0, 0, 0]).buffer },
+      ),
     });
 
     useAppStore.setState((state) => ({
@@ -125,17 +145,17 @@ describe('ColorCycleStrokeDelta undo resurrection', () => {
     const storedLayer = useAppStore.getState().layers.find((entry) => entry.id === layer.id);
     expect(storedLayer?.colorCycleData?.canvas).toBeDefined();
 
-    mockBrush.restoreFullState.mockImplementation((payload: { layerSnapshots?: Array<{ gradientDefIdBuffer?: ArrayBuffer }> }) => {
+    restoreSerializedState.mockImplementation((payload: { layerSnapshots?: Array<{ gradientDefIdBuffer?: ArrayBuffer }> }) => {
       const snapshot = payload.layerSnapshots?.[0];
       if (snapshot?.gradientDefIdBuffer) {
         const latest = useAppStore.getState();
         const updatedLayer = latest.layers.find((entry) => entry.id === layer.id);
         if (updatedLayer?.colorCycleData) {
           latest.updateLayer(layer.id, {
-            colorCycleData: {
-              ...updatedLayer.colorCycleData,
-              gradientDefIdBuffer: snapshot.gradientDefIdBuffer,
-            },
+            colorCycleData: attachLegacyColorCycleTopLevelBuffers(
+              { ...updatedLayer.colorCycleData },
+              { gradientDefIdBuffer: snapshot.gradientDefIdBuffer },
+            ),
           });
         }
       }
@@ -195,10 +215,10 @@ describe('ColorCycleStrokeDelta undo resurrection', () => {
 
     await delta.apply('backward');
 
-    expect(mockManager.getBrush).toHaveBeenCalled();
-    expect(mockBrush.restoreFullState).toHaveBeenCalled();
+    expect(mockManager.getHistoryBrush).toHaveBeenCalled();
+    expect(restoreSerializedState).toHaveBeenCalled();
     const restoredLayer = useAppStore.getState().layers.find((entry) => entry.id === layer.id);
-    const restoredDefBuffer = restoredLayer?.colorCycleData?.gradientDefIdBuffer;
+    const restoredDefBuffer = getColorCycleLegacyLayerBuffer(restoredLayer?.colorCycleData, 'gradientDefIdBuffer');
     expect(restoredDefBuffer).toBeDefined();
 
     useAppStore.getState().runColorCycleSlotRebuild('undo-test');
@@ -270,7 +290,7 @@ describe('ColorCycleStrokeDelta undo resurrection', () => {
     expect(delta).not.toBeNull();
     await delta!.apply('backward');
 
-    const payload = mockBrush.restoreFullState.mock.calls[0]?.[0] as {
+    const payload = restoreSerializedState.mock.calls[0]?.[0] as {
       layerSnapshots?: Array<{
         speedBuffer?: ArrayBuffer;
         flowBuffer?: ArrayBuffer;
@@ -281,6 +301,81 @@ describe('ColorCycleStrokeDelta undo resurrection', () => {
     expect(Array.from(new Uint8Array(snapshot?.speedBuffer ?? new ArrayBuffer(0)))).toEqual([7, 8, 0, 0]);
     expect(Array.from(new Uint8Array(snapshot?.flowBuffer ?? new ArrayBuffer(0)))).toEqual([9, 10, 0, 0]);
     expect(Array.from(new Uint8Array(snapshot?.phaseBuffer ?? new ArrayBuffer(0)))).toEqual([11, 12, 0, 0]);
+  });
+
+  it('refuses stale full-state undo when the document version has moved', async () => {
+    const layer = createLayer();
+    mockManager.getDocument.mockReturnValue({
+      read: () => ({ snapshot: {} as never, version: 3 }),
+    });
+    useAppStore.setState((state) => ({
+      layers: [layer],
+      activeLayerId: layer.id,
+      project: state.project
+        ? { ...state.project, width: 2, height: 2, layers: [layer] }
+        : state.project,
+    }));
+
+    const backwardState = {
+      documentVersion: 1,
+      cycleSpeed: 1,
+      fps: 30,
+      brushSize: 1,
+      layers: [
+        {
+          layerId: layer.id,
+          data: makeAnimatorState(),
+          strokeData: {
+            paintBuffer: new Uint8Array([1, 0, 0, 0]).buffer,
+            hasContent: true,
+            strokeCounter: 1,
+          },
+        },
+      ],
+    };
+
+    const forwardState = {
+      documentVersion: 2,
+      cycleSpeed: 1,
+      fps: 30,
+      brushSize: 1,
+      layers: [
+        {
+          layerId: layer.id,
+          data: makeAnimatorState(),
+          strokeData: {
+            paintBuffer: new Uint8Array([2, 0, 0, 0]).buffer,
+            hasContent: true,
+            strokeCounter: 2,
+          },
+        },
+      ],
+    };
+
+    const delta = createColorCycleStrokeDelta({
+      layerId: layer.id,
+      forwardState,
+      backwardState,
+    });
+
+    expect(delta).not.toBeNull();
+    await delta!.apply('backward');
+
+    expect(restoreSerializedState).not.toHaveBeenCalled();
+    expect(getPersistedCCMutationLog()).toEqual([
+      expect.objectContaining({
+        event: 'history-cc-document-version-mismatch',
+        layerId: layer.id,
+        reason: 'history-undo-full-state',
+        severity: 'warn',
+        details: expect.objectContaining({
+          source: 'history-color-cycle-stroke-full-state',
+          operation: 'undo',
+          expectedVersion: 2,
+          actualVersion: 3,
+        }),
+      }),
+    ]);
   });
 
   it('restores color-cycle slot metadata with sampled stroke history states', async () => {
@@ -300,7 +395,7 @@ describe('ColorCycleStrokeDelta undo resurrection', () => {
         gradientDefStore: [
           {
             id: 9,
-            kind: 'linear',
+            kind: 'linear' as const,
             stops: [
               { position: 0, color: '#111111' },
               { position: 1, color: '#222222' },
@@ -414,6 +509,72 @@ describe('ColorCycleStrokeDelta undo resurrection', () => {
     expect(restoredLayer?.colorCycleData?.slotPalettes?.[0]?.slot).toBe(4);
     expect(restoredLayer?.colorCycleData?.gradientDefStore?.[0]?.slot).toBe(4);
     expect(restoredLayer?.colorCycleData?.nextGradientDefId).toBe(5);
+  });
+
+  it('skips full-state restore when the document version has drifted', async () => {
+    const layer = createLayer({
+      colorCycleData: {
+        canvas: document.createElement('canvas'),
+        gradientDefs: [],
+        slotPalettes: [],
+        gradientDefStore: [],
+        paintSlot: 0,
+        hasContent: true,
+      },
+    });
+    layer.colorCycleData!.canvas!.width = 2;
+    layer.colorCycleData!.canvas!.height = 2;
+    useAppStore.setState((state) => ({
+      layers: [layer],
+      activeLayerId: layer.id,
+      project: state.project
+        ? { ...state.project, width: 2, height: 2, layers: [layer] }
+        : state.project,
+    }));
+    mockManager.getDocument.mockReturnValue({
+      read: () => ({ version: 99 }),
+    });
+
+    const backwardState = {
+      cycleSpeed: 1,
+      fps: 30,
+      brushSize: 1,
+      layers: [{
+        layerId: layer.id,
+        data: makeAnimatorState(),
+        strokeData: {
+          paintBuffer: new Uint8Array([1, 0, 0, 0]).buffer,
+          gradientIdBuffer: new Uint8Array([0, 0, 0, 0]).buffer,
+          gradientDefIdBuffer: new Uint16Array([0, 0, 0, 0]).buffer,
+          hasContent: true,
+          strokeCounter: 1,
+        },
+      }],
+    };
+    const forwardState = {
+      ...backwardState,
+      layers: [{
+        ...backwardState.layers[0],
+        strokeData: {
+          ...backwardState.layers[0].strokeData,
+          paintBuffer: new Uint8Array([2, 0, 0, 0]).buffer,
+          strokeCounter: 2,
+        },
+      }],
+    };
+
+    const delta = createColorCycleStrokeDelta({
+      layerId: layer.id,
+      forwardState,
+      backwardState,
+      beforeVersion: 1,
+      afterVersion: 2,
+    });
+
+    expect(delta).not.toBeNull();
+    await delta!.apply('backward');
+
+    expect(restoreSerializedState).not.toHaveBeenCalled();
   });
 
   it('clears future slot metadata when restoring a state that had none', async () => {

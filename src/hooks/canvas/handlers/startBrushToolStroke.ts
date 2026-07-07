@@ -12,12 +12,12 @@ import {
   createFallbackSequentialStamp,
 } from '@/hooks/canvas/handlers/sequential/sequentialCapture';
 import type { PixelQueue } from '@/hooks/brushEngine/types';
-import type { ColorCycleBrushImplementation } from '@/hooks/brushEngine/ColorCycleBrushMigration';
+import type { ColorCycleStrokeStartBrush } from '@/hooks/canvas/handlers/startColorCycleStrokeConfig';
 import type { CcFlowVelocityState } from '@/utils/colorCycleFlowVelocity';
 
 type Point = { x: number; y: number };
 
-type BrushEngine = {
+type BrushToolRuntime = {
   drawColorCycle: (
     ctx: CanvasRenderingContext2D,
     x: number,
@@ -46,7 +46,7 @@ export const startBrushToolStroke = ({
   pressure,
   drawCtx,
   userBrushEngine,
-  brushEngine,
+  brushRuntime,
   resolveCustomBrushData,
   captureResamplerSingleSample,
   resamplerBrushDataRef,
@@ -73,7 +73,7 @@ export const startBrushToolStroke = ({
     setActiveBrush: (id: string) => void;
     startStroke: (ctx: CanvasRenderingContext2D, x: number, y: number, pressure: number) => void;
   };
-  brushEngine: BrushEngine | null;
+  brushRuntime: BrushToolRuntime | null;
   resolveCustomBrushData: (state: AppState) => CustomBrushStrokeData | undefined;
   captureResamplerSingleSample: (args: {
     samplePos: Point;
@@ -98,7 +98,7 @@ export const startBrushToolStroke = ({
     previousRotation: number | undefined
   ) => { rotation: number; nextRotation: number | undefined };
   getColorCycleBrushManager: () => {
-    getBrush: (layerId: string) => ColorCycleBrushImplementation | null | undefined;
+    getSurfaceBrush: (layerId: string) => ColorCycleStrokeStartBrush | null | undefined;
   };
   debugLog: (message: string, payload?: Record<string, unknown>) => void;
   beginMaskHealingStroke: (layerId: string, worldPos: Point, pressure: number) => void;
@@ -138,7 +138,7 @@ export const startBrushToolStroke = ({
     return;
   }
 
-  if (!brushEngine) {
+  if (!brushRuntime) {
     return;
   }
 
@@ -160,7 +160,7 @@ export const startBrushToolStroke = ({
 
       drawCtx.globalCompositeOperation = 'source-over';
       drawCtx.globalAlpha = 1;
-      brushEngine.drawColorCycle(drawCtx, worldPos.x, worldPos.y, pressure, 0, stampData
+      brushRuntime.drawColorCycle(drawCtx, worldPos.x, worldPos.y, pressure, 0, stampData
         ? { customStamp: stampData }
         : undefined);
       colorCycleLastPosRef.current = worldPos;
@@ -192,7 +192,7 @@ export const startBrushToolStroke = ({
       colorCycleLastRotationRef,
       ccFlowVelocityRef,
       getCCStampTargetCtx,
-      brushEngine,
+      brushRuntime,
       resolveBrushRotation,
       getColorCycleBrushManager,
       debugLog,
@@ -206,7 +206,7 @@ export const startBrushToolStroke = ({
     worldPos,
     pressure,
     drawCtx,
-    brushEngine,
+    brushRuntime,
     resolveCustomBrushData,
     captureResamplerSingleSample,
     resamplerBrushDataRef,

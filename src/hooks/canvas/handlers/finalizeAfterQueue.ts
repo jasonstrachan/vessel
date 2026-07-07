@@ -28,7 +28,7 @@ export const runFinalizeAfterQueue = async ({
   resamplerBrushDataRef,
   stampCounterRef,
   drawingCtxRef,
-  brushEngine,
+  brushRuntime,
   userBrushEngine,
   cancelAnimationFrameSafe,
   strokeBeforeImageRef,
@@ -60,7 +60,7 @@ export const runFinalizeAfterQueue = async ({
   resamplerBrushDataRef: FinalizeStrokePrepArgs['resamplerBrushDataRef'];
   stampCounterRef: FinalizeStrokePrepArgs['stampCounterRef'];
   drawingCtxRef: React.MutableRefObject<CanvasRenderingContext2D | null>;
-  brushEngine: FinalizeStrokePrepDeps['brushEngine'];
+  brushRuntime: FinalizeStrokePrepDeps['brushRuntime'];
   userBrushEngine: FinalizeStrokePrepDeps['userBrushEngine'];
   cancelAnimationFrameSafe: (handle: number) => void;
   strokeBeforeImageRef: Parameters<typeof runFinalizeActiveLayerFlow>[0]['strokeBeforeImageRef'];
@@ -107,7 +107,7 @@ export const runFinalizeAfterQueue = async ({
     drawingCtx: drawingCtxRef.current,
     currentBrushId,
   }, {
-    brushEngine,
+    brushRuntime,
     userBrushEngine,
     cancelAnimationFrame: cancelAnimationFrameSafe,
   });
@@ -174,7 +174,7 @@ export const createFinalizeAfterQueueDispatcher = ({
   resamplerBrushDataRef,
   stampCounterRef,
   drawingCtxRef,
-  brushEngine,
+  brushRuntime,
   userBrushEngine,
   cancelAnimationFrameSafe,
   strokeBeforeImageRef,
@@ -197,7 +197,7 @@ export const createFinalizeAfterQueueDispatcher = ({
   resamplerBrushDataRef: FinalizeStrokePrepArgs['resamplerBrushDataRef'];
   stampCounterRef: FinalizeStrokePrepArgs['stampCounterRef'];
   drawingCtxRef: React.MutableRefObject<CanvasRenderingContext2D | null>;
-  brushEngine: FinalizeStrokePrepDeps['brushEngine'];
+  brushRuntime: FinalizeStrokePrepDeps['brushRuntime'];
   userBrushEngine: FinalizeStrokePrepDeps['userBrushEngine'];
   cancelAnimationFrameSafe: (handle: number) => void;
   strokeBeforeImageRef: Parameters<typeof runFinalizeActiveLayerFlow>[0]['strokeBeforeImageRef'];
@@ -236,7 +236,7 @@ export const createFinalizeAfterQueueDispatcher = ({
     resamplerBrushDataRef,
     stampCounterRef,
     drawingCtxRef,
-    brushEngine,
+    brushRuntime,
     userBrushEngine,
     cancelAnimationFrameSafe,
     strokeBeforeImageRef,

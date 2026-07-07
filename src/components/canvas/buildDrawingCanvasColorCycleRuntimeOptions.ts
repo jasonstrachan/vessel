@@ -1,7 +1,7 @@
 import type { UseDrawingCanvasColorCycleRuntimeStateOptions } from './useDrawingCanvasColorCycleRuntimeState';
 
 interface BuildDrawingCanvasColorCycleRuntimeOptionsArgs {
-  brushEngine: Pick<
+  brushRuntime: Pick<
     UseDrawingCanvasColorCycleRuntimeStateOptions,
     'updateColorCycleGradient' | 'setColorCycleFlowMode'
   >;
@@ -9,9 +9,9 @@ interface BuildDrawingCanvasColorCycleRuntimeOptionsArgs {
 }
 
 export const buildDrawingCanvasColorCycleRuntimeOptions = ({
-  brushEngine,
+  brushRuntime,
   setNeedsRedraw,
 }: BuildDrawingCanvasColorCycleRuntimeOptionsArgs): UseDrawingCanvasColorCycleRuntimeStateOptions => ({
-  ...brushEngine,
+  ...brushRuntime,
   setNeedsRedraw,
 });

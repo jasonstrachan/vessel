@@ -1,15 +1,20 @@
 import type { Layer, Project } from '@/types';
 import { createDefaultLayerAlignment } from '@/utils/layoutDefaults';
 
-const mockGetLayerColorCycleBrush = jest.fn<unknown | null, [string]>(() => null);
+const mockGetDocument = jest.fn<unknown | null, [string]>(() => null);
 
 jest.mock('@/stores/colorCycleBrushManager', () => ({
   __esModule: true,
-  getColorCycleStoreState: () => null,
+  setColorCycleStoreStateGetter: jest.fn(),
+  setLayerIdGetter: jest.fn(),
   getColorCycleBrushManager: () => ({
-    getLayerColorCycleBrush: mockGetLayerColorCycleBrush,
+    getDocument: (layerId: string) => mockGetDocument(layerId),
   }),
 }));
+
+const { attachLegacyColorCycleTopLevelBuffers } = jest.requireActual(
+  '@/lib/colorCycle/document',
+) as typeof import('@/lib/colorCycle/document');
 
 import { captureSelectionBitmap } from '@/stores/helpers/selectionCapture';
 
@@ -39,8 +44,8 @@ const createOpaqueImage = (width: number, height: number): ImageData => {
 
 describe('selectionCapture color-cycle fallback', () => {
   afterEach(() => {
-    mockGetLayerColorCycleBrush.mockReset();
-    mockGetLayerColorCycleBrush.mockReturnValue(null);
+    mockGetDocument.mockReset();
+    mockGetDocument.mockReturnValue(null);
   });
 
   it('captures color-cycle indices from persisted gradientIdBuffer when runtime brush is missing', () => {
@@ -62,11 +67,12 @@ describe('selectionCapture color-cycle fallback', () => {
       framebuffer: document.createElement('canvas'),
       alignment: createDefaultLayerAlignment(),
       layerType: 'color-cycle',
-      colorCycleData: {
-        gradientIdBuffer: gradientIds.buffer.slice(0),
+      colorCycleData: attachLegacyColorCycleTopLevelBuffers({
         canvasWidth: 4,
         canvasHeight: 4,
-      },
+      }, {
+        gradientIdBuffer: gradientIds.buffer.slice(0),
+      }),
     };
 
     const capture = captureSelectionBitmap({
@@ -82,47 +88,50 @@ describe('selectionCapture color-cycle fallback', () => {
     expect(Array.from(capture?.colorCycleIndices ?? [])).toEqual([5, 6]);
   });
 
-  it('captures full CC payload from the live brush snapshot', () => {
-    mockGetLayerColorCycleBrush.mockReturnValue({
-      getLayerSnapshot: () => ({
-        paintBuffer: Uint8Array.from([
-          0, 1, 2, 3,
-          4, 5, 6, 7,
-          8, 9, 10, 11,
-          12, 13, 14, 15,
-        ]).buffer,
-        gradientIdBuffer: Uint8Array.from([
-          10, 11, 12, 13,
-          14, 15, 16, 17,
-          18, 19, 20, 21,
-          22, 23, 24, 25,
-        ]).buffer,
-        gradientDefIdBuffer: Uint16Array.from([
-          100, 101, 102, 103,
-          104, 105, 106, 107,
-          108, 109, 110, 111,
-          112, 113, 114, 115,
-        ]).buffer,
-        speedBuffer: Uint8Array.from([
-          30, 31, 32, 33,
-          34, 35, 36, 37,
-          38, 39, 40, 41,
-          42, 43, 44, 45,
-        ]).buffer,
-        flowBuffer: Uint8Array.from([
-          50, 51, 52, 53,
-          54, 55, 56, 57,
-          58, 59, 60, 61,
-          62, 63, 64, 65,
-        ]).buffer,
-        phaseBuffer: Uint8Array.from([
-          70, 71, 72, 73,
-          74, 75, 76, 77,
-          78, 79, 80, 81,
-          82, 83, 84, 85,
-        ]).buffer,
+  it('captures full CC payload from the document snapshot', () => {
+    mockGetDocument.mockReturnValue({
+      read: () => ({
+        snapshot: {
+          paintBuffer: Uint8Array.from([
+            0, 1, 2, 3,
+            4, 5, 6, 7,
+            8, 9, 10, 11,
+            12, 13, 14, 15,
+          ]).buffer,
+          gradientIdBuffer: Uint8Array.from([
+            10, 11, 12, 13,
+            14, 15, 16, 17,
+            18, 19, 20, 21,
+            22, 23, 24, 25,
+          ]).buffer,
+          gradientDefIdBuffer: Uint16Array.from([
+            100, 101, 102, 103,
+            104, 105, 106, 107,
+            108, 109, 110, 111,
+            112, 113, 114, 115,
+          ]).buffer,
+          speedBuffer: Uint8Array.from([
+            30, 31, 32, 33,
+            34, 35, 36, 37,
+            38, 39, 40, 41,
+            42, 43, 44, 45,
+          ]).buffer,
+          flowBuffer: Uint8Array.from([
+            50, 51, 52, 53,
+            54, 55, 56, 57,
+            58, 59, 60, 61,
+            62, 63, 64, 65,
+          ]).buffer,
+          phaseBuffer: Uint8Array.from([
+            70, 71, 72, 73,
+            74, 75, 76, 77,
+            78, 79, 80, 81,
+            82, 83, 84, 85,
+          ]).buffer,
+          hasContent: true,
+        },
+        version: 1,
       }),
-      getCanvas: () => ({ width: 4, height: 4 }),
     });
 
     const layer: Layer = {

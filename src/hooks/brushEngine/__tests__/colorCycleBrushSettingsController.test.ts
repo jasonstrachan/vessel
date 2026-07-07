@@ -7,7 +7,7 @@ import {
   updateColorCycleStampDitherPixelSize,
 } from '../colorCycleBrushSettingsController';
 import { BrushShape } from '@/types';
-import type { ColorCycleBrushImplementation } from '../ColorCycleBrushMigration';
+import type { ColorCycleSettingsPatchBrush } from '../colorCycleBrushSettingsPatch';
 
 const makeBrush = () => ({
   setGradientBands: jest.fn(),
@@ -33,7 +33,7 @@ describe('colorCycleBrushSettingsController', () => {
     updateColorCycleGradientBandsForLayer({
       activeLayerId: 'layer-1',
       getLayers: () => [{ id: 'layer-1', layerType: 'color-cycle' }],
-      getActiveLayerColorCycleBrush: () => brush as unknown as ColorCycleBrushImplementation,
+      getActiveLayerColorCycleBrush: () => brush as unknown as ColorCycleSettingsPatchBrush,
       initializeColorCycleBrush: () => null,
       gradientBands: 14,
       renderBrushToLayerCanvas,
@@ -50,7 +50,7 @@ describe('colorCycleBrushSettingsController', () => {
     updateColorCycleBandSpacingForLayer({
       activeLayerId: 'layer-1',
       getLayers: () => [{ id: 'layer-1', layerType: 'color-cycle' }],
-      getActiveLayerColorCycleBrush: () => brush as unknown as ColorCycleBrushImplementation,
+      getActiveLayerColorCycleBrush: () => brush as unknown as ColorCycleSettingsPatchBrush,
       initializeColorCycleBrush: () => null,
       brushShape: BrushShape.COLOR_CYCLE_SHAPE,
       colorCycleBandSpacingPx: 9,
@@ -70,7 +70,7 @@ describe('colorCycleBrushSettingsController', () => {
     updateColorCycleDitherPaletteSpreadForLayer({
       activeLayerId: 'layer-1',
       getLayers: () => [{ id: 'layer-1', layerType: 'color-cycle' }],
-      getActiveLayerColorCycleBrush: () => brush as unknown as ColorCycleBrushImplementation,
+      getActiveLayerColorCycleBrush: () => brush as unknown as ColorCycleSettingsPatchBrush,
       initializeColorCycleBrush: () => null,
       renderBrushToLayerCanvas,
     });
@@ -82,7 +82,7 @@ describe('colorCycleBrushSettingsController', () => {
     const brush = makeBrush();
 
     updateColorCycleDitherSettings({
-      brush: brush as unknown as ColorCycleBrushImplementation,
+      brush: brush as unknown as ColorCycleSettingsPatchBrush,
       isCCGradientActiveLayer: true,
       shouldApplyToolbarSettings: true,
       ditherEnabled: true,
@@ -106,14 +106,14 @@ describe('colorCycleBrushSettingsController', () => {
     const brush = makeBrush();
 
     updateColorCycleFillDitherPixelSize({
-      brush: brush as unknown as ColorCycleBrushImplementation,
+      brush: brush as unknown as ColorCycleSettingsPatchBrush,
       isCCGradientActiveLayer: true,
       pressureLinkedFillResolution: false,
       fillResolution: 4.9,
     });
 
     updateColorCycleStampDitherPixelSize({
-      brush: brush as unknown as ColorCycleBrushImplementation,
+      brush: brush as unknown as ColorCycleSettingsPatchBrush,
       shouldApplyToolbarSettings: true,
       stampDitherPixelSize: 2.2,
     });
@@ -126,7 +126,7 @@ describe('colorCycleBrushSettingsController', () => {
     const brush = makeBrush();
 
     updateColorCycleDitherSettings({
-      brush: brush as unknown as ColorCycleBrushImplementation,
+      brush: brush as unknown as ColorCycleSettingsPatchBrush,
       isCCGradientActiveLayer: false,
       shouldApplyToolbarSettings: false,
       ditherEnabled: false,
@@ -140,7 +140,7 @@ describe('colorCycleBrushSettingsController', () => {
     });
 
     updateColorCycleStampDitherPixelSize({
-      brush: brush as unknown as ColorCycleBrushImplementation,
+      brush: brush as unknown as ColorCycleSettingsPatchBrush,
       shouldApplyToolbarSettings: false,
       stampDitherPixelSize: 1,
     });

@@ -26,6 +26,29 @@ const createLayer = (): Layer =>
     framebuffer: document.createElement('canvas'),
   }) as unknown as Layer;
 
+const makeCommittedLayerDocument = (slot: number) => ({
+  read: () => ({
+    snapshot: {
+      width: 8,
+      height: 8,
+      paintBuffer: new Uint8Array(64).fill(1).buffer,
+      gradientIdBuffer: new Uint8Array(64).fill(slot).buffer,
+      gradientDefIdBuffer: new Uint16Array(64).buffer,
+      hasContent: true,
+    },
+    version: 1,
+  }),
+});
+
+const makeCommittedBrush = (slot: number) => ({
+  commitCurrentStroke: jest.fn(),
+  setGradientSlotStops: jest.fn(),
+  bindGradientDefIdToSlot: jest.fn(),
+  commitToLayer: jest.fn(),
+  renderDirectToCanvas: jest.fn(),
+  getColorCycleLayerDocument: jest.fn(() => makeCommittedLayerDocument(slot)),
+});
+
 describe('commitRasterOverlay', () => {
   it('reuses the same temp canvas across calls', async () => {
     const captureCanvasToActiveLayer = jest.fn().mockResolvedValue(undefined);
@@ -205,16 +228,7 @@ describe('commitRasterOverlay', () => {
       speedCps: 0.2,
     });
 
-    const commitCommittedLayerState = jest.fn();
-    const brush = {
-      commitCurrentStroke: jest.fn(),
-      setGradientSlotStops: jest.fn(),
-      commitCommittedLayerState,
-      getCommittedDimensions: jest.fn(() => ({ width: 8, height: 8 })),
-      getCommittedIndexData: jest.fn(() => new Uint8Array(64).fill(1)),
-      getCommittedGradientIdData: jest.fn(() => new Uint8Array(64).fill(5)),
-      getCommittedPaletteRGBABySlot: jest.fn(() => []),
-    };
+    const brush = makeCommittedBrush(5);
 
     await commitColorCycleLayerStroke(
       {
@@ -242,17 +256,14 @@ describe('commitRasterOverlay', () => {
       }
     );
 
-    expect(commitCommittedLayerState).toHaveBeenCalledWith({
-      layerId: layer.id,
-      targetCanvas: canvas,
-      opacity: 0.75,
-      binding: {
-        defId: 21,
-        slot: 5,
-        bbox: { minX: 1, minY: 2, width: 3, height: 4 },
-        previewSlot: null,
-      },
-    });
+    expect(brush.bindGradientDefIdToSlot).toHaveBeenCalledWith(
+      layer.id,
+      21,
+      5,
+      { minX: 1, minY: 2, width: 3, height: 4 },
+      null
+    );
+    expect(brush.commitToLayer).toHaveBeenCalledWith(canvas, layer.id, 0.75);
     expect(setCcGradientSampleCount).not.toHaveBeenCalled();
 
     getStateSpy.mockRestore();
@@ -311,16 +322,7 @@ describe('commitRasterOverlay', () => {
       speedCps: 0.5,
     });
 
-    const commitCommittedLayerState = jest.fn();
-    const brush = {
-      commitCurrentStroke: jest.fn(),
-      setGradientSlotStops: jest.fn(),
-      commitCommittedLayerState,
-      getCommittedDimensions: jest.fn(() => ({ width: 8, height: 8 })),
-      getCommittedIndexData: jest.fn(() => new Uint8Array(64).fill(1)),
-      getCommittedGradientIdData: jest.fn(() => new Uint8Array(64).fill(6)),
-      getCommittedPaletteRGBABySlot: jest.fn(() => []),
-    };
+    const brush = makeCommittedBrush(6);
 
     await commitColorCycleLayerStroke(
       {
@@ -348,17 +350,14 @@ describe('commitRasterOverlay', () => {
       }
     );
 
-    expect(commitCommittedLayerState).toHaveBeenCalledWith({
-      layerId: layer.id,
-      targetCanvas: canvas,
-      opacity: 1,
-      binding: {
-        defId: 23,
-        slot: 6,
-        bbox: { minX: 1, minY: 2, width: 3, height: 4 },
-        previewSlot: null,
-      },
-    });
+    expect(brush.bindGradientDefIdToSlot).toHaveBeenCalledWith(
+      layer.id,
+      23,
+      6,
+      { minX: 1, minY: 2, width: 3, height: 4 },
+      null
+    );
+    expect(brush.renderDirectToCanvas).toHaveBeenCalledWith(canvas, layer.id);
     expect(updateLayer).toHaveBeenCalledWith(
       layer.id,
       {
@@ -437,16 +436,7 @@ describe('commitRasterOverlay', () => {
       seamProfile: 'soft',
     });
 
-    const commitCommittedLayerState = jest.fn();
-    const brush = {
-      commitCurrentStroke: jest.fn(),
-      setGradientSlotStops: jest.fn(),
-      commitCommittedLayerState,
-      getCommittedDimensions: jest.fn(() => ({ width: 8, height: 8 })),
-      getCommittedIndexData: jest.fn(() => new Uint8Array(64).fill(1)),
-      getCommittedGradientIdData: jest.fn(() => new Uint8Array(64).fill(6)),
-      getCommittedPaletteRGBABySlot: jest.fn(() => []),
-    };
+    const brush = makeCommittedBrush(6);
 
     await commitColorCycleLayerStroke(
       {
@@ -483,17 +473,14 @@ describe('commitRasterOverlay', () => {
       ],
       'soft'
     );
-    expect(commitCommittedLayerState).toHaveBeenCalledWith({
-      layerId: layer.id,
-      targetCanvas: canvas,
-      opacity: 1,
-      binding: {
-        defId: 22,
-        slot: 6,
-        bbox: undefined,
-        previewSlot: TEMP_SAMPLE_SLOT,
-      },
-    });
+    expect(brush.bindGradientDefIdToSlot).toHaveBeenCalledWith(
+      layer.id,
+      22,
+      6,
+      undefined,
+      TEMP_SAMPLE_SLOT
+    );
+    expect(brush.renderDirectToCanvas).toHaveBeenCalledWith(canvas, layer.id);
     expect(updateLayer).toHaveBeenCalledWith(
       layer.id,
       {

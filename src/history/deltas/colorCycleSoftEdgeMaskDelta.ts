@@ -98,6 +98,16 @@ const removeSoftEdgeMaskFromLayer = (layer: Layer, nextVersion: number): Layer =
   };
 };
 
+const getSoftEdgeDirtyRect = (
+  layer: Layer,
+  snapshot: ColorCycleEraseMaskSnapshot | undefined,
+  project: ReturnType<typeof useAppStore.getState>['project'],
+) => {
+  const width = snapshot?.width ?? layer.imageData?.width ?? layer.framebuffer?.width ?? project?.width ?? 0;
+  const height = snapshot?.height ?? layer.imageData?.height ?? layer.framebuffer?.height ?? project?.height ?? 0;
+  return width > 0 && height > 0 ? { x: 0, y: 0, width, height } : null;
+};
+
 class ColorCycleSoftEdgeMaskDelta implements HistoryDelta {
   readonly _tag = 'color-cycle-soft-edge-mask';
   readonly layerId: string;
@@ -126,6 +136,7 @@ class ColorCycleSoftEdgeMaskDelta implements HistoryDelta {
 
     if (!snapshot) {
       const nextVersion = (layer.colorCycleData?.softEdgeMaskVersion ?? 0) + 1;
+      const dirtyRect = getSoftEdgeDirtyRect(layer, snapshot, state.project);
       useAppStore.setState((current) => ({
         layers: current.layers.map((candidate) => (
           candidate.id === this.layerId
@@ -133,10 +144,16 @@ class ColorCycleSoftEdgeMaskDelta implements HistoryDelta {
             : candidate
         )),
       }));
-      state.setLayersNeedRecomposition(true);
+      if (dirtyRect) {
+        useAppStore.getState().markCompositeSegmentsDirtyByLayerIds([this.layerId], {
+          dirtyRectsByLayerId: new Map([[this.layerId, [dirtyRect]]]),
+        });
+      }
+      useAppStore.setState({ layersNeedRecomposition: true });
       return;
     }
 
+    const dirtyRect = getSoftEdgeDirtyRect(layer, snapshot, state.project);
     state.updateLayer(
       this.layerId,
       {
@@ -147,9 +164,12 @@ class ColorCycleSoftEdgeMaskDelta implements HistoryDelta {
           softEdgeMaskVersion: snapshot.version,
         },
       },
-      { skipColorCycleSync: true },
+      {
+        skipColorCycleSync: true,
+        dirtyRects: dirtyRect ? [dirtyRect] : undefined,
+      },
     );
-    state.setLayersNeedRecomposition(true);
+    useAppStore.setState({ layersNeedRecomposition: true });
   }
 
   collectRehydrationTargets(targets: HistoryRehydrationTargets): void {

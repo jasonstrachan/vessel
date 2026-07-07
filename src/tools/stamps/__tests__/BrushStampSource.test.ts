@@ -40,7 +40,7 @@ describe('BrushStampSource eraser overrides', () => {
 
     const source = new BrushStampSource({
       getState,
-      brushEngine,
+      brushRuntime: brushEngine,
       userBrushEngine,
       resolveCustomBrush: () => undefined,
     });
@@ -96,7 +96,7 @@ describe('BrushStampSource eraser overrides', () => {
 
     const source = new BrushStampSource({
       getState: () => state,
-      brushEngine,
+      brushRuntime: brushEngine,
       userBrushEngine,
       resolveCustomBrush: () => undefined,
     });
@@ -138,7 +138,7 @@ describe('BrushStampSource eraser overrides', () => {
     const source = new BrushStampSource(
       {
         getState: () => state,
-        brushEngine,
+        brushRuntime: brushEngine,
         userBrushEngine,
         resolveCustomBrush: () => undefined,
       },
@@ -192,7 +192,7 @@ describe('BrushStampSource eraser overrides', () => {
 
     const source = new BrushStampSource({
       getState: () => state,
-      brushEngine,
+      brushRuntime: brushEngine,
       userBrushEngine,
       resolveCustomBrush: () => undefined,
     });

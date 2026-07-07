@@ -1,4 +1,5 @@
 import { getAppStoreState } from '@/stores/appStoreAccess';
+import { getColorCycleBrushManager } from '@/stores/colorCycleBrushManager';
 import { debugLog } from '@/utils/debug';
 import type React from 'react';
 import { useAppStore } from '../../../../stores/useAppStore';
@@ -76,6 +77,7 @@ import {
   renderShapeFillDraftPreview,
   type ShapeFillPreviewRect,
 } from '@/hooks/canvas/handlers/shapes/shapeFill/shapeFillPreview';
+import { markDerivedSurfaceBuiltFromVersion } from '@/lib/colorCycle/document';
 
 const SHAPE_PREVIEW_OPACITY = 0.8;
 
@@ -89,6 +91,19 @@ const shouldKeepCachedCcPreviewVisible = (params: {
   hasCachedPreview: boolean;
   canReplayCurrentPreview: boolean;
 }): boolean => params.hasCachedPreview && params.canReplayCurrentPreview;
+
+export const markShapePreviewOverlayBuiltFromActiveDocument = (
+  overlayCanvas: HTMLCanvasElement | null | undefined,
+  activeLayerId: string | null | undefined,
+): number | null => {
+  if (!overlayCanvas || !activeLayerId) {
+    return null;
+  }
+  const manager = getColorCycleBrushManager() as Partial<ReturnType<typeof getColorCycleBrushManager>>;
+  const documentVersion = manager.getDocument?.(activeLayerId)?.version ?? null;
+  markDerivedSurfaceBuiltFromVersion(overlayCanvas, documentVersion);
+  return documentVersion;
+};
 
 const LIVE_SHAPE_PREVIEW_MAX_POINTS = 1024;
 
@@ -698,7 +713,7 @@ export const createShapeToolHandler = (
     canvas,
     pan,
     drawingHandlers,
-    brushEngine,
+    shapeBrushRuntime,
     tools,
     overlayCanvasRef,
     compositeCanvasRef,
@@ -992,7 +1007,7 @@ export const createShapeToolHandler = (
     stateMachine.finalizationComplete();
     if (project) {
       try {
-        getAppStoreState().setLayersNeedRecomposition(true);
+        useAppStore.setState({ layersNeedRecomposition: true });
       } catch {
         // quiet
       }
@@ -1378,7 +1393,7 @@ export const createShapeToolHandler = (
     const vertices = polygonGradientState.vertices;
 
     const drawCanvas = drawingHandlers.drawingCanvasRef.current;
-    if (!vertices || vertices.length < 3 || !brushEngine || !drawCanvas) {
+    if (!vertices || vertices.length < 3 || !shapeBrushRuntime || !drawCanvas) {
       return () => {}; // No-op cleanup
     }
 
@@ -1406,7 +1421,7 @@ export const createShapeToolHandler = (
         return;
       }
 
-      brushEngine.drawContourPolygon(
+      shapeBrushRuntime.drawContourPolygon(
         drawCtx,
         {
           vertices,
@@ -1457,7 +1472,7 @@ export const createShapeToolHandler = (
     const vertices = polygonGradientState.vertices;
 
     const drawCanvas = drawingHandlers.drawingCanvasRef.current;
-    if (!vertices || vertices.length < 3 || !brushEngine || !drawCanvas) {
+    if (!vertices || vertices.length < 3 || !shapeBrushRuntime || !drawCanvas) {
       return () => {}; // No-op cleanup
     }
 
@@ -1496,7 +1511,7 @@ export const createShapeToolHandler = (
           return;
         }
 
-        brushEngine.drawCrossHatchPolygon(
+        shapeBrushRuntime.drawCrossHatchPolygon(
           drawCtx,
           {
             vertices,
@@ -1545,7 +1560,7 @@ export const createShapeToolHandler = (
     const vertices = polygonGradientState.vertices;
 
     const drawCanvas = drawingHandlers.drawingCanvasRef.current;
-    if (!vertices || vertices.length < 3 || !brushEngine || !drawCanvas) {
+    if (!vertices || vertices.length < 3 || !shapeBrushRuntime || !drawCanvas) {
       return () => {}; // No-op cleanup
     }
 
@@ -1598,7 +1613,7 @@ export const createShapeToolHandler = (
           return;
         }
 
-        brushEngine.drawContourPolygon(
+        shapeBrushRuntime.drawContourPolygon(
           drawCtx,
           {
             vertices,
@@ -3220,6 +3235,10 @@ export const createShapeToolHandler = (
                 patternTileOffsetX: brushNow.patternTileOffsetX,
                 patternTileOffsetY: brushNow.patternTileOffsetY,
               });
+              const previewDocumentVersion = markShapePreviewOverlayBuiltFromActiveDocument(
+                overlayCanvas,
+                storeNow.activeLayerId,
+              );
               if (isSampledPreviewMode) {
                 ccLog('shape: sampled preview dispatch', {
                   pointCount: committedPolygon.length,
@@ -3285,6 +3304,7 @@ export const createShapeToolHandler = (
                       latestPolygonPreviewPoint
                         ? { ...latestPolygonPreviewPoint }
                         : null,
+                    documentVersion: previewDocumentVersion,
                   })
                 : (() => {
                     const preparedGradientKey = buildCcShapePreviewGradientCacheKey({
@@ -3336,6 +3356,7 @@ export const createShapeToolHandler = (
                           ? { ...latestPolygonPreviewPoint }
                           : null,
                       previewRenderSettings,
+                      documentVersion: previewDocumentVersion,
                     });
                   })();
               stampCcHangProbe({
@@ -3680,6 +3701,10 @@ export const createShapeToolHandler = (
       }
 
       overlayCtx.restore();
+      markShapePreviewOverlayBuiltFromActiveDocument(
+        overlayCanvas,
+        getAppStoreState().activeLayerId,
+      );
     };
 
     const schedulePolygonShapePreviewFrame = (
@@ -3843,7 +3868,7 @@ export const createShapeToolHandler = (
     });
     const drawCtx = drawingHandlers.drawingCanvasRef.current?.getContext('2d', { willReadFrequently: true });
 
-    if (drawCtx && brushEngine) {
+    if (drawCtx && shapeBrushRuntime) {
       if (isContourPolygon) {
         const shapeMode = tools.brushSettings.shapeGradientMode || 'contour';
 
@@ -3870,7 +3895,7 @@ export const createShapeToolHandler = (
             spacingReferenceSpacing: tools.brushSettings.crossHatchSpacing || 10,
           });
 
-          brushEngine.drawCrossHatchPolygon(
+          shapeBrushRuntime.drawCrossHatchPolygon(
             drawCtx,
             {
               vertices,
@@ -3979,7 +4004,7 @@ export const createShapeToolHandler = (
             getAppStoreState().tools.brushSettings,
             { triangleFillSize: initialSize },
             () => {
-              brushEngine.drawDelaunayPolygon(
+              shapeBrushRuntime.drawDelaunayPolygon(
                 drawCtx,
                 {
                   vertices,
@@ -4055,7 +4080,7 @@ export const createShapeToolHandler = (
         drawCtx.globalCompositeOperation = 'source-over';
         drawCtx.globalAlpha = 1;
         drawCtx.imageSmoothingEnabled = false;
-        brushEngine.drawPolygonGradient(
+        shapeBrushRuntime.drawPolygonGradient(
           drawCtx,
           {
             vertices,
@@ -4135,7 +4160,7 @@ export const createShapeToolHandler = (
     setBrushSettings({ triangleFillSize: Math.round(finalSize) });
 
     const drawCtx = drawingHandlers.drawingCanvasRef.current?.getContext('2d', { willReadFrequently: true });
-    if (drawCtx && brushEngine && polygonState.vertices) {
+    if (drawCtx && shapeBrushRuntime && polygonState.vertices) {
       const vertices = polygonState.vertices;
       drawCtx.clearRect(0, 0, drawCtx.canvas.width, drawCtx.canvas.height);
 
@@ -4145,7 +4170,7 @@ export const createShapeToolHandler = (
         getAppStoreState().tools.brushSettings,
         patch,
         () => {
-          brushEngine.drawContourPolygon(
+          shapeBrushRuntime.drawContourPolygon(
             drawCtx,
             {
               vertices,
@@ -4226,7 +4251,7 @@ export const createShapeToolHandler = (
     setBrushSettings({ triangleFillRotation: finalRotation });
 
     const drawCtx = drawingHandlers.drawingCanvasRef.current?.getContext('2d', { willReadFrequently: true });
-    if (drawCtx && brushEngine && polygonState.vertices) {
+    if (drawCtx && shapeBrushRuntime && polygonState.vertices) {
       const vertices = polygonState.vertices;
       drawCtx.clearRect(0, 0, drawCtx.canvas.width, drawCtx.canvas.height);
 
@@ -4236,7 +4261,7 @@ export const createShapeToolHandler = (
         getAppStoreState().tools.brushSettings,
         patch,
         () => {
-          brushEngine.drawDelaunayPolygon(
+          shapeBrushRuntime.drawDelaunayPolygon(
             drawCtx,
             {
               vertices,
@@ -4304,7 +4329,7 @@ export const createShapeToolHandler = (
     getAppStoreState().setPolygonGradientState({ tempSize: newSize });
 
     const drawCtx = drawingHandlers.drawingCanvasRef.current?.getContext('2d', { willReadFrequently: true });
-    if (drawCtx && brushEngine) {
+    if (drawCtx && shapeBrushRuntime) {
       drawCtx.clearRect(0, 0, drawCtx.canvas.width, drawCtx.canvas.height);
 
       const patch: Partial<BrushSettings> = { triangleFillSize: newSize };
@@ -4313,7 +4338,7 @@ export const createShapeToolHandler = (
         getAppStoreState().tools.brushSettings,
         patch,
         () => {
-          brushEngine.drawDelaunayPolygon(
+          shapeBrushRuntime.drawDelaunayPolygon(
             drawCtx,
             {
               vertices,
@@ -4436,6 +4461,7 @@ export const __shapeToolTestUtils = {
   normalizePreparedPreviewStops,
   buildCcShapePreviewGradientCacheKey,
   prepareCcShapePreviewGradient,
+  markShapePreviewOverlayBuiltFromActiveDocument,
   getClosedCommittedPolygon,
   buildPolygonPreviewModel,
 };

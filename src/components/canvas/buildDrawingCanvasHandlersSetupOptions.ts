@@ -13,7 +13,7 @@ interface BuildDrawingCanvasHandlersSetupOptionsArgs {
     | 'interactionDispatch'
     | 'stateMachine'
     | 'tools'
-    | 'brushEngine'
+    | 'brushRuntime'
   >;
   runtime: Pick<
     UseDrawingCanvasHandlersSetupBridgeOptions,

@@ -4,6 +4,7 @@ import {
   selectColorCycleDesiredPlaying,
   selectEffectiveColorCyclePlaying,
 } from '@/stores/useAppStore';
+import type { ColorCycleSurfaceBrush } from '@/hooks/canvas/handlers/colorCycle/colorCycleSurface';
 
 export const syncStrokeStartColorCyclePlayback = ({
   storeRef,
@@ -15,12 +16,12 @@ export const syncStrokeStartColorCyclePlayback = ({
 }: {
   storeRef: React.MutableRefObject<AppState>;
   getColorCycleBrushManager: () => {
-    getBrush: (layerId: string) => import('@/hooks/brushEngine/ColorCycleBrushMigration').ColorCycleBrushImplementation | null | undefined;
+    getSurfaceBrush: (layerId: string) => ColorCycleSurfaceBrush | null | undefined;
   };
   ensureActiveColorCycleGradientSlot: (
     state: AppState,
     layer: AppState['layers'][number],
-    brush?: import('@/hooks/brushEngine/ColorCycleBrushMigration').ColorCycleBrushImplementation | null
+    brush?: ColorCycleSurfaceBrush | null
   ) => void;
   continuousColorCycleAnimationActiveRef: React.MutableRefObject<boolean>;
   startingColorCycleAnimationRef: React.MutableRefObject<boolean>;
@@ -30,11 +31,7 @@ export const syncStrokeStartColorCyclePlayback = ({
   const refreshedLayer = refreshedState.layers.find((layer) => layer.id === refreshedState.activeLayerId);
   if (refreshedLayer?.layerType === 'color-cycle') {
     const colorCycleBrushManager = getColorCycleBrushManager();
-    const colorCycleBrush = (
-      typeof refreshedState.getLayerColorCycleBrush === 'function'
-        ? refreshedState.getLayerColorCycleBrush(refreshedLayer.id)
-        : null
-    ) ?? colorCycleBrushManager.getBrush(refreshedLayer.id);
+    const colorCycleBrush = colorCycleBrushManager.getSurfaceBrush(refreshedLayer.id);
     ensureActiveColorCycleGradientSlot(refreshedState, refreshedLayer, colorCycleBrush);
   }
 

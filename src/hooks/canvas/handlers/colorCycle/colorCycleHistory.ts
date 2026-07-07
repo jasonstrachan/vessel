@@ -4,8 +4,10 @@ import type { FinalizeQueue } from '@/lib/canvas';
 import type { CanvasSnapshot } from '@/types';
 import { captureColorCycleBrushState } from '@/history/helpers/colorCycle';
 import type { ColorCycleSerializedState } from '@/history/helpers/colorCycle';
+import { getColorCycleSerializedStatePaintByteLength } from '@/lib/colorCycle/document';
 import { commitLayerHistory } from '@/history/helpers/layerHistory';
 import type { BoundingBox } from '@/hooks/canvas/handlers/shapes/ShapeFinalizeHandler';
+import { getColorCycleBrushManager } from '@/stores/colorCycleBrushManager';
 import { captureColorCycleCanvasSnapshot } from '@/utils/colorCycleCanvasSnapshot';
 
 type CaptureRegion = { x: number; y: number; width: number; height: number };
@@ -162,8 +164,8 @@ export const scheduleDeferredColorCycleSave = (
       }
 
       debugVerbose('[cc-delta-capture]', {
-        beforeBytes: beforeColorState?.layers?.[0]?.strokeData?.paintBuffer?.byteLength ?? -1,
-        afterBytes: nextAfterColorState?.layers?.[0]?.strokeData?.paintBuffer?.byteLength ?? -1,
+        beforeBytes: getColorCycleSerializedStatePaintByteLength(beforeColorState),
+        afterBytes: getColorCycleSerializedStatePaintByteLength(nextAfterColorState),
         beforeCtr: beforeColorState?.layers?.[0]?.strokeData?.strokeCounter ?? -1,
         afterCtr: nextAfterColorState?.layers?.[0]?.strokeData?.strokeCounter ?? -1,
       });
@@ -171,10 +173,13 @@ export const scheduleDeferredColorCycleSave = (
       const state = getAppStoreState();
       const layer = state.layers.find((entry) => entry.id === layerId);
       if (layer?.layerType === 'color-cycle' && layer.colorCycleData) {
+        const manager = getColorCycleBrushManager() as Partial<ReturnType<typeof getColorCycleBrushManager>>;
+        const documentVersion = manager.getDocument?.(layerId)?.version ?? null;
         const nextCanvasImageData = captureColorCycleCanvasSnapshot({
           canvas,
           existingImageData: layer.colorCycleData.canvasImageData,
           roi,
+          builtFromVersion: documentVersion,
         });
 
         if (nextCanvasImageData) {

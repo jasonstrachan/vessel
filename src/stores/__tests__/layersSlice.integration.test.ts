@@ -1,5 +1,12 @@
 import { createDefaultLayerAlignment } from '@/utils/layoutDefaults';
 import type { Layer } from '@/types';
+import { ColorCycleLayerDocument } from '@/lib/colorCycle/document/ColorCycleLayerDocument';
+import type { CompositeSegment } from '@/stores/slices/layersSlice';
+import {
+  getDerivedSurfaceBuiltFromVersion,
+  markDerivedSurfaceBuiltFromVersion,
+} from '@/lib/colorCycle/document/derivedSurfaceMetadata';
+import type { ColorCycleLayerDocumentState } from '@/lib/colorCycle/documentState';
 import { compositeBitmapManager } from '@/lib/performance/CompositeBitmapManager';
 import historyManager from '@/history/historyService';
 
@@ -8,6 +15,7 @@ const makeCanvas = () => {
     clearRect: jest.fn(),
     putImageData: jest.fn(),
     drawImage: jest.fn(),
+    fillRect: jest.fn(),
     getImageData: jest.fn(() => new ImageData(32, 32)),
   } as unknown as CanvasRenderingContext2D;
 
@@ -20,8 +28,8 @@ const makeCanvas = () => {
 
 const mockBrush = {
   getCanvas: jest.fn(() => makeCanvas()),
+  getColorCycleLayerDocument: jest.fn((layerId: string) => documentRegistry.get(layerId)),
   getLayerSnapshot: jest.fn(),
-  applyLayerSnapshot: jest.fn(),
   setSpeed: jest.fn(),
   setTargetCanvas: jest.fn(),
   updateColorCycleTexture: jest.fn(),
@@ -31,10 +39,60 @@ const mockBrush = {
   endStroke: jest.fn(),
   setFlowMode: jest.fn(),
   setFlowDirection: jest.fn(),
+  isPlaying: jest.fn(() => false),
+  startAnimation: jest.fn(),
+  stopAnimation: jest.fn(),
+  updateAnimation: jest.fn(),
   isUsingWebGL: jest.fn(() => false),
+};
+const mockApplyLayerSnapshot = jest.fn();
+
+const attachLegacyColorCycleTopLevelBuffersForTest = (
+  data: NonNullable<Layer['colorCycleData']>,
+  buffers: import('@/lib/colorCycle/document/legacyTopLevelBuffers').LegacyColorCycleTopLevelBuffers,
+) => {
+  const { attachLegacyColorCycleTopLevelBuffers } = jest.requireActual(
+    '@/lib/colorCycle/document/legacyTopLevelBuffers',
+  ) as typeof import('@/lib/colorCycle/document/legacyTopLevelBuffers');
+  return attachLegacyColorCycleTopLevelBuffers(data, buffers);
+};
+
+const registerMockBrushLayerSnapshotRuntime = () => {
+  const { registerColorCycleBrushLayerSnapshotRuntime } = jest.requireActual(
+    '@/lib/colorCycle/document/brushPersistenceAdapter',
+  ) as typeof import('@/lib/colorCycle/document/brushPersistenceAdapter');
+  registerColorCycleBrushLayerSnapshotRuntime(mockBrush, {
+    apply: mockApplyLayerSnapshot,
+  });
 };
 
 const brushRegistry = new Map<string, typeof mockBrush>();
+const documentRegistry = new Map<string, ColorCycleLayerDocument>();
+
+const makeDocumentState = (
+  layerId: string,
+  width = 32,
+  height = 32,
+): ColorCycleLayerDocumentState => {
+  const pixels = width * height;
+  return {
+    layerId,
+    width,
+    height,
+    paintBuffer: new Uint8Array(pixels).fill(1).buffer,
+    gradientIdBuffer: new Uint8Array(pixels).buffer,
+    gradientDefIdBuffer: new Uint16Array(pixels).buffer,
+    speedBuffer: new Uint8Array(pixels).fill(1).buffer,
+    flowBuffer: new Uint8Array(pixels).fill(1).buffer,
+    phaseBuffer: new Uint8Array(pixels).buffer,
+    hasContent: true,
+    sources: {
+      brushStateSnapshot: false,
+      topLevelBuffers: false,
+      legacyStateRefs: false,
+    },
+  };
+};
 
 const mockManager = {
   validateColorCycleBrush: jest.fn(() => true),
@@ -43,20 +101,45 @@ const mockManager = {
     return true;
   }),
   setActiveState: jest.fn(),
-  getLayerColorCycleBrush: jest.fn((layerId: string) => brushRegistry.get(layerId) ?? null),
   getBrush: jest.fn((layerId: string) => brushRegistry.get(layerId) ?? null),
+  getPlaybackBrush: jest.fn((layerId: string) => brushRegistry.get(layerId) ?? null),
+  getSurfaceBrush: jest.fn((layerId: string) => brushRegistry.get(layerId) ?? null),
+  getGradientApplyBrush: jest.fn((layerId: string) => brushRegistry.get(layerId) ?? null),
+  getShapeFillBrush: jest.fn((layerId: string) => brushRegistry.get(layerId) ?? null),
+  getHistoryBrush: jest.fn((layerId: string) => brushRegistry.get(layerId) ?? null),
+  getSerializedStateBrush: jest.fn((layerId: string) => brushRegistry.get(layerId) ?? null),
+  getLayerActivationBrush: jest.fn((layerId: string) => brushRegistry.get(layerId) ?? null),
+  getCropBrush: jest.fn((layerId: string) => brushRegistry.get(layerId) ?? null),
+  getCommitBrush: jest.fn((layerId: string) => brushRegistry.get(layerId) ?? null),
+  getSpeedSettingsBrush: jest.fn((layerId: string) => brushRegistry.get(layerId) ?? null),
+  hasBrush: jest.fn((layerId: string) => brushRegistry.has(layerId)),
   removeColorCycleBrush: jest.fn(),
   createBrush: jest.fn((layerId: string) => {
     brushRegistry.set(layerId, mockBrush);
     return mockBrush;
   }),
+  registerRestoredBrush: jest.fn((layerId: string, brush: typeof mockBrush) => {
+    brushRegistry.set(layerId, brush);
+  }),
+  applySettingsToBrushes: jest.fn(),
   deleteBrush: jest.fn(),
   cleanupInactive: jest.fn(),
   cleanupAll: jest.fn(),
   transferColorCycleBrush: jest.fn(),
   cleanupOrphanedBrushes: jest.fn(),
   setCanvasImplementation: jest.fn(),
+  getDocument: jest.fn((layerId: string) => documentRegistry.get(layerId)),
+  ensureDocument: jest.fn((layerId: string, width: number, height: number) => {
+    const existing = documentRegistry.get(layerId);
+    if (existing) {
+      return existing;
+    }
+    const document = new ColorCycleLayerDocument(makeDocumentState(layerId, width, height));
+    documentRegistry.set(layerId, document);
+    return document;
+  }),
   brushes: brushRegistry,
+  documents: documentRegistry,
   brushMetadata: new Map(),
   activeResources: new Set<string>(),
 };
@@ -145,6 +228,8 @@ beforeEach(() => {
       (fn as jest.Mock).mockReset();
     }
   });
+  mockApplyLayerSnapshot.mockReset();
+  registerMockBrushLayerSnapshotRuntime();
   Object.values(mockManager).forEach((fn) => {
     if (typeof fn === 'function') {
       (fn as jest.Mock).mockReset();
@@ -152,10 +237,34 @@ beforeEach(() => {
   });
 
   brushRegistry.clear();
+  documentRegistry.clear();
   mockManager.brushMetadata.clear();
   mockManager.activeResources.clear();
   mockManager.getBrush.mockImplementation((layerId: string) => brushRegistry.get(layerId) ?? null);
-  mockManager.getLayerColorCycleBrush.mockImplementation((layerId: string) => brushRegistry.get(layerId) ?? null);
+  mockManager.getPlaybackBrush.mockImplementation((layerId: string) => brushRegistry.get(layerId) ?? null);
+  mockManager.getSurfaceBrush.mockImplementation((layerId: string) => brushRegistry.get(layerId) ?? null);
+  mockManager.getGradientApplyBrush.mockImplementation((layerId: string) => brushRegistry.get(layerId) ?? null);
+  mockManager.getShapeFillBrush.mockImplementation((layerId: string) => brushRegistry.get(layerId) ?? null);
+  mockManager.getHistoryBrush.mockImplementation((layerId: string) => brushRegistry.get(layerId) ?? null);
+  mockManager.getSerializedStateBrush.mockImplementation((layerId: string) => brushRegistry.get(layerId) ?? null);
+  mockManager.getLayerActivationBrush.mockImplementation((layerId: string) => brushRegistry.get(layerId) ?? null);
+  mockManager.getCropBrush.mockImplementation((layerId: string) => brushRegistry.get(layerId) ?? null);
+  mockManager.getCommitBrush.mockImplementation((layerId: string) => brushRegistry.get(layerId) ?? null);
+  mockManager.getSpeedSettingsBrush.mockImplementation((layerId: string) => brushRegistry.get(layerId) ?? null);
+  mockManager.registerRestoredBrush.mockImplementation((layerId: string, brush: typeof mockBrush) => {
+    brushRegistry.set(layerId, brush);
+  });
+  mockManager.getDocument.mockImplementation((layerId: string) => documentRegistry.get(layerId));
+  mockBrush.getColorCycleLayerDocument.mockImplementation((layerId: string) => documentRegistry.get(layerId));
+  mockManager.ensureDocument.mockImplementation((layerId: string, width: number, height: number) => {
+    const existing = documentRegistry.get(layerId);
+    if (existing) {
+      return existing;
+    }
+    const document = new ColorCycleLayerDocument(makeDocumentState(layerId, width, height));
+    documentRegistry.set(layerId, document);
+    return document;
+  });
   mockManager.createBrush.mockImplementation((layerId: string) => {
     brushRegistry.set(layerId, mockBrush);
     return mockBrush;
@@ -199,15 +308,15 @@ describe('layers slice integration', () => {
   });
 
   it('initializes color-cycle layer resources via the manager', () => {
-    mockManager.getBrush.mockReset();
-    mockManager.getBrush.mockReturnValue(mockBrush);
+    mockManager.getSpeedSettingsBrush.mockReset();
+    mockManager.getSpeedSettingsBrush.mockReturnValue(mockBrush);
     mockBrush.setSpeed.mockClear();
 
     const store = useAppStore.getState();
     const newLayerId = store.addLayer(createColorCycleLayerInput('CC Layer'));
 
     expect(mockManager.initColorCycleForLayer).toHaveBeenCalledWith(newLayerId, 256, 256, undefined);
-    expect(mockManager.getBrush).toHaveBeenCalledWith(newLayerId);
+    expect(mockManager.getSpeedSettingsBrush).toHaveBeenCalledWith(newLayerId);
   });
 
   it('blocks store updates from downgrading a color-cycle layer to normal', () => {
@@ -262,12 +371,13 @@ describe('layers slice integration', () => {
     }));
 
     mockManager.initColorCycleForLayer.mockClear();
-    mockManager.getBrush.mockReturnValue(mockBrush);
+    mockManager.getSurfaceBrush.mockReturnValue(mockBrush);
 
     useAppStore.getState().initColorCycleForLayer(newLayerId, 256, 256);
 
     const updatedLayer = useAppStore.getState().layers.find((candidate) => candidate.id === newLayerId);
-    expect(updatedLayer?.colorCycleData?.colorCycleBrush).toBe(mockBrush);
+    expect(updatedLayer?.colorCycleData?.colorCycleBrush).toBeUndefined();
+    expect(mockManager.getSurfaceBrush).toHaveBeenCalledWith(newLayerId);
     expect(mockManager.initColorCycleForLayer).not.toHaveBeenCalled();
   });
 
@@ -285,13 +395,13 @@ describe('layers slice integration', () => {
       },
     });
 
-    mockManager.getBrush.mockReset();
-    mockManager.getBrush.mockReturnValue(mockBrush);
+    mockManager.getSurfaceBrush.mockReset();
+    mockManager.getSurfaceBrush.mockReturnValue(mockBrush);
 
     useAppStore.getState().initColorCycleForLayer(layerId, 256, 256);
 
     const updatedLayer = useAppStore.getState().layers.find((candidate) => candidate.id === layerId);
-    expect(updatedLayer?.colorCycleData?.colorCycleBrush).toBe(mockBrush);
+    expect(updatedLayer?.colorCycleData?.colorCycleBrush).toBeUndefined();
     expect(updatedLayer?.colorCycleData?.repairStatus).toBeUndefined();
   });
 
@@ -309,8 +419,9 @@ describe('layers slice integration', () => {
     });
 
     brushRegistry.delete(layerId);
-    (restoreColorCycleBrushes as jest.Mock).mockImplementationOnce(async (layers: Layer[]) =>
-      layers.map((layer) =>
+    (restoreColorCycleBrushes as jest.Mock).mockImplementationOnce(async (layers: Layer[]) => {
+      brushRegistry.set(layerId, mockBrush);
+      return layers.map((layer) =>
         layer.id === layerId
           ? {
               ...layer,
@@ -323,10 +434,10 @@ describe('layers slice integration', () => {
               },
             }
           : layer,
-      ),
-    );
+      );
+    });
 
-    const firstBrush = useAppStore.getState().getLayerColorCycleBrush(layerId);
+    const firstBrush = mockManager.getBrush(layerId);
     expect(firstBrush).toBeNull();
 
     let warmedLayer = useAppStore.getState().layers.find((candidate) => candidate.id === layerId);
@@ -344,13 +455,14 @@ describe('layers slice integration', () => {
     );
     expect(warmedLayer?.colorCycleData?.deferredRuntimeRestore).toBe(false);
     expect(warmedLayer?.colorCycleData?.runtimeHydrationState).toBe('active');
-    expect(useAppStore.getState().getLayerColorCycleBrush(layerId)).toBe(mockBrush);
+    expect(mockManager.getBrush(layerId)).toBe(mockBrush);
   });
 
   it('does not eagerly reinitialize deferred color-cycle layers on activation', async () => {
     const store = useAppStore.getState();
     const snapshotImageData = new ImageData(32, 32);
     snapshotImageData.data[3] = 255;
+    markDerivedSurfaceBuiltFromVersion(snapshotImageData, 7);
     const restoredCanvasCtx = {
       clearRect: jest.fn(),
       putImageData: jest.fn(),
@@ -415,6 +527,7 @@ describe('layers slice integration', () => {
     expect(warmedLayer?.colorCycleData?.deferredRuntimeRestore).toBe(false);
     expect(warmedLayer?.colorCycleData?.runtimeHydrationState).toBe('active');
     expect(warmedLayer?.colorCycleData?.canvasImageData).toBe(snapshotImageData);
+    expect(getDerivedSurfaceBuiltFromVersion(warmedLayer?.colorCycleData?.canvasImageData)).toBe(7);
     expect(restoredCanvasCtx.putImageData).not.toHaveBeenCalled();
   });
 
@@ -484,8 +597,9 @@ describe('layers slice integration', () => {
     });
 
     brushRegistry.delete(layerId);
-    (restoreColorCycleBrushes as jest.Mock).mockImplementationOnce(async (layers: Layer[]) =>
-      layers.map((layer) =>
+    (restoreColorCycleBrushes as jest.Mock).mockImplementationOnce(async (layers: Layer[]) => {
+      brushRegistry.set(layerId, mockBrush);
+      return layers.map((layer) =>
         layer.id === layerId
           ? {
               ...layer,
@@ -498,8 +612,8 @@ describe('layers slice integration', () => {
               },
             }
           : layer,
-      ),
-    );
+      );
+    });
 
     const ensured = await useAppStore.getState().ensureColorCycleLayerRuntime(layerId, {
       target: 'active',
@@ -513,7 +627,7 @@ describe('layers slice integration', () => {
     );
     expect(warmedLayer?.colorCycleData?.deferredRuntimeRestore).toBe(false);
     expect(warmedLayer?.colorCycleData?.runtimeHydrationState).toBe('active');
-    expect(useAppStore.getState().getLayerColorCycleBrush(layerId)).toBe(mockBrush);
+    expect(mockManager.getBrush(layerId)).toBe(mockBrush);
   });
 
   it('keeps a deferred color-cycle layer cold when explicit runtime ensure fails', async () => {
@@ -600,7 +714,7 @@ describe('layers slice integration', () => {
     expect(brushRegistry.has(layerId)).toBe(false);
 
     (restoreColorCycleBrushes as jest.Mock).mockClear();
-    expect(useAppStore.getState().getLayerColorCycleBrush(layerId)).toBeNull();
+    expect(mockManager.getBrush(layerId)).toBeNull();
     expect(restoreColorCycleBrushes).not.toHaveBeenCalled();
 
     const retriedEnsure = await useAppStore.getState().ensureColorCycleLayerRuntime(layerId, {
@@ -623,18 +737,20 @@ describe('layers slice integration', () => {
     const store = useAppStore.getState();
     const layerId = store.addLayer({
       ...createColorCycleLayerInput('Warm Missing Runtime CC Layer'),
-      colorCycleData: {
+      colorCycleData: attachLegacyColorCycleTopLevelBuffersForTest({
         ...createColorCycleLayerInput('Warm Missing Runtime CC Layer').colorCycleData,
         deferredRuntimeRestore: false,
         runtimeHydrationState: 'warm',
         colorCycleBrush: undefined,
         canvas: makeCanvas(),
+      }, {
         gradientIdBuffer: new Uint8Array(32 * 32).buffer,
         gradientDefIdBuffer: new Uint16Array(32 * 32).buffer,
-      },
+      }),
     });
 
     brushRegistry.delete(layerId);
+    documentRegistry.set(layerId, new ColorCycleLayerDocument(makeDocumentState(layerId)));
     mockManager.initColorCycleForLayer.mockClear();
     (restoreColorCycleBrushes as jest.Mock).mockImplementationOnce(async (layers: Layer[]) =>
       layers.map((layer) =>
@@ -662,7 +778,7 @@ describe('layers slice integration', () => {
       [expect.objectContaining({ id: layerId })],
       { lazy: false, activeLayerId: layerId },
     );
-    expect(useAppStore.getState().getLayerColorCycleBrush(layerId)).toBe(mockBrush);
+    expect(mockManager.getBrush(layerId)).toBe(mockBrush);
     expect(mockManager.initColorCycleForLayer).not.toHaveBeenCalled();
   });
 
@@ -681,7 +797,7 @@ describe('layers slice integration', () => {
       alignment: createDefaultLayerAlignment(),
       layerType: 'color-cycle',
       version: 1,
-      colorCycleData: {
+      colorCycleData: attachLegacyColorCycleTopLevelBuffersForTest({
         gradient: [
           { position: 0, color: '#000000' },
           { position: 1, color: '#ffffff' },
@@ -729,8 +845,9 @@ describe('layers slice integration', () => {
             createdAtMs: 0,
           },
         ],
+      }, {
         gradientDefIdBuffer: new Uint16Array([2, 2, 0, 0]).buffer,
-      },
+      }),
     };
 
     useAppStore.setState((state) => ({
@@ -1233,7 +1350,7 @@ describe('layers slice integration', () => {
     mockManager.initColorCycleForLayer.mockClear();
     mockManager.createBrush.mockClear();
     mockBrush.setTargetCanvas.mockClear();
-    mockBrush.applyLayerSnapshot.mockClear();
+    mockApplyLayerSnapshot.mockClear();
     mockBrush.updateColorCycleTexture.mockClear();
     mockBrush.renderDirectToCanvas.mockClear();
     const sourcePaintBuffer = Uint8Array.from([0, 12, 0, 44]).buffer;
@@ -1242,20 +1359,16 @@ describe('layers slice integration', () => {
     const sourceSpeedBuffer = Uint8Array.from([0, 88, 0, 99]).buffer;
     const sourceFlowBuffer = Uint8Array.from([0, 1, 0, 2]).buffer;
     const sourcePhaseBuffer = Uint8Array.from([0, 64, 0, 128]).buffer;
-    mockBrush.getLayerSnapshot.mockImplementation((layerId: string) => (
-      layerId === originalId
-        ? {
-            paintBuffer: sourcePaintBuffer,
-            gradientIdBuffer: sourceGradientIdBuffer,
-            gradientDefIdBuffer: sourceGradientDefIdBuffer,
-            speedBuffer: sourceSpeedBuffer,
-            flowBuffer: sourceFlowBuffer,
-            phaseBuffer: sourcePhaseBuffer,
-            hasContent: true,
-            strokeCounter: 3,
-          }
-        : null
-    ));
+    documentRegistry.set(originalId, new ColorCycleLayerDocument({
+      ...makeDocumentState(originalId, 2, 2),
+      paintBuffer: sourcePaintBuffer,
+      gradientIdBuffer: sourceGradientIdBuffer,
+      gradientDefIdBuffer: sourceGradientDefIdBuffer,
+      speedBuffer: sourceSpeedBuffer,
+      flowBuffer: sourceFlowBuffer,
+      phaseBuffer: sourcePhaseBuffer,
+      hasContent: true,
+    }));
 
     const duplicatedId = useAppStore.getState().duplicateLayer(originalId);
     expect(duplicatedId).toBeTruthy();
@@ -1268,7 +1381,7 @@ describe('layers slice integration', () => {
     );
     expect(mockManager.initColorCycleForLayer).not.toHaveBeenCalled();
     expect(mockBrush.setTargetCanvas).toHaveBeenCalled();
-    expect(mockBrush.applyLayerSnapshot).toHaveBeenCalledWith(
+    expect(mockApplyLayerSnapshot).toHaveBeenCalledWith(
       duplicatedId,
       expect.objectContaining({
         paintBuffer: expect.any(ArrayBuffer),
@@ -1278,10 +1391,10 @@ describe('layers slice integration', () => {
         flowBuffer: expect.any(ArrayBuffer),
         phaseBuffer: expect.any(ArrayBuffer),
         hasContent: true,
-        strokeCounter: 3,
+        strokeCounter: 0,
       })
     );
-    const appliedSnapshot = mockBrush.applyLayerSnapshot.mock.calls[0]?.[1];
+    const appliedSnapshot = mockApplyLayerSnapshot.mock.calls[0]?.[1];
     expect(Array.from(new Uint8Array(appliedSnapshot.paintBuffer))).toEqual([0, 12, 0, 44]);
     expect(Array.from(new Uint8Array(appliedSnapshot.gradientIdBuffer))).toEqual([0, 3, 0, 7]);
     expect(Array.from(new Uint16Array(appliedSnapshot.gradientDefIdBuffer))).toEqual([0, 5, 0, 9]);
@@ -1298,10 +1411,6 @@ describe('layers slice integration', () => {
     expect(duplicateLayer?.colorCycleData?.gradient).toEqual(sourceLayer?.colorCycleData?.gradient);
     expect(duplicateLayer?.colorCycleData?.colorCycleBrush).toBe(mockBrush);
     expect(duplicateLayer?.colorCycleData?.hasContent).toBe(true);
-    expect(Array.from(new Uint8Array(duplicateLayer?.colorCycleData?.gradientIdBuffer ?? new ArrayBuffer(0))))
-      .toEqual([0, 3, 0, 7]);
-    expect(Array.from(new Uint16Array(duplicateLayer?.colorCycleData?.gradientDefIdBuffer ?? new ArrayBuffer(0))))
-      .toEqual([0, 5, 0, 9]);
     const duplicateBrushState = duplicateLayer?.colorCycleData?.brushState as {
       canonicalPaint?: boolean;
       layers?: Array<{
@@ -1318,6 +1427,11 @@ describe('layers slice integration', () => {
         };
       }>;
     } | undefined;
+    const duplicateStrokeData = duplicateBrushState?.layers?.[0]?.strokeData;
+    expect(Array.from(new Uint8Array(duplicateStrokeData?.gradientIdBuffer ?? new ArrayBuffer(0))))
+      .toEqual([0, 3, 0, 7]);
+    expect(Array.from(new Uint16Array(duplicateStrokeData?.gradientDefIdBuffer ?? new ArrayBuffer(0))))
+      .toEqual([0, 5, 0, 9]);
     const duplicateSnapshot = duplicateBrushState?.layers?.find((snapshot) => snapshot.layerId === duplicatedId);
     expect(duplicateBrushState?.canonicalPaint).toBe(true);
     expect(duplicateSnapshot?.canonicalPaint).toBe(true);
@@ -1557,6 +1671,93 @@ describe('layers slice integration', () => {
     useAppStore.getState().compositeLayersToCanvas(targetCanvas);
 
     expect(ctx.drawImage).toHaveBeenCalledWith(framebuffer, 0, 0);
+  });
+
+  it('marks only static composite segments touched by dirty batches before compositing', () => {
+    const layerA: Layer = {
+      ...createNormalLayerInput('Static A'),
+      id: 'layer-a',
+      order: 0,
+    };
+    const layerB: Layer = {
+      ...createNormalLayerInput('Static B'),
+      id: 'layer-b',
+      order: 1,
+    };
+    const staticCanvasA = makeCanvas();
+    const staticCanvasB = makeCanvas();
+    const compositeSegments: CompositeSegment[] = [
+      {
+        kind: 'static',
+        id: 'static-a',
+        layerIds: ['layer-a'],
+        includeBackground: false,
+        orderRange: { start: 0, end: 0 },
+        canvas: staticCanvasA,
+        bitmap: null,
+        dirty: false,
+      },
+      {
+        kind: 'static',
+        id: 'static-b',
+        layerIds: ['layer-b'],
+        includeBackground: false,
+        orderRange: { start: 1, end: 1 },
+        canvas: staticCanvasB,
+        bitmap: null,
+        dirty: false,
+      },
+    ];
+
+    useAppStore.setState({
+      project: {
+        id: 'proj-dirty-batch-composite',
+        name: 'Dirty Batch Composite',
+        width: 32,
+        height: 32,
+        layers: [layerA, layerB],
+        backgroundColor: 'transparent',
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        customBrushes: [],
+      },
+      layers: [layerA, layerB],
+      compositeSegments,
+    });
+
+    const ctx = {
+      clearRect: jest.fn(),
+      drawImage: jest.fn(),
+      fillRect: jest.fn(),
+      getImageData: jest.fn(() => new ImageData(32, 32)),
+      putImageData: jest.fn(),
+      imageSmoothingEnabled: true,
+    } as unknown as CanvasRenderingContext2D;
+    const targetCanvas = {
+      width: 32,
+      height: 32,
+      getContext: jest.fn(() => ctx),
+    } as unknown as HTMLCanvasElement;
+
+    expect(useAppStore.getState().compositeLayersToCanvasSync(targetCanvas, {
+      dirtyBatches: [{
+        layerId: 'layer-b',
+        version: 4,
+        rects: [{ x: 1, y: 2, width: 3, height: 4 }],
+      }],
+    })).toBe(true);
+
+    const [segmentA, segmentB] = useAppStore.getState().compositeSegments;
+    expect(segmentA).toMatchObject({
+      kind: 'static',
+      id: 'static-a',
+      dirty: false,
+    });
+    expect(segmentB).toMatchObject({
+      kind: 'static',
+      id: 'static-b',
+      dirty: true,
+    });
   });
 
   it('applies color-cycle masks on a scratch canvas without mutating the source layer canvas', () => {

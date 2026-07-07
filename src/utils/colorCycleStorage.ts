@@ -3,7 +3,11 @@
  * Implements delta compression, gradient sharing, and memory management
  */
 
-import type { ColorCycleSnapshot } from '../types';
+import {
+  cloneColorCycleLayerStrokePaintBytes,
+  createColorCycleStorageLayerStrokeSnapshot,
+} from '@/lib/colorCycle/document';
+import type { ColorCycleSnapshot } from '@/types';
 
 // Constants for memory management
 const MAX_SNAPSHOT_MEMORY = 50 * 1024 * 1024; // 50MB max for snapshots
@@ -266,6 +270,10 @@ type SnapshotRecord = {
   baseSnapshot?: Map<string, Uint8Array>;
 };
 
+const copyBytesToArrayBuffer = (bytes: Uint8Array): ArrayBuffer => (
+  bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer
+);
+
 export class OptimizedColorCycleStorage {
   private gradientPool = new GradientPool();
   private snapshots: Map<string, SnapshotRecord[]> = new Map();
@@ -294,10 +302,10 @@ export class OptimizedColorCycleStorage {
     
     if (layerSnapshots.length > 0) {
       const prevSnapshot = layerSnapshots[layerSnapshots.length - 1];
-      
+
       for (const stroke of snapshot.layerStrokes) {
-        const currentData = new Uint8Array(stroke.paintBuffer);
-        
+        const currentData = cloneColorCycleLayerStrokePaintBytes(stroke);
+
         // Find base data from previous snapshot or base
         let baseData: Uint8Array | null = null;
         if (prevSnapshot.baseSnapshot?.has(stroke.layerId)) {
@@ -310,15 +318,15 @@ export class OptimizedColorCycleStorage {
           strokeDeltas.set(stroke.layerId, delta);
         } else {
           // Store as new base
-          strokeDeltas.set(stroke.layerId, currentData.buffer);
+          strokeDeltas.set(stroke.layerId, copyBytesToArrayBuffer(currentData));
           baseSnapshot.set(stroke.layerId, currentData);
         }
       }
     } else {
       // First snapshot - store everything as base
       for (const stroke of snapshot.layerStrokes) {
-        const data = new Uint8Array(stroke.paintBuffer);
-        strokeDeltas.set(stroke.layerId, data.buffer);
+        const data = cloneColorCycleLayerStrokePaintBytes(stroke);
+        strokeDeltas.set(stroke.layerId, copyBytesToArrayBuffer(data));
         baseSnapshot.set(stroke.layerId, data);
       }
     }
@@ -387,15 +395,10 @@ export class OptimizedColorCycleStorage {
         strokeData = new Uint8Array(delta);
       }
       
-      layerStrokes.push({
+      layerStrokes.push(createColorCycleStorageLayerStrokeSnapshot({
         layerId: strokeId,
-        paintBuffer: strokeData.buffer.slice(strokeData.byteOffset, strokeData.byteOffset + strokeData.byteLength) as ArrayBuffer,
-        hasContent: strokeData.some(v => v > 0),
-        strokeCounter: 0,
-        strokeLength: 0,
-        gradientLayerIndices: [],
-        currentGradientIndex: 0
-      });
+        paint: strokeData,
+      }));
     }
     
     return {

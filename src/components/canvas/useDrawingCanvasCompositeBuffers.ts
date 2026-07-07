@@ -3,6 +3,7 @@ import type React from 'react';
 import { useCallback, useEffect } from 'react';
 import { BrushShape, type Layer } from '@/types';
 import { selectSequentialPlaybackActive, type AppState } from '@/stores/useAppStore';
+import type { RenderStaticCompositeOptions } from '@/stores/slices/layersSlice';
 import {
   getSequentialLayerRenderCanvas,
 } from '@/lib/sequential/SequentialLayerRenderer';
@@ -27,7 +28,10 @@ interface UseDrawingCanvasCompositeBuffersOptions {
   underCompositeHasContentRef: React.MutableRefObject<boolean>;
   overCompositeHasContentRef: React.MutableRefObject<boolean>;
   compositeCanvasRef: React.MutableRefObject<HTMLCanvasElement | null>;
-  renderStaticComposite: (canvas: HTMLCanvasElement) => boolean | Promise<boolean>;
+  renderStaticComposite: (
+    canvas: HTMLCanvasElement,
+    options?: RenderStaticCompositeOptions
+  ) => boolean | Promise<boolean>;
   setCurrentOffscreenCanvas: (canvas: HTMLCanvasElement | null) => void;
 }
 
@@ -280,12 +284,14 @@ export const useDrawingCanvasCompositeBuffers = ({
     return compositeCanvasRef.current;
   }, [compositeCanvasRef, project]);
 
-  const rebuildStaticComposite = useCallback((): boolean | Promise<boolean> => {
+  const rebuildStaticComposite = useCallback((
+    options?: RenderStaticCompositeOptions,
+  ): boolean | Promise<boolean> => {
     const canvas = ensureStaticCompositeCanvas();
     if (!canvas) {
       return false;
     }
-    const rendered = renderStaticComposite(canvas);
+    const rendered = renderStaticComposite(canvas, options);
     if (typeof rendered === 'object' && rendered !== null && 'then' in rendered) {
       return rendered.then((resolved) => {
         if (resolved) {

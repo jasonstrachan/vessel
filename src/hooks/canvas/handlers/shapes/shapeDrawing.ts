@@ -8,13 +8,14 @@ import type { ShapeBeforeSnapshot } from '@/hooks/canvas/utils/snapshots';
 import {
   resolveDitherGradientFinalizeBrushSettings,
   type AutoSampleStops,
+  type ShapeFinalizeBrushRuntime,
 } from '@/hooks/canvas/handlers/shapes/ShapeFinalizeHandler';
 import type { BrushStrokeSession } from '@/hooks/canvas/handlers/strokeSession';
 import type { FinalizeQueue } from '@/lib/canvas';
-import type { ColorCycleBrushImplementation } from '@/hooks/brushEngine/ColorCycleBrushMigration';
 import type { LayerHistoryPayload } from '@/history/helpers/layerHistory';
-import type { BrushEngine } from '@/hooks/useBrushEngineSimplified';
+import type { BrushEngineConfig } from '@/hooks/brushEngine/brushEngineFacadeTypes';
 import type { ShapeInteractionPhase } from '@/hooks/canvas/useDrawingHandlerRefs';
+import type { ColorCycleShapeFillBrushContext } from '@/hooks/brushEngine/colorCycleBrushContracts';
 import {
   beginMarkGradientSession,
   cancelMarkGradientSession,
@@ -43,6 +44,7 @@ import {
   buildSampledStops,
   resolveSampledStopsWithFallback,
 } from '@/hooks/canvas/handlers/colorCycle/ccSampling';
+import type { ColorCycleShapeFillDeps } from '@/hooks/canvas/handlers/colorCycle/colorCycleShapeFill';
 import {
   resolveColorCycleGradientSource,
   resolveColorCycleGradientSourceState,
@@ -67,6 +69,26 @@ import {
   rebuildCcStrokeShapeFromSamples,
   resolveFinalSampledShapeSourcePoints,
 } from '@/hooks/canvas/handlers/shapes/ccGradientDrawingRuntime';
+
+type ShapeDrawingColorCycleBrush = ColorCycleShapeFillBrushContext;
+type ShapeDrawingBrushRuntime = ColorCycleShapeFillDeps['brushRuntime'] & ShapeFinalizeBrushRuntime & {
+  resetColorCycle: (preserveLayerContent?: boolean) => void;
+  updateConfig?: (config: Partial<BrushEngineConfig>) => void;
+};
+
+const applyShapeDitherPixelSize = (
+  brush: ShapeDrawingColorCycleBrush | null | undefined,
+  pixelSize: number,
+): void => {
+  if (!brush) {
+    return;
+  }
+  if (typeof brush.applySettings === 'function') {
+    brush.applySettings({ ditherPixelSize: pixelSize });
+    return;
+  }
+  brush.setDitherPixelSize?.(pixelSize);
+};
 
 type ShapeDrawingRefs = {
   isDrawingShapeRef: React.MutableRefObject<boolean>;
@@ -462,8 +484,8 @@ type ShapeDrawingDeps = {
   latestShapePixelSizeRef: React.MutableRefObject<number | null>;
   hadValidShapePressureRef: React.MutableRefObject<boolean>;
   lastStablePressureRef: React.MutableRefObject<number>;
-  brushEngine: BrushEngine;
-  getColorCycleBrushManager: () => { getBrush: (layerId: string) => ColorCycleBrushImplementation | null | undefined };
+  shapeBrushRuntime: ShapeDrawingBrushRuntime | null;
+  getColorCycleBrushManager: () => { getShapeFillBrush: (layerId: string) => ShapeDrawingColorCycleBrush | null | undefined };
   getColorCycleBrushFlags: (settings: BrushSettings) => { isAny: boolean; isShapeVariant?: boolean };
   sampleColorAt?: (x: number, y: number) => string | null;
   sampleHexAt: (x: number, y: number) => string | null;
@@ -520,7 +542,7 @@ type ShapeDrawingDeps = {
   }) => void;
   finalizeRasterShapeFill: (args: {
     drawCtx: CanvasRenderingContext2D;
-    brushEngine: BrushEngine;
+    brushRuntime: ShapeFinalizeBrushRuntime;
     storeRef: React.MutableRefObject<AppState>;
     liveBrushSettings: BrushSettings;
     shapePoints: Array<{ x: number; y: number }>;
@@ -556,9 +578,9 @@ type ShapeDrawingDeps = {
     ditherPixelSize?: number;
     keepOverlayAfter?: boolean;
   }, deps: {
-    brushEngine: BrushEngine;
+    brushRuntime: ColorCycleShapeFillDeps['brushRuntime'];
     getColorCycleBrushManager: ShapeDrawingDeps['getColorCycleBrushManager'];
-    bindBrushToCanvas: (brush: ColorCycleBrushImplementation | null | undefined, canvas: HTMLCanvasElement | null | undefined) => void;
+    bindBrushToCanvas: (brush: ShapeDrawingColorCycleBrush | null | undefined, canvas: HTMLCanvasElement | null | undefined) => void;
     timeAsync: <T>(label: string, task: () => Promise<T>) => Promise<T>;
     timeSync: <T>(label: string, task: () => T) => T;
     ccLog: (label: string, payload?: Record<string, unknown>) => void;
@@ -586,7 +608,7 @@ type ShapeDrawingDeps = {
   ensureActiveColorCycleGradientSlot: (
     state: AppState,
     layer: Layer,
-    brush?: ColorCycleBrushImplementation | null
+    brush?: ShapeDrawingColorCycleBrush | null
   ) => void;
   captureRegionFromPoints: (points: Array<{ x: number; y: number }>, padding: number, project: { width: number; height: number } | null) => CaptureRegion | undefined;
   boundingBoxToCaptureRegion: (
@@ -651,7 +673,7 @@ type ShapeDrawingDeps = {
     tool: string;
     roi?: CaptureRegion;
   }) => Promise<void>;
-  bindBrushToCanvas: (brush: ColorCycleBrushImplementation | null | undefined, canvas: HTMLCanvasElement | null | undefined) => void;
+  bindBrushToCanvas: (brush: ShapeDrawingColorCycleBrush | null | undefined, canvas: HTMLCanvasElement | null | undefined) => void;
   captureColorCycleBrushState: (layerId: string) => ColorCycleSerializedState;
   isColorCycleLayerWithData: (layer: Layer) => boolean;
   setSharedColorCycleGradient: (stops: AutoSampleStops | null) => void;
@@ -754,7 +776,7 @@ export const startShapeDrawing = (
       });
       if (frozenPattern) {
         store.setBrushSettings(frozenPattern);
-        deps.brushEngine.engine?.updateConfig?.({
+        deps.shapeBrushRuntime?.updateConfig?.({
           brushSettings: {
             ...brushSettings,
             ...frozenPattern,
@@ -789,8 +811,8 @@ export const startShapeDrawing = (
         if (store.palette.activeSlot === 'foreground') {
           store.setPaletteColor('foreground', sampledColor);
         }
-        if (deps.brushEngine.engine && typeof deps.brushEngine.engine.updateConfig === 'function') {
-          deps.brushEngine.engine.updateConfig({
+        if (typeof deps.shapeBrushRuntime?.updateConfig === 'function') {
+          deps.shapeBrushRuntime.updateConfig({
             brushSettings: { ...brushSettings, color: sampledColor, useSwatchColor: true }
           });
         }
@@ -1352,7 +1374,7 @@ export const finalizeShapeDrawing = async (
         if (deps.isBusyRef) deps.isBusyRef.current = true;
 
         const drawCtx = deps.drawingCtxRef.current;
-        if (drawCtx && deps.brushEngine && args.refs.shapePointsRef.current.length >= 3) {
+        if (drawCtx && deps.shapeBrushRuntime && args.refs.shapePointsRef.current.length >= 3) {
           const beforeState = deps.storeRef.current;
           const beforeLayer = resolveCapturedShapeFinalizeLayer(beforeState, finalizeTargetLayerId);
           shapeLayerId = beforeLayer?.id ?? null;
@@ -1418,11 +1440,7 @@ export const finalizeShapeDrawing = async (
                 currentActiveLayerId: currentState.activeLayerId,
               });
             }
-            const ccBrush = (
-              typeof currentState.getLayerColorCycleBrush === 'function'
-                ? currentState.getLayerColorCycleBrush(activeLayerId)
-                : null
-            ) ?? deps.getColorCycleBrushManager().getBrush(activeLayerId) ?? null;
+            const ccBrush = deps.getColorCycleBrushManager().getShapeFillBrush(activeLayerId) ?? null;
             if (targetLayer) {
               deps.ensureActiveColorCycleGradientSlot(currentState, targetLayer, ccBrush);
             }
@@ -1434,9 +1452,7 @@ export const finalizeShapeDrawing = async (
             });
             deps.latestShapePixelSizeRef.current = pixelSize;
             const ditherPixelSize = pixelSize;
-            if (ccBrush && typeof (ccBrush as { setDitherPixelSize?: (value: number) => void }).setDitherPixelSize === 'function') {
-              (ccBrush as { setDitherPixelSize: (value: number) => void }).setDitherPixelSize(pixelSize);
-            }
+            applyShapeDitherPixelSize(ccBrush, pixelSize);
             const keepOverlayAfter = shouldKeepColorCycleShapeOverlayAfterFinalize();
             const currentFinalizeState = deps.storeRef.current;
             const sampledFinalizeSource = isSampledCcShapeDrag(currentFinalizeState);
@@ -1488,7 +1504,11 @@ export const finalizeShapeDrawing = async (
               ditherPixelSize,
               keepOverlayAfter,
             }, {
-              brushEngine: deps.brushEngine,
+              brushRuntime: {
+                fillCcGradientLinear: deps.shapeBrushRuntime.fillCcGradientLinear,
+                fillCcGradientConcentric: deps.shapeBrushRuntime.fillCcGradientConcentric,
+                updateColorCycleTexture: deps.shapeBrushRuntime.updateColorCycleTexture,
+              },
               getColorCycleBrushManager: deps.getColorCycleBrushManager,
               bindBrushToCanvas: deps.bindBrushToCanvas,
               timeAsync: deps.timeAsync,
@@ -1544,7 +1564,7 @@ export const finalizeShapeDrawing = async (
       if (args.refs.isDrawingShapeRef.current && args.refs.shapePointsRef.current.length >= 3) {
         const drawCtx = deps.drawingCtxRef.current;
         let shapeBeforeColorStateLocal: ColorCycleSerializedState | null = null;
-        if (drawCtx && deps.brushEngine) {
+        if (drawCtx && deps.shapeBrushRuntime) {
           drawCtx.globalAlpha = 1.0;
           drawCtx.globalCompositeOperation = 'source-over';
 
@@ -1571,7 +1591,10 @@ export const finalizeShapeDrawing = async (
           if (!isColorCycleLayer) {
             deps.finalizeRasterShapeFill({
               drawCtx,
-              brushEngine: deps.brushEngine,
+              brushRuntime: {
+                applyStrokeDither: deps.shapeBrushRuntime.applyStrokeDither,
+                updateColorCycleGradient: deps.shapeBrushRuntime.updateColorCycleGradient,
+              },
               storeRef: deps.storeRef,
               liveBrushSettings,
               shapePoints: args.refs.shapePointsRef.current,
@@ -1592,7 +1615,7 @@ export const finalizeShapeDrawing = async (
           }
 
           if (isColorCycleLayer && drawCtx) {
-            deps.brushEngine.resetColorCycle(false);
+            deps.shapeBrushRuntime.resetColorCycle(false);
 
             if (args.refs.shapePointsRef.current.length >= 3) {
               const fillMode = resolveColorCycleFillMode(liveBrushSettings.colorCycleFillMode);
@@ -1632,11 +1655,7 @@ export const finalizeShapeDrawing = async (
                     currentActiveLayerId: currentState.activeLayerId,
                   });
                 }
-                const ccBrush = (
-                  typeof deps.storeRef.current.getLayerColorCycleBrush === 'function'
-                    ? deps.storeRef.current.getLayerColorCycleBrush(activeLayerId)
-                    : null
-                ) ?? deps.getColorCycleBrushManager().getBrush(activeLayerId) ?? null;
+                const ccBrush = deps.getColorCycleBrushManager().getShapeFillBrush(activeLayerId) ?? null;
                 if (targetLayer) {
                   deps.ensureActiveColorCycleGradientSlot(deps.storeRef.current, targetLayer, ccBrush);
                 }
@@ -1648,9 +1667,7 @@ export const finalizeShapeDrawing = async (
                 });
                 deps.latestShapePixelSizeRef.current = pixelSize;
                 const ditherPixelSize = pixelSize;
-                if (ccBrush && typeof (ccBrush as { setDitherPixelSize?: (value: number) => void }).setDitherPixelSize === 'function') {
-                  (ccBrush as { setDitherPixelSize: (value: number) => void }).setDitherPixelSize(pixelSize);
-                }
+                applyShapeDitherPixelSize(ccBrush, pixelSize);
                 const keepOverlayAfter = shouldKeepColorCycleShapeOverlayAfterFinalize();
                 const sampledFinalizeSource = isSampledCcShapeDrag(currentFinalizeState);
                 if (sampledFinalizeSource && targetLayer) {
@@ -1706,7 +1723,11 @@ export const finalizeShapeDrawing = async (
                   ditherPixelSize,
                   keepOverlayAfter,
                 }, {
-                  brushEngine: deps.brushEngine,
+                  brushRuntime: {
+                    fillCcGradientLinear: deps.shapeBrushRuntime.fillCcGradientLinear,
+                    fillCcGradientConcentric: deps.shapeBrushRuntime.fillCcGradientConcentric,
+                    updateColorCycleTexture: deps.shapeBrushRuntime.updateColorCycleTexture,
+                  },
                   getColorCycleBrushManager: deps.getColorCycleBrushManager,
                   bindBrushToCanvas: deps.bindBrushToCanvas,
                   timeAsync: deps.timeAsync,

@@ -57,18 +57,59 @@ const createProject = (): Project => ({
 const mockApplyLayerSnapshot = jest.fn();
 const mockGetLayerSnapshot = jest.fn();
 const mockRenderDirect = jest.fn();
+const mockSelectionMutationBrush = {
+  getLayerSnapshot: mockGetLayerSnapshot,
+  applyLayerSnapshot: mockApplyLayerSnapshot,
+  renderDirectToCanvas: mockRenderDirect,
+  getCanvas: () => null,
+};
 
 jest.mock('@/stores/colorCycleBrushManager', () => ({
   __esModule: true as const,
+  setColorCycleStoreStateGetter: jest.fn(),
+  setLayerIdGetter: jest.fn(),
   getColorCycleBrushManager: () => ({
-    getLayerColorCycleBrush: () => ({
-      getLayerSnapshot: mockGetLayerSnapshot,
-      applyLayerSnapshot: mockApplyLayerSnapshot,
-      renderDirectToCanvas: mockRenderDirect,
-      getCanvas: () => null,
-    }),
+    getSelectionMutationBrush: () => mockSelectionMutationBrush,
   }),
 }));
+
+jest.mock('@/lib/colorCycle/document', () => {
+  const actual = jest.requireActual('@/lib/colorCycle/document');
+  return {
+    __esModule: true as const,
+    ...actual,
+    canApplyColorCycleBrushLayerSnapshotToRuntime: (brush: unknown) =>
+      Boolean(brush && typeof (brush as { applyLayerSnapshot?: unknown }).applyLayerSnapshot === 'function'),
+    canReadColorCycleBrushLayerSnapshotFromRuntime: (brush: unknown) =>
+      Boolean(brush && typeof (brush as { getLayerSnapshot?: unknown }).getLayerSnapshot === 'function'),
+    readColorCycleBrushLayerSnapshotFromRuntime: (brush: unknown) =>
+      (brush as { getLayerSnapshot?: () => unknown } | null)?.getLayerSnapshot?.() ?? null,
+    applyColorCycleBrushLayerSnapshotToRuntime: (
+      brush: unknown,
+      layerId: string,
+      snapshot: unknown,
+    ) => {
+      const writer = (brush as { applyLayerSnapshot?: (layerId: string, snapshot: unknown) => void } | null)
+        ?.applyLayerSnapshot;
+      if (!writer) {
+        return false;
+      }
+      writer(layerId, snapshot);
+      return true;
+    },
+    getColorCycleLegacyLayerBuffer: (
+      colorCycleData: Record<string, unknown> | null | undefined,
+      key: string,
+    ) => colorCycleData?.[key] ?? null,
+    getColorCycleLegacyLayerBufferByteLength: (
+      colorCycleData: Record<string, unknown> | null | undefined,
+      key: string,
+    ) => {
+      const value = colorCycleData?.[key];
+      return value instanceof ArrayBuffer ? value.byteLength : 0;
+    },
+  };
+});
 
 describe('colorCycleSelection helpers', () => {
   const project: Project = createProject();
@@ -139,15 +180,18 @@ describe('colorCycleSelection helpers', () => {
     expect(incoming[4]).toBe(3);
     expect(incoming[5]).toBe(4);
     expect(setCurrentCompositeBitmap).toHaveBeenCalled();
-    expect(setLayersNeedRecomposition).toHaveBeenCalled();
-    expect(markCompositeSegmentsDirtyByLayerIds).toHaveBeenCalledWith(['layer-cc']);
+    expect(setLayersNeedRecomposition).not.toHaveBeenCalled();
+    expect(markCompositeSegmentsDirtyByLayerIds).not.toHaveBeenCalled();
     // Canvas used for resolved imageData should be persisted back onto the layer
     expect(updateLayer).toHaveBeenCalledWith(
       'layer-cc',
       expect.objectContaining({
         colorCycleData: expect.objectContaining({ canvas }),
       }),
-      expect.objectContaining({ skipColorCycleSync: true })
+      expect.objectContaining({
+        skipColorCycleSync: true,
+        dirtyRects: [{ x: 0, y: 0, width: 2, height: 2 }],
+      })
     );
   });
 
@@ -820,10 +864,14 @@ describe('colorCycleSelection helpers', () => {
       'layer-cc-payload',
       expect.objectContaining({
         colorCycleData: expect.objectContaining({
-          gradientDefIdBuffer: expect.any(ArrayBuffer),
+          canvas,
+          hasContent: true,
         }),
       }),
-      expect.objectContaining({ skipColorCycleSync: true })
+      expect.objectContaining({
+        skipColorCycleSync: true,
+        dirtyRects: [{ x: 0, y: 0, width: 2, height: 2 }],
+      })
     );
   });
 
@@ -887,10 +935,13 @@ describe('colorCycleSelection helpers', () => {
       {
         colorCycleData: expect.objectContaining({
           canvas,
-          gradientIdBuffer: expect.any(ArrayBuffer),
+          hasContent: true,
         }),
       },
-      expect.objectContaining({ skipColorCycleSync: true })
+      expect.objectContaining({
+        skipColorCycleSync: true,
+        dirtyRects: [{ x: 0, y: 0, width: 2, height: 2 }],
+      })
     );
     expect(setCurrentCompositeBitmap).not.toHaveBeenCalled();
     expect(setLayersNeedRecomposition).not.toHaveBeenCalled();

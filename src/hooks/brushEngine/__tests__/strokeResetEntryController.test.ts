@@ -10,7 +10,7 @@ describe('strokeResetEntryController', () => {
     const runResetPressureDitherRuntime = jest.fn();
 
     resetStrokeCurrent({
-      brushEngine: { resetStroke: jest.fn() },
+      resetStroke: jest.fn(),
       strokeBoundsRef: { current: null },
       strokePhaseOriginRef: { current: null },
       clearLiveStrokeBuffers: jest.fn(),
@@ -22,7 +22,7 @@ describe('strokeResetEntryController', () => {
     expect(runStrokeReset).toHaveBeenCalledTimes(1);
     const args = (runStrokeReset as jest.Mock).mock.calls[0][0];
     expect(args).toEqual(expect.objectContaining({
-      brushEngine: expect.any(Object),
+      resetStroke: expect.any(Function),
       strokeBoundsRef: expect.any(Object),
       strokePhaseOriginRef: expect.any(Object),
       clearLiveStrokeBuffers: expect.any(Function),

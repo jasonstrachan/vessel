@@ -1,8 +1,8 @@
 import {
   endColorCycleStrokeForLayer,
   resetColorCycleStroke,
+  type ColorCycleBrushLifecycle,
 } from '../colorCycleStrokeLifecycleController';
-import type { ColorCycleBrushImplementation } from '../ColorCycleBrushMigration';
 
 const createBrush = () => {
   const canvas = document.createElement('canvas');
@@ -35,7 +35,7 @@ describe('colorCycleStrokeLifecycleController', () => {
 
     resetColorCycleStroke({
       clearBuffer: true,
-      initializeColorCycleBrush: () => brush as unknown as ColorCycleBrushImplementation,
+      initializeColorCycleBrush: () => brush as unknown as ColorCycleBrushLifecycle,
       activeLayerId: 'layer-1',
       getLayers: () => [{
         id: 'layer-1',
@@ -57,7 +57,7 @@ describe('colorCycleStrokeLifecycleController', () => {
 
     resetColorCycleStroke({
       clearBuffer: false,
-      initializeColorCycleBrush: () => brush as unknown as ColorCycleBrushImplementation,
+      initializeColorCycleBrush: () => brush as unknown as ColorCycleBrushLifecycle,
       activeLayerId: 'layer-1',
       getLayers: () => [{
         id: 'layer-1',
@@ -93,7 +93,7 @@ describe('colorCycleStrokeLifecycleController', () => {
 
     endColorCycleStrokeForLayer({
       activeLayerId: 'layer-2',
-      getActiveLayerColorCycleBrush: () => brush as unknown as ColorCycleBrushImplementation,
+      getActiveLayerColorCycleBrush: () => brush as unknown as Pick<ColorCycleBrushLifecycle, 'endStroke'>,
     });
 
     expect(brush.endStroke).toHaveBeenCalledWith('layer-2');

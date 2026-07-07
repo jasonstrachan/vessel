@@ -15,6 +15,7 @@ export type DefPaletteEntry = {
 
 export type DefPaletteCache = {
   signature: string;
+  builtFromVersion: number | null;
   palettesById: Map<number, Uint32Array>;
   rgbaById: Map<number, Uint8ClampedArray | Uint8Array>;
   signaturesById: Map<number, string>;
@@ -38,7 +39,10 @@ export const buildDefPaletteSignature = (defs: DefPaletteEntry[]): string =>
     .sort()
     .join('|');
 
-export const createDefPaletteCache = (defs: DefPaletteEntry[]): DefPaletteCache => {
+export const createDefPaletteCache = (
+  defs: DefPaletteEntry[],
+  builtFromVersion: number | null,
+): DefPaletteCache => {
   const palettesById = new Map<number, Uint32Array>();
   const rgbaById = new Map<number, Uint8ClampedArray | Uint8Array>();
   const signaturesById = new Map<number, string>();
@@ -59,8 +63,53 @@ export const createDefPaletteCache = (defs: DefPaletteEntry[]): DefPaletteCache 
 
   return {
     signature: buildDefPaletteSignature(defs),
+    builtFromVersion,
     palettesById,
     rgbaById,
     signaturesById,
   };
 };
+
+export class ColorCycleDefPaletteCacheStore {
+  private readonly cacheByLayer = new Map<string, DefPaletteCache>();
+  private readonly appliedCacheByLayer = new Map<string, DefPaletteCache | null>();
+
+  get(
+    layerId: string,
+    defs: DefPaletteEntry[] | undefined,
+    builtFromVersion: number | null,
+  ): DefPaletteCache | null {
+    if (!defs || defs.length === 0) {
+      this.cacheByLayer.delete(layerId);
+      this.appliedCacheByLayer.delete(layerId);
+      return null;
+    }
+
+    const signature = buildDefPaletteSignature(defs);
+    const existing = this.cacheByLayer.get(layerId);
+    if (
+      existing &&
+      existing.signature === signature &&
+      existing.builtFromVersion === builtFromVersion
+    ) {
+      return existing;
+    }
+
+    const nextCache = createDefPaletteCache(defs, builtFromVersion);
+    this.cacheByLayer.set(layerId, nextCache);
+    return nextCache;
+  }
+
+  getLastApplied(layerId: string): DefPaletteCache | null {
+    return this.appliedCacheByLayer.get(layerId) ?? null;
+  }
+
+  setLastApplied(layerId: string, cache: DefPaletteCache | null): void {
+    this.appliedCacheByLayer.set(layerId, cache);
+  }
+
+  clear(): void {
+    this.cacheByLayer.clear();
+    this.appliedCacheByLayer.clear();
+  }
+}

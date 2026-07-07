@@ -1,5 +1,5 @@
 export const runStrokeReset = ({
-  brushEngine,
+  resetStroke,
   strokeBoundsRef,
   strokePhaseOriginRef,
   clearLiveStrokeBuffers,
@@ -7,7 +7,7 @@ export const runStrokeReset = ({
   clearBgOffHoleCanvas,
   resetPressureDitherRuntime,
 }: {
-  brushEngine: { resetStroke: () => void };
+  resetStroke: () => void;
   strokeBoundsRef: { current: unknown };
   strokePhaseOriginRef: { current: unknown };
   clearLiveStrokeBuffers: () => void;
@@ -15,7 +15,7 @@ export const runStrokeReset = ({
   clearBgOffHoleCanvas: () => void;
   resetPressureDitherRuntime: () => void;
 }): void => {
-  brushEngine.resetStroke();
+  resetStroke();
   strokeBoundsRef.current = null;
   strokePhaseOriginRef.current = null;
   clearLiveStrokeBuffers();

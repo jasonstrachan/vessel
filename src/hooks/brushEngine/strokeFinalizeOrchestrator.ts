@@ -17,7 +17,7 @@ export const finalizeStrokeOrchestrated = ({
   liveStrokeDitherRef,
   clearLiveStrokeBuffers,
   clearCoverageMaps,
-  brushEngine,
+  finalizeStroke,
   withAlphaLock,
   shouldApplyStrokeDither,
   lostEdge,
@@ -41,7 +41,7 @@ export const finalizeStrokeOrchestrated = ({
   liveStrokeDitherRef: MutableRef<HTMLCanvasElement | OffscreenCanvas | null>;
   clearLiveStrokeBuffers: () => void;
   clearCoverageMaps: () => void;
-  brushEngine: { finalizeStroke: (ctx: CanvasRenderingContext2D) => void };
+  finalizeStroke: (ctx: CanvasRenderingContext2D) => void;
   withAlphaLock: (
     dstCtx: CanvasRenderingContext2D,
     paint: (targetCtx: CanvasRenderingContext2D) => void,
@@ -118,7 +118,7 @@ export const finalizeStrokeOrchestrated = ({
     return strokeBounds ? { ...strokeBounds } : null;
   };
 
-  finalizeStrokeEngineBuffers({ ctx, strokeBounds, rawCtx, brushEngine, withAlphaLock });
+  finalizeStrokeEngineBuffers({ ctx, strokeBounds, rawCtx, finalizeStroke, withAlphaLock });
 
   return finalizeStrokeAfterEngine({
     ctx,

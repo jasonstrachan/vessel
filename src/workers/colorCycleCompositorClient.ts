@@ -34,6 +34,10 @@ type PendingRequest = {
 
 type FrameListener = (layers: ColorCycleCompositorLayerFrame[]) => void;
 
+type EnsureLayerOptions = {
+  documentVersion?: number;
+};
+
 export class ColorCycleCompositorClient {
   private worker: Worker;
   private requestCounter = 0;
@@ -145,8 +149,14 @@ export class ColorCycleCompositorClient {
     return this.send({ type: 'frame-request' }).then(() => undefined);
   }
 
-  ensureLayer(layerId: string, width: number, height: number): Promise<void> {
-    return this.send({ type: 'ensure-layer', layerId, width, height }).then(() => undefined);
+  ensureLayer(layerId: string, width: number, height: number, options: EnsureLayerOptions = {}): Promise<void> {
+    return this.send({
+      type: 'ensure-layer',
+      layerId,
+      width,
+      height,
+      documentVersion: options.documentVersion,
+    }).then(() => undefined);
   }
 
   disposeLayer(layerId: string): Promise<void> {

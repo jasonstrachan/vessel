@@ -1,7 +1,23 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { ColorCycleBrushCanvas2D } from '../ColorCycleBrushCanvas2D';
+import { ColorCyclePresenter } from '../colorCyclePresenter';
 import * as stampDither from '../strokeStampDither';
+import {
+  applyColorCycleBrushLayerSnapshotToRuntime,
+  applyColorCycleBrushPaintPatchToRuntime,
+  ColorCycleLayerDocument,
+  readColorCycleBrushSerializedStateFromRuntime,
+  restoreColorCycleBrushSerializedStateToRuntime,
+} from '@/lib/colorCycle/document';
+import type { ColorCycleLayerDocumentState } from '@/lib/colorCycle/documentState';
+import { getPersistedCCMutationLog } from '@/utils/colorCycle/ccMutationAudit';
 import { encodeRgbaToBase64 } from '@/utils/colorCycle/ccCustomTilePattern';
+import { readTestColorCycleBrushLayerSnapshot } from '@/testing/colorCycleSnapshotTestUtils';
+import { createLayerStrokeState } from '../colorCycleLayerStrokeBuffers';
+import {
+  resolveColorCycleShapePhaseBaseByte,
+  resolveColorCycleShapePhaseByte,
+} from '../colorCycleStrokeTimingRuntime';
 const animatorMocks = jest.requireMock('@/lib/ColorCycleAnimator').__mocks__ as {
   setIndexBufferFromArrayMock: jest.Mock;
   deserializeSpy: jest.Mock;
@@ -12,6 +28,28 @@ const animatorMocks = jest.requireMock('@/lib/ColorCycleAnimator').__mocks__ as 
   forceRenderMock: jest.Mock;
   resizeMock: jest.Mock;
 };
+
+const createTestLayerStrokeState = () => createLayerStrokeState({
+  bufferSize: 0,
+  strokeCycleSpeed: 0,
+  strokeSpeedByte: 0,
+});
+
+const readBrushLayerSnapshot = readTestColorCycleBrushLayerSnapshot;
+const readSerializedBrushState = (
+  brush: ColorCycleBrushCanvas2D,
+): Parameters<typeof ColorCycleBrushCanvas2D.deserialize>[0] => (
+  readColorCycleBrushSerializedStateFromRuntime(brush) as Parameters<typeof ColorCycleBrushCanvas2D.deserialize>[0]
+);
+
+Object.defineProperty(ColorCycleBrushCanvas2D.prototype, 'animators', {
+  configurable: true,
+  get(this: ColorCycleBrushCanvas2D) {
+    return (this as unknown as {
+      presentationApi: { getAnimatorMap: () => Map<string, unknown> };
+    }).presentationApi.getAnimatorMap();
+  },
+});
 
 jest.mock('@/lib/ColorCycleAnimator', () => {
   const setIndexBufferFromArrayMock = jest.fn();
@@ -33,6 +71,7 @@ jest.mock('@/lib/ColorCycleAnimator', () => {
     speedData?: Uint8Array;
     flowData?: Uint8Array;
     phaseData?: Uint8Array;
+    builtFromVersion: number | null = null;
 
     constructor(opts: { width: number; height: number; fps?: number }) {
       this.width = opts.width;
@@ -103,6 +142,16 @@ jest.mock('@/lib/ColorCycleAnimator', () => {
       setIndexBufferFromArrayMock(arr, gradientId, speedData, flowData);
     }
 
+    rebuild(snapshot: ColorCycleLayerDocumentState, version: number) {
+      this.builtFromVersion = version;
+      this.setIndexBufferFromArray(
+        new Uint8Array(snapshot.paintBuffer ?? new ArrayBuffer(0)),
+        snapshot.gradientIdBuffer ? new Uint8Array(snapshot.gradientIdBuffer) : undefined,
+        snapshot.speedBuffer ? new Uint8Array(snapshot.speedBuffer) : undefined,
+        snapshot.flowBuffer ? new Uint8Array(snapshot.flowBuffer) : undefined,
+      );
+    }
+
     getDimensions() {
       return { width: this.width, height: this.height };
     }
@@ -132,12 +181,94 @@ jest.mock('@/lib/ColorCycleAnimator', () => {
       };
     }
 
+    private ensureWritableBuffers() {
+      return this.getIndexBuffers();
+    }
+
+    private writeSquareStamp(x: number, y: number, size: number, colorIndex: number, flowSlot = 0) {
+      const buffers = this.ensureWritableBuffers();
+      const radius = Math.max(0, Math.floor(size / 2));
+      const cx = Math.round(x);
+      const cy = Math.round(y);
+      for (let py = cy - radius; py <= cy + radius; py += 1) {
+        if (py < 0 || py >= this.height) {
+          continue;
+        }
+        for (let px = cx - radius; px <= cx + radius; px += 1) {
+          if (px < 0 || px >= this.width) {
+            continue;
+          }
+          const index = py * this.width + px;
+          buffers.data[index] = colorIndex;
+          buffers.gid[index] = flowSlot;
+        }
+      }
+    }
+
+    setIndex(x: number, y: number, colorIndex: number, flowSlot = 0) {
+      const buffers = this.ensureWritableBuffers();
+      const px = Math.round(x);
+      const py = Math.round(y);
+      if (px < 0 || py < 0 || px >= this.width || py >= this.height) {
+        return;
+      }
+      const index = py * this.width + px;
+      buffers.data[index] = colorIndex;
+      buffers.gid[index] = flowSlot;
+    }
+
+    paintSquare(x: number, y: number, size: number, colorIndex: number, _a?: unknown, _b?: unknown, _c?: unknown, _d?: unknown, flowSlot = 0) {
+      this.writeSquareStamp(x, y, size, colorIndex, flowSlot);
+    }
+
+    paintCircle(x: number, y: number, size: number, colorIndex: number, _a?: unknown, _b?: unknown, _c?: unknown, _d?: unknown, flowSlot = 0) {
+      this.writeSquareStamp(x, y, size, colorIndex, flowSlot);
+    }
+
+    paintTriangle(x: number, y: number, size: number, colorIndex: number, _a?: unknown, _b?: unknown, _c?: unknown, _d?: unknown, flowSlot = 0) {
+      this.writeSquareStamp(x, y, size, colorIndex, flowSlot);
+    }
+
+    paintDiamond(x: number, y: number, size: number, colorIndex: number, _a?: unknown, _b?: unknown, _c?: unknown, _d?: unknown, flowSlot = 0) {
+      this.writeSquareStamp(x, y, size, colorIndex, flowSlot);
+    }
+
+    paintDiamond5Pixelated(x: number, y: number, scale: number, colorIndex: number, _a?: unknown, _b?: unknown, _c?: unknown, _d?: unknown, flowSlot = 0) {
+      this.writeSquareStamp(x, y, scale * 5, colorIndex, flowSlot);
+    }
+
+    paintDiamond7Pixelated(x: number, y: number, scale: number, colorIndex: number, _a?: unknown, _b?: unknown, _c?: unknown, _d?: unknown, flowSlot = 0) {
+      this.writeSquareStamp(x, y, scale * 7, colorIndex, flowSlot);
+    }
+
+    paintDiamond9Pixelated(x: number, y: number, scale: number, colorIndex: number, _a?: unknown, _b?: unknown, _c?: unknown, _d?: unknown, flowSlot = 0) {
+      this.writeSquareStamp(x, y, scale * 9, colorIndex, flowSlot);
+    }
+
+    paintCheckeredPixelated(x: number, y: number, scale: number, colorIndex: number, _a?: unknown, _b?: unknown, _c?: unknown, _d?: unknown, flowSlot = 0) {
+      this.writeSquareStamp(x, y, scale * 4, colorIndex, flowSlot);
+    }
+
+    clear() {
+      const buffers = this.ensureWritableBuffers();
+      buffers.data.fill(0);
+      buffers.gid.fill(0);
+      buffers.spd.fill(0);
+      buffers.flow.fill(0);
+      buffers.phase.fill(0);
+    }
+
     renderToCanvas2D(ctx: CanvasRenderingContext2D) {
       void ctx;
     }
 
     setFlowMode() {}
     setSpeed() {}
+    setFPS() {}
+    setPhase() {}
+    setStrokeSpeedByte() {}
+    markGradientSlotUsed() {}
+    setDefIdData() {}
 
     getCanvas() {
       const canvas = document.createElement('canvas');
@@ -270,11 +401,23 @@ jest.mock('@/utils/canvasPool', () => ({
       const canvas = document.createElement('canvas');
       canvas.width = 4;
       canvas.height = 4;
+      const makeImageData = () => {
+        const data = new Uint8ClampedArray(canvas.width * canvas.height * 4);
+        for (let index = 3; index < data.length; index += 4) {
+          data[index] = 255;
+        }
+        return { data, width: canvas.width, height: canvas.height };
+      };
       canvas.getContext = jest.fn(() => ({
         clearRect: jest.fn(),
         drawImage: jest.fn(),
-        getImageData: jest.fn(() => ({ data: new Uint8ClampedArray(4), width: 1, height: 1 })),
+        getImageData: jest.fn(makeImageData),
         putImageData: jest.fn(),
+        save: jest.fn(),
+        restore: jest.fn(),
+        translate: jest.fn(),
+        rotate: jest.fn(),
+        scale: jest.fn(),
       })) as any;
       return canvas as HTMLCanvasElement;
     }),
@@ -327,6 +470,82 @@ const makeCanvas = () => {
   return canvas as HTMLCanvasElement;
 };
 
+const makeDocumentState = (
+  layerId: string,
+  width: number,
+  height: number,
+): ColorCycleLayerDocumentState => {
+  const pixelCount = width * height;
+  return {
+    layerId,
+    width,
+    height,
+    paintBuffer: new Uint8Array(pixelCount).buffer,
+    gradientIdBuffer: new Uint8Array(pixelCount).buffer,
+    gradientDefIdBuffer: new Uint16Array(pixelCount).buffer,
+    speedBuffer: new Uint8Array(pixelCount).buffer,
+    flowBuffer: new Uint8Array(pixelCount).buffer,
+    phaseBuffer: new Uint8Array(pixelCount).buffer,
+    hasContent: false,
+    sources: {
+      brushStateSnapshot: false,
+      topLevelBuffers: false,
+      legacyStateRefs: false,
+    },
+  };
+};
+
+const runtimeMutationReasons = [
+  'brush-stroke-write',
+  'selection-region-clear',
+  'shape-erase',
+  'transparency-lock-erase',
+  'manual-clear-layer',
+  'non-cc-brush-cleanup',
+  'snapshot-apply',
+  'history-restore',
+  'project-load-restore',
+  'runtime-reset',
+] as const;
+
+const hashBuffer = (buffer: ArrayBuffer | undefined): string => {
+  if (!buffer) {
+    return 'missing';
+  }
+  let hash = 2166136261;
+  const bytes = new Uint8Array(buffer);
+  bytes.forEach((byte) => {
+    hash ^= byte;
+    hash = Math.imul(hash, 16777619) >>> 0;
+  });
+  return hash.toString(16).padStart(8, '0');
+};
+
+const countNonZero = (buffer: ArrayBuffer | undefined): number => {
+  if (!buffer) {
+    return 0;
+  }
+  return Array.from(new Uint8Array(buffer)).filter((value) => value !== 0).length;
+};
+
+const digestLayerSnapshot = (
+  brush: ColorCycleBrushCanvas2D,
+  layerId: string,
+) => {
+  const snapshot = readBrushLayerSnapshot(brush, layerId);
+  return {
+    hasContent: snapshot?.hasContent ?? false,
+    strokeCounter: snapshot?.strokeCounter ?? null,
+    nonZeroPaint: countNonZero(snapshot?.paintBuffer),
+    paint: hashBuffer(snapshot?.paintBuffer),
+    gradientId: hashBuffer(snapshot?.gradientIdBuffer),
+    gradientDefId: hashBuffer(snapshot?.gradientDefIdBuffer),
+    speed: hashBuffer(snapshot?.speedBuffer),
+    flow: hashBuffer(snapshot?.flowBuffer),
+    phase: hashBuffer(snapshot?.phaseBuffer),
+  };
+};
+
 describe('ColorCycleBrushCanvas2D', () => {
   let consoleLogSpy: jest.SpyInstance;
 
@@ -339,6 +558,211 @@ describe('ColorCycleBrushCanvas2D', () => {
     consoleLogSpy.mockRestore();
   });
 
+  it('applies color-cycle brush settings through one patch object', () => {
+    const brush = new ColorCycleBrushCanvas2D(makeCanvas(), { brushSize: 3, fps: 24, forceCanvas2D: true });
+
+    brush.applySettings({
+      brushSize: 11,
+      cycleSpeed: 0.5,
+      playbackSpeedScale: 0.75,
+      fps: 30,
+      gradientBands: 9,
+      bandSpacing: 14,
+      pressureEnabled: true,
+      minPressure: 25,
+      maxPressure: 250,
+      ditherEnabled: true,
+      ditherStrength: 0.4,
+      ditherPixelSize: 3,
+      pxlEdgeEnabled: true,
+      perceptualDither: true,
+      stampShape: 'diamond',
+      stampDitherEnabled: true,
+      stampDitherPixelSize: 4,
+      stampDitherAlgorithm: 'pattern',
+      stampDitherPatternStyle: 'crosshatch',
+      stampDitherPatternTileId: 'tile-1',
+      stampDitherPatternTileScale: 5,
+      stampDitherPatternTileInvert: true,
+      stampDitherPatternTileThreshold: 0.65,
+      stampDitherPatternTileOffsetX: 2,
+      stampDitherPatternTileOffsetY: -3,
+      stampDitherBgFill: false,
+      stampDitherPressureLinked: true,
+    });
+
+    expect(brush.getSettings()).toMatchObject({
+      brushSize: 11,
+      cycleSpeed: 0.5,
+      playbackSpeedScale: 0.75,
+      fps: 30,
+      gradientBands: 9,
+      bandSpacing: 14,
+      pressureEnabled: true,
+      minPressure: 25,
+      maxPressure: 250,
+      ditherEnabled: true,
+      ditherStrength: 0.4,
+      ditherPixelSize: 3,
+      pxlEdgeEnabled: true,
+      perceptualDither: true,
+      stampShape: 'diamond',
+      stampDitherEnabled: true,
+      stampDitherPixelSize: 4,
+      stampDitherAlgorithm: 'pattern',
+      stampDitherPatternStyle: 'crosshatch',
+      stampDitherPatternTileId: 'tile-1',
+      stampDitherPatternTileScale: 5,
+      stampDitherPatternTileInvert: true,
+      stampDitherPatternTileThreshold: 0.65,
+      stampDitherPatternTileOffsetX: 2,
+      stampDitherPatternTileOffsetY: -3,
+      stampDitherBgFill: false,
+      stampDitherPressureLinked: true,
+      flowMode: 'forward',
+      legacyFlowMode: 'forward',
+    });
+  });
+
+  it('pins 1.6.0 characterization hashes before engine decomposition', async () => {
+    const canvas = makeCanvas();
+    const brush = new ColorCycleBrushCanvas2D(canvas, { brushSize: 3, fps: 24, forceCanvas2D: true });
+
+    brush.setDitherEnabled(true);
+    brush.setMinPressure(0.25);
+    brush.setMaxPressure(1);
+    brush.startStroke('char-stroke');
+    brush.paint(2, 2, 'char-stroke', 0.5, 0, 0.25);
+    brush.paint(4, 3, 'char-stroke', 1, 0, 0.5);
+    brush.endStroke('char-stroke');
+
+    const stampData = new Uint8ClampedArray([
+      255, 0, 0, 255,
+      0, 255, 0, 255,
+      0, 0, 255, 255,
+      255, 255, 0, 255,
+    ]);
+    brush.setBrushSize(4);
+    brush.startStroke('char-stamp');
+    brush.paintCustomStamp({
+      imageData: new ImageData(stampData, 2, 2),
+      width: 2,
+      height: 2,
+      cacheKey: 'characterization-stamp',
+    }, 3, 3, 'char-stamp', 1, 0);
+    brush.endStroke('char-stamp');
+
+    const vertices = [
+      { x: 1, y: 1 },
+      { x: 6, y: 1 },
+      { x: 6, y: 4 },
+      { x: 1, y: 4 },
+    ];
+    await brush.fillShapeDispatch({
+      mode: 'linear',
+      vertices,
+      layerId: 'char-linear',
+      direction: { x: 1, y: 0 },
+      options: { spacing: 2, paintSlotOverride: 3, paintDefIdOverride: 31 },
+    });
+    await brush.fillShapeDispatch({
+      mode: 'concentric',
+      vertices,
+      layerId: 'char-concentric',
+      options: { spacing: 2, paintSlotOverride: 4, paintDefIdOverride: 41 },
+    });
+
+    applyColorCycleBrushLayerSnapshotToRuntime(brush, 'char-slot', {
+      paintBuffer: new Uint8Array(canvas.width * canvas.height).fill(5).buffer,
+      gradientIdBuffer: new Uint8Array(canvas.width * canvas.height).fill(2).buffer,
+      gradientDefIdBuffer: new Uint16Array(canvas.width * canvas.height).fill(0).buffer,
+      speedBuffer: new Uint8Array(canvas.width * canvas.height).fill(7).buffer,
+      flowBuffer: new Uint8Array(canvas.width * canvas.height).fill(1).buffer,
+      phaseBuffer: new Uint8Array(canvas.width * canvas.height).fill(9).buffer,
+      hasContent: true,
+      strokeCounter: 4,
+    });
+    brush.bindGradientDefIdToSlot('char-slot', 77, 2);
+    brush.setFPS(12);
+    brush.setPhase(0.25);
+    brush.setPhase(0.5);
+
+    const serialized = readSerializedBrushState(brush);
+    const restored = ColorCycleBrushCanvas2D.deserialize(serialized, makeCanvas());
+    const layerIds = ['char-stroke', 'char-stamp', 'char-linear', 'char-concentric', 'char-slot'];
+    const roundTripLayerIds = ['char-stroke', 'char-stamp', 'char-slot'];
+    const digests = Object.fromEntries(layerIds.map((layerId) => [
+      layerId,
+      digestLayerSnapshot(brush, layerId),
+    ]));
+    const restoredDigests = Object.fromEntries(roundTripLayerIds.map((layerId) => [
+      layerId,
+      digestLayerSnapshot(restored, layerId),
+    ]));
+
+    expect(restoredDigests).toEqual(Object.fromEntries(roundTripLayerIds.map((layerId) => [
+      layerId,
+      digests[layerId],
+    ])));
+    expect(digests).toEqual({
+      'char-concentric': {
+        flow: 'c655ff85',
+        gradientDefId: '3ad73145',
+        gradientId: 'c655ff85',
+        hasContent: false,
+        nonZeroPaint: 0,
+        paint: 'c655ff85',
+        phase: 'c655ff85',
+        speed: 'c655ff85',
+        strokeCounter: 2,
+      },
+      'char-linear': {
+        flow: 'ccde3903',
+        gradientDefId: 'b92fb56d',
+        gradientId: 'f027951f',
+        hasContent: true,
+        nonZeroPaint: 18,
+        paint: 'd0c635d9',
+        phase: 'c655ff85',
+        speed: '047f4a7f',
+        strokeCounter: 2,
+      },
+      'char-slot': {
+        flow: 'ee92acb5',
+        gradientDefId: '8e54e685',
+        gradientId: '962d8dc5',
+        hasContent: true,
+        nonZeroPaint: 48,
+        paint: 'fba8c9b5',
+        phase: 'c655ff85',
+        speed: '83ea6635',
+        strokeCounter: 4,
+      },
+      'char-stamp': {
+        flow: 'c655ff85',
+        gradientDefId: '3ad73145',
+        gradientId: 'c655ff85',
+        hasContent: true,
+        nonZeroPaint: 16,
+        paint: 'd0c50fb5',
+        phase: 'c655ff85',
+        speed: '4f8ca135',
+        strokeCounter: 2,
+      },
+      'char-stroke': {
+        flow: 'c655ff85',
+        gradientDefId: '3ad73145',
+        gradientId: 'c655ff85',
+        hasContent: true,
+        nonZeroPaint: 16,
+        paint: '3ace208a',
+        phase: 'c655ff85',
+        speed: 'adb3f6dd',
+        strokeCounter: 1,
+      },
+    });
+  });
+
   it('round-trips stroke snapshot and settings via serialize/deserialize', () => {
     const canvas = makeCanvas();
     const brush = new ColorCycleBrushCanvas2D(canvas, { brushSize: 10, fps: 60 });
@@ -347,7 +771,7 @@ describe('ColorCycleBrushCanvas2D', () => {
     paint[0] = 5;
     paint[5] = 9;
 
-    brush.applyLayerSnapshot('layer-1', {
+    applyColorCycleBrushLayerSnapshotToRuntime(brush, 'layer-1', {
       paintBuffer: paint.buffer,
       hasContent: true,
       strokeCounter: 7,
@@ -373,7 +797,7 @@ describe('ColorCycleBrushCanvas2D', () => {
     brush.setStampDitherBgFill(false);
     brush.setStampDitherPressureLinked(true);
 
-    const serialized = brush.serialize();
+    const serialized = readSerializedBrushState(brush);
 
     expect(serialized.layers).toHaveLength(1);
     const strokeData = serialized.layers[0].strokeData;
@@ -398,22 +822,22 @@ describe('ColorCycleBrushCanvas2D', () => {
     expect(serialized.stampDitherPressureLinked).toBe(true);
 
     const roundTripped = ColorCycleBrushCanvas2D.deserialize(serialized, makeCanvas());
-    const snapshot = roundTripped.getLayerSnapshot('layer-1');
+    const snapshot = readBrushLayerSnapshot(roundTripped, 'layer-1');
     expect(snapshot?.strokeCounter).toBe(7);
     expect(new Uint8Array(snapshot!.paintBuffer)[0]).toBe(5);
-    expect(roundTripped.serialize().ditherEnabled).toBe(true);
-    expect(roundTripped.serialize().ditherStrength).toBe(0.5);
-    expect(roundTripped.serialize().ditherPixelSize).toBe(4);
-    expect(roundTripped.serialize().perceptualDither).toBe(true);
-    expect(roundTripped.serialize().stampDitherAlgorithm).toBe('pattern');
-    expect(roundTripped.serialize().stampDitherPatternStyle).toBe('crosshatch');
-    expect(roundTripped.serialize().stampDitherPatternTileId).toBe('tile-a');
-    expect(roundTripped.serialize().stampDitherPatternTileScale).toBe(2);
-    expect(roundTripped.serialize().stampDitherPatternTileInvert).toBe(true);
-    expect(roundTripped.serialize().stampDitherPatternTileThreshold).toBe(0.4);
-    expect(roundTripped.serialize().stampDitherPatternTileOffsetX).toBe(3);
-    expect(roundTripped.serialize().stampDitherPatternTileOffsetY).toBe(4);
-    expect(roundTripped.serialize().stampDitherPressureLinked).toBe(true);
+    expect(readSerializedBrushState(roundTripped).ditherEnabled).toBe(true);
+    expect(readSerializedBrushState(roundTripped).ditherStrength).toBe(0.5);
+    expect(readSerializedBrushState(roundTripped).ditherPixelSize).toBe(4);
+    expect(readSerializedBrushState(roundTripped).perceptualDither).toBe(true);
+    expect(readSerializedBrushState(roundTripped).stampDitherAlgorithm).toBe('pattern');
+    expect(readSerializedBrushState(roundTripped).stampDitherPatternStyle).toBe('crosshatch');
+    expect(readSerializedBrushState(roundTripped).stampDitherPatternTileId).toBe('tile-a');
+    expect(readSerializedBrushState(roundTripped).stampDitherPatternTileScale).toBe(2);
+    expect(readSerializedBrushState(roundTripped).stampDitherPatternTileInvert).toBe(true);
+    expect(readSerializedBrushState(roundTripped).stampDitherPatternTileThreshold).toBe(0.4);
+    expect(readSerializedBrushState(roundTripped).stampDitherPatternTileOffsetX).toBe(3);
+    expect(readSerializedBrushState(roundTripped).stampDitherPatternTileOffsetY).toBe(4);
+    expect(readSerializedBrushState(roundTripped).stampDitherPressureLinked).toBe(true);
   });
 
   it('reuses the image-tile resolver while tile settings and project tile data are unchanged', () => {
@@ -444,8 +868,11 @@ describe('ColorCycleBrushCanvas2D', () => {
       patternTileOffsetY: 0,
     });
 
-    const firstResolver = (brush as any).getStampDitherImageTileThresholdResolver();
-    const secondResolver = (brush as any).getStampDitherImageTileThresholdResolver();
+    const getResolver = () => (brush as any).settingsApi.getStampDitherImageTileThresholdResolver(
+      useAppStore.getState().project.ccCustomTilePatterns,
+    );
+    const firstResolver = getResolver();
+    const secondResolver = getResolver();
 
     expect(firstResolver).toBeDefined();
     expect(secondResolver).toBe(firstResolver);
@@ -462,7 +889,7 @@ describe('ColorCycleBrushCanvas2D', () => {
       },
     ];
 
-    expect((brush as any).getStampDitherImageTileThresholdResolver()).not.toBe(firstResolver);
+    expect(getResolver()).not.toBe(firstResolver);
   });
 
   it('does not duplicate animator index buffers when stroke snapshots already own restore data', () => {
@@ -476,7 +903,7 @@ describe('ColorCycleBrushCanvas2D', () => {
     gradientId[0] = 7;
     speed[0] = 9;
 
-    brush.applyLayerSnapshot('layer-dup-prune', {
+    applyColorCycleBrushLayerSnapshotToRuntime(brush, 'layer-dup-prune', {
       paintBuffer: paint.buffer,
       gradientIdBuffer: gradientId.buffer,
       speedBuffer: speed.buffer,
@@ -484,7 +911,7 @@ describe('ColorCycleBrushCanvas2D', () => {
       strokeCounter: 4,
     });
 
-    const serialized = brush.serialize();
+    const serialized = readSerializedBrushState(brush);
     const layer = serialized.layers[0];
 
     expect(layer?.strokeData?.paintBuffer.byteLength).toBe(paint.byteLength);
@@ -495,14 +922,14 @@ describe('ColorCycleBrushCanvas2D', () => {
     expect(layer?.data.indexBuffer.phaseData?.byteLength ?? 0).toBe(0);
   });
 
-  it('restores layer base speed through restoreFullState', () => {
+  it('restores layer base speed through the serialized-state runtime', () => {
     const source = new ColorCycleBrushCanvas2D(makeCanvas(), { brushSize: 10, fps: 60 });
     source.setLayerBaseSpeed(1.75);
 
     const restored = new ColorCycleBrushCanvas2D(makeCanvas(), { brushSize: 10, fps: 60 });
-    restored.restoreFullState(source.serialize() as any);
+    restoreColorCycleBrushSerializedStateToRuntime(restored, readSerializedBrushState(source));
 
-    expect(restored.serialize().layerBaseSpeed).toBeCloseTo(1.75, 5);
+    expect(readSerializedBrushState(restored).layerBaseSpeed).toBeCloseTo(1.75, 5);
   });
 
   it('applies layer snapshot with size mismatch and updates animator buffer', () => {
@@ -511,7 +938,7 @@ describe('ColorCycleBrushCanvas2D', () => {
 
     const smallBuffer = new Uint8Array([1, 2]).buffer; // smaller than expected 48 bytes
 
-    brush.applyLayerSnapshot('layer-small', {
+    applyColorCycleBrushLayerSnapshotToRuntime(brush, 'layer-small', {
       paintBuffer: smallBuffer,
       hasContent: true,
       strokeCounter: 2,
@@ -522,9 +949,204 @@ describe('ColorCycleBrushCanvas2D', () => {
     const applied = animatorMocks.setIndexBufferFromArrayMock.mock.calls.slice(-1)[0][0] as Uint8Array;
     expect(applied.length).toBe(canvas.width * canvas.height);
 
-    const snapshot = brush.getLayerSnapshot('layer-small');
+    const snapshot = readBrushLayerSnapshot(brush, 'layer-small');
     expect(snapshot?.paintBuffer.byteLength).toBe(canvas.width * canvas.height);
     expect(snapshot?.strokeCounter).toBe(2);
+  });
+
+  it('publishes audited mutation-gateway writes to an attached color-cycle document', () => {
+    const canvas = makeCanvas();
+    const brush = new ColorCycleBrushCanvas2D(canvas);
+    const layerId = 'layer-doc';
+    const document = new ColorCycleLayerDocument(
+      makeDocumentState(layerId, canvas.width, canvas.height),
+      { now: () => 100 },
+    );
+
+    brush.setColorCycleLayerDocument(layerId, document);
+    brush.clearPaintBuffer(layerId, 'manual-clear-layer');
+
+    const read = document.read();
+    expect(read.version).toBe(1);
+    expect(read.snapshot.layerId).toBe(layerId);
+    expect(read.snapshot.width).toBe(canvas.width);
+    expect(read.snapshot.height).toBe(canvas.height);
+    expect(read.snapshot.hasContent).toBe(false);
+    expect(read.snapshot.paintBuffer?.byteLength).toBe(canvas.width * canvas.height);
+    expect(document.getAuditLog()).toEqual([{
+      reason: 'manual-clear-layer',
+      versionBefore: 0,
+      versionAfter: 1,
+      committedAtMs: 100,
+    }]);
+  });
+
+  it.each(runtimeMutationReasons)(
+    'records document audit reason matching the mutation log for %s',
+    (reason) => {
+      window.localStorage.clear();
+      delete (window as Window & { __VESSEL_CC_MUTATION_LOG__?: unknown }).__VESSEL_CC_MUTATION_LOG__;
+
+      const canvas = makeCanvas();
+      const brush = new ColorCycleBrushCanvas2D(canvas);
+      const layerId = `layer-doc-parity-${reason}`;
+      const document = new ColorCycleLayerDocument(
+        makeDocumentState(layerId, canvas.width, canvas.height),
+        { now: () => 400 },
+      );
+
+      brush.setColorCycleLayerDocument(layerId, document);
+      applyColorCycleBrushLayerSnapshotToRuntime(brush, layerId, {
+        paintBuffer: new Uint8Array(canvas.width * canvas.height).fill(5).buffer,
+        hasContent: true,
+        strokeCounter: 1,
+      });
+
+      window.localStorage.clear();
+      delete (window as Window & { __VESSEL_CC_MUTATION_LOG__?: unknown }).__VESSEL_CC_MUTATION_LOG__;
+
+      brush.clearPaintBuffer(layerId, reason);
+
+      const mutationLog = getPersistedCCMutationLog();
+      const documentAudit = document.getAuditLog();
+      expect(mutationLog).toEqual([
+        expect.objectContaining({
+          event: 'color-cycle-layer-cleared',
+          layerId,
+          reason,
+        }),
+      ]);
+      expect(documentAudit.slice(-1)[0]).toEqual(expect.objectContaining({
+        reason,
+        versionBefore: 1,
+        versionAfter: 2,
+      }));
+    },
+  );
+
+  it('publishes applyLayerSnapshot writes to an attached color-cycle document', () => {
+    const canvas = makeCanvas();
+    const brush = new ColorCycleBrushCanvas2D(canvas);
+    const layerId = 'layer-snapshot-doc';
+    const document = new ColorCycleLayerDocument(
+      makeDocumentState(layerId, canvas.width, canvas.height),
+      { now: () => 200 },
+    );
+    const paint = new Uint8Array(canvas.width * canvas.height);
+    paint[0] = 7;
+
+    brush.setColorCycleLayerDocument(layerId, document);
+    applyColorCycleBrushLayerSnapshotToRuntime(brush, layerId, {
+      paintBuffer: paint.buffer,
+      hasContent: true,
+      strokeCounter: 4,
+    });
+
+    const read = document.read();
+    expect(read.version).toBe(1);
+    expect(read.snapshot.hasContent).toBe(true);
+    expect(Array.from(new Uint8Array(read.snapshot.paintBuffer ?? new ArrayBuffer(0)).slice(0, 4))).toEqual([7, 0, 0, 0]);
+    const animator = (brush as unknown as {
+      animators: Map<string, { builtFromVersion: number | null }>;
+    }).animators.get(layerId);
+    expect(animator?.builtFromVersion).toBe(read.version);
+    expect(document.getAuditLog()).toEqual([expect.objectContaining({
+      reason: 'snapshot-apply',
+      versionBefore: 0,
+      versionAfter: 1,
+      committedAtMs: 200,
+    })]);
+  });
+
+  it('rebases the attached color-cycle document from current stroke state without audit history', () => {
+    const canvas = makeCanvas();
+    const brush = new ColorCycleBrushCanvas2D(canvas);
+    const layerId = 'layer-rebase-doc';
+    const document = new ColorCycleLayerDocument(
+      makeDocumentState(layerId, canvas.width, canvas.height),
+      { now: () => 250 },
+    );
+    const paint = new Uint8Array(canvas.width * canvas.height);
+    paint[0] = 9;
+
+    brush.setColorCycleLayerDocument(layerId, document);
+    applyColorCycleBrushLayerSnapshotToRuntime(brush, layerId, {
+      paintBuffer: paint.buffer,
+      hasContent: true,
+      strokeCounter: 6,
+    });
+
+    expect(document.read().version).toBe(1);
+    expect(document.getAuditLog()).toHaveLength(1);
+
+    brush.rebaseColorCycleLayerDocument(layerId);
+
+    const read = document.read();
+    expect(read.version).toBe(0);
+    expect(read.snapshot.hasContent).toBe(true);
+    expect(Array.from(new Uint8Array(read.snapshot.paintBuffer ?? new ArrayBuffer(0)).slice(0, 2))).toEqual([9, 0]);
+    expect(document.getAuditLog()).toEqual([]);
+  });
+
+  it('creates a fallback document for direct brush instances when a layer id is assigned', () => {
+    const canvas = makeCanvas();
+    const brush = new ColorCycleBrushCanvas2D(canvas);
+    const layerId = 'layer-auto-doc';
+    const paint = new Uint8Array(canvas.width * canvas.height);
+    paint[0] = 11;
+
+    brush.setLayerId(layerId);
+    const document = brush.getColorCycleLayerDocument(layerId);
+    expect(document?.read()).toEqual(expect.objectContaining({
+      version: 0,
+      snapshot: expect.objectContaining({
+        layerId,
+        width: canvas.width,
+        height: canvas.height,
+        hasContent: false,
+      }),
+    }));
+
+    applyColorCycleBrushLayerSnapshotToRuntime(brush, layerId, {
+      paintBuffer: paint.buffer,
+      hasContent: true,
+      strokeCounter: 1,
+    });
+
+    const read = document?.read();
+    expect(read?.version).toBe(1);
+    expect(read?.snapshot.hasContent).toBe(true);
+    expect(Array.from(new Uint8Array(read?.snapshot.paintBuffer ?? new ArrayBuffer(0)).slice(0, 2))).toEqual([11, 0]);
+  });
+
+  it('publishes applyPaintPatch writes to an attached color-cycle document', () => {
+    const canvas = makeCanvas();
+    const brush = new ColorCycleBrushCanvas2D(canvas);
+    const layerId = 'layer-patch-doc';
+    const document = new ColorCycleLayerDocument(
+      makeDocumentState(layerId, canvas.width, canvas.height),
+      { now: () => 300 },
+    );
+
+    brush.setColorCycleLayerDocument(layerId, document);
+    const hasContent = applyColorCycleBrushPaintPatchToRuntime(
+      brush,
+      layerId,
+      { x: 1, y: 0, width: 2, height: 1 },
+      new Uint8Array([3, 4]),
+    );
+
+    const read = document.read();
+    expect(hasContent).toBe(true);
+    expect(read.version).toBe(1);
+    expect(read.snapshot.hasContent).toBe(true);
+    expect(Array.from(new Uint8Array(read.snapshot.paintBuffer ?? new ArrayBuffer(0)).slice(0, 4))).toEqual([0, 3, 4, 0]);
+    expect(document.getAuditLog()).toEqual([expect.objectContaining({
+      reason: 'history-restore',
+      versionBefore: 0,
+      versionAfter: 1,
+      committedAtMs: 300,
+    })]);
   });
 
   it('finalizes error diffusion stamp dithering on endStroke for finalize-only algos', () => {
@@ -622,7 +1244,7 @@ describe('ColorCycleBrushCanvas2D', () => {
 
     const brush = ColorCycleBrushCanvas2D.deserialize(serialized as any, canvas);
     expect(animatorMocks.setIndexBufferFromArrayMock).toHaveBeenCalled();
-    const snapshot = brush.getLayerSnapshot('layer-deser');
+    const snapshot = readBrushLayerSnapshot(brush, 'layer-deser');
     expect(snapshot?.hasContent).toBe(true);
   });
 
@@ -689,7 +1311,7 @@ describe('ColorCycleBrushCanvas2D', () => {
     };
 
     const brush = ColorCycleBrushCanvas2D.deserialize(serialized as any, canvas);
-    const roundTripped = brush.serialize();
+    const roundTripped = readSerializedBrushState(brush);
 
     expect(roundTripped.layers[0]?.gradientDefs).toEqual(serialized.layers[0].gradientDefs);
     expect(roundTripped.layers[0]?.slotPalettes).toEqual(serialized.layers[0].slotPalettes);
@@ -763,7 +1385,7 @@ describe('ColorCycleBrushCanvas2D', () => {
     };
 
     const brush = ColorCycleBrushCanvas2D.deserialize(serialized as any, canvas);
-    const roundTripped = brush.serialize();
+    const roundTripped = readSerializedBrushState(brush);
 
     expect(roundTripped.layers[0]?.paintSlot).toBe(3);
     expect(roundTripped.layers[0]?.activeGradientId).toBe('gradient-1');
@@ -825,7 +1447,7 @@ describe('ColorCycleBrushCanvas2D', () => {
     };
 
     const brush = ColorCycleBrushCanvas2D.deserialize(serialized as any, canvas);
-    const roundTripped = brush.serialize();
+    const roundTripped = readSerializedBrushState(brush);
 
     expect(roundTripped.layers[0]?.paintSlot).toBe(43);
     expect(roundTripped.layers[0]?.activeGradientId).toBe('gradient-43');
@@ -906,7 +1528,7 @@ describe('ColorCycleBrushCanvas2D', () => {
     };
 
     const brush = ColorCycleBrushCanvas2D.deserialize(serialized as any, canvas);
-    const roundTripped = brush.serialize();
+    const roundTripped = readSerializedBrushState(brush);
     const layer = roundTripped.layers[0];
 
     expect(layer?.gradientDefStore?.some((entry) => entry.id === 44)).toBe(true);
@@ -1006,7 +1628,7 @@ describe('ColorCycleBrushCanvas2D', () => {
     };
 
     const brush = ColorCycleBrushCanvas2D.deserialize(serialized as any, canvas);
-    const layer = brush.serialize().layers[0];
+    const layer = readSerializedBrushState(brush).layers[0];
 
     expect(layer?.activeGradientId).toBe('gradient-live');
     expect(layer?.paintSlot).toBe(4);
@@ -1080,7 +1702,7 @@ describe('ColorCycleBrushCanvas2D', () => {
     };
 
     const brush = ColorCycleBrushCanvas2D.deserialize(serialized as any, canvas);
-    const roundTripped = brush.serialize();
+    const roundTripped = readSerializedBrushState(brush);
 
     expect(roundTripped.layers[0]?.nextGradientDefId).toBe(8);
   });
@@ -1118,9 +1740,9 @@ describe('ColorCycleBrushCanvas2D', () => {
     brush.startStroke('layer-1');
     brush.endStroke('layer-1');
 
-    const snapshot = brush.getLayerSnapshot('layer-1');
+    const snapshot = readBrushLayerSnapshot(brush, 'layer-1');
     expect(snapshot?.paintBuffer.byteLength).toBe(canvas.width * canvas.height);
-    const serialized = brush.serialize();
+    const serialized = readSerializedBrushState(brush);
     expect(serialized.layers[0].strokeData?.paintBuffer.byteLength).toBe(canvas.width * canvas.height);
   });
 
@@ -1259,7 +1881,7 @@ describe('ColorCycleBrushCanvas2D', () => {
     const full = new Uint8Array(canvas.width * canvas.height);
     full[0] = 1;
 
-    brush.applyLayerSnapshot('layer-restore', {
+    applyColorCycleBrushLayerSnapshotToRuntime(brush, 'layer-restore', {
       paintBuffer: full.buffer,
       hasContent: true,
       strokeCounter: 1,
@@ -1296,7 +1918,7 @@ describe('ColorCycleBrushCanvas2D', () => {
   it('maps stroke band indices using gradientBands', () => {
     const canvas = makeCanvas();
     const brush = new ColorCycleBrushCanvas2D(canvas);
-    const strokeData = (brush as any).ensureStrokeState('layer-1');
+    const strokeData = createTestLayerStrokeState();
 
     brush.setGradientBands(4);
     strokeData.strokePhaseUnits = 0;
@@ -1315,7 +1937,7 @@ describe('ColorCycleBrushCanvas2D', () => {
   it('keeps total cycle length constant when bands change', () => {
     const canvas = makeCanvas();
     const brush = new ColorCycleBrushCanvas2D(canvas);
-    const strokeData = (brush as any).ensureStrokeState('layer-1');
+    const strokeData = createTestLayerStrokeState();
 
     brush.setGradientBands(4);
     strokeData.strokePhaseUnits = 0;
@@ -1336,7 +1958,7 @@ describe('ColorCycleBrushCanvas2D', () => {
   it('uses the same speed byte for sierra-lite cc gradient fills as stroke mode', () => {
     const canvas = makeCanvas();
     const brush = new ColorCycleBrushCanvas2D(canvas);
-    const strokeData = (brush as any).ensureStrokeState('layer-1');
+    const strokeData = createTestLayerStrokeState();
 
     brush.setSpeed(0.1);
     strokeData.strokeCounter = 1;
@@ -1356,7 +1978,7 @@ describe('ColorCycleBrushCanvas2D', () => {
   it('keeps cc gradient fill speed aligned with stroke speed for paired bands too', () => {
     const canvas = makeCanvas();
     const brush = new ColorCycleBrushCanvas2D(canvas);
-    const strokeData = (brush as any).ensureStrokeState('layer-1');
+    const strokeData = createTestLayerStrokeState();
 
     brush.setSpeed(0.1);
     strokeData.strokeCounter = 2;
@@ -1426,14 +2048,12 @@ describe('ColorCycleBrushCanvas2D', () => {
   });
 
   it('resolves shape phase bytes only for phased cc gradient fills', () => {
-    const brush = new ColorCycleBrushCanvas2D(makeCanvas());
-
-    expect((brush as any).resolveShapePhaseByte(0.5, { ccGradient: false, pairBandCount: 2 })).toBe(0);
-    expect((brush as any).resolveShapePhaseByte(0.5, { ccGradient: true, pairBandCount: 1 })).toBe(0);
-    expect((brush as any).resolveShapePhaseByte(0, { ccGradient: true, pairBandCount: 2 })).toBe(0);
-    expect((brush as any).resolveShapePhaseByte(0.5, { ccGradient: true, pairBandCount: 2 })).toBe(1);
-    expect((brush as any).resolveShapePhaseByte(0.5, { ccGradient: true, effectiveColorCount: 4 })).toBe(1);
-    expect((brush as any).resolveShapePhaseByte(0.5, {
+    expect(resolveColorCycleShapePhaseByte(0.5, { ccGradient: false, pairBandCount: 2 })).toBe(0);
+    expect(resolveColorCycleShapePhaseByte(0.5, { ccGradient: true, pairBandCount: 1 })).toBe(0);
+    expect(resolveColorCycleShapePhaseByte(0, { ccGradient: true, pairBandCount: 2 })).toBe(0);
+    expect(resolveColorCycleShapePhaseByte(0.5, { ccGradient: true, pairBandCount: 2 })).toBe(1);
+    expect(resolveColorCycleShapePhaseByte(0.5, { ccGradient: true, effectiveColorCount: 4 })).toBe(1);
+    expect(resolveColorCycleShapePhaseByte(0.5, {
       ccGradient: true,
       pairBandCount: 2,
       shapePhaseBaseByte: 17,
@@ -1543,16 +2163,14 @@ describe('ColorCycleBrushCanvas2D', () => {
   });
 
   it('derives different stable base phases for different shape seeds', () => {
-    const brush = new ColorCycleBrushCanvas2D(makeCanvas());
-
-    const phaseA = (brush as any).resolveShapePhaseBaseByte({
+    const phaseA = resolveColorCycleShapePhaseBaseByte({
       ccGradient: true,
       pairBandCount: 2,
       markId: 'shape-a',
       bounds: { minX: 0, minY: 0, width: 10, height: 10 },
       points: [{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 10, y: 10 }],
     });
-    const phaseB = (brush as any).resolveShapePhaseBaseByte({
+    const phaseB = resolveColorCycleShapePhaseBaseByte({
       ccGradient: true,
       pairBandCount: 2,
       markId: 'shape-b',
@@ -1715,13 +2333,12 @@ describe('ColorCycleBrushCanvas2D', () => {
     const brush = new ColorCycleBrushCanvas2D(makeCanvas());
     brush.setDitherStrength(2);
     brush.setDitherPixelSize(0.4);
-    const internals = brush as any;
-    expect(internals.ditherStrength).toBe(1);
-    expect(internals.ditherPixelSize).toBe(1);
+    expect(brush.getSettings().ditherStrength).toBe(1);
+    expect(brush.getSettings().ditherPixelSize).toBe(1);
     brush.setDitherStrength(-1);
     brush.setDitherPixelSize(5.6);
-    expect(internals.ditherStrength).toBe(0);
-    expect(internals.ditherPixelSize).toBe(5);
+    expect(brush.getSettings().ditherStrength).toBe(0);
+    expect(brush.getSettings().ditherPixelSize).toBe(5);
   });
 
   it('keeps color-cycle stroke pressure size continuous without integer jumps', () => {
@@ -1754,7 +2371,7 @@ describe('ColorCycleBrushCanvas2D', () => {
     const layerId = 'layer-opacity';
     const paint = new Uint8Array(8 * 6);
     paint[0] = 1;
-    brush.applyLayerSnapshot(layerId, {
+    applyColorCycleBrushLayerSnapshotToRuntime(brush, layerId, {
       paintBuffer: paint.buffer,
       hasContent: true,
       strokeCounter: 1,
@@ -1778,7 +2395,7 @@ describe('ColorCycleBrushCanvas2D', () => {
 
     let alphaDuringRender = -1;
     const renderSpy = jest
-      .spyOn(brush as unknown as { renderAnimatorToContext: (...args: unknown[]) => void }, 'renderAnimatorToContext')
+      .spyOn(ColorCyclePresenter.prototype, 'renderAnimatorToContext')
       .mockImplementation((...args: unknown[]) => {
         const renderCtx = args[1] as CanvasRenderingContext2D;
         alphaDuringRender = renderCtx.globalAlpha;
@@ -1790,26 +2407,6 @@ describe('ColorCycleBrushCanvas2D', () => {
     expect(ctx.globalAlpha).toBe(0.77);
     expect(ctx.globalCompositeOperation).toBe('multiply');
     renderSpy.mockRestore();
-  });
-
-  it('detects paint buffer content across word and tail-aligned buffers', () => {
-    const brush = new ColorCycleBrushCanvas2D(makeCanvas(), { brushSize: 4, fps: 60 }) as any;
-
-    const empty = new Uint8Array(17);
-    expect(brush.paintBufferHasContent(empty, 17, 1)).toBe(false);
-
-    const wordContent = new Uint8Array(17);
-    wordContent[12] = 7;
-    expect(brush.paintBufferHasContent(wordContent, 17, 1)).toBe(true);
-
-    const tailContent = new Uint8Array(17);
-    tailContent[16] = 9;
-    expect(brush.paintBufferHasContent(tailContent, 17, 1)).toBe(true);
-
-    const unalignedSource = new Uint8Array(18);
-    const unaligned = unalignedSource.subarray(1);
-    unaligned[15] = 3;
-    expect(brush.paintBufferHasContent(unaligned, 17, 1)).toBe(true);
   });
 
 });

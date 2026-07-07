@@ -1,5 +1,5 @@
 import { featureFlags } from '@/config/featureFlags';
-import type { ColorCycleBrushImplementation } from '@/hooks/brushEngine/ColorCycleBrushMigration';
+import type { ColorCycleBrushRuntimeHost } from '@/hooks/brushEngine/colorCycleBrushContracts';
 import { defaultBrushSettings } from '@/presets/brushPresets';
 import type { BrushSettings, Layer } from '@/types';
 import type { AppState } from '@/stores/useAppStore';
@@ -11,7 +11,7 @@ import {
 
 type IntervalHandle = ReturnType<typeof setInterval> | number;
 
-type StoreSlice = Pick<AppState, 'tools' | 'layers' | 'colorCyclePlayback' | 'getLayerColorCycleBrush'>;
+type StoreSlice = Pick<AppState, 'tools' | 'layers' | 'colorCyclePlayback'>;
 
 let storeStateGetter: (() => StoreSlice) | null = null;
 
@@ -194,7 +194,7 @@ export function disposeColorCycleBrushManager(): void {
   globalManager = null;
 }
 
-export type { ColorCycleBrushManager, ColorCycleBrushImplementation };
+export type { ColorCycleBrushManager, ColorCycleBrushRuntimeHost };
 type ColorCycleBrushCanvas2DConstructor = typeof import('@/hooks/brushEngine/ColorCycleBrushCanvas2D').ColorCycleBrushCanvas2D;
 let ColorCycleBrushCanvas2DImpl: ColorCycleBrushCanvas2DConstructor | null = null;
 

@@ -13,7 +13,7 @@ export interface BuildDrawingCanvasRuntimeEffectsKeyboardOptionsArgs {
     KeyboardOptions,
     | 'toolStateMachine'
     | 'drawingHandlers'
-    | 'brushEngine'
+    | 'brushRuntime'
     | 'layers'
     | 'activeLayerId'
     | 'tools'

@@ -14,7 +14,10 @@ interface BuildDrawingHandlersRuntimeSetupStageArgsOptions
     | 'shapeMode'
     | 'toolsRef'
     | 'captureCanvasToActiveLayer'
-    | 'brushEngine'
+    | 'strokeBrushRuntime'
+    | 'finalizeBrushRuntime'
+    | 'shapeBrushRuntime'
+    | 'playbackBrushRuntime'
     | 'userBrushEngine'
     | 'shapeRuntime'
     | 'brushToolRuntime'
@@ -29,7 +32,10 @@ export const buildDrawingHandlersRuntimeSetupStageArgs = ({
   shapeMode,
   toolsRef,
   captureCanvasToActiveLayer,
-  brushEngine,
+  strokeBrushRuntime,
+  finalizeBrushRuntime,
+  shapeBrushRuntime,
+  playbackBrushRuntime,
   userBrushEngine,
   shapeRuntime,
   brushToolRuntime,
@@ -41,7 +47,10 @@ export const buildDrawingHandlersRuntimeSetupStageArgs = ({
   shapeMode,
   toolsRef,
   captureCanvasToActiveLayer,
-  brushEngine,
+  strokeBrushRuntime,
+  finalizeBrushRuntime,
+  shapeBrushRuntime,
+  playbackBrushRuntime,
   userBrushEngine,
   shapeRuntime,
   brushToolRuntime,

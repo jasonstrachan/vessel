@@ -5,14 +5,16 @@ import {
 } from '@/utils/customBrushCapture';
 import type { Layer } from '@/types';
 import { createDefaultLayerAlignment } from '@/utils/layoutDefaults';
+import { attachLegacyColorCycleTopLevelBuffers } from '@/lib/colorCycle/document';
 
-const getLayerColorCycleBrush = jest.fn();
+const getDocument = jest.fn();
 
 jest.mock('@/stores/colorCycleBrushManager', () => ({
   __esModule: true,
-  getColorCycleStoreState: () => null,
+  setLayerIdGetter: jest.fn(),
+  setColorCycleStoreStateGetter: jest.fn(),
   getColorCycleBrushManager: () => ({
-    getLayerColorCycleBrush: (...args: unknown[]) => getLayerColorCycleBrush(...args),
+    getDocument: (...args: unknown[]) => getDocument(...args),
   }),
 }));
 
@@ -33,30 +35,39 @@ const createLayer = (): Layer => {
     framebuffer,
     alignment: createDefaultLayerAlignment(),
     layerType: 'color-cycle',
-    colorCycleData: {
+    colorCycleData: attachLegacyColorCycleTopLevelBuffers({
       canvasWidth: 2,
       canvasHeight: 2,
-      gradientIdBuffer: new Uint8Array([9, 9, 9, 9]).buffer,
       gradient: [
         { position: 0, color: '#000000' },
         { position: 1, color: '#ffffff' },
       ],
       brushSpeed: 0.2,
-    },
+    }, {
+      gradientIdBuffer: new Uint8Array([9, 9, 9, 9]).buffer,
+    }),
   };
 };
 
+const createDocumentWithPaint = (paintBuffer: ArrayBuffer) => ({
+  read: () => ({
+    snapshot: {
+      paintBuffer,
+      hasContent: paintBuffer.byteLength > 0,
+    },
+    version: 1,
+  }),
+});
+
 describe('captureColorCycleDataFromLayer', () => {
   beforeEach(() => {
-    getLayerColorCycleBrush.mockReset();
+    getDocument.mockReset();
   });
 
-  it('uses runtime paintBuffer as captured phaseMap', () => {
-    getLayerColorCycleBrush.mockReturnValue({
-      getLayerSnapshot: () => ({
-        paintBuffer: new Uint8Array([1, 2, 3, 4]).buffer,
-      }),
-    });
+  it('uses document paintBuffer as captured phaseMap', () => {
+    getDocument.mockReturnValue(
+      createDocumentWithPaint(new Uint8Array([1, 2, 3, 4]).buffer)
+    );
 
     const capture = captureColorCycleDataFromLayer({
       activeLayer: createLayer(),
@@ -87,12 +98,8 @@ describe('captureColorCycleDataFromLayer', () => {
     expect(Array.from(capture?.indexMap ?? [])).toEqual([0, 0, 0, 0]);
   });
 
-  it('falls back to persisted gradientIdBuffer when the runtime paintBuffer is missing', () => {
-    getLayerColorCycleBrush.mockReturnValue({
-      getLayerSnapshot: () => ({
-        paintBuffer: new ArrayBuffer(0),
-      }),
-    });
+  it('falls back to persisted gradientIdBuffer when the document paintBuffer is missing', () => {
+    getDocument.mockReturnValue(createDocumentWithPaint(new ArrayBuffer(0)));
 
     const capture = captureColorCycleDataFromLayer({
       activeLayer: createLayer(),
@@ -124,11 +131,9 @@ describe('captureColorCycleDataFromLayer', () => {
   });
 
   it('captures gradient from active slot palette when defs are present', () => {
-    getLayerColorCycleBrush.mockReturnValue({
-      getLayerSnapshot: () => ({
-        paintBuffer: new Uint8Array([1, 2, 3, 4]).buffer,
-      }),
-    });
+    getDocument.mockReturnValue(
+      createDocumentWithPaint(new Uint8Array([1, 2, 3, 4]).buffer)
+    );
 
     const layer = createLayer();
     if (!layer.colorCycleData) {

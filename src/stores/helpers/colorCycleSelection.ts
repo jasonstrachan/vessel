@@ -5,7 +5,18 @@ import {
   summarizeScalarBuffer,
 } from '@/utils/colorCycle/ccMutationAudit';
 import { getColorCycleBrushManager } from '@/stores/colorCycleBrushManager';
-import { copyScalarRegion } from '@/stores/helpers/selectionCapture';
+import {
+  applyColorCycleBrushLayerSnapshotToRuntime,
+  buildColorCycleRuntimePaintSnapshot,
+  canApplyColorCycleBrushLayerSnapshotToRuntime,
+  canReadColorCycleBrushLayerSnapshotFromRuntime,
+  captureColorCyclePaintRegion,
+  colorCycleRuntimePaintSnapshotToBrushSnapshot,
+  getColorCycleLegacyLayerBuffer,
+  readColorCycleBrushLayerSnapshotFromRuntime,
+  type ColorCycleLayerDocumentSnapshot,
+  type ColorCyclePaintSnapshot,
+} from '@/lib/colorCycle/document';
 import type { Layer, Project, Rectangle } from '@/types';
 import type { AppState } from '@/stores/useAppStore';
 import { DEFAULT_GRADIENT_STOPS } from '@/utils/gradientPresets';
@@ -14,13 +25,22 @@ import { FLOW_SLOT_MASK } from '@/lib/colorCycle/flowEncoding';
 
 const colorCycleBrushManager = getColorCycleBrushManager();
 
-const resolveLayerBrush = (
-  state: Pick<AppState, 'getLayerColorCycleBrush'> | null | undefined,
-  layerId: string,
-) =>
-  (typeof state?.getLayerColorCycleBrush === 'function'
-    ? state.getLayerColorCycleBrush(layerId)
-    : null) ?? colorCycleBrushManager.getLayerColorCycleBrush(layerId);
+const resolvePaintSnapshot = (
+  snapshot: ColorCycleLayerDocumentSnapshot | null,
+): ColorCyclePaintSnapshot | null => {
+  if (!snapshot?.paintBuffer) {
+    return null;
+  }
+  return {
+    paintBuffer: snapshot.paintBuffer,
+    gradientIdBuffer: snapshot.gradientIdBuffer,
+    gradientDefIdBuffer: snapshot.gradientDefIdBuffer,
+    speedBuffer: snapshot.speedBuffer,
+    flowBuffer: snapshot.flowBuffer,
+    phaseBuffer: snapshot.phaseBuffer,
+    hasContent: snapshot.hasContent,
+  };
+};
 
 type BufferMutator = (buffers: {
   paint: Uint8Array;
@@ -39,15 +59,14 @@ type ColorCycleClearAuditOptions = {
 };
 
 const getCanvasForLayer = (
-  state: Pick<AppState, 'getLayerColorCycleBrush'> | null | undefined,
   layer: Layer,
   fallbackWidth: number,
   fallbackHeight: number,
+  brush?: { getCanvas?: () => HTMLCanvasElement | OffscreenCanvas | null } | null,
 ) => {
   if (layer.colorCycleData?.canvas) {
     return layer.colorCycleData.canvas;
   }
-  const brush = resolveLayerBrush(state, layer.id);
   if (brush && typeof brush.getCanvas === 'function') {
     const brushCanvas = brush.getCanvas();
     if (brushCanvas) {
@@ -70,6 +89,7 @@ const mutateColorCycleLayer = (
   mutator: BufferMutator,
   options?: {
     skipMaterialize?: boolean;
+    dirtyRect?: Rectangle;
     audit?: ColorCycleClearAuditOptions;
   }
 ): boolean => {
@@ -79,7 +99,8 @@ const mutateColorCycleLayer = (
 
   const fallbackWidth = layer.imageData?.width ?? project.width ?? 0;
   const fallbackHeight = layer.imageData?.height ?? project.height ?? 0;
-  const canvas = getCanvasForLayer(state, layer, fallbackWidth, fallbackHeight);
+  let brush = colorCycleBrushManager.getSelectionMutationBrush(layer.id);
+  const canvas = getCanvasForLayer(layer, fallbackWidth, fallbackHeight, brush);
   if (!canvas?.width || !canvas.height) {
     if (process.env.NODE_ENV !== 'production') {
       debugWarn('raw-console', '[cc] invalid canvas in mutateColorCycleLayer', {
@@ -91,25 +112,43 @@ const mutateColorCycleLayer = (
     return false;
   }
 
-  let brush = resolveLayerBrush(state, layer.id);
-  if ((!brush?.getLayerSnapshot || !(brush as { applyLayerSnapshot?: unknown }).applyLayerSnapshot) &&
+  if ((!canReadColorCycleBrushLayerSnapshotFromRuntime(brush) || !canApplyColorCycleBrushLayerSnapshotToRuntime(brush)) &&
       typeof colorCycleBrushManager.initColorCycleForLayer === 'function') {
     colorCycleBrushManager.initColorCycleForLayer(layer.id, canvas.width, canvas.height);
-    brush = resolveLayerBrush(state, layer.id);
+    brush = colorCycleBrushManager.getSelectionMutationBrush(layer.id);
   }
-  if (!brush?.getLayerSnapshot || !brush.applyLayerSnapshot) {
+  if (!canReadColorCycleBrushLayerSnapshotFromRuntime(brush) || !canApplyColorCycleBrushLayerSnapshotToRuntime(brush)) {
     return false;
   }
 
-  const snapshot = brush.getLayerSnapshot(layer.id);
+  const snapshot = readColorCycleBrushLayerSnapshotFromRuntime(brush, layer.id);
   if (!snapshot) {
     if (process.env.NODE_ENV !== 'production') {
       debugWarn('raw-console', '[cc] no snapshot in mutateColorCycleLayer', { layerId: layer.id });
     }
     return false;
   }
-  if (!snapshot.paintBuffer || snapshot.paintBuffer.byteLength === 0) {
-    const isDestructiveClear = Boolean(options?.audit?.source);
+  const bufferLength = canvas.width * canvas.height;
+  if (bufferLength <= 0) {
+    if (process.env.NODE_ENV !== 'production') {
+      debugWarn('raw-console', '[cc] zero bufferLength in mutateColorCycleLayer', {
+        layerId: layer.id,
+        canvasWidth: canvas.width,
+        canvasHeight: canvas.height,
+      });
+    }
+    return false;
+  }
+
+  const isDestructiveClear = Boolean(options?.audit?.source);
+  const runtimeSnapshot = buildColorCycleRuntimePaintSnapshot({
+    snapshot,
+    width: canvas.width,
+    height: canvas.height,
+    allowEmptyInitializedPayload: !isDestructiveClear,
+    normalizeLength: true,
+  });
+  if (!runtimeSnapshot) {
     if (isDestructiveClear) {
       logCCMutation({
         event: 'color-cycle-selection-clear-skipped-missing-canonical-paint',
@@ -127,91 +166,34 @@ const mutateColorCycleLayer = (
           projectId: project.id,
           canvasWidth: canvas.width,
           canvasHeight: canvas.height,
-          hasGradientIdBuffer: Boolean(layer.colorCycleData?.gradientIdBuffer),
-          hasGradientDefIdBuffer: Boolean(layer.colorCycleData?.gradientDefIdBuffer),
+          hasGradientIdBuffer: Boolean(getColorCycleLegacyLayerBuffer(layer.colorCycleData, 'gradientIdBuffer')),
+          hasGradientDefIdBuffer: Boolean(getColorCycleLegacyLayerBuffer(layer.colorCycleData, 'gradientDefIdBuffer')),
           ...(options?.audit?.details ?? {}),
         },
       });
       return false;
     }
-  }
-
-  const bufferLength = canvas.width * canvas.height;
-  if (bufferLength <= 0) {
     if (process.env.NODE_ENV !== 'production') {
-      debugWarn('raw-console', '[cc] zero bufferLength in mutateColorCycleLayer', {
-        layerId: layer.id,
-        canvasWidth: canvas.width,
-        canvasHeight: canvas.height,
-      });
+      debugWarn('raw-console', '[cc] no canonical paint payload in snapshot', { layerId: layer.id });
     }
     return false;
   }
 
-  const incoming = snapshot.paintBuffer ? new Uint8Array(snapshot.paintBuffer) : null;
-  const incomingGradientId = snapshot.gradientIdBuffer ? new Uint8Array(snapshot.gradientIdBuffer) : null;
-  const incomingGradientDefId = snapshot.gradientDefIdBuffer
-    ? new Uint16Array(snapshot.gradientDefIdBuffer)
-    : (layer.colorCycleData?.gradientDefIdBuffer ? new Uint16Array(layer.colorCycleData.gradientDefIdBuffer) : null);
-  const incomingSpeed = snapshot.speedBuffer ? new Uint8Array(snapshot.speedBuffer) : null;
-  const incomingFlow = snapshot.flowBuffer ? new Uint8Array(snapshot.flowBuffer) : null;
-  const incomingPhase = snapshot.phaseBuffer ? new Uint8Array(snapshot.phaseBuffer) : null;
-  if (!incoming && process.env.NODE_ENV !== 'production') {
-    debugWarn('raw-console', '[cc] no paintBuffer in snapshot', { layerId: layer.id });
-  }
-  const working = new Uint8Array(bufferLength);
-  const workingGradientId = new Uint8Array(bufferLength);
-  const workingGradientDefId = new Uint16Array(bufferLength);
-  const workingSpeed = new Uint8Array(bufferLength);
-  const workingFlow = new Uint8Array(bufferLength);
-  const workingPhase = new Uint8Array(bufferLength);
-  if (incoming && incoming.length) {
-    if (incoming.length !== bufferLength && process.env.NODE_ENV !== 'production') {
-      debugWarn('raw-console', '[cc] paintBuffer/canvas mismatch in mutateColorCycleLayer', {
-        layerId: layer.id,
-        incoming: incoming.length,
-        bufferLength,
-        canvasWidth: canvas.width,
-        canvasHeight: canvas.height,
-      });
-    }
-    working.set(incoming.subarray(0, Math.min(incoming.length, working.length)));
-  }
-  const beforePaintSummary = incoming
-    ? summarizeScalarBuffer(incoming, canvas.width, canvas.height)
+  const legacyGradientDefBuffer = getColorCycleLegacyLayerBuffer(layer.colorCycleData, 'gradientDefIdBuffer');
+  const legacyGradientDefId = legacyGradientDefBuffer
+    ? new Uint16Array(legacyGradientDefBuffer)
     : null;
-  const hadContentBeforeMutation = incoming?.some((value) => value !== 0) ?? Boolean(snapshot.hasContent);
-
-  if (incomingGradientId && incomingGradientId.length) {
-    if (incomingGradientId.length !== bufferLength && process.env.NODE_ENV !== 'production') {
-      debugWarn('raw-console', '[cc] gradientIdBuffer/canvas mismatch in mutateColorCycleLayer', {
-        layerId: layer.id,
-        incoming: incomingGradientId.length,
-        bufferLength,
-        canvasWidth: canvas.width,
-        canvasHeight: canvas.height,
-      });
-    }
-    workingGradientId.set(incomingGradientId.subarray(0, Math.min(incomingGradientId.length, workingGradientId.length)));
-  }
-
-  if (incomingGradientDefId && incomingGradientDefId.length) {
-    workingGradientDefId.set(
-      incomingGradientDefId.subarray(0, Math.min(incomingGradientDefId.length, workingGradientDefId.length))
-    );
-  }
-
-  if (incomingSpeed && incomingSpeed.length) {
-    workingSpeed.set(incomingSpeed.subarray(0, Math.min(incomingSpeed.length, workingSpeed.length)));
-  }
-
-  if (incomingFlow && incomingFlow.length) {
-    workingFlow.set(incomingFlow.subarray(0, Math.min(incomingFlow.length, workingFlow.length)));
-  }
-
-  if (incomingPhase && incomingPhase.length) {
-    workingPhase.set(incomingPhase.subarray(0, Math.min(incomingPhase.length, workingPhase.length)));
-  }
+  const incoming = runtimeSnapshot.paint;
+  const working = incoming.slice();
+  const workingGradientId = runtimeSnapshot.gradientIdBuffer.slice();
+  const workingGradientDefId = (
+    runtimeSnapshot.gradientDefIdBuffer ?? legacyGradientDefId ?? new Uint16Array(bufferLength)
+  ).slice();
+  const workingSpeed = (runtimeSnapshot.speedBuffer ?? new Uint8Array(bufferLength)).slice();
+  const workingFlow = (runtimeSnapshot.flowBuffer ?? new Uint8Array(bufferLength)).slice();
+  const workingPhase = (runtimeSnapshot.phaseBuffer ?? new Uint8Array(bufferLength)).slice();
+  const beforePaintSummary = summarizeScalarBuffer(incoming, canvas.width, canvas.height);
+  const hadContentBeforeMutation = incoming.some((value) => value !== 0) || runtimeSnapshot.hasContent;
 
   const mutated = mutator({
     paint: working,
@@ -276,46 +258,38 @@ const mutateColorCycleLayer = (
     });
   }
 
-  (brush.applyLayerSnapshot as (
-    layerId: string,
-    snapshot: {
-      paintBuffer: ArrayBufferLike;
-      gradientIdBuffer?: ArrayBufferLike;
-      gradientDefIdBuffer?: ArrayBufferLike;
-      speedBuffer?: ArrayBufferLike;
-      flowBuffer?: ArrayBufferLike;
-      phaseBuffer?: ArrayBufferLike;
-      hasContent: boolean;
-      strokeCounter: number;
-    },
-    animatorIndex?: unknown,
-    reason?: string,
-    options?: { suppressClearAudit?: boolean }
-  ) => void)(layer.id, {
-    paintBuffer: working.buffer,
-    gradientIdBuffer: workingGradientId.buffer,
-    gradientDefIdBuffer: workingGradientDefId.buffer,
-    speedBuffer: workingSpeed.buffer,
-    flowBuffer: workingFlow.buffer,
-    phaseBuffer: workingPhase.buffer,
+  applyColorCycleBrushLayerSnapshotToRuntime(brush, layer.id, colorCycleRuntimePaintSnapshotToBrushSnapshot({
+    ...runtimeSnapshot,
+    paint: working,
+    gradientIdBuffer: workingGradientId,
+    gradientDefIdBuffer: workingGradientDefId,
+    speedBuffer: workingSpeed,
+    flowBuffer: workingFlow,
+    phaseBuffer: workingPhase,
     hasContent,
-    strokeCounter: snapshot.strokeCounter,
-  }, undefined, 'selection-region-clear', { suppressClearAudit: true });
+  }), undefined, 'selection-region-clear', { suppressClearAudit: true });
 
   const skipMaterialize = options?.skipMaterialize === true;
   let syncedImage: ImageData | undefined;
   let resolvedImageData: ImageData | undefined;
+  const htmlCanvas = typeof HTMLCanvasElement !== 'undefined' && canvas instanceof HTMLCanvasElement
+    ? canvas
+    : null;
 
   if (!skipMaterialize) {
     try {
-      brush.renderDirectToCanvas?.(canvas, layer.id);
+      if (htmlCanvas) {
+        brush.renderDirectToCanvas?.(htmlCanvas, layer.id);
+      }
     } catch {
       // ignore render errors; state will sync via canvas snapshot
     }
 
     const ctx = canvas.getContext('2d', { willReadFrequently: true });
     syncedImage =
-      ctx?.getImageData(0, 0, canvas.width, canvas.height) ?? layer.colorCycleData?.canvasImageData ?? undefined;
+      ctx && 'getImageData' in ctx
+        ? ctx.getImageData(0, 0, canvas.width, canvas.height)
+        : layer.colorCycleData?.canvasImageData ?? undefined;
     resolvedImageData = syncedImage ?? layer.imageData ?? undefined;
   }
 
@@ -323,13 +297,9 @@ const mutateColorCycleLayer = (
     const base = layer.colorCycleData ?? {};
     const update: Partial<NonNullable<Layer['colorCycleData']>> = {};
 
-    if (base.colorCycleBrush !== brush) {
-      update.colorCycleBrush = brush;
-    }
-
     // Always persist the canvas we rendered into so composites read fresh pixels.
-    if (canvas && base.canvas !== canvas) {
-      update.canvas = canvas;
+    if (htmlCanvas && base.canvas !== htmlCanvas) {
+      update.canvas = htmlCanvas;
     }
 
     if (syncedImage) {
@@ -338,10 +308,6 @@ const mutateColorCycleLayer = (
     if (base.hasContent !== hasContent) {
       update.hasContent = hasContent;
     }
-    update.gradientIdBuffer = workingGradientId.buffer.slice(0) as ArrayBuffer;
-    update.gradientDefIdBuffer = workingGradientDefId.buffer.slice(0) as ArrayBuffer;
-    update.phaseBuffer = workingPhase.buffer.slice(0) as ArrayBuffer;
-
     const hasUpdates = Object.keys(update).length > 0;
     return hasUpdates ? { ...base, ...update } : base;
   })();
@@ -356,14 +322,14 @@ const mutateColorCycleLayer = (
           imageData: resolvedImageData,
           colorCycleData: nextColorCycleData,
         },
-    { skipColorCycleSync: true }
+    {
+      skipColorCycleSync: true,
+      dirtyRects: options?.dirtyRect ? [options.dirtyRect] : undefined,
+    }
   );
 
   if (!skipMaterialize) {
-    // Invalidate composites so the new CC pixels show up immediately.
     state.setCurrentCompositeBitmap?.(null);
-    state.setLayersNeedRecomposition?.(true);
-    state.markCompositeSegmentsDirtyByLayerIds?.([layer.id]);
   }
 
   return true;
@@ -482,6 +448,7 @@ export const clearColorCycleRegion = (
       }
       return changed;
     }, {
+      dirtyRect: rect,
       audit: {
         source: options?.auditSource,
         details: auditDetails,
@@ -615,6 +582,7 @@ export const writeColorCycleRegion = (
     },
     {
       skipMaterialize: options?.skipMaterialize,
+      dirtyRect: rect,
     }
   );
 
@@ -790,27 +758,20 @@ export const debugCaptureColorCycleScalarRegion = (
   project: Project,
   rect: Rectangle
 ): Uint8Array | null => {
-  const brush = resolveLayerBrush(null, layer.id);
-  if (!brush?.getLayerSnapshot) {
-    return null;
-  }
-
-  const snapshot = brush.getLayerSnapshot(layer.id);
-  if (!snapshot?.paintBuffer) {
-    return null;
-  }
-
-  const canvas =
-    layer.colorCycleData?.canvas ??
-    (typeof brush.getCanvas === 'function' ? brush.getCanvas() : null);
-  const canvasWidth = canvas?.width ?? layer.imageData?.width ?? project.width;
-  const canvasHeight = canvas?.height ?? layer.imageData?.height ?? project.height;
+  const documentSnapshot = colorCycleBrushManager.getDocument(layer.id)?.read().snapshot ?? null;
+  const canvasWidth =
+    layer.colorCycleData?.canvas?.width ??
+    layer.colorCycleData?.canvasWidth ??
+    layer.imageData?.width ??
+    layer.framebuffer?.width ??
+    project.width;
+  const canvasHeight =
+    layer.colorCycleData?.canvas?.height ??
+    layer.colorCycleData?.canvasHeight ??
+    layer.imageData?.height ??
+    layer.framebuffer?.height ??
+    project.height;
   if (!canvasWidth || !canvasHeight) {
-    return null;
-  }
-
-  const incoming = new Uint8Array(snapshot.paintBuffer);
-  if (incoming.length !== canvasWidth * canvasHeight) {
     return null;
   }
 
@@ -825,5 +786,10 @@ export const debugCaptureColorCycleScalarRegion = (
     return new Uint8Array(0);
   }
 
-  return copyScalarRegion(incoming, canvasWidth, canvasHeight, normRect);
+  return captureColorCyclePaintRegion({
+    snapshot: resolvePaintSnapshot(documentSnapshot),
+    width: canvasWidth,
+    height: canvasHeight,
+    rect: normRect,
+  });
 };

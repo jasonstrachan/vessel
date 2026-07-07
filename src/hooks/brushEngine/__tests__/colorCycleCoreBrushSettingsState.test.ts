@@ -1,0 +1,64 @@
+import { ColorCycleCoreBrushSettingsState } from '../colorCycleCoreBrushSettingsState';
+
+describe('ColorCycleCoreBrushSettingsState', () => {
+  it('owns core brush settings defaults', () => {
+    const state = new ColorCycleCoreBrushSettingsState();
+
+    expect(state.getSettings()).toMatchObject({
+      brushSize: 20,
+      cycleSpeed: 0.1,
+      layerBaseSpeed: 1,
+      pressureEnabled: false,
+      minPressure: 1,
+      maxPressure: 200,
+      stampShape: 'square',
+      preserveGradientPhaseOnChange: false,
+    });
+  });
+
+  it('normalizes brush size, speed, and layer base speed', () => {
+    const state = new ColorCycleCoreBrushSettingsState({ brushSize: 12 });
+
+    expect(state.getBrushSize()).toBe(12);
+    expect(state.setBrushSize(0)).toBeNull();
+    expect(state.getBrushSize()).toBe(12);
+    expect(state.setBrushSize(5.5)).toBe(5.5);
+
+    expect(state.setCycleSpeed(-1)).toBeNull();
+    expect(state.setCycleSpeed(0.25)).toBe(0.25);
+
+    const change = state.setLayerBaseSpeed(2);
+    expect(change).toEqual({
+      previousBaseSpeed: 1,
+      nextBaseSpeed: 2,
+      ratio: 2,
+    });
+    expect(state.getResolvedWriteCycleSpeed()).toBe(0.5);
+  });
+
+  it('owns pressure normalization and pressure-adjusted brush size', () => {
+    const state = new ColorCycleCoreBrushSettingsState({ brushSize: 10 });
+
+    expect(state.resolvePressureBrushSize(0)).toBe(10);
+    state.setPressureEnabled(true);
+    state.setMinPressure(25);
+    state.setMaxPressure(250);
+
+    expect(state.getMinPressure()).toBe(25);
+    expect(state.getMaxPressure()).toBe(250);
+    expect(state.resolvePressureBrushSize(1)).toBeCloseTo(25);
+
+    state.setMaxPressure(10);
+    expect(state.getMaxPressure()).toBe(25);
+  });
+
+  it('normalizes stamp shape and gradient phase preservation', () => {
+    const state = new ColorCycleCoreBrushSettingsState();
+
+    expect(state.setStampShape('diamond7')).toBe('diamond7');
+    expect(state.getStampShape()).toBe('diamond7');
+
+    state.setPreserveGradientPhaseOnChange(true);
+    expect(state.shouldPreserveGradientPhaseOnChange()).toBe(true);
+  });
+});

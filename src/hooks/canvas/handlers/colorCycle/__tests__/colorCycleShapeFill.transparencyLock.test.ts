@@ -10,6 +10,7 @@ import { buildCcDitherRenderPalette, resolveCcDitherBandMode } from '@/utils/col
 import { hashStops, type StoredStop } from '@/utils/colorCycleGradientDefs';
 import type { MarkGradientSession } from '@/hooks/canvas/utils/colorCycleMarkSession';
 import { createDefaultLayerAlignment } from '@/utils/layoutDefaults';
+import { registerColorCycleBrushLayerSnapshotRuntime } from '@/lib/colorCycle/document';
 
 describe('colorCycleShapeFill transparency lock', () => {
   const initialState = useAppStore.getState();
@@ -56,33 +57,43 @@ describe('colorCycleShapeFill transparency lock', () => {
       updateColorCycleTexture: jest.fn(),
     };
     const applyLayerSnapshot = jest.fn();
-    const getLayerSnapshot = jest.fn()
+    const readDocumentSnapshot = jest.fn()
       .mockReturnValueOnce({
-        paintBuffer: new Uint8Array([1, 0]).buffer,
-        gradientIdBuffer: new Uint8Array([2, 0]).buffer,
-        gradientDefIdBuffer: new Uint16Array([3, 0]).buffer,
-        speedBuffer: new Uint8Array([4, 0]).buffer,
-        flowBuffer: new Uint8Array([5, 0]).buffer,
-        phaseBuffer: new Uint8Array([6, 0]).buffer,
-        hasContent: true,
-        strokeCounter: 9,
+        snapshot: {
+          paintBuffer: new Uint8Array([1, 0]).buffer,
+          gradientIdBuffer: new Uint8Array([2, 0]).buffer,
+          gradientDefIdBuffer: new Uint16Array([3, 0]).buffer,
+          speedBuffer: new Uint8Array([4, 0]).buffer,
+          flowBuffer: new Uint8Array([5, 0]).buffer,
+          phaseBuffer: new Uint8Array([6, 0]).buffer,
+          hasContent: true,
+        },
+        version: 1,
       })
       .mockReturnValue({
-        paintBuffer: new Uint8Array([1, 1]).buffer,
-        gradientIdBuffer: new Uint8Array([2, 2]).buffer,
-        gradientDefIdBuffer: new Uint16Array([3, 3]).buffer,
-        speedBuffer: new Uint8Array([4, 4]).buffer,
-        flowBuffer: new Uint8Array([5, 5]).buffer,
-        phaseBuffer: new Uint8Array([6, 6]).buffer,
-        hasContent: true,
-        strokeCounter: 9,
+        snapshot: {
+          paintBuffer: new Uint8Array([1, 1]).buffer,
+          gradientIdBuffer: new Uint8Array([2, 2]).buffer,
+          gradientDefIdBuffer: new Uint16Array([3, 3]).buffer,
+          speedBuffer: new Uint8Array([4, 4]).buffer,
+          flowBuffer: new Uint8Array([5, 5]).buffer,
+          phaseBuffer: new Uint8Array([6, 6]).buffer,
+          hasContent: true,
+        },
+        version: 2,
       });
+    const getColorCycleLayerDocument = jest.fn(() => ({
+      read: readDocumentSnapshot,
+    }));
     const renderDirectToCanvas = jest.fn();
     const ccBrush = {
-      getLayerSnapshot,
+      getColorCycleLayerDocument,
       applyLayerSnapshot,
       renderDirectToCanvas,
     };
+    registerColorCycleBrushLayerSnapshotRuntime(ccBrush, {
+      apply: (layerId, snapshot) => applyLayerSnapshot(layerId, snapshot),
+    });
 
     await finalizeColorCycleShapeFillLinear(
       {
@@ -104,8 +115,8 @@ describe('colorCycleShapeFill transparency lock', () => {
         tool: 'brush',
       },
       {
-        brushEngine: brushEngine as never,
-        getColorCycleBrushManager: () => ({ getBrush: () => ccBrush as never }),
+        brushRuntime: brushEngine as never,
+        getColorCycleBrushManager: () => ({ getShapeFillBrush: () => ccBrush as never }),
         bindBrushToCanvas: jest.fn(),
         timeAsync: async (_label, task) => task(),
         timeSync: (_label, task) => task(),
@@ -115,7 +126,8 @@ describe('colorCycleShapeFill transparency lock', () => {
       }
     );
 
-    expect(getLayerSnapshot).toHaveBeenCalledWith('layer-1');
+    expect(getColorCycleLayerDocument).toHaveBeenCalledWith('layer-1');
+    expect(readDocumentSnapshot).toHaveBeenCalled();
     expect(applyLayerSnapshot).toHaveBeenCalled();
     const appliedSnapshot = applyLayerSnapshot.mock.calls[0][1];
     expect(new Uint8Array(appliedSnapshot.paintBuffer)[1]).toBe(0);
@@ -178,8 +190,8 @@ describe('colorCycleShapeFill transparency lock', () => {
         tool: 'brush',
       },
       {
-        brushEngine: brushEngine as never,
-        getColorCycleBrushManager: () => ({ getBrush: () => null }),
+        brushRuntime: brushEngine as never,
+        getColorCycleBrushManager: () => ({ getShapeFillBrush: () => null }),
         bindBrushToCanvas: jest.fn(),
         timeAsync: async (_label, task) => task(),
         timeSync: (_label, task) => task(),
@@ -249,12 +261,11 @@ describe('colorCycleShapeFill transparency lock', () => {
         tool: 'brush',
       },
       {
-        brushEngine: {
-          resetColorCycle: jest.fn(),
+        brushRuntime: {
           fillCcGradientLinear: jest.fn(async () => undefined),
           updateColorCycleTexture: jest.fn(),
         } as never,
-        getColorCycleBrushManager: () => ({ getBrush: () => null }),
+        getColorCycleBrushManager: () => ({ getShapeFillBrush: () => null }),
         bindBrushToCanvas: jest.fn(),
         timeAsync: async (_label, task) => task(),
         timeSync: (_label, task) => task(),
@@ -317,11 +328,11 @@ describe('colorCycleShapeFill transparency lock', () => {
     canvas.height = 2;
 
     const renderDirectToCanvas = jest.fn();
-    const commitCommittedLayerState = jest.fn();
+    const bindGradientDefIdToSlot = jest.fn();
     const fillCcGradientLinear = jest.fn(async () => undefined);
     const ccBrush = {
       renderDirectToCanvas,
-      commitCommittedLayerState,
+      bindGradientDefIdToSlot,
     };
 
     await finalizeColorCycleShapeFillLinear(
@@ -357,11 +368,12 @@ describe('colorCycleShapeFill transparency lock', () => {
         tool: 'brush',
       },
       {
-        brushEngine: {
+        brushRuntime: {
           fillCcGradientLinear,
+          fillCcGradientConcentric: jest.fn(async () => undefined),
           updateColorCycleTexture: jest.fn(),
         } as never,
-        getColorCycleBrushManager: () => ({ getBrush: () => ccBrush as never }),
+        getColorCycleBrushManager: () => ({ getShapeFillBrush: () => ccBrush as never }),
         bindBrushToCanvas: jest.fn(),
         timeAsync: async (_label, task) => task(),
         timeSync: (_label, task) => task(),
@@ -371,16 +383,7 @@ describe('colorCycleShapeFill transparency lock', () => {
       }
     );
 
-    expect(commitCommittedLayerState).toHaveBeenCalledWith({
-      layerId: 'layer-1',
-      targetCanvas: canvas,
-      binding: {
-        defId: 11,
-        slot: 7,
-        bbox: undefined,
-        previewSlot: null,
-      },
-    });
+    expect(bindGradientDefIdToSlot).toHaveBeenCalledWith('layer-1', 11, 7, undefined, null);
     expect(fillCcGradientLinear).toHaveBeenCalledWith(
       expect.any(Array),
       { x: 1, y: 0 },
@@ -389,7 +392,7 @@ describe('colorCycleShapeFill transparency lock', () => {
         paintDefIdOverride: 11,
       })
     );
-    expect(renderDirectToCanvas).not.toHaveBeenCalled();
+    expect(renderDirectToCanvas).toHaveBeenCalledWith(canvas, 'layer-1');
 
     getStateSpy.mockRestore();
   });
@@ -435,10 +438,11 @@ describe('colorCycleShapeFill transparency lock', () => {
     canvas.width = 2;
     canvas.height = 2;
 
-    const commitCommittedLayerState = jest.fn();
+    const bindGradientDefIdToSlot = jest.fn();
+    const renderDirectToCanvas = jest.fn();
     const ccBrush = {
-      commitCommittedLayerState,
-      renderDirectToCanvas: jest.fn(),
+      bindGradientDefIdToSlot,
+      renderDirectToCanvas,
     };
     const frozenStops: StoredStop[] = [
       { position: 0, color: '#111111' },
@@ -483,11 +487,12 @@ describe('colorCycleShapeFill transparency lock', () => {
         tool: 'brush',
       },
       {
-        brushEngine: {
+        brushRuntime: {
           fillCcGradientLinear: jest.fn(async () => undefined),
+          fillCcGradientConcentric: jest.fn(async () => undefined),
           updateColorCycleTexture: jest.fn(),
         } as never,
-        getColorCycleBrushManager: () => ({ getBrush: () => ccBrush as never }),
+        getColorCycleBrushManager: () => ({ getShapeFillBrush: () => ccBrush as never }),
         bindBrushToCanvas: jest.fn(),
         timeAsync: async (_label, task) => task(),
         timeSync: (_label, task) => task(),
@@ -498,16 +503,7 @@ describe('colorCycleShapeFill transparency lock', () => {
     );
 
     expect(ensureGradientDefForStopsSpy).not.toHaveBeenCalled();
-    expect(commitCommittedLayerState).toHaveBeenCalledWith({
-      layerId: 'layer-1',
-      targetCanvas: canvas,
-      binding: {
-        defId: 11,
-        slot: 7,
-        bbox: undefined,
-        previewSlot: null,
-      },
-    });
+    expect(bindGradientDefIdToSlot).toHaveBeenCalledWith('layer-1', 11, 7, undefined, null);
 
     getStateSpy.mockRestore();
   });
@@ -563,8 +559,8 @@ describe('colorCycleShapeFill transparency lock', () => {
         ditherPixelSize: 3,
       },
       {
-        brushEngine: brushEngine as never,
-        getColorCycleBrushManager: () => ({ getBrush: () => null }),
+        brushRuntime: brushEngine as never,
+        getColorCycleBrushManager: () => ({ getShapeFillBrush: () => null }),
         bindBrushToCanvas: jest.fn(),
         timeAsync: async (_label, task) => task(),
         timeSync: (_label, task) => task(),
@@ -643,8 +639,8 @@ describe('colorCycleShapeFill transparency lock', () => {
         ditherPixelSize: 2,
       },
       {
-        brushEngine: brushEngine as never,
-        getColorCycleBrushManager: () => ({ getBrush: () => null }),
+        brushRuntime: brushEngine as never,
+        getColorCycleBrushManager: () => ({ getShapeFillBrush: () => null }),
         bindBrushToCanvas: jest.fn(),
         timeAsync: async (_label, task) => task(),
         timeSync: (_label, task) => task(),
@@ -730,11 +726,12 @@ describe('colorCycleShapeFill transparency lock', () => {
         tool: 'brush',
       },
       {
-        brushEngine: {
+        brushRuntime: {
+          fillCcGradientLinear: jest.fn(async () => undefined),
           fillCcGradientConcentric,
           updateColorCycleTexture: jest.fn(),
         } as never,
-        getColorCycleBrushManager: () => ({ getBrush: () => null }),
+        getColorCycleBrushManager: () => ({ getShapeFillBrush: () => null }),
         bindBrushToCanvas: jest.fn(),
         timeAsync: async (_label, task) => task(),
         timeSync: (_label, task) => task(),
@@ -781,7 +778,7 @@ describe('colorCycleShapeFill transparency lock', () => {
     canvas.height = 3;
     const fillCcGradientConcentric = jest.fn(async () => undefined);
     const setGradient = jest.fn();
-    const commitCommittedLayerState = jest.fn();
+    const bindGradientDefIdToSlot = jest.fn();
     const frozenStops: StoredStop[] = [
       { position: 0, color: '#123456' },
       { position: 1, color: '#fedcba' },
@@ -817,12 +814,17 @@ describe('colorCycleShapeFill transparency lock', () => {
         tool: 'brush',
       },
       {
-        brushEngine: {
+        brushRuntime: {
+          fillCcGradientLinear: jest.fn(async () => undefined),
           fillCcGradientConcentric,
           updateColorCycleTexture: jest.fn(),
         } as never,
         getColorCycleBrushManager: () => ({
-          getBrush: () => ({ setGradient, commitCommittedLayerState }) as never,
+          getShapeFillBrush: () => ({
+            setGradient,
+            bindGradientDefIdToSlot,
+            renderDirectToCanvas: jest.fn(),
+          }) as never,
         }),
         bindBrushToCanvas: jest.fn(),
         timeAsync: async (_label, task) => task(),
@@ -945,8 +947,8 @@ describe('colorCycleShapeFill transparency lock', () => {
         ditherPixelSize: 2,
       },
       {
-        brushEngine: brushEngine as never,
-        getColorCycleBrushManager: () => ({ getBrush: () => null }),
+        brushRuntime: brushEngine as never,
+        getColorCycleBrushManager: () => ({ getShapeFillBrush: () => null }),
         bindBrushToCanvas: jest.fn(),
         timeAsync: async (_label, task) => task(),
         timeSync: (_label, task) => task(),
@@ -1041,8 +1043,8 @@ describe('colorCycleShapeFill transparency lock', () => {
         ditherPixelSize: 2,
       },
       {
-        brushEngine: brushEngine as never,
-        getColorCycleBrushManager: () => ({ getBrush: () => brush as never }),
+        brushRuntime: brushEngine as never,
+        getColorCycleBrushManager: () => ({ getShapeFillBrush: () => brush as never }),
         bindBrushToCanvas: jest.fn(),
         timeAsync: async (_label, task) => task(),
         timeSync: (_label, task) => task(),
@@ -1111,10 +1113,10 @@ describe('colorCycleShapeFill transparency lock', () => {
     canvas.width = 4;
     canvas.height = 4;
 
-    const commitCommittedLayerState = jest.fn();
+    const bindGradientDefIdToSlot = jest.fn();
     const brush = {
       setActiveGradientSlot: jest.fn(),
-      commitCommittedLayerState,
+      bindGradientDefIdToSlot,
       renderDirectToCanvas: jest.fn(),
     };
     const session: MarkGradientSession = {
@@ -1152,11 +1154,12 @@ describe('colorCycleShapeFill transparency lock', () => {
         roi: { x: 1, y: 1, width: 1, height: 1 },
       },
       {
-        brushEngine: {
+        brushRuntime: {
           fillCcGradientLinear: jest.fn(async () => undefined),
+          fillCcGradientConcentric: jest.fn(async () => undefined),
           updateColorCycleTexture: jest.fn(),
         } as never,
-        getColorCycleBrushManager: () => ({ getBrush: () => brush as never }),
+        getColorCycleBrushManager: () => ({ getShapeFillBrush: () => brush as never }),
         bindBrushToCanvas: jest.fn(),
         timeAsync: async (_label, task) => task(),
         timeSync: (_label, task) => task(),
@@ -1166,16 +1169,13 @@ describe('colorCycleShapeFill transparency lock', () => {
       }
     );
 
-    expect(commitCommittedLayerState).toHaveBeenCalledWith({
-      layerId: 'layer-1',
-      targetCanvas: canvas,
-      binding: expect.objectContaining({
-        defId: expect.any(Number),
-        slot: expect.any(Number),
-        bbox: undefined,
-        previewSlot: TEMP_SAMPLE_SLOT,
-      }),
-    });
+    expect(bindGradientDefIdToSlot).toHaveBeenCalledWith(
+      'layer-1',
+      expect.any(Number),
+      expect.any(Number),
+      undefined,
+      TEMP_SAMPLE_SLOT
+    );
 
     getStateSpy.mockRestore();
   });
@@ -1242,7 +1242,7 @@ describe('colorCycleShapeFill transparency lock', () => {
     };
     const brush = {
       setActiveGradientSlot,
-      commitCommittedLayerState: jest.fn(),
+      bindGradientDefIdToSlot: jest.fn(),
       renderDirectToCanvas: jest.fn(),
     };
     const session: MarkGradientSession = {
@@ -1280,8 +1280,8 @@ describe('colorCycleShapeFill transparency lock', () => {
         tool: 'brush',
       },
       {
-        brushEngine: brushEngine as never,
-        getColorCycleBrushManager: () => ({ getBrush: () => brush as never }),
+        brushRuntime: brushEngine as never,
+        getColorCycleBrushManager: () => ({ getShapeFillBrush: () => brush as never }),
         bindBrushToCanvas: jest.fn(),
         timeAsync: async (_label, task) => task(),
         timeSync: (_label, task) => task(),
@@ -1365,7 +1365,7 @@ describe('colorCycleShapeFill transparency lock', () => {
     };
     const brush = {
       setActiveGradientSlot,
-      commitCommittedLayerState: jest.fn(),
+      bindGradientDefIdToSlot: jest.fn(),
       renderDirectToCanvas: jest.fn(),
     };
     const session: MarkGradientSession = {
@@ -1402,8 +1402,8 @@ describe('colorCycleShapeFill transparency lock', () => {
         tool: 'brush',
       },
       {
-        brushEngine: brushEngine as never,
-        getColorCycleBrushManager: () => ({ getBrush: () => brush as never }),
+        brushRuntime: brushEngine as never,
+        getColorCycleBrushManager: () => ({ getShapeFillBrush: () => brush as never }),
         bindBrushToCanvas: jest.fn(),
         timeAsync: async (_label, task) => task(),
         timeSync: (_label, task) => task(),
@@ -1472,11 +1472,11 @@ describe('colorCycleShapeFill transparency lock', () => {
     canvas.width = 4;
     canvas.height = 4;
 
-    const commitCommittedLayerState = jest.fn();
+    const bindGradientDefIdToSlot = jest.fn();
     const fillCcGradientConcentric = jest.fn(async () => undefined);
     const brush = {
       setActiveGradientSlot: jest.fn(),
-      commitCommittedLayerState,
+      bindGradientDefIdToSlot,
       renderDirectToCanvas: jest.fn(),
     };
     const session: MarkGradientSession = {
@@ -1513,11 +1513,12 @@ describe('colorCycleShapeFill transparency lock', () => {
         roi: { x: 1, y: 1, width: 1, height: 1 },
       },
       {
-        brushEngine: {
+        brushRuntime: {
+          fillCcGradientLinear: jest.fn(async () => undefined),
           fillCcGradientConcentric,
           updateColorCycleTexture: jest.fn(),
         } as never,
-        getColorCycleBrushManager: () => ({ getBrush: () => brush as never }),
+        getColorCycleBrushManager: () => ({ getShapeFillBrush: () => brush as never }),
         bindBrushToCanvas: jest.fn(),
         timeAsync: async (_label, task) => task(),
         timeSync: (_label, task) => task(),
@@ -1537,16 +1538,13 @@ describe('colorCycleShapeFill transparency lock', () => {
       paintSlotOverride: expect.any(Number),
       paintDefIdOverride: expect.any(Number),
     }));
-    expect(commitCommittedLayerState).toHaveBeenCalledWith({
-      layerId: 'layer-1',
-      targetCanvas: canvas,
-      binding: expect.objectContaining({
-        defId: concentricFillOptions?.paintDefIdOverride,
-        slot: concentricFillOptions?.paintSlotOverride,
-        bbox: undefined,
-        previewSlot: TEMP_SAMPLE_SLOT,
-      }),
-    });
+    expect(bindGradientDefIdToSlot).toHaveBeenCalledWith(
+      'layer-1',
+      concentricFillOptions?.paintDefIdOverride,
+      concentricFillOptions?.paintSlotOverride,
+      undefined,
+      TEMP_SAMPLE_SLOT
+    );
 
     getStateSpy.mockRestore();
   });
@@ -1556,7 +1554,8 @@ describe('colorCycleShapeFill transparency lock', () => {
       .spyOn(colorCycleGradients, 'ensureForegroundGradientSlot')
       .mockReturnValue(null);
 
-    const commitCommittedLayerState = jest.fn();
+    const bindGradientDefIdToSlot = jest.fn();
+    const renderDirectToCanvas = jest.fn();
     const scheduleDeferredColorCycleSaveWithState = jest.fn(async () => undefined);
     const logError = jest.fn();
     const getStateSpy = jest.spyOn(useAppStore, 'getState');
@@ -1621,12 +1620,16 @@ describe('colorCycleShapeFill transparency lock', () => {
         tool: 'brush',
       },
       {
-        brushEngine: {
+        brushRuntime: {
           fillCcGradientLinear: jest.fn(async () => undefined),
+          fillCcGradientConcentric: jest.fn(async () => undefined),
           updateColorCycleTexture: jest.fn(),
         } as never,
         getColorCycleBrushManager: () => ({
-          getBrush: () => ({ commitCommittedLayerState }) as never,
+          getShapeFillBrush: () => ({
+            bindGradientDefIdToSlot,
+            renderDirectToCanvas,
+          }) as never,
         }),
         bindBrushToCanvas: jest.fn(),
         timeAsync: async (_label, task) => task(),
@@ -1637,7 +1640,8 @@ describe('colorCycleShapeFill transparency lock', () => {
       }
     );
 
-    expect(commitCommittedLayerState).toHaveBeenCalled();
+    expect(bindGradientDefIdToSlot).not.toHaveBeenCalled();
+    expect(renderDirectToCanvas).toHaveBeenCalledWith(canvas, 'layer-1');
     expect(scheduleDeferredColorCycleSaveWithState).toHaveBeenCalled();
     expect(ensureForegroundGradientSlotSpy).toHaveBeenCalledTimes(2);
     expect(ensureForegroundGradientSlotSpy).toHaveBeenCalledWith('layer-1');
@@ -1653,7 +1657,8 @@ describe('colorCycleShapeFill transparency lock', () => {
       .spyOn(colorCycleGradients, 'ensureForegroundGradientSlot')
       .mockReturnValue(null);
 
-    const commitCommittedLayerState = jest.fn();
+    const bindGradientDefIdToSlot = jest.fn();
+    const renderDirectToCanvas = jest.fn();
     const scheduleDeferredColorCycleSaveWithState = jest.fn(async () => undefined);
     const logError = jest.fn();
     const getStateSpy = jest.spyOn(useAppStore, 'getState');
@@ -1717,12 +1722,16 @@ describe('colorCycleShapeFill transparency lock', () => {
         tool: 'brush',
       },
       {
-        brushEngine: {
+        brushRuntime: {
+          fillCcGradientLinear: jest.fn(async () => undefined),
           fillCcGradientConcentric: jest.fn(async () => undefined),
           updateColorCycleTexture: jest.fn(),
         } as never,
         getColorCycleBrushManager: () => ({
-          getBrush: () => ({ commitCommittedLayerState }) as never,
+          getShapeFillBrush: () => ({
+            bindGradientDefIdToSlot,
+            renderDirectToCanvas,
+          }) as never,
         }),
         bindBrushToCanvas: jest.fn(),
         timeAsync: async (_label, task) => task(),
@@ -1733,7 +1742,8 @@ describe('colorCycleShapeFill transparency lock', () => {
       }
     );
 
-    expect(commitCommittedLayerState).toHaveBeenCalled();
+    expect(bindGradientDefIdToSlot).not.toHaveBeenCalled();
+    expect(renderDirectToCanvas).toHaveBeenCalledWith(canvas, 'layer-1');
     expect(scheduleDeferredColorCycleSaveWithState).toHaveBeenCalled();
     expect(ensureForegroundGradientSlotSpy).toHaveBeenCalledTimes(2);
     expect(ensureForegroundGradientSlotSpy).toHaveBeenCalledWith('layer-1');

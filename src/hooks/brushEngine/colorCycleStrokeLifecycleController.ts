@@ -1,4 +1,4 @@
-import type { ColorCycleBrushImplementation } from './ColorCycleBrushMigration';
+import type { ColorCycleSurfaceBrush } from './colorCycleSurface';
 
 type LayerLike = {
   id: string;
@@ -8,7 +8,7 @@ type LayerLike = {
   };
 };
 
-type ColorCycleBrushLifecycle = ColorCycleBrushImplementation & {
+export type ColorCycleBrushLifecycle = ColorCycleSurfaceBrush & {
   setLayerId?: (layerId: string) => void;
   setActiveLayer?: (layerId: string) => void;
   commitCurrentStroke?: (layerId: string) => void;
@@ -16,7 +16,8 @@ type ColorCycleBrushLifecycle = ColorCycleBrushImplementation & {
   renderDirectToCanvas?: (canvas: HTMLCanvasElement, layerId: string) => void;
   clearPaintBuffer?: (layerId: string) => void;
   finalizeCurrentStroke?: (layerId: string) => void;
-  startStroke: (layerId: string, clearBuffer?: boolean) => void;
+  endStroke?: (layerId?: string) => void;
+  startStroke?: (layerId: string, clearBuffer?: boolean) => void;
 };
 
 export const resetColorCycleStroke = ({
@@ -30,17 +31,17 @@ export const resetColorCycleStroke = ({
 }: {
   clearBuffer?: boolean;
   options?: { skipGradientReinit?: boolean };
-  initializeColorCycleBrush: (options?: { skipGradientReinit?: boolean }) => ColorCycleBrushImplementation | null;
+  initializeColorCycleBrush: (options?: { skipGradientReinit?: boolean }) => ColorCycleBrushLifecycle | null;
   activeLayerId: string | null;
   getLayers: () => LayerLike[];
   bindBrushToCanvas: (
-    brush: ColorCycleBrushImplementation | null | undefined,
+    brush: ColorCycleSurfaceBrush | null | undefined,
     canvas: HTMLCanvasElement | null | undefined
   ) => void;
   firstStampImmediateRef: { current: boolean };
 }): void => {
   try {
-    const brush = initializeColorCycleBrush(options) as ColorCycleBrushLifecycle | null;
+    const brush = initializeColorCycleBrush(options);
 
     if (brush) {
       const layerId = activeLayerId;
@@ -54,11 +55,13 @@ export const resetColorCycleStroke = ({
         const layer = getLayers().find((entry) => entry.id === layerId);
         const layerCanvas = layer?.colorCycleData?.canvas || null;
         if (layer && layer.layerType === 'color-cycle' && layerCanvas) {
-          const internal = brush.getCanvas();
-          const ictx = internal.getContext?.('2d');
+          const internal = brush.getCanvas?.() ?? null;
+          const ictx = internal?.getContext?.('2d');
           let hasAlpha = false;
           try {
-            const img = ictx?.getImageData(0, 0, Math.min(8, internal.width), Math.min(8, internal.height));
+            const img = internal && ictx && 'getImageData' in ictx
+              ? ictx?.getImageData(0, 0, Math.min(8, internal.width), Math.min(8, internal.height))
+              : null;
             const data = img?.data ?? null;
             if (data) {
               for (let i = 3; i < data.length; i += 4) {
@@ -90,8 +93,10 @@ export const resetColorCycleStroke = ({
         }
       } catch {}
 
-      brush.startStroke(layerId, clearBuffer);
-      firstStampImmediateRef.current = true;
+      if (typeof brush.startStroke === 'function') {
+        brush.startStroke(layerId, clearBuffer);
+        firstStampImmediateRef.current = true;
+      }
     }
   } catch {}
 };
@@ -101,11 +106,11 @@ export const endColorCycleStrokeForLayer = ({
   getActiveLayerColorCycleBrush,
 }: {
   activeLayerId: string | null;
-  getActiveLayerColorCycleBrush: () => ColorCycleBrushImplementation | null;
+  getActiveLayerColorCycleBrush: () => Pick<ColorCycleBrushLifecycle, 'endStroke'> | null;
 }): void => {
   const colorCycleBrush = getActiveLayerColorCycleBrush();
   const layerId = activeLayerId;
-  if (colorCycleBrush && layerId) {
+  if (colorCycleBrush && layerId && typeof colorCycleBrush.endStroke === 'function') {
     colorCycleBrush.endStroke(layerId);
   }
 };

@@ -16,7 +16,7 @@ interface BuildDrawingHandlersShapeLifecycleOptions {
   withTiming: UseDrawingHandlersRuntimeSetupBridgeOptions['withTiming'];
   debugTime: UseDrawingHandlersRuntimeSetupBridgeOptions['debugTime'];
   debugTimeEnd: UseDrawingHandlersRuntimeSetupBridgeOptions['debugTimeEnd'];
-  brushEngine: UseDrawingHandlersRuntimeSetupBridgeOptions['brushEngine'];
+  shapeBrushRuntime: UseDrawingHandlersRuntimeSetupBridgeOptions['shapeBrushRuntime'];
   shapeRuntime: UseDrawingHandlersRuntimeSetupBridgeOptions['shapeRuntime'];
   brushToolRuntime: UseDrawingHandlersRuntimeSetupBridgeOptions['brushToolRuntime'];
   colorCycleRuntime: UseDrawingHandlersRuntimeSetupBridgeOptions['colorCycleRuntime'];
@@ -33,7 +33,7 @@ export const buildDrawingHandlersShapeLifecycleOptions = ({
   withTiming,
   debugTime,
   debugTimeEnd,
-  brushEngine,
+  shapeBrushRuntime,
   shapeRuntime,
   brushToolRuntime,
   colorCycleRuntime,
@@ -55,7 +55,7 @@ export const buildDrawingHandlersShapeLifecycleOptions = ({
     withTiming,
     debugTime,
     debugTimeEnd,
-    brushEngine,
+    shapeBrushRuntime,
     shapeRuntime,
     brushToolRuntime,
     colorCycleRuntime,

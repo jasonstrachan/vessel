@@ -1,14 +1,14 @@
 import type React from 'react';
 import type { AppState } from '@/stores/useAppStore';
 import type { BrushSettings, Layer } from '@/types';
-import type { ColorCycleBrushImplementation } from '@/hooks/brushEngine/ColorCycleBrushMigration';
 import type { BoundingBox, CaptureRegion } from '@/hooks/canvas/utils/captureRegions';
 import { getMaskManager } from '@/layers/MaskManager';
 import {
   commitColorCycleLayerStroke,
   type ManagedColorCycleBrush,
 } from '@/hooks/canvas/handlers/colorCycle/colorCycleCommit';
-import type { ColorCyclePaintMask } from '@/utils/colorCyclePaintMask';
+import type { ColorCyclePaintMask } from '@/lib/colorCycle/document';
+import type { ColorCycleSurfaceBrush } from '@/hooks/canvas/handlers/colorCycle/colorCycleSurface';
 
 export type ColorCycleStrokeCommitArgs = {
   isColorCycleLayer: boolean;
@@ -26,7 +26,7 @@ export type ColorCycleStrokeCommitArgs = {
 
 export type ColorCycleStrokeCommitDeps = {
   getBrushForLayer: (layerId: string) => ManagedColorCycleBrush | undefined;
-  bindBrushToCanvas: (brush: ColorCycleBrushImplementation, canvas: HTMLCanvasElement) => void;
+  bindBrushToCanvas: (brush: ColorCycleSurfaceBrush, canvas: HTMLCanvasElement) => void;
   markLayerHasContent: (layerId: string) => void;
   clearEraseMaskInRegion: (
     layerId: string,
@@ -61,7 +61,7 @@ export const createColorCycleStrokeCommitDeps = ({
 }: {
   storeRef: React.MutableRefObject<AppState>;
   getBrushForLayer: (layerId: string) => ManagedColorCycleBrush | undefined;
-  bindBrushToCanvas: (brush: ColorCycleBrushImplementation, canvas: HTMLCanvasElement) => void;
+  bindBrushToCanvas: (brush: ColorCycleSurfaceBrush, canvas: HTMLCanvasElement) => void;
   perfMark: (label: string) => void;
   perfMeasure: (label: string, startLabel: string, endLabel: string) => void;
   startFinalizeVisibleTimer: () => void;

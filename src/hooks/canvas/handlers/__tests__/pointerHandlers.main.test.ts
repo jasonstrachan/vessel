@@ -92,6 +92,7 @@ const baseDynamic: EventHandlerDynamicDeps = {
 };
 
 const createDeps = (dynamicOverrides: PartialDynamic = {}, depOverrides: PartialDeps = {}) => {
+  const { shapeBrushRuntime = null, ...restDepOverrides } = depOverrides;
   const project: Project = { ...mockProject, ...(dynamicOverrides.project as Partial<Project>) };
   const canvasState = { ...baseDynamic.canvas, ...dynamicOverrides.canvas } as any;
   const dynamic: EventHandlerDynamicDeps = {
@@ -225,7 +226,8 @@ const createDeps = (dynamicOverrides: PartialDynamic = {}, depOverrides: Partial
       seedManualStrokeBoundingBox: jest.fn(),
       updateDitherGradSamples: jest.fn(),
     } as any,
-    brushEngine: null,
+    brushRuntime: null,
+    shapeBrushRuntime,
     sampleColorAtPosition: jest.fn().mockReturnValue('#000000'),
     sampleColorsAlongLine: jest.fn(),
     getMousePos: jest.fn(() => ({ x: 0, y: 0 })),
@@ -265,7 +267,7 @@ const createDeps = (dynamicOverrides: PartialDynamic = {}, depOverrides: Partial
       },
     },
     defaultCursorStyle: 'none',
-    ...depOverrides,
+    ...restDepOverrides,
   };
 
   return { deps, dynamicDepsRef };
@@ -1339,6 +1341,9 @@ describe('pointerHandlers main flows', () => {
     handlers.handlePointerDown(makePointerEvent({ clientX: 0, clientY: 0 }));
 
     expect(deps.updateLayer).toHaveBeenCalledTimes(1);
+    expect((deps.updateLayer as jest.Mock).mock.calls[0][2]).toEqual({
+      dirtyRects: [{ x: 0, y: 0, width: 3, height: 1 }],
+    });
     const updatedImageData = (deps.updateLayer as jest.Mock).mock.calls[0][1].imageData as ImageData;
     expect(Array.from(updatedImageData.data)).toEqual([
       0, 0, 0, 0,
@@ -2495,7 +2500,7 @@ describe('pointerHandlers main flows', () => {
         },
       },
       {
-        brushEngine: {
+        brushRuntime: {
           applyStrokeDither,
         } as any,
       }
@@ -2588,6 +2593,7 @@ describe('pointerHandlers main flows', () => {
       current: {
         canvas: document.createElement('canvas'),
         origin: { x: 3, y: 4 },
+        builtFromVersion: null,
       },
     };
 

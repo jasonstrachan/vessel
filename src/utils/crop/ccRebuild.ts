@@ -1,4 +1,9 @@
 import { logError as defaultLogError } from '@/utils/debug';
+import { applyColorCycleBrushSettingsPatch } from '@/hooks/brushEngine/colorCycleBrushSettingsController';
+import {
+  applyColorCycleBrushLayerSnapshotToRuntime,
+  cloneColorCycleBrushLayerSnapshot,
+} from '@/lib/colorCycle/document';
 import type { RecolorOptions } from '@/lib/colorCycle/RecolorManager';
 import type { ColorCycleBrushManager } from '@/stores/colorCycleBrushManager';
 import type { AppState } from '@/stores/useAppStore';
@@ -127,21 +132,15 @@ export function rebuildCCLayerAfterCrop({
 
         if (entry.strokeSnapshot) {
           try {
-            const snapshotBuffer = entry.strokeSnapshot.paintBuffer.slice(0);
-            freshBrush.applyLayerSnapshot?.(
-              entry.id,
-              {
-                paintBuffer: snapshotBuffer,
-                gradientIdBuffer: entry.strokeSnapshot?.gradientIdBuffer,
-                gradientDefIdBuffer: entry.strokeSnapshot?.gradientDefIdBuffer,
-                speedBuffer: entry.strokeSnapshot?.speedBuffer,
-                flowBuffer: entry.strokeSnapshot?.flowBuffer,
-                phaseBuffer: entry.strokeSnapshot?.phaseBuffer,
-                hasContent: entry.strokeSnapshot.hasContent,
-                strokeCounter: entry.strokeSnapshot.strokeCounter
-              },
-              entry.animatorIndex
-            );
+            const strokeSnapshot = cloneColorCycleBrushLayerSnapshot(entry.strokeSnapshot);
+            if (strokeSnapshot) {
+              applyColorCycleBrushLayerSnapshotToRuntime(
+                freshBrush,
+                entry.id,
+                strokeSnapshot,
+                entry.animatorIndex
+              );
+            }
           } catch (snapshotError) {
             logger('[crop] Failed to restore color-cycle stroke snapshot after crop', snapshotError);
           }
@@ -224,12 +223,10 @@ export function rebuildCCLayerAfterCrop({
               getState().tools.brushSettings.colorCycleSpeed ??
               0.1;
 
-        if (typeof freshBrush.setSpeed === 'function') {
-          try {
-            freshBrush.setSpeed(targetControllerSpeed);
-          } catch {
-            // Ignore failures; downstream logic will handle fallback speed
-          }
+        try {
+          applyColorCycleBrushSettingsPatch(freshBrush, { cycleSpeed: targetControllerSpeed });
+        } catch {
+          // Ignore failures; downstream logic will handle fallback speed
         }
 
         if (freshBrush && typeof freshBrush.markLayerHasExternalBase === 'function') {
@@ -260,12 +257,6 @@ export function rebuildCCLayerAfterCrop({
                 colorCycleBrush: freshBrush,
                 canvas: freshBrush.getCanvas ? freshBrush.getCanvas() : layer.colorCycleData.canvas,
                 gradient: gradientStops ?? layer.colorCycleData.gradient,
-                gradientIdBuffer:
-                  entry.strokeSnapshot?.gradientIdBuffer ?? layer.colorCycleData.gradientIdBuffer,
-                gradientDefIdBuffer:
-                  entry.strokeSnapshot?.gradientDefIdBuffer ?? layer.colorCycleData.gradientDefIdBuffer,
-                phaseBuffer:
-                  entry.strokeSnapshot?.phaseBuffer ?? layer.colorCycleData.phaseBuffer,
                 brushSpeed:
                   typeof entry.brushSpeed === 'number'
                     ? entry.brushSpeed

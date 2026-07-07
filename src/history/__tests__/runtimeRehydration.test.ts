@@ -1,10 +1,10 @@
 import type { Layer } from '@/types';
+import { registerColorCycleBrushLayerSnapshotRuntime } from '@/lib/colorCycle/document';
 import { createDefaultLayerAlignment } from '@/utils/layoutDefaults';
 
 const mockStoreState = {
   layers: [] as Layer[],
   project: { width: 2, height: 2 },
-  getLayerColorCycleBrush: jest.fn(),
   updateLayer: jest.fn(),
   setLayersNeedRecomposition: jest.fn(),
 };
@@ -12,7 +12,7 @@ const mockStoreState = {
 const mockBrushManager = {
   validateColorCycleBrush: jest.fn(),
   initColorCycleForLayer: jest.fn(),
-  getBrush: jest.fn(),
+  getHistoryBrush: jest.fn(),
 };
 
 jest.mock('@/stores/useAppStore', () => ({
@@ -62,6 +62,19 @@ const makeLayer = (canvas: HTMLCanvasElement, canvasImageData: ImageData): Layer
   },
 });
 
+const createRuntimeBrush = () => {
+  const applySnapshot = jest.fn();
+  const brush = {
+    setTargetCanvas: jest.fn(),
+    updateColorCycleTexture: jest.fn(),
+    renderDirectToCanvas: jest.fn(),
+  };
+  registerColorCycleBrushLayerSnapshotRuntime(brush, {
+    apply: applySnapshot,
+  });
+  return { brush, applySnapshot };
+};
+
 describe('runtimeRehydration', () => {
   beforeEach(() => {
     jest.clearAllMocks();
@@ -76,16 +89,10 @@ describe('runtimeRehydration', () => {
     const putImageDataSpy = jest.spyOn(ctx, 'putImageData');
     const compatibilityImageData = new ImageData(2, 2);
     const layer = makeLayer(canvas, compatibilityImageData);
-    const brush = {
-      applyLayerSnapshot: jest.fn(),
-      setTargetCanvas: jest.fn(),
-      updateColorCycleTexture: jest.fn(),
-      renderDirectToCanvas: jest.fn(),
-    };
+    const { brush, applySnapshot } = createRuntimeBrush();
     mockStoreState.layers = [layer];
-    mockStoreState.getLayerColorCycleBrush.mockReturnValue(brush);
     mockBrushManager.validateColorCycleBrush.mockReturnValue(true);
-    mockBrushManager.getBrush.mockReturnValue(brush);
+    mockBrushManager.getHistoryBrush.mockReturnValue(brush);
 
     const targets = createRehydrationTargets();
     targets.layerIds.add(layer.id);
@@ -96,7 +103,10 @@ describe('runtimeRehydration', () => {
       targets,
     );
 
-    expect(brush.applyLayerSnapshot).toHaveBeenCalledWith(layer.id, expect.objectContaining({
+    expect(applySnapshot).toHaveBeenCalled();
+    const [appliedLayerId, appliedSnapshot] = applySnapshot.mock.calls[0];
+    expect(appliedLayerId).toBe(layer.id);
+    expect(appliedSnapshot).toEqual(expect.objectContaining({
       paintBuffer: expect.any(ArrayBuffer),
       hasContent: true,
       strokeCounter: 3,
@@ -106,7 +116,6 @@ describe('runtimeRehydration', () => {
       layer.id,
       expect.objectContaining({
         colorCycleData: expect.objectContaining({
-          colorCycleBrush: brush,
           hasContent: true,
         }),
       }),
@@ -137,16 +146,10 @@ describe('runtimeRehydration', () => {
         }],
       },
     };
-    const brush = {
-      applyLayerSnapshot: jest.fn(),
-      setTargetCanvas: jest.fn(),
-      updateColorCycleTexture: jest.fn(),
-      renderDirectToCanvas: jest.fn(),
-    };
+    const { brush, applySnapshot } = createRuntimeBrush();
     mockStoreState.layers = [layer];
-    mockStoreState.getLayerColorCycleBrush.mockReturnValue(brush);
     mockBrushManager.validateColorCycleBrush.mockReturnValue(true);
-    mockBrushManager.getBrush.mockReturnValue(brush);
+    mockBrushManager.getHistoryBrush.mockReturnValue(brush);
 
     const targets = createRehydrationTargets();
     targets.layerIds.add(layer.id);
@@ -157,7 +160,7 @@ describe('runtimeRehydration', () => {
       targets,
     );
 
-    expect(brush.applyLayerSnapshot).not.toHaveBeenCalled();
+    expect(applySnapshot).not.toHaveBeenCalled();
     expect(brush.renderDirectToCanvas).toHaveBeenCalledWith(canvas, layer.id);
     expect(mockStoreState.updateLayer).not.toHaveBeenCalled();
     expect(mockStoreState.setLayersNeedRecomposition).toHaveBeenCalled();
@@ -188,9 +191,8 @@ describe('runtimeRehydration', () => {
       },
     };
     mockStoreState.layers = [layer];
-    mockStoreState.getLayerColorCycleBrush.mockReturnValue(null);
     mockBrushManager.validateColorCycleBrush.mockReturnValue(true);
-    mockBrushManager.getBrush.mockReturnValue(null);
+    mockBrushManager.getHistoryBrush.mockReturnValue(null);
 
     const targets = createRehydrationTargets();
     targets.layerIds.add(layer.id);
@@ -228,17 +230,11 @@ describe('runtimeRehydration', () => {
         }],
       },
     };
-    const brush = {
-      applyLayerSnapshot: jest.fn(),
-      setTargetCanvas: jest.fn(),
-      updateColorCycleTexture: jest.fn(),
-      renderDirectToCanvas: jest.fn(),
-    };
+    const { brush, applySnapshot } = createRuntimeBrush();
     mockStoreState.layers = [layer];
-    mockStoreState.getLayerColorCycleBrush.mockReturnValue(brush);
     mockBrushManager.validateColorCycleBrush.mockReturnValue(false);
     mockBrushManager.initColorCycleForLayer.mockReturnValue(true);
-    mockBrushManager.getBrush.mockReturnValue(brush);
+    mockBrushManager.getHistoryBrush.mockReturnValue(brush);
 
     const targets = createRehydrationTargets();
     targets.layerIds.add(layer.id);
@@ -250,7 +246,7 @@ describe('runtimeRehydration', () => {
     );
 
     expect(mockBrushManager.initColorCycleForLayer).toHaveBeenCalledWith(layer.id, 2, 2, undefined);
-    expect(brush.applyLayerSnapshot).not.toHaveBeenCalled();
+    expect(applySnapshot).not.toHaveBeenCalled();
     expect(mockStoreState.updateLayer).not.toHaveBeenCalled();
     expect(mockStoreState.setLayersNeedRecomposition).toHaveBeenCalled();
   });
@@ -275,16 +271,10 @@ describe('runtimeRehydration', () => {
         }],
       },
     };
-    const brush = {
-      applyLayerSnapshot: jest.fn(),
-      setTargetCanvas: jest.fn(),
-      updateColorCycleTexture: jest.fn(),
-      renderDirectToCanvas: jest.fn(),
-    };
+    const { brush, applySnapshot } = createRuntimeBrush();
     mockStoreState.layers = [layer];
-    mockStoreState.getLayerColorCycleBrush.mockReturnValue(brush);
     mockBrushManager.validateColorCycleBrush.mockReturnValue(true);
-    mockBrushManager.getBrush.mockReturnValue(brush);
+    mockBrushManager.getHistoryBrush.mockReturnValue(brush);
 
     const targets = createRehydrationTargets();
     targets.layerIds.add(layer.id);
@@ -295,7 +285,10 @@ describe('runtimeRehydration', () => {
       targets,
     );
 
-    expect(brush.applyLayerSnapshot).toHaveBeenCalledWith(layer.id, expect.objectContaining({
+    expect(applySnapshot).toHaveBeenCalled();
+    const [appliedLayerId, appliedSnapshot] = applySnapshot.mock.calls[0];
+    expect(appliedLayerId).toBe(layer.id);
+    expect(appliedSnapshot).toEqual(expect.objectContaining({
       paintBuffer: expect.any(ArrayBuffer),
       hasContent: false,
       strokeCounter: 0,
@@ -304,7 +297,6 @@ describe('runtimeRehydration', () => {
       layer.id,
       expect.objectContaining({
         colorCycleData: expect.objectContaining({
-          colorCycleBrush: brush,
           hasContent: false,
         }),
       }),

@@ -10,16 +10,18 @@ import type {
 
 interface BuildDrawingFinalizeAfterQueueDispatcherArgsOptions {
   refs: UseDrawingFinalizeRuntimeArgs['refs'];
-  brushEngine: UseDrawingFinalizeRuntimeArgs['brushEngine'];
+  brushRuntime: FinalizeStrokeRuntime;
   userBrushEngine: UseDrawingFinalizeRuntimeArgs['userBrushEngine'];
   cancelAnimationFrameSafe: FinalizeFlowArgs['finalizeAfterQueueDispatcherArgs']['cancelAnimationFrameSafe'];
   endStrokeSession: UseDrawingFinalizeRuntimeArgs['endStrokeSession'];
   applyFinalizeLostEdge: UseDrawingFinalizeRuntimeArgs['applyFinalizeLostEdge'];
 }
 
+type FinalizeStrokeRuntime = FinalizeFlowArgs['finalizeAfterQueueDispatcherArgs']['brushRuntime'];
+
 export const buildDrawingFinalizeAfterQueueDispatcherArgs = ({
   refs,
-  brushEngine,
+  brushRuntime,
   userBrushEngine,
   cancelAnimationFrameSafe,
   endStrokeSession,
@@ -31,7 +33,9 @@ export const buildDrawingFinalizeAfterQueueDispatcherArgs = ({
   resamplerBrushDataRef: refs.resamplerBrushDataRef,
   stampCounterRef: refs.stampCounterRef,
   drawingCtxRef: refs.drawingCtxRef,
-  brushEngine: brushEngine as FinalizeFlowArgs['finalizeAfterQueueDispatcherArgs']['brushEngine'],
+  brushRuntime: {
+    finalizeStroke: (ctx) => brushRuntime.finalizeStroke?.(ctx) ?? null,
+  },
   userBrushEngine,
   cancelAnimationFrameSafe,
   strokeBeforeImageRef: refs.strokeBeforeImageRef,

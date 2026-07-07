@@ -10,7 +10,7 @@ interface BuildDrawingHandlersStrokeLifecycleOptions {
   storeRef: UseDrawingHandlersRuntimeSetupBridgeOptions['storeRef'];
   sampleColorAt: UseDrawingHandlersRuntimeSetupBridgeOptions['sampleColorAt'];
   debugVerbose: UseDrawingHandlersRuntimeSetupBridgeOptions['debugVerbose'];
-  brushEngine: UseDrawingHandlersRuntimeSetupBridgeOptions['brushEngine'];
+  brushRuntime: RuntimeBridgeArgs['strokeLifecycleOptions']['startRuntimeOptions']['brushRuntime'];
   userBrushEngine: UseDrawingHandlersRuntimeSetupBridgeOptions['userBrushEngine'];
   shapeRuntime: UseDrawingHandlersRuntimeSetupBridgeOptions['shapeRuntime'];
   brushToolRuntime: UseDrawingHandlersRuntimeSetupBridgeOptions['brushToolRuntime'];
@@ -22,7 +22,7 @@ export const buildDrawingHandlersStrokeLifecycleOptions = ({
   storeRef,
   sampleColorAt,
   debugVerbose,
-  brushEngine,
+  brushRuntime,
   userBrushEngine,
   shapeRuntime,
   brushToolRuntime,
@@ -33,7 +33,7 @@ export const buildDrawingHandlersStrokeLifecycleOptions = ({
     storeRef,
     sampleColorAt,
     debugVerbose,
-    brushEngine,
+    brushRuntime,
     userBrushEngine,
     shapeRuntime,
     brushToolRuntime,
@@ -42,7 +42,7 @@ export const buildDrawingHandlersStrokeLifecycleOptions = ({
   strokeRuntimeOptions: buildDrawingHandlersStrokeRuntimeOptions({
     project,
     storeRef,
-    brushEngine,
+    brushRuntime: brushRuntime as RuntimeBridgeArgs['strokeLifecycleOptions']['strokeRuntimeOptions']['brushRuntime'],
     userBrushEngine,
     shapeRuntime,
     brushToolRuntime,

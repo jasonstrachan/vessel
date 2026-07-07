@@ -1,4 +1,7 @@
 import type { Layer } from '@/types';
+import {
+  readColorCycleBrushSerializedStateFromRuntime,
+} from '@/lib/colorCycle/document';
 
 import type {
   CaptureColorCyclePersistenceSnapshotContext,
@@ -43,18 +46,11 @@ const captureRuntimeBrushState = (
   }
   const brush =
     context.runtimeBrush ??
-    context.runtimeBrushManager?.getLayerColorCycleBrush?.(layer.id) ??
-    context.runtimeBrushManager?.getBrush?.(layer.id) ??
-    (layer.colorCycleData?.colorCycleBrush as { getFullState?: () => unknown; serialize?: () => unknown } | undefined);
+    context.runtimeBrushManager?.getSerializedStateBrush?.(layer.id);
   if (!brush) {
     return undefined;
   }
-  const rawState =
-    typeof brush.getFullState === 'function'
-      ? brush.getFullState()
-      : typeof brush.serialize === 'function'
-        ? brush.serialize()
-        : undefined;
+  const rawState = readColorCycleBrushSerializedStateFromRuntime(brush);
   const brushState = context.serializeRuntimeBrushState
     ? context.serializeRuntimeBrushState(rawState, layer.id)
     : rawState as PersistedColorCycleBrushState | undefined;

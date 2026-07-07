@@ -25,7 +25,7 @@ interface UseDrawingCanvasKeyboardOptions {
     drawingCanvasHasContent: React.MutableRefObject<boolean>;
     finalizeDrawing: () => Promise<void>;
   };
-  brushEngine: {
+  brushRuntime: {
     resetColorCycle: (resetGradient?: boolean) => void;
     fillCcGradientConcentric: (points: Array<{ x: number; y: number }>) => Promise<void>;
     renderColorCycle: (ctx: CanvasRenderingContext2D, toLayerCanvas?: boolean) => void;
@@ -98,7 +98,7 @@ export const useDrawingCanvasKeyboard = ({
   redo,
   toolStateMachine,
   drawingHandlers,
-  brushEngine,
+  brushRuntime,
   layers,
   activeLayerId,
   tools,
@@ -161,19 +161,19 @@ export const useDrawingCanvasKeyboard = ({
           willReadFrequently: true,
         });
 
-        if (drawCtx && brushEngine) {
+        if (drawCtx && brushRuntime) {
           const activeLayer = layers.find((l) => l.id === activeLayerId);
           const isColorCycleLayer = activeLayer?.layerType === 'color-cycle';
 
           if (isColorCycleLayer && tools.shapeMode) {
-            brushEngine.resetColorCycle(true);
+            brushRuntime.resetColorCycle(true);
             const points = toolStateMachine.polygonGradientState.points.map((p) => ({ x: p.x, y: p.y }));
-            await brushEngine.fillCcGradientConcentric(points);
+            await brushRuntime.fillCcGradientConcentric(points);
             drawCtx.clearRect(0, 0, drawCtx.canvas.width, drawCtx.canvas.height);
-            brushEngine.renderColorCycle(drawCtx, false);
+            brushRuntime.renderColorCycle(drawCtx, false);
           } else if (toolStateMachine.isContourPolygon) {
             const sampledStrokeColor = toolStateMachine.polygonGradientState.points.find((p) => p.color)?.color;
-            brushEngine.drawContourPolygon(
+            brushRuntime.drawContourPolygon(
               drawCtx,
               {
                 vertices: toolStateMachine.polygonGradientState.points.map((p) => ({ x: p.x, y: p.y })),
@@ -183,7 +183,7 @@ export const useDrawingCanvasKeyboard = ({
               sampledStrokeColor ? { strokeColorOverride: sampledStrokeColor } : undefined
             );
           } else if (toolStateMachine.polygonGradientState.points.length >= 3) {
-            brushEngine.drawPolygonGradient(
+            brushRuntime.drawPolygonGradient(
               drawCtx,
               {
                 vertices: toolStateMachine.polygonGradientState.points.map((p) => ({ x: p.x, y: p.y })),

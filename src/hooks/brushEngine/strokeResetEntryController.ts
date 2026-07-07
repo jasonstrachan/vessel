@@ -3,7 +3,7 @@ import { runStrokeReset } from './strokeResetController';
 import type { Rect } from './engineShared';
 
 export const resetStrokeCurrent = ({
-  brushEngine,
+  resetStroke,
   strokeBoundsRef,
   strokePhaseOriginRef,
   clearLiveStrokeBuffers,
@@ -11,7 +11,7 @@ export const resetStrokeCurrent = ({
   clearBgOffHoleCanvas,
   runResetPressureDitherRuntime,
 }: {
-  brushEngine: { resetStroke: () => void };
+  resetStroke: () => void;
   strokeBoundsRef: { current: Rect | null };
   strokePhaseOriginRef: { current: { x: number; y: number } | null };
   clearLiveStrokeBuffers: () => void;
@@ -20,7 +20,7 @@ export const resetStrokeCurrent = ({
   runResetPressureDitherRuntime: (resetCommittedAndPending: boolean) => void;
 }): void => {
   runStrokeReset({
-    brushEngine,
+    resetStroke,
     strokeBoundsRef,
     strokePhaseOriginRef,
     clearLiveStrokeBuffers,

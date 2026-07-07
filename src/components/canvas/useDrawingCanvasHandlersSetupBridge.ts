@@ -31,7 +31,7 @@ export interface UseDrawingCanvasHandlersSetupBridgeOptions {
       color: string;
     };
   };
-  brushEngine: {
+  brushRuntime: {
     drawRectangleGradient?: (
       ctx: CanvasRenderingContext2D,
       startX: number,
@@ -71,7 +71,7 @@ export const useDrawingCanvasHandlersSetupBridge = ({
   interactionDispatch,
   stateMachine,
   tools,
-  brushEngine,
+  brushRuntime,
   compositeCanvasDirtyRef,
   rebuildStaticComposite,
   setNeedsRedraw,
@@ -115,7 +115,7 @@ export const useDrawingCanvasHandlersSetupBridge = ({
   });
 
   const finalizeRectangleGradientFromState = useDrawingCanvasRectangleGradientFinalize({
-    brushEngine: brushEngine as Parameters<typeof useDrawingCanvasRectangleGradientFinalize>[0]['brushEngine'],
+    brushRuntime: brushRuntime as Parameters<typeof useDrawingCanvasRectangleGradientFinalize>[0]['brushRuntime'],
     toolStateMachine,
     interactionDispatch,
     drawingHandlers,

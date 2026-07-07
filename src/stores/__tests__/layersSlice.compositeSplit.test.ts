@@ -270,8 +270,199 @@ describe('static vs animated compositor', () => {
     const dirtySegments = (useAppStore.getState().compositeSegments ?? []).filter(isDirtyStaticSegment);
     expect(dirtySegments).toHaveLength(1);
     expect(dirtySegments[0].layerIds).toContain('top');
+    expect(useAppStore.getState().pendingCompositeDirtyBatches).toEqual([
+      {
+        layerId: 'top',
+        version: 0,
+        rects: [{ x: 0, y: 0, width: 2, height: 2 }],
+      },
+    ]);
+    useAppStore.getState().markCompositeSegmentsDirtyByLayerIds(['top']);
+    expect(useAppStore.getState().pendingCompositeDirtyBatches).toEqual([
+      {
+        layerId: 'top',
+        version: 0,
+        rects: [{ x: 0, y: 0, width: 2, height: 2 }],
+      },
+    ]);
 
     expect(useAppStore.getState().renderStaticComposite(staticCanvas)).toBe(true);
     expect(useAppStore.getState().compositeSegmentsVersion).toBeGreaterThan(versionBefore);
+    expect(useAppStore.getState().pendingCompositeDirtyBatches).toEqual([]);
+
+    const clippedFramebuffer = makeCanvas([0, 0, 255]);
+    useAppStore.getState().updateLayer(
+      'top',
+      { framebuffer: clippedFramebuffer },
+      { dirtyRects: [{ x: 1, y: 0, width: 1, height: 1 }] },
+    );
+
+    expect(useAppStore.getState().pendingCompositeDirtyBatches).toEqual([
+      {
+        layerId: 'top',
+        version: 0,
+        rects: [{ x: 1, y: 0, width: 1, height: 1 }],
+      },
+    ]);
+
+    expect(useAppStore.getState().renderStaticComposite(staticCanvas)).toBe(true);
+    expect(useAppStore.getState().pendingCompositeDirtyBatches).toEqual([]);
+  });
+
+  it('uses dirty batches to repaint only matching static composite segments', () => {
+    const makeCanvasSource = () => {
+      const canvas = document.createElement('canvas');
+      canvas.width = 2;
+      canvas.height = 2;
+      return canvas;
+    };
+    const makeSegmentCanvas = (ctx: CanvasRenderingContext2D) => ({
+      width: 2,
+      height: 2,
+      getContext: jest.fn(() => ctx),
+    } as unknown as HTMLCanvasElement);
+    const makeSegmentContext = () => ({
+      beginPath: jest.fn(),
+      clearRect: jest.fn(),
+      clip: jest.fn(),
+      drawImage: jest.fn(),
+      fillRect: jest.fn(),
+      rect: jest.fn(),
+      restore: jest.fn(),
+      save: jest.fn(),
+      globalAlpha: 1,
+      globalCompositeOperation: 'source-over' as GlobalCompositeOperation,
+    } as unknown as CanvasRenderingContext2D);
+
+    const bottomLayer = {
+      id: 'dirty-batch-bottom',
+      name: 'Bottom',
+      visible: true,
+      opacity: 1,
+      blendMode: 'source-over' as const,
+      locked: false,
+      order: 0,
+      imageData: null,
+      framebuffer: makeCanvasSource(),
+      alignment: createDefaultLayerAlignment(),
+      layerType: 'normal' as const
+    };
+    const colorCycleCanvas = makeCanvasSource();
+    const colorCycleLayer = {
+      id: 'dirty-batch-cc',
+      name: 'Cycle',
+      visible: true,
+      opacity: 1,
+      blendMode: 'source-over' as const,
+      locked: false,
+      order: 1,
+      imageData: null,
+      framebuffer: colorCycleCanvas,
+      alignment: createDefaultLayerAlignment(),
+      layerType: 'color-cycle' as const,
+      colorCycleData: {
+        mode: 'recolor' as const,
+        canvas: colorCycleCanvas,
+        gradient: [],
+        isAnimating: false
+      }
+    };
+    const topLayer = {
+      id: 'dirty-batch-top',
+      name: 'Top',
+      visible: true,
+      opacity: 1,
+      blendMode: 'source-over' as const,
+      locked: false,
+      order: 2,
+      imageData: null,
+      framebuffer: makeCanvasSource(),
+      alignment: createDefaultLayerAlignment(),
+      layerType: 'normal' as const
+    };
+    const layers = [bottomLayer, colorCycleLayer, topLayer];
+    const project = {
+      id: 'proj-dirty-batch-split',
+      name: 'Dirty Batch Split',
+      width: 2,
+      height: 2,
+      layers,
+      backgroundColor: 'transparent',
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      customBrushes: [],
+      defaultCustomBrushId: null
+    };
+    const bottomSegmentCtx = makeSegmentContext();
+    const topSegmentCtx = makeSegmentContext();
+    const targetCtx = makeSegmentContext();
+    const targetCanvas = {
+      width: 2,
+      height: 2,
+      getContext: jest.fn(() => targetCtx),
+    } as unknown as HTMLCanvasElement;
+
+    const snapshot = useAppStore.getState();
+    previousProject = snapshot.project;
+    previousLayers = snapshot.layers;
+    previousBitmap = snapshot.currentCompositeBitmap;
+    previousVersion = snapshot.staticCompositeVersion;
+    previousSegments = snapshot.compositeSegments;
+    previousSegmentsVersion = snapshot.compositeSegmentsVersion;
+
+    useAppStore.setState((state) => ({
+      ...state,
+      project,
+      layers,
+      activeLayerId: topLayer.id,
+      compositeSegments: [
+        {
+          kind: 'static',
+          id: 'static-bottom',
+          layerIds: [bottomLayer.id],
+          includeBackground: false,
+          orderRange: { start: 0, end: 0 },
+          canvas: makeSegmentCanvas(bottomSegmentCtx),
+          bitmap: null,
+          dirty: false,
+        },
+        {
+          kind: 'color-cycle',
+          id: 'cc-dirty-batch',
+          layerId: colorCycleLayer.id,
+          blendMode: 'source-over',
+          opacity: 1,
+        },
+        {
+          kind: 'static',
+          id: 'static-top',
+          layerIds: [topLayer.id],
+          includeBackground: false,
+          orderRange: { start: 2, end: 2 },
+          canvas: makeSegmentCanvas(topSegmentCtx),
+          bitmap: null,
+          dirty: false,
+        },
+      ],
+      compositeSegmentsVersion: 10,
+    }));
+
+    expect(useAppStore.getState().renderStaticComposite(targetCanvas, {
+      captureBitmap: false,
+      dirtyBatches: [{
+        layerId: topLayer.id,
+        version: 12,
+        rects: [{ x: 0, y: 0, width: 1, height: 1 }],
+      }],
+    })).toBe(true);
+
+    expect(bottomSegmentCtx.clearRect).not.toHaveBeenCalled();
+    expect(bottomSegmentCtx.drawImage).not.toHaveBeenCalled();
+    expect(topSegmentCtx.clearRect).toHaveBeenCalledWith(0, 0, 1, 1);
+    expect(topSegmentCtx.rect).toHaveBeenCalledWith(0, 0, 1, 1);
+    expect(topSegmentCtx.drawImage).toHaveBeenCalledWith(topLayer.framebuffer, 0, 0);
+    expect(targetCtx.clearRect).toHaveBeenCalledWith(0, 0, 1, 1);
+    expect(targetCtx.rect).toHaveBeenCalledWith(0, 0, 1, 1);
+    expect(useAppStore.getState().compositeSegmentsVersion).toBe(11);
   });
 });

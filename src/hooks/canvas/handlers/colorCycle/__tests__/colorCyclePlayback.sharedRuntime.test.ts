@@ -1,6 +1,5 @@
 import type React from 'react';
 import { BrushShape } from '@/types';
-import type { BrushEngine } from '@/hooks/useBrushEngineSimplified';
 import type { AppState } from '@/stores/useAppStore';
 import {
   startContinuousColorCycleAnimationCore,
@@ -15,6 +14,8 @@ const mockGetBrush = jest.fn();
 jest.mock('@/stores/colorCycleBrushManager', () => ({
   getColorCycleBrushManager: () => ({
     getBrush: (...args: unknown[]) => mockGetBrush(...args),
+    getPlaybackBrush: (...args: unknown[]) => mockGetBrush(...args),
+    hasBrush: (...args: unknown[]) => Boolean(mockGetBrush(...args)),
   }),
   setColorCycleStoreStateGetter: jest.fn(),
   setLayerIdGetter: jest.fn(),
@@ -71,11 +72,11 @@ describe('colorCyclePlayback shared runtime integration', () => {
     const renderAllColorCycleLayers = jest.fn(() => true);
 
     startContinuousColorCycleAnimationCore('toolbar', {
-      brushEngine: {
+      brushRuntime: {
         renderColorCycle: jest.fn(),
         updateColorCycleAnimation: jest.fn(),
         isColorCycleAnimating: jest.fn(() => false),
-      } as unknown as BrushEngine,
+      },
       ensureOverlayInitialized: jest.fn(() => true),
       renderAllColorCycleLayers,
       storeRef,
@@ -182,11 +183,11 @@ describe('colorCyclePlayback shared runtime integration', () => {
     const renderAllColorCycleLayers = jest.fn(() => true);
 
     startContinuousColorCycleAnimationCore('store-sync', {
-      brushEngine: {
+      brushRuntime: {
         renderColorCycle: jest.fn(),
         updateColorCycleAnimation: jest.fn(),
         isColorCycleAnimating: jest.fn(() => false),
-      } as unknown as BrushEngine,
+      },
       ensureOverlayInitialized: jest.fn(() => true),
       renderAllColorCycleLayers,
       storeRef,
@@ -280,11 +281,11 @@ describe('colorCyclePlayback shared runtime integration', () => {
     const nowSpy = jest.spyOn(performance, 'now').mockReturnValue(1000);
 
     startContinuousColorCycleAnimationCore('store-sync', {
-      brushEngine: {
+      brushRuntime: {
         renderColorCycle: jest.fn(),
         updateColorCycleAnimation: jest.fn(),
         isColorCycleAnimating: jest.fn(() => false),
-      } as unknown as BrushEngine,
+      },
       ensureOverlayInitialized: jest.fn(() => true),
       renderAllColorCycleLayers: jest.fn(() => true),
       storeRef,
@@ -353,11 +354,11 @@ describe('colorCyclePlayback shared runtime integration', () => {
     } as unknown as AppState;
 
     startContinuousColorCycleAnimationCore('toolbar', {
-      brushEngine: {
+      brushRuntime: {
         renderColorCycle: jest.fn(),
         updateColorCycleAnimation: jest.fn(),
         isColorCycleAnimating: jest.fn(() => false),
-      } as unknown as BrushEngine,
+      },
       ensureOverlayInitialized: jest.fn(() => true),
       renderAllColorCycleLayers: jest.fn(() => true),
       storeRef: { current: state } as React.MutableRefObject<AppState>,
@@ -440,11 +441,11 @@ describe('colorCyclePlayback shared runtime integration', () => {
     } as unknown as AppState;
 
     startContinuousColorCycleAnimationCore('toolbar', {
-      brushEngine: {
+      brushRuntime: {
         renderColorCycle: jest.fn(),
         updateColorCycleAnimation: jest.fn(),
         isColorCycleAnimating: jest.fn(() => false),
-      } as unknown as BrushEngine,
+      },
       ensureOverlayInitialized: jest.fn(() => true),
       renderAllColorCycleLayers: jest.fn(() => true),
       storeRef: { current: state } as React.MutableRefObject<AppState>,
@@ -527,11 +528,11 @@ describe('colorCyclePlayback shared runtime integration', () => {
 
     try {
       startContinuousColorCycleAnimationCore('toolbar', {
-        brushEngine: {
+        brushRuntime: {
           renderColorCycle: jest.fn(),
           updateColorCycleAnimation: jest.fn(),
           isColorCycleAnimating: jest.fn(() => false),
-        } as unknown as BrushEngine,
+        },
         ensureOverlayInitialized: jest.fn(() => true),
         renderAllColorCycleLayers,
         storeRef: { current: state } as React.MutableRefObject<AppState>,

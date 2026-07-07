@@ -6,6 +6,10 @@ import type {
   Project,
   SequentialStrokeEvent,
 } from '@/types';
+import type {
+  ColorCycleDirtyRect,
+  ColorCycleLayerDirtyBatch,
+} from '@/lib/colorCycle/document/ColorCycleLayerDocument';
 import { cloneLayerAlignment, dedupeLayerIds, normalizeLayers } from '@/utils/layoutDefaults';
 import { computeLayerPercentOffset } from '@/utils/layerMetrics';
 import { __DEV__, logError, recordBreadcrumb, debugWarn } from '@/utils/debug';
@@ -81,13 +85,24 @@ import {
 } from '@/utils/colorCycleSlotGC';
 import {
   getColorCycleBrushManager,
-  type ColorCycleBrushImplementation,
   type ColorCycleBrushManager,
+  type ColorCycleBrushRuntimeHost,
 } from '@/stores/colorCycleBrushManager';
-import type { PersistedColorCycleBrushState } from '@/lib/colorCycle/persistence';
 import {
   hasColorCycleWarmableRuntimeSource,
 } from '@/lib/colorCycle/runtimeSourcePolicy';
+import {
+  applyColorCycleBrushLayerSnapshotToRuntime,
+  cloneColorCycleBrushLayerSnapshot,
+  cloneColorCycleBrushStateForLayerDuplicate,
+  createColorCycleCanonicalBrushStateFromSnapshot,
+  type ColorCycleBrushLayerSnapshot as ColorCycleLayerSnapshot,
+  type ColorCycleBrushLayerSnapshotRuntimeReader,
+  type ColorCycleBrushLayerSnapshotRuntimeWriter,
+  getColorCycleLegacyLayerBuffer,
+  getColorCycleLegacyLayerBufferByteLength,
+  readColorCycleBrushLayerSnapshotFromRuntime,
+} from '@/lib/colorCycle/document';
 import { compositeBitmapManager } from '@/lib/performance/CompositeBitmapManager';
 import {
   clearSequentialLayerRendererAll,
@@ -116,7 +131,21 @@ import {
   removeColorCycleSoftEdgeMaskFromLayer,
   resolveSoftEdgeCoverageFromBrush,
 } from '@/stores/layers/layerColorCycleMaskState';
+import { appendPendingCompositeDirtyBatches } from '@/stores/layers/layerCompositeDirtyBatches';
 export type { CompositeSegment } from '@/stores/layers/layerCompositeRenderer';
+
+export type CompositeLayersToCanvasOptions = {
+  dirtyBatches?: ColorCycleLayerDirtyBatch[];
+};
+
+export type RenderStaticCompositeOptions = {
+  captureBitmap?: boolean;
+  dirtyBatches?: ColorCycleLayerDirtyBatch[];
+};
+
+export type MarkCompositeSegmentsDirtyOptions = {
+  dirtyRectsByLayerId?: Map<string, ColorCycleDirtyRect[]>;
+};
 
 const layerActivationDebug = createDevDebugOverlayLogger('layer-activation');
 
@@ -148,8 +177,8 @@ const summarizeLayerForActivationDebug = (
     ccImageDataSize: colorCycleData?.canvasImageData
       ? `${colorCycleData.canvasImageData.width}x${colorCycleData.canvasImageData.height}`
       : null,
-    gradientIdBytes: colorCycleData?.gradientIdBuffer?.byteLength ?? null,
-    gradientDefIdBytes: colorCycleData?.gradientDefIdBuffer?.byteLength ?? null,
+    gradientIdBytes: getColorCycleLegacyLayerBufferByteLength(colorCycleData, 'gradientIdBuffer') || null,
+    gradientDefIdBytes: getColorCycleLegacyLayerBufferByteLength(colorCycleData, 'gradientDefIdBuffer') || null,
     brushStateLayers: Array.isArray((colorCycleData?.brushState as { layers?: unknown[] } | undefined)?.layers)
       ? (colorCycleData?.brushState as { layers: unknown[] }).layers.length
       : null,
@@ -186,126 +215,51 @@ const omitUndefinedEntries = <T extends Record<string, unknown>>(value: T): Part
   return Object.fromEntries(entries) as Partial<T>;
 };
 
-type ColorCycleLayerSnapshot = {
-  paintBuffer: ArrayBuffer;
-  gradientIdBuffer?: ArrayBuffer;
-  gradientDefIdBuffer?: ArrayBuffer;
-  speedBuffer?: ArrayBuffer;
-  flowBuffer?: ArrayBuffer;
-  phaseBuffer?: ArrayBuffer;
-  hasContent: boolean;
-  strokeCounter: number;
-};
-
-type ColorCycleSnapshotBrush = ColorCycleBrushImplementation & {
-  getLayerSnapshot?: (layerId: string) => ColorCycleLayerSnapshot | null;
-  applyLayerSnapshot?: (layerId: string, snapshot: ColorCycleLayerSnapshot) => void;
+type ColorCycleSnapshotBrush = ColorCycleBrushLayerSnapshotRuntimeReader
+  & ColorCycleBrushLayerSnapshotRuntimeWriter
+  & {
   setTargetCanvas?: (canvas: HTMLCanvasElement | OffscreenCanvas | null) => void;
   updateColorCycleTexture?: () => void;
   renderDirectToCanvas?: (canvas: HTMLCanvasElement | OffscreenCanvas, layerId: string) => void;
   render?: (forceFullOpacity?: boolean) => void;
 };
+type LegacyColorCycleBrushField = NonNullable<NonNullable<Layer['colorCycleData']>['colorCycleBrush']>;
+type ColorCycleManagerRegistrationBrush = ColorCycleBrushRuntimeHost;
 
 const cloneBuffer = (buffer: ArrayBuffer | undefined): ArrayBuffer | undefined => (
   buffer ? buffer.slice(0) : undefined
 );
 
-const cloneColorCycleLayerSnapshot = (
-  snapshot: ColorCycleLayerSnapshot | null | undefined,
-): ColorCycleLayerSnapshot | null => {
-  if (!snapshot?.paintBuffer) {
-    return null;
+const commitColorCycleGradientBuffersToDocument = (
+  colorCycleBrushManager: Pick<Partial<ColorCycleBrushManager>, 'getDocument'>,
+  layer: Layer,
+  layerId: string,
+  width: number,
+  height: number,
+  gradientIdBuffer: ArrayBuffer | undefined,
+  gradientDefIdBuffer: ArrayBuffer | undefined,
+): void => {
+  const document = colorCycleBrushManager.getDocument?.(layerId);
+  if (!document || (!gradientIdBuffer && !gradientDefIdBuffer)) {
+    return;
   }
-  return {
-    paintBuffer: snapshot.paintBuffer.slice(0),
-    gradientIdBuffer: cloneBuffer(snapshot.gradientIdBuffer),
-    gradientDefIdBuffer: cloneBuffer(snapshot.gradientDefIdBuffer),
-    speedBuffer: cloneBuffer(snapshot.speedBuffer),
-    flowBuffer: cloneBuffer(snapshot.flowBuffer),
-    phaseBuffer: cloneBuffer(snapshot.phaseBuffer),
-    hasContent: snapshot.hasContent,
-    strokeCounter: snapshot.strokeCounter,
-  };
-};
 
-const cloneUnknownBufferLike = (value: unknown): unknown => {
-  if (value instanceof ArrayBuffer) {
-    return value.slice(0);
-  }
-  if (ArrayBuffer.isView(value)) {
-    return new Uint8Array(value.buffer, value.byteOffset, value.byteLength).slice().buffer;
-  }
-  return value;
-};
-
-const cloneRecord = (value: unknown): Record<string, unknown> | null => (
-  value && typeof value === 'object' && !Array.isArray(value)
-    ? value as Record<string, unknown>
-    : null
-);
-
-const cloneSerializedBrushLayerForDuplicate = (
-  snapshot: unknown,
-  sourceLayerId: string,
-  targetLayerId: string,
-): unknown => {
-  const record = cloneRecord(snapshot);
-  if (!record) {
-    return snapshot;
-  }
-  const strokeData = cloneRecord(record.strokeData);
-  const data = cloneRecord(record.data);
-  const indexBuffer = cloneRecord(data?.indexBuffer);
-  const clonedData = data
-    ? {
-        ...data,
-        indexBuffer: indexBuffer
-          ? {
-              ...indexBuffer,
-              data: cloneUnknownBufferLike(indexBuffer.data),
-              gradientId: cloneUnknownBufferLike(indexBuffer.gradientId),
-              speedData: cloneUnknownBufferLike(indexBuffer.speedData),
-              flowData: cloneUnknownBufferLike(indexBuffer.flowData),
-              phaseData: cloneUnknownBufferLike(indexBuffer.phaseData),
-            }
-          : data.indexBuffer,
-      }
-    : record.data;
-
-  return {
-    ...record,
-    layerId: record.layerId === sourceLayerId ? targetLayerId : record.layerId,
-    data: clonedData,
-    strokeData: strokeData
-      ? {
-          ...strokeData,
-          paintBuffer: cloneUnknownBufferLike(strokeData.paintBuffer),
-          gradientIdBuffer: cloneUnknownBufferLike(strokeData.gradientIdBuffer),
-          gradientDefIdBuffer: cloneUnknownBufferLike(strokeData.gradientDefIdBuffer),
-          speedBuffer: cloneUnknownBufferLike(strokeData.speedBuffer),
-          flowBuffer: cloneUnknownBufferLike(strokeData.flowBuffer),
-          phaseBuffer: cloneUnknownBufferLike(strokeData.phaseBuffer),
-        }
-      : record.strokeData,
-  };
-};
-
-const cloneColorCycleBrushStateForDuplicate = (
-  brushState: unknown,
-  sourceLayerId: string,
-  targetLayerId: string,
-): unknown => {
-  const record = cloneRecord(brushState);
-  if (!record) {
-    return brushState;
-  }
-  const layers = Array.isArray(record.layers)
-    ? record.layers.map((snapshot) => cloneSerializedBrushLayerForDuplicate(snapshot, sourceLayerId, targetLayerId))
-    : record.layers;
-  return {
-    ...record,
-    layers,
-  };
+  const { snapshot } = document.read();
+  document.replaceState({
+    ...snapshot,
+    layerId,
+    width,
+    height,
+    gradientIdBuffer: cloneBuffer(gradientIdBuffer) ?? snapshot.gradientIdBuffer,
+    gradientDefIdBuffer: cloneBuffer(gradientDefIdBuffer) ?? snapshot.gradientDefIdBuffer,
+    gradientDefs: layer.colorCycleData?.gradientDefs ?? snapshot.gradientDefs,
+    slotPalettes: layer.colorCycleData?.slotPalettes ?? snapshot.slotPalettes,
+    gradientDefStore: layer.colorCycleData?.gradientDefStore ?? snapshot.gradientDefStore,
+    activeGradientId: layer.colorCycleData?.activeGradientId ?? snapshot.activeGradientId,
+    paintSlot: layer.colorCycleData?.paintSlot ?? snapshot.paintSlot,
+    fgActiveSlot: layer.colorCycleData?.fgActiveSlot ?? snapshot.fgActiveSlot,
+    flowMode: layer.colorCycleData?.flowMode ?? snapshot.flowMode,
+  }, 'color-cycle-layer-init-gradient-bindings');
 };
 
 const buildCanonicalBrushStateFromSnapshot = (
@@ -313,12 +267,7 @@ const buildCanonicalBrushStateFromSnapshot = (
   layerId: string,
   snapshot: ColorCycleLayerSnapshot,
   existingBrushState: unknown,
-): PersistedColorCycleBrushState => {
-  const record = cloneRecord(existingBrushState);
-  const existingLayers = Array.isArray(record?.layers) ? record.layers : [];
-  const existingSnapshot = existingLayers.find((entry) => (
-    cloneRecord(entry)?.layerId === layerId
-  ));
+): unknown => {
   const colorCycleData = layer.colorCycleData;
   const width = Math.max(1, Math.floor(
     colorCycleData?.canvasWidth ??
@@ -334,52 +283,26 @@ const buildCanonicalBrushStateFromSnapshot = (
     layer.imageData?.height ??
     1
   ));
-  const existingDimensionsByLayerId = (
-    record?.dimensionsByLayerId &&
-    typeof record.dimensionsByLayerId === 'object' &&
-    !Array.isArray(record.dimensionsByLayerId)
-  )
-    ? record.dimensionsByLayerId as NonNullable<PersistedColorCycleBrushState['dimensionsByLayerId']>
-    : {};
-  const persistedSnapshot = {
-    ...(cloneRecord(existingSnapshot) ?? {}),
+  return createColorCycleCanonicalBrushStateFromSnapshot({
     layerId,
-    canonicalPaint: true,
-    schemaVersion: 1,
-    dimensions: { width, height },
-    strokeData: {
-      ...(cloneRecord(cloneRecord(existingSnapshot)?.strokeData) ?? {}),
-      hasContent: snapshot.hasContent,
-      strokeCounter: snapshot.strokeCounter,
-      paintBuffer: snapshot.paintBuffer.slice(0),
-      gradientIdBuffer: cloneBuffer(snapshot.gradientIdBuffer),
-      gradientDefIdBuffer: cloneBuffer(snapshot.gradientDefIdBuffer),
-      speedBuffer: cloneBuffer(snapshot.speedBuffer),
-      flowBuffer: cloneBuffer(snapshot.flowBuffer),
-      phaseBuffer: cloneBuffer(snapshot.phaseBuffer),
+    width,
+    height,
+    snapshot,
+    existingBrushState,
+    metadata: {
+      gradientDefs: colorCycleData?.gradientDefs,
+      slotPalettes: colorCycleData?.slotPalettes,
+      gradientDefStore: colorCycleData?.gradientDefStore,
+      paintSlot: colorCycleData?.paintSlot,
+      fgActiveSlot: colorCycleData?.fgActiveSlot,
+      activeGradientId: colorCycleData?.activeGradientId,
     },
-    gradientDefs: colorCycleData?.gradientDefs,
-    slotPalettes: colorCycleData?.slotPalettes,
-    gradientDefStore: colorCycleData?.gradientDefStore,
-    paintSlot: colorCycleData?.paintSlot,
-    fgActiveSlot: colorCycleData?.fgActiveSlot,
-    activeGradientId: colorCycleData?.activeGradientId,
-  };
-  const filteredLayers = existingLayers.filter((entry) => cloneRecord(entry)?.layerId !== layerId);
-  return {
-    ...(record ?? {}),
-    canonicalPaint: true,
-    schemaVersion: 1,
-    dimensionsByLayerId: {
-      ...existingDimensionsByLayerId,
-      [layerId]: { width, height },
-    },
-    layers: [...filteredLayers, persistedSnapshot],
-  };
+  });
 };
 
 export type UpdateLayerOptions = {
   skipColorCycleSync?: boolean;
+  dirtyRects?: ColorCycleDirtyRect[];
 };
 
 export type EnsureColorCycleLayerRuntimeTarget = 'warm' | 'active';
@@ -392,6 +315,7 @@ export interface LayersSlice {
   staticCompositeVersion: number;
   compositeSegmentsVersion: number;
   compositeSegments: CompositeSegment[];
+  pendingCompositeDirtyBatches: ColorCycleLayerDirtyBatch[];
   currentOffscreenCanvas: HTMLCanvasElement | null;
   currentCompositeBitmap: ImageBitmap | null;
   activeLayerId: string | null;
@@ -447,16 +371,18 @@ export interface LayersSlice {
   clearColorCycleSoftEdgeMask: (layerId: string) => void;
   initColorCycleForLayer: (layerId: string, width: number, height: number) => void;
   cleanupColorCycleForLayer: (layerId: string) => void;
-  getLayerColorCycleBrush: (layerId: string) => ColorCycleBrushImplementation | null;
-  compositeLayersToCanvas: (targetCanvas: HTMLCanvasElement) => void;
-  compositeLayersToCanvasSync: (targetCanvas: HTMLCanvasElement) => boolean;
+  compositeLayersToCanvas: (targetCanvas: HTMLCanvasElement, options?: CompositeLayersToCanvasOptions) => void;
+  compositeLayersToCanvasSync: (targetCanvas: HTMLCanvasElement, options?: CompositeLayersToCanvasOptions) => boolean;
   renderStaticComposite: (
     targetCanvas: HTMLCanvasElement,
-    options?: { captureBitmap?: boolean }
+    options?: RenderStaticCompositeOptions
   ) => boolean | Promise<boolean>;
   renderColorCycleOverlay: (targetCanvas: HTMLCanvasElement) => boolean;
   getCompositeSegmentsSnapshot: () => CompositeSegment[];
-  markCompositeSegmentsDirtyByLayerIds: (layerIds: string[]) => void;
+  markCompositeSegmentsDirtyByLayerIds: (
+    layerIds: string[],
+    options?: MarkCompositeSegmentsDirtyOptions,
+  ) => void;
   markAllCompositeSegmentsDirty: () => void;
   captureCanvasToActiveLayer: (
     sourceCanvas?: HTMLCanvasElement,
@@ -496,6 +422,20 @@ export const createLayersSlice = (
     let slotRebuildTimer: ReturnType<typeof setTimeout> | null = null;
     const SLOT_REBUILD_DEBOUNCE_MS = 250;
     const deferredColorCycleRestoreByLayerId = new Map<string, Promise<void>>();
+    const getManagedColorCycleDocument = (layerId: string) => (
+      (colorCycleBrushManager as Partial<Pick<ColorCycleBrushManager, 'getDocument'>>).getDocument?.(layerId)
+    );
+    const hasWarmableColorCycleRuntimeSource = (layer: Layer | null | undefined): boolean => (
+      hasColorCycleWarmableRuntimeSource(layer, {
+        document: layer ? getManagedColorCycleDocument(layer.id) : undefined,
+      })
+    );
+    const isDocumentColdColorCycleLayer = (layer: Layer | null | undefined): boolean => (
+      isColdColorCycleLayer(
+        layer,
+        layer ? getManagedColorCycleDocument(layer.id) : undefined,
+      )
+    );
 
     const scheduleDeferredColorCycleRestore = (
       layerId: string,
@@ -516,7 +456,7 @@ export const createLayersSlice = (
             !latestLayer.colorCycleData ||
             (
               !latestLayer.colorCycleData.deferredRuntimeRestore &&
-              !hasColorCycleWarmableRuntimeSource(latestLayer)
+              !hasWarmableColorCycleRuntimeSource(latestLayer)
             )
           ) {
             return;
@@ -540,7 +480,6 @@ export const createLayersSlice = (
             restored: Boolean(restoredBrush),
             restoredHydration,
           });
-          const now = Date.now();
           set((current) => ({
             layers: current.layers.map((candidate) => {
               if (candidate.id !== layerId) {
@@ -562,31 +501,17 @@ export const createLayersSlice = (
               return nextLayer;
             }),
           }));
-          const brush = restoredBrush as ColorCycleBrushImplementation & {
+          const brush = restoredBrush as LegacyColorCycleBrushField & ColorCycleManagerRegistrationBrush & {
             setLayerId?: (nextLayerId: string) => void;
             isUsingWebGL?: () => boolean;
           } | undefined;
           if (brush) {
             const shouldRegisterActive = get().activeLayerId === layerId;
-            colorCycleBrushManager.brushes.set(layerId, brush);
-            colorCycleBrushManager.brushMetadata.set(layerId, {
-              layerId,
-              created: now,
-              lastUsed: now,
+            colorCycleBrushManager.registerRestoredBrush(layerId, brush, {
               width: publishLayer.colorCycleData?.canvas?.width ?? latestState.project?.width ?? 0,
               height: publishLayer.colorCycleData?.canvas?.height ?? latestState.project?.height ?? 0,
-              gradientHash: undefined,
               isActive: shouldRegisterActive,
             });
-            colorCycleBrushManager.activeResources.add(layerId);
-            colorCycleBrushManager.activeResources.add(`canvas_${layerId}`);
-            try {
-              if (brush.isUsingWebGL?.()) {
-                colorCycleBrushManager.activeResources.add(`webgl_${layerId}`);
-              }
-            } catch {
-              // quiet
-            }
             try {
               brush.setLayerId?.(layerId);
             } catch {
@@ -730,12 +655,31 @@ export const createLayersSlice = (
     const drawStaticLayers = (
       ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D,
       sortedLayers: Layer[],
-      project: Project
+      project: Project,
+      dirtyRects?: ColorCycleDirtyRect[],
     ) => {
-      ctx.clearRect(0, 0, project.width, project.height);
-      if (project.backgroundColor && project.backgroundColor !== 'transparent') {
-        ctx.fillStyle = project.backgroundColor;
-        ctx.fillRect(0, 0, project.width, project.height);
+      const shouldPartialDraw = Boolean(dirtyRects?.length);
+
+      if (shouldPartialDraw && dirtyRects) {
+        dirtyRects.forEach((rect) => {
+          ctx.clearRect(rect.x, rect.y, rect.width, rect.height);
+          if (project.backgroundColor && project.backgroundColor !== 'transparent') {
+            ctx.fillStyle = project.backgroundColor;
+            ctx.fillRect(rect.x, rect.y, rect.width, rect.height);
+          }
+        });
+        ctx.save();
+        ctx.beginPath();
+        dirtyRects.forEach((rect) => {
+          ctx.rect(rect.x, rect.y, rect.width, rect.height);
+        });
+        ctx.clip();
+      } else {
+        ctx.clearRect(0, 0, project.width, project.height);
+        if (project.backgroundColor && project.backgroundColor !== 'transparent') {
+          ctx.fillStyle = project.backgroundColor;
+          ctx.fillRect(0, 0, project.width, project.height);
+        }
       }
 
       for (const layer of sortedLayers) {
@@ -774,6 +718,9 @@ export const createLayersSlice = (
         ctx.drawImage(source, 0, 0);
       }
 
+      if (shouldPartialDraw) {
+        ctx.restore();
+      }
       ctx.globalCompositeOperation = 'source-over';
       ctx.globalAlpha = 1;
     };
@@ -825,8 +772,8 @@ export const createLayersSlice = (
             continue;
           }
 
-          if (layer.colorCycleData.mode !== 'recolor') {
-            const brush = brushManager?.getBrush(layer.id);
+        if (layer.colorCycleData.mode !== 'recolor') {
+            const brush = brushManager?.getSurfaceBrush(layer.id);
             if (brush) {
               try {
                 const wantPlaying = Boolean(layer.colorCycleData.isAnimating);
@@ -916,7 +863,7 @@ export const createLayersSlice = (
         }
 
         if (layer.colorCycleData.mode !== 'recolor') {
-          const brush = brushManager?.getBrush(layer.id);
+          const brush = brushManager?.getSurfaceBrush(layer.id);
           if (brush) {
             try {
               const wantPlaying = Boolean(layer.colorCycleData.isAnimating);
@@ -956,6 +903,46 @@ export const createLayersSlice = (
 
     let staticBitmapCaptureToken = 0;
     let compositeRenderToken = 0;
+
+    const markCompositeSegmentsDirtyByDirtyBatches = (
+      dirtyBatches: ColorCycleLayerDirtyBatch[] | undefined,
+    ): void => {
+      if (!dirtyBatches?.length) {
+        return;
+      }
+      const layerIds = Array.from(new Set(
+        dirtyBatches.map((batch) => batch.layerId).filter(Boolean),
+      ));
+      if (layerIds.length === 0) {
+        return;
+      }
+      set((state) => ({
+        compositeSegments: markCompositeSegmentsDirtyByLayerIdsInSegments(
+          state.compositeSegments,
+          layerIds,
+        ),
+      }));
+    };
+
+    const markCompositeSegmentsDirtyByLayerIdsWithRects = (
+      layerIds: string[],
+      dirtyRectsByLayerId?: Map<string, ColorCycleDirtyRect[]>,
+    ): void => {
+      if (!layerIds.length) {
+        return;
+      }
+      set((state) => ({
+        compositeSegments: markCompositeSegmentsDirtyByLayerIdsInSegments(
+          state.compositeSegments,
+          layerIds
+        ),
+        pendingCompositeDirtyBatches: appendPendingCompositeDirtyBatches(
+          state,
+          layerIds,
+          dirtyRectsByLayerId,
+        ),
+      }));
+    };
 
     const captureStaticBitmapFromCanvas = (canvas: HTMLCanvasElement) => {
       if (typeof window === 'undefined' || typeof window.createImageBitmap !== 'function') {
@@ -1020,6 +1007,7 @@ export const createLayersSlice = (
       staticCompositeVersion: 0,
       compositeSegmentsVersion: 0,
       compositeSegments: [],
+      pendingCompositeDirtyBatches: [],
       currentOffscreenCanvas: null,
       currentCompositeBitmap: null,
       setCurrentOffscreenCanvas: (canvas) => set({ currentOffscreenCanvas: canvas }),
@@ -1050,9 +1038,13 @@ export const createLayersSlice = (
           }
 
           if (needed) {
+            const layerIds = state.compositeSegments.flatMap((segment) =>
+              segment.kind === 'static' ? segment.layerIds : []
+            );
             return {
               layersNeedRecomposition: true,
-              compositeSegments: markStaticCompositeSegmentsDirty(state.compositeSegments)
+              compositeSegments: markStaticCompositeSegmentsDirty(state.compositeSegments),
+              pendingCompositeDirtyBatches: appendPendingCompositeDirtyBatches(state, layerIds),
             };
           }
           return state;
@@ -1064,20 +1056,21 @@ export const createLayersSlice = (
             ? { ...segment, canvas: segment.canvas, bitmap: segment.bitmap }
             : { ...segment }
         ),
-      markCompositeSegmentsDirtyByLayerIds: (layerIds) => {
-        if (!layerIds.length) {
-          return;
-        }
-        set((state) => ({
-          compositeSegments: markCompositeSegmentsDirtyByLayerIdsInSegments(
-            state.compositeSegments,
-            layerIds
-          )
-        }));
+      markCompositeSegmentsDirtyByLayerIds: (layerIds, options) => {
+        markCompositeSegmentsDirtyByLayerIdsWithRects(
+          layerIds,
+          options?.dirtyRectsByLayerId,
+        );
       },
       markAllCompositeSegmentsDirty: () => {
         set((state) => ({
-          compositeSegments: markStaticCompositeSegmentsDirty(state.compositeSegments)
+          compositeSegments: markStaticCompositeSegmentsDirty(state.compositeSegments),
+          pendingCompositeDirtyBatches: appendPendingCompositeDirtyBatches(
+            state,
+            state.compositeSegments.flatMap((segment) =>
+              segment.kind === 'static' ? segment.layerIds : []
+            ),
+          ),
         }));
       },
       setLayers: (incomingLayers) => {
@@ -1237,11 +1230,14 @@ export const createLayersSlice = (
           logError('Failed to initialize ColorCycleBrush for new layer', { layerId: newLayerId });
         } else {
           // Pre-create the animator to avoid lag on first paint
-          const brush = state.getLayerColorCycleBrush(newLayerId) ?? colorCycleBrushManager.getBrush(newLayerId);
-          if (brush && 'setSpeed' in brush && typeof brush.setSpeed === 'function') {
-            // Call setSpeed to trigger animator creation internally
-            // This ensures the animator is ready before first paint
-            brush.setSpeed(1.0);
+          const brush = colorCycleBrushManager.getSpeedSettingsBrush(newLayerId);
+          if (brush) {
+            // Apply the default speed to keep the animator ready before first paint.
+            if (brush.applySettings) {
+              brush.applySettings({ cycleSpeed: 1.0 });
+            } else {
+              brush.setSpeed?.(1.0);
+            }
             // quiet
           }
         }
@@ -1346,18 +1342,17 @@ export const createLayersSlice = (
       ? cloneColorCycleData(targetLayer.colorCycleData, { stripSurfaces: false })
       : undefined;
     if (duplicateColorCycleData && targetLayer.colorCycleData?.brushState) {
-      duplicateColorCycleData.brushState = cloneColorCycleBrushStateForDuplicate(
+      duplicateColorCycleData.brushState = cloneColorCycleBrushStateForLayerDuplicate(
         targetLayer.colorCycleData.brushState,
         layerId,
         newLayerId
       ) as NonNullable<Layer['colorCycleData']>['brushState'];
     }
     const sourceColorCycleBrush = targetLayer.layerType === 'color-cycle'
-      ? (stateBeforeDuplicate.getLayerColorCycleBrush?.(layerId) ??
-          colorCycleBrushManager.getBrush(layerId)) as ColorCycleSnapshotBrush | null | undefined
+      ? colorCycleBrushManager.getSerializedStateBrush(layerId)
       : null;
-    const sourceColorCycleSnapshot = cloneColorCycleLayerSnapshot(
-      sourceColorCycleBrush?.getLayerSnapshot?.(layerId)
+    const sourceColorCycleSnapshot = cloneColorCycleBrushLayerSnapshot(
+      readColorCycleBrushLayerSnapshotFromRuntime(sourceColorCycleBrush, layerId)
     );
 
     // Debug logging removed after verification
@@ -1405,15 +1400,16 @@ export const createLayersSlice = (
           const gradientStops =
             resolveActiveGradientStops(duplicatedLayer?.colorCycleData) ?? DEFAULT_CC_GRADIENT;
           const gradientArray = gradientStopsToUint8Array(gradientStops);
-          const brush = colorCycleBrushManager.createBrush(
+          colorCycleBrushManager.createBrush(
             newLayerId,
             width,
             height,
             gradientArray
-          ) as ColorCycleSnapshotBrush;
-          brush.setTargetCanvas?.(adoptedCanvas);
-          if (sourceColorCycleSnapshot) {
-            brush.applyLayerSnapshot?.(newLayerId, sourceColorCycleSnapshot);
+          );
+          const brush = colorCycleBrushManager.getHistoryBrush(newLayerId) as ColorCycleSnapshotBrush | null;
+          brush?.setTargetCanvas?.(adoptedCanvas);
+          if (brush && sourceColorCycleSnapshot) {
+            applyColorCycleBrushLayerSnapshotToRuntime(brush, newLayerId, sourceColorCycleSnapshot);
             brush.updateColorCycleTexture?.();
             brush.renderDirectToCanvas?.(adoptedCanvas, newLayerId);
             brush.render?.(false);
@@ -1434,13 +1430,7 @@ export const createLayersSlice = (
                     ...layer.colorCycleData,
                     canvas: adoptedCanvas,
                     canvasImageData: renderedImageData ?? layer.colorCycleData.canvasImageData,
-                    colorCycleBrush: brush,
-                    gradientIdBuffer:
-                      sourceColorCycleSnapshot.gradientIdBuffer?.slice(0) ??
-                      layer.colorCycleData.gradientIdBuffer,
-                    gradientDefIdBuffer:
-                      sourceColorCycleSnapshot.gradientDefIdBuffer?.slice(0) ??
-                      layer.colorCycleData.gradientDefIdBuffer,
+                    colorCycleBrush: brush as LegacyColorCycleBrushField,
                     brushState: buildCanonicalBrushStateFromSnapshot(
                       layer,
                       newLayerId,
@@ -1840,7 +1830,10 @@ export const createLayersSlice = (
     if ('visible' in updates) {
       get().markAllCompositeSegmentsDirty();
     } else {
-      get().markCompositeSegmentsDirtyByLayerIds([id]);
+      markCompositeSegmentsDirtyByLayerIdsWithRects(
+        [id],
+        options?.dirtyRects ? new Map([[id, options.dirtyRects]]) : undefined,
+      );
     }
     const updatedLayerForAudit = get().layers.find((layer) => layer.id === id) ?? null;
     const afterAudit = summarizeColorCycleLayer(updatedLayerForAudit);
@@ -2071,7 +2064,7 @@ export const createLayersSlice = (
         ctx.globalAlpha = layer.opacity ?? 1;
 
         if (layer.layerType === 'color-cycle') {
-          const brush = state.getLayerColorCycleBrush(layer.id) ?? colorCycleBrushManager.getBrush(layer.id);
+          const brush = colorCycleBrushManager.getSurfaceBrush(layer.id);
           const sourceCanvas =
             (layer.colorCycleData?.canvas as HTMLCanvasElement | OffscreenCanvas | undefined) ??
             (hasValidFramebuffer(layer.framebuffer) ? layer.framebuffer : null);
@@ -2259,9 +2252,8 @@ export const createLayersSlice = (
             try { colorCycleBrushManager.setActiveState(state.activeLayerId, false); } catch (e) { logError('CC cleanup error (non-fatal): setActiveState', e); }
             // End any active strokes
             try {
-              const oldBrush = state.getLayerColorCycleBrush(state.activeLayerId)
-                ?? colorCycleBrushManager.getLayerColorCycleBrush(state.activeLayerId);
-              oldBrush?.endStroke(state.activeLayerId);
+              const oldBrush = colorCycleBrushManager.getLayerActivationBrush(state.activeLayerId);
+              oldBrush?.endStroke?.(state.activeLayerId);
             } catch (e) { logError('CC cleanup error (non-fatal): endStroke', e); }
           }
         }
@@ -2283,9 +2275,12 @@ export const createLayersSlice = (
     })();
 
     if (layer?.layerType === 'color-cycle' && state.tools.currentTool !== 'recolor') {
-      const isColdRuntimeLayer = isColdColorCycleLayer(layer);
+      const isColdRuntimeLayer = isDocumentColdColorCycleLayer(layer);
       const shouldRestoreDeferredRuntime = Boolean(
-        isColdRuntimeLayer && layer.colorCycleData?.deferredRuntimeRestore,
+        isColdRuntimeLayer && (
+          layer.colorCycleData?.deferredRuntimeRestore ||
+          hasWarmableColorCycleRuntimeSource(layer)
+        ),
       );
       recordLayerActivationProbe('set-active-cc-enter', {
         target: summarizeLayerForActivationDebug(layer),
@@ -2320,11 +2315,8 @@ export const createLayersSlice = (
       // Ensure brush tracks the active layer before runtime sync
       if (!isColdRuntimeLayer) {
         try {
-        const colorCycleBrush = state.getLayerColorCycleBrush(id)
-          ?? colorCycleBrushManager.getLayerColorCycleBrush(id);
-        if (colorCycleBrush && 'setActiveLayer' in colorCycleBrush && typeof colorCycleBrush.setActiveLayer === 'function') {
-          colorCycleBrush.setActiveLayer(id);
-        }
+        const colorCycleBrush = colorCycleBrushManager.getLayerActivationBrush(id);
+        colorCycleBrush?.setActiveLayer?.(id);
         } catch {
           // quiet
         }
@@ -2685,8 +2677,10 @@ export const createLayersSlice = (
       const activeDef = gradientDefs.find((entry) => entry.id === activeGradientId) ?? gradientDefs[0];
       const activeSlotPalette = slotPalettes.find((entry) => entry.slot === activeDef.currentSlot);
       const activeStops = activeSlotPalette?.stops ?? fallbackStops;
+      const existingDocumentSnapshot = colorCycleBrushManager.getDocument?.(layerId)?.read().snapshot;
       const gradientIdBuffer = ensureGradientIdBuffer({
-        existingBuffer: layer.colorCycleData?.gradientIdBuffer,
+        existingBuffer: existingDocumentSnapshot?.gradientIdBuffer ??
+          getColorCycleLegacyLayerBuffer(layer.colorCycleData, 'gradientIdBuffer'),
         width: safeWidth,
         height: safeHeight,
         previousWidth: layer.colorCycleData?.canvasWidth ?? layer.colorCycleData?.canvas?.width,
@@ -2727,7 +2721,8 @@ export const createLayersSlice = (
         ? (existingNextDefId ?? seededDefId + 1)
         : seededDefId + 1;
       const gradientDefIdBuffer = ensureGradientDefIdBuffer({
-        existingBuffer: layer.colorCycleData?.gradientDefIdBuffer,
+        existingBuffer: existingDocumentSnapshot?.gradientDefIdBuffer ??
+          getColorCycleLegacyLayerBuffer(layer.colorCycleData, 'gradientDefIdBuffer'),
         width: safeWidth,
         height: safeHeight,
         previousWidth: layer.colorCycleData?.canvasWidth ?? layer.colorCycleData?.canvas?.width,
@@ -2735,9 +2730,18 @@ export const createLayersSlice = (
       });
 
       // GUARD: Don't re-initialize if already initialized
-      const existingBrush = state.getLayerColorCycleBrush(layerId) ?? colorCycleBrushManager.getBrush(layerId);
+      const existingBrush = colorCycleBrushManager.getSurfaceBrush(layerId);
       if (existingBrush) {
         // quiet
+        commitColorCycleGradientBuffersToDocument(
+          colorCycleBrushManager,
+          layer,
+          layerId,
+          safeWidth,
+          safeHeight,
+          migratedGradientIdBuffer,
+          gradientDefIdBuffer,
+        );
         // Ensure the layer has a valid canvas and CC metadata even if we skip recreation.
         const updatedLayers = state.layers.map(l => {
           if (l.id !== layerId) return l;
@@ -2752,7 +2756,11 @@ export const createLayersSlice = (
           if (layerCanvas && brushWithControls.setTargetCanvas) {
             brushWithControls.setTargetCanvas(layerCanvas);
           }
-          const canvas = existingBrush.getCanvas ? existingBrush.getCanvas() : layerCanvas ?? existingCanvas;
+          const brushCanvas = existingBrush.getCanvas?.();
+          const canvas =
+            typeof HTMLCanvasElement !== 'undefined' && brushCanvas instanceof HTMLCanvasElement
+              ? brushCanvas
+              : layerCanvas;
           const { repairStatus: _discardRepairStatus, ...existingColorCycleData } = l.colorCycleData || {};
           void _discardRepairStatus;
           return {
@@ -2760,16 +2768,14 @@ export const createLayersSlice = (
             layerType: 'color-cycle' as const,
               colorCycleData: {
                 ...existingColorCycleData,
+                documentId: l.id,
                 gradient: activeStops,
                 gradientDefs,
                 slotPalettes,
                 activeGradientId,
                 paintSlot,
-                gradientIdBuffer: migratedGradientIdBuffer,
-                gradientDefIdBuffer,
                 gradientDefStore,
                 nextGradientDefId,
-                colorCycleBrush: existingBrush,
               // Keep current animation state if present; default to true for responsiveness
               isAnimating: l.colorCycleData?.isAnimating ?? true,
               flowMode: l.colorCycleData?.flowMode ?? (state.tools.brushSettings.colorCycleFlowMode ?? 'forward'),
@@ -2822,6 +2828,16 @@ export const createLayersSlice = (
         }
       }
 
+      commitColorCycleGradientBuffersToDocument(
+        colorCycleBrushManager,
+        layer,
+        layerId,
+        safeWidth,
+        safeHeight,
+        migratedGradientIdBuffer,
+        gradientDefIdBuffer,
+      );
+
     const updatedLayers = state.layers.map(l => {
       if (l.id !== layerId) {
         return l;
@@ -2873,14 +2889,13 @@ export const createLayersSlice = (
         layerType: 'color-cycle' as const,
         colorCycleData: {
           ...existingColorCycleData,
+          documentId: l.id,
           gradient: activeStops || [],
           gradientDefs,
           slotPalettes,
           activeGradientId,
           paintSlot,
           legacyRemap: migratedLegacyRemap,
-          gradientIdBuffer: migratedGradientIdBuffer,
-          gradientDefIdBuffer,
           gradientDefStore,
           nextGradientDefId,
           colorCycleBrush,
@@ -2941,11 +2956,13 @@ export const createLayersSlice = (
     get().markAllCompositeSegmentsDirty();
   },
 
-	  compositeLayersToCanvas: (targetCanvas) => {
-	    const state = get();
+	  compositeLayersToCanvas: (targetCanvas, options) => {
       const renderToken = ++compositeRenderToken;
 
     try {
+      markCompositeSegmentsDirtyByDirtyBatches(options?.dirtyBatches);
+      const state = get();
+
       if (!state.project || !state.layers.length) {
         get().setCurrentCompositeBitmap(null);
         return;
@@ -3033,10 +3050,11 @@ export const createLayersSlice = (
     }
   },
 
-  compositeLayersToCanvasSync: (targetCanvas) => {
-    const state = get();
-
+  compositeLayersToCanvasSync: (targetCanvas, options) => {
     try {
+      markCompositeSegmentsDirtyByDirtyBatches(options?.dirtyBatches);
+      const state = get();
+
       if (!state.project || !state.layers.length) {
         get().setCurrentCompositeBitmap(null);
         return false;
@@ -3091,8 +3109,11 @@ export const createLayersSlice = (
   },
 
   renderStaticComposite: (targetCanvas, options) => {
-    const state = get();
     try {
+      const state = get();
+      const dirtyBatches = options?.dirtyBatches ?? state.pendingCompositeDirtyBatches;
+      const shouldClearPendingDirtyBatches = !options?.dirtyBatches;
+
       if (!state.project) {
         const ctx = targetCanvas.getContext(
           '2d',
@@ -3129,7 +3150,12 @@ export const createLayersSlice = (
       }
 
       const sortedLayers = [...state.layers].sort((a, b) => a.order - b.order);
-      const { segments: realizedSegments, anySegmentUpdated } = realizeCompositeSegments({
+      const {
+        segments: realizedSegments,
+        anySegmentUpdated,
+        fullStaticRedrawNeeded,
+        staticDirtyRects,
+      } = realizeCompositeSegments({
         sortedLayers,
         project,
         previousSegments: state.compositeSegments,
@@ -3142,18 +3168,21 @@ export const createLayersSlice = (
           return canvas;
         },
         createLayerTransferCanvas,
+        dirtyBatches,
       });
 
       if (anySegmentUpdated) {
         set((prev) => ({
           compositeSegments: realizedSegments,
           compositeSegmentsVersion: prev.compositeSegmentsVersion + 1,
-          staticCompositeVersion: prev.staticCompositeVersion + 1
+          staticCompositeVersion: prev.staticCompositeVersion + 1,
+          ...(shouldClearPendingDirtyBatches ? { pendingCompositeDirtyBatches: [] } : {}),
         }));
       } else {
         set((prev) => ({
           compositeSegments: realizedSegments,
-          staticCompositeVersion: prev.staticCompositeVersion + 1
+          staticCompositeVersion: prev.staticCompositeVersion + 1,
+          ...(shouldClearPendingDirtyBatches ? { pendingCompositeDirtyBatches: [] } : {}),
         }));
       }
 
@@ -3162,7 +3191,12 @@ export const createLayersSlice = (
         (state.tools.brushSettings.brushShape === 'square' &&
           !state.tools.brushSettings.antialiasing);
       staticCtx.imageSmoothingEnabled = !isPixelBrush;
-      drawStaticLayers(staticCtx, sortedLayers, project);
+      drawStaticLayers(
+        staticCtx,
+        sortedLayers,
+        project,
+        !fullStaticRedrawNeeded ? staticDirtyRects : undefined,
+      );
 
       if (
         options?.captureBitmap !== false &&
@@ -3224,26 +3258,6 @@ export const createLayersSlice = (
     await captureCanvasToLayerAction(sourceCanvas, targetLayerId, layerCaptureActionDeps);
   },
 
-  getLayerColorCycleBrush: (layerId) => {
-    // CRITICAL: Verify layer is actually a color-cycle layer
-    const state = get();
-    const layer = state.layers.find(l => l.id === layerId);
-    if (layer && layer.layerType !== 'color-cycle') {
-      // Silently return null for non-CC layers - this is expected behavior
-      return null; // Never return a CC brush for regular layers
-    }
-
-    if (isColdColorCycleLayer(layer) && layer?.colorCycleData?.deferredRuntimeRestore) {
-      void scheduleDeferredColorCycleRestore(
-        layerId,
-        state.activeLayerId === layerId ? 'active' : 'warm',
-      );
-      return null;
-    }
-
-    return colorCycleBrushManager.getBrush(layerId) ?? null;
-  },
-
   ensureColorCycleLayerRuntime: async (layerId, options) => {
     const target = options?.target ?? 'warm';
     const state = get();
@@ -3252,10 +3266,10 @@ export const createLayersSlice = (
       return false;
     }
 
-    const hasRuntimeBrush = Boolean(colorCycleBrushManager.getBrush(layerId));
-    const hasCanonicalRuntimeSource = hasColorCycleWarmableRuntimeSource(layer);
+    const hasRuntimeBrush = colorCycleBrushManager.hasBrush(layerId);
+    const hasCanonicalRuntimeSource = hasWarmableColorCycleRuntimeSource(layer);
 
-    if (isColdColorCycleLayer(layer)) {
+    if (isDocumentColdColorCycleLayer(layer)) {
       if (
         !layer.colorCycleData.deferredRuntimeRestore &&
         !hasCanonicalRuntimeSource
@@ -3284,8 +3298,7 @@ export const createLayersSlice = (
     if (!latestLayer || latestLayer.layerType !== 'color-cycle' || !latestLayer.colorCycleData) {
       return false;
     }
-    const latestBrush = colorCycleBrushManager.getBrush(layerId);
-    if (!latestBrush) {
+    if (!colorCycleBrushManager.hasBrush(layerId) && !colorCycleBrushManager.getSurfaceBrush(layerId)) {
       return false;
     }
     const hydration = getColorCycleHydrationState(latestLayer.colorCycleData);
@@ -3308,7 +3321,7 @@ export const createLayersSlice = (
     }
 
     const canvas = layer.colorCycleData.canvas;
-    const brush = colorCycleBrushManager.getBrush(layerId);
+    const brush = colorCycleBrushManager.getSurfaceBrush(layerId);
     if (canvas && brush?.renderDirectToCanvas) {
       try {
         brush.renderDirectToCanvas(canvas, layerId);

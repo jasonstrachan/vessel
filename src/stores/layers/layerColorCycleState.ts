@@ -661,8 +661,6 @@ export const cloneColorCycleData = (
           spec: { ...entry.spec },
         }))
       : undefined,
-    gradientIdBuffer: data.gradientIdBuffer ? data.gradientIdBuffer.slice(0) : undefined,
-    gradientDefIdBuffer: data.gradientDefIdBuffer ? data.gradientDefIdBuffer.slice(0) : undefined,
     gradientDefStore: data.gradientDefStore
       ? data.gradientDefStore.map((entry) => ({
           id: entry.id,

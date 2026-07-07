@@ -10,10 +10,6 @@ type LayerLike = {
 type StoreLike = {
   activeLayerId: string | null;
   layers: LayerLike[];
-  getLayerColorCycleBrush?: (layerId: string) => {
-    getCanvas?: () => HTMLCanvasElement | OffscreenCanvas | null;
-    getPaintBuffer?: () => HTMLCanvasElement | OffscreenCanvas | null;
-  } | null;
 };
 
 const setMaskSourceDebug = (value: string) => {
@@ -40,22 +36,6 @@ export const getActiveLayerBitmapCanvas = ({
       return ccCanvas as HTMLCanvasElement | OffscreenCanvas;
     }
 
-    const brush = typeof state.getLayerColorCycleBrush === 'function'
-      ? state.getLayerColorCycleBrush(layer.id)
-      : null;
-
-    const internalCanvas = brush?.getCanvas?.();
-    if (internalCanvas && typeof internalCanvas.getContext === 'function') {
-      setMaskSourceDebug('ccInternal');
-      return internalCanvas as HTMLCanvasElement | OffscreenCanvas;
-    }
-
-    const paintBuffer = brush?.getPaintBuffer?.();
-    if (paintBuffer && typeof paintBuffer.getContext === 'function') {
-      setMaskSourceDebug('ccPaintBuffer');
-      return paintBuffer as HTMLCanvasElement | OffscreenCanvas;
-    }
-
     setMaskSourceDebug('null-cc');
     return null;
   }
@@ -69,4 +49,3 @@ export const getActiveLayerBitmapCanvas = ({
   setMaskSourceDebug('null-bitmap');
   return null;
 };
-

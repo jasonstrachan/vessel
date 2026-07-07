@@ -1,4 +1,9 @@
 import * as stampDither from '../strokeStampDither';
+import {
+  clearStampDitherRuntime,
+  createStampDitherRuntime,
+  getImageTileResolverCacheKey,
+} from '../strokeStampDither/runtime';
 import type { StampDitherState } from '../strokeStampDither';
 
 describe('strokeStampDither', () => {
@@ -19,16 +24,37 @@ describe('strokeStampDither', () => {
     };
   };
 
+  it('keeps image-tile resolver cache identity runtime-local', () => {
+    const resolver = () => 0.5;
+    const firstRuntime = createStampDitherRuntime(0);
+    const secondRuntime = createStampDitherRuntime(0);
+
+    expect(getImageTileResolverCacheKey(firstRuntime, resolver)).toBe('1');
+    expect(getImageTileResolverCacheKey(firstRuntime, resolver)).toBe('1');
+    expect(getImageTileResolverCacheKey(secondRuntime, resolver)).toBe('1');
+  });
+
+  it('clears runtime-local resolver ids with the derived tile cache version', () => {
+    const resolver = () => 0.5;
+    const runtime = createStampDitherRuntime(1);
+
+    expect(getImageTileResolverCacheKey(runtime, resolver)).toBe('1');
+    clearStampDitherRuntime(runtime, 2);
+
+    expect(runtime.builtFromVersion).toBe(2);
+    expect(getImageTileResolverCacheKey(runtime, resolver)).toBe('1');
+  });
+
   it('no cross-stroke leakage when stampSeq repeats', () => {
     const width = 8;
     const height = 8;
     const animator = buildAnimator(width, height);
     const state: StampDitherState & {
-      paintBuffer: Uint8Array;
+      paint: Uint8Array;
       gradientIdBuffer: Uint8Array;
       speedBuffer: Uint8Array;
     } = {
-      paintBuffer: new Uint8Array(width * height),
+      paint: new Uint8Array(width * height),
       gradientIdBuffer: new Uint8Array(width * height),
       speedBuffer: new Uint8Array(width * height),
       stampDitherStrokeEpoch: 1,
@@ -104,11 +130,11 @@ describe('strokeStampDither', () => {
     const height = 8;
     const animator = buildAnimator(width, height);
     const state: StampDitherState & {
-      paintBuffer: Uint8Array;
+      paint: Uint8Array;
       gradientIdBuffer: Uint8Array;
       speedBuffer: Uint8Array;
     } = {
-      paintBuffer: new Uint8Array(width * height),
+      paint: new Uint8Array(width * height),
       gradientIdBuffer: new Uint8Array(width * height),
       speedBuffer: new Uint8Array(width * height),
       stampDitherStrokeEpoch: 1,
@@ -152,11 +178,11 @@ describe('strokeStampDither', () => {
     const height = 16;
     const animator = buildAnimator(width, height);
     const state: StampDitherState & {
-      paintBuffer: Uint8Array;
+      paint: Uint8Array;
       gradientIdBuffer: Uint8Array;
       speedBuffer: Uint8Array;
     } = {
-      paintBuffer: new Uint8Array(width * height),
+      paint: new Uint8Array(width * height),
       gradientIdBuffer: new Uint8Array(width * height),
       speedBuffer: new Uint8Array(width * height),
       stampDitherStrokeEpoch: 1,
@@ -172,7 +198,7 @@ describe('strokeStampDither', () => {
     };
     const runtime = stampDither.createStampDitherRuntime();
 
-    state.paintBuffer.fill(7);
+    state.paint.fill(7);
     stampDither.applyStampDitherStamp({
       animator: animator as unknown as Parameters<typeof stampDither.applyStampDitherStamp>[0]['animator'],
       state,
@@ -195,7 +221,7 @@ describe('strokeStampDither', () => {
     expect(baseIdx1).toBeDefined();
     expect(baseTag1).toBeDefined();
 
-    state.paintBuffer.fill(9);
+    state.paint.fill(9);
     state.stampDitherStrokeEpoch = 2;
     state.stampDitherStampSeq = 0;
     stampDither.applyStampDitherStamp({
@@ -225,12 +251,12 @@ describe('strokeStampDither', () => {
     const height = 16;
     const animator = buildAnimator(width, height);
     const state: StampDitherState & {
-      paintBuffer: Uint8Array;
+      paint: Uint8Array;
       gradientIdBuffer: Uint8Array;
       gradientDefIdBuffer: Uint16Array;
       speedBuffer: Uint8Array;
     } = {
-      paintBuffer: new Uint8Array(width * height),
+      paint: new Uint8Array(width * height),
       gradientIdBuffer: new Uint8Array(width * height),
       gradientDefIdBuffer: new Uint16Array(width * height),
       speedBuffer: new Uint8Array(width * height),
@@ -247,7 +273,7 @@ describe('strokeStampDither', () => {
     };
     const runtime = stampDither.createStampDitherRuntime();
 
-    state.paintBuffer.fill(11);
+    state.paint.fill(11);
     state.gradientIdBuffer.fill(3);
     state.gradientDefIdBuffer.fill(7);
 
@@ -289,7 +315,7 @@ describe('strokeStampDither', () => {
     const height = 16;
     const animator = buildAnimator(width, height);
     const state = {
-      paintBuffer: new Uint8Array(width * height),
+      paint: new Uint8Array(width * height),
       gradientIdBuffer: new Uint8Array(width * height),
       speedBuffer: new Uint8Array(width * height),
       stampDitherStrokeScale: 1,
@@ -349,7 +375,7 @@ describe('strokeStampDither', () => {
     const height = 16;
     const animator = buildAnimator(width, height);
     const state = {
-      paintBuffer: new Uint8Array(width * height),
+      paint: new Uint8Array(width * height),
       gradientIdBuffer: new Uint8Array(width * height),
       speedBuffer: new Uint8Array(width * height),
       stampDitherStrokeScale: 1,
@@ -395,7 +421,7 @@ describe('strokeStampDither', () => {
         tag[i] = (1 << 16) | 1;
       }
       return {
-        paintBuffer: new Uint8Array(size),
+        paint: new Uint8Array(size),
         gradientIdBuffer: new Uint8Array(size),
         speedBuffer: new Uint8Array(size),
         stampDitherPrimaryBuffer: new Uint8Array(size).fill(11),
@@ -414,6 +440,7 @@ describe('strokeStampDither', () => {
       const didFinalize = stampDither.finalizeStampDither({
         animator: animator as unknown as Parameters<typeof stampDither.finalizeStampDither>[0]['animator'],
         state,
+        runtime: stampDither.createStampDitherRuntime(0),
         config: {
           algorithm,
           pixelSize: 1,
@@ -456,7 +483,7 @@ describe('strokeStampDither', () => {
     }
     const animator = buildAnimator(width, height);
     const state = {
-      paintBuffer: new Uint8Array(size),
+      paint: new Uint8Array(size),
       gradientIdBuffer: new Uint8Array(size),
       speedBuffer: new Uint8Array(size),
       stampDitherPrimaryBuffer: new Uint8Array(size).fill(11),
@@ -471,6 +498,7 @@ describe('strokeStampDither', () => {
     const didFinalize = stampDither.finalizeStampDither({
       animator: animator as unknown as Parameters<typeof stampDither.finalizeStampDither>[0]['animator'],
       state,
+      runtime: stampDither.createStampDitherRuntime(0),
       config: {
         algorithm: 'pattern',
         pixelSize: 1,
@@ -512,7 +540,7 @@ describe('strokeStampDither', () => {
         tag[i] = (1 << 16) | 1;
       }
       return {
-        paintBuffer: new Uint8Array(size),
+        paint: new Uint8Array(size),
         gradientIdBuffer: new Uint8Array(size),
         speedBuffer: new Uint8Array(size),
         stampDitherPrimaryBuffer: new Uint8Array(size).fill(11),
@@ -529,6 +557,7 @@ describe('strokeStampDither', () => {
       const didFinalize = stampDither.finalizeStampDither({
         animator: animator as unknown as Parameters<typeof stampDither.finalizeStampDither>[0]['animator'],
         state: buildState(),
+        runtime: stampDither.createStampDitherRuntime(0),
         config: {
           algorithm: 'pattern',
           pixelSize: 1,
@@ -567,7 +596,7 @@ describe('strokeStampDither', () => {
         tag[i] = (1 << 16) | 1;
       }
       return {
-        paintBuffer: new Uint8Array(size),
+        paint: new Uint8Array(size),
         gradientIdBuffer: new Uint8Array(size),
         speedBuffer: new Uint8Array(size),
         stampDitherPrimaryBuffer: new Uint8Array(size).fill(11),
@@ -584,6 +613,7 @@ describe('strokeStampDither', () => {
       const didFinalize = stampDither.finalizeStampDither({
         animator: animator as unknown as Parameters<typeof stampDither.finalizeStampDither>[0]['animator'],
         state: buildState(),
+        runtime: stampDither.createStampDitherRuntime(0),
         config: {
           algorithm: 'pattern',
           pixelSize,
@@ -625,7 +655,7 @@ describe('strokeStampDither', () => {
     const runApply = (patternStyle: (typeof patternStyles)[number], pixelSize: number) => {
       const animator = buildAnimator(width, height);
       const state = {
-        paintBuffer: new Uint8Array(size),
+        paint: new Uint8Array(size),
         gradientIdBuffer: new Uint8Array(size),
         speedBuffer: new Uint8Array(size),
         stampDitherStrokeEpoch: 1,
@@ -683,11 +713,11 @@ describe('strokeStampDither', () => {
     };
 
     const buildState = (): StampDitherState & {
-      paintBuffer: Uint8Array;
+      paint: Uint8Array;
       gradientIdBuffer: Uint8Array;
       speedBuffer: Uint8Array;
     } => ({
-      paintBuffer: new Uint8Array(width * height),
+      paint: new Uint8Array(width * height),
       gradientIdBuffer: new Uint8Array(width * height),
       speedBuffer: new Uint8Array(width * height),
       stampDitherStrokeEpoch: 1,

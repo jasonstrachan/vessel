@@ -1,12 +1,35 @@
 import { debugWarn } from '@/utils/debug';
 import type { Layer, Project } from '@/types';
-import { getColorCycleBrushManager, getColorCycleStoreState } from '@/stores/colorCycleBrushManager';
+import { getColorCycleBrushManager } from '@/stores/colorCycleBrushManager';
+import {
+  captureColorCyclePaintRegion,
+  colorCyclePaintSnapshotHasPayload,
+  type ColorCyclePaintSnapshot,
+} from '@/lib/colorCycle/document/paintDeltaMask';
+import { getColorCycleLegacyLayerBuffer } from '@/lib/colorCycle/document/legacyLayerBuffers';
+import type { ColorCycleLayerDocumentSnapshot } from '@/lib/colorCycle/document/colorCycleDocumentContract';
 
 const colorCycleBrushManager = getColorCycleBrushManager();
 
-const resolveLayerBrush = (layerId: string) =>
-  getColorCycleStoreState()?.getLayerColorCycleBrush?.(layerId) ??
-  colorCycleBrushManager.getLayerColorCycleBrush(layerId);
+const resolveLayerDocumentSnapshot = (layerId: string): ColorCycleLayerDocumentSnapshot | null =>
+  colorCycleBrushManager.getDocument(layerId)?.read().snapshot ?? null;
+
+const resolvePaintSnapshot = (
+  snapshot: ColorCycleLayerDocumentSnapshot | null,
+): ColorCyclePaintSnapshot | null => {
+  if (!snapshot?.paintBuffer) {
+    return null;
+  }
+  return {
+    paintBuffer: snapshot.paintBuffer,
+    gradientIdBuffer: snapshot.gradientIdBuffer,
+    gradientDefIdBuffer: snapshot.gradientDefIdBuffer,
+    speedBuffer: snapshot.speedBuffer,
+    flowBuffer: snapshot.flowBuffer,
+    phaseBuffer: snapshot.phaseBuffer,
+    hasContent: snapshot.hasContent,
+  };
+};
 
 type SelectionPoint = { x: number; y: number };
 
@@ -118,14 +141,17 @@ const captureColorCycleIndices = (
     return undefined;
   }
 
-  const brush = resolveLayerBrush(layer.id);
-  const snapshot = brush?.getLayerSnapshot?.(layer.id);
-
-  const canvas =
-    layer.colorCycleData?.canvas ??
-    (typeof brush?.getCanvas === 'function' ? brush.getCanvas() : null);
-  const canvasWidth = canvas?.width ?? layer.imageData?.width ?? 0;
-  const canvasHeight = canvas?.height ?? layer.imageData?.height ?? 0;
+  const snapshot = resolveLayerDocumentSnapshot(layer.id);
+  const canvasWidth = layer.colorCycleData?.canvas?.width
+    ?? layer.colorCycleData?.canvasWidth
+    ?? layer.imageData?.width
+    ?? layer.framebuffer?.width
+    ?? 0;
+  const canvasHeight = layer.colorCycleData?.canvas?.height
+    ?? layer.colorCycleData?.canvasHeight
+    ?? layer.imageData?.height
+    ?? layer.framebuffer?.height
+    ?? 0;
   if (!canvasWidth || !canvasHeight) {
     if (process.env.NODE_ENV !== 'production') {
       debugWarn('raw-console', '[cc] invalid canvas size in captureColorCycleIndices', {
@@ -137,38 +163,27 @@ const captureColorCycleIndices = (
     return undefined;
   }
 
-  const persistedBuffer = layer.colorCycleData?.gradientIdBuffer ?? null;
-  const incoming =
-    snapshot?.paintBuffer && snapshot.paintBuffer.byteLength > 0
-      ? new Uint8Array(snapshot.paintBuffer)
-      : persistedBuffer
-        ? new Uint8Array(persistedBuffer)
-        : null;
+  const persistedBuffer = getColorCycleLegacyLayerBuffer(layer.colorCycleData, 'gradientIdBuffer') ?? null;
 
-  if (!incoming) {
+  const captured = captureColorCyclePaintRegion({
+    snapshot: resolvePaintSnapshot(snapshot),
+    fallbackBuffer: persistedBuffer,
+    width: canvasWidth,
+    height: canvasHeight,
+    rect,
+  });
+  if (!captured) {
     if (process.env.NODE_ENV !== 'production') {
       debugWarn('raw-console', '[cc] no paint source for captureColorCycleIndices', {
         layerId: layer.id,
-        hasSnapshot: Boolean(snapshot?.paintBuffer),
+        hasSnapshot: colorCyclePaintSnapshotHasPayload(resolvePaintSnapshot(snapshot)),
         hasPersistedBuffer: Boolean(persistedBuffer),
       });
     }
     return undefined;
   }
 
-  if (incoming.length !== canvasWidth * canvasHeight) {
-    if (process.env.NODE_ENV !== 'production') {
-      debugWarn('raw-console', '[cc] paintBuffer/canvas mismatch in captureColorCycleIndices', {
-        layerId: layer.id,
-        incoming: incoming.length,
-        canvasWidth,
-        canvasHeight,
-      });
-    }
-    return undefined;
-  }
-
-  return copyScalarRegion(incoming, canvasWidth, canvasHeight, rect);
+  return captured;
 };
 
 const captureColorCycleSnapshotScalar = (
@@ -180,13 +195,17 @@ const captureColorCycleSnapshotScalar = (
     return undefined;
   }
 
-  const brush = resolveLayerBrush(layer.id);
-  const snapshot = brush?.getLayerSnapshot?.(layer.id);
-  const canvas =
-    layer.colorCycleData?.canvas ??
-    (typeof brush?.getCanvas === 'function' ? brush.getCanvas() : null);
-  const canvasWidth = canvas?.width ?? layer.imageData?.width ?? 0;
-  const canvasHeight = canvas?.height ?? layer.imageData?.height ?? 0;
+  const snapshot = resolveLayerDocumentSnapshot(layer.id);
+  const canvasWidth = layer.colorCycleData?.canvas?.width
+    ?? layer.colorCycleData?.canvasWidth
+    ?? layer.imageData?.width
+    ?? layer.framebuffer?.width
+    ?? 0;
+  const canvasHeight = layer.colorCycleData?.canvas?.height
+    ?? layer.colorCycleData?.canvasHeight
+    ?? layer.imageData?.height
+    ?? layer.framebuffer?.height
+    ?? 0;
   const sourceBuffer = snapshot?.[field];
   if (!canvasWidth || !canvasHeight || !sourceBuffer) {
     return undefined;
@@ -208,15 +227,20 @@ const captureColorCycleGradientDefIds = (
     return undefined;
   }
 
-  const brush = resolveLayerBrush(layer.id);
-  const snapshot = brush?.getLayerSnapshot?.(layer.id);
-  const canvas =
-    layer.colorCycleData?.canvas ??
-    (typeof brush?.getCanvas === 'function' ? brush.getCanvas() : null);
-  const canvasWidth = canvas?.width ?? layer.imageData?.width ?? 0;
-  const canvasHeight = canvas?.height ?? layer.imageData?.height ?? 0;
+  const snapshot = resolveLayerDocumentSnapshot(layer.id);
+  const canvasWidth = layer.colorCycleData?.canvas?.width
+    ?? layer.colorCycleData?.canvasWidth
+    ?? layer.imageData?.width
+    ?? layer.framebuffer?.width
+    ?? 0;
+  const canvasHeight = layer.colorCycleData?.canvas?.height
+    ?? layer.colorCycleData?.canvasHeight
+    ?? layer.imageData?.height
+    ?? layer.framebuffer?.height
+    ?? 0;
 
-  const sourceBuffer = snapshot?.gradientDefIdBuffer ?? layer.colorCycleData?.gradientDefIdBuffer;
+  const sourceBuffer = snapshot?.gradientDefIdBuffer ??
+    getColorCycleLegacyLayerBuffer(layer.colorCycleData, 'gradientDefIdBuffer');
   if (!canvasWidth || !canvasHeight || !sourceBuffer) {
     return undefined;
   }

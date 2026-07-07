@@ -4,7 +4,6 @@ import type { useDrawingHandlersRuntimeSetupBridge } from '@/hooks/canvas/useDra
 import type { useDrawingShapeRuntimeBridge } from '@/hooks/canvas/useDrawingShapeRuntimeBridge';
 import type { useDrawingHandlerRefs } from '@/hooks/canvas/useDrawingHandlerRefs';
 import type { useDrawingHandlersStoreState } from '@/hooks/canvas/useDrawingHandlersStoreState';
-import type { useBrushEngineSimplified } from '@/hooks/useBrushEngineSimplified';
 import type { useUserBrushEngine } from '@/hooks/useUserBrushEngine';
 
 type RuntimeSetupOptions = Parameters<typeof useDrawingHandlersRuntimeSetupBridge>[0];
@@ -25,7 +24,10 @@ interface BuildDrawingHandlersRuntimeSetupBridgeOptionsArgs {
   debugTime: RuntimeSetupOptions['debugTime'];
   debugTimeEnd: RuntimeSetupOptions['debugTimeEnd'];
   debugVerbose: RuntimeSetupOptions['debugVerbose'];
-  brushEngine: ReturnType<typeof useBrushEngineSimplified>;
+  strokeBrushRuntime: RuntimeSetupOptions['strokeBrushRuntime'];
+  finalizeBrushRuntime: RuntimeSetupOptions['finalizeBrushRuntime'];
+  shapeBrushRuntime: RuntimeSetupOptions['shapeBrushRuntime'];
+  playbackBrushRuntime: RuntimeSetupOptions['playbackBrushRuntime'];
   userBrushEngine: ReturnType<typeof useUserBrushEngine>;
   shapeRuntime: ReturnType<typeof useDrawingShapeRuntimeBridge>;
   brushToolRuntime: ReturnType<typeof useDrawingBrushToolRuntime>;
@@ -47,30 +49,38 @@ export const buildDrawingHandlersRuntimeSetupBridgeOptions = ({
   debugTime,
   debugTimeEnd,
   debugVerbose,
-  brushEngine,
+  strokeBrushRuntime,
+  finalizeBrushRuntime,
+  shapeBrushRuntime,
+  playbackBrushRuntime,
   userBrushEngine,
   shapeRuntime,
   brushToolRuntime,
   colorCycleRuntime,
   feedbackMessageRef,
-}: BuildDrawingHandlersRuntimeSetupBridgeOptionsArgs): RuntimeSetupOptions => ({
-  refs,
-  isPointerDownRef,
-  project,
-  storeRef,
-  sampleColorAt,
-  isBusyRef,
-  shapeMode,
-  toolsRef,
-  captureCanvasToActiveLayer,
-  withTiming,
-  debugTime,
-  debugTimeEnd,
-  debugVerbose,
-  brushEngine,
-  userBrushEngine,
-  shapeRuntime,
-  brushToolRuntime,
-  colorCycleRuntime,
-  feedbackMessageRef,
-});
+}: BuildDrawingHandlersRuntimeSetupBridgeOptionsArgs): RuntimeSetupOptions => {
+  return {
+    refs,
+    isPointerDownRef,
+    project,
+    storeRef,
+    sampleColorAt,
+    isBusyRef,
+    shapeMode,
+    toolsRef,
+    captureCanvasToActiveLayer,
+    withTiming,
+    debugTime,
+    debugTimeEnd,
+    debugVerbose,
+    strokeBrushRuntime,
+    finalizeBrushRuntime,
+    shapeBrushRuntime,
+    playbackBrushRuntime,
+    userBrushEngine,
+    shapeRuntime,
+    brushToolRuntime,
+    colorCycleRuntime,
+    feedbackMessageRef,
+  };
+};

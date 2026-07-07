@@ -5,7 +5,6 @@ import type { UseDrawingHandlersRuntimeStagesOptions } from '@/hooks/canvas/useD
 import type { useDrawingShapeRuntimeBridge } from '@/hooks/canvas/useDrawingShapeRuntimeBridge';
 import type { useDrawingHandlerRefs } from '@/hooks/canvas/useDrawingHandlerRefs';
 import type { useDrawingHandlersStoreState } from '@/hooks/canvas/useDrawingHandlersStoreState';
-import type { useBrushEngineSimplified } from '@/hooks/useBrushEngineSimplified';
 import type { useUserBrushEngine } from '@/hooks/useUserBrushEngine';
 
 type RuntimeSetupBridgeBuilderArgs = Parameters<typeof buildDrawingHandlersRuntimeSetupBridgeOptions>[0];
@@ -19,7 +18,10 @@ interface BuildDrawingHandlersRuntimeStagesSetupArgsOptions {
   shapeMode: StoreState['shapeMode'];
   toolsRef: StoreState['toolsRef'];
   captureCanvasToActiveLayer: StoreState['captureCanvasToActiveLayer'];
-  brushEngine: ReturnType<typeof useBrushEngineSimplified>;
+  strokeBrushRuntime: RuntimeSetupBridgeBuilderArgs['strokeBrushRuntime'];
+  finalizeBrushRuntime: RuntimeSetupBridgeBuilderArgs['finalizeBrushRuntime'];
+  shapeBrushRuntime: RuntimeSetupBridgeBuilderArgs['shapeBrushRuntime'];
+  playbackBrushRuntime: RuntimeSetupBridgeBuilderArgs['playbackBrushRuntime'];
   userBrushEngine: ReturnType<typeof useUserBrushEngine>;
   shapeRuntime: ReturnType<typeof useDrawingShapeRuntimeBridge>;
   brushToolRuntime: ReturnType<typeof useDrawingBrushToolRuntime>;
@@ -33,7 +35,10 @@ export const buildDrawingHandlersRuntimeStagesSetupArgs = ({
   shapeMode,
   toolsRef,
   captureCanvasToActiveLayer,
-  brushEngine,
+  strokeBrushRuntime,
+  finalizeBrushRuntime,
+  shapeBrushRuntime,
+  playbackBrushRuntime,
   userBrushEngine,
   shapeRuntime,
   brushToolRuntime,
@@ -52,7 +57,10 @@ export const buildDrawingHandlersRuntimeStagesSetupArgs = ({
   debugTime: options.perf.debugTime,
   debugTimeEnd: options.perf.debugTimeEnd,
   debugVerbose: options.perf.debugVerbose,
-  brushEngine,
+  strokeBrushRuntime,
+  finalizeBrushRuntime,
+  shapeBrushRuntime,
+  playbackBrushRuntime,
   userBrushEngine,
   shapeRuntime,
   brushToolRuntime,

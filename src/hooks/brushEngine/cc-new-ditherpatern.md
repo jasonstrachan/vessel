@@ -73,7 +73,7 @@ If BG fill is off: ensure you have base buffers for the stroke.
 V1 (simple, safe): full-copy at stroke start, same as you already do for stamp mode.
 
 if (!this.stampDitherBgFill) {
-  strokeData.stampDitherBaseIdx = strokeData.paintBuffer.slice();
+  strokeData.stampDitherBaseIdx = strokeData.paint.slice();
   strokeData.stampDitherBaseGid = strokeData.gradientIdBuffer?.slice();
 }
 

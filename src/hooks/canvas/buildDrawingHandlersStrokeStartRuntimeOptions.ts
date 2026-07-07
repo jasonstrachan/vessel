@@ -10,7 +10,7 @@ interface BuildDrawingHandlersStrokeStartRuntimeOptions {
   storeRef: UseDrawingHandlersRuntimeSetupBridgeOptions['storeRef'];
   sampleColorAt: UseDrawingHandlersRuntimeSetupBridgeOptions['sampleColorAt'];
   debugVerbose: UseDrawingHandlersRuntimeSetupBridgeOptions['debugVerbose'];
-  brushEngine: UseDrawingHandlersRuntimeSetupBridgeOptions['brushEngine'];
+  brushRuntime: StrokeStartRuntimeOptions['brushRuntime'];
   userBrushEngine: UseDrawingHandlersRuntimeSetupBridgeOptions['userBrushEngine'];
   shapeRuntime: UseDrawingHandlersRuntimeSetupBridgeOptions['shapeRuntime'];
   brushToolRuntime: UseDrawingHandlersRuntimeSetupBridgeOptions['brushToolRuntime'];
@@ -22,7 +22,7 @@ export const buildDrawingHandlersStrokeStartRuntimeOptions = ({
   storeRef,
   sampleColorAt,
   debugVerbose,
-  brushEngine,
+  brushRuntime,
   userBrushEngine,
   shapeRuntime,
   brushToolRuntime,
@@ -34,7 +34,7 @@ export const buildDrawingHandlersStrokeStartRuntimeOptions = ({
   sampleHexAt: colorCycleRuntime.sampleHexAt,
   debugVerbose,
   logError,
-  brushEngine: brushEngine as StrokeStartRuntimeOptions['brushEngine'],
+  brushRuntime,
   userBrushEngine: userBrushEngine as unknown as StrokeStartRuntimeOptions['userBrushEngine'],
   beginStrokeSession: brushToolRuntime.beginStrokeSession,
   ensureOverlayInitialized: colorCycleRuntime.ensureOverlayInitialized,

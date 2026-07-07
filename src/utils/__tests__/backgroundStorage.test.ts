@@ -135,7 +135,7 @@ describe('BackgroundStorageService', () => {
     const dbStub = createDbStub();
     const serializedProject = new Uint8Array([5, 6, 7, 8]);
     const canvas = document.createElement('canvas');
-    const brush = { getFullState: jest.fn() };
+    const brush = { serialize: jest.fn() };
     const colorCycleLayer: Layer = {
       ...baseLayer,
       id: 'layer-cc-autosave-live',

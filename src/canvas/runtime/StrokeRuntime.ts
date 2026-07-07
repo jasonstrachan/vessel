@@ -14,7 +14,7 @@ type StrokeRuntimeArgs = Parameters<typeof useDrawingStrokeRuntime>[0];
 type UseStrokeToolRuntimeArgs = {
   refs: DrawingHandlerRefs;
   storeRef: BrushToolArgs['brushHalfSizeStoreRef'];
-  brushEngine: BrushToolArgs['brushStampFactoryArgs']['brushEngine'];
+  brushRuntime: BrushToolArgs['brushStampFactoryArgs']['brushRuntime'];
   userBrushEngine: BrushToolArgs['brushStampFactoryArgs']['userBrushEngine'];
 };
 
@@ -27,13 +27,13 @@ type UseStrokeRuntimeLifecycleArgs = {
 export const useStrokeToolRuntime = ({
   refs,
   storeRef,
-  brushEngine,
+  brushRuntime,
   userBrushEngine,
 }: UseStrokeToolRuntimeArgs) =>
   useBrushToolRuntime({
     brushStampFactoryArgs: {
       storeRef,
-      brushEngine,
+      brushRuntime,
       userBrushEngine,
       resolveCustomBrush: resolveActiveCustomBrushData,
     },

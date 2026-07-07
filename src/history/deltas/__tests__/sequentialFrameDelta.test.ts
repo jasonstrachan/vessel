@@ -1,4 +1,7 @@
-import { createSequentialFrameDelta } from '@/history/deltas/sequentialFrameDelta';
+import {
+  createSequentialAppendFrameDelta,
+  createSequentialFrameDelta,
+} from '@/history/deltas/sequentialFrameDelta';
 import { useAppStore } from '@/stores/useAppStore';
 import { BrushShape, type Layer, type SequentialLayerData } from '@/types';
 import { createDefaultLayerAlignment } from '@/utils/layoutDefaults';
@@ -54,6 +57,8 @@ describe('SequentialFrameDelta', () => {
     useAppStore.setState((state) => ({
       layers: [createSequentialLayer('layer-seq', before)],
       activeLayerId: 'layer-seq',
+      layersNeedRecomposition: false,
+      pendingCompositeDirtyBatches: [],
       project: state.project
         ? { ...state.project, width: 16, height: 16 }
         : state.project,
@@ -68,6 +73,7 @@ describe('SequentialFrameDelta', () => {
       { sequentialData: after },
       { skipColorCycleSync: true }
     );
+    useAppStore.setState({ layersNeedRecomposition: false, pendingCompositeDirtyBatches: [] });
 
     const delta = createSequentialFrameDelta({
       layerId: 'layer-seq',
@@ -78,13 +84,52 @@ describe('SequentialFrameDelta', () => {
     void delta.apply('backward');
     let layer = useAppStore.getState().layers.find((entry) => entry.id === 'layer-seq');
     expect(layer?.sequentialData?.events.map((event) => event.id)).toEqual(['event-a']);
+    expect(useAppStore.getState().layersNeedRecomposition).toBe(true);
+    expect(useAppStore.getState().pendingCompositeDirtyBatches).toEqual([
+      {
+        layerId: 'layer-seq',
+        version: 0,
+        rects: [{ x: 0, y: 0, width: 16, height: 16 }],
+      },
+    ]);
 
+    useAppStore.setState({ layersNeedRecomposition: false, pendingCompositeDirtyBatches: [] });
     void delta.apply('forward');
     layer = useAppStore.getState().layers.find((entry) => entry.id === 'layer-seq');
     expect(layer?.sequentialData?.events.map((event) => event.id)).toEqual([
       'event-a',
       'event-b',
       'event-c',
+    ]);
+    expect(useAppStore.getState().layersNeedRecomposition).toBe(true);
+    expect(useAppStore.getState().pendingCompositeDirtyBatches).toEqual([
+      {
+        layerId: 'layer-seq',
+        version: 0,
+        rects: [{ x: 0, y: 0, width: 16, height: 16 }],
+      },
+    ]);
+  });
+
+  it('applies appended sequential events through the dirty-batch contract', () => {
+    const before = createSequentialData(['event-a']);
+    const after = createSequentialData(['event-a', 'event-b']);
+    const delta = createSequentialAppendFrameDelta({
+      layerId: 'layer-seq',
+      before,
+      after,
+    });
+
+    void delta.apply('forward');
+    const layer = useAppStore.getState().layers.find((entry) => entry.id === 'layer-seq');
+    expect(layer?.sequentialData?.events.map((event) => event.id)).toEqual(['event-a', 'event-b']);
+    expect(useAppStore.getState().layersNeedRecomposition).toBe(true);
+    expect(useAppStore.getState().pendingCompositeDirtyBatches).toEqual([
+      {
+        layerId: 'layer-seq',
+        version: 0,
+        rects: [{ x: 0, y: 0, width: 16, height: 16 }],
+      },
     ]);
   });
 });

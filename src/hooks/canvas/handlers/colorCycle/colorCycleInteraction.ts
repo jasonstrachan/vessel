@@ -8,13 +8,18 @@ import {
 } from '@/stores/useAppStore';
 import { RecolorManager } from '@/lib/colorCycle/RecolorManager';
 import { clearSharedColorCycleRuntimeConsumer } from '@/hooks/canvas/handlers/colorCycle/colorCyclePlayback';
+import type { ColorCyclePlaybackBrushContext } from '@/hooks/brushEngine/colorCycleBrushContracts';
+
+type PlaybackBrushManager = {
+  getPlaybackBrush: (layerId: string) => ColorCyclePlaybackBrushContext | null | undefined;
+};
 
 type PauseAllDeps = {
   pausedCCLayerIdsRef: React.MutableRefObject<string[]>;
   recolorWasAnimatingRef: React.MutableRefObject<boolean>;
   storeRef: React.MutableRefObject<AppState>;
   getEffectiveColorCyclePlaying: () => boolean;
-  getColorCycleBrushManager: () => { getBrush: (layerId: string) => { pause?: () => void; stopAnimation?: () => void } | null | undefined };
+  getColorCycleBrushManager: () => PlaybackBrushManager;
   continuousColorCycleAnimationRef: React.MutableRefObject<number | null>;
   continuousColorCycleAnimationActiveRef: React.MutableRefObject<boolean>;
   cancelAnimationFrame: (handle: number) => void;
@@ -29,7 +34,7 @@ type ResumePausedDeps = {
   recolorWasAnimatingRef: React.MutableRefObject<boolean>;
   storeRef: React.MutableRefObject<AppState>;
   getEffectiveColorCyclePlaying: () => boolean;
-  getColorCycleBrushManager: () => { getBrush: (layerId: string) => { startAnimation?: () => void } | null | undefined };
+  getColorCycleBrushManager: () => PlaybackBrushManager;
 };
 
 type PauseDeps = {
@@ -56,7 +61,7 @@ export type CreatePauseAllBrushCCAnimationsDispatcherArgs = {
   recolorWasAnimatingRef: React.MutableRefObject<boolean>;
   storeRef: React.MutableRefObject<AppState>;
   getEffectiveColorCyclePlaying: () => boolean;
-  getColorCycleBrushManager: () => { getBrush: (layerId: string) => { pause?: () => void; stopAnimation?: () => void } | null | undefined };
+  getColorCycleBrushManager: () => PlaybackBrushManager;
   continuousColorCycleAnimationRef: React.MutableRefObject<number | null>;
   continuousColorCycleAnimationActiveRef: React.MutableRefObject<boolean>;
   cancelAnimationFrame: (handle: number) => void;
@@ -184,7 +189,7 @@ export const pauseAllBrushCCAnimationsNow = ({
       ccLog('pause layer', { id: layer.id.slice(-6) });
       try {
         const mgr = getColorCycleBrushManager();
-        const brush = mgr.getBrush(layer.id);
+        const brush = mgr.getPlaybackBrush(layer.id);
         brush?.pause?.();
         brush?.stopAnimation?.();
       } catch {}
@@ -277,7 +282,7 @@ export const resumePausedBrushCCAnimations = ({
           isAnimating: true,
         };
         state.updateLayer(id, { colorCycleData: updatedColorCycleData });
-        const brush = mgr.getBrush(id);
+        const brush = mgr.getPlaybackBrush(id);
         brush?.startAnimation?.();
         resumedAny = true;
       } catch {}
@@ -309,7 +314,7 @@ export const resumePausedBrushCCAnimations = ({
         state.updateLayer(layer.id, { colorCycleData: resumedData });
       }
       try {
-        const brush = mgr.getBrush(layer.id);
+        const brush = mgr.getPlaybackBrush(layer.id);
         brush?.startAnimation?.();
       } catch {}
     });

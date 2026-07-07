@@ -3,15 +3,17 @@ import type { PixelQueue } from '@/hooks/brushEngine/types';
 import type { CustomBrushStrokeData } from '@/hooks/brushEngine/BrushEngineFacade';
 import type { ColorCycleBrushFlags } from '@/hooks/canvas/utils/colorCycleBrushFlags';
 import type { AppState } from '@/stores/useAppStore';
-import type { ColorCycleBrushImplementation } from '@/hooks/brushEngine/ColorCycleBrushMigration';
 import type { CcFlowVelocityState } from '@/utils/colorCycleFlowVelocity';
-import { configureStartColorCycleStroke } from '@/hooks/canvas/handlers/startColorCycleStrokeConfig';
+import {
+  configureStartColorCycleStroke,
+  type ColorCycleStrokeStartBrush,
+} from '@/hooks/canvas/handlers/startColorCycleStrokeConfig';
 import { prepareColorCycleStrokeQueue } from '@/hooks/canvas/handlers/startColorCycleStrokeQueue';
 import { startColorCycleStrokeStamp } from '@/hooks/canvas/handlers/startColorCycleStrokeStamp';
 
 type Point = { x: number; y: number };
 
-type ColorCycleBrushEngine = {
+type ColorCycleStrokeRuntime = {
   drawColorCycle: (
     ctx: CanvasRenderingContext2D,
     x: number,
@@ -37,7 +39,7 @@ export const startColorCycleStroke = ({
   colorCycleLastRotationRef,
   ccFlowVelocityRef,
   getCCStampTargetCtx,
-  brushEngine,
+  brushRuntime,
   resolveBrushRotation,
   getColorCycleBrushManager,
   debugLog,
@@ -57,7 +59,7 @@ export const startColorCycleStroke = ({
   colorCycleLastRotationRef: React.MutableRefObject<number | undefined>;
   ccFlowVelocityRef: React.MutableRefObject<CcFlowVelocityState>;
   getCCStampTargetCtx: () => CanvasRenderingContext2D | null;
-  brushEngine: ColorCycleBrushEngine;
+  brushRuntime: ColorCycleStrokeRuntime;
   resolveBrushRotation: (
     rotationEnabled: boolean,
     dx: number,
@@ -66,7 +68,7 @@ export const startColorCycleStroke = ({
     previousRotation: number | undefined
   ) => { rotation: number; nextRotation: number | undefined };
   getColorCycleBrushManager: () => {
-    getBrush: (layerId: string) => ColorCycleBrushImplementation | null | undefined;
+    getSurfaceBrush: (layerId: string) => ColorCycleStrokeStartBrush | null | undefined;
   };
   debugLog: (message: string, payload?: Record<string, unknown>) => void;
   beginMaskHealingStroke: (layerId: string, worldPos: Point, pressure: number) => void;
@@ -110,7 +112,7 @@ export const startColorCycleStroke = ({
     pixelQueue,
     markDirty,
     getCCStampTargetCtx,
-    brushEngine,
+    brushRuntime,
     resolveBrushRotation,
   });
 

@@ -53,7 +53,7 @@ describe('runStrokeStartLayerGuards', () => {
         currentState: useAppStore.getState(),
         feedbackMessageRef: { current: feedback },
         logError: jest.fn(),
-        getColorCycleBrushManager: () => ({ getBrush: () => null }),
+        getColorCycleBrushManager: () => ({ getSurfaceBrush: () => null }),
         ensureActiveColorCycleGradientSlot: jest.fn(),
       }
     );
@@ -73,7 +73,7 @@ describe('runStrokeStartLayerGuards', () => {
         currentState: useAppStore.getState(),
         feedbackMessageRef: { current: feedback },
         logError: jest.fn(),
-        getColorCycleBrushManager: () => ({ getBrush: () => null }),
+        getColorCycleBrushManager: () => ({ getSurfaceBrush: () => null }),
         ensureActiveColorCycleGradientSlot: jest.fn(),
       }
     );
@@ -120,7 +120,7 @@ describe('runStrokeStartLayerGuards', () => {
       currentState,
       feedbackMessageRef: { current: feedback },
       logError: jest.fn(),
-      getColorCycleBrushManager: () => ({ getBrush: () => ({}) as never }),
+      getColorCycleBrushManager: () => ({ getSurfaceBrush: () => ({}) as never }),
       ensureActiveColorCycleGradientSlot: jest.fn(),
     });
 

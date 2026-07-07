@@ -1,5 +1,4 @@
 import type React from 'react';
-import type { BrushEngine } from '@/hooks/useBrushEngineSimplified';
 import {
   getPlaybackRuntimeController,
 } from '@/runtime/playback/PlaybackRuntimeController';
@@ -55,13 +54,23 @@ const summarizePlaybackState = (storeRef: React.MutableRefObject<AppState>) => {
   }
 };
 
-const isColdColorCycleLayer = (layer: Layer): boolean => (
-  layer.layerType === 'color-cycle' &&
-  Boolean(
+const isColdColorCycleLayer = (layer: Layer): boolean => {
+  if (layer.layerType !== 'color-cycle') {
+    return false;
+  }
+
+  const manager = getColorCycleBrushManager() as Partial<Pick<
+    ReturnType<typeof getColorCycleBrushManager>,
+    'getDocument'
+  >>;
+  const documentResidency = manager.getDocument?.(layer.id)?.residency;
+  return Boolean(
+    documentResidency === 'cold-archive-ref' ||
+    documentResidency === 'static-preview-only' ||
     layer.colorCycleData?.deferredRuntimeRestore ||
     layer.colorCycleData?.runtimeHydrationState === 'cold'
-  )
-);
+  );
+};
 
 const setSharedColorCycleRuntimeConsumer = (
   storeRef: React.MutableRefObject<AppState>,
@@ -328,7 +337,11 @@ export const stopContinuousColorCycleAnimationCore = (
 };
 
 export type StartPlaybackDeps = {
-  brushEngine: BrushEngine;
+  brushRuntime: {
+    isColorCycleAnimating?: () => boolean;
+    updateColorCycleAnimation?: () => void;
+    renderColorCycle: (targetCtx: CanvasRenderingContext2D, onlyActiveLayer?: boolean) => boolean;
+  };
   ensureOverlayInitialized: () => boolean;
   renderAllColorCycleLayers: (targetCtx?: CanvasRenderingContext2D, onlyActiveLayer?: boolean) => boolean;
   storeRef: React.MutableRefObject<AppState>;
@@ -357,7 +370,7 @@ export const startContinuousColorCycleAnimationCore = (
   deps: StartPlaybackDeps
 ): void => {
   const {
-    brushEngine,
+    brushRuntime,
     ensureOverlayInitialized,
     renderAllColorCycleLayers,
     storeRef,
@@ -445,7 +458,7 @@ export const startContinuousColorCycleAnimationCore = (
           },
         });
 
-        const brush = getColorCycleBrushManager().getBrush(layerId);
+        const brush = getColorCycleBrushManager().getPlaybackBrush(layerId);
         if (brush) {
           const isPlaying = typeof brush.isPlaying === 'function' ? brush.isPlaying() : false;
           if (!isPlaying) {
@@ -533,13 +546,13 @@ export const startContinuousColorCycleAnimationCore = (
             ccLog('skip cold CC init before first playback frame', { id: l.id.slice(-6), reason });
             return;
           }
-          const hasBrush = !!mgr.getBrush(l.id);
+          const hasBrush = mgr.hasBrush(l.id);
           if (!hasBrush) {
             try { state.initColorCycleForLayer(l.id, projW, projH); ccLog('initColorCycleForLayer()', { id: l.id.slice(-6), reason }); } catch {}
           }
         });
         ccLayers.forEach(l => {
-          const brush = mgr.getBrush(l.id);
+          const brush = mgr.getPlaybackBrush(l.id);
           brush?.stopAnimation?.();
         });
       } catch {}
@@ -578,7 +591,7 @@ export const startContinuousColorCycleAnimationCore = (
           if (isColdColorCycleLayer(layer)) {
             return;
           }
-          const brush = mgr.getBrush(layer.id);
+          const brush = mgr.getPlaybackBrush(layer.id);
           if (!brush) {
             return;
           }
@@ -662,7 +675,7 @@ export const startContinuousColorCycleAnimationCore = (
         );
         let shouldAdvance = false;
         try {
-          shouldAdvance = !!(brushEngine.isColorCycleAnimating && brushEngine.isColorCycleAnimating());
+          shouldAdvance = !!(brushRuntime.isColorCycleAnimating && brushRuntime.isColorCycleAnimating());
           if (!shouldAdvance) {
             const st = storeRef.current;
             shouldAdvance = st.layers.some(
@@ -671,9 +684,9 @@ export const startContinuousColorCycleAnimationCore = (
           }
         } catch {}
         if (shouldAdvance) {
-          brushEngine.updateColorCycleAnimation?.();
+          brushRuntime.updateColorCycleAnimation?.();
         }
-        brushEngine.renderColorCycle(drawingCtxRef.current, true);
+        brushRuntime.renderColorCycle(drawingCtxRef.current, true);
         drawingCanvasHasContent.current = true;
 
         const now =

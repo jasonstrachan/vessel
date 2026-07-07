@@ -28,7 +28,7 @@ type UseDrawingStrokeRuntimeArgs = {
   refs: StrokeRuntimeRefs;
   storeRef: UseStrokeInputArgs['processDeps']['storeRef'];
   project: UseStrokeInputArgs['processDeps']['project'];
-  brushEngine: UseStrokeInputArgs['processDeps']['brushEngine'];
+  brushRuntime: UseStrokeInputArgs['processDeps']['brushRuntime'];
   userBrushEngine: UseStrokeInputArgs['processDeps']['userBrushEngine'];
   drawEraserSegment: UseStrokeInputArgs['processDeps']['drawEraserSegment'];
   updateAutoSampledGradient: UseStrokeInputArgs['processDeps']['updateAutoSampledGradient'];
@@ -44,7 +44,7 @@ export const useDrawingStrokeRuntime = ({
   refs,
   storeRef,
   project,
-  brushEngine,
+  brushRuntime,
   userBrushEngine,
   drawEraserSegment,
   updateAutoSampledGradient,
@@ -84,7 +84,7 @@ export const useDrawingStrokeRuntime = ({
     processDeps: {
       storeRef,
       project,
-      brushEngine,
+      brushRuntime,
       userBrushEngine,
       drawEraserSegment,
       updateAutoSampledGradient,

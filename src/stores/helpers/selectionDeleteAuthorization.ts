@@ -1,5 +1,14 @@
 import type { Layer, Project, Rectangle } from '@/types';
 import type { SelectionActionProvenance } from '@/stores/slices/selectionSlice';
+import {
+  summarizeColorCycleSelectionPaint,
+  type ColorCycleSelectionPaintSummary,
+} from '@/lib/colorCycle/document/paintDeltaMask';
+
+export {
+  summarizeColorCycleSelectionPaint,
+  type ColorCycleSelectionPaintSummary,
+} from '@/lib/colorCycle/document/paintDeltaMask';
 
 export type SelectionDeleteSource =
   | 'keyboard-delete'
@@ -15,14 +24,6 @@ export type SelectionOwnerKind =
   | 'select-all'
   | 'programmatic'
   | 'unknown';
-
-export interface ColorCycleSelectionPaintSummary {
-  paintWidth: number;
-  paintHeight: number;
-  totalNonZeroPaint: number;
-  selectedNonZeroPaint: number;
-  wouldClearAllPaint: boolean;
-}
 
 export interface SelectionDeleteRequest {
   source: string;
@@ -110,72 +111,6 @@ export const resolveSelectionDeleteBounds = (
     return null;
   }
   return { x, y, width, height };
-};
-
-const clampRange = (start: number, end: number, limit: number): [number, number] => [
-  Math.max(0, Math.floor(start)),
-  Math.min(limit, Math.ceil(end)),
-];
-
-const isSelectedByMask = (
-  x: number,
-  y: number,
-  mask: ImageData | null,
-  maskBounds: Rectangle | null
-): boolean => {
-  if (!mask || !maskBounds) {
-    return true;
-  }
-  const maskX = x - Math.floor(maskBounds.x);
-  const maskY = y - Math.floor(maskBounds.y);
-  if (maskX < 0 || maskY < 0 || maskX >= mask.width || maskY >= mask.height) {
-    return false;
-  }
-  return mask.data[(maskY * mask.width + maskX) * 4 + 3] > 0;
-};
-
-export const summarizeColorCycleSelectionPaint = (args: {
-  paintBuffer: Uint8Array;
-  paintWidth: number;
-  paintHeight: number;
-  bounds: Rectangle;
-  selectionMask?: ImageData | null;
-  selectionMaskBounds?: Rectangle | null;
-}): ColorCycleSelectionPaintSummary => {
-  const { paintBuffer, paintWidth, paintHeight, bounds, selectionMask = null, selectionMaskBounds = null } = args;
-  let totalNonZeroPaint = 0;
-  let selectedNonZeroPaint = 0;
-
-  const [startX, endX] = clampRange(bounds.x, bounds.x + bounds.width, paintWidth);
-  const [startY, endY] = clampRange(bounds.y, bounds.y + bounds.height, paintHeight);
-
-  for (let y = 0; y < paintHeight; y += 1) {
-    const row = y * paintWidth;
-    for (let x = 0; x < paintWidth; x += 1) {
-      const index = row + x;
-      if (paintBuffer[index] === 0) {
-        continue;
-      }
-      totalNonZeroPaint += 1;
-      if (
-        x >= startX &&
-        x < endX &&
-        y >= startY &&
-        y < endY &&
-        isSelectedByMask(x, y, selectionMask, selectionMaskBounds)
-      ) {
-        selectedNonZeroPaint += 1;
-      }
-    }
-  }
-
-  return {
-    paintWidth,
-    paintHeight,
-    totalNonZeroPaint,
-    selectedNonZeroPaint,
-    wouldClearAllPaint: totalNonZeroPaint > 0 && selectedNonZeroPaint === totalNonZeroPaint,
-  };
 };
 
 const reject = (
@@ -266,7 +201,7 @@ export const authorizeSelectionDelete = (
       });
     }
     colorCyclePaintSummary = summarizeColorCycleSelectionPaint({
-      paintBuffer: paint.buffer,
+      paint: paint.buffer,
       paintWidth: paint.width,
       paintHeight: paint.height,
       bounds,

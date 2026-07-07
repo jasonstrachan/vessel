@@ -1,7 +1,13 @@
 import { useAppStore } from '@/stores/useAppStore';
 import { getColorCycleBrushManager } from '@/stores/colorCycleBrushManager';
+import {
+  applyColorCycleBrushLayerSnapshotToRuntime,
+  canApplyColorCycleBrushLayerSnapshotToRuntime,
+  getColorCycleLegacyLayerBuffer,
+  type ColorCycleBrushLayerSnapshotRuntimeWriter,
+} from '@/lib/colorCycle/document';
 import { RecolorManager } from '@/lib/colorCycle/RecolorManager';
-import type { ColorCycleBrushImplementation } from '@/stores/colorCycleBrushManager';
+import type { ColorCycleHistoryBrushContext } from '@/hooks/brushEngine/colorCycleBrushContracts';
 import type {
   HistoryDirection,
   HistoryEntry,
@@ -40,25 +46,7 @@ type SerializedBrushState = {
   layers?: SerializedLayerBrushState[];
 };
 
-type RestorableColorCycleBrush = ColorCycleBrushImplementation & {
-  applyLayerSnapshot?: (
-    layerId: string,
-    snapshot: {
-      paintBuffer: ArrayBuffer;
-      gradientIdBuffer?: ArrayBuffer;
-      gradientDefIdBuffer?: ArrayBuffer;
-      speedBuffer?: ArrayBuffer;
-      flowBuffer?: ArrayBuffer;
-      phaseBuffer?: ArrayBuffer;
-      hasContent: boolean;
-      strokeCounter: number;
-    }
-  ) => void;
-  setTargetCanvas?: (canvas: HTMLCanvasElement | null) => void;
-  updateColorCycleTexture?: () => void;
-  renderDirectToCanvas?: (canvas: HTMLCanvasElement, layerId: string) => void;
-  render?: (forceFullOpacity?: boolean) => void;
-};
+type RestorableColorCycleBrush = ColorCycleHistoryBrushContext & ColorCycleBrushLayerSnapshotRuntimeWriter;
 
 const cloneBufferLike = (
   input: ArrayBuffer | ArrayBufferView | string | null | undefined,
@@ -188,10 +176,7 @@ const rehydrateColorCycleRuntime = async (
         paintBuffer !== undefined &&
         !paintBufferHasContent &&
         latestColorState?.hasContent === false;
-      const brush = (
-        latestStore.getLayerColorCycleBrush?.(layer.id) ??
-        manager.getBrush(layer.id)
-      ) as RestorableColorCycleBrush | null | undefined;
+      const brush = manager.getHistoryBrush(layer.id) as RestorableColorCycleBrush | null | undefined;
 
       const shouldApplySerializedBrushState =
         Boolean(paintBuffer) &&
@@ -202,18 +187,19 @@ const rehydrateColorCycleRuntime = async (
         !paintBufferHasContent &&
         latestColorState?.hasContent === true;
 
-      if (brush?.applyLayerSnapshot && latestColorState && paintBuffer && shouldApplySerializedBrushState) {
+      if (canApplyColorCycleBrushLayerSnapshotToRuntime(brush) && latestColorState && paintBuffer && shouldApplySerializedBrushState) {
         try {
           brush.setTargetCanvas?.(latestColorState.canvas ?? null);
-          brush.applyLayerSnapshot(layer.id, {
+          applyColorCycleBrushLayerSnapshotToRuntime(brush, layer.id, {
             paintBuffer,
             gradientIdBuffer: cloneBufferLike(
               strokeData?.gradientIdBuffer ??
               serializedLayer?.data?.indexBuffer?.gradientId ??
-              latestColorState.gradientIdBuffer,
+              getColorCycleLegacyLayerBuffer(latestColorState, 'gradientIdBuffer'),
             ),
             gradientDefIdBuffer: cloneBufferLike(
-              strokeData?.gradientDefIdBuffer ?? latestColorState.gradientDefIdBuffer,
+              strokeData?.gradientDefIdBuffer ??
+              getColorCycleLegacyLayerBuffer(latestColorState, 'gradientDefIdBuffer'),
             ),
             speedBuffer: cloneBufferLike(
               strokeData?.speedBuffer ?? serializedLayer?.data?.indexBuffer?.speedData,
@@ -237,7 +223,6 @@ const rehydrateColorCycleRuntime = async (
           latestStore.updateLayer(layer.id, {
             colorCycleData: {
               ...latestColorState,
-              colorCycleBrush: brush,
               hasContent: serializedHasContent,
             },
           }, { skipColorCycleSync: true });

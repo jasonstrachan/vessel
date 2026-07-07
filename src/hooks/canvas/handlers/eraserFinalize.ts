@@ -202,11 +202,16 @@ export const finalizeEraserStroke = async (
 
     store.updateLayer(
       activeLayerId,
-      { sequentialData: afterSequentialData },
-      { skipColorCycleSync: true }
+      {
+        sequentialData: afterSequentialData,
+        version: (activeLayer.version || 0) + 1,
+      },
+      {
+        skipColorCycleSync: true,
+        dirtyRects: [absoluteBounds],
+      }
     );
     store.setCurrentCompositeBitmap(null);
-    store.setLayersNeedRecomposition(true);
 
     if (skipSave) {
       return false;

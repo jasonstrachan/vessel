@@ -35,5 +35,17 @@ describe('activeLayerBitmapController', () => {
 
     expect(canvas).toBeNull();
   });
-});
 
+  it('does not read a color-cycle brush runtime fallback for color-cycle layers', () => {
+    const state = {
+      activeLayerId: 'layer-cc',
+      layers: [{ id: 'layer-cc', layerType: 'color-cycle' }],
+    };
+
+    const canvas = getActiveLayerBitmapCanvas({
+      getState: () => state,
+    });
+
+    expect(canvas).toBeNull();
+  });
+});

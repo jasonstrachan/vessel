@@ -16,7 +16,10 @@ export const useDrawingHandlersRuntimeStages = ({
   };
   const {
     refs,
-    brushEngine,
+    strokeBrushRuntime,
+    finalizeBrushRuntime,
+    shapeBrushRuntime,
+    playbackBrushRuntime,
     userBrushEngine,
     storeRef,
     shapeMode,
@@ -37,7 +40,10 @@ export const useDrawingHandlersRuntimeStages = ({
     captureCanvasToActiveLayer,
     activeLayerWidth,
     activeLayerHeight,
-    brushEngine,
+    strokeBrushRuntime,
+    finalizeBrushRuntime,
+    shapeBrushRuntime,
+    playbackBrushRuntime,
     userBrushEngine,
     shapeRuntime,
     brushToolRuntime,

@@ -5,14 +5,19 @@ import { TextDecoder, TextEncoder } from 'util';
 (global as unknown as { TextDecoder?: typeof TextDecoder }).TextDecoder = TextDecoder;
 
 import { shapeFillBrushPreset, pixelBrushPreset } from '@/presets/brushPresets';
+import { useAppStore } from '@/stores/useAppStore';
+import { getColorCycleBrushManager } from '@/stores/colorCycleBrushManager';
 import { captureColorCycleBrushState } from '@/history/helpers/colorCycle';
 import { commitLayerHistory } from '@/history/helpers/layerHistory';
 import { captureSelectionSnapshot, commitSelectionHistory } from '@/history/helpers/selectionHistory';
 import historyManager from '@/history/historyService';
-import { useAppStore } from '@/stores/useAppStore';
 import type { Layer } from '@/types';
 import { createDefaultLayerAlignment } from '@/utils/layoutDefaults';
-import { getColorCycleBrushManager } from '@/stores/colorCycleBrushManager';
+import {
+  applyColorCycleBrushLayerSnapshotToRuntime,
+  getColorCycleLegacyLayerBuffer,
+} from '@/lib/colorCycle/document';
+import { readTestColorCycleBrushLayerSnapshot } from '@/testing/colorCycleSnapshotTestUtils';
 
 const TRIANGLE_POINTS = [
   { x: 0, y: 0 },
@@ -408,7 +413,7 @@ describe('history integration', () => {
     const store = useAppStore.getState();
     store.initColorCycleForLayer(layer.id, width, height);
     const manager = getColorCycleBrushManager();
-    const brush = manager.getLayerColorCycleBrush(layer.id);
+    const brush = manager.getBrush(layer.id);
     expect(brush).not.toBeNull();
 
     const paint = new Uint8Array(width * height);
@@ -417,7 +422,7 @@ describe('history integration', () => {
     paint[0] = 55;
     gradientIds[0] = 3;
     gradientDefIds[0] = 7;
-    brush?.applyLayerSnapshot?.(layer.id, {
+    if (brush) applyColorCycleBrushLayerSnapshotToRuntime(brush, layer.id, {
       paintBuffer: paint.buffer,
       gradientIdBuffer: gradientIds.buffer,
       gradientDefIdBuffer: gradientDefIds.buffer,
@@ -427,13 +432,13 @@ describe('history integration', () => {
 
     store.removeLayer(layer.id);
     expect(useAppStore.getState().layers).toHaveLength(0);
-    expect(manager.getLayerColorCycleBrush(layer.id)).toBeNull();
+    expect(manager.getBrush(layer.id)).toBeUndefined();
 
     await store.undo();
 
-    const restoredBrush = manager.getLayerColorCycleBrush(layer.id);
+    const restoredBrush = manager.getBrush(layer.id);
     expect(restoredBrush).not.toBeNull();
-    const restoredSnapshot = restoredBrush?.getLayerSnapshot?.(layer.id);
+    const restoredSnapshot = readTestColorCycleBrushLayerSnapshot(restoredBrush, layer.id);
     const restoredPaint = restoredSnapshot?.paintBuffer ? new Uint8Array(restoredSnapshot.paintBuffer) : null;
     const restoredGradientIds = restoredSnapshot?.gradientIdBuffer
       ? new Uint8Array(restoredSnapshot.gradientIdBuffer)
@@ -804,7 +809,7 @@ describe('history integration', () => {
 
     const manager = getColorCycleBrushManager();
     useAppStore.getState().initColorCycleForLayer(layer.id, width, height);
-    const brush = manager.getLayerColorCycleBrush(layer.id);
+    const brush = manager.getBrush(layer.id);
     expect(brush).not.toBeNull();
 
     const seed = new Uint8Array(width * height);
@@ -822,14 +827,14 @@ describe('history integration', () => {
     seedFlow[2 + (1 * width)] = 2;
     seedFlow[1 + (2 * width)] = 1;
     seedFlow[2 + (2 * width)] = 2;
-    brush?.applyLayerSnapshot?.(layer.id, {
+    if (brush) applyColorCycleBrushLayerSnapshotToRuntime(brush, layer.id, {
       paintBuffer: seed.slice().buffer,
       speedBuffer: seedSpeed.slice().buffer,
       flowBuffer: seedFlow.slice().buffer,
       hasContent: true,
       strokeCounter: 1,
     });
-    const preMoveSnapshot = brush?.getLayerSnapshot?.(layer.id);
+    const preMoveSnapshot = readTestColorCycleBrushLayerSnapshot(brush, layer.id);
     const preMoveSpeed = preMoveSnapshot?.speedBuffer ? new Uint8Array(preMoveSnapshot.speedBuffer) : null;
     expect(preMoveSpeed).not.toBeNull();
     expect(preMoveSpeed![1 + (1 * width)]).toBe(120);
@@ -856,7 +861,7 @@ describe('history integration', () => {
     store.updateFloatingPastePosition({ x: 4, y: 2 });
     await store.commitFloatingPaste();
 
-    const movedSnapshot = brush?.getLayerSnapshot?.(layer.id);
+    const movedSnapshot = readTestColorCycleBrushLayerSnapshot(brush, layer.id);
     const movedBuffer = movedSnapshot?.paintBuffer ? new Uint8Array(movedSnapshot.paintBuffer) : null;
     expect(movedBuffer).not.toBeNull();
     expect(movedBuffer![1 + (1 * width)]).toBe(0);
@@ -864,7 +869,7 @@ describe('history integration', () => {
 
     await store.undo();
     expect(store.canRedo()).toBe(true);
-    const undoSnapshot = brush?.getLayerSnapshot?.(layer.id);
+    const undoSnapshot = readTestColorCycleBrushLayerSnapshot(brush, layer.id);
     const undoSpeed = undoSnapshot?.speedBuffer ? new Uint8Array(undoSnapshot.speedBuffer) : null;
     expect(undoSpeed).not.toBeNull();
     expect(undoSpeed![1 + (1 * width)]).toBe(120);
@@ -919,7 +924,7 @@ describe('history integration', () => {
 
     const manager = getColorCycleBrushManager();
     useAppStore.getState().initColorCycleForLayer(layer.id, width, height);
-    const brush = manager.getLayerColorCycleBrush(layer.id);
+    const brush = manager.getBrush(layer.id);
     expect(brush).not.toBeNull();
 
     const paint = new Uint8Array(width * height);
@@ -938,7 +943,7 @@ describe('history integration', () => {
     gradientDefIds[1 + (2 * width)] = 2;
     gradientDefIds[2 + (2 * width)] = 2;
 
-    brush?.applyLayerSnapshot?.(layer.id, {
+    if (brush) applyColorCycleBrushLayerSnapshotToRuntime(brush, layer.id, {
       paintBuffer: paint.buffer,
       gradientIdBuffer: gradientIds.buffer,
       gradientDefIdBuffer: gradientDefIds.buffer,
@@ -1014,8 +1019,8 @@ describe('history integration', () => {
     const manager = getColorCycleBrushManager();
     useAppStore.getState().initColorCycleForLayer(sourceLayer.id, width, height);
     useAppStore.getState().initColorCycleForLayer(targetLayer.id, width, height);
-    const sourceBrush = manager.getLayerColorCycleBrush(sourceLayer.id);
-    const targetBrush = manager.getLayerColorCycleBrush(targetLayer.id);
+    const sourceBrush = manager.getBrush(sourceLayer.id);
+    const targetBrush = manager.getBrush(targetLayer.id);
     expect(sourceBrush).not.toBeNull();
     expect(targetBrush).not.toBeNull();
 
@@ -1029,7 +1034,7 @@ describe('history integration', () => {
       gradientDefIds[index] = 2;
     }
 
-    sourceBrush?.applyLayerSnapshot?.(sourceLayer.id, {
+    if (sourceBrush) applyColorCycleBrushLayerSnapshotToRuntime(sourceBrush, sourceLayer.id, {
       paintBuffer: paint.slice().buffer,
       gradientIdBuffer: gradientIds.slice().buffer,
       gradientDefIdBuffer: gradientDefIds.slice().buffer,
@@ -1043,7 +1048,7 @@ describe('history integration', () => {
     expect(useAppStore.getState().floatingPaste?.colorCycleGradientIds).not.toBeNull();
     expect(useAppStore.getState().floatingPaste?.colorCycleGradientDefIds).not.toBeNull();
 
-    const sourceAfterExtract = sourceBrush?.getLayerSnapshot?.(sourceLayer.id);
+    const sourceAfterExtract = readTestColorCycleBrushLayerSnapshot(sourceBrush, sourceLayer.id);
     const sourceAfterPaint = sourceAfterExtract?.paintBuffer ? new Uint8Array(sourceAfterExtract.paintBuffer) : null;
     expect(sourceAfterPaint).not.toBeNull();
     expect(sourceAfterPaint![1 + (1 * width)]).toBe(0);
@@ -1052,19 +1057,19 @@ describe('history integration', () => {
     useAppStore.setState({ activeLayerId: targetLayer.id });
     await useAppStore.getState().commitFloatingPaste();
 
-    const updatedTargetBrush = useAppStore.getState().getLayerColorCycleBrush(targetLayer.id) ?? targetBrush;
+    const updatedTargetBrush = getColorCycleBrushManager().getBrush(targetLayer.id) ?? targetBrush;
     const updatedTargetLayer = useAppStore.getState().layers.find((layer) => layer.id === targetLayer.id);
-    const targetSnapshot = updatedTargetBrush?.getLayerSnapshot?.(targetLayer.id);
+    const targetSnapshot = readTestColorCycleBrushLayerSnapshot(updatedTargetBrush, targetLayer.id);
     const targetPaint = targetSnapshot?.paintBuffer ? new Uint8Array(targetSnapshot.paintBuffer) : null;
     const targetGradientIds = targetSnapshot?.gradientIdBuffer
       ? new Uint8Array(targetSnapshot.gradientIdBuffer)
-      : (updatedTargetLayer?.colorCycleData?.gradientIdBuffer
-        ? new Uint8Array(updatedTargetLayer.colorCycleData.gradientIdBuffer)
+      : (getColorCycleLegacyLayerBuffer(updatedTargetLayer?.colorCycleData, 'gradientIdBuffer')
+        ? new Uint8Array(getColorCycleLegacyLayerBuffer(updatedTargetLayer?.colorCycleData, 'gradientIdBuffer') as ArrayBuffer)
         : null);
     const targetGradientDefIds = targetSnapshot?.gradientDefIdBuffer
       ? new Uint16Array(targetSnapshot.gradientDefIdBuffer)
-      : (updatedTargetLayer?.colorCycleData?.gradientDefIdBuffer
-        ? new Uint16Array(updatedTargetLayer.colorCycleData.gradientDefIdBuffer)
+      : (getColorCycleLegacyLayerBuffer(updatedTargetLayer?.colorCycleData, 'gradientDefIdBuffer')
+        ? new Uint16Array(getColorCycleLegacyLayerBuffer(updatedTargetLayer?.colorCycleData, 'gradientDefIdBuffer') as ArrayBuffer)
         : null);
     expect(targetPaint).not.toBeNull();
     expect(targetGradientIds).not.toBeNull();
@@ -1106,14 +1111,14 @@ describe('history integration', () => {
     const manager = getColorCycleBrushManager();
     useAppStore.getState().initColorCycleForLayer(topLayer.id, width, height);
     useAppStore.getState().initColorCycleForLayer(bottomLayer.id, width, height);
-    const topBrush = manager.getLayerColorCycleBrush(topLayer.id);
-    const bottomBrush = manager.getLayerColorCycleBrush(bottomLayer.id);
+    const topBrush = manager.getBrush(topLayer.id);
+    const bottomBrush = manager.getBrush(bottomLayer.id);
     expect(topBrush).not.toBeNull();
     expect(bottomBrush).not.toBeNull();
 
     const topPaint = new Uint8Array(width * height);
     topPaint[0] = 77;
-    topBrush?.applyLayerSnapshot?.(topLayer.id, {
+    if (topBrush) applyColorCycleBrushLayerSnapshotToRuntime(topBrush, topLayer.id, {
       paintBuffer: topPaint.slice().buffer,
       hasContent: true,
       strokeCounter: 1,
@@ -1121,7 +1126,7 @@ describe('history integration', () => {
 
     const bottomBefore = new Uint8Array(width * height);
     bottomBefore[5] = 11;
-    bottomBrush?.applyLayerSnapshot?.(bottomLayer.id, {
+    if (bottomBrush) applyColorCycleBrushLayerSnapshotToRuntime(bottomBrush, bottomLayer.id, {
       paintBuffer: bottomBefore.slice().buffer,
       hasContent: true,
       strokeCounter: 1,
@@ -1130,7 +1135,7 @@ describe('history integration', () => {
 
     const bottomAfter = bottomBefore.slice();
     bottomAfter[6] = 22;
-    bottomBrush?.applyLayerSnapshot?.(bottomLayer.id, {
+    if (bottomBrush) applyColorCycleBrushLayerSnapshotToRuntime(bottomBrush, bottomLayer.id, {
       paintBuffer: bottomAfter.buffer,
       hasContent: true,
       strokeCounter: 2,
@@ -1194,20 +1199,14 @@ describe('history integration', () => {
       skipBitmapDelta: true,
     });
 
-    const restoreTopSpy = jest.spyOn(
-      topBrush as NonNullable<typeof topBrush> & { restoreFullState: (state: unknown) => void },
-      'restoreFullState'
-    );
-
     await useAppStore.getState().undo();
 
-    expect(restoreTopSpy).not.toHaveBeenCalled();
-    const topSnapshot = topBrush?.getLayerSnapshot?.(topLayer.id);
+    const topSnapshot = readTestColorCycleBrushLayerSnapshot(topBrush, topLayer.id);
     const topAfterUndo = topSnapshot?.paintBuffer ? new Uint8Array(topSnapshot.paintBuffer) : null;
     expect(topAfterUndo).not.toBeNull();
     expect(topAfterUndo![0]).toBe(77);
 
-    const bottomSnapshot = bottomBrush?.getLayerSnapshot?.(bottomLayer.id);
+    const bottomSnapshot = readTestColorCycleBrushLayerSnapshot(bottomBrush, bottomLayer.id);
     const bottomAfterUndo = bottomSnapshot?.paintBuffer ? new Uint8Array(bottomSnapshot.paintBuffer) : null;
     expect(bottomAfterUndo).not.toBeNull();
     expect(bottomAfterUndo![5]).toBe(11);
@@ -1239,7 +1238,7 @@ describe('history integration', () => {
 
     const manager = getColorCycleBrushManager();
     useAppStore.getState().initColorCycleForLayer(layer.id, width, height);
-    const brush = manager.getLayerColorCycleBrush(layer.id);
+    const brush = manager.getBrush(layer.id);
     expect(brush).not.toBeNull();
 
     const seed = new Uint8Array(width * height);
@@ -1247,7 +1246,7 @@ describe('history integration', () => {
     seed[2 + (1 * width)] = 10;
     seed[1 + (2 * width)] = 11;
     seed[2 + (2 * width)] = 12;
-    brush?.applyLayerSnapshot?.(layer.id, {
+    if (brush) applyColorCycleBrushLayerSnapshotToRuntime(brush, layer.id, {
       paintBuffer: seed.slice().buffer,
       hasContent: true,
       strokeCounter: 1,
@@ -1274,7 +1273,7 @@ describe('history integration', () => {
     store.updateFloatingPasteRect({ x: 4, y: 3, width: 4, height: 4 });
     await store.commitFloatingPaste();
 
-    const snapshot = brush?.getLayerSnapshot?.(layer.id);
+    const snapshot = readTestColorCycleBrushLayerSnapshot(brush, layer.id);
     const buffer = snapshot?.paintBuffer ? new Uint8Array(snapshot.paintBuffer) : null;
     expect(buffer).not.toBeNull();
 

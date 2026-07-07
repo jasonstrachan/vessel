@@ -8,18 +8,53 @@ import {
 } from '@/hooks/canvas/utils/colorCycleMarkSession';
 import {
   ColorCycleBrushCanvas2D,
-  resolveCustomStampIndex,
 } from '../ColorCycleBrushCanvas2D';
+import { resolveCustomStampIndex } from '../colorCycleCustomStampRuntime';
 import { decodeColorCycleSpeedByte } from '@/utils/colorCycleSpeed';
 import { appendGradientSeamProfileSignature } from '@/lib/colorCycle/gradientSeamProfile';
 import { hashStops, type StoredStop } from '@/utils/colorCycleGradientDefs';
 import { useAppStore } from '@/stores/useAppStore';
 import { getPersistedCCMutationLog } from '@/utils/colorCycle/ccMutationAudit';
+import {
+  applyColorCycleBrushLayerSnapshotToRuntime,
+  applyColorCycleBrushPaintPatchToRuntime,
+  commitColorCycleCommittedLayerStateToRuntime,
+  getColorCycleLegacyLayerBuffer,
+  getColorCycleBrushStrokeStateForOwner,
+  readColorCycleBrushSerializedStateFromRuntime,
+  restoreColorCycleBrushSerializedStateToRuntime,
+  type ColorCycleBrushPersistenceStrokeState,
+} from '@/lib/colorCycle/document';
+import { readTestColorCycleBrushLayerSnapshot } from '@/testing/colorCycleSnapshotTestUtils';
+import type { Layer } from '@/types';
 
 type MockContext = CanvasRenderingContext2D & {
   _lastImageData?: ImageData;
   _hasDrawImage?: boolean;
 };
+
+const readBrushLayerSnapshot = readTestColorCycleBrushLayerSnapshot;
+const readSerializedBrushState = (
+  brush: ColorCycleBrushCanvas2D,
+): Parameters<typeof ColorCycleBrushCanvas2D.deserialize>[0] => (
+  readColorCycleBrushSerializedStateFromRuntime(brush) as Parameters<typeof ColorCycleBrushCanvas2D.deserialize>[0]
+);
+
+const readBrushStrokeState = <
+  TStrokeState extends ColorCycleBrushPersistenceStrokeState,
+>(
+  brush: ColorCycleBrushCanvas2D,
+  layerId: string,
+): TStrokeState | undefined => getColorCycleBrushStrokeStateForOwner<TStrokeState>(brush, layerId);
+
+Object.defineProperty(ColorCycleBrushCanvas2D.prototype, 'animators', {
+  configurable: true,
+  get(this: ColorCycleBrushCanvas2D) {
+    return (this as unknown as {
+      presentationApi: { getAnimatorMap: () => Map<string, unknown> };
+    }).presentationApi.getAnimatorMap();
+  },
+});
 
 const makeMockContext = (canvas: HTMLCanvasElement): MockContext => {
   const createImageData = (w: number, h: number) => ({
@@ -99,7 +134,11 @@ jest.mock('@/utils/canvasPool', () => ({
 }));
 
 type MockStoreState = {
-  layers: Array<unknown>;
+  layers: Array<{
+    id?: string;
+    colorCycleData?: unknown;
+    [key: string]: unknown;
+  }>;
   tools: { brushSettings: Record<string, unknown> };
   updateLayer?: jest.Mock;
   setCcGradientSampleCount?: jest.Mock;
@@ -200,7 +239,7 @@ describe('ColorCycleBrushCanvas2D regression tests', () => {
       },
     }];
 
-    brush.applyLayerSnapshot(layerId, {
+    applyColorCycleBrushLayerSnapshotToRuntime(brush, layerId, {
       paintBuffer: new Uint8Array([1, 1]).buffer,
       gradientIdBuffer: new Uint8Array([7, 7]).buffer,
       gradientDefIdBuffer: new Uint16Array([1, 1]).buffer,
@@ -278,7 +317,7 @@ describe('ColorCycleBrushCanvas2D regression tests', () => {
       },
     }];
 
-    brush.applyLayerSnapshot(layerId, {
+    applyColorCycleBrushLayerSnapshotToRuntime(brush, layerId, {
       paintBuffer: new Uint8Array([1, 1]).buffer,
       gradientIdBuffer: new Uint8Array([8, 8]).buffer,
       gradientDefIdBuffer: new Uint16Array([2, 2]).buffer,
@@ -323,7 +362,7 @@ describe('ColorCycleBrushCanvas2D regression tests', () => {
 
     const after = animator.getIndexBuffers().data;
     expect(Array.from(after)).not.toEqual(Array.from(before));
-    const snapshot = brush.getLayerSnapshot(layerId);
+    const snapshot = readBrushLayerSnapshot(brush, layerId);
     expect(snapshot).not.toBeNull();
     expect(Array.from(new Uint8Array(snapshot!.paintBuffer))).toEqual(Array.from(after));
   });
@@ -338,7 +377,7 @@ describe('ColorCycleBrushCanvas2D regression tests', () => {
     brush.paint(1, 1, layerId, 1);
     brush.endStroke(layerId);
 
-    const snapshot = brush.getLayerSnapshot(layerId);
+    const snapshot = readBrushLayerSnapshot(brush, layerId);
     expect(snapshot?.hasContent).toBe(true);
     expect(snapshot).not.toBeNull();
     expect(new Uint8Array(snapshot!.paintBuffer).some((value) => value !== 0)).toBe(true);
@@ -389,7 +428,7 @@ describe('ColorCycleBrushCanvas2D regression tests', () => {
     ];
 
     const brush = new ColorCycleBrushCanvas2D(makeCanvas(4, 1), { forceCanvas2D: true });
-    brush.applyLayerSnapshot(layerId, {
+    applyColorCycleBrushLayerSnapshotToRuntime(brush, layerId, {
       paintBuffer: new Uint8Array([1, 2, 0, 0]).buffer,
       gradientIdBuffer: new Uint8Array([slot, slot, 0, 0]).buffer,
       gradientDefIdBuffer: new Uint16Array([defId, defId, 0, 0]).buffer,
@@ -399,13 +438,13 @@ describe('ColorCycleBrushCanvas2D regression tests', () => {
       strokeCounter: 3,
     });
 
-    const serialized = brush.serialize();
+    const serialized = readSerializedBrushState(brush);
     expect(serialized.layers[0]?.gradientDefStore?.[0]?.seamProfile).toBe('soft');
 
     state.layers = [];
 
     const restored = ColorCycleBrushCanvas2D.deserialize(serialized as never, makeCanvas(4, 1));
-    const restoredSnapshot = restored.getLayerSnapshot(layerId);
+    const restoredSnapshot = readBrushLayerSnapshot(restored, layerId);
     expect(Array.from(new Uint16Array(restoredSnapshot?.gradientDefIdBuffer ?? new ArrayBuffer(0)))).toEqual([
       defId,
       defId,
@@ -413,7 +452,7 @@ describe('ColorCycleBrushCanvas2D regression tests', () => {
       0,
     ]);
 
-    const restoredSerialized = restored.serialize();
+    const restoredSerialized = readSerializedBrushState(restored);
     expect(restoredSerialized.layers[0]?.gradientDefStore?.[0]).toMatchObject({
       id: defId,
       slot,
@@ -424,17 +463,16 @@ describe('ColorCycleBrushCanvas2D regression tests', () => {
     restored.renderDirectToCanvas(makeCanvas(4, 1), layerId);
 
     const defCache = (restored as unknown as {
-      defPaletteCacheByLayer: Map<string, { signaturesById: Map<number, string> }>;
-      animators: Map<string, { defIdData?: Uint16Array | null }>;
-    }).defPaletteCacheByLayer.get(layerId);
+      gradientApi: { getLastAppliedDefBinding: (targetLayerId: string) => { signaturesById: Map<number, string> } | null };
+    }).gradientApi.getLastAppliedDefBinding(layerId);
     expect(defCache?.signaturesById.get(defId)).toContain(
       appendGradientSeamProfileSignature(defHash, 'soft')
     );
     expect(defCache?.signaturesById.get(defId)).toContain('#111111');
 
     const animator = (restored as unknown as {
-      animators: Map<string, { defIdData?: Uint16Array | null }>;
-    }).animators.get(layerId);
+      presentationApi: { getAnimator: (targetLayerId: string) => { defIdData?: Uint16Array | null } | undefined };
+    }).presentationApi.getAnimator(layerId);
     expect(Array.from(animator?.defIdData ?? [])).toEqual([defId, defId, 0, 0]);
   });
 
@@ -469,7 +507,7 @@ describe('ColorCycleBrushCanvas2D regression tests', () => {
     ];
 
     const brush = new ColorCycleBrushCanvas2D(makeCanvas(4, 1), { forceCanvas2D: true });
-    brush.applyLayerSnapshot(layerId, {
+    applyColorCycleBrushLayerSnapshotToRuntime(brush, layerId, {
       paintBuffer: new Uint8Array([1, 1, 0, 0]).buffer,
       gradientIdBuffer: new Uint8Array([slot, slot, 0, 0]).buffer,
       gradientDefIdBuffer: new Uint16Array([0, 0, 0, 0]).buffer,
@@ -479,7 +517,7 @@ describe('ColorCycleBrushCanvas2D regression tests', () => {
       strokeCounter: 2,
     });
 
-    const serialized = brush.serialize();
+    const serialized = readSerializedBrushState(brush);
     expect(serialized.layers[0]?.slotPalettes?.[0]?.seamProfile).toBe('soft');
   });
 
@@ -554,7 +592,7 @@ describe('ColorCycleBrushCanvas2D regression tests', () => {
       },
     }];
 
-    const serialized = restored.serialize();
+    const serialized = readSerializedBrushState(restored);
     expect(serialized.layers[0]?.slotPalettes?.find((entry) => entry.slot === 0)?.stops[0]?.color).toBe('#123456');
     expect(serialized.layers[0]?.gradientDefStore?.find((entry) => entry.id === 42)).toMatchObject({
       hash: 'archive-hash',
@@ -662,7 +700,7 @@ describe('ColorCycleBrushCanvas2D regression tests', () => {
       },
     }];
 
-    const serialized = restored.serialize();
+    const serialized = readSerializedBrushState(restored);
     expect(serialized.layers[0]?.activeGradientId).toBe('live-gradient');
     expect(serialized.layers[0]?.paintSlot).toBe(9);
     expect(serialized.layers[0]?.gradientDefs?.map((entry) => entry.id)).toEqual([
@@ -749,11 +787,11 @@ describe('ColorCycleBrushCanvas2D regression tests', () => {
 
     let finalizeStep = 0;
     const deps = {
-      brushEngine: {
+      brushRuntime: {
         fillCcGradientLinear: jest.fn(async () => {
           finalizeStep += 1;
           if (finalizeStep === 1) {
-            brush.applyLayerSnapshot(layerId, {
+            applyColorCycleBrushLayerSnapshotToRuntime(brush, layerId, {
               paintBuffer: new Uint8Array([1, 1, 1, 0]).buffer,
               gradientIdBuffer: new Uint8Array([TEMP_SAMPLE_SLOT, TEMP_SAMPLE_SLOT, TEMP_SAMPLE_SLOT, 0]).buffer,
               gradientDefIdBuffer: new Uint16Array([0, 0, 0, 0]).buffer,
@@ -765,14 +803,14 @@ describe('ColorCycleBrushCanvas2D regression tests', () => {
             });
             return;
           }
-          const current = brush.getLayerSnapshot(layerId);
+          const current = readBrushLayerSnapshot(brush, layerId);
           const paint = new Uint8Array(current?.paintBuffer ?? new ArrayBuffer(0));
           const gradientIds = new Uint8Array(current?.gradientIdBuffer ?? new ArrayBuffer(0));
           const gradientDefs = new Uint16Array(current?.gradientDefIdBuffer ?? new ArrayBuffer(0));
           paint[3] = 1;
           gradientIds[3] = TEMP_SAMPLE_SLOT;
           gradientDefs[3] = 0;
-          brush.applyLayerSnapshot(layerId, {
+          applyColorCycleBrushLayerSnapshotToRuntime(brush, layerId, {
             paintBuffer: paint.buffer.slice(0),
             gradientIdBuffer: gradientIds.buffer.slice(0),
             gradientDefIdBuffer: gradientDefs.buffer.slice(0),
@@ -785,7 +823,7 @@ describe('ColorCycleBrushCanvas2D regression tests', () => {
         }),
         updateColorCycleTexture: jest.fn(),
       } as never,
-      getColorCycleBrushManager: () => ({ getBrush: () => brush as never }),
+      getColorCycleBrushManager: () => ({ getShapeFillBrush: () => brush as never }),
       bindBrushToCanvas: jest.fn(),
       timeAsync: async <T,>(_label: string, task: () => Promise<T>) => task(),
       timeSync: <T,>(_label: string, task: () => T) => task(),
@@ -816,7 +854,7 @@ describe('ColorCycleBrushCanvas2D regression tests', () => {
       },
       deps
     ).then(async () => {
-      const afterShapeA = brush.getLayerSnapshot(layerId);
+      const afterShapeA = readBrushLayerSnapshot(brush, layerId);
       const shapeAGradientIds = Array.from(
         new Uint8Array(afterShapeA?.gradientIdBuffer ?? new ArrayBuffer(0))
       );
@@ -828,14 +866,12 @@ describe('ColorCycleBrushCanvas2D regression tests', () => {
       expect(shapeAGradientIds.slice(0, 3).every((value) => value === shapeAGradientIds[0])).toBe(true);
       expect(shapeAGradientIds.slice(0, 3)).not.toContain(TEMP_SAMPLE_SLOT);
       expect(shapeADefIds.slice(0, 3).every((value) => value === shapeADefIds[0] && value !== 0)).toBe(true);
-      const persistedAfterShapeA = state.layers[0] as {
-        colorCycleData?: { gradientIdBuffer?: ArrayBuffer; gradientDefIdBuffer?: ArrayBuffer };
-      };
+      const persistedAfterShapeA = state.layers[0] as unknown as Layer;
       expect(
-        Array.from(new Uint8Array(persistedAfterShapeA.colorCycleData?.gradientIdBuffer ?? new ArrayBuffer(0)))
+        Array.from(new Uint8Array(getColorCycleLegacyLayerBuffer(persistedAfterShapeA.colorCycleData, 'gradientIdBuffer') ?? new ArrayBuffer(0)))
       ).toEqual(shapeAGradientIds);
       expect(
-        Array.from(new Uint16Array(persistedAfterShapeA.colorCycleData?.gradientDefIdBuffer ?? new ArrayBuffer(0)))
+        Array.from(new Uint16Array(getColorCycleLegacyLayerBuffer(persistedAfterShapeA.colorCycleData, 'gradientDefIdBuffer') ?? new ArrayBuffer(0)))
       ).toEqual(shapeADefIds);
 
       await finalizeColorCycleShapeFillLinear(
@@ -861,7 +897,7 @@ describe('ColorCycleBrushCanvas2D regression tests', () => {
         deps
       );
 
-      const afterShapeB = brush.getLayerSnapshot(layerId);
+      const afterShapeB = readBrushLayerSnapshot(brush, layerId);
       const shapeBGradientIds = Array.from(
         new Uint8Array(afterShapeB?.gradientIdBuffer ?? new ArrayBuffer(0))
       );
@@ -872,18 +908,16 @@ describe('ColorCycleBrushCanvas2D regression tests', () => {
       expect(shapeBDefIds.slice(0, 3)).toEqual(shapeADefIds.slice(0, 3));
       expect(shapeBGradientIds).not.toContain(TEMP_SAMPLE_SLOT);
       expect(shapeBDefIds[3]).not.toBe(0);
-      const persistedAfterShapeB = state.layers[0] as {
-        colorCycleData?: { gradientIdBuffer?: ArrayBuffer; gradientDefIdBuffer?: ArrayBuffer };
-      };
+      const persistedAfterShapeB = state.layers[0] as unknown as Layer;
       expect(
-        Array.from(new Uint8Array(persistedAfterShapeB.colorCycleData?.gradientIdBuffer ?? new ArrayBuffer(0)))
+        Array.from(new Uint8Array(getColorCycleLegacyLayerBuffer(persistedAfterShapeB.colorCycleData, 'gradientIdBuffer') ?? new ArrayBuffer(0)))
       ).toEqual(shapeBGradientIds);
       expect(
-        Array.from(new Uint16Array(persistedAfterShapeB.colorCycleData?.gradientDefIdBuffer ?? new ArrayBuffer(0)))
+        Array.from(new Uint16Array(getColorCycleLegacyLayerBuffer(persistedAfterShapeB.colorCycleData, 'gradientDefIdBuffer') ?? new ArrayBuffer(0)))
       ).toEqual(shapeBDefIds);
 
-      const restored = ColorCycleBrushCanvas2D.deserialize(brush.serialize(), makeCanvas(4, 1));
-      const restoredSnapshot = restored.getLayerSnapshot(layerId);
+      const restored = ColorCycleBrushCanvas2D.deserialize(readSerializedBrushState(brush), makeCanvas(4, 1));
+      const restoredSnapshot = readBrushLayerSnapshot(restored, layerId);
       expect(Array.from(new Uint8Array(restoredSnapshot?.gradientIdBuffer ?? new ArrayBuffer(0)))).toEqual(
         shapeBGradientIds
       );
@@ -930,7 +964,7 @@ describe('ColorCycleBrushCanvas2D regression tests', () => {
       },
     }];
 
-    brush.applyLayerSnapshot(layerId, {
+    applyColorCycleBrushLayerSnapshotToRuntime(brush, layerId, {
       paintBuffer: new Uint8Array([1, 0, 0, 0]).buffer,
       gradientIdBuffer: new Uint8Array([slot, 0, 0, 0]).buffer,
       gradientDefIdBuffer: new Uint16Array([defId, 0, 0, 0]).buffer,
@@ -941,10 +975,10 @@ describe('ColorCycleBrushCanvas2D regression tests', () => {
       strokeCounter: 1,
     });
 
-    const staleSnapshot = brush.getLayerSnapshot(layerId);
+    const staleSnapshot = readBrushLayerSnapshot(brush, layerId);
     expect(Array.from(new Uint8Array(staleSnapshot?.paintBuffer ?? new ArrayBuffer(0)))).toEqual([1, 0, 0, 0]);
 
-    brush.applyPaintPatch(layerId, { x: 2, y: 0, width: 1, height: 1 }, new Uint8Array([1]), {
+    applyColorCycleBrushPaintPatchToRuntime(brush, layerId, { x: 2, y: 0, width: 1, height: 1 }, new Uint8Array([1]), {
       gradientIdBytes: new Uint8Array([TEMP_SAMPLE_SLOT]),
       gradientDefIdBytes: new Uint8Array(new Uint16Array([0]).buffer),
       speedBytes: new Uint8Array([0]),
@@ -952,7 +986,7 @@ describe('ColorCycleBrushCanvas2D regression tests', () => {
       phaseBytes: new Uint8Array([0]),
     });
 
-    brush.commitCommittedLayerState({
+    commitColorCycleCommittedLayerStateToRuntime(brush, {
       layerId,
       targetCanvas: makeCanvas(4, 1),
       binding: {
@@ -963,7 +997,7 @@ describe('ColorCycleBrushCanvas2D regression tests', () => {
       },
     });
 
-    const serialized = brush.serialize();
+    const serialized = readSerializedBrushState(brush);
     const paint = Array.from(
       new Uint8Array(serialized.layers[0]?.strokeData?.paintBuffer ?? new ArrayBuffer(0))
     );
@@ -985,7 +1019,7 @@ describe('ColorCycleBrushCanvas2D regression tests', () => {
     const targetCtx = ensureMockContext(targetCanvas);
     const brush = new ColorCycleBrushCanvas2D(makeCanvas(4, 1), { forceCanvas2D: true });
 
-    brush.applyLayerSnapshot(layerId, {
+    applyColorCycleBrushLayerSnapshotToRuntime(brush, layerId, {
       paintBuffer: new Uint8Array([1, 0, 0, 0]).buffer,
       gradientIdBuffer: new Uint8Array([1, 0, 0, 0]).buffer,
       gradientDefIdBuffer: new Uint16Array([1, 0, 0, 0]).buffer,
@@ -1055,7 +1089,7 @@ describe('ColorCycleBrushCanvas2D regression tests', () => {
       },
     ];
 
-    brush.applyLayerSnapshot(layerId, {
+    applyColorCycleBrushLayerSnapshotToRuntime(brush, layerId, {
       paintBuffer: new Uint8Array([1, 1, 1, 1]).buffer,
       gradientIdBuffer: new Uint8Array([slot, slot, TEMP_SAMPLE_SLOT, slot]).buffer,
       gradientDefIdBuffer: new Uint16Array([oldDefId, oldDefId, 0, 0]).buffer,
@@ -1066,7 +1100,7 @@ describe('ColorCycleBrushCanvas2D regression tests', () => {
       strokeCounter: 1,
     });
 
-    brush.commitCommittedLayerState({
+    commitColorCycleCommittedLayerStateToRuntime(brush, {
       layerId,
       binding: {
         defId: newDefId,
@@ -1075,7 +1109,7 @@ describe('ColorCycleBrushCanvas2D regression tests', () => {
       },
     });
 
-    const after = brush.getLayerSnapshot(layerId);
+    const after = readBrushLayerSnapshot(brush, layerId);
     expect(Array.from(new Uint8Array(after?.gradientIdBuffer ?? new ArrayBuffer(0)))).toEqual([
       slot,
       slot,
@@ -1143,7 +1177,7 @@ describe('ColorCycleBrushCanvas2D regression tests', () => {
       },
     ];
 
-    brush.applyLayerSnapshot(layerId, {
+    applyColorCycleBrushLayerSnapshotToRuntime(brush, layerId, {
       paintBuffer: new Uint8Array([1, 1, 1, 1]).buffer,
       gradientIdBuffer: new Uint8Array([slot, slot, slot, slot]).buffer,
       gradientDefIdBuffer: new Uint16Array([oldDefId, oldDefId, 0, newDefId]).buffer,
@@ -1154,7 +1188,7 @@ describe('ColorCycleBrushCanvas2D regression tests', () => {
       strokeCounter: 1,
     });
 
-    brush.commitCommittedLayerState({
+    commitColorCycleCommittedLayerStateToRuntime(brush, {
       layerId,
       binding: {
         defId: newDefId,
@@ -1163,7 +1197,7 @@ describe('ColorCycleBrushCanvas2D regression tests', () => {
       },
     });
 
-    const after = brush.getLayerSnapshot(layerId);
+    const after = readBrushLayerSnapshot(brush, layerId);
     expect(Array.from(new Uint16Array(after?.gradientDefIdBuffer ?? new ArrayBuffer(0)))).toEqual([
       oldDefId,
       oldDefId,
@@ -1226,7 +1260,7 @@ describe('ColorCycleBrushCanvas2D regression tests', () => {
       },
     ];
 
-    brush.applyLayerSnapshot(layerId, {
+    applyColorCycleBrushLayerSnapshotToRuntime(brush, layerId, {
       paintBuffer: new Uint8Array(canvas.width * canvas.height).fill(1).buffer,
       gradientIdBuffer: new Uint8Array(canvas.width * canvas.height).fill(slot).buffer,
       gradientDefIdBuffer: new Uint16Array(canvas.width * canvas.height).fill(oldDefId).buffer,
@@ -1296,7 +1330,7 @@ describe('ColorCycleBrushCanvas2D regression tests', () => {
     });
 
     expect(animator.gpuFillShape).toHaveBeenCalled();
-    const after = brush.getLayerSnapshot(layerId);
+    const after = readBrushLayerSnapshot(brush, layerId);
     expect(Array.from(new Uint16Array(after?.gradientDefIdBuffer ?? new ArrayBuffer(0)))).toEqual([
       newDefId,
       newDefId,
@@ -1349,7 +1383,7 @@ describe('ColorCycleBrushCanvas2D regression tests', () => {
       },
     ];
 
-    brush.applyLayerSnapshot(layerId, {
+    applyColorCycleBrushLayerSnapshotToRuntime(brush, layerId, {
       paintBuffer: new Uint8Array(canvas.width * canvas.height).fill(1).buffer,
       gradientIdBuffer: new Uint8Array(canvas.width * canvas.height).fill(slot).buffer,
       gradientDefIdBuffer: new Uint16Array(canvas.width * canvas.height).fill(oldDefId).buffer,
@@ -1418,7 +1452,7 @@ describe('ColorCycleBrushCanvas2D regression tests', () => {
     });
 
     expect(animator.gpuFillShape).toHaveBeenCalled();
-    const after = brush.getLayerSnapshot(layerId);
+    const after = readBrushLayerSnapshot(brush, layerId);
     expect(Array.from(new Uint8Array(after?.paintBuffer ?? new ArrayBuffer(0)))).toEqual([
       1,
       2,
@@ -1465,7 +1499,7 @@ describe('ColorCycleBrushCanvas2D regression tests', () => {
     brush.setDitherPixelSize(1);
     brush.setStampDitherAlgorithm('sierra-lite');
     brush.setGradientBands(1);
-    brush.applyLayerSnapshot(layerId, {
+    applyColorCycleBrushLayerSnapshotToRuntime(brush, layerId, {
       paintBuffer: new Uint8Array(pixelCount).fill(1).buffer,
       gradientIdBuffer: new Uint8Array(pixelCount).fill(oldSlot).buffer,
       gradientDefIdBuffer: new Uint16Array(pixelCount).fill(oldDefId).buffer,
@@ -1499,7 +1533,7 @@ describe('ColorCycleBrushCanvas2D regression tests', () => {
       },
     });
 
-    const after = brush.getLayerSnapshot(layerId);
+    const after = readBrushLayerSnapshot(brush, layerId);
     const paint = new Uint8Array(after?.paintBuffer ?? new ArrayBuffer(0));
     const gids = new Uint8Array(after?.gradientIdBuffer ?? new ArrayBuffer(0));
     const defs = new Uint16Array(after?.gradientDefIdBuffer ?? new ArrayBuffer(0));
@@ -1530,7 +1564,7 @@ describe('ColorCycleBrushCanvas2D regression tests', () => {
     brush.setDitherPixelSize(1);
     brush.setStampDitherAlgorithm('sierra-lite');
     brush.setGradientBands(1);
-    brush.applyLayerSnapshot(layerId, {
+    applyColorCycleBrushLayerSnapshotToRuntime(brush, layerId, {
       paintBuffer: new Uint8Array(pixelCount).fill(1).buffer,
       gradientIdBuffer: new Uint8Array(pixelCount).fill(oldSlot).buffer,
       gradientDefIdBuffer: new Uint16Array(pixelCount).fill(oldDefId).buffer,
@@ -1563,7 +1597,7 @@ describe('ColorCycleBrushCanvas2D regression tests', () => {
       },
     });
 
-    const after = brush.getLayerSnapshot(layerId);
+    const after = readBrushLayerSnapshot(brush, layerId);
     const paint = new Uint8Array(after?.paintBuffer ?? new ArrayBuffer(0));
     const gids = new Uint8Array(after?.gradientIdBuffer ?? new ArrayBuffer(0));
     const defs = new Uint16Array(after?.gradientDefIdBuffer ?? new ArrayBuffer(0));
@@ -1624,7 +1658,7 @@ describe('ColorCycleBrushCanvas2D regression tests', () => {
       brush.paint(8, 8, layerId, 1);
       brush.endStroke(layerId);
 
-      const snapshot = brush.getLayerSnapshot(layerId);
+      const snapshot = readBrushLayerSnapshot(brush, layerId);
       const paint = new Uint8Array(snapshot?.paintBuffer ?? new ArrayBuffer(0));
       const gradientIds = new Uint8Array(snapshot?.gradientIdBuffer ?? new ArrayBuffer(0));
       const paintedSlots = new Set<number>();
@@ -1656,8 +1690,8 @@ describe('ColorCycleBrushCanvas2D regression tests', () => {
     brush.setActiveGradientSlot(layerId, slot);
 
     const signature = (brush as unknown as {
-      gradientSignatures: Map<string, string>;
-    }).gradientSignatures.get(layerId);
+      gradientApi: { getActiveGradientSignature: (targetLayerId: string) => string | undefined };
+    }).gradientApi.getActiveGradientSignature(layerId);
     expect(signature).toContain('|seam:soft');
   });
 
@@ -1670,7 +1704,7 @@ describe('ColorCycleBrushCanvas2D regression tests', () => {
     const oldDefId = 77;
     const pixelCount = canvas.width * canvas.height;
 
-    brush.applyLayerSnapshot(layerId, {
+    applyColorCycleBrushLayerSnapshotToRuntime(brush, layerId, {
       paintBuffer: new Uint8Array(pixelCount).fill(9).buffer,
       gradientIdBuffer: new Uint8Array(pixelCount).fill(oldSlot).buffer,
       gradientDefIdBuffer: new Uint16Array(pixelCount).fill(oldDefId).buffer,
@@ -1687,7 +1721,7 @@ describe('ColorCycleBrushCanvas2D regression tests', () => {
     brush.paint(8, 8, layerId, 1);
     brush.endStroke(layerId);
 
-    const snapshot = brush.getLayerSnapshot(layerId);
+    const snapshot = readBrushLayerSnapshot(brush, layerId);
     const paint = new Uint8Array(snapshot?.paintBuffer ?? new ArrayBuffer(0));
     const gradientIds = new Uint8Array(snapshot?.gradientIdBuffer ?? new ArrayBuffer(0));
     const defIds = new Uint16Array(snapshot?.gradientDefIdBuffer ?? new ArrayBuffer(0));
@@ -1711,7 +1745,7 @@ describe('ColorCycleBrushCanvas2D regression tests', () => {
     const oldDefId = 88;
     const pixelCount = canvas.width * canvas.height;
 
-    brush.applyLayerSnapshot(layerId, {
+    applyColorCycleBrushLayerSnapshotToRuntime(brush, layerId, {
       paintBuffer: new Uint8Array(pixelCount).fill(9).buffer,
       gradientIdBuffer: new Uint8Array(pixelCount).fill(oldSlot).buffer,
       gradientDefIdBuffer: new Uint16Array(pixelCount).fill(oldDefId).buffer,
@@ -1732,7 +1766,7 @@ describe('ColorCycleBrushCanvas2D regression tests', () => {
     brush.paint(8, 8, layerId, 1);
     brush.endStroke(layerId);
 
-    const snapshot = brush.getLayerSnapshot(layerId);
+    const snapshot = readBrushLayerSnapshot(brush, layerId);
     const paint = new Uint8Array(snapshot?.paintBuffer ?? new ArrayBuffer(0));
     const gradientIds = new Uint8Array(snapshot?.gradientIdBuffer ?? new ArrayBuffer(0));
     const defIds = new Uint16Array(snapshot?.gradientDefIdBuffer ?? new ArrayBuffer(0));
@@ -1777,7 +1811,7 @@ describe('ColorCycleBrushCanvas2D regression tests', () => {
       },
     }];
 
-    brush.applyLayerSnapshot(layerId, {
+    applyColorCycleBrushLayerSnapshotToRuntime(brush, layerId, {
       paintBuffer: new Uint8Array(pixelCount).fill(120).buffer,
       gradientIdBuffer: new Uint8Array(pixelCount).fill(oldSlot).buffer,
       gradientDefIdBuffer: new Uint16Array(pixelCount).fill(oldDefId).buffer,
@@ -1800,7 +1834,7 @@ describe('ColorCycleBrushCanvas2D regression tests', () => {
     brush.paintCustomStamp(stamp, 8, 8, layerId, 1);
     brush.endStroke(layerId);
 
-    const snapshot = brush.getLayerSnapshot(layerId);
+    const snapshot = readBrushLayerSnapshot(brush, layerId);
     const paint = new Uint8Array(snapshot?.paintBuffer ?? new ArrayBuffer(0));
     const gradientIds = new Uint8Array(snapshot?.gradientIdBuffer ?? new ArrayBuffer(0));
     const defIds = new Uint16Array(snapshot?.gradientDefIdBuffer ?? new ArrayBuffer(0));
@@ -2010,7 +2044,7 @@ describe('ColorCycleBrushCanvas2D regression tests', () => {
 
     const baseline = animator.getIndexBuffers().data.slice();
 
-    brush.applyLayerSnapshot(
+    applyColorCycleBrushLayerSnapshotToRuntime(brush,
       layerId,
       {
         paintBuffer: preIdx.buffer.slice(0),
@@ -2164,9 +2198,7 @@ describe('ColorCycleBrushCanvas2D regression tests', () => {
       options: { spacing: 1, lostEdge: 100, paintDefIdOverride: secondDefId },
     });
 
-    const strokeData = (brush as unknown as {
-      layerStrokes: Map<string, { buffers: { paint: Uint8Array; def: Uint16Array } }>;
-    }).layerStrokes.get(layerId);
+    const strokeData = readBrushStrokeState<ColorCycleBrushPersistenceStrokeState>(brush, layerId);
     if (!strokeData) {
       throw new Error('Missing stroke data for lost-edge overlap test');
     }
@@ -2638,9 +2670,11 @@ describe('ColorCycleBrushCanvas2D regression tests', () => {
     const animator = (brush as unknown as {
       animators: Map<string, { getIndexBuffers: () => { data: Uint8Array } }>;
     }).animators.get(layerId);
-    const strokeState = (brush as unknown as {
-      layerStrokes: Map<string, { strokePhaseUnits: number; stampCounter: number; lastPoint: { x: number; y: number } | null }>;
-    }).layerStrokes.get(layerId);
+    const strokeState = readBrushStrokeState<ColorCycleBrushPersistenceStrokeState & {
+      strokePhaseUnits: number;
+      stampCounter: number;
+      lastPoint: { x: number; y: number } | null;
+    }>(brush, layerId);
     if (!animator || !strokeState) {
       throw new Error('Missing non-dither baseline state');
     }
@@ -2669,9 +2703,9 @@ describe('ColorCycleBrushCanvas2D regression tests', () => {
     const animator = (brush as unknown as {
       animators: Map<string, { getIndexBuffers: () => { data: Uint8Array } }>;
     }).animators.get(layerId);
-    const strokeState = (brush as unknown as {
-      layerStrokes: Map<string, { strokePhaseUnits: number }>;
-    }).layerStrokes.get(layerId);
+    const strokeState = readBrushStrokeState<ColorCycleBrushPersistenceStrokeState & {
+      strokePhaseUnits: number;
+    }>(brush, layerId);
     if (!animator || !strokeState) {
       throw new Error('Missing non-dither progression state');
     }
@@ -2701,9 +2735,10 @@ describe('ColorCycleBrushCanvas2D regression tests', () => {
     const animator = (brush as unknown as {
       animators: Map<string, { getIndexBuffers: () => { data: Uint8Array } }>;
     }).animators.get(layerId);
-    const strokeState = (brush as unknown as {
-      layerStrokes: Map<string, { strokePhaseUnits: number; stampCounter: number }>;
-    }).layerStrokes.get(layerId);
+    const strokeState = readBrushStrokeState<ColorCycleBrushPersistenceStrokeState & {
+      strokePhaseUnits: number;
+      stampCounter: number;
+    }>(brush, layerId);
     if (!animator || !strokeState) {
       throw new Error('Missing non-dither reset state');
     }
@@ -2742,9 +2777,10 @@ describe('ColorCycleBrushCanvas2D regression tests', () => {
     const animator = (brush as unknown as {
       animators: Map<string, { getIndexBuffers: () => { data: Uint8Array } }>;
     }).animators.get(layerId);
-    const strokeState = (brush as unknown as {
-      layerStrokes: Map<string, { strokePhaseUnits: number; stampCounter: number }>;
-    }).layerStrokes.get(layerId);
+    const strokeState = readBrushStrokeState<ColorCycleBrushPersistenceStrokeState & {
+      strokePhaseUnits: number;
+      stampCounter: number;
+    }>(brush, layerId);
     if (!animator || !strokeState) {
       throw new Error('Missing custom stamp non-dither baseline state');
     }
@@ -2864,7 +2900,7 @@ describe('ColorCycleBrushCanvas2D regression tests', () => {
     brush.paintCustomStamp(stamp, 8, 8, layerId, 1);
     brush.endStroke(layerId);
 
-    const snapshot = brush.getLayerSnapshot(layerId);
+    const snapshot = readBrushLayerSnapshot(brush, layerId);
     const stampIndex = 8 + 8 * canvas.width;
     const gradientIds = new Uint8Array(snapshot?.gradientIdBuffer ?? new ArrayBuffer(0));
     const defIds = new Uint16Array(snapshot?.gradientDefIdBuffer ?? new ArrayBuffer(0));
@@ -3157,9 +3193,9 @@ describe('ColorCycleBrushCanvas2D regression tests', () => {
     expect(afterEndSpd[firstIndex]).toBeGreaterThan(0);
     expect(afterEndSpd[secondIndex]).toBeGreaterThan(0);
 
-    const strokeState = (brush as unknown as {
-      layerStrokes: Map<string, { strokePhaseUnits: number }>;
-    }).layerStrokes.get(layerId);
+    const strokeState = readBrushStrokeState<ColorCycleBrushPersistenceStrokeState & {
+      strokePhaseUnits: number;
+    }>(brush, layerId);
     if (!strokeState) {
       throw new Error('Missing stroke state for velocity animation speed test');
     }
@@ -3209,9 +3245,9 @@ describe('ColorCycleBrushCanvas2D regression tests', () => {
     const low = makeBrush();
     low.brush.paintCustomStamp(stamp, 4, 4, layerId, 1, 0, 0.1);
     low.brush.endStroke(layerId);
-    const lowStroke = (low.brush as unknown as {
-      layerStrokes: Map<string, { strokePhaseUnits: number }>;
-    }).layerStrokes.get(layerId);
+    const lowStroke = readBrushStrokeState<ColorCycleBrushPersistenceStrokeState & {
+      strokePhaseUnits: number;
+    }>(low.brush, layerId);
     if (!lowStroke) {
       throw new Error('Missing low-speed stroke data');
     }
@@ -3219,9 +3255,9 @@ describe('ColorCycleBrushCanvas2D regression tests', () => {
     const high = makeBrush();
     high.brush.paintCustomStamp(stamp, 4, 4, layerId, 1, 0, 2.5);
     high.brush.endStroke(layerId);
-    const highStroke = (high.brush as unknown as {
-      layerStrokes: Map<string, { strokePhaseUnits: number }>;
-    }).layerStrokes.get(layerId);
+    const highStroke = readBrushStrokeState<ColorCycleBrushPersistenceStrokeState & {
+      strokePhaseUnits: number;
+    }>(high.brush, layerId);
     if (!highStroke) {
       throw new Error('Missing high-speed stroke data');
     }
@@ -3386,22 +3422,12 @@ describe('ColorCycleBrushCanvas2D regression tests', () => {
       const canvas = makeCanvas(16, 16);
       const brush = new ColorCycleBrushCanvas2D(canvas, { forceCanvas2D: true });
       const layerId = 'layer-stop-loop-after-clear';
-      const internals = brush as unknown as {
-        ensureStrokeState: (id: string) => {
-          hasContent: boolean;
-          buffers: {
-            paint: Uint8Array;
-            gid: Uint8Array;
-            spd: Uint8Array;
-            flow: Uint8Array;
-            phase: Uint8Array;
-            def: Uint16Array;
-          };
-        };
-      };
-      const strokeData = internals.ensureStrokeState(layerId);
-      strokeData.hasContent = true;
-      strokeData.buffers.paint[0] = 1;
+      const paintBuffer = new Uint8Array(16 * 16);
+      paintBuffer[0] = 1;
+      applyColorCycleBrushLayerSnapshotToRuntime(brush, layerId, {
+        paintBuffer: paintBuffer.buffer,
+        hasContent: true,
+      });
 
       for (const [pendingFrameId, pendingFrame] of Array.from(scheduledFrames.entries())) {
         scheduledFrames.delete(pendingFrameId);
@@ -3433,7 +3459,7 @@ describe('ColorCycleBrushCanvas2D regression tests', () => {
     const canvas = makeCanvas(4, 4);
     const brush = new ColorCycleBrushCanvas2D(canvas, { forceCanvas2D: true });
     const layerId = 'layer-runtime-clear-audit';
-    brush.applyLayerSnapshot(layerId, {
+    applyColorCycleBrushLayerSnapshotToRuntime(brush, layerId, {
       paintBuffer: new Uint8Array(16).fill(3).buffer,
       gradientIdBuffer: new Uint8Array(16).fill(2).buffer,
       gradientDefIdBuffer: new Uint16Array(16).fill(4).buffer,
@@ -3471,7 +3497,7 @@ describe('ColorCycleBrushCanvas2D regression tests', () => {
     const canvas = makeCanvas(4, 4);
     const brush = new ColorCycleBrushCanvas2D(canvas, { forceCanvas2D: true });
     const layerId = 'layer-start-stroke-clear-audit';
-    brush.applyLayerSnapshot(layerId, {
+    applyColorCycleBrushLayerSnapshotToRuntime(brush, layerId, {
       paintBuffer: new Uint8Array(16).fill(3).buffer,
       gradientIdBuffer: new Uint8Array(16).fill(2).buffer,
       gradientDefIdBuffer: new Uint16Array(16).fill(4).buffer,
@@ -3509,7 +3535,7 @@ describe('ColorCycleBrushCanvas2D regression tests', () => {
     const canvas = makeCanvas(4, 4);
     const brush = new ColorCycleBrushCanvas2D(canvas, { forceCanvas2D: true });
     const layerId = 'layer-empty-snapshot-audit';
-    brush.applyLayerSnapshot(layerId, {
+    applyColorCycleBrushLayerSnapshotToRuntime(brush, layerId, {
       paintBuffer: new Uint8Array(16).fill(9).buffer,
       gradientIdBuffer: new Uint8Array(16).fill(2).buffer,
       gradientDefIdBuffer: new Uint16Array(16).fill(4).buffer,
@@ -3520,7 +3546,7 @@ describe('ColorCycleBrushCanvas2D regression tests', () => {
       strokeCounter: 1,
     });
 
-    brush.applyLayerSnapshot(layerId, {
+    applyColorCycleBrushLayerSnapshotToRuntime(brush, layerId, {
       paintBuffer: new ArrayBuffer(0),
       hasContent: false,
       strokeCounter: 2,
@@ -3548,7 +3574,7 @@ describe('ColorCycleBrushCanvas2D regression tests', () => {
     const canvas = makeCanvas(4, 4);
     const brush = new ColorCycleBrushCanvas2D(canvas, { forceCanvas2D: true });
     const layerId = 'layer-empty-snapshot-canonical-block';
-    brush.applyLayerSnapshot(layerId, {
+    applyColorCycleBrushLayerSnapshotToRuntime(brush, layerId, {
       paintBuffer: new Uint8Array(16).fill(9).buffer,
       gradientIdBuffer: new Uint8Array(16).fill(2).buffer,
       gradientDefIdBuffer: new Uint16Array(16).fill(4).buffer,
@@ -3569,13 +3595,13 @@ describe('ColorCycleBrushCanvas2D regression tests', () => {
       },
     }];
 
-    brush.applyLayerSnapshot(layerId, {
+    applyColorCycleBrushLayerSnapshotToRuntime(brush, layerId, {
       paintBuffer: new ArrayBuffer(0),
       hasContent: false,
       strokeCounter: 2,
     }, undefined, 'snapshot-apply');
 
-    const snapshot = brush.getLayerSnapshot(layerId);
+    const snapshot = readBrushLayerSnapshot(brush, layerId);
     expect(snapshot?.hasContent).toBe(false);
     expect(Array.from(new Uint8Array(snapshot?.paintBuffer ?? new ArrayBuffer(0)))).toEqual(new Array(16).fill(0));
     expect(getPersistedCCMutationLog()).toEqual([
@@ -3614,13 +3640,13 @@ describe('ColorCycleBrushCanvas2D regression tests', () => {
       },
     }];
 
-    brush.applyLayerSnapshot(layerId, {
+    applyColorCycleBrushLayerSnapshotToRuntime(brush, layerId, {
       paintBuffer: new ArrayBuffer(0),
       hasContent: false,
       strokeCounter: 2,
     }, undefined, 'project-load-restore');
 
-    const snapshot = brush.getLayerSnapshot(layerId);
+    const snapshot = readBrushLayerSnapshot(brush, layerId);
     expect(snapshot?.hasContent).toBe(true);
     expect(Array.from(new Uint8Array(snapshot?.paintBuffer ?? new ArrayBuffer(0)))).toEqual(new Array(16).fill(9));
     expect(getPersistedCCMutationLog()).toEqual([
@@ -3668,7 +3694,7 @@ describe('ColorCycleBrushCanvas2D regression tests', () => {
       },
     }];
 
-    brush.applyLayerSnapshot(layerId, {
+    applyColorCycleBrushLayerSnapshotToRuntime(brush, layerId, {
       paintBuffer: new Uint8Array(16).fill(0).buffer,
       gradientIdBuffer: new Uint8Array(16).fill(0).buffer,
       gradientDefIdBuffer: new Uint16Array(16).fill(0).buffer,
@@ -3676,7 +3702,7 @@ describe('ColorCycleBrushCanvas2D regression tests', () => {
       strokeCounter: 2,
     }, undefined, 'project-load-restore');
 
-    const snapshot = brush.getLayerSnapshot(layerId);
+    const snapshot = readBrushLayerSnapshot(brush, layerId);
     expect(snapshot?.hasContent).toBe(false);
     expect(Array.from(new Uint8Array(snapshot?.paintBuffer ?? new ArrayBuffer(0)))).toEqual(new Array(16).fill(0));
     expect(getPersistedCCMutationLog()).not.toEqual(expect.arrayContaining([
@@ -3714,7 +3740,7 @@ describe('ColorCycleBrushCanvas2D regression tests', () => {
       },
     }];
 
-    brush.applyLayerSnapshot(layerId, {
+    applyColorCycleBrushLayerSnapshotToRuntime(brush, layerId, {
       paintBuffer: new Uint8Array(16).fill(0).buffer,
       gradientIdBuffer: new Uint8Array(16).fill(0).buffer,
       gradientDefIdBuffer: new Uint16Array(16).fill(0).buffer,
@@ -3725,7 +3751,7 @@ describe('ColorCycleBrushCanvas2D regression tests', () => {
       strokeCounter: 2,
     }, undefined, 'snapshot-apply');
 
-    const snapshot = brush.getLayerSnapshot(layerId);
+    const snapshot = readBrushLayerSnapshot(brush, layerId);
     expect(snapshot?.hasContent).toBe(false);
     expect(Array.from(new Uint8Array(snapshot?.paintBuffer ?? new ArrayBuffer(0)))).toEqual(new Array(16).fill(0));
     expect(getPersistedCCMutationLog()).toEqual([]);
@@ -3738,7 +3764,7 @@ describe('ColorCycleBrushCanvas2D regression tests', () => {
     const canvas = makeCanvas(4, 4);
     const brush = new ColorCycleBrushCanvas2D(canvas, { forceCanvas2D: true });
     const layerId = 'layer-empty-restore-canonical-block';
-    brush.applyLayerSnapshot(layerId, {
+    applyColorCycleBrushLayerSnapshotToRuntime(brush, layerId, {
       paintBuffer: new Uint8Array(16).fill(9).buffer,
       gradientIdBuffer: new Uint8Array(16).fill(2).buffer,
       gradientDefIdBuffer: new Uint16Array(16).fill(4).buffer,
@@ -3768,7 +3794,7 @@ describe('ColorCycleBrushCanvas2D regression tests', () => {
       },
     }];
 
-    brush.restoreFullState({
+    restoreColorCycleBrushSerializedStateToRuntime(brush, {
       layerSnapshots: [{
         layerId,
         paintBuffer: new ArrayBuffer(0),
@@ -3779,7 +3805,7 @@ describe('ColorCycleBrushCanvas2D regression tests', () => {
       }],
     });
 
-    const snapshot = brush.getLayerSnapshot(layerId);
+    const snapshot = readBrushLayerSnapshot(brush, layerId);
     expect(snapshot?.hasContent).toBe(true);
     expect(Array.from(new Uint8Array(snapshot?.paintBuffer ?? new ArrayBuffer(0)))).toEqual(new Array(16).fill(9));
     expect(getPersistedCCMutationLog()).toEqual([
@@ -3817,7 +3843,7 @@ describe('ColorCycleBrushCanvas2D regression tests', () => {
     const canvas = makeCanvas(4, 4);
     const brush = new ColorCycleBrushCanvas2D(canvas, { forceCanvas2D: true });
     const layerId = 'layer-empty-snapshot-stale-aux';
-    brush.applyLayerSnapshot(layerId, {
+    applyColorCycleBrushLayerSnapshotToRuntime(brush, layerId, {
       paintBuffer: new Uint8Array(16).fill(9).buffer,
       gradientIdBuffer: new Uint8Array(16).fill(2).buffer,
       gradientDefIdBuffer: new Uint16Array(16).fill(4).buffer,
@@ -3840,7 +3866,7 @@ describe('ColorCycleBrushCanvas2D regression tests', () => {
     window.localStorage.clear();
     delete (window as Window & { __VESSEL_CC_MUTATION_LOG__?: unknown }).__VESSEL_CC_MUTATION_LOG__;
 
-    brush.applyLayerSnapshot(layerId, {
+    applyColorCycleBrushLayerSnapshotToRuntime(brush, layerId, {
       paintBuffer: new Uint8Array(16).fill(0).buffer,
       gradientIdBuffer: new Uint8Array(16).fill(22).buffer,
       gradientDefIdBuffer: new Uint16Array(16).fill(23).buffer,
@@ -3851,7 +3877,7 @@ describe('ColorCycleBrushCanvas2D regression tests', () => {
       strokeCounter: 2,
     });
 
-    const snapshot = brush.getLayerSnapshot(layerId);
+    const snapshot = readBrushLayerSnapshot(brush, layerId);
     expect(snapshot?.hasContent).toBe(false);
     expect(Array.from(new Uint8Array(snapshot?.paintBuffer ?? new ArrayBuffer(0)))).toEqual(new Array(16).fill(0));
     expect(Array.from(new Uint8Array(snapshot?.gradientIdBuffer ?? new ArrayBuffer(0)))).toEqual(new Array(16).fill(0));
@@ -3875,7 +3901,7 @@ describe('ColorCycleBrushCanvas2D regression tests', () => {
     const canvas = makeCanvas(4, 4);
     const brush = new ColorCycleBrushCanvas2D(canvas, { forceCanvas2D: true });
     const layerId = 'layer-empty-restore-stale-aux';
-    brush.applyLayerSnapshot(layerId, {
+    applyColorCycleBrushLayerSnapshotToRuntime(brush, layerId, {
       paintBuffer: new Uint8Array(16).fill(9).buffer,
       gradientIdBuffer: new Uint8Array(16).fill(2).buffer,
       gradientDefIdBuffer: new Uint16Array(16).fill(4).buffer,
@@ -3898,7 +3924,7 @@ describe('ColorCycleBrushCanvas2D regression tests', () => {
     window.localStorage.clear();
     delete (window as Window & { __VESSEL_CC_MUTATION_LOG__?: unknown }).__VESSEL_CC_MUTATION_LOG__;
 
-    brush.restoreFullState({
+    restoreColorCycleBrushSerializedStateToRuntime(brush, {
       layerSnapshots: [{
         layerId,
         paintBuffer: new Uint8Array(16).fill(0).buffer,
@@ -3912,7 +3938,7 @@ describe('ColorCycleBrushCanvas2D regression tests', () => {
       }],
     });
 
-    const snapshot = brush.getLayerSnapshot(layerId);
+    const snapshot = readBrushLayerSnapshot(brush, layerId);
     const mutationLog = getPersistedCCMutationLog();
     expect(snapshot?.hasContent).toBe(false);
     expect(Array.from(new Uint8Array(snapshot?.paintBuffer ?? new ArrayBuffer(0)))).toEqual(new Array(16).fill(0));
@@ -3938,7 +3964,7 @@ describe('ColorCycleBrushCanvas2D regression tests', () => {
     const canvas = makeCanvas(4, 4);
     const brush = new ColorCycleBrushCanvas2D(canvas, { forceCanvas2D: true });
     const layerId = 'layer-marked-canonical-slot-zero-restore';
-    brush.applyLayerSnapshot(layerId, {
+    applyColorCycleBrushLayerSnapshotToRuntime(brush, layerId, {
       paintBuffer: new Uint8Array(16).fill(9).buffer,
       gradientIdBuffer: new Uint8Array(16).fill(2).buffer,
       gradientDefIdBuffer: new Uint16Array(16).fill(4).buffer,
@@ -3974,7 +4000,7 @@ describe('ColorCycleBrushCanvas2D regression tests', () => {
     window.localStorage.clear();
     delete (window as Window & { __VESSEL_CC_MUTATION_LOG__?: unknown }).__VESSEL_CC_MUTATION_LOG__;
 
-    brush.restoreFullState({
+    restoreColorCycleBrushSerializedStateToRuntime(brush, {
       layerSnapshots: [{
         layerId,
         paintBuffer: new Uint8Array(16).fill(0).buffer,
@@ -3987,7 +4013,7 @@ describe('ColorCycleBrushCanvas2D regression tests', () => {
       }],
     });
 
-    const snapshot = brush.getLayerSnapshot(layerId);
+    const snapshot = readBrushLayerSnapshot(brush, layerId);
     expect(snapshot?.hasContent).toBe(true);
     expect(Array.from(new Uint8Array(snapshot?.paintBuffer ?? new ArrayBuffer(0)))).toEqual(new Array(16).fill(0));
     expect(Array.from(new Uint16Array(snapshot?.gradientDefIdBuffer ?? new ArrayBuffer(0)))).toEqual(new Array(16).fill(1));
@@ -4021,7 +4047,7 @@ describe('ColorCycleBrushCanvas2D regression tests', () => {
     const canvas = makeCanvas(4, 4);
     const brush = new ColorCycleBrushCanvas2D(canvas, { forceCanvas2D: true });
     const layerId = 'layer-marked-canonical-slot-zero-explicit-clear';
-    brush.applyLayerSnapshot(layerId, {
+    applyColorCycleBrushLayerSnapshotToRuntime(brush, layerId, {
       paintBuffer: new Uint8Array(16).fill(9).buffer,
       gradientIdBuffer: new Uint8Array(16).fill(2).buffer,
       gradientDefIdBuffer: new Uint16Array(16).fill(4).buffer,
@@ -4058,7 +4084,7 @@ describe('ColorCycleBrushCanvas2D regression tests', () => {
     window.localStorage.clear();
     delete (window as Window & { __VESSEL_CC_MUTATION_LOG__?: unknown }).__VESSEL_CC_MUTATION_LOG__;
 
-    brush.restoreFullState({
+    restoreColorCycleBrushSerializedStateToRuntime(brush, {
       layerSnapshots: [{
         layerId,
         paintBuffer: new Uint8Array(16).fill(0).buffer,
@@ -4072,7 +4098,7 @@ describe('ColorCycleBrushCanvas2D regression tests', () => {
       }],
     });
 
-    const snapshot = brush.getLayerSnapshot(layerId);
+    const snapshot = readBrushLayerSnapshot(brush, layerId);
     expect(snapshot?.hasContent).toBe(false);
     expect(Array.from(new Uint8Array(snapshot?.paintBuffer ?? new ArrayBuffer(0)))).toEqual(new Array(16).fill(0));
     expect(getPersistedCCMutationLog()).toEqual([
@@ -4091,7 +4117,7 @@ describe('ColorCycleBrushCanvas2D regression tests', () => {
     const canvas = makeCanvas(4, 4);
     const brush = new ColorCycleBrushCanvas2D(canvas, { forceCanvas2D: true });
     const layerId = 'layer-empty-history-restore';
-    brush.applyLayerSnapshot(layerId, {
+    applyColorCycleBrushLayerSnapshotToRuntime(brush, layerId, {
       paintBuffer: new Uint8Array(16).fill(9).buffer,
       gradientIdBuffer: new Uint8Array(16).fill(2).buffer,
       gradientDefIdBuffer: new Uint16Array(16).fill(4).buffer,
@@ -4121,7 +4147,7 @@ describe('ColorCycleBrushCanvas2D regression tests', () => {
     window.localStorage.clear();
     delete (window as Window & { __VESSEL_CC_MUTATION_LOG__?: unknown }).__VESSEL_CC_MUTATION_LOG__;
 
-    brush.restoreFullState({
+    restoreColorCycleBrushSerializedStateToRuntime(brush, {
       layerSnapshots: [{
         layerId,
         paintBuffer: new Uint8Array(16).fill(0).buffer,
@@ -4135,7 +4161,7 @@ describe('ColorCycleBrushCanvas2D regression tests', () => {
       }],
     }, { mode: 'history' });
 
-    const snapshot = brush.getLayerSnapshot(layerId);
+    const snapshot = readBrushLayerSnapshot(brush, layerId);
     const mutationLog = getPersistedCCMutationLog();
     expect(snapshot?.hasContent).toBe(false);
     expect(Array.from(new Uint8Array(snapshot?.paintBuffer ?? new ArrayBuffer(0)))).toEqual(new Array(16).fill(0));
@@ -4152,13 +4178,13 @@ describe('ColorCycleBrushCanvas2D regression tests', () => {
     const brush = new ColorCycleBrushCanvas2D(canvas, { forceCanvas2D: true });
     const layerId = 'layer-map-slot-zero-content';
 
-    brush.restoreFullState({
+    restoreColorCycleBrushSerializedStateToRuntime(brush, {
       layerSnapshots: new Map([
         [layerId, new Uint8Array(16).fill(0).buffer],
       ]),
     });
 
-    const snapshot = brush.getLayerSnapshot(layerId);
+    const snapshot = readBrushLayerSnapshot(brush, layerId);
     expect(snapshot?.hasContent).toBe(true);
     expect(Array.from(new Uint8Array(snapshot?.paintBuffer ?? new ArrayBuffer(0)))).toEqual(new Array(16).fill(0));
   });
@@ -4167,7 +4193,7 @@ describe('ColorCycleBrushCanvas2D regression tests', () => {
     const canvas = makeCanvas(4, 4);
     const brush = new ColorCycleBrushCanvas2D(canvas, { forceCanvas2D: true });
     const layerId = 'layer-false-empty-snapshot-paint';
-    brush.applyLayerSnapshot(layerId, {
+    applyColorCycleBrushLayerSnapshotToRuntime(brush, layerId, {
       paintBuffer: new Uint8Array(16).fill(9).buffer,
       gradientIdBuffer: new Uint8Array(16).fill(2).buffer,
       gradientDefIdBuffer: new Uint16Array(16).fill(4).buffer,
@@ -4178,7 +4204,7 @@ describe('ColorCycleBrushCanvas2D regression tests', () => {
       strokeCounter: 1,
     });
 
-    const snapshot = brush.getLayerSnapshot(layerId);
+    const snapshot = readBrushLayerSnapshot(brush, layerId);
     expect(snapshot?.hasContent).toBe(true);
     expect(Array.from(new Uint8Array(snapshot?.paintBuffer ?? new ArrayBuffer(0)))).toEqual(new Array(16).fill(9));
     expect(Array.from(new Uint8Array(snapshot?.gradientIdBuffer ?? new ArrayBuffer(0)))).toEqual(new Array(16).fill(2));
@@ -4187,7 +4213,7 @@ describe('ColorCycleBrushCanvas2D regression tests', () => {
     expect(Array.from(new Uint8Array(snapshot?.flowBuffer ?? new ArrayBuffer(0)))).toEqual(new Array(16).fill(6));
     expect(Array.from(new Uint8Array(snapshot?.phaseBuffer ?? new ArrayBuffer(0)))).toEqual(new Array(16).fill(7));
 
-    const serializedLayer = brush.serialize().layers.find((layer) => layer.layerId === layerId);
+    const serializedLayer = readSerializedBrushState(brush).layers.find((layer) => layer.layerId === layerId);
     expect(serializedLayer?.strokeData?.hasContent).toBe(true);
   });
 
@@ -4196,7 +4222,7 @@ describe('ColorCycleBrushCanvas2D regression tests', () => {
     const brush = new ColorCycleBrushCanvas2D(canvas, { forceCanvas2D: true });
     const layerId = 'layer-slot-zero-content';
 
-    brush.applyLayerSnapshot(layerId, {
+    applyColorCycleBrushLayerSnapshotToRuntime(brush, layerId, {
       paintBuffer: new Uint8Array(16).fill(0).buffer,
       gradientIdBuffer: new Uint8Array(16).fill(2).buffer,
       gradientDefIdBuffer: new Uint16Array(16).fill(4).buffer,
@@ -4209,9 +4235,9 @@ describe('ColorCycleBrushCanvas2D regression tests', () => {
 
     brush.endStroke(layerId);
 
-    const snapshot = brush.getLayerSnapshot(layerId);
+    const snapshot = readBrushLayerSnapshot(brush, layerId);
     expect(snapshot?.hasContent).toBe(true);
-    const serializedLayer = brush.serialize().layers.find((layer) => layer.layerId === layerId);
+    const serializedLayer = readSerializedBrushState(brush).layers.find((layer) => layer.layerId === layerId);
     expect(serializedLayer?.strokeData?.hasContent).toBe(true);
   });
 
@@ -4219,21 +4245,14 @@ describe('ColorCycleBrushCanvas2D regression tests', () => {
     const canvas = makeCanvas(4, 4);
     const brush = new ColorCycleBrushCanvas2D(canvas, { forceCanvas2D: true });
     const layerId = 'layer-zero-write-stroke';
-    const internals = brush as unknown as {
-      ensureStrokeState: (id: string) => {
-        hasContent: boolean;
-        buffers: { paint: Uint8Array };
-      };
-    };
 
-    internals.ensureStrokeState(layerId);
     brush.startStroke(layerId);
     brush.endStroke(layerId);
 
-    const snapshot = brush.getLayerSnapshot(layerId);
+    const snapshot = readBrushLayerSnapshot(brush, layerId);
     expect(snapshot?.hasContent).toBe(false);
     expect(Array.from(new Uint8Array(snapshot?.paintBuffer ?? new ArrayBuffer(0)))).toEqual(new Array(16).fill(0));
-    const serializedLayer = brush.serialize().layers.find((layer) => layer.layerId === layerId);
+    const serializedLayer = readSerializedBrushState(brush).layers.find((layer) => layer.layerId === layerId);
     expect(serializedLayer?.strokeData?.hasContent).toBe(false);
   });
 
@@ -4241,7 +4260,7 @@ describe('ColorCycleBrushCanvas2D regression tests', () => {
     const canvas = makeCanvas(4, 4);
     const brush = new ColorCycleBrushCanvas2D(canvas, { forceCanvas2D: true });
     const layerId = 'layer-empty-animator-stale-aux';
-    brush.applyLayerSnapshot(layerId, {
+    applyColorCycleBrushLayerSnapshotToRuntime(brush, layerId, {
       paintBuffer: new Uint8Array(16).fill(9).buffer,
       gradientIdBuffer: new Uint8Array(16).fill(2).buffer,
       gradientDefIdBuffer: new Uint16Array(16).fill(4).buffer,
@@ -4252,7 +4271,7 @@ describe('ColorCycleBrushCanvas2D regression tests', () => {
       strokeCounter: 1,
     });
 
-    brush.applyLayerSnapshot(
+    applyColorCycleBrushLayerSnapshotToRuntime(brush,
       layerId,
       {
         paintBuffer: new Uint8Array(16).fill(0).buffer,
@@ -4275,7 +4294,7 @@ describe('ColorCycleBrushCanvas2D regression tests', () => {
       }
     );
 
-    const snapshot = brush.getLayerSnapshot(layerId);
+    const snapshot = readBrushLayerSnapshot(brush, layerId);
     expect(snapshot?.hasContent).toBe(false);
     expect(Array.from(new Uint8Array(snapshot?.paintBuffer ?? new ArrayBuffer(0)))).toEqual(new Array(16).fill(0));
     expect(Array.from(new Uint8Array(snapshot?.gradientIdBuffer ?? new ArrayBuffer(0)))).toEqual(new Array(16).fill(0));
@@ -4292,7 +4311,7 @@ describe('ColorCycleBrushCanvas2D regression tests', () => {
     const canvas = makeCanvas(4, 4);
     const brush = new ColorCycleBrushCanvas2D(canvas, { forceCanvas2D: true });
     const layerId = 'layer-restore-clear-audit';
-    brush.applyLayerSnapshot(layerId, {
+    applyColorCycleBrushLayerSnapshotToRuntime(brush, layerId, {
       paintBuffer: new Uint8Array(16).fill(8).buffer,
       gradientIdBuffer: new Uint8Array(16).fill(2).buffer,
       gradientDefIdBuffer: new Uint16Array(16).fill(4).buffer,
@@ -4303,7 +4322,7 @@ describe('ColorCycleBrushCanvas2D regression tests', () => {
       strokeCounter: 1,
     });
 
-    brush.restoreFullState({
+    restoreColorCycleBrushSerializedStateToRuntime(brush, {
       layerSnapshots: [{
         layerId,
         paintBuffer: new Uint8Array(16).fill(1).buffer,
@@ -4339,7 +4358,7 @@ describe('ColorCycleBrushCanvas2D regression tests', () => {
     const canvas = makeCanvas(4, 4);
     const brush = new ColorCycleBrushCanvas2D(canvas, { forceCanvas2D: true });
     const layerId = 'layer-cleanup-not-layer-clear';
-    brush.applyLayerSnapshot(layerId, {
+    applyColorCycleBrushLayerSnapshotToRuntime(brush, layerId, {
       paintBuffer: new Uint8Array(16).fill(3).buffer,
       gradientIdBuffer: new Uint8Array(16).fill(2).buffer,
       gradientDefIdBuffer: new Uint16Array(16).fill(4).buffer,
@@ -4371,7 +4390,7 @@ describe('ColorCycleBrushCanvas2D regression tests', () => {
       { x: 0, y: 3 },
     ], layerId, 1);
 
-    const serializedLayer = brush.serialize().layers.find((layer) => layer.layerId === layerId);
+    const serializedLayer = readSerializedBrushState(brush).layers.find((layer) => layer.layerId === layerId);
     expect(serializedLayer?.strokeData?.paintBuffer?.byteLength).toBe(16);
     expect(serializedLayer?.strokeData?.gradientIdBuffer?.byteLength).toBe(16);
     expect(serializedLayer?.strokeData?.gradientDefIdBuffer?.byteLength).toBe(32);

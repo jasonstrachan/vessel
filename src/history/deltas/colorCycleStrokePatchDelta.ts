@@ -1,5 +1,12 @@
-import type { ColorCycleBrushCanvas2D } from '@/hooks/brushEngine/ColorCycleBrushCanvas2D';
-import { getColorCycleBrushManager, getColorCycleStoreState } from '@/stores/colorCycleBrushManager';
+import {
+  applyColorCycleBrushPaintPatchToRuntime,
+  canApplyColorCycleBrushPaintPatchToRuntime,
+  type ColorCycleLayerDocumentRead,
+  type ColorCycleBrushSerializedState,
+  type ColorCycleBrushPaintPatchRuntimeWriter,
+} from '@/lib/colorCycle/document';
+import type { ColorCycleHistoryBrushContext } from '@/hooks/brushEngine/colorCycleBrushContracts';
+import { getColorCycleBrushManager } from '@/stores/colorCycleBrushManager';
 import { useAppStore } from '@/stores/useAppStore';
 import {
   logCCMutation,
@@ -9,27 +16,11 @@ import {
 import type { HistoryDelta, HistoryDirection, HistoryRehydrationTargets } from '../actionTypes';
 import { readBlob, releaseBlob, storeBlob } from '../blobStore';
 
-type ColorCycleBrushState = ReturnType<ColorCycleBrushCanvas2D['serialize']>;
+type ColorCycleBrushState = ColorCycleBrushSerializedState;
 type ColorCycleSerializedLayer = NonNullable<ColorCycleBrushState['layers']>[number];
 
-type ManagedColorCycleBrush = ColorCycleBrushCanvas2D & {
-  applyPaintPatch?: (
-    layerId: string,
-    roi: { x: number; y: number; width: number; height: number },
-    bytes: Uint8Array,
-    extras?: {
-      gradientIdBytes?: Uint8Array;
-      gradientDefIdBytes?: Uint8Array;
-      speedBytes?: Uint8Array;
-      flowBytes?: Uint8Array;
-      phaseBytes?: Uint8Array;
-    }
-  ) => boolean;
-  commitToLayer?: (targetCanvas: HTMLCanvasElement, layerId: string) => void;
-  renderDirectToCanvas?: (targetCanvas: HTMLCanvasElement, layerId: string) => void;
-  render?: (forceFullOpacity?: boolean) => void;
-  setTargetCanvas?: (canvas: HTMLCanvasElement | null) => void;
-  updateColorCycleTexture?: () => void;
+type ManagedColorCycleBrush = ColorCycleHistoryBrushContext & ColorCycleBrushPaintPatchRuntimeWriter & {
+  getColorCycleLayerDocument?: (layerId: string) => { read(): ColorCycleLayerDocumentRead } | null | undefined;
 };
 
 type PatchEncoding = 'raw' | 'rle';
@@ -107,6 +98,8 @@ export interface ColorCycleStrokePatchDeltaOptions {
   roi: { x: number; y: number; width: number; height: number };
   forwardState: ColorCycleBrushState | null;
   backwardState: ColorCycleBrushState | null;
+  beforeVersion?: number;
+  afterVersion?: number;
 }
 
 const encodeRLE = (input: Uint8Array): Uint8Array => {
@@ -472,6 +465,20 @@ const patchSetRuntimeExtras = (
   phaseBytes: patches.phase ?? undefined,
 });
 
+const clipPatchDirtyRect = (
+  roi: { x: number; y: number; width: number; height: number },
+  maxWidth: number,
+  maxHeight: number,
+) => {
+  const x = Math.max(0, Math.floor(roi.x));
+  const y = Math.max(0, Math.floor(roi.y));
+  const right = Math.min(maxWidth, Math.ceil(roi.x + roi.width));
+  const bottom = Math.min(maxHeight, Math.ceil(roi.y + roi.height));
+  const width = Math.max(0, right - x);
+  const height = Math.max(0, bottom - y);
+  return width > 0 && height > 0 ? { x, y, width, height } : null;
+};
+
 class ColorCycleStrokePatchDelta implements HistoryDelta {
   readonly _tag = 'color-cycle-stroke-patch';
   readonly approxBytes?: number;
@@ -482,6 +489,8 @@ class ColorCycleStrokePatchDelta implements HistoryDelta {
   private readonly roi: { x: number; y: number; width: number; height: number };
   private readonly forwardPatches: EncodedColorCyclePixelPatches;
   private readonly backwardPatches: EncodedColorCyclePixelPatches;
+  private readonly beforeVersion?: number;
+  private readonly afterVersion?: number;
 
   constructor(options: {
     layerId: string;
@@ -490,6 +499,8 @@ class ColorCycleStrokePatchDelta implements HistoryDelta {
     roi: { x: number; y: number; width: number; height: number };
     forwardPatches: EncodedColorCyclePixelPatches;
     backwardPatches: EncodedColorCyclePixelPatches;
+    beforeVersion?: number;
+    afterVersion?: number;
   }) {
     this.layerId = options.layerId;
     this.width = options.width;
@@ -497,6 +508,8 @@ class ColorCycleStrokePatchDelta implements HistoryDelta {
     this.roi = options.roi;
     this.forwardPatches = options.forwardPatches;
     this.backwardPatches = options.backwardPatches;
+    this.beforeVersion = options.beforeVersion;
+    this.afterVersion = options.afterVersion;
     this.approxBytes =
       encodedPatchApproxBytes(options.forwardPatches) +
       encodedPatchApproxBytes(options.backwardPatches);
@@ -516,7 +529,7 @@ class ColorCycleStrokePatchDelta implements HistoryDelta {
       return;
     }
 
-    if (!(getColorCycleStoreState()?.getLayerColorCycleBrush?.(this.layerId) ?? manager.getBrush(this.layerId))) {
+    if (!manager.getHistoryBrush(this.layerId)) {
       const width = this.width || layer.colorCycleData.canvas?.width || store.project?.width || 0;
       const height = this.height || layer.colorCycleData.canvas?.height || store.project?.height || 0;
       if (!width || !height) {
@@ -529,12 +542,35 @@ class ColorCycleStrokePatchDelta implements HistoryDelta {
       }
     }
 
-    const brush = (
-      getColorCycleStoreState()?.getLayerColorCycleBrush?.(this.layerId) ??
-      manager.getBrush(this.layerId)
-    ) as ManagedColorCycleBrush | undefined;
+    const brush = manager.getHistoryBrush(this.layerId) as ManagedColorCycleBrush | undefined;
     const targetCanvas = layer.colorCycleData.canvas;
-    if (!brush || !targetCanvas || typeof brush.applyPaintPatch !== 'function') {
+    if (!brush || !targetCanvas || !canApplyColorCycleBrushPaintPatchToRuntime(brush)) {
+      return;
+    }
+
+    const expectedVersion = direction === 'forward' ? this.beforeVersion : this.afterVersion;
+    const documentRead = manager.getDocument(this.layerId)?.read?.() ??
+      brush.getColorCycleLayerDocument?.(this.layerId)?.read?.();
+    if (
+      typeof expectedVersion === 'number' &&
+      documentRead &&
+      documentRead.version !== expectedVersion
+    ) {
+      logCCMutation({
+        event: 'history-cc-document-version-mismatch',
+        layerId: this.layerId,
+        reason: direction === 'backward' ? 'history-undo-patch' : 'history-redo-patch',
+        severity: 'warn',
+        before: summarizeColorCycleLayer(layer),
+        after: summarizeColorCycleLayer(layer),
+        details: {
+          source: 'history-color-cycle-stroke-patch',
+          operation: direction === 'backward' ? 'undo' : 'redo',
+          direction,
+          expectedVersion,
+          actualVersion: documentRead.version,
+        },
+      });
       return;
     }
 
@@ -556,7 +592,8 @@ class ColorCycleStrokePatchDelta implements HistoryDelta {
     const beforeAudit = summarizeColorCycleLayer(layer);
     const beforeHasContent = Boolean(layer.colorCycleData.hasContent);
     const patchPaintSummary = summarizeScalarBuffer(decoded.paint, patch.roi.width, patch.roi.height);
-    const hasContent = brush.applyPaintPatch(
+    const hasContent = applyColorCycleBrushPaintPatchToRuntime(
+      brush,
       this.layerId,
       patch.roi,
       decoded.paint,
@@ -629,14 +666,23 @@ class ColorCycleStrokePatchDelta implements HistoryDelta {
     try {
       const latest = useAppStore.getState();
       const latestLayer = latest.layers.find((candidate) => candidate.id === this.layerId);
+      const dirtyRect = clipPatchDirtyRect(patch.roi, this.width, this.height);
       if (latestLayer?.colorCycleData) {
-        latest.updateLayer(this.layerId, {
-          colorCycleData: { ...latestLayer.colorCycleData, hasContent },
+        latest.updateLayer(
+          this.layerId,
+          {
+            colorCycleData: { ...latestLayer.colorCycleData, hasContent },
+          },
+          dirtyRect ? { dirtyRects: [dirtyRect] } : undefined,
+        );
+      } else if (dirtyRect) {
+        latest.markCompositeSegmentsDirtyByLayerIds([this.layerId], {
+          dirtyRectsByLayerId: new Map([[this.layerId, [dirtyRect]]]),
         });
       }
     } catch {}
 
-    useAppStore.getState().setLayersNeedRecomposition(true);
+    useAppStore.setState({ layersNeedRecomposition: true });
   }
 
   dispose(): void {
@@ -763,5 +809,7 @@ export const createColorCycleStrokePatchDelta = async (
     roi,
     forwardPatches,
     backwardPatches,
+    beforeVersion: options.beforeVersion,
+    afterVersion: options.afterVersion,
   });
 };

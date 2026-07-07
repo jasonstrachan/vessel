@@ -11,6 +11,7 @@ export type {
   ColorCyclePersistenceMode,
   ColorCyclePersistenceSnapshot,
   ColorCyclePersistenceSource,
+  ColorCycleLayerDocumentReader,
   ColorCycleRuntimeBrush,
   DeferredColorCycleArchiveRuntime,
   PersistedColorCycleBrushState,

@@ -7,6 +7,7 @@ import {
 } from '@/hooks/canvas/utils/colorCycleMarkSession';
 import { flushGradientApply, requestGradientApply } from '@/hooks/brushEngine/ccGradientApplyScheduler';
 import { resolveColorCycleGradientSourceState } from '@/hooks/canvas/handlers/colorCycle/colorCycleGradientSourceContract';
+import type { ColorCycleSurfaceBrush } from '@/hooks/canvas/handlers/colorCycle/colorCycleSurface';
 
 export const runStrokeStartLayerGuards = ({
   activeLayer,
@@ -27,12 +28,12 @@ export const runStrokeStartLayerGuards = ({
   feedbackMessageRef: React.MutableRefObject<((message: string) => void) | null>;
   logError: (message: string, error?: unknown) => void;
   getColorCycleBrushManager: () => {
-    getBrush: (layerId: string) => import('@/hooks/brushEngine/ColorCycleBrushMigration').ColorCycleBrushImplementation | null | undefined;
+    getSurfaceBrush: (layerId: string) => ColorCycleSurfaceBrush | null | undefined;
   };
   ensureActiveColorCycleGradientSlot: (
     state: AppState,
     layer: AppState['layers'][number],
-    brush?: import('@/hooks/brushEngine/ColorCycleBrushMigration').ColorCycleBrushImplementation | null
+    brush?: ColorCycleSurfaceBrush | null
   ) => void;
 }): boolean => {
   if (!activeLayer.visible) {
@@ -62,17 +63,10 @@ export const runStrokeStartLayerGuards = ({
   }
 
   const colorCycleBrushManager = getColorCycleBrushManager();
-  const storeBrush = typeof currentState.getLayerColorCycleBrush === 'function'
-    ? currentState.getLayerColorCycleBrush(activeLayer.id)
-    : null;
-  if (!storeBrush) {
+  if (!colorCycleBrushManager.getSurfaceBrush(activeLayer.id)) {
     currentState.initColorCycleForLayer(activeLayer.id, runtimeProject.width, runtimeProject.height);
   }
-  const colorCycleBrush = (
-    typeof currentState.getLayerColorCycleBrush === 'function'
-      ? currentState.getLayerColorCycleBrush(activeLayer.id)
-      : null
-  ) ?? colorCycleBrushManager.getBrush(activeLayer.id);
+  const colorCycleBrush = colorCycleBrushManager.getSurfaceBrush(activeLayer.id);
   ensureActiveColorCycleGradientSlot(currentState, activeLayer, colorCycleBrush);
 
   try {

@@ -49,7 +49,8 @@ export const buildDrawingCanvasRuntimeEffectsFromOrchestrationOptions = ({
   drawingHandlers: orchestration.handlersRuntime.drawingHandlers,
   cancelActiveOperations: orchestration.handlersRuntime.cancelActiveOperations,
   finalizeActiveShape: orchestration.handlersRuntime.finalizeActiveShape,
-  brushEngine: orchestration.brushEngine,
+  brushRuntime: orchestration.brushRuntime,
+  shapeBrushRuntime: orchestration.shapeBrushRuntime,
   animationRuntime: {
     wrappedStartAnimation: orchestration.animationRuntime.wrappedStartAnimation,
     pauseAnimationForPan: orchestration.animationRuntime.pauseAnimationForPan,

@@ -18,10 +18,7 @@ import {
 } from '@/utils/projectIO';
 import { fileBackupService } from '@/utils/fileBackupService';
 import { mergeCustomBrushCollections } from './customBrushMerge';
-import {
-  type ColorCycleBrushManager,
-  type ColorCycleBrushImplementation,
-} from '../colorCycleBrushManager';
+import type { ColorCycleBrushManager, ColorCycleBrushRuntimeHost } from '../colorCycleBrushManager';
 import { setActiveHistoryDocument } from '@/history/historyService';
 import { logError, debugWarn } from '@/utils/debug';
 import { captureCanvasImageData } from '@/utils/canvas/canvasImage';
@@ -36,11 +33,17 @@ import {
 import { getStoredDisplayFilterDefaults } from '@/stores/slices/canvasSlice';
 import { normalizePersistedBrushSettings } from '@/stores/helpers/toolsState';
 import { ccWarn } from '@/utils/colorCycle/ccDebug';
+import {
+  markDerivedSurfaceBuiltFromVersion,
+  readColorCycleBrushLayerSnapshotFromRuntime,
+} from '@/lib/colorCycle/document';
 
 type AppState = import('../useAppStore').AppState;
 
 type StoreSet = StoreApi<AppState>['setState'];
 type StoreGet = StoreApi<AppState>['getState'];
+type LegacyColorCycleBrushField = NonNullable<NonNullable<Layer['colorCycleData']>['colorCycleBrush']>;
+type ColorCycleManagerRegistrationBrush = ColorCycleBrushRuntimeHost;
 
 export type SaveProjectRequest =
   | string
@@ -313,7 +316,6 @@ export const createProjectLifecycle = ({
         debugWarn('raw-console', '[Store] Failed to cleanup orphaned color cycle brushes during load:', error);
       }
 
-      const now = Date.now();
       const projectWidth = postLoadState.project?.width ?? loadedProject.width ?? 0;
       const projectHeight = postLoadState.project?.height ?? loadedProject.height ?? 0;
 
@@ -322,7 +324,7 @@ export const createProjectLifecycle = ({
           continue;
         }
 
-        const brush = layer.colorCycleData.colorCycleBrush as ColorCycleBrushImplementation & {
+        const brush = layer.colorCycleData.colorCycleBrush as LegacyColorCycleBrushField & ColorCycleManagerRegistrationBrush & {
           setLayerId?: (layerId: string) => void;
           isUsingWebGL?: () => boolean;
         };
@@ -333,26 +335,11 @@ export const createProjectLifecycle = ({
           debugWarn('raw-console', '[Store] Failed to set layerId on restored color cycle brush:', error);
         }
 
-        colorCycleBrushManager.brushes.set(layer.id, brush);
-        colorCycleBrushManager.brushMetadata.set(layer.id, {
-          layerId: layer.id,
-          created: now,
-          lastUsed: now,
+        colorCycleBrushManager.registerRestoredBrush(layer.id, brush, {
           width: layer.colorCycleData.canvas?.width ?? projectWidth,
           height: layer.colorCycleData.canvas?.height ?? projectHeight,
-          gradientHash: undefined,
           isActive: false,
         });
-        colorCycleBrushManager.activeResources.add(layer.id);
-        colorCycleBrushManager.activeResources.add(`canvas_${layer.id}`);
-
-        try {
-          if (brush.isUsingWebGL?.()) {
-            colorCycleBrushManager.activeResources.add(`webgl_${layer.id}`);
-          }
-        } catch (error) {
-          debugWarn('raw-console', '[Store] Failed to register WebGL resource for restored CC brush:', error);
-        }
       }
 
       if (postLoadState.activeLayerId) {
@@ -413,24 +400,15 @@ export const createProjectLifecycle = ({
           const colorCycleData = layer.colorCycleData;
           let canvasImageData = captureCanvasImageData(colorCycleData.canvas ?? null);
 
-          const brush = freshState.getLayerColorCycleBrush(layer.id) as
-            | {
-                getLayerSnapshot?: (layerId: string) => { hasContent?: boolean } | null | undefined;
-                renderDirectToCanvas?: (canvas: HTMLCanvasElement, layerId: string) => void;
-              }
-            | null
-            | undefined;
-          const savedSnapshot = brush?.getLayerSnapshot?.(layer.id) ?? null;
+          const snapshotBrush = colorCycleBrushManager?.getSerializedStateBrush?.(layer.id);
+          const surfaceBrush = colorCycleBrushManager?.getSurfaceBrush?.(layer.id);
+          const savedSnapshot = readColorCycleBrushLayerSnapshotFromRuntime(snapshotBrush, layer.id);
           const shouldPreservePersistedPreview =
             savedSnapshot?.hasContent !== false &&
             colorCycleData.hasContent !== false;
 
           if (!imageDataHasVisiblePixels(canvasImageData)) {
-            const brushRenderer = brush as
-              | { renderDirectToCanvas?: (canvas: HTMLCanvasElement, layerId: string) => void }
-              | null
-              | undefined;
-            if (brushRenderer?.renderDirectToCanvas && typeof document !== 'undefined') {
+            if (surfaceBrush?.renderDirectToCanvas && typeof document !== 'undefined') {
               const width =
                 colorCycleData.canvas?.width ??
                 colorCycleData.canvasImageData?.width ??
@@ -447,7 +425,7 @@ export const createProjectLifecycle = ({
               tempCanvas.width = Math.max(1, width);
               tempCanvas.height = Math.max(1, height);
               try {
-                brushRenderer.renderDirectToCanvas(tempCanvas, layer.id);
+                surfaceBrush.renderDirectToCanvas(tempCanvas, layer.id);
                 const renderedImageData = captureCanvasImageData(tempCanvas) ?? undefined;
                 if (imageDataHasVisiblePixels(renderedImageData)) {
                   canvasImageData = renderedImageData;
@@ -465,6 +443,13 @@ export const createProjectLifecycle = ({
           if (!canvasImageData) {
             return layer;
           }
+          const documentVersion =
+            colorCycleBrushManager?.getDocument?.(layer.id)?.version ??
+            null;
+          markDerivedSurfaceBuiltFromVersion(
+            canvasImageData,
+            documentVersion,
+          );
 
           return {
             ...layer,
@@ -784,6 +769,7 @@ export const createProjectLifecycle = ({
       alignment: createDefaultLayerAlignment(),
       layerType: 'color-cycle',
       colorCycleData: {
+        documentId: colorCycleLayerId,
         mode: 'brush',
         gradient: initialColorCycleGradient,
         isAnimating: true,

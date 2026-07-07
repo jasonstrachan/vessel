@@ -46,25 +46,25 @@ describe('strokeFinalizeController', () => {
   it('finalizeStrokeEngineBuffers finalizes on raw context without alpha lock', () => {
     const ctx = document.createElement('canvas').getContext('2d') as CanvasRenderingContext2D;
     const rawCtx = document.createElement('canvas').getContext('2d') as CanvasRenderingContext2D;
-    const brushEngine = { finalizeStroke: jest.fn() };
+    const finalizeStroke = jest.fn();
     const withAlphaLock = jest.fn();
 
     finalizeStrokeEngineBuffers({
       ctx,
       strokeBounds: { x: 1, y: 2, width: 3, height: 4 },
       rawCtx,
-      brushEngine,
+      finalizeStroke,
       withAlphaLock,
     });
 
-    expect(brushEngine.finalizeStroke).toHaveBeenCalledWith(rawCtx);
+    expect(finalizeStroke).toHaveBeenCalledWith(rawCtx);
     expect(withAlphaLock).not.toHaveBeenCalled();
   });
 
   it('finalizeStrokeEngineBuffers uses alpha lock path when raw context is missing', () => {
     const ctx = document.createElement('canvas').getContext('2d') as CanvasRenderingContext2D;
     const targetCtx = document.createElement('canvas').getContext('2d') as CanvasRenderingContext2D;
-    const brushEngine = { finalizeStroke: jest.fn() };
+    const finalizeStroke = jest.fn();
 
     const withAlphaLock = jest.fn((_: CanvasRenderingContext2D, draw: (c: CanvasRenderingContext2D) => void) => {
       draw(targetCtx);
@@ -76,11 +76,11 @@ describe('strokeFinalizeController', () => {
       ctx,
       strokeBounds: bounds,
       rawCtx: null,
-      brushEngine,
+      finalizeStroke,
       withAlphaLock,
     });
 
     expect(withAlphaLock).toHaveBeenCalledWith(ctx, expect.any(Function), bounds);
-    expect(brushEngine.finalizeStroke).toHaveBeenCalledWith(targetCtx);
+    expect(finalizeStroke).toHaveBeenCalledWith(targetCtx);
   });
 });

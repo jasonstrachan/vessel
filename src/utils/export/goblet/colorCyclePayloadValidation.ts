@@ -13,6 +13,7 @@ export type GobletColorCyclePayloadDiagnostic = {
   code: string;
   severity: GobletColorCyclePayloadDiagnosticSeverity;
   message: string;
+  documentVersion?: number;
 };
 
 export type GobletColorCyclePayloadStats = {
@@ -229,9 +230,9 @@ export const validateGobletColorCyclePayload = (
     });
   }
 
-  const paintBuffer = resolvedBuffers.get('indexBuffer')?.values ?? null;
+  const paintValues = resolvedBuffers.get('indexBuffer')?.values ?? null;
   const gradientIdBuffer = resolvedBuffers.get('gradientIdBuffer')?.values ?? null;
-  const nonZeroPaint = countNonZero(paintBuffer);
+  const nonZeroPaint = countNonZero(paintValues);
   if (options.hasContent && nonZeroPaint === 0) {
     diagnostics.push({
       code: 'empty-paint-with-content',
@@ -241,7 +242,7 @@ export const validateGobletColorCyclePayload = (
   }
 
   const paletteSlots = new Set((colorCycle.slotPalettes ?? []).map((entry) => entry.slot));
-  const usedSlots = collectUsedSlots(gradientIdBuffer, paintBuffer, colorCycle.slotPalettes);
+  const usedSlots = collectUsedSlots(gradientIdBuffer, paintValues, colorCycle.slotPalettes);
   for (const slot of usedSlots) {
     if (!paletteSlots.has(slot) && (colorCycle.slotPalettes?.length ?? 0) > 0) {
       diagnostics.push({

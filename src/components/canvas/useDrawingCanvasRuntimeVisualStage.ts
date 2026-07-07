@@ -42,7 +42,7 @@ export const useDrawingCanvasRuntimeVisualStage = ({
 
   const { updateColorCycleGradientRef, setColorCycleFlowModeRef, colorCycleManagerRef } =
     useDrawingCanvasColorCycleRuntime({
-      brushEngine: {
+      brushRuntime: {
         updateColorCycleGradient: brushEngine.updateColorCycleGradient,
         setColorCycleFlowMode: brushEngine.setColorCycleFlowMode,
       },
@@ -51,7 +51,24 @@ export const useDrawingCanvasRuntimeVisualStage = ({
 
   return {
     visualRuntime,
-    brushEngine,
+    handlerBrushRuntime: {
+      drawRectangleGradient: brushEngine.drawRectangleGradient,
+    },
+    brushRuntime: {
+      applyStrokeDither: brushEngine.applyStrokeDither,
+      drawContourPolygon: brushEngine.drawContourPolygon,
+      drawRectangleGradient: brushEngine.drawRectangleGradient,
+      resetColorCycle: brushEngine.resetColorCycle,
+      fillCcGradientConcentric: brushEngine.fillCcGradientConcentric,
+      renderColorCycle: brushEngine.renderColorCycle,
+      drawPolygonGradient: brushEngine.drawPolygonGradient,
+    },
+    shapeBrushRuntime: {
+      drawContourPolygon: brushEngine.drawContourPolygon,
+      drawCrossHatchPolygon: brushEngine.drawCrossHatchPolygon,
+      drawDelaunayPolygon: brushEngine.drawDelaunayPolygon,
+      drawPolygonGradient: brushEngine.drawPolygonGradient,
+    },
     colorCycleRuntime: {
       updateColorCycleGradientRef,
       setColorCycleFlowModeRef,

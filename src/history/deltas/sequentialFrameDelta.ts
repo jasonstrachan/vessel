@@ -23,6 +23,17 @@ export const cloneSequentialLayerData = (data: SequentialLayerData): SequentialL
   })),
 });
 
+const getLayerDirtyRect = (
+  layer: ReturnType<typeof useAppStore.getState>['layers'][number],
+  project: ReturnType<typeof useAppStore.getState>['project'],
+) => {
+  const width = layer.imageData?.width ?? layer.framebuffer?.width ?? project?.width ?? 0;
+  const height = layer.imageData?.height ?? layer.framebuffer?.height ?? project?.height ?? 0;
+  return width > 0 && height > 0
+    ? [{ x: 0, y: 0, width, height }]
+    : undefined;
+};
+
 class SequentialFrameDelta implements HistoryDelta {
   readonly _tag = 'sequential-frame';
 
@@ -58,9 +69,12 @@ class SequentialFrameDelta implements HistoryDelta {
     state.updateLayer(
       this.layerId,
       { sequentialData: cloneSequentialLayerData(next) },
-      { skipColorCycleSync: true }
+      {
+        skipColorCycleSync: true,
+        dirtyRects: getLayerDirtyRect(targetLayer, state.project),
+      }
     );
-    state.setLayersNeedRecomposition(true);
+    useAppStore.setState({ layersNeedRecomposition: true });
   }
 
   collectRehydrationTargets(targets: HistoryRehydrationTargets): void {
@@ -152,9 +166,12 @@ class SequentialAppendFrameDelta implements HistoryDelta {
     state.updateLayer(
       this.layerId,
       { sequentialData: next },
-      { skipColorCycleSync: true }
+      {
+        skipColorCycleSync: true,
+        dirtyRects: getLayerDirtyRect(targetLayer, state.project),
+      }
     );
-    state.setLayersNeedRecomposition(true);
+    useAppStore.setState({ layersNeedRecomposition: true });
   }
 
   collectRehydrationTargets(targets: HistoryRehydrationTargets): void {

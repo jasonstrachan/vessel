@@ -19,6 +19,25 @@ const forceResumeColorCycle = jest.fn();
 const runtimeStart = jest.fn();
 const runtimeStop = jest.fn();
 const ensureColorCycleLayerRuntime = jest.fn(async () => true);
+const mockGetDocument = jest.fn((layerId: string) => {
+  const layer = mockState.layers.find((candidate) => candidate.id === layerId);
+  const colorCycleData = layer?.layerType === 'color-cycle' ? layer.colorCycleData : undefined;
+  const repairStatus = colorCycleData?.repairStatus as { ok?: boolean } | undefined;
+  const hasPlaybackWarmupSource = Boolean(
+    layer?.layerType === 'color-cycle' &&
+    colorCycleData?.mode !== 'recolor' &&
+    colorCycleData?.hasContent === true &&
+    repairStatus?.ok !== false,
+  );
+  return {
+    runtimePolicy: {
+      hasEditableSource: hasPlaybackWarmupSource,
+      hasRuntimeRestoreSource: hasPlaybackWarmupSource,
+      hasPlaybackWarmupSource,
+      isPreviewOnly: !hasPlaybackWarmupSource,
+    },
+  };
+});
 
 const mockState = {
   layers: [] as Layer[],
@@ -72,6 +91,13 @@ jest.mock('@/stores/useAppStore', () => ({
   },
   selectEffectiveColorCyclePlaying: (state: typeof mockState) =>
     state.colorCyclePlayback.desiredPlaying && state.colorCyclePlayback.suspendDepth === 0
+}));
+
+jest.mock('@/stores/colorCycleBrushManager', () => ({
+  __esModule: true as const,
+  getColorCycleBrushManager: () => ({
+    getDocument: mockGetDocument,
+  }),
 }));
 
 jest.mock('@/utils/colorCycle/ccMutationAudit', () => ({

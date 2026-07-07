@@ -3,7 +3,6 @@
 import { getAppStoreState } from '@/stores/appStoreAccess';
 import { debugWarn } from '@/utils/debug';
 import React from 'react';
-import { getColorCycleBrushManager } from '@/stores/colorCycleBrushManager';
 import { flushBufferedSequentialEvents } from '@/hooks/canvas/handlers/sequential/sequentialCapture';
 import {
   DEFAULT_COLOR_CYCLE_GRADIENT,
@@ -462,7 +461,7 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
     pan,
     toolStateMachine,
     drawingHandlers,
-    brushEngine,
+    brushRuntime,
     sampleColorAtPosition,
     sampleColorsAlongLine,
     getMousePos,
@@ -1338,7 +1337,7 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
 
       if (liveDitherEnabled && !shouldSkipDither) {
         try {
-        brushEngine?.applyStrokeDither(bufferCtx, {
+        brushRuntime?.applyStrokeDither(bufferCtx, {
           x: 0,
           y: 0,
           width: bufferCanvas.width,
@@ -1390,16 +1389,6 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
     );
     if (process.env.NODE_ENV !== 'production') {
       try {
-        const activeLayerKey = activeLayerId ?? null;
-        const manager = getColorCycleBrushManager();
-        const brush = activeLayerKey ? manager.getBrush(activeLayerKey) : null;
-        const brushWithState = brush as null | {
-          isDrawing?: boolean;
-          layerStrokes?: Map<string, { hasContent?: boolean; hasExternalBase?: boolean }>;
-        };
-        const strokeData = activeLayerKey
-          ? brushWithState?.layerStrokes?.get(activeLayerKey)
-          : null;
         const previewHasCtx = true;
         const srcHasCtx = Boolean(bufferCtx);
         if (typeof window !== 'undefined') {
@@ -1411,11 +1400,6 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
               srcCanvas: { w: bufferCanvas.width, h: bufferCanvas.height, hasCtx: srcHasCtx },
               sameCanvas: bufferCanvas === overlay,
               sampledAfterClear: false,
-              isDrawing: Boolean(brushWithState?.isDrawing),
-              strokeData: {
-                hasContent: strokeData?.hasContent ?? false,
-                hasExternalBase: strokeData?.hasExternalBase ?? false,
-              },
             },
           };
         }
@@ -1740,8 +1724,8 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
     const activeMode = currentTools.brushSettings.shapeGradientMode || 'contour';
 
     if (activeMode === 'contour') {
-      if (brushEngine) {
-        brushEngine.drawContourPolygon(
+      if (brushRuntime) {
+        brushRuntime.drawContourPolygon(
           overlayCtx,
           {
             vertices: shapePoints,
@@ -1885,10 +1869,10 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
     const shapePoints = contourState.shapePoints;
     const basis = contourState.basis;
 
-    if (!brushEngine || !basis || !shapePoints || shapePoints.length < 3) {
+    if (!brushRuntime || !basis || !shapePoints || shapePoints.length < 3) {
       logDynamicSnapshot('contour-finalize-abort', {
-        reason: !brushEngine
-          ? 'missing-brush-engine'
+        reason: !brushRuntime
+          ? 'missing-brush-runtime'
           : !basis
             ? 'missing-basis'
             : 'insufficient-points',
@@ -1936,7 +1920,7 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
       // Defensive reset of CTM before drawing
       drawCtx.setTransform(1, 0, 0, 1, 0, 0);
 
-      brushEngine.drawContourPolygon(
+      brushRuntime.drawContourPolygon(
         drawCtx,
         { vertices: shapePoints, fillColor: contourState.fillColor ?? undefined },
         /*preview*/ false,
@@ -2765,7 +2749,11 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
 
         // Also update the imageData if it exists
         if (activeLayerId) {
-          updateLayer(activeLayerId, { imageData: nextImageData });
+          updateLayer(
+            activeLayerId,
+            { imageData: nextImageData },
+            fillBounds ? { dirtyRects: [fillBounds] } : undefined,
+          );
         }
 
         // Trigger canvas composite update
@@ -2857,7 +2845,7 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
           drawingHandlers.initDrawingCanvas();
           const drawCtx = drawingHandlers.drawingCanvasRef.current?.getContext('2d', { willReadFrequently: true });
 
-          if (drawCtx && brushEngine) {
+          if (drawCtx && brushRuntime) {
             const dx = currentRectState.endPos.x - currentRectState.startPos.x;
             const dy = currentRectState.endPos.y - currentRectState.startPos.y;
             const length = Math.hypot(dx, dy);
@@ -2889,7 +2877,7 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
               }
 
               // Draw the rectangle gradient (this is final, not preview)
-              brushEngine.drawRectangleGradient(
+              brushRuntime.drawRectangleGradient(
                 drawCtx,
                 currentRectState.startPos.x,
                 currentRectState.startPos.y,

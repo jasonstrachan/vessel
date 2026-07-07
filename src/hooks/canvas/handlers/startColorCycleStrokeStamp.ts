@@ -6,7 +6,7 @@ import type { AppState } from '@/stores/useAppStore';
 
 type Point = { x: number; y: number };
 
-type ColorCycleBrushEngine = {
+type ColorCycleStrokeRuntime = {
   drawColorCycle: (
     ctx: CanvasRenderingContext2D,
     x: number,
@@ -31,7 +31,7 @@ export const startColorCycleStrokeStamp = ({
   pixelQueue,
   markDirty,
   getCCStampTargetCtx,
-  brushEngine,
+  brushRuntime,
   resolveBrushRotation,
 }: {
   currentState: AppState;
@@ -47,7 +47,7 @@ export const startColorCycleStrokeStamp = ({
   pixelQueue: PixelQueue;
   markDirty: (cx: number, cy: number) => void;
   getCCStampTargetCtx: () => CanvasRenderingContext2D | null;
-  brushEngine: ColorCycleBrushEngine;
+  brushRuntime: ColorCycleStrokeRuntime;
   resolveBrushRotation: (
     rotationEnabled: boolean,
     dx: number,
@@ -69,7 +69,7 @@ export const startColorCycleStrokeStamp = ({
     const stampX = worldPos.x;
     const stampY = worldPos.y;
     pixelQueue.enqueue(() => {
-      brushEngine.drawColorCycle(targetCtx, stampX, stampY, pressure, rotation, options);
+      brushRuntime.drawColorCycle(targetCtx, stampX, stampY, pressure, rotation, options);
     });
     markDirty(stampX, stampY);
     return 'ok';

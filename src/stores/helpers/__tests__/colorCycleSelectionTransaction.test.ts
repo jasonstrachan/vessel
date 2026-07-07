@@ -51,7 +51,7 @@ const createCcLayer = (overrides: Partial<Layer> = {}): Layer => ({
 const createCanonicalPayload = (
   overrides: Partial<CcCanonicalSelectionPayload> = {}
 ): CcCanonicalSelectionPayload => ({
-  paintBuffer: new Uint8Array([
+  paint: new Uint8Array([
     1, 1, 0, 0,
     1, 1, 0, 0,
     0, 0, 2, 2,

@@ -16,6 +16,7 @@ import { FlowMode, StrokeOrderTracker } from '@/lib/colorCycle/StrokeOrderTracke
 import type { CCIndexSurface, CCIndexSurfaceRect } from '@/lib/colorCycle/CCIndexSurface';
 import { MAX_BRUSH_COLOR_CYCLE_SPEED, MIN_BRUSH_COLOR_CYCLE_SPEED } from '@/constants/colorCycle';
 import type { GradientSeamProfile } from '@/lib/colorCycle/gradientSeamProfile';
+import type { ColorCycleLayerDocumentSnapshot, DerivedSurface } from '@/lib/colorCycle/document';
 
 type GPUFillMode = 'concentric' | 'linear';
 
@@ -55,7 +56,8 @@ export interface ColorCycleAnimatorConfig {
   forceCanvas2D?: boolean; // Force CPU rendering even if WebGL is available
 }
 
-export class ColorCycleAnimator implements CCIndexSurface {
+export class ColorCycleAnimator implements CCIndexSurface, DerivedSurface {
+  builtFromVersion: number | null = null;
   private indexBuffer: IndexBuffer;
   private animationController: AnimationController;
   private paletteController: PaletteController;
@@ -88,6 +90,7 @@ export class ColorCycleAnimator implements CCIndexSurface {
   private defAtlasRowSignatures: Array<string | null> = [];
   private defAtlasMaxRows: number = 1024;
   private defAtlasLut: Uint8Array | null = null;
+  private pendingDerivedSurfaceVersion: number | null = null;
 
   // Callbacks
   private onFrameCallbacks: Set<(imageData: ImageData) => void> = new Set();
@@ -160,6 +163,22 @@ export class ColorCycleAnimator implements CCIndexSurface {
 
   setIndexBuffers(data: Uint8Array, gid?: Uint8Array, spd?: Uint8Array, flow?: Uint8Array, phase?: Uint8Array): void {
     this.setIndexBufferFromArray(data, gid, spd, flow, phase);
+  }
+
+  rebuild(snapshot: ColorCycleLayerDocumentSnapshot, version: number): void {
+    this.pendingDerivedSurfaceVersion = version;
+    this.setIndexBufferFromArray(
+      new Uint8Array(snapshot.paintBuffer ?? new ArrayBuffer(0)),
+      snapshot.gradientIdBuffer ? new Uint8Array(snapshot.gradientIdBuffer) : undefined,
+      snapshot.speedBuffer ? new Uint8Array(snapshot.speedBuffer) : undefined,
+      snapshot.flowBuffer ? new Uint8Array(snapshot.flowBuffer) : undefined,
+      snapshot.phaseBuffer ? new Uint8Array(snapshot.phaseBuffer) : undefined,
+    );
+    this.setDefIdData(
+      snapshot.gradientDefIdBuffer ? new Uint16Array(snapshot.gradientDefIdBuffer) : null,
+      { forceDirty: true },
+    );
+    this.renderFrame(this.animationController.getOffset());
   }
 
   setDefIdData(defIdData?: Uint16Array | null, options?: { forceDirty?: boolean }): void {
@@ -251,6 +270,10 @@ export class ColorCycleAnimator implements CCIndexSurface {
       this.paletteController.getPaletteSignaturesBySlot(),
       this.paletteController.getPaletteRGBABySlot()
     );
+  }
+
+  hasPendingDerivedSurfaceRebuild(): boolean {
+    return this.pendingDerivedSurfaceVersion !== null;
   }
 
   private computeDefIdsInUse(): Set<number> {
@@ -700,6 +723,10 @@ export class ColorCycleAnimator implements CCIndexSurface {
           this._glDefIdDirty = false;
         }
         glRenderer.render(baseTime, legacyPhase, flowMode);
+        if (this.pendingDerivedSurfaceVersion !== null) {
+          this.builtFromVersion = this.pendingDerivedSurfaceVersion;
+          this.pendingDerivedSurfaceVersion = null;
+        }
 
         if (!this._renderSampledOnce) {
           try {
@@ -739,6 +766,10 @@ export class ColorCycleAnimator implements CCIndexSurface {
         baseTime,
         flowMode,
       });
+      if (this.pendingDerivedSurfaceVersion !== null) {
+        this.builtFromVersion = this.pendingDerivedSurfaceVersion;
+        this.pendingDerivedSurfaceVersion = null;
+      }
 
     } catch (error) {
       debugWarn('cc-render', '[ColorCycleAnimator] Error in renderFrame:', error);

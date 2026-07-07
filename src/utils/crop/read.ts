@@ -3,6 +3,11 @@ import { cloneLayerAlignment } from '@/utils/layoutDefaults';
 import type { Layer } from '@/types';
 import { resolveLayerColorCycleBaseSpeed } from '@/utils/colorCycleLayerSpeed';
 import { getColorCycleBrushManager } from '@/stores/colorCycleBrushManager';
+import {
+  cropColorCycleBrushLayerSnapshotRegion,
+  readColorCycleBrushLayerSnapshotFromRuntime,
+  readColorCycleBrushSerializedStateFromRuntime,
+} from '@/lib/colorCycle/document';
 import type {
   ColorCycleBrushResetEntry,
   CroppedAnimatorIndexSnapshot,
@@ -38,10 +43,6 @@ const isTwoDContext = (ctx: unknown): ctx is TwoDContext => {
   }
   return false;
 };
-
-const hasAnyNonZeroByte = (buffer: ArrayBuffer | undefined): boolean => (
-  buffer ? new Uint8Array(buffer).some((value) => value !== 0) : false
-);
 
 const createCanvas = (width: number, height: number): HTMLCanvasElement => {
   if (typeof document === 'undefined') {
@@ -150,41 +151,6 @@ const copyScalarRegion = (
   const targetWidth = rect.width;
   const targetHeight = rect.height;
   const destination = new Uint8Array(targetWidth * targetHeight);
-  const placement = computeCropPlacement(rect, sourceWidth, sourceHeight);
-
-  if (placement.sw === 0 || placement.sh === 0) {
-    return destination;
-  }
-
-  for (let row = 0; row < placement.sh; row += 1) {
-    const srcRow = placement.sy + row;
-    if (srcRow < 0 || srcRow >= sourceHeight) {
-      continue;
-    }
-    const destRow = placement.dy + row;
-    if (destRow < 0 || destRow >= targetHeight) {
-      continue;
-    }
-    const srcStart = srcRow * sourceWidth + placement.sx;
-    const destStart = destRow * targetWidth + placement.dx;
-    destination.set(
-      source.subarray(srcStart, srcStart + placement.sw),
-      destStart
-    );
-  }
-
-  return destination;
-};
-
-const copyScalarRegionU16 = (
-  source: Uint16Array,
-  sourceWidth: number,
-  sourceHeight: number,
-  rect: NormalizedCropRect
-): Uint16Array => {
-  const targetWidth = rect.width;
-  const targetHeight = rect.height;
-  const destination = new Uint16Array(targetWidth * targetHeight);
   const placement = computeCropPlacement(rect, sourceWidth, sourceHeight);
 
   if (placement.sw === 0 || placement.sh === 0) {
@@ -575,7 +541,7 @@ export function readLayerSourcesForCrop(
           : undefined;
       const existingBrush =
         layer.colorCycleData.colorCycleBrush ??
-        getColorCycleBrushManager().getBrush(layer.id) ??
+        getColorCycleBrushManager().getCropBrush(layer.id) ??
         null;
       const brushIsPlaying =
         typeof existingBrush?.isPlaying === 'function' ? existingBrush.isPlaying() : false;
@@ -588,106 +554,56 @@ export function readLayerSourcesForCrop(
       const controllerSpeedCps = resolveLayerColorCycleBaseSpeed(layer.colorCycleData);
       const mode = layer.colorCycleData.mode ?? 'brush';
       const wasActiveLayer = options.activeLayerId === layer.id;
-      let strokeSnapshot:
-        | {
-            paintBuffer: ArrayBuffer;
-            gradientIdBuffer?: ArrayBuffer;
-            gradientDefIdBuffer?: ArrayBuffer;
-            speedBuffer?: ArrayBuffer;
-            flowBuffer?: ArrayBuffer;
-            phaseBuffer?: ArrayBuffer;
-            hasContent: boolean;
-            strokeCounter: number;
-          }
-        | undefined;
+      let strokeSnapshot: ColorCycleBrushResetEntry['strokeSnapshot'];
       let croppedAnimatorIndex: CroppedAnimatorIndexSnapshot | undefined;
 
-      if (existingBrush && typeof existingBrush.getLayerSnapshot === 'function' && sourceColorCycleCanvas) {
+      if (existingBrush && sourceColorCycleCanvas) {
         try {
-          const rawSnapshot = existingBrush.getLayerSnapshot(layer.id);
-          if (rawSnapshot && rawSnapshot.paintBuffer) {
-            const srcWidth = sourceColorCycleCanvas.width;
-            const srcHeight = sourceColorCycleCanvas.height;
-            const sourceBuffer = new Uint8Array(rawSnapshot.paintBuffer);
-            if (srcWidth * srcHeight === sourceBuffer.length) {
-              const croppedBuffer = copyScalarRegion(
-                sourceBuffer,
-                srcWidth,
-                srcHeight,
-                rect
-              );
-              let croppedGradientIds: ArrayBuffer | undefined;
-              if (rawSnapshot.gradientIdBuffer) {
-                const gradientSource = new Uint8Array(rawSnapshot.gradientIdBuffer);
-                if (gradientSource.length === srcWidth * srcHeight) {
-                  const gradientCrop = copyScalarRegion(gradientSource, srcWidth, srcHeight, rect);
-                  croppedGradientIds = gradientCrop.buffer.slice(0) as ArrayBuffer;
-                }
-              }
-              let croppedGradientDefIds: ArrayBuffer | undefined;
-              if (rawSnapshot.gradientDefIdBuffer) {
-                const gradientDefSource = new Uint16Array(rawSnapshot.gradientDefIdBuffer);
-                if (gradientDefSource.length === srcWidth * srcHeight) {
-                  const gradientDefCrop = copyScalarRegionU16(
-                    gradientDefSource,
-                    srcWidth,
-                    srcHeight,
-                    rect
-                  );
-                  croppedGradientDefIds = gradientDefCrop.buffer.slice(0) as ArrayBuffer;
-                }
-              }
-              let croppedSpeed: ArrayBuffer | undefined;
-              if (rawSnapshot.speedBuffer) {
-                const speedSource = new Uint8Array(rawSnapshot.speedBuffer);
-                if (speedSource.length === srcWidth * srcHeight) {
-                  const speedCrop = copyScalarRegion(speedSource, srcWidth, srcHeight, rect);
-                  croppedSpeed = speedCrop.buffer.slice(0) as ArrayBuffer;
-                }
-              }
-              let croppedFlow: ArrayBuffer | undefined;
-              if (rawSnapshot.flowBuffer) {
-                const flowSource = new Uint8Array(rawSnapshot.flowBuffer);
-                if (flowSource.length === srcWidth * srcHeight) {
-                  const flowCrop = copyScalarRegion(flowSource, srcWidth, srcHeight, rect);
-                  croppedFlow = flowCrop.buffer.slice(0) as ArrayBuffer;
-                }
-              }
-              let croppedPhase: ArrayBuffer | undefined;
-              if (rawSnapshot.phaseBuffer) {
-                const phaseSource = new Uint8Array(rawSnapshot.phaseBuffer);
-                if (phaseSource.length === srcWidth * srcHeight) {
-                  const phaseCrop = copyScalarRegion(phaseSource, srcWidth, srcHeight, rect);
-                  croppedPhase = phaseCrop.buffer.slice(0) as ArrayBuffer;
-                }
-              }
-              strokeSnapshot = {
-                paintBuffer: croppedBuffer.buffer.slice(0) as ArrayBuffer,
-                gradientIdBuffer: croppedGradientIds,
-                gradientDefIdBuffer: croppedGradientDefIds,
-                speedBuffer: croppedSpeed,
-                flowBuffer: croppedFlow,
-                phaseBuffer: croppedPhase,
-                hasContent: Boolean(rawSnapshot.hasContent) && (
-                  croppedBuffer.some((value) => value !== 0) ||
-                  hasAnyNonZeroByte(croppedGradientIds) ||
-                  hasAnyNonZeroByte(croppedGradientDefIds) ||
-                  hasAnyNonZeroByte(croppedSpeed) ||
-                  hasAnyNonZeroByte(croppedFlow) ||
-                  hasAnyNonZeroByte(croppedPhase)
-                ),
-                strokeCounter: rawSnapshot.strokeCounter
-              };
-            }
-          }
+          const rawSnapshot = readColorCycleBrushLayerSnapshotFromRuntime(existingBrush, layer.id);
+          strokeSnapshot = cropColorCycleBrushLayerSnapshotRegion({
+            snapshot: rawSnapshot,
+            sourceWidth: sourceColorCycleCanvas.width,
+            sourceHeight: sourceColorCycleCanvas.height,
+            rect,
+          }) ?? undefined;
         } catch (snapshotError) {
           logger('[crop] Failed to capture color-cycle stroke snapshot during crop', snapshotError);
         }
       }
 
-      if (existingBrush && typeof existingBrush.serialize === 'function' && colorCycleReadbackCanvas) {
+      const serializedBrushState = readColorCycleBrushSerializedStateFromRuntime(existingBrush);
+      if (serializedBrushState && colorCycleReadbackCanvas) {
         try {
-          const serialized = existingBrush.serialize?.();
+          const serialized = serializedBrushState as {
+            layers?: Array<{
+              layerId?: string;
+              data?: {
+                indexBuffer?: {
+                  data?: ArrayBuffer;
+                  gradientId?: ArrayBuffer;
+                  speedData?: ArrayBuffer;
+                  flowData?: ArrayBuffer;
+                  phaseData?: ArrayBuffer;
+                };
+                gradient?: { gradientStops?: Array<{ position: number; color: string }> };
+              };
+              gradientDefs?: Array<{ id: string; name?: string; currentSlot: number }>;
+              slotPalettes?: Array<{ slot: number; stops: Array<{ position: number; color: string }> }>;
+              gradientDefStore?: Array<{
+                id: number;
+                kind: 'linear' | 'concentric';
+                stops: Array<{ position: number; color: string }>;
+                hash: string;
+                source: 'manual' | 'fg' | 'sampled';
+                createdAtMs: number;
+                slot?: number;
+                speedCps?: number;
+              }>;
+              activeGradientId?: string;
+              paintSlot?: number;
+              legacyRemap?: { from: number; to: number };
+            }>;
+          };
           const layerState = serialized?.layers?.find(
             (l: { layerId?: string }) => l.layerId === layer.id
           ) as {

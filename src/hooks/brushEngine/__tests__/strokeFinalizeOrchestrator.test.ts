@@ -25,6 +25,7 @@ describe('strokeFinalizeOrchestrator', () => {
       ditherCtx: null,
     });
     (finalizeStrokeAfterEngine as jest.Mock).mockReturnValue(finalizeResult);
+    const finalizeStroke = jest.fn();
 
     const result = finalizeStrokeOrchestrated({
       ctx,
@@ -34,7 +35,7 @@ describe('strokeFinalizeOrchestrator', () => {
       liveStrokeDitherRef: { current: null },
       clearLiveStrokeBuffers: jest.fn(),
       clearCoverageMaps: jest.fn(),
-      brushEngine: { finalizeStroke: jest.fn() },
+      finalizeStroke,
       withAlphaLock: jest.fn(),
       shouldApplyStrokeDither: true,
       lostEdge: 1,
@@ -53,7 +54,9 @@ describe('strokeFinalizeOrchestrator', () => {
     });
 
     expect(buildStrokeFinalizeContext).toHaveBeenCalled();
-    expect(finalizeStrokeEngineBuffers).toHaveBeenCalled();
+    expect(finalizeStrokeEngineBuffers).toHaveBeenCalledWith(expect.objectContaining({
+      finalizeStroke,
+    }));
     expect(finalizeStrokeAfterEngine).toHaveBeenCalled();
     expect(result).toEqual(finalizeResult);
   });

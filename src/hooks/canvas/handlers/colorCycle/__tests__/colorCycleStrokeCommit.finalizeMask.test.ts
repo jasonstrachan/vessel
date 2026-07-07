@@ -194,27 +194,33 @@ describe('colorCycleStrokeCommit finalize mask clear', () => {
     const beforeGid = new Uint8Array(64 * 64);
     const afterGid = new Uint8Array(64 * 64);
     afterGid[9 * 64 + 14] = 2;
-    const getLayerSnapshot = jest.fn()
+    const readDocumentSnapshot = jest.fn()
       .mockReturnValueOnce({
-        paintBuffer: beforePaint.buffer,
-        gradientIdBuffer: beforeGid.buffer,
-        hasContent: true,
-        strokeCounter: 1,
+        snapshot: {
+          paintBuffer: beforePaint.buffer,
+          gradientIdBuffer: beforeGid.buffer,
+          hasContent: true,
+        },
+        version: 1,
       })
       .mockReturnValueOnce({
-        paintBuffer: afterPaint.buffer,
-        gradientIdBuffer: afterGid.buffer,
-        hasContent: true,
-        strokeCounter: 2,
+        snapshot: {
+          paintBuffer: afterPaint.buffer,
+          gradientIdBuffer: afterGid.buffer,
+          hasContent: true,
+        },
+        version: 2,
       });
     const brush: Pick<
       ManagedColorCycleBrush,
-      'commitCurrentStroke' | 'updateColorCycleTexture' | 'commitToLayer' | 'getLayerSnapshot'
+      'commitCurrentStroke' | 'updateColorCycleTexture' | 'commitToLayer' | 'getColorCycleLayerDocument'
     > = {
       commitCurrentStroke: jest.fn(),
       updateColorCycleTexture: jest.fn(),
       commitToLayer: jest.fn(),
-      getLayerSnapshot,
+      getColorCycleLayerDocument: jest.fn(() => ({
+        read: readDocumentSnapshot,
+      })) as never,
     };
     const brushSettings: Partial<BrushSettings> = {
       opacity: 1,

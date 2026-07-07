@@ -10,7 +10,7 @@ export const finalizeStrokeCurrent = ({
   liveStrokeDitherRef,
   clearLiveStrokeBuffers,
   clearCoverageMaps,
-  brushEngine,
+  finalizeStroke,
   withAlphaLock,
   shouldApplyStrokeDither,
   finalizeStrokeSettings,
@@ -32,7 +32,7 @@ export const finalizeStrokeCurrent = ({
   liveStrokeDitherRef: { current: HTMLCanvasElement | OffscreenCanvas | null };
   clearLiveStrokeBuffers: () => void;
   clearCoverageMaps: () => void;
-  brushEngine: { finalizeStroke: (ctx: CanvasRenderingContext2D) => void };
+  finalizeStroke: (ctx: CanvasRenderingContext2D) => void;
   withAlphaLock: (
     dstCtx: CanvasRenderingContext2D,
     paint: (targetCtx: CanvasRenderingContext2D) => void,
@@ -93,7 +93,7 @@ export const finalizeStrokeCurrent = ({
     liveStrokeDitherRef,
     clearLiveStrokeBuffers,
     clearCoverageMaps,
-    brushEngine,
+    finalizeStroke,
     withAlphaLock,
     shouldApplyStrokeDither,
     lostEdge: finalizeStrokeSettings.lostEdge,

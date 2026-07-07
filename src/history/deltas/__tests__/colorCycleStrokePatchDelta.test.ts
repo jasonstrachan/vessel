@@ -3,6 +3,7 @@ import {
   createColorCycleStrokePatchDelta,
 } from '@/history/deltas/colorCycleStrokePatchDelta';
 import { ColorCycleAnimator } from '@/lib/ColorCycleAnimator';
+import { registerColorCycleBrushPaintPatchRuntime } from '@/lib/colorCycle/document';
 import { useAppStore } from '@/stores/useAppStore';
 import type { Layer } from '@/types';
 import { createDefaultLayerAlignment } from '@/utils/layoutDefaults';
@@ -16,18 +17,31 @@ type PatchExtras = {
   phaseBytes?: Uint8Array;
 };
 
+const mockApplyPaintPatch = jest.fn((_layerId: string, _roi: unknown, bytes: Uint8Array) =>
+  bytes.some((value) => value !== 0)
+);
+
 const mockBrush = {
-  applyPaintPatch: jest.fn((_layerId: string, _roi: unknown, bytes: Uint8Array) =>
-    bytes.some((value) => value !== 0)
-  ),
   updateColorCycleTexture: jest.fn(),
   commitToLayer: jest.fn(),
   setTargetCanvas: jest.fn(),
 };
+registerColorCycleBrushPaintPatchRuntime(mockBrush, {
+  apply: mockApplyPaintPatch,
+});
+let mockDocumentVersion: number | undefined;
 
 jest.mock('@/stores/colorCycleBrushManager', () => ({
   __esModule: true as const,
-  getColorCycleBrushManager: () => ({ getBrush: () => mockBrush }),
+  getColorCycleBrushManager: () => ({
+    getHistoryBrush: () => mockBrush,
+    getPlaybackBrush: () => null,
+    getDocument: () => (
+      typeof mockDocumentVersion === 'number'
+        ? { read: () => ({ snapshot: {} as never, version: mockDocumentVersion }) }
+        : undefined
+    ),
+  }),
   getColorCycleStoreState: () => null,
   setColorCycleStoreStateGetter: jest.fn(),
   setLayerIdGetter: jest.fn(),
@@ -117,11 +131,14 @@ const createLayer = (layerId: string, width: number, height: number): Layer => {
 describe('ColorCycleStrokePatchDelta', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    mockDocumentVersion = undefined;
     window.localStorage.clear();
     const layer = createLayer('layer-cc-patch', 2, 2);
     useAppStore.setState((state) => ({
       layers: [layer],
       activeLayerId: layer.id,
+      layersNeedRecomposition: false,
+      pendingCompositeDirtyBatches: [],
       project: state.project
         ? { ...state.project, width: 2, height: 2, layers: [layer] }
         : state.project,
@@ -176,8 +193,8 @@ describe('ColorCycleStrokePatchDelta', () => {
     expect(delta).not.toBeNull();
     await delta!.apply('backward');
 
-    expect(mockBrush.applyPaintPatch).toHaveBeenCalledTimes(1);
-    const [, , paintBytes, extras] = mockBrush.applyPaintPatch.mock.calls[0] as unknown as [
+    expect(mockApplyPaintPatch).toHaveBeenCalledTimes(1);
+    const [, , paintBytes, extras] = mockApplyPaintPatch.mock.calls[0] as unknown as [
       string,
       unknown,
       Uint8Array,
@@ -194,6 +211,71 @@ describe('ColorCycleStrokePatchDelta', () => {
     expect(Array.from(extras.speedBytes ?? [])).toEqual([10, 20, 0, 0]);
     expect(Array.from(extras.flowBytes ?? [])).toEqual([30, 40, 0, 0]);
     expect(Array.from(extras.phaseBytes ?? [])).toEqual([50, 60, 0, 0]);
+    expect(useAppStore.getState().layersNeedRecomposition).toBe(true);
+    expect(useAppStore.getState().pendingCompositeDirtyBatches).toEqual([
+      {
+        layerId,
+        version: 1,
+        rects: [{ x: 0, y: 0, width: 2, height: 2 }],
+      },
+    ]);
+  });
+
+  it('skips applying a patch when the document version has drifted from the expected history version', async () => {
+    const layerId = 'layer-cc-patch';
+    mockDocumentVersion = 3;
+    const backwardState = makeState({
+      layerId,
+      width: 2,
+      height: 2,
+      paint: [1, 2, 0, 0],
+      gradientId: [3, 4, 0, 0],
+      gradientDefId: [7, 9, 0, 0],
+      speed: [10, 20, 0, 0],
+      flow: [30, 40, 0, 0],
+      phase: [50, 60, 0, 0],
+    });
+    const forwardState = makeState({
+      layerId,
+      width: 2,
+      height: 2,
+      paint: [5, 6, 0, 0],
+      gradientId: [8, 8, 0, 0],
+      gradientDefId: [12, 12, 0, 0],
+      speed: [70, 80, 0, 0],
+      flow: [90, 100, 0, 0],
+      phase: [110, 120, 0, 0],
+    });
+
+    const delta = await createColorCycleStrokePatchDelta({
+      layerId,
+      width: 2,
+      height: 2,
+      roi: { x: 0, y: 0, width: 2, height: 2 },
+      forwardState,
+      backwardState,
+      beforeVersion: 1,
+      afterVersion: 2,
+    });
+
+    expect(delta).not.toBeNull();
+    await delta!.apply('backward');
+
+    expect(mockApplyPaintPatch).not.toHaveBeenCalled();
+    expect(getPersistedCCMutationLog()).toEqual([
+      expect.objectContaining({
+        event: 'history-cc-document-version-mismatch',
+        layerId,
+        reason: 'history-undo-patch',
+        severity: 'warn',
+        details: expect.objectContaining({
+          source: 'history-color-cycle-stroke-patch',
+          operation: 'undo',
+          expectedVersion: 2,
+          actualVersion: 3,
+        }),
+      }),
+    ]);
   });
 
   it('does not synthesize an empty undo patch when before brush state is missing', async () => {
@@ -220,7 +302,7 @@ describe('ColorCycleStrokePatchDelta', () => {
     });
 
     expect(delta).toBeNull();
-    expect(mockBrush.applyPaintPatch).not.toHaveBeenCalled();
+    expect(mockApplyPaintPatch).not.toHaveBeenCalled();
     const missingBeforeReports = getPersistedCCMutationLog().filter(
       (entry) => entry.event === 'history-cc-before-state-missing'
     );
@@ -282,7 +364,7 @@ describe('ColorCycleStrokePatchDelta', () => {
     });
 
     expect(delta).toBeNull();
-    expect(mockBrush.applyPaintPatch).not.toHaveBeenCalled();
+    expect(mockApplyPaintPatch).not.toHaveBeenCalled();
     const missingBeforeReports = getPersistedCCMutationLog().filter(
       (entry) => entry.event === 'history-cc-before-state-missing'
     );
@@ -342,8 +424,8 @@ describe('ColorCycleStrokePatchDelta', () => {
     expect(delta).not.toBeNull();
     await delta!.apply('backward');
 
-    expect(mockBrush.applyPaintPatch).toHaveBeenCalledTimes(1);
-    const [, , paintBytes, extras] = mockBrush.applyPaintPatch.mock.calls[0] as unknown as [
+    expect(mockApplyPaintPatch).toHaveBeenCalledTimes(1);
+    const [, , paintBytes, extras] = mockApplyPaintPatch.mock.calls[0] as unknown as [
       string,
       unknown,
       Uint8Array,
@@ -396,8 +478,8 @@ describe('ColorCycleStrokePatchDelta', () => {
     expect(delta).not.toBeNull();
     await delta!.apply('backward');
 
-    expect(mockBrush.applyPaintPatch).toHaveBeenCalledTimes(1);
-    const [, , paintBytes, extras] = mockBrush.applyPaintPatch.mock.calls[0] as unknown as [
+    expect(mockApplyPaintPatch).toHaveBeenCalledTimes(1);
+    const [, , paintBytes, extras] = mockApplyPaintPatch.mock.calls[0] as unknown as [
       string,
       unknown,
       Uint8Array,

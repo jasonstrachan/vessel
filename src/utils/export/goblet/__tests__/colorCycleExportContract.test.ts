@@ -3,7 +3,6 @@ import { resolveGobletColorCycleExportSource } from '@/utils/export/goblet/color
 import { serializeColorCycleDataFromResolvedLayer } from '@/utils/export/goblet/gobletColorCycleSerializer';
 import { validateGobletColorCyclePayload } from '@/utils/export/goblet/colorCyclePayloadValidation';
 import * as colorCycleBrushManager from '@/stores/colorCycleBrushManager';
-import * as projectIO from '@/utils/projectIO';
 import type { Layer, Project } from '@/types';
 
 const project = {
@@ -91,12 +90,30 @@ const createLiveRuntime = (indexValues = [1, 2, 3, 4]) => ({
   })),
 });
 
+const createDocumentSnapshot = (paintValues = [1, 2, 3, 4]) => ({
+  layerId: 'cc-layer',
+  width: 2,
+  height: 2,
+  paintBuffer: Uint8Array.from(paintValues).buffer,
+  gradientIdBuffer: Uint8Array.from([0, 0, 0, 0]).buffer,
+  gradientDefIdBuffer: new Uint16Array([1, 1, 1, 1]).buffer,
+  speedBuffer: Uint8Array.from([128, 128, 128, 128]).buffer,
+  flowBuffer: Uint8Array.from([1, 1, 1, 1]).buffer,
+  phaseBuffer: Uint8Array.from([0, 64, 128, 192]).buffer,
+  hasContent: true,
+  sources: {
+    brushStateSnapshot: false,
+    topLevelBuffers: false,
+    legacyStateRefs: false,
+  },
+});
+
 describe('Goblet color-cycle export contract boundaries', () => {
   afterEach(() => {
     jest.restoreAllMocks();
   });
 
-  it('selects canonical persisted source before live runtime', async () => {
+  it('selects canonical persisted source before direct live runtime when no document exists', async () => {
     const liveRuntime = createLiveRuntime();
     const result = await resolveGobletColorCycleExportSource(createLayer({
       colorCycleBrush: liveRuntime as never,
@@ -111,9 +128,10 @@ describe('Goblet color-cycle export contract boundaries', () => {
     }), project);
 
     expect(result.ok ? result.source : undefined).toBe('persisted-brush-state');
+    expect(liveRuntime.serialize).not.toHaveBeenCalled();
   });
 
-  it('falls back to live runtime when persisted buffers are not canonical', async () => {
+  it('falls back to direct live runtime when persisted buffers are not canonical', async () => {
     const liveRuntime = createLiveRuntime();
     const result = await resolveGobletColorCycleExportSource(createLayer({
       colorCycleBrush: liveRuntime as never,
@@ -126,22 +144,21 @@ describe('Goblet color-cycle export contract boundaries', () => {
     }), project);
 
     expect(result.ok ? result.source : undefined).toBe('live-runtime');
+    expect(liveRuntime.serialize).toHaveBeenCalled();
   });
 
-  it('falls back to live runtime when archive hydration fails', async () => {
-    jest.spyOn(projectIO, 'hydrateColorCycleArchiveRuntimeSnapshotForExport').mockRejectedValueOnce(new Error('stale archive ref'));
+  it('falls back to direct live runtime for warm archive state without exportable persisted data', async () => {
+    const liveRuntime = createLiveRuntime();
     const result = await resolveGobletColorCycleExportSource(createLayer({
       runtimeHydrationState: 'warm',
-      colorCycleBrush: createLiveRuntime() as never,
+      colorCycleBrush: liveRuntime as never,
     }), project);
 
     expect(result.ok ? result.source : undefined).toBe('live-runtime');
-    expect(result.diagnostics).toEqual(expect.arrayContaining([
-      expect.objectContaining({ code: 'missing-archive-ref' }),
-    ]));
+    expect(liveRuntime.serialize).toHaveBeenCalled();
   });
 
-  it('uses manager-backed live runtime through payload construction', async () => {
+  it('rejects manager-backed live runtime through payload construction when no document exists', async () => {
     const liveRuntime = createLiveRuntime();
     jest.spyOn(colorCycleBrushManager, 'getColorCycleBrushManager').mockReturnValue({
       getBrush: jest.fn(() => liveRuntime),
@@ -152,13 +169,20 @@ describe('Goblet color-cycle export contract boundaries', () => {
       serializeResolvedLayer: serializeColorCycleDataFromResolvedLayer,
     });
 
-    expect(payload.ok ? payload.source : undefined).toBe('live-runtime');
-    expect(liveRuntime.serialize).toHaveBeenCalled();
+    expect(payload.ok).toBe(false);
+    expect(payload.ok ? undefined : payload.reason).toBe('missing-color-cycle-document');
+    expect(liveRuntime.serialize).not.toHaveBeenCalled();
   });
 
-  it('does not recapture manager-backed live runtime for resolved persisted exports', async () => {
+  it('uses manager-owned documents through payload construction without recapturing live runtime', async () => {
     const liveRuntime = createLiveRuntime([9, 9, 9, 9]);
     jest.spyOn(colorCycleBrushManager, 'getColorCycleBrushManager').mockReturnValue({
+      getDocument: jest.fn(() => ({
+        read: () => ({
+          snapshot: createDocumentSnapshot([1, 2, 3, 4]),
+          version: 31,
+        }),
+      })),
       getBrush: jest.fn(() => liveRuntime),
     } as never);
     const payload = await buildGobletColorCyclePayload(createLayer({
@@ -175,7 +199,7 @@ describe('Goblet color-cycle export contract boundaries', () => {
       serializeResolvedLayer: serializeColorCycleDataFromResolvedLayer,
     });
 
-    expect(payload.ok ? payload.source : undefined).toBe('persisted-brush-state');
+    expect(payload.ok ? payload.source : undefined).toBe('document');
     expect(liveRuntime.serialize).not.toHaveBeenCalled();
     if (payload.ok) {
       const indexBuffer = payload.payload.colorCycle?.brushState?.indexBuffer as ArrayLike<number>;
@@ -183,10 +207,18 @@ describe('Goblet color-cycle export contract boundaries', () => {
     }
   });
 
-  it('retries live runtime when resolved persisted payload validates as empty paint', async () => {
+  it('does not retry live runtime when a document payload validates as empty paint', async () => {
     const liveRuntime = createLiveRuntime([5, 6, 7, 8]);
     const payload = await buildGobletColorCyclePayload(createLayer({
-      colorCycleBrush: liveRuntime as never,
+      colorCycleBrush: {
+        serialize: liveRuntime.serialize,
+        getColorCycleLayerDocument: () => ({
+          read: () => ({
+            snapshot: createDocumentSnapshot([0, 0, 0, 0]),
+            version: 32,
+          }),
+        }),
+      } as never,
       brushState: {
         canonicalPaint: true,
         schemaVersion: 1,
@@ -202,15 +234,11 @@ describe('Goblet color-cycle export contract boundaries', () => {
       serializeResolvedLayer: serializeColorCycleDataFromResolvedLayer,
     });
 
-    expect(payload.ok ? payload.source : undefined).toBe('live-runtime');
-    expect(liveRuntime.serialize).toHaveBeenCalled();
-    if (payload.ok) {
-      const indexBuffer = payload.payload.colorCycle?.brushState?.indexBuffer as ArrayLike<number>;
-      expect(Array.from(indexBuffer)).toEqual([5, 6, 7, 8]);
-    }
+    expect(payload.ok).toBe(false);
+    expect(payload.ok ? undefined : payload.reason).toBe('empty-paint-with-content');
+    expect(liveRuntime.serialize).not.toHaveBeenCalled();
     expect(payload.diagnostics).toEqual(expect.arrayContaining([
       expect.objectContaining({ code: 'empty-paint-with-content' }),
-      expect.objectContaining({ code: 'retry-live-runtime' }),
     ]));
   });
 

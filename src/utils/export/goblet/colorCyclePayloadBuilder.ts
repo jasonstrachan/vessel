@@ -2,11 +2,8 @@ import type { Layer, Project } from '@/types';
 import type { ColorCycleSerializationResult } from '@/utils/export/goblet/gobletTypes';
 import type { GobletColorCyclePayloadBuildSource } from '@/utils/export/goblet/colorCycleExportSourceResolver';
 import {
-  cloneGobletExportLayer,
   resolveGobletColorCycleExportSource,
 } from '@/utils/export/goblet/colorCycleExportSourceResolver';
-import { hasExportablePersistedColorCycleSource } from '@/utils/export/goblet/colorCycleExportSourceEligibility';
-import { hasGobletColorCycleLiveBrush } from '@/utils/export/goblet/colorCycleLiveBrushResolver';
 import {
   validateGobletColorCyclePayload,
   type GobletColorCyclePayloadDiagnostic,
@@ -56,42 +53,6 @@ type PayloadBuildAttempt = {
   source: GobletColorCyclePayloadBuildSource;
   layer: Layer;
   diagnostics: GobletColorCyclePayloadDiagnostic[];
-};
-
-const buildFallbackAttempts = (
-  layer: Layer,
-  failedSource: GobletColorCyclePayloadBuildSource,
-  existingSources: Set<GobletColorCyclePayloadBuildSource>,
-): PayloadBuildAttempt[] => {
-  const attempts: PayloadBuildAttempt[] = [];
-  const push = (source: GobletColorCyclePayloadBuildSource, attemptLayer: Layer, code: string) => {
-    if (source === failedSource || existingSources.has(source) || attempts.some((attempt) => attempt.source === source)) {
-      return;
-    }
-    attempts.push({
-      source,
-      layer: attemptLayer,
-      diagnostics: [{
-        code,
-        severity: 'warning',
-        message: `Retrying color-cycle Goblet export from ${source} after empty paint validation failed.`,
-      }],
-    });
-  };
-
-  if (hasExportablePersistedColorCycleSource(layer)) {
-    const persistedLayer = cloneGobletExportLayer(layer);
-    if (persistedLayer.colorCycleData) {
-      persistedLayer.colorCycleData.colorCycleBrush = undefined;
-    }
-    push('persisted-brush-state', persistedLayer, 'retry-persisted-brush-state');
-  }
-
-  if (hasGobletColorCycleLiveBrush(layer)) {
-    push('live-runtime', cloneGobletExportLayer(layer), 'retry-live-runtime');
-  }
-
-  return attempts;
 };
 
 export const buildGobletColorCyclePayload = async (
@@ -156,13 +117,6 @@ export const buildGobletColorCyclePayload = async (
       diagnostics: allDiagnostics,
     };
 
-    if (validation.reason === 'empty-paint-with-content') {
-      attempts.push(...buildFallbackAttempts(
-        layer,
-        attempt.source,
-        new Set(attempts.map((entry) => entry.source))
-      ));
-    }
   }
 
   return {

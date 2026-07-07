@@ -1,16 +1,24 @@
 import { getAppStoreState } from '@/stores/appStoreAccess';
-import type { BrushEngine } from '@/hooks/useBrushEngineSimplified';
-import type { ColorCycleBrushImplementation } from '@/hooks/brushEngine/ColorCycleBrushMigration';
-import type {
-  ColorCycleCommittedStateBrush,
-  CommitCommittedLayerStateOptions,
-} from '@/hooks/brushEngine/colorCycleCommittedState';
+import {
+  applyColorCycleBrushLayerSnapshotToRuntime,
+  commitColorCycleCommittedLayerStateToRuntime,
+  readColorCycleBrushLayerSnapshotFromRuntime,
+  type ColorCycleBrushLayerSnapshotRuntimeReader,
+  type ColorCycleBrushLayerSnapshotRuntimeWriter,
+  type ColorCycleCommittedLayerRuntime,
+  type ColorCycleCommittedLayerStateOptions,
+} from '@/lib/colorCycle/document';
 import type { DeferredSaveWithStateArgs } from '@/hooks/canvas/handlers/colorCycle/colorCycleCommit';
 import { clearColorCycleEraseMaskInRegion } from '@/hooks/canvas/handlers/colorCycle/colorCycleStrokeCommit';
 import { useAppStore } from '@/stores/useAppStore';
 import { ensureForegroundGradientSlot } from '@/utils/colorCycleGradients';
 import { resolveCcDitherBandMode } from '@/utils/colorCycle/ccDitherRenderPalette';
-import { applyRuntimeToBrush, flushGradientApply, requestGradientApply } from '@/hooks/brushEngine/ccGradientApplyScheduler';
+import {
+  applyRuntimeToBrush,
+  flushGradientApply,
+  requestGradientApply,
+} from '@/hooks/brushEngine/ccGradientApplyScheduler';
+import type { ColorCycleShapeFillBrushContext } from '@/hooks/brushEngine/colorCycleBrushContracts';
 import type { MarkGradientSession } from '@/hooks/canvas/utils/colorCycleMarkSession';
 import { stampCcHangProbe, type CcHangProbePhase } from '@/hooks/canvas/utils/ccHangProbe';
 import { TEMP_SAMPLE_SLOT } from '@/constants/colorCycle';
@@ -24,38 +32,46 @@ import {
   type ColorCycleGradientRenderSession,
 } from '@/hooks/canvas/handlers/colorCycle/colorCycleGradientSourceContract';
 import {
+  applyColorCycleTransparencyMaskToPaintSnapshot,
   buildColorCyclePaintDeltaMask,
+  cloneColorCyclePaintSnapshotPaintMask,
+  colorCyclePaintSnapshotHasPayload,
   type ColorCyclePaintMask,
   type ColorCyclePaintSnapshot,
-} from '@/utils/colorCyclePaintMask';
+} from '@/lib/colorCycle/document';
 
-type ColorCycleBrush = ColorCycleBrushImplementation;
-type SnapshotCapableBrush = ColorCycleBrush & ColorCycleCommittedStateBrush & {
-  getLayerSnapshot?: (layerId: string) => {
-    paintBuffer: ArrayBuffer;
-    gradientIdBuffer?: ArrayBuffer;
-    gradientDefIdBuffer?: ArrayBuffer;
-    speedBuffer?: ArrayBuffer;
-    flowBuffer?: ArrayBuffer;
-    phaseBuffer?: ArrayBuffer;
-    hasContent: boolean;
-    strokeCounter: number;
-  } | null;
-  applyLayerSnapshot?: (layerId: string, snapshot: {
-    paintBuffer: ArrayBuffer;
-    gradientIdBuffer?: ArrayBuffer;
-    gradientDefIdBuffer?: ArrayBuffer;
-    speedBuffer?: ArrayBuffer;
-    flowBuffer?: ArrayBuffer;
-    phaseBuffer?: ArrayBuffer;
-    hasContent: boolean;
-    strokeCounter: number;
-  }) => void;
+type ColorCycleBrush = ColorCycleShapeFillBrushContext;
+type SnapshotCapableBrush = ColorCycleShapeFillBrushContext
+  & ColorCycleBrushLayerSnapshotRuntimeReader
+  & ColorCycleBrushLayerSnapshotRuntimeWriter
+  & ColorCycleCommittedLayerRuntime;
+type ColorCycleShapeFillRuntimeOptions = {
+  ditherLevels?: number;
+  ditherPixelSize?: number;
+  ditherPairBandCount?: number;
+  ditherSampledStops?: StoredStop[];
+  ditherBaseOffsetOverride?: number;
+  paintSlotOverride?: number;
+  paintDefIdOverride?: number;
+  shapePhaseSeedMarkId?: string | null;
+  roi?: { x: number; y: number; width: number; height: number };
+  skipPostRender?: boolean;
 };
 
 export type ColorCycleShapeFillDeps = {
-  brushEngine: BrushEngine;
-  getColorCycleBrushManager: () => { getBrush: (layerId: string) => ColorCycleBrush | null | undefined };
+  brushRuntime: {
+    fillCcGradientLinear: (
+      points: Array<{ x: number; y: number }>,
+      direction: { x: number; y: number },
+      options?: ColorCycleShapeFillRuntimeOptions,
+    ) => Promise<void>;
+    fillCcGradientConcentric: (
+      points: Array<{ x: number; y: number }>,
+      options?: ColorCycleShapeFillRuntimeOptions,
+    ) => Promise<void>;
+    updateColorCycleTexture: () => void;
+  };
+  getColorCycleBrushManager: () => { getShapeFillBrush: (layerId: string) => ColorCycleBrush | null | undefined };
   bindBrushToCanvas: (brush: ColorCycleBrush | null | undefined, canvas: HTMLCanvasElement | null | undefined) => void;
   timeAsync: <T>(label: string, task: () => Promise<T>) => Promise<T>;
   timeSync: (label: string, task: () => void) => void;
@@ -68,12 +84,8 @@ const resolveShapeFillBrush = (
   layerId: string,
   deps: ColorCycleShapeFillDeps,
 ): SnapshotCapableBrush | null => {
-  const state = getAppStoreState();
   return (
-    (typeof state.getLayerColorCycleBrush === 'function'
-      ? state.getLayerColorCycleBrush(layerId)
-      : null) ??
-    deps.getColorCycleBrushManager().getBrush(layerId) ??
+    deps.getColorCycleBrushManager().getShapeFillBrush(layerId) ??
     null
   ) as SnapshotCapableBrush | null;
 };
@@ -145,11 +157,8 @@ const snapshotColorCyclePaint = (
   brush: SnapshotCapableBrush | null | undefined,
   layerId: string
 ): ColorCyclePaintSnapshot | null => {
-  if (!brush || typeof brush.getLayerSnapshot !== 'function') {
-    return null;
-  }
-  const snapshot = brush.getLayerSnapshot(layerId);
-  return snapshot?.paintBuffer ? snapshot : null;
+  const snapshot = readColorCycleBrushLayerSnapshotFromRuntime(brush, layerId);
+  return colorCyclePaintSnapshotHasPayload(snapshot) ? snapshot : null;
 };
 
 const buildShapePaintMask = ({
@@ -216,13 +225,8 @@ const snapshotTransparencyLockPaintMask = ({
   }
   const sourceSnapshot =
     snapshot ??
-    (brush && typeof brush.getLayerSnapshot === 'function'
-      ? brush.getLayerSnapshot(layerId)
-      : null);
-  if (!sourceSnapshot?.paintBuffer) {
-    return null;
-  }
-  return new Uint8Array(sourceSnapshot.paintBuffer).slice();
+    readColorCycleBrushLayerSnapshotFromRuntime(brush, layerId);
+  return cloneColorCyclePaintSnapshotPaintMask(sourceSnapshot);
 };
 
 const applyCanvasAlphaMask = (
@@ -253,30 +257,20 @@ const applyTransparencyLockToBrushSnapshot = ({
   maskCanvas: HTMLCanvasElement | null;
   preFillPaintMask?: Uint8Array | null;
 }): boolean => {
-  if (!brush || typeof brush.getLayerSnapshot !== 'function' || typeof brush.applyLayerSnapshot !== 'function') {
+  if (!brush) {
     return false;
   }
   if (!preFillPaintMask && !maskCanvas) {
     return false;
   }
 
-  const snapshot = brush.getLayerSnapshot(layerId);
+  const snapshot = readColorCycleBrushLayerSnapshotFromRuntime(brush, layerId);
   if (!snapshot) {
     return false;
   }
 
-  const paint = new Uint8Array(snapshot.paintBuffer);
-  const gid = snapshot.gradientIdBuffer ? new Uint8Array(snapshot.gradientIdBuffer) : null;
-  const gdef = snapshot.gradientDefIdBuffer ? new Uint16Array(snapshot.gradientDefIdBuffer) : null;
-  const spd = snapshot.speedBuffer ? new Uint8Array(snapshot.speedBuffer) : null;
-  const flow = snapshot.flowBuffer ? new Uint8Array(snapshot.flowBuffer) : null;
-  const phase = snapshot.phaseBuffer ? new Uint8Array(snapshot.phaseBuffer) : null;
-  const paintMask =
-    preFillPaintMask && preFillPaintMask.length === paint.length
-      ? preFillPaintMask
-      : null;
   let maskAlpha: Uint8ClampedArray | null = null;
-  if (!paintMask) {
+  if (!preFillPaintMask) {
     if (!maskCanvas) {
       return false;
     }
@@ -286,61 +280,15 @@ const applyTransparencyLockToBrushSnapshot = ({
     }
     maskAlpha = maskCtx.getImageData(0, 0, maskCanvas.width, maskCanvas.height).data;
   }
-  const pixelCount = paintMask
-    ? Math.min(paint.length, paintMask.length)
-    : Math.min(paint.length, Math.floor((maskAlpha?.length ?? 0) / 4));
-  let changed = false;
-  let hasContent = false;
-
-  for (let i = 0; i < pixelCount; i += 1) {
-    const isLockedOut = paintMask ? paintMask[i] === 0 : (maskAlpha?.[i * 4 + 3] ?? 0) === 0;
-    if (isLockedOut) {
-      if (paint[i] !== 0) {
-        paint[i] = 0;
-        changed = true;
-      }
-      if (gid && gid[i] !== 0) {
-        gid[i] = 0;
-        changed = true;
-      }
-      if (gdef && gdef[i] !== 0) {
-        gdef[i] = 0;
-        changed = true;
-      }
-      if (spd && spd[i] !== 0) {
-        spd[i] = 0;
-        changed = true;
-      }
-      if (flow && flow[i] !== 0) {
-        flow[i] = 0;
-        changed = true;
-      }
-      if (phase && phase[i] !== 0) {
-        phase[i] = 0;
-        changed = true;
-      }
-      continue;
-    }
-    if (paint[i] !== 0) {
-      hasContent = true;
-    }
-  }
-
-  if (!changed) {
+  const nextSnapshot = applyColorCycleTransparencyMaskToPaintSnapshot(snapshot, {
+    paintMask: preFillPaintMask,
+    maskAlpha,
+  });
+  if (!nextSnapshot) {
     return false;
   }
 
-  brush.applyLayerSnapshot(layerId, {
-    paintBuffer: paint.buffer,
-    gradientIdBuffer: gid?.buffer,
-    gradientDefIdBuffer: gdef?.buffer,
-    speedBuffer: spd?.buffer,
-    flowBuffer: flow?.buffer,
-    phaseBuffer: phase?.buffer,
-    hasContent,
-    strokeCounter: snapshot.strokeCounter,
-  });
-  return true;
+  return applyColorCycleBrushLayerSnapshotToRuntime(brush, layerId, nextSnapshot);
 };
 
 const shouldRefreshForegroundRuntimeForShapeFinalize = (
@@ -578,7 +526,7 @@ export const finalizeColorCycleShapeFillLinear = async (
         layer: liveLayer,
         renderSession: resolvedRenderSession,
       });
-      await deps.brushEngine.fillCcGradientLinear(args.shapePoints, args.direction, {
+      await deps.brushRuntime.fillCcGradientLinear(args.shapePoints, args.direction, {
         ...resolveShapeFinalizeDitherOptions({
           brushSettings: liveSettings,
           ditherPixelSize: args.ditherPixelSize,
@@ -625,7 +573,7 @@ export const finalizeColorCycleShapeFillLinear = async (
         logError: deps.logError,
       });
       deps.bindBrushToCanvas(colorCycleBrush, args.activeLayerCanvas);
-      const binding: CommitCommittedLayerStateOptions['binding'] = renderSession?.binding
+      const binding: ColorCycleCommittedLayerStateOptions['binding'] = renderSession?.binding
         ? {
             defId: renderSession.binding.defId,
             slot: renderSession.binding.slot,
@@ -657,15 +605,16 @@ export const finalizeColorCycleShapeFillLinear = async (
         shapePaintMask
       );
       deps.timeSync('cc:shape:commit', () => {
-        if (typeof colorCycleBrush.commitCommittedLayerState === 'function') {
-          colorCycleBrush.commitCommittedLayerState({
+        if (
+          commitColorCycleCommittedLayerStateToRuntime(colorCycleBrush, {
             layerId: args.activeLayerId,
             targetCanvas: args.activeLayerCanvas,
             binding,
-          });
+          })
+        ) {
           return;
         }
-        deps.brushEngine.updateColorCycleTexture();
+        deps.brushRuntime.updateColorCycleTexture();
         colorCycleBrush.renderDirectToCanvas?.(args.activeLayerCanvas, args.activeLayerId);
       });
       stampShapeFinalizeProbe({
@@ -879,7 +828,7 @@ export const finalizeColorCycleShapeFillConcentric = async (
         layer: liveLayer,
         renderSession: resolvedRenderSession,
       });
-      await deps.brushEngine.fillCcGradientConcentric(args.shapePoints, {
+      await deps.brushRuntime.fillCcGradientConcentric(args.shapePoints, {
         ...resolveShapeFinalizeDitherOptions({
           brushSettings: liveSettings,
           ditherPixelSize: args.ditherPixelSize,
@@ -926,7 +875,7 @@ export const finalizeColorCycleShapeFillConcentric = async (
         logError: deps.logError,
       });
       deps.bindBrushToCanvas(colorCycleBrush, args.activeLayerCanvas);
-      const binding: CommitCommittedLayerStateOptions['binding'] = renderSession?.binding
+      const binding: ColorCycleCommittedLayerStateOptions['binding'] = renderSession?.binding
         ? {
             defId: renderSession.binding.defId,
             slot: renderSession.binding.slot,
@@ -958,15 +907,16 @@ export const finalizeColorCycleShapeFillConcentric = async (
         shapePaintMask
       );
       deps.timeSync('cc:shape:commit', () => {
-        if (typeof colorCycleBrush.commitCommittedLayerState === 'function') {
-          colorCycleBrush.commitCommittedLayerState({
+        if (
+          commitColorCycleCommittedLayerStateToRuntime(colorCycleBrush, {
             layerId: args.activeLayerId,
             targetCanvas: args.activeLayerCanvas,
             binding,
-          });
+          })
+        ) {
           return;
         }
-        deps.brushEngine.updateColorCycleTexture();
+        deps.brushRuntime.updateColorCycleTexture();
         colorCycleBrush.renderDirectToCanvas?.(args.activeLayerCanvas, args.activeLayerId);
       });
       stampShapeFinalizeProbe({

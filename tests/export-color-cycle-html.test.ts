@@ -21,6 +21,7 @@ jest.mock('@/stores/colorCycleBrushManager', () => {
     activeResources: new Set(),
     createBrush: jest.fn(),
     getBrush: jest.fn(),
+    getDocument: jest.fn(),
     updateBrush: jest.fn(),
     deleteBrush: jest.fn(),
     setActiveState: jest.fn(),
@@ -82,6 +83,129 @@ beforeAll(() => {
 afterAll(() => {
   delete (URL as Record<string, unknown>).createObjectURL;
   delete (URL as Record<string, unknown>).revokeObjectURL;
+});
+
+type MockSerializedBrushLayer = {
+  layerId?: string;
+  data?: {
+    indexBuffer?: {
+      width?: number;
+      height?: number;
+      data?: ArrayBuffer | ArrayBufferView;
+      gradientId?: ArrayBuffer | ArrayBufferView;
+      gradientDefId?: ArrayBuffer | ArrayBufferView;
+      speedData?: ArrayBuffer | ArrayBufferView;
+      flowData?: ArrayBuffer | ArrayBufferView;
+      phaseData?: ArrayBuffer | ArrayBufferView;
+    };
+  };
+  strokeData?: {
+    paintBuffer?: ArrayBuffer | ArrayBufferView;
+    gradientIdBuffer?: ArrayBuffer | ArrayBufferView;
+    gradientDefIdBuffer?: ArrayBuffer | ArrayBufferView;
+    speedBuffer?: ArrayBuffer | ArrayBufferView;
+    flowBuffer?: ArrayBuffer | ArrayBufferView;
+    phaseBuffer?: ArrayBuffer | ArrayBufferView;
+  };
+};
+
+type MockSerializedBrushState = {
+  layers?: MockSerializedBrushLayer[];
+};
+
+const cloneBufferLike = (value: ArrayBuffer | ArrayBufferView | undefined): ArrayBuffer | undefined => {
+  if (value instanceof ArrayBuffer) {
+    return value.slice(0);
+  }
+  if (ArrayBuffer.isView(value)) {
+    return value.buffer.slice(value.byteOffset, value.byteOffset + value.byteLength);
+  }
+  return undefined;
+};
+
+const makeByteBuffer = (length: number, value: number): ArrayBuffer => new Uint8Array(length).fill(value).buffer;
+
+const makeUint16Buffer = (length: number, value: number): ArrayBuffer => new Uint16Array(length).fill(value).buffer;
+
+const defIdBufferFromGradientSlots = (
+  value: ArrayBuffer | undefined,
+  length: number,
+  colorCycleData: NonNullable<Layer['colorCycleData']>,
+): ArrayBuffer | undefined => {
+  if (!value) {
+    return undefined;
+  }
+  const defIdBySlot = new Map<number, number>();
+  colorCycleData.gradientDefStore?.forEach((entry) => {
+    if (Number.isFinite(entry.id) && Number.isFinite(entry.slot)) {
+      defIdBySlot.set((entry.slot as number) & FLOW_SLOT_MASK, Math.round(entry.id));
+    }
+  });
+  const source = new Uint8Array(value);
+  const target = new Uint16Array(length);
+  for (let index = 0; index < Math.min(source.length, target.length); index += 1) {
+    target[index] = defIdBySlot.get(source[index] & FLOW_SLOT_MASK) ?? 0;
+  }
+  return target.buffer;
+};
+
+const createDocumentReaderFromBrushState = (
+  layerId: string,
+  serialize: () => MockSerializedBrushState,
+  getColorCycleData: () => NonNullable<Layer['colorCycleData']>,
+) => ({
+  read: () => {
+    const state = serialize();
+    const layerState = state.layers?.find((entry) => entry.layerId === layerId) ?? state.layers?.[0];
+    const indexBuffer = layerState?.data?.indexBuffer;
+    const width = Math.max(1, Math.round(indexBuffer?.width ?? 8));
+    const height = Math.max(1, Math.round(indexBuffer?.height ?? 8));
+    const pixelCount = width * height;
+    const colorCycleData = getColorCycleData();
+    colorCycleData.brushState = state;
+    const gradientIdBuffer = cloneBufferLike(layerState?.strokeData?.gradientIdBuffer) ??
+      cloneBufferLike(indexBuffer?.gradientId) ??
+      makeByteBuffer(pixelCount, 0);
+
+    return {
+      snapshot: {
+        layerId,
+        width,
+        height,
+        paintBuffer: cloneBufferLike(layerState?.strokeData?.paintBuffer) ??
+          cloneBufferLike(indexBuffer?.data) ??
+          makeByteBuffer(pixelCount, 0),
+        gradientIdBuffer,
+        gradientDefIdBuffer: cloneBufferLike(layerState?.strokeData?.gradientDefIdBuffer) ??
+          cloneBufferLike(indexBuffer?.gradientDefId) ??
+          defIdBufferFromGradientSlots(gradientIdBuffer, pixelCount, colorCycleData) ??
+          makeUint16Buffer(pixelCount, 1),
+        speedBuffer: cloneBufferLike(layerState?.strokeData?.speedBuffer) ??
+          cloneBufferLike(indexBuffer?.speedData),
+        flowBuffer: cloneBufferLike(layerState?.strokeData?.flowBuffer) ??
+          cloneBufferLike(indexBuffer?.flowData) ??
+          makeByteBuffer(pixelCount, 1),
+        phaseBuffer: cloneBufferLike(layerState?.strokeData?.phaseBuffer) ??
+          cloneBufferLike(indexBuffer?.phaseData) ??
+          makeByteBuffer(pixelCount, 0),
+        slotPalettes: colorCycleData.slotPalettes,
+        gradientDefs: colorCycleData.gradientDefs,
+        gradientDefStore: colorCycleData.gradientDefStore,
+        paintSlot: colorCycleData.paintSlot,
+        fgActiveSlot: colorCycleData.fgActiveSlot,
+        activeGradientId: colorCycleData.activeGradientId,
+        layerBaseSpeedCps: colorCycleData.layerBaseSpeedCps,
+        flowMode: colorCycleData.flowMode,
+        hasContent: true,
+        sources: {
+          brushStateSnapshot: false,
+          topLevelBuffers: false,
+          legacyStateRefs: false,
+        },
+      },
+      version: 1,
+    };
+  },
 });
 
 const createColorCycleLayer = (canvas: HTMLCanvasElement): Layer => {
@@ -189,8 +313,7 @@ const createBrushModeLayer = (canvas: HTMLCanvasElement): Layer => {
     }
   ];
 
-  const mockBrush = {
-    serialize: () => ({
+  const serialize = (): MockSerializedBrushState => ({
       layers: [
         {
           layerId: 'cc-brush-layer',
@@ -219,13 +342,16 @@ const createBrushModeLayer = (canvas: HTMLCanvasElement): Layer => {
       cycleSpeed: 0.35,
       fps: 24,
       brushSize: 14
-    }),
+  });
+  const mockBrush = {
+    serialize,
     commitCurrentStroke: jest.fn(),
     getCanvas: () => canvas,
-    isPlaying: () => true
+    isPlaying: () => true,
+    getColorCycleLayerDocument: () => createDocumentReaderFromBrushState('cc-brush-layer', serialize, () => layer.colorCycleData!)
   };
 
-  return {
+  const layer: Layer = {
     id: 'cc-brush-layer',
     name: 'Color Cycle Brush',
     visible: true,
@@ -250,6 +376,7 @@ const createBrushModeLayer = (canvas: HTMLCanvasElement): Layer => {
     },
     version: 1
   };
+  return layer;
 };
 
 const createSparseBrushModeLayer = (canvas: HTMLCanvasElement): Layer => {
@@ -271,41 +398,44 @@ const createSparseBrushModeLayer = (canvas: HTMLCanvasElement): Layer => {
 
   layer.id = 'cc-sparse-brush-layer';
   layer.name = 'Sparse Color Cycle Brush';
+  const serialize = (): MockSerializedBrushState => ({
+    layers: [
+      {
+        layerId: layer.id,
+        data: {
+          indexBuffer: {
+            width,
+            height,
+            data: brushIndices,
+            palette: ['#ffd700', '#adff2f', '#1e90ff'],
+            gradientId: gradientIdBuffer,
+            speedData: speedBuffer,
+          },
+          gradient: {
+            gradientStops: layer.colorCycleData?.gradient ?? [],
+          },
+          animation: {
+            offset: 0,
+            stats: {
+              targetFPS: 24,
+            },
+          },
+        },
+      },
+    ],
+    cycleSpeed: 0.35,
+    fps: 24,
+    brushSize: 14,
+  });
+
   layer.colorCycleData = {
     ...layer.colorCycleData!,
     colorCycleBrush: {
-      serialize: () => ({
-        layers: [
-          {
-            layerId: layer.id,
-            data: {
-              indexBuffer: {
-                width,
-                height,
-                data: brushIndices,
-                palette: ['#ffd700', '#adff2f', '#1e90ff'],
-                gradientId: gradientIdBuffer,
-                speedData: speedBuffer,
-              },
-              gradient: {
-                gradientStops: layer.colorCycleData?.gradient ?? [],
-              },
-              animation: {
-                offset: 0,
-                stats: {
-                  targetFPS: 24,
-                },
-              },
-            },
-          },
-        ],
-        cycleSpeed: 0.35,
-        fps: 24,
-        brushSize: 14,
-      }),
+      serialize,
       commitCurrentStroke: jest.fn(),
       getCanvas: () => canvas,
       isPlaying: () => true,
+      getColorCycleLayerDocument: () => createDocumentReaderFromBrushState(layer.id, serialize, () => layer.colorCycleData!),
     } as unknown as Layer['colorCycleData']['colorCycleBrush'],
   };
 
@@ -317,43 +447,46 @@ const createBrushModeLayerWithStrippedAnimatorPayload = (canvas: HTMLCanvasEleme
   const strippedPaint = new Uint8Array(Array.from({ length: 64 }, (_, idx) => (idx % 8) + 1));
   const strippedGradientIds = new Uint8Array(Array.from({ length: 64 }, (_, idx) => idx % 3));
 
+  const serialize = (): MockSerializedBrushState => ({
+    layers: [
+      {
+        layerId: layer.id,
+        data: {
+          indexBuffer: {
+            width: 8,
+            height: 8,
+            data: new Uint8Array(0),
+            gradientId: new Uint8Array(0),
+          },
+          gradient: {
+            gradientStops: layer.colorCycleData?.gradient ?? [],
+          },
+          animation: {
+            offset: 2,
+            stats: {
+              targetFPS: 24,
+            },
+          },
+        },
+        strokeData: {
+          paintBuffer: strippedPaint.buffer.slice(0),
+          gradientIdBuffer: strippedGradientIds.buffer.slice(0),
+        },
+      },
+    ],
+    cycleSpeed: 0.35,
+    fps: 24,
+    brushSize: 14,
+  });
+
   layer.colorCycleData = {
     ...layer.colorCycleData!,
     colorCycleBrush: {
-      serialize: () => ({
-        layers: [
-          {
-            layerId: layer.id,
-            data: {
-              indexBuffer: {
-                width: 8,
-                height: 8,
-                data: new Uint8Array(0),
-                gradientId: new Uint8Array(0),
-              },
-              gradient: {
-                gradientStops: layer.colorCycleData?.gradient ?? [],
-              },
-              animation: {
-                offset: 2,
-                stats: {
-                  targetFPS: 24,
-                },
-              },
-            },
-            strokeData: {
-              paintBuffer: strippedPaint.buffer.slice(0),
-              gradientIdBuffer: strippedGradientIds.buffer.slice(0),
-            },
-          },
-        ],
-        cycleSpeed: 0.35,
-        fps: 24,
-        brushSize: 14,
-      }),
+      serialize,
       commitCurrentStroke: jest.fn(),
       getCanvas: () => canvas,
       isPlaying: () => true,
+      getColorCycleLayerDocument: () => createDocumentReaderFromBrushState(layer.id, serialize, () => layer.colorCycleData!),
     } as unknown as Layer['colorCycleData']['colorCycleBrush'],
   };
 
@@ -385,38 +518,40 @@ const createForegroundDerivedLayer = (canvas: HTMLCanvasElement): {
   const brushIndices = new Uint8Array(Array.from({ length: 64 }, (_, idx) => idx % 16));
   const gradientIdBuffer = new Uint8Array(Array.from({ length: 64 }, () => fgSlot));
 
-  const mockBrush = {
-    serialize: () => ({
-      layers: [
-        {
-          layerId: 'cc-fg-layer',
-          data: {
-            indexBuffer: {
-              width: 8,
-              height: 8,
-              data: brushIndices,
-              palette: ['#222222', '#666666', '#aaaaaa'],
-              gradientId: gradientIdBuffer
-            },
-            gradient: {
-              gradientStops: []
-            },
-            animation: {
-              offset: 0,
-              stats: {
-                targetFPS: 24
-              }
+  const serialize = (): MockSerializedBrushState => ({
+    layers: [
+      {
+        layerId: 'cc-fg-layer',
+        data: {
+          indexBuffer: {
+            width: 8,
+            height: 8,
+            data: brushIndices,
+            palette: ['#222222', '#666666', '#aaaaaa'],
+            gradientId: gradientIdBuffer
+          },
+          gradient: {
+            gradientStops: []
+          },
+          animation: {
+            offset: 0,
+            stats: {
+              targetFPS: 24
             }
           }
         }
-      ],
-      cycleSpeed: 0.2,
-      fps: 24,
-      brushSize: 10
-    }),
+      }
+    ],
+    cycleSpeed: 0.2,
+    fps: 24,
+    brushSize: 10
+  });
+  const mockBrush = {
+    serialize,
     commitCurrentStroke: jest.fn(),
     getCanvas: () => canvas,
-    isPlaying: () => true
+    isPlaying: () => true,
+    getColorCycleLayerDocument: () => createDocumentReaderFromBrushState('cc-fg-layer', serialize, () => layer.colorCycleData!)
   };
 
   const layer: Layer = {
@@ -452,18 +587,89 @@ const createForegroundDerivedLayer = (canvas: HTMLCanvasElement): {
   return { layer, derivedStops, fgSlot };
 };
 
-const createProject = (layer: Layer): Project => ({
-  id: 'project-cc',
-  name: 'Color Cycle Export',
-  width: 128,
-  height: 128,
-  layers: [layer],
-  backgroundColor: '#101010',
-  createdAt: new Date('2025-01-01T00:00:00Z'),
-  updatedAt: new Date('2025-01-02T00:00:00Z'),
-  customBrushes: [],
-  viewState: { zoom: 1 }
-});
+const createDocumentReaderForLayer = (layer: Layer) => {
+  const brush = layer.colorCycleData?.colorCycleBrush as ({
+    getColorCycleLayerDocument?: (layerId: string) => ReturnType<typeof createDocumentReaderFromBrushState>;
+    serialize?: () => MockSerializedBrushState;
+    animators?: Map<string, {
+      indexBuffer?: {
+        width?: number;
+        height?: number;
+        getDirectData?: () => Uint8Array;
+        getDirectGradientIdData?: () => Uint8Array;
+        getDirectGradientDefIdData?: () => Uint16Array;
+        getDirectSpeedData?: () => Uint8Array;
+        getDirectFlowData?: () => Uint8Array;
+        getDirectPhaseData?: () => Uint8Array;
+      };
+    }>;
+  } | undefined);
+  const animator = brush?.animators?.get(layer.id);
+  if (animator?.indexBuffer) {
+    const indexBuffer = animator.indexBuffer;
+    return createDocumentReaderFromBrushState(
+      layer.id,
+      () => ({
+        layers: [{
+          layerId: layer.id,
+          data: {
+            indexBuffer: {
+              width: indexBuffer.width,
+              height: indexBuffer.height,
+              data: indexBuffer.getDirectData?.(),
+              gradientId: indexBuffer.getDirectGradientIdData?.(),
+              gradientDefId: indexBuffer.getDirectGradientDefIdData?.(),
+              speedData: indexBuffer.getDirectSpeedData?.(),
+              flowData: indexBuffer.getDirectFlowData?.(),
+              phaseData: indexBuffer.getDirectPhaseData?.(),
+            },
+          },
+        }],
+      }),
+      () => layer.colorCycleData!,
+    );
+  }
+  if (brush?.serialize) {
+    return createDocumentReaderFromBrushState(layer.id, brush.serialize, () => layer.colorCycleData!);
+  }
+  const directDocument = brush?.getColorCycleLayerDocument?.(layer.id);
+  if (directDocument) {
+    return directDocument;
+  }
+  return undefined;
+};
+
+const registerManagerDocumentForLayer = (layer: Layer): void => {
+  const manager = colorCycleBrushManager.getColorCycleBrushManager() as {
+    getDocument?: jest.Mock;
+  };
+  if (!manager.getDocument || layer.layerType !== 'color-cycle' || layer.colorCycleData?.mode !== 'brush') {
+    return;
+  }
+  const documentReader = createDocumentReaderForLayer(layer);
+  if (!documentReader) {
+    return;
+  }
+  manager.getDocument.mockImplementation((layerId: string) => (
+    layerId === layer.id ? documentReader : undefined
+  ));
+};
+
+const createProject = (layer: Layer): Project => {
+  registerManagerDocumentForLayer(layer);
+  return {
+    id: 'project-cc',
+    name: 'Color Cycle Export',
+    width: 128,
+    height: 128,
+    layers: [layer],
+    backgroundColor: '#101010',
+    createdAt: new Date('2025-01-01T00:00:00Z'),
+    updatedAt: new Date('2025-01-02T00:00:00Z'),
+    customBrushes: [],
+    viewState: { zoom: 1 }
+  };
+};
 
 const createSequentialLayer = (
   canvas: HTMLCanvasElement,
@@ -656,7 +862,7 @@ describe('exportProjectAsWebGL color cycle integration', () => {
     expect(progress).toContain('skipped-empty');
   });
 
-  it('does not skip empty-looking color-cycle layers with manager-backed live runtime', async () => {
+  it('does not skip empty-looking color-cycle layers with a manager-backed document', async () => {
     const canvas = document.createElement('canvas');
     canvas.width = 16;
     canvas.height = 16;
@@ -693,8 +899,31 @@ describe('exportProjectAsWebGL color cycle integration', () => {
     };
     const mockManager = colorCycleBrushManager.getColorCycleBrushManager() as {
       getBrush: jest.Mock;
+      getDocument: jest.Mock;
     };
     mockManager.getBrush.mockReturnValue(liveRuntime);
+    mockManager.getDocument.mockReturnValue({
+      read: () => ({
+        snapshot: {
+          layerId: 'manager-backed-cc-layer',
+          width: 2,
+          height: 2,
+          paintBuffer: Uint8Array.from([1, 2, 3, 4]).buffer,
+          gradientIdBuffer: Uint8Array.from([0, 0, 0, 0]).buffer,
+          gradientDefIdBuffer: new Uint16Array([1, 1, 1, 1]).buffer,
+          speedBuffer: Uint8Array.from([128, 128, 128, 128]).buffer,
+          flowBuffer: Uint8Array.from([1, 1, 1, 1]).buffer,
+          phaseBuffer: Uint8Array.from([0, 64, 128, 192]).buffer,
+          hasContent: true,
+          sources: {
+            brushStateSnapshot: false,
+            topLevelBuffers: false,
+            legacyStateRefs: false,
+          },
+        },
+        version: 4,
+      }),
+    });
     const project = createProject(layer);
     const progressEvents: WebGLExportProgressEvent[] = [];
 
@@ -724,12 +953,13 @@ describe('exportProjectAsWebGL color cycle integration', () => {
 
     expect(progressStatuses).not.toContain('skipped-empty');
     expect(progressDiagnostics).not.toContain(
-      'live-runtime-source-selected: No persisted export snapshot was available; using live runtime state.'
+      'missing-color-cycle-document: No color-cycle document is available for Goblet export.'
     );
-    expect(liveRuntime.serialize).toHaveBeenCalled();
+    expect(liveRuntime.serialize).not.toHaveBeenCalled();
     expect(metadata.layers).toHaveLength(1);
     expect(metadata.layers[0].colorCycle?.brushState?.indexBuffer).toBeDefined();
     mockManager.getBrush.mockReset();
+    mockManager.getDocument.mockReset();
   });
 
   it('sizes recolor exports from the recolor surface instead of the framebuffer', async () => {
@@ -868,16 +1098,14 @@ describe('exportProjectAsWebGL color cycle integration', () => {
     expect(metadata.layers[0].colorCycle?.brushState?.alphaMode).toBe('source');
   });
 
-  it('uses index-buffer alpha for live-runtime retry brush exports with sparse texture alpha', () => {
+  it('uses index-buffer alpha for synthetic brush textures and source alpha otherwise', () => {
     expect(resolveGobletBrushAlphaMode({
       hasVisibleTextureAlpha: true,
-      syntheticTextureApplied: false,
-      usedLiveRuntimeFallback: true,
+      syntheticTextureApplied: true,
     })).toBe('opaque-indices');
     expect(resolveGobletBrushAlphaMode({
       hasVisibleTextureAlpha: true,
       syntheticTextureApplied: false,
-      usedLiveRuntimeFallback: false,
     })).toBe('source');
   });
 
@@ -1271,14 +1499,16 @@ describe('exportProjectAsWebGL color cycle integration', () => {
 
     const layer = createBrushModeLayer(canvas);
     const baseBrush = layer.colorCycleData!.colorCycleBrush as { serialize: () => Record<string, unknown> };
+    const serialize = () => ({
+      ...baseBrush.serialize(),
+      stampDitherEnabled: true,
+    });
     layer.colorCycleData = {
       ...layer.colorCycleData!,
       colorCycleBrush: {
         ...baseBrush,
-        serialize: () => ({
-          ...baseBrush.serialize(),
-          stampDitherEnabled: true,
-        }),
+        serialize,
+        getColorCycleLayerDocument: () => createDocumentReaderFromBrushState(layer.id, serialize, () => layer.colorCycleData!),
       } as unknown as Layer['colorCycleData']['colorCycleBrush'],
     };
     const project = createProject(layer);
@@ -1418,13 +1648,15 @@ describe('exportProjectAsWebGL color cycle integration', () => {
 
     const layer = createSparseBrushModeLayer(canvas);
     const sparseBrush = layer.colorCycleData?.colorCycleBrush;
+    const serialize = () => ({
+      ...(sparseBrush?.serialize?.() ?? {}),
+      stampDitherEnabled: true,
+      stampDitherBgFill: true,
+    });
     layer.colorCycleData!.colorCycleBrush = {
       ...sparseBrush,
-      serialize: () => ({
-        ...(sparseBrush?.serialize?.() ?? {}),
-        stampDitherEnabled: true,
-        stampDitherBgFill: true,
-      }),
+      serialize,
+      getColorCycleLayerDocument: () => createDocumentReaderFromBrushState(layer.id, serialize, () => layer.colorCycleData!),
     } as unknown as Layer['colorCycleData']['colorCycleBrush'];
     const project = createProject(layer);
 

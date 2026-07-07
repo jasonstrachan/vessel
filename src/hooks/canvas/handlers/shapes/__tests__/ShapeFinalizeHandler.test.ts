@@ -108,9 +108,9 @@ describe('ShapeFinalizeHandler', () => {
     finalizeRasterShapeFill(
       {
         drawCtx,
-        brushEngine: {
+        brushRuntime: {
           applyStrokeDither,
-        } as unknown as Parameters<typeof finalizeRasterShapeFill>[0]['brushEngine'],
+        } as unknown as Parameters<typeof finalizeRasterShapeFill>[0]['brushRuntime'],
         storeRef,
         liveBrushSettings,
         shapePoints,
@@ -187,9 +187,9 @@ describe('ShapeFinalizeHandler', () => {
 
     finalizeRasterShapeFill({
       drawCtx,
-      brushEngine: {
+      brushRuntime: {
         applyStrokeDither,
-      } as unknown as Parameters<typeof finalizeRasterShapeFill>[0]['brushEngine'],
+      } as unknown as Parameters<typeof finalizeRasterShapeFill>[0]['brushRuntime'],
       storeRef,
       liveBrushSettings,
       shapePoints: [
@@ -260,9 +260,9 @@ describe('ShapeFinalizeHandler', () => {
 
     finalizeRasterShapeFill({
       drawCtx,
-      brushEngine: {
+      brushRuntime: {
         applyStrokeDither,
-      } as unknown as Parameters<typeof finalizeRasterShapeFill>[0]['brushEngine'],
+      } as unknown as Parameters<typeof finalizeRasterShapeFill>[0]['brushRuntime'],
       storeRef,
       liveBrushSettings,
       shapePoints: [

@@ -1,5 +1,6 @@
 import JSZip from 'jszip';
 
+import { registerColorCycleBrushSerializedStateRuntime } from '@/lib/colorCycle/document';
 import { exportProjectAsWebGL } from '@/utils/export/webglExporter';
 import { createDefaultLayerAlignment } from '@/utils/layoutDefaults';
 import type { DisplayFilterConfig, ExportContainerLayout, Layer, Project } from '@/types';
@@ -58,12 +59,88 @@ const createDenseBrushLayer = (): Layer => {
   const length = width * height;
   const brushIndices = new Uint8Array(Array.from({ length }, (_, idx) => (idx % 251) + 1));
   const gradientIdBuffer = new Uint8Array(Array.from({ length }, (_, idx) => idx % 2));
+  const gradientDefIdBuffer = new Uint16Array(Array.from({ length }, () => 1));
+  const speedBuffer = new Uint8Array(Array.from({ length }, () => 128));
   const flowBuffer = new Uint8Array(Array.from({ length }, () => 1));
   const phaseBuffer = new Uint8Array(Array.from({ length }, (_, idx) => idx & 255));
   const gradientStops = [
     { position: 0, color: '#000000' },
     { position: 1, color: '#ffffff' },
   ];
+  const colorCycleBrush = {
+    getCanvas: () => canvas,
+    isPlaying: () => true,
+    getColorCycleLayerDocument: () => ({
+      read: () => ({
+        version: 4,
+        snapshot: {
+          layerId: 'dense-brush',
+          width,
+          height,
+          paintBuffer: brushIndices.buffer.slice(0),
+          gradientIdBuffer: gradientIdBuffer.buffer.slice(0),
+          gradientDefIdBuffer: gradientDefIdBuffer.buffer.slice(0),
+          speedBuffer: speedBuffer.buffer.slice(0),
+          flowBuffer: flowBuffer.buffer.slice(0),
+          phaseBuffer: phaseBuffer.buffer.slice(0),
+          slotPalettes: [{
+            slot: 1,
+            stops: gradientStops,
+          }],
+          gradientDefs: [{ id: 'dense-gradient', currentSlot: 1 }],
+          gradientDefStore: [{
+            id: 1,
+            kind: 'linear' as const,
+            stops: gradientStops,
+            hash: 'dense-gradient',
+            source: 'manual' as const,
+            createdAtMs: 1,
+            slot: 1,
+          }],
+          activeGradientId: 'dense-gradient',
+          paintSlot: 1,
+          fgActiveSlot: 1,
+          layerBaseSpeedCps: 1,
+          flowMode: 'forward' as const,
+          hasContent: true,
+          sources: {
+            brushStateSnapshot: false,
+            topLevelBuffers: false,
+            legacyStateRefs: false,
+          },
+        },
+      }),
+    }),
+  } as unknown as NonNullable<NonNullable<Layer['colorCycleData']>['colorCycleBrush']>;
+  registerColorCycleBrushSerializedStateRuntime(colorCycleBrush, {
+    read: () => ({
+      layers: [
+        {
+          layerId: 'dense-brush',
+          data: {
+            indexBuffer: {
+              width,
+              height,
+              data: brushIndices,
+              palette: ['#000000', '#ffffff'],
+              gradientId: gradientIdBuffer,
+              gradientDefId: gradientDefIdBuffer,
+              speedData: speedBuffer,
+              flowData: flowBuffer,
+              phaseData: phaseBuffer,
+            },
+            gradient: { gradientStops },
+            animation: {
+              offset: 0,
+              stats: { targetFPS: 24 },
+            },
+          },
+        },
+      ],
+      cycleSpeed: 0.25,
+      fps: 24,
+    }),
+  });
 
   return {
     id: 'dense-brush',
@@ -84,35 +161,7 @@ const createDenseBrushLayer = (): Layer => {
       brushSpeed: 0.25,
       gradient: gradientStops,
       canvas,
-      colorCycleBrush: {
-        serialize: () => ({
-          layers: [
-            {
-              layerId: 'dense-brush',
-              data: {
-                indexBuffer: {
-                  width,
-                  height,
-                  data: brushIndices,
-                  palette: ['#000000', '#ffffff'],
-                  gradientId: gradientIdBuffer,
-                  flowData: flowBuffer,
-                  phaseData: phaseBuffer,
-                },
-                gradient: { gradientStops },
-                animation: {
-                  offset: 0,
-                  stats: { targetFPS: 24 },
-                },
-              },
-            },
-          ],
-          cycleSpeed: 0.25,
-          fps: 24,
-        }),
-        getCanvas: () => canvas,
-        isPlaying: () => true,
-      },
+      colorCycleBrush,
     },
     version: 1,
   } as Layer;

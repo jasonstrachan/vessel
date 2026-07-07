@@ -1,11 +1,23 @@
 import type { Layer, Project } from '@/types';
-import { hasExportablePersistedColorCycleSource } from '@/utils/export/goblet/colorCycleExportSourceEligibility';
-import { hasGobletColorCycleLiveBrush } from '@/utils/export/goblet/colorCycleLiveBrushResolver';
+import {
+  cloneColorCycleSerializedBrushLayerSnapshotBuffers,
+  createColorCycleCanonicalBrushStateFromDocumentSnapshot,
+  getColorCycleLegacyLayerBuffers,
+  type ColorCycleLayerDocumentSnapshot,
+  type ColorCycleLegacyLayerBuffers,
+} from '@/lib/colorCycle/document';
+import {
+  resolveGobletColorCycleDocument,
+  resolveGobletColorCycleLiveBrush,
+} from '@/utils/export/goblet/colorCycleLiveBrushResolver';
+import { resolvePersistedColorCycleExportEligibility } from '@/utils/export/goblet/colorCycleExportSourceEligibility';
 import type { GobletColorCyclePayloadDiagnostic } from '@/utils/export/goblet/colorCyclePayloadValidation';
+import { hydrateColorCycleArchiveRuntimeSnapshotForExport } from '@/utils/projectIO';
 
 // Boundary: source ordering only. Do not validate final payload buffer lengths here;
 // persisted and live availability must come from the shared source helpers.
 export type GobletColorCyclePayloadBuildSource =
+  | 'document'
   | 'hydrated-archive-document-state'
   | 'persisted-brush-state'
   | 'live-runtime'
@@ -26,44 +38,39 @@ export type GobletColorCycleExportSourceResult =
       diagnostics: GobletColorCyclePayloadDiagnostic[];
     };
 
-const cloneArrayBuffer = (value: unknown): ArrayBuffer | undefined => (
-  value instanceof ArrayBuffer ? value.slice(0) : undefined
-);
-
-const cloneStrokeData = <T extends { strokeData?: Record<string, unknown> }>(entry: T): T => {
-  if (!entry.strokeData) {
-    return { ...entry };
+const cloneColorCycleDataWithLegacyBuffers = (
+  colorCycleData: NonNullable<Layer['colorCycleData']>,
+  legacyBuffers: ColorCycleLegacyLayerBuffers,
+): NonNullable<Layer['colorCycleData']> => {
+  const cloned = { ...colorCycleData } as NonNullable<Layer['colorCycleData']> & ColorCycleLegacyLayerBuffers;
+  for (const [key, buffer] of Object.entries(legacyBuffers) as Array<[
+    keyof ColorCycleLegacyLayerBuffers,
+    ArrayBuffer | undefined,
+  ]>) {
+    if (buffer) {
+      cloned[key] = buffer.slice(0);
+    }
   }
-  return {
-    ...entry,
-    strokeData: {
-      ...entry.strokeData,
-      paintBuffer: cloneArrayBuffer(entry.strokeData.paintBuffer) ?? entry.strokeData.paintBuffer,
-      gradientIdBuffer: cloneArrayBuffer(entry.strokeData.gradientIdBuffer) ?? entry.strokeData.gradientIdBuffer,
-      gradientDefIdBuffer: cloneArrayBuffer(entry.strokeData.gradientDefIdBuffer) ?? entry.strokeData.gradientDefIdBuffer,
-      speedBuffer: cloneArrayBuffer(entry.strokeData.speedBuffer) ?? entry.strokeData.speedBuffer,
-      flowBuffer: cloneArrayBuffer(entry.strokeData.flowBuffer) ?? entry.strokeData.flowBuffer,
-      phaseBuffer: cloneArrayBuffer(entry.strokeData.phaseBuffer) ?? entry.strokeData.phaseBuffer,
-    },
-  };
+  return cloned;
 };
 
 export const cloneGobletExportLayer = (layer: Layer): Layer => {
   const colorCycleData = layer.colorCycleData
-    ? {
-        ...layer.colorCycleData,
-        gradientIdBuffer: cloneArrayBuffer(layer.colorCycleData.gradientIdBuffer) ?? layer.colorCycleData.gradientIdBuffer,
-        gradientDefIdBuffer: cloneArrayBuffer(layer.colorCycleData.gradientDefIdBuffer) ?? layer.colorCycleData.gradientDefIdBuffer,
-        phaseBuffer: cloneArrayBuffer(layer.colorCycleData.phaseBuffer) ?? layer.colorCycleData.phaseBuffer,
-        brushState: layer.colorCycleData.brushState && typeof layer.colorCycleData.brushState === 'object'
-          ? {
-              ...(layer.colorCycleData.brushState as Record<string, unknown>),
-              layers: Array.isArray((layer.colorCycleData.brushState as { layers?: unknown }).layers)
-                ? ((layer.colorCycleData.brushState as { layers: Array<Record<string, unknown>> }).layers).map(cloneStrokeData)
-                : (layer.colorCycleData.brushState as { layers?: unknown }).layers,
-            } as NonNullable<Layer['colorCycleData']>['brushState']
-          : layer.colorCycleData.brushState,
-      }
+    ? cloneColorCycleDataWithLegacyBuffers(
+        {
+          ...layer.colorCycleData,
+          brushState: layer.colorCycleData.brushState && typeof layer.colorCycleData.brushState === 'object'
+            ? {
+                ...(layer.colorCycleData.brushState as Record<string, unknown>),
+                layers: Array.isArray((layer.colorCycleData.brushState as { layers?: unknown }).layers)
+                  ? ((layer.colorCycleData.brushState as { layers: Array<Record<string, unknown>> }).layers)
+                    .map(cloneColorCycleSerializedBrushLayerSnapshotBuffers)
+                  : (layer.colorCycleData.brushState as { layers?: unknown }).layers,
+              } as NonNullable<Layer['colorCycleData']>['brushState']
+            : layer.colorCycleData.brushState,
+        },
+        getColorCycleLegacyLayerBuffers(layer),
+      )
     : layer.colorCycleData;
   return {
     ...layer,
@@ -71,7 +78,52 @@ export const cloneGobletExportLayer = (layer: Layer): Layer => {
   };
 };
 
-const hasHydratedArchiveDocumentState = (layer: Layer): boolean => hasExportablePersistedColorCycleSource(layer);
+const cloneLayerFromDocumentSnapshot = (
+  layer: Layer,
+  snapshot: ColorCycleLayerDocumentSnapshot,
+  version: number,
+): Layer => {
+  const cloned = cloneGobletExportLayer(layer);
+  const existingBrushState = cloned.colorCycleData?.brushState && typeof cloned.colorCycleData.brushState === 'object'
+    ? cloned.colorCycleData.brushState as Record<string, unknown>
+    : {};
+  const slotPalettes = snapshot.slotPalettes?.map((entry) => ({
+    ...entry,
+    stops: entry.stops.map((stop) => ({ ...stop })),
+  }));
+  const gradientDefs = snapshot.gradientDefs?.map((entry) => ({ ...entry }));
+  const gradientDefStore = snapshot.gradientDefStore?.map((entry) => ({
+    ...entry,
+    stops: entry.stops.map((stop) => ({ ...stop })),
+  }));
+
+  return {
+    ...cloned,
+    colorCycleData: cloned.colorCycleData
+      ? {
+          ...cloned.colorCycleData,
+          colorCycleBrush: undefined,
+          canvasWidth: snapshot.width,
+          canvasHeight: snapshot.height,
+          hasContent: snapshot.hasContent,
+          slotPalettes,
+          gradientDefs,
+          gradientDefStore,
+          paintSlot: snapshot.paintSlot,
+          fgActiveSlot: snapshot.fgActiveSlot,
+          activeGradientId: snapshot.activeGradientId,
+          layerBaseSpeedCps: snapshot.layerBaseSpeedCps,
+          flowMode: snapshot.flowMode,
+          brushState: createColorCycleCanonicalBrushStateFromDocumentSnapshot({
+            layerId: layer.id,
+            snapshot,
+            version,
+            existingBrushState,
+          }) as NonNullable<Layer['colorCycleData']>['brushState'] ?? cloned.colorCycleData.brushState,
+        }
+      : cloned.colorCycleData,
+  };
+};
 
 export const resolveGobletColorCycleExportSource = async (
   layer: Layer,
@@ -102,66 +154,74 @@ export const resolveGobletColorCycleExportSource = async (
   }
 
   const diagnostics: GobletColorCyclePayloadDiagnostic[] = [];
+  const document = resolveGobletColorCycleDocument(layer);
+  if (document) {
+    const { snapshot, version } = document.read();
+    return {
+      ok: true,
+      layerId: layer.id,
+      source: 'document',
+      layer: cloneLayerFromDocumentSnapshot(layer, snapshot, version),
+      diagnostics: [{
+        code: 'document-source-selected',
+        severity: 'info',
+        message: `Selected color-cycle document version ${version} for Goblet export.`,
+        documentVersion: version,
+      }],
+    };
+  }
 
-  if (
-    layer.colorCycleData.runtimeHydrationState === 'cold' ||
-    layer.colorCycleData.runtimeHydrationState === 'warm' ||
-    layer.colorCycleData.deferredRuntimeRestore === true
-  ) {
+  if (layer.colorCycleData.deferredRuntimeRestore || layer.colorCycleData.runtimeHydrationState === 'cold') {
     try {
-      const projectIO = await import('@/utils/projectIO');
-      const hydrated = await projectIO.hydrateColorCycleArchiveRuntimeSnapshotForExport(layer);
-      if (hasHydratedArchiveDocumentState(hydrated)) {
+      const hydratedLayer = await hydrateColorCycleArchiveRuntimeSnapshotForExport(layer);
+      if (resolvePersistedColorCycleExportEligibility(hydratedLayer).ok) {
         return {
           ok: true,
           layerId: layer.id,
           source: 'hydrated-archive-document-state',
-          layer: cloneGobletExportLayer(hydrated),
+          layer: cloneGobletExportLayer(hydratedLayer),
           diagnostics: [{
-            code: 'hydrated-export-local-archive-state',
+            code: 'hydrated-archive-document-state-selected',
             severity: 'info',
-            message: 'Color-cycle archive data was materialized into an export-local layer snapshot.',
+            message: 'Selected hydrated color-cycle archive state for Goblet export.',
           }],
         };
       }
-      diagnostics.push({
-        code: 'archive-hydration-empty',
-        severity: 'warning',
-        message: 'No exportable color-cycle archive snapshot was materialized; trying persisted and live sources.',
-      });
     } catch (error) {
       diagnostics.push({
-        code: 'missing-archive-ref',
+        code: 'hydrated-archive-document-state-rejected',
         severity: 'warning',
-        message: error instanceof Error ? error.message : 'Failed to hydrate color-cycle archive data.',
+        message: error instanceof Error
+          ? error.message
+          : 'Color-cycle archive hydration failed during Goblet export.',
       });
     }
   }
 
-  if (hasExportablePersistedColorCycleSource(layer)) {
-    const resolvedLayer = cloneGobletExportLayer(layer);
-    if (resolvedLayer.colorCycleData) {
-      resolvedLayer.colorCycleData.colorCycleBrush = undefined;
-    }
+  if (resolvePersistedColorCycleExportEligibility(layer).ok) {
     return {
       ok: true,
       layerId: layer.id,
       source: 'persisted-brush-state',
-      layer: resolvedLayer,
-      diagnostics,
+      layer: cloneGobletExportLayer(layer),
+      diagnostics: [{
+        code: 'persisted-brush-state-selected',
+        severity: 'info',
+        message: 'Selected persisted color-cycle brush state for Goblet export.',
+      }],
     };
   }
 
-  if (hasGobletColorCycleLiveBrush(layer)) {
+  if (resolveGobletColorCycleLiveBrush(layer)) {
     return {
       ok: true,
       layerId: layer.id,
       source: 'live-runtime',
       layer: cloneGobletExportLayer(layer),
-      diagnostics: [...diagnostics, {
+      diagnostics: [{
         code: 'live-runtime-source-selected',
         severity: 'info',
-        message: 'No persisted export snapshot was available; using live runtime state.',
+        message: 'Selected live color-cycle runtime for Goblet export.',
       }],
     };
   }
@@ -169,11 +229,11 @@ export const resolveGobletColorCycleExportSource = async (
   return {
     ok: false,
     layerId: layer.id,
-    reason: 'missing-color-cycle-source',
+    reason: 'missing-color-cycle-document',
     diagnostics: [...diagnostics, {
-      code: 'missing-color-cycle-source',
+      code: 'missing-color-cycle-document',
       severity: 'error',
-      message: 'No archive, persisted brush, or live runtime color-cycle source is available.',
+      message: 'No color-cycle document is available for Goblet export.',
     }],
   };
 };

@@ -18,11 +18,24 @@ describe('colorCycleCompositor.worker', () => {
     // Dispatch a ping
     listeners.forEach((handler) => handler({ data: { type: 'ping', requestId: 1 } } as any));
 
+    // Dispatch versioned layer input
+    listeners.forEach((handler) => handler({
+      data: {
+        type: 'ensure-layer',
+        layerId: 'layer-cc',
+        width: 4,
+        height: 3,
+        documentVersion: 12,
+        requestId: 3,
+      },
+    } as any));
+
     // Dispatch unsupported
     listeners.forEach((handler) => handler({ data: { type: 'unknown', requestId: 2 } } as any));
 
     expect(messages).toEqual([
       { type: 'pong', requestId: 1 },
+      { type: 'ack', requestId: 3, command: 'ensure-layer' },
       { type: 'error', requestId: 2, message: 'Unsupported color cycle compositor command: unknown' },
     ]);
   });

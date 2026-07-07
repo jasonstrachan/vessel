@@ -6,6 +6,10 @@
 // ColorCycleBrush WebGL implementation removed - using Canvas2D only
 import { ColorCycleBrushCanvas2D } from '../hooks/brushEngine/ColorCycleBrushCanvas2D';
 import { ColorCycleBrushCanvas2D as ColorCycleBrush } from '../hooks/brushEngine/ColorCycleBrushCanvas2D'; // Alias for compatibility
+import {
+  readColorCycleBrushSerializedStateFromRuntime,
+  restoreColorCycleBrushSerializedStateToRuntime,
+} from '../lib/colorCycle/document';
 import { GradientStop } from '../lib/GradientPalette';
 
 export interface TestResult {
@@ -568,7 +572,7 @@ export class ColorCycleFeatureParityTest {
     // Test WebGL
     if (this.webglBrush) {
       try {
-        const state = this.webglBrush.getFullState();
+        const state = readColorCycleBrushSerializedStateFromRuntime(this.webglBrush);
         result.webgl.passed = state !== null && typeof state === 'object';
       } catch (error) {
         result.webgl.error = String(error);
@@ -578,7 +582,7 @@ export class ColorCycleFeatureParityTest {
     // Test Canvas2D
     if (this.canvas2dBrush) {
       try {
-        const state = this.canvas2dBrush.getFullState();
+        const state = readColorCycleBrushSerializedStateFromRuntime(this.canvas2dBrush);
         result.canvas2d.passed = state !== null && typeof state === 'object';
       } catch (error) {
         result.canvas2d.error = String(error);
@@ -611,7 +615,7 @@ export class ColorCycleFeatureParityTest {
     // Test WebGL
     if (this.webglBrush) {
       try {
-        this.webglBrush.restoreFullState(testState);
+        restoreColorCycleBrushSerializedStateToRuntime(this.webglBrush, testState);
         result.webgl.passed = true;
       } catch (error) {
         result.webgl.error = String(error);
@@ -621,7 +625,7 @@ export class ColorCycleFeatureParityTest {
     // Test Canvas2D
     if (this.canvas2dBrush) {
       try {
-        this.canvas2dBrush.restoreFullState(testState);
+        restoreColorCycleBrushSerializedStateToRuntime(this.canvas2dBrush, testState);
         result.canvas2d.passed = true;
       } catch (error) {
         result.canvas2d.error = String(error);

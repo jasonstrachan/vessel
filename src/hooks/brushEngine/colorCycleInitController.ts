@@ -2,6 +2,11 @@ import { logError } from '@/utils/debug';
 import { BrushShape, type BrushSettings } from '@/types';
 import { MAX_CC_LAYER_SPEED_SCALE, MIN_CC_LAYER_SPEED_SCALE } from '@/constants/colorCycle';
 import { resolveExplicitLayerColorCycleBaseSpeed } from '@/utils/colorCycleLayerSpeed';
+import type { CCBrushSettingsPatch } from './colorCycleBrushContracts';
+import { applyColorCycleBrushSettingsPatch } from './colorCycleBrushSettingsController';
+import type { ColorCycleSettingsPatchBrush } from './colorCycleBrushSettingsPatch';
+import { dispatchColorCycleFrameReady } from './colorCycleFrameEvents';
+import type { ColorCycleLayerDirtyBatch } from '@/lib/colorCycle/document';
 
 type LayerSummary = {
   id: string;
@@ -16,30 +21,9 @@ type LayerSummary = {
   };
 };
 
-type BrushLike = {
-  setOnFrameRendered: (callback: () => void) => void;
+type BrushLike = ColorCycleSettingsPatchBrush & {
+  setOnFrameRendered: (callback: (dirtyBatches: ColorCycleLayerDirtyBatch[]) => void) => void;
   endStroke: (layerId: string) => void;
-  setBrushSize: (size: number) => void;
-  setFPS: (fps: number) => void;
-  setSpeed: (speed: number) => void;
-  setLayerBaseSpeed?: (speed: number) => void;
-  setPlaybackSpeedScale?: (scale: number) => void;
-  setGradientBands: (bands: number) => void;
-  setBandSpacing: (spacing: number) => void;
-  setDitherEnabled: (enabled: boolean) => void;
-  setDitherPixelSize: (pixelSize: number) => void;
-  setPxlEdgeEnabled?: (enabled: boolean) => void;
-  setStampDitherEnabled: (enabled: boolean) => void;
-  setPressureEnabled: (enabled: boolean) => void;
-  setMinPressure: (value: number) => void;
-  setMaxPressure: (value: number) => void;
-  setStampShape: (
-    shape: 'square' | 'triangle' | 'round' | 'diamond' | 'diamond5' | 'diamond7' | 'diamond9' | 'checkered'
-  ) => void;
-  setFlowMode?: (mode: 'forward') => void;
-  setFlowDirection: (direction: 'forward') => void;
-  setLegacyFlowMode?: (mode: 'forward') => void;
-  setDitherStrength?: (value: number) => void;
 };
 
 export type InitializeColorCycleBrushArgs = {
@@ -113,16 +97,19 @@ export const initializeColorCycleBrushForActiveLayer = <TBrush extends BrushLike
         return null;
       }
 
-      colorCycleBrush.setOnFrameRendered(() => {
-        window.dispatchEvent(new CustomEvent('colorCycleFrameReady'));
+      colorCycleBrush.setOnFrameRendered((dirtyBatches) => {
+        dispatchColorCycleFrameReady(dirtyBatches);
       });
     }
 
-    colorCycleBrush.setBrushSize(brushSettings.size || 20);
+    const settingsPatch: CCBrushSettingsPatch = {
+      brushSize: brushSettings.size || 20,
+      legacyFlowMode: 'forward',
+      flowMode: 'forward',
+    };
     if (brushSettings.colorCycleFPS) {
-      colorCycleBrush.setFPS(brushSettings.colorCycleFPS);
+      settingsPatch.fps = brushSettings.colorCycleFPS;
     }
-
     try {
       const speedLayer = getLayers().find((layer) => layer.id === activeLayerId);
       const perLayerSpeed = resolveExplicitLayerColorCycleBaseSpeed(speedLayer?.colorCycleData);
@@ -135,18 +122,16 @@ export const initializeColorCycleBrushForActiveLayer = <TBrush extends BrushLike
           )
         : 1;
       if (typeof writeSpeed === 'number' && Number.isFinite(writeSpeed)) {
-        colorCycleBrush.setSpeed(writeSpeed);
+        settingsPatch.cycleSpeed = writeSpeed;
       }
-      if (typeof baseSpeed === 'number' && Number.isFinite(baseSpeed) && typeof colorCycleBrush.setLayerBaseSpeed === 'function') {
-        colorCycleBrush.setLayerBaseSpeed(baseSpeed);
+      if (typeof baseSpeed === 'number' && Number.isFinite(baseSpeed)) {
+        settingsPatch.layerBaseSpeed = baseSpeed;
       }
-      if (typeof colorCycleBrush.setPlaybackSpeedScale === 'function') {
-        colorCycleBrush.setPlaybackSpeedScale(layerSpeedScale);
-      }
+      settingsPatch.playbackSpeedScale = layerSpeedScale;
     } catch {}
 
     if (brushSettings.gradientBands) {
-      colorCycleBrush.setGradientBands(brushSettings.gradientBands);
+      settingsPatch.gradientBands = brushSettings.gradientBands;
     }
 
     const useShapeSpacing = brushSettings.brushShape === BrushShape.COLOR_CYCLE_SHAPE;
@@ -155,30 +140,26 @@ export const initializeColorCycleBrushForActiveLayer = <TBrush extends BrushLike
         ? brushSettings.colorCycleBandSpacingPx ?? brushSettings.spacing ?? defaultBandSpacing
         : brushSettings.spacing ?? defaultBandSpacing
     );
-    colorCycleBrush.setBandSpacing(resolvedBandSpacing);
+    settingsPatch.bandSpacing = resolvedBandSpacing;
 
     try {
       const enable = isCCGradientActiveLayer && !!brushSettings.ditherEnabled;
-      colorCycleBrush.setDitherEnabled(enable);
+      settingsPatch.ditherEnabled = enable;
       if (isCCGradientActiveLayer && typeof brushSettings.fillResolution === 'number') {
-        colorCycleBrush.setDitherPixelSize(Math.max(1, Math.floor(brushSettings.fillResolution)));
+        settingsPatch.ditherPixelSize = Math.max(1, Math.floor(brushSettings.fillResolution));
       }
-      if (typeof colorCycleBrush.setDitherStrength === 'function') {
-        colorCycleBrush.setDitherStrength(enable ? 1 : 0);
-      }
-      if (typeof colorCycleBrush.setPxlEdgeEnabled === 'function') {
-        colorCycleBrush.setPxlEdgeEnabled(!!brushSettings.pxlEdge);
-      }
-      colorCycleBrush.setStampDitherEnabled(!isCCGradientActiveLayer && !!brushSettings.colorCycleStampDitherEnabled);
+      settingsPatch.ditherStrength = enable ? 1 : 0;
+      settingsPatch.pxlEdgeEnabled = !!brushSettings.pxlEdge;
+      settingsPatch.stampDitherEnabled = !isCCGradientActiveLayer && !!brushSettings.colorCycleStampDitherEnabled;
     } catch (error) {
       logError('[CC Init] Failed to set dither settings:', error);
     }
 
     try {
       const { enabled, minPercent, maxPercent } = resolveBrushPressureRange(brushSettings);
-      colorCycleBrush.setPressureEnabled(enabled);
-      colorCycleBrush.setMinPressure(enabled ? minPercent : 100);
-      colorCycleBrush.setMaxPressure(enabled ? maxPercent : 100);
+      settingsPatch.pressureEnabled = enabled;
+      settingsPatch.minPressure = enabled ? minPercent : 100;
+      settingsPatch.maxPressure = enabled ? maxPercent : 100;
     } catch (error) {
       logError('[CC Init] Failed to set pressure settings:', error);
     }
@@ -188,23 +169,15 @@ export const initializeColorCycleBrushForActiveLayer = <TBrush extends BrushLike
         brushSettings.brushShape === BrushShape.COLOR_CYCLE_TRIANGLE
           ? 'triangle'
           : (brushSettings.colorCycleStampShape ?? 'square');
-      colorCycleBrush.setStampShape(stampShape);
+      settingsPatch.stampShape = stampShape;
     } catch (error) {
       logError('[CC Init] Failed to set stamp shape:', error);
     }
 
+    applyColorCycleBrushSettingsPatch(colorCycleBrush, settingsPatch);
+
     if (!skipGradientReinit) {
       requestGradientApply(activeLayerId, 'brush-init');
-    }
-
-    const flowMode = 'forward' as const;
-    if (typeof colorCycleBrush.setLegacyFlowMode === 'function') {
-      colorCycleBrush.setLegacyFlowMode(flowMode);
-    }
-    if (typeof colorCycleBrush.setFlowMode === 'function') {
-      colorCycleBrush.setFlowMode(flowMode);
-    } else {
-      colorCycleBrush.setFlowDirection('forward');
     }
 
     return colorCycleBrush;
@@ -217,11 +190,11 @@ export const initializeColorCycleBrushForActiveLayer = <TBrush extends BrushLike
 export const ensureColorCycleAnimationForLayers = ({
   shouldPlay,
   layers,
-  getBrush,
+  getPlaybackBrush,
 }: {
   shouldPlay: boolean;
   layers: Array<{ id: string; layerType?: string }>;
-  getBrush: (layerId: string) => {
+  getPlaybackBrush: (layerId: string) => {
     startAnimation?: () => void;
     stopAnimation?: () => void;
     setPlaying?: (playing: boolean) => void;
@@ -236,7 +209,7 @@ export const ensureColorCycleAnimationForLayers = ({
       return;
     }
 
-    const brush = getBrush(layer.id);
+    const brush = getPlaybackBrush(layer.id);
     if (!brush) {
       return;
     }

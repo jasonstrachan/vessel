@@ -1,3 +1,5 @@
+import { getRisographPattern, getRisographEffectSettings } from '@/utils/risographTexture';
+
 type Point = { x: number; y: number };
 
 type CanvasPoolLike = {
@@ -159,4 +161,50 @@ export const applyRisographEffect = ({
   drawPatternPass(tintMask, tintAlpha, filter);
 
   ctx.restore();
+};
+
+/**
+ * Apply per-stamp risograph texture to a drawn shape.
+ */
+export const applyRisographTexture = (
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  size: number,
+  intensity: number,
+) => {
+  if (intensity <= 0) {
+    return;
+  }
+
+  const risoPattern = getRisographPattern(ctx);
+
+  if (!risoPattern) {
+    return;
+  }
+
+  const isPixelBrush = !ctx.imageSmoothingEnabled;
+  const effect = getRisographEffectSettings(intensity, { isPixelBrush });
+
+  if (effect.alpha <= 0) {
+    return;
+  }
+
+  const originalAlpha = ctx.globalAlpha;
+  const originalComposite = ctx.globalCompositeOperation;
+  const originalFillStyle = ctx.fillStyle;
+
+  ctx.globalCompositeOperation = 'multiply';
+  ctx.globalAlpha = originalAlpha * effect.alpha;
+  ctx.fillStyle = risoPattern;
+
+  const risoSize = size * 1.1;
+  const halfSize = risoSize / 2;
+  const jitterX = (Math.random() - 0.5) * effect.jitter;
+  const jitterY = (Math.random() - 0.5) * effect.jitter;
+  ctx.fillRect(x - halfSize + jitterX, y - halfSize + jitterY, risoSize, risoSize);
+
+  ctx.globalAlpha = originalAlpha;
+  ctx.globalCompositeOperation = originalComposite;
+  ctx.fillStyle = originalFillStyle;
 };

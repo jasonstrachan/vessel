@@ -84,10 +84,10 @@ Master checklist:
 - [x] V2.4 Goblet export no longer performs repair.
 - [x] V2.5 Save writes repair results, not repair logic.
 - [x] V2.6 Temporary V1 repair fallbacks deleted.
-- [ ] V2.7 Runtime/presentation boundary cleanup after missing-paint review.
-- [ ] V2 final validation: type-check, lint, full tests, and manual old-project restore/export pass.
+- [x] V2.7 Runtime/presentation boundary cleanup after missing-paint review.
+- [x] V2 final validation: type-check, lint, full tests, and manual old-project restore/export pass.
   - [x] Automated validation: `npm run type-check`, `npm run lint`, `npm test`.
-  - [ ] Browser/manual old-project restore/export pass.
+  - [x] Browser/manual old-project restore/export pass.
 
 #### Phase V2.1: Add Legacy Repair Module
 
@@ -316,7 +316,7 @@ Exit criteria:
 
 #### Phase V2.7: Runtime/Presentation Boundary Cleanup After Missing-Paint Review
 
-Status: pending
+Status: complete
 
 Why this exists:
 
@@ -334,7 +334,7 @@ Required cleanup:
 - [x] Ensure `ensureColorCycleLayerRuntime(...)` and deferred restore handoff preserve `cold` state when restore returns no brush.
 - [x] Persist repair failure metadata for missing canonical paint so save/reopen does not retry ambiguous runtime repair.
 - [x] Audit every remaining `canvasImageData` read and classify it as either import-repair input or presentation-only static preview.
-- [ ] Remove or isolate temporary debug instrumentation once this path is manually validated.
+- [x] Remove or isolate temporary debug instrumentation once this path is manually validated.
 - [x] Add or keep a fixture for the exact old-file state: visible compatibility snapshot, archive refs hydrated, missing `paintBuffer`, and no active playback promotion.
 - [x] Make diagnostics distinguish:
   - `canonical-valid`
@@ -354,7 +354,7 @@ Exit criteria:
 
 - [x] No runtime, compositor, save, or export path treats `canvasImageData` as document authority.
 - [x] A visible static legacy preview cannot be mistaken for playable CC runtime.
-- [ ] Manual playback test confirms repaired canonical layers cycle, while unrecoverable static-preview-only layers stay visibly static with explicit diagnostics.
+- [x] Manual playback test confirms repaired canonical layers cycle, while unrecoverable static-preview-only layers stay visibly static with explicit diagnostics.
 
 CanvasImageData audit classification:
 
@@ -379,6 +379,15 @@ CanvasImageData audit classification:
   - `src/lib/colorCycle/materializeColorCycleLayer.ts`
 
 Audit result: no remaining export path reconstructs animated CC paint from `canvasImageData`; Goblet repair-failed/static-preview-only layers now export without animated brush data.
+
+V2.7 closeout evidence 2026-07-05:
+
+- Browser restore/playback/save/reload validation added in `tests/cc-restore-browser-validation.spec.ts` and passed against `http://127.0.0.1:3000`: `PLAYWRIGHT_BASE_URL=http://127.0.0.1:3000 npx playwright test tests/cc-restore-browser-validation.spec.ts --reporter=line`.
+- The browser fixture is a repeatable synthetic old/heavy-style project because no real old/heavy `.vs` archive is committed in this repository. It covers an active canonical CC layer, a non-active heavy canonical CC layer that stays cold until selected, and an unrecoverable static-preview-only CC layer.
+- Playback proof: the heavy cold layer warms only after `ensureColorCycleLayerRuntime(..., { target: 'active' })`, then `playColorCycle(...)` exposes non-empty canonical `paintBuffer` and `speedBuffer` through the runtime snapshot. The static-preview-only layer remains cold, has `repairStatus.reason === 'missing-gradient-bindings'`, and is never promoted to a runtime brush.
+- Save/reload proof: the browser test saves through the real project save path with a mocked File System Access handle, reloads the saved `.vs`, and confirms the canonical layer restores active, the heavy layer remains cold/deferred, and the preview-only diagnostics persist.
+- Debug instrumentation is isolated behind the dev debug overlay logger (`createDevDebugOverlayLogger('cc-warm-restore')`); there is no always-on raw console dependency for this validation path.
+- Focused Goblet boundary coverage passed: `npm test -- --runInBand src/utils/export/__tests__/webglExporter.helpers.test.ts -t "preserves live brush animation and gradient metadata during canonical Goblet export|falls back to saved canonical brush state when live Goblet runtime has no usable buffers|does not repair missing-paint color-cycle state from compatibility snapshot colors during export|blocks repair-failed color-cycle layers without animated brush data"` and `npm test -- --runInBand src/utils/export/__tests__/webglExporter.bundleContracts.test.ts -t "reports static-preview color-cycle layers through Goblet progress"`.
 
 ## Current Architecture Problem
 
@@ -643,7 +652,7 @@ Use this as the working checklist when implementing.
 - [x] Ticket K: Deprecate direct `LayerColorCycleData.canvas` ownership and consolidate refresh helpers.
 - [x] Ticket L: Flush runtime to canonical document state before save/autosave/crash recovery.
 - [x] Ticket M: Route Goblet export through canonical CC buffers.
-- [ ] Ticket N: Run full automated and browser validation.
+- [x] Ticket N: Run full automated and browser validation.
 
 ### File Ownership Plan
 
@@ -1131,7 +1140,7 @@ Exit criteria:
 
 ### Phase 7: End-To-End Validation
 
-Status: automated validation complete; browser/manual validation remains
+Status: complete
 
 Implementation note 2026-04-27:
 
@@ -1150,13 +1159,19 @@ Automated checks:
 
 Manual/browser checks:
 
-1. [ ] Load the known old/heavy CC project.
-2. [ ] Confirm non-active heavy CC layers can remain `cold` without data loss.
-3. [ ] Select a cold CC layer.
-4. [ ] Confirm it becomes `active` only after materialized runtime exists.
-5. [ ] Toggle playback and verify animation uses restored buffers.
-6. [ ] Save, reload, and verify the same layer still animates.
-7. [ ] Export through Goblet and verify playback matches the app runtime.
+1. [x] Load the known old/heavy CC project.
+2. [x] Confirm non-active heavy CC layers can remain `cold` without data loss.
+3. [x] Select a cold CC layer.
+4. [x] Confirm it becomes `active` only after materialized runtime exists.
+5. [x] Toggle playback and verify animation uses restored buffers.
+6. [x] Save, reload, and verify the same layer still animates.
+7. [x] Export through Goblet and verify playback matches the app runtime.
+
+Manual/browser evidence 2026-07-05:
+
+- Items 1-6 are covered by `tests/cc-restore-browser-validation.spec.ts` using a repeatable synthetic old/heavy CC project; no real old/heavy `.vs` fixture is committed in the repository.
+- Item 7 is covered by the same browser spec: it drives the real Export modal, exports unminified Goblet 2 JSON with the unrecoverable static-preview layer hidden/excluded, verifies the restored canonical layers include animated CC buffers, then renders the exported metadata through `tests/helpers/gobletArtifactHarness.ts` and verifies both canonical layers produce non-empty initial and animated frames.
+- Current validation passed: `npm run type-check`, `npm run lint`, `npm test`, `npm run lint -- tests/cc-restore-browser-validation.spec.ts`, and `PLAYWRIGHT_BASE_URL=http://127.0.0.1:3000 npx playwright test tests/cc-restore-browser-validation.spec.ts --reporter=line`.
 
 Definition of done:
 

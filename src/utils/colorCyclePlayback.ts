@@ -11,10 +11,12 @@ import {
   useAppStore,
   type CCReason
 } from '@/stores/useAppStore';
+import { getColorCycleBrushManager } from '@/stores/colorCycleBrushManager';
 import { getColorCycleHydrationState } from '@/stores/layerHydration';
 import {
   resolveColorCycleRuntimeSourcePolicy,
 } from '@/lib/colorCycle/runtimeSourcePolicy';
+import { getColorCycleLegacyLayerBufferByteLength } from '@/lib/colorCycle/document';
 import type { Layer } from '@/types';
 import { logCCMutation } from '@/utils/colorCycle/ccMutationAudit';
 
@@ -72,9 +74,9 @@ const summarizePlaybackCanonicalPayload = (layer: Layer): PlaybackCanonicalSumma
   return {
     hasContent: Boolean(data.hasContent === true || documentState?.hasContent === true),
     paintBytes: getDocumentStateBufferBytes(layer, 'paintRef'),
-    gradientIdBytes: data.gradientIdBuffer?.byteLength ?? getDocumentStateBufferBytes(layer, 'gradientIdRef'),
-    gradientDefIdBytes: data.gradientDefIdBuffer?.byteLength ?? getDocumentStateBufferBytes(layer, 'gradientDefIdRef'),
-    phaseBytes: data.phaseBuffer?.byteLength ?? getDocumentStateBufferBytes(layer, 'phaseRef'),
+    gradientIdBytes: getColorCycleLegacyLayerBufferByteLength(data, 'gradientIdBuffer') || getDocumentStateBufferBytes(layer, 'gradientIdRef'),
+    gradientDefIdBytes: getColorCycleLegacyLayerBufferByteLength(data, 'gradientDefIdBuffer') || getDocumentStateBufferBytes(layer, 'gradientDefIdRef'),
+    phaseBytes: getColorCycleLegacyLayerBufferByteLength(data, 'phaseBuffer') || getDocumentStateBufferBytes(layer, 'phaseRef'),
     brushState: Boolean(data.brushState),
   };
 };
@@ -170,7 +172,10 @@ const logPlaybackCanonicalMutation = (
 };
 
 const hasColorCyclePlaybackWarmupSource = (layer: Layer): boolean => {
-  return resolveColorCycleRuntimeSourcePolicy(layer).hasPlaybackWarmupSource;
+  const manager = getColorCycleBrushManager() as Partial<ReturnType<typeof getColorCycleBrushManager>>;
+  return resolveColorCycleRuntimeSourcePolicy(layer, {
+    document: manager.getDocument?.(layer.id),
+  }).hasPlaybackWarmupSource;
 };
 
 export const isColorCycleDesired = (): boolean =>
@@ -193,9 +198,8 @@ const reconcileRecolorPlayback = async (
       await Promise.all(recolorLayers.map(layer => manager.registerExistingLayer(layer)));
       ccLog('Recolor registered', { count: recolorLayers.length, reason });
       manager.playAll();
-      const maybeRenderOnce = (manager as { renderOnce?: () => void }).renderOnce;
-      if (typeof maybeRenderOnce === 'function') {
-        maybeRenderOnce.call(manager);
+      if (typeof (manager as unknown as { renderOnce?: () => void }).renderOnce === 'function') {
+        (manager as unknown as { renderOnce: () => void }).renderOnce();
         ccLog('Recolor first-frame nudged', { reason });
       }
     } else {

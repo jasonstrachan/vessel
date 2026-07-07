@@ -1,4 +1,5 @@
 import type { Layer } from '@/types';
+import { getColorCycleLegacyLayerBufferByteLength } from '@/lib/colorCycle/document/legacyLayerBuffers';
 import { __DEV__, logError, recordBreadcrumb, debugLog, debugWarn } from '@/utils/debug';
 
 type AuditSeverity = 'info' | 'warn' | 'error';
@@ -79,9 +80,6 @@ const installMutationLogHelper = (): void => {
   auditWindow.__VESSEL_GET_CC_MUTATION_LOG__ = getPersistedCCMutationLog;
 };
 
-const getByteLength = (value: ArrayBufferLike | null | undefined): number =>
-  value?.byteLength ?? 0;
-
 const getCanvasSize = (
   canvas: HTMLCanvasElement | OffscreenCanvas | null | undefined
 ): string | null => {
@@ -108,8 +106,8 @@ export const summarizeColorCycleLayer = (
     canvasSize: getCanvasSize(colorCycleData?.canvas),
     hasImageData: Boolean(layer.imageData),
     imageDataSize: layer.imageData ? `${layer.imageData.width}x${layer.imageData.height}` : null,
-    gradientDefBufferBytes: getByteLength(colorCycleData?.gradientDefIdBuffer),
-    gradientIdBufferBytes: getByteLength(colorCycleData?.gradientIdBuffer),
+    gradientDefBufferBytes: getColorCycleLegacyLayerBufferByteLength(colorCycleData, 'gradientDefIdBuffer'),
+    gradientIdBufferBytes: getColorCycleLegacyLayerBufferByteLength(colorCycleData, 'gradientIdBuffer'),
     gradientDefStoreCount: colorCycleData?.gradientDefStore?.length ?? 0,
     slotPaletteCount: colorCycleData?.slotPalettes?.length ?? 0,
     paintSlot:

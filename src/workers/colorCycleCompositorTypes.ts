@@ -8,17 +8,25 @@ export type ColorCycleCompositorCommandType =
 
 export type ColorCycleCompositorMessage =
   | { type: 'ping'; requestId?: number }
-  | { type: 'ensure-layer'; layerId: string; width: number; height: number; requestId?: number }
+  | { type: 'ensure-layer'; layerId: string; width: number; height: number; documentVersion?: number; requestId?: number }
   | { type: 'dispose-layer'; layerId: string; requestId?: number }
   | { type: 'frame-request'; requestId?: number }
-  | { type: 'apply-mask'; layerId: string; maskBitmap: ImageBitmap | null; requestId?: number }
+  | { type: 'apply-mask'; layerId: string; maskBitmap: ImageBitmap | null; documentVersion?: number; requestId?: number }
   | { type: 'shutdown'; requestId?: number };
+
+export interface ColorCycleCompositorLayerInput {
+  layerId: string;
+  width: number;
+  height: number;
+  builtFromVersion: number | null;
+}
 
 export interface ColorCycleCompositorLayerFrame {
   layerId: string;
   bitmap: ImageBitmap;
   opacity: number;
   blendMode: GlobalCompositeOperation;
+  builtFromVersion: number | null;
 }
 
 export type ColorCycleCompositorResponse =

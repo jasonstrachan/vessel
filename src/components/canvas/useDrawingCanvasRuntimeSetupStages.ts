@@ -12,7 +12,13 @@ export const useDrawingCanvasRuntimeSetupStages = ({
   state,
   showFeedback,
 }: UseDrawingCanvasRuntimeSetupStagesOptions) => {
-  const { visualRuntime, brushEngine, colorCycleRuntime } = useDrawingCanvasRuntimeVisualStage({
+  const {
+    visualRuntime,
+    handlerBrushRuntime,
+    brushRuntime,
+    shapeBrushRuntime,
+    colorCycleRuntime,
+  } = useDrawingCanvasRuntimeVisualStage({
     state,
   });
 
@@ -25,13 +31,14 @@ export const useDrawingCanvasRuntimeSetupStages = ({
     useDrawingCanvasRuntimeInteractionHandlersStage({
       state,
       showFeedback,
-      brushEngine,
+      brushRuntime: handlerBrushRuntime,
       renderRuntime,
     });
 
   return {
     visualRuntime,
-    brushEngine,
+    brushRuntime,
+    shapeBrushRuntime,
     renderRuntime,
     interactionRuntime,
     handlersRuntime,

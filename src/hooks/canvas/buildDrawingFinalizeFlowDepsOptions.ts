@@ -8,7 +8,7 @@ type FinalizeFlowDepsOptions = Parameters<typeof useFinalizeFlowDeps>[0];
 interface BuildDrawingFinalizeFlowDepsOptions {
   refs: UseDrawingFinalizeRuntimeArgs['refs'];
   storeRef: UseDrawingFinalizeRuntimeArgs['storeRef'];
-  brushEngine: UseDrawingFinalizeRuntimeArgs['brushEngine'];
+  brushRuntime: UseDrawingFinalizeRuntimeArgs['brushRuntime'];
   userBrushEngine: UseDrawingFinalizeRuntimeArgs['userBrushEngine'];
   cancelAnimationFrameSafe: FinalizeFlowArgs['finalizeAfterQueueDispatcherArgs']['cancelAnimationFrameSafe'];
   endStrokeSession: UseDrawingFinalizeRuntimeArgs['endStrokeSession'];
@@ -27,7 +27,7 @@ interface BuildDrawingFinalizeFlowDepsOptions {
 export const buildDrawingFinalizeFlowDepsOptions = ({
   refs,
   storeRef,
-  brushEngine,
+  brushRuntime,
   userBrushEngine,
   cancelAnimationFrameSafe,
   endStrokeSession,
@@ -44,7 +44,7 @@ export const buildDrawingFinalizeFlowDepsOptions = ({
 }: BuildDrawingFinalizeFlowDepsOptions): FinalizeFlowDepsOptions => ({
   finalizeAfterQueueDispatcherArgs: buildDrawingFinalizeAfterQueueDispatcherArgs({
     refs,
-    brushEngine,
+    brushRuntime,
     userBrushEngine,
     cancelAnimationFrameSafe,
     endStrokeSession,
@@ -53,7 +53,7 @@ export const buildDrawingFinalizeFlowDepsOptions = ({
   finalizeBrushFlowDepsArgs: buildDrawingFinalizeBrushFlowDepsArgs({
     refs,
     storeRef,
-    brushEngine,
+    brushRuntime,
     computeAutoSampleStops,
     clearBrushSamplingPreview,
     getBrushForLayer,

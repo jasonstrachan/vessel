@@ -18,6 +18,22 @@ jest.mock('@/utils/colorCycleSlotGC', () => ({
   buildDefaultReservedSlots: jest.fn(() => new Set()),
 }));
 
+jest.mock('@/stores/colorCycleBrushManager', () => ({
+  __esModule: true,
+  getColorCycleBrushManager: jest.fn(() => ({
+    getBrush: jest.fn(),
+  })),
+}));
+
+jest.mock('@/lib/colorCycle/document', () => ({
+  __esModule: true,
+  applyColorCycleBrushLayerSnapshotToRuntime: jest.fn(),
+  coalesceColorCycleDirtyRects: jest.fn((rects) => rects),
+  getColorCycleLegacyLayerBuffer: jest.fn(),
+  getColorCycleLegacyLayerBufferByteLength: jest.fn(() => 0),
+  readColorCycleBrushLayerSnapshotFromRuntime: jest.fn(() => null),
+}));
+
 import { createLayersSlice } from '@/stores/slices/layersSlice';
 import { createSliceTestStore } from '@/stores/__tests__/sliceTestUtils';
 

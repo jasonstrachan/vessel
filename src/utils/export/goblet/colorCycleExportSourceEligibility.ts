@@ -1,4 +1,5 @@
 import type { Layer } from '@/types';
+import { persistedStrokeDataHasExportableColorCycleBuffers } from '@/lib/colorCycle/document';
 import {
   COLOR_CYCLE_PERSISTENCE_SCHEMA_VERSION,
   getLayerSnapshot,
@@ -33,19 +34,6 @@ export type PersistedColorCycleExportEligibility =
       layerSnapshot?: PersistedColorCycleLayerSnapshot;
     };
 
-export const hasExportableColorCycleBuffer = (value: unknown): boolean => {
-  if (value instanceof ArrayBuffer) {
-    return value.byteLength > 0;
-  }
-  if (ArrayBuffer.isView(value)) {
-    return value.byteLength > 0;
-  }
-  if (typeof value === 'string') {
-    return value.length > 0 && !value.startsWith('zip:');
-  }
-  return false;
-};
-
 export const getPersistedColorCycleExportEntry = (
   brushState: PersistedColorCycleBrushState | undefined,
   layerId: string,
@@ -73,27 +61,10 @@ export const hasPersistedColorCycleCanonicalMarkers = (
 const hasExportablePersistedStrokeData = (
   layer: Layer,
   strokeData: unknown,
-): boolean => {
-  if (!strokeData || typeof strokeData !== 'object') {
-    return false;
-  }
-  const snapshot = strokeData as {
-    paintBuffer?: unknown;
-    gradientIdBuffer?: unknown;
-    gradientDefIdBuffer?: unknown;
-  };
-  return (
-    hasExportableColorCycleBuffer(snapshot.paintBuffer) &&
-    (
-      hasExportableColorCycleBuffer(snapshot.gradientIdBuffer) ||
-      hasExportableColorCycleBuffer(layer.colorCycleData?.gradientIdBuffer)
-    ) &&
-    (
-      hasExportableColorCycleBuffer(snapshot.gradientDefIdBuffer) ||
-      hasExportableColorCycleBuffer(layer.colorCycleData?.gradientDefIdBuffer)
-    )
-  );
-};
+): boolean => persistedStrokeDataHasExportableColorCycleBuffers({
+  colorCycleData: layer.colorCycleData,
+  strokeData,
+});
 
 export const resolvePersistedColorCycleExportEligibility = (
   layer: Layer,

@@ -30,6 +30,8 @@ export type { AnimatedLayer, AnimationStats } from './RecolorAnimationController
 export { RecolorManager } from './RecolorManager';
 export type { RecolorOptions, ExtractColorsOptions } from './RecolorManager';
 
+export * from './document';
+
 // Phase 2: Rendering Pipeline
 export * from './rendering';
 export * from './memory';

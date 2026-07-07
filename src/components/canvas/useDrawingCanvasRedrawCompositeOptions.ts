@@ -24,6 +24,7 @@ export const useDrawingCanvasRedrawCompositeOptions = ({
 }: UseDrawingCanvasRedrawCompositeOptionsArgs) => ({
   redrawEffectsOptions: {
     ...redrawBase,
+    rebuildStaticComposite: compositeBase.rebuildStaticComposite,
     setNeedsRedraw: shared.setNeedsRedraw,
   },
   compositeRebuildOptions: {

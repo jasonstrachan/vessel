@@ -4,7 +4,14 @@ import { useDrawingHandlersStoreState } from '@/hooks/canvas/useDrawingHandlersS
 import { useDrawingHandlersToolRuntimeBridges } from '@/hooks/canvas/useDrawingHandlersToolRuntimeBridges';
 
 export const useDrawingHandlersToolRuntimes = () => {
-  const { brushEngine, userBrushEngine } = useDrawingHandlersEngineRuntimes();
+  const {
+    brushStampRuntime,
+    strokeBrushRuntime,
+    finalizeBrushRuntime,
+    shapeBrushRuntime,
+    playbackBrushRuntime,
+    userBrushEngine,
+  } = useDrawingHandlersEngineRuntimes();
   const {
     captureCanvasToActiveLayer,
     shapeMode,
@@ -15,17 +22,19 @@ export const useDrawingHandlersToolRuntimes = () => {
   } = useDrawingHandlersStoreState();
 
   const refs = useDrawingHandlerRefs();
-
   const { shapeRuntime, brushToolRuntime } = useDrawingHandlersToolRuntimeBridges({
     refs,
     storeRef,
-    brushEngine,
+    brushStampRuntime,
     userBrushEngine,
   });
 
   return {
     refs,
-    brushEngine,
+    strokeBrushRuntime,
+    finalizeBrushRuntime,
+    shapeBrushRuntime,
+    playbackBrushRuntime,
     userBrushEngine,
     storeRef,
     shapeMode,

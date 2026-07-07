@@ -9,6 +9,9 @@ type FinalizeDrawingArgs = Parameters<typeof useFinalizeDrawingHandlers>[0];
 type FinalizeCoreArgs = Parameters<typeof useFinalizeCoreDeps>[0];
 export type FinalizeFlowArgs = Parameters<typeof useFinalizeFlowDeps>[0];
 type FinalizeDrawingCleanupDeps = ReturnType<typeof useFinalizeContextDeps>['finalizeDrawingCleanupDeps'];
+type DrawingFinalizeBrushRuntime =
+  FinalizeFlowArgs['finalizeAfterQueueDispatcherArgs']['brushRuntime'] &
+  FinalizeFlowArgs['finalizeBrushFlowDepsArgs']['brushRuntime'];
 type BaseFinalizeAfterQueueDepsArgs = Pick<
   FinalizeDrawingArgs['finalizeAfterQueueDepsArgs'],
   'finalizeLayerCaptureContextDeps' | 'finalizeEraserStrokeDeps' | 'finalizeBrushContextDeps'
@@ -18,7 +21,7 @@ export type UseDrawingFinalizeRuntimeArgs = {
   refs: DrawingHandlerRefs;
   storeRef: FinalizeCoreArgs['finalizeDepsArgs']['storeRef'];
   project: FinalizeDrawingArgs['finalizeDrawingDispatcherArgs']['project'];
-  brushEngine: unknown;
+  brushRuntime: DrawingFinalizeBrushRuntime;
   userBrushEngine: FinalizeFlowArgs['finalizeAfterQueueDispatcherArgs']['userBrushEngine'];
   scheduleDeferredColorCycleSave: FinalizeCoreArgs['commitStrokeHistoryDepsArgs']['scheduleDeferredColorCycleSave'];
   scheduleHistoryCommit: FinalizeCoreArgs['commitStrokeHistoryDepsArgs']['scheduleHistoryCommit'];

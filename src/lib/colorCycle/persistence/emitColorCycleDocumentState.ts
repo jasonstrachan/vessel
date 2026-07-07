@@ -1,5 +1,6 @@
 import type { Layer } from '@/types';
 import { completeDefaultColorCycleMotionBuffers } from '@/lib/colorCycle/documentState';
+import { readLegacyColorCycleTopLevelBuffers } from '@/lib/colorCycle/document';
 
 import type {
   ColorCyclePersistenceDocumentState,
@@ -47,16 +48,17 @@ const snapshotToDocumentState = (
     resolveDimensions(layer, fallbackWidth, fallbackHeight);
   const colorCycleData = layer.colorCycleData;
   const strokeData = snapshot.strokeData;
+  const legacyTopLevelBuffers = readLegacyColorCycleTopLevelBuffers(colorCycleData);
   const state: ColorCyclePersistenceDocumentState = {
     layerId: layer.id,
     width: dimensions.width,
     height: dimensions.height,
     paintBuffer: cloneBufferRef(strokeData?.paintBuffer),
-    gradientIdBuffer: cloneBufferRef(strokeData?.gradientIdBuffer ?? colorCycleData?.gradientIdBuffer),
-    gradientDefIdBuffer: cloneBufferRef(strokeData?.gradientDefIdBuffer ?? colorCycleData?.gradientDefIdBuffer),
+    gradientIdBuffer: cloneBufferRef(strokeData?.gradientIdBuffer ?? legacyTopLevelBuffers.gradientIdBuffer),
+    gradientDefIdBuffer: cloneBufferRef(strokeData?.gradientDefIdBuffer ?? legacyTopLevelBuffers.gradientDefIdBuffer),
     speedBuffer: cloneBufferRef(strokeData?.speedBuffer),
     flowBuffer: cloneBufferRef(strokeData?.flowBuffer),
-    phaseBuffer: cloneBufferRef(strokeData?.phaseBuffer ?? colorCycleData?.phaseBuffer),
+    phaseBuffer: cloneBufferRef(strokeData?.phaseBuffer ?? legacyTopLevelBuffers.phaseBuffer),
     slotPalettes: snapshot.slotPalettes ?? colorCycleData?.slotPalettes,
     gradientDefs: snapshot.gradientDefs ?? colorCycleData?.gradientDefs,
     gradientDefStore: snapshot.gradientDefStore ?? colorCycleData?.gradientDefStore,
@@ -68,7 +70,11 @@ const snapshotToDocumentState = (
     hasContent: Boolean(strokeData?.hasContent ?? colorCycleData?.hasContent ?? strokeData?.paintBuffer),
     sources: {
       brushStateSnapshot: true,
-      topLevelBuffers: Boolean(colorCycleData?.gradientIdBuffer || colorCycleData?.gradientDefIdBuffer || colorCycleData?.phaseBuffer),
+      topLevelBuffers: Boolean(
+        legacyTopLevelBuffers.gradientIdBuffer ||
+        legacyTopLevelBuffers.gradientDefIdBuffer ||
+        legacyTopLevelBuffers.phaseBuffer,
+      ),
       legacyStateRefs: false,
     },
   };

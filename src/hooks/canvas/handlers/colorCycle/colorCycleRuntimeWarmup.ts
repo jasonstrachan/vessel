@@ -1,4 +1,5 @@
 import { getAppStoreState } from '@/stores/appStoreAccess';
+import { getColorCycleBrushManager } from '@/stores/colorCycleBrushManager';
 import {
   hasColorCycleEditableRuntimeSource,
   resolveColorCycleRuntimeSourcePolicy,
@@ -12,7 +13,11 @@ type FeedbackFn = (message: string) => void;
 const warmupByLayerId = new Map<string, Promise<boolean>>();
 
 export const hasColorCycleCanonicalEditSource = (layer: Layer | null | undefined): boolean =>
-  hasColorCycleEditableRuntimeSource(layer);
+  hasColorCycleEditableRuntimeSource(layer, {
+    document: layer
+      ? (getColorCycleBrushManager() as Partial<ReturnType<typeof getColorCycleBrushManager>>).getDocument?.(layer.id)
+      : undefined,
+  });
 
 const isColdOrMissingEditableRuntime = (layer: Layer, hasBrush: boolean): boolean => (
   layer.colorCycleData?.deferredRuntimeRestore === true ||
@@ -39,15 +44,16 @@ export const startColorCycleRuntimeWarmupForEdit = ({
     return false;
   }
 
-  const getLayerColorCycleBrush = (state as {
-    getLayerColorCycleBrush?: (id: string) => unknown;
-  }).getLayerColorCycleBrush;
-  const hasBrush = Boolean(getLayerColorCycleBrush?.(layerId));
+  const manager = getColorCycleBrushManager();
+  const hasBrush = manager.hasBrush(layerId);
   if (!isColdOrMissingEditableRuntime(layer, hasBrush)) {
     return false;
   }
 
-  const sourcePolicy = resolveColorCycleRuntimeSourcePolicy(layer);
+  const sourcePolicy = resolveColorCycleRuntimeSourcePolicy(layer, {
+    document: (getColorCycleBrushManager() as Partial<ReturnType<typeof getColorCycleBrushManager>>)
+      .getDocument?.(layerId),
+  });
   if (!sourcePolicy.hasEditableSource) {
     feedback?.('This color-cycle layer is preview-only and cannot be edited');
     return true;
@@ -73,10 +79,7 @@ export const startColorCycleRuntimeWarmupForEdit = ({
       }
       const nextState = getAppStoreState();
       const nextLayer = nextState.layers.find((candidate) => candidate.id === layerId);
-      const nextGetLayerColorCycleBrush = (nextState as {
-        getLayerColorCycleBrush?: (id: string) => unknown;
-      }).getLayerColorCycleBrush;
-      const ready = ok && Boolean(nextLayer && nextGetLayerColorCycleBrush?.(layerId));
+      const ready = ok && Boolean(nextLayer && manager.hasBrush(layerId));
       feedback?.(ready
         ? 'Color-cycle layer ready'
         : 'This color-cycle layer is preview-only and cannot be edited');

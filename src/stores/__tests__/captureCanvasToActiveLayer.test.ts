@@ -65,6 +65,9 @@ const resetStore = () => {
   useAppStore.setState({
     layers: [],
     activeLayerId: null,
+    layersNeedRecomposition: false,
+    compositeSegments: [],
+    pendingCompositeDirtyBatches: [],
     history: { ...state.history, undoStack: [], redoStack: [] },
   });
 };
@@ -166,5 +169,13 @@ describe('captureCanvasToActiveLayer with replace mode', () => {
     const updated = useAppStore.getState().layers[0]?.imageData;
     expect(getPixel(updated, 0, 0)).toEqual([255, 0, 0, 255]);
     expect(getPixel(updated, 1, 1)).toEqual([0, 0, 255, 255]);
+    expect(useAppStore.getState().pendingCompositeDirtyBatches).toEqual([
+      {
+        layerId: 'layer-fb-priority',
+        version: 1,
+        rects: [{ x: 0, y: 0, width: 1, height: 1 }],
+      },
+    ]);
+    expect(useAppStore.getState().layersNeedRecomposition).toBe(true);
   });
 });

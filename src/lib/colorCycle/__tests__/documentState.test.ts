@@ -2,6 +2,7 @@ import type { Layer } from '@/types';
 import { DEFAULT_BRUSH_COLOR_CYCLE_SPEED } from '@/constants/colorCycle';
 import { encodeColorCycleSpeedByte } from '@/utils/colorCycleSpeed';
 import { createDefaultLayerAlignment } from '@/utils/layoutDefaults';
+import { attachLegacyColorCycleTopLevelBuffers } from '@/lib/colorCycle/document';
 
 import {
   completeDefaultColorCycleMotionBuffers,
@@ -109,12 +110,13 @@ describe('normalizeColorCycleLayerDocumentState', () => {
     const gradientIdBuffer = makeBuffer(4, 7);
     const gradientDefIdBuffer = makeBuffer(8, 8);
     const layer = makeColorCycleLayer({
-      colorCycleData: {
+      colorCycleData: attachLegacyColorCycleTopLevelBuffers({
         ...makeColorCycleLayer().colorCycleData,
         hasContent: true,
+      }, {
         gradientIdBuffer,
         gradientDefIdBuffer,
-      },
+      }),
     });
 
     const result = normalizeColorCycleLayerDocumentState(layer);
@@ -139,11 +141,8 @@ describe('normalizeColorCycleLayerDocumentState', () => {
     const currentGradientDefIds = makeBuffer(8, 5);
     const currentPhase = makeBuffer(4, 6);
     const layer = makeColorCycleLayer({
-      colorCycleData: {
+      colorCycleData: attachLegacyColorCycleTopLevelBuffers({
         ...makeColorCycleLayer().colorCycleData,
-        gradientIdBuffer: currentGradientIds,
-        gradientDefIdBuffer: currentGradientDefIds,
-        phaseBuffer: currentPhase,
         brushState: {
           layers: [{
             layerId: 'cc-layer',
@@ -156,7 +155,11 @@ describe('normalizeColorCycleLayerDocumentState', () => {
             },
           }],
         },
-      },
+      }, {
+        gradientIdBuffer: currentGradientIds,
+        gradientDefIdBuffer: currentGradientDefIds,
+        phaseBuffer: currentPhase,
+      }),
     });
 
     const result = normalizeColorCycleLayerDocumentState(layer);

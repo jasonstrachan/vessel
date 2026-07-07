@@ -14,7 +14,7 @@ interface BuildDrawingHandlersFinalizeRuntimeOptions {
   debugTime: UseDrawingHandlersRuntimeSetupBridgeOptions['debugTime'];
   debugTimeEnd: UseDrawingHandlersRuntimeSetupBridgeOptions['debugTimeEnd'];
   debugVerbose: UseDrawingHandlersRuntimeSetupBridgeOptions['debugVerbose'];
-  brushEngine: UseDrawingHandlersRuntimeSetupBridgeOptions['brushEngine'];
+  brushRuntime: RuntimeBridgeArgs['finalizeRuntimeOptions']['runtimeOptions']['brushRuntime'];
   userBrushEngine: UseDrawingHandlersRuntimeSetupBridgeOptions['userBrushEngine'];
   brushToolRuntime: UseDrawingHandlersRuntimeSetupBridgeOptions['brushToolRuntime'];
   colorCycleRuntime: UseDrawingHandlersRuntimeSetupBridgeOptions['colorCycleRuntime'];
@@ -29,7 +29,7 @@ export const buildDrawingHandlersFinalizeRuntimeOptions = ({
   debugTime,
   debugTimeEnd,
   debugVerbose,
-  brushEngine,
+  brushRuntime,
   userBrushEngine,
   brushToolRuntime,
   colorCycleRuntime,
@@ -51,7 +51,7 @@ export const buildDrawingHandlersFinalizeRuntimeOptions = ({
     debugTime,
     debugTimeEnd,
     debugVerbose,
-    brushEngine,
+    brushRuntime,
     userBrushEngine,
     brushToolRuntime,
     colorCycleRuntime,

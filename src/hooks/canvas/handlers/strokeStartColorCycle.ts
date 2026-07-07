@@ -16,7 +16,7 @@ export const prepareStrokeStartColorCycleState = ({
   ccFlowVelocityRef,
   colorCyclePixelQueueRef,
   createPixelQueue,
-  brushEngine,
+  brushRuntime,
   colorCycleAnimationRef,
 }: {
   currentState: AppState;
@@ -30,7 +30,7 @@ export const prepareStrokeStartColorCycleState = ({
   ccFlowVelocityRef: React.MutableRefObject<CcFlowVelocityState>;
   colorCyclePixelQueueRef: React.MutableRefObject<PixelQueue | null>;
   createPixelQueue: () => PixelQueue;
-  brushEngine: { resetColorCycle: () => void } | null;
+  brushRuntime: { resetColorCycle: () => void } | null;
   colorCycleAnimationRef: React.MutableRefObject<number | null>;
 }): boolean => {
   void currentState;
@@ -54,7 +54,7 @@ export const prepareStrokeStartColorCycleState = ({
 
   resetColorCyclePixelQueueExternal(colorCyclePixelQueueRef, { createPixelQueue });
 
-  brushEngine?.resetColorCycle();
+  brushRuntime?.resetColorCycle();
 
   if (!shouldAnimateLive) {
     colorCycleAnimationRef.current = null;

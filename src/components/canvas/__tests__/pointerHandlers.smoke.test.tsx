@@ -158,7 +158,7 @@ describe('pointerHandlers smoke', () => {
         clearOverlay: jest.fn(),
         updateDitherGradSamples: jest.fn(),
       },
-      brushEngine: null,
+      brushRuntime: null,
       sampleColorAtPosition: jest.fn(() => '#000000'),
       sampleColorsAlongLine: jest.fn(() => ['#000000', '#ffffff']),
       getMousePos: jest.fn((e: any) => ({ x: e.clientX, y: e.clientY })),

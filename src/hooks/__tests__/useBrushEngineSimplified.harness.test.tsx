@@ -39,10 +39,20 @@ const mockGetBrush = jest.fn(() => ({
 }));
 jest.mock('@/stores/colorCycleBrushManager', () => ({
   getColorCycleBrushManager: () => ({
-    getBrush: (...args: Parameters<typeof mockGetBrush>) => {
+    getPlaybackBrush: () => getMockManagedBrush(),
+    getSurfaceBrush: () => getMockManagedBrush(),
+    getSettingsPatchBrush: () => getMockManagedBrush(),
+    getLayerActivationBrush: () => getMockManagedBrush(),
+    getClearBrush: () => getMockManagedBrush(),
+    getInitBrush: (...args: Parameters<typeof mockGetBrush>) => {
       mockGetBrush(...args);
       return getMockManagedBrush();
     },
+    getDrawBrush: () => getMockManagedBrush(),
+    getFillBrush: () => getMockManagedBrush(),
+    getStrokeLifecycleBrush: () => getMockManagedBrush(),
+    getSpeedSettingsBrush: () => getMockManagedBrush(),
+    applySettingsToBrushes: jest.fn(),
   }),
 }));
 
@@ -65,7 +75,6 @@ jest.mock('@/stores/useAppStore', () => {
     project: { width: 10, height: 10 },
     layers: [],
     activeLayerId: null,
-    getLayerColorCycleBrush: () => getMockManagedBrush(),
   };
   const useAppStore = (selector: any) => (typeof selector === 'function' ? selector(state) : state);
   (useAppStore as any).getState = () => state;

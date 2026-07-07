@@ -1,10 +1,7 @@
-import { getColorCycleBrushManager, getColorCycleStoreState } from '@/stores/colorCycleBrushManager';
-import type { ColorCycleBrushImplementation } from '@/hooks/brushEngine/ColorCycleBrushMigration';
+import { getColorCycleBrushManager } from '@/stores/colorCycleBrushManager';
+import type { ManagedColorCycleBrush } from '@/hooks/canvas/handlers/colorCycle/colorCycleCommit';
 
 export const createGetBrushForLayerDispatcher = () => {
-  return (layerId: string): ColorCycleBrushImplementation | undefined =>
-    (
-      getColorCycleStoreState()?.getLayerColorCycleBrush?.(layerId) ??
-      getColorCycleBrushManager().getBrush(layerId)
-    ) as ColorCycleBrushImplementation | undefined;
+  return (layerId: string): ManagedColorCycleBrush | undefined =>
+    getColorCycleBrushManager().getCommitBrush(layerId) as ManagedColorCycleBrush | undefined;
 };

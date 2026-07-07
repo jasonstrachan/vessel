@@ -1,6 +1,12 @@
 import type { AppState } from '@/stores/useAppStore';
-import { resolveColorCycleRuntimeSurface } from '@/lib/colorCycle/materializeColorCycleLayer';
-import type { ColorCycleBrushImplementation } from '@/hooks/brushEngine/ColorCycleBrushMigration';
+import {
+  resolveColorCycleRuntimeSurface,
+  type ColorCycleRuntimeBrush,
+} from '@/lib/colorCycle/materializeColorCycleLayer';
+
+export type ColorCycleSurfaceBrush = ColorCycleRuntimeBrush & {
+  setTargetCanvas?: (canvas: HTMLCanvasElement | null) => void;
+};
 
 const ensureCanvasPixelSize = (canvas: HTMLCanvasElement): void => {
   if (
@@ -31,16 +37,13 @@ const ensureCanvasPixelSize = (canvas: HTMLCanvasElement): void => {
 };
 
 export const bindBrushToCanvas = (
-  brush: ColorCycleBrushImplementation | null | undefined,
+  brush: ColorCycleSurfaceBrush | null | undefined,
   canvas: HTMLCanvasElement | null | undefined
 ): void => {
   if (!brush || !canvas) {
     return;
   }
-  const brushWithTarget = brush as ColorCycleBrushImplementation & {
-    setTargetCanvas?: (canvas: HTMLCanvasElement | null) => void;
-  };
-  if (typeof brushWithTarget.setTargetCanvas === 'function') {
+  if (typeof brush.setTargetCanvas === 'function') {
     const isConnected =
       typeof (canvas as { isConnected?: unknown }).isConnected === 'boolean'
         ? Boolean((canvas as { isConnected?: unknown }).isConnected)
@@ -48,12 +51,12 @@ export const bindBrushToCanvas = (
     if (isConnected) {
       ensureCanvasPixelSize(canvas);
     }
-    brushWithTarget.setTargetCanvas(canvas);
+    brush.setTargetCanvas(canvas);
   }
 };
 
 export const refreshLayerCCSurface = (
-  brush: ColorCycleBrushImplementation,
+  brush: ColorCycleRuntimeBrush,
   layerId: string,
   state: AppState
 ): HTMLCanvasElement | null => {

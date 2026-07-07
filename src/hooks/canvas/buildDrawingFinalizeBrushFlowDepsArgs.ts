@@ -8,7 +8,7 @@ import type {
 interface BuildDrawingFinalizeBrushFlowDepsArgsOptions {
   refs: UseDrawingFinalizeRuntimeArgs['refs'];
   storeRef: UseDrawingFinalizeRuntimeArgs['storeRef'];
-  brushEngine: UseDrawingFinalizeRuntimeArgs['brushEngine'];
+  brushRuntime: FinalizeColorCycleRuntime;
   computeAutoSampleStops: UseDrawingFinalizeRuntimeArgs['computeAutoSampleStops'];
   clearBrushSamplingPreview: UseDrawingFinalizeRuntimeArgs['clearBrushSamplingPreview'];
   getBrushForLayer: UseDrawingFinalizeRuntimeArgs['getBrushForLayer'];
@@ -20,10 +20,12 @@ interface BuildDrawingFinalizeBrushFlowDepsArgsOptions {
   ccLog: UseDrawingFinalizeRuntimeArgs['ccLog'];
 }
 
+type FinalizeColorCycleRuntime = FinalizeFlowArgs['finalizeBrushFlowDepsArgs']['brushRuntime'];
+
 export const buildDrawingFinalizeBrushFlowDepsArgs = ({
   refs,
   storeRef,
-  brushEngine,
+  brushRuntime,
   computeAutoSampleStops,
   clearBrushSamplingPreview,
   getBrushForLayer,
@@ -33,26 +35,32 @@ export const buildDrawingFinalizeBrushFlowDepsArgs = ({
   startFinalizeVisibleTimer,
   endFinalizeVisibleTimer,
   ccLog,
-}: BuildDrawingFinalizeBrushFlowDepsArgsOptions): FinalizeFlowArgs['finalizeBrushFlowDepsArgs'] => ({
-  storeRef,
-  brushEngine: brushEngine as FinalizeFlowArgs['finalizeBrushFlowDepsArgs']['brushEngine'],
-  drawingCanvasHasContent: refs.drawingCanvasHasContent,
-  colorCycleAnimationRef: refs.colorCycleAnimationRef,
-  brushSamplingPreviewActiveRef: refs.brushSamplingPreviewActiveRef,
-  autoSamplePointsRef: refs.autoSamplePointsRef,
-  autoSampleLastUpdateRef: refs.autoSampleLastUpdateRef,
-  autoSampleLastAppliedHashRef: refs.autoSampleLastAppliedHashRef,
-  finalizeInProgressRef: refs.finalizeInProgressRef,
-  computeAutoSampleStops,
-  clearBrushSamplingPreview,
-  getBrushForLayer,
-  getEffectiveColorCyclePlaying,
-  startPlaybackRef: refs.startPlaybackRef,
-  bindBrushToCanvas,
-  perfMark,
-  perfMeasure,
-  startFinalizeVisibleTimer,
-  endFinalizeVisibleTimer,
-  dispatchColorCycleFrameUpdate,
-  ccLog,
-});
+}: BuildDrawingFinalizeBrushFlowDepsArgsOptions): FinalizeFlowArgs['finalizeBrushFlowDepsArgs'] => {
+  return {
+    storeRef,
+    brushRuntime: {
+      endColorCycleStroke: () => brushRuntime.endColorCycleStroke(),
+      renderColorCycle: (ctx, applyOpacity) => brushRuntime.renderColorCycle(ctx, applyOpacity),
+      updateColorCycleGradient: (stops) => brushRuntime.updateColorCycleGradient?.(stops),
+    },
+    drawingCanvasHasContent: refs.drawingCanvasHasContent,
+    colorCycleAnimationRef: refs.colorCycleAnimationRef,
+    brushSamplingPreviewActiveRef: refs.brushSamplingPreviewActiveRef,
+    autoSamplePointsRef: refs.autoSamplePointsRef,
+    autoSampleLastUpdateRef: refs.autoSampleLastUpdateRef,
+    autoSampleLastAppliedHashRef: refs.autoSampleLastAppliedHashRef,
+    finalizeInProgressRef: refs.finalizeInProgressRef,
+    computeAutoSampleStops,
+    clearBrushSamplingPreview,
+    getBrushForLayer,
+    getEffectiveColorCyclePlaying,
+    startPlaybackRef: refs.startPlaybackRef,
+    bindBrushToCanvas,
+    perfMark,
+    perfMeasure,
+    startFinalizeVisibleTimer,
+    endFinalizeVisibleTimer,
+    dispatchColorCycleFrameUpdate,
+    ccLog,
+  };
+};

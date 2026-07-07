@@ -30,7 +30,10 @@ import {
   formatGobletColorCycleDiagnostics,
   getUserVisibleGobletColorCycleDiagnostics,
 } from '@/utils/export/goblet/colorCyclePayloadDiagnostics';
-import { hasGobletColorCycleLiveBrush } from '@/utils/export/goblet/colorCycleLiveBrushResolver';
+import {
+  hasGobletColorCycleLiveBrush,
+  resolveGobletColorCycleDocument,
+} from '@/utils/export/goblet/colorCycleLiveBrushResolver';
 import { downloadBlob } from '@/utils/export/goblet/downloadBlob';
 import {
   fetchGobletAsset,
@@ -110,15 +113,13 @@ let gobletDiagnosticsActive = gobletDiagnosticsDefault;
 type GobletBrushAlphaModeOptions = {
   hasVisibleTextureAlpha: boolean;
   syntheticTextureApplied: boolean;
-  usedLiveRuntimeFallback: boolean;
 };
 
 export const resolveGobletBrushAlphaMode = ({
   hasVisibleTextureAlpha,
   syntheticTextureApplied,
-  usedLiveRuntimeFallback,
 }: GobletBrushAlphaModeOptions): 'source' | 'opaque-indices' => {
-  if (usedLiveRuntimeFallback || syntheticTextureApplied) {
+  if (syntheticTextureApplied) {
     return 'opaque-indices';
   }
   return hasVisibleTextureAlpha ? 'source' : 'opaque-indices';
@@ -183,6 +184,7 @@ const shouldSkipEmptyColorCycleLayerForGobletExport = (
     data.repairStatus?.ok !== false &&
     !data.brushState &&
     !data.colorCycleBrush &&
+    !resolveGobletColorCycleDocument(layer) &&
     !hasGobletColorCycleLiveBrush(layer) &&
     !textureInfo?.hasVisibleAlpha
   );
@@ -404,7 +406,6 @@ export const exportProjectAsWebGL = async (
     let colorCycleResult: Awaited<ReturnType<typeof serializeColorCycleDataFromResolvedLayer>> | undefined;
     let colorCycleSource: string | undefined;
     let colorCycleDiagnostics: string[] | undefined;
-    let colorCycleUsedLiveRuntimeFallback = false;
     let colorCycleStats: {
       payloadPixels?: number;
       nonZeroPaint?: number;
@@ -453,9 +454,6 @@ export const exportProjectAsWebGL = async (
       }
       colorCycleResult = payloadResult.payload;
       colorCycleSource = payloadResult.source;
-      colorCycleUsedLiveRuntimeFallback = payloadResult.diagnostics.some(
-        (diagnostic) => diagnostic.code === 'retry-live-runtime'
-      );
       colorCycleStats = payloadResult.stats;
       emitProgress?.({
         phase: 'layers',
@@ -532,12 +530,11 @@ export const exportProjectAsWebGL = async (
     }
 
     if (colorCycle?.mode === 'brush' && colorCycle.brushState) {
-      // Live-runtime brush payloads are authoritative; source texture alpha can
-      // be a stale/sparse preview surface and punch holes in animated strokes.
+      // Synthetic textures are generated from authoritative indices; source
+      // texture alpha can be a sparse preview surface and punch holes in strokes.
       colorCycle.brushState.alphaMode = resolveGobletBrushAlphaMode({
         hasVisibleTextureAlpha: Boolean(texture && textureInfo?.hasVisibleAlpha),
         syntheticTextureApplied,
-        usedLiveRuntimeFallback: colorCycleUsedLiveRuntimeFallback,
       });
     }
 

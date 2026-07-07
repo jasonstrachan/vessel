@@ -11,6 +11,12 @@ import {
   waitForAllPendingColorCycleSaves,
   waitForFinalizeQueueIdle,
 } from '@/stores/pendingColorCycleSaves';
+import {
+  attachLegacyColorCycleTopLevelBuffers,
+  getColorCycleLegacyLayerBuffer,
+  getDerivedSurfaceBuiltFromVersion,
+} from '@/lib/colorCycle/document';
+import { readTestColorCycleBrushLayerSnapshot } from '@/testing/colorCycleSnapshotTestUtils';
 
 jest.mock('@/utils/projectIO', () => ({
   __esModule: true as const,
@@ -62,9 +68,18 @@ jest.mock('@/stores/colorCycleBrushManager', () => {
     cleanupInactive: jest.fn(),
     cleanupAll: jest.fn(),
     validateColorCycleBrush: jest.fn(() => true),
-    getLayerColorCycleBrush: jest.fn(() => mockBrush),
+    getSerializedStateBrush: jest.fn(() => mockBrush),
+    getSurfaceBrush: jest.fn(() => mockBrush),
     getBrush: jest.fn(() => mockBrush),
+    getDocument: jest.fn(() => undefined),
+    ensureDocument: jest.fn(() => undefined),
     createBrush: jest.fn(() => mockBrush),
+    registerRestoredBrush: jest.fn((layerId: string, brush: unknown) => {
+      manager.brushes.set(layerId, brush);
+      manager.activeResources.add(layerId);
+      manager.activeResources.add(`canvas_${layerId}`);
+    }),
+    applySettingsToBrushes: jest.fn(),
     updateBrush: jest.fn(),
     deleteBrush: jest.fn(),
     removeColorCycleBrush: jest.fn(),
@@ -92,9 +107,14 @@ const { __mockManager: mockManager } = jest.requireMock('@/stores/colorCycleBrus
     cleanupInactive: jest.Mock;
     cleanupAll: jest.Mock;
     validateColorCycleBrush: jest.Mock;
-    getLayerColorCycleBrush: jest.Mock;
+    getSerializedStateBrush: jest.Mock;
+    getSurfaceBrush: jest.Mock;
     getBrush: jest.Mock;
+    getDocument: jest.Mock;
+    ensureDocument: jest.Mock;
     createBrush: jest.Mock;
+    registerRestoredBrush: jest.Mock;
+    applySettingsToBrushes: jest.Mock;
     updateBrush: jest.Mock;
     deleteBrush: jest.Mock;
     removeColorCycleBrush: jest.Mock;
@@ -279,6 +299,7 @@ describe('project slice lifecycle flows', () => {
       layers: [layer],
       layerGroups: [],
     });
+    mockManager.getDocument.mockReturnValue({ version: 22 });
     (saveProjectToFile as jest.Mock).mockResolvedValue({
       fileName: 'cc-save-live.vessel',
       fileHandle: null,
@@ -289,6 +310,7 @@ describe('project slice lifecycle flows', () => {
     const [, , layersArg] = (saveProjectToFile as jest.Mock).mock.calls[0] as [Project, string, Layer[]];
     const savedImageData = layersArg[0]?.colorCycleData?.canvasImageData;
     expect(Array.from(savedImageData?.data.slice(0, 4) ?? [])).toEqual([12, 34, 56, 255]);
+    expect(getDerivedSurfaceBuiltFromVersion(savedImageData)).toBe(22);
   });
 
   it('does not resurrect stale color-cycle preview pixels when saving a cleared layer', async () => {
@@ -326,12 +348,20 @@ describe('project slice lifecycle flows', () => {
       brushSpecificSettings: {},
     };
     const clearedBrush = {
-      getLayerSnapshot: jest.fn(() => ({ hasContent: false })),
+      getColorCycleLayerDocument: jest.fn(() => ({
+        read: () => ({
+          snapshot: {
+            paintBuffer: new ArrayBuffer(0),
+            hasContent: false,
+          },
+          version: 1,
+        }),
+      })),
       renderDirectToCanvas: jest.fn(),
     };
 
-    mockManager.getBrush.mockReturnValue(clearedBrush);
-    mockManager.getLayerColorCycleBrush.mockReturnValue(clearedBrush);
+    mockManager.getSerializedStateBrush.mockReturnValue(clearedBrush);
+    mockManager.getSurfaceBrush.mockReturnValue(clearedBrush);
     useAppStore.setState({
       project,
       layers: [layer],
@@ -752,14 +782,13 @@ describe('project slice lifecycle flows', () => {
       imageData: null,
       visible,
       layerType: 'color-cycle',
-      colorCycleData: {
+      colorCycleData: attachLegacyColorCycleTopLevelBuffers({
         mode: 'brush',
         isAnimating: false,
         canvas: Object.assign(document.createElement('canvas'), { width: 1, height: 1 }),
         canvasImageData: new ImageData(8, 8),
         canvasWidth: 2048,
         canvasHeight: 2048,
-        gradientIdBuffer: new Uint8Array(payloadSize).buffer,
         brushState: {
           cycleSpeed: 0.3,
           fps: 12,
@@ -772,7 +801,9 @@ describe('project slice lifecycle flows', () => {
             },
           }],
         },
-      },
+      }, {
+        gradientIdBuffer: new Uint8Array(payloadSize).buffer,
+      }),
     });
 
     const project: Project = {
@@ -975,8 +1006,14 @@ describe('project slice lifecycle flows', () => {
           }
         | undefined;
       const persistedSnapshot = persistedBrushState?.layers?.[0];
-      const canonicalGradientIdBuffer = hydratedLayer?.colorCycleData?.gradientIdBuffer;
-      const canonicalGradientDefIdBuffer = hydratedLayer?.colorCycleData?.gradientDefIdBuffer;
+      const canonicalGradientIdBuffer = getColorCycleLegacyLayerBuffer(
+        hydratedLayer?.colorCycleData,
+        'gradientIdBuffer',
+      );
+      const canonicalGradientDefIdBuffer = getColorCycleLegacyLayerBuffer(
+        hydratedLayer?.colorCycleData,
+        'gradientDefIdBuffer',
+      );
 
       if (hydratedLayer?.colorCycleData) {
         hydratedLayer.colorCycleData.colorCycleBrush = {
@@ -1009,7 +1046,7 @@ describe('project slice lifecycle flows', () => {
             } | null;
           }
         | undefined;
-      const snapshot = importedBrush?.getLayerSnapshot?.(importedLayer.id);
+      const snapshot = readTestColorCycleBrushLayerSnapshot(importedBrush, importedLayer.id);
 
       expect(nextState.projectFilename).toBe('real-zipped-cc.vessel');
       expect(importedLayer?.layerType).toBe('color-cycle');

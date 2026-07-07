@@ -1,4 +1,9 @@
 import type { ColorCycleLayerDocumentState } from '@/lib/colorCycle/documentState';
+import type {
+  ColorCycleBrushSerializedStateRuntimeReader,
+  ColorCycleLayerDocumentArchiveRefs,
+  ColorCycleLayerDocumentResidency,
+} from '@/lib/colorCycle/document';
 import type { Layer } from '@/types';
 
 export type ColorCyclePersistenceMode =
@@ -10,6 +15,7 @@ export type ColorCyclePersistenceMode =
   | 'diagnostic';
 
 export type ColorCyclePersistenceSource =
+  | 'document'
   | 'live-runtime'
   | 'deferred-archive'
   | 'persisted-brush-state';
@@ -33,6 +39,7 @@ export type ColorCyclePersistenceFailureReason =
   | 'missing-motion-buffers'
   | 'layer-id-mismatch'
   | 'missing-archive-ref'
+  | 'missing-document-source'
   | 'invalid-schema-version'
   | 'invalid-deferred-archive'
   | 'metadata-only-state';
@@ -42,6 +49,7 @@ export type ColorCyclePersistenceDiagnostic = {
   kind: ColorCycleDamageKind | 'source-selected' | 'source-rejected' | 'static-preview-only';
   message: string;
   fields?: string[];
+  documentVersion?: number;
 };
 
 export type ColorCyclePersistenceDiagnosticSink = (diagnostic: ColorCyclePersistenceDiagnostic) => void;
@@ -83,14 +91,11 @@ export type PersistedColorCycleBrushState = {
   [key: string]: unknown;
 };
 
-export type ColorCycleRuntimeBrush = {
-  getFullState?: () => unknown;
-  serialize?: () => unknown;
-};
+export type ColorCycleRuntimeBrush = ColorCycleBrushSerializedStateRuntimeReader;
 
 export type ColorCycleRuntimeBrushManager = {
-  getBrush?: (layerId: string) => ColorCycleRuntimeBrush | null | undefined;
-  getLayerColorCycleBrush?: (layerId: string) => ColorCycleRuntimeBrush | null | undefined;
+  getSerializedStateBrush?: (layerId: string) => ColorCycleRuntimeBrush | null | undefined;
+  getDocument?: (layerId: string) => ColorCycleLayerDocumentReader | null | undefined;
 };
 
 export type ColorCycleArchiveManifest = {
@@ -135,6 +140,7 @@ export type ColorCyclePersistenceSnapshot =
       source: ColorCyclePersistenceSource;
       mode: ColorCyclePersistenceMode;
       layerId: string;
+      documentVersion?: number;
       documentState: ColorCyclePersistenceDocumentState & { paintBuffer: ColorCycleBufferRef };
       brushState: PersistedColorCycleBrushState;
       diagnostics: ColorCyclePersistenceDiagnostic[];
@@ -154,6 +160,7 @@ export type CaptureColorCyclePersistenceSnapshotContext = {
   projectHeight: number;
   requirePaint: boolean;
   mode: ColorCyclePersistenceMode;
+  document?: ColorCycleLayerDocumentReader | null;
   runtimeBrushManager?: ColorCycleRuntimeBrushManager;
   runtimeBrush?: ColorCycleRuntimeBrush | null;
   skipRuntime?: boolean;
@@ -162,4 +169,13 @@ export type CaptureColorCyclePersistenceSnapshotContext = {
   deferredRuntime?: DeferredColorCycleArchiveRuntime;
   layerRuntimeCache?: ColorCycleLayerRuntimeCache;
   diagnostics?: ColorCyclePersistenceDiagnosticSink;
+};
+
+export type ColorCycleLayerDocumentReader = {
+  readonly residency?: ColorCycleLayerDocumentResidency;
+  readonly archiveRefs?: ColorCycleLayerDocumentArchiveRefs | null;
+  read: () => {
+    snapshot: ColorCycleLayerDocumentState;
+    version: number;
+  };
 };

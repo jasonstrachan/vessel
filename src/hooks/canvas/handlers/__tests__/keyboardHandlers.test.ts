@@ -262,6 +262,7 @@ describe('createKeyboardHandlers', () => {
     deps.drawingHandlers.ccShapePreviewCacheRef.current = {
       canvas: document.createElement('canvas'),
       origin: { x: 0, y: 0 },
+      builtFromVersion: null,
     };
 
     handlers.handleKeyDown(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter' }));
