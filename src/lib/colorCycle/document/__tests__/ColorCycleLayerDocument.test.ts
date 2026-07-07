@@ -129,6 +129,53 @@ describe('ColorCycleLayerDocument', () => {
     }]);
   });
 
+  it('replaces state with one version bump while keeping ownership of committed buffers', () => {
+    const nextState = makeState({
+      layerId: 'published-layer',
+      paintBuffer: makeBuffer([7, 0, 0, 0]),
+      slotPalettes: [{
+        slot: 2,
+        stops: [
+          { position: 0, color: '#ff0000' },
+          { position: 1, color: '#00ff00' },
+        ],
+      }],
+      hasContent: false,
+    });
+    const document = new ColorCycleLayerDocument(makeState(), {
+      initialVersion: 7,
+      now: () => 4567,
+    });
+
+    const read = document.replaceState(nextState, 'stroke-publish');
+
+    expect(read.version).toBe(8);
+    expect(read.snapshot.layerId).toBe('published-layer');
+    expect(read.snapshot.hasContent).toBe(false);
+    expect(readBytes(read.snapshot.paintBuffer)).toEqual([7, 0, 0, 0]);
+    expect(document.getAuditLog()).toEqual([{
+      reason: 'stroke-publish',
+      versionBefore: 7,
+      versionAfter: 8,
+      committedAtMs: 4567,
+    }]);
+    expect(document.consumeDirtyBatch()).toEqual({
+      layerId: 'published-layer',
+      version: 8,
+      rects: [{ x: 0, y: 0, width: 2, height: 2 }],
+    });
+
+    new Uint8Array(nextState.paintBuffer ?? new ArrayBuffer(0))[0] = 9;
+    nextState.slotPalettes?.[0]?.stops.push({ position: 0.5, color: '#0000ff' });
+
+    const stableRead = document.read();
+    expect(readBytes(stableRead.snapshot.paintBuffer)).toEqual([7, 0, 0, 0]);
+    expect(stableRead.snapshot.slotPalettes?.[0]?.stops).toEqual([
+      { position: 0, color: '#ff0000' },
+      { position: 1, color: '#00ff00' },
+    ]);
+  });
+
   it('records a versioned full-layer dirty batch for committed transactions', () => {
     const document = new ColorCycleLayerDocument(makeState(), { initialVersion: 4 });
     const transaction = document.beginTransaction('stroke-commit');

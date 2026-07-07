@@ -489,11 +489,10 @@ export class ColorCycleLayerDocument {
     nextState: ColorCycleLayerDocumentState,
     reason: string,
   ): ColorCycleLayerDocumentRead {
-    const transaction = this.beginTransaction(reason);
-    transaction.mutate((draft) => {
-      Object.assign(draft, cloneDocumentState(nextState));
-    });
-    return transaction.commit();
+    if (!reason) {
+      throw new Error('Color-cycle document transactions require a reason');
+    }
+    return this.commitTransaction(reason, nextState);
   }
 
   replaceBaseline(
