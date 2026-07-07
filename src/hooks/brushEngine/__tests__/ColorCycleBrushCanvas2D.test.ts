@@ -981,6 +981,53 @@ describe('ColorCycleBrushCanvas2D', () => {
     }]);
   });
 
+  it('publishes painted stroke buffers to an attached color-cycle document on endStroke', () => {
+    const canvas = makeCanvas();
+    const brush = new ColorCycleBrushCanvas2D(canvas);
+    const layerId = 'layer-stroke-doc';
+    const document = new ColorCycleLayerDocument(
+      makeDocumentState(layerId, canvas.width, canvas.height),
+      { now: () => 200 },
+    );
+
+    brush.setColorCycleLayerDocument(layerId, document);
+    brush.startStroke(layerId);
+    brush.paint(2, 2, layerId, 1, 0, 0.5);
+    brush.endStroke(layerId);
+    brush.startStroke(layerId);
+    brush.paint(4, 3, layerId, 1, 0, 0.5);
+    brush.endStroke(layerId);
+
+    const read = document.read();
+    expect(read.version).toBeGreaterThan(0);
+    expect(read.snapshot.hasContent).toBe(true);
+    const paint = new Uint8Array(read.snapshot.paintBuffer ?? new ArrayBuffer(0));
+    expect(paint.some((value) => value !== 0)).toBe(true);
+    expect(document.getAuditLog().slice(-1)[0]).toEqual(expect.objectContaining({
+      reason: 'brush-stroke-write',
+    }));
+  });
+
+  it('does not overwrite an attached color-cycle document when endStroke has no content', () => {
+    const canvas = makeCanvas();
+    const brush = new ColorCycleBrushCanvas2D(canvas);
+    const layerId = 'layer-empty-stroke-doc';
+    const pixelCount = canvas.width * canvas.height;
+    const seededState = makeDocumentState(layerId, canvas.width, canvas.height);
+    seededState.paintBuffer = new Uint8Array(pixelCount).fill(7).buffer;
+    seededState.hasContent = true;
+    const document = new ColorCycleLayerDocument(seededState, { now: () => 300 });
+
+    brush.setColorCycleLayerDocument(layerId, document);
+    brush.startStroke(layerId);
+    brush.endStroke(layerId);
+
+    const read = document.read();
+    const paint = new Uint8Array(read.snapshot.paintBuffer ?? new ArrayBuffer(0));
+    expect(paint.every((value) => value === 7)).toBe(true);
+    expect(read.snapshot.hasContent).toBe(true);
+  });
+
   it.each(runtimeMutationReasons)(
     'records document audit reason matching the mutation log for %s',
     (reason) => {

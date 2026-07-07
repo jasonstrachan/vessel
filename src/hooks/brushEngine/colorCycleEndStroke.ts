@@ -16,6 +16,7 @@ import {
 } from './strokeStampDither';
 import { nowMs } from './colorCycleCanvas2DUtils';
 import type { LayerStrokeState } from './colorCycleCanvas2DTypes';
+import type { ColorCycleLayerStrokeStateMutationParams } from './colorCycleLayerDocumentRuntime';
 
 type EndStrokePerf = {
   durations: {
@@ -66,6 +67,7 @@ export type ColorCycleEndStrokeContext = {
   bindStrokeBuffersToAnimator: (strokeData: LayerStrokeState, animator: ColorCycleAnimator) => void;
   enableNonDitherPlaybackSpeed: (strokeData: LayerStrokeState) => boolean;
   snapshotFromBuffers: (strokeData: LayerStrokeState) => void;
+  mutateLayerStrokeState: (mutation: ColorCycleLayerStrokeStateMutationParams) => void;
   logPerfStroke: (layerId: string) => void;
   brushStateHasColorCyclePaintPayload: (brushState: unknown, layerId?: string) => boolean;
   render: (force?: boolean) => void;
@@ -250,6 +252,18 @@ export const endColorCycleStroke = (context: ColorCycleEndStrokeContext): void =
     const hasContent = strokeData.hasContent;
     if (perf) {
       perf.durations.serializeMs += Math.max(0, nowMs() - serializeStart);
+    }
+    if (hasContent) {
+      // Publish the finished stroke to the layer document; without this the
+      // document (the export source of truth) never sees plain brush strokes.
+      context.mutateLayerStrokeState({
+        layerId: id,
+        reason: 'brush-stroke-write',
+        source: 'stroke',
+        mutate: () => {},
+        after: { hasContent: true, strokeCounter: strokeData.strokeCounter },
+        markDirty: false,
+      });
     }
     if (strokeData.stampDither) {
       strokeData.stampDither.stampDitherStampSeq = 0;
