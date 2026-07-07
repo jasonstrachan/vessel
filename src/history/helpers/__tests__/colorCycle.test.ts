@@ -51,7 +51,29 @@ describe('captureColorCycleBrushState', () => {
     }));
 
     (getColorCycleBrushManager as jest.Mock).mockReturnValue({
-      getBrush: () => ({
+      getHistoryBrush: () => ({
+        getColorCycleLayerDocument: () => ({
+          read: () => ({
+            version: 1,
+            snapshot: {
+              layerId: 'layer-1',
+              width: 4,
+              height: 4,
+              paintBuffer: new Uint8Array(16).fill(1).buffer,
+              gradientIdBuffer: new Uint8Array(16).fill(1).buffer,
+              gradientDefIdBuffer: new Uint16Array(16).fill(1).buffer,
+              speedBuffer: new Uint8Array(16).fill(1).buffer,
+              flowBuffer: new Uint8Array(16).buffer,
+              phaseBuffer: new Uint8Array(16).buffer,
+              hasContent: true,
+              sources: {
+                brushStateSnapshot: false,
+                topLevelBuffers: false,
+                legacyStateRefs: false,
+              },
+            },
+          }),
+        }),
         serialize: () => ({
           canonicalPaint: true,
           schemaVersion: 1,
@@ -99,7 +121,7 @@ describe('captureColorCycleBrushState', () => {
     });
 
     (getColorCycleBrushManager as jest.Mock).mockReturnValue({
-      getBrush: () => ({
+      getHistoryBrush: () => ({
         serialize: () => ({
           layers: [{
             layerId: 'layer-empty',
@@ -128,6 +150,65 @@ describe('captureColorCycleBrushState', () => {
     });
   });
 
+  it('records the document version on captured color-cycle history snapshots', () => {
+    (useAppStore.getState as jest.Mock).mockReturnValue({
+      project: { width: 2, height: 2 },
+      layers: [
+        {
+          id: 'layer-versioned',
+          layerType: 'color-cycle',
+          colorCycleData: {
+            canvasWidth: 2,
+            canvasHeight: 2,
+          },
+        },
+      ],
+    });
+
+    (getColorCycleBrushManager as jest.Mock).mockReturnValue({
+      getHistoryBrush: () => ({
+        getColorCycleLayerDocument: () => ({
+          read: () => ({
+            version: 9,
+            snapshot: {
+              layerId: 'layer-versioned',
+              width: 2,
+              height: 2,
+              paintBuffer: new Uint8Array(4).fill(1).buffer,
+              gradientIdBuffer: new Uint8Array(4).fill(2).buffer,
+              gradientDefIdBuffer: new Uint16Array(4).fill(3).buffer,
+              speedBuffer: new Uint8Array(4).fill(4).buffer,
+              flowBuffer: new Uint8Array(4).fill(5).buffer,
+              phaseBuffer: new Uint8Array(4).fill(6).buffer,
+              hasContent: true,
+              sources: {
+                brushStateSnapshot: false,
+                topLevelBuffers: false,
+                legacyStateRefs: false,
+              },
+            },
+          }),
+        }),
+        serialize: () => ({
+          layers: [{
+            layerId: 'layer-versioned',
+            strokeData: {
+              hasContent: true,
+              paintBuffer: new Uint8Array(4).fill(8).buffer,
+            },
+          }],
+        }),
+      }),
+    });
+
+    const captured = captureColorCycleBrushState('layer-versioned');
+
+    expect(captured?.documentVersion).toBe(9);
+    expect(Array.from(new Uint8Array(
+      captured?.layers[0]?.strokeData?.paintBuffer ?? new ArrayBuffer(0),
+    ))).toEqual([1, 1, 1, 1]);
+  });
+
   it('rejects metadata-only painted color-cycle history snapshots', () => {
     (useAppStore.getState as jest.Mock).mockReturnValue({
       project: { width: 4, height: 4 },
@@ -144,7 +225,7 @@ describe('captureColorCycleBrushState', () => {
     });
 
     (getColorCycleBrushManager as jest.Mock).mockReturnValue({
-      getBrush: () => ({
+      getHistoryBrush: () => ({
         serialize: () => ({
           layers: [{
             layerId: 'layer-painted-metadata',
@@ -162,7 +243,7 @@ describe('captureColorCycleBrushState', () => {
       expect.objectContaining({
         event: 'history-cc-before-state-capture-failed',
         layerId: 'layer-painted-metadata',
-        reason: 'missing-canonical-paint',
+        reason: 'missing-document-source',
         severity: 'warn',
         details: expect.objectContaining({
           source: 'captureColorCycleBrushState',
@@ -178,9 +259,9 @@ describe('captureColorCycleBrushState', () => {
           }),
           runtimeBrush: expect.objectContaining({
             present: true,
-            hasSerialize: true,
+            canReadSerializedState: true,
           }),
-          damageKind: 'missing-paint-buffer',
+          damageKind: null,
           rawSnapshot: expect.objectContaining({
             hasSnapshot: true,
             strokeHasContent: true,

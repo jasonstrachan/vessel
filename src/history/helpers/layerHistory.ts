@@ -5,12 +5,11 @@ import { createColorCycleSoftEdgeMaskDelta } from '@/history/deltas/colorCycleSo
 import { createColorCycleStrokePatchDelta } from '@/history/deltas/colorCycleStrokePatchDelta';
 import { mapCanvasActionToHistoryId } from './actions';
 import { captureColorCycleBrushState, type ColorCycleSerializedState } from './colorCycle';
-import type { ColorCycleBrushImplementation } from '@/hooks/brushEngine/ColorCycleBrushMigration';
 import type { HistoryDelta } from '@/history/actionTypes';
 import type { CanvasSnapshot } from '@/types';
 import { useAppStore } from '@/stores/useAppStore';
 import { createSelectionDelta } from '@/history/deltas/selectionDelta';
-import { getColorCycleBrushManager, getColorCycleStoreState } from '@/stores/colorCycleBrushManager';
+import { getColorCycleBrushManager } from '@/stores/colorCycleBrushManager';
 import {
   cloneSelectionSnapshot,
   selectionSnapshotFromValues,
@@ -178,10 +177,6 @@ export interface LayerHistoryPayload {
   skipBitmapDelta?: boolean;
 }
 
-type BrushWithOptionalFlush = ColorCycleBrushImplementation & {
-  flush?: (layerId: string) => void;
-};
-
 export const commitLayerHistory = async ({
   layerId,
   beforeImage,
@@ -208,11 +203,7 @@ export const commitLayerHistory = async ({
 
     if (isColorCycleLayer) {
       const manager = getColorCycleBrushManager();
-      const brush = (
-        getColorCycleStoreState()?.getLayerColorCycleBrush?.(layerId) ??
-        manager.getBrush(layerId)
-      ) as BrushWithOptionalFlush | undefined;
-      brush?.flush?.(layerId);
+      manager.getHistoryBrush(layerId)?.flush?.(layerId);
     }
 
     const afterColorState =
@@ -315,6 +306,8 @@ export const commitLayerHistory = async ({
               roi: colorCycleRoi,
               width: projectWidth,
               height: projectHeight,
+              beforeVersion: beforeColorState?.documentVersion,
+              afterVersion: afterColorState?.documentVersion,
             })
           : null;
         pushDelta(patchDelta);

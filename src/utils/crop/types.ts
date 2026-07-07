@@ -1,4 +1,5 @@
 import type { RecolorOptions } from '@/lib/colorCycle/RecolorManager';
+import type { ColorCycleBrushLayerSnapshot } from '@/lib/colorCycle/document';
 import type { Layer, Rectangle } from '@/types';
 
 export type NormalizedCropRect = Rectangle;
@@ -33,16 +34,7 @@ export interface ColorCycleBrushResetEntry {
   controllerSpeedCps?: number;
   mode?: 'brush' | 'recolor';
   wasActiveLayer: boolean;
-  strokeSnapshot?: {
-    paintBuffer: ArrayBuffer;
-    gradientIdBuffer?: ArrayBuffer;
-    gradientDefIdBuffer?: ArrayBuffer;
-    speedBuffer?: ArrayBuffer;
-    flowBuffer?: ArrayBuffer;
-    phaseBuffer?: ArrayBuffer;
-    hasContent: boolean;
-    strokeCounter: number;
-  };
+  strokeSnapshot?: ColorCycleBrushLayerSnapshot;
   animatorIndex?: CroppedAnimatorIndexSnapshot;
 }
 

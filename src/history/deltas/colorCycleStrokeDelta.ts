@@ -1,48 +1,41 @@
-import { ColorCycleBrushCanvas2D } from '@/hooks/brushEngine/ColorCycleBrushCanvas2D';
+import {
+  restoreColorCycleBrushSerializedStateToRuntime,
+  type ColorCycleLayerDocumentRead,
+  type ColorCycleBrushSerializedState,
+  type ColorCycleBrushSerializedStateRuntimeWriter,
+} from '@/lib/colorCycle/document';
+import type { ColorCycleHistoryBrushContext } from '@/hooks/brushEngine/colorCycleBrushContracts';
 import type { GradientStop } from '@/lib/GradientPalette';
-import { getColorCycleBrushManager, getColorCycleStoreState } from '@/stores/colorCycleBrushManager';
+import type { GradientSeamProfile } from '@/lib/colorCycle/gradientSeamProfile';
+import { getColorCycleBrushManager } from '@/stores/colorCycleBrushManager';
 import { useAppStore } from '@/stores/useAppStore';
 import { isColorCycleDesired } from '@/utils/colorCyclePlayback';
+import {
+  logCCMutation,
+  summarizeColorCycleLayer,
+} from '@/utils/colorCycle/ccMutationAudit';
 import type {
   HistoryDelta,
   HistoryDirection,
   HistoryRehydrationTargets,
 } from '../actionTypes';
 
-type ColorCycleBrushState = ReturnType<ColorCycleBrushCanvas2D['serialize']>;
+type ColorCycleBrushState = ColorCycleBrushSerializedState & {
+  documentVersion?: number;
+};
 type ColorCycleSerializedLayer = NonNullable<ColorCycleBrushState['layers']>[number];
 
-type ManagedColorCycleBrush = ColorCycleBrushCanvas2D & {
-  commitToLayer?: (targetCanvas: HTMLCanvasElement, layerId: string) => void;
-  renderDirectToCanvas?: (targetCanvas: HTMLCanvasElement, layerId: string) => void;
-  render?: (forceFullOpacity?: boolean) => void;
-  flush?: (layerId: string) => void;
+type ManagedColorCycleBrush = ColorCycleHistoryBrushContext & ColorCycleBrushSerializedStateRuntimeWriter & {
+  getColorCycleLayerDocument?: (layerId: string) => { read(): ColorCycleLayerDocumentRead } | null | undefined;
   clearPaintBuffer?: (layerId?: string) => void;
-  updateColorCycleTexture?: () => void;
-  getCanvas?: () => HTMLCanvasElement | null;
-  setTargetCanvas?: (canvas: HTMLCanvasElement | null) => void;
-  applyLayerSnapshot?: (
-    layerId: string,
-    snapshot: {
-      paintBuffer: ArrayBuffer;
-      gradientIdBuffer?: ArrayBuffer;
-      gradientDefIdBuffer?: ArrayBuffer;
-      speedBuffer?: ArrayBuffer;
-      flowBuffer?: ArrayBuffer;
-      phaseBuffer?: ArrayBuffer;
-      hasContent: boolean;
-      strokeCounter: number;
-    },
-    animatorIndex?: unknown
-  ) => void;
 };
-
-type RuntimeLayerState = { strokeCounter?: number; hasContent?: boolean };
 
 export interface ColorCycleStrokeDeltaOptions {
   layerId: string;
   forwardState: ColorCycleBrushState | null;
   backwardState: ColorCycleBrushState | null;
+  beforeVersion?: number;
+  afterVersion?: number;
 }
 
 const structuredCloneFn: (<T>(value: T) => T) | undefined =
@@ -116,6 +109,7 @@ const cloneState = (
     return null;
   }
   return {
+    documentVersion: state.documentVersion,
     cycleSpeed: state.cycleSpeed,
     fps: state.fps,
     brushSize: state.brushSize,
@@ -134,7 +128,7 @@ const cloneState = (
             ? layer.slotPalettes.map((entry) => ({
                 slot: entry.slot,
                 stops: cloneStoredStops(entry.stops),
-                seamProfile: entry.seamProfile,
+                seamProfile: entry.seamProfile as GradientSeamProfile | undefined,
               }))
             : undefined,
           gradientDefStore: layer.gradientDefStore
@@ -205,11 +199,15 @@ export class ColorCycleStrokeDelta implements HistoryDelta {
   readonly layerId: string;
   private readonly forwardState: ColorCycleBrushState | null;
   private readonly backwardState: ColorCycleBrushState | null;
+  private readonly beforeVersion?: number;
+  private readonly afterVersion?: number;
 
   constructor(options: ColorCycleStrokeDeltaOptions) {
     this.layerId = options.layerId;
     this.forwardState = options.forwardState;
     this.backwardState = options.backwardState;
+    this.beforeVersion = options.beforeVersion ?? options.backwardState?.documentVersion;
+    this.afterVersion = options.afterVersion ?? options.forwardState?.documentVersion;
     const sizeOf = (state: ColorCycleBrushState | null) =>
       state?.layers?.reduce((sum: number, layer: ColorCycleSerializedLayer) => {
         return sum
@@ -236,7 +234,7 @@ export class ColorCycleStrokeDelta implements HistoryDelta {
       return;
     }
 
-    if (!(getColorCycleStoreState()?.getLayerColorCycleBrush?.(this.layerId) ?? manager.getBrush(this.layerId))) {
+    if (!manager.getHistoryBrush(this.layerId)) {
       const width =
         initialLayer.colorCycleData.canvas?.width ??
         initialState.project?.width ??
@@ -255,10 +253,7 @@ export class ColorCycleStrokeDelta implements HistoryDelta {
       }
     }
 
-    const brush = (
-      getColorCycleStoreState()?.getLayerColorCycleBrush?.(this.layerId) ??
-      manager.getBrush(this.layerId)
-    ) as ManagedColorCycleBrush | undefined;
+    const brush = manager.getHistoryBrush(this.layerId) as ManagedColorCycleBrush | undefined;
     const liveState = useAppStore.getState();
     const layer = liveState.layers.find((candidate) => candidate.id === this.layerId);
     const targetCanvas = layer?.colorCycleData?.canvas;
@@ -266,13 +261,40 @@ export class ColorCycleStrokeDelta implements HistoryDelta {
       return;
     }
 
+    const expectedVersion = direction === 'forward' ? this.beforeVersion : this.afterVersion;
+    const documentRead = manager.getDocument(this.layerId)?.read?.() ??
+      brush.getColorCycleLayerDocument?.(this.layerId)?.read?.();
+    if (
+      typeof expectedVersion === 'number' &&
+      documentRead &&
+      documentRead.version !== expectedVersion
+    ) {
+      logCCMutation({
+        event: 'history-cc-document-version-mismatch',
+        layerId: this.layerId,
+        reason: direction === 'backward' ? 'history-undo-full-state' : 'history-redo-full-state',
+        severity: 'warn',
+        before: summarizeColorCycleLayer(layer),
+        after: summarizeColorCycleLayer(layer),
+        details: {
+          source: 'history-color-cycle-stroke-full-state',
+          operation: direction === 'backward' ? 'undo' : 'redo',
+          direction,
+          expectedVersion,
+          actualVersion: documentRead.version,
+        },
+      });
+      return;
+    }
+
+    const setTargetCanvas = brush.setTargetCanvas;
     if (
       typeof HTMLCanvasElement !== 'undefined' &&
       targetCanvas instanceof HTMLCanvasElement &&
-      typeof (brush as ManagedColorCycleBrush).setTargetCanvas === 'function'
+      typeof setTargetCanvas === 'function'
     ) {
       try {
-        (brush as ManagedColorCycleBrush).setTargetCanvas(targetCanvas);
+        setTargetCanvas(targetCanvas);
       } catch {
         // Best-effort reattachment; render flow will continue regardless.
       }
@@ -302,7 +324,7 @@ export class ColorCycleStrokeDelta implements HistoryDelta {
 
     try {
       // Do not clear before a history restore; the restore will rebuild the animator and commit the correct pixels.
-      brush.restoreFullState({
+      restoreColorCycleBrushSerializedStateToRuntime(brush, {
         cycleSpeed: state.cycleSpeed,
         fps: state.fps,
         brushSize: state.brushSize,
@@ -383,19 +405,6 @@ export class ColorCycleStrokeDelta implements HistoryDelta {
         }
       }
 
-      // Ensure runtime stroke data reflects presence of restored content
-      if (restoredHasContent) {
-        try {
-          const runtimeBrush = brush as unknown as { layerStrokes?: Map<string, RuntimeLayerState> };
-          const runtimeState = runtimeBrush.layerStrokes?.get?.(this.layerId);
-          if (runtimeState) {
-            runtimeState.hasContent = true;
-          }
-        } catch {
-          // Best-effort; brush state remains authoritative even if this fails.
-        }
-      }
-
       const tctx = targetCanvas.getContext('2d', { willReadFrequently: true });
       if (!tctx) {
         return;
@@ -465,12 +474,13 @@ export class ColorCycleStrokeDelta implements HistoryDelta {
             ? restoredLayerSnapshot.slotPalettes.map((entry) => ({
                 slot: entry.slot,
                 stops: cloneStoredStops(entry.stops),
-                seamProfile: entry.seamProfile,
+                seamProfile: entry.seamProfile as GradientSeamProfile | undefined,
               }))
             : undefined;
           const restoredGradientDefStore = restoredLayerSnapshot?.gradientDefStore
             ? restoredLayerSnapshot.gradientDefStore.map((entry) => ({
                 ...entry,
+                seamProfile: entry.seamProfile as GradientSeamProfile | undefined,
                 stops: cloneStoredStops(entry.stops),
               }))
             : undefined;
@@ -578,7 +588,9 @@ export const createColorCycleStrokeDelta = (
   return new ColorCycleStrokeDelta({
     layerId: options.layerId,
     forwardState: cloneState(options.forwardState, forwardLengths),
-    backwardState: cloneState(options.backwardState, backwardLengths)
+    backwardState: cloneState(options.backwardState, backwardLengths),
+    beforeVersion: options.beforeVersion ?? options.backwardState?.documentVersion,
+    afterVersion: options.afterVersion ?? options.forwardState?.documentVersion,
   });
 };
 const toArrayBuffer = (

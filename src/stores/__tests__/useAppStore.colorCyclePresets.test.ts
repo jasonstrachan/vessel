@@ -1,17 +1,10 @@
 import { colorCycleShapeBrushPreset, colorCycleStrokeBrushPreset, defaultBrushPreset } from '@/presets/brushPresets';
 import { BrushShape, type BrushSettings } from '@/types';
 
-const mockBrush = {
-  setActiveLayer: jest.fn(),
-  setGradient: jest.fn(),
-  endStroke: jest.fn()
-};
-
 const mockManager = {
   validateColorCycleBrush: jest.fn(() => true),
   initColorCycleForLayer: jest.fn(),
   setActiveState: jest.fn(),
-  getLayerColorCycleBrush: jest.fn(() => mockBrush),
   getBrush: jest.fn(() => null),
   removeColorCycleBrush: jest.fn(),
   createBrush: jest.fn(),

@@ -91,6 +91,8 @@ describe('ColorCycleEraseMaskPatchDelta', () => {
     useAppStore.setState((state) => ({
       layers: [layer],
       activeLayerId: layer.id,
+      layersNeedRecomposition: false,
+      pendingCompositeDirtyBatches: [],
       project: state.project
         ? { ...state.project, width, height, layers: [layer] }
         : state.project,
@@ -123,9 +125,26 @@ describe('ColorCycleEraseMaskPatchDelta', () => {
     await delta!.apply('forward');
     expect(readMaskAlpha(mask, 1, 1)).toBe(255);
     expect(useAppStore.getState().layers[0]?.colorCycleData?.eraseMaskVersion).toBe(2);
+    expect(useAppStore.getState().layersNeedRecomposition).toBe(true);
+    expect(useAppStore.getState().pendingCompositeDirtyBatches).toEqual([
+      {
+        layerId,
+        version: 1,
+        rects: [{ x: 0, y: 0, width, height }],
+      },
+    ]);
 
+    useAppStore.setState({ layersNeedRecomposition: false, pendingCompositeDirtyBatches: [] });
     await delta!.apply('backward');
     expect(readMaskAlpha(mask, 1, 1)).toBe(0);
     expect(useAppStore.getState().layers[0]?.colorCycleData?.eraseMaskVersion).toBe(1);
+    expect(useAppStore.getState().layersNeedRecomposition).toBe(true);
+    expect(useAppStore.getState().pendingCompositeDirtyBatches).toEqual([
+      {
+        layerId,
+        version: 1,
+        rects: [{ x: 0, y: 0, width, height }],
+      },
+    ]);
   });
 });

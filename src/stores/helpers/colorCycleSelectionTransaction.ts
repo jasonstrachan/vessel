@@ -7,6 +7,7 @@ import {
   summarizeColorCycleSelectionPaint,
   type ColorCycleSelectionPaintSummary,
 } from '@/stores/helpers/selectionDeleteAuthorization';
+import type { ColorCycleCanonicalSelectionPayload } from '@/lib/colorCycle/document/paintDeltaMask';
 import {
   captureSelectionBitmap,
   captureSelectionBitmapFromMask,
@@ -55,16 +56,7 @@ export type CcSelectionPreflight =
       details: Record<string, unknown>;
     };
 
-export interface CcCanonicalSelectionPayload {
-  paintBuffer: Uint8Array | null;
-  gradientIdBuffer?: Uint8Array | null;
-  gradientDefIdBuffer?: Uint16Array | null;
-  speedBuffer?: Uint8Array | null;
-  flowBuffer?: Uint8Array | null;
-  phaseBuffer?: Uint8Array | null;
-  width: number;
-  height: number;
-}
+export type CcCanonicalSelectionPayload = ColorCycleCanonicalSelectionPayload;
 
 export interface CcSelectionPreflightRequest {
   operation: CcSelectionOperation;
@@ -147,7 +139,7 @@ const hasFullCanonicalPayload = (canonical: CcCanonicalSelectionPayload | null):
   return Boolean(
     canonical &&
     pixelCount > 0 &&
-    canonical.paintBuffer?.byteLength === pixelCount &&
+    canonical.paint?.byteLength === pixelCount &&
     canonical.gradientIdBuffer?.byteLength === pixelCount &&
     canonical.gradientDefIdBuffer?.byteLength === pixelCount * Uint16Array.BYTES_PER_ELEMENT &&
     canonical.speedBuffer?.byteLength === pixelCount &&
@@ -214,7 +206,7 @@ const preflightDelete = (
     selectionMaskLayerId: request.selectionMaskLayerId ?? null,
     selectionLastAction: request.selectionLastAction ?? null,
     colorCyclePaint: {
-      buffer: canonical?.paintBuffer ?? null,
+      buffer: canonical?.paint ?? null,
       width: canonical?.width ?? 0,
       height: canonical?.height ?? 0,
       hasFullCanonicalPayload: hasFullCanonicalPayload(canonical),
@@ -282,11 +274,11 @@ export const preflightCcSelectionTransaction = (
 
   if (!hasFullCanonicalPayload(request.canonical)) {
     return block(request, transactionId, 'missing-canonical-payload', false, {
-      hasPaintBuffer: Boolean(request.canonical?.paintBuffer?.byteLength),
+      hasPaintPayload: Boolean(request.canonical?.paint?.byteLength),
       paintWidth: request.canonical?.width ?? null,
       paintHeight: request.canonical?.height ?? null,
       expectedPixels: expectedPixelCount(request.canonical),
-      paintBytes: request.canonical?.paintBuffer?.byteLength ?? 0,
+      paintBytes: request.canonical?.paint?.byteLength ?? 0,
       gradientIdBytes: request.canonical?.gradientIdBuffer?.byteLength ?? 0,
       gradientDefIdBytes: request.canonical?.gradientDefIdBuffer?.byteLength ?? 0,
       speedBytes: request.canonical?.speedBuffer?.byteLength ?? 0,
@@ -309,7 +301,7 @@ export const preflightCcSelectionTransaction = (
   }
 
   const paintSummary = summarizeColorCycleSelectionPaint({
-    paintBuffer: request.canonical!.paintBuffer!,
+    paint: request.canonical!.paint!,
     paintWidth: request.canonical!.width,
     paintHeight: request.canonical!.height,
     bounds,

@@ -22,13 +22,6 @@ const cloneImageData = (imageData: ImageData | null | undefined): ImageData | nu
   return new ImageData(new Uint8ClampedArray(imageData.data), imageData.width, imageData.height);
 };
 
-const cloneArrayBuffer = (input: ArrayBuffer | undefined): ArrayBuffer | undefined => {
-  if (!input) {
-    return undefined;
-  }
-  return input.slice(0);
-};
-
 const cloneLayerGroups = (groups: LayerGroup[]): LayerGroup[] => (
   groups.map((group) => ({ ...group }))
 );
@@ -69,8 +62,6 @@ const cloneLayerForReplay = (layer: Layer): Layer => ({
               spec: { ...entry.spec },
             }))
           : undefined,
-        gradientIdBuffer: cloneArrayBuffer(layer.colorCycleData.gradientIdBuffer),
-        gradientDefIdBuffer: cloneArrayBuffer(layer.colorCycleData.gradientDefIdBuffer),
         gradientDefStore: layer.colorCycleData.gradientDefStore
           ? layer.colorCycleData.gradientDefStore.map((entry) => ({
               ...entry,

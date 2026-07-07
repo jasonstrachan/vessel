@@ -1,4 +1,5 @@
 import { captureCanvasImageData, type CanvasLike } from '@/utils/canvas/canvasImage';
+import { markDerivedSurfaceBuiltFromVersion } from '@/lib/colorCycle/document';
 
 type CaptureROI = {
   x: number;
@@ -52,13 +53,17 @@ export const captureColorCycleCanvasSnapshot = ({
   canvas,
   existingImageData,
   roi,
+  builtFromVersion = null,
 }: {
   canvas?: CanvasLike | null;
   existingImageData?: ImageData | null;
   roi?: CaptureROI;
+  builtFromVersion?: number | null;
 }): ImageData | undefined => {
   if (!canvas) {
-    return existingImageData ?? undefined;
+    return existingImageData
+      ? markDerivedSurfaceBuiltFromVersion(existingImageData, builtFromVersion)
+      : undefined;
   }
 
   const width = Math.max(1, Math.floor(canvas.width));
@@ -66,18 +71,26 @@ export const captureColorCycleCanvasSnapshot = ({
   const normalizedRoi = normalizeCaptureROI(roi, width, height);
 
   if (!normalizedRoi) {
-    return captureCanvasImageData(canvas) ?? existingImageData ?? undefined;
+    const fullSnapshot = captureCanvasImageData(canvas) ?? existingImageData ?? undefined;
+    return fullSnapshot
+      ? markDerivedSurfaceBuiltFromVersion(fullSnapshot, builtFromVersion)
+      : undefined;
   }
 
   const matchesExistingDimensions =
     existingImageData?.width === width && existingImageData?.height === height;
   if (!matchesExistingDimensions) {
-    return captureCanvasImageData(canvas) ?? existingImageData ?? undefined;
+    const fullSnapshot = captureCanvasImageData(canvas) ?? existingImageData ?? undefined;
+    return fullSnapshot
+      ? markDerivedSurfaceBuiltFromVersion(fullSnapshot, builtFromVersion)
+      : undefined;
   }
 
   const context = getCanvasContext(canvas);
   if (!context) {
-    return existingImageData ?? undefined;
+    return existingImageData
+      ? markDerivedSurfaceBuiltFromVersion(existingImageData, builtFromVersion)
+      : undefined;
   }
 
   try {
@@ -98,8 +111,11 @@ export const captureColorCycleCanvasSnapshot = ({
       target.set(source.subarray(sourceStart, sourceStart + sourceStride), targetStart);
     }
 
-    return existingImageData;
+    return markDerivedSurfaceBuiltFromVersion(existingImageData, builtFromVersion);
   } catch {
-    return captureCanvasImageData(canvas) ?? existingImageData ?? undefined;
+    const fallbackSnapshot = captureCanvasImageData(canvas) ?? existingImageData ?? undefined;
+    return fallbackSnapshot
+      ? markDerivedSurfaceBuiltFromVersion(fallbackSnapshot, builtFromVersion)
+      : undefined;
   }
 };

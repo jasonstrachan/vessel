@@ -1,4 +1,9 @@
 import type { Layer, Project } from '@/types';
+import {
+  coalesceColorCycleDirtyRects,
+  type ColorCycleDirtyRect,
+  type ColorCycleLayerDirtyBatch,
+} from '@/lib/colorCycle/document/ColorCycleLayerDocument';
 
 export type StaticCompositeSegment = {
   kind: 'static';
@@ -59,6 +64,51 @@ export type CreateLayerTransferCanvas = (
   width: number,
   height: number
 ) => HTMLCanvasElement | OffscreenCanvas | null;
+
+const normalizeDirtyRect = (
+  rect: ColorCycleDirtyRect,
+  width: number,
+  height: number
+): ColorCycleDirtyRect | null => {
+  const left = Math.max(0, Math.floor(rect.x));
+  const top = Math.max(0, Math.floor(rect.y));
+  const right = Math.min(width, Math.ceil(rect.x + rect.width));
+  const bottom = Math.min(height, Math.ceil(rect.y + rect.height));
+  if (right <= left || bottom <= top) {
+    return null;
+  }
+  return {
+    x: left,
+    y: top,
+    width: right - left,
+    height: bottom - top,
+  };
+};
+
+const collectStaticSegmentDirtyRects = (
+  segment: StaticCompositeSegment,
+  dirtyBatches: ColorCycleLayerDirtyBatch[] | undefined,
+  width: number,
+  height: number
+): ColorCycleDirtyRect[] => {
+  if (!dirtyBatches?.length) {
+    return [];
+  }
+  const segmentLayerIds = new Set(segment.layerIds);
+  const rects: ColorCycleDirtyRect[] = [];
+  dirtyBatches.forEach((batch) => {
+    if (!segmentLayerIds.has(batch.layerId)) {
+      return;
+    }
+    batch.rects.forEach((rect) => {
+      const normalized = normalizeDirtyRect(rect, width, height);
+      if (normalized) {
+        rects.push(normalized);
+      }
+    });
+  });
+  return coalesceColorCycleDirtyRects(rects);
+};
 
 export const buildCompositeSegmentDescriptors = (
   sortedLayers: Layer[],
@@ -265,6 +315,7 @@ export const repaintStaticCompositeSegment = ({
   width,
   height,
   createLayerTransferCanvas,
+  dirtyRects,
 }: {
   segment: StaticCompositeSegment;
   layerIds: string[];
@@ -273,6 +324,7 @@ export const repaintStaticCompositeSegment = ({
   width: number;
   height: number;
   createLayerTransferCanvas: CreateLayerTransferCanvas;
+  dirtyRects?: ColorCycleDirtyRect[];
 }): StaticCompositeSegment => {
   if (segment.canvas.width !== width || segment.canvas.height !== height) {
     segment.canvas.width = width;
@@ -287,10 +339,31 @@ export const repaintStaticCompositeSegment = ({
     return segment;
   }
 
-  ctx.clearRect(0, 0, width, height);
-  if (segment.includeBackground && project.backgroundColor && project.backgroundColor !== 'transparent') {
-    ctx.fillStyle = project.backgroundColor;
-    ctx.fillRect(0, 0, width, height);
+  const normalizedDirtyRects = dirtyRects
+    ?.map((rect) => normalizeDirtyRect(rect, width, height))
+    .filter((rect): rect is ColorCycleDirtyRect => Boolean(rect));
+  const shouldPartialRepaint = Boolean(normalizedDirtyRects?.length);
+
+  if (shouldPartialRepaint && normalizedDirtyRects) {
+    normalizedDirtyRects.forEach((rect) => {
+      ctx.clearRect(rect.x, rect.y, rect.width, rect.height);
+      if (segment.includeBackground && project.backgroundColor && project.backgroundColor !== 'transparent') {
+        ctx.fillStyle = project.backgroundColor;
+        ctx.fillRect(rect.x, rect.y, rect.width, rect.height);
+      }
+    });
+    ctx.save();
+    ctx.beginPath();
+    normalizedDirtyRects.forEach((rect) => {
+      ctx.rect(rect.x, rect.y, rect.width, rect.height);
+    });
+    ctx.clip();
+  } else {
+    ctx.clearRect(0, 0, width, height);
+    if (segment.includeBackground && project.backgroundColor && project.backgroundColor !== 'transparent') {
+      ctx.fillStyle = project.backgroundColor;
+      ctx.fillRect(0, 0, width, height);
+    }
   }
 
   for (const layerId of layerIds) {
@@ -331,6 +404,9 @@ export const repaintStaticCompositeSegment = ({
     ctx.drawImage(source, 0, 0);
   }
 
+  if (shouldPartialRepaint) {
+    ctx.restore();
+  }
   ctx.globalCompositeOperation = 'source-over';
   ctx.globalAlpha = 1;
   return { ...segment, dirty: false };
@@ -344,6 +420,7 @@ export const realizeCompositeSegments = ({
   height,
   createStaticCanvas,
   createLayerTransferCanvas,
+  dirtyBatches,
 }: {
   sortedLayers: Layer[];
   project: Project;
@@ -352,9 +429,12 @@ export const realizeCompositeSegments = ({
   height: number;
   createStaticCanvas: CreateStaticCompositeCanvas;
   createLayerTransferCanvas: CreateLayerTransferCanvas;
+  dirtyBatches?: ColorCycleLayerDirtyBatch[];
 }): {
   segments: CompositeSegment[];
   anySegmentUpdated: boolean;
+  fullStaticRedrawNeeded: boolean;
+  staticDirtyRects: ColorCycleDirtyRect[];
 } => {
   const descriptors = buildCompositeSegmentDescriptors(sortedLayers, project);
   const structuresMatch = compositeSegmentStructureMatches(previousSegments, descriptors);
@@ -369,9 +449,19 @@ export const realizeCompositeSegments = ({
   const layerLookup = new Map(sortedLayers.map((layer) => [layer.id, layer]));
 
   let anySegmentUpdated = !structuresMatch;
+  let fullStaticRedrawNeeded = !structuresMatch;
+  const staticDirtyRects: ColorCycleDirtyRect[] = [];
   const segments = nextSegments.map((segment) => {
-    if (segment.kind === 'static' && (segment.dirty || !structuresMatch)) {
+    if (segment.kind !== 'static') {
+      return segment;
+    }
+
+    const segmentDirtyRects = structuresMatch
+      ? collectStaticSegmentDirtyRects(segment, dirtyBatches, width, height)
+      : [];
+    if (segment.dirty || !structuresMatch) {
       anySegmentUpdated = true;
+      fullStaticRedrawNeeded = true;
       return repaintStaticCompositeSegment({
         segment,
         layerIds: segment.layerIds,
@@ -383,11 +473,28 @@ export const realizeCompositeSegments = ({
       });
     }
 
+    if (segmentDirtyRects.length > 0) {
+      anySegmentUpdated = true;
+      staticDirtyRects.push(...segmentDirtyRects);
+      return repaintStaticCompositeSegment({
+        segment,
+        layerIds: segment.layerIds,
+        layerLookup,
+        project,
+        width,
+        height,
+        createLayerTransferCanvas,
+        dirtyRects: segmentDirtyRects,
+      });
+    }
+
     return segment;
   });
 
   return {
     segments,
     anySegmentUpdated,
+    fullStaticRedrawNeeded,
+    staticDirtyRects,
   };
 };

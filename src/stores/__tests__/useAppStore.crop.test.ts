@@ -4,10 +4,13 @@ import { TextDecoder, TextEncoder } from 'util';
 (global as unknown as { TextDecoder?: typeof TextDecoder }).TextDecoder = TextDecoder;
 
 import { useAppStore } from '@/stores/useAppStore';
+import { getColorCycleBrushManager } from '@/stores/colorCycleBrushManager';
 import historyManager from '@/history/historyService';
 import { RecolorManager } from '@/lib/colorCycle/RecolorManager';
+import { applyColorCycleBrushLayerSnapshotToRuntime } from '@/lib/colorCycle/document';
 import { createDefaultLayerAlignment, createDefaultExportLayout } from '@/utils/layoutDefaults';
 import type { Layer, Project, Rectangle } from '@/types';
+import { readTestColorCycleBrushLayerSnapshot } from '@/testing/colorCycleSnapshotTestUtils';
 
 
 const createImageData = (width: number, height: number): ImageData => {
@@ -478,7 +481,7 @@ describe('useAppStore commitCrop', () => {
     primeStoreForCrop(layer, 6, 4);
 
     useAppStore.getState().initColorCycleForLayer(layer.id, 6, 4);
-    const brush = useAppStore.getState().getLayerColorCycleBrush(layer.id);
+    const brush = getColorCycleBrushManager().getBrush(layer.id);
     expect(brush).toBeDefined();
 
     const paint = new Uint8Array(24).fill(0);
@@ -488,7 +491,7 @@ describe('useAppStore commitCrop', () => {
     const flow = Uint8Array.from({ length: 24 }, (_, idx) => idx + 20);
     const phase = Uint8Array.from({ length: 24 }, (_, idx) => idx + 40);
 
-    brush?.applyLayerSnapshot?.(layer.id, {
+    if (brush) applyColorCycleBrushLayerSnapshotToRuntime(brush, layer.id, {
       paintBuffer: paint.buffer.slice(0),
       gradientIdBuffer: gradientIds.buffer.slice(0),
       gradientDefIdBuffer: gradientDefIds.buffer.slice(0),
@@ -504,7 +507,7 @@ describe('useAppStore commitCrop', () => {
 
     const updatedLayer = useAppStore.getState().layers[0];
     const updatedBrush = updatedLayer.colorCycleData?.colorCycleBrush;
-    const snapshot = updatedBrush?.getLayerSnapshot?.(layer.id);
+    const snapshot = readTestColorCycleBrushLayerSnapshot(updatedBrush, layer.id);
 
     expect(snapshot?.paintBuffer).toBeDefined();
     expect(snapshot?.gradientIdBuffer).toBeDefined();
@@ -542,7 +545,7 @@ describe('useAppStore commitCrop', () => {
     primeStoreForCrop(layer, 6, 4);
 
     useAppStore.getState().initColorCycleForLayer(layer.id, 6, 4);
-    const brush = useAppStore.getState().getLayerColorCycleBrush(layer.id);
+    const brush = getColorCycleBrushManager().getBrush(layer.id);
     expect(brush).toBeDefined();
 
     const paint = new Uint8Array(24);
@@ -558,7 +561,7 @@ describe('useAppStore commitCrop', () => {
     flow[0] = 1;
     phase[0] = 1;
 
-    brush?.applyLayerSnapshot?.(layer.id, {
+    if (brush) applyColorCycleBrushLayerSnapshotToRuntime(brush, layer.id, {
       paintBuffer: paint.buffer.slice(0),
       gradientIdBuffer: gradientIds.buffer.slice(0),
       gradientDefIdBuffer: gradientDefIds.buffer.slice(0),
@@ -574,7 +577,7 @@ describe('useAppStore commitCrop', () => {
 
     const updatedLayer = useAppStore.getState().layers[0];
     const updatedBrush = updatedLayer.colorCycleData?.colorCycleBrush;
-    const snapshot = updatedBrush?.getLayerSnapshot?.(layer.id);
+    const snapshot = readTestColorCycleBrushLayerSnapshot(updatedBrush, layer.id);
 
     expect(snapshot?.paintBuffer).toBeDefined();
     expect(snapshot?.hasContent).toBe(false);
@@ -587,7 +590,7 @@ describe('useAppStore commitCrop', () => {
     primeStoreForCrop(layer, 6, 4);
 
     useAppStore.getState().initColorCycleForLayer(layer.id, 6, 4);
-    const brush = useAppStore.getState().getLayerColorCycleBrush(layer.id);
+    const brush = getColorCycleBrushManager().getBrush(layer.id);
     expect(brush).toBeDefined();
 
     const paint = new Uint8Array(24);
@@ -603,7 +606,7 @@ describe('useAppStore commitCrop', () => {
     flow[0] = 1;
     phase[0] = 1;
 
-    brush?.applyLayerSnapshot?.(layer.id, {
+    if (brush) applyColorCycleBrushLayerSnapshotToRuntime(brush, layer.id, {
       paintBuffer: paint.buffer.slice(0),
       gradientIdBuffer: gradientIds.buffer.slice(0),
       gradientDefIdBuffer: gradientDefIds.buffer.slice(0),
@@ -620,7 +623,7 @@ describe('useAppStore commitCrop', () => {
     const updatedLayer = useAppStore.getState().layers[0];
     const updatedBrush = updatedLayer.colorCycleData?.colorCycleBrush;
     const brushCanvas = updatedLayer.colorCycleData?.canvas;
-    const snapshot = updatedBrush?.getLayerSnapshot?.(layer.id);
+    const snapshot = readTestColorCycleBrushLayerSnapshot(updatedBrush, layer.id);
 
     expect(snapshot?.hasContent).toBe(false);
     expect(new Uint8Array(snapshot?.paintBuffer ?? new ArrayBuffer(0)).some((value) => value !== 0)).toBe(false);
@@ -635,7 +638,7 @@ describe('useAppStore commitCrop', () => {
     primeStoreForCrop(layer, 6, 4);
 
     useAppStore.getState().initColorCycleForLayer(layer.id, 6, 4);
-    const brush = useAppStore.getState().getLayerColorCycleBrush(layer.id);
+    const brush = getColorCycleBrushManager().getBrush(layer.id);
     expect(brush).toBeDefined();
 
     useAppStore.setState((state) => ({
@@ -704,7 +707,7 @@ describe('useAppStore commitCrop', () => {
     await useAppStore.getState().commitCrop();
     await new Promise((resolve) => setTimeout(resolve, 25));
 
-    const updatedBrush = useAppStore.getState().getLayerColorCycleBrush(layer.id);
+    const updatedBrush = getColorCycleBrushManager().getBrush(layer.id);
     expect(updatedBrush?.getActiveGradientSlot?.(layer.id)).toBe(5);
   });
 
@@ -715,9 +718,9 @@ describe('useAppStore commitCrop', () => {
     const storeBefore = useAppStore.getState();
     storeBefore.initColorCycleForLayer(layer.id, 6, 4);
 
-    const initialBrush = useAppStore.getState().getLayerColorCycleBrush(layer.id);
+    const initialBrush = getColorCycleBrushManager().getBrush(layer.id);
     initialBrush?.setActiveLayer?.(layer.id);
-    initialBrush?.applyLayerSnapshot?.(layer.id, {
+    if (initialBrush) applyColorCycleBrushLayerSnapshotToRuntime(initialBrush, layer.id, {
       paintBuffer: new Uint8Array(24).fill(1).buffer,
       hasContent: true,
       strokeCounter: 1,
@@ -744,7 +747,7 @@ describe('useAppStore commitCrop', () => {
 
     const state = useAppStore.getState();
     const updatedLayer = state.layers[0];
-    const restoredBrush = state.getLayerColorCycleBrush(layer.id);
+    const restoredBrush = getColorCycleBrushManager().getBrush(layer.id);
 
     expect(updatedLayer.colorCycleData?.brushSpeed).toBeCloseTo(0.33);
     expect(updatedLayer.colorCycleData?.isAnimating).toBe(true);
@@ -848,8 +851,8 @@ describe('useAppStore commitCrop', () => {
     primeStoreForResize(layer, 2, 2);
 
     useAppStore.getState().initColorCycleForLayer(layer.id, 2, 2);
-    const brush = useAppStore.getState().getLayerColorCycleBrush(layer.id);
-    brush?.applyLayerSnapshot?.(layer.id, {
+    const brush = getColorCycleBrushManager().getBrush(layer.id);
+    if (brush) applyColorCycleBrushLayerSnapshotToRuntime(brush, layer.id, {
       paintBuffer: Uint8Array.from([1, 2, 3, 4]).buffer,
       gradientIdBuffer: Uint8Array.from([11, 12, 13, 14]).buffer,
       gradientDefIdBuffer: Uint16Array.from([101, 102, 103, 104]).buffer,
@@ -863,8 +866,8 @@ describe('useAppStore commitCrop', () => {
     await useAppStore.getState().resizeCanvas(4, 4);
 
     const updatedLayer = useAppStore.getState().layers[0];
-    const updatedBrush = useAppStore.getState().getLayerColorCycleBrush(layer.id);
-    const snapshot = updatedBrush?.getLayerSnapshot?.(layer.id);
+    const updatedBrush = getColorCycleBrushManager().getBrush(layer.id);
+    const snapshot = readTestColorCycleBrushLayerSnapshot(updatedBrush, layer.id);
 
     expect(updatedLayer.colorCycleData?.canvas?.width).toBe(4);
     expect(updatedLayer.colorCycleData?.canvas?.height).toBe(4);

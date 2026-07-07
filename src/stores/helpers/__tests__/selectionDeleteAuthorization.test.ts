@@ -60,7 +60,7 @@ describe('selectionDeleteAuthorization', () => {
     ]);
 
     expect(summarizeColorCycleSelectionPaint({
-      paintBuffer: paint,
+      paint,
       paintWidth: 4,
       paintHeight: 4,
       bounds: { x: 0, y: 0, width: 2, height: 2 },
@@ -73,7 +73,7 @@ describe('selectionDeleteAuthorization', () => {
     });
 
     expect(summarizeColorCycleSelectionPaint({
-      paintBuffer: paint,
+      paint,
       paintWidth: 4,
       paintHeight: 4,
       bounds: { x: 0, y: 0, width: 4, height: 4 },

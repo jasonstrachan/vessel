@@ -1,6 +1,7 @@
 import { debugWarn } from '@/utils/debug';
 import type { StateCreator } from 'zustand';
 import type { Layer, Rectangle } from '@/types';
+import type { ColorCycleBrushManager } from '@/stores/colorCycleBrushManager';
 import { selectionSnapshotFromValues } from '@/history/selectionState';
 import type { SelectionSnapshot } from '@/history/selectionState';
 import { cloneLayerImageData, commitLayerHistory } from '@/history/helpers/layerHistory';
@@ -9,6 +10,12 @@ import {
   captureColorCycleBrushState,
   type ColorCycleSerializedState,
 } from '@/history/helpers/colorCycle';
+import {
+  buildColorCycleCanonicalSelectionPayload,
+  getColorCycleLegacyLayerBuffer,
+  type ColorCycleLayerDocumentSnapshot,
+  type ColorCyclePaintSnapshot,
+} from '@/lib/colorCycle/document';
 import { clearColorCycleRegion } from '@/stores/helpers/colorCycleSelection';
 import { logCCMutation, summarizeColorCycleLayer } from '@/utils/colorCycle/ccMutationAudit';
 import { createSelectionPasteHelpers } from '@/stores/helpers/selectionPaste';
@@ -47,6 +54,24 @@ import {
 } from '@/stores/helpers/colorCycleSelectionTransaction';
 
 type AppState = import('../useAppStore').AppState;
+
+type ColorCycleSerializedLayerWithIndexDimensions = {
+  layerId?: string;
+  strokeData?: {
+    gradientIdBuffer?: ArrayBuffer;
+    gradientDefIdBuffer?: ArrayBuffer;
+    speedBuffer?: ArrayBuffer;
+    flowBuffer?: ArrayBuffer;
+    phaseBuffer?: ArrayBuffer;
+  };
+  data?: {
+    indexBuffer?: {
+      width?: number;
+      height?: number;
+    };
+  };
+  dimensions?: { width?: number; height?: number };
+};
 
 export interface SelectionActionProvenance {
   action: 'set-bounds' | 'select-all' | 'delete-selected';
@@ -213,32 +238,36 @@ const buildTransferredColorCyclePayload = (
 
 const buildCanonicalColorCycleSelectionPayload = (
   layer: Layer,
-  snapshot: {
-    paintBuffer?: ArrayBuffer | null;
-    gradientIdBuffer?: ArrayBuffer | null;
-    gradientDefIdBuffer?: ArrayBuffer | null;
-    speedBuffer?: ArrayBuffer | null;
-    flowBuffer?: ArrayBuffer | null;
-    phaseBuffer?: ArrayBuffer | null;
-  } | null,
+  snapshot: ColorCyclePaintSnapshot | null | undefined,
   width: number,
   height: number
 ): CcCanonicalSelectionPayload => {
-  const paintBuffer = snapshot?.paintBuffer ? new Uint8Array(snapshot.paintBuffer) : null;
-  const layerClaimsContent = Boolean(layer.colorCycleData?.hasContent);
-  const hasPersistedCcPayload = Boolean(
-    layer.colorCycleData?.gradientIdBuffer || layer.colorCycleData?.gradientDefIdBuffer
-  );
-  const hasCanonicalPaint = paintBuffer?.some((value) => value !== 0) ?? false;
-  return {
-    paintBuffer: (layerClaimsContent || hasPersistedCcPayload) && !hasCanonicalPaint ? null : paintBuffer,
-    gradientIdBuffer: snapshot?.gradientIdBuffer ? new Uint8Array(snapshot.gradientIdBuffer) : null,
-    gradientDefIdBuffer: snapshot?.gradientDefIdBuffer ? new Uint16Array(snapshot.gradientDefIdBuffer) : null,
-    speedBuffer: snapshot?.speedBuffer ? new Uint8Array(snapshot.speedBuffer) : null,
-    flowBuffer: snapshot?.flowBuffer ? new Uint8Array(snapshot.flowBuffer) : null,
-    phaseBuffer: snapshot?.phaseBuffer ? new Uint8Array(snapshot.phaseBuffer) : null,
+  return buildColorCycleCanonicalSelectionPayload({
+    snapshot,
     width,
     height,
+    layerClaimsContent: Boolean(layer.colorCycleData?.hasContent),
+    hasPersistedPayload: Boolean(
+      getColorCycleLegacyLayerBuffer(layer.colorCycleData, 'gradientIdBuffer') ||
+        getColorCycleLegacyLayerBuffer(layer.colorCycleData, 'gradientDefIdBuffer')
+    ),
+  });
+};
+
+const resolveColorCyclePaintSnapshot = (
+  snapshot: ColorCycleLayerDocumentSnapshot | null,
+): ColorCyclePaintSnapshot | null => {
+  if (!snapshot?.paintBuffer) {
+    return null;
+  }
+  return {
+    paintBuffer: snapshot.paintBuffer,
+    gradientIdBuffer: snapshot.gradientIdBuffer,
+    gradientDefIdBuffer: snapshot.gradientDefIdBuffer,
+    speedBuffer: snapshot.speedBuffer,
+    flowBuffer: snapshot.flowBuffer,
+    phaseBuffer: snapshot.phaseBuffer,
+    hasContent: snapshot.hasContent,
   };
 };
 
@@ -448,8 +477,8 @@ const logSelectionDeleteAuthorizationBlocked = (args: {
           projectId: projectId ?? null,
           deleteSource: source,
           selectionLastAction,
-          hasGradientIdBuffer: Boolean(activeLayer.colorCycleData?.gradientIdBuffer),
-          hasGradientDefIdBuffer: Boolean(activeLayer.colorCycleData?.gradientDefIdBuffer),
+          hasGradientIdBuffer: Boolean(getColorCycleLegacyLayerBuffer(activeLayer.colorCycleData, 'gradientIdBuffer')),
+          hasGradientDefIdBuffer: Boolean(getColorCycleLegacyLayerBuffer(activeLayer.colorCycleData, 'gradientDefIdBuffer')),
         },
       });
     }
@@ -873,9 +902,10 @@ const extractColorCycleRegion = (
   field: 'gradientIdBuffer' | 'speedBuffer' | 'flowBuffer' | 'phaseBuffer',
   layerId?: string | null
 ): Uint8Array | null => {
+  const layers = (state as { layers?: ColorCycleSerializedLayerWithIndexDimensions[] } | null)?.layers;
   const layer = layerId
-    ? state?.layers?.find((entry) => entry.layerId === layerId)
-    : state?.layers?.[0];
+    ? layers?.find((entry) => entry.layerId === layerId)
+    : layers?.[0];
   if (!layer?.strokeData) {
     return null;
   }
@@ -884,9 +914,7 @@ const extractColorCycleRegion = (
     return null;
   }
   const bytes = new Uint8Array(source);
-  const layerDimensions = layer as typeof layer & {
-    dimensions?: { width?: number; height?: number };
-  };
+  const layerDimensions = layer as ColorCycleSerializedLayerWithIndexDimensions;
   const width = layer.data?.indexBuffer?.width ?? layerDimensions.dimensions?.width ?? 0;
   const height = layer.data?.indexBuffer?.height ?? layerDimensions.dimensions?.height ?? 0;
   if (!width || !height || bytes.length < width * height) {
@@ -905,17 +933,16 @@ const extractColorCycleDefRegion = (
   bounds: Rectangle,
   layerId?: string | null
 ): Uint16Array | null => {
+  const layers = (state as { layers?: ColorCycleSerializedLayerWithIndexDimensions[] } | null)?.layers;
   const layer = layerId
-    ? state?.layers?.find((entry) => entry.layerId === layerId)
-    : state?.layers?.[0];
+    ? layers?.find((entry) => entry.layerId === layerId)
+    : layers?.[0];
   const source = layer?.strokeData?.gradientDefIdBuffer;
   if (!source) {
     return null;
   }
   const values = new Uint16Array(source);
-  const layerDimensions = layer as typeof layer & {
-    dimensions?: { width?: number; height?: number };
-  };
+  const layerDimensions = layer as ColorCycleSerializedLayerWithIndexDimensions;
   const width = layer.data?.indexBuffer?.width ?? layerDimensions.dimensions?.width ?? 0;
   const height = layer.data?.indexBuffer?.height ?? layerDimensions.dimensions?.height ?? 0;
   if (!width || !height || values.length < width * height) {
@@ -1137,12 +1164,19 @@ const flipVectorPath = (
   };
 };
 
-export const createSelectionSlice: StateCreator<AppState, [], [], SelectionSlice> = (set, get, store) => {
+export const createSelectionSlice = ({
+  colorCycleBrushManager,
+}: {
+  colorCycleBrushManager: Pick<ColorCycleBrushManager, 'getDocument'>;
+}): StateCreator<AppState, [], [], SelectionSlice> => (set, get, store) => {
+  const getColorCycleDocumentSnapshot = (layerId: string) =>
+    colorCycleBrushManager.getDocument(layerId)?.read().snapshot ?? null;
   const selectionPasteHelpers = createSelectionPasteHelpers({
     get: store.getState,
     set: store.setState,
     captureCanvasToActiveLayer: (canvas, roi, options) =>
       get().captureCanvasToActiveLayer(canvas, roi, options),
+    getColorCycleDocumentSnapshot,
   });
 
   return {
@@ -1619,14 +1653,11 @@ export const createSelectionSlice: StateCreator<AppState, [], [], SelectionSlice
       let deleteBounds: Rectangle | null = null;
 
       if (activeLayer.layerType === 'color-cycle') {
-        const brush = typeof state.getLayerColorCycleBrush === 'function'
-          ? state.getLayerColorCycleBrush(activeLayerId)
-          : null;
-        const snapshot = brush?.getLayerSnapshot?.(activeLayerId) ?? null;
+        const snapshot = getColorCycleDocumentSnapshot(activeLayerId);
         const canvas = activeLayer.colorCycleData?.canvas ?? activeLayer.framebuffer ?? null;
         const canonical = buildCanonicalColorCycleSelectionPayload(
           activeLayer,
-          snapshot,
+          resolveColorCyclePaintSnapshot(snapshot),
           canvas?.width ?? project.width,
           canvas?.height ?? project.height
         );
@@ -1660,7 +1691,7 @@ export const createSelectionSlice: StateCreator<AppState, [], [], SelectionSlice
             selectionMaskLayerId,
             selectionLastAction,
             colorCyclePaint: {
-              buffer: canonical.paintBuffer,
+              buffer: canonical.paint,
               width: canonical.width,
               height: canonical.height,
               hasFullCanonicalPayload: preflight.kind !== 'missing-canonical-payload',
@@ -1799,11 +1830,17 @@ export const createSelectionSlice: StateCreator<AppState, [], [], SelectionSlice
 
         state.updateLayer(
           activeLayerId,
-          { sequentialData: afterSequentialData },
-          { skipColorCycleSync: true }
+          {
+            sequentialData: afterSequentialData,
+            version: (activeLayer.version || 0) + 1,
+          },
+          {
+            skipColorCycleSync: true,
+            dirtyRects: [{ x, y, width, height }],
+          }
         );
         state.setCurrentCompositeBitmap(null);
-        state.setLayersNeedRecomposition(true);
+        set({ layersNeedRecomposition: true });
         state.clearSelection();
 
         const deleteHistoryCommit = commitSequentialLayerHistory({
@@ -1935,11 +1972,15 @@ export const createSelectionSlice: StateCreator<AppState, [], [], SelectionSlice
           }
         }
 
-        state.updateLayer(activeLayerId, { imageData: newImageData });
+        state.updateLayer(
+          activeLayerId,
+          { imageData: newImageData },
+          { dirtyRects: [{ x, y, width, height }] },
+        );
       }
 
       state.setCurrentCompositeBitmap(null);
-      state.setLayersNeedRecomposition(true);
+      set({ layersNeedRecomposition: true });
       state.clearSelection();
 
       const deleteHistoryCommit = commitLayerHistory({
@@ -1992,12 +2033,11 @@ export const createSelectionSlice: StateCreator<AppState, [], [], SelectionSlice
       let ccExtractPreflight: Extract<CcSelectionPreflight, { ok: true }> | null = null;
 
       if (activeLayer.layerType === 'color-cycle') {
-        const brush = state.getLayerColorCycleBrush?.(activeLayerId);
-        const snapshot = brush?.getLayerSnapshot?.(activeLayerId) ?? null;
+        const snapshot = getColorCycleDocumentSnapshot(activeLayerId);
         const canvas = activeLayer.colorCycleData?.canvas ?? activeLayer.framebuffer ?? null;
         const canonical = buildCanonicalColorCycleSelectionPayload(
           activeLayer,
-          snapshot,
+          resolveColorCyclePaintSnapshot(snapshot),
           canvas?.width ?? project.width,
           canvas?.height ?? project.height
         );
@@ -2181,14 +2221,22 @@ export const createSelectionSlice: StateCreator<AppState, [], [], SelectionSlice
           } catch {
             // If framebuffer sync fails, imageData update still preserves correctness.
           }
-          state.updateLayer(activeLayerId, { imageData: updatedImageData, framebuffer });
+          state.updateLayer(
+            activeLayerId,
+            { imageData: updatedImageData, framebuffer },
+            { dirtyRects: [capture.bounds] },
+          );
         } else {
-          state.updateLayer(activeLayerId, { imageData: updatedImageData });
+          state.updateLayer(
+            activeLayerId,
+            { imageData: updatedImageData },
+            { dirtyRects: [capture.bounds] },
+          );
         }
       }
 
       state.setCurrentCompositeBitmap(null);
-      state.setLayersNeedRecomposition(true);
+      set({ layersNeedRecomposition: true });
       const floatingVectorPath =
         selectionVectorPath && selectionVectorPath.points.length >= 2
           ? {
@@ -2529,9 +2577,13 @@ export const createSelectionSlice: StateCreator<AppState, [], [], SelectionSlice
                 }
               }
               if (!skipImageUpdate) {
-                state.updateLayer(activeLayerId, { imageData: capture.updatedLayerImageData });
+                state.updateLayer(
+                  activeLayerId,
+                  { imageData: capture.updatedLayerImageData },
+                  { dirtyRects: [capture.bounds] },
+                );
               }
-              state.setLayersNeedRecomposition(true);
+              set({ layersNeedRecomposition: true });
               state.setCurrentCompositeBitmap(null);
 
               const cutHistoryCommit = commitLayerHistory({

@@ -65,6 +65,12 @@ export const captureCanvasToActiveLayerAction = async (
     const captureY = normalizedRoi ? normalizedRoi.y : 0;
     const regionWidth = normalizedRoi ? normalizedRoi.width : captureWidth;
     const regionHeight = normalizedRoi ? normalizedRoi.height : captureHeight;
+    const captureDirtyRect = {
+      x: captureX,
+      y: captureY,
+      width: regionWidth,
+      height: regionHeight,
+    };
 
     const capturedImageData = ctx.getImageData(captureX, captureY, regionWidth, regionHeight);
 
@@ -264,7 +270,10 @@ export const captureCanvasToActiveLayerAction = async (
       };
     });
 
-    get().setLayersNeedRecomposition(true);
+    get().markCompositeSegmentsDirtyByLayerIds([activeLayerId], {
+      dirtyRectsByLayerId: new Map([[activeLayerId, [captureDirtyRect]]]),
+    });
+    set({ layersNeedRecomposition: true });
   } catch (error) {
     if (error instanceof DOMException && error.name === 'SecurityError') {
       debugWarn('raw-console', '[captureCanvasToActiveLayer] Canvas capture blocked by CORS/security policy');
@@ -343,7 +352,13 @@ export const captureCanvasToLayerAction = async (
       };
     });
 
-    get().setLayersNeedRecomposition(true);
+    get().markCompositeSegmentsDirtyByLayerIds([targetLayerId], {
+      dirtyRectsByLayerId: new Map([[
+        targetLayerId,
+        [{ x: 0, y: 0, width: captureWidth, height: captureHeight }],
+      ]]),
+    });
+    set({ layersNeedRecomposition: true });
   } catch (error) {
     logError('Capture to specific layer failed', error);
   }

@@ -1,6 +1,11 @@
 import { debugWarn } from '@/utils/debug';
 import type { CustomBrushColorCycleV2, Layer } from '@/types';
-import { getColorCycleBrushManager, getColorCycleStoreState } from '@/stores/colorCycleBrushManager';
+import { getColorCycleBrushManager } from '@/stores/colorCycleBrushManager';
+import {
+  captureColorCyclePaintRegion,
+  getColorCycleLegacyLayerBuffer,
+  type ColorCyclePaintSnapshot,
+} from '@/lib/colorCycle/document';
 import { resolveLayerColorCycleBaseSpeedFromLayer } from '@/utils/colorCycleLayerSpeed';
 
 export type CapturePoint = { x: number; y: number };
@@ -44,9 +49,22 @@ const DEFAULT_THUMBNAIL_SIZE = 64;
 const DEFAULT_SOURCE_CYCLE_LENGTH = 256;
 const colorCycleBrushManager = getColorCycleBrushManager();
 
-const resolveLayerBrush = (layerId: string) =>
-  getColorCycleStoreState()?.getLayerColorCycleBrush?.(layerId) ??
-  colorCycleBrushManager.getLayerColorCycleBrush(layerId);
+const resolveLayerPaintSnapshot = (layerId: string): ColorCyclePaintSnapshot | null => {
+  const documentRead = colorCycleBrushManager.getDocument(layerId)?.read();
+  const snapshot = documentRead?.snapshot;
+  if (!snapshot?.paintBuffer) {
+    return null;
+  }
+  return {
+    paintBuffer: snapshot.paintBuffer,
+    gradientIdBuffer: snapshot.gradientIdBuffer,
+    gradientDefIdBuffer: snapshot.gradientDefIdBuffer,
+    speedBuffer: snapshot.speedBuffer,
+    flowBuffer: snapshot.flowBuffer,
+    phaseBuffer: snapshot.phaseBuffer,
+    hasContent: snapshot.hasContent,
+  };
+};
 
 export const selectionToCaptureBounds = (
   start: CapturePoint | null | undefined,
@@ -320,38 +338,6 @@ const resolveCycleCanvasSize = (layer: Layer): { width: number; height: number }
   };
 };
 
-const cropScalarMap = (
-  source: Uint8Array,
-  sourceWidth: number,
-  sourceHeight: number,
-  bounds: BrushCaptureBounds,
-  width: number,
-  height: number
-): Uint16Array | undefined => {
-  if (source.length < sourceWidth * sourceHeight) {
-    return undefined;
-  }
-
-  const map = new Uint16Array(width * height);
-  for (let y = 0; y < height; y += 1) {
-    const srcY = bounds.y + y;
-    if (srcY < 0 || srcY >= sourceHeight) {
-      continue;
-    }
-    for (let x = 0; x < width; x += 1) {
-      const srcX = bounds.x + x;
-      if (srcX < 0 || srcX >= sourceWidth) {
-        continue;
-      }
-      const srcIndex = srcY * sourceWidth + srcX;
-      const dstIndex = y * width + x;
-      map[dstIndex] = source[srcIndex];
-    }
-  }
-
-  return map;
-};
-
 const cropPaintPhaseMap = (
   layer: Layer,
   bounds: BrushCaptureBounds,
@@ -363,27 +349,20 @@ const cropPaintPhaseMap = (
   }
 
   const { width: canvasWidth, height: canvasHeight } = resolveCycleCanvasSize(layer);
-  const brush = resolveLayerBrush(layer.id);
-  const snapshot = brush?.getLayerSnapshot?.(layer.id);
-  const persistedBuffer = layer.colorCycleData?.gradientIdBuffer;
-  const sourceBuffer =
-    snapshot?.paintBuffer && snapshot.paintBuffer.byteLength > 0
-      ? snapshot.paintBuffer
-      : persistedBuffer && persistedBuffer.byteLength > 0
-        ? persistedBuffer
-      : undefined;
-  if (!sourceBuffer) {
+  const snapshot = resolveLayerPaintSnapshot(layer.id);
+  const persistedBuffer = getColorCycleLegacyLayerBuffer(layer.colorCycleData, 'gradientIdBuffer');
+  const paintRegion = captureColorCyclePaintRegion({
+    snapshot,
+    fallbackBuffer: persistedBuffer,
+    width: canvasWidth,
+    height: canvasHeight,
+    rect: bounds,
+  });
+  if (!paintRegion) {
     return undefined;
   }
 
-  return cropScalarMap(
-    new Uint8Array(sourceBuffer),
-    canvasWidth,
-    canvasHeight,
-    bounds,
-    width,
-    height
-  );
+  return Uint16Array.from(paintRegion.slice(0, width * height));
 };
 
 const buildLuminancePhaseMap = (

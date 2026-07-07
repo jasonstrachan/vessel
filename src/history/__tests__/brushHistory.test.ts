@@ -83,6 +83,8 @@ const resetHistoryAndStore = (): void => {
   useAppStore.setState((state) => ({
     layers: [],
     activeLayerId: null,
+    layersNeedRecomposition: false,
+    pendingCompositeDirtyBatches: [],
     project: state.project
       ? {
           ...state.project,
@@ -518,6 +520,7 @@ describe('eraser history persistence', () => {
     });
 
     expect(historyManager.entries()).toHaveLength(2);
+    useAppStore.setState({ pendingCompositeDirtyBatches: [], layersNeedRecomposition: false });
 
     await historyManager.undo();
 
@@ -529,5 +532,13 @@ describe('eraser history persistence', () => {
     expect(getPixel(restored, 0, 0)).toEqual([0, 0, 0, 0]);
     // Second erase is undone.
     expect(getPixel(restored, 1, 0)).toEqual([255, 0, 0, 255]);
+    expect(useAppStore.getState().layersNeedRecomposition).toBe(true);
+    expect(useAppStore.getState().pendingCompositeDirtyBatches).toEqual([
+      {
+        layerId: layer.id,
+        version: 0,
+        rects: [{ x: 0, y: 0, width: 2, height: 2 }],
+      },
+    ]);
   });
 });

@@ -1,6 +1,7 @@
 import { FLOW_SLOT_MASK } from '@/lib/colorCycle/flowEncoding';
 import { TEMP_SAMPLE_SLOT } from '@/constants/colorCycle';
 import { signatureForStops } from '@/hooks/brushEngine/ccGradientRuntime';
+import { getColorCycleLegacyLayerBuffer } from '@/lib/colorCycle/document';
 import type { Layer } from '@/types';
 
 const EDITOR_SLOT = 255;
@@ -94,7 +95,10 @@ const collectNonDefSlots = (data: Layer['colorCycleData'] | undefined | null): S
   if (typeof data.fgActiveSlot === 'number') {
     used.add(clampSlot(data.fgActiveSlot));
   }
-  scanLiveNonDefGradientSlots(data.gradientIdBuffer, data.gradientDefIdBuffer).forEach((slot) => used.add(slot));
+  scanLiveNonDefGradientSlots(
+    getColorCycleLegacyLayerBuffer(data, 'gradientIdBuffer'),
+    getColorCycleLegacyLayerBuffer(data, 'gradientDefIdBuffer'),
+  ).forEach((slot) => used.add(slot));
   return used;
 };
 
@@ -178,7 +182,9 @@ export const rebuildGradientSlotUsageAndGC = (args: {
       if (layer.layerType !== 'color-cycle' || !layer.colorCycleData) {
         continue;
       }
-      const { usedDefIds, pixelsScanned: layerPixels } = scanDefIds(layer.colorCycleData.gradientDefIdBuffer);
+      const { usedDefIds, pixelsScanned: layerPixels } = scanDefIds(
+        getColorCycleLegacyLayerBuffer(layer.colorCycleData, 'gradientDefIdBuffer'),
+      );
       pixelsScanned += layerPixels;
       usedDefIds.forEach((id) => globalUsedDefIds?.add(id));
     }
@@ -192,7 +198,9 @@ export const rebuildGradientSlotUsageAndGC = (args: {
     const defStore = data.gradientDefStore ?? [];
     const slotPalettes = data.slotPalettes ?? [];
 
-    const { usedDefIds: usedDefIdsForLayer, pixelsScanned: layerPixels } = scanDefIds(data.gradientDefIdBuffer);
+    const { usedDefIds: usedDefIdsForLayer, pixelsScanned: layerPixels } = scanDefIds(
+      getColorCycleLegacyLayerBuffer(data, 'gradientDefIdBuffer'),
+    );
     if (scope !== 'project') {
       pixelsScanned += layerPixels;
     }

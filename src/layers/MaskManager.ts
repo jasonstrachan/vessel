@@ -1,5 +1,5 @@
 import type { Layer } from '@/types';
-import type { ColorCyclePaintMask } from '@/utils/colorCyclePaintMask';
+import type { ColorCyclePaintMask } from '@/lib/colorCycle/document';
 
 export type MaskDimensions = { width: number; height: number };
 

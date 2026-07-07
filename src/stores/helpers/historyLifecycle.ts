@@ -5,6 +5,11 @@ import {
   captureColorCycleBrushState,
   type ColorCycleSerializedState,
 } from '@/history/helpers/colorCycle';
+import {
+  createColorCycleHistoryLayerStrokeSnapshot,
+  readColorCycleBrushSerializedStateFromRuntime,
+  type ColorCycleBrushSerializedState,
+} from '@/lib/colorCycle/document';
 import type { CanvasSnapshot, Layer, Project } from '@/types';
 import { cloneLayerAlignment } from '@/utils/layoutDefaults';
 import { captureCanvasImageData } from '@/utils/canvas/canvasImage';
@@ -12,6 +17,7 @@ import {
   waitForFinalizeQueueIdle,
   waitForAllPendingColorCycleSaves,
 } from '../pendingColorCycleSaves';
+import { getColorCycleBrushManager } from '../colorCycleBrushManager';
 import { flushPendingToolWork } from '@/utils/toolFlushRegistry';
 import { waitForPendingHistoryCommits } from '@/history/pendingHistoryCommits';
 
@@ -216,15 +222,6 @@ const cloneLayerForHistory = (
           }))
         : undefined,
       activeGradientId: existingColorCycleData.activeGradientId,
-      gradientIdBuffer: existingColorCycleData.gradientIdBuffer
-        ? existingColorCycleData.gradientIdBuffer.slice(0)
-        : undefined,
-      gradientDefIdBuffer: existingColorCycleData.gradientDefIdBuffer
-        ? existingColorCycleData.gradientDefIdBuffer.slice(0)
-        : undefined,
-      phaseBuffer: existingColorCycleData.phaseBuffer
-        ? existingColorCycleData.phaseBuffer.slice(0)
-        : undefined,
       gradientDefStore: existingColorCycleData.gradientDefStore
         ? existingColorCycleData.gradientDefStore.map((entry) => ({
             id: entry.id,
@@ -258,89 +255,7 @@ interface SnapshotFromStateOptions {
   isColorCycleAction?: boolean;
 }
 
-interface SerializedColorCycleLayerSnapshot {
-  layerId: string;
-  data?: {
-    indexBuffer?: {
-      width: number;
-      height: number;
-      data?: ArrayBufferLike | Uint8Array;
-      gradientId?: ArrayBufferLike | Uint8Array;
-      gradient?: {
-        gradientStops?: Array<{ position: number; color: string }>;
-      };
-    };
-    gradient?: {
-      gradientStops?: Array<{ position: number; color: string }>;
-    };
-  };
-  gradientDefs?: Array<{ id: string; name?: string; currentSlot: number }>;
-  slotPalettes?: Array<{ slot: number; stops: Array<{ position: number; color: string }> }>;
-  fgActiveSlot?: number;
-  fgDerivedGradients?: Array<{
-    key: string;
-    slot: number;
-    spec: {
-      mode: 'fg-derived';
-      baseColor: string;
-      lightness: number;
-      variance: number;
-      hueShift?: number;
-      saturationShift?: number;
-      opacity?: number;
-      bands: number;
-      algoVersion: number;
-      key: string;
-    };
-  }>;
-  derivedGradients?: Array<{
-    key: string;
-    slot: number;
-    spec: {
-      mode: 'fg-derived';
-      baseColor: string;
-      lightness: number;
-      variance: number;
-      hueShift?: number;
-      saturationShift?: number;
-      opacity?: number;
-      bands: number;
-      algoVersion: number;
-      key: string;
-    };
-  }>;
-  activeGradientId?: string;
-  gradientDefStore?: Array<{
-    id: number;
-    kind: 'linear' | 'concentric';
-    stops: Array<{ position: number; color: string }>;
-    hash: string;
-    source: 'manual' | 'fg' | 'sampled';
-    createdAtMs: number;
-    slot?: number;
-    speedCps?: number;
-  }>;
-  nextGradientDefId?: number;
-  strokeData?: {
-    paintBuffer?: ArrayBufferLike;
-    gradientIdBuffer?: ArrayBufferLike;
-    gradientDefIdBuffer?: ArrayBufferLike;
-    speedBuffer?: ArrayBufferLike;
-    flowBuffer?: ArrayBufferLike;
-    phaseBuffer?: ArrayBufferLike;
-    hasContent?: boolean;
-    strokeCounter?: number;
-  };
-}
-
-interface SerializedColorCycleBrushState {
-  layers?: SerializedColorCycleLayerSnapshot[];
-  cycleSpeed?: number;
-  fps?: number;
-  brushSize?: number;
-}
-
-const isSerializedColorCycleBrushState = (value: unknown): value is SerializedColorCycleBrushState => {
+const isSerializedColorCycleBrushState = (value: unknown): value is ColorCycleBrushSerializedState => {
   if (typeof value !== 'object' || value === null) {
     return false;
   }
@@ -383,11 +298,8 @@ export const createHistorySnapshotFromState = (
 
   let colorCycleState: CanvasSnapshot['colorCycleState'] = undefined;
   const activeLayer = (state.layers || []).find((layer) => layer.id === state.activeLayerId);
-  const brush = activeLayer?.colorCycleData?.colorCycleBrush;
-  const rawState =
-    brush?.serialize?.() ??
-    brush?.getFullState?.() ??
-    null;
+  const brush = activeLayer ? getColorCycleBrushManager().getSerializedStateBrush(activeLayer.id) : null;
+  const rawState = brush ? readColorCycleBrushSerializedStateFromRuntime(brush) ?? null : null;
 
   if (activeLayer && isSerializedColorCycleBrushState(rawState) && rawState.layers) {
     colorCycleState = {
@@ -400,70 +312,7 @@ export const createHistorySnapshotFromState = (
         fps: 30,
         isPaused: false,
       },
-      layerStrokes: rawState.layers.map((layerSnapshot) => {
-        const indexBuffer = layerSnapshot.data?.indexBuffer;
-        const indexSource = indexBuffer?.data;
-        const indexArray = indexSource ? new Uint8Array(indexSource) : null;
-        const hasNonZeroIndex = indexArray ? indexArray.some((value) => value !== 0) : false;
-
-        const paintBufferSource = layerSnapshot.strokeData?.paintBuffer;
-        const paintBufferArray = paintBufferSource ? new Uint8Array(paintBufferSource) : null;
-        const paintBufferCopy = paintBufferArray ? paintBufferArray.slice().buffer : new ArrayBuffer(0);
-        const gradientBufferSource = layerSnapshot.strokeData?.gradientIdBuffer;
-        const gradientBufferArray = gradientBufferSource ? new Uint8Array(gradientBufferSource) : null;
-        const gradientBufferCopy = gradientBufferArray ? gradientBufferArray.slice().buffer : undefined;
-        const gradientDefBufferSource = layerSnapshot.strokeData?.gradientDefIdBuffer;
-        const gradientDefBufferArray = gradientDefBufferSource ? new Uint16Array(gradientDefBufferSource) : null;
-        const gradientDefBufferCopy = gradientDefBufferArray ? gradientDefBufferArray.slice().buffer : undefined;
-
-        const animatorIndex = indexBuffer
-          ? {
-              width: indexBuffer.width,
-              height: indexBuffer.height,
-              data: (indexArray ? indexArray.slice() : new Uint8Array()).buffer,
-              gradientIdData: indexBuffer.gradientId
-                ? new Uint8Array(indexBuffer.gradientId).slice().buffer
-                : new Uint8Array(indexBuffer.width * indexBuffer.height).buffer,
-              gradientDefs: layerSnapshot.gradientDefs
-                ? layerSnapshot.gradientDefs.map((entry) => ({
-                    id: entry.id,
-                    name: entry.name,
-                    currentSlot: entry.currentSlot,
-                  }))
-                : undefined,
-              slotPalettes: layerSnapshot.slotPalettes
-                ? layerSnapshot.slotPalettes.map((entry) => ({
-                    slot: entry.slot,
-                    stops: entry.stops.map((stop) => ({ position: stop.position, color: stop.color })),
-                  }))
-                : undefined,
-              activeGradientId: layerSnapshot.activeGradientId,
-              gradientStops: layerSnapshot.data?.gradient?.gradientStops || undefined,
-            }
-          : undefined;
-
-        return {
-          layerId: layerSnapshot.layerId,
-          paintBuffer: paintBufferCopy,
-          gradientIdBuffer: gradientBufferCopy,
-          gradientDefIdBuffer: gradientDefBufferCopy,
-          speedBuffer: layerSnapshot.strokeData?.speedBuffer
-            ? new Uint8Array(layerSnapshot.strokeData.speedBuffer).slice().buffer
-            : undefined,
-          flowBuffer: layerSnapshot.strokeData?.flowBuffer
-            ? new Uint8Array(layerSnapshot.strokeData.flowBuffer).slice().buffer
-            : undefined,
-          phaseBuffer: layerSnapshot.strokeData?.phaseBuffer
-            ? new Uint8Array(layerSnapshot.strokeData.phaseBuffer).slice().buffer
-            : undefined,
-          hasContent: Boolean(layerSnapshot.strokeData?.hasContent) || hasNonZeroIndex,
-          strokeCounter: layerSnapshot.strokeData?.strokeCounter ?? 0,
-          strokeLength: 0,
-          gradientLayerIndices: [],
-          currentGradientIndex: 0,
-          animatorIndex,
-        };
-      }),
+      layerStrokes: rawState.layers.map(createColorCycleHistoryLayerStrokeSnapshot),
     };
   }
 

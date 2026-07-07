@@ -1,4 +1,5 @@
 import type { Layer } from '@/types';
+import { attachLegacyColorCycleTopLevelBuffers } from '@/lib/colorCycle/document';
 import {
   brushStateHasColorCyclePaintPayload,
   ccPayloadHasNonZeroByte,
@@ -235,12 +236,13 @@ describe('resolveColorCycleRuntimeRestore', () => {
   });
 
   it('does not treat gradient-only buffers as a recoverable runtime source', () => {
-    const layer = makeLayer({
+    const layer = makeLayer(attachLegacyColorCycleTopLevelBuffers({
       mode: 'brush',
       hasContent: true,
+    }, {
       gradientIdBuffer: new Uint8Array([0, 1, 0, 0]).buffer,
       gradientDefIdBuffer: new Uint16Array([0, 2, 0, 0]).buffer,
-    });
+    }));
 
     expect(hasRecoverableColorCycleRuntimeSource(layer)).toBe(false);
   });

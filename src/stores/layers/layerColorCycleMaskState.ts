@@ -1,5 +1,9 @@
 import type { ColorCycleSerializedState } from '@/history/helpers/colorCycle';
-import type { ColorCycleBrushImplementation } from '@/hooks/brushEngine/ColorCycleBrushMigration';
+import {
+  readColorCycleBrushSerializedStateFromRuntime,
+  resolveColorCyclePaintCoverageFromSerializedState,
+  type ColorCycleBrushSerializedStateRuntimeReader,
+} from '@/lib/colorCycle/document';
 import type { ColorCycleSoftEdgeCoverage } from '@/utils/colorCycleSoftEdgeMask';
 import type { Layer } from '@/types';
 
@@ -156,74 +160,28 @@ export const removeColorCycleSoftEdgeMaskFromLayer = (layer: Layer, nextVersion:
   };
 };
 
-const bufferLikeToUint8Array = (value: unknown): Uint8Array | null => {
-  if (value instanceof ArrayBuffer) {
-    return new Uint8Array(value);
-  }
-  if (ArrayBuffer.isView(value)) {
-    return new Uint8Array(value.buffer, value.byteOffset, value.byteLength);
-  }
-  return null;
-};
-
 export const resolveSoftEdgeCoverageFromBrush = (
   layer: Layer,
-  brush: ColorCycleBrushImplementation | null | undefined,
+  brush: ColorCycleBrushSerializedStateRuntimeReader | null | undefined,
 ): ColorCycleSoftEdgeCoverage | null => {
-  if (!brush || typeof brush.serialize !== 'function') {
+  if (!brush) {
     return null;
   }
   try {
-    const snapshot = brush.serialize() as {
-      layers?: Array<{
-        layerId?: string;
-        id?: string;
-        dimensions?: { width?: unknown; height?: unknown };
-        width?: unknown;
-        height?: unknown;
-        strokeData?: { paintBuffer?: unknown };
-        paintBuffer?: unknown;
-      }>;
-    };
-    const serializedLayer = snapshot.layers?.find((entry) => (
-      entry.layerId === layer.id || entry.id === layer.id
-    )) ?? snapshot.layers?.[0];
-    const paintBuffer = bufferLikeToUint8Array(
-      serializedLayer?.strokeData?.paintBuffer ?? serializedLayer?.paintBuffer,
+    return resolveColorCyclePaintCoverageFromSerializedState(
+      readColorCycleBrushSerializedStateFromRuntime(brush),
+      layer.id,
+      {
+        width: layer.colorCycleData?.canvasWidth
+          || layer.colorCycleData?.canvas?.width
+          || layer.imageData?.width
+          || 0,
+        height: layer.colorCycleData?.canvasHeight
+          || layer.colorCycleData?.canvas?.height
+          || layer.imageData?.height
+          || 0,
+      },
     );
-    if (!paintBuffer || paintBuffer.length === 0) {
-      return null;
-    }
-    const width = Math.max(
-      1,
-      Math.floor(
-        Number(serializedLayer?.dimensions?.width)
-        || Number(serializedLayer?.width)
-        || layer.colorCycleData?.canvasWidth
-        || layer.colorCycleData?.canvas?.width
-        || layer.imageData?.width
-        || 0,
-      ),
-    );
-    const height = Math.max(
-      1,
-      Math.floor(
-        Number(serializedLayer?.dimensions?.height)
-        || Number(serializedLayer?.height)
-        || layer.colorCycleData?.canvasHeight
-        || layer.colorCycleData?.canvas?.height
-        || layer.imageData?.height
-        || 0,
-      ),
-    );
-    if (paintBuffer.length < width * height) {
-      return null;
-    }
-    const alpha = new Uint8ClampedArray(width * height);
-    for (let index = 0; index < alpha.length; index += 1) {
-      alpha[index] = (paintBuffer[index] ?? 0) > 0 ? 255 : 0;
-    }
-    return { width, height, alpha };
   } catch {
     return null;
   }

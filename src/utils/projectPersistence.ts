@@ -1,3 +1,5 @@
+import { brushStateHasRuntimeStrokeBufferAuthority } from '@/lib/colorCycle/document';
+
 export const PROJECT_ARCHIVE_MANIFEST_VERSION = 1;
 
 export type PersistedLayerType = 'normal' | 'color-cycle' | 'colorCycle' | 'sequential';
@@ -135,6 +137,7 @@ export const COLOR_CYCLE_STATE_FIELD_CLASSIFICATION = {
 } as const satisfies Record<string, PersistedFieldClass>;
 
 export const MODERN_COLOR_CYCLE_DATA_FIELD_CLASSIFICATION = {
+  documentId: 'metadata',
   gradient: 'metadata',
   recolorSettings: 'metadata',
   canvasImageData: 'metadata',
@@ -240,16 +243,8 @@ const hasRuntimeStrokeBufferAuthority = (value: unknown): boolean => {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     return false;
   }
-  const brushState = (value as { brushState?: { layers?: Array<{ strokeData?: Record<string, unknown> }> } }).brushState;
-  return (brushState?.layers ?? []).some((snapshot) => {
-    const strokeData = snapshot?.strokeData;
-    return strokeData?.paintBuffer !== undefined
-      || strokeData?.gradientIdBuffer !== undefined
-      || strokeData?.gradientDefIdBuffer !== undefined
-      || strokeData?.speedBuffer !== undefined
-      || strokeData?.flowBuffer !== undefined
-      || strokeData?.phaseBuffer !== undefined;
-  });
+  const brushState = (value as { brushState?: unknown }).brushState;
+  return brushStateHasRuntimeStrokeBufferAuthority(brushState);
 };
 
 export function evaluateColorCyclePersistencePolicy(

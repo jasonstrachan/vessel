@@ -123,6 +123,25 @@ const tilesEqual = (
   return true;
 };
 
+const buildDirtyRectsFromPatches = (
+  patches: TilePatch[],
+  maxWidth: number,
+  maxHeight: number,
+) => patches
+  .map((patch) => {
+    const x = Math.max(0, Math.floor(patch.x));
+    const y = Math.max(0, Math.floor(patch.y));
+    const right = Math.min(maxWidth, Math.ceil(patch.x + patch.width));
+    const bottom = Math.min(maxHeight, Math.ceil(patch.y + patch.height));
+    return {
+      x,
+      y,
+      width: Math.max(0, right - x),
+      height: Math.max(0, bottom - y),
+    };
+  })
+  .filter((rect) => rect.width > 0 && rect.height > 0);
+
 class BitmapTileDelta implements HistoryDelta {
   readonly _tag = 'bitmap-tile';
   readonly approxBytes?: number;
@@ -234,7 +253,14 @@ class BitmapTileDelta implements HistoryDelta {
       };
     });
 
-    useAppStore.getState().setLayersNeedRecomposition(true);
+    const state = useAppStore.getState();
+    const dirtyRects = buildDirtyRectsFromPatches(patches, this.width, this.height);
+    state.markCompositeSegmentsDirtyByLayerIds([this.layerId], {
+      dirtyRectsByLayerId: dirtyRects.length
+        ? new Map([[this.layerId, dirtyRects]])
+        : undefined,
+    });
+    useAppStore.setState({ layersNeedRecomposition: true });
   }
 
   dispose(): void {

@@ -166,7 +166,6 @@ const exposeLayerIntegrityCheck = (): void => {
 import { logError } from '@/utils/debug';
 import { getColorCycleBrushManager, setLayerIdGetter, setColorCycleStoreStateGetter } from './colorCycleBrushManager';
 import { syncPlaybackColorCycleLayers } from './ccRuntime';
-import type { ColorCycleBrushImplementation } from './colorCycleBrushManager';
 import type { ShapeFillFinalizePayload } from '@/shapeFill';
 import type { FillParams, ShapeFillId, ShapeFillParamKey, Vec2 } from '@/shapeFill/types';
 import { configureMaskManager } from '@/layers/MaskManager';
@@ -223,7 +222,14 @@ import { createSequentialRecordSlice } from '@/stores/slices/sequentialRecordSli
 import type { SequentialRecordSlice, SequentialRecordState } from '@/stores/slices/sequentialRecordSlice';
 import { createHistorySlice } from '@/stores/slices/historySlice';
 import { createLayersSlice } from '@/stores/slices/layersSlice';
-import type { CompositeSegment, UpdateLayerOptions } from '@/stores/slices/layersSlice';
+import type {
+  CompositeLayersToCanvasOptions,
+  CompositeSegment,
+  MarkCompositeSegmentsDirtyOptions,
+  RenderStaticCompositeOptions,
+  UpdateLayerOptions,
+} from '@/stores/slices/layersSlice';
+import type { ColorCycleLayerDirtyBatch } from '@/lib/colorCycle/document';
 import { createAutosaveSlice } from '@/stores/slices/autosaveSlice';
 import { createPaletteSlice } from '@/stores/slices/paletteSlice';
 import { createProjectSlice } from '@/stores/slices/projectSlice';
@@ -255,7 +261,11 @@ import {
 } from '@/constants/colorCycle';
 import { loadWebglExportSettings, saveWebglExportSettings } from '@/utils/webglExportSettingsStorage';
 import { loadSequentialSettings, saveSequentialSettings } from '@/utils/sequentialSettingsStorage';
-import { setGradientApplyStateGetter } from '@/hooks/brushEngine/ccGradientApplyScheduler';
+import {
+  setGradientApplyBrushGetter,
+  setGradientApplyDocumentVersionGetter,
+  setGradientApplyStateGetter,
+} from '@/hooks/brushEngine/ccGradientApplyScheduler';
 import { backgroundStorageService } from '@/utils/backgroundStorage';
 import { setCcImageTileThresholdResolver } from '@/utils/colorCycle/ccPatternThreshold';
 import {
@@ -660,7 +670,6 @@ export interface AppState {
   // Color Cycle Layer Management
   initColorCycleForLayer: (layerId: string, width: number, height: number) => void;
   cleanupColorCycleForLayer: (layerId: string) => void;
-  getLayerColorCycleBrush: (layerId: string) => ColorCycleBrushImplementation | null;
 
   // Custom Brush Management
   temporaryCustomBrush: CustomBrush | null;
@@ -711,13 +720,17 @@ export interface AppState {
   staticCompositeVersion: number;
   compositeSegments: CompositeSegment[];
   compositeSegmentsVersion: number;
+  pendingCompositeDirtyBatches: ColorCycleLayerDirtyBatch[];
   renderStaticComposite: (
     targetCanvas: HTMLCanvasElement,
-    options?: { captureBitmap?: boolean }
+    options?: RenderStaticCompositeOptions
   ) => boolean | Promise<boolean>;
   renderColorCycleOverlay: (targetCanvas: HTMLCanvasElement) => boolean;
   getCompositeSegmentsSnapshot: () => CompositeSegment[];
-  markCompositeSegmentsDirtyByLayerIds: (layerIds: string[]) => void;
+  markCompositeSegmentsDirtyByLayerIds: (
+    layerIds: string[],
+    options?: MarkCompositeSegmentsDirtyOptions,
+  ) => void;
   markAllCompositeSegmentsDirty: () => void;
 
   // Project Save/Load Management
@@ -729,8 +742,8 @@ export interface AppState {
   ) => Promise<void>;
   exportProject: (format: 'png', options?: { quality?: number; scale?: number }) => Promise<void>;
   newProject: (width: number, height: number, name?: string) => void;
-  compositeLayersToCanvas: (targetCanvas: HTMLCanvasElement) => void;
-  compositeLayersToCanvasSync: (targetCanvas: HTMLCanvasElement) => boolean;
+  compositeLayersToCanvas: (targetCanvas: HTMLCanvasElement, options?: CompositeLayersToCanvasOptions) => void;
+  compositeLayersToCanvasSync: (targetCanvas: HTMLCanvasElement, options?: CompositeLayersToCanvasOptions) => boolean;
   applyColorCycleSoftEdgeMask: (
     layerId: string,
     radius: number,
@@ -801,7 +814,9 @@ export const useAppStore = createVesselStore<AppState>(
 
       const canvasSlice = createCanvasSlice(set, get, store);
       const canvasShapeSlice = createCanvasShapeSlice(set, get, store);
-      const selectionSlice = createSelectionSlice(set, get, store);
+      const selectionSlice = createSelectionSlice({
+        colorCycleBrushManager,
+      })(set, get, store);
       const cropSlice = createCropSlice({
         colorCycleBrushManager,
         syncPercentOffsetsFromPixels,
@@ -1259,6 +1274,16 @@ export const initializeAppStoreRuntime = (): void => {
   setColorCycleStoreStateGetter(() => useAppStore.getState());
   if (typeof setGradientApplyStateGetter === 'function') {
     setGradientApplyStateGetter(() => useAppStore.getState());
+  }
+  if (typeof setGradientApplyBrushGetter === 'function') {
+    setGradientApplyBrushGetter((layerId) => (
+      colorCycleBrushManager.getGradientApplyBrush(layerId)
+    ));
+  }
+  if (typeof setGradientApplyDocumentVersionGetter === 'function') {
+    setGradientApplyDocumentVersionGetter((layerId) => (
+      colorCycleBrushManager.getDocument(layerId)?.read().version ?? null
+    ));
   }
   configureMaskManager({
     getLayer: (layerId) => {

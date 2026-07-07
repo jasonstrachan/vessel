@@ -1,18 +1,14 @@
 import { createDefaultLayerAlignment } from '@/utils/layoutDefaults';
 import type { Layer } from '@/types';
 
-const mockBrush = {
-  setActiveLayer: jest.fn(),
-  setGradient: jest.fn(),
-  endStroke: jest.fn()
-};
-
 const mockManager = {
   validateColorCycleBrush: jest.fn(() => true),
-  initColorCycleForLayer: jest.fn(),
+  initColorCycleForLayer: jest.fn(() => true),
   setActiveState: jest.fn(),
-  getLayerColorCycleBrush: jest.fn(() => mockBrush),
   getBrush: jest.fn(() => null),
+  getSerializedStateBrush: jest.fn(() => null),
+  getHistoryBrush: jest.fn(() => null),
+  getSpeedSettingsBrush: jest.fn(() => null),
   removeColorCycleBrush: jest.fn(),
   createBrush: jest.fn(),
   deleteBrush: jest.fn(),
@@ -80,9 +76,6 @@ describe('useAppStore color cycle layer selection', () => {
   };
 
   beforeEach(() => {
-    mockBrush.setActiveLayer.mockClear();
-    mockBrush.setGradient.mockClear();
-    mockBrush.endStroke.mockClear();
     (Object.values(mockManager) as jest.Mock[]).forEach(mockFn => {
       mockFn.mockClear();
     });

@@ -1,4 +1,5 @@
 import { captureColorCycleCanvasSnapshot } from '@/utils/colorCycleCanvasSnapshot';
+import { getDerivedSurfaceBuiltFromVersion } from '@/lib/colorCycle/document';
 
 const fillRect = (
   ctx: CanvasRenderingContext2D,
@@ -31,9 +32,11 @@ describe('captureColorCycleCanvasSnapshot', () => {
       canvas,
       existingImageData: existing,
       roi: { x: 1, y: 1, width: 2, height: 2 },
+      builtFromVersion: 7,
     });
 
     expect(next).toBe(existing);
+    expect(getDerivedSurfaceBuiltFromVersion(next)).toBe(7);
     expect(next).toBeDefined();
     expect(next?.width).toBe(4);
     expect(next?.height).toBe(4);
@@ -64,9 +67,11 @@ describe('captureColorCycleCanvasSnapshot', () => {
       canvas,
       existingImageData: new ImageData(1, 1),
       roi: { x: 0, y: 0, width: 1, height: 1 },
+      builtFromVersion: 11,
     });
 
     expect(next).toBeDefined();
+    expect(getDerivedSurfaceBuiltFromVersion(next)).toBe(11);
     expect(next?.width).toBe(2);
     expect(next?.height).toBe(2);
     expect(Array.from(next?.data.slice(0, 4) ?? [])).toEqual([0, 255, 0, 255]);

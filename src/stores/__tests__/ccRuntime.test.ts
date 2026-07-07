@@ -39,10 +39,13 @@ let brushMap: Record<string, typeof hiddenBrush | typeof visibleBrush | typeof r
   'visible-layer': visibleBrush,
 };
 
+const getMockBrush = jest.fn((layerId: string) => {
+  return brushMap[layerId] ?? null;
+});
+
 const mockManager = {
-  getBrush: jest.fn((layerId: string) => {
-    return brushMap[layerId] ?? null;
-  })
+  getBrush: getMockBrush,
+  getPlaybackBrush: getMockBrush,
 };
 
 jest.mock('@/stores/useAppStore', () => ({

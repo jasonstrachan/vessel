@@ -1,6 +1,10 @@
 import { ensureGradientDefForStops, hashStops, type StoredStop } from '@/utils/colorCycleGradientDefs';
 import { createDefaultLayerAlignment } from '@/utils/layoutDefaults';
 import { useAppStore } from '@/stores/useAppStore';
+import {
+  attachLegacyColorCycleTopLevelBuffers,
+  getColorCycleLegacyLayerBuffer,
+} from '@/lib/colorCycle/document';
 import type { Layer } from '@/types';
 
 describe('colorCycleGradientDefs', () => {
@@ -188,19 +192,20 @@ describe('colorCycleGradientDefs', () => {
     }));
     const gradientDefIdBuffer = new Uint16Array([1, 1, 1, 1]).buffer;
     const layer = createLayer({
-      colorCycleData: {
+      colorCycleData: attachLegacyColorCycleTopLevelBuffers({
         slotPalettes,
         gradientDefs: [],
         gradientDefStore,
-        gradientDefIdBuffer,
         nextGradientDefId: 255,
-      },
+      }, {
+        gradientDefIdBuffer,
+      }),
     });
 
     useAppStore.setState({ layers: [layer], activeLayerId: layer.id });
     const stateLayer = useAppStore.getState().layers.find((entry) => entry.id === layer.id);
     expect(stateLayer?.colorCycleData?.gradientDefStore?.length).toBe(254);
-    expect(stateLayer?.colorCycleData?.gradientDefIdBuffer).toBeDefined();
+    expect(getColorCycleLegacyLayerBuffer(stateLayer?.colorCycleData, 'gradientDefIdBuffer')).toBeDefined();
 
     const result = ensureGradientDefForStops({
       layerId: layer.id,
@@ -281,15 +286,16 @@ describe('colorCycleGradientDefs', () => {
       slot: index,
     }));
     const layer = createLayer({
-      colorCycleData: {
+      colorCycleData: attachLegacyColorCycleTopLevelBuffers({
         slotPalettes,
         gradientDefs: [],
         gradientDefStore,
+        nextGradientDefId: 255,
+      }, {
         gradientDefIdBuffer: new Uint16Array(
           Array.from({ length: 254 }, (_, index) => index + 1)
         ).buffer,
-        nextGradientDefId: 255,
-      },
+      }),
     });
 
     useAppStore.setState({ layers: [layer], activeLayerId: layer.id });

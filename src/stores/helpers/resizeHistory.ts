@@ -156,6 +156,8 @@ export const recordResizeHistory = async ({
             roi,
             width,
             height,
+            beforeVersion: baseline.colorState?.documentVersion,
+            afterVersion: afterColor?.documentVersion,
           });
           if (patchDelta) {
             txn.push(patchDelta);

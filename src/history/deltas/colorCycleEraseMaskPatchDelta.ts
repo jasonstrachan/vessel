@@ -201,10 +201,18 @@ class ColorCycleEraseMaskPatchDelta implements HistoryDelta {
             eraseMaskVersion: nextVersion,
           },
         },
-        { skipColorCycleSync: true }
+        {
+          skipColorCycleSync: true,
+          dirtyRects: [{
+            x: clampedX,
+            y: clampedY,
+            width: clampedWidth,
+            height: clampedHeight,
+          }],
+        }
       );
     }
-    state.setLayersNeedRecomposition(true);
+    useAppStore.setState({ layersNeedRecomposition: true });
   }
 
   dispose(): void {
@@ -250,4 +258,3 @@ export const createColorCycleEraseMaskPatchDelta = async (
     backwardVersion: backwardMask.version,
   });
 };
-

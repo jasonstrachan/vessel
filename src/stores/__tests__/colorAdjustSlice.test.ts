@@ -1,8 +1,32 @@
 import { useAppStore } from '@/stores/useAppStore';
 import type { Layer, Rectangle } from '@/types';
 import { parseCssColor } from '@/utils/color/parseCssColor';
+import { registerColorCycleBrushLayerSnapshotRuntime } from '@/lib/colorCycle/document';
 
-type StoreState = ReturnType<typeof useAppStore.getState>;
+// eslint-disable-next-line no-var
+var mockColorCycleBrushManager: {
+  getGradientApplyBrush: jest.Mock;
+  getSurfaceBrush: jest.Mock;
+  getSelectionMutationBrush: jest.Mock;
+  getHistoryBrush: jest.Mock;
+  getSerializedStateBrush: jest.Mock;
+};
+
+jest.mock('@/stores/colorCycleBrushManager', () => {
+  const actual = jest.requireActual('@/stores/colorCycleBrushManager');
+  mockColorCycleBrushManager = {
+    getGradientApplyBrush: jest.fn(() => null),
+    getSurfaceBrush: jest.fn(() => null),
+    getSelectionMutationBrush: jest.fn(() => null),
+    getHistoryBrush: jest.fn(() => null),
+    getSerializedStateBrush: jest.fn(() => null),
+  };
+  return {
+    __esModule: true as const,
+    ...actual,
+    getColorCycleBrushManager: () => mockColorCycleBrushManager,
+  };
+});
 
 const DEFAULT_ALIGNMENT = {
   fit: 'none',
@@ -10,6 +34,74 @@ const DEFAULT_ALIGNMENT = {
   vertical: 'center',
   positioning: 'anchor',
 } as const;
+
+const makeColorCycleLayerDocumentReader = (
+  layerId: string,
+  snapshot: {
+    paintBuffer: ArrayBuffer;
+    gradientIdBuffer?: ArrayBuffer;
+    gradientDefIdBuffer?: ArrayBuffer;
+    speedBuffer?: ArrayBuffer;
+    flowBuffer?: ArrayBuffer;
+    phaseBuffer?: ArrayBuffer;
+    hasContent: boolean;
+    strokeCounter: number;
+  },
+  width = 2,
+  height = 1,
+) => ({
+  read: () => ({
+    version: 1,
+    snapshot: {
+      layerId,
+      width,
+      height,
+      paintBuffer: snapshot.paintBuffer.slice(0),
+      gradientIdBuffer: snapshot.gradientIdBuffer?.slice(0),
+      gradientDefIdBuffer: snapshot.gradientDefIdBuffer?.slice(0),
+      speedBuffer: snapshot.speedBuffer?.slice(0),
+      flowBuffer: snapshot.flowBuffer?.slice(0),
+      phaseBuffer: snapshot.phaseBuffer?.slice(0),
+      hasContent: snapshot.hasContent,
+      sources: {
+        brushStateSnapshot: true,
+        topLevelBuffers: false,
+        legacyStateRefs: false,
+      },
+    },
+  }),
+});
+
+const registerMockColorCycleSnapshotRuntime = <
+  TBrush extends object,
+  TSnapshot extends {
+    paintBuffer: ArrayBuffer;
+    gradientIdBuffer?: ArrayBuffer;
+    gradientDefIdBuffer?: ArrayBuffer;
+    speedBuffer?: ArrayBuffer;
+    flowBuffer?: ArrayBuffer;
+    phaseBuffer?: ArrayBuffer;
+    hasContent: boolean;
+    strokeCounter: number;
+  },
+>(
+  brush: TBrush,
+  currentSnapshot: TSnapshot,
+): TBrush => {
+  registerColorCycleBrushLayerSnapshotRuntime(brush, {
+    apply: (_layerId, snapshot) => {
+      currentSnapshot.paintBuffer = snapshot.paintBuffer?.slice(0) ?? new ArrayBuffer(0);
+      currentSnapshot.gradientIdBuffer = snapshot.gradientIdBuffer?.slice(0) ?? new ArrayBuffer(0);
+      currentSnapshot.gradientDefIdBuffer = snapshot.gradientDefIdBuffer?.slice(0) ?? new ArrayBuffer(0);
+      currentSnapshot.speedBuffer = snapshot.speedBuffer?.slice(0);
+      currentSnapshot.flowBuffer = snapshot.flowBuffer?.slice(0);
+      currentSnapshot.phaseBuffer = snapshot.phaseBuffer?.slice(0);
+      currentSnapshot.hasContent = snapshot.hasContent ?? false;
+      currentSnapshot.strokeCounter = snapshot.strokeCounter ?? 0;
+    },
+  });
+  return brush;
+};
 
 const createLayer = (id: string, imageData: ImageData): Layer => {
   const framebuffer = document.createElement('canvas');
@@ -189,6 +281,9 @@ const resetStore = () => {
     selectionMask: null,
     selectionMaskBounds: null,
     selectionMaskLayerId: null,
+    pendingCompositeDirtyBatches: [],
+    compositeSegments: [],
+    layersNeedRecomposition: false,
     colorAdjust: {
       active: false,
       params: {
@@ -225,20 +320,22 @@ const pixelAt = (image: ImageData, x: number, y: number): [number, number, numbe
 };
 
 describe('colorAdjustSlice preview performance path', () => {
-  const originalGetLayerColorCycleBrush = useAppStore.getState().getLayerColorCycleBrush;
-
   beforeEach(() => {
     resetStore();
-    useAppStore.setState({
-      getLayerColorCycleBrush: originalGetLayerColorCycleBrush,
-    });
+    mockColorCycleBrushManager.getGradientApplyBrush.mockReset();
+    mockColorCycleBrushManager.getGradientApplyBrush.mockReturnValue(null);
+    mockColorCycleBrushManager.getSurfaceBrush.mockReset();
+    mockColorCycleBrushManager.getSurfaceBrush.mockReturnValue(null);
+    mockColorCycleBrushManager.getSelectionMutationBrush.mockReset();
+    mockColorCycleBrushManager.getSelectionMutationBrush.mockReturnValue(null);
+    mockColorCycleBrushManager.getHistoryBrush.mockReset();
+    mockColorCycleBrushManager.getHistoryBrush.mockReturnValue(null);
+    mockColorCycleBrushManager.getSerializedStateBrush.mockReset();
+    mockColorCycleBrushManager.getSerializedStateBrush.mockReturnValue(null);
   });
 
   afterEach(() => {
     resetStore();
-    useAppStore.setState({
-      getLayerColorCycleBrush: originalGetLayerColorCycleBrush,
-    });
   });
 
   it('limits adjustments to the selection ROI and leaves outside pixels untouched', () => {
@@ -272,6 +369,14 @@ describe('colorAdjustSlice preview performance path', () => {
     // Outside ROI: unchanged (still 0 red)
     expect(pixelAt(updated, 0, 0)[0]).toBe(0);
     expect(pixelAt(updated, 3, 3)[0]).toBe(0);
+    expect(useAppStore.getState().pendingCompositeDirtyBatches).toEqual([
+      {
+        layerId: layer.id,
+        version: 0,
+        rects: [selection],
+      },
+    ]);
+    expect(useAppStore.getState().layersNeedRecomposition).toBe(true);
   });
 
   it('previews saturation changes across all selected raster layers', () => {
@@ -297,6 +402,18 @@ describe('colorAdjustSlice preview performance path', () => {
     expect(pixelAt(nextLayerA!.imageData!, 0, 0)).toEqual([128, 128, 128, 255]);
     expect(pixelAt(nextLayerB!.imageData!, 0, 0)).toEqual([128, 128, 128, 255]);
     expect(nextState.colorAdjust.targetLayerIds).toEqual([layerA.id, layerB.id]);
+    expect(nextState.pendingCompositeDirtyBatches).toEqual([
+      {
+        layerId: layerA.id,
+        version: 0,
+        rects: [{ x: 0, y: 0, width: 1, height: 1 }],
+      },
+      {
+        layerId: layerB.id,
+        version: 0,
+        rects: [{ x: 0, y: 0, width: 1, height: 1 }],
+      },
+    ]);
   });
 
   it('restores all selected raster layers on cancel', () => {
@@ -314,6 +431,7 @@ describe('colorAdjustSlice preview performance path', () => {
     store.startColorAdjustSession();
     store.updateColorAdjustParams({ saturation: -100 });
     store.previewColorAdjust();
+    useAppStore.setState({ layersNeedRecomposition: false, pendingCompositeDirtyBatches: [] });
     store.cancelColorAdjust();
 
     const nextState = useAppStore.getState();
@@ -323,6 +441,18 @@ describe('colorAdjustSlice preview performance path', () => {
     expect(pixelAt(nextLayerA!.imageData!, 0, 0)).toEqual([255, 0, 0, 255]);
     expect(pixelAt(nextLayerB!.imageData!, 0, 0)).toEqual([0, 255, 0, 255]);
     expect(nextState.colorAdjust.targetLayerIds).toEqual([]);
+    expect(nextState.pendingCompositeDirtyBatches).toEqual([
+      {
+        layerId: layerA.id,
+        version: 0,
+        rects: [{ x: 0, y: 0, width: 1, height: 1 }],
+      },
+      {
+        layerId: layerB.id,
+        version: 0,
+        rects: [{ x: 0, y: 0, width: 1, height: 1 }],
+      },
+    ]);
   });
 
   it('reuses the working buffer across previews (no churn)', () => {
@@ -418,6 +548,13 @@ describe('colorAdjustSlice preview performance path', () => {
     expect(pixelAt(updated, 0, 0)).toEqual([0, 255, 0, 255]);
     expect(pixelAt(updated, 1, 0)).toEqual([255, 255, 0, 255]);
     expect(pixelAt(updated, 2, 0)).toEqual([0, 255, 0, 255]);
+    expect(useAppStore.getState().pendingCompositeDirtyBatches).toEqual([
+      {
+        layerId: layer.id,
+        version: 0,
+        rects: [{ x: 0, y: 0, width: 3, height: 1 }],
+      },
+    ]);
   });
 
   it('adjusts gradient colors for color-cycle brush layers', () => {
@@ -444,6 +581,13 @@ describe('colorAdjustSlice preview performance path', () => {
     expect(firstColor.r).toBe(255);
     expect(secondColor.r).toBe(255);
     expect(updateLayerSpy).not.toHaveBeenCalled();
+    expect(useAppStore.getState().pendingCompositeDirtyBatches).toEqual([
+      {
+        layerId: layer.id,
+        version: 0,
+        rects: [{ x: 0, y: 0, width: 2, height: 1 }],
+      },
+    ]);
   });
 
   it('applies hue-range targeting to raster previews using the current selection bounds', () => {
@@ -531,11 +675,8 @@ describe('colorAdjustSlice preview performance path', () => {
     installProjectWithLayer(brushLayer);
 
     const syncGradientDefRuntime = jest.fn();
-    const getLayerColorCycleBrush = jest.fn(() => ({
+    mockColorCycleBrushManager.getGradientApplyBrush.mockReturnValue({
       syncGradientDefRuntime,
-    }));
-    useAppStore.setState({
-      getLayerColorCycleBrush: getLayerColorCycleBrush as unknown as StoreState['getLayerColorCycleBrush'],
     });
 
     const store = useAppStore.getState();
@@ -610,6 +751,7 @@ describe('colorAdjustSlice preview performance path', () => {
       currentSnapshot.strokeCounter = payload.strokeCounter;
     });
     const brush = {
+      getColorCycleLayerDocument: jest.fn(() => makeColorCycleLayerDocumentReader(layer.id, currentSnapshot)),
       getLayerSnapshot: jest.fn(() => ({
         paintBuffer: currentSnapshot.paintBuffer.slice(0),
         gradientIdBuffer: currentSnapshot.gradientIdBuffer.slice(0),
@@ -620,8 +762,11 @@ describe('colorAdjustSlice preview performance path', () => {
       renderDirectToCanvas: jest.fn(),
       getCanvas: jest.fn(() => layer.framebuffer),
     };
+    registerMockColorCycleSnapshotRuntime(brush, currentSnapshot);
+    mockColorCycleBrushManager.getSelectionMutationBrush.mockReturnValue(brush);
+    mockColorCycleBrushManager.getSurfaceBrush.mockReturnValue(brush);
+    mockColorCycleBrushManager.getGradientApplyBrush.mockReturnValue(brush);
     useAppStore.setState({
-      getLayerColorCycleBrush: jest.fn(() => brush) as unknown as StoreState['getLayerColorCycleBrush'],
       selectionStart: { x: 0, y: 0 },
       selectionEnd: { x: 1, y: 1 },
     });
@@ -642,9 +787,16 @@ describe('colorAdjustSlice preview performance path', () => {
     expect(parseCssColor(originalSlot?.stops[0]?.color ?? '#000000')).toMatchObject({ r: 255, g: 0, b: 0 });
     expect(parseCssColor(adjustedSlot?.stops[0]?.color ?? '#000000')).toMatchObject({ r: 128, g: 128, b: 128 });
 
-    const updatedGradientIds = new Uint8Array(updatedLayer?.colorCycleData?.gradientIdBuffer ?? new ArrayBuffer(0));
+    const updatedGradientIds = new Uint8Array(currentSnapshot.gradientIdBuffer);
     expect(updatedGradientIds[0]).toBe(adjustedSlot?.slot ?? 255);
     expect(updatedGradientIds[1]).toBe(0);
+    expect(useAppStore.getState().pendingCompositeDirtyBatches).toEqual([
+      {
+        layerId: layer.id,
+        version: 0,
+        rects: [{ x: 0, y: 0, width: 1, height: 1 }],
+      },
+    ]);
   });
 
   it('captures selection bounds for color-cycle sessions', () => {
@@ -711,6 +863,7 @@ describe('colorAdjustSlice preview performance path', () => {
       currentSnapshot.strokeCounter = payload.strokeCounter;
     });
     const brush = {
+      getColorCycleLayerDocument: jest.fn(() => makeColorCycleLayerDocumentReader(defBoundLayer.id, currentSnapshot)),
       getLayerSnapshot: jest.fn(() => ({
         paintBuffer: currentSnapshot.paintBuffer.slice(0),
         gradientIdBuffer: currentSnapshot.gradientIdBuffer.slice(0),
@@ -722,8 +875,11 @@ describe('colorAdjustSlice preview performance path', () => {
       renderDirectToCanvas: jest.fn(),
       getCanvas: jest.fn(() => defBoundLayer.framebuffer),
     };
+    registerMockColorCycleSnapshotRuntime(brush, currentSnapshot);
+    mockColorCycleBrushManager.getSelectionMutationBrush.mockReturnValue(brush);
+    mockColorCycleBrushManager.getSurfaceBrush.mockReturnValue(brush);
+    mockColorCycleBrushManager.getGradientApplyBrush.mockReturnValue(brush);
     useAppStore.setState({
-      getLayerColorCycleBrush: jest.fn(() => brush) as unknown as StoreState['getLayerColorCycleBrush'],
       selectionStart: { x: 0, y: 0 },
       selectionEnd: { x: 1, y: 1 },
     });
@@ -744,7 +900,7 @@ describe('colorAdjustSlice preview performance path', () => {
     expect(parseCssColor(originalDef?.stops[0]?.color ?? '#000000')).toMatchObject({ r: 255, g: 0, b: 0 });
     expect(parseCssColor(adjustedDef?.stops[0]?.color ?? '#000000')).toMatchObject({ r: 128, g: 128, b: 128 });
 
-    const updatedDefIds = new Uint16Array(updatedLayer?.colorCycleData?.gradientDefIdBuffer ?? new ArrayBuffer(0));
+    const updatedDefIds = new Uint16Array(currentSnapshot.gradientDefIdBuffer);
     expect(updatedDefIds[0]).toBe(adjustedDef?.id ?? 0);
   });
 
@@ -770,6 +926,7 @@ describe('colorAdjustSlice preview performance path', () => {
       currentSnapshot.strokeCounter = payload.strokeCounter;
     });
     const brush = {
+      getColorCycleLayerDocument: jest.fn(() => makeColorCycleLayerDocumentReader(layer.id, currentSnapshot)),
       getLayerSnapshot: jest.fn(() => ({
         paintBuffer: currentSnapshot.paintBuffer.slice(0),
         gradientIdBuffer: currentSnapshot.gradientIdBuffer.slice(0),
@@ -782,8 +939,11 @@ describe('colorAdjustSlice preview performance path', () => {
       getCanvas: jest.fn(() => layer.framebuffer),
       syncGradientDefRuntime: jest.fn(),
     };
+    registerMockColorCycleSnapshotRuntime(brush, currentSnapshot);
+    mockColorCycleBrushManager.getSelectionMutationBrush.mockReturnValue(brush);
+    mockColorCycleBrushManager.getSurfaceBrush.mockReturnValue(brush);
+    mockColorCycleBrushManager.getGradientApplyBrush.mockReturnValue(brush);
     useAppStore.setState({
-      getLayerColorCycleBrush: jest.fn(() => brush) as unknown as StoreState['getLayerColorCycleBrush'],
       selectionStart: { x: 0, y: 0 },
       selectionEnd: { x: 1, y: 1 },
     });
@@ -801,7 +961,7 @@ describe('colorAdjustSlice preview performance path', () => {
     expect(adjustedDef).toBeDefined();
     expect(parseCssColor(adjustedDef?.stops[0]?.color ?? '#000000')).toMatchObject({ r: 128, g: 128, b: 128 });
 
-    const updatedDefIds = new Uint16Array(updatedLayer?.colorCycleData?.gradientDefIdBuffer ?? new ArrayBuffer(0));
+    const updatedDefIds = new Uint16Array(currentSnapshot.gradientDefIdBuffer);
     expect(updatedDefIds[0]).toBe(adjustedDef?.id ?? 0);
     expect(brush.syncGradientDefRuntime).toHaveBeenCalledWith('cc-selection-def-only-layer');
   });
@@ -826,6 +986,7 @@ describe('colorAdjustSlice preview performance path', () => {
       currentSnapshot.strokeCounter = payload.strokeCounter;
     });
     const brush = {
+      getColorCycleLayerDocument: jest.fn(() => makeColorCycleLayerDocumentReader(layer.id, currentSnapshot)),
       getLayerSnapshot: jest.fn(() => ({
         paintBuffer: currentSnapshot.paintBuffer.slice(0),
         gradientIdBuffer: currentSnapshot.gradientIdBuffer.slice(0),
@@ -837,8 +998,11 @@ describe('colorAdjustSlice preview performance path', () => {
       getCanvas: jest.fn(() => layer.framebuffer),
       syncGradientDefRuntime: jest.fn(),
     };
+    registerMockColorCycleSnapshotRuntime(brush, currentSnapshot);
+    mockColorCycleBrushManager.getSelectionMutationBrush.mockReturnValue(brush);
+    mockColorCycleBrushManager.getSurfaceBrush.mockReturnValue(brush);
+    mockColorCycleBrushManager.getGradientApplyBrush.mockReturnValue(brush);
     useAppStore.setState({
-      getLayerColorCycleBrush: jest.fn(() => brush) as unknown as StoreState['getLayerColorCycleBrush'],
       selectionStart: { x: 0, y: 0 },
       selectionEnd: { x: 1, y: 1 },
     });
@@ -855,7 +1019,7 @@ describe('colorAdjustSlice preview performance path', () => {
     expect(adjustedSlot).toBeDefined();
     expect(parseCssColor(adjustedSlot?.stops[0]?.color ?? '#000000')).toMatchObject({ r: 128, g: 128, b: 128 });
 
-    const updatedGradientIds = new Uint8Array(updatedLayer?.colorCycleData?.gradientIdBuffer ?? new ArrayBuffer(0));
+    const updatedGradientIds = new Uint8Array(currentSnapshot.gradientIdBuffer);
     expect(updatedGradientIds[0]).toBe(adjustedSlot?.slot ?? 255);
     expect(brush.syncGradientDefRuntime).toHaveBeenCalledWith('cc-selection-slot-fallback-layer');
   });

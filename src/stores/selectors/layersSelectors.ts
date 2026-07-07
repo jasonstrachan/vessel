@@ -42,7 +42,6 @@ export const selectLayerActions = (state: AppState) => ({
   updateLayerAlignment: state.updateLayerAlignment,
   initColorCycleForLayer: state.initColorCycleForLayer,
   cleanupColorCycleForLayer: state.cleanupColorCycleForLayer,
-  getLayerColorCycleBrush: state.getLayerColorCycleBrush,
   compositeLayersToCanvas: state.compositeLayersToCanvas,
   captureCanvasToActiveLayer: state.captureCanvasToActiveLayer,
   captureCanvasToLayer: state.captureCanvasToLayer,

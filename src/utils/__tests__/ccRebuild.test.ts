@@ -1,4 +1,5 @@
 import { rebuildCCLayerAfterCrop } from '@/utils/crop/ccRebuild';
+import { registerColorCycleBrushLayerSnapshotRuntime } from '@/lib/colorCycle/document';
 import { createDefaultLayerAlignment } from '@/utils/layoutDefaults';
 import type { Layer } from '@/types';
 import type { AppState } from '@/stores/useAppStore';
@@ -49,12 +50,15 @@ describe('rebuildCCLayerAfterCrop', () => {
     brushCanvas.width = 2;
     brushCanvas.height = 2;
 
+    const applySnapshot = jest.fn();
     const freshBrush = {
       getCanvas: jest.fn(() => brushCanvas),
-      applyLayerSnapshot: jest.fn(),
       setSpeed: jest.fn(),
       markLayerHasExternalBase: jest.fn(),
     };
+    registerColorCycleBrushLayerSnapshotRuntime(freshBrush, {
+      apply: applySnapshot,
+    });
 
     const manager = {
       removeColorCycleBrush: jest.fn(),
@@ -96,13 +100,12 @@ describe('rebuildCCLayerAfterCrop', () => {
 
     await flushMicrotasks();
 
-    expect(freshBrush.applyLayerSnapshot).toHaveBeenCalled();
-    expect(freshBrush.applyLayerSnapshot).toHaveBeenCalledWith(
+    expect(applySnapshot).toHaveBeenCalled();
+    expect(applySnapshot).toHaveBeenCalledWith(
       'layer-cc',
       expect.objectContaining({
         phaseBuffer: expect.any(ArrayBuffer),
-      }),
-      undefined
+      })
     );
     expect(freshBrush.markLayerHasExternalBase).toHaveBeenCalledWith('layer-cc');
   });
@@ -112,12 +115,15 @@ describe('rebuildCCLayerAfterCrop', () => {
     brushCanvas.width = 2;
     brushCanvas.height = 2;
 
+    const applySnapshot = jest.fn();
     const freshBrush = {
       getCanvas: jest.fn(() => brushCanvas),
-      applyLayerSnapshot: jest.fn(),
       setSpeed: jest.fn(),
       markLayerHasExternalBase: jest.fn(),
     };
+    registerColorCycleBrushLayerSnapshotRuntime(freshBrush, {
+      apply: applySnapshot,
+    });
 
     const manager = {
       removeColorCycleBrush: jest.fn(),
@@ -156,7 +162,7 @@ describe('rebuildCCLayerAfterCrop', () => {
 
     await flushMicrotasks();
 
-    expect(freshBrush.applyLayerSnapshot).not.toHaveBeenCalled();
+    expect(applySnapshot).not.toHaveBeenCalled();
     expect(freshBrush.markLayerHasExternalBase).toHaveBeenCalledWith('layer-cc');
   });
 });

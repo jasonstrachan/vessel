@@ -1,6 +1,7 @@
 import { rebuildGradientSlotUsageAndGC } from '@/utils/colorCycleSlotGC';
 import type { Layer } from '@/types';
 import { createDefaultLayerAlignment } from '@/utils/layoutDefaults';
+import { attachLegacyColorCycleTopLevelBuffers } from '@/lib/colorCycle/document';
 
 const createLayer = (overrides?: Partial<Layer>): Layer => ({
   id: 'layer-1',
@@ -43,7 +44,7 @@ describe('colorCycleSlotGC', () => {
     const defIdBuffer = new Uint16Array([1, 1, 3, 0]).buffer;
 
     const layer = createLayer({
-      colorCycleData: {
+      colorCycleData: attachLegacyColorCycleTopLevelBuffers({
         gradientDefs: [],
         slotPalettes: [
           { slot: 1, stops: stopsA },
@@ -77,8 +78,9 @@ describe('colorCycleSlotGC', () => {
             createdAtMs: 0,
           },
         ],
+      }, {
         gradientDefIdBuffer: defIdBuffer,
-      },
+      }),
     });
 
     const result = rebuildGradientSlotUsageAndGC({
@@ -117,7 +119,7 @@ describe('colorCycleSlotGC', () => {
       stops,
     }));
     const layer = createLayer({
-      colorCycleData: {
+      colorCycleData: attachLegacyColorCycleTopLevelBuffers({
         gradientDefs,
         slotPalettes,
         gradientDefStore: [
@@ -139,8 +141,9 @@ describe('colorCycleSlotGC', () => {
             slot: 5,
           },
         ],
+      }, {
         gradientDefIdBuffer: defIdBuffer,
-      },
+      }),
     });
 
     const result = rebuildGradientSlotUsageAndGC({
@@ -163,7 +166,7 @@ describe('colorCycleSlotGC', () => {
       { position: 1, color: '#dddddd' },
     ];
     const baseLayer = createLayer({
-      colorCycleData: {
+      colorCycleData: attachLegacyColorCycleTopLevelBuffers({
         gradientDefs: [],
         slotPalettes: [],
         gradientDefStore: [
@@ -177,8 +180,9 @@ describe('colorCycleSlotGC', () => {
             slot: 1,
           },
         ],
+      }, {
         gradientDefIdBuffer: new Uint16Array([1, 0, 0, 0]).buffer,
-      },
+      }),
     });
 
     const first = rebuildGradientSlotUsageAndGC({
@@ -191,10 +195,11 @@ describe('colorCycleSlotGC', () => {
       colorCycleData: first?.updates[0]?.colorCycleData ?? baseLayer.colorCycleData,
     };
 
-    layerAfterFirst.colorCycleData = {
+    layerAfterFirst.colorCycleData = attachLegacyColorCycleTopLevelBuffers({
       ...layerAfterFirst.colorCycleData,
+    }, {
       gradientDefIdBuffer: new Uint16Array([0, 0, 0, 0]).buffer,
-    };
+    });
     const cleared = rebuildGradientSlotUsageAndGC({
       layers: [layerAfterFirst],
       scope: 'layer',
@@ -205,10 +210,11 @@ describe('colorCycleSlotGC', () => {
       colorCycleData: cleared?.updates[0]?.colorCycleData ?? layerAfterFirst.colorCycleData,
     };
 
-    layerAfterClear.colorCycleData = {
+    layerAfterClear.colorCycleData = attachLegacyColorCycleTopLevelBuffers({
       ...layerAfterClear.colorCycleData,
+    }, {
       gradientDefIdBuffer: new Uint16Array([1, 0, 0, 0]).buffer,
-    };
+    });
     const resurrect = rebuildGradientSlotUsageAndGC({
       layers: [layerAfterClear],
       scope: 'layer',
@@ -237,21 +243,23 @@ describe('colorCycleSlotGC', () => {
 
     const layerA = createLayer({
       id: 'layer-a',
-      colorCycleData: {
+      colorCycleData: attachLegacyColorCycleTopLevelBuffers({
         gradientDefs: [],
         slotPalettes: [{ slot: 7, stops }],
         gradientDefStore: [sharedDef],
+      }, {
         gradientDefIdBuffer: new Uint16Array([0, 0, 0, 0]).buffer,
-      },
+      }),
     });
     const layerB = createLayer({
       id: 'layer-b',
-      colorCycleData: {
+      colorCycleData: attachLegacyColorCycleTopLevelBuffers({
         gradientDefs: [],
         slotPalettes: [{ slot: 7, stops }],
         gradientDefStore: [sharedDef],
+      }, {
         gradientDefIdBuffer: new Uint16Array([7, 7, 0, 0]).buffer,
-      },
+      }),
     });
 
     const result = rebuildGradientSlotUsageAndGC({
@@ -271,12 +279,13 @@ describe('colorCycleSlotGC', () => {
   it('aborts when missing def ids are found', () => {
     const defIdBuffer = new Uint16Array([42, 0, 0, 0]).buffer;
     const layer = createLayer({
-      colorCycleData: {
+      colorCycleData: attachLegacyColorCycleTopLevelBuffers({
         gradientDefs: [],
         slotPalettes: [],
         gradientDefStore: [],
+      }, {
         gradientDefIdBuffer: defIdBuffer,
-      },
+      }),
     });
 
     const result = rebuildGradientSlotUsageAndGC({
@@ -301,7 +310,7 @@ describe('colorCycleSlotGC', () => {
       { position: 1, color: '#00ffff' },
     ];
     const layer = createLayer({
-      colorCycleData: {
+      colorCycleData: attachLegacyColorCycleTopLevelBuffers({
         gradientDefs: [],
         slotPalettes: [{ slot: 7, stops: staleStops }],
         gradientDefStore: [
@@ -315,8 +324,9 @@ describe('colorCycleSlotGC', () => {
             slot: 7,
           },
         ],
+      }, {
         gradientDefIdBuffer: new Uint16Array([7, 7, 0, 0]).buffer,
-      },
+      }),
     });
 
     const result = rebuildGradientSlotUsageAndGC({
@@ -339,7 +349,7 @@ describe('colorCycleSlotGC', () => {
       { position: 1, color: '#ff0000' },
     ];
     const layer = createLayer({
-      colorCycleData: {
+      colorCycleData: attachLegacyColorCycleTopLevelBuffers({
         gradientDefs: [],
         slotPalettes: [
           { slot: 89, stops: liveStops },
@@ -356,9 +366,10 @@ describe('colorCycleSlotGC', () => {
             slot: 7,
           },
         ],
+      }, {
         gradientIdBuffer: new Uint8Array([89, 89, 0, 0]).buffer,
         gradientDefIdBuffer: new Uint16Array([0, 0, 0, 0]).buffer,
-      },
+      }),
     });
 
     const result = rebuildGradientSlotUsageAndGC({

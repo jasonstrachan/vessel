@@ -32,43 +32,58 @@ import { logCCMutation, summarizeColorCycleLayer } from '@/utils/colorCycle/ccMu
 import { DEFAULT_BRUSH_COLOR_CYCLE_SPEED } from '@/constants/colorCycle';
 import { encodeColorCycleSpeedByte } from '@/utils/colorCycleSpeed';
 import { resolveLayerColorCycleBaseSpeedFromLayer } from '@/utils/colorCycleLayerSpeed';
+import {
+  buildColorCycleCanonicalSelectionPayloadFromSnapshot,
+  rebuildColorCycleSerializedStateRegion,
+  type ColorCyclePaintSnapshot,
+} from '@/lib/colorCycle/document/paintDeltaMask';
+import type { ColorCycleLayerDocumentSnapshot } from '@/lib/colorCycle/document/colorCycleDocumentContract';
 
 type StoreGet = StoreApi<AppState>['getState'];
 type StoreSet = StoreApi<AppState>['setState'];
 
 type CaptureFn = AppState['captureCanvasToActiveLayer'];
+type GetColorCycleDocumentSnapshot = (layerId: string) => ColorCycleLayerDocumentSnapshot | null;
+
+const resolvePaintSnapshot = (
+  snapshot: ColorCycleLayerDocumentSnapshot | null,
+): ColorCyclePaintSnapshot | null => {
+  if (!snapshot?.paintBuffer) {
+    return null;
+  }
+  return {
+    paintBuffer: snapshot.paintBuffer,
+    gradientIdBuffer: snapshot.gradientIdBuffer,
+    gradientDefIdBuffer: snapshot.gradientDefIdBuffer,
+    speedBuffer: snapshot.speedBuffer,
+    flowBuffer: snapshot.flowBuffer,
+    phaseBuffer: snapshot.phaseBuffer,
+    hasContent: snapshot.hasContent,
+  };
+};
 
 const buildCcCanonicalPayload = (
   state: AppState,
   layerId: string,
   fallbackWidth: number,
-  fallbackHeight: number
+  fallbackHeight: number,
+  getColorCycleDocumentSnapshot: GetColorCycleDocumentSnapshot
 ): CcCanonicalSelectionPayload => {
-  const brush = typeof state.getLayerColorCycleBrush === 'function'
-    ? state.getLayerColorCycleBrush(layerId)
-    : null;
-  const snapshot = brush?.getLayerSnapshot?.(layerId) ?? null;
+  const documentSnapshot = getColorCycleDocumentSnapshot(layerId);
   const layer = state.layers.find((candidate) => candidate.id === layerId);
-  const canUseEmptyInitializedCcRuntime = Boolean(brush && layer?.layerType === 'color-cycle' && layer.colorCycleData);
-  const expectedPixels = Math.max(1, fallbackWidth * fallbackHeight);
-  const emptyBytes = () => new Uint8Array(expectedPixels);
-  const emptyDefBytes = () => new Uint16Array(expectedPixels);
-  return {
-    paintBuffer: snapshot?.paintBuffer?.byteLength ? new Uint8Array(snapshot.paintBuffer) : (canUseEmptyInitializedCcRuntime ? emptyBytes() : null),
-    gradientIdBuffer: snapshot?.gradientIdBuffer?.byteLength ? new Uint8Array(snapshot.gradientIdBuffer) : (canUseEmptyInitializedCcRuntime ? emptyBytes() : null),
-    gradientDefIdBuffer: snapshot?.gradientDefIdBuffer?.byteLength ? new Uint16Array(snapshot.gradientDefIdBuffer) : (canUseEmptyInitializedCcRuntime ? emptyDefBytes() : null),
-    speedBuffer: snapshot?.speedBuffer?.byteLength ? new Uint8Array(snapshot.speedBuffer) : (canUseEmptyInitializedCcRuntime ? emptyBytes() : null),
-    flowBuffer: snapshot?.flowBuffer?.byteLength ? new Uint8Array(snapshot.flowBuffer) : (canUseEmptyInitializedCcRuntime ? emptyBytes() : null),
-    phaseBuffer: snapshot?.phaseBuffer?.byteLength ? new Uint8Array(snapshot.phaseBuffer) : (canUseEmptyInitializedCcRuntime ? emptyBytes() : null),
+  const canUseEmptyInitializedCcRuntime = Boolean(layer?.layerType === 'color-cycle' && layer.colorCycleData);
+  return buildColorCycleCanonicalSelectionPayloadFromSnapshot({
+    snapshot: resolvePaintSnapshot(documentSnapshot),
     width: fallbackWidth,
     height: fallbackHeight,
-  };
+    allowEmptyInitializedPayload: canUseEmptyInitializedCcRuntime,
+  });
 };
 
 const hasCompleteCcCanonicalPayload = (payload: CcCanonicalSelectionPayload): boolean => {
   const expectedPixels = Math.max(1, payload.width * payload.height);
   return Boolean(
-    payload.paintBuffer?.byteLength === expectedPixels &&
+    payload.paint?.byteLength === expectedPixels &&
     payload.gradientIdBuffer?.byteLength === expectedPixels &&
     payload.gradientDefIdBuffer?.byteLength === expectedPixels * Uint16Array.BYTES_PER_ELEMENT &&
     payload.speedBuffer?.byteLength === expectedPixels &&
@@ -99,7 +114,7 @@ const colorCyclePayloadAlreadyMatchesRegion = (
     return false;
   }
 
-  const paint = target.paintBuffer;
+  const paint = target.paint;
   const gradientIds = target.gradientIdBuffer;
   const gradientDefIds = target.gradientDefIdBuffer;
   const speed = target.speedBuffer;
@@ -609,96 +624,38 @@ const rebuildMoveBeforeColorState = ({
   canvasWidth: number;
   canvasHeight: number;
 }): ColorCycleSerializedState => {
-  if (!currentState?.layers?.length) {
+  if (!currentState) {
     return currentState;
   }
-  const layer0 = currentState.layers[0];
-  const paintBuffer = layer0?.strokeData?.paintBuffer
-    ? new Uint8Array(layer0.strokeData.paintBuffer)
-    : null;
-  const gradientBuffer = layer0?.strokeData?.gradientIdBuffer
-    ? new Uint8Array(layer0.strokeData.gradientIdBuffer)
-    : null;
-  const gradientDefBuffer = layer0?.strokeData?.gradientDefIdBuffer
-    ? new Uint16Array(layer0.strokeData.gradientDefIdBuffer)
-    : null;
-  const speedBuffer = layer0?.strokeData?.speedBuffer
-    ? new Uint8Array(layer0.strokeData.speedBuffer)
-    : null;
-  const flowBuffer = layer0?.strokeData?.flowBuffer
-    ? new Uint8Array(layer0.strokeData.flowBuffer)
-    : null;
-  const phaseBuffer = layer0?.strokeData?.phaseBuffer
-    ? new Uint8Array(layer0.strokeData.phaseBuffer)
-    : null;
-  if (!paintBuffer || paintBuffer.length !== canvasWidth * canvasHeight) {
-    return currentState;
-  }
-
-  const restored = paintBuffer.slice();
-  const startX = Math.max(0, Math.floor(sourceBounds.x));
-  const startY = Math.max(0, Math.floor(sourceBounds.y));
-  const endX = Math.min(canvasWidth, Math.ceil(sourceBounds.x + sourceBounds.width));
-  const endY = Math.min(canvasHeight, Math.ceil(sourceBounds.y + sourceBounds.height));
-
-  for (let y = startY; y < endY; y += 1) {
-    for (let x = startX; x < endX; x += 1) {
-      const localX = x - startX;
-      const localY = y - startY;
-      if (localX < 0 || localY < 0 || localX >= sourceWidth || localY >= sourceHeight) {
-        continue;
-      }
-      const srcIndex = localY * sourceWidth + localX;
-      const dstIndex = y * canvasWidth + x;
-      restored[dstIndex] = sourceIndices[srcIndex] ?? 0;
-      if (gradientBuffer && gradientBuffer.length === canvasWidth * canvasHeight) {
-        gradientBuffer[dstIndex] = sourceGradientIds?.[srcIndex] ?? 0;
-      }
-      if (gradientDefBuffer && gradientDefBuffer.length === canvasWidth * canvasHeight) {
-        gradientDefBuffer[dstIndex] = sourceGradientDefIds?.[srcIndex] ?? 0;
-      }
-      if (speedBuffer && speedBuffer.length === canvasWidth * canvasHeight) {
-        speedBuffer[dstIndex] = sourceSpeed?.[srcIndex] ?? 0;
-      }
-      if (flowBuffer && flowBuffer.length === canvasWidth * canvasHeight) {
-        flowBuffer[dstIndex] = sourceFlow?.[srcIndex] ?? 0;
-      }
-      if (phaseBuffer && phaseBuffer.length === canvasWidth * canvasHeight) {
-        phaseBuffer[dstIndex] = sourcePhase?.[srcIndex] ?? 0;
-      }
-    }
-  }
-
-  const nextLayer0 = {
-    ...layer0,
-    strokeData: layer0.strokeData
-      ? {
-          ...layer0.strokeData,
-          paintBuffer: restored.buffer,
-          gradientIdBuffer: gradientBuffer?.buffer ?? layer0.strokeData.gradientIdBuffer,
-          gradientDefIdBuffer: gradientDefBuffer?.buffer ?? layer0.strokeData.gradientDefIdBuffer,
-          speedBuffer: speedBuffer?.buffer ?? layer0.strokeData.speedBuffer,
-          flowBuffer: flowBuffer?.buffer ?? layer0.strokeData.flowBuffer,
-          phaseBuffer: phaseBuffer?.buffer ?? layer0.strokeData.phaseBuffer,
-        }
-      : layer0.strokeData,
-  };
-
-  return {
-    ...currentState,
-    layers: [nextLayer0, ...currentState.layers.slice(1)],
-  };
+  return rebuildColorCycleSerializedStateRegion<NonNullable<ColorCycleSerializedState>>({
+    currentState,
+    sourceBounds,
+    sourceIndices,
+    sourceGradientIds,
+    sourceGradientDefIds,
+    sourceSpeed,
+    sourceFlow,
+    sourcePhase,
+    sourceWidth,
+    sourceHeight,
+    canvasWidth,
+    canvasHeight,
+  });
 };
 
 export const createSelectionPasteHelpers = ({
   get,
   captureCanvasToActiveLayer,
   set,
+  getColorCycleDocumentSnapshot,
 }: {
   get: StoreGet;
   set: StoreSet;
   captureCanvasToActiveLayer: CaptureFn;
+  getColorCycleDocumentSnapshot?: GetColorCycleDocumentSnapshot;
 }) => {
+  const readColorCycleDocumentSnapshot = getColorCycleDocumentSnapshot ?? (() => null);
+
   const commitFloatingPaste = async (): Promise<void> => {
     let state = get();
     const { floatingPaste, layers, activeLayerId, project } = state;
@@ -894,7 +851,8 @@ export const createSelectionPasteHelpers = ({
           state,
           targetLayer.id,
           targetCanvas?.width ?? project.width,
-          targetCanvas?.height ?? project.height
+          targetCanvas?.height ?? project.height,
+          readColorCycleDocumentSnapshot
         );
         const pastePreflight = runCcSelectionTransaction({
           operation: 'commit-floating-paste',
@@ -1132,9 +1090,9 @@ export const createSelectionPasteHelpers = ({
           });
           const eraseMask = targetLayer.colorCycleData?.eraseMask;
           const eraseMaskCtx = eraseMask?.getContext('2d', { willReadFrequently: true });
-        if (eraseMaskCtx) {
-          eraseMaskCtx.clearRect(
-            colorCycleDestRect.x,
+          if (eraseMaskCtx) {
+            eraseMaskCtx.clearRect(
+              colorCycleDestRect.x,
               colorCycleDestRect.y,
               colorCycleDestRect.width,
               colorCycleDestRect.height
@@ -1147,13 +1105,13 @@ export const createSelectionPasteHelpers = ({
                   eraseMask,
                 },
               },
-            { skipColorCycleSync: true }
-          );
-        }
-        state.scheduleColorCycleSlotRebuild?.('selection-paste-commit');
-        requestGradientApply(targetLayer.id, 'selection-paste-commit');
-        state.setLayersNeedRecomposition(true);
-        state.setCurrentCompositeBitmap(null);
+              { skipColorCycleSync: true, dirtyRects: [colorCycleDestRect] }
+            );
+          }
+          state.scheduleColorCycleSlotRebuild?.('selection-paste-commit');
+          requestGradientApply(targetLayer.id, 'selection-paste-commit');
+          set({ layersNeedRecomposition: true });
+          state.setCurrentCompositeBitmap(null);
 
           await commitLayerHistory(buildCcSelectionHistoryPayload({
             transactionId: pasteTransactionId ?? 'unknown',
@@ -1309,7 +1267,8 @@ export const createSelectionPasteHelpers = ({
           state,
           targetLayer.id,
           targetCanvas?.width ?? project.width,
-          targetCanvas?.height ?? project.height
+          targetCanvas?.height ?? project.height,
+          readColorCycleDocumentSnapshot
         );
         const restorePreflight = runCcSelectionTransaction({
           operation: 'cancel-floating-paste',
@@ -1420,7 +1379,7 @@ export const createSelectionPasteHelpers = ({
         });
         state.scheduleColorCycleSlotRebuild?.('selection-paste-cancel');
         requestGradientApply(targetLayer.id, 'selection-paste-cancel');
-        state.setLayersNeedRecomposition(true);
+        set({ layersNeedRecomposition: true });
         state.setCurrentCompositeBitmap(null);
         set({ floatingPaste: null, floatingPasteHistoryContext: null });
         return;
@@ -1499,9 +1458,17 @@ export const createSelectionPasteHelpers = ({
           floatingPaste.sourceLayerId,
           targetFramebuffer
             ? { imageData: restoredImage, framebuffer: targetFramebuffer }
-            : { imageData: restoredImage }
+            : { imageData: restoredImage },
+          {
+            dirtyRects: [{
+              x: baseX,
+              y: baseY,
+              width: pasteWidth,
+              height: pasteHeight,
+            }],
+          },
         );
-        state.setLayersNeedRecomposition(true);
+        set({ layersNeedRecomposition: true });
         set({ floatingPaste: null, floatingPasteHistoryContext: null });
         return;
       }

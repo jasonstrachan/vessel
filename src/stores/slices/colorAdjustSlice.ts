@@ -22,10 +22,21 @@ import { flushGradientApply, requestGradientApply } from '@/hooks/brushEngine/cc
 import { bindBrushToCanvas, refreshLayerCCSurface } from '@/hooks/brushEngine/colorCycleSurface';
 import { ensureCanvasPixelSize } from '@/hooks/brushEngine/engineShared';
 import { RecolorManager } from '@/lib/colorCycle/RecolorManager';
+import {
+  applyColorCycleBrushLayerSnapshotToRuntime,
+  buildColorCycleRuntimePaintSnapshot,
+  canApplyColorCycleBrushLayerSnapshotToRuntime,
+  colorCycleRuntimePaintSnapshotToBrushSnapshot,
+  readColorCycleBrushLayerSnapshotFromRuntime,
+  type ColorCycleBrushLayerSnapshotRuntimeReader,
+  type ColorCycleBrushLayerSnapshotRuntimeWriter,
+  type ColorCycleRuntimePaintSnapshot,
+} from '@/lib/colorCycle/document';
 import { FLOW_SLOT_MASK } from '@/lib/colorCycle/flowEncoding';
 import { TEMP_SAMPLE_SLOT } from '@/constants/colorCycle';
 import { writeColorCycleRegion } from '@/stores/helpers/colorCycleSelection';
 import { hashStops as hashColorCycleDefStops } from '@/utils/colorCycleGradientDefs';
+import { getColorCycleBrushManager } from '@/stores/colorCycleBrushManager';
 
 type AppState = import('../useAppStore').AppState;
 
@@ -41,17 +52,28 @@ const scratchCache = new Map<string, ImageData>();
 
 type ColorCycleGradientStop = { position: number; color: string };
 
-type ColorCycleRuntimeSnapshot = {
-  paintBuffer: Uint8Array;
-  gradientIdBuffer: Uint8Array;
-  gradientDefIdBuffer: Uint16Array | null;
-  speedBuffer: Uint8Array | null;
-  flowBuffer: Uint8Array | null;
-  phaseBuffer: Uint8Array | null;
-  width: number;
-  height: number;
-  hasContent: boolean;
-  strokeCounter: number;
+type ColorCycleRuntimeSnapshot = ColorCycleRuntimePaintSnapshot;
+
+const resolveLayerDirtyRect = (
+  layer: Layer,
+  project: AppState['project'],
+  fallback?: { width?: number; height?: number } | null,
+): Rectangle | null => {
+  const width =
+    fallback?.width ??
+    layer.imageData?.width ??
+    layer.framebuffer?.width ??
+    layer.colorCycleData?.canvas?.width ??
+    project?.width ??
+    0;
+  const height =
+    fallback?.height ??
+    layer.imageData?.height ??
+    layer.framebuffer?.height ??
+    layer.colorCycleData?.canvas?.height ??
+    project?.height ??
+    0;
+  return width > 0 && height > 0 ? { x: 0, y: 0, width, height } : null;
 };
 
 const hasColorAdjustments = (params: ColorAdjustParams): boolean =>
@@ -98,20 +120,6 @@ const cloneGradientStops = (
     position: stop.position,
     color: stop.color,
   }));
-
-const cloneUint8Array = (source?: ArrayBuffer | ArrayBufferLike | null): Uint8Array | null => {
-  if (!source) {
-    return null;
-  }
-  return new Uint8Array(source.slice(0));
-};
-
-const cloneUint16Array = (source?: ArrayBuffer | ArrayBufferLike | null): Uint16Array | null => {
-  if (!source) {
-    return null;
-  }
-  return new Uint16Array(source.slice(0));
-};
 
 const clampColorCycleSlot = (slot: number): number =>
   Math.max(0, Math.min(FLOW_SLOT_MASK, Math.round(slot)));
@@ -180,8 +188,6 @@ const cloneColorCycleData = (
   }
   return {
     ...data,
-    gradientIdBuffer: data.gradientIdBuffer ? data.gradientIdBuffer.slice(0) : data.gradientIdBuffer,
-    gradientDefIdBuffer: data.gradientDefIdBuffer ? data.gradientDefIdBuffer.slice(0) : data.gradientDefIdBuffer,
     gradient: data.gradient ? cloneGradientStops(data.gradient) : data.gradient,
     gradients: data.gradients
       ? data.gradients.map((entry) => ({
@@ -341,7 +347,8 @@ const replaceColorCycleLayerData = (
   set: Parameters<StateCreator<AppState, [], [], ColorAdjustSlice>>[0],
   get: () => AppState,
   layerId: string,
-  colorCycleData: Layer['colorCycleData']
+  colorCycleData: Layer['colorCycleData'],
+  dirtyRects?: Rectangle[],
 ): void => {
   let didReplace = false;
 
@@ -371,18 +378,18 @@ const replaceColorCycleLayerData = (
   });
 
   if (didReplace) {
-    get().markCompositeSegmentsDirtyByLayerIds([layerId]);
+    get().markCompositeSegmentsDirtyByLayerIds(
+      [layerId],
+      dirtyRects?.length
+        ? { dirtyRectsByLayerId: new Map([[layerId, dirtyRects]]) }
+        : undefined,
+    );
   }
 };
 
-const refreshColorCycleGradientDefRuntime = (
-  get: () => AppState,
-  layerId: string
-): void => {
+const refreshColorCycleGradientDefRuntime = (layerId: string): void => {
   try {
-    const brush = get().getLayerColorCycleBrush(layerId) as {
-      syncGradientDefRuntime?: (targetLayerId: string) => void;
-    } | null;
+    const brush = getColorCycleBrushManager().getGradientApplyBrush(layerId);
     brush?.syncGradientDefRuntime?.(layerId);
   } catch {
     // noop: shape-bound defs can fall back to next full render if runtime is unavailable
@@ -391,7 +398,8 @@ const refreshColorCycleGradientDefRuntime = (
 
 const rerenderColorCycleLayerSurface = (
   get: () => AppState,
-  layerId: string
+  layerId: string,
+  dirtyRects?: Rectangle[],
 ): void => {
   try {
     const state = get();
@@ -400,10 +408,7 @@ const rerenderColorCycleLayerSurface = (
       return;
     }
 
-    const brush = state.getLayerColorCycleBrush(layerId) as {
-      renderDirectToCanvas?: (canvas: HTMLCanvasElement, targetLayerId: string) => void;
-      getCanvas?: () => HTMLCanvasElement | OffscreenCanvas | null;
-    } | null;
+    const brush = getColorCycleBrushManager().getSurfaceBrush(layerId);
     if (!brush?.renderDirectToCanvas) {
       return;
     }
@@ -422,8 +427,14 @@ const rerenderColorCycleLayerSurface = (
     brush.renderDirectToCanvas(layerCanvas, layerId);
 
     state.setCurrentCompositeBitmap?.(null);
-    state.setLayersNeedRecomposition?.(true);
-    state.markCompositeSegmentsDirtyByLayerIds?.([layerId]);
+    if (dirtyRects?.length) {
+      state.markCompositeSegmentsDirtyByLayerIds?.([layerId], {
+        dirtyRectsByLayerId: new Map([[layerId, dirtyRects]]),
+      });
+    } else {
+      state.setLayersNeedRecomposition?.(true);
+      state.markCompositeSegmentsDirtyByLayerIds?.([layerId]);
+    }
   } catch {
     // noop: preview can fall back to the next normal layer render
   }
@@ -437,67 +448,23 @@ const captureColorCycleRuntimeSnapshot = (
     return null;
   }
 
-  const brush = state.getLayerColorCycleBrush(layer.id) as {
-    getLayerSnapshot?: (layerId: string) => {
-      paintBuffer?: ArrayBuffer;
-      gradientIdBuffer?: ArrayBuffer;
-      gradientDefIdBuffer?: ArrayBuffer;
-      speedBuffer?: ArrayBuffer;
-      flowBuffer?: ArrayBuffer;
-      phaseBuffer?: ArrayBuffer;
-      hasContent?: boolean;
-      strokeCounter?: number;
-    } | null;
-    getCanvas?: () => HTMLCanvasElement | OffscreenCanvas | null;
-  } | null;
-  const snapshot = brush?.getLayerSnapshot?.(layer.id) ?? null;
+  const brush = getColorCycleBrushManager().getSelectionMutationBrush(layer.id);
+  const snapshot = readColorCycleBrushLayerSnapshotFromRuntime(
+    brush as ColorCycleBrushLayerSnapshotRuntimeReader,
+    layer.id,
+  );
   const canvas = layer.colorCycleData?.canvas ?? brush?.getCanvas?.() ?? layer.framebuffer;
   const width = canvas?.width ?? layer.imageData?.width ?? state.project?.width ?? 0;
   const height = canvas?.height ?? layer.imageData?.height ?? state.project?.height ?? 0;
 
-  if (!snapshot?.paintBuffer || width <= 0 || height <= 0) {
-    return null;
-  }
-
-  const paintBuffer = cloneUint8Array(snapshot.paintBuffer);
-  const gradientIdBuffer = cloneUint8Array(snapshot.gradientIdBuffer) ?? new Uint8Array(width * height);
-  const gradientDefIdBuffer = cloneUint16Array(snapshot.gradientDefIdBuffer);
-  const speedBuffer = cloneUint8Array(snapshot.speedBuffer);
-  const flowBuffer = cloneUint8Array(snapshot.flowBuffer);
-  const phaseBuffer = cloneUint8Array(snapshot.phaseBuffer);
-
-  if (!paintBuffer || paintBuffer.length !== width * height || gradientIdBuffer.length !== width * height) {
-    return null;
-  }
-  if (gradientDefIdBuffer && gradientDefIdBuffer.length !== width * height) {
-    return null;
-  }
-  if (speedBuffer && speedBuffer.length !== width * height) {
-    return null;
-  }
-  if (flowBuffer && flowBuffer.length !== width * height) {
-    return null;
-  }
-  if (phaseBuffer && phaseBuffer.length !== width * height) {
-    return null;
-  }
-
-  return {
-    paintBuffer,
-    gradientIdBuffer,
-    gradientDefIdBuffer,
-    speedBuffer,
-    flowBuffer,
-    phaseBuffer,
+  return buildColorCycleRuntimePaintSnapshot({
+    snapshot,
     width,
     height,
-    hasContent: snapshot.hasContent ?? paintBuffer.some((value) => value !== 0),
-    strokeCounter: snapshot.strokeCounter ?? 0,
-  };
+  });
 };
 
 const restoreColorCycleRuntimeSnapshot = (
-  state: AppState,
   layer: Layer,
   snapshot: ColorCycleRuntimeSnapshot | null
 ): void => {
@@ -505,35 +472,22 @@ const restoreColorCycleRuntimeSnapshot = (
     return;
   }
 
-  const brush = state.getLayerColorCycleBrush(layer.id) as {
-    applyLayerSnapshot?: (layerId: string, payload: {
-      paintBuffer: ArrayBuffer;
-      gradientIdBuffer?: ArrayBuffer;
-      gradientDefIdBuffer?: ArrayBuffer;
-      speedBuffer?: ArrayBuffer;
-      flowBuffer?: ArrayBuffer;
-      phaseBuffer?: ArrayBuffer;
-      hasContent: boolean;
-      strokeCounter: number;
-    }) => void;
-    renderDirectToCanvas?: (canvas: HTMLCanvasElement | OffscreenCanvas, layerId: string) => void;
-    getCanvas?: () => HTMLCanvasElement | OffscreenCanvas | null;
-  } | null;
+  const brush = getColorCycleBrushManager().getSelectionMutationBrush(layer.id);
 
-  if (!brush?.applyLayerSnapshot) {
+  if (!brush) {
     return;
   }
 
-  brush.applyLayerSnapshot(layer.id, {
-    paintBuffer: snapshot.paintBuffer.slice().buffer,
-    gradientIdBuffer: snapshot.gradientIdBuffer.slice().buffer,
-    gradientDefIdBuffer: snapshot.gradientDefIdBuffer?.slice().buffer,
-    speedBuffer: snapshot.speedBuffer?.slice().buffer,
-    flowBuffer: snapshot.flowBuffer?.slice().buffer,
-    phaseBuffer: snapshot.phaseBuffer?.slice().buffer,
-    hasContent: snapshot.hasContent,
-    strokeCounter: snapshot.strokeCounter,
-  });
+  const colorCycleSnapshotWriter = brush as ColorCycleBrushLayerSnapshotRuntimeWriter;
+  if (!canApplyColorCycleBrushLayerSnapshotToRuntime(colorCycleSnapshotWriter)) {
+    return;
+  }
+
+  applyColorCycleBrushLayerSnapshotToRuntime(
+    colorCycleSnapshotWriter,
+    layer.id,
+    colorCycleRuntimePaintSnapshotToBrushSnapshot(snapshot)
+  );
 
   const canvas = layer.colorCycleData?.canvas ?? brush.getCanvas?.();
   if (canvas && brush.renderDirectToCanvas) {
@@ -566,7 +520,7 @@ const previewSelectedColorCycleRegion = (
 
   const slotPalettes = originalData.slotPalettes ?? [];
 
-  restoreColorCycleRuntimeSnapshot(state, layer, originalSnapshot);
+  restoreColorCycleRuntimeSnapshot(layer, originalSnapshot);
 
   const selectionGradientIds = copyScalarRegion(
     originalSnapshot.gradientIdBuffer,
@@ -590,7 +544,7 @@ const previewSelectedColorCycleRegion = (
       )
     : null;
   const selectionPaint = copyScalarRegion(
-    originalSnapshot.paintBuffer,
+    originalSnapshot.paint,
     originalSnapshot.width,
     originalSnapshot.height,
     selectionBounds
@@ -739,7 +693,7 @@ const previewSelectedColorCycleRegion = (
     nextGradientDefId,
   };
 
-  replaceColorCycleLayerData(set, get, layer.id, previewColorCycleData);
+  replaceColorCycleLayerData(set, get, layer.id, previewColorCycleData, [selectionBounds]);
   const previewLayer = get().layers.find((entry) => entry.id === layer.id) ?? layer;
 
   const alphaData = buildSelectionAlphaData(
@@ -768,8 +722,8 @@ const previewSelectedColorCycleRegion = (
   );
 
   if (!wroteRegion) {
-    replaceColorCycleLayerData(set, get, layer.id, baseColorCycleData);
-    restoreColorCycleRuntimeSnapshot(state, layer, originalSnapshot);
+    replaceColorCycleLayerData(set, get, layer.id, baseColorCycleData, [selectionBounds]);
+    restoreColorCycleRuntimeSnapshot(layer, originalSnapshot);
     return false;
   }
 
@@ -783,12 +737,12 @@ const previewSelectedColorCycleRegion = (
     slotPalettes: nextSlotPalettes,
     gradientDefStore: nextDefStore,
     nextGradientDefId,
-  });
+  }, [selectionBounds]);
 
   requestGradientApply(layer.id, 'color-adjust-preview-selection');
-  refreshColorCycleGradientDefRuntime(get, layer.id);
-  rerenderColorCycleLayerSurface(get, layer.id);
-  state.setLayersNeedRecomposition(true);
+  refreshColorCycleGradientDefRuntime(layer.id);
+  rerenderColorCycleLayerSurface(get, layer.id, [selectionBounds]);
+  set({ layersNeedRecomposition: true });
   return true;
 };
 
@@ -990,13 +944,15 @@ const previewColorCycleLayerAdjustments = ({
     return;
   }
 
-  restoreColorCycleRuntimeSnapshot(state, layer, originalRuntimeSnapshot);
+  restoreColorCycleRuntimeSnapshot(layer, originalRuntimeSnapshot);
   const nextColorCycleData = hasColorAdjustments(params)
     ? buildAdjustedColorCycleData(originalColorCycleData, params)
     : cloneColorCycleData(originalColorCycleData);
+  const dirtyRect = resolveLayerDirtyRect(layer, state.project, originalRuntimeSnapshot);
+  const dirtyRects = dirtyRect ? [dirtyRect] : undefined;
 
   if (nextColorCycleData) {
-    replaceColorCycleLayerData(set, get, layer.id, nextColorCycleData);
+    replaceColorCycleLayerData(set, get, layer.id, nextColorCycleData, dirtyRects);
   }
 
   if (nextColorCycleData?.mode === 'recolor' && nextColorCycleData.recolorSettings) {
@@ -1013,11 +969,11 @@ const previewColorCycleLayerAdjustments = ({
     }
   } else {
     requestGradientApply(layer.id, 'color-adjust-preview');
-    refreshColorCycleGradientDefRuntime(get, layer.id);
-    rerenderColorCycleLayerSurface(get, layer.id);
+    refreshColorCycleGradientDefRuntime(layer.id);
+    rerenderColorCycleLayerSurface(get, layer.id, dirtyRects);
   }
 
-  state.setLayersNeedRecomposition(true);
+  set({ layersNeedRecomposition: true });
 };
 
 const previewRasterLayerAdjustments = ({
@@ -1025,11 +981,13 @@ const previewRasterLayerAdjustments = ({
   layer,
   layerId,
   params,
+  markLayersNeedRecomposition,
 }: {
   state: AppState;
   layer: Layer;
   layerId: string;
   params: ColorAdjustParams;
+  markLayersNeedRecomposition: () => void;
 }): void => {
   const originalImageData = colorAdjustOriginalImageDataByLayerId.get(layer.id);
   if (!originalImageData || layer.layerType !== 'normal') {
@@ -1055,9 +1013,14 @@ const previewRasterLayerAdjustments = ({
     const adjusted = shouldAdjust
       ? applyColorAdjustments(working, params)
       : cloneLayerImageData(working) ?? working;
-    state.updateLayer(layer.id, { imageData: adjusted });
+    state.updateLayer(
+      layer.id,
+      { imageData: adjusted },
+      { dirtyRects: [{ x: 0, y: 0, width: originalImageData.width, height: originalImageData.height }] },
+    );
     syncFramebufferFromImageData(layer, adjusted);
-    state.setLayersNeedRecomposition(true);
+    state.setCurrentCompositeBitmap(null);
+    markLayersNeedRecomposition();
     return;
   }
 
@@ -1089,8 +1052,13 @@ const previewRasterLayerAdjustments = ({
   );
 
   syncFramebufferFromImageData(layer, working);
-  state.updateLayer(layer.id, { imageData: working });
-  state.setLayersNeedRecomposition(true);
+  state.updateLayer(
+    layer.id,
+    { imageData: working },
+    { dirtyRects: [selectionBounds] },
+  );
+  state.setCurrentCompositeBitmap(null);
+  markLayersNeedRecomposition();
 };
 
 const restoreColorCycleLayerAdjustments = ({
@@ -1110,12 +1078,14 @@ const restoreColorCycleLayerAdjustments = ({
   }
 
   const restoredData = cloneColorCycleData(originalColorCycleData);
+  const originalSnapshot = colorAdjustOriginalColorCycleSnapshotByLayerId.get(layer.id) ?? null;
+  const dirtyRect = resolveLayerDirtyRect(layer, state.project, originalSnapshot);
+  const dirtyRects = dirtyRect ? [dirtyRect] : undefined;
   if (restoredData) {
-    replaceColorCycleLayerData(set, get, layer.id, restoredData);
+    replaceColorCycleLayerData(set, get, layer.id, restoredData, dirtyRects);
     restoreColorCycleRuntimeSnapshot(
-      state,
       layer,
-      colorAdjustOriginalColorCycleSnapshotByLayerId.get(layer.id) ?? null
+      originalSnapshot
     );
   }
   if (restoredData?.mode === 'recolor' && restoredData.recolorSettings) {
@@ -1132,18 +1102,20 @@ const restoreColorCycleLayerAdjustments = ({
     }
   } else {
     requestGradientApply(layer.id, 'color-adjust-cancel');
-    refreshColorCycleGradientDefRuntime(get, layer.id);
-    rerenderColorCycleLayerSurface(get, layer.id);
+    refreshColorCycleGradientDefRuntime(layer.id);
+    rerenderColorCycleLayerSurface(get, layer.id, dirtyRects);
   }
-  state.setLayersNeedRecomposition(true);
+  set({ layersNeedRecomposition: true });
 };
 
 const restoreRasterLayerAdjustments = ({
   state,
   layer,
+  markLayersNeedRecomposition,
 }: {
   state: AppState;
   layer: Layer;
+  markLayersNeedRecomposition: () => void;
 }): void => {
   const originalImageData = colorAdjustOriginalImageDataByLayerId.get(layer.id);
   if (layer.layerType !== 'normal' || !originalImageData) {
@@ -1156,8 +1128,13 @@ const restoreRasterLayerAdjustments = ({
   }
 
   syncFramebufferFromImageData(layer, restoredImage);
-  state.updateLayer(layer.id, { imageData: restoredImage });
-  state.setLayersNeedRecomposition(true);
+  state.updateLayer(
+    layer.id,
+    { imageData: restoredImage },
+    { dirtyRects: [{ x: 0, y: 0, width: restoredImage.width, height: restoredImage.height }] },
+  );
+  state.setCurrentCompositeBitmap(null);
+  markLayersNeedRecomposition();
 };
 
 const commitRasterColorAdjustHistory = async ({
@@ -1361,6 +1338,7 @@ export const createColorAdjustSlice: StateCreator<AppState, [], [], ColorAdjustS
         layer,
         layerId: targetLayerId,
         params: colorAdjust.params,
+        markLayersNeedRecomposition: () => set({ layersNeedRecomposition: true }),
       });
     }
   },
@@ -1418,7 +1396,11 @@ export const createColorAdjustSlice: StateCreator<AppState, [], [], ColorAdjustS
         continue;
       }
 
-      restoreRasterLayerAdjustments({ state, layer });
+      restoreRasterLayerAdjustments({
+        state,
+        layer,
+        markLayersNeedRecomposition: () => set({ layersNeedRecomposition: true }),
+      });
     }
 
     resetColorAdjustSessionCaches();

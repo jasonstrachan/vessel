@@ -1,10 +1,18 @@
 import type { Layer, LayerColorCycleData } from '@/types';
+import type { ColorCycleLayerDocument } from '@/lib/colorCycle/document';
 
 export type ColorCycleLayerHydrationState = 'cold' | 'warm' | 'active';
 
 export const getColorCycleHydrationState = (
   colorCycleData: LayerColorCycleData | null | undefined,
+  document?: Pick<ColorCycleLayerDocument, 'residency'> | null,
 ): ColorCycleLayerHydrationState => {
+  if (
+    document?.residency === 'cold-archive-ref' ||
+    document?.residency === 'static-preview-only'
+  ) {
+    return 'cold';
+  }
   if (!colorCycleData) {
     return 'warm';
   }
@@ -36,6 +44,13 @@ export const updateLayerColorCycleHydrationState = (
   };
 };
 
-export const isColdColorCycleLayer = (layer: Layer | undefined | null): boolean => (
-  Boolean(layer && layer.layerType === 'color-cycle' && getColorCycleHydrationState(layer.colorCycleData) === 'cold')
+export const isColdColorCycleLayer = (
+  layer: Layer | undefined | null,
+  document?: Pick<ColorCycleLayerDocument, 'residency'> | null,
+): boolean => (
+  Boolean(
+    layer &&
+    layer.layerType === 'color-cycle' &&
+    getColorCycleHydrationState(layer.colorCycleData, document) === 'cold'
+  )
 );

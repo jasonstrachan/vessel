@@ -35,6 +35,13 @@ const { commitLayerHistory } = jest.requireMock('@/history/helpers/layerHistory'
 
 jest.mock('@/stores/helpers/historyLifecycle', () => ({
   cloneImageDataForHistory: jest.fn((imageData: ImageData | null) => imageData),
+  createHistoryService: jest.fn(() => ({
+    captureCanvasToActiveLayer: jest.fn(),
+    recordSnapshot: jest.fn(),
+    undo: jest.fn(),
+    redo: jest.fn(),
+    clear: jest.fn(),
+  })),
 }));
 
 jest.mock('@/history/helpers/colorCycle', () => ({
@@ -71,6 +78,19 @@ const { showAppFeedback } = jest.requireMock('@/utils/appFeedback') as {
 };
 
 type StoreSet = StoreApi<AppState>['setState'];
+type TestColorCycleDocumentSnapshot = {
+  paintBuffer?: ArrayBuffer;
+  gradientIdBuffer?: ArrayBuffer;
+  gradientDefIdBuffer?: ArrayBuffer;
+  speedBuffer?: ArrayBuffer;
+  flowBuffer?: ArrayBuffer;
+  phaseBuffer?: ArrayBuffer;
+  hasContent: boolean;
+  strokeCounter?: number;
+};
+type TestState = Partial<AppState> & {
+  __ccDocumentSnapshotByLayerId?: Map<string, TestColorCycleDocumentSnapshot>;
+};
 
 const createBaseLayer = (projectSize: number): Layer => {
   const framebuffer = document.createElement('canvas');
@@ -129,7 +149,24 @@ const setupHelpers = (
 
   Object.assign(floatingPaste, floatingOverrides);
 
-  const state: Partial<AppState> = {
+  const pixelCount = project.width * project.height;
+  const defaultCcSnapshot: TestColorCycleDocumentSnapshot = {
+    paintBuffer: new Uint8Array(pixelCount).fill(1).buffer,
+    gradientIdBuffer: new Uint8Array(pixelCount).fill(1).buffer,
+    gradientDefIdBuffer: new Uint16Array(pixelCount).buffer,
+    speedBuffer: new Uint8Array(pixelCount).fill(2).buffer,
+    flowBuffer: new Uint8Array(pixelCount).fill(3).buffer,
+    phaseBuffer: new Uint8Array(pixelCount).fill(4).buffer,
+    hasContent: true,
+    strokeCounter: 1,
+  };
+  const documentSnapshots = new Map<string, TestColorCycleDocumentSnapshot>();
+  if (layer.layerType === 'color-cycle') {
+    documentSnapshots.set(layer.id, defaultCcSnapshot);
+  }
+
+  const state: TestState = {
+    __ccDocumentSnapshotByLayerId: documentSnapshots,
     floatingPaste,
     layers: [layer],
     activeLayerId: layer.id,
@@ -139,24 +176,6 @@ const setupHelpers = (
     setCurrentCompositeBitmap: jest.fn(),
     updateLayer: jest.fn(),
     addNotification: jest.fn(),
-    getLayerColorCycleBrush: jest.fn((layerId: string) => {
-      if (layerId !== layer.id || layer.layerType !== 'color-cycle') {
-        return null;
-      }
-      const pixelCount = project.width * project.height;
-      return {
-        getLayerSnapshot: () => ({
-          paintBuffer: new Uint8Array(pixelCount).fill(1).buffer,
-          gradientIdBuffer: new Uint8Array(pixelCount).fill(1).buffer,
-          gradientDefIdBuffer: new Uint16Array(pixelCount).buffer,
-          speedBuffer: new Uint8Array(pixelCount).fill(2).buffer,
-          flowBuffer: new Uint8Array(pixelCount).fill(3).buffer,
-          phaseBuffer: new Uint8Array(pixelCount).fill(4).buffer,
-          hasContent: true,
-          strokeCounter: 1,
-        }),
-      };
-    }) as AppState['getLayerColorCycleBrush'],
   };
 
   const get = () => state as AppState;
@@ -179,13 +198,15 @@ const setupHelpers = (
     get,
     set,
     captureCanvasToActiveLayer,
+    getColorCycleDocumentSnapshot: (layerId) =>
+      state.__ccDocumentSnapshotByLayerId?.get(layerId) as never ?? null,
   });
 
   return { helpers, state, captureCanvasToActiveLayer, layer };
 };
 
 const setMatchingCcSnapshotForFloatingPaste = (
-  state: Partial<AppState>,
+  state: TestState,
   layer: Layer,
   floatingPaste: NonNullable<AppState['floatingPaste']>,
 ) => {
@@ -211,48 +232,34 @@ const setMatchingCcSnapshotForFloatingPaste = (
       phase[destIndex] = floatingPaste.colorCyclePhase?.[srcIndex] ?? 0;
     }
   }
-  state.getLayerColorCycleBrush = jest.fn((layerId: string) => {
-    if (layerId !== layer.id) {
-      return null;
-    }
-    return {
-      getLayerSnapshot: () => ({
-        paintBuffer: paint.buffer,
-        gradientIdBuffer: gradientIds.buffer,
-        gradientDefIdBuffer: gradientDefIds.buffer,
-        speedBuffer: speed.buffer,
-        flowBuffer: flow.buffer,
-        phaseBuffer: phase.buffer,
-        hasContent: true,
-        strokeCounter: 1,
-      }),
-    };
-  }) as AppState['getLayerColorCycleBrush'];
+  state.__ccDocumentSnapshotByLayerId?.set(layer.id, {
+    paintBuffer: paint.buffer,
+    gradientIdBuffer: gradientIds.buffer,
+    gradientDefIdBuffer: gradientDefIds.buffer,
+    speedBuffer: speed.buffer,
+    flowBuffer: flow.buffer,
+    phaseBuffer: phase.buffer,
+    hasContent: true,
+    strokeCounter: 1,
+  });
 };
 
 const setIncompleteCcSnapshot = (
-  state: Partial<AppState>,
+  state: TestState,
   layer: Layer,
 ) => {
   const project = state.project as NonNullable<AppState['project']>;
   const pixelCount = project.width * project.height;
-  state.getLayerColorCycleBrush = jest.fn((layerId: string) => {
-    if (layerId !== layer.id) {
-      return null;
-    }
-    return {
-      getLayerSnapshot: () => ({
-        paintBuffer: new Uint8Array(pixelCount).fill(1).buffer,
-        gradientIdBuffer: new Uint8Array(pixelCount).fill(1).buffer,
-        gradientDefIdBuffer: new Uint16Array(pixelCount).buffer,
-        speedBuffer: new Uint8Array(pixelCount).buffer,
-        flowBuffer: undefined,
-        phaseBuffer: new Uint8Array(pixelCount).buffer,
-        hasContent: true,
-        strokeCounter: 1,
-      }),
-    };
-  }) as AppState['getLayerColorCycleBrush'];
+  state.__ccDocumentSnapshotByLayerId?.set(layer.id, {
+    paintBuffer: new Uint8Array(pixelCount).fill(1).buffer,
+    gradientIdBuffer: new Uint8Array(pixelCount).fill(1).buffer,
+    gradientDefIdBuffer: new Uint16Array(pixelCount).buffer,
+    speedBuffer: new Uint8Array(pixelCount).buffer,
+    flowBuffer: undefined,
+    phaseBuffer: new Uint8Array(pixelCount).buffer,
+    hasContent: true,
+    strokeCounter: 1,
+  });
 };
 
 describe('selection paste commit', () => {
@@ -828,7 +835,8 @@ describe('selection paste commit', () => {
 
     expect(state.scheduleColorCycleSlotRebuild).toHaveBeenCalledWith('selection-paste-commit');
     expect(requestGradientApply).toHaveBeenCalledWith(layer.id, 'selection-paste-commit');
-    expect(state.setLayersNeedRecomposition).toHaveBeenCalledWith(true);
+    expect(state.layersNeedRecomposition).toBe(true);
+    expect(state.setLayersNeedRecomposition).not.toHaveBeenCalled();
     expect(state.setCurrentCompositeBitmap).toHaveBeenCalledWith(null);
     expect(captureCanvasToActiveLayer).not.toHaveBeenCalled();
     expect(state.floatingPaste).toBeNull();
@@ -946,7 +954,8 @@ describe('selection paste commit', () => {
     );
     expect(state.scheduleColorCycleSlotRebuild).toHaveBeenCalledWith('selection-paste-cancel');
     expect(requestGradientApply).toHaveBeenCalledWith(layer.id, 'selection-paste-cancel');
-    expect(state.setLayersNeedRecomposition).toHaveBeenCalledWith(true);
+    expect(state.layersNeedRecomposition).toBe(true);
+    expect(state.setLayersNeedRecomposition).not.toHaveBeenCalled();
     expect(state.setCurrentCompositeBitmap).toHaveBeenCalledWith(null);
     expect(state.floatingPaste).toBeNull();
   });
@@ -1076,7 +1085,8 @@ describe('selection paste commit', () => {
 
     expect(mockWriteColorCycleRegion).toHaveBeenCalledTimes(1);
     expect(state.scheduleColorCycleSlotRebuild).toHaveBeenCalledWith('selection-paste-cancel');
-    expect(state.setLayersNeedRecomposition).toHaveBeenCalledWith(true);
+    expect(state.layersNeedRecomposition).toBe(true);
+    expect(state.setLayersNeedRecomposition).not.toHaveBeenCalled();
     expect(state.floatingPaste).toBeNull();
   });
 
@@ -1124,7 +1134,8 @@ describe('selection paste commit', () => {
     );
     expect(state.scheduleColorCycleSlotRebuild).toHaveBeenCalledWith('selection-paste-cancel');
     expect(requestGradientApply).toHaveBeenCalledWith(layer.id, 'selection-paste-cancel');
-    expect(state.setLayersNeedRecomposition).toHaveBeenCalledWith(true);
+    expect(state.layersNeedRecomposition).toBe(true);
+    expect(state.setLayersNeedRecomposition).not.toHaveBeenCalled();
     expect(state.setCurrentCompositeBitmap).toHaveBeenCalledWith(null);
     expect(state.floatingPaste).toBeNull();
   });
