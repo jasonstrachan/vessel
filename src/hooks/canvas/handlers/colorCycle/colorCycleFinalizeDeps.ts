@@ -10,7 +10,7 @@ export type FinalizeColorCycleBrushBaseDeps = Omit<
 
 export const createFinalizeColorCycleBrushBaseDeps = ({
   storeRef,
-  brushEngine,
+  brushRuntime,
   drawingCanvasHasContent,
   colorCycleAnimationRef,
   brushSamplingPreviewActiveRef,
@@ -25,7 +25,7 @@ export const createFinalizeColorCycleBrushBaseDeps = ({
   startPlaybackRef,
 }: {
   storeRef: React.MutableRefObject<AppState>;
-  brushEngine: FinalizeColorCycleBrushDeps['brushEngine'];
+  brushRuntime: FinalizeColorCycleBrushDeps['brushRuntime'];
   drawingCanvasHasContent: React.MutableRefObject<boolean>;
   colorCycleAnimationRef: React.MutableRefObject<number | null>;
   brushSamplingPreviewActiveRef: React.MutableRefObject<boolean>;
@@ -40,7 +40,7 @@ export const createFinalizeColorCycleBrushBaseDeps = ({
   startPlaybackRef: React.MutableRefObject<((reason?: string) => void) | null>;
 }): FinalizeColorCycleBrushBaseDeps => ({
   storeRef,
-  brushEngine,
+  brushRuntime,
   drawingCanvasHasContent,
   colorCycleAnimationRef,
   brushSamplingPreviewActiveRef,

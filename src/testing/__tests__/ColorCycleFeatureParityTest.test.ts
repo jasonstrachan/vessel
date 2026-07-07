@@ -1,6 +1,18 @@
 // Mock the heavy brush implementation so we can exercise the parity harness
 // without relying on WebGL or Canvas2D internals.
 class FakeBrush {
+  constructor() {
+    const {
+      registerColorCycleBrushSerializedStateRuntime,
+    } = jest.requireActual('@/lib/colorCycle/document') as typeof import('@/lib/colorCycle/document');
+    registerColorCycleBrushSerializedStateRuntime(this, {
+      read: () => this.readSerializedState(),
+      restore: (state, options) => {
+        this.restoreSerializedState(state, options);
+      },
+    });
+  }
+
   private playing = false;
   paint = jest.fn();
   startStroke = jest.fn();
@@ -17,8 +29,8 @@ class FakeBrush {
   setSpeed = jest.fn();
   setActiveLayer = jest.fn();
   render = jest.fn();
-  getFullState = jest.fn(() => ({ payload: 'state' }));
-  restoreFullState = jest.fn();
+  private readSerializedState = jest.fn(() => ({ payload: 'state' }));
+  private restoreSerializedState = jest.fn();
   fillShape = jest.fn();
   destroy = jest.fn();
 }

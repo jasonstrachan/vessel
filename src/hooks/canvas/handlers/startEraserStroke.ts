@@ -12,7 +12,7 @@ export const startEraserStroke = ({
   worldPos,
   pressure,
   isEraserV2,
-  brushEngine,
+  brushRuntime,
   drawEraserSegment,
   eraserToolRef,
   eraserRoiRef,
@@ -34,7 +34,7 @@ export const startEraserStroke = ({
     setActiveBrush: (id: string) => void;
     startStroke: (ctx: CanvasRenderingContext2D, x: number, y: number, pressure: number) => void;
   };
-  brushEngine: {
+  brushRuntime: {
     drawBrush: (
       ctx: CanvasRenderingContext2D,
       from: { x: number; y: number },
@@ -107,16 +107,16 @@ export const startEraserStroke = ({
   if (canMirrorBrush) {
     drawCtx.globalAlpha = eraserOpacity;
 
-    if (brushEngine) {
+    if (brushRuntime) {
       const sanitized = sanitizeEraserTipSettings(currentState.tools.eraserSettings);
-      brushEngine.updateConfig?.({
+      brushRuntime.updateConfig?.({
         brushSettings: {
           ...currentState.tools.brushSettings,
           ...currentState.tools.eraserSettings,
           ...sanitized,
         },
       });
-      brushEngine.drawBrush(drawCtx, worldPos, worldPos, { pressure });
+      brushRuntime.drawBrush(drawCtx, worldPos, worldPos, { pressure });
     } else {
       drawCtx.globalAlpha = 1;
       drawEraserSegment(drawCtx, worldPos, worldPos);

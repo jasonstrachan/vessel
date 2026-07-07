@@ -13,7 +13,7 @@ type PlaybackArgs = Parameters<typeof useColorCyclePlaybackRuntime>[0];
 
 type UseDrawingPlaybackRuntimeArgs = {
   refs: DrawingHandlerRefs;
-  brushEngine: PlaybackArgs['brushEngine'];
+  brushRuntime: PlaybackArgs['brushRuntime'];
   ensureOverlayInitialized: PlaybackArgs['ensureOverlayInitialized'];
   renderAllColorCycleLayers: PlaybackArgs['renderAllColorCycleLayers'];
   storeRef: PlaybackArgs['storeRef'];
@@ -28,7 +28,7 @@ type UseDrawingPlaybackRuntimeArgs = {
 
 export const useDrawingPlaybackRuntime = ({
   refs,
-  brushEngine,
+  brushRuntime,
   ensureOverlayInitialized,
   renderAllColorCycleLayers,
   storeRef,
@@ -41,7 +41,7 @@ export const useDrawingPlaybackRuntime = ({
   shapeMode,
 }: UseDrawingPlaybackRuntimeArgs) =>
   useColorCyclePlaybackRuntime({
-    brushEngine,
+    brushRuntime,
     ensureOverlayInitialized,
     renderAllColorCycleLayers,
     storeRef,

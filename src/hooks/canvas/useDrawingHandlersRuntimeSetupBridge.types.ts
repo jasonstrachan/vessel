@@ -28,7 +28,10 @@ export interface UseDrawingHandlersRuntimeSetupBridgeOptions {
   debugTime: RuntimeBridgeArgs['finalizeRuntimeOptions']['contextOptions']['debugTime'];
   debugTimeEnd: RuntimeBridgeArgs['finalizeRuntimeOptions']['contextOptions']['debugTimeEnd'];
   debugVerbose: StrokeStartRuntimeOptions['debugVerbose'];
-  brushEngine: StrokeStartRuntimeOptions['brushEngine'];
+  strokeBrushRuntime: StrokeStartRuntimeOptions['brushRuntime'] & StrokeRuntimeOptions['brushRuntime'];
+  finalizeBrushRuntime: FinalizeRuntimeOptions['brushRuntime'];
+  shapeBrushRuntime: RuntimeBridgeArgs['shapeLifecycleOptions']['shapeRuntimeOptions']['shapeBrushRuntime'];
+  playbackBrushRuntime: RuntimeBridgeArgs['playbackHandlersOptions']['playbackRuntimeOptions']['brushRuntime'];
   userBrushEngine: StrokeStartRuntimeOptions['userBrushEngine'];
   shapeRuntime: ShapeRuntimeBridge;
   brushToolRuntime: BrushToolRuntime;

@@ -1,6 +1,5 @@
 import type React from 'react';
 import type { AppState } from '@/stores/useAppStore';
-import type { ColorCycleBrushImplementation } from '@/hooks/brushEngine/ColorCycleBrushMigration';
 import type { ColorCycleBrushFlags } from '@/hooks/canvas/utils/colorCycleBrushFlags';
 import { getColorCycleBrushFlags } from '@/hooks/canvas/utils/colorCycleBrushFlags';
 import { shouldPixelAlignBrush, alignPointToPixel } from '@/hooks/canvas/utils/captureRegions';
@@ -11,6 +10,7 @@ import type { CustomBrushStrokeData } from '@/hooks/brushEngine/BrushEngineFacad
 import { resolveStrokeStartRuntimeContext } from '@/hooks/canvas/handlers/strokeStartRuntime';
 import { runStrokeStartLayerGuards } from '@/hooks/canvas/handlers/strokeStartLayerGuards';
 import { startColorCycleRuntimeWarmupForEdit } from '@/hooks/canvas/handlers/colorCycle/colorCycleRuntimeWarmup';
+import type { ColorCycleSurfaceBrush } from '@/hooks/canvas/handlers/colorCycle/colorCycleSurface';
 
 type Point = { x: number; y: number };
 
@@ -30,7 +30,7 @@ export const prepareStrokeStartPrelude = ({
   sampleColorAt,
   sampleHexAt,
   debugLog,
-  brushEngine,
+  brushConfigRuntime,
   strokeBoundingBoxRef,
   strokeCapturePaddingRef,
   resolveCustomBrushData,
@@ -46,10 +46,8 @@ export const prepareStrokeStartPrelude = ({
   sampleColorAt?: (x: number, y: number) => string;
   sampleHexAt: (x: number, y: number) => string;
   debugLog: (message: string, payload?: Record<string, unknown>) => void;
-  brushEngine: {
-    engine?: {
-      updateConfig?: (config: { brushSettings: AppState['tools']['brushSettings'] }) => void;
-    };
+  brushConfigRuntime: {
+    updateConfig?: (config: { brushSettings: AppState['tools']['brushSettings'] }) => void;
   } | null;
   strokeBoundingBoxRef: React.MutableRefObject<{
     minX: number;
@@ -63,12 +61,12 @@ export const prepareStrokeStartPrelude = ({
   feedbackMessageRef: React.MutableRefObject<((message: string) => void) | null>;
   logError: (message: string, error?: unknown) => void;
   getColorCycleBrushManager: () => {
-    getBrush: (layerId: string) => ColorCycleBrushImplementation | null | undefined;
+    getSurfaceBrush: (layerId: string) => ColorCycleSurfaceBrush | null | undefined;
   };
   ensureActiveColorCycleGradientSlot: (
     state: AppState,
     layer: AppState['layers'][number],
-    brush?: ColorCycleBrushImplementation | null
+    brush?: ColorCycleSurfaceBrush | null
   ) => void;
 }): StrokeStartPreludeResult | null => {
   let currentState = storeRef.current;
@@ -89,7 +87,7 @@ export const prepareStrokeStartPrelude = ({
     sampleColorAt,
     sampleHexAt,
     debugLog,
-    brushEngine,
+    brushConfigRuntime,
   }));
 
   initializeStrokeStartCaptureBounds({

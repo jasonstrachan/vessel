@@ -243,7 +243,6 @@ jest.mock('@/stores/useAppStore', () => {
     updateLayerAlignment: jest.fn(),
     initColorCycleForLayer: jest.fn(),
     cleanupColorCycleForLayer: jest.fn(),
-    getLayerColorCycleBrush: jest.fn(() => null),
     compositeLayersToCanvas: jest.fn(() => Promise.resolve(null)),
     captureCanvasToActiveLayer: jest.fn(() => Promise.resolve(null)),
     captureCanvasToLayer: jest.fn(() => Promise.resolve(null)),

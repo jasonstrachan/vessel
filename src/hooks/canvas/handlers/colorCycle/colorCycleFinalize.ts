@@ -18,7 +18,7 @@ export type FinalizeColorCycleBrushArgs = {
 
 export type FinalizeColorCycleBrushDeps = {
   storeRef: React.MutableRefObject<AppState>;
-  brushEngine: {
+  brushRuntime: {
     endColorCycleStroke: () => void;
     renderColorCycle: (ctx: CanvasRenderingContext2D, applyOpacity: boolean) => void;
     updateColorCycleGradient?: (stops: AutoSampleStop[]) => void;
@@ -48,7 +48,7 @@ export const finalizeColorCycleBrush = async (
 ): Promise<{ shouldReturn: boolean }> => {
   const {
     storeRef,
-    brushEngine,
+    brushRuntime,
     drawingCanvas,
     drawingCtx,
     drawingCanvasHasContent,
@@ -119,7 +119,7 @@ export const finalizeColorCycleBrush = async (
             storeRef.current.setBrushSettings({ colorCycleGradient: stops });
           } catch {}
           // Push into live brush
-          try { brushEngine.updateColorCycleGradient?.(stops); } catch {}
+          try { brushRuntime.updateColorCycleGradient?.(stops); } catch {}
           // One-shot: auto-disable sampling after applying
           try {
             const st = storeRef.current;
@@ -157,11 +157,11 @@ export const finalizeColorCycleBrush = async (
       drawingCanvasHasContent.current = false;
     } else if (drawingCanvas && drawingCtx) {
       // End stroke when we cannot lock it directly on the brush instance.
-      brushEngine.endColorCycleStroke();
+      brushRuntime.endColorCycleStroke();
       // Fallback: Clear and do one final render at FULL OPACITY
       drawingCtx.clearRect(0, 0, drawingCanvas.width, drawingCanvas.height);
       drawingCanvasHasContent.current = false;
-      brushEngine.renderColorCycle(drawingCtx, false); // false = don't apply opacity
+      brushRuntime.renderColorCycle(drawingCtx, false); // false = don't apply opacity
     }
 
     // Keep runtime aligned with toolbar intent after finalize.

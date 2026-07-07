@@ -241,7 +241,7 @@ const createColorCycleBatchHarness = (options?: {
   const deps: ProcessBatchedStrokesDeps = {
     storeRef: { current: useAppStore.getState() },
     project: { width: 32, height: 32 },
-    brushEngine: {
+    brushRuntime: {
       drawBrush: jest.fn(),
       consumeRecentStamps: jest.fn(() => []),
       drawColorCycle,
@@ -258,7 +258,7 @@ const createColorCycleBatchHarness = (options?: {
     scheduleRecompose: jest.fn(),
     extendMaskHealingStroke: jest.fn(),
     createPixelQueue,
-    getColorCycleBrushManager: () => ({ getBrush: () => null }),
+    getColorCycleBrushManager: () => ({ getSurfaceBrush: () => null }),
     ensureActiveColorCycleGradientSlot: jest.fn(),
     resolveActiveCustomBrushData: () => undefined,
     getColorCycleBrushFlags: () => ({ isAny: true, isCustom: false }),
@@ -312,7 +312,7 @@ describe('sequential color-cycle routing', () => {
         setActiveBrush: jest.fn(),
         startStroke: jest.fn(),
       },
-      brushEngine: {
+      brushRuntime: {
         drawColorCycle,
         drawBrush: jest.fn(),
       },
@@ -328,7 +328,7 @@ describe('sequential color-cycle routing', () => {
       ccFlowVelocityRef,
       getCCStampTargetCtx: () => null,
       resolveBrushRotation: () => ({ rotation: 0, nextRotation: 0 }),
-      getColorCycleBrushManager: () => ({ getBrush: () => null }),
+      getColorCycleBrushManager: () => ({ getSurfaceBrush: () => null }),
       debugLog: jest.fn(),
       beginMaskHealingStroke: jest.fn(),
     });
@@ -363,7 +363,7 @@ describe('sequential color-cycle routing', () => {
         setActiveBrush: jest.fn(),
         startStroke: jest.fn(),
       },
-      brushEngine: {
+      brushRuntime: {
         drawColorCycle,
         drawBrush: jest.fn(),
       },
@@ -379,7 +379,7 @@ describe('sequential color-cycle routing', () => {
       ccFlowVelocityRef: { current: { smoothedPxPerMs: 0 } },
       getCCStampTargetCtx: () => null,
       resolveBrushRotation: () => ({ rotation: 0, nextRotation: 0 }),
-      getColorCycleBrushManager: () => ({ getBrush: () => null }),
+      getColorCycleBrushManager: () => ({ getSurfaceBrush: () => null }),
       debugLog: jest.fn(),
       beginMaskHealingStroke: jest.fn(),
     });
@@ -417,7 +417,7 @@ describe('sequential color-cycle routing', () => {
         setActiveBrush: jest.fn(),
         startStroke: jest.fn(),
       },
-      brushEngine: {
+      brushRuntime: {
         drawColorCycle: jest.fn(),
         drawBrush: jest.fn(),
       },
@@ -433,7 +433,7 @@ describe('sequential color-cycle routing', () => {
       ccFlowVelocityRef: { current: { smoothedPxPerMs: 0 } },
       getCCStampTargetCtx: () => null,
       resolveBrushRotation: () => ({ rotation: 0, nextRotation: 0 }),
-      getColorCycleBrushManager: () => ({ getBrush: () => null }),
+      getColorCycleBrushManager: () => ({ getSurfaceBrush: () => null }),
       debugLog: jest.fn(),
       beginMaskHealingStroke: jest.fn(),
     });
@@ -479,7 +479,7 @@ describe('sequential color-cycle routing', () => {
     const deps: ProcessBatchedStrokesDeps = {
       storeRef: { current: useAppStore.getState() },
       project: { width: 32, height: 32 },
-      brushEngine: {
+      brushRuntime: {
         drawBrush: jest.fn(),
         consumeRecentStamps: jest.fn(() => []),
         drawColorCycle,
@@ -496,7 +496,7 @@ describe('sequential color-cycle routing', () => {
       scheduleRecompose: jest.fn(),
       extendMaskHealingStroke: jest.fn(),
       createPixelQueue,
-      getColorCycleBrushManager: () => ({ getBrush: () => null }),
+      getColorCycleBrushManager: () => ({ getSurfaceBrush: () => null }),
       ensureActiveColorCycleGradientSlot: jest.fn(),
       resolveActiveCustomBrushData: () => undefined,
       getColorCycleBrushFlags: () => ({ isAny: true, isCustom: false }),
@@ -659,7 +659,7 @@ describe('sequential color-cycle routing', () => {
     const deps: ProcessBatchedStrokesDeps = {
       storeRef: { current: useAppStore.getState() },
       project: { width: 32, height: 32 },
-      brushEngine: {
+      brushRuntime: {
         drawBrush,
         consumeRecentStamps: jest.fn(() => []),
         drawColorCycle: jest.fn(),
@@ -676,7 +676,7 @@ describe('sequential color-cycle routing', () => {
       scheduleRecompose: jest.fn(),
       extendMaskHealingStroke: jest.fn(),
       createPixelQueue,
-      getColorCycleBrushManager: () => ({ getBrush: () => null }),
+      getColorCycleBrushManager: () => ({ getSurfaceBrush: () => null }),
       ensureActiveColorCycleGradientSlot: jest.fn(),
       resolveActiveCustomBrushData: () => undefined,
       getColorCycleBrushFlags: () => ({ isAny: false, isCustom: false }),
@@ -743,7 +743,7 @@ describe('sequential color-cycle routing', () => {
     const deps: ProcessBatchedStrokesDeps = {
       storeRef: { current: useAppStore.getState() },
       project: { width: 32, height: 32 },
-      brushEngine: {
+      brushRuntime: {
         drawBrush: jest.fn(),
         consumeRecentStamps: jest.fn(() => []),
         drawColorCycle,
@@ -760,7 +760,7 @@ describe('sequential color-cycle routing', () => {
       scheduleRecompose: jest.fn(),
       extendMaskHealingStroke,
       createPixelQueue,
-      getColorCycleBrushManager: () => ({ getBrush: () => null }),
+      getColorCycleBrushManager: () => ({ getSurfaceBrush: () => null }),
       ensureActiveColorCycleGradientSlot: jest.fn(),
       resolveActiveCustomBrushData: () => undefined,
       getColorCycleBrushFlags: () => ({ isAny: true, isCustom: false }),
@@ -819,7 +819,7 @@ describe('sequential color-cycle routing', () => {
     const deps: ProcessBatchedStrokesDeps = {
       storeRef: { current: useAppStore.getState() },
       project: { width: 32, height: 32 },
-      brushEngine: {
+      brushRuntime: {
         drawBrush: jest.fn(),
         consumeRecentStamps: jest.fn(() => []),
         drawColorCycle: jest.fn(),
@@ -836,7 +836,7 @@ describe('sequential color-cycle routing', () => {
       scheduleRecompose: jest.fn(),
       extendMaskHealingStroke,
       createPixelQueue,
-      getColorCycleBrushManager: () => ({ getBrush: () => null }),
+      getColorCycleBrushManager: () => ({ getSurfaceBrush: () => null }),
       ensureActiveColorCycleGradientSlot: jest.fn(),
       resolveActiveCustomBrushData: () => undefined,
       getColorCycleBrushFlags: () => ({ isAny: true, isCustom: false }),
@@ -896,7 +896,7 @@ describe('sequential color-cycle routing', () => {
     const deps: ProcessBatchedStrokesDeps = {
       storeRef: { current: state },
       project: { width: 32, height: 32 },
-      brushEngine: {
+      brushRuntime: {
         drawBrush: jest.fn(),
         consumeRecentStamps: jest.fn(() => []),
         drawColorCycle,
@@ -913,7 +913,7 @@ describe('sequential color-cycle routing', () => {
       scheduleRecompose: jest.fn(),
       extendMaskHealingStroke: jest.fn(),
       createPixelQueue,
-      getColorCycleBrushManager: () => ({ getBrush: () => null }),
+      getColorCycleBrushManager: () => ({ getSurfaceBrush: () => null }),
       ensureActiveColorCycleGradientSlot: jest.fn(),
       resolveActiveCustomBrushData: () => undefined,
       getColorCycleBrushFlags: () => ({ isAny: true, isCustom: false }),
@@ -981,7 +981,7 @@ describe('sequential color-cycle routing', () => {
     const deps: ProcessBatchedStrokesDeps = {
       storeRef: { current: state },
       project: { width: 64, height: 64 },
-      brushEngine: {
+      brushRuntime: {
         drawBrush: jest.fn(),
         consumeRecentStamps: jest.fn(() => []),
         drawColorCycle,
@@ -998,7 +998,7 @@ describe('sequential color-cycle routing', () => {
       scheduleRecompose: jest.fn(),
       extendMaskHealingStroke: jest.fn(),
       createPixelQueue,
-      getColorCycleBrushManager: () => ({ getBrush: () => null }),
+      getColorCycleBrushManager: () => ({ getSurfaceBrush: () => null }),
       ensureActiveColorCycleGradientSlot: jest.fn(),
       resolveActiveCustomBrushData: () => undefined,
       getColorCycleBrushFlags: () => ({ isAny: true, isCustom: false }),
@@ -1079,7 +1079,7 @@ describe('sequential color-cycle routing', () => {
     const deps: ProcessBatchedStrokesDeps = {
       storeRef: { current: useAppStore.getState() },
       project: { width: 32, height: 32 },
-      brushEngine: {
+      brushRuntime: {
         drawBrush: jest.fn(),
         consumeRecentStamps: jest.fn(() => []),
         drawColorCycle: jest.fn(),
@@ -1096,7 +1096,7 @@ describe('sequential color-cycle routing', () => {
       scheduleRecompose: jest.fn(),
       extendMaskHealingStroke: jest.fn(),
       createPixelQueue,
-      getColorCycleBrushManager: () => ({ getBrush: () => null }),
+      getColorCycleBrushManager: () => ({ getSurfaceBrush: () => null }),
       ensureActiveColorCycleGradientSlot: jest.fn(),
       resolveActiveCustomBrushData: () => undefined,
       getColorCycleBrushFlags: () => ({ isAny: false, isCustom: false }),

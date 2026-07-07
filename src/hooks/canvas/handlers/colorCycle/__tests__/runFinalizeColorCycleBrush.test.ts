@@ -26,7 +26,7 @@ const createBaseDeps = () => {
   const renderColorCycle = jest.fn();
   const deps: FinalizeColorCycleBrushBaseDeps = {
     storeRef: { current: createState('color-cycle') },
-    brushEngine: {
+    brushRuntime: {
       endColorCycleStroke,
       renderColorCycle,
       updateColorCycleGradient: jest.fn(),

@@ -5,7 +5,7 @@ import { sanitizeEraserTipSettings } from '@/stores/helpers/eraserSettings';
 
 type CanvasPoint = { x: number; y: number };
 
-type BrushEngineAdapter = {
+type BrushStampRuntime = {
   drawBrush: (
     ctx: CanvasRenderingContext2D,
     from: CanvasPoint,
@@ -27,7 +27,7 @@ type ResolveCustomBrush = (state: AppState) => CustomBrushStrokeData | undefined
 
 export interface BrushStampSourceDeps {
   getState: () => AppState;
-  brushEngine: BrushEngineAdapter;
+  brushRuntime: BrushStampRuntime;
   userBrushEngine: UserBrushEngineAdapter;
   resolveCustomBrush: ResolveCustomBrush;
 }
@@ -46,7 +46,7 @@ export interface BrushStampBeginOptions {
 
 export class BrushStampSource {
   private readonly getState: () => AppState;
-  private readonly brushEngine: BrushEngineAdapter;
+  private readonly brushRuntime: BrushStampRuntime;
   private readonly userBrushEngine: UserBrushEngineAdapter;
   private readonly resolveCustomBrush: ResolveCustomBrush;
 
@@ -67,7 +67,7 @@ export class BrushStampSource {
 
   constructor(deps: BrushStampSourceDeps, options: BrushStampSourceOptions = {}) {
     this.getState = deps.getState;
-    this.brushEngine = deps.brushEngine;
+    this.brushRuntime = deps.brushRuntime;
     this.userBrushEngine = deps.userBrushEngine;
     this.resolveCustomBrush = deps.resolveCustomBrush;
     this.forceOpaque = options.forceOpaque === true;
@@ -98,7 +98,7 @@ export class BrushStampSource {
     }
 
     if (!options.skipInitialStamp) {
-      this.brushEngine.drawBrush(ctx, point, point, {
+      this.brushRuntime.drawBrush(ctx, point, point, {
         pressure,
         customBrushData: this.customBrushData
       });
@@ -120,7 +120,7 @@ export class BrushStampSource {
       return;
     }
 
-    this.brushEngine.drawBrush(ctx, from, to, {
+    this.brushRuntime.drawBrush(ctx, from, to, {
       pressure,
       customBrushData: this.customBrushData
     });
@@ -145,7 +145,7 @@ export class BrushStampSource {
       const restoreDitherTipShape = this.ditherTipOverrideApplied
         ? this.originalDitherTipShape ?? brushSettings.ditherStrokeTipShape
         : brushSettings.ditherStrokeTipShape;
-      this.brushEngine.updateConfig?.({
+      this.brushRuntime.updateConfig?.({
         brushSettings: {
           ...brushSettings,
           opacity: restoreOpacity,
@@ -177,7 +177,7 @@ export class BrushStampSource {
   private applyOverridesIfNeeded(state: AppState): void {
     const eraserSettings = state.tools.eraserSettings;
     const brushSettings = state.tools.brushSettings;
-    const updateConfig = this.brushEngine.updateConfig;
+    const updateConfig = this.brushRuntime.updateConfig;
     if (!updateConfig) {
       this.opacityOverrideApplied = false;
       this.originalOpacity = null;

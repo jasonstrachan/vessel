@@ -32,7 +32,7 @@ export const prepareStrokeStartSamplingCanvas = ({
   ccFlowVelocityRef,
   colorCyclePixelQueueRef,
   createPixelQueue,
-  brushEngine,
+  brushRuntime,
   colorCycleAnimationRef,
   stampCounterRef,
   drawingCtxRef,
@@ -65,7 +65,7 @@ export const prepareStrokeStartSamplingCanvas = ({
   ccFlowVelocityRef: React.MutableRefObject<CcFlowVelocityState>;
   colorCyclePixelQueueRef: React.MutableRefObject<PixelQueue | null>;
   createPixelQueue: () => PixelQueue;
-  brushEngine: { resetStroke?: () => void; resetColorCycle: () => void } | null;
+  brushRuntime: { resetStroke?: () => void; resetColorCycle: () => void } | null;
   colorCycleAnimationRef: React.MutableRefObject<number | null>;
   stampCounterRef: React.MutableRefObject<number>;
   drawingCtxRef: React.MutableRefObject<CanvasRenderingContext2D | null>;
@@ -108,12 +108,12 @@ export const prepareStrokeStartSamplingCanvas = ({
     ccFlowVelocityRef,
     colorCyclePixelQueueRef,
     createPixelQueue,
-    brushEngine,
+    brushRuntime,
     colorCycleAnimationRef,
   });
 
-  if (brushEngine?.resetStroke) {
-    brushEngine.resetStroke();
+  if (brushRuntime?.resetStroke) {
+    brushRuntime.resetStroke();
   }
 
   const drawCtx = initializeStrokeStartCanvasState({

@@ -1,5 +1,11 @@
 import type React from 'react';
 import { useEffect } from 'react';
+import type { RenderStaticCompositeOptions } from '@/stores/slices/layersSlice';
+import {
+  COLOR_CYCLE_FRAME_READY_EVENT,
+  getColorCycleFrameReadyDirtyBatches,
+} from '@/hooks/brushEngine/colorCycleFrameEvents';
+import type { ColorCycleLayerDirtyBatch } from '@/lib/colorCycle/document';
 
 interface UseDrawingCanvasRedrawEffectsOptions {
   layersNeedRecomposition: boolean;
@@ -7,7 +13,10 @@ interface UseDrawingCanvasRedrawEffectsOptions {
   selectionStart: unknown;
   selectionEnd: unknown;
   hadSelectionRef: React.MutableRefObject<boolean>;
-  refreshColorCycleSegments: () => void;
+  refreshColorCycleSegments: (dirtyBatches?: ColorCycleLayerDirtyBatch[]) => boolean | void;
+  rebuildStaticComposite?: (
+    options?: RenderStaticCompositeOptions
+  ) => boolean | Promise<boolean>;
 }
 
 export const useDrawingCanvasRedrawEffects = ({
@@ -17,6 +26,7 @@ export const useDrawingCanvasRedrawEffects = ({
   selectionEnd,
   hadSelectionRef,
   refreshColorCycleSegments,
+  rebuildStaticComposite,
 }: UseDrawingCanvasRedrawEffectsOptions) => {
   useEffect(() => {
     if (!layersNeedRecomposition) {
@@ -38,8 +48,12 @@ export const useDrawingCanvasRedrawEffects = ({
       setNeedsRedraw((prev) => prev + 1);
     };
 
-    const handleColorCycleFrameReady = () => {
-      refreshColorCycleSegments();
+    const handleColorCycleFrameReady = (event: Event) => {
+      const dirtyBatches = getColorCycleFrameReadyDirtyBatches(event);
+      const hasStaticDirtyBatch = refreshColorCycleSegments(dirtyBatches);
+      if (dirtyBatches?.length && hasStaticDirtyBatch) {
+        void Promise.resolve(rebuildStaticComposite?.({ dirtyBatches }));
+      }
       requestRedraw();
     };
 
@@ -51,15 +65,15 @@ export const useDrawingCanvasRedrawEffects = ({
       requestRedraw();
     };
 
-    window.addEventListener('colorCycleFrameReady', handleColorCycleFrameReady);
+    window.addEventListener(COLOR_CYCLE_FRAME_READY_EVENT, handleColorCycleFrameReady);
     window.addEventListener('vessel:animationFrameUpdate', handleAnimationFrameUpdate);
     window.addEventListener('vessel:sequentialFrameUpdate', handleSequentialFrameUpdate);
 
     return () => {
-      window.removeEventListener('colorCycleFrameReady', handleColorCycleFrameReady);
+      window.removeEventListener(COLOR_CYCLE_FRAME_READY_EVENT, handleColorCycleFrameReady);
       window.removeEventListener('vessel:animationFrameUpdate', handleAnimationFrameUpdate);
       window.removeEventListener('vessel:sequentialFrameUpdate', handleSequentialFrameUpdate);
     };
-  }, [refreshColorCycleSegments, setNeedsRedraw]);
+  }, [rebuildStaticComposite, refreshColorCycleSegments, setNeedsRedraw]);
 
 };

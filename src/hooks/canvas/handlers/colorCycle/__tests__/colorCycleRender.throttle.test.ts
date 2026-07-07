@@ -31,7 +31,7 @@ const makeDeps = (state: Partial<AppState>, brush: unknown): ColorCycleRenderDep
     renderAllCCLogTSRef: { current: 0 },
     ccLog: jest.fn(),
     getColorCycleBrushManager: () => ({
-      getBrush: () => brush as ColorCycleBrush,
+      getSurfaceBrush: () => brush as ColorCycleBrush,
     }),
     refreshLayerCCSurface: () => document.createElement('canvas'),
     bindBrushToCanvas: jest.fn(),

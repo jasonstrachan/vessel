@@ -7,7 +7,7 @@ import type {
 interface BuildDrawingHandlersStrokeRuntimeOptions {
   project: UseDrawingHandlersRuntimeSetupBridgeOptions['project'];
   storeRef: UseDrawingHandlersRuntimeSetupBridgeOptions['storeRef'];
-  brushEngine: UseDrawingHandlersRuntimeSetupBridgeOptions['brushEngine'];
+  brushRuntime: StrokeRuntimeOptions['brushRuntime'];
   userBrushEngine: UseDrawingHandlersRuntimeSetupBridgeOptions['userBrushEngine'];
   shapeRuntime: UseDrawingHandlersRuntimeSetupBridgeOptions['shapeRuntime'];
   brushToolRuntime: UseDrawingHandlersRuntimeSetupBridgeOptions['brushToolRuntime'];
@@ -17,7 +17,7 @@ interface BuildDrawingHandlersStrokeRuntimeOptions {
 export const buildDrawingHandlersStrokeRuntimeOptions = ({
   project,
   storeRef,
-  brushEngine,
+  brushRuntime,
   userBrushEngine,
   shapeRuntime,
   brushToolRuntime,
@@ -25,7 +25,7 @@ export const buildDrawingHandlersStrokeRuntimeOptions = ({
 }: BuildDrawingHandlersStrokeRuntimeOptions): RuntimeBridgeArgs['strokeLifecycleOptions']['strokeRuntimeOptions'] => ({
   storeRef,
   project,
-  brushEngine: brushEngine as StrokeRuntimeOptions['brushEngine'],
+  brushRuntime,
   userBrushEngine: userBrushEngine as unknown as StrokeRuntimeOptions['userBrushEngine'],
   drawEraserSegment: shapeRuntime.drawEraserSegment,
   updateAutoSampledGradient: colorCycleRuntime.updateAutoSampledGradient,

@@ -2,16 +2,24 @@ import { getAppStoreState } from '@/stores/appStoreAccess';
 import { commitLayerHistory } from '@/history/helpers/layerHistory';
 import type { ColorCycleSerializedState } from '@/history/helpers/colorCycle';
 import {
+  commitColorCycleCommittedLayerStateToRuntime,
+  buildColorCyclePaintDeltaMask,
+  getColorCycleSerializedStatePaintByteLength,
+  readColorCycleBrushLayerSnapshotFromRuntime,
+  readColorCycleCommittedLayerStateFromRuntime,
+  type ColorCycleBrushLayerSnapshotRuntimeReader,
+  type ColorCycleCommittedLayerRuntime,
+  type ColorCycleCommittedLayerStateOptions,
+  type ColorCyclePaintMask,
+  type ColorCyclePaintSnapshot,
+} from '@/lib/colorCycle/document';
+import {
   boundingBoxToCaptureRegion,
   type BoundingBox,
   type CaptureRegion,
 } from '@/hooks/canvas/utils/captureRegions';
-import type { ColorCycleBrushImplementation } from '@/hooks/brushEngine/ColorCycleBrushMigration';
-import type {
-  ColorCycleCommittedStateBrush,
-  CommitCommittedLayerStateOptions,
-} from '@/hooks/brushEngine/colorCycleCommittedState';
 import type { DeferredColorCycleSaveOptions } from '@/hooks/canvas/handlers/colorCycle/colorCycleHistory';
+import type { ColorCycleSurfaceBrush } from '@/hooks/canvas/handlers/colorCycle/colorCycleSurface';
 import type { BrushSettings, CanvasSnapshot, Layer } from '@/types';
 import {
   finalizeMarkGradientSession,
@@ -29,11 +37,6 @@ import { ccDebugVerboseOn, ccLog } from '@/utils/colorCycle/ccDebug';
 import { isOverlaySeededFromLayer } from '@/hooks/canvas/utils/overlaySeedState';
 import { logCCMutation, summarizeColorCycleLayer } from '@/utils/colorCycle/ccMutationAudit';
 import { persistCommittedSampledSlot } from '@/hooks/canvas/handlers/colorCycle/colorCycleSampledSlotPersistence';
-import {
-  buildColorCyclePaintDeltaMask,
-  type ColorCyclePaintMask,
-  type ColorCyclePaintSnapshot,
-} from '@/utils/colorCyclePaintMask';
 import { debugWarn } from '@/utils/debug';
 
 const loggedLegacySlotSummaryByLayer = new Set<string>();
@@ -113,8 +116,10 @@ export type DeferredSaveWithStateDeps = {
   debugTimeEnd: (label: string) => void;
 };
 
-export type ManagedColorCycleBrush = ColorCycleBrushImplementation & {
-  commitCommittedLayerState?: ColorCycleCommittedStateBrush['commitCommittedLayerState'];
+export type ManagedColorCycleBrush = ColorCycleSurfaceBrush
+  & ColorCycleBrushLayerSnapshotRuntimeReader
+  & ColorCycleCommittedLayerRuntime
+  & {
   commitCurrentStroke?: (layerId?: string) => void;
   finalizeCurrentStroke?: (layerId?: string) => void;
   commitToLayer?: (canvas: HTMLCanvasElement, layerId: string, opacity?: number) => void;
@@ -122,31 +127,11 @@ export type ManagedColorCycleBrush = ColorCycleBrushImplementation & {
   clearPaintBuffer?: (layerId?: string) => void;
   flush?: (layerId?: string) => void;
   updateColorCycleTexture?: () => void;
-  getLayerSnapshot?: (layerId: string) => {
-    paintBuffer: ArrayBuffer;
-    gradientIdBuffer?: ArrayBuffer;
-    gradientDefIdBuffer?: ArrayBuffer;
-    speedBuffer?: ArrayBuffer;
-    flowBuffer?: ArrayBuffer;
-    phaseBuffer?: ArrayBuffer;
-    hasContent: boolean;
-    strokeCounter: number;
-  } | null;
-  getCommittedIndexData?: (layerId: string) => Uint8Array | null;
-  getCommittedGradientIdData?: (layerId: string) => Uint8Array | null;
-  getCommittedDimensions?: (layerId: string) => { width: number; height: number } | null;
-  getCommittedPaletteRGBABySlot?: (layerId: string) => Array<Uint8ClampedArray | Uint8Array | null> | null;
   setGradientSlotStops?: (
     layerId: string,
     slot: number,
     stops: StoredStop[],
     seamProfile?: MarkGradientSession['seamProfile']
-  ) => void;
-  remapCommittedGradientSlot?: (
-    layerId: string,
-    fromSlot: number,
-    toSlot: number,
-    bbox?: { minX: number; minY: number; width: number; height: number }
   ) => void;
   bindGradientDefIdToSlot?: (
     layerId: string,
@@ -171,7 +156,7 @@ export type CommitColorCycleLayerStrokeArgs = {
 
 export type CommitColorCycleLayerStrokeDeps = {
   getBrushForLayer: (layerId: string) => ManagedColorCycleBrush | undefined;
-  bindBrushToCanvas: (brush: ColorCycleBrushImplementation, canvas: HTMLCanvasElement) => void;
+  bindBrushToCanvas: (brush: ColorCycleSurfaceBrush, canvas: HTMLCanvasElement) => void;
   markLayerHasContent: (layerId: string) => void;
   perfMark: (label: string) => void;
   perfMeasure: (label: string, startLabel: string, endLabel: string) => void;
@@ -344,10 +329,8 @@ export const commitBrushHistory = async (
       );
     }
     deps.debugVerbose('[cc-delta-capture]', {
-      beforeBytes:
-        layerBeforeColorState?.layers?.[0]?.strokeData?.paintBuffer?.byteLength ?? -1,
-      afterBytes:
-        afterColorState?.layers?.[0]?.strokeData?.paintBuffer?.byteLength ?? -1,
+      beforeBytes: getColorCycleSerializedStatePaintByteLength(layerBeforeColorState),
+      afterBytes: getColorCycleSerializedStatePaintByteLength(afterColorState),
       beforeCtr:
         layerBeforeColorState?.layers?.[0]?.strokeData?.strokeCounter ?? -1,
       afterCtr:
@@ -423,20 +406,20 @@ export const commitColorCycleLayerStroke = async (
   try {
     const brush = deps.getBrushForLayer(targetLayerId);
     if (brush) {
-      const beforeStrokeSnapshot = typeof brush.getLayerSnapshot === 'function'
-        ? brush.getLayerSnapshot(targetLayerId)
-        : null;
+      const beforeStrokeSnapshot = readColorCycleBrushLayerSnapshotFromRuntime(brush, targetLayerId);
       const logCommittedSlotsInRoi = (
         label: string,
         bbox?: { minX: number; minY: number; width: number; height: number }
       ): Map<number, number> | null => {
-        const dims = brush.getCommittedDimensions?.(targetLayerId);
-        const committedIndex = brush.getCommittedIndexData?.(targetLayerId);
-        const committedGid = brush.getCommittedGradientIdData?.(targetLayerId);
-        const paletteRGBABySlot = brush.getCommittedPaletteRGBABySlot?.(targetLayerId);
-        if (!dims || !committedIndex || !committedGid) {
+        const committedState = readColorCycleCommittedLayerStateFromRuntime(brush, targetLayerId);
+        if (!committedState) {
           return null;
         }
+        const {
+          dimensions: dims,
+          indexData: committedIndex,
+          gradientIdData: committedGid,
+        } = committedState;
         const minX = Math.max(0, Math.floor(bbox?.minX ?? 0));
         const minY = Math.max(0, Math.floor(bbox?.minY ?? 0));
         const maxX = Math.min(
@@ -461,27 +444,6 @@ export const commitColorCycleLayerStroke = async (
         }
         if (ccDebugVerboseOn()) {
           ccLog('committed slots in ROI', { label, counts: [...counts.entries()] });
-        }
-        if (paletteRGBABySlot && ccDebugVerboseOn()) {
-          for (const [slot, count] of counts.entries()) {
-            const palette = paletteRGBABySlot[slot] ?? null;
-            let hasAlpha = false;
-            if (palette && palette.length >= 4) {
-              for (let i = 3; i < palette.length; i += 4) {
-                if (palette[i] !== 0) {
-                  hasAlpha = true;
-                  break;
-                }
-              }
-            }
-            ccLog('slot palette', {
-              slot,
-              count,
-              hasPalette: Boolean(palette),
-              len: palette?.length ?? 0,
-              hasAlpha,
-            });
-          }
         }
         return counts;
       };
@@ -515,7 +477,7 @@ export const commitColorCycleLayerStroke = async (
       }
 
       const sampledCommitNeedsFullRebind = committedSession?.source === 'sampled';
-      let binding: CommitCommittedLayerStateOptions['binding'] = committedSession?.binding
+      let binding: ColorCycleCommittedLayerStateOptions['binding'] = committedSession?.binding
         ? {
             defId: committedSession.binding.defId,
             slot: committedSession.binding.slot,
@@ -616,14 +578,13 @@ export const commitColorCycleLayerStroke = async (
         }
       }
 
-      if (typeof brush.commitCommittedLayerState === 'function') {
-        brush.commitCommittedLayerState({
-          layerId: targetLayerId,
-          targetCanvas: layerCanvas,
-          opacity: args.brushSettings.opacity ?? 1,
-          binding,
-        });
-      } else {
+      const didCommitCommittedLayerState = commitColorCycleCommittedLayerStateToRuntime(brush, {
+        layerId: targetLayerId,
+        targetCanvas: layerCanvas,
+        opacity: args.brushSettings.opacity ?? 1,
+        binding,
+      });
+      if (!didCommitCommittedLayerState) {
         brush.updateColorCycleTexture?.();
         if (typeof brush.commitToLayer === 'function') {
           brush.commitToLayer(layerCanvas, targetLayerId, args.brushSettings.opacity ?? 1);
@@ -636,9 +597,7 @@ export const commitColorCycleLayerStroke = async (
       brushForCleanup = brush;
       eraseMaskPaintMask = buildColorCyclePaintDeltaMask({
         before: beforeStrokeSnapshot as ColorCyclePaintSnapshot | null,
-        after: typeof brush.getLayerSnapshot === 'function'
-          ? brush.getLayerSnapshot(targetLayerId) as ColorCyclePaintSnapshot | null
-          : null,
+        after: readColorCycleBrushLayerSnapshotFromRuntime(brush, targetLayerId) as ColorCyclePaintSnapshot | null,
         roi: strokeCaptureRoi,
         width: args.project?.width ?? layerCanvas.width,
         height: args.project?.height ?? layerCanvas.height,

@@ -5,7 +5,7 @@ import {
 
 export const createFinalizeBrushFlowDeps = ({
   storeRef,
-  brushEngine,
+  brushRuntime,
   drawingCanvasHasContent,
   colorCycleAnimationRef,
   brushSamplingPreviewActiveRef,
@@ -27,7 +27,7 @@ export const createFinalizeBrushFlowDeps = ({
   ccLog,
 }: {
   storeRef: Parameters<typeof createColorCycleStrokeCommitDeps>[0]['storeRef'];
-  brushEngine: Parameters<typeof createFinalizeColorCycleBrushBaseDeps>[0]['brushEngine'];
+  brushRuntime: Parameters<typeof createFinalizeColorCycleBrushBaseDeps>[0]['brushRuntime'];
   drawingCanvasHasContent: Parameters<typeof createFinalizeColorCycleBrushBaseDeps>[0]['drawingCanvasHasContent'];
   colorCycleAnimationRef: Parameters<typeof createFinalizeColorCycleBrushBaseDeps>[0]['colorCycleAnimationRef'];
   brushSamplingPreviewActiveRef: Parameters<typeof createFinalizeColorCycleBrushBaseDeps>[0]['brushSamplingPreviewActiveRef'];
@@ -52,7 +52,7 @@ export const createFinalizeBrushFlowDeps = ({
 }) => ({
   finalizeColorCycleBrushBaseDeps: createFinalizeColorCycleBrushBaseDeps({
     storeRef,
-    brushEngine,
+    brushRuntime,
     drawingCanvasHasContent,
     colorCycleAnimationRef,
     brushSamplingPreviewActiveRef,

@@ -11,7 +11,7 @@ export const applyStrokeStartAutoSampleColor = ({
   sampleColorAt,
   sampleHexAt,
   debugLog,
-  brushEngine,
+  brushConfigRuntime,
 }: {
   currentState: AppState;
   currentTool: AppState['tools']['currentTool'];
@@ -21,10 +21,8 @@ export const applyStrokeStartAutoSampleColor = ({
   sampleColorAt?: (x: number, y: number) => string;
   sampleHexAt: (x: number, y: number) => string;
   debugLog: (message: string, payload?: Record<string, unknown>) => void;
-  brushEngine: {
-    engine?: {
-      updateConfig?: (config: { brushSettings: AppState['tools']['brushSettings'] }) => void;
-    };
+  brushConfigRuntime: {
+    updateConfig?: (config: { brushSettings: AppState['tools']['brushSettings'] }) => void;
   } | null;
 }): {
   currentState: AppState;
@@ -61,8 +59,8 @@ export const applyStrokeStartAutoSampleColor = ({
       const refreshed = getAppStoreState();
       nextState = refreshed;
       brushSettings = refreshed.tools.brushSettings;
-      if (brushEngine?.engine?.updateConfig) {
-        brushEngine.engine.updateConfig({ brushSettings: updatedBrushSettings });
+      if (brushConfigRuntime?.updateConfig) {
+        brushConfigRuntime.updateConfig({ brushSettings: updatedBrushSettings });
       }
       debugLog('auto-sample', {
         phase: 'applied',

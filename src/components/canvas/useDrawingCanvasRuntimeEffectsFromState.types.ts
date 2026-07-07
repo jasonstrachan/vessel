@@ -42,7 +42,9 @@ export interface UseDrawingCanvasRuntimeEffectsFromStateOptions {
   drawingHandlers: RuntimeEffectsOptions['inputHandlersArgs']['state']['drawingHandlers'];
   cancelActiveOperations: RuntimeEffectsOptions['keyboardArgs']['actions']['cancelActiveOperations'];
   finalizeActiveShape: RuntimeEffectsOptions['keyboardArgs']['actions']['finalizeActiveShape'];
-  brushEngine: RuntimeEffectsOptions['inputHandlersArgs']['state']['brushEngine'];
+  brushRuntime: RuntimeEffectsOptions['inputHandlersArgs']['state']['brushRuntime'] &
+    RuntimeEffectsOptions['keyboardArgs']['state']['brushRuntime'];
+  shapeBrushRuntime: RuntimeEffectsOptions['inputHandlersArgs']['state']['shapeBrushRuntime'];
   animationRuntime: Pick<
     ColorCycleAnimationRuntime,
     'wrappedStartAnimation' | 'pauseAnimationForPan' | 'resumeAnimationAfterPan'

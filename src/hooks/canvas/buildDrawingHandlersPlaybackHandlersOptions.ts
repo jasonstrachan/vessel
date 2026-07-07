@@ -7,7 +7,7 @@ interface BuildDrawingHandlersPlaybackHandlersOptions {
   project: UseDrawingHandlersRuntimeSetupBridgeOptions['project'];
   storeRef: UseDrawingHandlersRuntimeSetupBridgeOptions['storeRef'];
   shapeMode: UseDrawingHandlersRuntimeSetupBridgeOptions['shapeMode'];
-  brushEngine: UseDrawingHandlersRuntimeSetupBridgeOptions['brushEngine'];
+  brushRuntime: RuntimeBridgeArgs['playbackHandlersOptions']['playbackRuntimeOptions']['brushRuntime'];
   colorCycleRuntime: UseDrawingHandlersRuntimeSetupBridgeOptions['colorCycleRuntime'];
   feedbackMessageRef: UseDrawingHandlersRuntimeSetupBridgeOptions['feedbackMessageRef'];
 }
@@ -16,13 +16,16 @@ export const buildDrawingHandlersPlaybackHandlersOptions = ({
   project,
   storeRef,
   shapeMode,
-  brushEngine,
+  brushRuntime,
   colorCycleRuntime,
   feedbackMessageRef,
 }: BuildDrawingHandlersPlaybackHandlersOptions): RuntimeBridgeArgs['playbackHandlersOptions'] => ({
   playbackRuntimeOptions: {
-    brushEngine:
-      brushEngine as RuntimeBridgeArgs['playbackHandlersOptions']['playbackRuntimeOptions']['brushEngine'],
+    brushRuntime: {
+      isColorCycleAnimating: brushRuntime.isColorCycleAnimating,
+      updateColorCycleAnimation: brushRuntime.updateColorCycleAnimation,
+      renderColorCycle: brushRuntime.renderColorCycle,
+    },
     ensureOverlayInitialized: colorCycleRuntime.ensureOverlayInitialized,
     renderAllColorCycleLayers: colorCycleRuntime.renderAllColorCycleLayers,
     storeRef,

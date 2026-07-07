@@ -1,6 +1,11 @@
 import { shapeFillBrushPreset, pixelBrushPreset } from '@/presets/brushPresets';
 import { __shapeToolTestUtils } from '@/hooks/canvas/handlers/shapes/ShapeToolHandler';
 import { shouldUseRenderedCcPreviewFill } from '@/hooks/canvas/handlers/shapes/ccShapePreviewDitherRuntime';
+import { getDerivedSurfaceBuiltFromVersion } from '@/lib/colorCycle/document';
+import {
+  disposeColorCycleBrushManager,
+  getColorCycleBrushManager,
+} from '@/stores/colorCycleBrushManager';
 import { useAppStore } from '@/stores/useAppStore';
 import type { Layer } from '@/types';
 
@@ -98,6 +103,21 @@ describe('ShapeToolHandler – shape fill tool detection', () => {
         canReplayCurrentPreview: false,
       })
     ).toBe(false);
+  });
+
+  it('marks shape preview overlays with the active document version', () => {
+    const manager = getColorCycleBrushManager();
+    const colorCycleDocument = manager.ensureDocument('layer-cc-preview', 4, 4);
+    const overlay = document.createElement('canvas');
+
+    const version = __shapeToolTestUtils.markShapePreviewOverlayBuiltFromActiveDocument(
+      overlay,
+      'layer-cc-preview',
+    );
+
+    expect(version).toBe(colorCycleDocument.version);
+    expect(getDerivedSurfaceBuiltFromVersion(overlay)).toBe(colorCycleDocument.version);
+    disposeColorCycleBrushManager();
   });
 
   it('keeps CC dither preview settings aligned with finalize settings', () => {

@@ -1,5 +1,10 @@
 import type { AppState } from '@/stores/useAppStore';
-import type { ColorCycleBrushImplementation } from '@/hooks/brushEngine/ColorCycleBrushMigration';
+import type { ColorCycleSurfaceBrush } from '@/hooks/canvas/handlers/colorCycle/colorCycleSurface';
+
+export type ColorCycleStrokeStartBrush = ColorCycleSurfaceBrush & {
+  setFlowMode?: (mode: 'forward' | 'reverse' | 'pingpong') => void;
+  setFlowDirection?: (direction: 'forward' | 'backward') => void;
+};
 
 export const configureStartColorCycleStroke = ({
   currentState,
@@ -10,16 +15,12 @@ export const configureStartColorCycleStroke = ({
   currentState: AppState;
   activeLayer: AppState['layers'][number];
   getColorCycleBrushManager: () => {
-    getBrush: (layerId: string) => ColorCycleBrushImplementation | null | undefined;
+    getSurfaceBrush: (layerId: string) => ColorCycleStrokeStartBrush | null | undefined;
   };
   debugLog: (message: string, payload?: Record<string, unknown>) => void;
 }): void => {
   const colorCycleBrushManager = getColorCycleBrushManager();
-  const colorCycleBrush = (
-    typeof currentState.getLayerColorCycleBrush === 'function'
-      ? currentState.getLayerColorCycleBrush(activeLayer.id)
-      : null
-  ) ?? colorCycleBrushManager.getBrush(activeLayer.id);
+  const colorCycleBrush = colorCycleBrushManager.getSurfaceBrush(activeLayer.id);
   debugLog('[cc] stroke-start settings', {
     useForegroundGradient: currentState.tools.brushSettings.colorCycleUseForegroundGradient,
     fgStops: currentState.tools.brushSettings.colorCycleFgStops,

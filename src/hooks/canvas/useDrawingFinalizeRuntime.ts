@@ -11,7 +11,7 @@ export const useDrawingFinalizeRuntime = ({
   refs,
   storeRef,
   project,
-  brushEngine,
+  brushRuntime,
   userBrushEngine,
   scheduleDeferredColorCycleSave,
   scheduleHistoryCommit,
@@ -65,7 +65,7 @@ export const useDrawingFinalizeRuntime = ({
     buildDrawingFinalizeFlowDepsOptions({
       refs,
       storeRef,
-      brushEngine,
+      brushRuntime,
       userBrushEngine,
       cancelAnimationFrameSafe,
       endStrokeSession,

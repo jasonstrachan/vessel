@@ -13,7 +13,7 @@ export const startNonColorCycleBrushStroke = ({
   worldPos,
   pressure,
   drawCtx,
-  brushEngine,
+  brushRuntime,
   resolveCustomBrushData,
   captureResamplerSingleSample,
   resamplerBrushDataRef,
@@ -22,7 +22,7 @@ export const startNonColorCycleBrushStroke = ({
   worldPos: { x: number; y: number };
   pressure: number;
   drawCtx: CanvasRenderingContext2D;
-  brushEngine: {
+  brushRuntime: {
     drawBrush: (
       ctx: CanvasRenderingContext2D,
       from: { x: number; y: number },
@@ -82,13 +82,13 @@ export const startNonColorCycleBrushStroke = ({
     customBrushData = resamplerBrushDataRef.current ?? customBrushData;
   }
 
-  if (typeof brushEngine.consumeRecentStamps === 'function') {
-    brushEngine.consumeRecentStamps();
+  if (typeof brushRuntime.consumeRecentStamps === 'function') {
+    brushRuntime.consumeRecentStamps();
   }
-  brushEngine.drawBrush(drawCtx, worldPos, worldPos, { pressure, customBrushData });
+  brushRuntime.drawBrush(drawCtx, worldPos, worldPos, { pressure, customBrushData });
   const emittedStamps =
-    typeof brushEngine.consumeRecentStamps === 'function'
-      ? brushEngine.consumeRecentStamps()
+    typeof brushRuntime.consumeRecentStamps === 'function'
+      ? brushRuntime.consumeRecentStamps()
       : [];
   const captureState = getAppStoreState();
 

@@ -50,7 +50,7 @@ type UseDrawingShapeRuntimeArgs = {
   storeRef: ShapeArgs['storeRef'];
   project: ShapeArgs['project'];
   isBusyRef: ShapeArgs['isBusyRef'];
-  brushEngine: ShapeArgs['brushEngine'];
+  shapeBrushRuntime: ShapeArgs['shapeBrushRuntime'];
   sampleColorAt: ShapeArgs['sampleColorAt'];
   sampleHexAt: ShapeArgs['sampleHexAt'];
   initDrawingCanvas: ShapeArgs['initDrawingCanvas'];
@@ -104,7 +104,7 @@ export const useDrawingShapeRuntime = ({
   storeRef,
   project,
   isBusyRef,
-  brushEngine,
+  shapeBrushRuntime,
   sampleColorAt,
   sampleHexAt,
   initDrawingCanvas,
@@ -187,7 +187,7 @@ export const useDrawingShapeRuntime = ({
     storeRef,
     project,
     isBusyRef,
-    brushEngine,
+    shapeBrushRuntime,
     getColorCycleBrushManager,
     getColorCycleBrushFlags,
     sampleColorAt,

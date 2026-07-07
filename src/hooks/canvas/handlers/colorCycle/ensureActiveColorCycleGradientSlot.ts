@@ -1,6 +1,6 @@
 import { getAppStoreState } from '@/stores/appStoreAccess';
 import { debugLog, logError } from '@/utils/debug';
-import type { ColorCycleBrushImplementation } from '@/hooks/brushEngine/ColorCycleBrushMigration';
+import type { ColorCycleSurfaceBrush } from '@/hooks/canvas/handlers/colorCycle/colorCycleSurface';
 import {
   setFgPending,
   buildForegroundDerivedGradientSpec,
@@ -118,7 +118,7 @@ export const getFgParamsFromState = (state: AppState) => ({
 type EnsureActiveColorCycleGradientSlotArgs = {
   state: AppState;
   layer: Layer;
-  brush?: ColorCycleBrushImplementation | null;
+  brush?: ColorCycleSurfaceBrush | null;
 };
 
 export const ensureActiveColorCycleGradientSlot = ({

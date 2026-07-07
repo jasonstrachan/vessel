@@ -11,7 +11,7 @@ export const ensureStrokeStartColorCycleCaptureReady = ({
   runtimeProject: { width: number; height: number } | null;
   currentState: AppState;
   getColorCycleBrushManager: () => {
-    getBrush: (layerId: string) => import('@/hooks/brushEngine/ColorCycleBrushMigration').ColorCycleBrushImplementation | null | undefined;
+    hasBrush: (layerId: string) => boolean;
   };
   logError: (message: string, error?: unknown) => void;
 }): boolean => {
@@ -20,10 +20,7 @@ export const ensureStrokeStartColorCycleCaptureReady = ({
   }
 
   const colorCycleBrushManager = getColorCycleBrushManager();
-  const storeBrush = typeof currentState.getLayerColorCycleBrush === 'function'
-    ? currentState.getLayerColorCycleBrush(activeLayerForCapture.id)
-    : null;
-  if (storeBrush ?? colorCycleBrushManager.getBrush(activeLayerForCapture.id)) {
+  if (colorCycleBrushManager.hasBrush(activeLayerForCapture.id)) {
     return true;
   }
 

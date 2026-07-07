@@ -10,7 +10,7 @@ export const buildDrawingCanvasRuntimeEffectsFromStateKeyboardArgs = ({
   interactionRuntime,
   toolStateMachine,
   drawingHandlers,
-  brushEngine,
+  brushRuntime,
   animationRuntime,
   cancelActiveOperations,
   finalizeActiveShape,
@@ -23,7 +23,7 @@ export const buildDrawingCanvasRuntimeEffectsFromStateKeyboardArgs = ({
   state: {
     toolStateMachine,
     drawingHandlers,
-    brushEngine,
+    brushRuntime,
     layers: state.layers,
     activeLayerId: state.activeLayerId,
     tools: state.tools,

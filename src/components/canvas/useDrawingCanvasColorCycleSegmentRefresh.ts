@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, type MutableRefObject } from 'react';
 import { refreshLayerCCSurface } from '@/hooks/useBrushEngineSimplified';
 import { getColorCycleBrushManager, type ColorCycleBrushManager } from '@/stores/colorCycleBrushManager';
 import type { CompositeSegment } from '@/stores/slices/layersSlice';
+import type { ColorCycleLayerDirtyBatch } from '@/lib/colorCycle/document';
 import type { Layer } from '@/types';
 
 interface UseDrawingCanvasColorCycleSegmentRefreshOptions {
@@ -39,17 +40,29 @@ export const useDrawingCanvasColorCycleSegmentRefresh = ({
     pendingColorCycleRefreshRef.current = true;
   }, [compositeSegmentsRef, compositeSegmentsVersion, getCompositeSegmentsSnapshot, pendingColorCycleRefreshRef]);
 
-  const refreshColorCycleSegments = useCallback(() => {
+  const refreshColorCycleSegments = useCallback((
+    dirtyBatches?: ColorCycleLayerDirtyBatch[],
+  ): boolean => {
+    const dirtyLayerIds = dirtyBatches?.length
+      ? new Set(dirtyBatches.map((batch) => batch.layerId))
+      : null;
+    const hasStaticDirtyBatch = dirtyLayerIds
+      ? compositeSegmentsRef.current.some((segment) =>
+          segment.kind === 'static' &&
+          segment.layerIds.some((layerId) => dirtyLayerIds.has(layerId)),
+        )
+      : false;
+
     if (isRefreshingRef.current) {
       pendingColorCycleRefreshRef.current = true;
-      return;
+      return hasStaticDirtyBatch;
     }
 
     isRefreshingRef.current = true;
     const segments = compositeSegmentsRef.current;
     try {
       if (!segments.length) {
-        return;
+        return hasStaticDirtyBatch;
       }
       const manager = colorCycleBrushManagerRef.current ?? getColorCycleBrushManager();
       if (!colorCycleBrushManagerRef.current) {
@@ -64,7 +77,7 @@ export const useDrawingCanvasColorCycleSegmentRefresh = ({
         if (!layer || !layer.colorCycleData) {
           return;
         }
-        const brush = manager?.getBrush(segment.layerId);
+        const brush = manager?.getSurfaceBrush(segment.layerId);
         if (!brush) {
           return;
         }
@@ -92,6 +105,8 @@ export const useDrawingCanvasColorCycleSegmentRefresh = ({
     } finally {
       isRefreshingRef.current = false;
     }
+
+    return hasStaticDirtyBatch;
   }, [colorCycleBrushManagerRef, compositeSegmentsRef, layerMapRef, pendingColorCycleRefreshRef]);
 
   useEffect(() => {

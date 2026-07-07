@@ -1,10 +1,10 @@
 import { getAppStoreState } from '@/stores/appStoreAccess';
 import type { PixelQueue } from '@/hooks/brushEngine/types';
 import type { CustomBrushStrokeData } from '@/hooks/brushEngine/BrushEngineFacade';
-import type { ColorCycleBrushImplementation } from '@/hooks/brushEngine/ColorCycleBrushMigration';
 import { type AppState } from '@/stores/useAppStore';
 import type { Layer, BrushSettings } from '@/types';
 import { BrushShape } from '@/types';
+import type { ColorCycleSurfaceBrush } from '@/hooks/canvas/handlers/colorCycle/colorCycleSurface';
 import { updateContinuousResamplerSample } from '@/hooks/canvas/handlers/customBrushCapture';
 import { getCcEffectiveSpacing } from '@/hooks/canvas/utils/ccSpacing';
 import {
@@ -16,7 +16,7 @@ import {
   type CcFlowVelocityState,
 } from '@/utils/colorCycleFlowVelocity';
 
-type BrushEngine = {
+type BrushRuntime = {
   drawBrush: (
     ctx: CanvasRenderingContext2D,
     from: { x: number; y: number },
@@ -84,7 +84,7 @@ export type ProcessBatchedStrokesArgs = {
 export type ProcessBatchedStrokesDeps = {
   storeRef: React.MutableRefObject<AppState>;
   project: { width: number; height: number } | null;
-  brushEngine: BrushEngine | null;
+  brushRuntime: BrushRuntime | null;
   userBrushEngine: UserBrushEngine;
   drawEraserSegment: (
     ctx: CanvasRenderingContext2D,
@@ -105,11 +105,11 @@ export type ProcessBatchedStrokesDeps = {
     pressure: number
   ) => void;
   createPixelQueue: () => PixelQueue;
-  getColorCycleBrushManager: () => { getBrush: (layerId: string) => ColorCycleBrushImplementation | null | undefined };
+  getColorCycleBrushManager: () => { getSurfaceBrush: (layerId: string) => ColorCycleSurfaceBrush | null | undefined };
   ensureActiveColorCycleGradientSlot: (
     state: AppState,
     layer: Layer,
-    brush?: ColorCycleBrushImplementation | null
+    brush?: ColorCycleSurfaceBrush | null
   ) => void;
   resolveActiveCustomBrushData: (state: AppState) => CustomBrushStrokeData | undefined;
   getColorCycleBrushFlags: (settings: BrushSettings) => { isAny: boolean; isCustom: boolean };
@@ -313,8 +313,8 @@ export const processBatchedStrokes = (
           try {
             drawCtx.globalCompositeOperation = 'destination-out';
             drawCtx.globalAlpha = eraserOpacity;
-            if (deps.brushEngine) {
-              deps.brushEngine.drawBrush(drawCtx, drawFrom, drawTo, {
+            if (deps.brushRuntime) {
+              deps.brushRuntime.drawBrush(drawCtx, drawFrom, drawTo, {
                 pressure,
                 velocityPxPerMs,
                 timestampMs: pointTimestampMs,
@@ -334,7 +334,7 @@ export const processBatchedStrokes = (
           captureSequentialStamps([
             createFallbackSequentialStamp(drawTo, pressure, currentState.tools.brushSettings),
           ], customBrushData, currentBrushId);
-        } else if (deps.brushEngine) {
+        } else if (deps.brushRuntime) {
           drawCtx.globalAlpha = 1.0;
           drawCtx.globalCompositeOperation = 'source-over';
 
@@ -378,11 +378,7 @@ export const processBatchedStrokes = (
 
             if (activeLayer && isColorCycleLayer) {
               const colorCycleBrushManager = deps.getColorCycleBrushManager();
-              const colorCycleBrush = (
-                typeof currentState.getLayerColorCycleBrush === 'function'
-                  ? currentState.getLayerColorCycleBrush(activeLayer.id)
-                  : null
-              ) ?? colorCycleBrushManager.getBrush(activeLayer.id);
+              const colorCycleBrush = colorCycleBrushManager.getSurfaceBrush(activeLayer.id);
               deps.ensureActiveColorCycleGradientSlot(currentState, activeLayer, colorCycleBrush);
             }
 
@@ -513,7 +509,7 @@ export const processBatchedStrokes = (
                   for (let i = 0; i < cmds.length; i++) {
                     const c = cmds[i];
                     if (c.customStamp) {
-                      deps.brushEngine?.drawColorCycle(
+                      deps.brushRuntime?.drawColorCycle(
                         ctx,
                         c.x,
                         c.y,
@@ -525,11 +521,11 @@ export const processBatchedStrokes = (
                         }
                       );
                     } else if (rotationEnabled && c.rotation !== 0) {
-                      deps.brushEngine?.drawColorCycle(ctx, c.x, c.y, c.pressure, c.rotation, {
+                      deps.brushRuntime?.drawColorCycle(ctx, c.x, c.y, c.pressure, c.rotation, {
                         speedSamplePxPerMs: c.speedSamplePxPerMs,
                       });
                     } else {
-                      deps.brushEngine?.drawColorCycle(ctx, c.x, c.y, c.pressure, 0, {
+                      deps.brushRuntime?.drawColorCycle(ctx, c.x, c.y, c.pressure, 0, {
                         speedSamplePxPerMs: c.speedSamplePxPerMs,
                       });
                     }
@@ -594,18 +590,18 @@ export const processBatchedStrokes = (
             }
           }
 
-          if (typeof deps.brushEngine.consumeRecentStamps === 'function') {
-            deps.brushEngine.consumeRecentStamps();
+          if (typeof deps.brushRuntime.consumeRecentStamps === 'function') {
+            deps.brushRuntime.consumeRecentStamps();
           }
-          deps.brushEngine.drawBrush(drawCtx, drawFrom, drawTo, {
+          deps.brushRuntime.drawBrush(drawCtx, drawFrom, drawTo, {
             pressure,
             customBrushData,
             velocityPxPerMs,
             timestampMs: pointTimestampMs,
           });
           const emittedStamps =
-            typeof deps.brushEngine.consumeRecentStamps === 'function'
-              ? deps.brushEngine.consumeRecentStamps()
+            typeof deps.brushRuntime.consumeRecentStamps === 'function'
+              ? deps.brushRuntime.consumeRecentStamps()
               : [];
           captureSequentialStamps(
             emittedStamps.length > 0

@@ -31,6 +31,10 @@ import {
   rememberSampledCcShapePreviewStops,
 } from '@/hooks/canvas/utils/sampledCcShapePreviewStops';
 import { ccLog } from '@/debug/ccDebug';
+import {
+  getDerivedSurfaceBuiltFromVersion,
+  markDerivedSurfaceBuiltFromVersion,
+} from '@/lib/colorCycle/document';
 
 export type PreparedPreviewGradient = {
   renderStops: StoredStop[];
@@ -140,6 +144,46 @@ const describePreviewError = (error: unknown): string => {
   return typeof error === 'string' ? error : 'unknown';
 };
 
+const getCcPreviewCanvasBuiltFromVersion = (
+  ditherGradPreviewState: Pick<DitherGradPreviewState, 'ccLastCanvas'>,
+): number | null => {
+  return getDerivedSurfaceBuiltFromVersion(ditherGradPreviewState.ccLastCanvas);
+};
+
+const canUseCcPreviewCanvasVersion = ({
+  ditherGradPreviewState,
+  documentVersion,
+}: {
+  ditherGradPreviewState: Pick<DitherGradPreviewState, 'ccLastCanvas'>;
+  documentVersion: number | null;
+}): boolean => {
+  if (documentVersion === null) {
+    return true;
+  }
+  return getCcPreviewCanvasBuiltFromVersion(ditherGradPreviewState) === documentVersion;
+};
+
+const publishCcPreviewCache = ({
+  displayCanvas,
+  origin,
+  documentVersion,
+  drawingHandlers,
+}: {
+  displayCanvas: HTMLCanvasElement;
+  origin: { x: number; y: number };
+  documentVersion: number | null;
+  drawingHandlers: DrawingHandlersSubset;
+}): void => {
+  markDerivedSurfaceBuiltFromVersion(displayCanvas, documentVersion);
+  if (drawingHandlers.ccShapePreviewCacheRef) {
+    drawingHandlers.ccShapePreviewCacheRef.current = {
+      canvas: displayCanvas,
+      origin: { ...origin },
+      builtFromVersion: documentVersion,
+    };
+  }
+};
+
 const prepareCcPreviewGeometry = ({
   committedPolygon,
   pixelSize,
@@ -202,6 +246,12 @@ export type DitherGradPreviewState = {
   ccPreviewFlatSeed?: number;
   ccLastSampledPreviewPublishAt?: number;
   ccSampledPreviewThrottleTimer?: ReturnType<typeof setTimeout>;
+};
+
+export type CcShapePreviewCache = {
+  canvas: HTMLCanvasElement;
+  origin: { x: number; y: number };
+  builtFromVersion: number | null;
 };
 
 const computeAxisOpposingEnds = (verts: Array<{ x: number; y: number }>): {
@@ -668,6 +718,7 @@ const drawCachedCcPreview = ({
   retainStalePreviewOnCacheMiss = false,
   nextPreviewRoi,
   replayKey,
+  documentVersion = null,
 }: {
   overlayCtx: CanvasRenderingContext2D;
   overlayCanvas: HTMLCanvasElement;
@@ -680,9 +731,15 @@ const drawCachedCcPreview = ({
   retainStalePreviewOnCacheMiss?: boolean;
   nextPreviewRoi: CcPreviewRoi;
   replayKey: string;
+  documentVersion?: number | null;
 }): { shouldUseCustomFill: boolean; canReplayCurrentPreview: boolean } => {
+  const hasCurrentVersion = canUseCcPreviewCanvasVersion({
+    ditherGradPreviewState,
+    documentVersion,
+  });
   const canReplayCurrentPreview =
     ditherGradPreviewState.ccLastCanvas &&
+    hasCurrentVersion &&
     canReplayCcPreview(
       ditherGradPreviewState.ccLastOrigin,
       ditherGradPreviewState.ccLastSize,
@@ -692,14 +749,16 @@ const drawCachedCcPreview = ({
     );
   const hasCachedPreview =
     Boolean(ditherGradPreviewState.ccLastCanvas) &&
-    Boolean(ditherGradPreviewState.ccLastOrigin);
+    Boolean(ditherGradPreviewState.ccLastOrigin) &&
+    hasCurrentVersion;
   const shouldDrawCachedPreview =
     Boolean(canReplayCurrentPreview) ||
     (retainStalePreviewOnCacheMiss && hasCachedPreview) ||
-    shouldKeepCachedCcPreviewVisible({
-      hasCachedPreview,
-      canReplayCurrentPreview: Boolean(canReplayCurrentPreview),
-    });
+    (hasCachedPreview &&
+      shouldKeepCachedCcPreviewVisible({
+        hasCachedPreview,
+        canReplayCurrentPreview: Boolean(canReplayCurrentPreview),
+      }));
 
   if (shouldDrawCachedPreview && ditherGradPreviewState.ccLastCanvas && ditherGradPreviewState.ccLastOrigin) {
     overlayCtx.save();
@@ -743,7 +802,7 @@ type DrawingHandlersSubset = {
   latestShapePixelSizeRef?: React.MutableRefObject<number | null | undefined>;
   computeShapePixelSize?: (pressure: number) => number;
   lastStablePressureRef?: React.MutableRefObject<number>;
-  ccShapePreviewCacheRef?: React.MutableRefObject<{ canvas: HTMLCanvasElement; origin: { x: number; y: number } } | null>;
+  ccShapePreviewCacheRef?: React.MutableRefObject<CcShapePreviewCache | null>;
   isDrawingShapeRef: React.MutableRefObject<boolean>;
   shapePointsRef: React.MutableRefObject<Array<{ x: number; y: number }>>;
   ccStrokeSamplesRef?: React.MutableRefObject<Array<{ x: number; y: number; pressure?: number }>>;
@@ -770,6 +829,7 @@ export const runCcDitherPreviewRuntime = (args: {
   ) => void;
   getLatestPolygonPreviewPoint: () => { x: number; y: number } | null;
   previewRenderSettings: CcPreviewRenderSettings;
+  documentVersion?: number | null;
 }): { didCustomFill: boolean; suppressLivePreviewChrome: boolean } => {
   const {
     overlayCtx,
@@ -787,6 +847,7 @@ export const runCcDitherPreviewRuntime = (args: {
     schedulePolygonShapePreviewFrame,
     getLatestPolygonPreviewPoint,
     previewRenderSettings,
+    documentVersion = null,
   } = args;
 
   const pixelSize = previewRenderSettings.pixelSize;
@@ -813,8 +874,13 @@ export const runCcDitherPreviewRuntime = (args: {
     patternTileOffsetX: previewRenderSettings.patternTileOffsetX,
     patternTileOffsetY: previewRenderSettings.patternTileOffsetY,
   });
+  const hasCurrentVersion = canUseCcPreviewCanvasVersion({
+    ditherGradPreviewState,
+    documentVersion,
+  });
   const canReplayCurrentPreview =
     ditherGradPreviewState.ccLastCanvas &&
+    hasCurrentVersion &&
     canReplayCcPreview(
       ditherGradPreviewState.ccLastOrigin,
       ditherGradPreviewState.ccLastSize,
@@ -824,14 +890,16 @@ export const runCcDitherPreviewRuntime = (args: {
     );
   const hasCachedPreview =
     Boolean(ditherGradPreviewState.ccLastCanvas) &&
-    Boolean(ditherGradPreviewState.ccLastOrigin);
+    Boolean(ditherGradPreviewState.ccLastOrigin) &&
+    hasCurrentVersion;
   const shouldDrawCachedPreview =
     Boolean(canReplayCurrentPreview) ||
     (retainStalePreviewOnCacheMiss && hasCachedPreview) ||
-    shouldKeepCachedCcPreviewVisible({
-      hasCachedPreview,
-      canReplayCurrentPreview: Boolean(canReplayCurrentPreview),
-    });
+    (hasCachedPreview &&
+      shouldKeepCachedCcPreviewVisible({
+        hasCachedPreview,
+        canReplayCurrentPreview: Boolean(canReplayCurrentPreview),
+      }));
   const shouldUseCustomFill =
     shouldUseRenderedCcPreviewFill({
       canReplayCurrentPreview: Boolean(canReplayCurrentPreview),
@@ -1183,12 +1251,12 @@ export const runCcDitherPreviewRuntime = (args: {
           ditherGradPreviewState.ccLastOrigin = { ...origin };
           ditherGradPreviewState.ccLastSize = { width: w, height: h };
           ditherGradPreviewState.ccLastReplayKey = replayKey;
-          if (drawingHandlers.ccShapePreviewCacheRef) {
-            drawingHandlers.ccShapePreviewCacheRef.current = {
-              canvas: displayCanvas,
-              origin: { ...origin },
-            };
-          }
+          publishCcPreviewCache({
+            displayCanvas,
+            origin,
+            documentVersion,
+            drawingHandlers,
+          });
           overlayCtx.save();
           overlayCtx.setTransform(1, 0, 0, 1, 0, 0);
           overlayCtx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
@@ -1243,6 +1311,7 @@ export const runSampledCcDitherPreviewRuntime = (args: {
     resolvePreviewPoint: () => { x: number; y: number } | null
   ) => void;
   getLatestPolygonPreviewPoint: () => { x: number; y: number } | null;
+  documentVersion?: number | null;
 }): { didCustomFill: boolean; suppressLivePreviewChrome: boolean } => {
   const {
     overlayCtx,
@@ -1261,6 +1330,7 @@ export const runSampledCcDitherPreviewRuntime = (args: {
     sampleSourcePoints,
     schedulePolygonShapePreviewFrame,
     getLatestPolygonPreviewPoint,
+    documentVersion = null,
   } = args;
 
   const previewGeometry = prepareCcPreviewGeometry({
@@ -1284,6 +1354,7 @@ export const runSampledCcDitherPreviewRuntime = (args: {
     retainStalePreviewOnCacheMiss,
     nextPreviewRoi: previewGeometry.roi,
     replayKey,
+    documentVersion,
   });
   recordSampledCcShapeBreadcrumb({
     event: 'sampled-runtime-state',
@@ -1332,7 +1403,8 @@ export const runSampledCcDitherPreviewRuntime = (args: {
 
   const hasCachedPreview =
     Boolean(ditherGradPreviewState.ccLastCanvas) &&
-    Boolean(ditherGradPreviewState.ccLastOrigin);
+    Boolean(ditherGradPreviewState.ccLastOrigin) &&
+    canUseCcPreviewCanvasVersion({ ditherGradPreviewState, documentVersion });
   const now = Date.now();
   const lastPublishAt = ditherGradPreviewState.ccLastSampledPreviewPublishAt ?? 0;
   const msSinceLastPublish = now - lastPublishAt;
@@ -1728,12 +1800,12 @@ export const runSampledCcDitherPreviewRuntime = (args: {
         ditherGradPreviewState.ccLastSize = { width: w, height: h };
         ditherGradPreviewState.ccLastReplayKey = request.replayKey;
         ditherGradPreviewState.ccLastSampledPreviewPublishAt = Date.now();
-        if (drawingHandlers.ccShapePreviewCacheRef) {
-          drawingHandlers.ccShapePreviewCacheRef.current = {
-            canvas: displayCanvas,
-            origin: { ...origin },
-          };
-        }
+        publishCcPreviewCache({
+          displayCanvas,
+          origin,
+          documentVersion,
+          drawingHandlers,
+        });
         ccLog('shape: sampled preview publish', {
           scaledW,
           scaledH,

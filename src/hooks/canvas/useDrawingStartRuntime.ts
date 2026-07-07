@@ -16,6 +16,15 @@ import { debugLog } from '@/utils/debug';
 type DrawingHandlerRefs = ReturnType<typeof useDrawingHandlerRefs>;
 type UseStartDrawingArgs = Parameters<typeof useStartDrawingHandler>[0];
 type StartDrawingHandler = ReturnType<typeof useStartDrawingHandler>;
+type StrokeStartBrushConfigRuntime = NonNullable<UseStartDrawingArgs['prelude']['brushConfigRuntime']>;
+type StrokeStartBrushConfig = Parameters<NonNullable<StrokeStartBrushConfigRuntime['updateConfig']>>[0];
+type StrokeStartSamplingRuntime = NonNullable<UseStartDrawingArgs['samplingCanvas']['brushRuntime']>;
+type StrokeStartToolRuntime = NonNullable<UseStartDrawingArgs['toolStroke']['brushRuntime']>;
+
+export type DrawingStartBrushRuntime = StrokeStartSamplingRuntime &
+  StrokeStartToolRuntime & {
+    updateConfig?: StrokeStartBrushConfigRuntime['updateConfig'];
+  };
 
 type UseDrawingStartRuntimeArgs = {
   refs: DrawingHandlerRefs;
@@ -25,7 +34,7 @@ type UseDrawingStartRuntimeArgs = {
   sampleHexAt: UseStartDrawingArgs['prelude']['sampleHexAt'];
   debugVerbose: UseStartDrawingArgs['beforeSession']['debugVerbose'];
   logError: UseStartDrawingArgs['prelude']['logError'];
-  brushEngine: unknown;
+  brushRuntime: DrawingStartBrushRuntime | null;
   userBrushEngine: UseStartDrawingArgs['toolStroke']['userBrushEngine'];
   beginStrokeSession: UseStartDrawingArgs['beforeSession']['beginStrokeSession'];
   ensureOverlayInitialized: UseStartDrawingArgs['beforeSession']['ensureOverlayInitialized'];
@@ -50,7 +59,7 @@ export const useDrawingStartRuntime = ({
   sampleHexAt,
   debugVerbose,
   logError,
-  brushEngine,
+  brushRuntime,
   userBrushEngine,
   beginStrokeSession,
   ensureOverlayInitialized,
@@ -70,6 +79,17 @@ export const useDrawingStartRuntime = ({
     () => createEnsureActiveColorCycleGradientSlotDispatcher(),
     []
   );
+  const strokeStartSamplingRuntime = brushRuntime
+    ? {
+        resetColorCycle: () => brushRuntime.resetColorCycle(),
+        resetStroke: () => brushRuntime.resetStroke?.(),
+      }
+    : null;
+  const strokeStartBrushConfigRuntime = brushRuntime
+    ? {
+        updateConfig: (config: StrokeStartBrushConfig) => brushRuntime.updateConfig?.(config),
+      }
+    : null;
 
   return useStartDrawingHandler({
     prelude: {
@@ -78,7 +98,7 @@ export const useDrawingStartRuntime = ({
       sampleColorAt,
       sampleHexAt,
       debugLog,
-      brushEngine: brushEngine as UseStartDrawingArgs['prelude']['brushEngine'],
+      brushConfigRuntime: strokeStartBrushConfigRuntime,
       strokeBoundingBoxRef: refs.strokeBoundingBoxRef,
       strokeCapturePaddingRef: refs.strokeCapturePaddingRef,
       resolveCustomBrushData: resolveActiveCustomBrushData,
@@ -122,7 +142,7 @@ export const useDrawingStartRuntime = ({
       ccFlowVelocityRef: refs.ccFlowVelocityRef,
       colorCyclePixelQueueRef: refs.colorCyclePixelQueue,
       createPixelQueue,
-      brushEngine: brushEngine as UseStartDrawingArgs['samplingCanvas']['brushEngine'],
+      brushRuntime: strokeStartSamplingRuntime,
       colorCycleAnimationRef: refs.colorCycleAnimationRef,
       stampCounterRef: refs.stampCounterRef,
       drawingCtxRef: refs.drawingCtxRef,
@@ -134,7 +154,7 @@ export const useDrawingStartRuntime = ({
     toolStroke: {
       isEraserV2: FF.ERASER_V2,
       userBrushEngine,
-      brushEngine: brushEngine as UseStartDrawingArgs['toolStroke']['brushEngine'],
+      brushRuntime,
       drawEraserSegment,
       resolveCustomBrushData: resolveActiveCustomBrushData,
       eraserToolRef: refs.eraserToolRef,

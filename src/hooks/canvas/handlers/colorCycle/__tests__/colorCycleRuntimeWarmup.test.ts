@@ -1,8 +1,11 @@
 import { startColorCycleRuntimeWarmupForEdit } from '@/hooks/canvas/handlers/colorCycle/colorCycleRuntimeWarmup';
+import {
+  disposeColorCycleBrushManager,
+  getColorCycleBrushManager,
+} from '@/stores/colorCycleBrushManager';
 
 const mockState = {
   layers: [] as Array<Record<string, unknown>>,
-  getLayerColorCycleBrush: jest.fn(),
   ensureColorCycleLayerRuntime: jest.fn(),
 };
 
@@ -16,13 +19,14 @@ describe('startColorCycleRuntimeWarmupForEdit', () => {
   beforeEach(() => {
     jest.useFakeTimers();
     mockState.layers = [];
-    mockState.getLayerColorCycleBrush.mockReset();
     mockState.ensureColorCycleLayerRuntime.mockReset();
+    jest.spyOn(getColorCycleBrushManager(), 'hasBrush').mockReturnValue(false);
   });
 
   afterEach(() => {
     jest.runOnlyPendingTimers();
     jest.useRealTimers();
+    disposeColorCycleBrushManager();
   });
 
   it('blocks edits, hydrates cold color-cycle layers, and reports warming progress', async () => {
@@ -47,10 +51,23 @@ describe('startColorCycleRuntimeWarmupForEdit', () => {
         },
       },
     ];
-    mockState.getLayerColorCycleBrush.mockReturnValueOnce(null).mockReturnValue({});
     mockState.ensureColorCycleLayerRuntime.mockReturnValue(new Promise<boolean>((resolve) => {
       resolveWarmup = resolve;
     }));
+    const manager = getColorCycleBrushManager();
+    const hasBrushSpy = jest.spyOn(manager, 'hasBrush');
+    hasBrushSpy.mockReturnValueOnce(false).mockReturnValue(true);
+    manager.ensureDocument('layer-cold', 2, 2, {
+      residency: 'cold-archive-ref',
+      archiveRefs: {
+        paintRef: 'state/paint.bin',
+        gradientIdRef: 'state/gradient-id.bin',
+        gradientDefIdRef: 'state/gradient-def-id.bin',
+        speedRef: 'state/speed.bin',
+        flowRef: 'state/flow.bin',
+        phaseRef: 'state/phase.bin',
+      },
+    });
 
     const blocked = startColorCycleRuntimeWarmupForEdit({
       layerId: 'layer-cold',
@@ -83,7 +100,6 @@ describe('startColorCycleRuntimeWarmupForEdit', () => {
         },
       },
     ];
-    mockState.getLayerColorCycleBrush.mockReturnValue(null);
 
     const blocked = startColorCycleRuntimeWarmupForEdit({
       layerId: 'layer-preview-only',
@@ -113,7 +129,6 @@ describe('startColorCycleRuntimeWarmupForEdit', () => {
         },
       },
     ];
-    mockState.getLayerColorCycleBrush.mockReturnValue(null);
 
     const blocked = startColorCycleRuntimeWarmupForEdit({
       layerId: 'layer-gradient-only',
@@ -158,7 +173,6 @@ describe('startColorCycleRuntimeWarmupForEdit', () => {
         },
       },
     ];
-    mockState.getLayerColorCycleBrush.mockReturnValue(null);
 
     const blocked = startColorCycleRuntimeWarmupForEdit({
       layerId: 'layer-unsupported-schema',

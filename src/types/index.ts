@@ -494,6 +494,11 @@ export interface ColorCycleRecolorSettings {
 }
 
 export interface ColorCycleCanonicalDocumentData {
+  /**
+   * In-memory identity for the canonical color-cycle document. Older project
+   * files omit this; load-time migration defaults it to the owning layer id.
+   */
+  documentId?: string;
   mode?: 'brush' | 'recolor';
   /**
    * @deprecated Legacy single gradient. Use gradientDefs + slotPalettes instead.
@@ -522,11 +527,6 @@ export interface ColorCycleCanonicalDocumentData {
     to: number;
   };
   activeGradientId?: string;
-  gradientIdBuffer?: ArrayBuffer;
-  gradientDefIdBuffer?: ArrayBuffer;
-  phaseBuffer?: ArrayBuffer;
-  smoothPhaseBuffer?: ArrayBuffer;
-  smoothFlagsBuffer?: ArrayBuffer;
   gradientDefStore?: ColorCycleGradientDefStoreEntry[];
   nextGradientDefId?: number;
   gradientVersion?: number;
@@ -565,7 +565,11 @@ export interface ColorCycleRuntimeData {
     slot: number;
     spec: DerivedGradientSpec;
   }>;
-  colorCycleBrush?: import('../hooks/brushEngine/ColorCycleBrushCanvas2D').ColorCycleBrushCanvas2D;
+  /**
+   * @deprecated Runtime compatibility bridge only. Do not treat this as
+   * document truth or a general engine handle.
+   */
+  colorCycleBrush?: ColorCycleLegacyRuntimeBrush;
   /**
    * @deprecated Runtime-derived/migration-only flag. Playback ownership lives in
    * PlaybackRuntimeController and colorCyclePlayback.
@@ -595,6 +599,21 @@ export interface ColorCycleRuntimeData {
     notes?: string[];
   };
 }
+
+export type ColorCycleLegacyRuntimeBrush =
+  & import('../lib/colorCycle/document').ColorCycleBrushLayerSnapshotRuntimeReader
+  & import('../lib/colorCycle/document').ColorCycleBrushSerializedStateRuntimeReader
+  & {
+    getCanvas?: () => HTMLCanvasElement;
+    renderDirectToCanvas?: (canvas: HTMLCanvasElement, layerId: string) => void;
+    commitCurrentStroke?: (layerId?: string) => void;
+    setLayerId?: (layerId: string) => void;
+    isUsingWebGL?: () => boolean;
+    isPlaying?: () => boolean;
+    setPlaying?: (playing: boolean) => void;
+    markLayerHasExternalBase?: (layerId: string, hasExternalBase?: boolean) => void;
+    getColorCycleLayerDocument?: (layerId: string) => { read(): { version: number } } | undefined;
+  };
 
 export type LayerColorCycleData =
   & ColorCycleCanonicalDocumentData

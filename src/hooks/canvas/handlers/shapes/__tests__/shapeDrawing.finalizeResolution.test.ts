@@ -52,6 +52,16 @@ const makeContext = () => ({
   clearRect: jest.fn(),
 }) as unknown as CanvasRenderingContext2D;
 
+const makeShapeBrushRuntime = () => ({
+  updateConfig: jest.fn(),
+  fillCcGradientLinear: jest.fn(),
+  fillCcGradientConcentric: jest.fn(),
+  updateColorCycleTexture: jest.fn(),
+  applyStrokeDither: jest.fn(),
+  updateColorCycleGradient: jest.fn(),
+  resetColorCycle: jest.fn(),
+});
+
 describe('finalizeShapeDrawing CC dither resolution', () => {
   beforeEach(() => {
     jest.clearAllMocks();
@@ -303,7 +313,7 @@ describe('finalizeShapeDrawing CC dither resolution', () => {
     };
     const deps = {
       storeRef: { current: storeState },
-      brushEngine: {},
+      shapeBrushRuntime: makeShapeBrushRuntime(),
       drawingCtxRef: refs.drawingCtxRef,
       drawingCanvasRef: refs.drawingCanvasRef,
       drawingCanvasHasContent: refs.drawingCanvasHasContent,
@@ -313,7 +323,7 @@ describe('finalizeShapeDrawing CC dither resolution', () => {
       hadValidShapePressureRef: refs.hadValidShapePressureRef,
       lastStablePressureRef: refs.lastStablePressureRef,
       computeShapePixelSize: jest.fn(() => 3),
-      getColorCycleBrushManager: () => ({ getBrush: () => null }),
+      getColorCycleBrushManager: () => ({ getShapeFillBrush: () => null }),
       ensureActiveColorCycleGradientSlot: jest.fn(),
       runColorCycleShapeFill,
       bindBrushToCanvas: jest.fn(),
@@ -441,7 +451,7 @@ describe('finalizeShapeDrawing CC dither resolution', () => {
     };
     const deps = {
       storeRef: { current: storeState },
-      brushEngine: { resetColorCycle: jest.fn() },
+      shapeBrushRuntime: makeShapeBrushRuntime(),
       drawingCtxRef: refs.drawingCtxRef,
       drawingCanvasRef: refs.drawingCanvasRef,
       drawingCanvasHasContent: refs.drawingCanvasHasContent,
@@ -451,7 +461,7 @@ describe('finalizeShapeDrawing CC dither resolution', () => {
       hadValidShapePressureRef: refs.hadValidShapePressureRef,
       lastStablePressureRef: refs.lastStablePressureRef,
       computeShapePixelSize: jest.fn(() => 3),
-      getColorCycleBrushManager: () => ({ getBrush: () => null }),
+      getColorCycleBrushManager: () => ({ getShapeFillBrush: () => null }),
       ensureActiveColorCycleGradientSlot: jest.fn(),
       runColorCycleShapeFill,
       bindBrushToCanvas: jest.fn(),
@@ -582,7 +592,7 @@ describe('finalizeShapeDrawing CC dither resolution', () => {
     };
     const deps = {
       storeRef: { current: storeState },
-      brushEngine: { resetColorCycle: jest.fn() },
+      shapeBrushRuntime: makeShapeBrushRuntime(),
       drawingCtxRef: refs.drawingCtxRef,
       drawingCanvasRef: refs.drawingCanvasRef,
       drawingCanvasHasContent: refs.drawingCanvasHasContent,
@@ -592,7 +602,7 @@ describe('finalizeShapeDrawing CC dither resolution', () => {
       hadValidShapePressureRef: refs.hadValidShapePressureRef,
       lastStablePressureRef: refs.lastStablePressureRef,
       computeShapePixelSize: jest.fn(() => 3),
-      getColorCycleBrushManager: () => ({ getBrush: () => null }),
+      getColorCycleBrushManager: () => ({ getShapeFillBrush: () => null }),
       ensureActiveColorCycleGradientSlot: jest.fn(),
       runColorCycleShapeFill,
       bindBrushToCanvas: jest.fn(),

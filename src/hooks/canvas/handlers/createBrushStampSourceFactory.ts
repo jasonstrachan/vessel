@@ -8,21 +8,21 @@ import {
 
 interface CreateBrushStampSourceFactoryOptions {
   storeRef: MutableRefObject<AppState>;
-  brushEngine: BrushStampSourceDeps['brushEngine'];
+  brushRuntime: BrushStampSourceDeps['brushRuntime'];
   userBrushEngine: BrushStampSourceDeps['userBrushEngine'];
   resolveCustomBrush: BrushStampSourceDeps['resolveCustomBrush'];
 }
 
 export const createBrushStampSourceFactory = ({
   storeRef,
-  brushEngine,
+  brushRuntime,
   userBrushEngine,
   resolveCustomBrush,
 }: CreateBrushStampSourceFactoryOptions) => {
   return (options?: BrushStampSourceOptions) =>
     new BrushStampSource({
       getState: () => storeRef.current,
-      brushEngine,
+      brushRuntime,
       userBrushEngine,
       resolveCustomBrush,
     }, options);

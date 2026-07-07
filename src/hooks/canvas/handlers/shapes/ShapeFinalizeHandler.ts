@@ -3,7 +3,6 @@ import type React from 'react';
 import type { AppState } from '@/stores/useAppStore';
 import type { BrushSettings } from '@/types';
 import { BrushShape } from '@/types';
-import type { BrushEngine } from '@/hooks/useBrushEngineSimplified';
 import { getRisographPattern, getRisographEffectSettings } from '@/utils/risographTexture';
 import { applyLostEdgeErosionToContext } from '@/shapeFill/lostEdgeErosion';
 import { parseCssColorToRgba } from '@/hooks/canvas/utils/colorCycleHelpers';
@@ -37,6 +36,23 @@ export type BoundingBox = {
 export type CaptureRegion = { x: number; y: number; width: number; height: number };
 
 export type AutoSampleStops = Array<{ position: number; color: string }>;
+
+export type ShapeFinalizeBrushRuntime = {
+  updateColorCycleGradient?: (stops: AutoSampleStops) => void;
+  applyStrokeDither?: (
+    ctx: CanvasRenderingContext2D,
+    bounds: { x: number; y: number; width: number; height: number } | null,
+    sampleCtx?: CanvasRenderingContext2D,
+    options?: {
+      mergeExisting?: boolean;
+      overridePressure?: number;
+      overridePixelSize?: number;
+      settingsOverride?: BrushSettings;
+      regularDitherVarietySeed?: number;
+      quantizeSourceAlpha?: boolean;
+    },
+  ) => void;
+};
 
 const ditherShapeFinalizeDebug = createDevDebugOverlayLogger('dither-shape');
 
@@ -732,7 +748,7 @@ export const finalizeDitherGradientShape = ({
 
 export const finalizeRasterShapeFill = ({
   drawCtx,
-  brushEngine,
+  brushRuntime,
   storeRef,
   liveBrushSettings,
   shapePoints,
@@ -751,7 +767,7 @@ export const finalizeRasterShapeFill = ({
   ccDebug,
 }: {
   drawCtx: CanvasRenderingContext2D;
-  brushEngine: BrushEngine;
+  brushRuntime: ShapeFinalizeBrushRuntime;
   storeRef: React.MutableRefObject<AppState>;
   liveBrushSettings: BrushSettings;
   shapePoints: ShapePoint[];
@@ -816,7 +832,7 @@ export const finalizeRasterShapeFill = ({
             liveState.setBrushSettings({ gradientBands: stops.length });
           }
         } catch {}
-        try { brushEngine.updateColorCycleGradient?.(stops); } catch {}
+        try { brushRuntime.updateColorCycleGradient?.(stops); } catch {}
         try {
           if (st.tools.brushSettings.autoSampleGradient && !st.tools.brushSettings.autoSampleGradientRealtime) {
             st.setBrushSettings({ autoSampleGradient: false });
@@ -996,7 +1012,7 @@ export const finalizeRasterShapeFill = ({
     }
   }
 
-  if (brushEngine.applyStrokeDither && liveBrushSettings.brushShape !== BrushShape.DITHER_GRADIENT) {
+  if (brushRuntime.applyStrokeDither && liveBrushSettings.brushShape !== BrushShape.DITHER_GRADIENT) {
     try {
       const strokeDitherRegion = boundingBoxToCaptureRegion(
         strokeBoundingBox,
@@ -1069,7 +1085,7 @@ export const finalizeRasterShapeFill = ({
         }
 
         const regularDitherVarietySeed = computeRegularDitherShapeSeed(shapePoints);
-        brushEngine.applyStrokeDither(
+        brushRuntime.applyStrokeDither(
           drawCtx,
           {
             x: ditherRegion.x,

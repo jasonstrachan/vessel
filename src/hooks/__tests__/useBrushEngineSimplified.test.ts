@@ -12,6 +12,7 @@ jest.mock('@/stores/colorCycleBrushManager', () => ({
   setColorCycleStoreStateGetter: jest.fn(),
   setLayerIdGetter: jest.fn(),
   getColorCycleBrushManager: () => ({
+    applySettingsToBrushes: jest.fn(),
     attachPreviewCanvas: jest.fn(),
     resetForNewStroke: jest.fn(),
   }),

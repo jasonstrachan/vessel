@@ -11,7 +11,7 @@ interface DrawingHandlersLike {
   finalizeDrawing: (skipHistory: boolean) => Promise<void>;
 }
 
-interface BrushEngineLike {
+interface RectangleGradientRuntime {
   drawRectangleGradient: (
     ctx: CanvasRenderingContext2D,
     startX: number,
@@ -25,7 +25,7 @@ interface BrushEngineLike {
 }
 
 interface UseDrawingCanvasRectangleGradientFinalizeOptions {
-  brushEngine: BrushEngineLike | null;
+  brushRuntime: RectangleGradientRuntime | null;
   toolStateMachine: { resetRectangleGradient: () => void };
   interactionDispatch: (action: { type: 'DRAWING_END' }) => void;
   drawingHandlers: DrawingHandlersLike;
@@ -52,7 +52,7 @@ interface UseDrawingCanvasRectangleGradientFinalizeOptions {
 }
 
 export const useDrawingCanvasRectangleGradientFinalize = ({
-  brushEngine,
+  brushRuntime,
   toolStateMachine,
   interactionDispatch,
   drawingHandlers,
@@ -79,7 +79,7 @@ export const useDrawingCanvasRectangleGradientFinalize = ({
     const dy = endPos.y - startPos.y;
     const length = Math.hypot(dx, dy);
 
-    if (length <= 0 || !brushEngine) {
+    if (length <= 0 || !brushRuntime) {
       toolStateMachine.resetRectangleGradient();
       interactionDispatch({ type: 'DRAWING_END' });
       return false;
@@ -126,7 +126,7 @@ export const useDrawingCanvasRectangleGradientFinalize = ({
     }
 
     const gradientColors = colorsForGradient.length > 0 ? colorsForGradient : [tools.brushSettings.color];
-    brushEngine.drawRectangleGradient(
+    brushRuntime.drawRectangleGradient(
       drawCtx,
       startPos.x,
       startPos.y,
@@ -160,7 +160,7 @@ export const useDrawingCanvasRectangleGradientFinalize = ({
 
     return true;
   }, [
-    brushEngine,
+    brushRuntime,
     compositeCanvasDirtyRef,
     drawingHandlers,
     interactionDispatch,

@@ -63,7 +63,7 @@ const createArgs = (state: AppState, drawCtx: CanvasRenderingContext2D) => ({
     setActiveBrush: jest.fn(),
     startStroke: jest.fn(),
   },
-  brushEngine: null as {
+  brushRuntime: null as {
     drawBrush: (
       ctx: CanvasRenderingContext2D,
       from: { x: number; y: number },
@@ -163,7 +163,7 @@ describe('startEraserStroke overlay seeding', () => {
 
     args.isColorCycleBrush = false;
     args.currentBrushId = 'custom-user-brush';
-    args.brushEngine = {
+    args.brushRuntime = {
       drawBrush: brushEngineDraw,
     };
     args.userBrushEngine = {

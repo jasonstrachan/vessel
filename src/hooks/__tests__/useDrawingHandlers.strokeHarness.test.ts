@@ -18,6 +18,8 @@ type TestBrushSettings = Partial<BrushSettings> & {
 
 const mockColorCycleBrushManager = {
   getBrush: jest.fn(),
+  getSurfaceBrush: jest.fn(),
+  hasBrush: jest.fn(),
 };
 
 // Minimal store mock
@@ -151,6 +153,10 @@ describe('useDrawingHandlers stroke harness', () => {
     });
     mockColorCycleBrushManager.getBrush.mockReset();
     mockColorCycleBrushManager.getBrush.mockReturnValue(null);
+    mockColorCycleBrushManager.getSurfaceBrush.mockReset();
+    mockColorCycleBrushManager.getSurfaceBrush.mockReturnValue(null);
+    mockColorCycleBrushManager.hasBrush.mockReset();
+    mockColorCycleBrushManager.hasBrush.mockReturnValue(false);
     storeState.updateLayer.mockClear();
   });
 

@@ -1,5 +1,9 @@
 import type React from 'react';
 import type { AppState } from '@/stores/useAppStore';
+import type {
+  CompositeLayersToCanvasOptions,
+  UpdateLayerOptions,
+} from '@/stores/slices/layersSlice';
 import type { BrushSettings, PaletteState, PolygonGradientState, Project, Layer } from '../../../types';
 import type { InteractionAction, InteractionState } from '../../useCanvasInteraction';
 import type { CanvasStateMachine } from '@/hooks/useCanvasStateMachine';
@@ -73,6 +77,16 @@ export type ContourLinesStage =
   | 'awaitingAngle'
   | 'awaitingConvergenceA'
   | 'awaitingConvergenceB';
+
+export type PointerBrushRuntime = Pick<
+  BrushEngine,
+  'applyStrokeDither' | 'drawContourPolygon' | 'drawRectangleGradient'
+>;
+
+export type ShapeToolBrushRuntime = Pick<
+  BrushEngine,
+  'drawContourPolygon' | 'drawCrossHatchPolygon' | 'drawDelaunayPolygon' | 'drawPolygonGradient'
+>;
 
 export type ContourLinesBasis = ReturnType<typeof prepareContourLinesBasis> | null;
 
@@ -186,8 +200,8 @@ export interface EventHandlerDependencies {
   setCurrentTool: (tool: string) => void;
   setActiveColor: (color: string) => void;
   setCurrentOffscreenCanvas: (canvas: HTMLCanvasElement | null) => void;
-  compositeLayersToCanvas: (canvas: HTMLCanvasElement) => void;
-  updateLayer: (layerId: string, updates: Partial<Layer>, options?: { skipColorCycleSync?: boolean }) => void;
+  compositeLayersToCanvas: (canvas: HTMLCanvasElement, options?: CompositeLayersToCanvasOptions) => void;
+  updateLayer: (layerId: string, updates: Partial<Layer>, options?: UpdateLayerOptions) => void;
   setBrushSettings: (settings: Partial<BrushSettings>) => void;
   updateRecolorSampling: (partial: Partial<RecolorSamplingState>) => void;
   stopRecolorSampling: () => void;
@@ -229,7 +243,8 @@ export interface EventHandlerDependencies {
   pan: SimplePan;
   toolStateMachine: ToolStateMachine;
   drawingHandlers: DrawingHandlers;
-  brushEngine: BrushEngine | null;
+  brushRuntime: PointerBrushRuntime | null;
+  shapeBrushRuntime: ShapeToolBrushRuntime | null;
   
   // Helper functions
   sampleColorAtPosition: (x: number, y: number) => string;

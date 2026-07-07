@@ -82,7 +82,7 @@ export const colorCyclePlaybackParticipant: PlaybackParticipant = {
         });
       }
 
-      const brush = manager.getBrush(layer.id);
+      const brush = manager.getPlaybackBrush(layer.id);
       if (!brush) {
         continue;
       }
@@ -122,11 +122,8 @@ export const colorCyclePlaybackParticipant: PlaybackParticipant = {
       const flowMode: RuntimeSnapshot['flowMode'] = 'forward';
       if (previous.flowMode !== flowMode) {
         try {
-          const legacyBrush = brush as {
-            setLegacyFlowMode?: (mode: typeof flowMode) => void;
-          };
-          if (typeof legacyBrush.setLegacyFlowMode === 'function') {
-            legacyBrush.setLegacyFlowMode(flowMode);
+          if (typeof brush.setLegacyFlowMode === 'function') {
+            brush.setLegacyFlowMode(flowMode);
           } else if (typeof brush.setFlowMode === 'function') {
             brush.setFlowMode(flowMode);
           } else if (typeof brush.setFlowDirection === 'function') {

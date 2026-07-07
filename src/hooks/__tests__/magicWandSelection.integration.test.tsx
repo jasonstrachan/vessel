@@ -95,6 +95,7 @@ const baseDynamic: EventHandlerDynamicDeps = {
 };
 
 const createDeps = (dynamicOverrides: PartialDynamic = {}, depOverrides: PartialDeps = {}) => {
+  const { shapeBrushRuntime = null, ...restDepOverrides } = depOverrides;
   const dynamic: EventHandlerDynamicDeps = {
     ...baseDynamic,
     ...dynamicOverrides,
@@ -218,7 +219,8 @@ const createDeps = (dynamicOverrides: PartialDynamic = {}, depOverrides: Partial
       coerceDragShapeToPolygon: jest.fn(),
       updateDitherGradSamples: jest.fn(),
     } as any,
-    brushEngine: null,
+    brushRuntime: null,
+    shapeBrushRuntime,
     sampleColorAtPosition: jest.fn().mockReturnValue('#000000'),
     sampleColorsAlongLine: jest.fn(),
     getMousePos: jest.fn(() => ({ x: 0, y: 0 })),
@@ -258,7 +260,7 @@ const createDeps = (dynamicOverrides: PartialDynamic = {}, depOverrides: Partial
       },
     },
     defaultCursorStyle: 'none',
-    ...depOverrides,
+    ...restDepOverrides,
   };
 
   return { deps, dynamicDepsRef };

@@ -11,6 +11,7 @@ import { createPixelQueue } from '@/hooks/brushEngine/strokeProcessor';
 import type { CcFlowVelocityState } from '@/utils/colorCycleFlowVelocity';
 import type { CcStrokeSample } from '@/hooks/canvas/handlers/shapes/ccStrokeShapeGeometry';
 import type { CcGradientDrawingGeometry } from '@/hooks/canvas/handlers/shapes/ccGradientDrawingGeometry';
+import type { CcShapePreviewCache } from '@/hooks/canvas/handlers/shapes/ccShapePreviewDitherRuntime';
 import {
   createCcGradientClickLineSession,
   type CcGradientClickLineSession,
@@ -26,10 +27,7 @@ export const useDrawingHandlerRefs = () => {
   const drawingCanvasHasContent = useRef(false);
   const isCapturing = useRef(false);
   const lastDrawPosRef = useRef<{ x: number; y: number } | null>(null);
-  const ccShapePreviewCacheRef = useRef<{
-    canvas: HTMLCanvasElement;
-    origin: { x: number; y: number };
-  } | null>(null);
+  const ccShapePreviewCacheRef = useRef<CcShapePreviewCache | null>(null);
 
   const strokeBatchRef = useRef<
     Array<{ pos: { x: number; y: number }; pressure: number; timestampMs?: number }>

@@ -7,6 +7,7 @@ import {
 } from '@/hooks/canvas/utils/colorCycleMarkSession';
 import { useAppStore } from '@/stores/useAppStore';
 import { buildCcDitherRenderPalette, resolveCcDitherBandMode } from '@/utils/colorCycle/ccDitherRenderPalette';
+import { attachLegacyColorCycleTopLevelBuffers } from '@/lib/colorCycle/document';
 
 describe('colorCycleMarkSession rebuild', () => {
   const stops = [
@@ -27,14 +28,16 @@ describe('colorCycleMarkSession rebuild', () => {
     framebuffer: document.createElement('canvas'),
     alignment: createDefaultLayerAlignment(),
     layerType: 'color-cycle',
-    colorCycleData: {
-      gradientDefs: [],
-      slotPalettes: [],
-      gradientDefStore: [],
-      nextGradientDefId: 1,
-      gradientDefIdBuffer: new Uint16Array([0, 0, 0, 0]).buffer,
-      paintSlot: 0,
-    },
+    colorCycleData: attachLegacyColorCycleTopLevelBuffers(
+      {
+        gradientDefs: [],
+        slotPalettes: [],
+        gradientDefStore: [],
+        nextGradientDefId: 1,
+        paintSlot: 0,
+      },
+      { gradientDefIdBuffer: new Uint16Array([0, 0, 0, 0]).buffer },
+    ),
     version: 1,
     ...(overrides ?? {}),
   });
@@ -58,14 +61,16 @@ describe('colorCycleMarkSession rebuild', () => {
 
   it('begins sampled session without preallocating a slot', () => {
     const layer = createLayer({
-      colorCycleData: {
-        gradientDefs: [],
-        slotPalettes: [],
-        gradientDefStore: [],
-        nextGradientDefId: 1,
-        gradientDefIdBuffer: new Uint16Array([0, 0, 0, 0]).buffer,
-        paintSlot: 0,
-      },
+      colorCycleData: attachLegacyColorCycleTopLevelBuffers(
+        {
+          gradientDefs: [],
+          slotPalettes: [],
+          gradientDefStore: [],
+          nextGradientDefId: 1,
+          paintSlot: 0,
+        },
+        { gradientDefIdBuffer: new Uint16Array([0, 0, 0, 0]).buffer },
+      ),
     });
 
     useAppStore.setState((state) => ({

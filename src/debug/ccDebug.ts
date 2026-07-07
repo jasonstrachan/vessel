@@ -105,7 +105,7 @@ const getLayerDiagnostic = (
       return false;
     }
     try {
-      return Boolean(getColorCycleBrushManager().getBrush(layer.id));
+      return getColorCycleBrushManager().hasBrush(layer.id);
     } catch {
       return false;
     }

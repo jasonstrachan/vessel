@@ -10,14 +10,14 @@ type VisualRuntime = ReturnType<typeof useDrawingCanvasRuntimeVisualStage>;
 interface UseDrawingCanvasRuntimeInteractionHandlersStageOptions {
   state: DrawingCanvasRuntimeStateBundle;
   showFeedback?: (message: string) => void;
-  brushEngine: VisualRuntime['brushEngine'];
+  brushRuntime: VisualRuntime['handlerBrushRuntime'];
   renderRuntime: RenderRuntime;
 }
 
 export const useDrawingCanvasRuntimeInteractionHandlersStage = ({
   state,
   showFeedback,
-  brushEngine,
+  brushRuntime,
   renderRuntime,
 }: UseDrawingCanvasRuntimeInteractionHandlersStageOptions) => {
   const interactionRuntime = useDrawingCanvasInteractionRuntime({
@@ -44,7 +44,7 @@ export const useDrawingCanvasRuntimeInteractionHandlersStage = ({
       interactionDispatch: interactionRuntime.interactionDispatch,
       stateMachine: interactionRuntime.stateMachine,
       tools: state.tools,
-      brushEngine,
+      brushRuntime,
     },
     runtime: {
       compositeCanvasDirtyRef: state.compositeCanvasDirtyRef,

@@ -2,17 +2,17 @@ import { buildDrawingCanvasColorCycleRuntimeOptions } from './buildDrawingCanvas
 import { useDrawingCanvasColorCycleRuntimeState } from './useDrawingCanvasColorCycleRuntimeState';
 
 interface UseDrawingCanvasColorCycleRuntimeOptions {
-  brushEngine: Parameters<typeof buildDrawingCanvasColorCycleRuntimeOptions>[0]['brushEngine'];
+  brushRuntime: Parameters<typeof buildDrawingCanvasColorCycleRuntimeOptions>[0]['brushRuntime'];
   setNeedsRedraw: Parameters<typeof buildDrawingCanvasColorCycleRuntimeOptions>[0]['setNeedsRedraw'];
 }
 
 export const useDrawingCanvasColorCycleRuntime = ({
-  brushEngine,
+  brushRuntime,
   setNeedsRedraw,
 }: UseDrawingCanvasColorCycleRuntimeOptions) =>
   useDrawingCanvasColorCycleRuntimeState(
     buildDrawingCanvasColorCycleRuntimeOptions({
-      brushEngine,
+      brushRuntime,
       setNeedsRedraw,
     })
   );

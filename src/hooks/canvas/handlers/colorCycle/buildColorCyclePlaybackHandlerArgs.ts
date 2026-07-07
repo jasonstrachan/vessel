@@ -14,7 +14,7 @@ export const buildColorCyclePlaybackHandlerArgs = (
   args: BuildColorCyclePlaybackHandlerArgsInput
 ): PlaybackHandlerArgs => {
   const {
-    brushEngine,
+    brushRuntime,
     ensureOverlayInitialized,
     renderAllColorCycleLayers,
     storeRef,
@@ -53,7 +53,7 @@ export const buildColorCyclePlaybackHandlerArgs = (
 
   return {
     startCoreArgs: {
-      brushEngine,
+      brushRuntime,
       ensureOverlayInitialized,
       renderAllColorCycleLayers,
       storeRef,

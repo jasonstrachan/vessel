@@ -73,7 +73,8 @@ export const useDrawingCanvasRuntimeOrchestration = ({
     interactionRuntime: setup.interactionRuntime,
     handlersRuntime: setup.handlersRuntime,
     animationRuntime,
-    brushEngine: setup.brushEngine,
+    brushRuntime: setup.brushRuntime,
+    shapeBrushRuntime: setup.shapeBrushRuntime,
     draw,
     brushCursorHandleRef,
   };

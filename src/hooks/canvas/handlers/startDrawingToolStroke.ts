@@ -16,7 +16,7 @@ export const startDrawingToolStroke = ({
   drawCtx,
   isEraserV2,
   userBrushEngine,
-  brushEngine,
+  brushRuntime,
   drawEraserSegment,
   resolveCustomBrushData,
   eraserToolRef,
@@ -50,7 +50,7 @@ export const startDrawingToolStroke = ({
   drawCtx: StartEraserStrokeArgs['drawCtx'];
   isEraserV2: StartEraserStrokeArgs['isEraserV2'];
   userBrushEngine: StartEraserStrokeArgs['userBrushEngine'];
-  brushEngine: StartBrushToolStrokeArgs['brushEngine'];
+  brushRuntime: StartBrushToolStrokeArgs['brushRuntime'];
   drawEraserSegment: StartEraserStrokeArgs['drawEraserSegment'];
   resolveCustomBrushData: StartEraserStrokeArgs['resolveCustomBrushData'];
   eraserToolRef: StartEraserStrokeArgs['eraserToolRef'];
@@ -85,7 +85,7 @@ export const startDrawingToolStroke = ({
       isColorCycleBrush: ccFlags.isAny,
       currentBrushId,
       userBrushEngine,
-      brushEngine,
+      brushRuntime,
       drawEraserSegment,
       resolveCustomBrushData,
       eraserToolRef,
@@ -105,7 +105,7 @@ export const startDrawingToolStroke = ({
     pressure,
     drawCtx,
     userBrushEngine,
-    brushEngine,
+    brushRuntime,
     resolveCustomBrushData,
     captureResamplerSingleSample,
     resamplerBrushDataRef,

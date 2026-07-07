@@ -9,7 +9,10 @@ interface BuildDrawingHandlersBridgeRuntimeSetupStageOptions {
   shapeMode: UseDrawingHandlersBridgeRuntimesOptions['shapeMode'];
   toolsRef: UseDrawingHandlersBridgeRuntimesOptions['toolsRef'];
   captureCanvasToActiveLayer: UseDrawingHandlersBridgeRuntimesOptions['captureCanvasToActiveLayer'];
-  brushEngine: UseDrawingHandlersBridgeRuntimesOptions['brushEngine'];
+  strokeBrushRuntime: UseDrawingHandlersBridgeRuntimesOptions['strokeBrushRuntime'];
+  finalizeBrushRuntime: UseDrawingHandlersBridgeRuntimesOptions['finalizeBrushRuntime'];
+  shapeBrushRuntime: UseDrawingHandlersBridgeRuntimesOptions['shapeBrushRuntime'];
+  playbackBrushRuntime: UseDrawingHandlersBridgeRuntimesOptions['playbackBrushRuntime'];
   userBrushEngine: UseDrawingHandlersBridgeRuntimesOptions['userBrushEngine'];
   shapeRuntime: UseDrawingHandlersBridgeRuntimesOptions['shapeRuntime'];
   brushToolRuntime: UseDrawingHandlersBridgeRuntimesOptions['brushToolRuntime'];
@@ -23,7 +26,10 @@ export const buildDrawingHandlersBridgeRuntimeSetupStageOptions = ({
   shapeMode,
   toolsRef,
   captureCanvasToActiveLayer,
-  brushEngine,
+  strokeBrushRuntime,
+  finalizeBrushRuntime,
+  shapeBrushRuntime,
+  playbackBrushRuntime,
   userBrushEngine,
   shapeRuntime,
   brushToolRuntime,
@@ -35,7 +41,10 @@ export const buildDrawingHandlersBridgeRuntimeSetupStageOptions = ({
   shapeMode,
   toolsRef,
   captureCanvasToActiveLayer,
-  brushEngine,
+  strokeBrushRuntime,
+  finalizeBrushRuntime,
+  shapeBrushRuntime,
+  playbackBrushRuntime,
   userBrushEngine,
   shapeRuntime,
   brushToolRuntime,

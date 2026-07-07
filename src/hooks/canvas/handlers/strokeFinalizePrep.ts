@@ -6,7 +6,7 @@ type UserBrushEngine = {
   endStroke: () => void;
 };
 
-type BrushEngine = {
+type FinalizeStrokeBrushRuntime = {
   finalizeStroke?: (ctx: CanvasRenderingContext2D) => StrokeBounds | null;
 };
 
@@ -22,7 +22,7 @@ export type FinalizeStrokePrepArgs = {
 };
 
 export type FinalizeStrokePrepDeps = {
-  brushEngine: BrushEngine;
+  brushRuntime: FinalizeStrokeBrushRuntime;
   userBrushEngine: UserBrushEngine;
   cancelAnimationFrame: (handle: number) => void;
 };
@@ -42,8 +42,8 @@ export const finalizeStrokePrep = (
 
   let engineStrokeBounds: StrokeBounds | null = null;
   const shouldSkipEngineFinalize = args.isEraserV2 && args.finalizeTool === 'eraser';
-  if (!shouldSkipEngineFinalize && deps.brushEngine.finalizeStroke && args.drawingCtx) {
-    engineStrokeBounds = deps.brushEngine.finalizeStroke(args.drawingCtx);
+  if (!shouldSkipEngineFinalize && deps.brushRuntime.finalizeStroke && args.drawingCtx) {
+    engineStrokeBounds = deps.brushRuntime.finalizeStroke(args.drawingCtx);
   }
 
   if (args.currentBrushId && deps.userBrushEngine.isUserBrush(args.currentBrushId)) {

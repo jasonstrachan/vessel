@@ -1,9 +1,12 @@
 import type React from 'react';
 import type { AppState } from '@/stores/useAppStore';
-import type { ColorCycleBrushImplementation } from '@/hooks/brushEngine/ColorCycleBrushMigration';
+import type { ColorCycleRuntimeBrush } from '@/lib/colorCycle/document';
 import { NON_ACTIVE_COLOR_CYCLE_FPS } from '@/constants/colorCycle';
 
-export type ColorCycleBrush = ColorCycleBrushImplementation;
+export type ColorCycleBrush = ColorCycleRuntimeBrush & {
+  updateAnimation?: () => void;
+  setTargetCanvas?: (canvas: HTMLCanvasElement | null) => void;
+};
 const NON_ACTIVE_COLOR_CYCLE_FRAME_MS = 1000 / NON_ACTIVE_COLOR_CYCLE_FPS;
 const nonActiveLayerAnimationUpdateAt = new Map<string, number>();
 const lastRenderedLayerVersionById = new Map<string, number>();
@@ -39,7 +42,7 @@ export type ColorCycleRenderDeps = {
   maskManager: { applyMaskToCanvas: (layerId: string, ctx: CanvasRenderingContext2D) => void };
   renderAllCCLogTSRef: React.MutableRefObject<number>;
   ccLog: (label: string, payload?: Record<string, unknown>) => void;
-  getColorCycleBrushManager: () => { getBrush: (layerId: string) => ColorCycleBrush | null | undefined };
+  getColorCycleBrushManager: () => { getSurfaceBrush: (layerId: string) => ColorCycleBrush | null | undefined };
   refreshLayerCCSurface: (brush: ColorCycleBrush, layerId: string, state: AppState) => HTMLCanvasElement | null;
   bindBrushToCanvas: (brush: ColorCycleBrush | null | undefined, canvas: HTMLCanvasElement | null | undefined) => void;
 };
@@ -72,11 +75,7 @@ export const renderAllColorCycleLayers = (
       return;
     }
     if (layer.visible && layer.layerType === 'color-cycle' && layer.colorCycleData?.canvas) {
-      const colorCycleBrush = (
-        typeof currentState.getLayerColorCycleBrush === 'function'
-          ? currentState.getLayerColorCycleBrush(layer.id)
-          : null
-      ) ?? colorCycleBrushManager.getBrush(layer.id);
+      const colorCycleBrush = colorCycleBrushManager.getSurfaceBrush(layer.id);
       if (!colorCycleBrush) return;
 
       const liveCanvas = deps.refreshLayerCCSurface(colorCycleBrush, layer.id, currentState);
