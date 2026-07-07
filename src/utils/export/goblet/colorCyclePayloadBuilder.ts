@@ -49,12 +49,6 @@ export type GobletColorCyclePayloadBuildOptions = {
   ) => Promise<ColorCycleSerializationResult | undefined>;
 };
 
-type PayloadBuildAttempt = {
-  source: GobletColorCyclePayloadBuildSource;
-  layer: Layer;
-  diagnostics: GobletColorCyclePayloadDiagnostic[];
-};
-
 export const buildGobletColorCyclePayload = async (
   layer: Layer,
   project: Project,
@@ -65,64 +59,43 @@ export const buildGobletColorCyclePayload = async (
     return source;
   }
 
-  const attempts: PayloadBuildAttempt[] = [{
-    source: source.source,
-    layer: source.layer,
-    diagnostics: source.diagnostics,
-  }];
-  const allDiagnostics: GobletColorCyclePayloadDiagnostic[] = [];
-  let lastFailure: {
-    reason: string;
-    diagnostics: GobletColorCyclePayloadDiagnostic[];
-  } | null = null;
+  const payload = await options.serializeResolvedLayer(
+    source.layer,
+    project,
+    options.speedWarning,
+    {
+      forceSpeedBuffer: options.forceSpeedBuffer,
+      layerSpeedScale: options.layerSpeedScale,
+      toolSpeed: options.toolSpeed,
+      resolvedSource: source.source,
+    },
+  );
 
-  for (let attemptIndex = 0; attemptIndex < attempts.length; attemptIndex += 1) {
-    const attempt = attempts[attemptIndex];
-    const payload = await options.serializeResolvedLayer(
-      attempt.layer,
-      project,
-      options.speedWarning,
-      {
-        forceSpeedBuffer: options.forceSpeedBuffer,
-        layerSpeedScale: options.layerSpeedScale,
-        toolSpeed: options.toolSpeed,
-        resolvedSource: attempt.source,
-      },
-    );
+  const validation = validateGobletColorCyclePayload(payload?.colorCycle, {
+    layerId: layer.id,
+    hasContent: layer.colorCycleData?.hasContent,
+  });
+  const diagnostics = [
+    ...source.diagnostics,
+    ...validation.diagnostics,
+  ];
 
-    const validation = validateGobletColorCyclePayload(payload?.colorCycle, {
+  if (payload && validation.ok) {
+    return {
+      ok: true,
       layerId: layer.id,
-      hasContent: layer.colorCycleData?.hasContent,
-    });
-    const attemptDiagnostics = [
-      ...attempt.diagnostics,
-      ...validation.diagnostics,
-    ];
-    allDiagnostics.push(...attemptDiagnostics);
-
-    if (payload && validation.ok) {
-      return {
-        ok: true,
-        layerId: layer.id,
-        source: attempt.source,
-        layer: attempt.layer,
-        payload,
-        diagnostics: allDiagnostics,
-        stats: validation.stats,
-      };
-    }
-
-    lastFailure = {
-      reason: validation.reason ?? 'missing-color-cycle-payload',
-      diagnostics: allDiagnostics,
+      source: source.source,
+      layer: source.layer,
+      payload,
+      diagnostics,
+      stats: validation.stats,
     };
-
   }
 
   return {
     ok: false,
     layerId: layer.id,
-    reason: lastFailure?.reason ?? 'missing-color-cycle-payload',
-    diagnostics: lastFailure?.diagnostics ?? allDiagnostics,
+    reason: validation.reason ?? 'missing-color-cycle-payload',
+    diagnostics,
   };
 };
