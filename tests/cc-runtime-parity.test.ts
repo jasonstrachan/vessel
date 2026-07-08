@@ -4,6 +4,11 @@ import path from 'node:path';
 import { bakePaletteTable, renderBrushFrame, type Goblet2GradientStop } from '@/lib/colorCycle/goblet2Cpu';
 import { applyGradientSeamProfile, type GradientSeamProfile } from '@/lib/colorCycle/gradientSeamProfile';
 import { ColorCycleAnimator } from '@/lib/ColorCycleAnimator';
+import {
+  ColorCycleLayerDocument,
+  type ColorCycleLayerDocumentState,
+  type DerivedSurface,
+} from '@/lib/colorCycle/document';
 
 type FixtureThresholds = {
   maxChannelDelta: number;
@@ -200,6 +205,46 @@ const parseHexColor = (value: string): { r: number; g: number; b: number; a: num
 
   return { r: 255, g: 255, b: 255, a: 255 };
 };
+
+const makeHistoryReplayDocumentState = (): ColorCycleLayerDocumentState => ({
+  layerId: 'cc-history-layer',
+  width: 2,
+  height: 2,
+  paintBuffer: Uint8Array.from([1, 0, 0, 0]).buffer,
+  gradientIdBuffer: Uint8Array.from([2, 0, 0, 0]).buffer,
+  gradientDefIdBuffer: Uint16Array.from([3, 0, 0, 0]).buffer,
+  speedBuffer: Uint8Array.from([4, 0, 0, 0]).buffer,
+  flowBuffer: Uint8Array.from([0, 0, 0, 0]).buffer,
+  phaseBuffer: Uint8Array.from([0, 0, 0, 0]).buffer,
+  slotPalettes: [{
+    slot: 1,
+    stops: [
+      { position: 0, color: '#000000' },
+      { position: 1, color: '#ffffff' },
+    ],
+  }],
+  gradientDefs: [{ id: 'def-a', currentSlot: 1 }],
+  gradientDefStore: [{
+    id: 1,
+    kind: 'linear',
+    stops: [{ position: 0, color: '#000000' }],
+    hash: 'hash-a',
+    source: 'manual',
+    createdAtMs: 1,
+    slot: 1,
+  }],
+  activeGradientId: 'gradient-a',
+  paintSlot: 1,
+  fgActiveSlot: 1,
+  layerBaseSpeedCps: 1,
+  flowMode: 'forward',
+  hasContent: true,
+  sources: {
+    brushStateSnapshot: true,
+    topLevelBuffers: false,
+    legacyStateRefs: false,
+  },
+});
 
 const normalizeStops = (stops: Goblet2GradientStop[]): Array<{ position: number; rgba: { r: number; g: number; b: number; a: number } }> => {
   if (!Array.isArray(stops) || stops.length === 0) {
@@ -538,6 +583,32 @@ describe('Color cycle runtime parity (Vessel reference vs Goblet2 CPU)', () => {
 
   it('loads at least one CC fixture', () => {
     expect(fixtures.length).toBeGreaterThan(0);
+  });
+
+  it('keeps history replay rebases aligned with derived surface versions', () => {
+    const document = new ColorCycleLayerDocument(makeHistoryReplayDocumentState(), {
+      initialVersion: 7,
+      initialPixelVersion: 70,
+    });
+    const surface: DerivedSurface = {
+      builtFromVersion: 8,
+      rebuild(snapshot, version) {
+        expect(snapshot).toBe(document.read().snapshot);
+        this.builtFromVersion = version;
+      },
+    };
+
+    const rebasedRead = document.rebaseVersionAnchors({
+      version: 6,
+      pixelVersion: 60,
+    });
+    surface.rebuild(rebasedRead.snapshot, rebasedRead.version);
+
+    expect(document.read()).toEqual(expect.objectContaining({
+      version: 6,
+      pixelVersion: 60,
+    }));
+    expect(surface.builtFromVersion).toBe(document.read().version);
   });
 
   it('keeps the Problem 2 playback semantic coverage matrix explicit', () => {
