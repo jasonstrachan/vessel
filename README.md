@@ -113,6 +113,19 @@ Static export mode uses:
 
 The current public deployment target is `https://jasonstrachan.com/vessel/`.
 
+### Website sync
+
+Pushes to `main` build the static export and then dispatch the
+`vessel-static-export` workflow in `jasonstrachan/jasonstrachan.com`. That
+website workflow rebuilds this repo at the exact pushed SHA, runs the website
+repo's `npm run vessel:sync`, verifies the website build, and commits only
+`public/vessel`.
+
+Required repository secret:
+
+- `WEBSITE_DEPLOY_TOKEN` - token available to this repo's Actions workflow that
+  can create `repository_dispatch` events in `jasonstrachan/jasonstrachan.com`.
+
 ## Verification
 
 Common checks:
