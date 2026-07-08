@@ -247,6 +247,15 @@ const assetContentFor = (target: string): string => {
       'export const applyDisplayFilterStack = ({ sourceCanvas }) => clamp01(1) ? sourceCanvas : sourceCanvas;',
     ].join('\n');
   }
+  if (target.endsWith('gobletPlaybackMath.js')) {
+    return [
+      'export const resolveZeroPreservingAlpha = (alpha) => alpha;',
+      'export const resolveZeroPreservingAlphaByte = (alpha) => alpha;',
+    ].join('\n');
+  }
+  if (target.endsWith('gobletPayloadContract.js')) {
+    return 'export const GOBLET2_SCHEMA_VERSION = 2;';
+  }
   if (target.endsWith('num.js')) {
     return 'export const round3 = (value) => value;';
   }
@@ -363,6 +372,8 @@ describe('webglExporter bundle contracts', () => {
       'displayFilterPipeline.js',
       'fflate-inflate.js',
       'goblet2.js',
+      'gobletPayloadContract.js',
+      'gobletPlaybackMath.js',
       'index.html',
       'num.js',
     ]);

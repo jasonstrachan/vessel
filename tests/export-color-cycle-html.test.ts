@@ -2436,6 +2436,10 @@ describe('exportProjectAsWebGL color cycle integration', () => {
     ].join('\n');
 
     const inflateRuntime = 'export const inflateRaw = () => new Uint8Array();';
+    const playbackMathRuntime = [
+      'export const resolveZeroPreservingAlpha = (alpha) => alpha;',
+      'export const resolveZeroPreservingAlphaByte = (alpha) => alpha;',
+    ].join('\n');
 
     const originalFetch = (globalThis as unknown as { fetch?: typeof fetch }).fetch;
     const fetchMock = jest.fn(async (url: RequestInfo | URL) => {
@@ -2454,6 +2458,9 @@ describe('exportProjectAsWebGL color cycle integration', () => {
       }
       if (target.endsWith('displayFilterPipeline.js')) {
         return { ok: true, text: async () => displayFilterRuntime, status: 200 } as Response;
+      }
+      if (target.endsWith('gobletPlaybackMath.js')) {
+        return { ok: true, text: async () => playbackMathRuntime, status: 200 } as Response;
       }
       if (target.endsWith('fflate-inflate.js')) {
         return { ok: true, text: async () => inflateRuntime, status: 200 } as Response;
