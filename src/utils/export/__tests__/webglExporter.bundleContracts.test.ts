@@ -516,6 +516,87 @@ describe('webglExporter bundle contracts', () => {
     ))).toBe(true);
   });
 
+  it('exports visible color-cycle layers with empty animated paint as static previews', async () => {
+    const progress: string[] = [];
+    const project = createProject();
+    const imageData = new ImageData(
+      new Uint8ClampedArray([
+        255, 0, 0, 255,
+        0, 0, 0, 0,
+        0, 0, 0, 0,
+        0, 0, 0, 0,
+      ]),
+      2,
+      2,
+    );
+    const gradientStops = [
+      { position: 0, color: '#000000' },
+      { position: 1, color: '#ffffff' },
+    ];
+    const layer = {
+      id: 'cc-empty-paint-preview',
+      name: 'CC Empty Paint Preview',
+      visible: true,
+      opacity: 1,
+      blendMode: 'source-over',
+      locked: false,
+      transparencyLocked: false,
+      order: 0,
+      layerType: 'color-cycle',
+      imageData,
+      alignment: createDefaultLayerAlignment(),
+      colorCycleData: {
+        mode: 'brush',
+        isAnimating: true,
+        hasContent: true,
+        gradient: gradientStops,
+        colorCycleBrush: {
+          getColorCycleLayerDocument: () => ({
+            read: () => ({
+              version: 1,
+              snapshot: {
+                layerId: 'cc-empty-paint-preview',
+                width: 2,
+                height: 2,
+                paintBuffer: Uint8Array.from([0, 0, 0, 0]).buffer,
+                gradientIdBuffer: Uint8Array.from([0, 0, 0, 0]).buffer,
+                gradientDefIdBuffer: new Uint16Array([1, 1, 1, 1]).buffer,
+                speedBuffer: Uint8Array.from([128, 128, 128, 128]).buffer,
+                flowBuffer: Uint8Array.from([1, 1, 1, 1]).buffer,
+                phaseBuffer: Uint8Array.from([0, 0, 0, 0]).buffer,
+                slotPalettes: [{ slot: 0, stops: gradientStops }],
+                hasContent: true,
+                sources: {
+                  brushStateSnapshot: false,
+                  topLevelBuffers: false,
+                  legacyStateRefs: false,
+                },
+              },
+            }),
+          }),
+        },
+      },
+      version: 1,
+    } as unknown as Layer;
+
+    const metadata = await exportProjectAsWebGL({
+      ...baseExportRequest(),
+      project,
+      layers: [layer],
+      bundleFormat: 'json',
+      onProgress: (event) => {
+        if (event.layer) {
+          progress.push(`${event.layer.name}:${event.layer.status}:${event.layer.message ?? ''}`);
+        }
+      },
+    });
+
+    expect(metadata.layers).toHaveLength(1);
+    expect(metadata.layers[0].assets?.texture).toEqual(expect.stringContaining('data:image/'));
+    expect(metadata.layers[0].colorCycle).toBeUndefined();
+    expect(progress).toContain('CC Empty Paint Preview:static-preview:empty-paint-with-content');
+  });
+
   it('honors an aborted Goblet export signal before downloading', async () => {
     const controller = new AbortController();
     controller.abort();

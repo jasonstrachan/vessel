@@ -327,10 +327,10 @@ export const exportProjectAsWebGL = async (
       });
       continue;
     }
-    const staticPreviewReason = layer.colorCycleData?.repairStatus?.reason;
+    let staticPreviewReason: string | undefined = layer.colorCycleData?.repairStatus?.reason;
     currentProgressLayer = { id: layer.id, name: layer.name || layer.id, staticPreviewReason };
     const layerPercent = Math.min(80, 5 + Math.round((progressLayerIndex / progressLayerTotal) * 70));
-    const isStaticPreviewLayer = layer.colorCycleData?.repairStatus?.ok === false;
+    let isStaticPreviewLayer = layer.colorCycleData?.repairStatus?.ok === false;
     emitProgress?.({
       phase: 'layers',
       percent: layerPercent,
@@ -435,45 +435,71 @@ export const exportProjectAsWebGL = async (
       colorCycleDiagnostics = getUserVisibleGobletColorCycleDiagnostics(payloadResult.diagnostics);
       const colorCycleFailureDiagnostics = formatGobletColorCycleDiagnostics(payloadResult.diagnostics);
       if (!payloadResult.ok) {
+        const canExportVisibleStaticPreview = Boolean(
+          payloadResult.reason === 'empty-paint-with-content' &&
+          texture &&
+          textureInfo?.hasVisibleAlpha
+        );
+        if (canExportVisibleStaticPreview) {
+          staticPreviewReason = payloadResult.reason;
+          currentProgressLayer = { id: layer.id, name: layer.name || layer.id, staticPreviewReason };
+          isStaticPreviewLayer = true;
+          emitProgress?.({
+            phase: 'layers',
+            percent: layerPercent,
+            message: `${layer.name || layer.id} exported as static preview`,
+            layer: {
+              id: layer.id,
+              name: layer.name || layer.id,
+              status: 'static-preview',
+              message: payloadResult.reason,
+              colorCycle: {
+                diagnostics: colorCycleFailureDiagnostics,
+              },
+            },
+          });
+        } else {
+          emitProgress?.({
+            phase: 'layers',
+            percent: layerPercent,
+            message: `${layer.name || layer.id} failed color-cycle payload validation`,
+            layer: {
+              id: layer.id,
+              name: layer.name || layer.id,
+              status: 'failed',
+              message: payloadResult.reason,
+              colorCycle: {
+                diagnostics: colorCycleFailureDiagnostics,
+              },
+            },
+          });
+          throw new Error(
+            `Goblet export blocked: color-cycle layer "${layer.name ?? layer.id}" is missing animated brush data (${payloadResult.reason}).`
+          );
+        }
+      } else {
+        colorCycleResult = payloadResult.payload;
+        colorCycleSource = payloadResult.source;
+        colorCycleStats = payloadResult.stats;
         emitProgress?.({
           phase: 'layers',
           percent: layerPercent,
-          message: `${layer.name || layer.id} failed color-cycle payload validation`,
+          message: `Validated color-cycle payload for ${layer.name || layer.id}`,
           layer: {
             id: layer.id,
             name: layer.name || layer.id,
-            status: 'failed',
-            message: payloadResult.reason,
+            status: 'packing-cc-payload',
             colorCycle: {
-              diagnostics: colorCycleFailureDiagnostics,
+              source: colorCycleSource,
+              payloadPixels: colorCycleStats?.payloadPixels,
+              nonZeroPaint: colorCycleStats?.nonZeroPaint,
+              usedSlots: colorCycleStats?.usedSlots,
+              paletteSlots: colorCycleStats?.paletteSlots,
+              diagnostics: colorCycleDiagnostics,
             },
           },
         });
-        throw new Error(
-          `Goblet export blocked: color-cycle layer "${layer.name ?? layer.id}" is missing animated brush data (${payloadResult.reason}).`
-        );
       }
-      colorCycleResult = payloadResult.payload;
-      colorCycleSource = payloadResult.source;
-      colorCycleStats = payloadResult.stats;
-      emitProgress?.({
-        phase: 'layers',
-        percent: layerPercent,
-        message: `Validated color-cycle payload for ${layer.name || layer.id}`,
-        layer: {
-          id: layer.id,
-          name: layer.name || layer.id,
-          status: 'packing-cc-payload',
-          colorCycle: {
-            source: colorCycleSource,
-            payloadPixels: colorCycleStats?.payloadPixels,
-            nonZeroPaint: colorCycleStats?.nonZeroPaint,
-            usedSlots: colorCycleStats?.usedSlots,
-            paletteSlots: colorCycleStats?.paletteSlots,
-            diagnostics: colorCycleDiagnostics,
-          },
-        },
-      });
     }
     throwIfExportAborted(options.signal);
     const colorCycle = colorCycleResult?.colorCycle;
@@ -717,7 +743,7 @@ export const exportProjectAsWebGL = async (
         name: layer.name || layer.id,
         status: isStaticPreviewLayer ? 'static-preview' : 'exported',
         message: isStaticPreviewLayer
-          ? (layer.colorCycleData?.repairStatus?.reason ?? 'Missing canonical color-cycle paint')
+          ? (staticPreviewReason ?? 'Missing canonical color-cycle paint')
           : undefined,
         colorCycle: colorCycleSource
           ? {
