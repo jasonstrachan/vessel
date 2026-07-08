@@ -361,9 +361,19 @@ const buildFitModeHtml = (): string => {
     `const hiddenCases = ${JSON.stringify(HIDDEN_CASES)};`,
     `const maskCases = ${JSON.stringify(MASK_CASES)};`,
     `const displayFilterCases = ${JSON.stringify(DISPLAY_FILTER_CASES)};`,
-    `const readRedBounds = (canvas) => {
-  const ctx = canvas.getContext('2d', { willReadFrequently: true });
-  const data = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+    `const readImageData = (canvas) => {
+  const scratch = document.createElement('canvas');
+  scratch.width = canvas.width;
+  scratch.height = canvas.height;
+  const ctx = scratch.getContext('2d', { willReadFrequently: true });
+  if (!ctx) {
+    throw new Error('2d readback context unavailable');
+  }
+  ctx.drawImage(canvas, 0, 0);
+  return ctx.getImageData(0, 0, canvas.width, canvas.height);
+};
+const readRedBounds = (canvas) => {
+  const data = readImageData(canvas).data;
   let minX = canvas.width;
   let minY = canvas.height;
   let maxX = -1;
@@ -392,8 +402,7 @@ const buildFitModeHtml = (): string => {
     : { x: minX, y: minY, width: maxX - minX + 1, height: maxY - minY + 1, colorPixels, maxRed };
 	};
 const readAlphaBounds = (canvas) => {
-  const ctx = canvas.getContext('2d', { willReadFrequently: true });
-  const data = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+  const data = readImageData(canvas).data;
   let minX = canvas.width;
   let minY = canvas.height;
   let maxX = -1;
@@ -416,8 +425,7 @@ const readAlphaBounds = (canvas) => {
     : { x: minX, y: minY, width: maxX - minX + 1, height: maxY - minY + 1, colorPixels };
 };
 const readSaturatedBounds = (canvas) => {
-  const ctx = canvas.getContext('2d', { willReadFrequently: true });
-  const data = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+  const data = readImageData(canvas).data;
   let minX = canvas.width;
   let minY = canvas.height;
   let maxX = -1;
@@ -442,8 +450,7 @@ const readSaturatedBounds = (canvas) => {
     : { x: minX, y: minY, width: maxX - minX + 1, height: maxY - minY + 1, colorPixels };
 };
 const readRgbChecksum = (canvas) => {
-  const ctx = canvas.getContext('2d', { willReadFrequently: true });
-  const data = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+  const data = readImageData(canvas).data;
   let sum = 0;
   for (let index = 0; index < data.length; index += 4) {
     if (data[index + 3] > 0) {
@@ -599,7 +606,17 @@ const buildLegacyDefaultsHtml = (): string => {
     runtime,
     `const metadata = ${JSON.stringify(metadata)};`,
     `window.__gobletLegacyDefaults = { ready: false };
-const readPixels = (canvas) => Array.from(canvas.getContext('2d', { willReadFrequently: true }).getImageData(0, 0, canvas.width, canvas.height).data);
+const readPixels = (canvas) => {
+  const scratch = document.createElement('canvas');
+  scratch.width = canvas.width;
+  scratch.height = canvas.height;
+  const ctx = scratch.getContext('2d', { willReadFrequently: true });
+  if (!ctx) {
+    throw new Error('2d readback context unavailable');
+  }
+  ctx.drawImage(canvas, 0, 0);
+  return Array.from(ctx.getImageData(0, 0, canvas.width, canvas.height).data);
+};
 try {
   const canvas = document.getElementById('target');
   canvas.width = ${VIEWPORT.width};
