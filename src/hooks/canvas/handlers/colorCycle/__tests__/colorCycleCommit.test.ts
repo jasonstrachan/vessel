@@ -1,4 +1,5 @@
 import {
+  commitBrushHistory,
   commitColorCycleLayerStroke,
   commitRasterOverlay,
   scheduleDeferredColorCycleSaveWithState,
@@ -7,6 +8,7 @@ import { TEMP_SAMPLE_SLOT } from '@/constants/colorCycle';
 import { setOverlaySeededFromLayer } from '@/hooks/canvas/utils/overlaySeedState';
 import { finalizeMarkGradientSession } from '@/hooks/canvas/utils/colorCycleMarkSession';
 import { useAppStore } from '@/stores/useAppStore';
+import type { ColorCycleSerializedState } from '@/history/helpers/colorCycle';
 import type { Layer } from '@/types';
 
 jest.mock('@/hooks/canvas/utils/colorCycleMarkSession', () => ({
@@ -42,6 +44,7 @@ const makeCommittedLayerDocument = (slot: number) => ({
 
 const makeCommittedBrush = (slot: number) => ({
   commitCurrentStroke: jest.fn(),
+  finalizeCurrentStroke: jest.fn(),
   setGradientSlotStops: jest.fn(),
   bindGradientDefIdToSlot: jest.fn(),
   commitToLayer: jest.fn(),
@@ -256,6 +259,8 @@ describe('commitRasterOverlay', () => {
       }
     );
 
+    expect(brush.finalizeCurrentStroke).toHaveBeenCalledWith(layer.id);
+    expect(brush.commitCurrentStroke).not.toHaveBeenCalled();
     expect(brush.bindGradientDefIdToSlot).toHaveBeenCalledWith(
       layer.id,
       21,
@@ -548,6 +553,61 @@ describe('scheduleDeferredColorCycleSaveWithState', () => {
         afterColorState: null,
         actionType: 'fill',
         description: 'CC Shape Linear',
+      })
+    );
+  });
+});
+
+describe('commitBrushHistory', () => {
+  it('captures color-cycle after-state before enqueueing deferred brush saves', async () => {
+    const scheduleDeferredColorCycleSave = jest.fn(async () => undefined);
+    const afterColorState = {
+      layers: [
+        {
+          layerId: 'layer-1',
+          strokeData: {
+            strokeCounter: 2,
+          },
+        },
+      ],
+    } as unknown as ColorCycleSerializedState;
+    const captureColorCycleBrushState = jest.fn(() => afterColorState);
+    const canvas = document.createElement('canvas');
+    canvas.width = 2;
+    canvas.height = 2;
+
+    await commitBrushHistory(
+      {
+        activeLayerId: 'layer-1',
+        layerBeforeImage: null,
+        layerBeforeColorState: null,
+        actionType: 'brush',
+        description: 'CC Brush',
+        tool: 'brush',
+        shouldSkipBitmapDelta: true,
+        shouldDeferColorCycleSave: true,
+        deferredLayerCanvas: canvas,
+        strokeCaptureRoi: { x: 0, y: 0, width: 2, height: 2 },
+      },
+      {
+        scheduleDeferredColorCycleSave,
+        scheduleHistoryCommit: jest.fn(async () => undefined),
+        captureColorCycleBrushState,
+        perfMark: jest.fn(),
+        perfMeasure: jest.fn(),
+        debugTime: jest.fn(),
+        debugTimeEnd: jest.fn(),
+        debugVerbose: jest.fn(),
+      }
+    );
+
+    expect(captureColorCycleBrushState).toHaveBeenCalledWith('layer-1');
+    expect(scheduleDeferredColorCycleSave).toHaveBeenCalledWith(
+      expect.objectContaining({
+        layerId: 'layer-1',
+        afterColorState,
+        actionType: 'brush',
+        description: 'CC Brush',
       })
     );
   });

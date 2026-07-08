@@ -5,6 +5,7 @@ import {
 } from '@/lib/colorCycle/gradientSeamProfile';
 import { getAppStoreState } from '@/stores/appStoreAccess';
 import type { ColorCycleGradientDefStoreEntry, ColorCycleSnapshot, DerivedGradientSpec, LayerColorCycleData } from '@/types';
+import { strokeFinalizeProbeTimeSync } from '@/utils/strokeFinalizeProbe';
 import type { ColorCycleLayerDocumentRead } from './ColorCycleLayerDocument';
 import type {
   ColorCycleLayerDocumentSnapshot,
@@ -1754,14 +1755,28 @@ export const executeColorCycleCommittedLayerState = ({
 }: ExecuteColorCycleCommittedLayerStateOptions): void => {
   const { layerId, targetCanvas = null, opacity = 1, binding } = options;
   if (binding) {
-    bindGradientDefIdToSlot(
-      layerId,
-      binding.defId,
-      binding.slot,
-      binding.bbox,
-      binding.previewSlot,
+    strokeFinalizeProbeTimeSync(
+      'executeColorCycleCommittedLayerState:bindGradientDefIdToSlot',
+      () => bindGradientDefIdToSlot(
+        layerId,
+        binding.defId,
+        binding.slot,
+        binding.bbox,
+        binding.previewSlot,
+      ),
+      {
+        layerId,
+        hasBindingBbox: Boolean(binding.bbox),
+        previewSlot: binding.previewSlot ?? null,
+      }
     );
-    syncCommittedBuffersToLayerStore(layerId);
+    strokeFinalizeProbeTimeSync(
+      'executeColorCycleCommittedLayerState:syncCommittedBuffersToLayerStore',
+      () => syncCommittedBuffersToLayerStore(layerId),
+      {
+        layerId,
+      }
+    );
   }
 
   if (!targetCanvas) {
@@ -1769,11 +1784,22 @@ export const executeColorCycleCommittedLayerState = ({
   }
 
   if (opacity !== 1) {
-    commitToLayer(targetCanvas, layerId, opacity);
+    strokeFinalizeProbeTimeSync(
+      'executeColorCycleCommittedLayerState:commitToLayer',
+      () => commitToLayer(targetCanvas, layerId, opacity),
+      {
+        layerId,
+        opacity,
+      }
+    );
     return;
   }
 
-  renderDirectToCanvas(targetCanvas, layerId);
+  strokeFinalizeProbeTimeSync(
+    'executeColorCycleCommittedLayerState:renderDirectToCanvas',
+    () => renderDirectToCanvas(targetCanvas, layerId),
+    { layerId }
+  );
 };
 
 const syncColorCycleCommittedBuffersToLayerStoreFromRuntime = (

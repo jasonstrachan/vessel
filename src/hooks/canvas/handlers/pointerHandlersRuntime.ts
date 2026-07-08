@@ -16,6 +16,10 @@ import { logLivePreview } from '@/hooks/canvas/utils/livePreviewDebug';
 import { ensurePresResDebugBridge, isPresResDebugEnabled } from '@/hooks/canvas/utils/presResDebug';
 import { computeRegularDitherShapeSeed } from '@/hooks/brushEngine/regularDitherVariety';
 import { isDragDefinedCcGradientShape } from '@/hooks/canvas/handlers/shapes/ccGradientDrawingGeometry';
+import {
+  strokeFinalizeProbeMark,
+  strokeFinalizeProbePoint,
+} from '@/utils/strokeFinalizeProbe';
 
 const SHAPE_PREVIEW_OPACITY = 0.8;
 
@@ -3939,6 +3943,17 @@ function resampleStopsToColors(stops: Stop[], count: number): string[] {
       selectionMaskBounds,
       isDraggingFloatingPaste,
     } = getDynamicDeps();
+    const pointerUpProbeMeta = {
+      pointerId: event.pointerId,
+      pointerType: event.pointerType,
+      tool: tools.currentTool,
+      brushShape: tools.brushSettings.brushShape,
+      shapeMode: tools.shapeMode,
+      isDrawing: interaction.state.isDrawing,
+      hasProject: Boolean(project),
+      layerCount: layers.length,
+    };
+    strokeFinalizeProbePoint('pointerup:start', pointerUpProbeMeta);
     void floatingPaste;
     void project;
     void layers;
@@ -4337,13 +4352,22 @@ function resampleStopsToColors(stops: Stop[], count: number): string[] {
             }
           }
 
+          const finalizeMeta = {
+            ...pointerUpProbeMeta,
+            branch: 'shape',
+            pointCount: drawingHandlers.shapePointsRef.current.length,
+          };
+          strokeFinalizeProbeMark('pointerup:shape-finalizeDrawing', 'start', finalizeMeta);
           const finalizePromise = drawingHandlers.finalizeShapeDrawing();
           finalizePromise.then(() => {
+            strokeFinalizeProbeMark('pointerup:shape-finalizeDrawing', 'end', finalizeMeta);
             // Force immediate composite regeneration after layer update
             if (compositeCanvasRef.current && project) {
+              strokeFinalizeProbeMark('pointerup:shape-post-finalize-composite', 'start', finalizeMeta);
               compositeLayersToCanvas(compositeCanvasRef.current);
               setCurrentOffscreenCanvas(compositeCanvasRef.current);
               compositeCanvasDirtyRef.current = false;
+              strokeFinalizeProbeMark('pointerup:shape-post-finalize-composite', 'end', finalizeMeta);
             }
 
             setNeedsRedraw(prev => prev + 1);
@@ -4364,29 +4388,21 @@ function resampleStopsToColors(stops: Stop[], count: number): string[] {
         }
       } else {
         // For regular drawing (non-shape mode), never skip save
+        const finalizeMeta = {
+          ...pointerUpProbeMeta,
+          branch: 'regular',
+        };
+        strokeFinalizeProbeMark('pointerup:regular-finalizeDrawing', 'start', finalizeMeta);
         drawingHandlers.finalizeDrawing(false).then(() => {
-          // Use requestAnimationFrame to ensure the layer update has propagated
-          requestAnimationFrame(() => {
-            // Force immediate composite regeneration after layer update
-            if (compositeCanvasRef.current && project) {
-              compositeLayersToCanvas(compositeCanvasRef.current);
-              setCurrentOffscreenCanvas(compositeCanvasRef.current);
-              compositeCanvasDirtyRef.current = false;
-
-              // Force immediate redraw
-              const canvas = canvasRef.current;
-              const ctx = canvas?.getContext('2d', { willReadFrequently: true });
-              if (ctx) {
-                deps.draw(ctx, deps.viewTransformRef.current);
-              }
-            }
-          });
+          strokeFinalizeProbeMark('pointerup:regular-finalizeDrawing', 'end', finalizeMeta);
+          strokeFinalizeProbePoint('pointerup:regular-after-finalize', finalizeMeta);
 
           // Restart color cycle animation if needed
           if (deps.restartColorCycleAnimation) {
             deps.restartColorCycleAnimation();
           }
         }).finally(() => {
+          strokeFinalizeProbePoint('pointerup:regular-finalizationComplete', finalizeMeta);
           resetSequentialPointerDown();
           stateMachine.finalizationComplete();
         });

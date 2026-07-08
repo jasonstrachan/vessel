@@ -18,6 +18,7 @@ import type { ColorCycleStrokeCommitDeps } from '@/hooks/canvas/handlers/colorCy
 import type { FinalizeRasterFallbackDeps } from '@/hooks/canvas/handlers/finalizeRasterFallback';
 import type { RunFinalizePostCommitDeps } from '@/hooks/canvas/handlers/finalizePostCommit';
 import type { FinalizeLostEdgeDispatcher } from '@/hooks/canvas/handlers/finalizeLostEdgeDeps';
+import { strokeFinalizeProbeTime, strokeFinalizeProbeTimeSync } from '@/utils/strokeFinalizeProbe';
 
 export const runFinalizeAfterQueue = async ({
   snapshot,
@@ -96,55 +97,71 @@ export const runFinalizeAfterQueue = async ({
   const activeLayer = currentState.layers.find(l => l.id === currentState.activeLayerId);
   const currentTool: Tool | 'eraser' = currentState.tools.currentTool as Tool | 'eraser';
   const currentBrushId = currentState.currentBrushPreset?.id;
+  const probeMeta = {
+    tool: finalizeTool,
+    currentTool,
+    brushId: currentBrushId,
+    activeLayerType: activeLayer?.layerType ?? null,
+    overlayHasContent,
+    skipSave,
+  };
 
-  const engineStrokeBounds = finalizeStrokePrep({
-    finalizeTool,
-    isEraserV2,
-    strokeBatchTimerRef,
-    lastDrawPosRef,
-    resamplerBrushDataRef,
-    stampCounterRef,
-    drawingCtx: drawingCtxRef.current,
-    currentBrushId,
-  }, {
-    brushRuntime,
-    userBrushEngine,
-    cancelAnimationFrame: cancelAnimationFrameSafe,
-  });
+  const engineStrokeBounds = strokeFinalizeProbeTimeSync(
+    'finalizeStrokePrep',
+    () => finalizeStrokePrep({
+      finalizeTool,
+      isEraserV2,
+      strokeBatchTimerRef,
+      lastDrawPosRef,
+      resamplerBrushDataRef,
+      stampCounterRef,
+      drawingCtx: drawingCtxRef.current,
+      currentBrushId,
+    }, {
+      brushRuntime,
+      userBrushEngine,
+      cancelAnimationFrame: cancelAnimationFrameSafe,
+    }),
+    probeMeta
+  );
 
   if (!activeLayer) {
     return;
   }
 
-  await runFinalizeActiveLayerFlow({
-    currentState,
-    activeLayer,
-    currentTool,
-    drawingCanvas: drawingCanvasRef.current,
-    strokeBeforeImageRef,
-    strokeBeforeColorStateRef,
-    activeStrokeSessionRef,
-    endStrokeSession,
-    maxIntervalMs,
-    project,
-    overlayHasContent,
-    strokeBoundingBox: strokeBoundingBoxRef.current,
-    strokeCapturePadding: strokeCapturePaddingRef.current,
-    roiPadding,
-    engineStrokeBounds,
-    lastStrokePoint: lastStrokePointRef.current,
-    captureRegionOverride,
-    skipSave,
-    historyActionOverride,
-    historyDescriptionOverride,
-    isEraserV2,
-    eraserRoiRef,
-    applyFinalizeLostEdge,
-    drawingCanvasRef,
-    drawingCtxRef,
-    drawingCanvasHasContent,
-    releaseBusyLock,
-  }, deps);
+  await strokeFinalizeProbeTime(
+    'runFinalizeActiveLayerFlow',
+    () => runFinalizeActiveLayerFlow({
+      currentState,
+      activeLayer,
+      currentTool,
+      drawingCanvas: drawingCanvasRef.current,
+      strokeBeforeImageRef,
+      strokeBeforeColorStateRef,
+      activeStrokeSessionRef,
+      endStrokeSession,
+      maxIntervalMs,
+      project,
+      overlayHasContent,
+      strokeBoundingBox: strokeBoundingBoxRef.current,
+      strokeCapturePadding: strokeCapturePaddingRef.current,
+      roiPadding,
+      engineStrokeBounds,
+      lastStrokePoint: lastStrokePointRef.current,
+      captureRegionOverride,
+      skipSave,
+      historyActionOverride,
+      historyDescriptionOverride,
+      isEraserV2,
+      eraserRoiRef,
+      applyFinalizeLostEdge,
+      drawingCanvasRef,
+      drawingCtxRef,
+      drawingCanvasHasContent,
+      releaseBusyLock,
+    }, deps),
+    probeMeta
+  );
 };
 
 export type RunFinalizeAfterQueueArgs = Parameters<typeof runFinalizeAfterQueue>[0];

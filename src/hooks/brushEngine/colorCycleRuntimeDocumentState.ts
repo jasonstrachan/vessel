@@ -3,6 +3,7 @@ import {
   summarizeScalarBuffer,
   summarizeSerializedColorCycleLayer,
 } from '@/utils/colorCycle/ccMutationAudit';
+import { strokeFinalizeProbeTimeSync } from '@/utils/strokeFinalizeProbe';
 import type {
   ColorCycleRuntimeMutationAuditSnapshot,
   ColorCycleRuntimeMutationReason,
@@ -32,6 +33,7 @@ import {
   setColorCycleLayerDocumentForOwner,
   type ColorCycleBrushPersistenceLayerMeta,
   type ColorCycleBrushPersistenceStrokeState,
+  type ColorCycleDirtyRect,
   type ColorCycleLayerDocumentState,
   isDerivedSurfaceStale,
 } from '@/lib/colorCycle/document';
@@ -102,24 +104,68 @@ export class ColorCycleRuntimeDocumentState<StrokeState extends ColorCycleBrushP
     publishToDocument?: boolean;
     reason?: string;
     buildDocumentState: () => ColorCycleLayerDocumentState;
+    forceDocumentPublish?: boolean;
+    pixelsChanged?: boolean;
+    dirtyRects?: ColorCycleDirtyRect[];
+    takeDocumentStateOwnership?: boolean;
+    assumeDerivedSurfaceCurrent?: boolean;
     derivedSurface?: RebuildableDerivedSurface | null;
   }): void {
-    this.setStrokeState(params.layerId, params.strokeState);
+    strokeFinalizeProbeTimeSync(
+      'colorCycleRuntimeDocumentState:setStrokeState',
+      () => this.setStrokeState(params.layerId, params.strokeState),
+      { layerId: params.layerId, reason: params.reason ?? 'snapshot-apply' }
+    );
     if (!params.publishToDocument) {
       return;
     }
 
-    const document = this.getLayerDocument(params.layerId);
+    const document = strokeFinalizeProbeTimeSync(
+      'colorCycleRuntimeDocumentState:getLayerDocument',
+      () => this.getLayerDocument(params.layerId),
+      { layerId: params.layerId, reason: params.reason ?? 'snapshot-apply' }
+    );
     if (!document) {
       return;
     }
 
-    const read = document.replaceState(
-      params.buildDocumentState(),
-      params.reason ?? 'snapshot-apply',
+    const reason = params.reason ?? 'snapshot-apply';
+    const read = strokeFinalizeProbeTimeSync(
+      'colorCycleRuntimeDocumentState:replaceDocumentState',
+      () => document.replaceState(
+        params.buildDocumentState(),
+        reason,
+        {
+          force: params.forceDocumentPublish,
+          pixelsChanged: params.pixelsChanged,
+          dirtyRects: params.dirtyRects,
+          takeOwnership: params.takeDocumentStateOwnership,
+        }
+      ),
+      { layerId: params.layerId, reason }
     );
-    if (params.derivedSurface && isDerivedSurfaceStale(document, params.derivedSurface)) {
-      params.derivedSurface.rebuild(read.snapshot, read.version);
+    const derivedSurface = params.derivedSurface;
+    if (derivedSurface) {
+      const isStale = strokeFinalizeProbeTimeSync(
+        'colorCycleRuntimeDocumentState:isDerivedSurfaceStale',
+        () => isDerivedSurfaceStale(document, derivedSurface),
+        { layerId: params.layerId, reason, assumeDerivedSurfaceCurrent: params.assumeDerivedSurfaceCurrent === true }
+      );
+      if (isStale && params.assumeDerivedSurfaceCurrent === true) {
+        strokeFinalizeProbeTimeSync(
+          'colorCycleRuntimeDocumentState:markDerivedSurfaceCurrent',
+          () => {
+            derivedSurface.builtFromVersion = read.version;
+          },
+          { layerId: params.layerId, reason, version: read.version }
+        );
+      } else if (isStale) {
+        strokeFinalizeProbeTimeSync(
+          'colorCycleRuntimeDocumentState:rebuildDerivedSurface',
+          () => derivedSurface.rebuild(read.snapshot, read.version),
+          { layerId: params.layerId, reason, version: read.version }
+        );
+      }
     }
   }
 
@@ -139,6 +185,11 @@ export class ColorCycleRuntimeDocumentState<StrokeState extends ColorCycleBrushP
     height: number;
     getMeta: () => SerializedLayerColorCycleMeta | null;
     buildDocumentState: (strokeState: StrokeState) => ColorCycleLayerDocumentState;
+    forceDocumentPublish?: boolean;
+    pixelsChanged?: boolean;
+    dirtyRects?: ColorCycleDirtyRect[];
+    takeDocumentStateOwnership?: boolean;
+    assumeDerivedSurfaceCurrent?: boolean;
     derivedSurface?: RebuildableDerivedSurface | null;
     markLayerDirty?: (layerId: string) => void;
   }): StrokeState {
@@ -146,15 +197,26 @@ export class ColorCycleRuntimeDocumentState<StrokeState extends ColorCycleBrushP
       params.layerId,
       params.createStrokeState,
     );
-    const before = this.captureMutationAuditSnapshot({
-      layerId: params.layerId,
-      strokeData: strokeState,
-      width: params.width,
-      height: params.height,
-      meta: params.getMeta(),
-    });
+    const shouldAuditPotentialClear = params.after?.hasContent !== true;
+    const before = shouldAuditPotentialClear
+      ? strokeFinalizeProbeTimeSync(
+          'colorCycleRuntimeDocumentState:captureMutationBefore',
+          () => this.captureMutationAuditSnapshot({
+            layerId: params.layerId,
+            strokeData: strokeState,
+            width: params.width,
+            height: params.height,
+            meta: params.getMeta(),
+          }),
+          { layerId: params.layerId, reason: params.reason }
+        )
+      : null;
 
-    params.mutate(strokeState);
+    strokeFinalizeProbeTimeSync(
+      'colorCycleRuntimeDocumentState:mutateStrokeState',
+      () => params.mutate(strokeState),
+      { layerId: params.layerId, reason: params.reason }
+    );
 
     if (typeof params.after?.hasContent === 'boolean') {
       strokeState.hasContent = params.after.hasContent;
@@ -166,33 +228,60 @@ export class ColorCycleRuntimeDocumentState<StrokeState extends ColorCycleBrushP
       strokeState.strokeCounter = params.after.strokeCounter;
     }
 
-    this.setStrokeStateWithDocumentPublish({
-      layerId: params.layerId,
-      strokeState,
-      publishToDocument: true,
-      reason: params.reason,
-      buildDocumentState: () => params.buildDocumentState(strokeState),
-      derivedSurface: params.derivedSurface,
-    });
+    strokeFinalizeProbeTimeSync(
+      'colorCycleRuntimeDocumentState:setStrokeStateWithDocumentPublish',
+      () => this.setStrokeStateWithDocumentPublish({
+        layerId: params.layerId,
+        strokeState,
+        publishToDocument: true,
+        reason: params.reason,
+        buildDocumentState: () => strokeFinalizeProbeTimeSync(
+          'colorCycleRuntimeDocumentState:buildDocumentState',
+          () => params.buildDocumentState(strokeState),
+          { layerId: params.layerId, reason: params.reason }
+        ),
+        forceDocumentPublish: params.forceDocumentPublish,
+        pixelsChanged: params.pixelsChanged,
+        dirtyRects: params.dirtyRects,
+        takeDocumentStateOwnership: params.takeDocumentStateOwnership,
+        assumeDerivedSurfaceCurrent: params.assumeDerivedSurfaceCurrent,
+        derivedSurface: params.derivedSurface,
+      }),
+      { layerId: params.layerId, reason: params.reason }
+    );
     if (params.markDirty !== false) {
-      params.markLayerDirty?.(params.layerId);
+      strokeFinalizeProbeTimeSync(
+        'colorCycleRuntimeDocumentState:markLayerDirty',
+        () => params.markLayerDirty?.(params.layerId),
+        { layerId: params.layerId, reason: params.reason }
+      );
     }
 
-    const after = this.captureMutationAuditSnapshot({
-      layerId: params.layerId,
-      strokeData: strokeState,
-      width: params.width,
-      height: params.height,
-      meta: params.getMeta(),
-    });
-    this.recordMutationIfCleared({
-      layerId: params.layerId,
-      reason: params.reason,
-      source: params.source,
-      expectedDestructive: params.expectedDestructive,
-      before,
-      after,
-    });
+    if (shouldAuditPotentialClear) {
+      const after = strokeFinalizeProbeTimeSync(
+        'colorCycleRuntimeDocumentState:captureMutationAfter',
+        () => this.captureMutationAuditSnapshot({
+          layerId: params.layerId,
+          strokeData: strokeState,
+          width: params.width,
+          height: params.height,
+          meta: params.getMeta(),
+        }),
+        { layerId: params.layerId, reason: params.reason }
+      );
+      strokeFinalizeProbeTimeSync(
+        'colorCycleRuntimeDocumentState:recordMutationIfCleared',
+        () => this.recordMutationIfCleared({
+          layerId: params.layerId,
+          reason: params.reason,
+          source: params.source,
+          expectedDestructive: params.expectedDestructive,
+          before,
+          after,
+        }),
+        { layerId: params.layerId, reason: params.reason }
+      );
+    }
 
     return strokeState;
   }

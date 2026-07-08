@@ -17,6 +17,7 @@ import type { FinalizeOptionsInput } from '@/hooks/canvas/handlers/finalizeOptio
 import type { AppState } from '@/stores/useAppStore';
 import type { CaptureRegion } from '@/hooks/canvas/utils/captureRegions';
 import type { CanvasSnapshot, Tool } from '@/types';
+import { strokeFinalizeProbeTime } from '@/utils/strokeFinalizeProbe';
 
 export const runFinalizeExecution = async ({
   isBusyRef,
@@ -62,34 +63,54 @@ export const runFinalizeExecution = async ({
   finalizeAfterQueueDeps: RunFinalizeAfterQueueDeps;
 }): Promise<void> => {
   const { release: releaseBusyLock } = createFinalizeBusyLock(isBusyRef);
+  const probeMeta = {
+    tool: finalizeTool,
+    isCCLayerSnapshot,
+    isCCBrushSnapshot,
+    overlayHasContent,
+    skipSave,
+    hasCaptureRegionOverride: Boolean(captureRegionOverride),
+  };
 
   try {
-    const { shouldAwaitQueueIdle } = await runFinalizePrelude({
-      strokeBatchRef,
-      processBatchedStrokes,
-      colorCyclePixelQueue,
-      isCCLayerSnapshot,
-      isCCBrushSnapshot,
-      pendingEraserTool,
-      eraserToolRef,
-      eraserRoiRef,
-    });
+    const { shouldAwaitQueueIdle } = await strokeFinalizeProbeTime(
+      'runFinalizePrelude',
+      () => runFinalizePrelude({
+        strokeBatchRef,
+        processBatchedStrokes,
+        colorCyclePixelQueue,
+        isCCLayerSnapshot,
+        isCCBrushSnapshot,
+        pendingEraserTool,
+        eraserToolRef,
+        eraserRoiRef,
+      }),
+      probeMeta
+    );
     const finalizeAfterQueue = async () => {
-      await finalizeAfterQueueDispatcher({
-        snapshot,
-        finalizeTool,
-        project,
-        overlayHasContent,
-        captureRegionOverride,
-        skipSave,
-        historyActionOverride,
-        historyDescriptionOverride,
-        releaseBusyLock,
-      }, finalizeAfterQueueDeps);
+      await strokeFinalizeProbeTime(
+        'finalizeAfterQueueDispatcher',
+        () => finalizeAfterQueueDispatcher({
+          snapshot,
+          finalizeTool,
+          project,
+          overlayHasContent,
+          captureRegionOverride,
+          skipSave,
+          historyActionOverride,
+          historyDescriptionOverride,
+          releaseBusyLock,
+        }, finalizeAfterQueueDeps),
+        probeMeta
+      );
     };
 
     if (shouldAwaitQueueIdle) {
-      await runIdleAsync(finalizeAfterQueue);
+      await strokeFinalizeProbeTime(
+        'runIdleAsync:finalizeAfterQueue',
+        () => runIdleAsync(finalizeAfterQueue),
+        probeMeta
+      );
     } else {
       await finalizeAfterQueue();
     }
@@ -186,11 +207,26 @@ export const runFinalizeDrawingLifecycle = async ({
   logError: (message: string, error: unknown) => void;
 }): Promise<void> => {
   try {
-    await runFinalizeExecution(executionArgs);
+    await strokeFinalizeProbeTime(
+      'runFinalizeDrawingLifecycle:execution',
+      () => runFinalizeExecution(executionArgs),
+      {
+        tool: executionArgs.finalizeTool,
+        isCCLayerSnapshot: executionArgs.isCCLayerSnapshot,
+        isCCBrushSnapshot: executionArgs.isCCBrushSnapshot,
+        skipSave: executionArgs.skipSave,
+      }
+    );
   } catch (error) {
     logError('Error during finalization:', error);
   } finally {
-    await finalizeDrawingCleanup();
+    await strokeFinalizeProbeTime(
+      'runFinalizeDrawingLifecycle:cleanup',
+      finalizeDrawingCleanup,
+      {
+        tool: executionArgs.finalizeTool,
+      }
+    );
     setPointerDown(false);
   }
 };

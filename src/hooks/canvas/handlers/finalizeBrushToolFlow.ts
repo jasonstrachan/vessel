@@ -20,6 +20,7 @@ import {
 } from '@/hooks/canvas/handlers/finalizePostCommit';
 import type { BoundingBox } from '@/hooks/canvas/utils/captureRegions';
 import type { StrokeCoalescePayload } from '@/hooks/canvas/handlers/strokeHistoryCoalesce';
+import { strokeFinalizeProbeTime, strokeFinalizeProbeTimeSync } from '@/utils/strokeFinalizeProbe';
 
 export const runFinalizeBrushToolFlow = async ({
   currentState,
@@ -78,12 +79,22 @@ export const runFinalizeBrushToolFlow = async ({
   finalizeRasterFallbackDeps: FinalizeRasterFallbackDeps;
   finalizePostCommitDeps: RunFinalizePostCommitDeps;
 }): Promise<{ shouldReturn: boolean }> => {
-  const brushContext = prepareFinalizeBrushContext({
-    currentState,
-    activeLayer,
-    historyActionOverride,
-    historyDescriptionOverride,
-  }, deps.finalizeBrushContextDeps);
+  const probeMeta = {
+    tool: currentTool,
+    layerType: activeLayer.layerType,
+    skipSave,
+    hasCaptureRoi: Boolean(captureRoi),
+  };
+  const brushContext = strokeFinalizeProbeTimeSync(
+    'prepareFinalizeBrushContext',
+    () => prepareFinalizeBrushContext({
+      currentState,
+      activeLayer,
+      historyActionOverride,
+      historyDescriptionOverride,
+    }, deps.finalizeBrushContextDeps),
+    probeMeta
+  );
   if (!brushContext) {
     return { shouldReturn: true };
   }
@@ -100,14 +111,25 @@ export const runFinalizeBrushToolFlow = async ({
     resolvedHistoryAction,
     resolvedHistoryDescription,
   } = brushContext;
+  const brushProbeMeta = {
+    ...probeMeta,
+    isColorCycleLayer,
+    isColorCycleBrush,
+    isAnyColorCycleBrush,
+    shouldDisableCoalescing,
+  };
 
-  const finalizeResult = await runFinalizeColorCycleBrush({
-    activeSettings,
-    currentState: nextState,
-    drawingCanvas,
-    drawingCtx,
-    baseDeps: deps.finalizeColorCycleBrushBaseDeps,
-  });
+  const finalizeResult = await strokeFinalizeProbeTime(
+    'runFinalizeColorCycleBrush',
+    () => runFinalizeColorCycleBrush({
+      activeSettings,
+      currentState: nextState,
+      drawingCanvas,
+      drawingCtx,
+      baseDeps: deps.finalizeColorCycleBrushBaseDeps,
+    }),
+    brushProbeMeta
+  );
   if (finalizeResult.shouldReturn) {
     return { shouldReturn: true };
   }
@@ -118,58 +140,71 @@ export const runFinalizeBrushToolFlow = async ({
     strokeCaptureRoi,
     deferredLayerCanvas,
     brushForCleanup,
-  } = await runFinalizeColorCycleCommitBranch({
-    isColorCycleLayer,
-    isAnyColorCycleBrush,
-    activeLayer: nextLayer,
-    activeSettings,
-    project,
-    drawingCanvas,
-    strokeBoundingBox,
-    strokeCapturePadding,
-    roiPadding,
-    enableCaptureRoi,
-    applyFinalizePolygonLostEdge: () =>
-      applyFinalizeLostEdge({
-        isColorCycleLayer,
-        activeSettings,
-      }),
-    skipSave,
-    layerBeforeImage,
-    currentTool,
-    resolvedHistoryAction,
-    resolvedHistoryDescription,
-    coalescePayload: nextCoalescePayload,
-    captureRoi,
-    layerBeforeColorState,
-    colorCycleCommitDeps: deps.colorCycleCommitDeps,
-    finalizeRasterFallbackDeps: deps.finalizeRasterFallbackDeps,
-  });
+  } = await strokeFinalizeProbeTime(
+    'runFinalizeColorCycleCommitBranch',
+    () => runFinalizeColorCycleCommitBranch({
+      isColorCycleLayer,
+      isAnyColorCycleBrush,
+      activeLayer: nextLayer,
+      activeSettings,
+      project,
+      drawingCanvas,
+      strokeBoundingBox,
+      strokeCapturePadding,
+      roiPadding,
+      enableCaptureRoi,
+      applyFinalizePolygonLostEdge: () =>
+        applyFinalizeLostEdge({
+          isColorCycleLayer,
+          activeSettings,
+        }),
+      skipSave,
+      layerBeforeImage,
+      currentTool,
+      resolvedHistoryAction,
+      resolvedHistoryDescription,
+      coalescePayload: nextCoalescePayload,
+      captureRoi,
+      layerBeforeColorState,
+      colorCycleCommitDeps: deps.colorCycleCommitDeps,
+      finalizeRasterFallbackDeps: deps.finalizeRasterFallbackDeps,
+    }),
+    brushProbeMeta
+  );
 
-  await runFinalizePostCommitForBrushFlow({
-    state: nextState,
-    isColorCycleLayer,
-    isColorCycleBrush,
-    isAnyColorCycleBrush,
-    drawingCanvasRef,
-    drawingCtxRef,
-    drawingCanvasHasContent,
-    releaseBusyLock,
-    historyHandled,
-    skipSave,
-    activeLayerId: activeLayerIdString,
-    layerBeforeImage,
-    layerBeforeColorState,
-    resolvedHistoryAction,
-    resolvedHistoryDescription,
-    currentTool,
-    coalescePayload: nextCoalescePayload,
-    captureRoi,
-    shouldDisableCoalescing,
-    deferredLayerCanvas,
-    strokeCaptureRoi,
-    brushForCleanup,
-  }, deps.finalizePostCommitDeps);
+  await strokeFinalizeProbeTime(
+    'runFinalizePostCommitForBrushFlow',
+    () => runFinalizePostCommitForBrushFlow({
+      state: nextState,
+      isColorCycleLayer,
+      isColorCycleBrush,
+      isAnyColorCycleBrush,
+      drawingCanvasRef,
+      drawingCtxRef,
+      drawingCanvasHasContent,
+      releaseBusyLock,
+      historyHandled,
+      skipSave,
+      activeLayerId: activeLayerIdString,
+      layerBeforeImage,
+      layerBeforeColorState,
+      resolvedHistoryAction,
+      resolvedHistoryDescription,
+      currentTool,
+      coalescePayload: nextCoalescePayload,
+      captureRoi,
+      shouldDisableCoalescing,
+      deferredLayerCanvas,
+      strokeCaptureRoi,
+      brushForCleanup,
+    }, deps.finalizePostCommitDeps),
+    {
+      ...brushProbeMeta,
+      historyHandled,
+      hasDeferredLayerCanvas: Boolean(deferredLayerCanvas),
+      hasStrokeCaptureRoi: Boolean(strokeCaptureRoi),
+    }
+  );
 
   return { shouldReturn: false };
 };

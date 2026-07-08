@@ -9,6 +9,7 @@ import type {
 } from './colorCycleDocumentContract';
 import { resolveColorCycleBrushPersistenceOwner } from './brushPersistenceOwnerAlias';
 import { debugWarn } from '@/utils/debug';
+import { strokeFinalizeProbeTimeSync } from '@/utils/strokeFinalizeProbe';
 
 export type ColorCycleLayerDocumentResidency =
   | 'resident'
@@ -116,6 +117,15 @@ export type ColorCycleLayerDocumentBaselineOptions = {
   pixelVersion?: number;
   clearAudit?: boolean;
 };
+
+export type ColorCycleLayerDocumentReplaceOptions = {
+  force?: boolean;
+  pixelsChanged?: boolean;
+  dirtyRects?: ColorCycleDirtyRect[];
+  takeOwnership?: boolean;
+};
+
+type ColorCycleLayerDocumentCommitOptions = Omit<ColorCycleLayerDocumentReplaceOptions, 'dirtyRects'>;
 
 export type DerivedSurface = {
   builtFromVersion: number | null;
@@ -611,11 +621,16 @@ export class ColorCycleLayerDocument {
   replaceState(
     nextState: ColorCycleLayerDocumentState,
     reason: string,
+    options?: ColorCycleLayerDocumentReplaceOptions,
   ): ColorCycleLayerDocumentRead {
     if (!reason) {
       throw new Error('Color-cycle document transactions require a reason');
     }
-    return this.commitTransaction(reason, nextState);
+    return this.commitTransaction(reason, nextState, options?.dirtyRects, {
+      force: options?.force,
+      pixelsChanged: options?.pixelsChanged,
+      takeOwnership: options?.takeOwnership,
+    });
   }
 
   replaceBaseline(
@@ -674,33 +689,73 @@ export class ColorCycleLayerDocument {
     reason: string,
     draft: ColorCycleLayerDocumentState,
     dirtyRects?: ColorCycleDirtyRect[],
-    options: { force?: boolean } = {},
+    options: ColorCycleLayerDocumentCommitOptions = {},
   ): ColorCycleLayerDocumentRead {
-    if (options.force !== true && documentStatesEqual(this.currentState, draft)) {
+    const probeMeta = {
+      layerId: draft.layerId,
+      reason,
+      width: draft.width,
+      height: draft.height,
+      force: options.force === true,
+      pixelsChanged: options.pixelsChanged === true,
+      takeOwnership: options.takeOwnership === true,
+      hasDirtyRects: Boolean(dirtyRects && dirtyRects.length > 0),
+    };
+
+    const statesEqual = options.force !== true
+      ? strokeFinalizeProbeTimeSync(
+          'colorCycleLayerDocument:documentStatesEqual',
+          () => documentStatesEqual(this.currentState, draft),
+          probeMeta
+        )
+      : false;
+    if (statesEqual) {
       return this.read();
     }
 
     const versionBefore = this.currentVersion;
     const versionAfter = versionBefore + 1;
-    const pixelVersionAfter = documentPixelBuffersEqual(this.currentState, draft)
-      ? this.currentPixelVersion
-      : this.currentPixelVersion + 1;
+    const pixelVersionAfter = options.pixelsChanged === true
+      ? this.currentPixelVersion + 1
+      : strokeFinalizeProbeTimeSync(
+          'colorCycleLayerDocument:documentPixelBuffersEqual',
+          () => documentPixelBuffersEqual(this.currentState, draft),
+          probeMeta
+        )
+        ? this.currentPixelVersion
+        : this.currentPixelVersion + 1;
 
-    this.currentState = cloneDocumentState(draft);
-    this.currentSnapshot = freezeDocumentSnapshot(cloneDocumentState(this.currentState));
+    this.currentState = strokeFinalizeProbeTimeSync(
+      'colorCycleLayerDocument:commitState',
+      () => options.takeOwnership === true ? draft : cloneDocumentState(draft),
+      probeMeta
+    );
+    this.currentSnapshot = strokeFinalizeProbeTimeSync(
+      'colorCycleLayerDocument:commitSnapshot',
+      () => freezeDocumentSnapshot(cloneDocumentState(this.currentState)),
+      probeMeta
+    );
     this.currentVersion = versionAfter;
     this.currentPixelVersion = pixelVersionAfter;
-    this.dirtyTracker.markLayerDirty(
-      this.currentState.layerId,
-      versionAfter,
-      dirtyRects && dirtyRects.length > 0 ? dirtyRects : [this.createFullLayerDirtyRect()],
+    strokeFinalizeProbeTimeSync(
+      'colorCycleLayerDocument:markLayerDirty',
+      () => this.dirtyTracker.markLayerDirty(
+        this.currentState.layerId,
+        versionAfter,
+        dirtyRects && dirtyRects.length > 0 ? dirtyRects : [this.createFullLayerDirtyRect()],
+      ),
+      probeMeta
     );
-    this.auditEntries.push({
-      reason,
-      versionBefore,
-      versionAfter,
-      committedAtMs: this.now(),
-    });
+    strokeFinalizeProbeTimeSync(
+      'colorCycleLayerDocument:auditPush',
+      () => this.auditEntries.push({
+        reason,
+        versionBefore,
+        versionAfter,
+        committedAtMs: this.now(),
+      }),
+      probeMeta
+    );
 
     return this.read();
   }

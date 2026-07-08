@@ -1,5 +1,6 @@
 import type {
   ColorCycleLayerDocument,
+  ColorCycleDirtyRect,
   ColorCycleLayerDocumentState,
 } from '@/lib/colorCycle/document';
 import type { ColorCycleAnimator } from '@/lib/ColorCycleAnimator';
@@ -34,6 +35,11 @@ export type ColorCycleLayerStrokeStateMutationParams = {
     strokeCounter?: number;
   };
   markDirty?: boolean;
+  forceDocumentPublish?: boolean;
+  pixelsChanged?: boolean;
+  dirtyRects?: ColorCycleDirtyRect[];
+  takeDocumentStateOwnership?: boolean;
+  assumeDerivedSurfaceCurrent?: boolean;
 };
 
 export type ColorCycleLayerDocumentRuntimeContext = {
@@ -185,6 +191,11 @@ export function mutateColorCycleRuntimeLayerStrokeState(
       params.layerId,
       strokeData,
     ),
+    forceDocumentPublish: params.forceDocumentPublish,
+    pixelsChanged: params.pixelsChanged,
+    dirtyRects: params.dirtyRects,
+    takeDocumentStateOwnership: params.takeDocumentStateOwnership,
+    assumeDerivedSurfaceCurrent: params.assumeDerivedSurfaceCurrent,
     derivedSurface: context.getDerivedSurface(params.layerId),
     markLayerDirty: (layerId) => context.markLayerDirty(layerId),
   });

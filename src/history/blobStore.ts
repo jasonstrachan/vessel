@@ -1,3 +1,5 @@
+import { strokeFinalizeProbeTime } from '@/utils/strokeFinalizeProbe';
+
 export const HISTORY_BLOB_DEFAULT_RESIDENT_BUDGET_BYTES = 64 * 1024 * 1024;
 export const HISTORY_BLOB_DEFAULT_SPILL_THRESHOLD_BYTES = 8 * 1024 * 1024;
 
@@ -256,8 +258,13 @@ const insertBlob = async (
 
 export const storeBlob = async (buffer: ArrayBufferLike): Promise<string> => {
   const bytes = fromArrayBuffer(buffer);
-  const id = await hashBytes(bytes);
-  return insertBlob(id, bytes, { allowIndexedDb: true });
+  const meta = { byteLength: bytes.byteLength };
+  const id = await strokeFinalizeProbeTime('blobStore:hashBytes', () => hashBytes(bytes), meta);
+  return strokeFinalizeProbeTime(
+    'blobStore:insertBlob',
+    () => insertBlob(id, bytes, { allowIndexedDb: true }),
+    meta
+  );
 };
 
 export const storeBlobSync = (buffer: ArrayBufferLike): string => {

@@ -4,8 +4,13 @@ import type { Layer } from '@/types';
 import type { HistoryDelta, HistoryDirection, HistoryRehydrationTargets } from '../actionTypes';
 import { readBlob, releaseBlob, storeBlob } from '../blobStore';
 import { HistoryBlobReadError, HistoryReplayDriftError } from '../errors';
+import {
+  strokeFinalizeProbeMark,
+  strokeFinalizeProbeTimeSync,
+} from '@/utils/strokeFinalizeProbe';
 
 type TileEncoding = 'raw' | 'rle';
+type BitmapValidationMode = 'full' | 'patches';
 
 export interface TilePatch {
   x: number;
@@ -60,6 +65,40 @@ const hashBitmapBytes = (
     }
   }
   return hash.toString(16).padStart(8, '0');
+};
+
+const createPatchHasher = (width: number, height: number) => {
+  let hash = 0x811c9dc5;
+  let patchCount = 0;
+  const mixNumber = (value: number) => {
+    hash = fnvMix(hash, value);
+    hash = fnvMix(hash, value >>> 8);
+    hash = fnvMix(hash, value >>> 16);
+    hash = fnvMix(hash, value >>> 24);
+  };
+  mixNumber(width);
+  mixNumber(height);
+
+  return {
+    addPatch: (
+      patch: { x: number; y: number; width: number; height: number },
+      data: Uint8Array
+    ) => {
+      patchCount += 1;
+      mixNumber(patch.x);
+      mixNumber(patch.y);
+      mixNumber(patch.width);
+      mixNumber(patch.height);
+      mixNumber(data.byteLength);
+      for (let i = 0; i < data.byteLength; i += 1) {
+        hash = fnvMix(hash, data[i] ?? 0);
+      }
+    },
+    digest: (): string => {
+      mixNumber(patchCount);
+      return hash.toString(16).padStart(8, '0');
+    },
+  };
 };
 
 const hashImageData = (
@@ -188,6 +227,29 @@ const hashNormalizedImageData = (
   );
 };
 
+const hashImagePatchRegions = (
+  imageData: ImageData | null | undefined,
+  width: number,
+  height: number,
+  patches: TilePatch[]
+): string => {
+  const hasher = createPatchHasher(width, height);
+  const source = imageData ? new Uint8Array(imageData.data) : null;
+  patches.forEach((patch) => {
+    const patchBytes = extractTile(
+      source,
+      imageData?.width ?? width,
+      imageData?.height ?? height,
+      patch.x,
+      patch.y,
+      patch.width,
+      patch.height
+    );
+    hasher.addPatch(patch, patchBytes);
+  });
+  return hasher.digest();
+};
+
 const tilesEqual = (
   before: Uint8Array,
   after: Uint8Array
@@ -233,6 +295,7 @@ class BitmapTileDelta implements HistoryDelta {
   private readonly backward: TilePatch[];
   private readonly beforeHash: string;
   private readonly afterHash: string;
+  private readonly validationMode: BitmapValidationMode;
   readonly tileCount: number;
 
   constructor(options: {
@@ -243,8 +306,9 @@ class BitmapTileDelta implements HistoryDelta {
     backward: TilePatch[];
     beforeHash: string;
     afterHash: string;
+    validationMode?: BitmapValidationMode;
   }) {
-    const { layerId, width, height, forward, backward, beforeHash, afterHash } = options;
+    const { layerId, width, height, forward, backward, beforeHash, afterHash, validationMode = 'full' } = options;
     this.layerId = layerId;
     this.width = width;
     this.height = height;
@@ -252,6 +316,7 @@ class BitmapTileDelta implements HistoryDelta {
     this.backward = backward;
     this.beforeHash = beforeHash;
     this.afterHash = afterHash;
+    this.validationMode = validationMode;
     this.tileCount = forward.length;
     const total =
       forward.reduce((sum, patch) => sum + patch.approxBytes, 0) +
@@ -266,7 +331,15 @@ class BitmapTileDelta implements HistoryDelta {
     }
     const expectedHash = direction === 'forward' ? this.beforeHash : this.afterHash;
     const targetLayer = useAppStore.getState().layers.find((layer) => layer.id === this.layerId);
-    const actualHash = hashImageData(targetLayer?.imageData, this.width, this.height);
+    const actualHash =
+      this.validationMode === 'patches'
+        ? hashImagePatchRegions(
+            targetLayer?.imageData,
+            this.width,
+            this.height,
+            direction === 'forward' ? this.backward : this.forward
+          )
+        : hashImageData(targetLayer?.imageData, this.width, this.height);
     if (actualHash !== expectedHash) {
       throw new HistoryReplayDriftError({
         deltaTag: this._tag,
@@ -398,8 +471,28 @@ export const createBitmapTileDelta = async ({
   }
   const width = after.width;
   const height = after.height;
-  const beforeData = before ? new Uint8Array(before.data) : null;
-  const afterData = new Uint8Array(after.data);
+  const probeMetaBase = {
+    layerId,
+    width,
+    height,
+    beforeWidth: before?.width ?? null,
+    beforeHeight: before?.height ?? null,
+    roiX: roi?.x ?? null,
+    roiY: roi?.y ?? null,
+    roiWidth: roi?.width ?? null,
+    roiHeight: roi?.height ?? null,
+    tileSize,
+  };
+  const beforeData = strokeFinalizeProbeTimeSync(
+    'createBitmapTileDelta:cloneBeforeData',
+    () => (before ? new Uint8Array(before.data) : null),
+    probeMetaBase
+  );
+  const afterData = strokeFinalizeProbeTimeSync(
+    'createBitmapTileDelta:cloneAfterData',
+    () => new Uint8Array(after.data),
+    probeMetaBase
+  );
   const forwardPatches: TilePatch[] = [];
   const backwardPatches: TilePatch[] = [];
 
@@ -427,6 +520,9 @@ export const createBitmapTileDelta = async ({
 
   const horizontalTiles = Math.ceil(width / tileSize);
   const verticalTiles = Math.ceil(height / tileSize);
+  const validationMode: BitmapValidationMode = normalizedRoi ? 'patches' : 'full';
+  const forwardPatchHasher = createPatchHasher(width, height);
+  const backwardPatchHasher = createPatchHasher(width, height);
 
   const txStart = normalizedRoi ? Math.max(0, Math.floor(normalizedRoi.x / tileSize)) : 0;
   const txEnd = normalizedRoi
@@ -441,6 +537,17 @@ export const createBitmapTileDelta = async ({
     return null;
   }
 
+  const tileCount = (txEnd - txStart + 1) * (tyEnd - tyStart + 1);
+  let changedTileCount = 0;
+  strokeFinalizeProbeMark('createBitmapTileDelta:tileLoop', 'start', {
+    ...probeMetaBase,
+    tileCount,
+    txStart,
+    txEnd,
+    tyStart,
+    tyEnd,
+    beforeIsRoi,
+  });
   for (let ty = tyStart; ty <= tyEnd; ty += 1) {
     for (let tx = txStart; tx <= txEnd; tx += 1) {
       const x = tx * tileSize;
@@ -486,6 +593,10 @@ export const createBitmapTileDelta = async ({
       if (before && tilesEqual(beforeTile, afterTile)) {
         continue;
       }
+      changedTileCount += 1;
+      const patchRegion = { x, y, width: tileWidth, height: tileHeight };
+      forwardPatchHasher.addPatch(patchRegion, afterTile);
+      backwardPatchHasher.addPatch(patchRegion, beforeTile);
 
       const forward = await encodeTileData(afterTile);
       const backward = await encodeTileData(beforeTile);
@@ -510,15 +621,41 @@ export const createBitmapTileDelta = async ({
       });
     }
   }
+  strokeFinalizeProbeMark('createBitmapTileDelta:tileLoop', 'end', {
+    ...probeMetaBase,
+    tileCount,
+    changedTileCount,
+    forwardPatchCount: forwardPatches.length,
+    backwardPatchCount: backwardPatches.length,
+    beforeIsRoi,
+  });
 
   if (forwardPatches.length === 0) {
     return null;
   }
 
-  const beforeHash =
-    before && beforeIsRoi && normalizedRoi
-      ? hashRoiBeforeOverAfter(before, after, normalizedRoi)
-      : hashNormalizedImageData(before, width, height);
+  const beforeHash = strokeFinalizeProbeTimeSync(
+    'createBitmapTileDelta:beforeHash',
+    () =>
+      validationMode === 'patches'
+        ? backwardPatchHasher.digest()
+        : before && beforeIsRoi && normalizedRoi
+          ? hashRoiBeforeOverAfter(before, after, normalizedRoi)
+          : hashNormalizedImageData(before, width, height),
+    {
+      ...probeMetaBase,
+      beforeIsRoi,
+      validationMode,
+    }
+  );
+  const afterHash = strokeFinalizeProbeTimeSync(
+    'createBitmapTileDelta:afterHash',
+    () => validationMode === 'patches' ? forwardPatchHasher.digest() : hashImageData(after, width, height),
+    {
+      ...probeMetaBase,
+      validationMode,
+    }
+  );
 
   return new BitmapTileDelta({
     layerId,
@@ -527,6 +664,7 @@ export const createBitmapTileDelta = async ({
     forward: forwardPatches,
     backward: backwardPatches,
     beforeHash,
-    afterHash: hashImageData(after, width, height),
+    afterHash,
+    validationMode,
   });
 };

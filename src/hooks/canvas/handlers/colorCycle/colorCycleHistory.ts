@@ -9,10 +9,54 @@ import { commitLayerHistory } from '@/history/helpers/layerHistory';
 import type { BoundingBox } from '@/hooks/canvas/handlers/shapes/ShapeFinalizeHandler';
 import { getColorCycleBrushManager } from '@/stores/colorCycleBrushManager';
 import { captureColorCycleCanvasSnapshot } from '@/utils/colorCycleCanvasSnapshot';
+import { trackPendingHistoryCommit } from '@/history/pendingHistoryCommits';
+import {
+  strokeFinalizeProbePoint,
+  strokeFinalizeProbeTime,
+  strokeFinalizeProbeTimeSync,
+} from '@/utils/strokeFinalizeProbe';
 
 type CaptureRegion = { x: number; y: number; width: number; height: number };
 
 type LayerHistoryPayload = Parameters<typeof commitLayerHistory>[0];
+
+const waitUntilAfterStrokeFinalize = (): Promise<void> =>
+  new Promise((resolve) => {
+    const finish = () => {
+      if (typeof window !== 'undefined') {
+        const requestIdle = (window as typeof window & {
+          requestIdleCallback?: (callback: IdleRequestCallback, options?: IdleRequestOptions) => number;
+        }).requestIdleCallback;
+        if (typeof requestIdle === 'function') {
+          requestIdle(() => resolve(), { timeout: 120 });
+          return;
+        }
+      }
+      setTimeout(resolve, 0);
+    };
+
+    if (typeof requestAnimationFrame === 'function') {
+      requestAnimationFrame(() => finish());
+      return;
+    }
+
+    finish();
+  });
+
+const materializeHistoryPayload = (payload: LayerHistoryPayload): LayerHistoryPayload => {
+  if (payload.skipBitmapDelta || payload.afterImage) {
+    return payload;
+  }
+  const state = getAppStoreState();
+  const layer = state.layers.find((entry) => entry.id === payload.layerId);
+  if (!layer || layer.layerType === 'color-cycle' || !layer.imageData) {
+    return payload;
+  }
+  return {
+    ...payload,
+    afterImage: layer.imageData,
+  };
+};
 
 export type DeferredColorCycleSaveOptions = {
   layerId: string;
@@ -67,12 +111,44 @@ export const scheduleHistoryCommit = ({
   logError,
   finalizeLane,
 }: ScheduleHistoryCommitOptions): Promise<void> => {
+  const nextPayload = materializeHistoryPayload(payload);
+  const enqueuedAt = typeof performance !== 'undefined' ? performance.now() : Date.now();
+  const probeMeta = {
+    layerId: nextPayload.layerId,
+    actionType: nextPayload.actionType,
+    tool: nextPayload.tool,
+    skipBitmapDelta: nextPayload.skipBitmapDelta,
+    hasBitmapRoi: Boolean(nextPayload.bitmapRoi),
+    hasAfterImage: Boolean(nextPayload.afterImage),
+    finalizeLane,
+  };
   try {
+    strokeFinalizeProbePoint('scheduleHistoryCommit:enqueue', probeMeta);
     const job = finalizeQueueRef.current.enqueue(
       async () => {
-        await runIdleAsync(async () => {
-          await withTiming('cc:commit', () => commitLayerHistory(payload));
-        });
+        await strokeFinalizeProbeTime(
+          'scheduleHistoryCommit:job',
+          async () => {
+            await strokeFinalizeProbeTime(
+              'scheduleHistoryCommit:deferAfterFinalize',
+              waitUntilAfterStrokeFinalize,
+              probeMeta
+            );
+            const startedAt = typeof performance !== 'undefined' ? performance.now() : Date.now();
+            strokeFinalizeProbePoint('scheduleHistoryCommit:jobStart', {
+              ...probeMeta,
+              delayAfterEnqueueMs: Math.max(0, startedAt - enqueuedAt),
+            });
+            await runIdleAsync(async () => {
+            await strokeFinalizeProbeTime(
+              'scheduleHistoryCommit:commitLayerHistory',
+              () => withTiming('cc:commit', () => commitLayerHistory(nextPayload)),
+              probeMeta
+            );
+            });
+          },
+          probeMeta
+        );
       },
       finalizeLane
     );
@@ -80,8 +156,9 @@ export const scheduleHistoryCommit = ({
     job.catch(error => {
       logError('[history] deferred commit failed', error);
     });
+    trackPendingHistoryCommit(job);
 
-    return job;
+    return Promise.resolve();
   } catch (error) {
     logError('[history] failed to enqueue commit', error);
     return Promise.reject(error);
@@ -128,32 +205,52 @@ export const scheduleDeferredColorCycleSave = (
 
   if (shouldCaptureCanvas && roi && project) {
     perfMark('cc:roi:start');
-    sanitizedRoi = boundingBoxToCaptureRegion(
-      {
-        minX: roi.x,
-        minY: roi.y,
-        maxX: roi.x + roi.width,
-        maxY: roi.y + roi.height,
-      },
-      0,
-      project
+    sanitizedRoi = strokeFinalizeProbeTimeSync(
+      'scheduleDeferredColorCycleSave:roi',
+      () => boundingBoxToCaptureRegion(
+        {
+          minX: roi.x,
+          minY: roi.y,
+          maxX: roi.x + roi.width,
+          maxY: roi.y + roi.height,
+        },
+        0,
+        project
+      ),
+      { layerId, width: roi.width, height: roi.height }
     );
     perfMark('cc:roi:end');
     perfMeasure('cc:roi', 'cc:roi:start', 'cc:roi:end');
   }
 
   let nextAfterColorState: ColorCycleSerializedState | null = providedAfterColorState ?? null;
+  const probeMeta = {
+    layerId,
+    tool,
+    actionType,
+    skipBitmapDelta,
+    shouldCaptureCanvas,
+    hasRoi: Boolean(roi),
+  };
 
   const captureStage = async (): Promise<void> => {
-    await runIdleAsync(async () => {
+    await strokeFinalizeProbeTime('scheduleDeferredColorCycleSave:captureStage', () => runIdleAsync(async () => {
       if (shouldCaptureCanvas) {
-        await withTiming('cc:capture', () => captureCanvasToActiveLayer(canvas, sanitizedRoi));
+        await strokeFinalizeProbeTime(
+          'scheduleDeferredColorCycleSave:captureCanvasToActiveLayer',
+          () => withTiming('cc:capture', () => captureCanvasToActiveLayer(canvas, sanitizedRoi)),
+          probeMeta
+        );
       }
 
       if (!nextAfterColorState) {
         perfMark('cc:state-serialize-after:start');
         debugTime('cc:state-serialize-after');
-        nextAfterColorState = captureColorCycleBrushState(layerId);
+        nextAfterColorState = strokeFinalizeProbeTimeSync(
+          'scheduleDeferredColorCycleSave:captureColorCycleBrushState',
+          () => captureColorCycleBrushState(layerId),
+          probeMeta
+        );
         debugTimeEnd('cc:state-serialize-after');
         perfMark('cc:state-serialize-after:end');
         perfMeasure(
@@ -173,50 +270,71 @@ export const scheduleDeferredColorCycleSave = (
       const state = getAppStoreState();
       const layer = state.layers.find((entry) => entry.id === layerId);
       if (layer?.layerType === 'color-cycle' && layer.colorCycleData) {
+        const { colorCycleData } = layer;
         const manager = getColorCycleBrushManager() as Partial<ReturnType<typeof getColorCycleBrushManager>>;
         const documentVersion = manager.getDocument?.(layerId)?.version ?? null;
-        const nextCanvasImageData = captureColorCycleCanvasSnapshot({
-          canvas,
-          existingImageData: layer.colorCycleData.canvasImageData,
-          roi,
-          builtFromVersion: documentVersion,
-        });
+        const nextCanvasImageData = strokeFinalizeProbeTimeSync(
+          'scheduleDeferredColorCycleSave:captureCanvasSnapshot',
+          () => captureColorCycleCanvasSnapshot({
+            canvas,
+            existingImageData: colorCycleData.canvasImageData,
+            roi,
+            builtFromVersion: documentVersion,
+          }),
+          {
+            ...probeMeta,
+            hasExistingImageData: Boolean(colorCycleData.canvasImageData),
+            documentVersion,
+          }
+        );
 
         if (nextCanvasImageData) {
-          state.updateLayer(
-            layerId,
-            {
-              colorCycleData: {
-                ...layer.colorCycleData,
-                canvasImageData: nextCanvasImageData,
-                canvasWidth: nextCanvasImageData.width,
-                canvasHeight: nextCanvasImageData.height,
+          strokeFinalizeProbeTimeSync(
+            'scheduleDeferredColorCycleSave:updateCanvasSnapshotLayer',
+            () => state.updateLayer(
+              layerId,
+              {
+                colorCycleData: {
+                  ...colorCycleData,
+                  canvasImageData: nextCanvasImageData,
+                  canvasWidth: nextCanvasImageData.width,
+                  canvasHeight: nextCanvasImageData.height,
+                },
               },
-            },
-            { skipColorCycleSync: true }
+              { skipColorCycleSync: true }
+            ),
+            {
+              ...probeMeta,
+              width: nextCanvasImageData.width,
+              height: nextCanvasImageData.height,
+            }
           );
         }
       }
-    });
+    }), probeMeta);
   };
 
   const commitStage = async (): Promise<void> => {
-    await runIdleAsync(async () => {
-      await withTiming('cc:commit', () =>
-        commitLayerHistory({
-          layerId,
-          beforeImage,
-          beforeColorState,
-          afterColorState: nextAfterColorState,
-          actionType,
-          description,
-          tool,
-          coalesce,
-          skipBitmapDelta,
-          bitmapRoi: sanitizedRoi ?? undefined,
-        })
+    await strokeFinalizeProbeTime('scheduleDeferredColorCycleSave:commitStage', () => runIdleAsync(async () => {
+      await strokeFinalizeProbeTime(
+        'scheduleDeferredColorCycleSave:commitLayerHistory',
+        () => withTiming('cc:commit', () =>
+          commitLayerHistory({
+            layerId,
+            beforeImage,
+            beforeColorState,
+            afterColorState: nextAfterColorState,
+            actionType,
+            description,
+            tool,
+            coalesce,
+            skipBitmapDelta,
+            bitmapRoi: sanitizedRoi ?? undefined,
+          })
+        ),
+        probeMeta
       );
-    });
+    }), probeMeta);
   };
 
   const trackedPromise = new Promise<void>((resolve, reject) => {
@@ -230,9 +348,13 @@ export const scheduleDeferredColorCycleSave = (
 
     const schedule = () => {
       try {
+        strokeFinalizeProbePoint('scheduleDeferredColorCycleSave:enqueueCapture', probeMeta);
         const capturePromise = finalizeQueueRef.current.enqueue(captureStage, layerId);
         capturePromise
-          .then(() => finalizeQueueRef.current.enqueue(commitStage, historyFinalizeLane))
+          .then(() => {
+            strokeFinalizeProbePoint('scheduleDeferredColorCycleSave:enqueueCommit', probeMeta);
+            return finalizeQueueRef.current.enqueue(commitStage, historyFinalizeLane);
+          })
           .then(resolve)
           .catch(scheduleError);
       } catch (error) {

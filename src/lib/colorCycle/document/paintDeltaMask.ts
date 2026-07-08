@@ -624,18 +624,18 @@ const clampMaskRoi = (
   return { x, y, width: right - x, height: bottom - y };
 };
 
-const getU8 = (buffer: ArrayBuffer | undefined, index: number): number => {
-  if (!buffer || index < 0 || index >= buffer.byteLength) {
+const getU8 = (data: Uint8Array | null, index: number): number => {
+  if (!data || index < 0 || index >= data.length) {
     return 0;
   }
-  return new Uint8Array(buffer)[index] ?? 0;
+  return data[index] ?? 0;
 };
 
-const getU16 = (buffer: ArrayBuffer | undefined, index: number): number => {
-  if (!buffer || index < 0 || index >= buffer.byteLength / 2) {
+const getU16 = (data: Uint16Array | null, index: number): number => {
+  if (!data || index < 0 || index >= data.length) {
     return 0;
   }
-  return new Uint16Array(buffer)[index] ?? 0;
+  return data[index] ?? 0;
 };
 
 export const buildColorCyclePaintDeltaMask = ({
@@ -658,7 +658,22 @@ export const buildColorCyclePaintDeltaMask = ({
   if (!bounds) {
     return null;
   }
+  const beforePaint = before?.paintBuffer ? new Uint8Array(before.paintBuffer) : null;
+  const beforeGradientId = before?.gradientIdBuffer ? new Uint8Array(before.gradientIdBuffer) : null;
+  const beforeSpeed = before?.speedBuffer ? new Uint8Array(before.speedBuffer) : null;
+  const beforeFlow = before?.flowBuffer ? new Uint8Array(before.flowBuffer) : null;
+  const beforePhase = before?.phaseBuffer ? new Uint8Array(before.phaseBuffer) : null;
+  const beforeGradientDefId = before?.gradientDefIdBuffer
+    ? new Uint16Array(before.gradientDefIdBuffer)
+    : null;
   const afterPaint = new Uint8Array(after.paintBuffer);
+  const afterGradientId = after.gradientIdBuffer ? new Uint8Array(after.gradientIdBuffer) : null;
+  const afterSpeed = after.speedBuffer ? new Uint8Array(after.speedBuffer) : null;
+  const afterFlow = after.flowBuffer ? new Uint8Array(after.flowBuffer) : null;
+  const afterPhase = after.phaseBuffer ? new Uint8Array(after.phaseBuffer) : null;
+  const afterGradientDefId = after.gradientDefIdBuffer
+    ? new Uint16Array(after.gradientDefIdBuffer)
+    : null;
   const mask = new Uint8Array(bounds.width * bounds.height);
   let changedPixels = 0;
   for (let row = 0; row < bounds.height; row += 1) {
@@ -672,12 +687,12 @@ export const buildColorCyclePaintDeltaMask = ({
         continue;
       }
       const changed =
-        getU8(before?.paintBuffer, index) !== getU8(after.paintBuffer, index) ||
-        getU8(before?.gradientIdBuffer, index) !== getU8(after.gradientIdBuffer, index) ||
-        getU8(before?.speedBuffer, index) !== getU8(after.speedBuffer, index) ||
-        getU8(before?.flowBuffer, index) !== getU8(after.flowBuffer, index) ||
-        getU8(before?.phaseBuffer, index) !== getU8(after.phaseBuffer, index) ||
-        getU16(before?.gradientDefIdBuffer, index) !== getU16(after.gradientDefIdBuffer, index);
+        getU8(beforePaint, index) !== getU8(afterPaint, index) ||
+        getU8(beforeGradientId, index) !== getU8(afterGradientId, index) ||
+        getU8(beforeSpeed, index) !== getU8(afterSpeed, index) ||
+        getU8(beforeFlow, index) !== getU8(afterFlow, index) ||
+        getU8(beforePhase, index) !== getU8(afterPhase, index) ||
+        getU16(beforeGradientDefId, index) !== getU16(afterGradientDefId, index);
       if (!changed) {
         continue;
       }

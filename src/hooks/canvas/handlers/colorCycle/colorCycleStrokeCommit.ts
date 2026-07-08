@@ -330,6 +330,12 @@ export const commitColorCycleStrokeIfNeeded = async (
     return { handled: false, skipped: true };
   }
 
+  const colorCycleData = args.activeLayer.colorCycleData;
+  const shouldHealEraseMask = Boolean(
+    colorCycleData?.eraseMask &&
+    ((colorCycleData.eraseMaskVersion ?? 0) > 0 || colorCycleData.eraseMaskImageData)
+  );
+
   const commitResult = await commitColorCycleLayerStroke({
     layer: args.activeLayer,
     drawingCanvas: args.drawingCanvas,
@@ -340,6 +346,7 @@ export const commitColorCycleStrokeIfNeeded = async (
     strokeCapturePadding: args.strokeCapturePadding,
     roiPadding: args.roiPadding,
     enableCaptureRoi: args.enableCaptureRoi,
+    shouldBuildEraseMask: shouldHealEraseMask,
   }, {
     getBrushForLayer: deps.getBrushForLayer,
     bindBrushToCanvas: deps.bindBrushToCanvas,
@@ -352,7 +359,7 @@ export const commitColorCycleStrokeIfNeeded = async (
   });
 
   const resolvedStrokeCaptureRoi = commitResult.strokeCaptureRoi ?? args.captureRoi;
-  if (resolvedStrokeCaptureRoi) {
+  if (resolvedStrokeCaptureRoi && shouldHealEraseMask) {
     deps.clearEraseMaskInRegion(args.activeLayer.id, resolvedStrokeCaptureRoi, {
       paintMask: commitResult.eraseMaskPaintMask,
     });

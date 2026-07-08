@@ -6,6 +6,7 @@ import {
   summarizeColorCycleLayer,
 } from '@/utils/colorCycle/ccMutationAudit';
 import { debugLog } from '@/utils/debug';
+import { strokeFinalizeProbeTimeSync } from '@/utils/strokeFinalizeProbe';
 
 import {
   finalizeStampDither,
@@ -83,11 +84,27 @@ export const endColorCycleStroke = (context: ColorCycleEndStrokeContext): void =
     globalWindow.__CC_probe.last = { ...globalWindow.__CC_probe.last, layerId: context.layerId };
   }
   const id = context.layerId || context.activeLayerId || 'default';
-  context.setIsDrawing(false);
+  strokeFinalizeProbeTimeSync(
+    'endColorCycleStroke:setIsDrawing',
+    () => context.setIsDrawing(false),
+    { layerId: id }
+  );
 
-  const animator = context.ensureFullResolution(id, 'stroke');
-  const strokeData = context.getStrokeData(id);
-  const perf = context.getPerfStroke();
+  const animator = strokeFinalizeProbeTimeSync(
+    'endColorCycleStroke:ensureFullResolution',
+    () => context.ensureFullResolution(id, 'stroke'),
+    { layerId: id }
+  );
+  const strokeData = strokeFinalizeProbeTimeSync(
+    'endColorCycleStroke:getStrokeData',
+    () => context.getStrokeData(id),
+    { layerId: id }
+  );
+  const perf = strokeFinalizeProbeTimeSync(
+    'endColorCycleStroke:getPerfStroke',
+    () => context.getPerfStroke(),
+    { layerId: id }
+  );
   const shouldLog =
     process.env.NODE_ENV !== 'production' &&
     typeof globalThis !== 'undefined' &&
@@ -155,25 +172,33 @@ export const endColorCycleStroke = (context: ColorCycleEndStrokeContext): void =
     const activeSlot = context.resolveActiveStrokeSlot(id, strokeData);
     strokeData.flow.activeSlot = activeSlot;
     const flowSlot = context.resolveFlowSlot(strokeData, activeSlot);
-    finalizeStampDither({
-      animator,
-      state: context.getStampDitherStrokeData(strokeData),
-      runtime: context.getStampDitherRuntime(),
-      config: {
+    strokeFinalizeProbeTimeSync(
+      'endColorCycleStroke:finalizeStampDither',
+      () => finalizeStampDither({
+        animator,
+        state: context.getStampDitherStrokeData(strokeData),
+        runtime: context.getStampDitherRuntime(),
+        config: {
+          algorithm: algo,
+          pixelSize: context.stampDitherPixelSize(),
+          patternStyle: context.stampDitherPatternStyle(),
+          imageTileThresholdResolver: context.getStampDitherImageTileThresholdResolver(),
+          bgFill: context.stampDitherBgFill(),
+          pressureLinked: context.stampDitherPressureLinked(),
+          seed: strokeData.stampDither?.stampDitherSeed ?? 0,
+        },
+        width: context.width(),
+        height: context.height(),
+        flowSlot,
+        cycleSpeed: context.getWriteCycleSpeed(strokeData),
+        ditherStrength: context.ditherStrength(),
+      }),
+      {
+        layerId: id,
         algorithm: algo,
-        pixelSize: context.stampDitherPixelSize(),
-        patternStyle: context.stampDitherPatternStyle(),
-        imageTileThresholdResolver: context.getStampDitherImageTileThresholdResolver(),
-        bgFill: context.stampDitherBgFill(),
-        pressureLinked: context.stampDitherPressureLinked(),
-        seed: strokeData.stampDither?.stampDitherSeed ?? 0,
-      },
-      width: context.width(),
-      height: context.height(),
-      flowSlot,
-      cycleSpeed: context.getWriteCycleSpeed(strokeData),
-      ditherStrength: context.ditherStrength(),
-    });
+        hasDitherBounds,
+      }
+    );
     if (perf) {
       perf.durations.endStrokeFinalizeMs += Math.max(0, nowMs() - finalizeStart);
     }
@@ -186,36 +211,55 @@ export const endColorCycleStroke = (context: ColorCycleEndStrokeContext): void =
       sampleIndices('pre endDirectFill.strokeData', strokeData?.buffers.paint);
       probeIndexRegion('pre endDirectFill.strokeData', strokeData?.buffers.paint);
     }
-    animator.endDirectFill({ markDirty: needsUpload });
+    strokeFinalizeProbeTimeSync(
+      'endColorCycleStroke:endDirectFill',
+      () => animator.endDirectFill({ markDirty: needsUpload }),
+      { layerId: id, needsUpload }
+    );
     if (shouldLog && hasDitherBounds) {
       sampleIndices('post endDirectFill.strokeData', strokeData?.buffers.paint);
       probeIndexRegion('post endDirectFill.strokeData', strokeData?.buffers.paint);
     }
     strokeData.stampDither.stampDitherFillHandle = undefined;
   }
-  animator.endStroke();
-  animator.forceRender();
+  strokeFinalizeProbeTimeSync(
+    'endColorCycleStroke:animatorEndStroke',
+    () => animator.endStroke(),
+    { layerId: id }
+  );
   if (shouldLog && hasDitherBounds) {
-    sampleIndices('post forceRender.strokeData', strokeData?.buffers.paint);
-    probeIndexRegion('post forceRender.strokeData', strokeData?.buffers.paint);
+    sampleIndices('post animatorEndStroke.strokeData', strokeData?.buffers.paint);
+    probeIndexRegion('post animatorEndStroke.strokeData', strokeData?.buffers.paint);
   }
 
   if (strokeData) {
     if (context.stampDitherEnabled()) {
       try {
-        context.bindStrokeBuffersToAnimator(strokeData, animator);
+        strokeFinalizeProbeTimeSync(
+          'endColorCycleStroke:bindStampDitherBuffersToAnimator',
+          () => context.bindStrokeBuffersToAnimator(strokeData, animator),
+          { layerId: id }
+        );
       } catch {}
     }
     if (!context.stampDitherEnabled() && context.enableNonDitherPlaybackSpeed(strokeData)) {
       try {
-        animator.setIndexBufferFromArray(
-          strokeData.buffers.paint,
-          strokeData.buffers.gid,
-          strokeData.buffers.spd,
-          strokeData.buffers.flow,
-          strokeData.buffers.phase
+        strokeFinalizeProbeTimeSync(
+          'endColorCycleStroke:setNonDitherIndexBuffer',
+          () => animator.setIndexBufferFromArray(
+            strokeData.buffers.paint,
+            strokeData.buffers.gid,
+            strokeData.buffers.spd,
+            strokeData.buffers.flow,
+            strokeData.buffers.phase
+          ),
+          { layerId: id }
         );
-        context.bindStrokeBuffersToAnimator(strokeData, animator);
+        strokeFinalizeProbeTimeSync(
+          'endColorCycleStroke:bindNonDitherBuffersToAnimator',
+          () => context.bindStrokeBuffersToAnimator(strokeData, animator),
+          { layerId: id }
+        );
       } catch {}
     }
     if (
@@ -232,23 +276,36 @@ export const endColorCycleStroke = (context: ColorCycleEndStrokeContext): void =
     strokeData.lastPoint = null;
     strokeData.strokeCounter = context.strokeCounter();
 
-    if (perf && strokeData.stampDither?.stampDitherBounds) {
+    let strokeDirtyRect: { x: number; y: number; width: number; height: number } | undefined;
+    if (strokeData.stampDither?.stampDitherBounds) {
       const b = strokeData.stampDither.stampDitherBounds;
       const minX = Math.max(0, Math.floor(b.minX));
       const minY = Math.max(0, Math.floor(b.minY));
       const maxX = Math.min(context.width() - 1, Math.ceil(b.maxX));
       const maxY = Math.min(context.height() - 1, Math.ceil(b.maxY));
       if (maxX >= minX && maxY >= minY) {
-        perf.stats.dirtyMinX = Math.min(perf.stats.dirtyMinX, minX);
-        perf.stats.dirtyMinY = Math.min(perf.stats.dirtyMinY, minY);
-        perf.stats.dirtyMaxX = Math.max(perf.stats.dirtyMaxX, maxX);
-        perf.stats.dirtyMaxY = Math.max(perf.stats.dirtyMaxY, maxY);
-        perf.stats.dirtyRectArea = (maxX - minX + 1) * (maxY - minY + 1);
+        strokeDirtyRect = {
+          x: minX,
+          y: minY,
+          width: maxX - minX + 1,
+          height: maxY - minY + 1,
+        };
+        if (perf) {
+          perf.stats.dirtyMinX = Math.min(perf.stats.dirtyMinX, minX);
+          perf.stats.dirtyMinY = Math.min(perf.stats.dirtyMinY, minY);
+          perf.stats.dirtyMaxX = Math.max(perf.stats.dirtyMaxX, maxX);
+          perf.stats.dirtyMaxY = Math.max(perf.stats.dirtyMaxY, maxY);
+          perf.stats.dirtyRectArea = strokeDirtyRect.width * strokeDirtyRect.height;
+        }
       }
     }
 
     const serializeStart = perf ? nowMs() : 0;
-    context.snapshotFromBuffers(strokeData);
+    strokeFinalizeProbeTimeSync(
+      'endColorCycleStroke:snapshotFromBuffers',
+      () => context.snapshotFromBuffers(strokeData),
+      { layerId: id }
+    );
     const hasContent = strokeData.hasContent;
     if (perf) {
       perf.durations.serializeMs += Math.max(0, nowMs() - serializeStart);
@@ -256,14 +313,23 @@ export const endColorCycleStroke = (context: ColorCycleEndStrokeContext): void =
     if (hasContent) {
       // Publish the finished stroke to the layer document; without this the
       // document (the export source of truth) never sees plain brush strokes.
-      context.mutateLayerStrokeState({
-        layerId: id,
-        reason: 'brush-stroke-write',
-        source: 'stroke',
-        mutate: () => {},
-        after: { hasContent: true, strokeCounter: strokeData.strokeCounter },
-        markDirty: false,
-      });
+      strokeFinalizeProbeTimeSync(
+        'endColorCycleStroke:mutateLayerStrokeState',
+        () => context.mutateLayerStrokeState({
+          layerId: id,
+          reason: 'brush-stroke-write',
+          source: 'stroke',
+          mutate: () => {},
+          after: { hasContent: true, strokeCounter: strokeData.strokeCounter },
+          markDirty: false,
+          forceDocumentPublish: true,
+          pixelsChanged: true,
+          dirtyRects: strokeDirtyRect ? [strokeDirtyRect] : undefined,
+          takeDocumentStateOwnership: true,
+          assumeDerivedSurfaceCurrent: true,
+        }),
+        { layerId: id }
+      );
     }
     if (strokeData.stampDither) {
       strokeData.stampDither.stampDitherStampSeq = 0;
@@ -316,15 +382,23 @@ export const endColorCycleStroke = (context: ColorCycleEndStrokeContext): void =
           });
           return;
         }
-        storeState.updateLayer(layer.id, {
-          colorCycleData: {
-            ...layer.colorCycleData,
-            hasContent,
-          },
-        });
+        strokeFinalizeProbeTimeSync(
+          'endColorCycleStroke:updateLayerHasContent',
+          () => storeState.updateLayer(layer.id, {
+            colorCycleData: {
+              ...layer.colorCycleData,
+              hasContent,
+            },
+          }),
+          { layerId: id, hasContent }
+        );
       }
     } catch {}
   }
 
-  context.render(false);
+  strokeFinalizeProbeTimeSync(
+    'endColorCycleStroke:render',
+    () => context.render(false),
+    { layerId: id }
+  );
 };

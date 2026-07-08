@@ -17,6 +17,7 @@ import type { ColorCycleStrokeCommitDeps } from '@/hooks/canvas/handlers/colorCy
 import type { FinalizeRasterFallbackDeps } from '@/hooks/canvas/handlers/finalizeRasterFallback';
 import type { RunFinalizePostCommitDeps } from '@/hooks/canvas/handlers/finalizePostCommit';
 import type { FinalizeLostEdgeDispatcher } from '@/hooks/canvas/handlers/finalizeLostEdgeDeps';
+import { strokeFinalizeProbeTime } from '@/utils/strokeFinalizeProbe';
 
 export const runFinalizeActiveLayerFlow = async ({
   currentState,
@@ -87,6 +88,13 @@ export const runFinalizeActiveLayerFlow = async ({
     currentTool === 'eraser' && isEraserV2 && eraserRoiRef.current
       ? eraserRoiRef.current
       : captureRegionOverride;
+  const probeMeta = {
+    tool: currentTool,
+    layerType: activeLayer.layerType,
+    overlayHasContent,
+    skipSave,
+    hasCaptureRegionOverride: Boolean(effectiveCaptureRegionOverride),
+  };
 
   const {
     activeLayerIdString,
@@ -94,72 +102,84 @@ export const runFinalizeActiveLayerFlow = async ({
     layerBeforeColorState,
     coalescePayload,
     captureRoi,
-  } = await prepareFinalizeLayerCaptureContext({
-    activeLayer,
-    currentTool,
-    drawingCanvas,
-    strokeBeforeImageRef,
-    strokeBeforeColorStateRef,
-    activeStrokeSessionRef,
-    endStrokeSession,
-    maxIntervalMs,
-    project,
-    overlayHasContent,
-    strokeBoundingBox,
-    strokeCapturePadding,
-    roiPadding,
-    engineStrokeBounds,
-    lastStrokePoint,
-    captureRegionOverride: effectiveCaptureRegionOverride,
-    skipSave,
-  }, deps.finalizeLayerCaptureContextDeps);
+  } = await strokeFinalizeProbeTime(
+    'prepareFinalizeLayerCaptureContext',
+    () => prepareFinalizeLayerCaptureContext({
+      activeLayer,
+      currentTool,
+      drawingCanvas,
+      strokeBeforeImageRef,
+      strokeBeforeColorStateRef,
+      activeStrokeSessionRef,
+      endStrokeSession,
+      maxIntervalMs,
+      project,
+      overlayHasContent,
+      strokeBoundingBox,
+      strokeCapturePadding,
+      roiPadding,
+      engineStrokeBounds,
+      lastStrokePoint,
+      captureRegionOverride: effectiveCaptureRegionOverride,
+      skipSave,
+    }, deps.finalizeLayerCaptureContextDeps),
+    probeMeta
+  );
 
   if (currentTool === 'eraser') {
-    await runFinalizeEraserToolFlow({
-      activeLayer,
-      activeLayerId: activeLayerIdString,
-      drawingCanvas,
-      layerBeforeImage,
-      layerBeforeColorState: layerBeforeColorState as ColorCycleSerializedState | null,
-      historyActionOverride,
-      historyDescriptionOverride,
-      captureRoi,
-      eraserRoiRef,
-      coalescePayload,
-      isEraserV2,
-      skipSave,
-    }, deps.finalizeEraserStrokeDeps);
+    await strokeFinalizeProbeTime(
+      'runFinalizeEraserToolFlow',
+      () => runFinalizeEraserToolFlow({
+        activeLayer,
+        activeLayerId: activeLayerIdString,
+        drawingCanvas,
+        layerBeforeImage,
+        layerBeforeColorState: layerBeforeColorState as ColorCycleSerializedState | null,
+        historyActionOverride,
+        historyDescriptionOverride,
+        captureRoi,
+        eraserRoiRef,
+        coalescePayload,
+        isEraserV2,
+        skipSave,
+      }, deps.finalizeEraserStrokeDeps),
+      probeMeta
+    );
     return;
   }
 
-  await runFinalizeBrushToolFlow({
-    currentState,
-    activeLayer,
-    historyActionOverride,
-    historyDescriptionOverride,
-    drawingCanvas,
-    drawingCtx: drawingCtxRef.current,
-    project,
-    strokeBoundingBox,
-    strokeCapturePadding,
-    roiPadding,
-    enableCaptureRoi: true,
-    applyFinalizeLostEdge,
-    skipSave,
-    layerBeforeImage,
-    currentTool,
-    coalescePayload: coalescePayload as StrokeCoalescePayload | undefined,
-    captureRoi,
-    layerBeforeColorState: layerBeforeColorState as ColorCycleSerializedState | null,
-    drawingCanvasRef,
-    drawingCtxRef,
-    drawingCanvasHasContent,
-    releaseBusyLock,
-  }, {
-    finalizeBrushContextDeps: deps.finalizeBrushContextDeps,
-    finalizeColorCycleBrushBaseDeps: deps.finalizeColorCycleBrushBaseDeps,
-    colorCycleCommitDeps: deps.colorCycleCommitDeps,
-    finalizeRasterFallbackDeps: deps.finalizeRasterFallbackDeps,
-    finalizePostCommitDeps: deps.finalizePostCommitDeps,
-  });
+  await strokeFinalizeProbeTime(
+    'runFinalizeBrushToolFlow',
+    () => runFinalizeBrushToolFlow({
+      currentState,
+      activeLayer,
+      historyActionOverride,
+      historyDescriptionOverride,
+      drawingCanvas,
+      drawingCtx: drawingCtxRef.current,
+      project,
+      strokeBoundingBox,
+      strokeCapturePadding,
+      roiPadding,
+      enableCaptureRoi: true,
+      applyFinalizeLostEdge,
+      skipSave,
+      layerBeforeImage,
+      currentTool,
+      coalescePayload: coalescePayload as StrokeCoalescePayload | undefined,
+      captureRoi,
+      layerBeforeColorState: layerBeforeColorState as ColorCycleSerializedState | null,
+      drawingCanvasRef,
+      drawingCtxRef,
+      drawingCanvasHasContent,
+      releaseBusyLock,
+    }, {
+      finalizeBrushContextDeps: deps.finalizeBrushContextDeps,
+      finalizeColorCycleBrushBaseDeps: deps.finalizeColorCycleBrushBaseDeps,
+      colorCycleCommitDeps: deps.colorCycleCommitDeps,
+      finalizeRasterFallbackDeps: deps.finalizeRasterFallbackDeps,
+      finalizePostCommitDeps: deps.finalizePostCommitDeps,
+    }),
+    probeMeta
+  );
 };

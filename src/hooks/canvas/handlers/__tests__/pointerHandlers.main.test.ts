@@ -1863,8 +1863,8 @@ describe('pointerHandlers main flows', () => {
 
     expect(deps.drawingHandlers.finalizeDrawing).toHaveBeenCalledWith(false);
     expect(deps.stateMachine.finalizationComplete).toHaveBeenCalled();
-    expect(deps.compositeLayersToCanvas).toHaveBeenCalledWith(compositeCanvas);
-    expect(deps.draw).toHaveBeenCalled();
+    expect(deps.compositeLayersToCanvas).not.toHaveBeenCalledWith(compositeCanvas);
+    expect(deps.draw).not.toHaveBeenCalled();
   });
 
   it('defers sequential pointer reset until brush finalize resolves', async () => {

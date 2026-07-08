@@ -38,6 +38,7 @@ import { isOverlaySeededFromLayer } from '@/hooks/canvas/utils/overlaySeedState'
 import { logCCMutation, summarizeColorCycleLayer } from '@/utils/colorCycle/ccMutationAudit';
 import { persistCommittedSampledSlot } from '@/hooks/canvas/handlers/colorCycle/colorCycleSampledSlotPersistence';
 import { debugWarn } from '@/utils/debug';
+import { strokeFinalizeProbeTime, strokeFinalizeProbeTimeSync } from '@/utils/strokeFinalizeProbe';
 
 const loggedLegacySlotSummaryByLayer = new Set<string>();
 
@@ -152,6 +153,7 @@ export type CommitColorCycleLayerStrokeArgs = {
   strokeCapturePadding: number;
   roiPadding: number;
   enableCaptureRoi: boolean;
+  shouldBuildEraseMask?: boolean;
 };
 
 export type CommitColorCycleLayerStrokeDeps = {
@@ -187,6 +189,29 @@ const getRasterCommitCanvas = (width: number, height: number): HTMLCanvasElement
   return sharedRasterCommitCanvas;
 };
 
+const normalizeRasterCommitRoi = (
+  roi: CaptureRegion | null | undefined,
+  width: number,
+  height: number
+): CaptureRegion => {
+  if (!roi) {
+    return { x: 0, y: 0, width, height };
+  }
+  const x = Math.max(0, Math.floor(roi.x));
+  const y = Math.max(0, Math.floor(roi.y));
+  const right = Math.min(width, Math.ceil(roi.x + roi.width));
+  const bottom = Math.min(height, Math.ceil(roi.y + roi.height));
+  if (right <= x || bottom <= y) {
+    return { x: 0, y: 0, width, height };
+  }
+  return {
+    x,
+    y,
+    width: right - x,
+    height: bottom - y,
+  };
+};
+
 export const commitRasterOverlay = async (
   options: CommitRasterOverlayOptions,
   deps: CommitRasterOverlayDeps
@@ -204,38 +229,121 @@ export const commitRasterOverlay = async (
   if (!tempCtx) {
     return;
   }
+  const probeMeta = {
+    layerId: options.layer.id,
+    layerType: options.layer.layerType,
+    tool: options.tool,
+    skipHistory: options.skipHistory,
+    skipBitmapDelta: options.skipBitmapDelta,
+    deferHistory: options.deferHistory,
+    hasBitmapRoi: Boolean(options.bitmapRoi),
+  };
 
   const overlaySeededFromLayer = isOverlaySeededFromLayer(options.overlayCanvas);
+  const commitRoi = normalizeRasterCommitRoi(
+    options.bitmapRoi,
+    tempCanvas.width,
+    tempCanvas.height
+  );
 
-  if (!overlaySeededFromLayer) {
+  strokeFinalizeProbeTimeSync('commitRasterOverlay:prepareTempCanvas', () => {
+    strokeFinalizeProbeTimeSync(
+      'commitRasterOverlay:clearTempRoi',
+      () => tempCtx.clearRect(commitRoi.x, commitRoi.y, commitRoi.width, commitRoi.height),
+      {
+        ...probeMeta,
+        roiX: commitRoi.x,
+        roiY: commitRoi.y,
+        roiWidth: commitRoi.width,
+        roiHeight: commitRoi.height,
+      }
+    );
+
+    if (!overlaySeededFromLayer) {
     const baseFramebuffer = options.layer.framebuffer;
     if (baseFramebuffer && baseFramebuffer.width > 0 && baseFramebuffer.height > 0) {
       try {
-        tempCtx.drawImage(baseFramebuffer as CanvasImageSource, 0, 0);
+        strokeFinalizeProbeTimeSync(
+          'commitRasterOverlay:drawBaseFramebuffer',
+          () => tempCtx.drawImage(
+            baseFramebuffer as CanvasImageSource,
+            commitRoi.x,
+            commitRoi.y,
+            commitRoi.width,
+            commitRoi.height,
+            commitRoi.x,
+            commitRoi.y,
+            commitRoi.width,
+            commitRoi.height
+          ),
+          probeMeta
+        );
       } catch {
         if (options.layer.imageData) {
-          tempCtx.putImageData(options.layer.imageData, 0, 0);
+          strokeFinalizeProbeTimeSync(
+            'commitRasterOverlay:putBaseImageData',
+            () => tempCtx.putImageData(
+              options.layer.imageData as ImageData,
+              0,
+              0,
+              commitRoi.x,
+              commitRoi.y,
+              commitRoi.width,
+              commitRoi.height
+            ),
+            probeMeta
+          );
         }
       }
     } else if (options.layer.imageData) {
-      tempCtx.putImageData(options.layer.imageData, 0, 0);
+      strokeFinalizeProbeTimeSync(
+        'commitRasterOverlay:putBaseImageData',
+        () => tempCtx.putImageData(
+          options.layer.imageData as ImageData,
+          0,
+          0,
+          commitRoi.x,
+          commitRoi.y,
+          commitRoi.width,
+          commitRoi.height
+        ),
+        probeMeta
+      );
     }
   }
 
-  if (options.overlayCanvas) {
-    tempCtx.globalCompositeOperation = 'source-over';
-    tempCtx.globalAlpha = 1;
-    tempCtx.drawImage(options.overlayCanvas, 0, 0);
-  }
+    if (options.overlayCanvas) {
+      tempCtx.globalCompositeOperation = 'source-over';
+      tempCtx.globalAlpha = 1;
+      strokeFinalizeProbeTimeSync(
+        'commitRasterOverlay:drawOverlay',
+        () => tempCtx.drawImage(
+          options.overlayCanvas as CanvasImageSource,
+          commitRoi.x,
+          commitRoi.y,
+          commitRoi.width,
+          commitRoi.height,
+          commitRoi.x,
+          commitRoi.y,
+          commitRoi.width,
+          commitRoi.height
+        ),
+        probeMeta
+      );
+    }
+  }, probeMeta);
 
-  await deps.withTiming('cc:capture', () =>
-    deps.captureCanvasToActiveLayer(
-      tempCanvas,
-      options.bitmapRoi,
-      overlaySeededFromLayer ? { mode: 'replace' } : undefined
-    )
+  await strokeFinalizeProbeTime(
+    'commitRasterOverlay:captureCanvasToActiveLayer',
+    () => deps.withTiming('cc:capture', () =>
+      deps.captureCanvasToActiveLayer(
+        tempCanvas,
+        options.bitmapRoi,
+        overlaySeededFromLayer ? { mode: 'replace' } : undefined
+      )
+    ),
+    probeMeta
   );
-  tempCtx.clearRect(0, 0, tempCanvas.width, tempCanvas.height);
 
   if (options.skipHistory) {
     return;
@@ -254,11 +362,19 @@ export const commitRasterOverlay = async (
   };
 
   if (options.deferHistory) {
-    await deps.scheduleHistoryCommit(payload);
+    await strokeFinalizeProbeTime(
+      'commitRasterOverlay:scheduleHistoryCommit',
+      () => deps.scheduleHistoryCommit(payload),
+      probeMeta
+    );
     return;
   }
 
-  await deps.withTiming('cc:commit', () => commitLayerHistory(payload));
+  await strokeFinalizeProbeTime(
+    'commitRasterOverlay:commitLayerHistory',
+    () => deps.withTiming('cc:commit', () => commitLayerHistory(payload)),
+    probeMeta
+  );
 };
 
 export const commitBrushHistory = async (
@@ -281,11 +397,21 @@ export const commitBrushHistory = async (
   } = args;
 
   if (shouldDeferColorCycleSave && deferredLayerCanvas) {
+    let afterColorState: ReturnType<typeof deps.captureColorCycleBrushState> | null = null;
+
     deps.perfMark('cc:state-serialize-after:start');
     deps.debugTime('cc:state-serialize-after');
-    let afterColorState: ColorCycleSerializedState | null = null;
     try {
-      afterColorState = deps.captureColorCycleBrushState(activeLayerId);
+      afterColorState = strokeFinalizeProbeTimeSync(
+        'commitBrushHistory:captureColorCycleBrushState',
+        () => deps.captureColorCycleBrushState(activeLayerId),
+        {
+          layerId: activeLayerId,
+          tool,
+          actionType,
+          deferred: true,
+        }
+      );
     } finally {
       deps.debugTimeEnd('cc:state-serialize-after');
       deps.perfMark('cc:state-serialize-after:end');
@@ -295,20 +421,37 @@ export const commitBrushHistory = async (
         'cc:state-serialize-after:end'
       );
     }
+    deps.debugVerbose('[cc-delta-capture]', {
+      beforeBytes: getColorCycleSerializedStatePaintByteLength(layerBeforeColorState),
+      afterBytes: getColorCycleSerializedStatePaintByteLength(afterColorState),
+      beforeCtr:
+        layerBeforeColorState?.layers?.[0]?.strokeData?.strokeCounter ?? -1,
+      afterCtr:
+        afterColorState?.layers?.[0]?.strokeData?.strokeCounter ?? -1,
+    });
 
-    deps.scheduleDeferredColorCycleSave({
-      layerId: activeLayerId,
-      canvas: deferredLayerCanvas,
-      beforeColorState: layerBeforeColorState,
-      afterColorState,
-      actionType,
-      description,
-      tool,
-      coalesce: undefined,
-      beforeImage: null,
-      skipBitmapDelta: true,
-      roi: strokeCaptureRoi,
-    }).catch(() => {});
+    void strokeFinalizeProbeTime(
+      'commitBrushHistory:scheduleDeferredColorCycleSave',
+      () => deps.scheduleDeferredColorCycleSave({
+        layerId: activeLayerId,
+        canvas: deferredLayerCanvas,
+        beforeColorState: layerBeforeColorState,
+        afterColorState,
+        actionType,
+        description,
+        tool,
+        coalesce: undefined,
+        beforeImage: null,
+        skipBitmapDelta: true,
+        roi: strokeCaptureRoi,
+      }),
+      {
+        layerId: activeLayerId,
+        tool,
+        actionType,
+        hasStrokeCaptureRoi: Boolean(strokeCaptureRoi),
+      }
+    ).catch(() => {});
     return;
   }
 
@@ -318,7 +461,16 @@ export const commitBrushHistory = async (
     deps.perfMark('cc:state-serialize-after:start');
     deps.debugTime('cc:state-serialize-after');
     try {
-      afterColorState = deps.captureColorCycleBrushState(activeLayerId);
+      afterColorState = strokeFinalizeProbeTimeSync(
+        'commitBrushHistory:captureColorCycleBrushState',
+        () => deps.captureColorCycleBrushState(activeLayerId),
+        {
+          layerId: activeLayerId,
+          tool,
+          actionType,
+          deferred: false,
+        }
+      );
     } finally {
       deps.debugTimeEnd('cc:state-serialize-after');
       deps.perfMark('cc:state-serialize-after:end');
@@ -338,18 +490,28 @@ export const commitBrushHistory = async (
     });
   }
 
-  await deps.scheduleHistoryCommit({
-    layerId: activeLayerId,
-    beforeImage: layerBeforeImage,
-    beforeColorState: layerBeforeColorState,
-    afterColorState,
-    actionType,
-    description,
-    tool,
-    coalesce,
-    skipBitmapDelta: shouldSkipBitmapDelta,
-    bitmapRoi: historyBitmapRoi ?? undefined,
-  });
+  await strokeFinalizeProbeTime(
+    'commitBrushHistory:scheduleHistoryCommit',
+    () => deps.scheduleHistoryCommit({
+      layerId: activeLayerId,
+      beforeImage: layerBeforeImage,
+      beforeColorState: layerBeforeColorState,
+      afterColorState,
+      actionType,
+      description,
+      tool,
+      coalesce,
+      skipBitmapDelta: shouldSkipBitmapDelta,
+      bitmapRoi: historyBitmapRoi ?? undefined,
+    }),
+    {
+      layerId: activeLayerId,
+      tool,
+      actionType,
+      shouldSkipBitmapDelta,
+      hasHistoryBitmapRoi: Boolean(historyBitmapRoi),
+    }
+  );
 };
 
 export const scheduleDeferredColorCycleSaveWithState = async (
@@ -392,11 +554,18 @@ export const commitColorCycleLayerStroke = async (
   let eraseMaskPaintMask: ColorCyclePaintMask | null = null;
   if (args.enableCaptureRoi && args.project) {
     deps.perfMark('cc:roi:start');
-    strokeCaptureRoi = boundingBoxToCaptureRegion(
-      args.strokeBoundingBox,
-      args.roiPadding + args.strokeCapturePadding,
-      args.project
-    ) ?? strokeCaptureRoi;
+    strokeCaptureRoi = strokeFinalizeProbeTimeSync(
+      'commitColorCycleLayerStroke:roi',
+      () => boundingBoxToCaptureRegion(
+        args.strokeBoundingBox,
+        args.roiPadding + args.strokeCapturePadding,
+        args.project
+      ) ?? strokeCaptureRoi,
+      {
+        layerId: args.layer.id,
+        layerType: args.layer.layerType,
+      }
+    );
     deps.perfMark('cc:roi:end');
     deps.perfMeasure('cc:roi', 'cc:roi:start', 'cc:roi:end');
   }
@@ -404,9 +573,27 @@ export const commitColorCycleLayerStroke = async (
   let brushForCleanup: ManagedColorCycleBrush | undefined;
   const targetLayerId = args.layer.id;
   try {
-    const brush = deps.getBrushForLayer(targetLayerId);
+    const brush = strokeFinalizeProbeTimeSync(
+      'commitColorCycleLayerStroke:getBrushForLayer',
+      () => deps.getBrushForLayer(targetLayerId),
+      {
+        layerId: targetLayerId,
+        layerType: args.layer.layerType,
+      }
+    );
     if (brush) {
-      const beforeStrokeSnapshot = readColorCycleBrushLayerSnapshotFromRuntime(brush, targetLayerId);
+      const shouldBuildEraseMask = args.shouldBuildEraseMask !== false;
+      const beforeStrokeSnapshot = shouldBuildEraseMask
+        ? strokeFinalizeProbeTimeSync(
+            'commitColorCycleLayerStroke:readBeforeSnapshot',
+            () => readColorCycleBrushLayerSnapshotFromRuntime(brush, targetLayerId),
+            {
+              layerId: targetLayerId,
+              layerType: args.layer.layerType,
+              hasRoi: Boolean(strokeCaptureRoi),
+            }
+          )
+        : null;
       const logCommittedSlotsInRoi = (
         label: string,
         bbox?: { minX: number; minY: number; width: number; height: number }
@@ -447,15 +634,43 @@ export const commitColorCycleLayerStroke = async (
         }
         return counts;
       };
-      deps.bindBrushToCanvas(brush, layerCanvas);
-      if (typeof brush.commitCurrentStroke === 'function') {
-        brush.commitCurrentStroke(targetLayerId);
+      strokeFinalizeProbeTimeSync(
+        'commitColorCycleLayerStroke:bindBrushToCanvas',
+        () => deps.bindBrushToCanvas(brush, layerCanvas),
+        {
+          layerId: targetLayerId,
+          layerType: args.layer.layerType,
+        }
+      );
+      if (typeof brush.finalizeCurrentStroke === 'function') {
+        strokeFinalizeProbeTimeSync(
+          'commitColorCycleLayerStroke:finalizeCurrentStroke',
+          () => brush.finalizeCurrentStroke?.(targetLayerId),
+          {
+            layerId: targetLayerId,
+            layerType: args.layer.layerType,
+          }
+        );
       } else {
-        brush.finalizeCurrentStroke?.(targetLayerId);
+        strokeFinalizeProbeTimeSync(
+          'commitColorCycleLayerStroke:commitCurrentStroke',
+          () => brush.commitCurrentStroke?.(targetLayerId),
+          {
+            layerId: targetLayerId,
+            layerType: args.layer.layerType,
+          }
+        );
       }
 
       try {
-        committedSession = finalizeMarkGradientSession(targetLayerId);
+        committedSession = strokeFinalizeProbeTimeSync(
+          'commitColorCycleLayerStroke:finalizeMarkGradientSession',
+          () => finalizeMarkGradientSession(targetLayerId),
+          {
+            layerId: targetLayerId,
+            layerType: args.layer.layerType,
+          }
+        );
         if (committedSession && ccDebugVerboseOn()) {
           ccLog('mark slot (commit)', {
             layerId: targetLayerId,
@@ -467,12 +682,20 @@ export const commitColorCycleLayerStroke = async (
         }
       } catch {}
 
-      if (committedSession?.binding && typeof brush.setGradientSlotStops === 'function') {
-        brush.setGradientSlotStops(
-          targetLayerId,
-          committedSession.binding.slot,
-          committedSession.frozenStopsStored,
-          committedSession.seamProfile
+      const gradientSessionForSlotStops = committedSession;
+      if (gradientSessionForSlotStops?.binding && typeof brush.setGradientSlotStops === 'function') {
+        strokeFinalizeProbeTimeSync(
+          'commitColorCycleLayerStroke:setGradientSlotStops',
+          () => brush.setGradientSlotStops?.(
+            targetLayerId,
+            gradientSessionForSlotStops.binding!.slot,
+            gradientSessionForSlotStops.frozenStopsStored,
+            gradientSessionForSlotStops.seamProfile
+          ),
+          {
+            layerId: targetLayerId,
+            layerType: args.layer.layerType,
+          }
         );
       }
 
@@ -495,8 +718,13 @@ export const commitColorCycleLayerStroke = async (
             previewSlot: sampledCommitNeedsFullRebind ? TEMP_SAMPLE_SLOT : null,
           }
         : undefined;
-      if (binding && committedSession?.binding) {
-        const finalizedSession = committedSession;
+      const gradientSessionForStore = committedSession;
+      const bindingForStore = binding;
+      if (bindingForStore && gradientSessionForStore?.binding) {
+        strokeFinalizeProbeTimeSync(
+          'commitColorCycleLayerStroke:updateGradientDefStore',
+          () => {
+        const finalizedSession = gradientSessionForStore;
         const finalizedBinding = finalizedSession.binding as NonNullable<MarkGradientSession['binding']>;
         const state = getAppStoreState();
         const layer = state.layers.find((entry) => entry.id === targetLayerId);
@@ -565,9 +793,9 @@ export const commitColorCycleLayerStroke = async (
           });
         }
 
-        if (defIdToUse !== binding.defId) {
+        if (defIdToUse !== bindingForStore.defId) {
           binding = {
-            ...binding,
+            ...bindingForStore,
             defId: defIdToUse,
           };
           finalizedSession.binding = {
@@ -576,34 +804,89 @@ export const commitColorCycleLayerStroke = async (
             slot: finalizedBinding.slot,
           };
         }
+          },
+          {
+            layerId: targetLayerId,
+            layerType: args.layer.layerType,
+            sampledSource: gradientSessionForStore.source === 'sampled',
+          }
+        );
       }
 
-      const didCommitCommittedLayerState = commitColorCycleCommittedLayerStateToRuntime(brush, {
-        layerId: targetLayerId,
-        targetCanvas: layerCanvas,
-        opacity: args.brushSettings.opacity ?? 1,
-        binding,
-      });
+      const didCommitCommittedLayerState = strokeFinalizeProbeTimeSync(
+        'commitColorCycleLayerStroke:commitCommittedLayerState',
+        () => commitColorCycleCommittedLayerStateToRuntime(brush, {
+          layerId: targetLayerId,
+          targetCanvas: layerCanvas,
+          opacity: args.brushSettings.opacity ?? 1,
+          binding,
+        }),
+        {
+          layerId: targetLayerId,
+          layerType: args.layer.layerType,
+          hasBinding: Boolean(binding),
+          hasBindingBbox: Boolean(binding?.bbox),
+          previewSlot: binding?.previewSlot ?? null,
+        }
+      );
       if (!didCommitCommittedLayerState) {
-        brush.updateColorCycleTexture?.();
+        strokeFinalizeProbeTimeSync(
+          'commitColorCycleLayerStroke:fallbackCommit',
+          () => {
+            brush.updateColorCycleTexture?.();
         if (typeof brush.commitToLayer === 'function') {
           brush.commitToLayer(layerCanvas, targetLayerId, args.brushSettings.opacity ?? 1);
         } else {
           brush.renderDirectToCanvas?.(layerCanvas, targetLayerId);
         }
+          },
+          {
+            layerId: targetLayerId,
+            layerType: args.layer.layerType,
+          }
+        );
       }
 
-      deps.markLayerHasContent(targetLayerId);
+      strokeFinalizeProbeTimeSync(
+        'commitColorCycleLayerStroke:markLayerHasContent',
+        () => deps.markLayerHasContent(targetLayerId),
+        {
+          layerId: targetLayerId,
+          layerType: args.layer.layerType,
+        }
+      );
       brushForCleanup = brush;
-      eraseMaskPaintMask = buildColorCyclePaintDeltaMask({
-        before: beforeStrokeSnapshot as ColorCyclePaintSnapshot | null,
-        after: readColorCycleBrushLayerSnapshotFromRuntime(brush, targetLayerId) as ColorCyclePaintSnapshot | null,
-        roi: strokeCaptureRoi,
-        width: args.project?.width ?? layerCanvas.width,
-        height: args.project?.height ?? layerCanvas.height,
-      });
+      if (shouldBuildEraseMask) {
+        const afterStrokeSnapshot = strokeFinalizeProbeTimeSync(
+          'commitColorCycleLayerStroke:readAfterSnapshot',
+          () => readColorCycleBrushLayerSnapshotFromRuntime(brush, targetLayerId) as ColorCyclePaintSnapshot | null,
+          {
+            layerId: targetLayerId,
+            layerType: args.layer.layerType,
+            hasRoi: Boolean(strokeCaptureRoi),
+          }
+        );
+        eraseMaskPaintMask = strokeFinalizeProbeTimeSync(
+          'commitColorCycleLayerStroke:buildEraseMaskPaintMask',
+          () => buildColorCyclePaintDeltaMask({
+            before: beforeStrokeSnapshot as ColorCyclePaintSnapshot | null,
+            after: afterStrokeSnapshot,
+            roi: strokeCaptureRoi,
+            width: args.project?.width ?? layerCanvas.width,
+            height: args.project?.height ?? layerCanvas.height,
+          }),
+          {
+            layerId: targetLayerId,
+            layerType: args.layer.layerType,
+            hasRoi: Boolean(strokeCaptureRoi),
+          }
+        );
+      }
 
       try {
+        strokeFinalizeProbeTimeSync(
+          'commitColorCycleLayerStroke:devPostCommitChecks',
+          () => {
         if (binding && committedSession?.binding && process.env.NODE_ENV !== 'production') {
           const finalizedSession = committedSession;
           const finalizedBinding = finalizedSession.binding;
@@ -689,6 +972,12 @@ export const commitColorCycleLayerStroke = async (
             getAppStoreState().setCcGradientSampleCount(0);
           } catch {}
         }
+          },
+          {
+            layerId: targetLayerId,
+            layerType: args.layer.layerType,
+          }
+        );
       } catch {}
     } else if (args.drawingCanvas) {
       try {
@@ -705,34 +994,48 @@ export const commitColorCycleLayerStroke = async (
   } catch {}
 
   try {
-    deps.dispatchFrameUpdate(targetLayerId);
+    strokeFinalizeProbeTimeSync(
+      'commitColorCycleLayerStroke:dispatchFrameUpdate',
+      () => deps.dispatchFrameUpdate(targetLayerId),
+      {
+        layerId: targetLayerId,
+        layerType: args.layer.layerType,
+      }
+    );
   } catch {}
   deps.endFinalizeVisibleTimer();
 
   const afterCommitLayer = getAppStoreState().layers.find(
     (entry) => entry.id === targetLayerId
   ) ?? null;
-  logCCMutation({
-    event: 'stroke-commit',
-    layerId: targetLayerId,
-    reason: 'commitColorCycleLayerStroke',
-    severity: 'info',
-    before: beforeCommitSummary,
-    after: summarizeColorCycleLayer(afterCommitLayer),
-    details: {
-      sampledSource: committedSession?.source === 'sampled',
-      bindingDefId: committedSession?.binding?.defId ?? null,
-      bindingSlot: committedSession?.binding?.slot ?? null,
-      roi: strokeCaptureRoi
-        ? {
-            x: strokeCaptureRoi.x,
-            y: strokeCaptureRoi.y,
-            width: strokeCaptureRoi.width,
-            height: strokeCaptureRoi.height,
-          }
-        : null,
-    },
-  });
+  strokeFinalizeProbeTimeSync(
+    'commitColorCycleLayerStroke:logCCMutation',
+    () => logCCMutation({
+      event: 'stroke-commit',
+      layerId: targetLayerId,
+      reason: 'commitColorCycleLayerStroke',
+      severity: 'info',
+      before: beforeCommitSummary,
+      after: summarizeColorCycleLayer(afterCommitLayer),
+      details: {
+        sampledSource: committedSession?.source === 'sampled',
+        bindingDefId: committedSession?.binding?.defId ?? null,
+        bindingSlot: committedSession?.binding?.slot ?? null,
+        roi: strokeCaptureRoi
+          ? {
+              x: strokeCaptureRoi.x,
+              y: strokeCaptureRoi.y,
+              width: strokeCaptureRoi.width,
+              height: strokeCaptureRoi.height,
+            }
+          : null,
+      },
+    }),
+    {
+      layerId: targetLayerId,
+      layerType: args.layer.layerType,
+    }
+  );
 
   return {
     deferredLayerCanvas: layerCanvas,

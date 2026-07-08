@@ -15,6 +15,7 @@ import {
   selectionSnapshotFromValues,
   type SelectionSnapshot,
 } from '@/history/selectionState';
+import { strokeFinalizeProbeTime, strokeFinalizeProbeTimeSync } from '@/utils/strokeFinalizeProbe';
 
 const cloneImageData = (imageData: ImageData | null | undefined): ImageData | null => {
   if (!imageData) {
@@ -152,6 +153,7 @@ export const inferFallbackRoiFromStateDiff = (
 export interface LayerHistoryPayload {
   layerId: string;
   beforeImage: ImageData | null;
+  afterImage?: ImageData | null;
   beforeColorState: ColorCycleSerializedState;
   afterColorState?: ColorCycleSerializedState | null;
   bitmapRoi?: {
@@ -180,6 +182,7 @@ export interface LayerHistoryPayload {
 export const commitLayerHistory = async ({
   layerId,
   beforeImage,
+  afterImage: afterImageOverride,
   beforeColorState,
   afterColorState: afterColorStateOverride,
   actionType,
@@ -190,6 +193,17 @@ export const commitLayerHistory = async ({
   skipBitmapDelta,
   bitmapRoi,
 }: LayerHistoryPayload): Promise<void> => {
+    const probeMeta = {
+      layerId,
+      actionType,
+      tool,
+      skipBitmapDelta,
+      hasBitmapRoi: Boolean(bitmapRoi),
+      hasBeforeImage: Boolean(beforeImage),
+      hasAfterImageOverride: Boolean(afterImageOverride),
+      hasBeforeColorState: Boolean(beforeColorState),
+      hasAfterColorStateOverride: Boolean(afterColorStateOverride),
+    };
     const afterState = useAppStore.getState();
     const refreshedLayer = afterState.layers.find((layer) => layer.id === layerId) ?? null;
     if (!refreshedLayer) {
@@ -198,8 +212,9 @@ export const commitLayerHistory = async ({
     const isColorCycleLayer = refreshedLayer.layerType === 'color-cycle';
 
     const refreshedImageData = refreshedLayer.imageData ?? null;
-    const shouldCaptureBitmap = !skipBitmapDelta && !isColorCycleLayer && Boolean(refreshedImageData);
-    const afterImage = shouldCaptureBitmap ? refreshedImageData : null;
+    const resolvedAfterImage = afterImageOverride ?? refreshedImageData;
+    const shouldCaptureBitmap = !skipBitmapDelta && !isColorCycleLayer && Boolean(resolvedAfterImage);
+    const afterImage = shouldCaptureBitmap ? resolvedAfterImage : null;
 
     if (isColorCycleLayer) {
       const manager = getColorCycleBrushManager();
@@ -248,19 +263,23 @@ export const commitLayerHistory = async ({
       ? cloneSelectionSnapshot(selectionBefore)
       : null;
 
-    const txn = historyManager.begin(
-      historyId,
-      meta,
-      undefined,
-      coalesce
-        ? {
-            coalesce: {
-              key: coalesce.key,
-              maxIntervalMs: coalesce.maxIntervalMs,
-              mergeLabel: coalesce.mergeLabel,
-            },
-          }
-        : undefined,
+    const txn = strokeFinalizeProbeTimeSync(
+      'commitLayerHistory:beginTransaction',
+      () => historyManager.begin(
+        historyId,
+        meta,
+        undefined,
+        coalesce
+          ? {
+              coalesce: {
+                key: coalesce.key,
+                maxIntervalMs: coalesce.maxIntervalMs,
+                mergeLabel: coalesce.mergeLabel,
+              },
+            }
+          : undefined,
+      ),
+      probeMeta
     );
     let deltaCount = 0;
     let committed = false;
@@ -276,21 +295,35 @@ export const commitLayerHistory = async ({
       const skipBitmap = skipBitmapDelta === true;
 
       if (afterImage && !skipBitmap && !isColorCycleLayer) {
-        const bitmapDelta = await createBitmapTileDelta({
-          layerId,
-          before: beforeImage,
-          after: afterImage,
-          roi: bitmapRoi ?? undefined,
-        });
+        const bitmapDelta = await strokeFinalizeProbeTime(
+          'commitLayerHistory:createBitmapTileDelta',
+          () => createBitmapTileDelta({
+            layerId,
+            before: beforeImage,
+            after: afterImage,
+            roi: bitmapRoi ?? undefined,
+          }),
+          {
+            ...probeMeta,
+            afterWidth: afterImage.width,
+            afterHeight: afterImage.height,
+            roiWidth: bitmapRoi?.width ?? null,
+            roiHeight: bitmapRoi?.height ?? null,
+          }
+        );
         pushDelta(bitmapDelta);
       }
 
       if (afterColorState || beforeColorState) {
-        const inferredRoi = inferFallbackRoiFromStateDiff(
-          beforeColorState,
-          afterColorState,
-          projectWidth,
-          projectHeight
+        const inferredRoi = strokeFinalizeProbeTimeSync(
+          'commitLayerHistory:inferColorCycleRoi',
+          () => inferFallbackRoiFromStateDiff(
+            beforeColorState,
+            afterColorState,
+            projectWidth,
+            projectHeight
+          ),
+          probeMeta
         );
         const colorCycleRoi =
           normalizedColorCycleRoi ??
@@ -299,64 +332,89 @@ export const commitLayerHistory = async ({
             ? { x: 0, y: 0, width: projectWidth, height: projectHeight }
             : null);
         const patchDelta = colorCycleRoi
-          ? await createColorCycleStrokePatchDelta({
-              layerId,
-              forwardState: afterColorState,
-              backwardState: beforeColorState,
-              roi: colorCycleRoi,
-              width: projectWidth,
-              height: projectHeight,
-              beforeVersion: beforeColorState?.pixelVersion,
-              afterVersion: afterColorState?.pixelVersion,
-            })
+          ? await strokeFinalizeProbeTime(
+              'commitLayerHistory:createColorCycleStrokePatchDelta',
+              () => createColorCycleStrokePatchDelta({
+                layerId,
+                forwardState: afterColorState,
+                backwardState: beforeColorState,
+                roi: colorCycleRoi,
+                width: projectWidth,
+                height: projectHeight,
+                beforeVersion: beforeColorState?.pixelVersion,
+                afterVersion: afterColorState?.pixelVersion,
+              }),
+              probeMeta
+            )
           : null;
         pushDelta(patchDelta);
         const eraseMaskDelta = colorCycleRoi
-          ? await createColorCycleEraseMaskPatchDelta({
-              layerId,
-              forwardState: afterColorState,
-              backwardState: beforeColorState,
-              roi: colorCycleRoi,
-              width: projectWidth,
-              height: projectHeight,
-              beforeVersion: beforeColorState?.documentVersion,
-              afterVersion: afterColorState?.documentVersion,
-            })
+          ? await strokeFinalizeProbeTime(
+              'commitLayerHistory:createColorCycleEraseMaskPatchDelta',
+              () => createColorCycleEraseMaskPatchDelta({
+                layerId,
+                forwardState: afterColorState,
+                backwardState: beforeColorState,
+                roi: colorCycleRoi,
+                width: projectWidth,
+                height: projectHeight,
+                beforeVersion: beforeColorState?.documentVersion,
+                afterVersion: afterColorState?.documentVersion,
+              }),
+              probeMeta
+            )
           : null;
         pushDelta(eraseMaskDelta);
-        pushDelta(createColorCycleSoftEdgeMaskDelta({
-          layerId,
-          forwardState: afterColorState,
-          backwardState: beforeColorState,
-          beforeVersion: beforeColorState?.documentVersion,
-          afterVersion: afterColorState?.documentVersion,
-        }));
+        pushDelta(strokeFinalizeProbeTimeSync(
+          'commitLayerHistory:createColorCycleSoftEdgeMaskDelta',
+          () => createColorCycleSoftEdgeMaskDelta({
+            layerId,
+            forwardState: afterColorState,
+            backwardState: beforeColorState,
+            beforeVersion: beforeColorState?.documentVersion,
+            afterVersion: afterColorState?.documentVersion,
+          }),
+          probeMeta
+        ));
       }
 
       if (selectionBeforeSnapshot) {
-        const selectionAfterSnapshot = selectionSnapshotFromValues(
-          afterState.selectionStart,
-          afterState.selectionEnd,
+        const selectionDelta = strokeFinalizeProbeTimeSync(
+          'commitLayerHistory:createSelectionDelta',
+          () => {
+            const selectionAfterSnapshot = selectionSnapshotFromValues(
+              afterState.selectionStart,
+              afterState.selectionEnd,
+            );
+            return createSelectionDelta({
+              before: selectionBeforeSnapshot,
+              after: selectionAfterSnapshot,
+            });
+          },
+          probeMeta
         );
-        const selectionDelta = createSelectionDelta({
-          before: selectionBeforeSnapshot,
-          after: selectionAfterSnapshot,
-        });
         pushDelta(selectionDelta);
       }
 
       if (deltaCount > 0) {
-        txn.commit(description);
+        strokeFinalizeProbeTimeSync(
+          'commitLayerHistory:txnCommit',
+          () => txn.commit(description),
+          {
+            ...probeMeta,
+            deltaCount,
+          }
+        );
         committed = true;
       } else {
-        txn.cancel();
+        strokeFinalizeProbeTimeSync('commitLayerHistory:txnCancel', () => txn.cancel(), probeMeta);
       }
     } catch (error) {
-      txn.cancel();
+      strokeFinalizeProbeTimeSync('commitLayerHistory:txnCancelAfterError', () => txn.cancel(), probeMeta);
       throw error;
     } finally {
       if (committed) {
-        markUnsavedChanges();
+        strokeFinalizeProbeTimeSync('commitLayerHistory:markUnsavedChanges', markUnsavedChanges, probeMeta);
       }
     }
   };

@@ -182,6 +182,8 @@ describe('colorCycleStrokeCommit finalize mask clear', () => {
       layerType: 'color-cycle',
       colorCycleData: {
         canvas,
+        eraseMask: document.createElement('canvas'),
+        eraseMaskVersion: 1,
         hasContent: true,
         gradient: [],
       },
@@ -266,5 +268,78 @@ describe('colorCycleStrokeCommit finalize mask clear', () => {
     expect(paintMask.data[(9 - 8) * 10 + (14 - 12)]).toBe(255);
     expect(paintMask.data[0]).toBe(0);
     expect(result.strokeCaptureRoi).toEqual({ x: 12, y: 8, width: 10, height: 9 });
+  });
+
+  it('skips erase-mask snapshot and clear work for a fresh blank erase mask', async () => {
+    const canvas = document.createElement('canvas');
+    canvas.width = 64;
+    canvas.height = 64;
+    const eraseMask = document.createElement('canvas');
+    eraseMask.width = 64;
+    eraseMask.height = 64;
+    const layer: Layer = {
+      id: 'layer-cc',
+      name: 'CC',
+      visible: true,
+      opacity: 1,
+      blendMode: 'source-over',
+      locked: false,
+      order: 0,
+      imageData: null,
+      framebuffer: canvas,
+      alignment: createDefaultLayerAlignment(),
+      layerType: 'color-cycle',
+      colorCycleData: {
+        canvas,
+        eraseMask,
+        eraseMaskVersion: 0,
+        hasContent: true,
+        gradient: [],
+      },
+    };
+
+    const clearEraseMaskInRegion = jest.fn();
+    const readDocumentSnapshot = jest.fn();
+    const brush: Pick<
+      ManagedColorCycleBrush,
+      'commitCurrentStroke' | 'updateColorCycleTexture' | 'commitToLayer' | 'getColorCycleLayerDocument'
+    > = {
+      commitCurrentStroke: jest.fn(),
+      updateColorCycleTexture: jest.fn(),
+      commitToLayer: jest.fn(),
+      getColorCycleLayerDocument: jest.fn(() => ({
+        read: readDocumentSnapshot,
+      })) as never,
+    };
+
+    await commitColorCycleStrokeIfNeeded({
+      isColorCycleLayer: true,
+      isColorCycleBrush: true,
+      activeLayer: layer,
+      brushSettings: {
+        opacity: 1,
+        blendMode: 'source-over',
+      } as BrushSettings,
+      project: { width: 64, height: 64 },
+      drawingCanvas: canvas,
+      strokeBoundingBox: null,
+      captureRoi: { x: 12, y: 8, width: 10, height: 9 },
+      strokeCapturePadding: 0,
+      roiPadding: 0,
+      enableCaptureRoi: true,
+    }, {
+      getBrushForLayer: () => brush as ManagedColorCycleBrush,
+      bindBrushToCanvas: jest.fn(),
+      markLayerHasContent: jest.fn(),
+      clearEraseMaskInRegion,
+      perfMark: jest.fn(),
+      perfMeasure: jest.fn(),
+      startFinalizeVisibleTimer: jest.fn(),
+      endFinalizeVisibleTimer: jest.fn(),
+      dispatchFrameUpdate: jest.fn(),
+    });
+
+    expect(readDocumentSnapshot).not.toHaveBeenCalled();
+    expect(clearEraseMaskInRegion).not.toHaveBeenCalled();
   });
 });

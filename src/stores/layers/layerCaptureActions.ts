@@ -1,7 +1,6 @@
 import type { StateCreator } from 'zustand';
 
 import type { Layer, Project } from '@/types';
-import { computeLayerPercentOffset } from '@/utils/layerMetrics';
 import { debugWarn, logError } from '@/utils/debug';
 import {
   normalizeImageDataDimensions,
@@ -12,6 +11,11 @@ import {
   normalizeCaptureROI,
   type CompositeMode,
 } from '@/stores/layers/layerCanvasCapture';
+import { computeLayerPercentOffset } from '@/utils/layerMetrics';
+import {
+  strokeFinalizeProbeMark,
+  strokeFinalizeProbeTimeSync,
+} from '@/utils/strokeFinalizeProbe';
 import type { AppState, CaptureROI } from '../useAppStore';
 
 type StoreSet = Parameters<StateCreator<AppState, [], [], AppState>>[0];
@@ -26,6 +30,41 @@ export interface LayerCaptureActionDeps {
     framebuffer: HTMLCanvasElement | OffscreenCanvas | null | undefined
   ) => framebuffer is HTMLCanvasElement | OffscreenCanvas;
 }
+
+const refreshCapturedAutoAlignment = (layer: Layer, project: Project | null): Layer => {
+  if (!project || layer.alignment?.positioning !== 'auto') {
+    return layer;
+  }
+
+  try {
+    const layerWithoutStaleOffsets: Layer = {
+      ...layer,
+      alignment: {
+        ...layer.alignment,
+        offsetPercent: undefined,
+        offsetPx: undefined,
+      },
+    };
+    const offsetPercent = computeLayerPercentOffset(layerWithoutStaleOffsets, project);
+    const projectWidth = Math.max(1, project.width);
+    const projectHeight = Math.max(1, project.height);
+
+    return {
+      ...layer,
+      alignment: {
+        ...layer.alignment,
+        offsetPercent,
+        offsetPx: {
+          x: Math.round((offsetPercent.x / 100) * projectWidth),
+          y: Math.round((offsetPercent.y / 100) * projectHeight),
+        },
+      },
+    };
+  } catch (error) {
+    debugWarn('raw-console', '[captureCanvasToActiveLayer] Failed to refresh auto alignment', error);
+    return layer;
+  }
+};
 
 export const captureCanvasToActiveLayerAction = async (
   sourceCanvas: HTMLCanvasElement | undefined,
@@ -71,102 +110,118 @@ export const captureCanvasToActiveLayerAction = async (
       width: regionWidth,
       height: regionHeight,
     };
+    const probeMeta = {
+      mode: options?.mode ?? 'alpha',
+      roiX: captureX,
+      roiY: captureY,
+      roiWidth: regionWidth,
+      roiHeight: regionHeight,
+      captureWidth,
+      captureHeight,
+    };
+    strokeFinalizeProbeMark('captureCanvasToActiveLayer', 'start', probeMeta);
 
-    const capturedImageData = ctx.getImageData(captureX, captureY, regionWidth, regionHeight);
+    try {
+      const capturedImageData = strokeFinalizeProbeTimeSync(
+        'captureCanvasToActiveLayer:getImageData',
+        () => ctx.getImageData(captureX, captureY, regionWidth, regionHeight),
+        probeMeta
+      );
+      const { selectionMask, selectionMaskBounds, selectionStart, selectionEnd } = state;
+      if (selectionMask && selectionMaskBounds) {
+        strokeFinalizeProbeTimeSync('captureCanvasToActiveLayer:applySelectionMask', () => {
+          const maskData = selectionMask.data;
+          const mb = selectionMaskBounds;
+          const stride = regionWidth * 4;
+          for (let y = 0; y < regionHeight; y += 1) {
+            const globalY = captureY + y;
+            const localY = globalY - mb.y;
+            const rowOffset = y * stride;
+            if (localY < 0 || localY >= mb.height) {
+              for (let x = 0; x < regionWidth; x += 1) {
+                const idx = rowOffset + x * 4;
+                capturedImageData.data[idx] = 0;
+                capturedImageData.data[idx + 1] = 0;
+                capturedImageData.data[idx + 2] = 0;
+                capturedImageData.data[idx + 3] = 0;
+              }
+              continue;
+            }
+            for (let x = 0; x < regionWidth; x += 1) {
+              const globalX = captureX + x;
+              const localX = globalX - mb.x;
+              const destIdx = rowOffset + x * 4;
+              if (localX < 0 || localX >= mb.width) {
+                capturedImageData.data[destIdx] = 0;
+                capturedImageData.data[destIdx + 1] = 0;
+                capturedImageData.data[destIdx + 2] = 0;
+                capturedImageData.data[destIdx + 3] = 0;
+                continue;
+              }
+              const maskIdx = (Math.floor(localY) * mb.width + Math.floor(localX)) * 4 + 3;
+              if (maskData[maskIdx] === 0) {
+                capturedImageData.data[destIdx] = 0;
+                capturedImageData.data[destIdx + 1] = 0;
+                capturedImageData.data[destIdx + 2] = 0;
+                capturedImageData.data[destIdx + 3] = 0;
+              }
+            }
+          }
+        }, probeMeta);
+      } else if (selectionStart && selectionEnd) {
+        strokeFinalizeProbeTimeSync('captureCanvasToActiveLayer:applySelectionRect', () => {
+          const minX = Math.min(selectionStart.x, selectionEnd.x);
+          const maxX = Math.max(selectionStart.x, selectionEnd.x);
+          const minY = Math.min(selectionStart.y, selectionEnd.y);
+          const maxY = Math.max(selectionStart.y, selectionEnd.y);
 
-    const { selectionMask, selectionMaskBounds, selectionStart, selectionEnd } = state;
-    if (selectionMask && selectionMaskBounds) {
-      const maskData = selectionMask.data;
-      const mb = selectionMaskBounds;
-      const stride = regionWidth * 4;
-      for (let y = 0; y < regionHeight; y += 1) {
-        const globalY = captureY + y;
-        const localY = globalY - mb.y;
-        const rowOffset = y * stride;
-        if (localY < 0 || localY >= mb.height) {
-          for (let x = 0; x < regionWidth; x += 1) {
-            const idx = rowOffset + x * 4;
-            capturedImageData.data[idx] = 0;
-            capturedImageData.data[idx + 1] = 0;
-            capturedImageData.data[idx + 2] = 0;
-            capturedImageData.data[idx + 3] = 0;
+          const stride = regionWidth * 4;
+          for (let y = 0; y < regionHeight; y += 1) {
+            const globalY = captureY + y;
+            const rowOffset = y * stride;
+            for (let x = 0; x < regionWidth; x += 1) {
+              const globalX = captureX + x;
+              const destIdx = rowOffset + x * 4;
+              const inside =
+                globalX >= minX && globalX < maxX && globalY >= minY && globalY < maxY;
+              if (!inside) {
+                capturedImageData.data[destIdx] = 0;
+                capturedImageData.data[destIdx + 1] = 0;
+                capturedImageData.data[destIdx + 2] = 0;
+                capturedImageData.data[destIdx + 3] = 0;
+              }
+            }
           }
-          continue;
-        }
-        for (let x = 0; x < regionWidth; x += 1) {
-          const globalX = captureX + x;
-          const localX = globalX - mb.x;
-          const destIdx = rowOffset + x * 4;
-          if (localX < 0 || localX >= mb.width) {
-            capturedImageData.data[destIdx] = 0;
-            capturedImageData.data[destIdx + 1] = 0;
-            capturedImageData.data[destIdx + 2] = 0;
-            capturedImageData.data[destIdx + 3] = 0;
-            continue;
-          }
-          const maskIdx = (Math.floor(localY) * mb.width + Math.floor(localX)) * 4 + 3;
-          if (maskData[maskIdx] === 0) {
-            capturedImageData.data[destIdx] = 0;
-            capturedImageData.data[destIdx + 1] = 0;
-            capturedImageData.data[destIdx + 2] = 0;
-            capturedImageData.data[destIdx + 3] = 0;
-          }
-        }
+        }, probeMeta);
       }
-    } else if (selectionStart && selectionEnd) {
-      const minX = Math.min(selectionStart.x, selectionEnd.x);
-      const maxX = Math.max(selectionStart.x, selectionEnd.x);
-      const minY = Math.min(selectionStart.y, selectionEnd.y);
-      const maxY = Math.max(selectionStart.y, selectionEnd.y);
 
-      const stride = regionWidth * 4;
-      for (let y = 0; y < regionHeight; y += 1) {
-        const globalY = captureY + y;
-        const rowOffset = y * stride;
-        for (let x = 0; x < regionWidth; x += 1) {
-          const globalX = captureX + x;
-          const destIdx = rowOffset + x * 4;
-          const inside =
-            globalX >= minX && globalX < maxX && globalY >= minY && globalY < maxY;
-          if (!inside) {
-            capturedImageData.data[destIdx] = 0;
-            capturedImageData.data[destIdx + 1] = 0;
-            capturedImageData.data[destIdx + 2] = 0;
-            capturedImageData.data[destIdx + 3] = 0;
-          }
-        }
+      const activeLayerId = state.activeLayerId || state.layers[0]?.id;
+      if (!activeLayerId) {
+        return;
       }
-    }
 
-    const activeLayerId = state.activeLayerId || state.layers[0]?.id;
-    if (!activeLayerId) {
-      return;
-    }
+      const activeLayer = state.layers.find((layer) => layer.id === activeLayerId);
+      if (!activeLayer) {
+        return;
+      }
 
-    const activeLayer = state.layers.find((layer) => layer.id === activeLayerId);
-    if (!activeLayer) {
-      return;
-    }
+      if (activeLayer.layerType === 'color-cycle') {
+        get().setLayersNeedRecomposition(true);
+        return;
+      }
 
-    if (activeLayer.layerType === 'color-cycle') {
-      get().setLayersNeedRecomposition(true);
-      return;
-    }
-
-    set((currentState) => {
-      const updatedLayers = currentState.layers.map((layer) => {
-        if (layer.id !== activeLayerId) {
-          return layer;
-        }
-
-        const framebufferInitial = hasValidFramebuffer(layer.framebuffer)
-          ? layer.framebuffer
+      const {
+        mergedImageData,
+        framebuffer,
+      } = strokeFinalizeProbeTimeSync('captureCanvasToActiveLayer:prepareLayerUpdate', () => {
+        const framebufferInitial = hasValidFramebuffer(activeLayer.framebuffer)
+          ? activeLayer.framebuffer
           : createLayerTransferCanvas(captureWidth, captureHeight) ?? null;
         const matchedImageData =
-          layer.imageData &&
-          layer.imageData.width === captureWidth &&
-          layer.imageData.height === captureHeight
-            ? layer.imageData
+          activeLayer.imageData &&
+          activeLayer.imageData.width === captureWidth &&
+          activeLayer.imageData.height === captureHeight
+            ? activeLayer.imageData
             : null;
         const framebufferSnapshot = snapshotFramebufferRegion(
           framebufferInitial,
@@ -187,14 +242,23 @@ export const captureCanvasToActiveLayerAction = async (
         const targetHeight = baseImageData?.height ?? captureHeight;
 
         const compositeMode = options?.mode ?? 'alpha';
-        const mergedImageData = alphaCompositeImageDataRegion(
-          baseImageData,
-          capturedImageData,
-          captureX,
-          captureY,
-          targetWidth,
-          targetHeight,
-          compositeMode
+        const mergedImageData = strokeFinalizeProbeTimeSync(
+          'captureCanvasToActiveLayer:merge',
+          () => alphaCompositeImageDataRegion(
+            baseImageData,
+            capturedImageData,
+            captureX,
+            captureY,
+            targetWidth,
+            targetHeight,
+            compositeMode
+          ),
+          {
+            ...probeMeta,
+            targetWidth,
+            targetHeight,
+            activeLayerType: activeLayer.layerType,
+          }
         );
 
         let framebuffer = framebufferInitial;
@@ -212,68 +276,58 @@ export const captureCanvasToActiveLayerAction = async (
             '2d',
             { willReadFrequently: true } as CanvasRenderingContext2DSettings
           ) as CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D | null;
-          framebufferCtx?.putImageData(mergedImageData, 0, 0);
-        }
-
-        let nextAlignment = layer.alignment;
-        const project = currentState.project;
-        if (project && nextAlignment && nextAlignment.positioning === 'auto') {
-          try {
-            const layerForMetrics: Layer = {
-              ...layer,
-              imageData: mergedImageData,
-              alignment: {
-                ...nextAlignment,
-                offsetPercent: undefined,
-                offsetPx: undefined,
-              },
-            };
-            const percentOffset = computeLayerPercentOffset(layerForMetrics, project);
-            const safeWidth = Math.max(1, project.width);
-            const safeHeight = Math.max(1, project.height);
-            nextAlignment = {
-              ...nextAlignment,
-              offsetPercent: percentOffset,
-              offsetPx: {
-                x: Math.round((percentOffset.x / 100) * safeWidth),
-                y: Math.round((percentOffset.y / 100) * safeHeight),
-              },
-            };
-          } catch (error) {
-            debugWarn('raw-console', '[captureCanvasToActiveLayer] Failed to sync percent alignment', error);
+          if (framebufferCtx) {
+            strokeFinalizeProbeTimeSync(
+              'captureCanvasToActiveLayer:putImageData',
+              () => framebufferCtx.putImageData(mergedImageData, 0, 0),
+              probeMeta
+            );
           }
         }
 
-        const updatedLayer: Layer = {
-          ...layer,
-          imageData: mergedImageData,
-          framebuffer: framebuffer ?? layer.framebuffer,
-          alignment: nextAlignment,
-          version: (layer.version || 0) + 1,
+        return { mergedImageData, framebuffer };
+      }, probeMeta);
+
+      strokeFinalizeProbeTimeSync('captureCanvasToActiveLayer:setLayers', () => set((currentState) => {
+        const updatedLayers = currentState.layers.map((layer) => {
+          if (layer.id !== activeLayerId) {
+            return layer;
+          }
+
+          const updatedLayer: Layer = {
+            ...layer,
+            imageData: mergedImageData,
+            framebuffer: framebuffer ?? layer.framebuffer,
+            version: (layer.version || 0) + 1,
+          };
+
+          if (updatedLayer.layerType !== layer.layerType) {
+            logError('Layer type corruption detected in captureCanvasToActiveLayer', {
+              layerId: layer.id?.substring(0, 20),
+              originalType: layer.layerType,
+              corruptedType: updatedLayer.layerType,
+            });
+            updatedLayer.layerType = layer.layerType;
+          }
+
+          return refreshCapturedAutoAlignment(updatedLayer, currentState.project ?? null);
+        });
+        const syncedLayers = syncPercentOffsetsFromPixels(updatedLayers, currentState.project ?? null);
+
+        return {
+          layers: syncedLayers,
         };
+      }), probeMeta);
 
-        if (updatedLayer.layerType !== layer.layerType) {
-          logError('Layer type corruption detected in captureCanvasToActiveLayer', {
-            layerId: layer.id?.substring(0, 20),
-            originalType: layer.layerType,
-            corruptedType: updatedLayer.layerType,
-          });
-          updatedLayer.layerType = layer.layerType;
-        }
-
-        return updatedLayer;
-      });
-
-      const syncedLayers = syncPercentOffsetsFromPixels(updatedLayers, currentState.project ?? null);
-      return {
-        layers: syncedLayers,
-      };
-    });
-
-    get().markCompositeSegmentsDirtyByLayerIds([activeLayerId], {
-      dirtyRectsByLayerId: new Map([[activeLayerId, [captureDirtyRect]]]),
-    });
-    set({ layersNeedRecomposition: true });
+      strokeFinalizeProbeTimeSync('captureCanvasToActiveLayer:markDirty', () => {
+        get().markCompositeSegmentsDirtyByLayerIds([activeLayerId], {
+          dirtyRectsByLayerId: new Map([[activeLayerId, [captureDirtyRect]]]),
+        });
+        set({ layersNeedRecomposition: true });
+      }, probeMeta);
+    } finally {
+      strokeFinalizeProbeMark('captureCanvasToActiveLayer', 'end', probeMeta);
+    }
   } catch (error) {
     if (error instanceof DOMException && error.name === 'SecurityError') {
       debugWarn('raw-console', '[captureCanvasToActiveLayer] Canvas capture blocked by CORS/security policy');

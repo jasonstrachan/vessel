@@ -26,6 +26,7 @@ import { applyCanvasShapeClip, strokeCanvasShapeOutline } from '@/utils/canvasSh
 import { isOverlaySeededFromLayer } from '@/hooks/canvas/utils/overlaySeedState';
 import { recordBreadcrumb } from '@/utils/debug';
 import { getSequentialRenderFrame } from '@/runtime/playback/sequentialFrameCursor';
+import { strokeFinalizeProbeMark } from '@/utils/strokeFinalizeProbe';
 
 const CANVAS_CHECKER_LIGHT = '#2a2a2e';
 const CANVAS_CHECKER_DARK = '#1c1c1f';
@@ -240,6 +241,18 @@ export const useDrawingCanvasBaseRenderer = ({
             project.height
           )
         : null;
+      const probeMeta = {
+        scale,
+        layerCount: layers.length,
+        segmentCount: compositeSegmentsRef.current.length,
+        hasCompositeBitmap: Boolean(compositeBitmap),
+        skipDrawingCanvas,
+        isDrawing: Boolean(isDrawing),
+        drawingCanvasHasContent: Boolean(drawingCanvasHasContent),
+        viewportWidth: displayWidth,
+        viewportHeight: displayHeight,
+      };
+      strokeFinalizeProbeMark('baseRenderer:draw', 'start', probeMeta);
       fillCanvasFrameBackdrop(ctx, canvasPixelWidth, canvasPixelHeight, frameColor);
 
       if (compositeBitmap == null && lastInvalidCompositeBitmapRef.current !== null) {
@@ -247,6 +260,7 @@ export const useDrawingCanvasBaseRenderer = ({
       }
 
       if (!project || layers.length === 0) {
+        strokeFinalizeProbeMark('baseRenderer:draw', 'end', probeMeta);
         return;
       }
 
@@ -338,7 +352,9 @@ export const useDrawingCanvasBaseRenderer = ({
           anyAnimatingColorCycle;
 
         if (requiresLiveRefresh) {
+          strokeFinalizeProbeMark('baseRenderer:renderSplitComposites', 'start', probeMeta);
           renderSplitComposites();
+          strokeFinalizeProbeMark('baseRenderer:renderSplitComposites', 'end', probeMeta);
           compositeCanvasDirtyRef.current = false;
           lastSplitCompositeSequentialFrameRef.current = sequentialFrame;
         }
@@ -361,6 +377,7 @@ export const useDrawingCanvasBaseRenderer = ({
       displayFilterStateRef.current.filterSurfaceCanvas = filterCanvas;
       const filterCtx = shouldFilterArtwork ? clearDisplayFilterCanvas(filterCanvas) : null;
       const compositeTargetCtx = filterCtx ?? ctx;
+      strokeFinalizeProbeMark('baseRenderer:drawVisibleCompositeStack', 'start', probeMeta);
       const { invalidCompositeBitmap } = drawVisibleCompositeStack({
         ctx: compositeTargetCtx ?? ctx,
         visibleRect,
@@ -376,6 +393,7 @@ export const useDrawingCanvasBaseRenderer = ({
         compositeBitmap,
         compositeCanvas: compositeCanvasRef.current,
       });
+      strokeFinalizeProbeMark('baseRenderer:drawVisibleCompositeStack', 'end', probeMeta);
       if (invalidCompositeBitmap) {
         const lastInvalidBitmap = lastInvalidCompositeBitmapRef.current;
         if (compositeBitmap && lastInvalidBitmap !== compositeBitmap) {
@@ -501,6 +519,7 @@ export const useDrawingCanvasBaseRenderer = ({
       });
 
       ctx.restore();
+      strokeFinalizeProbeMark('baseRenderer:draw', 'end', probeMeta);
     },
     [
       project,

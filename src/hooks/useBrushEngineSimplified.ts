@@ -1574,6 +1574,15 @@ export const useBrushEngineSimplified = () => {
   ) => {
     const healColorCycleEraseMask = (layerId: string, paintMask: ColorCyclePaintMask): void => {
       try {
+        const layer = getAppStoreState().layers.find((entry) => entry.id === layerId);
+        const colorCycleData = layer?.colorCycleData;
+        const shouldHealEraseMask = Boolean(
+          colorCycleData?.eraseMask &&
+          ((colorCycleData.eraseMaskVersion ?? 0) > 0 || colorCycleData.eraseMaskImageData)
+        );
+        if (!shouldHealEraseMask) {
+          return;
+        }
         getMaskManager().addPendingHealMask(layerId, paintMask);
       } catch {}
     };

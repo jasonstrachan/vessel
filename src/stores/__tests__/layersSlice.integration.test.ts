@@ -209,6 +209,24 @@ const createSourceCanvas = (width: number, height: number) => {
   return { canvas, ctx, imageData };
 };
 
+const createSinglePixelSourceCanvas = (width: number, height: number, x: number, y: number) => {
+  const imageData = new ImageData(width, height);
+  const index = (y * width + x) * 4;
+  imageData.data[index] = 255;
+  imageData.data[index + 3] = 255;
+  const ctx = {
+    getImageData: jest.fn(() => imageData),
+  } as unknown as CanvasRenderingContext2D;
+
+  const canvas = {
+    width,
+    height,
+    getContext: jest.fn(() => ctx),
+  } as unknown as HTMLCanvasElement;
+
+  return { canvas, ctx, imageData };
+};
+
 const createFilledDomCanvas = (width: number, height: number, color: string): HTMLCanvasElement => {
   const canvas = document.createElement('canvas');
   canvas.width = width;
@@ -1575,6 +1593,34 @@ describe('layers slice integration', () => {
     expect(nextState.layersNeedRecomposition).toBe(true);
     expect(targetLayer?.imageData?.width).toBe(32);
     expect(ctx.getImageData).toHaveBeenCalledWith(0, 0, 32, 32);
+  });
+
+  it('refreshes auto alignment offsets when capturing changed active-layer bounds', async () => {
+    const store = useAppStore.getState();
+    const layerId = store.addLayer({
+      ...createNormalLayerInput('Auto Capture Layer'),
+      alignment: {
+        ...createDefaultLayerAlignment(),
+        positioning: 'auto',
+        fit: 'contain',
+        offsetPercent: { x: 0, y: 0 },
+        offsetPx: { x: 0, y: 0 },
+      },
+    });
+    const { canvas: sourceCanvas } = createSinglePixelSourceCanvas(32, 32, 16, 8);
+
+    await useAppStore.getState().captureCanvasToActiveLayer(sourceCanvas);
+
+    const nextState = useAppStore.getState();
+    const targetLayer = nextState.layers.find((candidate) => candidate.id === layerId);
+    expect(targetLayer?.alignment.offsetPercent).toBeDefined();
+    expect(targetLayer?.alignment.offsetPx).toBeDefined();
+    expect(targetLayer?.alignment.offsetPercent).not.toEqual({ x: 0, y: 0 });
+    expect(targetLayer?.alignment.offsetPx).not.toEqual({ x: 0, y: 0 });
+    expect(targetLayer?.alignment.offsetPx).toEqual({
+      x: Math.round(((targetLayer?.alignment.offsetPercent?.x ?? 0) / 100) * 256),
+      y: Math.round(((targetLayer?.alignment.offsetPercent?.y ?? 0) / 100) * 256),
+    });
   });
 
   it('captures a canvas into a specific layer even when inactive', async () => {
