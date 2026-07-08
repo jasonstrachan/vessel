@@ -316,6 +316,29 @@ describe('ColorCycleLayerDocument', () => {
     );
   });
 
+  it('rebases version anchors without replacing state or clearing pending dirty rects', () => {
+    const document = new ColorCycleLayerDocument(makeState(), {
+      initialVersion: 5,
+      initialPixelVersion: 5,
+    });
+    document.replaceState(makeState({ hasContent: true }), 'stroke-commit', {
+      dirtyRects: [{ x: 1, y: 1, width: 2, height: 2 }],
+      force: true,
+      pixelsChanged: true,
+    });
+
+    const read = document.rebaseVersionAnchors({ version: 3, pixelVersion: 2 });
+
+    expect(read.version).toBe(3);
+    expect(read.pixelVersion).toBe(2);
+    expect(read.snapshot.hasContent).toBe(true);
+    expect(document.peekDirtyBatch()).toEqual({
+      layerId: 'cc-layer',
+      version: 6,
+      rects: [{ x: 1, y: 1, width: 2, height: 2 }],
+    });
+  });
+
   it('detects derived surfaces that were not built from the current document version', () => {
     const document = new ColorCycleLayerDocument(makeState(), { initialVersion: 2 });
     const surface: DerivedSurface = {

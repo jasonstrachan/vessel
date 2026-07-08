@@ -32,12 +32,27 @@ const mockBrush = {
   updateColorCycleTexture: jest.fn(),
   commitToLayer: jest.fn(),
   setTargetCanvas: jest.fn(),
+  getColorCycleDerivedSurface: jest.fn(),
 };
 registerColorCycleBrushPaintPatchRuntime(mockBrush, {
   apply: mockApplyPaintPatch,
 });
 let mockDocumentVersion: number | undefined;
 let mockPixelVersion: number | undefined;
+let mockDocumentSnapshot: never = {} as never;
+const mockRebaseVersionAnchors = jest.fn((options: { version?: number; pixelVersion?: number }) => {
+  if (typeof options.version === 'number') {
+    mockDocumentVersion = options.version;
+  }
+  if (typeof options.pixelVersion === 'number') {
+    mockPixelVersion = options.pixelVersion;
+  }
+  return {
+    snapshot: mockDocumentSnapshot,
+    version: mockDocumentVersion ?? 0,
+    pixelVersion: mockPixelVersion ?? mockDocumentVersion ?? 0,
+  };
+});
 
 jest.mock('@/stores/colorCycleBrushManager', () => ({
   __esModule: true as const,
@@ -48,10 +63,11 @@ jest.mock('@/stores/colorCycleBrushManager', () => ({
       typeof mockDocumentVersion === 'number'
         ? {
             read: () => ({
-              snapshot: {} as never,
+              snapshot: mockDocumentSnapshot,
               version: mockDocumentVersion,
               pixelVersion: mockPixelVersion ?? mockDocumentVersion,
             }),
+            rebaseVersionAnchors: mockRebaseVersionAnchors,
           }
         : undefined
     ),
@@ -173,6 +189,8 @@ describe('ColorCycleStrokePatchDelta', () => {
     jest.clearAllMocks();
     mockDocumentVersion = undefined;
     mockPixelVersion = undefined;
+    mockDocumentSnapshot = {} as never;
+    mockBrush.getColorCycleDerivedSurface.mockReturnValue(null);
     window.localStorage.clear();
     const layer = createLayer('layer-cc-patch', 2, 2);
     useAppStore.setState((state) => ({
@@ -322,6 +340,138 @@ describe('ColorCycleStrokePatchDelta', () => {
         }),
       }),
     ]);
+  });
+
+  it('rebases document anchors to the target history state after applying a patch', async () => {
+    const layerId = 'layer-cc-patch';
+    mockDocumentVersion = 21;
+    mockPixelVersion = 2;
+    mockDocumentSnapshot = { layerId } as never;
+    const derivedSurface = {
+      builtFromVersion: 22,
+      rebuild: jest.fn(),
+    };
+    mockBrush.getColorCycleDerivedSurface.mockReturnValue(derivedSurface);
+    const backwardState = makeState({
+      layerId,
+      width: 2,
+      height: 2,
+      paint: [1, 0, 0, 0],
+      gradientId: [1, 0, 0, 0],
+      gradientDefId: [1, 0, 0, 0],
+      speed: [0, 0, 0, 0],
+      flow: [0, 0, 0, 0],
+      phase: [0, 0, 0, 0],
+    });
+    const forwardState = makeState({
+      layerId,
+      width: 2,
+      height: 2,
+      paint: [2, 0, 0, 0],
+      gradientId: [2, 0, 0, 0],
+      gradientDefId: [2, 0, 0, 0],
+      speed: [0, 0, 0, 0],
+      flow: [0, 0, 0, 0],
+      phase: [0, 0, 0, 0],
+    });
+
+    const delta = await createColorCycleStrokePatchDelta({
+      layerId,
+      width: 2,
+      height: 2,
+      roi: { x: 0, y: 0, width: 1, height: 1 },
+      forwardState,
+      backwardState,
+      beforeDocumentVersion: 20,
+      afterDocumentVersion: 21,
+      beforeVersion: 1,
+      afterVersion: 2,
+    });
+
+    expect(delta).not.toBeNull();
+    await delta!.apply('backward');
+
+    expect(mockApplyPaintPatch).toHaveBeenCalledTimes(1);
+    expect(mockRebaseVersionAnchors).toHaveBeenCalledWith({
+      version: 20,
+      pixelVersion: 1,
+    });
+    expect(derivedSurface.rebuild).toHaveBeenCalledWith(mockDocumentSnapshot, 20);
+    expect(mockDocumentVersion).toBe(20);
+    expect(mockPixelVersion).toBe(1);
+  });
+
+  it('allows adjacent patch entries to undo sequentially after replay re-anchors the document', async () => {
+    const layerId = 'layer-cc-patch';
+    mockDocumentVersion = 2;
+    mockPixelVersion = 2;
+    const state0 = makeState({
+      layerId,
+      width: 2,
+      height: 2,
+      paint: [0, 0, 0, 0],
+      gradientId: [0, 0, 0, 0],
+      gradientDefId: [0, 0, 0, 0],
+      speed: [0, 0, 0, 0],
+      flow: [0, 0, 0, 0],
+      phase: [0, 0, 0, 0],
+    });
+    const state1 = makeState({
+      layerId,
+      width: 2,
+      height: 2,
+      paint: [1, 0, 0, 0],
+      gradientId: [1, 0, 0, 0],
+      gradientDefId: [1, 0, 0, 0],
+      speed: [0, 0, 0, 0],
+      flow: [0, 0, 0, 0],
+      phase: [0, 0, 0, 0],
+    });
+    const state2 = makeState({
+      layerId,
+      width: 2,
+      height: 2,
+      paint: [2, 0, 0, 0],
+      gradientId: [2, 0, 0, 0],
+      gradientDefId: [2, 0, 0, 0],
+      speed: [0, 0, 0, 0],
+      flow: [0, 0, 0, 0],
+      phase: [0, 0, 0, 0],
+    });
+    const firstDelta = await createColorCycleStrokePatchDelta({
+      layerId,
+      width: 2,
+      height: 2,
+      roi: { x: 0, y: 0, width: 1, height: 1 },
+      forwardState: state1,
+      backwardState: state0,
+      beforeDocumentVersion: 0,
+      afterDocumentVersion: 1,
+      beforeVersion: 0,
+      afterVersion: 1,
+    });
+    const secondDelta = await createColorCycleStrokePatchDelta({
+      layerId,
+      width: 2,
+      height: 2,
+      roi: { x: 0, y: 0, width: 1, height: 1 },
+      forwardState: state2,
+      backwardState: state1,
+      beforeDocumentVersion: 1,
+      afterDocumentVersion: 2,
+      beforeVersion: 1,
+      afterVersion: 2,
+    });
+
+    expect(firstDelta).not.toBeNull();
+    expect(secondDelta).not.toBeNull();
+    await secondDelta!.apply('backward');
+    await expect(firstDelta!.apply('backward')).resolves.toBeUndefined();
+
+    expect(mockRebaseVersionAnchors).toHaveBeenLastCalledWith({
+      version: 0,
+      pixelVersion: 0,
+    });
   });
 
   it('refuses redo when the document version has drifted from the expected before version', async () => {

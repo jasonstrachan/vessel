@@ -554,6 +554,7 @@ export class ColorCycleBrushCanvas2D {
   private readonly forceRenderLayer = this.presentationApi.forceRenderLayer;
   private readonly flushScheduledRender = this.presentationApi.flushScheduledRender;
   readonly flush = this.presentationApi.flush;
+  readonly getColorCycleDerivedSurface = (layerId: string) => this.presentationApi.getAnimator(layerId) ?? null;
   readonly startAnimation = this.presentationApi.startAnimation;
   readonly stopAnimation = this.presentationApi.stopAnimation;
   readonly togglePlayPause = this.presentationApi.togglePlayPause;

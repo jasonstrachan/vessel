@@ -124,8 +124,10 @@ export const recordCropHistory = async ({
               roi,
               width,
               height,
-              beforeVersion: baseline.colorState?.documentVersion,
-              afterVersion: afterColor?.documentVersion,
+              beforeDocumentVersion: baseline.colorState?.documentVersion,
+              afterDocumentVersion: afterColor?.documentVersion,
+              beforeVersion: baseline.colorState?.pixelVersion,
+              afterVersion: afterColor?.pixelVersion,
             })
           : null;
         if (patchDelta) {

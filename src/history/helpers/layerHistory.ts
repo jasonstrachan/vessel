@@ -341,6 +341,8 @@ export const commitLayerHistory = async ({
                 roi: colorCycleRoi,
                 width: projectWidth,
                 height: projectHeight,
+                beforeDocumentVersion: beforeColorState?.documentVersion,
+                afterDocumentVersion: afterColorState?.documentVersion,
                 beforeVersion: beforeColorState?.pixelVersion,
                 afterVersion: afterColorState?.pixelVersion,
               }),

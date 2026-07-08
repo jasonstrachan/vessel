@@ -23,6 +23,17 @@ type ColorCycleSerializedLayer = NonNullable<ColorCycleBrushState['layers']>[num
 
 type ManagedColorCycleBrush = ColorCycleHistoryBrushContext & ColorCycleBrushPaintPatchRuntimeWriter & {
   getColorCycleLayerDocument?: (layerId: string) => { read(): ColorCycleLayerDocumentRead } | null | undefined;
+  getColorCycleDerivedSurface?: (layerId: string) => {
+    builtFromVersion: number | null;
+    rebuild(snapshot: ColorCycleLayerDocumentRead['snapshot'], version: number): void;
+  } | null | undefined;
+};
+type ManagedColorCycleDocument = {
+  read(): ColorCycleLayerDocumentRead;
+  rebaseVersionAnchors?: (options: {
+    version?: number;
+    pixelVersion?: number;
+  }) => ColorCycleLayerDocumentRead;
 };
 
 type PatchEncoding = 'raw' | 'rle';
@@ -92,6 +103,8 @@ export interface ColorCycleStrokePatchDeltaOptions {
   roi: { x: number; y: number; width: number; height: number };
   forwardState: ColorCycleBrushState | null;
   backwardState: ColorCycleBrushState | null;
+  beforeDocumentVersion?: number;
+  afterDocumentVersion?: number;
   beforeVersion?: number;
   afterVersion?: number;
 }
@@ -496,6 +509,8 @@ class ColorCycleStrokePatchDelta implements HistoryDelta {
   private readonly roi: { x: number; y: number; width: number; height: number };
   private readonly forwardPatches: EncodedColorCyclePixelPatches;
   private readonly backwardPatches: EncodedColorCyclePixelPatches;
+  private readonly beforeDocumentVersion?: number;
+  private readonly afterDocumentVersion?: number;
   private readonly beforeVersion?: number;
   private readonly afterVersion?: number;
 
@@ -506,6 +521,8 @@ class ColorCycleStrokePatchDelta implements HistoryDelta {
     roi: { x: number; y: number; width: number; height: number };
     forwardPatches: EncodedColorCyclePixelPatches;
     backwardPatches: EncodedColorCyclePixelPatches;
+    beforeDocumentVersion?: number;
+    afterDocumentVersion?: number;
     beforeVersion?: number;
     afterVersion?: number;
   }) {
@@ -515,6 +532,8 @@ class ColorCycleStrokePatchDelta implements HistoryDelta {
     this.roi = options.roi;
     this.forwardPatches = options.forwardPatches;
     this.backwardPatches = options.backwardPatches;
+    this.beforeDocumentVersion = options.beforeDocumentVersion;
+    this.afterDocumentVersion = options.afterDocumentVersion;
     this.beforeVersion = options.beforeVersion;
     this.afterVersion = options.afterVersion;
     this.approxBytes =
@@ -561,7 +580,11 @@ class ColorCycleStrokePatchDelta implements HistoryDelta {
     }
 
     const expectedVersion = direction === 'forward' ? this.beforeVersion : this.afterVersion;
-    const documentRead = manager.getDocument(this.layerId)?.read?.() ??
+    const document = (manager.getDocument(this.layerId) ??
+      (typeof brush.getColorCycleLayerDocument === 'function'
+        ? brush.getColorCycleLayerDocument(this.layerId) ?? undefined
+        : undefined)) as ManagedColorCycleDocument | undefined;
+    const documentRead = document?.read?.() ??
       brush.getColorCycleLayerDocument?.(this.layerId)?.read?.();
     if (
       typeof expectedVersion === 'number' &&
@@ -614,6 +637,21 @@ class ColorCycleStrokePatchDelta implements HistoryDelta {
       decoded.paint,
       patchSetRuntimeExtras(decoded)
     );
+    const targetPixelVersion = direction === 'forward' ? this.afterVersion : this.beforeVersion;
+    const targetDocumentVersion = direction === 'forward'
+      ? this.afterDocumentVersion
+      : this.beforeDocumentVersion;
+    if (
+      typeof document?.rebaseVersionAnchors === 'function' &&
+      (typeof targetPixelVersion === 'number' || typeof targetDocumentVersion === 'number')
+    ) {
+      const rebasedRead = document.rebaseVersionAnchors({
+        version: targetDocumentVersion,
+        pixelVersion: targetPixelVersion,
+      });
+      const derivedSurface = brush.getColorCycleDerivedSurface?.(this.layerId);
+      derivedSurface?.rebuild(rebasedRead.snapshot, rebasedRead.version);
+    }
     if (beforeHasContent && !hasContent) {
       logCCMutation({
         event: 'color-cycle-layer-cleared',
@@ -824,6 +862,8 @@ export const createColorCycleStrokePatchDelta = async (
     roi,
     forwardPatches,
     backwardPatches,
+    beforeDocumentVersion: options.beforeDocumentVersion,
+    afterDocumentVersion: options.afterDocumentVersion,
     beforeVersion: options.beforeVersion,
     afterVersion: options.afterVersion,
   });

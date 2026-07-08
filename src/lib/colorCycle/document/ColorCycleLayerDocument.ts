@@ -118,6 +118,11 @@ export type ColorCycleLayerDocumentBaselineOptions = {
   clearAudit?: boolean;
 };
 
+export type ColorCycleLayerDocumentVersionAnchorOptions = {
+  version?: number;
+  pixelVersion?: number;
+};
+
 export type ColorCycleLayerDocumentReplaceOptions = {
   force?: boolean;
   pixelsChanged?: boolean;
@@ -644,6 +649,19 @@ export class ColorCycleLayerDocument {
     this.dirtyTracker.clear();
     if (options.clearAudit !== false) {
       this.auditEntries.length = 0;
+    }
+
+    return this.read();
+  }
+
+  rebaseVersionAnchors(
+    options: ColorCycleLayerDocumentVersionAnchorOptions,
+  ): ColorCycleLayerDocumentRead {
+    if (typeof options.version === 'number') {
+      this.currentVersion = options.version;
+    }
+    if (typeof options.pixelVersion === 'number') {
+      this.currentPixelVersion = options.pixelVersion;
     }
 
     return this.read();
