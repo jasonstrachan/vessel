@@ -692,6 +692,73 @@ interface SerializedLayer {
   [COLOR_CYCLE_STATE_SOURCE]?: SerializedColorCycleStateSource;
 }
 
+const hasSerializedEntries = <T>(value: T[] | undefined): value is T[] => (
+  Array.isArray(value) && value.length > 0
+);
+
+const isSerializedColorCycleLayerState = (
+  state: SerializedLayer['state'] | undefined,
+): state is SerializedColorCycleLayerStateV1 => (
+  Boolean(
+    state
+    && 'dimensions' in state
+    && !('imageRef' in state)
+    && !('chunksRef' in state)
+  )
+);
+
+const applySerializedColorCycleStateMetadata = (
+  colorCycleData: SerializedColorCycleLayerData,
+  state: SerializedColorCycleLayerStateV1,
+  layerId: string,
+): SerializedColorCycleLayerData => {
+  colorCycleData.documentId ??= layerId;
+  colorCycleData.canvasWidth ??= state.dimensions.width;
+  colorCycleData.canvasHeight ??= state.dimensions.height;
+  colorCycleData.mode ??= state.mode;
+  if (!hasSerializedEntries(colorCycleData.gradientDefs) && hasSerializedEntries(state.gradientDefs)) {
+    colorCycleData.gradientDefs = state.gradientDefs;
+  }
+  if (!hasSerializedEntries(colorCycleData.slotPalettes) && hasSerializedEntries(state.slotPalettes)) {
+    colorCycleData.slotPalettes = state.slotPalettes;
+  }
+  if (!hasSerializedEntries(colorCycleData.gradientDefStore) && hasSerializedEntries(state.gradientDefStore)) {
+    colorCycleData.gradientDefStore = state.gradientDefStore;
+  }
+  colorCycleData.nextGradientDefId ??= state.nextGradientDefId;
+  colorCycleData.fgActiveSlot ??= state.fgActiveSlot;
+  colorCycleData.activeGradientId ??= state.activeGradientId;
+  colorCycleData.layerBaseSpeedCps ??= state.layerBaseSpeedCps;
+  colorCycleData.brushSpeed ??= state.brushSpeed;
+  colorCycleData.controllerSpeedCps ??= state.controllerSpeedCps;
+  colorCycleData.flowMode ??= state.flowMode;
+  return colorCycleData;
+};
+
+const applySerializedColorCycleStateSnapshotMetadata = (
+  snapshot: PersistedColorCycleBrushState['layers'][number],
+  state: SerializedColorCycleLayerStateV1,
+): void => {
+  snapshot.canonicalPaint = true;
+  snapshot.schemaVersion = 1;
+  snapshot.dimensions = {
+    width: state.dimensions.width,
+    height: state.dimensions.height,
+  };
+  if (!hasSerializedEntries(snapshot.gradientDefs) && hasSerializedEntries(state.gradientDefs)) {
+    snapshot.gradientDefs = state.gradientDefs;
+  }
+  if (!hasSerializedEntries(snapshot.slotPalettes) && hasSerializedEntries(state.slotPalettes)) {
+    snapshot.slotPalettes = state.slotPalettes;
+  }
+  if (!hasSerializedEntries(snapshot.gradientDefStore) && hasSerializedEntries(state.gradientDefStore)) {
+    snapshot.gradientDefStore = state.gradientDefStore;
+  }
+  snapshot.paintSlot ??= state.paintSlot;
+  snapshot.fgActiveSlot ??= state.fgActiveSlot;
+  snapshot.activeGradientId ??= state.activeGradientId;
+};
+
 type SerializedSequentialLayerData = {
   frameCount: number;
   fps: number;
@@ -2778,6 +2845,7 @@ type LazyColorCycleArchiveRuntime = {
   archiveZip: JSZip;
   binaryManifest: ArchiveBinaryManifestIndex;
   cache: Map<string, string>;
+  stateCache?: Map<string, SerializedColorCycleLayerStateV1 | null>;
   paintRef?: string;
   speedRef?: string;
   flowRef?: string;
@@ -2811,6 +2879,106 @@ const getLazyColorCycleArchiveRuntimeByLayerId = (
 const deleteLazyColorCycleArchiveRuntime = (layer: Layer): void => {
   lazyColorCycleArchiveRuntimes.delete(layer);
   lazyColorCycleArchiveRuntimesById.delete(layer.id);
+};
+
+const readLazyColorCycleArchiveLayerState = async (
+  runtime: LazyColorCycleArchiveRuntime,
+  layerId: string,
+): Promise<SerializedColorCycleLayerStateV1 | undefined> => {
+  runtime.stateCache ??= new Map();
+  if (runtime.stateCache.has(layerId)) {
+    return runtime.stateCache.get(layerId) ?? undefined;
+  }
+
+  const projectEntry = runtime.archiveZip.file(PROJECT_ARCHIVE_ENTRY);
+  const normalizedProjectEntry = Array.isArray(projectEntry) ? projectEntry[0] ?? null : projectEntry;
+  if (!normalizedProjectEntry) {
+    runtime.stateCache.set(layerId, null);
+    return undefined;
+  }
+
+  try {
+    const projectJson = utf8Decoder.decode(await normalizedProjectEntry.async('uint8array'));
+    const parsed = JSON.parse(projectJson) as Partial<VesselProject>;
+    const serializedLayer = parsed.project?.layers?.find((candidate) => candidate.id === layerId);
+    const state = isSerializedColorCycleLayerState(serializedLayer?.state)
+      ? serializedLayer.state
+      : undefined;
+    runtime.stateCache.set(layerId, state ?? null);
+    return state;
+  } catch (error) {
+    debugWarn('raw-console', '[projectIO] Failed to recover lazy color-cycle archive metadata', {
+      layerId,
+      error,
+    });
+    runtime.stateCache.set(layerId, null);
+    return undefined;
+  }
+};
+
+const applyLazyColorCycleArchiveStateMetadata = async (
+  layer: Layer,
+  runtime: LazyColorCycleArchiveRuntime,
+): Promise<void> => {
+  if (!layer.colorCycleData) {
+    return;
+  }
+  const state = await readLazyColorCycleArchiveLayerState(runtime, layer.id);
+  if (!state) {
+    return;
+  }
+
+  const colorCycleData = layer.colorCycleData;
+  colorCycleData.documentId ??= layer.id;
+  colorCycleData.canvasWidth ??= state.dimensions.width;
+  colorCycleData.canvasHeight ??= state.dimensions.height;
+  colorCycleData.mode ??= state.mode;
+  if (!hasSerializedEntries(colorCycleData.gradientDefs) && hasSerializedEntries(state.gradientDefs)) {
+    colorCycleData.gradientDefs = state.gradientDefs;
+  }
+  if (!hasSerializedEntries(colorCycleData.slotPalettes) && hasSerializedEntries(state.slotPalettes)) {
+    colorCycleData.slotPalettes = state.slotPalettes;
+  }
+  if (!hasSerializedEntries(colorCycleData.gradientDefStore) && hasSerializedEntries(state.gradientDefStore)) {
+    colorCycleData.gradientDefStore = state.gradientDefStore;
+  }
+  colorCycleData.nextGradientDefId ??= state.nextGradientDefId;
+  colorCycleData.fgActiveSlot ??= state.fgActiveSlot;
+  colorCycleData.activeGradientId ??= state.activeGradientId;
+  colorCycleData.layerBaseSpeedCps ??= state.layerBaseSpeedCps;
+  colorCycleData.brushSpeed ??= state.brushSpeed;
+  colorCycleData.controllerSpeedCps ??= state.controllerSpeedCps;
+  colorCycleData.flowMode ??= state.flowMode;
+
+  const brushState = (
+    runtime.brushState ??
+    colorCycleData.brushState ??
+    {
+      canonicalPaint: true,
+      schemaVersion: 1,
+      layers: [],
+    }
+  ) as PersistedColorCycleBrushState;
+  brushState.canonicalPaint = true;
+  brushState.schemaVersion = 1;
+  brushState.dimensionsByLayerId = {
+    ...(brushState.dimensionsByLayerId ?? {}),
+    [layer.id]: {
+      width: state.dimensions.width,
+      height: state.dimensions.height,
+    },
+  };
+
+  const targetSnapshot = getSerializedBrushSnapshotForLayer(brushState, layer.id) ?? {
+    layerId: layer.id,
+  };
+  applySerializedColorCycleStateSnapshotMetadata(targetSnapshot, state);
+  if (!brushState.layers.some((snapshot) => snapshot.layerId === layer.id)) {
+    brushState.layers.push(targetSnapshot);
+  }
+
+  runtime.brushState = brushState;
+  colorCycleData.brushState = brushState as NonNullable<Layer['colorCycleData']>['brushState'];
 };
 
 const estimateColorCycleArchiveRuntimeBytes = (
@@ -2959,6 +3127,7 @@ const hydrateLazyColorCycleArchiveRuntime = async (layer: Layer): Promise<void> 
     return;
   }
 
+  await applyLazyColorCycleArchiveStateMetadata(layer, runtime);
   const hydratedBrushState = await hydratePersistedBrushStateArchiveRefs(runtime.brushState, runtime, layer.id);
 
   if (hydratedBrushState) {
@@ -2988,6 +3157,7 @@ export const hydrateColorCycleArchiveRuntimeSnapshotForExport = async (layer: La
     return snapshot;
   }
 
+  await applyLazyColorCycleArchiveStateMetadata(snapshot, runtime);
   const hydratedBrushState = await hydratePersistedBrushStateArchiveRefs(runtime.brushState, runtime, layer.id);
   if (hydratedBrushState) {
     snapshot.colorCycleData.brushState = hydratedBrushState;
@@ -3594,6 +3764,14 @@ async function deserializeLayer(serializedLayer: SerializedLayer, projectWidth: 
 
   // Restore color cycle data if present (including legacy files without layerType set)
   if (serializedLayer.colorCycleData) {
+    if (isSerializedColorCycleLayerState(serializedLayer.state)) {
+      serializedLayer.colorCycleData = applySerializedColorCycleStateMetadata(
+        { ...serializedLayer.colorCycleData },
+        serializedLayer.state,
+        serializedLayer.id,
+      );
+    }
+
     // Create canvas for color cycle rendering
     const colorCycleCanvas = document.createElement('canvas');
     const serializedCanvasWidth = serializedLayer.colorCycleData.canvasWidth;
@@ -5263,23 +5441,13 @@ const hydrateSerializedLayerArchiveRefs = async (
     };
   }
 
-  if (layer.state && 'dimensions' in layer.state && !('imageRef' in layer.state) && !('chunksRef' in layer.state)) {
-    const colorCycleData = layer.colorCycleData ?? {};
+  if (isSerializedColorCycleLayerState(layer.state)) {
+    const colorCycleData = applySerializedColorCycleStateMetadata(
+      layer.colorCycleData ?? {},
+      layer.state,
+      layer.id,
+    );
     const deferRuntimeBuffers = Boolean(options?.deferColorCycleRuntimeBuffers);
-    colorCycleData.documentId ??= layer.id;
-    colorCycleData.canvasWidth ??= layer.state.dimensions.width;
-    colorCycleData.canvasHeight ??= layer.state.dimensions.height;
-    colorCycleData.gradientDefs ??= layer.state.gradientDefs;
-    colorCycleData.slotPalettes ??= layer.state.slotPalettes;
-    colorCycleData.gradientDefStore ??= layer.state.gradientDefStore;
-    colorCycleData.nextGradientDefId ??= layer.state.nextGradientDefId;
-    colorCycleData.fgActiveSlot ??= layer.state.fgActiveSlot;
-    colorCycleData.activeGradientId ??= layer.state.activeGradientId;
-    colorCycleData.mode ??= layer.state.mode;
-    colorCycleData.layerBaseSpeedCps ??= layer.state.layerBaseSpeedCps;
-    colorCycleData.brushSpeed ??= layer.state.brushSpeed;
-    colorCycleData.controllerSpeedCps ??= layer.state.controllerSpeedCps;
-    colorCycleData.flowMode ??= layer.state.flowMode;
     const metadataBrushState = (
       colorCycleData.brushState && typeof colorCycleData.brushState === 'object'
         ? colorCycleData.brushState
@@ -5299,12 +5467,7 @@ const hydrateSerializedLayerArchiveRefs = async (
     const currentLayerSnapshot = getSerializedBrushSnapshotForLayer(metadataBrushState, layer.id) ?? {
       layerId: layer.id,
     };
-    currentLayerSnapshot.canonicalPaint = true;
-    currentLayerSnapshot.schemaVersion = 1;
-    currentLayerSnapshot.dimensions = {
-      width: layer.state.dimensions.width,
-      height: layer.state.dimensions.height,
-    };
+    applySerializedColorCycleStateSnapshotMetadata(currentLayerSnapshot, layer.state);
     const currentLayerStrokeData = currentLayerSnapshot.strokeData ?? {};
     currentLayerStrokeData[COLOR_CYCLE_STROKE_PAINT_KEY] = deferRuntimeBuffers
       ? layer.state.paintRef

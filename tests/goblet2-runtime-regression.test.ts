@@ -117,11 +117,15 @@ describe('Goblet 2 runtime export regression guard', () => {
     expect(runtime).not.toContain('[goblet][profile]');
   });
 
-  it('keeps Goblet 2 slot-speed brush exports out of the per-pixel speed export path', () => {
+  it('routes Goblet 2 slot-speed brush exports through the WebGL speed texture path', () => {
     const runtime = read('public/goblet2/goblet2.js');
 
-    expect(runtime).toContain("if (colorCycle?.speedMode !== 'buffer') {\n      return false;\n    }");
-    expect(runtime).toContain('if (!hasNumericPayload(brushState.speedBuffer)) {\n      return false;\n    }');
+    expect(runtime).toContain("const speedMode = colorCycle?.speedMode === 'slot' ? 'slot' : colorCycle?.speedMode === 'buffer' ? 'buffer' : null;");
+    expect(runtime).toContain("if (speedMode !== 'buffer' && !slotSpeedMap) {");
+    expect(runtime).toContain('uniform float u_slotSpeeds[256];');
+    expect(runtime).toContain('phase = u_time * u_slotSpeeds[int(min(slot, uint(255)))];');
+    expect(runtime).toContain('renderer.setSlotSpeeds(slotSpeedData);');
+    expect(runtime).not.toContain('synthesizeSlotSpeedBuffer');
     expect(runtime).not.toContain('if (this.isGoblet2 && this.speedBuffer) {');
   });
 

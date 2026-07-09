@@ -28,6 +28,19 @@ type PixelDiff = {
   }>;
 };
 
+type RuntimePlayerState = {
+  useWebGL: boolean;
+  webglSlotCount: number | null;
+  baseTimeSeconds: number | null;
+  legacyOffset01: number | null;
+  gradientIds: number[] | null;
+  speedBytes: number[] | null;
+  slotSpeedData: number[] | null;
+  flowBytes: number[] | null;
+  phaseBytes: number[] | null;
+  paletteSize: number | null;
+};
+
 type RuntimeFlags = {
   foundViewer: boolean;
   layerEntryCount: number;
@@ -35,7 +48,7 @@ type RuntimeFlags = {
   playerCount: number;
   usesWebGL: boolean;
   usesCpu: boolean;
-  playerState: Array<{ flowBytes: number[] | null; phaseBytes: number[] | null; paletteSize: number | null }>;
+  playerState: RuntimePlayerState[];
 };
 
 const createGpuParityMetadata = () => ({
@@ -269,6 +282,7 @@ const getColorCycleRuntimeFlags = (canvas) => {
       legacyOffset01: player?.legacyOffset01 ?? null,
       gradientIds: player?.gradientIdBuffer ? Array.from(player.gradientIdBuffer) : null,
       speedBytes: player?.speedBuffer ? Array.from(player.speedBuffer) : null,
+      slotSpeedData: player?.slotSpeedData ? Array.from(player.slotSpeedData) : null,
       flowBytes: player?.flowBuffer ? Array.from(player.flowBuffer) : null,
       phaseBytes: player?.phaseBuffer ? Array.from(player.phaseBuffer) : null,
       paletteSize: player?.webglRenderer?.paletteSize ?? player?.cycleColors ?? null,
@@ -335,6 +349,31 @@ const createBlackWhiteFallbackMetadata = () => {
   delete fallback.layers[0].colorCycle.slotPalettes;
   return fallback;
 };
+const createSlotSpeedMetadata = () => {
+  const slotSpeed = createPlainMetadata();
+  slotSpeed.layers[0].id = 'slot-speed-gpu-parity';
+  slotSpeed.layers[0].name = 'Slot Speed GPU Parity';
+  slotSpeed.layers[0].colorCycle = {
+    ...slotSpeed.layers[0].colorCycle,
+    speedMode: 'slot',
+    speedMin: 0,
+    speedMax: 2.54,
+    slotSpeeds: [
+      { slot: 0, speed: 1 },
+      { slot: 1, speed: 0 },
+      { slot: 2, speed: 4 },
+    ],
+    brushState: {
+      ...slotSpeed.layers[0].colorCycle.brushState,
+      speedBuffer: undefined,
+      gradientIdBuffer: [0, 1, 2, 0, 1, 2, 0, 1],
+      gradientDefIdBuffer: [1, 1, 1, 1, 1, 1, 1, 1],
+      flowBuffer: [1, 2, 3, 1, 2, 3, 1, 2],
+      phaseBuffer: [0, 0, 0, 64, 64, 64, 128, 128],
+    },
+  };
+  return slotSpeed;
+};
 const createRenderCanvas = (id) => {
   const canvas = document.createElement('canvas');
   canvas.id = id;
@@ -368,6 +407,7 @@ try {
   const plainGpuSummary = await renderVesselWebGL(plainMetadata, plainGpuCanvas, {});
   const plainCpuSummary = await withWebGLDisabled(() => renderVesselWebGL(structuredClone(plainMetadata), plainCpuCanvas, {}));
   const blackWhiteFallback = await renderCase('black-white-fallback', createBlackWhiteFallbackMetadata());
+  const slotSpeed = await renderCase('slot-speed', createSlotSpeedMetadata());
   const maskCases = {
     eraseVisible: await renderCase('erase-visible', createMaskCaseMetadata({ mask: 'erase', includeHidden: false })),
     eraseHidden: await renderCase('erase-hidden', createMaskCaseMetadata({ mask: 'erase', includeHidden: true })),
@@ -403,6 +443,15 @@ try {
     blackWhiteFallbackRuntime: {
       gpuRuntime: blackWhiteFallback.gpuRuntime,
       cpuRuntime: blackWhiteFallback.cpuRuntime,
+    },
+    slotSpeedDiff: diffPixels(slotSpeed.cpuPixels, slotSpeed.gpuPixels),
+    slotSpeedPixels: {
+      gpu: slotSpeed.gpuPixels,
+      cpu: slotSpeed.cpuPixels,
+    },
+    slotSpeedRuntime: {
+      gpuRuntime: slotSpeed.gpuRuntime,
+      cpuRuntime: slotSpeed.cpuRuntime,
     },
     maskCaseDiffs: Object.fromEntries(Object.entries(maskCases).map(([name, entry]) => [
       name,
@@ -526,6 +575,15 @@ test.describe('Goblet 2 CPU/GPU rendered parity', () => {
             cpu: number[];
           };
           blackWhiteFallbackRuntime: {
+            gpuRuntime: RuntimeFlags;
+            cpuRuntime: RuntimeFlags;
+          };
+          slotSpeedDiff: PixelDiff;
+          slotSpeedPixels: {
+            gpu: number[];
+            cpu: number[];
+          };
+          slotSpeedRuntime: {
             gpuRuntime: RuntimeFlags;
             cpuRuntime: RuntimeFlags;
           };
@@ -656,6 +714,38 @@ test.describe('Goblet 2 CPU/GPU rendered parity', () => {
     expect(result?.blackWhiteFallbackPixels.cpu.slice(4, 8).every((value, index) => (
       index === 3 ? value === 255 : value >= 253
     ))).toBe(true);
+    expect(result?.slotSpeedRuntime.gpuRuntime).toMatchObject({
+      foundViewer: true,
+      layerEntryCount: 1,
+      hiddenLayerEntryCount: 0,
+      playerCount: 1,
+      usesWebGL: true,
+      usesCpu: false,
+    });
+    expect(result?.slotSpeedRuntime.cpuRuntime).toMatchObject({
+      foundViewer: true,
+      layerEntryCount: 1,
+      hiddenLayerEntryCount: 0,
+      playerCount: 1,
+      usesWebGL: false,
+      usesCpu: true,
+    });
+    expect(result?.slotSpeedRuntime.gpuRuntime.playerState[0]).toMatchObject({
+      speedBytes: [0, 0, 0, 0, 0, 0, 0, 0],
+      slotSpeedData: expect.arrayContaining([1, 0, 4]),
+      flowBytes: [1, 2, 3, 1, 2, 3, 1, 2],
+      phaseBytes: [0, 0, 0, 64, 64, 64, 128, 128],
+      paletteSize: 256,
+    });
+    expect(result?.slotSpeedDiff.maxChannelDelta, JSON.stringify({
+      mismatches: result?.slotSpeedDiff.mismatches,
+      cpuPixels: result?.slotSpeedPixels.cpu,
+      gpuPixels: result?.slotSpeedPixels.gpu,
+      cpuRuntime: result?.slotSpeedRuntime.cpuRuntime,
+      gpuRuntime: result?.slotSpeedRuntime.gpuRuntime,
+    })).toBeLessThanOrEqual(2);
+    expect(result?.slotSpeedDiff.maxAlphaDelta).toBeLessThanOrEqual(0);
+    expect(result?.slotSpeedDiff.mismatchedPixels).toBeLessThanOrEqual(6);
     Object.entries(MASK_CASE_EXPECTATIONS).forEach(([caseName, expectedRuntime]) => {
       const typedCaseName = caseName as keyof typeof MASK_CASE_EXPECTATIONS;
       const caseDiff = result?.maskCaseDiffs[typedCaseName];

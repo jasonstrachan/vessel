@@ -5121,6 +5121,10 @@ describe('projectIO serialize/deserialize layering', () => {
     speed.fill(4);
     flow.fill(1);
     phase.fill(5);
+    const slotTwoStops = [
+      { position: 0, color: '#112233' },
+      { position: 1, color: '#ddeeff' },
+    ];
 
     const entries = [
       { path: `buffers/color-cycle/${colorCycleLayerId}/paint.bin`, bytes: paint },
@@ -5169,10 +5173,14 @@ describe('projectIO serialize/deserialize layering', () => {
             version: 1,
             dimensions: { width, height },
             mode: 'brush',
+            slotPalettes: [{
+              slot: 2,
+              stops: slotTwoStops,
+            }],
             gradientDefStore: [{
               id: 3,
               kind: 'linear',
-              stops: [{ position: 0, color: '#000000' }, { position: 1, color: '#ffffff' }],
+              stops: slotTwoStops,
               hash: 'def-3',
               source: 'manual',
               createdAtMs: 1,
@@ -5214,6 +5222,16 @@ describe('projectIO serialize/deserialize layering', () => {
     const lazyLayer = deserialized.layers.find((layer) => layer.id === colorCycleLayerId);
 
     expect(lazyLayer?.colorCycleData?.deferredRuntimeRestore).toBe(true);
+    expect(lazyLayer?.colorCycleData?.slotPalettes?.map((entry) => entry.slot)).toEqual([2]);
+    expect(lazyLayer?.colorCycleData?.gradientDefStore?.map((entry) => entry.id)).toEqual([3]);
+    const lazyBrushState = lazyLayer?.colorCycleData?.brushState as {
+      layers?: Array<{
+        slotPalettes?: Array<{ slot: number }>;
+        gradientDefStore?: Array<{ id: number }>;
+      }>;
+    } | undefined;
+    expect(lazyBrushState?.layers?.[0]?.slotPalettes?.map((entry) => entry.slot)).toEqual([2]);
+    expect(lazyBrushState?.layers?.[0]?.gradientDefStore?.map((entry) => entry.id)).toEqual([3]);
 
     const exportDeserialized = await deserializeProject(payload, {
       lazyColorCycleRuntime: true,
@@ -5224,6 +5242,8 @@ describe('projectIO serialize/deserialize layering', () => {
     if (!exportLazyLayer) {
       throw new Error('Expected lazy color-cycle layer');
     }
+    exportLazyLayer.colorCycleData!.slotPalettes = undefined;
+    exportLazyLayer.colorCycleData!.gradientDefStore = undefined;
     exportLazyLayer.colorCycleData!.brushState = {
       canonicalPaint: true,
       schemaVersion: 1,
@@ -5233,6 +5253,8 @@ describe('projectIO serialize/deserialize layering', () => {
     const exportBrushState = exportLazyLayer.colorCycleData?.brushState as {
       layers?: Array<{
         layerId?: string;
+        slotPalettes?: Array<{ slot: number }>;
+        gradientDefStore?: Array<{ id: number }>;
         strokeData?: {
           paintBuffer?: unknown;
           gradientIdBuffer?: unknown;
@@ -5246,6 +5268,8 @@ describe('projectIO serialize/deserialize layering', () => {
     const exportSnapshot = exportBrushState?.layers?.find((snapshot) => snapshot.layerId === colorCycleLayerId);
     expect(exportSnapshot?.strokeData?.paintBuffer).toEqual(expect.any(String));
     expect(exportSnapshot?.strokeData?.paintBuffer).not.toBe(ref(entries[0].path));
+    expect(exportSnapshot?.slotPalettes?.map((entry) => entry.slot)).toEqual([2]);
+    expect(exportSnapshot?.gradientDefStore?.map((entry) => entry.id)).toEqual([3]);
     expect(exportSnapshot?.strokeData?.gradientIdBuffer).toEqual(expect.any(String));
     expect(exportSnapshot?.strokeData?.gradientDefIdBuffer).toEqual(expect.any(String));
     expect(exportSnapshot?.strokeData?.speedBuffer).toEqual(expect.any(String));

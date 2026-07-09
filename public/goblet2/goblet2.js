@@ -2298,6 +2298,37 @@ const normalizeSlotSpeeds = (slotSpeeds) => {
   return map.size > 0 ? map : null;
 };
 
+const createSlotSpeedUniformData = (slotSpeeds, defaultSpeed) => {
+  const out = new Float32Array(SLOT_COUNT);
+  const fallbackSpeed = Number.isFinite(slotSpeeds?.get(0))
+    ? slotSpeeds.get(0)
+    : defaultSpeed;
+  const resolvedFallback = Number.isFinite(fallbackSpeed) ? fallbackSpeed : 0;
+  out.fill(resolvedFallback);
+  if (!slotSpeeds) {
+    return out;
+  }
+  slotSpeeds.forEach((speed, slot) => {
+    const normalizedSlot = clampGobletSlotId(slot, FLOW_SLOT_MASK);
+    if (Number.isFinite(speed)) {
+      out[normalizedSlot] = speed;
+    }
+  });
+  return out;
+};
+
+const hasNonZeroSlotSpeed = (slotSpeedData) => {
+  if (!slotSpeedData) {
+    return false;
+  }
+  for (let i = 0; i < slotSpeedData.length; i += 1) {
+    if (slotSpeedData[i] > 0) {
+      return true;
+    }
+  }
+  return false;
+};
+
 const sampleGradient = sampleGobletGradient;
 
 const normalizeFlowDirection = (direction, fallback = 'forward') => {
@@ -2709,8 +2740,10 @@ class BrushWebGLRenderer {
       uniform float u_speedMax;
       uniform float u_startOffset;
       uniform float u_legacyOffset01;
+      uniform float u_slotSpeeds[256];
       uniform int u_paletteSize;
       uniform int u_slotCount;
+      uniform bool u_useSlotSpeeds;
       uniform bool u_hasAlpha;
       uniform bool u_hasMask;
       uniform bool u_hasSoftMask;
@@ -2731,7 +2764,9 @@ class BrushWebGLRenderer {
         uint flowByte = texelFetch(u_flow, coord, 0).r;
         uint phaseByte = texelFetch(u_phase, coord, 0).r;
         float phase = 0.0;
-        if (speedByte == uint(0)) {
+        if (u_useSlotSpeeds) {
+          phase = u_time * u_slotSpeeds[int(min(slot, uint(255)))];
+        } else if (speedByte == uint(0)) {
           phase = u_legacyOffset01;
         } else {
           float normalized = max(0.0, min(254.0, float(speedByte) - 1.0)) / 254.0;
@@ -2813,8 +2848,10 @@ class BrushWebGLRenderer {
       u_speedMin: gl.getUniformLocation(program, 'u_speedMin'),
       u_speedMax: gl.getUniformLocation(program, 'u_speedMax'),
       u_startOffset: gl.getUniformLocation(program, 'u_startOffset'),
+      u_slotSpeeds: gl.getUniformLocation(program, 'u_slotSpeeds[0]'),
       u_paletteSize: gl.getUniformLocation(program, 'u_paletteSize'),
       u_slotCount: gl.getUniformLocation(program, 'u_slotCount'),
+      u_useSlotSpeeds: gl.getUniformLocation(program, 'u_useSlotSpeeds'),
       u_hasAlpha: gl.getUniformLocation(program, 'u_hasAlpha'),
       u_hasMask: gl.getUniformLocation(program, 'u_hasMask'),
       u_hasSoftMask: gl.getUniformLocation(program, 'u_hasSoftMask'),
@@ -2848,7 +2885,19 @@ class BrushWebGLRenderer {
     gl.uniform1f(this.uniforms.u_startOffset, this.startOffset01);
     gl.uniform1i(this.uniforms.u_paletteSize, this.paletteSize);
     gl.uniform1i(this.uniforms.u_slotCount, this.slotCount);
+    gl.uniform1i(this.uniforms.u_useSlotSpeeds, 0);
     gl.uniform1i(this.uniforms.u_opaqueIndices, this.alphaMode === 'opaque-indices');
+  }
+
+  setSlotSpeeds(slotSpeedData) {
+    const gl = this.gl;
+    if (!slotSpeedData) {
+      gl.uniform1i(this.uniforms.u_useSlotSpeeds, 0);
+      return;
+    }
+    gl.useProgram(this.program);
+    gl.uniform1fv(this.uniforms.u_slotSpeeds, slotSpeedData);
+    gl.uniform1i(this.uniforms.u_useSlotSpeeds, 1);
   }
 
   setBuffers(indexBuffer, slotBuffer, speedBuffer, flowBuffer, phaseBuffer) {
@@ -3452,7 +3501,7 @@ const fillPixelsFromIndicesWithFractionalSlotSpeeds = (
     const slotSpeed = Number.isFinite(slotSpeedMap?.get(slot))
       ? slotSpeedMap.get(slot)
       : (Number.isFinite(slotSpeedMap?.get(0)) ? slotSpeedMap.get(0) : defaultSpeed);
-    const basePhase = Number.isFinite(slotSpeed) && slotSpeed > 0
+    const basePhase = Number.isFinite(slotSpeed)
       ? timeSeconds * slotSpeed
       : legacyOffset01;
     const phaseByte = phaseBytes ? (phaseBytes[i] ?? 0) : 0;
@@ -3503,6 +3552,7 @@ class ColorCycleLayerPlayer {
     this.phaseBuffer = null;
     this.speedMode = null;
     this.slotSpeeds = null;
+    this.slotSpeedData = null;
     this.indexPhaseMap = null;
     this.phaseMap = null;
     this.gradient = normalizeGradientStops(null);
@@ -3841,10 +3891,12 @@ class ColorCycleLayerPlayer {
     if (!brushState || !hasNumericPayload(brushState.indexBuffer)) {
       return false;
     }
-    if (colorCycle?.speedMode !== 'buffer') {
+    const speedMode = colorCycle?.speedMode === 'slot' ? 'slot' : colorCycle?.speedMode === 'buffer' ? 'buffer' : null;
+    const slotSpeedMap = speedMode === 'slot' ? normalizeSlotSpeeds(colorCycle?.slotSpeeds) : null;
+    if (speedMode !== 'buffer' && !slotSpeedMap) {
       return false;
     }
-    if (!hasNumericPayload(brushState.speedBuffer)) {
+    if (speedMode === 'buffer' && !hasNumericPayload(brushState.speedBuffer)) {
       return false;
     }
 
@@ -3896,7 +3948,20 @@ class ColorCycleLayerPlayer {
         gradientIdBuffer[i] = normalizeSlotId(gradientIdBuffer[i]);
       }
     }
-    const speedBuffer = clampBuffer(rawSpeedBuffer);
+    const shouldAnimate = colorCycle.isAnimating !== false;
+    const resolvedBaseSpeed = resolveAnimationSpeed(
+      brushState?.animationSpeed,
+      colorCycle?.brushSpeed,
+      shouldAnimate
+    );
+    const speedMin = toFiniteNumberOrNull(colorCycle.speedMin) ?? DEFAULT_SPEED_MIN;
+    const speedMax = toFiniteNumberOrNull(colorCycle.speedMax) ?? DEFAULT_SPEED_MAX;
+    const slotSpeedData = speedMode === 'slot'
+      ? createSlotSpeedUniformData(slotSpeedMap, resolvedBaseSpeed)
+      : null;
+    const speedBuffer = speedMode === 'slot'
+      ? new Uint8Array(expectedLength)
+      : clampBuffer(rawSpeedBuffer);
 
     this.indexBuffer = indexBuffer;
     this.gradientIdBuffer = gradientIdBuffer;
@@ -3905,6 +3970,9 @@ class ColorCycleLayerPlayer {
     this.phaseBuffer = phaseBuffer;
     this.width = sourceWidth;
     this.height = sourceHeight;
+    this.speedMode = speedMode;
+    this.slotSpeeds = slotSpeedMap;
+    this.slotSpeedData = slotSpeedData;
 
     const baseGradient = brushState.gradientStops?.length ? brushState.gradientStops : colorCycle.gradient;
     this.gradient = normalizeGradientStops(baseGradient);
@@ -3914,12 +3982,13 @@ class ColorCycleLayerPlayer {
     this.flowMapping = 'palette';
     this.zeroTransparent = true;
     this.subtractIndexOffset = true;
-    this.speedMin = toFiniteNumberOrNull(colorCycle.speedMin) ?? DEFAULT_SPEED_MIN;
-    this.speedMax = toFiniteNumberOrNull(colorCycle.speedMax) ?? DEFAULT_SPEED_MAX;
-    const shouldAnimate = colorCycle.isAnimating !== false;
+    this.speedMin = speedMin;
+    this.speedMax = speedMax;
     this.isAnimating = shouldAnimate;
     this.usePerPixelSpeed = true;
-    this.hasNonZeroSpeedBuffer = hasAnyNonZeroSpeedByte(this.speedBuffer);
+    this.hasNonZeroSpeedBuffer = speedMode === 'slot'
+      ? hasNonZeroSlotSpeed(slotSpeedData)
+      : hasAnyNonZeroSpeedByte(this.speedBuffer);
 
     const offset = Number.isFinite(brushState.animationOffset) ? brushState.animationOffset : 0;
     const exportedControllerSpeed = toFiniteNumberOrNull(brushState?.legacySpeedCps)
@@ -3961,6 +4030,7 @@ class ColorCycleLayerPlayer {
       });
       const paletteTable = buildPaletteTableRGBA(this.slotGradients, this.gradient, DEFAULT_PALETTE_SIZE);
       renderer.setPalette(paletteTable.data, paletteTable.width, paletteTable.height);
+      renderer.setSlotSpeeds(slotSpeedData);
       renderer.setBuffers(
         indexBuffer,
         gradientIdBuffer ?? new Uint8Array(expectedLength),
@@ -4151,8 +4221,13 @@ class ColorCycleLayerPlayer {
       resized.set(this.phaseBuffer.subarray(0, Math.min(expectedLength, this.phaseBuffer.length)));
       this.phaseBuffer = resized;
     }
+    this.slotSpeedData = this.speedMode === 'slot'
+      ? createSlotSpeedUniformData(this.slotSpeeds, this.legacySpeedCps)
+      : null;
     this.usePerPixelSpeed = this.speedMode === 'buffer' && Boolean(this.speedBuffer && this.speedBuffer.length === expectedLength);
-    this.hasNonZeroSpeedBuffer = this.speedMode === 'buffer' && hasAnyNonZeroSpeedByte(this.speedBuffer);
+    this.hasNonZeroSpeedBuffer = this.speedMode === 'slot'
+      ? hasNonZeroSlotSpeed(this.slotSpeedData)
+      : this.speedMode === 'buffer' && hasAnyNonZeroSpeedByte(this.speedBuffer);
     this._distinctSpeedBytes = this.speedMode === 'buffer' ? collectDistinctSpeedBytes(this.speedBuffer) : null;
     this._usedSlots = collectDistinctSlots(this.gradientIdBuffer);
     this._lutCacheBase.clear();
@@ -4267,6 +4342,9 @@ class ColorCycleLayerPlayer {
     }
     if (!this._hasVisibleAlpha) {
       return false;
+    }
+    if (this.speedMode === 'slot') {
+      return this.hasNonZeroSpeedBuffer;
     }
     if (this.usePerPixelSpeed) {
       return (this.legacySpeedCps ?? 0) > 0 || this.hasNonZeroSpeedBuffer;

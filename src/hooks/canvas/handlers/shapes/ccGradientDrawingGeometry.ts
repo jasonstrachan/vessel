@@ -61,18 +61,35 @@ const normalizeDirection = (start: Point, end: Point): Point | undefined => {
   return { x: dx / length, y: dy / length };
 };
 
-const constrainSquare = (start: Point, end: Point): Point => {
+const snapPointToPixel = (point: Point): Point => ({
+  x: Math.round(point.x),
+  y: Math.round(point.y),
+});
+
+const resolveDragEndpoints = (
+  start: Point,
+  end: Point,
+  constrainAspect: boolean
+): { start: Point; end: Point } => {
+  if (!constrainAspect) {
+    return { start, end };
+  }
+
   const dx = end.x - start.x;
   const dy = end.y - start.y;
-  const side = Math.max(Math.abs(dx), Math.abs(dy));
+  const resolvedStart = snapPointToPixel(start);
+  const side = Math.round(Math.max(Math.abs(dx), Math.abs(dy)));
+  if (side < 1) {
+    return { start: resolvedStart, end: resolvedStart };
+  }
   return {
-    x: start.x + Math.sign(dx || 1) * side,
-    y: start.y + Math.sign(dy || 1) * side,
+    start: resolvedStart,
+    end: {
+      x: resolvedStart.x + Math.sign(dx || 1) * side,
+      y: resolvedStart.y + Math.sign(dy || 1) * side,
+    },
   };
 };
-
-const resolveEnd = (start: Point, end: Point, constrainAspect: boolean): Point =>
-  constrainAspect ? constrainSquare(start, end) : end;
 
 const snapLineEndToAngle = (start: Point, end: Point): Point => {
   const dx = end.x - start.x;
@@ -117,15 +134,17 @@ export const buildRectangleGeometry = ({
   end: Point;
   constrainAspect?: boolean;
 }): CcGradientDrawingGeometry | null => {
-  const resolvedEnd = resolveEnd(start, end, constrainAspect);
-  if (Math.hypot(resolvedEnd.x - start.x, resolvedEnd.y - start.y) < MIN_DRAG_DISTANCE) {
+  const endpoints = resolveDragEndpoints(start, end, constrainAspect);
+  const resolvedStart = endpoints.start;
+  const resolvedEnd = endpoints.end;
+  if (Math.hypot(resolvedEnd.x - resolvedStart.x, resolvedEnd.y - resolvedStart.y) < MIN_DRAG_DISTANCE) {
     return null;
   }
 
-  const minX = Math.min(start.x, resolvedEnd.x);
-  const maxX = Math.max(start.x, resolvedEnd.x);
-  const minY = Math.min(start.y, resolvedEnd.y);
-  const maxY = Math.max(start.y, resolvedEnd.y);
+  const minX = Math.min(resolvedStart.x, resolvedEnd.x);
+  const maxX = Math.max(resolvedStart.x, resolvedEnd.x);
+  const minY = Math.min(resolvedStart.y, resolvedEnd.y);
+  const maxY = Math.max(resolvedStart.y, resolvedEnd.y);
   const shapePoints = [
     { x: minX, y: minY },
     { x: maxX, y: minY },
@@ -135,8 +154,8 @@ export const buildRectangleGeometry = ({
 
   return fromShapePoints({
     shapePoints,
-    sampleSourcePoints: [clonePoint(start), clonePoint(resolvedEnd)],
-    direction: normalizeDirection(start, resolvedEnd),
+    sampleSourcePoints: [clonePoint(resolvedStart), clonePoint(resolvedEnd)],
+    direction: normalizeDirection(resolvedStart, resolvedEnd),
   });
 };
 
@@ -149,11 +168,13 @@ export const buildEllipseGeometry = ({
   end: Point;
   constrainAspect?: boolean;
 }): CcGradientDrawingGeometry | null => {
-  const resolvedEnd = resolveEnd(start, end, constrainAspect);
-  const minX = Math.min(start.x, resolvedEnd.x);
-  const maxX = Math.max(start.x, resolvedEnd.x);
-  const minY = Math.min(start.y, resolvedEnd.y);
-  const maxY = Math.max(start.y, resolvedEnd.y);
+  const endpoints = resolveDragEndpoints(start, end, constrainAspect);
+  const resolvedStart = endpoints.start;
+  const resolvedEnd = endpoints.end;
+  const minX = Math.min(resolvedStart.x, resolvedEnd.x);
+  const maxX = Math.max(resolvedStart.x, resolvedEnd.x);
+  const minY = Math.min(resolvedStart.y, resolvedEnd.y);
+  const maxY = Math.max(resolvedStart.y, resolvedEnd.y);
   const width = maxX - minX;
   const height = maxY - minY;
   if (width < MIN_DRAG_DISTANCE || height < MIN_DRAG_DISTANCE) {
@@ -179,8 +200,8 @@ export const buildEllipseGeometry = ({
 
   return fromShapePoints({
     shapePoints,
-    sampleSourcePoints: [clonePoint(start), clonePoint(resolvedEnd)],
-    direction: normalizeDirection(start, resolvedEnd),
+    sampleSourcePoints: [clonePoint(resolvedStart), clonePoint(resolvedEnd)],
+    direction: normalizeDirection(resolvedStart, resolvedEnd),
   });
 };
 
@@ -193,17 +214,19 @@ export const buildTriangleGeometry = ({
   end: Point;
   constrainAspect?: boolean;
 }): CcGradientDrawingGeometry | null => {
-  const resolvedEnd = resolveEnd(start, end, constrainAspect);
-  if (Math.hypot(resolvedEnd.x - start.x, resolvedEnd.y - start.y) < MIN_DRAG_DISTANCE) {
+  const endpoints = resolveDragEndpoints(start, end, constrainAspect);
+  const resolvedStart = endpoints.start;
+  const resolvedEnd = endpoints.end;
+  if (Math.hypot(resolvedEnd.x - resolvedStart.x, resolvedEnd.y - resolvedStart.y) < MIN_DRAG_DISTANCE) {
     return null;
   }
 
-  const minX = Math.min(start.x, resolvedEnd.x);
-  const maxX = Math.max(start.x, resolvedEnd.x);
-  const minY = Math.min(start.y, resolvedEnd.y);
-  const maxY = Math.max(start.y, resolvedEnd.y);
+  const minX = Math.min(resolvedStart.x, resolvedEnd.x);
+  const maxX = Math.max(resolvedStart.x, resolvedEnd.x);
+  const minY = Math.min(resolvedStart.y, resolvedEnd.y);
+  const maxY = Math.max(resolvedStart.y, resolvedEnd.y);
   const points =
-    resolvedEnd.y >= start.y
+    resolvedEnd.y >= resolvedStart.y
       ? [
           { x: (minX + maxX) / 2, y: minY },
           { x: maxX, y: maxY },
@@ -217,8 +240,8 @@ export const buildTriangleGeometry = ({
 
   return fromShapePoints({
     shapePoints: points,
-    sampleSourcePoints: [clonePoint(start), clonePoint(resolvedEnd)],
-    direction: normalizeDirection(start, resolvedEnd),
+    sampleSourcePoints: [clonePoint(resolvedStart), clonePoint(resolvedEnd)],
+    direction: normalizeDirection(resolvedStart, resolvedEnd),
   });
 };
 
