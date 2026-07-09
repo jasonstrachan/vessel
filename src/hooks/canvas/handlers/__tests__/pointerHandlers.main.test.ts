@@ -1951,7 +1951,7 @@ describe('pointerHandlers main flows', () => {
     expect(getStateSpy).toHaveBeenCalled();
   });
 
-  it('enters direction selection for linear CC Gradient shapes when Colors is greater than 1', () => {
+  it('enters direction selection for linear CC Gradient shapes when visible Colors is greater than 1', () => {
     const setSequentialPointerDown = jest.fn();
     const stateSnapshot = useAppStore.getState();
     const getStateSpy = jest
@@ -1972,7 +1972,8 @@ describe('pointerHandlers main flows', () => {
           brushShape: BrushShape.COLOR_CYCLE_SHAPE,
           colorCycleFillMode: 'linear',
           ccGradientDrawingShape: 'freehand',
-          colors: 2,
+          colors: 1,
+          gradientBands: 2,
         } as any,
       },
     });
@@ -2170,7 +2171,7 @@ describe('pointerHandlers main flows', () => {
     expect(deps.drawingHandlers.drawingCanvasHasContent.current).toBe(true);
   });
 
-  it('finalizes linear CC Gradient shapes directly when Colors is 1', async () => {
+  it('finalizes linear CC Gradient shapes directly when visible Colors is 1', async () => {
     const { deps } = createDeps({
       currentBrushPresetId: 'color-cycle-gradient',
       tools: {
@@ -2182,7 +2183,8 @@ describe('pointerHandlers main flows', () => {
           brushShape: BrushShape.COLOR_CYCLE_SHAPE,
           colorCycleFillMode: 'linear',
           ccGradientDrawingShape: 'freehand',
-          colors: 1,
+          colors: 2,
+          gradientBands: 1,
         } as any,
       },
     });
@@ -2203,37 +2205,39 @@ describe('pointerHandlers main flows', () => {
     expect(deps.stateMachine.finalizationComplete).toHaveBeenCalled();
   });
 
-  it('keeps drag-defined linear CC Gradient shapes on the direct finalize path', async () => {
-    const { deps } = createDeps({
-      currentBrushPresetId: 'color-cycle-gradient',
-      tools: {
-        ...baseDynamic.tools,
-        currentTool: 'brush',
-        shapeMode: true,
-        brushSettings: {
-          ...baseDynamic.tools.brushSettings,
-          brushShape: BrushShape.COLOR_CYCLE_SHAPE,
-          colorCycleFillMode: 'linear',
-          ccGradientDrawingShape: 'line',
-          colors: 2,
-        } as any,
-      },
-    });
+  it.each(['rectangle', 'ellipse', 'line', 'triangle'] as const)(
+    'enters direction selection for %s CC Gradient shapes when visible Colors is greater than 1',
+    async (ccGradientDrawingShape) => {
+      const { deps } = createDeps({
+        currentBrushPresetId: 'color-cycle-gradient',
+        tools: {
+          ...baseDynamic.tools,
+          currentTool: 'brush',
+          shapeMode: true,
+          brushSettings: {
+            ...baseDynamic.tools.brushSettings,
+            brushShape: BrushShape.COLOR_CYCLE_SHAPE,
+            colorCycleFillMode: 'linear',
+            ccGradientDrawingShape,
+            colors: 1,
+            gradientBands: 2,
+          } as any,
+        },
+      });
 
-    deps.interaction.state = { isDrawing: true, isSelecting: false, mode: 'drawing' } as any;
-    deps.drawingHandlers.isDrawingShapeRef.current = true;
-    deps.drawingHandlers.shapePointsRef.current = [{ x: 0, y: 0 }, { x: 20, y: 0 }, { x: 20, y: 20 }];
-    deps.drawingHandlers.isSelectingDirectionRef.current = false;
+      deps.interaction.state = { isDrawing: true, isSelecting: false, mode: 'drawing' } as any;
+      deps.drawingHandlers.isDrawingShapeRef.current = true;
+      deps.drawingHandlers.shapePointsRef.current = [{ x: 0, y: 0 }, { x: 20, y: 0 }, { x: 20, y: 20 }];
+      deps.drawingHandlers.isSelectingDirectionRef.current = false;
 
-    const handlers = createPointerHandlers(deps);
-    handlers.handlePointerUp(makePointerEvent({ clientX: 30, clientY: 30 }));
+      const handlers = createPointerHandlers(deps);
+      handlers.handlePointerUp(makePointerEvent({ clientX: 30, clientY: 30 }));
 
-    await Promise.resolve();
-    await Promise.resolve();
-
-    expect(deps.drawingHandlers.isSelectingDirectionRef.current).toBe(false);
-    expect(deps.drawingHandlers.finalizeShapeDrawing).toHaveBeenCalled();
-  });
+      expect(deps.drawingHandlers.isSelectingDirectionRef.current).toBe(true);
+      expect(deps.drawingHandlers.finalizeShapeDrawing).not.toHaveBeenCalled();
+      expect(deps.stateMachine.finalizationComplete).toHaveBeenCalled();
+    }
+  );
 
   it('cancels pending CC Gradient direction selection on right click', () => {
     const setSequentialPointerDown = jest.fn();
@@ -2661,13 +2665,14 @@ describe('pointerHandlers main flows', () => {
     expect(deps.restartColorCycleAnimation).toHaveBeenCalled();
   });
 
-  it('finalizes CC gradient click-line on double click after three committed boundary points', async () => {
+  it('enters direction selection for CC gradient click-line on double click when visible Colors is greater than 1', async () => {
     const ccLayer = { id: 'cc-layer', layerType: 'color-cycle' } as any;
     const brushSettings = {
       ...baseDynamic.tools.brushSettings,
       brushShape: BrushShape.COLOR_CYCLE_SHAPE,
       colorCycleFillMode: 'linear',
       ccGradientDrawingShape: 'click-line',
+      gradientBands: 2,
       size: 10,
       pressureEnabled: false,
     } as any;
@@ -2705,7 +2710,16 @@ describe('pointerHandlers main flows', () => {
 
     await Promise.resolve();
     await Promise.resolve();
-    expect(deps.drawingHandlers.finalizeShapeDrawing).toHaveBeenCalled();
+    expect(deps.drawingHandlers.isSelectingDirectionRef.current).toBe(true);
+    expect(deps.drawingHandlers.finalizeShapeDrawing).not.toHaveBeenCalled();
+    expect(deps.drawingHandlers.continueShapeDrawing).toHaveBeenCalledWith(
+      expect.objectContaining({ x: 30, y: 30 }),
+      expect.any(Number),
+      expect.any(Number),
+      undefined,
+      { renderPreview: false }
+    );
+    expect(deps.stateMachine.finalizationComplete).toHaveBeenCalled();
     expect(deps.drawingHandlers.ccGradientClickLineSessionRef.current.active).toBe(false);
   });
 
@@ -2757,7 +2771,7 @@ describe('pointerHandlers main flows', () => {
     expect(deps.drawingHandlers.ccGradientClickLineSessionRef.current.active).toBe(false);
   });
 
-  it('finalizes CC gradient polygon drawing on double click', async () => {
+  it('enters direction selection for CC gradient polygon drawing on double click when visible Colors is greater than 1', async () => {
     const { deps } = createDeps({
       currentBrushPresetId: 'color-cycle-gradient',
       tools: {
@@ -2769,6 +2783,7 @@ describe('pointerHandlers main flows', () => {
           brushShape: BrushShape.COLOR_CYCLE_SHAPE,
           colorCycleFillMode: 'linear',
           ccGradientDrawingShape: 'polygon',
+          gradientBands: 2,
         } as any,
       },
     });
@@ -2783,7 +2798,9 @@ describe('pointerHandlers main flows', () => {
 
     await Promise.resolve();
     await Promise.resolve();
-    expect(deps.drawingHandlers.finalizeShapeDrawing).toHaveBeenCalled();
+    expect(deps.drawingHandlers.isSelectingDirectionRef.current).toBe(true);
+    expect(deps.drawingHandlers.finalizeShapeDrawing).not.toHaveBeenCalled();
+    expect(deps.stateMachine.finalizationComplete).toHaveBeenCalled();
   });
 
   it('drops the near-start close click before finalizing a CC gradient polygon', async () => {

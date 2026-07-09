@@ -458,9 +458,10 @@ const shouldEnterCcGradientDirectionStage = (
   brushPresetId: string | null
 ): boolean => {
   const brushSettings = tools.brushSettings;
-  const drawingShape = brushSettings.ccGradientDrawingShape ?? 'freehand';
-  const colorCount = Number.isFinite(brushSettings.colors)
-    ? Math.round(brushSettings.colors ?? 1)
+  const visibleColorCount = Number.isFinite(brushSettings.gradientBands)
+    ? Math.round(brushSettings.gradientBands ?? 1)
+    : Number.isFinite(brushSettings.colors)
+      ? Math.round(brushSettings.colors ?? 1)
     : 1;
 
   return (
@@ -469,9 +470,7 @@ const shouldEnterCcGradientDirectionStage = (
     brushPresetId === 'color-cycle-gradient' &&
     brushSettings.brushShape === BrushShape.COLOR_CYCLE_SHAPE &&
     brushSettings.colorCycleFillMode === 'linear' &&
-    colorCount > 1 &&
-    drawingShape !== 'click-line' &&
-    !isDragDefinedCcGradientShape(drawingShape)
+    visibleColorCount > 1
   );
 };
 
@@ -4608,6 +4607,7 @@ function resampleStopsToColors(stops: Stop[], count: number): string[] {
             brushShape: tools.brushSettings.brushShape,
             fillMode: tools.brushSettings.colorCycleFillMode,
             colors: tools.brushSettings.colors,
+            gradientBands: tools.brushSettings.gradientBands,
             drawingCanvasHasContent: drawingHandlers.drawingCanvasHasContent?.current ?? null,
           });
           resetSequentialPointerDown();

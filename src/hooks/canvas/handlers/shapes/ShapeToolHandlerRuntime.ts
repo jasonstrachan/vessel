@@ -169,6 +169,16 @@ const isSampledCcShapePreview = (brushSettings: BrushSettings): boolean =>
     useForegroundGradient: brushSettings.colorCycleUseForegroundGradient,
   }) === 'sampled';
 
+const getVisibleCcGradientColorCount = (brushSettings: BrushSettings): number => {
+  if (Number.isFinite(brushSettings.gradientBands)) {
+    return Math.max(1, Math.round(brushSettings.gradientBands ?? 1));
+  }
+  if (Number.isFinite(brushSettings.colors)) {
+    return Math.max(1, Math.round(brushSettings.colors ?? 1));
+  }
+  return 1;
+};
+
 type ShapeAdjustHelperUpdate = {
   spacing: number;
   density?: number;
@@ -2712,6 +2722,33 @@ export const createShapeToolHandler = (
     });
     if (!canFinalize) {
       restartColorCycleAnimation?.();
+      return true;
+    }
+
+    if (
+      state.currentBrushPreset?.id === 'color-cycle-gradient' &&
+      state.tools.brushSettings.colorCycleFillMode === 'linear' &&
+      getVisibleCcGradientColorCount(state.tools.brushSettings) > 1
+    ) {
+      drawingHandlers.isSelectingDirectionRef.current = true;
+      drawingHandlers.directionPreviewRef.current = null;
+      if (drawingHandlers.ccShapePreviewCacheRef) {
+        drawingHandlers.ccShapePreviewCacheRef.current = null;
+      }
+      clearCurrentPreview();
+      clearOverlayCanvas();
+      const pressure = computePointerPressure(event);
+      const directionWorld = computeWorldPointer(event);
+      drawingHandlers.continueShapeDrawing(
+        directionWorld,
+        pressure,
+        event.timeStamp,
+        event.pressure,
+        { renderPreview: false }
+      );
+      drawingHandlers.stopContinuousColorCycleAnimation?.('shape-preview');
+      stateMachine.finalizationComplete();
+      setNeedsRedraw(prev => prev + 1);
       return true;
     }
 
