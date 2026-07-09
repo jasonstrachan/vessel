@@ -241,6 +241,48 @@ describe('ccGradientRuntime', () => {
     expect(snapshot.slotPalettes[0]?.stops).toEqual(expectedStops);
   });
 
+  it('uses live range contrast for non-dither sampled session runtime palettes while editing', () => {
+    const layer = makeLayer();
+    const brushSettings = makeBrushSettings({
+      ditherEnabled: false,
+      ccGradientRangeContrast: 100,
+    });
+    const session: MarkGradientSession = {
+      markId: 'session-range',
+      layerId: layer.id,
+      markKind: 'shape',
+      gradientKind: 'linear',
+      source: 'sampled',
+      frozenStopsStored: [
+        { position: 0, color: '#000000' },
+        { position: 1, color: '#ffffff' },
+      ],
+      frozenHash: '',
+      binding: null,
+      previewStopsStored: [
+        { position: 0, color: '#000000' },
+        { position: 1, color: '#ffffff' },
+      ],
+      previewHash: '',
+      fallbackStopsStored: [
+        { position: 0, color: '#000000' },
+        { position: 1, color: '#ffffff' },
+      ],
+      ditherRenderConfig: {
+        enabled: false,
+        pairBandCount: 0,
+        rangeContrast: 0,
+      },
+    };
+
+    __setActiveMarkSessionGetterForTests(() => session);
+
+    const snapshot = buildRuntimeSnapshot(layer, brushSettings);
+
+    expect(snapshot.paintSlot).toBe(TEMP_SAMPLE_SLOT);
+    expect(snapshot.slotPalettes[0]?.stops).toEqual(session.previewStopsStored);
+  });
+
   it('preserves flat FG source stops for active bound sessions', () => {
     const layer = makeLayer({
       colorCycleData: {

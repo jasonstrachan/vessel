@@ -231,6 +231,28 @@ describe('ShapeToolHandler – shape fill tool detection', () => {
     ]);
   });
 
+  it('prepares active sampled stops for sampled non-dither shape previews', () => {
+    const sampledStops = [
+      { position: 0, color: 'rgb(120, 124, 128)' },
+      { position: 1, color: 'rgb(126, 130, 134)' },
+    ];
+
+    const prepared = __shapeToolTestUtils.prepareCcShapePreviewGradient({
+      effectiveStops: sampledStops,
+      shouldDitherPreview: false,
+      gradientBands: 8,
+      ditherPaletteSpread: 0,
+      ditherAlgorithm: 'sierra-lite',
+      preserveSourceStops: false,
+    });
+
+    expect(prepared.renderStops).toBe(sampledStops);
+    expect(prepared.sortedStops).toEqual([
+      { position: 0, rgba: [120, 124, 128, 255] },
+      { position: 1, rgba: [126, 130, 134, 255] },
+    ]);
+  });
+
   it('keeps committed polygon geometry separate from the live guide segment', () => {
     const previewModel = __shapeToolTestUtils.buildPolygonPreviewModel(
       [

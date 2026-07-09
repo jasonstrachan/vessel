@@ -1028,6 +1028,7 @@ export interface BrushSettings {
   // Dither effect for gradients using Sierra Lite algorithm
   ditherEnabled: boolean; // true = use Sierra Lite dithering with colors palette
   ditherPaletteSpread?: number; // 0-100: how far apart palette colors spread to approximate selected color
+  ccGradientRangeContrast?: number; // 0-100: non-dither sampled CC gradient range preservation
   ditherPatternDiversity?: number; // 0-100: how strongly flat pattern mix is amplified and seeded for CC sampled dithers
   ccSampledSoftSeamEnabled?: boolean; // sampled CC gradients: soften the loop seam during playback
   ditherPhaseJitter?: number; // 0-100: how much to offset dither tiles between stamps

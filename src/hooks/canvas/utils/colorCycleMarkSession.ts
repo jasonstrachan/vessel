@@ -14,6 +14,7 @@ import {
   type StoredStop,
   type GradientDefSource,
 } from '@/utils/colorCycleGradientDefs';
+import { applyCcSampledRangeContrast } from '@/utils/colorCycle/ccSampledRangeContrast';
 import { ccWarn } from '@/utils/colorCycle/ccDebug';
 import {
   type GradientSeamProfile,
@@ -41,6 +42,7 @@ export type FrozenCcDitherRenderConfig = {
   enabled: boolean;
   pairBandCount: number;
   spread?: number;
+  rangeContrast?: number;
   algorithm?: AppState['tools']['brushSettings']['ditherAlgorithm'];
 };
 
@@ -75,11 +77,20 @@ const finalizeSampledSession = (session: MarkGradientSession): void => {
       ? session.previewStopsStored
       : null;
   const finalStops = sampledStops ?? fallbackStops;
-  session.frozenStopsStored = cloneStops(finalStops);
+  const shouldFreezeRuntimeStops = !session.ditherRenderConfig?.enabled;
+  const liveRangeContrast = getAppStoreState().tools.brushSettings.ccGradientRangeContrast;
+  session.frozenStopsStored = shouldFreezeRuntimeStops
+    ? resolveMarkSessionRuntimeStops(session, finalStops, {
+        enabled: false,
+        rangeContrast: liveRangeContrast,
+      })
+    : cloneStops(finalStops);
   session.frozenHash = hashStops(session.frozenStopsStored, session.gradientKind);
 
   if (!session.binding) {
-    const runtimeStops = resolveMarkSessionRuntimeStops(session, session.frozenStopsStored);
+    const runtimeStops = shouldFreezeRuntimeStops
+      ? session.frozenStopsStored
+      : resolveMarkSessionRuntimeStops(session, session.frozenStopsStored);
     const defResult = ensureGradientDefForStops({
       layerId: session.layerId,
       kind: session.gradientKind,
@@ -102,6 +113,7 @@ export const captureFrozenCcDitherRenderConfig = (): FrozenCcDitherRenderConfig 
     enabled: Boolean(brushSettings.ditherEnabled),
     pairBandCount: mode.pairBandCount,
     spread: brushSettings.ditherPaletteSpread,
+    rangeContrast: brushSettings.ccGradientRangeContrast,
     algorithm: brushSettings.ditherAlgorithm,
   };
   return config;
@@ -114,6 +126,7 @@ export const resolveMarkSessionRuntimeStops = (
     enabled?: boolean;
     pairBandCount?: number;
     spread?: number;
+    rangeContrast?: number;
     algorithm?: AppState['tools']['brushSettings']['ditherAlgorithm'];
   },
 ): StoredStop[] => {
@@ -121,6 +134,12 @@ export const resolveMarkSessionRuntimeStops = (
   const config = session?.ditherRenderConfig;
   const enabled = liveOverrides?.enabled ?? config?.enabled ?? false;
   if (!enabled) {
+    if (session?.source === 'sampled') {
+      return applyCcSampledRangeContrast(
+        clonedStops,
+        liveOverrides?.rangeContrast ?? config?.rangeContrast
+      );
+    }
     return clonedStops;
   }
   const bands = liveOverrides?.pairBandCount ?? config?.pairBandCount ?? 0;
@@ -272,7 +291,13 @@ export const getPreviewGradientForActiveMark = (layerId: string): PreviewGradien
       return {
         source: 'sampled',
         phase: session.binding ? 'final' : 'sampling',
-        stopsStored: cloneStops(sampledStops),
+        stopsStored: session.ditherRenderConfig?.enabled
+          ? cloneStops(sampledStops)
+          : applyCcSampledRangeContrast(
+              sampledStops,
+              getAppStoreState().tools.brushSettings.ccGradientRangeContrast ??
+                session.ditherRenderConfig?.rangeContrast
+            ),
         defIdPlanned: session.binding?.defId,
       };
     }

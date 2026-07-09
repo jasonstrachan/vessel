@@ -1960,8 +1960,12 @@ const BrushControls = () => {
                       />
                     </div>
                     <div className="flex items-center gap-2 mt-2">
-                      <label className={CONTROL_LABEL_CLASS} style={CONTROL_LABEL_STYLE}>
-                        Sprd
+                      <label
+                        className={CONTROL_LABEL_CLASS}
+                        style={CONTROL_LABEL_STYLE}
+                        title="Ink Spread"
+                      >
+                        Ink Spd
                       </label>
                       <ProgressSlider
                         value={activeSettings.ditherPaletteSpread ?? 0}
@@ -1973,7 +1977,7 @@ const BrushControls = () => {
                             ditherPaletteSpread: Math.max(0, Math.min(100, Math.round(value))),
                           })
                         }
-                        aria-label="Dither Palette Spread"
+                        aria-label="Ink Spread"
                         className="flex-1"
                       />
                     </div>
@@ -1981,6 +1985,30 @@ const BrushControls = () => {
                 ) : null
               }
             />
+            {isColorCycleGradientPreset && isGradientSampleMode && !activeSettings.ditherEnabled && (
+              <div className="flex items-center gap-2 mt-2 mb-2">
+                <label
+                  className={CONTROL_LABEL_CLASS}
+                  style={CONTROL_LABEL_STYLE}
+                  title="Range Contrast"
+                >
+                  Range
+                </label>
+                <ProgressSlider
+                  value={activeSettings.ccGradientRangeContrast ?? 100}
+                  min={0}
+                  max={100}
+                  step={1}
+                  onChange={(value) =>
+                    setActiveSettings({
+                      ccGradientRangeContrast: Math.max(0, Math.min(100, Math.round(value))),
+                    })
+                  }
+                  aria-label="Range Contrast"
+                  className="flex-1"
+                />
+              </div>
+            )}
             <div className="mb-2">
               <div className="flex items-center gap-2">
                 <label

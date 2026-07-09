@@ -307,7 +307,7 @@ const buildFlatTargetContrastPair = ({
   target: [number, number, number];
   spread01: number;
 }): { low: [number, number, number]; high: [number, number, number] } => {
-  const lift = 0.2 + spread01 * 0.72;
+  const lift = 0.02 + Math.pow(spread01, 1.7) * 0.9;
   const low: [number, number, number] = [
     Math.max(0, Math.round(target[0] * (1 - lift))),
     Math.max(0, Math.round(target[1] * (1 - lift))),

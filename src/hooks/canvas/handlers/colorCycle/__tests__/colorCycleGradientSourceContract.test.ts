@@ -208,6 +208,72 @@ describe('colorCycleGradientSourceContract', () => {
     expect(result?.source).toBe('manual');
     expect(result?.frozenStopsStored.length).toBeGreaterThanOrEqual(2);
   });
+
+  it('compresses sampled non-dither render stops with range contrast', () => {
+    const session = makeMarkSession({
+      source: 'sampled',
+      ditherRenderConfig: {
+        enabled: false,
+        pairBandCount: 0,
+        spread: 0,
+        rangeContrast: 0,
+        algorithm: 'sierra-lite',
+      },
+      frozenStopsStored: [
+        { position: 0, color: '#000000' },
+        { position: 1, color: '#ffffff' },
+      ],
+      frozenHash: 'linear:0:#000000|1:#ffffff',
+    });
+
+    const result = resolveColorCycleGradientRenderSession({
+      layerId: 'layer-1',
+      session,
+      brushSettings: makeBrushSettings({
+        ditherEnabled: false,
+        ccGradientRangeContrast: 0,
+      }),
+    });
+
+    expect(result?.source).toBe('sampled');
+    expect(result?.frozenStopsStored).toEqual([
+      { position: 0, color: 'rgb(128, 128, 128)' },
+      { position: 1, color: 'rgb(128, 128, 128)' },
+    ]);
+    expect(result?.sourceStopsStored).toEqual(result?.frozenStopsStored);
+  });
+
+  it('uses live range contrast instead of stale sampled session config', () => {
+    const session = makeMarkSession({
+      source: 'sampled',
+      ditherRenderConfig: {
+        enabled: false,
+        pairBandCount: 0,
+        spread: 0,
+        rangeContrast: 0,
+        algorithm: 'sierra-lite',
+      },
+      frozenStopsStored: [
+        { position: 0, color: '#000000' },
+        { position: 1, color: '#ffffff' },
+      ],
+      frozenHash: 'linear:0:#000000|1:#ffffff',
+    });
+
+    const result = resolveColorCycleGradientRenderSession({
+      layerId: 'layer-1',
+      session,
+      brushSettings: makeBrushSettings({
+        ditherEnabled: false,
+        ccGradientRangeContrast: 100,
+      }),
+    });
+
+    expect(result?.frozenStopsStored).toEqual([
+      { position: 0, color: '#000000' },
+      { position: 1, color: '#ffffff' },
+    ]);
+  });
 });
 
 const makeMarkSession = (overrides?: Partial<import('@/hooks/canvas/utils/colorCycleMarkSession').MarkGradientSession>) => ({

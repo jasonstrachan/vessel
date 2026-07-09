@@ -2,6 +2,7 @@ import { createDefaultLayerAlignment } from '@/utils/layoutDefaults';
 import type { Layer } from '@/types';
 import {
   beginMarkGradientSession,
+  cancelMarkGradientSession,
   finalizeMarkGradientSession,
   getPreviewGradientForActiveMark,
 } from '@/hooks/canvas/utils/colorCycleMarkSession';
@@ -51,6 +52,7 @@ describe('colorCycleMarkSession rebuild', () => {
         brushSettings: {
           ...state.tools.brushSettings,
           ditherPaletteSpread: 0,
+          ccGradientRangeContrast: 100,
         },
       },
       project: state.project
@@ -289,6 +291,154 @@ describe('colorCycleMarkSession rebuild', () => {
     expect(finalizedStops?.[finalizedStops.length - 1]?.color).not.toBe(
       richStops[richStops.length - 1]?.color
     );
+  });
+
+  it('uses live range contrast for sampled preview while a session is active', () => {
+    const layer = createLayer();
+
+    useAppStore.setState((state) => ({
+      layers: [layer],
+      activeLayerId: layer.id,
+      tools: {
+        ...state.tools,
+        brushSettings: {
+          ...state.tools.brushSettings,
+          ditherEnabled: false,
+          ccGradientRangeContrast: 0,
+        },
+      },
+      project: state.project
+        ? { ...state.project, width: 2, height: 2, layers: [layer] }
+        : state.project,
+    }));
+
+    const session = beginMarkGradientSession({
+      layerId: layer.id,
+      markKind: 'shape',
+      gradientKind: 'linear',
+      source: 'sampled',
+      stops,
+    });
+
+    if (!session) {
+      throw new Error('Expected sampled mark session');
+    }
+
+    session.previewStopsStored = stops;
+
+    expect(getPreviewGradientForActiveMark(layer.id)?.stopsStored).toEqual([
+      { position: 0, color: 'rgb(128, 128, 128)' },
+      { position: 1, color: 'rgb(128, 128, 128)' },
+    ]);
+
+    useAppStore.setState((state) => ({
+      tools: {
+        ...state.tools,
+        brushSettings: {
+          ...state.tools.brushSettings,
+          ccGradientRangeContrast: 100,
+        },
+      },
+    }));
+
+    expect(getPreviewGradientForActiveMark(layer.id)?.stopsStored).toEqual(stops);
+    cancelMarkGradientSession(layer.id);
+  });
+
+  it('freezes range-compressed stops when non-dither sampled sessions finalize', () => {
+    const layer = createLayer();
+
+    useAppStore.setState((state) => ({
+      layers: [layer],
+      activeLayerId: layer.id,
+      tools: {
+        ...state.tools,
+        brushSettings: {
+          ...state.tools.brushSettings,
+          ditherEnabled: false,
+          ccGradientRangeContrast: 0,
+        },
+      },
+      project: state.project
+        ? { ...state.project, width: 2, height: 2, layers: [layer] }
+        : state.project,
+    }));
+
+    const session = beginMarkGradientSession({
+      layerId: layer.id,
+      markKind: 'stroke',
+      gradientKind: 'linear',
+      source: 'sampled',
+      stops,
+    });
+
+    if (!session) {
+      throw new Error('Expected sampled mark session');
+    }
+
+    session.previewStopsStored = stops;
+
+    const finalized = finalizeMarkGradientSession(layer.id);
+    const finalizedLayer = useAppStore.getState().layers[0];
+
+    expect(finalized?.frozenStopsStored).toEqual([
+      { position: 0, color: 'rgb(128, 128, 128)' },
+      { position: 1, color: 'rgb(128, 128, 128)' },
+    ]);
+    expect(finalizedLayer?.colorCycleData?.gradientDefStore?.[0]?.stops).toEqual(
+      finalized?.frozenStopsStored
+    );
+  });
+
+  it('uses live range contrast instead of session-start range when sampled sessions finalize', () => {
+    const layer = createLayer();
+
+    useAppStore.setState((state) => ({
+      layers: [layer],
+      activeLayerId: layer.id,
+      tools: {
+        ...state.tools,
+        brushSettings: {
+          ...state.tools.brushSettings,
+          ditherEnabled: false,
+          ccGradientRangeContrast: 100,
+        },
+      },
+      project: state.project
+        ? { ...state.project, width: 2, height: 2, layers: [layer] }
+        : state.project,
+    }));
+
+    const session = beginMarkGradientSession({
+      layerId: layer.id,
+      markKind: 'stroke',
+      gradientKind: 'linear',
+      source: 'sampled',
+      stops,
+    });
+
+    if (!session) {
+      throw new Error('Expected sampled mark session');
+    }
+
+    session.previewStopsStored = stops;
+
+    useAppStore.setState((state) => ({
+      tools: {
+        ...state.tools,
+        brushSettings: {
+          ...state.tools.brushSettings,
+          ccGradientRangeContrast: 0,
+        },
+      },
+    }));
+
+    const finalized = finalizeMarkGradientSession(layer.id);
+
+    expect(finalized?.frozenStopsStored).toEqual([
+      { position: 0, color: 'rgb(128, 128, 128)' },
+      { position: 1, color: 'rgb(128, 128, 128)' },
+    ]);
   });
 
   it('returns null during sampled preview when sampled stops are missing', () => {

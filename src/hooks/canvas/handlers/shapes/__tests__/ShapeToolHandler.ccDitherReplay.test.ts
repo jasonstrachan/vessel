@@ -641,6 +641,86 @@ describe('ShapeToolHandler CC dither preview replay', () => {
     );
   });
 
+  it('applies range contrast to freshly sampled non-dither preview stops', async () => {
+    jest.useFakeTimers();
+    fillCcGradientDither.mockImplementationOnce(async (args: any) => {
+      args.writeIndex(0, 0, 1);
+    });
+
+    const overlayCtx = makeMockContext();
+    const overlayCanvas = document.createElement('canvas');
+    overlayCanvas.width = 256;
+    overlayCanvas.height = 256;
+    (overlayCanvas as any).getContext = jest.fn(() => overlayCtx);
+
+    const scratchCtx = makeMockContext();
+    const scratchCanvas = document.createElement('canvas');
+    scratchCanvas.width = 256;
+    scratchCanvas.height = 256;
+    (scratchCanvas as any).getContext = jest.fn(() => scratchCtx);
+
+    const displayCtx = makeMockContext();
+    const displayCanvas = document.createElement('canvas');
+    displayCanvas.width = 256;
+    displayCanvas.height = 256;
+    (displayCanvas as any).getContext = jest.fn(() => displayCtx);
+
+    runSampledCcDitherPreviewRuntime({
+      overlayCtx,
+      overlayCanvas,
+      committedPolygon: [{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 10, y: 10 }],
+      brushSettings: {
+        ...storeState.tools.brushSettings,
+        ccGradientSource: 'sampled',
+        colorCycleFillMode: 'linear',
+        ditherEnabled: false,
+        ccGradientRangeContrast: 0,
+        gradientBands: 1,
+      },
+      ditherGradPreviewState: {
+        origin: null,
+        lastPx: -1,
+        resState: {} as any,
+        ccJobInFlight: false,
+        ccJobDirty: false,
+        ccJobSeq: 0,
+        ccScratchCanvas: scratchCanvas,
+        ccLastCanvas: displayCanvas,
+      },
+      drawingHandlers: {
+        isDrawingShapeRef: { current: true },
+        shapePointsRef: { current: [{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 10, y: 10 }] },
+        ccShapePreviewCacheRef: { current: null },
+      },
+      shouldKeepCachedCcPreviewVisible: () => false,
+      previewOpacity: 0.8,
+      previewRenderSettings: {
+        pixelSize: 1,
+        levels: 8,
+        algorithm: 'sierra-lite',
+        patternStyle: 'dots',
+        isFastPreview: false,
+      },
+      sampleColor: jest.fn(() => '#000000'),
+      fallbackStops: [
+        { position: 0, color: '#000000' },
+        { position: 1, color: '#ffffff' },
+      ],
+      schedulePolygonShapePreviewFrame: jest.fn(),
+      getLatestPolygonPreviewPoint: () => ({ x: 10, y: 10 }),
+    });
+
+    jest.runOnlyPendingTimers();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    const imageData = (scratchCtx.putImageData as jest.Mock).mock.calls[0]?.[0] as ImageData;
+    expect(imageData.data[0]).toBe(128);
+    expect(imageData.data[1]).toBe(128);
+    expect(imageData.data[2]).toBe(128);
+    expect(imageData.data[3]).toBe(255);
+  });
+
   it('does not publish a sampled preview result after the preview seq is invalidated', async () => {
     jest.useFakeTimers();
     let resolveFill!: () => void;

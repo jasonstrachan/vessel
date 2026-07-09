@@ -453,7 +453,7 @@ const buildContrastInkPairForTarget = ({
   spreadDistance: number;
 }): { low: [number, number, number]; high: [number, number, number] } => {
   const spreadStrength = resolveFlatPairContrastStrength(spreadDistance);
-  const contrast = 10 + Math.round(Math.pow(spreadStrength, 0.85) * 90);
+  const contrast = 2 + Math.round(Math.pow(spreadStrength, 1.25) * 98);
 
   const low: [number, number, number] = [
     clampColorChannel(target[0] - contrast),

@@ -66,6 +66,7 @@ const resolveSessionRuntimeStops = (
     enabled: Boolean(brushSettings.ditherEnabled),
     pairBandCount: session.ditherRenderConfig?.pairBandCount,
     spread: brushSettings.ditherPaletteSpread,
+    rangeContrast: brushSettings.ccGradientRangeContrast,
     algorithm: brushSettings.ditherAlgorithm ?? session.ditherRenderConfig?.algorithm,
   });
 

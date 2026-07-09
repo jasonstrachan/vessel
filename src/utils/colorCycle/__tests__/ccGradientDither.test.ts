@@ -341,7 +341,7 @@ describe('fillCcGradientDither', () => {
     expect((wide?.highIndex ?? 0) - (wide?.lowIndex ?? 0)).toBeGreaterThan(
       (tight?.highIndex ?? 0) - (tight?.lowIndex ?? 0)
     );
-    expect([tight?.lowIndex, tight?.highIndex]).toEqual([104, 152]);
+    expect([tight?.lowIndex, tight?.highIndex]).toEqual([126, 130]);
     expect([wide?.lowIndex, wide?.highIndex]).toEqual([32, 224]);
   });
 
@@ -819,7 +819,7 @@ describe('fillCcGradientDither', () => {
     });
 
     const usedPair = Array.from(new Set(out)).filter((value) => value > 0).sort((a, b) => a - b);
-    expect(usedPair).toEqual([104, 152]);
+    expect(usedPair).toEqual([126, 130]);
     expect(usedPair).not.toEqual(resolveFlatInkSetForPosition(0.1, 2, 0, 0).indices);
   });
 
@@ -1488,10 +1488,10 @@ describe('fillCcGradientDither', () => {
     expect(resolveFlatInkSetForBand(4, 2, 0).indices).toEqual([198, 255]);
   });
 
-  it('keeps flat Sierra pair spread visibly separated even at the tightest setting', () => {
-    expect(resolveFlatInkSetForBand(0, 2, 0, 0).indices).toEqual([2, 50]);
-    expect(resolveFlatInkSetForBand(2, 2, 0, 0).indices).toEqual([104, 152]);
-    expect(resolveFlatInkSetForBand(4, 2, 0, 0).indices).toEqual([206, 254]);
+  it('keeps flat Sierra pair spread close at the tightest setting', () => {
+    expect(resolveFlatInkSetForBand(0, 2, 0, 0).indices).toEqual([24, 28]);
+    expect(resolveFlatInkSetForBand(2, 2, 0, 0).indices).toEqual([126, 130]);
+    expect(resolveFlatInkSetForBand(4, 2, 0, 0).indices).toEqual([228, 232]);
   });
 
   it('widens flat Sierra pair spread as the slider increases', () => {

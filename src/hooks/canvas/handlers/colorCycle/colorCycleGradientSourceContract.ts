@@ -114,12 +114,42 @@ export const resolveColorCycleGradientRenderSession = ({
   const shouldUseSessionDither =
     Boolean(session.ditherRenderConfig?.enabled) || (!session.ditherRenderConfig && brushSettings.ditherEnabled);
   if (!session.frozenStopsStored?.length || !shouldUseSessionDither) {
-    const runtimeStops = resolveMarkSessionRuntimeStops(session, session.frozenStopsStored);
+    const runtimeStops = resolveMarkSessionRuntimeStops(session, session.frozenStopsStored, {
+      enabled: false,
+      rangeContrast: brushSettings.ccGradientRangeContrast,
+    });
+    const runtimeHash = hashStops(runtimeStops, session.gradientKind);
+    const shouldAllocateRuntimeDef =
+      session.source === 'sampled' &&
+      runtimeHash !== session.frozenHash;
+    if (shouldAllocateRuntimeDef) {
+      const renderDef = ensureGradientDefForStops({
+        layerId,
+        kind: session.gradientKind,
+        stops: runtimeStops,
+        source: session.source,
+        speedCps: session.speedCps ?? undefined,
+        seamProfile: session.seamProfile,
+        updateOptions: { skipColorCycleSync: true },
+      });
+      if (renderDef) {
+        return {
+          binding: { kind: 'def', defId: renderDef.def.id, slot: renderDef.slot },
+          frozenStopsStored: runtimeStops,
+          sourceStopsStored: session.source === 'sampled' ? runtimeStops : undefined,
+          frozenHash: renderDef.hash,
+          source: session.source,
+          gradientKind: session.gradientKind,
+          speedCps: session.speedCps,
+          seamProfile: session.seamProfile,
+        };
+      }
+    }
     return {
       binding: session.binding,
       frozenStopsStored: runtimeStops,
       sourceStopsStored: session.source === 'sampled' ? runtimeStops : undefined,
-      frozenHash: session.frozenHash,
+      frozenHash: runtimeHash,
       source: session.source,
       gradientKind: session.gradientKind,
       speedCps: session.speedCps,

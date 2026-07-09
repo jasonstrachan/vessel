@@ -50,7 +50,7 @@ const SIERRA_LITE_MIN_MIX = 0.08;
 const SIERRA_LITE_MAX_MIX = 0.92;
 const FLAT_BAND_CENTERS: [number, number, number, number, number] = [26, 77, 128, 179, 230];
 const DEFAULT_FLAT_PAIR_HALF_SPREAD = 32;
-const MIN_FLAT_PAIR_HALF_SPREAD = 24;
+const MIN_FLAT_PAIR_HALF_SPREAD = 2;
 const MAX_FLAT_PAIR_HALF_SPREAD = 96;
 const MIN_FLAT_PAIR_DISTANCE = MIN_FLAT_PAIR_HALF_SPREAD * 2;
 const MAX_FLAT_PAIR_DISTANCE = MAX_FLAT_PAIR_HALF_SPREAD * 2;
@@ -75,8 +75,9 @@ const resolveFlatPairHalfSpread = (spreadPercent?: number): number => {
     return DEFAULT_FLAT_PAIR_HALF_SPREAD;
   }
   const clamped = Math.max(0, Math.min(100, spreadPercent ?? 0));
+  const eased = Math.pow(clamped / 100, 1.8);
   return MIN_FLAT_PAIR_HALF_SPREAD + Math.round(
-    (clamped / 100) * (MAX_FLAT_PAIR_HALF_SPREAD - MIN_FLAT_PAIR_HALF_SPREAD)
+    eased * (MAX_FLAT_PAIR_HALF_SPREAD - MIN_FLAT_PAIR_HALF_SPREAD)
   );
 };
 

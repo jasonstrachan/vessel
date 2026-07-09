@@ -182,6 +182,7 @@ export const defaultBrushSettings: BrushSettings = {
   ditherEnabled: false,
   ditherPhaseJitter: 0,
   ditherPaletteSpread: 0,
+  ccGradientRangeContrast: 100,
   ditherPatternDiversity: 100,
   ccSampledSoftSeamEnabled: true,
   ditherStrokeTipShape: 'round',

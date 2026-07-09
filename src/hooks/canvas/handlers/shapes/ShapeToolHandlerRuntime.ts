@@ -3141,22 +3141,16 @@ export const createShapeToolHandler = (
             const derivedStops = derivedSpec
               ? deriveForegroundGradientStops(derivedSpec)
               : null;
-            const stops = isSampledPreviewMode
-              ? (
-                (derivedStops && derivedStops.length >= 2
-                  ? derivedStops
-                  : brushNow.colorCycleGradient?.length
-                    ? brushNow.colorCycleGradient
-                    : DEFAULT_COLOR_CYCLE_GRADIENT)
-              )
-              : (
-                ccStopsOverride ??
-                (derivedStops && derivedStops.length >= 2
-                  ? derivedStops
-                  : brushNow.colorCycleGradient?.length
+            const fallbackStops =
+              derivedStops && derivedStops.length >= 2
+                ? derivedStops
+                : brushNow.colorCycleGradient?.length
                   ? brushNow.colorCycleGradient
-                    : DEFAULT_COLOR_CYCLE_GRADIENT)
-              );
+                  : DEFAULT_COLOR_CYCLE_GRADIENT;
+            const stops =
+              isSampledPreviewMode && ccStopsOverride
+                ? ccStopsOverride
+                : fallbackStops;
             const effectiveStops = stops ?? [];
             const preserveSourceStops =
               ccPreview?.source === 'sampled' &&
