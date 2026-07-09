@@ -19,6 +19,7 @@ Working Agreement
 
 - Ask, don't assume. If something is unclear, ask before writing a single line. Never make silent assumptions about intent, architecture, or requirements. When running unattended, pick the most reasonable interpretation, proceed, and record the assumption rather than blocking.
 - Implement the simplest solution for simple problems and better solutions for harder problems. Do not over-engineer or add flexibility that is not needed yet.
+- Fix issues at the source first. Trace the real execution path and repair the core contract or invariant before adding wrappers, helper layers, downstream adjustments, or compensating UI/state patches. Use those only when the source cannot reasonably be changed, and say why.
 - Do not touch unrelated code, but surface bad code or design smells you discover so they can be addressed as a separate issue.
 - Flag uncertainty explicitly. If unsure about something, follow the ask-before-writing rule. When useful, conduct a small, localized, low-risk experiment and bring the hypothesis and results back for discussion.
 - Suggest better approaches when they have lasting impact or materially reduce risk, wasted work, or tactical churn. Explain the tradeoff plainly and keep moving when the current request is still reasonable.
