@@ -273,6 +273,13 @@ export const stopContinuousColorCycleAnimationCore = (
 
   if (pausedAny && shouldAutoResume) {
     shouldResumeColorCycleAfterInteractionRef.current = true;
+    try {
+      const st = storeRef.current;
+      if (selectEffectiveColorCyclePlaying(st)) {
+        st.suspendColorCycle(reason as CCReason);
+        ccLog('suspendColorCycle (auto-resume stop)', { reason });
+      }
+    } catch {}
   }
 
   continuousColorCycleAnimationActiveRef.current = false;

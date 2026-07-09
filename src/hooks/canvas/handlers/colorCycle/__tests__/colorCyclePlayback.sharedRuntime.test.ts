@@ -244,6 +244,69 @@ describe('colorCyclePlayback shared runtime integration', () => {
     expect(continuousColorCycleAnimationActiveRef.current).toBe(false);
   });
 
+  it('suspends playback state for auto-resumable direct preview stops', () => {
+    const updateLayer = jest.fn();
+    const suspendColorCycle = jest.fn();
+    const state = {
+      tools: {
+        brushSettings: {
+          brushShape: BrushShape.COLOR_CYCLE_SHAPE,
+          customBrushColorCycle: false,
+        },
+      },
+      colorCyclePlayback: {
+        desiredPlaying: true,
+        suspendDepth: 0,
+        lastReason: 'toolbar',
+      },
+      layers: [
+        {
+          id: 'layer-cc',
+          layerType: 'color-cycle',
+          colorCycleData: {
+            mode: 'index',
+            isAnimating: true,
+          },
+        },
+      ],
+      project: { width: 64, height: 64 },
+      updateLayer,
+      suspendColorCycle,
+    } as unknown as AppState;
+
+    const shouldResumeColorCycleAfterInteractionRef = { current: false };
+
+    stopContinuousColorCycleAnimationCore('shape-preview', {
+      cancelDeferredOverlayRender: jest.fn(),
+      storeRef: { current: state } as React.MutableRefObject<AppState>,
+      ccLog: jest.fn(),
+      ccGroup: jest.fn(),
+      ccGroupEnd: jest.fn(),
+      dumpLayerFlags: jest.fn(),
+      pauseAllBrushCCAnimationsNow: jest.fn(() => true),
+      continuousColorCycleAnimationActiveRef: { current: true },
+      continuousColorCycleAnimationRef: { current: -1 },
+      colorCycleAnimationRef: { current: null },
+      shouldResumeColorCycleAfterInteractionRef,
+      drawingCtxRef: { current: null },
+      drawingCanvasRef: { current: null },
+      drawingCanvasHasContent: { current: true },
+      lastStopAtRef: { current: 0 },
+      stopCooldownMs: 0,
+      syntheticStopThrottleMs: 0,
+      syntheticStopReasons: new Set(),
+    });
+
+    expect(shouldResumeColorCycleAfterInteractionRef.current).toBe(true);
+    expect(suspendColorCycle).toHaveBeenCalledWith('shape-preview');
+    expect(updateLayer).toHaveBeenCalledWith(
+      'layer-cc',
+      expect.objectContaining({
+        colorCycleData: expect.objectContaining({ isAnimating: false }),
+      })
+    );
+  });
+
   it('does not throttle store-sync start after a recent start timestamp', () => {
     registerSharedRuntimeConsumer.mockImplementation(() => jest.fn());
 
