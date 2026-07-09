@@ -10,7 +10,10 @@ import {
   clampForegroundDerivedBands,
   deriveForegroundGradientStops,
 } from '@/utils/colorCycleGradients';
-import { getPreviewGradientForActiveMark } from '@/hooks/canvas/utils/colorCycleMarkSession';
+import {
+  cancelMarkGradientSession,
+  getPreviewGradientForActiveMark,
+} from '@/hooks/canvas/utils/colorCycleMarkSession';
 import { applyPolygonMaskToCanvasContext } from '@/hooks/canvas/handlers/shapes/shapePreviewMask';
 import { logLivePreview } from '@/hooks/canvas/utils/livePreviewDebug';
 import { ensurePresResDebugBridge, isPresResDebugEnabled } from '@/hooks/canvas/utils/presResDebug';
@@ -22,6 +25,7 @@ import {
 } from '@/utils/strokeFinalizeProbe';
 
 const SHAPE_PREVIEW_OPACITY = 0.8;
+const CC_GRADIENT_DIRECTION_MIN_DISTANCE = 0.5;
 
 export const resolveShapePreviewOpacity = ({
   isColorCycleGradientPreview,
@@ -53,6 +57,35 @@ export const resolvePreviewDitherPixelSize = ({
   }
   const previewScale = Math.max(0.001, Math.min(scaleX, scaleY));
   return Math.max(1, Math.round(Math.max(1, worldPixelSize) * previewScale));
+};
+
+const resolveShapeCentroid = (shapePoints: Array<{ x: number; y: number }>): { x: number; y: number } | null => {
+  if (shapePoints.length === 0) {
+    return null;
+  }
+
+  const center = shapePoints.reduce(
+    (acc, point) => ({ x: acc.x + point.x, y: acc.y + point.y }),
+    { x: 0, y: 0 },
+  );
+
+  return {
+    x: center.x / shapePoints.length,
+    y: center.y / shapePoints.length,
+  };
+};
+
+const isNonTrivialCcGradientDirection = (
+  directionPoint: { x: number; y: number },
+  shapePoints: Array<{ x: number; y: number }>,
+): boolean => {
+  const center = resolveShapeCentroid(shapePoints);
+  if (!center) {
+    return false;
+  }
+
+  return Math.hypot(directionPoint.x - center.x, directionPoint.y - center.y) >=
+    CC_GRADIENT_DIRECTION_MIN_DISTANCE;
 };
 
 export const resolveDitherShapePreviewBufferSize = ({
@@ -143,6 +176,22 @@ const rawGroupCollapsed = typeof console !== 'undefined' && typeof console.group
 const rawGroupEnd = typeof console !== 'undefined' && typeof console.groupEnd === 'function'
   ? console.groupEnd.bind(console)
   : () => {};
+
+let lastCcDirectionPreviewDebugAt = 0;
+const ccDirectionDebug = (
+  label: string,
+  payload?: Record<string, unknown>,
+  options?: { throttleMs?: number },
+) => {
+  const globalAny = globalThis as typeof globalThis & { __VESSEL_CC_DIR_DEBUG?: boolean };
+  if (!globalAny.__VESSEL_CC_DIR_DEBUG) return;
+  if (options?.throttleMs) {
+    const now = Date.now();
+    if (now - lastCcDirectionPreviewDebugAt < options.throttleMs) return;
+    lastCcDirectionPreviewDebugAt = now;
+  }
+  rawLog('[cc-dir]', label, payload ?? {});
+};
 
 const ensureCLDebugBridge = () => {
   if (typeof globalThis === 'undefined') return;
@@ -404,6 +453,28 @@ const isColorCycleGradientStrokeMode = (
   tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE_SHAPE &&
   tools.brushSettings.colorCycleFillMode === 'stroke';
 
+const shouldEnterCcGradientDirectionStage = (
+  tools: EventHandlerDynamicDeps['tools'],
+  brushPresetId: string | null
+): boolean => {
+  const brushSettings = tools.brushSettings;
+  const drawingShape = brushSettings.ccGradientDrawingShape ?? 'freehand';
+  const colorCount = Number.isFinite(brushSettings.colors)
+    ? Math.round(brushSettings.colors ?? 1)
+    : 1;
+
+  return (
+    tools.currentTool === 'brush' &&
+    tools.shapeMode &&
+    brushPresetId === 'color-cycle-gradient' &&
+    brushSettings.brushShape === BrushShape.COLOR_CYCLE_SHAPE &&
+    brushSettings.colorCycleFillMode === 'linear' &&
+    colorCount > 1 &&
+    drawingShape !== 'click-line' &&
+    !isDragDefinedCcGradientShape(drawingShape)
+  );
+};
+
 const computeOpposingAxis = (points: Array<{ x: number; y: number }>) => {
   if (points.length < 2) {
     return {
@@ -485,6 +556,198 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
   type Point = { x: number; y: number };
   type CaptureRegion = { x: number; y: number; width: number; height: number };
   const freehandCaptureState = customFreehandCaptureRuntimeRef.current;
+
+  const resolveDirectionSelectionPoint = (
+    worldPos: Point,
+    shiftKey: boolean,
+    shapePoints: Point[],
+  ): Point => {
+    if (!shiftKey || shapePoints.length < 3) {
+      return worldPos;
+    }
+
+    const center = resolveShapeCentroid(shapePoints);
+    if (!center) {
+      return worldPos;
+    }
+
+    return snapPointToAngle(center, worldPos, 45);
+  };
+
+  const resetSequentialPointerDownNow = () => {
+    const state = getAppStoreState();
+    state.setSequentialPointerDown?.(false);
+    flushBufferedSequentialEvents({ state });
+  };
+
+  const getCcGradientDirectionPlaybackSnapshot = () => {
+    const state = getAppStoreState();
+    const ccLayers = state.layers
+      .filter((layer) => layer.layerType === 'color-cycle')
+      .map((layer) => ({
+        id: layer.id,
+        visible: layer.visible,
+        isAnimating: Boolean(layer.colorCycleData?.isAnimating),
+        mode: layer.colorCycleData?.mode ?? null,
+      }));
+    const desiredPlaying = state.colorCyclePlayback?.desiredPlaying ?? false;
+    const suspendDepth = state.colorCyclePlayback?.suspendDepth ?? 0;
+    return {
+      desiredPlaying,
+      suspendDepth,
+      effectivePlaying: desiredPlaying && suspendDepth === 0,
+      ccLayers,
+      drawingCanvasHasContent: drawingHandlers.drawingCanvasHasContent?.current ?? null,
+      pointCount: drawingHandlers.shapePointsRef.current.length,
+    };
+  };
+
+  const logCcGradientDirectionPlayback = (label: string) => {
+    ccDirectionDebug(label, getCcGradientDirectionPlaybackSnapshot());
+  };
+
+  const suspendCcGradientDirectionPlayback = () => {
+    logCcGradientDirectionPlayback('stage2-playback-before-stop');
+    drawingHandlers.stopContinuousColorCycleAnimation?.('shape-preview');
+    logCcGradientDirectionPlayback('stage2-playback-after-stop');
+  };
+
+  const resumeCcGradientDirectionPlayback = () => {
+    logCcGradientDirectionPlayback('stage2-playback-before-resume');
+    void drawingHandlers.resumeColorCycleAfterInteraction?.().finally(() => {
+      logCcGradientDirectionPlayback('stage2-playback-after-resume');
+    });
+  };
+
+  const requestDrawingCanvasRedraw = () => {
+    if (deps.drawingAnimationFrameRef.current) {
+      return;
+    }
+
+    deps.drawingAnimationFrameRef.current = requestAnimationFrame(() => {
+      const canvasEl = canvasRef.current;
+      const ctx = canvasEl?.getContext('2d', {
+        willReadFrequently: true,
+        alpha: true,
+        desynchronized: true,
+      });
+
+      if (ctx) {
+        deps.draw(ctx, deps.viewTransformRef.current);
+      }
+
+      deps.drawingAnimationFrameRef.current = null;
+    });
+  };
+
+  const updatePendingCcGradientDirectionPreview = ({
+    directionWorld,
+    pressure,
+    timestamp,
+    rawPressure,
+  }: {
+    directionWorld: Point;
+    pressure: number;
+    timestamp: number;
+    rawPressure: number;
+  }) => {
+    drawingHandlers.continueShapeDrawing(
+      directionWorld,
+      pressure,
+      timestamp,
+      rawPressure,
+      { renderPreview: false }
+    );
+
+    if (drawingHandlers.drawingCanvasHasContent) {
+      drawingHandlers.drawingCanvasHasContent.current = true;
+    }
+
+    requestDrawingCanvasRedraw();
+  };
+
+  const clearPendingCcGradientDirectionPreview = () => {
+    drawingHandlers.clearDrawingCanvas?.();
+    if (drawingHandlers.drawingCanvasHasContent) {
+      drawingHandlers.drawingCanvasHasContent.current = false;
+    }
+  };
+
+  const finalizePendingCcGradientDirectionStage = (
+    worldPos: Point,
+    event: React.PointerEvent,
+    pressure: number,
+  ): boolean => {
+    if (!drawingHandlers.isSelectingDirectionRef?.current) {
+      return false;
+    }
+
+    const directionWorld = resolveDirectionSelectionPoint(
+      worldPos,
+      event.shiftKey,
+      drawingHandlers.shapePointsRef.current,
+    );
+    ccDirectionDebug('stage2-finalize-click', {
+      directionWorld,
+      shiftKey: event.shiftKey,
+      ...getCcGradientDirectionPlaybackSnapshot(),
+    });
+
+    if (!isNonTrivialCcGradientDirection(directionWorld, drawingHandlers.shapePointsRef.current)) {
+      updatePendingCcGradientDirectionPreview({
+        directionWorld,
+        pressure,
+        timestamp: event.timeStamp,
+        rawPressure: event.pressure,
+      });
+      ccDirectionDebug('stage2-finalize-zero-direction-rejected', {
+        directionWorld,
+        ...getCcGradientDirectionPlaybackSnapshot(),
+      });
+      return true;
+    }
+
+    const didStartDirection = drawingHandlers.startShapeDrawing(directionWorld, pressure);
+    if (!didStartDirection) {
+      ccDirectionDebug('stage2-finalize-start-rejected', {
+        directionWorld,
+        ...getCcGradientDirectionPlaybackSnapshot(),
+      });
+      return true;
+    }
+
+    ccDirectionDebug('stage2-finalize-started', getCcGradientDirectionPlaybackSnapshot());
+    const finalizePromise = drawingHandlers.finalizeShapeDrawing();
+    finalizePromise.then(() => {
+      ccDirectionDebug('stage2-finalize-resolved', getCcGradientDirectionPlaybackSnapshot());
+      const directionStageProject = getDynamicDeps().project;
+      if (compositeCanvasRef.current && directionStageProject) {
+        compositeLayersToCanvas(compositeCanvasRef.current);
+        setCurrentOffscreenCanvas(compositeCanvasRef.current);
+        compositeCanvasDirtyRef.current = false;
+      }
+
+      setNeedsRedraw(prev => prev + 1);
+
+      if (deps.restartColorCycleAnimation) {
+        logCcGradientDirectionPlayback('stage2-playback-before-restart');
+        deps.restartColorCycleAnimation();
+        logCcGradientDirectionPlayback('stage2-playback-after-restart');
+      }
+    }).catch((error: unknown) => {
+      ccDirectionDebug('stage2-finalize-rejected', {
+        error: error instanceof Error ? error.message : String(error),
+        ...getCcGradientDirectionPlaybackSnapshot(),
+      });
+    }).finally(() => {
+      ccDirectionDebug('stage2-finalize-finally', getCcGradientDirectionPlaybackSnapshot());
+      resumeCcGradientDirectionPlayback();
+      resetSequentialPointerDownNow();
+      stateMachine.finalizationComplete();
+    });
+
+    return true;
+  };
 
   const isSpaceInteractionActive = (): boolean => isSpacePressedRef.current;
 
@@ -2207,8 +2470,31 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
       return; // Skip everything else - we're panning
     }
 
-    // Middle or right click - skip
+    // Middle or right click cancels a pending linear direction stage.
     if (event.button === 1 || event.button === 2) {
+      if (drawingHandlers.isSelectingDirectionRef?.current) {
+        const directionStageStore = getAppStoreState();
+        const directionStageLayerId = getDynamicDeps().activeLayerId;
+        if (directionStageLayerId) {
+          cancelMarkGradientSession(directionStageLayerId);
+        }
+        drawingHandlers.isSelectingDirectionRef.current = false;
+        drawingHandlers.isDrawingShapeRef.current = false;
+        drawingHandlers.shapePointsRef.current = [];
+        drawingHandlers.ccStrokeSamplesRef.current = [];
+        drawingHandlers.ccStrokeDirectionRef.current = null;
+        drawingHandlers.directionPreviewRef.current = null;
+        drawingHandlers.ccGradientDrawingGeometryRef.current = null;
+        clearPendingCcGradientDirectionPreview();
+        clearOverlayCanvas();
+        directionStageStore.setShapeDrawing(false);
+        interaction.dispatch({ type: 'DRAWING_END' });
+        directionStageStore.setSequentialPointerDown?.(false);
+        flushBufferedSequentialEvents({ state: directionStageStore });
+        setNeedsRedraw(prev => prev + 1);
+        resumeCcGradientDirectionPlayback();
+        stateMachine.finalizationComplete();
+      }
       return;
     }
 
@@ -2472,6 +2758,10 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
 
     // Check the state BEFORE dispatching - this is critical!
     const currentMode = stateMachine.state.mode;
+
+    if (event.button === 0 && finalizePendingCcGradientDirectionStage(worldPos, event, pressure)) {
+      return;
+    }
 
     // Only allow shape handlers when using brush/eraser/custom tools
     // This prevents shape mode from intercepting other tools like fill, eyedropper, etc.
@@ -2814,14 +3104,7 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
       }
 
       // Handle direction selection click for linear gradient fill
-      if (drawingHandlers.isSelectingDirectionRef?.current) {
-        // quiet
-        // Pass the click position to finalize the direction
-        drawingHandlers.startShapeDrawing(worldPos, pressure);
-        // quiet
-        // Now finalize with the direction set
-        drawingHandlers.finalizeShapeDrawing();
-        // quiet
+      if (finalizePendingCcGradientDirectionStage(worldPos, event, pressure)) {
         return;
       }
 
@@ -3295,7 +3578,6 @@ function resampleStopsToColors(stops: Stop[], count: number): string[] {
       normalizedPressure: pressure,
     });
 
-
     // If Shift is currently not held, allow re-anchoring the next time it's pressed during this stroke
     if (!event.shiftKey && interaction.state.isDrawing) {
       shiftAnchorWorldPosRef.current = null;
@@ -3410,41 +3692,34 @@ function resampleStopsToColors(stops: Stop[], count: number): string[] {
       return;
     }
 
-    // Handle direction selection for linear gradient fill (after shape completion)
-    if (drawingHandlers.isSelectingDirectionRef?.current && !interaction.state.isDrawing) {
-      // Continue shape drawing to show direction arrow preview (throttled)
-      // If Shift is pressed, snap preview direction to 45° increments relative to shape center
-      let dirWorld = worldPos;
-      if (event.shiftKey) {
-        const pts = drawingHandlers.shapePointsRef.current;
-        if (pts.length >= 3) {
-          const center = pts.reduce<Point>(
-            (acc, point) => ({ x: acc.x + point.x, y: acc.y + point.y }),
-            { x: 0, y: 0 }
-          );
-          center.x /= pts.length;
-          center.y /= pts.length;
-          dirWorld = snapPointToAngle(center, dirWorld, 45);
-        }
-      }
+    const isSelectingCcGradientDirection =
+      drawingHandlers.isSelectingDirectionRef?.current === true &&
+      tools.currentTool === 'brush' &&
+      tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE_SHAPE;
 
-      if (deps.previewAnimationFrameRef && !deps.previewAnimationFrameRef.current) {
-        const nowTs = performance.now();
-        // Reuse overlay FPS cap for direction preview too
-        if (nowTs - lastOverlayPreviewTs < OVERLAY_PREVIEW_FRAME_MS) {
-          return;
-        }
-        deps.previewAnimationFrameRef.current = requestAnimationFrame(() => {
-          lastOverlayPreviewTs = performance.now();
-          drawingHandlers.continueShapeDrawing(dirWorld);
-          const canvas = canvasRef.current;
-          const ctx = canvas?.getContext('2d', { willReadFrequently: true });
-          if (ctx) {
-            deps.draw(ctx, deps.viewTransformRef.current);
-          }
-          if (deps.previewAnimationFrameRef) deps.previewAnimationFrameRef.current = null;
-        });
-      }
+    // Handle direction selection for linear gradient fill (after shape completion)
+    if (isSelectingCcGradientDirection && !interaction.state.isDrawing) {
+      const directionWorld = resolveDirectionSelectionPoint(
+        worldPos,
+        event.shiftKey,
+        drawingHandlers.shapePointsRef.current
+      );
+
+      updatePendingCcGradientDirectionPreview({
+        directionWorld,
+        pressure,
+        timestamp: event.timeStamp,
+        rawPressure,
+      });
+
+      ccDirectionDebug('pointer-stage2-preview-updated', {
+        pointCount: drawingHandlers.shapePointsRef.current.length,
+        directionPreview: drawingHandlers.directionPreviewRef.current,
+        drawingCanvasHasContent: drawingHandlers.drawingCanvasHasContent?.current ?? null,
+        brushShape: tools.brushSettings.brushShape,
+        currentTool: tools.currentTool,
+        directionWorld,
+      }, { throttleMs: 250 });
       return;
     }
 
@@ -4305,6 +4580,36 @@ function resampleStopsToColors(stops: Stop[], count: number): string[] {
         const isLinearFill = tools.brushSettings.colorCycleFillMode === 'linear';
         const brushPresetId = getDynamicDeps().currentBrushPresetId;
         const isColorCycleGradientPreset = brushPresetId === 'color-cycle-gradient';
+
+        if (
+          isColorCycleShape &&
+          shouldEnterCcGradientDirectionStage(tools, brushPresetId) &&
+          !drawingHandlers.isSelectingDirectionRef?.current
+        ) {
+          drawingHandlers.isSelectingDirectionRef.current = true;
+          drawingHandlers.directionPreviewRef.current = null;
+          suspendCcGradientDirectionPlayback();
+          updatePendingCcGradientDirectionPreview({
+            directionWorld: resolveDirectionSelectionPoint(
+              worldPosOnPointerUp,
+              event.shiftKey,
+              drawingHandlers.shapePointsRef.current
+            ),
+            pressure: pressureOnPointerUp,
+            timestamp: event.timeStamp,
+            rawPressure: rawPressureOnPointerUp,
+          });
+          ccDirectionDebug('stage2-entered', {
+            pointCount: drawingHandlers.shapePointsRef.current.length,
+            brushShape: tools.brushSettings.brushShape,
+            fillMode: tools.brushSettings.colorCycleFillMode,
+            colors: tools.brushSettings.colors,
+            drawingCanvasHasContent: drawingHandlers.drawingCanvasHasContent?.current ?? null,
+          });
+          resetSequentialPointerDown();
+          stateMachine.finalizationComplete();
+          return;
+        }
 
         if (
           isColorCycleShape &&

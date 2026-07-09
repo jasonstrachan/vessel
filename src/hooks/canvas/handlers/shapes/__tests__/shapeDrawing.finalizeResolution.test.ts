@@ -52,6 +52,25 @@ const makeContext = () => ({
   clearRect: jest.fn(),
 }) as unknown as CanvasRenderingContext2D;
 
+const makePreviewContext = () => {
+  const gradient = {
+    addColorStop: jest.fn(),
+  };
+  const ctx = {
+    beginPath: jest.fn(),
+    moveTo: jest.fn(),
+    lineTo: jest.fn(),
+    closePath: jest.fn(),
+    clip: jest.fn(),
+    fillRect: jest.fn(),
+    save: jest.fn(),
+    restore: jest.fn(),
+    createLinearGradient: jest.fn(() => gradient),
+    fillStyle: null as CanvasGradient | string | null,
+  };
+  return { ctx: ctx as unknown as CanvasRenderingContext2D, gradient };
+};
+
 const makeShapeBrushRuntime = () => ({
   updateConfig: jest.fn(),
   fillCcGradientLinear: jest.fn(),
@@ -69,6 +88,14 @@ describe('finalizeShapeDrawing CC dither resolution', () => {
     (storeState as unknown as { currentBrushPreset: { id: string } | null }).currentBrushPreset = null;
     storeState.tools.ccGradientSource = 'fg';
     storeState.tools.brushSettings.colorCycleFillMode = 'linear';
+    storeState.tools.brushSettings.ditherEnabled = true;
+    storeState.tools.brushSettings.gradientBands = 8;
+    storeState.tools.brushSettings.ditherAlgorithm = 'pattern';
+    storeState.tools.brushSettings.ditherPaletteSpread = undefined;
+    storeState.tools.brushSettings.colorCycleGradient = [
+      { position: 0, color: '#000000' },
+      { position: 1, color: '#ffffff' },
+    ];
     storeState.updateLayer = jest.fn((layerId: string, patch: Partial<AppState['layers'][number]>) => {
       storeState.layers = storeState.layers.map((layer) =>
         layer.id === layerId
@@ -131,6 +158,108 @@ describe('finalizeShapeDrawing CC dither resolution', () => {
     expect(prepared?.previewStopsStored?.map((stop) => stop.color)).toContain('#ff0000');
     expect(prepared?.previewStopsStored?.map((stop) => stop.color)).toContain('#0000ff');
     expect(prepared?.previewHash).toBeTruthy();
+  });
+
+  it('renders stage-2 linear direction preview with live gradient stops clipped to the shape', () => {
+    storeState.tools.ccGradientSource = 'manual';
+    storeState.tools.brushSettings.ditherEnabled = false;
+    storeState.tools.brushSettings.colorCycleGradient = [
+      { position: 0, color: '#ff0000' },
+      { position: 1, color: '#0000ff' },
+    ];
+    const existingColorCycleData =
+      (storeState.layers[0] as { colorCycleData?: Record<string, unknown> }).colorCycleData ?? {};
+    storeState.layers = [
+      {
+        ...storeState.layers[0],
+        colorCycleData: {
+          ...existingColorCycleData,
+          gradient: storeState.tools.brushSettings.colorCycleGradient,
+          slotPalettes: [
+            {
+              slot: 0,
+              stops: storeState.tools.brushSettings.colorCycleGradient,
+            },
+          ],
+          gradientDefs: [{ id: 'g0', currentSlot: 0 }],
+          activeGradientId: 'g0',
+          paintSlot: 0,
+        },
+      },
+    ] as unknown as AppState['layers'];
+    const { ctx, gradient } = makePreviewContext();
+
+    const didRender = __TESTING__.renderCcLinearDirectionPreview({
+      ctx,
+      points: [
+        { x: 0, y: 0 },
+        { x: 20, y: 0 },
+        { x: 20, y: 20 },
+        { x: 0, y: 20 },
+      ],
+      directionPoint: { x: 30, y: 10 },
+      state: storeState,
+    });
+
+    expect(didRender).toBe(true);
+    expect(ctx.createLinearGradient).toHaveBeenCalled();
+    expect(gradient.addColorStop).toHaveBeenNthCalledWith(1, 0, 'rgba(255, 0, 0, 1)');
+    expect(gradient.addColorStop).toHaveBeenNthCalledWith(2, 1, 'rgba(0, 0, 255, 1)');
+    expect(ctx.clip).toHaveBeenCalled();
+    expect(ctx.fillRect).toHaveBeenCalledWith(0, 0, 20, 20);
+  });
+
+  it('uses dither-expanded runtime stops for stage-2 linear direction preview when dither is enabled', () => {
+    storeState.tools.ccGradientSource = 'manual';
+    storeState.tools.brushSettings.ditherEnabled = true;
+    storeState.tools.brushSettings.gradientBands = 8;
+    storeState.tools.brushSettings.ditherAlgorithm = 'sierra-lite';
+    storeState.tools.brushSettings.ditherPaletteSpread = 80;
+    storeState.tools.brushSettings.colorCycleGradient = [
+      { position: 0, color: '#ff0000' },
+      { position: 1, color: '#0000ff' },
+    ];
+    const existingColorCycleData =
+      (storeState.layers[0] as { colorCycleData?: Record<string, unknown> }).colorCycleData ?? {};
+    storeState.layers = [
+      {
+        ...storeState.layers[0],
+        colorCycleData: {
+          ...existingColorCycleData,
+          gradient: storeState.tools.brushSettings.colorCycleGradient,
+          slotPalettes: [
+            {
+              slot: 0,
+              stops: storeState.tools.brushSettings.colorCycleGradient,
+            },
+          ],
+          gradientDefs: [{ id: 'g0', currentSlot: 0 }],
+          activeGradientId: 'g0',
+          paintSlot: 0,
+        },
+      },
+    ] as unknown as AppState['layers'];
+    const { ctx, gradient } = makePreviewContext();
+
+    const didRender = __TESTING__.renderCcLinearDirectionPreview({
+      ctx,
+      points: [
+        { x: 0, y: 0 },
+        { x: 20, y: 0 },
+        { x: 20, y: 20 },
+        { x: 0, y: 20 },
+      ],
+      directionPoint: { x: 30, y: 10 },
+      state: storeState,
+    });
+
+    expect(didRender).toBe(true);
+    expect(gradient.addColorStop).toHaveBeenCalled();
+    expect(gradient.addColorStop.mock.calls.length).toBeGreaterThan(2);
+    expect(gradient.addColorStop.mock.calls).not.toEqual([
+      [0, 'rgba(255, 0, 0, 1)'],
+      [1, 'rgba(0, 0, 255, 1)'],
+    ]);
   });
 
   it('replaces an active non-sampled mark session when preparing sampled shape finalize stops', () => {

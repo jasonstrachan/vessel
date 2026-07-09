@@ -108,6 +108,7 @@ const createDeps = (dynamicOverrides: PartialDynamic = {}, depOverrides: Partial
   const canvasEl = createCanvas();
   const overlay = createCanvas();
   const composite = createCanvas();
+  const drawingCanvasHasContentRef = { current: false };
 
   const deps: EventHandlerDependencies = {
     canvasRef: { current: canvasEl },
@@ -167,7 +168,7 @@ const createDeps = (dynamicOverrides: PartialDynamic = {}, depOverrides: Partial
         drawAnimationFrame: { current: null },
         lastDrawPos: { current: null },
         drawingCanvas: { current: null },
-        drawingCanvasHasContent: { current: false },
+        drawingCanvasHasContent: drawingCanvasHasContentRef,
         isCapturing: { current: false },
       },
     },
@@ -203,10 +204,11 @@ const createDeps = (dynamicOverrides: PartialDynamic = {}, depOverrides: Partial
       setContourLinesPreviewRenderer: jest.fn(),
       setContourLinesSnapRenderer: jest.fn(),
       clearOverlay: jest.fn(),
+      drawingCanvasHasContent: drawingCanvasHasContentRef,
       isSelectingDirectionRef: { current: false },
       beginStrokeSession: jest.fn(),
       startDrawing: jest.fn(),
-      startShapeDrawing: jest.fn(),
+      startShapeDrawing: jest.fn().mockReturnValue(true),
       continueDrawing: jest.fn(),
       continueShapeDrawing: jest.fn(),
       finalizeDrawing: jest.fn().mockResolvedValue(undefined),
@@ -214,9 +216,16 @@ const createDeps = (dynamicOverrides: PartialDynamic = {}, depOverrides: Partial
       triggerSimpleShapePreview: jest.fn(),
       endStrokeSession: jest.fn(),
       clearStrokeSession: jest.fn(),
+      clearDrawingCanvas: jest.fn(() => {
+        drawingCanvasHasContentRef.current = false;
+      }),
+      stopContinuousColorCycleAnimation: jest.fn(),
+      resumeColorCycleAfterInteraction: jest.fn().mockResolvedValue(undefined),
       isDrawingShapeRef: { current: false },
       shapePointsRef: { current: [] },
+      ccStrokeSamplesRef: { current: [] },
       ccStrokeDirectionRef: { current: null },
+      directionPreviewRef: { current: null },
       ccGradientDrawingGeometryRef: { current: null },
       ccGradientClickLineSessionRef: {
         current: { active: false, points: [], previewPoint: null },
@@ -280,6 +289,7 @@ const makePointerEvent = (overrides: Partial<React.PointerEvent<HTMLCanvasElemen
   button: 0,
   pointerId: 1,
   pointerType: 'mouse',
+  timeStamp: 0,
   shiftKey: false,
   ctrlKey: false,
   target: {
@@ -1939,6 +1949,333 @@ describe('pointerHandlers main flows', () => {
     expect(setSequentialPointerDown).toHaveBeenCalledWith(false);
     expect(deps.stateMachine.finalizationComplete).not.toHaveBeenCalled();
     expect(getStateSpy).toHaveBeenCalled();
+  });
+
+  it('enters direction selection for linear CC Gradient shapes when Colors is greater than 1', () => {
+    const setSequentialPointerDown = jest.fn();
+    const stateSnapshot = useAppStore.getState();
+    const getStateSpy = jest
+      .spyOn(useAppStore, 'getState')
+      .mockReturnValue({
+        ...stateSnapshot,
+        setSequentialPointerDown,
+      } as unknown as ReturnType<typeof useAppStore.getState>);
+
+    const { deps } = createDeps({
+      currentBrushPresetId: 'color-cycle-gradient',
+      tools: {
+        ...baseDynamic.tools,
+        currentTool: 'brush',
+        shapeMode: true,
+        brushSettings: {
+          ...baseDynamic.tools.brushSettings,
+          brushShape: BrushShape.COLOR_CYCLE_SHAPE,
+          colorCycleFillMode: 'linear',
+          ccGradientDrawingShape: 'freehand',
+          colors: 2,
+        } as any,
+      },
+    });
+
+    deps.interaction.state = { isDrawing: true, isSelecting: false, mode: 'drawing' } as any;
+    deps.drawingHandlers.isDrawingShapeRef.current = true;
+    deps.drawingHandlers.shapePointsRef.current = [{ x: 0, y: 0 }, { x: 20, y: 0 }, { x: 20, y: 20 }];
+    deps.drawingHandlers.isSelectingDirectionRef.current = false;
+
+    const handlers = createPointerHandlers(deps);
+    handlers.handlePointerUp(makePointerEvent({ clientX: 30, clientY: 30 }));
+
+    expect(deps.drawingHandlers.isSelectingDirectionRef.current).toBe(true);
+    expect(deps.drawingHandlers.stopContinuousColorCycleAnimation).toHaveBeenCalledWith('shape-preview');
+    expect(deps.drawingHandlers.continueShapeDrawing).toHaveBeenCalledWith(
+      { x: 0, y: 0 },
+      expect.any(Number),
+      expect.any(Number),
+      expect.any(Number),
+      { renderPreview: false }
+    );
+    expect(deps.drawingHandlers.drawingCanvasHasContent.current).toBe(true);
+    expect(deps.drawingHandlers.finalizeShapeDrawing).not.toHaveBeenCalled();
+    expect(deps.stateMachine.finalizationComplete).toHaveBeenCalled();
+    expect(setSequentialPointerDown).toHaveBeenCalledWith(false);
+    expect(getStateSpy).toHaveBeenCalled();
+  });
+
+  it('previews linear CC Gradient direction on hover after shape mouse up', () => {
+    const stateSnapshot = useAppStore.getState();
+    jest
+      .spyOn(useAppStore, 'getState')
+      .mockReturnValue({
+        ...stateSnapshot,
+        tools: {
+          ...stateSnapshot.tools,
+          currentTool: 'brush',
+          brushSettings: {
+            ...stateSnapshot.tools.brushSettings,
+            brushShape: BrushShape.COLOR_CYCLE_SHAPE,
+          },
+        },
+      } as unknown as ReturnType<typeof useAppStore.getState>);
+
+    const { deps } = createDeps({
+      currentBrushPresetId: 'color-cycle-gradient',
+      tools: {
+        ...baseDynamic.tools,
+        currentTool: 'brush',
+        shapeMode: true,
+        brushSettings: {
+          ...baseDynamic.tools.brushSettings,
+          brushShape: BrushShape.COLOR_CYCLE_SHAPE,
+          colorCycleFillMode: 'linear',
+          ccGradientDrawingShape: 'freehand',
+          colors: 2,
+        } as any,
+      },
+    });
+
+    deps.interaction.state = { isDrawing: false, isSelecting: false, mode: 'idle' } as any;
+    deps.drawingHandlers.isSelectingDirectionRef.current = true;
+    deps.drawingHandlers.isDrawingShapeRef.current = true;
+    deps.drawingHandlers.shapePointsRef.current = [
+      { x: 0, y: 0 },
+      { x: 20, y: 0 },
+      { x: 20, y: 20 },
+    ];
+    deps.drawingHandlers.drawingCanvasHasContent.current = false;
+
+    const handlers = createPointerHandlers(deps);
+    handlers.handlePointerMove(makePointerEvent({
+      clientX: 40,
+      clientY: 10,
+      buttons: 0,
+      timeStamp: 123,
+    }));
+
+    expect(deps.drawingHandlers.continueShapeDrawing).toHaveBeenCalledWith(
+      { x: 40, y: 10 },
+      expect.any(Number),
+      123,
+      expect.any(Number),
+      { renderPreview: false }
+    );
+    expect(deps.drawingHandlers.drawingCanvasHasContent.current).toBe(true);
+    expect(deps.draw).toHaveBeenCalled();
+  });
+
+  it('commits Shift-snapped direction for linear CC Gradient direction selection', async () => {
+    const { deps } = createDeps({
+      currentBrushPresetId: 'color-cycle-gradient',
+      tools: {
+        ...baseDynamic.tools,
+        currentTool: 'brush',
+        shapeMode: true,
+        brushSettings: {
+          ...baseDynamic.tools.brushSettings,
+          brushShape: BrushShape.COLOR_CYCLE_SHAPE,
+          colorCycleFillMode: 'linear',
+          ccGradientDrawingShape: 'freehand',
+          colors: 2,
+        } as any,
+      },
+    });
+
+    deps.drawingHandlers.isSelectingDirectionRef.current = true;
+    deps.drawingHandlers.shapePointsRef.current = [
+      { x: 0, y: 0 },
+      { x: 20, y: 0 },
+      { x: 20, y: 20 },
+    ];
+    const finalizationDone = new Promise<void>((resolve) => {
+      (deps.stateMachine.finalizationComplete as jest.Mock).mockImplementation(() => {
+        resolve();
+      });
+    });
+
+    const handlers = createPointerHandlers(deps);
+    handlers.handlePointerDown(makePointerEvent({ clientX: 40, clientY: 10, shiftKey: true }));
+
+    expect(deps.drawingHandlers.startShapeDrawing).toHaveBeenCalledTimes(1);
+    const committedPoint = (deps.drawingHandlers.startShapeDrawing as jest.Mock).mock.calls[0][0];
+    const rawPoint = { x: 40, y: 10 };
+    const centroidY = (0 + 0 + 20) / 3;
+    expect(committedPoint).not.toEqual(rawPoint);
+    expect(committedPoint.x).toBeGreaterThan(39);
+    expect(committedPoint.y).toBeCloseTo(centroidY, 5);
+    expect(deps.drawingHandlers.finalizeShapeDrawing).toHaveBeenCalled();
+    await finalizationDone;
+    expect(deps.stateMachine.finalizationComplete).toHaveBeenCalled();
+    expect(deps.setNeedsRedraw).toHaveBeenCalled();
+    expect(deps.restartColorCycleAnimation).toHaveBeenCalled();
+  });
+
+  it('keeps linear CC Gradient direction selection active for centroid clicks', () => {
+    const { deps } = createDeps({
+      currentBrushPresetId: 'color-cycle-gradient',
+      tools: {
+        ...baseDynamic.tools,
+        currentTool: 'brush',
+        shapeMode: true,
+        brushSettings: {
+          ...baseDynamic.tools.brushSettings,
+          brushShape: BrushShape.COLOR_CYCLE_SHAPE,
+          colorCycleFillMode: 'linear',
+          ccGradientDrawingShape: 'freehand',
+          colors: 2,
+        } as any,
+      },
+    });
+
+    deps.drawingHandlers.isSelectingDirectionRef.current = true;
+    deps.drawingHandlers.shapePointsRef.current = [
+      { x: 0, y: 0 },
+      { x: 20, y: 0 },
+      { x: 20, y: 20 },
+    ];
+
+    const centroid = { x: 40 / 3, y: 20 / 3 };
+    const handlers = createPointerHandlers(deps);
+    handlers.handlePointerDown(makePointerEvent({
+      clientX: centroid.x,
+      clientY: centroid.y,
+      pressure: 0.5,
+    } as any));
+
+    expect(deps.drawingHandlers.startShapeDrawing).not.toHaveBeenCalled();
+    expect(deps.drawingHandlers.finalizeShapeDrawing).not.toHaveBeenCalled();
+    expect(deps.stateMachine.finalizationComplete).not.toHaveBeenCalled();
+    expect(deps.drawingHandlers.isSelectingDirectionRef.current).toBe(true);
+    expect(deps.drawingHandlers.continueShapeDrawing).toHaveBeenCalledWith(
+      centroid,
+      expect.any(Number),
+      expect.any(Number),
+      expect.any(Number),
+      { renderPreview: false }
+    );
+    expect(deps.drawingHandlers.drawingCanvasHasContent.current).toBe(true);
+  });
+
+  it('finalizes linear CC Gradient shapes directly when Colors is 1', async () => {
+    const { deps } = createDeps({
+      currentBrushPresetId: 'color-cycle-gradient',
+      tools: {
+        ...baseDynamic.tools,
+        currentTool: 'brush',
+        shapeMode: true,
+        brushSettings: {
+          ...baseDynamic.tools.brushSettings,
+          brushShape: BrushShape.COLOR_CYCLE_SHAPE,
+          colorCycleFillMode: 'linear',
+          ccGradientDrawingShape: 'freehand',
+          colors: 1,
+        } as any,
+      },
+    });
+
+    deps.interaction.state = { isDrawing: true, isSelecting: false, mode: 'drawing' } as any;
+    deps.drawingHandlers.isDrawingShapeRef.current = true;
+    deps.drawingHandlers.shapePointsRef.current = [{ x: 0, y: 0 }, { x: 20, y: 0 }, { x: 20, y: 20 }];
+    deps.drawingHandlers.isSelectingDirectionRef.current = false;
+
+    const handlers = createPointerHandlers(deps);
+    handlers.handlePointerUp(makePointerEvent({ clientX: 30, clientY: 30 }));
+
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(deps.drawingHandlers.isSelectingDirectionRef.current).toBe(false);
+    expect(deps.drawingHandlers.finalizeShapeDrawing).toHaveBeenCalled();
+    expect(deps.stateMachine.finalizationComplete).toHaveBeenCalled();
+  });
+
+  it('keeps drag-defined linear CC Gradient shapes on the direct finalize path', async () => {
+    const { deps } = createDeps({
+      currentBrushPresetId: 'color-cycle-gradient',
+      tools: {
+        ...baseDynamic.tools,
+        currentTool: 'brush',
+        shapeMode: true,
+        brushSettings: {
+          ...baseDynamic.tools.brushSettings,
+          brushShape: BrushShape.COLOR_CYCLE_SHAPE,
+          colorCycleFillMode: 'linear',
+          ccGradientDrawingShape: 'line',
+          colors: 2,
+        } as any,
+      },
+    });
+
+    deps.interaction.state = { isDrawing: true, isSelecting: false, mode: 'drawing' } as any;
+    deps.drawingHandlers.isDrawingShapeRef.current = true;
+    deps.drawingHandlers.shapePointsRef.current = [{ x: 0, y: 0 }, { x: 20, y: 0 }, { x: 20, y: 20 }];
+    deps.drawingHandlers.isSelectingDirectionRef.current = false;
+
+    const handlers = createPointerHandlers(deps);
+    handlers.handlePointerUp(makePointerEvent({ clientX: 30, clientY: 30 }));
+
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(deps.drawingHandlers.isSelectingDirectionRef.current).toBe(false);
+    expect(deps.drawingHandlers.finalizeShapeDrawing).toHaveBeenCalled();
+  });
+
+  it('cancels pending CC Gradient direction selection on right click', () => {
+    const setSequentialPointerDown = jest.fn();
+    const stateSnapshot = useAppStore.getState();
+    jest
+      .spyOn(useAppStore, 'getState')
+      .mockReturnValue({
+        ...stateSnapshot,
+        setSequentialPointerDown,
+      } as unknown as ReturnType<typeof useAppStore.getState>);
+
+    const { deps } = createDeps({
+      currentBrushPresetId: 'color-cycle-gradient',
+      activeLayerId: 'cc-layer',
+      tools: {
+        ...baseDynamic.tools,
+        currentTool: 'brush',
+        shapeMode: true,
+        brushSettings: {
+          ...baseDynamic.tools.brushSettings,
+          brushShape: BrushShape.COLOR_CYCLE_SHAPE,
+          colorCycleFillMode: 'linear',
+          ccGradientDrawingShape: 'freehand',
+          colors: 2,
+        } as any,
+      },
+    });
+
+    deps.drawingHandlers.isSelectingDirectionRef.current = true;
+    deps.drawingHandlers.isDrawingShapeRef.current = true;
+    deps.drawingHandlers.shapePointsRef.current = [{ x: 0, y: 0 }, { x: 20, y: 0 }, { x: 20, y: 20 }];
+    deps.drawingHandlers.ccStrokeSamplesRef.current = [{ x: 0, y: 0, pressure: 0.5 }];
+    deps.drawingHandlers.ccStrokeDirectionRef.current = { x: 1, y: 0 };
+    deps.drawingHandlers.directionPreviewRef.current = { x: 20, y: 10 };
+    deps.drawingHandlers.drawingCanvasHasContent.current = true;
+    deps.drawingHandlers.ccGradientDrawingGeometryRef.current = {
+      shapePoints: deps.drawingHandlers.shapePointsRef.current,
+      sampleSourcePoints: [{ x: 0, y: 0 }, { x: 20, y: 20 }],
+      direction: { x: 1, y: 0 },
+      bounds: { minX: 0, minY: 0, maxX: 20, maxY: 20 },
+    };
+
+    const handlers = createPointerHandlers(deps);
+    handlers.handlePointerDown(makePointerEvent({ clientX: 30, clientY: 30, button: 2 }));
+
+    expect(deps.drawingHandlers.isSelectingDirectionRef.current).toBe(false);
+    expect(deps.drawingHandlers.isDrawingShapeRef.current).toBe(false);
+    expect(deps.drawingHandlers.shapePointsRef.current).toEqual([]);
+    expect(deps.drawingHandlers.ccStrokeSamplesRef.current).toEqual([]);
+    expect(deps.drawingHandlers.ccStrokeDirectionRef.current).toBeNull();
+    expect(deps.drawingHandlers.directionPreviewRef.current).toBeNull();
+    expect(deps.drawingHandlers.ccGradientDrawingGeometryRef.current).toBeNull();
+    expect(deps.drawingHandlers.clearDrawingCanvas).toHaveBeenCalled();
+    expect(deps.drawingHandlers.drawingCanvasHasContent.current).toBe(false);
+    expect(deps.interaction.dispatch).toHaveBeenCalledWith({ type: 'DRAWING_END' });
+    expect(setSequentialPointerDown).toHaveBeenCalledWith(false);
+    expect(deps.setNeedsRedraw).toHaveBeenCalled();
+    expect(deps.stateMachine.finalizationComplete).toHaveBeenCalled();
   });
 
   it('commits the live pointer-up vertex before finalizing a color-cycle shape', async () => {

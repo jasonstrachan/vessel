@@ -310,6 +310,16 @@ const contourDebug = (label: string, payload?: Record<string, unknown>) => {
   }
 };
 
+let lastCcDirectionDebugAt = 0;
+const ccDirectionDebug = (label: string, payload?: Record<string, unknown>) => {
+  const globalAny = globalThis as typeof globalThis & { __VESSEL_CC_DIR_DEBUG?: boolean };
+  if (!globalAny.__VESSEL_CC_DIR_DEBUG) return;
+  const now = Date.now();
+  if (now - lastCcDirectionDebugAt < 250) return;
+  lastCcDirectionDebugAt = now;
+  console.log('[cc-dir]', label, payload ?? {});
+};
+
 type CcPreviewRenderSettings = {
   pixelSize: number;
   levels: number;
@@ -2881,9 +2891,21 @@ export const createShapeToolHandler = (
     const penDown = event.pointerType === 'pen' && (event.pressure ?? 0) > 0;
     const isActivelyDrawing = mouseDown || penDown;
 
-    // Hard guard: CC shapes should never update preview on hover after mouse up.
-    if (isCCShape && !isActivelyDrawing) {
+    const isSelectingCcGradientDirection =
+      isCCShape && drawingHandlers.isSelectingDirectionRef?.current === true;
+
+    // CC shapes should not update shape geometry on hover after mouse up.
+    if (isCCShape && !isActivelyDrawing && !isSelectingCcGradientDirection) {
       return true;
+    }
+
+    if (isSelectingCcGradientDirection && !isActivelyDrawing) {
+      ccDirectionDebug('shape-handler-hover-pass-through', {
+        pointCount: drawingHandlers.shapePointsRef.current.length,
+        isDrawing: interaction.state.isDrawing,
+        brushShape: tools.brushSettings.brushShape,
+      });
+      return false;
     }
 
     const worldPos = computeWorldPointer(event);

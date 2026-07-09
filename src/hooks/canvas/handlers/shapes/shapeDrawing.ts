@@ -22,13 +22,18 @@ import {
   captureFrozenCcDitherRenderConfig,
   finalizeMarkGradientSession,
   getActiveMarkGradientSession,
+  resolveMarkSessionRuntimeStops,
   type MarkGradientSession,
 } from '@/hooks/canvas/utils/colorCycleMarkSession';
 import {
   dedupeSequentialPoints,
   isColorCycleGradientShapePreset,
 } from '@/hooks/brushEngine/colorCycleGridSnap';
-import { cloneStops, resolveActiveColorCycleGradient } from '@/hooks/canvas/utils/colorCycleHelpers';
+import {
+  cloneStops,
+  parseCssColorToRgba,
+  resolveActiveColorCycleGradient,
+} from '@/hooks/canvas/utils/colorCycleHelpers';
 import { hashStops, type GradientDefSource, type StoredStop } from '@/utils/colorCycleGradientDefs';
 import { debugLog, isDebugEnabled, debugWarn } from '@/utils/debug';
 import { recordSampledCcShapeBreadcrumb } from '@/hooks/canvas/utils/sampledCcShapeBreadcrumbs';
@@ -69,6 +74,20 @@ import {
   rebuildCcStrokeShapeFromSamples,
   resolveFinalSampledShapeSourcePoints,
 } from '@/hooks/canvas/handlers/shapes/ccGradientDrawingRuntime';
+import {
+  buildCcDitherRuntimePalette,
+  resolveCcDitherBandMode,
+} from '@/utils/colorCycle/ccDitherRenderPalette';
+
+let lastCcDirectionDebugAt = 0;
+const ccDirectionDebug = (label: string, payload?: Record<string, unknown>) => {
+  const globalAny = globalThis as typeof globalThis & { __VESSEL_CC_DIR_DEBUG?: boolean };
+  if (!globalAny.__VESSEL_CC_DIR_DEBUG) return;
+  const now = Date.now();
+  if (now - lastCcDirectionDebugAt < 250) return;
+  lastCcDirectionDebugAt = now;
+  console.log('[cc-dir]', label, payload ?? {});
+};
 
 type ShapeDrawingColorCycleBrush = ColorCycleShapeFillBrushContext;
 type ShapeDrawingBrushRuntime = ColorCycleShapeFillDeps['brushRuntime'] & ShapeFinalizeBrushRuntime & {
@@ -181,6 +200,211 @@ const resolveCapturedShapeFinalizeLayer = (
     return null;
   }
   return state.layers.find((layer) => layer.id === layerId) ?? null;
+};
+
+type ShapePoint = { x: number; y: number };
+type ShapeBounds = { minX: number; minY: number; maxX: number; maxY: number };
+type PreviewGradientStop = { position: number; color: string; opacity?: number };
+
+const getShapeBounds = (points: ShapePoint[]): ShapeBounds => {
+  let minX = points[0]?.x ?? 0;
+  let minY = points[0]?.y ?? 0;
+  let maxX = minX;
+  let maxY = minY;
+  for (const point of points) {
+    minX = Math.min(minX, point.x);
+    minY = Math.min(minY, point.y);
+    maxX = Math.max(maxX, point.x);
+    maxY = Math.max(maxY, point.y);
+  }
+  return { minX, minY, maxX, maxY };
+};
+
+const getShapeCentroid = (points: ShapePoint[]): ShapePoint => {
+  const center = points.reduce<ShapePoint>(
+    (acc, point) => ({ x: acc.x + point.x, y: acc.y + point.y }),
+    { x: 0, y: 0 }
+  );
+  center.x /= points.length;
+  center.y /= points.length;
+  return center;
+};
+
+const normalizePreviewStops = (stops: PreviewGradientStop[]): PreviewGradientStop[] =>
+  stops
+    .filter((stop) => Number.isFinite(stop.position) && typeof stop.color === 'string' && stop.color.length > 0)
+    .map((stop) => ({
+      position: Math.max(0, Math.min(1, stop.position)),
+      color: stop.color,
+      opacity: stop.opacity,
+    }))
+    .sort((a, b) => a.position - b.position);
+
+const resolveCcDirectionPreviewStops = (state: AppState): PreviewGradientStop[] => {
+  const activeLayer = resolveCapturedShapeFinalizeLayer(state, state.activeLayerId ?? null);
+  const activeSession = activeLayer?.id ? getActiveMarkGradientSession(activeLayer.id) : null;
+  const brushSettings = state.tools.brushSettings;
+  const ditherMode = resolveCcDitherBandMode(brushSettings.gradientBands ?? 16);
+  const sessionStops =
+    activeSession?.previewStopsStored && activeSession.previewStopsStored.length >= 2
+      ? activeSession.previewStopsStored
+      : activeSession?.frozenStopsStored;
+  if (sessionStops && sessionStops.length >= 2) {
+    const runtimeStops = resolveMarkSessionRuntimeStops(activeSession, sessionStops, {
+      enabled: activeSession?.ditherRenderConfig?.enabled ?? Boolean(brushSettings.ditherEnabled),
+      pairBandCount: activeSession?.ditherRenderConfig?.pairBandCount ?? ditherMode.pairBandCount,
+      spread: activeSession?.ditherRenderConfig?.spread ?? brushSettings.ditherPaletteSpread,
+      rangeContrast: brushSettings.ccGradientRangeContrast,
+      algorithm: activeSession?.ditherRenderConfig?.algorithm ?? brushSettings.ditherAlgorithm,
+    });
+    return normalizePreviewStops(runtimeStops);
+  }
+
+  if (activeLayer?.layerType === 'color-cycle') {
+    const resolved = resolveActiveColorCycleGradient(activeLayer, brushSettings, {
+      fgColorHex: state.palette.foregroundColor,
+      fgLightness: brushSettings.colorCycleFgLightness,
+      fgVariance: brushSettings.colorCycleFgVariance,
+      fgHueShift: brushSettings.colorCycleFgHueShift,
+      fgSaturationShift: brushSettings.colorCycleFgSaturationShift,
+      fgOpacity: brushSettings.colorCycleFgOpacity,
+      fgStops: brushSettings.colorCycleFgStops,
+    });
+    if (resolved.activeStops.length >= 2) {
+      const runtimeStops = brushSettings.ditherEnabled
+        ? buildCcDitherRuntimePalette({
+            baseStops: resolved.activeStops,
+            bands: ditherMode.pairBandCount,
+            spread: brushSettings.ditherPaletteSpread,
+            algorithm: brushSettings.ditherAlgorithm,
+            preserveSourceStops: false,
+            debugContext: 'direction-preview-active-layer',
+          }).renderStops
+        : resolved.activeStops;
+      return normalizePreviewStops(runtimeStops);
+    }
+  }
+
+  const brushStops = brushSettings.colorCycleGradient;
+  if (brushStops && brushStops.length >= 2) {
+    const runtimeStops = brushSettings.ditherEnabled
+      ? buildCcDitherRuntimePalette({
+          baseStops: brushStops,
+          bands: ditherMode.pairBandCount,
+          spread: brushSettings.ditherPaletteSpread,
+          algorithm: brushSettings.ditherAlgorithm,
+          preserveSourceStops: false,
+          debugContext: 'direction-preview-brush',
+        }).renderStops
+      : brushStops;
+    return normalizePreviewStops(runtimeStops);
+  }
+
+  return normalizePreviewStops([
+    { position: 0, color: state.palette.foregroundColor ?? brushSettings.color ?? '#000000' },
+    { position: 1, color: state.palette.backgroundColor ?? '#ffffff' },
+  ]);
+};
+
+const cssColorWithOpacity = (stop: PreviewGradientStop): string => {
+  const [r, g, b, a] = parseCssColorToRgba(stop.color);
+  const stopOpacity = typeof stop.opacity === 'number' ? Math.max(0, Math.min(1, stop.opacity)) : 1;
+  const alpha = Math.max(0, Math.min(1, (a / 255) * stopOpacity));
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+};
+
+const resolveDirectionGradientEndpoints = (
+  points: ShapePoint[],
+  directionPoint: ShapePoint
+): { start: ShapePoint; end: ShapePoint; center: ShapePoint; bounds: ShapeBounds } => {
+  const center = getShapeCentroid(points);
+  const bounds = getShapeBounds(points);
+  let dx = directionPoint.x - center.x;
+  let dy = directionPoint.y - center.y;
+  const length = Math.hypot(dx, dy);
+  if (length > 0.0001) {
+    dx /= length;
+    dy /= length;
+  } else {
+    dx = 1;
+    dy = 0;
+  }
+
+  let minProjection = Number.POSITIVE_INFINITY;
+  let maxProjection = Number.NEGATIVE_INFINITY;
+  for (const point of points) {
+    const projection = (point.x - center.x) * dx + (point.y - center.y) * dy;
+    minProjection = Math.min(minProjection, projection);
+    maxProjection = Math.max(maxProjection, projection);
+  }
+
+  if (!Number.isFinite(minProjection) || !Number.isFinite(maxProjection) || maxProjection - minProjection < 0.0001) {
+    const fallbackRadius = Math.max(
+      1,
+      Math.hypot(bounds.maxX - bounds.minX, bounds.maxY - bounds.minY) / 2
+    );
+    minProjection = -fallbackRadius;
+    maxProjection = fallbackRadius;
+  }
+
+  return {
+    start: { x: center.x + dx * minProjection, y: center.y + dy * minProjection },
+    end: { x: center.x + dx * maxProjection, y: center.y + dy * maxProjection },
+    center,
+    bounds,
+  };
+};
+
+const tracePolygonPath = (
+  ctx: CanvasRenderingContext2D,
+  points: ShapePoint[]
+): void => {
+  ctx.beginPath();
+  ctx.moveTo(points[0].x, points[0].y);
+  for (let i = 1; i < points.length; i++) {
+    ctx.lineTo(points[i].x, points[i].y);
+  }
+  ctx.closePath();
+};
+
+const renderCcLinearDirectionPreview = ({
+  ctx,
+  points,
+  directionPoint,
+  state,
+}: {
+  ctx: CanvasRenderingContext2D;
+  points: ShapePoint[];
+  directionPoint: ShapePoint;
+  state: AppState;
+}): boolean => {
+  if (points.length < 3) {
+    return false;
+  }
+
+  const stops = resolveCcDirectionPreviewStops(state);
+  if (stops.length < 2) {
+    return false;
+  }
+
+  const { start, end, bounds } = resolveDirectionGradientEndpoints(points, directionPoint);
+  const gradient = ctx.createLinearGradient(start.x, start.y, end.x, end.y);
+  for (const stop of stops) {
+    gradient.addColorStop(stop.position, cssColorWithOpacity(stop));
+  }
+
+  ctx.save();
+  tracePolygonPath(ctx, points);
+  ctx.clip();
+  ctx.fillStyle = gradient;
+  ctx.fillRect(
+    bounds.minX,
+    bounds.minY,
+    Math.max(1, bounds.maxX - bounds.minX),
+    Math.max(1, bounds.maxY - bounds.minY)
+  );
+  ctx.restore();
+  return true;
 };
 
 const shouldSkipRasterFallbackAfterColorCycleFinalize = (
@@ -1053,6 +1277,13 @@ export const continueShapeDrawing = (
   }
 
   if (refs.isSelectingDirectionRef.current && refs.shapePointsRef.current.length >= 3) {
+    ccDirectionDebug('continueShapeDrawing-direction-branch', {
+      pointCount: refs.shapePointsRef.current.length,
+      drawingCanvasHasContent: deps.drawingCanvasHasContent.current,
+      hasCanvas: Boolean(deps.drawingCanvasRef.current),
+      hasContext: Boolean(deps.drawingCtxRef.current),
+      drawPos,
+    });
     if (!deps.drawingCtxRef.current || !deps.drawingCanvasRef.current) {
       deps.initDrawingCanvas();
     }
@@ -1060,30 +1291,27 @@ export const continueShapeDrawing = (
     const drawCtx = deps.drawingCtxRef.current;
     if (drawCtx && deps.drawingCanvasRef.current) {
       drawCtx.clearRect(0, 0, deps.drawingCanvasRef.current.width, deps.drawingCanvasRef.current.height);
-      drawCtx.fillStyle = 'rgba(0, 0, 0, 0.3)';
-      drawCtx.beginPath();
-      drawCtx.moveTo(refs.shapePointsRef.current[0].x, refs.shapePointsRef.current[0].y);
-      for (let i = 1; i < refs.shapePointsRef.current.length; i++) {
-        drawCtx.lineTo(refs.shapePointsRef.current[i].x, refs.shapePointsRef.current[i].y);
+      const didRenderGradientPreview = renderCcLinearDirectionPreview({
+        ctx: drawCtx,
+        points: refs.shapePointsRef.current,
+        directionPoint: drawPos,
+        state: currentState,
+      });
+      if (!didRenderGradientPreview) {
+        drawCtx.fillStyle = 'rgba(0, 0, 0, 0.3)';
+        tracePolygonPath(drawCtx, refs.shapePointsRef.current);
+        drawCtx.fill();
       }
-      drawCtx.closePath();
-      drawCtx.fill();
+      deps.drawingCanvasHasContent.current = true;
 
-      let centerX = 0;
-      let centerY = 0;
-      for (const p of refs.shapePointsRef.current) {
-        centerX += p.x;
-        centerY += p.y;
-      }
-      centerX /= refs.shapePointsRef.current.length;
-      centerY /= refs.shapePointsRef.current.length;
+      const center = getShapeCentroid(refs.shapePointsRef.current);
 
       drawCtx.save();
       drawCtx.globalCompositeOperation = 'difference';
       drawCtx.strokeStyle = '#000000';
       drawCtx.lineWidth = 1;
       drawCtx.beginPath();
-      drawCtx.moveTo(centerX, centerY);
+      drawCtx.moveTo(center.x, center.y);
       drawCtx.lineTo(drawPos.x, drawPos.y);
       drawCtx.stroke();
       drawCtx.restore();
@@ -1940,4 +2168,7 @@ export const __TESTING__ = {
   resolveFinalSampledShapeSourcePoints,
   applyFinalSampledShapeStops,
   prepareFinalSampledShapeSession,
+  renderCcLinearDirectionPreview,
+  resolveDirectionGradientEndpoints,
+  resolveCcDirectionPreviewStops,
 };

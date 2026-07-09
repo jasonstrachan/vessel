@@ -22,6 +22,7 @@ export interface UseDrawingHandlersResultArgsBridgeOptions {
     ccGradientClickLineSessionRef: DrawingHandlerRefs['ccGradientClickLineSessionRef'];
     isDrawingShapeRef: DrawingHandlerRefs['isDrawingShapeRef'];
     isSelectingDirectionRef: DrawingHandlerRefs['isSelectingDirectionRef'];
+    directionPreviewRef: DrawingHandlerRefs['directionPreviewRef'];
     ccShapePreviewCacheRef: DrawingHandlerRefs['ccShapePreviewCacheRef'];
   };
   shapeRuntime: ShapeRuntime;

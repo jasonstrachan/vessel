@@ -199,6 +199,7 @@ export const useDrawingCanvasBaseRenderer = ({
   const lastSplitCompositeSequentialFrameRef = useRef<number | null>(null);
   const displayFilterStateRef = useRef(createDisplayFilterPipelineState());
   const lastInvalidCompositeBitmapRef = useRef<ImageBitmap | null>(null);
+  const lastCcDirectionRenderDebugAtRef = useRef(0);
 
   const applyDisplayFilterStack = useCallback((
     sourceCanvas: HTMLCanvasElement,
@@ -327,6 +328,21 @@ export const useDrawingCanvasBaseRenderer = ({
         hasOverlayCanvas &&
         !isSequentialCaptureDrawing &&
         (isDrawing || drawingCanvasHasContent);
+      const globalAny = globalThis as typeof globalThis & { __VESSEL_CC_DIR_DEBUG?: boolean };
+      if (globalAny.__VESSEL_CC_DIR_DEBUG && brushShape === BrushShape.COLOR_CYCLE_SHAPE) {
+        const now = Date.now();
+        if (now - lastCcDirectionRenderDebugAtRef.current >= 250) {
+          lastCcDirectionRenderDebugAtRef.current = now;
+          console.log('[cc-dir]', 'renderer-overlay-gate', {
+            overlayActive,
+            isDrawing,
+            drawingCanvasHasContent: Boolean(drawingCanvasHasContent),
+            hasOverlayCanvas,
+            skipDrawingCanvas,
+            isSequentialCaptureDrawing,
+          });
+        }
+      }
       const overlayEligibleForSplit = overlayActive && !isActivelyErasing;
       const floatingPasteActive = Boolean(floatingPaste && floatingPaste.imageData);
       const splitCompositeRequested = overlayEligibleForSplit || floatingPasteActive;

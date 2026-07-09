@@ -1,5 +1,6 @@
 import { getAppStoreState } from '@/stores/appStoreAccess';
 import { useCallback } from 'react';
+import { cancelMarkGradientSession } from '@/hooks/canvas/utils/colorCycleMarkSession';
 
 type CancelOptions = {
   includeFloatingPaste?: boolean;
@@ -52,6 +53,9 @@ export const useDrawingCanvasCancelOps = ({
         isSelectingDirectionRef.current;
 
       if (hasShapeDrawing) {
+        if (store.activeLayerId) {
+          cancelMarkGradientSession(store.activeLayerId);
+        }
         store.setShapeDrawing(false);
         store.clearShapePoints();
         shapePointsRef.current = [];

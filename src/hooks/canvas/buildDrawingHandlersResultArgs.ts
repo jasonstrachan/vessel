@@ -48,6 +48,7 @@ export const buildDrawingHandlersResultArgs = ({
     ccGradientClickLineSessionRef: refs.ccGradientClickLineSessionRef,
     isDrawingShapeRef: refs.isDrawingShapeRef,
     isSelectingDirectionRef: refs.isSelectingDirectionRef,
+    directionPreviewRef: refs.directionPreviewRef,
     ccShapePreviewCacheRef: refs.ccShapePreviewCacheRef,
   },
   shapeRuntime,
