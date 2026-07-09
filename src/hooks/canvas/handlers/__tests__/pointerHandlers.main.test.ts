@@ -1981,11 +1981,27 @@ describe('pointerHandlers main flows', () => {
     deps.drawingHandlers.isDrawingShapeRef.current = true;
     deps.drawingHandlers.shapePointsRef.current = [{ x: 0, y: 0 }, { x: 20, y: 0 }, { x: 20, y: 20 }];
     deps.drawingHandlers.isSelectingDirectionRef.current = false;
+    deps.drawingHandlers.ccShapePreviewCacheRef.current = {
+      canvas: document.createElement('canvas'),
+      origin: { x: 0, y: 0 },
+      width: 20,
+      height: 20,
+      key: 'stale-preview',
+    } as any;
+    const overlayGetContext = deps.overlayCanvasRef.current!.getContext as jest.Mock;
 
     const handlers = createPointerHandlers(deps);
     handlers.handlePointerUp(makePointerEvent({ clientX: 30, clientY: 30 }));
+    const overlayCtx = overlayGetContext.mock.results[overlayGetContext.mock.results.length - 1].value as any;
 
     expect(deps.drawingHandlers.isSelectingDirectionRef.current).toBe(true);
+    expect(deps.drawingHandlers.ccShapePreviewCacheRef.current).toBeNull();
+    expect(overlayCtx.clearRect).toHaveBeenCalledWith(
+      0,
+      0,
+      deps.overlayCanvasRef.current!.width,
+      deps.overlayCanvasRef.current!.height
+    );
     expect(deps.drawingHandlers.stopContinuousColorCycleAnimation).toHaveBeenCalledWith('shape-preview');
     expect(deps.drawingHandlers.continueShapeDrawing).toHaveBeenCalledWith(
       { x: 0, y: 0 },

@@ -4588,6 +4588,10 @@ function resampleStopsToColors(stops: Stop[], count: number): string[] {
         ) {
           drawingHandlers.isSelectingDirectionRef.current = true;
           drawingHandlers.directionPreviewRef.current = null;
+          if (drawingHandlers.ccShapePreviewCacheRef) {
+            drawingHandlers.ccShapePreviewCacheRef.current = null;
+          }
+          clearOverlayCanvas();
           suspendCcGradientDirectionPlayback();
           updatePendingCcGradientDirectionPreview({
             directionWorld: resolveDirectionSelectionPoint(
