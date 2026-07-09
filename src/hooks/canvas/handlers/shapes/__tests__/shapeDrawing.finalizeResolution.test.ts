@@ -5,6 +5,8 @@ import type { AppState } from '@/stores/useAppStore';
 import {
   __TESTING__,
   finalizeShapeDrawing,
+  continueShapeDrawing,
+  startShapeDrawing,
 } from '@/hooks/canvas/handlers/shapes/shapeDrawing';
 import {
   beginMarkGradientSession,
@@ -81,6 +83,141 @@ const makeShapeBrushRuntime = () => ({
   resetColorCycle: jest.fn(),
 });
 
+const ref = <T,>(current: T): React.MutableRefObject<T> => ({ current });
+
+const makeShapeRefs = () => ({
+  isDrawingShapeRef: ref(false),
+  isSelectingDirectionRef: ref(false),
+  directionPreviewRef: ref<{ x: number; y: number } | null>(null),
+  shapePointsRef: ref<Array<{ x: number; y: number }>>([]),
+  ccStrokeSamplesRef: ref([]),
+  ccStrokeDirectionRef: ref<{ x: number; y: number } | null>(null),
+  ccGradientDrawingGeometryRef: ref(null),
+  ccGradientClickLineSessionRef: ref({ active: false, points: [], previewPoint: null, finalizeOnPointerUp: false }),
+  shapeDragStartRef: ref<{ x: number; y: number } | null>(null),
+  shapeDragLastRef: ref<{ x: number; y: number } | null>(null),
+  shapeDragMovedRef: ref(false),
+  shapeInteractionPhaseRef: ref('idle'),
+  latestShapePressureRef: ref(0),
+  lastStablePressureRef: ref(0.5),
+  shapeBeforeImageRef: ref(null),
+  strokeBoundingBoxRef: ref(null),
+  strokeCapturePaddingRef: ref(0),
+  drawingCtxRef: ref(null),
+  drawingCanvasRef: ref(null),
+  drawingCanvasHasContent: ref(false),
+  autoSamplePointsRef: ref<Array<{ x: number; y: number }>>([]),
+  autoSampleForkRef: ref(false),
+  autoSampleLastUpdateRef: ref(0),
+  ccSampledPointsRef: ref<Array<{ x: number; y: number }>>([]),
+  ccGradientSampleSessionRef: ref({
+    active: false,
+    strokeId: null,
+    tempSlot: 0,
+    stops: null,
+    hash: '',
+    polyline: [],
+  }),
+  ccGradientSampleLastUpdateRef: ref(0),
+  hadValidShapePressureRef: ref(false),
+  latestShapePixelSizeRef: ref<number | null>(null),
+  shapeMaxPressureRef: ref(0),
+  ccShapePreviewPauseStartedRef: ref(false),
+  activeStrokeSessionRef: ref(null),
+  finalizeQueueRef: ref({ isBusy: jest.fn(() => false), enqueue: jest.fn() }),
+});
+
+const makeShapeDeps = (updateCcSampledGradient = jest.fn()) => ({
+  storeRef: ref(storeState),
+  toolsRef: ref(storeState.tools),
+  project: storeState.project,
+  isBusyRef: ref(false),
+  drawingCtxRef: ref(null),
+  drawingCanvasRef: ref(null),
+  drawingCanvasHasContent: ref(false),
+  strokeBoundingBoxRef: ref(null),
+  strokeCapturePaddingRef: ref(0),
+  shapeBeforeImageRef: ref(null),
+  latestShapePixelSizeRef: ref<number | null>(null),
+  hadValidShapePressureRef: ref(false),
+  lastStablePressureRef: ref(0.5),
+  shapeBrushRuntime: makeShapeBrushRuntime(),
+  getColorCycleBrushManager: jest.fn(() => ({ getShapeFillBrush: jest.fn() })),
+  getColorCycleBrushFlags: jest.fn(() => ({ isAny: true, isShapeVariant: false })),
+  sampleColorAt: jest.fn(() => '#000000'),
+  sampleHexAt: jest.fn(() => '#000000'),
+  initDrawingCanvas: jest.fn(),
+  startDrawing: jest.fn(),
+  continueDrawing: jest.fn(),
+  seedManualStrokeBoundingBox: jest.fn(),
+  triggerSimpleShapePreview: jest.fn(),
+  resetShapeDragRefs: jest.fn(),
+  resetCcGradientSample: jest.fn(),
+  updateShapePressure: jest.fn(),
+  pauseColorCycleForNonCCInteraction: jest.fn(),
+  resumeColorCycleAfterInteraction: jest.fn(async () => undefined),
+  updateAutoSampledGradient: jest.fn(),
+  updateCcSampledGradient,
+  updateCcGradientSample: jest.fn(),
+  updateDitherGradSamples: jest.fn(),
+  capturePendingShapeSnapshot: jest.fn(),
+  clearShapeBeforeSnapshot: jest.fn(),
+  createBoundingBox: jest.fn((point: { x: number; y: number }) => ({
+    minX: point.x,
+    minY: point.y,
+    maxX: point.x,
+    maxY: point.y,
+  })),
+  mergeBoundingBox: jest.fn((bbox, point: { x: number; y: number }) => ({
+    minX: Math.min(bbox?.minX ?? point.x, point.x),
+    minY: Math.min(bbox?.minY ?? point.y, point.y),
+    maxX: Math.max(bbox?.maxX ?? point.x, point.x),
+    maxY: Math.max(bbox?.maxY ?? point.y, point.y),
+  })),
+  appendSegmentWithDynamicResampling: jest.fn((points: Array<{ x: number; y: number }>, worldPos: { x: number; y: number }) => {
+    points.push(worldPos);
+    return 1;
+  }),
+  computeAutoSampleStops: jest.fn(() => null),
+  computeShapePixelSize: jest.fn(() => 1),
+  finalizeDrawing: jest.fn(async () => undefined),
+  finalizeDitherGradientShape: jest.fn(),
+  finalizeRasterShapeFill: jest.fn(),
+  runColorCycleShapeFill: jest.fn(),
+  computeFallbackLinearDirection: jest.fn(() => ({ x: 1, y: 0 })),
+  ensureActiveColorCycleGradientSlot: jest.fn(),
+  captureRegionFromPoints: jest.fn(),
+  boundingBoxToCaptureRegion: jest.fn(),
+  commitRasterShapeFill: jest.fn(),
+  runIdle: jest.fn((task: () => void) => task()),
+  scheduleDeferredColorCycleSaveWithState: jest.fn(async () => undefined),
+  bindBrushToCanvas: jest.fn(),
+  captureColorCycleBrushState: jest.fn(() => null),
+  isColorCycleLayerWithData: jest.fn(() => true),
+  setSharedColorCycleGradient: jest.fn(),
+  logError: jest.fn(),
+  feedbackMessageRef: ref(null),
+  withTiming: jest.fn(async (_label: string, task: () => unknown) => task()),
+  timeAsync: jest.fn(async (_label: string, task: () => Promise<unknown>) => task()),
+  timeSync: jest.fn((_label: string, task: () => unknown) => task()),
+  ccLog: jest.fn(),
+  ccDebug: { on: false, timing: false, verbose: false },
+  perfMark: jest.fn(),
+  perfMeasure: jest.fn(),
+  debugTime: jest.fn(),
+  debugTimeEnd: jest.fn(),
+  resetAutoSampleState: jest.fn(),
+  resetShapePressureState: jest.fn(),
+  resetPolygonState: jest.fn(),
+  inflateShapeBeforeSnapshot: jest.fn(),
+  ensureLayerSnapshotWithRetry: jest.fn(),
+  applyBackdropFromSnapshot: jest.fn(),
+  captureCanvasToActiveLayer: jest.fn(),
+  scheduleHistoryCommit: jest.fn(),
+  ROI_PADDING_PX: 2,
+  FF: { CC_CAPTURE_ROI: false },
+}) as unknown as Parameters<typeof startShapeDrawing>[1];
+
 describe('finalizeShapeDrawing CC dither resolution', () => {
   beforeEach(() => {
     jest.clearAllMocks();
@@ -110,6 +247,7 @@ describe('finalizeShapeDrawing CC dither resolution', () => {
       {
         id: 'layer-1',
         layerType: 'color-cycle',
+        visible: true,
         colorCycleData: {
           canvas: layerCanvas,
           gradient: storeState.tools.brushSettings.colorCycleGradient,
@@ -120,6 +258,59 @@ describe('finalizeShapeDrawing CC dither resolution', () => {
 
   afterEach(() => {
     cancelMarkGradientSession('layer-1');
+  });
+
+  it('updates sampled shape preview stops while the first-stage shape is being drawn', () => {
+    storeState.tools.ccGradientSource = 'sampled';
+    storeState.tools.brushSettings.ccGradientDrawingShape = 'rectangle';
+    storeState.tools.brushSettings.colorCycleFillMode = 'linear';
+    storeState.tools.brushSettings.autoSampleGradient = false;
+    storeState.tools.brushSettings.autoSampleGradientRealtime = false;
+    (storeState as unknown as { currentBrushPreset: { id: string } }).currentBrushPreset = {
+      id: 'color-cycle-gradient',
+    };
+    const updateCcSampledGradient = jest.fn();
+    const refs = makeShapeRefs();
+    const deps = makeShapeDeps(updateCcSampledGradient);
+
+    const didStart = startShapeDrawing(
+      {
+        worldPos: { x: 4, y: 5 },
+        pressure: 0.5,
+        timestamp: 1,
+        shapeMode: true,
+        refs: refs as unknown as Parameters<typeof startShapeDrawing>[0]['refs'],
+        renderPreview: false,
+      },
+      deps
+    );
+
+    expect(didStart).toBe(true);
+    expect(updateCcSampledGradient).not.toHaveBeenCalled();
+
+    continueShapeDrawing(
+      {
+        worldPos: { x: 24, y: 15 },
+        pressure: 0.5,
+        timestamp: 2,
+        rawPressure: 0.5,
+        shapeMode: true,
+        refs: refs as unknown as Parameters<typeof continueShapeDrawing>[0]['refs'],
+        renderPreview: false,
+      },
+      deps as unknown as Parameters<typeof continueShapeDrawing>[1]
+    );
+
+    expect(updateCcSampledGradient).toHaveBeenCalledTimes(1);
+    const [sourcePoints, options] = updateCcSampledGradient.mock.calls[0];
+    expect(sourcePoints.length).toBeGreaterThan(1);
+    expect(sourcePoints).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ x: 4, y: 5 }),
+        expect.objectContaining({ x: 24, y: 15 }),
+      ])
+    );
+    expect(options).toEqual({ layerId: 'layer-1', markKind: 'shape' });
   });
 
   it('reuses an active sampled mark session when preparing sampled shape finalize stops', () => {

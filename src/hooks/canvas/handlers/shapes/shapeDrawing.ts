@@ -187,6 +187,57 @@ const isSampledCcShapeDrag = (state: AppState): boolean =>
   state.tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE_SHAPE &&
   state.tools.ccGradientSource === 'sampled';
 
+const cloneShapePoints = (points: Array<{ x: number; y: number }>): ShapePoint[] =>
+  points.map(({ x, y }) => ({ x, y }));
+
+const resolveLiveSampledShapeSourcePoints = (
+  refs: Pick<
+    ShapeDrawingRefs,
+    'ccGradientDrawingGeometryRef' | 'ccStrokeSamplesRef' | 'shapePointsRef'
+  >
+): ShapePoint[] => {
+  const geometrySourcePoints = refs.ccGradientDrawingGeometryRef.current?.sampleSourcePoints;
+  if (geometrySourcePoints && geometrySourcePoints.length > 0) {
+    return cloneShapePoints(geometrySourcePoints);
+  }
+  if (refs.ccStrokeSamplesRef.current.length > 0) {
+    return refs.ccStrokeSamplesRef.current.map(({ x, y }) => ({ x, y }));
+  }
+  return cloneShapePoints(refs.shapePointsRef.current);
+};
+
+const updateSampledCcShapePreviewGradient = (
+  refs: Pick<
+    ShapeDrawingRefs,
+    'ccGradientDrawingGeometryRef' | 'ccStrokeSamplesRef' | 'shapePointsRef'
+  >,
+  deps: Pick<ShapeDrawingDeps, 'updateCcSampledGradient' | 'logError'>,
+  state: AppState
+): void => {
+  if (!isSampledCcShapeDrag(state) || !state.activeLayerId) {
+    return;
+  }
+
+  const sourcePoints = resolveLiveSampledShapeSourcePoints(refs);
+  if (sourcePoints.length < 2) {
+    return;
+  }
+
+  try {
+    deps.updateCcSampledGradient(sourcePoints, {
+      layerId: state.activeLayerId,
+      markKind: 'shape',
+    });
+  } catch (error) {
+    deps.logError('CC shape sampled preview update failed', {
+      error: error instanceof Error ? error.message : String(error),
+      layerId: state.activeLayerId,
+      pointCount: sourcePoints.length,
+      ccGradientSource: state.tools.ccGradientSource,
+    });
+  }
+};
+
 const canContinueShapeDrawing = (
   phaseRef: React.MutableRefObject<ShapeInteractionPhase>
 ): boolean => phaseRef.current === 'drawing';
@@ -1108,6 +1159,7 @@ export const startShapeDrawing = (
       } else {
         refs.ccGradientDrawingGeometryRef.current = null;
       }
+      updateSampledCcShapePreviewGradient(refs, deps, shapeStoreSnapshot);
       deps.seedManualStrokeBoundingBox(refs.shapePointsRef.current, 2);
       if (renderPreview && shouldUseSimpleShapePreview(deps.storeRef.current)) {
         deps.triggerSimpleShapePreview();
@@ -1215,6 +1267,7 @@ export const startShapeDrawing = (
             });
           }
         }
+        updateSampledCcShapePreviewGradient(refs, deps, st);
         if (isCCShape && autoSampleEnabled && !sampledSource) {
           refs.autoSamplePointsRef.current = [...refs.shapePointsRef.current];
           refs.autoSampleForkRef.current = true;
@@ -1354,6 +1407,7 @@ export const continueShapeDrawing = (
             : refs.ccStrokeSamplesRef.current,
           2
         );
+        updateSampledCcShapePreviewGradient(refs, deps, store);
         if (renderPreview && hasGeometry && shouldUseSimpleShapePreview(store)) {
           deps.capturePendingShapeSnapshot();
           deps.triggerSimpleShapePreview();
@@ -1386,6 +1440,7 @@ export const continueShapeDrawing = (
               ),
           2
         );
+        updateSampledCcShapePreviewGradient(refs, deps, store);
         if (renderPreview && hasGeometry && shouldUseSimpleShapePreview(store)) {
           deps.capturePendingShapeSnapshot();
           deps.triggerSimpleShapePreview();
@@ -1423,6 +1478,7 @@ export const continueShapeDrawing = (
       } else {
         refs.ccGradientDrawingGeometryRef.current = null;
       }
+      updateSampledCcShapePreviewGradient(refs, deps, store);
       deps.seedManualStrokeBoundingBox(refs.shapePointsRef.current, 2);
       if (renderPreview && shouldUseSimpleShapePreview(store)) {
         deps.capturePendingShapeSnapshot();
