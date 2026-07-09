@@ -1,6 +1,5 @@
 import { CrashRecoveryService } from '../crashRecovery';
 import { backgroundStorageService } from '../backgroundStorage';
-import { restoreColorCycleBrushes } from '../projectIO';
 import { useAppStore } from '@/stores/useAppStore';
 import type { Layer, Project } from '@/types';
 
@@ -15,11 +14,6 @@ jest.mock('../backgroundStorage', () => ({
   },
 }));
 
-jest.mock('../projectIO', () => ({
-  __esModule: true,
-  restoreColorCycleBrushes: jest.fn(async (layers) => layers),
-}));
-
 jest.mock('@/stores/useAppStore', () => ({
   useAppStore: {
     getState: jest.fn(),
@@ -28,6 +22,7 @@ jest.mock('@/stores/useAppStore', () => ({
 }));
 
 describe('CrashRecoveryService', () => {
+  const importProject = jest.fn();
   const setProject = jest.fn();
   const setLayers = jest.fn();
   const setActiveLayer = jest.fn();
@@ -84,6 +79,7 @@ describe('CrashRecoveryService', () => {
       currentLayers = layers;
     });
     (useAppStore.getState as jest.Mock).mockImplementation(() => ({
+      importProject,
       setProject,
       setLayers,
       setActiveLayer,
@@ -97,10 +93,11 @@ describe('CrashRecoveryService', () => {
     }));
   });
 
-  it('rehydrates color-cycle layers through restoreColorCycleBrushes before applying recovery', async () => {
+  it('recovers through the project import path so color-cycle runtime replacement is isolated', async () => {
     const service = new CrashRecoveryService();
-    const restoredLayers = [{ ...baseLayers[0], id: 'restored-cc-layer' }];
-    (restoreColorCycleBrushes as jest.Mock).mockResolvedValue(restoredLayers);
+    importProject.mockImplementation(async (project: Project) => {
+      setLayers(project.layers);
+    });
 
     await service.recoverProject({
       project: baseProject,
@@ -108,8 +105,10 @@ describe('CrashRecoveryService', () => {
       lastSaveTime: Date.now(),
     });
 
-    expect(restoreColorCycleBrushes).toHaveBeenCalledWith(baseLayers);
-    expect(setLayers).toHaveBeenCalledWith(restoredLayers);
+    expect(importProject).toHaveBeenCalledWith({
+      ...baseProject,
+      layers: baseLayers,
+    });
   });
 
   it('checks background storage for the last autosaved project', async () => {

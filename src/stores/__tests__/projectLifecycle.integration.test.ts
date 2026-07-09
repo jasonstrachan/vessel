@@ -74,6 +74,7 @@ jest.mock('@/stores/colorCycleBrushManager', () => {
     getDocument: jest.fn(() => undefined),
     ensureDocument: jest.fn(() => undefined),
     createBrush: jest.fn(() => mockBrush),
+    registerDocument: jest.fn(),
     registerRestoredBrush: jest.fn((layerId: string, brush: unknown) => {
       manager.brushes.set(layerId, brush);
       manager.activeResources.add(layerId);
@@ -89,6 +90,7 @@ jest.mock('@/stores/colorCycleBrushManager', () => {
   return {
     __esModule: true as const,
     getColorCycleBrushManager: () => manager,
+    createColorCycleBrushManager: () => manager,
     setLayerIdGetter: jest.fn(),
     setColorCycleStoreStateGetter: jest.fn(),
     __mockManager: manager,
@@ -112,6 +114,7 @@ const { __mockManager: mockManager } = jest.requireMock('@/stores/colorCycleBrus
     getDocument: jest.Mock;
     ensureDocument: jest.Mock;
     createBrush: jest.Mock;
+    registerDocument: jest.Mock;
     registerRestoredBrush: jest.Mock;
     applySettingsToBrushes: jest.Mock;
     deleteBrush: jest.Mock;
@@ -677,6 +680,118 @@ describe('project slice lifecycle flows', () => {
     expect(mockManager.cleanupOrphanedBrushes).toHaveBeenCalled();
     const cleanupArgs = mockManager.cleanupOrphanedBrushes.mock.calls[0]?.[0];
     expect(cleanupArgs instanceof Set ? cleanupArgs.size : null).toBe(0);
+  });
+
+  it('clears color-cycle runtime only after imported project layers restore', async () => {
+    const restoreColorCycleBrushes = jest.requireMock('@/utils/projectIO').restoreColorCycleBrushes as jest.Mock;
+    const colorCycleCanvas = document.createElement('canvas');
+    colorCycleCanvas.width = 8;
+    colorCycleCanvas.height = 8;
+    const project: Project = {
+      id: 'project-import-reused-cc-id',
+      name: 'Imported Scene With Reused CC ID',
+      width: 320,
+      height: 180,
+      layers: [makeLayer('layer-reused-cc', {
+        imageData: null,
+        layerType: 'color-cycle',
+        colorCycleData: {
+          mode: 'brush',
+          isAnimating: false,
+          canvas: colorCycleCanvas,
+          canvasImageData: new ImageData(8, 8),
+          canvasWidth: 8,
+          canvasHeight: 8,
+        },
+      })],
+      backgroundColor: '#101010',
+      createdAt: new Date('2024-04-01'),
+      updatedAt: new Date('2024-04-02'),
+      customBrushes: [],
+      defaultCustomBrushId: null,
+      exportLayout: createDefaultExportLayout(),
+      palette: {
+        foregroundColor: '#ff00ff',
+        backgroundColor: '#00ffff',
+        activeSlot: 'foreground',
+      },
+      brushSpecificSettings: {},
+    };
+
+    mockManager.brushes.set('layer-reused-cc', mockBrush);
+
+    await useAppStore.getState().importProject(project, { fileName: 'imported-cc.vessel' });
+
+    expect(mockManager.cleanupAll).toHaveBeenCalledTimes(1);
+    expect(restoreColorCycleBrushes).toHaveBeenCalled();
+    expect(restoreColorCycleBrushes.mock.invocationCallOrder[0]).toBeLessThan(
+      mockManager.cleanupAll.mock.invocationCallOrder[0],
+    );
+  });
+
+  it('keeps existing color-cycle runtime when imported project restore fails', async () => {
+    const restoreColorCycleBrushes = jest.requireMock('@/utils/projectIO').restoreColorCycleBrushes as jest.Mock;
+    restoreColorCycleBrushes.mockRejectedValueOnce(new Error('corrupt color-cycle archive'));
+    const existingLayer = makeLayer('existing-layer');
+    useAppStore.setState({
+      project: {
+        id: 'existing-project',
+        name: 'Existing Scene',
+        width: 16,
+        height: 16,
+        layers: [existingLayer],
+        backgroundColor: '#000',
+        createdAt: new Date('2024-01-01'),
+        updatedAt: new Date('2024-01-02'),
+        customBrushes: [],
+        defaultCustomBrushId: null,
+        exportLayout: createDefaultExportLayout(),
+      },
+      layers: [existingLayer],
+      activeLayerId: existingLayer.id,
+      selectedLayerIds: [existingLayer.id],
+    });
+
+    const colorCycleCanvas = document.createElement('canvas');
+    colorCycleCanvas.width = 8;
+    colorCycleCanvas.height = 8;
+    const project: Project = {
+      id: 'project-failed-import',
+      name: 'Failed Import',
+      width: 320,
+      height: 180,
+      layers: [makeLayer('layer-failed-import-cc', {
+        imageData: null,
+        layerType: 'color-cycle',
+        colorCycleData: {
+          mode: 'brush',
+          isAnimating: false,
+          canvas: colorCycleCanvas,
+          canvasImageData: new ImageData(8, 8),
+          canvasWidth: 8,
+          canvasHeight: 8,
+        },
+      })],
+      backgroundColor: '#101010',
+      createdAt: new Date('2024-04-01'),
+      updatedAt: new Date('2024-04-02'),
+      customBrushes: [],
+      defaultCustomBrushId: null,
+      exportLayout: createDefaultExportLayout(),
+      palette: {
+        foregroundColor: '#ff00ff',
+        backgroundColor: '#00ffff',
+        activeSlot: 'foreground',
+      },
+      brushSpecificSettings: {},
+    };
+
+    await expect(useAppStore.getState().importProject(project, { fileName: 'bad-cc.vessel' }))
+      .rejects.toThrow('corrupt color-cycle archive');
+
+    expect(mockManager.cleanupAll).not.toHaveBeenCalled();
+    expect(useAppStore.getState().project?.id).toBe('existing-project');
+    expect(useAppStore.getState().layers).toEqual([existingLayer]);
   });
 
   it('imports a project payload and binds file handle for autosave', async () => {

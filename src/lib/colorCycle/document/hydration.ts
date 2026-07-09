@@ -4,7 +4,10 @@ import {
   type PersistedColorCycleBrushState as PersistenceBrushState,
 } from '@/lib/colorCycle/persistence';
 import { normalizeColorCycleLayerDocumentState } from '@/lib/colorCycle/documentState';
-import { getColorCycleBrushManager } from '@/stores/colorCycleBrushManager';
+import {
+  getColorCycleBrushManager,
+  type ColorCycleBrushManager,
+} from '@/stores/colorCycleBrushManager';
 import {
   getColorCycleHydrationState,
   setColorCycleHydrationState,
@@ -25,6 +28,7 @@ import {
 export type RestoreColorCycleBrushesOptions = {
   lazy?: boolean;
   activeLayerId?: string | null;
+  colorCycleBrushManager?: ColorCycleBrushManager;
 };
 
 export type ColorCycleRestoreBrush = ColorCycleRuntimeBrush &
@@ -99,7 +103,7 @@ export const restoreColorCycleBrushesWithDocumentHydration = async (
   options: RestoreColorCycleBrushesOptions | undefined,
   dependencies: RestoreColorCycleBrushesHydrationDependencies,
 ): Promise<Layer[]> => {
-  const manager = getColorCycleBrushManager();
+  const manager = options?.colorCycleBrushManager ?? getColorCycleBrushManager();
   const ensureLayerDocumentResidency = (
     layer: Layer,
     residency: 'cold-archive-ref' | 'static-preview-only',

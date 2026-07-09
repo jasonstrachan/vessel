@@ -18,7 +18,11 @@ import {
 } from '@/utils/projectIO';
 import { fileBackupService } from '@/utils/fileBackupService';
 import { mergeCustomBrushCollections } from './customBrushMerge';
-import type { ColorCycleBrushManager, ColorCycleBrushRuntimeHost } from '../colorCycleBrushManager';
+import {
+  createColorCycleBrushManager,
+  type ColorCycleBrushManager,
+  type ColorCycleBrushRuntimeHost,
+} from '../colorCycleBrushManager';
 import { setActiveHistoryDocument } from '@/history/historyService';
 import { logError, debugWarn } from '@/utils/debug';
 import { captureCanvasImageData } from '@/utils/canvas/canvasImage';
@@ -104,6 +108,21 @@ export const createProjectLifecycle = ({
   syncPercentOffsetsFromPixels,
 }: ProjectLifecycleOptions) => {
   const autosaveLog = devLog.scope('AUTOSAVE');
+  const resetColorCycleRuntimeForProjectReplacement = (reason: string): void => {
+    const currentState = get();
+    try {
+      currentState.colorCycleRuntimeHandlers?.stop?.(reason);
+    } catch (error) {
+      debugWarn('raw-console', '[Store] Failed to stop color cycle playback during project replacement:', error);
+    }
+
+    try {
+      colorCycleBrushManager?.cleanupAll();
+    } catch (error) {
+      debugWarn('raw-console', '[Store] Failed to reset color cycle runtime during project replacement:', error);
+    }
+  };
+
   const setProject = (project: Project): void => {
     const normalized = normalizeProject(project);
     setActiveHistoryDocument(normalized.id);
@@ -194,9 +213,11 @@ export const createProjectLifecycle = ({
 
   const applyLoadedProject = async (loadedProject: Project): Promise<void> => {
     const state = get();
+    const restoreColorCycleBrushManager = createColorCycleBrushManager();
     const layersWithRestoredColorCycles = await restoreColorCycleBrushes(loadedProject.layers, {
       lazy: true,
       activeLayerId: loadedProject.layers[0]?.id ?? null,
+      colorCycleBrushManager: restoreColorCycleBrushManager,
     });
     const finalLayers = layersWithRestoredColorCycles ?? loadedProject.layers;
 
@@ -220,6 +241,8 @@ export const createProjectLifecycle = ({
         ? loadedProject.referenceLayerId
         : null;
     const nextActiveLayerId = syncedLayers[0]?.id ?? null;
+
+    resetColorCycleRuntimeForProjectReplacement('project-load');
 
     set({
       project: projectWithPalette,
@@ -320,6 +343,11 @@ export const createProjectLifecycle = ({
       const projectHeight = postLoadState.project?.height ?? loadedProject.height ?? 0;
 
       for (const layer of postLoadState.layers) {
+        const restoredDocument = restoreColorCycleBrushManager.getDocument(layer.id);
+        if (restoredDocument) {
+          colorCycleBrushManager.registerDocument(layer.id, restoredDocument);
+        }
+
         if (layer.layerType !== 'color-cycle' || !layer.colorCycleData?.colorCycleBrush) {
           continue;
         }
@@ -695,6 +723,7 @@ export const createProjectLifecycle = ({
 
   const newProject = (width: number, height: number, name = 'Untitled'): void => {
     const currentState = get();
+    resetColorCycleRuntimeForProjectReplacement('new-project');
     const layerIdFactory = () => `layer-${Date.now()}-${Math.random()}`;
     const makeFramebuffer = (): OffscreenCanvas | HTMLCanvasElement => {
       if (typeof OffscreenCanvas !== 'undefined') {

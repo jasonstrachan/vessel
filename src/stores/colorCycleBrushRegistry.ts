@@ -140,6 +140,7 @@ export interface ColorCycleBrushManager {
   getSettingsPatchBrush: (layerId: string) => ColorCycleSettingsPatchBrush | null;
   getSpeedSettingsBrush: (layerId: string) => ColorCycleSpeedSettingsBrushContext | null;
   getDocument: (layerId: string) => ColorCycleLayerDocument | undefined;
+  registerDocument: (layerId: string, document: ColorCycleLayerDocument) => void;
   getRuntime: (layerId: string) => ColorCycleLayerRuntime | undefined;
   deleteBrush: (layerId: string) => void;
   setActiveState: (layerId: string, isActive: boolean) => void;
@@ -1011,14 +1012,19 @@ export const createColorCycleBrushRegistry = (deps: ColorCycleBrushRegistryDeps)
       options: ColorCycleRestoredBrushRegistrationOptions,
     ): void {
       const restoredBrush = brush as BrushWithOptionalControls;
+      const restoredDocument = restoredBrush.getColorCycleLayerDocument?.(layerId);
       const existingDocument = this.getDocument(layerId);
-      const document = existingDocument ?? new ColorCycleLayerDocument(
-        createEmptyRegistryColorCycleLayerDocumentState({
-          layerId,
-          width: options.width,
-          height: options.height,
-        }),
-      );
+      const document = restoredDocument instanceof ColorCycleLayerDocument
+        ? restoredDocument
+        : (
+            existingDocument ?? new ColorCycleLayerDocument(
+              createEmptyRegistryColorCycleLayerDocumentState({
+                layerId,
+                width: options.width,
+                height: options.height,
+              }),
+            )
+          );
 
       setRuntime(layerId, brush, document);
       try {
@@ -1138,6 +1144,10 @@ export const createColorCycleBrushRegistry = (deps: ColorCycleBrushRegistryDeps)
 
     getDocument(layerId: string): ColorCycleLayerDocument | undefined {
       return runtimes.get(layerId)?.document ?? documents.get(layerId);
+    },
+
+    registerDocument(layerId: string, document: ColorCycleLayerDocument): void {
+      documents.set(layerId, document);
     },
 
     getRuntime(layerId: string): ColorCycleLayerRuntime | undefined {

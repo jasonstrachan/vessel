@@ -5,6 +5,7 @@ import {
   setColorCycleStoreStateGetter,
 } from '@/stores/colorCycleBrushManager';
 import { refreshLayerCCSurface } from '@/hooks/useBrushEngineSimplified';
+import { ColorCycleLayerDocument } from '@/lib/colorCycle/document';
 import type { AppState } from '@/stores/useAppStore';
 import type { Layer } from '@/types';
 import { defaultBrushSettings } from '@/presets/brushPresets';
@@ -215,6 +216,43 @@ describe('colorCycleBrushManager integration', () => {
     );
     expect(brush.setLayerId).toHaveBeenCalledWith('layer-restored');
     expectLastCallBefore(brush.setColorCycleLayerDocument, brush.setLayerId);
+  });
+
+  it('keeps the restored brush document instead of reusing a stale manager document', () => {
+    const manager = createColorCycleBrushManager();
+    const staleDocument = manager.ensureDocument('layer-restored', 32, 24);
+    const restoredDocument = new ColorCycleLayerDocument({
+      layerId: 'layer-restored',
+      width: 32,
+      height: 24,
+      paintBuffer: new Uint8Array(32 * 24).buffer,
+      gradientIdBuffer: new Uint8Array(32 * 24).buffer,
+      gradientDefIdBuffer: new Uint16Array(32 * 24).buffer,
+      speedBuffer: new Uint8Array(32 * 24).buffer,
+      flowBuffer: new Uint8Array(32 * 24).buffer,
+      phaseBuffer: new Uint8Array(32 * 24).buffer,
+      hasContent: true,
+      sources: {
+        brushStateSnapshot: true,
+        topLevelBuffers: false,
+        legacyStateRefs: false,
+      },
+    });
+    const brush = createMockBrush();
+    brush.getColorCycleLayerDocument.mockReturnValue(restoredDocument as never);
+
+    manager.registerRestoredBrush('layer-restored', brush, {
+      width: 32,
+      height: 24,
+      isActive: true,
+    });
+
+    expect(manager.getDocument('layer-restored')).toBe(restoredDocument);
+    expect(manager.getDocument('layer-restored')).not.toBe(staleDocument);
+    expect(brush.setColorCycleLayerDocument).toHaveBeenCalledWith(
+      'layer-restored',
+      restoredDocument,
+    );
   });
 
   it('exposes a stable playback-only brush facade', () => {
