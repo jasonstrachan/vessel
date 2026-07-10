@@ -78,6 +78,7 @@ import {
   buildCcDitherRuntimePalette,
   resolveCcDitherBandMode,
 } from '@/utils/colorCycle/ccDitherRenderPalette';
+import { discardAbandonedSampledShapeTempPixels } from '@/hooks/canvas/handlers/shapes/sampledShapeTempSlotOwnership';
 
 let lastCcDirectionDebugAt = 0;
 const ccDirectionDebug = (label: string, payload?: Record<string, unknown>) => {
@@ -537,7 +538,8 @@ const prepareFinalSampledShapeSession = (params: {
   state: AppState;
   shapePoints: Array<{ x: number; y: number }>;
   samplePoints?: Array<{ x: number; y: number }>;
-  deps: Pick<ShapeDrawingDeps, 'sampleColorAt' | 'sampleHexAt' | 'ccLog'>;
+  deps: Pick<ShapeDrawingDeps, 'sampleColorAt' | 'sampleHexAt' | 'ccLog'>
+    & Partial<Pick<ShapeDrawingDeps, 'getColorCycleBrushManager'>>;
 }): MarkGradientSession | null => {
   if (params.layer.layerType !== 'color-cycle') {
     return null;
@@ -581,6 +583,10 @@ const prepareFinalSampledShapeSession = (params: {
     previewStopsFromLivePreview?.stops && previewStopsFromLivePreview.stops.length > (previewStops?.length ?? 0)
       ? previewStopsFromLivePreview.stops
       : previewStops;
+  const discardedTempPixels = discardAbandonedSampledShapeTempPixels({
+    brush: params.deps.getColorCycleBrushManager?.().getShapeFillBrush(params.layer.id),
+    layerId: params.layer.id,
+  });
   params.deps.ccLog('shape: sampled final stops selected', {
     layerId: params.layer.id,
     rebuiltStopCount: previewStops?.length ?? 0,
@@ -594,6 +600,7 @@ const prepareFinalSampledShapeSession = (params: {
     previewSeq: previewStopsFromLivePreview?.seq ?? null,
     previewPointCount: previewStopsFromLivePreview?.pointCount ?? null,
     previewRawPointCount: previewStopsFromLivePreview?.rawPointCount ?? null,
+    discardedTempPixels,
   });
 
   let session = getActiveMarkGradientSession(params.layer.id);
@@ -1670,10 +1677,6 @@ export const finalizeShapeDrawing = async (
             return true;
           }
           const shapeLayerIdString: string = shapeLayerId;
-          shapeBeforeColorState = beforeLayer && deps.isColorCycleLayerWithData(beforeLayer)
-            ? deps.captureColorCycleBrushState(beforeLayer.id)
-            : null;
-
           let centerX = 0;
           let centerY = 0;
           for (const p of args.refs.shapePointsRef.current) {
@@ -1760,6 +1763,9 @@ export const finalizeShapeDrawing = async (
                 layerId: targetLayer.id,
               });
             }
+            shapeBeforeColorState = beforeLayer && deps.isColorCycleLayerWithData(beforeLayer)
+              ? deps.captureColorCycleBrushState(beforeLayer.id)
+              : null;
             const session = finalizeMarkGradientSession(shapeLayerIdString)
               ?? (targetLayer
                 ? buildFallbackMarkSession(targetLayer, deps.storeRef.current, 'linear')
@@ -1864,10 +1870,6 @@ export const finalizeShapeDrawing = async (
             return true;
           }
           const shapeLayerIdString: string = shapeLayerIdLocal;
-          shapeBeforeColorStateLocal = beforeLayer && deps.isColorCycleLayerWithData(beforeLayer)
-            ? deps.captureColorCycleBrushState(beforeLayer.id)
-            : null;
-
           const currentState = deps.storeRef.current;
           const targetLayer = resolveCapturedShapeFinalizeLayer(currentState, shapeLayerIdString);
           const isColorCycleLayer = targetLayer?.layerType === 'color-cycle';
@@ -1974,6 +1976,9 @@ export const finalizeShapeDrawing = async (
                     layerId: targetLayer.id,
                   });
                 }
+                shapeBeforeColorStateLocal = beforeLayer && deps.isColorCycleLayerWithData(beforeLayer)
+                  ? deps.captureColorCycleBrushState(beforeLayer.id)
+                  : null;
                 const session = finalizeMarkGradientSession(shapeLayerIdString)
                   ?? (targetLayer
                     ? buildFallbackMarkSession(targetLayer, deps.storeRef.current, fillMode)

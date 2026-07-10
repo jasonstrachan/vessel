@@ -13,6 +13,7 @@ import {
   cancelMarkGradientSession,
   getActiveMarkGradientSession,
 } from '@/hooks/canvas/utils/colorCycleMarkSession';
+import * as sampledShapeTempSlotOwnership from '@/hooks/canvas/handlers/shapes/sampledShapeTempSlotOwnership';
 
 const storeState = {
   activeLayerId: 'layer-1',
@@ -496,6 +497,9 @@ describe('finalizeShapeDrawing CC dither resolution', () => {
   it('replaces an active sampled stroke session when preparing sampled shape finalize stops', () => {
     storeState.tools.ccGradientSource = 'sampled';
     const layer = storeState.layers[0];
+    const discardTempPixels = jest
+      .spyOn(sampledShapeTempSlotOwnership, 'discardAbandonedSampledShapeTempPixels')
+      .mockReturnValue(37);
     const staleSession = beginMarkGradientSession({
       layerId: 'layer-1',
       markKind: 'stroke',
@@ -520,6 +524,7 @@ describe('finalizeShapeDrawing CC dither resolution', () => {
         sampleColorAt: jest.fn(),
         sampleHexAt: jest.fn((x: number) => (x < 5 ? '#ff0000' : '#0000ff')),
         ccLog: jest.fn(),
+        getColorCycleBrushManager: () => ({ getShapeFillBrush: () => ({}) as never }),
       },
     });
 
@@ -532,6 +537,11 @@ describe('finalizeShapeDrawing CC dither resolution', () => {
     expect(prepared?.previewStopsStored?.map((stop) => stop.color)).toContain('#ff0000');
     expect(prepared?.previewStopsStored?.map((stop) => stop.color)).toContain('#0000ff');
     expect(prepared?.previewHash).toBeTruthy();
+    expect(discardTempPixels).toHaveBeenCalledWith({
+      brush: expect.any(Object),
+      layerId: 'layer-1',
+    });
+    discardTempPixels.mockRestore();
   });
 
   it('replaces an active sampled mark session when the finalize fill mode changes', () => {
@@ -576,7 +586,11 @@ describe('finalizeShapeDrawing CC dither resolution', () => {
     expect(prepared?.previewHash).toBeTruthy();
   });
 
-  it('passes the fill-resolution slider value to CC shape finalize even when no brush instance is found', async () => {
+  it('cleans sampled temp pixels before the history baseline and preserves fill resolution', async () => {
+    storeState.tools.ccGradientSource = 'sampled';
+    const discardTempPixels = jest
+      .spyOn(sampledShapeTempSlotOwnership, 'discardAbandonedSampledShapeTempPixels')
+      .mockReturnValue(37);
     let queued: Promise<void> | null = null;
     const finalizeQueue = {
       isBusy: jest.fn(() => false),
@@ -631,6 +645,7 @@ describe('finalizeShapeDrawing CC dither resolution', () => {
       activeStrokeSessionRef: { current: null },
       finalizeQueueRef: { current: finalizeQueue },
     };
+    const captureColorCycleBrushState = jest.fn(() => null);
     const deps = {
       storeRef: { current: storeState },
       shapeBrushRuntime: makeShapeBrushRuntime(),
@@ -643,7 +658,7 @@ describe('finalizeShapeDrawing CC dither resolution', () => {
       hadValidShapePressureRef: refs.hadValidShapePressureRef,
       lastStablePressureRef: refs.lastStablePressureRef,
       computeShapePixelSize: jest.fn(() => 3),
-      getColorCycleBrushManager: () => ({ getShapeFillBrush: () => null }),
+      getColorCycleBrushManager: () => ({ getShapeFillBrush: () => ({}) as never }),
       ensureActiveColorCycleGradientSlot: jest.fn(),
       runColorCycleShapeFill,
       bindBrushToCanvas: jest.fn(),
@@ -661,7 +676,7 @@ describe('finalizeShapeDrawing CC dither resolution', () => {
       ROI_PADDING_PX: 2,
       captureRegionFromPoints: jest.fn(),
       isColorCycleLayerWithData: jest.fn(() => true),
-      captureColorCycleBrushState: jest.fn(() => null),
+      captureColorCycleBrushState,
       resumeColorCycleAfterInteraction: jest.fn(async () => undefined),
       triggerSimpleShapePreview: jest.fn(),
       resetShapeDragRefs: jest.fn(),
@@ -693,6 +708,10 @@ describe('finalizeShapeDrawing CC dither resolution', () => {
       expect.any(Object)
     );
     expect(refs.latestShapePixelSizeRef.current).toBe(7);
+    expect(discardTempPixels.mock.invocationCallOrder[0]).toBeLessThan(
+      captureColorCycleBrushState.mock.invocationCallOrder[0],
+    );
+    discardTempPixels.mockRestore();
   });
 
   it('preserves constrained drag geometry when finalizing CC gradient rectangles', async () => {
