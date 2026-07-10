@@ -249,6 +249,31 @@ export function runColorCyclePaintStroke(
     });
   }
 
+  if (
+    typeof window !== 'undefined' &&
+    (window as typeof window & { __CC_DIAG_BUFFERS__?: boolean }).__CC_DIAG_BUFFERS__ === true
+  ) {
+    const globalWindow = window as typeof window & {
+      __CC_probe?: { start: number; paint: number; end: number; last: Record<string, unknown> };
+    };
+    try {
+      const handle = animator.beginDirectFill();
+      globalWindow.__CC_probe ??= { start: 0, paint: 0, end: 0, last: {} };
+      globalWindow.__CC_probe.last = {
+        ...globalWindow.__CC_probe.last,
+        paintX: x,
+        paintY: y,
+        pressureSize,
+        primaryIndex,
+        stampMayTouchCanvas,
+        strokePaintHasContentAfterPaint: strokeData.buffers.paint.some((value) => value !== 0),
+        animatorPaintHasContentAfterPaint: handle.data?.some((value) => value !== 0) ?? false,
+        sharesAnimatorPaintBufferAfterPaint: handle.data === strokeData.buffers.paint,
+      };
+      animator.endDirectFill({ markDirty: false });
+    } catch {}
+  }
+
   if (stampMayTouchCanvas) {
     context.markStrokeStateContentWritten(strokeData);
   }

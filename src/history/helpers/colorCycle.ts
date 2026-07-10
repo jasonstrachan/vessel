@@ -344,10 +344,11 @@ export const captureColorCycleBrushState = (layerId: string): ColorCycleSerializ
     }
     const manager = getColorCycleBrushManager();
     const brush = manager.getHistoryBrush(layerId);
-    const rawRuntimeSnapshot = brush
+    const document = brush?.getColorCycleLayerDocument?.(layerId) ?? null;
+    const rawRuntimeSnapshot = brush && !document
       ? readColorCycleBrushSerializedStateFromRuntime(brush) as BaseColorCycleSerializedState | undefined
       : undefined;
-    if (!rawRuntimeSnapshot) {
+    if (!document && !rawRuntimeSnapshot) {
       const eraseMaskSnapshot = captureEraseMaskSnapshot(layerId);
       const softEdgeMaskSnapshot = captureSoftEdgeMaskSnapshot(layerId);
       if (eraseMaskSnapshot || softEdgeMaskSnapshot) {
@@ -376,16 +377,15 @@ export const captureColorCycleBrushState = (layerId: string): ColorCycleSerializ
       return null;
     }
     try {
-      const rawSnapshot = rawRuntimeSnapshot;
       const snapshotResult = captureColorCyclePersistenceSnapshot(layer, {
         projectWidth: state.project?.width ?? layer.colorCycleData?.canvasWidth ?? layer.imageData?.width ?? 1,
         projectHeight: state.project?.height ?? layer.colorCycleData?.canvasHeight ?? layer.imageData?.height ?? 1,
         requirePaint: true,
         mode: 'history',
-        document: brush?.getColorCycleLayerDocument?.(layerId),
-        runtimeBrush: {
-          serialize: () => rawSnapshot,
-        },
+        document,
+        runtimeBrush: rawRuntimeSnapshot
+          ? { serialize: () => rawRuntimeSnapshot }
+          : undefined,
         diagnostics: (diagnostic) => {
           debugLog('raw-console', '[history] color cycle persistence snapshot diagnostic', {
             layerId,
@@ -393,7 +393,10 @@ export const captureColorCycleBrushState = (layerId: string): ColorCycleSerializ
           });
         },
       });
-      if (!snapshotResult.ok && !isEmptyColorCycleHistoryState(rawSnapshot, layerId)) {
+      if (
+        !snapshotResult.ok &&
+        (!rawRuntimeSnapshot || !isEmptyColorCycleHistoryState(rawRuntimeSnapshot, layerId))
+      ) {
         logCCMutation({
           event: 'history-cc-before-state-capture-failed',
           layerId,
@@ -405,7 +408,7 @@ export const captureColorCycleBrushState = (layerId: string): ColorCycleSerializ
             damageKind: snapshotResult.damageKind ?? null,
             diagnostics: snapshotResult.diagnostics,
             rawSnapshot: summarizeSerializedHistoryLayer(
-              rawSnapshot,
+              rawRuntimeSnapshot,
               layerId,
               state.project?.width ?? layer.colorCycleData?.canvasWidth ?? layer.imageData?.width ?? 1,
               state.project?.height ?? layer.colorCycleData?.canvasHeight ?? layer.imageData?.height ?? 1
@@ -416,7 +419,8 @@ export const captureColorCycleBrushState = (layerId: string): ColorCycleSerializ
       }
       const snapshot = snapshotResult.ok
         ? snapshotResult.brushState as unknown as BaseColorCycleSerializedState
-        : rawSnapshot;
+        : rawRuntimeSnapshot;
+      const referencesImmutableDocumentGeneration = snapshotResult.ok && snapshotResult.source === 'document';
       return snapshot
         ? {
             ...snapshot,
@@ -474,12 +478,24 @@ export const captureColorCycleBrushState = (layerId: string): ColorCycleSerializ
                 strokeData: layer.strokeData
                   ? {
                       ...layer.strokeData,
-                      paintBuffer: layer.strokeData.paintBuffer?.slice(0),
-                      gradientIdBuffer: layer.strokeData.gradientIdBuffer?.slice(0),
-                      gradientDefIdBuffer: layer.strokeData.gradientDefIdBuffer?.slice(0),
-                      speedBuffer: layer.strokeData.speedBuffer?.slice(0),
-                      flowBuffer: layer.strokeData.flowBuffer?.slice(0),
-                      phaseBuffer: layer.strokeData.phaseBuffer?.slice(0),
+                      paintBuffer: referencesImmutableDocumentGeneration
+                        ? layer.strokeData.paintBuffer
+                        : layer.strokeData.paintBuffer?.slice(0),
+                      gradientIdBuffer: referencesImmutableDocumentGeneration
+                        ? layer.strokeData.gradientIdBuffer
+                        : layer.strokeData.gradientIdBuffer?.slice(0),
+                      gradientDefIdBuffer: referencesImmutableDocumentGeneration
+                        ? layer.strokeData.gradientDefIdBuffer
+                        : layer.strokeData.gradientDefIdBuffer?.slice(0),
+                      speedBuffer: referencesImmutableDocumentGeneration
+                        ? layer.strokeData.speedBuffer
+                        : layer.strokeData.speedBuffer?.slice(0),
+                      flowBuffer: referencesImmutableDocumentGeneration
+                        ? layer.strokeData.flowBuffer
+                        : layer.strokeData.flowBuffer?.slice(0),
+                      phaseBuffer: referencesImmutableDocumentGeneration
+                        ? layer.strokeData.phaseBuffer
+                        : layer.strokeData.phaseBuffer?.slice(0),
                     }
                   : undefined,
                 eraseMaskSnapshot: captureEraseMaskSnapshot(layer.layerId),

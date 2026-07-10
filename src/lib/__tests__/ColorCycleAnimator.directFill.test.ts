@@ -26,4 +26,23 @@ describe('ColorCycleAnimator beginDirectFill', () => {
 
     animator.endDirectFill();
   });
+
+  it('exposes the current definition IDs to runtime buffer bindings', () => {
+    const animator = new ColorCycleAnimator({
+      width: 2,
+      height: 2,
+      gradientStops: [
+        { position: 0, color: '#000000' },
+        { position: 1, color: '#ffffff' },
+      ],
+      forceCanvas2D: true,
+    });
+    const defIdData = new Uint16Array([4, 5, 0, 0]);
+    animator.setDefIdData(defIdData);
+
+    const handle = animator.beginDirectFill();
+
+    expect(handle.defIdData).toBe(defIdData);
+    animator.endDirectFill({ markDirty: false });
+  });
 });

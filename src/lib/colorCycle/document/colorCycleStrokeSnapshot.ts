@@ -7,6 +7,8 @@ export type ColorCycleStrokeBuffers = {
   def: Uint16Array;
 };
 
+import { recordColorCycleCanonicalBufferCopy } from './canonicalBufferAccounting';
+
 export type ColorCycleStrokeSnapshot = {
   paintBuffer: ArrayBuffer;
   gradientIdBuffer?: ArrayBuffer;
@@ -30,7 +32,7 @@ export const cloneStrokeSnapshotBuffers = (
   source: ColorCycleStrokeSnapshotSource
 ): Omit<ColorCycleStrokeSnapshot, 'hasContent' | 'strokeCounter'> => {
   const { buffers, snapshot } = source;
-  return {
+  const cloned = {
     paintBuffer: buffers.paint.length > 0
       ? buffers.paint.slice().buffer
       : cloneArrayBuffer(snapshot?.paintBuffer) ?? new ArrayBuffer(0),
@@ -50,4 +52,6 @@ export const cloneStrokeSnapshotBuffers = (
       ? buffers.phase.slice().buffer
       : cloneArrayBuffer(snapshot?.phaseBuffer),
   };
+  recordColorCycleCanonicalBufferCopy('runtime-snapshot', cloned);
+  return cloned;
 };

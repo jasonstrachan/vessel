@@ -52,6 +52,52 @@ const canonicalBrushState = (overrides: Partial<PersistedColorCycleBrushState> =
 });
 
 describe('captureColorCyclePersistenceSnapshot', () => {
+  it('references the immutable document generation for history without cloning canonical buffers', () => {
+    const documentState = {
+      layerId: 'layer-1',
+      width: 2,
+      height: 2,
+      paintBuffer: buffer(4, 8),
+      gradientIdBuffer: buffer(4, 9),
+      gradientDefIdBuffer: buffer(8, 10),
+      speedBuffer: buffer(4, 11),
+      flowBuffer: buffer(4, 12),
+      phaseBuffer: buffer(4, 13),
+      hasContent: true,
+      sources: {
+        brushStateSnapshot: false,
+        topLevelBuffers: false,
+        legacyStateRefs: false,
+      },
+    };
+
+    const result = captureColorCyclePersistenceSnapshot(makeLayer(), {
+      projectWidth: 2,
+      projectHeight: 2,
+      requirePaint: true,
+      mode: 'history',
+      document: {
+        read: () => ({
+          snapshot: documentState,
+          version: 4,
+          pixelVersion: 3,
+        }),
+      },
+    });
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      const historyLayer = result.brushState.layers?.[0];
+      expect(result.documentState.paintBuffer).toBe(documentState.paintBuffer);
+      expect(historyLayer?.strokeData?.paintBuffer).toBe(documentState.paintBuffer);
+      expect(historyLayer?.strokeData?.gradientIdBuffer).toBe(documentState.gradientIdBuffer);
+      expect(historyLayer?.strokeData?.gradientDefIdBuffer).toBe(documentState.gradientDefIdBuffer);
+      expect(historyLayer?.strokeData?.speedBuffer).toBe(documentState.speedBuffer);
+      expect(historyLayer?.strokeData?.flowBuffer).toBe(documentState.flowBuffer);
+      expect(historyLayer?.strokeData?.phaseBuffer).toBe(documentState.phaseBuffer);
+    }
+  });
+
   it('uses the document read before live runtime or persisted brush state and reports the version', () => {
     const persisted = canonicalBrushState();
     const runtime = canonicalBrushState({
@@ -105,6 +151,8 @@ describe('captureColorCyclePersistenceSnapshot', () => {
     if (result.ok) {
       expect(result.source).toBe('document');
       expect(result.documentVersion).toBe(12);
+      expect(result.documentState.paintBuffer).not.toBe(documentState.paintBuffer);
+      expect(result.brushState.layers?.[0]?.strokeData?.paintBuffer).not.toBe(result.documentState.paintBuffer);
       expect(new Uint8Array(result.documentState.paintBuffer as ArrayBuffer)).toEqual(new Uint8Array([8, 8, 8, 8]));
       expect(new Uint8Array(result.brushState.layers?.[0]?.strokeData?.paintBuffer as ArrayBuffer)).toEqual(new Uint8Array([8, 8, 8, 8]));
       expect(result.brushState.ditherEnabled).toBe(true);

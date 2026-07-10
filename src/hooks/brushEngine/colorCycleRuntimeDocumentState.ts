@@ -107,7 +107,6 @@ export class ColorCycleRuntimeDocumentState<StrokeState extends ColorCycleBrushP
     forceDocumentPublish?: boolean;
     pixelsChanged?: boolean;
     dirtyRects?: ColorCycleDirtyRect[];
-    takeDocumentStateOwnership?: boolean;
     assumeDerivedSurfaceCurrent?: boolean;
     derivedSurface?: RebuildableDerivedSurface | null;
   }): void {
@@ -139,7 +138,6 @@ export class ColorCycleRuntimeDocumentState<StrokeState extends ColorCycleBrushP
           force: params.forceDocumentPublish,
           pixelsChanged: params.pixelsChanged,
           dirtyRects: params.dirtyRects,
-          takeOwnership: params.takeDocumentStateOwnership,
         }
       ),
       { layerId: params.layerId, reason }
@@ -188,7 +186,6 @@ export class ColorCycleRuntimeDocumentState<StrokeState extends ColorCycleBrushP
     forceDocumentPublish?: boolean;
     pixelsChanged?: boolean;
     dirtyRects?: ColorCycleDirtyRect[];
-    takeDocumentStateOwnership?: boolean;
     assumeDerivedSurfaceCurrent?: boolean;
     derivedSurface?: RebuildableDerivedSurface | null;
     markLayerDirty?: (layerId: string) => void;
@@ -243,7 +240,6 @@ export class ColorCycleRuntimeDocumentState<StrokeState extends ColorCycleBrushP
         forceDocumentPublish: params.forceDocumentPublish,
         pixelsChanged: params.pixelsChanged,
         dirtyRects: params.dirtyRects,
-        takeDocumentStateOwnership: params.takeDocumentStateOwnership,
         assumeDerivedSurfaceCurrent: params.assumeDerivedSurfaceCurrent,
         derivedSurface: params.derivedSurface,
       }),
@@ -305,6 +301,7 @@ export class ColorCycleRuntimeDocumentState<StrokeState extends ColorCycleBrushP
       layerBaseSpeedCps: params.layerBaseSpeedCps,
       flowMode: params.flowMode,
       hasStrokeContent: (strokeState) => params.hasStrokeContent(strokeState as StrokeState),
+      bufferOwnership: 'borrow',
     });
   }
 

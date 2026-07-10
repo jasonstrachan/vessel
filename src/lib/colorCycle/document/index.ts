@@ -23,6 +23,7 @@ export {
 } from './ColorCycleLayerDocument';
 
 export {
+  COLOR_CYCLE_CANONICAL_BYTES_PER_PIXEL,
   COLOR_CYCLE_DOCUMENT_CONTRACT_KEYS,
   COLOR_CYCLE_DOCUMENT_CANONICAL_PIXEL_BUFFERS,
   COLOR_CYCLE_DOCUMENT_FIELD_MAPPING,
@@ -32,12 +33,27 @@ export {
   COLOR_CYCLE_STROKE_PAINT_KEY,
   COLOR_CYCLE_STROKE_PHASE_KEY,
   COLOR_CYCLE_STROKE_SPEED_KEY,
+  estimateColorCycleCanonicalBufferBytes,
   mapDocumentSnapshotToArchiveState,
   mapDocumentSnapshotToGobletBrushState,
   type ColorCycleLayerDocumentSnapshot,
   type ColorCycleLayerDocumentState,
   type DocumentSnapshotToGobletBrushStateOptions,
 } from './colorCycleDocumentContract';
+
+export {
+  getColorCycleCanonicalBufferByteLength,
+  getColorCycleCanonicalCopyMetrics,
+  getColorCyclePublicationSamples,
+  isColorCycleCanonicalCopyMetricsEnabled,
+  recordColorCycleCanonicalBufferCopy,
+  recordColorCyclePublicationSample,
+  resetColorCycleCanonicalCopyMetrics,
+  type ColorCycleCanonicalCopyMetric,
+  type ColorCycleCanonicalCopyMetrics,
+  type ColorCycleCanonicalCopyReason,
+  type ColorCyclePublicationSample,
+} from './canonicalBufferAccounting';
 
 export {
   getDerivedSurfaceBuiltFromVersion,

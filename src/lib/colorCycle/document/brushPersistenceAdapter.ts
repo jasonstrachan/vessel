@@ -12,6 +12,7 @@ import type {
   ColorCycleLayerDocumentState,
 } from './colorCycleDocumentContract';
 import { resolveColorCycleBrushPersistenceOwner } from './brushPersistenceOwnerAlias';
+import { recordColorCycleCanonicalBufferCopy } from './canonicalBufferAccounting';
 
 export { registerColorCycleBrushPersistenceOwnerAlias } from './brushPersistenceOwnerAlias';
 
@@ -1148,6 +1149,7 @@ export type CreateColorCycleLayerDocumentStateFromStrokeStateOptions = {
   layerBaseSpeedCps?: number;
   flowMode?: ColorCycleLayerDocumentState['flowMode'];
   hasStrokeContent: (strokeState: ColorCycleBrushDocumentStateStrokeState) => boolean;
+  bufferOwnership?: 'borrow' | 'clone';
 };
 
 export type CreateEmptyColorCycleLayerDocumentStateOptions = {
@@ -2973,7 +2975,7 @@ export const cloneColorCycleStrokeSnapshotBuffers = (
   strokeState: ColorCycleBrushPersistenceStrokeState,
 ): Omit<ColorCycleBrushLayerSnapshot, 'hasContent' | 'strokeCounter'> => {
   const { buffers, snapshot } = strokeState;
-  return {
+  const cloned = {
     paintBuffer: buffers.paint.length > 0
       ? buffers.paint.slice().buffer
       : cloneArrayBuffer(snapshot?.paintBuffer) ?? new ArrayBuffer(0),
@@ -2993,6 +2995,8 @@ export const cloneColorCycleStrokeSnapshotBuffers = (
       ? buffers.phase.slice().buffer
       : cloneArrayBuffer(snapshot?.phaseBuffer),
   };
+  recordColorCycleCanonicalBufferCopy('boundary-materialization', cloned);
+  return cloned;
 };
 
 export const readColorCycleBrushLayerSnapshot = ({
@@ -3024,7 +3028,7 @@ export const readColorCycleBrushLayerSnapshotFromDocumentRead = (
   if (!snapshot?.paintBuffer) {
     return null;
   }
-  return {
+  const materialized = {
     paintBuffer: snapshot.paintBuffer.slice(0),
     gradientIdBuffer: cloneArrayBuffer(snapshot.gradientIdBuffer),
     gradientDefIdBuffer: cloneArrayBuffer(snapshot.gradientDefIdBuffer),
@@ -3034,6 +3038,19 @@ export const readColorCycleBrushLayerSnapshotFromDocumentRead = (
     hasContent: snapshot.hasContent,
     strokeCounter: options?.fallbackStrokeCounter ?? 0,
   };
+  recordColorCycleCanonicalBufferCopy('boundary-materialization', materialized);
+  return materialized;
+};
+
+const borrowExactStrokeBuffer = (buffer: Uint8Array | Uint16Array): ArrayBuffer => {
+  if (
+    !(buffer.buffer instanceof ArrayBuffer) ||
+    buffer.byteOffset !== 0 ||
+    buffer.byteLength !== buffer.buffer.byteLength
+  ) {
+    throw new Error('Color-cycle runtime publication requires exact ArrayBuffer-backed views');
+  }
+  return buffer.buffer;
 };
 
 export const createColorCycleLayerDocumentStateFromStrokeState = ({
@@ -3045,18 +3062,31 @@ export const createColorCycleLayerDocumentStateFromStrokeState = ({
   layerBaseSpeedCps,
   flowMode,
   hasStrokeContent,
+  bufferOwnership = 'clone',
 }: CreateColorCycleLayerDocumentStateFromStrokeStateOptions): ColorCycleLayerDocumentState => {
   const clonedMeta = cloneColorCycleBrushPersistenceLayerMeta(meta);
-  return {
+  const state: ColorCycleLayerDocumentState = {
     layerId,
     width: Math.max(1, Math.floor(width)),
     height: Math.max(1, Math.floor(height)),
-    paintBuffer: strokeState.buffers.paint.slice().buffer as ArrayBuffer,
-    gradientIdBuffer: strokeState.buffers.gid.slice().buffer as ArrayBuffer,
-    gradientDefIdBuffer: strokeState.buffers.def.slice().buffer as ArrayBuffer,
-    speedBuffer: strokeState.buffers.spd.slice().buffer as ArrayBuffer,
-    flowBuffer: strokeState.buffers.flow.slice().buffer as ArrayBuffer,
-    phaseBuffer: strokeState.buffers.phase.slice().buffer as ArrayBuffer,
+    paintBuffer: bufferOwnership === 'borrow'
+      ? borrowExactStrokeBuffer(strokeState.buffers.paint)
+      : strokeState.buffers.paint.slice().buffer as ArrayBuffer,
+    gradientIdBuffer: bufferOwnership === 'borrow'
+      ? borrowExactStrokeBuffer(strokeState.buffers.gid)
+      : strokeState.buffers.gid.slice().buffer as ArrayBuffer,
+    gradientDefIdBuffer: bufferOwnership === 'borrow'
+      ? borrowExactStrokeBuffer(strokeState.buffers.def)
+      : strokeState.buffers.def.slice().buffer as ArrayBuffer,
+    speedBuffer: bufferOwnership === 'borrow'
+      ? borrowExactStrokeBuffer(strokeState.buffers.spd)
+      : strokeState.buffers.spd.slice().buffer as ArrayBuffer,
+    flowBuffer: bufferOwnership === 'borrow'
+      ? borrowExactStrokeBuffer(strokeState.buffers.flow)
+      : strokeState.buffers.flow.slice().buffer as ArrayBuffer,
+    phaseBuffer: bufferOwnership === 'borrow'
+      ? borrowExactStrokeBuffer(strokeState.buffers.phase)
+      : strokeState.buffers.phase.slice().buffer as ArrayBuffer,
     slotPalettes: clonedMeta?.slotPalettes?.map((palette) => ({
       slot: palette.slot,
       stops: cloneColorCycleDocumentStops(palette.stops) ?? [],
@@ -3079,6 +3109,10 @@ export const createColorCycleLayerDocumentStateFromStrokeState = ({
       legacyStateRefs: false,
     },
   };
+  if (bufferOwnership === 'clone') {
+    recordColorCycleCanonicalBufferCopy('document-state-build', state);
+  }
+  return state;
 };
 
 export const createEmptyColorCycleLayerDocumentState = ({

@@ -8,6 +8,11 @@ import type {
   ColorCycleLayerDocumentState,
 } from './colorCycleDocumentContract';
 import { resolveColorCycleBrushPersistenceOwner } from './brushPersistenceOwnerAlias';
+import {
+  recordColorCycleCanonicalBufferCopy,
+  type ColorCycleCanonicalCopyReason,
+} from './canonicalBufferAccounting';
+import { validateColorCycleDocumentStateDimensions } from './documentState';
 import { debugWarn } from '@/utils/debug';
 import { strokeFinalizeProbeTimeSync } from '@/utils/strokeFinalizeProbe';
 
@@ -131,10 +136,11 @@ export type ColorCycleLayerDocumentReplaceOptions = {
   force?: boolean;
   pixelsChanged?: boolean;
   dirtyRects?: ColorCycleDirtyRect[];
-  takeOwnership?: boolean;
 };
 
-type ColorCycleLayerDocumentCommitOptions = Omit<ColorCycleLayerDocumentReplaceOptions, 'dirtyRects'>;
+type ColorCycleLayerDocumentCommitOptions = Omit<ColorCycleLayerDocumentReplaceOptions, 'dirtyRects'> & {
+  takeOwnership?: boolean;
+};
 
 export type DerivedSurface = {
   builtFromVersion: number | null;
@@ -295,14 +301,36 @@ const cloneGradientDefStore = (
 
 const cloneDocumentState = (
   state: ColorCycleLayerDocumentState,
+  reason: ColorCycleCanonicalCopyReason,
+): ColorCycleLayerDocumentState => {
+  const clone = {
+    ...state,
+    paintBuffer: cloneArrayBuffer(state.paintBuffer),
+    gradientIdBuffer: cloneArrayBuffer(state.gradientIdBuffer),
+    gradientDefIdBuffer: cloneArrayBuffer(state.gradientDefIdBuffer),
+    speedBuffer: cloneArrayBuffer(state.speedBuffer),
+    flowBuffer: cloneArrayBuffer(state.flowBuffer),
+    phaseBuffer: cloneArrayBuffer(state.phaseBuffer),
+    slotPalettes: cloneSlotPalettes(state.slotPalettes),
+    gradientDefs: cloneGradientDefs(state.gradientDefs),
+    gradientDefStore: cloneGradientDefStore(state.gradientDefStore),
+    sources: { ...state.sources },
+  };
+  recordColorCycleCanonicalBufferCopy(reason, clone);
+  return clone;
+};
+
+const cloneDocumentMetadataWithCanonicalBuffers = (
+  state: ColorCycleLayerDocumentState,
+  canonicalState: ColorCycleLayerDocumentSnapshot,
 ): ColorCycleLayerDocumentState => ({
   ...state,
-  paintBuffer: cloneArrayBuffer(state.paintBuffer),
-  gradientIdBuffer: cloneArrayBuffer(state.gradientIdBuffer),
-  gradientDefIdBuffer: cloneArrayBuffer(state.gradientDefIdBuffer),
-  speedBuffer: cloneArrayBuffer(state.speedBuffer),
-  flowBuffer: cloneArrayBuffer(state.flowBuffer),
-  phaseBuffer: cloneArrayBuffer(state.phaseBuffer),
+  paintBuffer: canonicalState.paintBuffer,
+  gradientIdBuffer: canonicalState.gradientIdBuffer,
+  gradientDefIdBuffer: canonicalState.gradientDefIdBuffer,
+  speedBuffer: canonicalState.speedBuffer,
+  flowBuffer: canonicalState.flowBuffer,
+  phaseBuffer: canonicalState.phaseBuffer,
   slotPalettes: cloneSlotPalettes(state.slotPalettes),
   gradientDefs: cloneGradientDefs(state.gradientDefs),
   gradientDefStore: cloneGradientDefStore(state.gradientDefStore),
@@ -313,6 +341,9 @@ const arrayBuffersEqual = (
   a: ArrayBuffer | undefined,
   b: ArrayBuffer | undefined,
 ): boolean => {
+  if (a === b) {
+    return true;
+  }
   if (!a || !b) {
     return a === b;
   }
@@ -399,7 +430,7 @@ const documentPixelBuffersEqual = (
   arrayBuffersEqual(a.phaseBuffer, b.phaseBuffer)
 );
 
-const documentStatesEqual = (
+const documentMetadataEqual = (
   a: ColorCycleLayerDocumentState,
   b: ColorCycleLayerDocumentState,
 ): boolean => (
@@ -415,7 +446,6 @@ const documentStatesEqual = (
   a.sources.brushStateSnapshot === b.sources.brushStateSnapshot &&
   a.sources.topLevelBuffers === b.sources.topLevelBuffers &&
   a.sources.legacyStateRefs === b.sources.legacyStateRefs &&
-  documentPixelBuffersEqual(a, b) &&
   optionalArrayEqual(a.slotPalettes, b.slotPalettes, slotPalettesEqual) &&
   optionalArrayEqual(a.gradientDefs, b.gradientDefs, gradientDefsEqual) &&
   optionalArrayEqual(a.gradientDefStore, b.gradientDefStore, gradientDefStoreEntriesEqual)
@@ -495,7 +525,7 @@ export class CCDocumentTransaction {
     readonly reason: string,
     initialState: ColorCycleLayerDocumentState,
   ) {
-    this.draft = cloneDocumentState(initialState);
+    this.draft = cloneDocumentState(initialState, 'transaction-draft');
   }
 
   mutate(mutator: (draft: ColorCycleLayerDocumentState) => void): void {
@@ -510,13 +540,15 @@ export class CCDocumentTransaction {
 
   readDraft(): ColorCycleLayerDocumentSnapshot {
     this.assertOpen();
-    return freezeDocumentSnapshot(cloneDocumentState(this.draft));
+    return freezeDocumentSnapshot(cloneDocumentState(this.draft, 'transaction-read'));
   }
 
   commit(): ColorCycleLayerDocumentRead {
     this.assertOpen();
     this.isClosed = true;
-    return this.document.commitTransaction(this.reason, this.draft, this.dirtyRects);
+    return this.document.commitTransaction(this.reason, this.draft, this.dirtyRects, {
+      takeOwnership: true,
+    });
   }
 
   rollback(): void {
@@ -532,8 +564,6 @@ export class CCDocumentTransaction {
 }
 
 export class ColorCycleLayerDocument {
-  private currentState: ColorCycleLayerDocumentState;
-
   private currentSnapshot: ColorCycleLayerDocumentSnapshot;
 
   private currentVersion: number;
@@ -554,8 +584,10 @@ export class ColorCycleLayerDocument {
     initialState: ColorCycleLayerDocumentState,
     options: ColorCycleLayerDocumentOptions = {},
   ) {
-    this.currentState = cloneDocumentState(initialState);
-    this.currentSnapshot = freezeDocumentSnapshot(cloneDocumentState(this.currentState));
+    this.assertValidState(initialState);
+    this.currentSnapshot = freezeDocumentSnapshot(
+      cloneDocumentState(initialState, 'document-constructor'),
+    );
     this.currentVersion = options.initialVersion ?? 0;
     this.currentPixelVersion = options.initialPixelVersion ?? this.currentVersion;
     this.currentResidency = options.residency ?? 'resident';
@@ -564,7 +596,7 @@ export class ColorCycleLayerDocument {
   }
 
   get layerId(): string {
-    return this.currentState.layerId;
+    return this.currentSnapshot.layerId;
   }
 
   get version(): number {
@@ -594,7 +626,7 @@ export class ColorCycleLayerDocument {
       : hasCompleteBuffers || hasColdArchiveSource;
     const hasPlaybackWarmupSource = this.currentResidency === 'static-preview-only'
       ? false
-      : hasRuntimeRestoreSource || this.currentState.hasContent;
+      : hasRuntimeRestoreSource || this.currentSnapshot.hasContent;
 
     return {
       hasEditableSource,
@@ -624,7 +656,7 @@ export class ColorCycleLayerDocument {
     if (!reason) {
       throw new Error('Color-cycle document transactions require a reason');
     }
-    return new CCDocumentTransaction(this, reason, this.currentState);
+    return new CCDocumentTransaction(this, reason, this.currentSnapshot);
   }
 
   replaceState(
@@ -638,7 +670,6 @@ export class ColorCycleLayerDocument {
     return this.commitTransaction(reason, nextState, options?.dirtyRects, {
       force: options?.force,
       pixelsChanged: options?.pixelsChanged,
-      takeOwnership: options?.takeOwnership,
     });
   }
 
@@ -646,8 +677,10 @@ export class ColorCycleLayerDocument {
     nextState: ColorCycleLayerDocumentState,
     options: ColorCycleLayerDocumentBaselineOptions = {},
   ): ColorCycleLayerDocumentRead {
-    this.currentState = cloneDocumentState(nextState);
-    this.currentSnapshot = freezeDocumentSnapshot(cloneDocumentState(this.currentState));
+    this.assertValidState(nextState);
+    this.currentSnapshot = freezeDocumentSnapshot(
+      cloneDocumentState(nextState, 'document-baseline'),
+    );
     this.currentVersion = options.version ?? 0;
     this.currentPixelVersion = options.pixelVersion ?? this.currentVersion;
     this.dirtyTracker.clear();
@@ -716,7 +749,10 @@ export class ColorCycleLayerDocument {
     if (nextArchiveRefs !== undefined) {
       this.currentArchiveRefs = nextArchiveRefs ? { ...nextArchiveRefs } : null;
     }
-    return this.commitTransaction(nextReason, this.currentState, undefined, { force: true });
+    return this.commitTransaction(nextReason, this.currentSnapshot, undefined, {
+      force: true,
+      takeOwnership: true,
+    });
   }
 
   getAuditLog(): readonly ColorCycleLayerDocumentAuditEntry[] {
@@ -729,6 +765,7 @@ export class ColorCycleLayerDocument {
     dirtyRects?: ColorCycleDirtyRect[],
     options: ColorCycleLayerDocumentCommitOptions = {},
   ): ColorCycleLayerDocumentRead {
+    this.assertValidState(draft);
     const probeMeta = {
       layerId: draft.layerId,
       reason,
@@ -740,11 +777,18 @@ export class ColorCycleLayerDocument {
       hasDirtyRects: Boolean(dirtyRects && dirtyRects.length > 0),
     };
 
-    const statesEqual = options.force !== true
+    const pixelBuffersEqual = options.pixelsChanged === true
+      ? false
+      : strokeFinalizeProbeTimeSync(
+          'colorCycleLayerDocument:documentPixelBuffersEqual',
+          () => documentPixelBuffersEqual(this.currentSnapshot, draft),
+          probeMeta,
+        );
+    const statesEqual = options.force !== true && pixelBuffersEqual
       ? strokeFinalizeProbeTimeSync(
-          'colorCycleLayerDocument:documentStatesEqual',
-          () => documentStatesEqual(this.currentState, draft),
-          probeMeta
+          'colorCycleLayerDocument:documentMetadataEqual',
+          () => documentMetadataEqual(this.currentSnapshot, draft),
+          probeMeta,
         )
       : false;
     if (statesEqual) {
@@ -755,30 +799,27 @@ export class ColorCycleLayerDocument {
     const versionAfter = versionBefore + 1;
     const pixelVersionAfter = options.pixelsChanged === true
       ? this.currentPixelVersion + 1
-      : strokeFinalizeProbeTimeSync(
-          'colorCycleLayerDocument:documentPixelBuffersEqual',
-          () => documentPixelBuffersEqual(this.currentState, draft),
-          probeMeta
-        )
-        ? this.currentPixelVersion
-        : this.currentPixelVersion + 1;
+      : pixelBuffersEqual
+      ? this.currentPixelVersion
+      : this.currentPixelVersion + 1;
 
-    this.currentState = strokeFinalizeProbeTimeSync(
-      'colorCycleLayerDocument:commitState',
-      () => options.takeOwnership === true ? draft : cloneDocumentState(draft),
-      probeMeta
-    );
     this.currentSnapshot = strokeFinalizeProbeTimeSync(
       'colorCycleLayerDocument:commitSnapshot',
-      () => freezeDocumentSnapshot(cloneDocumentState(this.currentState)),
-      probeMeta
+      () => freezeDocumentSnapshot(
+        pixelBuffersEqual
+          ? cloneDocumentMetadataWithCanonicalBuffers(draft, this.currentSnapshot)
+          : options.takeOwnership === true
+          ? draft
+          : cloneDocumentState(draft, 'document-commit'),
+      ),
+      probeMeta,
     );
     this.currentVersion = versionAfter;
     this.currentPixelVersion = pixelVersionAfter;
     strokeFinalizeProbeTimeSync(
       'colorCycleLayerDocument:markLayerDirty',
       () => this.dirtyTracker.markLayerDirty(
-        this.currentState.layerId,
+        this.currentSnapshot.layerId,
         versionAfter,
         dirtyRects && dirtyRects.length > 0 ? dirtyRects : [this.createFullLayerDirtyRect()],
       ),
@@ -802,20 +843,33 @@ export class ColorCycleLayerDocument {
     return {
       x: 0,
       y: 0,
-      width: Math.max(1, this.currentState.width),
-      height: Math.max(1, this.currentState.height),
+      width: Math.max(1, this.currentSnapshot.width),
+      height: Math.max(1, this.currentSnapshot.height),
     };
   }
 
   private hasCompleteCanonicalBuffers(): boolean {
     return Boolean(
-      this.currentState.paintBuffer &&
-      this.currentState.gradientIdBuffer &&
-      this.currentState.gradientDefIdBuffer &&
-      this.currentState.speedBuffer &&
-      this.currentState.flowBuffer &&
-      this.currentState.phaseBuffer,
+      this.currentSnapshot.paintBuffer &&
+      this.currentSnapshot.gradientIdBuffer &&
+      this.currentSnapshot.gradientDefIdBuffer &&
+      this.currentSnapshot.speedBuffer &&
+      this.currentSnapshot.flowBuffer &&
+      this.currentSnapshot.phaseBuffer,
     );
+  }
+
+  private assertValidState(state: ColorCycleLayerDocumentState): void {
+    if (!state.layerId) {
+      throw new Error('Color-cycle document state requires a layer id');
+    }
+    if (!Number.isFinite(state.width) || !Number.isFinite(state.height) || state.width <= 0 || state.height <= 0) {
+      throw new Error('Color-cycle document state requires positive dimensions');
+    }
+    const validation = validateColorCycleDocumentStateDimensions(state);
+    if (!validation.ok) {
+      throw new Error(`Invalid color-cycle document state: ${validation.reason}`);
+    }
   }
 
   private hasArchiveRefs(): boolean {

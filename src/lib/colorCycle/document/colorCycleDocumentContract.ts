@@ -199,6 +199,23 @@ export const COLOR_CYCLE_DOCUMENT_CANONICAL_PIXEL_BUFFERS = [
   historyBehavior: 'patch-and-full-state';
 }>[];
 
+export const COLOR_CYCLE_CANONICAL_BYTES_PER_PIXEL =
+  COLOR_CYCLE_DOCUMENT_CANONICAL_PIXEL_BUFFERS.reduce(
+    (total, buffer) => total + buffer.bytesPerPixel,
+    0,
+  );
+
+export const estimateColorCycleCanonicalBufferBytes = (
+  width: number,
+  height: number,
+  generationCount: number = 1,
+): number => {
+  const safeWidth = Math.max(0, Math.floor(width));
+  const safeHeight = Math.max(0, Math.floor(height));
+  const safeGenerationCount = Math.max(0, Math.floor(generationCount));
+  return safeWidth * safeHeight * COLOR_CYCLE_CANONICAL_BYTES_PER_PIXEL * safeGenerationCount;
+};
+
 type CanonicalPixelBufferManifestDocumentKey =
   typeof COLOR_CYCLE_DOCUMENT_CANONICAL_PIXEL_BUFFERS[number]['documentKey'];
 export type ColorCycleCanonicalPixelBufferMissingHistoryDecision = AssertNever<

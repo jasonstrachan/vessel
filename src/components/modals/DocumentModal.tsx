@@ -4,6 +4,10 @@ import { XIcon } from '../icons/XIcon';
 import Input from '../ui/Input';
 import Button from '../ui/Button';
 import { useKeyboardScope } from '../../hooks/useKeyboardScope';
+import {
+  describeDocumentMemoryEstimateAssumptions,
+  estimateDocumentMemoryUsage,
+} from '@/utils/documentMemoryEstimate';
 
 interface DocumentModalProps {
   isOpen: boolean;
@@ -83,13 +87,30 @@ const CANVAS_PRESETS = [
   { name: 'Tablet (1536×2048)', width: 1536, height: 2048 },
 ];
 
-// Calculate memory usage estimate in MB
-const calculateMemoryUsage = (width: number, height: number): number => {
-  // Each pixel uses 4 bytes (RGBA), estimate 3 layers average
-  const bytesPerLayer = width * height * 4;
-  const estimatedLayers = 3;
-  const totalBytes = bytesPerLayer * estimatedLayers;
-  return Math.round(totalBytes / (1024 * 1024)); // Convert to MB
+const DOCUMENT_MEMORY_WARNING_MIB = 400;
+
+const getDocumentMemoryEstimateTitle = (width: number, height: number): string => {
+  const estimate = estimateDocumentMemoryUsage(width, height);
+  return `${estimate.width}×${estimate.height} (~${estimate.totalMiB} MB peak). ${describeDocumentMemoryEstimateAssumptions(estimate)}`;
+};
+
+const DocumentMemoryWarning: React.FC<{ width: number; height: number }> = ({ width, height }) => {
+  const estimate = estimateDocumentMemoryUsage(width, height);
+  if (estimate.totalMiB <= DOCUMENT_MEMORY_WARNING_MIB) {
+    return null;
+  }
+
+  return (
+    <div
+      className="mb-3 p-2 bg-yellow-900/20 border border-yellow-600/30 rounded text-yellow-500 text-sm"
+      title={describeDocumentMemoryEstimateAssumptions(estimate)}
+    >
+      <div>⚠️ Large editing footprint (~{estimate.totalMiB} MB peak)</div>
+      <div className="mt-1 text-[11px] text-yellow-500/80">
+        Includes bitmap surfaces, one resident color-cycle layer, masks, history, and publication headroom.
+      </div>
+    </div>
+  );
 };
 
 export const DocumentModal: React.FC<DocumentModalProps> = ({ isOpen, onClose }) => {
@@ -221,17 +242,10 @@ export const DocumentModal: React.FC<DocumentModalProps> = ({ isOpen, onClose })
             <h3 className="text-[#D9D9D9] text-base font-medium mb-3">Resize Canvas</h3>
             
             {/* Memory warning for resize */}
-            {(() => {
-              const memUsage = calculateMemoryUsage(
-                typeof resizeWidth === 'string' ? parseInt(resizeWidth) || 1 : resizeWidth,
-                typeof resizeHeight === 'string' ? parseInt(resizeHeight) || 1 : resizeHeight
-              );
-              return memUsage > 500 ? (
-                <div className="mb-3 p-2 bg-yellow-900/20 border border-yellow-600/30 rounded text-yellow-500 text-sm">
-                  ⚠️ Large canvas size (~{memUsage}MB memory usage)
-                </div>
-              ) : null;
-            })()}
+            <DocumentMemoryWarning
+              width={typeof resizeWidth === 'string' ? parseInt(resizeWidth) || 1 : resizeWidth}
+              height={typeof resizeHeight === 'string' ? parseInt(resizeHeight) || 1 : resizeHeight}
+            />
             
             <div className="flex gap-3">
               <div className="w-20">
@@ -353,7 +367,7 @@ export const DocumentModal: React.FC<DocumentModalProps> = ({ isOpen, onClose })
                   }}
                   className="px-2 py-1 text-xs bg-[#444] hover:bg-[#555] text-[#D9D9D9] rounded transition-colors"
                   title={[
-                    `${preset.width}×${preset.height} (${calculateMemoryUsage(preset.width, preset.height)}MB)`,
+                    getDocumentMemoryEstimateTitle(preset.width, preset.height),
                     preset.description,
                   ].filter(Boolean).join(' ')}
                 >
@@ -363,14 +377,7 @@ export const DocumentModal: React.FC<DocumentModalProps> = ({ isOpen, onClose })
             </div>
             
             {/* Memory warning for new document */}
-            {(() => {
-              const memUsage = calculateMemoryUsage(newWidth, newHeight);
-              return memUsage > 500 ? (
-                <div className="mb-3 p-2 bg-yellow-900/20 border border-yellow-600/30 rounded text-yellow-500 text-sm">
-                  ⚠️ Large canvas size (~{memUsage}MB memory usage)
-                </div>
-              ) : null;
-            })()}
+            <DocumentMemoryWarning width={newWidth} height={newHeight} />
             
             <div className="flex gap-3">
               <div className="w-20">

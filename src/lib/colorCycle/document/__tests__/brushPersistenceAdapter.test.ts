@@ -58,6 +58,11 @@ import {
   setColorCycleBrushPersistenceLayerMeta,
   type ColorCycleBrushLayerSnapshotMutableStrokeState,
 } from '../brushPersistenceAdapter';
+import { ColorCycleLayerDocument } from '../ColorCycleLayerDocument';
+import {
+  getColorCycleCanonicalCopyMetrics,
+  resetColorCycleCanonicalCopyMetrics,
+} from '../canonicalBufferAccounting';
 
 const makeBuffers = (size: number) => ({
   paint: new Uint8Array(size),
@@ -121,6 +126,10 @@ describe('brushPersistenceAdapter', () => {
     gradientId[0] = 0;
     expect(Array.from(new Uint8Array(snapshot?.paintBuffer ?? new ArrayBuffer(0)))).toEqual([5, 0, 0, 0]);
     expect(Array.from(new Uint8Array(snapshot?.gradientIdBuffer ?? new ArrayBuffer(0)))).toEqual([1, 0, 0, 0]);
+    new Uint8Array(snapshot?.paintBuffer ?? new ArrayBuffer(0))[0] = 8;
+    new Uint8Array(snapshot?.gradientIdBuffer ?? new ArrayBuffer(0))[0] = 8;
+    expect(Array.from(paint)).toEqual([0, 0, 0, 0]);
+    expect(Array.from(gradientId)).toEqual([0, 0, 0, 0]);
     expect(readColorCycleBrushLayerSnapshotFromDocumentRead(null)).toBeNull();
 
     const cleared = readColorCycleBrushLayerSnapshotFromDocumentRead({
@@ -210,6 +219,44 @@ describe('brushPersistenceAdapter', () => {
     meta.slotPalettes[0].stops[0].color = '#000000';
     expect(Array.from(new Uint8Array(documentState.paintBuffer ?? new ArrayBuffer(0)))).toEqual([1, 0, 0, 0]);
     expect(documentState.slotPalettes?.[0]?.stops).toEqual([{ position: 0, color: '#ffffff' }]);
+  });
+
+  it('borrows exact runtime buffers until the document makes its one owned copy', () => {
+    const buffers = makeBuffers(4);
+    buffers.paint.set([1, 0, 0, 0]);
+    const borrowedState = createColorCycleLayerDocumentStateFromStrokeState({
+      layerId: 'layer-borrowed',
+      width: 2,
+      height: 2,
+      strokeState: {
+        buffers,
+        hasContent: true,
+        strokeCounter: 1,
+      },
+      hasStrokeContent: () => true,
+      bufferOwnership: 'borrow',
+    });
+    expect(borrowedState.paintBuffer).toBe(buffers.paint.buffer);
+
+    const document = new ColorCycleLayerDocument(createEmptyColorCycleLayerDocumentState({
+      layerId: 'layer-borrowed',
+      width: 2,
+      height: 2,
+    }));
+    resetColorCycleCanonicalCopyMetrics();
+    const published = document.replaceState(borrowedState, 'runtime-publication', {
+      pixelsChanged: true,
+    });
+
+    expect(getColorCycleCanonicalCopyMetrics()).toEqual({
+      totalBytes: 28,
+      totalGenerations: 1,
+      byReason: {
+        'document-commit': { bytes: 28, generations: 1 },
+      },
+    });
+    buffers.paint[0] = 9;
+    expect(Array.from(new Uint8Array(published.snapshot.paintBuffer!))).toEqual([1, 0, 0, 0]);
   });
 
   it('builds empty document state with canonical zero buffers', () => {

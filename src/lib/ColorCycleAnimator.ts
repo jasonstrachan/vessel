@@ -38,6 +38,7 @@ interface GPUFillOptions {
 type DirectFillHandle = {
   data: Uint8Array;
   gradientId: Uint8Array;
+  defIdData: Uint16Array | null;
   speedData: Uint8Array;
   flowData: Uint8Array;
   phaseData: Uint8Array;
@@ -594,6 +595,7 @@ export class ColorCycleAnimator implements CCIndexSurface, DerivedSurface {
     return {
       data: this.indexBuffer.getDirectData(),
       gradientId: this.indexBuffer.getDirectGradientIdData(),
+      defIdData: this.defIdData,
       speedData: this.indexBuffer.getDirectSpeedData(),
       flowData: this.indexBuffer.getDirectFlowData(),
       phaseData: this.indexBuffer.getDirectPhaseData(),

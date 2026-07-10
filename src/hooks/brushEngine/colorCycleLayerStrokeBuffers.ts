@@ -130,6 +130,9 @@ export const bindLayerStrokeBuffersToAnimator = (
   if (handle.phaseData && handle.phaseData.length === expected) {
     strokeData.buffers.phase = handle.phaseData;
   }
+  if (handle.defIdData && handle.defIdData.length === expected) {
+    strokeData.buffers.def = handle.defIdData;
+  }
   animator.endDirectFill({ markDirty: false });
   animator.setDefIdData(strokeData.buffers.def);
 };
@@ -202,6 +205,17 @@ export const layerStrokeStateHasContent = (
     (strokeData.hasContent && !strokeData.contentIsOptimistic) ||
     paintBufferHasContent(strokeData.buffers.paint, width, height)
   );
+};
+
+export const refreshLayerStrokeStateContent = (
+  strokeData: LayerStrokeState,
+  width: number,
+  height: number,
+): boolean => {
+  const hasContent = layerStrokeStateHasContent(strokeData, width, height);
+  strokeData.hasContent = hasContent;
+  strokeData.contentIsOptimistic = false;
+  return hasContent;
 };
 
 const createLayerStrokeBuffers = (

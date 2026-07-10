@@ -4233,6 +4233,8 @@ describe('ColorCycleBrushCanvas2D regression tests', () => {
       strokeCounter: 1,
     });
 
+    expect(readBrushLayerSnapshot(brush, layerId)?.hasContent).toBe(true);
+
     brush.endStroke(layerId);
 
     const snapshot = readBrushLayerSnapshot(brush, layerId);

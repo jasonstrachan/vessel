@@ -299,7 +299,7 @@ export class ColorCycleBrushCanvas2D {
       strokeData,
       speedByte: this.strokeCoordinatorApi.getWriteSpeedByte(strokeData),
     }),
-    snapshotFromBuffers: (strokeData) => this.layerDocumentApi.snapshotFromBuffers(strokeData),
+    refreshStrokeContent: (strokeData) => this.layerDocumentApi.refreshStrokeContent(strokeData),
     brushStateHasColorCyclePaintPayload: (brushState, id) => this.brushStateHasColorCyclePaintPayload(brushState, id),
   });
   private readonly shapeFillApi: ColorCycleShapeFillApiRuntime = new ColorCycleShapeFillApiRuntime({

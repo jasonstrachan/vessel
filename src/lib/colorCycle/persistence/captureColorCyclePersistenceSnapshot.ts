@@ -47,8 +47,25 @@ const cloneDocumentStateForPersistence = (
   sources: { ...state.sources },
 });
 
+const referenceDocumentStateForHistory = (
+  state: ColorCyclePersistenceDocumentState,
+): ColorCyclePersistenceDocumentState => ({
+  ...state,
+  slotPalettes: state.slotPalettes?.map((palette) => ({
+    ...palette,
+    stops: palette.stops.map((stop) => ({ ...stop })),
+  })),
+  gradientDefs: state.gradientDefs?.map((entry) => ({ ...entry })),
+  gradientDefStore: state.gradientDefStore?.map((entry) => ({
+    ...entry,
+    stops: entry.stops.map((stop) => ({ ...stop })),
+  })),
+  sources: { ...state.sources },
+});
+
 const createBrushStateFromDocumentState = (
   documentState: ColorCyclePersistenceDocumentState & { paintBuffer: ColorCycleBufferRef },
+  options: { referenceBuffers?: boolean } = {},
 ): PersistedColorCycleBrushState => ({
   canonicalPaint: true,
   schemaVersion: 1,
@@ -67,12 +84,24 @@ const createBrushStateFromDocumentState = (
       height: documentState.height,
     },
     strokeData: {
-      paintBuffer: cloneBufferRef(documentState.paintBuffer),
-      gradientIdBuffer: cloneBufferRef(documentState.gradientIdBuffer),
-      gradientDefIdBuffer: cloneBufferRef(documentState.gradientDefIdBuffer),
-      speedBuffer: cloneBufferRef(documentState.speedBuffer),
-      flowBuffer: cloneBufferRef(documentState.flowBuffer),
-      phaseBuffer: cloneBufferRef(documentState.phaseBuffer),
+      paintBuffer: options.referenceBuffers
+        ? documentState.paintBuffer
+        : cloneBufferRef(documentState.paintBuffer),
+      gradientIdBuffer: options.referenceBuffers
+        ? documentState.gradientIdBuffer
+        : cloneBufferRef(documentState.gradientIdBuffer),
+      gradientDefIdBuffer: options.referenceBuffers
+        ? documentState.gradientDefIdBuffer
+        : cloneBufferRef(documentState.gradientDefIdBuffer),
+      speedBuffer: options.referenceBuffers
+        ? documentState.speedBuffer
+        : cloneBufferRef(documentState.speedBuffer),
+      flowBuffer: options.referenceBuffers
+        ? documentState.flowBuffer
+        : cloneBufferRef(documentState.flowBuffer),
+      phaseBuffer: options.referenceBuffers
+        ? documentState.phaseBuffer
+        : cloneBufferRef(documentState.phaseBuffer),
       hasContent: documentState.hasContent,
       strokeCounter: 0,
     },
@@ -290,7 +319,14 @@ const captureFromDocument = (
   }
 
   const { snapshot, version, pixelVersion } = document.read();
-  const documentState = cloneDocumentStateForPersistence(snapshot);
+  // History only reads these buffers long enough to encode an ROI delta. A
+  // document generation is immutable, so sharing it avoids copying the full
+  // canvas synchronously before every stroke/shape. Save and export modes keep
+  // their independent boundary copies because those buffers may be transferred.
+  const referencesDocumentGeneration = context.mode === 'history';
+  const documentState = referencesDocumentGeneration
+    ? referenceDocumentStateForHistory(snapshot)
+    : cloneDocumentStateForPersistence(snapshot);
   const validation = validatePersistenceDocumentState(documentState, {
     requirePaint: context.requirePaint,
     source: 'document',
@@ -331,7 +367,7 @@ const captureFromDocument = (
     createBrushStateFromDocumentState({
       ...documentState,
       paintBuffer: documentState.paintBuffer,
-    }),
+    }, { referenceBuffers: referencesDocumentGeneration }),
     captureSerializedRuntimeBrushMetadata(layer, context),
     layer.id,
   );

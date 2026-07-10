@@ -38,7 +38,6 @@ export type ColorCycleLayerStrokeStateMutationParams = {
   forceDocumentPublish?: boolean;
   pixelsChanged?: boolean;
   dirtyRects?: ColorCycleDirtyRect[];
-  takeDocumentStateOwnership?: boolean;
   assumeDerivedSurfaceCurrent?: boolean;
 };
 
@@ -194,7 +193,6 @@ export function mutateColorCycleRuntimeLayerStrokeState(
     forceDocumentPublish: params.forceDocumentPublish,
     pixelsChanged: params.pixelsChanged,
     dirtyRects: params.dirtyRects,
-    takeDocumentStateOwnership: params.takeDocumentStateOwnership,
     assumeDerivedSurfaceCurrent: params.assumeDerivedSurfaceCurrent,
     derivedSurface: context.getDerivedSurface(params.layerId),
     markLayerDirty: (layerId) => context.markLayerDirty(layerId),

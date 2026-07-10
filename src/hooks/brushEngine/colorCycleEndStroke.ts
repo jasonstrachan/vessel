@@ -1,6 +1,11 @@
 import { getAppStoreState } from '@/stores/appStoreAccess';
 import { ColorCycleAnimator } from '@/lib/ColorCycleAnimator';
-import { hasCcPayload } from '@/lib/colorCycle/document';
+import {
+  getColorCycleCanonicalCopyMetrics,
+  hasCcPayload,
+  isColorCycleCanonicalCopyMetricsEnabled,
+  recordColorCyclePublicationSample,
+} from '@/lib/colorCycle/document';
 import {
   logCCMutation,
   summarizeColorCycleLayer,
@@ -67,7 +72,7 @@ export type ColorCycleEndStrokeContext = {
   getWriteCycleSpeed: (strokeData: LayerStrokeState) => number;
   bindStrokeBuffersToAnimator: (strokeData: LayerStrokeState, animator: ColorCycleAnimator) => void;
   enableNonDitherPlaybackSpeed: (strokeData: LayerStrokeState) => boolean;
-  snapshotFromBuffers: (strokeData: LayerStrokeState) => void;
+  refreshStrokeContent: (strokeData: LayerStrokeState) => boolean;
   mutateLayerStrokeState: (mutation: ColorCycleLayerStrokeStateMutationParams) => void;
   logPerfStroke: (layerId: string) => void;
   brushStateHasColorCyclePaintPayload: (brushState: unknown, layerId?: string) => boolean;
@@ -300,19 +305,29 @@ export const endColorCycleStroke = (context: ColorCycleEndStrokeContext): void =
       }
     }
 
-    const serializeStart = perf ? nowMs() : 0;
-    strokeFinalizeProbeTimeSync(
-      'endColorCycleStroke:snapshotFromBuffers',
-      () => context.snapshotFromBuffers(strokeData),
-      { layerId: id }
-    );
-    const hasContent = strokeData.hasContent;
-    if (perf) {
-      perf.durations.serializeMs += Math.max(0, nowMs() - serializeStart);
+    const hasContent = context.refreshStrokeContent(strokeData);
+    if (
+      typeof window !== 'undefined' &&
+      (window as typeof window & { __CC_DIAG_BUFFERS__?: boolean }).__CC_DIAG_BUFFERS__ === true
+    ) {
+      const globalWindow = window as typeof window & {
+        __CC_probe?: { start: number; paint: number; end: number; last: Record<string, unknown> };
+      };
+      globalWindow.__CC_probe ??= { start: 0, paint: 0, end: 0, last: {} };
+      globalWindow.__CC_probe.last = {
+        ...globalWindow.__CC_probe.last,
+        endStrokePaintHasContent: strokeData.buffers.paint.some((value) => value !== 0),
+        refreshedHasContent: hasContent,
+      };
     }
     if (hasContent) {
       // Publish the finished stroke to the layer document; without this the
       // document (the export source of truth) never sees plain brush strokes.
+      const shouldMeasurePublication = Boolean(perf) || isColorCycleCanonicalCopyMetricsEnabled();
+      const publicationStart = shouldMeasurePublication ? nowMs() : 0;
+      const copiedBytesBefore = isColorCycleCanonicalCopyMetricsEnabled()
+        ? getColorCycleCanonicalCopyMetrics().totalBytes
+        : 0;
       strokeFinalizeProbeTimeSync(
         'endColorCycleStroke:mutateLayerStrokeState',
         () => context.mutateLayerStrokeState({
@@ -325,11 +340,26 @@ export const endColorCycleStroke = (context: ColorCycleEndStrokeContext): void =
           forceDocumentPublish: true,
           pixelsChanged: true,
           dirtyRects: strokeDirtyRect ? [strokeDirtyRect] : undefined,
-          takeDocumentStateOwnership: true,
           assumeDerivedSurfaceCurrent: true,
         }),
         { layerId: id }
       );
+      const publicationDurationMs = shouldMeasurePublication
+        ? Math.max(0, nowMs() - publicationStart)
+        : 0;
+      if (isColorCycleCanonicalCopyMetricsEnabled()) {
+        const copiedBytesAfter = getColorCycleCanonicalCopyMetrics().totalBytes;
+        recordColorCyclePublicationSample({
+          layerId: id,
+          width: context.width(),
+          height: context.height(),
+          durationMs: publicationDurationMs,
+          canonicalBytesCopied: Math.max(0, copiedBytesAfter - copiedBytesBefore),
+        });
+      }
+      if (perf) {
+        perf.durations.serializeMs += publicationDurationMs;
+      }
     }
     if (strokeData.stampDither) {
       strokeData.stampDither.stampDitherStampSeq = 0;

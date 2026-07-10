@@ -78,7 +78,7 @@ export type ColorCycleStrokeApiRuntimeContext = {
   mutateLayerStrokeState: ColorCycleStrokeLifecycleContext['mutateLayerStrokeState'];
   assertStrokeHandleSize: ColorCycleStrokeLifecycleContext['assertStrokeHandleSize'];
   enableNonDitherPlaybackSpeed: ColorCycleStrokeLifecycleContext['enableNonDitherPlaybackSpeed'];
-  snapshotFromBuffers: ColorCycleStrokeLifecycleContext['snapshotFromBuffers'];
+  refreshStrokeContent: ColorCycleStrokeLifecycleContext['refreshStrokeContent'];
   brushStateHasColorCyclePaintPayload:
     ColorCycleStrokeLifecycleContext['brushStateHasColorCyclePaintPayload'];
 };
@@ -259,6 +259,9 @@ export class ColorCycleStrokeApiRuntime {
       getStrokeState: (id) => this.context.getStrokeData(id),
       createStrokeState: (options) => this.context.createStrokeState(options),
       setStrokeState: (id, strokeData) => this.context.setStrokeState(id, strokeData),
+      bindStrokeBuffersToAnimator: (strokeData, animator) => {
+        this.context.bindStrokeBuffersToAnimator(strokeData, animator);
+      },
       getCanvasBufferSize: () => this.context.getCanvasWidth() * this.context.getCanvasHeight(),
       getActiveSlot: (id) => this.context.getActiveSlot(id),
     }, layerId);
@@ -353,7 +356,7 @@ export class ColorCycleStrokeApiRuntime {
       assertStrokeHandleSize: (handle, label) => this.context.assertStrokeHandleSize(handle, label),
       isAnimating: () => this.context.isAnimating(),
       enableNonDitherPlaybackSpeed: (strokeData) => this.context.enableNonDitherPlaybackSpeed(strokeData),
-      snapshotFromBuffers: (strokeData) => this.context.snapshotFromBuffers(strokeData),
+      refreshStrokeContent: (strokeData) => this.context.refreshStrokeContent(strokeData),
       logPerfStroke: (id) => this.logPerfStroke(id),
       brushStateHasColorCyclePaintPayload: (brushState, id) =>
         this.context.brushStateHasColorCyclePaintPayload(brushState, id),

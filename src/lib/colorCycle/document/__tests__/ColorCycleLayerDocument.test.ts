@@ -18,6 +18,10 @@ import {
   setColorCycleLayerDocumentForOwner,
   type DerivedSurface,
 } from '../ColorCycleLayerDocument';
+import {
+  getColorCycleCanonicalCopyMetrics,
+  resetColorCycleCanonicalCopyMetrics,
+} from '../canonicalBufferAccounting';
 
 const makeBuffer = (values: number[]): ArrayBuffer => new Uint8Array(values).buffer;
 
@@ -69,6 +73,22 @@ const makeState = (
 });
 
 describe('ColorCycleLayerDocument', () => {
+  it('returns the same immutable canonical generation without copying on read', () => {
+    const document = new ColorCycleLayerDocument(makeState());
+    resetColorCycleCanonicalCopyMetrics();
+
+    const first = document.read();
+    const second = document.read();
+
+    expect(second.snapshot).toBe(first.snapshot);
+    expect(second.snapshot.paintBuffer).toBe(first.snapshot.paintBuffer);
+    expect(getColorCycleCanonicalCopyMetrics()).toEqual({
+      totalBytes: 0,
+      totalGenerations: 0,
+      byReason: {},
+    });
+  });
+
   it('reads a versioned frozen snapshot without exposing document-owned metadata for mutation', () => {
     const document = new ColorCycleLayerDocument(makeState(), { initialVersion: 3 });
 
@@ -206,6 +226,41 @@ describe('ColorCycleLayerDocument', () => {
 
     expect(pixelRead.version).toBe(9);
     expect(pixelRead.pixelVersion).toBe(8);
+  });
+
+  it('reuses canonical buffer identities for metadata-only commits', () => {
+    const document = new ColorCycleLayerDocument(makeState(), { initialVersion: 7 });
+    const before = document.read();
+    resetColorCycleCanonicalCopyMetrics();
+
+    const after = document.replaceState(makeState({ paintSlot: 2 }), 'metadata-update');
+
+    expect(after.version).toBe(8);
+    expect(after.pixelVersion).toBe(7);
+    expect(after.snapshot.paintBuffer).toBe(before.snapshot.paintBuffer);
+    expect(after.snapshot.gradientIdBuffer).toBe(before.snapshot.gradientIdBuffer);
+    expect(after.snapshot.gradientDefIdBuffer).toBe(before.snapshot.gradientDefIdBuffer);
+    expect(after.snapshot.speedBuffer).toBe(before.snapshot.speedBuffer);
+    expect(after.snapshot.flowBuffer).toBe(before.snapshot.flowBuffer);
+    expect(after.snapshot.phaseBuffer).toBe(before.snapshot.phaseBuffer);
+    expect(getColorCycleCanonicalCopyMetrics().totalBytes).toBe(0);
+  });
+
+  it('keeps the previous generation unchanged when publication validation fails', () => {
+    const document = new ColorCycleLayerDocument(makeState(), { initialVersion: 4 });
+    const before = document.read();
+
+    expect(() => document.replaceState(makeState({
+      paintBuffer: new Uint8Array(3).buffer,
+    }), 'invalid-publication')).toThrow(
+      'Invalid color-cycle document state: paintBuffer byteLength 3 does not match 4 for 2x2',
+    );
+
+    expect(document.read()).toBeDefined();
+    expect(document.read().version).toBe(before.version);
+    expect(document.read().pixelVersion).toBe(before.pixelVersion);
+    expect(document.read().snapshot).toBe(before.snapshot);
+    expect(document.getAuditLog()).toEqual([]);
   });
 
   it('records a versioned full-layer dirty batch for committed transactions', () => {

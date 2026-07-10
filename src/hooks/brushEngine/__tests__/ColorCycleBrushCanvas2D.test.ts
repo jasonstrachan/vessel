@@ -5,8 +5,12 @@ import * as stampDither from '../strokeStampDither';
 import {
   applyColorCycleBrushLayerSnapshotToRuntime,
   applyColorCycleBrushPaintPatchToRuntime,
+  COLOR_CYCLE_CANONICAL_BYTES_PER_PIXEL,
   ColorCycleLayerDocument,
+  getColorCycleCanonicalCopyMetrics,
+  getColorCyclePublicationSamples,
   readColorCycleBrushSerializedStateFromRuntime,
+  resetColorCycleCanonicalCopyMetrics,
   restoreColorCycleBrushSerializedStateToRuntime,
 } from '@/lib/colorCycle/document';
 import type { ColorCycleLayerDocumentState } from '@/lib/colorCycle/documentState';
@@ -1006,6 +1010,66 @@ describe('ColorCycleBrushCanvas2D', () => {
     expect(document.getAuditLog().slice(-1)[0]).toEqual(expect.objectContaining({
       reason: 'brush-stroke-write',
     }));
+  });
+
+  it('publishes a regular stroke within one canonical-generation copy budget', () => {
+    const canvas = makeCanvas();
+    const brush = new ColorCycleBrushCanvas2D(canvas);
+    const layerId = 'layer-stroke-copy-budget';
+    const document = new ColorCycleLayerDocument(
+      makeDocumentState(layerId, canvas.width, canvas.height),
+    );
+
+    brush.setColorCycleLayerDocument(layerId, document);
+    brush.startStroke(layerId);
+    brush.paint(2, 2, layerId, 1, 0, 0.5);
+    resetColorCycleCanonicalCopyMetrics();
+
+    brush.endStroke(layerId);
+
+    const expectedCanonicalBytes =
+      canvas.width * canvas.height * COLOR_CYCLE_CANONICAL_BYTES_PER_PIXEL;
+    const metrics = getColorCycleCanonicalCopyMetrics();
+    expect(metrics.totalBytes).toBe(expectedCanonicalBytes);
+    expect(metrics.totalGenerations).toBe(1);
+    expect(metrics.byReason).toEqual({
+      'document-commit': {
+        bytes: expectedCanonicalBytes,
+        generations: 1,
+      },
+    });
+    expect(getColorCyclePublicationSamples()).toEqual([
+      expect.objectContaining({
+        layerId,
+        width: canvas.width,
+        height: canvas.height,
+        canonicalBytesCopied: expectedCanonicalBytes,
+      }),
+    ]);
+  });
+
+  it('keeps a pinned document read stable across the next runtime stroke', () => {
+    const canvas = makeCanvas();
+    const brush = new ColorCycleBrushCanvas2D(canvas);
+    const layerId = 'layer-stroke-pinned-read';
+    const document = new ColorCycleLayerDocument(
+      makeDocumentState(layerId, canvas.width, canvas.height),
+    );
+
+    brush.setColorCycleLayerDocument(layerId, document);
+    brush.startStroke(layerId);
+    brush.paint(2, 2, layerId, 1, 0, 0.5);
+    brush.endStroke(layerId);
+    const pinned = document.read();
+    const pinnedPaint = Array.from(new Uint8Array(pinned.snapshot.paintBuffer!));
+
+    brush.startStroke(layerId);
+    brush.paint(5, 4, layerId, 1, 0, 0.5);
+    brush.endStroke(layerId);
+
+    expect(document.read().version).toBeGreaterThan(pinned.version);
+    expect(Array.from(new Uint8Array(pinned.snapshot.paintBuffer!))).toEqual(pinnedPaint);
+    expect(document.read().snapshot.paintBuffer).not.toBe(pinned.snapshot.paintBuffer);
   });
 
   it('does not overwrite an attached color-cycle document when endStroke has no content', () => {

@@ -96,12 +96,14 @@ import {
   cloneColorCycleBrushLayerSnapshot,
   cloneColorCycleBrushStateForLayerDuplicate,
   createColorCycleCanonicalBrushStateFromSnapshot,
+  createEmptyColorCycleLayerDocumentState,
   type ColorCycleBrushLayerSnapshot as ColorCycleLayerSnapshot,
   type ColorCycleBrushLayerSnapshotRuntimeReader,
   type ColorCycleBrushLayerSnapshotRuntimeWriter,
   getColorCycleLegacyLayerBuffer,
   getColorCycleLegacyLayerBufferByteLength,
   readColorCycleBrushLayerSnapshotFromRuntime,
+  scaleColorCyclePaintSnapshotNearest,
 } from '@/lib/colorCycle/document';
 import { compositeBitmapManager } from '@/lib/performance/CompositeBitmapManager';
 import {
@@ -245,20 +247,48 @@ const commitColorCycleGradientBuffersToDocument = (
   }
 
   const { snapshot } = document.read();
+  const resizedCanonicalState = snapshot.width === width && snapshot.height === height
+    ? snapshot
+    : snapshot.paintBuffer
+    ? {
+        ...snapshot,
+        ...scaleColorCyclePaintSnapshotNearest({
+          snapshot: {
+            paintBuffer: snapshot.paintBuffer,
+            gradientIdBuffer: snapshot.gradientIdBuffer,
+            gradientDefIdBuffer: snapshot.gradientDefIdBuffer,
+            speedBuffer: snapshot.speedBuffer,
+            flowBuffer: snapshot.flowBuffer,
+            phaseBuffer: snapshot.phaseBuffer,
+            hasContent: snapshot.hasContent,
+            strokeCounter: 0,
+          },
+          sourceWidth: snapshot.width,
+          sourceHeight: snapshot.height,
+          width,
+          height,
+        }),
+        width,
+        height,
+      }
+    : {
+        ...snapshot,
+        ...createEmptyColorCycleLayerDocumentState({ layerId, width, height }),
+      };
   document.replaceState({
-    ...snapshot,
+    ...resizedCanonicalState,
     layerId,
     width,
     height,
-    gradientIdBuffer: cloneBuffer(gradientIdBuffer) ?? snapshot.gradientIdBuffer,
-    gradientDefIdBuffer: cloneBuffer(gradientDefIdBuffer) ?? snapshot.gradientDefIdBuffer,
-    gradientDefs: layer.colorCycleData?.gradientDefs ?? snapshot.gradientDefs,
-    slotPalettes: layer.colorCycleData?.slotPalettes ?? snapshot.slotPalettes,
-    gradientDefStore: layer.colorCycleData?.gradientDefStore ?? snapshot.gradientDefStore,
-    activeGradientId: layer.colorCycleData?.activeGradientId ?? snapshot.activeGradientId,
-    paintSlot: layer.colorCycleData?.paintSlot ?? snapshot.paintSlot,
-    fgActiveSlot: layer.colorCycleData?.fgActiveSlot ?? snapshot.fgActiveSlot,
-    flowMode: layer.colorCycleData?.flowMode ?? snapshot.flowMode,
+    gradientIdBuffer: cloneBuffer(gradientIdBuffer) ?? resizedCanonicalState.gradientIdBuffer,
+    gradientDefIdBuffer: cloneBuffer(gradientDefIdBuffer) ?? resizedCanonicalState.gradientDefIdBuffer,
+    gradientDefs: layer.colorCycleData?.gradientDefs ?? resizedCanonicalState.gradientDefs,
+    slotPalettes: layer.colorCycleData?.slotPalettes ?? resizedCanonicalState.slotPalettes,
+    gradientDefStore: layer.colorCycleData?.gradientDefStore ?? resizedCanonicalState.gradientDefStore,
+    activeGradientId: layer.colorCycleData?.activeGradientId ?? resizedCanonicalState.activeGradientId,
+    paintSlot: layer.colorCycleData?.paintSlot ?? resizedCanonicalState.paintSlot,
+    fgActiveSlot: layer.colorCycleData?.fgActiveSlot ?? resizedCanonicalState.fgActiveSlot,
+    flowMode: layer.colorCycleData?.flowMode ?? resizedCanonicalState.flowMode,
   }, 'color-cycle-layer-init-gradient-bindings');
 };
 

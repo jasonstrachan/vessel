@@ -151,6 +151,21 @@ describe('captureColorCycleBrushState', () => {
   });
 
   it('records the document version on captured color-cycle history snapshots', () => {
+    const documentPaintBuffer = new Uint8Array(4).fill(1).buffer;
+    const documentGradientIdBuffer = new Uint8Array(4).fill(2).buffer;
+    const documentGradientDefIdBuffer = new Uint16Array(4).fill(3).buffer;
+    const documentSpeedBuffer = new Uint8Array(4).fill(4).buffer;
+    const documentFlowBuffer = new Uint8Array(4).fill(5).buffer;
+    const documentPhaseBuffer = new Uint8Array(4).fill(6).buffer;
+    const serialize = jest.fn(() => ({
+      layers: [{
+        layerId: 'layer-versioned',
+        strokeData: {
+          hasContent: true,
+          paintBuffer: new Uint8Array(4).fill(8).buffer,
+        },
+      }],
+    }));
     (useAppStore.getState as jest.Mock).mockReturnValue({
       project: { width: 2, height: 2 },
       layers: [
@@ -174,12 +189,12 @@ describe('captureColorCycleBrushState', () => {
               layerId: 'layer-versioned',
               width: 2,
               height: 2,
-              paintBuffer: new Uint8Array(4).fill(1).buffer,
-              gradientIdBuffer: new Uint8Array(4).fill(2).buffer,
-              gradientDefIdBuffer: new Uint16Array(4).fill(3).buffer,
-              speedBuffer: new Uint8Array(4).fill(4).buffer,
-              flowBuffer: new Uint8Array(4).fill(5).buffer,
-              phaseBuffer: new Uint8Array(4).fill(6).buffer,
+              paintBuffer: documentPaintBuffer,
+              gradientIdBuffer: documentGradientIdBuffer,
+              gradientDefIdBuffer: documentGradientDefIdBuffer,
+              speedBuffer: documentSpeedBuffer,
+              flowBuffer: documentFlowBuffer,
+              phaseBuffer: documentPhaseBuffer,
               hasContent: true,
               sources: {
                 brushStateSnapshot: false,
@@ -189,21 +204,20 @@ describe('captureColorCycleBrushState', () => {
             },
           }),
         }),
-        serialize: () => ({
-          layers: [{
-            layerId: 'layer-versioned',
-            strokeData: {
-              hasContent: true,
-              paintBuffer: new Uint8Array(4).fill(8).buffer,
-            },
-          }],
-        }),
+        serialize,
       }),
     });
 
     const captured = captureColorCycleBrushState('layer-versioned');
 
     expect(captured?.documentVersion).toBe(9);
+    expect(serialize).not.toHaveBeenCalled();
+    expect(captured?.layers[0]?.strokeData?.paintBuffer).toBe(documentPaintBuffer);
+    expect(captured?.layers[0]?.strokeData?.gradientIdBuffer).toBe(documentGradientIdBuffer);
+    expect(captured?.layers[0]?.strokeData?.gradientDefIdBuffer).toBe(documentGradientDefIdBuffer);
+    expect(captured?.layers[0]?.strokeData?.speedBuffer).toBe(documentSpeedBuffer);
+    expect(captured?.layers[0]?.strokeData?.flowBuffer).toBe(documentFlowBuffer);
+    expect(captured?.layers[0]?.strokeData?.phaseBuffer).toBe(documentPhaseBuffer);
     expect(Array.from(new Uint8Array(
       captured?.layers[0]?.strokeData?.paintBuffer ?? new ArrayBuffer(0),
     ))).toEqual([1, 1, 1, 1]);

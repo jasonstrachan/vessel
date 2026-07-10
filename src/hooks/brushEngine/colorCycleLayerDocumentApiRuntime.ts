@@ -5,7 +5,10 @@ import type {
 import type { ColorCycleAnimator } from '@/lib/ColorCycleAnimator';
 import type { Layer } from '@/types';
 
-import { layerStrokeStateHasContent } from './colorCycleLayerStrokeBuffers';
+import {
+  layerStrokeStateHasContent,
+  refreshLayerStrokeStateContent,
+} from './colorCycleLayerStrokeBuffers';
 import {
   resolveColorCycleLayerMeta,
   type ColorCycleLayerMetaRuntimeContext,
@@ -210,6 +213,14 @@ export class ColorCycleLayerDocumentApiRuntime {
   readonly snapshotFromBuffers = (strokeState: LayerStrokeState): void => {
     snapshotColorCycleRuntimeLayerStrokeStateFromBuffers(this.getContext(), strokeState);
   };
+
+  readonly refreshStrokeContent = (strokeState: LayerStrokeState): boolean => (
+    refreshLayerStrokeStateContent(
+      strokeState,
+      this.deps.getCanvasWidth(),
+      this.deps.getCanvasHeight(),
+    )
+  );
 
   readonly setStrokeStateWithDocumentPublish = (
     params: Parameters<RuntimeDocumentState['setStrokeStateWithDocumentPublish']>[0],
