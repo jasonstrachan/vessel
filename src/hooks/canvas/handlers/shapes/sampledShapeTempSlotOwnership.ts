@@ -10,18 +10,6 @@ import {
 type SampledShapeTempSlotBrush = ColorCycleBrushLayerSnapshotRuntimeReader
   & ColorCycleBrushLayerSnapshotRuntimeWriter;
 
-const cloneOptionalU8Buffer = (buffer: ArrayBuffer | undefined): Uint8Array | null => (
-  buffer ? new Uint8Array(buffer.slice(0)) : null
-);
-
-const cloneOptionalU16Buffer = (buffer: ArrayBuffer | undefined): Uint16Array | null => (
-  buffer ? new Uint16Array(buffer.slice(0)) : null
-);
-
-const toBuffer = (view: Uint8Array | Uint16Array | null): ArrayBuffer | undefined => (
-  view ? view.buffer.slice(view.byteOffset, view.byteOffset + view.byteLength) as ArrayBuffer : undefined
-);
-
 /**
  * Removes abandoned sampled-mark pixels before a shape claims the shared temp slot.
  * Committed pixels use allocated slots and are left untouched.
@@ -32,22 +20,26 @@ export const discardAbandonedSampledShapeTempPixels = ({
 }: {
   brush: SampledShapeTempSlotBrush | null | undefined;
   layerId: string;
-}): number => {
+}): number | null => {
   const snapshot = readColorCycleBrushLayerSnapshotFromRuntime(brush, layerId);
   if (!snapshot?.gradientIdBuffer || snapshot.paintBuffer.byteLength === 0) {
-    return 0;
+    return null;
   }
 
-  const paint = new Uint8Array(snapshot.paintBuffer.slice(0));
-  const gradientId = new Uint8Array(snapshot.gradientIdBuffer.slice(0));
+  // Runtime reads materialize owned buffer copies, so these can be edited in place
+  // without cloning the full layer a second time.
+  const paint = new Uint8Array(snapshot.paintBuffer);
+  const gradientId = new Uint8Array(snapshot.gradientIdBuffer);
   if (paint.length !== gradientId.length) {
-    return 0;
+    return null;
   }
 
-  const gradientDefId = cloneOptionalU16Buffer(snapshot.gradientDefIdBuffer);
-  const speed = cloneOptionalU8Buffer(snapshot.speedBuffer);
-  const flow = cloneOptionalU8Buffer(snapshot.flowBuffer);
-  const phase = cloneOptionalU8Buffer(snapshot.phaseBuffer);
+  const gradientDefId = snapshot.gradientDefIdBuffer
+    ? new Uint16Array(snapshot.gradientDefIdBuffer)
+    : null;
+  const speed = snapshot.speedBuffer ? new Uint8Array(snapshot.speedBuffer) : null;
+  const flow = snapshot.flowBuffer ? new Uint8Array(snapshot.flowBuffer) : null;
+  const phase = snapshot.phaseBuffer ? new Uint8Array(snapshot.phaseBuffer) : null;
   let clearedPixels = 0;
   let clearedEntries = 0;
 
@@ -72,12 +64,12 @@ export const discardAbandonedSampledShapeTempPixels = ({
   }
 
   const nextSnapshot: ColorCycleBrushLayerSnapshot = {
-    paintBuffer: toBuffer(paint) ?? new ArrayBuffer(0),
-    gradientIdBuffer: toBuffer(gradientId),
-    gradientDefIdBuffer: toBuffer(gradientDefId),
-    speedBuffer: toBuffer(speed),
-    flowBuffer: toBuffer(flow),
-    phaseBuffer: toBuffer(phase),
+    paintBuffer: snapshot.paintBuffer,
+    gradientIdBuffer: snapshot.gradientIdBuffer,
+    gradientDefIdBuffer: snapshot.gradientDefIdBuffer,
+    speedBuffer: snapshot.speedBuffer,
+    flowBuffer: snapshot.flowBuffer,
+    phaseBuffer: snapshot.phaseBuffer,
     hasContent: paint.some((value) => value !== 0),
     strokeCounter: snapshot.strokeCounter,
   };
@@ -90,5 +82,5 @@ export const discardAbandonedSampledShapeTempPixels = ({
     { suppressClearAudit: true },
   );
 
-  return applied ? clearedPixels : 0;
+  return applied ? clearedPixels : null;
 };

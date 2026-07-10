@@ -3,6 +3,13 @@ import { registerColorCycleBrushLayerSnapshotRuntime } from '@/lib/colorCycle/do
 import { discardAbandonedSampledShapeTempPixels } from '@/hooks/canvas/handlers/shapes/sampledShapeTempSlotOwnership';
 
 describe('sampled shape temp-slot ownership', () => {
+  it('reports unavailable ownership when no runtime can be read', () => {
+    expect(discardAbandonedSampledShapeTempPixels({
+      brush: null,
+      layerId: 'layer-1',
+    })).toBeNull();
+  });
+
   it('discards stale stroke-shaped temp pixels without touching committed pixels', () => {
     const apply = jest.fn();
     const brush = {

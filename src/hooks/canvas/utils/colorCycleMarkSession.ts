@@ -54,8 +54,24 @@ export type PreviewGradientResult = {
 };
 
 const sessionsByLayer = new Map<string, MarkGradientSession>();
+const sampledTempSlotStateByLayer = new Map<string, 'clean' | 'abandoned'>();
 let markSessionPointerDownRef: { current: boolean } | null = null;
 let isFinalizingSession = false;
+
+/**
+ * Unknown layers are reconciled once before their first sampled shape commit.
+ * A cancelled sampled mark invalidates that ownership until its temp pixels are discarded.
+ */
+export const needsSampledTempSlotReconciliation = (layerId: string): boolean =>
+  sampledTempSlotStateByLayer.get(layerId) !== 'clean';
+
+export const markSampledTempSlotReconciled = (layerId: string): void => {
+  sampledTempSlotStateByLayer.set(layerId, 'clean');
+};
+
+export const __resetSampledTempSlotOwnershipForTests = (): void => {
+  sampledTempSlotStateByLayer.clear();
+};
 
 export const registerMarkGradientPointerDownRef = (
   ref: { current: boolean } | null
@@ -265,6 +281,9 @@ export const cancelMarkGradientSession = (layerId: string): void => {
   if (markSessionPointerDownRef?.current) {
     ccWarn('cancel during active mark', { layerId, stack: new Error().stack ?? null });
     return;
+  }
+  if (sessionsByLayer.get(layerId)?.source === 'sampled') {
+    sampledTempSlotStateByLayer.set(layerId, 'abandoned');
   }
   sessionsByLayer.delete(layerId);
 };

@@ -9,9 +9,11 @@ import {
   startShapeDrawing,
 } from '@/hooks/canvas/handlers/shapes/shapeDrawing';
 import {
+  __resetSampledTempSlotOwnershipForTests,
   beginMarkGradientSession,
   cancelMarkGradientSession,
   getActiveMarkGradientSession,
+  markSampledTempSlotReconciled,
 } from '@/hooks/canvas/utils/colorCycleMarkSession';
 import * as sampledShapeTempSlotOwnership from '@/hooks/canvas/handlers/shapes/sampledShapeTempSlotOwnership';
 
@@ -221,8 +223,10 @@ const makeShapeDeps = (updateCcSampledGradient = jest.fn()) => ({
 
 describe('finalizeShapeDrawing CC dither resolution', () => {
   beforeEach(() => {
+    jest.restoreAllMocks();
     jest.clearAllMocks();
     cancelMarkGradientSession('layer-1');
+    __resetSampledTempSlotOwnershipForTests();
     (storeState as unknown as { currentBrushPreset: { id: string } | null }).currentBrushPreset = null;
     storeState.tools.ccGradientSource = 'fg';
     storeState.tools.brushSettings.colorCycleFillMode = 'linear';
@@ -259,6 +263,8 @@ describe('finalizeShapeDrawing CC dither resolution', () => {
 
   afterEach(() => {
     cancelMarkGradientSession('layer-1');
+    __resetSampledTempSlotOwnershipForTests();
+    jest.restoreAllMocks();
   });
 
   it('updates sampled shape preview stops while the first-stage shape is being drawn', () => {
@@ -500,6 +506,7 @@ describe('finalizeShapeDrawing CC dither resolution', () => {
     const discardTempPixels = jest
       .spyOn(sampledShapeTempSlotOwnership, 'discardAbandonedSampledShapeTempPixels')
       .mockReturnValue(37);
+    markSampledTempSlotReconciled('layer-1');
     const staleSession = beginMarkGradientSession({
       layerId: 'layer-1',
       markKind: 'stroke',
@@ -542,6 +549,39 @@ describe('finalizeShapeDrawing CC dither resolution', () => {
       layerId: 'layer-1',
     });
     discardTempPixels.mockRestore();
+  });
+
+  it('does not rescan a reconciled temp slot for a valid sampled shape session', () => {
+    storeState.tools.ccGradientSource = 'sampled';
+    const layer = storeState.layers[0];
+    markSampledTempSlotReconciled('layer-1');
+    const activeSession = beginMarkGradientSession({
+      layerId: 'layer-1',
+      markKind: 'shape',
+      gradientKind: 'linear',
+      source: 'sampled',
+      stops: storeState.tools.brushSettings.colorCycleGradient ?? [],
+      speedCps: 1,
+    });
+    const discardTempPixels = jest.spyOn(
+      sampledShapeTempSlotOwnership,
+      'discardAbandonedSampledShapeTempPixels',
+    );
+
+    const prepared = __TESTING__.prepareFinalSampledShapeSession({
+      layer,
+      state: storeState,
+      shapePoints: [{ x: 0, y: 0 }, { x: 10, y: 0 }],
+      deps: {
+        sampleColorAt: jest.fn(),
+        sampleHexAt: jest.fn((x: number) => (x < 5 ? '#ff0000' : '#0000ff')),
+        ccLog: jest.fn(),
+        getColorCycleBrushManager: () => ({ getShapeFillBrush: () => ({}) as never }),
+      },
+    });
+
+    expect(prepared).toBe(activeSession);
+    expect(discardTempPixels).not.toHaveBeenCalled();
   });
 
   it('replaces an active sampled mark session when the finalize fill mode changes', () => {

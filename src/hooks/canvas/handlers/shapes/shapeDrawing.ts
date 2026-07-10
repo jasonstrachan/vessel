@@ -22,6 +22,8 @@ import {
   captureFrozenCcDitherRenderConfig,
   finalizeMarkGradientSession,
   getActiveMarkGradientSession,
+  markSampledTempSlotReconciled,
+  needsSampledTempSlotReconciliation,
   resolveMarkSessionRuntimeStops,
   type MarkGradientSession,
 } from '@/hooks/canvas/utils/colorCycleMarkSession';
@@ -583,26 +585,6 @@ const prepareFinalSampledShapeSession = (params: {
     previewStopsFromLivePreview?.stops && previewStopsFromLivePreview.stops.length > (previewStops?.length ?? 0)
       ? previewStopsFromLivePreview.stops
       : previewStops;
-  const discardedTempPixels = discardAbandonedSampledShapeTempPixels({
-    brush: params.deps.getColorCycleBrushManager?.().getShapeFillBrush(params.layer.id),
-    layerId: params.layer.id,
-  });
-  params.deps.ccLog('shape: sampled final stops selected', {
-    layerId: params.layer.id,
-    rebuiltStopCount: previewStops?.length ?? 0,
-    livePreviewStopCount: previewStopsFromLivePreview?.stops.length ?? 0,
-    finalStopCount: finalPreviewStops?.length ?? 0,
-    usedLivePreviewStops: finalPreviewStops === previewStopsFromLivePreview?.stops,
-    usedFallbackStops: resolvedPreviewStops.usedFallbackStops,
-    sampledUniqueColors: resolvedPreviewStops.sampledUniqueColors,
-    fallbackUniqueColors: resolvedPreviewStops.fallbackUniqueColors,
-    replayKey: previewStopsFromLivePreview?.replayKey ?? null,
-    previewSeq: previewStopsFromLivePreview?.seq ?? null,
-    previewPointCount: previewStopsFromLivePreview?.pointCount ?? null,
-    previewRawPointCount: previewStopsFromLivePreview?.rawPointCount ?? null,
-    discardedTempPixels,
-  });
-
   let session = getActiveMarkGradientSession(params.layer.id);
   if (session && session.source !== 'sampled') {
     debugWarn('raw-console', '[CC] Active mark session was not sampled during sampled shape finalize', {
@@ -630,6 +612,33 @@ const prepareFinalSampledShapeSession = (params: {
     cancelMarkGradientSession(params.layer.id);
     session = null;
   }
+
+  const shouldReconcileTempSlot = needsSampledTempSlotReconciliation(params.layer.id);
+  const discardedTempPixels = shouldReconcileTempSlot
+    ? discardAbandonedSampledShapeTempPixels({
+        brush: params.deps.getColorCycleBrushManager?.().getShapeFillBrush(params.layer.id),
+        layerId: params.layer.id,
+      })
+    : 0;
+  if (shouldReconcileTempSlot && discardedTempPixels !== null) {
+    markSampledTempSlotReconciled(params.layer.id);
+  }
+  params.deps.ccLog('shape: sampled final stops selected', {
+    layerId: params.layer.id,
+    rebuiltStopCount: previewStops?.length ?? 0,
+    livePreviewStopCount: previewStopsFromLivePreview?.stops.length ?? 0,
+    finalStopCount: finalPreviewStops?.length ?? 0,
+    usedLivePreviewStops: finalPreviewStops === previewStopsFromLivePreview?.stops,
+    usedFallbackStops: resolvedPreviewStops.usedFallbackStops,
+    sampledUniqueColors: resolvedPreviewStops.sampledUniqueColors,
+    fallbackUniqueColors: resolvedPreviewStops.fallbackUniqueColors,
+    replayKey: previewStopsFromLivePreview?.replayKey ?? null,
+    previewSeq: previewStopsFromLivePreview?.seq ?? null,
+    previewPointCount: previewStopsFromLivePreview?.pointCount ?? null,
+    previewRawPointCount: previewStopsFromLivePreview?.rawPointCount ?? null,
+    tempSlotReconciliationAttempted: shouldReconcileTempSlot,
+    discardedTempPixels,
+  });
 
   session ??= beginMarkGradientSession({
     layerId: params.layer.id,
