@@ -1,6 +1,11 @@
 import { useAppStore } from '@/stores/useAppStore';
 import type { AppState } from '@/stores/useAppStore';
-import type { HistoryDelta, HistoryDirection } from '../actionTypes';
+import {
+  prepareHistoryDelta,
+  type HistoryDelta,
+  type HistoryDirection,
+  type PreparedHistoryDelta,
+} from '../actionTypes';
 
 type ShapeSession = AppState['shapeFill']['session'];
 
@@ -44,7 +49,22 @@ export class ShapeSessionDelta implements HistoryDelta {
     this.backward = cloneSession(options.backward);
   }
 
-  apply(direction: HistoryDirection): void {
+  prepare(direction: HistoryDirection): PreparedHistoryDelta {
+    const session = useAppStore.getState().shapeFill.session;
+    return prepareHistoryDelta(
+      this._tag,
+      () => this.applyReplay(direction),
+      () => !Object.is(useAppStore.getState().shapeFill.session, session),
+      () => useAppStore.setState((state) => ({
+        shapeFill: {
+          ...state.shapeFill,
+          session,
+        },
+      })),
+    );
+  }
+
+  applyReplay(direction: HistoryDirection): void {
     const session = direction === 'forward' ? this.forward : this.backward;
     useAppStore.setState((state) => ({
       shapeFill: {

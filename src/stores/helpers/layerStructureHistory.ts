@@ -47,7 +47,6 @@ export interface CommitLayerStructureHistoryOptions {
 }
 
 export const commitLayerStructureHistory = ({
-  set,
   beforeSnapshot,
   afterSnapshot,
   label,
@@ -63,14 +62,6 @@ export const commitLayerStructureHistory = ({
     );
     txn.commit(label);
 
-    set((state) => ({
-      autosave: {
-        ...state.autosave,
-        hasUnsavedChanges: true,
-        lastDirtyReason: 'layer-change',
-        lastDirtyAt: new Date(),
-      },
-    }));
   } catch (error) {
     logError('[history] Failed to record layer structure change', error);
   }

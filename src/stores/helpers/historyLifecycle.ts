@@ -1,6 +1,7 @@
 import type { StoreApi } from 'zustand';
 import historyManager from '@/history/historyService';
 import type { HistoryEntry } from '@/history/actionTypes';
+import { HistoryReplayRecoveryError } from '@/history/errors';
 import {
   captureColorCycleBrushState,
   type ColorCycleSerializedState,
@@ -20,6 +21,7 @@ import {
 import { getColorCycleBrushManager } from '../colorCycleBrushManager';
 import { flushPendingToolWork } from '@/utils/toolFlushRegistry';
 import { waitForPendingHistoryCommits } from '@/history/pendingHistoryCommits';
+import { debugWarn } from '@/utils/debug';
 
 type AppState = import('../useAppStore').AppState;
 type CCReason = import('../useAppStore').CCReason;
@@ -33,6 +35,7 @@ const SINGLE_ACTIVE_LAYER_HISTORY_ACTIONS = new Set<CanvasSnapshot['actionType']
   'eraser',
   'fill',
 ]);
+const HISTORY_RECOVERY_NOTIFICATION_TITLE = 'History recovery failed';
 
 export const entryRequiresComposite = (entry: HistoryEntry | null): boolean => {
   if (!entry) {
@@ -368,6 +371,27 @@ export const createHistoryService = ({
   get,
   runWithColorCycleSuspended,
 }: HistoryServiceOptions): HistoryService => {
+  const reportReplayRecoveryFailure = (error: unknown): void => {
+    if (!(error instanceof HistoryReplayRecoveryError)) {
+      return;
+    }
+    debugWarn('raw-console', '[history] replay recovery failed', {
+      entryId: error.entryId,
+      action: error.action,
+      direction: error.direction,
+      deltaTag: error.deltaTag,
+      appliedDeltaTags: error.appliedDeltaTags,
+      cause: error.cause,
+      recoveryCause: error.recoveryCause,
+    });
+    get().addNotification({
+      type: 'error',
+      title: HISTORY_RECOVERY_NOTIFICATION_TITLE,
+      message: 'Stop editing. Save a recovery copy, then reload the last known-good project or autosave.',
+      timestamp: new Date(),
+    });
+  };
+
   const undo = async (): Promise<CanvasSnapshot | null> => {
     return runWithColorCycleSuspended('history-apply', async () => {
       await flushPendingToolWork();
@@ -382,7 +406,13 @@ export const createHistoryService = ({
 
       const requiresComposite = entryRequiresComposite(pendingEntry);
 
-      await historyManager.undo();
+      try {
+        await historyManager.undo();
+      } catch (error) {
+        reportReplayRecoveryFailure(error);
+        throw error;
+      }
+      get().markAutosaveDirty('history-change');
 
       set((state) => ({
         history: {
@@ -413,7 +443,13 @@ export const createHistoryService = ({
 
       const requiresComposite = entryRequiresComposite(pendingEntry);
 
-      await historyManager.redo();
+      try {
+        await historyManager.redo();
+      } catch (error) {
+        reportReplayRecoveryFailure(error);
+        throw error;
+      }
+      get().markAutosaveDirty('history-change');
 
       set((state) => ({
         history: {
@@ -430,8 +466,8 @@ export const createHistoryService = ({
     });
   };
 
-  const canUndo = (): boolean => Boolean(historyManager.peekUndo());
-  const canRedo = (): boolean => Boolean(historyManager.peekRedo());
+  const canUndo = (): boolean => !historyManager.isFaulted && Boolean(historyManager.peekUndo());
+  const canRedo = (): boolean => !historyManager.isFaulted && Boolean(historyManager.peekRedo());
 
   const clearHistory = (): void => {
     historyManager.clear();
@@ -440,6 +476,12 @@ export const createHistoryService = ({
         ...state.history,
         undoStack: [],
         redoStack: [],
+      },
+      ui: {
+        ...state.ui,
+        notifications: state.ui.notifications.filter(
+          (notification) => notification.title !== HISTORY_RECOVERY_NOTIFICATION_TITLE,
+        ),
       },
     }));
   };

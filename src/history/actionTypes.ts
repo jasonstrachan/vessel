@@ -27,10 +27,11 @@ export interface HistoryDelta {
    */
   readonly approxBytes?: number;
   /**
-   * Apply the delta in the given direction. Implementations should be idempotent and
-   * must NOT enqueue new history entries while `HistoryManager.isReplaying === true`.
+   * Resolve all data needed to replay this delta before any delta in the entry mutates
+   * the document. The returned compensation must restore the exact pre-replay state
+   * without fetching or decoding additional history data.
    */
-  apply(direction: HistoryDirection): Promise<void> | void;
+  prepare(direction: HistoryDirection): Promise<PreparedHistoryDelta> | PreparedHistoryDelta;
   /**
    * Optional cleanup hook called when the history entry that owns this delta is discarded.
    */
@@ -42,6 +43,52 @@ export interface HistoryDelta {
    */
   collectRehydrationTargets?(targets: HistoryRehydrationTargets): void;
 }
+
+/**
+ * A fully prepared replay step. HistoryManager applies these sequentially and invokes
+ * exact-state compensation in reverse order if application or runtime rehydration fails.
+ */
+export interface PreparedHistoryDelta {
+  readonly deltaTag: string;
+  apply(): Promise<void> | void;
+  requiresCompensation(): boolean;
+  compensate(): Promise<void> | void;
+  collectRehydrationTargets?(targets: HistoryRehydrationTargets): void;
+}
+
+export interface HistoryMutationTracker {
+  markMutated(): void;
+  requiresCompensation(): boolean;
+}
+
+export const createHistoryMutationTracker = (): HistoryMutationTracker => {
+  let mutated = false;
+  return {
+    markMutated: () => {
+      mutated = true;
+    },
+    requiresCompensation: () => mutated,
+  };
+};
+
+/**
+ * Small adapter for already-prepared apply and compensation closures. Store-backed
+ * deltas must capture their compensation from the actual pre-replay state; replaying
+ * the nominal opposite direction is not guaranteed to be an exact inverse.
+ */
+export const prepareHistoryDelta = (
+  deltaTag: string,
+  apply: () => Promise<void> | void,
+  requiresCompensation: () => boolean,
+  compensate: () => Promise<void> | void,
+  collectRehydrationTargets?: (targets: HistoryRehydrationTargets) => void,
+): PreparedHistoryDelta => ({
+  deltaTag,
+  apply,
+  requiresCompensation,
+  compensate,
+  collectRehydrationTargets,
+});
 
 export interface HistoryEntry {
   id: string;
@@ -94,6 +141,8 @@ export interface HistoryRehydrationTargets {
    * Color cycle layers requiring runtime restoration.
    */
   colorCycleLayerIds: Set<string>;
+  /** Sequential layers whose materialized frame caches must be invalidated. */
+  sequentialLayerIds: Set<string>;
   /**
    * Workers or background services that need state refresh after replay.
    */

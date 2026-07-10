@@ -2,6 +2,10 @@ import {
   createSequentialAppendFrameDelta,
   createSequentialFrameDelta,
 } from '@/history/deltas/sequentialFrameDelta';
+import { replayDeltaForTest } from '@/history/__tests__/replayTestUtils';
+import type { HistoryDelta, HistoryDirection, PreparedHistoryDelta } from '@/history/actionTypes';
+import { HistoryReplayApplyError } from '@/history/errors';
+import HistoryManager from '@/history/historyManager';
 import { useAppStore } from '@/stores/useAppStore';
 import { BrushShape, type Layer, type SequentialLayerData } from '@/types';
 import { createDefaultLayerAlignment } from '@/utils/layoutDefaults';
@@ -51,6 +55,24 @@ const createSequentialData = (eventIds: string[]): SequentialLayerData => ({
   })),
 });
 
+class LateFailureDelta implements HistoryDelta {
+  readonly _tag = 'late-failure';
+
+  apply(direction: HistoryDirection): void {
+    void direction;
+    throw new Error('Injected late replay failure');
+  }
+
+  prepare(direction: HistoryDirection): PreparedHistoryDelta {
+    return {
+      deltaTag: this._tag,
+      apply: () => this.apply(direction),
+      requiresCompensation: () => false,
+      compensate: () => undefined,
+    };
+  }
+}
+
 describe('SequentialFrameDelta', () => {
   beforeEach(() => {
     const before = createSequentialData(['event-a']);
@@ -65,7 +87,7 @@ describe('SequentialFrameDelta', () => {
     }));
   });
 
-  it('applies backward and forward sequential payloads', () => {
+  it('applies backward and forward sequential payloads', async () => {
     const before = createSequentialData(['event-a']);
     const after = createSequentialData(['event-a', 'event-b', 'event-c']);
     useAppStore.getState().updateLayer(
@@ -81,7 +103,7 @@ describe('SequentialFrameDelta', () => {
       after,
     });
 
-    void delta.apply('backward');
+    await replayDeltaForTest(delta, 'backward');
     let layer = useAppStore.getState().layers.find((entry) => entry.id === 'layer-seq');
     expect(layer?.sequentialData?.events.map((event) => event.id)).toEqual(['event-a']);
     expect(useAppStore.getState().layersNeedRecomposition).toBe(true);
@@ -94,7 +116,7 @@ describe('SequentialFrameDelta', () => {
     ]);
 
     useAppStore.setState({ layersNeedRecomposition: false, pendingCompositeDirtyBatches: [] });
-    void delta.apply('forward');
+    await replayDeltaForTest(delta, 'forward');
     layer = useAppStore.getState().layers.find((entry) => entry.id === 'layer-seq');
     expect(layer?.sequentialData?.events.map((event) => event.id)).toEqual([
       'event-a',
@@ -111,7 +133,7 @@ describe('SequentialFrameDelta', () => {
     ]);
   });
 
-  it('applies appended sequential events through the dirty-batch contract', () => {
+  it('applies appended sequential events through the dirty-batch contract', async () => {
     const before = createSequentialData(['event-a']);
     const after = createSequentialData(['event-a', 'event-b']);
     const delta = createSequentialAppendFrameDelta({
@@ -120,7 +142,7 @@ describe('SequentialFrameDelta', () => {
       after,
     });
 
-    void delta.apply('forward');
+    await replayDeltaForTest(delta, 'forward');
     const layer = useAppStore.getState().layers.find((entry) => entry.id === 'layer-seq');
     expect(layer?.sequentialData?.events.map((event) => event.id)).toEqual(['event-a', 'event-b']);
     expect(useAppStore.getState().layersNeedRecomposition).toBe(true);
@@ -131,5 +153,27 @@ describe('SequentialFrameDelta', () => {
         rects: [{ x: 0, y: 0, width: 16, height: 16 }],
       },
     ]);
+  });
+
+  it('compensates a real sequential frame delta when a later delta fails', async () => {
+    const before = createSequentialData(['event-a']);
+    const after = createSequentialData(['event-a', 'event-b']);
+    useAppStore.getState().updateLayer('layer-seq', { sequentialData: after }, { skipColorCycleSync: true });
+    const manager = new HistoryManager({
+      runtimeRehydration: {
+        createTargets: () => ({ layerIds: new Set(), colorCycleLayerIds: new Set(), sequentialLayerIds: new Set(), workerScopes: new Set() }),
+        rehydrate: async () => undefined,
+      },
+    });
+    const txn = manager.begin('sequential-stroke');
+    txn.push(new LateFailureDelta());
+    txn.push(createSequentialFrameDelta({ layerId: 'layer-seq', before, after }));
+    txn.commit('Atomic sequential frame');
+
+    await expect(manager.undo()).rejects.toBeInstanceOf(HistoryReplayApplyError);
+    const layer = useAppStore.getState().layers.find((entry) => entry.id === 'layer-seq');
+    expect(layer?.sequentialData?.events.map((event) => event.id)).toEqual(['event-a', 'event-b']);
+    expect(manager.entries()).toHaveLength(1);
+    expect(manager.redoEntries()).toHaveLength(0);
   });
 });

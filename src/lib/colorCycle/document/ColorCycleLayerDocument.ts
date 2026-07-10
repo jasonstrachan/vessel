@@ -116,6 +116,10 @@ export type ColorCycleLayerDocumentBaselineOptions = {
   version?: number;
   pixelVersion?: number;
   clearAudit?: boolean;
+  residency?: ColorCycleLayerDocumentResidency;
+  archiveRefs?: ColorCycleLayerDocumentArchiveRefs | null;
+  auditEntries?: readonly ColorCycleLayerDocumentAuditEntry[];
+  dirtyBatch?: ColorCycleLayerDirtyBatch | null;
 };
 
 export type ColorCycleLayerDocumentVersionAnchorOptions = {
@@ -647,7 +651,23 @@ export class ColorCycleLayerDocument {
     this.currentVersion = options.version ?? 0;
     this.currentPixelVersion = options.pixelVersion ?? this.currentVersion;
     this.dirtyTracker.clear();
-    if (options.clearAudit !== false) {
+    if (options.residency) {
+      this.currentResidency = options.residency;
+    }
+    if (Object.prototype.hasOwnProperty.call(options, 'archiveRefs')) {
+      this.currentArchiveRefs = options.archiveRefs ? { ...options.archiveRefs } : null;
+    }
+    if (options.dirtyBatch) {
+      this.dirtyTracker.markLayerDirty(
+        options.dirtyBatch.layerId,
+        options.dirtyBatch.version,
+        options.dirtyBatch.rects,
+      );
+    }
+    if (options.auditEntries) {
+      this.auditEntries.length = 0;
+      this.auditEntries.push(...options.auditEntries.map((entry) => ({ ...entry })));
+    } else if (options.clearAudit !== false) {
       this.auditEntries.length = 0;
     }
 

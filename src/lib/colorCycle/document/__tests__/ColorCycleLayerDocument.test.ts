@@ -301,6 +301,40 @@ describe('ColorCycleLayerDocument', () => {
     expect(document.getAuditLog()).toEqual([]);
   });
 
+  it('restores the complete runtime baseline envelope for replay compensation', () => {
+    const document = new ColorCycleLayerDocument(makeState(), {
+      initialVersion: 2,
+      initialPixelVersion: 2,
+      residency: 'cold-archive-ref',
+      archiveRefs: { paintRef: 'paint-ref' },
+      now: () => 1234,
+    });
+    document.replaceState(makeState({ paintSlot: 3 }), 'captured-state', {
+      force: true,
+      dirtyRects: [{ x: 0, y: 0, width: 1, height: 1 }],
+    });
+    const capturedRead = document.read();
+    const capturedAudit = document.getAuditLog();
+    const capturedDirtyBatch = document.peekDirtyBatch();
+
+    document.replaceResidency('resident', { archiveRefs: null });
+    document.replaceState(makeState({ paintSlot: 9 }), 'later-state', { force: true });
+    document.replaceBaseline(capturedRead.snapshot, {
+      version: capturedRead.version,
+      pixelVersion: capturedRead.pixelVersion,
+      residency: 'cold-archive-ref',
+      archiveRefs: { paintRef: 'paint-ref' },
+      auditEntries: capturedAudit,
+      dirtyBatch: capturedDirtyBatch,
+    });
+
+    expect(document.read()).toEqual(capturedRead);
+    expect(document.residency).toBe('cold-archive-ref');
+    expect(document.archiveRefs).toEqual({ paintRef: 'paint-ref' });
+    expect(document.getAuditLog()).toEqual(capturedAudit);
+    expect(document.peekDirtyBatch()).toEqual(capturedDirtyBatch);
+  });
+
   it('rejects missing transaction reasons and closed transaction reuse', () => {
     const document = new ColorCycleLayerDocument(makeState());
 

@@ -1,7 +1,14 @@
 import { useAppStore } from '@/stores/useAppStore';
 import type { Layer } from '@/types';
 
-import type { HistoryDelta, HistoryDirection, HistoryRehydrationTargets } from '../actionTypes';
+import {
+  createHistoryMutationTracker,
+  type HistoryDelta,
+  type HistoryDirection,
+  type HistoryMutationTracker,
+  type HistoryRehydrationTargets,
+  type PreparedHistoryDelta,
+} from '../actionTypes';
 import { readBlob, releaseBlob, storeBlob } from '../blobStore';
 import { HistoryBlobReadError, HistoryReplayDriftError } from '../errors';
 import {
@@ -324,31 +331,54 @@ class BitmapTileDelta implements HistoryDelta {
     this.approxBytes = total;
   }
 
-  async apply(direction: HistoryDirection): Promise<void> {
+  async prepare(direction: HistoryDirection): Promise<PreparedHistoryDelta> {
+    const requested = await this.preparePatches(direction, true);
+    const compensation = await this.preparePatches(direction === 'forward' ? 'backward' : 'forward', false);
+    const mutation = createHistoryMutationTracker();
+    return {
+      deltaTag: this._tag,
+      apply: () => this.applyPrepared(requested.patches, requested.decoded, mutation),
+      requiresCompensation: mutation.requiresCompensation,
+      compensate: () => this.applyPrepared(compensation.patches, compensation.decoded),
+      collectRehydrationTargets: (targets) => this.collectRehydrationTargets(targets),
+    };
+  }
+
+  async applyReplay(direction: HistoryDirection): Promise<void> {
+    const prepared = await this.prepare(direction);
+    await prepared.apply();
+  }
+
+  private async preparePatches(
+    direction: HistoryDirection,
+    validateCurrent: boolean,
+  ): Promise<{ patches: TilePatch[]; decoded: Array<{ patch: TilePatch; data: Uint8Array }> }> {
     const patches = direction === 'forward' ? this.forward : this.backward;
     if (patches.length === 0) {
-      return;
+      return { patches, decoded: [] };
     }
-    const expectedHash = direction === 'forward' ? this.beforeHash : this.afterHash;
-    const targetLayer = useAppStore.getState().layers.find((layer) => layer.id === this.layerId);
-    const actualHash =
-      this.validationMode === 'patches'
-        ? hashImagePatchRegions(
-            targetLayer?.imageData,
-            this.width,
-            this.height,
-            direction === 'forward' ? this.backward : this.forward
-          )
-        : hashImageData(targetLayer?.imageData, this.width, this.height);
-    if (actualHash !== expectedHash) {
-      throw new HistoryReplayDriftError({
-        deltaTag: this._tag,
-        direction,
-        layerId: this.layerId,
-        expected: expectedHash,
-        actual: actualHash,
-        reason: 'bitmap-content-hash-mismatch',
-      });
+    if (validateCurrent) {
+      const expectedHash = direction === 'forward' ? this.beforeHash : this.afterHash;
+      const targetLayer = useAppStore.getState().layers.find((layer) => layer.id === this.layerId);
+      const actualHash =
+        this.validationMode === 'patches'
+          ? hashImagePatchRegions(
+              targetLayer?.imageData,
+              this.width,
+              this.height,
+              direction === 'forward' ? this.backward : this.forward
+            )
+          : hashImageData(targetLayer?.imageData, this.width, this.height);
+      if (actualHash !== expectedHash) {
+        throw new HistoryReplayDriftError({
+          deltaTag: this._tag,
+          direction,
+          layerId: this.layerId,
+          expected: expectedHash,
+          actual: actualHash,
+          reason: 'bitmap-content-hash-mismatch',
+        });
+      }
     }
     const decoded = await Promise.all(
       patches.map(async (patch) => {
@@ -368,7 +398,20 @@ class BitmapTileDelta implements HistoryDelta {
         return { patch, data: buffer };
       })
     );
+    return { patches, decoded };
+  }
 
+  private applyPrepared(
+    patches: TilePatch[],
+    decoded: Array<{ patch: TilePatch; data: Uint8Array }>,
+    mutation?: HistoryMutationTracker,
+  ): void {
+    if (
+      patches.length > 0 &&
+      useAppStore.getState().layers.some((layer) => layer.id === this.layerId)
+    ) {
+      mutation?.markMutated();
+    }
     useAppStore.setState((state) => {
       const targetLayer = state.layers.find((layer) => layer.id === this.layerId);
       if (!targetLayer) {

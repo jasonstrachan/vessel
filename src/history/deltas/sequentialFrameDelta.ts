@@ -1,7 +1,8 @@
 import { useAppStore } from '@/stores/useAppStore';
 import type { SequentialLayerData, SequentialStrokeEvent } from '@/types';
 
-import type { HistoryDelta, HistoryDirection, HistoryRehydrationTargets } from '@/history/actionTypes';
+import type { HistoryDelta, HistoryDirection, HistoryRehydrationTargets, PreparedHistoryDelta } from '@/history/actionTypes';
+import { prepareAppStoreHistoryDelta } from '@/history/storeStateCompensation';
 
 const cloneSequentialEvents = (
   events: SequentialLayerData['events']
@@ -58,7 +59,22 @@ class SequentialFrameDelta implements HistoryDelta {
     this.approxBytes = Math.max(0, (before.events.length + after.events.length) * 64);
   }
 
-  apply(direction: HistoryDirection): void {
+  prepare(direction: HistoryDirection): PreparedHistoryDelta {
+    return prepareAppStoreHistoryDelta(
+      this._tag,
+      direction,
+      (nextDirection) => this.applyReplay(nextDirection),
+      [
+        'layers',
+        'layersNeedRecomposition',
+        'compositeSegments',
+        'pendingCompositeDirtyBatches',
+      ],
+      (targets) => this.collectRehydrationTargets(targets),
+    );
+  }
+
+  applyReplay(direction: HistoryDirection): void {
     const next = direction === 'forward' ? this.after : this.before;
     const state = useAppStore.getState();
     const targetLayer = state.layers.find((layer) => layer.id === this.layerId);
@@ -79,6 +95,7 @@ class SequentialFrameDelta implements HistoryDelta {
 
   collectRehydrationTargets(targets: HistoryRehydrationTargets): void {
     targets.layerIds.add(this.layerId);
+    targets.sequentialLayerIds.add(this.layerId);
   }
 }
 
@@ -131,7 +148,22 @@ class SequentialAppendFrameDelta implements HistoryDelta {
     this.approxBytes = Math.max(0, this.appendedEvents.length * 96);
   }
 
-  apply(direction: HistoryDirection): void {
+  prepare(direction: HistoryDirection): PreparedHistoryDelta {
+    return prepareAppStoreHistoryDelta(
+      this._tag,
+      direction,
+      (nextDirection) => this.applyReplay(nextDirection),
+      [
+        'layers',
+        'layersNeedRecomposition',
+        'compositeSegments',
+        'pendingCompositeDirtyBatches',
+      ],
+      (targets) => this.collectRehydrationTargets(targets),
+    );
+  }
+
+  applyReplay(direction: HistoryDirection): void {
     const state = useAppStore.getState();
     const targetLayer = state.layers.find((layer) => layer.id === this.layerId);
     if (!targetLayer || targetLayer.layerType !== 'sequential' || !targetLayer.sequentialData) {
@@ -176,6 +208,7 @@ class SequentialAppendFrameDelta implements HistoryDelta {
 
   collectRehydrationTargets(targets: HistoryRehydrationTargets): void {
     targets.layerIds.add(this.layerId);
+    targets.sequentialLayerIds.add(this.layerId);
   }
 }
 

@@ -336,7 +336,12 @@ export interface ProjectSlice {
     format: 'png',
     options?: { quality?: number; scale?: number }
   ) => Promise<void>;
-  newProject: (width: number, height: number, name?: string) => void;
+  newProject: (
+    width: number,
+    height: number,
+    name?: string,
+    options?: { preserveRecoverySession?: boolean }
+  ) => void;
   addCustomBrush: (brush: CustomBrush) => void;
   updateCustomBrush: (brushId: string, updates: Partial<CustomBrush>) => void;
   removeCustomBrush: (brushId: string) => void;
@@ -1015,12 +1020,6 @@ export const createProjectSlice =
             ...current.project,
             defaultCustomBrushId: nextDefault,
             updatedAt: new Date(),
-          },
-          autosave: {
-            ...current.autosave,
-            hasUnsavedChanges: true,
-            lastDirtyReason: 'project-change',
-            lastDirtyAt: new Date(),
           },
         };
       });

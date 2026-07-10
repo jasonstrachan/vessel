@@ -19,7 +19,10 @@ jest.mock('@/stores/useAppStore', () => {
     autosave: {
       isEnabled: false,
       isRunning: false,
+      isSessionSyncSuspended: false,
       hasUnsavedChanges: false,
+      dirtyRevision: 0,
+      savedRevision: 0,
       lastSaveTime: null,
       interval: 2,
       lastDirtyReason: null,
@@ -105,7 +108,10 @@ const createStoreStub = () => ({
   autosave: {
     isEnabled: false,
     hasUnsavedChanges: true,
+    dirtyRevision: 1,
+    savedRevision: 0,
     isRunning: false,
+    isSessionSyncSuspended: false,
     lastSaveTime: null,
     interval: 2,
     lastDirtyReason: null,
@@ -144,6 +150,7 @@ const createStoreStub = () => ({
   compositeLayersToCanvas: jest.fn(),
   captureCanvasToActiveLayer: jest.fn().mockResolvedValue(undefined),
   clearDirtyState: jest.fn(),
+  clearDirtyStateIfRevision: jest.fn(() => true),
   setSaveStatus: jest.fn(),
   clearSaveStatus: jest.fn(),
   markAutosaveDirty: jest.fn(),
@@ -161,7 +168,24 @@ describe('AutosaveService', () => {
     mockedStore.__emitMock();
     setStateMock.mockImplementation(() => {});
 
-    jest.spyOn(backgroundStorageService, 'saveProjectInBackground').mockResolvedValue(undefined);
+    jest.spyOn(backgroundStorageService, 'createAutosaveCapture').mockImplementation(
+      async (project, _layers, dirtyRevision) => ({
+        projectId: project.id,
+        projectName: project.name,
+        dirtyRevision,
+        serializedProject: new Uint8Array([1, 2, 3]),
+        timestamp: Date.now(),
+      }),
+    );
+    jest.spyOn(backgroundStorageService, 'saveProjectInBackground').mockImplementation(
+      async (capture) => ({
+        projectId: capture.projectId,
+        dirtyRevision: capture.dirtyRevision,
+        savedRevision: capture.dirtyRevision,
+        timestamp: capture.timestamp,
+        hasUnsavedChanges: false,
+      }),
+    );
     jest.spyOn(backgroundStorageService, 'updateSession').mockResolvedValue(undefined);
     jest.spyOn(fileBackupService, 'saveProjectBackup').mockResolvedValue({ success: true, filename: 'backup.json' });
     jest.spyOn(fileBackupService, 'setFileHandle').mockImplementation(() => {});
@@ -229,19 +253,173 @@ describe('AutosaveService', () => {
     expect(flushPendingToolWork).toHaveBeenCalledWith({ passiveOnly: true });
     expect(waitForFinalizeQueueIdle).toHaveBeenCalledTimes(1);
     expect(waitForAllPendingColorCycleSaves).toHaveBeenCalledTimes(1);
-    expect(backgroundStorageService.saveProjectInBackground).toHaveBeenCalledWith(
+    expect(backgroundStorageService.createAutosaveCapture).toHaveBeenCalledWith(
       expect.objectContaining({ palette: store.palette, referenceLayerId: store.referenceLayerId }),
-      store.layers
+      store.layers,
+      1,
     );
-    expect(store.clearDirtyState).toHaveBeenCalled();
-    const lastSaveCall = setStateMock.mock.calls.find(([arg]) => typeof arg === 'function');
-    expect(lastSaveCall).toBeDefined();
-    const updated = lastSaveCall?.[0]({
-      autosave: { lastSaveTime: null },
+    expect(backgroundStorageService.saveProjectInBackground).toHaveBeenCalledWith(
+      expect.objectContaining({ projectId: store.project.id, dirtyRevision: 1 }),
+    );
+    expect(store.clearDirtyState).not.toHaveBeenCalled();
+    expect(store.clearDirtyStateIfRevision).toHaveBeenCalledWith(
+      store.project.id,
+      1,
+      expect.any(Date),
+    );
+    expect(backgroundStorageService.updateSession).not.toHaveBeenCalledWith(
+      store.project.id,
+      false,
+    );
+  });
+
+  it('does not clear a newer edit that occurs while the background save is pending', async () => {
+    const store = getStateMock();
+    store.autosave.isEnabled = true;
+    let resolveSave: (() => void) | undefined;
+    (backgroundStorageService.saveProjectInBackground as jest.Mock).mockReturnValueOnce(
+      new Promise((resolve) => {
+        resolveSave = () => resolve({
+          projectId: store.project.id,
+          dirtyRevision: 1,
+          savedRevision: 1,
+          timestamp: Date.now(),
+          hasUnsavedChanges: false,
+        });
+      }),
+    );
+
+    const savePromise = autosaveService.triggerAutosave();
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    expect(backgroundStorageService.saveProjectInBackground).toHaveBeenCalledTimes(1);
+
+    store.autosave.dirtyRevision = 2;
+    store.autosave.hasUnsavedChanges = true;
+    resolveSave?.();
+    await savePromise;
+
+    expect(store.clearDirtyState).not.toHaveBeenCalled();
+    expect(store.clearDirtyStateIfRevision).toHaveBeenCalledWith(
+      store.project.id,
+      1,
+      expect.any(Date),
+    );
+    expect(store.setSaveStatus).toHaveBeenCalledWith(
+      'idle',
+      'autosave',
+      'Autosaved earlier changes; newer changes pending',
+    );
+  });
+
+  it('discards archive bytes serialized across two dirty revisions', async () => {
+    const store = getStateMock();
+    store.autosave.isEnabled = true;
+    let resolveCapture: ((capture: {
+      projectId: string;
+      projectName: string;
+      dirtyRevision: number;
+      serializedProject: Uint8Array;
+      timestamp: number;
+    }) => void) | undefined;
+    (backgroundStorageService.createAutosaveCapture as jest.Mock).mockReturnValueOnce(
+      new Promise((resolve) => {
+        resolveCapture = resolve;
+      }),
+    );
+
+    const savePromise = autosaveService.triggerAutosave();
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    expect(backgroundStorageService.createAutosaveCapture).toHaveBeenCalledTimes(1);
+
+    store.autosave.dirtyRevision = 2;
+    resolveCapture?.({
+      projectId: store.project.id,
+      projectName: store.project.name,
+      dirtyRevision: 1,
+      serializedProject: new Uint8Array([4, 5, 6]),
+      timestamp: Date.now(),
     });
-    expect(updated?.autosave.lastSaveTime).toBeInstanceOf(Date);
-    expect(setStateMock).toHaveBeenCalledWith({ paletteDirty: false });
-    expect(backgroundStorageService.updateSession).toHaveBeenCalledWith(store.project.id, false);
+    await savePromise;
+
+    expect(backgroundStorageService.saveProjectInBackground).not.toHaveBeenCalled();
+    expect(store.clearDirtyStateIfRevision).not.toHaveBeenCalled();
+    expect(store.setSaveStatus).toHaveBeenCalledWith(
+      'idle',
+      'autosave',
+      'Changes pending; autosave will retry',
+    );
+  });
+
+  it('discards a capture when the project is replaced during serialization', async () => {
+    const store = getStateMock();
+    store.autosave.isEnabled = true;
+    let resolveCapture: ((capture: {
+      projectId: string;
+      projectName: string;
+      dirtyRevision: number;
+      serializedProject: Uint8Array;
+      timestamp: number;
+    }) => void) | undefined;
+    (backgroundStorageService.createAutosaveCapture as jest.Mock).mockReturnValueOnce(
+      new Promise((resolve) => {
+        resolveCapture = resolve;
+      }),
+    );
+    const originalProject = store.project;
+
+    const savePromise = autosaveService.triggerAutosave();
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    store.project = { ...originalProject, id: 'replacement-project' };
+    store.autosave.dirtyRevision = 0;
+    resolveCapture?.({
+      projectId: originalProject.id,
+      projectName: originalProject.name,
+      dirtyRevision: 1,
+      serializedProject: new Uint8Array([7, 8, 9]),
+      timestamp: Date.now(),
+    });
+    await savePromise;
+
+    expect(backgroundStorageService.saveProjectInBackground).not.toHaveBeenCalled();
+    expect(store.clearDirtyStateIfRevision).not.toHaveBeenCalled();
+  });
+
+  it('stops completion side effects when the project is replaced during commit', async () => {
+    const store = getStateMock();
+    store.autosave.isEnabled = true;
+    store.autosave.fileBackup.enabled = true;
+    store.autosave.fileBackup.fileHandle = { id: 'old-file' } as unknown as FileSystemFileHandle;
+    let resolveCommit: ((result: {
+      projectId: string;
+      dirtyRevision: number;
+      savedRevision: number;
+      timestamp: number;
+      hasUnsavedChanges: boolean;
+    }) => void) | undefined;
+    (backgroundStorageService.saveProjectInBackground as jest.Mock).mockReturnValueOnce(
+      new Promise((resolve) => {
+        resolveCommit = resolve;
+      }),
+    );
+    const originalProject = store.project;
+
+    const savePromise = autosaveService.triggerAutosave();
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    store.project = { ...originalProject, id: 'replacement-project' };
+    resolveCommit?.({
+      projectId: originalProject.id,
+      dirtyRevision: 1,
+      savedRevision: 1,
+      timestamp: Date.now(),
+      hasUnsavedChanges: false,
+    });
+    await savePromise;
+
+    expect(store.clearDirtyStateIfRevision).not.toHaveBeenCalled();
+    expect(fileBackupService.saveProjectBackup).not.toHaveBeenCalled();
+    expect(store.updateFileBackupTime).not.toHaveBeenCalled();
+    expect(store.setSaveStatus).toHaveBeenCalledTimes(1);
+    expect(store.setSaveStatus).toHaveBeenCalledWith('saving', 'autosave', 'Autosaving...');
   });
 
   it('skips autosave while a floating paste is active', async () => {
@@ -298,20 +476,24 @@ describe('AutosaveService', () => {
     expect(backgroundStorageService.saveProjectInBackground).not.toHaveBeenCalled();
   });
 
-  it('should handle save errors gracefully', async () => {
+  it('keeps dirty state and reports an error when the commit transaction aborts', async () => {
     const store = getStateMock();
     store.autosave.isEnabled = true;
-    (backgroundStorageService.saveProjectInBackground as jest.Mock).mockRejectedValueOnce(new Error('Save failed'));
+    (backgroundStorageService.saveProjectInBackground as jest.Mock).mockRejectedValueOnce(
+      new DOMException('Quota exceeded', 'QuotaExceededError'),
+    );
 
     await autosaveService.triggerAutosave();
 
     expect(store.addNotification).toHaveBeenCalledWith({
       type: 'warning',
       title: 'Autosave Issue',
-      message: 'Background autosave encountered an issue. Your work is still safe.',
+      message: 'Background autosave failed. Unsaved changes remain in this session.',
       timestamp: expect.any(Date),
       duration: 3000
     });
+    expect(store.clearDirtyStateIfRevision).not.toHaveBeenCalled();
+    expect(store.autosave.hasUnsavedChanges).toBe(true);
   });
 
   it('writes file-backup when enabled with a file handle', async () => {
@@ -332,7 +514,8 @@ describe('AutosaveService', () => {
         referenceLayerId: store.referenceLayerId,
       }),
       store.layers,
-      'single-file'
+      'single-file',
+      { projectId: 'test-project', revision: 1 },
     );
     expect(store.updateFileBackupTime).toHaveBeenCalled();
   });
@@ -348,13 +531,38 @@ describe('AutosaveService', () => {
     await autosaveService.triggerAutosave();
 
     expect(fileBackupService.saveProjectBackup).not.toHaveBeenCalled();
-    expect(store.clearDirtyState).toHaveBeenCalled();
+    expect(store.clearDirtyState).not.toHaveBeenCalled();
+    expect(store.clearDirtyStateIfRevision).toHaveBeenCalled();
     expect(store.setSaveStatus).toHaveBeenCalledWith('saving', 'autosave', 'Autosaving...');
     expect(store.setSaveStatus).toHaveBeenCalledWith('saved', 'autosave', 'Autosave complete');
     expect(store.addNotification).toHaveBeenCalledWith({
       type: 'warning',
       title: 'Autosave Permission Needed',
       message: 'Autosave could not update the file because write permission was not granted. Re-open the project or choose a backup file.',
+      timestamp: expect.any(Date),
+      duration: 5000,
+    });
+  });
+
+  it('keeps the primary autosave committed but visibly reports a backup-file failure', async () => {
+    const store = getStateMock();
+    store.autosave.isEnabled = true;
+    store.autosave.fileBackup.enabled = true;
+    store.autosave.fileBackup.mode = 'single-file';
+    store.autosave.fileBackup.fileHandle = { id: 'fh-failure' } as unknown as FileSystemFileHandle;
+    (fileBackupService.saveProjectBackup as jest.Mock).mockResolvedValueOnce({
+      success: false,
+      error: 'Disk is full',
+    });
+
+    await autosaveService.triggerAutosave();
+
+    expect(store.clearDirtyStateIfRevision).toHaveBeenCalled();
+    expect(store.updateFileBackupTime).not.toHaveBeenCalled();
+    expect(store.addNotification).toHaveBeenCalledWith({
+      type: 'warning',
+      title: 'Backup File Not Updated',
+      message: 'Disk is full',
       timestamp: expect.any(Date),
       duration: 5000,
     });
@@ -398,7 +606,7 @@ describe('AutosaveService', () => {
 
     await autosaveService.triggerAutosave();
 
-    const persistedLayers = (backgroundStorageService.saveProjectInBackground as jest.Mock).mock.calls[0]?.[1];
+    const persistedLayers = (backgroundStorageService.createAutosaveCapture as jest.Mock).mock.calls[0]?.[1];
     expect(Array.isArray(persistedLayers)).toBe(true);
     expect(persistedLayers[0].layerType).toBe('sequential');
     expect(persistedLayers[0].sequentialData).toEqual(store.layers[0].sequentialData);

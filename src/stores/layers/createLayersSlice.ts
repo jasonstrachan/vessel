@@ -350,7 +350,7 @@ export interface LayersSlice {
   setLayerGroupVisibility: (groupId: string, visible: boolean) => void;
   setSelectedLayerIds: (layerIds: string[]) => void;
   mergeLayers: (layerIds: string[]) => string | null;
-  setActiveLayer: (id: string, opts?: { preserveSelection?: boolean }) => void;
+  setActiveLayer: (id: string | null, opts?: SetActiveLayerOptions) => void;
   setReferenceLayer: (id: string | null) => void;
   reorderLayers: (sourceIndex: number, destinationIndex: number) => void;
   reorderLayerBlock: (layerIds: string[], destinationIndex: number) => void;
@@ -392,6 +392,14 @@ export interface LayersSlice {
     sourceCanvas: HTMLCanvasElement,
     targetLayerId: string | null
   ) => Promise<void>;
+}
+
+export interface SetActiveLayerOptions {
+  preserveSelection?: boolean;
+  /** Previous layer captured before a structural replay replaced the layer array. */
+  previousActiveLayer?: Layer | null;
+  /** Re-run runtime/tool lifecycle even when the active id itself is unchanged. */
+  forceLifecycle?: boolean;
 }
 
 export interface LayersSliceOptions {
@@ -2221,21 +2229,22 @@ export const createLayersSlice = (
     return mergedLayerId;
   },
   setActiveLayer: (id, opts) => set((state) => {
-    const layer = state.layers.find(l => l.id === id);
-    if (!layer) {
+    const layer = id ? state.layers.find(l => l.id === id) : null;
+    if (id && !layer) {
       logError('setActiveLayer: Invalid layer ID', id);
       return state;
     }
 
     // Fast path: avoid rerunning selection/runtime work when nothing changes.
-    if (state.activeLayerId === id) {
+    if (!opts?.forceLifecycle && state.activeLayerId === id) {
       if (opts?.preserveSelection) {
-        if (state.selectedLayerIds.includes(id)) {
+        if (id ? state.selectedLayerIds.includes(id) : state.selectedLayerIds.length === 0) {
           return state;
         }
       } else if (
-        state.selectedLayerIds.length === 1 &&
-        state.selectedLayerIds[0] === id
+        id
+          ? state.selectedLayerIds.length === 1 && state.selectedLayerIds[0] === id
+          : state.selectedLayerIds.length === 0
       ) {
         return state;
       }
@@ -2243,22 +2252,38 @@ export const createLayersSlice = (
     // quiet
 
     // When switching away from a color-cycle layer, mark it as inactive
-    const currentActiveLayer = state.layers.find(l => l.id === state.activeLayerId);
+    const currentActiveLayer = opts?.previousActiveLayer !== undefined
+      ? opts.previousActiveLayer
+      : state.layers.find(l => l.id === state.activeLayerId);
     if (currentActiveLayer?.layerType === 'color-cycle' && currentActiveLayer.id !== id) {
       try {
         // Mark the old layer's brush as inactive
         if (colorCycleBrushManager) {
-          if (state.activeLayerId) {
-            try { colorCycleBrushManager.setActiveState(state.activeLayerId, false); } catch (e) { logError('CC cleanup error (non-fatal): setActiveState', e); }
+          if (currentActiveLayer.id) {
+            try {
+              colorCycleBrushManager.setActiveState(currentActiveLayer.id, false);
+            } catch (e) {
+              logError('CC cleanup error (non-fatal): setActiveState', e);
+              if (opts?.forceLifecycle) {
+                throw e;
+              }
+            }
             // End any active strokes
             try {
-              const oldBrush = colorCycleBrushManager.getLayerActivationBrush(state.activeLayerId);
-              oldBrush?.endStroke?.(state.activeLayerId);
-            } catch (e) { logError('CC cleanup error (non-fatal): endStroke', e); }
+              const oldBrush = colorCycleBrushManager.getLayerActivationBrush(currentActiveLayer.id);
+              oldBrush?.endStroke?.(currentActiveLayer.id);
+            } catch (e) {
+              logError('CC cleanup error (non-fatal): endStroke', e);
+              if (opts?.forceLifecycle) {
+                throw e;
+              }
+            }
           }
         }
-      } catch {
-        // quiet
+      } catch (error) {
+        if (opts?.forceLifecycle) {
+          throw error;
+        }
       }
       // quiet
     }
@@ -2266,6 +2291,9 @@ export const createLayersSlice = (
     // If switching to a color-cycle layer in BRUSH context, validate/reinit brush resources.
     // Skip entirely when the Recolor tool is active so we don't override recolor mode.
     const baseSelection = (() => {
+      if (!id) {
+        return [];
+      }
       if (opts?.preserveSelection) {
         return state.selectedLayerIds.includes(id)
           ? state.selectedLayerIds
@@ -2274,7 +2302,7 @@ export const createLayersSlice = (
       return [id];
     })();
 
-    if (layer?.layerType === 'color-cycle' && state.tools.currentTool !== 'recolor') {
+    if (id && layer?.layerType === 'color-cycle' && state.tools.currentTool !== 'recolor') {
       const isColdRuntimeLayer = isDocumentColdColorCycleLayer(layer);
       const shouldRestoreDeferredRuntime = Boolean(
         isColdRuntimeLayer && (
@@ -2297,28 +2325,43 @@ export const createLayersSlice = (
         const height = state.project?.height || 1024;
         // Note: gradient is in { position, color }[] format, but initColorCycleForLayer expects Uint8Array
         try {
-          colorCycleBrushManager.initColorCycleForLayer(
+          const initialized = colorCycleBrushManager.initColorCycleForLayer(
           id,
           width,
           height,
           undefined
         );
+          if (!initialized && opts?.forceLifecycle) {
+            throw new Error(`Failed to initialize color-cycle runtime for active layer ${id}`);
+          }
         } catch (e) {
           logError('Error re-initializing color cycle brush on setActiveLayer', e);
+          if (opts?.forceLifecycle) {
+            throw e;
+          }
         }
         // quiet
       }
 
       // Mark as active
-      try { colorCycleBrushManager.setActiveState(id, true); } catch (e) { logError('Color cycle setActiveState error', e); }
+      try {
+        colorCycleBrushManager.setActiveState(id, true);
+      } catch (e) {
+        logError('Color cycle setActiveState error', e);
+        if (opts?.forceLifecycle) {
+          throw e;
+        }
+      }
 
       // Ensure brush tracks the active layer before runtime sync
       if (!isColdRuntimeLayer) {
         try {
         const colorCycleBrush = colorCycleBrushManager.getLayerActivationBrush(id);
         colorCycleBrush?.setActiveLayer?.(id);
-        } catch {
-          // quiet
+        } catch (error) {
+          if (opts?.forceLifecycle) {
+            throw error;
+          }
         }
       }
 
@@ -2410,6 +2453,9 @@ export const createLayersSlice = (
           target: summarizeLayerForActivationDebug(layer),
           error: error instanceof Error ? error.message : String(error),
         });
+        if (opts?.forceLifecycle) {
+          throw error;
+        }
       }
 
       return result;

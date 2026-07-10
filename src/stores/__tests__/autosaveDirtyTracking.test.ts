@@ -7,6 +7,8 @@ const resetAutosaveState = () => {
     autosave: {
       ...state.autosave,
       hasUnsavedChanges: false,
+      dirtyRevision: 0,
+      savedRevision: 0,
       lastDirtyReason: null,
       lastDirtyAt: null,
     },
@@ -102,13 +104,41 @@ describe('autosave dirty tracking', () => {
     expect(autosave.lastDirtyReason).toBe('history-change');
   });
 
+  it('assigns a new revision to repeated dirty mutations with the same reason', () => {
+    const store = useAppStore.getState();
+    store.markAutosaveDirty('layer-change');
+    const firstRevision = useAppStore.getState().autosave.dirtyRevision;
+    store.markAutosaveDirty('layer-change');
+
+    expect(firstRevision).toBe(1);
+    expect(useAppStore.getState().autosave.dirtyRevision).toBe(2);
+  });
+
+  it('marks layer-group-only mutations dirty', () => {
+    useAppStore.setState((state) => ({
+      layerGroups: [
+        ...state.layerGroups,
+        { id: 'group-autosave', name: 'Autosave Group' },
+      ],
+    }));
+
+    expect(useAppStore.getState().autosave).toEqual(expect.objectContaining({
+      hasUnsavedChanges: true,
+      dirtyRevision: 1,
+      lastDirtyReason: 'layer-change',
+    }));
+  });
+
   it('clearDirtyState resets reason metadata', () => {
     const store = useAppStore.getState();
     store.markAutosaveDirty('manual');
+    const dirtyRevision = useAppStore.getState().autosave.dirtyRevision;
     store.clearDirtyState();
 
     const autosave = useAppStore.getState().autosave;
     expect(autosave.hasUnsavedChanges).toBe(false);
+    expect(autosave.dirtyRevision).toBe(dirtyRevision);
+    expect(autosave.savedRevision).toBe(dirtyRevision);
     expect(autosave.lastDirtyReason).toBeNull();
     expect(autosave.lastDirtyAt).toBeNull();
   });

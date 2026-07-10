@@ -1,9 +1,12 @@
 import { useAppStore } from '@/stores/useAppStore';
-import type {
-  HistoryDelta,
-  HistoryDirection,
-  HistoryRehydrationTargets,
+import {
+  prepareHistoryDelta,
+  type PreparedHistoryDelta,
+  type HistoryDelta,
+  type HistoryDirection,
+  type HistoryRehydrationTargets,
 } from '../actionTypes';
+import { restoreOwnedProperties } from '@/history/storeStateCompensation';
 
 export interface ProjectViewState {
   width: number;
@@ -50,7 +53,71 @@ export class ProjectTransformDelta implements HistoryDelta {
     private readonly afterState: ProjectViewState,
   ) {}
 
-  apply(direction: HistoryDirection): void {
+  prepare(direction: HistoryDirection): PreparedHistoryDelta {
+    const state = useAppStore.getState();
+    const projectId = state.project?.id ?? null;
+    const projectSnapshot = state.project;
+    const layers = state.layers;
+    const canvasGeometry = {
+      zoom: state.canvas.zoom,
+      offsetX: state.canvas.offsetX,
+      offsetY: state.canvas.offsetY,
+      canvasWidth: state.canvas.canvasWidth,
+      canvasHeight: state.canvas.canvasHeight,
+    };
+    const canvasViewport = state.canvasViewport;
+    const layersNeedRecomposition = state.layersNeedRecomposition;
+    const target = direction === 'forward' ? this.afterState : this.beforeState;
+    const isCurrentProject = (): boolean =>
+      (useAppStore.getState().project?.id ?? null) === projectId;
+    const requiresCompensation = (): boolean => {
+      if (!isCurrentProject()) return false;
+      const current = useAppStore.getState();
+      return (
+        !Object.is(current.layers, layers) ||
+        current.project?.width !== projectSnapshot?.width ||
+        current.project?.height !== projectSnapshot?.height ||
+        !Object.is(current.project?.updatedAt, projectSnapshot?.updatedAt) ||
+        !Object.is(current.project?.canvasShape, projectSnapshot?.canvasShape) ||
+        current.canvas.zoom !== canvasGeometry.zoom ||
+        current.canvas.offsetX !== canvasGeometry.offsetX ||
+        current.canvas.offsetY !== canvasGeometry.offsetY ||
+        current.canvas.canvasWidth !== canvasGeometry.canvasWidth ||
+        current.canvas.canvasHeight !== canvasGeometry.canvasHeight ||
+        (target.viewport ? !Object.is(current.canvasViewport, canvasViewport) : false) ||
+        current.layersNeedRecomposition !== layersNeedRecomposition
+      );
+    };
+
+    return prepareHistoryDelta(
+      this._tag,
+      () => this.applyReplay(direction),
+      requiresCompensation,
+      () => {
+        if (!isCurrentProject()) return;
+        useAppStore.setState((current) => ({
+          layers,
+          project: current.project && projectSnapshot
+            ? restoreOwnedProperties(current.project, projectSnapshot, [
+                'width',
+                'height',
+                'updatedAt',
+                'canvasShape',
+              ])
+            : current.project,
+          canvas: {
+            ...current.canvas,
+            ...canvasGeometry,
+          },
+          ...(target.viewport ? { canvasViewport } : {}),
+          layersNeedRecomposition,
+        }));
+      },
+      (targets) => this.collectRehydrationTargets(targets),
+    );
+  }
+
+  applyReplay(direction: HistoryDirection): void {
     const target = direction === 'forward' ? this.afterState : this.beforeState;
     applyState(target);
   }

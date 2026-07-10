@@ -23,7 +23,7 @@ import {
   type ColorCycleBrushManager,
   type ColorCycleBrushRuntimeHost,
 } from '../colorCycleBrushManager';
-import { setActiveHistoryDocument } from '@/history/historyService';
+import historyManager, { setActiveHistoryDocument } from '@/history/historyService';
 import { logError, debugWarn } from '@/utils/debug';
 import { captureCanvasImageData } from '@/utils/canvas/canvasImage';
 import { devLog } from '@/utils/devLog';
@@ -108,6 +108,7 @@ export const createProjectLifecycle = ({
   syncPercentOffsetsFromPixels,
 }: ProjectLifecycleOptions) => {
   const autosaveLog = devLog.scope('AUTOSAVE');
+  let latestProjectReplacementRequest = 0;
   const resetColorCycleRuntimeForProjectReplacement = (reason: string): void => {
     const currentState = get();
     try {
@@ -124,6 +125,8 @@ export const createProjectLifecycle = ({
   };
 
   const setProject = (project: Project): void => {
+    historyManager.assertDocumentReplacementAvailable();
+    latestProjectReplacementRequest += 1;
     const normalized = normalizeProject(project);
     setActiveHistoryDocument(normalized.id);
 
@@ -211,14 +214,30 @@ export const createProjectLifecycle = ({
     persistCustomBrushes();
   };
 
-  const applyLoadedProject = async (loadedProject: Project): Promise<void> => {
+  const applyLoadedProject = async (
+    loadedProject: Project,
+    replacementRequest: number,
+  ): Promise<boolean> => {
     const state = get();
     const restoreColorCycleBrushManager = createColorCycleBrushManager();
-    const layersWithRestoredColorCycles = await restoreColorCycleBrushes(loadedProject.layers, {
-      lazy: true,
-      activeLayerId: loadedProject.layers[0]?.id ?? null,
-      colorCycleBrushManager: restoreColorCycleBrushManager,
-    });
+    const [layersWithRestoredColorCycles, revisionFloor] = await Promise.all([
+      restoreColorCycleBrushes(loadedProject.layers, {
+        lazy: true,
+        activeLayerId: loadedProject.layers[0]?.id ?? null,
+        colorCycleBrushManager: restoreColorCycleBrushManager,
+      }),
+      backgroundStorageService.getAutosaveRevisionFloor(loadedProject.id).catch((error) => {
+        debugWarn(
+          'raw-console',
+          '[Store] Failed to hydrate persisted autosave revision:',
+          error,
+        );
+        return 0;
+      }),
+    ]);
+    if (replacementRequest !== latestProjectReplacementRequest) {
+      return false;
+    }
     const finalLayers = layersWithRestoredColorCycles ?? loadedProject.layers;
 
     const normalizedProject = normalizeProject(loadedProject);
@@ -242,6 +261,7 @@ export const createProjectLifecycle = ({
         : null;
     const nextActiveLayerId = syncedLayers[0]?.id ?? null;
 
+    historyManager.assertDocumentReplacementAvailable();
     resetColorCycleRuntimeForProjectReplacement('project-load');
 
     set({
@@ -269,6 +289,14 @@ export const createProjectLifecycle = ({
       brushSpecificSettings: loadedProject.brushSpecificSettings ?? {},
       globalBrushSize: loadedProject.globalBrushSize ?? 10,
       tools: toolsWithPalette,
+      autosave: {
+        ...state.autosave,
+        hasUnsavedChanges: false,
+        dirtyRevision: revisionFloor,
+        savedRevision: revisionFloor,
+        lastDirtyReason: null,
+        lastDirtyAt: null,
+      },
     });
     get().setLayersNeedRecomposition(true);
     if (repairedLayerIdCount > 0) {
@@ -386,6 +414,12 @@ export const createProjectLifecycle = ({
     }
 
     get().clearHistory();
+    get().clearDirtyState({ resetSession: false });
+    const hydratedAutosave = get().autosave;
+    void backgroundStorageService.updateSession(normalizedProject.id, false, {
+      dirtyRevision: hydratedAutosave.dirtyRevision,
+      savedRevision: hydratedAutosave.savedRevision,
+    }).catch(() => undefined);
 
     setTimeout(() => {
       const current = get();
@@ -400,13 +434,18 @@ export const createProjectLifecycle = ({
       message: `${loadedProject.name} has been loaded successfully`,
       timestamp: new Date(),
     });
+    return true;
   };
+
+  let latestManualSaveRequest = 0;
 
   const saveProject = async (request?: SaveProjectRequest): Promise<void> => {
     const state = get();
     if (!state.project) {
       throw new Error('No project to save');
     }
+    const requestedProjectId = state.project.id;
+    const saveRequest = ++latestManualSaveRequest;
 
     try {
       state.setSaveStatus('saving', 'manual', 'Saving project...');
@@ -415,9 +454,14 @@ export const createProjectLifecycle = ({
       await waitForAllPendingColorCycleSaves();
 
       const freshState = get();
+      if (!freshState.project || freshState.project.id !== requestedProjectId) {
+        return;
+      }
       if (freshState.floatingPaste?.active) {
         throw new Error('Finish or cancel the floating selection before saving.');
       }
+      const capturedProjectId = freshState.project.id;
+      const capturedRevision = freshState.autosave.dirtyRevision;
       const requestOptions =
         typeof request === 'string' ? { filename: request } : request ?? {};
       const layersForSave = await Promise.all(
@@ -505,55 +549,101 @@ export const createProjectLifecycle = ({
 
       const preferredName =
         requestOptions.filename ?? state.projectFilename ?? state.project.name;
-      const { fileName: savedFileName, fileHandle } = await saveProjectToFile(
+      const { fileName: savedFileName, fileHandle, writeStatus } = await saveProjectToFile(
         projectWithViewState,
         preferredName,
         layersForSave,
-        requestOptions.forceDialog ? null : state.projectFileHandle ?? undefined
+        requestOptions.forceDialog ? null : state.projectFileHandle ?? undefined,
+        { projectId: capturedProjectId, revision: capturedRevision },
       );
+
+      if (saveRequest !== latestManualSaveRequest) {
+        return;
+      }
+      if (get().project?.id !== capturedProjectId) {
+        return;
+      }
+      if (writeStatus === 'superseded') {
+        return;
+      }
+      if (get().autosave.savedRevision > capturedRevision) {
+        return;
+      }
 
       const nextFileHandle = fileHandle ?? state.projectFileHandle ?? null;
       if (nextFileHandle) {
-        fileBackupService.setFileHandle(nextFileHandle);
         await fileBackupService.ensureFileWritePermission(nextFileHandle, { requestIfNeeded: true });
       }
 
       const savedAt = new Date();
       set((current) => ({
-        paletteDirty: false,
-        projectFilename: savedFileName ?? null,
-        projectFileHandle: nextFileHandle,
-        autosave: nextFileHandle
+        ...(current.project?.id === capturedProjectId
           ? {
-              ...current.autosave,
-              lastSaveTime: savedAt,
-              fileBackup: {
-                ...current.autosave.fileBackup,
-                enabled: true,
-                mode: 'single-file',
-                fileHandle: nextFileHandle,
-                directoryHandle: null,
-                backupPath: savedFileName ?? current.projectFilename ?? current.autosave.fileBackup.backupPath,
-              },
+              projectFilename: savedFileName ?? null,
+              projectFileHandle: nextFileHandle,
+              autosave: nextFileHandle
+                ? {
+                    ...current.autosave,
+                    fileBackup: {
+                      ...current.autosave.fileBackup,
+                      enabled: true,
+                      mode: 'single-file' as const,
+                      fileHandle: nextFileHandle,
+                      directoryHandle: null,
+                      backupPath:
+                        savedFileName
+                        ?? current.projectFilename
+                        ?? current.autosave.fileBackup.backupPath,
+                    },
+                  }
+                : current.autosave,
             }
-          : {
-              ...current.autosave,
-              lastSaveTime: savedAt,
-            },
+          : {}),
       }));
-      state.clearDirtyState();
-      void backgroundStorageService
-        .updateSession(freshState.project!.id, false)
-        .catch(() => undefined);
 
-      state.addNotification({
+      const stateBeforeCompletion = get();
+      if (stateBeforeCompletion.project?.id !== capturedProjectId) {
+        return;
+      }
+      if (nextFileHandle) {
+        fileBackupService.setFileHandle(nextFileHandle);
+      }
+      const didClear = stateBeforeCompletion.clearDirtyStateIfRevision(
+        capturedProjectId,
+        capturedRevision,
+        savedAt,
+      );
+      const completionState = get();
+      void backgroundStorageService.updateSession(
+        capturedProjectId,
+        completionState.autosave.hasUnsavedChanges,
+        {
+          dirtyRevision: completionState.autosave.dirtyRevision,
+          savedRevision: completionState.autosave.savedRevision,
+          lastSaveTime: savedAt.getTime(),
+        },
+      ).catch(() => undefined);
+
+      completionState.addNotification({
         type: 'success',
         title: 'Project Saved',
-        message: `${savedFileName || state.project.name} has been saved successfully`,
+        message: didClear
+          ? `${savedFileName || state.project.name} has been saved successfully`
+          : `${savedFileName || state.project.name} was saved; newer changes remain unsaved`,
         timestamp: new Date(),
       });
-      state.setSaveStatus('saved', 'manual', 'Project saved');
+      completionState.setSaveStatus(
+        didClear ? 'saved' : 'idle',
+        'manual',
+        didClear ? 'Project saved' : 'Saved earlier changes; newer changes pending',
+      );
     } catch (error) {
+      if (
+        saveRequest !== latestManualSaveRequest ||
+        get().project?.id !== requestedProjectId
+      ) {
+        return;
+      }
       if (error instanceof DOMException && error.name === 'AbortError') {
         state.clearSaveStatus();
         return;
@@ -571,6 +661,7 @@ export const createProjectLifecycle = ({
 
   const loadProject = async (): Promise<void> => {
     const state = get();
+    const replacementRequest = ++latestProjectReplacementRequest;
 
     try {
       const { project: loadedProject, migration, fileName, fileHandle } = await loadProjectFromFile();
@@ -582,7 +673,10 @@ export const createProjectLifecycle = ({
         handleName: (attachedFileHandle as FileSystemFileHandle | null)?.name ?? null,
         detachedForRepair: shouldDetachLoadedHandle,
       });
-      await applyLoadedProject(loadedProject);
+      const didApply = await applyLoadedProject(loadedProject, replacementRequest);
+      if (!didApply) {
+        return;
+      }
       if (migration?.shouldMarkDirty) {
         get().markAutosaveDirty('manual');
         get().addNotification({
@@ -593,8 +687,16 @@ export const createProjectLifecycle = ({
         });
       }
       if (attachedFileHandle) {
-        fileBackupService.setFileHandle(attachedFileHandle);
         await fileBackupService.ensureFileWritePermission(attachedFileHandle);
+      }
+      if (
+        replacementRequest !== latestProjectReplacementRequest ||
+        get().project?.id !== loadedProject.id
+      ) {
+        return;
+      }
+      if (attachedFileHandle) {
+        fileBackupService.setFileHandle(attachedFileHandle);
       }
       set((current) => ({
         projectFilename: fileName ?? null,
@@ -623,6 +725,9 @@ export const createProjectLifecycle = ({
             },
       }));
     } catch (error) {
+      if (replacementRequest !== latestProjectReplacementRequest) {
+        return;
+      }
       ccWarn('loadProject failed', {
         message: error instanceof Error ? error.message : String(error),
       });
@@ -641,13 +746,25 @@ export const createProjectLifecycle = ({
     options?: { fileName?: string | null; fileHandle?: FileSystemFileHandle | null }
   ): Promise<void> => {
     const state = get();
+    const replacementRequest = ++latestProjectReplacementRequest;
 
     try {
-      await applyLoadedProject(project);
+      const didApply = await applyLoadedProject(project, replacementRequest);
+      if (!didApply) {
+        return;
+      }
       const fileHandle = options?.fileHandle ?? null;
       if (fileHandle) {
-        fileBackupService.setFileHandle(fileHandle);
         await fileBackupService.ensureFileWritePermission(fileHandle);
+      }
+      if (
+        replacementRequest !== latestProjectReplacementRequest ||
+        get().project?.id !== project.id
+      ) {
+        return;
+      }
+      if (fileHandle) {
+        fileBackupService.setFileHandle(fileHandle);
       }
       set((current) => ({
         projectFilename: options?.fileName ?? null,
@@ -676,6 +793,9 @@ export const createProjectLifecycle = ({
             },
       }));
     } catch (error) {
+      if (replacementRequest !== latestProjectReplacementRequest) {
+        return;
+      }
       ccWarn('importProject failed', {
         message: error instanceof Error ? error.message : String(error),
       });
@@ -721,8 +841,18 @@ export const createProjectLifecycle = ({
     }
   };
 
-  const newProject = (width: number, height: number, name = 'Untitled'): void => {
+  const newProject = (
+    width: number,
+    height: number,
+    name = 'Untitled',
+    options?: { preserveRecoverySession?: boolean },
+  ): void => {
+    historyManager.assertDocumentReplacementAvailable();
+    latestProjectReplacementRequest += 1;
     const currentState = get();
+    if (options?.preserveRecoverySession === true) {
+      currentState.setAutosaveSessionSyncSuspended(true);
+    }
     resetColorCycleRuntimeForProjectReplacement('new-project');
     const layerIdFactory = () => `layer-${Date.now()}-${Math.random()}`;
     const makeFramebuffer = (): OffscreenCanvas | HTMLCanvasElement => {
@@ -885,15 +1015,43 @@ export const createProjectLifecycle = ({
 
     if (typeof window !== 'undefined') {
       setTimeout(() => {
+        const stateBeforeInitialization = get();
+        const isCurrentProject =
+          stateBeforeInitialization.project?.id === normalizedProject.id;
+        if (!isCurrentProject) {
+          if (options?.preserveRecoverySession === true) {
+            stateBeforeInitialization.setAutosaveSessionSyncSuspended(false);
+          }
+          return;
+        }
+        const shouldRemainClean = !stateBeforeInitialization.autosave.hasUnsavedChanges;
         try {
           get().initColorCycleForLayer(colorCycleLayerId, width, height);
         } catch (error) {
           logError('[Store] Failed to initialize default color cycle layer', error);
+        } finally {
+          if (shouldRemainClean && get().project?.id === normalizedProject.id) {
+            get().clearDirtyState({
+              resetSession: options?.preserveRecoverySession !== true,
+            });
+          }
+          if (options?.preserveRecoverySession === true) {
+            get().setAutosaveSessionSyncSuspended(false);
+          }
         }
       }, 0);
     }
 
     get().clearHistory();
+    get().clearDirtyState({
+      resetSession: options?.preserveRecoverySession !== true,
+    });
+    if (
+      typeof window === 'undefined' &&
+      options?.preserveRecoverySession === true
+    ) {
+      get().setAutosaveSessionSyncSuspended(false);
+    }
 
     persistCustomBrushes();
   };

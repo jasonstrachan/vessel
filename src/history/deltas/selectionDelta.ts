@@ -1,5 +1,6 @@
 import { useAppStore } from '@/stores/useAppStore';
-import type { HistoryDelta, HistoryDirection } from '../actionTypes';
+import type { HistoryDelta, HistoryDirection, PreparedHistoryDelta } from '../actionTypes';
+import { prepareAppStoreHistoryDelta } from '@/history/storeStateCompensation';
 import {
   cloneSelectionSnapshot,
   normalizeSelectionSnapshot,
@@ -16,7 +17,24 @@ class SelectionBoundsDelta implements HistoryDelta {
     private readonly afterSnapshot: SelectionSnapshot,
   ) {}
 
-  apply(direction: HistoryDirection): void {
+  prepare(direction: HistoryDirection): PreparedHistoryDelta {
+    return prepareAppStoreHistoryDelta(
+      this._tag,
+      direction,
+      (nextDirection) => this.applyReplay(nextDirection),
+      [
+        'selectionStart',
+        'selectionEnd',
+        'selectionVectorPath',
+        'selectionMask',
+        'selectionMaskBounds',
+        'selectionMaskLayerId',
+        'selectionLastAction',
+      ],
+    );
+  }
+
+  applyReplay(direction: HistoryDirection): void {
     const targetSnapshot =
       direction === 'forward'
         ? this.afterSnapshot

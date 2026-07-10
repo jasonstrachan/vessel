@@ -1,4 +1,5 @@
 import { createLayerStructureDelta } from '@/history/deltas/layerStructureDelta';
+import { replayDeltaForTest } from '@/history/__tests__/replayTestUtils';
 import { createRehydrationTargets } from '@/history/runtimeRehydration';
 import { useAppStore } from '@/stores/useAppStore';
 import type { CanvasSnapshot, Layer, LayerGroup } from '@/types';
@@ -83,7 +84,7 @@ describe('LayerStructureDelta', () => {
     }));
   });
 
-  it('replays layer order and active layer in both directions', () => {
+  it('replays layer order and active layer in both directions', async () => {
     const beforeLayers = [createLayer('layer-a', 0), createLayer('layer-b', 1, 'color-cycle')];
     const afterLayers = [beforeLayers[1]!, beforeLayers[0]!];
 
@@ -92,20 +93,20 @@ describe('LayerStructureDelta', () => {
       after: createLayerStructureSnapshot('after', afterLayers, 'layer-b', ['layer-b', 'layer-a'], 'layer-b'),
     });
 
-    delta.apply('forward');
+    await replayDeltaForTest(delta, 'forward');
     expect(useAppStore.getState().layers.map((layer) => layer.id)).toEqual(['layer-b', 'layer-a']);
     expect(useAppStore.getState().activeLayerId).toBe('layer-b');
     expect(useAppStore.getState().selectedLayerIds).toEqual(['layer-b', 'layer-a']);
     expect(useAppStore.getState().referenceLayerId).toBe('layer-b');
 
-    delta.apply('backward');
+    await replayDeltaForTest(delta, 'backward');
     expect(useAppStore.getState().layers.map((layer) => layer.id)).toEqual(['layer-a', 'layer-b']);
     expect(useAppStore.getState().activeLayerId).toBe('layer-a');
     expect(useAppStore.getState().selectedLayerIds).toEqual(['layer-a']);
     expect(useAppStore.getState().referenceLayerId).toBe('layer-a');
   });
 
-  it('replays layer group registry in both directions', () => {
+  it('replays layer group registry in both directions', async () => {
     const beforeLayers = [createLayer('layer-a', 0), createLayer('layer-b', 1)];
     const afterLayers = [
       { ...beforeLayers[0]!, groupId: 'group-1' },
@@ -124,11 +125,74 @@ describe('LayerStructureDelta', () => {
       ),
     });
 
-    delta.apply('forward');
+    await replayDeltaForTest(delta, 'forward');
     expect(useAppStore.getState().layerGroups).toEqual([{ id: 'group-1', name: 'Group 1' }]);
 
-    delta.apply('backward');
+    await replayDeltaForTest(delta, 'backward');
     expect(useAppStore.getState().layerGroups).toEqual([]);
+  });
+
+  it('routes restored active layers through the store runtime lifecycle', async () => {
+    const beforeLayers = [createLayer('layer-a', 0), createLayer('layer-b', 1, 'color-cycle')];
+    const afterLayers = [beforeLayers[1]!, beforeLayers[0]!];
+    useAppStore.setState({
+      layers: afterLayers,
+      activeLayerId: 'layer-b',
+      selectedLayerIds: ['layer-b'],
+    });
+    const originalSetActiveLayer = useAppStore.getState().setActiveLayer;
+    const setActiveLayer = jest.fn((
+      id: Parameters<typeof originalSetActiveLayer>[0],
+      options?: Parameters<typeof originalSetActiveLayer>[1],
+    ) => originalSetActiveLayer(id, options));
+    useAppStore.setState({ setActiveLayer });
+
+    try {
+      const delta = createLayerStructureDelta({
+        before: createLayerStructureSnapshot('before', beforeLayers, 'layer-a', ['layer-a']),
+        after: createLayerStructureSnapshot('after', afterLayers, 'layer-b', ['layer-b']),
+      });
+
+      await replayDeltaForTest(delta, 'backward');
+
+      expect(setActiveLayer).toHaveBeenCalledWith('layer-a', expect.objectContaining({
+        forceLifecycle: true,
+        previousActiveLayer: expect.objectContaining({ id: 'layer-b' }),
+      }));
+    } finally {
+      useAppStore.setState({ setActiveLayer: originalSetActiveLayer });
+    }
+  });
+
+  it('restores active-layer tool state exactly during compensation', async () => {
+    const beforeLayers = [createLayer('layer-a', 0), createLayer('layer-b', 1, 'color-cycle')];
+    const afterLayers = [beforeLayers[1]!, beforeLayers[0]!];
+    useAppStore.setState((state) => ({
+      layers: afterLayers,
+      activeLayerId: 'layer-b',
+      selectedLayerIds: ['layer-b'],
+      tools: {
+        ...state.tools,
+        brushSettings: {
+          ...state.tools.brushSettings,
+          customBrushColorCycle: true,
+        },
+      },
+    }));
+    const toolsBeforeReplay = useAppStore.getState().tools;
+    const delta = createLayerStructureDelta({
+      before: createLayerStructureSnapshot('before', beforeLayers, 'layer-a', ['layer-a']),
+      after: createLayerStructureSnapshot('after', afterLayers, 'layer-b', ['layer-b']),
+    });
+    const prepared = await delta.prepare('backward');
+
+    await prepared.apply();
+    expect(useAppStore.getState().activeLayerId).toBe('layer-a');
+    expect(useAppStore.getState().tools.brushSettings.customBrushColorCycle).toBe(false);
+
+    await prepared.compensate();
+    expect(useAppStore.getState().activeLayerId).toBe('layer-b');
+    expect(useAppStore.getState().tools).toBe(toolsBeforeReplay);
   });
 
   it('collects rehydration targets for touched normal and color-cycle layers', () => {

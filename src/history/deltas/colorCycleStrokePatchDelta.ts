@@ -14,9 +14,17 @@ import {
   summarizeColorCycleLayer,
   summarizeScalarBuffer,
 } from '@/utils/colorCycle/ccMutationAudit';
-import type { HistoryDelta, HistoryDirection, HistoryRehydrationTargets } from '../actionTypes';
+import {
+  createHistoryMutationTracker,
+  type HistoryDelta,
+  type HistoryDirection,
+  type HistoryMutationTracker,
+  type HistoryRehydrationTargets,
+  type PreparedHistoryDelta,
+} from '../actionTypes';
 import { readBlob, releaseBlob, storeBlob } from '../blobStore';
 import { HistoryBlobReadError, HistoryReplayDriftError } from '../errors';
+import { captureColdColorCycleRuntimeCompensation } from '../colorCycleRuntimeCompensation';
 
 type ColorCycleBrushState = ColorCycleBrushSerializedState;
 type ColorCycleSerializedLayer = NonNullable<ColorCycleBrushState['layers']>[number];
@@ -541,42 +549,116 @@ class ColorCycleStrokePatchDelta implements HistoryDelta {
       encodedPatchApproxBytes(options.backwardPatches);
   }
 
-  async apply(direction: HistoryDirection): Promise<void> {
+  async prepare(direction: HistoryDirection): Promise<PreparedHistoryDelta> {
+    const requested = await this.preparePatchSet(direction, true);
+    const compensation = await this.preparePatchSet(direction === 'forward' ? 'backward' : 'forward', false);
+    const runtimeCompensation = captureColdColorCycleRuntimeCompensation(this.layerId);
+    const mutation = createHistoryMutationTracker();
+    return {
+      deltaTag: this._tag,
+      apply: () => this.applyPrepared(direction, requested, mutation),
+      requiresCompensation: mutation.requiresCompensation,
+      compensate: async () => {
+        try {
+          await this.applyPrepared(direction === 'forward' ? 'backward' : 'forward', compensation);
+        } finally {
+          runtimeCompensation.restoreIfCreated();
+        }
+      },
+      collectRehydrationTargets: (targets) => this.collectRehydrationTargets(targets),
+    };
+  }
+
+  async applyReplay(direction: HistoryDirection): Promise<void> {
+    const prepared = await this.prepare(direction);
+    await prepared.apply();
+  }
+
+  private async preparePatchSet(
+    direction: HistoryDirection,
+    validateCurrent: boolean,
+  ): Promise<Awaited<ReturnType<typeof decodeColorCyclePatchSet>>> {
     const patches = direction === 'forward' ? this.forwardPatches : this.backwardPatches;
-    const patch = patches.paint;
-    if (!patch) {
-      return;
+    const decoded = await decodeColorCyclePatchSet(patches, direction, this.layerId);
+    if (!validateCurrent) {
+      return decoded;
     }
 
     const manager = getColorCycleBrushManager();
     const store = useAppStore.getState();
     const layer = store.layers.find((candidate) => candidate.id === this.layerId);
     if (!layer || layer.layerType !== 'color-cycle' || !layer.colorCycleData) {
-      return;
+      throw new Error(`Color-cycle layer ${this.layerId} is unavailable for history replay.`);
     }
 
+    const expectedVersion = direction === 'forward' ? this.beforeVersion : this.afterVersion;
+    const documentRead = manager.getDocument(this.layerId)?.read?.();
+    if (
+      typeof expectedVersion === 'number' &&
+      documentRead &&
+      documentRead.pixelVersion !== expectedVersion
+    ) {
+      logCCMutation({
+        event: 'history-cc-document-version-mismatch',
+        layerId: this.layerId,
+        reason: direction === 'backward' ? 'history-undo-patch' : 'history-redo-patch',
+        severity: 'warn',
+        before: summarizeColorCycleLayer(layer),
+        after: summarizeColorCycleLayer(layer),
+        details: {
+          source: 'history-color-cycle-stroke-patch',
+          operation: direction === 'backward' ? 'undo' : 'redo',
+          direction,
+          expectedVersion,
+          actualVersion: documentRead.pixelVersion,
+          documentVersion: documentRead.version,
+        },
+      });
+      throw new HistoryReplayDriftError({
+        deltaTag: this._tag,
+        direction,
+        layerId: this.layerId,
+        expected: expectedVersion,
+        actual: documentRead.pixelVersion,
+        reason: 'pixel-version-mismatch',
+      });
+    }
+
+    return decoded;
+  }
+
+  private async applyPrepared(
+    direction: HistoryDirection,
+    decoded: Awaited<ReturnType<typeof decodeColorCyclePatchSet>>,
+    mutation?: HistoryMutationTracker,
+  ): Promise<void> {
+    const patches = direction === 'forward' ? this.forwardPatches : this.backwardPatches;
+    const patch = patches.paint;
+    if (!patch || !decoded.paint) {
+      return;
+    }
+    const manager = getColorCycleBrushManager();
+    const store = useAppStore.getState();
+    const layer = store.layers.find((candidate) => candidate.id === this.layerId);
+    if (!layer || layer.layerType !== 'color-cycle' || !layer.colorCycleData) {
+      throw new Error(`Color-cycle layer ${this.layerId} is unavailable for history replay.`);
+    }
     if (!manager.getHistoryBrush(this.layerId)) {
+      if (manager.hasBrush?.(this.layerId)) {
+        throw new Error(`Color-cycle runtime for ${this.layerId} cannot apply history patches.`);
+      }
       const width = this.width || layer.colorCycleData.canvas?.width || store.project?.width || 0;
       const height = this.height || layer.colorCycleData.canvas?.height || store.project?.height || 0;
       if (!width || !height) {
-        return;
+        throw new Error(`Color-cycle runtime for ${this.layerId} has no drawable size.`);
       }
-      try {
-        store.initColorCycleForLayer(this.layerId, width, height);
-      } catch {
-        return;
-      }
+      mutation?.markMutated();
+      store.initColorCycleForLayer(this.layerId, width, height);
     }
-
     const brush = manager.getHistoryBrush(this.layerId) as ManagedColorCycleBrush | undefined;
     const targetCanvas = layer.colorCycleData.canvas;
     if (!brush || !targetCanvas || !canApplyColorCycleBrushPaintPatchToRuntime(brush)) {
-      return;
-    }
-
-    const decoded = await decodeColorCyclePatchSet(patches, direction, this.layerId);
-    if (!decoded.paint) {
-      return;
+      throw new Error(`Color-cycle runtime for ${this.layerId} cannot apply history patches.`);
     }
 
     const expectedVersion = direction === 'forward' ? this.beforeVersion : this.afterVersion;
@@ -617,6 +699,7 @@ class ColorCycleStrokePatchDelta implements HistoryDelta {
       });
     }
 
+    mutation?.markMutated();
     if (
       typeof HTMLCanvasElement !== 'undefined' &&
       targetCanvas instanceof HTMLCanvasElement &&

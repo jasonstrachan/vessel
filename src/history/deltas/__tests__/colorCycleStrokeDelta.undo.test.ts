@@ -2,6 +2,7 @@ import { createDefaultLayerAlignment } from '@/utils/layoutDefaults';
 import type { Layer } from '@/types';
 import { useAppStore } from '@/stores/useAppStore';
 import { createColorCycleStrokeDelta } from '@/history/deltas/colorCycleStrokeDelta';
+import { replayDeltaForTest } from '@/history/__tests__/replayTestUtils';
 import { HistoryReplayDriftError } from '@/history/errors';
 import {
   clearBlobStore,
@@ -235,7 +236,7 @@ describe('ColorCycleStrokeDelta undo resurrection', () => {
     });
 
     expect(delta).not.toBeNull();
-    await delta!.apply('backward');
+    await replayDeltaForTest(delta!, 'backward');
 
     expect(mockManager.getHistoryBrush).toHaveBeenCalled();
     expect(restoreSerializedState).toHaveBeenCalled();
@@ -310,7 +311,7 @@ describe('ColorCycleStrokeDelta undo resurrection', () => {
     });
 
     expect(delta).not.toBeNull();
-    await delta!.apply('backward');
+    await replayDeltaForTest(delta!, 'backward');
 
     const payload = restoreSerializedState.mock.calls[0]?.[0] as {
       layerSnapshots?: Array<{
@@ -396,7 +397,7 @@ describe('ColorCycleStrokeDelta undo resurrection', () => {
       refCount: 12,
     });
 
-    await delta!.apply('backward');
+    await replayDeltaForTest(delta!, 'backward');
 
     expect(getHistoryBlobMetrics().restoreCount).toBeGreaterThanOrEqual(6);
     const payload = restoreSerializedState.mock.calls[0]?.[0] as {
@@ -475,7 +476,7 @@ describe('ColorCycleStrokeDelta undo resurrection', () => {
     });
 
     expect(delta).not.toBeNull();
-    await expect(delta!.apply('backward')).rejects.toBeInstanceOf(HistoryReplayDriftError);
+    await expect(replayDeltaForTest(delta!, 'backward')).rejects.toBeInstanceOf(HistoryReplayDriftError);
 
     expect(restoreSerializedState).not.toHaveBeenCalled();
     expect(getPersistedCCMutationLog()).toEqual([
@@ -618,7 +619,7 @@ describe('ColorCycleStrokeDelta undo resurrection', () => {
     });
 
     expect(delta).not.toBeNull();
-    await delta!.apply('backward');
+    await replayDeltaForTest(delta!, 'backward');
 
     const restoredLayer = useAppStore.getState().layers.find((entry) => entry.id === layer.id);
     expect(restoredLayer?.colorCycleData?.paintSlot).toBe(4);
@@ -688,7 +689,7 @@ describe('ColorCycleStrokeDelta undo resurrection', () => {
     });
 
     expect(delta).not.toBeNull();
-    await expect(delta!.apply('backward')).rejects.toBeInstanceOf(HistoryReplayDriftError);
+    await expect(replayDeltaForTest(delta!, 'backward')).rejects.toBeInstanceOf(HistoryReplayDriftError);
 
     expect(restoreSerializedState).not.toHaveBeenCalled();
   });
@@ -787,7 +788,7 @@ describe('ColorCycleStrokeDelta undo resurrection', () => {
     });
 
     expect(delta).not.toBeNull();
-    await delta!.apply('backward');
+    await replayDeltaForTest(delta!, 'backward');
 
     const restoredLayer = useAppStore.getState().layers.find((entry) => entry.id === layer.id);
     expect(restoredLayer?.colorCycleData?.paintSlot).toBeUndefined();

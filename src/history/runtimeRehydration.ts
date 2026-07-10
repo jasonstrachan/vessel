@@ -7,6 +7,7 @@ import {
   type ColorCycleBrushLayerSnapshotRuntimeWriter,
 } from '@/lib/colorCycle/document';
 import { RecolorManager } from '@/lib/colorCycle/RecolorManager';
+import { clearSequentialLayerRendererLayer } from '@/lib/sequential/SequentialLayerRenderer';
 import type { ColorCycleHistoryBrushContext } from '@/hooks/brushEngine/colorCycleBrushContracts';
 import type {
   HistoryDirection,
@@ -94,6 +95,15 @@ const ensurePositiveDimension = (value: number | undefined, fallback: number): n
   return Math.floor(Math.max(1, fallback));
 };
 
+const runtimeRehydrationError = (
+  layerId: string,
+  operation: string,
+  cause?: unknown,
+): Error => {
+  const detail = cause instanceof Error ? `: ${cause.message}` : '';
+  return new Error(`Failed to ${operation} for color-cycle layer ${layerId}${detail}`);
+};
+
 const rehydrateColorCycleRuntime = async (
   layerIds: Iterable<string> | null,
   options?: { restoreBrushState?: boolean },
@@ -105,6 +115,18 @@ const rehydrateColorCycleRuntime = async (
   const manager = getColorCycleBrushManager();
   const store = useAppStore.getState();
   const requested = layerIds ? new Set(layerIds) : null;
+  if (requested && requested.size > 0) {
+    const liveColorCycleLayerIds = new Set(
+      store.layers
+        .filter((layer) => layer.layerType === 'color-cycle' && layer.colorCycleData)
+        .map((layer) => layer.id),
+    );
+    requested.forEach((layerId) => {
+      if (!liveColorCycleLayerIds.has(layerId)) {
+        manager.deleteBrush?.(layerId);
+      }
+    });
+  }
 
   const targetLayers = store.layers.filter((layer) => {
     if (layer.layerType !== 'color-cycle' || !layer.colorCycleData) {
@@ -149,11 +171,11 @@ const rehydrateColorCycleRuntime = async (
           undefined,
         );
         if (!initialized) {
-          continue;
+          throw runtimeRehydrationError(layer.id, 'initialize runtime');
         }
         flaggedForRecomposition = true;
-      } catch {
-        continue;
+      } catch (error) {
+        throw runtimeRehydrationError(layer.id, 'initialize runtime', error);
       }
     }
 
@@ -187,7 +209,10 @@ const rehydrateColorCycleRuntime = async (
         !paintBufferHasContent &&
         latestColorState?.hasContent === true;
 
-      if (canApplyColorCycleBrushLayerSnapshotToRuntime(brush) && latestColorState && paintBuffer && shouldApplySerializedBrushState) {
+      if (latestColorState && paintBuffer && shouldApplySerializedBrushState) {
+        if (!canApplyColorCycleBrushLayerSnapshotToRuntime(brush)) {
+          throw runtimeRehydrationError(layer.id, 'restore canonical brush state');
+        }
         try {
           brush.setTargetCanvas?.(latestColorState.canvas ?? null);
           applyColorCycleBrushLayerSnapshotToRuntime(brush, layer.id, {
@@ -215,9 +240,17 @@ const rehydrateColorCycleRuntime = async (
           });
           brush.updateColorCycleTexture?.();
           if (latestColorState.canvas) {
-            brush.renderDirectToCanvas?.(latestColorState.canvas, layer.id);
+            if (typeof brush.renderDirectToCanvas === 'function') {
+              brush.renderDirectToCanvas(latestColorState.canvas, layer.id);
+            } else if (typeof brush.render === 'function') {
+              brush.render(false);
+            } else {
+              throw runtimeRehydrationError(layer.id, 'render restored canonical state');
+            }
+          } else if (typeof brush.render === 'function') {
+            brush.render(false);
           } else {
-            brush.render?.(false);
+            throw runtimeRehydrationError(layer.id, 'render restored canonical state');
           }
           restoredCanonicalSurface = true;
           latestStore.updateLayer(layer.id, {
@@ -227,8 +260,8 @@ const rehydrateColorCycleRuntime = async (
             },
           }, { skipColorCycleSync: true });
           flaggedForRecomposition = true;
-        } catch {
-          // A failed targeted restore should not block the rest of history replay.
+        } catch (error) {
+          throw runtimeRehydrationError(layer.id, 'restore canonical brush state', error);
         }
       }
 
@@ -240,8 +273,8 @@ const rehydrateColorCycleRuntime = async (
             brush.renderDirectToCanvas?.(latestColorState.canvas, layer.id);
           }
           flaggedForRecomposition = true;
-        } catch {
-          // Treat the stale empty snapshot as rejected even if an opportunistic render fails.
+        } catch (error) {
+          throw runtimeRehydrationError(layer.id, 'render rejected empty snapshot', error);
         }
         restoredCanonicalSurface = true;
       }
@@ -252,9 +285,12 @@ const rehydrateColorCycleRuntime = async (
         const ctx = colorState.canvas.getContext('2d', {
           willReadFrequently: true,
         } as CanvasRenderingContext2DSettings);
-        ctx?.putImageData(colorState.canvasImageData, 0, 0);
-      } catch {
-        // ignore canvas restoration failures – bitmap delta will still update layer imageData
+        if (!ctx) {
+          throw runtimeRehydrationError(layer.id, 'acquire preview canvas context');
+        }
+        ctx.putImageData(colorState.canvasImageData, 0, 0);
+      } catch (error) {
+        throw runtimeRehydrationError(layer.id, 'restore preview canvas', error);
       }
     }
 
@@ -262,8 +298,8 @@ const rehydrateColorCycleRuntime = async (
       try {
         await RecolorManager.getInstance().processLayer(layer);
         flaggedForRecomposition = true;
-      } catch {
-        // swallow recolor failures to avoid blocking undo/redo
+      } catch (error) {
+        throw runtimeRehydrationError(layer.id, 'rehydrate recolor output', error);
       }
     }
   }
@@ -295,6 +331,7 @@ const rehydrateWorkerScope = async (scope: HistoryWorkerScope): Promise<void> =>
 export const createRehydrationTargets = (): HistoryRehydrationTargets => ({
   layerIds: new Set<string>(),
   colorCycleLayerIds: new Set<string>(),
+  sequentialLayerIds: new Set<string>(),
   workerScopes: new Set<HistoryWorkerScope>(),
 });
 
@@ -313,6 +350,12 @@ export const rehydrateEntryResources = async (
     for (const scope of targets.workerScopes) {
       await rehydrateWorkerScope(scope);
     }
+  }
+
+  if (targets.sequentialLayerIds.size > 0) {
+    targets.sequentialLayerIds.forEach((layerId) => {
+      clearSequentialLayerRendererLayer(layerId);
+    });
   }
 
   if (targets.layerIds.size > 0) {

@@ -6,12 +6,20 @@ import {
   clearBlobStore,
   configureHistoryBlobStore,
 } from '@/history/blobStore';
-import type { HistoryActionId, HistoryEntry } from '@/history/actionTypes';
+import type {
+  HistoryActionId,
+  HistoryDelta,
+  HistoryDirection,
+  HistoryEntry,
+  PreparedHistoryDelta,
+} from '@/history/actionTypes';
+import { HistoryReplayApplyError } from '@/history/errors';
 import { commitLayerHistory } from '@/history/helpers/layerHistory';
 import { captureSelectionSnapshot, commitSelectionHistory } from '@/history/helpers/selectionHistory';
 import historyManager from '@/history/historyService';
 import { ColorCycleAnimator } from '@/lib/ColorCycleAnimator';
 import { recordResizeHistory } from '@/stores/helpers/resizeHistory';
+import { getColorCycleBrushManager } from '@/stores/colorCycleBrushManager';
 import { useAppStore } from '@/stores/useAppStore';
 import type { ColorCycleSerializedState } from '@/history/helpers/colorCycle';
 import type { Layer } from '@/types';
@@ -149,6 +157,28 @@ const expectOneHistoryEntry = ({
   return entry!;
 };
 
+class LateFailureDelta implements HistoryDelta {
+  readonly _tag = 'late-failure';
+
+  apply(direction: HistoryDirection): void {
+    void direction;
+    throw new Error('Injected late replay failure');
+  }
+
+  prepare(direction: HistoryDirection): PreparedHistoryDelta {
+    return {
+      deltaTag: this._tag,
+      apply: () => this.apply(direction),
+      requiresCompensation: () => false,
+      compensate: () => undefined,
+    };
+  }
+}
+
+const injectLateFailure = (entry: HistoryEntry): void => {
+  entry.deltas.unshift(new LateFailureDelta());
+};
+
 const makeColorCycleState = ({
   layerId,
   width,
@@ -161,6 +191,8 @@ const makeColorCycleState = ({
   phase = new Array(width * height).fill(0),
   eraseMaskAlpha,
   eraseMaskVersion,
+  softEdgeMaskAlpha,
+  softEdgeMaskVersion,
 }: {
   layerId: string;
   width: number;
@@ -173,6 +205,8 @@ const makeColorCycleState = ({
   phase?: number[];
   eraseMaskAlpha?: number[];
   eraseMaskVersion?: number;
+  softEdgeMaskAlpha?: number[];
+  softEdgeMaskVersion?: number;
 }): ColorCycleSerializedState => {
   const animatorState = new ColorCycleAnimator({
     width,
@@ -208,6 +242,17 @@ const makeColorCycleState = ({
                 height,
                 alpha: new Uint8ClampedArray(eraseMaskAlpha),
                 version: eraseMaskVersion,
+              },
+            }
+          : {}),
+        ...(softEdgeMaskAlpha && typeof softEdgeMaskVersion === 'number'
+          ? {
+              softEdgeMaskSnapshot: {
+                width,
+                height,
+                alpha: new Uint8ClampedArray(softEdgeMaskAlpha),
+                enabled: true,
+                version: softEdgeMaskVersion,
               },
             }
           : {}),
@@ -342,6 +387,54 @@ describe('history intent audit', () => {
     });
   });
 
+  it('compensates a real selection intent when a later delta fails', async () => {
+    setLayers([createBitmapLayer('selection-atomic', makeImage(new Array(16).fill(0)))]);
+    const before = captureSelectionSnapshot();
+    useAppStore.getState().setSelectionBounds({ x: 0, y: 0 }, { x: 1, y: 1 });
+    const preReplaySelectionLastAction = useAppStore.getState().selectionLastAction;
+    commitSelectionHistory({ before, description: 'Selection atomicity' });
+    const entry = historyManager.peekUndo();
+    expect(entry).not.toBeNull();
+    injectLateFailure(entry!);
+
+    await expect(historyManager.undo()).rejects.toBeInstanceOf(HistoryReplayApplyError);
+    const state = useAppStore.getState();
+    expect(state.selectionStart).toEqual({ x: 0, y: 0 });
+    expect(state.selectionEnd).toEqual({ x: 1, y: 1 });
+    expect(state.selectionLastAction).toBe(preReplaySelectionLastAction);
+    expect(historyManager.entries()).toHaveLength(1);
+    expect(historyManager.redoEntries()).toHaveLength(0);
+  });
+
+  it('compensates a real bitmap-and-selection composite entry when a later delta fails', async () => {
+    const beforeImage = makeImage(new Array(16).fill(0));
+    const afterImage = cloneImage(beforeImage);
+    afterImage.data[3] = 255;
+    const layer = createBitmapLayer('selection-paste-atomic', afterImage);
+    setLayers([layer]);
+    const selectionBefore = captureSelectionSnapshot();
+    useAppStore.getState().setSelectionBounds({ x: 0, y: 0 }, { x: 1, y: 1 });
+    await commitLayerHistory({
+      layerId: layer.id,
+      beforeImage,
+      beforeColorState: null,
+      actionType: 'brush',
+      description: 'Selection paste atomicity',
+      tool: 'floating-paste',
+      selectionBefore,
+    });
+    const entry = historyManager.peekUndo();
+    expect(entry?.deltas.map((delta) => delta._tag)).toEqual(['bitmap-tile', 'selection-bounds']);
+    injectLateFailure(entry!);
+
+    await expect(historyManager.undo()).rejects.toBeInstanceOf(HistoryReplayApplyError);
+    const state = useAppStore.getState();
+    const restoredLayer = state.layers.find((candidate) => candidate.id === layer.id);
+    expect(restoredLayer?.imageData?.data[3]).toBe(255);
+    expect(state.selectionStart).toEqual({ x: 0, y: 0 });
+    expect(state.selectionEnd).toEqual({ x: 1, y: 1 });
+  });
+
   it('records one entry for an erase-mask edit intent', async () => {
     const width = 2;
     const height = 2;
@@ -384,6 +477,45 @@ describe('history intent audit', () => {
     });
   });
 
+  it('compensates a real erase-mask intent when a later delta fails', async () => {
+    const width = 2;
+    const height = 2;
+    const layer = createColorCycleLayer('mask-atomic', width, height);
+    setLayers([layer], width, height);
+    const beforeState = makeColorCycleState({
+      layerId: layer.id, width, height, paint: [0, 0, 0, 0],
+      eraseMaskAlpha: [0, 0, 0, 0], eraseMaskVersion: 1,
+    });
+    const afterState = makeColorCycleState({
+      layerId: layer.id, width, height, paint: [0, 0, 0, 0],
+      eraseMaskAlpha: [255, 0, 0, 0], eraseMaskVersion: 2,
+    });
+    const maskContext = layer.colorCycleData?.eraseMask?.getContext('2d');
+    const afterMask = new ImageData(width, height);
+    afterMask.data[3] = 255;
+    maskContext?.putImageData(afterMask, 0, 0);
+
+    await commitLayerHistory({
+      layerId: layer.id,
+      beforeImage: null,
+      beforeColorState: beforeState,
+      afterColorState: afterState,
+      actionType: 'eraser',
+      description: 'Atomic erase mask',
+      tool: 'eraser',
+      bitmapRoi: { x: 0, y: 0, width, height },
+      skipBitmapDelta: true,
+    });
+    const entry = historyManager.peekUndo();
+    expect(entry).not.toBeNull();
+    injectLateFailure(entry!);
+
+    await expect(historyManager.undo()).rejects.toBeInstanceOf(HistoryReplayApplyError);
+    const restored = layer.colorCycleData?.eraseMask?.getContext('2d')?.getImageData(0, 0, 1, 1);
+    expect(restored?.data[3]).toBe(255);
+    expect(historyManager.entries()).toHaveLength(1);
+  });
+
   it('records one entry for a layer structure intent', () => {
     const layers = [
       createBitmapLayer('layer-a', makeImage(new Array(16).fill(0)), 0),
@@ -402,6 +534,28 @@ describe('history intent audit', () => {
     });
   });
 
+  it('compensates a real layer-structure intent when a later delta fails', async () => {
+    const layers = [
+      createBitmapLayer('atomic-layer-a', makeImage(new Array(16).fill(0)), 0),
+      createBitmapLayer('atomic-layer-b', makeImage(new Array(16).fill(0)), 1),
+    ];
+    setLayers(layers);
+    useAppStore.getState().reorderLayers(0, 1);
+    const preReplayProject = useAppStore.getState().project;
+    const entry = historyManager.peekUndo();
+    expect(entry).not.toBeNull();
+    injectLateFailure(entry!);
+
+    await expect(historyManager.undo()).rejects.toBeInstanceOf(HistoryReplayApplyError);
+    expect(useAppStore.getState().layers.map((layer) => layer.id)).toEqual([
+      'atomic-layer-b',
+      'atomic-layer-a',
+    ]);
+    expect(useAppStore.getState().project).toEqual(preReplayProject);
+    expect(useAppStore.getState().project?.updatedAt).toBe(preReplayProject?.updatedAt);
+    expect(historyManager.entries()).toHaveLength(1);
+  });
+
   it('records one entry for a project transform intent', async () => {
     const beforeCount = historyManager.entries().length;
     await recordResizeHistory({
@@ -417,6 +571,67 @@ describe('history intent audit', () => {
       action: 'project-transform',
       deltaTags: ['project-dimensions'],
     });
+  });
+
+  it('compensates a real project resize intent when a later delta fails', async () => {
+    const beforeImage = makeImage(new Array(16).fill(0));
+    const afterImage = new ImageData(new Uint8ClampedArray(4 * 3 * 4), 4, 3);
+    afterImage.data[3] = 255;
+    const layer = createBitmapLayer('resize-atomic', afterImage);
+    setLayers([layer], 4, 3);
+    await recordResizeHistory({
+      beforeProject: { width: 2, height: 2 },
+      afterProject: { width: 4, height: 3 },
+      beforeLayers: new Map([[layer.id, { image: beforeImage, colorState: null }]]),
+      afterLayers: [layer],
+      description: 'Atomic resize',
+    });
+    const entry = historyManager.peekUndo();
+    expect(entry).not.toBeNull();
+    injectLateFailure(entry!);
+    const beforeReplayVersion = useAppStore.getState().layers[0]?.version;
+    const beforeReplayAutosave = useAppStore.getState().autosave;
+    const beforeReplayNeedsRecomposition = useAppStore.getState().layersNeedRecomposition;
+
+    await expect(historyManager.undo()).rejects.toBeInstanceOf(HistoryReplayApplyError);
+    const project = useAppStore.getState().project;
+    expect(project?.width).toBe(4);
+    expect(project?.height).toBe(3);
+    expect(useAppStore.getState().layers[0]?.imageData?.width).toBe(4);
+    expect(useAppStore.getState().layers[0]?.imageData?.data[3]).toBe(255);
+    expect(useAppStore.getState().layers[0]?.version).toBe(beforeReplayVersion);
+    expect(useAppStore.getState().layersNeedRecomposition).toBe(beforeReplayNeedsRecomposition);
+    expect(useAppStore.getState().autosave).toEqual(expect.objectContaining({
+      hasUnsavedChanges: beforeReplayAutosave.hasUnsavedChanges,
+      dirtyRevision: beforeReplayAutosave.dirtyRevision,
+      savedRevision: beforeReplayAutosave.savedRevision,
+      lastDirtyReason: beforeReplayAutosave.lastDirtyReason,
+      lastDirtyAt: beforeReplayAutosave.lastDirtyAt,
+    }));
+    expect(historyManager.entries()).toHaveLength(1);
+  });
+
+  it('marks a successful project resize replay dirty exactly once', async () => {
+    const beforeImage = makeImage(new Array(16).fill(0));
+    const afterImage = new ImageData(new Uint8ClampedArray(4 * 3 * 4), 4, 3);
+    const layer = createBitmapLayer('resize-dirty-once', afterImage);
+    setLayers([layer], 4, 3);
+    await recordResizeHistory({
+      beforeProject: { width: 2, height: 2 },
+      afterProject: { width: 4, height: 3 },
+      beforeLayers: new Map([[layer.id, { image: beforeImage, colorState: null }]]),
+      afterLayers: [layer],
+      description: 'Resize dirty tracking',
+    });
+    const beforeReplayRevision = useAppStore.getState().autosave.dirtyRevision;
+
+    await useAppStore.getState().undo();
+
+    expect(useAppStore.getState().autosave).toEqual(expect.objectContaining({
+      hasUnsavedChanges: true,
+      dirtyRevision: beforeReplayRevision + 1,
+      lastDirtyReason: 'history-change',
+    }));
   });
 
   it('records one entry for a color-cycle runtime mutation intent', async () => {
@@ -460,6 +675,94 @@ describe('history intent audit', () => {
       action: 'brush-stroke',
       deltaTags: ['color-cycle-stroke-patch'],
     });
+  });
+
+  it('restores a real Color Cycle patch entry when a later delta fails', async () => {
+    const width = 2;
+    const height = 2;
+    const layer = createColorCycleLayer('cc-runtime-atomic', width, height);
+    setLayers([layer], width, height);
+    const beforeState = makeColorCycleState({ layerId: layer.id, width, height, paint: [0, 0, 0, 0] });
+    const afterState = makeColorCycleState({
+      layerId: layer.id, width, height, paint: [1, 0, 0, 0],
+      gradientId: [2, 0, 0, 0], gradientDefId: [3, 0, 0, 0],
+      speed: [4, 0, 0, 0], flow: [5, 0, 0, 0], phase: [6, 0, 0, 0],
+    });
+    await commitLayerHistory({
+      layerId: layer.id,
+      beforeImage: null,
+      beforeColorState: beforeState,
+      afterColorState: afterState,
+      actionType: 'brush',
+      description: 'Atomic Color Cycle stroke',
+      tool: 'color-cycle',
+      bitmapRoi: { x: 0, y: 0, width, height },
+      skipBitmapDelta: true,
+    });
+    const entry = historyManager.peekUndo();
+    expect(entry?.deltas.map((delta) => delta._tag)).toEqual(['color-cycle-stroke-patch']);
+    injectLateFailure(entry!);
+
+    await expect(historyManager.undo()).rejects.toBeInstanceOf(HistoryReplayApplyError);
+    expect(historyManager.entries()).toHaveLength(1);
+    expect(historyManager.redoEntries()).toHaveLength(0);
+  });
+
+  it('restores a real CC patch, erase-mask, and soft-edge entry when a later delta fails', async () => {
+    const width = 2;
+    const height = 2;
+    const layer = createColorCycleLayer('cc-composite-atomic', width, height);
+    setLayers([layer], width, height);
+    const beforeState = makeColorCycleState({
+      layerId: layer.id, width, height, paint: [0, 0, 0, 0],
+      eraseMaskAlpha: [0, 0, 0, 0], eraseMaskVersion: 1,
+    });
+    const afterState = makeColorCycleState({
+      layerId: layer.id, width, height, paint: [1, 0, 0, 0],
+      gradientId: [2, 0, 0, 0], gradientDefId: [3, 0, 0, 0],
+      speed: [4, 0, 0, 0], flow: [5, 0, 0, 0], phase: [6, 0, 0, 0],
+      eraseMaskAlpha: [255, 0, 0, 0], eraseMaskVersion: 2,
+      softEdgeMaskAlpha: [0, 255, 0, 0], softEdgeMaskVersion: 2,
+    });
+    const eraseImage = new ImageData(width, height);
+    eraseImage.data[3] = 255;
+    layer.colorCycleData?.eraseMask?.getContext('2d')?.putImageData(eraseImage, 0, 0);
+
+    await commitLayerHistory({
+      layerId: layer.id,
+      beforeImage: null,
+      beforeColorState: beforeState,
+      afterColorState: afterState,
+      actionType: 'brush',
+      description: 'Atomic Color Cycle composite',
+      tool: 'color-cycle',
+      bitmapRoi: { x: 0, y: 0, width, height },
+      skipBitmapDelta: true,
+    });
+    const entry = historyManager.peekUndo();
+    expect(entry?.deltas.map((delta) => delta._tag)).toEqual([
+      'color-cycle-stroke-patch',
+      'color-cycle-erase-mask-patch',
+      'color-cycle-soft-edge-mask',
+    ]);
+    // Materialize the live post-stroke runtime so this case exercises compensation
+    // of an existing runtime; cold-runtime cleanup is covered separately.
+    const preparedForwardPatch = await entry!.deltas[0]!.prepare('forward');
+    await preparedForwardPatch.apply();
+    injectLateFailure(entry!);
+
+    await expect(historyManager.undo()).rejects.toBeInstanceOf(HistoryReplayApplyError);
+    const restoredLayer = useAppStore.getState().layers[0];
+    const restoredDocument = getColorCycleBrushManager().getDocument(layer.id)?.read();
+    const eraseAlpha = restoredLayer?.colorCycleData?.eraseMask
+      ?.getContext('2d')?.getImageData(0, 0, 1, 1).data[3];
+    expect(eraseAlpha).toBe(255);
+    expect(restoredLayer?.colorCycleData?.softEdgeMaskImageData?.data[7]).toBe(255);
+    expect(Array.from(new Uint8Array(restoredDocument?.snapshot.paintBuffer ?? new ArrayBuffer(0)))).toEqual([
+      1, 0, 0, 0,
+    ]);
+    expect(historyManager.entries()).toHaveLength(1);
+    expect(historyManager.redoEntries()).toHaveLength(0);
   });
 
   it('does not batch separate bitmap stroke intents into one entry', async () => {

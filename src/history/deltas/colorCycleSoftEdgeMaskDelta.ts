@@ -2,7 +2,14 @@ import { getColorCycleBrushManager } from '@/stores/colorCycleBrushManager';
 import { useAppStore } from '@/stores/useAppStore';
 import type { ColorCycleEraseMaskSnapshot, ColorCycleSerializedState } from '@/history/helpers/colorCycle';
 import type { Layer } from '@/types';
-import type { HistoryDelta, HistoryDirection, HistoryRehydrationTargets } from '../actionTypes';
+import {
+  createHistoryMutationTracker,
+  type HistoryDelta,
+  type HistoryDirection,
+  type HistoryMutationTracker,
+  type HistoryRehydrationTargets,
+  type PreparedHistoryDelta,
+} from '../actionTypes';
 import { HistoryReplayDriftError } from '../errors';
 
 export interface ColorCycleSoftEdgeMaskDeltaOptions {
@@ -136,9 +143,29 @@ class ColorCycleSoftEdgeMaskDelta implements HistoryDelta {
     this.approxBytes = (this.forwardMask?.alpha.byteLength ?? 0) + (this.backwardMask?.alpha.byteLength ?? 0);
   }
 
-  async apply(direction: HistoryDirection): Promise<void> {
-    const snapshot = direction === 'forward' ? this.forwardMask : this.backwardMask;
-    const expectedDocumentVersion = this.afterVersion ?? this.beforeVersion;
+  prepare(direction: HistoryDirection): PreparedHistoryDelta {
+    this.assertReplayReady(direction);
+    const mutation = createHistoryMutationTracker();
+    return {
+      deltaTag: this._tag,
+      apply: () => this.applyPrepared(direction, mutation),
+      requiresCompensation: mutation.requiresCompensation,
+      compensate: () => this.applyPrepared(direction === 'forward' ? 'backward' : 'forward'),
+      collectRehydrationTargets: (targets) => this.collectRehydrationTargets(targets),
+    };
+  }
+
+  async applyReplay(direction: HistoryDirection): Promise<void> {
+    const prepared = this.prepare(direction);
+    await prepared.apply();
+  }
+
+  private assertReplayReady(direction: HistoryDirection): void {
+    // All deltas are prepared before any mutation, so validate against the
+    // transaction's current anchor rather than the version produced by replay.
+    const expectedDocumentVersion = direction === 'forward'
+      ? this.beforeVersion ?? this.afterVersion
+      : this.afterVersion ?? this.beforeVersion;
     const documentRead = getColorCycleBrushManager().getDocument(this.layerId)?.read?.();
     if (
       typeof expectedDocumentVersion === 'number' &&
@@ -154,15 +181,27 @@ class ColorCycleSoftEdgeMaskDelta implements HistoryDelta {
         reason: 'document-version-mismatch',
       });
     }
+    const layer = useAppStore.getState().layers.find((candidate) => candidate.id === this.layerId);
+    if (!layer || layer.layerType !== 'color-cycle') {
+      throw new Error(`Color-cycle layer ${this.layerId} is unavailable for history replay.`);
+    }
+  }
+
+  private async applyPrepared(
+    direction: HistoryDirection,
+    mutation?: HistoryMutationTracker,
+  ): Promise<void> {
+    const snapshot = direction === 'forward' ? this.forwardMask : this.backwardMask;
     const state = useAppStore.getState();
     const layer = state.layers.find((candidate) => candidate.id === this.layerId);
     if (!layer || layer.layerType !== 'color-cycle') {
-      return;
+      throw new Error(`Color-cycle layer ${this.layerId} is unavailable for history replay.`);
     }
 
     if (!snapshot) {
       const nextVersion = (layer.colorCycleData?.softEdgeMaskVersion ?? 0) + 1;
       const dirtyRect = getSoftEdgeDirtyRect(layer, snapshot, state.project);
+      mutation?.markMutated();
       useAppStore.setState((current) => ({
         layers: current.layers.map((candidate) => (
           candidate.id === this.layerId
@@ -180,6 +219,7 @@ class ColorCycleSoftEdgeMaskDelta implements HistoryDelta {
     }
 
     const dirtyRect = getSoftEdgeDirtyRect(layer, snapshot, state.project);
+    mutation?.markMutated();
     state.updateLayer(
       this.layerId,
       {

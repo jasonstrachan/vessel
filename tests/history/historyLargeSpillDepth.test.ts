@@ -1,4 +1,4 @@
-import type { HistoryDelta } from '@/history/actionTypes';
+import type { HistoryDelta, HistoryDirection, PreparedHistoryDelta } from '@/history/actionTypes';
 import {
   HISTORY_BLOB_DEFAULT_RESIDENT_BUDGET_BYTES,
   HISTORY_BLOB_DEFAULT_SPILL_THRESHOLD_BYTES,
@@ -129,6 +129,15 @@ class LargeColorCycleHistoryDelta implements HistoryDelta {
   }
 
   apply(): void {}
+
+  prepare(_direction: HistoryDirection): PreparedHistoryDelta {
+    return {
+      deltaTag: this._tag,
+      apply: () => this.apply(),
+      requiresCompensation: () => false,
+      compensate: () => this.apply(),
+    };
+  }
 
   dispose(): void {
     this.blobIds.forEach((id) => releaseBlob(id));

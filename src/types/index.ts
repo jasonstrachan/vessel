@@ -913,9 +913,15 @@ export type AutosaveDirtyReason =
   | 'history-change'
   | 'manual';
 
-export interface AutosaveState {
+export interface AutosaveRevisionState {
+  dirtyRevision: number;
+  savedRevision: number;
+}
+
+export interface AutosaveState extends AutosaveRevisionState {
   isEnabled: boolean;
   isRunning: boolean;
+  isSessionSyncSuspended: boolean;
   hasUnsavedChanges: boolean;
   lastSaveTime: Date | null;
   interval: number; // in minutes

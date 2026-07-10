@@ -6,7 +6,10 @@ import { TextDecoder, TextEncoder } from 'util';
 
 import historyManager from '@/history/historyService';
 import { clearBlobStore } from '@/history/blobStore';
-import { HistoryBlobReadError, HistoryReplayDriftError } from '@/history/errors';
+import {
+  HistoryBlobReadError,
+  HistoryReplayDriftError,
+} from '@/history/errors';
 import { commitLayerHistory } from '@/history/helpers/layerHistory';
 import { useAppStore } from '@/stores/useAppStore';
 import type { Layer, LayerAlignmentSettings } from '@/types';
@@ -483,7 +486,9 @@ describe('brush history coalescing', () => {
     expect(historyManager.entries()).toHaveLength(1);
     updateLayerImage(layer.id, cloneImage(drifted));
 
-    await expect(historyManager.undo()).rejects.toBeInstanceOf(HistoryReplayDriftError);
+    await expect(historyManager.undo()).rejects.toMatchObject({
+      cause: expect.any(HistoryReplayDriftError),
+    });
 
     expect(historyManager.entries()).toHaveLength(1);
     expect(historyManager.redoEntries()).toHaveLength(0);
@@ -516,12 +521,50 @@ describe('brush history coalescing', () => {
     });
 
     clearBlobStore();
-    await expect(historyManager.undo()).rejects.toBeInstanceOf(HistoryBlobReadError);
+    await expect(historyManager.undo()).rejects.toMatchObject({
+      cause: expect.any(HistoryBlobReadError),
+    });
 
     expect(historyManager.entries()).toHaveLength(1);
     expect(historyManager.redoEntries()).toHaveLength(0);
     const currentLayer = useAppStore.getState().layers.find((candidate) => candidate.id === layer.id);
     expect(getPixel(currentLayer?.imageData as ImageData, 0, 0)).toEqual([255, 0, 0, 255]);
+  });
+
+  it('refuses bitmap redo when a required tile blob is missing', async () => {
+    const before = createImage([
+      0, 0, 0, 0,
+      0, 0, 0, 0,
+      0, 0, 0, 0,
+      0, 0, 0, 0,
+    ]);
+    const after = cloneImage(before);
+    setPixel(after, 0, 0, [255, 0, 0, 255]);
+
+    const layer = createLayer('bitmap-missing-blob-redo-layer', cloneImage(before));
+    installLayer(layer);
+    updateLayerImage(layer.id, cloneImage(after));
+
+    await commitLayerHistory({
+      layerId: layer.id,
+      beforeImage: cloneImage(before),
+      beforeColorState: null,
+      actionType: 'brush',
+      description: 'Anchored stroke',
+      tool: 'brush',
+    });
+
+    await historyManager.undo();
+    clearBlobStore();
+
+    await expect(historyManager.redo()).rejects.toMatchObject({
+      cause: expect.any(HistoryBlobReadError),
+    });
+
+    expect(historyManager.entries()).toHaveLength(0);
+    expect(historyManager.redoEntries()).toHaveLength(1);
+    const currentLayer = useAppStore.getState().layers.find((candidate) => candidate.id === layer.id);
+    expect(getPixel(currentLayer?.imageData as ImageData, 0, 0)).toEqual([0, 0, 0, 0]);
   });
 });
 

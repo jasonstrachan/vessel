@@ -1,4 +1,8 @@
 import { createColorCycleSoftEdgeMaskDelta } from '@/history/deltas/colorCycleSoftEdgeMaskDelta';
+import { replayDeltaForTest } from '@/history/__tests__/replayTestUtils';
+import type { HistoryDelta, HistoryDirection, PreparedHistoryDelta } from '@/history/actionTypes';
+import { HistoryReplayApplyError } from '@/history/errors';
+import HistoryManager from '@/history/historyManager';
 import { ColorCycleAnimator } from '@/lib/ColorCycleAnimator';
 import * as colorCycleBrushManager from '@/stores/colorCycleBrushManager';
 import { useAppStore } from '@/stores/useAppStore';
@@ -79,6 +83,22 @@ const createColorCycleLayer = (layerId: string, width: number, height: number): 
   };
 };
 
+class LateFailureDelta implements HistoryDelta {
+  readonly _tag = 'late-failure';
+  apply(direction: HistoryDirection): void {
+    void direction;
+    throw new Error('Injected late replay failure');
+  }
+  prepare(direction: HistoryDirection): PreparedHistoryDelta {
+    return {
+      deltaTag: this._tag,
+      apply: () => this.apply(direction),
+      requiresCompensation: () => false,
+      compensate: () => undefined,
+    };
+  }
+}
+
 describe('ColorCycleSoftEdgeMaskDelta', () => {
   afterEach(() => {
     jest.restoreAllMocks();
@@ -113,7 +133,7 @@ describe('ColorCycleSoftEdgeMaskDelta', () => {
 
     expect(delta).not.toBeNull();
 
-    await delta!.apply('forward');
+    await replayDeltaForTest(delta!, 'forward');
     let layer = useAppStore.getState().layers[0];
     expect(layer?.colorCycleData?.softEdgeMaskImageData?.data[5 * 4 + 3]).toBe(255);
     expect(layer?.colorCycleData?.softEdgeMaskVersion).toBe(2);
@@ -127,7 +147,7 @@ describe('ColorCycleSoftEdgeMaskDelta', () => {
     ]);
 
     useAppStore.setState({ layersNeedRecomposition: false, pendingCompositeDirtyBatches: [] });
-    await delta!.apply('backward');
+    await replayDeltaForTest(delta!, 'backward');
     layer = useAppStore.getState().layers[0];
     expect(layer?.colorCycleData?.softEdgeMask).toBeUndefined();
     expect(layer?.colorCycleData?.softEdgeMaskImageData).toBeUndefined();
@@ -142,7 +162,10 @@ describe('ColorCycleSoftEdgeMaskDelta', () => {
     ]);
   });
 
-  it('accepts forward replay after an earlier stroke patch advances the document version', async () => {
+  it.each([
+    ['forward', 1],
+    ['backward', 2],
+  ] as const)('accepts %s replay at its pre-replay document version', async (direction, documentVersion) => {
     const width = 4;
     const height = 4;
     const layerId = 'layer-cc-soft-edge';
@@ -151,7 +174,7 @@ describe('ColorCycleSoftEdgeMaskDelta', () => {
 
     jest.spyOn(colorCycleBrushManager, 'getColorCycleBrushManager').mockReturnValue({
       getDocument: () => ({
-        read: () => ({ version: 2 }),
+        read: () => ({ version: documentVersion }),
       }),
     } as never);
 
@@ -163,6 +186,35 @@ describe('ColorCycleSoftEdgeMaskDelta', () => {
       afterVersion: 2,
     });
 
-    await expect(delta!.apply('forward')).resolves.toBeUndefined();
+    await expect(replayDeltaForTest(delta!, direction)).resolves.toBeUndefined();
+  });
+
+  it('compensates a real soft-edge mask delta when a later delta fails', async () => {
+    const width = 4;
+    const height = 4;
+    const layerId = 'layer-cc-soft-edge';
+    const alpha = new Array(width * height).fill(0);
+    alpha[5] = 255;
+    const delta = createColorCycleSoftEdgeMaskDelta({
+      layerId,
+      forwardState: makeState(layerId, width, height, alpha, 2),
+      backwardState: makeState(layerId, width, height, null, 1),
+    });
+    await replayDeltaForTest(delta!, 'forward');
+    const manager = new HistoryManager({
+      runtimeRehydration: {
+        createTargets: () => ({ layerIds: new Set(), colorCycleLayerIds: new Set(), sequentialLayerIds: new Set(), workerScopes: new Set() }),
+        rehydrate: async () => undefined,
+      },
+    });
+    const txn = manager.begin('cc-stroke');
+    txn.push(new LateFailureDelta());
+    txn.push(delta!);
+    txn.commit('Atomic soft-edge mask');
+
+    await expect(manager.undo()).rejects.toBeInstanceOf(HistoryReplayApplyError);
+    const image = useAppStore.getState().layers[0]?.colorCycleData?.softEdgeMaskImageData;
+    expect(image?.data[5 * 4 + 3]).toBe(255);
+    expect(manager.entries()).toHaveLength(1);
   });
 });

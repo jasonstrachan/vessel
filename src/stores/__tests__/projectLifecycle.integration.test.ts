@@ -42,7 +42,9 @@ jest.mock('@/utils/toolFlushRegistry', () => ({
 jest.mock('@/utils/backgroundStorage', () => ({
   __esModule: true as const,
   backgroundStorageService: {
+    getAutosaveRevisionFloor: jest.fn().mockResolvedValue(0),
     updateSession: jest.fn().mockResolvedValue(undefined),
+    resetSession: jest.fn().mockResolvedValue(undefined),
   },
 }));
 
@@ -165,6 +167,7 @@ const makeCustomBrush = (id: string): CustomBrush => ({
 describe('project slice lifecycle flows', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    mockManager.getDocument.mockReset().mockReturnValue(undefined);
     mockManager.brushes.clear();
     mockManager.brushMetadata.clear();
     mockManager.activeResources.clear();
@@ -181,7 +184,10 @@ describe('project slice lifecycle flows', () => {
         ...state.autosave,
         isEnabled: false,
         isRunning: false,
+        isSessionSyncSuspended: false,
         hasUnsavedChanges: false,
+        dirtyRevision: 0,
+        savedRevision: 0,
         lastSaveTime: null,
         lastDirtyReason: null,
         lastDirtyAt: null,
@@ -247,11 +253,175 @@ describe('project slice lifecycle flows', () => {
     expect(useAppStore.getState().autosave.hasUnsavedChanges).toBe(false);
     expect(backgroundStorageService.updateSession).toHaveBeenCalledWith(
       expect.any(String),
-      false
+      false,
+      expect.objectContaining({
+        dirtyRevision: expect.any(Number),
+        savedRevision: expect.any(Number),
+        lastSaveTime: expect.any(Number),
+      }),
     );
     expect(notifySpy).toHaveBeenCalledWith(
       expect.objectContaining({ type: 'success', title: 'Project Saved' })
     );
+  });
+
+  it('keeps a newer edit dirty when an older manual save completes', async () => {
+    useAppStore.setState((state) => ({
+      paletteDirty: true,
+      autosave: {
+        ...state.autosave,
+        hasUnsavedChanges: true,
+        dirtyRevision: 1,
+        savedRevision: 0,
+      },
+    }));
+    let resolveSave: ((result: {
+      fileName: string;
+      fileHandle: FileSystemFileHandle | null;
+    }) => void) | undefined;
+    (saveProjectToFile as jest.Mock).mockReturnValueOnce(new Promise((resolve) => {
+      resolveSave = resolve;
+    }));
+
+    const savePromise = useAppStore.getState().saveProject('revision-race.vessel');
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    expect(saveProjectToFile).toHaveBeenCalledTimes(1);
+
+    useAppStore.getState().markAutosaveDirty('layer-change');
+    resolveSave?.({ fileName: 'revision-race.vessel', fileHandle: null });
+    await savePromise;
+
+    const state = useAppStore.getState();
+    expect(state.autosave).toEqual(expect.objectContaining({
+      hasUnsavedChanges: true,
+      dirtyRevision: 2,
+      savedRevision: 1,
+      saveStatus: expect.objectContaining({
+        phase: 'idle',
+        message: 'Saved earlier changes; newer changes pending',
+      }),
+    }));
+    expect(state.paletteDirty).toBe(true);
+    expect(backgroundStorageService.updateSession).toHaveBeenLastCalledWith(
+      state.project?.id,
+      true,
+      expect.objectContaining({ dirtyRevision: 2, savedRevision: 1 }),
+    );
+  });
+
+  it('does not let an older save completion replace a newer save target', async () => {
+    useAppStore.setState((state) => ({
+      autosave: {
+        ...state.autosave,
+        hasUnsavedChanges: true,
+        dirtyRevision: 1,
+        savedRevision: 0,
+      },
+    }));
+    let resolveOlderSave: ((result: {
+      fileName: string;
+      fileHandle: FileSystemFileHandle;
+      writeStatus: 'written';
+    }) => void) | undefined;
+    const olderHandle = { id: 'older-handle' } as unknown as FileSystemFileHandle;
+    const newerHandle = { id: 'newer-handle' } as unknown as FileSystemFileHandle;
+    (saveProjectToFile as jest.Mock)
+      .mockReturnValueOnce(new Promise((resolve) => {
+        resolveOlderSave = resolve;
+      }))
+      .mockResolvedValueOnce({
+        fileName: 'newer.vs',
+        fileHandle: newerHandle,
+        writeStatus: 'written',
+      });
+
+    const olderSave = useAppStore.getState().saveProject('older.vs');
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    useAppStore.getState().markAutosaveDirty('layer-change');
+    const newerSave = useAppStore.getState().saveProject('newer.vs');
+    await newerSave;
+
+    resolveOlderSave?.({
+      fileName: 'older.vs',
+      fileHandle: olderHandle,
+      writeStatus: 'written',
+    });
+    await olderSave;
+
+    const state = useAppStore.getState();
+    expect(state.projectFilename).toBe('newer.vs');
+    expect(state.projectFileHandle).toBe(newerHandle);
+    expect(fileBackupService.setFileHandle).toHaveBeenCalledTimes(1);
+    expect(fileBackupService.setFileHandle).toHaveBeenCalledWith(newerHandle);
+  });
+
+  it('does not attach an old save result or clear state after project replacement', async () => {
+    const originalProject = useAppStore.getState().project;
+    expect(originalProject).not.toBeNull();
+    useAppStore.setState((state) => ({
+      paletteDirty: true,
+      autosave: {
+        ...state.autosave,
+        hasUnsavedChanges: true,
+        dirtyRevision: 1,
+        savedRevision: 0,
+      },
+    }));
+    let resolveSave: ((result: {
+      fileName: string;
+      fileHandle: FileSystemFileHandle | null;
+    }) => void) | undefined;
+    (saveProjectToFile as jest.Mock).mockReturnValueOnce(new Promise((resolve) => {
+      resolveSave = resolve;
+    }));
+
+    const savePromise = useAppStore.getState().saveProject('old-project.vessel');
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    useAppStore.setState({
+      project: {
+        ...originalProject!,
+        id: 'replacement-project',
+        name: 'Replacement Project',
+      },
+      projectFilename: null,
+      projectFileHandle: null,
+    });
+    resolveSave?.({
+      fileName: 'old-project.vessel',
+      fileHandle: { id: 'old-handle' } as unknown as FileSystemFileHandle,
+    });
+    await savePromise;
+
+    const state = useAppStore.getState();
+    expect(state.project?.id).toBe('replacement-project');
+    expect(state.projectFilename).toBeNull();
+    expect(state.projectFileHandle).toBeNull();
+    expect(state.autosave.hasUnsavedChanges).toBe(true);
+    expect(state.paletteDirty).toBe(true);
+  });
+
+  it('does not capture a replacement project after an older save waits for tool work', async () => {
+    const originalProject = useAppStore.getState().project;
+    expect(originalProject).not.toBeNull();
+    let releaseToolWork: (() => void) | undefined;
+    (flushPendingToolWork as jest.Mock).mockReturnValueOnce(new Promise<void>((resolve) => {
+      releaseToolWork = resolve;
+    }));
+
+    const savePromise = useAppStore.getState().saveProject('old-project.vs');
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    useAppStore.setState({
+      project: {
+        ...originalProject!,
+        id: 'replacement-before-capture',
+        name: 'Replacement Before Capture',
+      },
+    });
+    releaseToolWork?.();
+    await savePromise;
+
+    expect(saveProjectToFile).not.toHaveBeenCalled();
+    expect(useAppStore.getState().project?.id).toBe('replacement-before-capture');
   });
 
   it('captures live color-cycle canvas pixels before stale compatibility snapshots when saving', async () => {
@@ -300,7 +470,10 @@ describe('project slice lifecycle flows', () => {
       layers: [layer],
       layerGroups: [],
     });
-    mockManager.getDocument.mockReturnValue({ version: 22 });
+    mockManager.getDocument.mockReturnValue({
+      version: 22,
+      read: () => ({ version: 22, snapshot: {} }),
+    });
     (saveProjectToFile as jest.Mock).mockResolvedValue({
       fileName: 'cc-save-live.vessel',
       fileHandle: null,
@@ -638,6 +811,9 @@ describe('project slice lifecycle flows', () => {
   });
 
   it('imports a project payload via helper and resets file metadata', async () => {
+    const getAutosaveRevisionFloor = backgroundStorageService
+      .getAutosaveRevisionFloor as jest.Mock;
+    getAutosaveRevisionFloor.mockResolvedValueOnce(5);
     const layers = [makeLayer('layer-import')];
     const project: Project = {
       id: 'project-import',
@@ -677,9 +853,62 @@ describe('project slice lifecycle flows', () => {
       backupPath: null,
       lastBackupTime: null,
     });
+    expect(nextState.autosave.hasUnsavedChanges).toBe(false);
+    const hydratedRevision = nextState.autosave.dirtyRevision;
+    expect(hydratedRevision).toBeGreaterThanOrEqual(5);
+    expect(nextState.autosave.savedRevision).toBe(hydratedRevision);
+    useAppStore.getState().markAutosaveDirty('layer-change');
+    expect(useAppStore.getState().autosave).toEqual(expect.objectContaining({
+      dirtyRevision: hydratedRevision + 1,
+      savedRevision: hydratedRevision,
+      hasUnsavedChanges: true,
+    }));
+    expect(backgroundStorageService.updateSession).toHaveBeenLastCalledWith(
+      'project-import',
+      true,
+      expect.objectContaining({
+        dirtyRevision: hydratedRevision + 1,
+        savedRevision: hydratedRevision,
+      }),
+    );
     expect(mockManager.cleanupOrphanedBrushes).toHaveBeenCalled();
     const cleanupArgs = mockManager.cleanupOrphanedBrushes.mock.calls[0]?.[0];
     expect(cleanupArgs instanceof Set ? cleanupArgs.size : null).toBe(0);
+  });
+
+  it('does not let a prepared import replace a newer project', async () => {
+    const restoreColorCycleBrushes = jest.requireMock('@/utils/projectIO')
+      .restoreColorCycleBrushes as jest.Mock;
+    let releaseRestore: ((layers: Layer[]) => void) | undefined;
+    restoreColorCycleBrushes.mockReturnValueOnce(new Promise((resolve) => {
+      releaseRestore = resolve;
+    }));
+    const importLayers = [makeLayer('stale-import-layer')];
+    const staleProject: Project = {
+      id: 'stale-import-project',
+      name: 'Stale Import',
+      width: 64,
+      height: 64,
+      layers: importLayers,
+      backgroundColor: '#000000',
+      createdAt: new Date('2024-04-01'),
+      updatedAt: new Date('2024-04-02'),
+      customBrushes: [],
+      exportLayout: createDefaultExportLayout(),
+    };
+
+    const importPromise = useAppStore.getState().importProject(staleProject, {
+      fileName: 'stale-import.vs',
+    });
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    useAppStore.getState().newProject(32, 32, 'Newer Project');
+    const newerProjectId = useAppStore.getState().project?.id;
+    releaseRestore?.(importLayers);
+    await importPromise;
+
+    expect(useAppStore.getState().project?.id).toBe(newerProjectId);
+    expect(useAppStore.getState().project?.name).toBe('Newer Project');
+    expect(useAppStore.getState().projectFilename).toBeNull();
   });
 
   it('clears color-cycle runtime only after imported project layers restore', async () => {
@@ -1402,8 +1631,11 @@ describe('project slice lifecycle flows', () => {
     );
   });
 
-  it('creates a default sequential layer when starting a new project', () => {
+  it('creates a clean default sequential layer when starting a new project', async () => {
+    useAppStore.getState().markAutosaveDirty('manual');
+    const previousRevision = useAppStore.getState().autosave.dirtyRevision;
     useAppStore.getState().newProject(256, 128, 'New With Seq');
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
 
     const nextState = useAppStore.getState();
     const sequentialLayers = nextState.layers.filter((layer) => layer.layerType === 'sequential');
@@ -1417,5 +1649,43 @@ describe('project slice lifecycle flows', () => {
       durationMs: 1000,
       events: [],
     });
+    expect(nextState.autosave.hasUnsavedChanges).toBe(false);
+    expect(nextState.autosave.dirtyRevision).toBe(nextState.autosave.savedRevision);
+    expect(nextState.autosave.dirtyRevision).toBeGreaterThan(previousRevision);
+  });
+
+  it('does not clear a user edit made before deferred new-project initialization', async () => {
+    useAppStore.getState().newProject(256, 128, 'New With Early Edit');
+    useAppStore.getState().markAutosaveDirty('layer-change');
+
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+
+    const autosave = useAppStore.getState().autosave;
+    expect(autosave).toEqual(expect.objectContaining({
+      hasUnsavedChanges: true,
+      lastDirtyReason: 'layer-change',
+    }));
+    expect(autosave.dirtyRevision).toBeGreaterThan(autosave.savedRevision);
+  });
+
+  it('preserves persisted recovery metadata for the automatic startup placeholder', async () => {
+    const resetSession = backgroundStorageService.resetSession as jest.Mock;
+    const updateSession = backgroundStorageService.updateSession as jest.Mock;
+    resetSession.mockClear();
+    updateSession.mockClear();
+
+    useAppStore.getState().newProject(
+      256,
+      128,
+      'Startup Placeholder',
+      { preserveRecoverySession: true },
+    );
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+
+    const autosave = useAppStore.getState().autosave;
+    expect(autosave.hasUnsavedChanges).toBe(false);
+    expect(autosave.dirtyRevision).toBe(autosave.savedRevision);
+    expect(resetSession).not.toHaveBeenCalled();
+    expect(updateSession).not.toHaveBeenCalled();
   });
 });

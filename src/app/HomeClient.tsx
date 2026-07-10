@@ -62,6 +62,10 @@ export default function Home() {
   const autosaveIntervalMinutes = useAppStore((state) => state.autosave.interval);
   const saveStatus = useAppStore(selectAutosaveSaveStatus);
   const clearSaveStatus = useAppStore((state) => state.clearSaveStatus);
+  const notifications = useAppStore((state) => state.ui?.notifications ?? []);
+  const historyRecoveryNotification = notifications.find(
+    (notification) => notification.title === 'History recovery failed',
+  );
   
   // Feedback strip state
   const [feedbackMessage, setFeedbackMessage] = useState<string | null>(null);
@@ -89,7 +93,7 @@ export default function Home() {
       }
 
       if (layers.length === 0) {
-        newProject(2000, 2000, 'Untitled');
+        newProject(2000, 2000, 'Untitled', { preserveRecoverySession: true });
       }
 
       // Preload risograph texture to avoid lag on first use
@@ -270,6 +274,15 @@ export default function Home() {
       {/* Simple FPS overlay */}
       {isSettingsHydrated && showFPSMeter && <FPSMeter />}
       {isDevBuild && <DevDebugOverlay />}
+      {historyRecoveryNotification && (
+        <div
+          role="alert"
+          className="fixed left-1/2 top-5 z-[100] w-[min(560px,calc(100vw-32px))] -translate-x-1/2 border border-red-400 bg-[#2a1111] px-4 py-3 text-sm text-[#ffe5e5] shadow-lg"
+        >
+          <div className="font-semibold">{historyRecoveryNotification.title}</div>
+          <div className="mt-1">{historyRecoveryNotification.message}</div>
+        </div>
+      )}
 
 
     </main>

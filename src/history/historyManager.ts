@@ -9,7 +9,15 @@ import type {
   ScopedTxnOptions,
   HistoryCoalesceOptions,
   HistoryRehydrationTargets,
+  PreparedHistoryDelta,
 } from './actionTypes';
+import {
+  HistoryReplayApplyError,
+  HistoryReplayFaultedError,
+  HistoryReplayInProgressError,
+  HistoryReplayPreparationError,
+  HistoryReplayRecoveryError,
+} from './errors';
 import { recordHistoryEntryMetrics, recordHistoryTrim } from './profiling';
 
 type DocIdResolver = () => string;
@@ -45,6 +53,11 @@ interface HistoryManagerOptions {
    * Resolver invoked to determine which document stack should be used when one is not explicitly provided.
    */
   docIdResolver?: DocIdResolver;
+  /** Injectable runtime boundary used by replay tests and alternate hosts. */
+  runtimeRehydration?: {
+    createTargets(): HistoryRehydrationTargets;
+    rehydrate(entry: HistoryEntry, direction: HistoryDirection, targets: HistoryRehydrationTargets): Promise<void>;
+  };
 }
 
 const createHistoryId = (): string => {
@@ -91,8 +104,11 @@ class ScopedTxnImpl implements ScopedTxn {
   }
 
   cancel(): void {
+    if (this.closed) {
+      return;
+    }
     this.closed = true;
-    this.manager.clearActiveTxn(this);
+    this.manager.cancelTxn(this, this.deltas);
   }
 }
 
@@ -107,13 +123,18 @@ export class HistoryManager {
   private activeTxn: ScopedTxnImpl | null = null;
   private readonly hooks: HistoryManagerHooks;
   private _isReplaying = false;
+  private replayDirection: HistoryDirection | null = null;
+  private replayFault: HistoryReplayRecoveryError | null = null;
+  private replayFaultDocId: string | null = null;
   private _maxEntries: number;
   private docIdResolver: DocIdResolver;
+  private readonly runtimeRehydration?: NonNullable<HistoryManagerOptions['runtimeRehydration']>;
 
   constructor(options: HistoryManagerOptions = {}) {
     this._maxEntries = options.maxEntries ?? DEFAULT_MAX_ENTRIES;
     this.hooks = options.hooks ?? {};
     this.docIdResolver = options.docIdResolver ?? (() => DEFAULT_DOC_ID);
+    this.runtimeRehydration = options.runtimeRehydration;
   }
 
   get isReplaying(): boolean {
@@ -122,6 +143,25 @@ export class HistoryManager {
 
   get maxEntries(): number {
     return this._maxEntries;
+  }
+
+  get isFaulted(): boolean {
+    return this.replayFault !== null;
+  }
+
+  get fault(): HistoryReplayRecoveryError | null {
+    return this.replayFault;
+  }
+
+  assertDocumentReplacementAvailable(): void {
+    if (this._isReplaying) {
+      throw new HistoryReplayInProgressError(this.replayDirection ?? 'forward');
+    }
+    if (this.activeTxn) {
+      throw new Error(
+        'Cannot replace the document while a history transaction is in progress.',
+      );
+    }
   }
 
   setMaxEntries(size: number): void {
@@ -160,6 +200,12 @@ export class HistoryManager {
     docId?: string,
     options?: ScopedTxnOptions,
   ): ScopedTxn {
+    if (this.replayFault) {
+      throw new HistoryReplayFaultedError('forward', this.replayFault);
+    }
+    if (this._isReplaying) {
+      throw new Error('Cannot begin a history transaction while replay is in progress.');
+    }
     if (this.activeTxn) {
       throw new Error('A history transaction is already in progress.');
     }
@@ -172,45 +218,48 @@ export class HistoryManager {
 
   async undo(docId?: string): Promise<HistoryEntry | null> {
     const resolvedDoc = docId ?? this.resolveDocId();
+    this.assertReplayAvailable('backward');
     const undoStack = this.undoStacks.get(resolvedDoc);
     if (!undoStack || undoStack.length === 0) {
       return null;
     }
-    const entry = undoStack.pop()!;
+    const entry = undoStack[undoStack.length - 1]!;
     this.ensureStacks(resolvedDoc);
     const redoStack = this.redoStacks.get(resolvedDoc)!;
     try {
       await this.applyEntry(entry, 'backward');
+      undoStack.pop();
       redoStack.push(entry);
       this.hooks.onUndo?.(entry);
       return entry;
     } catch (error) {
-      undoStack.push(entry);
       throw error;
     }
   }
 
   async redo(docId?: string): Promise<HistoryEntry | null> {
     const resolvedDoc = docId ?? this.resolveDocId();
+    this.assertReplayAvailable('forward');
     const redoStack = this.redoStacks.get(resolvedDoc);
     if (!redoStack || redoStack.length === 0) {
       return null;
     }
-    const entry = redoStack.pop()!;
+    const entry = redoStack[redoStack.length - 1]!;
     this.ensureStacks(resolvedDoc);
     const undoStack = this.undoStacks.get(resolvedDoc)!;
     try {
       await this.applyEntry(entry, 'forward');
+      redoStack.pop();
       undoStack.push(entry);
       this.hooks.onRedo?.(entry);
       return entry;
     } catch (error) {
-      redoStack.push(entry);
       throw error;
     }
   }
 
   async apply(entry: HistoryEntry, direction: HistoryDirection): Promise<void> {
+    this.assertReplayAvailable(direction);
     await this.applyEntry(entry, direction);
   }
 
@@ -227,6 +276,7 @@ export class HistoryManager {
   }
 
   clear(docId?: string): void {
+    this.assertDocumentReplacementAvailable();
     if (docId) {
       const undoStack = this.undoStacks.get(docId);
       const redoStack = this.redoStacks.get(docId);
@@ -247,6 +297,10 @@ export class HistoryManager {
       }
       this.undoStacks.clear();
       this.redoStacks.clear();
+    }
+    if (docId === undefined || this.replayFaultDocId === docId) {
+      this.replayFault = null;
+      this.replayFaultDocId = null;
     }
   }
 
@@ -340,53 +394,160 @@ export class HistoryManager {
     recordHistoryEntryMetrics(entry);
   }
 
-  clearActiveTxn(txn: ScopedTxnImpl): void {
+  cancelTxn(txn: ScopedTxnImpl, deltas: HistoryDelta[]): void {
     if (this.activeTxn === txn) {
       this.activeTxn = null;
+      deltas.forEach((delta) => this.disposeDelta(delta));
+    }
+  }
+
+  private assertReplayAvailable(direction: HistoryDirection): void {
+    if (this.replayFault) {
+      throw new HistoryReplayFaultedError(direction, this.replayFault);
+    }
+    if (this._isReplaying) {
+      throw new HistoryReplayInProgressError(direction);
     }
   }
 
   private async applyEntry(entry: HistoryEntry, direction: HistoryDirection): Promise<void> {
+    this.assertReplayAvailable(direction);
     this._isReplaying = true;
-    let rehydrationModule: RehydrationModule | null = null;
-    let targets: HistoryRehydrationTargets | null = null;
-    let thrown: unknown = null;
+    this.replayDirection = direction;
     try {
-      rehydrationModule = await loadRehydrationModule();
-      targets = rehydrationModule.createRehydrationTargets();
-      if (!targets) {
-        throw new Error('Failed to create history rehydration targets.');
-      }
       const deltas =
         direction === 'forward' ? entry.deltas : [...entry.deltas].reverse();
-      for (const delta of deltas) {
-        // Allow the delta to register any runtime surfaces that need follow-up.
-        delta.collectRehydrationTargets?.(targets);
-        await delta.apply(direction);
+      const prepared: PreparedHistoryDelta[] = [];
+      let runtime: NonNullable<HistoryManagerOptions['runtimeRehydration']>;
+      let targets: HistoryRehydrationTargets;
+      try {
+        runtime = await this.getRuntimeRehydration();
+        targets = runtime.createTargets();
+        for (const delta of deltas) {
+          try {
+            prepared.push(await delta.prepare(direction));
+          } catch (error) {
+            throw new HistoryReplayPreparationError({
+              deltaTag: delta._tag,
+              direction,
+              reason: error instanceof Error ? error.message : String(error),
+              entryId: entry.id,
+              action: entry.action,
+              phase: 'prepare',
+            }, error);
+          }
+        }
+      } catch (error) {
+        if (error instanceof HistoryReplayPreparationError) {
+          throw error;
+        }
+        throw new HistoryReplayPreparationError({
+          deltaTag: 'history-entry',
+          direction,
+          reason: error instanceof Error ? error.message : String(error),
+          entryId: entry.id,
+          action: entry.action,
+          phase: 'prepare',
+        }, error);
       }
-    } catch (error) {
-      thrown = error;
+      const applied: PreparedHistoryDelta[] = [];
+      let phase: 'apply' | 'rehydrate' = 'apply';
+      let failingDeltaTag = 'runtime-rehydration';
+      try {
+        for (const delta of prepared) {
+          failingDeltaTag = delta.deltaTag;
+          try {
+            await delta.apply();
+          } catch (error) {
+            if (delta.requiresCompensation()) {
+              applied.push(delta);
+            }
+            throw error;
+          }
+          if (delta.requiresCompensation()) {
+            applied.push(delta);
+            delta.collectRehydrationTargets?.(targets);
+          }
+        }
+        phase = 'rehydrate';
+        failingDeltaTag = 'runtime-rehydration';
+        await runtime.rehydrate(entry, direction, targets);
+        return;
+      } catch (error) {
+        const recoveryTargets = runtime.createTargets();
+        let recoveryPhase: 'compensate' | 'recovery-rehydrate' = 'compensate';
+        let failedCompensationTag = 'runtime-rehydration';
+        try {
+          let didCompensate = false;
+          for (const delta of [...applied].reverse()) {
+            if (!delta.requiresCompensation()) {
+              continue;
+            }
+            delta.collectRehydrationTargets?.(recoveryTargets);
+            failedCompensationTag = delta.deltaTag;
+            await delta.compensate();
+            didCompensate = true;
+          }
+          if (phase === 'rehydrate' || didCompensate) {
+            recoveryPhase = 'recovery-rehydrate';
+            failedCompensationTag = 'runtime-rehydration';
+            await runtime.rehydrate(entry, direction === 'forward' ? 'backward' : 'forward', recoveryTargets);
+          }
+        } catch (recoveryError) {
+          const fault = new HistoryReplayRecoveryError({
+            deltaTag: failedCompensationTag,
+            direction,
+            reason: error instanceof Error ? error.message : String(error),
+            entryId: entry.id,
+            action: entry.action,
+            phase: recoveryPhase,
+            appliedDeltaTags: applied.map((delta) => delta.deltaTag),
+            compensationSucceeded: false,
+          }, error, recoveryError);
+          this.replayFault = fault;
+          this.replayFaultDocId = entry.docId;
+          throw fault;
+        }
+        throw new HistoryReplayApplyError({
+          deltaTag: failingDeltaTag,
+          direction,
+          reason: error instanceof Error ? error.message : String(error),
+          entryId: entry.id,
+          action: entry.action,
+          phase,
+          appliedDeltaTags: applied.map((delta) => delta.deltaTag),
+          compensationSucceeded: true,
+        }, error);
+      }
     } finally {
       this._isReplaying = false;
+      this.replayDirection = null;
     }
+  }
 
-    if (thrown) {
-      throw thrown;
+  private async getRuntimeRehydration(): Promise<NonNullable<HistoryManagerOptions['runtimeRehydration']>> {
+    if (this.runtimeRehydration) {
+      return this.runtimeRehydration;
     }
-
-    if (rehydrationModule && targets) {
-      await rehydrationModule.rehydrateEntryResources(entry, direction, targets);
-    }
+    const rehydrationModule = await loadRehydrationModule();
+    return {
+      createTargets: rehydrationModule.createRehydrationTargets,
+      rehydrate: rehydrationModule.rehydrateEntryResources,
+    };
   }
 
   private disposeEntry(entry: HistoryEntry): void {
     for (const delta of entry.deltas) {
-      try {
-        delta.dispose?.();
-      } catch (error) {
-        if (process.env.NODE_ENV !== 'production') {
-          debugWarn('raw-console', '[history] Failed to dispose delta', error);
-        }
+      this.disposeDelta(delta);
+    }
+  }
+
+  private disposeDelta(delta: HistoryDelta): void {
+    try {
+      delta.dispose?.();
+    } catch (error) {
+      if (process.env.NODE_ENV !== 'production') {
+        debugWarn('raw-console', '[history] Failed to dispose delta', error);
       }
     }
   }

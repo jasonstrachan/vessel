@@ -2,6 +2,10 @@
 // Handles serialization, deserialization, and file operations
 
 import { debugLog, debugWarn, logError } from '@/utils/debug';
+import {
+  writeFileInRevisionOrder,
+  type RevisionedFileWriteOrder,
+} from '@/utils/revisionedFileWrite';
 import type {
   Project,
   Layer,
@@ -5720,8 +5724,13 @@ export async function saveProjectToFile(
   project: Project,
   filename?: string | null,
   layers?: Layer[],
-  existingHandle?: FileSystemFileHandle | null
-): Promise<{ fileName: string; fileHandle: FileSystemFileHandle | null }> {
+  existingHandle?: FileSystemFileHandle | null,
+  writeOrder?: RevisionedFileWriteOrder,
+): Promise<{
+  fileName: string;
+  fileHandle: FileSystemFileHandle | null;
+  writeStatus: 'written' | 'superseded';
+}> {
   const fileName = ensureProjectFilename((filename ?? project.name) || '');
   let projectData: Uint8Array | null = null;
 
@@ -5733,28 +5742,31 @@ export async function saveProjectToFile(
     return projectData;
   };
 
-  const writeToHandle = async (handle: FileSystemFileHandle): Promise<void> => {
-    const writable = await handle.createWritable();
-    try {
-      const data = await ensureProjectData();
-      const buffer = toArrayBuffer(data);
-      await writable.write({ type: 'write', position: 0, data: buffer });
-      await writable.truncate(buffer.byteLength);
-      await writable.close();
-    } catch (error) {
+  const writeToHandle = async (handle: FileSystemFileHandle): Promise<'written' | 'superseded'> => {
+    const result = await writeFileInRevisionOrder(handle, writeOrder, async () => {
+      const writable = await handle.createWritable();
       try {
-        await writable.abort();
-      } catch {
-        // best effort cleanup
+        const data = await ensureProjectData();
+        const buffer = toArrayBuffer(data);
+        await writable.write({ type: 'write', position: 0, data: buffer });
+        await writable.truncate(buffer.byteLength);
+        await writable.close();
+      } catch (error) {
+        try {
+          await writable.abort();
+        } catch {
+          // best effort cleanup
+        }
+        throw error;
       }
-      throw error;
-    }
+    });
+    return result.status;
   };
 
   if (existingHandle) {
     try {
-      await writeToHandle(existingHandle);
-      return { fileName: existingHandle.name ?? fileName, fileHandle: existingHandle };
+      const writeStatus = await writeToHandle(existingHandle);
+      return { fileName: existingHandle.name ?? fileName, fileHandle: existingHandle, writeStatus };
     } catch {
       // Permission revoked or handle invalid; fall back to picker/download
     }
@@ -5784,8 +5796,8 @@ export async function saveProjectToFile(
   }
 
   if (pickedHandle) {
-    await writeToHandle(pickedHandle);
-    return { fileName: pickedHandle.name ?? fileName, fileHandle: pickedHandle };
+    const writeStatus = await writeToHandle(pickedHandle);
+    return { fileName: pickedHandle.name ?? fileName, fileHandle: pickedHandle, writeStatus };
   }
 
   const finalData = await ensureProjectData();
@@ -5800,7 +5812,7 @@ export async function saveProjectToFile(
   document.body.removeChild(a);
   URL.revokeObjectURL(url);
 
-  return { fileName, fileHandle: null };
+  return { fileName, fileHandle: null, writeStatus: 'written' };
 }
 
 // Load project from file

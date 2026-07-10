@@ -2,6 +2,10 @@
 // Saves autosave copies as actual .vs files to user-selected directory (legacy .tb still supported)
 
 import { logError } from '@/utils/debug';
+import {
+  writeFileInRevisionOrder,
+  type RevisionedFileWriteOrder,
+} from '@/utils/revisionedFileWrite';
 import type { Project, Layer } from '../types';
 import {
   PROJECT_FILE_ACCEPT,
@@ -90,12 +94,20 @@ export class FileBackupService {
     }
   }
 
-  async saveProjectBackup(project: Project, layers: Layer[], mode: 'single-file' | 'timestamped-files' = 'single-file'): Promise<{ success: boolean; filename?: string; error?: string }> {
-    if (mode === 'single-file' && !this.fileHandle) {
+  async saveProjectBackup(
+    project: Project,
+    layers: Layer[],
+    mode: 'single-file' | 'timestamped-files' = 'single-file',
+    writeOrder?: RevisionedFileWriteOrder,
+  ): Promise<{ success: boolean; filename?: string; error?: string; superseded?: boolean }> {
+    const selectedFileHandle = this.fileHandle;
+    const selectedDirectoryHandle = this.directoryHandle;
+
+    if (mode === 'single-file' && !selectedFileHandle) {
       return { success: false, error: 'No backup file selected' };
     }
 
-    if (mode === 'timestamped-files' && !this.directoryHandle) {
+    if (mode === 'timestamped-files' && !selectedDirectoryHandle) {
       return { success: false, error: 'No backup directory selected' };
     }
 
@@ -109,28 +121,42 @@ export class FileBackupService {
 
       if (mode === 'single-file') {
         // Use the selected file, overwriting it
-        fileHandle = this.fileHandle!;
+        fileHandle = selectedFileHandle!;
         filename = fileHandle.name;
       } else {
         // Generate timestamped filename for directory mode
         const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, -5);
         filename = `${project.name}_autosave_${timestamp}${PROJECT_FILE_EXTENSION}`;
-        fileHandle = await this.directoryHandle!.getFileHandle(filename, { create: true });
+        fileHandle = await selectedDirectoryHandle!.getFileHandle(filename, { create: true });
       }
 
       // Write the project data (already JSON string from serializeProject)
-      const writable = await fileHandle.createWritable();
-      try {
-        await writable.write({ type: 'write', position: 0, data: projectData });
-        await writable.truncate(projectData.byteLength);
-        await writable.close();
-      } catch (error) {
-        try {
-          await writable.abort();
-        } catch {
-          // best effort cleanup
-        }
-        throw error;
+      if (!fileHandle) {
+        throw new Error('No backup file handle is available');
+      }
+      const targetFileHandle = fileHandle;
+      const writeResult = await writeFileInRevisionOrder(
+        targetFileHandle,
+        mode === 'single-file' ? writeOrder : undefined,
+        async () => {
+          const writable = await targetFileHandle.createWritable();
+          try {
+            await writable.write({ type: 'write', position: 0, data: projectData });
+            await writable.truncate(projectData.byteLength);
+            await writable.close();
+          } catch (error) {
+            try {
+              await writable.abort();
+            } catch {
+              // best effort cleanup
+            }
+            throw error;
+          }
+        },
+      );
+
+      if (writeResult.status === 'superseded') {
+        return { success: true, filename: filename ?? undefined, superseded: true };
       }
 
       // Project backed up as: ${filename}
@@ -139,11 +165,11 @@ export class FileBackupService {
       if (
         mode === 'timestamped-files' &&
         filename &&
-        this.directoryHandle &&
-        typeof this.directoryHandle.removeEntry === 'function'
+        selectedDirectoryHandle &&
+        typeof selectedDirectoryHandle.removeEntry === 'function'
       ) {
         try {
-          await this.directoryHandle.removeEntry(filename);
+          await selectedDirectoryHandle.removeEntry(filename);
         } catch {
           // Best-effort cleanup of partially written autosave files.
         }

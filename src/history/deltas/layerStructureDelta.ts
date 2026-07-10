@@ -2,11 +2,14 @@ import { useAppStore } from '@/stores/useAppStore';
 import type { CanvasSnapshot, Layer, LayerGroup } from '@/types';
 import { cloneLayerAlignment } from '@/utils/layoutDefaults';
 
-import type {
-  HistoryDelta,
-  HistoryDirection,
-  HistoryRehydrationTargets,
+import {
+  prepareHistoryDelta,
+  type HistoryDelta,
+  type HistoryDirection,
+  type HistoryRehydrationTargets,
+  type PreparedHistoryDelta,
 } from '@/history/actionTypes';
+import { restoreOwnedProperties } from '@/history/storeStateCompensation';
 
 export interface LayerStructureSnapshot {
   snapshot: CanvasSnapshot;
@@ -115,22 +118,93 @@ class LayerStructureDelta implements HistoryDelta {
     this.approxBytes = Math.max(1024, layerCount * 512);
   }
 
-  apply(direction: HistoryDirection): void {
+  prepare(direction: HistoryDirection): PreparedHistoryDelta {
+    const state = useAppStore.getState();
+    const projectId = state.project?.id ?? null;
+    const ownedState = {
+      layers: state.layers,
+      layerGroups: state.layerGroups,
+      hiddenLayerGroupIds: state.hiddenLayerGroupIds,
+      activeLayerId: state.activeLayerId,
+      selectedLayerIds: state.selectedLayerIds,
+      referenceLayerId: state.referenceLayerId,
+      layersNeedRecomposition: state.layersNeedRecomposition,
+      compositeSegments: state.compositeSegments,
+      pendingCompositeDirtyBatches: state.pendingCompositeDirtyBatches,
+      tools: state.tools,
+    };
+    const projectSnapshot = state.project;
+    const isCurrentProject = (): boolean =>
+      (useAppStore.getState().project?.id ?? null) === projectId;
+    const requiresCompensation = (): boolean => {
+      if (!isCurrentProject()) return false;
+      const current = useAppStore.getState();
+      return (
+        Object.entries(ownedState).some(([key, value]) => (
+          !Object.is(current[key as keyof typeof ownedState], value)
+        )) ||
+        !Object.is(current.project?.layers, projectSnapshot?.layers) ||
+        !Object.is(current.project?.layerGroups, projectSnapshot?.layerGroups) ||
+        current.project?.referenceLayerId !== projectSnapshot?.referenceLayerId ||
+        !Object.is(current.project?.updatedAt, projectSnapshot?.updatedAt)
+      );
+    };
+
+    return prepareHistoryDelta(
+      this._tag,
+      () => this.applyReplay(direction),
+      requiresCompensation,
+      () => {
+        if (!isCurrentProject()) return;
+        const previousActiveLayer = useAppStore.getState().layers.find(
+          (layer) => layer.id === useAppStore.getState().activeLayerId,
+        ) ?? null;
+        const restoreSnapshot = () => useAppStore.setState((current) => ({
+          ...ownedState,
+          project: current.project && projectSnapshot
+            ? restoreOwnedProperties(current.project, projectSnapshot, [
+                'layers',
+                'layerGroups',
+                'referenceLayerId',
+                'updatedAt',
+              ])
+            : current.project,
+        }));
+        restoreSnapshot();
+        useAppStore.getState().setActiveLayer(ownedState.activeLayerId, {
+          previousActiveLayer,
+          forceLifecycle: true,
+          preserveSelection: true,
+        });
+        // Runtime/tool lifecycle is imperative; restore the captured store objects exactly
+        // after those effects have been issued.
+        restoreSnapshot();
+      },
+      (targets) => this.collectRehydrationTargets(targets),
+    );
+  }
+
+  applyReplay(direction: HistoryDirection): void {
     const target = direction === 'forward' ? this.afterSnapshot : this.beforeSnapshot;
     const targetSnapshot = target.snapshot;
     const restoredLayers = cloneLayersForReplay(targetSnapshot.layers ?? []);
     const validLayerIds = new Set(restoredLayers.map((layer) => layer.id));
     const store = useAppStore.getState();
+    const previousActiveLayer = store.layers.find(
+      (layer) => layer.id === store.activeLayerId,
+    ) ?? null;
 
     useAppStore.setState({ layerGroups: cloneLayerGroups(target.layerGroups) });
     store.setLayers(restoredLayers);
-    if (targetSnapshot.activeLayerId && validLayerIds.has(targetSnapshot.activeLayerId)) {
-      store.setActiveLayer(targetSnapshot.activeLayerId);
-    } else {
-      useAppStore.setState({
-        activeLayerId: null,
-      });
-    }
+    const restoredLayerState = useAppStore.getState().layers;
+    const resolvedActiveLayerId =
+      targetSnapshot.activeLayerId && validLayerIds.has(targetSnapshot.activeLayerId)
+        ? targetSnapshot.activeLayerId
+        : restoredLayerState[0]?.id ?? null;
+    useAppStore.getState().setActiveLayer(resolvedActiveLayerId, {
+      previousActiveLayer,
+      forceLifecycle: true,
+    });
 
     const restoredSelection = target.selectedLayerIds.filter((layerId) => validLayerIds.has(layerId));
     store.setSelectedLayerIds(restoredSelection);
@@ -155,13 +229,6 @@ class LayerStructureDelta implements HistoryDelta {
         },
       };
     });
-
-    if (!targetSnapshot.activeLayerId && resolvedProjectLayers.length > 0) {
-      const fallbackActive = resolvedProjectLayers[0]?.id;
-      if (fallbackActive) {
-        store.setActiveLayer(fallbackActive);
-      }
-    }
 
     useAppStore.getState().setLayersNeedRecomposition(true);
   }

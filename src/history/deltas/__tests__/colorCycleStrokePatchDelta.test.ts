@@ -3,8 +3,14 @@ import {
   createColorCycleStrokePatchDelta,
 } from '@/history/deltas/colorCycleStrokePatchDelta';
 import { createBitmapTileDelta } from '@/history/deltas/bitmapDelta';
-import { HistoryReplayDriftError } from '@/history/errors';
+import { replayDeltaForTest } from '@/history/__tests__/replayTestUtils';
+import {
+  HistoryReplayApplyError,
+  HistoryReplayDriftError,
+  HistoryReplayPreparationError,
+} from '@/history/errors';
 import HistoryManager from '@/history/historyManager';
+import type { HistoryDelta, HistoryDirection, PreparedHistoryDelta } from '@/history/actionTypes';
 import { ColorCycleAnimator } from '@/lib/ColorCycleAnimator';
 import {
   COLOR_CYCLE_DOCUMENT_CANONICAL_PIXEL_BUFFERS,
@@ -37,6 +43,7 @@ const mockBrush = {
 registerColorCycleBrushPaintPatchRuntime(mockBrush, {
   apply: mockApplyPaintPatch,
 });
+let mockHistoryBrush: typeof mockBrush | null = mockBrush;
 let mockDocumentVersion: number | undefined;
 let mockPixelVersion: number | undefined;
 let mockDocumentSnapshot: never = {} as never;
@@ -54,10 +61,18 @@ const mockRebaseVersionAnchors = jest.fn((options: { version?: number; pixelVers
   };
 });
 
+const mockDeleteBrush = jest.fn((layerId: string) => {
+  void layerId;
+  mockHistoryBrush = null;
+});
+
 jest.mock('@/stores/colorCycleBrushManager', () => ({
   __esModule: true as const,
   getColorCycleBrushManager: () => ({
-    getHistoryBrush: () => mockBrush,
+    getHistoryBrush: () => mockHistoryBrush,
+    hasBrush: () => mockHistoryBrush !== null,
+    deleteBrush: (layerId: string) => mockDeleteBrush(layerId),
+    registerDocument: jest.fn(),
     getPlaybackBrush: () => null,
     getDocument: () => (
       typeof mockDocumentVersion === 'number'
@@ -190,6 +205,7 @@ describe('ColorCycleStrokePatchDelta', () => {
     mockDocumentVersion = undefined;
     mockPixelVersion = undefined;
     mockDocumentSnapshot = {} as never;
+    mockHistoryBrush = mockBrush;
     mockBrush.getColorCycleDerivedSurface.mockReturnValue(null);
     window.localStorage.clear();
     const layer = createLayer('layer-cc-patch', 2, 2);
@@ -255,7 +271,7 @@ describe('ColorCycleStrokePatchDelta', () => {
     });
 
     expect(delta).not.toBeNull();
-    await delta!.apply('backward');
+    await replayDeltaForTest(delta!, 'backward');
 
     expect(mockApplyPaintPatch).toHaveBeenCalledTimes(1);
     const [, , paintBytes, extras] = mockApplyPaintPatch.mock.calls[0] as unknown as [
@@ -323,7 +339,7 @@ describe('ColorCycleStrokePatchDelta', () => {
     });
 
     expect(delta).not.toBeNull();
-    await expect(delta!.apply('backward')).rejects.toBeInstanceOf(HistoryReplayDriftError);
+    await expect(replayDeltaForTest(delta!, 'backward')).rejects.toBeInstanceOf(HistoryReplayDriftError);
 
     expect(mockApplyPaintPatch).not.toHaveBeenCalled();
     expect(getPersistedCCMutationLog()).toEqual([
@@ -340,6 +356,52 @@ describe('ColorCycleStrokePatchDelta', () => {
         }),
       }),
     ]);
+  });
+
+  it('reports no compensation when the replay anchor drifts after preparation', async () => {
+    const layerId = 'layer-cc-patch';
+    const backwardState = makeState({
+      layerId,
+      width: 2,
+      height: 2,
+      paint: [1, 0, 0, 0],
+      gradientId: [0, 0, 0, 0],
+      gradientDefId: [0, 0, 0, 0],
+      speed: [0, 0, 0, 0],
+      flow: [0, 0, 0, 0],
+      phase: [0, 0, 0, 0],
+    });
+    const forwardState = makeState({
+      layerId,
+      width: 2,
+      height: 2,
+      paint: [2, 0, 0, 0],
+      gradientId: [0, 0, 0, 0],
+      gradientDefId: [0, 0, 0, 0],
+      speed: [0, 0, 0, 0],
+      flow: [0, 0, 0, 0],
+      phase: [0, 0, 0, 0],
+    });
+    mockDocumentVersion = 2;
+    mockPixelVersion = 2;
+    const delta = await createColorCycleStrokePatchDelta({
+      layerId,
+      width: 2,
+      height: 2,
+      roi: { x: 0, y: 0, width: 1, height: 1 },
+      forwardState,
+      backwardState,
+      beforeVersion: 1,
+      afterVersion: 2,
+    });
+    expect(delta).not.toBeNull();
+    const prepared = await delta!.prepare('backward');
+
+    mockPixelVersion = 3;
+    await expect(prepared.apply()).rejects.toBeInstanceOf(HistoryReplayDriftError);
+
+    expect(prepared.requiresCompensation()).toBe(false);
+    expect(mockApplyPaintPatch).not.toHaveBeenCalled();
   });
 
   it('rebases document anchors to the target history state after applying a patch', async () => {
@@ -389,7 +451,7 @@ describe('ColorCycleStrokePatchDelta', () => {
     });
 
     expect(delta).not.toBeNull();
-    await delta!.apply('backward');
+    await replayDeltaForTest(delta!, 'backward');
 
     expect(mockApplyPaintPatch).toHaveBeenCalledTimes(1);
     expect(mockRebaseVersionAnchors).toHaveBeenCalledWith({
@@ -465,13 +527,142 @@ describe('ColorCycleStrokePatchDelta', () => {
 
     expect(firstDelta).not.toBeNull();
     expect(secondDelta).not.toBeNull();
-    await secondDelta!.apply('backward');
-    await expect(firstDelta!.apply('backward')).resolves.toBeUndefined();
+    await replayDeltaForTest(secondDelta!, 'backward');
+    await expect(replayDeltaForTest(firstDelta!, 'backward')).resolves.toBeUndefined();
 
     expect(mockRebaseVersionAnchors).toHaveBeenLastCalledWith({
       version: 0,
       pixelVersion: 0,
     });
+  });
+
+  it('compensates a real CC patch when a later delta fails in the same entry', async () => {
+    const layerId = 'layer-cc-patch';
+    const before = makeState({
+      layerId, width: 2, height: 2, paint: [0, 0, 0, 0], gradientId: [0, 0, 0, 0],
+      gradientDefId: [0, 0, 0, 0], speed: [0, 0, 0, 0], flow: [0, 0, 0, 0], phase: [0, 0, 0, 0],
+    });
+    const after = makeState({
+      layerId, width: 2, height: 2, paint: [9, 0, 0, 0], gradientId: [0, 0, 0, 0],
+      gradientDefId: [0, 0, 0, 0], speed: [0, 0, 0, 0], flow: [0, 0, 0, 0], phase: [0, 0, 0, 0],
+    });
+    const delta = await createColorCycleStrokePatchDelta({
+      layerId,
+      width: 2,
+      height: 2,
+      roi: { x: 0, y: 0, width: 1, height: 1 },
+      forwardState: after,
+      backwardState: before,
+      beforeDocumentVersion: 0,
+      afterDocumentVersion: 1,
+      beforeVersion: 0,
+      afterVersion: 1,
+    });
+    expect(delta).not.toBeNull();
+    mockDocumentVersion = 1;
+    mockPixelVersion = 1;
+
+    class LateFailureDelta implements HistoryDelta {
+      readonly _tag = 'late-failure';
+      apply(direction: HistoryDirection): void {
+        void direction;
+        throw new Error('late failure');
+      }
+      prepare(direction: HistoryDirection): PreparedHistoryDelta {
+        return {
+          deltaTag: this._tag,
+          apply: () => this.apply(direction),
+          requiresCompensation: () => false,
+          compensate: () => undefined,
+        };
+      }
+    }
+
+    const manager = new HistoryManager();
+    const txn = manager.begin('cc-stroke');
+    txn.push(new LateFailureDelta());
+    txn.push(delta!);
+    txn.commit('CC patch and late failure');
+
+    await expect(manager.undo()).rejects.toBeInstanceOf(HistoryReplayApplyError);
+    expect(mockDocumentVersion).toBe(1);
+    expect(mockPixelVersion).toBe(1);
+    expect(mockApplyPaintPatch).toHaveBeenCalledTimes(2);
+    const [, , compensatedPaint] = mockApplyPaintPatch.mock.calls[1] as [unknown, unknown, Uint8Array];
+    expect(Array.from(compensatedPaint)).toEqual([9]);
+    expect(manager.entries()).toHaveLength(1);
+    expect(manager.redoEntries()).toHaveLength(0);
+  });
+
+  it('removes a runtime created during a compensated replay', async () => {
+    const layerId = 'layer-cc-patch';
+    const before = makeState({
+      layerId, width: 2, height: 2, paint: [0, 0, 0, 0], gradientId: [0, 0, 0, 0],
+      gradientDefId: [0, 0, 0, 0], speed: [0, 0, 0, 0], flow: [0, 0, 0, 0], phase: [0, 0, 0, 0],
+    });
+    const after = makeState({
+      layerId, width: 2, height: 2, paint: [7, 0, 0, 0], gradientId: [0, 0, 0, 0],
+      gradientDefId: [0, 0, 0, 0], speed: [0, 0, 0, 0], flow: [0, 0, 0, 0], phase: [0, 0, 0, 0],
+    });
+    const delta = await createColorCycleStrokePatchDelta({
+      layerId,
+      width: 2,
+      height: 2,
+      roi: { x: 0, y: 0, width: 1, height: 1 },
+      forwardState: after,
+      backwardState: before,
+      beforeVersion: 0,
+      afterVersion: 1,
+    });
+    expect(delta).not.toBeNull();
+
+    const originalInit = useAppStore.getState().initColorCycleForLayer;
+    const initialLayers = useAppStore.getState().layers;
+    const initColorCycleForLayer = jest.fn(() => {
+      mockHistoryBrush = mockBrush;
+      useAppStore.setState((state) => ({
+        layers: state.layers.map((layer) => layer.id === layerId
+          ? {
+              ...layer,
+              colorCycleData: {
+                ...layer.colorCycleData!,
+                isAnimating: true,
+              },
+            }
+          : layer),
+      }));
+    });
+    mockHistoryBrush = null;
+    useAppStore.setState({ initColorCycleForLayer });
+
+    class LateFailureDelta implements HistoryDelta {
+      readonly _tag = 'late-failure';
+      prepare(): PreparedHistoryDelta {
+        return {
+          deltaTag: this._tag,
+          apply: () => { throw new Error('late failure'); },
+          requiresCompensation: () => false,
+          compensate: () => undefined,
+        };
+      }
+    }
+
+    try {
+      const manager = new HistoryManager();
+      const txn = manager.begin('cc-stroke');
+      txn.push(new LateFailureDelta());
+      txn.push(delta!);
+      txn.commit('Cold CC patch and late failure');
+
+      await expect(manager.undo()).rejects.toBeInstanceOf(HistoryReplayApplyError);
+
+      expect(initColorCycleForLayer).toHaveBeenCalledTimes(1);
+      expect(mockDeleteBrush).toHaveBeenCalledWith(layerId);
+      expect(mockHistoryBrush).toBeNull();
+      expect(useAppStore.getState().layers).toBe(initialLayers);
+    } finally {
+      useAppStore.setState({ initColorCycleForLayer: originalInit });
+    }
   });
 
   it('refuses redo when the document version has drifted from the expected before version', async () => {
@@ -512,7 +703,7 @@ describe('ColorCycleStrokePatchDelta', () => {
     });
 
     expect(delta).not.toBeNull();
-    await expect(delta!.apply('forward')).rejects.toBeInstanceOf(HistoryReplayDriftError);
+    await expect(replayDeltaForTest(delta!, 'forward')).rejects.toBeInstanceOf(HistoryReplayDriftError);
     expect(mockApplyPaintPatch).not.toHaveBeenCalled();
     expect(getPersistedCCMutationLog()).toEqual([
       expect.objectContaining({
@@ -569,7 +760,7 @@ describe('ColorCycleStrokePatchDelta', () => {
     });
 
     expect(delta).not.toBeNull();
-    await delta!.apply('backward');
+    await replayDeltaForTest(delta!, 'backward');
 
     expect(mockApplyPaintPatch).toHaveBeenCalledTimes(1);
     const [, , paintBytes, extras] = mockApplyPaintPatch.mock.calls[0] as unknown as [
@@ -660,7 +851,7 @@ describe('ColorCycleStrokePatchDelta', () => {
     ccTxn.commit('CC stroke');
 
     mockDocumentVersion = 3;
-    await expect(manager.undo()).rejects.toBeInstanceOf(HistoryReplayDriftError);
+    await expect(manager.undo()).rejects.toBeInstanceOf(HistoryReplayPreparationError);
     expect(manager.entries()).toHaveLength(2);
     expect(manager.redoEntries()).toHaveLength(0);
     expect(mockApplyPaintPatch).not.toHaveBeenCalled();
@@ -820,7 +1011,7 @@ describe('ColorCycleStrokePatchDelta', () => {
     });
 
     expect(delta).not.toBeNull();
-    await delta!.apply('backward');
+    await replayDeltaForTest(delta!, 'backward');
 
     expect(mockApplyPaintPatch).toHaveBeenCalledTimes(1);
     const [, , paintBytes, extras] = mockApplyPaintPatch.mock.calls[0] as unknown as [
@@ -874,7 +1065,7 @@ describe('ColorCycleStrokePatchDelta', () => {
     });
 
     expect(delta).not.toBeNull();
-    await delta!.apply('backward');
+    await replayDeltaForTest(delta!, 'backward');
 
     expect(mockApplyPaintPatch).toHaveBeenCalledTimes(1);
     const [, , paintBytes, extras] = mockApplyPaintPatch.mock.calls[0] as unknown as [

@@ -171,19 +171,55 @@ class AutosaveService {
       }
 
       // Save to background storage (IndexedDB) - silent, non-blocking
+      const capturedProjectId = freshState.project.id;
+      const capturedRevision = freshState.autosave.dirtyRevision;
       const projectForBackground = {
         ...freshState.project,
         layerGroups: freshState.layerGroups,
         palette: freshState.palette,
         referenceLayerId: freshState.referenceLayerId ?? null
       };
-      await backgroundStorageService.saveProjectInBackground(
+      const capture = await backgroundStorageService.createAutosaveCapture(
         projectForBackground,
-        freshState.layers
+        freshState.layers,
+        capturedRevision,
       );
+      const stateAfterCapture = useAppStore.getState();
+      if (
+        stateAfterCapture.project?.id !== capturedProjectId ||
+        stateAfterCapture.autosave.dirtyRevision !== capturedRevision
+      ) {
+        autosaveLog.debug('Discarding autosave captured across revisions.', {
+          capturedProjectId,
+          capturedRevision,
+          currentProjectId: stateAfterCapture.project?.id ?? null,
+          currentRevision: stateAfterCapture.autosave.dirtyRevision,
+        });
+        stateAfterCapture.setSaveStatus(
+          'idle',
+          'autosave',
+          'Changes pending; autosave will retry',
+        );
+        return;
+      }
+
+      const commit = await backgroundStorageService.saveProjectInBackground(capture);
       autosaveLog.debug('Autosave background save complete', {
-        projectId: freshState.project.id,
+        projectId: capturedProjectId,
+        revision: capturedRevision,
       });
+
+      const stateAfterCommit = useAppStore.getState();
+      if (stateAfterCommit.project?.id !== capturedProjectId) {
+        return;
+      }
+
+      const savedAt = new Date(commit.timestamp);
+      stateAfterCommit.clearDirtyStateIfRevision(
+        capturedProjectId,
+        capturedRevision,
+        savedAt,
+      );
       
       // Also save to file if file backup is enabled
       if (freshState.autosave.fileBackup.enabled) {
@@ -245,7 +281,8 @@ class AutosaveService {
               const backupResult = await fileBackupService.saveProjectBackup(
                 backupProject,
                 freshState.layers,
-                mode
+                mode,
+                { projectId: capturedProjectId, revision: capturedRevision },
               );
               autosaveLog.debug('Autosave file backup result', {
                 success: backupResult.success,
@@ -254,31 +291,50 @@ class AutosaveService {
               });
             
               if (backupResult.success) {
-                // Update file backup time in store
-                const currentState = useAppStore.getState();
-                currentState.updateFileBackupTime();
-                // File backup saved: ${backupResult.filename}
+                if (!backupResult.superseded) {
+                  // Update file backup time in store
+                  const currentState = useAppStore.getState();
+                  currentState.updateFileBackupTime();
+                  // File backup saved: ${backupResult.filename}
+                }
+              } else {
+                useAppStore.getState().addNotification({
+                  type: 'warning',
+                  title: 'Backup File Not Updated',
+                  message:
+                    backupResult.error
+                    ?? 'The IndexedDB autosave completed, but the backup file could not be updated.',
+                  timestamp: new Date(),
+                  duration: 5000,
+                });
               }
-              // File backup failed: ${backupResult.error}
             }
           } catch (error) {
             autosaveLog.error('Failed to write file backup during autosave.', error, { mode });
+            useAppStore.getState().addNotification({
+              type: 'warning',
+              title: 'Backup File Not Updated',
+              message: 'The IndexedDB autosave completed, but writing the backup file failed.',
+              timestamp: new Date(),
+              duration: 5000,
+            });
           }
         }
       }
       
-      // Clear dirty state after successful background save
-      freshState.clearDirtyState();
-      const savedAt = new Date();
-      useAppStore.setState((state) => ({
-        autosave: {
-          ...state.autosave,
-          lastSaveTime: savedAt,
-        },
-      }));
-      useAppStore.setState({ paletteDirty: false });
-      void backgroundStorageService.updateSession(freshState.project.id, false).catch(() => undefined);
-      freshState.setSaveStatus('saved', 'autosave', 'Autosave complete');
+      const completionState = useAppStore.getState();
+      if (
+        completionState.project?.id === capturedProjectId &&
+        completionState.autosave.dirtyRevision === capturedRevision
+      ) {
+        completionState.setSaveStatus('saved', 'autosave', 'Autosave complete');
+      } else {
+        completionState.setSaveStatus(
+          'idle',
+          'autosave',
+          'Autosaved earlier changes; newer changes pending',
+        );
+      }
       
       // Project "${freshState.project.name}" saved to background storage
     } catch (error) {
@@ -291,7 +347,7 @@ class AutosaveService {
       latestState.addNotification({
         type: 'warning',
         title: 'Autosave Issue',
-        message: 'Background autosave encountered an issue. Your work is still safe.',
+        message: 'Background autosave failed. Unsaved changes remain in this session.',
         timestamp: new Date(),
         duration: 3000
       });

@@ -11,6 +11,8 @@ import { captureColorCycleBrushState } from '@/history/helpers/colorCycle';
 import { commitLayerHistory } from '@/history/helpers/layerHistory';
 import { captureSelectionSnapshot, commitSelectionHistory } from '@/history/helpers/selectionHistory';
 import historyManager from '@/history/historyService';
+import type { HistoryDelta, HistoryDirection, PreparedHistoryDelta } from '@/history/actionTypes';
+import { HistoryReplayApplyError } from '@/history/errors';
 import type { Layer } from '@/types';
 import { createDefaultLayerAlignment } from '@/utils/layoutDefaults';
 import {
@@ -24,6 +26,24 @@ const TRIANGLE_POINTS = [
   { x: 32, y: 8 },
   { x: 16, y: 28 },
 ];
+
+class LateFailureDelta implements HistoryDelta {
+  readonly _tag = 'late-failure';
+
+  apply(direction: HistoryDirection): void {
+    void direction;
+    throw new Error('Injected late replay failure');
+  }
+
+  prepare(direction: HistoryDirection): PreparedHistoryDelta {
+    return {
+      deltaTag: this._tag,
+      apply: () => this.apply(direction),
+      requiresCompensation: () => false,
+      compensate: () => undefined,
+    };
+  }
+}
 
 const resetShapeState = (): void => {
   const store = useAppStore.getState();
@@ -161,6 +181,34 @@ describe('history integration', () => {
     resetHistoryState();
     resetShapeState();
     clearLayers();
+  });
+
+  it('dismisses the recovery alert when history is reset', () => {
+    const store = useAppStore.getState();
+    store.addNotification({
+      type: 'error',
+      title: 'History recovery failed',
+      message: 'Stop editing.',
+      timestamp: new Date(),
+    });
+    store.addNotification({
+      type: 'info',
+      title: 'Unrelated notification',
+      message: 'Keep this notification.',
+      timestamp: new Date(),
+    });
+
+    store.clearHistory();
+
+    expect(useAppStore.getState().ui.notifications.map((notification) => notification.title)).toEqual([
+      'Unrelated notification',
+    ]);
+    useAppStore.setState((state) => ({
+      ui: {
+        ...state.ui,
+        notifications: [],
+      },
+    }));
   });
 
   it('captures shape fill session lifecycle in history', async () => {
@@ -450,6 +498,16 @@ describe('history integration', () => {
     expect(restoredPaint?.[0]).toBe(55);
     expect(restoredGradientIds?.[0]).toBe(3);
     expect(restoredGradientDefIds?.[0]).toBe(7);
+
+    const redoEntry = historyManager.peekRedo();
+    expect(redoEntry).not.toBeNull();
+    redoEntry!.deltas.push(new LateFailureDelta());
+    await expect(store.redo()).rejects.toBeInstanceOf(HistoryReplayApplyError);
+    expect(useAppStore.getState().layers.map((entry) => entry.id)).toEqual([layer.id]);
+    expect(useAppStore.getState().activeLayerId).toBe(layer.id);
+    expect(manager.getBrush(layer.id)).not.toBeNull();
+    const compensatedSnapshot = readTestColorCycleBrushLayerSnapshot(manager.getBrush(layer.id), layer.id);
+    expect(new Uint8Array(compensatedSnapshot?.paintBuffer ?? new ArrayBuffer(0))[0]).toBe(55);
   });
 
   it('preserves restored pixels when drawing after undoing layer removal', async () => {
@@ -782,6 +840,18 @@ describe('history integration', () => {
     expect(readPixel(6, 6)).toEqual([0, 255, 0, 255]);
     expect(readPixel(5, 7)).toEqual([0, 0, 255, 255]);
     expect(readPixel(6, 7)).toEqual([255, 255, 0, 255]);
+
+    const store = useAppStore.getState();
+    await store.undo();
+    const redoEntry = historyManager.peekRedo();
+    expect(redoEntry).not.toBeNull();
+    redoEntry!.deltas.push(new LateFailureDelta());
+    await expect(store.redo()).rejects.toBeInstanceOf(HistoryReplayApplyError);
+    const compensatedLayer = useAppStore.getState().layers.find((candidate) => candidate.id === layer.id);
+    expect(readPixelAlpha(compensatedLayer!.imageData!, 5, 6)).toBe(0);
+    expect(readPixelAlpha(compensatedLayer!.imageData!, 6, 7)).toBe(0);
+    expect(historyManager.entries()).toHaveLength(0);
+    expect(historyManager.redoEntries()).toHaveLength(1);
   });
 
   it('records and replays color-cycle selection move commits', async () => {
@@ -1287,5 +1357,19 @@ describe('history integration', () => {
     expect(buffer![5 + (5 * width)]).toBe(11);
     expect(buffer![6 + (5 * width)]).toBe(12);
     expect(buffer![7 + (5 * width)]).toBe(12);
+
+    await store.undo();
+    const beforeRejectedRedo = readTestColorCycleBrushLayerSnapshot(manager.getBrush(layer.id), layer.id);
+    const beforeRejectedPaint = new Uint8Array(beforeRejectedRedo?.paintBuffer ?? new ArrayBuffer(0));
+    const redoEntry = historyManager.peekRedo();
+    expect(redoEntry).not.toBeNull();
+    redoEntry!.deltas.push(new LateFailureDelta());
+    await expect(store.redo()).rejects.toBeInstanceOf(HistoryReplayApplyError);
+    const compensatedSnapshot = readTestColorCycleBrushLayerSnapshot(manager.getBrush(layer.id), layer.id);
+    expect(Array.from(new Uint8Array(compensatedSnapshot?.paintBuffer ?? new ArrayBuffer(0)))).toEqual(
+      Array.from(beforeRejectedPaint),
+    );
+    expect(historyManager.entries()).toHaveLength(0);
+    expect(historyManager.redoEntries()).toHaveLength(1);
   });
 });

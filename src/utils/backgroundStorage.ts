@@ -2,7 +2,13 @@
 // Saves projects silently without user interaction
 
 import { debugWarn, logError } from '@/utils/debug';
-import type { Project, Layer, LayerGroup, PaletteState } from '../types';
+import type {
+  AutosaveRevisionState,
+  Project,
+  Layer,
+  LayerGroup,
+  PaletteState,
+} from '../types';
 import { captureCanvasImageData } from '@/utils/canvas/canvasImage';
 import { captureColorCycleCanvasSnapshot } from '@/utils/colorCycleCanvasSnapshot';
 import { deserializeProject, serializeProject } from '@/utils/projectIO';
@@ -92,6 +98,8 @@ interface AutosaveArchiveRecord {
   serializedProject: Uint8Array;
   timestamp: number;
   isDirty: boolean;
+  dirtyRevision?: number;
+  savedRevision?: number;
 }
 
 interface LegacyAutosaveRecord {
@@ -105,11 +113,85 @@ interface LegacyAutosaveRecord {
 
 type AutosaveRecord = AutosaveArchiveRecord | LegacyAutosaveRecord;
 
-interface SessionRecord {
+interface SessionRecord extends AutosaveRevisionState {
+  id: 'current-session';
   lastProjectId: string;
   lastSaveTime: number;
   hasUnsavedChanges: boolean;
 }
+
+export interface BackgroundAutosaveCapture {
+  projectId: string;
+  projectName: string;
+  dirtyRevision: number;
+  serializedProject: Uint8Array;
+  timestamp: number;
+}
+
+export interface BackgroundAutosaveCommitResult extends AutosaveRevisionState {
+  projectId: string;
+  timestamp: number;
+  hasUnsavedChanges: boolean;
+}
+
+export interface SessionRevisionUpdate extends AutosaveRevisionState {
+  lastSaveTime?: number;
+}
+
+const readRevision = (value: unknown): number | null =>
+  typeof value === 'number' && Number.isSafeInteger(value) && value >= 0
+    ? value
+    : null;
+
+const readAutosaveArchiveRevision = (value: unknown): number | null => {
+  if (!value || typeof value !== 'object') {
+    return null;
+  }
+  const record = value as Partial<AutosaveArchiveRecord>;
+  if (record.format !== 'archive') {
+    return null;
+  }
+  const dirtyRevision = readRevision(record.dirtyRevision);
+  const savedRevision = readRevision(record.savedRevision);
+  if (dirtyRevision === null && savedRevision === null) {
+    return null;
+  }
+  return Math.max(dirtyRevision ?? 0, savedRevision ?? 0);
+};
+
+const normalizeSessionRecord = (value: unknown): SessionRecord | null => {
+  if (!value || typeof value !== 'object') {
+    return null;
+  }
+  const record = value as Partial<SessionRecord>;
+  if (typeof record.lastProjectId !== 'string') {
+    return null;
+  }
+
+  const legacyIsDirty = record.hasUnsavedChanges === true;
+  const rawSavedRevision = readRevision(record.savedRevision) ?? 0;
+  const rawDirtyRevision = readRevision(record.dirtyRevision)
+    ?? (legacyIsDirty ? rawSavedRevision + 1 : rawSavedRevision);
+  const dirtyRevision = Math.max(rawDirtyRevision, rawSavedRevision);
+  const savedRevision = Math.min(rawSavedRevision, dirtyRevision);
+
+  return {
+    id: 'current-session',
+    lastProjectId: record.lastProjectId,
+    lastSaveTime:
+      typeof record.lastSaveTime === 'number' && Number.isFinite(record.lastSaveTime)
+        ? record.lastSaveTime
+        : 0,
+    dirtyRevision,
+    savedRevision,
+    hasUnsavedChanges: dirtyRevision > savedRevision,
+  };
+};
+
+const transactionFailure = (
+  transaction: IDBTransaction,
+  fallbackMessage: string,
+): DOMException | Error => transaction.error ?? new Error(fallbackMessage);
 
 class BackgroundStorageService {
   private readonly DB_NAME = 'vessel-autosave';
@@ -169,37 +251,140 @@ class BackgroundStorageService {
     await this.ensureDb();
   }
 
-  async saveProjectInBackground(project: Project, layers: Layer[]): Promise<void> {
+  async createAutosaveCapture(
+    project: Project,
+    layers: Layer[],
+    dirtyRevision: number,
+  ): Promise<BackgroundAutosaveCapture> {
+    const serializedProject = await serializeProject(project, layers);
+    return {
+      projectId: project.id,
+      projectName: project.name,
+      dirtyRevision,
+      serializedProject: serializedProject.slice(),
+      timestamp: Date.now(),
+    };
+  }
+
+  async saveProjectInBackground(
+    capture: BackgroundAutosaveCapture,
+  ): Promise<BackgroundAutosaveCommitResult> {
     const db = await this.ensureDb();
     if (!db) {
       throw new Error('IndexedDB not available');
     }
 
-    const serializedProject = await serializeProject(project, layers);
-
     const autosaveRecord: AutosaveArchiveRecord = {
-      projectId: project.id,
+      projectId: capture.projectId,
       format: 'archive',
-      serializedProject,
-      timestamp: Date.now(),
-      isDirty: false
+      serializedProject: capture.serializedProject,
+      timestamp: capture.timestamp,
+      isDirty: false,
+      dirtyRevision: capture.dirtyRevision,
+      savedRevision: capture.dirtyRevision,
     };
 
     return new Promise((resolve, reject) => {
-      const transaction = db.transaction([this.PROJECTS_STORE], 'readwrite');
-      const store = transaction.objectStore(this.PROJECTS_STORE);
-      const request = store.put(autosaveRecord);
-
-      request.onerror = () => {
-        logError('[BackgroundStorage] Failed to save project:', request.error);
-        reject(request.error);
+      let settled = false;
+      let commitResult: BackgroundAutosaveCommitResult | null = null;
+      let abortReason: unknown = null;
+      const transaction = db.transaction(
+        [this.PROJECTS_STORE, this.SESSION_STORE],
+        'readwrite',
+      );
+      const rejectOnce = (error: unknown): void => {
+        if (settled) return;
+        settled = true;
+        const failure = error ?? new Error('IndexedDB autosave transaction failed');
+        logError('[BackgroundStorage] Failed to save project:', failure);
+        reject(failure);
       };
 
-      request.onsuccess = () => {
-        // Project "${project.name}" saved to IndexedDB
-        void this.updateSession(project.id, false);
-        resolve();
+      transaction.onerror = () => {
+        rejectOnce(transactionFailure(transaction, 'IndexedDB autosave transaction errored'));
       };
+      transaction.onabort = () => {
+        rejectOnce(
+          abortReason ?? transactionFailure(transaction, 'IndexedDB autosave transaction aborted'),
+        );
+      };
+      transaction.oncomplete = () => {
+        if (settled) return;
+        if (!commitResult) {
+          rejectOnce(new Error('IndexedDB autosave completed without revision metadata'));
+          return;
+        }
+        settled = true;
+        resolve(commitResult);
+      };
+
+      try {
+        const projectStore = transaction.objectStore(this.PROJECTS_STORE);
+        const sessionStore = transaction.objectStore(this.SESSION_STORE);
+        const sessionRequest = sessionStore.get('current-session');
+
+        sessionRequest.onerror = () => rejectOnce(sessionRequest.error);
+        sessionRequest.onsuccess = () => {
+          const existingProjectRequest = projectStore.get(capture.projectId);
+          existingProjectRequest.onerror = () => rejectOnce(existingProjectRequest.error);
+          existingProjectRequest.onsuccess = () => {
+            const existingArchiveRevision = readAutosaveArchiveRevision(
+              existingProjectRequest.result,
+            );
+            if (
+              existingArchiveRevision !== null &&
+              existingArchiveRevision > capture.dirtyRevision
+            ) {
+              abortReason = new Error(
+                `Autosave capture revision ${capture.dirtyRevision} is older than stored revision ${existingArchiveRevision}`,
+              );
+              try {
+                transaction.abort();
+              } catch {
+                rejectOnce(abortReason);
+              }
+              return;
+            }
+
+            const existing = normalizeSessionRecord(sessionRequest.result);
+            const sameProject = existing?.lastProjectId === capture.projectId;
+            const hasNewerProjectSession = Boolean(existing && !sameProject);
+            const previousDirtyRevision = sameProject ? existing.dirtyRevision : 0;
+            const previousSavedRevision = sameProject ? existing.savedRevision : 0;
+            const dirtyRevision = Math.max(previousDirtyRevision, capture.dirtyRevision);
+            const savedRevision = Math.max(previousSavedRevision, capture.dirtyRevision);
+            const sessionRecord: SessionRecord = {
+              id: 'current-session',
+              lastProjectId: capture.projectId,
+              lastSaveTime: capture.timestamp,
+              dirtyRevision,
+              savedRevision,
+              hasUnsavedChanges: dirtyRevision > savedRevision,
+            };
+            commitResult = {
+              projectId: capture.projectId,
+              timestamp: capture.timestamp,
+              dirtyRevision,
+              savedRevision,
+              hasUnsavedChanges: sessionRecord.hasUnsavedChanges,
+            };
+
+            const projectRequest = projectStore.put(autosaveRecord);
+            projectRequest.onerror = () => rejectOnce(projectRequest.error);
+            if (!hasNewerProjectSession) {
+              const sessionWriteRequest = sessionStore.put(sessionRecord);
+              sessionWriteRequest.onerror = () => rejectOnce(sessionWriteRequest.error);
+            }
+          };
+        };
+      } catch (error) {
+        try {
+          transaction.abort();
+        } catch {
+          // The transaction may already be inactive; reject with the source error.
+        }
+        rejectOnce(error);
+      }
     });
   }
 
@@ -243,9 +428,72 @@ class BackgroundStorageService {
       };
 
       request.onsuccess = () => {
-        const session = request.result as SessionRecord | undefined;
-        resolve(session?.hasUnsavedChanges || false);
+        const session = normalizeSessionRecord(request.result);
+        resolve(session ? session.dirtyRevision > session.savedRevision : false);
       };
+    });
+  }
+
+  /**
+   * Returns the highest revision already associated with a project. Callers use
+   * this when loading a project so their in-memory revision counter continues
+   * from the persisted autosave instead of restarting at zero after a reload.
+   */
+  async getAutosaveRevisionFloor(projectId: string): Promise<number> {
+    const db = await this.ensureDb();
+    if (!db) return 0;
+
+    return new Promise((resolve, reject) => {
+      let settled = false;
+      let archiveRevision = 0;
+      let sessionRevision = 0;
+      const transaction = db.transaction(
+        [this.PROJECTS_STORE, this.SESSION_STORE],
+        'readonly',
+      );
+      const rejectOnce = (error: unknown): void => {
+        if (settled) return;
+        settled = true;
+        reject(error ?? new Error('IndexedDB autosave revision lookup failed'));
+      };
+
+      transaction.onerror = () => {
+        rejectOnce(transactionFailure(transaction, 'IndexedDB autosave revision lookup errored'));
+      };
+      transaction.onabort = () => {
+        rejectOnce(transactionFailure(transaction, 'IndexedDB autosave revision lookup aborted'));
+      };
+      transaction.oncomplete = () => {
+        if (settled) return;
+        settled = true;
+        resolve(Math.max(archiveRevision, sessionRevision));
+      };
+
+      try {
+        const projectRequest = transaction
+          .objectStore(this.PROJECTS_STORE)
+          .get(projectId);
+        const sessionRequest = transaction
+          .objectStore(this.SESSION_STORE)
+          .get('current-session');
+
+        projectRequest.onerror = () => rejectOnce(projectRequest.error);
+        projectRequest.onsuccess = () => {
+          archiveRevision = readAutosaveArchiveRevision(projectRequest.result) ?? 0;
+        };
+        sessionRequest.onerror = () => rejectOnce(sessionRequest.error);
+        sessionRequest.onsuccess = () => {
+          const session = normalizeSessionRecord(sessionRequest.result);
+          sessionRevision = session?.lastProjectId === projectId ? session.dirtyRevision : 0;
+        };
+      } catch (error) {
+        try {
+          transaction.abort();
+        } catch {
+          // The transaction may already be inactive; reject with the source error.
+        }
+        rejectOnce(error);
+      }
     });
   }
 
@@ -264,7 +512,7 @@ class BackgroundStorageService {
       };
 
       request.onsuccess = () => {
-        const session = request.result as SessionRecord | undefined;
+        const session = normalizeSessionRecord(request.result);
         resolve(session?.lastProjectId || null);
       };
     });
@@ -292,30 +540,127 @@ class BackgroundStorageService {
     });
   }
 
-  async updateSession(projectId: string, hasUnsavedChanges: boolean): Promise<void> {
+  async updateSession(
+    projectId: string,
+    hasUnsavedChanges: boolean,
+    revisions?: SessionRevisionUpdate,
+  ): Promise<void> {
     const db = await this.ensureDb();
     if (!db) return;
 
-    const sessionRecord: SessionRecord & { id: string } = {
+    return new Promise((resolve, reject) => {
+      let settled = false;
+      const transaction = db.transaction([this.SESSION_STORE], 'readwrite');
+      const rejectOnce = (error: unknown): void => {
+        if (settled) return;
+        settled = true;
+        const failure = error ?? new Error('IndexedDB session transaction failed');
+        logError('[BackgroundStorage] Failed to update session:', failure);
+        reject(failure);
+      };
+      transaction.onerror = () => {
+        rejectOnce(transactionFailure(transaction, 'IndexedDB session transaction errored'));
+      };
+      transaction.onabort = () => {
+        rejectOnce(transactionFailure(transaction, 'IndexedDB session transaction aborted'));
+      };
+      transaction.oncomplete = () => {
+        if (settled) return;
+        settled = true;
+        resolve();
+      };
+
+      try {
+        const store = transaction.objectStore(this.SESSION_STORE);
+        const readRequest = store.get('current-session');
+        readRequest.onerror = () => rejectOnce(readRequest.error);
+        readRequest.onsuccess = () => {
+          const existing = normalizeSessionRecord(readRequest.result);
+          const sameProject = existing?.lastProjectId === projectId;
+          const baseDirtyRevision = sameProject ? existing.dirtyRevision : 0;
+          const baseSavedRevision = sameProject ? existing.savedRevision : 0;
+          const requestedDirtyRevision = revisions?.dirtyRevision ?? 0;
+          const requestedSavedRevision = revisions?.savedRevision ?? 0;
+          const dirtyRevision = revisions
+            ? Math.max(baseDirtyRevision, requestedDirtyRevision)
+            : hasUnsavedChanges
+              ? baseDirtyRevision + 1
+              : baseDirtyRevision;
+          const savedRevision = revisions
+            ? Math.max(baseSavedRevision, requestedSavedRevision)
+            : hasUnsavedChanges
+              ? baseSavedRevision
+              : dirtyRevision;
+          const sessionRecord: SessionRecord = {
+            id: 'current-session',
+            lastProjectId: projectId,
+            lastSaveTime:
+              revisions?.lastSaveTime
+              ?? (hasUnsavedChanges ? existing?.lastSaveTime ?? 0 : Date.now()),
+            dirtyRevision,
+            savedRevision: Math.min(savedRevision, dirtyRevision),
+            hasUnsavedChanges: dirtyRevision > savedRevision,
+          };
+          const writeRequest = store.put(sessionRecord);
+          writeRequest.onerror = () => rejectOnce(writeRequest.error);
+        };
+      } catch (error) {
+        try {
+          transaction.abort();
+        } catch {
+          // The transaction may already be inactive; reject with the source error.
+        }
+        rejectOnce(error);
+      }
+    });
+  }
+
+  async resetSession(projectId: string, lastSaveTime = Date.now()): Promise<void> {
+    const db = await this.ensureDb();
+    if (!db) return;
+
+    const sessionRecord: SessionRecord = {
       id: 'current-session',
       lastProjectId: projectId,
-      lastSaveTime: Date.now(),
-      hasUnsavedChanges
+      lastSaveTime,
+      dirtyRevision: 0,
+      savedRevision: 0,
+      hasUnsavedChanges: false,
     };
 
     return new Promise((resolve, reject) => {
+      let settled = false;
       const transaction = db.transaction([this.SESSION_STORE], 'readwrite');
-      const store = transaction.objectStore(this.SESSION_STORE);
-      const request = store.put(sessionRecord);
-
-      request.onerror = () => {
-        logError('[BackgroundStorage] Failed to update session:', request.error);
-        reject(request.error);
+      const rejectOnce = (error: unknown): void => {
+        if (settled) return;
+        settled = true;
+        const failure = error ?? new Error('IndexedDB session reset failed');
+        logError('[BackgroundStorage] Failed to reset session:', failure);
+        reject(failure);
       };
-
-      request.onsuccess = () => {
+      transaction.onerror = () => {
+        rejectOnce(transactionFailure(transaction, 'IndexedDB session reset errored'));
+      };
+      transaction.onabort = () => {
+        rejectOnce(transactionFailure(transaction, 'IndexedDB session reset aborted'));
+      };
+      transaction.oncomplete = () => {
+        if (settled) return;
+        settled = true;
         resolve();
       };
+
+      try {
+        const request = transaction.objectStore(this.SESSION_STORE).put(sessionRecord);
+        request.onerror = () => rejectOnce(request.error);
+      } catch (error) {
+        try {
+          transaction.abort();
+        } catch {
+          // The transaction may already be inactive; reject with the source error.
+        }
+        rejectOnce(error);
+      }
     });
   }
 

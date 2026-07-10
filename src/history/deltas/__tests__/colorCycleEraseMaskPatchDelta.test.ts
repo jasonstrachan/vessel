@@ -1,4 +1,5 @@
 import { createColorCycleEraseMaskPatchDelta } from '@/history/deltas/colorCycleEraseMaskPatchDelta';
+import { replayDeltaForTest } from '@/history/__tests__/replayTestUtils';
 import { ColorCycleAnimator } from '@/lib/ColorCycleAnimator';
 import * as colorCycleBrushManager from '@/stores/colorCycleBrushManager';
 import { useAppStore } from '@/stores/useAppStore';
@@ -127,7 +128,7 @@ describe('ColorCycleEraseMaskPatchDelta', () => {
     const mask = useAppStore.getState().layers[0]?.colorCycleData?.eraseMask as HTMLCanvasElement;
     expect(readMaskAlpha(mask, 1, 1)).toBe(0);
 
-    await delta!.apply('forward');
+    await replayDeltaForTest(delta!, 'forward');
     expect(readMaskAlpha(mask, 1, 1)).toBe(255);
     expect(useAppStore.getState().layers[0]?.colorCycleData?.eraseMaskVersion).toBe(2);
     expect(useAppStore.getState().layersNeedRecomposition).toBe(true);
@@ -140,7 +141,7 @@ describe('ColorCycleEraseMaskPatchDelta', () => {
     ]);
 
     useAppStore.setState({ layersNeedRecomposition: false, pendingCompositeDirtyBatches: [] });
-    await delta!.apply('backward');
+    await replayDeltaForTest(delta!, 'backward');
     expect(readMaskAlpha(mask, 1, 1)).toBe(0);
     expect(useAppStore.getState().layers[0]?.colorCycleData?.eraseMaskVersion).toBe(1);
     expect(useAppStore.getState().layersNeedRecomposition).toBe(true);
@@ -153,7 +154,10 @@ describe('ColorCycleEraseMaskPatchDelta', () => {
     ]);
   });
 
-  it('accepts forward replay after an earlier stroke patch advances the document version', async () => {
+  it.each([
+    ['forward', 1],
+    ['backward', 2],
+  ] as const)('accepts %s replay at its pre-replay document version', async (direction, documentVersion) => {
     const width = 4;
     const height = 4;
     const layerId = 'layer-cc-mask';
@@ -163,7 +167,7 @@ describe('ColorCycleEraseMaskPatchDelta', () => {
 
     jest.spyOn(colorCycleBrushManager, 'getColorCycleBrushManager').mockReturnValue({
       getDocument: () => ({
-        read: () => ({ version: 2 }),
+        read: () => ({ version: documentVersion }),
       }),
     } as never);
 
@@ -178,6 +182,6 @@ describe('ColorCycleEraseMaskPatchDelta', () => {
       afterVersion: 2,
     });
 
-    await expect(delta!.apply('forward')).resolves.toBeUndefined();
+    await expect(replayDeltaForTest(delta!, direction)).resolves.toBeUndefined();
   });
 });

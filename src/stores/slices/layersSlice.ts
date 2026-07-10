@@ -9,5 +9,6 @@ export type {
   LayersSliceOptions,
   MarkCompositeSegmentsDirtyOptions,
   RenderStaticCompositeOptions,
+  SetActiveLayerOptions,
   UpdateLayerOptions,
 } from '@/stores/layers/createLayersSlice';

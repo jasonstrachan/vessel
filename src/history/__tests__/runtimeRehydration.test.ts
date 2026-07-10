@@ -13,7 +13,15 @@ const mockBrushManager = {
   validateColorCycleBrush: jest.fn(),
   initColorCycleForLayer: jest.fn(),
   getHistoryBrush: jest.fn(),
+  deleteBrush: jest.fn(),
 };
+
+const clearSequentialLayerRendererLayer = jest.fn();
+
+jest.mock('@/lib/sequential/SequentialLayerRenderer', () => ({
+  __esModule: true,
+  clearSequentialLayerRendererLayer,
+}));
 
 jest.mock('@/stores/useAppStore', () => ({
   __esModule: true,
@@ -302,5 +310,75 @@ describe('runtimeRehydration', () => {
       }),
       { skipColorCycleSync: true },
     );
+  });
+
+  it('invalidates sequential materializer and presentation caches after replay', async () => {
+    const targets = createRehydrationTargets();
+    targets.layerIds.add('sequential-layer');
+    targets.sequentialLayerIds.add('sequential-layer');
+
+    await rehydrateEntryResources(
+      { id: 'entry', action: 'sequential-stroke', label: 'test', ts: 1, docId: 'doc', deltas: [] },
+      'backward',
+      targets,
+    );
+
+    expect(clearSequentialLayerRendererLayer).toHaveBeenCalledWith('sequential-layer');
+    expect(mockStoreState.setLayersNeedRecomposition).toHaveBeenCalled();
+  });
+
+  it('removes replay-target runtimes for color-cycle layers absent from restored state', async () => {
+    const targets = createRehydrationTargets();
+    targets.colorCycleLayerIds.add('removed-cc-layer');
+
+    await rehydrateEntryResources(
+      { id: 'entry', action: 'layer-structure', label: 'test', ts: 1, docId: 'doc', deltas: [] },
+      'forward',
+      targets,
+    );
+
+    expect(mockBrushManager.deleteBrush).toHaveBeenCalledWith('removed-cc-layer');
+  });
+
+  it('rejects replay when a required color-cycle runtime cannot be initialized', async () => {
+    const canvas = document.createElement('canvas');
+    canvas.width = 2;
+    canvas.height = 2;
+    const layer = makeLayer(canvas, new ImageData(2, 2));
+    mockStoreState.layers = [layer];
+    mockBrushManager.validateColorCycleBrush.mockReturnValue(false);
+    mockBrushManager.initColorCycleForLayer.mockReturnValue(false);
+
+    const targets = createRehydrationTargets();
+    targets.colorCycleLayerIds.add(layer.id);
+
+    await expect(rehydrateEntryResources(
+      { id: 'entry', action: 'layer-structure', label: 'test', ts: 1, docId: 'doc', deltas: [] },
+      'backward',
+      targets,
+    )).rejects.toThrow(`initialize runtime for color-cycle layer ${layer.id}`);
+  });
+
+  it('rejects replay when canonical color-cycle state cannot be restored', async () => {
+    const canvas = document.createElement('canvas');
+    canvas.width = 2;
+    canvas.height = 2;
+    const layer = makeLayer(canvas, new ImageData(2, 2));
+    const { brush, applySnapshot } = createRuntimeBrush();
+    applySnapshot.mockImplementation(() => {
+      throw new Error('restore rejected');
+    });
+    mockStoreState.layers = [layer];
+    mockBrushManager.validateColorCycleBrush.mockReturnValue(true);
+    mockBrushManager.getHistoryBrush.mockReturnValue(brush);
+
+    const targets = createRehydrationTargets();
+    targets.colorCycleLayerIds.add(layer.id);
+
+    await expect(rehydrateEntryResources(
+      { id: 'entry', action: 'layer-structure', label: 'test', ts: 1, docId: 'doc', deltas: [] },
+      'backward',
+      targets,
+    )).rejects.toThrow(`restore canonical brush state for color-cycle layer ${layer.id}`);
   });
 });

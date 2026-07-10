@@ -227,6 +227,7 @@ import type {
   CompositeSegment,
   MarkCompositeSegmentsDirtyOptions,
   RenderStaticCompositeOptions,
+  SetActiveLayerOptions,
   UpdateLayerOptions,
 } from '@/stores/slices/layersSlice';
 import type { ColorCycleLayerDirtyBatch } from '@/lib/colorCycle/document';
@@ -653,7 +654,7 @@ export interface AppState {
   removeLayerGroup: (groupId: string) => void;
   renameLayerGroup: (groupId: string, name: string) => void;
   setLayerGroupVisibility: (groupId: string, visible: boolean) => void;
-  setActiveLayer: (id: string, opts?: { preserveSelection?: boolean }) => void;
+  setActiveLayer: (id: string | null, opts?: SetActiveLayerOptions) => void;
   setLayers: (layers: Layer[]) => void;
   setReferenceLayer: (id: string | null) => void;
   updateLayerAlignment: (layerId: string, alignment: LayerAlignmentSettings) => void;
@@ -741,7 +742,12 @@ export interface AppState {
     options?: { fileName?: string | null; fileHandle?: FileSystemFileHandle | null }
   ) => Promise<void>;
   exportProject: (format: 'png', options?: { quality?: number; scale?: number }) => Promise<void>;
-  newProject: (width: number, height: number, name?: string) => void;
+  newProject: (
+    width: number,
+    height: number,
+    name?: string,
+    options?: { preserveRecoverySession?: boolean }
+  ) => void;
   compositeLayersToCanvas: (targetCanvas: HTMLCanvasElement, options?: CompositeLayersToCanvasOptions) => void;
   compositeLayersToCanvasSync: (targetCanvas: HTMLCanvasElement, options?: CompositeLayersToCanvasOptions) => boolean;
   applyColorCycleSoftEdgeMask: (
@@ -766,7 +772,13 @@ export interface AppState {
   setFileBackupMode: (mode: 'single-file' | 'timestamped-files') => void;
   setFileBackupFile: (handle: FileSystemFileHandle | null, path?: string) => void;
   setFileBackupDirectory: (handle: FileSystemDirectoryHandle | null, path?: string) => void;
-  clearDirtyState: () => void;
+  setAutosaveSessionSyncSuspended: (suspended: boolean) => void;
+  clearDirtyState: (options?: { resetSession?: boolean }) => void;
+  clearDirtyStateIfRevision: (
+    projectId: string,
+    expectedRevision: number,
+    savedAt: Date
+  ) => boolean;
   markAutosaveDirty: (reason: AutosaveDirtyReason) => void;
   updateFileBackupTime: () => void;
   setAutosaveInterval: (interval: number) => void;
@@ -876,7 +888,9 @@ const storeSubscribeWithSelector = useAppStore.subscribe as unknown as StoreSubs
 const subscribeToAutosaveDirtyTracking = (): void => {
   let isMarkingDirty = false;
   const ensureMarkDirty = (reason: AutosaveDirtyReason) => {
-    if (isMarkingDirty) {
+    // Replay is transactional: intermediate mutations may be compensated.
+    // The history service marks one dirty revision only after replay succeeds.
+    if (isMarkingDirty || historyManager.isReplaying) {
       return;
     }
     const store = useAppStore.getState();
@@ -913,6 +927,15 @@ const subscribeToAutosaveDirtyTracking = (): void => {
     (next, prev) => {
       if (next !== prev) {
         ensureMarkDirty('palette-change');
+      }
+    }
+  );
+
+  storeSubscribeWithSelector(
+    (state) => state.layerGroups,
+    (next, prev) => {
+      if (next !== prev) {
+        ensureMarkDirty('layer-change');
       }
     }
   );

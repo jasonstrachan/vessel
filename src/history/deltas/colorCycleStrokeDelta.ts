@@ -14,13 +14,17 @@ import {
   logCCMutation,
   summarizeColorCycleLayer,
 } from '@/utils/colorCycle/ccMutationAudit';
-import type {
-  HistoryDelta,
-  HistoryDirection,
-  HistoryRehydrationTargets,
+import {
+  createHistoryMutationTracker,
+  type HistoryDelta,
+  type HistoryDirection,
+  type HistoryMutationTracker,
+  type HistoryRehydrationTargets,
+  type PreparedHistoryDelta,
 } from '../actionTypes';
 import { readBlob, releaseBlob, storeBlob } from '../blobStore';
 import { HistoryBlobReadError, HistoryReplayDriftError } from '../errors';
+import { captureColdColorCycleRuntimeCompensation } from '../colorCycleRuntimeCompensation';
 
 type ColorCycleBrushState = ColorCycleBrushSerializedState & {
   documentVersion?: number;
@@ -410,62 +414,58 @@ class ColorCycleStrokeDelta implements HistoryDelta {
     this.approxBytes = sizeOf(this.forwardState) + sizeOf(this.backwardState);
   }
 
-  async apply(direction: HistoryDirection): Promise<void> {
+  async prepare(direction: HistoryDirection): Promise<PreparedHistoryDelta> {
+    const requested = await this.materializeDirection(direction);
+    const compensationDirection = direction === 'forward' ? 'backward' : 'forward';
+    const compensation = await this.materializeDirection(compensationDirection);
+    this.assertReplayReady(direction);
+    const runtimeCompensation = captureColdColorCycleRuntimeCompensation(this.layerId);
+    const mutation = createHistoryMutationTracker();
+    return {
+      deltaTag: this._tag,
+      apply: () => this.applyPrepared(direction, requested, mutation),
+      requiresCompensation: mutation.requiresCompensation,
+      compensate: async () => {
+        try {
+          await this.applyPrepared(compensationDirection, compensation);
+        } finally {
+          runtimeCompensation.restoreIfCreated();
+        }
+      },
+      collectRehydrationTargets: (targets) => this.collectRehydrationTargets(targets),
+    };
+  }
+
+  async applyReplay(direction: HistoryDirection): Promise<void> {
+    const prepared = await this.prepare(direction);
+    await prepared.apply();
+  }
+
+  private async materializeDirection(direction: HistoryDirection): Promise<ColorCycleBrushState | null> {
     const storedState = direction === 'forward' ? this.forwardState : this.backwardState;
     if (!storedState) {
-      return;
+      return null;
     }
-    const state = await materializeState(storedState, direction, this._tag, this.layerId);
+    return materializeState(storedState, direction, this._tag, this.layerId);
+  }
 
+  private assertReplayReady(direction: HistoryDirection): void {
     const manager = getColorCycleBrushManager();
     const initialState = useAppStore.getState();
     const initialLayer = initialState.layers.find((candidate) => candidate.id === this.layerId);
     if (!initialLayer || initialLayer.layerType !== 'color-cycle' || !initialLayer.colorCycleData) {
-      return;
+      throw new Error(`Color-cycle layer ${this.layerId} is unavailable for history replay.`);
     }
-
-    if (!manager.getHistoryBrush(this.layerId)) {
-      const width =
-        initialLayer.colorCycleData.canvas?.width ??
-        initialState.project?.width ??
-        0;
-      const height =
-        initialLayer.colorCycleData.canvas?.height ??
-        initialState.project?.height ??
-        0;
-      if (!width || !height) {
-        return;
-      }
-      try {
-        initialState.initColorCycleForLayer(this.layerId, width, height);
-      } catch {
-        return;
-      }
-    }
-
-    const brush = manager.getHistoryBrush(this.layerId) as ManagedColorCycleBrush | undefined;
-    const liveState = useAppStore.getState();
-    const layer = liveState.layers.find((candidate) => candidate.id === this.layerId);
-    const targetCanvas = layer?.colorCycleData?.canvas;
-    if (!brush || !layer || layer.layerType !== 'color-cycle' || !targetCanvas) {
-      return;
-    }
-
     const expectedVersion = direction === 'forward' ? this.beforeVersion : this.afterVersion;
-    const documentRead = manager.getDocument(this.layerId)?.read?.() ??
-      brush.getColorCycleLayerDocument?.(this.layerId)?.read?.();
-    if (
-      typeof expectedVersion === 'number' &&
-      documentRead &&
-      documentRead.version !== expectedVersion
-    ) {
+    const documentRead = manager.getDocument(this.layerId)?.read?.();
+    if (typeof expectedVersion === 'number' && documentRead && documentRead.version !== expectedVersion) {
       logCCMutation({
         event: 'history-cc-document-version-mismatch',
         layerId: this.layerId,
         reason: direction === 'backward' ? 'history-undo-full-state' : 'history-redo-full-state',
         severity: 'warn',
-        before: summarizeColorCycleLayer(layer),
-        after: summarizeColorCycleLayer(layer),
+        before: summarizeColorCycleLayer(initialLayer),
+        after: summarizeColorCycleLayer(initialLayer),
         details: {
           source: 'history-color-cycle-stroke-full-state',
           operation: direction === 'backward' ? 'undo' : 'redo',
@@ -483,6 +483,43 @@ class ColorCycleStrokeDelta implements HistoryDelta {
         reason: 'document-version-mismatch',
       });
     }
+  }
+
+  private async applyPrepared(
+    direction: HistoryDirection,
+    state: ColorCycleBrushState | null,
+    mutation?: HistoryMutationTracker,
+  ): Promise<void> {
+    if (!state) {
+      return;
+    }
+    const manager = getColorCycleBrushManager();
+    const initialState = useAppStore.getState();
+    const initialLayer = initialState.layers.find((candidate) => candidate.id === this.layerId);
+    if (!initialLayer || initialLayer.layerType !== 'color-cycle' || !initialLayer.colorCycleData) {
+      throw new Error(`Color-cycle layer ${this.layerId} is unavailable for history replay.`);
+    }
+    if (!manager.getHistoryBrush(this.layerId)) {
+      if (manager.hasBrush?.(this.layerId)) {
+        throw new Error(`Color-cycle runtime for ${this.layerId} cannot restore history state.`);
+      }
+      const width = initialLayer.colorCycleData.canvas?.width ?? initialState.project?.width ?? 0;
+      const height = initialLayer.colorCycleData.canvas?.height ?? initialState.project?.height ?? 0;
+      if (!width || !height) {
+        throw new Error(`Color-cycle runtime for ${this.layerId} has no drawable size.`);
+      }
+      mutation?.markMutated();
+      initialState.initColorCycleForLayer(this.layerId, width, height);
+    }
+    const brush = manager.getHistoryBrush(this.layerId) as ManagedColorCycleBrush | undefined;
+    const liveState = useAppStore.getState();
+    const layer = liveState.layers.find((candidate) => candidate.id === this.layerId);
+    const targetCanvas = layer?.colorCycleData?.canvas;
+    if (!brush || !layer || layer.layerType !== 'color-cycle' || !targetCanvas) {
+      throw new Error(`Color-cycle runtime for ${this.layerId} is unavailable for history replay.`);
+    }
+
+    mutation?.markMutated();
 
     const setTargetCanvas = brush.setTargetCanvas;
     if (
@@ -604,7 +641,7 @@ class ColorCycleStrokeDelta implements HistoryDelta {
 
       const tctx = targetCanvas.getContext('2d', { willReadFrequently: true });
       if (!tctx) {
-        return;
+        throw new Error(`Color-cycle target canvas for ${this.layerId} has no 2D context.`);
       }
 
       tctx.save();
@@ -726,8 +763,8 @@ class ColorCycleStrokeDelta implements HistoryDelta {
           // Event dispatch is optional.
         }
       }
-    } catch {
-      // If restore fails, leave state unchanged. Fallback bitmap delta should cover visual output.
+    } catch (error) {
+      throw error;
     } finally {
       if (wasAnimating) {
         try {

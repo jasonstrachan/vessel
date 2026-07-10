@@ -2,7 +2,14 @@ import { getMaskManager } from '@/layers/MaskManager';
 import { getColorCycleBrushManager } from '@/stores/colorCycleBrushManager';
 import { useAppStore } from '@/stores/useAppStore';
 import type { ColorCycleSerializedState } from '@/history/helpers/colorCycle';
-import type { HistoryDelta, HistoryDirection, HistoryRehydrationTargets } from '../actionTypes';
+import {
+  createHistoryMutationTracker,
+  type HistoryDelta,
+  type HistoryDirection,
+  type HistoryMutationTracker,
+  type HistoryRehydrationTargets,
+  type PreparedHistoryDelta,
+} from '../actionTypes';
 import { readBlob, releaseBlob, storeBlob } from '../blobStore';
 import { HistoryBlobReadError, HistoryReplayDriftError } from '../errors';
 
@@ -157,12 +164,34 @@ class ColorCycleEraseMaskPatchDelta implements HistoryDelta {
     this.approxBytes = this.forwardMask.approxBytes + this.backwardMask.approxBytes;
   }
 
-  async apply(direction: HistoryDirection): Promise<void> {
+  async prepare(direction: HistoryDirection): Promise<PreparedHistoryDelta> {
+    const requested = await this.prepareMask(direction, true);
+    const compensation = await this.prepareMask(direction === 'forward' ? 'backward' : 'forward', false);
+    const mutation = createHistoryMutationTracker();
+    return {
+      deltaTag: this._tag,
+      apply: () => this.applyPrepared(direction, requested, mutation),
+      requiresCompensation: mutation.requiresCompensation,
+      compensate: () => this.applyPrepared(direction === 'forward' ? 'backward' : 'forward', compensation),
+      collectRehydrationTargets: (targets) => this.collectRehydrationTargets(targets),
+    };
+  }
+
+  async applyReplay(direction: HistoryDirection): Promise<void> {
+    const prepared = await this.prepare(direction);
+    await prepared.apply();
+  }
+
+  private async prepareMask(direction: HistoryDirection, validateCurrent: boolean): Promise<Uint8Array> {
     const patch = direction === 'forward' ? this.forwardMask : this.backwardMask;
-    const nextVersion = direction === 'forward' ? this.forwardVersion : this.backwardVersion;
-    const expectedDocumentVersion = this.afterVersion ?? this.beforeVersion;
+    // All deltas are prepared before any mutation, so validate against the
+    // transaction's current anchor rather than the version produced by replay.
+    const expectedDocumentVersion = direction === 'forward'
+      ? this.beforeVersion ?? this.afterVersion
+      : this.afterVersion ?? this.beforeVersion;
     const documentRead = getColorCycleBrushManager().getDocument(this.layerId)?.read?.();
     if (
+      validateCurrent &&
       typeof expectedDocumentVersion === 'number' &&
       documentRead &&
       documentRead.version !== expectedDocumentVersion
@@ -187,7 +216,15 @@ class ColorCycleEraseMaskPatchDelta implements HistoryDelta {
         reason: 'missing-color-cycle-erase-mask-blob',
       });
     }
-    const decoded = patch.encoding === 'rle' ? decodeRLE(stored.data) : stored.data;
+    return patch.encoding === 'rle' ? decodeRLE(stored.data) : stored.data;
+  }
+
+  private applyPrepared(
+    direction: HistoryDirection,
+    decoded: Uint8Array,
+    mutation?: HistoryMutationTracker,
+  ): void {
+    const nextVersion = direction === 'forward' ? this.forwardVersion : this.backwardVersion;
     const maskManager = getMaskManager();
     const maskCanvas = maskManager.getMask(this.layerId);
     if (!maskCanvas) {
@@ -223,6 +260,7 @@ class ColorCycleEraseMaskPatchDelta implements HistoryDelta {
       }
     }
     ctx.putImageData(image, clampedX, clampedY);
+    mutation?.markMutated();
 
     const state = useAppStore.getState();
     const layer = state.layers.find((candidate) => candidate.id === this.layerId);
