@@ -5,7 +5,7 @@
 
 import { logError } from '@/utils/debug';
 import { IndexBuffer } from './IndexBuffer';
-import { debugLog, debugWarn } from '../utils/debug';
+import { debugLog, debugWarn, recordBreadcrumb } from '../utils/debug';
 // Debug logs suppressed for color cycle GPU path
 import { GradientPalette, GradientStop } from './GradientPalette';
 import { AnimationController } from './AnimationController';
@@ -49,6 +49,7 @@ type DirectFillHandle = {
 export interface ColorCycleAnimatorConfig {
   width: number;
   height: number;
+  layerId?: string;
   gradientStops?: GradientStop[];
   fps?: number;
   speed?: number;
@@ -92,6 +93,8 @@ export class ColorCycleAnimator implements CCIndexSurface, DerivedSurface {
   private defAtlasMaxRows: number = 1024;
   private defAtlasLut: Uint8Array | null = null;
   private pendingDerivedSurfaceVersion: number | null = null;
+  private hasReportedWebGLContextLoss = false;
+  private readonly diagnosticLayerId: string | null;
 
   // Callbacks
   private onFrameCallbacks: Set<(imageData: ImageData) => void> = new Set();
@@ -99,6 +102,7 @@ export class ColorCycleAnimator implements CCIndexSurface, DerivedSurface {
 
   constructor(config: ColorCycleAnimatorConfig) {
     this.forceCanvas2D = Boolean(config.forceCanvas2D);
+    this.diagnosticLayerId = config.layerId ?? null;
 
     const isLazy = Boolean(config.lazyInit);
     this.indexBuffer = new IndexBuffer(config.width, config.height);
@@ -116,7 +120,11 @@ export class ColorCycleAnimator implements CCIndexSurface, DerivedSurface {
 
     if (!this.forceCanvas2D && typeof window !== 'undefined' && RendererWebGL.isSupported()) {
       try {
-        this.glRenderer = new RendererWebGL({ width: config.width, height: config.height });
+        this.glRenderer = new RendererWebGL({
+          width: config.width,
+          height: config.height,
+          layerId: this.diagnosticLayerId ?? undefined,
+        });
         this.glCanvas = this.glRenderer.getCanvas();
       } catch (error) {
         if (error instanceof Error && error.message === 'WEBGL_CONTEXT_BUDGET_EXCEEDED') {
@@ -430,7 +438,36 @@ export class ColorCycleAnimator implements CCIndexSurface, DerivedSurface {
    * Whether GPU renderer is available
    */
   hasWebGL(): boolean {
-    return !this.forceCanvas2D && !!this.glRenderer;
+    return this.hasUsableWebGLRenderer();
+  }
+
+  isContextLost(): boolean {
+    return this.isWebGLContextLost();
+  }
+
+  private isWebGLContextLost(): boolean {
+    const contextLost = typeof this.glRenderer?.isContextLost === 'function'
+      ? this.glRenderer.isContextLost()
+      : false;
+    if (contextLost && !this.hasReportedWebGLContextLoss) {
+      this.hasReportedWebGLContextLoss = true;
+      recordBreadcrumb('cc-render', {
+        event: 'webgl-context-lost',
+        fallback: 'canvas2d',
+        canvasSize: `${this.width}x${this.height}`,
+      });
+      debugWarn('cc-render', '[ColorCycleAnimator] WebGL context lost; using Canvas2D fallback');
+    }
+    return contextLost;
+  }
+
+  private hasUsableWebGLRenderer(): boolean {
+    return (
+      !this.forceCanvas2D &&
+      Boolean(this.glRenderer) &&
+      Boolean(this.glCanvas) &&
+      !this.isWebGLContextLost()
+    );
   }
 
   getPalettesBySlot(): Uint32Array[] {
@@ -462,7 +499,11 @@ export class ColorCycleAnimator implements CCIndexSurface, DerivedSurface {
     } else if (!this.glRenderer && typeof window !== 'undefined' && RendererWebGL.isSupported()) {
       try {
         const canvas = this.renderer2D.getCanvas();
-        this.glRenderer = new RendererWebGL({ width: canvas.width, height: canvas.height });
+        this.glRenderer = new RendererWebGL({
+          width: canvas.width,
+          height: canvas.height,
+          layerId: this.diagnosticLayerId ?? undefined,
+        });
         this.glCanvas = this.glRenderer.getCanvas();
         this._glIndexDirty = true;
         this._renderSampledOnce = false;
@@ -502,7 +543,7 @@ export class ColorCycleAnimator implements CCIndexSurface, DerivedSurface {
     flowByte: number = 0,
     resolvePhaseByte?: (x: number, y: number, colorIndex: number) => number,
   ): boolean {
-    if (this.forceCanvas2D || !this.glRenderer || vertices.length < 3) {
+    if (!this.hasUsableWebGLRenderer() || !this.glRenderer || vertices.length < 3) {
       return false;
     }
     try {
@@ -619,7 +660,7 @@ export class ColorCycleAnimator implements CCIndexSurface, DerivedSurface {
 
   /** Return runtime GPU vertex limit for fill shader (if available) */
   getGLFillMaxVerts(): number | null {
-    if (this.forceCanvas2D) {
+    if (!this.hasUsableWebGLRenderer()) {
       return null;
     }
     try { return this.glRenderer?.getFillMaxVerts?.() ?? null; } catch { return null; }
@@ -686,7 +727,7 @@ export class ColorCycleAnimator implements CCIndexSurface, DerivedSurface {
 
       const glRenderer = this.glRenderer;
       const glCanvas = this.glCanvas;
-      let useGPU = !this.forceCanvas2D && Boolean(glRenderer) && Boolean(glCanvas);
+      let useGPU = this.hasUsableWebGLRenderer();
       if (useGPU && hasDefIds) {
         if (!this.defPaletteRGBAById || !this.defPaletteSignaturesById || !this.defPalettesById) {
           useGPU = false;
@@ -1469,7 +1510,9 @@ export class ColorCycleAnimator implements CCIndexSurface, DerivedSurface {
    * Get canvas
    */
   getCanvas(): HTMLCanvasElement {
-    return this.glCanvas || this.renderer2D.getCanvas();
+    return this.hasUsableWebGLRenderer() && this.glCanvas
+      ? this.glCanvas
+      : this.renderer2D.getCanvas();
   }
 
   /**
@@ -1483,7 +1526,9 @@ export class ColorCycleAnimator implements CCIndexSurface, DerivedSurface {
    * Draw to another context
    */
   drawTo(ctx: CanvasRenderingContext2D, x: number = 0, y: number = 0) {
-    const src = this.glCanvas || this.renderer2D.getCanvas();
+    const src = this.hasUsableWebGLRenderer() && this.glCanvas
+      ? this.glCanvas
+      : this.renderer2D.getCanvas();
     ctx.drawImage(src, x, y);
   }
 

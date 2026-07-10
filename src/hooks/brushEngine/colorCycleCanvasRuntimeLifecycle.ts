@@ -7,6 +7,7 @@ export type ColorCycleLifecycleAnimator = {
   setForceCanvas2D?: (useCanvas2D: boolean) => void;
   forceRender?: () => void;
   hasWebGL?: () => boolean;
+  isContextLost?: () => boolean;
 };
 
 export type ColorCycleCanvasRuntimeLifecycleContext = {

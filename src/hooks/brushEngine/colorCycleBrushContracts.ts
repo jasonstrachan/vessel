@@ -312,6 +312,7 @@ export type ColorCycleBrushImplementation =
     usesWebGL?: boolean;
     setUseCanvas2D?: (useCanvas2D: boolean) => void;
     isUsingWebGL?: () => boolean;
+    isContextLost?: () => boolean;
   };
 
 /**

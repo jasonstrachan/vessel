@@ -1,4 +1,39 @@
-import { packDefMetaDataForUpload } from '../WebGLColorCycleRenderer';
+import { getPersistedRuntimeIncidents } from '@/utils/runtimeIncidentJournal';
+
+import {
+  packDefMetaDataForUpload,
+  WebGLColorCycleRenderer,
+} from '../WebGLColorCycleRenderer';
+
+const createWebGL2Stub = (): WebGL2RenderingContext => {
+  const noop = jest.fn();
+  const createResource = jest.fn(() => ({}));
+  const target = {
+    createBuffer: createResource,
+    createProgram: createResource,
+    createShader: createResource,
+    createTexture: createResource,
+    createVertexArray: createResource,
+    getExtension: jest.fn(() => null),
+    getParameter: jest.fn(() => 64),
+    getProgramParameter: jest.fn(() => true),
+    getShaderParameter: jest.fn(() => true),
+    getUniformLocation: createResource,
+    isContextLost: jest.fn(() => false),
+  };
+
+  return new Proxy(target, {
+    get(object, property) {
+      if (property in object) {
+        return object[property as keyof typeof object];
+      }
+      if (typeof property === 'string' && property === property.toUpperCase()) {
+        return 1;
+      }
+      return noop;
+    },
+  }) as unknown as WebGL2RenderingContext;
+};
 
 describe('packDefMetaDataForUpload', () => {
   it('packs only the dirty rect for partial uploads', () => {
@@ -45,5 +80,53 @@ describe('packDefMetaDataForUpload', () => {
       0x34, 0x12, 9, 255,
       0, 0, 10, 255,
     ]);
+  });
+});
+
+describe('WebGLColorCycleRenderer context reservations', () => {
+  const rendererStatics = WebGLColorCycleRenderer as unknown as {
+    activeContexts: number;
+  };
+
+  beforeEach(() => {
+    rendererStatics.activeContexts = 0;
+    window.localStorage.clear();
+    delete window.__VESSEL_RUNTIME_INCIDENTS__;
+  });
+
+  afterEach(() => {
+    rendererStatics.activeContexts = 0;
+    jest.restoreAllMocks();
+  });
+
+  it('releases its reserved slot once when the context is lost', () => {
+    const canvas = document.createElement('canvas');
+    const gl = createWebGL2Stub();
+    Object.defineProperty(canvas, 'getContext', {
+      configurable: true,
+      value: jest.fn(() => gl),
+    });
+    const renderer = new WebGLColorCycleRenderer({
+      width: 8,
+      height: 8,
+      canvas,
+      layerId: 'cc-layer',
+    });
+
+    expect(rendererStatics.activeContexts).toBe(1);
+
+    canvas.dispatchEvent(new Event('webglcontextlost'));
+
+    expect(rendererStatics.activeContexts).toBe(0);
+    expect(getPersistedRuntimeIncidents()).toEqual([
+      expect.objectContaining({
+        scope: 'cc-render',
+        event: 'webgl-context-lost',
+        data: expect.objectContaining({ layerId: 'cc-layer' }),
+      }),
+    ]);
+
+    renderer.dispose();
+    expect(rendererStatics.activeContexts).toBe(0);
   });
 });

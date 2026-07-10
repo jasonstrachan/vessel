@@ -104,4 +104,41 @@ describe('ColorCycleAnimator beginDirectFill', () => {
     expect(Array.from(documentPhase)).toEqual([0, 1, 0, 0]);
     animator.endDirectFill({ markDirty: false });
   });
+
+  it('falls back to the Canvas2D surface when the WebGL context is lost', () => {
+    const animator = new ColorCycleAnimator({
+      width: 2,
+      height: 2,
+      gradientStops: [
+        { position: 0, color: '#000000' },
+        { position: 1, color: '#ffffff' },
+      ],
+      forceCanvas2D: true,
+    });
+    const internals = animator as unknown as {
+      forceCanvas2D: boolean;
+      glCanvas: HTMLCanvasElement | null;
+      glRenderer: { isContextLost: () => boolean } | null;
+      renderer2D: {
+        getCanvas: () => HTMLCanvasElement;
+        render: (...args: unknown[]) => void;
+      };
+    };
+    const cpuCanvas = internals.renderer2D.getCanvas();
+    const lostGpuCanvas = document.createElement('canvas');
+    const cpuRenderSpy = jest.spyOn(internals.renderer2D, 'render');
+    internals.forceCanvas2D = false;
+    internals.glCanvas = lostGpuCanvas;
+    internals.glRenderer = {
+      isContextLost: () => true,
+    };
+
+    animator.forceRender();
+
+    expect(animator.isContextLost()).toBe(true);
+    expect(animator.hasWebGL()).toBe(false);
+    expect(animator.getCanvas()).toBe(cpuCanvas);
+    expect(animator.getCanvas()).not.toBe(lostGpuCanvas);
+    expect(cpuRenderSpy).toHaveBeenCalledTimes(1);
+  });
 });

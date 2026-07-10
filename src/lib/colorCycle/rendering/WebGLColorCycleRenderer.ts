@@ -19,6 +19,7 @@
 
 // Debug logs suppressed for GPU renderer
 import { debugWarn } from '@/utils/debug';
+import { recordRuntimeIncident } from '@/utils/runtimeIncidentJournal';
 import {
   MAX_BRUSH_COLOR_CYCLE_SPEED,
   MIN_BRUSH_COLOR_CYCLE_SPEED,
@@ -29,6 +30,7 @@ export interface GLRendererConfig {
   width: number;
   height: number;
   canvas?: HTMLCanvasElement; // optional external canvas; will acquire WebGL context on it
+  layerId?: string;
 }
 
 type GL = WebGLRenderingContext | WebGL2RenderingContext;
@@ -81,6 +83,11 @@ export const packDefMetaDataForUpload = (
 
 type LoseContextExtension = {
   loseContext?: () => void;
+};
+
+type DebugRendererInfoExtension = {
+  UNMASKED_VENDOR_WEBGL: number;
+  UNMASKED_RENDERER_WEBGL: number;
 };
 
 type FillMode = 0 | 1; // 0 = concentric, 1 = linear
@@ -141,6 +148,10 @@ export class WebGLColorCycleRenderer {
   private defLutTex: WebGLTexture | null = null;
   private width: number;
   private height: number;
+  private readonly diagnosticLayerId: string | null;
+  private contextVendor: string | null = null;
+  private contextRenderer: string | null = null;
+  private contextVersion: string | null = null;
   private indexTexAllocated: boolean = false;
   private gidTexAllocated: boolean = false;
   private speedTexAllocated: boolean = false;
@@ -168,6 +179,28 @@ export class WebGLColorCycleRenderer {
   private fillMaxVerts: number = 128; // runtime-adaptive max based on uniform limits
 
   private static _supportCached: boolean | null = null;
+
+  private readonly handleContextLost = (event: Event): void => {
+    this.releaseContextReservation();
+    const contextEvent = event as WebGLContextEvent;
+    recordRuntimeIncident({
+      scope: 'cc-render',
+      event: 'webgl-context-lost',
+      severity: 'error',
+      data: {
+        layerId: this.diagnosticLayerId,
+        canvasSize: `${this.width}x${this.height}`,
+        contextType: this.isWebGL2 ? 'webgl2' : 'webgl1',
+        vendor: this.contextVendor,
+        renderer: this.contextRenderer,
+        version: this.contextVersion,
+        statusMessage: typeof contextEvent.statusMessage === 'string'
+          ? contextEvent.statusMessage
+          : null,
+        isTrusted: event.isTrusted,
+      },
+    });
+  };
 
   /**
    * Detect WebGL support once and cache the result.
@@ -221,6 +254,7 @@ export class WebGLColorCycleRenderer {
 
     this.width = Math.max(1, Math.floor(config.width));
     this.height = Math.max(1, Math.floor(config.height));
+    this.diagnosticLayerId = config.layerId ?? null;
 
     this.canvas = config.canvas || document.createElement('canvas');
     this.canvas.width = this.width;
@@ -246,9 +280,10 @@ export class WebGLColorCycleRenderer {
       this.setupGeometry();
       this.setupUniformsAndSamplers();
       this.createTextures();
+      this.captureContextDiagnostics();
+      this.canvas.addEventListener('webglcontextlost', this.handleContextLost);
     } catch (error) {
-      WebGLColorCycleRenderer.releaseContextSlot();
-      this.hasContextSlot = false;
+      this.releaseContextReservation();
       throw error;
     }
 
@@ -282,6 +317,31 @@ export class WebGLColorCycleRenderer {
 
   getCanvas(): HTMLCanvasElement {
     return this.canvas;
+  }
+
+  isContextLost(): boolean {
+    try {
+      return this.gl.isContextLost();
+    } catch {
+      return true;
+    }
+  }
+
+  private captureContextDiagnostics(): void {
+    try {
+      const debugInfo = this.gl.getExtension('WEBGL_debug_renderer_info') as DebugRendererInfoExtension | null;
+      this.contextVendor = String(this.gl.getParameter(
+        debugInfo?.UNMASKED_VENDOR_WEBGL ?? this.gl.VENDOR,
+      ));
+      this.contextRenderer = String(this.gl.getParameter(
+        debugInfo?.UNMASKED_RENDERER_WEBGL ?? this.gl.RENDERER,
+      ));
+      this.contextVersion = String(this.gl.getParameter(this.gl.VERSION));
+    } catch {
+      this.contextVendor = null;
+      this.contextRenderer = null;
+      this.contextVersion = null;
+    }
   }
 
   resize(width: number, height: number) {
@@ -550,6 +610,8 @@ export class WebGLColorCycleRenderer {
 
   dispose() {
     const gl = this.gl;
+    this.canvas.removeEventListener('webglcontextlost', this.handleContextLost);
+    this.releaseContextReservation();
 
     if (this.indexTex) { gl.deleteTexture(this.indexTex); this.indexTex = null; }
     if (this.gidTex) { gl.deleteTexture(this.gidTex); this.gidTex = null; }
@@ -583,11 +645,14 @@ export class WebGLColorCycleRenderer {
     // Hint to the browser that this canvas is no longer in use
     this.canvas.width = 0;
     this.canvas.height = 0;
+  }
 
-    if (this.hasContextSlot) {
-      WebGLColorCycleRenderer.releaseContextSlot();
-      this.hasContextSlot = false;
+  private releaseContextReservation(): void {
+    if (!this.hasContextSlot) {
+      return;
     }
+    WebGLColorCycleRenderer.releaseContextSlot();
+    this.hasContextSlot = false;
   }
 
   private static reserveContextSlot(): boolean {

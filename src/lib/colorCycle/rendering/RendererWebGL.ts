@@ -9,8 +9,12 @@ export class RendererWebGL {
   private paletteSignaturesBySlot: Array<string | null> = new Array(256).fill(null);
   private paletteReady: boolean = false;
 
-  constructor(options: { width: number; height: number }) {
-    this.renderer = new WebGLColorCycleRenderer({ width: options.width, height: options.height });
+  constructor(options: { width: number; height: number; layerId?: string }) {
+    this.renderer = new WebGLColorCycleRenderer({
+      width: options.width,
+      height: options.height,
+      layerId: options.layerId,
+    });
     this.canvas = this.renderer.getCanvas();
   }
 
@@ -20,6 +24,10 @@ export class RendererWebGL {
 
   getCanvas(): HTMLCanvasElement {
     return this.canvas;
+  }
+
+  isContextLost(): boolean {
+    return this.renderer.isContextLost();
   }
 
   isPaletteReady(signature?: string | null): boolean {

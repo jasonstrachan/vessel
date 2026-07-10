@@ -26,6 +26,7 @@ export function createColorCycleAnimatorForLayer(
 ): ColorCycleAnimator {
   const useReduced = options.initial === 'reduced';
   const animator = new ColorCycleAnimator({
+    layerId,
     width: useReduced ? REDUCED_INIT_SIZE : context.getCanvasWidth(),
     height: useReduced ? REDUCED_INIT_SIZE : context.getCanvasHeight(),
     fps: context.getFps(),

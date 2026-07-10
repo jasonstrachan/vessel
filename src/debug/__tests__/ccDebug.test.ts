@@ -110,6 +110,9 @@ describe('ccDebug overlay bridge', () => {
           }),
         ],
         mutationLog: expect.any(Array),
+        incidents: expect.any(Array),
+        breadcrumbs: expect.any(Array),
+        capturedAt: expect.any(String),
         storageKeys: expect.any(Array),
       })
     );

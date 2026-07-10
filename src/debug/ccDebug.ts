@@ -3,6 +3,12 @@ import { getColorCycleBrushManager } from '@/stores/colorCycleBrushManager';
 import { getPersistedCCMutationLog } from '@/utils/colorCycle/ccMutationAudit';
 import { appendCCDebugOverlayEntry } from '@/utils/colorCycle/ccDebugOverlayStore';
 import { isDevDebugOverlayEnabled } from '@/utils/dev/debugOverlayStore';
+import {
+  getLastCrashReport,
+  getLastHangReport,
+  getPersistedBreadcrumbs,
+} from '@/utils/debug';
+import { getPersistedRuntimeIncidents } from '@/utils/runtimeIncidentJournal';
 
 type ScopedConsole = typeof console;
 type CCDebugState = { on: boolean; verbose: boolean; timing: boolean };
@@ -23,8 +29,11 @@ type ActiveCCLayerDiagnostic = {
   isAnimating: boolean | null;
   runtimeHydrationState: string | null;
   hasRuntimeBrush: boolean;
+  runtimeUsesWebGL: boolean | null;
+  runtimeContextLost: boolean | null;
   hasCanvas: boolean;
   canvasSize: string | null;
+  canvasSample: { sampled: number; alphaHits: number; rgbHits: number } | null;
   hasImageData: boolean;
   imageDataSize: string | null;
   paintRef: unknown;
@@ -36,9 +45,14 @@ type ActiveCCLayerDiagnostic = {
 };
 
 type CCDiagnosticsDump = {
+  capturedAt: string;
   activeLayer: ActiveCCLayerDiagnostic;
   colorCycleLayers: ActiveCCLayerDiagnostic[];
   mutationLog: unknown[];
+  incidents: unknown[];
+  breadcrumbs: unknown[];
+  lastCrash: unknown;
+  lastHang: unknown;
   storageKeys: string[];
 };
 
@@ -94,22 +108,63 @@ const getActiveCCLayerDiagnostic = (): ActiveCCLayerDiagnostic => {
   return getLayerDiagnostic(layer);
 };
 
+const sampleCanvas = (
+  canvas: HTMLCanvasElement | null | undefined,
+): { sampled: number; alphaHits: number; rgbHits: number } | null => {
+  if (
+    typeof document === 'undefined' ||
+    !canvas ||
+    canvas.width <= 0 ||
+    canvas.height <= 0
+  ) {
+    return null;
+  }
+  try {
+    const probeCanvas = document.createElement('canvas');
+    probeCanvas.width = Math.min(64, canvas.width);
+    probeCanvas.height = Math.min(64, canvas.height);
+    const ctx = probeCanvas.getContext('2d', {
+      willReadFrequently: true,
+    } as CanvasRenderingContext2DSettings);
+    if (!ctx) {
+      return null;
+    }
+    ctx.drawImage(canvas, 0, 0, probeCanvas.width, probeCanvas.height);
+    const pixels = ctx.getImageData(0, 0, probeCanvas.width, probeCanvas.height).data;
+    const sampled = probeCanvas.width * probeCanvas.height;
+    let alphaHits = 0;
+    let rgbHits = 0;
+    for (let index = 0; index < pixels.length; index += 4) {
+      if (pixels[index + 3] !== 0) {
+        alphaHits += 1;
+      }
+      if (pixels[index] !== 0 || pixels[index + 1] !== 0 || pixels[index + 2] !== 0) {
+        rgbHits += 1;
+      }
+    }
+    return { sampled, alphaHits, rgbHits };
+  } catch {
+    return null;
+  }
+};
+
 const getLayerDiagnostic = (
   layer: ReturnType<typeof useAppStore.getState>['layers'][number] | null,
 ): ActiveCCLayerDiagnostic => {
   const state = useAppStore.getState();
   const cc = layer?.layerType === 'color-cycle' ? layer.colorCycleData : null;
   const ccRecord = (cc ?? {}) as Record<string, unknown>;
-  const hasRuntimeBrush = (() => {
+  const runtimeBrush = (() => {
     if (!layer || layer.layerType !== 'color-cycle') {
-      return false;
+      return null;
     }
     try {
-      return getColorCycleBrushManager().hasBrush(layer.id);
+      return getColorCycleBrushManager().getBrush(layer.id) ?? null;
     } catch {
-      return false;
+      return null;
     }
   })();
+  const hasRuntimeBrush = Boolean(runtimeBrush);
 
   return {
     href: typeof window !== 'undefined' ? window.location.href : null,
@@ -128,8 +183,15 @@ const getLayerDiagnostic = (
       ? ccRecord.runtimeHydrationState
       : null,
     hasRuntimeBrush,
+    runtimeUsesWebGL: runtimeBrush && typeof runtimeBrush.isUsingWebGL === 'function'
+      ? runtimeBrush.isUsingWebGL()
+      : null,
+    runtimeContextLost: runtimeBrush && typeof runtimeBrush.isContextLost === 'function'
+      ? runtimeBrush.isContextLost()
+      : null,
     hasCanvas: Boolean(cc?.canvas),
     canvasSize: cc?.canvas ? `${cc.canvas.width}x${cc.canvas.height}` : null,
+    canvasSample: sampleCanvas(cc?.canvas),
     hasImageData: Boolean(layer?.imageData),
     imageDataSize: layer?.imageData ? `${layer.imageData.width}x${layer.imageData.height}` : null,
     paintRef: ccRecord.paintRef ?? null,
@@ -157,11 +219,16 @@ const dumpCCDiagnostics = (): CCDiagnosticsDump => {
   })();
 
   return {
+    capturedAt: new Date().toISOString(),
     activeLayer: getActiveCCLayerDiagnostic(),
     colorCycleLayers: state.layers
       .filter((layer) => layer.layerType === 'color-cycle')
       .map((layer) => getLayerDiagnostic(layer)),
     mutationLog: getPersistedCCMutationLog(),
+    incidents: getPersistedRuntimeIncidents(),
+    breadcrumbs: getPersistedBreadcrumbs(),
+    lastCrash: getLastCrashReport(),
+    lastHang: getLastHangReport(),
     storageKeys,
   };
 };

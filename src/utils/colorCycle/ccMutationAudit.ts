@@ -1,6 +1,7 @@
 import type { Layer } from '@/types';
 import { getColorCycleLegacyLayerBufferByteLength } from '@/lib/colorCycle/document/legacyLayerBuffers';
 import { __DEV__, logError, recordBreadcrumb, debugLog, debugWarn } from '@/utils/debug';
+import { recordRuntimeIncident } from '@/utils/runtimeIncidentJournal';
 
 type AuditSeverity = 'info' | 'warn' | 'error';
 
@@ -269,7 +270,8 @@ export const logCCMutation = ({
   severity?: AuditSeverity;
 }): void => {
   installMutationLogHelper();
-  const shouldPersist = __DEV__ || severity === 'error' || transitionLooksDestructive(before ?? null, after ?? null);
+  const isDestructive = transitionLooksDestructive(before ?? null, after ?? null);
+  const shouldPersist = __DEV__ || severity === 'error' || isDestructive;
   const entry: CCMutationEntry = {
     t: Date.now(),
     event,
@@ -285,6 +287,20 @@ export const logCCMutation = ({
 
   if (shouldPersist) {
     persistEntry(entry);
+  }
+  if (severity === 'error' || isDestructive) {
+    recordRuntimeIncident({
+      scope: 'cc-mutation',
+      event,
+      severity: 'error',
+      data: {
+        layerId,
+        reason: reason ?? null,
+        details: details ?? null,
+        before: before ?? null,
+        after: after ?? null,
+      },
+    });
   }
   recordBreadcrumb('cc-mutation', entry);
 

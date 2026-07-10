@@ -100,7 +100,14 @@ export class ColorCycleCanvasLifecycleApiRuntime {
     isColorCycleRuntimeUsingWebGL(this.getCanvasRuntimeLifecycleContext())
   );
 
-  readonly isContextLost = (): boolean => false;
+  readonly isContextLost = (): boolean => {
+    for (const animator of this.deps.animatorValues()) {
+      if (animator.isContextLost?.()) {
+        return true;
+      }
+    }
+    return false;
+  };
 
   readonly hasValidBuffers = (): boolean => (
     hasValidColorCycleBuffers(this.getBufferValidationContext())
