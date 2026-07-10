@@ -6,6 +6,7 @@ import type {
 } from '@/types';
 import { DEFAULT_BRUSH_COLOR_CYCLE_SPEED } from '@/constants/colorCycle';
 import { encodeColorCycleSpeedByte, sanitizeBrushColorCycleSpeed } from '@/utils/colorCycleSpeed';
+import { resolveLayerColorCycleFallbackSpeedCps } from '@/utils/colorCycleLayerSpeed';
 import type {
   ColorCycleLayerDocumentState,
 } from './colorCycleDocumentContract';
@@ -22,6 +23,7 @@ export type NormalizeColorCycleDocumentStateOptions = {
   fallbackHeight?: number;
   decodeSerializedBrushStateBuffers?: boolean;
   completeMotionBuffers?: boolean;
+  fallbackWriteSpeedCps?: number;
 };
 
 type PersistedLayerSnapshot = {
@@ -43,6 +45,7 @@ type PersistedLayerSnapshot = {
 };
 
 type PersistedBrushState = {
+  cycleSpeed?: number;
   layers?: PersistedLayerSnapshot[];
 };
 
@@ -279,13 +282,18 @@ export const completeDefaultColorCycleMotionBuffers = <
     | 'layerBaseSpeedCps'
     | 'flowMode'
   >
->(state: T): T => {
+>(
+  state: T,
+  options: { fallbackSpeedCps?: number } = {},
+): T => {
   const pixels = state.width * state.height;
   const paintBuffer = state.paintBuffer;
   if (!paintBuffer || !hasVisiblePaintBuffer(paintBuffer) || pixels <= 0) {
     return state;
   }
-  const speedByte = resolveDefaultMotionSpeedByte(state.layerBaseSpeedCps);
+  const fallbackSpeed = options.fallbackSpeedCps
+    ?? resolveLayerColorCycleFallbackSpeedCps({ layerBaseSpeedCps: state.layerBaseSpeedCps });
+  const speedByte = resolveDefaultMotionSpeedByte(fallbackSpeed);
   const flowByte = getFlowByteForMode(state.flowMode);
 
   return {
@@ -310,7 +318,8 @@ export const normalizeColorCycleLayerDocumentState = (
   }
 
   const { colorCycleData } = layer;
-  const snapshot = getBrushSnapshotForLayer(colorCycleData.brushState, layer.id);
+  const persistedBrushState = colorCycleData.brushState as PersistedBrushState | undefined;
+  const snapshot = getBrushSnapshotForLayer(persistedBrushState, layer.id);
   const strokeData = snapshot?.strokeData;
   const legacyRefs = getLegacyStateRefs(layer);
   const legacyTopLevelBuffers = readLegacyColorCycleTopLevelBuffers(colorCycleData);
@@ -376,7 +385,15 @@ export const normalizeColorCycleLayerDocumentState = (
 
   const completedState = options.completeMotionBuffers === false
     ? state
-    : completeDefaultColorCycleMotionBuffers(state);
+    : completeDefaultColorCycleMotionBuffers(state, {
+        fallbackSpeedCps: resolveLayerColorCycleFallbackSpeedCps(
+          colorCycleData,
+          typeof persistedBrushState?.cycleSpeed === 'number' &&
+            Number.isFinite(persistedBrushState.cycleSpeed)
+            ? persistedBrushState.cycleSpeed
+            : options.fallbackWriteSpeedCps,
+        ),
+      });
   const dimensionValidation = validateColorCycleDocumentStateDimensions(completedState);
   if (!dimensionValidation.ok) {
     return dimensionValidation;

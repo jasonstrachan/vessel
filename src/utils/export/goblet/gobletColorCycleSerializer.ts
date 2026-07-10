@@ -3,7 +3,7 @@ import { FLOW_SLOT_MASK } from '@/lib/colorCycle/flowEncoding';
 import { normalizeGradientSeamProfile, type GradientSeamProfile } from '@/lib/colorCycle/gradientSeamProfile';
 import { MAX_BRUSH_COLOR_CYCLE_SPEED, MAX_CC_LAYER_SPEED_SCALE, MIN_BRUSH_COLOR_CYCLE_SPEED, MIN_CC_LAYER_SPEED_SCALE } from '@/constants/colorCycle';
 import { decodeColorCycleSpeedByte, encodeColorCycleSpeedByte } from '@/utils/colorCycleSpeed';
-import { resolveLayerColorCycleBaseSpeed } from '@/utils/colorCycleLayerSpeed';
+import { resolveLayerColorCycleFallbackSpeedCps } from '@/utils/colorCycleLayerSpeed';
 import { packArrayToB64Z, unpackB64ZToUint8Array } from '@/utils/export/b64z';
 import { ccLog, ccSample } from '@/utils/colorCycle/ccDebug';
 import { deriveForegroundGradientStops } from '@/utils/colorCycleGradients';
@@ -1035,9 +1035,10 @@ const persistenceDocumentStateToBrushState = (
     ? targetFPSSource
     : undefined;
   const animationSpeedSource = metadata?.exportCycleSpeed ?? metadata?.cycleSpeed;
-  const animationSpeed = typeof animationSpeedSource === 'number'
-    ? animationSpeedSource
-    : resolveLayerColorCycleBaseSpeed(layer.colorCycleData);
+  const animationSpeed = resolveLayerColorCycleFallbackSpeedCps(
+    layer.colorCycleData,
+    typeof animationSpeedSource === 'number' ? animationSpeedSource : undefined,
+  );
   const stampDitherEnabled = typeof metadata?.stampDitherEnabled === 'boolean'
     ? metadata.stampDitherEnabled
     : undefined;
@@ -1315,7 +1316,10 @@ const resolveExportControllerSpeed = (
 
   const layerBaseSpeed = toFiniteNumberOrNull(data.layerBaseSpeedCps);
   if (layerBaseSpeed !== null) {
-    return applyExportPlaybackScale(layerBaseSpeed, layerSpeedScale);
+    return applyExportPlaybackScale(
+      resolveLayerColorCycleFallbackSpeedCps(data, fallbackToolSpeed ?? undefined),
+      layerSpeedScale,
+    );
   }
 
   const controllerSpeed = toFiniteNumberOrNull(data.controllerSpeedCps);
@@ -1349,13 +1353,14 @@ const resolveExportToolSpeed = (
   fallbackToolSpeed?: number | null
 ): number | null => {
   const toolSpeed = toFiniteNumberOrNull(fallbackToolSpeed);
-  if (toolSpeed !== null) {
-    return applyExportPlaybackScale(toolSpeed, layerSpeedScale);
+  const data = layer.colorCycleData;
+  if (!data && toolSpeed === null) {
+    return null;
   }
-  const layerSpeed = toFiniteNumberOrNull(resolveLayerColorCycleBaseSpeed(layer.colorCycleData));
-  return layerSpeed !== null
-    ? applyExportPlaybackScale(layerSpeed, layerSpeedScale)
-    : null;
+  return applyExportPlaybackScale(
+    resolveLayerColorCycleFallbackSpeedCps(data, toolSpeed ?? undefined),
+    layerSpeedScale,
+  );
 };
 
 const collectUsedSlots = (
@@ -2462,7 +2467,7 @@ const extractBrushStateFromDocumentState = (layer: Layer): WebGLSerializedBrushS
 
   return mapDocumentSnapshotToGobletBrushState(state, {
     gradientStops,
-    animationSpeed: resolveLayerColorCycleBaseSpeed(layer.colorCycleData),
+    animationSpeed: resolveLayerColorCycleFallbackSpeedCps(layer.colorCycleData),
     stampDitherEnabled: typeof brushStateMetadata?.stampDitherEnabled === 'boolean'
       ? brushStateMetadata.stampDitherEnabled
       : undefined,

@@ -1,3 +1,5 @@
+import { recordColorCycleCanonicalBufferCopy } from './canonicalBufferAccounting';
+
 export type ColorCycleStrokeBuffers = {
   paint: Uint8Array;
   gid: Uint8Array;
@@ -6,8 +8,6 @@ export type ColorCycleStrokeBuffers = {
   phase: Uint8Array;
   def: Uint16Array;
 };
-
-import { recordColorCycleCanonicalBufferCopy } from './canonicalBufferAccounting';
 
 export type ColorCycleStrokeSnapshot = {
   paintBuffer: ArrayBuffer;

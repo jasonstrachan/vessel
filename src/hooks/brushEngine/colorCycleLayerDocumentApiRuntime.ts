@@ -17,6 +17,7 @@ import {
   getColorCycleRuntimeLayerDocument,
   getColorCycleRuntimeLayerId,
   bindColorCycleRuntimeLayerStrokeBuffersToAnimator,
+  buildColorCycleRuntimeDocumentStateFromStrokeState,
   clearColorCycleRuntimeLayerStrokeStatesForReset,
   ensureColorCycleRuntimeLayerStrokeState,
   mutateColorCycleRuntimeLayerStrokeState,
@@ -212,6 +213,48 @@ export class ColorCycleLayerDocumentApiRuntime {
 
   readonly snapshotFromBuffers = (strokeState: LayerStrokeState): void => {
     snapshotColorCycleRuntimeLayerStrokeStateFromBuffers(this.getContext(), strokeState);
+  };
+
+  readonly publishLayerBaseSpeed = (
+    layerId: string,
+    nextBaseSpeed: number,
+    strokeState: LayerStrokeState | undefined,
+    pixelsChanged: boolean,
+  ): void => {
+    const document = this.getColorCycleLayerDocument(layerId);
+    if (!document) {
+      return;
+    }
+
+    if (!strokeState || !pixelsChanged) {
+      const versionBefore = document.version;
+      const derivedSurface = this.deps.getDerivedSurface(layerId);
+      const transaction = document.beginTransaction('layer-base-speed-change');
+      transaction.updateScalarMetadata({ layerBaseSpeedCps: nextBaseSpeed });
+      const read = transaction.commit();
+      if (derivedSurface?.builtFromVersion === versionBefore) {
+        derivedSurface.builtFromVersion = read.version;
+      }
+      return;
+    }
+
+    this.setStrokeStateWithDocumentPublish({
+      layerId,
+      strokeState,
+      publishToDocument: true,
+      reason: 'layer-base-speed-change',
+      buildDocumentState: () => ({
+        ...buildColorCycleRuntimeDocumentStateFromStrokeState(
+          this.getContext(),
+          layerId,
+          strokeState,
+        ),
+        layerBaseSpeedCps: nextBaseSpeed,
+      }),
+      pixelsChanged: true,
+      assumeDerivedSurfaceCurrent: true,
+      derivedSurface: this.deps.getDerivedSurface(layerId),
+    });
   };
 
   readonly refreshStrokeContent = (strokeState: LayerStrokeState): boolean => (

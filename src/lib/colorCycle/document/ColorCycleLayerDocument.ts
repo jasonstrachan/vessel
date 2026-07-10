@@ -3,6 +3,9 @@ import type {
   ColorCycleGradientDefStoreEntry,
   ColorCycleSlotPalette,
 } from '@/types';
+import { debugWarn } from '@/utils/debug';
+import { strokeFinalizeProbeTimeSync } from '@/utils/strokeFinalizeProbe';
+
 import type {
   ColorCycleLayerDocumentSnapshot,
   ColorCycleLayerDocumentState,
@@ -13,8 +16,6 @@ import {
   type ColorCycleCanonicalCopyReason,
 } from './canonicalBufferAccounting';
 import { validateColorCycleDocumentStateDimensions } from './documentState';
-import { debugWarn } from '@/utils/debug';
-import { strokeFinalizeProbeTimeSync } from '@/utils/strokeFinalizeProbe';
 
 export type ColorCycleLayerDocumentResidency =
   | 'resident'
@@ -139,8 +140,18 @@ export type ColorCycleLayerDocumentReplaceOptions = {
 };
 
 type ColorCycleLayerDocumentCommitOptions = Omit<ColorCycleLayerDocumentReplaceOptions, 'dirtyRects'> & {
-  takeOwnership?: boolean;
+  acceptTransferredOwnership?: boolean;
 };
+
+export type ColorCycleLayerDocumentScalarMetadataUpdate = Partial<Pick<
+  ColorCycleLayerDocumentState,
+  | 'activeGradientId'
+  | 'paintSlot'
+  | 'fgActiveSlot'
+  | 'layerBaseSpeedCps'
+  | 'flowMode'
+  | 'hasContent'
+>>;
 
 export type DerivedSurface = {
   builtFromVersion: number | null;
@@ -337,6 +348,20 @@ const cloneDocumentMetadataWithCanonicalBuffers = (
   sources: { ...state.sources },
 });
 
+const transferDocumentStateOwnership = (
+  state: ColorCycleLayerDocumentState,
+): ColorCycleLayerDocumentState => {
+  const transfer = Array.from(new Set([
+    state.paintBuffer,
+    state.gradientIdBuffer,
+    state.gradientDefIdBuffer,
+    state.speedBuffer,
+    state.flowBuffer,
+    state.phaseBuffer,
+  ].filter((buffer): buffer is ArrayBuffer => buffer instanceof ArrayBuffer)));
+  return structuredClone(state, { transfer });
+};
+
 const arrayBuffersEqual = (
   a: ArrayBuffer | undefined,
   b: ArrayBuffer | undefined,
@@ -518,6 +543,8 @@ export class CCDocumentTransaction {
 
   private draft: ColorCycleLayerDocumentState;
 
+  private hasWritableCanonicalBuffers = false;
+
   private readonly dirtyRects: ColorCycleDirtyRect[] = [];
 
   constructor(
@@ -525,12 +552,21 @@ export class CCDocumentTransaction {
     readonly reason: string,
     initialState: ColorCycleLayerDocumentState,
   ) {
-    this.draft = cloneDocumentState(initialState, 'transaction-draft');
+    this.draft = cloneDocumentMetadataWithCanonicalBuffers(initialState, initialState);
   }
 
   mutate(mutator: (draft: ColorCycleLayerDocumentState) => void): void {
     this.assertOpen();
+    if (!this.hasWritableCanonicalBuffers) {
+      this.draft = cloneDocumentState(this.draft, 'transaction-draft');
+      this.hasWritableCanonicalBuffers = true;
+    }
     mutator(this.draft);
+  }
+
+  updateScalarMetadata(update: ColorCycleLayerDocumentScalarMetadataUpdate): void {
+    this.assertOpen();
+    this.draft = { ...this.draft, ...update };
   }
 
   markDirtyRect(rect: ColorCycleDirtyRect): void {
@@ -546,8 +582,12 @@ export class CCDocumentTransaction {
   commit(): ColorCycleLayerDocumentRead {
     this.assertOpen();
     this.isClosed = true;
-    return this.document.commitTransaction(this.reason, this.draft, this.dirtyRects, {
-      takeOwnership: true,
+    if (!this.hasWritableCanonicalBuffers) {
+      return this.document.commitTransaction(this.reason, this.draft, this.dirtyRects);
+    }
+    const transferredDraft = transferDocumentStateOwnership(this.draft);
+    return this.document.commitTransaction(this.reason, transferredDraft, this.dirtyRects, {
+      acceptTransferredOwnership: true,
     });
   }
 
@@ -751,7 +791,6 @@ export class ColorCycleLayerDocument {
     }
     return this.commitTransaction(nextReason, this.currentSnapshot, undefined, {
       force: true,
-      takeOwnership: true,
     });
   }
 
@@ -773,7 +812,7 @@ export class ColorCycleLayerDocument {
       height: draft.height,
       force: options.force === true,
       pixelsChanged: options.pixelsChanged === true,
-      takeOwnership: options.takeOwnership === true,
+      acceptTransferredOwnership: options.acceptTransferredOwnership === true,
       hasDirtyRects: Boolean(dirtyRects && dirtyRects.length > 0),
     };
 
@@ -808,7 +847,7 @@ export class ColorCycleLayerDocument {
       () => freezeDocumentSnapshot(
         pixelBuffersEqual
           ? cloneDocumentMetadataWithCanonicalBuffers(draft, this.currentSnapshot)
-          : options.takeOwnership === true
+          : options.acceptTransferredOwnership === true
           ? draft
           : cloneDocumentState(draft, 'document-commit'),
       ),

@@ -95,8 +95,9 @@ export type ColorCycleBrushSettingsApiRuntimeDeps =
   & {
     getStrokeStateValues: ColorCycleStampDitherSettingsContext['getStrokeStateValues'];
     getStrokeStateEntries(): Iterable<[string, LayerStrokeState]>;
+    getActiveLayerId(): string | null;
     getStrokeCounter(): number;
-    snapshotFromBuffers(strokeData: LayerStrokeState): void;
+    publishLayerBaseSpeed: ColorCycleLayerBaseSpeedContext['publishLayerBaseSpeed'];
     getAnimator: ColorCycleLayerBaseSpeedContext['getAnimator'];
   };
 
@@ -286,10 +287,12 @@ export class ColorCycleBrushSettingsApiRuntime {
 
   private getLayerBaseSpeedContext = (): ColorCycleLayerBaseSpeedContext => ({
     getStrokeStateEntries: () => this.deps.getStrokeStateEntries(),
+    getActiveLayerId: () => this.deps.getActiveLayerId(),
     isStampDitherEnabled: () => this.isStampDitherEnabled(),
     getStrokeCounter: () => this.deps.getStrokeCounter(),
     getResolvedWriteCycleSpeed: () => this.getResolvedWriteCycleSpeed(),
-    snapshotFromBuffers: (strokeData) => this.deps.snapshotFromBuffers(strokeData),
+    publishLayerBaseSpeed: (layerId, nextBaseSpeed, strokeData, pixelsChanged) =>
+      this.deps.publishLayerBaseSpeed(layerId, nextBaseSpeed, strokeData, pixelsChanged),
     getAnimator: (layerId) => this.deps.getAnimator(layerId),
     forEachAnimator: (callback) => this.deps.forEachAnimator(callback),
     getPlaybackSpeedScale: () => this.deps.getPlaybackSpeedScale(),

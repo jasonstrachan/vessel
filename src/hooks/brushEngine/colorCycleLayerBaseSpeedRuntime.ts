@@ -9,10 +9,16 @@ import type { LayerStrokeState } from './colorCycleCanvas2DTypes';
 
 export type ColorCycleLayerBaseSpeedContext = {
   getStrokeStateEntries(): Iterable<[string, LayerStrokeState]>;
+  getActiveLayerId(): string | null;
   isStampDitherEnabled(): boolean;
   getStrokeCounter(): number;
   getResolvedWriteCycleSpeed(): number;
-  snapshotFromBuffers(strokeData: LayerStrokeState): void;
+  publishLayerBaseSpeed(
+    layerId: string,
+    nextBaseSpeed: number,
+    strokeData: LayerStrokeState | undefined,
+    pixelsChanged: boolean,
+  ): void;
   getAnimator(layerId: string): ColorCycleAnimator | undefined;
   forEachAnimator(callback: (animator: ColorCycleAnimator) => void): void;
   getPlaybackSpeedScale(): number;
@@ -29,9 +35,14 @@ export function applyColorCycleLayerBaseSpeedChange(
   }
 
   const nextBaseSpeedByte = encodeColorCycleSpeedByte(nextBaseSpeed);
+  const activeLayerId = context.getActiveLayerId();
   let changedAnyLayer = false;
+  let publishedActiveLayer = false;
 
   for (const [layerId, strokeData] of context.getStrokeStateEntries()) {
+    if (!activeLayerId || layerId !== activeLayerId) {
+      continue;
+    }
     const changedLayer = rescaleStrokeSpeedBuffers({
       strokeData,
       ratio,
@@ -41,12 +52,12 @@ export function applyColorCycleLayerBaseSpeedChange(
       resolvedWriteCycleSpeed: context.getResolvedWriteCycleSpeed(),
     });
 
+    context.publishLayerBaseSpeed(layerId, nextBaseSpeed, strokeData, changedLayer);
+    publishedActiveLayer = true;
+    changedAnyLayer = changedAnyLayer || changedLayer;
     if (!changedLayer) {
       continue;
     }
-
-    changedAnyLayer = true;
-    context.snapshotFromBuffers(strokeData);
     const animator = context.getAnimator(layerId);
     if (animator) {
       const dims = animator.getDimensions();
@@ -57,6 +68,10 @@ export function applyColorCycleLayerBaseSpeedChange(
         height: Math.max(1, dims.height),
       });
     }
+  }
+
+  if (activeLayerId && !publishedActiveLayer) {
+    context.publishLayerBaseSpeed(activeLayerId, nextBaseSpeed, undefined, false);
   }
 
   context.forEachAnimator((animator) => (

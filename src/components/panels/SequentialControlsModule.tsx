@@ -141,7 +141,7 @@ const SequentialControlsModule: React.FC<SequentialControlsModuleProps> = ({
           </div>
 
           <label className="block text-[10px] text-[#BDBDBD]">
-            Playback speed
+            Global CC playback rate
             <div className="mt-1 flex items-center gap-2">
               <input
                 type="range"
@@ -152,20 +152,17 @@ const SequentialControlsModule: React.FC<SequentialControlsModuleProps> = ({
                 onChange={onPlaybackSpeedScaleChange}
                 disabled={controlsDisabled}
                 className="w-full accent-[#D9D9D9] disabled:opacity-50"
-                aria-label="Playback speed"
+                aria-label="Global CC playback rate"
               />
               <span className="w-10 text-right text-[10px] text-[#D6D6D6]">
                 {playbackScaleLabel}
               </span>
             </div>
-            <span className="mt-1 block text-[9px] text-[#8F8F8F]">
-              Applies to color-cycle playback only. Sequence playback uses the FPS setting above.
-            </span>
           </label>
 
           {activeCcBaseSpeed !== null && (
             <label className="block text-[10px] text-[#BDBDBD]">
-              CC base speed
+              Layer speed multiplier
               <div className="mt-1 flex items-center gap-2">
                 <input
                   type="range"
@@ -176,15 +173,12 @@ const SequentialControlsModule: React.FC<SequentialControlsModuleProps> = ({
                   onChange={onCcBaseSpeedChange}
                   disabled={controlsDisabled}
                   className="w-full accent-[#D9D9D9] disabled:opacity-50"
-                  aria-label="CC base speed"
+                  aria-label="Layer speed multiplier"
                 />
                 <span className="w-10 text-right text-[10px] text-[#D6D6D6]">
                   {(activeCcBaseSpeed ?? DEFAULT_BRUSH_COLOR_CYCLE_SPEED).toFixed(2)}x
                 </span>
               </div>
-              <span className="mt-1 block text-[9px] text-[#8F8F8F]">
-                Active color-cycle layer only.
-              </span>
             </label>
           )}
 

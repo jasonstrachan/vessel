@@ -152,6 +152,14 @@ export class ColorCycleStrokeApiRuntime {
       return;
     }
 
+    const targetLayerId = layerId ?? this.context.getActiveLayerId();
+    const strokeData = targetLayerId
+      ? this.context.getStrokeData(targetLayerId)
+      : undefined;
+    if (!strokeData || !this.context.refreshStrokeContent(strokeData)) {
+      return;
+    }
+
     try {
       this.endStroke(layerId);
     } catch (error) {

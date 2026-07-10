@@ -3,6 +3,7 @@ import { resolveGobletColorCycleExportSource } from '@/utils/export/goblet/color
 import { serializeColorCycleDataFromResolvedLayer } from '@/utils/export/goblet/gobletColorCycleSerializer';
 import { validateGobletColorCyclePayload } from '@/utils/export/goblet/colorCyclePayloadValidation';
 import * as colorCycleBrushManager from '@/stores/colorCycleBrushManager';
+import { decodeColorCycleSpeedByte, encodeColorCycleSpeedByte } from '@/utils/colorCycleSpeed';
 import type { Layer, Project } from '@/types';
 
 const project = {
@@ -176,10 +177,11 @@ describe('Goblet color-cycle export contract boundaries', () => {
 
   it('uses manager-owned documents through payload construction without recapturing live runtime', async () => {
     const liveRuntime = createLiveRuntime([9, 9, 9, 9]);
+    const documentSnapshot = createDocumentSnapshot([1, 2, 3, 4]);
     jest.spyOn(colorCycleBrushManager, 'getColorCycleBrushManager').mockReturnValue({
       getDocument: jest.fn(() => ({
         read: () => ({
-          snapshot: createDocumentSnapshot([1, 2, 3, 4]),
+          snapshot: documentSnapshot,
           version: 31,
         }),
       })),
@@ -204,6 +206,8 @@ describe('Goblet color-cycle export contract boundaries', () => {
     if (payload.ok) {
       const indexBuffer = payload.payload.colorCycle?.brushState?.indexBuffer as ArrayLike<number>;
       expect(Array.from(indexBuffer)).toEqual([1, 2, 3, 4]);
+      (indexBuffer as { [index: number]: number })[0] = 99;
+      expect(Array.from(new Uint8Array(documentSnapshot.paintBuffer))).toEqual([1, 2, 3, 4]);
     }
   });
 
@@ -278,6 +282,41 @@ describe('Goblet color-cycle export contract boundaries', () => {
       const indexBuffer = payload.colorCycle?.brushState?.indexBuffer as ArrayLike<number>;
       expect(Array.from(indexBuffer)).toEqual([1, 2, 3, 4]);
     }
+  });
+
+  it('uses persisted write speed when hydrated archive motion buffers are missing', async () => {
+    const persistedWriteSpeed = 0.35;
+    const layerMultiplier = 2;
+    const layer = createLayer({
+      colorCycleBrush: undefined,
+      runtimeHydrationState: 'warm',
+      layerBaseSpeedCps: layerMultiplier,
+      brushState: {
+        canonicalPaint: true,
+        schemaVersion: 1,
+        cycleSpeed: persistedWriteSpeed,
+        layers: [{
+          layerId: 'cc-layer',
+          strokeData: createDefaultableStrokeData(),
+        }],
+      },
+    });
+
+    const payload = await serializeColorCycleDataFromResolvedLayer(
+      layer,
+      project,
+      undefined,
+      { resolvedSource: 'hydrated-archive-document-state' },
+    );
+
+    expect(payload?.colorCycle?.speedMode).toBe('slot');
+    expect(payload?.colorCycle?.slotSpeeds?.find((entry) => entry.slot === 0)?.speed)
+      .toBeCloseTo(
+        decodeColorCycleSpeedByte(
+          encodeColorCycleSpeedByte(persistedWriteSpeed * layerMultiplier),
+        ),
+        5,
+      );
   });
 
   it('rejects missing required final payload buffers in validation', () => {

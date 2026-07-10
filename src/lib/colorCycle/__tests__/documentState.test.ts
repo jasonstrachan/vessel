@@ -310,6 +310,38 @@ describe('normalizeColorCycleLayerDocumentState', () => {
     expect(Array.from(new Uint8Array(result.state.flowBuffer ?? new ArrayBuffer(0)))).toEqual([0, 1, 0, 1]);
   });
 
+  it('applies the layer multiplier to write speed when synthesizing a missing speed buffer', () => {
+    const expectedSpeedByte = encodeColorCycleSpeedByte(0.2);
+    const layer = makeColorCycleLayer({
+      colorCycleData: {
+        ...makeColorCycleLayer().colorCycleData,
+        layerBaseSpeedCps: 2,
+        brushState: {
+          layers: [{
+            layerId: 'cc-layer',
+            strokeData: {
+              hasContent: true,
+              paintBuffer: makeBuffer(4, 1),
+              gradientIdBuffer: makeBuffer(4, 2),
+              gradientDefIdBuffer: makeBuffer(8, 3),
+            },
+          }],
+        },
+      },
+    });
+
+    const result = normalizeColorCycleLayerDocumentState(layer, {
+      fallbackWriteSpeedCps: 0.1,
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+    expect(Array.from(new Uint8Array(result.state.speedBuffer ?? new ArrayBuffer(0))))
+      .toEqual([expectedSpeedByte, expectedSpeedByte, expectedSpeedByte, expectedSpeedByte]);
+  });
+
   it('preserves explicit static speed when defaulting missing motion buffers', () => {
     const layer = makeColorCycleLayer({
       colorCycleData: {

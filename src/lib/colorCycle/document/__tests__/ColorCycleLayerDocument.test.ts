@@ -129,12 +129,8 @@ describe('ColorCycleLayerDocument', () => {
     });
     const transaction = document.beginTransaction('shape-fill');
 
-    transaction.mutate((draft) => {
-      draft.paintSlot = 2;
-    });
-    transaction.mutate((draft) => {
-      draft.fgActiveSlot = 2;
-    });
+    transaction.updateScalarMetadata({ paintSlot: 2 });
+    transaction.updateScalarMetadata({ fgActiveSlot: 2 });
 
     const read = transaction.commit();
 
@@ -147,6 +143,42 @@ describe('ColorCycleLayerDocument', () => {
       versionAfter: 1,
       committedAtMs: 1234,
     }]);
+  });
+
+  it('reuses canonical buffers for metadata-only transactions without allocating a generation', () => {
+    const document = new ColorCycleLayerDocument(makeState(), { initialVersion: 2 });
+    const before = document.read();
+    resetColorCycleCanonicalCopyMetrics();
+
+    const transaction = document.beginTransaction('metadata-only');
+    transaction.updateScalarMetadata({ paintSlot: 3, fgActiveSlot: 3 });
+    const after = transaction.commit();
+
+    expect(after.version).toBe(3);
+    expect(after.pixelVersion).toBe(2);
+    expect(after.snapshot.paintBuffer).toBe(before.snapshot.paintBuffer);
+    expect(after.snapshot.gradientIdBuffer).toBe(before.snapshot.gradientIdBuffer);
+    expect(after.snapshot.gradientDefIdBuffer).toBe(before.snapshot.gradientDefIdBuffer);
+    expect(after.snapshot.speedBuffer).toBe(before.snapshot.speedBuffer);
+    expect(after.snapshot.flowBuffer).toBe(before.snapshot.flowBuffer);
+    expect(after.snapshot.phaseBuffer).toBe(before.snapshot.phaseBuffer);
+    expect(getColorCycleCanonicalCopyMetrics().totalBytes).toBe(0);
+  });
+
+  it('detaches a leaked writable transaction generation when ownership transfers', () => {
+    const document = new ColorCycleLayerDocument(makeState(), { initialVersion: 2 });
+    const transaction = document.beginTransaction('pixel-write');
+    let leakedPaintBuffer: ArrayBuffer | undefined;
+
+    transaction.mutate((draft) => {
+      leakedPaintBuffer = draft.paintBuffer;
+      new Uint8Array(draft.paintBuffer!)[0] = 9;
+    });
+    const committed = transaction.commit();
+
+    expect(leakedPaintBuffer?.byteLength).toBe(0);
+    expect(readBytes(committed.snapshot.paintBuffer)).toEqual([9, 0, 0, 0]);
+    expect(readBytes(document.read().snapshot.paintBuffer)).toEqual([9, 0, 0, 0]);
   });
 
   it('replaces state with one version bump while keeping ownership of committed buffers', () => {

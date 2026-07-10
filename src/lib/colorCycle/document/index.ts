@@ -18,6 +18,7 @@ export {
   type ColorCycleLayerDocumentRead,
   type ColorCycleLayerDocumentResidency,
   type ColorCycleLayerDocumentRuntimePolicy,
+  type ColorCycleLayerDocumentScalarMetadataUpdate,
   type DerivedSurface,
   type DerivedSurfaceRenderAssertionOptions,
 } from './ColorCycleLayerDocument';

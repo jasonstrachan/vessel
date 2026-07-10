@@ -36,7 +36,14 @@ export function prepareColorCycleStrokeContext(
     strokeData.hasContent = true;
     strokeData.contentIsOptimistic = true;
     const expectedSize = context.getCanvasBufferSize();
-    shouldBindBuffers = strokeData.buffers.paint.length !== expectedSize;
+    shouldBindBuffers = (
+      strokeData.buffers.paint.length !== expectedSize ||
+      strokeData.buffers.gid.length !== expectedSize ||
+      strokeData.buffers.def.length !== expectedSize ||
+      strokeData.buffers.spd.length !== expectedSize ||
+      strokeData.buffers.flow.length !== expectedSize ||
+      strokeData.buffers.phase.length !== expectedSize
+    );
     ensureLayerStrokeBuffersSize(strokeData, context.getCanvasBufferSize());
   }
 

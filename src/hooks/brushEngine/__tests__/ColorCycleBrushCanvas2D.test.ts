@@ -16,6 +16,7 @@ import {
 import type { ColorCycleLayerDocumentState } from '@/lib/colorCycle/documentState';
 import { getPersistedCCMutationLog } from '@/utils/colorCycle/ccMutationAudit';
 import { encodeRgbaToBase64 } from '@/utils/colorCycle/ccCustomTilePattern';
+import { decodeColorCycleSpeedByte, encodeColorCycleSpeedByte } from '@/utils/colorCycleSpeed';
 import { readTestColorCycleBrushLayerSnapshot } from '@/testing/colorCycleSnapshotTestUtils';
 import { createLayerStrokeState } from '../colorCycleLayerStrokeBuffers';
 import {
@@ -159,6 +160,8 @@ jest.mock('@/lib/ColorCycleAnimator', () => {
     getDimensions() {
       return { width: this.width, height: this.height };
     }
+
+    updateFrame() {}
 
     getIndexBuffers() {
       if (!this.indexBuffer) {
@@ -936,6 +939,124 @@ describe('ColorCycleBrushCanvas2D', () => {
     expect(readSerializedBrushState(restored).layerBaseSpeed).toBeCloseTo(1.75, 5);
   });
 
+  it('publishes layer base speed and rescaled painted bytes to the canonical document', () => {
+    const canvas = makeCanvas();
+    const brush = new ColorCycleBrushCanvas2D(canvas, { forceCanvas2D: true });
+    const layerId = 'layer-base-speed-document';
+    const pixelIndex = 2 + 2 * canvas.width;
+    const paint = new Uint8Array(canvas.width * canvas.height);
+    const gradientId = new Uint8Array(canvas.width * canvas.height);
+    const speed = new Uint8Array(canvas.width * canvas.height);
+    paint[pixelIndex] = 1;
+    gradientId[pixelIndex] = 1;
+    const initialSpeedByte = encodeColorCycleSpeedByte(0.1);
+    speed[pixelIndex] = initialSpeedByte;
+
+    brush.setLayerId(layerId);
+    applyColorCycleBrushLayerSnapshotToRuntime(brush, layerId, {
+      paintBuffer: paint.buffer,
+      gradientIdBuffer: gradientId.buffer,
+      speedBuffer: speed.buffer,
+      hasContent: true,
+      strokeCounter: 1,
+    });
+
+    resetColorCycleCanonicalCopyMetrics();
+    brush.setLayerBaseSpeed(2);
+
+    const documentState = brush.getColorCycleLayerDocument(layerId)?.read().snapshot;
+    expect(documentState?.layerBaseSpeedCps).toBe(2);
+    const persistedSpeedByte = documentState?.speedBuffer
+      ? new Uint8Array(documentState.speedBuffer)[pixelIndex]
+      : 0;
+    const expectedSpeedByte = encodeColorCycleSpeedByte(
+      decodeColorCycleSpeedByte(initialSpeedByte) * 2,
+    );
+    expect(persistedSpeedByte).toBe(expectedSpeedByte);
+    expect(getColorCycleCanonicalCopyMetrics()).toEqual({
+      totalBytes: canvas.width * canvas.height * COLOR_CYCLE_CANONICAL_BYTES_PER_PIXEL,
+      totalGenerations: 1,
+      byReason: {
+        'document-commit': {
+          bytes: canvas.width * canvas.height * COLOR_CYCLE_CANONICAL_BYTES_PER_PIXEL,
+          generations: 1,
+        },
+      },
+    });
+  });
+
+  it('publishes layer base speed metadata when the active layer has no painted bytes', () => {
+    const brush = new ColorCycleBrushCanvas2D(makeCanvas(), { forceCanvas2D: true });
+    const layerId = 'empty-layer-base-speed-document';
+    brush.setLayerId(layerId);
+
+    brush.setLayerBaseSpeed(1.6);
+
+    expect(
+      brush.getColorCycleLayerDocument(layerId)?.read().snapshot.layerBaseSpeedCps,
+    ).toBe(1.6);
+  });
+
+  it('keeps the animator current after a metadata-only layer speed commit', () => {
+    const canvas = makeCanvas();
+    const brush = new ColorCycleBrushCanvas2D(canvas, { forceCanvas2D: true });
+    const layerId = 'metadata-only-layer-base-speed-document';
+    const paint = new Uint8Array(canvas.width * canvas.height);
+    const speed = new Uint8Array(canvas.width * canvas.height);
+    paint[0] = 1;
+
+    brush.setLayerId(layerId);
+    applyColorCycleBrushLayerSnapshotToRuntime(brush, layerId, {
+      paintBuffer: paint.buffer,
+      speedBuffer: speed.buffer,
+      hasContent: true,
+      strokeCounter: 1,
+    });
+    const document = brush.getColorCycleLayerDocument(layerId)!;
+    const before = document.read();
+    const animator = (brush as unknown as {
+      animators: Map<string, { builtFromVersion: number | null }>;
+    }).animators.get(layerId)!;
+    expect(animator.builtFromVersion).toBe(before.version);
+    animatorMocks.setIndexBufferFromArrayMock.mockClear();
+
+    brush.setLayerBaseSpeed(1.6);
+
+    const after = document.read();
+    expect(after.version).toBeGreaterThan(before.version);
+    expect(after.pixelVersion).toBe(before.pixelVersion);
+    expect(animator.builtFromVersion).toBe(after.version);
+    brush.updateAnimation();
+    expect(animatorMocks.setIndexBufferFromArrayMock).not.toHaveBeenCalled();
+  });
+
+  it('does not hide a pre-existing stale animator during a metadata-only speed commit', () => {
+    const canvas = makeCanvas();
+    const brush = new ColorCycleBrushCanvas2D(canvas, { forceCanvas2D: true });
+    const layerId = 'stale-metadata-only-layer-base-speed-document';
+    const paint = new Uint8Array(canvas.width * canvas.height);
+    paint[0] = 1;
+
+    brush.setLayerId(layerId);
+    applyColorCycleBrushLayerSnapshotToRuntime(brush, layerId, {
+      paintBuffer: paint.buffer,
+      speedBuffer: new Uint8Array(canvas.width * canvas.height).buffer,
+      hasContent: true,
+      strokeCounter: 1,
+    });
+    const document = brush.getColorCycleLayerDocument(layerId)!;
+    const versionBefore = document.version;
+    const animator = (brush as unknown as {
+      animators: Map<string, { builtFromVersion: number | null }>;
+    }).animators.get(layerId)!;
+    animator.builtFromVersion = versionBefore - 1;
+
+    brush.setLayerBaseSpeed(1.6);
+
+    expect(document.version).toBeGreaterThan(versionBefore);
+    expect(animator.builtFromVersion).toBe(versionBefore - 1);
+  });
+
   it('applies layer snapshot with size mismatch and updates animator buffer', () => {
     const canvas = makeCanvas();
     const brush = new ColorCycleBrushCanvas2D(canvas);
@@ -1010,6 +1131,27 @@ describe('ColorCycleBrushCanvas2D', () => {
     expect(document.getAuditLog().slice(-1)[0]).toEqual(expect.objectContaining({
       reason: 'brush-stroke-write',
     }));
+  });
+
+  it('keeps an empty newly opened stroke active when gradient setup requests a commit', () => {
+    const canvas = makeCanvas();
+    const brush = new ColorCycleBrushCanvas2D(canvas);
+    const layerId = 'layer-empty-gradient-commit';
+    const document = new ColorCycleLayerDocument(
+      makeDocumentState(layerId, canvas.width, canvas.height),
+    );
+
+    brush.setColorCycleLayerDocument(layerId, document);
+    brush.startStroke(layerId);
+    brush.finalizeCurrentStroke(layerId);
+
+    expect(document.read().version).toBe(0);
+
+    brush.paint(3, 3, layerId, 1, 0, 0.5);
+    brush.finalizeCurrentStroke(layerId);
+
+    expect(document.read().version).toBeGreaterThan(0);
+    expect(new Uint8Array(document.read().snapshot.paintBuffer!).some((value) => value !== 0)).toBe(true);
   });
 
   it('publishes a regular stroke within one canonical-generation copy budget', () => {

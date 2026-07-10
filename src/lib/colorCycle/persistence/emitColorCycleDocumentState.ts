@@ -1,6 +1,7 @@
 import type { Layer } from '@/types';
 import { completeDefaultColorCycleMotionBuffers } from '@/lib/colorCycle/documentState';
 import { readLegacyColorCycleTopLevelBuffers } from '@/lib/colorCycle/document';
+import { resolveLayerColorCycleFallbackSpeedCps } from '@/utils/colorCycleLayerSpeed';
 
 import type {
   ColorCyclePersistenceDocumentState,
@@ -80,12 +81,21 @@ const snapshotToDocumentState = (
   };
 
   if (state.paintBuffer instanceof ArrayBuffer) {
+    const persistedWriteSpeed = typeof brushState.cycleSpeed === 'number' &&
+      Number.isFinite(brushState.cycleSpeed)
+      ? brushState.cycleSpeed
+      : undefined;
     const completed = completeDefaultColorCycleMotionBuffers({
       ...state,
       paintBuffer: state.paintBuffer,
       speedBuffer: state.speedBuffer instanceof ArrayBuffer ? state.speedBuffer : undefined,
       flowBuffer: state.flowBuffer instanceof ArrayBuffer ? state.flowBuffer : undefined,
       phaseBuffer: state.phaseBuffer instanceof ArrayBuffer ? state.phaseBuffer : undefined,
+    }, {
+      fallbackSpeedCps: resolveLayerColorCycleFallbackSpeedCps(
+        colorCycleData,
+        persistedWriteSpeed,
+      ),
     });
     return {
       ...state,

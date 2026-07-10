@@ -306,20 +306,6 @@ export const endColorCycleStroke = (context: ColorCycleEndStrokeContext): void =
     }
 
     const hasContent = context.refreshStrokeContent(strokeData);
-    if (
-      typeof window !== 'undefined' &&
-      (window as typeof window & { __CC_DIAG_BUFFERS__?: boolean }).__CC_DIAG_BUFFERS__ === true
-    ) {
-      const globalWindow = window as typeof window & {
-        __CC_probe?: { start: number; paint: number; end: number; last: Record<string, unknown> };
-      };
-      globalWindow.__CC_probe ??= { start: 0, paint: 0, end: 0, last: {} };
-      globalWindow.__CC_probe.last = {
-        ...globalWindow.__CC_probe.last,
-        endStrokePaintHasContent: strokeData.buffers.paint.some((value) => value !== 0),
-        refreshedHasContent: hasContent,
-      };
-    }
     if (hasContent) {
       // Publish the finished stroke to the layer document; without this the
       // document (the export source of truth) never sees plain brush strokes.

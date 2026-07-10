@@ -8,6 +8,9 @@ import {
 
 type BenchmarkSize = '2048-square' | '4k' | 'a4-portrait';
 
+const WARMUP_SAMPLE_COUNT = 1;
+const MEASURED_SAMPLE_COUNT = 5;
+
 const BENCHMARKS: Record<BenchmarkSize, {
   width: number;
   height: number;
@@ -49,36 +52,61 @@ const makeState = (
 describe('color-cycle document publication benchmark', () => {
   const runBenchmark = process.env.CC_PUBLICATION_BENCHMARK_SIZE ? it : it.skip;
 
-  runBenchmark('stays within the selected one-generation copy and timing budget', () => {
+  runBenchmark('stays within the selected one-generation copy and p95 timing budget', () => {
     const sizeName = process.env.CC_PUBLICATION_BENCHMARK_SIZE as BenchmarkSize;
     const benchmark = BENCHMARKS[sizeName];
     if (!benchmark) {
       throw new Error(`Unknown CC_PUBLICATION_BENCHMARK_SIZE: ${sizeName}`);
     }
     const { width, height, maxPublicationMs } = benchmark;
-    const layerId = `benchmark-${sizeName}`;
-    const document = new ColorCycleLayerDocument(makeState(layerId, width, height, 0));
-    const publicationState = makeState(layerId, width, height, 1);
-    resetColorCycleCanonicalCopyMetrics();
-
-    const startedAt = performance.now();
-    document.replaceState(publicationState, 'benchmark-publication', { pixelsChanged: true });
-    const durationMs = performance.now() - startedAt;
-    const metrics = getColorCycleCanonicalCopyMetrics();
     const expectedCanonicalBytes = width * height * COLOR_CYCLE_CANONICAL_BYTES_PER_PIXEL;
+    const measuredDurationsMs: number[] = [];
+
+    for (
+      let sampleIndex = 0;
+      sampleIndex < WARMUP_SAMPLE_COUNT + MEASURED_SAMPLE_COUNT;
+      sampleIndex += 1
+    ) {
+      const layerId = `benchmark-${sizeName}-${sampleIndex}`;
+      const document = new ColorCycleLayerDocument(makeState(layerId, width, height, 0));
+      const publicationState = makeState(layerId, width, height, 1);
+      resetColorCycleCanonicalCopyMetrics();
+
+      const startedAt = performance.now();
+      document.replaceState(publicationState, 'benchmark-publication', { pixelsChanged: true });
+      const durationMs = performance.now() - startedAt;
+      const metrics = getColorCycleCanonicalCopyMetrics();
+
+      expect(metrics.totalGenerations).toBe(1);
+      expect(metrics.totalBytes).toBe(expectedCanonicalBytes);
+      if (sampleIndex >= WARMUP_SAMPLE_COUNT) {
+        measuredDurationsMs.push(durationMs);
+      }
+    }
+
+    const sortedDurationsMs = [...measuredDurationsMs].sort((a, b) => a - b);
+    const medianMs = sortedDurationsMs[Math.floor(sortedDurationsMs.length / 2)];
+    const p95Index = Math.ceil(sortedDurationsMs.length * 0.95) - 1;
+    const p95Ms = sortedDurationsMs[p95Index];
     const result = {
       size: sizeName,
       width,
       height,
-      durationMs: Number(durationMs.toFixed(3)),
-      canonicalBytesCopied: metrics.totalBytes,
+      warmupSamples: WARMUP_SAMPLE_COUNT,
+      measuredSamples: MEASURED_SAMPLE_COUNT,
+      medianMs: Number(medianMs.toFixed(3)),
+      p95Ms: Number(p95Ms.toFixed(3)),
+      canonicalBytesCopiedPerPublication: expectedCanonicalBytes,
       expectedCanonicalBytes,
-      maxPublicationMs,
+      maxPublicationP95Ms: maxPublicationMs,
+      environment: {
+        node: process.version,
+        platform: process.platform,
+        architecture: process.arch,
+      },
     };
 
     process.stdout.write(`CC_PUBLICATION_BENCHMARK ${JSON.stringify(result)}\n`);
-    expect(metrics.totalGenerations).toBe(1);
-    expect(metrics.totalBytes).toBe(expectedCanonicalBytes);
-    expect(durationMs).toBeLessThanOrEqual(maxPublicationMs);
+    expect(p95Ms).toBeLessThanOrEqual(maxPublicationMs);
   });
 });

@@ -1,13 +1,15 @@
 import React, { useState, useEffect } from 'react';
-import { useAppStore } from '../../stores/useAppStore';
-import { XIcon } from '../icons/XIcon';
-import Input from '../ui/Input';
-import Button from '../ui/Button';
-import { useKeyboardScope } from '../../hooks/useKeyboardScope';
+
+import { useKeyboardScope } from '@/hooks/useKeyboardScope';
+import { useAppStore } from '@/stores/useAppStore';
 import {
   describeDocumentMemoryEstimateAssumptions,
   estimateDocumentMemoryUsage,
 } from '@/utils/documentMemoryEstimate';
+
+import { XIcon } from '../icons/XIcon';
+import Input from '../ui/Input';
+import Button from '../ui/Button';
 
 interface DocumentModalProps {
   isOpen: boolean;
@@ -91,7 +93,7 @@ const DOCUMENT_MEMORY_WARNING_MIB = 400;
 
 const getDocumentMemoryEstimateTitle = (width: number, height: number): string => {
   const estimate = estimateDocumentMemoryUsage(width, height);
-  return `${estimate.width}×${estimate.height} (~${estimate.totalMiB} MB peak). ${describeDocumentMemoryEstimateAssumptions(estimate)}`;
+  return `${estimate.width}×${estimate.height} (~${estimate.totalMiB} MiB peak). ${describeDocumentMemoryEstimateAssumptions(estimate)}`;
 };
 
 const DocumentMemoryWarning: React.FC<{ width: number; height: number }> = ({ width, height }) => {
@@ -105,7 +107,7 @@ const DocumentMemoryWarning: React.FC<{ width: number; height: number }> = ({ wi
       className="mb-3 p-2 bg-yellow-900/20 border border-yellow-600/30 rounded text-yellow-500 text-sm"
       title={describeDocumentMemoryEstimateAssumptions(estimate)}
     >
-      <div>⚠️ Large editing footprint (~{estimate.totalMiB} MB peak)</div>
+      <div>⚠️ Large editing footprint (~{estimate.totalMiB} MiB peak)</div>
       <div className="mt-1 text-[11px] text-yellow-500/80">
         Includes bitmap surfaces, one resident color-cycle layer, masks, history, and publication headroom.
       </div>

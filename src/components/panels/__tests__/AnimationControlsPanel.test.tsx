@@ -327,7 +327,7 @@ describe('AnimationControlsPanel', () => {
     fireEvent.change(screen.getByRole('slider', { name: /time-smear/i }), {
       target: { value: '2.5' },
     });
-    fireEvent.change(screen.getByRole('slider', { name: /playback speed/i }), {
+    fireEvent.change(screen.getByRole('slider', { name: /global cc playback rate/i }), {
       target: { value: '0.6' },
     });
 
@@ -336,15 +336,13 @@ describe('AnimationControlsPanel', () => {
     expect(store.setRecordFrameCount).toHaveBeenCalledWith(32);
     expect(store.setTimeSmear).toHaveBeenCalledWith(2.5);
     expect(store.setPlaybackSpeedScale).toHaveBeenCalledWith(0.6);
-    expect(
-      screen.getByText(/applies to color-cycle playback only\. sequence playback uses the fps setting above\./i)
-    ).toBeInTheDocument();
+    expect(screen.queryByText(/applies to color-cycle playback only/i)).not.toBeInTheDocument();
   });
 
   it('clamps playback speed to the supported minimum', () => {
     render(<AnimationControlsPanel />);
 
-    fireEvent.change(screen.getByRole('slider', { name: /playback speed/i }), {
+    fireEvent.change(screen.getByRole('slider', { name: /global cc playback rate/i }), {
       target: { value: '0.001' },
     });
 
@@ -352,7 +350,7 @@ describe('AnimationControlsPanel', () => {
     expect(store.setPlaybackSpeedScale).toHaveBeenCalledWith(0.01);
   });
 
-  it('shows and updates CC base speed for the active color-cycle layer', () => {
+  it('shows and updates the speed multiplier for the active color-cycle layer', () => {
     appStore.setState({
       layers: [{
         id: 'layer-cc',
@@ -364,7 +362,7 @@ describe('AnimationControlsPanel', () => {
 
     render(<AnimationControlsPanel />);
 
-    fireEvent.change(screen.getByRole('slider', { name: /cc base speed/i }), {
+    fireEvent.change(screen.getByRole('slider', { name: /layer speed multiplier/i }), {
       target: { value: '0.8' },
     });
 
@@ -375,6 +373,7 @@ describe('AnimationControlsPanel', () => {
         mode: 'brush',
       },
     });
+    expect(screen.queryByText(/active color-cycle layer only/i)).not.toBeInTheDocument();
   });
 
   it('renders play pause button below sequential controls', () => {

@@ -181,6 +181,28 @@ describe('Goblet slot speed export', () => {
     expect(getSlotSpeed(toolPlan, 0)).toBeCloseTo(0.75, 5);
   });
 
+  it('applies the layer multiplier to tool speed when the painted speed buffer is absent', () => {
+    const plan = createSpeedPlan(
+      createLayer({ layerBaseSpeedCps: 2 }),
+      createBrushState({ speedBuffer: undefined }),
+      { fallbackToolSpeed: 0.1 },
+    );
+
+    expect(plan?.speedMode).toBe('slot');
+    expect(getSlotSpeed(plan, 0)).toBeCloseTo(0.2, 5);
+  });
+
+  it('preserves explicit static tool speed when applying a layer multiplier fallback', () => {
+    const plan = createSpeedPlan(
+      createLayer({ layerBaseSpeedCps: 2 }),
+      createBrushState({ speedBuffer: undefined }),
+      { fallbackToolSpeed: 0 },
+    );
+
+    expect(plan?.speedMode).toBe('slot');
+    expect(getSlotSpeed(plan, 0)).toBe(0);
+  });
+
   it('keeps intra-slot speed byte conflicts in buffer mode', () => {
     const speedBuffer = [encodeColorCycleSpeedByte(0.3), encodeColorCycleSpeedByte(0.6), 0, 0];
     const plan = createSpeedPlan(
@@ -248,5 +270,45 @@ describe('Goblet slot speed export', () => {
     expect(payload?.colorCycle?.brushState?.speedBuffer).toBeUndefined();
     expect(payload?.colorCycle?.slotSpeeds?.find((entry) => entry.slot === 0)?.speed)
       .toBeCloseTo(decodeColorCycleSpeedByte(paintedByte) * 2, 5);
+  });
+
+  it('serializes a resolved controller speed rather than the raw layer multiplier', async () => {
+    const brushState = createBrushState();
+    const layer = createLayer({
+      layerBaseSpeedCps: 2,
+      colorCycleBrush: {
+        serialize: () => ({
+          layers: [{
+            layerId: 'cc-layer',
+            data: {
+              indexBuffer: {
+                width: brushState.width,
+                height: brushState.height,
+                data: brushState.indexBuffer,
+                gradientId: brushState.gradientIdBuffer,
+                speedData: brushState.speedBuffer,
+                flowData: brushState.flowBuffer,
+                phaseData: brushState.phaseBuffer,
+              },
+              gradient: { gradientStops },
+              animation: { offset: 0 },
+            },
+            strokeData: {
+              gradientDefIdBuffer: brushState.gradientDefIdBuffer,
+            },
+          }],
+        }),
+      } as NonNullable<Layer['colorCycleData']>['colorCycleBrush'],
+    });
+
+    const payload = await serializeColorCycleDataFromResolvedLayer(
+      layer,
+      createProject(),
+      undefined,
+      { resolvedSource: 'live-runtime', toolSpeed: 0.1 },
+    );
+
+    expect(payload?.colorCycle?.layerBaseSpeedCps).toBeCloseTo(0.2, 5);
+    expect(payload?.colorCycle?.controllerSpeedCps).toBeCloseTo(0.2, 5);
   });
 });

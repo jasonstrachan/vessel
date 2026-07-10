@@ -58,6 +58,20 @@ describe('colorCycleLayerStrokeBuffers', () => {
     expect(strokeState.buffers.paint).toBe(paint);
   });
 
+  it('preserves verified slot-zero content when the canonical paint bytes are zero', () => {
+    const strokeState = createLayerStrokeState({
+      hasContent: true,
+      contentIsOptimistic: false,
+      bufferSize: 4,
+      strokeCycleSpeed: 1,
+      strokeSpeedByte: 1,
+    });
+
+    expect(refreshLayerStrokeStateContent(strokeState, 2, 2)).toBe(true);
+    expect(strokeState.hasContent).toBe(true);
+    expect(strokeState.contentIsOptimistic).toBe(false);
+  });
+
   it('marks verified painted content as non-optimistic', () => {
     const strokeState = createLayerStrokeState({
       hasContent: true,

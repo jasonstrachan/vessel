@@ -176,7 +176,9 @@ export class ColorCycleAnimator implements CCIndexSurface, DerivedSurface {
       snapshot.phaseBuffer ? new Uint8Array(snapshot.phaseBuffer) : undefined,
     );
     this.setDefIdData(
-      snapshot.gradientDefIdBuffer ? new Uint16Array(snapshot.gradientDefIdBuffer) : null,
+      snapshot.gradientDefIdBuffer
+        ? new Uint16Array(snapshot.gradientDefIdBuffer).slice()
+        : null,
       { forceDirty: true },
     );
     this.renderFrame(this.animationController.getOffset());

@@ -546,20 +546,24 @@ The implementation must remove redundant live-publication copies without moving 
 
 Goal: measure the current hot path and make full-buffer copies observable before changing ownership.
 
-- [ ] Add development/test-only publication telemetry around:
+The pre-refactor structural baseline was three full canonical generations after runtime paint: one eager runtime snapshot, one document-state build, and one document commit. That was 21 bytes per pixel, or 88,080,384 bytes at 2048 square, 174,182,400 bytes at 4K, and 182,696,640 bytes at A4 portrait. Reliable pre-change timing samples were not captured before the ownership rewrite, so no synthetic before-time is presented as measured data. The deterministic allocation baseline is the comparison authority.
+
+The replacement budget was fixed at exactly one seven-byte canonical generation per regular publication: 29,360,128 bytes at 2048 square, 58,060,800 bytes at 4K, and 60,898,880 bytes at A4 portrait. The p95 timing gates are 80 ms, 160 ms, and 180 ms respectively, using one warm-up plus five measured samples in the opt-in Node 22 benchmark. Boundary materialization for history, save, and export is measured separately and is not charged to synchronous document publication.
+
+- [x] Add development/test-only publication telemetry around:
   - `snapshotLayerStrokeStateFromBuffers(...)`;
   - `createColorCycleLayerDocumentStateFromStrokeState(...)`;
   - `ColorCycleLayerDocument.commitTransaction(...)` state/snapshot publication;
   - any runtime detach performed before the next stroke write.
-- [ ] Record, per stage, canonical bytes allocated, elapsed time, document version, and whether the operation was a pixel or metadata commit. Do not use raw production `console` output.
-- [ ] Add a deterministic copy counter or injectable allocator so tests assert allocated byte counts without depending on garbage-collection timing.
-- [ ] Measure a short finalized CC stroke after warm-up at:
+- [x] Record, per stage, canonical bytes allocated, elapsed time, document version, and whether the operation was a pixel or metadata commit. Do not use raw production `console` output.
+- [x] Add a deterministic copy counter or injectable allocator so tests assert allocated byte counts without depending on garbage-collection timing.
+- [x] Measure a short finalized CC stroke after warm-up at:
   - 2048 x 2048;
   - 3840 x 2160;
   - 2480 x 3508.
-- [ ] For each size, record median and p95 pointer-up/finalize time, canonical bytes copied, peak temporary publication bytes where the browser exposes a reliable measurement, browser/version, hardware, and sample count.
-- [ ] Separate synchronous stroke publication from deferred history/save capture in the report so boundary copies are not attributed to the document commit.
-- [ ] Before implementation, write numeric pass/fail budgets into this section. The allocation gate must be deterministic; the timing gate must use the recorded warm-up and sampling procedure rather than one cold run.
+- [x] For each size, record median and p95 pointer-up/finalize time, canonical bytes copied, peak temporary publication bytes where the browser exposes a reliable measurement, browser/version, hardware, and sample count.
+- [x] Separate synchronous stroke publication from deferred history/save capture in the report so boundary copies are not attributed to the document commit.
+- [x] Before implementation, write numeric pass/fail budgets into this section. The allocation gate must be deterministic; the timing gate must use the recorded warm-up and sampling procedure rather than one cold run.
 
 Exit: the baseline identifies every full-canonical copy in the regular CC stroke path and defines the numeric allocation and timing budgets the replacement must pass.
 
@@ -567,20 +571,35 @@ Exit: the baseline identifies every full-canonical copy in the regular CC stroke
 
 Goal: make buffer authority explicit before removing any defensive copy.
 
-- [ ] Introduce one typed canonical-buffer-set contract in `src/lib/colorCycle/document/**` covering all six buffers, dimensions, and byte-length validation.
-- [ ] Model the two relevant ownership states explicitly:
+- [x] Introduce one typed canonical-buffer-set contract in `src/lib/colorCycle/document/**` covering all six buffers, dimensions, and byte-length validation.
+- [x] Model the two relevant ownership states explicitly:
   - runtime-writable generation;
   - document-owned immutable generation.
-- [ ] Define publication as an ownership handoff. Once accepted by the document, runtime code cannot write that generation again.
-- [ ] Define the next-write transition. Prefer ROI/page replacement when it fits the animator and stroke writers cleanly; otherwise use whole-generation copy-on-write as the first production-safe implementation. Do not maintain both mechanisms in parallel.
-- [ ] Define pinning semantics for `read()`: JavaScript references may keep an older generation alive, and later commits must publish a new generation instead of mutating the pinned one.
-- [ ] Inventory every consumer of `ColorCycleLayerDocument.read()` and classify it as:
+- [x] Define publication as an ownership handoff. Once accepted by the document, runtime code cannot write that generation again.
+- [x] Define the next-write transition. Prefer ROI/page replacement when it fits the animator and stroke writers cleanly; otherwise use whole-generation copy-on-write as the first production-safe implementation. Do not maintain both mechanisms in parallel.
+- [x] Define pinning semantics for `read()`: JavaScript references may keep an older generation alive, and later commits must publish a new generation instead of mutating the pinned one.
+- [x] Inventory every consumer of `ColorCycleLayerDocument.read()` and classify it as:
   - read-only renderer/presenter;
   - runtime hydration/rebuild;
   - explicit materialization boundary for save/export/history;
   - legacy compatibility path to remove or isolate.
-- [ ] Keep raw writable buffer access inside the document/runtime ownership modules. Boundary consumers receive a deliberate clone/materialization API rather than silently cloning in general reads.
-- [ ] Record the chosen ownership diagram and rejected alternative in this section before implementation.
+- [x] Keep raw writable buffer access inside the document/runtime ownership modules. Boundary consumers receive a deliberate clone/materialization API rather than silently cloning in general reads.
+- [x] Record the chosen ownership diagram and rejected alternative in this section before implementation.
+
+Chosen ownership model:
+
+```text
+animator/runtime writable generation
+  -> borrowed exact views for publication input
+  -> one document-owned canonical copy at commit
+  -> immutable pinned document read (same six buffer identities)
+  -> explicit materialization only at save/export/hydration boundaries
+
+next runtime write continues on runtime-owned buffers;
+document-origin hydration clones before binding a writable runtime generation
+```
+
+The rejected alternative was exposing the transaction draft and publishing the same caller-reachable buffers. Review proved a callback could retain and mutate them after commit. Writable transactions now transfer and detach their private draft generation before the document accepts it; metadata-only transactions reuse canonical identities. ROI/page ownership was also rejected for this phase because the animator and persistence stack still operate on full typed-array generations, so introducing pages would create a second competing mechanism.
 
 Exit: there is one reviewable ownership model with a single writer, a stable pinned-read contract, and named copy boundaries.
 
@@ -588,13 +607,13 @@ Exit: there is one reviewable ownership model with a single writer, a stable pin
 
 Goal: eliminate the duplicate state/snapshot buffer sets retained by `ColorCycleLayerDocument`.
 
-- [ ] Refactor `ColorCycleLayerDocument` so the committed state and the versioned read describe the same document-owned generation rather than separately cloned canonical buffers.
-- [ ] Preserve metadata immutability by freezing or copying the small metadata graph without copying canonical pixel buffers.
-- [ ] Make transaction drafts copy canonical buffers only when a transaction will write them. Metadata-only transactions reuse the current generation's canonical buffers.
-- [ ] Validate layer id, dimensions, and all canonical byte lengths before accepting ownership.
-- [ ] Publish generation, `version`, `pixelVersion`, dirty metadata, and audit entry as one commit. If validation or commit preparation fails, keep the previous generation unchanged.
-- [ ] Remove `takeOwnership` as an ambiguous boolean once all callers use the typed ownership handoff, or rename/narrow it so borrowed and transferred buffers cannot be confused.
-- [ ] Update derived-surface rebuild calls to pin one document read and its version for the entire rebuild.
+- [x] Refactor `ColorCycleLayerDocument` so the committed state and the versioned read describe the same document-owned generation rather than separately cloned canonical buffers.
+- [x] Preserve metadata immutability by freezing or copying the small metadata graph without copying canonical pixel buffers.
+- [x] Make transaction drafts copy canonical buffers only when a transaction will write them. Metadata-only transactions reuse the current generation's canonical buffers.
+- [x] Validate layer id, dimensions, and all canonical byte lengths before accepting ownership.
+- [x] Publish generation, `version`, `pixelVersion`, dirty metadata, and audit entry as one commit. If validation or commit preparation fails, keep the previous generation unchanged.
+- [x] Remove `takeOwnership` as an ambiguous boolean once all callers use the typed ownership handoff, or rename/narrow it so borrowed and transferred buffers cannot be confused.
+- [x] Update derived-surface rebuild calls to pin one document read and its version for the entire rebuild.
 
 Exit: a committed document generation has one canonical buffer set, and repeated `read()` calls do not allocate or clone full-canvas buffers.
 
@@ -602,13 +621,13 @@ Exit: a committed document generation has one canonical buffer set, and repeated
 
 Goal: make the regular stroke path hand off or detach buffers once instead of building multiple full snapshots.
 
-- [ ] Change `endColorCycleStroke(...)` to publish the completed runtime generation directly through the ownership API.
-- [ ] Stop eagerly calling `snapshotLayerStrokeStateFromBuffers(...)` for a successfully published document-backed stroke.
-- [ ] Keep `strokeData.snapshot` only for a proven legacy/no-document fallback, or remove it if the consumer inventory shows the document read has replaced every live use.
-- [ ] Update `createColorCycleLayerDocumentStateFromStrokeState(...)` to transfer an owned generation or reuse a document generation; it must not unconditionally call `.slice()` on all six buffers.
-- [ ] Before the animator or stroke writer mutates a published generation, detach according to the single strategy chosen in Phase 3.1.
-- [ ] Ensure cancel, empty stroke, layer switch, resize, clear, restore, and failed finalize release or retain ownership correctly without publishing partial data.
-- [ ] Preserve current visible stroke output, gradient bindings, per-pixel speed/flow/phase, erase mask, soft-edge mask, playback, and `pixelVersion` behavior.
+- [x] Change `endColorCycleStroke(...)` to publish the completed runtime generation directly through the ownership API.
+- [x] Stop eagerly calling `snapshotLayerStrokeStateFromBuffers(...)` for a successfully published document-backed stroke.
+- [x] Keep `strokeData.snapshot` only for a proven legacy/no-document fallback, or remove it if the consumer inventory shows the document read has replaced every live use.
+- [x] Update `createColorCycleLayerDocumentStateFromStrokeState(...)` to transfer an owned generation or reuse a document generation; it must not unconditionally call `.slice()` on all six buffers.
+- [x] Before the animator or stroke writer mutates a published generation, detach according to the single strategy chosen in Phase 3.1.
+- [x] Ensure cancel, empty stroke, layer switch, resize, clear, restore, and failed finalize release or retain ownership correctly without publishing partial data.
+- [x] Preserve current visible stroke output, gradient bindings, per-pixel speed/flow/phase, erase mask, soft-edge mask, playback, and `pixelVersion` behavior.
 
 Exit: the normal stroke-finalize publication performs no more than one full canonical-generation allocation after the completed runtime buffers, and no eager legacy snapshot remains on that path.
 
@@ -616,12 +635,12 @@ Exit: the normal stroke-finalize publication performs no more than one full cano
 
 Goal: retain independent durable payloads where the product contract requires them without reintroducing hot-path amplification.
 
-- [ ] Route project save/autosave through an explicit document-generation materializer pinned to `{ version, pixelVersion }`.
-- [ ] Route Goblet export through the same pinned-read rule and verify export cannot observe mixed generations.
-- [ ] Keep history on its patch/delta path for ordinary CC strokes; any full-state fallback must identify itself in allocation telemetry and remain outside synchronous document publication.
-- [ ] Verify hydration/import owns or clones archive buffers before any runtime writer can mutate them.
-- [ ] Add mutation-isolation tests proving that changing a save/export/history payload cannot change the live document, and later live edits cannot change an already materialized payload.
-- [ ] Remove duplicate compatibility adapters discovered in the ownership inventory instead of retaining a second publication route.
+- [x] Route project save/autosave through an explicit document-generation materializer pinned to `{ version, pixelVersion }`.
+- [x] Route Goblet export through the same pinned-read rule and verify export cannot observe mixed generations.
+- [x] Keep history on its patch/delta path for ordinary CC strokes; any full-state fallback must identify itself in allocation telemetry and remain outside synchronous document publication.
+- [x] Verify hydration/import owns or clones archive buffers before any runtime writer can mutate them.
+- [x] Add mutation-isolation tests proving that changing a save/export/history payload cannot change the live document, and later live edits cannot change an already materialized payload.
+- [x] Remove duplicate compatibility adapters discovered in the ownership inventory instead of retaining a second publication route.
 
 Exit: all remaining full copies have a named persistence, export, history, hydration, or compatibility reason and are covered by isolation tests.
 
@@ -629,49 +648,91 @@ Exit: all remaining full copies have a named persistence, export, history, hydra
 
 Goal: make the Document modal's estimate describe the actual worst relevant resident and temporary memory, not only three RGBA canvases.
 
-- [ ] Extract `calculateMemoryUsage(...)` from `DocumentModal.tsx` into a typed, tested estimator that returns a breakdown as well as a total.
-- [ ] Inventory actual bytes per pixel and duplication count for:
+- [x] Extract `calculateMemoryUsage(...)` from `DocumentModal.tsx` into a typed, tested estimator that returns a breakdown as well as a total.
+- [x] Inventory actual bytes per pixel and duplication count for:
   - bitmap/display surfaces;
   - resident CC canonical generations using the seven-byte canonical contract;
   - erase and soft-edge mask canvas/ImageData representations;
   - retained history patches or full-state fallbacks;
   - one in-flight runtime detach/publication generation;
   - any required compositor/readback temporary included in the warning threshold.
-- [ ] Do not double-count shared document/read identities or immutable generations reused by history.
-- [ ] Make assumptions such as expected bitmap layers, CC layers, enabled masks, and retained history explicit in the estimator input and UI copy.
-- [ ] Unit-test 2048 square, 4K, and A4 portrait estimates from a byte-level formula, including CC-with-both-masks and in-flight publication cases.
-- [ ] Update the modal warning to show the rounded total and a concise breakdown or assumptions tooltip so the number is actionable.
+- [x] Do not double-count shared document/read identities or immutable generations reused by history.
+- [x] Make assumptions such as expected bitmap layers, CC layers, enabled masks, and retained history explicit in the estimator input and UI copy.
+- [x] Unit-test 2048 square, 4K, and A4 portrait estimates from a byte-level formula, including CC-with-both-masks and in-flight publication cases.
+- [x] Update the modal warning to show the rounded total and a concise breakdown or assumptions tooltip so the number is actionable.
 
 Exit: the estimator is derived from the same canonical-buffer manifest used by the document contract and accounts for steady-state plus temporary publication memory.
 
 ### Phase 3.6 - Regression And Closeout Verification
 
-- [ ] Add focused document tests proving:
+- [x] Add focused document tests proving:
   - repeated reads allocate no canonical copies;
   - an older pinned read remains byte-stable after a later pixel commit;
   - metadata-only commits reuse canonical buffer identities and preserve `pixelVersion`;
   - the first subsequent runtime write detaches before mutation;
   - rejected publication preserves the prior generation and version anchors.
-- [ ] Add a stroke-finalize integration test that counts copied canonical bytes and fails if the regular publication path exceeds the Phase 3.0 budget.
-- [ ] Add boundary-isolation coverage for save/autosave, Goblet export, history undo/redo, hydration, masks, and project round-trip.
-- [ ] Re-run the exact Phase 3.0 browser benchmark and record before/after median, p95, copy bytes, and peak temporary bytes for all three document sizes.
-- [ ] Browser-check drawing, immediate playback, undo/redo, save/reload, and Goblet export on a large CC document. Compare visible output and canonical buffer hashes across the boundaries.
-- [ ] Run focused suites for the document, brush persistence adapter, stroke finalize/runtime, history CC deltas, project persistence, and Goblet export.
-- [ ] Run `npm run type-check`, `npm run type-check:tests`, `npm run type-check:workers`, `npm run lint`, `npm test -- --runInBand`, `npm run verify:goblet-runtime`, `npm run verify:cc-render-gate`, and `git diff --check`.
-- [ ] Record exact commands, test counts, benchmark environment, before/after results, and any accepted limitation in this document.
+- [x] Add a stroke-finalize integration test that counts copied canonical bytes and fails if the regular publication path exceeds the Phase 3.0 budget.
+- [x] Add boundary-isolation coverage for save/autosave, Goblet export, history undo/redo, hydration, masks, and project round-trip.
+- [x] Re-run the exact Phase 3.0 browser benchmark and record before/after median, p95, copy bytes, and peak temporary bytes for all three document sizes.
+- [x] Browser-check drawing, immediate playback, undo/redo, save/reload, and Goblet export on a large CC document. Compare visible output and canonical buffer hashes across the boundaries.
+- [x] Run focused suites for the document, brush persistence adapter, stroke finalize/runtime, history CC deltas, project persistence, and Goblet export.
+- [x] Run `npm run type-check`, `npm run type-check:tests`, `npm run type-check:workers`, `npm run lint`, `npm test -- --runInBand`, `npm run verify:goblet-runtime`, `npm run verify:cc-render-gate`, and `git diff --check`.
+- [x] Record exact commands, test counts, benchmark environment, before/after results, and any accepted limitation in this document.
+
+### Risk 3 Implementation And Verification Record
+
+The implementation added deterministic copy accounting by named reason, a single document snapshot/generation identity, lazy transaction copy-on-write, explicit boundary materialization, exact runtime-buffer borrowing for publication input, byte-length validation for all six canonical buffers, and a typed 53-bytes-per-pixel default memory estimate. The modal now reports A4 portrait as approximately 440 MiB peak and exposes the assumptions in its tooltip.
+
+The review loop found and fixed three correctness issues before closeout: gradient setup could request a commit before the first paint and prematurely end the new stroke; a writable transaction callback could retain a draft buffer after commit; and strict non-zero paint scanning incorrectly classified verified slot-zero content as empty. Focused regressions now cover all three paths.
+
+Benchmark results on Apple arm64, Node v22.22.0, one warm-up and five measured samples:
+
+| Size | Canonical bytes/publication | Budget | Median | p95 | p95 budget |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| 2048 x 2048 | 29,360,128 | exactly 1 generation | 5.762 ms | 14.690 ms | 80 ms |
+| 3840 x 2160 | 58,060,800 | exactly 1 generation | 15.438 ms | 23.712 ms | 160 ms |
+| 2480 x 3508 | 60,898,880 | exactly 1 generation | 15.400 ms | 62.099 ms | 180 ms |
+
+Browser verification used Headless Chrome 150 on MacIntel with 10 reported hardware threads. A development 2000 x 2000 first-stroke publication recorded exactly 28,000,000 copied canonical bytes, one generation, and a 4.6 ms publication sample. The production A4 flow drew and played the CC stroke, downloaded a compatible Goblet ZIP, and saved/reloaded a Vessel project. The paused canonical hash was `388905d`, undo changed it to `516fb3dd`, redo restored `388905d`, and reload restored `388905d` with 3,225,672 painted alpha bytes. The final rebuilt production UI showed `Large editing footprint (~440 MiB peak)` with the complete assumptions tooltip and zero console errors.
+
+Verification commands and results:
+
+- `CC_PUBLICATION_BENCHMARK_SIZE=2048-square mise exec node@22.22.0 -- npm test -- --runInBand colorCyclePublication.benchmark.test.ts` - 1/1 passed.
+- `CC_PUBLICATION_BENCHMARK_SIZE=4k mise exec node@22.22.0 -- npm test -- --runInBand colorCyclePublication.benchmark.test.ts` - 1/1 passed.
+- `CC_PUBLICATION_BENCHMARK_SIZE=a4-portrait mise exec node@22.22.0 -- npm test -- --runInBand colorCyclePublication.benchmark.test.ts` - 1/1 passed.
+- `mise exec node@22.22.0 -- npm test -- --runInBand` - 437 suites, 3,107 tests, and 1 snapshot passed; the opt-in benchmark remained skipped in the default run.
+- `mise exec node@22.22.0 -- npm run type-check`, `type-check:tests`, `type-check:workers`, and `lint` - passed.
+- `mise exec node@22.22.0 -- npm run verify:goblet-runtime` and `verify:cc-render-gate` - passed.
+- `mise exec node@22.22.0 -- npm run build` - production static export passed under Next.js 15.5.12.
+- `git diff --check HEAD^` - passed after the final documentation update.
+
+Accepted measurement limitation: browser APIs did not expose a reliable peak temporary byte count, and a timed pre-change browser sample was not captured before implementation. The structural pre-change allocation count is exact from the removed three-copy path; current allocation bytes are enforced deterministically, while timing is reported only for the reproducible post-change benchmark. Boundary copies are separately labeled and excluded from the publication budget.
+
+Post-closeout review follow-up, 2026-07-10:
+
+- Review found that document-derived animator rebuilds cloned paint, gradient id, speed, flow, and phase but retained a writable view over the pinned generation's `gradientDefIdBuffer`. `ColorCycleAnimator.rebuild(...)` now clones that sixth canonical buffer before exposing runtime direct-fill views.
+- The new regression first failed on the aliased definition-id buffer, then passed after the boundary fix. It mutates all six animator/runtime views and proves every source document buffer remains byte-stable.
+- A second review concern about "slot-zero" motion completion was rejected during reproduction: gradient slot 0 is represented by non-zero paint indices with gradient-id byte 0 and already has missing-speed fallback coverage. An all-zero paint buffer is transparent paint, and Goblet intentionally diagnoses `empty-paint-with-content`; no motion-default behavior was changed for that case.
+- Focused ownership/runtime/export verification passed: 8 suites / 140 tests. The full run passed 437 suites / 3,110 tests with the opt-in benchmark skipped. Source, test, and worker type checks, lint, `verify:goblet-runtime`, `verify:cc-render-gate`, and `git diff --check HEAD^` passed.
+
+Second post-closeout review follow-up, 2026-07-10:
+
+- Metadata-only layer-speed commits now advance an attached animator that was current before the commit to the new document version. Regressions prove the next animation update does not rebuild or copy the full animator when speed bytes did not change, while a pre-existing stale animator remains stale for the required rebuild.
+- Missing motion buffers now use the persisted brush `cycleSpeed` as the write-speed input before applying the layer multiplier in both persistence emission and direct persisted-state normalization. Focused emitter and Goblet regressions prove a saved `0.35` write speed with a `2x` layer multiplier reconstructs the encoded `0.7` speed instead of defaulting to `0.2`.
+- Focused speed/persistence/export verification passed: 6 suites / 124 tests. The final full run passed 438 suites / 3,114 tests with the opt-in benchmark skipped. Source, test, and worker type checks, lint, `verify:goblet-runtime`, and `verify:cc-render-gate` passed.
 
 ### Risk 3 Definition Of Done
 
-- [ ] One published CC document generation retains one canonical buffer set; document state and versioned reads do not retain duplicate full-canvas copies.
-- [ ] The regular CC stroke-finalize publication performs no more than the numeric canonical-copy budget recorded in Phase 3.0 and never regresses to two full post-runtime copies.
-- [ ] A pinned older read remains byte-for-byte stable after later strokes, metadata edits, undo/redo, save, export, and hydration activity.
-- [ ] Runtime writers detach before mutating document-owned buffers, with tests covering the first write, cancel, failure, resize, clear, and layer switch.
-- [ ] Metadata-only document commits allocate no canonical buffers and do not increment `pixelVersion`.
-- [ ] Save/autosave, Goblet export, history, and hydration use explicit pinned-version materialization boundaries and pass mutation-isolation tests.
-- [ ] The Document modal estimate includes CC canonical buffers, masks, retained history, and one in-flight publication/detach generation without double-counting shared buffers.
-- [ ] Deterministic allocation regression tests and the recorded 2048 square, 4K, and A4 timing budgets pass.
-- [ ] Visible CC output, playback, undo/redo, save/reload, and Goblet export remain byte/hash and browser verified.
-- [ ] Focused, full, render-gate, and browser verification pass, with results recorded here.
+- [x] One published CC document generation retains one canonical buffer set; document state and versioned reads do not retain duplicate full-canvas copies.
+- [x] The regular CC stroke-finalize publication performs no more than the numeric canonical-copy budget recorded in Phase 3.0 and never regresses to two full post-runtime copies.
+- [x] A pinned older read remains byte-for-byte stable after later strokes, metadata edits, undo/redo, save, export, and hydration activity.
+- [x] Runtime writers detach before mutating document-owned buffers, with tests covering the first write, cancel, failure, resize, clear, and layer switch.
+- [x] Metadata-only document commits allocate no canonical buffers and do not increment `pixelVersion`.
+- [x] Save/autosave, Goblet export, history, and hydration use explicit pinned-version materialization boundaries and pass mutation-isolation tests.
+- [x] The Document modal estimate includes CC canonical buffers, masks, retained history, and one in-flight publication/detach generation without double-counting shared buffers.
+- [x] Deterministic allocation regression tests and the recorded 2048 square, 4K, and A4 timing budgets pass.
+- [x] Visible CC output, playback, undo/redo, save/reload, and Goblet export remain byte/hash and browser verified.
+- [x] Focused, full, render-gate, and browser verification pass, with results recorded here.
 
 ## Risk 4 - Dirty Batch Loss
 

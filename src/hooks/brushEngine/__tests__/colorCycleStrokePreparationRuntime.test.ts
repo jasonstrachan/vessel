@@ -59,4 +59,29 @@ describe('prepareColorCycleStrokeContext', () => {
     expect(bindStrokeBuffersToAnimator).toHaveBeenCalledWith(strokeState, animator);
     expect(strokeState.buffers.paint).toBe(animatorPaint);
   });
+
+  it('rebinds when any canonical buffer has a stale size', () => {
+    const animator = {} as ColorCycleAnimator;
+    const strokeState = createLayerStrokeState({
+      bufferSize: 12,
+      hasContent: false,
+      strokeCycleSpeed: 1,
+      strokeSpeedByte: 2,
+    });
+    strokeState.buffers.gid = new Uint8Array(4);
+    const bindStrokeBuffersToAnimator = jest.fn();
+
+    prepareColorCycleStrokeContext({
+      ensureFullResolution: () => animator,
+      getStrokeState: () => strokeState,
+      createStrokeState: () => strokeState,
+      setStrokeState: jest.fn(),
+      bindStrokeBuffersToAnimator,
+      getCanvasBufferSize: () => 12,
+      getActiveSlot: () => 0,
+    }, 'layer-1');
+
+    expect(strokeState.buffers.gid).toHaveLength(12);
+    expect(bindStrokeBuffersToAnimator).toHaveBeenCalledWith(strokeState, animator);
+  });
 });
