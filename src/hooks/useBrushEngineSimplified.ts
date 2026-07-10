@@ -120,6 +120,7 @@ import {
 } from './brushEngine/brushStampController';
 import { estimateStrokeBounds as estimateStrokeBoundsController } from './brushEngine/strokeBoundsController';
 import {
+  bindActiveColorCycleFramePublication,
   ensureColorCycleAnimationForLayers,
   initializeColorCycleBrushForActiveLayer,
 } from './brushEngine/colorCycleInitController';
@@ -1782,6 +1783,13 @@ export const useBrushEngineSimplified = () => {
 
   const lastAppliedColorCycleLayerIdRef = useRef<string | null>(null);
   const lastAppliedColorCycleBaseSpeedRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    bindActiveColorCycleFramePublication({
+      activeLayerId,
+      getActiveLayerColorCycleBrush: getActiveLayerInitBrush,
+    });
+  }, [activeLayerId, getActiveLayerInitBrush, layers]);
 
   useEffect(() => {
     const colorCycleBrush = getActiveLayerSpeedSettingsBrush();

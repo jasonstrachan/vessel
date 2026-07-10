@@ -26,6 +26,34 @@ type BrushLike = ColorCycleSettingsPatchBrush & {
   endStroke: (layerId: string) => void;
 };
 
+type ColorCycleFramePublicationBrush = Pick<BrushLike, 'setOnFrameRendered'>;
+
+export const bindColorCycleFramePublication = (
+  brush: ColorCycleFramePublicationBrush,
+): void => {
+  brush.setOnFrameRendered((dirtyBatches) => {
+    dispatchColorCycleFrameReady(dirtyBatches);
+  });
+};
+
+export const bindActiveColorCycleFramePublication = ({
+  activeLayerId,
+  getActiveLayerColorCycleBrush,
+}: {
+  activeLayerId: string | null;
+  getActiveLayerColorCycleBrush: () => ColorCycleFramePublicationBrush | null;
+}): boolean => {
+  if (!activeLayerId) {
+    return false;
+  }
+  const brush = getActiveLayerColorCycleBrush();
+  if (!brush) {
+    return false;
+  }
+  bindColorCycleFramePublication(brush);
+  return true;
+};
+
 export type InitializeColorCycleBrushArgs = {
   activeLayerId: string | null;
   projectWidth?: number;
@@ -97,10 +125,9 @@ export const initializeColorCycleBrushForActiveLayer = <TBrush extends BrushLike
         return null;
       }
 
-      colorCycleBrush.setOnFrameRendered((dirtyBatches) => {
-        dispatchColorCycleFrameReady(dirtyBatches);
-      });
     }
+
+    bindColorCycleFramePublication(colorCycleBrush);
 
     const settingsPatch: CCBrushSettingsPatch = {
       brushSize: brushSettings.size || 20,

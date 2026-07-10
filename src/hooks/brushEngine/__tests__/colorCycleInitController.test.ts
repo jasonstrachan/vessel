@@ -1,7 +1,9 @@
 import {
+  bindActiveColorCycleFramePublication,
   ensureColorCycleAnimationForLayers,
   initializeColorCycleBrushForActiveLayer,
 } from '../colorCycleInitController';
+import { COLOR_CYCLE_FRAME_READY_EVENT } from '../colorCycleFrameEvents';
 import { BrushShape, type BrushSettings } from '@/types';
 
 const makeBrushSettings = (): BrushSettings => ({
@@ -208,6 +210,44 @@ describe('colorCycleInitController', () => {
     expect(result).toBe(brush);
     expect(brush.endStroke).not.toHaveBeenCalled();
     expect(brush.setBrushSize).toHaveBeenCalledWith(12);
+  });
+
+  it('registers frame publication for an existing brush', () => {
+    const brush = makeBrush();
+
+    initializeColorCycleBrushForActiveLayer({
+      activeLayerId: 'layer-cc',
+      projectWidth: 64,
+      projectHeight: 64,
+      brushSettings: makeBrushSettings(),
+      isCCGradientActiveLayer: false,
+      defaultBandSpacing: 12,
+      clampColorCycleBandSpacing: (v) => v ?? 12,
+      resolveBrushPressureRange: () => ({ enabled: false, minPercent: 100, maxPercent: 100 }),
+      getLayers: () => [{ id: 'layer-cc', layerType: 'color-cycle' }],
+      initColorCycleForLayer: jest.fn(),
+      getActiveLayerColorCycleBrush: () => brush,
+      requestGradientApply: jest.fn(),
+    });
+
+    expect(brush.setOnFrameRendered).toHaveBeenCalledTimes(1);
+  });
+
+  it('binds a restored active brush to frame publication without initializing it', () => {
+    const brush = makeBrush();
+    const frameListener = jest.fn();
+    window.addEventListener(COLOR_CYCLE_FRAME_READY_EVENT, frameListener);
+
+    const bound = bindActiveColorCycleFramePublication({
+      activeLayerId: 'restored-layer',
+      getActiveLayerColorCycleBrush: () => brush,
+    });
+    const callback = brush.setOnFrameRendered.mock.calls[0]?.[0];
+    callback?.([]);
+
+    expect(bound).toBe(true);
+    expect(frameListener).toHaveBeenCalledTimes(1);
+    window.removeEventListener(COLOR_CYCLE_FRAME_READY_EVENT, frameListener);
   });
 
   it('applies global CC layer speed scale when configuring speed', () => {
