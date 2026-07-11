@@ -40,6 +40,7 @@
     "test:cc-runtime-parity": "jest --runInBand tests/cc-runtime-parity.test.ts tests/goblet-display-filters-runtime.test.ts tests/goblet-runtime-embed-sizing.test.ts tests/goblet2-runtime-regression.test.ts tests/goblet-hidden-layer-inclusion.test.ts tests/goblet2-legacy-corpus.test.ts tests/goblet2-bundle.test.ts tests/playback-change-gate.test.ts src/utils/export/goblet/__tests__/colorCyclePayloadValidation.test.ts src/utils/export/goblet/__tests__/colorCycleExportContract.test.ts src/utils/export/goblet/__tests__/colorCycleExportSourceResolver.test.ts",
     "test:cc-runtime-gpu-parity": "playwright test tests/goblet2-cpu-gpu-parity.spec.ts tests/goblet2-fit-mode-rendered-parity.spec.ts --reporter=line",
     "verify:cc-render-gate": "node scripts/check-playback-change-gates.mjs",
+    "pack:cc-shapes": "node scripts/cc-shape-pack.js",
     "test:load-project-modal:guardrails": "jest --runInBand LoadProjectModal projectIO",
     "perf:sequential": "jest --runInBand src/lib/sequential/__tests__/SequentialPerformance.smoke.test.ts",
     "type-check": "tsc --noEmit",

@@ -1013,7 +1013,7 @@ describe('ColorCycleBrushCanvas2D regression tests', () => {
     expect(defIds[2]).toBe(defId);
   });
 
-  it('clears loaded external-base canvases when redrawing runtime content', () => {
+  it('transactionally replaces loaded external-base canvases when redrawing runtime content', () => {
     const layerId = 'layer-external-base-redraw';
     const targetCanvas = makeCanvas(4, 1);
     const targetCtx = ensureMockContext(targetCanvas);
@@ -1033,7 +1033,8 @@ describe('ColorCycleBrushCanvas2D regression tests', () => {
 
     brush.renderDirectToCanvas(targetCanvas, layerId);
 
-    expect(targetCtx.clearRect).toHaveBeenCalledWith(0, 0, targetCanvas.width, targetCanvas.height);
+    expect(targetCtx.clearRect).not.toHaveBeenCalled();
+    expect(targetCtx.drawImage).toHaveBeenCalledTimes(1);
   });
 
   it('does not rebind already committed sampled pixels when a new sampled commit collides with their slot', () => {

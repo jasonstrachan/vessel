@@ -17,6 +17,7 @@ const makeDocumentRead = (version: number): ColorCycleLayerDocumentRead => ({
 
 const makeAnimator = (renderToCanvas2D: jest.Mock): ColorCycleAnimator => ({
   builtFromVersion: 1,
+  forceRender: jest.fn(() => true),
   getDimensions: () => ({ width: 8, height: 6 }),
   hasPendingDerivedSurfaceRebuild: () => false,
   renderToCanvas2D,
@@ -96,5 +97,163 @@ describe('ColorCyclePresenter', () => {
     expect(animatedRender).toHaveBeenCalledTimes(3);
 
     target.remove();
+  });
+
+  it('preserves the previous layer frame when a transactional direct render fails', () => {
+    const target = makeCanvas();
+    const targetCtx = target.getContext('2d');
+    if (!targetCtx) {
+      throw new Error('Missing test canvas context');
+    }
+    const presenter = new ColorCyclePresenter(target);
+    const animator = makeAnimator(jest.fn());
+    const targetDraw = jest.spyOn(targetCtx, 'drawImage');
+    const targetClear = jest.spyOn(targetCtx, 'clearRect');
+    jest.spyOn(presenter, 'renderAnimatorToContext').mockImplementation(() => {
+      throw new Error('replacement render failed');
+    });
+
+    expect(() => presenter.renderDirectToCanvas({
+      targetCanvas: target,
+      ctx: targetCtx,
+      layerId: 'layer-failed-frame',
+      animator,
+      documentRead: makeDocumentRead(1),
+      hasRenderableContent: true,
+      preserveExternalBase: false,
+    })).toThrow('replacement render failed');
+
+    expect(targetClear).not.toHaveBeenCalled();
+    expect(targetDraw).not.toHaveBeenCalled();
+  });
+
+  it('does not publish a partially masked replacement frame when masking fails', () => {
+    const target = makeCanvas();
+    const targetCtx = target.getContext('2d');
+    if (!targetCtx) throw new Error('Missing test canvas context');
+    const presenter = new ColorCyclePresenter(target);
+    const animator = makeAnimator(jest.fn());
+    const targetDraw = jest.spyOn(targetCtx, 'drawImage');
+    jest.spyOn(presenter, 'renderAnimatorToContext').mockImplementation((_animator, scratchCtx) => {
+      scratchCtx.fillRect(0, 0, 1, 1);
+    });
+
+    expect(() => presenter.renderDirectToCanvas({
+      targetCanvas: target,
+      ctx: targetCtx,
+      layerId: 'layer-mask-failure',
+      animator,
+      documentRead: makeDocumentRead(1),
+      hasRenderableContent: true,
+      preserveExternalBase: false,
+      applyMask: (_layerId, scratchCtx) => {
+        scratchCtx.clearRect(0, 0, 1, 1);
+        throw new Error('mask failed');
+      },
+    })).toThrow('mask failed');
+
+    expect(targetDraw).not.toHaveBeenCalled();
+  });
+
+  it('preserves the previous layer frame when the derived-surface rebuild fails', () => {
+    const target = makeCanvas();
+    const targetCtx = target.getContext('2d');
+    if (!targetCtx) {
+      throw new Error('Missing test canvas context');
+    }
+    const presenter = new ColorCyclePresenter(target);
+    const animator = makeAnimator(jest.fn());
+    (animator.forceRender as jest.Mock).mockReturnValue(false);
+    const targetDraw = jest.spyOn(targetCtx, 'drawImage');
+    const targetClear = jest.spyOn(targetCtx, 'clearRect');
+
+    expect(() => presenter.renderDirectToCanvas({
+      targetCanvas: target,
+      ctx: targetCtx,
+      layerId: 'layer-failed-rebuild',
+      animator,
+      documentRead: makeDocumentRead(1),
+      hasRenderableContent: true,
+      preserveExternalBase: false,
+    })).toThrow('Color-cycle derived surface render failed');
+
+    expect(targetClear).not.toHaveBeenCalled();
+    expect(targetDraw).not.toHaveBeenCalled();
+  });
+
+  it('rebuilds a stale derived surface from the canonical document before publication', () => {
+    const target = makeCanvas();
+    const targetCtx = target.getContext('2d');
+    if (!targetCtx) {
+      throw new Error('Missing test canvas context');
+    }
+    const presenter = new ColorCyclePresenter(target);
+    const animator = makeAnimator(jest.fn());
+    const documentRead = makeDocumentRead(2);
+    (animator.rebuild as jest.Mock).mockImplementation((_snapshot, version: number) => {
+      (animator as unknown as { builtFromVersion: number }).builtFromVersion = version;
+    });
+
+    presenter.renderDirectToCanvas({
+      targetCanvas: target,
+      ctx: targetCtx,
+      layerId: 'layer-stale-rebuild',
+      animator,
+      documentRead,
+      hasRenderableContent: true,
+      preserveExternalBase: false,
+    });
+
+    expect(animator.rebuild).toHaveBeenCalledWith(documentRead.snapshot, documentRead.version);
+  });
+
+  it('blocks publication when a stale derived surface remains stale after rebuild', () => {
+    const target = makeCanvas();
+    const targetCtx = target.getContext('2d');
+    if (!targetCtx) {
+      throw new Error('Missing test canvas context');
+    }
+    const presenter = new ColorCyclePresenter(target);
+    const animator = makeAnimator(jest.fn());
+    const targetDraw = jest.spyOn(targetCtx, 'drawImage');
+
+    expect(() => presenter.renderDirectToCanvas({
+      targetCanvas: target,
+      ctx: targetCtx,
+      layerId: 'layer-still-stale',
+      animator,
+      documentRead: makeDocumentRead(2),
+      hasRenderableContent: true,
+      preserveExternalBase: false,
+    })).toThrow('Color-cycle derived surface is stale');
+
+    expect(targetDraw).not.toHaveBeenCalled();
+  });
+
+  it('publishes a completed transactional direct render to the layer canvas', () => {
+    const target = makeCanvas();
+    const targetCtx = target.getContext('2d');
+    if (!targetCtx) {
+      throw new Error('Missing test canvas context');
+    }
+    const presenter = new ColorCyclePresenter(target);
+    const renderToCanvas2D = jest.fn();
+    const animator = makeAnimator(renderToCanvas2D);
+    const targetClear = jest.spyOn(targetCtx, 'clearRect');
+    const targetDraw = jest.spyOn(targetCtx, 'drawImage');
+
+    presenter.renderDirectToCanvas({
+      targetCanvas: target,
+      ctx: targetCtx,
+      layerId: 'layer-complete-frame',
+      animator,
+      documentRead: makeDocumentRead(1),
+      hasRenderableContent: true,
+      preserveExternalBase: false,
+    });
+
+    expect(targetClear).not.toHaveBeenCalled();
+    expect(renderToCanvas2D).toHaveBeenCalledWith(expect.anything());
+    expect(targetDraw).toHaveBeenCalled();
   });
 });

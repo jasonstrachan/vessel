@@ -276,3 +276,114 @@ Near-slot-ceiling smoke
   - `255` remains the editor slot.
 - When old defs have no pixel references, slot GC can free and reuse old sampled slots instead of failing.
 - When slots `0..253` are all still referenced by pixels, allocation returns `null` rather than using `254` or `255`.
+
+---
+
+## 2026-07-11 Multi-Layer Play/Pause Investigation
+
+Reported recurrence
+
+- With several CC layers and many CC shapes, playing or stopping CC animation can still make one layer appear completely cleared.
+- The report is specifically tied to a play/pause transition rather than an explicit erase or selection operation.
+
+Reproduction work
+
+- Built a real-browser workload at `http://127.0.0.1:3000/` with three populated 2000 x 2000 CC layers.
+- Committed 67 CC shapes in total, including 30 sampled shapes.
+- Repeated play/pause ten times while recording each layer's `hasContent`, animation state, sampled presentation alpha, WebGL context-loss state, hydration state, and destructive mutation events.
+- Also toggled playback immediately after rapid sampled-shape finalization to exercise deferred publication timing.
+
+Observed result
+
+- The clear did not reproduce in this controlled pass.
+- All three populated layer surfaces retained stable non-zero alpha samples.
+- No WebGL context was lost.
+- No `cc-playback-canonical-mutated` or runtime-clear incident was recorded.
+- Focused playback and WebGL coverage passed: 5 suites, 30 tests.
+
+What this rules out
+
+- Ordinary steady-state play/pause is not sufficient to trigger the failure in the tested workload.
+- The tested sampled-shape finalize timing did not independently reproduce a canonical clear.
+- The prior WebGL context-loss failure signature was not present in this run.
+
+Remaining non-atomic presentation seam
+
+The current direct-render path can still replace a valid visible layer with a blank presentation without proving that canonical paint was cleared:
+
+1. `renderColorCycleDirectToCanvas()` derives `hasRenderableContent` only from the runtime stroke state and its paint buffer.
+2. When that transient runtime state reports no content, it omits the resident document read and calls the presenter with `hasRenderableContent: false`.
+3. `ColorCyclePresenter.renderDirectToCanvas()` responds by clearing the entire target layer canvas.
+4. For a nominally populated layer, the same presenter clears the target before drawing the replacement frame.
+5. `ColorCyclePresenterRebuildScheduler.forceRender()` swallows renderer failures, and the global playback toggle also has a broad empty catch.
+
+Relevant files
+
+- `src/hooks/brushEngine/colorCycleRenderCommitRuntime.ts`
+- `src/hooks/brushEngine/colorCyclePresenter.ts`
+- `src/hooks/brushEngine/colorCyclePresenterRender.ts`
+- `src/hooks/canvas/handlers/colorCycle/colorCycleRender.ts`
+- `src/utils/colorCyclePlayback.ts`
+
+Current assessment
+
+- This is a credible match for a load- or timing-dependent single-layer disappearance: one layer can have a transiently incomplete runtime state or failed replacement render while the other layers remain valid.
+- It is not yet proven to be the trigger of the reported recurrence because the controlled browser workload did not reproduce the clear.
+- The current playback canonical summary is not enough to close that gap: it summarizes layer-level fields and refs, not the resident `ColorCycleLayerDocument` and runtime stroke state that decide whether the presenter clears the surface.
+
+Recommended source fix
+
+- Make direct presentation transactional: replace the live surface through one full-canvas draw only after rebuild succeeds.
+- Do not clear a canonically populated layer because runtime stroke state is missing or temporarily reports empty.
+- Propagate and journal per-layer render/rebuild failures instead of swallowing them.
+- Add regression coverage proving that stale runtime state or a thrown replacement render preserves the previous visible frame.
+
+Next recurrence capture
+
+Do not reload the page. Run:
+
+```js
+copy(JSON.stringify(window.__VESSEL_DUMP_CC_DIAGNOSTICS__(), null, 2))
+```
+
+Use the dump to distinguish a real canonical/runtime clear, WebGL context loss, and this remaining presentation-only failure class.
+
+### Fix implemented and verified
+
+The non-atomic presentation seam is now closed:
+
+- `renderColorCycleDirectToCanvas()` uses a populated resident `ColorCycleLayerDocument` as content authority. If transient runtime stroke state is missing or empty, it rebuilds the full-resolution animator from the canonical snapshot and rebinds the runtime buffers before presentation.
+- Direct presentation no longer clears the live layer before drawing. It uses a full-canvas `copy` draw, so a failed pre-draw rebuild or render leaves the previous frame intact without adding an extra full-size staging allocation or copy.
+- Rebuild failures are no longer swallowed at the presenter boundary.
+- Per-layer advance/presentation failures are isolated so one failed CC layer cannot abort presentation of the remaining layers.
+- Failures are persisted as `cc-render / layer-presentation-failed` incidents with the layer id, layer version, animation state, failure stage, and error message.
+- A derived surface whose version does not match the canonical document is rebuilt synchronously and blocked from publication if it still cannot prove the expected version.
+- Repeated failures from one continuous layer/stage failure episode produce one persisted incident; successful recovery produces one separate `layer-presentation-recovered` incident.
+
+Regression coverage now proves:
+
+- missing runtime stroke state is restored from populated canonical document state before publication,
+- stale derived surfaces rebuild from the canonical version and cannot publish if they remain stale,
+- a thrown replacement render does not clear or draw into the existing layer surface,
+- a successful direct render replaces the full frame without an explicit clear,
+- one failed layer does not prevent later CC layers from rendering,
+- continuous per-frame failures are deduplicated until recovery,
+- loaded external-base canvases use the same transactional replacement contract.
+
+Post-fix browser verification:
+
+- three populated 2000 x 2000 CC layers,
+- 36 committed CC shapes,
+- ten play/pause cycles,
+- stable per-layer alpha samples across every cycle (`168`, `154`, `168`),
+- `hasContent: true` throughout,
+- zero `layer-presentation-failed` incidents,
+- zero `cc-playback-canonical-mutated` events,
+- zero WebGL context losses.
+
+Final verification:
+
+- `npm run type-check`
+- `npm run lint`
+- full Jest suite: 442 suites passed, 3,136 tests passed, 1 suite/test skipped
+- `mise exec node@22.22.0 -- npm run build`

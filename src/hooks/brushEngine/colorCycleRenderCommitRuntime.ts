@@ -26,6 +26,11 @@ export type ColorCycleRenderCommitContext = {
   getAnimator(layerId: string): ColorCycleAnimator | undefined;
   ensureAnimator(layerId: string): ColorCycleAnimator;
   getStrokeState(layerId: string): LayerStrokeState | undefined;
+  restoreRuntimeFromDocument(
+    layerId: string,
+    animator: ColorCycleAnimator,
+    documentRead: ColorCycleLayerDocumentRead,
+  ): LayerStrokeState;
   getStrokeStateValues(): Iterable<LayerStrokeState>;
   getLayerDocumentRead(layerId: string): ColorCycleLayerDocumentRead | undefined;
   getLayerColorCycleMeta(layerId: string): SerializedLayerColorCycleMeta | null;
@@ -109,14 +114,15 @@ export function renderColorCycleDirectToCanvas(
     return;
   }
 
-  const strokeData = context.getStrokeState(layerId);
+  let strokeData = context.getStrokeState(layerId);
   const ctx = targetCanvas.getContext('2d');
   if (!ctx) {
     debugWarn('raw-console', 'Failed to get 2D context from target canvas');
     return;
   }
 
-  let hasRenderableContent = strokeData?.hasContent ?? false;
+  const documentRead = context.getLayerDocumentRead(layerId);
+  let hasRenderableContent = Boolean(strokeData?.hasContent);
   if (!hasRenderableContent) {
     try {
       hasRenderableContent = context.paintHasContent(
@@ -125,6 +131,14 @@ export function renderColorCycleDirectToCanvas(
         context.getCanvasHeight(),
       );
     } catch {}
+  }
+
+  if (!hasRenderableContent && documentRead?.snapshot.hasContent) {
+    strokeData = context.restoreRuntimeFromDocument(layerId, animator, documentRead);
+    hasRenderableContent = Boolean(strokeData.hasContent);
+    if (!hasRenderableContent) {
+      throw new Error(`Color-cycle runtime restore produced no content for layer ${layerId}`);
+    }
   }
 
   if (hasRenderableContent) {
@@ -143,7 +157,7 @@ export function renderColorCycleDirectToCanvas(
     ctx,
     layerId,
     animator,
-    documentRead: hasRenderableContent ? context.getLayerDocumentRead(layerId) : undefined,
+    documentRead,
     hasRenderableContent,
     preserveExternalBase: Boolean(strokeData?.externalBase.hasExternalBase),
     applyMask: applyColorCycleMask,

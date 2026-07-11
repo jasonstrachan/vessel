@@ -58,6 +58,8 @@ export class ColorCyclePresenter {
   private staticTierCtx: CanvasRenderingContext2D;
   private animatedOverlayCanvas: HTMLCanvasElement;
   private animatedOverlayCtx: CanvasRenderingContext2D;
+  private directRenderCanvas: HTMLCanvasElement;
+  private directRenderCtx: CanvasRenderingContext2D;
   private staticTierKey: string | null = null;
   private readonly rebuildScheduler = new ColorCyclePresenterRebuildScheduler();
   private renderScheduled = false;
@@ -79,6 +81,9 @@ export class ColorCyclePresenter {
     this.animatedOverlayCanvas = document.createElement('canvas');
     this.animatedOverlayCanvas.width = this.width;
     this.animatedOverlayCanvas.height = this.height;
+    this.directRenderCanvas = document.createElement('canvas');
+    this.directRenderCanvas.width = this.width;
+    this.directRenderCanvas.height = this.height;
 
     const ctx = this.compositeCanvas.getContext('2d', {
       willReadFrequently: true,
@@ -92,17 +97,23 @@ export class ColorCyclePresenter {
       willReadFrequently: true,
       alpha: true,
     });
+    const directRenderCtx = this.directRenderCanvas.getContext('2d', {
+      willReadFrequently: true,
+      alpha: true,
+    });
 
-    if (!ctx || !staticCtx || !animatedCtx) {
+    if (!ctx || !staticCtx || !animatedCtx || !directRenderCtx) {
       throw new Error('Failed to create 2D context');
     }
 
     this.compositeCtx = ctx;
     this.staticTierCtx = staticCtx;
     this.animatedOverlayCtx = animatedCtx;
+    this.directRenderCtx = directRenderCtx;
     this.compositeCtx.imageSmoothingEnabled = false;
     this.staticTierCtx.imageSmoothingEnabled = false;
     this.animatedOverlayCtx.imageSmoothingEnabled = false;
+    this.directRenderCtx.imageSmoothingEnabled = false;
   }
 
   getTargetCanvas(): HTMLCanvasElement {
@@ -197,6 +208,8 @@ export class ColorCyclePresenter {
     this.staticTierCanvas.height = height;
     this.animatedOverlayCanvas.width = width;
     this.animatedOverlayCanvas.height = height;
+    this.directRenderCanvas.width = width;
+    this.directRenderCanvas.height = height;
     this.staticTierKey = null;
 
     const ctx = this.compositeCanvas.getContext('2d', {
@@ -208,6 +221,10 @@ export class ColorCyclePresenter {
       alpha: true,
     }) as CanvasRenderingContext2D | null;
     const animatedCtx = this.animatedOverlayCanvas.getContext('2d', {
+      willReadFrequently: true,
+      alpha: true,
+    }) as CanvasRenderingContext2D | null;
+    const directRenderCtx = this.directRenderCanvas.getContext('2d', {
       willReadFrequently: true,
       alpha: true,
     }) as CanvasRenderingContext2D | null;
@@ -223,6 +240,10 @@ export class ColorCyclePresenter {
     if (animatedCtx) {
       this.animatedOverlayCtx = animatedCtx;
       this.animatedOverlayCtx.imageSmoothingEnabled = false;
+    }
+    if (directRenderCtx) {
+      this.directRenderCtx = directRenderCtx;
+      this.directRenderCtx.imageSmoothingEnabled = false;
     }
   }
 
@@ -324,26 +345,39 @@ export class ColorCyclePresenter {
     this.rebuildScheduler.assertFreshForRender(layerId, animator, params.documentRead, 'ColorCyclePresenter.renderDirectToCanvas');
     this.rebuildScheduler.forceRender(animator);
 
-    const prevComposite = ctx.globalCompositeOperation;
-    const prevAlpha = ctx.globalAlpha;
-    const prevSmoothing = ctx.imageSmoothingEnabled;
+    if (this.directRenderCanvas.width !== targetCanvas.width || this.directRenderCanvas.height !== targetCanvas.height) {
+      this.directRenderCanvas.width = targetCanvas.width;
+      this.directRenderCanvas.height = targetCanvas.height;
+      const resizedCtx = this.directRenderCanvas.getContext('2d', {
+        willReadFrequently: true,
+        alpha: true,
+      });
+      if (!resizedCtx) throw new Error('Failed to resize transactional color-cycle render surface');
+      this.directRenderCtx = resizedCtx;
+    }
+    const scratchCtx = this.directRenderCtx;
+    scratchCtx.save();
     try {
-      ctx.globalCompositeOperation = 'source-over';
-      ctx.globalAlpha = 1.0;
-      try {
-        ctx.setTransform(1, 0, 0, 1, 0, 0);
-      } catch {}
-      ctx.imageSmoothingEnabled = false;
-
-      ctx.clearRect(0, 0, targetCanvas.width, targetCanvas.height);
-      this.renderAnimatorToContext(animator, ctx, targetCanvas);
-      applyMask?.(layerId, ctx);
+      scratchCtx.setTransform(1, 0, 0, 1, 0, 0);
+      scratchCtx.globalCompositeOperation = 'copy';
+      scratchCtx.globalAlpha = 1;
+      scratchCtx.imageSmoothingEnabled = false;
+      scratchCtx.clearRect(0, 0, this.directRenderCanvas.width, this.directRenderCanvas.height);
+      this.renderAnimatorToContext(animator, scratchCtx, this.directRenderCanvas);
+      applyMask?.(layerId, scratchCtx);
     } finally {
-      ctx.globalCompositeOperation = prevComposite;
-      ctx.globalAlpha = prevAlpha;
-      if (typeof prevSmoothing === 'boolean') {
-        ctx.imageSmoothingEnabled = prevSmoothing;
-      }
+      scratchCtx.restore();
+    }
+
+    ctx.save();
+    try {
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.globalCompositeOperation = 'copy';
+      ctx.globalAlpha = 1;
+      ctx.imageSmoothingEnabled = false;
+      ctx.drawImage(this.directRenderCanvas, 0, 0);
+    } finally {
+      ctx.restore();
     }
   }
 

@@ -51,6 +51,11 @@ type ColorCyclePresentationPlaybackOptions = Omit<
 export type ColorCyclePresentationApiRuntimeDeps = {
   ensureAnimator(layerId: string): ColorCycleAnimator;
   getStrokeState(layerId: string): LayerStrokeState | undefined;
+  restoreRuntimeFromDocument(
+    layerId: string,
+    animator: ColorCycleAnimator,
+    documentRead: ColorCycleLayerDocumentRead,
+  ): LayerStrokeState;
   getStrokeStateValues(): Iterable<LayerStrokeState>;
   getLayerDocumentRead(layerId: string): ColorCycleLayerDocumentRead | undefined;
   getLayerColorCycleMeta(layerId: string): SerializedLayerColorCycleMeta | null;
@@ -391,6 +396,9 @@ export class ColorCyclePresentationApiRuntime {
       getAnimator: (layerId) => this.getAnimator(layerId),
       ensureAnimator: (layerId) => this.deps.ensureAnimator(layerId),
       getStrokeState: (layerId) => this.deps.getStrokeState(layerId),
+      restoreRuntimeFromDocument: (layerId, animator, documentRead) => (
+        this.deps.restoreRuntimeFromDocument(layerId, animator, documentRead)
+      ),
       getStrokeStateValues: () => this.deps.getStrokeStateValues(),
       getLayerDocumentRead: (layerId) => this.deps.getLayerDocumentRead(layerId),
       getLayerColorCycleMeta: (layerId) => this.deps.getLayerColorCycleMeta(layerId),

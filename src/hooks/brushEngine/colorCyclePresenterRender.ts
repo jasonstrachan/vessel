@@ -7,7 +7,7 @@ import {
 import { canvasPool } from '@/utils/canvasPool';
 
 type ColorCyclePresenterSurface = DerivedSurface & {
-  forceRender?: () => void;
+  forceRender?: () => boolean | void;
   hasPendingDerivedSurfaceRebuild?: () => boolean;
 };
 
@@ -22,18 +22,34 @@ export class ColorCyclePresenterRebuildScheduler {
       return;
     }
 
-    assertDerivedSurfaceFreshForRender({
+    const isFresh = assertDerivedSurfaceFreshForRender({
       document: documentRead,
       surface,
       label: `${label}:${layerId}`,
       hasScheduledRebuild: surface.hasPendingDerivedSurfaceRebuild?.() ?? false,
     });
+    if (isFresh) {
+      return;
+    }
+
+    surface.rebuild(documentRead.snapshot, documentRead.version);
+    const isRebuiltFresh = assertDerivedSurfaceFreshForRender({
+      document: documentRead,
+      surface,
+      label: `${label}:${layerId}:rebuilt`,
+      hasScheduledRebuild: false,
+    });
+    if (!isRebuiltFresh) {
+      throw new Error(
+        `Color-cycle derived surface is stale for layer ${layerId}: expected version ${documentRead.version}, received ${surface.builtFromVersion ?? 'null'}`,
+      );
+    }
   }
 
   forceRender(surface: ColorCyclePresenterSurface): void {
-    try {
-      surface.forceRender?.();
-    } catch {}
+    if (surface.forceRender?.() === false) {
+      throw new Error('Color-cycle derived surface render failed');
+    }
   }
 }
 

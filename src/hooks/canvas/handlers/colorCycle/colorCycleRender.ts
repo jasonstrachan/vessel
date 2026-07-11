@@ -2,6 +2,7 @@ import type React from 'react';
 import type { AppState } from '@/stores/useAppStore';
 import type { ColorCycleRuntimeBrush } from '@/lib/colorCycle/document';
 import { NON_ACTIVE_COLOR_CYCLE_FPS } from '@/constants/colorCycle';
+import { recordRuntimeIncident } from '@/utils/runtimeIncidentJournal';
 
 export type ColorCycleBrush = ColorCycleRuntimeBrush & {
   updateAnimation?: () => void;
@@ -12,6 +13,11 @@ const nonActiveLayerAnimationUpdateAt = new Map<string, number>();
 const lastRenderedLayerVersionById = new Map<string, number>();
 const lastBoundCanvasByLayerId = new Map<string, HTMLCanvasElement>();
 const cached2DContextByCanvas = new WeakMap<HTMLCanvasElement, CanvasRenderingContext2D | null>();
+const activePresentationFailures = new Set<string>();
+
+const presentationFailureKey = (layerId: string, stage: 'advance' | 'present'): string => (
+  `${layerId}:${stage}`
+);
 
 const shouldAdvanceColorCycleAnimation = (
   layerId: string,
@@ -45,6 +51,73 @@ export type ColorCycleRenderDeps = {
   getColorCycleBrushManager: () => { getSurfaceBrush: (layerId: string) => ColorCycleBrush | null | undefined };
   refreshLayerCCSurface: (brush: ColorCycleBrush, layerId: string, state: AppState) => HTMLCanvasElement | null;
   bindBrushToCanvas: (brush: ColorCycleBrush | null | undefined, canvas: HTMLCanvasElement | null | undefined) => void;
+};
+
+const recordLayerPresentationFailure = ({
+  layerId,
+  layerVersion,
+  activeLayerId,
+  isAnimating,
+  stage,
+  error,
+  ccLog,
+}: {
+  layerId: string;
+  layerVersion: number;
+  activeLayerId: string | null;
+  isAnimating: boolean;
+  stage: 'advance' | 'present';
+  error: unknown;
+  ccLog: ColorCycleRenderDeps['ccLog'];
+}): void => {
+  const message = error instanceof Error ? error.message : String(error);
+  const failureKey = presentationFailureKey(layerId, stage);
+  if (activePresentationFailures.has(failureKey)) {
+    return;
+  }
+  activePresentationFailures.add(failureKey);
+  recordRuntimeIncident({
+    scope: 'cc-render',
+    event: 'layer-presentation-failed',
+    severity: 'error',
+    data: {
+      layerId,
+      layerVersion,
+      activeLayerId,
+      isAnimating,
+      stage,
+      message,
+    },
+  });
+  ccLog('CC layer presentation failed; preserved previous frame', {
+    layerId,
+    layerVersion,
+    stage,
+  });
+};
+
+const recordLayerPresentationRecovery = ({
+  layerId,
+  layerVersion,
+  stage,
+  ccLog,
+}: {
+  layerId: string;
+  layerVersion: number;
+  stage: 'advance' | 'present';
+  ccLog: ColorCycleRenderDeps['ccLog'];
+}): void => {
+  const failureKey = presentationFailureKey(layerId, stage);
+  if (!activePresentationFailures.delete(failureKey)) {
+    return;
+  }
+  recordRuntimeIncident({
+    scope: 'cc-render',
+    event: 'layer-presentation-recovered',
+    severity: 'warning',
+    data: { layerId, layerVersion, stage },
+  });
+  ccLog('CC layer presentation recovered', { layerId, layerVersion, stage });
 };
 
 export const renderAllColorCycleLayers = (
@@ -91,8 +164,28 @@ export const renderAllColorCycleLayers = (
         isAnimating,
         now
       );
+      let didAdvanceFail = false;
       if (shouldAdvanceAnimation) {
-        colorCycleBrush.updateAnimation?.();
+        try {
+          colorCycleBrush.updateAnimation?.();
+          recordLayerPresentationRecovery({
+            layerId: layer.id,
+            layerVersion: layer.version ?? 0,
+            stage: 'advance',
+            ccLog,
+          });
+        } catch (error) {
+          recordLayerPresentationFailure({
+            layerId: layer.id,
+            layerVersion: layer.version ?? 0,
+            activeLayerId: currentState.activeLayerId ?? null,
+            isAnimating,
+            stage: 'advance',
+            error,
+            ccLog,
+          });
+          didAdvanceFail = true;
+        }
       }
 
       if (liveCanvas.isConnected && lastBoundCanvasByLayerId.get(layer.id) !== liveCanvas) {
@@ -102,16 +195,36 @@ export const renderAllColorCycleLayers = (
       const layerVersion = layer.version ?? 0;
       const didLayerVersionChange = lastRenderedLayerVersionById.get(layer.id) !== layerVersion;
       const shouldRenderFrame =
-        shouldAdvanceAnimation ||
-        didLayerVersionChange ||
-        !lastRenderedLayerVersionById.has(layer.id);
+        !didAdvanceFail && (
+          shouldAdvanceAnimation ||
+          didLayerVersionChange ||
+          !lastRenderedLayerVersionById.has(layer.id)
+        );
 
       if (shouldRenderFrame) {
-        colorCycleBrush.renderDirectToCanvas?.(liveCanvas, layer.id);
-        if (!cached2DContextByCanvas.has(liveCanvas)) {
-          cached2DContextByCanvas.set(liveCanvas, liveCanvas.getContext('2d'));
+        try {
+          colorCycleBrush.renderDirectToCanvas?.(liveCanvas, layer.id);
+          if (!cached2DContextByCanvas.has(liveCanvas)) {
+            cached2DContextByCanvas.set(liveCanvas, liveCanvas.getContext('2d'));
+          }
+          lastRenderedLayerVersionById.set(layer.id, layerVersion);
+          recordLayerPresentationRecovery({
+            layerId: layer.id,
+            layerVersion,
+            stage: 'present',
+            ccLog,
+          });
+        } catch (error) {
+          recordLayerPresentationFailure({
+            layerId: layer.id,
+            layerVersion,
+            activeLayerId: currentState.activeLayerId ?? null,
+            isAnimating,
+            stage: 'present',
+            error,
+            ccLog,
+          });
         }
-        lastRenderedLayerVersionById.set(layer.id, layerVersion);
       }
       hasRendered = true;
 

@@ -669,7 +669,7 @@ export class ColorCycleAnimator implements CCIndexSurface, DerivedSurface {
   /**
    * Render a single frame with directional flow
    */
-  private renderFrame(offset: number = 0, baseTimeOverride?: number) {
+  private renderFrame(offset: number = 0, baseTimeOverride?: number): boolean {
     try {
       const legacyPhase = this.strokeTracker.computePhase(offset);
       const flowMode = this.strokeTracker.getFlowMode();
@@ -683,7 +683,7 @@ export class ColorCycleAnimator implements CCIndexSurface, DerivedSurface {
       const speedData = this.indexBuffer.getDirectSpeedData();
       const flowData = this.indexBuffer.getDirectFlowData();
       const phaseData = this.indexBuffer.getDirectPhaseData();
-      if (!indexData) return;
+      if (!indexData) return false;
 
       if (!this._dbgSpeedStatsLogged && speedData && speedData.length > 0) {
         const length = speedData.length;
@@ -787,7 +787,7 @@ export class ColorCycleAnimator implements CCIndexSurface, DerivedSurface {
         }
 
         this.renderer2D.ensureImageData();
-        return;
+        return true;
       }
 
       if (!this._renderPathLogged) { this._renderPathLogged = true; }
@@ -816,9 +816,12 @@ export class ColorCycleAnimator implements CCIndexSurface, DerivedSurface {
         this.pendingDerivedSurfaceVersion = null;
       }
 
+      return true;
+
     } catch (error) {
       debugWarn('cc-render', '[ColorCycleAnimator] Error in renderFrame:', error);
       debugWarn('cc-render', '[ColorCycleAnimator] Stack:', (error as Error).stack);
+      return false;
     }
   }
 
@@ -1283,8 +1286,8 @@ export class ColorCycleAnimator implements CCIndexSurface, DerivedSurface {
   /**
    * Force render the current frame (used for immediate updates)
    */
-  forceRender() {
-    this.renderFrame(this.animationController.getOffset());
+  forceRender(): boolean {
+    return this.renderFrame(this.animationController.getOffset());
   }
 
   /**

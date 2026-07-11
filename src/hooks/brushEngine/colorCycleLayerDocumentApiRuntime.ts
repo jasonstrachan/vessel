@@ -1,5 +1,6 @@
 import type {
   ColorCycleLayerDocument,
+  ColorCycleLayerDocumentRead,
   ColorCycleLayerDocumentState,
 } from '@/lib/colorCycle/document';
 import type { ColorCycleAnimator } from '@/lib/ColorCycleAnimator';
@@ -189,6 +190,20 @@ export class ColorCycleLayerDocumentApiRuntime {
 
   readonly setStrokeState = (layerId: string, strokeState: LayerStrokeState): void => {
     this.runtimeDocuments.setStrokeState(layerId, strokeState);
+  };
+
+  readonly restoreRuntimeFromDocument = (
+    layerId: string,
+    animator: ColorCycleAnimator,
+    documentRead: ColorCycleLayerDocumentRead,
+  ): LayerStrokeState => {
+    animator.rebuild(documentRead.snapshot, documentRead.version);
+    const strokeState = ensureColorCycleRuntimeLayerStrokeState(this.getContext(), layerId);
+    bindColorCycleRuntimeLayerStrokeBuffersToAnimator(this.getContext(), strokeState, animator);
+    strokeState.hasContent = documentRead.snapshot.hasContent;
+    snapshotColorCycleRuntimeLayerStrokeStateFromBuffers(this.getContext(), strokeState);
+    this.setStrokeState(layerId, strokeState);
+    return strokeState;
   };
 
   readonly setRuntimeLayerStrokeState = (

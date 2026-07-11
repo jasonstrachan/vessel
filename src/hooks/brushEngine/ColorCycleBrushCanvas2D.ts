@@ -109,8 +109,9 @@ export class ColorCycleBrushCanvas2D {
     logGradientBrushPath: (event, data) => logCcGradientBrushPath(event, data),
   });
   private readonly presentationApi: ColorCyclePresentationApiRuntime = new ColorCyclePresentationApiRuntime({
-    ensureAnimator: (layerId) => this.animatorApi.getAnimator(layerId),
+    ensureAnimator: (layerId) => this.animatorApi.ensureFullResolution(layerId, 'restore'),
     getStrokeState: (layerId) => this.layerDocumentApi.getStrokeState(layerId),
+    restoreRuntimeFromDocument: (layerId, animator, documentRead) => this.layerDocumentApi.restoreRuntimeFromDocument(layerId, animator, documentRead),
     getStrokeStateValues: () => this.layerDocumentApi.getStrokeStateValues(),
     getLayerDocumentRead: (layerId) => this.layerDocumentApi.getLayerDocumentRead(layerId),
     getLayerColorCycleMeta: (layerId) => this.layerDocumentApi.getLayerColorCycleMeta(layerId),
@@ -454,7 +455,6 @@ export class ColorCycleBrushCanvas2D {
   }
 
   constructor(canvas: HTMLCanvasElement, options: ColorCycleBrushCanvas2DOptions = {}) {
-
     // Validate canvas
     if (!canvas) {
       throw new Error('Canvas element is required');

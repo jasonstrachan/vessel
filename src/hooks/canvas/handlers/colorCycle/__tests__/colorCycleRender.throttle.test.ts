@@ -1,11 +1,20 @@
 import type { MutableRefObject } from 'react';
 import type { AppState } from '@/stores/useAppStore';
 import type { Layer } from '@/types';
+import { recordRuntimeIncident } from '@/utils/runtimeIncidentJournal';
 import {
   type ColorCycleBrush,
   renderAllColorCycleLayers,
   type ColorCycleRenderDeps,
 } from '@/hooks/canvas/handlers/colorCycle/colorCycleRender';
+
+jest.mock('@/utils/runtimeIncidentJournal', () => ({
+  recordRuntimeIncident: jest.fn(),
+}));
+
+const recordRuntimeIncidentMock = recordRuntimeIncident as jest.MockedFunction<
+  typeof recordRuntimeIncident
+>;
 
 const makeLayer = (id: string): Layer =>
   ({
@@ -41,6 +50,7 @@ const makeDeps = (state: Partial<AppState>, brush: unknown): ColorCycleRenderDep
 describe('renderAllColorCycleLayers throttling', () => {
   afterEach(() => {
     jest.restoreAllMocks();
+    recordRuntimeIncidentMock.mockClear();
   });
 
   it('throttles non-active animating layers', () => {
@@ -79,5 +89,74 @@ describe('renderAllColorCycleLayers throttling', () => {
     renderAllColorCycleLayers(deps);
 
     expect(updateAnimation).toHaveBeenCalledTimes(2);
+  });
+
+  it('preserves the failed layer and continues presenting the remaining layers', () => {
+    const failedLayer = makeLayer('cc-failed');
+    const healthyLayer = makeLayer('cc-healthy');
+    const failedCanvas = failedLayer.colorCycleData!.canvas!;
+    const healthyCanvas = healthyLayer.colorCycleData!.canvas!;
+    const targetCanvas = document.createElement('canvas');
+    const targetCtx = targetCanvas.getContext('2d');
+    if (!targetCtx) throw new Error('Missing test canvas context');
+    const compositeDraw = jest.spyOn(targetCtx, 'drawImage');
+    const failedRender = jest.fn(() => {
+      throw new Error('failed replacement frame');
+    });
+    const healthyRender = jest.fn();
+    const deps = makeDeps(
+      {
+        layers: [failedLayer, healthyLayer],
+        activeLayerId: 'cc-healthy',
+      } as unknown as AppState,
+      {},
+    );
+    deps.getColorCycleBrushManager = () => ({
+      getSurfaceBrush: (layerId) => ({
+        updateAnimation: jest.fn(),
+        renderDirectToCanvas: layerId === failedLayer.id ? failedRender : healthyRender,
+      }),
+    });
+    deps.refreshLayerCCSurface = (_brush, layerId) => (
+      layerId === failedLayer.id ? failedCanvas : healthyCanvas
+    );
+
+    expect(() => renderAllColorCycleLayers(deps, targetCtx)).not.toThrow();
+
+    expect(failedRender).toHaveBeenCalledTimes(1);
+    expect(healthyRender).toHaveBeenCalledTimes(1);
+    expect(compositeDraw).toHaveBeenCalledWith(failedCanvas, 0, 0);
+    expect(compositeDraw).toHaveBeenCalledWith(healthyCanvas, 0, 0);
+    expect(deps.ccLog).toHaveBeenCalledWith(
+      'CC layer presentation failed; preserved previous frame',
+      expect.objectContaining({ layerId: failedLayer.id, stage: 'present' }),
+    );
+  });
+
+  it('records one incident per continuous presentation failure and one recovery', () => {
+    const layer = makeLayer('cc-continuous-failure');
+    const renderDirectToCanvas = jest.fn<void, []>(() => {
+      throw new Error('persistent presentation failure');
+    });
+    const deps = makeDeps(
+      { layers: [layer], activeLayerId: layer.id } as unknown as AppState,
+      { updateAnimation: jest.fn(), renderDirectToCanvas },
+    );
+
+    renderAllColorCycleLayers(deps);
+    renderAllColorCycleLayers(deps);
+
+    expect(recordRuntimeIncidentMock).toHaveBeenCalledTimes(1);
+    expect(recordRuntimeIncidentMock).toHaveBeenLastCalledWith(expect.objectContaining({
+      event: 'layer-presentation-failed',
+    }));
+
+    renderDirectToCanvas.mockImplementation(() => undefined);
+    renderAllColorCycleLayers(deps);
+
+    expect(recordRuntimeIncidentMock).toHaveBeenCalledTimes(2);
+    expect(recordRuntimeIncidentMock).toHaveBeenLastCalledWith(expect.objectContaining({
+      event: 'layer-presentation-recovered',
+    }));
   });
 });
