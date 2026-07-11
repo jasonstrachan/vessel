@@ -88,6 +88,26 @@ interface UseDrawingCanvasKeyboardOptions {
   cancelCrop: () => void;
 }
 
+type PerformCanvasUndoOptions = Pick<
+  UseDrawingCanvasKeyboardOptions,
+  'cancelActiveOperations' | 'canUndo' | 'undo'
+>;
+
+export const performCanvasUndo = async ({
+  cancelActiveOperations,
+  canUndo,
+  undo,
+}: PerformCanvasUndoOptions): Promise<void> => {
+  const cancelledActiveOperation = cancelActiveOperations({
+    includeFloatingPaste: false,
+    dispatchInteractionEnd: true,
+  });
+  if (cancelledActiveOperation || !(await canUndo())) {
+    return;
+  }
+  await undo();
+};
+
 export const useDrawingCanvasKeyboard = ({
   switchTool,
   saveProject,
@@ -142,12 +162,7 @@ export const useDrawingCanvasKeyboard = ({
         currentBrushTip: undefined,
       });
     },
-    onUndo: async () => {
-      if (!(await canUndo())) {
-        return;
-      }
-      await undo();
-    },
+    onUndo: () => performCanvasUndo({ cancelActiveOperations, canUndo, undo }),
     onRedo: async () => {
       if (!(await canRedo())) {
         return;

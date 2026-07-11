@@ -280,6 +280,8 @@ Agent Directives
 - Practice evidence discipline: prove the failing path before patching, prove the fix on that same path, and keep the commit scoped to the evidence-backed change. Treat this as the difference between fast autocomplete and reliable engineering assistance.
 - If a fix attempt is rejected or proven wrong, revert that attempt fully before starting the next approach; do not stack speculative patches.
 - If a patch does not fix the issue and does not clearly improve code quality/clarity, back it out before trying a new approach. Do not stack ineffective patches.
+- A passing build, unit test, or code review is not proof that a reported runtime bug is fixed. Do not claim success or commit/push a runtime fix until the exact reported path passes in the live production preview; if that proof is unavailable, state that the fix is unverified.
+- If an ineffective fix was already committed or pushed, the next patch must first remove that attempt completely. Re-establish the pre-attempt behavior before implementing a replacement at the actual source invariant.
 - Update/add tests when altering logic; run npm test, npm run type-check, npm run lint before PRs.
 - Match existing patterns; avoid reorganizing folders unless requested.
 - Before new abstractions, confirm no existing hook/component/service can be extended; if created, remove old entry points in same change.

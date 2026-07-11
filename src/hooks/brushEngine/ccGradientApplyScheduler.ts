@@ -169,6 +169,12 @@ export const flushGradientApply = (layerId?: string): void => {
     : state.layers.filter((layer) => layer.layerType === 'color-cycle').map((layer) => layer.id);
 
   targetLayerIds.forEach((id) => {
+    const pendingHandle = pendingApplies.get(id);
+    if (typeof pendingHandle === 'number') {
+      cancelFrame(pendingHandle);
+      pendingApplies.delete(id);
+    }
+
     const layer = state.layers.find((entry) => entry.id === id);
     if (!layer || layer.layerType !== 'color-cycle' || !layer.colorCycleData) {
       return;

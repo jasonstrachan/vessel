@@ -3,6 +3,7 @@ import {
   applyRuntimeToBrush,
   createColorCycleGradientApplyBrushContext,
   flushGradientApply,
+  requestGradientApply,
   setGradientApplyBrushGetter,
   setGradientApplyDocumentVersionGetter,
   setGradientApplyStateGetter,
@@ -300,5 +301,60 @@ describe('applyRuntimeToBrush', () => {
       ]),
       'hard',
     );
+  });
+
+  it('consumes a scheduled apply when the same layer is flushed synchronously', () => {
+    type BrushMock = {
+      setGradientSlotStops: jest.Mock;
+      setActiveGradientSlot: jest.Mock;
+      commitCurrentStroke: jest.Mock;
+      flush: jest.Mock;
+    };
+    const brush = {
+      setGradientSlotStops: jest.fn(),
+      setActiveGradientSlot: jest.fn(),
+      commitCurrentStroke: jest.fn(),
+      flush: jest.fn(),
+    } as unknown as BrushMock & ColorCycleGradientApplyBrush;
+    const layer = {
+      id: 'sync-flush-layer',
+      layerType: 'color-cycle',
+      colorCycleData: {
+        paintSlot: 0,
+        slotPalettes: createSnapshot().slotPalettes,
+      },
+    };
+    let scheduledCallback: FrameRequestCallback | null = null;
+    const cancelAnimationFrame = jest
+      .spyOn(window, 'cancelAnimationFrame')
+      .mockImplementation((handle) => {
+        if (handle === 73) {
+          scheduledCallback = null;
+        }
+      });
+    const requestAnimationFrame = jest
+      .spyOn(window, 'requestAnimationFrame')
+      .mockImplementation((callback) => {
+        scheduledCallback = callback;
+        return 73;
+      });
+
+    setGradientApplyStateGetter(() => ({
+      layers: [layer],
+      tools: { brushSettings: {} },
+    } as never));
+    setGradientApplyBrushGetter(() => brush);
+    setGradientApplyDocumentVersionGetter(() => 1);
+
+    requestGradientApply('sync-flush-layer', 'test-sync-flush');
+    flushGradientApply('sync-flush-layer');
+
+    expect(requestAnimationFrame).toHaveBeenCalledTimes(1);
+    expect(cancelAnimationFrame).toHaveBeenCalledWith(73);
+    expect(scheduledCallback).toBeNull();
+    expect(brush.commitCurrentStroke).toHaveBeenCalledTimes(1);
+
+    requestAnimationFrame.mockRestore();
+    cancelAnimationFrame.mockRestore();
   });
 });
