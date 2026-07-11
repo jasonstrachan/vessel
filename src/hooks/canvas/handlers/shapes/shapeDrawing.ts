@@ -1624,7 +1624,7 @@ export const finalizeShapeDrawing = async (
         )
       : null;
 
-  void args.refs.finalizeQueueRef.current.enqueue(async () => {
+  await args.refs.finalizeQueueRef.current.enqueue(async () => {
     let finalizeTriggered = false;
     let handledColorCycleShape = false;
     let handledColorCycleTargetLayerId: string | null = null;

@@ -626,7 +626,7 @@ describe('finalizeShapeDrawing CC dither resolution', () => {
     expect(prepared?.previewHash).toBeTruthy();
   });
 
-  it('cleans sampled temp pixels before the history baseline and preserves fill resolution', async () => {
+  it('awaits queued finalization while preserving sampled cleanup and fill resolution', async () => {
     storeState.tools.ccGradientSource = 'sampled';
     const discardTempPixels = jest
       .spyOn(sampledShapeTempSlotOwnership, 'discardAbandonedSampledShapeTempPixels')
@@ -639,7 +639,11 @@ describe('finalizeShapeDrawing CC dither resolution', () => {
         return queued;
       }),
     };
-    const runColorCycleShapeFill = jest.fn(async () => undefined);
+    let releaseShapeFill: () => void = () => undefined;
+    const shapeFillPromise = new Promise<void>((resolve) => {
+      releaseShapeFill = resolve;
+    });
+    const runColorCycleShapeFill = jest.fn(() => shapeFillPromise);
     const refs = {
       isDrawingShapeRef: { current: true },
       isSelectingDirectionRef: { current: true },
@@ -731,7 +735,8 @@ describe('finalizeShapeDrawing CC dither resolution', () => {
       sampleHexAt: jest.fn(() => '#000000'),
     };
 
-    await finalizeShapeDrawing(
+    let didFinalizeResolve = false;
+    const finalizePromise = finalizeShapeDrawing(
       {
         shapeMode: true,
         refs: refs as unknown as Parameters<typeof finalizeShapeDrawing>[0]['refs'],
@@ -739,6 +744,16 @@ describe('finalizeShapeDrawing CC dither resolution', () => {
       },
       deps as unknown as Parameters<typeof finalizeShapeDrawing>[1]
     );
+    void finalizePromise.then(() => {
+      didFinalizeResolve = true;
+    });
+
+    await Promise.resolve();
+    expect(runColorCycleShapeFill).toHaveBeenCalledTimes(1);
+    expect(didFinalizeResolve).toBe(false);
+
+    releaseShapeFill();
+    await finalizePromise;
     await queued;
 
     expect(runColorCycleShapeFill).toHaveBeenCalledWith(

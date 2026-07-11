@@ -519,9 +519,13 @@ describe('commitRasterOverlay', () => {
 });
 
 describe('scheduleDeferredColorCycleSaveWithState', () => {
-  it('defers after-state serialization to the deferred save pipeline', async () => {
+  it('captures the shape after-state before enqueueing the deferred save', async () => {
     const scheduleDeferredColorCycleSave = jest.fn(async () => undefined);
-    const captureColorCycleBrushState = jest.fn(() => null);
+    const afterColorState = {
+      pixelVersion: 12,
+      layers: [],
+    } as unknown as ColorCycleSerializedState;
+    const captureColorCycleBrushState = jest.fn(() => afterColorState);
 
     const canvas = document.createElement('canvas');
     canvas.width = 2;
@@ -546,11 +550,11 @@ describe('scheduleDeferredColorCycleSaveWithState', () => {
       }
     );
 
-    expect(captureColorCycleBrushState).not.toHaveBeenCalled();
+    expect(captureColorCycleBrushState).toHaveBeenCalledWith('layer-1');
     expect(scheduleDeferredColorCycleSave).toHaveBeenCalledWith(
       expect.objectContaining({
         layerId: 'layer-1',
-        afterColorState: null,
+        afterColorState,
         actionType: 'fill',
         description: 'CC Shape Linear',
       })
