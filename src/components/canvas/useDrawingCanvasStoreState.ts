@@ -43,7 +43,6 @@ export const useDrawingCanvasStoreState = () => {
       selectionMask: state.selectionMask,
       selectionMaskBounds: state.selectionMaskBounds,
       selectionVectorPath: state.selectionVectorPath,
-      historyMaxSize: state.history.maxHistorySize,
     }))
   );
 
@@ -70,7 +69,6 @@ export const useDrawingCanvasStoreState = () => {
       setCurrentOffscreenCanvas: state.setCurrentOffscreenCanvas,
       renderStaticComposite: state.renderStaticComposite,
       getCustomBrushByIdUnsafe: state.getCustomBrushByIdUnsafe,
-      setHistorySize: state.setHistorySize,
       setCanvasDimensions: state.setCanvasDimensions,
       setZoom: state.setZoom,
       setCanvasOffset: state.setCanvasOffset,

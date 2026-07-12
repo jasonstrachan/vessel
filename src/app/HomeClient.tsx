@@ -30,7 +30,7 @@ import { selectAutosaveSaveStatus } from '@/stores/selectors/stateSelectors';
 import { preloadRisographTexture } from '@/utils/risographTexture';
 import { autosaveService } from '@/utils/autosave';
 import { devLog } from '@/utils/devLog';
-import { readLocalSettings } from '@/utils/localSettings';
+import { isUserSelectableHistorySize, readLocalSettings } from '@/utils/localSettings';
 import { setAppFeedbackHandler } from '@/utils/appFeedback';
 // import TestPluginBrushes from '../components/TestPluginBrushes'; // TEST COMPONENT - Disabled due to render loop
 
@@ -141,7 +141,7 @@ export default function Home() {
 
         // Load history settings
         if (settings.history) {
-          if (settings.history.maxHistorySize) {
+          if (isUserSelectableHistorySize(settings.history.maxHistorySize)) {
             setHistorySize(settings.history.maxHistorySize);
           }
         }

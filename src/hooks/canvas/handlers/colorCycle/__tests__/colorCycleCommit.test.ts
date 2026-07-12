@@ -519,13 +519,22 @@ describe('commitRasterOverlay', () => {
 });
 
 describe('scheduleDeferredColorCycleSaveWithState', () => {
-  it('captures the shape after-state before enqueueing the deferred save', async () => {
-    const scheduleDeferredColorCycleSave = jest.fn(async () => undefined);
-    const afterColorState = {
-      pixelVersion: 12,
-      layers: [],
-    } as unknown as ColorCycleSerializedState;
-    const captureColorCycleBrushState = jest.fn(() => afterColorState);
+  it('anchors shape history before a later canonical generation can enter the deferred pipeline', async () => {
+    let livePixelVersion = 12;
+    const captureColorCycleBrushState = jest.fn((captureLayerId: string) => {
+      expect(captureLayerId).toBe('layer-1');
+      return {
+        pixelVersion: livePixelVersion,
+        layers: [],
+      } as unknown as ColorCycleSerializedState;
+    });
+    const scheduleDeferredColorCycleSave = jest.fn(async (options: {
+      afterColorState?: ColorCycleSerializedState;
+    }) => {
+      livePixelVersion = 13;
+      const resolvedAfterState = options.afterColorState ?? captureColorCycleBrushState('layer-1');
+      expect(resolvedAfterState?.pixelVersion).toBe(12);
+    });
 
     const canvas = document.createElement('canvas');
     canvas.width = 2;
@@ -554,7 +563,9 @@ describe('scheduleDeferredColorCycleSaveWithState', () => {
     expect(scheduleDeferredColorCycleSave).toHaveBeenCalledWith(
       expect.objectContaining({
         layerId: 'layer-1',
-        afterColorState,
+        afterColorState: expect.objectContaining({
+          pixelVersion: 12,
+        }),
         actionType: 'fill',
         description: 'CC Shape Linear',
       })

@@ -5,7 +5,6 @@ import { useDrawingCanvasRenderRuntimeRefs } from './useDrawingCanvasRenderRunti
 import { useDrawingCanvasSetupRuntime } from './useDrawingCanvasSetupRuntime';
 import { useDrawingCanvasShapeEditorValue } from './useDrawingCanvasShapeEditorValue';
 import { useDrawingCanvasStoreState } from './useDrawingCanvasStoreState';
-import { useDrawingCanvasAdaptiveHistorySize } from './useDrawingCanvasAdaptiveHistorySize';
 
 export const useDrawingCanvasRuntimeStateBundle = () => {
   const coreState = useDrawingCanvasCoreState();
@@ -104,13 +103,6 @@ export const useDrawingCanvasRuntimeStateBundle = () => {
     cancelColorAdjust: storeState.cancelColorAdjust,
     setCustomBrushFreehandPath: storeState.setCustomBrushFreehandPath,
   };
-
-  useDrawingCanvasAdaptiveHistorySize({
-    project: storeState.project,
-    layerCount: storeState.layers.length,
-    historyMaxSize: storeState.historyMaxSize,
-    setHistorySize: storeState.setHistorySize,
-  });
 
   return {
     ...coreState,

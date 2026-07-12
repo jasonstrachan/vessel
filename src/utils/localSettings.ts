@@ -18,6 +18,10 @@ export interface VesselLocalSettings {
 }
 
 const SETTINGS_STORAGE_KEY = 'vessel-settings';
+const USER_SELECTABLE_HISTORY_SIZES = new Set([10, 25, 50, 100]);
+
+export const isUserSelectableHistorySize = (size: unknown): size is number =>
+  typeof size === 'number' && USER_SELECTABLE_HISTORY_SIZES.has(size);
 
 export const readLocalSettings = (): VesselLocalSettings => {
   if (typeof window === 'undefined') {

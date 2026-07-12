@@ -283,4 +283,30 @@ describe('Home page client rendering', () => {
     expect(mockStore.setTransparencyBackgroundMode).toHaveBeenCalledWith('gray');
   });
 
+  it('applies a persisted user-selectable history size', () => {
+    localStorage.setItem(
+      'vessel-settings',
+      JSON.stringify({
+        history: { maxHistorySize: 100 },
+      })
+    );
+
+    render(<Home />);
+
+    expect(mockStore.setHistorySize).toHaveBeenCalledWith(100);
+  });
+
+  it('ignores legacy adaptive history sizes that silently truncate history', () => {
+    localStorage.setItem(
+      'vessel-settings',
+      JSON.stringify({
+        history: { maxHistorySize: 20 },
+      })
+    );
+
+    render(<Home />);
+
+    expect(mockStore.setHistorySize).not.toHaveBeenCalled();
+  });
+
 });

@@ -1,5 +1,6 @@
 import { useAppStore } from '@/stores/useAppStore';
 import { getColorCycleBrushManager } from '@/stores/colorCycleBrushManager';
+import historyManager from '@/history/historyService';
 import { getPersistedCCMutationLog } from '@/utils/colorCycle/ccMutationAudit';
 import { appendCCDebugOverlayEntry } from '@/utils/colorCycle/ccDebugOverlayStore';
 import { isDevDebugOverlayEnabled } from '@/utils/dev/debugOverlayStore';
@@ -31,6 +32,9 @@ type ActiveCCLayerDiagnostic = {
   hasRuntimeBrush: boolean;
   runtimeUsesWebGL: boolean | null;
   runtimeContextLost: boolean | null;
+  documentVersion: number | null;
+  pixelVersion: number | null;
+  documentAuditTail: unknown[];
   hasCanvas: boolean;
   canvasSize: string | null;
   canvasSample: { sampled: number; alphaHits: number; rgbHits: number } | null;
@@ -48,6 +52,25 @@ type CCDiagnosticsDump = {
   capturedAt: string;
   activeLayer: ActiveCCLayerDiagnostic;
   colorCycleLayers: ActiveCCLayerDiagnostic[];
+  history: {
+    configuredMaxEntries: number;
+    storeMaxEntries: number;
+    isReplaying: boolean;
+    isFaulted: boolean;
+    fault: unknown;
+    undoEntries: Array<{
+      id: string;
+      action: string;
+      label: string;
+      deltaTags: string[];
+    }>;
+    redoEntries: Array<{
+      id: string;
+      action: string;
+      label: string;
+      deltaTags: string[];
+    }>;
+  };
   mutationLog: unknown[];
   incidents: unknown[];
   breadcrumbs: unknown[];
@@ -165,6 +188,10 @@ const getLayerDiagnostic = (
     }
   })();
   const hasRuntimeBrush = Boolean(runtimeBrush);
+  const ccDocument = layer?.layerType === 'color-cycle'
+    ? getColorCycleBrushManager().getDocument(layer.id) ?? null
+    : null;
+  const documentRead = ccDocument?.read() ?? null;
 
   return {
     href: typeof window !== 'undefined' ? window.location.href : null,
@@ -189,6 +216,9 @@ const getLayerDiagnostic = (
     runtimeContextLost: runtimeBrush && typeof runtimeBrush.isContextLost === 'function'
       ? runtimeBrush.isContextLost()
       : null,
+    documentVersion: documentRead?.version ?? null,
+    pixelVersion: documentRead?.pixelVersion ?? null,
+    documentAuditTail: ccDocument?.getAuditLog().slice(-20) ?? [],
     hasCanvas: Boolean(cc?.canvas),
     canvasSize: cc?.canvas ? `${cc.canvas.width}x${cc.canvas.height}` : null,
     canvasSample: sampleCanvas(cc?.canvas),
@@ -205,6 +235,14 @@ const getLayerDiagnostic = (
 
 const dumpCCDiagnostics = (): CCDiagnosticsDump => {
   const state = useAppStore.getState();
+  const summarizeHistoryEntries = (
+    entries: ReturnType<typeof historyManager.entries>,
+  ) => entries.map((entry) => ({
+    id: entry.id,
+    action: entry.action,
+    label: entry.label,
+    deltaTags: entry.deltas.map((delta) => delta._tag),
+  }));
   const storageKeys = (() => {
     if (typeof window === 'undefined') {
       return [];
@@ -224,6 +262,15 @@ const dumpCCDiagnostics = (): CCDiagnosticsDump => {
     colorCycleLayers: state.layers
       .filter((layer) => layer.layerType === 'color-cycle')
       .map((layer) => getLayerDiagnostic(layer)),
+    history: {
+      configuredMaxEntries: historyManager.maxEntries,
+      storeMaxEntries: state.history.maxHistorySize,
+      isReplaying: historyManager.isReplaying,
+      isFaulted: historyManager.isFaulted,
+      fault: historyManager.fault,
+      undoEntries: summarizeHistoryEntries(historyManager.entries()),
+      redoEntries: summarizeHistoryEntries(historyManager.redoEntries()),
+    },
     mutationLog: getPersistedCCMutationLog(),
     incidents: getPersistedRuntimeIncidents(),
     breadcrumbs: getPersistedBreadcrumbs(),
