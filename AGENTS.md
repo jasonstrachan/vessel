@@ -1,375 +1,148 @@
-# AGENTS.md - Vessel
-
-Purpose
-
-Motto:
-
-> Every mission assigned is delivered with 100% quality and state-of-the-art execution - no hacks, no workarounds, no partial deliverables and no mock-driven confidence. Mocks/stubs may exist in unit tests for I/O boundaries, but final validation must rely on real integration and end-to-end tests.
-
-You always:
-
-- Deliver end-to-end, production-like solutions with clean, modular, and maintainable architecture.
-- Take full ownership of the task: you do not abandon work because it is complex or tedious; you only pause when requirements are truly contradictory or when critical clarification is needed.
-- Are proactive and efficient: you avoid repeatedly asking for confirmation like “Can I proceed?” and instead move logically to next steps, asking focused questions only when they unblock progress.
-- Follow the full engineering cycle for significant tasks: **understand → design → implement → (conceptually) test → refine → document**, using all relevant tools and environment capabilities appropriately.
-- Respect both functional and non-functional requirements and, when the user’s technical ideas are unclear or suboptimal, you propose better, modern, state-of-the-art alternatives that still satisfy their business goals.
-- Manage context efficiently and avoid abrupt, low-value interruptions; when you must stop due to platform limits, you clearly summarize what was done and what remains.
-
-Working Agreement
-
-- Ask, don't assume. If something is unclear, ask before writing a single line. Never make silent assumptions about intent, architecture, or requirements. When running unattended, pick the most reasonable interpretation, proceed, and record the assumption rather than blocking.
-- Implement the simplest solution for simple problems and better solutions for harder problems. Do not over-engineer or add flexibility that is not needed yet.
-- Fix issues at the source first. Trace the real execution path and repair the core contract or invariant before adding wrappers, helper layers, downstream adjustments, or compensating UI/state patches. Use those only when the source cannot reasonably be changed, and say why.
-- Do not touch unrelated code, but surface bad code or design smells you discover so they can be addressed as a separate issue.
-- Flag uncertainty explicitly. If unsure about something, follow the ask-before-writing rule. When useful, conduct a small, localized, low-risk experiment and bring the hypothesis and results back for discussion.
-- Suggest better approaches when they have lasting impact or materially reduce risk, wasted work, or tactical churn. Explain the tradeoff plainly and keep moving when the current request is still reasonable.
-
-Scope
-
-- Applies to the entire repository unless a deeper, directory-local AGENTS.md overrides it.
-
-Research and Discovery
-
-- Read README.md and relevant docs/ before coding.
-- Map the execution path you touch: start with src/app/page.tsx, then follow imports via @/*.
-- Use rg to find existing implementations before adding new ones.
-- Check nearby tests (tests/, src/**/__tests__/) and fixtures (assets/, public/).
-- When reviving/pruning features, check refactor/, agents/, and docs/ for prior art.
-
-Secrets and Environment Files
-
-- Never print or quote real secret values from `.env*`, shell environments, logs, screenshots, or config files.
-- Do not include `.env*` in broad `rg`, `grep`, `cat`, or `sed` discovery commands. Search source/docs first; inspect env files only when the task explicitly requires it.
-- When checking env files, redact values in the command output, for example `sed -E 's/(^[A-Z0-9_]*KEY=).+/\1[REDACTED]/' .env`.
-- Keep `.env*` ignored and use `.env.example` with placeholder values only.
-- If a secret is printed into chat/tool output or committed, treat it as compromised: tell the user which key prefix/suffix was exposed, recommend immediate server-side revocation, and remove the local copy.
-- Before committing, avoid staging secret-bearing files and prefer running a secret scanner such as `gitleaks` or `detect-secrets` when secret exposure is a risk.
-
-Project Overview
-
-- Tech: Next.js + TypeScript. Static export for GitHub Pages with basePath='/vessel'.
-- Path alias: @/* (tsconfig.json).
-- Structure: src/ (app/components/brushes/hooks/lib/stores/utils/styles/workers/presets/pages), tests/, public/, assets/, scripts/, docs/.
-
-Structure and Architecture
-
-Entrypoints
-- src/app/layout.tsx - root layout, global styles, app router.
-- src/app/page.tsx - main UI composition (toolbars, panels, modals, DrawingCanvas).
-- src/pages/ - legacy/aux routes (PerformanceTest.tsx, TestRunner.tsx). App Router is primary.
-
-UI Components (src/components/)
-- Top-level: LeftToolbar.tsx, BrushLibrary.tsx, ControlsPanel.tsx, MinimalLayerList.tsx, FeedbackStrip.tsx, BrushEditorUI.tsx.
-- Canvas suite: src/components/canvas/DrawingCanvas.tsx, BrushCursor.tsx, SimplifiedColorCycleManager.ts.
-- Subfolders: brushes/, colorCycle/, toolbar/, ui/, icons/, modals/, panels/, retroui/.
-
-Brushes System (src/brushes/)
-- BrushPlugin.ts - plugin interface/types.
-- BrushRegistry.ts - registration/discovery.
-- plugins/, shapes/ - implementations.
-
-Hooks (src/hooks/)
-- Core engine: useBrushEngineSimplified.ts (+ backup), state machines: useCanvasStateMachine.ts, useToolStateMachine.ts.
-- Input/interaction: useDrawingHandlers.ts, useCanvasInteraction.ts, useComprehensiveKeyboard.ts, useKeyboardScope.ts, useSimplePan.ts.
-- Namespaced helpers in hooks/brushEngine/ and hooks/canvas/.
-
-State (src/stores/)
-- useAppStore.ts - Zustand store for project/layers/tools/presets/history/selection/UI/autosave.
-- colorCycleBrushManager.ts - color-cycle brush lifecycle manager.
-
-Core Libraries (src/lib/)
-- Rendering: AnimationController.ts, ColorCycleAnimator.ts, ColorCycleRenderer.ts.
-- Color/palettes: GradientPalette.ts, lib/colorCycle/**.
-- index.ts re-exports library surface.
-
-Utilities (src/utils/)
-- Canvas/data: canvasPool.ts, canvasSnapshot.ts, floodFill.ts, imageProcessing.ts, pixelComparison.ts.
-- Brush helpers: brushCache.ts, scaledBrushCache.ts, pressureCurve.ts, pressureOptimizer.ts, brushThumbnailGenerator.ts.
-- Services: autosave.ts, crashRecovery.ts, projectIO.ts, fileBackupService.ts, performanceMonitor.ts, memoryCleanup.ts.
-- Color/gradients: colorAnalysis.ts, colorAnalyzer.ts, colorCycleGradients.ts, gradientPresets.ts.
-- UX/dev: gridSnap.ts, angleSnap.ts, detectWacom.ts, shapeMaker.ts, shapeUtils.ts, zoomUtils.ts, devLog.ts, debug.ts.
-
-Workers (src/workers/)
-- gradientWorker.ts - off-main-thread gradient computation.
-
-Presets/Config/Types
-- src/presets/brushPresets.ts - default/user-editable presets.
-- src/constants/ - shared constants.
-- src/types/ and src/types.ts - shared types/enums.
-
-Styling
-- src/app/globals.css + tailwind.config.ts + postcss.config.mjs.
-- src/styles/gradient-editor.css for editor-specific CSS.
-
-Runtime Data Flow (high level)
-- Input -> Engine -> Render.
-- Hooks capture input; store actions update state; brush engine computes strokes; renderers draw.
-- Heavy gradient work can run in gradientWorker.
-
-Key Conventions
-- Respect basePath/assetPrefix (next.config.ts) for assets and links.
-- Use @/* alias; avoid deep relative paths.
-- Use Zustand selectors to minimize re-renders.
-- Keep worker messages small and transferable.
-
-Clean, Reusable Code
-
-Principles
-- Single responsibility.
-- Rule of three: extract on the third repeat.
-- Composition over inheritance.
-- Pure by default.
-
-Reuse and Decommission
-- Extend existing modules (retroui/ui, BrushRegistry/BrushPlugin, utils/lib) before creating new abstractions.
-- If replacing older code, delete or adapt the old path in the same change.
-- Keep new modules small; import via @/*.
-- If diverging from established patterns, document why and add a follow-up in DEBUG_PLAN.md.
-
-Types First
-- Model with explicit types and discriminated unions.
-- Avoid any; use generics where helpful.
-- Prefer options objects for many parameters.
-
-React Patterns
-- Extract shared logic into hooks.
-- Keep presentational components stateless.
-- Pass primitives/functions, not large objects; memoize when it reduces work.
-- Avoid duplicating global state locally.
-
-API Design
-- Small signatures; return new values rather than mutating inputs.
-- Use JSDoc for non-trivial exports.
-- Prefer dependency injection over hidden singletons.
-
-Side Effects
-- Centralize side effects in effects or service modules; clean up.
-- No side effects during render.
-
-Performance
-- Avoid per-frame allocations; reuse buffers/typed arrays/canvas pools.
-- Offload heavy work to workers where needed.
-- Memoize only with measured benefit.
-
-Organization
-- Shared logic in src/lib/<domain> or src/utils/<domain>.
-- Keep files under ~500-800 LOC.
-- Co-locate tests under __tests__/.
-
-Brush Plugins
-- Implement against BrushPlugin; do not reach into the store directly.
-- Share helpers from utils/lib.
-
-Primary Commands
-
-- npm run dev
-- npm run dev:raw
-- npm run build
-- npm start
-- npm test (optional: -- --coverage)
-- npm run lint
-- npm run type-check
-- npm run clean
-- npm run cache:clear
-
-Coding Conventions
-
-Language
-- TypeScript everywhere; avoid any.
-- Use @/* alias; avoid ../../..
-- Export types alongside implementations when useful.
-
-Imports/Exports
-- Order: stdlib -> third-party -> internal (@/*), with blank lines between groups.
-- Prefer named exports; default only where Next requires.
-- Avoid deep re-export barrels.
-
-Formatting
-- 2-space indent; semicolons; trailing commas where valid; single quotes in TS/TSX.
-- Fix lint warnings you introduce.
-
-Naming
-- Components/React files: PascalCase; one component per file.
-- Hooks/utilities: camelCase (hooks start with use).
-- Booleans: is/has/can/should prefixes.
-- Constants: UPPER_SNAKE_CASE.
-- Types/Interfaces: PascalCase; props end with Props.
-
-React/Next.js
-- Add 'use client' only when needed.
-- Functional components only; memoize heavy components with stable props.
-- Use selectors with Zustand; avoid selecting large objects.
-- useMemo/useCallback for derived values/handlers passed to children.
-- Effects require full dependency arrays; document intentional stability.
-- Respect basePath/assetPrefix for static links/assets.
-
-Zustand Store (src/stores/useAppStore.ts)
-- Keep state serializable unless documented as ephemeral; do not persist ephemeral fields.
-- Action names are imperative verbs.
-- Never mutate arrays/objects in place.
-- Use selectors in components; avoid getState() except in utilities/effects.
-- Slice checklist:
-  - State/actions in src/stores/slices/*; compose in useAppStore.ts.
-  - Prefer injected dependencies via createXSlice(options).
-  - Export slice interface + factory only; helpers in src/stores/helpers/ if reused.
-  - Initial state lives in the slice.
-  - Update tests in src/stores/__tests__/ on behavior changes.
-
-Utilities
-- Pure/stateless by default; services/caches are explicit.
-- Split large files before ~1000 LOC.
-- Unit tests in src/utils/__tests__/.
-
-Workers
-- Define WorkerMessage/WorkerResponse types.
-- Prefer transferable objects; avoid global mutable state.
-
-Styling
-- Tailwind for layout/utility; CSS only for complex editors.
-- Prefer class names; inline styles only for dynamic/perf-critical sizing.
-
-Logging and Errors
-- Use debugLog/devLog for dev logs; keep console noise minimal.
-- For new diagnostics and temporary investigation logging, prefer on-screen instrumentation over DevTools-only output. If a debugging signal matters during interactive testing, make it visible in-app so it can be validated without opening DevTools.
-- Fail fast on programmer errors; surface user-visible issues non-blockingly.
-
-Comments and Docs
-- JSDoc for non-obvious exports.
-- Inline comments explain why, not what.
-- TODO(username): reason.
-
-Testing
-- Filenames: *.test.ts / *.test.tsx in tests/ or src/**/__tests__/.
-- Use Testing Library for React components.
-- Mock canvas APIs only as needed; prefer real behavior for pure utilities.
-- Deterministic tests; use jest.useFakeTimers() when needed.
-
-Git Hygiene
-- Conventional Commits: feat, fix, docs, refactor, chore, test.
-- Keep patches focused; update docs/tests with behavior changes.
-
-WebGPU Agents
-
-Rules
-- One space in buffers.
-- Store XY in world/pixel; normalize in VS: uv=(pos-min)/size; ndc=uv*2-1; ndc.y*=-1.
-- Match layouts. XY only => stride 8, attr float32x2 @location(0).
-- Bring-up: no depth, no blend, FS a=1. Draw point-list (first 64), then line-list (even count).
-- Bounds: never 0; default to render target; use max(size,1e-6).
-
-Validate
-- WebGPU: pushErrorScope('validation')/popErrorScope(), getCompilationInfo().
-- naga: naga validate shader.wgsl (CI gate).
-- Readback: bytesPerRow 256-aligned; repack rows.
-- Compute: write XY only; reset/read counter buffers properly.
-- Pipeline: cache by (shaders, layout, format, topology, depth, blend). Set viewport/scissor explicitly.
-
-Footguns: layout != shader, bounds=0, odd line-list, depth/blend hiding, misaligned readback, mixed spaces.
-
-Build and Config Notes
-
-- next.config.ts sets basePath/assetPrefix for GH Pages; do not change /vessel without explicit scope.
-- env.BUILD_TIMESTAMP is injected at build; preserve.
-- Dev port defaults to 3000; dev scripts may kill stale processes.
-- `npm run preview:prod:watch` owns the production build pipeline while it is running. Do not start a separate `npm run build` in parallel; rely on the watcher-managed build or stop the watcher first.
-
-Agent Directives
-
-- Respect repo scope and conventions.
-- Keep changes minimal and surgical; fix root causes.
-- Practice evidence discipline: prove the failing path before patching, prove the fix on that same path, and keep the commit scoped to the evidence-backed change. Treat this as the difference between fast autocomplete and reliable engineering assistance.
-- If a fix attempt is rejected or proven wrong, revert that attempt fully before starting the next approach; do not stack speculative patches.
-- If a patch does not fix the issue and does not clearly improve code quality/clarity, back it out before trying a new approach. Do not stack ineffective patches.
-- A passing build, unit test, or code review is not proof that a reported runtime bug is fixed. Do not claim success or commit/push a runtime fix until the exact reported path passes in the live production preview; if that proof is unavailable, state that the fix is unverified.
-- If an ineffective fix was already committed or pushed, the next patch must first remove that attempt completely. Re-establish the pre-attempt behavior before implementing a replacement at the actual source invariant.
-- Update/add tests when altering logic; run npm test, npm run type-check, npm run lint before PRs.
-- Match existing patterns; avoid reorganizing folders unless requested.
-- Before new abstractions, confirm no existing hook/component/service can be extended; if created, remove old entry points in same change.
-- Use small, focused patches; do not add licenses/headers.
-- For ambiguous tasks, propose a short plan and confirm assumptions.
-- When reading/searching code, prefer rg; read files in <=250-line chunks.
-- For multi-step tasks, keep one active step and update the plan as steps complete.
-- Keep Vessel runtime behavior and Goblet export behavior in sync for animation/playback changes; update both paths and tests in the same change.
-- For color-cycle flat-fill bugfixes: do not introduce jitter/noise injection and do not change dither algorithm selection as a workaround; fix signal mapping/ink selection logic only.
-
-Ambiguity Handling
-
-- State assumptions explicitly when requirements are ambiguous.
-- If multiple reasonable interpretations exist, name them briefly before proceeding.
-- Push back on overcomplicated approaches when a simpler solution satisfies the goal.
-
-Specialist Assignment Guide
-
-- Frontend/Next.js: routes, metadata, basePath/assetPrefix, static export constraints.
-- Canvas/Rendering: DrawingCanvas, brushes, workers.
-- State/Hooks: stores, hooks, lib shared logic.
-- Performance/Memory: profiling, pooling, workers.
-- Build/Tooling: next.config.ts, tsconfig.json, eslint, scripts.
-- Testing: Jest + Testing Library, canvas mocking, interaction tests.
-- Accessibility/UX: keyboard nav, ARIA, focus, contrast.
-- Documentation: docs/ updates for behavior/workflow changes.
-
-Task Intake Template (orchestrators)
-
-- Goal: one-sentence outcome.
-- Scope: files/areas allowed, exclusions.
-- Definition of Done: tests, behavior, performance, UI criteria.
-- Constraints: API changes? basePath intact? browser support?
-- Risks/Tradeoffs: perf vs complexity, bundle caps.
-- Validation: commands to run and expected results.
-
-Decision Heuristics
-
-- Prefer simple, explicit solutions.
-- Preserve public contracts; call out breaking changes.
-- Consider SSR/SSG and basePath effects for assets/links.
-- Optimize after correctness; measure before/after for perf work.
-
-File-Specific Guardrails
-
-- next.config.ts: keep basePath='/vessel' and assetPrefix unless requested.
-- tsconfig.json: preserve @/* paths and compiler options unless justified.
-- Next pages (src/pages/**): default exports required; other modules use named exports.
-
-Orchestration File Guardrails
-
-- Applies to all changes: refactors, bug fixes, and new feature development.
-- Treat orchestration-first files as composition shells only; move heavy logic to `src/hooks/canvas/handlers/**` or `src/hooks/canvas/utils/**`.
-- Scope:
-  - `src/hooks/useDrawingHandlers.ts`
-  - `src/components/canvas/DrawingCanvas.tsx`
-  - `src/hooks/canvas/useCanvasEventHandlers.ts`
-- Size budgets:
-  - Soft warning: 400 LOC
-  - Hard stop: 700 LOC (requires documented exception + split follow-up in `docs/refactor/`)
-- Extraction triggers:
-  - Third-concern rule: if a file owns 3+ independent concerns, extract before merge.
-  - Repeat rule: if a helper/pattern repeats 3 times, extract.
-  - Testability rule: if logic is hard to test without mounting large UI state, extract to handler/util.
-- PR expectation for touched orchestration files:
-  - verify line budget with `wc -l`
-  - run `npm run type-check`, `npm run lint`, `npm test`
-  - update docs when making boundary changes (`docs/refactor/module-size-guardrails.md` and active plan file)
-
-Feature Architecture Rule
-
-- New features must be added through existing architectural seams (components -> hooks -> handlers/utils -> store/lib), not by expanding orchestration shells with inline workflow logic.
-- For any feature touching canvas input/render flows:
-  - keep orchestration files focused on wiring/composition,
-  - place workflow logic in `handlers/**`,
-  - place pure computation in `utils/**`,
-  - add targeted tests beside extracted modules.
-- If a feature cannot fit current seams cleanly, define a small boundary module first, then implement the feature within that boundary.
-
-Verification Checklist
-
-- npm run type-check passes.
-- npm run lint passes.
-- npm test passes; new logic has test coverage where reasonable.
-- Manual sanity for basePath URLs when touching routes/assets.
-- Update docs/ when behavior/workflows change.
-
-Troubleshooting
-
-- If dev behaves oddly: npm run clean, then npm run cache:clear.
-- Ensure no duplicate dev servers on port 3000.
+# AGENTS.md — Vessel
+
+## Scope
+
+These instructions apply to the entire repository unless a deeper `AGENTS.md` overrides them.
+
+Deliver complete, production-oriented work. Test doubles are acceptable at I/O boundaries, but runtime fixes require real integration or end-to-end validation on the reported path.
+
+## Working Agreement
+
+- Prefer direct execution when the task is clear. Ask before writing when requirements are materially ambiguous; when unattended, use the most reasonable interpretation and record it.
+- Read the local implementation before making architectural assumptions. Use `rg` and `rg --files`; read files in chunks of at most 250 lines.
+- Keep changes minimal and scoped. Do not alter unrelated work; report nearby design problems separately.
+- Fix the source invariant first. Trace the real execution path before adding wrappers, helper layers, downstream adjustments, or compensating UI/state patches. If the source cannot reasonably change, explain why.
+- Prefer the simplest explicit solution that satisfies the requirement. Reuse existing seams before adding abstractions; suggest a better approach when it materially reduces lasting risk or churn.
+- State uncertainty. A small, localized experiment is preferable to speculation.
+- For significant work, follow: understand → design → implement → test → refine → document. Keep one plan step active at a time.
+- Preserve public contracts and call out breaking changes.
+- Stay on the current branch unless the user requests otherwise. Never default to a `codex/` branch name.
+
+## Project
+
+- Next.js + TypeScript, statically exported for GitHub Pages.
+- `next.config.ts` owns `basePath` and `assetPrefix`; preserve `/vessel` unless explicitly asked to change it.
+- Preserve the build-injected `env.BUILD_TIMESTAMP`.
+- `tsconfig.json` defines the `@/*` alias; use it instead of deep relative imports.
+- App Router entrypoints: `src/app/layout.tsx` and `src/app/page.tsx`.
+- `src/pages/**` contains legacy/auxiliary routes and requires default exports.
+- Main domains:
+  - UI and canvas: `src/components/**`
+  - input and engine orchestration: `src/hooks/**`
+  - brushes: `src/brushes/**`
+  - Zustand state: `src/stores/**`
+  - rendering and color-cycle logic: `src/lib/**`
+  - utilities and services: `src/utils/**`
+  - workers: `src/workers/**`
+  - tests: `tests/**` and `src/**/__tests__/**`
+
+Runtime flow: input hooks → store/engine → renderer. Keep heavy gradient computation in the worker where appropriate.
+
+## Discovery and Design
+
+- Read `README.md` and relevant `docs/**` before coding.
+- For UI or canvas flows, begin at `src/app/page.tsx` and follow `@/*` imports through the execution path.
+- Search for an existing component, hook, handler, service, utility, plugin, or test before creating one.
+- Check nearby tests and fixtures in `assets/**` and `public/**`.
+- For revived or removed features, also inspect `refactor/**`, `agents/**`, and `docs/**` for prior decisions.
+- Extend established seams such as `retroui/ui`, `BrushRegistry`/`BrushPlugin`, `src/lib`, and `src/utils` before introducing a new boundary.
+- If replacing a path, adapt or remove the old entrypoint in the same change.
+
+## Implementation Conventions
+
+- Use TypeScript; avoid `any`. Prefer explicit types, discriminated unions, and options objects for large signatures.
+- Use named exports except where Next.js requires a default export.
+- Import order: standard library, third-party, then `@/*`, separated by blank lines. Avoid deep barrel re-exports.
+- Format with 2 spaces, semicolons, trailing commas where valid, and single quotes in TS/TSX.
+- Naming: PascalCase for components/types, camelCase for hooks/utilities, `is`/`has`/`can`/`should` for booleans, and UPPER_SNAKE_CASE for constants.
+- Keep modules single-purpose and pure by default. Extract on the third repetition or when logic cannot be tested without mounting broad UI state.
+- Return new values rather than mutating inputs. Centralize side effects and clean them up.
+- Add JSDoc only for non-obvious exports; comments explain why, not what.
+- Avoid per-frame allocations. Reuse buffers, typed arrays, and canvas pools; memoize only where it provides a measured benefit.
+- Fix lint warnings introduced by the change.
+
+### React and UI
+
+- Add `'use client'` only when required. Use functional components.
+- Keep presentational components stateless and avoid duplicating global state locally.
+- Pass narrow props; stabilize callbacks or derived values when it prevents meaningful downstream work.
+- Effects must have complete dependency arrays; document deliberate stability.
+- Prefer Tailwind for layout and utilities, CSS for complex editors, and inline styles only for dynamic or performance-critical values.
+- Use `debugLog`/`devLog` and keep console noise low. Prefer visible in-app diagnostics for signals needed during interactive testing.
+- Surface user-facing errors non-blockingly; fail fast on programmer errors.
+
+### State
+
+- Keep persisted Zustand state serializable; explicitly mark ephemeral state and do not persist it.
+- Use selectors to limit re-renders. Avoid `getState()` in components; reserve it for utilities and effects.
+- Never mutate arrays or objects in place. Name actions imperatively.
+- Put state and actions in `src/stores/slices/**`, compose them in `useAppStore.ts`, and keep initial state in its slice.
+- Export the slice interface and factory; place shared helpers in `src/stores/helpers/**`.
+- Prefer injected dependencies in slice factories and update `src/stores/__tests__/**` for behavior changes.
+
+### Brushes and Workers
+
+- Brushes implement `BrushPlugin` and must not access the store directly.
+- Share brush helpers through `src/utils` or `src/lib`.
+- Define typed worker messages and responses; keep messages small and use transferable objects where possible.
+
+## Canvas Architecture Guardrails
+
+The following orchestration files are composition shells, not homes for workflow logic:
+
+- `src/hooks/useDrawingHandlers.ts`
+- `src/components/canvas/DrawingCanvas.tsx`
+- `src/hooks/canvas/useCanvasEventHandlers.ts`
+
+For these files:
+
+- Move workflow logic to `src/hooks/canvas/handlers/**` and pure computation to `src/hooks/canvas/utils/**`.
+- Soft limit: 400 lines. Hard limit: 700 lines; exceeding it requires a documented exception and split follow-up in `docs/refactor/**`.
+- Extract when a file owns three independent concerns, a pattern repeats three times, or logic cannot be tested without broad UI setup.
+- New canvas features must follow components → hooks → handlers/utils → store/lib. Define a small boundary module first if the feature does not fit cleanly.
+- When touched, check line count with `wc -l`, add targeted tests, and update `docs/refactor/module-size-guardrails.md` plus the active plan when boundaries change.
+
+Keep Vessel runtime and Goblet export behavior synchronized for animation and playback changes; update both implementations and their tests together.
+
+For color-cycle flat-fill fixes, repair signal mapping or ink selection only. Do not inject jitter/noise or change dither algorithm selection as a workaround.
+
+## WebGPU Guardrails
+
+- Use one coordinate space per buffer. Store XY in world/pixel space; normalize in the vertex shader: `uv=(pos-min)/size`, `ndc=uv*2-1`, `ndc.y*=-1`.
+- Match buffer layouts to shaders. XY-only data uses stride 8 and `float32x2 @location(0)`.
+- During bring-up, disable depth/blend, use fragment alpha 1, draw a small point-list first, then an even-count line-list.
+- Bounds must never be zero; default to the render target and clamp with `max(size, 1e-6)`.
+- Set viewport and scissor explicitly. Cache pipelines by shaders, layout, format, topology, depth, and blend.
+- Validate with WebGPU error scopes, `getCompilationInfo()`, and `naga validate` in CI.
+- For readback, use 256-byte-aligned `bytesPerRow` and repack rows. Compute passes must write XY only and correctly reset/read counter buffers.
+- Common failure modes: shader/layout mismatch, zero bounds, odd line counts, hidden output from depth/blend, misaligned readback, and mixed coordinate spaces.
+
+## Evidence and Verification
+
+- Prove the failing path before patching and the same path after patching. A build, unit test, or review alone does not prove a runtime fix.
+- Do not claim, commit, or push a runtime fix until the exact reported interaction passes in the live production preview. If that proof is unavailable, label it unverified.
+- If an attempt is rejected or ineffective, remove it completely before trying another approach. Do not stack speculative patches.
+- Add or update deterministic tests for logic changes. Use Testing Library for React and mock canvas APIs only where necessary.
+- Run the smallest meaningful check first, then broaden according to risk. Before a PR, run:
+  - `npm run type-check`
+  - `npm run lint`
+  - `npm test`
+- Run `npm run build` when build/static-export behavior is affected, and manually verify `/vessel` URLs when routes or assets change.
+- `npm run preview:prod:watch` owns the production build while active. Do not run a separate build in parallel; use its output or stop it first.
+
+## Git and Secrets
+
+- Preserve the dirty worktree and stage only task files. Use Conventional Commit prefixes, keep commits focused, and do not add license/header boilerplate.
+- Never print or quote real secrets from `.env*`, the shell, logs, screenshots, or configuration.
+- Exclude `.env*` from broad searches. Inspect it only when required and redact values in output.
+- Keep `.env*` ignored; use placeholders in `.env.example`.
+- If a secret appears in output or history, identify the exposed key without repeating its value, recommend immediate revocation, and remove the local copy.
+- Before committing, avoid secret-bearing files and use `gitleaks` or `detect-secrets` when exposure is plausible.
+
+## Commands and Troubleshooting
+
+- Development: `npm run dev` or `npm run dev:raw`
+- Production: `npm run build`, then `npm start`
+- Checks: `npm run type-check`, `npm run lint`, `npm test`
+- Cleanup: `npm run clean`, then `npm run cache:clear`
+- Dev defaults to port 3000. If behavior is stale, ensure there is only one server before clearing caches.
