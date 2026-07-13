@@ -7,7 +7,13 @@ jest.mock('@/utils/debug', () => ({
   debugWarn: jest.fn(),
 }));
 
+jest.mock('@/lib/colorCycle/materializeColorCycleLayer', () => ({
+  ...jest.requireActual('@/lib/colorCycle/materializeColorCycleLayer'),
+  materializeRestoredColorCycleSurface: jest.fn(() => true),
+}));
+
 import { debugWarn } from '@/utils/debug';
+import { materializeRestoredColorCycleSurface } from '@/lib/colorCycle/materializeColorCycleLayer';
 import { ColorCycleBrushCanvas2D } from '@/hooks/brushEngine/ColorCycleBrushCanvas2D';
 import {
   analyzeProjectArchiveRefs,
@@ -47,6 +53,14 @@ import { BrushShape, type Layer, type Project } from '@/types';
 import { readTestColorCycleBrushLayerSnapshot } from '@/testing/colorCycleSnapshotTestUtils';
 
 jest.setTimeout(20000);
+
+const mockMaterializeRestoredColorCycleSurface = jest.mocked(
+  materializeRestoredColorCycleSurface,
+);
+
+afterEach(() => {
+  mockMaterializeRestoredColorCycleSurface.mockReturnValue(true);
+});
 
 type TestColorCycleBufferRef = ArrayBuffer | string | undefined;
 type TestColorCycleStrokeData = {

@@ -1,4 +1,8 @@
-import type { ColorCycleRuntimeBrush } from './materializeColorCycleLayer';
+import {
+  classifyColorCycleCanonicalContent,
+  type ColorCycleCanonicalContentExpectation,
+  type ColorCycleRuntimeBrush,
+} from './materializeColorCycleLayer';
 import {
   captureColorCyclePersistenceSnapshot,
   type PersistedColorCycleBrushState as PersistenceBrushState,
@@ -84,10 +88,11 @@ export type RestoreColorCycleBrushesHydrationDependencies = {
       colorCycleBrush: ColorCycleRuntimeSeedBrush,
       colorCycleData: NonNullable<Layer['colorCycleData']>,
     ) => boolean,
-    documentRebaseOptions?: {
+    documentRebaseOptions: {
       preserveVersion?: boolean;
       clearAudit?: boolean;
-    },
+    } | undefined,
+    expectedContent: ColorCycleCanonicalContentExpectation,
   ) => Promise<ColorCycleRestoreMaterializationResult>;
   describeBufferForDebug: (buffer: unknown) => { bytes: number; nonZeroSample: number } | null;
   isPrimaryColorCyclePayloadFailure: (reason: string) => boolean;
@@ -106,7 +111,7 @@ export const restoreColorCycleBrushesWithDocumentHydration = async (
   const manager = options?.colorCycleBrushManager ?? getColorCycleBrushManager();
   const ensureLayerDocumentResidency = (
     layer: Layer,
-    residency: 'cold-archive-ref' | 'static-preview-only',
+    residency: 'cold-archive-ref' | 'resident' | 'static-preview-only',
   ): void => {
     const data = layer.colorCycleData;
     const width = Math.max(
@@ -256,13 +261,34 @@ export const restoreColorCycleBrushesWithDocumentHydration = async (
         hasPaintBuffer: Boolean(existingWarmupDocumentRead.snapshot.paintBuffer),
       });
     }
-    const warmupDocument = warmupDocumentState.ok
+    const authoritativeWarmupState = (
+      existingWarmupDocument?.residency === 'resident' && existingWarmupDocumentRead
+    )
+      ? existingWarmupDocumentRead.snapshot
+      : warmupDocumentState.ok
+        ? warmupDocumentState.state
+        : null;
+    const expectedContent = authoritativeWarmupState
+      ? classifyColorCycleCanonicalContent(authoritativeWarmupState)
+      : {
+          kind: 'invalid' as const,
+          reason: warmupDocumentState.ok ? 'missing-canonical-state' : warmupDocumentState.reason,
+        };
+    const runtimeWarmupState = (
+      authoritativeWarmupState &&
+      expectedContent.kind === 'populated' &&
+      !authoritativeWarmupState.hasContent
+    )
+      ? { ...authoritativeWarmupState, hasContent: true }
+      : authoritativeWarmupState;
+    const warmupDocument = authoritativeWarmupState
       ? {
-	          read: () => ({
-	            snapshot: warmupDocumentState.state,
-	            version: existingWarmupDocumentRead?.version ?? 0,
-	            pixelVersion: existingWarmupDocumentRead?.pixelVersion ?? existingWarmupDocumentRead?.version ?? 0,
-	          }),
+          read: () => ({
+            snapshot: authoritativeWarmupState,
+            version: existingWarmupDocumentRead?.version ?? 0,
+            pixelVersion:
+              existingWarmupDocumentRead?.pixelVersion ?? existingWarmupDocumentRead?.version ?? 0,
+          }),
         }
       : existingWarmupDocument;
     const warmupSnapshot = captureColorCyclePersistenceSnapshot(layer, {
@@ -322,6 +348,21 @@ export const restoreColorCycleBrushesWithDocumentHydration = async (
       continue;
     }
 
+    let canonicalDocument = existingWarmupDocument;
+    if (expectedContent.kind !== 'invalid' && runtimeWarmupState) {
+      canonicalDocument = manager.ensureDocument(layer.id, warmupWidth, warmupHeight, {
+        residency: 'resident',
+        archiveRefs: null,
+      });
+      canonicalDocument.replaceBaseline(runtimeWarmupState, {
+        version: existingWarmupDocumentRead?.version ?? 0,
+        pixelVersion: existingWarmupDocumentRead?.pixelVersion ?? 0,
+        clearAudit: false,
+        residency: 'resident',
+        archiveRefs: null,
+      });
+    }
+
     layer.colorCycleData = setColorCycleHydrationState(layer.colorCycleData, targetRuntimeState);
     const restored = await dependencies.restoreLayerRuntimeForMaterialization(
       layer,
@@ -333,13 +374,32 @@ export const restoreColorCycleBrushesWithDocumentHydration = async (
             clearAudit: false,
           }
         : undefined,
+      expectedContent,
     );
     if (!restored.brush) {
+      if (
+        restored.reason === 'materialization-failed' &&
+        canonicalDocument &&
+        authoritativeWarmupState
+      ) {
+        canonicalDocument.replaceBaseline(authoritativeWarmupState, {
+          version: existingWarmupDocumentRead?.version ?? 0,
+          pixelVersion: existingWarmupDocumentRead?.pixelVersion ?? 0,
+          clearAudit: false,
+          residency: 'resident',
+          archiveRefs: null,
+        });
+      }
+      manager.discardRuntimeRetainingDocument(layer.id);
       layer.colorCycleData = {
         ...setColorCycleHydrationState(layer.colorCycleData, 'cold'),
         deferredRuntimeRestore: false,
       };
-      ensureLayerDocumentResidency(layer, 'static-preview-only');
+      const isRetryableMaterializationFailure = restored.reason === 'materialization-failed';
+      ensureLayerDocumentResidency(
+        layer,
+        isRetryableMaterializationFailure ? 'resident' : 'static-preview-only',
+      );
       if (
         restored.reason === 'missing-paint-buffer' &&
         layer.colorCycleData &&

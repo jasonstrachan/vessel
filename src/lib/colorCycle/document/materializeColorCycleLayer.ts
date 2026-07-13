@@ -10,8 +10,14 @@ export type EnsureColorCycleLayerRuntimeTarget = 'warm' | 'active';
 
 export type ColorCycleRuntimeBrush = {
   getCanvas?: () => HTMLCanvasElement | OffscreenCanvas | null;
+  getColorCycleDerivedSurface?: (layerId: string) => unknown | null;
   renderDirectToCanvas?: (canvas: HTMLCanvasElement, layerId: string) => void;
 };
+
+export type ColorCycleCanonicalContentExpectation =
+  | { kind: 'populated' }
+  | { kind: 'empty' }
+  | { kind: 'invalid'; reason: string };
 
 export type ResolveColorCycleRuntimeSurfaceOptions = {
   layer: Layer;
@@ -66,6 +72,38 @@ const imageDataHasVisiblePixels = (imageData: ImageData | null | undefined): boo
   return false;
 };
 
+export const classifyColorCycleCanonicalContent = (
+  state: Readonly<ColorCycleLayerDocumentState>,
+): ColorCycleCanonicalContentExpectation => {
+  if (
+    !Number.isInteger(state.width) ||
+    !Number.isInteger(state.height) ||
+    state.width <= 0 ||
+    state.height <= 0
+  ) {
+    return { kind: 'invalid', reason: `invalid-dimensions-${state.width}x${state.height}` };
+  }
+  const expectedBytes = state.width * state.height;
+  if (!(state.paintBuffer instanceof ArrayBuffer)) {
+    return { kind: 'invalid', reason: 'missing-paint-buffer' };
+  }
+  if (state.paintBuffer.byteLength !== expectedBytes) {
+    return {
+      kind: 'invalid',
+      reason: `paintBuffer byteLength ${state.paintBuffer.byteLength} does not match ${expectedBytes} for ${state.width}x${state.height}`,
+    };
+  }
+
+  const hasPaint = new Uint8Array(state.paintBuffer).some((value) => value !== 0);
+  if (hasPaint) {
+    return { kind: 'populated' };
+  }
+  if (state.hasContent) {
+    return { kind: 'invalid', reason: 'empty-paint-buffer-contradicts-content-marker' };
+  }
+  return { kind: 'empty' };
+};
+
 const isHtmlCanvas = (
   canvas: HTMLCanvasElement | OffscreenCanvas | null | undefined,
 ): canvas is HTMLCanvasElement => (
@@ -92,6 +130,7 @@ export const resolveColorCycleRuntimeSurface = ({
 export const materializeRestoredColorCycleSurface = (
   layer: Layer,
   brush: ColorCycleRuntimeBrush,
+  expectedContent: ColorCycleCanonicalContentExpectation,
 ): boolean => {
   const colorCycleData = layer.colorCycleData;
   const canvas = colorCycleData?.canvas ?? null;
@@ -99,20 +138,62 @@ export const materializeRestoredColorCycleSurface = (
     return false;
   }
 
+  if (expectedContent.kind === 'invalid') {
+    debugWarn(
+      'raw-console',
+      '[ColorCycleMaterializer] Refused to materialize from invalid canonical state:',
+      expectedContent.reason,
+    );
+    return false;
+  }
+
+  const scratchCanvas = canvas.ownerDocument?.createElement('canvas');
+  if (!scratchCanvas) {
+    return false;
+  }
+  scratchCanvas.width = canvas.width;
+  scratchCanvas.height = canvas.height;
+
   try {
-    brush.renderDirectToCanvas(canvas, layer.id);
+    brush.renderDirectToCanvas(scratchCanvas, layer.id);
   } catch (error) {
     debugWarn('raw-console', '[ColorCycleMaterializer] Failed to materialize restored color cycle surface:', error);
     return false;
   }
 
-  const renderedImageData = captureCanvasImageData(canvas) ?? undefined;
-  if (imageDataHasVisiblePixels(renderedImageData)) {
+  if (
+    typeof brush.getColorCycleDerivedSurface === 'function' &&
+    !brush.getColorCycleDerivedSurface(layer.id)
+  ) {
+    return false;
+  }
+
+  const renderedImageData = captureCanvasImageData(scratchCanvas) ?? undefined;
+  if (!renderedImageData) {
+    return false;
+  }
+  const hasVisiblePixels = imageDataHasVisiblePixels(renderedImageData);
+  if (expectedContent.kind === 'empty' && hasVisiblePixels) {
+    return false;
+  }
+
+  if (expectedContent.kind === 'populated' && !hasVisiblePixels) {
     colorCycleData.hasContent = true;
     return true;
   }
 
-  return false;
+  const context = canvas.getContext('2d');
+  if (!context) {
+    return false;
+  }
+  try {
+    context.putImageData(renderedImageData, 0, 0);
+  } catch (error) {
+    debugWarn('raw-console', '[ColorCycleMaterializer] Failed to commit restored color cycle surface:', error);
+    return false;
+  }
+  colorCycleData.hasContent = expectedContent.kind === 'populated';
+  return true;
 };
 
 export const materializeColorCycleLayer = async ({

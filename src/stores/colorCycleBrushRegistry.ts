@@ -142,6 +142,7 @@ export interface ColorCycleBrushManager {
   getDocument: (layerId: string) => ColorCycleLayerDocument | undefined;
   registerDocument: (layerId: string, document: ColorCycleLayerDocument) => void;
   getRuntime: (layerId: string) => ColorCycleLayerRuntime | undefined;
+  discardRuntimeRetainingDocument: (layerId: string) => void;
   deleteBrush: (layerId: string) => void;
   setActiveState: (layerId: string, isActive: boolean) => void;
   cleanupInactive: (maxInactiveMs?: number) => void;
@@ -1152,6 +1153,10 @@ export const createColorCycleBrushRegistry = (deps: ColorCycleBrushRegistryDeps)
 
     getRuntime(layerId: string): ColorCycleLayerRuntime | undefined {
       return runtimes.get(layerId);
+    },
+
+    discardRuntimeRetainingDocument(layerId: string): void {
+      disposeLayerRuntime(layerId, { removeDocument: false });
     },
 
     deleteBrush(layerId: string) {

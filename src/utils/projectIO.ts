@@ -40,6 +40,7 @@ import { resolveLayerColorCycleBaseSpeed } from '@/utils/colorCycleLayerSpeed';
 import { createDevDebugOverlayLogger } from '@/utils/dev/debugOverlayStore';
 import {
   materializeRestoredColorCycleSurface,
+  type ColorCycleCanonicalContentExpectation,
   type ColorCycleRuntimeBrush,
 } from '@/lib/colorCycle/materializeColorCycleLayer';
 import {
@@ -5955,10 +5956,11 @@ const restoreColorCycleLayerRuntimeForMaterialization = async (
     colorCycleBrush: ColorCycleBrushLayerSnapshotRuntimeWriter,
     colorCycleData: NonNullable<Layer['colorCycleData']>,
   ) => boolean,
-  documentRebaseOptions?: {
+  documentRebaseOptions: {
     preserveVersion?: boolean;
     clearAudit?: boolean;
-  },
+  } | undefined,
+  expectedContent: ColorCycleCanonicalContentExpectation,
 ): Promise<ColorCycleRestoreMaterializationResult> => {
       const colorCycleData = layer.colorCycleData;
       if (!colorCycleData) {
@@ -6011,7 +6013,6 @@ const restoreColorCycleLayerRuntimeForMaterialization = async (
               snapshotCount: savedBrushState.layers?.length ?? 0,
             });
             colorCycleData.brushState = toFastPathMetadataBrushState(savedBrushState);
-            deleteSavedColorCycleBrushState(layer);
           }
           const layerSnapshots = (savedBrushState.layers ?? []).map(snapshot => {
             const paintBytes = snapshot.strokeData?.[COLOR_CYCLE_STROKE_PAINT_KEY]
@@ -6220,7 +6221,6 @@ const restoreColorCycleLayerRuntimeForMaterialization = async (
           colorCycleData.brushState = shouldUseOversizedFastPath
             ? toFastPathMetadataBrushState(savedBrushState)
             : savedBrushState;
-          deleteSavedColorCycleBrushState(layer);
 
           if (colorCycleData.isAnimating) {
             colorCycleBrush.setPlaying?.(true);
@@ -6229,7 +6229,21 @@ const restoreColorCycleLayerRuntimeForMaterialization = async (
           }
 
           flushGradientApply(layer.id);
-          const materialized = materializeRestoredColorCycleSurface(layer, colorCycleBrush);
+          const materialized = materializeRestoredColorCycleSurface(
+            layer,
+            colorCycleBrush,
+            expectedContent,
+          );
+
+          if (!materialized) {
+            delete colorCycleData.colorCycleBrush;
+            return {
+              brush: null,
+              materialized: false,
+              reason: 'materialization-failed',
+            };
+          }
+          deleteSavedColorCycleBrushState(layer);
 
           if (typeof colorCycleBrush.markLayerHasExternalBase === 'function') {
             try {
@@ -6292,9 +6306,6 @@ const restoreColorCycleLayerRuntimeForMaterialization = async (
         // Attach the brush to the layer
         colorCycleData.colorCycleBrush = colorCycleBrush as LegacyColorCycleBrushField;
 
-        // Clean up the temporary saved state
-        deleteSavedColorCycleWebGLState(layer);
-
         // Start animation if it was animating
         if (colorCycleData.isAnimating) {
           colorCycleBrush.setPlaying?.(!savedState.animationState.isPaused);
@@ -6314,7 +6325,20 @@ const restoreColorCycleLayerRuntimeForMaterialization = async (
           documentRebaseOptions,
         );
         flushGradientApply(layer.id);
-        const materialized = materializeRestoredColorCycleSurface(layer, colorCycleBrush);
+        const materialized = materializeRestoredColorCycleSurface(
+          layer,
+          colorCycleBrush,
+          expectedContent,
+        );
+        if (!materialized) {
+          delete colorCycleData.colorCycleBrush;
+          return {
+            brush: null,
+            materialized: false,
+            reason: 'materialization-failed',
+          };
+        }
+        deleteSavedColorCycleWebGLState(layer);
         ccWarmRestoreDebug.log('webgl-state-restore-complete', {
           layerId: layer.id,
           hydration: getColorCycleHydrationState(colorCycleData),
@@ -6428,7 +6452,19 @@ const restoreColorCycleLayerRuntimeForMaterialization = async (
           'fallback',
           documentRebaseOptions,
         );
-        const materialized = materializeRestoredColorCycleSurface(layer, colorCycleBrush);
+        const materialized = materializeRestoredColorCycleSurface(
+          layer,
+          colorCycleBrush,
+          expectedContent,
+        );
+        if (!materialized) {
+          delete colorCycleData.colorCycleBrush;
+          return {
+            brush: null,
+            materialized: false,
+            reason: 'materialization-failed',
+          };
+        }
         ccWarmRestoreDebug.log('fallback-restore-complete', {
           layerId: layer.id,
           hydration: getColorCycleHydrationState(colorCycleData),

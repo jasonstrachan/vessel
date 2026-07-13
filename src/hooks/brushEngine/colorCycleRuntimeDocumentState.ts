@@ -3,6 +3,7 @@ import {
   summarizeScalarBuffer,
   summarizeSerializedColorCycleLayer,
 } from '@/utils/colorCycle/ccMutationAudit';
+import { debugWarn } from '@/utils/debug';
 import { strokeFinalizeProbeTimeSync } from '@/utils/strokeFinalizeProbe';
 import type {
   ColorCycleRuntimeMutationAuditSnapshot,
@@ -37,6 +38,7 @@ import {
   type ColorCycleLayerDocumentState,
   isDerivedSurfaceStale,
 } from '@/lib/colorCycle/document';
+import { classifyColorCycleCanonicalContent } from '@/lib/colorCycle/document/materializeColorCycleLayer';
 
 type SerializedStateRuntime = Parameters<typeof registerColorCycleBrushSerializedStateRuntime>[1];
 type LayerSnapshotRuntime = Parameters<typeof registerColorCycleBrushLayerSnapshotRuntime>[1];
@@ -365,8 +367,28 @@ export class ColorCycleRuntimeDocumentState<StrokeState extends ColorCycleBrushP
     if (!document) {
       return;
     }
-    document.replaceBaseline(params.buildState(), {
+    const candidate = params.buildState();
+    const candidateContent = classifyColorCycleCanonicalContent(candidate);
+    if (candidateContent.kind === 'invalid') {
+      debugWarn(
+        'raw-console',
+        '[ColorCycleRuntimeDocumentState] Rejected invalid restore rebase candidate:',
+        { layerId: params.layerId, reason: candidateContent.reason },
+      );
+      return;
+    }
+    const currentContent = classifyColorCycleCanonicalContent(document.read().snapshot);
+    if (currentContent.kind === 'populated' && candidateContent.kind === 'empty') {
+      debugWarn(
+        'raw-console',
+        '[ColorCycleRuntimeDocumentState] Rejected empty restore rebase over populated canonical paint:',
+        { layerId: params.layerId },
+      );
+      return;
+    }
+    document.replaceBaseline(candidate, {
       version: params.preserveVersion ? document.version : undefined,
+      pixelVersion: params.preserveVersion ? document.pixelVersion : undefined,
       clearAudit: params.clearAudit,
     });
   }
