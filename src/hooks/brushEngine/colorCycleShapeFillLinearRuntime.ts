@@ -235,8 +235,7 @@ export async function runColorCycleLinearShapeFill(
 
   // GPU path (linear fill) when available
   try {
-    const hasGL = animator.hasWebGL();
-    if (hasGL && !continuous && lostEdge <= 0) {
+    if (!continuous && lostEdge <= 0) {
       if (context.isDitherEnabled() && context.isPerceptualDitherEnabled()) {
         throw new Error('Perceptual dither requires CPU fill');
       }

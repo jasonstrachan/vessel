@@ -46,7 +46,71 @@ describe('IndexBuffer', () => {
       }
     });
   });
-  
+
+  describe('content presence', () => {
+    it('tracks stamp edits without scanning the full buffer', () => {
+      buffer.setPalette(['#ff0000']);
+      const scanSpy = jest.spyOn(buffer.getDirectData(), 'some');
+
+      for (let index = 0; index < 20; index += 1) {
+        buffer.setPixel(index, 0, 1);
+        expect(buffer.hasContent()).toBe(true);
+      }
+
+      for (let index = 0; index < 20; index += 1) {
+        buffer.setPixel(index, 0, 0);
+      }
+
+      expect(buffer.hasContent()).toBe(false);
+      expect(scanSpy).not.toHaveBeenCalled();
+    });
+
+    it('recounts content after a direct buffer mutation is marked dirty', () => {
+      const data = buffer.getDirectData();
+      data[data.length - 1] = 1;
+      buffer.markDirtyBounds(99, 99, 99, 99);
+
+      expect(buffer.hasContent()).toBe(true);
+
+      data[data.length - 1] = 0;
+      buffer.markDirtyBounds(99, 99, 99, 99);
+      expect(buffer.hasContent()).toBe(false);
+    });
+
+    it('recounts only affected occupancy tiles for bounded direct writes', () => {
+      const largeBuffer = new IndexBuffer(256, 256);
+      const data = largeBuffer.getDirectData();
+      data[255 * 256 + 255] = 1;
+
+      let indexedReads = 0;
+      const observedData = new Proxy(data, {
+        get(target, property) {
+          if (typeof property === 'string' && /^\d+$/.test(property)) {
+            indexedReads += 1;
+          }
+          return Reflect.get(target, property, target);
+        },
+      });
+      (largeBuffer as unknown as { data: Uint8Array }).data = observedData;
+
+      largeBuffer.markDirtyBounds(255, 255, 255, 255);
+
+      expect(largeBuffer.hasContent()).toBe(true);
+      expect(indexedReads).toBe(64 * 64);
+    });
+
+    it('restores content presence when deserializing an older buffer', () => {
+      const restored = IndexBuffer.deserialize({
+        width: 2,
+        height: 2,
+        data: Uint8Array.from([0, 0, 4, 0]),
+        palette: ['rgba(0,0,0,0)', '#ff0000'],
+      });
+
+      expect(restored.hasContent()).toBe(true);
+    });
+  });
+
   describe('palette management', () => {
     it('should set palette correctly', () => {
       const colors = ['#ff0000', '#00ff00', '#0000ff'];

@@ -256,4 +256,56 @@ describe('ColorCyclePresenter', () => {
     expect(renderToCanvas2D).toHaveBeenCalledWith(expect.anything());
     expect(targetDraw).toHaveBeenCalled();
   });
+
+  it('presents the current frame without forcing or rebuilding the animator', () => {
+    const target = makeCanvas();
+    const targetCtx = target.getContext('2d');
+    if (!targetCtx) {
+      throw new Error('Missing test canvas context');
+    }
+    const presenter = new ColorCyclePresenter(target);
+    const renderToCanvas2D = jest.fn();
+    const animator = makeAnimator(renderToCanvas2D);
+
+    presenter.presentCurrentFrameToCanvas({
+      targetCanvas: target,
+      ctx: targetCtx,
+      layerId: 'layer-current-frame',
+      animator,
+      documentRead: makeDocumentRead(1),
+      hasRenderableContent: true,
+      preserveExternalBase: false,
+    });
+
+    expect(animator.forceRender).not.toHaveBeenCalled();
+    expect(animator.rebuild).not.toHaveBeenCalled();
+    expect(renderToCanvas2D).toHaveBeenCalledTimes(1);
+  });
+
+  it('defers stale presentation without forcing, rebuilding, or replacing the visible frame', () => {
+    const target = makeCanvas();
+    const targetCtx = target.getContext('2d');
+    if (!targetCtx) {
+      throw new Error('Missing test canvas context');
+    }
+    const presenter = new ColorCyclePresenter(target);
+    const renderToCanvas2D = jest.fn();
+    const animator = makeAnimator(renderToCanvas2D);
+    const targetDraw = jest.spyOn(targetCtx, 'drawImage');
+
+    expect(() => presenter.presentCurrentFrameToCanvas({
+      targetCanvas: target,
+      ctx: targetCtx,
+      layerId: 'layer-stale-current-frame',
+      animator,
+      documentRead: makeDocumentRead(2),
+      hasRenderableContent: true,
+      preserveExternalBase: false,
+    })).not.toThrow();
+
+    expect(animator.forceRender).not.toHaveBeenCalled();
+    expect(animator.rebuild).not.toHaveBeenCalled();
+    expect(renderToCanvas2D).not.toHaveBeenCalled();
+    expect(targetDraw).not.toHaveBeenCalled();
+  });
 });

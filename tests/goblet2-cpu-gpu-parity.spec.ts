@@ -428,6 +428,7 @@ try {
   window.cancelAnimationFrame = originalCancelAnimationFrame;
   window.__gobletCpuGpuParity = {
     ready: true,
+    exportFps: metadata.animation.fps,
     gpuSummary,
     cpuSummary,
     unfilteredSummary,
@@ -535,6 +536,7 @@ test.describe('Goblet 2 CPU/GPU rendered parity', () => {
       window as Window & {
         __gobletCpuGpuParity?: {
           ready: boolean;
+          exportFps: number;
           error?: string;
           diff: {
             maxChannelDelta: number;
@@ -609,6 +611,7 @@ test.describe('Goblet 2 CPU/GPU rendered parity', () => {
     expect(pageErrors).toEqual([]);
     expect(consoleErrors).toEqual([]);
     expect(result).toMatchObject({ ready: true });
+    expect(result?.exportFps).toBe(30);
     expect(result).not.toHaveProperty('error');
     expect(result?.gpuRuntime, result?.warnings.join('\n')).toMatchObject({
       foundViewer: true,

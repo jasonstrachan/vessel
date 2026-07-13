@@ -23,6 +23,11 @@ export class IndexBuffer {
   private hasDirtyBounds: boolean = false;
   private hasNonZeroGradientIds: boolean = false;
   private hasNonZeroSpeed: boolean = false;
+  private nonZeroDataCount: number = 0;
+  private contentPresenceDirty: boolean = false;
+  private contentTileColumns: number;
+  private contentTileCounts: Uint32Array;
+  private static readonly CONTENT_TILE_SIZE = 64;
   private static readonly DIAMOND_5_MASK: ReadonlyArray<number> = [
     0, 0, 1, 0, 0,
     0, 1, 1, 1, 0,
@@ -73,6 +78,10 @@ export class IndexBuffer {
     this.speedData = new Uint8Array(width * height);
     this.flowData = new Uint8Array(width * height);
     this.phaseData = new Uint8Array(width * height);
+    this.contentTileColumns = Math.max(1, Math.ceil(width / IndexBuffer.CONTENT_TILE_SIZE));
+    this.contentTileCounts = new Uint32Array(
+      this.contentTileColumns * Math.max(1, Math.ceil(height / IndexBuffer.CONTENT_TILE_SIZE))
+    );
     this.palette = ['rgba(0,0,0,0)']; // Index 0 = transparent
     this.maxPaletteIndex = 0;
     
@@ -102,6 +111,114 @@ export class IndexBuffer {
     this.dirtyMinY = Math.min(this.dirtyMinY, clampedMinY);
     this.dirtyMaxX = Math.max(this.dirtyMaxX, clampedMaxX);
     this.dirtyMaxY = Math.max(this.dirtyMaxY, clampedMaxY);
+  }
+
+  private writeData(index: number, value: number): void {
+    const previous = this.data[index];
+    if (previous === value) {
+      return;
+    }
+    if (previous === 0 && value !== 0) {
+      this.nonZeroDataCount += 1;
+      if (!this.contentPresenceDirty) {
+        this.contentTileCounts[this.getContentTileIndex(index)] += 1;
+      }
+    } else if (previous !== 0 && value === 0) {
+      this.nonZeroDataCount -= 1;
+      if (!this.contentPresenceDirty) {
+        this.contentTileCounts[this.getContentTileIndex(index)] -= 1;
+      }
+    }
+    this.data[index] = value;
+  }
+
+  private getContentTileIndex(index: number): number {
+    const y = Math.floor(index / this.width);
+    const x = index - y * this.width;
+    return Math.floor(y / IndexBuffer.CONTENT_TILE_SIZE) * this.contentTileColumns
+      + Math.floor(x / IndexBuffer.CONTENT_TILE_SIZE);
+  }
+
+  private refreshContentPresence(): void {
+    this.contentTileColumns = Math.max(
+      1,
+      Math.ceil(this.width / IndexBuffer.CONTENT_TILE_SIZE)
+    );
+    const contentTileRows = Math.max(
+      1,
+      Math.ceil(this.height / IndexBuffer.CONTENT_TILE_SIZE)
+    );
+    const tileCount = this.contentTileColumns * contentTileRows;
+    if (this.contentTileCounts.length !== tileCount) {
+      this.contentTileCounts = new Uint32Array(tileCount);
+    } else {
+      this.contentTileCounts.fill(0);
+    }
+
+    let count = 0;
+    for (let y = 0; y < this.height; y += 1) {
+      const rowOffset = y * this.width;
+      const tileRowOffset = Math.floor(y / IndexBuffer.CONTENT_TILE_SIZE)
+        * this.contentTileColumns;
+      for (let x = 0; x < this.width; x += 1) {
+        if (this.data[rowOffset + x] !== 0) {
+          count += 1;
+          const tileIndex = tileRowOffset
+            + Math.floor(x / IndexBuffer.CONTENT_TILE_SIZE);
+          this.contentTileCounts[tileIndex] += 1;
+        }
+      }
+    }
+    this.nonZeroDataCount = count;
+    this.contentPresenceDirty = false;
+  }
+
+  private refreshContentPresenceInBounds(
+    minX: number,
+    minY: number,
+    maxX: number,
+    maxY: number
+  ): void {
+    if (this.contentPresenceDirty) {
+      this.refreshContentPresence();
+      return;
+    }
+
+    const clampedMinX = Math.max(0, Math.min(this.width - 1, Math.floor(minX)));
+    const clampedMinY = Math.max(0, Math.min(this.height - 1, Math.floor(minY)));
+    const clampedMaxX = Math.max(0, Math.min(this.width - 1, Math.ceil(maxX)));
+    const clampedMaxY = Math.max(0, Math.min(this.height - 1, Math.ceil(maxY)));
+    if (clampedMaxX < clampedMinX || clampedMaxY < clampedMinY) {
+      return;
+    }
+
+    const tileSize = IndexBuffer.CONTENT_TILE_SIZE;
+    const minTileX = Math.floor(clampedMinX / tileSize);
+    const maxTileX = Math.floor(clampedMaxX / tileSize);
+    const minTileY = Math.floor(clampedMinY / tileSize);
+    const maxTileY = Math.floor(clampedMaxY / tileSize);
+
+    for (let tileY = minTileY; tileY <= maxTileY; tileY += 1) {
+      const scanMinY = tileY * tileSize;
+      const scanMaxY = Math.min(this.height, scanMinY + tileSize);
+      for (let tileX = minTileX; tileX <= maxTileX; tileX += 1) {
+        const scanMinX = tileX * tileSize;
+        const scanMaxX = Math.min(this.width, scanMinX + tileSize);
+        let nextCount = 0;
+        for (let y = scanMinY; y < scanMaxY; y += 1) {
+          const rowOffset = y * this.width;
+          for (let x = scanMinX; x < scanMaxX; x += 1) {
+            if (this.data[rowOffset + x] !== 0) {
+              nextCount += 1;
+            }
+          }
+        }
+        const tileIndex = tileY * this.contentTileColumns + tileX;
+        const previousCount = this.contentTileCounts[tileIndex];
+        this.contentTileCounts[tileIndex] = nextCount;
+        this.nonZeroDataCount += nextCount - previousCount;
+      }
+    }
   }
   
   /**
@@ -264,7 +381,7 @@ export class IndexBuffer {
 
         if (dx * dx + dy * dy <= radiusSq) {
           const dataIndex = py * this.width + px;
-          this.data[dataIndex] = normalizedIndex;
+          this.writeData(dataIndex, normalizedIndex);
           this.gradientId[dataIndex] = normalizedIndex === 0 ? 0 : normalizedSlot;
           this.speedData[dataIndex] = normalizedIndex === 0 ? 0 : normalizedSpeed;
           this.flowData[dataIndex] = normalizedIndex === 0 ? 0 : normalizedFlowBits;
@@ -618,13 +735,13 @@ export class IndexBuffer {
           const maskIdx = sampleY * maskTileSize + sampleX;
           if (maskTile![maskIdx] === 0) {
             if (shouldClearMaskedPixels) {
-              this.data[dataIndex] = 0;
+              this.writeData(dataIndex, 0);
               this.gradientId[dataIndex] = 0;
               this.speedData[dataIndex] = 0;
               this.flowData[dataIndex] = 0;
             }
             if (!shouldClearMaskedPixels && normalizedSecondaryIndex !== null) {
-              this.data[dataIndex] = normalizedSecondaryIndex;
+              this.writeData(dataIndex, normalizedSecondaryIndex);
               this.gradientId[dataIndex] = normalizedSecondaryIndex === 0 ? 0 : normalizedSlot;
               this.speedData[dataIndex] = normalizedSecondaryIndex === 0 ? 0 : secondarySpeed;
               this.flowData[dataIndex] = normalizedSecondaryIndex === 0 ? 0 : normalizedFlowBits;
@@ -632,7 +749,7 @@ export class IndexBuffer {
             continue;
           }
         }
-        this.data[dataIndex] = normalizedIndex;
+        this.writeData(dataIndex, normalizedIndex);
         this.gradientId[dataIndex] = normalizedIndex === 0 ? 0 : normalizedSlot;
         this.speedData[dataIndex] = normalizedIndex === 0 ? 0 : normalizedSpeed;
         this.flowData[dataIndex] = normalizedIndex === 0 ? 0 : normalizedFlowBits;
@@ -703,13 +820,13 @@ export class IndexBuffer {
           const maskIdx = sampleY * maskTileSize + sampleX;
           if (maskTile![maskIdx] === 0) {
             if (shouldClearMaskedPixels) {
-              this.data[dataIndex] = 0;
+              this.writeData(dataIndex, 0);
               this.gradientId[dataIndex] = 0;
               this.speedData[dataIndex] = 0;
               this.flowData[dataIndex] = 0;
             }
             if (!shouldClearMaskedPixels && normalizedSecondaryIndex !== null) {
-              this.data[dataIndex] = normalizedSecondaryIndex;
+              this.writeData(dataIndex, normalizedSecondaryIndex);
               this.gradientId[dataIndex] = normalizedSecondaryIndex === 0 ? 0 : normalizedSlot;
               this.speedData[dataIndex] = normalizedSecondaryIndex === 0 ? 0 : secondarySpeed;
               this.flowData[dataIndex] = normalizedSecondaryIndex === 0 ? 0 : normalizedFlowBits;
@@ -717,7 +834,7 @@ export class IndexBuffer {
             continue;
           }
         }
-        this.data[dataIndex] = normalizedIndex;
+        this.writeData(dataIndex, normalizedIndex);
         this.gradientId[dataIndex] = normalizedIndex === 0 ? 0 : normalizedSlot;
         this.speedData[dataIndex] = normalizedIndex === 0 ? 0 : normalizedSpeed;
         this.flowData[dataIndex] = normalizedIndex === 0 ? 0 : normalizedFlowBits;
@@ -787,13 +904,13 @@ export class IndexBuffer {
           const maskIdx = sampleY * maskTileSize + sampleX;
           if (maskTile![maskIdx] === 0) {
             if (shouldClearMaskedPixels) {
-              this.data[dataIndex] = 0;
+              this.writeData(dataIndex, 0);
               this.gradientId[dataIndex] = 0;
               this.speedData[dataIndex] = 0;
               this.flowData[dataIndex] = 0;
             }
             if (!shouldClearMaskedPixels && normalizedSecondaryIndex !== null) {
-              this.data[dataIndex] = normalizedSecondaryIndex;
+              this.writeData(dataIndex, normalizedSecondaryIndex);
               this.gradientId[dataIndex] = normalizedSecondaryIndex === 0 ? 0 : normalizedSlot;
               this.speedData[dataIndex] = normalizedSecondaryIndex === 0 ? 0 : secondarySpeed;
               this.flowData[dataIndex] = normalizedSecondaryIndex === 0 ? 0 : normalizedFlowBits;
@@ -801,7 +918,7 @@ export class IndexBuffer {
             continue;
           }
         }
-        this.data[dataIndex] = normalizedIndex;
+        this.writeData(dataIndex, normalizedIndex);
         this.gradientId[dataIndex] = normalizedIndex === 0 ? 0 : normalizedSlot;
         this.speedData[dataIndex] = normalizedIndex === 0 ? 0 : normalizedSpeed;
         this.flowData[dataIndex] = normalizedIndex === 0 ? 0 : normalizedFlowBits;
@@ -982,13 +1099,13 @@ export class IndexBuffer {
           const maskIdx = sampleY * maskTileSize + sampleX;
           if (maskTile![maskIdx] === 0) {
             if (shouldClearMaskedPixels) {
-              this.data[dataIndex] = 0;
+              this.writeData(dataIndex, 0);
               this.gradientId[dataIndex] = 0;
               this.speedData[dataIndex] = 0;
               this.flowData[dataIndex] = 0;
             }
             if (!shouldClearMaskedPixels && normalizedSecondaryIndex !== null) {
-              this.data[dataIndex] = normalizedSecondaryIndex;
+              this.writeData(dataIndex, normalizedSecondaryIndex);
               this.gradientId[dataIndex] = normalizedSecondaryIndex === 0 ? 0 : normalizedSlot;
               this.speedData[dataIndex] = normalizedSecondaryIndex === 0 ? 0 : secondarySpeed;
               this.flowData[dataIndex] = normalizedSecondaryIndex === 0 ? 0 : normalizedFlowBits;
@@ -996,7 +1113,7 @@ export class IndexBuffer {
             continue;
           }
         }
-        this.data[dataIndex] = normalizedIndex;
+        this.writeData(dataIndex, normalizedIndex);
         this.gradientId[dataIndex] = normalizedIndex === 0 ? 0 : normalizedSlot;
         this.speedData[dataIndex] = normalizedIndex === 0 ? 0 : normalizedSpeed;
         this.flowData[dataIndex] = normalizedIndex === 0 ? 0 : normalizedFlowBits;
@@ -1138,13 +1255,13 @@ export class IndexBuffer {
             const maskIdx = sampleYMask * maskTileSize + sampleXMask;
             if (maskTile![maskIdx] === 0) {
               if (shouldClearMaskedPixels) {
-                this.data[dataIndex] = 0;
+                this.writeData(dataIndex, 0);
                 this.gradientId[dataIndex] = 0;
                 this.speedData[dataIndex] = 0;
                 this.flowData[dataIndex] = 0;
               }
               if (!shouldClearMaskedPixels && normalizedSecondaryIndex !== null) {
-                this.data[dataIndex] = normalizedSecondaryIndex;
+                this.writeData(dataIndex, normalizedSecondaryIndex);
                 this.gradientId[dataIndex] = normalizedSecondaryIndex === 0 ? 0 : normalizedSlot;
                 this.speedData[dataIndex] = normalizedSecondaryIndex === 0 ? 0 : secondarySpeed;
                 this.flowData[dataIndex] = normalizedSecondaryIndex === 0 ? 0 : normalizedFlowBits;
@@ -1152,7 +1269,7 @@ export class IndexBuffer {
               continue;
             }
           }
-          this.data[dataIndex] = normalizedIndex;
+          this.writeData(dataIndex, normalizedIndex);
           this.gradientId[dataIndex] = normalizedIndex === 0 ? 0 : normalizedSlot;
           this.speedData[dataIndex] = normalizedIndex === 0 ? 0 : normalizedSpeed;
           this.flowData[dataIndex] = normalizedIndex === 0 ? 0 : normalizedFlowBits;
@@ -1297,7 +1414,7 @@ export class IndexBuffer {
         continue;
       }
 
-      this.data[dataIndex] = normalizedIndex;
+      this.writeData(dataIndex, normalizedIndex);
       this.gradientId[dataIndex] = normalizedIndex === 0 ? 0 : normalizedSlot;
       this.speedData[dataIndex] = normalizedIndex === 0 ? 0 : normalizedSpeed;
       this.flowData[dataIndex] = normalizedIndex === 0 ? 0 : normalizedFlowBits;
@@ -1335,6 +1452,10 @@ export class IndexBuffer {
     this.speedData.fill(0);
     this.hasNonZeroSpeed = false;
     this.flowData.fill(0);
+    this.phaseData.fill(0);
+    this.nonZeroDataCount = 0;
+    this.contentPresenceDirty = false;
+    this.contentTileCounts.fill(0);
     this.markDirtyRect(0, 0, this.width - 1, this.height - 1);
     this.isDirty = true;
   }
@@ -1351,7 +1472,7 @@ export class IndexBuffer {
     for (let py = minY; py <= maxY; py++) {
       for (let px = minX; px <= maxX; px++) {
         const idx = py * this.width + px;
-        this.data[idx] = 0;
+        this.writeData(idx, 0);
         this.gradientId[idx] = 0;
         this.speedData[idx] = 0;
         this.flowData[idx] = 0;
@@ -1413,6 +1534,7 @@ export class IndexBuffer {
 
   markDirty() {
     this.isDirty = true;
+    this.contentPresenceDirty = true;
     this.markDirtyRect(0, 0, this.width - 1, this.height - 1);
   }
   
@@ -1448,7 +1570,7 @@ export class IndexBuffer {
     const normalizedSpeed =
       normalizedIndex === 0 ? 0 : this.normalizeSpeedByte(speedByte);
     const index = y * this.width + x;
-    this.data[index] = normalizedIndex;
+    this.writeData(index, normalizedIndex);
     this.gradientId[index] = normalizedIndex === 0 ? 0 : normalizedSlot;
     this.speedData[index] = normalizedIndex === 0 ? 0 : normalizedSpeed;
     this.flowData[index] = normalizedIndex === 0 ? 0 : normalizedFlowBits;
@@ -1494,6 +1616,10 @@ export class IndexBuffer {
     newBuffer.palette = [...this.palette];
     newBuffer.isDirty = this.isDirty;
     newBuffer.hasNonZeroGradientIds = this.hasNonZeroGradientIds;
+    newBuffer.nonZeroDataCount = this.nonZeroDataCount;
+    newBuffer.contentPresenceDirty = this.contentPresenceDirty;
+    newBuffer.contentTileColumns = this.contentTileColumns;
+    newBuffer.contentTileCounts = new Uint32Array(this.contentTileCounts);
     newBuffer.dirtyMinX = this.dirtyMinX;
     newBuffer.dirtyMinY = this.dirtyMinY;
     newBuffer.dirtyMaxX = this.dirtyMaxX;
@@ -1543,6 +1669,7 @@ export class IndexBuffer {
     this.height = newHeight;
     this.hasNonZeroGradientIds = this.gradientId.some((value) => value !== 0);
     this.hasNonZeroSpeed = this.speedData.some((value) => value !== 0);
+    this.refreshContentPresence();
     this.markDirtyRect(0, 0, newWidth - 1, newHeight - 1);
     this.isDirty = true;
   }
@@ -1616,6 +1743,19 @@ export class IndexBuffer {
     return this.hasNonZeroSpeed;
   }
 
+  hasContent(): boolean {
+    if (this.contentPresenceDirty) {
+      this.refreshContentPresence();
+    }
+    return this.nonZeroDataCount > 0;
+  }
+
+  prepareDirectWrite(): void {
+    if (this.contentPresenceDirty) {
+      this.refreshContentPresence();
+    }
+  }
+
   markHasNonZeroGradientIds() {
     this.hasNonZeroGradientIds = true;
   }
@@ -1633,6 +1773,7 @@ export class IndexBuffer {
   }
 
   markDirtyBounds(minX: number, minY: number, maxX: number, maxY: number) {
+    this.refreshContentPresenceInBounds(minX, minY, maxX, maxY);
     this.markDirtyRect(minX, minY, maxX, maxY);
     this.isDirty = true;
   }
@@ -1693,6 +1834,7 @@ export class IndexBuffer {
     buffer.isDirty = true;
     buffer.hasNonZeroGradientIds = buffer.gradientId.some((value) => value !== 0);
     buffer.hasNonZeroSpeed = buffer.speedData.some((value) => value !== 0);
+    buffer.refreshContentPresence();
     
     // Rebuild cache
     for (let i = 0; i < buffer.palette.length; i++) {

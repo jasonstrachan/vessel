@@ -113,10 +113,18 @@ export class WebGLColorCycleRenderer {
   private static readonly MAX_CONTEXTS = 8;
   private static activeContexts = 0;
 
+  static getContextBudget(): { active: number; max: number } {
+    return {
+      active: this.activeContexts,
+      max: this.MAX_CONTEXTS,
+    };
+  }
+
   private canvas: HTMLCanvasElement;
   private gl: GL;
   private isWebGL2: boolean;
   private hasContextSlot = false;
+  private maxTextureSize = 1;
 
   private program: WebGLProgram;
   private vao: WebGLVertexArrayObject | WebGLVertexArrayObjectOES | null = null;
@@ -280,6 +288,10 @@ export class WebGLColorCycleRenderer {
       this.setupGeometry();
       this.setupUniformsAndSamplers();
       this.createTextures();
+      const maxTextureSize = this.gl.getParameter(this.gl.MAX_TEXTURE_SIZE);
+      this.maxTextureSize = typeof maxTextureSize === 'number'
+        ? Math.max(1, Math.floor(maxTextureSize))
+        : 1;
       this.captureContextDiagnostics();
       this.canvas.addEventListener('webglcontextlost', this.handleContextLost);
     } catch (error) {
@@ -325,6 +337,10 @@ export class WebGLColorCycleRenderer {
     } catch {
       return true;
     }
+  }
+
+  getMaxTextureSize(): number {
+    return this.maxTextureSize;
   }
 
   private captureContextDiagnostics(): void {
@@ -393,13 +409,14 @@ export class WebGLColorCycleRenderer {
   }
 
   setDefPaletteRows(rows: number) {
-    const nextRows = Math.max(0, Math.floor(rows));
+    const nextRows = Math.max(0, Math.min(this.maxTextureSize, Math.floor(rows)));
     if (nextRows === this.defPaletteRows) {
       return;
     }
     this.defPaletteRows = nextRows;
     this.defPaletteTexAllocated = false;
     this.ensureDefPaletteTexture();
+    this.assertNoError('setDefPaletteRows');
   }
 
   setDefPaletteRow(row: number, paletteRGBA: Uint8Array | Uint8ClampedArray) {
@@ -419,6 +436,7 @@ export class WebGLColorCycleRenderer {
     } else {
       gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, clampedRow, width, 1, gl.RGBA, gl.UNSIGNED_BYTE, paletteRGBA as Uint8Array);
     }
+    this.assertNoError('setDefPaletteRow');
   }
 
   setDefPaletteLut(lut: Uint8Array) {
@@ -435,6 +453,14 @@ export class WebGLColorCycleRenderer {
       gl2.texSubImage2D(gl2.TEXTURE_2D, 0, 0, 0, 256, 256, gl2.RG, gl2.UNSIGNED_BYTE, lut);
     } else {
       gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, 256, 256, gl.LUMINANCE_ALPHA, gl.UNSIGNED_BYTE, lut);
+    }
+    this.assertNoError('setDefPaletteLut');
+  }
+
+  private assertNoError(operation: string): void {
+    const error = this.gl.getError();
+    if (error !== this.gl.NO_ERROR) {
+      throw new Error(`[WebGLColorCycleRenderer] ${operation} failed with GL error ${error}`);
     }
   }
 
@@ -1039,8 +1065,8 @@ export class WebGLColorCycleRenderer {
   fillPolygonConcentric(params: FillRequest): Uint8Array | null {
     const gl = this.gl;
     const maxVerts = this.fillMaxVerts;
-    const count = Math.min((params.vertices.length / 2) | 0, maxVerts);
-    if (count < 3) return null;
+    const count = (params.vertices.length / 2) | 0;
+    if (count < 3 || count > maxVerts) return null;
 
     const bw = Math.max(1, Math.floor(params.bbox.width));
     const bh = Math.max(1, Math.floor(params.bbox.height));

@@ -20,6 +20,7 @@ export type ColorCycleRenderCommitContext = {
   notifyFrameRendered(dirtyBatches: ColorCycleLayerDirtyBatch[]): void;
   clearDirtyLayers(): void;
   renderDirectToCanvas(params: ColorCyclePresenterDirectRenderParams): void;
+  presentCurrentFrameToCanvas(params: ColorCyclePresenterDirectRenderParams): void;
   commitToLayer(params: ColorCyclePresenterCommitParams): void;
   isAnimating(): boolean;
   forEachAnimator(callback: (animator: ColorCycleAnimator, layerId: string) => void): void;
@@ -92,6 +93,23 @@ export function renderColorCycleDirectToCanvas(
   targetCanvas: HTMLCanvasElement,
   layerId: string,
 ): void {
+  renderColorCycleLayerToCanvas(context, targetCanvas, layerId, true);
+}
+
+export function presentColorCycleCurrentFrameToCanvas(
+  context: ColorCycleRenderCommitContext,
+  targetCanvas: HTMLCanvasElement,
+  layerId: string,
+): void {
+  renderColorCycleLayerToCanvas(context, targetCanvas, layerId, false);
+}
+
+const renderColorCycleLayerToCanvas = (
+  context: ColorCycleRenderCommitContext,
+  targetCanvas: HTMLCanvasElement,
+  layerId: string,
+  forceRender: boolean,
+): void => {
   if (!targetCanvas) {
     debugWarn('raw-console', 'Target canvas is required for renderDirectToCanvas');
     return;
@@ -133,6 +151,10 @@ export function renderColorCycleDirectToCanvas(
     } catch {}
   }
 
+  if (!hasRenderableContent && documentRead?.snapshot.hasContent && !forceRender) {
+    return;
+  }
+
   if (!hasRenderableContent && documentRead?.snapshot.hasContent) {
     strokeData = context.restoreRuntimeFromDocument(layerId, animator, documentRead);
     hasRenderableContent = Boolean(strokeData.hasContent);
@@ -141,7 +163,7 @@ export function renderColorCycleDirectToCanvas(
     }
   }
 
-  if (hasRenderableContent) {
+  if (hasRenderableContent && forceRender) {
     try {
       const defs = context.getLayerColorCycleMeta(layerId)?.gradientDefStore as Array<{
         id: number;
@@ -152,7 +174,7 @@ export function renderColorCycleDirectToCanvas(
     } catch {}
   }
 
-  context.renderDirectToCanvas({
+  const params = {
     targetCanvas,
     ctx,
     layerId,
@@ -161,8 +183,13 @@ export function renderColorCycleDirectToCanvas(
     hasRenderableContent,
     preserveExternalBase: Boolean(strokeData?.externalBase.hasExternalBase),
     applyMask: applyColorCycleMask,
-  });
-}
+  };
+  if (forceRender) {
+    context.renderDirectToCanvas(params);
+  } else {
+    context.presentCurrentFrameToCanvas(params);
+  }
+};
 
 export function commitCurrentColorCycleStroke(
   context: ColorCycleRenderCommitContext,

@@ -151,23 +151,4 @@ export const useDrawingCanvasUiEffects = ({
     viewTransformRef,
   ]);
 
-  useEffect(() => {
-    const handleColorCycleFrameUpdate = () => {
-      if (mode === 'PANNING') {
-        return;
-      }
-
-      const ctx = getDrawContext();
-      if (!ctx) {
-        return;
-      }
-
-      draw(ctx, viewTransformRef.current);
-    };
-
-    window.addEventListener('colorCycleFrameUpdate', handleColorCycleFrameUpdate);
-    return () => {
-      window.removeEventListener('colorCycleFrameUpdate', handleColorCycleFrameUpdate);
-    };
-  }, [draw, getDrawContext, mode, viewTransformRef]);
 };

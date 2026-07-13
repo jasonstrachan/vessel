@@ -17,6 +17,7 @@ import type { CCIndexSurface, CCIndexSurfaceRect } from '@/lib/colorCycle/CCInde
 import { MAX_BRUSH_COLOR_CYCLE_SPEED, MIN_BRUSH_COLOR_CYCLE_SPEED } from '@/constants/colorCycle';
 import type { GradientSeamProfile } from '@/lib/colorCycle/gradientSeamProfile';
 import type { ColorCycleLayerDocumentSnapshot, DerivedSurface } from '@/lib/colorCycle/document';
+import { recordColorCycleRuntimePerf } from '@/utils/perf/ccPerfProbe';
 
 type GPUFillMode = 'concentric' | 'linear';
 
@@ -58,6 +59,45 @@ export interface ColorCycleAnimatorConfig {
   forceCanvas2D?: boolean; // Force CPU rendering even if WebGL is available
 }
 
+export type ColorCycleRenderPath = 'gpu' | 'cpu';
+
+export type ColorCycleCpuFallbackReason =
+  | 'explicit-force'
+  | 'unsupported'
+  | 'context-budget-unavailable'
+  | 'context-lost'
+  | 'renderer-init-failed'
+  | 'def-cache-missing'
+  | 'def-atlas-capacity'
+  | 'def-upload-failed';
+
+export type ColorCycleRenderDiagnostics = {
+  layerId: string | null;
+  renderPath: ColorCycleRenderPath | null;
+  fallbackReason: ColorCycleCpuFallbackReason | null;
+  transitionCount: number;
+  lastTransitionAt: number | null;
+  retryCount: number;
+  dimensions: { width: number; height: number };
+  hasContent: boolean;
+  webglSupported: boolean;
+  contextBudget: { active: number; max: number };
+};
+
+type DefPaletteFailureReason = Extract<
+  ColorCycleCpuFallbackReason,
+  'def-cache-missing' | 'def-atlas-capacity' | 'def-upload-failed'
+>;
+
+type DefPaletteSyncResult =
+  | { ok: true; requiredRows: number; capacity: number }
+  | {
+      ok: false;
+      reason: DefPaletteFailureReason;
+      requiredRows: number;
+      capacity: number;
+    };
+
 export class ColorCycleAnimator implements CCIndexSurface, DerivedSurface {
   builtFromVersion: number | null = null;
   private indexBuffer: IndexBuffer;
@@ -95,6 +135,14 @@ export class ColorCycleAnimator implements CCIndexSurface, DerivedSurface {
   private pendingDerivedSurfaceVersion: number | null = null;
   private hasReportedWebGLContextLoss = false;
   private readonly diagnosticLayerId: string | null;
+  private renderPath: ColorCycleRenderPath | null = null;
+  private cpuFallbackReason: ColorCycleCpuFallbackReason | null = null;
+  private renderPathTransitionCount = 0;
+  private lastRenderPathTransitionAt: number | null = null;
+  private gpuRetryCount = 0;
+  private nextGpuRetryAt = 0;
+  private defAtlasRetryBlocked = false;
+  private lastDefAtlasFailureReason: DefPaletteFailureReason | null = null;
 
   // Callbacks
   private onFrameCallbacks: Set<(imageData: ImageData) => void> = new Set();
@@ -117,26 +165,6 @@ export class ColorCycleAnimator implements CCIndexSurface, DerivedSurface {
       isLazy ? 0 : config.width,
       isLazy ? 0 : config.height
     );
-
-    if (!this.forceCanvas2D && typeof window !== 'undefined' && RendererWebGL.isSupported()) {
-      try {
-        this.glRenderer = new RendererWebGL({
-          width: config.width,
-          height: config.height,
-          layerId: this.diagnosticLayerId ?? undefined,
-        });
-        this.glCanvas = this.glRenderer.getCanvas();
-      } catch (error) {
-        if (error instanceof Error && error.message === 'WEBGL_CONTEXT_BUDGET_EXCEEDED') {
-          this.forceCanvas2D = true;
-          debugWarn('cc-render', '[ColorCycleAnimator] WebGL context budget exhausted; using Canvas2D');
-        } else {
-          debugWarn('cc-render', '[ColorCycleAnimator] Failed to init WebGL renderer:', error);
-        }
-        this.glRenderer = null;
-        this.glCanvas = null;
-      }
-    }
 
     this.animationController = new AnimationController({
       fps: config.fps || 30,
@@ -202,6 +230,8 @@ export class ColorCycleAnimator implements CCIndexSurface, DerivedSurface {
     this.defIdUsageDirty = true;
     this.defValidationDirty = true;
     this._glDefIdDirty = true;
+    this.defAtlasRetryBlocked = false;
+    this.lastDefAtlasFailureReason = null;
   }
 
   setDefPaletteCache(cache?: {
@@ -220,6 +250,8 @@ export class ColorCycleAnimator implements CCIndexSurface, DerivedSurface {
     }
     this.defPaletteCacheDirty = true;
     this.defValidationDirty = true;
+    this.defAtlasRetryBlocked = false;
+    this.lastDefAtlasFailureReason = null;
   }
 
   markDirty(bounds?: CCIndexSurfaceRect): void {
@@ -332,21 +364,155 @@ export class ColorCycleAnimator implements CCIndexSurface, DerivedSurface {
     }
   }
 
-  private syncDefPaletteAtlasToGPU(defIdsInUse: Set<number>): Set<number> {
-    const nonResident = new Set<number>();
-    if (this.forceCanvas2D || !this.glRenderer) {
-      return nonResident;
+  private updateRenderPath(
+    renderPath: ColorCycleRenderPath,
+    fallbackReason: ColorCycleCpuFallbackReason | null,
+  ): void {
+    if (this.renderPath === renderPath && this.cpuFallbackReason === fallbackReason) {
+      return;
     }
-    if (!this.defPaletteRGBAById || !this.defPaletteSignaturesById || defIdsInUse.size === 0) {
+    const previousPath = this.renderPath;
+    this.renderPath = renderPath;
+    this.cpuFallbackReason = fallbackReason;
+    this.renderPathTransitionCount += 1;
+    this.lastRenderPathTransitionAt = Date.now();
+    if (renderPath === 'cpu' && fallbackReason && previousPath !== null) {
+      debugWarn('cc-render', '[ColorCycleAnimator] GPU fallback transition', {
+        layerId: this.diagnosticLayerId,
+        reason: fallbackReason,
+      });
+    }
+  }
+
+  private disposeGlRenderer(): void {
+    if (this.glRenderer) {
+      try {
+        this.glRenderer.dispose();
+      } catch {}
+    }
+    this.glRenderer = null;
+    this.glCanvas = null;
+    this._glIndexDirty = true;
+    this._glDefIdDirty = true;
+    this.defAtlasRowById.clear();
+    this.defAtlasRowSignatures = [];
+    this.defAtlasLut = null;
+    this.defPaletteCacheDirty = true;
+    this._renderSampledOnce = false;
+    this.defAtlasRetryBlocked = false;
+    this.lastDefAtlasFailureReason = null;
+  }
+
+  private ensureGlRenderer(options?: { allowEmpty?: boolean }): boolean {
+    if (this.forceCanvas2D) {
+      this.updateRenderPath('cpu', 'explicit-force');
+      return false;
+    }
+    if (typeof window === 'undefined' || !RendererWebGL.isSupported()) {
+      this.updateRenderPath('cpu', 'unsupported');
+      return false;
+    }
+    if (this.glRenderer && this.glCanvas) {
+      if (!this.isWebGLContextLost()) {
+        return true;
+      }
+      this.disposeGlRenderer();
+      this.nextGpuRetryAt = Date.now() + 1000;
+      this.updateRenderPath('cpu', 'context-lost');
+      return false;
+    }
+    if (!options?.allowEmpty && !this.indexBuffer.hasContent()) {
+      return false;
+    }
+    const now = Date.now();
+    if (now < this.nextGpuRetryAt) {
+      return false;
+    }
+
+    this.gpuRetryCount += 1;
+    try {
+      this.glRenderer = new RendererWebGL({
+        width: this.width,
+        height: this.height,
+        layerId: this.diagnosticLayerId ?? undefined,
+      });
+      this.glCanvas = this.glRenderer.getCanvas();
+      this.nextGpuRetryAt = 0;
+      this.hasReportedWebGLContextLoss = false;
+      this._glIndexDirty = true;
+      this._glDefIdDirty = true;
+      this.defAtlasRetryBlocked = false;
+      this.lastDefAtlasFailureReason = null;
+      this.updateIndexBufferPalette();
+      this.syncPaletteAtlasToGPU();
+      return true;
+    } catch (error) {
+      this.glRenderer = null;
+      this.glCanvas = null;
+      this.nextGpuRetryAt = now + 1000;
+      const reason: ColorCycleCpuFallbackReason =
+        error instanceof Error && error.message === 'WEBGL_CONTEXT_BUDGET_EXCEEDED'
+          ? 'context-budget-unavailable'
+          : 'renderer-init-failed';
+      this.updateRenderPath('cpu', reason);
+      return false;
+    }
+  }
+
+  getRenderDiagnostics(): ColorCycleRenderDiagnostics {
+    return {
+      layerId: this.diagnosticLayerId,
+      renderPath: this.renderPath,
+      fallbackReason: this.cpuFallbackReason,
+      transitionCount: this.renderPathTransitionCount,
+      lastTransitionAt: this.lastRenderPathTransitionAt,
+      retryCount: this.gpuRetryCount,
+      dimensions: this.getDimensions(),
+      hasContent: this.indexBuffer.hasContent(),
+      webglSupported: typeof window !== 'undefined' && RendererWebGL.isSupported(),
+      contextBudget: RendererWebGL.getContextBudget(),
+    };
+  }
+
+  private syncDefPaletteAtlasToGPU(defIdsInUse: Set<number>): DefPaletteSyncResult {
+    const requiredRows = defIdsInUse.size;
+    if (this.forceCanvas2D || !this.glRenderer) {
+      return { ok: false, reason: 'def-upload-failed', requiredRows, capacity: 0 };
+    }
+    const capacity = Math.max(
+      1,
+      Math.min(this.defAtlasMaxRows, this.glRenderer.getMaxTextureSize()),
+    );
+    if (defIdsInUse.size === 0) {
       this.defAtlasRowById.clear();
       this.defAtlasRowSignatures = [];
       this.defPaletteCacheDirty = false;
       this.defAtlasLut = null;
-      this.glRenderer.resetDefPaletteState?.();
-      return nonResident;
+      this.glRenderer.resetDefPaletteState();
+      this.defAtlasRetryBlocked = false;
+      this.lastDefAtlasFailureReason = null;
+      return { ok: true, requiredRows, capacity };
+    }
+    if (this.defAtlasRetryBlocked && this.lastDefAtlasFailureReason) {
+      return {
+        ok: false,
+        reason: this.lastDefAtlasFailureReason,
+        requiredRows,
+        capacity,
+      };
+    }
+    if (!this.defPaletteRGBAById || !this.defPaletteSignaturesById) {
+      this.defAtlasRetryBlocked = true;
+      this.lastDefAtlasFailureReason = 'def-cache-missing';
+      return { ok: false, reason: 'def-cache-missing', requiredRows, capacity };
+    }
+    if (requiredRows > capacity) {
+      this.defAtlasRetryBlocked = true;
+      this.lastDefAtlasFailureReason = 'def-atlas-capacity';
+      return { ok: false, reason: 'def-atlas-capacity', requiredRows, capacity };
     }
 
-    const maxRows = Math.max(1, this.defAtlasMaxRows);
+    const maxRows = capacity;
     let lutDirty = this.defPaletteCacheDirty || !this.defAtlasLut;
     if (this.defAtlasRowSignatures.length !== maxRows) {
       this.defAtlasRowSignatures = new Array(maxRows).fill(null);
@@ -381,22 +547,28 @@ export class ColorCycleAnimator implements CCIndexSurface, DerivedSurface {
     }
 
     try {
-      this.glRenderer.setDefPaletteRows?.(maxRows);
-    } catch {}
+      this.glRenderer.setDefPaletteRows(maxRows);
+    } catch {
+      this.defAtlasRetryBlocked = true;
+      this.lastDefAtlasFailureReason = 'def-upload-failed';
+      return { ok: false, reason: 'def-upload-failed', requiredRows, capacity };
+    }
 
     for (const defId of defIdsInUse) {
       const signature = this.defPaletteSignaturesById.get(defId);
       const rgba = this.defPaletteRGBAById.get(defId);
       if (!signature || !rgba) {
-        nonResident.add(defId);
-        continue;
+        this.defAtlasRetryBlocked = true;
+        this.lastDefAtlasFailureReason = 'def-cache-missing';
+        return { ok: false, reason: 'def-cache-missing', requiredRows, capacity };
       }
       let row = this.defAtlasRowById.get(defId);
       if (typeof row !== 'number' || row < 0 || row >= maxRows) {
         const nextRow = freeRows.shift();
         if (typeof nextRow !== 'number') {
-          nonResident.add(defId);
-          continue;
+          this.defAtlasRetryBlocked = true;
+          this.lastDefAtlasFailureReason = 'def-atlas-capacity';
+          return { ok: false, reason: 'def-atlas-capacity', requiredRows, capacity };
         }
         row = nextRow;
         this.defAtlasRowById.set(defId, row);
@@ -404,8 +576,14 @@ export class ColorCycleAnimator implements CCIndexSurface, DerivedSurface {
       }
       if (this.defAtlasRowSignatures[row] !== signature || this.defPaletteCacheDirty) {
         try {
-          this.glRenderer.setDefPaletteRow?.(row, rgba, signature);
-        } catch {}
+          this.glRenderer.setDefPaletteRow(row, rgba, signature);
+        } catch {
+          this.defAtlasRowById.delete(defId);
+          this.defAtlasRowSignatures[row] = null;
+          this.defAtlasRetryBlocked = true;
+          this.lastDefAtlasFailureReason = 'def-upload-failed';
+          return { ok: false, reason: 'def-upload-failed', requiredRows, capacity };
+        }
         this.defAtlasRowSignatures[row] = signature;
       }
     }
@@ -426,19 +604,25 @@ export class ColorCycleAnimator implements CCIndexSurface, DerivedSurface {
       }
       this.defAtlasLut = lut;
       try {
-        this.glRenderer.setDefPaletteLut?.(lut);
-      } catch {}
+        this.glRenderer.setDefPaletteLut(lut);
+      } catch {
+        this.defAtlasRetryBlocked = true;
+        this.lastDefAtlasFailureReason = 'def-upload-failed';
+        return { ok: false, reason: 'def-upload-failed', requiredRows, capacity };
+      }
     }
 
     this.defPaletteCacheDirty = false;
-    return nonResident;
+    this.defAtlasRetryBlocked = false;
+    this.lastDefAtlasFailureReason = null;
+    return { ok: true, requiredRows, capacity };
   }
 
   /**
    * Whether GPU renderer is available
    */
   hasWebGL(): boolean {
-    return this.hasUsableWebGLRenderer();
+    return this.renderPath === 'gpu' && this.hasUsableWebGLRenderer();
   }
 
   isContextLost(): boolean {
@@ -487,41 +671,10 @@ export class ColorCycleAnimator implements CCIndexSurface, DerivedSurface {
     this.forceCanvas2D = force;
 
     if (force) {
-      if (this.glRenderer) {
-        try {
-          this.glRenderer.dispose();
-        } catch {}
-      }
-      this.glRenderer = null;
-      this.glCanvas = null;
-      this._glIndexDirty = true;
-      this._renderSampledOnce = false;
-    } else if (!this.glRenderer && typeof window !== 'undefined' && RendererWebGL.isSupported()) {
-      try {
-        const canvas = this.renderer2D.getCanvas();
-        this.glRenderer = new RendererWebGL({
-          width: canvas.width,
-          height: canvas.height,
-          layerId: this.diagnosticLayerId ?? undefined,
-        });
-        this.glCanvas = this.glRenderer.getCanvas();
-        this._glIndexDirty = true;
-        this._renderSampledOnce = false;
-        this.syncPaletteAtlasToGPU();
-      } catch (error) {
-        // Failed to initialize WebGL; fall back to Canvas2D
-        this.forceCanvas2D = true;
-        this.glRenderer = null;
-        this.glCanvas = null;
-        this._renderSampledOnce = false;
-        if (error instanceof Error) {
-          if (error.message === 'WEBGL_CONTEXT_BUDGET_EXCEEDED') {
-            debugWarn('cc-render', '[ColorCycleAnimator] WebGL context budget exhausted when enabling GPU; staying on Canvas2D');
-          } else {
-            debugWarn('cc-render', '[ColorCycleAnimator] setForceCanvas2D -> WebGL init failed:', error);
-          }
-        }
-      }
+      this.disposeGlRenderer();
+      this.updateRenderPath('cpu', 'explicit-force');
+    } else {
+      this.nextGpuRetryAt = 0;
     }
 
     // Force a redraw so consumers see the updated rendering mode
@@ -543,6 +696,7 @@ export class ColorCycleAnimator implements CCIndexSurface, DerivedSurface {
     flowByte: number = 0,
     resolvePhaseByte?: (x: number, y: number, colorIndex: number) => number,
   ): boolean {
+    this.ensureGlRenderer({ allowEmpty: true });
     if (!this.hasUsableWebGLRenderer() || !this.glRenderer || vertices.length < 3) {
       return false;
     }
@@ -576,6 +730,7 @@ export class ColorCycleAnimator implements CCIndexSurface, DerivedSurface {
       if (!result) return false;
 
       const data = this.indexBuffer.getDirectData();
+      this.indexBuffer.prepareDirectWrite();
       const gradientId = this.indexBuffer.getDirectGradientIdData();
       const speedData = this.indexBuffer.getDirectSpeedData();
       const flowData = this.indexBuffer.getDirectFlowData();
@@ -634,6 +789,7 @@ export class ColorCycleAnimator implements CCIndexSurface, DerivedSurface {
 
   beginDirectFill(): DirectFillHandle {
     this.directFillDepth += 1;
+    this.indexBuffer.prepareDirectWrite();
     const { width, height } = this.indexBuffer.getDimensions();
     return {
       data: this.indexBuffer.getDirectData(),
@@ -647,19 +803,23 @@ export class ColorCycleAnimator implements CCIndexSurface, DerivedSurface {
     };
   }
 
+  /**
+   * Close a raw-buffer write session. Call markDirtyBounds for every changed
+   * region; markDirty controls only the pending GPU texture upload.
+   */
   endDirectFill(options?: { markDirty?: boolean }) {
     if (this.directFillDepth > 0) {
       this.directFillDepth -= 1;
     }
     const shouldDirty = options?.markDirty !== false;
     if (shouldDirty) {
-      this.indexBuffer.markDirty();
       this._glIndexDirty = true;
     }
   }
 
   /** Return runtime GPU vertex limit for fill shader (if available) */
   getGLFillMaxVerts(): number | null {
+    this.ensureGlRenderer({ allowEmpty: true });
     if (!this.hasUsableWebGLRenderer()) {
       return null;
     }
@@ -671,6 +831,9 @@ export class ColorCycleAnimator implements CCIndexSurface, DerivedSurface {
    */
   private renderFrame(offset: number = 0, baseTimeOverride?: number): boolean {
     try {
+      recordColorCycleRuntimePerf('animatorRender', {
+        layerId: this.diagnosticLayerId ?? undefined,
+      });
       const legacyPhase = this.strokeTracker.computePhase(offset);
       const flowMode = this.strokeTracker.getFlowMode();
       const baseOffset = offset;
@@ -724,17 +887,25 @@ export class ColorCycleAnimator implements CCIndexSurface, DerivedSurface {
       const defIdsInUse = this.getDefIdsInUse();
       this.validateDefPalettes(defIdsInUse);
       const hasDefIds = defIdsInUse.size > 0;
+      const hasContent = this.indexBuffer.hasContent();
+
+      if (hasContent) {
+        this.ensureGlRenderer();
+      }
 
       const glRenderer = this.glRenderer;
       const glCanvas = this.glCanvas;
       let useGPU = this.hasUsableWebGLRenderer();
+      let fallbackReason = this.cpuFallbackReason;
       if (useGPU && hasDefIds) {
         if (!this.defPaletteRGBAById || !this.defPaletteSignaturesById || !this.defPalettesById) {
           useGPU = false;
+          fallbackReason = 'def-cache-missing';
         } else {
-          const nonResident = this.syncDefPaletteAtlasToGPU(defIdsInUse);
-          if (nonResident.size > 0) {
+          const syncResult = this.syncDefPaletteAtlasToGPU(defIdsInUse);
+          if (!syncResult.ok) {
             useGPU = false;
+            fallbackReason = syncResult.reason;
           }
         }
       }
@@ -787,6 +958,10 @@ export class ColorCycleAnimator implements CCIndexSurface, DerivedSurface {
         }
 
         this.renderer2D.ensureImageData();
+        this.updateRenderPath('gpu', null);
+        recordColorCycleRuntimePerf('animatorRenderGpu', {
+          layerId: this.diagnosticLayerId ?? undefined,
+        });
         return true;
       }
 
@@ -816,6 +991,15 @@ export class ColorCycleAnimator implements CCIndexSurface, DerivedSurface {
         this.pendingDerivedSurfaceVersion = null;
       }
 
+      const resolvedFallbackReason = this.forceCanvas2D
+        ? 'explicit-force'
+        : hasContent
+          ? fallbackReason
+          : null;
+      this.updateRenderPath('cpu', resolvedFallbackReason);
+      recordColorCycleRuntimePerf('animatorRenderCpu', {
+        layerId: this.diagnosticLayerId ?? undefined,
+      });
       return true;
 
     } catch (error) {
@@ -1513,7 +1697,7 @@ export class ColorCycleAnimator implements CCIndexSurface, DerivedSurface {
    * Get canvas
    */
   getCanvas(): HTMLCanvasElement {
-    return this.hasUsableWebGLRenderer() && this.glCanvas
+    return this.renderPath === 'gpu' && this.hasUsableWebGLRenderer() && this.glCanvas
       ? this.glCanvas
       : this.renderer2D.getCanvas();
   }
@@ -1529,7 +1713,7 @@ export class ColorCycleAnimator implements CCIndexSurface, DerivedSurface {
    * Draw to another context
    */
   drawTo(ctx: CanvasRenderingContext2D, x: number = 0, y: number = 0) {
-    const src = this.hasUsableWebGLRenderer() && this.glCanvas
+    const src = this.renderPath === 'gpu' && this.hasUsableWebGLRenderer() && this.glCanvas
       ? this.glCanvas
       : this.renderer2D.getCanvas();
     ctx.drawImage(src, x, y);
@@ -1830,18 +2014,7 @@ export class ColorCycleAnimator implements CCIndexSurface, DerivedSurface {
     // Clear callbacks
     this.onFrameCallbacks.clear();
 
-    if (this.glRenderer) {
-      try {
-        this.glRenderer.dispose();
-      } catch (error) {
-        debugWarn('cc-render', '[ColorCycleAnimator] Error disposing WebGL renderer:', error);
-      } finally {
-        this.glRenderer = null;
-        this.glCanvas = null;
-        this._glIndexDirty = true;
-        this._renderSampledOnce = false;
-      }
-    }
+    this.disposeGlRenderer();
 
     this.renderer2D.cleanup();
   }

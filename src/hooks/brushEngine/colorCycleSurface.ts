@@ -17,6 +17,7 @@ export type ColorCycleSurfaceBrush = ColorCycleSurfaceSource & {
 
 export type ColorCycleLayerRenderBrush = ColorCycleSurfaceBrush & {
   renderDirectToCanvas?: (canvas: HTMLCanvasElement, layerId: string) => void;
+  presentCurrentFrameToCanvas?: (canvas: HTMLCanvasElement, layerId: string) => void;
 };
 
 export const bindBrushToCanvas = (

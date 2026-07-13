@@ -70,6 +70,7 @@ export type ColorCycleBrushSurfaceControls = {
   render(...args: unknown[]): void;
   renderColorCycle?: (ctx: CanvasRenderingContext2D, applyOpacity?: boolean) => void;
   renderDirectToCanvas(canvas: HTMLCanvasElement, layerId?: string): void;
+  presentCurrentFrameToCanvas(canvas: HTMLCanvasElement, layerId: string): void;
   flushPendingRender?: () => void;
   setOnFrameRendered(callback: (dirtyBatches: ColorCycleLayerDirtyBatch[]) => void): void;
 };
@@ -164,6 +165,7 @@ export type ColorCycleSurfaceBrushContext =
     getCanvas?: () => HTMLCanvasElement | OffscreenCanvas | null;
     setTargetCanvas?: (canvas: HTMLCanvasElement | null) => void;
     renderDirectToCanvas?: (canvas: HTMLCanvasElement, layerId: string) => void;
+    presentCurrentFrameToCanvas?: (canvas: HTMLCanvasElement, layerId: string) => void;
   };
 
 export type ColorCycleGradientApplyBrushContext = {

@@ -192,8 +192,7 @@ export async function runColorCycleConcentricShapeFill(
 
   if (!context.isPerceptualDitherEnabled()) {
     try {
-      const hasGL = animator.hasWebGL();
-      const tryGPU = hasGL && lostEdge <= 0;
+      const tryGPU = lostEdge <= 0;
       const ditherStrengthGpu = context.isDitherEnabled() ? context.getDitherStrength() : 0;
       const ditherPixelSizeGpu = context.isDitherEnabled() ? Math.max(1, context.getDitherPixelSize()) : 1;
       const runtimeMax = animator.getGLFillMaxVerts() || 256;

@@ -83,6 +83,7 @@ jest.mock('@/stores/colorCycleBrushManager', () => {
       manager.activeResources.add(`canvas_${layerId}`);
     }),
     applySettingsToBrushes: jest.fn(),
+    discardRuntimeRetainingDocument: jest.fn(),
     deleteBrush: jest.fn(),
     removeColorCycleBrush: jest.fn(),
     transferColorCycleBrush: jest.fn(),
@@ -119,6 +120,7 @@ const { __mockManager: mockManager } = jest.requireMock('@/stores/colorCycleBrus
     registerDocument: jest.Mock;
     registerRestoredBrush: jest.Mock;
     applySettingsToBrushes: jest.Mock;
+    discardRuntimeRetainingDocument: jest.Mock;
     deleteBrush: jest.Mock;
     removeColorCycleBrush: jest.Mock;
     transferColorCycleBrush: jest.Mock;

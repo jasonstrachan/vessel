@@ -1,9 +1,18 @@
 import { useCallback, useEffect, useRef, type MutableRefObject } from 'react';
+
+import { bindColorCycleFramePublication } from '@/hooks/brushEngine/colorCycleInitController';
 import { refreshLayerCCSurface } from '@/hooks/useBrushEngineSimplified';
 import { getColorCycleBrushManager, type ColorCycleBrushManager } from '@/stores/colorCycleBrushManager';
 import type { CompositeSegment } from '@/stores/slices/layersSlice';
 import type { ColorCycleLayerDirtyBatch } from '@/lib/colorCycle/document';
 import type { Layer } from '@/types';
+import { debugWarn } from '@/utils/debug';
+import { recordColorCycleRuntimePerf } from '@/utils/perf/ccPerfProbe';
+
+export type ColorCycleSegmentRefreshRequest = {
+  dirtyBatches?: ColorCycleLayerDirtyBatch[];
+  sourceLayerIds?: Iterable<string>;
+};
 
 interface UseDrawingCanvasColorCycleSegmentRefreshOptions {
   layers: Layer[];
@@ -41,8 +50,12 @@ export const useDrawingCanvasColorCycleSegmentRefresh = ({
   }, [compositeSegmentsRef, compositeSegmentsVersion, getCompositeSegmentsSnapshot, pendingColorCycleRefreshRef]);
 
   const refreshColorCycleSegments = useCallback((
-    dirtyBatches?: ColorCycleLayerDirtyBatch[],
+    request?: ColorCycleSegmentRefreshRequest,
   ): boolean => {
+    const dirtyBatches = request?.dirtyBatches;
+    const requestedLayerIds = request?.sourceLayerIds
+      ? new Set(request.sourceLayerIds)
+      : null;
     const dirtyLayerIds = dirtyBatches?.length
       ? new Set(dirtyBatches.map((batch) => batch.layerId))
       : null;
@@ -59,6 +72,7 @@ export const useDrawingCanvasColorCycleSegmentRefresh = ({
     }
 
     isRefreshingRef.current = true;
+    recordColorCycleRuntimePerf('segmentRefresh');
     const segments = compositeSegmentsRef.current;
     try {
       if (!segments.length) {
@@ -71,6 +85,9 @@ export const useDrawingCanvasColorCycleSegmentRefresh = ({
 
       segments.forEach((segment) => {
         if (segment.kind !== 'color-cycle') {
+          return;
+        }
+        if (requestedLayerIds && !requestedLayerIds.has(segment.layerId)) {
           return;
         }
         const layer = layerMapRef.current.get(segment.layerId);
@@ -89,18 +106,14 @@ export const useDrawingCanvasColorCycleSegmentRefresh = ({
           brush.setTargetCanvas(layerCanvas);
         }
 
-        const wantPlaying = Boolean(layer.colorCycleData.isAnimating && layer.colorCycleData.mode !== 'recolor');
-        const isPlaying = typeof brush.isPlaying === 'function' ? brush.isPlaying() : false;
-        if (wantPlaying && !isPlaying) {
-          brush.startAnimation?.();
-        } else if (!wantPlaying && isPlaying) {
-          brush.stopAnimation?.();
+        try {
+          brush.presentCurrentFrameToCanvas?.(layerCanvas, segment.layerId);
+        } catch (error) {
+          debugWarn('cc-render', '[DrawingCanvas] Failed to present color-cycle layer surface', {
+            layerId: segment.layerId,
+            error,
+          });
         }
-
-        if (layer.colorCycleData.isAnimating) {
-          brush.updateAnimation?.();
-        }
-        brush.renderDirectToCanvas?.(layerCanvas, segment.layerId);
       });
     } finally {
       isRefreshingRef.current = false;
@@ -108,6 +121,40 @@ export const useDrawingCanvasColorCycleSegmentRefresh = ({
 
     return hasStaticDirtyBatch;
   }, [colorCycleBrushManagerRef, compositeSegmentsRef, layerMapRef, pendingColorCycleRefreshRef]);
+
+  useEffect(() => {
+    const manager = colorCycleBrushManagerRef.current ?? getColorCycleBrushManager();
+    colorCycleBrushManagerRef.current = manager;
+    compositeSegmentsRef.current.forEach((segment) => {
+      if (segment.kind !== 'color-cycle') {
+        return;
+      }
+      const layer = layerMapRef.current.get(segment.layerId);
+      const brush = manager.getSurfaceBrush(segment.layerId);
+      if (!layer?.colorCycleData || !brush) {
+        return;
+      }
+      const publicationBrush = manager.getInitBrush(segment.layerId);
+      if (publicationBrush) {
+        bindColorCycleFramePublication(publicationBrush, segment.layerId);
+      }
+      const wantPlaying = Boolean(
+        layer.colorCycleData.isAnimating && layer.colorCycleData.mode !== 'recolor',
+      );
+      const isPlaying = brush.isPlaying?.() ?? false;
+      if (wantPlaying && !isPlaying) {
+        brush.startAnimation?.();
+      } else if (!wantPlaying && isPlaying) {
+        brush.stopAnimation?.();
+      }
+    });
+  }, [
+    colorCycleBrushManagerRef,
+    compositeSegmentsRef,
+    compositeSegmentsVersion,
+    layerMapRef,
+    layers,
+  ]);
 
   useEffect(() => {
     if (pendingColorCycleRefreshRef.current) {

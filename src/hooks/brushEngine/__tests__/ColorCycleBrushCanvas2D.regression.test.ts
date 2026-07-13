@@ -161,6 +161,7 @@ jest.mock('@/layers/MaskManager', () => ({
 jest.mock('@/utils/perf/ccPerfProbe', () => ({
   CC_PERF: { on: false, verbose: false, counters: {} },
   recordColorCycleFillPerf: jest.fn(),
+  recordColorCycleRuntimePerf: jest.fn(),
 }));
 
 jest.mock('@/workers/colorCycleFillClient', () => ({
@@ -1207,7 +1208,7 @@ describe('ColorCycleBrushCanvas2D regression tests', () => {
     ]);
   });
 
-  it('stamps manual shape def ids for pixels written by the GPU fill path', async () => {
+  it('attempts the first linear GPU fill before WebGL residency is established', async () => {
     const layerId = 'layer-manual-gpu-def-stamp';
     const slot = 9;
     const oldDefId = 401;
@@ -1286,7 +1287,7 @@ describe('ColorCycleBrushCanvas2D regression tests', () => {
         };
       };
     }).ensureFullResolution(layerId, 'fill');
-    animator.hasWebGL = jest.fn(() => true);
+    animator.hasWebGL = jest.fn(() => false);
     animator.getGLFillMaxVerts = jest.fn(() => 256);
     animator.gpuFillShape = jest.fn((_vertices, options, gradientSlot, speedByte, flowByte) => {
       const { data, gid, spd, flow, phase } = animator.getIndexBuffers();
@@ -1344,7 +1345,7 @@ describe('ColorCycleBrushCanvas2D regression tests', () => {
     ]);
   });
 
-  it('keeps concentric GPU snapshots internally consistent after def stamping', async () => {
+  it('attempts the first concentric GPU fill before WebGL residency is established', async () => {
     const layerId = 'layer-concentric-gpu-buffer-sync';
     const slot = 11;
     const oldDefId = 501;
@@ -1409,7 +1410,7 @@ describe('ColorCycleBrushCanvas2D regression tests', () => {
         };
       };
     }).ensureFullResolution(layerId, 'fill');
-    animator.hasWebGL = jest.fn(() => true);
+    animator.hasWebGL = jest.fn(() => false);
     animator.getGLFillMaxVerts = jest.fn(() => 256);
     animator.gpuFillShape = jest.fn((_vertices, options, gradientSlot, speedByte, flowByte) => {
       const { data, gid, spd, flow, phase } = animator.getIndexBuffers();

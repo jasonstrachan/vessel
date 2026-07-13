@@ -9,6 +9,7 @@ import {
   commitColorCycleLayerToCanvas,
   commitCurrentColorCycleStroke,
   hasColorCycleAnimatedContent,
+  presentColorCycleCurrentFrameToCanvas,
   renderColorCycleDirectToCanvas,
   renderColorCycleFrame,
   type ColorCycleRenderCommitContext,
@@ -44,6 +45,14 @@ export function renderColorCyclePresentationDirect(
   layerId: string,
 ): void {
   renderColorCycleDirectToCanvas(context.getRenderCommitContext(), targetCanvas, layerId);
+}
+
+export function presentColorCyclePresentationCurrentFrame(
+  context: ColorCyclePresentationPlaybackContext,
+  targetCanvas: HTMLCanvasElement,
+  layerId: string,
+): void {
+  presentColorCycleCurrentFrameToCanvas(context.getRenderCommitContext(), targetCanvas, layerId);
 }
 
 export function commitCurrentColorCyclePresentationStroke(

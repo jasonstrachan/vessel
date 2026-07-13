@@ -547,6 +547,7 @@ export class ColorCycleBrushCanvas2D {
 
   readonly render = this.presentationApi.render;
   readonly renderDirectToCanvas = this.presentationApi.renderDirectToCanvas;
+  readonly presentCurrentFrameToCanvas = this.presentationApi.presentCurrentFrameToCanvas;
   readonly commitCurrentStroke = this.presentationApi.commitCurrentStroke;
   readonly commitToLayer = this.presentationApi.commitToLayer;
   private readonly hasAnimatedContent = this.presentationApi.hasAnimatedContent;
@@ -556,6 +557,7 @@ export class ColorCycleBrushCanvas2D {
   private readonly flushScheduledRender = this.presentationApi.flushScheduledRender;
   readonly flush = this.presentationApi.flush;
   readonly getColorCycleDerivedSurface = (layerId: string) => this.presentationApi.getAnimator(layerId) ?? null;
+  readonly getRenderDiagnostics = (layerId: string) => this.presentationApi.getRenderDiagnostics(layerId);
   readonly startAnimation = this.presentationApi.startAnimation;
   readonly stopAnimation = this.presentationApi.stopAnimation;
   readonly togglePlayPause = this.presentationApi.togglePlayPause;

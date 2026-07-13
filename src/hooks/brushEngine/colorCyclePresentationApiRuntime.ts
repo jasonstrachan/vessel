@@ -3,6 +3,7 @@ import type {
   ColorCycleLayerDocumentRead,
 } from '@/lib/colorCycle/document';
 import type { ColorCycleAnimator } from '@/lib/ColorCycleAnimator';
+import type { ColorCycleRenderDiagnostics } from '@/lib/ColorCycleAnimator';
 import type { GradientStop } from '@/lib/GradientPalette';
 
 import {
@@ -28,6 +29,7 @@ import {
   isColorCyclePresentationPlaying,
   markColorCyclePresentationLayerDirty,
   pauseColorCyclePresentationAnimation,
+  presentColorCyclePresentationCurrentFrame,
   renderColorCyclePresentationDirect,
   renderColorCyclePresentationDirtyBatches,
   renderColorCyclePresentationFrame,
@@ -176,6 +178,10 @@ export class ColorCyclePresentationApiRuntime {
     return this.getPlaybackController().getAnimator(layerId);
   }
 
+  getRenderDiagnostics(layerId: string): ColorCycleRenderDiagnostics | null {
+    return this.getAnimator(layerId)?.getRenderDiagnostics() ?? null;
+  }
+
   setAnimator(layerId: string, animator: ColorCycleAnimator): void {
     this.getPlaybackController().setAnimator(layerId, animator);
   }
@@ -272,6 +278,13 @@ export class ColorCyclePresentationApiRuntime {
     layerId: string,
   ): void => {
     renderColorCyclePresentationDirect(this.getContext(), targetCanvas, layerId);
+  };
+
+  readonly presentCurrentFrameToCanvas = (
+    targetCanvas: HTMLCanvasElement,
+    layerId: string,
+  ): void => {
+    presentColorCyclePresentationCurrentFrame(this.getContext(), targetCanvas, layerId);
   };
 
   readonly commitCurrentStroke = (layerId: string): void => {
@@ -390,6 +403,7 @@ export class ColorCyclePresentationApiRuntime {
       notifyFrameRendered: (dirtyBatches) => this.notifyPresenterFrameRendered(dirtyBatches),
       clearDirtyLayers: () => this.clearPresenterDirtyLayers(),
       renderDirectToCanvas: (params) => this.renderPresenterDirectToCanvas(params),
+      presentCurrentFrameToCanvas: (params) => this.getPresenter().presentCurrentFrameToCanvas(params),
       commitToLayer: (params) => this.commitPresenterToLayer(params),
       isAnimating: () => this.isAnimating(),
       forEachAnimator: (callback) => this.forEachAnimator(callback),

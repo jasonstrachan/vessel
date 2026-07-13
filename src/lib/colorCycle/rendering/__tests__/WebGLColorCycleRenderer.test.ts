@@ -9,11 +9,14 @@ const createWebGL2Stub = (): WebGL2RenderingContext => {
   const noop = jest.fn();
   const createResource = jest.fn(() => ({}));
   const target = {
+    FRAMEBUFFER_COMPLETE: 1,
+    checkFramebufferStatus: jest.fn(() => 1),
     createBuffer: createResource,
     createProgram: createResource,
     createShader: createResource,
     createTexture: createResource,
     createVertexArray: createResource,
+    drawArrays: jest.fn(),
     getExtension: jest.fn(() => null),
     getParameter: jest.fn(() => 64),
     getProgramParameter: jest.fn(() => true),
@@ -128,5 +131,35 @@ describe('WebGLColorCycleRenderer context reservations', () => {
 
     renderer.dispose();
     expect(rendererStatics.activeContexts).toBe(0);
+  });
+
+  it('rejects polygons above the runtime fill vertex limit', () => {
+    const canvas = document.createElement('canvas');
+    const gl = createWebGL2Stub();
+    Object.defineProperty(canvas, 'getContext', {
+      configurable: true,
+      value: jest.fn(() => gl),
+    });
+    const renderer = new WebGLColorCycleRenderer({
+      width: 8,
+      height: 8,
+      canvas,
+    });
+    const drawArrays = gl.drawArrays as jest.Mock;
+    drawArrays.mockClear();
+
+    expect(renderer.getFillMaxVerts()).toBe(8);
+    expect(renderer.fillPolygonConcentric({
+      vertices: new Float32Array(9 * 2),
+      bands: 2,
+      baseOffset: 0,
+      colorStep: 1,
+      maxDist: 1,
+      bbox: { minX: 0, minY: 0, width: 2, height: 2 },
+      canvasHeight: 8,
+    })).toBeNull();
+    expect(drawArrays).not.toHaveBeenCalled();
+
+    renderer.dispose();
   });
 });

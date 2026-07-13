@@ -142,4 +142,41 @@ describe('useDrawingCanvasUiEffects', () => {
     expect(draw).toHaveBeenCalledTimes(2);
     expect(draw).toHaveBeenLastCalledWith(ctx, { scale: 1, offsetX: 0, offsetY: 0 });
   });
+
+  it('leaves legacy color-cycle frame updates to the redraw coalescer', () => {
+    const canvas = document.createElement('canvas');
+    const wrapper = document.createElement('div');
+    const ctx = {} as CanvasRenderingContext2D;
+    const draw = jest.fn();
+
+    getContextMock.mockReturnValue(ctx);
+    canvas.getContext = getContextMock as typeof canvas.getContext;
+
+    renderHook(() =>
+      useDrawingCanvasUiEffects({
+        selectionStart: null,
+        selectionEnd: null,
+        floatingPaste: null,
+        setMarchingAntsOffset: jest.fn(),
+        canvasRef: { current: canvas },
+        draw,
+        viewTransformRef: { current: { scale: 1, offsetX: 0, offsetY: 0 } },
+        defaultCursorStyle: 'default',
+        isPointerInsideCanvas: () => true,
+        setCursorStyle: jest.fn(),
+        setShowBrushCursor: jest.fn(),
+        wrapperRef: { current: wrapper },
+        mode: 'IDLE',
+        canvasZoom: 1,
+        canvasOffsetX: 0,
+        canvasOffsetY: 0,
+        needsRedraw: 0,
+      })
+    );
+    draw.mockClear();
+
+    window.dispatchEvent(new CustomEvent('colorCycleFrameUpdate'));
+
+    expect(draw).not.toHaveBeenCalled();
+  });
 });

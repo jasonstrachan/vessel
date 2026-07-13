@@ -1,5 +1,6 @@
 import type { ColorCycleAnimator } from '@/lib/ColorCycleAnimator';
 import type { ColorCycleLayerDocumentRead } from '@/lib/colorCycle/document';
+import { recordColorCycleRuntimePerf } from '@/utils/perf/ccPerfProbe';
 
 export type ColorCyclePlaybackControllerOptions = {
   initialFps: number;
@@ -114,6 +115,7 @@ export class ColorCyclePlaybackController {
 
   updateAnimation(): void {
     this.forEachAnimator((animator, layerId) => {
+      recordColorCycleRuntimePerf('playbackTick', { layerId });
       const documentRead = this.options.getDocumentRead(layerId);
       if (documentRead && animator.builtFromVersion !== documentRead.version) {
         animator.rebuild(documentRead.snapshot, documentRead.version);

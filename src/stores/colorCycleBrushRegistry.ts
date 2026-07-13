@@ -211,7 +211,7 @@ const buildColorCycleBrushSettingsPatch = (
     : 1;
   const patch: CCBrushSettingsPatch = {
     brushSize: baseSize,
-    fps: currentSettings.colorCycleFPS ?? 60,
+    fps: currentSettings.colorCycleFPS ?? 30,
     bandSpacing: currentSettings.colorCycleBandSpacingPx ?? currentSettings.spacing ?? 12,
     pressureEnabled: pressureActive,
     minPressure: pressureActive ? pressureRange.minPercent : 100,
@@ -455,6 +455,9 @@ export const createColorCycleBrushRegistry = (deps: ColorCycleBrushRegistryDeps)
         : undefined,
       renderDirectToCanvas: typeof brush.renderDirectToCanvas === 'function'
         ? brush.renderDirectToCanvas.bind(brush)
+        : undefined,
+      presentCurrentFrameToCanvas: typeof brush.presentCurrentFrameToCanvas === 'function'
+        ? brush.presentCurrentFrameToCanvas.bind(brush)
         : undefined,
     };
     surfaceBrushContexts.set(brush, context);
@@ -933,7 +936,7 @@ export const createColorCycleBrushRegistry = (deps: ColorCycleBrushRegistryDeps)
       const BrushCanvas = deps.getBrushClass();
       const brush = new BrushCanvas(canvas, {
         brushSize: currentSettings.size ?? defaultBrushSettings.size,
-        fps: currentSettings.colorCycleFPS ?? 60,
+        fps: currentSettings.colorCycleFPS ?? 30,
         forceCanvas2D: deps.shouldForceCanvas2D()
       });
 

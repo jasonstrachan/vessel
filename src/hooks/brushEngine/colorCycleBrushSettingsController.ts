@@ -32,7 +32,7 @@ export const updateColorCycleGradientBandsForLayer = <TBrush extends ColorCycleS
   renderBrushToLayerCanvas: (brush: TBrush, layerId: string | null | undefined) => void;
 }): void => {
   const activeLayer = getLayers().find((layer) => layer.id === activeLayerId);
-  if (activeLayer?.layerType !== 'color-cycle') {
+  if (!activeLayerId || activeLayer?.layerType !== 'color-cycle') {
     return;
   }
 
@@ -53,7 +53,7 @@ export const updateColorCycleGradientBandsForLayer = <TBrush extends ColorCycleS
   });
   applyColorCycleBrushSettingsPatch(brush, { gradientBands: bands });
   renderBrushToLayerCanvas(brush, activeLayerId);
-  dispatchColorCycleFrameReady();
+  dispatchColorCycleFrameReady(activeLayerId);
 };
 
 export const updateColorCycleDitherPaletteSpreadForLayer = <TBrush extends ColorCycleSettingsPatchBrush>({
@@ -70,7 +70,7 @@ export const updateColorCycleDitherPaletteSpreadForLayer = <TBrush extends Color
   renderBrushToLayerCanvas: (brush: TBrush, layerId: string | null | undefined) => void;
 }): void => {
   const activeLayer = getLayers().find((layer) => layer.id === activeLayerId);
-  if (activeLayer?.layerType !== 'color-cycle') {
+  if (!activeLayerId || activeLayer?.layerType !== 'color-cycle') {
     return;
   }
 
@@ -84,7 +84,7 @@ export const updateColorCycleDitherPaletteSpreadForLayer = <TBrush extends Color
   }
 
   renderBrushToLayerCanvas(brush, activeLayerId);
-  dispatchColorCycleFrameReady();
+  dispatchColorCycleFrameReady(activeLayerId);
 };
 
 export const updateColorCycleBandSpacingForLayer = <TBrush extends ColorCycleSettingsPatchBrush>({
@@ -111,7 +111,7 @@ export const updateColorCycleBandSpacingForLayer = <TBrush extends ColorCycleSet
   renderBrushToLayerCanvas: (brush: TBrush, layerId: string | null | undefined) => void;
 }): void => {
   const activeLayer = getLayers().find((layer) => layer.id === activeLayerId);
-  if (activeLayer?.layerType !== 'color-cycle') {
+  if (!activeLayerId || activeLayer?.layerType !== 'color-cycle') {
     return;
   }
 
@@ -132,7 +132,7 @@ export const updateColorCycleBandSpacingForLayer = <TBrush extends ColorCycleSet
   );
   applyColorCycleBrushSettingsPatch(brush, { bandSpacing: spacingValue });
   renderBrushToLayerCanvas(brush, activeLayerId);
-  dispatchColorCycleFrameReady();
+  dispatchColorCycleFrameReady(activeLayerId);
 };
 
 export const updateColorCycleDitherSettings = ({

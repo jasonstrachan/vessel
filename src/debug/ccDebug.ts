@@ -10,6 +10,8 @@ import {
   getPersistedBreadcrumbs,
 } from '@/utils/debug';
 import { getPersistedRuntimeIncidents } from '@/utils/runtimeIncidentJournal';
+import { getPerfSnapshot } from '@/utils/perf/ccPerfProbe';
+import type { ColorCycleRenderDiagnostics } from '@/lib/ColorCycleAnimator';
 
 type ScopedConsole = typeof console;
 type CCDebugState = { on: boolean; verbose: boolean; timing: boolean };
@@ -32,6 +34,7 @@ type ActiveCCLayerDiagnostic = {
   hasRuntimeBrush: boolean;
   runtimeUsesWebGL: boolean | null;
   runtimeContextLost: boolean | null;
+  renderDiagnostics: ColorCycleRenderDiagnostics | null;
   documentVersion: number | null;
   pixelVersion: number | null;
   documentAuditTail: unknown[];
@@ -77,6 +80,7 @@ type CCDiagnosticsDump = {
   lastCrash: unknown;
   lastHang: unknown;
   storageKeys: string[];
+  performance: ReturnType<typeof getPerfSnapshot>;
 };
 
 declare global {
@@ -188,6 +192,9 @@ const getLayerDiagnostic = (
     }
   })();
   const hasRuntimeBrush = Boolean(runtimeBrush);
+  const runtimeDiagnostics = runtimeBrush as typeof runtimeBrush & {
+    getRenderDiagnostics?: (layerId: string) => ColorCycleRenderDiagnostics | null;
+  };
   const ccDocument = layer?.layerType === 'color-cycle'
     ? getColorCycleBrushManager().getDocument(layer.id) ?? null
     : null;
@@ -215,6 +222,9 @@ const getLayerDiagnostic = (
       : null,
     runtimeContextLost: runtimeBrush && typeof runtimeBrush.isContextLost === 'function'
       ? runtimeBrush.isContextLost()
+      : null,
+    renderDiagnostics: layer && typeof runtimeDiagnostics?.getRenderDiagnostics === 'function'
+      ? runtimeDiagnostics.getRenderDiagnostics(layer.id)
       : null,
     documentVersion: documentRead?.version ?? null,
     pixelVersion: documentRead?.pixelVersion ?? null,
@@ -277,6 +287,7 @@ const dumpCCDiagnostics = (): CCDiagnosticsDump => {
     lastCrash: getLastCrashReport(),
     lastHang: getLastHangReport(),
     storageKeys,
+    performance: getPerfSnapshot(),
   };
 };
 

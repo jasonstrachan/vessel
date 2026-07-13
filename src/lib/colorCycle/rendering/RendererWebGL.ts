@@ -22,12 +22,20 @@ export class RendererWebGL {
     return WebGLColorCycleRenderer.isSupported();
   }
 
+  static getContextBudget(): { active: number; max: number } {
+    return WebGLColorCycleRenderer.getContextBudget();
+  }
+
   getCanvas(): HTMLCanvasElement {
     return this.canvas;
   }
 
   isContextLost(): boolean {
     return this.renderer.isContextLost();
+  }
+
+  getMaxTextureSize(): number {
+    return this.renderer.getMaxTextureSize();
   }
 
   isPaletteReady(signature?: string | null): boolean {

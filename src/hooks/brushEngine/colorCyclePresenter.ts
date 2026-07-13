@@ -1,5 +1,6 @@
 import { ColorCycleAnimator } from '@/lib/ColorCycleAnimator';
 import { type ColorCycleLayerDirtyBatch, type ColorCycleLayerDocumentRead } from '@/lib/colorCycle/document';
+import { recordColorCycleRuntimePerf } from '@/utils/perf/ccPerfProbe';
 
 import {
   ColorCyclePresenterRebuildScheduler,
@@ -298,6 +299,7 @@ export class ColorCyclePresenter {
     this.compositeCtx.drawImage(this.staticTierCanvas, 0, 0);
     this.compositeCtx.drawImage(this.animatedOverlayCanvas, 0, 0);
     this.presentCompositeToTarget();
+    recordColorCycleRuntimePerf('presenterComposite');
     return true;
   }
 
@@ -325,6 +327,18 @@ export class ColorCyclePresenter {
   }
 
   renderDirectToCanvas(params: ColorCyclePresenterDirectRenderParams): void {
+    recordColorCycleRuntimePerf('forcedDirectRender', { layerId: params.layerId });
+    this.publishLayerCanvas(params, true);
+  }
+
+  presentCurrentFrameToCanvas(params: ColorCyclePresenterDirectRenderParams): void {
+    this.publishLayerCanvas(params, false);
+  }
+
+  private publishLayerCanvas(
+    params: ColorCyclePresenterDirectRenderParams,
+    forceRender: boolean,
+  ): void {
     const {
       targetCanvas,
       ctx,
@@ -342,8 +356,25 @@ export class ColorCyclePresenter {
       return;
     }
 
-    this.rebuildScheduler.assertFreshForRender(layerId, animator, params.documentRead, 'ColorCyclePresenter.renderDirectToCanvas');
-    this.rebuildScheduler.forceRender(animator);
+    if (forceRender) {
+      this.rebuildScheduler.assertFreshForRender(
+        layerId,
+        animator,
+        params.documentRead,
+        'ColorCyclePresenter.renderDirectToCanvas',
+      );
+      this.rebuildScheduler.forceRender(animator);
+    } else {
+      const isCurrent = this.rebuildScheduler.isCurrentForPresentation(
+        layerId,
+        animator,
+        params.documentRead,
+        'ColorCyclePresenter.presentCurrentFrameToCanvas',
+      );
+      if (!isCurrent) {
+        return;
+      }
+    }
 
     if (this.directRenderCanvas.width !== targetCanvas.width || this.directRenderCanvas.height !== targetCanvas.height) {
       this.directRenderCanvas.width = targetCanvas.width;
@@ -379,6 +410,7 @@ export class ColorCyclePresenter {
     } finally {
       ctx.restore();
     }
+    recordColorCycleRuntimePerf('presentedLayerSurface', { layerId });
   }
 
   commitToLayer(params: ColorCyclePresenterCommitParams): void {

@@ -12,6 +12,23 @@ type ColorCyclePresenterSurface = DerivedSurface & {
 };
 
 export class ColorCyclePresenterRebuildScheduler {
+  isCurrentForPresentation(
+    layerId: string,
+    surface: ColorCyclePresenterSurface,
+    documentRead: ColorCycleLayerDocumentRead | undefined,
+    label: string,
+  ): boolean {
+    if (!documentRead) {
+      return true;
+    }
+    return assertDerivedSurfaceFreshForRender({
+      document: documentRead,
+      surface,
+      label: `${label}:${layerId}`,
+      hasScheduledRebuild: surface.hasPendingDerivedSurfaceRebuild?.() ?? false,
+    });
+  }
+
   assertFreshForRender(
     layerId: string,
     surface: ColorCyclePresenterSurface,

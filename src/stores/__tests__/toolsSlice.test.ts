@@ -145,6 +145,20 @@ describe('tools slice', () => {
     );
   });
 
+  it('defaults standard color-cycle presets to 30 FPS', () => {
+    const presetIds = [
+      'color-cycle-stroke',
+      'color-cycle-triangle',
+      'color-cycle-shape',
+      'color-cycle-gradient',
+    ];
+
+    presetIds.forEach((presetId) => {
+      const preset = brushPresets.find((candidate) => candidate.id === presetId);
+      expect(preset?.preferredSettings?.colorCycleFPS).toBe(30);
+    });
+  });
+
   it('mirrors playback speed scale into persisted brush settings', () => {
     const store = useAppStore.getState();
     const strokePreset = brushPresets.find((preset) => preset.id === 'color-cycle-stroke');

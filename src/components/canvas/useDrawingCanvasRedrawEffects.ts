@@ -4,8 +4,12 @@ import type { RenderStaticCompositeOptions } from '@/stores/slices/layersSlice';
 import {
   COLOR_CYCLE_FRAME_READY_EVENT,
   getColorCycleFrameReadyDirtyBatches,
+  getColorCycleFrameReadySourceLayerId,
 } from '@/hooks/brushEngine/colorCycleFrameEvents';
-import type { ColorCycleLayerDirtyBatch } from '@/lib/colorCycle/document';
+import { recordColorCycleRuntimePerf } from '@/utils/perf/ccPerfProbe';
+
+import { createColorCycleFrameCoalescer } from './colorCycleFrameCoalescer';
+import type { ColorCycleSegmentRefreshRequest } from './useDrawingCanvasColorCycleSegmentRefresh';
 
 interface UseDrawingCanvasRedrawEffectsOptions {
   layersNeedRecomposition: boolean;
@@ -13,7 +17,7 @@ interface UseDrawingCanvasRedrawEffectsOptions {
   selectionStart: unknown;
   selectionEnd: unknown;
   hadSelectionRef: React.MutableRefObject<boolean>;
-  refreshColorCycleSegments: (dirtyBatches?: ColorCycleLayerDirtyBatch[]) => boolean | void;
+  refreshColorCycleSegments: (request?: ColorCycleSegmentRefreshRequest) => boolean | void;
   rebuildStaticComposite?: (
     options?: RenderStaticCompositeOptions
   ) => boolean | Promise<boolean>;
@@ -45,34 +49,53 @@ export const useDrawingCanvasRedrawEffects = ({
 
   useEffect(() => {
     const requestRedraw = () => {
+      recordColorCycleRuntimePerf('mainRedrawRequest');
       setNeedsRedraw((prev) => prev + 1);
     };
 
-    const handleColorCycleFrameReady = (event: Event) => {
-      const dirtyBatches = getColorCycleFrameReadyDirtyBatches(event);
-      const hasStaticDirtyBatch = refreshColorCycleSegments(dirtyBatches);
-      if (dirtyBatches?.length && hasStaticDirtyBatch) {
-        void Promise.resolve(rebuildStaticComposite?.({ dirtyBatches }));
+    const queue = createColorCycleFrameCoalescer((flush) => {
+      recordColorCycleRuntimePerf('presentationFlush');
+      const hasStaticDirtyBatch = flush.sourceLayerIds.length > 0
+        ? refreshColorCycleSegments({
+            dirtyBatches: flush.dirtyBatches,
+            sourceLayerIds: flush.sourceLayerIds,
+          })
+        : false;
+      if (flush.dirtyBatches.length > 0 && hasStaticDirtyBatch) {
+        void Promise.resolve(rebuildStaticComposite?.({ dirtyBatches: flush.dirtyBatches }));
       }
       requestRedraw();
+    });
+
+    const handleColorCycleFrameReady = (event: Event) => {
+      const dirtyBatches = getColorCycleFrameReadyDirtyBatches(event);
+      const sourceLayerId = getColorCycleFrameReadySourceLayerId(event);
+      if (!sourceLayerId) {
+        queue.enqueueRedraw();
+        return;
+      }
+      queue.enqueueFrame(sourceLayerId, dirtyBatches);
     };
 
     const handleAnimationFrameUpdate = () => {
-      requestRedraw();
+      queue.enqueueRedraw();
     };
 
     const handleSequentialFrameUpdate = () => {
-      requestRedraw();
+      queue.enqueueRedraw();
     };
 
     window.addEventListener(COLOR_CYCLE_FRAME_READY_EVENT, handleColorCycleFrameReady);
+    window.addEventListener('colorCycleFrameUpdate', handleAnimationFrameUpdate);
     window.addEventListener('vessel:animationFrameUpdate', handleAnimationFrameUpdate);
     window.addEventListener('vessel:sequentialFrameUpdate', handleSequentialFrameUpdate);
 
     return () => {
       window.removeEventListener(COLOR_CYCLE_FRAME_READY_EVENT, handleColorCycleFrameReady);
+      window.removeEventListener('colorCycleFrameUpdate', handleAnimationFrameUpdate);
       window.removeEventListener('vessel:animationFrameUpdate', handleAnimationFrameUpdate);
       window.removeEventListener('vessel:sequentialFrameUpdate', handleSequentialFrameUpdate);
+      queue.cancel();
     };
   }, [rebuildStaticComposite, refreshColorCycleSegments, setNeedsRedraw]);
 
