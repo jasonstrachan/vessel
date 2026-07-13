@@ -49,7 +49,6 @@ import { isDragDefinedCcGradientShape } from '@/hooks/canvas/handlers/shapes/ccG
 import {
   appendCcGradientClickLinePoint,
   isCcGradientClickLineDrawingShapeMode,
-  prepareCcGradientClickLineFinalize,
   previewCcGradientClickLinePoint,
 } from '@/hooks/canvas/handlers/shapes/ccGradientDrawingRuntime';
 import {
@@ -168,16 +167,6 @@ const isSampledCcShapePreview = (brushSettings: BrushSettings): boolean =>
     ccGradientSource: brushSettings.ccGradientSource,
     useForegroundGradient: brushSettings.colorCycleUseForegroundGradient,
   }) === 'sampled';
-
-const getVisibleCcGradientColorCount = (brushSettings: BrushSettings): number => {
-  if (Number.isFinite(brushSettings.gradientBands)) {
-    return Math.max(1, Math.round(brushSettings.gradientBands ?? 1));
-  }
-  if (Number.isFinite(brushSettings.colors)) {
-    return Math.max(1, Math.round(brushSettings.colors ?? 1));
-  }
-  return 1;
-};
 
 type ShapeAdjustHelperUpdate = {
   spacing: number;
@@ -2637,6 +2626,18 @@ export const createShapeToolHandler = (
     drawingHandlers.stopContinuousColorCycleAnimation?.('shape-tool-click-line');
     const pressure = computePointerPressure(event);
     const worldPos = resolveClickLinePoint(computeWorldPointer(event), event.shiftKey);
+    if (!session.active) {
+      const didStart = drawingHandlers.startShapeDrawing(
+        worldPos,
+        pressure,
+        event.timeStamp,
+        event.pressure,
+        { renderPreview: false },
+      );
+      if (!didStart) {
+        return true;
+      }
+    }
     const hadGeometry = appendCcGradientClickLinePoint({
       refs: drawingHandlers,
       session,
@@ -2645,7 +2646,6 @@ export const createShapeToolHandler = (
       pressure,
       rawPressure: event.pressure,
     });
-    session.finalizeOnPointerUp = (event.detail ?? 0) >= 2;
     drawingHandlers.isDrawingShapeRef.current = true;
     getAppStoreState().setShapeDrawing(true);
     drawingHandlers.seedManualStrokeBoundingBox?.(
@@ -2694,9 +2694,7 @@ export const createShapeToolHandler = (
     return true;
   };
 
-  const handleCcGradientClickLinePointerUp = (
-    event: React.PointerEvent<HTMLCanvasElement>
-  ): boolean => {
+  const handleCcGradientClickLinePointerUp = (): boolean => {
     const state = getAppStoreState();
     if (!isCcGradientClickLineDrawingShapeMode(state)) {
       return false;
@@ -2706,56 +2704,9 @@ export const createShapeToolHandler = (
       return false;
     }
 
-    const finalizeRequested = (event.detail ?? 0) >= 2 || session.finalizeOnPointerUp === true;
-    session.finalizeOnPointerUp = false;
-    if (!finalizeRequested) {
-      if (session.points.length >= 2) {
-        drawingHandlers.triggerSimpleShapePreview?.();
-      }
-      return true;
+    if (session.points.length >= 2) {
+      drawingHandlers.triggerSimpleShapePreview?.();
     }
-
-    const canFinalize = prepareCcGradientClickLineFinalize({
-      refs: drawingHandlers,
-      session,
-      brushSettings: state.tools.brushSettings,
-    });
-    if (!canFinalize) {
-      restartColorCycleAnimation?.();
-      return true;
-    }
-
-    if (
-      state.currentBrushPreset?.id === 'color-cycle-gradient' &&
-      state.tools.brushSettings.colorCycleFillMode === 'linear' &&
-      getVisibleCcGradientColorCount(state.tools.brushSettings) > 1
-    ) {
-      drawingHandlers.isSelectingDirectionRef.current = true;
-      drawingHandlers.directionPreviewRef.current = null;
-      if (drawingHandlers.ccShapePreviewCacheRef) {
-        drawingHandlers.ccShapePreviewCacheRef.current = null;
-      }
-      clearCurrentPreview();
-      clearOverlayCanvas();
-      const pressure = computePointerPressure(event);
-      const directionWorld = computeWorldPointer(event);
-      drawingHandlers.continueShapeDrawing(
-        directionWorld,
-        pressure,
-        event.timeStamp,
-        event.pressure,
-        { renderPreview: false }
-      );
-      drawingHandlers.stopContinuousColorCycleAnimation?.('shape-preview');
-      stateMachine.finalizationComplete();
-      setNeedsRedraw(prev => prev + 1);
-      return true;
-    }
-
-    const finalizePromise = drawingHandlers.finalizeShapeDrawing();
-    finalizePromise.finally(() => {
-      restartColorCycleAnimation?.();
-    });
     return true;
   };
 
@@ -4483,7 +4434,7 @@ export const createShapeToolHandler = (
       if (handleCrosshatchPointerUp(event)) {
         return true;
       }
-      if (handleCcGradientClickLinePointerUp(event)) {
+      if (handleCcGradientClickLinePointerUp()) {
         return true;
       }
       if (polygonShapePointerUp(event)) {

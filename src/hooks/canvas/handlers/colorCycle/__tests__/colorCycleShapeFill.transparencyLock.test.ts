@@ -141,7 +141,7 @@ describe('colorCycleShapeFill transparency lock', () => {
     getStateSpy.mockRestore();
   });
 
-  it('does not reset the color-cycle stroke lifecycle before shape finalize fill', async () => {
+  it('begins the color-cycle shape stroke immediately before the finalized fill', async () => {
     const getStateSpy = jest.spyOn(useAppStore, 'getState');
     getStateSpy.mockReturnValue({
       layers: [
@@ -165,10 +165,10 @@ describe('colorCycleShapeFill transparency lock', () => {
     canvas.height = 2;
 
     const brushEngine = {
-      resetColorCycle: jest.fn(),
       fillCcGradientLinear: jest.fn(async () => undefined),
       updateColorCycleTexture: jest.fn(),
     };
+    const beginShapeStroke = jest.fn();
 
     await finalizeColorCycleShapeFillLinear(
       {
@@ -188,6 +188,7 @@ describe('colorCycleShapeFill transparency lock', () => {
         shapeLayerId: 'layer-1',
         beforeColorState: null,
         tool: 'brush',
+        beginShapeStroke,
       },
       {
         brushRuntime: brushEngine as never,
@@ -201,13 +202,16 @@ describe('colorCycleShapeFill transparency lock', () => {
       }
     );
 
-    expect(brushEngine.resetColorCycle).not.toHaveBeenCalled();
+    expect(beginShapeStroke).toHaveBeenCalledTimes(1);
     expect(brushEngine.fillCcGradientLinear).toHaveBeenCalledWith(
       expect.any(Array),
       { x: 1, y: 0 },
       expect.objectContaining({
         skipPostRender: true,
       })
+    );
+    expect(beginShapeStroke.mock.invocationCallOrder[0]).toBeLessThan(
+      brushEngine.fillCcGradientLinear.mock.invocationCallOrder[0],
     );
 
     getStateSpy.mockRestore();
@@ -778,6 +782,7 @@ describe('colorCycleShapeFill transparency lock', () => {
     canvas.height = 3;
     const fillCcGradientConcentric = jest.fn(async () => undefined);
     const setGradient = jest.fn();
+    const beginShapeStroke = jest.fn();
     const bindGradientDefIdToSlot = jest.fn();
     const frozenStops: StoredStop[] = [
       { position: 0, color: '#123456' },
@@ -812,6 +817,7 @@ describe('colorCycleShapeFill transparency lock', () => {
         shapeLayerId: 'layer-1',
         beforeColorState: null,
         tool: 'brush',
+        beginShapeStroke,
       },
       {
         brushRuntime: {
@@ -836,7 +842,14 @@ describe('colorCycleShapeFill transparency lock', () => {
     );
 
     expect(setGradient).toHaveBeenCalledWith(frozenStops, 'layer-1');
+    expect(beginShapeStroke).toHaveBeenCalledTimes(1);
     expect(fillCcGradientConcentric).toHaveBeenCalled();
+    expect(setGradient.mock.invocationCallOrder[0]).toBeLessThan(
+      beginShapeStroke.mock.invocationCallOrder[0],
+    );
+    expect(beginShapeStroke.mock.invocationCallOrder[0]).toBeLessThan(
+      fillCcGradientConcentric.mock.invocationCallOrder[0],
+    );
 
     getStateSpy.mockRestore();
   });

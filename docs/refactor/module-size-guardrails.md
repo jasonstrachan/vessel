@@ -48,6 +48,15 @@ Load modal check:
 wc -l src/components/modals/LoadProjectModal.tsx
 ```
 
+CC Gradient Click Line completion remains outside the orchestration shells:
+
+- `src/hooks/canvas/handlers/shapes/ccGradientClickLineCompletion.ts` owns the
+  explicit double-click/Enter completion contract.
+- `src/hooks/canvas/handlers/colorCycle/ccGradientDirectionStage.ts` owns the
+  shared multi-color direction-stage entry contract.
+- `DrawingCanvas.tsx` and `DrawingCanvasViewport.tsx` only forward the native
+  `dblclick` event.
+
 ## Refactor Trigger Rules
 - Third-concern rule: if a file now owns 3+ independent concerns, extract before merge.
 - Repeated helper rule: if a helper pattern appears 3 times, extract.

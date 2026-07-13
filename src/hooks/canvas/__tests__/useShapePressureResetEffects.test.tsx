@@ -2,6 +2,11 @@ import { act, renderHook } from '@testing-library/react';
 import { useRef } from 'react';
 
 import { useShapePressureResetEffects } from '@/hooks/canvas/useShapePressureResetEffects';
+import {
+  beginMarkGradientSession,
+  cancelMarkGradientSession,
+  getActiveMarkGradientSession,
+} from '@/hooks/canvas/utils/colorCycleMarkSession';
 import { useAppStore, type AppState } from '@/stores/useAppStore';
 import { BrushShape, type Layer } from '@/types';
 
@@ -80,6 +85,8 @@ describe('useShapePressureResetEffects', () => {
   });
 
   afterEach(() => {
+    cancelMarkGradientSession('cc-a');
+    cancelMarkGradientSession('cc-b');
     resetToolState();
   });
 
@@ -210,6 +217,17 @@ describe('useShapePressureResetEffects', () => {
   it('clears an active CC Gradient click-line session when the active layer changes', () => {
     const resetShapePressureState = jest.fn();
     const resetShapeDragRefs = jest.fn();
+    const firstMarkSession = beginMarkGradientSession({
+      layerId: 'cc-a',
+      markKind: 'shape',
+      gradientKind: 'linear',
+      source: 'sampled',
+      stops: [
+        { position: 0, color: '#000000' },
+        { position: 1, color: '#ffffff' },
+      ],
+    });
+    expect(firstMarkSession).not.toBeNull();
 
     const { result, unmount } = renderHook(() => {
       const strokeBoundingBoxRef = useRef(null);
@@ -268,6 +286,21 @@ describe('useShapePressureResetEffects', () => {
     expect(result.current.shapeInteractionPhaseRef.current).toBe('idle');
     expect(useAppStore.getState().shapeState.isDrawing).toBe(false);
     expect(resetShapeDragRefs).toHaveBeenCalledTimes(1);
+    expect(getActiveMarkGradientSession('cc-a')).toBeNull();
+    let secondMarkSession: ReturnType<typeof beginMarkGradientSession> = null;
+    expect(() => {
+      secondMarkSession = beginMarkGradientSession({
+        layerId: 'cc-a',
+        markKind: 'shape',
+        gradientKind: 'linear',
+        source: 'sampled',
+        stops: [
+          { position: 0, color: '#ff0000' },
+          { position: 1, color: '#0000ff' },
+        ],
+      });
+    }).not.toThrow();
+    expect(secondMarkSession).not.toBeNull();
 
     unmount();
   });

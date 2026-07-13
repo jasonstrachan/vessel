@@ -25,6 +25,7 @@ export const useCanvasRuntime = ({ showFeedback }: UseCanvasRuntimeOptions) => {
     handlePointerEnter,
     handlePointerLeave,
     handlePointerCancel,
+    handleDoubleClick,
     handleBlur: eventHandleBlur,
   } = useDrawingCanvasRuntimeEffectsFromOrchestration(
     buildDrawingCanvasRuntimeEffectsFromOrchestrationArgs({
@@ -52,6 +53,7 @@ export const useCanvasRuntime = ({ showFeedback }: UseCanvasRuntimeOptions) => {
     handlePointerEnter,
     handlePointerLeave,
     handlePointerCancel,
+    handleDoubleClick,
     viewportProps,
   };
 };

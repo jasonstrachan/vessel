@@ -12,6 +12,7 @@ const handlers = {
   handlePointerEnter: jest.fn(),
   handlePointerLeave: jest.fn(),
   handlePointerCancel: jest.fn(),
+  handleDoubleClick: jest.fn(),
 };
 
 jest.mock('@/hooks/useDrawingHandlers', () => ({
@@ -201,10 +202,12 @@ describe('DrawingCanvas smoke', () => {
     fireEvent.pointerEnter(surface);
     fireEvent.pointerLeave(surface);
     fireEvent.pointerCancel(surface);
+    fireEvent.doubleClick(surface);
 
     expect(handlers.handlePointerDown).toHaveBeenCalled();
     expect(handlers.handlePointerUp).toHaveBeenCalled();
     expect(handlers.handlePointerMove).toHaveBeenCalled();
+    expect(handlers.handleDoubleClick).toHaveBeenCalled();
     expect(screen.getByLabelText('Drawing canvas workspace')).toHaveStyle({
       backgroundColor: '#224466',
     });

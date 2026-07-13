@@ -1,5 +1,6 @@
 import { BrushShape, type BrushSettings } from '@/types';
 import type { AppState } from '@/stores/useAppStore';
+import { cancelMarkGradientSession } from '@/hooks/canvas/utils/colorCycleMarkSession';
 import {
   buildCcStrokeShapeGeometry,
   type CcStrokeSample,
@@ -22,11 +23,13 @@ type CcGradientDrawingRefs = {
   ccGradientDrawingGeometryRef: MutableRef<CcGradientDrawingGeometry | null>;
 };
 
+type CcGradientClickLineCancellationRefs = Pick<CcGradientDrawingRefs, 'shapePointsRef'> &
+  Partial<Pick<CcGradientDrawingRefs, 'ccStrokeDirectionRef' | 'ccGradientDrawingGeometryRef'>>;
+
 export type CcGradientClickLineSession = {
   active: boolean;
   points: Point[];
   previewPoint: Point | null;
-  finalizeOnPointerUp?: boolean;
   pressure?: number;
   rawPressure?: number;
 };
@@ -35,7 +38,6 @@ export const createCcGradientClickLineSession = (): CcGradientClickLineSession =
   active: false,
   points: [],
   previewPoint: null,
-  finalizeOnPointerUp: false,
 });
 
 export const isCcGradientStrokeMode = (state: AppState): boolean =>
@@ -215,7 +217,6 @@ export const appendCcGradientClickLinePoint = ({
     session.points = [];
   }
   session.active = true;
-  session.finalizeOnPointerUp = false;
   session.previewPoint = null;
   session.pressure = pressure;
   session.rawPressure = rawPressure;
@@ -294,25 +295,32 @@ export const prepareCcGradientClickLineFinalize = ({
   session.active = false;
   session.points = [];
   session.previewPoint = null;
-  session.finalizeOnPointerUp = false;
   return true;
 };
 
 export const cancelCcGradientClickLineSession = (
-  refs: CcGradientDrawingRefs,
-  session: CcGradientClickLineSession
+  refs: CcGradientClickLineCancellationRefs,
+  session: CcGradientClickLineSession,
+  { layerId }: { layerId: string | null },
 ): boolean => {
-  if (!session.active && session.points.length === 0 && !refs.ccGradientDrawingGeometryRef.current) {
+  if (layerId) {
+    cancelMarkGradientSession(layerId);
+  }
+
+  if (!session.active && session.points.length === 0 && !refs.ccGradientDrawingGeometryRef?.current) {
     return false;
   }
 
   session.active = false;
   session.points = [];
   session.previewPoint = null;
-  session.finalizeOnPointerUp = false;
   refs.shapePointsRef.current = [];
-  refs.ccStrokeDirectionRef.current = null;
-  refs.ccGradientDrawingGeometryRef.current = null;
+  if (refs.ccStrokeDirectionRef) {
+    refs.ccStrokeDirectionRef.current = null;
+  }
+  if (refs.ccGradientDrawingGeometryRef) {
+    refs.ccGradientDrawingGeometryRef.current = null;
+  }
   return true;
 };
 

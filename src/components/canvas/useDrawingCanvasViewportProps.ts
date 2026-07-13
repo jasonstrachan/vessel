@@ -15,6 +15,7 @@ type ViewportPropSubset = Omit<
   | 'onPointerEnter'
   | 'onPointerLeave'
   | 'onPointerCancel'
+  | 'onDoubleClick'
 >;
 
 interface UseDrawingCanvasViewportPropsOptions {

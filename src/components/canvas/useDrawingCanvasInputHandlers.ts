@@ -104,6 +104,7 @@ export const useDrawingCanvasInputHandlers = ({
     handlePointerEnter: basePointerEnter,
     handlePointerLeave: basePointerLeave,
     handlePointerCancel: basePointerCancel,
+    handleDoubleClick,
     handleKeyDown: eventHandleKeyDown,
     handleKeyUp: eventHandleKeyUp,
     handleWheel: eventHandleWheel,
@@ -133,6 +134,7 @@ export const useDrawingCanvasInputHandlers = ({
 
   return {
     ...pointerHandlers,
+    handleDoubleClick,
     handleBlur,
   };
 };

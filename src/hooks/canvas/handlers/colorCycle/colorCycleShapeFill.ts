@@ -451,6 +451,7 @@ export type ColorCycleShapeLinearArgs = {
   roi?: DeferredSaveWithStateArgs['roi'];
   ditherPixelSize?: number;
   keepOverlayAfter?: boolean;
+  beginShapeStroke?: () => void;
 };
 
 export const finalizeColorCycleShapeFillLinear = async (
@@ -526,6 +527,7 @@ export const finalizeColorCycleShapeFillLinear = async (
         layer: liveLayer,
         renderSession: resolvedRenderSession,
       });
+      args.beginShapeStroke?.();
       await deps.brushRuntime.fillCcGradientLinear(args.shapePoints, args.direction, {
         ...resolveShapeFinalizeDitherOptions({
           brushSettings: liveSettings,
@@ -753,6 +755,7 @@ export type ColorCycleShapeConcentricArgs = {
   roi?: DeferredSaveWithStateArgs['roi'];
   ditherPixelSize?: number;
   keepOverlayAfter?: boolean;
+  beginShapeStroke?: () => void;
 };
 
 export const finalizeColorCycleShapeFillConcentric = async (
@@ -828,6 +831,7 @@ export const finalizeColorCycleShapeFillConcentric = async (
         layer: liveLayer,
         renderSession: resolvedRenderSession,
       });
+      args.beginShapeStroke?.();
       await deps.brushRuntime.fillCcGradientConcentric(args.shapePoints, {
         ...resolveShapeFinalizeDitherOptions({
           brushSettings: liveSettings,
@@ -1053,6 +1057,7 @@ export type RunColorCycleShapeFillArgs = {
   roi?: DeferredSaveWithStateArgs['roi'];
   ditherPixelSize?: number;
   keepOverlayAfter?: boolean;
+  beginShapeStroke?: () => void;
 };
 
 export type RunColorCycleShapeFillDeps = ColorCycleShapeFillDeps & {
@@ -1090,6 +1095,7 @@ export const runColorCycleShapeFill = async (
       roi: args.roi,
       ditherPixelSize: args.ditherPixelSize,
       keepOverlayAfter: args.keepOverlayAfter,
+      beginShapeStroke: args.beginShapeStroke,
     }, deps);
   } else {
     await finalizeColorCycleShapeFillConcentric({
@@ -1107,6 +1113,7 @@ export const runColorCycleShapeFill = async (
       roi: args.roi,
       ditherPixelSize: args.ditherPixelSize,
       keepOverlayAfter: args.keepOverlayAfter,
+      beginShapeStroke: args.beginShapeStroke,
     }, deps);
   }
 

@@ -19,6 +19,11 @@ import { logLivePreview } from '@/hooks/canvas/utils/livePreviewDebug';
 import { ensurePresResDebugBridge, isPresResDebugEnabled } from '@/hooks/canvas/utils/presResDebug';
 import { computeRegularDitherShapeSeed } from '@/hooks/brushEngine/regularDitherVariety';
 import { isDragDefinedCcGradientShape } from '@/hooks/canvas/handlers/shapes/ccGradientDrawingGeometry';
+import { completeCcGradientClickLine } from '@/hooks/canvas/handlers/shapes/ccGradientClickLineCompletion';
+import {
+  enterCcGradientDirectionStage,
+  shouldEnterCcGradientDirectionStage,
+} from '@/hooks/canvas/handlers/colorCycle/ccGradientDirectionStage';
 import {
   strokeFinalizeProbeMark,
   strokeFinalizeProbePoint,
@@ -453,27 +458,6 @@ const isColorCycleGradientStrokeMode = (
   tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE_SHAPE &&
   tools.brushSettings.colorCycleFillMode === 'stroke';
 
-const shouldEnterCcGradientDirectionStage = (
-  tools: EventHandlerDynamicDeps['tools'],
-  brushPresetId: string | null
-): boolean => {
-  const brushSettings = tools.brushSettings;
-  const visibleColorCount = Number.isFinite(brushSettings.gradientBands)
-    ? Math.round(brushSettings.gradientBands ?? 1)
-    : Number.isFinite(brushSettings.colors)
-      ? Math.round(brushSettings.colors ?? 1)
-    : 1;
-
-  return (
-    tools.currentTool === 'brush' &&
-    tools.shapeMode &&
-    brushPresetId === 'color-cycle-gradient' &&
-    brushSettings.brushShape === BrushShape.COLOR_CYCLE_SHAPE &&
-    brushSettings.colorCycleFillMode === 'linear' &&
-    visibleColorCount > 1
-  );
-};
-
 const computeOpposingAxis = (points: Array<{ x: number; y: number }>) => {
   if (points.length < 2) {
     return {
@@ -603,12 +587,6 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
 
   const logCcGradientDirectionPlayback = (label: string) => {
     ccDirectionDebug(label, getCcGradientDirectionPlaybackSnapshot());
-  };
-
-  const suspendCcGradientDirectionPlayback = () => {
-    logCcGradientDirectionPlayback('stage2-playback-before-stop');
-    drawingHandlers.stopContinuousColorCycleAnimation?.('shape-preview');
-    logCcGradientDirectionPlayback('stage2-playback-after-stop');
   };
 
   const resumeCcGradientDirectionPlayback = () => {
@@ -4585,14 +4563,8 @@ function resampleStopsToColors(stops: Stop[], count: number): string[] {
           shouldEnterCcGradientDirectionStage(tools, brushPresetId) &&
           !drawingHandlers.isSelectingDirectionRef?.current
         ) {
-          drawingHandlers.isSelectingDirectionRef.current = true;
-          drawingHandlers.directionPreviewRef.current = null;
-          if (drawingHandlers.ccShapePreviewCacheRef) {
-            drawingHandlers.ccShapePreviewCacheRef.current = null;
-          }
-          clearOverlayCanvas();
-          suspendCcGradientDirectionPlayback();
-          updatePendingCcGradientDirectionPreview({
+          enterCcGradientDirectionStage({
+            deps,
             directionWorld: resolveDirectionSelectionPoint(
               worldPosOnPointerUp,
               event.shiftKey,
@@ -4610,8 +4582,6 @@ function resampleStopsToColors(stops: Stop[], count: number): string[] {
             gradientBands: tools.brushSettings.gradientBands,
             drawingCanvasHasContent: drawingHandlers.drawingCanvasHasContent?.current ?? null,
           });
-          resetSequentialPointerDown();
-          stateMachine.finalizationComplete();
           return;
         }
 
@@ -4877,13 +4847,39 @@ function resampleStopsToColors(stops: Stop[], count: number): string[] {
     }
   };
 
+  const handleDoubleClick = (event: React.MouseEvent<Element>) => {
+    const { canvas, tools } = getDynamicDeps();
+    const rect = canvasRef.current?.getBoundingClientRect();
+    const pointerPos = rect
+      ? { x: event.clientX - rect.left, y: event.clientY - rect.top }
+      : { x: 0, y: 0 };
+    const scale = canvas?.zoom || 1;
+    const directionWorld = alignPointToPixel(
+      pan.screenToWorld(pointerPos.x, pointerPos.y, scale),
+      shouldSnapPointerToPixelGrid(tools),
+    );
+    const session = drawingHandlers.ccGradientClickLineSessionRef?.current;
+    const handled = completeCcGradientClickLine({
+      deps,
+      directionWorld,
+      pressure: session?.pressure ?? 0.5,
+      timestamp: event.timeStamp,
+      rawPressure: session?.rawPressure ?? 0,
+    });
+    if (handled) {
+      event.preventDefault();
+      event.stopPropagation();
+    }
+  };
+
   return {
     handlePointerDown,
     handlePointerMove,
     handlePointerUp,
     handlePointerEnter,
     handlePointerLeave,
-    handlePointerCancel
+    handlePointerCancel,
+    handleDoubleClick,
   };
 };
 

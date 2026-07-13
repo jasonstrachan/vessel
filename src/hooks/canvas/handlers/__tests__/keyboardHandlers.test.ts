@@ -58,6 +58,7 @@ const createDeps = (): KeyboardDeps => {
     stateMachine: {
       state: { isSpacePressed: false },
       dispatch,
+      finalizationComplete: jest.fn(),
     },
     interaction: {
       state: { isDrawing: false },
@@ -69,7 +70,11 @@ const createDeps = (): KeyboardDeps => {
       finalizeDrawing: jest.fn().mockResolvedValue(undefined),
       finalizeShapeDrawing: jest.fn().mockResolvedValue(undefined),
       triggerSimpleShapePreview: jest.fn(),
+      continueShapeDrawing: jest.fn(),
       shapePointsRef: { current: [] },
+      isSelectingDirectionRef: { current: false },
+      directionPreviewRef: { current: null },
+      drawingCanvasHasContent: { current: false },
       ccStrokeDirectionRef: { current: null },
       ccGradientDrawingGeometryRef: { current: null },
       ccGradientClickLineSessionRef: {
@@ -275,6 +280,56 @@ describe('createKeyboardHandlers', () => {
     expect(deps.overlayCanvasRef.current?.getContext('2d')?.clearRect).toHaveBeenCalledWith(0, 0, 100, 100);
     expect(deps.selectionRuntimeRef.current.clickLineSession.active).toBe(false);
     expect(deps.restartColorCycleAnimation).toHaveBeenCalled();
+  });
+
+  it('enters direction selection on Enter for a multi-color CC gradient click-line', () => {
+    const deps = createDeps();
+    const handlers = createKeyboardHandlers(deps);
+    mockedUseAppStore.getState.mockReturnValue({
+      ui: { keyboardScope: { active: 'canvas' } },
+      brushEditor: { status: 'IDLE' },
+      clearSelection: jest.fn(),
+      setShapeDrawing: jest.fn(),
+      setSequentialPointerDown: jest.fn(),
+    });
+
+    deps.dynamicDepsRef.current.currentBrushPresetId = 'color-cycle-gradient';
+    deps.dynamicDepsRef.current.tools = {
+      ...deps.dynamicDepsRef.current.tools,
+      currentTool: 'brush',
+      shapeMode: true,
+      brushSettings: {
+        brushShape: BrushShape.COLOR_CYCLE_SHAPE,
+        colorCycleFillMode: 'linear',
+        ccGradientDrawingShape: 'click-line',
+        gradientBands: 2,
+        size: 10,
+        pressureEnabled: false,
+      },
+    } as typeof deps.dynamicDepsRef.current.tools;
+    deps.drawingHandlers.ccGradientClickLineSessionRef.current = {
+      active: true,
+      points: [
+        { x: 10, y: 10 },
+        { x: 30, y: 10 },
+        { x: 30, y: 30 },
+      ],
+      previewPoint: null,
+    };
+
+    handlers.handleKeyDown(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter' }));
+
+    expect(deps.drawingHandlers.isSelectingDirectionRef.current).toBe(true);
+    expect(deps.drawingHandlers.finalizeShapeDrawing).not.toHaveBeenCalled();
+    expect(deps.drawingHandlers.continueShapeDrawing).toHaveBeenCalledWith(
+      { x: 30, y: 30 },
+      0.5,
+      expect.any(Number),
+      0,
+      { renderPreview: false },
+    );
+    expect(deps.drawingHandlers.ccGradientClickLineSessionRef.current.active).toBe(false);
+    expect(deps.stateMachine.finalizationComplete).toHaveBeenCalled();
   });
 
   it('cancels CC gradient click-line on Escape', () => {

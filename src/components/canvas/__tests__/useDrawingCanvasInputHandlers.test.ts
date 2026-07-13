@@ -76,6 +76,7 @@ describe('useDrawingCanvasInputHandlers', () => {
       handlePointerEnter: jest.fn(),
       handlePointerLeave: jest.fn(),
       handlePointerCancel: jest.fn(),
+      handleDoubleClick: jest.fn(),
       handleKeyDown: jest.fn(),
       handleKeyUp: jest.fn(),
       handleWheel: jest.fn(),

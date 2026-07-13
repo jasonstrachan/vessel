@@ -7,7 +7,10 @@ import { BrushShape } from '@/types';
 import type { BoundingBox } from '@/hooks/canvas/utils/captureRegions';
 import type { ShapeInteractionPhase } from '@/hooks/canvas/useDrawingHandlerRefs';
 import type { CcGradientDrawingGeometry } from '@/hooks/canvas/handlers/shapes/ccGradientDrawingGeometry';
-import type { CcGradientClickLineSession } from '@/hooks/canvas/handlers/shapes/ccGradientDrawingRuntime';
+import {
+  cancelCcGradientClickLineSession,
+  type CcGradientClickLineSession,
+} from '@/hooks/canvas/handlers/shapes/ccGradientDrawingRuntime';
 
 type UseShapePressureResetEffectsArgs = {
   resetShapePressureState: () => void;
@@ -86,9 +89,15 @@ export const useShapePressureResetEffects = ({
           ccGradientDrawingGeometryRef.current = null;
         }
         if (ccGradientClickLineSessionRef) {
-          ccGradientClickLineSessionRef.current.active = false;
-          ccGradientClickLineSessionRef.current.points = [];
-          ccGradientClickLineSessionRef.current.previewPoint = null;
+          cancelCcGradientClickLineSession(
+            {
+              shapePointsRef,
+              ccStrokeDirectionRef,
+              ccGradientDrawingGeometryRef,
+            },
+            ccGradientClickLineSessionRef.current,
+            { layerId: state.activeLayerId },
+          );
         }
         isDrawingShapeRef.current = false;
         shapeInteractionPhaseRef.current = 'idle';
@@ -155,17 +164,17 @@ export const useShapePressureResetEffects = ({
           next.activeLayerId === prev.activeLayerId &&
           next.activeLayerType === 'color-cycle';
         if (!isStillClickLine) {
+          const cancelledLayerId = prev.activeLayerId;
           prev = next;
-          ccGradientClickLineSessionRef.current.active = false;
-          ccGradientClickLineSessionRef.current.points = [];
-          ccGradientClickLineSessionRef.current.previewPoint = null;
-          shapePointsRef.current = [];
-          if (ccStrokeDirectionRef) {
-            ccStrokeDirectionRef.current = null;
-          }
-          if (ccGradientDrawingGeometryRef) {
-            ccGradientDrawingGeometryRef.current = null;
-          }
+          cancelCcGradientClickLineSession(
+            {
+              shapePointsRef,
+              ccStrokeDirectionRef,
+              ccGradientDrawingGeometryRef,
+            },
+            ccGradientClickLineSessionRef.current,
+            { layerId: cancelledLayerId },
+          );
           isDrawingShapeRef.current = false;
           shapeInteractionPhaseRef.current = 'idle';
           if (getAppStoreState().shapeState.isDrawing) {

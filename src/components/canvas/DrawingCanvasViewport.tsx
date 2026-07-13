@@ -15,6 +15,7 @@ export interface DrawingCanvasViewportProps {
   onPointerEnter: () => void;
   onPointerLeave: () => void;
   onPointerCancel: (event: React.PointerEvent<Element>) => void;
+  onDoubleClick: (event: React.MouseEvent<Element>) => void;
   canvasStyle: React.CSSProperties;
   overlayCanvasStyle: React.CSSProperties;
   viewportStyle: React.CSSProperties;
@@ -43,6 +44,7 @@ export const DrawingCanvasViewport = ({
   onPointerEnter,
   onPointerLeave,
   onPointerCancel,
+  onDoubleClick,
   canvasStyle,
   overlayCanvasStyle,
   viewportStyle,
@@ -79,6 +81,7 @@ export const DrawingCanvasViewport = ({
     onPointerEnter={onPointerEnter}
     onPointerLeave={onPointerLeave}
     onPointerCancel={onPointerCancel}
+    onDoubleClick={onDoubleClick}
   >
     <canvas
       ref={canvasRef}

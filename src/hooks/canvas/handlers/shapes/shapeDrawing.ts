@@ -868,6 +868,7 @@ type ShapeDrawingDeps = {
     roi?: CaptureRegion;
     ditherPixelSize?: number;
     keepOverlayAfter?: boolean;
+    beginShapeStroke?: () => void;
   }, deps: {
     brushRuntime: ColorCycleShapeFillDeps['brushRuntime'];
     getColorCycleBrushManager: ShapeDrawingDeps['getColorCycleBrushManager'];
@@ -1802,6 +1803,7 @@ export const finalizeShapeDrawing = async (
               roi: shapeCaptureRoi,
               ditherPixelSize,
               keepOverlayAfter,
+              beginShapeStroke: () => deps.shapeBrushRuntime?.resetColorCycle(false),
             }, {
               brushRuntime: {
                 fillCcGradientLinear: deps.shapeBrushRuntime.fillCcGradientLinear,
@@ -1910,8 +1912,6 @@ export const finalizeShapeDrawing = async (
           }
 
           if (isColorCycleLayer && drawCtx) {
-            deps.shapeBrushRuntime.resetColorCycle(false);
-
             if (args.refs.shapePointsRef.current.length >= 3) {
               const fillMode = resolveColorCycleFillMode(liveBrushSettings.colorCycleFillMode);
 
@@ -2020,6 +2020,7 @@ export const finalizeShapeDrawing = async (
                   roi: shapeCaptureRoi,
                   ditherPixelSize,
                   keepOverlayAfter,
+                  beginShapeStroke: () => deps.shapeBrushRuntime?.resetColorCycle(false),
                 }, {
                   brushRuntime: {
                     fillCcGradientLinear: deps.shapeBrushRuntime.fillCcGradientLinear,

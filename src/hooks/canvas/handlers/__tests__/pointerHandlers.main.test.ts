@@ -302,6 +302,15 @@ const makePointerEvent = (overrides: Partial<React.PointerEvent<HTMLCanvasElemen
   ...overrides,
 } as unknown as React.PointerEvent<HTMLCanvasElement>);
 
+const makeMouseEvent = (overrides: Partial<React.MouseEvent<Element>> = {}) => ({
+  preventDefault: jest.fn(),
+  stopPropagation: jest.fn(),
+  clientX: 10,
+  clientY: 10,
+  timeStamp: 0,
+  ...overrides,
+} as unknown as React.MouseEvent<Element>);
+
 describe('pointerHandlers main flows', () => {
   const originalRaf = global.requestAnimationFrame;
 
@@ -2652,8 +2661,9 @@ describe('pointerHandlers main flows', () => {
     handlers.handlePointerDown(makePointerEvent({ clientX: 30, clientY: 10, detail: 1 }));
     handlers.handlePointerUp(makePointerEvent({ clientX: 30, clientY: 10, detail: 1 }));
     (deps.restartColorCycleAnimation as jest.Mock).mockClear();
-    handlers.handlePointerDown(makePointerEvent({ clientX: 30, clientY: 10, detail: 2 }));
-    handlers.handlePointerUp(makePointerEvent({ clientX: 30, clientY: 10, detail: 2 }));
+    handlers.handlePointerDown(makePointerEvent({ clientX: 30, clientY: 10, detail: 0 }));
+    handlers.handlePointerUp(makePointerEvent({ clientX: 30, clientY: 10, detail: 0 }));
+    handlers.handleDoubleClick(makeMouseEvent({ clientX: 30, clientY: 10 }));
 
     await Promise.resolve();
     expect(deps.drawingHandlers.finalizeShapeDrawing).not.toHaveBeenCalled();
@@ -2705,31 +2715,43 @@ describe('pointerHandlers main flows', () => {
     handlers.handlePointerUp(makePointerEvent({ clientX: 10, clientY: 10, detail: 1 }));
     handlers.handlePointerDown(makePointerEvent({ clientX: 30, clientY: 10, detail: 1 }));
     handlers.handlePointerUp(makePointerEvent({ clientX: 30, clientY: 10, detail: 1 }));
-    handlers.handlePointerDown(makePointerEvent({ clientX: 30, clientY: 30, detail: 2 }));
-    handlers.handlePointerUp(makePointerEvent({ clientX: 30, clientY: 30, detail: 2 }));
+    handlers.handlePointerDown(makePointerEvent({ clientX: 30, clientY: 30, detail: 0 }));
+    handlers.handlePointerUp(makePointerEvent({ clientX: 30, clientY: 30, detail: 0 }));
+    handlers.handlePointerDown(makePointerEvent({ clientX: 30, clientY: 30, detail: 0 }));
+    handlers.handlePointerUp(makePointerEvent({ clientX: 30, clientY: 30, detail: 0 }));
+    handlers.handleDoubleClick(makeMouseEvent({ clientX: 30, clientY: 30 }));
 
     await Promise.resolve();
     await Promise.resolve();
+    expect(deps.drawingHandlers.startShapeDrawing).toHaveBeenCalledTimes(1);
+    expect(deps.drawingHandlers.startShapeDrawing).toHaveBeenCalledWith(
+      { x: 10, y: 10 },
+      expect.any(Number),
+      expect.any(Number),
+      undefined,
+      { renderPreview: false },
+    );
     expect(deps.drawingHandlers.isSelectingDirectionRef.current).toBe(true);
     expect(deps.drawingHandlers.finalizeShapeDrawing).not.toHaveBeenCalled();
     expect(deps.drawingHandlers.continueShapeDrawing).toHaveBeenCalledWith(
       expect.objectContaining({ x: 30, y: 30 }),
       expect.any(Number),
       expect.any(Number),
-      undefined,
+      0,
       { renderPreview: false }
     );
     expect(deps.stateMachine.finalizationComplete).toHaveBeenCalled();
     expect(deps.drawingHandlers.ccGradientClickLineSessionRef.current.active).toBe(false);
   });
 
-  it('finalizes CC gradient click-line when double click detail is only present on pointer down', async () => {
+  it('finalizes CC gradient click-line from dblclick when pointer event detail stays zero', async () => {
     const ccLayer = { id: 'cc-layer', layerType: 'color-cycle' } as any;
     const brushSettings = {
       ...baseDynamic.tools.brushSettings,
       brushShape: BrushShape.COLOR_CYCLE_SHAPE,
       colorCycleFillMode: 'linear',
       ccGradientDrawingShape: 'click-line',
+      gradientBands: 1,
       size: 10,
       pressureEnabled: false,
     } as any;
@@ -2762,8 +2784,11 @@ describe('pointerHandlers main flows', () => {
     handlers.handlePointerUp(makePointerEvent({ clientX: 10, clientY: 10, detail: 1 }));
     handlers.handlePointerDown(makePointerEvent({ clientX: 30, clientY: 10, detail: 1 }));
     handlers.handlePointerUp(makePointerEvent({ clientX: 30, clientY: 10, detail: 1 }));
-    handlers.handlePointerDown(makePointerEvent({ clientX: 30, clientY: 30, detail: 2 }));
-    handlers.handlePointerUp(makePointerEvent({ clientX: 30, clientY: 30, detail: 1 }));
+    handlers.handlePointerDown(makePointerEvent({ clientX: 30, clientY: 30, detail: 0 }));
+    handlers.handlePointerUp(makePointerEvent({ clientX: 30, clientY: 30, detail: 0 }));
+    handlers.handlePointerDown(makePointerEvent({ clientX: 30, clientY: 30, detail: 0 }));
+    handlers.handlePointerUp(makePointerEvent({ clientX: 30, clientY: 30, detail: 0 }));
+    handlers.handleDoubleClick(makeMouseEvent({ clientX: 30, clientY: 30 }));
 
     await Promise.resolve();
     await Promise.resolve();

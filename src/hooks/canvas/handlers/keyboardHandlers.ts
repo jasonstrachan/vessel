@@ -6,8 +6,8 @@ import {
 } from '@/hooks/canvas/handlers/selectionHandlers';
 import {
   cancelCcGradientClickLineSession,
-  prepareCcGradientClickLineFinalize,
 } from '@/hooks/canvas/handlers/shapes/ccGradientDrawingRuntime';
+import { completeCcGradientClickLine } from '@/hooks/canvas/handlers/shapes/ccGradientClickLineCompletion';
 import { CURSOR_FALLBACK_CROSSHAIR } from '@/hooks/canvas/handlers/utils/cursorFallbacks';
 import { resolveSpacePanCursor } from '@/hooks/canvas/handlers/utils/spacePanCursor';
 import { BrushShape } from '@/types';
@@ -210,7 +210,11 @@ export const createKeyboardHandlers = (
       if (event.key === 'Escape') {
         event.preventDefault();
         event.stopPropagation();
-        if (cancelCcGradientClickLineSession(deps.drawingHandlers, ccClickLineSession)) {
+        if (cancelCcGradientClickLineSession(
+          deps.drawingHandlers,
+          ccClickLineSession,
+          { layerId: dynamic.activeLayerId },
+        )) {
           deps.drawingHandlers.ccShapePreviewCacheRef.current = null;
           deps.drawingHandlers.triggerSimpleShapePreview?.();
           getAppStoreState().setShapeDrawing(false);
@@ -223,21 +227,16 @@ export const createKeyboardHandlers = (
       if (event.key === 'Enter' || event.code === 'NumpadEnter') {
         event.preventDefault();
         event.stopPropagation();
-        if (
-          prepareCcGradientClickLineFinalize({
-            refs: deps.drawingHandlers,
-            session: ccClickLineSession,
-            brushSettings: dynamic.tools.brushSettings,
-          })
-        ) {
-          void deps.drawingHandlers.finalizeShapeDrawing().then(() => {
-            deps.drawingHandlers.ccShapePreviewCacheRef.current = null;
-            clearSelectionOverlay();
-            redrawCanvas();
-          }).finally(() => {
-            deps.restartColorCycleAnimation?.();
-          });
-        }
+        const directionWorld = ccClickLineSession.previewPoint
+          ?? ccClickLineSession.points[ccClickLineSession.points.length - 1]
+          ?? { x: 0, y: 0 };
+        completeCcGradientClickLine({
+          deps,
+          directionWorld,
+          pressure: ccClickLineSession.pressure ?? 0.5,
+          timestamp: typeof performance !== 'undefined' ? performance.now() : Date.now(),
+          rawPressure: ccClickLineSession.rawPressure ?? 0,
+        });
         return;
       }
     }

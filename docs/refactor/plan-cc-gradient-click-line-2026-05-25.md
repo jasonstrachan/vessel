@@ -1,6 +1,6 @@
 # CC Gradient Click Line Drawing Mode Plan
 
-Last updated: 2026-05-25
+Last updated: 2026-07-13
 
 Status: implemented
 
@@ -35,6 +35,12 @@ path into a stroked tube.
 - The finalized mark must use the existing CC shape finalize path so manual, FG,
   and sampled gradient sources, animation, history, undo/redo, save/load, and
   Goblet export remain on the current CC shape contract.
+- Multi-color linear Click Line completion enters the same explicit direction
+  stage whether completion comes from double-click or Enter.
+- Pointer events collect vertices only. Completion uses the native `dblclick`
+  event because `PointerEvent.detail` is not a browser click-count signal.
+- Palette binding completes before the shape stroke begins so one finalized
+  mark produces one document publication and one history boundary.
 
 ## Architecture Decision
 
@@ -139,8 +145,11 @@ Reasons:
   - call `triggerSimpleShapePreview()`.
 - On pointer up:
   - ordinary clicks must not finalize.
-  - double-click finalizes only when the session has at least three committed
-    points and valid fill geometry.
+  - no completion decision reads `PointerEvent.detail`.
+- On native double-click:
+  - finalize only when the session has at least three committed points and valid
+    fill geometry.
+  - for multi-color linear gradients, enter the shared direction stage.
 - Keep drag-defined `Line`, `Rect`, `Oval`, `Tri`, and `Poly` paths unchanged.
 
 ### 6. Route keyboard finalize/cancel
@@ -216,6 +225,11 @@ npm test
 ```
 
 Verification record:
+
+- 2026-07-13: replaced synthetic pointer click-count completion with the native
+  `dblclick` path, unified Enter/double-click direction-stage entry, and moved
+  shape-stroke begin after palette binding. Added real-event-shape and ordering
+  regression coverage.
 
 - 2026-05-25: focused automated checks passed:
   `npm test -- src/hooks/canvas/handlers/__tests__/pointerHandlers.main.test.ts src/hooks/canvas/handlers/shapes/__tests__/ccGradientDrawingGeometry.test.ts src/hooks/canvas/handlers/__tests__/keyboardHandlers.test.ts src/components/toolbar/__tests__/BrushControls.colorCycle.test.tsx`

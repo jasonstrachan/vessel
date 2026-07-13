@@ -96,7 +96,7 @@ const makeShapeRefs = () => ({
   ccStrokeSamplesRef: ref([]),
   ccStrokeDirectionRef: ref<{ x: number; y: number } | null>(null),
   ccGradientDrawingGeometryRef: ref(null),
-  ccGradientClickLineSessionRef: ref({ active: false, points: [], previewPoint: null, finalizeOnPointerUp: false }),
+  ccGradientClickLineSessionRef: ref({ active: false, points: [], previewPoint: null }),
   shapeDragStartRef: ref<{ x: number; y: number } | null>(null),
   shapeDragLastRef: ref<{ x: number; y: number } | null>(null),
   shapeDragMovedRef: ref(false),

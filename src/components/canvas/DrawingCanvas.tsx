@@ -19,6 +19,7 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
     handlePointerEnter,
     handlePointerLeave,
     handlePointerCancel,
+    handleDoubleClick,
     viewportProps,
   } = useDrawingCanvasRuntime({ showFeedback });
 
@@ -34,6 +35,7 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ showFeedback }) => {
       onPointerEnter={handlePointerEnter}
       onPointerLeave={handlePointerLeave}
       onPointerCancel={handlePointerCancel}
+      onDoubleClick={handleDoubleClick}
       {...viewportProps}
     />
   );

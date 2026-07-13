@@ -302,6 +302,7 @@ export interface PointerHandlers {
   handlePointerDown: (event: React.PointerEvent<Element>) => void;
   handlePointerMove: (event: React.PointerEvent<Element>) => void;
   handlePointerUp: (event: React.PointerEvent<Element>) => void;
+  handleDoubleClick: (event: React.MouseEvent<Element>) => void;
   handlePointerEnter: () => void;
   handlePointerLeave: () => void;
   handlePointerCancel: (event: React.PointerEvent<Element>) => void;
