@@ -68,7 +68,8 @@ export const buildRenderedPackingPng = async (
   const rgba = new Uint8Array(canvasWidth * canvasHeight * 4);
   let copiedPixels = 0;
   for (const placement of packing.placements) {
-    const sourcePreview = sourceByLayerId.get(placement.layerId);
+    const sourcePreview = sourceByLayerId.get(placement.shapeId)
+      ?? sourceByLayerId.get(placement.layerId);
     if (!sourcePreview) continue;
     const shape = placement.rotated.source;
     placement.rotated.mask.forEach((visible, index) => {
@@ -99,6 +100,95 @@ export const buildRenderedPackingPng = async (
   if (copiedPixels === 0) return null;
   return new Uint8Array(await sharp(rgba, {
     raw: { width: canvasWidth, height: canvasHeight, channels: 4 },
+  }).png().toBuffer());
+};
+
+/** Renders one isolated packed shape per tile so large jobs remain auditable. */
+export const buildRenderedContactSheetPng = async (
+  packing: CcShapePackingResult,
+  sourceByLayerId: ReadonlyMap<string, PackedPreviewSource>,
+): Promise<Uint8Array | null> => {
+  if (packing.placements.length === 0 || sourceByLayerId.size === 0) return null;
+  const tileSize = 160;
+  const inset = 8;
+  const columns = Math.min(8, packing.placements.length);
+  const rows = Math.ceil(packing.placements.length / columns);
+  const width = columns * tileSize;
+  const height = rows * tileSize;
+  const rgba = new Uint8Array(width * height * 4);
+  for (let index = 0; index < rgba.length; index += 4) {
+    rgba.set([16, 17, 20, 255], index);
+  }
+
+  packing.placements.forEach((placement, placementIndex) => {
+    const sourcePreview = sourceByLayerId.get(placement.shapeId)
+      ?? sourceByLayerId.get(placement.layerId);
+    if (!sourcePreview) return;
+    const column = placementIndex % columns;
+    const row = Math.floor(placementIndex / columns);
+    const tileX = column * tileSize;
+    const tileY = row * tileSize;
+    const color = COLORS[placementIndex % COLORS.length];
+    const border = [
+      Number.parseInt(color.slice(1, 3), 16),
+      Number.parseInt(color.slice(3, 5), 16),
+      Number.parseInt(color.slice(5, 7), 16),
+      255,
+    ];
+    for (let x = 0; x < tileSize; x += 1) {
+      rgba.set(border, ((tileY * width) + tileX + x) * 4);
+      rgba.set(border, (((tileY + tileSize - 1) * width) + tileX + x) * 4);
+    }
+    for (let y = 0; y < tileSize; y += 1) {
+      rgba.set(border, (((tileY + y) * width) + tileX) * 4);
+      rgba.set(border, (((tileY + y) * width) + tileX + tileSize - 1) * 4);
+    }
+
+    const available = tileSize - inset * 2;
+    const displayScale = Math.min(
+      available / placement.rotated.width,
+      available / placement.rotated.height,
+    );
+    const displayWidth = Math.max(1, Math.ceil(placement.rotated.width * displayScale));
+    const displayHeight = Math.max(1, Math.ceil(placement.rotated.height * displayScale));
+    const originX = tileX + Math.floor((tileSize - displayWidth) / 2);
+    const originY = tileY + Math.floor((tileSize - displayHeight) / 2);
+    const shape = placement.rotated.source;
+    placement.rotated.mask.forEach((visible, index) => {
+      if (!visible) return;
+      const localX = index % placement.rotated.width;
+      const localY = Math.floor(index / placement.rotated.width);
+      const sourceLocal = sourceCoordinateForRotatedPixel(
+        localX,
+        localY,
+        shape.width,
+        shape.height,
+        placement.rotation,
+      );
+      const sourceX = shape.sourceBounds.x + sourceLocal.x;
+      const sourceY = shape.sourceBounds.y + sourceLocal.y;
+      const sourceOffset = (sourceY * sourcePreview.width + sourceX) * 4;
+      const startX = originX + Math.floor(localX * displayScale);
+      const endX = originX + Math.max(
+        Math.floor(localX * displayScale) + 1,
+        Math.ceil((localX + 1) * displayScale),
+      );
+      const startY = originY + Math.floor(localY * displayScale);
+      const endY = originY + Math.max(
+        Math.floor(localY * displayScale) + 1,
+        Math.ceil((localY + 1) * displayScale),
+      );
+      for (let destinationY = startY; destinationY < endY; destinationY += 1) {
+        for (let destinationX = startX; destinationX < endX; destinationX += 1) {
+          const destinationOffset = (destinationY * width + destinationX) * 4;
+          rgba.set(sourcePreview.rgba.subarray(sourceOffset, sourceOffset + 4), destinationOffset);
+        }
+      }
+    });
+  });
+
+  return new Uint8Array(await sharp(rgba, {
+    raw: { width, height, channels: 4 },
   }).png().toBuffer());
 };
 

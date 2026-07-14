@@ -1,4 +1,10 @@
+import { spawnSync } from 'node:child_process';
+import { access, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
+
 import JSZip from 'jszip';
+import sharp from 'sharp';
 
 import { packVsArchiveColorCycleShapes } from '../vsArchiveAdapter';
 import { validateProjectFile } from '@/utils/projectIO';
@@ -61,7 +67,18 @@ const buildFixture = async (): Promise<{
   ]);
   addLayerBuffers('selected', selectedPaint);
   addLayerBuffers('unselected', unselectedPaint);
-  const layer = (id: string, name: string) => ({
+  const previewDataUrl = async (paint: Uint8Array, rgb: readonly [number, number, number]): Promise<string> => {
+    const rgba = new Uint8Array(pixels * 4);
+    paint.forEach((value, index) => {
+      if (!value) return;
+      rgba.set([...rgb, 255], index * 4);
+    });
+    const png = await sharp(rgba, { raw: { width, height, channels: 4 } }).png().toBuffer();
+    return `data:image/png;base64,${png.toString('base64')}`;
+  };
+  const selectedPreview = await previewDataUrl(selectedPaint, [255, 0, 0]);
+  const unselectedPreview = await previewDataUrl(unselectedPaint, [0, 255, 0]);
+  const layer = (id: string, name: string, canvasImageData: string) => ({
     id,
     name,
     visible: true,
@@ -71,7 +88,7 @@ const buildFixture = async (): Promise<{
     order: id === 'selected' ? 0 : 1,
     imageDataUrl: '',
     layerType: 'color-cycle',
-    colorCycleData: { documentId: id, canvasWidth: width, canvasHeight: height },
+    colorCycleData: { documentId: id, canvasWidth: width, canvasHeight: height, canvasImageData },
     state: {
       version: 1,
       dimensions: { width, height },
@@ -99,7 +116,10 @@ const buildFixture = async (): Promise<{
       width,
       height,
       backgroundColor: '#000000',
-      layers: [layer('selected', 'Selected'), layer('unselected', 'Unselected')],
+      layers: [
+        layer('selected', 'Selected', selectedPreview),
+        layer('unselected', 'Unselected', unselectedPreview),
+      ],
       customBrushes: [],
     },
     binaries: { entries },
@@ -119,6 +139,74 @@ const buildFixture = async (): Promise<{
 };
 
 describe('VS archive CC shape packer', () => {
+  it('rejects VS-only packing flags for Goblet inputs before reading the artifact', () => {
+    const result = spawnSync(process.execPath, [
+      'scripts/cc-shape-pack.js',
+      'missing.goblet.json',
+      '--dry-run',
+      '--layers',
+      'CC Layer',
+      '--shape-scale',
+      '0.5',
+    ], {
+      cwd: process.cwd(),
+      encoding: 'utf8',
+    });
+
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('unsupported-goblet-packing-option');
+    expect(result.stderr).toContain('--shape-scale');
+  });
+
+  it('removes rendered proof files when the next CLI run cannot regenerate them', async () => {
+    const fixture = await buildFixture();
+    const zip = await JSZip.loadAsync(fixture.bytes);
+    const archive = JSON.parse(await zip.file('project.json')!.async('string')) as {
+      project: { layers: Array<{ id: string; colorCycleData: Record<string, unknown> }> };
+    };
+    const selectedLayer = archive.project.layers.find((layer) => layer.id === 'selected')!;
+    delete selectedLayer.colorCycleData.canvasImageData;
+    zip.file('project.json', JSON.stringify(archive));
+
+    const directory = await mkdtemp(path.join(tmpdir(), 'vessel-cc-cli-review-'));
+    const inputPath = path.join(directory, 'input.vs');
+    const configPath = path.join(directory, 'config.json');
+    const reportDir = path.join(directory, 'report');
+    const renderedPreviewPath = path.join(reportDir, 'packing-preview-rendered.png');
+    const renderedContactSheetPath = path.join(reportDir, 'shape-contact-sheet-rendered.png');
+    try {
+      await mkdir(reportDir);
+      await Promise.all([
+        writeFile(inputPath, await zip.generateAsync({ type: 'uint8array' })),
+        writeFile(configPath, JSON.stringify({ separation: { selected: { expectedShapeCount: 1 } } })),
+        writeFile(renderedPreviewPath, 'stale'),
+        writeFile(renderedContactSheetPath, 'stale'),
+      ]);
+
+      const result = spawnSync(process.execPath, [
+        'scripts/cc-shape-pack.js',
+        inputPath,
+        '--dry-run',
+        '--layer-ids',
+        'selected',
+        '--config',
+        configPath,
+        '--report-dir',
+        reportDir,
+        '--no-largest-cc-background',
+      ], {
+        cwd: process.cwd(),
+        encoding: 'utf8',
+      });
+
+      expect(result.status).toBe(0);
+      await expect(access(renderedPreviewPath)).rejects.toMatchObject({ code: 'ENOENT' });
+      await expect(access(renderedContactSheetPath)).rejects.toMatchObject({ code: 'ENOENT' });
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
   it('returns the original archive unchanged for a diagnostics-only partial packing', async () => {
     const fixture = await buildFixture();
 
@@ -152,12 +240,19 @@ describe('VS archive CC shape packer', () => {
     const selectedPaint = await output.file(fixture.selectedPaintPath)?.async('uint8array');
     const unselectedPaint = await output.file(fixture.unselectedPaintPath)?.async('uint8array');
     const preview = JSON.parse(await output.file('manifest.json')!.async('string')) as { preview?: unknown };
+    const archive = JSON.parse(await output.file('project.json')!.async('string')) as {
+      project: { layers: Array<{ id: string; colorCycleData?: { canvasImageData?: string } }> };
+    };
+    const packedCanvasImage = archive.project.layers.find((layer) => layer.id === 'selected')
+      ?.colorCycleData?.canvasImageData;
     expect(selectedPaint).toEqual(Uint8Array.from([
       0, 0, 0, 0,
       1, 1, 0, 0,
       1, 1, 0, 0,
     ]));
     expect(unselectedPaint).toEqual(fixture.unselectedPaint);
+    expect(packedCanvasImage).toMatch(/^data:image\/png;base64,/);
+    expect(result.renderedPreviewPng).toBeDefined();
     expect(preview.preview).toBeUndefined();
     expect(result.selectedLayerIds).toEqual(['selected']);
     expect(result.packing.placements[0].y).toBe(1);
@@ -189,6 +284,239 @@ describe('VS archive CC shape packer', () => {
     await expect(validateProjectFile(result.archiveData)).resolves.toEqual({ valid: true });
   });
 
+  it('preserves selected CC layers when packing across an interleaved stack', async () => {
+    const fixture = await buildFixture();
+
+    const result = await packVsArchiveColorCycleShapes(fixture.bytes, {
+      selectors: [{ id: 'selected' }, { id: 'unselected' }],
+      preserveSelectedCcLayers: true,
+      separationByLayerId: {
+        selected: { expectedShapeCount: 1 },
+        unselected: { expectedShapeCount: 1 },
+      },
+      padding: 0,
+      rotations: [0],
+    });
+
+    const output = await JSZip.loadAsync(result.archiveData);
+    const archive = JSON.parse(await output.file('project.json')!.async('string')) as {
+      project: { layers: Array<{ id: string }> };
+    };
+    const selectedPaint = await output.file(fixture.selectedPaintPath)?.async('uint8array');
+    const unselectedPaint = await output.file(fixture.unselectedPaintPath)?.async('uint8array');
+
+    expect(archive.project.layers.map((layer) => layer.id)).toEqual(['selected', 'unselected']);
+    expect(selectedPaint?.filter(Boolean)).toHaveLength(4);
+    expect(unselectedPaint?.filter(Boolean)).toHaveLength(4);
+    await expect(validateProjectFile(result.archiveData)).resolves.toEqual({ valid: true });
+  });
+
+  it('stretches the largest CC shape edge-to-edge behind the foreground pack', async () => {
+    const fixture = await buildFixture();
+
+    const result = await packVsArchiveColorCycleShapes(fixture.bytes, {
+      selectors: [{ id: 'selected' }, { id: 'unselected' }],
+      largestCcShapeAsBackground: true,
+      preserveSelectedCcLayers: true,
+      separationByLayerId: {
+        selected: { expectedShapeCount: 1 },
+        unselected: { expectedShapeCount: 1 },
+      },
+      padding: 0,
+      rotations: [0],
+    });
+
+    const output = await JSZip.loadAsync(result.archiveData);
+    const archive = JSON.parse(await output.file('project.json')!.async('string')) as {
+      project: {
+        layers: Array<{
+          id: string;
+          order: number;
+          colorCycleData?: { canvasImageData?: string };
+        }>;
+      };
+    };
+    const backgroundPaint = await output.file(fixture.selectedPaintPath)?.async('uint8array');
+    const foregroundPaint = await output.file(fixture.unselectedPaintPath)?.async('uint8array');
+    const background = result.packing.placements[0];
+    const foregroundPreviewDataUrl = archive.project.layers.find((layer) => layer.id === 'unselected')
+      ?.colorCycleData?.canvasImageData;
+    const foregroundPreview = await sharp(Buffer.from(
+      foregroundPreviewDataUrl!.slice('data:image/png;base64,'.length),
+      'base64',
+    )).ensureAlpha().raw().toBuffer();
+    const foregroundAlpha = Uint8Array.from(foregroundPreview).filter((_, index) => index % 4 === 3);
+
+    expect(background.layerId).toBe('selected');
+    expect(background.shapeId).toContain('background-copy');
+    expect(background).toMatchObject({ x: 0, y: 0, rotation: 0 });
+    expect(background.rotated).toMatchObject({ width: 4, height: 3 });
+    expect(result.packing.placements.filter((placement) => placement.layerId === 'selected')).toHaveLength(2);
+    expect(backgroundPaint?.filter(Boolean)).toHaveLength(12);
+    expect(foregroundPaint?.filter(Boolean)).toHaveLength(4);
+    expect(foregroundAlpha.filter(Boolean)).toHaveLength(4);
+    expect(result.packing.metrics).toMatchObject({
+      occupiedArea: 12,
+      boundingWasteArea: 0,
+      packingDensity: 1,
+    });
+    expect(archive.project.layers.map((layer) => [layer.id, layer.order])).toEqual([
+      ['selected', 0],
+      ['unselected', 1],
+    ]);
+    await expect(validateProjectFile(result.archiveData)).resolves.toEqual({ valid: true });
+  });
+
+  it('honors an explicit destination layer when adding the background copy', async () => {
+    const fixture = await buildFixture();
+
+    const result = await packVsArchiveColorCycleShapes(fixture.bytes, {
+      selectors: [{ id: 'selected' }, { id: 'unselected' }],
+      destinationLayerId: 'unselected',
+      largestCcShapeAsBackground: true,
+      separationByLayerId: {
+        selected: { expectedShapeCount: 1 },
+        unselected: { expectedShapeCount: 1 },
+      },
+      padding: 0,
+      rotations: [0],
+    });
+
+    const output = await JSZip.loadAsync(result.archiveData);
+    const archive = JSON.parse(await output.file('project.json')!.async('string')) as {
+      project: { layers: Array<{ id: string; order: number }> };
+    };
+    const destinationPaint = await output.file(fixture.unselectedPaintPath)?.async('uint8array');
+
+    expect(archive.project.layers.map((layer) => [layer.id, layer.order])).toEqual([
+      ['unselected', 0],
+    ]);
+    expect(destinationPaint?.filter(Boolean)).toHaveLength(12);
+    expect(result.packing.placements[0].shapeId).toContain('background-copy');
+    await expect(validateProjectFile(result.archiveData)).resolves.toEqual({ valid: true });
+  });
+
+  it('extracts and globally packs connected shapes from visible normal layers', async () => {
+    const fixture = await buildFixture();
+    const zip = await JSZip.loadAsync(fixture.bytes);
+    const width = 4;
+    const height = 3;
+    const rgba = new Uint8Array(width * height * 4);
+    rgba.set([10, 20, 30, 255], 0);
+    rgba.set([40, 50, 60, 255], 3 * 4);
+    const png = await sharp(rgba, { raw: { width, height, channels: 4 } }).png().toBuffer();
+    const imageDataUrl = `data:image/png;base64,${png.toString('base64')}`;
+    const imageBytes = new Uint8Array(Buffer.from(imageDataUrl, 'utf8'));
+    const imagePath = 'buffers/raster/normal/image.json';
+    zip.file(imagePath, imageDataUrl);
+    const archive = JSON.parse(await zip.file('project.json')!.async('string')) as {
+      project: { layers: Array<Record<string, unknown>> };
+      binaries: { entries: Array<Record<string, unknown>> };
+    };
+    archive.binaries.entries.push({
+      version: 1,
+      path: imagePath,
+      checksum: hash(imageBytes),
+      byteLength: imageBytes.byteLength,
+      dtype: 'json',
+      encoding: 'raw',
+      compression: 'deflate',
+    });
+    archive.project.layers.push({
+      id: 'normal',
+      name: 'Normal',
+      visible: true,
+      opacity: 0.75,
+      blendMode: 'multiply',
+      locked: false,
+      order: 2,
+      imageDataUrl: '',
+      layerType: 'normal',
+      state: {
+        version: 1,
+        dimensions: { width, height },
+        imageRef: `zip:${imagePath}`,
+      },
+    });
+    zip.file('project.json', JSON.stringify(archive));
+
+    const result = await packVsArchiveColorCycleShapes(
+      await zip.generateAsync({ type: 'uint8array' }),
+      {
+        selectors: [{ id: 'selected' }],
+        separationByLayerId: { selected: { expectedShapeCount: 1 } },
+        includeVisibleRasterLayers: true,
+        shapeScale: 0.5,
+        padding: 0,
+        rotations: [0],
+      },
+    );
+
+    const output = await JSZip.loadAsync(result.archiveData);
+    const packedArchive = JSON.parse(await output.file('project.json')!.async('string')) as {
+      project: {
+        layers: Array<{
+          id: string;
+          opacity: number;
+          blendMode: string;
+          state?: { imageRef?: string };
+        }>;
+      };
+    };
+    const normalLayer = packedArchive.project.layers.find((layer) => layer.id === 'normal');
+    const packedImageDataUrl = await output.file(imagePath)!.async('string');
+    const packedImage = await sharp(Buffer.from(
+      packedImageDataUrl.slice('data:image/png;base64,'.length),
+      'base64',
+    )).ensureAlpha().raw().toBuffer();
+    const alpha = Uint8Array.from(packedImage).filter((_, index) => index % 4 === 3);
+
+    expect(result.sourceShapeCount).toBe(3);
+    expect(result.packing.placements).toHaveLength(3);
+    expect(result.packing.placements.find((placement) => placement.layerId === 'selected')?.rotated.width).toBe(1);
+    expect(result.appliedShapeScale).toBe(0.5);
+    expect(result.renderedContactSheetPng).toBeDefined();
+    expect(result.selectedLayerIds).toEqual(['selected', 'normal']);
+    expect(result.packing.placements.map((placement) => placement.layerId)).toContain('normal');
+    expect(alpha.filter(Boolean)).toHaveLength(2);
+    expect(normalLayer).toMatchObject({
+      opacity: 0.75,
+      blendMode: 'multiply',
+      state: { imageRef: `zip:${imagePath}` },
+    });
+    await expect(validateProjectFile(result.archiveData)).resolves.toEqual({ valid: true });
+  });
+
+  it('automatically keeps the largest tested complete zero-overlap scale', async () => {
+    const fixture = await buildFixture();
+    const zip = await JSZip.loadAsync(fixture.bytes);
+    const fullCanvasPaint = new Uint8Array(12).fill(1);
+    zip.file(fixture.selectedPaintPath, fullCanvasPaint);
+    const archive = JSON.parse(await zip.file('project.json')!.async('string')) as {
+      binaries: { entries: Array<{ path: string; checksum: string; byteLength: number }> };
+    };
+    const paintEntry = archive.binaries.entries.find((entry) => entry.path === fixture.selectedPaintPath)!;
+    paintEntry.checksum = hash(fullCanvasPaint);
+    paintEntry.byteLength = fullCanvasPaint.byteLength;
+    zip.file('project.json', JSON.stringify(archive));
+
+    const result = await packVsArchiveColorCycleShapes(
+      await zip.generateAsync({ type: 'uint8array' }),
+      {
+      selectors: [{ id: 'selected' }],
+      separationByLayerId: { selected: { expectedShapeCount: 1 } },
+      autoFitWithoutOverlap: true,
+      padding: 0,
+      rotations: [0, 90],
+      beamWidth: 1,
+      },
+    );
+
+    expect(result.appliedShapeScale).toBe(1);
+    expect(result.packing.placements).toHaveLength(1);
+    expect(result.packing.placements[0].supportShapeIds).toEqual([]);
+  });
+
   it('ignores retained soft-edge mask data when the saved mask is disabled', async () => {
     const fixture = await buildFixture();
     const zip = await JSZip.loadAsync(fixture.bytes);
@@ -218,7 +546,6 @@ describe('VS archive CC shape packer', () => {
     const zip = new JSZip();
     const width = 4;
     const height = 3;
-    const pixels = width * height;
     const paint = Uint8Array.from([
       1, 1, 0, 0,
       1, 1, 0, 0,

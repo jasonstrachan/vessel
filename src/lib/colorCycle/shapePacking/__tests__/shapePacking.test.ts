@@ -360,6 +360,49 @@ describe('CC bottom packing', () => {
     expect(supported?.stabilityMargin).toBeGreaterThanOrEqual(0);
   });
 
+  it('does not start overlap fallback before most of a large set is packed', () => {
+    const layer = makeLayer('cc-large-overlap', 8, 8, new Uint8Array(64).fill(1));
+    const [baseShape] = extractCcShapes(layer, { expectedShapeCount: 1 });
+    const shapes = Array.from({ length: 65 }, (_, index) => ({
+      ...baseShape,
+      id: `${baseShape.id}-${index}`,
+      layerId: `${baseShape.layerId}-${index}`,
+    }));
+
+    expect(() => packCcShapes(shapes, {
+        canvasWidth: 8,
+        canvasHeight: 8,
+        padding: 0,
+        rotations: [0],
+        beamWidth: 1,
+        allowOverlap: true,
+      })).toThrow(expect.objectContaining({ code: 'insufficient-space' }));
+  });
+
+  it('uses overlap fallback after most of a large set is packed', () => {
+    const paint = new Uint8Array(64);
+    paint[0] = 1;
+    const layer = makeLayer('cc-large-late-overlap', 8, 8, paint);
+    const [baseShape] = extractCcShapes(layer, { expectedShapeCount: 1 });
+    const shapes = Array.from({ length: 65 }, (_, index) => ({
+      ...baseShape,
+      id: `${baseShape.id}-${index}`,
+      layerId: `${baseShape.layerId}-${index}`,
+    }));
+
+    const result = packCcShapes(shapes, {
+      canvasWidth: 8,
+      canvasHeight: 8,
+      padding: 0,
+      rotations: [0],
+      beamWidth: 1,
+      allowOverlap: true,
+    });
+
+    expect(result.placements).toHaveLength(65);
+    expect(new Set(result.placements.map((placement) => placement.shapeId)).size).toBe(65);
+  });
+
   it('is deterministic and rewrites every CC channel at the packed coordinates', () => {
     const layer = makeLayer('cc-rewrite', 4, 3, [
       1, 0, 0, 1,

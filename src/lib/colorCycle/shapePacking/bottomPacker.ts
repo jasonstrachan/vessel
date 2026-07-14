@@ -243,9 +243,10 @@ const compareScore = (
 const materializeCandidate = (
   candidate: PlacementCandidate,
   canvasWidth: number,
+  reuseParentBuffers = false,
 ): PackingState => {
-  const owner = candidate.parent.owner.slice();
-  const topY = candidate.parent.topY.slice();
+  const owner = reuseParentBuffers ? candidate.parent.owner : candidate.parent.owner.slice();
+  const topY = reuseParentBuffers ? candidate.parent.topY : candidate.parent.topY.slice();
   const placementIndex = candidate.parent.placements.length + 1;
   forEachMaskPixel(candidate.rotated, (localX, localY) => {
     const index = (candidate.y + localY) * canvasWidth + candidate.x + localX;
@@ -506,6 +507,9 @@ export const packCcShapes = (
   rawOptions: CcShapePackingOptions,
 ): CcShapePackingResult => {
   const options = validateOptions(rawOptions);
+  const fastFeasibility = Boolean((rawOptions as CcShapePackingOptions & {
+    fastFeasibility?: boolean;
+  }).fastFeasibility);
   if (shapes.length > 65_535) {
     throw new CcShapePackingError('too-many-shapes', 'Packing supports at most 65,535 selected shapes.');
   }
@@ -531,14 +535,12 @@ export const packCcShapes = (
   ] as const));
   const orderings = shapeOrderings(shapes);
   const isLargeShapeSet = shapes.length > LARGE_SHAPE_SET_THRESHOLD;
-  // Large jobs still need each fundamentally different base ordering. Adjacent
-  // swap variants are the expensive part; dropping density/source orderings
-  // made concave artwork behave as if "largest first" were the only policy.
-  const activeOrderings = isLargeShapeSet
+  const preferredOrderings = isLargeShapeSet
     ? options.allowNonGravityNesting
       ? orderings.slice(5, 6)
       : orderings.slice(0, 10)
     : orderings;
+  const activeOrderings = preferredOrderings;
   const completed: PackingState[] = [];
   let exploredStateCount = 0;
   let maximumPlacedShapeCount = 0;
@@ -629,8 +631,15 @@ export const packCcShapes = (
       const effectiveBeamWidth = isLargeShapeSet && orderingPlacedShapeCount >= LARGE_SET_FOUNDATION_BEAM_DEPTH
         ? 1
         : options.beamWidth;
-      beam = candidates.slice(0, effectiveBeamWidth).map((candidate) => (
-        materializeCandidate(candidate, options.canvasWidth)
+      const selectedCandidates = candidates.slice(0, effectiveBeamWidth);
+      const selectedCountByParent = new Map<PackingState, number>();
+      selectedCandidates.forEach((candidate) => {
+        selectedCountByParent.set(candidate.parent, (selectedCountByParent.get(candidate.parent) ?? 0) + 1);
+      });
+      beam = selectedCandidates.map((candidate) => materializeCandidate(
+        candidate,
+        options.canvasWidth,
+        selectedCountByParent.get(candidate.parent) === 1,
       ));
       if (beam.length === 0) {
         blockedShapeId = shape.id;
@@ -645,6 +654,7 @@ export const packCcShapes = (
       }
     }
     completed.push(...beam.filter((state) => state.placements.length === shapes.length));
+    if (fastFeasibility && completed.length > 0) break;
   }
 
   if (completed.length === 0) {

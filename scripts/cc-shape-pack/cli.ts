@@ -1,4 +1,4 @@
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
 import {
@@ -45,9 +45,25 @@ type ParsedArgs = {
   allowNonGravityNesting: boolean;
   allowPartialPreview: boolean;
   allowOverlap: boolean;
+  includeVisibleRasterLayers: boolean;
+  shapeScale?: number;
+  autoFitWithoutOverlap: boolean;
+  preserveSelectedCcLayers: boolean;
+  largestCcShapeAsBackground: boolean;
+  requestedVsOnlyOptions: string[];
   reportDir?: string;
   dryRun: boolean;
 };
+
+const DETAILED_REPORT_MAX_SHAPES = 64;
+const DETAILED_REPORT_MAX_OCCUPIED_PIXELS = 1_000_000;
+const OPTIONAL_REPORT_FILES = [
+  'packing-preview.svg',
+  'source-preview.svg',
+  'shape-contact-sheet.svg',
+  'packing-preview-rendered.png',
+  'shape-contact-sheet-rendered.png',
+] as const;
 
 const usage = (): never => {
   throw new Error([
@@ -62,6 +78,11 @@ const usage = (): never => {
     '  --allow-non-gravity-nesting  Permit collision-free cavity insertion after gravity placement fails.',
     '  --allow-partial-preview      Emit diagnostics for the best incomplete pile; use with --dry-run.',
     '  --allow-overlap              Allow late shapes to overlap in the destination layer.',
+    '  --include-visible-raster      Extract and globally pack visible normal-layer alpha components (.vs only).',
+    '  --shape-scale <0..1>          Uniformly downscale extracted shapes before packing (.vs only).',
+    '  --auto-fit-no-overlap         Find the largest zero-overlap scale in 5% steps (.vs only).',
+    '  --preserve-cc-layers          Keep selected CC layers separate instead of consolidating them (.vs only).',
+    '  --no-largest-cc-background    Disable the default stretched largest-shape background (.vs only).',
     '  --beam-width <n>            Deterministic packing search width.',
     '  --report-dir <path>         JSON/SVG proof output directory.',
     '  --dry-run                   Build reports without writing the packed archive.',
@@ -86,6 +107,11 @@ const parseArgs = (argv: readonly string[]): ParsedArgs => {
     allowNonGravityNesting: false,
     allowPartialPreview: false,
     allowOverlap: false,
+    includeVisibleRasterLayers: false,
+    autoFitWithoutOverlap: false,
+    preserveSelectedCcLayers: false,
+    largestCcShapeAsBackground: input.toLowerCase().endsWith('.vs'),
+    requestedVsOnlyOptions: [],
   };
   for (let index = 1; index < argv.length; index += 1) {
     const arg = argv[index];
@@ -140,6 +166,27 @@ const parseArgs = (argv: readonly string[]): ParsedArgs => {
       case '--allow-overlap':
         parsed.allowOverlap = true;
         break;
+      case '--include-visible-raster':
+        parsed.includeVisibleRasterLayers = true;
+        parsed.requestedVsOnlyOptions.push(arg);
+        break;
+      case '--shape-scale':
+        parsed.shapeScale = parseNumber(value, arg);
+        parsed.requestedVsOnlyOptions.push(arg);
+        index += 1;
+        break;
+      case '--auto-fit-no-overlap':
+        parsed.autoFitWithoutOverlap = true;
+        parsed.requestedVsOnlyOptions.push(arg);
+        break;
+      case '--preserve-cc-layers':
+        parsed.preserveSelectedCcLayers = true;
+        parsed.requestedVsOnlyOptions.push(arg);
+        break;
+      case '--no-largest-cc-background':
+        parsed.largestCcShapeAsBackground = false;
+        parsed.requestedVsOnlyOptions.push(arg);
+        break;
       case '--report-dir':
         parsed.reportDir = value;
         index += 1;
@@ -164,6 +211,13 @@ const main = async (): Promise<void> => {
   const args = parseArgs(process.argv.slice(2));
   assertDistinctPackingPaths(args.input, args.output);
   assertPartialPreviewIsDryRun(args.allowPartialPreview, args.dryRun);
+  const isVsInput = args.input.toLowerCase().endsWith('.vs');
+  if (!isVsInput && args.requestedVsOnlyOptions.length > 0) {
+    throw new CcShapePackingError(
+      'unsupported-goblet-packing-option',
+      `Goblet inputs do not support: ${[...new Set(args.requestedVsOnlyOptions)].join(', ')}. Pack the source .vs archive instead.`,
+    );
+  }
   const config = await loadConfig(args.configPath);
   const selectors: VsArchiveLayerSelector[] = [
     ...(config.layers ?? []),
@@ -177,6 +231,11 @@ const main = async (): Promise<void> => {
     allowNonGravityNesting: args.allowNonGravityNesting,
     allowPartialPreview: args.allowPartialPreview,
     allowOverlap: args.allowOverlap,
+    includeVisibleRasterLayers: args.includeVisibleRasterLayers,
+    shapeScale: args.shapeScale,
+    autoFitWithoutOverlap: args.autoFitWithoutOverlap,
+    preserveSelectedCcLayers: args.preserveSelectedCcLayers,
+    largestCcShapeAsBackground: args.largestCcShapeAsBackground,
     separationByLayerId: config.separation,
     padding: args.padding ?? config.packing?.padding,
     rotations: args.rotations ?? config.packing?.rotations,
@@ -184,28 +243,41 @@ const main = async (): Promise<void> => {
     minimumSupportSpanRatio: config.packing?.minimumSupportSpanRatio,
   };
   const input = new Uint8Array(await readFile(args.input));
-  const isVsInput = args.input.toLowerCase().endsWith('.vs');
   const result = isVsInput
     ? await packVsArchiveColorCycleShapes(input, options)
     : await packGobletArtifactColorCycleShapes(input, options);
   const reportDir = args.reportDir ?? `${args.output ?? args.input}.packing-report`;
   await mkdir(reportDir, { recursive: true });
+  await Promise.all(OPTIONAL_REPORT_FILES.map((fileName) => (
+    rm(path.join(reportDir, fileName), { force: true })
+  )));
   const reportWrites: Promise<unknown>[] = [
     writeFile(path.join(reportDir, 'packing-report.json'), buildPackingReport(result.packing, result.selectedLayerIds)),
-    writeFile(path.join(reportDir, 'packing-preview.svg'), buildPackingSvg(
-      result.packing,
-      result.canvasWidth,
-      result.canvasHeight,
-    )),
-    writeFile(path.join(reportDir, 'source-preview.svg'), buildSourceSvg(
-      result.packing,
-      result.canvasWidth,
-      result.canvasHeight,
-    )),
-    writeFile(path.join(reportDir, 'shape-contact-sheet.svg'), buildContactSheetSvg(result.packing)),
   ];
+  const writesDetailedReports = (
+    result.sourceShapeCount <= DETAILED_REPORT_MAX_SHAPES &&
+    result.packing.metrics.occupiedArea <= DETAILED_REPORT_MAX_OCCUPIED_PIXELS
+  );
+  if (writesDetailedReports) {
+    reportWrites.push(
+      writeFile(path.join(reportDir, 'packing-preview.svg'), buildPackingSvg(
+        result.packing,
+        result.canvasWidth,
+        result.canvasHeight,
+      )),
+      writeFile(path.join(reportDir, 'source-preview.svg'), buildSourceSvg(
+        result.packing,
+        result.canvasWidth,
+        result.canvasHeight,
+      )),
+      writeFile(path.join(reportDir, 'shape-contact-sheet.svg'), buildContactSheetSvg(result.packing)),
+    );
+  }
   if ('renderedPreviewPng' in result && result.renderedPreviewPng) {
     reportWrites.push(writeFile(path.join(reportDir, 'packing-preview-rendered.png'), result.renderedPreviewPng));
+  }
+  if ('renderedContactSheetPng' in result && result.renderedContactSheetPng) {
+    reportWrites.push(writeFile(path.join(reportDir, 'shape-contact-sheet-rendered.png'), result.renderedContactSheetPng));
   }
   await Promise.all(reportWrites);
   if (!args.dryRun && args.output) {
@@ -217,7 +289,9 @@ const main = async (): Promise<void> => {
     reportDir,
     selectedLayerIds: result.selectedLayerIds,
     shapeCount: result.sourceShapeCount,
+    appliedShapeScale: 'appliedShapeScale' in result ? result.appliedShapeScale : 1,
     metrics: result.packing.metrics,
+    detailedReports: writesDetailedReports,
   }, null, 2)}\n`);
 };
 
