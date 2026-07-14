@@ -648,6 +648,7 @@ export interface AppState {
     metadata: { frameCount: number; fps: number; durationMs: number }
   ) => void;
   mergeLayers: (layerIds: string[]) => string | null;
+  convertColorCycleLayerToNormal: (layerId: string) => boolean;
   setLayersVisibility: (layerIds: string[], visible: boolean) => void;
   toggleLayersVisibility: (layerIds: string[]) => void;
   createLayerGroupFromSelection: (layerIds: string[]) => string | null;

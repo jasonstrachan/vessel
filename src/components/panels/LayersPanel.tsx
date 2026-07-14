@@ -104,6 +104,10 @@ const LayersPanel: React.FC = () => {
   const currentBrushPreset = useAppStore((state) => state.currentBrushPreset);
   const setBrushPreset = useAppStore((state) => state.setBrushPreset);
   const mergeLayers = useAppStore((state) => state.mergeLayers);
+  const addNotification = useAppStore((state) => state.addNotification);
+  const convertColorCycleLayerToNormal = useAppStore(
+    (state) => state.convertColorCycleLayerToNormal,
+  );
   const createLayerGroupFromSelection = useAppStore((state) => state.createLayerGroupFromSelection);
   const removeLayerGroup = useAppStore((state) => state.removeLayerGroup);
   const setLayerGroupVisibility = useAppStore((state) => state.setLayerGroupVisibility);
@@ -1017,7 +1021,15 @@ const LayersPanel: React.FC = () => {
                             selectedLayerIds.length > 1 && selectedLayerIds.includes(layer.id)
                               ? selectedLayerIds
                               : [layer.id];
-                          mergeLayers(targetIds);
+                          const mergedLayerId = mergeLayers(targetIds);
+                          if (!mergedLayerId) {
+                            addNotification({
+                              type: 'warning',
+                              title: 'Layers were not merged',
+                              message: 'These layers cannot be merged without changing their current appearance.',
+                              timestamp: new Date(),
+                            });
+                          }
                           setLayerMenuState(null);
                         }}
                         className={`w-full flex items-center justify-center px-1.5 py-0.5 text-[11px] border transition-colors ${
@@ -1030,6 +1042,27 @@ const LayersPanel: React.FC = () => {
                       >
                         <span>Merge layers</span>
                       </button>
+                      {layer.layerType === 'color-cycle' && (
+                        <button
+                          onClick={event => {
+                            event.stopPropagation();
+                            const converted = convertColorCycleLayerToNormal(layer.id);
+                            if (!converted) {
+                              addNotification({
+                                type: 'error',
+                                title: 'Layer was not converted',
+                                message: 'Vessel could not render a safe current frame. The color-cycle layer was left unchanged.',
+                                timestamp: new Date(),
+                              });
+                            }
+                            setLayerMenuState(null);
+                          }}
+                          className="w-full flex items-center justify-center px-1.5 py-0.5 text-[11px] border border-[#545454] text-[#B0B0B0] hover:bg-[#3A3A3A] transition-colors"
+                          title="Convert this color-cycle layer to a regular layer"
+                        >
+                          <span>Convert to regular</span>
+                        </button>
+                      )}
                       <button
                         onClick={event => {
                           event.stopPropagation();

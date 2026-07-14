@@ -73,7 +73,9 @@ type StoreState = {
   setReferenceLayer: jest.Mock;
   setBrushSettings: jest.Mock;
   setBrushPreset: jest.Mock;
+  addNotification: jest.Mock;
   mergeLayers: jest.Mock;
+  convertColorCycleLayerToNormal: jest.Mock;
   setLayersVisibility: jest.Mock;
   toggleLayersVisibility: jest.Mock;
   createLayerGroupFromSelection: jest.Mock;
@@ -153,7 +155,9 @@ const state: StoreState = {
   }),
   setBrushSettings: jest.fn(),
   setBrushPreset: jest.fn(),
+  addNotification: jest.fn(),
   mergeLayers: jest.fn(),
+  convertColorCycleLayerToNormal: jest.fn(),
   setLayersVisibility: jest.fn((layerIds: string[], visible: boolean) => {
     const targetIds = new Set(layerIds);
     state.layers = state.layers.map((layer) =>
@@ -296,6 +300,8 @@ const setupLayers = () => {
   state.initColorCycleForLayer.mockClear();
   state.setBrushSettings.mockClear();
   state.setBrushPreset.mockClear();
+  state.addNotification.mockClear();
+  state.mergeLayers.mockClear();
   state.duplicateLayers.mockClear();
   state.removeLayers.mockClear();
   state.setLayersVisibility.mockClear();
@@ -303,6 +309,7 @@ const setupLayers = () => {
   state.createLayerGroupFromSelection.mockClear();
   state.removeLayerGroup.mockClear();
   state.setLayerGroupVisibility.mockClear();
+  state.convertColorCycleLayerToNormal.mockClear();
   state.setSelectedLayerIds.mockClear();
   state.setActiveLayer.mockClear();
   state.reorderLayerBlock.mockClear();
@@ -583,6 +590,56 @@ describe('LayersPanel interactions', () => {
     fireEvent.click(screen.getByText('Delete layer'));
 
     expect(state.removeLayers).toHaveBeenCalledWith(['layer-a', 'layer-c']);
+  });
+
+  it('converts a color-cycle layer to regular from its layer menu', () => {
+    state.layers = state.layers.map((layer) => (
+      layer.id === 'layer-c'
+        ? { ...layer, layerType: 'color-cycle', colorCycleData: { isAnimating: false } }
+        : layer
+    ));
+    state.convertColorCycleLayerToNormal.mockReturnValueOnce(true);
+    render(<LayersPanel />);
+
+    openMenuForLayerC();
+    fireEvent.click(screen.getByText('Convert to regular'));
+
+    expect(state.convertColorCycleLayerToNormal).toHaveBeenCalledWith('layer-c');
+    expect(state.addNotification).not.toHaveBeenCalled();
+  });
+
+  it('reports when selected layers cannot be merged safely', () => {
+    state.selectedLayerIds = ['layer-a', 'layer-c'];
+    state.activeLayerId = 'layer-c';
+    state.mergeLayers.mockReturnValueOnce(null);
+    render(<LayersPanel />);
+
+    openMenuForLayerC();
+    fireEvent.click(screen.getByText('Merge layers'));
+
+    expect(state.mergeLayers).toHaveBeenCalledWith(['layer-a', 'layer-c']);
+    expect(state.addNotification).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'warning',
+      title: 'Layers were not merged',
+    }));
+  });
+
+  it('reports a color-cycle conversion that could not complete safely', () => {
+    state.layers = state.layers.map((layer) => (
+      layer.id === 'layer-c'
+        ? { ...layer, layerType: 'color-cycle', colorCycleData: { isAnimating: false } }
+        : layer
+    ));
+    state.convertColorCycleLayerToNormal.mockReturnValueOnce(false);
+    render(<LayersPanel />);
+
+    openMenuForLayerC();
+    fireEvent.click(screen.getByText('Convert to regular'));
+
+    expect(state.addNotification).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'error',
+      title: 'Layer was not converted',
+    }));
   });
 
   it('reorders the full selected block when dragging a selected row onto another row', () => {

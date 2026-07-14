@@ -95,6 +95,7 @@ import {
   applyColorCycleBrushLayerSnapshotToRuntime,
   cloneColorCycleBrushLayerSnapshot,
   cloneColorCycleBrushStateForLayerDuplicate,
+  createColorCycleBrushPersistenceLayerMetaFromLayerData,
   createColorCycleCanonicalBrushStateFromSnapshot,
   createEmptyColorCycleLayerDocumentState,
   type ColorCycleBrushLayerSnapshot as ColorCycleLayerSnapshot,
@@ -104,6 +105,7 @@ import {
   getColorCycleLegacyLayerBufferByteLength,
   readColorCycleBrushLayerSnapshotFromRuntime,
   scaleColorCyclePaintSnapshotNearest,
+  setColorCycleBrushPersistenceLayerMeta,
 } from '@/lib/colorCycle/document';
 import { compositeBitmapManager } from '@/lib/performance/CompositeBitmapManager';
 import {
@@ -134,6 +136,11 @@ import {
   resolveSoftEdgeCoverageFromBrush,
 } from '@/stores/layers/layerColorCycleMaskState';
 import { appendPendingCompositeDirtyBatches } from '@/stores/layers/layerCompositeDirtyBatches';
+import {
+  bakeColorCycleLayerMasks,
+  mergeColorCycleLayerPayloads,
+  type ColorCycleLayerMergeSource,
+} from '@/stores/layers/colorCycleLayerTransforms';
 export type { CompositeSegment } from '@/stores/layers/layerCompositeRenderer';
 
 export type CompositeLayersToCanvasOptions = {
@@ -220,9 +227,10 @@ const omitUndefinedEntries = <T extends Record<string, unknown>>(value: T): Part
 type ColorCycleSnapshotBrush = ColorCycleBrushLayerSnapshotRuntimeReader
   & ColorCycleBrushLayerSnapshotRuntimeWriter
   & {
-  setTargetCanvas?: (canvas: HTMLCanvasElement | OffscreenCanvas | null) => void;
+  getCanvas?: () => HTMLCanvasElement | null;
+  setTargetCanvas?: (canvas: HTMLCanvasElement | null) => void;
   updateColorCycleTexture?: () => void;
-  renderDirectToCanvas?: (canvas: HTMLCanvasElement | OffscreenCanvas, layerId: string) => void;
+  renderDirectToCanvas?: (canvas: HTMLCanvasElement, layerId: string) => void;
   render?: (forceFullOpacity?: boolean) => void;
 };
 type LegacyColorCycleBrushField = NonNullable<NonNullable<Layer['colorCycleData']>['colorCycleBrush']>;
@@ -380,6 +388,7 @@ export interface LayersSlice {
   setLayerGroupVisibility: (groupId: string, visible: boolean) => void;
   setSelectedLayerIds: (layerIds: string[]) => void;
   mergeLayers: (layerIds: string[]) => string | null;
+  convertColorCycleLayerToNormal: (layerId: string) => boolean;
   setActiveLayer: (id: string | null, opts?: SetActiveLayerOptions) => void;
   setReferenceLayer: (id: string | null) => void;
   reorderLayers: (sourceIndex: number, destinationIndex: number) => void;
@@ -2035,6 +2044,7 @@ export const createLayersSlice = (
     });
 
     let mergedLayerId: string | null = null;
+    let mergedColorCycleSnapshot: ColorCycleLayerSnapshot | null = null;
 
     set((state) => {
       if (!state.project) {
@@ -2049,6 +2059,9 @@ export const createLayersSlice = (
       }
 
       const sortedByOrder = [...layersToMerge].sort((a, b) => a.order - b.order);
+      const shouldMergeColorCycle = sortedByOrder.every(
+        (layer) => layer.layerType === 'color-cycle' && Boolean(layer.colorCycleData),
+      );
       const sourceGroupIds = Array.from(
         new Set(
           layersToMerge
@@ -2097,6 +2110,25 @@ export const createLayersSlice = (
         return tempCanvas;
       };
 
+      const readCanvasImageData = (
+        canvas: HTMLCanvasElement | OffscreenCanvas | null,
+      ): ImageData | null => {
+        if (!canvas) {
+          return null;
+        }
+        try {
+          const canvasContext = canvas.getContext(
+            '2d',
+            { willReadFrequently: true } as CanvasRenderingContext2DSettings,
+          ) as CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D | null;
+          return canvasContext?.getImageData(0, 0, canvas.width, canvas.height) ?? null;
+        } catch {
+          return null;
+        }
+      };
+
+      const colorCycleMergeSources: ColorCycleLayerMergeSource[] = [];
+
       const drawLayerOntoMergeCanvas = (layer: Layer) => {
         ctx.globalCompositeOperation = layer.blendMode;
         ctx.globalAlpha = layer.opacity ?? 1;
@@ -2106,10 +2138,12 @@ export const createLayersSlice = (
           const sourceCanvas =
             (layer.colorCycleData?.canvas as HTMLCanvasElement | OffscreenCanvas | undefined) ??
             (hasValidFramebuffer(layer.framebuffer) ? layer.framebuffer : null);
+          let hasFreshColorCycleRender = false;
 
-          if (brush && sourceCanvas && typeof HTMLCanvasElement !== 'undefined' && sourceCanvas instanceof HTMLCanvasElement) {
+          if (brush && sourceCanvas && typeof brush.renderDirectToCanvas === 'function') {
             try {
-              brush.renderDirectToCanvas?.(sourceCanvas, layer.id);
+              brush.renderDirectToCanvas(sourceCanvas as HTMLCanvasElement, layer.id);
+              hasFreshColorCycleRender = true;
             } catch (error) {
               logError('[mergeLayers] Failed to render CC layer before merge', error);
             }
@@ -2119,6 +2153,29 @@ export const createLayersSlice = (
             sourceCanvas ??
             ensureCanvasFromImageData(layer.colorCycleData?.canvasImageData) ??
             ensureCanvasFromImageData(layer.imageData);
+
+          if (shouldMergeColorCycle && hasFreshColorCycleRender) {
+            const runtimeSnapshot = cloneColorCycleBrushLayerSnapshot(
+              readColorCycleBrushLayerSnapshotFromRuntime(
+                colorCycleBrushManager.getSerializedStateBrush(layer.id),
+                layer.id,
+              ),
+            );
+            const runtimeSnapshotMatchesProject =
+              runtimeSnapshot?.paintBuffer.byteLength === projectWidth * projectHeight;
+            const canvasImageData = readCanvasImageData(ccCanvas);
+            const renderedImageData =
+              canvasImageData?.width === projectWidth && canvasImageData.height === projectHeight
+                ? canvasImageData
+                : null;
+            if (runtimeSnapshotMatchesProject && runtimeSnapshot && renderedImageData) {
+              colorCycleMergeSources.push({
+                layer,
+                snapshot: runtimeSnapshot,
+                renderedImageData,
+              });
+            }
+          }
 
           if (ccCanvas) {
             try {
@@ -2178,14 +2235,31 @@ export const createLayersSlice = (
         logError('[mergeLayers] Failed to read merged imageData', error);
       }
 
-      mergedLayerId = `layer-${Date.now()}-${Math.random()}`;
       const topLayer = sortedByOrder[sortedByOrder.length - 1];
-      const mergedLayer: Layer = {
+      const mergedName =
+        sortedByOrder.length === 2
+          ? `${sortedByOrder[1].name} + ${sortedByOrder[0].name}`
+          : `Merged ${sortedByOrder.length} layers`;
+      const candidateMergedLayerId = `layer-${Date.now()}-${Math.random()}`;
+      const colorCycleMergeResult = shouldMergeColorCycle
+        ? mergeColorCycleLayerPayloads({
+            sources: colorCycleMergeSources,
+            targetLayerId: candidateMergedLayerId,
+            width: projectWidth,
+            height: projectHeight,
+          })
+        : null;
+
+      if (shouldMergeColorCycle && !colorCycleMergeResult) {
+        logError('[mergeLayers] Color-cycle payload merge preflight failed');
+        return state;
+      }
+
+      mergedLayerId = colorCycleMergeResult?.layer.id ?? candidateMergedLayerId;
+      let mergedLayer: Layer = {
         id: mergedLayerId,
         name:
-          sortedByOrder.length === 2
-            ? `${sortedByOrder[1].name} + ${sortedByOrder[0].name}`
-            : `Merged ${sortedByOrder.length} layers`,
+          mergedName,
         visible: true,
         opacity: 1,
         blendMode: 'source-over',
@@ -2199,6 +2273,82 @@ export const createLayersSlice = (
         layerType: 'normal',
         version: (topLayer.version ?? 0) + 1,
       };
+
+      if (colorCycleMergeResult) {
+        const targetLayer = colorCycleMergeResult.layer;
+        let targetBrush = colorCycleBrushManager.getHistoryBrush(mergedLayerId) as ColorCycleSnapshotBrush | null;
+        if (!targetBrush) {
+          colorCycleBrushManager.initColorCycleForLayer(mergedLayerId, projectWidth, projectHeight);
+          targetBrush = colorCycleBrushManager.getHistoryBrush(mergedLayerId) as ColorCycleSnapshotBrush | null;
+        }
+        const targetCanvas = targetBrush?.getCanvas?.() ?? null;
+        const targetRuntimeMeta = createColorCycleBrushPersistenceLayerMetaFromLayerData(
+          targetLayer.colorCycleData,
+        );
+        if (!targetBrush || !targetCanvas || !targetRuntimeMeta || !targetBrush.renderDirectToCanvas) {
+          colorCycleBrushManager.removeColorCycleBrush(mergedLayerId);
+          mergedLayerId = null;
+          logError('[mergeLayers] Failed to initialize merged color-cycle runtime');
+          return state;
+        }
+
+        setColorCycleBrushPersistenceLayerMeta(targetBrush, mergedLayerId, targetRuntimeMeta);
+        try {
+          const applied = applyColorCycleBrushLayerSnapshotToRuntime(
+            targetBrush,
+            mergedLayerId,
+            colorCycleMergeResult.snapshot,
+            undefined,
+            'merge-color-cycle-layers',
+          );
+          if (!applied) {
+            throw new Error('Merged color-cycle snapshot runtime is unavailable');
+          }
+          targetBrush.setTargetCanvas?.(targetCanvas);
+          targetBrush.updateColorCycleTexture?.();
+          targetBrush.renderDirectToCanvas(targetCanvas, mergedLayerId);
+        } catch (error) {
+          colorCycleBrushManager.removeColorCycleBrush(mergedLayerId);
+          mergedLayerId = null;
+          logError('[mergeLayers] Failed to publish merged color-cycle payload', error);
+          return state;
+        }
+
+        const mergedColorCycleData: NonNullable<Layer['colorCycleData']> = {
+          ...(targetLayer.colorCycleData ?? {}),
+          canvas: targetCanvas,
+          canvasImageData: mergedImageData ?? targetLayer.colorCycleData?.canvasImageData,
+          colorCycleBrush: targetBrush as LegacyColorCycleBrushField,
+          hasContent: colorCycleMergeResult.snapshot.hasContent,
+        };
+        const layerWithMergedMetadata: Layer = {
+          ...targetLayer,
+          colorCycleData: mergedColorCycleData,
+        };
+        mergedColorCycleData.brushState = buildCanonicalBrushStateFromSnapshot(
+          layerWithMergedMetadata,
+          mergedLayerId,
+          colorCycleMergeResult.snapshot,
+          targetLayer.colorCycleData?.brushState,
+        ) as NonNullable<Layer['colorCycleData']>['brushState'];
+        mergedLayer = {
+          ...layerWithMergedMetadata,
+          name: mergedName,
+          visible: true,
+          opacity: 1,
+          blendMode: 'source-over',
+          locked: false,
+          transparencyLocked: false,
+          order: 0,
+          imageData: mergedImageData,
+          framebuffer: targetCanvas,
+          alignment: cloneLayerAlignment(topLayer.alignment),
+          groupId: mergedGroupId,
+          layerType: 'color-cycle',
+          version: (topLayer.version ?? 0) + 1,
+        };
+        mergedColorCycleSnapshot = colorCycleMergeResult.snapshot;
+      }
 
       const remainingLayers = state.layers.filter((layer) => !uniqueIds.includes(layer.id));
       const insertionIndex = (() => {
@@ -2235,6 +2385,17 @@ export const createLayersSlice = (
 
     for (const sourceLayerId of layerIds) {
       clearSequentialLayerRendererLayer(sourceLayerId);
+      if (sourceLayerId !== mergedLayerId) {
+        colorCycleBrushManager.removeColorCycleBrush(sourceLayerId);
+      }
+    }
+
+    if (mergedColorCycleSnapshot) {
+      const mergedLayer = get().layers.find((layer) => layer.id === mergedLayerId);
+      if (mergedLayer?.layerType === 'color-cycle') {
+        syncPlaybackColorCycleLayers([mergedLayer], 'merge-color-cycle-layers');
+        requestGradientApply(mergedLayer.id, 'merge-color-cycle-layers');
+      }
     }
 
     const stateAfterMerge = get();
@@ -2257,6 +2418,113 @@ export const createLayersSlice = (
     scheduleSlotRebuild('merge-layers');
 
     return mergedLayerId;
+  },
+  convertColorCycleLayerToNormal: (layerId) => {
+    const stateBeforeConversion = get();
+    const sourceLayer = stateBeforeConversion.layers.find((layer) => layer.id === layerId);
+    if (!sourceLayer || sourceLayer.layerType !== 'color-cycle' || !stateBeforeConversion.project) {
+      return false;
+    }
+
+    const beforeSnapshot = captureLayerStructureSnapshot(stateBeforeConversion, {
+      actionType: 'layer',
+      description: 'Convert color-cycle layer to regular',
+    });
+    const width = stateBeforeConversion.project.width || 1;
+    const height = stateBeforeConversion.project.height || 1;
+    const sourceCanvas =
+      (sourceLayer.colorCycleData?.canvas as HTMLCanvasElement | OffscreenCanvas | undefined) ??
+      (hasValidFramebuffer(sourceLayer.framebuffer) ? sourceLayer.framebuffer : null);
+    const brush = colorCycleBrushManager.getSurfaceBrush(layerId);
+
+    if (!brush || !sourceCanvas || typeof brush.renderDirectToCanvas !== 'function') {
+      return false;
+    }
+    try {
+      brush.renderDirectToCanvas(sourceCanvas as HTMLCanvasElement, layerId);
+    } catch (error) {
+      logError('[convertColorCycleLayerToNormal] Failed to render color-cycle layer', error);
+      return false;
+    }
+
+    const compositeSource = bakeColorCycleLayerMasks({
+      layer: sourceLayer,
+      sourceCanvas,
+      createCanvas: createLayerTransferCanvas,
+    });
+    if (!compositeSource) {
+      logError('[convertColorCycleLayerToNormal] Failed to bake active masks');
+      return false;
+    }
+
+    const regularCanvas = createLayerTransferCanvas(width, height);
+    if (!regularCanvas) {
+      return false;
+    }
+    const regularContext = regularCanvas.getContext(
+      '2d',
+      { willReadFrequently: true } as CanvasRenderingContext2DSettings,
+    ) as CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D | null;
+    if (!regularContext) {
+      return false;
+    }
+
+    try {
+      regularContext.drawImage(compositeSource as CanvasImageSource, 0, 0, width, height);
+    } catch (error) {
+      logError('[convertColorCycleLayerToNormal] Failed to capture color-cycle pixels', error);
+      return false;
+    }
+
+    let imageData: ImageData;
+    try {
+      imageData = regularContext.getImageData(0, 0, width, height);
+    } catch (error) {
+      logError('[convertColorCycleLayerToNormal] Failed to read regular layer pixels', error);
+      return false;
+    }
+
+    set((state) => ({
+      layers: state.layers.map((layer) => {
+        if (layer.id !== layerId) {
+          return layer;
+        }
+        const convertedLayer: Layer = {
+          ...layer,
+          layerType: 'normal',
+          imageData,
+          framebuffer: regularCanvas,
+          version: (layer.version ?? 0) + 1,
+        };
+        delete convertedLayer.colorCycleData;
+        return convertedLayer;
+      }),
+      layersNeedRecomposition: true,
+    }));
+
+    colorCycleBrushManager.removeColorCycleBrush(layerId);
+    get().setActiveLayer(layerId, {
+      previousActiveLayer: sourceLayer,
+      forceLifecycle: true,
+      preserveSelection: true,
+    });
+
+    const afterSnapshot = captureLayerStructureSnapshot(get(), {
+      actionType: 'layer',
+      description: 'Convert color-cycle layer to regular',
+      activeLayerId: layerId,
+      previousSnapshot: beforeSnapshot,
+    });
+    commitLayerStructureHistory({
+      set,
+      beforeSnapshot,
+      afterSnapshot,
+      label: 'Convert to regular layer',
+      metadata: { layerId, operation: 'convert-color-cycle-to-normal' },
+    });
+    get().markAllCompositeSegmentsDirty();
+    scheduleSlotRebuild('convert-color-cycle-to-normal');
+    return true;
   },
   setActiveLayer: (id, opts) => set((state) => {
     const layer = id ? state.layers.find(l => l.id === id) : null;

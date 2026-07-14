@@ -1,5 +1,6 @@
 import { createDefaultLayerAlignment } from '@/utils/layoutDefaults';
 import type { Layer } from '@/types';
+import type { ColorCycleBrushLayerSnapshot } from '@/lib/colorCycle/document/brushPersistenceAdapter';
 import { ColorCycleLayerDocument } from '@/lib/colorCycle/document/ColorCycleLayerDocument';
 import type { CompositeSegment } from '@/stores/slices/layersSlice';
 import {
@@ -9,6 +10,7 @@ import {
 import type { ColorCycleLayerDocumentState } from '@/lib/colorCycle/documentState';
 import { compositeBitmapManager } from '@/lib/performance/CompositeBitmapManager';
 import historyManager from '@/history/historyService';
+import { mergeColorCycleLayerPayloads } from '@/stores/layers/colorCycleLayerTransforms';
 
 const makeCanvas = () => {
   const ctx = {
@@ -17,6 +19,8 @@ const makeCanvas = () => {
     drawImage: jest.fn(),
     fillRect: jest.fn(),
     getImageData: jest.fn(() => new ImageData(32, 32)),
+    save: jest.fn(),
+    restore: jest.fn(),
   } as unknown as CanvasRenderingContext2D;
 
   return {
@@ -55,6 +59,20 @@ const attachLegacyColorCycleTopLevelBuffersForTest = (
     '@/lib/colorCycle/document/legacyTopLevelBuffers',
   ) as typeof import('@/lib/colorCycle/document/legacyTopLevelBuffers');
   return attachLegacyColorCycleTopLevelBuffers(data, buffers);
+};
+
+const clearMockBrushPersistenceMeta = () => {
+  const { clearColorCycleBrushPersistenceLayerMetaForOwner } = jest.requireActual(
+    '@/lib/colorCycle/document/brushPersistenceAdapter',
+  ) as typeof import('@/lib/colorCycle/document/brushPersistenceAdapter');
+  clearColorCycleBrushPersistenceLayerMetaForOwner(mockBrush);
+};
+
+const readMockBrushPersistenceMeta = (layerId: string) => {
+  const { mergeColorCycleBrushPersistenceLayerMetaForOwner } = jest.requireActual(
+    '@/lib/colorCycle/document/brushPersistenceAdapter',
+  ) as typeof import('@/lib/colorCycle/document/brushPersistenceAdapter');
+  return mergeColorCycleBrushPersistenceLayerMetaForOwner(mockBrush, layerId, null);
 };
 
 const registerMockBrushLayerSnapshotRuntime = () => {
@@ -273,6 +291,7 @@ beforeEach(() => {
     brushRegistry.set(layerId, brush);
   });
   mockManager.getDocument.mockImplementation((layerId: string) => documentRegistry.get(layerId));
+  mockBrush.getCanvas.mockImplementation(() => makeCanvas());
   mockBrush.getColorCycleLayerDocument.mockImplementation((layerId: string) => documentRegistry.get(layerId));
   mockManager.ensureDocument.mockImplementation((layerId: string, width: number, height: number) => {
     const existing = documentRegistry.get(layerId);
@@ -291,6 +310,7 @@ beforeEach(() => {
     brushRegistry.set(layerId, mockBrush);
     return true;
   });
+  clearMockBrushPersistenceMeta();
   (restoreColorCycleBrushes as jest.Mock).mockReset();
   (restoreColorCycleBrushes as jest.Mock).mockImplementation(async (layers: Layer[]) => layers);
   historyManager.clear();
@@ -1678,6 +1698,614 @@ describe('layers slice integration', () => {
     expect(nextState.activeLayerId).toBe(mergedId);
     expect(nextState.selectedLayerIds).toEqual([mergedId]);
     expect(nextState.referenceLayerId).toBeNull();
+  });
+
+  it('merges color-cycle layers without flattening their canonical payloads', () => {
+    const makeRenderedImage = (paintedPixel: number) => {
+      const imageData = new ImageData(2, 1);
+      imageData.data[paintedPixel * 4 + 3] = 255;
+      return imageData;
+    };
+    const makeRenderedCanvas = (imageData: ImageData) => ({
+      width: imageData.width,
+      height: imageData.height,
+      getContext: jest.fn(() => ({
+        getImageData: jest.fn(() => imageData),
+      })),
+    }) as unknown as HTMLCanvasElement;
+
+    useAppStore.setState((state) => ({
+      project: state.project
+        ? { ...state.project, width: 2, height: 1 }
+        : state.project,
+    }));
+
+    const bottomId = useAppStore.getState().addLayer({
+      ...createColorCycleLayerInput('Bottom CC'),
+      imageData: makeRenderedImage(0),
+      colorCycleData: {
+        ...createColorCycleLayerInput('Bottom CC').colorCycleData,
+        canvas: makeRenderedCanvas(makeRenderedImage(0)),
+        slotPalettes: [{
+          slot: 1,
+          stops: [
+            { position: 0, color: '#ff0000' },
+            { position: 1, color: '#880000' },
+          ],
+        }],
+        gradientDefStore: [{
+          id: 1,
+          kind: 'linear',
+          hash: 'bottom-red',
+          source: 'manual',
+          createdAtMs: 1,
+          slot: 1,
+          stops: [
+            { position: 0, color: '#ff0000' },
+            { position: 1, color: '#880000' },
+          ],
+        }],
+      },
+    });
+    const topId = useAppStore.getState().addLayer({
+      ...createColorCycleLayerInput('Top CC'),
+      imageData: makeRenderedImage(1),
+      colorCycleData: {
+        ...createColorCycleLayerInput('Top CC').colorCycleData,
+        canvas: makeRenderedCanvas(makeRenderedImage(1)),
+        slotPalettes: [{
+          slot: 1,
+          stops: [
+            { position: 0, color: '#0000ff' },
+            { position: 1, color: '#000088' },
+          ],
+        }],
+        gradientDefStore: [{
+          id: 1,
+          kind: 'linear',
+          hash: 'top-blue',
+          source: 'manual',
+          createdAtMs: 2,
+          slot: 1,
+          stops: [
+            { position: 0, color: '#0000ff' },
+            { position: 1, color: '#000088' },
+          ],
+        }],
+      },
+    });
+
+    documentRegistry.set(bottomId, new ColorCycleLayerDocument({
+      ...makeDocumentState(bottomId, 2, 1),
+      paintBuffer: Uint8Array.from([10, 0]).buffer,
+      gradientIdBuffer: Uint8Array.from([1, 1]).buffer,
+      gradientDefIdBuffer: Uint16Array.from([1, 1]).buffer,
+    }));
+    documentRegistry.set(topId, new ColorCycleLayerDocument({
+      ...makeDocumentState(topId, 2, 1),
+      paintBuffer: Uint8Array.from([0, 20]).buffer,
+      gradientIdBuffer: Uint8Array.from([1, 1]).buffer,
+      gradientDefIdBuffer: Uint16Array.from([1, 1]).buffer,
+    }));
+    brushRegistry.set(bottomId, mockBrush);
+    brushRegistry.set(topId, mockBrush);
+    mockApplyLayerSnapshot.mockClear();
+    mockApplyLayerSnapshot.mockImplementationOnce((layerId, snapshot) => {
+      const runtimeMeta = readMockBrushPersistenceMeta(layerId);
+      const document = new ColorCycleLayerDocument({
+        ...makeDocumentState(layerId, 2, 1),
+        ...snapshot,
+        slotPalettes: runtimeMeta?.slotPalettes,
+        gradientDefs: runtimeMeta?.gradientDefs,
+        gradientDefStore: runtimeMeta?.gradientDefStore,
+        paintSlot: runtimeMeta?.paintSlot,
+        fgActiveSlot: runtimeMeta?.fgActiveSlot,
+        activeGradientId: runtimeMeta?.activeGradientId,
+      });
+      documentRegistry.set(layerId, document);
+    });
+
+    const mergedId = useAppStore.getState().mergeLayers([bottomId, topId]);
+
+    expect(mergedId).not.toBeNull();
+    expect(mergedId).not.toBe(bottomId);
+    expect(mergedId).not.toBe(topId);
+    const mergedLayer = useAppStore.getState().layers.find((layer) => layer.id === mergedId);
+    expect(mergedLayer?.layerType).toBe('color-cycle');
+    expect(mergedLayer?.colorCycleData?.brushState).toBeDefined();
+    expect(mergedLayer?.colorCycleData?.slotPalettes).toHaveLength(2);
+    expect(mergedLayer?.colorCycleData?.gradientDefStore).toHaveLength(2);
+    expect(mockApplyLayerSnapshot).toHaveBeenCalledWith(
+      mergedId,
+      expect.objectContaining({
+        hasContent: true,
+        speedSourceVersion: 2,
+      }),
+      undefined,
+      'merge-color-cycle-layers',
+      undefined,
+    );
+    const appliedSnapshot = mockApplyLayerSnapshot.mock.calls[0]?.[1];
+    expect(Array.from(new Uint8Array(appliedSnapshot.paintBuffer))).toEqual([10, 20]);
+    expect(Array.from(new Uint8Array(appliedSnapshot.gradientIdBuffer))).toEqual([1, 0]);
+    expect(Array.from(new Uint16Array(appliedSnapshot.gradientDefIdBuffer))).toEqual([1, 2]);
+    expect(documentRegistry.get(mergedId as string)?.read().snapshot.gradientDefStore).toHaveLength(2);
+    expect(mockManager.removeColorCycleBrush).toHaveBeenCalledWith(topId);
+    expect(mockManager.removeColorCycleBrush).toHaveBeenCalledWith(bottomId);
+  });
+
+  it('blocks a canonical CC merge when painted pixels overlap despite an opaque sampled frame', () => {
+    const createLayer = (id: string, order: number, color: string): Layer => ({
+      ...createColorCycleLayerInput(id),
+      id,
+      order,
+      colorCycleData: {
+        ...createColorCycleLayerInput(id).colorCycleData,
+        slotPalettes: [{
+          slot: 1,
+          stops: [
+            { position: 0, color },
+            { position: 1, color: 'rgba(0, 0, 0, 0)' },
+          ],
+        }],
+        gradientDefStore: [{
+          id: 1,
+          kind: 'linear',
+          hash: `${id}-gradient`,
+          source: 'manual',
+          createdAtMs: 1,
+          slot: 1,
+          stops: [
+            { position: 0, color },
+            { position: 1, color: 'rgba(0, 0, 0, 0)' },
+          ],
+        }],
+      },
+    });
+    const createSnapshot = (): ColorCycleBrushLayerSnapshot => ({
+      paintBuffer: Uint8Array.from([1]).buffer,
+      gradientIdBuffer: Uint8Array.from([1]).buffer,
+      gradientDefIdBuffer: Uint16Array.from([1]).buffer,
+      speedBuffer: Uint8Array.from([1]).buffer,
+      flowBuffer: Uint8Array.from([1]).buffer,
+      phaseBuffer: Uint8Array.from([0]).buffer,
+      hasContent: true,
+      strokeCounter: 1,
+    });
+    const opaqueFrame = new ImageData(1, 1);
+    opaqueFrame.data[3] = 255;
+
+    expect(mergeColorCycleLayerPayloads({
+      sources: [
+        { layer: createLayer('bottom', 0, '#ff0000'), snapshot: createSnapshot(), renderedImageData: opaqueFrame },
+        { layer: createLayer('top', 1, '#0000ff'), snapshot: createSnapshot(), renderedImageData: opaqueFrame },
+      ],
+      targetLayerId: 'merged',
+      width: 1,
+      height: 1,
+    })).toBeNull();
+  });
+
+  it('blocks a canonical CC merge when a colliding palette cannot be remapped losslessly', () => {
+    const palettes = Array.from({ length: 256 }, (_, slot) => ({
+      slot,
+      stops: [
+        { position: 0, color: `rgb(${slot}, 0, 0)` },
+        { position: 1, color: `rgb(${slot}, 0, 0)` },
+      ],
+    }));
+    const createLayer = (
+      id: string,
+      order: number,
+      slotPalettes: NonNullable<NonNullable<Layer['colorCycleData']>['slotPalettes']>,
+    ): Layer => ({
+      ...createColorCycleLayerInput(id),
+      id,
+      order,
+      colorCycleData: {
+        ...createColorCycleLayerInput(id).colorCycleData,
+        slotPalettes,
+        gradientDefStore: [],
+      },
+    });
+    const createSnapshot = (paint: number[]): ColorCycleBrushLayerSnapshot => ({
+      paintBuffer: Uint8Array.from(paint).buffer,
+      gradientIdBuffer: Uint8Array.from([0, 0]).buffer,
+      gradientDefIdBuffer: Uint16Array.from([0, 0]).buffer,
+      speedBuffer: Uint8Array.from([1, 1]).buffer,
+      flowBuffer: Uint8Array.from([1, 1]).buffer,
+      phaseBuffer: Uint8Array.from([0, 0]).buffer,
+      hasContent: true,
+      strokeCounter: 1,
+    });
+    const renderedBottom = new ImageData(2, 1);
+    renderedBottom.data[3] = 255;
+    const renderedTop = new ImageData(2, 1);
+    renderedTop.data[7] = 255;
+
+    expect(mergeColorCycleLayerPayloads({
+      sources: [
+        {
+          layer: createLayer('bottom', 0, palettes),
+          snapshot: createSnapshot([1, 0]),
+          renderedImageData: renderedBottom,
+        },
+        {
+          layer: createLayer('top', 1, [{
+            slot: 0,
+            stops: [
+              { position: 0, color: '#0000ff' },
+              { position: 1, color: '#000088' },
+            ],
+          }]),
+          snapshot: createSnapshot([0, 1]),
+          renderedImageData: renderedTop,
+        },
+      ],
+      targetLayerId: 'merged',
+      width: 2,
+      height: 1,
+    })).toBeNull();
+  });
+
+  it('blocks a canonical CC merge when layer playback states differ', () => {
+    const createLayer = (
+      id: string,
+      order: number,
+      isAnimating: boolean,
+    ): Layer => ({
+      ...createColorCycleLayerInput(id),
+      id,
+      order,
+      colorCycleData: {
+        ...createColorCycleLayerInput(id).colorCycleData,
+        isAnimating,
+        slotPalettes: [{
+          slot: 1,
+          stops: [
+            { position: 0, color: '#ff0000' },
+            { position: 1, color: '#880000' },
+          ],
+        }],
+        gradientDefStore: [],
+      },
+    });
+    const createSnapshot = (paint: number[]): ColorCycleBrushLayerSnapshot => ({
+      paintBuffer: Uint8Array.from(paint).buffer,
+      gradientIdBuffer: Uint8Array.from([1, 1]).buffer,
+      gradientDefIdBuffer: Uint16Array.from([0, 0]).buffer,
+      speedBuffer: Uint8Array.from([1, 1]).buffer,
+      flowBuffer: Uint8Array.from([1, 1]).buffer,
+      phaseBuffer: Uint8Array.from([0, 0]).buffer,
+      hasContent: true,
+      strokeCounter: 1,
+    });
+    const renderedBottom = new ImageData(2, 1);
+    renderedBottom.data[3] = 255;
+    const renderedTop = new ImageData(2, 1);
+    renderedTop.data[7] = 255;
+
+    expect(mergeColorCycleLayerPayloads({
+      sources: [
+        {
+          layer: createLayer('paused-bottom', 0, false),
+          snapshot: createSnapshot([1, 0]),
+          renderedImageData: renderedBottom,
+        },
+        {
+          layer: createLayer('playing-top', 1, true),
+          snapshot: createSnapshot([0, 1]),
+          renderedImageData: renderedTop,
+        },
+      ],
+      targetLayerId: 'merged',
+      width: 2,
+      height: 1,
+    })).toBeNull();
+  });
+
+  it('keeps source CC layers when fresh rendered pixels cannot be read', () => {
+    const stalePreview = new ImageData(1, 1);
+    stalePreview.data[3] = 255;
+    const unreadableCanvas = () => ({
+      width: 1,
+      height: 1,
+      getContext: jest.fn(() => ({
+        getImageData: jest.fn(() => {
+          throw new Error('canvas readback failed');
+        }),
+      })),
+    }) as unknown as HTMLCanvasElement;
+    useAppStore.setState((state) => ({
+      project: state.project
+        ? { ...state.project, width: 1, height: 1 }
+        : state.project,
+    }));
+
+    const bottomId = useAppStore.getState().addLayer({
+      ...createColorCycleLayerInput('Bottom unreadable CC'),
+      imageData: stalePreview,
+      colorCycleData: {
+        ...createColorCycleLayerInput('Bottom unreadable CC').colorCycleData,
+        canvas: unreadableCanvas(),
+        canvasImageData: stalePreview,
+      },
+    });
+    const topId = useAppStore.getState().addLayer({
+      ...createColorCycleLayerInput('Top unreadable CC'),
+      imageData: stalePreview,
+      colorCycleData: {
+        ...createColorCycleLayerInput('Top unreadable CC').colorCycleData,
+        canvas: unreadableCanvas(),
+        canvasImageData: stalePreview,
+      },
+    });
+    documentRegistry.set(bottomId, new ColorCycleLayerDocument(makeDocumentState(bottomId, 1, 1)));
+    documentRegistry.set(topId, new ColorCycleLayerDocument(makeDocumentState(topId, 1, 1)));
+    brushRegistry.set(bottomId, mockBrush);
+    brushRegistry.set(topId, mockBrush);
+    mockApplyLayerSnapshot.mockClear();
+
+    const mergedId = useAppStore.getState().mergeLayers([bottomId, topId]);
+
+    expect(mergedId).toBeNull();
+    expect(useAppStore.getState().layers.map((layer) => layer.id)).toEqual([bottomId, topId]);
+    expect(mockApplyLayerSnapshot).not.toHaveBeenCalled();
+    expect(mockManager.removeColorCycleBrush).not.toHaveBeenCalled();
+  });
+
+  it.each(([
+    ['fractional layer opacity', (layer: Layer) => ({ ...layer, opacity: 0.5 }), 255, undefined],
+    ['non-source-over blending', (layer: Layer) => ({ ...layer, blendMode: 'multiply' }), 255, undefined],
+    ['hidden layers', (layer: Layer) => ({ ...layer, visible: false }), 255, undefined],
+    ['partial pixel alpha', (layer: Layer) => layer, 128, undefined],
+    ['missing canonical buffers', (layer: Layer) => layer, 255, (
+      snapshot: ColorCycleBrushLayerSnapshot,
+    ) => ({ ...snapshot, speedBuffer: undefined })],
+    ['active masks', (layer: Layer) => {
+      const eraseMask = makeCanvas();
+      const eraseMaskImage = new ImageData(32, 32);
+      eraseMaskImage.data[3] = 255;
+      (eraseMask.getContext('2d')?.getImageData as jest.Mock).mockReturnValue(eraseMaskImage);
+      return {
+        ...layer,
+        colorCycleData: {
+          ...layer.colorCycleData,
+          eraseMask,
+          eraseMaskVersion: 1,
+        },
+      };
+    }, 255, undefined],
+  ] satisfies Array<[
+    string,
+    (layer: Layer) => Layer,
+    number,
+    ((snapshot: ColorCycleBrushLayerSnapshot) => ColorCycleBrushLayerSnapshot) | undefined,
+  ]>))(
+    'blocks canonical CC merge for %s',
+    (_caseName, configureTopLayer, topAlpha, configureTopSnapshot) => {
+      const createLayer = (id: string, order: number): Layer => ({
+        ...createColorCycleLayerInput(id),
+        id,
+        order,
+      });
+      const createSnapshot = (): ColorCycleBrushLayerSnapshot => ({
+        paintBuffer: Uint8Array.from([1]).buffer,
+        gradientIdBuffer: Uint8Array.from([1]).buffer,
+        gradientDefIdBuffer: Uint16Array.from([1]).buffer,
+        speedBuffer: Uint8Array.from([1]).buffer,
+        flowBuffer: Uint8Array.from([1]).buffer,
+        phaseBuffer: Uint8Array.from([1]).buffer,
+        hasContent: true,
+        strokeCounter: 1,
+      });
+      const createRenderedImage = (alpha: number) => {
+        const imageData = new ImageData(1, 1);
+        imageData.data[3] = alpha;
+        return imageData;
+      };
+      const bottomLayer = createLayer('bottom-cc', 0);
+      const topLayer = configureTopLayer(createLayer('top-cc', 1));
+
+      expect(mergeColorCycleLayerPayloads({
+        sources: [
+          {
+            layer: bottomLayer,
+            snapshot: createSnapshot(),
+            renderedImageData: createRenderedImage(255),
+          },
+          {
+            layer: topLayer,
+            snapshot: configureTopSnapshot?.(createSnapshot()) ?? createSnapshot(),
+            renderedImageData: createRenderedImage(topAlpha),
+          },
+        ],
+        targetLayerId: bottomLayer.id,
+        width: 1,
+        height: 1,
+      })).toBeNull();
+    },
+  );
+
+  it('converts a color-cycle layer to a regular layer with rendered pixels', () => {
+    const createElementSpy = jest.spyOn(document, 'createElement');
+    const realCreateElement = document.createElement.bind(document);
+    createElementSpy.mockImplementation((tagName: string) => {
+      if (tagName === 'canvas') {
+        return makeCanvas() as unknown as HTMLCanvasElement;
+      }
+      return realCreateElement(tagName);
+    });
+
+    const layerId = useAppStore.getState().addLayer(createColorCycleLayerInput('Convertible CC'));
+    brushRegistry.set(layerId, mockBrush);
+
+    const converted = useAppStore.getState().convertColorCycleLayerToNormal(layerId);
+    createElementSpy.mockRestore();
+
+    const convertedLayer = useAppStore.getState().layers.find((layer) => layer.id === layerId);
+    expect(converted).toBe(true);
+    expect(convertedLayer?.layerType).toBe('normal');
+    expect(convertedLayer?.colorCycleData).toBeUndefined();
+    expect(convertedLayer?.imageData).toBeInstanceOf(ImageData);
+    expect(mockManager.removeColorCycleBrush).toHaveBeenCalledWith(layerId);
+  });
+
+  it('bakes active color-cycle masks into the converted regular bitmap', () => {
+    const sourceCanvas = makeCanvas();
+    const eraseMask = makeCanvas();
+    const softEdgeMask = makeCanvas();
+    const layerInput = createColorCycleLayerInput('Masked CC');
+    const layerId = useAppStore.getState().addLayer({
+      ...layerInput,
+      framebuffer: sourceCanvas,
+      colorCycleData: {
+        ...layerInput.colorCycleData,
+        canvas: sourceCanvas,
+        eraseMask,
+        softEdgeMask,
+        softEdgeMaskEnabled: true,
+      },
+    });
+    brushRegistry.set(layerId, mockBrush);
+
+    const maskedCanvas = makeCanvas();
+    const regularCanvas = makeCanvas();
+    const createdCanvases = [maskedCanvas, regularCanvas];
+    const createElementSpy = jest.spyOn(document, 'createElement');
+    const realCreateElement = document.createElement.bind(document);
+    createElementSpy.mockImplementation((tagName: string) => {
+      if (tagName === 'canvas') {
+        return createdCanvases.shift() as HTMLCanvasElement;
+      }
+      return realCreateElement(tagName);
+    });
+
+    const converted = useAppStore.getState().convertColorCycleLayerToNormal(layerId);
+    createElementSpy.mockRestore();
+
+    const maskedContext = maskedCanvas.getContext('2d') as CanvasRenderingContext2D;
+    const regularContext = regularCanvas.getContext('2d') as CanvasRenderingContext2D;
+    const project = useAppStore.getState().project;
+    expect(converted).toBe(true);
+    expect(maskedContext.drawImage).toHaveBeenCalledWith(sourceCanvas, 0, 0);
+    expect(maskedContext.drawImage).toHaveBeenCalledWith(eraseMask, 0, 0);
+    expect(maskedContext.drawImage).toHaveBeenCalledWith(softEdgeMask, 0, 0);
+    expect(regularContext.drawImage).toHaveBeenCalledWith(
+      maskedCanvas,
+      0,
+      0,
+      project?.width,
+      project?.height,
+    );
+  });
+
+  it('bakes persisted color-cycle mask image data into the converted regular bitmap', () => {
+    const sourceCanvas = makeCanvas();
+    const eraseMaskImageData = new ImageData(32, 32);
+    const softEdgeMaskImageData = new ImageData(32, 32);
+    eraseMaskImageData.data[3] = 255;
+    softEdgeMaskImageData.data[3] = 255;
+    const layerInput = createColorCycleLayerInput('Persisted Mask CC');
+    const layerId = useAppStore.getState().addLayer({
+      ...layerInput,
+      framebuffer: sourceCanvas,
+      colorCycleData: {
+        ...layerInput.colorCycleData,
+        canvas: sourceCanvas,
+        eraseMaskImageData,
+        softEdgeMaskImageData,
+        softEdgeMaskEnabled: true,
+      },
+    });
+    brushRegistry.set(layerId, mockBrush);
+
+    const materializedEraseMask = makeCanvas();
+    const materializedSoftEdgeMask = makeCanvas();
+    const maskedCanvas = makeCanvas();
+    const regularCanvas = makeCanvas();
+    const createdCanvases = [
+      materializedEraseMask,
+      materializedSoftEdgeMask,
+      maskedCanvas,
+      regularCanvas,
+    ];
+    const createElementSpy = jest.spyOn(document, 'createElement');
+    const realCreateElement = document.createElement.bind(document);
+    createElementSpy.mockImplementation((tagName: string) => {
+      if (tagName === 'canvas') {
+        return createdCanvases.shift() as HTMLCanvasElement;
+      }
+      return realCreateElement(tagName);
+    });
+
+    const converted = useAppStore.getState().convertColorCycleLayerToNormal(layerId);
+    createElementSpy.mockRestore();
+
+    const materializedEraseContext = materializedEraseMask.getContext('2d') as CanvasRenderingContext2D;
+    const materializedSoftEdgeContext = materializedSoftEdgeMask.getContext('2d') as CanvasRenderingContext2D;
+    const maskedContext = maskedCanvas.getContext('2d') as CanvasRenderingContext2D;
+    expect(converted).toBe(true);
+    expect(materializedEraseContext.putImageData).toHaveBeenCalledWith(eraseMaskImageData, 0, 0);
+    expect(materializedSoftEdgeContext.putImageData).toHaveBeenCalledWith(softEdgeMaskImageData, 0, 0);
+    expect(maskedContext.drawImage).toHaveBeenCalledWith(materializedEraseMask, 0, 0);
+    expect(maskedContext.drawImage).toHaveBeenCalledWith(materializedSoftEdgeMask, 0, 0);
+  });
+
+  it('keeps the CC payload when an active mask cannot be baked', () => {
+    const sourceCanvas = makeCanvas();
+    const eraseMask = makeCanvas();
+    const layerInput = createColorCycleLayerInput('Mask Failure CC');
+    const layerId = useAppStore.getState().addLayer({
+      ...layerInput,
+      framebuffer: sourceCanvas,
+      colorCycleData: {
+        ...layerInput.colorCycleData,
+        canvas: sourceCanvas,
+        eraseMask,
+      },
+    });
+    brushRegistry.set(layerId, mockBrush);
+
+    const maskedCanvas = makeCanvas();
+    const maskedContext = maskedCanvas.getContext('2d') as CanvasRenderingContext2D;
+    (maskedContext.drawImage as jest.Mock).mockImplementation((source: CanvasImageSource) => {
+      if (source === eraseMask) {
+        throw new Error('mask draw failed');
+      }
+    });
+    const createElementSpy = jest.spyOn(document, 'createElement');
+    const realCreateElement = document.createElement.bind(document);
+    createElementSpy.mockImplementation((tagName: string) => (
+      tagName === 'canvas'
+        ? maskedCanvas as HTMLCanvasElement
+        : realCreateElement(tagName)
+    ));
+
+    const converted = useAppStore.getState().convertColorCycleLayerToNormal(layerId);
+    createElementSpy.mockRestore();
+
+    const sourceLayer = useAppStore.getState().layers.find((layer) => layer.id === layerId);
+    expect(converted).toBe(false);
+    expect(sourceLayer?.layerType).toBe('color-cycle');
+    expect(sourceLayer?.colorCycleData).toBeDefined();
+    expect(mockManager.removeColorCycleBrush).not.toHaveBeenCalledWith(layerId);
+  });
+
+  it('keeps the CC payload when conversion cannot render a fresh frame', () => {
+    const layerId = useAppStore.getState().addLayer(createColorCycleLayerInput('Render Failure CC'));
+    brushRegistry.set(layerId, mockBrush);
+    mockBrush.renderDirectToCanvas.mockImplementationOnce(() => {
+      throw new Error('WebGL context lost');
+    });
+
+    const converted = useAppStore.getState().convertColorCycleLayerToNormal(layerId);
+
+    const sourceLayer = useAppStore.getState().layers.find((layer) => layer.id === layerId);
+    expect(converted).toBe(false);
+    expect(sourceLayer?.layerType).toBe('color-cycle');
+    expect(sourceLayer?.colorCycleData).toBeDefined();
+    expect(mockManager.removeColorCycleBrush).not.toHaveBeenCalledWith(layerId);
   });
 
   it('composites visible normal layers from framebuffer when imageData is missing', () => {
