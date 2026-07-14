@@ -10,11 +10,12 @@ Deliver complete, production-oriented work. Test doubles are acceptable at I/O b
 
 - Prefer direct execution when the task is clear. Ask before writing when requirements are materially ambiguous; when unattended, use the most reasonable interpretation and record it.
 - Read the local implementation before making architectural assumptions. Use `rg` and `rg --files`; read files in chunks of at most 250 lines.
-- Keep changes minimal and scoped. Do not alter unrelated work; report nearby design problems separately.
+- Keep code changes minimal and scoped. Do not alter unrelated work; report nearby design problems separately.
+- For plans and bug fixes, keep them scoped to the actual root cause. If more than 6 files are needed, stop and ask before continuing.
 - Fix the source invariant first. Trace the real path; do not add wrappers, helper layers, or downstream compensation around a broken authority. Remove directly superseded workarounds when safe; otherwise explain why they remain or why the source cannot change.
 - Prefer the simplest explicit solution that satisfies the requirement. Reuse existing seams before adding abstractions; suggest a better approach when it materially reduces lasting risk or churn.
 - State uncertainty. A small, localized experiment is preferable to speculation.
-- For significant work, follow: understand → design → implement → test → refine. Plans state the goal, non-goals, owner, expected files, verification, and stop condition. Treat the file list as a hard boundary; explain before expanding it. Keep one plan step active. Document only when required by a project contract or durable behavior change.
+- For significant work, follow: understand → design → implement → test → refine. Plans begin with clear outcome goals; those goals determine the non-goals, required scope, owners, expected files, verification, and stop conditions. Define clear, measurable exit criteria that prove the goals are met and state when the work is finished. Scope is tight when every included task directly advances or proves a goal—not when file count or patch size is minimized arbitrarily. Treat the file list as a hard boundary; explain before expanding it. Keep one plan step active. Document only when required by a project contract or durable behavior change.
 - Preserve public contracts and call out breaking changes.
 - Stay on the current branch unless the user requests otherwise. Never default to a `codex/` branch name.
 
