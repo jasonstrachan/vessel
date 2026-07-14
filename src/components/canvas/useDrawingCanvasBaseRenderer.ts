@@ -303,11 +303,9 @@ export const useDrawingCanvasBaseRenderer = ({
         checkerLight: CANVAS_CHECKER_LIGHT,
         checkerDark: CANVAS_CHECKER_DARK,
       };
-      if (shouldApplyNoiseOnlyFilter && visibleRect) {
-        ctx.clearRect(visibleRect.x, visibleRect.y, visibleRect.width, visibleRect.height);
-      } else {
-        renderCanvasBackground(canvasBackgroundOptions);
-      }
+      // Keep the direct compositor's background-first contract for Noise-only frames.
+      // Delaying this paint changes layer blending and can hide underlying artwork.
+      renderCanvasBackground(canvasBackgroundOptions);
 
       const activeLayer =
         activeLayerId != null ? layers.find((layer) => layer.id === activeLayerId) ?? null : null;
@@ -483,10 +481,6 @@ export const useDrawingCanvasBaseRenderer = ({
           scale * dpr,
           { ctx, rect: visibleRect },
         );
-        ctx.save();
-        ctx.globalCompositeOperation = 'destination-over';
-        renderCanvasBackground(canvasBackgroundOptions);
-        ctx.restore();
       }
 
       drawCanvasOverlayLayer({

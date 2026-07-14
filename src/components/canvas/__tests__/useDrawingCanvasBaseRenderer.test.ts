@@ -218,31 +218,22 @@ describe('Noise-only display filter fast path', () => {
     }
   });
 
-  it('keeps artwork transparent until Noise is applied and paints the background behind it', () => {
+  it('keeps the direct compositor background-first before applying Noise', () => {
     const rendererSource = fs.readFileSync(
       'src/components/canvas/useDrawingCanvasBaseRenderer.ts',
       'utf8',
     );
-    const clearTargetAt = rendererSource.indexOf(
-      'ctx.clearRect(visibleRect.x, visibleRect.y, visibleRect.width, visibleRect.height);',
-    );
-    const compositeAt = rendererSource.indexOf('drawVisibleCompositeStack({', clearTargetAt);
-    const noiseAt = rendererSource.indexOf('ctx.canvas,', compositeAt);
-    const destinationOverAt = rendererSource.indexOf(
-      "ctx.globalCompositeOperation = 'destination-over';",
-      noiseAt,
-    );
     const backgroundAt = rendererSource.indexOf(
       'renderCanvasBackground(canvasBackgroundOptions);',
-      destinationOverAt,
     );
-    const overlaysAt = rendererSource.indexOf('drawCanvasOverlayLayer({', backgroundAt);
+    const compositeAt = rendererSource.indexOf('drawVisibleCompositeStack({', backgroundAt);
+    const noiseAt = rendererSource.indexOf('ctx.canvas,', compositeAt);
+    const overlaysAt = rendererSource.indexOf('drawCanvasOverlayLayer({', noiseAt);
 
-    expect(clearTargetAt).toBeGreaterThan(-1);
-    expect(compositeAt).toBeGreaterThan(clearTargetAt);
+    expect(backgroundAt).toBeGreaterThan(-1);
+    expect(compositeAt).toBeGreaterThan(backgroundAt);
     expect(noiseAt).toBeGreaterThan(compositeAt);
-    expect(destinationOverAt).toBeGreaterThan(noiseAt);
-    expect(backgroundAt).toBeGreaterThan(destinationOverAt);
-    expect(overlaysAt).toBeGreaterThan(backgroundAt);
+    expect(overlaysAt).toBeGreaterThan(noiseAt);
+    expect(rendererSource).not.toContain("ctx.globalCompositeOperation = 'destination-over';");
   });
 });
