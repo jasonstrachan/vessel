@@ -96,6 +96,9 @@ const buildInlineDisplayFilterRuntime = (pipelineJs) => {
     'clearDisplayFilterCanvas',
     'getDisplayFilterByIdFromList',
     'hasEnabledDisplayFiltersInList',
+    'getNoiseOnlyDisplayFilter',
+    'ensureDisplayNoiseOverlay',
+    'applyDisplayNoiseOverlay',
     'applyDisplayFilterStack',
   ];
   const exportList = exports.join(', ');

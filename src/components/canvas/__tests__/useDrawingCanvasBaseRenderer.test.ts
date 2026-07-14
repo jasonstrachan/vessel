@@ -1,8 +1,15 @@
+import fs from 'node:fs';
+
 import {
+  applyDisplayFilterStack,
+  createDisplayFilterPipelineState,
   createTileableNoiseGrid,
+  ensureDisplayNoiseOverlay,
+  getNoiseOnlyDisplayFilter,
   getNextFilterWorkCanvas,
   getSeamlessNoisePatternSize,
 } from '@/lib/displayFilterPipeline';
+import type { DisplayFilterConfig } from '@/types';
 import {
   fillCanvasFrameBackdrop,
   shouldRequestCompositeBitmapRecomposition,
@@ -78,5 +85,164 @@ describe('createTileableNoiseGrid', () => {
     for (let x = 0; x < grid[0].length; x += 1) {
       expect(grid[grid.length - 1][x]).toBe(grid[0][x]);
     }
+  });
+});
+
+describe('Noise-only display filter fast path', () => {
+  const createNoiseFilter = (
+    enabled = true,
+    opacity = 0.2,
+    scale = 2,
+  ): Extract<DisplayFilterConfig, { id: 'noise' }> => ({
+    id: 'noise',
+    enabled,
+    settings: { opacity, scale },
+  });
+
+  it('selects only an enabled Noise filter with a non-zero effect', () => {
+    expect(getNoiseOnlyDisplayFilter([createNoiseFilter()])).toEqual(createNoiseFilter());
+    expect(getNoiseOnlyDisplayFilter([createNoiseFilter(false)])).toBeNull();
+    expect(getNoiseOnlyDisplayFilter([createNoiseFilter(true, 0)])).toBeNull();
+  });
+
+  it('rejects enabled non-Noise filters and mixed stacks', () => {
+    const bloom: Extract<DisplayFilterConfig, { id: 'bloom' }> = {
+      id: 'bloom',
+      enabled: true,
+      settings: { blurRadius: 4, intensity: 0.5 },
+    };
+
+    expect(getNoiseOnlyDisplayFilter([bloom])).toBeNull();
+    expect(getNoiseOnlyDisplayFilter([createNoiseFilter(), bloom])).toBeNull();
+    expect(getNoiseOnlyDisplayFilter([
+      createNoiseFilter(),
+      { ...bloom, enabled: false },
+    ])).not.toBeNull();
+  });
+
+  it('applies Noise directly without allocating filter or ping-pong surfaces', () => {
+    const sourceCanvas = document.createElement('canvas');
+    sourceCanvas.width = 32;
+    sourceCanvas.height = 24;
+    const targetCtx = sourceCanvas.getContext('2d');
+    const filterState = createDisplayFilterPipelineState();
+    expect(targetCtx).not.toBeNull();
+    const drawImageSpy = jest.spyOn(targetCtx as CanvasRenderingContext2D, 'drawImage');
+
+    applyDisplayFilterStack({
+      sourceCanvas,
+      displayFilters: [createNoiseFilter()],
+      filterState,
+      noiseOnlyTarget: {
+        ctx: targetCtx as CanvasRenderingContext2D,
+        rect: { x: 2, y: 3, width: 20, height: 12 },
+      },
+    });
+
+    expect(filterState.filterSurfaceCanvas).toBeNull();
+    expect(filterState.workCanvasA).toBeNull();
+    expect(filterState.workCanvasB).toBeNull();
+    expect(drawImageSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('reuses the overlay until scale, target size, or document phase changes', () => {
+    const filterState = createDisplayFilterPipelineState();
+    const initialArgs = {
+      noiseFilter: createNoiseFilter(),
+      filterState,
+      width: 40,
+      height: 30,
+      originX: 7,
+      originY: 9,
+    };
+    const overlayCanvas = ensureDisplayNoiseOverlay(initialArgs);
+    const overlayCtx = overlayCanvas?.getContext('2d');
+    expect(overlayCanvas).not.toBeNull();
+    expect(overlayCtx).not.toBeNull();
+    const clearRectSpy = jest.spyOn(overlayCtx as CanvasRenderingContext2D, 'clearRect');
+    const initialKey = filterState.noiseOverlayKey;
+
+    expect(ensureDisplayNoiseOverlay(initialArgs)).toBe(overlayCanvas);
+    expect(filterState.noiseOverlayKey).toBe(initialKey);
+    expect(clearRectSpy).not.toHaveBeenCalled();
+
+    ensureDisplayNoiseOverlay({ ...initialArgs, noiseFilter: createNoiseFilter(true, 0.2, 3) });
+    const scaleKey = filterState.noiseOverlayKey;
+    expect(scaleKey).not.toBe(initialKey);
+
+    ensureDisplayNoiseOverlay({ ...initialArgs, width: 41 });
+    const sizeKey = filterState.noiseOverlayKey;
+    expect(sizeKey).not.toBe(scaleKey);
+
+    ensureDisplayNoiseOverlay({ ...initialArgs, originX: 8 });
+    expect(filterState.noiseOverlayKey).not.toBe(sizeKey);
+    expect(clearRectSpy).toHaveBeenCalledTimes(3);
+  });
+
+  it('fills the cached overlay with the expected document-space phase', () => {
+    const createPatternSpy = jest
+      .spyOn(CanvasRenderingContext2D.prototype, 'createPattern')
+      .mockReturnValue({} as CanvasPattern);
+    const fillRectSpy = jest.spyOn(CanvasRenderingContext2D.prototype, 'fillRect');
+    const translateSpy = jest.spyOn(CanvasRenderingContext2D.prototype, 'translate');
+    const getContextSpy = jest.spyOn(HTMLCanvasElement.prototype, 'getContext');
+
+    try {
+      const filterState = createDisplayFilterPipelineState();
+      const overlayCanvas = ensureDisplayNoiseOverlay({
+        noiseFilter: createNoiseFilter(),
+        filterState,
+        width: 40,
+        height: 30,
+        originX: 7,
+        originY: 9,
+      });
+      const patternCanvas = filterState.noisePatternCanvas;
+
+      expect(overlayCanvas).not.toBeNull();
+      expect(patternCanvas).not.toBeNull();
+      expect(createPatternSpy).toHaveBeenCalledWith(patternCanvas, 'repeat');
+      expect(translateSpy).toHaveBeenLastCalledWith(-7, -9);
+      expect(fillRectSpy).toHaveBeenLastCalledWith(
+        0,
+        0,
+        (overlayCanvas?.width ?? 0) + (patternCanvas?.width ?? 0),
+        (overlayCanvas?.height ?? 0) + (patternCanvas?.height ?? 0),
+      );
+      expect(getContextSpy.mock.calls.every((call) => call.length === 1)).toBe(true);
+    } finally {
+      createPatternSpy.mockRestore();
+      fillRectSpy.mockRestore();
+      translateSpy.mockRestore();
+      getContextSpy.mockRestore();
+    }
+  });
+
+  it('keeps artwork transparent until Noise is applied and paints the background behind it', () => {
+    const rendererSource = fs.readFileSync(
+      'src/components/canvas/useDrawingCanvasBaseRenderer.ts',
+      'utf8',
+    );
+    const clearTargetAt = rendererSource.indexOf(
+      'ctx.clearRect(visibleRect.x, visibleRect.y, visibleRect.width, visibleRect.height);',
+    );
+    const compositeAt = rendererSource.indexOf('drawVisibleCompositeStack({', clearTargetAt);
+    const noiseAt = rendererSource.indexOf('ctx.canvas,', compositeAt);
+    const destinationOverAt = rendererSource.indexOf(
+      "ctx.globalCompositeOperation = 'destination-over';",
+      noiseAt,
+    );
+    const backgroundAt = rendererSource.indexOf(
+      'renderCanvasBackground(canvasBackgroundOptions);',
+      destinationOverAt,
+    );
+    const overlaysAt = rendererSource.indexOf('drawCanvasOverlayLayer({', backgroundAt);
+
+    expect(clearTargetAt).toBeGreaterThan(-1);
+    expect(compositeAt).toBeGreaterThan(clearTargetAt);
+    expect(noiseAt).toBeGreaterThan(compositeAt);
+    expect(destinationOverAt).toBeGreaterThan(noiseAt);
+    expect(backgroundAt).toBeGreaterThan(destinationOverAt);
+    expect(overlaysAt).toBeGreaterThan(backgroundAt);
   });
 });

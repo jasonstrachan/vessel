@@ -5585,16 +5585,26 @@ class VesselGoblet {
       height: Math.max(1, toNum(this.metadata.project?.height, cssH))
     };
     const displayFilters = getGobletDisplayFilters(this.metadata);
-    const shouldFilterArtwork = hasEnabledDisplayFiltersInList(displayFilters);
-    const filterSurfaceCanvas = shouldFilterArtwork
+    const hasEnabledDisplayFilters = hasEnabledDisplayFiltersInList(displayFilters);
+    const shouldApplyNoiseOnlyFilter = hasEnabledDisplayFiltersInList(
+      displayFilters,
+      'noise-only',
+    );
+    const shouldUseDisplayFilterPipeline =
+      hasEnabledDisplayFilters && !shouldApplyNoiseOnlyFilter;
+    const filterSurfaceCanvas = shouldUseDisplayFilterPipeline
       ? ensureDisplayFilterCanvas(
           this.displayFilterState.filterSurfaceCanvas,
           clearWidth,
           clearHeight,
         )
       : null;
-    const filterCtx = shouldFilterArtwork ? clearDisplayFilterCanvas(filterSurfaceCanvas) : null;
-    this.displayFilterState.filterSurfaceCanvas = filterSurfaceCanvas;
+    const filterCtx = shouldUseDisplayFilterPipeline
+      ? clearDisplayFilterCanvas(filterSurfaceCanvas)
+      : null;
+    if (shouldUseDisplayFilterPipeline) {
+      this.displayFilterState.filterSurfaceCanvas = filterSurfaceCanvas;
+    }
     if (filterCtx) {
       paintGobletBackground(filterCtx, clearWidth, clearHeight, this.metadata);
     }
@@ -5630,7 +5640,7 @@ class VesselGoblet {
       viewportSize,
       designSize,
       isFixed,
-      shouldFilterArtwork,
+      shouldFilterArtwork: hasEnabledDisplayFilters,
       dpr,
       renderWidth: clearWidth,
       renderHeight: clearHeight,
@@ -5688,6 +5698,25 @@ class VesselGoblet {
       ctx.drawImage(finalFilteredCanvas, 0, 0);
       if (profile.enabled) {
         profile.blitMs += profile.now() - blitStart;
+      }
+    } else if (shouldApplyNoiseOnlyFilter) {
+      const filterStart = profile.enabled ? profile.now() : 0;
+      applyDisplayFilterStack({
+        sourceCanvas: this.canvas,
+        displayFilters,
+        filterState: this.displayFilterState,
+        noiseOnlyTarget: {
+          ctx,
+          rect: {
+            x: 0,
+            y: 0,
+            width: clearWidth,
+            height: clearHeight,
+          },
+        },
+      });
+      if (profile.enabled) {
+        profile.filterMs += profile.now() - filterStart;
       }
     }
 

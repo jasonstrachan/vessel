@@ -91,7 +91,32 @@ describe('Goblet 2 runtime export regression guard', () => {
     expect(runtime).toContain(
       '{getSeamlessNoisePatternSize:getSeamlessNoisePatternSize,createTileableNoiseGrid:createTileableNoiseGrid,createDisplayFilterPipelineState:createDisplayFilterPipelineState'
     );
+    expect(runtime).toContain('getNoiseOnlyDisplayFilter:getNoiseOnlyDisplayFilter');
+    expect(runtime).toContain('ensureDisplayNoiseOverlay:ensureDisplayNoiseOverlay');
+    expect(runtime).toContain('applyDisplayNoiseOverlay:applyDisplayNoiseOverlay');
     expect(runtime).toContain('applyDisplayFilterStack:applyDisplayFilterStack}=(()=>{');
+  });
+
+  it('keeps the shared Noise-only overlay contract in modular and inline runtimes', () => {
+    const runtime = read('public/goblet2/goblet2.js');
+    const inlineRuntime = read('public/goblet2/goblet2-inline.js');
+    const gobletPipeline = read('public/goblet2/displayFilterPipeline.js');
+    const legacyPipeline = read('public/goblet/displayFilterPipeline.js');
+
+    expect(gobletPipeline).toContain('export const getNoiseOnlyDisplayFilter = (filters) => {');
+    expect(gobletPipeline).toContain('export const ensureDisplayNoiseOverlay = ({');
+    expect(gobletPipeline).toContain('export const applyDisplayNoiseOverlay = ({');
+    expect(legacyPipeline).toBe(gobletPipeline);
+
+    expect(runtime).toContain("hasEnabledDisplayFiltersInList(\n      displayFilters,\n      'noise-only',");
+    expect(runtime).toContain('const shouldUseDisplayFilterPipeline =');
+    expect(runtime).toContain('} else if (shouldApplyNoiseOnlyFilter) {');
+    expect(runtime).toContain('noiseOnlyTarget: {');
+    expect(inlineRuntime).toContain('"noise-only"');
+    expect(inlineRuntime).toContain('noiseOnlyTarget');
+    expect(inlineRuntime).toContain('getNoiseOnlyDisplayFilter:getNoiseOnlyDisplayFilter');
+    expect(inlineRuntime).toContain('ensureDisplayNoiseOverlay:ensureDisplayNoiseOverlay');
+    expect(inlineRuntime).toContain('applyDisplayNoiseOverlay:applyDisplayNoiseOverlay');
   });
 
   it('does not duplicate the colliding clamp01 helper at top level in the inline runtime', () => {

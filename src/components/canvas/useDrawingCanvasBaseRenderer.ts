@@ -205,12 +205,17 @@ export const useDrawingCanvasBaseRenderer = ({
     sourceCanvas: HTMLCanvasElement,
     visibleRect?: VisibleWorldRect | null,
     lengthScale = 1,
+    noiseOnlyTarget?: {
+      ctx: CanvasRenderingContext2D;
+      rect: VisibleWorldRect;
+    },
   ): HTMLCanvasElement => applySharedDisplayFilterStack({
     sourceCanvas,
     displayFilters,
     filterState: displayFilterStateRef.current,
     visibleRect,
     lengthScale,
+    noiseOnlyTarget,
   }), [displayFilters]);
 
   return useCallback(
@@ -265,6 +270,11 @@ export const useDrawingCanvasBaseRenderer = ({
         return;
       }
 
+      const shouldApplyNoiseOnlyFilter =
+        Boolean(visibleRect) &&
+        !isDrawing &&
+        hasEnabledDisplayFiltersInList(displayFilters, 'noise-only');
+
       ctx.save();
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       ctx.save();
@@ -277,7 +287,7 @@ export const useDrawingCanvasBaseRenderer = ({
         applyCanvasShapeClip(ctx, activeCanvasShape);
       }
 
-      renderCanvasBackground({
+      const canvasBackgroundOptions = {
         ctx,
         visibleRect,
         project,
@@ -292,7 +302,12 @@ export const useDrawingCanvasBaseRenderer = ({
         solidBackgroundColor: CANVAS_TRANSPARENCY_GRAY,
         checkerLight: CANVAS_CHECKER_LIGHT,
         checkerDark: CANVAS_CHECKER_DARK,
-      });
+      };
+      if (shouldApplyNoiseOnlyFilter && visibleRect) {
+        ctx.clearRect(visibleRect.x, visibleRect.y, visibleRect.width, visibleRect.height);
+      } else {
+        renderCanvasBackground(canvasBackgroundOptions);
+      }
 
       const activeLayer =
         activeLayerId != null ? layers.find((layer) => layer.id === activeLayerId) ?? null : null;
@@ -379,19 +394,24 @@ export const useDrawingCanvasBaseRenderer = ({
       }
 
       const useSplitOverlay = Boolean(splitCompositeRequested && underCompositeCanvasRef.current);
-      const shouldFilterArtwork =
+      const shouldUseDisplayFilterPipeline =
         Boolean(visibleRect) &&
         !isDrawing &&
-        hasEnabledDisplayFiltersInList(displayFilters);
-      const filterCanvas = shouldFilterArtwork
+        hasEnabledDisplayFiltersInList(displayFilters) &&
+        !shouldApplyNoiseOnlyFilter;
+      const filterCanvas = shouldUseDisplayFilterPipeline
         ? ensureDisplayFilterCanvas(
             displayFilterStateRef.current.filterSurfaceCanvas,
             Math.ceil(visibleRect?.width ?? 1),
             Math.ceil(visibleRect?.height ?? 1),
           )
         : null;
-      displayFilterStateRef.current.filterSurfaceCanvas = filterCanvas;
-      const filterCtx = shouldFilterArtwork ? clearDisplayFilterCanvas(filterCanvas) : null;
+      if (shouldUseDisplayFilterPipeline) {
+        displayFilterStateRef.current.filterSurfaceCanvas = filterCanvas;
+      }
+      const filterCtx = shouldUseDisplayFilterPipeline
+        ? clearDisplayFilterCanvas(filterCanvas)
+        : null;
       const compositeTargetCtx = filterCtx ?? ctx;
       strokeFinalizeProbeMark('baseRenderer:drawVisibleCompositeStack', 'start', probeMeta);
       const { invalidCompositeBitmap } = drawVisibleCompositeStack({
@@ -455,6 +475,18 @@ export const useDrawingCanvasBaseRenderer = ({
           visibleRect.width,
           visibleRect.height,
         );
+      }
+      if (shouldApplyNoiseOnlyFilter && visibleRect) {
+        applyDisplayFilterStack(
+          ctx.canvas,
+          visibleRect,
+          scale * dpr,
+          { ctx, rect: visibleRect },
+        );
+        ctx.save();
+        ctx.globalCompositeOperation = 'destination-over';
+        renderCanvasBackground(canvasBackgroundOptions);
+        ctx.restore();
       }
 
       drawCanvasOverlayLayer({

@@ -15,6 +15,8 @@ export interface DisplayFilterPipelineState {
   crtGridGlowCanvas: HTMLCanvasElement | null;
   noisePatternKey: string;
   noisePatternCanvas: HTMLCanvasElement | null;
+  noiseOverlayKey: string;
+  noiseOverlayCanvas: HTMLCanvasElement | null;
   filmNoisePatternKey: string;
   filmNoiseBaseCanvas: HTMLCanvasElement | null;
   filmNoiseClumpCanvas: HTMLCanvasElement | null;
@@ -45,7 +47,13 @@ export function getDisplayFilterByIdFromList<I extends DisplayFilterConfig['id']
   filters: DisplayFilterConfig[],
   id: I,
 ): Extract<DisplayFilterConfig, { id: I }> | undefined;
-export function hasEnabledDisplayFiltersInList(filters: DisplayFilterConfig[]): boolean;
+export function hasEnabledDisplayFiltersInList(
+  filters: DisplayFilterConfig[],
+  mode?: 'any' | 'noise-only',
+): boolean;
+export function getNoiseOnlyDisplayFilter(
+  filters: DisplayFilterConfig[],
+): Extract<DisplayFilterConfig, { id: 'noise' }> | null;
 export function getSeamlessNoisePatternSize(tileStep: number): number;
 export function resolveDisplayNoiseTileStep(scale: number): number;
 export function resolveFilmNoiseSampleStep(tileStep: number): number;
@@ -58,10 +66,30 @@ export function resolveDownsampledDisplayFilterRadius(
   minimum?: number,
 ): number;
 export function createTileableNoiseGrid(columns: number, rows: number, seed?: number): number[][];
+export function ensureDisplayNoiseOverlay(args: {
+  noiseFilter: Extract<DisplayFilterConfig, { id: 'noise' }>;
+  filterState: DisplayFilterPipelineState;
+  width: number;
+  height: number;
+  originX?: number;
+  originY?: number;
+}): HTMLCanvasElement | null;
+export function applyDisplayNoiseOverlay(args: {
+  targetCtx: CanvasRenderingContext2D;
+  noiseFilter: Extract<DisplayFilterConfig, { id: 'noise' }>;
+  filterState: DisplayFilterPipelineState;
+  targetRect: { x: number; y: number; width: number; height: number };
+  documentOrigin?: { x: number; y: number };
+}): boolean;
 export function applyDisplayFilterStack(args: {
   sourceCanvas: HTMLCanvasElement;
   displayFilters: DisplayFilterConfig[];
   filterState: DisplayFilterPipelineState;
   visibleRect?: { x: number; y: number; width?: number; height?: number } | null;
   lengthScale?: number;
+  noiseOnlyTarget?: {
+    ctx: CanvasRenderingContext2D;
+    rect: { x: number; y: number; width: number; height: number };
+    documentOrigin?: { x: number; y: number };
+  };
 }): HTMLCanvasElement;

@@ -71,6 +71,8 @@ export const createDisplayFilterPipelineState = () => ({
   crtGridGlowCanvas: null,
   noisePatternKey: '',
   noisePatternCanvas: null,
+  noiseOverlayKey: '',
+  noiseOverlayCanvas: null,
   filmNoisePatternKey: '',
   filmNoiseBaseCanvas: null,
   filmNoiseClumpCanvas: null,
@@ -120,9 +122,165 @@ export const getDisplayFilterByIdFromList = (filters, id) => (
   Array.isArray(filters) ? filters.find((filter) => filter?.id === id) : undefined
 );
 
-export const hasEnabledDisplayFiltersInList = (filters) => (
-  Array.isArray(filters) && filters.some((filter) => filter?.enabled)
+export const hasEnabledDisplayFiltersInList = (filters, mode = 'any') => (
+  mode === 'noise-only'
+    ? Boolean(getNoiseOnlyDisplayFilter(filters))
+    : Array.isArray(filters) && filters.some((filter) => filter?.enabled)
 );
+
+export const getNoiseOnlyDisplayFilter = (filters) => {
+  if (!Array.isArray(filters)) {
+    return null;
+  }
+  const noiseFilter = getDisplayFilterByIdFromList(filters, 'noise');
+  if (
+    !noiseFilter?.enabled ||
+    getNumeric(noiseFilter?.settings?.opacity, 0) <= 0 ||
+    filters.some((filter) => filter?.enabled && filter?.id !== 'noise')
+  ) {
+    return null;
+  }
+  return noiseFilter;
+};
+
+const clearDisplayNoiseCanvas = (canvas) => {
+  const ctx = canvas?.getContext('2d');
+  if (!ctx || !canvas) {
+    return null;
+  }
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.globalAlpha = 1;
+  ctx.globalCompositeOperation = 'source-over';
+  ctx.filter = 'none';
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  return ctx;
+};
+
+const ensureDisplayNoisePattern = (noiseFilter, filterState) => {
+  const tileStep = resolveDisplayNoiseTileStep(noiseFilter?.settings?.scale);
+  const patternKey = JSON.stringify({ tileStep });
+  if (filterState.noisePatternKey === patternKey && filterState.noisePatternCanvas) {
+    return filterState.noisePatternCanvas;
+  }
+
+  const patternSize = getSeamlessNoisePatternSize(tileStep);
+  const patternCanvas = ensureDisplayFilterCanvas(
+    filterState.noisePatternCanvas,
+    patternSize,
+    patternSize,
+  );
+  const patternCtx = clearDisplayNoiseCanvas(patternCanvas);
+  if (patternCanvas && patternCtx) {
+    const columns = Math.max(1, Math.round(patternCanvas.width / tileStep));
+    const rows = Math.max(1, Math.round(patternCanvas.height / tileStep));
+    const tones = createTileableNoiseGrid(columns, rows, tileStep);
+    for (let y = 0; y < rows; y += 1) {
+      for (let x = 0; x < columns; x += 1) {
+        const tone = tones[y][x];
+        patternCtx.fillStyle = `rgb(${tone}, ${tone}, ${tone})`;
+        patternCtx.fillRect(x * tileStep, y * tileStep, tileStep, tileStep);
+      }
+    }
+  }
+
+  filterState.noisePatternKey = patternKey;
+  filterState.noisePatternCanvas = patternCanvas;
+  return patternCanvas;
+};
+
+export const ensureDisplayNoiseOverlay = ({
+  noiseFilter,
+  filterState,
+  width,
+  height,
+  originX = 0,
+  originY = 0,
+}) => {
+  const patternCanvas = ensureDisplayNoisePattern(noiseFilter, filterState);
+  if (!patternCanvas) {
+    return null;
+  }
+
+  const targetWidth = Math.max(1, Math.ceil(width));
+  const targetHeight = Math.max(1, Math.ceil(height));
+  const phaseX = positiveMod(originX, patternCanvas.width);
+  const phaseY = positiveMod(originY, patternCanvas.height);
+  const overlayKey = JSON.stringify({
+    patternKey: filterState.noisePatternKey,
+    width: targetWidth,
+    height: targetHeight,
+    phaseX,
+    phaseY,
+  });
+  if (filterState.noiseOverlayKey === overlayKey && filterState.noiseOverlayCanvas) {
+    return filterState.noiseOverlayCanvas;
+  }
+
+  const overlayCanvas = ensureDisplayFilterCanvas(
+    filterState.noiseOverlayCanvas,
+    targetWidth,
+    targetHeight,
+  );
+  const overlayCtx = clearDisplayNoiseCanvas(overlayCanvas);
+  const pattern = overlayCtx?.createPattern(patternCanvas, 'repeat') ?? null;
+  if (overlayCanvas && overlayCtx && pattern) {
+    overlayCtx.save();
+    overlayCtx.translate(-phaseX, -phaseY);
+    overlayCtx.fillStyle = pattern;
+    overlayCtx.fillRect(
+      0,
+      0,
+      overlayCanvas.width + patternCanvas.width,
+      overlayCanvas.height + patternCanvas.height,
+    );
+    overlayCtx.restore();
+  }
+
+  filterState.noiseOverlayKey = overlayKey;
+  filterState.noiseOverlayCanvas = overlayCanvas;
+  return overlayCanvas;
+};
+
+export const applyDisplayNoiseOverlay = ({
+  targetCtx,
+  noiseFilter,
+  filterState,
+  targetRect,
+  documentOrigin = targetRect,
+}) => {
+  if (!targetCtx || !noiseFilter?.enabled || getNumeric(noiseFilter?.settings?.opacity, 0) <= 0) {
+    return false;
+  }
+
+  const overlayCanvas = ensureDisplayNoiseOverlay({
+    noiseFilter,
+    filterState,
+    width: targetRect.width,
+    height: targetRect.height,
+    originX: documentOrigin.x,
+    originY: documentOrigin.y,
+  });
+  if (!overlayCanvas) {
+    return false;
+  }
+
+  targetCtx.save();
+  targetCtx.globalAlpha = getNumeric(noiseFilter.settings.opacity, 0);
+  targetCtx.globalCompositeOperation = 'soft-light';
+  targetCtx.drawImage(
+    overlayCanvas,
+    0,
+    0,
+    overlayCanvas.width,
+    overlayCanvas.height,
+    targetRect.x,
+    targetRect.y,
+    targetRect.width,
+    targetRect.height,
+  );
+  targetCtx.restore();
+  return true;
+};
 
 const buildColorGradeFilter = (filter) => {
   const brightness = 100 + getNumeric(filter?.settings?.brightness, 0) * 100;
@@ -484,7 +642,22 @@ export const applyDisplayFilterStack = ({
   displayFilters,
   filterState,
   visibleRect,
+  noiseOnlyTarget,
 }) => {
+  const noiseOnlyFilter = noiseOnlyTarget
+    ? getNoiseOnlyDisplayFilter(displayFilters)
+    : null;
+  if (noiseOnlyTarget && noiseOnlyFilter) {
+    applyDisplayNoiseOverlay({
+      targetCtx: noiseOnlyTarget.ctx,
+      noiseFilter: noiseOnlyFilter,
+      filterState,
+      targetRect: noiseOnlyTarget.rect,
+      documentOrigin: noiseOnlyTarget.documentOrigin ?? noiseOnlyTarget.rect,
+    });
+    return sourceCanvas;
+  }
+
   const workCanvasA = ensureDisplayFilterCanvas(
     filterState.workCanvasA,
     sourceCanvas.width,
@@ -836,49 +1009,21 @@ export const applyDisplayFilterStack = ({
   }
 
   if (noiseFilter?.enabled && getNumeric(noiseFilter?.settings?.opacity, 0) > 0) {
-    const tileStep = resolveDisplayNoiseTileStep(noiseFilter?.settings?.scale);
-    const patternKey = JSON.stringify({ tileStep });
-    if (filterState.noisePatternKey !== patternKey) {
-      const patternSize = getSeamlessNoisePatternSize(tileStep);
-      const patternCanvas = ensureDisplayFilterCanvas(
-        filterState.noisePatternCanvas,
-        patternSize,
-        patternSize,
-      );
-      const patternCtx = clearDisplayFilterCanvas(patternCanvas);
-      if (patternCanvas && patternCtx) {
-        const columns = Math.max(1, Math.round(patternCanvas.width / tileStep));
-        const rows = Math.max(1, Math.round(patternCanvas.height / tileStep));
-        const tones = createTileableNoiseGrid(columns, rows, tileStep);
-        for (let y = 0; y < rows; y += 1) {
-          for (let x = 0; x < columns; x += 1) {
-            const tone = tones[y][x];
-            patternCtx.fillStyle = `rgb(${tone}, ${tone}, ${tone})`;
-            patternCtx.fillRect(x * tileStep, y * tileStep, tileStep, tileStep);
-          }
-        }
-      }
-      filterState.noisePatternKey = patternKey;
-      filterState.noisePatternCanvas = patternCanvas;
-    }
-
     const nextCtx = clearDisplayFilterCanvas(nextCanvas);
     if (nextCtx) {
       nextCtx.drawImage(currentCanvas, 0, 0);
-      const patternCanvas = filterState.noisePatternCanvas;
-      const pattern = patternCanvas ? nextCtx.createPattern(patternCanvas, 'repeat') : null;
-      if (pattern && patternCanvas) {
-        nextCtx.save();
-        nextCtx.globalAlpha = getNumeric(noiseFilter.settings.opacity, 0);
-        nextCtx.globalCompositeOperation = 'soft-light';
-        nextCtx.translate(
-          -((origin.x % patternCanvas.width) + patternCanvas.width) % patternCanvas.width,
-          -((origin.y % patternCanvas.height) + patternCanvas.height) % patternCanvas.height,
-        );
-        nextCtx.fillStyle = pattern;
-        nextCtx.fillRect(0, 0, nextCanvas.width + patternCanvas.width, nextCanvas.height + patternCanvas.height);
-        nextCtx.restore();
-      }
+      applyDisplayNoiseOverlay({
+        targetCtx: nextCtx,
+        noiseFilter,
+        filterState,
+        targetRect: {
+          x: 0,
+          y: 0,
+          width: nextCanvas.width,
+          height: nextCanvas.height,
+        },
+        documentOrigin: origin,
+      });
       swap(nextCanvas);
     }
   }
