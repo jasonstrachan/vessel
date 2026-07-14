@@ -4868,6 +4868,97 @@ describe('projectIO serialize/deserialize layering', () => {
     expect(readPixel(reopenedLayer.colorCycleData?.canvasImageData ?? null, 0, 0)).toEqual([40, 80, 120, 255]);
   });
 
+  it('does not persist a stale repair failure when the canonical save snapshot is valid', async () => {
+    const layer = createBenchmarkColorCycleLayer(91, 2, 2, true);
+    layer.colorCycleData!.repairStatus = {
+      ok: false,
+      reason: 'missing-paint-buffer',
+      notes: ['stale-repair-status'],
+    };
+    const project: Project = {
+      id: 'project-cc-stale-repair-status',
+      name: 'CC Stale Repair Status',
+      width: 2,
+      height: 2,
+      backgroundColor: '#000000',
+      layers: [layer],
+      customBrushes: [],
+      createdAt: new Date('2025-01-01T00:00:00.000Z'),
+      updatedAt: new Date('2025-01-01T00:00:00.000Z'),
+    };
+
+    const payload = await withPatchedCanvasRect(() => serializeProject(project, project.layers));
+    const manifest = await readProjectManifest(payload) as {
+      project: {
+        layers: Array<{
+          colorCycleData?: {
+            repairStatus?: {
+              ok: false;
+              reason: string;
+            };
+          };
+        }>;
+      };
+    };
+
+    expect(manifest.project.layers[0]?.colorCycleData?.repairStatus).toBeUndefined();
+    const reopened = await deserializeProject(payload);
+    expect(reopened.layers[0]?.colorCycleData?.repairStatus).toBeUndefined();
+  });
+
+  it('clears a stale missing-paint failure when a deferred canonical archive entry exists', async () => {
+    const layer = createBenchmarkColorCycleLayer(92, 1100, 1100, true);
+    const project: Project = {
+      id: 'project-cc-stale-deferred-repair-status',
+      name: 'CC Stale Deferred Repair Status',
+      width: 1100,
+      height: 1100,
+      backgroundColor: '#000000',
+      layers: [layer],
+      customBrushes: [],
+      createdAt: new Date('2025-01-01T00:00:00.000Z'),
+      updatedAt: new Date('2025-01-01T00:00:00.000Z'),
+    };
+    const payload = await withPatchedCanvasRect(() => serializeProject(project, project.layers));
+    const zip = await JSZip.loadAsync(payload);
+    const projectEntry = zip.file('project.json');
+    if (!projectEntry) {
+      throw new Error('Missing project.json test fixture entry');
+    }
+    const manifest = JSON.parse(await projectEntry.async('string')) as {
+      project: {
+        layers: Array<{
+          colorCycleData?: {
+            repairStatus?: {
+              ok: false;
+              reason: 'missing-paint-buffer';
+              notes?: string[];
+            };
+          };
+        }>;
+      };
+    };
+    manifest.project.layers[0]!.colorCycleData!.repairStatus = {
+      ok: false,
+      reason: 'missing-paint-buffer',
+      notes: ['stale-repair-status'],
+    };
+    zip.file('project.json', JSON.stringify(manifest));
+    const stalePayload = await zip.generateAsync({
+      type: 'uint8array',
+      compression: 'DEFLATE',
+    });
+
+    const reopened = await deserializeProject(stalePayload, {
+      lazyColorCycleRuntime: true,
+      activeLayerId: 'other-layer',
+    });
+
+    expect(reopened.layers[0]?.colorCycleData?.deferredRuntimeRestore).toBe(true);
+    expect(reopened.layers[0]?.colorCycleData?.runtimeHydrationState).toBe('cold');
+    expect(reopened.layers[0]?.colorCycleData?.repairStatus).toBeUndefined();
+  });
+
   it('preserves deferred brush snapshots across layer object copies', async () => {
     const width = 2048;
     const height = 2048;

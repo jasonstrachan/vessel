@@ -3578,7 +3578,7 @@ async function serializeLayer(layer: Layer): Promise<SerializedLayer> {
       serializedColorCycle.softEdgeMaskEnabled = colorCycleData.softEdgeMaskEnabled;
     }
 
-    if (colorCycleData.repairStatus?.ok === false) {
+    if (!snapshot.ok && colorCycleData.repairStatus?.ok === false) {
       serializedColorCycle.repairStatus = {
         ok: false,
         reason: colorCycleData.repairStatus.reason,
@@ -5701,6 +5701,22 @@ export async function deserializeProjectWithReport(
           brushState: layer.colorCycleData?.brushState,
         });
         if (deserializedLayer.colorCycleData) {
+          const paintRef = colorCycleState.paintRef;
+          const paintPath = paintRef && isArchiveBinaryRef(paintRef)
+            ? fromArchiveBinaryRef(paintRef)
+            : null;
+          const hasCanonicalPaintEntry = Boolean(
+            paintPath &&
+            binaryManifest.has(paintPath) &&
+            archiveZip.file(paintPath)
+          );
+          // The persisted failure is stale when this archive owns the paint entry it claimed was missing.
+          if (
+            hasCanonicalPaintEntry &&
+            deserializedLayer.colorCycleData.repairStatus?.reason === 'missing-paint-buffer'
+          ) {
+            delete deserializedLayer.colorCycleData.repairStatus;
+          }
           deserializedLayer.colorCycleData.deferredRuntimeRestore = true;
           deserializedLayer.colorCycleData.runtimeHydrationState = 'cold';
         }
