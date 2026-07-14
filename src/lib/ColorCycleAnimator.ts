@@ -102,6 +102,8 @@ export class ColorCycleAnimator implements CCIndexSurface, DerivedSurface {
   builtFromVersion: number | null = null;
   private indexBuffer: IndexBuffer;
   private animationController: AnimationController;
+  private globalPlaybackSpeed: number;
+  private layerSpeedMultiplier = 1;
   private paletteController: PaletteController;
   private renderer2D: Renderer2D;
   // GPU renderer (optional)
@@ -166,9 +168,12 @@ export class ColorCycleAnimator implements CCIndexSurface, DerivedSurface {
       isLazy ? 0 : config.height
     );
 
+    this.globalPlaybackSpeed = Number.isFinite(config.speed)
+      ? Math.max(0, Math.abs(config.speed ?? 0))
+      : 0.1;
     this.animationController = new AnimationController({
       fps: config.fps || 30,
-      speed: config.speed || 0.1,
+      speed: this.globalPlaybackSpeed,
       autoStart: isLazy ? false : config.autoStart || false,
       onFrame: this.handleAnimationFrame.bind(this),
     });
@@ -203,6 +208,11 @@ export class ColorCycleAnimator implements CCIndexSurface, DerivedSurface {
   }
 
   rebuild(snapshot: ColorCycleLayerDocumentSnapshot, version: number): void {
+    const layerBaseSpeedCps = snapshot.layerBaseSpeedCps;
+    this.layerSpeedMultiplier = typeof layerBaseSpeedCps === 'number' && Number.isFinite(layerBaseSpeedCps)
+      ? Math.max(0, Math.abs(layerBaseSpeedCps))
+      : 1;
+    this.applyComposedSpeed();
     this.pendingDerivedSurfaceVersion = version;
     this.setIndexBufferFromArray(
       new Uint8Array(snapshot.paintBuffer ?? new ArrayBuffer(0)),
@@ -1648,7 +1658,25 @@ export class ColorCycleAnimator implements CCIndexSurface, DerivedSurface {
       return;
     }
 
-    this.animationController.setSpeed(Math.max(0, Math.abs(speed)));
+    this.globalPlaybackSpeed = Math.max(0, Math.abs(speed));
+    this.applyComposedSpeed();
+  }
+
+  setLayerSpeedMultiplier(speed: number): void {
+    if (!Number.isFinite(speed)) {
+      return;
+    }
+
+    this.layerSpeedMultiplier = Math.max(0, Math.abs(speed));
+    this.applyComposedSpeed();
+  }
+
+  getEffectivePlaybackSpeed(): number {
+    return this.globalPlaybackSpeed * this.layerSpeedMultiplier;
+  }
+
+  private applyComposedSpeed(): void {
+    this.animationController.setSpeed(this.getEffectivePlaybackSpeed());
   }
 
   setStrokeSpeedByte(speedByte: number) {

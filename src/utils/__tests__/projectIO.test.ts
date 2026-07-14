@@ -1,6 +1,6 @@
 import JSZip from 'jszip';
 import { DEFAULT_BRUSH_COLOR_CYCLE_SPEED } from '@/constants/colorCycle';
-import { encodeColorCycleSpeedByte } from '@/utils/colorCycleSpeed';
+import { decodeColorCycleSpeedByte, encodeColorCycleSpeedByte } from '@/utils/colorCycleSpeed';
 
 jest.mock('@/utils/debug', () => ({
   ...jest.requireActual('@/utils/debug'),
@@ -68,6 +68,7 @@ type TestColorCycleStrokeData = {
   gradientIdBuffer?: TestColorCycleBufferRef;
   gradientDefIdBuffer?: TestColorCycleBufferRef;
   speedBuffer?: TestColorCycleBufferRef;
+  speedSourceVersion?: 1 | 2;
   flowBuffer?: TestColorCycleBufferRef;
   phaseBuffer?: TestColorCycleBufferRef;
 };
@@ -114,6 +115,15 @@ const getFirstColorCycleStrokeData = (layer: Layer | undefined): TestColorCycleS
     layers?: Array<{ strokeData?: TestColorCycleStrokeData }>;
   } | undefined;
   return brushState?.layers?.[0]?.strokeData;
+};
+
+const getEffectiveColorCyclePlaybackSpeed = (layer: Layer | undefined): number | undefined => {
+  const brush = layer?.colorCycleData?.colorCycleBrush as unknown as {
+    getAnimator?: (layerId: string) => {
+      getEffectivePlaybackSpeed?: () => number;
+    };
+  } | undefined;
+  return layer && brush?.getAnimator?.(layer.id).getEffectivePlaybackSpeed?.();
 };
 
 const originalOffscreenCanvas = (globalThis as { OffscreenCanvas?: unknown }).OffscreenCanvas;
@@ -2522,6 +2532,7 @@ describe('projectIO serialize/deserialize layering', () => {
       gradientIdRef: 'zip:buffers/color-cycle/cc-layer/gradient-id.bin',
       gradientDefIdRef: 'zip:buffers/color-cycle/cc-layer/gradient-def-id.bin',
       speedRef: 'zip:buffers/color-cycle/cc-layer/speed.bin',
+      speedSourceVersion: 2,
       flowRef: 'zip:buffers/color-cycle/cc-layer/flow.bin',
       phaseRef: 'zip:buffers/color-cycle/cc-layer/phase.bin',
     }));
@@ -2529,6 +2540,234 @@ describe('projectIO serialize/deserialize layering', () => {
     expect(manifest.project.layers[0]?.colorCycleData?.isAnimating).toBeUndefined();
     expect(readLegacyColorCycleTopLevelBufferRefs(manifest.project.layers[0]?.colorCycleData).gradientIdBuffer).toBeUndefined();
     expect(readLegacyColorCycleTopLevelBufferRefs(manifest.project.layers[0]?.colorCycleData).gradientDefIdBuffer).toBeUndefined();
+  });
+
+  it('normalizes legacy effective speed bytes once before runtime restore', async () => {
+    const effectiveSpeedByte = encodeColorCycleSpeedByte(0.8);
+    const expectedAuthoredByte = encodeColorCycleSpeedByte(
+      decodeColorCycleSpeedByte(effectiveSpeedByte) / 2,
+    );
+    const asBase64 = (bytes: Uint8Array): string => Buffer.from(bytes).toString('base64');
+    const projectPayload = {
+      version: '1.1.0',
+      metadata: {
+        name: 'legacy-speed-normalization',
+        created: '2025-01-01T00:00:00.000Z',
+        modified: '2025-01-01T00:00:00.000Z',
+        appVersion: '1.0.0',
+      },
+      project: {
+        id: 'legacy-speed-normalization',
+        name: 'legacy-speed-normalization',
+        width: 2,
+        height: 2,
+        backgroundColor: '#000000',
+        customBrushes: [],
+        layers: [{
+          id: 'legacy-speed-layer',
+          name: 'Legacy Speed Layer',
+          visible: true,
+          opacity: 1,
+          blendMode: 'source-over',
+          locked: false,
+          transparencyLocked: false,
+          order: 0,
+          layerType: 'color-cycle',
+          alignment: createDefaultLayerAlignment(),
+          state: {
+            version: 1,
+            dimensions: { width: 2, height: 2 },
+            layerBaseSpeedCps: 2,
+            paintRef: asBase64(Uint8Array.from([1, 1, 1, 1])),
+            gradientIdRef: asBase64(Uint8Array.from([0, 0, 0, 0])),
+            speedRef: asBase64(Uint8Array.from([
+              effectiveSpeedByte,
+              effectiveSpeedByte,
+              0,
+              effectiveSpeedByte,
+            ])),
+            flowRef: asBase64(Uint8Array.from([0, 0, 0, 0])),
+            phaseRef: asBase64(Uint8Array.from([0, 0, 0, 0])),
+            hasContent: true,
+          },
+          colorCycleData: {
+            canvasImageData: encodeRawImageDataUrl(
+              createSolidImageData(2, 2, [0, 0, 0, 0]),
+            ),
+            gradient: [
+              { position: 0, color: '#000000' },
+              { position: 1, color: '#ffffff' },
+            ],
+          },
+        }],
+      },
+    };
+
+    const restored = await deserializeProject(JSON.stringify(projectPayload));
+    const [restoredLayer] = await restoreColorCycleBrushes(restored.layers);
+    const firstSnapshot = readTestColorCycleBrushLayerSnapshot(
+      restoredLayer.colorCycleData?.colorCycleBrush,
+      restoredLayer.id,
+    );
+    expect(Array.from(new Uint8Array(firstSnapshot?.speedBuffer ?? new ArrayBuffer(0))))
+      .toEqual([expectedAuthoredByte, expectedAuthoredByte, 0, expectedAuthoredByte]);
+    expect(getFirstColorCycleStrokeData(restoredLayer)?.speedSourceVersion).toBe(2);
+    expect(getEffectiveColorCyclePlaybackSpeed(restoredLayer)).toBe(2);
+
+    const contextProto = (globalThis as unknown as {
+      CanvasRenderingContext2D?: { prototype?: { rect?: (...args: number[]) => void } };
+    }).CanvasRenderingContext2D?.prototype;
+    const originalRect = contextProto?.rect;
+    if (contextProto && typeof contextProto.rect !== 'function') {
+      contextProto.rect = () => {};
+    }
+    try {
+      const savedAgain = await serializeProject(restored, restored.layers);
+      const reopened = await deserializeProject(savedAgain);
+      const [reopenedLayer] = await restoreColorCycleBrushes(reopened.layers);
+      const secondSnapshot = readTestColorCycleBrushLayerSnapshot(
+        reopenedLayer.colorCycleData?.colorCycleBrush,
+        reopenedLayer.id,
+      );
+      expect(Array.from(new Uint8Array(secondSnapshot?.speedBuffer ?? new ArrayBuffer(0))))
+        .toEqual([expectedAuthoredByte, expectedAuthoredByte, 0, expectedAuthoredByte]);
+      expect(getEffectiveColorCyclePlaybackSpeed(reopenedLayer)).toBe(2);
+    } finally {
+      if (contextProto) {
+        contextProto.rect = originalRect;
+      }
+    }
+  });
+
+  it('retains legacy speed authority when warm materialization fails', async () => {
+    const layerId = 'legacy-speed-materialization-failure';
+    const effectiveSpeedByte = encodeColorCycleSpeedByte(0.8);
+    const asBase64 = (bytes: Uint8Array): string => Buffer.from(bytes).toString('base64');
+    const effectiveSpeedBytes = Uint8Array.from([
+      effectiveSpeedByte,
+      effectiveSpeedByte,
+      0,
+      effectiveSpeedByte,
+    ]);
+    const projectPayload = {
+      version: '1.1.0',
+      metadata: {
+        name: layerId,
+        created: '2025-01-01T00:00:00.000Z',
+        modified: '2025-01-01T00:00:00.000Z',
+        appVersion: '1.0.0',
+      },
+      project: {
+        id: layerId,
+        name: layerId,
+        width: 2,
+        height: 2,
+        backgroundColor: '#000000',
+        customBrushes: [],
+        layers: [{
+          id: layerId,
+          name: 'Legacy Speed Materialization Failure',
+          visible: true,
+          opacity: 1,
+          blendMode: 'source-over',
+          locked: false,
+          transparencyLocked: false,
+          order: 0,
+          layerType: 'color-cycle',
+          alignment: createDefaultLayerAlignment(),
+          colorCycleData: {
+            layerBaseSpeedCps: 2,
+            canvasImageData: encodeRawImageDataUrl(
+              createSolidImageData(2, 2, [0, 0, 0, 0]),
+            ),
+            gradient: [
+              { position: 0, color: '#000000' },
+              { position: 1, color: '#ffffff' },
+            ],
+            brushState: {
+              canonicalPaint: true,
+              schemaVersion: 1,
+              layers: [{
+                layerId,
+                canonicalPaint: true,
+                schemaVersion: 1,
+                dimensions: { width: 2, height: 2 },
+                strokeData: {
+                  paintBuffer: asBase64(Uint8Array.from([1, 1, 1, 1])),
+                  gradientIdBuffer: asBase64(Uint8Array.from([0, 0, 0, 0])),
+                  speedBuffer: asBase64(effectiveSpeedBytes),
+                  speedSourceVersion: 1,
+                  flowBuffer: asBase64(Uint8Array.from([0, 0, 0, 0])),
+                  phaseBuffer: asBase64(Uint8Array.from([0, 0, 0, 0])),
+                  hasContent: true,
+                },
+              }],
+            },
+          },
+        }],
+      },
+    };
+
+    const restored = await deserializeProject(JSON.stringify(projectPayload));
+    mockMaterializeRestoredColorCycleSurface.mockReturnValue(false);
+    const [failedLayer] = await restoreColorCycleBrushes(restored.layers);
+    const retainedStrokeData = getFirstColorCycleStrokeData(failedLayer);
+
+    expect(failedLayer.colorCycleData?.runtimeHydrationState).toBe('cold');
+    expect(failedLayer.colorCycleData?.colorCycleBrush).toBeUndefined();
+    expect(retainedStrokeData?.speedSourceVersion).toBe(1);
+    expect(Array.from(new Uint8Array(
+      bufferRefToArrayBuffer(retainedStrokeData?.speedBuffer) ?? new ArrayBuffer(0),
+    ))).toEqual(Array.from(effectiveSpeedBytes));
+  });
+
+  it('rejects conflicting color-cycle speed source markers', async () => {
+    const payload = {
+      version: '1.1.0',
+      metadata: {
+        name: 'conflicting-speed-markers',
+        created: '2025-01-01T00:00:00.000Z',
+        modified: '2025-01-01T00:00:00.000Z',
+        appVersion: '1.0.0',
+      },
+      project: {
+        id: 'conflicting-speed-markers',
+        name: 'conflicting-speed-markers',
+        width: 1,
+        height: 1,
+        backgroundColor: '#000000',
+        customBrushes: [],
+        layers: [{
+          id: 'conflicting-speed-layer',
+          name: 'Conflicting Speed Layer',
+          visible: true,
+          opacity: 1,
+          blendMode: 'source-over',
+          locked: false,
+          order: 0,
+          layerType: 'color-cycle',
+          alignment: createDefaultLayerAlignment(),
+          state: {
+            version: 1,
+            dimensions: { width: 1, height: 1 },
+            speedSourceVersion: 2,
+          },
+          colorCycleData: {
+            mode: 'brush',
+            brushState: {
+              layers: [{
+                layerId: 'conflicting-speed-layer',
+                strokeData: { speedSourceVersion: 1 },
+              }],
+            },
+          },
+        }],
+      },
+    };
+
+    await expect(deserializeProject(JSON.stringify(payload))).rejects.toThrow(
+      /Dual-authority|Unexpected color-cycle data fields|Conflicting color-cycle speed source versions/,
+    );
   });
 
   it('persists metadata-only color-cycle brushState payloads', async () => {
@@ -5466,7 +5705,7 @@ describe('projectIO serialize/deserialize layering', () => {
     expect(coldLayer.colorCycleData?.colorCycleBrush).toBeUndefined();
   });
 
-  it('copies deferred archive color-cycle binaries when saving before warm restore', async () => {
+  it('copies deferred archive color-cycle binaries and legacy speed authority before warm restore', async () => {
     const width = 1152;
     const height = 1152;
     const activeLayerId = 'active-raster-lazy-resave';
@@ -5606,10 +5845,11 @@ describe('projectIO serialize/deserialize layering', () => {
     }
     const resavedManifest = JSON.parse(projectJson) as {
       binaries?: { entries?: Array<{ path: string; byteLength: number }> };
-      project: { layers: Array<{ id: string; state?: Record<string, string | undefined> }> };
+      project: { layers: Array<{ id: string; state?: Record<string, string | number | undefined> }> };
     };
     const binaryPaths = new Set((resavedManifest.binaries?.entries ?? []).map((entry) => entry.path));
     const persistedColdLayer = resavedManifest.project.layers.find((layer) => layer.id === colorCycleLayerId);
+    expect(persistedColdLayer?.state?.speedSourceVersion).toBe(1);
     const persistedRefs = [
       persistedColdLayer?.state?.paintRef,
       persistedColdLayer?.state?.gradientIdRef,
@@ -5632,6 +5872,7 @@ describe('projectIO serialize/deserialize layering', () => {
       layers?: Array<{ strokeData?: TestColorCycleStrokeData }>;
     } | undefined;
     const restoredStrokeData = restoredBrushState?.layers?.[0]?.strokeData;
+    expect(restoredStrokeData?.speedSourceVersion).toBe(1);
     expect(typeof restoredStrokeData?.paintBuffer).toBe('string');
     expect(bufferRefToArrayBuffer(restoredStrokeData?.paintBuffer)?.byteLength).toBeGreaterThan(0);
     expect(bufferRefToArrayBuffer(restoredStrokeData?.gradientIdBuffer)?.byteLength).toBe(width * height);

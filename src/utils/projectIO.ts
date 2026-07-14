@@ -63,6 +63,7 @@ import {
   type ColorCycleBrushLayerSnapshotRuntimeWriter,
   type ColorCycleBrushSerializedStateRuntimeReader,
 } from '@/lib/colorCycle/document';
+import { normalizeColorCycleSpeedSource } from '@/lib/colorCycle/document/brushPersistenceAdapter';
 import {
   restoreColorCycleBrushesWithDocumentHydration,
   type ColorCycleRestoreBrushFactory,
@@ -75,6 +76,10 @@ import {
   type DeferredColorCycleArchiveRuntime,
   type PersistedColorCycleBrushState as PersistenceBrushState,
 } from '@/lib/colorCycle/persistence';
+import {
+  AUTHORED_SPEED_SOURCE_VERSION,
+  type ColorCycleSpeedSourceVersion,
+} from '@/lib/colorCycle/persistence/colorCyclePersistenceTypes';
 import {
   logCCMutation,
   summarizeColorCycleLayer,
@@ -625,6 +630,7 @@ type SerializedColorCycleLayerStateV1 = {
   gradientIdRef?: string;
   gradientDefIdRef?: string;
   speedRef?: string;
+  speedSourceVersion?: ColorCycleSpeedSourceVersion;
   flowRef?: string;
   phaseRef?: string;
   hasContent?: boolean;
@@ -672,8 +678,41 @@ type SerializedColorCycleStateSource = {
   paintRef?: string;
   gradientIdRef?: string;
   gradientDefIdRef?: string;
+  speedSourceVersion?: ColorCycleSpeedSourceVersion;
   currentLayerSnapshot?: PersistedColorCycleBrushState['layers'][number];
   dither?: SerializedColorCycleLayerStateV1['dither'];
+};
+
+const readColorCycleSpeedSourceVersion = (
+  value: unknown,
+  location: string,
+): ColorCycleSpeedSourceVersion | undefined => {
+  if (value === undefined) {
+    return undefined;
+  }
+  if (value === 1 || value === AUTHORED_SPEED_SOURCE_VERSION) {
+    return value;
+  }
+  throw new Error(`Invalid color-cycle speed source version at ${location}`);
+};
+
+const resolveColorCycleSpeedSourceVersion = (
+  stateVersion: unknown,
+  snapshotVersion: unknown,
+  layerId: string,
+): ColorCycleSpeedSourceVersion | undefined => {
+  const state = readColorCycleSpeedSourceVersion(
+    stateVersion,
+    `layer ${layerId} state`,
+  );
+  const snapshot = readColorCycleSpeedSourceVersion(
+    snapshotVersion,
+    `layer ${layerId} brush snapshot`,
+  );
+  if (state !== undefined && snapshot !== undefined && state !== snapshot) {
+    throw new Error(`Conflicting color-cycle speed source versions for layer ${layerId}`);
+  }
+  return snapshot ?? state;
 };
 
 const COLOR_CYCLE_STATE_SOURCE = Symbol('colorCycleStateSource');
@@ -762,6 +801,10 @@ const applySerializedColorCycleStateSnapshotMetadata = (
   snapshot.paintSlot ??= state.paintSlot;
   snapshot.fgActiveSlot ??= state.fgActiveSlot;
   snapshot.activeGradientId ??= state.activeGradientId;
+  if (state.speedSourceVersion !== undefined) {
+    snapshot.strokeData ??= {};
+    snapshot.strokeData.speedSourceVersion ??= state.speedSourceVersion;
+  }
 };
 
 type SerializedSequentialLayerData = {
@@ -808,6 +851,7 @@ interface SerializedStrokeSnapshot {
   gradientIdBuffer?: string; // base64 encoded ArrayBuffer
   gradientDefIdBuffer?: string; // base64 encoded ArrayBuffer (Uint16)
   speedBuffer?: string; // base64 encoded ArrayBuffer
+  speedSourceVersion?: ColorCycleSpeedSourceVersion;
   flowBuffer?: string; // base64 encoded ArrayBuffer
   phaseBuffer?: string; // base64 encoded ArrayBuffer
   hasContent?: boolean;
@@ -2409,6 +2453,8 @@ const buildSerializedColorCycleLayerState = (
     gradientIdRef: stateSource?.gradientIdRef,
     gradientDefIdRef: stateSource?.gradientDefIdRef,
     speedRef: currentSnapshot?.strokeData?.speedBuffer,
+    speedSourceVersion: currentSnapshot?.strokeData?.speedSourceVersion
+      ?? stateSource?.speedSourceVersion,
     flowRef: currentSnapshot?.strokeData?.flowBuffer,
     phaseRef: currentSnapshot?.strokeData?.phaseBuffer,
     hasContent: currentSnapshot?.strokeData?.hasContent,
@@ -2459,6 +2505,8 @@ const buildColorCycleStateSource = (
   layerId: string,
 ): SerializedColorCycleStateSource => ({
   currentLayerSnapshot: getSerializedBrushSnapshotForLayer(brushState, layerId),
+  speedSourceVersion: getSerializedBrushSnapshotForLayer(brushState, layerId)
+    ?.strokeData?.speedSourceVersion,
   dither: brushState
     ? {
         enabled: brushState.ditherEnabled,
@@ -2488,6 +2536,7 @@ const applyColorCycleDocumentStateToSerializedSource = (
   source: SerializedColorCycleStateSource,
   documentState: ColorCyclePersistenceDocumentState,
 ): SerializedColorCycleStateSource => {
+  const speedSourceVersion = source.speedSourceVersion ?? AUTHORED_SPEED_SOURCE_VERSION;
   const encodeBufferRef = (value: ArrayBuffer | string | undefined): string | undefined => {
     if (!value) {
       return undefined;
@@ -2512,6 +2561,7 @@ const applyColorCycleDocumentStateToSerializedSource = (
           ...(source.currentLayerSnapshot?.strokeData ?? {}),
           [COLOR_CYCLE_STROKE_PAINT_KEY]: encodeBufferRef(documentState[COLOR_CYCLE_STROKE_PAINT_KEY]) ?? source.currentLayerSnapshot?.strokeData?.[COLOR_CYCLE_STROKE_PAINT_KEY],
           speedBuffer: encodeBufferRef(documentState.speedBuffer) ?? source.currentLayerSnapshot?.strokeData?.speedBuffer,
+          speedSourceVersion,
           flowBuffer: encodeBufferRef(documentState.flowBuffer) ?? source.currentLayerSnapshot?.strokeData?.flowBuffer,
           phaseBuffer: encodeBufferRef(documentState.phaseBuffer) ?? source.currentLayerSnapshot?.strokeData?.phaseBuffer,
           hasContent: documentState.hasContent,
@@ -2533,6 +2583,7 @@ const applyColorCycleDocumentStateToSerializedSource = (
     fgActiveSlot: documentState.fgActiveSlot ?? source.fgActiveSlot,
     activeGradientId: documentState.activeGradientId ?? source.activeGradientId,
     layerBaseSpeedCps: documentState.layerBaseSpeedCps ?? source.layerBaseSpeedCps,
+    speedSourceVersion,
     flowMode: documentState.flowMode ?? source.flowMode,
     gradientIdRef: encodeBufferRef(documentState.gradientIdBuffer) ?? source.gradientIdRef,
     gradientDefIdRef: encodeBufferRef(documentState.gradientDefIdBuffer) ?? source.gradientDefIdRef,
@@ -5472,8 +5523,14 @@ const hydrateSerializedLayerArchiveRefs = async (
     const currentLayerSnapshot = getSerializedBrushSnapshotForLayer(metadataBrushState, layer.id) ?? {
       layerId: layer.id,
     };
+    const speedSourceVersion = resolveColorCycleSpeedSourceVersion(
+      layer.state.speedSourceVersion,
+      currentLayerSnapshot.strokeData?.speedSourceVersion,
+      layer.id,
+    );
     applySerializedColorCycleStateSnapshotMetadata(currentLayerSnapshot, layer.state);
     const currentLayerStrokeData = currentLayerSnapshot.strokeData ?? {};
+    currentLayerStrokeData.speedSourceVersion = speedSourceVersion;
     currentLayerStrokeData[COLOR_CYCLE_STROKE_PAINT_KEY] = deferRuntimeBuffers
       ? layer.state.paintRef
       : await hydrateArchiveBinaryRef(layer.state.paintRef, zip, binaryManifest, cache);
@@ -6014,6 +6071,10 @@ const restoreColorCycleLayerRuntimeForMaterialization = async (
             });
             colorCycleData.brushState = toFastPathMetadataBrushState(savedBrushState);
           }
+          const layerBaseSpeedCps = resolveLayerColorCycleBaseSpeed(colorCycleData) ?? 1;
+          // Normalize into detached runtime payloads. The persisted source must
+          // remain untouched until materialization succeeds; on failure it is
+          // still the authority paired with the rolled-back document bytes.
           const layerSnapshots = (savedBrushState.layers ?? []).map(snapshot => {
             const paintBytes = snapshot.strokeData?.[COLOR_CYCLE_STROKE_PAINT_KEY]
               ? base64ToArrayBuffer(snapshot.strokeData[COLOR_CYCLE_STROKE_PAINT_KEY])
@@ -6024,9 +6085,26 @@ const restoreColorCycleLayerRuntimeForMaterialization = async (
             const gradientDefIdBuffer = snapshot.strokeData?.gradientDefIdBuffer
               ? base64ToArrayBuffer(snapshot.strokeData.gradientDefIdBuffer)
               : undefined;
-            const speedBuffer = snapshot.strokeData?.speedBuffer
+            const persistedSpeedBuffer = snapshot.strokeData?.speedBuffer
               ? base64ToArrayBuffer(snapshot.strokeData.speedBuffer)
               : undefined;
+            const speedSourceVersion = readColorCycleSpeedSourceVersion(
+              snapshot.strokeData?.speedSourceVersion,
+              `layer ${snapshot.layerId} brush snapshot`,
+            );
+            const normalizedSpeed = normalizeColorCycleSpeedSource({
+              speedBuffer: persistedSpeedBuffer,
+              speedSourceVersion,
+              layerBaseSpeedCps: snapshot.layerId === layer.id ? layerBaseSpeedCps : 1,
+            });
+            const persistedAnimatorSpeed = snapshot.animator?.indexBuffer.speedData
+              ? base64ToArrayBuffer(snapshot.animator.indexBuffer.speedData)
+              : undefined;
+            const normalizedAnimatorSpeed = normalizeColorCycleSpeedSource({
+              speedBuffer: persistedAnimatorSpeed,
+              speedSourceVersion,
+              layerBaseSpeedCps: snapshot.layerId === layer.id ? layerBaseSpeedCps : 1,
+            });
             const flowBuffer = snapshot.strokeData?.flowBuffer
               ? base64ToArrayBuffer(snapshot.strokeData.flowBuffer)
               : undefined;
@@ -6051,9 +6129,7 @@ const restoreColorCycleLayerRuntimeForMaterialization = async (
                   gradientIdData: snapshot.animator.indexBuffer.gradientId
                     ? base64ToArrayBuffer(snapshot.animator.indexBuffer.gradientId)
                     : undefined,
-                  speedData: snapshot.animator.indexBuffer.speedData
-                    ? base64ToArrayBuffer(snapshot.animator.indexBuffer.speedData)
-                    : undefined,
+                  speedData: normalizedAnimatorSpeed.speedBuffer,
                   flowData: snapshot.animator.indexBuffer.flowData
                     ? base64ToArrayBuffer(snapshot.animator.indexBuffer.flowData)
                     : undefined,
@@ -6074,7 +6150,8 @@ const restoreColorCycleLayerRuntimeForMaterialization = async (
               [COLOR_CYCLE_STROKE_PAINT_KEY]: paintBytes,
               gradientIdBuffer,
               gradientDefIdBuffer,
-              speedBuffer,
+              speedBuffer: normalizedSpeed.speedBuffer,
+              speedSourceVersion: normalizedSpeed.speedSourceVersion,
               flowBuffer,
               phaseBuffer,
               hasContent: inferredHasContent,
@@ -6167,6 +6244,11 @@ const restoreColorCycleLayerRuntimeForMaterialization = async (
             }
           }
 
+          applyColorCycleBrushSettingsPatch(
+            colorCycleBrush as ColorCycleSettingsPatchRuntime,
+            { layerBaseSpeed: layerBaseSpeedCps },
+          );
+
           const currentSavedLayerSnapshot = (savedBrushState.layers ?? [])
             .find((snapshot) => snapshot.layerId === layer.id);
           const currentLayerHasCanonicalPaintMarker = Boolean(
@@ -6243,6 +6325,26 @@ const restoreColorCycleLayerRuntimeForMaterialization = async (
               reason: 'materialization-failed',
             };
           }
+          for (const normalizedSnapshot of layerSnapshots) {
+            const persistedSnapshot = (savedBrushState.layers ?? [])
+              .find((snapshot) => snapshot.layerId === normalizedSnapshot.layerId);
+            if (!persistedSnapshot) {
+              continue;
+            }
+            persistedSnapshot.strokeData ??= {};
+            persistedSnapshot.strokeData.speedSourceVersion = AUTHORED_SPEED_SOURCE_VERSION;
+            persistedSnapshot.strokeData.speedBuffer = normalizedSnapshot.speedBuffer
+              ? arrayBufferToBase64(normalizedSnapshot.speedBuffer)
+              : undefined;
+            if (persistedSnapshot.animator?.indexBuffer) {
+              persistedSnapshot.animator.indexBuffer.speedData = normalizedSnapshot.animatorIndex?.speedData
+                ? arrayBufferToBase64(normalizedSnapshot.animatorIndex.speedData)
+                : undefined;
+            }
+          }
+          colorCycleData.brushState = shouldUseOversizedFastPath
+            ? toFastPathMetadataBrushState(savedBrushState)
+            : savedBrushState;
           deleteSavedColorCycleBrushState(layer);
 
           if (typeof colorCycleBrush.markLayerHasExternalBase === 'function') {

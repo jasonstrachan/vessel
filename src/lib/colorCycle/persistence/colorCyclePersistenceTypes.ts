@@ -56,11 +56,19 @@ export type ColorCyclePersistenceDiagnosticSink = (diagnostic: ColorCyclePersist
 
 export type ColorCycleBufferRef = ArrayBuffer | string;
 
+export const LEGACY_EFFECTIVE_SPEED_SOURCE_VERSION = 1 as const;
+export const AUTHORED_SPEED_SOURCE_VERSION = 2 as const;
+
+export type ColorCycleSpeedSourceVersion =
+  | typeof LEGACY_EFFECTIVE_SPEED_SOURCE_VERSION
+  | typeof AUTHORED_SPEED_SOURCE_VERSION;
+
 export type PersistedColorCycleStrokeData = {
   paintBuffer?: ColorCycleBufferRef;
   gradientIdBuffer?: ColorCycleBufferRef;
   gradientDefIdBuffer?: ColorCycleBufferRef;
   speedBuffer?: ColorCycleBufferRef;
+  speedSourceVersion?: ColorCycleSpeedSourceVersion;
   flowBuffer?: ColorCycleBufferRef;
   phaseBuffer?: ColorCycleBufferRef;
   hasContent?: boolean;

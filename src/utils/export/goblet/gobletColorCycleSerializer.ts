@@ -28,6 +28,11 @@ import type {
   PersistedColorCycleBrushState,
 } from '@/lib/colorCycle/persistence';
 import {
+  AUTHORED_SPEED_SOURCE_VERSION,
+  LEGACY_EFFECTIVE_SPEED_SOURCE_VERSION,
+  type ColorCycleSpeedSourceVersion,
+} from '@/lib/colorCycle/persistence/colorCyclePersistenceTypes';
+import {
   hasPersistedColorCycleCanonicalMarkers,
   hasSupportedPersistedColorCycleSchema,
   resolvePersistedColorCycleExportEligibility,
@@ -1487,10 +1492,13 @@ export const prepareBrushSpeedExport = (params: {
   forceBuffer?: boolean;
   layerSpeedScale: number;
   fallbackToolSpeed?: number | null;
+  speedSourceVersion?: ColorCycleSpeedSourceVersion;
 }): {
   speedMode?: 'slot' | 'buffer';
   slotSpeeds?: Array<{ slot: number; speed: number }>;
   speedBufferOverride?: number[];
+  speedMin?: number;
+  speedMax?: number;
 } | null => {
   const gradientIds = isNumericArrayLike(params.brushState.gradientIdBuffer)
     ? params.brushState.gradientIdBuffer
@@ -1505,10 +1513,16 @@ export const prepareBrushSpeedExport = (params: {
     return null;
   }
 
+  const layerMultiplier = toFiniteNumberOrNull(
+    params.layer.colorCycleData?.layerBaseSpeedCps,
+  );
+  const sourceSpeedScale = params.speedSourceVersion === AUTHORED_SPEED_SOURCE_VERSION
+    ? Math.max(0, Math.abs(layerMultiplier ?? 1)) * params.layerSpeedScale
+    : params.layerSpeedScale;
   const rawSpeedBySlot = resolveSlotSpeedMap(params.layer.colorCycleData);
   const speedBySlot = new Map<number, number>();
   rawSpeedBySlot.forEach((speed, slot) => {
-    speedBySlot.set(slot, (speed ?? 0) * params.layerSpeedScale);
+    speedBySlot.set(slot, (speed ?? 0) * sourceSpeedScale);
   });
   const fallbackSpeed = resolveExportToolSpeed(params.layer, params.layerSpeedScale, params.fallbackToolSpeed);
   const speedBufferValues = isNumericArrayLike(params.brushState.speedBuffer)
@@ -1522,8 +1536,9 @@ export const prepareBrushSpeedExport = (params: {
   const shouldUseBuffer = params.forceBuffer || usedSlots.size > SPEED_SLOT_LIMIT || hasConflict;
 
   if (shouldUseBuffer) {
-    const speedBufferOverride = speedBufferValues && speedBufferValues.length > 0
-      ? scaleEncodedSpeedBuffer(numericArrayLikeToArray(speedBufferValues), params.layerSpeedScale)
+    const hasPersistedSpeedBuffer = Boolean(speedBufferValues && speedBufferValues.length > 0);
+    const speedBufferOverride = hasPersistedSpeedBuffer
+      ? numericArrayLikeToArray(speedBufferValues as NumericArrayLike)
       : buildSpeedBufferFromSlots({
           gradientIds,
           indices,
@@ -1537,6 +1552,12 @@ export const prepareBrushSpeedExport = (params: {
     return {
       speedMode: 'buffer',
       speedBufferOverride: normalizedSpeedBuffer,
+      speedMin: hasPersistedSpeedBuffer
+        ? MIN_BRUSH_COLOR_CYCLE_SPEED * sourceSpeedScale
+        : MIN_BRUSH_COLOR_CYCLE_SPEED,
+      speedMax: hasPersistedSpeedBuffer
+        ? MAX_BRUSH_COLOR_CYCLE_SPEED * sourceSpeedScale
+        : MAX_BRUSH_COLOR_CYCLE_SPEED,
     };
   }
 
@@ -1559,7 +1580,7 @@ export const prepareBrushSpeedExport = (params: {
       if (speedByte !== undefined) {
         slotSpeeds.push({
           slot,
-          speed: decodeColorCycleSpeedByte(speedByte) * params.layerSpeedScale,
+          speed: decodeColorCycleSpeedByte(speedByte) * sourceSpeedScale,
         });
         return;
       }
@@ -3360,11 +3381,11 @@ export const serializeColorCycleDataFromResolvedLayer = async (
   }
 
   const layerSpeedScale = clampExportLayerSpeedScale(options?.layerSpeedScale);
+  const resolvedSource = options?.resolvedSource;
   let brushState: WebGLSerializedBrushState | undefined;
   let exportSnapshot: ColorCyclePersistenceSnapshot | undefined;
   let exportDocumentState: ColorCyclePersistenceDocumentState | undefined;
   if (!data.recolorSettings) {
-    const resolvedSource = options?.resolvedSource;
     const canUseDocumentState = resolvedSource === 'document';
     const canUseArchiveState = !resolvedSource || resolvedSource === 'hydrated-archive-document-state';
     const canUsePersistedState = !resolvedSource || resolvedSource === 'persisted-brush-state';
@@ -3505,6 +3526,28 @@ export const serializeColorCycleDataFromResolvedLayer = async (
   };
 
   let runtimeBrushState: BrushStateRuntimePayload | undefined;
+  const markerBrushState = exportSnapshot?.ok
+    ? exportSnapshot.brushState
+    : data.brushState as PersistedColorCycleBrushState | undefined;
+  const markerValue = markerBrushState?.layers
+    ?.find((snapshot) => snapshot.layerId === layer.id)
+    ?.strokeData?.speedSourceVersion;
+  if (
+    markerValue !== undefined &&
+    markerValue !== LEGACY_EFFECTIVE_SPEED_SOURCE_VERSION &&
+    markerValue !== AUTHORED_SPEED_SOURCE_VERSION
+  ) {
+    throw new Error(
+      `Goblet export blocked: color-cycle layer "${layer.name ?? layer.id}" has an invalid speed source version.`,
+    );
+  }
+  const speedSourceVersion: ColorCycleSpeedSourceVersion = (
+    resolvedSource === 'document' ||
+    resolvedSource === 'live-runtime' ||
+    markerValue === AUTHORED_SPEED_SOURCE_VERSION
+  )
+    ? AUTHORED_SPEED_SOURCE_VERSION
+    : LEGACY_EFFECTIVE_SPEED_SOURCE_VERSION;
 
   if (gobletDiagnosticsActive) {
     gobletDebugLog('[webglExporter] Animation inference for layer', layer.id, {
@@ -3775,6 +3818,7 @@ export const serializeColorCycleDataFromResolvedLayer = async (
       forceBuffer: options?.forceSpeedBuffer === true || remappedDefBoundSlots,
       layerSpeedScale,
       fallbackToolSpeed: options?.toolSpeed,
+      speedSourceVersion,
     });
     if (speedPlan?.speedMode) {
       serialized.speedMode = speedPlan.speedMode;
@@ -3783,6 +3827,12 @@ export const serializeColorCycleDataFromResolvedLayer = async (
     }
     if (speedPlan?.slotSpeeds && speedPlan.slotSpeeds.length > 0) {
       serialized.slotSpeeds = speedPlan.slotSpeeds;
+    }
+    if (speedPlan?.speedMin !== undefined) {
+      serialized.speedMin = speedPlan.speedMin;
+    }
+    if (speedPlan?.speedMax !== undefined) {
+      serialized.speedMax = speedPlan.speedMax;
     }
     let preparedSource = brushState;
     if (speedPlan?.speedMode === 'slot') {

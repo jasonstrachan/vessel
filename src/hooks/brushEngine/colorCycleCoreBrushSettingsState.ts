@@ -18,7 +18,6 @@ export type ColorCycleCoreBrushSettingsSnapshot = {
 export type ColorCycleLayerBaseSpeedChange = {
   previousBaseSpeed: number;
   nextBaseSpeed: number;
-  ratio: number;
 };
 
 export class ColorCycleCoreBrushSettingsState {
@@ -69,15 +68,17 @@ export class ColorCycleCoreBrushSettingsState {
       return null;
     }
 
-    const nextBaseSpeed = sanitizeBrushColorCycleSpeed(speed);
-    const previousBaseSpeed = sanitizeBrushColorCycleSpeed(this.layerBaseSpeed, 1);
-    const ratio = previousBaseSpeed > 0 ? nextBaseSpeed / previousBaseSpeed : 1;
+    const nextBaseSpeed = speed === 0
+      ? 0
+      : sanitizeBrushColorCycleSpeed(speed);
+    const previousBaseSpeed = this.layerBaseSpeed === 0
+      ? 0
+      : sanitizeBrushColorCycleSpeed(this.layerBaseSpeed, 1);
     this.layerBaseSpeed = nextBaseSpeed;
 
     return {
       previousBaseSpeed,
       nextBaseSpeed,
-      ratio,
     };
   }
 
@@ -163,8 +164,7 @@ export class ColorCycleCoreBrushSettingsState {
       rawSpeed,
       Number.isFinite(this.cycleSpeed) ? this.cycleSpeed : 0.1,
     );
-    const baseSpeed = sanitizeBrushColorCycleSpeed(this.layerBaseSpeed, 1);
-    return sanitizeBrushColorCycleSpeed(writeSpeed * baseSpeed, writeSpeed);
+    return writeSpeed;
   }
 
   getSettings(): ColorCycleCoreBrushSettingsSnapshot {

@@ -1,10 +1,18 @@
 import type { GradientStop } from '@/lib/GradientPalette';
 import {
+  AUTHORED_SPEED_SOURCE_VERSION,
+  type ColorCycleSpeedSourceVersion,
+} from '@/lib/colorCycle/persistence/colorCyclePersistenceTypes';
+import {
   normalizeGradientSeamProfile,
   type GradientSeamProfile,
 } from '@/lib/colorCycle/gradientSeamProfile';
 import { getAppStoreState } from '@/stores/appStoreAccess';
 import type { ColorCycleGradientDefStoreEntry, ColorCycleSnapshot, DerivedGradientSpec, LayerColorCycleData } from '@/types';
+import {
+  decodeColorCycleSpeedByte,
+  encodeColorCycleSpeedByte,
+} from '@/utils/colorCycleSpeed';
 import { strokeFinalizeProbeTimeSync } from '@/utils/strokeFinalizeProbe';
 import type { ColorCycleLayerDocumentRead } from './ColorCycleLayerDocument';
 import type {
@@ -30,6 +38,7 @@ export type ColorCycleBrushLayerSnapshot = {
   gradientIdBuffer?: ArrayBuffer;
   gradientDefIdBuffer?: ArrayBuffer;
   speedBuffer?: ArrayBuffer;
+  speedSourceVersion?: ColorCycleSpeedSourceVersion;
   flowBuffer?: ArrayBuffer;
   phaseBuffer?: ArrayBuffer;
   hasContent: boolean;
@@ -43,6 +52,7 @@ export const createEmptyColorCycleBrushLayerSnapshot = (): ColorCycleBrushLayerS
   gradientIdBuffer: undefined,
   gradientDefIdBuffer: undefined,
   speedBuffer: undefined,
+  speedSourceVersion: AUTHORED_SPEED_SOURCE_VERSION,
   flowBuffer: undefined,
   phaseBuffer: undefined,
   hasContent: false,
@@ -651,10 +661,66 @@ export type ColorCycleBrushLayerSnapshotInput = {
   gradientIdBuffer?: ArrayBuffer;
   gradientDefIdBuffer?: ArrayBuffer;
   speedBuffer?: ArrayBuffer;
+  speedSourceVersion?: ColorCycleSpeedSourceVersion;
   flowBuffer?: ArrayBuffer;
   phaseBuffer?: ArrayBuffer;
   hasContent?: boolean;
   strokeCounter?: number;
+};
+
+export type NormalizeColorCycleSpeedSourceResult = {
+  speedBuffer?: ArrayBuffer;
+  speedSourceVersion: typeof AUTHORED_SPEED_SOURCE_VERSION;
+  didConvert: boolean;
+};
+
+export const normalizeColorCycleSpeedSource = ({
+  speedBuffer,
+  speedSourceVersion,
+  layerBaseSpeedCps,
+}: {
+  speedBuffer?: ArrayBuffer;
+  speedSourceVersion?: ColorCycleSpeedSourceVersion;
+  layerBaseSpeedCps: number;
+}): NormalizeColorCycleSpeedSourceResult => {
+  if (!speedBuffer) {
+    return {
+      speedBuffer: undefined,
+      speedSourceVersion: AUTHORED_SPEED_SOURCE_VERSION,
+      didConvert: speedSourceVersion !== AUTHORED_SPEED_SOURCE_VERSION,
+    };
+  }
+
+  const authoredBytes = speedBuffer.slice(0);
+  if (speedSourceVersion === AUTHORED_SPEED_SOURCE_VERSION) {
+    return {
+      speedBuffer: authoredBytes,
+      speedSourceVersion: AUTHORED_SPEED_SOURCE_VERSION,
+      didConvert: false,
+    };
+  }
+
+  const multiplier = Number.isFinite(layerBaseSpeedCps)
+    ? Math.max(0, Math.abs(layerBaseSpeedCps))
+    : 1;
+  if (multiplier > 0 && multiplier !== 1) {
+    const bytes = new Uint8Array(authoredBytes);
+    for (let index = 0; index < bytes.length; index += 1) {
+      const encodedSpeed = bytes[index] ?? 0;
+      if (encodedSpeed === 0) {
+        continue;
+      }
+      bytes[index] = encodeColorCycleSpeedByte(
+        decodeColorCycleSpeedByte(encodedSpeed) / multiplier,
+      );
+    }
+  }
+
+  return {
+    speedBuffer: authoredBytes,
+    speedSourceVersion: AUTHORED_SPEED_SOURCE_VERSION,
+    didConvert: true,
+  };
 };
 
 export type ColorCycleBrushAnimatorIndexInput = {
@@ -679,7 +745,7 @@ export type ColorCycleBrushDeserializedLayerApplyPlan = {
   snapshot: Required<Pick<ColorCycleBrushLayerSnapshotInput, 'paintBuffer' | 'hasContent' | 'strokeCounter'>> &
     Pick<
       ColorCycleBrushLayerSnapshotInput,
-      'gradientIdBuffer' | 'gradientDefIdBuffer' | 'speedBuffer' | 'flowBuffer' | 'phaseBuffer'
+      'gradientIdBuffer' | 'gradientDefIdBuffer' | 'speedBuffer' | 'speedSourceVersion' | 'flowBuffer' | 'phaseBuffer'
     >;
   animatorIndex?: ColorCycleBrushAnimatorIndexInput;
 };
@@ -1429,6 +1495,7 @@ export const createColorCycleBrushDeserializeLayerApplyPlans = (
         gradientIdBuffer: cloneUint8Buffer(strokeData?.gradientIdBuffer),
         gradientDefIdBuffer: cloneUint16Buffer(strokeData?.gradientDefIdBuffer),
         speedBuffer: cloneUint8Buffer(strokeData?.speedBuffer),
+        speedSourceVersion: strokeData?.speedSourceVersion,
         flowBuffer: cloneUint8Buffer(strokeData?.flowBuffer),
         phaseBuffer: cloneUint8Buffer(strokeData?.phaseBuffer),
         hasContent: Boolean(strokeData?.hasContent) || clonedBuffer.byteLength > 0,
@@ -1512,6 +1579,7 @@ export const createColorCycleBrushFullStateRestorePlan = ({
             gradientIdBuffer: snapshot.gradientIdBuffer,
             gradientDefIdBuffer: snapshot.gradientDefIdBuffer,
             speedBuffer: snapshot.speedBuffer,
+            speedSourceVersion: snapshot.speedSourceVersion,
             flowBuffer: snapshot.flowBuffer,
             phaseBuffer: snapshot.phaseBuffer,
             hasContent: Boolean(snapshot.hasContent) || colorCycleBrushSnapshotHasPaintPayload(snapshot),
@@ -2716,6 +2784,7 @@ export const cloneColorCycleBrushLayerSnapshot = (
     gradientIdBuffer: cloneArrayBuffer(snapshot.gradientIdBuffer),
     gradientDefIdBuffer: cloneArrayBuffer(snapshot.gradientDefIdBuffer),
     speedBuffer: cloneArrayBuffer(snapshot.speedBuffer),
+    speedSourceVersion: snapshot.speedSourceVersion,
     flowBuffer: cloneArrayBuffer(snapshot.flowBuffer),
     phaseBuffer: cloneArrayBuffer(snapshot.phaseBuffer),
     hasContent: snapshot.hasContent,
@@ -2920,6 +2989,7 @@ export const createColorCycleCanonicalBrushStateFromSnapshot = ({
       gradientIdBuffer: clonedSnapshot?.gradientIdBuffer,
       gradientDefIdBuffer: clonedSnapshot?.gradientDefIdBuffer,
       speedBuffer: clonedSnapshot?.speedBuffer,
+      speedSourceVersion: AUTHORED_SPEED_SOURCE_VERSION,
       flowBuffer: clonedSnapshot?.flowBuffer,
       phaseBuffer: clonedSnapshot?.phaseBuffer,
     },
@@ -2962,6 +3032,7 @@ export const createColorCycleCanonicalBrushStateFromDocumentSnapshot = ({
       gradientIdBuffer: snapshot.gradientIdBuffer,
       gradientDefIdBuffer: snapshot.gradientDefIdBuffer,
       speedBuffer: snapshot.speedBuffer,
+      speedSourceVersion: AUTHORED_SPEED_SOURCE_VERSION,
       flowBuffer: snapshot.flowBuffer,
       phaseBuffer: snapshot.phaseBuffer,
       hasContent: snapshot.hasContent,
@@ -3241,6 +3312,7 @@ export const serializeColorCycleBrushState = ({
       activeGradientId: colorCycleMeta?.activeGradientId,
       strokeData: {
         ...buffers,
+        speedSourceVersion: AUTHORED_SPEED_SOURCE_VERSION,
         hasContent,
         strokeCounter,
       },

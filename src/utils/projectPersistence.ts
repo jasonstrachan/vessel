@@ -129,6 +129,7 @@ export const COLOR_CYCLE_STATE_FIELD_CLASSIFICATION = {
   gradientIdRef: 'canonical',
   gradientDefIdRef: 'canonical',
   speedRef: 'canonical',
+  speedSourceVersion: 'metadata',
   flowRef: 'canonical',
   phaseRef: 'canonical',
   hasContent: 'metadata',

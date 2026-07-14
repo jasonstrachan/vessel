@@ -19,6 +19,11 @@ import type {
   PersistedColorCycleBrushState,
 } from './colorCyclePersistenceTypes';
 import {
+  AUTHORED_SPEED_SOURCE_VERSION,
+  LEGACY_EFFECTIVE_SPEED_SOURCE_VERSION,
+  type ColorCycleSpeedSourceVersion,
+} from './colorCyclePersistenceTypes';
+import {
   classifyBrushStateFailure,
   cloneBufferRef,
   getLayerSnapshot,
@@ -65,7 +70,10 @@ const referenceDocumentStateForHistory = (
 
 const createBrushStateFromDocumentState = (
   documentState: ColorCyclePersistenceDocumentState & { paintBuffer: ColorCycleBufferRef },
-  options: { referenceBuffers?: boolean } = {},
+  options: {
+    referenceBuffers?: boolean;
+    speedSourceVersion?: ColorCycleSpeedSourceVersion;
+  } = {},
 ): PersistedColorCycleBrushState => ({
   canonicalPaint: true,
   schemaVersion: 1,
@@ -96,6 +104,7 @@ const createBrushStateFromDocumentState = (
       speedBuffer: options.referenceBuffers
         ? documentState.speedBuffer
         : cloneBufferRef(documentState.speedBuffer),
+      speedSourceVersion: options.speedSourceVersion ?? AUTHORED_SPEED_SOURCE_VERSION,
       flowBuffer: options.referenceBuffers
         ? documentState.flowBuffer
         : cloneBufferRef(documentState.flowBuffer),
@@ -283,6 +292,10 @@ const captureFromColdArchiveDocument = (
     createBrushStateFromDocumentState({
       ...documentState,
       paintBuffer,
+    }, {
+      speedSourceVersion: getLayerSnapshot(deferredRuntime.brushState, layer.id)
+        ?.strokeData?.speedSourceVersion
+        ?? LEGACY_EFFECTIVE_SPEED_SOURCE_VERSION,
     }),
     captureSerializedRuntimeBrushMetadata(layer, context),
     layer.id,
@@ -363,12 +376,18 @@ const captureFromDocument = (
     };
   }
 
+  const runtimeBrushMetadata = captureSerializedRuntimeBrushMetadata(layer, context);
+  const speedSourceVersion = getLayerSnapshot(runtimeBrushMetadata, layer.id)
+    ?.strokeData?.speedSourceVersion;
   const brushState = mergeDocumentBrushStateMetadata(
     createBrushStateFromDocumentState({
       ...documentState,
       paintBuffer: documentState.paintBuffer,
-    }, { referenceBuffers: referencesDocumentGeneration }),
-    captureSerializedRuntimeBrushMetadata(layer, context),
+    }, {
+      referenceBuffers: referencesDocumentGeneration,
+      speedSourceVersion,
+    }),
+    runtimeBrushMetadata,
     layer.id,
   );
 

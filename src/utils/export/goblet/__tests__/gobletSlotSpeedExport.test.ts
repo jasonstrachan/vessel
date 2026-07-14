@@ -6,6 +6,10 @@ import {
 import { decodeColorCycleSpeedByte, encodeColorCycleSpeedByte } from '@/utils/colorCycleSpeed';
 import type { WebGLSerializedBrushState } from '@/utils/export/goblet/gobletTypes';
 import type { Layer, Project } from '@/types';
+import {
+  MAX_BRUSH_COLOR_CYCLE_SPEED,
+  MIN_BRUSH_COLOR_CYCLE_SPEED,
+} from '@/constants/colorCycle';
 
 const gradientStops = [
   { position: 0, color: '#000000' },
@@ -86,6 +90,7 @@ const createSpeedPlan = (
     layerSpeedScale?: number;
     fallbackToolSpeed?: number | null;
     forceBuffer?: boolean;
+    speedSourceVersion?: 1 | 2;
   } = {},
 ) => prepareBrushSpeedExport({
   layer,
@@ -94,6 +99,7 @@ const createSpeedPlan = (
   layerSpeedScale: options.layerSpeedScale ?? 1,
   fallbackToolSpeed: options.fallbackToolSpeed,
   forceBuffer: options.forceBuffer,
+  speedSourceVersion: options.speedSourceVersion,
 });
 
 const getSlotSpeed = (
@@ -212,6 +218,37 @@ describe('Goblet slot speed export', () => {
 
     expect(plan?.speedMode).toBe('buffer');
     expect(plan?.speedBufferOverride).toEqual(scaleEncodedSpeedBuffer(speedBuffer, 1));
+  });
+
+  it('preserves authored buffer bytes and exports the composed playback range', () => {
+    const speedBuffer = [encodeColorCycleSpeedByte(0.3), encodeColorCycleSpeedByte(0.6), 0, 0];
+    const plan = createSpeedPlan(
+      createLayer({ layerBaseSpeedCps: 2 }),
+      createBrushState({ speedBuffer }),
+      {
+        forceBuffer: true,
+        layerSpeedScale: 3,
+        speedSourceVersion: 2,
+      },
+    );
+
+    expect(plan?.speedMode).toBe('buffer');
+    expect(plan?.speedBufferOverride).toEqual(speedBuffer);
+    expect(plan?.speedMin).toBeCloseTo(MIN_BRUSH_COLOR_CYCLE_SPEED * 6, 8);
+    expect(plan?.speedMax).toBeCloseTo(MAX_BRUSH_COLOR_CYCLE_SPEED * 6, 8);
+  });
+
+  it('keeps authored bytes nonzero while a zero layer multiplier exports static playback', () => {
+    const speedBuffer = [encodeColorCycleSpeedByte(0.3), encodeColorCycleSpeedByte(0.6), 0, 0];
+    const plan = createSpeedPlan(
+      createLayer({ layerBaseSpeedCps: 0 }),
+      createBrushState({ speedBuffer }),
+      { forceBuffer: true, speedSourceVersion: 2 },
+    );
+
+    expect(plan?.speedBufferOverride).toEqual(speedBuffer);
+    expect(plan?.speedMin).toBe(0);
+    expect(plan?.speedMax).toBe(0);
   });
 
   it.each([

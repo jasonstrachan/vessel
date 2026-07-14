@@ -127,6 +127,8 @@ For color-cycle flat-fill fixes, repair signal mapping or ink selection only. Do
   - `npm run type-check`
   - `npm run lint`
   - `npm test`
+- Keep implementation feedback fast by default: run affected test files during iteration, then run type-check and lint once after the code settles. Reserve the full test suite for the PR/commit gate, an explicit request, or a change whose risk requires it.
+- For production-preview verification, exercise the exact reported interaction with one consolidated browser script where practical. Avoid repeated snapshots, fixed waits, and broad diagnostic dumps unless a failure needs investigation.
 - Run `npm run build` when build/static-export behavior is affected, and manually verify `/vessel` URLs when routes or assets change.
 - `npm run preview:prod:watch` owns the production build while active. Do not run a separate build in parallel; use its output or stop it first.
 

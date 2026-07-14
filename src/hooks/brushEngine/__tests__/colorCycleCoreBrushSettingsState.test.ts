@@ -31,9 +31,15 @@ describe('ColorCycleCoreBrushSettingsState', () => {
     expect(change).toEqual({
       previousBaseSpeed: 1,
       nextBaseSpeed: 2,
-      ratio: 2,
     });
-    expect(state.getResolvedWriteCycleSpeed()).toBe(0.5);
+    expect(state.getResolvedWriteCycleSpeed()).toBe(0.25);
+
+    expect(state.setLayerBaseSpeed(0)).toEqual({
+      previousBaseSpeed: 2,
+      nextBaseSpeed: 0,
+    });
+    expect(state.getLayerBaseSpeed()).toBe(0);
+    expect(state.getResolvedWriteCycleSpeed()).toBe(0.25);
   });
 
   it('owns pressure normalization and pressure-adjusted brush size', () => {

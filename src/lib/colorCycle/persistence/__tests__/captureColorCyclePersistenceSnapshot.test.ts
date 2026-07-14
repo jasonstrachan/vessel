@@ -93,8 +93,60 @@ describe('captureColorCyclePersistenceSnapshot', () => {
       expect(historyLayer?.strokeData?.gradientIdBuffer).toBe(documentState.gradientIdBuffer);
       expect(historyLayer?.strokeData?.gradientDefIdBuffer).toBe(documentState.gradientDefIdBuffer);
       expect(historyLayer?.strokeData?.speedBuffer).toBe(documentState.speedBuffer);
+      expect(historyLayer?.strokeData?.speedSourceVersion).toBe(2);
       expect(historyLayer?.strokeData?.flowBuffer).toBe(documentState.flowBuffer);
       expect(historyLayer?.strokeData?.phaseBuffer).toBe(documentState.phaseBuffer);
+    }
+  });
+
+  it('preserves a retained legacy speed marker when capturing a resident document', () => {
+    const persisted = canonicalBrushState();
+    persisted.layers![0]!.strokeData!.speedSourceVersion = 1;
+    const documentSpeed = buffer(4, 17);
+    const result = captureColorCyclePersistenceSnapshot(makeLayer({
+      colorCycleData: {
+        mode: 'brush',
+        canvasWidth: 2,
+        canvasHeight: 2,
+        brushState: persisted,
+      },
+    }), {
+      projectWidth: 2,
+      projectHeight: 2,
+      requirePaint: true,
+      mode: 'canonical-save',
+      document: {
+        residency: 'resident',
+        read: () => ({
+          snapshot: {
+            layerId: 'layer-1',
+            width: 2,
+            height: 2,
+            paintBuffer: buffer(4, 8),
+            gradientIdBuffer: buffer(4, 9),
+            gradientDefIdBuffer: buffer(8, 10),
+            speedBuffer: documentSpeed,
+            flowBuffer: buffer(4, 12),
+            phaseBuffer: buffer(4, 13),
+            hasContent: true,
+            sources: {
+              brushStateSnapshot: true,
+              topLevelBuffers: false,
+              legacyStateRefs: false,
+            },
+          },
+          version: 4,
+          pixelVersion: 3,
+        }),
+      },
+    });
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      const strokeData = result.brushState.layers?.[0]?.strokeData;
+      expect(strokeData?.speedSourceVersion).toBe(1);
+      expect(Array.from(new Uint8Array(strokeData?.speedBuffer as ArrayBuffer)))
+        .toEqual(Array.from(new Uint8Array(documentSpeed)));
     }
   });
 
@@ -303,6 +355,7 @@ describe('captureColorCyclePersistenceSnapshot', () => {
       expect(result.documentState.flowBuffer).toBe('zip:buffers/color-cycle/layer-1/flow.bin');
       expect(result.documentState.phaseBuffer).toBe('zip:buffers/color-cycle/layer-1/phase.bin');
       expect(result.brushState.layers?.[0]?.strokeData?.paintBuffer).toBe('zip:buffers/color-cycle/layer-1/paint.bin');
+      expect(result.brushState.layers?.[0]?.strokeData?.speedSourceVersion).toBe(1);
       expect(result.diagnostics).toEqual(expect.arrayContaining([
         expect.objectContaining({
           source: 'document',

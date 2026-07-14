@@ -16,7 +16,7 @@ import {
 import type { ColorCycleLayerDocumentState } from '@/lib/colorCycle/documentState';
 import { getPersistedCCMutationLog } from '@/utils/colorCycle/ccMutationAudit';
 import { encodeRgbaToBase64 } from '@/utils/colorCycle/ccCustomTilePattern';
-import { decodeColorCycleSpeedByte, encodeColorCycleSpeedByte } from '@/utils/colorCycleSpeed';
+import { encodeColorCycleSpeedByte } from '@/utils/colorCycleSpeed';
 import { readTestColorCycleBrushLayerSnapshot } from '@/testing/colorCycleSnapshotTestUtils';
 import { createLayerStrokeState } from '../colorCycleLayerStrokeBuffers';
 import {
@@ -271,6 +271,8 @@ jest.mock('@/lib/ColorCycleAnimator', () => {
 
     setFlowMode() {}
     setSpeed() {}
+
+    setLayerSpeedMultiplier() {}
     setFPS() {}
     setPhase() {}
     setStrokeSpeedByte() {}
@@ -940,7 +942,7 @@ describe('ColorCycleBrushCanvas2D', () => {
     expect(readSerializedBrushState(restored).layerBaseSpeed).toBeCloseTo(1.75, 5);
   });
 
-  it('publishes layer base speed and rescaled painted bytes to the canonical document', () => {
+  it('publishes layer base speed without rewriting authored painted bytes', () => {
     const canvas = makeCanvas();
     const brush = new ColorCycleBrushCanvas2D(canvas, { forceCanvas2D: true });
     const layerId = 'layer-base-speed-document';
@@ -970,20 +972,35 @@ describe('ColorCycleBrushCanvas2D', () => {
     const persistedSpeedByte = documentState?.speedBuffer
       ? new Uint8Array(documentState.speedBuffer)[pixelIndex]
       : 0;
-    const expectedSpeedByte = encodeColorCycleSpeedByte(
-      decodeColorCycleSpeedByte(initialSpeedByte) * 2,
-    );
-    expect(persistedSpeedByte).toBe(expectedSpeedByte);
+    expect(persistedSpeedByte).toBe(initialSpeedByte);
     expect(getColorCycleCanonicalCopyMetrics()).toEqual({
-      totalBytes: canvas.width * canvas.height * COLOR_CYCLE_CANONICAL_BYTES_PER_PIXEL,
-      totalGenerations: 1,
-      byReason: {
-        'document-commit': {
-          bytes: canvas.width * canvas.height * COLOR_CYCLE_CANONICAL_BYTES_PER_PIXEL,
-          generations: 1,
-        },
-      },
+      totalBytes: 0,
+      totalGenerations: 0,
+      byReason: {},
     });
+  });
+
+  it('preserves authored speed bytes when the layer multiplier is zero', () => {
+    const canvas = makeCanvas();
+    const brush = new ColorCycleBrushCanvas2D(canvas, { forceCanvas2D: true });
+    const layerId = 'static-layer-base-speed-document';
+    const speed = new Uint8Array(canvas.width * canvas.height);
+    speed[0] = encodeColorCycleSpeedByte(0.7);
+
+    brush.setLayerId(layerId);
+    applyColorCycleBrushLayerSnapshotToRuntime(brush, layerId, {
+      paintBuffer: new Uint8Array(canvas.width * canvas.height).fill(1).buffer,
+      speedBuffer: speed.buffer,
+      hasContent: true,
+      strokeCounter: 1,
+    });
+
+    brush.setLayerBaseSpeed(0);
+
+    const documentState = brush.getColorCycleLayerDocument(layerId)?.read().snapshot;
+    expect(documentState?.layerBaseSpeedCps).toBe(0);
+    expect(Array.from(new Uint8Array(documentState?.speedBuffer ?? new ArrayBuffer(0))))
+      .toEqual(Array.from(speed));
   });
 
   it('publishes layer base speed metadata when the active layer has no painted bytes', () => {
