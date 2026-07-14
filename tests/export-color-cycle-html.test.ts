@@ -278,10 +278,12 @@ const createBrushModeLayer = (canvas: HTMLCanvasElement): Layer => {
   const slotPalettes = [
     {
       slot: 0,
+      seamProfile: 'hard' as const,
       stops: gradientStops
     },
     {
       slot: 1,
+      seamProfile: 'soft' as const,
       stops: [
         { position: 0, color: '#ff69b4' },
         { position: 0.5, color: '#ffa500' },
@@ -306,6 +308,7 @@ const createBrushModeLayer = (canvas: HTMLCanvasElement): Layer => {
       stops: slotPalettes[1].stops,
       hash: hashStops(slotPalettes[1].stops, 'linear'),
       source: 'manual' as const,
+      seamProfile: 'soft' as const,
       createdAtMs: Date.now(),
       slot: 1,
       speedCps: 0.5
@@ -1382,6 +1385,7 @@ describe('exportProjectAsWebGL color cycle integration', () => {
     expect(slotPalettes[0]?.stops).toHaveLength(3);
     expect(slotPalettes[1]?.slot).toBe(1);
     expect(slotPalettes[1]?.stops).toHaveLength(3);
+    expect(slotPalettes[1]?.seamProfile).toBe('soft');
 
     const gradientIdBuffer = exportedLayer.colorCycle?.brushState?.gradientIdBuffer;
     expect(gradientIdBuffer).toBeDefined();
@@ -2311,13 +2315,15 @@ describe('exportProjectAsWebGL color cycle integration', () => {
         gradientStops,
         animationOffset: 0,
       },
-      slotPalettes: [{ slot: 0, stops: gradientStops }],
+      slotPalettes: [{ slot: 0, stops: gradientStops, seamProfile: 'soft' }],
     });
 
     expect(result.remapped).toBe(true);
     expect(result.brushState?.gradientIdBuffer).toEqual([0, 1, 1, 0]);
     expect(result.slotPalettes?.find((entry) => entry.slot === 0)?.stops).toEqual(gradientStops);
+    expect(result.slotPalettes?.find((entry) => entry.slot === 0)?.seamProfile).toBe('hard');
     expect(result.slotPalettes?.find((entry) => entry.slot === 1)?.stops).toEqual(alternateStops);
+    expect(result.slotPalettes?.find((entry) => entry.slot === 1)?.seamProfile).toBe('hard');
   });
 
   it('materializes typed-array gradient definitions as concrete Goblet slots', () => {

@@ -5,6 +5,20 @@ const rootDir = process.cwd();
 
 const read = (relativePath: string) => fs.readFileSync(path.join(rootDir, relativePath), 'utf8');
 const countMatches = (source: string, pattern: RegExp) => [...source.matchAll(pattern)].length;
+type ApplyGradientSeamProfileToRgba = (
+  palette: Uint8Array,
+  params: { paletteSize: number; seamProfile?: 'hard' | 'soft'; offset?: number },
+) => void;
+
+const loadRuntimeSeamProfileHelper = (runtime: string): ApplyGradientSeamProfileToRgba => {
+  const start = runtime.indexOf('const SOFT_SEAM_BLEND_RATIO =');
+  const end = runtime.indexOf('\nconst normalizeSlotSpeeds =', start);
+  if (start < 0 || end < 0) {
+    throw new Error('Unable to locate Goblet 2 gradient seam helper');
+  }
+  const helperSource = runtime.slice(start, end);
+  return new Function(`${helperSource}\nreturn applyGradientSeamProfileToRgba;`)() as ApplyGradientSeamProfileToRgba;
+};
 
 describe('Goblet 2 runtime export regression guard', () => {
   it('keeps Goblet 2 WebGL brush playback on the same timebase as the CPU path', () => {
@@ -21,6 +35,47 @@ describe('Goblet 2 runtime export regression guard', () => {
     expect(runtime).toContain('const MAX_EXPORTED_SLOT_ID = GOBLET_MAX_SLOT_ID;');
     expect(runtime).toContain('getHighestPaletteSlot(slotGradients) + 1');
     expect(runtime).toContain('gl.uniform1i(this.uniforms.u_slotCount, this.slotCount);');
+  });
+
+  it('applies exported gradient seam profiles in WebGL and CPU brush playback', () => {
+    const runtime = read('public/goblet2/goblet2.js');
+    const inlineRuntime = read('public/goblet2/goblet2-inline.js');
+    const applyGradientSeamProfileToRgba = loadRuntimeSeamProfileHelper(runtime);
+
+    const paletteSize = 16;
+    const rowLength = paletteSize * 4;
+    const palette = new Uint8Array(rowLength * 2);
+    palette.fill(17, 0, rowLength);
+    for (let index = 0; index < paletteSize; index += 1) {
+      const offset = rowLength + index * 4;
+      palette[offset] = index * 10;
+      palette[offset + 1] = index * 10;
+      palette[offset + 2] = index * 10;
+      palette[offset + 3] = 255;
+    }
+    applyGradientSeamProfileToRgba(palette, {
+      paletteSize,
+      seamProfile: 'soft',
+      offset: rowLength,
+    });
+
+    expect(Array.from(palette.slice(0, rowLength))).toEqual(new Array(rowLength).fill(17));
+    expect(Array.from(palette.slice(rowLength + 13 * 4, rowLength + 13 * 4 + 4))).toEqual([130, 130, 130, 255]);
+    expect(Array.from(palette.slice(rowLength + 14 * 4, rowLength + 14 * 4 + 4))).toEqual([70, 70, 70, 255]);
+    expect(Array.from(palette.slice(rowLength + 15 * 4, rowLength + 15 * 4 + 4))).toEqual([0, 0, 0, 255]);
+
+    const hardPalette = Uint8Array.from({ length: rowLength }, (_, index) => index);
+    const hardBefore = hardPalette.slice();
+    applyGradientSeamProfileToRgba(hardPalette, { paletteSize, seamProfile: 'hard' });
+    expect(hardPalette).toEqual(hardBefore);
+
+    expect(runtime).toContain('const normalizeSlotSeamProfiles = (slotPalettes) => {');
+    expect(runtime).toContain('const applyGradientSeamProfileToRgba = (palette, {');
+    expect(runtime).toContain('this.slotSeamProfiles = normalizeSlotSeamProfiles(colorCycle.slotPalettes);');
+    expect(runtime).toContain('seamProfile: slotSeamProfiles?.get(slot),');
+    expect(runtime).toContain('buildDiscretePalette32FromGradient(stops, this._basePaletteSize, seamProfile)');
+    expect(countMatches(runtime, /applyGradientSeamProfileToRgba\(/g)).toBe(2);
+    expect(inlineRuntime).toContain('seamProfile');
   });
 
   it('keeps Goblet 2 inline WebGL brush playback on the same timebase as the CPU path', () => {

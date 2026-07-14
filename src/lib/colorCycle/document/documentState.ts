@@ -105,6 +105,7 @@ const cloneSlotPalettes = (
 ): ColorCycleSlotPalette[] | undefined => (
   slotPalettes?.map((entry) => ({
     slot: entry.slot,
+    seamProfile: entry.seamProfile,
     stops: cloneStops(entry.stops),
   }))
 );

@@ -1783,7 +1783,7 @@ export const resolveDefBoundSlotPalettes = (params: {
 
   const seamProfilesBySlot = new Map<number, GradientSeamProfile>();
   defs.forEach((entry) => {
-    if (typeof entry.slot === 'number') {
+    if (typeof entry.slot === 'number' && entry.seamProfile !== undefined) {
       seamProfilesBySlot.set(entry.slot, normalizeGradientSeamProfile(entry.seamProfile));
     }
   });
@@ -1996,14 +1996,16 @@ const resolveExportSlotPalettes = (
     return undefined;
   }
 
-  let slotPalettes = documentState?.slotPalettes?.length
+  let slotPalettes: SerializedSlotPalette[] | undefined = documentState?.slotPalettes?.length
       ? documentState.slotPalettes.map((entry) => ({
           slot: entry.slot,
+          seamProfile: entry.seamProfile,
           stops: toSerializableGradientStops(entry.stops, []),
         }))
     : data.slotPalettes?.length
       ? data.slotPalettes.map((entry) => ({
           slot: entry.slot,
+          seamProfile: entry.seamProfile,
           stops: toSerializableGradientStops(entry.stops, []),
         }))
     : data.gradients?.length

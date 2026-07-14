@@ -5519,6 +5519,7 @@ describe('projectIO serialize/deserialize layering', () => {
             mode: 'brush',
             slotPalettes: [{
               slot: 2,
+              seamProfile: 'soft',
               stops: slotTwoStops,
             }],
             gradientDefStore: [{
@@ -5654,6 +5655,19 @@ describe('projectIO serialize/deserialize layering', () => {
     const warmedDocumentSnapshot = getColorCycleBrushManager().getDocument(colorCycleLayerId)?.read().snapshot;
     expect(warmedDocumentSnapshot?.gradientIdBuffer?.byteLength).toBe(width * height);
     expect(warmedDocumentSnapshot?.gradientDefIdBuffer?.byteLength).toBe(width * height * 2);
+    expect(warmedDocumentSnapshot?.slotPalettes).toEqual([
+      expect.objectContaining({
+        slot: 2,
+        seamProfile: 'soft',
+        stops: slotTwoStops,
+      }),
+    ]);
+    expect(warmedDocumentSnapshot?.gradientDefStore).toEqual([
+      expect.objectContaining({
+        id: 3,
+        stops: slotTwoStops,
+      }),
+    ]);
     expect(warmedLayer.colorCycleData?.colorCycleBrush).toBeTruthy();
     expect(getColorCycleBrushManager().getDocument(colorCycleLayerId)).toBe(coldDocument);
     expect(coldDocument?.residency).toBe('resident');

@@ -2269,6 +2269,55 @@ const isGobletPayloadContractError = (error) => (
 const parseColor = parseGobletColor;
 const normalizeGradientStops = normalizeGobletGradientStops;
 const normalizeSlotPalettes = normalizeGobletSlotPalettes;
+const SOFT_SEAM_BLEND_RATIO = 1 / 8;
+
+const normalizeSlotSeamProfiles = (slotPalettes) => {
+  if (!Array.isArray(slotPalettes) || slotPalettes.length === 0) {
+    return null;
+  }
+  const profiles = new Map();
+  slotPalettes.forEach((entry) => {
+    if (!entry || typeof entry !== 'object' || !Number.isFinite(Number(entry.slot))) {
+      return;
+    }
+    profiles.set(
+      clampGobletSlotId(Number(entry.slot)),
+      entry.seamProfile === 'soft' ? 'soft' : 'hard',
+    );
+  });
+  return profiles.size > 0 ? profiles : null;
+};
+
+const applyGradientSeamProfileToRgba = (palette, {
+  paletteSize,
+  seamProfile,
+  offset = 0,
+}) => {
+  const size = Math.max(1, Math.floor(paletteSize));
+  if (seamProfile !== 'soft' || size < 2) {
+    return;
+  }
+  const start = Math.max(0, Math.floor(offset));
+  const end = start + size * 4;
+  if (end > palette.length) {
+    return;
+  }
+  const source = palette.slice(start, end);
+  const blendLength = Math.max(2, Math.round(size * SOFT_SEAM_BLEND_RATIO));
+  const blendStart = Math.max(1, size - blendLength);
+  const blendSpan = size - blendStart;
+  for (let index = blendStart; index < size; index += 1) {
+    const blend = (index - blendStart + 1) / blendSpan;
+    const sourceIndex = index * 4;
+    const targetIndex = start + sourceIndex;
+    for (let channel = 0; channel < 4; channel += 1) {
+      palette[targetIndex + channel] = Math.round(
+        (source[sourceIndex + channel] ?? (channel === 3 ? 255 : 0)) * (1 - blend)
+        + (source[channel] ?? (channel === 3 ? 255 : 0)) * blend,
+      );
+    }
+  }
+};
 
 const normalizeSlotSpeeds = (slotSpeeds) => {
   if (!Array.isArray(slotSpeeds) || slotSpeeds.length === 0) {
@@ -2493,7 +2542,7 @@ const SLOT_COUNT = FLOW_SLOT_MASK + 1;
 
 const packABGR32 = (c) => (c.a << 24) | (c.b << 16) | (c.g << 8) | c.r;
 
-const buildDiscretePalette32FromGradient = (gradientStops, cycleColors) => {
+const buildDiscretePalette32FromGradient = (gradientStops, cycleColors, seamProfile) => {
   const n = Math.max(1, cycleColors | 0);
   const pal = new Uint32Array(n);
   if (!Array.isArray(gradientStops) || gradientStops.length === 0) {
@@ -2505,6 +2554,10 @@ const buildDiscretePalette32FromGradient = (gradientStops, cycleColors) => {
     const c = sampleGradient(gradientStops, t);
     pal[i] = packABGR32(c);
   }
+  applyGradientSeamProfileToRgba(
+    new Uint8Array(pal.buffer, pal.byteOffset, pal.byteLength),
+    { paletteSize: n, seamProfile },
+  );
   return pal;
 };
 
@@ -2596,7 +2649,12 @@ const getHighestPaletteSlot = (slotGradients) => {
   return highest;
 };
 
-const buildPaletteTableRGBA = (slotGradients, fallbackGradient, paletteSize = DEFAULT_PALETTE_SIZE) => {
+const buildPaletteTableRGBA = (
+  slotGradients,
+  slotSeamProfiles,
+  fallbackGradient,
+  paletteSize = DEFAULT_PALETTE_SIZE,
+) => {
   const size = Math.max(1, Math.round(paletteSize));
   const slotCount = Math.max(1, getHighestPaletteSlot(slotGradients) + 1);
   const data = new Uint8Array(size * slotCount * 4);
@@ -2612,6 +2670,11 @@ const buildPaletteTableRGBA = (slotGradients, fallbackGradient, paletteSize = DE
       data[idx + 2] = clamp255(c.b);
       data[idx + 3] = clamp255(c.a);
     }
+    applyGradientSeamProfileToRgba(data, {
+      paletteSize: size,
+      seamProfile: slotSeamProfiles?.get(slot),
+      offset: slot * size * 4,
+    });
   }
   return { data, width: size, height: slotCount };
 };
@@ -3557,6 +3620,7 @@ class ColorCycleLayerPlayer {
     this.phaseMap = null;
     this.gradient = normalizeGradientStops(null);
     this.slotGradients = null;
+    this.slotSeamProfiles = null;
     this.cycleColors = 16;
     this.mappingMode = 'banded';
     this.flowMapping = 'palette';
@@ -3977,6 +4041,7 @@ class ColorCycleLayerPlayer {
     const baseGradient = brushState.gradientStops?.length ? brushState.gradientStops : colorCycle.gradient;
     this.gradient = normalizeGradientStops(baseGradient);
     this.slotGradients = normalizeSlotPalettes(colorCycle.slotPalettes, this.gradient);
+    this.slotSeamProfiles = normalizeSlotSeamProfiles(colorCycle.slotPalettes);
     this.cycleColors = DEFAULT_PALETTE_SIZE;
     this.mappingMode = 'continuous';
     this.flowMapping = 'palette';
@@ -4028,7 +4093,12 @@ class ColorCycleLayerPlayer {
         startOffset01: wrap01(offset),
         alphaMode: effectiveAlphaMode
       });
-      const paletteTable = buildPaletteTableRGBA(this.slotGradients, this.gradient, DEFAULT_PALETTE_SIZE);
+      const paletteTable = buildPaletteTableRGBA(
+        this.slotGradients,
+        this.slotSeamProfiles,
+        this.gradient,
+        DEFAULT_PALETTE_SIZE,
+      );
       renderer.setPalette(paletteTable.data, paletteTable.width, paletteTable.height);
       renderer.setSlotSpeeds(slotSpeedData);
       renderer.setBuffers(
@@ -4144,6 +4214,7 @@ class ColorCycleLayerPlayer {
     const baseGradient = brushState.gradientStops?.length ? brushState.gradientStops : colorCycle.gradient;
     this.gradient = normalizeGradientStops(baseGradient);
     this.slotGradients = normalizeSlotPalettes(colorCycle.slotPalettes, this.gradient);
+    this.slotSeamProfiles = normalizeSlotSeamProfiles(colorCycle.slotPalettes);
     const explicitBufferMode = colorCycle?.speedMode === 'buffer';
     this.speedMode = explicitBufferMode ? 'buffer' : 'slot';
     this.slotSpeeds = !explicitBufferMode ? normalizeSlotSpeeds(colorCycle?.slotSpeeds) : null;
@@ -4243,9 +4314,10 @@ class ColorCycleLayerPlayer {
     this._basePalette32BySlot.set(0, this._fallbackPalette32);
     if (this.slotGradients && this.slotGradients.size > 0) {
       this.slotGradients.forEach((stops, slot) => {
+        const seamProfile = this.slotSeamProfiles?.get(slot);
         this._basePalette32BySlot.set(
           slot & FLOW_SLOT_MASK,
-          buildDiscretePalette32FromGradient(stops, this._basePaletteSize)
+          buildDiscretePalette32FromGradient(stops, this._basePaletteSize, seamProfile)
         );
       });
     }
@@ -4593,6 +4665,7 @@ class ColorCycleLayerPlayer {
     this.alpha = null;
     this.baseImageData = null;
     this.slotGradients = null;
+    this.slotSeamProfiles = null;
     this._fallbackPalette32 = null;
     if (this.webglRenderer) {
       this.webglRenderer.destroy();

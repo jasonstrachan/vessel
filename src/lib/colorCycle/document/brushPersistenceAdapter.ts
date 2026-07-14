@@ -3160,6 +3160,7 @@ export const createColorCycleLayerDocumentStateFromStrokeState = ({
       : strokeState.buffers.phase.slice().buffer as ArrayBuffer,
     slotPalettes: clonedMeta?.slotPalettes?.map((palette) => ({
       slot: palette.slot,
+      seamProfile: palette.seamProfile as GradientSeamProfile | undefined,
       stops: cloneColorCycleDocumentStops(palette.stops) ?? [],
     })),
     gradientDefs: clonedMeta?.gradientDefs,

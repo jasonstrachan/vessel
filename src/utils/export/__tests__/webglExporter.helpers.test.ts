@@ -1350,6 +1350,50 @@ describe('webglExporter helpers', () => {
     }));
   });
 
+  it('defaults legacy definition-bound pixels to a hard seam instead of inheriting the current slot seam', () => {
+    const slotPalettes = resolveDefBoundSlotPalettes({
+      data: {
+        gradientDefStore: [{
+          id: 42,
+          kind: 'linear',
+          stops: [
+            { position: 0, color: '#223344' },
+            { position: 1, color: '#556677' },
+          ],
+          hash: 'legacy-def-42',
+          source: 'sampled',
+          createdAtMs: 0,
+          slot: 9,
+        }],
+      } as any,
+      brushState: {
+        width: 2,
+        height: 1,
+        indexBuffer: [1, 1],
+        gradientIdBuffer: [9, 9],
+        gradientDefIdBuffer: [42, 42],
+        gradientStops: [],
+        animationOffset: 0,
+      },
+      slotPalettes: [{
+        slot: 9,
+        seamProfile: 'soft',
+        stops: [
+          { position: 0, color: '#000000' },
+          { position: 1, color: '#ffffff' },
+        ],
+      }],
+    });
+
+    expect(slotPalettes?.find((entry) => entry.slot === 9)).toEqual(expect.objectContaining({
+      seamProfile: 'hard',
+      stops: [
+        { position: 0, color: '#223344' },
+        { position: 1, color: '#556677' },
+      ],
+    }));
+  });
+
   it('preserves existing slot palettes when gradient def coverage is partial', () => {
     const slotPalettes = resolveDefBoundSlotPalettes({
       data: {

@@ -50,6 +50,7 @@ import {
   COLOR_CYCLE_STROKE_PAINT_KEY,
   applyColorCycleBrushLayerSnapshotToRuntime,
   canApplyColorCycleBrushLayerSnapshotToRuntime,
+  createColorCycleBrushPersistenceLayerMetaFromLayerData,
   deleteLegacyColorCycleTopLevelBuffers,
   getDerivedSurfaceBuiltFromVersion,
   markDerivedSurfaceBuiltFromVersion,
@@ -59,6 +60,7 @@ import {
   readLegacyColorCycleTopLevelBuffers,
   readMutableLegacyColorCycleTopLevelBuffers,
   restoreColorCycleBrushSerializedStateToRuntime,
+  setColorCycleBrushPersistenceLayerMeta,
   type ColorCycleBrushLayerSnapshotRuntimeReader,
   type ColorCycleBrushLayerSnapshotRuntimeWriter,
   type ColorCycleBrushSerializedStateRuntimeReader,
@@ -2605,6 +2607,7 @@ const buildSerializedColorCycleCanonicalState = (
   slotPalettes: colorCycleData.slotPalettes
     ? colorCycleData.slotPalettes.map((entry) => ({
         slot: entry.slot,
+        seamProfile: entry.seamProfile,
         stops: entry.stops.map((stop) => ({ position: stop.position, color: stop.color })),
       }))
     : undefined,
@@ -6213,6 +6216,11 @@ const restoreColorCycleLayerRuntimeForMaterialization = async (
               gradientDefIdBuffer: describeBufferForDebug(currentLayerSnapshot.gradientDefIdBuffer),
             });
             return { brush: null, materialized: false, reason: 'missing-paint-buffer' };
+          }
+
+          const restoredLayerMeta = createColorCycleBrushPersistenceLayerMetaFromLayerData(colorCycleData);
+          if (restoredLayerMeta) {
+            setColorCycleBrushPersistenceLayerMeta(colorCycleBrush, layer.id, restoredLayerMeta);
           }
 
           restoreColorCycleBrushSerializedStateToRuntime(colorCycleBrush, {
