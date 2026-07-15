@@ -97,23 +97,25 @@ describe('Goblet 2 runtime export regression guard', () => {
     expect(runtime).toContain('applyDisplayFilterStack:applyDisplayFilterStack}=(()=>{');
   });
 
-  it('keeps the shared Noise-only overlay contract in modular and inline runtimes', () => {
+  it('keeps the shared direct-overlay contract and legacy Noise-only selector', () => {
     const runtime = read('public/goblet2/goblet2.js');
     const inlineRuntime = read('public/goblet2/goblet2-inline.js');
     const gobletPipeline = read('public/goblet2/displayFilterPipeline.js');
     const legacyPipeline = read('public/goblet/displayFilterPipeline.js');
 
     expect(gobletPipeline).toContain('export const getNoiseOnlyDisplayFilter = (filters) => {');
+    expect(gobletPipeline).toContain('export const getDirectOverlayDisplayFilter = (filters) => {');
     expect(gobletPipeline).toContain('export const ensureDisplayNoiseOverlay = ({');
     expect(gobletPipeline).toContain('export const applyDisplayNoiseOverlay = ({');
     expect(legacyPipeline).toBe(gobletPipeline);
 
-    expect(runtime).toContain("hasEnabledDisplayFiltersInList(\n      displayFilters,\n      'noise-only',");
+    expect(runtime).toContain("hasEnabledDisplayFiltersInList(\n      displayFilters,\n      'direct-overlay-only',");
     expect(runtime).toContain('const shouldUseDisplayFilterPipeline =');
-    expect(runtime).toContain('} else if (shouldApplyNoiseOnlyFilter) {');
-    expect(runtime).toContain('noiseOnlyTarget: {');
+    expect(runtime).toContain('} else if (shouldApplyDirectOverlayFilter) {');
+    expect(runtime).toContain('directOverlayTarget: {');
+    expect(inlineRuntime).toContain('"direct-overlay-only"');
+    expect(inlineRuntime).toContain('directOverlayTarget');
     expect(inlineRuntime).toContain('"noise-only"');
-    expect(inlineRuntime).toContain('noiseOnlyTarget');
     expect(inlineRuntime).toContain('getNoiseOnlyDisplayFilter:getNoiseOnlyDisplayFilter');
     expect(inlineRuntime).toContain('ensureDisplayNoiseOverlay:ensureDisplayNoiseOverlay');
     expect(inlineRuntime).toContain('applyDisplayNoiseOverlay:applyDisplayNoiseOverlay');

@@ -80,6 +80,16 @@ describe('DisplayFiltersSection', () => {
     expect(screen.getByText('Chromatic Aberration')).toBeInTheDocument();
     expect(screen.getByText('Noise')).toBeInTheDocument();
     expect(screen.getByText('Film Noise')).toBeInTheDocument();
+    expect(screen.queryByLabelText('Film noise shadow bias')).not.toBeInTheDocument();
+  });
+
+  it('places Noise and Film Noise at the top of the filter list', () => {
+    render(<DisplayFiltersSection />);
+
+    const filterTitles = screen.getAllByRole('heading', { level: 4 })
+      .map((heading) => heading.textContent);
+
+    expect(filterTitles.slice(0, 3)).toEqual(['Noise', 'Film Noise', 'Pixelate']);
   });
 
   it('routes toggle changes through the store', () => {
@@ -113,7 +123,6 @@ describe('DisplayFiltersSection', () => {
     fireEvent.change(screen.getByLabelText('Chromatic aberration offset'), { target: { value: '1.5' } });
     fireEvent.change(screen.getByLabelText('Noise scale'), { target: { value: '3' } });
     fireEvent.change(screen.getByLabelText('Film noise grain size'), { target: { value: '2.25' } });
-    fireEvent.change(screen.getByLabelText('Film noise shadow bias'), { target: { value: '0.71' } });
 
     expect(mockStore.updateDisplayFilter).toHaveBeenCalledWith('round-pixels', { blurRadius: 3.25 });
     expect(mockStore.updateDisplayFilter).toHaveBeenCalledWith('round-pixels', { threshold: 0.62 });
@@ -127,7 +136,6 @@ describe('DisplayFiltersSection', () => {
     expect(mockStore.updateDisplayFilter).toHaveBeenCalledWith('chromatic-aberration', { offset: 1.5 });
     expect(mockStore.updateDisplayFilter).toHaveBeenCalledWith('noise', { scale: 3 });
     expect(mockStore.updateDisplayFilter).toHaveBeenCalledWith('film-noise', { scale: 2.25 });
-    expect(mockStore.updateDisplayFilter).toHaveBeenCalledWith('film-noise', { shadowBias: 0.71 });
   });
 
   it('rebakes an existing CC soft-edge mask when edge width is committed', async () => {

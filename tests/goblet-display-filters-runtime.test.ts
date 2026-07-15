@@ -88,6 +88,11 @@ describe('Goblet display filter runtime parity', () => {
     expect(runtime).toContain('lengthScale: filterLengthScale');
     expect(runtime).toContain('const finalFilteredCanvas = applyDisplayFilterStack({');
     expect(runtime).toContain('ctx.drawImage(finalFilteredCanvas, 0, 0);');
+    expect(runtime).toContain('const shouldApplyDirectOverlayFilter = hasEnabledDisplayFiltersInList(');
+    expect(runtime).toContain("'direct-overlay-only'");
+    expect(runtime).toContain('directOverlayTarget: {');
+    expect(runtime).not.toContain('shouldApplyNoiseOnlyFilter');
+    expect(runtime).not.toContain('noiseOnlyTarget');
   });
 
   it('scopes the display filter pipeline inside the Goblet 2 inline runtime', () => {
@@ -97,5 +102,23 @@ describe('Goblet display filter runtime parity', () => {
       '{getSeamlessNoisePatternSize:getSeamlessNoisePatternSize,createTileableNoiseGrid:createTileableNoiseGrid,createDisplayFilterPipelineState:createDisplayFilterPipelineState'
     );
     expect(runtime).toContain('applyDisplayFilterStack:applyDisplayFilterStack}=(()=>{');
+    expect(runtime).toContain('direct-overlay-only');
+    expect(runtime).toContain('directOverlayTarget');
+  });
+
+  it('generates the clustered Film Noise pipeline for both Goblet runtimes', () => {
+    const source = read('src/lib/displayFilterPipeline.js');
+    const goblet1Pipeline = read('public/goblet/displayFilterPipeline.js');
+    const goblet2Pipeline = read('public/goblet2/displayFilterPipeline.js');
+
+    expect(source).toContain('createFilmGrainPlateModel');
+    expect(source).toContain('buildFilmGrainFields');
+    expect(source).toContain('rasterizeFilmGrainFields');
+    expect(source).toContain('applyFilmGrainOverlay');
+    expect(source).not.toContain('getFilmGrainWrappedConnectionSegments');
+    expect(source).not.toContain('filmNoiseCombinedField');
+    expect(source).not.toContain('filmNoiseImageData');
+    expect(goblet1Pipeline).toContain(source);
+    expect(goblet2Pipeline).toContain(source);
   });
 });

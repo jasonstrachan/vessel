@@ -205,7 +205,7 @@ export const useDrawingCanvasBaseRenderer = ({
     sourceCanvas: HTMLCanvasElement,
     visibleRect?: VisibleWorldRect | null,
     lengthScale = 1,
-    noiseOnlyTarget?: {
+    directOverlayTarget?: {
       ctx: CanvasRenderingContext2D;
       rect: VisibleWorldRect;
     },
@@ -215,7 +215,7 @@ export const useDrawingCanvasBaseRenderer = ({
     filterState: displayFilterStateRef.current,
     visibleRect,
     lengthScale,
-    noiseOnlyTarget,
+    directOverlayTarget,
   }), [displayFilters]);
 
   return useCallback(
@@ -270,10 +270,10 @@ export const useDrawingCanvasBaseRenderer = ({
         return;
       }
 
-      const shouldApplyNoiseOnlyFilter =
+      const shouldApplyDirectOverlayFilter =
         Boolean(visibleRect) &&
         !isDrawing &&
-        hasEnabledDisplayFiltersInList(displayFilters, 'noise-only');
+        hasEnabledDisplayFiltersInList(displayFilters, 'direct-overlay-only');
 
       ctx.save();
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -303,7 +303,7 @@ export const useDrawingCanvasBaseRenderer = ({
         checkerLight: CANVAS_CHECKER_LIGHT,
         checkerDark: CANVAS_CHECKER_DARK,
       };
-      // Keep the direct compositor's background-first contract for Noise-only frames.
+      // Keep the direct compositor's background-first contract for overlay-only frames.
       // Delaying this paint changes layer blending and can hide underlying artwork.
       renderCanvasBackground(canvasBackgroundOptions);
 
@@ -396,7 +396,7 @@ export const useDrawingCanvasBaseRenderer = ({
         Boolean(visibleRect) &&
         !isDrawing &&
         hasEnabledDisplayFiltersInList(displayFilters) &&
-        !shouldApplyNoiseOnlyFilter;
+        !shouldApplyDirectOverlayFilter;
       const filterCanvas = shouldUseDisplayFilterPipeline
         ? ensureDisplayFilterCanvas(
             displayFilterStateRef.current.filterSurfaceCanvas,
@@ -474,7 +474,7 @@ export const useDrawingCanvasBaseRenderer = ({
           visibleRect.height,
         );
       }
-      if (shouldApplyNoiseOnlyFilter && visibleRect) {
+      if (shouldApplyDirectOverlayFilter && visibleRect) {
         applyDisplayFilterStack(
           ctx.canvas,
           visibleRect,

@@ -49,6 +49,10 @@ const CC_SOFT_EDGE_DITHER_OPTIONS: Array<{ value: ColorCycleSoftEdgeDitherAlgori
   { value: 'ordered', label: 'Ordered' },
 ];
 const DEFAULT_CC_SOFT_EDGE_DITHER_ALGORITHM: ColorCycleSoftEdgeDitherAlgorithm = 'sierra-lite';
+const FILTER_LIST_PRIORITY: Partial<Record<DisplayFilterId, number>> = {
+  noise: 0,
+  'film-noise': 1,
+};
 
 interface FilterCardProps {
   filter: DisplayFilterConfig;
@@ -513,20 +517,6 @@ const FilterCard = ({ filter }: FilterCardProps) => {
                 aria-label="Film noise grain size"
               />
             </div>
-            <div>
-              <label className="mb-1 block text-[11px] uppercase tracking-[0.08em] text-[#8F8F8F]">
-                Shadow Bias
-              </label>
-              <ProgressSlider
-                value={filter.settings.shadowBias}
-                min={0}
-                max={1}
-                step={0.01}
-                onChange={(value) => updateDisplayFilter('film-noise', { shadowBias: value })}
-                aria-label="Film noise shadow bias"
-                formatValue={(value) => `${Math.round(value * 100)}%`}
-              />
-            </div>
           </>
         )}
 
@@ -788,11 +778,24 @@ const ColorCycleSoftEdgeMaskControls = () => {
 
 export const DisplayFiltersSection = () => {
   const displayFilters = useAppStore((state) => state.canvas.displayFilters);
+  const orderedDisplayFilters = React.useMemo(() => (
+    [...displayFilters].sort((firstFilter, secondFilter) => {
+      const firstPriority = FILTER_LIST_PRIORITY[firstFilter.id];
+      const secondPriority = FILTER_LIST_PRIORITY[secondFilter.id];
+
+      if (firstPriority === undefined && secondPriority === undefined) {
+        return 0;
+      }
+
+      return (firstPriority ?? Number.MAX_SAFE_INTEGER)
+        - (secondPriority ?? Number.MAX_SAFE_INTEGER);
+    })
+  ), [displayFilters]);
 
   return (
     <div>
       <ColorCycleSoftEdgeMaskControls />
-      {displayFilters.map((filter, index) => (
+      {orderedDisplayFilters.map((filter, index) => (
         <React.Fragment key={filter.id}>
           {index > 0 && <div className="border-t border-[#2E2E2E]" aria-hidden="true" />}
           <FilterCard filter={filter} />

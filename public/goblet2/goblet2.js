@@ -5586,12 +5586,12 @@ class VesselGoblet {
     };
     const displayFilters = getGobletDisplayFilters(this.metadata);
     const hasEnabledDisplayFilters = hasEnabledDisplayFiltersInList(displayFilters);
-    const shouldApplyNoiseOnlyFilter = hasEnabledDisplayFiltersInList(
+    const shouldApplyDirectOverlayFilter = hasEnabledDisplayFiltersInList(
       displayFilters,
-      'noise-only',
+      'direct-overlay-only',
     );
     const shouldUseDisplayFilterPipeline =
-      hasEnabledDisplayFilters && !shouldApplyNoiseOnlyFilter;
+      hasEnabledDisplayFilters && !shouldApplyDirectOverlayFilter;
     const filterSurfaceCanvas = shouldUseDisplayFilterPipeline
       ? ensureDisplayFilterCanvas(
           this.displayFilterState.filterSurfaceCanvas,
@@ -5699,13 +5699,13 @@ class VesselGoblet {
       if (profile.enabled) {
         profile.blitMs += profile.now() - blitStart;
       }
-    } else if (shouldApplyNoiseOnlyFilter) {
+    } else if (shouldApplyDirectOverlayFilter) {
       const filterStart = profile.enabled ? profile.now() : 0;
       applyDisplayFilterStack({
         sourceCanvas: this.canvas,
         displayFilters,
         filterState: this.displayFilterState,
-        noiseOnlyTarget: {
+        directOverlayTarget: {
           ctx,
           rect: {
             x: 0,

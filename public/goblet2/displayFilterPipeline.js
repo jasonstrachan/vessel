@@ -17,6 +17,19 @@ export const resolveFilmNoiseSampleStep = (tileStep) => (
   Math.max(1, Math.min(4, resolveDisplayNoiseTileStep(tileStep)))
 );
 
+const FILM_GRAIN_MODEL_VERSION = 10;
+const FILM_GRAIN_PLATE_SIZE = 768;
+const FILM_GRAIN_MIN_CLUSTERS = 24;
+const FILM_GRAIN_MAX_CLUSTERS = 10000;
+const FILM_GRAIN_SEED = 0x6d2b79f5;
+const FILM_GRAIN_FIELD_SUPPORT_SCALE = 1.6;
+const FILM_GRAIN_FIELD_THRESHOLD = 0.42;
+const FILM_GRAIN_FIELD_THRESHOLD_VARIATION = 0.035;
+const FILM_GRAIN_FIELD_JITTER = 0.045;
+const FILM_GRAIN_FIELD_FEATHER = 0.07;
+const FILM_GRAIN_DENSITY_LATTICE_CELLS = 8;
+const TWO_PI = Math.PI * 2;
+
 export const resolveDisplayFilterPixelSize = (value, fallback = 1, minimum = 1) => (
   Math.max(minimum, Math.round(getNumeric(value, fallback)))
 );
@@ -38,6 +51,16 @@ export const resolveDownsampledDisplayFilterRadius = (
 const hashNoise = (x, y, seed) => {
   const value = Math.sin((x + 1) * 127.1 + (y + 1) * 311.7 + seed * 17.13) * 43758.5453123;
   return value - Math.floor(value);
+};
+
+const hashFilmGrainCoordinate = (x, y, seed) => {
+  let value = (
+    Math.imul((Math.floor(x) ^ Math.floor(seed)) | 0, 0x45d9f3b)
+    ^ Math.imul((Math.floor(y) + Math.floor(seed)) | 0, 0x27d4eb2d)
+  ) >>> 0;
+  value = Math.imul(value ^ (value >>> 16), 0x7feb352d) >>> 0;
+  value = Math.imul(value ^ (value >>> 15), 0x846ca68b) >>> 0;
+  return ((value ^ (value >>> 16)) >>> 0) / 4294967296;
 };
 
 export const createTileableNoiseGrid = (columns, rows, seed = 0) => {
@@ -73,16 +96,12 @@ export const createDisplayFilterPipelineState = () => ({
   noisePatternCanvas: null,
   noiseOverlayKey: '',
   noiseOverlayCanvas: null,
-  filmNoisePatternKey: '',
-  filmNoiseBaseCanvas: null,
-  filmNoiseClumpCanvas: null,
-  filmNoiseBasePatternData: null,
-  filmNoiseClumpPatternData: null,
-  filmNoiseCombinedKey: '',
-  filmNoiseCombinedField: null,
-  filmNoiseImageData: null,
-  filmNoiseToneKey: '',
-  filmNoiseToneLookup: null,
+  filmGrainPlateKey: '',
+  filmGrainDarkPlateCanvas: null,
+  filmGrainLightPlateCanvas: null,
+  filmGrainOverlayKey: '',
+  filmGrainDarkOverlayCanvas: null,
+  filmGrainLightOverlayCanvas: null,
 });
 
 export const getNextFilterWorkCanvas = (currentCanvas, workCanvasA, workCanvasB) => (
@@ -125,7 +144,9 @@ export const getDisplayFilterByIdFromList = (filters, id) => (
 export const hasEnabledDisplayFiltersInList = (filters, mode = 'any') => (
   mode === 'noise-only'
     ? Boolean(getNoiseOnlyDisplayFilter(filters))
-    : Array.isArray(filters) && filters.some((filter) => filter?.enabled)
+    : mode === 'direct-overlay-only'
+      ? Boolean(getDirectOverlayDisplayFilter(filters))
+      : Array.isArray(filters) && filters.some((filter) => filter?.enabled)
 );
 
 export const getNoiseOnlyDisplayFilter = (filters) => {
@@ -141,6 +162,24 @@ export const getNoiseOnlyDisplayFilter = (filters) => {
     return null;
   }
   return noiseFilter;
+};
+
+export const getDirectOverlayDisplayFilter = (filters) => {
+  if (!Array.isArray(filters)) {
+    return null;
+  }
+  const enabledFilters = filters.filter((filter) => filter?.enabled);
+  if (enabledFilters.length !== 1) {
+    return null;
+  }
+  const [filter] = enabledFilters;
+  if (
+    (filter.id !== 'noise' && filter.id !== 'film-noise')
+    || getNumeric(filter?.settings?.opacity, 0) <= 0
+  ) {
+    return null;
+  }
+  return filter;
 };
 
 const clearDisplayNoiseCanvas = (canvas) => {
@@ -304,73 +343,589 @@ const smoothstep = (edge0, edge1, value) => {
   return t * t * (3 - 2 * t);
 };
 
-const samplePatternValue = (data, width, height, x, y) => {
-  if (!data || width <= 0 || height <= 0) {
-    return 0.5;
-  }
-  const wrappedX = ((x % width) + width) % width;
-  const wrappedY = ((y % height) + height) % height;
-  return data[(wrappedY * width + wrappedX) * 4] / 255;
+const createFilmGrainRandom = (seed) => {
+  let state = Math.floor(getNumeric(seed, FILM_GRAIN_SEED)) >>> 0;
+  return () => {
+    state = (state + 0x6d2b79f5) >>> 0;
+    let value = state;
+    value = Math.imul(value ^ (value >>> 15), value | 1);
+    value ^= value + Math.imul(value ^ (value >>> 7), value | 61);
+    return ((value ^ (value >>> 14)) >>> 0) / 4294967296;
+  };
 };
 
-const buildFilmNoiseCombinedField = ({
-  basePatternData,
-  basePatternWidth,
-  basePatternHeight,
-  clumpPatternData,
-  clumpPatternWidth,
-  clumpPatternHeight,
-  width,
-  height,
-  originX,
-  originY,
-}) => {
-  const field = new Float32Array(width * height);
+const resolveFilmGrainFamily = (clusterIndex) => {
+  const familyIndex = clusterIndex % 20;
+  if (familyIndex < 6) {
+    return 'single';
+  }
+  if (familyIndex < 14) {
+    return 'chain';
+  }
+  return 'island';
+};
 
-  for (let y = 0; y < height; y += 1) {
-    for (let x = 0; x < width; x += 1) {
-      const baseValue = samplePatternValue(
-        basePatternData,
-        basePatternWidth,
-        basePatternHeight,
-        originX + x,
-        originY + y,
+const resolveFilmGrainLobeCount = (family, random) => {
+  if (family === 'single') {
+    return 1;
+  }
+  if (family === 'chain') {
+    return 4 + Math.floor(random() * 6);
+  }
+  return 8 + Math.floor(random() * 9);
+};
+
+export const createFilmGrainPlateModel = ({
+  plateSize = FILM_GRAIN_PLATE_SIZE,
+  grainSize = 1.5,
+  seed = FILM_GRAIN_SEED,
+} = {}) => {
+  const resolvedPlateSize = Math.max(32, Math.round(getNumeric(plateSize, FILM_GRAIN_PLATE_SIZE)));
+  const resolvedGrainSize = Math.max(0.75, Math.min(8, getNumeric(grainSize, 1.5)));
+  const grainSeed = (
+    Math.floor(getNumeric(seed, FILM_GRAIN_SEED))
+    + Math.round(resolvedGrainSize * 1009)
+    + resolvedPlateSize * 9176
+  ) >>> 0;
+  const random = createFilmGrainRandom(grainSeed);
+  const clusterCount = Math.max(
+    FILM_GRAIN_MIN_CLUSTERS,
+    Math.min(
+      FILM_GRAIN_MAX_CLUSTERS,
+      Math.round((resolvedPlateSize * resolvedPlateSize) / (resolvedGrainSize ** 2 * 62)),
+    ),
+  );
+  const colonyCount = Math.max(
+    12,
+    Math.round((resolvedPlateSize * resolvedPlateSize) / (resolvedGrainSize ** 2 * 3800)),
+  );
+  const colonies = Array.from({ length: colonyCount }, () => ({
+    x: random() * resolvedPlateSize,
+    y: random() * resolvedPlateSize,
+    spread: resolvedGrainSize * mix(24, 52, random()),
+  }));
+  const clusters = [];
+
+  for (let clusterIndex = 0; clusterIndex < clusterCount; clusterIndex += 1) {
+    const family = resolveFilmGrainFamily(clusterIndex);
+    const lobeCount = resolveFilmGrainLobeCount(family, random);
+    const polarity = ((clusterIndex * 7) % 25) < 24 ? 'dark' : 'light';
+    const lobes = [];
+    const isColonyCluster = clusterIndex % 5 === 0;
+    const colony = colonies[Math.floor(random() * colonies.length)];
+    let x = random() * resolvedPlateSize;
+    let y = random() * resolvedPlateSize;
+    if (isColonyCluster && colony) {
+      const offsetX = (random() + random() + random() - 1.5) * colony.spread;
+      const offsetY = (random() + random() + random() - 1.5) * colony.spread;
+      x = positiveMod(colony.x + offsetX, resolvedPlateSize);
+      y = positiveMod(colony.y + offsetY, resolvedPlateSize);
+    }
+    const rootX = x;
+    const rootY = y;
+    let heading = random() * TWO_PI;
+    const rootHeading = heading;
+    let parentIndex = null;
+
+    for (let lobeIndex = 0; lobeIndex < lobeCount; lobeIndex += 1) {
+      const sizeVariation = random() ** 1.65;
+      const familyRadius = family === 'single'
+        ? mix(0.38, 1.55, sizeVariation)
+        : family === 'chain'
+          ? mix(0.55, 1.8, sizeVariation)
+          : mix(0.65, 2.25, sizeVariation);
+      const radius = resolvedGrainSize * familyRadius;
+      const aspect = family === 'single'
+        ? mix(0.8, 1.25, random())
+        : family === 'chain'
+          ? mix(0.78, 1.4, random())
+          : mix(0.75, 1.5, random());
+      const radiusX = radius * Math.sqrt(aspect);
+      const radiusY = radius / Math.sqrt(aspect);
+      lobes.push({
+        x,
+        y,
+        radiusX,
+        radiusY,
+        rotation: heading + (random() - 0.5) * 1.25,
+        strength: mix(0.92, 1, random()),
+        parentIndex,
+      });
+
+      if (lobeIndex < lobeCount - 1) {
+        const startsIslandBranch = family === 'island' && (lobeIndex + 1) % 4 === 0;
+        if (startsIslandBranch) {
+          heading = rootHeading + (random() - 0.5) * 3.4;
+          const rootOffset = resolvedGrainSize * mix(0.25, 0.8, random());
+          x = positiveMod(rootX + Math.cos(heading) * rootOffset, resolvedPlateSize);
+          y = positiveMod(rootY + Math.sin(heading) * rootOffset, resolvedPlateSize);
+          parentIndex = 0;
+        } else {
+          const turnRange = family === 'island' ? 1.55 : 0.75;
+          heading += (random() - 0.5) * turnRange;
+          const stepScale = family === 'island'
+            ? mix(0.4, 0.8, random())
+            : mix(0.5, 0.9, random());
+          const step = resolvedGrainSize * stepScale;
+          x = positiveMod(x + Math.cos(heading) * step, resolvedPlateSize);
+          y = positiveMod(y + Math.sin(heading) * step, resolvedPlateSize);
+          parentIndex = lobeIndex;
+        }
+      }
+    }
+
+    clusters.push({ family, polarity, lobes });
+  }
+
+  return {
+    version: FILM_GRAIN_MODEL_VERSION,
+    plateSize: resolvedPlateSize,
+    grainSize: resolvedGrainSize,
+    clusters,
+  };
+};
+
+export const getFilmGrainWrappedLobePositions = (lobe, plateSize, extentScale = 1) => {
+  const size = Math.max(1, getNumeric(plateSize, 1));
+  const resolvedExtentScale = Math.max(1, getNumeric(extentScale, 1));
+  const extent = Math.max(lobe.radiusX, lobe.radiusY) * resolvedExtentScale;
+  const xOffsets = [0];
+  const yOffsets = [0];
+  if (lobe.x - extent < 0) {
+    xOffsets.push(size);
+  }
+  if (lobe.x + extent > size) {
+    xOffsets.push(-size);
+  }
+  if (lobe.y - extent < 0) {
+    yOffsets.push(size);
+  }
+  if (lobe.y + extent > size) {
+    yOffsets.push(-size);
+  }
+
+  const positions = [];
+  for (const offsetY of yOffsets) {
+    for (const offsetX of xOffsets) {
+      positions.push({ x: lobe.x + offsetX, y: lobe.y + offsetY });
+    }
+  }
+  return positions;
+};
+
+const sampleFilmGrainLobeFieldAtOffset = (lobe, deltaX, deltaY) => {
+  const radiusX = Math.max(1e-6, lobe.radiusX * FILM_GRAIN_FIELD_SUPPORT_SCALE);
+  const radiusY = Math.max(1e-6, lobe.radiusY * FILM_GRAIN_FIELD_SUPPORT_SCALE);
+  const cosine = Math.cos(lobe.rotation);
+  const sine = Math.sin(lobe.rotation);
+  const localX = (deltaX * cosine + deltaY * sine) / radiusX;
+  const localY = (-deltaX * sine + deltaY * cosine) / radiusY;
+  const distanceSquared = localX * localX + localY * localY;
+  if (distanceSquared >= 1) {
+    return 0;
+  }
+  const falloff = 1 - distanceSquared;
+  return falloff * falloff * lobe.strength;
+};
+
+export const getFilmGrainConnectionFieldStrength = (startLobe, endLobe, plateSize) => {
+  const size = Math.max(1, getNumeric(plateSize, 1));
+  let deltaX = endLobe.x - startLobe.x;
+  let deltaY = endLobe.y - startLobe.y;
+  if (deltaX > size / 2) {
+    deltaX -= size;
+  } else if (deltaX < -size / 2) {
+    deltaX += size;
+  }
+  if (deltaY > size / 2) {
+    deltaY -= size;
+  } else if (deltaY < -size / 2) {
+    deltaY += size;
+  }
+  return sampleFilmGrainLobeFieldAtOffset(startLobe, deltaX / 2, deltaY / 2)
+    + sampleFilmGrainLobeFieldAtOffset(endLobe, -deltaX / 2, -deltaY / 2);
+};
+
+export const buildFilmGrainFields = (model) => {
+  const plateSize = Math.max(1, Math.round(getNumeric(model?.plateSize, 1)));
+  const pixelCount = plateSize * plateSize;
+  const darkField = new Float32Array(pixelCount);
+  const lightField = new Float32Array(pixelCount);
+
+  for (const cluster of model?.clusters ?? []) {
+    const field = cluster.polarity === 'light' ? lightField : darkField;
+    for (const lobe of cluster.lobes) {
+      const radiusX = Math.max(1e-6, lobe.radiusX * FILM_GRAIN_FIELD_SUPPORT_SCALE);
+      const radiusY = Math.max(1e-6, lobe.radiusY * FILM_GRAIN_FIELD_SUPPORT_SCALE);
+      const extent = Math.max(radiusX, radiusY);
+      const cosine = Math.cos(lobe.rotation);
+      const sine = Math.sin(lobe.rotation);
+      const positions = getFilmGrainWrappedLobePositions(
+        lobe,
+        plateSize,
+        FILM_GRAIN_FIELD_SUPPORT_SCALE,
       );
-      const clumpValue = samplePatternValue(
-        clumpPatternData,
-        clumpPatternWidth,
-        clumpPatternHeight,
-        originX + x,
-        originY + y,
-      );
-      const grain = (baseValue - 0.5) * 2;
-      const clumpWeight = 0.55 + Math.pow(clumpValue, 1.6) * 1.15;
-      field[y * width + x] = grain * clumpWeight;
+
+      for (const position of positions) {
+        const minX = Math.max(0, Math.floor(position.x - extent));
+        const maxX = Math.min(plateSize - 1, Math.ceil(position.x + extent));
+        const minY = Math.max(0, Math.floor(position.y - extent));
+        const maxY = Math.min(plateSize - 1, Math.ceil(position.y + extent));
+
+        for (let y = minY; y <= maxY; y += 1) {
+          const deltaY = y + 0.5 - position.y;
+          const rowOffset = y * plateSize;
+          for (let x = minX; x <= maxX; x += 1) {
+            const deltaX = x + 0.5 - position.x;
+            const localX = (deltaX * cosine + deltaY * sine) / radiusX;
+            const localY = (-deltaX * sine + deltaY * cosine) / radiusY;
+            const distanceSquared = localX * localX + localY * localY;
+            if (distanceSquared >= 1) {
+              continue;
+            }
+            const falloff = 1 - distanceSquared;
+            field[rowOffset + x] += falloff * falloff * lobe.strength;
+          }
+        }
+      }
     }
   }
 
-  return field;
+  return { darkField, lightField };
 };
 
-const buildFilmNoiseToneLookup = ({ opacity, shadowBias }) => {
-  const lookup = new Float32Array(256);
-  const clampedOpacity = clamp01(opacity);
-  const clampedShadowBias = clamp01(shadowBias);
-  for (let luma = 0; luma < 256; luma += 1) {
-    const normalizedLuma = luma / 255;
-    const shadowFactor = Math.pow(1 - normalizedLuma, 1.35);
-    lookup[luma] = (0.42 + shadowFactor * (0.58 + clampedShadowBias * 1.1)) * clampedOpacity * 34;
+export const rasterizeFilmGrainFields = ({
+  darkField,
+  lightField,
+  plateSize,
+  seed = FILM_GRAIN_SEED,
+  threshold = FILM_GRAIN_FIELD_THRESHOLD,
+  thresholdVariation = FILM_GRAIN_FIELD_THRESHOLD_VARIATION,
+  jitterStrength = FILM_GRAIN_FIELD_JITTER,
+  featherWidth = FILM_GRAIN_FIELD_FEATHER,
+  latticeCells = FILM_GRAIN_DENSITY_LATTICE_CELLS,
+}) => {
+  const resolvedPlateSize = Math.max(1, Math.round(getNumeric(plateSize, 1)));
+  const pixelCount = resolvedPlateSize * resolvedPlateSize;
+  if (darkField.length < pixelCount || lightField.length < pixelCount) {
+    throw new RangeError('Film grain fields must cover the complete plate.');
   }
-  return lookup;
+
+  const resolvedSeed = Math.floor(getNumeric(seed, FILM_GRAIN_SEED)) >>> 0;
+  const resolvedThreshold = getNumeric(threshold, FILM_GRAIN_FIELD_THRESHOLD);
+  const resolvedThresholdVariation = Math.max(0, getNumeric(
+    thresholdVariation,
+    FILM_GRAIN_FIELD_THRESHOLD_VARIATION,
+  ));
+  const resolvedJitterStrength = Math.max(0, getNumeric(
+    jitterStrength,
+    FILM_GRAIN_FIELD_JITTER,
+  ));
+  const resolvedFeatherWidth = Math.max(1e-6, getNumeric(
+    featherWidth,
+    FILM_GRAIN_FIELD_FEATHER,
+  ));
+  const resolvedLatticeCells = Math.max(2, Math.min(32, Math.round(getNumeric(
+    latticeCells,
+    FILM_GRAIN_DENSITY_LATTICE_CELLS,
+  ))));
+  const densityLattice = new Float32Array(resolvedLatticeCells * resolvedLatticeCells);
+  const densitySeed = resolvedSeed ^ 0x51ed270b;
+  for (let y = 0; y < resolvedLatticeCells; y += 1) {
+    for (let x = 0; x < resolvedLatticeCells; x += 1) {
+      densityLattice[y * resolvedLatticeCells + x] = hashFilmGrainCoordinate(
+        x,
+        y,
+        densitySeed,
+      );
+    }
+  }
+
+  const latticeX0 = new Uint8Array(resolvedPlateSize);
+  const latticeX1 = new Uint8Array(resolvedPlateSize);
+  const latticeXBlend = new Float32Array(resolvedPlateSize);
+  for (let x = 0; x < resolvedPlateSize; x += 1) {
+    const latticeX = x * resolvedLatticeCells / resolvedPlateSize;
+    const x0 = Math.floor(latticeX);
+    const fraction = latticeX - x0;
+    latticeX0[x] = x0;
+    latticeX1[x] = (x0 + 1) % resolvedLatticeCells;
+    latticeXBlend[x] = fraction * fraction * (3 - 2 * fraction);
+  }
+
+  const darkAlpha = new Uint8ClampedArray(pixelCount);
+  const lightAlpha = new Uint8ClampedArray(pixelCount);
+  const jitterSeed = resolvedSeed ^ 0x9e3779b9;
+  for (let y = 0; y < resolvedPlateSize; y += 1) {
+    const latticeY = y * resolvedLatticeCells / resolvedPlateSize;
+    const y0 = Math.floor(latticeY);
+    const y1 = (y0 + 1) % resolvedLatticeCells;
+    const yFraction = latticeY - y0;
+    const yBlend = yFraction * yFraction * (3 - 2 * yFraction);
+    const rowOffset = y * resolvedPlateSize;
+    const latticeRow0 = y0 * resolvedLatticeCells;
+    const latticeRow1 = y1 * resolvedLatticeCells;
+
+    for (let x = 0; x < resolvedPlateSize; x += 1) {
+      const x0 = latticeX0[x];
+      const x1 = latticeX1[x];
+      const xBlend = latticeXBlend[x];
+      const densityTop = mix(
+        densityLattice[latticeRow0 + x0],
+        densityLattice[latticeRow0 + x1],
+        xBlend,
+      );
+      const densityBottom = mix(
+        densityLattice[latticeRow1 + x0],
+        densityLattice[latticeRow1 + x1],
+        xBlend,
+      );
+      const density = mix(densityTop, densityBottom, yBlend);
+      const localThreshold = resolvedThreshold
+        + (density - 0.5) * resolvedThresholdVariation * 2;
+      const jitter = (
+        hashFilmGrainCoordinate(x, y, jitterSeed) - 0.5
+      ) * resolvedJitterStrength;
+      const pixelIndex = rowOffset + x;
+      darkAlpha[pixelIndex] = Math.round(
+        smoothstep(
+          localThreshold,
+          localThreshold + resolvedFeatherWidth,
+          darkField[pixelIndex] + jitter,
+        ) * 255,
+      );
+      lightAlpha[pixelIndex] = Math.round(
+        smoothstep(
+          localThreshold,
+          localThreshold + resolvedFeatherWidth,
+          lightField[pixelIndex] + jitter,
+        ) * 255,
+      );
+    }
+  }
+
+  return { darkAlpha, lightAlpha };
 };
 
-const clampByte = (value) => (
-  value <= 0 ? 0 : value >= 255 ? 255 : Math.round(value)
-);
+const writeFilmGrainPlate = (ctx, alpha, polarity, plateSize) => {
+  if (!ctx) {
+    return;
+  }
+  const imageData = ctx.createImageData(plateSize, plateSize);
+  const data = imageData.data;
+  const channelValue = polarity === 'light' ? 255 : 0;
+  for (let index = 0; index < alpha.length; index += 1) {
+    const dataIndex = index * 4;
+    data[dataIndex] = channelValue;
+    data[dataIndex + 1] = channelValue;
+    data[dataIndex + 2] = channelValue;
+    data[dataIndex + 3] = alpha[index];
+  }
+  ctx.putImageData(imageData, 0, 0);
+};
 
-const getFastLumaByte = (r, g, b) => (
-  Math.min(255, Math.max(0, (54 * r + 183 * g + 19 * b) >> 8))
-);
+const renderFilmGrainPlates = (darkCtx, lightCtx, model) => {
+  if (!darkCtx || !lightCtx) {
+    return;
+  }
+  const fields = buildFilmGrainFields(model);
+  const raster = rasterizeFilmGrainFields({
+    ...fields,
+    plateSize: model.plateSize,
+    seed: FILM_GRAIN_SEED,
+  });
+  writeFilmGrainPlate(darkCtx, raster.darkAlpha, 'dark', model.plateSize);
+  writeFilmGrainPlate(lightCtx, raster.lightAlpha, 'light', model.plateSize);
+};
+
+const ensureFilmGrainPlates = (filmNoiseFilter, filterState) => {
+  const grainSize = Math.max(0.75, Math.min(8, getNumeric(filmNoiseFilter?.settings?.scale, 1.5)));
+  const plateKey = JSON.stringify({
+    version: FILM_GRAIN_MODEL_VERSION,
+    plateSize: FILM_GRAIN_PLATE_SIZE,
+    grainSize,
+  });
+  if (
+    filterState.filmGrainPlateKey === plateKey
+    && filterState.filmGrainDarkPlateCanvas
+    && filterState.filmGrainLightPlateCanvas
+  ) {
+    return {
+      darkCanvas: filterState.filmGrainDarkPlateCanvas,
+      lightCanvas: filterState.filmGrainLightPlateCanvas,
+    };
+  }
+
+  const darkCanvas = ensureDisplayFilterCanvas(
+    filterState.filmGrainDarkPlateCanvas,
+    FILM_GRAIN_PLATE_SIZE,
+    FILM_GRAIN_PLATE_SIZE,
+  );
+  const lightCanvas = ensureDisplayFilterCanvas(
+    filterState.filmGrainLightPlateCanvas,
+    FILM_GRAIN_PLATE_SIZE,
+    FILM_GRAIN_PLATE_SIZE,
+  );
+  const darkCtx = clearDisplayNoiseCanvas(darkCanvas);
+  const lightCtx = clearDisplayNoiseCanvas(lightCanvas);
+  const model = createFilmGrainPlateModel({
+    plateSize: FILM_GRAIN_PLATE_SIZE,
+    grainSize,
+    seed: FILM_GRAIN_SEED,
+  });
+  renderFilmGrainPlates(darkCtx, lightCtx, model);
+
+  filterState.filmGrainPlateKey = plateKey;
+  filterState.filmGrainDarkPlateCanvas = darkCanvas;
+  filterState.filmGrainLightPlateCanvas = lightCanvas;
+  filterState.filmGrainOverlayKey = '';
+  return { darkCanvas, lightCanvas };
+};
+
+const fillFilmGrainOverlay = ({ overlayCanvas, overlayCtx, plateCanvas, phaseX, phaseY }) => {
+  if (!overlayCanvas || !overlayCtx || !plateCanvas) {
+    return;
+  }
+  const pattern = overlayCtx.createPattern(plateCanvas, 'repeat');
+  if (!pattern) {
+    return;
+  }
+  overlayCtx.save();
+  overlayCtx.translate(-phaseX, -phaseY);
+  overlayCtx.fillStyle = pattern;
+  overlayCtx.fillRect(
+    0,
+    0,
+    overlayCanvas.width + plateCanvas.width,
+    overlayCanvas.height + plateCanvas.height,
+  );
+  overlayCtx.restore();
+};
+
+export const ensureFilmGrainOverlays = ({
+  filmNoiseFilter,
+  filterState,
+  width,
+  height,
+  originX = 0,
+  originY = 0,
+}) => {
+  const plates = ensureFilmGrainPlates(filmNoiseFilter, filterState);
+  if (!plates.darkCanvas || !plates.lightCanvas) {
+    return null;
+  }
+  const targetWidth = Math.max(1, Math.ceil(width));
+  const targetHeight = Math.max(1, Math.ceil(height));
+  const phaseX = positiveMod(originX, plates.darkCanvas.width);
+  const phaseY = positiveMod(originY, plates.darkCanvas.height);
+  const overlayKey = JSON.stringify({
+    plateKey: filterState.filmGrainPlateKey,
+    width: targetWidth,
+    height: targetHeight,
+    phaseX,
+    phaseY,
+  });
+  if (
+    filterState.filmGrainOverlayKey === overlayKey
+    && filterState.filmGrainDarkOverlayCanvas
+    && filterState.filmGrainLightOverlayCanvas
+  ) {
+    return {
+      darkCanvas: filterState.filmGrainDarkOverlayCanvas,
+      lightCanvas: filterState.filmGrainLightOverlayCanvas,
+    };
+  }
+
+  const darkOverlayCanvas = ensureDisplayFilterCanvas(
+    filterState.filmGrainDarkOverlayCanvas,
+    targetWidth,
+    targetHeight,
+  );
+  const lightOverlayCanvas = ensureDisplayFilterCanvas(
+    filterState.filmGrainLightOverlayCanvas,
+    targetWidth,
+    targetHeight,
+  );
+  const darkOverlayCtx = clearDisplayNoiseCanvas(darkOverlayCanvas);
+  const lightOverlayCtx = clearDisplayNoiseCanvas(lightOverlayCanvas);
+  fillFilmGrainOverlay({
+    overlayCanvas: darkOverlayCanvas,
+    overlayCtx: darkOverlayCtx,
+    plateCanvas: plates.darkCanvas,
+    phaseX,
+    phaseY,
+  });
+  fillFilmGrainOverlay({
+    overlayCanvas: lightOverlayCanvas,
+    overlayCtx: lightOverlayCtx,
+    plateCanvas: plates.lightCanvas,
+    phaseX,
+    phaseY,
+  });
+
+  filterState.filmGrainOverlayKey = overlayKey;
+  filterState.filmGrainDarkOverlayCanvas = darkOverlayCanvas;
+  filterState.filmGrainLightOverlayCanvas = lightOverlayCanvas;
+  return { darkCanvas: darkOverlayCanvas, lightCanvas: lightOverlayCanvas };
+};
+
+export const applyFilmGrainOverlay = ({
+  targetCtx,
+  filmNoiseFilter,
+  filterState,
+  targetRect,
+  documentOrigin = targetRect,
+}) => {
+  const opacity = clamp01(filmNoiseFilter?.settings?.opacity);
+  if (!targetCtx || !filmNoiseFilter?.enabled || opacity <= 0) {
+    return false;
+  }
+  const overlays = ensureFilmGrainOverlays({
+    filmNoiseFilter,
+    filterState,
+    width: targetRect.width,
+    height: targetRect.height,
+    originX: documentOrigin.x,
+    originY: documentOrigin.y,
+  });
+  if (!overlays) {
+    return false;
+  }
+
+  const darkAlpha = opacity * 0.95;
+  const lightAlpha = opacity * 0.06;
+  targetCtx.save();
+  targetCtx.globalAlpha = darkAlpha;
+  targetCtx.globalCompositeOperation = 'multiply';
+  targetCtx.drawImage(
+    overlays.darkCanvas,
+    0,
+    0,
+    overlays.darkCanvas.width,
+    overlays.darkCanvas.height,
+    targetRect.x,
+    targetRect.y,
+    targetRect.width,
+    targetRect.height,
+  );
+  targetCtx.restore();
+  targetCtx.save();
+  targetCtx.globalAlpha = lightAlpha;
+  targetCtx.globalCompositeOperation = 'screen';
+  targetCtx.drawImage(
+    overlays.lightCanvas,
+    0,
+    0,
+    overlays.lightCanvas.width,
+    overlays.lightCanvas.height,
+    targetRect.x,
+    targetRect.y,
+    targetRect.width,
+    targetRect.height,
+  );
+  targetCtx.restore();
+  return true;
+};
 
 const sampleChannelNearest = (data, width, height, x, y, channel) => {
   const ix = Math.round(x);
@@ -642,19 +1197,29 @@ export const applyDisplayFilterStack = ({
   displayFilters,
   filterState,
   visibleRect,
-  noiseOnlyTarget,
+  directOverlayTarget,
 }) => {
-  const noiseOnlyFilter = noiseOnlyTarget
-    ? getNoiseOnlyDisplayFilter(displayFilters)
+  const directOverlayFilter = directOverlayTarget
+    ? getDirectOverlayDisplayFilter(displayFilters)
     : null;
-  if (noiseOnlyTarget && noiseOnlyFilter) {
-    applyDisplayNoiseOverlay({
-      targetCtx: noiseOnlyTarget.ctx,
-      noiseFilter: noiseOnlyFilter,
-      filterState,
-      targetRect: noiseOnlyTarget.rect,
-      documentOrigin: noiseOnlyTarget.documentOrigin ?? noiseOnlyTarget.rect,
-    });
+  if (directOverlayTarget && directOverlayFilter) {
+    if (directOverlayFilter.id === 'noise') {
+      applyDisplayNoiseOverlay({
+        targetCtx: directOverlayTarget.ctx,
+        noiseFilter: directOverlayFilter,
+        filterState,
+        targetRect: directOverlayTarget.rect,
+        documentOrigin: directOverlayTarget.documentOrigin ?? directOverlayTarget.rect,
+      });
+    } else {
+      applyFilmGrainOverlay({
+        targetCtx: directOverlayTarget.ctx,
+        filmNoiseFilter: directOverlayFilter,
+        filterState,
+        targetRect: directOverlayTarget.rect,
+        documentOrigin: directOverlayTarget.documentOrigin ?? directOverlayTarget.rect,
+      });
+    }
     return sourceCanvas;
   }
 
@@ -1029,177 +1594,21 @@ export const applyDisplayFilterStack = ({
   }
 
   if (filmNoiseFilter?.enabled && getNumeric(filmNoiseFilter?.settings?.opacity, 0) > 0) {
-    const tileStep = resolveDisplayNoiseTileStep(filmNoiseFilter?.settings?.scale);
-    const sampleStep = resolveFilmNoiseSampleStep(tileStep);
-    const clumpStep = Math.max(tileStep + 1, Math.round(tileStep * 3));
-    const patternKey = JSON.stringify({ tileStep, clumpStep });
-    if (filterState.filmNoisePatternKey !== patternKey) {
-      const basePatternSize = getSeamlessNoisePatternSize(tileStep);
-      const clumpPatternSize = getSeamlessNoisePatternSize(clumpStep);
-      const basePatternCanvas = ensureDisplayFilterCanvas(
-        filterState.filmNoiseBaseCanvas,
-        basePatternSize,
-        basePatternSize,
-      );
-      const clumpPatternCanvas = ensureDisplayFilterCanvas(
-        filterState.filmNoiseClumpCanvas,
-        clumpPatternSize,
-        clumpPatternSize,
-      );
-      const basePatternCtx = clearDisplayFilterCanvas(basePatternCanvas);
-      const clumpPatternCtx = clearDisplayFilterCanvas(clumpPatternCanvas);
-
-      if (basePatternCanvas && basePatternCtx) {
-        const columns = Math.max(1, Math.round(basePatternCanvas.width / tileStep));
-        const rows = Math.max(1, Math.round(basePatternCanvas.height / tileStep));
-        const tones = createTileableNoiseGrid(columns, rows, tileStep * 0.618);
-        for (let y = 0; y < rows; y += 1) {
-          for (let x = 0; x < columns; x += 1) {
-            const tone = tones[y][x];
-            basePatternCtx.fillStyle = `rgb(${tone}, ${tone}, ${tone})`;
-            basePatternCtx.fillRect(x * tileStep, y * tileStep, tileStep, tileStep);
-          }
-        }
-      }
-
-      if (clumpPatternCanvas && clumpPatternCtx) {
-        const columns = Math.max(1, Math.round(clumpPatternCanvas.width / clumpStep));
-        const rows = Math.max(1, Math.round(clumpPatternCanvas.height / clumpStep));
-        const tones = createTileableNoiseGrid(columns, rows, clumpStep * 1.731);
-        for (let y = 0; y < rows; y += 1) {
-          for (let x = 0; x < columns; x += 1) {
-            const tone = tones[y][x];
-            clumpPatternCtx.fillStyle = `rgb(${tone}, ${tone}, ${tone})`;
-            clumpPatternCtx.fillRect(x * clumpStep, y * clumpStep, clumpStep, clumpStep);
-          }
-        }
-      }
-
-      filterState.filmNoisePatternKey = patternKey;
-      filterState.filmNoiseBaseCanvas = basePatternCanvas;
-      filterState.filmNoiseClumpCanvas = clumpPatternCanvas;
-      filterState.filmNoiseCombinedKey = '';
-      filterState.filmNoiseCombinedField = null;
-      filterState.filmNoiseImageData = null;
-      filterState.filmNoiseBasePatternData = basePatternCanvas && basePatternCtx
-        ? basePatternCtx.getImageData(0, 0, basePatternCanvas.width, basePatternCanvas.height).data
-        : null;
-      filterState.filmNoiseClumpPatternData = clumpPatternCanvas && clumpPatternCtx
-        ? clumpPatternCtx.getImageData(0, 0, clumpPatternCanvas.width, clumpPatternCanvas.height).data
-        : null;
-    }
-
     const nextCtx = clearDisplayFilterCanvas(nextCanvas);
-    const sourceCtx = currentCanvas?.getContext('2d', { willReadFrequently: true });
-    if (nextCtx && sourceCtx) {
-      const sourceImageData = sourceCtx.getImageData(0, 0, currentCanvas.width, currentCanvas.height);
-      const basePatternCanvas = filterState.filmNoiseBaseCanvas;
-      const clumpPatternCanvas = filterState.filmNoiseClumpCanvas;
-      const opacity = clamp01(filmNoiseFilter.settings.opacity);
-      const shadowBias = clamp01(filmNoiseFilter.settings.shadowBias);
-      const toneKey = JSON.stringify({ opacity, shadowBias });
-      const sourceData = sourceImageData.data;
-      const width = currentCanvas.width;
-      const height = currentCanvas.height;
-      const originX = Math.round(origin.x);
-      const originY = Math.round(origin.y);
-      const combinedKey = JSON.stringify({
-        patternKey,
-        width,
-        height,
-        originX,
-        originY,
+    if (nextCtx) {
+      nextCtx.drawImage(currentCanvas, 0, 0);
+      applyFilmGrainOverlay({
+        targetCtx: nextCtx,
+        filmNoiseFilter,
+        filterState,
+        targetRect: {
+          x: 0,
+          y: 0,
+          width: nextCanvas.width,
+          height: nextCanvas.height,
+        },
+        documentOrigin: origin,
       });
-
-      if (filterState.filmNoiseCombinedKey !== combinedKey || !filterState.filmNoiseCombinedField) {
-        filterState.filmNoiseCombinedField = buildFilmNoiseCombinedField({
-          basePatternData: filterState.filmNoiseBasePatternData,
-          basePatternWidth: basePatternCanvas?.width ?? 0,
-          basePatternHeight: basePatternCanvas?.height ?? 0,
-          clumpPatternData: filterState.filmNoiseClumpPatternData,
-          clumpPatternWidth: clumpPatternCanvas?.width ?? 0,
-          clumpPatternHeight: clumpPatternCanvas?.height ?? 0,
-          width,
-          height,
-          originX,
-          originY,
-        });
-        filterState.filmNoiseCombinedKey = combinedKey;
-      }
-
-      const outputImageData = (
-        filterState.filmNoiseImageData
-        && filterState.filmNoiseImageData.width === width
-        && filterState.filmNoiseImageData.height === height
-      )
-        ? filterState.filmNoiseImageData
-        : nextCtx.createImageData(width, height);
-      filterState.filmNoiseImageData = outputImageData;
-      outputImageData.data.set(sourceData);
-      const outputData = outputImageData.data;
-      const combinedField = filterState.filmNoiseCombinedField;
-      if (filterState.filmNoiseToneKey !== toneKey || !filterState.filmNoiseToneLookup) {
-        filterState.filmNoiseToneLookup = buildFilmNoiseToneLookup({ opacity, shadowBias });
-        filterState.filmNoiseToneKey = toneKey;
-      }
-      const toneLookup = filterState.filmNoiseToneLookup;
-
-      if (sampleStep > 1) {
-        for (let blockY = 0; blockY < height; blockY += sampleStep) {
-          for (let blockX = 0; blockX < width; blockX += sampleStep) {
-            const blockIndex = (blockY * width + blockX) * 4;
-            const alpha = sourceData[blockIndex + 3] / 255;
-            if (alpha <= 0) {
-              continue;
-            }
-
-            const r = sourceData[blockIndex];
-            const g = sourceData[blockIndex + 1];
-            const b = sourceData[blockIndex + 2];
-            const luma = getFastLumaByte(r, g, b);
-            const grainField = combinedField ? combinedField[blockY * width + blockX] : 0;
-            const delta = grainField * toneLookup[luma] * alpha;
-            const endY = Math.min(height, blockY + sampleStep);
-            const endX = Math.min(width, blockX + sampleStep);
-
-            for (let y = blockY; y < endY; y += 1) {
-              for (let x = blockX; x < endX; x += 1) {
-                const index = (y * width + x) * 4;
-                const pixelAlpha = sourceData[index + 3] / 255;
-                if (pixelAlpha <= 0) {
-                  continue;
-                }
-                outputData[index] = clampByte(sourceData[index] + delta);
-                outputData[index + 1] = clampByte(sourceData[index + 1] + delta);
-                outputData[index + 2] = clampByte(sourceData[index + 2] + delta);
-              }
-            }
-          }
-        }
-      } else {
-        for (let y = 0; y < height; y += 1) {
-          for (let x = 0; x < width; x += 1) {
-            const index = (y * width + x) * 4;
-            const alpha = sourceData[index + 3] / 255;
-            if (alpha <= 0) {
-              continue;
-            }
-
-            const r = sourceData[index];
-            const g = sourceData[index + 1];
-            const b = sourceData[index + 2];
-            const luma = getFastLumaByte(r, g, b);
-            const grainField = combinedField ? combinedField[y * width + x] : 0;
-            const delta = grainField * toneLookup[luma] * alpha;
-
-            outputData[index] = clampByte(r + delta);
-            outputData[index + 1] = clampByte(g + delta);
-            outputData[index + 2] = clampByte(b + delta);
-          }
-        }
-      }
-
-      nextCtx.putImageData(outputImageData, 0, 0);
       swap(nextCanvas);
     }
   }
