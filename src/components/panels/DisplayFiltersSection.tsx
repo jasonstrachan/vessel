@@ -2,6 +2,11 @@ import React from 'react';
 import { Switch } from '@/components/retroui/Switch';
 import Dropdown from '@/components/ui/Dropdown';
 import ProgressSlider from '@/components/ui/ProgressSlider';
+import {
+  FILM_NOISE_GRAIN_SIZE_MAX,
+  FILM_NOISE_GRAIN_SIZE_MIN,
+  FILM_NOISE_GRAIN_SIZE_STEP,
+} from '@/lib/displayFilters';
 import { useAppStore } from '@/stores/useAppStore';
 import type { DisplayFilterConfig, DisplayFilterId } from '@/types';
 import type { ColorCycleSoftEdgeDitherAlgorithm } from '@/utils/colorCycleSoftEdgeMask';
@@ -460,7 +465,7 @@ const FilterCard = ({ filter }: FilterCardProps) => {
           <>
             <div>
               <label className="mb-1 block text-[11px] uppercase tracking-[0.08em] text-[#8F8F8F]">
-                Opacity
+                Amount
               </label>
               <ProgressSlider
                 value={filter.settings.opacity}
@@ -500,7 +505,7 @@ const FilterCard = ({ filter }: FilterCardProps) => {
                 max={1}
                 step={0.01}
                 onChange={(value) => updateDisplayFilter('film-noise', { opacity: value })}
-                aria-label="Film noise opacity"
+                aria-label="Film noise amount"
                 formatValue={(value) => `${Math.round(value * 100)}%`}
               />
             </div>
@@ -510,9 +515,9 @@ const FilterCard = ({ filter }: FilterCardProps) => {
               </label>
               <ProgressSlider
                 value={filter.settings.scale}
-                min={1}
-                max={8}
-                step={0.25}
+                min={FILM_NOISE_GRAIN_SIZE_MIN}
+                max={FILM_NOISE_GRAIN_SIZE_MAX}
+                step={FILM_NOISE_GRAIN_SIZE_STEP}
                 onChange={(value) => updateDisplayFilter('film-noise', { scale: value })}
                 aria-label="Film noise grain size"
               />

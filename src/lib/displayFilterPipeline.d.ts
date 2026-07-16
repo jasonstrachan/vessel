@@ -20,6 +20,8 @@ export interface DisplayFilterPipelineState {
   filmGrainPlateKey: string;
   filmGrainDarkPlateCanvas: HTMLCanvasElement | null;
   filmGrainLightPlateCanvas: HTMLCanvasElement | null;
+  filmGrainDarkMeanAlpha: number;
+  filmGrainLightMeanAlpha: number;
   filmGrainOverlayKey: string;
   filmGrainDarkOverlayCanvas: HTMLCanvasElement | null;
   filmGrainLightOverlayCanvas: HTMLCanvasElement | null;
@@ -56,6 +58,8 @@ export interface FilmGrainFields {
 export interface FilmGrainRaster {
   darkAlpha: Uint8ClampedArray;
   lightAlpha: Uint8ClampedArray;
+  darkMeanAlpha: number;
+  lightMeanAlpha: number;
 }
 
 export function createDisplayFilterPipelineState(): DisplayFilterPipelineState;

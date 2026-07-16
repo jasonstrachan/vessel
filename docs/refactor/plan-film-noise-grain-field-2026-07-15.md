@@ -1,10 +1,10 @@
 # Film Noise Grain-Field Plan (supersedes plate ellipse rendering)
 
-Last updated: 2026-07-15
+Last updated: 2026-07-16
 
-Status: implemented; deterministic and production-preview verification
-complete; user visual acceptance and the 25 ms plate-rebuild target remain
-open
+Status: implemented; deterministic verification complete for the 2026-07-16
+Amount calibration; user visual acceptance and the 25 ms plate-rebuild target
+remain open
 
 ## Implementation result
 
@@ -16,18 +16,30 @@ modulation plus coordinate-hash edge jitter, and uploads one thresholded
 helper are removed. The former `connectFrom` rendering field is retained as the
 topology-only `parentIndex` so tests can prove intended chain and branch necks.
 
-Deterministic coverage passes at Grain Size 1, 1.5, and 8. Measured dark-plate
-coverage (`alpha >= 128`) is approximately 18.15%, 18.09%, and 17.55%
-respectively. The fixed 64-pixel fixture checksum is `2714665275`. Focused
-tests, Goblet runtime parity, type-check, lint, diff validation, and the pinned
-production build pass.
+Deterministic combined coverage passes at Grain Size 1, 1.5, and the authored
+maximum 2.65 within the 14–22% target, with each balanced polarity plate
+independently within 6–12%. The legacy runtime value 8 remains covered for
+backward compatibility. The fixed 64-pixel fixture checksum is `764250713`.
 
-Production-preview inspection over flat 50% gray at 100% opacity confirms
+The 2026-07-16 compositing follow-up renamed the visible control from Opacity
+to Amount while retaining the serialized `opacity` field for compatibility.
+Cluster polarity is now split evenly between dark and light. The existing
+raster traversal records each plate's mean alpha, and the compositor scales
+the multiply/screen passes to the lower measured mean so neither polarity can
+dominate the average tone. Amount uses a smoothstep response for finer control
+at low settings. A full 768-by-768 composite over RGB 128 gray at 100% Amount
+keeps the mean channel within one level of the input. Amount changes continue
+to reuse cached morphology and overlays; the per-frame path remains two draws
+with zero artwork readback. Focused UI/renderer/runtime tests, Goblet parity,
+type-check, lint, diff validation, and the pinned production build pass.
+
+The 2026-07-15 production-preview inspection over flat 50% gray confirmed
 ragged thresholded boundaries, merged waists, irregular blobs/strands, sparse
 satellites, no constant-width bridge strokes, and no browser errors. Disabling
 Film Noise restores the flat surface; re-enabling it reproduces the same Size 8
-surface byte-for-byte (matching SHA-256 capture hashes). Final subjective
-comparison against the reference remains user-owned.
+surface byte-for-byte (matching SHA-256 capture hashes). That inspection
+predates the balanced-polarity Amount calibration; final subjective comparison
+against the reference remains user-owned.
 
 The warmed ten-second playback comparison passed: disabled and enabled runs
 each recorded 601 frames with a 16.7 ms median. Enabled p95 was 17.7 ms and
@@ -79,12 +91,12 @@ qualities of the reference.
 Unchanged (already fast, keep as-is):
 
 - `createFilmGrainPlateModel` cluster/lobe geometry: deterministic PRNG,
-  single/chain/island families, colonies, quarter-step Grain Size, wrap logic,
+  single/chain/island families, colonies, 0.05-step Grain Size, wrap logic,
   and cluster-count bounds. Rename the rendering-oriented `connectFrom` field
   to topology-only `parentIndex`; retain it until field-connectivity tests prove
   every intended chain and branch neck.
 - `ensureFilmGrainPlates` cache keys, `ensureFilmGrainOverlays` target-overlay
-  cache, `applyFilmGrainOverlay` multiply/screen composites and opacity math.
+  cache, and `applyFilmGrainOverlay` multiply/screen composite architecture.
 - Direct-overlay route in Vessel and Goblet2; mixed-stack ordering.
 - Per-frame cost: still at most two cached composites, zero readback.
 
@@ -145,12 +157,13 @@ alpha coverage in one pixel traversal:
 - **Soft threshold:** `alpha = smoothstep(t, t + 0.07, field + jitter)` so edges
   are softly quantized rather than vector-crisp.
 
-Calibrate dark-plate coverage to 14–22% occupied area at Grain Size 1, 1.5, and
-8, where occupied means `alpha >= 128` (reference is
-denser but is an extreme-contrast micrograph; normal use composites at low
-opacity — morphology, not absolute density, is the target). Light plate uses
-the same field pipeline for its own (much smaller) cluster population,
-unchanged polarity assignment.
+Calibrate combined dark/light coverage to 14–22% occupied area at Grain Size
+1, 1.5, and the authored maximum 2.65, with each polarity plate independently
+within 6–12%, where occupied means `alpha >= 128`. Retain coverage at legacy
+runtime value 8 for backward compatibility. The reference is denser but is an
+extreme-contrast micrograph; normal use composites at low Amount, so morphology
+rather than absolute density is the target. Split deterministic cluster
+polarity evenly so the two passes begin from comparable populations.
 
 ### 3. Write plates once
 
@@ -176,8 +189,11 @@ Adapt in place (same test files as the prior plan's boundary):
 - A lobe centered on a plate boundary produces symmetric field values on both
   sides. Periodic density modulation wraps its lattice indices; do not require
   arbitrary rows or columns `0` and `N-1` to be identical.
-- Grain Size rebuilds the plate; Opacity does not (existing cache-key tests
+- Grain Size rebuilds the plate; Amount does not (existing cache-key tests
   keep passing).
+- Rasterization records both plates' mean alpha. At composite time, scale both
+  passes to the lower measured mean and verify a full-plate RGB 128 fixture
+  drifts by no more than one channel level at 100% Amount.
 - Default-size coverage fraction within the calibrated band.
 - Remove bridge-segment tests along with the bridge code.
 - Runtime parity tests for modular/inline Goblet2 keep asserting the shared
@@ -185,12 +201,14 @@ Adapt in place (same test files as the prior plan's boundary):
 
 ## File boundary
 
-Authored (hard limit, same list as the prior plan):
+Authored (hard limit for the 2026-07-16 follow-up):
 
 1. `src/lib/displayFilterPipeline.js`
 2. `src/lib/displayFilterPipeline.d.ts`
-3. `tests/goblet-display-filters-runtime.test.ts`
-4. `src/components/canvas/__tests__/useDrawingCanvasBaseRenderer.test.ts`
+3. `src/components/canvas/__tests__/useDrawingCanvasBaseRenderer.test.ts`
+4. `src/components/panels/DisplayFiltersSection.tsx`
+5. `src/components/panels/__tests__/DisplayFiltersSection.test.tsx`
+6. `docs/refactor/plan-film-noise-grain-field-2026-07-15.md`
 
 `useDrawingCanvasBaseRenderer.ts` and `goblet2.js` should need **no edits** —
 the direct-overlay route consumes the same plate canvases.
@@ -210,7 +228,7 @@ Bump `FILM_GRAIN_MODEL_VERSION` so stale cached plates cannot survive.
 Same battery as the prior plan:
 
 ```bash
-npm test -- --runInBand src/components/canvas/__tests__/useDrawingCanvasBaseRenderer.test.ts tests/goblet-display-filters-runtime.test.ts
+npm test -- --runInBand src/components/canvas/__tests__/useDrawingCanvasBaseRenderer.test.ts src/components/panels/__tests__/DisplayFiltersSection.test.tsx tests/goblet-display-filters-runtime.test.ts
 npm run build:goblet-inline
 npm run verify:goblet-runtime
 npm run type-check
@@ -240,5 +258,5 @@ unchanged, but it is still measured rather than assumed.
 3. All prior invariants (determinism, seamlessness, cache behavior, direct
    overlay, settings compatibility, parity) still pass.
 4. Complete build timing is recorded at Grain Size 1 and 8; no rebuild occurs
-   on Opacity changes or during unchanged playback frames.
+   on Amount changes or during unchanged playback frames.
 5. User accepts the visual result in the production preview.

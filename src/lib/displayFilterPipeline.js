@@ -17,7 +17,7 @@ export const resolveFilmNoiseSampleStep = (tileStep) => (
   Math.max(1, Math.min(4, resolveDisplayNoiseTileStep(tileStep)))
 );
 
-const FILM_GRAIN_MODEL_VERSION = 10;
+const FILM_GRAIN_MODEL_VERSION = 11;
 const FILM_GRAIN_PLATE_SIZE = 768;
 const FILM_GRAIN_MIN_CLUSTERS = 24;
 const FILM_GRAIN_MAX_CLUSTERS = 10000;
@@ -28,6 +28,8 @@ const FILM_GRAIN_FIELD_THRESHOLD_VARIATION = 0.035;
 const FILM_GRAIN_FIELD_JITTER = 0.045;
 const FILM_GRAIN_FIELD_FEATHER = 0.07;
 const FILM_GRAIN_DENSITY_LATTICE_CELLS = 8;
+const FILM_GRAIN_MIN_DISPLAY_SCALE = 0.2;
+const FILM_GRAIN_DEFAULT_SIZE = 1.5;
 const TWO_PI = Math.PI * 2;
 
 export const resolveDisplayFilterPixelSize = (value, fallback = 1, minimum = 1) => (
@@ -99,6 +101,8 @@ export const createDisplayFilterPipelineState = () => ({
   filmGrainPlateKey: '',
   filmGrainDarkPlateCanvas: null,
   filmGrainLightPlateCanvas: null,
+  filmGrainDarkMeanAlpha: 0,
+  filmGrainLightMeanAlpha: 0,
   filmGrainOverlayKey: '',
   filmGrainDarkOverlayCanvas: null,
   filmGrainLightOverlayCanvas: null,
@@ -343,6 +347,13 @@ const smoothstep = (edge0, edge1, value) => {
   return t * t * (3 - 2 * t);
 };
 
+const resolveFilmGrainDisplayScale = (grainSize) => {
+  const progress = clamp01(
+    (getNumeric(grainSize, FILM_GRAIN_DEFAULT_SIZE) - 1) / (FILM_GRAIN_DEFAULT_SIZE - 1),
+  );
+  return FILM_GRAIN_MIN_DISPLAY_SCALE ** (1 - progress);
+};
+
 const createFilmGrainRandom = (seed) => {
   let state = Math.floor(getNumeric(seed, FILM_GRAIN_SEED)) >>> 0;
   return () => {
@@ -409,7 +420,7 @@ export const createFilmGrainPlateModel = ({
   for (let clusterIndex = 0; clusterIndex < clusterCount; clusterIndex += 1) {
     const family = resolveFilmGrainFamily(clusterIndex);
     const lobeCount = resolveFilmGrainLobeCount(family, random);
-    const polarity = ((clusterIndex * 7) % 25) < 24 ? 'dark' : 'light';
+    const polarity = clusterIndex % 2 === 0 ? 'dark' : 'light';
     const lobes = [];
     const isColonyCluster = clusterIndex % 5 === 0;
     const colony = colonies[Math.floor(random() * colonies.length)];
@@ -655,6 +666,8 @@ export const rasterizeFilmGrainFields = ({
 
   const darkAlpha = new Uint8ClampedArray(pixelCount);
   const lightAlpha = new Uint8ClampedArray(pixelCount);
+  let darkAlphaSum = 0;
+  let lightAlphaSum = 0;
   const jitterSeed = resolvedSeed ^ 0x9e3779b9;
   for (let y = 0; y < resolvedPlateSize; y += 1) {
     const latticeY = y * resolvedLatticeCells / resolvedPlateSize;
@@ -687,24 +700,34 @@ export const rasterizeFilmGrainFields = ({
         hashFilmGrainCoordinate(x, y, jitterSeed) - 0.5
       ) * resolvedJitterStrength;
       const pixelIndex = rowOffset + x;
-      darkAlpha[pixelIndex] = Math.round(
+      const darkAlphaValue = Math.round(
         smoothstep(
           localThreshold,
           localThreshold + resolvedFeatherWidth,
           darkField[pixelIndex] + jitter,
         ) * 255,
       );
-      lightAlpha[pixelIndex] = Math.round(
+      const lightAlphaValue = Math.round(
         smoothstep(
           localThreshold,
           localThreshold + resolvedFeatherWidth,
           lightField[pixelIndex] + jitter,
         ) * 255,
       );
+      darkAlpha[pixelIndex] = darkAlphaValue;
+      lightAlpha[pixelIndex] = lightAlphaValue;
+      darkAlphaSum += darkAlphaValue;
+      lightAlphaSum += lightAlphaValue;
     }
   }
 
-  return { darkAlpha, lightAlpha };
+  const alphaSampleCount = pixelCount * 255;
+  return {
+    darkAlpha,
+    lightAlpha,
+    darkMeanAlpha: darkAlphaSum / alphaSampleCount,
+    lightMeanAlpha: lightAlphaSum / alphaSampleCount,
+  };
 };
 
 const writeFilmGrainPlate = (ctx, alpha, polarity, plateSize) => {
@@ -726,7 +749,7 @@ const writeFilmGrainPlate = (ctx, alpha, polarity, plateSize) => {
 
 const renderFilmGrainPlates = (darkCtx, lightCtx, model) => {
   if (!darkCtx || !lightCtx) {
-    return;
+    return null;
   }
   const fields = buildFilmGrainFields(model);
   const raster = rasterizeFilmGrainFields({
@@ -736,6 +759,10 @@ const renderFilmGrainPlates = (darkCtx, lightCtx, model) => {
   });
   writeFilmGrainPlate(darkCtx, raster.darkAlpha, 'dark', model.plateSize);
   writeFilmGrainPlate(lightCtx, raster.lightAlpha, 'light', model.plateSize);
+  return {
+    darkMeanAlpha: raster.darkMeanAlpha,
+    lightMeanAlpha: raster.lightMeanAlpha,
+  };
 };
 
 const ensureFilmGrainPlates = (filmNoiseFilter, filterState) => {
@@ -773,16 +800,25 @@ const ensureFilmGrainPlates = (filmNoiseFilter, filterState) => {
     grainSize,
     seed: FILM_GRAIN_SEED,
   });
-  renderFilmGrainPlates(darkCtx, lightCtx, model);
+  const plateStats = renderFilmGrainPlates(darkCtx, lightCtx, model);
 
   filterState.filmGrainPlateKey = plateKey;
   filterState.filmGrainDarkPlateCanvas = darkCanvas;
   filterState.filmGrainLightPlateCanvas = lightCanvas;
+  filterState.filmGrainDarkMeanAlpha = plateStats?.darkMeanAlpha ?? 0;
+  filterState.filmGrainLightMeanAlpha = plateStats?.lightMeanAlpha ?? 0;
   filterState.filmGrainOverlayKey = '';
   return { darkCanvas, lightCanvas };
 };
 
-const fillFilmGrainOverlay = ({ overlayCanvas, overlayCtx, plateCanvas, phaseX, phaseY }) => {
+const fillFilmGrainOverlay = ({
+  overlayCanvas,
+  overlayCtx,
+  plateCanvas,
+  phaseX,
+  phaseY,
+  displayScale,
+}) => {
   if (!overlayCanvas || !overlayCtx || !plateCanvas) {
     return;
   }
@@ -792,12 +828,13 @@ const fillFilmGrainOverlay = ({ overlayCanvas, overlayCtx, plateCanvas, phaseX, 
   }
   overlayCtx.save();
   overlayCtx.translate(-phaseX, -phaseY);
+  overlayCtx.scale(displayScale, displayScale);
   overlayCtx.fillStyle = pattern;
   overlayCtx.fillRect(
     0,
     0,
-    overlayCanvas.width + plateCanvas.width,
-    overlayCanvas.height + plateCanvas.height,
+    overlayCanvas.width / displayScale + plateCanvas.width,
+    overlayCanvas.height / displayScale + plateCanvas.height,
   );
   overlayCtx.restore();
 };
@@ -816,12 +853,16 @@ export const ensureFilmGrainOverlays = ({
   }
   const targetWidth = Math.max(1, Math.ceil(width));
   const targetHeight = Math.max(1, Math.ceil(height));
-  const phaseX = positiveMod(originX, plates.darkCanvas.width);
-  const phaseY = positiveMod(originY, plates.darkCanvas.height);
+  const displayScale = resolveFilmGrainDisplayScale(filmNoiseFilter?.settings?.scale);
+  const repeatWidth = plates.darkCanvas.width * displayScale;
+  const repeatHeight = plates.darkCanvas.height * displayScale;
+  const phaseX = positiveMod(originX, repeatWidth);
+  const phaseY = positiveMod(originY, repeatHeight);
   const overlayKey = JSON.stringify({
     plateKey: filterState.filmGrainPlateKey,
     width: targetWidth,
     height: targetHeight,
+    displayScale,
     phaseX,
     phaseY,
   });
@@ -854,6 +895,7 @@ export const ensureFilmGrainOverlays = ({
     plateCanvas: plates.darkCanvas,
     phaseX,
     phaseY,
+    displayScale,
   });
   fillFilmGrainOverlay({
     overlayCanvas: lightOverlayCanvas,
@@ -861,6 +903,7 @@ export const ensureFilmGrainOverlays = ({
     plateCanvas: plates.lightCanvas,
     phaseX,
     phaseY,
+    displayScale,
   });
 
   filterState.filmGrainOverlayKey = overlayKey;
@@ -876,8 +919,8 @@ export const applyFilmGrainOverlay = ({
   targetRect,
   documentOrigin = targetRect,
 }) => {
-  const opacity = clamp01(filmNoiseFilter?.settings?.opacity);
-  if (!targetCtx || !filmNoiseFilter?.enabled || opacity <= 0) {
+  const amount = clamp01(filmNoiseFilter?.settings?.opacity);
+  if (!targetCtx || !filmNoiseFilter?.enabled || amount <= 0) {
     return false;
   }
   const overlays = ensureFilmGrainOverlays({
@@ -892,8 +935,16 @@ export const applyFilmGrainOverlay = ({
     return false;
   }
 
-  const darkAlpha = opacity * 0.95;
-  const lightAlpha = opacity * 0.06;
+  const strength = smoothstep(0, 1, amount);
+  const darkMeanAlpha = Math.max(0, getNumeric(filterState.filmGrainDarkMeanAlpha, 0));
+  const lightMeanAlpha = Math.max(0, getNumeric(filterState.filmGrainLightMeanAlpha, 0));
+  let darkAlpha = strength;
+  let lightAlpha = strength;
+  if (darkMeanAlpha > 0 && lightMeanAlpha > 0) {
+    const balancedMeanAlpha = Math.min(darkMeanAlpha, lightMeanAlpha);
+    darkAlpha *= balancedMeanAlpha / darkMeanAlpha;
+    lightAlpha *= balancedMeanAlpha / lightMeanAlpha;
+  }
   targetCtx.save();
   targetCtx.globalAlpha = darkAlpha;
   targetCtx.globalCompositeOperation = 'multiply';

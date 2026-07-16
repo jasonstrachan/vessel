@@ -15,6 +15,10 @@ const FILTER_ORDER: DisplayFilterId[] = [
   'film-noise',
 ];
 
+export const FILM_NOISE_GRAIN_SIZE_MIN = 1;
+export const FILM_NOISE_GRAIN_SIZE_MAX = 2.65;
+export const FILM_NOISE_GRAIN_SIZE_STEP = 0.05;
+
 const clamp = (value: unknown, min: number, max: number, fallback: number): number => {
   if (typeof value !== 'number' || !Number.isFinite(value)) {
     return fallback;
@@ -250,12 +254,15 @@ const sanitizeFilmNoise = (filter?: Partial<DisplayFilterForId<'film-noise'>>): 
       1,
       0.16,
     ), 0.01),
-    scale: roundToStep(clamp(
-      filter?.settings?.scale,
-      1,
-      8,
-      1.5,
-    ), 0.25),
+    scale: Math.min(
+      FILM_NOISE_GRAIN_SIZE_MAX,
+      roundToStep(clamp(
+        filter?.settings?.scale,
+        FILM_NOISE_GRAIN_SIZE_MIN,
+        FILM_NOISE_GRAIN_SIZE_MAX,
+        1.5,
+      ), FILM_NOISE_GRAIN_SIZE_STEP),
+    ),
     shadowBias: roundToStep(clamp(
       filter?.settings?.shadowBias,
       0,
