@@ -54,6 +54,8 @@ jest.mock('../../ui/Input', () => ({
 jest.mock('@/presets/brushPresets', () => ({
   __esModule: true,
   getPresetCapabilities: jest.fn(() => ({ canDither: true, forceDither: true })),
+  isCcGradientPreset: (id?: string | null) =>
+    id === 'color-cycle-gradient' || id === 'color-cycle-flat-dither',
 }));
 
 type StoreState = {

@@ -63,7 +63,9 @@ const resolveSessionRuntimeStops = (
   brushSettings: BrushSettings,
 ): GradientStop[] =>
   resolveMarkSessionRuntimeStops(session, stops, {
-    enabled: Boolean(brushSettings.ditherEnabled),
+    // Flat-cycle indices already encode the smooth ramp; the pair-band render
+    // palette would remap them through alternating low/high stops (ripples).
+    enabled: Boolean(brushSettings.ditherEnabled) && brushSettings.ccFlatCycleDither !== true,
     pairBandCount: session.ditherRenderConfig?.pairBandCount,
     spread: brushSettings.ditherPaletteSpread,
     rangeContrast: brushSettings.ccGradientRangeContrast,

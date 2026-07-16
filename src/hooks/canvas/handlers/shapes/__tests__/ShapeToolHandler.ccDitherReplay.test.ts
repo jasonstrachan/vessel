@@ -563,6 +563,8 @@ describe('ShapeToolHandler CC dither preview replay', () => {
       brushSettings: {
         ...storeState.tools.brushSettings,
         ccGradientSource: 'sampled',
+        ccFlatCycleDither: true,
+        ccFlatCycleBands: 7,
       },
       ditherGradPreviewState: {
         origin: null,
@@ -608,6 +610,8 @@ describe('ShapeToolHandler CC dither preview replay', () => {
     expect(fillCcGradientDither).toHaveBeenCalledWith(
       expect.objectContaining({
         flatSeed: expect.any(Number),
+        flatCycle: true,
+        flatCycleBands: 7,
         patternPhaseOriginX: -1,
         patternPhaseOriginY: -1,
       })

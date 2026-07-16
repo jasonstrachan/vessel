@@ -1,6 +1,7 @@
 'use client';
 
 import { getAppStoreState } from '@/stores/appStoreAccess';
+import { isCcGradientPreset } from '@/presets/brushPresets';
 import { debugWarn } from '@/utils/debug';
 import React from 'react';
 import { flushBufferedSequentialEvents } from '@/hooks/canvas/handlers/sequential/sequentialCapture';
@@ -443,7 +444,7 @@ export const shouldAllowOutOfBoundsPointerDown = (
 ): boolean =>
   tools.brushSettings.brushShape === BrushShape.DITHER_GRADIENT ||
   (tools.shapeMode &&
-    (brushPresetId === 'dither-shape' || brushPresetId === 'color-cycle-gradient')) ||
+    (brushPresetId === 'dither-shape' || isCcGradientPreset(brushPresetId))) ||
   (tools.currentTool === 'selection' && (tools.selectionMode ?? 'marquee') === 'marquee');
 
 const shouldUseMagicWandSelectionMode = (tools: EventHandlerDynamicDeps['tools']): boolean =>
@@ -454,7 +455,7 @@ const isColorCycleGradientStrokeMode = (
   brushPresetId: string | null
 ): boolean =>
   tools.currentTool === 'brush' &&
-  brushPresetId === 'color-cycle-gradient' &&
+  isCcGradientPreset(brushPresetId) &&
   tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE_SHAPE &&
   tools.brushSettings.colorCycleFillMode === 'stroke';
 
@@ -4493,7 +4494,7 @@ function resampleStopsToColors(stops: Stop[], count: number): string[] {
         if (isColorCycleShape) {
           let shapeWorld = worldPosOnPointerUp;
           const isDragDefinedCcGradientShapeMode =
-            getDynamicDeps().currentBrushPresetId === 'color-cycle-gradient' &&
+            isCcGradientPreset(getDynamicDeps().currentBrushPresetId) &&
             isDragDefinedCcGradientShape(tools.brushSettings.ccGradientDrawingShape);
           if (event.shiftKey && !isDragDefinedCcGradientShapeMode) {
             const pts = drawingHandlers.shapePointsRef?.current || [];
@@ -4513,7 +4514,7 @@ function resampleStopsToColors(stops: Stop[], count: number): string[] {
 
         const isCcGradientPolygonDrawingShape =
           isColorCycleShape &&
-          getDynamicDeps().currentBrushPresetId === 'color-cycle-gradient' &&
+          isCcGradientPreset(getDynamicDeps().currentBrushPresetId) &&
           tools.brushSettings.ccGradientDrawingShape === 'polygon';
         if (isCcGradientPolygonDrawingShape) {
           const pts = drawingHandlers.shapePointsRef.current;
@@ -4556,7 +4557,7 @@ function resampleStopsToColors(stops: Stop[], count: number): string[] {
         // Check if we need to enter direction selection mode for linear gradient
         const isLinearFill = tools.brushSettings.colorCycleFillMode === 'linear';
         const brushPresetId = getDynamicDeps().currentBrushPresetId;
-        const isColorCycleGradientPreset = brushPresetId === 'color-cycle-gradient';
+        const isColorCycleGradientPreset = isCcGradientPreset(brushPresetId);
 
         if (
           isColorCycleShape &&

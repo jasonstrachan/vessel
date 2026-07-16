@@ -27,6 +27,8 @@ export type ColorCycleFillBrush = ColorCycleSettingsPatchBrush & {
       ditherPaletteSpread?: number;
       ditherPatternDiversity?: number;
       ditherBackgroundFill?: boolean;
+      ditherFlatCycle?: boolean;
+      ditherFlatCycleBands?: number;
       ditherSampledStops?: GradientDitherOptions['ditherSampledStops'];
       ditherBaseOffsetOverride?: GradientDitherOptions['ditherBaseOffsetOverride'];
       paintSlotOverride?: GradientDitherOptions['paintSlotOverride'];
@@ -56,6 +58,8 @@ type SharedArgs<TBrush extends ColorCycleFillBrush> = {
     | 'ditherGradBgFill'
     | 'ditherPaletteSpread'
     | 'ditherPatternDiversity'
+    | 'ccFlatCycleDither'
+    | 'ccFlatCycleBands'
   >;
   defaultBandSpacing: number;
   clampColorCycleBandSpacing: (value?: number) => number;
@@ -120,8 +124,19 @@ const resolveFillSettings = ({
     ? Math.max(1, Math.min(254, Math.round(brushSettings.gradientBands ?? 16)))
     : undefined;
   const ditherBackgroundFill = brushSettings.ditherGradBgFill ?? brushSettings.ditherBackgroundFill;
+  const ditherFlatCycle = wantDither && brushSettings.ccFlatCycleDither === true;
+  const ditherFlatCycleBands = ditherFlatCycle ? brushSettings.ccFlatCycleBands : undefined;
 
-  return { ccGradientMode, wantDither, bands, spacing, ditherLevels, ditherBackgroundFill };
+  return {
+    ccGradientMode,
+    wantDither,
+    bands,
+    spacing,
+    ditherLevels,
+    ditherBackgroundFill,
+    ditherFlatCycle,
+    ditherFlatCycleBands,
+  };
 };
 
 export const fillColorCycleLinear = async <TBrush extends ColorCycleFillBrush>({
@@ -156,7 +171,7 @@ export const fillColorCycleLinear = async <TBrush extends ColorCycleFillBrush>({
     });
 
     const useShapeSpacing = brushSettings.brushShape === BrushShape.COLOR_CYCLE_SHAPE;
-    const { ccGradientMode, wantDither, bands, spacing, ditherLevels, ditherBackgroundFill } = resolveFillSettings({
+    const { ccGradientMode, wantDither, bands, spacing, ditherLevels, ditherBackgroundFill, ditherFlatCycle, ditherFlatCycleBands } = resolveFillSettings({
       isCCGradientActiveLayer,
       brushSettings,
       defaultBandSpacing,
@@ -197,6 +212,8 @@ export const fillColorCycleLinear = async <TBrush extends ColorCycleFillBrush>({
           paintDefIdOverride: options?.paintDefIdOverride,
           shapePhaseSeedMarkId: options?.shapePhaseSeedMarkId,
           ditherBackgroundFill,
+          ditherFlatCycle,
+          ditherFlatCycleBands,
           roi: options?.roi,
           lostEdge: brushSettings.lostEdge,
         },
@@ -239,7 +256,7 @@ export const fillColorCycleConcentric = async <TBrush extends ColorCycleFillBrus
       flushGradientApply,
     });
 
-    const { ccGradientMode, wantDither, bands, ditherLevels, ditherBackgroundFill } = resolveFillSettings({
+    const { ccGradientMode, wantDither, bands, ditherLevels, ditherBackgroundFill, ditherFlatCycle, ditherFlatCycleBands } = resolveFillSettings({
       isCCGradientActiveLayer,
       brushSettings,
       defaultBandSpacing,
@@ -282,6 +299,8 @@ export const fillColorCycleConcentric = async <TBrush extends ColorCycleFillBrus
           ditherPatternDiversity:
             options?.ditherPatternDiversity ?? brushSettings.ditherPatternDiversity,
           ditherBackgroundFill,
+          ditherFlatCycle,
+          ditherFlatCycleBands,
           roi: options?.roi,
           lostEdge: brushSettings.lostEdge,
         },

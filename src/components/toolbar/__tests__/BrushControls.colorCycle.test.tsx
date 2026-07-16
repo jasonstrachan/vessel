@@ -159,6 +159,8 @@ jest.mock('@/components/ui/GradientEditor', () => ({
 jest.mock('@/presets/brushPresets', () => ({
   __esModule: true,
   getPresetCapabilities: jest.fn(() => ({ components: [] })),
+  isCcGradientPreset: (id?: string | null) =>
+    id === 'color-cycle-gradient' || id === 'color-cycle-flat-dither',
 }));
 
 // Minimal mock store

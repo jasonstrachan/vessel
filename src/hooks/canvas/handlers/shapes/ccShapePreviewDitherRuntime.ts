@@ -424,6 +424,8 @@ export const buildCcPreviewReplayKey = ({
   patternTileThreshold,
   patternTileOffsetX,
   patternTileOffsetY,
+  flatCycle,
+  flatCycleBands,
 }: {
   points: Array<{ x: number; y: number }>;
   preparedGradientKey: string;
@@ -438,6 +440,8 @@ export const buildCcPreviewReplayKey = ({
   patternTileThreshold?: BrushSettings['patternTileThreshold'];
   patternTileOffsetX?: BrushSettings['patternTileOffsetX'];
   patternTileOffsetY?: BrushSettings['patternTileOffsetY'];
+  flatCycle?: boolean;
+  flatCycleBands?: number;
 }): string => {
   const geometryKey = points
     .map(point => `${Math.round(point.x * 100) / 100},${Math.round(point.y * 100) / 100}`)
@@ -450,6 +454,8 @@ export const buildCcPreviewReplayKey = ({
     `levels:${levels}`,
     `algo:${algorithm}`,
     `pattern:${patternStyle}`,
+    `flatCycle:${flatCycle ? 1 : 0}`,
+    `flatCycleBands:${flatCycleBands ?? 0}`,
     `tile:${patternTileId ?? 'none'}`,
     `tileScale:${patternTileScale ?? 'default'}`,
     `tileInvert:${patternTileInvert ?? 'default'}`,
@@ -591,21 +597,26 @@ const prepareCcShapePreviewGradient = ({
   ditherPaletteSpread,
   ditherAlgorithm,
   preserveSourceStops,
+  useDitherRenderPalette = true,
 }: {
   effectiveStops: StoredStop[];
   gradientBands: number;
   ditherPaletteSpread?: number;
   ditherAlgorithm?: DitherAlgorithm;
   preserveSourceStops: boolean;
+  /** Flat-cycle previews sample the base gradient; its weave already encodes the dither texture. */
+  useDitherRenderPalette?: boolean;
 }): PreparedPreviewGradient => {
-  const renderStops = buildCcDitherRuntimePalette({
-    baseStops: effectiveStops,
-    bands: resolveCcDitherBandMode(gradientBands).pairBandCount,
-    spread: ditherPaletteSpread,
-    algorithm: ditherAlgorithm,
-    preserveSourceStops,
-    debugContext: 'preview-fill-linear',
-  }).renderStops;
+  const renderStops = useDitherRenderPalette
+    ? buildCcDitherRuntimePalette({
+        baseStops: effectiveStops,
+        bands: resolveCcDitherBandMode(gradientBands).pairBandCount,
+        spread: ditherPaletteSpread,
+        algorithm: ditherAlgorithm,
+        preserveSourceStops,
+        debugContext: 'preview-fill-linear',
+      }).renderStops
+    : effectiveStops;
 
   return {
     renderStops,
@@ -706,6 +717,8 @@ const buildSampledPreviewRequestKey = ({
     `algo:${previewRenderSettings.algorithm}`,
     `pattern:${previewRenderSettings.patternStyle}`,
     `spread:${Math.round(brushSettings.ditherPaletteSpread ?? 0)}`,
+    `flatCycle:${brushSettings.ccFlatCycleDither ? 1 : 0}`,
+    `flatCycleBands:${brushSettings.ccFlatCycleBands ?? 0}`,
     `points:${geometryKey}`,
   ].join('||');
 };
@@ -874,6 +887,8 @@ export const runCcDitherPreviewRuntime = (args: {
     patternTileThreshold: previewRenderSettings.patternTileThreshold,
     patternTileOffsetX: previewRenderSettings.patternTileOffsetX,
     patternTileOffsetY: previewRenderSettings.patternTileOffsetY,
+    flatCycle: brushSettings.ccFlatCycleDither === true,
+    flatCycleBands: brushSettings.ccFlatCycleBands,
   });
   const hasCurrentVersion = canUseCcPreviewCanvasVersion({
     ditherGradPreviewState,
@@ -1104,6 +1119,8 @@ export const runCcDitherPreviewRuntime = (args: {
             sampledFlatTraceStage: 'preview',
             fillBackground,
             pxlEdge: brushSettings.pxlEdge,
+            flatCycle: brushSettings.ccFlatCycleDither === true,
+            flatCycleBands: brushSettings.ccFlatCycleBands,
             yieldIfNeeded,
             sampleNormalized,
             writeIndex: (x, y, index) => {
@@ -1559,6 +1576,7 @@ export const runSampledCcDitherPreviewRuntime = (args: {
           ditherAlgorithm: sampledBrushSettings.ditherAlgorithm,
           preserveSourceStops:
             resolveCcDitherBandMode(sampledBrushSettings.gradientBands ?? 16).pairBandCount <= 0,
+          useDitherRenderPalette: sampledBrushSettings.ccFlatCycleDither !== true,
         });
 
         const origin = sampledGeometry.roi.origin;
@@ -1708,6 +1726,8 @@ export const runSampledCcDitherPreviewRuntime = (args: {
           sampledFlatTraceStage: 'preview',
           fillBackground: (sampledBrushSettings.ditherGradBgFill ?? sampledBrushSettings.ditherBackgroundFill) !== false,
           pxlEdge: sampledBrushSettings.pxlEdge,
+          flatCycle: sampledBrushSettings.ccFlatCycleDither === true,
+          flatCycleBands: sampledBrushSettings.ccFlatCycleBands,
           yieldIfNeeded,
           sampleNormalized,
           writeIndex: (x, y, index) => {

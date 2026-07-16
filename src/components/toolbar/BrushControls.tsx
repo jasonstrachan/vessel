@@ -77,7 +77,7 @@ import {
 import ShapeFillControls from "./ShapeFillControls";
 import DitherControls, { DITHER_OPTIONS } from './DitherControls';
 import CcPatternDropdown from './CcPatternDropdown';
-import { getPresetCapabilities, type BrushCapabilities } from '@/presets/brushPresets';
+import { getPresetCapabilities, isCcGradientPreset, type BrushCapabilities } from '@/presets/brushPresets';
 import EraserTipControls from './EraserTipControls';
 import {
   cloneGradientStops,
@@ -334,7 +334,7 @@ const BrushControls = () => {
   const setCustomBrushSizePercent = useAppStore(state => state.setCustomBrushSizePercent);
   const setCcGradientSource = useAppStore(state => state.setCcGradientSource);
   const currentBrushPresetId = useAppStore(state => state.currentBrushPreset?.id ?? null);
-  const isColorCycleGradientPreset = currentBrushPresetId === 'color-cycle-gradient';
+  const isColorCycleGradientPreset = isCcGradientPreset(currentBrushPresetId);
   const isColorCycleStrokePreset = currentBrushPresetId === 'color-cycle-stroke';
   const brushSettings = useAppStore(selectBrushSettings);
   const eraserSettings = useAppStore(selectEraserSettings);
@@ -1602,7 +1602,7 @@ const BrushControls = () => {
     }
     return (
       <div className="p-4">
-        {currentBrushPresetId !== 'color-cycle-gradient' && (
+        {!isCcGradientPreset(currentBrushPresetId) && (
           <div className="mb-3">
             <ButtonGroup
               options={[
@@ -1981,6 +1981,30 @@ const BrushControls = () => {
                         className="flex-1"
                       />
                     </div>
+                    {activeSettings.ccFlatCycleDither === true && (
+                      <div className="flex items-center gap-2 mt-2">
+                        <label
+                          className={CONTROL_LABEL_CLASS}
+                          style={CONTROL_LABEL_STYLE}
+                          title="Banding (0 = smooth slide)"
+                        >
+                          Banding
+                        </label>
+                        <ProgressSlider
+                          value={activeSettings.ccFlatCycleBands ?? 0}
+                          min={0}
+                          max={32}
+                          step={1}
+                          onChange={(value) =>
+                            setActiveSettings({
+                              ccFlatCycleBands: Math.max(0, Math.min(32, Math.round(value))),
+                            })
+                          }
+                          aria-label="Flat Cycle Banding"
+                          className="flex-1"
+                        />
+                      </div>
+                    )}
                   </>
                 ) : null
               }

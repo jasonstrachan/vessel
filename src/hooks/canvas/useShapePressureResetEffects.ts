@@ -1,3 +1,4 @@
+import { isCcGradientPreset } from '@/presets/brushPresets';
 import { getAppStoreState } from '@/stores/appStoreAccess';
 import { useEffect } from 'react';
 import type React from 'react';
@@ -158,7 +159,7 @@ export const useShapePressureResetEffects = ({
         const isStillClickLine =
           next.currentTool === 'brush' &&
           next.shapeMode &&
-          next.presetId === 'color-cycle-gradient' &&
+          isCcGradientPreset(next.presetId) &&
           next.brushShape === BrushShape.COLOR_CYCLE_SHAPE &&
           next.drawingShape === 'click-line' &&
           next.activeLayerId === prev.activeLayerId &&

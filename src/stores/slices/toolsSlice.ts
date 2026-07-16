@@ -23,6 +23,7 @@ import {
   brushPresets,
   applyBrushPreset,
   defaultBrushSettings,
+  isCcGradientPreset,
   mosaicBrushPreset,
 } from '@/presets/brushPresets';
 import {
@@ -66,7 +67,7 @@ type RecolorSamplingState = AppState['recolorSampling'];
 const initialBrushPreset = mosaicBrushPreset;
 const { settings: defaultPresetSettings } = applyBrushPreset(initialBrushPreset);
 const DITHER_BRUSH_IDS = ['dither-stroke', 'dither-shape'];
-const DITHER_ALWAYS_ON_BRUSH_IDS = [...DITHER_BRUSH_IDS, 'dither-grad'];
+const DITHER_ALWAYS_ON_BRUSH_IDS = [...DITHER_BRUSH_IDS, 'dither-grad', 'color-cycle-flat-dither'];
 const BRUSH_SPECIFIC_DITHER_PATTERN_IDS = ['dither-grad'];
 
 const clampColorCycleLayerSpeedScale = (scale: unknown): number | null => {
@@ -232,6 +233,8 @@ const getSerializableBrushSettings = (settings: BrushSettings): Partial<BrushSet
   ccGradientRangeContrast: settings.ccGradientRangeContrast,
   ditherPatternDiversity: settings.ditherPatternDiversity,
   ccSampledSoftSeamEnabled: settings.ccSampledSoftSeamEnabled,
+  ccFlatCycleDither: settings.ccFlatCycleDither,
+  ccFlatCycleBands: settings.ccFlatCycleBands,
   ditherAlgorithm: settings.ditherAlgorithm,
   patternStyle: settings.patternStyle,
   ditherStrokeTipShape: settings.ditherStrokeTipShape,
@@ -860,6 +863,12 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
       if (settings.ccSampledSoftSeamEnabled !== undefined) {
         settingsToSave.ccSampledSoftSeamEnabled = newSettings.ccSampledSoftSeamEnabled;
       }
+      if (settings.ccFlatCycleDither !== undefined) {
+        settingsToSave.ccFlatCycleDither = newSettings.ccFlatCycleDither;
+      }
+      if (settings.ccFlatCycleBands !== undefined) {
+        settingsToSave.ccFlatCycleBands = newSettings.ccFlatCycleBands;
+      }
       if (settings.ditherStrokeTipShape !== undefined) {
         settingsToSave.ditherStrokeTipShape = newSettings.ditherStrokeTipShape;
       }
@@ -1034,14 +1043,14 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
       if (settings.colorCycleFlowMode !== undefined) {
         settingsToSave.colorCycleFlowMode = newSettings.colorCycleFlowMode;
       }
-      if (currentBrushId === 'color-cycle-gradient' && settings.colorCycleFillMode !== undefined) {
+      if (isCcGradientPreset(currentBrushId) && settings.colorCycleFillMode !== undefined) {
         settingsToSave.colorCycleFillMode = newSettings.colorCycleFillMode;
-      } else if (currentBrushId !== 'color-cycle-gradient' && settingsToSave.colorCycleFillMode !== undefined) {
+      } else if (!isCcGradientPreset(currentBrushId) && settingsToSave.colorCycleFillMode !== undefined) {
         delete settingsToSave.colorCycleFillMode;
       }
-      if (currentBrushId === 'color-cycle-gradient' && settings.ccGradientDrawingShape !== undefined) {
+      if (isCcGradientPreset(currentBrushId) && settings.ccGradientDrawingShape !== undefined) {
         settingsToSave.ccGradientDrawingShape = newSettings.ccGradientDrawingShape;
-      } else if (currentBrushId !== 'color-cycle-gradient' && settingsToSave.ccGradientDrawingShape !== undefined) {
+      } else if (!isCcGradientPreset(currentBrushId) && settingsToSave.ccGradientDrawingShape !== undefined) {
         delete settingsToSave.ccGradientDrawingShape;
       }
       if (settings.gradientBands !== undefined) {
@@ -1811,10 +1820,10 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
       delete userOverrides.pressureEnabled;
       delete userOverrides.minPressure;
       delete userOverrides.maxPressure;
-      if (preset.id !== 'color-cycle-gradient' && userOverrides.colorCycleFillMode !== undefined) {
+      if (!isCcGradientPreset(preset.id) && userOverrides.colorCycleFillMode !== undefined) {
         delete userOverrides.colorCycleFillMode;
       }
-      if (preset.id !== 'color-cycle-gradient' && userOverrides.ccGradientDrawingShape !== undefined) {
+      if (!isCcGradientPreset(preset.id) && userOverrides.ccGradientDrawingShape !== undefined) {
         delete userOverrides.ccGradientDrawingShape;
       }
     }
@@ -1879,7 +1888,7 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
       maxPressure: globalPressure.max,
     };
 
-    const shouldPreserveColorCycleSpeed = preset.id !== 'color-cycle-gradient';
+    const shouldPreserveColorCycleSpeed = !isCcGradientPreset(preset.id);
 
     // Preserve Color Cycle dynamics across preset switches unless user changes them.
     // CC Gradient is intentionally slower by default; only a saved gradient speed should override it.
@@ -2163,7 +2172,7 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
       nextShapeMode = true;
     } else if (isNewCC) {
       // Respect explicit CC variant presets; otherwise restore last CC shape mode
-      if (preset.id === 'color-cycle-shape' || preset.id === 'color-cycle-gradient') {
+      if (preset.id === 'color-cycle-shape' || isCcGradientPreset(preset.id)) {
         nextShapeMode = true;
       } else if (preset.id === 'color-cycle-stroke') {
         nextShapeMode = false;
@@ -2701,10 +2710,10 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
         ...getSerializableBrushSettings(currentBrushSettings),
       };
       sanitizeBrushSpecificDitherPatternSettings(brushIdToSave, settingsToSave);
-      if (brushIdToSave !== 'color-cycle-gradient' && settingsToSave.colorCycleFillMode !== undefined) {
+      if (!isCcGradientPreset(brushIdToSave) && settingsToSave.colorCycleFillMode !== undefined) {
         delete settingsToSave.colorCycleFillMode;
       }
-      if (brushIdToSave !== 'color-cycle-gradient' && settingsToSave.ccGradientDrawingShape !== undefined) {
+      if (!isCcGradientPreset(brushIdToSave) && settingsToSave.ccGradientDrawingShape !== undefined) {
         delete settingsToSave.ccGradientDrawingShape;
       }
       set(prevState => ({
@@ -2723,7 +2732,7 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
       if (newSettings.colorCycleFlowMode && newSettings.colorCycleFlowMode !== 'forward') {
         newSettings.colorCycleFlowMode = 'forward';
       }
-      if (brushId !== 'color-cycle-gradient' && newSettings.ccGradientDrawingShape !== undefined) {
+      if (!isCcGradientPreset(brushId) && newSettings.ccGradientDrawingShape !== undefined) {
         delete newSettings.ccGradientDrawingShape;
       }
 
@@ -2752,7 +2761,7 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
     if (normalized.colorCycleFlowMode && normalized.colorCycleFlowMode !== 'forward') {
       normalized.colorCycleFlowMode = 'forward';
     }
-    if (brushId !== 'color-cycle-gradient' && normalized.ccGradientDrawingShape !== undefined) {
+    if (!isCcGradientPreset(brushId) && normalized.ccGradientDrawingShape !== undefined) {
       delete normalized.ccGradientDrawingShape;
     }
 

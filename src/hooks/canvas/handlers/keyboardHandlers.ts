@@ -1,3 +1,4 @@
+import { isCcGradientPreset } from '@/presets/brushPresets';
 import { getAppStoreState } from '@/stores/appStoreAccess';
 import type React from 'react';
 import {
@@ -201,7 +202,7 @@ export const createKeyboardHandlers = (
     const ccClickLineActive =
       dynamic.tools.currentTool === 'brush' &&
       dynamic.tools.shapeMode &&
-      dynamic.currentBrushPresetId === 'color-cycle-gradient' &&
+      isCcGradientPreset(dynamic.currentBrushPresetId) &&
       dynamic.tools.brushSettings?.brushShape === BrushShape.COLOR_CYCLE_SHAPE &&
       dynamic.tools.brushSettings?.ccGradientDrawingShape === 'click-line' &&
       Boolean(ccClickLineSession?.active);

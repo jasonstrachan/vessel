@@ -16,8 +16,20 @@ export const BRUSH_PRESET_CAPABILITIES: Record<string, BrushCapabilities> = {
   'color-cycle-shape': { canDither: false },
   'color-cycle-triangle': { canDither: false },
   'color-cycle-gradient': { canDither: false },
+  'color-cycle-flat-dither': { canDither: false, forceDither: true },
   'shape-fill': { canDither: false },
 };
+
+// Presets that share the full CC gradient interaction pipeline (freehand shape
+// drawing, direction stage, gradient fill). Use this instead of comparing
+// against 'color-cycle-gradient' directly so variants stay in sync.
+export const CC_GRADIENT_PRESET_IDS = [
+  'color-cycle-gradient',
+  'color-cycle-flat-dither',
+] as const;
+
+export const isCcGradientPreset = (id?: string | null): boolean =>
+  id === 'color-cycle-gradient' || id === 'color-cycle-flat-dither';
 
 export const getPresetCapabilities = (
   id: string,
@@ -857,6 +869,80 @@ export const colorCycleGradientBrushPreset: BrushPreset = {
   }
 };
 
+// Color Cycle Flat Dither Brush Components (shape mode ON, linear fill)
+export const colorCycleFlatDitherBrushComponents: BrushComponent[] = [
+  {
+    id: 'color-cycle-flat-dither-size',
+    type: ComponentType.SIZE_MODIFIER,
+    parameters: {
+      minSize: 1,
+      maxSize: 500,
+      pressureInfluence: 0
+    },
+    priority: 10,
+    enabled: true
+  },
+  {
+    id: 'color-cycle-flat-dither-opacity',
+    type: ComponentType.OPACITY_MODIFIER,
+    parameters: {
+      pressureInfluence: 0.5
+    },
+    priority: 20,
+    enabled: true
+  },
+  {
+    id: 'color-cycle-flat-dither-shape',
+    type: ComponentType.SHAPE_RENDERER,
+    parameters: {
+      shape: BrushShape.COLOR_CYCLE_SHAPE
+    },
+    priority: 40,
+    enabled: true
+  }
+];
+
+// Always-dithered CC gradient variant: the dither texture stays at a constant
+// 50/50 mix while the ink pair slides with the smooth gradient position, so
+// color cycling flows through a fixed pattern (like dither-off, but textured).
+export const colorCycleFlatDitherBrushPreset: BrushPreset = {
+  id: 'color-cycle-flat-dither',
+  name: 'Color Cycle Flat Dither',
+  category: 'Special',
+  components: colorCycleFlatDitherBrushComponents,
+  thumbnail: '/assets/images/Brush.png',
+  tags: ['color', 'cycle', 'gradient', 'dither', 'flat', 'special', 'shape'],
+  isDefault: false,
+  createdAt: new Date(),
+  modifiedAt: new Date(),
+  preferredSettings: {
+    size: 20,
+    opacity: 1,
+    spacing: 4,
+    colorCycleSpeed: 0.03,
+    colorCycleFPS: 30,
+    gradientBands: 64,
+    colorCycleUseForegroundGradient: false,
+    colorCycleFgLightness: 50,
+    colorCycleFgVariance: 0,
+    colorCycleFgHueShift: 0,
+    colorCycleFgSaturationShift: 0,
+    colorCycleFgStops: 2,
+    colorCycleGradient: DEFAULT_GRADIENT_STOPS.map(stop => ({ ...stop })),
+    colorCycleFillMode: 'linear',
+    ccGradientDrawingShape: 'freehand',
+    shapeEnabled: true,
+    ditherEnabled: true,
+    ccFlatCycleDither: true,
+    // 0 = fully smooth ink-pair slide; raise to snap the weave into bands.
+    ccFlatCycleBands: 0,
+    ditherAlgorithm: 'bayer',
+    ditherPaletteSpread: 35,
+    fillResolution: 6,
+    pxlEdge: true,
+  }
+};
+
 // Rectangle Gradient Brush Components
 export const rectangleGradientBrushComponents: BrushComponent[] = [
   {
@@ -1281,6 +1367,7 @@ export const brushPresets: BrushPreset[] = [
   colorCycleTriangleBrushPreset,
   colorCycleShapeBrushPreset,
   colorCycleGradientBrushPreset,
+  colorCycleFlatDitherBrushPreset,
   rectangleGradientBrushPreset,
   polygonGradientBrushPreset,
   shapeFillBrushPreset,
@@ -1299,7 +1386,7 @@ export const getBrushPresetsByCategory = (category: string): BrushPreset[] => {
 
 export const applyBrushPreset = (preset: BrushPreset, userSavedSettings?: Partial<BrushSettings>): { settings: Partial<BrushSettings>; components: BrushComponent[] } => {
   const settings: Partial<BrushSettings> = {};
-  
+
   // FIRST: Apply only technical defaults (size and functional settings), not user preferences
   if (preset.id === 'pixel-square') {
     settings.size = 1; // 1px default for pixel brush
@@ -1330,7 +1417,7 @@ export const applyBrushPreset = (preset: BrushPreset, userSavedSettings?: Partia
     settings.maxPressure = undefined;
   }
   // Removed hardcoded opacity, spacing, colorJitter - these should come from user preferences or store defaults
-  
+
   // SECOND: Extract behavior settings from components (only core functionality, not user preferences)
   preset.components.forEach(component => {
     switch (component.type) {
@@ -1345,16 +1432,16 @@ export const applyBrushPreset = (preset: BrushPreset, userSavedSettings?: Partia
         break;
     }
   });
-  
+
   // THIRD: ALWAYS merge in preferred settings from the preset to provide baseline
   if (preset.preferredSettings) {
     Object.assign(settings, preset.preferredSettings);
   }
-  
+
   // FINAL: User-saved settings have absolute highest priority and CANNOT be overridden
   if (userSavedSettings) {
     Object.assign(settings, userSavedSettings);
   }
-  
+
   return { settings, components: preset.components };
 };

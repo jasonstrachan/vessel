@@ -1,5 +1,6 @@
 import { getAppStoreState } from '@/stores/appStoreAccess';
 import { flushBufferedSequentialEvents } from '@/hooks/canvas/handlers/sequential/sequentialCapture';
+import { isCcGradientPreset } from '@/presets/brushPresets';
 import { BrushShape } from '@/types';
 
 import type {
@@ -27,7 +28,7 @@ export const shouldEnterCcGradientDirectionStage = (
 ): boolean => (
   tools.currentTool === 'brush' &&
   tools.shapeMode &&
-  brushPresetId === 'color-cycle-gradient' &&
+  isCcGradientPreset(brushPresetId) &&
   tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE_SHAPE &&
   tools.brushSettings.colorCycleFillMode === 'linear' &&
   getVisibleCcGradientColorCount(tools.brushSettings) > 1

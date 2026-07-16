@@ -1037,6 +1037,10 @@ export interface BrushSettings {
   ccGradientRangeContrast?: number; // 0-100: non-dither sampled CC gradient range preservation
   ditherPatternDiversity?: number; // 0-100: how strongly flat pattern mix is amplified and seeded for CC sampled dithers
   ccSampledSoftSeamEnabled?: boolean; // sampled CC gradients: soften the loop seam during playback
+  /** CC flat-cycle dither brush: constant 50/50 dither texture whose ink pair slides with the smooth gradient position */
+  ccFlatCycleDither?: boolean;
+  /** CC flat-cycle dither: snap the ink pair to this many bands (0/unset = fully smooth slide) */
+  ccFlatCycleBands?: number;
   ditherPhaseJitter?: number; // 0-100: how much to offset dither tiles between stamps
   /** Link dither resolution/pixel size to input pressure */
   pressureLinkedFillResolution?: boolean;

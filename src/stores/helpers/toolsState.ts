@@ -176,6 +176,7 @@ export const COLOR_CYCLE_PRESET_IDS = [
   'color-cycle-triangle',
   'color-cycle-shape',
   'color-cycle-gradient',
+  'color-cycle-flat-dither',
   'checkered',
 ] as const;
 

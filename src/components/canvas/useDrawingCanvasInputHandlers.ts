@@ -1,3 +1,4 @@
+import { isCcGradientPreset } from '@/presets/brushPresets';
 import { useCanvasEventHandlers } from '@/hooks/canvas/useCanvasEventHandlers';
 import { useDrawingCanvasPointerHandlers } from './useDrawingCanvasPointerHandlers';
 import { useDrawingCanvasEventBindings } from './useDrawingCanvasEventBindings';
@@ -64,7 +65,7 @@ export const useDrawingCanvasInputHandlers = ({
     eventHandlerArgs.tools.shapeMode === true &&
     (eventHandlerArgs.currentBrushPresetId === 'dither-shape' ||
       eventHandlerArgs.currentBrushPresetId === 'dither-grad' ||
-      eventHandlerArgs.currentBrushPresetId === 'color-cycle-gradient');
+      isCcGradientPreset(eventHandlerArgs.currentBrushPresetId));
   const allowPointerDownOutsideCanvasShape =
     (eventHandlerArgs.tools.currentTool === 'selection' &&
       (eventHandlerArgs.tools.selectionMode ?? 'marquee') === 'marquee') ||

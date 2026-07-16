@@ -190,7 +190,9 @@ export async function runColorCycleConcentricShapeFill(
     });
   };
 
-  if (!context.isPerceptualDitherEnabled()) {
+  const flatCycleDither =
+    ccGradient && context.isDitherEnabled() && options?.ditherFlatCycle === true;
+  if (!context.isPerceptualDitherEnabled() && !flatCycleDither) {
     try {
       const tryGPU = lostEdge <= 0;
       const ditherStrengthGpu = context.isDitherEnabled() ? context.getDitherStrength() : 0;
@@ -482,6 +484,8 @@ export async function runColorCycleConcentricShapeFill(
         sampledFlatTraceStage: 'brush-concentric',
         fillBackground: options?.ditherBackgroundFill !== false,
         pxlEdge: context.isPxlEdgeEnabled(),
+        flatCycle: options?.ditherFlatCycle === true,
+        flatCycleBands: options?.ditherFlatCycleBands,
         sampleNormalized: (x, y) => {
           let minDistSq = Infinity;
           for (let k = 0; k < edges.length; k += 1) {

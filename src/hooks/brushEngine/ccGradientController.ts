@@ -90,7 +90,10 @@ const resolveRuntimeStopsForEdit = ({
   }
 
   const brushSettings = getAppStoreState().tools.brushSettings;
-  const shouldUseDitherRuntime = Boolean(brushSettings.ditherEnabled);
+  // Flat-cycle indices already encode the smooth ramp; keep its LUT on the
+  // base gradient instead of the pair-band render palette.
+  const shouldUseDitherRuntime =
+    Boolean(brushSettings.ditherEnabled) && brushSettings.ccFlatCycleDither !== true;
   const runtimeStops = shouldUseDitherRuntime
     ? buildCcDitherRuntimePalette({
         baseStops,

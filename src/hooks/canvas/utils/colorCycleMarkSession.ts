@@ -126,7 +126,9 @@ export const captureFrozenCcDitherRenderConfig = (): FrozenCcDitherRenderConfig 
   const brushSettings = getAppStoreState().tools.brushSettings;
   const mode = resolveCcDitherBandMode(brushSettings.gradientBands ?? 16);
   const config = {
-    enabled: Boolean(brushSettings.ditherEnabled),
+    // Flat-cycle strokes write smooth indices, so their LUT must stay the base
+    // gradient; the pair-band render palette would remap them into ripples.
+    enabled: Boolean(brushSettings.ditherEnabled) && brushSettings.ccFlatCycleDither !== true,
     pairBandCount: mode.pairBandCount,
     spread: brushSettings.ditherPaletteSpread,
     rangeContrast: brushSettings.ccGradientRangeContrast,

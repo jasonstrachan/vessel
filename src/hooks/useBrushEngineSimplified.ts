@@ -25,6 +25,7 @@ import {
 import { applyDithering as applyDitheringImport, applyDitheringWithFillResolution } from './brushEngine/dithering';
 import { canvasPool } from '../utils/canvasPool';
 import { resolveBrushPressureRange } from '@/utils/pressureSettings';
+import { isCcGradientPreset } from '@/presets/brushPresets';
 import {
   computePressureResolution,
   createPressureResolutionState,
@@ -700,7 +701,7 @@ export const useBrushEngineSimplified = () => {
     if (!id) return false;
     return id === 'dither-stroke' || id === 'dither-shape';
   }, [currentBrushPreset]);
-  const isCCGradient = currentBrushPreset?.id === 'color-cycle-gradient';
+  const isCCGradient = isCcGradientPreset(currentBrushPreset?.id);
   const isCCStrokePreset = currentBrushPreset?.id === 'color-cycle-stroke';
   const isCCGradientActiveLayer = isCCGradient && activeLayer?.layerType === 'color-cycle';
   const shouldApplyToolbarColorCycleSettings = (isCCGradient || isCCStrokePreset) && activeLayer?.layerType === 'color-cycle';
@@ -1291,6 +1292,10 @@ export const useBrushEngineSimplified = () => {
     lostEdge: tools.brushSettings.lostEdge,
     ditherBackgroundFill: tools.brushSettings.ditherBackgroundFill,
     ditherGradBgFill: tools.brushSettings.ditherGradBgFill,
+    ditherPaletteSpread: tools.brushSettings.ditherPaletteSpread,
+    ditherPatternDiversity: tools.brushSettings.ditherPatternDiversity,
+    ccFlatCycleDither: tools.brushSettings.ccFlatCycleDither,
+    ccFlatCycleBands: tools.brushSettings.ccFlatCycleBands,
   }), [
     tools.brushSettings.ditherEnabled,
     tools.brushSettings.gradientBands,
@@ -1302,6 +1307,10 @@ export const useBrushEngineSimplified = () => {
     tools.brushSettings.lostEdge,
     tools.brushSettings.ditherBackgroundFill,
     tools.brushSettings.ditherGradBgFill,
+    tools.brushSettings.ditherPaletteSpread,
+    tools.brushSettings.ditherPatternDiversity,
+    tools.brushSettings.ccFlatCycleDither,
+    tools.brushSettings.ccFlatCycleBands,
   ]);
 
   /**

@@ -62,6 +62,17 @@ export type CcGradientDitherOptions = {
   sampledStopsOverride?: StoredStop[];
   fillBackground?: boolean;
   pxlEdge?: boolean;
+  /**
+   * Flat-cycle mode: the dither texture stays at a constant 50/50 mix everywhere,
+   * while the low/high ink pair slides with the smooth gradient position so
+   * color cycling reads as continuous motion under a fixed pattern.
+   */
+  flatCycle?: boolean;
+  /**
+   * Optional flat-cycle banding: snap pair centers to this many bands so
+   * regions share one crisp pair. < 2 (or unset) keeps the fully smooth slide.
+   */
+  flatCycleBands?: number;
   sampleNormalized: (x: number, y: number) => number;
   writeIndex: (x: number, y: number, index: number, phaseByte?: number) => void;
   writePhase?: (x: number, y: number, phaseByte: number) => void;
@@ -847,6 +858,8 @@ export const fillCcGradientDither = async ({
   sampledStopsOverride,
   fillBackground = true,
   pxlEdge = false,
+  flatCycle = false,
+  flatCycleBands,
   sampleNormalized,
   writeIndex,
   writePhase,
@@ -941,7 +954,7 @@ export const fillCcGradientDither = async ({
       const cx = activeCells[i];
       const sampleX = minX + cx * cellSize + cellSize * 0.5;
       let r = clamp01(sampleNormalized(sampleX, sampleY));
-      if (clampedLevels > 1 && algorithm !== 'sierra-lite') {
+      if (clampedLevels > 1 && algorithm !== 'sierra-lite' && !flatCycle) {
         const j = (noiseAt(Math.floor(sampleX), Math.floor(sampleY)) - 0.5) * (0.2 / clampedLevels);
         r = clamp01(r + j);
       }
@@ -951,7 +964,96 @@ export const fillCcGradientDither = async ({
     }
   }
 
-  if (clampedPairBands > 0) {
+  if (flatCycle) {
+    // Constant-tone weave: every cell dithers at a fixed 50/50 mix, but the ink
+    // pair bracketing each cell follows the smooth gradient position, so the
+    // texture is uniform while the color ramp (and its cycling) stays continuous.
+    const FLAT_CYCLE_TONE = 0.5;
+    // Smooth by default: the pair center follows the byte-quantized position
+    // (256 steps, matching dither-off smoothness). An explicit flatCycleBands
+    // snaps centers to a coarse grid for a deliberate banded screen-tone.
+    // Coverage is a byte, so a 256-entry LUT keeps the pair solver
+    // (pow easing + allocations) out of the per-cell hot loop.
+    const clampedFlatCycleBands = Math.floor(flatCycleBands ?? 0);
+    const bandSteps = clampedFlatCycleBands > 1 ? clampedFlatCycleBands - 1 : 0;
+    const flatCycleLowLut = new Uint8Array(256);
+    const flatCycleHighLut = new Uint8Array(256);
+    for (let coverage = 0; coverage < 256; coverage += 1) {
+      let position = coverage / 255;
+      if (bandSteps > 0) {
+        position = Math.round(position * bandSteps) / bandSteps;
+      }
+      const { indices } = resolveFlatInkSetForPosition(position, 2, baseOffset, flatPairSpread);
+      flatCycleLowLut[coverage] = indices[0];
+      flatCycleHighLut[coverage] = indices[1];
+    }
+
+    if (algorithm in ERROR_DIFFUSION_KERNELS) {
+      const kernel = ERROR_DIFFUSION_KERNELS[algorithm as keyof typeof ERROR_DIFFUSION_KERNELS];
+      const profile = ERROR_DIFFUSION_PROFILES[algorithm as keyof typeof ERROR_DIFFUSION_PROFILES];
+      const errBuf = new Float32Array(gridW * gridH);
+
+      for (let cy = 0; cy < gridH; cy += 1) {
+        const activeRow = activeCellsByRow[cy];
+        if (!activeRow.length) continue;
+
+        const useSerpentine = kernel.serpentine !== false;
+        const leftToRight = useSerpentine ? (cy & 1) === 0 : true;
+        const start = leftToRight ? 0 : activeRow.length - 1;
+        const end = leftToRight ? activeRow.length : -1;
+        const step = leftToRight ? 1 : -1;
+
+        for (let i = start; i !== end; i += step) {
+          const cx = activeRow[i];
+          const cellIdx = cy * gridW + cx;
+          const local = clamp01(FLAT_CYCLE_TONE + (errBuf[cellIdx] || 0));
+          const usePrimary = local >= profile.threshold;
+          const coverage = cellCoverage[cellIdx] ?? 0;
+          cellIndices[cellIdx] = usePrimary
+            ? flatCycleHighLut[coverage]
+            : (fillBackground ? flatCycleLowLut[coverage] : 0);
+          const err = local - (usePrimary ? 1 : 0);
+          if (err !== 0) {
+            const norm = 1 / Math.max(1, kernel.divisor);
+            for (let k = 0; k < kernel.taps.length; k += 1) {
+              const tap = kernel.taps[k];
+              const nx = cx + (leftToRight ? tap.dx : -tap.dx);
+              const ny = cy + tap.dy;
+              if (nx < 0 || nx >= gridW || ny < 0 || ny >= gridH) continue;
+              const nIdx = ny * gridW + nx;
+              if (!activeMask[nIdx]) continue;
+              errBuf[nIdx] += err * tap.weight * norm;
+            }
+          }
+        }
+      }
+    } else {
+      const phaseX = Math.floor((patternPhaseOriginX ?? minX) / Math.max(1, cellSize));
+      const phaseY = Math.floor((patternPhaseOriginY ?? minY) / Math.max(1, cellSize));
+      for (let cy = 0; cy < gridH; cy += 1) {
+        const activeRow = activeCellsByRow[cy];
+        if (!activeRow.length) continue;
+        const rowOffset = cy * gridW;
+        for (let i = 0; i < activeRow.length; i += 1) {
+          const cx = activeRow[i];
+          const cellIdx = rowOffset + cx;
+          const threshold = resolveOrderedThreshold(
+            algorithm,
+            patternStyle,
+            cx + phaseX,
+            cy + phaseY,
+            FLAT_CYCLE_TONE,
+            imageTileThresholdResolver
+          );
+          const usePrimary = FLAT_CYCLE_TONE >= threshold;
+          const coverage = cellCoverage[cellIdx] ?? 0;
+          cellIndices[cellIdx] = usePrimary
+            ? flatCycleHighLut[coverage]
+            : (fillBackground ? flatCycleLowLut[coverage] : 0);
+        }
+      }
+    }
+  } else if (clampedPairBands > 0) {
     const pairCount = Math.max(1, clampedPairBands);
     const lowIndexForBand = (band: number) =>
       indexFromNormalized((band * 2) / (pairCount * 2), baseOffset);

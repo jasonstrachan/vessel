@@ -112,7 +112,10 @@ export const resolveColorCycleGradientRenderSession = ({
   }
 
   const shouldUseSessionDither =
-    Boolean(session.ditherRenderConfig?.enabled) || (!session.ditherRenderConfig && brushSettings.ditherEnabled);
+    Boolean(session.ditherRenderConfig?.enabled) ||
+    (!session.ditherRenderConfig &&
+      brushSettings.ditherEnabled &&
+      brushSettings.ccFlatCycleDither !== true);
   if (!session.frozenStopsStored?.length || !shouldUseSessionDither) {
     const runtimeStops = resolveMarkSessionRuntimeStops(session, session.frozenStopsStored, {
       enabled: false,

@@ -1,4 +1,5 @@
 import { BrushShape, type BrushSettings } from '@/types';
+import { isCcGradientPreset } from '@/presets/brushPresets';
 import { snapToGridPure } from './utilities';
 
 export {
@@ -24,7 +25,7 @@ export const isColorCycleGradientShapePreset = (
   presetId: string | null | undefined,
   brushShape: BrushSettings['brushShape'] | undefined,
 ): boolean => (
-  presetId === 'color-cycle-gradient' &&
+  isCcGradientPreset(presetId) &&
   brushShape === BrushShape.COLOR_CYCLE_SHAPE
 );
 

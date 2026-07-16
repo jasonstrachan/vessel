@@ -458,6 +458,8 @@ export async function runColorCycleLinearShapeFill(
         sampledStopsOverride: sampledStopsOverride ?? undefined,
         fillBackground: options?.ditherBackgroundFill !== false,
         pxlEdge: context.isPxlEdgeEnabled(),
+        flatCycle: options?.ditherFlatCycle === true,
+        flatCycleBands: options?.ditherFlatCycleBands,
         sampleNormalized: (x, y) => {
           const proj = (x - centerX) * dirX + (y - centerY) * dirY;
           return clamp01((proj - paddedMinProjection) / safeProjectionRange);

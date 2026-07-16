@@ -1,3 +1,4 @@
+import { isCcGradientPreset } from '@/presets/brushPresets';
 import { BrushShape } from '@/types';
 
 import type { EventHandlerDependencies } from '../../utils/types';
@@ -24,7 +25,7 @@ export const completeCcGradientClickLine = ({
 }): boolean => {
   const dynamic = deps.dynamicDepsRef.current;
   if (
-    dynamic.currentBrushPresetId !== 'color-cycle-gradient' ||
+    !isCcGradientPreset(dynamic.currentBrushPresetId) ||
     dynamic.tools.currentTool !== 'brush' ||
     !dynamic.tools.shapeMode ||
     dynamic.tools.brushSettings.brushShape !== BrushShape.COLOR_CYCLE_SHAPE ||

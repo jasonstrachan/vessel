@@ -33,6 +33,8 @@ export type FillOptions = {
   ditherPaletteSpread?: number;
   ditherPatternDiversity?: number;
   ditherBackgroundFill?: boolean;
+  ditherFlatCycle?: boolean;
+  ditherFlatCycleBands?: number;
   ditherSampledStops?: StoredStop[];
   ditherBaseOffsetOverride?: number;
   paintSlotOverride?: number;

@@ -1,3 +1,4 @@
+import { isCcGradientPreset } from '@/presets/brushPresets';
 import { getAppStoreState } from '@/stores/appStoreAccess';
 import { useEffect, useRef, useCallback } from 'react';
 import { useAppStore, type AppState } from '@/stores/useAppStore';
@@ -203,7 +204,7 @@ const resolveBracketShortcutTarget = (
 ): BracketShortcutTarget => {
   if (
     currentTool === 'brush' &&
-    currentBrushPresetId === 'color-cycle-gradient' &&
+    isCcGradientPreset(currentBrushPresetId) &&
     brushSettings.colorCycleFillMode !== 'stroke'
   ) {
     return 'cc-gradient-colors';
@@ -263,7 +264,7 @@ export function useComprehensiveKeyboard({
 
   // Track which keys are currently pressed to prevent repeat events
   const pressedKeysRef = useRef<Set<string>>(new Set());
-  
+
   // Track previous tool for temporary eraser mode
   const previousToolRef = useRef<string | null>(null);
   const isTemporaryEraserRef = useRef(false);
@@ -415,7 +416,7 @@ export function useComprehensiveKeyboard({
 
     bracketHoldAnimationFrameRef.current = requestAnimationFrame(step);
   }, [applyBracketShortcutStep]);
-  
+
   // Update refs when callbacks change
   useEffect(() => {
     onSpacePressedRef.current = onSpacePressed;
@@ -519,7 +520,7 @@ export function useComprehensiveKeyboard({
     // Handle Space for panning (prevent repeat)
     if (event.code === 'Space' && onSpacePressedRef.current) {
       event.preventDefault();
-      
+
       // Only process if not already pressed
       if (!keyboardStateRef.current.isSpacePressed) {
         keyboardStateRef.current.isSpacePressed = true;
@@ -801,7 +802,7 @@ export function useComprehensiveKeyboard({
     if (event.key === 'e' || event.key === 'E') {
       if (!event.ctrlKey && !event.metaKey) {
         event.preventDefault();
-        
+
         try {
           await onEraserReleasedRef.current?.();
         } catch {
@@ -900,7 +901,7 @@ export function useComprehensiveKeyboard({
     window.removeEventListener('keydown', handleKeyDown);
     window.removeEventListener('keyup', handleKeyUp);
     window.removeEventListener('blur', handleBlur);
-    
+
     // Add fresh listeners
     window.addEventListener('keydown', handleKeyDown);
     window.addEventListener('keyup', handleKeyUp);

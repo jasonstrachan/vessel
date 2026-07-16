@@ -1,4 +1,5 @@
 import { BrushShape, type BrushSettings } from '@/types';
+import { isCcGradientPreset } from '@/presets/brushPresets';
 import type { AppState } from '@/stores/useAppStore';
 import { cancelMarkGradientSession } from '@/hooks/canvas/utils/colorCycleMarkSession';
 import {
@@ -41,24 +42,24 @@ export const createCcGradientClickLineSession = (): CcGradientClickLineSession =
 });
 
 export const isCcGradientStrokeMode = (state: AppState): boolean =>
-  state.currentBrushPreset?.id === 'color-cycle-gradient' &&
+  isCcGradientPreset(state.currentBrushPreset?.id) &&
   state.tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE_SHAPE &&
   state.tools.brushSettings.colorCycleFillMode === 'stroke' &&
   (state.tools.brushSettings.ccGradientDrawingShape === undefined ||
     state.tools.brushSettings.ccGradientDrawingShape === 'freehand');
 
 export const isCcGradientDragDefinedShapeMode = (state: AppState): boolean =>
-  state.currentBrushPreset?.id === 'color-cycle-gradient' &&
+  isCcGradientPreset(state.currentBrushPreset?.id) &&
   state.tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE_SHAPE &&
   isDragDefinedCcGradientShape(state.tools.brushSettings.ccGradientDrawingShape);
 
 export const isCcGradientPolygonDrawingShapeMode = (state: AppState): boolean =>
-  state.currentBrushPreset?.id === 'color-cycle-gradient' &&
+  isCcGradientPreset(state.currentBrushPreset?.id) &&
   state.tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE_SHAPE &&
   isPolygonCcGradientShape(state.tools.brushSettings.ccGradientDrawingShape);
 
 export const isCcGradientClickLineDrawingShapeMode = (state: AppState): boolean =>
-  state.currentBrushPreset?.id === 'color-cycle-gradient' &&
+  isCcGradientPreset(state.currentBrushPreset?.id) &&
   state.tools.shapeMode &&
   state.tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE_SHAPE &&
   isClickLineCcGradientShape(state.tools.brushSettings.ccGradientDrawingShape);

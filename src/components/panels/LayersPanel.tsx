@@ -300,6 +300,7 @@ const LayersPanel: React.FC = () => {
         currentBrushSettings.customBrushColorCycle === true;
       const isCurrentCcPreset =
         currentPresetId === 'color-cycle-gradient' ||
+        currentPresetId === 'color-cycle-flat-dither' ||
         currentPresetId === 'color-cycle-stroke' ||
         currentPresetId === 'color-cycle-shape' ||
         currentPresetId === 'color-cycle-triangle';

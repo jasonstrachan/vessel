@@ -179,6 +179,13 @@ const otherPreset = {
     category: 'Color Cycle',
     components: [{ type: 'shape', parameters: { shape: BrushShape.COLOR_CYCLE_SHAPE } }],
   };
+  const ccFlatDitherPreset = {
+    id: 'color-cycle-flat-dither',
+    name: 'Color Cycle Flat Dither',
+    isDefault: false,
+    category: 'Color Cycle',
+    components: [{ type: 'shape', parameters: { shape: BrushShape.COLOR_CYCLE_SHAPE } }],
+  };
   const shapeFillPreset = {
     id: 'shape-fill',
     name: 'Shape Fill',
@@ -288,6 +295,25 @@ describe('BrushLibrary', () => {
     const stroke = screen.getByText('Color Cycle Stroke');
     const gradient = screen.getByText('Color Cycle Gradient');
     const relation = stroke.compareDocumentPosition(gradient);
+    expect(relation & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('orders Color Cycle Flat Dither above Recolor', () => {
+    useAppStore.setState({
+      ...useAppStore.getState(),
+      currentBrushPreset: ccFlatDitherPreset as any,
+      brushPresets: [
+        ccGradientPreset as any,
+        ccFlatDitherPreset as any,
+        ccStrokePreset as any,
+      ],
+    });
+
+    render(<BrushLibrary />);
+
+    const flatDither = screen.getByText('Color Cycle Flat Dither');
+    const recolor = screen.getByText('Color cycle + recolor');
+    const relation = flatDither.compareDocumentPosition(recolor);
     expect(relation & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 

@@ -1896,3 +1896,159 @@ describe('fillCcGradientDither', () => {
     expect(wroteZero).toBe(false);
   });
 });
+
+describe('fillCcGradientDither flat-cycle mode', () => {
+  const renderFlatCycle = async ({
+    algorithm,
+    spread,
+    fillBackground,
+    width = 32,
+    height = 8,
+    flatCycleBands,
+  }: {
+    algorithm: Parameters<typeof fillCcGradientDither>[0]['algorithm'];
+    spread?: number;
+    fillBackground?: boolean;
+    width?: number;
+    height?: number;
+    flatCycleBands?: number;
+  }) => {
+    const out = new Uint8Array(width * height);
+    await fillCcGradientDither({
+      vertices: [
+        { x: 0, y: 0 },
+        { x: width - 1, y: 0 },
+        { x: width - 1, y: height - 1 },
+        { x: 0, y: height - 1 },
+      ],
+      minX: 0,
+      minY: 0,
+      maxX: width - 1,
+      maxY: height - 1,
+      pixelSize: 1,
+      levels: 64,
+      baseOffset: 0,
+      flatPairSpread: spread,
+      algorithm,
+      flatCycle: true,
+      flatCycleBands,
+      fillBackground,
+      sampleNormalized: (x) => Math.max(0, Math.min(1, x / width)),
+      writeIndex: (x, y, index) => {
+        if (x < 0 || y < 0 || x >= width || y >= height) return;
+        out[y * width + x] = index;
+      },
+    });
+    return out;
+  };
+
+  it('weaves exactly the local two-ink pair per column with an even bayer mix', async () => {
+    const width = 32;
+    const height = 8;
+    const out = await renderFlatCycle({ algorithm: 'bayer', spread: 40, width, height });
+
+    let highCount = 0;
+    let total = 0;
+    for (let x = 0; x < width; x += 1) {
+      // Mirror the fill's byte quantization of cell coverage before pair lookup.
+      const position = Math.round(Math.max(0, Math.min(1, (x + 0.5) / width)) * 255) / 255;
+      const { indices } = resolveFlatInkSetForPosition(position, 2, 0, 40);
+      const seen = new Set<number>();
+      for (let y = 0; y < height; y += 1) {
+        const value = out[y * width + x];
+        if (value === 0) continue; // outside the rasterized polygon
+        seen.add(value);
+        if (value === indices[1]) highCount += 1;
+        total += 1;
+      }
+      for (const value of seen) {
+        expect(indices).toContain(value);
+      }
+    }
+
+    expect(total).toBeGreaterThan(width * (height - 2));
+
+    // Constant 50/50 tone: the high ink should cover close to half the cells.
+    expect(highCount / total).toBeGreaterThan(0.35);
+    expect(highCount / total).toBeLessThan(0.65);
+  });
+
+  it('slides the ink pair with the gradient position instead of encoding a ramp', async () => {
+    const width = 64;
+    const height = 8;
+    const out = await renderFlatCycle({ algorithm: 'bayer', spread: 20, width, height });
+
+    const columnAverage = (x: number) => {
+      let sum = 0;
+      for (let y = 0; y < height; y += 1) {
+        sum += out[y * width + x];
+      }
+      return sum / height;
+    };
+
+    // Averages should increase across the stroke because the pair follows the
+    // smooth position - unlike flat mode, which keeps one static pair.
+    expect(columnAverage(56)).toBeGreaterThan(columnAverage(8));
+  });
+
+  it('uses both inks of each local pair under error diffusion', async () => {
+    const width = 16;
+    const height = 16;
+    const out = await renderFlatCycle({
+      algorithm: 'sierra-lite',
+      spread: 60,
+      width,
+      height,
+    });
+
+    const values = new Set<number>();
+    let written = 0;
+    for (let i = 0; i < out.length; i += 1) {
+      if (out[i] === 0) continue; // outside the rasterized polygon
+      values.add(out[i]);
+      written += 1;
+    }
+    expect(written).toBeGreaterThan((width - 2) * (height - 2));
+    expect(values.size).toBeGreaterThan(1);
+  });
+
+  it('snaps the ink pair to the band grid so regions share one crisp pair', async () => {
+    const width = 64;
+    const height = 8;
+    const bands = 5;
+    const out = await renderFlatCycle({
+      algorithm: 'bayer',
+      spread: 40,
+      width,
+      height,
+      flatCycleBands: bands,
+    });
+
+    const values = new Set<number>();
+    for (let i = 0; i < out.length; i += 1) {
+      if (out[i] > 0) values.add(out[i]);
+    }
+
+    // 5 band centers -> at most 5 distinct pairs -> at most 10 distinct inks,
+    // instead of a new pair for nearly every column.
+    expect(values.size).toBeLessThanOrEqual(bands * 2);
+    expect(values.size).toBeGreaterThan(2);
+  });
+
+  it('drops the low ink to transparent when background fill is off', async () => {
+    const out = await renderFlatCycle({
+      algorithm: 'bayer',
+      spread: 40,
+      fillBackground: false,
+    });
+
+    let zeroCount = 0;
+    let inkCount = 0;
+    for (let i = 0; i < out.length; i += 1) {
+      if (out[i] === 0) zeroCount += 1;
+      else inkCount += 1;
+    }
+    expect(zeroCount).toBeGreaterThan(0);
+    expect(inkCount).toBeGreaterThan(0);
+  });
+});

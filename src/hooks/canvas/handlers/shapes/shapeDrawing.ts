@@ -1,4 +1,5 @@
 import { getAppStoreState } from '@/stores/appStoreAccess';
+import { isCcGradientPreset } from '@/presets/brushPresets';
 import type React from 'react';
 import { BrushShape, type BrushSettings, type CanvasSnapshot, type Layer, type Tool } from '@/types';
 import { type AppState, type CCReason } from '@/stores/useAppStore';
@@ -299,13 +300,17 @@ const resolveCcDirectionPreviewStops = (state: AppState): PreviewGradientStop[] 
   const activeSession = activeLayer?.id ? getActiveMarkGradientSession(activeLayer.id) : null;
   const brushSettings = state.tools.brushSettings;
   const ditherMode = resolveCcDitherBandMode(brushSettings.gradientBands ?? 16);
+  // Flat-cycle's color ramp is smooth; the pair-band render palette would draw
+  // alternating low/high stops as ripples, so preview the base gradient instead.
+  const useDitherPreviewPalette =
+    Boolean(brushSettings.ditherEnabled) && brushSettings.ccFlatCycleDither !== true;
   const sessionStops =
     activeSession?.previewStopsStored && activeSession.previewStopsStored.length >= 2
       ? activeSession.previewStopsStored
       : activeSession?.frozenStopsStored;
   if (sessionStops && sessionStops.length >= 2) {
     const runtimeStops = resolveMarkSessionRuntimeStops(activeSession, sessionStops, {
-      enabled: activeSession?.ditherRenderConfig?.enabled ?? Boolean(brushSettings.ditherEnabled),
+      enabled: activeSession?.ditherRenderConfig?.enabled ?? useDitherPreviewPalette,
       pairBandCount: activeSession?.ditherRenderConfig?.pairBandCount ?? ditherMode.pairBandCount,
       spread: activeSession?.ditherRenderConfig?.spread ?? brushSettings.ditherPaletteSpread,
       rangeContrast: brushSettings.ccGradientRangeContrast,
@@ -325,7 +330,7 @@ const resolveCcDirectionPreviewStops = (state: AppState): PreviewGradientStop[] 
       fgStops: brushSettings.colorCycleFgStops,
     });
     if (resolved.activeStops.length >= 2) {
-      const runtimeStops = brushSettings.ditherEnabled
+      const runtimeStops = useDitherPreviewPalette
         ? buildCcDitherRuntimePalette({
             baseStops: resolved.activeStops,
             bands: ditherMode.pairBandCount,
@@ -341,7 +346,7 @@ const resolveCcDirectionPreviewStops = (state: AppState): PreviewGradientStop[] 
 
   const brushStops = brushSettings.colorCycleGradient;
   if (brushStops && brushStops.length >= 2) {
-    const runtimeStops = brushSettings.ditherEnabled
+    const runtimeStops = useDitherPreviewPalette
       ? buildCcDitherRuntimePalette({
           baseStops: brushStops,
           bands: ditherMode.pairBandCount,
@@ -736,7 +741,7 @@ const shouldUseSimpleShapePreview = (state: AppState): boolean => {
 
   const presetId = state.currentBrushPreset?.id ?? null;
   const isLinearPreview = brushSettings.colorCycleFillMode === 'linear';
-  const isGradientPreset = presetId === 'color-cycle-gradient';
+  const isGradientPreset = isCcGradientPreset(presetId);
   const isDitherPreview = Boolean(brushSettings.ditherEnabled) && (isLinearPreview || isGradientPreset);
 
   return !isDitherPreview;

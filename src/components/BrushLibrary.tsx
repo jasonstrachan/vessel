@@ -77,7 +77,7 @@ const BrushLibrary = () => {
     ])
   );
   const removeBrushPreset = useAppStore((state) => state.removeBrushPreset);
-  
+
   // Create combined list of brushes: regular presets + custom brushes from project
   const customBrushPresets = React.useMemo(() => {
     if (customBrushes.length === 0) return [];
@@ -154,8 +154,9 @@ const BrushLibrary = () => {
         ['shape-fill', 0],
         ['color-cycle-stroke', 1],
         ['color-cycle-gradient', 2],
-        ['checkered', 3],
-        ['color-cycle-shape', 4],
+        ['color-cycle-flat-dither', 3],
+        ['checkered', 4],
+        ['color-cycle-shape', 5],
       ]);
       const aSpecial = specialOrder.get(a.id);
       const bSpecial = specialOrder.get(b.id);
@@ -215,7 +216,7 @@ const BrushLibrary = () => {
     currentTool,
     selectedCustomBrush
   ]);
-  
+
   // Check if there's an active custom brush that can be saved
   const activeCustomBrush = React.useMemo<CustomBrush | null>(() => {
     const selectedId = brushSettings.selectedCustomBrush;
@@ -260,7 +261,7 @@ const BrushLibrary = () => {
     getCustomBrushByIdUnsafe,
     temporaryCustomBrush,
   ]);
-  
+
   // Handle escape key to cancel editing
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -275,14 +276,14 @@ const BrushLibrary = () => {
     }
   }, [brushEditor.status, cancelBrushEdit, currentOffscreenCanvas]);
 
-  // REFACTOR: Removed the redundant useEffect for saving settings. 
+  // REFACTOR: Removed the redundant useEffect for saving settings.
   // This is now handled reliably by the store before any tool/preset switch.
-  
+
   const canSaveCustomBrush = true; // Always show the + button
-  
+
   const handleSaveCustomBrushAsPreset = () => {
     if (!activeCustomBrush) return;
-    
+
     saveCustomBrushAsPreset(activeCustomBrush.id);
   };
 
@@ -320,7 +321,7 @@ const BrushLibrary = () => {
     },
     [defaultCustomBrushId, setDefaultCustomBrush]
   );
-  
+
   const handlePresetClick = async (preset: BrushPreset) => {
     // Switch to Brush tool first to avoid any chance of preset
     // application being overwritten by a subsequent tool change.
@@ -524,8 +525,8 @@ const BrushLibrary = () => {
               </div>
             )}
 
-            {/* Insert Recolor and animate entry after Color Cycle Gradient */}
-            {preset.id === 'color-cycle-gradient' && (
+            {/* Insert Recolor and animate entry after Color Cycle Flat Dither */}
+            {preset.id === 'color-cycle-flat-dither' && (
               <div
                 onClick={(e) => {
                   e.stopPropagation();

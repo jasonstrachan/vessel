@@ -1,4 +1,5 @@
 import { getAppStoreState } from '@/stores/appStoreAccess';
+import { isCcGradientPreset } from '@/presets/brushPresets';
 import { getColorCycleBrushManager } from '@/stores/colorCycleBrushManager';
 import { debugLog } from '@/utils/debug';
 import type React from 'react';
@@ -470,6 +471,7 @@ const buildCcShapePreviewGradientCacheKey = ({
   useForegroundDerived,
   foregroundDerivedKey,
   previewSource,
+  flatCycle,
 }: {
   effectiveStops: StoredStop[];
   gradientBands: number;
@@ -485,6 +487,7 @@ const buildCcShapePreviewGradientCacheKey = ({
   useForegroundDerived: boolean;
   foregroundDerivedKey: string;
   previewSource: string;
+  flatCycle?: boolean;
 }): string => {
   const stopHash = hashStops(effectiveStops, 'linear');
   return [
@@ -500,6 +503,7 @@ const buildCcShapePreviewGradientCacheKey = ({
     `tileOffset:${patternTileOffsetX ?? 'default'},${patternTileOffsetY ?? 'default'}`,
     `fg:${useForegroundDerived ? foregroundDerivedKey : 'off'}`,
     `source:${previewSource}`,
+    `flatCycle:${flatCycle ? 1 : 0}`,
   ].join('|');
 };
 
@@ -2834,7 +2838,7 @@ export const createShapeToolHandler = (
       const sampledCcPreview = isSampledCcShapePreview(brushNow);
       const isCCLinear = brushNow.colorCycleFillMode === 'linear';
       const presetId = context.deps.dynamicDepsRef.current.currentBrushPresetId;
-      const isCCGradientPreset = presetId === 'color-cycle-gradient';
+      const isCCGradientPreset = isCcGradientPreset(presetId);
       const shouldDitherPreview =
         brushNow.brushShape === BrushShape.COLOR_CYCLE_SHAPE &&
         (isCCLinear || isCCGradientPreset) &&
@@ -2914,7 +2918,7 @@ export const createShapeToolHandler = (
     }
 
     const isDragDefinedCcGradientShapeMode =
-      context.deps.dynamicDepsRef.current.currentBrushPresetId === 'color-cycle-gradient' &&
+      isCcGradientPreset(context.deps.dynamicDepsRef.current.currentBrushPresetId) &&
       liveBrushForMove.brushShape === BrushShape.COLOR_CYCLE_SHAPE &&
       isDragDefinedCcGradientShape(liveBrushForMove.ccGradientDrawingShape);
     if (event.shiftKey && !isDragDefinedCcGradientShapeMode) {
@@ -2992,7 +2996,7 @@ export const createShapeToolHandler = (
         const brushNow = storeNow.tools.brushSettings;
         const isCCLinear = brushNow.colorCycleFillMode === 'linear';
         const presetId = context.deps.dynamicDepsRef.current.currentBrushPresetId;
-        const isCCGradientPreset = presetId === 'color-cycle-gradient';
+        const isCCGradientPreset = isCcGradientPreset(presetId);
         const shouldDitherPreview =
           brushNow.brushShape === BrushShape.COLOR_CYCLE_SHAPE &&
           (isCCLinear || isCCGradientPreset) &&
@@ -3068,7 +3072,7 @@ export const createShapeToolHandler = (
         const presetId = dynamicPresetId ?? context.deps.currentBrushPresetId;
         const isCCShape = brushNow.brushShape === BrushShape.COLOR_CYCLE_SHAPE;
         const isCCLinear = brushNow.colorCycleFillMode === 'linear';
-        const isColorCycleGradientPreset = presetId === 'color-cycle-gradient';
+        const isColorCycleGradientPreset = isCcGradientPreset(presetId);
         const isColorCycleGradientPreview = isCCShape && isCCLinear;
         const isDitherShapePreview = presetId === 'dither-shape' && tools.shapeMode;
         const shouldDitherPreview =
@@ -3326,6 +3330,7 @@ export const createShapeToolHandler = (
                       useForegroundDerived,
                       foregroundDerivedKey,
                       previewSource: ccPreview?.source ?? previewGradientSource,
+                      flatCycle: brushNow.ccFlatCycleDither === true,
                     });
                     const preparedGradient =
                       ditherGradPreviewState.ccPreparedGradientKey === preparedGradientKey &&
@@ -3333,7 +3338,10 @@ export const createShapeToolHandler = (
                         ? ditherGradPreviewState.ccPreparedGradient
                         : prepareCcShapePreviewGradient({
                             effectiveStops,
-                            shouldDitherPreview,
+                            // Flat-cycle previews sample the base gradient; its
+                            // weave already encodes the dither texture.
+                            shouldDitherPreview:
+                              shouldDitherPreview && brushNow.ccFlatCycleDither !== true,
                             gradientBands: brushNow.gradientBands ?? 16,
                             ditherPaletteSpread: brushNow.ditherPaletteSpread,
                             ditherAlgorithm: brushNow.ditherAlgorithm,
