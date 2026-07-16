@@ -113,10 +113,11 @@ describe('Direct-overlay display filter fast path', () => {
     opacity = 0.16,
     scale = 1.5,
     shadowBias = 0.62,
+    tone = 0,
   ): Extract<DisplayFilterConfig, { id: 'film-noise' }> => ({
     id: 'film-noise',
     enabled,
-    settings: { opacity, scale, shadowBias },
+    settings: { opacity, scale, tone, shadowBias },
   });
 
   it('selects only an enabled Noise filter with a non-zero effect', () => {
@@ -203,26 +204,33 @@ describe('Direct-overlay display filter fast path', () => {
       .every((cluster) => cluster.lobes.length === 1)).toBe(true);
     expect(model.clusters
       .filter((cluster) => cluster.family === 'chain')
-      .every((cluster) => cluster.lobes.length >= 4 && cluster.lobes.length <= 9)).toBe(true);
+      .every((cluster) => cluster.lobes.length >= 3 && cluster.lobes.length <= 6)).toBe(true);
     expect(model.clusters
       .filter((cluster) => cluster.family === 'island')
-      .every((cluster) => cluster.lobes.length >= 8 && cluster.lobes.length <= 16)).toBe(true);
-    expect(model.clusters.filter((cluster) => cluster.family === 'single').length)
-      .toBeGreaterThan(model.clusters.length * 0.28);
-    expect(model.clusters.filter((cluster) => cluster.family === 'chain').length)
-      .toBeGreaterThan(model.clusters.length * 0.38);
-    expect(model.clusters.filter((cluster) => cluster.family === 'island').length)
-      .toBeGreaterThan(model.clusters.length * 0.28);
+      .every((cluster) => cluster.lobes.length >= 6 && cluster.lobes.length <= 10)).toBe(true);
+    const singleFraction = model.clusters
+      .filter((cluster) => cluster.family === 'single').length / model.clusters.length;
+    const chainFraction = model.clusters
+      .filter((cluster) => cluster.family === 'chain').length / model.clusters.length;
+    const islandFraction = model.clusters
+      .filter((cluster) => cluster.family === 'island').length / model.clusters.length;
+    expect(singleFraction).toBeGreaterThanOrEqual(0.48);
+    expect(singleFraction).toBeLessThanOrEqual(0.55);
+    expect(chainFraction).toBeGreaterThanOrEqual(0.3);
+    expect(chainFraction).toBeLessThanOrEqual(0.37);
+    expect(islandFraction).toBeGreaterThanOrEqual(0.12);
+    expect(islandFraction).toBeLessThanOrEqual(0.17);
     const darkClusterFraction = model.clusters
       .filter((cluster) => cluster.polarity === 'dark').length / model.clusters.length;
     expect(darkClusterFraction).toBeGreaterThanOrEqual(0.49);
     expect(darkClusterFraction).toBeLessThanOrEqual(0.51);
-    expect(lobes.length / model.clusters.length).toBeGreaterThan(6);
+    expect(lobes.length / model.clusters.length).toBeGreaterThan(2.8);
+    expect(lobes.length / model.clusters.length).toBeLessThan(3.5);
     expect(Math.max(...equivalentRadii) / Math.min(...equivalentRadii)).toBeGreaterThan(4);
     expect(equivalentRadii.some((radius) => radius < options.grainSize * 0.7)).toBe(true);
     expect(equivalentRadii.some((radius) => radius > options.grainSize * 1.7)).toBe(true);
     expect(overlappingPairs.length).toBeGreaterThan(connectedPairs.length * 0.8);
-    expect(extendedClusters.length).toBeGreaterThan(connectedClusters.length * 0.5);
+    expect(extendedClusters.length).toBeLessThan(connectedClusters.length * 0.5);
     expect(model.clusters
       .filter((cluster) => cluster.family === 'single')
       .every((cluster) => cluster.lobes[0].parentIndex === null)).toBe(true);
@@ -283,7 +291,7 @@ describe('Direct-overlay display filter fast path', () => {
     expect(repeatedFields.lightField).toEqual(fields.lightField);
     expect(repeatedRaster.darkAlpha).toEqual(raster.darkAlpha);
     expect(repeatedRaster.lightAlpha).toEqual(raster.lightAlpha);
-    expect(checksum).toBe(764250713);
+    expect(checksum).toBe(2260246826);
   });
 
   it('merges overlapping lobes through a broad field waist instead of a bead cusp', () => {
@@ -297,7 +305,7 @@ describe('Direct-overlay display filter fast path', () => {
       parentIndex,
     });
     const model: FilmGrainPlateModel = {
-      version: 11,
+      version: 12,
       plateSize: 48,
       grainSize: 6,
       clusters: [{
@@ -362,7 +370,7 @@ describe('Direct-overlay display filter fast path', () => {
 
   it('wraps boundary splats symmetrically in the accumulated field', () => {
     const model: FilmGrainPlateModel = {
-      version: 11,
+      version: 12,
       plateSize: 32,
       grainSize: 4,
       clusters: [{
@@ -435,7 +443,7 @@ describe('Direct-overlay display filter fast path', () => {
 
     expect(minimumSizeModel.clusters.length)
       .toBeGreaterThan(defaultSizeModel.clusters.length * 2);
-    expect(minimumSizeModel.clusters.length).toBeLessThanOrEqual(10000);
+    expect(minimumSizeModel.clusters.length).toBeLessThanOrEqual(18000);
   });
 
   it('applies Noise directly without allocating filter or ping-pong surfaces', () => {
@@ -470,13 +478,18 @@ describe('Direct-overlay display filter fast path', () => {
     const targetCtx = sourceCanvas.getContext('2d');
     const filterState = createDisplayFilterPipelineState();
     expect(targetCtx).not.toBeNull();
-    const composites: Array<{ alpha: number; operation: GlobalCompositeOperation }> = [];
+    const composites: Array<{
+      alpha: number;
+      operation: GlobalCompositeOperation;
+      filter: string;
+    }> = [];
     const drawImageSpy = jest
       .spyOn(targetCtx as CanvasRenderingContext2D, 'drawImage')
       .mockImplementation(() => {
         composites.push({
           alpha: (targetCtx as CanvasRenderingContext2D).globalAlpha,
           operation: (targetCtx as CanvasRenderingContext2D).globalCompositeOperation,
+          filter: (targetCtx as CanvasRenderingContext2D).filter,
         });
       });
     const getImageDataSpy = jest.spyOn(targetCtx as CanvasRenderingContext2D, 'getImageData');
@@ -503,6 +516,53 @@ describe('Direct-overlay display filter fast path', () => {
     expect(Math.max(...composites.map(({ alpha }) => alpha))).toBeCloseTo(expectedStrength, 8);
     expect(composites[0].alpha * filterState.filmGrainDarkMeanAlpha)
       .toBeCloseTo(composites[1].alpha * filterState.filmGrainLightMeanAlpha, 8);
+    const balancedAlphaMass = (
+      composites[0].alpha * filterState.filmGrainDarkMeanAlpha
+      + composites[1].alpha * filterState.filmGrainLightMeanAlpha
+    );
+
+    composites.length = 0;
+    applyDisplayFilterStack({
+      sourceCanvas,
+      displayFilters: [createFilmNoiseFilter(true, 0.16, 1.5, 0.62, -1)],
+      filterState,
+      directOverlayTarget: {
+        ctx: targetCtx as CanvasRenderingContext2D,
+        rect: { x: 2, y: 3, width: 20, height: 12 },
+      },
+    });
+    expect(composites).toHaveLength(2);
+    expect(composites.map(({ operation }) => operation)).toEqual(['multiply', 'multiply']);
+    expect(composites.map(({ filter }) => filter)).toEqual(['none', 'brightness(0)']);
+    expect(composites[0].alpha * filterState.filmGrainDarkMeanAlpha)
+      .toBeCloseTo(composites[1].alpha * filterState.filmGrainLightMeanAlpha, 8);
+    expect(
+      composites[0].alpha * filterState.filmGrainDarkMeanAlpha
+      + composites[1].alpha * filterState.filmGrainLightMeanAlpha,
+    ).toBeCloseTo(balancedAlphaMass, 8);
+
+    composites.length = 0;
+    applyDisplayFilterStack({
+      sourceCanvas,
+      displayFilters: [createFilmNoiseFilter(true, 0.16, 1.5, 0.62, 1)],
+      filterState,
+      directOverlayTarget: {
+        ctx: targetCtx as CanvasRenderingContext2D,
+        rect: { x: 2, y: 3, width: 20, height: 12 },
+      },
+    });
+    expect(composites).toHaveLength(2);
+    expect(composites.map(({ operation }) => operation)).toEqual(['screen', 'screen']);
+    expect(composites.map(({ filter }) => filter)).toEqual([
+      'none',
+      'brightness(0) invert(1)',
+    ]);
+    expect(composites[0].alpha * filterState.filmGrainLightMeanAlpha)
+      .toBeCloseTo(composites[1].alpha * filterState.filmGrainDarkMeanAlpha, 8);
+    expect(
+      composites[0].alpha * filterState.filmGrainLightMeanAlpha
+      + composites[1].alpha * filterState.filmGrainDarkMeanAlpha,
+    ).toBeCloseTo(balancedAlphaMass, 8);
 
     drawImageSpy.mockRestore();
     const grayCanvas = document.createElement('canvas');
@@ -550,7 +610,7 @@ describe('Direct-overlay display filter fast path', () => {
 
     const reusedOverlays = ensureFilmGrainOverlays({
       ...initialArgs,
-      filmNoiseFilter: createFilmNoiseFilter(true, 0.4, 1.5, 0.2),
+      filmNoiseFilter: createFilmNoiseFilter(true, 0.4, 1.5, 0.2, 0.75),
     });
     expect(reusedOverlays?.darkCanvas).toBe(initialOverlays?.darkCanvas);
     expect(reusedOverlays?.lightCanvas).toBe(initialOverlays?.lightCanvas);

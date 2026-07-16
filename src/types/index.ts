@@ -165,6 +165,7 @@ export interface FilmNoiseDisplayFilter {
   settings: {
     opacity: number;
     scale: number;
+    tone?: number;
     shadowBias: number;
   };
 }

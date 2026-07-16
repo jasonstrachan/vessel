@@ -1190,7 +1190,7 @@ describe('exportProjectAsWebGL color cycle integration', () => {
         },
         { id: 'chromatic-aberration', enabled: true, settings: { offset: 1.25, intensity: 0.2 } },
         { id: 'noise', enabled: false, settings: { opacity: 0.08, scale: 2 } },
-        { id: 'film-noise', enabled: false, settings: { opacity: 0.16, scale: 1.5, shadowBias: 0.62 } }
+        { id: 'film-noise', enabled: false, settings: { opacity: 0.16, scale: 1.5, tone: 0, shadowBias: 0.62 } }
       ]
     };
     const previousDisplayFilters = useAppStore.getState().canvas.displayFilters;

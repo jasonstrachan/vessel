@@ -17,10 +17,10 @@ export const resolveFilmNoiseSampleStep = (tileStep) => (
   Math.max(1, Math.min(4, resolveDisplayNoiseTileStep(tileStep)))
 );
 
-const FILM_GRAIN_MODEL_VERSION = 11;
+const FILM_GRAIN_MODEL_VERSION = 12;
 const FILM_GRAIN_PLATE_SIZE = 768;
 const FILM_GRAIN_MIN_CLUSTERS = 24;
-const FILM_GRAIN_MAX_CLUSTERS = 10000;
+const FILM_GRAIN_MAX_CLUSTERS = 18000;
 const FILM_GRAIN_SEED = 0x6d2b79f5;
 const FILM_GRAIN_FIELD_SUPPORT_SCALE = 1.6;
 const FILM_GRAIN_FIELD_THRESHOLD = 0.42;
@@ -367,10 +367,10 @@ const createFilmGrainRandom = (seed) => {
 
 const resolveFilmGrainFamily = (clusterIndex) => {
   const familyIndex = clusterIndex % 20;
-  if (familyIndex < 6) {
+  if (familyIndex < 10) {
     return 'single';
   }
-  if (familyIndex < 14) {
+  if (familyIndex < 17) {
     return 'chain';
   }
   return 'island';
@@ -381,9 +381,9 @@ const resolveFilmGrainLobeCount = (family, random) => {
     return 1;
   }
   if (family === 'chain') {
-    return 4 + Math.floor(random() * 6);
+    return 3 + Math.floor(random() * 4);
   }
-  return 8 + Math.floor(random() * 9);
+  return 6 + Math.floor(random() * 5);
 };
 
 export const createFilmGrainPlateModel = ({
@@ -403,7 +403,7 @@ export const createFilmGrainPlateModel = ({
     FILM_GRAIN_MIN_CLUSTERS,
     Math.min(
       FILM_GRAIN_MAX_CLUSTERS,
-      Math.round((resolvedPlateSize * resolvedPlateSize) / (resolvedGrainSize ** 2 * 62)),
+      Math.round((resolvedPlateSize * resolvedPlateSize) / (resolvedGrainSize ** 2 * 33)),
     ),
   );
   const colonyCount = Math.max(
@@ -912,6 +912,35 @@ export const ensureFilmGrainOverlays = ({
   return { darkCanvas: darkOverlayCanvas, lightCanvas: lightOverlayCanvas };
 };
 
+const drawFilmGrainOverlayPass = (
+  targetCtx,
+  overlayCanvas,
+  alpha,
+  operation,
+  filter,
+  targetRect,
+) => {
+  if (alpha <= 0) {
+    return;
+  }
+  targetCtx.save();
+  targetCtx.globalAlpha = alpha;
+  targetCtx.globalCompositeOperation = operation;
+  targetCtx.filter = filter;
+  targetCtx.drawImage(
+    overlayCanvas,
+    0,
+    0,
+    overlayCanvas.width,
+    overlayCanvas.height,
+    targetRect.x,
+    targetRect.y,
+    targetRect.width,
+    targetRect.height,
+  );
+  targetCtx.restore();
+};
+
 export const applyFilmGrainOverlay = ({
   targetCtx,
   filmNoiseFilter,
@@ -945,36 +974,41 @@ export const applyFilmGrainOverlay = ({
     darkAlpha *= balancedMeanAlpha / darkMeanAlpha;
     lightAlpha *= balancedMeanAlpha / lightMeanAlpha;
   }
-  targetCtx.save();
-  targetCtx.globalAlpha = darkAlpha;
-  targetCtx.globalCompositeOperation = 'multiply';
-  targetCtx.drawImage(
+  const tone = Math.max(-1, Math.min(1, getNumeric(filmNoiseFilter?.settings?.tone, 0)));
+  const blackMix = Math.max(0, -tone);
+  const whiteMix = Math.max(0, tone);
+  drawFilmGrainOverlayPass(
+    targetCtx,
     overlays.darkCanvas,
-    0,
-    0,
-    overlays.darkCanvas.width,
-    overlays.darkCanvas.height,
-    targetRect.x,
-    targetRect.y,
-    targetRect.width,
-    targetRect.height,
+    darkAlpha * (1 - whiteMix),
+    'multiply',
+    'none',
+    targetRect,
   );
-  targetCtx.restore();
-  targetCtx.save();
-  targetCtx.globalAlpha = lightAlpha;
-  targetCtx.globalCompositeOperation = 'screen';
-  targetCtx.drawImage(
+  drawFilmGrainOverlayPass(
+    targetCtx,
     overlays.lightCanvas,
-    0,
-    0,
-    overlays.lightCanvas.width,
-    overlays.lightCanvas.height,
-    targetRect.x,
-    targetRect.y,
-    targetRect.width,
-    targetRect.height,
+    lightAlpha * blackMix,
+    'multiply',
+    'brightness(0)',
+    targetRect,
   );
-  targetCtx.restore();
+  drawFilmGrainOverlayPass(
+    targetCtx,
+    overlays.lightCanvas,
+    lightAlpha * (1 - blackMix),
+    'screen',
+    'none',
+    targetRect,
+  );
+  drawFilmGrainOverlayPass(
+    targetCtx,
+    overlays.darkCanvas,
+    darkAlpha * whiteMix,
+    'screen',
+    'brightness(0) invert(1)',
+    targetRect,
+  );
   return true;
 };
 

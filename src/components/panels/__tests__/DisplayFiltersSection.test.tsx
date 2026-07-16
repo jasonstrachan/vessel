@@ -40,7 +40,7 @@ const mockStore = {
       },
       { id: 'chromatic-aberration', enabled: true, settings: { offset: 2, intensity: 0.38 } },
       { id: 'noise', enabled: true, settings: { opacity: 0.08, scale: 2 } },
-      { id: 'film-noise', enabled: true, settings: { opacity: 0.16, scale: 1.5, shadowBias: 0.62 } },
+      { id: 'film-noise', enabled: true, settings: { opacity: 0.16, scale: 1.5, tone: 0, shadowBias: 0.62 } },
     ],
   },
   activeLayerId: null as string | null,
@@ -85,6 +85,7 @@ describe('DisplayFiltersSection', () => {
     expect(screen.getByText('Noise')).toBeInTheDocument();
     expect(screen.getByText('Film Noise')).toBeInTheDocument();
     expect(screen.getByLabelText('Film noise amount')).toBeInTheDocument();
+    expect(screen.getByLabelText('Film noise grain tone')).toBeInTheDocument();
     expect(screen.queryByLabelText('Film noise opacity')).not.toBeInTheDocument();
     expect(screen.queryByLabelText('Film noise shadow bias')).not.toBeInTheDocument();
   });
@@ -129,6 +130,11 @@ describe('DisplayFiltersSection', () => {
     fireEvent.change(screen.getByLabelText('Chromatic aberration offset'), { target: { value: '1.5' } });
     fireEvent.change(screen.getByLabelText('Noise scale'), { target: { value: '3' } });
     fireEvent.change(screen.getByLabelText('Film noise amount'), { target: { value: '0.35' } });
+    const filmNoiseTone = screen.getByLabelText('Film noise grain tone');
+    expect(filmNoiseTone).toHaveAttribute('min', '-1');
+    expect(filmNoiseTone).toHaveAttribute('max', '1');
+    expect(filmNoiseTone).toHaveAttribute('step', '0.01');
+    fireEvent.change(filmNoiseTone, { target: { value: '0.75' } });
     const filmNoiseGrainSize = screen.getByLabelText('Film noise grain size');
     expect(filmNoiseGrainSize).toHaveAttribute('min', '1');
     expect(filmNoiseGrainSize).toHaveAttribute('max', '2.65');
@@ -147,6 +153,7 @@ describe('DisplayFiltersSection', () => {
     expect(mockStore.updateDisplayFilter).toHaveBeenCalledWith('chromatic-aberration', { offset: 1.5 });
     expect(mockStore.updateDisplayFilter).toHaveBeenCalledWith('noise', { scale: 3 });
     expect(mockStore.updateDisplayFilter).toHaveBeenCalledWith('film-noise', { opacity: 0.35 });
+    expect(mockStore.updateDisplayFilter).toHaveBeenCalledWith('film-noise', { tone: 0.75 });
     expect(mockStore.updateDisplayFilter).toHaveBeenCalledWith('film-noise', { scale: 1.05 });
 
     const persistedFilmNoise = sanitizeDisplayFilters([{
@@ -156,14 +163,16 @@ describe('DisplayFiltersSection', () => {
     } as Extract<DisplayFilterConfig, { id: 'film-noise' }>])
       .find((filter) => filter.id === 'film-noise');
     expect(persistedFilmNoise?.settings.scale).toBe(1.05);
+    expect(persistedFilmNoise?.settings.tone).toBe(0);
 
     const clampedFilmNoise = sanitizeDisplayFilters([{
       id: 'film-noise',
       enabled: true,
-      settings: { opacity: 0.16, scale: 8, shadowBias: 0.62 },
+      settings: { opacity: 0.16, scale: 8, tone: 4, shadowBias: 0.62 },
     } as Extract<DisplayFilterConfig, { id: 'film-noise' }>])
       .find((filter) => filter.id === 'film-noise');
     expect(clampedFilmNoise?.settings.scale).toBe(2.65);
+    expect(clampedFilmNoise?.settings.tone).toBe(1);
   });
 
   it('rebakes an existing CC soft-edge mask when edge width is committed', async () => {

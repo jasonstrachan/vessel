@@ -3,8 +3,8 @@
 Last updated: 2026-07-16
 
 Status: implemented; deterministic verification complete for the 2026-07-16
-Amount calibration; user visual acceptance and the 25 ms plate-rebuild target
-remain open
+Amount and Grain Tone calibration; user visual acceptance and the 25 ms
+plate-rebuild target remain open
 
 ## Implementation result
 
@@ -19,7 +19,8 @@ topology-only `parentIndex` so tests can prove intended chain and branch necks.
 Deterministic combined coverage passes at Grain Size 1, 1.5, and the authored
 maximum 2.65 within the 14–22% target, with each balanced polarity plate
 independently within 6–12%. The legacy runtime value 8 remains covered for
-backward compatibility. The fixed 64-pixel fixture checksum is `764250713`.
+backward compatibility. The recalibrated fixed 64-pixel fixture checksum is
+`2260246826`.
 
 The 2026-07-16 compositing follow-up renamed the visible control from Opacity
 to Amount while retaining the serialized `opacity` field for compatibility.
@@ -32,6 +33,27 @@ keeps the mean channel within one level of the input. Amount changes continue
 to reuse cached morphology and overlays; the per-frame path remains two draws
 with zero artwork readback. Focused UI/renderer/runtime tests, Goblet parity,
 type-check, lint, diff validation, and the pinned production build pass.
+
+The Grain Tone follow-up adds a distinct persisted `tone` setting from `-1`
+(black/multiply only) through `0` (balanced) to `1` (white/screen only).
+Existing projects without `tone` sanitize to balanced, while the deprecated
+`shadowBias` field remains compatibility-only. Tone reassigns the already-
+cached fields between black/multiply and white/screen after their mean-alpha
+calibration, so it does not rebuild plates or target overlays and adds no
+artwork readback. At either endpoint both fields render in the selected colour,
+preserving the balanced center's combined grain density instead of discarding
+half the morphology. Intermediate values crossfade one field between operations
+and use three cached overlay draws; the center and endpoints use two. A scoped
+review also corrected the prior UI label swap so simple Noise remains Opacity
+and Film Noise exposes Amount.
+
+The 2026-07-16 morphology calibration packs grain centers closer without
+changing Grain Size, field thresholding, or compositing. Cluster density is
+about `1.88x` the prior model, the deterministic family mix is now 50% singles,
+35% short chains, and 15% islands, chains contain 3–6 lobes, and islands contain
+6–10 lobes. This replaces large clumps with more individual grains and short
+marks while keeping total lobe work near the previous model. The model version
+is bumped so existing cached plates rebuild with the denser morphology.
 
 The 2026-07-15 production-preview inspection over flat 50% gray confirmed
 ragged thresholded boundaries, merged waists, irregular blobs/strands, sparse
@@ -60,11 +82,11 @@ this field-rasterizer replacement, most likely worker/off-main-thread plate
 construction or a materially different model representation.
 
 Supersedes the plate *rendering* section of
-`plan-film-noise-canvas2d-redesign-2026-07-15.md`. Everything else in that plan
-— the cached dark/light plates, overlay caching, direct-overlay fast path,
-settings compatibility, invariants, non-goals, file boundary, and the per-frame
-performance contract — is already implemented in the working tree, verified,
-and is **kept unchanged**.
+`plan-film-noise-canvas2d-redesign-2026-07-15.md`. The Amount and Grain Tone
+follow-ups also supersede that plan's fixed dark-dominant balance and no-extra-
+control decisions. The cached dark/light plates, overlay caching,
+direct-overlay fast path, settings compatibility, invariants, non-goals, and
+per-frame performance contract remain unchanged.
 
 ## Why another pass
 
@@ -88,13 +110,14 @@ qualities of the reference.
 
 ## What changes and what does not
 
-Unchanged (already fast, keep as-is):
+Unchanged by the grain-field renderer replacement:
 
 - `createFilmGrainPlateModel` cluster/lobe geometry: deterministic PRNG,
   single/chain/island families, colonies, 0.05-step Grain Size, wrap logic,
-  and cluster-count bounds. Rename the rendering-oriented `connectFrom` field
-  to topology-only `parentIndex`; retain it until field-connectivity tests prove
-  every intended chain and branch neck.
+  and cluster-count bounds. The later morphology calibration adjusts only the
+  population and family proportions within this seam. Rename the
+  rendering-oriented `connectFrom` field to topology-only `parentIndex`; retain
+  it until field-connectivity tests prove every intended chain and branch neck.
 - `ensureFilmGrainPlates` cache keys, `ensureFilmGrainOverlays` target-overlay
   cache, and `applyFilmGrainOverlay` multiply/screen composite architecture.
 - Direct-overlay route in Vessel and Goblet2; mixed-stack ordering.
@@ -191,6 +214,9 @@ Adapt in place (same test files as the prior plan's boundary):
   arbitrary rows or columns `0` and `N-1` to be identical.
 - Grain Size rebuilds the plate; Amount does not (existing cache-key tests
   keep passing).
+- Grain Tone `-1`, `0`, and `1` resolve to black-only, balanced, and white-only
+  operations without changing either morphology or overlay cache key; both
+  fields remain visible at the endpoints so coverage density is preserved.
 - Rasterization records both plates' mean alpha. At composite time, scale both
   passes to the lower measured mean and verify a full-plate RGB 128 fixture
   drifts by no more than one channel level at 100% Amount.
@@ -201,14 +227,16 @@ Adapt in place (same test files as the prior plan's boundary):
 
 ## File boundary
 
-Authored (hard limit for the 2026-07-16 follow-up):
+Authored (hard limit for the 2026-07-16 Grain Tone follow-up):
 
 1. `src/lib/displayFilterPipeline.js`
-2. `src/lib/displayFilterPipeline.d.ts`
-3. `src/components/canvas/__tests__/useDrawingCanvasBaseRenderer.test.ts`
-4. `src/components/panels/DisplayFiltersSection.tsx`
-5. `src/components/panels/__tests__/DisplayFiltersSection.test.tsx`
-6. `docs/refactor/plan-film-noise-grain-field-2026-07-15.md`
+2. `src/lib/displayFilters.ts`
+3. `src/types/index.ts`
+4. `src/components/canvas/__tests__/useDrawingCanvasBaseRenderer.test.ts`
+5. `src/components/panels/DisplayFiltersSection.tsx`
+6. `src/components/panels/__tests__/DisplayFiltersSection.test.tsx`
+7. `src/stores/__tests__/canvasSlice.test.ts`
+8. `docs/refactor/plan-film-noise-grain-field-2026-07-15.md`
 
 `useDrawingCanvasBaseRenderer.ts` and `goblet2.js` should need **no edits** —
 the direct-overlay route consumes the same plate canvases.
@@ -221,14 +249,16 @@ plan; regenerate, do not hand-edit):
 3. `public/goblet2/displayFilterPipeline.js`
 4. `public/goblet2/goblet2-inline.js`
 
-Bump `FILM_GRAIN_MODEL_VERSION` so stale cached plates cannot survive.
+Bump `FILM_GRAIN_MODEL_VERSION` for the morphology change so stale cached
+plates cannot survive. Grain Tone alone does not change the model version or
+invalidate morphology caches.
 
 ## Verification
 
 Same battery as the prior plan:
 
 ```bash
-npm test -- --runInBand src/components/canvas/__tests__/useDrawingCanvasBaseRenderer.test.ts src/components/panels/__tests__/DisplayFiltersSection.test.tsx tests/goblet-display-filters-runtime.test.ts
+npm test -- --runInBand src/components/canvas/__tests__/useDrawingCanvasBaseRenderer.test.ts src/components/panels/__tests__/DisplayFiltersSection.test.tsx src/stores/__tests__/canvasSlice.test.ts tests/goblet-display-filters-runtime.test.ts
 npm run build:goblet-inline
 npm run verify:goblet-runtime
 npm run type-check
@@ -258,5 +288,7 @@ unchanged, but it is still measured rather than assumed.
 3. All prior invariants (determinism, seamlessness, cache behavior, direct
    overlay, settings compatibility, parity) still pass.
 4. Complete build timing is recorded at Grain Size 1 and 8; no rebuild occurs
-   on Amount changes or during unchanged playback frames.
-5. User accepts the visual result in the production preview.
+   on Amount or Grain Tone changes or during unchanged playback frames.
+5. Grain Tone reaches black-only and white-only endpoints while preserving the
+   existing balanced center behavior.
+6. User accepts the visual result in the production preview.

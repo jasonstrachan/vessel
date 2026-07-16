@@ -263,6 +263,12 @@ const sanitizeFilmNoise = (filter?: Partial<DisplayFilterForId<'film-noise'>>): 
         1.5,
       ), FILM_NOISE_GRAIN_SIZE_STEP),
     ),
+    tone: roundToStep(clamp(
+      filter?.settings?.tone,
+      -1,
+      1,
+      0,
+    ), 0.01),
     shadowBias: roundToStep(clamp(
       filter?.settings?.shadowBias,
       0,

@@ -207,9 +207,14 @@ describe('canvas slice invariants', () => {
       useAppStore.getState().canvas.displayFilters.find((filter) => filter.id === 'chromatic-aberration')?.settings
     ).toEqual({ offset: 12, intensity: 0 });
 
-    useAppStore.getState().updateDisplayFilter('film-noise', { opacity: 4, scale: 0, shadowBias: 7 });
+    useAppStore.getState().updateDisplayFilter('film-noise', {
+      opacity: 4,
+      scale: 0,
+      tone: 7,
+      shadowBias: 7,
+    });
     const filmNoise = useAppStore.getState().canvas.displayFilters.find((filter) => filter.id === 'film-noise');
-    expect(filmNoise?.settings).toEqual({ opacity: 1, scale: 1, shadowBias: 1 });
+    expect(filmNoise?.settings).toEqual({ opacity: 1, scale: 1, tone: 1, shadowBias: 1 });
 
     const persistedDefaults = readLocalSettings().canvas?.displayFilterDefaults;
     expect(persistedDefaults?.every((filter) => filter.enabled === false)).toBe(true);
@@ -247,6 +252,7 @@ describe('canvas slice invariants', () => {
     expect(persistedDefaults?.find((filter) => filter.id === 'film-noise')?.settings).toEqual({
       opacity: 1,
       scale: 1,
+      tone: 1,
       shadowBias: 1,
     });
   });

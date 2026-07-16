@@ -465,7 +465,7 @@ const FilterCard = ({ filter }: FilterCardProps) => {
           <>
             <div>
               <label className="mb-1 block text-[11px] uppercase tracking-[0.08em] text-[#8F8F8F]">
-                Amount
+                Opacity
               </label>
               <ProgressSlider
                 value={filter.settings.opacity}
@@ -497,7 +497,7 @@ const FilterCard = ({ filter }: FilterCardProps) => {
           <>
             <div>
               <label className="mb-1 block text-[11px] uppercase tracking-[0.08em] text-[#8F8F8F]">
-                Opacity
+                Amount
               </label>
               <ProgressSlider
                 value={filter.settings.opacity}
@@ -507,6 +507,26 @@ const FilterCard = ({ filter }: FilterCardProps) => {
                 onChange={(value) => updateDisplayFilter('film-noise', { opacity: value })}
                 aria-label="Film noise amount"
                 formatValue={(value) => `${Math.round(value * 100)}%`}
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-[11px] uppercase tracking-[0.08em] text-[#8F8F8F]">
+                Grain Tone
+              </label>
+              <ProgressSlider
+                value={filter.settings.tone ?? 0}
+                min={-1}
+                max={1}
+                step={0.01}
+                onChange={(value) => updateDisplayFilter('film-noise', { tone: value })}
+                aria-label="Film noise grain tone"
+                formatValue={(value) => {
+                  const percentage = Math.round(Math.abs(value) * 100);
+                  if (percentage === 0) {
+                    return 'Balanced';
+                  }
+                  return `${percentage}% ${value < 0 ? 'Black' : 'White'}`;
+                }}
               />
             </div>
             <div>
