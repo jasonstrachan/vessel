@@ -307,7 +307,9 @@ const resolveCcDirectionPreviewStops = (state: AppState): PreviewGradientStop[] 
   const sessionStops =
     activeSession?.previewStopsStored && activeSession.previewStopsStored.length >= 2
       ? activeSession.previewStopsStored
-      : activeSession?.frozenStopsStored;
+      : activeSession?.rawStopsStored?.length
+        ? activeSession.rawStopsStored
+        : activeSession?.frozenStopsStored;
   if (sessionStops && sessionStops.length >= 2) {
     const runtimeStops = resolveMarkSessionRuntimeStops(activeSession, sessionStops, {
       enabled: activeSession?.ditherRenderConfig?.enabled ?? useDitherPreviewPalette,
@@ -506,6 +508,7 @@ const buildFallbackMarkSession = (
     markKind: 'shape',
     gradientKind,
     source: resolveFallbackMarkSource(state),
+    rawStopsStored: cloneStops(resolved.activeStops),
     frozenStopsStored: resolved.activeStops,
     frozenHash: hashStops(resolved.activeStops, gradientKind),
     binding: null,

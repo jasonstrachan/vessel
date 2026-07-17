@@ -5,6 +5,7 @@ import {
   cancelMarkGradientSession,
   finalizeMarkGradientSession,
   getPreviewGradientForActiveMark,
+  resolveMarkSessionRuntimeStops,
 } from '@/hooks/canvas/utils/colorCycleMarkSession';
 import { useAppStore } from '@/stores/useAppStore';
 import { buildCcDitherRenderPalette, resolveCcDitherBandMode } from '@/utils/colorCycle/ccDitherRenderPalette';
@@ -59,6 +60,55 @@ describe('colorCycleMarkSession rebuild', () => {
         ? { ...state.project, width: 2, height: 2 }
         : state.project,
     }));
+  });
+
+  it.each(['manual', 'fg'] as const)(
+    'applies gradient contrast to %s source stops',
+    (source) => {
+      const runtimeStops = resolveMarkSessionRuntimeStops(
+        {
+          source,
+          ditherRenderConfig: {
+            enabled: false,
+            pairBandCount: 0,
+            rangeContrast: 0,
+          },
+        },
+        stops,
+      );
+
+      expect(runtimeStops).toEqual([
+        { position: 0, color: 'rgb(128, 128, 128)' },
+        { position: 1, color: 'rgb(128, 128, 128)' },
+      ]);
+    },
+  );
+
+  it('applies gradient contrast before building the dither render palette', () => {
+    const pairBandCount = resolveCcDitherBandMode(16).pairBandCount;
+    const runtimeStops = resolveMarkSessionRuntimeStops(
+      {
+        source: 'manual',
+        ditherRenderConfig: {
+          enabled: true,
+          pairBandCount,
+          spread: 0,
+          rangeContrast: 0,
+          algorithm: 'bayer',
+        },
+      },
+      stops,
+    );
+    const expectedStops = buildCcDitherRenderPalette({
+      baseStops: [
+        { position: 0, color: 'rgb(128, 128, 128)' },
+        { position: 1, color: 'rgb(128, 128, 128)' },
+      ],
+      bands: pairBandCount,
+      spread: 0,
+    }).renderStops;
+
+    expect(runtimeStops).toEqual(expectedStops);
   });
 
   it('begins sampled session without preallocating a slot', () => {
@@ -439,6 +489,56 @@ describe('colorCycleMarkSession rebuild', () => {
       { position: 0, color: 'rgb(128, 128, 128)' },
       { position: 1, color: 'rgb(128, 128, 128)' },
     ]);
+  });
+
+  it('applies intermediate gradient contrast once to sampled CC Flat Dither preview and final stops', () => {
+    const layer = createLayer();
+
+    useAppStore.setState((state) => ({
+      layers: [layer],
+      activeLayerId: layer.id,
+      tools: {
+        ...state.tools,
+        brushSettings: {
+          ...state.tools.brushSettings,
+          ditherEnabled: true,
+          ccFlatCycleDither: true,
+          ccGradientRangeContrast: 50,
+        },
+      },
+      project: state.project
+        ? { ...state.project, width: 2, height: 2, layers: [layer] }
+        : state.project,
+    }));
+
+    const session = beginMarkGradientSession({
+      layerId: layer.id,
+      markKind: 'shape',
+      gradientKind: 'linear',
+      source: 'sampled',
+      stops,
+    });
+
+    if (!session) {
+      throw new Error('Expected sampled CC Flat Dither mark session');
+    }
+
+    session.previewStopsStored = stops;
+
+    expect(getPreviewGradientForActiveMark(layer.id)?.stopsStored).toEqual([
+      { position: 0, color: 'rgb(78, 78, 78)' },
+      { position: 1, color: 'rgb(178, 178, 178)' },
+    ]);
+
+    const finalized = finalizeMarkGradientSession(layer.id);
+    const finalizedStops = useAppStore.getState().layers[0]?.colorCycleData?.gradientDefStore?.[0]?.stops;
+
+    expect(finalized?.rawStopsStored).toEqual(stops);
+    expect(finalized?.frozenStopsStored).toEqual([
+      { position: 0, color: 'rgb(78, 78, 78)' },
+      { position: 1, color: 'rgb(178, 178, 178)' },
+    ]);
+    expect(finalizedStops).toEqual(finalized?.frozenStopsStored);
   });
 
   it('returns null during sampled preview when sampled stops are missing', () => {

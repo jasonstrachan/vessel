@@ -1013,17 +1013,19 @@ describe('BrushControls – Color Cycle gradient fill mode', () => {
     render(<BrushControls />);
     expect(screen.getByRole('checkbox', { name: 'Grid Snap' })).toBeInTheDocument();
     expect(screen.getByLabelText('Ink Spread')).toBeInTheDocument();
-    expect(screen.queryByLabelText('Range Contrast')).not.toBeInTheDocument();
+    expect(screen.getByLabelText('Gradient Contrast')).toBeInTheDocument();
     expect(screen.getByLabelText('Dither Pattern Diversity')).toBeInTheDocument();
     expect(screen.getByText('Variety')).toBeInTheDocument();
     expect(screen.getByText('Ink Spd')).toBeInTheDocument();
+    expect(screen.getByText('Grd Contrast')).toBeInTheDocument();
   });
 
-  it('shows range contrast instead of ink spread when CC gradient dithering is off', () => {
+  it('shows gradient contrast without ink spread when CC gradient dithering is off', () => {
     useAppStore.setState((state) => ({
       ...state,
       tools: {
         ...state.tools,
+        ccGradientSource: 'sampled',
         brushSettings: {
           ...state.tools.brushSettings,
           brushShape: 'color_cycle_shape' as BrushSettings['brushShape'],
@@ -1039,17 +1041,17 @@ describe('BrushControls – Color Cycle gradient fill mode', () => {
 
     render(<BrushControls />);
 
-    expect(screen.getByLabelText('Range Contrast')).toBeInTheDocument();
+    expect(screen.getByLabelText('Gradient Contrast')).toBeInTheDocument();
     expect(screen.queryByLabelText('Ink Spread')).not.toBeInTheDocument();
 
-    fireEvent.change(screen.getByLabelText('Range Contrast'), {
+    fireEvent.change(screen.getByLabelText('Gradient Contrast'), {
       target: { value: '22' },
     });
 
     expect(useAppStore.getState().tools.brushSettings.ccGradientRangeContrast).toBe(22);
   });
 
-  it('hides range contrast when CC gradient dithering is off for manual and foreground sources', () => {
+  it('shows gradient contrast when CC gradient dithering is off for manual and foreground sources', () => {
     (['manual', 'fg'] as const).forEach((ccGradientSource) => {
       useAppStore.setState((state) => ({
         ...state,
@@ -1071,11 +1073,41 @@ describe('BrushControls – Color Cycle gradient fill mode', () => {
 
       const { unmount } = render(<BrushControls />);
 
-      expect(screen.queryByLabelText('Range Contrast')).not.toBeInTheDocument();
+      expect(screen.getByLabelText('Gradient Contrast')).toBeInTheDocument();
       expect(screen.queryByLabelText('Ink Spread')).not.toBeInTheDocument();
 
       unmount();
     });
+  });
+
+  it('hides Colors while showing gradient contrast in the CC Flat Dither brush settings', () => {
+    useAppStore.setState((state) => ({
+      ...state,
+      tools: {
+        ...state.tools,
+        ccGradientSource: 'sampled',
+        brushSettings: {
+          ...state.tools.brushSettings,
+          brushShape: 'color_cycle_shape' as BrushSettings['brushShape'],
+          customBrushColorCycle: false,
+          customBrushColorCycleMode: 'tip',
+          ditherEnabled: true,
+          ccFlatCycleDither: true,
+          ccFlatCycleBands: 7,
+          ccGradientRangeContrast: 100,
+        },
+      },
+      brushPresets: [{ id: 'color-cycle-flat-dither', name: 'CC Flat Dither' } as AppState['brushPresets'][number]],
+      currentBrushPreset: { id: 'color-cycle-flat-dither', name: 'CC Flat Dither' } as AppState['currentBrushPreset'],
+    }));
+
+    render(<BrushControls />);
+
+    expect(screen.queryByLabelText('CC Gradient Colors')).not.toBeInTheDocument();
+    expect(screen.queryByText('Always on')).not.toBeInTheDocument();
+    expect(screen.getByLabelText('Gradient Contrast')).toBeInTheDocument();
+    expect(screen.getByLabelText('Ink Spread')).toBeInTheDocument();
+    expect(screen.getByLabelText('Flat Cycle Banding')).toBeInTheDocument();
   });
 
   it('updates dither pattern diversity from the CC gradient controls', () => {

@@ -15,7 +15,9 @@ import {
   type PressureResolutionState,
 } from '@/utils/pressureResolution';
 import { fillCcGradientDither } from '@/utils/colorCycle/ccGradientDither';
-import { applyCcSampledRangeContrast } from '@/utils/colorCycle/ccSampledRangeContrast';
+import {
+  applyCcSampledRangeContrast as applyCcGradientContrast,
+} from '@/utils/colorCycle/ccSampledRangeContrast';
 import { resolveStableFlatSeed } from '@/utils/colorCycle/ccFlatSeed';
 import { computeConcentricMaxDistance } from '@/utils/colorCycle/concentricFillCore';
 import { getActiveMarkGradientSession } from '@/hooks/canvas/utils/colorCycleMarkSession';
@@ -1549,15 +1551,13 @@ export const runSampledCcDitherPreviewRuntime = (args: {
           ),
           replayKey: request.replayKey,
         });
-        const effectiveStops = sampledBrushSettings.ditherEnabled
-          ? resolvedSampledStops.stops
-          : applyCcSampledRangeContrast(
-              resolvedSampledStops.stops,
-              sampledBrushSettings.ccGradientRangeContrast
-            );
+        const effectiveStops = applyCcGradientContrast(
+          resolvedSampledStops.stops,
+          sampledBrushSettings.ccGradientRangeContrast,
+        );
         rememberSampledCcShapePreviewStops({
           layerId: getAppStoreState().activeLayerId,
-          stops: effectiveStops,
+          stops: resolvedSampledStops.stops,
           replayKey: request.replayKey,
           shapeKey: buildSampledCcShapePreviewShapeKey(committedPolygon),
           rawPointCount: committedPolygon.length,

@@ -645,7 +645,10 @@ describe('ShapeToolHandler CC dither preview replay', () => {
     );
   });
 
-  it('applies range contrast to freshly sampled non-dither preview stops', async () => {
+  it.each([
+    ['non-dither', { ditherEnabled: false, ccFlatCycleDither: false }],
+    ['CC Flat Dither', { ditherEnabled: true, ccFlatCycleDither: true }],
+  ] as const)('applies gradient contrast to freshly sampled %s preview stops', async (_mode, modeSettings) => {
     jest.useFakeTimers();
     fillCcGradientDither.mockImplementationOnce(async (args: any) => {
       args.writeIndex(0, 0, 1);
@@ -677,7 +680,7 @@ describe('ShapeToolHandler CC dither preview replay', () => {
         ...storeState.tools.brushSettings,
         ccGradientSource: 'sampled',
         colorCycleFillMode: 'linear',
-        ditherEnabled: false,
+        ...modeSettings,
         ccGradientRangeContrast: 0,
         gradientBands: 1,
       },

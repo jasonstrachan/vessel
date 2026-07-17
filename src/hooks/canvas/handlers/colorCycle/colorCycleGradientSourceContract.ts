@@ -7,10 +7,7 @@ import {
 import type { BrushSettings, Layer } from '@/types';
 import type { MarkGradientSession } from '@/hooks/canvas/utils/colorCycleMarkSession';
 import { resolveMarkSessionRuntimeStops } from '@/hooks/canvas/utils/colorCycleMarkSession';
-import {
-  buildCcDitherRuntimePalette,
-  resolveCcDitherBandMode,
-} from '@/utils/colorCycle/ccDitherRenderPalette';
+import { resolveCcDitherBandMode } from '@/utils/colorCycle/ccDitherRenderPalette';
 
 export type ColorCycleGradientSourceBehavior = {
   source: GradientDefSource;
@@ -116,8 +113,17 @@ export const resolveColorCycleGradientRenderSession = ({
     (!session.ditherRenderConfig &&
       brushSettings.ditherEnabled &&
       brushSettings.ccFlatCycleDither !== true);
+  const rawStops = session.rawStopsStored?.length
+    ? session.rawStopsStored
+    : session.frozenStopsStored;
+  const sampledSourceStops = session.source === 'sampled'
+    ? resolveMarkSessionRuntimeStops(session, rawStops, {
+        enabled: false,
+        rangeContrast: brushSettings.ccGradientRangeContrast,
+      })
+    : undefined;
   if (!session.frozenStopsStored?.length || !shouldUseSessionDither) {
-    const runtimeStops = resolveMarkSessionRuntimeStops(session, session.frozenStopsStored, {
+    const runtimeStops = resolveMarkSessionRuntimeStops(session, rawStops, {
       enabled: false,
       rangeContrast: brushSettings.ccGradientRangeContrast,
     });
@@ -139,7 +145,7 @@ export const resolveColorCycleGradientRenderSession = ({
         return {
           binding: { kind: 'def', defId: renderDef.def.id, slot: renderDef.slot },
           frozenStopsStored: runtimeStops,
-          sourceStopsStored: session.source === 'sampled' ? runtimeStops : undefined,
+          sourceStopsStored: sampledSourceStops,
           frozenHash: renderDef.hash,
           source: session.source,
           gradientKind: session.gradientKind,
@@ -151,7 +157,7 @@ export const resolveColorCycleGradientRenderSession = ({
     return {
       binding: session.binding,
       frozenStopsStored: runtimeStops,
-      sourceStopsStored: session.source === 'sampled' ? runtimeStops : undefined,
+      sourceStopsStored: sampledSourceStops,
       frozenHash: runtimeHash,
       source: session.source,
       gradientKind: session.gradientKind,
@@ -164,23 +170,19 @@ export const resolveColorCycleGradientRenderSession = ({
     session.ditherRenderConfig?.pairBandCount ??
     resolveCcDitherBandMode(brushSettings.gradientBands ?? 16).pairBandCount;
   const algorithm = session.ditherRenderConfig?.algorithm ?? brushSettings.ditherAlgorithm;
-  const renderPalette = buildCcDitherRuntimePalette({
-    baseStops: session.frozenStopsStored,
-    bands: pairBandCount,
+  const runtimeStops = resolveMarkSessionRuntimeStops(session, rawStops, {
+    enabled: true,
+    pairBandCount,
     spread: session.ditherRenderConfig?.spread ?? brushSettings.ditherPaletteSpread,
+    rangeContrast: brushSettings.ccGradientRangeContrast,
     algorithm,
-    preserveSourceStops:
-      session.source !== 'sampled' &&
-      pairBandCount <= 0 &&
-      (algorithm ?? 'sierra-lite') === 'sierra-lite',
-    debugContext: 'finalize-render-session',
   });
-  const renderHash = hashStops(renderPalette.renderStops, session.gradientKind);
+  const renderHash = hashStops(runtimeStops, session.gradientKind);
   if (session.binding && renderHash === session.frozenHash) {
     return {
       binding: session.binding,
-      frozenStopsStored: renderPalette.renderStops,
-      sourceStopsStored: session.source === 'sampled' ? session.frozenStopsStored : undefined,
+      frozenStopsStored: runtimeStops,
+      sourceStopsStored: sampledSourceStops,
       frozenHash: renderHash,
       source: session.source,
       gradientKind: session.gradientKind,
@@ -192,7 +194,7 @@ export const resolveColorCycleGradientRenderSession = ({
   const renderDef = ensureGradientDefForStops({
     layerId,
     kind: session.gradientKind,
-    stops: renderPalette.renderStops,
+    stops: runtimeStops,
     source: session.source,
     speedCps: session.speedCps ?? undefined,
     seamProfile: session.seamProfile,
@@ -202,7 +204,7 @@ export const resolveColorCycleGradientRenderSession = ({
     return {
       binding: session.binding,
       frozenStopsStored: session.frozenStopsStored,
-      sourceStopsStored: session.source === 'sampled' ? session.frozenStopsStored : undefined,
+      sourceStopsStored: sampledSourceStops,
       frozenHash: session.frozenHash,
       source: session.source,
       gradientKind: session.gradientKind,
@@ -213,8 +215,8 @@ export const resolveColorCycleGradientRenderSession = ({
 
   return {
     binding: { kind: 'def', defId: renderDef.def.id, slot: renderDef.slot },
-    frozenStopsStored: renderPalette.renderStops,
-    sourceStopsStored: session.source === 'sampled' ? session.frozenStopsStored : undefined,
+    frozenStopsStored: runtimeStops,
+    sourceStopsStored: sampledSourceStops,
     frozenHash: renderDef.hash,
     source: session.source,
     gradientKind: session.gradientKind,

@@ -14,7 +14,9 @@ import {
   type StoredStop,
   type GradientDefSource,
 } from '@/utils/colorCycleGradientDefs';
-import { applyCcSampledRangeContrast } from '@/utils/colorCycle/ccSampledRangeContrast';
+import {
+  applyCcSampledRangeContrast as applyCcGradientContrast,
+} from '@/utils/colorCycle/ccSampledRangeContrast';
 import { ccWarn } from '@/utils/colorCycle/ccDebug';
 import {
   type GradientSeamProfile,
@@ -27,6 +29,7 @@ export type MarkGradientSession = {
   gradientKind: 'linear' | 'concentric';
   source: GradientDefSource;
   seamProfile?: GradientSeamProfile;
+  rawStopsStored?: StoredStop[];
   frozenStopsStored: StoredStop[];
   frozenHash: string;
   binding: { kind: 'def'; defId: number; slot: number } | null;
@@ -93,24 +96,20 @@ const finalizeSampledSession = (session: MarkGradientSession): void => {
       ? session.previewStopsStored
       : null;
   const finalStops = sampledStops ?? fallbackStops;
-  const shouldFreezeRuntimeStops = !session.ditherRenderConfig?.enabled;
-  const liveRangeContrast = getAppStoreState().tools.brushSettings.ccGradientRangeContrast;
-  session.frozenStopsStored = shouldFreezeRuntimeStops
-    ? resolveMarkSessionRuntimeStops(session, finalStops, {
-        enabled: false,
-        rangeContrast: liveRangeContrast,
-      })
-    : cloneStops(finalStops);
+  const liveGradientContrast = getAppStoreState().tools.brushSettings.ccGradientRangeContrast;
+  session.rawStopsStored = cloneStops(finalStops);
+  session.frozenStopsStored = resolveMarkSessionRuntimeStops(
+    session,
+    session.rawStopsStored,
+    { rangeContrast: liveGradientContrast },
+  );
   session.frozenHash = hashStops(session.frozenStopsStored, session.gradientKind);
 
   if (!session.binding) {
-    const runtimeStops = shouldFreezeRuntimeStops
-      ? session.frozenStopsStored
-      : resolveMarkSessionRuntimeStops(session, session.frozenStopsStored);
     const defResult = ensureGradientDefForStops({
       layerId: session.layerId,
       kind: session.gradientKind,
-      stops: runtimeStops,
+      stops: session.frozenStopsStored,
       source: session.source,
       speedCps: session.speedCps ?? undefined,
       seamProfile: session.seamProfile,
@@ -151,14 +150,12 @@ export const resolveMarkSessionRuntimeStops = (
   const clonedStops = cloneStops(stops);
   const config = session?.ditherRenderConfig;
   const enabled = liveOverrides?.enabled ?? config?.enabled ?? false;
+  const contrastStops = applyCcGradientContrast(
+    clonedStops,
+    liveOverrides?.rangeContrast ?? config?.rangeContrast,
+  );
   if (!enabled) {
-    if (session?.source === 'sampled') {
-      return applyCcSampledRangeContrast(
-        clonedStops,
-        liveOverrides?.rangeContrast ?? config?.rangeContrast
-      );
-    }
-    return clonedStops;
+    return contrastStops;
   }
   const bands = liveOverrides?.pairBandCount ?? config?.pairBandCount ?? 0;
   const spread = liveOverrides?.spread ?? config?.spread;
@@ -168,7 +165,7 @@ export const resolveMarkSessionRuntimeStops = (
     algorithm === 'sierra-lite' &&
     session?.source !== 'sampled';
   const runtimeStops = buildCcDitherRuntimePalette({
-    baseStops: clonedStops,
+    baseStops: contrastStops,
     bands,
     spread,
     algorithm,
@@ -210,6 +207,7 @@ export const beginMarkGradientSession = (params: {
       gradientKind: params.gradientKind,
       source: params.source,
       seamProfile,
+      rawStopsStored: cloneStops(frozenStops),
       frozenStopsStored: frozenStops,
       frozenHash: '',
       binding: null,
@@ -248,7 +246,8 @@ export const beginMarkGradientSession = (params: {
     gradientKind: params.gradientKind,
     source: params.source,
     seamProfile,
-    frozenStopsStored: frozenStops,
+    rawStopsStored: frozenStops,
+    frozenStopsStored: runtimeStops,
     frozenHash: defResult.hash,
     binding: { kind: 'def', defId: defResult.def.id, slot: defResult.slot },
     speedCps: params.speedCps,
@@ -312,13 +311,11 @@ export const getPreviewGradientForActiveMark = (layerId: string): PreviewGradien
       return {
         source: 'sampled',
         phase: session.binding ? 'final' : 'sampling',
-        stopsStored: session.ditherRenderConfig?.enabled
-          ? cloneStops(sampledStops)
-          : applyCcSampledRangeContrast(
-              sampledStops,
-              getAppStoreState().tools.brushSettings.ccGradientRangeContrast ??
-                session.ditherRenderConfig?.rangeContrast
-            ),
+        stopsStored: applyCcGradientContrast(
+          sampledStops,
+          getAppStoreState().tools.brushSettings.ccGradientRangeContrast ??
+            session.ditherRenderConfig?.rangeContrast,
+        ),
         defIdPlanned: session.binding?.defId,
       };
     }

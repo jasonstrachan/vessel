@@ -5,6 +5,8 @@ import {
   resolveColorCycleGradientSourceState,
 } from '@/hooks/canvas/handlers/colorCycle/colorCycleGradientSourceContract';
 import type { BrushSettings, Layer } from '@/types';
+import { buildCcDitherRenderPalette, resolveCcDitherBandMode } from '@/utils/colorCycle/ccDitherRenderPalette';
+import { hashStops } from '@/utils/colorCycleGradientDefs';
 
 const makeLayer = (overrides?: Partial<Layer>): Layer => ({
   id: 'layer-1',
@@ -207,6 +209,92 @@ describe('colorCycleGradientSourceContract', () => {
     expect(result).toBeDefined();
     expect(result?.source).toBe('manual');
     expect(result?.frozenStopsStored.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it('applies intermediate contrast once to sampled CC Flat Dither stops', () => {
+    const rawStops = [
+      { position: 0, color: '#000000' },
+      { position: 1, color: '#ffffff' },
+    ];
+    const contrastedStops = [
+      { position: 0, color: 'rgb(78, 78, 78)' },
+      { position: 1, color: 'rgb(178, 178, 178)' },
+    ];
+    const session = makeMarkSession({
+      source: 'sampled',
+      rawStopsStored: rawStops,
+      frozenStopsStored: contrastedStops,
+      frozenHash: hashStops(contrastedStops, 'linear'),
+      binding: { kind: 'def', defId: 41, slot: 15 },
+      ditherRenderConfig: {
+        enabled: false,
+        pairBandCount: resolveCcDitherBandMode(16).pairBandCount,
+        spread: 0,
+        rangeContrast: 50,
+        algorithm: 'bayer',
+      },
+    });
+
+    const result = resolveColorCycleGradientRenderSession({
+      layerId: 'layer-1',
+      session,
+      brushSettings: makeBrushSettings({
+        ditherEnabled: true,
+        ccFlatCycleDither: true,
+        ccGradientRangeContrast: 50,
+        gradientBands: 16,
+      }),
+    });
+
+    expect(result?.frozenStopsStored).toEqual(contrastedStops);
+    expect(result?.sourceStopsStored).toEqual(contrastedStops);
+  });
+
+  it('applies intermediate contrast before rebuilding sampled dither render stops', () => {
+    const rawStops = [
+      { position: 0, color: '#000000' },
+      { position: 1, color: '#ffffff' },
+    ];
+    const contrastedStops = [
+      { position: 0, color: 'rgb(78, 78, 78)' },
+      { position: 1, color: 'rgb(178, 178, 178)' },
+    ];
+    const pairBandCount = resolveCcDitherBandMode(16).pairBandCount;
+    const runtimeStops = buildCcDitherRenderPalette({
+      baseStops: contrastedStops,
+      bands: pairBandCount,
+      spread: 0,
+    }).renderStops;
+    const session = makeMarkSession({
+      source: 'sampled',
+      rawStopsStored: rawStops,
+      frozenStopsStored: runtimeStops,
+      frozenHash: hashStops(runtimeStops, 'linear'),
+      binding: { kind: 'def', defId: 41, slot: 15 },
+      ditherRenderConfig: {
+        enabled: true,
+        pairBandCount,
+        spread: 0,
+        rangeContrast: 50,
+        algorithm: 'bayer',
+      },
+    });
+
+    const result = resolveColorCycleGradientRenderSession({
+      layerId: 'layer-1',
+      session,
+      brushSettings: makeBrushSettings({
+        ditherEnabled: true,
+        ccFlatCycleDither: false,
+        ccGradientRangeContrast: 50,
+        gradientBands: 16,
+        ditherPaletteSpread: 0,
+        ditherAlgorithm: 'bayer',
+      }),
+    });
+
+    expect(result?.frozenStopsStored).toEqual(runtimeStops);
+    expect(result?.sourceStopsStored).toEqual(contrastedStops);
   });
 
   it('compresses sampled non-dither render stops with range contrast', () => {

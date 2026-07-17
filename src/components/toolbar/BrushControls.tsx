@@ -335,6 +335,7 @@ const BrushControls = () => {
   const setCcGradientSource = useAppStore(state => state.setCcGradientSource);
   const currentBrushPresetId = useAppStore(state => state.currentBrushPreset?.id ?? null);
   const isColorCycleGradientPreset = isCcGradientPreset(currentBrushPresetId);
+  const isColorCycleFlatDitherPreset = currentBrushPresetId === 'color-cycle-flat-dither';
   const isColorCycleStrokePreset = currentBrushPresetId === 'color-cycle-stroke';
   const brushSettings = useAppStore(selectBrushSettings);
   const eraserSettings = useAppStore(selectEraserSettings);
@@ -1365,7 +1366,7 @@ const BrushControls = () => {
     );
   }, [handleRemoveSavedGradient, savedGradients]);
 
-  const ccGradientColorsControl = isColorCycleGradientPreset ? (
+  const ccGradientColorsControl = isColorCycleGradientPreset && !isColorCycleFlatDitherPreset ? (
     <div className="flex items-center gap-2 mt-2">
       <label className={CONTROL_LABEL_CLASS} style={CONTROL_LABEL_STYLE}>
         Colors
@@ -1930,11 +1931,35 @@ const BrushControls = () => {
         {activeSettings.brushShape === BrushShape.COLOR_CYCLE_SHAPE && (
           <>
             {ccGradientColorsControl}
+            {isColorCycleGradientPreset && (
+              <div className="flex items-center gap-2 mt-2 mb-2">
+                <label
+                  className={`${CONTROL_LABEL_CLASS} whitespace-nowrap text-[11px]`}
+                  title="Gradient Contrast"
+                >
+                  Grd Contrast
+                </label>
+                <ProgressSlider
+                  value={activeSettings.ccGradientRangeContrast ?? 100}
+                  min={0}
+                  max={100}
+                  step={1}
+                  onChange={(value) =>
+                    setActiveSettings({
+                      ccGradientRangeContrast: Math.max(0, Math.min(100, Math.round(value))),
+                    })
+                  }
+                  aria-label="Gradient Contrast"
+                  className="flex-1"
+                />
+              </div>
+            )}
             <DitherControls
               settings={activeSettings}
               onChange={setActiveSettings}
               canToggle
               forceOn={Boolean(capability.forceDither)}
+              hideToggle={isColorCycleFlatDitherPreset}
               isDitherPreset={isDitherPreset}
               showPxlEdgeToggle={isColorCycleGradientPreset}
               hideLostEdge
@@ -2009,30 +2034,6 @@ const BrushControls = () => {
                 ) : null
               }
             />
-            {isColorCycleGradientPreset && isGradientSampleMode && !activeSettings.ditherEnabled && (
-              <div className="flex items-center gap-2 mt-2 mb-2">
-                <label
-                  className={CONTROL_LABEL_CLASS}
-                  style={CONTROL_LABEL_STYLE}
-                  title="Range Contrast"
-                >
-                  Range
-                </label>
-                <ProgressSlider
-                  value={activeSettings.ccGradientRangeContrast ?? 100}
-                  min={0}
-                  max={100}
-                  step={1}
-                  onChange={(value) =>
-                    setActiveSettings({
-                      ccGradientRangeContrast: Math.max(0, Math.min(100, Math.round(value))),
-                    })
-                  }
-                  aria-label="Range Contrast"
-                  className="flex-1"
-                />
-              </div>
-            )}
             <div className="mb-2">
               <div className="flex items-center gap-2">
                 <label
