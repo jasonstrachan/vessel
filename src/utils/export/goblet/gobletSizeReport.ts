@@ -1,7 +1,16 @@
 import { inflateSync } from 'fflate';
 
 import { B64Z_HEADER_PREFIX } from '@/utils/export/b64z';
-import type { WebGLExportMetadata } from '@/utils/export/goblet/gobletTypes';
+import type {
+  GobletSingleHtmlBreakdown,
+  GobletSizeReport,
+  WebGLExportMetadata,
+} from '@/utils/export/goblet/gobletTypes';
+
+export type {
+  GobletSingleHtmlBreakdown,
+  GobletSizeReport,
+} from '@/utils/export/goblet/gobletTypes';
 
 export interface GobletBinaryPayloadRef {
   ref: string;
@@ -13,23 +22,6 @@ export interface GobletBinaryPayloadEntry {
   path: string;
   bytes: Uint8Array;
   sourcePath: string;
-}
-
-export interface GobletSizeReport {
-  format: 'json' | 'zip' | 'single-html';
-  totalBytes: number;
-  metadataBytes: number;
-  runtimeBytes: number;
-  htmlBytes: number;
-  ccBufferBytes: number;
-  maskBytes: number;
-  textureBytes: number;
-  sequentialFrameBytes: number;
-  previewBytes: number;
-  fallbackBytes: number;
-  binarySidecarBytes: number;
-  binarySidecarCount: number;
-  duplicatedMetadataBytes: number;
 }
 
 export interface GobletZipPayloadPlan {
@@ -52,6 +44,9 @@ const BYTE_BUFFER_KEYS = new Set([
 
 const textBytes = (value: string | undefined): number =>
   value ? new TextEncoder().encode(value).byteLength : 0;
+
+const serializedValueBytes = (value: unknown): number =>
+  value === undefined ? 0 : textBytes(JSON.stringify(value));
 
 const dataUrlPayloadBytes = (value: unknown): number => {
   if (typeof value !== 'string') {
@@ -247,6 +242,85 @@ const sumSequentialFrameBytes = (metadata: WebGLExportMetadata): number => {
   return total;
 };
 
+const sumSerializedCcBufferBytes = (metadata: WebGLExportMetadata): number => {
+  let total = 0;
+  metadata.layers.forEach((layer) => {
+    const colorCycle = layer.colorCycle;
+    if (!colorCycle) {
+      return;
+    }
+    const brushState = colorCycle.brushState as Record<string, unknown> | undefined;
+    const recolorSettings = colorCycle.recolorSettings as Record<string, unknown> | undefined;
+    for (const key of BYTE_BUFFER_KEYS) {
+      total += serializedValueBytes(brushState?.[key]);
+      total += serializedValueBytes(recolorSettings?.[key]);
+    }
+  });
+  return total;
+};
+
+const sumSerializedMaskBytes = (metadata: WebGLExportMetadata): number => {
+  let total = 0;
+  metadata.layers.forEach((layer) => {
+    total += serializedValueBytes(layer.colorCycle?.alphaMask?.data);
+    total += serializedValueBytes(layer.colorCycle?.softEdgeMask?.data);
+  });
+  return total;
+};
+
+const sumSerializedTextureBytes = (metadata: WebGLExportMetadata): number =>
+  metadata.layers.reduce(
+    (total, layer) => total + serializedValueBytes(layer.assets?.texture),
+    0,
+  );
+
+const sumSerializedSequentialFrameBytes = (metadata: WebGLExportMetadata): number =>
+  metadata.layers.reduce(
+    (total, layer) => total + serializedValueBytes(layer.assets?.textureFrames),
+    0,
+  );
+
+export const createGobletSingleHtmlBreakdown = ({
+  metadata,
+  totalBytes,
+  runtimeBytes,
+}: {
+  metadata: WebGLExportMetadata;
+  totalBytes: number;
+  runtimeBytes: number;
+}): GobletSingleHtmlBreakdown => {
+  const ccBufferBytes = sumSerializedCcBufferBytes(metadata);
+  const maskBytes = sumSerializedMaskBytes(metadata);
+  const textureBytes = sumSerializedTextureBytes(metadata);
+  const sequentialFrameBytes = sumSerializedSequentialFrameBytes(metadata);
+  const previewBytes = serializedValueBytes(metadata.preview?.dataUrl);
+  const fallbackBytes = serializedValueBytes(metadata.fallback?.dataUrl);
+  const categorizedBytes = runtimeBytes
+    + ccBufferBytes
+    + maskBytes
+    + textureBytes
+    + sequentialFrameBytes
+    + previewBytes
+    + fallbackBytes;
+  const otherBytes = totalBytes - categorizedBytes;
+  if (!Number.isFinite(otherBytes) || otherBytes < 0) {
+    throw new Error(
+      `Single HTML size accounting exceeded the artifact total: ${categorizedBytes} categorized bytes for ${totalBytes} total bytes`,
+    );
+  }
+
+  return {
+    runtimeBytes,
+    ccBufferBytes,
+    maskBytes,
+    textureBytes,
+    sequentialFrameBytes,
+    previewBytes,
+    fallbackBytes,
+    otherBytes: Math.max(0, otherBytes),
+  };
+};
+
 export const createGobletSizeReport = ({
   metadata,
   metadataJson,
@@ -283,6 +357,37 @@ export const createGobletSizeReport = ({
     binarySidecarBytes,
     binarySidecarCount: binaryEntries.length,
     duplicatedMetadataBytes,
+  };
+};
+
+export const createGobletSingleHtmlSizeReport = ({
+  metadata,
+  metadataJson,
+  runtimeBytes,
+  htmlBytes,
+  totalBytes,
+}: {
+  metadata: WebGLExportMetadata;
+  metadataJson: string;
+  runtimeBytes: number;
+  htmlBytes: number;
+  totalBytes: number;
+}): GobletSizeReport => {
+  const report = createGobletSizeReport({
+    metadata,
+    metadataJson,
+    format: 'single-html',
+    runtimeBytes,
+    htmlBytes,
+    totalBytes,
+  });
+  return {
+    ...report,
+    singleHtmlBreakdown: createGobletSingleHtmlBreakdown({
+      metadata,
+      totalBytes,
+      runtimeBytes,
+    }),
   };
 };
 

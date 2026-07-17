@@ -447,6 +447,133 @@ describe('ExportModal', () => {
     expect(screen.queryByRole('button', { name: /Revert optimization/i })).not.toBeInTheDocument();
   });
 
+  it('shows an exact Single HTML size breakdown and clears it before the next export', async () => {
+    (store as any).webglExportSettings = {
+      ...store.webglExportSettings,
+      bundleFormat: 'single-html',
+    };
+    const sizeReport = {
+      format: 'single-html' as const,
+      totalBytes: 1000,
+      metadataBytes: 500,
+      runtimeBytes: 300,
+      htmlBytes: 200,
+      ccBufferBytes: 80,
+      maskBytes: 10,
+      textureBytes: 40,
+      sequentialFrameBytes: 20,
+      previewBytes: 10,
+      fallbackBytes: 0,
+      binarySidecarBytes: 0,
+      binarySidecarCount: 0,
+      duplicatedMetadataBytes: 0,
+      singleHtmlBreakdown: {
+        runtimeBytes: 300,
+        ccBufferBytes: 200,
+        maskBytes: 50,
+        textureBytes: 150,
+        sequentialFrameBytes: 100,
+        previewBytes: 50,
+        fallbackBytes: 0,
+        otherBytes: 150,
+      },
+    };
+    runExportMock.mockImplementation(async (request) => {
+      request.options.request.onSizeReport?.(sizeReport);
+      return {
+        kind: 'webgl',
+        filename: 'Demo',
+        metadata: { layers: store.layers },
+      };
+    });
+
+    render(<ExportModal isOpen onClose={jest.fn()} />);
+    act(() => {
+      jest.runAllTimers();
+    });
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /^Export$/i }));
+    });
+
+    expect(await screen.findByTestId('single-html-size-breakdown')).toBeInTheDocument();
+    expect(screen.getByText('1,000 B')).toBeInTheDocument();
+    expect(screen.getByText('CC buffers')).toBeInTheDocument();
+    expect(screen.queryByText('Fallback')).not.toBeInTheDocument();
+    const sizeRows = screen.getAllByTestId(/^single-html-size-.*Bytes$/);
+    const exactByteTotal = sizeRows.reduce(
+      (sum, row) => sum + Number(row.getAttribute('data-bytes')),
+      0,
+    );
+    const percentageTotal = sizeRows.reduce(
+      (sum, row) => sum + Number(row.getAttribute('data-percentage')),
+      0,
+    );
+    expect(exactByteTotal).toBe(1000);
+    expect(percentageTotal).toBeCloseTo(100, 8);
+
+    const closeButtons = screen.getAllByRole('button', { name: 'Close' });
+    fireEvent.click(closeButtons[closeButtons.length - 1]);
+    runExportMock.mockRejectedValueOnce(new Error('Second export failed'));
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /^Export$/i }));
+    });
+    await waitFor(() => {
+      expect(screen.getAllByText('Export failed').length).toBeGreaterThan(0);
+    });
+    expect(screen.queryByTestId('single-html-size-breakdown')).not.toBeInTheDocument();
+  });
+
+  it('does not show a Single HTML report for ZIP exports', async () => {
+    const sizeReport = {
+      format: 'single-html' as const,
+      totalBytes: 100,
+      metadataBytes: 40,
+      runtimeBytes: 20,
+      htmlBytes: 40,
+      ccBufferBytes: 0,
+      maskBytes: 0,
+      textureBytes: 0,
+      sequentialFrameBytes: 0,
+      previewBytes: 0,
+      fallbackBytes: 0,
+      binarySidecarBytes: 0,
+      binarySidecarCount: 0,
+      duplicatedMetadataBytes: 0,
+      singleHtmlBreakdown: {
+        runtimeBytes: 20,
+        ccBufferBytes: 0,
+        maskBytes: 0,
+        textureBytes: 0,
+        sequentialFrameBytes: 0,
+        previewBytes: 0,
+        fallbackBytes: 0,
+        otherBytes: 80,
+      },
+    };
+    runExportMock.mockImplementation(async (request) => {
+      request.options.request.onSizeReport?.(sizeReport);
+      return {
+        kind: 'webgl',
+        filename: 'Demo',
+        metadata: { layers: store.layers },
+      };
+    });
+
+    render(<ExportModal isOpen onClose={jest.fn()} />);
+    act(() => {
+      jest.runAllTimers();
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /^Export$/i }));
+    });
+
+    await waitFor(() => {
+      expect(runExportMock).toHaveBeenCalled();
+    });
+    expect(screen.queryByTestId('single-html-size-breakdown')).not.toBeInTheDocument();
+  });
+
   it('shows a warning when MP4 request falls back to WebM output', async () => {
     const onClose = jest.fn();
     const originalCreateObjectURL = URL.createObjectURL;

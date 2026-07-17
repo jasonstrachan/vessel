@@ -464,6 +464,51 @@ const resolveDiagnosticsDefault = () => false;
 
 let diagnosticsEnabled = resolveDiagnosticsDefault();
 
+const resolveProfileDefault = () => {
+  if (typeof window === 'undefined') {
+    return false;
+  }
+  try {
+    const queryEnabled = typeof window.location?.search === 'string'
+      && new URLSearchParams(window.location.search).get('gobletProfile') === '1';
+    const storageEnabled = window.localStorage?.getItem('vesselGobletProfile') === 'true';
+    return queryEnabled || storageEnabled;
+  } catch {
+    return false;
+  }
+};
+
+const profileExplicitlyEnabled = resolveProfileDefault();
+const isGobletProfileEnabled = () => diagnosticsEnabled || profileExplicitlyEnabled;
+const profileNow = () => (
+  typeof performance !== 'undefined' && typeof performance.now === 'function'
+    ? performance.now()
+    : Date.now()
+);
+
+const matchesCoarsePointer = () => {
+  if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') {
+    return false;
+  }
+  try {
+    return window.matchMedia('(pointer: coarse)').matches;
+  } catch {
+    return false;
+  }
+};
+
+const resolveHalfResPreference = () => {
+  if (typeof window === 'undefined') {
+    return null;
+  }
+  try {
+    const value = window.localStorage?.getItem('vesselGobletHalfRes');
+    return value === 'true' || value === 'false' ? value : null;
+  } catch {
+    return null;
+  }
+};
+
 
 const diagnostics = {
   log: (...args) => {
@@ -2620,8 +2665,13 @@ const samplePalette32Fractional = (basePalette32, baseIndex, phase, flowMode, pa
   return (a << 24) | (b << 16) | (g << 8) | r;
 };
 
-const buildPaletteFractionalShiftLUT256 = ({ basePalette32, cycleColors, offset01, flowMode = FLOW_MODE_FORWARD }) => {
-  const lut = new Uint32Array(256);
+const buildPaletteFractionalShiftLUT256 = (
+  { basePalette32, cycleColors, offset01, flowMode = FLOW_MODE_FORWARD },
+  target = new Uint32Array(256),
+) => {
+  const lut = target instanceof Uint32Array && target.length >= 256
+    ? target
+    : new Uint32Array(256);
   const n = Math.max(1, cycleColors | 0);
   for (let i = 0; i < 256; i += 1) {
     let p = i - 1;
@@ -3594,10 +3644,8 @@ class ColorCycleLayerPlayer {
     this.image = textureImage;
     this.options = options;
     this.isGoblet2 = options?.schemaVersion >= GOBLET2_SCHEMA_VERSION;
-    const halfResPref = typeof window !== 'undefined'
-      && window.localStorage
-      && window.localStorage.getItem('vesselGobletHalfRes');
-    this.renderScale = halfResPref === 'true' ? 0.5 : 1;
+    this._halfResPreference = resolveHalfResPreference();
+    this.renderScale = this._halfResPreference === 'true' ? 0.5 : 1;
     this._adaptiveScaleEnabled = false;
 
     const width = Math.max(1, Math.round(layer.source?.width ?? textureImage?.naturalWidth ?? textureImage?.width ?? 1));
@@ -3640,6 +3688,8 @@ class ColorCycleLayerPlayer {
     this._lutCacheBase = new Map();
     this._lutCacheSlots = new Map();
     this._lutCacheBands = null;
+    this._fractionalBaseLut = new Uint32Array(256);
+    this._fractionalLutsBySlot = new Map();
     this._slotLuts = Array.from({ length: SB_COUNT }, () =>
       Array.from({ length: MODE_COUNT }, () => new Array(SLOT_COUNT).fill(null))
     );
@@ -3659,9 +3709,22 @@ class ColorCycleLayerPlayer {
     this.subtractIndexOffset = false;
     this._fillMsAccum = 0;
     this._fillWindowStartMs = 0;
-    this._lastScaleCheckMs = 0;
+    this._fillWindowFrames = 0;
+    this._slowWindowCount = 0;
+    this._fastWindowCount = 0;
+    this._lastScaleTransitionMs = Number.NEGATIVE_INFINITY;
+    this._lastScaleTransitionReason = null;
     this._lastFps = null;
     this._isReinitializing = false;
+    this._scaleTransitionPromise = null;
+    this._destroyed = false;
+    this._lifecycleVersion = 0;
+    this._webglInitAttempted = false;
+    this._webglInitFailed = false;
+    this._webglFallbackReason = null;
+    this._lastCpuFillMs = 0;
+    this._lastCpuBlitMs = 0;
+    this._lastRenderPath = 'uninitialized';
     this._hasVisibleAlpha = true;
     this.webglRenderer = null;
     this.webglCanvas = null;
@@ -3696,7 +3759,7 @@ class ColorCycleLayerPlayer {
     this.pixels32 = new Uint32Array(this.imageData.data.buffer);
   }
 
-  async initialize() {
+  async initialize({ allowWebGL = true } = {}) {
     const colorCycle = this.layer.colorCycle;
     if (!colorCycle) {
       throw new Error('Layer missing color cycle metadata');
@@ -3733,7 +3796,7 @@ class ColorCycleLayerPlayer {
 
     let resolvedPayloads = null;
     if (hasBrush) {
-      resolvedPayloads = await this.initializeBrushMode(colorCycle, brushState);
+      resolvedPayloads = await this.initializeBrushMode(colorCycle, brushState, { allowWebGL });
     } else if (hasRecolor) {
       await this.initializeRecolorMode(colorCycle, recolorSettings);
     } else {
@@ -4083,6 +4146,9 @@ class ColorCycleLayerPlayer {
       alphaTexture = null;
     }
 
+    this._webglInitAttempted = true;
+    this._webglInitFailed = false;
+    this._webglFallbackReason = null;
     try {
       const renderer = new BrushWebGLRenderer({
         width: sourceWidth,
@@ -4131,17 +4197,20 @@ class ColorCycleLayerPlayer {
       this.webglRenderer = null;
       this.webglCanvas = null;
       this.useWebGL = false;
+      this._webglInitFailed = true;
+      this._webglFallbackReason = error instanceof Error ? error.message : String(error);
+      this._adaptiveScaleEnabled = this._halfResPreference === null && matchesCoarsePointer();
       return false;
     }
   }
 
-  async initializeBrushMode(colorCycle, brushState) {
+  async initializeBrushMode(colorCycle, brushState, { allowWebGL = true } = {}) {
     this.mode = 'brush';
     let resolvedPayloads = null;
     if (this.isGoblet2) {
       resolvedPayloads = await assertGobletBrushPayloadContract(colorCycle, brushState);
     }
-    if (await this.initializeBrushModeWebGL(colorCycle, brushState, resolvedPayloads)) {
+    if (allowWebGL && await this.initializeBrushModeWebGL(colorCycle, brushState, resolvedPayloads)) {
       return resolvedPayloads;
     }
     const sourceWidth = Math.max(1, Math.round(Number.isFinite(brushState.width) ? brushState.width : this.width));
@@ -4321,6 +4390,10 @@ class ColorCycleLayerPlayer {
         );
       });
     }
+    this._fractionalLutsBySlot.clear();
+    this._basePalette32BySlot.forEach((_palette, slot) => {
+      this._fractionalLutsBySlot.set(slot, new Uint32Array(256));
+    });
     return resolvedPayloads;
   }
 
@@ -4425,7 +4498,7 @@ class ColorCycleLayerPlayer {
   }
 
   advance(deltaSeconds) {
-    if (!this.hasAnimation()) {
+    if (this._destroyed || this._isReinitializing || !this.hasAnimation()) {
       return false;
     }
     if (Number.isFinite(deltaSeconds) && deltaSeconds > 0) {
@@ -4442,19 +4515,20 @@ class ColorCycleLayerPlayer {
     if (!this.indexBuffer) {
       return;
     }
+    this._lastCpuFillMs = 0;
+    this._lastCpuBlitMs = 0;
     if (this.useWebGL && this.webglRenderer) {
+      this._lastRenderPath = 'webgl';
       this.webglRenderer.render(this.baseTimeSeconds, this.legacyOffset01);
       return;
     }
-    const now = () => (typeof performance !== 'undefined' && typeof performance.now === 'function'
-      ? performance.now()
-      : Date.now());
-    const nowMs = now();
+    this._lastRenderPath = 'cpu';
+    const nowMs = profileNow();
     let fillMs = 0;
     let usePerPixelPath = this.usePerPixelSpeed && this.speedBuffer && (this.flowMapping === 'palette' || !this.phaseMap);
     if (usePerPixelPath) {
       const n = this._basePaletteSize || (this.cycleColors | 0) || 1;
-      const fillStart = now();
+      const fillStart = profileNow();
       fillPixelsFromIndicesWithFractionalSpeedFlowPhase(
         this.indexBuffer,
         this.gradientIdBuffer,
@@ -4478,13 +4552,16 @@ class ColorCycleLayerPlayer {
           subtractOne: this.subtractIndexOffset
         }
       );
-      const fillEnd = now();
+      const fillEnd = profileNow();
       fillMs = fillEnd - fillStart;
+      const blitStart = fillEnd;
       this.ctx.putImageData(this.imageData, 0, 0);
       if (this.renderScale !== 1 && this.outputCtx && this.renderCanvas) {
         this.outputCtx.clearRect(0, 0, this.canvas.width, this.canvas.height);
         this.outputCtx.drawImage(this.renderCanvas, 0, 0, this.canvas.width, this.canvas.height);
       }
+      this._lastCpuFillMs = fillMs;
+      this._lastCpuBlitMs = profileNow() - blitStart;
       this.maybeAdjustRenderScale(nowMs, fillMs);
       return;
     }
@@ -4497,7 +4574,7 @@ class ColorCycleLayerPlayer {
     if (this.flowMapping === 'palette' || !this.phaseMap) {
       const needsPerPixelFractional = hasAnyNonZeroByte(this.phaseBuffer) || hasGobletNonForwardFlow(this.flowBuffer);
       if (needsPerPixelFractional) {
-        const fillStart = now();
+        const fillStart = profileNow();
         fillPixelsFromIndicesWithFractionalSlotSpeeds(
           this.indexBuffer,
           this.gradientIdBuffer,
@@ -4519,30 +4596,32 @@ class ColorCycleLayerPlayer {
             subtractOne: this.subtractIndexOffset
           }
         );
-        const fillEnd = now();
+        const fillEnd = profileNow();
         fillMs = fillEnd - fillStart;
       } else {
+        const fillStart = profileNow();
         const baseOffset01 = (((this.baseTimeSeconds * baseSpeed) % 1) + 1) % 1;
         const basePal = this._fallbackPalette32 ?? this._basePalette32BySlot.get(0);
         const baseLut = buildPaletteFractionalShiftLUT256({
           basePalette32: basePal,
           cycleColors: this.cycleColors,
           offset01: baseOffset01
-        });
-        const fillStart = now();
+        }, this._fractionalBaseLut);
         if (canUseSlots) {
-          const lutsBySlot = new Map();
+          const lutsBySlot = this._fractionalLutsBySlot;
           this._basePalette32BySlot.forEach((pal, slot) => {
             const slotSpeed = Number.isFinite(slotSpeedMap?.get(slot)) ? slotSpeedMap.get(slot) : baseSpeed;
             const slotOffset = (((this.baseTimeSeconds * (slotSpeed ?? 0)) % 1) + 1) % 1;
-            lutsBySlot.set(
-              slot,
-              buildPaletteFractionalShiftLUT256({
-                basePalette32: pal,
-                cycleColors: this.cycleColors,
-                offset01: slotOffset
-              })
-            );
+            let slotLut = lutsBySlot.get(slot);
+            if (!slotLut) {
+              slotLut = new Uint32Array(256);
+              lutsBySlot.set(slot, slotLut);
+            }
+            buildPaletteFractionalShiftLUT256({
+              basePalette32: pal,
+              cycleColors: this.cycleColors,
+              offset01: slotOffset
+            }, slotLut);
           });
           fillPixelsFromIndicesWithGradientIds(
             this.indexBuffer,
@@ -4562,7 +4641,7 @@ class ColorCycleLayerPlayer {
             subtractOne: this.subtractIndexOffset
           });
         }
-        const fillEnd = now();
+        const fillEnd = profileNow();
         fillMs = fillEnd - fillStart;
       }
     } else {
@@ -4573,21 +4652,24 @@ class ColorCycleLayerPlayer {
         cycleColors: this.cycleColors,
         offset01
       });
-      const fillStart = now();
+      const fillStart = profileNow();
       fillPixelsFromPhaseMap(this.phaseMap, baseLut, this.pixels32, this.alpha);
-      const fillEnd = now();
+      const fillEnd = profileNow();
       fillMs = fillEnd - fillStart;
     }
+    const blitStart = profileNow();
     this.ctx.putImageData(this.imageData, 0, 0);
     if (this.renderScale !== 1 && this.outputCtx && this.renderCanvas) {
       this.outputCtx.clearRect(0, 0, this.canvas.width, this.canvas.height);
       this.outputCtx.drawImage(this.renderCanvas, 0, 0, this.canvas.width, this.canvas.height);
     }
+    this._lastCpuFillMs = fillMs;
+    this._lastCpuBlitMs = profileNow() - blitStart;
     this.maybeAdjustRenderScale(nowMs, fillMs);
   }
 
   maybeAdjustRenderScale(nowMs, fillMs) {
-    if (!this._adaptiveScaleEnabled || this._isReinitializing) {
+    if (!this._adaptiveScaleEnabled || this._destroyed || this._isReinitializing) {
       return;
     }
     if (!Number.isFinite(nowMs)) {
@@ -4595,57 +4677,126 @@ class ColorCycleLayerPlayer {
     }
     if (!this._fillWindowStartMs) {
       this._fillWindowStartMs = nowMs;
-      this._lastScaleCheckMs = nowMs;
+      this._fillMsAccum = 0;
+      this._fillWindowFrames = 0;
     }
     if (Number.isFinite(fillMs) && fillMs > 0) {
       this._fillMsAccum += fillMs;
     }
-    if (nowMs - this._lastScaleCheckMs < 1000) {
+    this._fillWindowFrames += 1;
+    const elapsedWindowMs = nowMs - this._fillWindowStartMs;
+    if (elapsedWindowMs < 1000) {
       return;
     }
-    const slowFill = this._fillMsAccum > 20;
-    const fastFill = this._fillMsAccum < 12;
-    const fps = Number.isFinite(this._lastFps) ? this._lastFps : null;
-    const slowFps = fps !== null && fps < 50;
-    const fastFps = fps !== null && fps > 55;
+    const averageFillMs = this._fillWindowFrames > 0
+      ? this._fillMsAccum / this._fillWindowFrames
+      : 0;
+    const observedFps = elapsedWindowMs > 0
+      ? this._fillWindowFrames * 1000 / elapsedWindowMs
+      : 0;
+    const slowWindow = averageFillMs > 20 || observedFps < 45;
+    const fastWindow = averageFillMs < 12 && observedFps > 55;
     let nextScale = this.renderScale;
-    if (this.renderScale === 1 && (slowFill || slowFps)) {
-      nextScale = 0.5;
-    } else if (this.renderScale !== 1 && fastFill && fastFps) {
-      nextScale = 1;
+    let transitionReason = null;
+    if (this.renderScale === 1) {
+      this._slowWindowCount = slowWindow ? this._slowWindowCount + 1 : 0;
+      this._fastWindowCount = 0;
+      if (this._slowWindowCount >= 3) {
+        nextScale = 0.5;
+        transitionReason = 'three-slow-windows';
+      }
+    } else {
+      this._fastWindowCount = fastWindow ? this._fastWindowCount + 1 : 0;
+      this._slowWindowCount = 0;
+      if (this._fastWindowCount >= 5) {
+        nextScale = 1;
+        transitionReason = 'five-fast-windows';
+      }
     }
-    this._lastScaleCheckMs = nowMs;
-    this._fillMsAccum = 0;
-    if (nextScale !== this.renderScale) {
-      void this.applyRenderScale(nextScale);
+    this.resetAdaptiveWindow(nowMs);
+    const cooldownElapsed = nowMs - this._lastScaleTransitionMs >= 30_000;
+    if (nextScale !== this.renderScale && cooldownElapsed && !this._scaleTransitionPromise) {
+      this._scaleTransitionPromise = this.applyRenderScale(nextScale, transitionReason)
+        .finally(() => {
+          this._scaleTransitionPromise = null;
+        });
     }
   }
 
-  async applyRenderScale(nextScale) {
+  resetAdaptiveWindow(nowMs = 0) {
+    this._fillWindowStartMs = Number.isFinite(nowMs) ? nowMs : 0;
+    this._fillMsAccum = 0;
+    this._fillWindowFrames = 0;
+  }
+
+  resetAdaptiveMeasurement(nowMs = 0) {
+    this.resetAdaptiveWindow(nowMs);
+    this._slowWindowCount = 0;
+    this._fastWindowCount = 0;
+  }
+
+  async applyRenderScale(nextScale, reason = 'adaptive') {
     if (!Number.isFinite(nextScale) || nextScale <= 0) {
-      return;
+      return false;
     }
-    if (this.renderScale === nextScale || this._isReinitializing) {
-      return;
+    if (this._destroyed || this.renderScale === nextScale || this._isReinitializing) {
+      return false;
     }
     const clamped = nextScale >= 1 ? 1 : 0.5;
+    const previousScale = this.renderScale;
     const prevBaseTime = this.baseTimeSeconds;
     const prevTick = this.currentTick;
     const prevAnimating = this.isAnimating;
     const prevLegacyOffset01 = this.legacyOffset01;
     const prevLegacySpeedCps = this.legacySpeedCps;
+    const lifecycleVersion = ++this._lifecycleVersion;
     this.renderScale = clamped;
     this._isReinitializing = true;
+    this.options?.onAnimationEligibilityChange?.();
     try {
-      await this.initialize();
+      await this.initialize({ allowWebGL: false });
+      if (this._destroyed || lifecycleVersion !== this._lifecycleVersion) {
+        return false;
+      }
       this.baseTimeSeconds = prevBaseTime;
       this.currentTick = prevTick;
       this.isAnimating = prevAnimating;
       this.legacyOffset01 = prevLegacyOffset01;
       this.legacySpeedCps = prevLegacySpeedCps;
       this.renderFrame();
+      this._lastScaleTransitionMs = profileNow();
+      this._lastScaleTransitionReason = reason;
+      return true;
+    } catch (error) {
+      this._adaptiveScaleEnabled = false;
+      this.renderScale = previousScale;
+      diagnostics.warn('[goblet2] Adaptive CPU scale transition failed; disabling adaptation', {
+        layerId: this.layer?.id ?? null,
+        reason,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      if (!this._destroyed && lifecycleVersion === this._lifecycleVersion) {
+        try {
+          await this.initialize({ allowWebGL: false });
+          this.baseTimeSeconds = prevBaseTime;
+          this.currentTick = prevTick;
+          this.isAnimating = prevAnimating;
+          this.legacyOffset01 = prevLegacyOffset01;
+          this.legacySpeedCps = prevLegacySpeedCps;
+          this.renderFrame();
+        } catch (recoveryError) {
+          this.isAnimating = false;
+          diagnostics.warn('[goblet2] Failed to restore CPU player after adaptive scale failure', {
+            layerId: this.layer?.id ?? null,
+            error: recoveryError instanceof Error ? recoveryError.message : String(recoveryError),
+          });
+        }
+      }
+      return false;
     } finally {
       this._isReinitializing = false;
+      this.resetAdaptiveMeasurement();
+      this.options?.onAnimationEligibilityChange?.();
     }
   }
 
@@ -4654,6 +4805,8 @@ class ColorCycleLayerPlayer {
   }
 
   destroy() {
+    this._destroyed = true;
+    this._lifecycleVersion += 1;
     this.isAnimating = false;
     this.indexBuffer = null;
     this.gradientIdBuffer = null;
@@ -4667,6 +4820,7 @@ class ColorCycleLayerPlayer {
     this.slotGradients = null;
     this.slotSeamProfiles = null;
     this._fallbackPalette32 = null;
+    this._fractionalLutsBySlot.clear();
     if (this.webglRenderer) {
       this.webglRenderer.destroy();
       this.webglRenderer = null;
@@ -4681,7 +4835,83 @@ class ColorCycleLayerPlayer {
 const RENDERER_KEY = Symbol('VesselRenderer');
 const ACTIVE_CANVASES = new Map();
 let resizeListenerAttached = false;
+let resizeTrailingTimer = null;
 const POINTER_GUARD_EVENTS = ['mouseenter', 'mousemove', 'pointerdown', 'pointerup', 'focus'];
+const MAX_MOBILE_FIXED_DPR = 2;
+const MAX_MOBILE_FIXED_BACKING_PIXELS = 4_194_304;
+const RESIZE_TRAILING_MS = 150;
+const PROFILE_SAMPLE_CAPACITY = 120;
+
+const getRawDevicePixelRatio = () => {
+  const raw = typeof window !== 'undefined' ? Number(window.devicePixelRatio) : 1;
+  return Number.isFinite(raw) && raw > 0 ? raw : 1;
+};
+
+const resolveFixedDpr = (cssWidth, cssHeight) => {
+  const rawDpr = getRawDevicePixelRatio();
+  if (!matchesCoarsePointer()) {
+    return { rawDpr, effectiveDpr: rawDpr, isMobileCapped: false };
+  }
+  const safeWidth = Math.max(1, Number(cssWidth) || 1);
+  const safeHeight = Math.max(1, Number(cssHeight) || 1);
+  const pixelBudgetDpr = Math.sqrt(MAX_MOBILE_FIXED_BACKING_PIXELS / (safeWidth * safeHeight));
+  const effectiveDpr = Math.max(
+    Number.EPSILON,
+    Math.min(rawDpr, MAX_MOBILE_FIXED_DPR, pixelBudgetDpr),
+  );
+  return {
+    rawDpr,
+    effectiveDpr,
+    isMobileCapped: effectiveDpr < rawDpr,
+  };
+};
+
+const createFrameProfileState = () => ({
+  cursor: 0,
+  count: 0,
+  totalFrames: 0,
+  totalMs: new Float32Array(PROFILE_SAMPLE_CAPACITY),
+  cpuFillMs: new Float32Array(PROFILE_SAMPLE_CAPACITY),
+  cpuBlitMs: new Float32Array(PROFILE_SAMPLE_CAPACITY),
+  compositeMs: new Float32Array(PROFILE_SAMPLE_CAPACITY),
+  filterMs: new Float32Array(PROFILE_SAMPLE_CAPACITY),
+  fps: new Float32Array(PROFILE_SAMPLE_CAPACITY),
+});
+
+const recordFrameProfile = (
+  state,
+  totalMs,
+  cpuFillMs,
+  cpuBlitMs,
+  compositeMs,
+  filterMs,
+  fps,
+) => {
+  const index = state.cursor;
+  state.totalMs[index] = totalMs;
+  state.cpuFillMs[index] = cpuFillMs;
+  state.cpuBlitMs[index] = cpuBlitMs;
+  state.compositeMs[index] = compositeMs;
+  state.filterMs[index] = filterMs;
+  state.fps[index] = fps;
+  state.cursor = (index + 1) % PROFILE_SAMPLE_CAPACITY;
+  state.count = Math.min(PROFILE_SAMPLE_CAPACITY, state.count + 1);
+  state.totalFrames += 1;
+};
+
+const summarizeProfileValues = (values, count) => {
+  if (!count) {
+    return { samples: 0, p50: 0, p95: 0, max: 0 };
+  }
+  const sorted = Array.from(values.subarray(0, count)).sort((a, b) => a - b);
+  const percentile = (fraction) => sorted[Math.min(sorted.length - 1, Math.floor((sorted.length - 1) * fraction))];
+  return {
+    samples: sorted.length,
+    p50: percentile(0.5),
+    p95: percentile(0.95),
+    max: sorted[sorted.length - 1],
+  };
+};
 
 const clampScaleValue = (value, fallback = 1) => {
   const numeric = typeof value === 'number' ? value : Number(value);
@@ -4918,9 +5148,32 @@ class VesselGoblet {
     this.staticCompositeKey = '';
     this.displayFilterState = createDisplayFilterPipelineState();
     this.rafId = null;
+    this.isAnimationLoopActive = false;
     this.lastTimestamp = 0;
     this.lastCcReasonLogAt = 0;
-    this.lastRenderProfile = null;
+    this.rawDpr = getRawDevicePixelRatio();
+    this.effectiveDpr = this.rawDpr;
+    this.isMobileDprCapped = false;
+    this.isDocumentVisible = typeof document === 'undefined' || !document.hidden;
+    this.isCanvasIntersecting = true;
+    this.intersectionObserver = null;
+    this.resizeFlushCount = 0;
+    this.renderProfile = {
+      enabled: false,
+      now: profileNow,
+      staticMs: 0,
+      dynamicMs: 0,
+      filterMs: 0,
+      blitMs: 0,
+    };
+    this.lastRenderProfile = {
+      staticMs: 0,
+      dynamicMs: 0,
+      filterMs: 0,
+      blitMs: 0,
+    };
+    this.hasLastRenderProfile = false;
+    this.frameProfile = null;
     this.destroyed = false;
 
     this.summary = {
@@ -4931,6 +5184,8 @@ class VesselGoblet {
     };
 
     this.handleAnimationFrame = this.handleAnimationFrame.bind(this);
+    this.handleVisibilityChange = this.handleVisibilityChange.bind(this);
+    this.handleIntersectionChange = this.handleIntersectionChange.bind(this);
   }
 
   getLayerAnimationReasonRow(entry) {
@@ -5097,7 +5352,8 @@ class VesselGoblet {
         try {
           player = new ColorCycleLayerPlayer(layerClone, source, {
             format: this.metadata?.format,
-            schemaVersion: this.metadata?.colorCycle?.schemaVersion
+            schemaVersion: this.metadata?.colorCycle?.schemaVersion,
+            onAnimationEligibilityChange: () => this.reconcileAnimationLoop(),
           });
           await player.initialize();
           source = player.getCanvas();
@@ -5558,22 +5814,26 @@ class VesselGoblet {
       ? performance.now()
       : Date.now();
     const isFixed = this.metadata?.viewport?.mode === 'fixed';
-    const dpr = typeof window !== 'undefined' && window.devicePixelRatio ? window.devicePixelRatio : 1;
+    const dpr = Number.isFinite(this.effectiveDpr) && this.effectiveDpr > 0
+      ? this.effectiveDpr
+      : getRawDevicePixelRatio();
     const width = this.canvas.width;
     const height = this.canvas.height;
-    const fallbackCssWidth = Math.max(1, Math.round(width / Math.max(dpr, 1)));
-    const fallbackCssHeight = Math.max(1, Math.round(height / Math.max(dpr, 1)));
+    const fallbackCssWidth = Math.max(1, Math.round(width / Math.max(dpr, Number.EPSILON)));
+    const fallbackCssHeight = Math.max(1, Math.round(height / Math.max(dpr, Number.EPSILON)));
+    const styledCssWidth = Number.parseFloat(this.canvas.style?.width ?? '');
+    const styledCssHeight = Number.parseFloat(this.canvas.style?.height ?? '');
     const cssW = isFixed
-      ? fallbackCssWidth
+      ? (Number.isFinite(styledCssWidth) && styledCssWidth > 0 ? styledCssWidth : fallbackCssWidth)
       : width;
     const cssH = isFixed
-      ? fallbackCssHeight
+      ? (Number.isFinite(styledCssHeight) && styledCssHeight > 0 ? styledCssHeight : fallbackCssHeight)
       : height;
 
     ctx.save();
     logViewerState(ctx, this.canvas, this.metadata, cssW, cssH);
-    const clearWidth = isFixed ? Math.max(1, Math.round(cssW * dpr)) : width;
-    const clearHeight = isFixed ? Math.max(1, Math.round(cssH * dpr)) : height;
+    const clearWidth = width;
+    const clearHeight = height;
     ctx.globalCompositeOperation = 'source-over';
     ctx.globalAlpha = 1;
     ctx.clearRect(0, 0, clearWidth, clearHeight);
@@ -5627,14 +5887,12 @@ class VesselGoblet {
       height: Math.max(1, toNum(this.metadata.viewport?.designHeight, cssH))
     };
     let painted = 0;
-    const profile = {
-      enabled: false,
-      now: () => 0,
-      staticMs: 0,
-      dynamicMs: 0,
-      filterMs: 0,
-      blitMs: 0,
-    };
+    const profile = this.renderProfile;
+    profile.enabled = isGobletProfileEnabled();
+    profile.staticMs = 0;
+    profile.dynamicMs = 0;
+    profile.filterMs = 0;
+    profile.blitMs = 0;
     const renderOptions = {
       documentSize,
       viewportSize,
@@ -5721,25 +5979,97 @@ class VesselGoblet {
     }
 
     logSummary(painted, sorted.length, startTime);
-    this.lastRenderProfile = profile.enabled
-      ? {
-        staticMs: profile.staticMs,
-        dynamicMs: profile.dynamicMs,
-        filterMs: profile.filterMs,
-        blitMs: profile.blitMs,
-      }
-      : null;
+    this.hasLastRenderProfile = profile.enabled;
+    if (profile.enabled) {
+      this.lastRenderProfile.staticMs = profile.staticMs;
+      this.lastRenderProfile.dynamicMs = profile.dynamicMs;
+      this.lastRenderProfile.filterMs = profile.filterMs;
+      this.lastRenderProfile.blitMs = profile.blitMs;
+    }
 
     ctx.restore();
   }
 
-  start() {
-    if (this.destroyed || this.dynamicPlayers.length === 0) {
+  setupAnimationEligibilityObservers() {
+    if (this.destroyed) {
       return;
     }
+    if (typeof document !== 'undefined' && typeof document.addEventListener === 'function') {
+      this.isDocumentVisible = !document.hidden;
+      document.addEventListener('visibilitychange', this.handleVisibilityChange);
+    }
+    if (typeof IntersectionObserver !== 'undefined' && this.canvas) {
+      this.intersectionObserver = new IntersectionObserver(this.handleIntersectionChange, { threshold: 0 });
+      this.intersectionObserver.observe(this.canvas);
+    }
+  }
+
+  handleVisibilityChange() {
+    this.isDocumentVisible = typeof document === 'undefined' || !document.hidden;
+    this.reconcileAnimationLoop();
+  }
+
+  handleIntersectionChange(entries) {
+    const entry = Array.isArray(entries) ? entries[entries.length - 1] : null;
+    if (!entry || entry.target !== this.canvas) {
+      return;
+    }
+    this.isCanvasIntersecting = entry.isIntersecting === true;
+    this.reconcileAnimationLoop();
+  }
+
+  getPauseReasons() {
+    const reasons = [];
+    if (this.destroyed) reasons.push('destroyed');
+    if (this.dynamicPlayers.length === 0) reasons.push('no-dynamic-players');
+    if (!this.isDocumentVisible) reasons.push('document-hidden');
+    if (!this.isCanvasIntersecting) reasons.push('canvas-offscreen');
+    if (this.dynamicPlayers.some((player) => player?._isReinitializing)) reasons.push('scale-transition');
+    return reasons;
+  }
+
+  canRunAnimation() {
+    return !this.destroyed
+      && this.dynamicPlayers.length > 0
+      && this.isDocumentVisible
+      && this.isCanvasIntersecting
+      && !this.dynamicPlayers.some((player) => player?._isReinitializing);
+  }
+
+  resetPlayerMeasurementWindows() {
+    this.dynamicPlayers.forEach((player) => {
+      if (typeof player?.resetAdaptiveMeasurement === 'function') {
+        player.resetAdaptiveMeasurement();
+      }
+    });
+  }
+
+  reconcileAnimationLoop() {
+    if (!this.canRunAnimation()) {
+      const wasRunning = this.isAnimationLoopActive;
+      this.stop();
+      if (wasRunning) {
+        this.isAnimationLoopActive = false;
+        this.lastTimestamp = 0;
+        this.resetPlayerMeasurementWindows();
+      }
+      return;
+    }
+    if (!this.isAnimationLoopActive) {
+      this.isAnimationLoopActive = true;
+      this.lastTimestamp = 0;
+      this.resetPlayerMeasurementWindows();
+    }
+    if (this.rafId === null) {
+      this.rafId = requestAnimationFrame(this.handleAnimationFrame);
+    }
+  }
+
+  start() {
     this.stop();
+    this.isAnimationLoopActive = false;
     this.lastTimestamp = 0;
-    this.rafId = requestAnimationFrame(this.handleAnimationFrame);
+    this.reconcileAnimationLoop();
   }
 
   stop() {
@@ -5752,6 +6082,14 @@ class VesselGoblet {
   destroy() {
     this.destroyed = true;
     this.stop();
+    this.isAnimationLoopActive = false;
+    if (typeof document !== 'undefined' && typeof document.removeEventListener === 'function') {
+      document.removeEventListener('visibilitychange', this.handleVisibilityChange);
+    }
+    if (this.intersectionObserver) {
+      this.intersectionObserver.disconnect();
+      this.intersectionObserver = null;
+    }
     this.dynamicPlayers.forEach((player) => player?.destroy());
     this.layerEntries = [];
     this.dynamicPlayers = [];
@@ -5773,13 +6111,53 @@ class VesselGoblet {
   }
 
   ensureRunning() {
-    if (this.destroyed) {
-      return;
-    }
-    if (this.rafId === null && this.dynamicPlayers.length > 0) {
-      this.lastTimestamp = 0;
-      this.rafId = requestAnimationFrame(this.handleAnimationFrame);
-    }
+    this.reconcileAnimationLoop();
+  }
+
+  getProfileSnapshot() {
+    const frameProfile = this.frameProfile;
+    const frameSummary = frameProfile
+      ? {
+          totalFrames: frameProfile.totalFrames,
+          totalMs: summarizeProfileValues(frameProfile.totalMs, frameProfile.count),
+          cpuFillMs: summarizeProfileValues(frameProfile.cpuFillMs, frameProfile.count),
+          cpuBlitMs: summarizeProfileValues(frameProfile.cpuBlitMs, frameProfile.count),
+          compositeMs: summarizeProfileValues(frameProfile.compositeMs, frameProfile.count),
+          filterMs: summarizeProfileValues(frameProfile.filterMs, frameProfile.count),
+          fps: summarizeProfileValues(frameProfile.fps, frameProfile.count),
+        }
+      : null;
+    return {
+      canvasId: this.canvas?.id ?? null,
+      enabled: isGobletProfileEnabled(),
+      rafRunning: this.rafId !== null,
+      pauseReasons: this.getPauseReasons(),
+      rawDpr: this.rawDpr,
+      effectiveDpr: this.effectiveDpr,
+      isMobileDprCapped: this.isMobileDprCapped,
+      backingWidth: this.canvas?.width ?? 0,
+      backingHeight: this.canvas?.height ?? 0,
+      backingPixels: (this.canvas?.width ?? 0) * (this.canvas?.height ?? 0),
+      resizeFlushCount: this.resizeFlushCount,
+      frame: frameSummary,
+      lastRender: this.hasLastRenderProfile ? { ...this.lastRenderProfile } : null,
+      players: this.layerEntries
+        .filter((entry) => entry?.player)
+        .map((entry) => ({
+          layerId: entry.layer?.id ?? null,
+          renderPath: entry.player?._lastRenderPath ?? null,
+          useWebGL: entry.player?.useWebGL === true,
+          webglInitAttempted: entry.player?._webglInitAttempted === true,
+          webglInitFailed: entry.player?._webglInitFailed === true,
+          webglFallbackReason: entry.player?._webglFallbackReason ?? null,
+          adaptiveScaleEnabled: entry.player?._adaptiveScaleEnabled === true,
+          renderScale: entry.player?.renderScale ?? 1,
+          scaleTransitionActive: entry.player?._isReinitializing === true,
+          lastScaleTransitionReason: entry.player?._lastScaleTransitionReason ?? null,
+          cpuFillMs: entry.player?._lastCpuFillMs ?? 0,
+          cpuBlitMs: entry.player?._lastCpuBlitMs ?? 0,
+        })),
+    };
   }
 
   updateScale(scaleOption) {
@@ -5802,9 +6180,16 @@ class VesselGoblet {
     const width = sanitizeCanvasDimension(targetCanvasSize.width ?? this.canvas.width, this.canvas.width);
     const height = sanitizeCanvasDimension(targetCanvasSize.height ?? this.canvas.height, this.canvas.height);
     const isFixed = this.metadata?.viewport?.mode === 'fixed';
-    const dpr = typeof window !== 'undefined' && window.devicePixelRatio ? window.devicePixelRatio : 1;
-    const fallbackCssWidth = Math.max(1, Math.round(width / Math.max(dpr, 1)));
-    const fallbackCssHeight = Math.max(1, Math.round(height / Math.max(dpr, 1)));
+    const dprState = isFixed
+      ? resolveFixedDpr(width, height)
+      : {
+          rawDpr: getRawDevicePixelRatio(),
+          effectiveDpr: getRawDevicePixelRatio(),
+          isMobileCapped: false,
+        };
+    this.rawDpr = dprState.rawDpr;
+    this.effectiveDpr = dprState.effectiveDpr;
+    this.isMobileDprCapped = dprState.isMobileCapped;
     diagnostics.log('[VIEWER] updateScale called:', {
       oldScale,
       newScale,
@@ -5823,8 +6208,9 @@ class VesselGoblet {
     const scaleChanged = oldScale.x !== newScale.x || oldScale.y !== newScale.y;
 
     if (isFixed) {
-      const backWidth = Math.max(1, Math.round(cssWidth * dpr));
-      const backHeight = Math.max(1, Math.round(cssHeight * dpr));
+      const dimensionRound = matchesCoarsePointer() ? Math.floor : Math.round;
+      const backWidth = Math.max(1, dimensionRound(cssWidth * this.effectiveDpr));
+      const backHeight = Math.max(1, dimensionRound(cssHeight * this.effectiveDpr));
       canvasSizeChanged = this.canvas.width !== backWidth || this.canvas.height !== backHeight;
       if (this.canvas.style.width !== `${cssWidth}px`) {
         this.canvas.style.width = `${cssWidth}px`;
@@ -5871,30 +6257,55 @@ class VesselGoblet {
     if (typeof window !== 'undefined' && this.canvas) {
       logResize(this.canvas, this.metadata?.viewport?.mode);
     }
+    this.resizeFlushCount += 1;
     this.updateScale();
   }
 
   handleAnimationFrame(timestamp) {
-    if (this.destroyed) {
+    this.rafId = null;
+    if (!this.canRunAnimation()) {
       return;
     }
     if (!this.lastTimestamp || timestamp <= this.lastTimestamp) {
       this.lastTimestamp = timestamp;
-      this.rafId = requestAnimationFrame(this.handleAnimationFrame);
+      this.reconcileAnimationLoop();
       return;
     }
     const delta = (timestamp - this.lastTimestamp) / 1000;
     this.lastTimestamp = timestamp;
+    const profileEnabled = isGobletProfileEnabled();
+    const frameStart = profileEnabled ? profileNow() : 0;
+    let cpuFillMs = 0;
+    let cpuBlitMs = 0;
     let needsRender = false;
     for (const player of this.dynamicPlayers) {
       if (player && player.advance(delta)) {
         needsRender = true;
       }
+      if (profileEnabled) {
+        cpuFillMs += player?._lastCpuFillMs ?? 0;
+        cpuBlitMs += player?._lastCpuBlitMs ?? 0;
+      }
     }
     if (needsRender) {
       this.renderOnce();
     }
-    this.rafId = requestAnimationFrame(this.handleAnimationFrame);
+    if (profileEnabled) {
+      this.frameProfile ??= createFrameProfileState();
+      const compositeMs = this.hasLastRenderProfile
+        ? this.lastRenderProfile.staticMs + this.lastRenderProfile.dynamicMs
+        : 0;
+      recordFrameProfile(
+        this.frameProfile,
+        profileNow() - frameStart,
+        cpuFillMs,
+        cpuBlitMs,
+        compositeMs,
+        this.hasLastRenderProfile ? this.lastRenderProfile.filterMs : 0,
+        delta > 0 ? 1 / delta : 0,
+      );
+    }
+    this.reconcileAnimationLoop();
   }
 }
 
@@ -5905,7 +6316,7 @@ const ensureResizeListener = () => {
   if (resizeListenerAttached || typeof window === 'undefined') {
     return;
   }
-  window.addEventListener('resize', () => {
+  const flushActiveViewers = () => {
     diagnostics.log('[RESIZE] Window resized:', {
       windowSize: { width: window.innerWidth, height: window.innerHeight },
       activeCanvases: ACTIVE_CANVASES.size
@@ -5927,9 +6338,26 @@ const ensureResizeListener = () => {
       viewer.handleViewportResize();
       viewer.ensureRunning();
     });
+  };
+  window.addEventListener('resize', () => {
+    if (resizeTrailingTimer === null) {
+      flushActiveViewers();
+    } else {
+      window.clearTimeout(resizeTrailingTimer);
+    }
+    resizeTrailingTimer = window.setTimeout(() => {
+      resizeTrailingTimer = null;
+      flushActiveViewers();
+    }, RESIZE_TRAILING_MS);
   });
   resizeListenerAttached = true;
 };
+
+if (typeof window !== 'undefined') {
+  window.__VESSEL_DUMP_GOBLET_PROFILE__ = () => (
+    Array.from(ACTIVE_CANVASES.values(), (viewer) => viewer.getProfileSnapshot())
+  );
+}
 
 export const renderVesselWebGL = async (metadata, canvas, options = {}) => {
   if (!(canvas instanceof HTMLCanvasElement)) {
@@ -5956,12 +6384,13 @@ export const renderVesselWebGL = async (metadata, canvas, options = {}) => {
   const viewer = new VesselGoblet(prepared, canvas, options, metadata);
   viewer.setSourceMetadata(metadata);
   await viewer.initialize();
-  viewer.start();
 
   canvas[RENDERER_KEY] = viewer;
   canvas.__vesselSourceMetadata = metadata;
   ACTIVE_CANVASES.set(canvas, viewer);
   ensureResizeListener();
+  viewer.setupAnimationEligibilityObservers();
+  viewer.start();
 
   if (!canvas[POINTER_GUARD_KEY]) {
     const ensureRunning = () => {

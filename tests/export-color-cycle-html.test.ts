@@ -10,7 +10,10 @@ import { FLOW_SLOT_MASK } from '@/lib/colorCycle/flowEncoding';
 import { useAppStore } from '@/stores/useAppStore';
 import { hashStops } from '@/utils/colorCycleGradientDefs';
 import { captureLayerTexture } from '@/utils/export/goblet/gobletTextureEncoder';
-import type { WebGLExportProgressEvent } from '@/utils/export/goblet/gobletTypes';
+import type {
+  GobletSizeReport,
+  WebGLExportProgressEvent,
+} from '@/utils/export/goblet/gobletTypes';
 import * as colorCycleBrushManager from '@/stores/colorCycleBrushManager';
 import { BrushShape, type Layer, type Project } from '@/types';
 
@@ -2476,6 +2479,7 @@ describe('exportProjectAsWebGL color cycle integration', () => {
     (globalThis as unknown as { fetch?: typeof fetch }).fetch = fetchMock as unknown as typeof fetch;
 
     let capturedBlob: Blob | null = null;
+    const legacySizeReports: GobletSizeReport[] = [];
     (URL.createObjectURL as jest.Mock).mockImplementation((blob: Blob) => {
       capturedBlob = blob;
       return mockBlobUrl;
@@ -2495,7 +2499,8 @@ describe('exportProjectAsWebGL color cycle integration', () => {
       minify: false,
       filenameBase: 'color-cycle-single',
       bundleFormat: 'single-html',
-      gobletVersion: 'goblet1'
+      gobletVersion: 'goblet1',
+      onSizeReport: (report) => legacySizeReports.push(report),
     });
 
     expect(fetchMock).toHaveBeenCalled();
@@ -2510,6 +2515,56 @@ describe('exportProjectAsWebGL color cycle integration', () => {
     expect(htmlOutput).toContain('colorCycle');
     expect(htmlOutput).toContain('brushState');
     expect(htmlOutput).toContain('alphaMode');
+    expect(legacySizeReports).toHaveLength(1);
+    expect(legacySizeReports[0].format).toBe('single-html');
+    expect(legacySizeReports[0].totalBytes).toBe(capturedBlob!.size);
+    expect(Object.values(legacySizeReports[0].singleHtmlBreakdown ?? {}).reduce(
+      (sum, value) => sum + value,
+      0,
+    )).toBe(capturedBlob!.size);
+
+    const bundledRuntime = 'const renderVesselWebGL = async () => ({});';
+    fetchMock.mockImplementation(async (url: RequestInfo | URL) => {
+      const target = typeof url === 'string' ? url : url.toString();
+      if (target.endsWith('index.html')) {
+        return { ok: true, text: async () => templateHtml, status: 200 } as Response;
+      }
+      if (target.endsWith('goblet-inline.js')) {
+        return { ok: true, text: async () => bundledRuntime, status: 200 } as Response;
+      }
+      throw new Error(`Unexpected bundled asset request: ${target}`);
+    });
+    capturedBlob = null;
+    const bundledSizeReports: GobletSizeReport[] = [];
+
+    await exportProjectAsWebGL({
+      project,
+      layers: [layer],
+      layout,
+      viewport: { designWidth: project.width, designHeight: project.height, mode: 'fixed' },
+      fps: 24,
+      totalFrames: 24,
+      durationSeconds: 1,
+      perfectLoop: false,
+      includeHiddenLayers: true,
+      embedCanvasFallback: false,
+      minify: true,
+      filenameBase: 'color-cycle-single-bundled',
+      bundleFormat: 'single-html',
+      gobletVersion: 'goblet1',
+      onSizeReport: (report) => bundledSizeReports.push(report),
+    });
+
+    expect(capturedBlob).not.toBeNull();
+    expect(bundledSizeReports).toHaveLength(1);
+    expect(bundledSizeReports[0].totalBytes).toBe(capturedBlob!.size);
+    expect(bundledSizeReports[0].singleHtmlBreakdown?.runtimeBytes).toBe(
+      new TextEncoder().encode(`${bundledRuntime}\n`).byteLength,
+    );
+    expect(Object.values(bundledSizeReports[0].singleHtmlBreakdown ?? {}).reduce(
+      (sum, value) => sum + value,
+      0,
+    )).toBe(capturedBlob!.size);
 
     if (originalFetch) {
       (globalThis as unknown as { fetch?: typeof fetch }).fetch = originalFetch;

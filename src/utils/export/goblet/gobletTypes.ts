@@ -20,6 +20,35 @@ export type WebGLExportProgressPhase =
   | 'complete'
   | 'failed';
 
+export interface GobletSingleHtmlBreakdown {
+  runtimeBytes: number;
+  ccBufferBytes: number;
+  maskBytes: number;
+  textureBytes: number;
+  sequentialFrameBytes: number;
+  previewBytes: number;
+  fallbackBytes: number;
+  otherBytes: number;
+}
+
+export interface GobletSizeReport {
+  format: 'json' | 'zip' | 'single-html';
+  totalBytes: number;
+  metadataBytes: number;
+  runtimeBytes: number;
+  htmlBytes: number;
+  ccBufferBytes: number;
+  maskBytes: number;
+  textureBytes: number;
+  sequentialFrameBytes: number;
+  previewBytes: number;
+  fallbackBytes: number;
+  binarySidecarBytes: number;
+  binarySidecarCount: number;
+  duplicatedMetadataBytes: number;
+  singleHtmlBreakdown?: GobletSingleHtmlBreakdown;
+}
+
 export type WebGLExportLayerStatus =
   | 'waiting'
   | 'exporting'
@@ -324,5 +353,6 @@ export interface WebGLExportRequest {
   colorCycleToolSpeed?: number;
   viewportPreset?: 'default' | 'embed-fill' | 'embed-fit' | 'fixed';
   onProgress?: (event: WebGLExportProgressEvent) => void;
+  onSizeReport?: (report: GobletSizeReport) => void;
   signal?: AbortSignal;
 }

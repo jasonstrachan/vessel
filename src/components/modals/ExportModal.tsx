@@ -18,7 +18,12 @@ import { createDefaultExportLayout } from '@/utils/layoutDefaults';
 import { runExport } from '@/utils/export/exportService';
 import { buildGobletExportSnapshotRequest } from '@/utils/export/goblet/gobletSnapshot';
 import type { ExportProgress, FrameProvider } from '@/utils/export/types';
-import type { WebGLExportLayerStatus, WebGLExportProgressPhase } from '@/utils/export/goblet/gobletTypes';
+import type {
+  GobletSingleHtmlBreakdown,
+  GobletSizeReport,
+  WebGLExportLayerStatus,
+  WebGLExportProgressPhase,
+} from '@/utils/export/goblet/gobletTypes';
 import type { Layer, WebGLExportBundleFormat, WebGLExportGobletVersion } from '@/types';
 
 type ExportKind = 'png' | 'gif' | 'mp4' | 'webgl';
@@ -54,6 +59,7 @@ type ExportProgressModalState = {
     message: string;
     stack?: string;
   };
+  sizeReport?: GobletSizeReport;
 };
 
 const BUNDLE_FORMAT_LABELS: Record<WebGLExportBundleFormat, string> = {
@@ -105,6 +111,22 @@ const LAYER_PROGRESS_LABELS: Record<WebGLExportLayerStatus, string> = {
   failed: 'Failed',
   skipped: 'Skipped',
 };
+
+const SINGLE_HTML_BREAKDOWN_ROWS: Array<{
+  key: keyof GobletSingleHtmlBreakdown;
+  label: string;
+}> = [
+  { key: 'runtimeBytes', label: 'Runtime' },
+  { key: 'ccBufferBytes', label: 'CC buffers' },
+  { key: 'maskBytes', label: 'Masks' },
+  { key: 'textureBytes', label: 'Textures' },
+  { key: 'sequentialFrameBytes', label: 'Sequential frames' },
+  { key: 'previewBytes', label: 'Preview' },
+  { key: 'fallbackBytes', label: 'Fallback' },
+  { key: 'otherBytes', label: 'Other' },
+];
+
+const formatExactBytes = (bytes: number): string => `${bytes.toLocaleString('en-US')} B`;
 
 const WEBGL_VIEWPORT_PRESETS = [
   { value: 'default', label: 'Default export' },
@@ -368,6 +390,10 @@ const ExportProgressModal: React.FC<ExportProgressModalProps> = ({
     }
     void navigator.clipboard?.writeText(diagnosticsText);
   };
+  const singleHtmlBreakdown = state.phase === 'complete'
+    && state.sizeReport?.format === 'single-html'
+    ? state.sizeReport.singleHtmlBreakdown
+    : undefined;
 
   return (
     <div
@@ -376,10 +402,10 @@ const ExportProgressModal: React.FC<ExportProgressModalProps> = ({
       onClick={canClose ? onDismissComplete : undefined}
     >
       <div
-        className={`${MODAL_PANEL_CLASS} w-[520px] max-w-[calc(100vw-32px)] max-h-[calc(100vh-48px)] overflow-hidden shadow-2xl`}
+        className={`${MODAL_PANEL_CLASS} flex max-h-[calc(100vh-48px)] w-[520px] max-w-[calc(100vw-32px)] flex-col overflow-hidden shadow-2xl`}
         onClick={(event) => event.stopPropagation()}
       >
-        <div className="flex items-center justify-between border-b border-[#424242] px-5 py-3">
+        <div className="flex shrink-0 items-center justify-between border-b border-[#424242] px-5 py-3">
           <div>
             <h2 className={`${MODAL_TEXT_PRIMARY} text-base font-semibold`}>
               Export progress
@@ -400,7 +426,7 @@ const ExportProgressModal: React.FC<ExportProgressModalProps> = ({
           )}
         </div>
 
-        <div className="space-y-4 overflow-y-auto px-5 py-4">
+        <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-5 py-4">
           {state.issue && (
             <div className="border border-[#735B2D] bg-[#261F12] px-3 py-2">
               <div className="text-sm font-semibold text-[#F0D9A0]">{state.issue.title}</div>
@@ -467,6 +493,46 @@ const ExportProgressModal: React.FC<ExportProgressModalProps> = ({
             </div>
           )}
 
+          {singleHtmlBreakdown && state.sizeReport && (
+            <div
+              className="border border-[#424242] bg-[#1F1F1F] px-3 py-3"
+              data-testid="single-html-size-breakdown"
+            >
+              <div className="flex items-center justify-between gap-3">
+                <span className={`${MODAL_TEXT_PRIMARY} text-sm font-semibold`}>Single HTML size</span>
+                <span className={`${MODAL_TEXT_PRIMARY} text-sm tabular-nums`}>
+                  {formatExactBytes(state.sizeReport.totalBytes)}
+                </span>
+              </div>
+              <div className="mt-2 space-y-1">
+                {SINGLE_HTML_BREAKDOWN_ROWS.map(({ key, label }) => {
+                  const bytes = singleHtmlBreakdown[key];
+                  if (bytes <= 0) {
+                    return null;
+                  }
+                  const percentage = state.sizeReport!.totalBytes > 0
+                    ? (bytes / state.sizeReport!.totalBytes) * 100
+                    : 0;
+                  return (
+                    <div
+                      key={key}
+                      className="grid grid-cols-[1fr_auto_auto] gap-3 text-xs"
+                      data-bytes={bytes}
+                      data-percentage={percentage}
+                      data-testid={`single-html-size-${key}`}
+                    >
+                      <span className={MODAL_TEXT_SECONDARY}>{label}</span>
+                      <span className={`${MODAL_TEXT_PRIMARY} tabular-nums`}>{formatExactBytes(bytes)}</span>
+                      <span className={`${MODAL_TEXT_SECONDARY} w-12 text-right tabular-nums`}>
+                        {percentage.toFixed(1)}%
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
           {diagnosticsText && (
             <div className="flex justify-end">
               <Button type="button" variant="secondary" size="sm" onClick={copyDiagnostics}>
@@ -489,7 +555,7 @@ const ExportProgressModal: React.FC<ExportProgressModalProps> = ({
           )}
         </div>
 
-        <div className="flex justify-end gap-2 border-t border-[#424242] px-5 py-3">
+        <div className="flex shrink-0 justify-end gap-2 border-t border-[#424242] px-5 py-3">
           {isBlocked ? (
             <>
               <Button variant="secondary" onClick={onClose}>Close</Button>
@@ -1265,7 +1331,15 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
                   compositeLayersToCanvasSync,
                   viewportPreset: webglViewportPreset,
                   htmlTitle: webglHtmlTitle,
-                  htmlBackgroundColor: webglHtmlBackgroundColor
+                  htmlBackgroundColor: webglHtmlBackgroundColor,
+                  onSizeReport: (sizeReport) => {
+                    if (webglBundleFormat !== 'single-html' || sizeReport.format !== 'single-html') {
+                      return;
+                    }
+                    setProgressModal((current) => current
+                      ? { ...current, sizeReport }
+                      : current);
+                  },
                 }, {
                   transparencyBackgroundMode,
                   displayFilters,
@@ -1341,6 +1415,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
             percent: 100,
             message: error.message,
             error,
+            sizeReport: undefined,
           }
         : {
             isOpen: true,

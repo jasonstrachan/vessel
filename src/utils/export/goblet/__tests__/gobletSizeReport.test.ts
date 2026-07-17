@@ -1,6 +1,8 @@
 import JSZip from 'jszip';
 
+import { packArrayToB64Z } from '@/utils/export/b64z';
 import {
+  createGobletSingleHtmlSizeReport,
   createGobletSizeReport,
   createGobletZipPayloadPlan,
   updateGobletSizeReportPayloadTotals,
@@ -126,6 +128,103 @@ const addSequentialLayer = (metadata: WebGLExportMetadata): WebGLExportMetadata 
 };
 
 describe('Goblet size report', () => {
+  it('accounts for Single HTML payload values without overlap', async () => {
+    const metadata = addSequentialLayer(addBrushLayer(baseMetadata(), 8));
+    const compressed = await packArrayToB64Z(new Uint8Array(4096).fill(7), 1);
+    if (!compressed) {
+      throw new Error('Expected compressible fixture to produce a b64z payload');
+    }
+    const brushState = metadata.layers[0].colorCycle?.brushState;
+    if (!brushState) {
+      throw new Error('Missing brush state');
+    }
+    brushState.indexBuffer = compressed;
+    brushState.gradientIdBuffer = undefined;
+    brushState.flowBuffer = undefined;
+    brushState.phaseBuffer = undefined;
+    metadata.layers[0].assets = {
+      texture: 'data:image/png;base64,AAAA',
+    };
+    metadata.layers[0].colorCycle!.alphaMask = {
+      width: 2,
+      height: 2,
+      data: [255, 0, 0, 255],
+    };
+    metadata.preview = {
+      type: 'image/png',
+      width: 1,
+      height: 1,
+      dataUrl: 'data:image/png;base64,BBBB',
+    };
+    metadata.fallback = {
+      type: 'image/png',
+      dataUrl: 'data:image/png;base64,CCCC',
+    };
+
+    const metadataJson = JSON.stringify(metadata);
+    const readableMetadataJson = JSON.stringify(metadata, null, 2);
+    const runtimeBytes = 100;
+    const totalBytes = new TextEncoder().encode(readableMetadataJson).byteLength + runtimeBytes + 500;
+    const report = createGobletSingleHtmlSizeReport({
+      metadata,
+      metadataJson,
+      runtimeBytes,
+      htmlBytes: 500,
+      totalBytes,
+    });
+    const readableReport = createGobletSingleHtmlSizeReport({
+      metadata,
+      metadataJson: readableMetadataJson,
+      runtimeBytes,
+      htmlBytes: 500,
+      totalBytes,
+    });
+    const breakdown = report.singleHtmlBreakdown;
+    if (!breakdown) {
+      throw new Error('Missing Single HTML breakdown');
+    }
+
+    expect(Object.values(breakdown).reduce((sum, value) => sum + value, 0)).toBe(totalBytes);
+    expect(breakdown.ccBufferBytes).toBe(new TextEncoder().encode(JSON.stringify(compressed)).byteLength);
+    expect(breakdown.ccBufferBytes).toBeLessThan(4096);
+    expect(breakdown.maskBytes).toBeGreaterThan(0);
+    expect(breakdown.textureBytes).toBeGreaterThan(0);
+    expect(breakdown.sequentialFrameBytes).toBeGreaterThan(0);
+    expect(breakdown.previewBytes).toBeGreaterThan(0);
+    expect(breakdown.fallbackBytes).toBeGreaterThan(0);
+    expect(readableReport.metadataBytes).toBeGreaterThan(report.metadataBytes);
+    expect(readableReport.singleHtmlBreakdown).toEqual(report.singleHtmlBreakdown);
+  });
+
+  it('reports zero serialized preview and fallback bytes when they are absent', () => {
+    const metadata = baseMetadata();
+    const metadataJson = JSON.stringify(metadata);
+    const report = createGobletSingleHtmlSizeReport({
+      metadata,
+      metadataJson,
+      runtimeBytes: 10,
+      htmlBytes: 20,
+      totalBytes: new TextEncoder().encode(metadataJson).byteLength + 30,
+    });
+
+    expect(report.singleHtmlBreakdown?.previewBytes).toBe(0);
+    expect(report.singleHtmlBreakdown?.fallbackBytes).toBe(0);
+    expect(Object.values(report.singleHtmlBreakdown ?? {}).reduce((sum, value) => sum + value, 0)).toBe(report.totalBytes);
+  });
+
+  it('rejects a Single HTML breakdown that exceeds the artifact total', () => {
+    const metadata = baseMetadata();
+    const metadataJson = JSON.stringify(metadata);
+
+    expect(() => createGobletSingleHtmlSizeReport({
+      metadata,
+      metadataJson,
+      runtimeBytes: 100,
+      htmlBytes: 0,
+      totalBytes: 1,
+    })).toThrow('Single HTML size accounting exceeded the artifact total');
+  });
+
   it('breaks down sparse, dense, and sequential fixture payloads', () => {
     const sparse = addBrushLayer(baseMetadata(), 32);
     const dense = addBrushLayer(baseMetadata(), 2048);

@@ -8,6 +8,38 @@ type GobletHtmlDiagnostics = {
   warn: (...args: Array<unknown>) => void;
 };
 
+export interface GobletSingleHtmlArtifact {
+  html: string;
+  totalBytes: number;
+  runtimeBytes: number;
+  metadataBytes: number;
+  htmlBytes: number;
+}
+
+type GobletSingleFileScriptArtifact = {
+  script: string;
+  runtime: string;
+};
+
+const textBytes = (value: string): number => new TextEncoder().encode(value).byteLength;
+
+const describeSingleHtmlArtifact = (
+  html: string,
+  runtime: string,
+  metadataJson: string,
+): GobletSingleHtmlArtifact => {
+  const totalBytes = textBytes(html);
+  const runtimeBytes = textBytes(runtime);
+  const metadataBytes = textBytes(metadataJson);
+  return {
+    html,
+    totalBytes,
+    runtimeBytes,
+    metadataBytes,
+    htmlBytes: Math.max(0, totalBytes - runtimeBytes - metadataBytes),
+  };
+};
+
 const transformModuleScript = (html: string, transform: (scriptContent: string) => string): string => {
   const scriptOpen = '<script type="module">';
   const scriptStart = html.indexOf(scriptOpen);
@@ -606,7 +638,7 @@ const buildSingleFileScript = (
   inflateRuntime: string,
   metadataJson: string,
   diagnosticsEnabled: boolean
-): string => {
+): GobletSingleFileScriptArtifact => {
   const withoutImport = stripGobletImport(scriptContent, runtimeModulePath);
   const runtimeWithoutAlignImport = stripModuleImportStatement(gobletRuntime, './alignFitResolver.js');
   const runtimeWithoutNumImport = stripModuleImportStatement(runtimeWithoutAlignImport, './num.js');
@@ -645,7 +677,10 @@ const buildSingleFileScript = (
   const runtimePrefix = runtimePrefixParts.length > 0 ? `\n${runtimePrefixParts.join('\n')}\n` : '\n';
   const runtime = `${runtimePrefix}${runtimeWithoutPlaybackMathImport}\n`;
   const snippet = buildSingleFileRenderSnippet(metadataJson, diagnosticsEnabled);
-  return `${runtime}${withoutImport}${snippet}`;
+  return {
+    script: `${runtime}${withoutImport}${snippet}`,
+    runtime,
+  };
 };
 
 const buildSingleFileScriptFromBundledRuntime = (
@@ -654,11 +689,14 @@ const buildSingleFileScriptFromBundledRuntime = (
   runtimeModulePath: string,
   metadataJson: string,
   diagnosticsEnabled: boolean
-): string => {
+): GobletSingleFileScriptArtifact => {
   const withoutImport = stripGobletImport(scriptContent, runtimeModulePath);
   const runtime = bundledRuntime.endsWith('\n') ? bundledRuntime : `${bundledRuntime}\n`;
   const snippet = buildSingleFileRenderSnippet(metadataJson, diagnosticsEnabled);
-  return `${runtime}${withoutImport}${snippet}`;
+  return {
+    script: `${runtime}${withoutImport}${snippet}`,
+    runtime,
+  };
 };
 
 export const createZipGobletHtml = (
@@ -691,6 +729,36 @@ export const createSingleFileGobletHtml = (
   diagnosticsEnabled: boolean,
   diagnostics: GobletHtmlDiagnostics
 ): string => {
+  return createSingleFileGobletHtmlArtifact(
+    template,
+    gobletJs,
+    runtimeModulePath,
+    alignJs,
+    displayFilterJs,
+    payloadContractJs,
+    playbackMathJs,
+    numJs,
+    inflateJs,
+    metadataJson,
+    diagnosticsEnabled,
+    diagnostics,
+  ).html;
+};
+
+export const createSingleFileGobletHtmlArtifact = (
+  template: string,
+  gobletJs: string,
+  runtimeModulePath: string,
+  alignJs: string,
+  displayFilterJs: string,
+  payloadContractJs: string | null | undefined,
+  playbackMathJs: string,
+  numJs: string,
+  inflateJs: string,
+  metadataJson: string,
+  diagnosticsEnabled: boolean,
+  diagnostics: GobletHtmlDiagnostics
+): GobletSingleHtmlArtifact => {
   if (diagnosticsEnabled) {
     diagnostics.log('[webglExporter] Building single-file Goblet bundle', {
       templateLength: template.length,
@@ -737,8 +805,9 @@ export const createSingleFileGobletHtml = (
   }
 
   const runtime = stripGobletExports(gobletJs);
-  return transformModuleScript(template, (script) =>
-    buildSingleFileScript(
+  let insertedRuntime = '';
+  const html = transformModuleScript(template, (script) => {
+    const artifact = buildSingleFileScript(
       script,
       runtime,
       runtimeModulePath,
@@ -750,8 +819,11 @@ export const createSingleFileGobletHtml = (
       inflateJs,
       metadataJson,
       diagnosticsEnabled,
-    )
-  );
+    );
+    insertedRuntime = artifact.runtime;
+    return artifact.script;
+  });
+  return describeSingleHtmlArtifact(html, insertedRuntime, metadataJson);
 };
 
 export const createSingleFileGobletHtmlFromBundledRuntime = (
@@ -761,7 +833,33 @@ export const createSingleFileGobletHtmlFromBundledRuntime = (
   metadataJson: string,
   diagnosticsEnabled: boolean
 ): string => {
-  return transformModuleScript(template, (script) =>
-    buildSingleFileScriptFromBundledRuntime(script, bundledRuntime, runtimeModulePath, metadataJson, diagnosticsEnabled)
-  );
+  return createSingleFileGobletHtmlArtifactFromBundledRuntime(
+    template,
+    bundledRuntime,
+    runtimeModulePath,
+    metadataJson,
+    diagnosticsEnabled,
+  ).html;
+};
+
+export const createSingleFileGobletHtmlArtifactFromBundledRuntime = (
+  template: string,
+  bundledRuntime: string,
+  runtimeModulePath: string,
+  metadataJson: string,
+  diagnosticsEnabled: boolean
+): GobletSingleHtmlArtifact => {
+  let insertedRuntime = '';
+  const html = transformModuleScript(template, (script) => {
+    const artifact = buildSingleFileScriptFromBundledRuntime(
+      script,
+      bundledRuntime,
+      runtimeModulePath,
+      metadataJson,
+      diagnosticsEnabled,
+    );
+    insertedRuntime = artifact.runtime;
+    return artifact.script;
+  });
+  return describeSingleHtmlArtifact(html, insertedRuntime, metadataJson);
 };

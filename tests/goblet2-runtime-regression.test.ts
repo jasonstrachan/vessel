@@ -192,10 +192,12 @@ describe('Goblet 2 runtime export regression guard', () => {
     expect(runtime).toContain('if (diagnosticsEnabled) {\n      units = isFixed ? \'backing\' : \'css\';');
   });
 
-  it('does not carry the persistent Goblet 2 profile console path', () => {
+  it('keeps Goblet 2 profiling opt-in and exposes a read-only dump without persistent console output', () => {
     const runtime = read('public/goblet2/goblet2.js');
 
-    expect(runtime).not.toContain('vesselGobletProfile');
+    expect(runtime).toContain("new URLSearchParams(window.location.search).get('gobletProfile') === '1'");
+    expect(runtime).toContain("window.localStorage?.getItem('vesselGobletProfile') === 'true'");
+    expect(runtime).toContain('window.__VESSEL_DUMP_GOBLET_PROFILE__ = () => (');
     expect(runtime).not.toContain('[goblet][profile]');
   });
 
@@ -474,11 +476,46 @@ describe('Goblet 2 runtime export regression guard', () => {
     expect(runtime).not.toContain('if (!this.maybeAdvanceShiftKeysSlotMode(shiftKey, slotSpeedMap, n, canUseSlots))');
   });
 
-  it('does not auto-downscale color-cycle playback after the first performance window', () => {
+  it('gates adaptive CPU scaling behind confirmed coarse-pointer WebGL fallback and hysteresis', () => {
     const runtime = read('public/goblet2/goblet2.js');
 
-    expect(runtime).toContain('this.renderScale = halfResPref === \'true\' ? 0.5 : 1;');
-    expect(runtime).toContain('this._adaptiveScaleEnabled = false;');
-    expect(runtime).not.toContain('this._adaptiveScaleEnabled = halfResPref !== \'true\';');
+    expect(runtime).toContain("this.renderScale = this._halfResPreference === 'true' ? 0.5 : 1;");
+    expect(runtime).toContain('this._webglInitAttempted = true;');
+    expect(runtime).toContain('this._webglInitFailed = true;');
+    expect(runtime).toContain('this._adaptiveScaleEnabled = this._halfResPreference === null && matchesCoarsePointer();');
+    expect(runtime).toContain('const slowWindow = averageFillMs > 20 || observedFps < 45;');
+    expect(runtime).toContain('const fastWindow = averageFillMs < 12 && observedFps > 55;');
+    expect(runtime).toContain('this._slowWindowCount >= 3');
+    expect(runtime).toContain('this._fastWindowCount >= 5');
+    expect(runtime).toContain('nowMs - this._lastScaleTransitionMs >= 30_000');
+    expect(runtime).toContain('await this.initialize({ allowWebGL: false });');
+  });
+
+  it('freezes only color-cycle playback while adaptive scaling reinitializes', () => {
+    const runtime = read('public/goblet2/goblet2.js');
+    const sequentialStart = runtime.indexOf('class SequentialLayerPlayer');
+    const colorCycleStart = runtime.indexOf('class ColorCycleLayerPlayer');
+    const colorCycleEnd = runtime.indexOf('// Vessel viewer core', colorCycleStart);
+    const sequentialPlayer = runtime.slice(sequentialStart, colorCycleStart);
+    const colorCyclePlayer = runtime.slice(colorCycleStart, colorCycleEnd);
+
+    expect(sequentialPlayer).toContain('if (!this.hasAnimation()) {');
+    expect(sequentialPlayer).not.toContain('this._isReinitializing');
+    expect(colorCyclePlayer).toContain(
+      'if (this._destroyed || this._isReinitializing || !this.hasAnimation()) {',
+    );
+  });
+
+  it('centralizes animation eligibility and caps coarse-pointer fixed backing stores', () => {
+    const runtime = read('public/goblet2/goblet2.js');
+
+    expect(runtime).toContain('canRunAnimation() {');
+    expect(runtime).toContain('reconcileAnimationLoop() {');
+    expect(runtime).toContain("document.addEventListener('visibilitychange', this.handleVisibilityChange)");
+    expect(runtime).toContain('new IntersectionObserver(this.handleIntersectionChange, { threshold: 0 })');
+    expect(runtime).toContain('const MAX_MOBILE_FIXED_DPR = 2;');
+    expect(runtime).toContain('const MAX_MOBILE_FIXED_BACKING_PIXELS = 4_194_304;');
+    expect(runtime).toContain('const lutsBySlot = this._fractionalLutsBySlot;');
+    expect(runtime).not.toContain('const lutsBySlot = new Map();');
   });
 });

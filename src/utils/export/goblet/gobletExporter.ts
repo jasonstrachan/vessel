@@ -44,8 +44,8 @@ import {
 import {
   applyHtmlBackgroundColorToTemplate,
   applyHtmlTitleToTemplate,
-  createSingleFileGobletHtml,
-  createSingleFileGobletHtmlFromBundledRuntime,
+  createSingleFileGobletHtmlArtifact,
+  createSingleFileGobletHtmlArtifactFromBundledRuntime,
   DEFAULT_HTML_BACKGROUND_COLOR,
   DEFAULT_HTML_TITLE,
   GOBLET2_FORMAT,
@@ -91,6 +91,7 @@ import {
 } from '@/utils/export/goblet/gobletColorCycleSerializer';
 import { createGobletZipBlob } from '@/utils/export/goblet/gobletZipBuilder';
 import {
+  createGobletSingleHtmlSizeReport,
   createGobletSizeReport,
   createGobletZipPayloadPlan,
   updateGobletSizeReportPayloadTotals,
@@ -1045,14 +1046,21 @@ export const exportProjectAsWebGL = async (
     const bundledRuntime = await loadBundledRuntime();
     throwIfExportAborted(options.signal);
     if (bundledRuntime) {
-      const singleFileHtml = createSingleFileGobletHtmlFromBundledRuntime(
+      const singleHtmlArtifact = createSingleFileGobletHtmlArtifactFromBundledRuntime(
         indexHtmlWithPresentation,
         bundledRuntime,
         gobletRuntimeModulePath,
         json,
         diagnosticsEnabled
       );
-      const htmlBlob = new Blob([singleFileHtml], { type: 'text/html' });
+      const htmlBlob = new Blob([singleHtmlArtifact.html], { type: 'text/html' });
+      options.onSizeReport?.(createGobletSingleHtmlSizeReport({
+        metadata,
+        metadataJson: json,
+        runtimeBytes: singleHtmlArtifact.runtimeBytes,
+        htmlBytes: singleHtmlArtifact.htmlBytes,
+        totalBytes: htmlBlob.size,
+      }));
       downloadBlob(htmlBlob, `${options.filenameBase}-goblet.html`);
       emitProgress?.({
         phase: 'complete',
@@ -1080,7 +1088,7 @@ export const exportProjectAsWebGL = async (
       throw new Error(`[webglExporter] Failed to load Goblet assets: ${message}`);
     }
 
-    const singleFileHtml = createSingleFileGobletHtml(
+    const singleHtmlArtifact = createSingleFileGobletHtmlArtifact(
       indexHtmlWithPresentation,
       gobletJs,
       gobletRuntimeModulePath,
@@ -1097,7 +1105,14 @@ export const exportProjectAsWebGL = async (
         warn: gobletDebugWarn,
       }
     );
-    const htmlBlob = new Blob([singleFileHtml], { type: 'text/html' });
+    const htmlBlob = new Blob([singleHtmlArtifact.html], { type: 'text/html' });
+    options.onSizeReport?.(createGobletSingleHtmlSizeReport({
+      metadata,
+      metadataJson: json,
+      runtimeBytes: singleHtmlArtifact.runtimeBytes,
+      htmlBytes: singleHtmlArtifact.htmlBytes,
+      totalBytes: htmlBlob.size,
+    }));
     downloadBlob(htmlBlob, `${options.filenameBase}-goblet.html`);
     emitProgress?.({
       phase: 'complete',
