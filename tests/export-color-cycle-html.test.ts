@@ -2738,7 +2738,7 @@ describe('exportProjectAsWebGL color cycle integration', () => {
     expect(metadata.preview?.dataUrl).toMatch(/^data:image\//);
   });
 
-  it('uses the actual encoded preview mime when the browser falls back from avif to png', async () => {
+  it('advances preview encoding to webp when the browser silently falls back from avif to png', async () => {
     const originalToBlob = HTMLCanvasElement.prototype.toBlob;
     const toBlobSpy = jest
       .spyOn(HTMLCanvasElement.prototype, 'toBlob')
@@ -2790,10 +2790,10 @@ describe('exportProjectAsWebGL color cycle integration', () => {
         compositeLayersToCanvasSync
       });
 
-      expect(metadata.preview?.type).toBe('image/png');
-      expect(metadata.preview?.dataUrl).toMatch(/^data:image\/png;base64,/);
-      expect(metadata.fallback?.type).toBe('image/png');
-      expect(metadata.fallback?.dataUrl).toMatch(/^data:image\/png;base64,/);
+      expect(metadata.preview?.type).toBe('image/webp');
+      expect(metadata.preview?.dataUrl).toMatch(/^data:image\/webp;base64,/);
+      expect(metadata.fallback?.type).toBe('image/webp');
+      expect(metadata.fallback?.dataUrl).toMatch(/^data:image\/webp;base64,/);
     } finally {
       toBlobSpy.mockRestore();
       Object.defineProperty(HTMLCanvasElement.prototype, 'toBlob', {

@@ -148,6 +148,13 @@ export const normalizeImageDataUrl = (dataUrl: unknown): string | undefined => {
   return trimmed;
 };
 
+// Browsers that cannot encode the requested format do not fail toBlob/convertToBlob;
+// they silently hand back a PNG-typed blob instead. Accepting that blob would end
+// format negotiation at the first (AVIF) attempt and ship every texture as PNG, so a
+// blob only counts as success when its MIME type matches the requested format.
+const blobMatchesFormat = (blob: Blob, format: CanvasExportFormatOption): boolean =>
+  normalizeCanvasExportMimeType(blob.type) === format.type;
+
 const encodeCanvasToBlob = async (
   canvas: HTMLCanvasElement | OffscreenCanvas,
   format: CanvasExportFormatOption
@@ -163,7 +170,10 @@ const encodeCanvasToBlob = async (
         }
       });
       if (blob) {
-        return blob;
+        if (blobMatchesFormat(blob, format)) {
+          return blob;
+        }
+        debugLog('raw-console', `[webglExporter] HTMLCanvas toBlob returned ${blob.type || 'unknown'} for ${format.type}; treating as unsupported`);
       }
     } catch (error) {
       debugLog('raw-console', `[webglExporter] HTMLCanvas toBlob failed for ${format.type}`, error);
@@ -178,7 +188,10 @@ const encodeCanvasToBlob = async (
       }
       const blob = await canvas.convertToBlob(options);
       if (blob && blob.size > 0) {
-        return blob;
+        if (blobMatchesFormat(blob, format)) {
+          return blob;
+        }
+        debugLog('raw-console', `[webglExporter] OffscreenCanvas convertToBlob returned ${blob.type || 'unknown'} for ${format.type}; treating as unsupported`);
       }
     } catch (error) {
       debugLog('raw-console', `[webglExporter] OffscreenCanvas convertToBlob failed for ${format.type}`, error);
@@ -207,6 +220,10 @@ export const canvasToDataURL = async (
         normalizeCanvasExportMimeType(blob.type) ??
         extractCanvasExportMimeTypeFromDataUrl(dataUrl) ??
         format.type;
+      if (actualFormat !== format.type) {
+        debugLog('raw-console', `[webglExporter] Encoded canvas came back as ${actualFormat} instead of ${format.type}; trying next format`);
+        continue;
+      }
       return { dataUrl, format: actualFormat };
     } catch (error) {
       debugLog('raw-console', `[webglExporter] Failed to encode canvas as ${format.type}`, error);
