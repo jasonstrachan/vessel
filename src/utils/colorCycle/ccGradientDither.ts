@@ -7,6 +7,7 @@ import {
 } from '@/utils/ditherAlgorithms';
 import {
   fillFlatPatternMode,
+  resolveFlatCycleInkSetForPosition,
   resolveFlatInkSetForPosition,
 } from '@/utils/colorCycle/ccFlatModePatterns';
 import { appendCCDebugOverlayEntry } from '@/utils/colorCycle/ccDebugOverlayStore';
@@ -983,7 +984,12 @@ export const fillCcGradientDither = async ({
       if (bandSteps > 0) {
         position = Math.round(position * bandSteps) / bandSteps;
       }
-      const { indices } = resolveFlatInkSetForPosition(position, 2, baseOffset, flatPairSpread);
+      const { indices } = resolveFlatCycleInkSetForPosition(
+        position,
+        2,
+        baseOffset,
+        flatPairSpread,
+      );
       flatCycleLowLut[coverage] = indices[0];
       flatCycleHighLut[coverage] = indices[1];
     }

@@ -8,6 +8,7 @@ import type { BrushSettings } from '@/types';
 import type { PatternStyle } from '@/utils/ditherAlgorithms';
 import {
   fillFlatPatternMode,
+  resolveFlatCycleInkSetForPosition,
   resolveFlatInkSetForBand,
   resolveFlatInkSetForPosition,
   resolveFlatInkCountForBand,
@@ -1952,7 +1953,7 @@ describe('fillCcGradientDither flat-cycle mode', () => {
     for (let x = 0; x < width; x += 1) {
       // Mirror the fill's byte quantization of cell coverage before pair lookup.
       const position = Math.round(Math.max(0, Math.min(1, (x + 0.5) / width)) * 255) / 255;
-      const { indices } = resolveFlatInkSetForPosition(position, 2, 0, 40);
+      const { indices } = resolveFlatCycleInkSetForPosition(position, 2, 0, 40);
       const seen = new Set<number>();
       for (let y = 0; y < height; y += 1) {
         const value = out[y * width + x];
@@ -1971,6 +1972,21 @@ describe('fillCcGradientDither flat-cycle mode', () => {
     // Constant 50/50 tone: the high ink should cover close to half the cells.
     expect(highCount / total).toBeGreaterThan(0.35);
     expect(highCount / total).toBeLessThan(0.65);
+  });
+
+  it('wraps the local ink pair across the palette seam without collapsing its spread', () => {
+    const start = resolveFlatCycleInkSetForPosition(0, 2, 0, 40).indices;
+    const middle = resolveFlatCycleInkSetForPosition(0.5, 2, 0, 40).indices;
+    const end = resolveFlatCycleInkSetForPosition(1, 2, 0, 40).indices;
+    const circularDistance = ([low, high]: [number, number]) => {
+      const distance = Math.abs(high - low);
+      return Math.min(distance, 255 - distance);
+    };
+    const decrementWrapped = (index: number) => index === 1 ? 255 : index - 1;
+
+    expect(circularDistance(start)).toBe(circularDistance(middle));
+    expect(circularDistance(end)).toBe(circularDistance(middle));
+    expect(end).toEqual(start.map(decrementWrapped));
   });
 
   it('slides the ink pair with the gradient position instead of encoding a ramp', async () => {

@@ -57,6 +57,11 @@ const MAX_FLAT_PAIR_DISTANCE = MAX_FLAT_PAIR_HALF_SPREAD * 2;
 
 const clamp01 = (value: number): number => Math.max(0, Math.min(1, value));
 
+const wrapPaletteIndex = (index: number): number => {
+  const zeroBased = Math.round(index) - 1;
+  return ((zeroBased % 255) + 255) % 255 + 1;
+};
+
 const shiftPaletteIndex = (index: number, baseOffset: number): number => {
   const zeroBased = Math.max(0, Math.min(254, index - 1));
   const shifted = (zeroBased + baseOffset) % 255;
@@ -109,6 +114,23 @@ export const resolveFlatInkSetForPosition = (
   const half = resolveFlatPairHalfSpread(spreadPercent);
   const low = shiftPaletteIndex(Math.max(1, center - half), baseOffset);
   const high = shiftPaletteIndex(Math.min(255, center + half), baseOffset);
+
+  return {
+    indices: [low, high],
+  };
+};
+
+export const resolveFlatCycleInkSetForPosition = (
+  position: number,
+  _inkCount: FlatInkCount,
+  baseOffset: number,
+  spreadPercent?: number
+): FlatInkSet => {
+  const clampedPosition = clamp01(position);
+  const center = Math.max(1, Math.min(255, Math.round(clampedPosition * 254) + 1));
+  const half = resolveFlatPairHalfSpread(spreadPercent);
+  const low = shiftPaletteIndex(wrapPaletteIndex(center - half), baseOffset);
+  const high = shiftPaletteIndex(wrapPaletteIndex(center + half), baseOffset);
 
   return {
     indices: [low, high],
