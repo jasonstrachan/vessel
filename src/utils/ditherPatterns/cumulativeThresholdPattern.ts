@@ -200,21 +200,49 @@ export const createCumulativeThresholdResolver = (
     scale?: number | null;
     offsetX?: number | null;
     offsetY?: number | null;
+    staggerRows?: boolean;
+    verticalTrimFraction?: number | null;
   } = {},
 ): CumulativeThresholdResolver => {
   const scale = Math.max(1, Math.round(settings.scale ?? 1));
   const offsetX = Math.round(settings.offsetX ?? 0);
   const offsetY = Math.round(settings.offsetY ?? 0);
-  const resolver = ((x: number, y: number) => resolveCumulativeThreshold(
-    runtime,
-    Math.floor((x + offsetX) / scale),
-    Math.floor((y + offsetY) / scale),
-  )) as CumulativeThresholdResolver;
+  const staggerRows = settings.staggerRows === true;
+  const verticalTrimFraction = Number.isFinite(settings.verticalTrimFraction)
+    ? Math.max(0, Math.min(0.45, settings.verticalTrimFraction ?? 0))
+    : 0;
+  const trimY = Math.min(
+    Math.floor((runtime.definition.height - 1) / 2),
+    Math.round(runtime.definition.height * verticalTrimFraction),
+  );
+  const tileHeight = runtime.definition.height - trimY * 2;
+  const halfTileWidth = Math.floor(runtime.definition.width / 2);
+  const layoutCacheSuffix = [
+    staggerRows ? 'half-row' : null,
+    trimY ? `trim-y${trimY}` : null,
+  ].filter(Boolean).join(':');
+  const baseCacheKey = `${runtime.definition.payloadHash}:${scale}:${offsetX}:${offsetY}`;
+  const resolver = (layoutCacheSuffix
+    ? (x: number, y: number) => {
+        const patternY = Math.floor((y + offsetY) / scale);
+        const tileRow = Math.floor(patternY / tileHeight);
+        const rowOffsetX = staggerRows && mod(tileRow, 2) === 1
+          ? halfTileWidth
+          : 0;
+        const patternX = Math.floor((x + offsetX) / scale) - rowOffsetX;
+        const sourceY = mod(patternY, tileHeight) + trimY;
+        return resolveCumulativeThreshold(runtime, patternX, sourceY);
+      }
+    : (x: number, y: number) => resolveCumulativeThreshold(
+        runtime,
+        Math.floor((x + offsetX) / scale),
+        Math.floor((y + offsetY) / scale),
+      )) as CumulativeThresholdResolver;
   return Object.assign(resolver, {
     patternId: runtime.definition.id,
     payloadHash: runtime.definition.payloadHash,
     coveragePolicy: runtime.definition.coveragePolicy,
-    cacheKey: `${runtime.definition.payloadHash}:${scale}:${offsetX}:${offsetY}`,
+    cacheKey: layoutCacheSuffix ? `${baseCacheKey}:${layoutCacheSuffix}` : baseCacheKey,
     resolveTone: (inputTone: number) => resolveCumulativePatternTone(runtime.definition, inputTone),
   });
 };

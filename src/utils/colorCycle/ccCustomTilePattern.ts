@@ -291,6 +291,8 @@ export const createCcCustomTileThresholdResolver = (
         scale: settings.patternTileScale,
         offsetX: settings.patternTileOffsetX,
         offsetY: settings.patternTileOffsetY,
+        staggerRows: true,
+        verticalTrimFraction: 0.02,
       });
     }
   }

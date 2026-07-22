@@ -116,6 +116,44 @@ describe('cumulative threshold patterns', () => {
     expect(registry.resolve(runtime.definition.id)).toBeNull();
   });
 
+  it('offsets alternating tile rows by half a tile when row staggering is enabled', async () => {
+    const { runtime } = await makeFixture();
+    const gridResolver = createCumulativeThresholdResolver(runtime);
+    const staggeredResolver = createCumulativeThresholdResolver(runtime, { staggerRows: true });
+    const scaledStaggeredResolver = createCumulativeThresholdResolver(runtime, {
+      scale: 2,
+      staggerRows: true,
+    });
+
+    expect(gridResolver(0, 3)).toBeCloseTo(16 / 254);
+    expect(staggeredResolver(0, 3)).toBeCloseTo(176 / 254);
+    expect(staggeredResolver(2, 3)).toBeCloseTo(16 / 254);
+    expect(staggeredResolver(0, 6)).toBeCloseTo(16 / 254);
+    expect(scaledStaggeredResolver(0, 6)).toBeCloseTo(176 / 254);
+    expect(scaledStaggeredResolver(4, 6)).toBeCloseTo(16 / 254);
+    expect(staggeredResolver.cacheKey).not.toBe(gridResolver.cacheKey);
+    expect(gridResolver.cacheKey).toBe(`${runtime.definition.payloadHash}:1:0:0`);
+    expect(staggeredResolver.cacheKey).toContain('half-row');
+  });
+
+  it('trims vertical tile edges while retaining the full horizontal motif', async () => {
+    const { runtime } = await makeFixture();
+    const resolver = createCumulativeThresholdResolver(runtime, {
+      verticalTrimFraction: 0.25,
+    });
+    const staggeredResolver = createCumulativeThresholdResolver(runtime, {
+      staggerRows: true,
+      verticalTrimFraction: 0.25,
+    });
+
+    expect(resolver(0, 0)).toBeCloseTo(32 / 254);
+    expect(resolver(3, 0)).toBe(Number.POSITIVE_INFINITY);
+    expect(resolver(0, 1)).toBeCloseTo(32 / 254);
+    expect(staggeredResolver(0, 1)).toBeCloseTo(192 / 254);
+    expect(staggeredResolver(2, 1)).toBeCloseTo(32 / 254);
+    expect(resolver.cacheKey).toContain('trim-y1');
+  });
+
   it('shares one synthetic payload across regular, CC Gradient, and CC Flat rendering', async () => {
     const { runtime } = await makeFixture();
     const resolver = createCumulativeThresholdResolver(runtime);
