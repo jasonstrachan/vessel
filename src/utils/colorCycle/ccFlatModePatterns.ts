@@ -19,6 +19,8 @@ export type FlatPatternFillOptions = {
   algorithm: DitherAlgorithm;
   patternStyle?: PatternStyle;
   tone: number;
+  /** Optional motif coverage signal, independent from flat ink selection. */
+  motifTone?: number;
   flatPosition?: number;
   flatBand?: number;
   flatLowIndex?: number;
@@ -302,6 +304,7 @@ const fillOrderedFlatPatternMode = ({
   algorithm,
   patternStyle,
   tone,
+  motifTone,
   flatPosition,
   flatBand,
   flatLowIndex,
@@ -336,7 +339,15 @@ const fillOrderedFlatPatternMode = ({
     flatMixByBand,
     spread
   );
-  const adaptiveTone = Number.isFinite(flatPosition) ? (flatPosition as number) : tone;
+  const hasMotifTone = typeof motifTone === 'number' && Number.isFinite(motifTone);
+  const resolvedMotifTone = hasMotifTone
+    ? clamp01(motifTone)
+    : orderedMix;
+  const adaptiveTone = hasMotifTone
+    ? resolvedMotifTone
+    : Number.isFinite(flatPosition)
+    ? (flatPosition as number)
+    : tone;
 
   for (let y = 0; y < gridH; y += 1) {
     const rowOffset = y * gridW;
@@ -346,7 +357,7 @@ const fillOrderedFlatPatternMode = ({
         continue;
       }
       const bit =
-        orderedMix >= resolveOrderedThreshold(
+        resolvedMotifTone >= resolveOrderedThreshold(
           algorithm,
           patternStyle,
           x + phaseX,

@@ -15,7 +15,10 @@ import {
   resolveCcPatternThreshold,
   withCcImageTileThresholdResolver,
 } from '@/utils/colorCycle/ccPatternThreshold';
-import { resolveExternalPatternTone } from '@/utils/ditherPatterns/cumulativeThresholdPattern';
+import {
+  isCumulativeThresholdResolver,
+  resolveExternalPatternTone,
+} from '@/utils/ditherPatterns/cumulativeThresholdPattern';
 import { resolveFlatSierraBandMixInfo } from '@/utils/colorCycle/ccDitherRenderPalette';
 import { getActiveMarkGradientSession } from '@/hooks/canvas/utils/colorCycleMarkSession';
 import type { StoredStop } from '@/utils/colorCycleGradientDefs';
@@ -1237,6 +1240,9 @@ export const fillCcGradientDither = async ({
       algorithm,
       patternStyle,
       tone: patternTone,
+      motifTone: isCumulativeThresholdResolver(imageTileThresholdResolver)
+        ? patternTone
+        : undefined,
       flatPosition: sampledFlatPayload?.flatPosition ?? (sampledFlatPayload ? undefined : flatPosition),
       flatLowIndex: sampledFlatPayload?.lowIndex,
       flatHighIndex: sampledFlatPayload?.highIndex,

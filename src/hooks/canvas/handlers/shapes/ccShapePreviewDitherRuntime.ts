@@ -4,6 +4,7 @@ import type { BrushSettings } from '@/types';
 import { canvasPool } from '@/utils/canvasPool';
 import { simplifyToVertexLimit } from '@/utils/polygonSimplify';
 import type { DitherAlgorithm, PatternStyle } from '@/utils/ditherAlgorithms';
+import { isCumulativeThresholdResolver } from '@/utils/ditherPatterns/cumulativeThresholdPattern';
 import {
   createCcCustomTileThresholdResolver,
   type CcCustomTilePatternSettings,
@@ -1698,6 +1699,9 @@ export const runSampledCcDitherPreviewRuntime = (args: {
           });
         }
         const previewFlatSeed = ditherGradPreviewState.ccPreviewFlatSeed;
+        const imageTileThresholdResolver = getPreviewImageTileThresholdResolver(
+          sampledPreviewRenderSettings,
+        );
 
         const fillStartAt = Date.now();
         let writeIndexCalls = 0;
@@ -1719,7 +1723,12 @@ export const runSampledCcDitherPreviewRuntime = (args: {
           patternPhaseOriginY: patternPhaseOrigin.y,
           algorithm: sampledPreviewRenderSettings.algorithm,
           patternStyle: sampledPreviewRenderSettings.patternStyle,
-          imageTileThresholdResolver: getPreviewImageTileThresholdResolver(sampledPreviewRenderSettings),
+          imageTileThresholdResolver,
+          sampledStopsOverride:
+            sampledBrushSettings.ccFlatCycleDither !== true &&
+            isCumulativeThresholdResolver(imageTileThresholdResolver)
+              ? resolvedSampledStops.stops
+              : undefined,
           sampledFlatTraceId: liveSession?.markId
             ? `${liveSession.markId}:preview`
             : undefined,

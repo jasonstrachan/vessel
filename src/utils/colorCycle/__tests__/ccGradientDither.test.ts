@@ -6,6 +6,7 @@ import {
 import { buildCcStrokeShapeGeometry } from '@/hooks/canvas/handlers/shapes/ccStrokeShapeGeometry';
 import type { BrushSettings } from '@/types';
 import type { PatternStyle } from '@/utils/ditherAlgorithms';
+import type { CumulativeThresholdResolver } from '@/utils/ditherPatterns/cumulativeThresholdPattern';
 import {
   fillFlatPatternMode,
   resolveFlatCycleInkSetForPosition,
@@ -451,6 +452,84 @@ describe('fillCcGradientDither', () => {
 
     const usedIndices = Array.from(new Set(out)).filter((value) => value > 0).sort((a, b) => a - b);
     expect(usedIndices).toEqual(expectedPair);
+  });
+
+  it('uses mapped sampled-mark tone for the cumulative motif stage without replacing sampled inks', async () => {
+    const width = 12;
+    const height = 3;
+    const thresholds = [0.2, 0.6, 0.9];
+    const resolver = Object.assign(
+      (x: number) => thresholds[((x % thresholds.length) + thresholds.length) % thresholds.length],
+      {
+        patternId: 'sampled-mark-tone',
+        payloadHash: `sha256:${'0'.repeat(64)}`,
+        coveragePolicy: 'mark-tone-map' as const,
+        cacheKey: 'sampled-mark-tone:1:0:0',
+        resolveTone: (darkness: number) => darkness >= 0.5 ? 0.78 : 0.12,
+      },
+    ) as CumulativeThresholdResolver;
+    const render = async (color: string, tone: number) => {
+      const out = new Uint8Array(width * height);
+      const expectedPair = resolveFlatInkSetForPosition(tone, 2, 0, 84).indices;
+      const sampledPayload = resolveCcSampledFlatPatternPayload({
+        sampledSourceStops: [
+          { position: 0, color },
+          { position: 1, color },
+        ],
+        flatPosition: 0.5,
+        baseOffset: 0,
+        spread: 84,
+      });
+      await fillCcGradientDither({
+        vertices: [
+          { x: 0, y: 0 },
+          { x: width - 1, y: 0 },
+          { x: width - 1, y: height - 1 },
+          { x: 0, y: height - 1 },
+        ],
+        minX: 0,
+        minY: 0,
+        maxX: width - 1,
+        maxY: height - 1,
+        pixelSize: 1,
+        levels: 1,
+        baseOffset: 0,
+        flatPairSpread: 84,
+        algorithm: 'pattern',
+        patternStyle: 'image-tile',
+        imageTileThresholdResolver: resolver,
+        sampledStopsOverride: [
+          { position: 0, color },
+          { position: 1, color },
+        ],
+        sampleNormalized: () => 0.5,
+        writeIndex: (x, y, index) => {
+          out[y * width + x] = index;
+        },
+      });
+      const usedIndices = Array.from(new Set(out))
+        .filter((index) => index > 0)
+        .sort((left, right) => left - right);
+      return {
+        expectedPair,
+        usedIndices,
+        highInkCount: out.filter((index) => index === expectedPair[1]).length,
+        sampledMix: sampledPayload?.flatMix ?? -1,
+      };
+    };
+
+    const dark = await render('#4b4b4b', 75 / 255);
+    const light = await render('#c1c1c1', 193 / 255);
+
+    expect(dark.expectedPair).not.toEqual(light.expectedPair);
+    expect(dark.sampledMix).toBeGreaterThanOrEqual(0.2);
+    expect(dark.sampledMix).toBeLessThan(0.6);
+    expect(light.sampledMix).toBeGreaterThanOrEqual(0.2);
+    expect(light.sampledMix).toBeLessThan(0.6);
+    expect(dark.usedIndices.every((index) => dark.expectedPair.includes(index))).toBe(true);
+    expect(light.usedIndices.every((index) => light.expectedPair.includes(index))).toBe(true);
+    expect(dark.highInkCount).toBeGreaterThan(0);
+    expect(light.highInkCount).toBe(0);
   });
 
   it('uses sampled-stop pair selection for every flat pattern style instead of geometric tone', async () => {
