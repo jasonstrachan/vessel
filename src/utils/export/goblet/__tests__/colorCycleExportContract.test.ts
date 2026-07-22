@@ -4,6 +4,7 @@ import { serializeColorCycleDataFromResolvedLayer } from '@/utils/export/goblet/
 import { validateGobletColorCyclePayload } from '@/utils/export/goblet/colorCyclePayloadValidation';
 import * as colorCycleBrushManager from '@/stores/colorCycleBrushManager';
 import { decodeColorCycleSpeedByte, encodeColorCycleSpeedByte } from '@/utils/colorCycleSpeed';
+import { localDitherPatternRegistry } from '@/utils/ditherPatterns/ditherPatternRegistry';
 import type { Layer, Project } from '@/types';
 
 const project = {
@@ -66,8 +67,12 @@ const createDefaultableStrokeData = () => ({
   gradientDefIdBuffer: new Uint16Array([1, 1, 1, 1]).buffer,
 });
 
-const createLiveRuntime = (indexValues = [1, 2, 3, 4]) => ({
+const createLiveRuntime = (
+  indexValues = [1, 2, 3, 4],
+  settings: Record<string, unknown> = {},
+) => ({
   serialize: jest.fn(() => ({
+    ...settings,
     layers: [{
       layerId: 'cc-layer',
       data: {
@@ -112,6 +117,7 @@ const createDocumentSnapshot = (paintValues = [1, 2, 3, 4]) => ({
 describe('Goblet color-cycle export contract boundaries', () => {
   afterEach(() => {
     jest.restoreAllMocks();
+    localDitherPatternRegistry.clear();
   });
 
   it('selects canonical persisted source before direct live runtime when no document exists', async () => {
@@ -348,5 +354,36 @@ describe('Goblet color-cycle export contract boundaries', () => {
         message: expect.stringContaining('speedBuffer'),
       }),
     ]));
+  });
+
+  it('omits local-library pattern references from portable Goblet brush metadata', async () => {
+    localDitherPatternRegistry.register({
+      definition: {
+        id: 'local-threshold',
+        name: 'Local Threshold',
+        kind: 'cumulative-threshold',
+        width: 1,
+        height: 1,
+        coveragePolicy: 'local-tone',
+        payloadHash: `sha256:${'0'.repeat(64)}`,
+        storageScope: 'local-library',
+      },
+      thresholds: Uint8Array.from([0]),
+    });
+    const payload = await serializeColorCycleDataFromResolvedLayer(
+      createLayer({
+        colorCycleBrush: createLiveRuntime([1, 2, 3, 4], {
+          stampDitherEnabled: true,
+          stampDitherPatternStyle: 'image-tile',
+          stampDitherPatternTileId: 'local-threshold',
+        }) as never,
+      }),
+      project,
+    );
+
+    const portableBrushState = payload?.colorCycle?.brushState as unknown as Record<string, unknown>;
+    expect(portableBrushState?.stampDitherPatternStyle).toBeUndefined();
+    expect(portableBrushState?.stampDitherPatternTileId).toBeUndefined();
+    expect(JSON.stringify(payload)).not.toContain('Local Threshold');
   });
 });

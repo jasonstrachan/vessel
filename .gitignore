@@ -71,6 +71,9 @@ next-env.d.ts
 /scripts/scratch/
 /scripts/temp/
 /scripts/tmp/
+/.private-pattern-denylist
+/.private-pattern-packs/
+*.vpatternpack
 *.tmp
 *.temp
 *.bak

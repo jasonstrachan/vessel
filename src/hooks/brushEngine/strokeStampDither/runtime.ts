@@ -1,3 +1,5 @@
+import { isCumulativeThresholdResolver } from '@/utils/ditherPatterns/cumulativeThresholdPattern';
+
 export type StampDitherRuntime = {
   baseTiles: Map<string, Uint8Array>;
   tiles: Map<string, Uint8Array>;
@@ -43,6 +45,9 @@ export const getImageTileResolverCacheKey = (
 ): string => {
   if (!resolver) {
     return 'none';
+  }
+  if (isCumulativeThresholdResolver(resolver)) {
+    return resolver.cacheKey;
   }
   let id = runtime.imageTileResolverIds.get(resolver);
   if (!id) {

@@ -1,4 +1,6 @@
 import type { BrushSettings, CcCustomTilePattern, CcCustomTilePatternPack } from '@/types';
+import { createCumulativeThresholdResolver } from '@/utils/ditherPatterns/cumulativeThresholdPattern';
+import { localDitherPatternRegistry } from '@/utils/ditherPatterns/ditherPatternRegistry';
 
 export type CcCustomTilePatternRuntime = {
   id: string;
@@ -280,7 +282,18 @@ export const createCcCustomTileThresholdResolver = (
   if (!tileId) {
     return null;
   }
-  const tile = toCcCustomTileRuntime(patterns?.find((pattern) => pattern.id === tileId));
+  const projectPattern = patterns?.find((pattern) => pattern.id === tileId);
+  const tile = toCcCustomTileRuntime(projectPattern);
+  if (!tile && !projectPattern) {
+    const localPattern = localDitherPatternRegistry.resolve(tileId);
+    if (localPattern) {
+      return createCumulativeThresholdResolver(localPattern, {
+        scale: settings.patternTileScale,
+        offsetX: settings.patternTileOffsetX,
+        offsetY: settings.patternTileOffsetY,
+      });
+    }
+  }
   if (!tile) {
     return null;
   }

@@ -8,6 +8,7 @@ import {
   isTileMaskAlgorithm,
   nowMs,
   resolveStampDitherBucket,
+  resolveStampDitherPatternBucket,
   STAMP_DITHER_BUCKETS,
   type StampDitherAlgorithm,
   type StampDitherConfig,
@@ -142,7 +143,7 @@ export const recomposeStampDitherOverlay = (args: {
   const basePixelSize = Math.max(1, config.pixelSize);
   const fallbackScale = Math.max(1, tileScale || basePixelSize);
   const lut = buildStampSeqToTileScale(state, fallbackScale);
-  const tileCache = new Map<number, { tile: Uint8Array; tileClamp: number; originX: number; originY: number }>();
+  const tileCache = new Map<string, { tile: Uint8Array; tileClamp: number; originX: number; originY: number }>();
 
   const handle = state.stampDitherFillHandle ?? animator.beginDirectFill();
   const shouldCloseHandle = !state.stampDitherFillHandle;
@@ -169,7 +170,17 @@ export const recomposeStampDitherOverlay = (args: {
       const seq = tagValue & 0xffff;
       if (seq === 0) continue;
       const seqScale = lut[seq] || fallbackScale;
-      let tileEntry = tileCache.get(seqScale);
+      const p = primary[idx];
+      const pixelBucket = algo === 'pattern'
+        ? resolveStampDitherPatternBucket(
+            bucket,
+            config.patternStyle,
+            p,
+            config.imageTileThresholdResolver,
+          )
+        : bucket;
+      const tileKey = `${seqScale}:${pixelBucket}`;
+      let tileEntry = tileCache.get(tileKey);
       if (!tileEntry) {
         const baseSize = resolveStampDitherBaseSize(seqScale);
         const originU = {
@@ -181,7 +192,7 @@ export const recomposeStampDitherOverlay = (args: {
         const tileClamp = baseSize * seqScale;
         const tile = getStampDitherTile(
           runtime,
-          bucket,
+          pixelBucket,
           seqScale,
           baseSize,
           algo === 'pattern' ? 'pattern' : 'sierra-lite',
@@ -189,13 +200,12 @@ export const recomposeStampDitherOverlay = (args: {
           config.imageTileThresholdResolver,
         );
         tileEntry = { tile, tileClamp, originX, originY };
-        tileCache.set(seqScale, tileEntry);
+        tileCache.set(tileKey, tileEntry);
       }
       const localY = ((y - tileEntry.originY) % tileEntry.tileClamp + tileEntry.tileClamp) % tileEntry.tileClamp;
       const tileRow = localY * tileEntry.tileClamp;
       const localX = ((x - tileEntry.originX) % tileEntry.tileClamp + tileEntry.tileClamp) % tileEntry.tileClamp;
       const tIdx = tileRow + localX;
-      const p = primary[idx];
       const usePrimary =
         algo === 'pattern'
           ? (tileEntry.tile[tIdx] === 1)
@@ -439,7 +449,7 @@ export const finalizeStampDither = (args: {
       }
     }
   } else {
-    const tileCache = new Map<number, { tile: Uint8Array; tileClamp: number; originX: number; originY: number }>();
+    const tileCache = new Map<string, { tile: Uint8Array; tileClamp: number; originX: number; originY: number }>();
     const coverageByte = Math.max(0, Math.min(255, Math.round(coverage * 255)));
 
     for (let y = minY; y <= maxY; y += 1) {
@@ -451,7 +461,16 @@ export const finalizeStampDither = (args: {
         const seq = tagValue & 0xffff;
         if (seq === 0) continue;
         const seqScale = lut[seq] || fallbackScale;
-        let tileEntry = tileCache.get(seqScale);
+        const pixelBucket = algo === 'pattern'
+          ? resolveStampDitherPatternBucket(
+              bucket,
+              config.patternStyle,
+              primary[idx],
+              config.imageTileThresholdResolver,
+            )
+          : bucket;
+        const tileKey = `${seqScale}:${pixelBucket}`;
+        let tileEntry = tileCache.get(tileKey);
         if (!tileEntry) {
           const baseSize = resolveStampDitherBaseSize(seqScale);
           const originU = {
@@ -463,7 +482,7 @@ export const finalizeStampDither = (args: {
           const tileClamp = baseSize * seqScale;
           const tile = getStampDitherTile(
             runtime,
-            bucket,
+            pixelBucket,
             seqScale,
             baseSize,
             algo,
@@ -471,7 +490,7 @@ export const finalizeStampDither = (args: {
             config.imageTileThresholdResolver,
           );
           tileEntry = { tile, tileClamp, originX, originY };
-          tileCache.set(seqScale, tileEntry);
+          tileCache.set(tileKey, tileEntry);
         }
 
         const localY = ((y - tileEntry.originY) % tileEntry.tileClamp + tileEntry.tileClamp) % tileEntry.tileClamp;

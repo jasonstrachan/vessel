@@ -1,5 +1,8 @@
+import JSZip from 'jszip';
+
 import { deserializeProject, serializeProject } from '@/utils/projectIO';
 import { encodeRgbaToBase64 } from '@/utils/colorCycle/ccCustomTilePattern';
+import { localDitherPatternRegistry } from '@/utils/ditherPatterns/ditherPatternRegistry';
 import type { Project } from '@/types';
 
 const makeProject = (): Project => ({
@@ -37,6 +40,10 @@ const makeProject = (): Project => ({
 });
 
 describe('projectIO custom tile patterns', () => {
+  afterEach(() => {
+    localDitherPatternRegistry.clear();
+  });
+
   it('round-trips project-local CC custom tile patterns', async () => {
     const project = makeProject();
     const data = await serializeProject(project);
@@ -68,5 +75,39 @@ describe('projectIO custom tile patterns', () => {
     const restored = await deserializeProject(data);
 
     expect(restored.ccCustomTilePatternPacks?.[0]?.patternIds).toEqual(['tile-1']);
+  });
+
+  it('round-trips only an opaque local pattern reference without embedding library content', async () => {
+    localDitherPatternRegistry.register({
+      definition: {
+        id: 'local-threshold',
+        name: 'Synthetic Local Pattern Name',
+        kind: 'cumulative-threshold',
+        width: 3,
+        height: 1,
+        coveragePolicy: 'local-tone',
+        payloadHash: `sha256:${'1'.repeat(64)}`,
+        storageScope: 'local-library',
+      },
+      thresholds: Uint8Array.from([17, 89, 233]),
+    });
+    const project = makeProject();
+    project.brushSpecificSettings = {
+      'dither-gradient': {
+        ditherAlgorithm: 'pattern',
+        patternStyle: 'image-tile',
+        patternTileId: 'local-threshold',
+      },
+    };
+
+    const data = await serializeProject(project);
+    const zip = await JSZip.loadAsync(data);
+    const projectJson = await zip.file('project.json')?.async('string');
+    const restored = await deserializeProject(data);
+
+    expect(projectJson).toContain('local-threshold');
+    expect(projectJson).not.toContain('Synthetic Local Pattern Name');
+    expect(projectJson).not.toContain('17,89,233');
+    expect(restored.brushSpecificSettings?.['dither-gradient']?.patternTileId).toBe('local-threshold');
   });
 });

@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 
 import CcPatternDropdown, {
   renderTilePreviewImageData,
@@ -7,11 +7,61 @@ import CcPatternDropdown, {
 } from '@/components/toolbar/CcPatternDropdown';
 import { useAppStore } from '@/stores/useAppStore';
 import { encodeRgbaToBase64 } from '@/utils/colorCycle/ccCustomTilePattern';
+import {
+  localPatternLibrary,
+  type LocalPatternPackSummary,
+} from '@/utils/ditherPatterns/localPatternLibrary';
+
+jest.mock('@/utils/ditherPatterns/localPatternLibrary', () => ({
+  localPatternLibrary: {
+    hydrate: jest.fn(),
+    list: jest.fn(),
+    install: jest.fn(),
+    remove: jest.fn(),
+    exportBackup: jest.fn(),
+  },
+}));
+
+const localPack: LocalPatternPackSummary = {
+  packId: 'private-pack',
+  name: 'Private Pack',
+  contentHash: 'sha256:pack',
+  patterns: [{
+    id: 'local-threshold',
+    name: 'Local Threshold',
+    payloadHash: 'sha256:pattern',
+  }],
+};
+
+const mockHydrate = localPatternLibrary.hydrate as jest.MockedFunction<typeof localPatternLibrary.hydrate>;
+const mockList = localPatternLibrary.list as jest.MockedFunction<typeof localPatternLibrary.list>;
+const mockInstall = localPatternLibrary.install as jest.MockedFunction<typeof localPatternLibrary.install>;
+const mockRemove = localPatternLibrary.remove as jest.MockedFunction<typeof localPatternLibrary.remove>;
+const mockExportBackup = localPatternLibrary.exportBackup as jest.MockedFunction<typeof localPatternLibrary.exportBackup>;
+
+const chooseDropdownOption = (label: string) => {
+  const option = screen.getByText(label).closest('[role="option"]');
+  expect(option).not.toBeNull();
+  const pointerUp = new Event('pointerup', { bubbles: true, cancelable: true });
+  Object.defineProperty(pointerUp, 'button', { value: 0 });
+  act(() => {
+    (option as Element).dispatchEvent(pointerUp);
+  });
+};
 
 describe('CcPatternDropdown', () => {
   const originalCreateImageBitmap = global.createImageBitmap;
+  const originalIndexedDbDescriptor = Object.getOwnPropertyDescriptor(globalThis, 'indexedDB');
 
   beforeEach(() => {
+    jest.clearAllMocks();
+    Object.defineProperty(globalThis, 'indexedDB', {
+      configurable: true,
+      value: {},
+    });
+    mockHydrate.mockImplementation(() => new Promise(() => {}));
+    mockList.mockResolvedValue([]);
+    mockRemove.mockResolvedValue();
     global.createImageBitmap = jest.fn(async () => ({
       width: 1,
       height: 1,
@@ -49,6 +99,11 @@ describe('CcPatternDropdown', () => {
 
   afterEach(() => {
     global.createImageBitmap = originalCreateImageBitmap;
+    if (originalIndexedDbDescriptor) {
+      Object.defineProperty(globalThis, 'indexedDB', originalIndexedDbDescriptor);
+    } else {
+      Reflect.deleteProperty(globalThis, 'indexedDB');
+    }
   });
 
   it('renders add-new, built-ins, custom tiles, and removes a tile without selecting it', () => {
@@ -85,13 +140,7 @@ describe('CcPatternDropdown', () => {
     );
 
     fireEvent.click(screen.getByRole('button'));
-    const packOption = screen.getByText('Pack 1').closest('[role="option"]');
-    expect(packOption).not.toBeNull();
-    const pointerUp = new Event('pointerup', { bubbles: true, cancelable: true });
-    Object.defineProperty(pointerUp, 'button', { value: 0 });
-    act(() => {
-      (packOption as Element).dispatchEvent(pointerUp);
-    });
+    chooseDropdownOption('Pack 1');
 
     expect(onChange).toHaveBeenCalledWith({
       ditherAlgorithm: 'pattern',
@@ -130,13 +179,7 @@ describe('CcPatternDropdown', () => {
     );
 
     fireEvent.click(screen.getByRole('button'));
-    const packOption = screen.getByText('Empty Pack').closest('[role="option"]');
-    expect(packOption).not.toBeNull();
-    const pointerUp = new Event('pointerup', { bubbles: true, cancelable: true });
-    Object.defineProperty(pointerUp, 'button', { value: 0 });
-    act(() => {
-      (packOption as Element).dispatchEvent(pointerUp);
-    });
+    chooseDropdownOption('Empty Pack');
 
     expect(onChange).toHaveBeenCalledWith({
       ditherAlgorithm: 'pattern',
@@ -157,13 +200,7 @@ describe('CcPatternDropdown', () => {
     );
 
     fireEvent.click(screen.getByRole('button'));
-    const addNewOption = screen.getByText('+ Add New').closest('[role="option"]');
-    expect(addNewOption).not.toBeNull();
-    const pointerUp = new Event('pointerup', { bubbles: true, cancelable: true });
-    Object.defineProperty(pointerUp, 'button', { value: 0 });
-    act(() => {
-      (addNewOption as Element).dispatchEvent(pointerUp);
-    });
+    chooseDropdownOption('+ Add New');
     expect(screen.getByText('Add Tile Pattern')).toBeInTheDocument();
 
     const canvasPasteListener = jest.fn();
@@ -273,6 +310,110 @@ describe('CcPatternDropdown', () => {
     expect(sixteenth.width).toBe(1);
     expect(sixteenth.height).toBe(1);
     expect(Array.from(sixteenth.data)).toEqual([0, 0, 0, 255]);
+  });
+
+  it('loads local patterns in a marked group and selects through the shared image-tile seam', async () => {
+    mockHydrate.mockResolvedValueOnce([localPack]);
+    const onChange = jest.fn();
+    render(
+      <CcPatternDropdown
+        value="dots"
+        patternTileId={null}
+        onChange={onChange}
+      />
+    );
+
+    await waitFor(() => expect(mockHydrate).toHaveBeenCalledTimes(1));
+    fireEvent.click(screen.getByRole('button'));
+    expect((await screen.findAllByText('Local')).length).toBeGreaterThan(0);
+    chooseDropdownOption('Local Threshold');
+
+    expect(onChange).toHaveBeenCalledWith({
+      ditherAlgorithm: 'pattern',
+      patternStyle: 'image-tile',
+      patternTileId: 'local-threshold',
+      patternTilePackId: null,
+      patternTileSelectionMode: 'single',
+    });
+  });
+
+  it('imports a private pack and selects its first local pattern', async () => {
+    mockInstall.mockResolvedValueOnce(localPack);
+    mockList.mockResolvedValueOnce([localPack]);
+    const onChange = jest.fn();
+    render(
+      <CcPatternDropdown
+        value="dots"
+        patternTileId={null}
+        onChange={onChange}
+      />
+    );
+
+    fireEvent.click(screen.getByRole('button'));
+    chooseDropdownOption('+ Import Private Pack');
+    const file = new File([Uint8Array.from([1, 2, 3])], 'private.vpatternpack', {
+      type: 'application/zip',
+    });
+    Object.defineProperty(file, 'arrayBuffer', {
+      value: jest.fn(async () => Uint8Array.from([1, 2, 3]).buffer),
+    });
+    fireEvent.change(screen.getByLabelText('Import private pattern pack'), {
+      target: { files: [file] },
+    });
+
+    await waitFor(() => expect(mockInstall).toHaveBeenCalledTimes(1));
+    expect(onChange).toHaveBeenCalledWith({
+      ditherAlgorithm: 'pattern',
+      patternStyle: 'image-tile',
+      patternTileId: 'local-threshold',
+      patternTilePackId: null,
+      patternTileSelectionMode: 'single',
+    });
+  });
+
+  it('preserves a missing local reference and shows an unavailable-replay warning', async () => {
+    mockHydrate.mockResolvedValueOnce([]);
+    render(
+      <CcPatternDropdown
+        value="image-tile"
+        patternTileId="missing-local-pattern"
+        onChange={jest.fn()}
+      />
+    );
+
+    expect(await screen.findByText(/This local pattern is not installed/)).toBeInTheDocument();
+  });
+
+  it('backs up and removes an installed local pack without changing the selected reference', async () => {
+    mockHydrate.mockResolvedValueOnce([localPack]);
+    mockList.mockResolvedValueOnce([]);
+    mockExportBackup.mockResolvedValueOnce(Uint8Array.from([4, 5, 6]));
+    const createObjectUrl = jest.fn(() => 'blob:local-pack');
+    const revokeObjectUrl = jest.fn();
+    const anchorClick = jest.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => undefined);
+    Object.defineProperty(URL, 'createObjectURL', { configurable: true, value: createObjectUrl });
+    Object.defineProperty(URL, 'revokeObjectURL', { configurable: true, value: revokeObjectUrl });
+    const onChange = jest.fn();
+    render(
+      <CcPatternDropdown
+        value="image-tile"
+        patternTileId="local-threshold"
+        onChange={onChange}
+      />
+    );
+
+    await waitFor(() => expect(mockHydrate).toHaveBeenCalledTimes(1));
+    fireEvent.click(screen.getByRole('button'));
+    expect((await screen.findAllByText('Local Threshold')).length).toBeGreaterThan(0);
+    fireEvent.click(screen.getByLabelText('Back up Private Pack'));
+    await waitFor(() => expect(mockExportBackup).toHaveBeenCalledWith('private-pack'));
+    expect(createObjectUrl).toHaveBeenCalledTimes(1);
+    expect(revokeObjectUrl).toHaveBeenCalledWith('blob:local-pack');
+
+    fireEvent.click(screen.getByLabelText('Remove Private Pack'));
+    await waitFor(() => expect(mockRemove).toHaveBeenCalledWith('private-pack'));
+    expect(onChange).not.toHaveBeenCalled();
+    anchorClick.mockRestore();
   });
 
 });

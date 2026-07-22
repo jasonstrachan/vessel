@@ -5,6 +5,7 @@ import {
   getImageTileResolverCacheKey,
 } from '../strokeStampDither/runtime';
 import type { StampDitherState } from '../strokeStampDither';
+import { createCumulativeThresholdResolver } from '@/utils/ditherPatterns/cumulativeThresholdPattern';
 
 describe('strokeStampDither', () => {
   const buildAnimator = (width: number, height: number) => {
@@ -696,6 +697,69 @@ describe('strokeStampDither', () => {
       runApply(style, 1);
     }
     expect(runApply('diagonal', 1)).not.toEqual(runApply('diagonal', 8));
+  });
+
+  it('uses descriptor coverage policy for generic cumulative stroke stages', () => {
+    const lockedBucket = Math.floor(stampDither.STAMP_DITHER_BUCKETS / 2);
+    const makeResolver = (coveragePolicy: 'fixed' | 'local-tone' | 'mark-tone-map') =>
+      createCumulativeThresholdResolver({
+        definition: {
+          id: `synthetic-${coveragePolicy}`,
+          name: 'Synthetic',
+          kind: 'cumulative-threshold',
+          width: 2,
+          height: 1,
+          coveragePolicy,
+          payloadHash: `sha256:${coveragePolicy === 'fixed' ? '1' : coveragePolicy === 'local-tone' ? '2' : '3'}`.padEnd(71, '0'),
+          storageScope: 'local-library',
+          ...(coveragePolicy === 'fixed' ? { fixedTone: 0.25 } : {}),
+          ...(coveragePolicy === 'mark-tone-map'
+            ? {
+                toneMap: [
+                  { maxInput: 0.5, tone: 0.2 },
+                  { maxInput: 1, tone: 0.9 },
+                ],
+              }
+            : {}),
+        },
+        thresholds: new Uint8Array([32, 192]),
+      });
+    const localToneResolver = makeResolver('local-tone');
+    const markToneResolver = makeResolver('mark-tone-map');
+    const fixedResolver = makeResolver('fixed');
+
+    const lowLocal = stampDither.resolveStampDitherPatternBucket(
+      lockedBucket,
+      'image-tile',
+      40,
+      localToneResolver,
+    );
+    const highLocal = stampDither.resolveStampDitherPatternBucket(
+      lockedBucket,
+      'image-tile',
+      230,
+      localToneResolver,
+    );
+    expect(lowLocal).toBeLessThan(highLocal);
+    expect(stampDither.resolveStampDitherPatternBucket(
+      lockedBucket,
+      'image-tile',
+      230,
+      markToneResolver,
+    )).toBe(lockedBucket);
+    expect(stampDither.resolveStampDitherPatternBucket(
+      lockedBucket,
+      'image-tile',
+      230,
+      markToneResolver,
+      true,
+    )).toBeGreaterThan(lockedBucket);
+    expect(stampDither.resolveStampDitherPatternBucket(
+      lockedBucket,
+      'image-tile',
+      230,
+      fixedResolver,
+    )).toBeLessThan(lockedBucket);
   });
 
   it('scales the checkered stamp cells with brush size', () => {

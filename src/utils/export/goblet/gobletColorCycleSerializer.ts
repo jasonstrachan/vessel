@@ -43,6 +43,7 @@ import {
 } from '@/utils/export/goblet/colorCycleLiveBrushResolver';
 import { posInt, toNum } from '@/utils/num';
 import type { Layer, Project } from '@/types';
+import { localDitherPatternRegistry } from '@/utils/ditherPatterns/ditherPatternRegistry';
 import { clampRectToDocument as clampBoundsToDocument, scaleMaskBoundsToDocument, type Size2D as CoverageSize } from '@/utils/export/colorCycleBounds';
 import { getLayerSurfaceSize } from '@/utils/export/goblet/gobletLayerSerializer';
 import { resolveGobletBrushStateFallback } from '@/utils/export/goblet/gobletBrushStateFallbacks';
@@ -647,6 +648,12 @@ type ExportRuntimeBrushState = {
   }>;
 };
 
+const toPortablePatternTileId = (value: unknown): unknown => (
+  typeof value === 'string' && localDitherPatternRegistry.resolve(value)
+    ? undefined
+    : value
+);
+
 type ExportRuntimeBrushLayer = NonNullable<ExportRuntimeBrushState['layers']>[number];
 
 type ExportRuntimeBrushMetadata = {
@@ -871,7 +878,7 @@ const serializeRuntimeBrushStateForExport = (
       stampDitherPixelSize: sourceState.stampDitherPixelSize,
       stampDitherAlgorithm: sourceState.stampDitherAlgorithm,
       stampDitherPatternStyle: sourceState.stampDitherPatternStyle,
-      stampDitherPatternTileId: sourceState.stampDitherPatternTileId,
+      stampDitherPatternTileId: toPortablePatternTileId(sourceState.stampDitherPatternTileId),
       stampDitherPatternTileScale: sourceState.stampDitherPatternTileScale,
       stampDitherPatternTileInvert: sourceState.stampDitherPatternTileInvert,
       stampDitherPatternTileThreshold: sourceState.stampDitherPatternTileThreshold,
@@ -899,7 +906,7 @@ const serializeRuntimeBrushStateForExport = (
       stampDitherPixelSize: sourceState.stampDitherPixelSize,
       stampDitherAlgorithm: sourceState.stampDitherAlgorithm,
       stampDitherPatternStyle: sourceState.stampDitherPatternStyle,
-      stampDitherPatternTileId: sourceState.stampDitherPatternTileId,
+      stampDitherPatternTileId: toPortablePatternTileId(sourceState.stampDitherPatternTileId),
       stampDitherPatternTileScale: sourceState.stampDitherPatternTileScale,
       stampDitherPatternTileInvert: sourceState.stampDitherPatternTileInvert,
       stampDitherPatternTileThreshold: sourceState.stampDitherPatternTileThreshold,
@@ -952,7 +959,7 @@ const serializeRuntimeBrushStateForExport = (
     stampDitherPixelSize: sourceState.stampDitherPixelSize,
     stampDitherAlgorithm: sourceState.stampDitherAlgorithm,
     stampDitherPatternStyle: sourceState.stampDitherPatternStyle,
-    stampDitherPatternTileId: sourceState.stampDitherPatternTileId,
+    stampDitherPatternTileId: toPortablePatternTileId(sourceState.stampDitherPatternTileId),
     stampDitherPatternTileScale: sourceState.stampDitherPatternTileScale,
     stampDitherPatternTileInvert: sourceState.stampDitherPatternTileInvert,
     stampDitherPatternTileThreshold: sourceState.stampDitherPatternTileThreshold,

@@ -4,6 +4,7 @@
  */
 
 import { debugWarn } from '@/utils/debug';
+import { isCumulativeThresholdResolver } from '@/utils/ditherPatterns/cumulativeThresholdPattern';
 import {
   LOST_EDGE_TILE_MIN,
   LOST_EDGE_TILE_MAX,
@@ -1123,6 +1124,20 @@ export const applyPatternDither = (
         case 'image-tile': {
           const tileThreshold = imageTileThresholdResolver?.(px, py);
           if (tileThreshold !== null && tileThreshold !== undefined) {
+            if (isCumulativeThresholdResolver(imageTileThresholdResolver)) {
+              const luminance = (
+                data[idx] * 0.2126 +
+                data[idx + 1] * 0.7152 +
+                data[idx + 2] * 0.0722
+              ) / 255;
+              const tone = imageTileThresholdResolver.resolveTone(1 - luminance);
+              const paletteIndex = tone >= tileThreshold ? 0 : palette.length - 1;
+              const [newR, newG, newB] = palette[Math.max(0, paletteIndex)] ?? [0, 0, 0];
+              data[idx] = newR;
+              data[idx + 1] = newG;
+              data[idx + 2] = newB;
+              continue;
+            }
             patternValue = tileThreshold;
             break;
           }

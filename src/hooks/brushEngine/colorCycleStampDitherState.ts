@@ -7,6 +7,7 @@ import type {
   CcCustomTilePattern,
 } from '@/types';
 import type { PatternStyle } from '@/utils/ditherAlgorithms';
+import { localDitherPatternRegistry } from '@/utils/ditherPatterns/ditherPatternRegistry';
 
 import {
   clearStampDitherRuntime,
@@ -250,8 +251,21 @@ export class ColorCycleStampDitherState {
     tile: CcCustomTilePattern | undefined,
     settings: CcCustomTilePatternSettings,
   ): string {
-    if (!settings.patternTileId || !tile) {
+    if (!settings.patternTileId) {
       return 'none';
+    }
+    if (!tile) {
+      const localPattern = localDitherPatternRegistry.resolve(settings.patternTileId);
+      if (!localPattern) {
+        return 'none';
+      }
+      return [
+        'local',
+        localPattern.definition.payloadHash,
+        settings.patternTileScale ?? 'auto',
+        settings.patternTileOffsetX ?? 'auto',
+        settings.patternTileOffsetY ?? 'auto',
+      ].join('|');
     }
     return [
       settings.patternTileId,

@@ -1,11 +1,13 @@
 import type { ColorCycleAnimator } from '@/lib/ColorCycleAnimator';
 import { encodeColorCycleSpeedByte } from '@/utils/colorCycleSpeed';
+import { isCumulativeThresholdResolver } from '@/utils/ditherPatterns/cumulativeThresholdPattern';
 import type { StampDitherRuntime } from './runtime';
 import {
   nowMs,
   resolvePressureLinkedTileScale,
   resolveStampDitherBucket,
   resolveStampDitherCoverage,
+  resolveStampDitherPatternBucket,
   STAMP_DITHER_BUCKETS,
   type StampDitherAlgorithm,
   type StampDitherConfig,
@@ -39,6 +41,7 @@ export {
 export {
   resolveStampDitherBucket,
   resolveStampDitherCoverage,
+  resolveStampDitherPatternBucket,
   STAMP_DITHER_FINALIZE_ERROR_DIFFUSION_ALGOS,
   type StampDitherAlgorithm,
   type StampDitherConfig,
@@ -279,14 +282,26 @@ export const applyStampDitherStamp = (args: {
   if (!config.bgFill && !state.stampDitherBaseTag) {
     ensureStampDitherBaseBuffers(state, width, height);
   }
-  if (state.stampDitherLockedBucket == null) {
+  const rawAlgo = config.algorithm || 'sierra-lite';
+  const algo: StampDitherAlgorithm = rawAlgo === 'pattern' ? 'pattern' : 'sierra-lite';
+  const isMarkTonePattern = algo === 'pattern' &&
+    isCumulativeThresholdResolver(config.imageTileThresholdResolver) &&
+    config.imageTileThresholdResolver.coveragePolicy === 'mark-tone-map';
+  const shouldLockPatternTone = isMarkTonePattern;
+  const isFirstStamp = (state.stampDitherStampSeq ?? 0) === 0;
+  if (state.stampDitherLockedBucket == null || (shouldLockPatternTone && isFirstStamp)) {
     const phaseForMask = 0.5;
     const coverage = resolveStampDitherCoverage(phaseForMask, primaryIndex, isAnimating);
     const rawBucket = resolveStampDitherBucket(coverage);
-    state.stampDitherLockedBucket = Math.min(
-      STAMP_DITHER_BUCKETS - 2,
-      Math.max(1, rawBucket)
-    );
+    state.stampDitherLockedBucket = shouldLockPatternTone
+      ? resolveStampDitherPatternBucket(
+          rawBucket,
+          config.patternStyle,
+          primaryIndex,
+          config.imageTileThresholdResolver,
+          true,
+        )
+      : Math.min(STAMP_DITHER_BUCKETS - 2, Math.max(1, rawBucket));
   }
 
   const lastScale = state.stampDitherLastTileScale;
@@ -297,8 +312,6 @@ export const applyStampDitherStamp = (args: {
     onScheduleRecompose?.(tileScaleInt);
   }
 
-  const rawAlgo = config.algorithm || 'sierra-lite';
-  const algo: StampDitherAlgorithm = rawAlgo === 'pattern' ? 'pattern' : 'sierra-lite';
   const baseSize = resolveStampDitherBaseSize(tileScaleInt);
   if (!state.stampDitherOriginUnits || state.stampDitherOriginBaseSize !== baseSize) {
     const seed = config.seed ?? 0;
@@ -314,7 +327,15 @@ export const applyStampDitherStamp = (args: {
   const maskOriginY = -originU.y * tileScaleInt;
   state.stampDitherOrigin = { x: maskOriginX, y: maskOriginY };
 
-  const bucket = state.stampDitherLockedBucket ?? 1;
+  const lockedBucket = state.stampDitherLockedBucket ?? 1;
+  const bucket = algo === 'pattern' && !shouldLockPatternTone
+    ? resolveStampDitherPatternBucket(
+        lockedBucket,
+        config.patternStyle,
+        primaryIndex,
+        config.imageTileThresholdResolver,
+      )
+    : lockedBucket;
   const tile = getStampDitherTile(
     runtime,
     bucket,

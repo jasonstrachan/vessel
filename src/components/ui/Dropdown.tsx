@@ -25,6 +25,7 @@ interface DropdownOption {
   value: string;
   label: string;
   isAction?: boolean;
+  group?: string;
 }
 
 interface DropdownProps {
@@ -347,36 +348,43 @@ const dropIndicator = useMemo(() => {
             const dropBefore = dropIndicator && dropIndicator.index === index && dropIndicator.position === 'before';
             const dropAfter = dropIndicator && dropIndicator.index === index && dropIndicator.position === 'after';
 
+            const previousGroup = index > 0 ? options[index - 1]?.group : undefined;
             return (
-              <div
-                key={option.value}
-                ref={(element) => {
-                  optionRefs.current[index] = element;
-                }}
-                onPointerDown={handlePointerDown(option, index)}
-                onPointerMove={handlePointerMove(index)}
-                onPointerUp={handlePointerUp(option, index)}
-                onPointerCancel={handlePointerCancel(index)}
-                className={`relative w-full px-2 py-1 text-xs text-left transition-colors outline-none focus:outline-none cursor-pointer select-none ${
-                  option.isAction
-                    ? 'text-[#D9D9D9] hover:bg-[#555]'
-                    : isSelected
-                      ? 'bg-[#555] text-[#D9D9D9]'
-                      : 'text-[#D9D9D9] hover:bg-[#555]'
-                } ${isDraggingOption ? 'z-10 shadow-lg bg-[#3a3a3a]' : ''} ${dropBefore ? 'border-t border-[#5E96FF]' : ''} ${dropAfter ? 'border-b border-[#5E96FF]' : ''}`}
-                style={isDraggingOption ? { transform: `translateY(${dragOffset}px)` } : undefined}
-                role="option"
-                aria-selected={isSelected}
-                data-draggable={isReorderable ? 'true' : 'false'}
-              >
-                {renderOption ? (
-                  renderOption(option, isSelected, closeDropdown)
-                ) : (
-                  <span className="block min-w-0 truncate whitespace-nowrap">
-                    {option.label}
-                  </span>
-                )}
-              </div>
+              <React.Fragment key={option.value}>
+                {option.group && option.group !== previousGroup ? (
+                  <div className="border-t border-[#333] px-2 pb-1 pt-2 text-[10px] uppercase tracking-wide text-[#888]">
+                    {option.group}
+                  </div>
+                ) : null}
+                <div
+                  ref={(element) => {
+                    optionRefs.current[index] = element;
+                  }}
+                  onPointerDown={handlePointerDown(option, index)}
+                  onPointerMove={handlePointerMove(index)}
+                  onPointerUp={handlePointerUp(option, index)}
+                  onPointerCancel={handlePointerCancel(index)}
+                  className={`relative w-full px-2 py-1 text-xs text-left transition-colors outline-none focus:outline-none cursor-pointer select-none ${
+                    option.isAction
+                      ? 'text-[#D9D9D9] hover:bg-[#555]'
+                      : isSelected
+                        ? 'bg-[#555] text-[#D9D9D9]'
+                        : 'text-[#D9D9D9] hover:bg-[#555]'
+                  } ${isDraggingOption ? 'z-10 shadow-lg bg-[#3a3a3a]' : ''} ${dropBefore ? 'border-t border-[#5E96FF]' : ''} ${dropAfter ? 'border-b border-[#5E96FF]' : ''}`}
+                  style={isDraggingOption ? { transform: `translateY(${dragOffset}px)` } : undefined}
+                  role="option"
+                  aria-selected={isSelected}
+                  data-draggable={isReorderable ? 'true' : 'false'}
+                >
+                  {renderOption ? (
+                    renderOption(option, isSelected, closeDropdown)
+                  ) : (
+                    <span className="block min-w-0 truncate whitespace-nowrap">
+                      {option.label}
+                    </span>
+                  )}
+                </div>
+              </React.Fragment>
             );
           })}
         </div>

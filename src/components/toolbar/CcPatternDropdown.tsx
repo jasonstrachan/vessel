@@ -14,6 +14,10 @@ import {
   makeCcCustomTilePattern,
   resolveCcPatternPackTileId,
 } from '@/utils/colorCycle/ccCustomTilePattern';
+import {
+  localPatternLibrary,
+  type LocalPatternPackSummary,
+} from '@/utils/ditherPatterns/localPatternLibrary';
 
 import { PATTERN_STYLES } from './patternOptions';
 
@@ -27,6 +31,8 @@ type Props = {
 };
 
 const ADD_NEW_VALUE = '__add_cc_tile_pattern__';
+const IMPORT_LOCAL_PACK_VALUE = '__import_local_pattern_pack__';
+const LOCAL_PATTERN_PREFIX = 'local:';
 const NEW_PACK_VALUE = '__new_cc_tile_pattern_pack__';
 const FALLBACK_PREVIEW_COLORS: [string, string] = ['#ff1f1f', '#9f00e8'];
 const TILE_PATTERN_SCALE_STEPS = [0.0625, 0.125, 0.25, 0.5, 1, 2, 3, 4, 6, 8, 12, 16] as const;
@@ -654,6 +660,10 @@ export const CcPatternDropdown = ({
   className,
 }: Props) => {
   const [isAdding, setIsAdding] = useState(false);
+  const [localPacks, setLocalPacks] = useState<readonly LocalPatternPackSummary[]>([]);
+  const [hasLoadedLocalPacks, setHasLoadedLocalPacks] = useState(false);
+  const [localLibraryError, setLocalLibraryError] = useState<string | null>(null);
+  const localPackInputRef = useRef<HTMLInputElement>(null);
   const tilePatterns = useAppStore(selectCcCustomTilePatterns);
   const patternPacks = useAppStore(selectCcCustomTilePatternPacks);
   const addCcCustomTilePattern = useAppStore((state) => state.addCcCustomTilePattern);
@@ -661,14 +671,44 @@ export const CcPatternDropdown = ({
   const addCcCustomTilePatternPack = useAppStore((state) => state.addCcCustomTilePatternPack);
   const addCcCustomTilePatternToPack = useAppStore((state) => state.addCcCustomTilePatternToPack);
 
+  useEffect(() => {
+    if (typeof indexedDB === 'undefined') {
+      return;
+    }
+    let isMounted = true;
+    void localPatternLibrary.hydrate()
+      .then((packs) => {
+        if (!isMounted) return;
+        setLocalPacks(packs);
+        setLocalLibraryError(null);
+      })
+      .catch((error: unknown) => {
+        if (!isMounted) return;
+        setLocalLibraryError(error instanceof Error ? error.message : 'Could not load local pattern packs.');
+      })
+      .finally(() => {
+        if (isMounted) setHasLoadedLocalPacks(true);
+      });
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  const selectedLocalPattern = localPacks
+    .flatMap((pack) => pack.patterns.map((pattern) => ({ pack, pattern })))
+    .find(({ pattern }) => pattern.id === patternTileId);
+
   const selectedValue = patternTileSelectionMode === 'pack-random' && patternTilePackId
     ? `pack:${patternTilePackId}`
     : value === 'image-tile' && patternTileId
-    ? `tile:${patternTileId}`
+    ? selectedLocalPattern
+      ? `${LOCAL_PATTERN_PREFIX}${selectedLocalPattern.pack.packId}:${patternTileId}`
+      : `tile:${patternTileId}`
     : value;
 
   const options = useMemo(() => [
     { value: ADD_NEW_VALUE, label: '+ Add New', isAction: true },
+    { value: IMPORT_LOCAL_PACK_VALUE, label: '+ Import Private Pack', isAction: true },
     ...PATTERN_STYLES.map((option) => ({ value: option.value, label: option.label })),
     ...tilePatterns.map((pattern) => ({
       value: `tile:${pattern.id}`,
@@ -678,7 +718,70 @@ export const CcPatternDropdown = ({
       value: `pack:${pack.id}`,
       label: pack.name,
     })),
-  ], [patternPacks, tilePatterns]);
+    ...localPacks.flatMap((pack) => pack.patterns.map((pattern) => ({
+      value: `${LOCAL_PATTERN_PREFIX}${pack.packId}:${pattern.id}`,
+      label: pattern.name,
+      group: 'Local',
+    }))),
+  ], [localPacks, patternPacks, tilePatterns]);
+
+  const isMissingLocalPattern = hasLoadedLocalPacks
+    && value === 'image-tile'
+    && Boolean(patternTileId)
+    && !tilePatterns.some((pattern) => pattern.id === patternTileId)
+    && !selectedLocalPattern;
+
+  const refreshLocalPacks = useCallback(async () => {
+    const packs = await localPatternLibrary.list();
+    setLocalPacks(packs);
+  }, []);
+
+  const selectLocalPattern = useCallback((patternId: string) => {
+    onChange({
+      ditherAlgorithm: 'pattern',
+      patternStyle: 'image-tile',
+      patternTileId: patternId,
+      patternTilePackId: null,
+      patternTileSelectionMode: 'single',
+    });
+  }, [onChange]);
+
+  const handleLocalPackImport = useCallback(async (file: File) => {
+    try {
+      const installed = await localPatternLibrary.install(await file.arrayBuffer());
+      await refreshLocalPacks();
+      setLocalLibraryError(null);
+      const firstPattern = installed.patterns[0];
+      if (firstPattern) selectLocalPattern(firstPattern.id);
+    } catch (error) {
+      setLocalLibraryError(error instanceof Error ? error.message : 'Could not import local pattern pack.');
+    }
+  }, [refreshLocalPacks, selectLocalPattern]);
+
+  const removeLocalPack = useCallback(async (packId: string) => {
+    try {
+      await localPatternLibrary.remove(packId);
+      await refreshLocalPacks();
+      setLocalLibraryError(null);
+    } catch (error) {
+      setLocalLibraryError(error instanceof Error ? error.message : 'Could not remove local pattern pack.');
+    }
+  }, [refreshLocalPacks]);
+
+  const exportLocalPackBackup = useCallback(async (packId: string, name: string) => {
+    try {
+      const bytes = await localPatternLibrary.exportBackup(packId);
+      const url = URL.createObjectURL(new Blob([bytes], { type: 'application/zip' }));
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `${name.replace(/[^a-z0-9._-]+/gi, '-').replace(/^-|-$/g, '') || 'pattern-pack'}.vpatternpack`;
+      link.click();
+      URL.revokeObjectURL(url);
+      setLocalLibraryError(null);
+    } catch (error) {
+      setLocalLibraryError(error instanceof Error ? error.message : 'Could not export local pattern pack.');
+    }
+  }, []);
 
   return (
     <>
@@ -688,9 +791,16 @@ export const CcPatternDropdown = ({
         onAction={(action) => {
           if (action === ADD_NEW_VALUE) {
             setIsAdding(true);
+          } else if (action === IMPORT_LOCAL_PACK_VALUE) {
+            localPackInputRef.current?.click();
           }
         }}
         onChange={(nextValue) => {
+          if (nextValue.startsWith(LOCAL_PATTERN_PREFIX)) {
+            const separatorIndex = nextValue.indexOf(':', LOCAL_PATTERN_PREFIX.length);
+            selectLocalPattern(nextValue.slice(separatorIndex + 1));
+            return;
+          }
           if (nextValue.startsWith('tile:')) {
             onChange({
               ditherAlgorithm: 'pattern',
@@ -729,6 +839,12 @@ export const CcPatternDropdown = ({
         renderOption={(option) => {
           const tileId = option.value.startsWith('tile:') ? option.value.slice('tile:'.length) : null;
           const packId = option.value.startsWith('pack:') ? option.value.slice('pack:'.length) : null;
+          const localValue = option.value.startsWith(LOCAL_PATTERN_PREFIX)
+            ? option.value.slice(LOCAL_PATTERN_PREFIX.length)
+            : null;
+          const localSeparatorIndex = localValue?.indexOf(':') ?? -1;
+          const localPackId = localSeparatorIndex >= 0 ? localValue?.slice(0, localSeparatorIndex) : null;
+          const localPack = localPacks.find((pack) => pack.packId === localPackId);
           return (
             <div className="flex items-center justify-between gap-2">
               <span className="min-w-0 flex-1 truncate">{option.label}</span>
@@ -748,11 +864,60 @@ export const CcPatternDropdown = ({
                 </button>
               ) : null}
               {packId ? <span className="shrink-0 text-[10px] uppercase text-[#888]">Pack</span> : null}
+              {localPack ? (
+                <div className="flex shrink-0 items-center gap-1">
+                  <span className="text-[10px] uppercase text-[#888]">Local</span>
+                  <button
+                    type="button"
+                    data-dropdown-interactive="true"
+                    className="px-1 text-[#aaa] hover:bg-[#333] hover:text-[#fff]"
+                    aria-label={`Back up ${localPack.name}`}
+                    onClick={(event) => {
+                      event.preventDefault();
+                      event.stopPropagation();
+                      void exportLocalPackBackup(localPack.packId, localPack.name);
+                    }}
+                  >
+                    Backup
+                  </button>
+                  <button
+                    type="button"
+                    data-dropdown-interactive="true"
+                    className="px-1 text-[#aaa] hover:bg-[#333] hover:text-[#fff]"
+                    aria-label={`Remove ${localPack.name}`}
+                    onClick={(event) => {
+                      event.preventDefault();
+                      event.stopPropagation();
+                      void removeLocalPack(localPack.packId);
+                    }}
+                  >
+                    x
+                  </button>
+                </div>
+              ) : null}
             </div>
           );
         }}
         className={className}
       />
+      <input
+        ref={localPackInputRef}
+        type="file"
+        accept=".vpatternpack,application/zip"
+        className="hidden"
+        aria-label="Import private pattern pack"
+        onChange={(event) => {
+          const file = event.target.files?.[0];
+          event.target.value = '';
+          if (file) void handleLocalPackImport(file);
+        }}
+      />
+      {isMissingLocalPattern ? (
+        <div className="mt-1 text-xs text-amber-400">
+          This local pattern is not installed. Existing artwork is preserved, but replay is unavailable.
+        </div>
+      ) : null}
+      {localLibraryError ? <div className="mt-1 text-xs text-amber-400">{localLibraryError}</div> : null}
       {isAdding ? (
         <AddTilePatternModal
           onClose={() => setIsAdding(false)}

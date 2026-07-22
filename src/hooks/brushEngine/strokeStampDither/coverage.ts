@@ -1,4 +1,5 @@
 import type { PatternStyle } from '@/utils/ditherAlgorithms';
+import { isCumulativeThresholdResolver } from '@/utils/ditherPatterns/cumulativeThresholdPattern';
 import {
   computePressureResolution,
   createPressureResolutionState,
@@ -172,6 +173,24 @@ export const resolveStampDitherCoverage = (
 export const resolveStampDitherBucket = (fraction: number): number => {
   const clamped = Math.max(0, Math.min(1, fraction));
   return Math.round(clamped * (STAMP_DITHER_BUCKETS - 1));
+};
+
+export const resolveStampDitherPatternBucket = (
+  lockedBucket: number,
+  patternStyle: PatternStyle | undefined,
+  colorIndex: number,
+  thresholdResolver?: (x: number, y: number) => number | null,
+  selectMarkTone = false,
+): number => {
+  const normalizedIndex = Math.max(0, Math.min(1, (colorIndex - 1) / 254));
+  if (patternStyle === 'image-tile' && isCumulativeThresholdResolver(thresholdResolver)) {
+    if (thresholdResolver.coveragePolicy === 'mark-tone-map' && !selectMarkTone) {
+      return lockedBucket;
+    }
+    const toneBucket = resolveStampDitherBucket(thresholdResolver.resolveTone(normalizedIndex));
+    return Math.min(STAMP_DITHER_BUCKETS - 2, Math.max(1, toneBucket));
+  }
+  return lockedBucket;
 };
 
 export const getErrorDiffusionKernel = (algo: StampDitherAlgorithm): ErrorDiffusionKernel => {

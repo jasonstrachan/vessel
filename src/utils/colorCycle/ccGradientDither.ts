@@ -15,6 +15,7 @@ import {
   resolveCcPatternThreshold,
   withCcImageTileThresholdResolver,
 } from '@/utils/colorCycle/ccPatternThreshold';
+import { resolveExternalPatternTone } from '@/utils/ditherPatterns/cumulativeThresholdPattern';
 import { resolveFlatSierraBandMixInfo } from '@/utils/colorCycle/ccDitherRenderPalette';
 import { getActiveMarkGradientSession } from '@/hooks/canvas/utils/colorCycleMarkSession';
 import type { StoredStop } from '@/utils/colorCycleGradientDefs';
@@ -430,6 +431,17 @@ const resolveRepresentativeSampledTarget = (
     rgb,
     color: rgbToCss(rgb),
   };
+};
+
+const resolveAverageSampledTone = (stops: StoredStop[] | null | undefined): number | null => {
+  if (!stops?.length) {
+    return null;
+  }
+  let totalTone = 0;
+  for (let index = 0; index < stops.length; index += 1) {
+    totalTone += rgbToTone(parseCssRgb(stops[index].color));
+  }
+  return totalTone / stops.length;
 };
 
 const clampCycleIndex = (value: number): number => Math.max(1, Math.min(255, Math.round(value)));
@@ -965,6 +977,12 @@ export const fillCcGradientDither = async ({
     }
   }
 
+  const averageSampledTone = resolveAverageSampledTone(sampledStopsOverride);
+  const wrappedBaseOffset = ((baseOffset % 255) + 255) % 255;
+  const markDarkness = averageSampledTone != null
+    ? 1 - averageSampledTone
+    : wrappedBaseOffset / 254;
+
   if (flatCycle) {
     // Constant-tone weave: every cell dithers at a fixed 50/50 mix, but the ink
     // pair bracketing each cell follows the smooth gradient position, so the
@@ -1043,16 +1061,21 @@ export const fillCcGradientDither = async ({
         for (let i = 0; i < activeRow.length; i += 1) {
           const cx = activeRow[i];
           const cellIdx = rowOffset + cx;
+          const coverage = cellCoverage[cellIdx] ?? 0;
+          const patternTone = resolveExternalPatternTone({
+            resolver: imageTileThresholdResolver,
+            localTone: FLAT_CYCLE_TONE,
+            markTone: markDarkness,
+          });
           const threshold = resolveOrderedThreshold(
             algorithm,
             patternStyle,
             cx + phaseX,
             cy + phaseY,
-            FLAT_CYCLE_TONE,
+            patternTone,
             imageTileThresholdResolver
           );
-          const usePrimary = FLAT_CYCLE_TONE >= threshold;
-          const coverage = cellCoverage[cellIdx] ?? 0;
+          const usePrimary = patternTone >= threshold;
           cellIndices[cellIdx] = usePrimary
             ? flatCycleHighLut[coverage]
             : (fillBackground ? flatCycleLowLut[coverage] : 0);
@@ -1125,15 +1148,20 @@ export const fillCcGradientDither = async ({
           const cx = activeRow[i];
           const cellIdx = rowOffset + cx;
           const { band, local } = resolveBandState(cellCoverage[cellIdx]);
+          const patternTone = resolveExternalPatternTone({
+            resolver: imageTileThresholdResolver,
+            localTone: local,
+            markTone: markDarkness,
+          });
           const threshold = resolveOrderedThreshold(
             algorithm,
             patternStyle,
             cx + phaseX,
             cy + phaseY,
-            local,
+            patternTone,
             imageTileThresholdResolver
           );
-          const usePrimary = local >= threshold;
+          const usePrimary = patternTone >= threshold;
           cellIndices[cellIdx] = usePrimary ? highIndexForBand(band) : (fillBackground ? lowIndexForBand(band) : 0);
         }
       }
@@ -1200,10 +1228,15 @@ export const fillCcGradientDither = async ({
       ? undefined
       : (flatMixByBand ?? runtimeFlat.mixByBand);
 
+    const patternTone = resolveExternalPatternTone({
+      resolver: imageTileThresholdResolver,
+      localTone: flatPosition,
+      markTone: markDarkness,
+    });
     fillFlatPatternMode({
       algorithm,
       patternStyle,
-      tone: flatPosition,
+      tone: patternTone,
       flatPosition: sampledFlatPayload?.flatPosition ?? (sampledFlatPayload ? undefined : flatPosition),
       flatLowIndex: sampledFlatPayload?.lowIndex,
       flatHighIndex: sampledFlatPayload?.highIndex,
@@ -1353,15 +1386,20 @@ export const fillCcGradientDither = async ({
         const scaled = (cellCoverage[cellIdx] / 255) * (clampedLevels - 1);
         const lower = Math.max(0, Math.min(clampedLevels - 1, Math.floor(scaled)));
         const frac = scaled - lower;
+        const patternTone = resolveExternalPatternTone({
+          resolver: imageTileThresholdResolver,
+          localTone: frac,
+          markTone: markDarkness,
+        });
         const threshold = resolveOrderedThreshold(
           algorithm,
           patternStyle,
           cx + phaseX,
           cy + phaseY,
-          frac,
+          patternTone,
           imageTileThresholdResolver
         );
-        const chooseUpper = lower < clampedLevels - 1 && frac >= threshold;
+        const chooseUpper = lower < clampedLevels - 1 && patternTone >= threshold;
         const level = chooseUpper ? lower + 1 : lower;
         const pos = levelToCyclePos(level, clampedLevels);
         cellIndices[cellIdx] = indexFromNormalized(pos, baseOffset);
