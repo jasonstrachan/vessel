@@ -1,3 +1,5 @@
+import JSZip from 'jszip';
+
 import { exportProjectAsWebGL } from '@/utils/export/webglExporter';
 import { resolveGobletBrushAlphaMode } from '@/utils/export/goblet/gobletExporter';
 import {
@@ -10,6 +12,7 @@ import { FLOW_SLOT_MASK } from '@/lib/colorCycle/flowEncoding';
 import { useAppStore } from '@/stores/useAppStore';
 import { hashStops } from '@/utils/colorCycleGradientDefs';
 import { captureLayerTexture } from '@/utils/export/goblet/gobletTextureEncoder';
+import { localDitherPatternRegistry } from '@/utils/ditherPatterns/ditherPatternRegistry';
 import type {
   GobletSizeReport,
   WebGLExportProgressEvent,
@@ -112,6 +115,7 @@ type MockSerializedBrushLayer = {
 };
 
 type MockSerializedBrushState = {
+  [key: string]: unknown;
   layers?: MockSerializedBrushLayer[];
 };
 
@@ -267,7 +271,10 @@ const createColorCycleLayer = (canvas: HTMLCanvasElement): Layer => {
   };
 };
 
-const createBrushModeLayer = (canvas: HTMLCanvasElement): Layer => {
+const createBrushModeLayer = (
+  canvas: HTMLCanvasElement,
+  serializedSettings: Record<string, unknown> = {},
+): Layer => {
   const gradientStops = [
     { position: 0, color: '#ffd700' },
     { position: 0.5, color: '#adff2f' },
@@ -319,6 +326,7 @@ const createBrushModeLayer = (canvas: HTMLCanvasElement): Layer => {
   ];
 
   const serialize = (): MockSerializedBrushState => ({
+      ...serializedSettings,
       layers: [
         {
           layerId: 'cc-brush-layer',
@@ -786,6 +794,36 @@ const decodeNumericExportPayload = (payload: unknown): Uint8Array => {
     return Uint8Array.from(payload);
   }
   throw new Error(`Unexpected encoded payload in test: ${String(payload).slice(0, 16)}`);
+};
+
+const readBlobAsArrayBuffer = (blob: Blob): Promise<ArrayBuffer> => new Promise((resolve, reject) => {
+  const reader = new FileReader();
+  reader.onerror = () => reject(reader.error ?? new Error('Failed to read blob'));
+  reader.onload = () => {
+    if (reader.result instanceof ArrayBuffer) {
+      resolve(reader.result);
+    } else {
+      reject(new Error('Blob reader did not return an ArrayBuffer'));
+    }
+  };
+  reader.readAsArrayBuffer(blob);
+});
+
+const containsBytes = (haystack: Uint8Array, needle: Uint8Array): boolean => {
+  if (needle.length === 0 || needle.length > haystack.length) {
+    return false;
+  }
+  for (let start = 0; start <= haystack.length - needle.length; start += 1) {
+    let matches = true;
+    for (let index = 0; index < needle.length; index += 1) {
+      if (haystack[start + index] !== needle[index]) {
+        matches = false;
+        break;
+      }
+    }
+    if (matches) return true;
+  }
+  return false;
 };
 
 describe('exportProjectAsWebGL color cycle integration', () => {
@@ -2384,6 +2422,137 @@ describe('exportProjectAsWebGL color cycle integration', () => {
     expect(Array.from(result.brushState?.gradientIdBuffer as Uint8Array)).toEqual([0, 1, 1, 0]);
     expect(result.slotPalettes?.find((entry) => entry.slot === 0)?.stops).toEqual(gradientStops);
     expect(result.slotPalettes?.find((entry) => entry.slot === 1)?.stops).toEqual(alternateStops);
+  });
+
+  it('keeps local pattern definitions out of JSON, ZIP, and single-file Goblet artifacts', async () => {
+    const privatePatternId = 'local-pattern-export-sentinel';
+    const privatePatternName = 'Synthetic Local Pattern Name Sentinel';
+    const privatePayloadText = 'SYNTHETIC_LOCAL_PATTERN_PAYLOAD_SENTINEL';
+    const privatePayloadHash = `sha256:${'a'.repeat(64)}`;
+    const privatePayload = new TextEncoder().encode(privatePayloadText);
+    const installPrivatePattern = () => localDitherPatternRegistry.register({
+      definition: {
+        id: privatePatternId,
+        name: privatePatternName,
+        kind: 'cumulative-threshold',
+        width: privatePayload.length,
+        height: 1,
+        coveragePolicy: 'local-tone',
+        payloadHash: privatePayloadHash,
+        storageScope: 'local-library',
+      },
+      thresholds: privatePayload,
+    });
+
+    const templateHtml = [
+      '<!DOCTYPE html>',
+      '<html>',
+      '<body>',
+      '<canvas id="app"></canvas>',
+      '<script type="module">',
+      "import { renderVesselWebGL } from './goblet2.js';",
+      '</script>',
+      '</body>',
+      '</html>',
+    ].join('\n');
+    const runtimeAssets = new Map<string, string>([
+      ['goblet2-inline.js', 'const renderVesselWebGL = async () => ({});'],
+      ['goblet2.js', 'export const renderVesselWebGL = async () => ({});'],
+      ['alignFitResolver.js', 'export const normalizeAlignment = () => ({});'],
+      ['displayFilterPipeline.js', 'export const applyDisplayFilterStack = ({ sourceCanvas }) => sourceCanvas;'],
+      ['gobletPayloadContract.js', "export const GOBLET2_FORMAT = 'vessel-goblet2';"],
+      ['gobletPlaybackMath.js', 'export const decodeColorCycleSpeedByte = () => 1;'],
+      ['num.js', 'export const toNum = (value) => Number(value);'],
+      ['fflate-inflate.js', 'export const inflateRaw = () => new Uint8Array();'],
+    ]);
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = jest.fn(async (url: RequestInfo | URL) => {
+      const target = typeof url === 'string' ? url : url.toString();
+      if (target.endsWith('index.html')) {
+        return { ok: true, text: async () => templateHtml, status: 200 } as Response;
+      }
+      const asset = Array.from(runtimeAssets).find(([filename]) => target.endsWith(filename));
+      if (asset) {
+        return { ok: true, text: async () => asset[1], status: 200 } as Response;
+      }
+      throw new Error(`Unexpected asset request: ${target}`);
+    }) as unknown as typeof fetch;
+
+    const privateMarkers = [
+      privatePatternId,
+      privatePatternName,
+      privatePayloadText,
+      privatePayloadHash,
+    ].map((value) => new TextEncoder().encode(value));
+    const expectNoPrivateMarkers = (bytes: Uint8Array) => {
+      privateMarkers.forEach((marker) => expect(containsBytes(bytes, marker)).toBe(false));
+    };
+
+    let capturedBlob: Blob | null = null;
+    const createObjectUrlMock = URL.createObjectURL as jest.Mock;
+    const originalCreateObjectUrlImplementation = createObjectUrlMock.getMockImplementation();
+    createObjectUrlMock.mockImplementation((blob: Blob) => {
+      capturedBlob = blob;
+      return mockBlobUrl;
+    });
+
+    try {
+      for (const availability of ['installed', 'missing'] as const) {
+        localDitherPatternRegistry.clear();
+        if (availability === 'installed') installPrivatePattern();
+
+        for (const bundleFormat of ['json', 'zip', 'single-html'] as const) {
+          const canvas = document.createElement('canvas');
+          canvas.width = 64;
+          canvas.height = 64;
+          const layer = createBrushModeLayer(canvas, {
+            stampDitherEnabled: true,
+            stampDitherAlgorithm: 'pattern',
+            stampDitherPatternStyle: 'image-tile',
+            stampDitherPatternTileId: privatePatternId,
+          });
+          const project = createProject(layer);
+          capturedBlob = null;
+
+          await exportProjectAsWebGL({
+            project,
+            layers: [layer],
+            layout: createDefaultExportLayout(),
+            viewport: { designWidth: project.width, designHeight: project.height, mode: 'fixed' },
+            fps: 24,
+            totalFrames: 24,
+            durationSeconds: 1,
+            perfectLoop: false,
+            includeHiddenLayers: true,
+            embedCanvasFallback: false,
+            minify: false,
+            filenameBase: `local-pattern-${availability}-${bundleFormat}`,
+            bundleFormat,
+            gobletVersion: 'goblet2',
+          });
+
+          expect(capturedBlob).not.toBeNull();
+          const artifactBytes = new Uint8Array(await readBlobAsArrayBuffer(capturedBlob!));
+          if (bundleFormat === 'zip') {
+            const zip = await JSZip.loadAsync(artifactBytes);
+            const files = Object.values(zip.files).filter((file) => !file.dir);
+            expect(files.some((file) => file.name.endsWith('.json'))).toBe(true);
+            for (const file of files) {
+              expectNoPrivateMarkers(await file.async('uint8array'));
+            }
+          } else {
+            expectNoPrivateMarkers(artifactBytes);
+            expect(new TextDecoder().decode(artifactBytes)).toContain('cc-brush-layer');
+          }
+        }
+      }
+    } finally {
+      globalThis.fetch = originalFetch;
+      localDitherPatternRegistry.clear();
+      if (originalCreateObjectUrlImplementation) {
+        createObjectUrlMock.mockImplementation(originalCreateObjectUrlImplementation);
+      }
+    }
   });
 
   it('embeds brush-mode color cycle data in single-file HTML bundle', async () => {

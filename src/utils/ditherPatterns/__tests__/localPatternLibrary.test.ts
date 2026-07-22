@@ -20,12 +20,15 @@ const buildSyntheticPack = async ({
   packId = 'synthetic-pack',
   patternId = 'synthetic-pattern',
   extraFile = false,
+  licenseText,
+  payload = new Uint8Array([16, 96, 176, 255, 32, 112, 192, 255]),
 }: {
   packId?: string;
   patternId?: string;
   extraFile?: boolean;
+  licenseText?: string;
+  payload?: Uint8Array;
 } = {}): Promise<Uint8Array> => {
-  const payload = new Uint8Array([16, 96, 176, 255, 32, 112, 192, 255]);
   const payloadHash = await hashCumulativeThresholdPayload(payload);
   const payloadPath = `patterns/${patternId}.thresholds.bin`;
   const manifest = {
@@ -50,6 +53,7 @@ const buildSyntheticPack = async ({
   const zip = new JSZip();
   zip.file('manifest.json', JSON.stringify(manifest));
   zip.file(payloadPath, payload);
+  if (licenseText !== undefined) zip.file('LICENSE.txt', licenseText);
   if (extraFile) zip.file('unexpected.txt', 'no');
   return zip.generateAsync({ type: 'uint8array' });
 };
@@ -77,8 +81,19 @@ describe('local pattern packs and library', () => {
     expect(parsed.patterns[0].thresholds).toEqual(
       new Uint8Array([16, 96, 176, 255, 32, 112, 192, 255]),
     );
+    await expect(parseLocalPatternPack(await buildSyntheticPack({ licenseText: 'Synthetic license.' })))
+      .resolves.toMatchObject({ packId: 'synthetic-pack' });
     await expect(parseLocalPatternPack(await buildSyntheticPack({ extraFile: true })))
       .rejects.toThrow('unexpected file');
+  });
+
+  it('rejects oversized entries before decoding their contents', async () => {
+    await expect(parseLocalPatternPack(await buildSyntheticPack({
+      payload: new Uint8Array(300_000),
+    }))).rejects.toThrow('payload dimensions');
+    await expect(parseLocalPatternPack(await buildSyntheticPack({
+      licenseText: 'x'.repeat(64 * 1024 + 1),
+    }))).rejects.toThrow('license is too large');
   });
 
   it('installs atomically, hydrates the registry, and exports identical bytes', async () => {

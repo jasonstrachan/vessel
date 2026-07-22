@@ -3,12 +3,14 @@ import JSZip from 'jszip';
 import {
   decodeCumulativeThresholdPattern,
   hashCumulativeThresholdPayload,
+  parseCumulativeThresholdPatternDefinition,
   type CumulativeThresholdPatternRuntime,
 } from './cumulativeThresholdPattern';
 
 const MAX_PATTERN_PACK_BYTES = 8 * 1024 * 1024;
 const MAX_PATTERN_PACK_MANIFEST_BYTES = 256 * 1024;
 const MAX_PATTERN_PACK_PREVIEW_BYTES = 1024 * 1024;
+const MAX_PATTERN_PACK_LICENSE_BYTES = 64 * 1024;
 const MAX_PATTERN_PACK_PATTERNS = 64;
 
 type UnknownRecord = Record<string, unknown>;
@@ -66,7 +68,7 @@ export const parseLocalPatternPack = async (
     throw new Error('Pattern pack manifest is missing.');
   }
   const manifestSize = getUncompressedSize(manifestEntry);
-  if (manifestSize !== null && manifestSize > MAX_PATTERN_PACK_MANIFEST_BYTES) {
+  if (manifestSize === null || manifestSize > MAX_PATTERN_PACK_MANIFEST_BYTES) {
     throw new Error('Pattern pack manifest is too large.');
   }
   const manifestText = await manifestEntry.async('string');
@@ -101,6 +103,14 @@ export const parseLocalPatternPack = async (
   const patternIds = new Set<string>();
   const payloadHashes = new Set<string>();
   const expectedPaths = new Set(['manifest.json']);
+  const licenseEntry = zip.file('LICENSE.txt');
+  if (licenseEntry) {
+    const licenseSize = getUncompressedSize(licenseEntry);
+    if (licenseSize === null || licenseSize > MAX_PATTERN_PACK_LICENSE_BYTES) {
+      throw new Error('Pattern pack license is too large.');
+    }
+    expectedPaths.add('LICENSE.txt');
+  }
   const patterns: CumulativeThresholdPatternRuntime[] = [];
   for (const value of manifest.patterns) {
     if (!isRecord(value) || !hasOnlyKeys(value, [
@@ -128,6 +138,13 @@ export const parseLocalPatternPack = async (
     if (!validatePrivateMetadata(value.privateMetadata)) {
       throw new Error('Pattern pack private metadata is invalid.');
     }
+    const definition = parseCumulativeThresholdPatternDefinition({
+      ...value,
+      storageScope: 'local-library',
+    });
+    if (!definition) {
+      throw new Error('Pattern pack contains an invalid pattern descriptor.');
+    }
     const expectedPayloadPath = `patterns/${value.id}.thresholds.bin`;
     if (value.payloadPath !== expectedPayloadPath) {
       throw new Error('Pattern pack payload path is invalid.');
@@ -135,6 +152,10 @@ export const parseLocalPatternPack = async (
     const payloadEntry = zip.file(expectedPayloadPath);
     if (!payloadEntry) {
       throw new Error('Pattern pack payload is missing.');
+    }
+    const payloadSize = getUncompressedSize(payloadEntry);
+    if (payloadSize === null || payloadSize !== definition.width * definition.height) {
+      throw new Error('Pattern pack payload dimensions do not match its definition.');
     }
     expectedPaths.add(expectedPayloadPath);
     patternIds.add(value.id);
@@ -150,7 +171,7 @@ export const parseLocalPatternPack = async (
         throw new Error('Pattern pack preview is missing.');
       }
       const previewSize = getUncompressedSize(previewEntry);
-      if (previewSize !== null && previewSize > MAX_PATTERN_PACK_PREVIEW_BYTES) {
+      if (previewSize === null || previewSize > MAX_PATTERN_PACK_PREVIEW_BYTES) {
         throw new Error('Pattern pack preview is too large.');
       }
       const preview = await previewEntry.async('uint8array');
@@ -168,10 +189,7 @@ export const parseLocalPatternPack = async (
 
     const payload = await payloadEntry.async('uint8array');
     const runtime = await decodeCumulativeThresholdPattern({
-      definition: {
-        ...value,
-        storageScope: 'local-library',
-      },
+      definition,
       payload,
     });
     patterns.push(runtime);

@@ -77,12 +77,13 @@ const inspectFile = async (filePath, denylist, { isSource }) => {
   }
 };
 
+let trackedPaths = [];
 if (!artifactsOnly) {
-  const tracked = execFileSync('git', ['ls-files', '-z'], {
+  trackedPaths = execFileSync('git', ['ls-files', '-z'], {
     cwd: projectRoot,
     encoding: 'utf8',
   }).split('\0').filter(Boolean);
-  for (const trackedPath of tracked) {
+  for (const trackedPath of trackedPaths) {
     const lower = trackedPath.toLowerCase();
     const segments = lower.split('/');
     if (
@@ -95,6 +96,19 @@ if (!artifactsOnly) {
 }
 
 const denylist = await readDenylist();
+if (!artifactsOnly) {
+  for (const trackedPath of trackedPaths) {
+    const normalized = trackedPath.split(path.sep).join('/');
+    const isCoveredBySourceScan = sourceRoots.some((root) => (
+      normalized === root || normalized.startsWith(`${root}/`)
+    ));
+    if (isCoveredBySourceScan) continue;
+    const absolutePath = path.join(projectRoot, trackedPath);
+    if (existsSync(absolutePath)) {
+      await inspectFile(absolutePath, denylist, { isSource: false });
+    }
+  }
+}
 const roots = artifactsOnly ? artifactRoots : [...sourceRoots, ...artifactRoots];
 for (const root of roots) {
   const absoluteRoot = path.join(projectRoot, root);

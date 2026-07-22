@@ -1,6 +1,9 @@
 import { buildGobletColorCyclePayload } from '@/utils/export/goblet/colorCyclePayloadBuilder';
 import { resolveGobletColorCycleExportSource } from '@/utils/export/goblet/colorCycleExportSourceResolver';
-import { serializeColorCycleDataFromResolvedLayer } from '@/utils/export/goblet/gobletColorCycleSerializer';
+import {
+  captureGobletColorCyclePersistenceSnapshot,
+  serializeColorCycleDataFromResolvedLayer,
+} from '@/utils/export/goblet/gobletColorCycleSerializer';
 import { validateGobletColorCyclePayload } from '@/utils/export/goblet/colorCyclePayloadValidation';
 import * as colorCycleBrushManager from '@/stores/colorCycleBrushManager';
 import { decodeColorCycleSpeedByte, encodeColorCycleSpeedByte } from '@/utils/colorCycleSpeed';
@@ -112,6 +115,17 @@ const createDocumentSnapshot = (paintValues = [1, 2, 3, 4]) => ({
     topLevelBuffers: false,
     legacyStateRefs: false,
   },
+});
+
+const createDocumentBackedLiveRuntime = (settings: Record<string, unknown>) => ({
+  ...createLiveRuntime([1, 2, 3, 4], settings),
+  getColorCycleLayerDocument: () => ({
+    read: () => ({
+      snapshot: createDocumentSnapshot(),
+      version: 1,
+      pixelVersion: 1,
+    }),
+  }),
 });
 
 describe('Goblet color-cycle export contract boundaries', () => {
@@ -356,7 +370,7 @@ describe('Goblet color-cycle export contract boundaries', () => {
     ]));
   });
 
-  it('omits local-library pattern references from portable Goblet brush metadata', async () => {
+  it('omits installed local-library pattern references from portable Goblet brush metadata', async () => {
     localDitherPatternRegistry.register({
       definition: {
         id: 'local-threshold',
@@ -385,5 +399,115 @@ describe('Goblet color-cycle export contract boundaries', () => {
     expect(portableBrushState?.stampDitherPatternStyle).toBeUndefined();
     expect(portableBrushState?.stampDitherPatternTileId).toBeUndefined();
     expect(JSON.stringify(payload)).not.toContain('Local Threshold');
+  });
+
+  it('removes the complete image-tile configuration from Goblet persistence snapshots', () => {
+    const runtime = createDocumentBackedLiveRuntime({
+      stampDitherEnabled: true,
+      stampDitherAlgorithm: 'pattern',
+      stampDitherPatternStyle: 'image-tile',
+      stampDitherPatternTileId: 'local-threshold',
+      stampDitherPatternTileScale: 2,
+      stampDitherPatternTileInvert: true,
+      stampDitherPatternTileThreshold: 0.42,
+      stampDitherPatternTileOffsetX: 7,
+      stampDitherPatternTileOffsetY: 9,
+    });
+    const snapshot = captureGobletColorCyclePersistenceSnapshot(
+      createLayer({
+        colorCycleBrush: runtime as never,
+      }),
+      project,
+    );
+
+    expect(snapshot.ok).toBe(true);
+    if (!snapshot.ok) {
+      throw new Error(snapshot.reason);
+    }
+    expect(snapshot.brushState.stampDitherPatternStyle).toBeUndefined();
+    expect(snapshot.brushState.stampDitherPatternTileId).toBeUndefined();
+    expect(snapshot.brushState.stampDitherPatternTileScale).toBeUndefined();
+    expect(snapshot.brushState.stampDitherPatternTileInvert).toBeUndefined();
+    expect(snapshot.brushState.stampDitherPatternTileThreshold).toBeUndefined();
+    expect(snapshot.brushState.stampDitherPatternTileOffsetX).toBeUndefined();
+    expect(snapshot.brushState.stampDitherPatternTileOffsetY).toBeUndefined();
+  });
+
+  it('preserves built-in pattern settings in Goblet persistence snapshots', () => {
+    const snapshot = captureGobletColorCyclePersistenceSnapshot(
+      createLayer({
+        colorCycleBrush: createDocumentBackedLiveRuntime({
+          stampDitherEnabled: true,
+          stampDitherAlgorithm: 'pattern',
+          stampDitherPatternStyle: 'dots',
+          stampDitherPatternTileScale: 2,
+          stampDitherPatternTileInvert: true,
+          stampDitherPatternTileThreshold: 0.42,
+          stampDitherPatternTileOffsetX: 7,
+          stampDitherPatternTileOffsetY: 9,
+        }) as never,
+      }),
+      project,
+    );
+
+    expect(snapshot.ok).toBe(true);
+    if (!snapshot.ok) {
+      throw new Error(snapshot.reason);
+    }
+    expect(snapshot.brushState.stampDitherPatternStyle).toBe('dots');
+    expect(snapshot.brushState.stampDitherPatternTileId).toBeUndefined();
+    expect(snapshot.brushState.stampDitherPatternTileScale).toBe(2);
+    expect(snapshot.brushState.stampDitherPatternTileInvert).toBe(true);
+    expect(snapshot.brushState.stampDitherPatternTileThreshold).toBe(0.42);
+    expect(snapshot.brushState.stampDitherPatternTileOffsetX).toBe(7);
+    expect(snapshot.brushState.stampDitherPatternTileOffsetY).toBe(9);
+  });
+
+  it('omits missing local-library pattern references from portable Goblet brush metadata', async () => {
+    const payload = await serializeColorCycleDataFromResolvedLayer(
+      createLayer({
+        colorCycleBrush: createLiveRuntime([1, 2, 3, 4], {
+          stampDitherEnabled: true,
+          stampDitherPatternStyle: 'image-tile',
+          stampDitherPatternTileId: 'missing-local-threshold',
+        }) as never,
+      }),
+      project,
+    );
+
+    const portableBrushState = payload?.colorCycle?.brushState as unknown as Record<string, unknown>;
+    expect(portableBrushState?.stampDitherPatternStyle).toBeUndefined();
+    expect(portableBrushState?.stampDitherPatternTileId).toBeUndefined();
+    expect(JSON.stringify(payload)).not.toContain('missing-local-threshold');
+  });
+
+  it('omits project-owned custom tile references because Goblet exports baked brush buffers', async () => {
+    const projectWithCustomTile = {
+      ...project,
+      ccCustomTilePatterns: [{
+        id: 'project-tile',
+        name: 'Project Tile',
+        width: 1,
+        height: 1,
+        rgbaBase64: 'AAAA/w==',
+        createdAt: 1,
+        updatedAt: 1,
+      }],
+    } as Project;
+    const payload = await serializeColorCycleDataFromResolvedLayer(
+      createLayer({
+        colorCycleBrush: createLiveRuntime([1, 2, 3, 4], {
+          stampDitherEnabled: true,
+          stampDitherPatternStyle: 'image-tile',
+          stampDitherPatternTileId: 'project-tile',
+        }) as never,
+      }),
+      projectWithCustomTile,
+    );
+
+    const portableBrushState = payload?.colorCycle?.brushState as unknown as Record<string, unknown>;
+    expect(portableBrushState?.stampDitherPatternStyle).toBeUndefined();
+    expect(portableBrushState?.stampDitherPatternTileId).toBeUndefined();
+    expect(JSON.stringify(payload)).not.toContain('project-tile');
   });
 });
