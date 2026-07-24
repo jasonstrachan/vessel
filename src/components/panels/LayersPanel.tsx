@@ -661,20 +661,20 @@ const LayersPanel: React.FC = () => {
           <span>Layer</span>
         </button>
         <button
-          onClick={handleAddSequentialLayer}
-          className="flex-1 flex items-center justify-center gap-1 py-2 border-r border-[#424242] text-[11px] text-[#D9D9D9] hover:bg-[#353535] transition-colors"
-          title="Add Sequence Layer"
-        >
-          <Plus size={14} className="text-[#D9D9D9]" />
-          <span>Sequence</span>
-        </button>
-        <button
           onClick={handleAddColorCycleLayer}
-          className="flex-1 flex items-center justify-center gap-1 py-2 text-[11px] text-[#D9D9D9] hover:bg-[#353535] transition-colors"
+          className="flex-1 flex items-center justify-center gap-1 py-2 border-r border-[#424242] text-[11px] text-[#D9D9D9] hover:bg-[#353535] transition-colors"
           title="Add CC Layer"
         >
           <Plus size={14} className="text-[#D9D9D9]" />
           <span>CC</span>
+        </button>
+        <button
+          onClick={handleAddSequentialLayer}
+          className="flex-1 flex items-center justify-center gap-1 py-2 text-[11px] text-[#D9D9D9] hover:bg-[#353535] transition-colors"
+          title="Add Sequence Layer"
+        >
+          <Plus size={14} className="text-[#D9D9D9]" />
+          <span>Sequence</span>
         </button>
       </div>
 

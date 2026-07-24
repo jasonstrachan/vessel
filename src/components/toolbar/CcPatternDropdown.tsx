@@ -33,6 +33,7 @@ type Props = {
 const ADD_NEW_VALUE = '__add_cc_tile_pattern__';
 const IMPORT_LOCAL_PACK_VALUE = '__import_local_pattern_pack__';
 const LOCAL_PATTERN_PREFIX = 'local:';
+const LOCAL_PACK_GROUP_PREFIX = 'local-pack:';
 const NEW_PACK_VALUE = '__new_cc_tile_pattern_pack__';
 const FALLBACK_PREVIEW_COLORS: [string, string] = ['#ff1f1f', '#9f00e8'];
 const TILE_PATTERN_SCALE_STEPS = [0.0625, 0.125, 0.25, 0.5, 1, 2, 3, 4, 6, 8, 12, 16] as const;
@@ -721,7 +722,7 @@ export const CcPatternDropdown = ({
     ...localPacks.flatMap((pack) => pack.patterns.map((pattern) => ({
       value: `${LOCAL_PATTERN_PREFIX}${pack.packId}:${pattern.id}`,
       label: pattern.name,
-      group: 'Local',
+      group: `${LOCAL_PACK_GROUP_PREFIX}${pack.packId}`,
     }))),
   ], [localPacks, patternPacks, tilePatterns]);
 
@@ -836,15 +837,58 @@ export const CcPatternDropdown = ({
             patternTileSelectionMode: 'single',
           });
         }}
+        renderGroup={(group) => {
+          if (!group.startsWith(LOCAL_PACK_GROUP_PREFIX)) {
+            return group;
+          }
+          const packId = group.slice(LOCAL_PACK_GROUP_PREFIX.length);
+          const localPack = localPacks.find((pack) => pack.packId === packId);
+          if (!localPack) {
+            return 'Local pack';
+          }
+          return (
+            <div className="flex min-w-0 items-center gap-2">
+              <span className="shrink-0">Local</span>
+              <span
+                className="min-w-0 flex-1 truncate text-xs normal-case tracking-normal text-[#D9D9D9]"
+                title={localPack.name}
+              >
+                {localPack.name}
+              </span>
+              <div className="flex shrink-0 items-center gap-1">
+                <button
+                  type="button"
+                  data-dropdown-interactive="true"
+                  className="px-1 text-[#aaa] hover:bg-[#333] hover:text-[#fff]"
+                  aria-label={`Back up ${localPack.name}`}
+                  onClick={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    void exportLocalPackBackup(localPack.packId, localPack.name);
+                  }}
+                >
+                  Backup
+                </button>
+                <button
+                  type="button"
+                  data-dropdown-interactive="true"
+                  className="px-1 text-[#aaa] hover:bg-[#333] hover:text-[#fff]"
+                  aria-label={`Remove ${localPack.name}`}
+                  onClick={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    void removeLocalPack(localPack.packId);
+                  }}
+                >
+                  x
+                </button>
+              </div>
+            </div>
+          );
+        }}
         renderOption={(option) => {
           const tileId = option.value.startsWith('tile:') ? option.value.slice('tile:'.length) : null;
           const packId = option.value.startsWith('pack:') ? option.value.slice('pack:'.length) : null;
-          const localValue = option.value.startsWith(LOCAL_PATTERN_PREFIX)
-            ? option.value.slice(LOCAL_PATTERN_PREFIX.length)
-            : null;
-          const localSeparatorIndex = localValue?.indexOf(':') ?? -1;
-          const localPackId = localSeparatorIndex >= 0 ? localValue?.slice(0, localSeparatorIndex) : null;
-          const localPack = localPacks.find((pack) => pack.packId === localPackId);
           return (
             <div className="flex items-center justify-between gap-2">
               <span className="min-w-0 flex-1 truncate">{option.label}</span>
@@ -864,37 +908,6 @@ export const CcPatternDropdown = ({
                 </button>
               ) : null}
               {packId ? <span className="shrink-0 text-[10px] uppercase text-[#888]">Pack</span> : null}
-              {localPack ? (
-                <div className="flex shrink-0 items-center gap-1">
-                  <span className="text-[10px] uppercase text-[#888]">Local</span>
-                  <button
-                    type="button"
-                    data-dropdown-interactive="true"
-                    className="px-1 text-[#aaa] hover:bg-[#333] hover:text-[#fff]"
-                    aria-label={`Back up ${localPack.name}`}
-                    onClick={(event) => {
-                      event.preventDefault();
-                      event.stopPropagation();
-                      void exportLocalPackBackup(localPack.packId, localPack.name);
-                    }}
-                  >
-                    Backup
-                  </button>
-                  <button
-                    type="button"
-                    data-dropdown-interactive="true"
-                    className="px-1 text-[#aaa] hover:bg-[#333] hover:text-[#fff]"
-                    aria-label={`Remove ${localPack.name}`}
-                    onClick={(event) => {
-                      event.preventDefault();
-                      event.stopPropagation();
-                      void removeLocalPack(localPack.packId);
-                    }}
-                  >
-                    x
-                  </button>
-                </div>
-              ) : null}
             </div>
           );
         }}

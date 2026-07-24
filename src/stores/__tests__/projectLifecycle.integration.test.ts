@@ -1633,24 +1633,18 @@ describe('project slice lifecycle flows', () => {
     );
   });
 
-  it('creates a clean default sequential layer when starting a new project', async () => {
+  it('starts a new project with only the default regular and color-cycle layers', async () => {
     useAppStore.getState().markAutosaveDirty('manual');
     const previousRevision = useAppStore.getState().autosave.dirtyRevision;
-    useAppStore.getState().newProject(256, 128, 'New With Seq');
+    useAppStore.getState().newProject(256, 128, 'New Project');
     await new Promise<void>((resolve) => setTimeout(resolve, 0));
 
     const nextState = useAppStore.getState();
-    const sequentialLayers = nextState.layers.filter((layer) => layer.layerType === 'sequential');
 
-    expect(nextState.project?.name).toBe('New With Seq');
-    expect(sequentialLayers).toHaveLength(1);
-    expect(sequentialLayers[0].name).toBe('Animation 1');
-    expect(sequentialLayers[0].sequentialData).toEqual({
-      frameCount: 12,
-      fps: 12,
-      durationMs: 1000,
-      events: [],
-    });
+    expect(nextState.project?.name).toBe('New Project');
+    expect(nextState.layers).toHaveLength(2);
+    expect(nextState.layers.map((layer) => layer.name)).toEqual(['Layer 1', 'CC Layer 1']);
+    expect(nextState.layers.map((layer) => layer.layerType)).toEqual(['normal', 'color-cycle']);
     expect(nextState.autosave.hasUnsavedChanges).toBe(false);
     expect(nextState.autosave.dirtyRevision).toBe(nextState.autosave.savedRevision);
     expect(nextState.autosave.dirtyRevision).toBeGreaterThan(previousRevision);

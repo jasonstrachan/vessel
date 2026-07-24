@@ -318,6 +318,33 @@ describe('selection paste commit', () => {
     expect(args?.beforeImage?.height).toBe(18);
   });
 
+  it('shares one in-flight commit when paste confirmation is triggered twice', async () => {
+    let resolveHistoryCommit: (() => void) | undefined;
+    commitLayerHistory.mockImplementationOnce(
+      () => new Promise<void>((resolve) => {
+        resolveHistoryCommit = resolve;
+      })
+    );
+    const { helpers, captureCanvasToActiveLayer } = setupHelpers({
+      position: { x: 10, y: 12 },
+      displayWidth: 20,
+      displayHeight: 16,
+      width: 20,
+      height: 16,
+    });
+
+    const firstCommit = helpers.commitFloatingPaste();
+    const secondCommit = helpers.commitFloatingPaste();
+    await Promise.resolve();
+
+    expect(secondCommit).toBe(firstCommit);
+    expect(captureCanvasToActiveLayer).toHaveBeenCalledTimes(1);
+    expect(commitLayerHistory).toHaveBeenCalledTimes(1);
+
+    resolveHistoryCommit?.();
+    await Promise.all([firstCommit, secondCommit]);
+  });
+
   it('commits the same bitmap pixels produced by the preview raster helper', async () => {
     const imageData = new ImageData(4, 1);
     imageData.data.set([

@@ -27,6 +27,8 @@ describe('Dropdown', () => {
 
     const { container } = render(<Dropdown value="a" options={longOptions} onChange={onChange} />);
 
+    expect(container.firstElementChild).toHaveClass('min-w-0');
+
     const triggerLabel = container.querySelector('button > span');
     expect(triggerLabel).toHaveClass('truncate', 'whitespace-nowrap');
 

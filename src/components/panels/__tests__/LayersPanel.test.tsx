@@ -797,6 +797,18 @@ describe('LayersPanel interactions', () => {
     expect(payload?.groupId).toBe('group-1');
   });
 
+  it('places the sequence layer button after the more commonly used layer types', () => {
+    render(<LayersPanel />);
+
+    const addButtons = [
+      screen.getByTitle('Add Regular Layer'),
+      screen.getByTitle('Add CC Layer'),
+      screen.getByTitle('Add Sequence Layer'),
+    ];
+
+    expect(Array.from(addButtons[0].parentElement?.children ?? [])).toEqual(addButtons);
+  });
+
   it('preserves an active temporary color-cycle custom brush when adding a color-cycle layer', () => {
     state.addLayer.mockReturnValueOnce('cc-layer-new');
     state.tools.brushSettings = {

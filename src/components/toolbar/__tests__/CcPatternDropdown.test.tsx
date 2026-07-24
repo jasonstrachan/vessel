@@ -30,6 +30,10 @@ const localPack: LocalPatternPackSummary = {
     id: 'local-threshold',
     name: 'Local Threshold',
     payloadHash: 'sha256:pattern',
+  }, {
+    id: 'local-threshold-two',
+    name: 'Another Local Threshold',
+    payloadHash: 'sha256:pattern-two',
   }],
 };
 
@@ -325,7 +329,10 @@ describe('CcPatternDropdown', () => {
 
     await waitFor(() => expect(mockHydrate).toHaveBeenCalledTimes(1));
     fireEvent.click(screen.getByRole('button'));
-    expect((await screen.findAllByText('Local')).length).toBeGreaterThan(0);
+    expect(await screen.findByText('Local')).toBeInTheDocument();
+    expect(screen.getByText('Private Pack')).toBeInTheDocument();
+    expect(screen.getAllByLabelText('Back up Private Pack')).toHaveLength(1);
+    expect(screen.getAllByLabelText('Remove Private Pack')).toHaveLength(1);
     chooseDropdownOption('Local Threshold');
 
     expect(onChange).toHaveBeenCalledWith({
@@ -384,7 +391,7 @@ describe('CcPatternDropdown', () => {
     expect(await screen.findByText(/This local pattern is not installed/)).toBeInTheDocument();
   });
 
-  it('backs up and removes an installed local pack without changing the selected reference', async () => {
+  it('backs up and removes an installed local pack from its group header', async () => {
     mockHydrate.mockResolvedValueOnce([localPack]);
     mockList.mockResolvedValueOnce([]);
     mockExportBackup.mockResolvedValueOnce(Uint8Array.from([4, 5, 6]));
@@ -404,7 +411,6 @@ describe('CcPatternDropdown', () => {
 
     await waitFor(() => expect(mockHydrate).toHaveBeenCalledTimes(1));
     fireEvent.click(screen.getByRole('button'));
-    expect((await screen.findAllByText('Local Threshold')).length).toBeGreaterThan(0);
     fireEvent.click(screen.getByLabelText('Back up Private Pack'));
     await waitFor(() => expect(mockExportBackup).toHaveBeenCalledWith('private-pack'));
     expect(createObjectUrl).toHaveBeenCalledTimes(1);

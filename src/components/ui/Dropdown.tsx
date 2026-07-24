@@ -35,6 +35,7 @@ interface DropdownProps {
   placeholder?: string;
   className?: string;
   renderOption?: (option: DropdownOption, isSelected: boolean, onClose: () => void) => React.ReactNode;
+  renderGroup?: (group: string) => React.ReactNode;
   onAction?: (action: string) => void;
   renderValue?: (option: DropdownOption | null) => React.ReactNode;
   reorderable?: boolean;
@@ -49,6 +50,7 @@ const Dropdown: React.FC<DropdownProps> = ({
   placeholder = "Select...",
   className = "",
   renderOption,
+  renderGroup,
   onAction,
   renderValue,
   reorderable = false,
@@ -311,7 +313,7 @@ const dropIndicator = useMemo(() => {
   }, [isOpen, dragState]);
   
   return (
-    <div ref={dropdownRef} className={`relative ${className}`}>
+    <div ref={dropdownRef} className={`relative min-w-0 ${className}`}>
       {/* Dropdown trigger button */}
       <button
         type="button"
@@ -353,7 +355,7 @@ const dropIndicator = useMemo(() => {
               <React.Fragment key={option.value}>
                 {option.group && option.group !== previousGroup ? (
                   <div className="border-t border-[#333] px-2 pb-1 pt-2 text-[10px] uppercase tracking-wide text-[#888]">
-                    {option.group}
+                    {renderGroup ? renderGroup(option.group) : option.group}
                   </div>
                 ) : null}
                 <div

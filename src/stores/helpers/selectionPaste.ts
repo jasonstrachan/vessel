@@ -655,8 +655,9 @@ export const createSelectionPasteHelpers = ({
   getColorCycleDocumentSnapshot?: GetColorCycleDocumentSnapshot;
 }) => {
   const readColorCycleDocumentSnapshot = getColorCycleDocumentSnapshot ?? (() => null);
+  let floatingPasteCommitPromise: Promise<void> | null = null;
 
-  const commitFloatingPaste = async (): Promise<void> => {
+  const performFloatingPasteCommit = async (): Promise<void> => {
     let state = get();
     const { floatingPaste, layers, activeLayerId, project } = state;
 
@@ -1239,6 +1240,21 @@ export const createSelectionPasteHelpers = ({
     } catch (error) {
       logError('[floatingPaste] Failed to commit paste', error);
     }
+  };
+
+  const commitFloatingPaste = (): Promise<void> => {
+    if (floatingPasteCommitPromise) {
+      return floatingPasteCommitPromise;
+    }
+
+    const pendingCommit = performFloatingPasteCommit();
+    const trackedCommit = pendingCommit.finally(() => {
+      if (floatingPasteCommitPromise === trackedCommit) {
+        floatingPasteCommitPromise = null;
+      }
+    });
+    floatingPasteCommitPromise = trackedCommit;
+    return trackedCommit;
   };
 
   const cancelFloatingPaste = (): void => {
