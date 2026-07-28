@@ -1440,6 +1440,88 @@ describe('webglExporter helpers', () => {
     }));
   });
 
+  it('exports every active definition when a layer exceeds the 8-bit slot range', async () => {
+    const definitionCount = 300;
+    const gradientDefIds = Uint16Array.from(
+      { length: definitionCount },
+      (_value, index) => index + 1,
+    );
+    const gradientDefStore = Array.from({ length: definitionCount + 1 }, (_value, index) => {
+      const id = index + 1;
+      const channel = id % 256;
+      const color = `rgb(${channel}, ${(channel * 3) % 256}, ${(channel * 7) % 256})`;
+      return {
+        id,
+        kind: 'linear',
+        stops: [
+          { position: 0, color },
+          { position: 1, color },
+        ],
+        hash: `def-${id}`,
+        source: 'sampled',
+        seamProfile: 'hard',
+        createdAtMs: id,
+        slot: id & 0xff,
+      };
+    });
+    const result = await serializeColorCycleData({
+      id: 'layer-cc-many-definitions',
+      name: 'Many Definitions',
+      layerType: 'color-cycle',
+      visible: true,
+      opacity: 1,
+      blendMode: 'source-over',
+      imageData: null,
+      framebuffer: { width: definitionCount, height: 1 },
+      colorCycleData: {
+        mode: 'brush',
+        hasContent: true,
+        canvasWidth: definitionCount,
+        canvasHeight: 1,
+        gradient: [
+          { position: 0, color: '#000000' },
+          { position: 1, color: '#ffffff' },
+        ],
+        gradientDefStore,
+        brushState: {
+          canonicalPaint: true,
+          schemaVersion: 1,
+          layers: [{
+            layerId: 'layer-cc-many-definitions',
+            canonicalPaint: true,
+            schemaVersion: 1,
+            dimensions: { width: definitionCount, height: 1 },
+            gradientDefStore,
+            strokeData: {
+              hasContent: true,
+              paintBuffer: new Uint8Array(definitionCount).fill(1).buffer,
+              gradientIdBuffer: Uint8Array.from(
+                { length: definitionCount },
+                (_value, index) => (index + 1) & 0xff,
+              ).buffer,
+              gradientDefIdBuffer: gradientDefIds.buffer,
+              speedBuffer: new Uint8Array(definitionCount).fill(1).buffer,
+              flowBuffer: new Uint8Array(definitionCount).fill(1).buffer,
+              phaseBuffer: new Uint8Array(definitionCount).buffer,
+            },
+          }],
+        },
+      },
+    } as any, {
+      width: definitionCount,
+      height: 1,
+    } as any);
+
+    expect(result?.colorCycle?.gradientDefStore).toHaveLength(definitionCount);
+    expect(result?.colorCycle?.gradientDefStore?.[0]).toMatchObject({ id: 1 });
+    expect(result?.colorCycle?.gradientDefStore?.at(-1)).toMatchObject({
+      id: definitionCount,
+      stops: gradientDefStore[definitionCount - 1].stops,
+      seamProfile: 'hard',
+    });
+    expect(result?.colorCycle?.gradientDefStore?.some((entry) => entry.id === definitionCount + 1)).toBe(false);
+  });
+
   it.each([
     {
       source: 'manual',

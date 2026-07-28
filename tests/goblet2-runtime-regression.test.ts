@@ -70,9 +70,11 @@ describe('Goblet 2 runtime export regression guard', () => {
     expect(hardPalette).toEqual(hardBefore);
 
     expect(runtime).toContain('const normalizeSlotSeamProfiles = (slotPalettes) => {');
+    expect(runtime).toContain('const normalizeGradientDefPalettes = (gradientDefStore) => {');
     expect(runtime).toContain('const applyGradientSeamProfileToRgba = (palette, {');
     expect(runtime).toContain('this.slotSeamProfiles = normalizeSlotSeamProfiles(colorCycle.slotPalettes);');
-    expect(runtime).toContain('seamProfile: slotSeamProfiles?.get(slot),');
+    expect(runtime).toContain('slotSeamProfiles?.get(slot),');
+    expect(runtime).toContain('writePaletteRow(row, defGradients.get(defId), defSeamProfiles?.get(defId));');
     expect(runtime).toContain('buildDiscretePalette32FromGradient(stops, this._basePaletteSize, seamProfile)');
     expect(countMatches(runtime, /applyGradientSeamProfileToRgba\(/g)).toBe(2);
     expect(inlineRuntime).toContain('seamProfile');
@@ -253,7 +255,9 @@ describe('Goblet 2 runtime export regression guard', () => {
     expect(runtime).toContain('const flowBuffer = normalizeGobletFlowBuffer');
     expect(runtime).toContain('this.phaseBuffer = phaseBuffer');
     expect(runtime).toContain('u_phase: gl.getUniformLocation(program, \'u_phase\')');
-    expect(runtime).toContain('renderer.setBuffers(\n        indexBuffer,\n        gradientIdBuffer ?? new Uint8Array(expectedLength),\n        speedBuffer ?? new Uint8Array(expectedLength),\n        flowBuffer ?? new Uint8Array(expectedLength).fill(FLOW_MODE_FORWARD),\n        phaseBuffer ?? new Uint8Array(expectedLength)\n      );');
+    expect(runtime).toContain('u_paletteRow: gl.getUniformLocation(program, \'u_paletteRow\')');
+    expect(runtime).toContain('gl.texImage2D(gl.TEXTURE_2D, 0, gl.R16UI, this.width, this.height, 0, gl.RED_INTEGER, gl.UNSIGNED_SHORT, paletteRowBuffer);');
+    expect(runtime).toContain('renderer.setBuffers(\n        indexBuffer,\n        gradientIdBuffer ?? new Uint8Array(expectedLength),\n        paletteRowBuffer,\n        speedBuffer ?? new Uint8Array(expectedLength),\n        flowBuffer ?? new Uint8Array(expectedLength).fill(FLOW_MODE_FORWARD),\n        phaseBuffer ?? new Uint8Array(expectedLength)\n      );');
     expect(runtime).not.toContain('if (!this.maybeAdvanceShiftKeysPerPixel(distinct, n))');
   });
 

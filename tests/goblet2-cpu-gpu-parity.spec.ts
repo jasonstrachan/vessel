@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { deflateRawSync } from 'node:zlib';
 
 import { expect, test } from 'playwright/test';
 
@@ -34,6 +35,8 @@ type RuntimePlayerState = {
   baseTimeSeconds: number | null;
   legacyOffset01: number | null;
   gradientIds: number[] | null;
+  gradientDefIds: number[] | null;
+  definitionPaletteCount: number | null;
   speedBytes: number[] | null;
   slotSpeedData: number[] | null;
   flowBytes: number[] | null;
@@ -161,6 +164,11 @@ const createGpuParityMetadata = () => ({
             ],
           },
         ],
+        gradientDefStore: [] as Array<{
+          id: number;
+          stops: Array<{ position: number; color: string }>;
+          seamProfile: 'hard' | 'soft';
+        }>,
       },
     },
     {
@@ -199,9 +207,92 @@ const createGpuParityMetadata = () => ({
   ],
 });
 
+type DefinitionIdEncoding = 'packed-byte' | 'packed-uint16';
+
+const createDefinitionBoundMetadata = ({
+  encoding,
+}: {
+  encoding: DefinitionIdEncoding;
+}) => {
+  const metadata = structuredClone(createGpuParityMetadata());
+  const definitionIds = encoding === 'packed-byte' ? [42, 43] : [300, 301];
+  const encodedDefinitionIds = (() => {
+    if (encoding === 'packed-byte') {
+      return `b64z:${deflateRawSync(Uint8Array.from(definitionIds)).toString('base64')}`;
+    }
+    const bytes = Buffer.alloc(definitionIds.length * Uint16Array.BYTES_PER_ELEMENT);
+    definitionIds.forEach((id, index) => {
+      bytes.writeUInt16LE(id, index * Uint16Array.BYTES_PER_ELEMENT);
+    });
+    return `b64z:${deflateRawSync(bytes).toString('base64')}`;
+  })();
+  metadata.project.width = 2;
+  metadata.project.height = 1;
+  metadata.viewport.designWidth = 2;
+  metadata.viewport.designHeight = 1;
+  metadata.settings.displayFilters = [];
+  metadata.layers = [metadata.layers[0]];
+  const layer = metadata.layers[0];
+  layer.id = 'definition-bound-gpu-parity';
+  layer.name = 'Definition Bound GPU Parity';
+  layer.source = { width: 2, height: 1 };
+  layer.documentBoundsPx = { x: 0, y: 0, width: 2, height: 1 };
+  delete layer.colorCycle.alphaMask;
+  delete layer.colorCycle.softEdgeMask;
+  layer.colorCycle.speedMode = 'buffer';
+  layer.colorCycle.slotPalettes = [{
+    slot: 7,
+    stops: [
+      { position: 0, color: '#0000ff' },
+      { position: 1, color: '#0000ff' },
+    ],
+  }];
+  layer.colorCycle.gradientDefStore = [
+    {
+      id: definitionIds[0],
+      stops: [
+        { position: 0, color: '#ff0000' },
+        { position: 1, color: '#ff0000' },
+      ],
+      seamProfile: 'hard',
+    },
+    {
+      id: definitionIds[1],
+      stops: [
+        { position: 0, color: '#00ff00' },
+        { position: 1, color: '#00ff00' },
+      ],
+      seamProfile: 'hard',
+    },
+  ];
+  layer.colorCycle.brushState = {
+    width: 2,
+    height: 1,
+    indexBuffer: [1, 1],
+    gradientIdBuffer: [7, 7],
+    gradientDefIdBuffer: encodedDefinitionIds,
+    speedBuffer: [0, 0],
+    flowBuffer: [1, 1],
+    phaseBuffer: [0, 0],
+    gradientStops: [
+      { position: 0, color: '#0000ff' },
+      { position: 1, color: '#0000ff' },
+    ],
+    animationOffset: 0,
+    alphaMode: 'opaque-indices',
+  };
+  return metadata;
+};
+
 const buildCpuGpuParityHtml = (): string => {
   const runtime = read('public/goblet2/goblet2-inline.js');
   const metadata = JSON.stringify(createGpuParityMetadata());
+  const definitionBoundMetadata = JSON.stringify(createDefinitionBoundMetadata({
+    encoding: 'packed-uint16',
+  }));
+  const packedDefinitionBoundMetadata = JSON.stringify(createDefinitionBoundMetadata({
+    encoding: 'packed-byte',
+  }));
 
   return [
     '<!DOCTYPE html>',
@@ -216,6 +307,8 @@ const buildCpuGpuParityHtml = (): string => {
     '<script type="module">',
     runtime,
     `const metadata = ${metadata};`,
+    `const definitionBoundMetadata = ${definitionBoundMetadata};`,
+    `const packedDefinitionBoundMetadata = ${packedDefinitionBoundMetadata};`,
     `const gpuCanvas = document.getElementById('gpu');
 const cpuCanvas = document.getElementById('cpu');
 const unfilteredCanvas = document.getElementById('unfiltered');
@@ -281,6 +374,8 @@ const getColorCycleRuntimeFlags = (canvas) => {
       baseTimeSeconds: player?.baseTimeSeconds ?? null,
       legacyOffset01: player?.legacyOffset01 ?? null,
       gradientIds: player?.gradientIdBuffer ? Array.from(player.gradientIdBuffer) : null,
+      gradientDefIds: player?.gradientDefIdBuffer ? Array.from(player.gradientDefIdBuffer) : null,
+      definitionPaletteCount: player?.defGradients?.size ?? player?._basePalette32ByDefId?.size ?? null,
       speedBytes: player?.speedBuffer ? Array.from(player.speedBuffer) : null,
       slotSpeedData: player?.slotSpeedData ? Array.from(player.slotSpeedData) : null,
       flowBytes: player?.flowBuffer ? Array.from(player.flowBuffer) : null,
@@ -374,25 +469,28 @@ const createSlotSpeedMetadata = () => {
   };
   return slotSpeed;
 };
-const createRenderCanvas = (id) => {
+const createRenderCanvas = (id, width = 4, height = 2) => {
   const canvas = document.createElement('canvas');
   canvas.id = id;
-  canvas.width = 4;
-  canvas.height = 2;
+  canvas.width = width;
+  canvas.height = height;
   document.body.appendChild(canvas);
   return canvas;
 };
 const renderCase = async (name, metadataForCase) => {
-  const caseGpuCanvas = createRenderCanvas(name + '-gpu');
-  const caseCpuCanvas = createRenderCanvas(name + '-cpu');
+  const width = metadataForCase.project.width;
+  const height = metadataForCase.project.height;
+  const caseGpuCanvas = createRenderCanvas(name + '-gpu', width, height);
+  const caseCpuCanvas = createRenderCanvas(name + '-cpu', width, height);
   await renderVesselWebGL(metadataForCase, caseGpuCanvas, {});
   await withWebGLDisabled(() => renderVesselWebGL(structuredClone(metadataForCase), caseCpuCanvas, {}));
-  return {
+  const result = {
     gpuPixels: readPixels(caseGpuCanvas),
     cpuPixels: readPixels(caseCpuCanvas),
     gpuRuntime: getColorCycleRuntimeFlags(caseGpuCanvas),
     cpuRuntime: getColorCycleRuntimeFlags(caseCpuCanvas),
   };
+  return result;
 };
 try {
   if (typeof setGobletDiagnosticsEnabled === 'function') {
@@ -408,6 +506,11 @@ try {
   const plainCpuSummary = await withWebGLDisabled(() => renderVesselWebGL(structuredClone(plainMetadata), plainCpuCanvas, {}));
   const blackWhiteFallback = await renderCase('black-white-fallback', createBlackWhiteFallbackMetadata());
   const slotSpeed = await renderCase('slot-speed', createSlotSpeedMetadata());
+  const definitionBound = await renderCase('definition-bound', structuredClone(definitionBoundMetadata));
+  const packedDefinitionBound = await renderCase(
+    'packed-definition-bound',
+    structuredClone(packedDefinitionBoundMetadata),
+  );
   const maskCases = {
     eraseVisible: await renderCase('erase-visible', createMaskCaseMetadata({ mask: 'erase', includeHidden: false })),
     eraseHidden: await renderCase('erase-hidden', createMaskCaseMetadata({ mask: 'erase', includeHidden: true })),
@@ -453,6 +556,27 @@ try {
     slotSpeedRuntime: {
       gpuRuntime: slotSpeed.gpuRuntime,
       cpuRuntime: slotSpeed.cpuRuntime,
+    },
+    definitionBoundDiff: diffPixels(definitionBound.cpuPixels, definitionBound.gpuPixels),
+    definitionBoundPixels: {
+      gpu: definitionBound.gpuPixels,
+      cpu: definitionBound.cpuPixels,
+    },
+    definitionBoundRuntime: {
+      gpuRuntime: definitionBound.gpuRuntime,
+      cpuRuntime: definitionBound.cpuRuntime,
+    },
+    packedDefinitionBoundDiff: diffPixels(
+      packedDefinitionBound.cpuPixels,
+      packedDefinitionBound.gpuPixels,
+    ),
+    packedDefinitionBoundPixels: {
+      gpu: packedDefinitionBound.gpuPixels,
+      cpu: packedDefinitionBound.cpuPixels,
+    },
+    packedDefinitionBoundRuntime: {
+      gpuRuntime: packedDefinitionBound.gpuRuntime,
+      cpuRuntime: packedDefinitionBound.cpuRuntime,
     },
     maskCaseDiffs: Object.fromEntries(Object.entries(maskCases).map(([name, entry]) => [
       name,
@@ -529,7 +653,7 @@ test.describe('Goblet 2 CPU/GPU rendered parity', () => {
     await page.waitForFunction(
       () => Boolean((window as Window & { __gobletCpuGpuParity?: { ready?: boolean } }).__gobletCpuGpuParity?.ready),
       undefined,
-      { timeout: 5000 },
+      { polling: 50, timeout: 10000 },
     );
 
     const result = await page.evaluate(() => (
@@ -586,6 +710,24 @@ test.describe('Goblet 2 CPU/GPU rendered parity', () => {
             cpu: number[];
           };
           slotSpeedRuntime: {
+            gpuRuntime: RuntimeFlags;
+            cpuRuntime: RuntimeFlags;
+          };
+          definitionBoundDiff: PixelDiff;
+          definitionBoundPixels: {
+            gpu: number[];
+            cpu: number[];
+          };
+          definitionBoundRuntime: {
+            gpuRuntime: RuntimeFlags;
+            cpuRuntime: RuntimeFlags;
+          };
+          packedDefinitionBoundDiff: PixelDiff;
+          packedDefinitionBoundPixels: {
+            gpu: number[];
+            cpu: number[];
+          };
+          packedDefinitionBoundRuntime: {
             gpuRuntime: RuntimeFlags;
             cpuRuntime: RuntimeFlags;
           };
@@ -749,6 +891,54 @@ test.describe('Goblet 2 CPU/GPU rendered parity', () => {
     })).toBeLessThanOrEqual(2);
     expect(result?.slotSpeedDiff.maxAlphaDelta).toBeLessThanOrEqual(0);
     expect(result?.slotSpeedDiff.mismatchedPixels).toBeLessThanOrEqual(6);
+    expect(result?.definitionBoundRuntime.gpuRuntime).toMatchObject({
+      foundViewer: true,
+      playerCount: 1,
+      usesWebGL: true,
+      usesCpu: false,
+    });
+    expect(result?.definitionBoundRuntime.cpuRuntime).toMatchObject({
+      foundViewer: true,
+      playerCount: 1,
+      usesWebGL: false,
+      usesCpu: true,
+    });
+    expect(result?.definitionBoundRuntime.gpuRuntime.playerState[0]).toMatchObject({
+      gradientDefIds: [300, 301],
+      definitionPaletteCount: 2,
+    });
+    expect(result?.definitionBoundRuntime.cpuRuntime.playerState[0]).toMatchObject({
+      gradientDefIds: [300, 301],
+      definitionPaletteCount: 2,
+    });
+    expect(result?.definitionBoundDiff.maxChannelDelta).toBeLessThanOrEqual(2);
+    expect(result?.definitionBoundDiff.maxAlphaDelta).toBe(0);
+    expect(result?.definitionBoundPixels.gpu).toEqual([
+      255, 0, 0, 255,
+      0, 255, 0, 255,
+    ]);
+    expect(result?.definitionBoundPixels.cpu).toEqual([
+      255, 0, 0, 255,
+      0, 255, 0, 255,
+    ]);
+    expect(result?.packedDefinitionBoundRuntime.gpuRuntime.playerState[0]).toMatchObject({
+      gradientDefIds: [42, 43],
+      definitionPaletteCount: 2,
+    });
+    expect(result?.packedDefinitionBoundRuntime.cpuRuntime.playerState[0]).toMatchObject({
+      gradientDefIds: [42, 43],
+      definitionPaletteCount: 2,
+    });
+    expect(result?.packedDefinitionBoundDiff.maxChannelDelta).toBeLessThanOrEqual(2);
+    expect(result?.packedDefinitionBoundDiff.maxAlphaDelta).toBe(0);
+    expect(result?.packedDefinitionBoundPixels.gpu).toEqual([
+      255, 0, 0, 255,
+      0, 255, 0, 255,
+    ]);
+    expect(result?.packedDefinitionBoundPixels.cpu).toEqual([
+      255, 0, 0, 255,
+      0, 255, 0, 255,
+    ]);
     Object.entries(MASK_CASE_EXPECTATIONS).forEach(([caseName, expectedRuntime]) => {
       const typedCaseName = caseName as keyof typeof MASK_CASE_EXPECTATIONS;
       const caseDiff = result?.maskCaseDiffs[typedCaseName];

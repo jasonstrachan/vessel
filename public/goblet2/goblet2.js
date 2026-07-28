@@ -2054,7 +2054,34 @@ const decompressB64ZPayload = async (payload) => {
   throw new Error('Failed to decompress b64z payload');
 };
 
-const resolveNumericBuffer = async (value) => {
+const toUint16Buffer = (value) => {
+  if (!value) {
+    return null;
+  }
+  if (value instanceof Uint16Array) {
+    return value.slice();
+  }
+  if (Array.isArray(value)) {
+    return Uint16Array.from(value, (entry) => (
+      Number.isFinite(entry) && entry >= 0 ? Math.min(0xffff, Math.round(entry)) : 0
+    ));
+  }
+  const bytes = value instanceof Uint8Array
+    ? value
+    : ArrayBuffer.isView(value)
+      ? new Uint8Array(value.buffer, value.byteOffset, value.byteLength)
+      : null;
+  if (!bytes) {
+    return null;
+  }
+  if (bytes.byteLength % 2 !== 0) {
+    throw new Error('Goblet Uint16 payload has an odd byte length');
+  }
+  const copy = bytes.slice();
+  return new Uint16Array(copy.buffer);
+};
+
+const resolveNumericBuffer = async (value, bytesPerElement = 1) => {
   if (!value) {
     return null;
   }
@@ -2072,9 +2099,13 @@ const resolveNumericBuffer = async (value) => {
   }
   if (typeof value === 'string') {
     if (value.startsWith(B64Z_PREFIX)) {
-      return await decompressB64ZPayload(value);
+      const bytes = await decompressB64ZPayload(value);
+      return bytes;
     }
     return null;
+  }
+  if (bytesPerElement === 2 && (Array.isArray(value) || value instanceof Uint16Array)) {
+    return toUint16Buffer(value);
   }
   if (value instanceof Uint8Array) {
     return value.length ? value.slice() : new Uint8Array(0);
@@ -2159,20 +2190,47 @@ const gobletPayloadLengthMatches = (payload, expectedElements, bytesPerElement) 
   || (bytesPerElement > 1 && payload.byteLength === expectedElements * bytesPerElement)
 );
 
+const normalizeGobletBrushBufferPayload = (
+  payload,
+  expectedElements,
+  bytesPerElement,
+) => {
+  if (bytesPerElement !== 2 || !payload || payload instanceof Uint16Array) {
+    return payload;
+  }
+  if (!(payload instanceof Uint8Array)) {
+    return payload;
+  }
+  if (payload.length === expectedElements) {
+    return Uint16Array.from(payload);
+  }
+  if (payload.byteLength === expectedElements * bytesPerElement) {
+    return toUint16Buffer(payload);
+  }
+  return payload;
+};
+
 const createGobletResolvedPayloadCache = () => ({
   buffers: new Map(),
   masks: new Map(),
 });
 
+const getGobletBrushBufferBytesPerElement = (name) => (
+  GOBLET_BRUSH_REQUIRED_BUFFERS.find((entry) => entry.name === name)?.bytesPerElement ?? 1
+);
+
 const resolveGobletPayloadWithCache = async (cache, group, name, payload) => {
   const cacheGroup = cache?.[group];
   if (!cacheGroup) {
-    return await resolveNumericBuffer(payload);
+    return await resolveNumericBuffer(payload, group === 'buffers' ? getGobletBrushBufferBytesPerElement(name) : 1);
   }
   if (cacheGroup.has(name)) {
     return cacheGroup.get(name);
   }
-  const resolved = await resolveNumericBuffer(payload);
+  const resolved = await resolveNumericBuffer(
+    payload,
+    group === 'buffers' ? getGobletBrushBufferBytesPerElement(name) : 1,
+  );
   cacheGroup.set(name, resolved);
   return resolved;
 };
@@ -2217,7 +2275,13 @@ const collectGobletBrushPayloadContractErrors = async (colorCycle, brushState, r
       errors.push(`missing-${name}`);
       continue;
     }
-    const resolved = await resolveGobletBrushBufferPayload(resolvedPayloads, name, payload);
+    const rawResolved = await resolveGobletBrushBufferPayload(resolvedPayloads, name, payload);
+    const resolved = normalizeGobletBrushBufferPayload(
+      rawResolved,
+      expectedElements,
+      bytesPerElement,
+    );
+    resolvedPayloads?.buffers?.set(name, resolved);
     if (!resolved || !resolved.length) {
       errors.push(`missing-${name}`);
     } else if (!gobletPayloadLengthMatches(resolved, expectedElements, bytesPerElement)) {
@@ -2331,6 +2395,23 @@ const normalizeSlotSeamProfiles = (slotPalettes) => {
     );
   });
   return profiles.size > 0 ? profiles : null;
+};
+
+const normalizeGradientDefPalettes = (gradientDefStore) => {
+  const gradients = new Map();
+  const seamProfiles = new Map();
+  if (!Array.isArray(gradientDefStore)) {
+    return { gradients, seamProfiles };
+  }
+  gradientDefStore.forEach((entry) => {
+    const id = Math.round(Number(entry?.id));
+    if (!Number.isFinite(id) || id <= 0 || id > 0xffff || !Array.isArray(entry?.stops) || entry.stops.length === 0) {
+      return;
+    }
+    gradients.set(id, normalizeGradientStops(entry.stops));
+    seamProfiles.set(id, entry.seamProfile === 'soft' ? 'soft' : 'hard');
+  });
+  return { gradients, seamProfiles };
 };
 
 const applyGradientSeamProfileToRgba = (palette, {
@@ -2704,17 +2785,25 @@ const buildPaletteTableRGBA = (
   slotSeamProfiles,
   fallbackGradient,
   paletteSize = DEFAULT_PALETTE_SIZE,
+  defGradients = null,
+  defSeamProfiles = null,
 ) => {
   const size = Math.max(1, Math.round(paletteSize));
   const slotCount = Math.max(1, getHighestPaletteSlot(slotGradients) + 1);
-  const data = new Uint8Array(size * slotCount * 4);
+  const defIds = defGradients instanceof Map
+    ? [...defGradients.keys()].filter((id) => Number.isFinite(id) && id > 0).sort((a, b) => a - b)
+    : [];
+  const rowCount = slotCount + defIds.length;
+  if (rowCount > 0x10000) {
+    throw new Error(`Goblet definition palette exceeds 16-bit row capacity (${rowCount} rows)`);
+  }
+  const data = new Uint8Array(size * rowCount * 4);
   const fallbackStops = normalizeGradientStops(fallbackGradient);
-  for (let slot = 0; slot < slotCount; slot += 1) {
-    const stops = slotGradients?.get(slot) ?? fallbackStops;
+  const writePaletteRow = (row, stops, seamProfile) => {
     for (let i = 0; i < size; i += 1) {
       const t = size === 1 ? 0 : i / (size - 1);
       const c = sampleGradient(stops, t);
-      const idx = (slot * size + i) * 4;
+      const idx = (row * size + i) * 4;
       data[idx] = clamp255(c.r);
       data[idx + 1] = clamp255(c.g);
       data[idx + 2] = clamp255(c.b);
@@ -2722,11 +2811,34 @@ const buildPaletteTableRGBA = (
     }
     applyGradientSeamProfileToRgba(data, {
       paletteSize: size,
-      seamProfile: slotSeamProfiles?.get(slot),
-      offset: slot * size * 4,
+      seamProfile,
+      offset: row * size * 4,
     });
+  };
+  for (let slot = 0; slot < slotCount; slot += 1) {
+    writePaletteRow(
+      slot,
+      slotGradients?.get(slot) ?? fallbackStops,
+      slotSeamProfiles?.get(slot),
+    );
   }
-  return { data, width: size, height: slotCount };
+  const defRowById = new Map();
+  defIds.forEach((defId, index) => {
+    const row = slotCount + index;
+    defRowById.set(defId, row);
+    writePaletteRow(row, defGradients.get(defId), defSeamProfiles?.get(defId));
+  });
+  return { data, width: size, height: rowCount, defRowById };
+};
+
+const buildPaletteRowBuffer = (gradientIds, gradientDefIds, defRowById, length) => {
+  const rows = new Uint16Array(length);
+  for (let index = 0; index < length; index += 1) {
+    const defId = gradientDefIds ? (gradientDefIds[index] ?? 0) : 0;
+    const defRow = defId > 0 ? defRowById?.get(defId) : undefined;
+    rows[index] = defRow ?? resolveGobletGradientSlot(gradientIds?.[index] ?? 0, FLOW_SLOT_MASK);
+  }
+  return rows;
 };
 
 const createShader = (gl, type, source) => {
@@ -2840,6 +2952,7 @@ class BrushWebGLRenderer {
 
       uniform usampler2D u_index;
       uniform usampler2D u_slot;
+      uniform usampler2D u_paletteRow;
       uniform usampler2D u_speed;
       uniform usampler2D u_flow;
       uniform usampler2D u_phase;
@@ -2873,6 +2986,7 @@ class BrushWebGLRenderer {
           return;
         }
         uint slot = texelFetch(u_slot, coord, 0).r;
+        uint paletteRow = texelFetch(u_paletteRow, coord, 0).r;
         uint speedByte = texelFetch(u_speed, coord, 0).r;
         uint flowByte = texelFetch(u_flow, coord, 0).r;
         uint phaseByte = texelFetch(u_phase, coord, 0).r;
@@ -2898,7 +3012,7 @@ class BrushWebGLRenderer {
         float lower = floor(modded);
         float upper = mod(lower + 1.0, float(u_paletteSize));
         float mixT = fract(modded);
-        int row = int(min(slot, uint(u_slotCount - 1)));
+        int row = int(min(paletteRow, uint(u_slotCount - 1)));
         vec2 paletteSize = vec2(float(u_paletteSize), float(u_slotCount));
         vec2 lowerUV = (vec2(lower + 0.5, float(row) + 0.5) / paletteSize);
         vec2 upperUV = (vec2(upper + 0.5, float(row) + 0.5) / paletteSize);
@@ -2950,6 +3064,7 @@ class BrushWebGLRenderer {
     this.uniforms = {
       u_index: gl.getUniformLocation(program, 'u_index'),
       u_slot: gl.getUniformLocation(program, 'u_slot'),
+      u_paletteRow: gl.getUniformLocation(program, 'u_paletteRow'),
       u_speed: gl.getUniformLocation(program, 'u_speed'),
       u_flow: gl.getUniformLocation(program, 'u_flow'),
       u_phase: gl.getUniformLocation(program, 'u_phase'),
@@ -2975,6 +3090,7 @@ class BrushWebGLRenderer {
     this.textures = {
       index: gl.createTexture(),
       slot: gl.createTexture(),
+      paletteRow: gl.createTexture(),
       speed: gl.createTexture(),
       flow: gl.createTexture(),
       phase: gl.createTexture(),
@@ -2986,6 +3102,7 @@ class BrushWebGLRenderer {
 
     gl.uniform1i(this.uniforms.u_index, 0);
     gl.uniform1i(this.uniforms.u_slot, 1);
+    gl.uniform1i(this.uniforms.u_paletteRow, 9);
     gl.uniform1i(this.uniforms.u_speed, 2);
     gl.uniform1i(this.uniforms.u_flow, 3);
     gl.uniform1i(this.uniforms.u_phase, 4);
@@ -3013,12 +3130,21 @@ class BrushWebGLRenderer {
     gl.uniform1i(this.uniforms.u_useSlotSpeeds, 1);
   }
 
-  setBuffers(indexBuffer, slotBuffer, speedBuffer, flowBuffer, phaseBuffer) {
+  setBuffers(indexBuffer, slotBuffer, paletteRowBuffer, speedBuffer, flowBuffer, phaseBuffer) {
     const gl = this.gl;
     gl.activeTexture(gl.TEXTURE0);
     gl.bindTexture(gl.TEXTURE_2D, this.textures.index);
     gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.R8UI, this.width, this.height, 0, gl.RED_INTEGER, gl.UNSIGNED_BYTE, indexBuffer);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+
+    gl.activeTexture(gl.TEXTURE9);
+    gl.bindTexture(gl.TEXTURE_2D, this.textures.paletteRow);
+    gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.R16UI, this.width, this.height, 0, gl.RED_INTEGER, gl.UNSIGNED_SHORT, paletteRowBuffer);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
@@ -3059,11 +3185,19 @@ class BrushWebGLRenderer {
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    const error = gl.getError();
+    if (error !== gl.NO_ERROR) {
+      throw new Error(`Goblet WebGL2 buffer upload failed with error ${error}`);
+    }
   }
 
   setPalette(paletteData, width, height) {
     const gl = this.gl;
     this.slotCount = Math.max(1, Math.round(height));
+    const maxTextureSize = gl.getParameter(gl.MAX_TEXTURE_SIZE);
+    if (width > maxTextureSize || this.slotCount > maxTextureSize) {
+      throw new Error(`Goblet palette table exceeds WebGL2 texture limits (${width}x${this.slotCount}, max ${maxTextureSize})`);
+    }
     gl.activeTexture(gl.TEXTURE5);
     gl.bindTexture(gl.TEXTURE_2D, this.textures.palette);
     gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
@@ -3073,6 +3207,10 @@ class BrushWebGLRenderer {
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
     gl.uniform1i(this.uniforms.u_slotCount, this.slotCount);
+    const error = gl.getError();
+    if (error !== gl.NO_ERROR) {
+      throw new Error(`Goblet WebGL2 palette upload failed with error ${error}`);
+    }
   }
 
   setAlphaTexture(image) {
@@ -3335,7 +3473,9 @@ const downsampleBuffer = (source, srcW, srcH, dstW, dstH) => {
   if (!source) {
     return source;
   }
-  const out = new Uint8Array(dstW * dstH);
+  const out = source instanceof Uint16Array
+    ? new Uint16Array(dstW * dstH)
+    : new Uint8Array(dstW * dstH);
   const scaleX = srcW / dstW;
   const scaleY = srcH / dstH;
   for (let y = 0; y < dstH; y += 1) {
@@ -3516,10 +3656,12 @@ const fillPixelsFromIndicesWithGradientIdsAndSpeedAndFlow = (
 const fillPixelsFromIndicesWithFractionalSpeedFlowPhase = (
   indices,
   gradientIds,
+  gradientDefIds,
   speedBytes,
   flowBytes,
   phaseBytes,
   basePalette32BySlot,
+  basePalette32ByDefId,
   fallbackPalette32,
   outPixels32,
   alpha,
@@ -3559,7 +3701,10 @@ const fillPixelsFromIndicesWithFractionalSpeedFlowPhase = (
     const phaseByte = phaseBytes ? (phaseBytes[i] ?? 0) : 0;
     const phase = resolveGobletPhase01(basePhase, phaseByte);
 
-    const palette = basePalette32BySlot.get(slot) ?? fallbackPalette32;
+    const defId = gradientDefIds ? (gradientDefIds[i] ?? 0) : 0;
+    const palette = (defId > 0 ? basePalette32ByDefId?.get(defId) : null)
+      ?? basePalette32BySlot.get(slot)
+      ?? fallbackPalette32;
     if (!palette) {
       outPixels32[i] = 0;
       continue;
@@ -3580,10 +3725,12 @@ const fillPixelsFromIndicesWithFractionalSpeedFlowPhase = (
 const fillPixelsFromIndicesWithFractionalSlotSpeeds = (
   indices,
   gradientIds,
+  gradientDefIds,
   slotSpeedMap,
   flowBytes,
   phaseBytes,
   basePalette32BySlot,
+  basePalette32ByDefId,
   fallbackPalette32,
   outPixels32,
   alpha,
@@ -3620,7 +3767,10 @@ const fillPixelsFromIndicesWithFractionalSlotSpeeds = (
     const phaseByte = phaseBytes ? (phaseBytes[i] ?? 0) : 0;
     const phase = resolveGobletPhase01(basePhase, phaseByte);
 
-    const palette = basePalette32BySlot.get(slot) ?? fallbackPalette32;
+    const defId = gradientDefIds ? (gradientDefIds[i] ?? 0) : 0;
+    const palette = (defId > 0 ? basePalette32ByDefId?.get(defId) : null)
+      ?? basePalette32BySlot.get(slot)
+      ?? fallbackPalette32;
     if (!palette) {
       outPixels32[i] = 0;
       continue;
@@ -3658,6 +3808,7 @@ class ColorCycleLayerPlayer {
     this.baseImageData = null;
     this.indexBuffer = null;
     this.gradientIdBuffer = null;
+    this.gradientDefIdBuffer = null;
     this.speedBuffer = null;
     this.flowBuffer = null;
     this.phaseBuffer = null;
@@ -3669,6 +3820,8 @@ class ColorCycleLayerPlayer {
     this.gradient = normalizeGradientStops(null);
     this.slotGradients = null;
     this.slotSeamProfiles = null;
+    this.defGradients = null;
+    this.defSeamProfiles = null;
     this.cycleColors = 16;
     this.mappingMode = 'banded';
     this.flowMapping = 'palette';
@@ -3698,6 +3851,7 @@ class ColorCycleLayerPlayer {
     this._touchedSpeedList = new Uint8Array(SB_COUNT);
     this._touchedSpeedListLen = 0;
     this._basePalette32BySlot = new Map();
+    this._basePalette32ByDefId = new Map();
     this._fallbackPalette32 = null;
     this._basePaletteSize = 0;
     this.usePerPixelSpeed = false;
@@ -4042,6 +4196,9 @@ class ColorCycleLayerPlayer {
     const rawGradientIds = brushState.gradientIdBuffer
       ? await resolveGobletBrushBufferPayload(resolvedPayloads, 'gradientIdBuffer', brushState.gradientIdBuffer)
       : null;
+    const rawGradientDefIds = brushState.gradientDefIdBuffer
+      ? await resolveGobletBrushBufferPayload(resolvedPayloads, 'gradientDefIdBuffer', brushState.gradientDefIdBuffer)
+      : null;
     const rawSpeedBuffer = brushState.speedBuffer
       ? await resolveGobletBrushBufferPayload(resolvedPayloads, 'speedBuffer', brushState.speedBuffer)
       : null;
@@ -4065,6 +4222,10 @@ class ColorCycleLayerPlayer {
 
     const indexBuffer = clampBuffer(rawIndexBuffer);
     const gradientIdBuffer = clampBuffer(rawGradientIds);
+    const gradientDefIdBuffer = new Uint16Array(expectedLength);
+    if (rawGradientDefIds?.length) {
+      gradientDefIdBuffer.set(rawGradientDefIds.subarray(0, Math.min(rawGradientDefIds.length, expectedLength)));
+    }
     const flowBuffer = normalizeGobletFlowBuffer(rawFlowBuffer, rawGradientIds, expectedLength, FLOW_SLOT_BITS);
     const phaseBuffer = clampBuffer(rawPhaseBuffer);
     if (gradientIdBuffer) {
@@ -4092,6 +4253,7 @@ class ColorCycleLayerPlayer {
 
     this.indexBuffer = indexBuffer;
     this.gradientIdBuffer = gradientIdBuffer;
+    this.gradientDefIdBuffer = gradientDefIdBuffer;
     this.speedBuffer = speedBuffer;
     this.flowBuffer = flowBuffer;
     this.phaseBuffer = phaseBuffer;
@@ -4105,6 +4267,9 @@ class ColorCycleLayerPlayer {
     this.gradient = normalizeGradientStops(baseGradient);
     this.slotGradients = normalizeSlotPalettes(colorCycle.slotPalettes, this.gradient);
     this.slotSeamProfiles = normalizeSlotSeamProfiles(colorCycle.slotPalettes);
+    const defPalettes = normalizeGradientDefPalettes(colorCycle.gradientDefStore);
+    this.defGradients = defPalettes.gradients;
+    this.defSeamProfiles = defPalettes.seamProfiles;
     this.cycleColors = DEFAULT_PALETTE_SIZE;
     this.mappingMode = 'continuous';
     this.flowMapping = 'palette';
@@ -4149,8 +4314,9 @@ class ColorCycleLayerPlayer {
     this._webglInitAttempted = true;
     this._webglInitFailed = false;
     this._webglFallbackReason = null;
+    let renderer = null;
     try {
-      const renderer = new BrushWebGLRenderer({
+      renderer = new BrushWebGLRenderer({
         width: sourceWidth,
         height: sourceHeight,
         paletteSize: DEFAULT_PALETTE_SIZE,
@@ -4164,12 +4330,21 @@ class ColorCycleLayerPlayer {
         this.slotSeamProfiles,
         this.gradient,
         DEFAULT_PALETTE_SIZE,
+        this.defGradients,
+        this.defSeamProfiles,
+      );
+      const paletteRowBuffer = buildPaletteRowBuffer(
+        gradientIdBuffer,
+        gradientDefIdBuffer,
+        paletteTable.defRowById,
+        expectedLength,
       );
       renderer.setPalette(paletteTable.data, paletteTable.width, paletteTable.height);
       renderer.setSlotSpeeds(slotSpeedData);
       renderer.setBuffers(
         indexBuffer,
         gradientIdBuffer ?? new Uint8Array(expectedLength),
+        paletteRowBuffer,
         speedBuffer ?? new Uint8Array(expectedLength),
         flowBuffer ?? new Uint8Array(expectedLength).fill(FLOW_MODE_FORWARD),
         phaseBuffer ?? new Uint8Array(expectedLength)
@@ -4194,6 +4369,13 @@ class ColorCycleLayerPlayer {
       return true;
     } catch (error) {
       diagnostics.warn('[goblet2] WebGL2 brush init failed, falling back to CPU', error);
+      if (renderer) {
+        try {
+          renderer.destroy();
+        } catch {
+          // Preserve the original initialization failure while releasing what we can.
+        }
+      }
       this.webglRenderer = null;
       this.webglCanvas = null;
       this.useWebGL = false;
@@ -4241,6 +4423,15 @@ class ColorCycleLayerPlayer {
       ? downsampleBuffer(gradientIdBuffer, sourceWidth, sourceHeight, width, height)
       : gradientIdBuffer;
     this.gradientIdBuffer = resizedGradientIds && resizedGradientIds.length ? resizedGradientIds : null;
+    const gradientDefIdBuffer = brushState.gradientDefIdBuffer
+      ? await resolveGobletBrushBufferPayload(resolvedPayloads, 'gradientDefIdBuffer', brushState.gradientDefIdBuffer)
+      : null;
+    const resizedGradientDefIds = gradientDefIdBuffer && this.renderScale !== 1
+      ? downsampleBuffer(gradientDefIdBuffer, sourceWidth, sourceHeight, width, height)
+      : gradientDefIdBuffer;
+    this.gradientDefIdBuffer = resizedGradientDefIds && resizedGradientDefIds.length
+      ? resizedGradientDefIds
+      : null;
     const speedBuffer = brushState.speedBuffer
       ? await resolveGobletBrushBufferPayload(resolvedPayloads, 'speedBuffer', brushState.speedBuffer)
       : null;
@@ -4284,6 +4475,9 @@ class ColorCycleLayerPlayer {
     this.gradient = normalizeGradientStops(baseGradient);
     this.slotGradients = normalizeSlotPalettes(colorCycle.slotPalettes, this.gradient);
     this.slotSeamProfiles = normalizeSlotSeamProfiles(colorCycle.slotPalettes);
+    const defPalettes = normalizeGradientDefPalettes(colorCycle.gradientDefStore);
+    this.defGradients = defPalettes.gradients;
+    this.defSeamProfiles = defPalettes.seamProfiles;
     const explicitBufferMode = colorCycle?.speedMode === 'buffer';
     this.speedMode = explicitBufferMode ? 'buffer' : 'slot';
     this.slotSpeeds = !explicitBufferMode ? normalizeSlotSpeeds(colorCycle?.slotSpeeds) : null;
@@ -4345,6 +4539,11 @@ class ColorCycleLayerPlayer {
       resized.set(this.gradientIdBuffer.subarray(0, Math.min(expectedLength, this.gradientIdBuffer.length)));
       this.gradientIdBuffer = resized;
     }
+    if (this.gradientDefIdBuffer && this.gradientDefIdBuffer.length !== expectedLength) {
+      const resized = new Uint16Array(expectedLength);
+      resized.set(this.gradientDefIdBuffer.subarray(0, Math.min(expectedLength, this.gradientDefIdBuffer.length)));
+      this.gradientDefIdBuffer = resized;
+    }
     if (this.speedBuffer && this.speedBuffer.length !== expectedLength) {
       const resized = new Uint8Array(expectedLength);
       resized.set(this.speedBuffer.subarray(0, Math.min(expectedLength, this.speedBuffer.length)));
@@ -4374,6 +4573,7 @@ class ColorCycleLayerPlayer {
     this._lutCacheSlots.clear();
     this._lutCacheBands = null;
     this._basePalette32BySlot.clear();
+    this._basePalette32ByDefId.clear();
     this._basePaletteSize = this.cycleColors | 0;
     const explicitPalette32 = buildDiscretePalette32FromExplicitPalette(
       brushState.palette,
@@ -4390,6 +4590,15 @@ class ColorCycleLayerPlayer {
         );
       });
     }
+    if (this.defGradients && this.defGradients.size > 0) {
+      this.defGradients.forEach((stops, defId) => {
+        const seamProfile = this.defSeamProfiles?.get(defId);
+        this._basePalette32ByDefId.set(
+          defId,
+          buildDiscretePalette32FromGradient(stops, this._basePaletteSize, seamProfile)
+        );
+      });
+    }
     this._fractionalLutsBySlot.clear();
     this._basePalette32BySlot.forEach((_palette, slot) => {
       this._fractionalLutsBySlot.set(slot, new Uint32Array(256));
@@ -4399,6 +4608,10 @@ class ColorCycleLayerPlayer {
 
   async initializeRecolorMode(colorCycle, recolorSettings) {
     this.mode = colorCycle.mode ?? 'recolor';
+    this.gradientDefIdBuffer = null;
+    this.defGradients = null;
+    this.defSeamProfiles = null;
+    this._basePalette32ByDefId.clear();
     const sourceWidth = Math.max(
       1,
       Math.round(Number.isFinite(recolorSettings?.width) ? recolorSettings.width : this.canvas.width)
@@ -4532,10 +4745,12 @@ class ColorCycleLayerPlayer {
       fillPixelsFromIndicesWithFractionalSpeedFlowPhase(
         this.indexBuffer,
         this.gradientIdBuffer,
+        this.gradientDefIdBuffer,
         this.speedBuffer,
         this.flowBuffer,
         this.phaseBuffer,
         this._basePalette32BySlot,
+        this._basePalette32ByDefId,
         this._fallbackPalette32 ?? this._basePalette32BySlot.get(0),
         this.pixels32,
         this.alpha,
@@ -4572,16 +4787,20 @@ class ColorCycleLayerPlayer {
     const n = this._basePaletteSize || (this.cycleColors | 0) || 1;
     const canUseSlots = this.gradientIdBuffer && this.slotGradients && this.slotGradients.size > 0;
     if (this.flowMapping === 'palette' || !this.phaseMap) {
-      const needsPerPixelFractional = hasAnyNonZeroByte(this.phaseBuffer) || hasGobletNonForwardFlow(this.flowBuffer);
+      const needsPerPixelFractional = this._basePalette32ByDefId.size > 0
+        || hasAnyNonZeroByte(this.phaseBuffer)
+        || hasGobletNonForwardFlow(this.flowBuffer);
       if (needsPerPixelFractional) {
         const fillStart = profileNow();
         fillPixelsFromIndicesWithFractionalSlotSpeeds(
           this.indexBuffer,
           this.gradientIdBuffer,
+          this.gradientDefIdBuffer,
           slotSpeedMap,
           this.flowBuffer,
           this.phaseBuffer,
           this._basePalette32BySlot,
+          this._basePalette32ByDefId,
           this._fallbackPalette32 ?? this._basePalette32BySlot.get(0),
           this.pixels32,
           this.alpha,
@@ -4810,6 +5029,7 @@ class ColorCycleLayerPlayer {
     this.isAnimating = false;
     this.indexBuffer = null;
     this.gradientIdBuffer = null;
+    this.gradientDefIdBuffer = null;
     this.speedBuffer = null;
     this.flowBuffer = null;
     this.phaseBuffer = null;
@@ -4819,7 +5039,10 @@ class ColorCycleLayerPlayer {
     this.baseImageData = null;
     this.slotGradients = null;
     this.slotSeamProfiles = null;
+    this.defGradients = null;
+    this.defSeamProfiles = null;
     this._fallbackPalette32 = null;
+    this._basePalette32ByDefId.clear();
     this._fractionalLutsBySlot.clear();
     if (this.webglRenderer) {
       this.webglRenderer.destroy();

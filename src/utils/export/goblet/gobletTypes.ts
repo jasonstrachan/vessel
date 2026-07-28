@@ -110,6 +110,12 @@ export type SerializedSlotPalette = {
   seamProfile?: GradientSeamProfile;
 };
 
+export type SerializedGradientDefinition = {
+  id: number;
+  stops: SerializedGradientStops;
+  seamProfile?: GradientSeamProfile;
+};
+
 export type NumericExportBuffer = number[] | Uint8Array | Uint16Array | string;
 
 export interface CanvasExportFormatOption {
@@ -155,6 +161,7 @@ export interface WebGLSerializedColorCycle {
   };
   brushState?: WebGLSerializedBrushState;
   slotPalettes?: SerializedSlotPalette[];
+  gradientDefStore?: SerializedGradientDefinition[];
   alphaMask?: WebGLSerializedAlphaMask;
   softEdgeMask?: WebGLSerializedAlphaMask;
   coverageBoundsPx?: WebGLLayerBounds;

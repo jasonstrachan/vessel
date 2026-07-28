@@ -46,7 +46,7 @@ import type { Layer, Project } from '@/types';
 import { clampRectToDocument as clampBoundsToDocument, scaleMaskBoundsToDocument, type Size2D as CoverageSize } from '@/utils/export/colorCycleBounds';
 import { getLayerSurfaceSize } from '@/utils/export/goblet/gobletLayerSerializer';
 import { resolveGobletBrushStateFallback } from '@/utils/export/goblet/gobletBrushStateFallbacks';
-import type { BrushStateRuntimePayload, ColorCycleCoverageResult, ColorCycleMaskDataset, ColorCycleSerializationResult, SerializedAlphaMaskResult, SerializedGradientStops, SerializedSlotPalette, WebGLExportMetadata, WebGLLayerBounds, WebGLSerializedBrushState, WebGLSerializedColorCycle } from '@/utils/export/goblet/gobletTypes';
+import type { BrushStateRuntimePayload, ColorCycleCoverageResult, ColorCycleMaskDataset, ColorCycleSerializationResult, SerializedAlphaMaskResult, SerializedGradientDefinition, SerializedGradientStops, SerializedSlotPalette, WebGLExportMetadata, WebGLLayerBounds, WebGLSerializedBrushState, WebGLSerializedColorCycle } from '@/utils/export/goblet/gobletTypes';
 
 // Boundary: serialization only. Source availability is decided before this module;
 // this module converts the resolved layer/source into Goblet payload data.
@@ -2008,6 +2008,52 @@ export const materializeDefBoundBrushSlots = (params: {
   };
 };
 
+const resolveActiveGradientDefinitions = (params: {
+  data: Layer['colorCycleData'] | undefined;
+  brushState?: WebGLSerializedBrushState;
+  documentState?: ColorCyclePersistenceDocumentState;
+}): SerializedGradientDefinition[] | undefined => {
+  const { data, brushState, documentState } = params;
+  if (!data || !brushState) {
+    return undefined;
+  }
+
+  const defIds = isNumericArrayLike(brushState.gradientDefIdBuffer)
+    ? brushState.gradientDefIdBuffer
+    : decodePersistedDefIdBuffer(getColorCycleLegacyLayerBuffer(data, 'gradientDefIdBuffer'));
+  const indices = isNumericArrayLike(brushState.indexBuffer) ? brushState.indexBuffer : undefined;
+  const defs = documentState?.gradientDefStore?.length
+    ? documentState.gradientDefStore
+    : data.gradientDefStore ?? [];
+  if (defIds.length === 0 || defs.length === 0) {
+    return undefined;
+  }
+
+  const activeDefIds = new Set<number>();
+  const length = Math.min(defIds.length, indices?.length ?? defIds.length);
+  for (let index = 0; index < length; index += 1) {
+    if (indices && indices[index] === 0) {
+      continue;
+    }
+    const defId = Math.round(Number(defIds[index] ?? 0));
+    if (Number.isFinite(defId) && defId > 0 && defId <= 0xffff) {
+      activeDefIds.add(defId);
+    }
+  }
+
+  const serialized = defs
+    .filter((entry) => activeDefIds.has(Math.round(entry.id)) && entry.stops?.length)
+    .map((entry) => ({
+      id: Math.round(entry.id),
+      stops: toSerializableGradientStops(entry.stops, []),
+      seamProfile: normalizeGradientSeamProfile(entry.seamProfile),
+    }))
+    .filter((entry) => entry.stops.length > 0)
+    .sort((a, b) => a.id - b.id);
+
+  return serialized.length > 0 ? serialized : undefined;
+};
+
 const resolveExportSlotPalettes = (
   data: Layer['colorCycleData'] | undefined,
   brushState?: WebGLSerializedBrushState,
@@ -3630,6 +3676,11 @@ export const serializeColorCycleDataFromResolvedLayer = async (
   let fgDerivedStops: SerializedGradientStops | undefined;
   let remappedDefBoundSlots = false;
   if (!data.recolorSettings) {
+    serialized.gradientDefStore = resolveActiveGradientDefinitions({
+      data,
+      brushState,
+      documentState: exportDocumentState,
+    });
     exportSlotPalettes = resolveExportSlotPalettes(data, brushState, exportDocumentState);
     const defBoundSlots = materializeDefBoundBrushSlots({
       data,
