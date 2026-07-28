@@ -131,7 +131,7 @@ describe('useComprehensiveKeyboard – brush size shortcuts', () => {
     keyboard.unmount();
   });
 
-  it('routes bracket shortcuts to cc gradient colors instead of size for color-cycle-gradient', async () => {
+  it('routes bracket shortcuts to cc shape resolution instead of colors or size', async () => {
     const keyboard = render(React.createElement(KeyboardHarness));
 
     act(() => {
@@ -149,6 +149,7 @@ describe('useComprehensiveKeyboard – brush size shortcuts', () => {
             brushShape: BrushShape.COLOR_CYCLE_SHAPE,
             size: 12,
             gradientBands: 8,
+            fillResolution: 6,
           },
         },
       }));
@@ -159,8 +160,11 @@ describe('useComprehensiveKeyboard – brush size shortcuts', () => {
       jest.advanceTimersByTime(20);
     });
 
-    expect(useAppStore.getState().tools.brushSettings.gradientBands).toBe(7);
-    expect(useAppStore.getState().tools.brushSettings.size).toBe(12);
+    expect(useAppStore.getState().tools.brushSettings).toMatchObject({
+      fillResolution: 5,
+      gradientBands: 8,
+      size: 12,
+    });
 
     await act(async () => {
       fireEvent.keyUp(window, { key: '[', code: 'BracketLeft' });
@@ -171,13 +175,184 @@ describe('useComprehensiveKeyboard – brush size shortcuts', () => {
       jest.advanceTimersByTime(20);
     });
 
-    expect(useAppStore.getState().tools.brushSettings.gradientBands).toBe(8);
-    expect(useAppStore.getState().tools.brushSettings.size).toBe(12);
+    expect(useAppStore.getState().tools.brushSettings).toMatchObject({
+      fillResolution: 6,
+      gradientBands: 8,
+      size: 12,
+    });
 
     keyboard.unmount();
   });
 
-  it('does not change cc gradient bands while a shape preview is active', async () => {
+  it('routes brackets to resolution for the original color-cycle-shape preset', async () => {
+    const keyboard = render(React.createElement(KeyboardHarness));
+
+    act(() => {
+      useAppStore.setState(state => ({
+        currentBrushPreset: {
+          ...(state.currentBrushPreset ?? {}),
+          id: 'color-cycle-shape',
+          name: 'Color Cycle Shape',
+        } as NonNullable<typeof state.currentBrushPreset>,
+        tools: {
+          ...state.tools,
+          currentTool: 'brush',
+          brushSettings: {
+            ...state.tools.brushSettings,
+            brushShape: BrushShape.COLOR_CYCLE_SHAPE,
+            size: 12,
+            gradientBands: 8,
+            fillResolution: 6,
+          },
+        },
+      }));
+    });
+
+    await act(async () => {
+      fireEvent.keyDown(window, { key: ']', code: 'BracketRight' });
+      jest.advanceTimersByTime(20);
+    });
+
+    expect(useAppStore.getState().tools.brushSettings).toMatchObject({
+      fillResolution: 7,
+      gradientBands: 8,
+      size: 12,
+    });
+
+    await act(async () => {
+      fireEvent.keyUp(window, { key: ']', code: 'BracketRight' });
+    });
+
+    keyboard.unmount();
+  });
+
+  it.each([
+    {
+      presetId: 'dither-shape',
+      presetName: 'Dither Shape',
+      brushShape: BrushShape.PIXEL_DITHER,
+      shapeEnabled: true,
+      pressureLinked: true,
+      fillResolution: 28,
+      maxResolution: 28,
+      expectedFillResolution: 28,
+      expectedMaxResolution: 29,
+    },
+    {
+      presetId: 'dither-grad',
+      presetName: 'Dither Grad',
+      brushShape: BrushShape.DITHER_GRADIENT,
+      shapeEnabled: false,
+      pressureLinked: false,
+      fillResolution: 6,
+      maxResolution: undefined,
+      expectedFillResolution: 7,
+      expectedMaxResolution: undefined,
+    },
+  ])(
+    'routes brackets to the effective resolution for $presetName',
+    async ({
+      presetId,
+      presetName,
+      brushShape,
+      shapeEnabled,
+      pressureLinked,
+      fillResolution,
+      maxResolution,
+      expectedFillResolution,
+      expectedMaxResolution,
+    }) => {
+      const keyboard = render(React.createElement(KeyboardHarness));
+
+      act(() => {
+        useAppStore.setState(state => ({
+          currentBrushPreset: {
+            ...(state.currentBrushPreset ?? {}),
+            id: presetId,
+            name: presetName,
+          } as NonNullable<typeof state.currentBrushPreset>,
+          tools: {
+            ...state.tools,
+            currentTool: 'brush',
+            brushSettings: {
+              ...state.tools.brushSettings,
+              brushShape,
+              shapeEnabled,
+              size: 12,
+              fillResolution,
+              pressureLinkedFillResolution: pressureLinked,
+              pressureLinkedFillMaxResolution: maxResolution,
+            },
+          },
+        }));
+      });
+
+      await act(async () => {
+        fireEvent.keyDown(window, { key: ']', code: 'BracketRight' });
+        jest.advanceTimersByTime(20);
+      });
+
+      expect(useAppStore.getState().tools.brushSettings).toMatchObject({
+        fillResolution: expectedFillResolution,
+        size: 12,
+      });
+      expect(
+        useAppStore.getState().tools.brushSettings.pressureLinkedFillMaxResolution
+      ).toBe(expectedMaxResolution);
+
+      await act(async () => {
+        fireEvent.keyUp(window, { key: ']', code: 'BracketRight' });
+      });
+
+      keyboard.unmount();
+    }
+  );
+
+  it('keeps bracket shortcuts on brush size for Dither Stroke', async () => {
+    const keyboard = render(React.createElement(KeyboardHarness));
+
+    act(() => {
+      useAppStore.setState(state => ({
+        currentBrushPreset: {
+          ...(state.currentBrushPreset ?? {}),
+          id: 'dither-stroke',
+          name: 'Dither Stroke',
+        } as NonNullable<typeof state.currentBrushPreset>,
+        tools: {
+          ...state.tools,
+          currentTool: 'brush',
+          brushSettings: {
+            ...state.tools.brushSettings,
+            brushShape: BrushShape.PIXEL_DITHER,
+            shapeEnabled: false,
+            size: 12,
+            fillResolution: 28,
+            pressureLinkedFillResolution: true,
+            pressureLinkedFillMaxResolution: 28,
+          },
+        },
+      }));
+    });
+
+    await act(async () => {
+      fireEvent.keyDown(window, { key: ']', code: 'BracketRight' });
+      jest.advanceTimersByTime(20);
+    });
+
+    expect(useAppStore.getState().tools.brushSettings).toMatchObject({
+      size: 13,
+      fillResolution: 28,
+      pressureLinkedFillMaxResolution: 28,
+    });
+
+    await act(async () => {
+      fireEvent.keyUp(window, { key: ']', code: 'BracketRight' });
+    });
+
+    keyboard.unmount();
+  });
+
+  it('does not change cc shape resolution while a shape preview is active', async () => {
     const keyboard = render(React.createElement(KeyboardHarness));
 
     act(() => {
@@ -195,6 +370,7 @@ describe('useComprehensiveKeyboard – brush size shortcuts', () => {
             brushShape: BrushShape.COLOR_CYCLE_SHAPE,
             size: 12,
             gradientBands: 8,
+            fillResolution: 6,
           },
         },
       }));
@@ -207,14 +383,14 @@ describe('useComprehensiveKeyboard – brush size shortcuts', () => {
       jest.advanceTimersByTime(400);
     });
 
-    expect(useAppStore.getState().tools.brushSettings.gradientBands).toBe(8);
+    expect(useAppStore.getState().tools.brushSettings.fillResolution).toBe(6);
 
     await act(async () => {
       fireEvent.keyUp(window, { key: '[', code: 'BracketLeft' });
       jest.advanceTimersByTime(80);
     });
 
-    expect(useAppStore.getState().tools.brushSettings.gradientBands).toBe(8);
+    expect(useAppStore.getState().tools.brushSettings.fillResolution).toBe(6);
     act(() => {
       useAppStore.getState().setShapeDrawing(false);
     });

@@ -1,4 +1,3 @@
-import { isCcGradientPreset } from '@/presets/brushPresets';
 import { getAppStoreState } from '@/stores/appStoreAccess';
 import { useEffect, useRef, useCallback } from 'react';
 import { useAppStore, type AppState } from '@/stores/useAppStore';
@@ -113,7 +112,7 @@ interface KeyboardState {
 }
 
 type KeyboardScope = 'global' | 'canvas' | 'recolor' | 'gradient' | 'modal';
-type BracketShortcutTarget = 'brush-size' | 'cc-gradient-colors';
+type BracketShortcutTarget = 'brush-size' | 'shape-resolution';
 
 const selectKeyboardScope = (state: AppState) => state.ui.keyboardScope.active as KeyboardScope;
 const selectSelectionRange = (state: AppState) => ({
@@ -122,7 +121,6 @@ const selectSelectionRange = (state: AppState) => ({
 });
 const selectFloatingPaste = (state: AppState) => state.floatingPaste;
 const selectPalette = (state: AppState) => state.palette;
-const selectCurrentBrushPresetId = (state: AppState) => state.currentBrushPreset?.id ?? null;
 const selectShapeDrawingActive = (state: AppState) => state.shapeState.isDrawing;
 
 const summarizeSelectionBounds = (
@@ -191,23 +189,31 @@ const logDeleteKeydownTrace = (
   });
 };
 
-const clampCcGradientColors = (value: number): number => {
+const clampShapeResolution = (value: number, max: number): number => {
   if (value < 1) return 1;
-  if (value > 16) return 16;
+  if (value > max) return max;
   return value;
 };
 
 const resolveBracketShortcutTarget = (
   currentTool: Tool,
-  currentBrushPresetId: string | null,
-  brushSettings: Pick<BrushSettings, 'colorCycleFillMode'>
+  brushSettings: Pick<BrushSettings, 'brushShape' | 'colorCycleFillMode' | 'shapeEnabled'>
 ): BracketShortcutTarget => {
-  if (
-    currentTool === 'brush' &&
-    isCcGradientPreset(currentBrushPresetId) &&
-    brushSettings.colorCycleFillMode !== 'stroke'
-  ) {
-    return 'cc-gradient-colors';
+  if (currentTool !== 'brush') {
+    return 'brush-size';
+  }
+
+  const isCcShape =
+    brushSettings.brushShape === BrushShape.COLOR_CYCLE_SHAPE &&
+    brushSettings.colorCycleFillMode !== 'stroke';
+  const isDitherShape =
+    brushSettings.brushShape === BrushShape.PIXEL_DITHER &&
+    brushSettings.shapeEnabled === true;
+  const isDitherGradient =
+    brushSettings.brushShape === BrushShape.DITHER_GRADIENT;
+
+  if (isCcShape || isDitherShape || isDitherGradient) {
+    return 'shape-resolution';
   }
   return 'brush-size';
 };
@@ -296,7 +302,6 @@ export function useComprehensiveKeyboard({
   const selectionRangeRef = useStoreSelectorRef(selectSelectionRange);
   const floatingPasteRef = useStoreSelectorRef(selectFloatingPaste);
   const paletteRef = useStoreSelectorRef(selectPalette);
-  const currentBrushPresetIdRef = useStoreSelectorRef(selectCurrentBrushPresetId);
   const shapeDrawingActiveRef = useStoreSelectorRef(selectShapeDrawingActive);
 
   // Use refs for stable callbacks to avoid re-registering event listeners
@@ -359,11 +364,19 @@ export function useComprehensiveKeyboard({
   }, [applyBrushSizeDeltaImmediate, setCustomBrushSizePercent, setEraserSettings, toolsRef]);
 
   const applyBracketShortcutStep = useCallback((target: BracketShortcutTarget, delta: -1 | 1) => {
-    if (target === 'cc-gradient-colors') {
-      const current = toolsRef.current.brushSettings.gradientBands ?? 16;
-      const next = clampCcGradientColors(current + delta);
+    if (target === 'shape-resolution') {
+      const settings = toolsRef.current.brushSettings;
+      const isPressureLinked = Boolean(settings.pressureLinkedFillResolution);
+      const current = isPressureLinked
+        ? settings.pressureLinkedFillMaxResolution ?? settings.fillResolution ?? 1
+        : settings.fillResolution ?? 1;
+      const next = clampShapeResolution(current + delta, isPressureLinked ? 999 : 64);
       if (next !== current) {
-        setBrushSettings({ gradientBands: next });
+        setBrushSettings(
+          isPressureLinked
+            ? { pressureLinkedFillMaxResolution: next }
+            : { fillResolution: next }
+        );
       }
       return;
     }
@@ -622,7 +635,6 @@ export function useComprehensiveKeyboard({
     if (isBracketShortcut) {
       const bracketTarget = resolveBracketShortcutTarget(
         tools.currentTool,
-        currentBrushPresetIdRef.current,
         tools.brushSettings
       );
       const direction: -1 | 1 = isBracketLeftEvent(event) ? -1 : 1;
@@ -734,7 +746,7 @@ export function useComprehensiveKeyboard({
       copySelectionToClipboard,
       setFloatingPaste, setPaletteColor, swapPaletteColors,
       keyboardScopeRef, toolsRef, polygonGradientStateRef, selectionRangeRef,
-      floatingPasteRef, paletteRef, currentBrushPresetIdRef, shapeDrawingActiveRef, startBracketHold, applyBracketShortcutStep,
+      floatingPasteRef, paletteRef, shapeDrawingActiveRef, startBracketHold, applyBracketShortcutStep,
       applyBrushSizeDeltaForCurrentTool]);
 
   const handleKeyUp = useCallback(async (event: KeyboardEvent) => {
