@@ -55,9 +55,17 @@ export const useDrawingCanvasHandlerAdapters = ({
   );
 
   const setCursorScreenPosition = useCallback(
-    (screenX: number, screenY: number) => {
+    (
+      screenX: number,
+      screenY: number,
+      sample?: { pressure: number; isDrawing: boolean }
+    ) => {
       mousePositionRef.current = { x: screenX, y: screenY };
-      brushCursorHandleRef.current?.setPosition(screenX, screenY);
+      if (sample) {
+        brushCursorHandleRef.current?.setPosition(screenX, screenY, sample);
+      } else {
+        brushCursorHandleRef.current?.setPosition(screenX, screenY);
+      }
     },
     [brushCursorHandleRef, mousePositionRef]
   );

@@ -141,6 +141,11 @@ describe('useDrawingCanvasCursorModel', () => {
   });
 
   it('falls back to stored custom brush dimensions when currentBrushTip is unavailable', () => {
+    const imageData = {
+      width: 8,
+      height: 4,
+      data: new Uint8ClampedArray(8 * 4 * 4),
+    } as ImageData;
     const { result } = renderHook(() =>
       useDrawingCanvasCursorModel({
         tools: {
@@ -165,11 +170,7 @@ describe('useDrawingCanvasCursorModel', () => {
         getCustomBrushByIdUnsafe: () => ({
           id: 'saved-custom',
           name: 'Saved',
-          imageData: {
-            width: 8,
-            height: 4,
-            data: new Uint8ClampedArray(8 * 4 * 4),
-          } as ImageData,
+          imageData,
           thumbnail: '',
           width: 8,
           height: 4,
@@ -186,6 +187,69 @@ describe('useDrawingCanvasCursorModel', () => {
       pixelSize: 50,
       pixelWidth: 50,
       pixelHeight: 25,
+      imageData,
     });
+  });
+
+  it('does not apply stroke dynamics to shape-fill brushes', () => {
+    const { result } = renderHook(() =>
+      useDrawingCanvasCursorModel({
+        tools: {
+          currentTool: 'brush' as Tool,
+          brushSettings: {
+            brushShape: BrushShape.RECTANGLE_GRADIENT,
+            size: 30,
+            antialiasing: true,
+            rotationEnabled: true,
+            pressureEnabled: true,
+            minPressure: 50,
+            maxPressure: 50,
+          },
+          eraserSettings: {
+            size: 10,
+          },
+        },
+        globalBrushSize: 12,
+        showBrushCursor: true,
+        panIsPanning: false,
+        isSpacePressedRef,
+        cursorStyle: 'none',
+      })
+    );
+
+    expect(result.current.cursorDescriptor).not.toHaveProperty('pressureSizing');
+    expect(result.current.cursorDescriptor).not.toHaveProperty('rotationEnabled');
+  });
+
+  it('does not rotate pixel-dither masks that the renderer keeps static', () => {
+    const { result } = renderHook(() =>
+      useDrawingCanvasCursorModel({
+        tools: {
+          currentTool: 'brush' as Tool,
+          brushSettings: {
+            brushShape: BrushShape.PIXEL_DITHER,
+            ditherStrokeTipShape: 'checkered',
+            size: 20,
+            antialiasing: false,
+            rotationEnabled: true,
+          },
+          eraserSettings: {
+            size: 10,
+          },
+        },
+        globalBrushSize: 12,
+        showBrushCursor: true,
+        panIsPanning: false,
+        isSpacePressedRef,
+        cursorStyle: 'none',
+      })
+    );
+
+    expect(result.current.cursorDescriptor).toMatchObject({
+      kind: 'shape',
+      shape: BrushShape.SQUARE,
+      tipShape: 'checkered',
+    });
+    expect(result.current.cursorDescriptor).not.toHaveProperty('rotationEnabled');
   });
 });

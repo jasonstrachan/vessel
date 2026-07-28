@@ -223,7 +223,11 @@ export interface EventHandlerDependencies {
   // Cursor state
   setCursorStyle: React.Dispatch<React.SetStateAction<string>>;
   setShowBrushCursor: React.Dispatch<React.SetStateAction<boolean>>;
-  setCursorPosition: (screenX: number, screenY: number) => void;
+  setCursorPosition: (
+    screenX: number,
+    screenY: number,
+    sample?: { pressure: number; isDrawing: boolean }
+  ) => void;
   isPointerInsideCanvas?: () => boolean;
   
   // Hooks

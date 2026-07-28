@@ -802,7 +802,59 @@ describe('pointerHandlers main flows', () => {
 
     handlers.handlePointerDown(makePointerEvent({ clientX: 10, clientY: 10 }));
 
-    expect(deps.setCursorPosition).toHaveBeenCalledWith(10, 10);
+    expect(deps.setCursorPosition).toHaveBeenCalledWith(10, 10, {
+      pressure: 0.5,
+      isDrawing: true,
+    });
+  });
+
+  it('propagates cursor pressure state across pointer down, up, and cancel', () => {
+    const { deps, dynamicDepsRef } = createDeps(
+      {
+        tools: {
+          ...baseDynamic.tools,
+          currentTool: 'brush',
+          shapeMode: false,
+          brushSettings: {
+            ...baseDynamic.tools.brushSettings,
+            brushShape: BrushShape.ROUND,
+            pressureEnabled: true,
+          } as any,
+        },
+      },
+      {
+        getMousePos: jest.fn(() => ({ x: 10, y: 10 })),
+      }
+    );
+
+    dynamicDepsRef.current.tools = deps.tools;
+    const handlers = createPointerHandlers(deps);
+    const event = makePointerEvent({
+      clientX: 10,
+      clientY: 10,
+      pointerType: 'pen',
+      pressure: 0.8,
+    });
+
+    handlers.handlePointerDown(event);
+    expect(deps.setCursorPosition).toHaveBeenLastCalledWith(10, 10, {
+      pressure: 0.8,
+      isDrawing: true,
+    });
+
+    (deps.setCursorPosition as jest.Mock).mockClear();
+    handlers.handlePointerUp(event);
+    expect(deps.setCursorPosition).toHaveBeenLastCalledWith(10, 10, {
+      pressure: 0.8,
+      isDrawing: false,
+    });
+
+    (deps.setCursorPosition as jest.Mock).mockClear();
+    handlers.handlePointerCancel(event);
+    expect(deps.setCursorPosition).toHaveBeenLastCalledWith(10, 10, {
+      pressure: 0,
+      isDrawing: false,
+    });
   });
 
   it('uses crosshair cursor for dither-stroke shape mode', () => {

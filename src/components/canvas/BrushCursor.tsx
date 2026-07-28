@@ -8,7 +8,10 @@ import React, {
   useLayoutEffect,
   useRef,
 } from 'react';
-import { BrushShape } from '../../types';
+import { BrushShape, type BrushSettings } from '@/types';
+import { resolvePressureSizing } from '@/utils/pressureSizing';
+import { getSelectionMaskContourPath } from '@/utils/selectionMaskContourPath';
+
 import type { BrushCursorDescriptor } from './useDrawingCanvasCursorModel';
 
 interface BrushCursorProps {
@@ -18,7 +21,11 @@ interface BrushCursorProps {
 }
 
 export interface BrushCursorHandle {
-  setPosition: (screenX: number, screenY: number) => void;
+  setPosition: (
+    screenX: number,
+    screenY: number,
+    sample?: { pressure: number; isDrawing: boolean }
+  ) => void;
 }
 
 type CursorRect = {
@@ -29,6 +36,8 @@ type CursorRect = {
 };
 
 const STROKE_LINE_ANGLE_SMOOTHING = 0.35;
+const CURSOR_OUTER_STROKE = 'rgba(0, 0, 0, 0.9)';
+const CURSOR_INNER_STROKE = 'rgba(255, 255, 255, 0.95)';
 
 const normalizeAngleDelta = (angle: number): number => {
   let normalized = angle;
@@ -47,22 +56,65 @@ const getDescriptorCacheKey = (descriptor: BrushCursorDescriptor): string => {
   if (descriptor.kind === 'stroke-line') {
     return `stroke-line:${descriptor.pixelSize}:${descriptor.rotationEnabled}:${descriptor.rotationRadians}`;
   }
-  return `shape:${descriptor.shape}:${descriptor.pixelSize}:${descriptor.tipShape ?? ''}`;
+  return [
+    'shape',
+    descriptor.shape,
+    descriptor.pixelSize,
+    descriptor.pixelWidth ?? '',
+    descriptor.pixelHeight ?? '',
+    descriptor.tipShape ?? '',
+    descriptor.rotationEnabled ?? false,
+  ].join(':');
+};
+
+const getEffectivePixelSize = (
+  descriptor: BrushCursorDescriptor,
+  pressure: number,
+  isDrawing: boolean
+): number => {
+  if (!isDrawing || !descriptor.pressureSizing) {
+    return descriptor.pixelSize;
+  }
+  const sizing = resolvePressureSizing(descriptor.pixelSize, {
+    enabled: true,
+    minPercent: descriptor.pressureSizing.minPercent,
+    maxPercent: descriptor.pressureSizing.maxPercent,
+  });
+  return Math.max(1, Math.round(sizing.sample(pressure) * 2));
 };
 
 const getCursorScreenDimensions = (
   descriptor: BrushCursorDescriptor,
-  zoom: number
-) => ({
-  width: Math.max(
-    4,
-    (descriptor.kind === 'custom-brush' ? descriptor.pixelWidth : descriptor.pixelSize) * zoom
-  ),
-  height: Math.max(
-    4,
-    (descriptor.kind === 'custom-brush' ? descriptor.pixelHeight : descriptor.pixelSize) * zoom
-  ),
-});
+  zoom: number,
+  effectivePixelSize: number
+) => {
+  const sizeScale = effectivePixelSize / Math.max(1, descriptor.pixelSize);
+  const pixelWidth =
+    descriptor.kind === 'custom-brush'
+      ? descriptor.pixelWidth
+      : descriptor.pixelWidth ?? descriptor.pixelSize;
+  const pixelHeight =
+    descriptor.kind === 'custom-brush'
+      ? descriptor.pixelHeight
+      : descriptor.pixelHeight ?? descriptor.pixelSize;
+  return {
+    width: Math.max(1, pixelWidth * sizeScale * zoom),
+    height: Math.max(1, pixelHeight * sizeScale * zoom),
+  };
+};
+
+const getRotatedDimensions = (
+  width: number,
+  height: number,
+  rotation: number
+): { width: number; height: number } => {
+  const cos = Math.abs(Math.cos(rotation));
+  const sin = Math.abs(Math.sin(rotation));
+  return {
+    width: width * cos + height * sin,
+    height: width * sin + height * cos,
+  };
+};
 
 const getCursorRect = (
   centerX: number,
@@ -77,6 +129,126 @@ const getCursorRect = (
     width: Math.ceil(width + padding * 2),
     height: Math.ceil(height + padding * 2),
   };
+};
+
+const drawMaskOutline = (
+  ctx: CanvasRenderingContext2D,
+  centerX: number,
+  centerY: number,
+  screenWidth: number,
+  screenHeight: number,
+  gridSize: number,
+  isFilled: (row: number, col: number) => boolean
+) => {
+  const left = centerX - screenWidth / 2;
+  const top = centerY - screenHeight / 2;
+  const cellWidth = screenWidth / gridSize;
+  const cellHeight = screenHeight / gridSize;
+
+  const point = (col: number, row: number) => ({
+    x: left + col * cellWidth,
+    y: top + row * cellHeight,
+  });
+
+  for (let row = 0; row < gridSize; row += 1) {
+    for (let col = 0; col < gridSize; col += 1) {
+      if (!isFilled(row, col)) {
+        continue;
+      }
+      if (col === 0 || !isFilled(row, col - 1)) {
+        const start = point(col, row);
+        const end = point(col, row + 1);
+        ctx.moveTo(start.x, start.y);
+        ctx.lineTo(end.x, end.y);
+      }
+      if (col === gridSize - 1 || !isFilled(row, col + 1)) {
+        const start = point(col + 1, row);
+        const end = point(col + 1, row + 1);
+        ctx.moveTo(start.x, start.y);
+        ctx.lineTo(end.x, end.y);
+      }
+      if (row === 0 || !isFilled(row - 1, col)) {
+        const start = point(col, row);
+        const end = point(col + 1, row);
+        ctx.moveTo(start.x, start.y);
+        ctx.lineTo(end.x, end.y);
+      }
+      if (row === gridSize - 1 || !isFilled(row + 1, col)) {
+        const start = point(col, row + 1);
+        const end = point(col + 1, row + 1);
+        ctx.moveTo(start.x, start.y);
+        ctx.lineTo(end.x, end.y);
+      }
+    }
+  }
+};
+
+const drawTipShapeCursor = (
+  ctx: CanvasRenderingContext2D,
+  tipShape: NonNullable<BrushSettings['ditherStrokeTipShape']>,
+  centerX: number,
+  centerY: number,
+  screenWidth: number,
+  screenHeight: number
+): boolean => {
+  const halfWidth = screenWidth / 2;
+  const halfHeight = screenHeight / 2;
+
+  if (tipShape === 'round') {
+    ctx.ellipse(centerX, centerY, halfWidth, halfHeight, 0, 0, Math.PI * 2);
+    return true;
+  }
+  if (tipShape === 'triangle') {
+    ctx.moveTo(centerX, centerY - halfHeight);
+    ctx.lineTo(centerX - halfWidth, centerY + halfHeight);
+    ctx.lineTo(centerX + halfWidth, centerY + halfHeight);
+    ctx.closePath();
+    return true;
+  }
+  if (tipShape === 'diamond') {
+    ctx.moveTo(centerX, centerY - halfHeight);
+    ctx.lineTo(centerX + halfWidth, centerY);
+    ctx.lineTo(centerX, centerY + halfHeight);
+    ctx.lineTo(centerX - halfWidth, centerY);
+    ctx.closePath();
+    return true;
+  }
+  if (tipShape === 'checkered') {
+    drawMaskOutline(
+      ctx,
+      centerX,
+      centerY,
+      screenWidth,
+      screenHeight,
+      4,
+      (row, col) => (row + col) % 2 === 0
+    );
+    return true;
+  }
+  if (
+    tipShape === 'diamond5' ||
+    tipShape === 'diamond7' ||
+    tipShape === 'diamond9'
+  ) {
+    const gridSize = tipShape === 'diamond9' ? 9 : tipShape === 'diamond7' ? 7 : 5;
+    const centerCell = (gridSize - 1) / 2;
+    drawMaskOutline(
+      ctx,
+      centerX,
+      centerY,
+      screenWidth,
+      screenHeight,
+      gridSize,
+      (row, col) =>
+        Math.abs(row - centerCell) + Math.abs(col - centerCell) <= centerCell
+    );
+    return true;
+  }
+  if (tipShape === 'square') {
+    ctx.rect(centerX - halfWidth, centerY - halfHeight, screenWidth, screenHeight);
+    return true;
+  }
+  return false;
 };
 
 const drawShapeCursor = (
@@ -128,6 +300,19 @@ const drawShapeCursor = (
   }
 
   if (descriptor.kind === 'custom-brush') {
+    if (descriptor.imageData && typeof Path2D !== 'undefined') {
+      const outline = getSelectionMaskContourPath(descriptor.imageData);
+      const scaleX = screenWidth / Math.max(1, descriptor.imageData.width);
+      const scaleY = screenHeight / Math.max(1, descriptor.imageData.height);
+      const lineWidth = ctx.lineWidth;
+      ctx.save();
+      ctx.translate(centerX - screenWidth / 2, centerY - screenHeight / 2);
+      ctx.scale(scaleX, scaleY);
+      ctx.lineWidth = lineWidth / Math.max(scaleX, scaleY);
+      ctx.stroke(outline);
+      ctx.restore();
+      return;
+    }
     ctx.rect(
       Math.round(centerX - halfWidth) + lineOffset,
       Math.round(centerY - halfHeight) + lineOffset,
@@ -138,38 +323,42 @@ const drawShapeCursor = (
     return;
   }
 
-  if (descriptor.tipShape === 'checkered') {
-    const gridSize = 4;
-    const cellWidth = screenWidth / gridSize;
-    const cellHeight = screenHeight / gridSize;
-    for (let row = 0; row < gridSize; row += 1) {
-      for (let col = 0; col < gridSize; col += 1) {
-        if ((row + col) % 2 !== 0) {
-          continue;
-        }
-        ctx.rect(
-          Math.round(centerX - halfWidth + col * cellWidth) + lineOffset,
-          Math.round(centerY - halfHeight + row * cellHeight) + lineOffset,
-          Math.max(1, Math.round(cellWidth) - 1),
-          Math.max(1, Math.round(cellHeight) - 1)
-        );
-      }
-    }
+  if (
+    descriptor.tipShape &&
+    drawTipShapeCursor(
+      ctx,
+      descriptor.tipShape,
+      centerX,
+      centerY,
+      screenWidth,
+      screenHeight
+    )
+  ) {
     ctx.stroke();
     return;
   }
 
   switch (descriptor.shape) {
     case BrushShape.ROUND:
-      ctx.arc(centerX, centerY, Math.max(0.5, (Math.min(screenWidth, screenHeight) - 1) / 2), 0, Math.PI * 2);
+    case BrushShape.PIXEL_ROUND:
+      ctx.ellipse(
+        centerX,
+        centerY,
+        Math.max(0.5, (screenWidth - 1) / 2),
+        Math.max(0.5, (screenHeight - 1) / 2),
+        0,
+        0,
+        Math.PI * 2
+      );
       break;
     case BrushShape.SQUARE:
-    case BrushShape.PIXEL_ROUND:
     case BrushShape.PIXEL_DITHER:
     case BrushShape.RECTANGLE_GRADIENT:
     case BrushShape.RESAMPLER:
     case BrushShape.MOSAIC:
     case BrushShape.COLOR_CYCLE:
+    case BrushShape.RISOGRAPH_SOFT:
+    case BrushShape.RISOGRAPH_ULTRA:
       ctx.rect(
         Math.round(centerX - halfWidth) + lineOffset,
         Math.round(centerY - halfHeight) + lineOffset,
@@ -211,6 +400,8 @@ const BrushCursorComponent = ({
   const hasPositionRef = useRef(false);
   const strokeLineRotationRef = useRef(0);
   const hasStrokeLineDirectionRef = useRef(false);
+  const pointerPressureRef = useRef(1);
+  const isDrawingRef = useRef(false);
   const lastPaintedRectRef = useRef<CursorRect | null>(null);
   const dprRef = useRef(1);
   const lastZoomRef = useRef<number | null>(null);
@@ -241,7 +432,9 @@ const BrushCursorComponent = ({
       ctx.clearRect(0, 0, width, height);
       lastPaintedRectRef.current = null;
       strokeLineRotationRef.current =
-        descriptor.kind === 'stroke-line' ? descriptor.rotationRadians : 0;
+        descriptor.kind === 'stroke-line'
+          ? descriptor.rotationRadians
+          : descriptor.initialRotationRadians ?? 0;
       hasStrokeLineDirectionRef.current = false;
     }
 
@@ -262,23 +455,68 @@ const BrushCursorComponent = ({
     const rect = canvas.getBoundingClientRect();
     const centerX = lastPositionRef.current.x - rect.left;
     const centerY = lastPositionRef.current.y - rect.top;
-    const { width: screenWidth, height: screenHeight } =
-      getCursorScreenDimensions(descriptor, zoom);
-
-    ctx.strokeStyle = '#ffffff';
-    ctx.lineWidth = 1;
-    ctx.imageSmoothingEnabled = false;
-
-    drawShapeCursor(
-      ctx,
+    const effectivePixelSize = getEffectivePixelSize(
       descriptor,
-      centerX,
-      centerY,
+      pointerPressureRef.current,
+      isDrawingRef.current
+    );
+    const { width: screenWidth, height: screenHeight } =
+      getCursorScreenDimensions(descriptor, zoom, effectivePixelSize);
+    const cursorRotation =
+      descriptor.kind === 'stroke-line' ? 0 : strokeLineRotationRef.current;
+    const rotatedDimensions = getRotatedDimensions(
       screenWidth,
       screenHeight,
-      strokeLineRotationRef.current
+      cursorRotation
     );
-    lastPaintedRectRef.current = getCursorRect(centerX, centerY, screenWidth, screenHeight);
+
+    ctx.imageSmoothingEnabled = false;
+
+    const drawCursorPass = (strokeStyle: string, lineWidth: number) => {
+      ctx.save();
+      ctx.strokeStyle = strokeStyle;
+      ctx.lineWidth = lineWidth;
+      if (cursorRotation !== 0) {
+        ctx.translate(centerX, centerY);
+        ctx.rotate(cursorRotation);
+        ctx.translate(-centerX, -centerY);
+      }
+      drawShapeCursor(
+        ctx,
+        descriptor,
+        centerX,
+        centerY,
+        screenWidth,
+        screenHeight,
+        strokeLineRotationRef.current
+      );
+      ctx.restore();
+    };
+
+    drawCursorPass(CURSOR_OUTER_STROKE, 3);
+    drawCursorPass(CURSOR_INNER_STROKE, 1);
+
+    if (Math.max(screenWidth, screenHeight) < 4) {
+      const drawCenterMarker = (strokeStyle: string, lineWidth: number) => {
+        ctx.beginPath();
+        ctx.strokeStyle = strokeStyle;
+        ctx.lineWidth = lineWidth;
+        ctx.moveTo(centerX - 2, centerY);
+        ctx.lineTo(centerX + 2, centerY);
+        ctx.moveTo(centerX, centerY - 2);
+        ctx.lineTo(centerX, centerY + 2);
+        ctx.stroke();
+      };
+      drawCenterMarker(CURSOR_OUTER_STROKE, 3);
+      drawCenterMarker(CURSOR_INNER_STROKE, 1);
+    }
+
+    lastPaintedRectRef.current = getCursorRect(
+      centerX,
+      centerY,
+      Math.max(rotatedDimensions.width, 4),
+      Math.max(rotatedDimensions.height, 4)
+    );
   }, [descriptor, visible, zoom]);
 
   const resizeCanvas = useCallback(() => {
@@ -305,15 +543,34 @@ const BrushCursorComponent = ({
   }, [paintCursor]);
 
   useImperativeHandle(ref, () => ({
-    setPosition: (screenX: number, screenY: number) => {
-      if (descriptor.kind === 'stroke-line' && hasPositionRef.current) {
+    setPosition: (screenX, screenY, sample) => {
+      if (sample) {
+        pointerPressureRef.current = sample.pressure;
+        isDrawingRef.current = sample.isDrawing;
+      }
+      if (
+        (descriptor.kind === 'stroke-line' || descriptor.rotationEnabled) &&
+        hasPositionRef.current
+      ) {
         const dx = screenX - lastPositionRef.current.x;
         const dy = screenY - lastPositionRef.current.y;
         if (Math.hypot(dx, dy) > 0.5) {
-          const targetLineAngle = Math.atan2(dy, dx) + Math.PI / 2;
-          strokeLineRotationRef.current = hasStrokeLineDirectionRef.current
-            ? smoothAngle(strokeLineRotationRef.current, targetLineAngle)
-            : targetLineAngle;
+          const pointerAngle = Math.atan2(dy, dx);
+          const rawTargetAngle =
+            descriptor.kind === 'stroke-line'
+              ? pointerAngle + Math.PI / 2
+              : pointerAngle * (descriptor.rotationScale ?? 1) +
+                (descriptor.rotationOffsetRadians ?? 0);
+          const step = descriptor.rotationStepRadians;
+          const targetLineAngle =
+            step && step > 0
+              ? Math.round(rawTargetAngle / step) * step
+              : rawTargetAngle;
+          strokeLineRotationRef.current =
+            descriptor.kind === 'stroke-line' &&
+            hasStrokeLineDirectionRef.current
+              ? smoothAngle(strokeLineRotationRef.current, targetLineAngle)
+              : targetLineAngle;
           hasStrokeLineDirectionRef.current = true;
         }
       }

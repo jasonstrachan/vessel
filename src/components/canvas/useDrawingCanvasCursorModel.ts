@@ -1,9 +1,25 @@
 import type React from 'react';
 import { useMemo } from 'react';
 import { BrushShape, type BrushSettings, type CustomBrush, type Tool } from '@/types';
+import { supportsPressure, supportsRotation } from '@/utils/brushCategories';
+import { resolveBrushPressureRange } from '@/utils/pressureSettings';
 import { resolveBrushCursorDescriptor } from './resolveBrushCursorDescriptor';
 
-export type BrushCursorDescriptor =
+type BrushCursorDynamics = {
+  initialRotationRadians?: number;
+  pixelWidth?: number;
+  pixelHeight?: number;
+  pressureSizing?: {
+    minPercent: number;
+    maxPercent: number;
+  };
+  rotationEnabled?: boolean;
+  rotationOffsetRadians?: number;
+  rotationScale?: number;
+  rotationStepRadians?: number;
+};
+
+export type BrushCursorDescriptor = (
   | {
       kind: 'shape';
       shape: BrushShape;
@@ -22,7 +38,8 @@ export type BrushCursorDescriptor =
       pixelWidth: number;
       pixelHeight: number;
       imageData?: ImageData;
-    };
+    }
+) & BrushCursorDynamics;
 
 interface UseDrawingCanvasCursorModelOptions {
   tools: {
@@ -35,6 +52,9 @@ interface UseDrawingCanvasCursorModelOptions {
       antialiasing: boolean;
       rotationEnabled: boolean;
       rotation?: number;
+      pressureEnabled?: boolean;
+      minPressure?: number;
+      maxPressure?: number;
       colorCycleFillMode?: BrushSettings['colorCycleFillMode'];
       ditherStrokeTipShape?: BrushSettings['ditherStrokeTipShape'];
       colorCycleStampShape?: BrushSettings['colorCycleStampShape'];
@@ -45,6 +65,10 @@ interface UseDrawingCanvasCursorModelOptions {
       brushShape?: BrushShape;
       size?: number;
       linkSizeToBrush?: boolean;
+      pressureEnabled?: boolean;
+      minPressure?: number;
+      maxPressure?: number;
+      rotationEnabled?: boolean;
       currentBrushTip?: BrushSettings['currentBrushTip'];
       selectedCustomBrush?: string | null;
     };
@@ -69,12 +93,74 @@ export const useDrawingCanvasCursorModel = ({
   getCustomBrushByIdUnsafe,
 }: UseDrawingCanvasCursorModelOptions) => {
   return useMemo(() => {
-    const cursorDescriptor: BrushCursorDescriptor = resolveBrushCursorDescriptor({
+    const baseDescriptor = resolveBrushCursorDescriptor({
       tools,
       globalBrushSize,
       temporaryCustomBrush,
       getCustomBrushByIdUnsafe,
     });
+    const activeSettings =
+      tools.currentTool === 'eraser' ? tools.eraserSettings : tools.brushSettings;
+    const pressureRange = resolveBrushPressureRange(activeSettings as BrushSettings);
+    const configuredBrushShape =
+      activeSettings.brushShape ?? tools.brushSettings.brushShape ?? BrushShape.ROUND;
+    const brushShape = baseDescriptor.kind === 'shape' ? baseDescriptor.shape : undefined;
+    const isColorCycleStroke =
+      configuredBrushShape === BrushShape.COLOR_CYCLE ||
+      configuredBrushShape === BrushShape.COLOR_CYCLE_TRIANGLE;
+    const ditherTipShape = tools.brushSettings.ditherStrokeTipShape ?? 'round';
+    const ditherTipRendersRotation =
+      configuredBrushShape !== BrushShape.PIXEL_DITHER ||
+      (ditherTipShape !== 'checkered' &&
+        ditherTipShape !== 'diamond5' &&
+        ditherTipShape !== 'diamond7' &&
+        ditherTipShape !== 'diamond9' &&
+        ditherTipShape !== 'triangle');
+    const isPixelRotated =
+      configuredBrushShape === BrushShape.PIXEL_ROUND ||
+      configuredBrushShape === BrushShape.PIXEL_DITHER ||
+      (configuredBrushShape === BrushShape.SQUARE &&
+        tools.brushSettings.antialiasing === false);
+    const isMosaic = brushShape === BrushShape.MOSAIC;
+    const rotationEnabled =
+      baseDescriptor.kind !== 'stroke-line' &&
+      supportsRotation(configuredBrushShape) &&
+      ditherTipRendersRotation &&
+      Boolean(activeSettings.rotationEnabled);
+    const pressureEnabled =
+      baseDescriptor.kind !== 'stroke-line' &&
+      supportsPressure(configuredBrushShape) &&
+      pressureRange.enabled;
+    const cursorDescriptor: BrushCursorDescriptor = {
+      ...baseDescriptor,
+      ...(pressureEnabled
+        ? {
+            pressureSizing: {
+              minPercent: pressureRange.minPercent,
+              maxPercent: pressureRange.maxPercent,
+            },
+          }
+        : {}),
+      ...(rotationEnabled
+        ? {
+            rotationEnabled: true,
+            rotationScale: isColorCycleStroke ? 1 : 0.5,
+            rotationOffsetRadians: isMosaic ? Math.PI / 2 : 0,
+            rotationStepRadians: isPixelRotated ? Math.PI / 12 : undefined,
+          }
+        : {}),
+      ...(isMosaic
+        ? {
+            initialRotationRadians: Math.PI / 2,
+            pixelWidth: baseDescriptor.pixelSize,
+            pixelHeight: Math.max(
+              1,
+              (tools.brushSettings.mosaicTilePx ?? 8) *
+                ((tools.brushSettings.size ?? globalBrushSize) / 60),
+            ),
+          }
+        : {}),
+    };
 
     const brushCursorVisible =
       showBrushCursor &&

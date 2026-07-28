@@ -1703,13 +1703,18 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
   const updateAlignedMousePosition = (
     displayWorld: Point,
     rect: DOMRect | undefined | null,
-    scale: number
+    scale: number,
+    sample?: { pressure: number; isDrawing: boolean }
   ) => {
     if (!rect) {
       return;
     }
     const screenPos = pan.worldToScreen(displayWorld.x, displayWorld.y, scale);
-    setCursorPosition(rect.left + screenPos.x, rect.top + screenPos.y);
+    if (sample) {
+      setCursorPosition(rect.left + screenPos.x, rect.top + screenPos.y, sample);
+    } else {
+      setCursorPosition(rect.left + screenPos.x, rect.top + screenPos.y);
+    }
   };
 
   const setContourLinesState = (partialState: Partial<ContourLinesState>) => {
@@ -2481,7 +2486,15 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
       pan.screenToWorld(pointerPos.x, pointerPos.y, scale),
       shouldSnapPointer
     );
-    updateAlignedMousePosition(resolveCursorDisplayWorldPoint(worldPos, tools), rect, scale);
+    const isStrokeCursorDrawing =
+      !tools.shapeMode &&
+      (tools.currentTool === 'brush' || tools.currentTool === 'eraser');
+    updateAlignedMousePosition(
+      resolveCursorDisplayWorldPoint(worldPos, tools),
+      rect,
+      scale,
+      isStrokeCursorDrawing ? { pressure, isDrawing: true } : undefined
+    );
 
     if ((event.buttons & 1) === 0) {
       suppressBootstrapUntilPointerUpRef.current = false;
@@ -3347,8 +3360,30 @@ function resampleStopsToColors(stops: Stop[], count: number): string[] {
       pan.screenToWorld(currentPointerPos.x, currentPointerPos.y, scale),
       shouldSnapPointer
     );
+    const rawPressure = event.pressure ?? 0;
+    const pressure = normalizePointerPressure({
+      rawPressure,
+      pointerType: event.pointerType,
+      pressureEnabled: tools.brushSettings.pressureEnabled,
+      pressureLinkedFillResolution: tools.brushSettings.pressureLinkedFillResolution,
+      colorCycleStampDitherPressureLinked: tools.brushSettings.colorCycleStampDitherPressureLinked,
+      shiftKey: event.shiftKey,
+      ctrlKey: event.ctrlKey,
+      fallback: 0,
+    });
 
-    updateAlignedMousePosition(resolveCursorDisplayWorldPoint(worldPos, tools), rect, scale);
+    updateAlignedMousePosition(
+      resolveCursorDisplayWorldPoint(worldPos, tools),
+      rect,
+      scale,
+      {
+        pressure,
+        isDrawing:
+          interaction.state.isDrawing ||
+          isMouseDownRef.current ||
+          (event.buttons & 1) === 1,
+      }
+    );
 
     // If the pointer starts outside and enters the canvas while primary button is held,
     // bootstrap a normal stroke on entry.
@@ -3363,15 +3398,6 @@ function resampleStopsToColors(stops: Stop[], count: number): string[] {
       !tools.shapeMode &&
       (tools.currentTool === 'brush' || tools.currentTool === 'eraser')
     ) {
-      const pressure = normalizePointerPressure({
-        rawPressure: event.pressure,
-        pointerType: event.pointerType,
-        pressureEnabled: tools.brushSettings.pressureEnabled,
-        pressureLinkedFillResolution: tools.brushSettings.pressureLinkedFillResolution,
-        colorCycleStampDitherPressureLinked: tools.brushSettings.colorCycleStampDitherPressureLinked,
-        shiftKey: event.shiftKey,
-        ctrlKey: event.ctrlKey,
-      });
       logPresResPointerPressure({
         phase: 'bootstrap',
         pointerType: event.pointerType,
@@ -3538,17 +3564,6 @@ function resampleStopsToColors(stops: Stop[], count: number): string[] {
 
     // Store pressure value (0-1, with reasonable defaults for mice)
     // rawPressure: hardware reading (or 0 if missing)
-    const rawPressure = event.pressure ?? 0;
-    const pressure = normalizePointerPressure({
-      rawPressure,
-      pointerType: event.pointerType,
-      pressureEnabled: tools.brushSettings.pressureEnabled,
-      pressureLinkedFillResolution: tools.brushSettings.pressureLinkedFillResolution,
-      colorCycleStampDitherPressureLinked: tools.brushSettings.colorCycleStampDitherPressureLinked,
-      shiftKey: event.shiftKey,
-      ctrlKey: event.ctrlKey,
-      fallback: 0,
-    });
     logPresResPointerPressure({
       phase: 'move',
       pointerType: event.pointerType,
@@ -4381,6 +4396,17 @@ function resampleStopsToColors(stops: Stop[], count: number): string[] {
       ctrlKey: event.ctrlKey,
       fallback: 0,
     });
+    if (
+      !tools.shapeMode &&
+      (tools.currentTool === 'brush' || tools.currentTool === 'eraser')
+    ) {
+      updateAlignedMousePosition(
+        resolveCursorDisplayWorldPoint(worldPosOnPointerUp, tools),
+        canvasRef.current?.getBoundingClientRect(),
+        pointerScale,
+        { pressure: pressureOnPointerUp, isDrawing: false }
+      );
+    }
 
     const shouldRouteToShapeHandler =
       tools.currentTool === 'brush' &&
@@ -4790,6 +4816,30 @@ function resampleStopsToColors(stops: Stop[], count: number): string[] {
     suppressBootstrapUntilPointerUpRef.current = false;
     // Handle pointer cancel (e.g., stylus moving out of range)
     isMouseDownRef.current = false;
+    const { canvas: cancelCanvas, tools: cancelTools } = getDynamicDeps();
+    if (
+      !cancelTools.shapeMode &&
+      (cancelTools.currentTool === 'brush' || cancelTools.currentTool === 'eraser')
+    ) {
+      const rect = canvasRef.current?.getBoundingClientRect();
+      const scale = cancelCanvas?.zoom || 1;
+      const pointerPos = rect
+        ? {
+            x: event.clientX - rect.left,
+            y: event.clientY - rect.top,
+          }
+        : { x: 0, y: 0 };
+      const worldPos = alignPointToPixel(
+        pan.screenToWorld(pointerPos.x, pointerPos.y, scale),
+        shouldSnapPointerToPixelGrid(cancelTools)
+      );
+      updateAlignedMousePosition(
+        resolveCursorDisplayWorldPoint(worldPos, cancelTools),
+        rect,
+        scale,
+        { pressure: 0, isDrawing: false }
+      );
+    }
     const store = getAppStoreState();
     if (typeof store.setSequentialPointerDown === 'function') {
       store.setSequentialPointerDown(false);

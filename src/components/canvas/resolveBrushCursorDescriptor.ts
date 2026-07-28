@@ -161,6 +161,7 @@ export const resolveBrushCursorDescriptor = ({
         pixelSize: cursorSize,
         pixelWidth: Math.max(1, naturalWidth * scale),
         pixelHeight: Math.max(1, naturalHeight * scale),
+        imageData: fallbackBrush.imageData,
       };
     }
   }
