@@ -150,14 +150,14 @@ export class GradientPalette {
     // Ensure we have stops at 0 and 1
     if (this.gradientStops[0].position > 0) {
       this.gradientStops.unshift({
+        ...this.gradientStops[0],
         position: 0,
-        color: this.gradientStops[0].color
       });
     }
     if (this.gradientStops[this.gradientStops.length - 1].position < 1) {
       this.gradientStops.push({
+        ...this.gradientStops[this.gradientStops.length - 1],
         position: 1,
-        color: this.gradientStops[this.gradientStops.length - 1].color
       });
     }
 

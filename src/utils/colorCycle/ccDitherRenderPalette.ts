@@ -11,6 +11,7 @@ import {
   resolveFlatPairContrastStrength,
 } from '@/utils/colorCycle/ccFlatModePatterns';
 import type { StoredStop } from '@/utils/colorCycleGradientDefs';
+import { parseCssColor } from '@/utils/color/parseCssColor';
 
 const clamp01 = (value: number): number => Math.max(0, Math.min(1, value));
 
@@ -34,6 +35,78 @@ const formatRgb = (rgb: [number, number, number]): string =>
   `rgb(${rgb[0]}, ${rgb[1]}, ${rgb[2]})`;
 
 const rgbToCss = (rgb: [number, number, number]): string => formatRgb(rgb);
+
+const resolveStopOpacity = (stop: StoredStop): number => {
+  const cssAlpha = parseCssColor(stop.color).a / 255;
+  const opacity = Number.isFinite(stop.opacity)
+    ? clamp01(Number(stop.opacity))
+    : 1;
+  return cssAlpha * opacity;
+};
+
+const sampleGradientOpacity = (stops: StoredStop[], position: number): number => {
+  const sorted = [...stops].sort((a, b) => a.position - b.position);
+  if (sorted.length === 0) {
+    return 1;
+  }
+  if (sorted.length === 1 || position <= sorted[0].position) {
+    return resolveStopOpacity(sorted[0]);
+  }
+  const last = sorted[sorted.length - 1];
+  if (position >= last.position) {
+    return resolveStopOpacity(last);
+  }
+
+  for (let index = 0; index < sorted.length - 1; index += 1) {
+    const left = sorted[index];
+    const right = sorted[index + 1];
+    if (position < left.position || position > right.position) {
+      continue;
+    }
+    const mix = (position - left.position) / Math.max(1e-6, right.position - left.position);
+    const leftOpacity = resolveStopOpacity(left);
+    const rightOpacity = resolveStopOpacity(right);
+    return leftOpacity + (rightOpacity - leftOpacity) * mix;
+  }
+
+  return resolveStopOpacity(last);
+};
+
+const makeRenderStop = (
+  baseStops: StoredStop[],
+  position: number,
+  color: string,
+): StoredStop => {
+  const opacity = sampleGradientOpacity(baseStops, position);
+  return opacity >= 1
+    ? { position, color }
+    : { position, color, opacity };
+};
+
+const completeRenderAlphaBounds = (
+  baseStops: StoredStop[],
+  renderStops: StoredStop[],
+): StoredStop[] => {
+  if (renderStops.length === 0) {
+    return renderStops;
+  }
+  const completed = renderStops.slice();
+  const first = completed[0];
+  if (
+    first.position > 0
+    && Math.abs(resolveStopOpacity(first) - sampleGradientOpacity(baseStops, 0)) > 1e-6
+  ) {
+    completed.unshift(makeRenderStop(baseStops, 0, first.color));
+  }
+  const last = completed[completed.length - 1];
+  if (
+    last.position < 1
+    && Math.abs(resolveStopOpacity(last) - sampleGradientOpacity(baseStops, 1)) > 1e-6
+  ) {
+    completed.push(makeRenderStop(baseStops, 1, last.color));
+  }
+  return completed;
+};
 
 const sampleGradientColor = (stops: StoredStop[], position: number): [number, number, number] => {
   const sorted = [...stops].sort((a, b) => a.position - b.position);
@@ -362,9 +435,9 @@ export const buildCcDitherRenderPalette = ({
       return {
         bandCount: 0,
         renderStops: [
-          { position: 0, color: triad.low },
-          { position: 0.5, color: triad.mid },
-          { position: 1, color: triad.high },
+          makeRenderStop(baseStops, 0, triad.low),
+          makeRenderStop(baseStops, 0.5, triad.mid),
+          makeRenderStop(baseStops, 1, triad.high),
         ],
       };
     }
@@ -372,9 +445,9 @@ export const buildCcDitherRenderPalette = ({
     return {
       bandCount: 0,
       renderStops: [
-        { position: 0, color: low },
-        { position: 0.5, color: high },
-        { position: 1, color: high },
+        makeRenderStop(baseStops, 0, low),
+        makeRenderStop(baseStops, 0.5, high),
+        makeRenderStop(baseStops, 1, high),
       ],
     };
   }
@@ -397,17 +470,22 @@ export const buildCcDitherRenderPalette = ({
           ];
       const spreadColors = spreadPaletteColors(sourceColors, spread ?? 0);
       if (useTriadStops && spreadColors.length >= 3) {
-        renderStops.push({ position: segmentStart, color: spreadColors[0] });
-        renderStops.push({ position: center, color: spreadColors[1] });
-        renderStops.push({ position: segmentEnd, color: spreadColors[2] });
+        renderStops.push(makeRenderStop(baseStops, segmentStart, spreadColors[0]));
+        renderStops.push(makeRenderStop(baseStops, center, spreadColors[1]));
+        renderStops.push(makeRenderStop(baseStops, segmentEnd, spreadColors[2]));
         continue;
       }
 
-      renderStops.push({ position: segmentStart, color: spreadColors[0] ?? sourceColors[0] });
-      renderStops.push({
-        position: center,
-        color: spreadColors[1] ?? sourceColors[1],
-      });
+      renderStops.push(makeRenderStop(
+        baseStops,
+        segmentStart,
+        spreadColors[0] ?? sourceColors[0],
+      ));
+      renderStops.push(makeRenderStop(
+        baseStops,
+        center,
+        spreadColors[1] ?? sourceColors[1],
+      ));
       continue;
     }
 
@@ -425,19 +503,22 @@ export const buildCcDitherRenderPalette = ({
         }).palette;
     const triad = useTriadStops ? pickInkTriad(targetRgb, palette) : null;
     if (triad) {
-      renderStops.push({ position: segmentStart, color: triad.low });
-      renderStops.push({ position: center, color: triad.mid });
-      renderStops.push({ position: segmentEnd, color: triad.high });
+      renderStops.push(makeRenderStop(baseStops, segmentStart, triad.low));
+      renderStops.push(makeRenderStop(baseStops, center, triad.mid));
+      renderStops.push(makeRenderStop(baseStops, segmentEnd, triad.high));
       continue;
     }
     const { low, high } = pickInkPair(targetRgb, palette);
     const lowPos = (band * 2) / (bandCount * 2);
     const highPos = (band * 2 + 1) / (bandCount * 2);
-    renderStops.push({ position: lowPos, color: low });
-    renderStops.push({ position: highPos, color: high });
+    renderStops.push(makeRenderStop(baseStops, lowPos, low));
+    renderStops.push(makeRenderStop(baseStops, highPos, high));
   }
 
-  return { bandCount, renderStops };
+  return {
+    bandCount,
+    renderStops: completeRenderAlphaBounds(baseStops, renderStops),
+  };
 };
 
 const SIERRA_FLAT_BANDS = 5;
@@ -490,13 +571,18 @@ export const buildCcFlatSierraContrastRenderPalette = ({
       target: targetRgb,
       spreadDistance: Math.max(1, indices[1] - indices[0]),
     });
+    const lowPosition = toPalettePosition(indices[0]);
+    const highPosition = toPalettePosition(indices[1]);
     renderStops.push(
-      { position: toPalettePosition(indices[0]), color: formatRgb(low) },
-      { position: toPalettePosition(indices[1]), color: formatRgb(high) }
+      makeRenderStop(baseStops, lowPosition, formatRgb(low)),
+      makeRenderStop(baseStops, highPosition, formatRgb(high)),
     );
   }
   renderStops.sort((a, b) => a.position - b.position);
-  return { bandCount: 0, renderStops };
+  return {
+    bandCount: 0,
+    renderStops: completeRenderAlphaBounds(baseStops, renderStops),
+  };
 };
 
 export const buildCcDitherRuntimePalette = ({

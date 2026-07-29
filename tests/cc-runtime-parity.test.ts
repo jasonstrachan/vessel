@@ -4,11 +4,13 @@ import path from 'node:path';
 import { bakePaletteTable, renderBrushFrame, type Goblet2GradientStop } from '@/lib/colorCycle/goblet2Cpu';
 import { applyGradientSeamProfile, type GradientSeamProfile } from '@/lib/colorCycle/gradientSeamProfile';
 import { ColorCycleAnimator } from '@/lib/ColorCycleAnimator';
+import { GradientPalette } from '@/lib/GradientPalette';
 import {
   ColorCycleLayerDocument,
   type ColorCycleLayerDocumentState,
   type DerivedSurface,
 } from '@/lib/colorCycle/document';
+import { buildCcDitherRenderPalette } from '@/utils/colorCycle/ccDitherRenderPalette';
 
 type FixtureThresholds = {
   maxChannelDelta: number;
@@ -583,6 +585,25 @@ describe('Color cycle runtime parity (Vessel reference vs Goblet2 CPU)', () => {
 
   it('loads at least one CC fixture', () => {
     expect(fixtures.length).toBeGreaterThan(0);
+  });
+
+  it('keeps generated dither alpha through the editor playback palette', () => {
+    const { renderStops } = buildCcDitherRenderPalette({
+      baseStops: [
+        { position: 0, color: '#00ff00', opacity: 1 },
+        { position: 1, color: '#0000ff', opacity: 0 },
+      ],
+      bands: 2,
+      spread: 0,
+    });
+    const palette = new GradientPalette(renderStops);
+
+    expect(renderStops.at(-1)).toMatchObject({
+      position: 1,
+      opacity: 0,
+    });
+    expect(palette.getColor(0).a).toBe(255);
+    expect(palette.getColor(255).a).toBe(0);
   });
 
   it('keeps history replay rebases aligned with derived surface versions', () => {

@@ -111,13 +111,23 @@ describe('GradientPalette', () => {
     
     it('should auto-add stops at 0 and 1 if missing', () => {
       palette.updateFromGradient([
-        { position: 0.25, color: '#ff0000' },
-        { position: 0.75, color: '#0000ff' }
+        { position: 0.25, color: '#ff0000', opacity: 0.25 },
+        { position: 0.75, color: '#0000ff', opacity: 0.75 }
       ]);
-      
+
       const stops = palette.getGradientStops();
-      expect(stops[0].position).toBe(0);
-      expect(stops[stops.length - 1].position).toBe(1);
+      expect(stops[0]).toEqual({
+        position: 0,
+        color: '#ff0000',
+        opacity: 0.25,
+      });
+      expect(stops[stops.length - 1]).toEqual({
+        position: 1,
+        color: '#0000ff',
+        opacity: 0.75,
+      });
+      expect(palette.getColor(0).a).toBe(64);
+      expect(palette.getColor(255).a).toBe(191);
     });
   });
   

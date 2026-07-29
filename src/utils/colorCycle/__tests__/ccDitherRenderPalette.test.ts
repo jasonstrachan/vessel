@@ -1,4 +1,5 @@
 import { parseColor } from '@/hooks/brushEngine/colorUtils';
+import { GradientPalette } from '@/lib/GradientPalette';
 import {
   buildCcDitherRenderPalette,
   buildCcDitherRuntimePalette,
@@ -117,6 +118,43 @@ describe('buildCcDitherRenderPalette', () => {
       { position: 0.25, color: 'rgb(128, 128, 0)' },
       { position: 0.5, color: 'rgb(0, 255, 0)' },
       { position: 0.75, color: 'rgb(0, 128, 128)' },
+    ]);
+  });
+
+  it('preserves interpolated source alpha in generated dither stops', () => {
+    const palette = buildCcDitherRenderPalette({
+      baseStops: [
+        { position: 0, color: '#00ff00', opacity: 1 },
+        { position: 1, color: '#0000ff', opacity: 0 },
+      ],
+      bands: 2,
+      spread: 0,
+    });
+
+    expect(palette.renderStops.map(({ position, opacity }) => ({ position, opacity }))).toEqual([
+      { position: 0, opacity: undefined },
+      { position: 0.25, opacity: 0.75 },
+      { position: 0.5, opacity: 0.5 },
+      { position: 0.75, opacity: 0.25 },
+      { position: 1, opacity: 0 },
+    ]);
+    expect(new GradientPalette(palette.renderStops).getColor(255).a).toBe(0);
+  });
+
+  it('combines CSS alpha with explicit stop opacity', () => {
+    const palette = buildCcDitherRenderPalette({
+      baseStops: [
+        { position: 0, color: 'rgba(0, 255, 0, 0.5)', opacity: 0.5 },
+        { position: 1, color: 'rgba(0, 0, 255, 0)', opacity: 1 },
+      ],
+      bands: 0,
+      spread: 0,
+    });
+
+    expect(palette.renderStops.map((stop) => stop.opacity)).toEqual([
+      64 / 255,
+      32 / 255,
+      0,
     ]);
   });
 
