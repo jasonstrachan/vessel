@@ -1,6 +1,7 @@
-import { debugWarn } from '@/utils/debug';
 import type { StateCreator } from 'zustand';
+
 import type { ColorAdjustParams, ColorAdjustState, Layer, Rectangle } from '@/types';
+import { debugWarn } from '@/utils/debug';
 import {
   blitImageDataWithinSelection,
   resolveSelectionRasterScope,
@@ -50,7 +51,11 @@ const colorAdjustOriginalColorCycleSnapshotByLayerId = new Map<string, ColorCycl
 const workingImageCache = new Map<string, ImageData>();
 const scratchCache = new Map<string, ImageData>();
 
-type ColorCycleGradientStop = { position: number; color: string };
+type ColorCycleGradientStop = {
+  position: number;
+  color: string;
+  opacity?: number;
+};
 
 type ColorCycleRuntimeSnapshot = ColorCycleRuntimePaintSnapshot;
 
@@ -119,6 +124,7 @@ const cloneGradientStops = (
   stops.map((stop) => ({
     position: stop.position,
     color: stop.color,
+    ...(stop.opacity !== undefined ? { opacity: stop.opacity } : {}),
   }));
 
 const clampColorCycleSlot = (slot: number): number =>
@@ -273,14 +279,18 @@ const colorToCss = (r: number, g: number, b: number, a: number): string => {
 
 const applyColorAdjustmentsToColor = (
   color: string,
-  params: ColorAdjustParams
+  params: ColorAdjustParams,
+  opacity: number = 1
 ): string => {
   const parsed = parseCssColor(color, { r: 255, g: 255, b: 255, a: 255 });
+  const effectiveOpacity = Number.isFinite(opacity)
+    ? Math.max(0, Math.min(1, opacity))
+    : 1;
   const pixel = new ImageData(1, 1);
   pixel.data[0] = parsed.r;
   pixel.data[1] = parsed.g;
   pixel.data[2] = parsed.b;
-  pixel.data[3] = parsed.a;
+  pixel.data[3] = Math.round(parsed.a * effectiveOpacity);
   const adjusted = applyColorAdjustments(pixel, params);
   return colorToCss(
     adjusted.data[0] ?? parsed.r,
@@ -291,12 +301,12 @@ const applyColorAdjustmentsToColor = (
 };
 
 const applyColorAdjustmentsToGradient = (
-  stops: Array<{ position: number; color: string }>,
+  stops: ColorCycleGradientStop[],
   params: ColorAdjustParams
 ): Array<{ position: number; color: string }> =>
   stops.map((stop) => ({
     position: stop.position,
-    color: applyColorAdjustmentsToColor(stop.color, params),
+    color: applyColorAdjustmentsToColor(stop.color, params, stop.opacity),
   }));
 
 const buildAdjustedColorCycleData = (
@@ -306,7 +316,7 @@ const buildAdjustedColorCycleData = (
   if (!original) {
     return original;
   }
-  const adjustStops = (stops: Array<{ position: number; color: string }>) =>
+  const adjustStops = (stops: ColorCycleGradientStop[]) =>
     applyColorAdjustmentsToGradient(stops, params);
 
   return {

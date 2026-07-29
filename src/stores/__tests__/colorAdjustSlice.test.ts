@@ -128,7 +128,7 @@ const createLayer = (id: string, imageData: ImageData): Layer => {
 
 const createColorCycleLayer = (
   id: string,
-  gradient: Array<{ position: number; color: string }>
+  gradient: Array<{ position: number; color: string; opacity?: number }>
 ): Layer => {
   const framebuffer = document.createElement('canvas');
   framebuffer.width = 2;
@@ -159,7 +159,7 @@ const createColorCycleLayer = (
 
 const createColorCycleLayerWithSlotsOnly = (
   id: string,
-  slotStops: Array<{ position: number; color: string }>
+  slotStops: Array<{ position: number; color: string; opacity?: number }>
 ): Layer => {
   const layer = createColorCycleLayer(id, slotStops);
   return {
@@ -173,7 +173,7 @@ const createColorCycleLayerWithSlotsOnly = (
 
 const createColorCycleRecolorLayerWithDefStore = (
   id: string,
-  gradientStops: Array<{ position: number; color: string }>
+  gradientStops: Array<{ position: number; color: string; opacity?: number }>
 ): Layer => {
   const layer = createColorCycleLayer(id, gradientStops);
   return {
@@ -212,7 +212,7 @@ const createColorCycleRecolorLayerWithDefStore = (
 
 const createColorCycleLayerWithDefStoreOnly = (
   id: string,
-  gradientStops: Array<{ position: number; color: string }>
+  gradientStops: Array<{ position: number; color: string; opacity?: number }>
 ): Layer => {
   const layer = createColorCycleLayer(id, gradientStops);
   return {
@@ -658,6 +658,31 @@ describe('colorAdjustSlice preview performance path', () => {
     expect(parseCssColor(recolorStops[0]?.color ?? '#000000').r).toBe(255);
     expect(parseCssColor(defStoreStops[0]?.color ?? '#000000').r).toBe(255);
     expect(defStore[0]?.hash).not.toBe('test-gradient-def');
+  });
+
+  it('preserves color-cycle stop opacity while adjusting hue and saturation', () => {
+    const layer = createColorCycleRecolorLayerWithDefStore('cc-layer-transparent', [
+      { position: 0, color: '#b7ff00' },
+      { position: 0.5, color: '#fff200', opacity: 0 },
+      { position: 1, color: '#7fff00' },
+    ]);
+    installProjectWithLayer(layer);
+
+    const store = useAppStore.getState();
+    store.startColorAdjustSession();
+    store.updateColorAdjustParams({ hue: 20, saturation: -25 });
+    store.previewColorAdjust();
+
+    const updatedLayer = useAppStore.getState().layers[0];
+    expect(parseCssColor(
+      updatedLayer?.colorCycleData?.gradientDefStore?.[0]?.stops[1]?.color ?? '#ffffff'
+    ).a).toBe(0);
+    expect(parseCssColor(
+      updatedLayer?.colorCycleData?.slotPalettes?.[0]?.stops[1]?.color ?? '#ffffff'
+    ).a).toBe(0);
+    expect(parseCssColor(
+      updatedLayer?.colorCycleData?.recolorSettings?.gradient[1]?.color ?? '#ffffff'
+    ).a).toBe(0);
   });
 
   it('refreshes gradient-def runtime for brush-mode color-cycle previews', () => {

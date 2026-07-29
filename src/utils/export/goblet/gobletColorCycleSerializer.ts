@@ -8,6 +8,7 @@ import { packArrayToB64Z, unpackB64ZToUint8Array } from '@/utils/export/b64z';
 import { ccLog, ccSample } from '@/utils/colorCycle/ccDebug';
 import { deriveForegroundGradientStops } from '@/utils/colorCycleGradients';
 import { captureCanvasImageData } from '@/utils/canvas/canvasImage';
+import { parseCssColor } from '@/utils/color/parseCssColor';
 import { normalizeColorCycleLayerDocumentState } from '@/lib/colorCycle/documentState';
 import {
   COLOR_CYCLE_STROKE_PAINT_KEY,
@@ -374,7 +375,7 @@ const detectBrushFlowDirection = (brush: unknown, layerId: string): 'forward' | 
 
 
 const toSerializableGradientStops = (
-  stops: Array<{ position?: number; color?: string }> | undefined,
+  stops: Array<{ position?: number; color?: string; opacity?: number }> | undefined,
   fallback: Array<{ position: number; color: string }> = []
 ): Array<{ position: number; color: string }> => {
   if (!Array.isArray(stops) || stops.length === 0) {
@@ -390,7 +391,18 @@ const toSerializableGradientStops = (
       const color = typeof stop?.color === 'string' && stop.color
         ? stop.color
         : '#ffffff';
-      return { position, color };
+      const opacity = Number.isFinite(stop?.opacity)
+        ? Math.max(0, Math.min(1, Number(stop.opacity)))
+        : 1;
+      if (opacity === 1) {
+        return { position, color };
+      }
+      const parsed = parseCssColor(color);
+      const alpha = Number(((parsed.a / 255) * opacity).toFixed(6));
+      return {
+        position,
+        color: `rgba(${parsed.r}, ${parsed.g}, ${parsed.b}, ${alpha})`,
+      };
     })
     .filter((entry) => Number.isFinite(entry.position));
 

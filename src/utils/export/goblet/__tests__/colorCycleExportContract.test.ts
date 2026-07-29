@@ -304,6 +304,53 @@ describe('Goblet color-cycle export contract boundaries', () => {
     }
   });
 
+  it('folds gradient stop opacity into Goblet colors', async () => {
+    const transparentStop = {
+      position: 0.5,
+      color: '#fff200',
+      opacity: 0.25,
+    } as { position: number; color: string } & { opacity: number };
+    const transparentStops = [
+      { position: 0, color: '#b7ff00' },
+      transparentStop,
+      { position: 1, color: '#7fff00' },
+    ];
+    const layer = createLayer({
+      slotPalettes: [{
+        slot: 0,
+        stops: transparentStops,
+      }],
+      gradientDefStore: [{
+        id: 1,
+        kind: 'linear',
+        stops: transparentStops,
+        hash: 'transparent-def',
+        source: 'manual',
+        createdAtMs: 0,
+        slot: 0,
+      }],
+      brushState: {
+        canonicalPaint: true,
+        schemaVersion: 1,
+        layers: [{
+          layerId: 'cc-layer',
+          strokeData: createCompleteStrokeData(),
+        }],
+      },
+    });
+
+    const payload = await serializeColorCycleDataFromResolvedLayer(layer, project);
+
+    expect(payload?.colorCycle?.gradientDefStore?.[0]?.stops[1]).toEqual({
+      position: 0.5,
+      color: 'rgba(255, 242, 0, 0.25)',
+    });
+    expect(payload?.colorCycle?.slotPalettes?.[0]?.stops[1]).toEqual({
+      position: 0.5,
+      color: 'rgba(255, 242, 0, 0.25)',
+    });
+  });
+
   it('uses persisted write speed when hydrated archive motion buffers are missing', async () => {
     const persistedWriteSpeed = 0.35;
     const layerMultiplier = 2;
