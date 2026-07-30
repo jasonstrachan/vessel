@@ -270,4 +270,50 @@ describe('buildCcDitherRuntimePalette', () => {
       expect(runtime.renderStops).toEqual(baseStops);
     }
   });
+
+  it('makes the runtime palette opaque only when background fill is enabled', () => {
+    const baseStops = [
+      { position: 0, color: 'rgba(17, 34, 51, 0.25)', opacity: 0.5 },
+      { position: 1, color: '#778899', opacity: 0 },
+    ];
+    const transparentRuntime = buildCcDitherRuntimePalette({
+      baseStops,
+      bands: 2,
+      spread: 0,
+      algorithm: 'bayer',
+      fillBackground: false,
+    });
+    const filledRuntime = buildCcDitherRuntimePalette({
+      baseStops,
+      bands: 2,
+      spread: 0,
+      algorithm: 'bayer',
+      fillBackground: true,
+    });
+
+    expect(transparentRuntime.renderStops.some((stop) => (stop.opacity ?? 1) < 1)).toBe(true);
+    expect(filledRuntime.renderStops.every((stop) => stop.opacity === 1)).toBe(true);
+    expect(filledRuntime.renderStops.every((stop) => !stop.color.startsWith('rgba'))).toBe(true);
+  });
+
+  it('applies background-fill opacity without remapping Flat Cycle colors', () => {
+    const baseStops = [
+      { position: 0, color: 'rgba(17, 34, 51, 0.25)', opacity: 0.5 },
+      { position: 1, color: '#778899', opacity: 0 },
+    ];
+    const runtime = buildCcDitherRuntimePalette({
+      baseStops,
+      bands: 8,
+      spread: 35,
+      algorithm: 'bayer',
+      useDitherRenderPalette: false,
+      fillBackground: true,
+    });
+
+    expect(runtime.bandCount).toBe(0);
+    expect(runtime.renderStops).toEqual([
+      { position: 0, color: 'rgb(17, 34, 51)', opacity: 1 },
+      { position: 1, color: '#778899', opacity: 1 },
+    ]);
+  });
 });

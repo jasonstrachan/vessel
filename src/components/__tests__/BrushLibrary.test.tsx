@@ -152,6 +152,30 @@ const otherPreset = {
   components: [{ type: 'shape', parameters: { shape: BrushShape.SQUARE } }],
 };
 
+const softPreset = {
+  id: 'soft-round',
+  name: 'Soft',
+  isDefault: false,
+  category: 'Digital Painting',
+  components: [{ type: 'shape', parameters: { shape: BrushShape.ROUND } }],
+};
+
+const pixelDitherPreset = {
+  id: 'pixel-dither',
+  name: 'Dither Stroke',
+  isDefault: false,
+  category: 'Pixel Art',
+  components: [{ type: 'shape', parameters: { shape: BrushShape.SQUARE } }],
+};
+
+const shapeGradientPreset = {
+  id: 'shape-gradient',
+  name: 'Shape Gradient',
+  isDefault: false,
+  category: 'Special',
+  components: [{ type: 'shape', parameters: { shape: BrushShape.POLYGON_GRADIENT } }],
+};
+
   const trianglePreset = {
     id: 'color-cycle-triangle',
     name: 'Triangle CC',
@@ -189,7 +213,7 @@ const otherPreset = {
   };
   const shapeFillPreset = {
     id: 'shape-fill',
-    name: 'Shape Fill',
+    name: 'Shape Pattern',
     isDefault: false,
     category: 'Special',
     components: [{ type: 'shape', parameters: { shape: BrushShape.SHAPE_FILL } }],
@@ -278,10 +302,40 @@ describe('BrushLibrary', () => {
     expect(screen.getAllByRole('button').length).toBeGreaterThan(0);
   });
 
-  it('filters out color-cycle triangle preset', () => {
+  it('filters retired duplicate presets out of the brush library', () => {
+    useAppStore.setState({
+      ...useAppStore.getState(),
+      brushPresets: [
+        basePreset as any,
+        trianglePreset as any,
+        shapeGradientPreset as any,
+        otherPreset as any,
+      ],
+    });
+
     render(<BrushLibrary />);
 
     expect(screen.queryByText('Triangle CC')).toBeNull();
+    expect(screen.queryByText('Shape Gradient')).toBeNull();
+  });
+
+  it('orders Soft directly below Pixel', () => {
+    useAppStore.setState({
+      ...useAppStore.getState(),
+      currentBrushPreset: otherPreset as any,
+      brushPresets: [
+        softPreset as any,
+        pixelDitherPreset as any,
+        otherPreset as any,
+        basePreset as any,
+      ],
+    });
+
+    render(<BrushLibrary />);
+
+    const pixelRow = screen.getByText('Pixel Square').closest('div.group');
+    const softRow = screen.getByText('Soft').closest('div.group');
+    expect(pixelRow?.nextElementSibling).toBe(softRow);
   });
 
   it('orders Color Cycle Gradient directly below Color Cycle Stroke', () => {
@@ -323,7 +377,7 @@ describe('BrushLibrary', () => {
     expect(relation & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
-  it('orders Shape Fill above Color Cycle Stroke', () => {
+  it('orders Shape Pattern above Color Cycle Stroke', () => {
     useAppStore.setState({
       ...useAppStore.getState(),
       currentBrushPreset: shapeFillPreset as any,
@@ -337,7 +391,7 @@ describe('BrushLibrary', () => {
 
     render(<BrushLibrary />);
 
-    const shapeFill = screen.getByText('Shape Fill');
+    const shapeFill = screen.getByText('Shape Pattern');
     const stroke = screen.getByText('Color Cycle Stroke');
     const relation = shapeFill.compareDocumentPosition(stroke);
     expect(relation & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();

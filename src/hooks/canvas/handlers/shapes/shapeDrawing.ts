@@ -303,8 +303,8 @@ const resolveCcDirectionPreviewStops = (state: AppState): PreviewGradientStop[] 
   const ditherMode = resolveCcDitherBandMode(brushSettings.gradientBands ?? 16);
   // Flat-cycle's color ramp is smooth; the pair-band render palette would draw
   // alternating low/high stops as ripples, so preview the base gradient instead.
-  const useDitherPreviewPalette =
-    Boolean(brushSettings.ditherEnabled) && brushSettings.ccFlatCycleDither !== true;
+  const isDitherPreviewEnabled = Boolean(brushSettings.ditherEnabled);
+  const useDitherPreviewPalette = brushSettings.ccFlatCycleDither !== true;
   const sessionStops =
     activeSession?.previewStopsStored && activeSession.previewStopsStored.length >= 2
       ? activeSession.previewStopsStored
@@ -313,11 +313,16 @@ const resolveCcDirectionPreviewStops = (state: AppState): PreviewGradientStop[] 
         : activeSession?.frozenStopsStored;
   if (sessionStops && sessionStops.length >= 2) {
     const runtimeStops = resolveMarkSessionRuntimeStops(activeSession, sessionStops, {
-      enabled: activeSession?.ditherRenderConfig?.enabled ?? useDitherPreviewPalette,
+      enabled: activeSession?.ditherRenderConfig?.enabled ?? isDitherPreviewEnabled,
       pairBandCount: activeSession?.ditherRenderConfig?.pairBandCount ?? ditherMode.pairBandCount,
       spread: activeSession?.ditherRenderConfig?.spread ?? brushSettings.ditherPaletteSpread,
       rangeContrast: brushSettings.ccGradientRangeContrast,
       algorithm: activeSession?.ditherRenderConfig?.algorithm ?? brushSettings.ditherAlgorithm,
+      useDitherRenderPalette:
+        activeSession?.ditherRenderConfig?.useDitherRenderPalette ?? useDitherPreviewPalette,
+      fillBackground:
+        activeSession?.ditherRenderConfig?.fillBackground ??
+        (brushSettings.ditherGradBgFill ?? brushSettings.ditherBackgroundFill) !== false,
     });
     return normalizePreviewStops(runtimeStops);
   }
@@ -333,13 +338,16 @@ const resolveCcDirectionPreviewStops = (state: AppState): PreviewGradientStop[] 
       fgStops: brushSettings.colorCycleFgStops,
     });
     if (resolved.activeStops.length >= 2) {
-      const runtimeStops = useDitherPreviewPalette
+      const runtimeStops = isDitherPreviewEnabled
         ? buildCcDitherRuntimePalette({
             baseStops: resolved.activeStops,
             bands: ditherMode.pairBandCount,
             spread: brushSettings.ditherPaletteSpread,
             algorithm: brushSettings.ditherAlgorithm,
             preserveSourceStops: false,
+            useDitherRenderPalette: useDitherPreviewPalette,
+            fillBackground:
+              (brushSettings.ditherGradBgFill ?? brushSettings.ditherBackgroundFill) !== false,
             debugContext: 'direction-preview-active-layer',
           }).renderStops
         : resolved.activeStops;
@@ -349,13 +357,16 @@ const resolveCcDirectionPreviewStops = (state: AppState): PreviewGradientStop[] 
 
   const brushStops = brushSettings.colorCycleGradient;
   if (brushStops && brushStops.length >= 2) {
-    const runtimeStops = useDitherPreviewPalette
+    const runtimeStops = isDitherPreviewEnabled
       ? buildCcDitherRuntimePalette({
           baseStops: brushStops,
           bands: ditherMode.pairBandCount,
           spread: brushSettings.ditherPaletteSpread,
           algorithm: brushSettings.ditherAlgorithm,
           preserveSourceStops: false,
+          useDitherRenderPalette: useDitherPreviewPalette,
+          fillBackground:
+            (brushSettings.ditherGradBgFill ?? brushSettings.ditherBackgroundFill) !== false,
           debugContext: 'direction-preview-brush',
         }).renderStops
       : brushStops;

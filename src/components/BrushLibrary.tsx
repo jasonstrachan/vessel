@@ -24,6 +24,14 @@ const GENERIC_PRESET_THUMBNAILS = new Set([
   '/assets/images/Brush.png',
   '/assets/images/Square.png',
 ]);
+const LEADING_BRUSH_ORDER = new Map([
+  ['pixel-square', 0],
+  ['soft-round', 1],
+]);
+const HIDDEN_BRUSH_PRESET_IDS = new Set([
+  'color-cycle-triangle',
+  'shape-gradient',
+]);
 
 const resolveBrushThumbnailUrl = (src: string): string => {
   if (!src.startsWith('/')) {
@@ -107,8 +115,8 @@ const BrushLibrary = () => {
     const thumbnails: Record<string, string> = {};
 
     brushPresets.forEach(preset => {
-      if (preset.id === 'color-cycle-triangle') {
-        return; // Hide triangle duplicate in the library; switcher handles it
+      if (HIDDEN_BRUSH_PRESET_IDS.has(preset.id)) {
+        return;
       }
       if (!preset.isCustomBrush) {
         const presetThumbnail = preset.thumbnail?.trim();
@@ -129,7 +137,7 @@ const BrushLibrary = () => {
   // Combine all brushes: regular presets + custom brushes
   const allBrushes = React.useMemo(() => {
     const combined = [
-      ...brushPresets.filter(preset => preset.id !== 'color-cycle-triangle'),
+      ...brushPresets.filter(preset => !HIDDEN_BRUSH_PRESET_IDS.has(preset.id)),
       ...customBrushPresets
     ];
     
@@ -143,6 +151,13 @@ const BrushLibrary = () => {
       // Custom brushes always go last
       if (aCategory === 'Custom' && bCategory !== 'Custom') return 1;
       if (bCategory === 'Custom' && aCategory !== 'Custom') return -1;
+
+      const aLeadingOrder = LEADING_BRUSH_ORDER.get(a.id);
+      const bLeadingOrder = LEADING_BRUSH_ORDER.get(b.id);
+      if (aLeadingOrder !== undefined || bLeadingOrder !== undefined) {
+        return (aLeadingOrder ?? Number.MAX_SAFE_INTEGER) -
+          (bLeadingOrder ?? Number.MAX_SAFE_INTEGER);
+      }
       
       // Pixel Art brushes go first
       if (aCategory === 'Pixel Art' && bCategory !== 'Pixel Art') return -1;

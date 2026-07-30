@@ -86,6 +86,8 @@ const LayersPanel: React.FC = () => {
   const [draggedLayerId, setDraggedLayerId] = React.useState<string | null>(null);
   const [draggedGroupId, setDraggedGroupId] = React.useState<string | null>(null);
   const [layerDropTarget, setLayerDropTarget] = React.useState<LayerDropTarget | null>(null);
+  const [renamingLayerId, setRenamingLayerId] = React.useState<string | null>(null);
+  const [layerNameDraft, setLayerNameDraft] = React.useState('');
   const opacityPopoverRef = React.useRef<HTMLDivElement | null>(null);
   const [collapsedGroupIds, setCollapsedGroupIds] = React.useState<Set<string>>(
     loadCollapsedLayerGroups,
@@ -179,6 +181,33 @@ const LayersPanel: React.FC = () => {
       updateLayer(targetLayerId, updates);
     });
   }, [resolveActionLayerIds, updateLayer]);
+
+  const beginLayerRename = React.useCallback((layer: Layer) => {
+    setLayerMenuState(null);
+    setRenamingLayerId(layer.id);
+    setLayerNameDraft(layer.name);
+  }, []);
+
+  const cancelLayerRename = React.useCallback(() => {
+    setRenamingLayerId(null);
+    setLayerNameDraft('');
+  }, []);
+
+  const commitLayerRename = React.useCallback((layerId: string) => {
+    const nextName = layerNameDraft.trim();
+    const currentLayer = layers.find((layer) => layer.id === layerId);
+    if (currentLayer && nextName && nextName !== currentLayer.name) {
+      updateLayer(layerId, { name: nextName });
+    }
+    setRenamingLayerId(null);
+    setLayerNameDraft('');
+  }, [layerNameDraft, layers, updateLayer]);
+
+  React.useEffect(() => {
+    if (renamingLayerId && !layers.some((layer) => layer.id === renamingLayerId)) {
+      cancelLayerRename();
+    }
+  }, [cancelLayerRename, layers, renamingLayerId]);
 
   React.useEffect(() => {
     setCollapsedGroupIds((previous) => {
@@ -1112,7 +1141,7 @@ const LayersPanel: React.FC = () => {
               )}
               {isGroupCollapsed ? null : (
               <div
-                draggable={!isMenuOpen}
+                draggable={!isMenuOpen && renamingLayerId !== layer.id}
                 onContextMenu={event => {
                   event.preventDefault();
                   const anchor = event.currentTarget as HTMLDivElement;
@@ -1169,12 +1198,49 @@ const LayersPanel: React.FC = () => {
                       <LayerColorSwatches layer={layer} visible={layer.visible} />
                     )}
                   </div>
-                  <span
-                    className={`min-w-0 flex-1 truncate text-[11px] font-semibold leading-4 ${isHighlighted ? 'text-[#0F172A]' : 'text-[#F2F2F2]'}`}
-                    title={layerTitle}
-                  >
-                    {layer.name}
-                  </span>
+                  {renamingLayerId === layer.id ? (
+                    <input
+                      aria-label={`Rename layer ${layer.name}`}
+                      autoFocus
+                      className="h-5 min-w-0 flex-1 border border-[#5EC7FF] bg-[#16181D] px-1 text-[11px] font-semibold leading-4 text-[#F2F2F2] outline-none"
+                      value={layerNameDraft}
+                      onBlur={() => commitLayerRename(layer.id)}
+                      onChange={(event) => setLayerNameDraft(event.target.value)}
+                      onClick={(event) => event.stopPropagation()}
+                      onDoubleClick={(event) => event.stopPropagation()}
+                      onFocus={(event) => event.currentTarget.select()}
+                      onKeyDown={(event) => {
+                        const isSaveShortcut =
+                          (event.metaKey || event.ctrlKey) &&
+                          event.key.toLowerCase() === 's';
+                        if (isSaveShortcut) {
+                          commitLayerRename(layer.id);
+                          return;
+                        }
+
+                        event.stopPropagation();
+                        if (event.key === 'Enter') {
+                          event.preventDefault();
+                          commitLayerRename(layer.id);
+                        } else if (event.key === 'Escape') {
+                          event.preventDefault();
+                          cancelLayerRename();
+                        }
+                      }}
+                      onPointerDown={(event) => event.stopPropagation()}
+                    />
+                  ) : (
+                    <span
+                      className={`min-w-0 flex-1 truncate text-[11px] font-semibold leading-4 ${isHighlighted ? 'text-[#0F172A]' : 'text-[#F2F2F2]'}`}
+                      title={layerTitle}
+                      onDoubleClick={(event) => {
+                        event.stopPropagation();
+                        beginLayerRename(layer);
+                      }}
+                    >
+                      {layer.name}
+                    </span>
+                  )}
                   <span className={labelClass} title={layerKindTitle}>
                     {layerKindLabel}
                   </span>

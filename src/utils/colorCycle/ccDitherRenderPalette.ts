@@ -83,6 +83,24 @@ const makeRenderStop = (
     : { position, color, opacity };
 };
 
+const makeStopsOpaque = (stops: StoredStop[]): StoredStop[] =>
+  stops.map((stop) => {
+    const parsed = parseCssColor(stop.color);
+    const opacity = Number.isFinite(stop.opacity)
+      ? clamp01(Number(stop.opacity))
+      : 1;
+    if (parsed.a >= 255 && opacity >= 1) {
+      return stop;
+    }
+    return {
+      ...stop,
+      color: parsed.a >= 255
+        ? stop.color
+        : formatRgb([parsed.r, parsed.g, parsed.b]),
+      opacity: 1,
+    };
+  });
+
 const completeRenderAlphaBounds = (
   baseStops: StoredStop[],
   renderStops: StoredStop[],
@@ -591,6 +609,8 @@ export const buildCcDitherRuntimePalette = ({
   spread,
   algorithm,
   preserveSourceStops = false,
+  useDitherRenderPalette = true,
+  fillBackground = false,
   debugContext,
 }: {
   baseStops: StoredStop[];
@@ -598,26 +618,35 @@ export const buildCcDitherRuntimePalette = ({
   spread: Pick<BrushSettings, 'ditherPaletteSpread'>['ditherPaletteSpread'];
   algorithm?: BrushSettings['ditherAlgorithm'];
   preserveSourceStops?: boolean;
+  useDitherRenderPalette?: boolean;
+  fillBackground?: boolean;
   debugContext?: string;
 }): CcDitherRenderPalette => {
   void debugContext;
   const normalizedBandCount = Math.max(0, Math.floor(bands || 0));
   const resolvedAlgorithm = algorithm ?? 'sierra-lite';
-  if (normalizedBandCount <= 0 && preserveSourceStops) {
-    return {
+  let result: CcDitherRenderPalette;
+  if (!useDitherRenderPalette || (normalizedBandCount <= 0 && preserveSourceStops)) {
+    result = {
       bandCount: 0,
       renderStops: baseStops.slice(),
     };
-  }
-  if (normalizedBandCount <= 0 && resolvedAlgorithm === 'sierra-lite') {
-    return buildCcFlatSierraContrastRenderPalette({
+  } else if (normalizedBandCount <= 0 && resolvedAlgorithm === 'sierra-lite') {
+    result = buildCcFlatSierraContrastRenderPalette({
       baseStops,
       spread,
     });
+  } else {
+    result = buildCcDitherRenderPalette({
+      baseStops,
+      bands: normalizedBandCount,
+      spread,
+    });
   }
-  return buildCcDitherRenderPalette({
-    baseStops,
-    bands: normalizedBandCount,
-    spread,
-  });
+  return fillBackground
+    ? {
+        ...result,
+        renderStops: makeStopsOpaque(result.renderStops),
+      }
+    : result;
 };

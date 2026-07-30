@@ -601,6 +601,7 @@ const prepareCcShapePreviewGradient = ({
   ditherAlgorithm,
   preserveSourceStops,
   useDitherRenderPalette = true,
+  fillBackground,
 }: {
   effectiveStops: StoredStop[];
   gradientBands: number;
@@ -609,17 +610,18 @@ const prepareCcShapePreviewGradient = ({
   preserveSourceStops: boolean;
   /** Flat-cycle previews sample the base gradient; its weave already encodes the dither texture. */
   useDitherRenderPalette?: boolean;
+  fillBackground?: boolean;
 }): PreparedPreviewGradient => {
-  const renderStops = useDitherRenderPalette
-    ? buildCcDitherRuntimePalette({
-        baseStops: effectiveStops,
-        bands: resolveCcDitherBandMode(gradientBands).pairBandCount,
-        spread: ditherPaletteSpread,
-        algorithm: ditherAlgorithm,
-        preserveSourceStops,
-        debugContext: 'preview-fill-linear',
-      }).renderStops
-    : effectiveStops;
+  const renderStops = buildCcDitherRuntimePalette({
+    baseStops: effectiveStops,
+    bands: resolveCcDitherBandMode(gradientBands).pairBandCount,
+    spread: ditherPaletteSpread,
+    algorithm: ditherAlgorithm,
+    preserveSourceStops,
+    useDitherRenderPalette,
+    fillBackground,
+    debugContext: 'preview-fill-linear',
+  }).renderStops;
 
   return {
     renderStops,
@@ -722,6 +724,7 @@ const buildSampledPreviewRequestKey = ({
     `spread:${Math.round(brushSettings.ditherPaletteSpread ?? 0)}`,
     `flatCycle:${brushSettings.ccFlatCycleDither ? 1 : 0}`,
     `flatCycleBands:${brushSettings.ccFlatCycleBands ?? 0}`,
+    `bgFill:${(brushSettings.ditherGradBgFill ?? brushSettings.ditherBackgroundFill) === false ? 0 : 1}`,
     `points:${geometryKey}`,
   ].join('||');
 };
@@ -1578,6 +1581,9 @@ export const runSampledCcDitherPreviewRuntime = (args: {
           preserveSourceStops:
             resolveCcDitherBandMode(sampledBrushSettings.gradientBands ?? 16).pairBandCount <= 0,
           useDitherRenderPalette: sampledBrushSettings.ccFlatCycleDither !== true,
+          fillBackground:
+            (sampledBrushSettings.ditherGradBgFill ??
+              sampledBrushSettings.ditherBackgroundFill) !== false,
         });
 
         const origin = sampledGeometry.roi.origin;

@@ -1388,6 +1388,30 @@ describe('projectIO readProjectPreviewManifest', () => {
 });
 
 describe('projectIO serialize/deserialize layering', () => {
+  it('round-trips edited layer names through the Vessel project archive', async () => {
+    const renamedLayer = {
+      ...createBenchmarkRasterLayer(0, 2, 2),
+      name: 'Sky highlights',
+    };
+    const project: Project = {
+      id: 'project-layer-name-round-trip',
+      name: 'Layer Name Round Trip',
+      width: 2,
+      height: 2,
+      backgroundColor: '#000000',
+      layers: [renamedLayer],
+      customBrushes: [],
+      createdAt: new Date('2025-01-01T00:00:00.000Z'),
+      updatedAt: new Date('2025-01-01T00:00:00.000Z'),
+    };
+
+    const payload = await withPatchedCanvasRect(() => serializeProject(project, project.layers));
+    const restored = await deserializeProject(payload);
+
+    expect(restored.layers).toHaveLength(1);
+    expect(restored.layers[0]?.name).toBe('Sky highlights');
+  });
+
   it('writes binary manifest entries that match the actual archive payloads', async () => {
     const rasterLayer: Layer = {
       id: 'layer-binary-raster',

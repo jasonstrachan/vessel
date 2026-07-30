@@ -10,7 +10,10 @@ import {
   type ColorCycleLayerDocumentState,
   type DerivedSurface,
 } from '@/lib/colorCycle/document';
-import { buildCcDitherRenderPalette } from '@/utils/colorCycle/ccDitherRenderPalette';
+import {
+  buildCcDitherRenderPalette,
+  buildCcDitherRuntimePalette,
+} from '@/utils/colorCycle/ccDitherRenderPalette';
 
 type FixtureThresholds = {
   maxChannelDelta: number;
@@ -604,6 +607,49 @@ describe('Color cycle runtime parity (Vessel reference vs Goblet2 CPU)', () => {
     });
     expect(palette.getColor(0).a).toBe(255);
     expect(palette.getColor(255).a).toBe(0);
+  });
+
+  it('keeps CC background-fill opacity policy in the playback palette', () => {
+    const baseStops = [
+      { position: 0, color: '#00ff00', opacity: 1 },
+      { position: 1, color: '#0000ff', opacity: 0 },
+    ];
+    const transparentStops = buildCcDitherRuntimePalette({
+      baseStops,
+      bands: 2,
+      spread: 0,
+      algorithm: 'bayer',
+      fillBackground: false,
+    }).renderStops;
+    const filledStops = buildCcDitherRuntimePalette({
+      baseStops,
+      bands: 2,
+      spread: 0,
+      algorithm: 'bayer',
+      fillBackground: true,
+    }).renderStops;
+
+    expect(new GradientPalette(transparentStops).getColor(255).a).toBe(0);
+    expect(new GradientPalette(filledStops).getColor(255).a).toBe(255);
+  });
+
+  it('keeps Flat Cycle base colors while applying background-fill opacity', () => {
+    const baseStops = [
+      { position: 0, color: '#00ff00', opacity: 1 },
+      { position: 1, color: '#0000ff', opacity: 0 },
+    ];
+    const filledStops = buildCcDitherRuntimePalette({
+      baseStops,
+      bands: 8,
+      spread: 35,
+      algorithm: 'bayer',
+      useDitherRenderPalette: false,
+      fillBackground: true,
+    }).renderStops;
+
+    expect(filledStops).toHaveLength(baseStops.length);
+    expect(filledStops.map((stop) => stop.color)).toEqual(['#00ff00', '#0000ff']);
+    expect(new GradientPalette(filledStops).getColor(255).a).toBe(255);
   });
 
   it('keeps history replay rebases aligned with derived surface versions', () => {

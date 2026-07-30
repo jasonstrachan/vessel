@@ -47,6 +47,8 @@ export type FrozenCcDitherRenderConfig = {
   spread?: number;
   rangeContrast?: number;
   algorithm?: AppState['tools']['brushSettings']['ditherAlgorithm'];
+  useDitherRenderPalette?: boolean;
+  fillBackground?: boolean;
 };
 
 export type PreviewGradientResult = {
@@ -127,11 +129,14 @@ export const captureFrozenCcDitherRenderConfig = (): FrozenCcDitherRenderConfig 
   const config = {
     // Flat-cycle strokes write smooth indices, so their LUT must stay the base
     // gradient; the pair-band render palette would remap them into ripples.
-    enabled: Boolean(brushSettings.ditherEnabled) && brushSettings.ccFlatCycleDither !== true,
+    enabled: Boolean(brushSettings.ditherEnabled),
     pairBandCount: mode.pairBandCount,
     spread: brushSettings.ditherPaletteSpread,
     rangeContrast: brushSettings.ccGradientRangeContrast,
     algorithm: brushSettings.ditherAlgorithm,
+    useDitherRenderPalette: brushSettings.ccFlatCycleDither !== true,
+    fillBackground:
+      (brushSettings.ditherGradBgFill ?? brushSettings.ditherBackgroundFill) !== false,
   };
   return config;
 };
@@ -145,6 +150,8 @@ export const resolveMarkSessionRuntimeStops = (
     spread?: number;
     rangeContrast?: number;
     algorithm?: AppState['tools']['brushSettings']['ditherAlgorithm'];
+    useDitherRenderPalette?: boolean;
+    fillBackground?: boolean;
   },
 ): StoredStop[] => {
   const clonedStops = cloneStops(stops);
@@ -160,16 +167,23 @@ export const resolveMarkSessionRuntimeStops = (
   const bands = liveOverrides?.pairBandCount ?? config?.pairBandCount ?? 0;
   const spread = liveOverrides?.spread ?? config?.spread;
   const algorithm = liveOverrides?.algorithm ?? config?.algorithm;
+  const useDitherRenderPalette =
+    liveOverrides?.useDitherRenderPalette ?? config?.useDitherRenderPalette ?? true;
   const preserveSourceStops =
-    bands <= 0 &&
-    algorithm === 'sierra-lite' &&
-    session?.source !== 'sampled';
+    !useDitherRenderPalette ||
+    (
+      bands <= 0 &&
+      algorithm === 'sierra-lite' &&
+      session?.source !== 'sampled'
+    );
   const runtimeStops = buildCcDitherRuntimePalette({
     baseStops: contrastStops,
     bands,
     spread,
     algorithm,
     preserveSourceStops,
+    useDitherRenderPalette,
+    fillBackground: liveOverrides?.fillBackground ?? config?.fillBackground,
     debugContext: session?.source === 'sampled' ? 'runtime-snapshot-sampled' : undefined,
   }).renderStops;
   return runtimeStops;

@@ -984,7 +984,7 @@ const shapeFillBrushComponents: BrushComponent[] = [
 
 export const shapeFillBrushPreset: BrushPreset = {
   id: 'shape-fill',
-  name: 'Shape Fill',
+  name: 'Shape Pattern',
   category: 'Special',
   components: shapeFillBrushComponents,
   thumbnail: '/assets/images/Brush.png',
@@ -1246,7 +1246,6 @@ export const brushPresets: BrushPreset[] = [
   colorCycleGradientBrushPreset,
   colorCycleFlatDitherBrushPreset,
   rectangleGradientBrushPreset,
-  polygonGradientBrushPreset,
   shapeFillBrushPreset,
   spamBrushPreset,
   resamplerBrushPreset

@@ -403,6 +403,73 @@ describe('LayersPanel interactions', () => {
     expect(screen.queryByText('Type')).not.toBeInTheDocument();
   });
 
+  it('renames one layer inline on double-click and commits with Enter', () => {
+    state.selectedLayerIds = ['layer-a', 'layer-c'];
+    render(<LayersPanel />);
+
+    fireEvent.doubleClick(screen.getByText('layer-c'));
+
+    const input = screen.getByRole('textbox', { name: 'Rename layer layer-c' });
+    expect(input).toHaveFocus();
+    fireEvent.change(input, { target: { value: '  Sky highlights  ' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+
+    expect(state.updateLayer).toHaveBeenCalledTimes(1);
+    expect(state.updateLayer).toHaveBeenCalledWith('layer-c', { name: 'Sky highlights' });
+    expect(screen.queryByRole('textbox', { name: 'Rename layer layer-c' })).not.toBeInTheDocument();
+    expect(screen.getByText('Sky highlights')).toBeInTheDocument();
+  });
+
+  it('commits a layer rename on blur and rejects an empty name', () => {
+    render(<LayersPanel />);
+
+    fireEvent.doubleClick(screen.getByText('layer-c'));
+    const input = screen.getByRole('textbox', { name: 'Rename layer layer-c' });
+    fireEvent.change(input, { target: { value: 'Foreground ink' } });
+    fireEvent.blur(input);
+
+    expect(state.updateLayer).toHaveBeenCalledWith('layer-c', { name: 'Foreground ink' });
+
+    fireEvent.doubleClick(screen.getByText('Foreground ink'));
+    const emptyInput = screen.getByRole('textbox', { name: 'Rename layer Foreground ink' });
+    fireEvent.change(emptyInput, { target: { value: '   ' } });
+    fireEvent.blur(emptyInput);
+
+    expect(state.updateLayer).toHaveBeenCalledTimes(1);
+    expect(screen.getByText('Foreground ink')).toBeInTheDocument();
+  });
+
+  it('cancels a layer rename with Escape', () => {
+    render(<LayersPanel />);
+
+    fireEvent.doubleClick(screen.getByText('layer-c'));
+    const input = screen.getByRole('textbox', { name: 'Rename layer layer-c' });
+    fireEvent.change(input, { target: { value: 'Discard this' } });
+    fireEvent.keyDown(input, { key: 'Escape' });
+
+    expect(state.updateLayer).not.toHaveBeenCalled();
+    expect(screen.getByText('layer-c')).toBeInTheDocument();
+  });
+
+  it('commits a layer rename before allowing the save shortcut to continue', () => {
+    const saveShortcutListener = jest.fn();
+    window.addEventListener('keydown', saveShortcutListener);
+
+    try {
+      render(<LayersPanel />);
+
+      fireEvent.doubleClick(screen.getByText('layer-c'));
+      const input = screen.getByRole('textbox', { name: 'Rename layer layer-c' });
+      fireEvent.change(input, { target: { value: 'Saved from shortcut' } });
+      fireEvent.keyDown(input, { key: 's', metaKey: true });
+
+      expect(state.updateLayer).toHaveBeenCalledWith('layer-c', { name: 'Saved from shortcut' });
+      expect(saveShortcutListener).toHaveBeenCalledTimes(1);
+    } finally {
+      window.removeEventListener('keydown', saveShortcutListener);
+    }
+  });
+
   it('keeps single-layer eye toggle behavior unchanged', () => {
     render(<LayersPanel />);
 

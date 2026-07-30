@@ -425,6 +425,7 @@ const buildCcShapePreviewGradientCacheKey = ({
   foregroundDerivedKey,
   previewSource,
   flatCycle,
+  fillBackground,
 }: {
   effectiveStops: StoredStop[];
   gradientBands: number;
@@ -441,6 +442,7 @@ const buildCcShapePreviewGradientCacheKey = ({
   foregroundDerivedKey: string;
   previewSource: string;
   flatCycle?: boolean;
+  fillBackground?: boolean;
 }): string => {
   const stopHash = hashStops(effectiveStops, 'linear');
   return [
@@ -457,6 +459,7 @@ const buildCcShapePreviewGradientCacheKey = ({
     `fg:${useForegroundDerived ? foregroundDerivedKey : 'off'}`,
     `source:${previewSource}`,
     `flatCycle:${flatCycle ? 1 : 0}`,
+    `bgFill:${fillBackground === false ? 0 : 1}`,
   ].join('|');
 };
 
@@ -467,6 +470,8 @@ const prepareCcShapePreviewGradient = ({
   ditherPaletteSpread,
   ditherAlgorithm,
   preserveSourceStops,
+  useDitherRenderPalette = true,
+  fillBackground,
 }: {
   effectiveStops: StoredStop[];
   shouldDitherPreview: boolean;
@@ -474,14 +479,18 @@ const prepareCcShapePreviewGradient = ({
   ditherPaletteSpread?: number;
   ditherAlgorithm?: DitherAlgorithm;
   preserveSourceStops: boolean;
+  useDitherRenderPalette?: boolean;
+  fillBackground?: boolean;
 }): PreparedPreviewGradient => {
-  const renderStops = shouldDitherPreview
+  const renderStops = shouldDitherPreview || !useDitherRenderPalette
     ? buildCcDitherRuntimePalette({
         baseStops: effectiveStops,
         bands: resolveCcDitherBandMode(gradientBands).pairBandCount,
         spread: ditherPaletteSpread,
         algorithm: ditherAlgorithm,
         preserveSourceStops,
+        useDitherRenderPalette,
+        fillBackground,
         debugContext: 'preview-fill-linear',
       }).renderStops
     : effectiveStops;
@@ -3300,6 +3309,8 @@ export const createShapeToolHandler = (
                       foregroundDerivedKey,
                       previewSource: ccPreview?.source ?? previewGradientSource,
                       flatCycle: brushNow.ccFlatCycleDither === true,
+                      fillBackground:
+                        (brushNow.ditherGradBgFill ?? brushNow.ditherBackgroundFill) !== false,
                     });
                     const preparedGradient =
                       ditherGradPreviewState.ccPreparedGradientKey === preparedGradientKey &&
@@ -3310,11 +3321,15 @@ export const createShapeToolHandler = (
                             // Flat-cycle previews sample the base gradient; its
                             // weave already encodes the dither texture.
                             shouldDitherPreview:
-                              shouldDitherPreview && brushNow.ccFlatCycleDither !== true,
+                              shouldDitherPreview,
                             gradientBands: brushNow.gradientBands ?? 16,
                             ditherPaletteSpread: brushNow.ditherPaletteSpread,
                             ditherAlgorithm: brushNow.ditherAlgorithm,
                             preserveSourceStops,
+                            useDitherRenderPalette: brushNow.ccFlatCycleDither !== true,
+                            fillBackground:
+                              (brushNow.ditherGradBgFill ??
+                                brushNow.ditherBackgroundFill) !== false,
                           });
                     ditherGradPreviewState.ccPreparedGradientKey = preparedGradientKey;
                     ditherGradPreviewState.ccPreparedGradient = preparedGradient;

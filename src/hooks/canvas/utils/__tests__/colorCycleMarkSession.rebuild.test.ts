@@ -3,6 +3,7 @@ import type { Layer } from '@/types';
 import {
   beginMarkGradientSession,
   cancelMarkGradientSession,
+  captureFrozenCcDitherRenderConfig,
   finalizeMarkGradientSession,
   getPreviewGradientForActiveMark,
   resolveMarkSessionRuntimeStops,
@@ -52,14 +53,73 @@ describe('colorCycleMarkSession rebuild', () => {
         ...state.tools,
         brushSettings: {
           ...state.tools.brushSettings,
+          ditherEnabled: false,
           ditherPaletteSpread: 0,
           ccGradientRangeContrast: 100,
+          ccFlatCycleDither: false,
         },
       },
       project: state.project
         ? { ...state.project, width: 2, height: 2 }
         : state.project,
     }));
+  });
+
+  it('captures the CC gradient background-fill toggle for the whole mark', () => {
+    useAppStore.setState((state) => ({
+      tools: {
+        ...state.tools,
+        brushSettings: {
+          ...state.tools.brushSettings,
+          ditherGradBgFill: false,
+        },
+      },
+    }));
+    expect(captureFrozenCcDitherRenderConfig().fillBackground).toBe(false);
+
+    useAppStore.setState((state) => ({
+      tools: {
+        ...state.tools,
+        brushSettings: {
+          ...state.tools.brushSettings,
+          ditherGradBgFill: true,
+        },
+      },
+    }));
+    expect(captureFrozenCcDitherRenderConfig().fillBackground).toBe(true);
+  });
+
+  it('keeps Flat Cycle on base colors while applying its frozen background-fill policy', () => {
+    useAppStore.setState((state) => ({
+      tools: {
+        ...state.tools,
+        brushSettings: {
+          ...state.tools.brushSettings,
+          ditherEnabled: true,
+          ccFlatCycleDither: true,
+          ditherGradBgFill: true,
+        },
+      },
+    }));
+
+    const config = captureFrozenCcDitherRenderConfig();
+    const runtimeStops = resolveMarkSessionRuntimeStops(
+      {
+        source: 'manual',
+        ditherRenderConfig: config,
+      },
+      [
+        { position: 0, color: 'rgba(0, 255, 0, 0.5)' },
+        { position: 1, color: '#0000ff', opacity: 0 },
+      ],
+    );
+
+    expect(config.enabled).toBe(true);
+    expect(config.useDitherRenderPalette).toBe(false);
+    expect(runtimeStops).toEqual([
+      { position: 0, color: 'rgb(0, 255, 0)', opacity: 1 },
+      { position: 1, color: '#0000ff', opacity: 1 },
+    ]);
   });
 
   it.each(['manual', 'fg'] as const)(
@@ -303,6 +363,14 @@ describe('colorCycleMarkSession rebuild', () => {
     useAppStore.setState((state) => ({
       layers: [layer],
       activeLayerId: layer.id,
+      tools: {
+        ...state.tools,
+        brushSettings: {
+          ...state.tools.brushSettings,
+          ditherEnabled: true,
+          ccFlatCycleDither: false,
+        },
+      },
       project: state.project
         ? { ...state.project, width: 2, height: 2, layers: [layer] }
         : state.project,
