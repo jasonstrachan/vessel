@@ -24,7 +24,7 @@ import { drawCanvasOverlayLayer } from './drawingCanvasOverlay';
 import { drawSelectionLayer } from './drawingCanvasSelection';
 import { applyCanvasShapeClip, strokeCanvasShapeOutline } from '@/utils/canvasShape';
 import { isOverlaySeededFromLayer } from '@/hooks/canvas/utils/overlaySeedState';
-import { recordBreadcrumb } from '@/utils/debug';
+import { debugLog, recordBreadcrumb } from '@/utils/debug';
 import { getSequentialRenderFrame } from '@/runtime/playback/sequentialFrameCursor';
 import { strokeFinalizeProbeMark } from '@/utils/strokeFinalizeProbe';
 
@@ -346,7 +346,7 @@ export const useDrawingCanvasBaseRenderer = ({
         const now = Date.now();
         if (now - lastCcDirectionRenderDebugAtRef.current >= 250) {
           lastCcDirectionRenderDebugAtRef.current = now;
-          console.log('[cc-dir]', 'renderer-overlay-gate', {
+          debugLog('cc-dir', 'renderer-overlay-gate', {
             overlayActive,
             isDrawing,
             drawingCanvasHasContent: Boolean(drawingCanvasHasContent),

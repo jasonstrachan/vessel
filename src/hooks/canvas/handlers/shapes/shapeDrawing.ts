@@ -90,7 +90,7 @@ const ccDirectionDebug = (label: string, payload?: Record<string, unknown>) => {
   const now = Date.now();
   if (now - lastCcDirectionDebugAt < 250) return;
   lastCcDirectionDebugAt = now;
-  console.log('[cc-dir]', label, payload ?? {});
+  debugLog('cc-dir', label, payload ?? {});
 };
 
 type ShapeDrawingColorCycleBrush = ColorCycleShapeFillBrushContext;
