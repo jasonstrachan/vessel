@@ -11,7 +11,7 @@ Deliver complete, production-oriented work. Test doubles are acceptable at I/O b
 - Prefer direct execution when the task is clear. Ask before writing when requirements are materially ambiguous; when unattended, use the most reasonable interpretation and record it.
 - Read the local implementation before making architectural assumptions. Use `rg` and `rg --files`; read files in chunks of at most 250 lines.
 - Keep code changes minimal and scoped. Do not alter unrelated work; report nearby design problems separately.
-- For plans and bug fixes, keep them scoped to the actual root cause. If more than 6 files are needed, stop and ask before continuing.
+- For plans and bug fixes, keep them scoped to the actual root cause. Treat 6 files as a strict scope guide, not a hard gate; if more files are directly required, explain the expansion before proceeding and keep every changed file necessary to the fix.
 - Fix the source invariant first. Trace the real path; do not add wrappers, helper layers, or downstream compensation around a broken authority. Remove directly superseded workarounds when safe; otherwise explain why they remain or why the source cannot change.
 - Prefer the simplest explicit solution that satisfies the requirement. Reuse existing seams before adding abstractions; suggest a better approach when it materially reduces lasting risk or churn.
 - State uncertainty. A small, localized experiment is preferable to speculation.
