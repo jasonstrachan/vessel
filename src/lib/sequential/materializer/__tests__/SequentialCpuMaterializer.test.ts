@@ -369,6 +369,36 @@ describe('SequentialCpuMaterializer', () => {
     expect(pixels[edgePixelAlphaIndex]).toBeGreaterThan(0);
   });
 
+  it('replays captured diamond tips as diamonds rather than triangles', () => {
+    const materializer = new SequentialCpuMaterializer({ tileSize: 16 });
+    const width = 20;
+    const pixels = materializeFrameToPixels(materializer, {
+      width,
+      height: 20,
+      frameIndex: 0,
+      events: [
+        createEvent({
+          id: 'captured-diamond-tip',
+          frameIndex: 0,
+          x: 10,
+          y: 10,
+          size: 8,
+          color: '#ffffff',
+          brushShape: BrushShape.PIXEL_DITHER,
+          tipShape: 'diamond',
+          ditherEnabled: false,
+        }),
+      ],
+    });
+
+    const topCenterAlpha = pixels[(6 * width + 10) * 4 + 3];
+    const bottomCenterAlpha = pixels[(13 * width + 10) * 4 + 3];
+    const topCornerAlpha = pixels[(6 * width + 6) * 4 + 3];
+    expect(topCenterAlpha).toBeGreaterThan(0);
+    expect(bottomCenterAlpha).toBeGreaterThan(0);
+    expect(topCornerAlpha).toBe(0);
+  });
+
   it('applies dither texture when enabled', () => {
     const materializer = new SequentialCpuMaterializer({ tileSize: 16 });
     const inputBase = {

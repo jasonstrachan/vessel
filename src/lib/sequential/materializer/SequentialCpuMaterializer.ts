@@ -22,6 +22,7 @@ import {
 import { resolveStrokeDitherPalette } from '@/hooks/brushEngine/engineShared';
 import { parseCssColor } from '@/utils/color/parseCssColor';
 import { DEFAULT_GRADIENT_STOPS } from '@/utils/gradientPresets';
+import { computePressureResolution } from '@/utils/pressureResolution';
 import type {
   FrameTile,
   FrameTilePatch,
@@ -33,7 +34,7 @@ import type { SequentialMaterializerBackend } from '@/lib/sequential/materialize
 
 const clamp01 = (value: number): number => Math.max(0, Math.min(1, value));
 
-type SequentialStampShape = 'round' | 'square' | 'triangle' | 'diamond5' | 'diamond7' | 'diamond9' | 'checkered';
+type SequentialStampShape = 'round' | 'square' | 'triangle' | 'diamond' | 'diamond5' | 'diamond7' | 'diamond9' | 'checkered';
 const DIAMOND_5_MASK: ReadonlyArray<number> = [
   0, 0, 1, 0, 0,
   0, 1, 1, 1, 0,
@@ -348,6 +349,7 @@ const resolveStampShape = (event: SequentialStrokeEvent): SequentialStampShape =
     explicitTipShape === 'round' ||
     explicitTipShape === 'square' ||
     explicitTipShape === 'triangle' ||
+    explicitTipShape === 'diamond' ||
     explicitTipShape === 'diamond5' ||
     explicitTipShape === 'diamond7' ||
     explicitTipShape === 'diamond9' ||
@@ -379,7 +381,10 @@ const resolveStampShape = (event: SequentialStrokeEvent): SequentialStampShape =
     if (tipShape === 'checkered') {
       return 'checkered';
     }
-    if (tipShape === 'triangle' || tipShape === 'diamond') {
+    if (tipShape === 'diamond') {
+      return 'diamond';
+    }
+    if (tipShape === 'triangle') {
       return 'triangle';
     }
     if (tipShape === 'round') {
@@ -591,6 +596,8 @@ const isStampPixelCovered = ({
   switch (shape) {
     case 'square':
       return Math.abs(dx) <= halfSize && Math.abs(dy) <= halfSize;
+    case 'diamond':
+      return Math.abs(dx) + Math.abs(dy) <= halfSize;
     case 'diamond5': {
       if (Math.abs(dx) > halfSize || Math.abs(dy) > halfSize) {
         return false;
@@ -2238,7 +2245,19 @@ const paintEventsToPixels = ({
         color: parsedColor,
         blendMode,
         mosaicConfig,
-        ditherConfig,
+        ditherConfig: ditherConfig && event.brush.pressureLinkedFillResolution
+          ? {
+              ...ditherConfig,
+              tileScale: computePressureResolution(
+                event.brush.fillResolution ?? 1,
+                stamp.pressure,
+                true,
+                undefined,
+                undefined,
+                event.brush.pressureLinkedFillMaxResolution,
+              ),
+            }
+          : ditherConfig,
         ditherPalette,
         stampDitherReplayRuntime,
       });

@@ -591,7 +591,10 @@ const buildBrushSnapshot = ({
       if (ditherTipShape === 'checkered') {
         return 'checkered';
       }
-      if (ditherTipShape === 'triangle' || ditherTipShape === 'diamond') {
+      if (ditherTipShape === 'diamond') {
+        return 'diamond';
+      }
+      if (ditherTipShape === 'triangle') {
         return 'triangle';
       }
       if (ditherTipShape === 'round') {
@@ -642,6 +645,9 @@ const buildBrushSnapshot = ({
       ? Math.max(1, Math.min(64, Math.round(settings.fillResolution ?? 1)))
       : 1,
     pressureLinkedFillResolution: settings.pressureLinkedFillResolution === true,
+    pressureLinkedFillMaxResolution: Number.isFinite(settings.pressureLinkedFillMaxResolution)
+      ? Math.max(1, Math.round(settings.pressureLinkedFillMaxResolution ?? 1))
+      : undefined,
     mosaicTilePx: settings.mosaicTilePx,
     mosaicSegmentPx: settings.mosaicSegmentPx,
     mosaicBlocksCount: settings.mosaicBlocksCount,

@@ -1,4 +1,8 @@
-import { __TESTING__ } from '@/hooks/brushEngine/strokeDitherRegion';
+import {
+  __TESTING__,
+  ditherRegionWithCurrentPressure,
+} from '@/hooks/brushEngine/strokeDitherRegion';
+import { BrushShape, type BrushSettings } from '@/types';
 
 describe('strokeDitherRegion', () => {
   it('promotes partially covered edge cells to full cells when pxlEdge is enabled', () => {
@@ -90,5 +94,52 @@ describe('strokeDitherRegion', () => {
     expect(data[3]).toBe(0);
     expect(data[7]).toBe(255);
     expect(data[11]).toBe(255);
+  });
+
+  it('uses the selected project image tile resolver', () => {
+    const source = new ImageData(
+      new Uint8ClampedArray([128, 128, 128, 255]),
+      1,
+      1
+    );
+    const putImageData = jest.fn();
+    const ctx = {
+      canvas: { width: 1, height: 1 },
+      getImageData: jest.fn(() => source),
+      putImageData,
+      imageSmoothingEnabled: true,
+    } as unknown as CanvasRenderingContext2D;
+    const resolver = jest.fn(() => 0);
+    const settings = {
+      brushShape: BrushShape.PIXEL_DITHER,
+      color: '#ffffff',
+      ditherEnabled: true,
+      ditherAlgorithm: 'pattern',
+      patternStyle: 'image-tile',
+      ditherBackgroundFill: true,
+      fillResolution: 1,
+    } as BrushSettings;
+
+    ditherRegionWithCurrentPressure({
+      ctx,
+      region: { x: 0, y: 0, width: 1, height: 1 },
+      toolsBrushSettings: settings,
+      strokeDitherPalette: ['#ffffff', '#000000'],
+      transparentInk: [0, 0, 0],
+      computeStrokeDitherPaletteForSettings: () => ['#ffffff', '#000000'],
+      pickTransparentInk: () => [0, 0, 0],
+      computePressureScaledResolution: () => 1,
+      getStrokeDitherPixelSize: () => 1,
+      applyLostEdgeToStrokeAlpha: jest.fn(),
+      ensureBgOffTemp: jest.fn(),
+      ensureBgOffHole: jest.fn(),
+      bgOffMaskImageRef: { current: null },
+      strokePhaseOriginRef: { current: null },
+      imageTileThresholdResolver: resolver,
+      DD: jest.fn(),
+    });
+
+    expect(resolver).toHaveBeenCalled();
+    expect(putImageData).toHaveBeenCalled();
   });
 });

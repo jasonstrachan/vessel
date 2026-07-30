@@ -21,6 +21,7 @@ describe('strokeFinalizeOrchestrator', () => {
       region: finalizeResult,
       rawCanvas: null,
       ditherCanvas: null,
+      baseCanvas: null,
       rawCtx: null,
       ditherCtx: null,
     });
@@ -33,6 +34,7 @@ describe('strokeFinalizeOrchestrator', () => {
       liveStrokeBoundsRef: { current: null },
       liveStrokeRawRef: { current: null },
       liveStrokeDitherRef: { current: null },
+      liveStrokeBaseRef: { current: null },
       clearLiveStrokeBuffers: jest.fn(),
       clearCoverageMaps: jest.fn(),
       finalizeStroke,
@@ -47,7 +49,6 @@ describe('strokeFinalizeOrchestrator', () => {
       getStrokeDitherPixelSize: jest.fn(() => 1),
       ditherRegionWithCurrentPressure: jest.fn(),
       applyStrokeDither: jest.fn(),
-      isPixelDitherNoBg: false,
       applyStrokeRisographOverlay: jest.fn(),
       isDitherStrokeBrush: false,
       warnIfDitherStrokePath: jest.fn(),

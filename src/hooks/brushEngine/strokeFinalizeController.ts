@@ -17,30 +17,34 @@ export const buildStrokeFinalizeContext = ({
   liveStrokeBoundsRef,
   liveStrokeRawRef,
   liveStrokeDitherRef,
+  liveStrokeBaseRef,
 }: {
   ctx: CanvasRenderingContext2D;
   strokeBoundsRef: RectRef;
   liveStrokeBoundsRef: RectRef;
   liveStrokeRawRef: CanvasRef;
   liveStrokeDitherRef: CanvasRef;
+  liveStrokeBaseRef: CanvasRef;
 }): {
   strokeBounds: Rect | null;
   region: Rect | null;
   rawCanvas: HTMLCanvasElement | OffscreenCanvas | null;
   ditherCanvas: HTMLCanvasElement | OffscreenCanvas | null;
+  baseCanvas: HTMLCanvasElement | OffscreenCanvas | null;
   rawCtx: CanvasRenderingContext2D | null;
   ditherCtx: CanvasRenderingContext2D | null;
 } => {
   const strokeBounds = strokeBoundsRef.current ?? liveStrokeBoundsRef.current ?? null;
   const rawCanvas = liveStrokeRawRef.current;
   const ditherCanvas = liveStrokeDitherRef.current;
+  const baseCanvas = liveStrokeBaseRef.current;
   const canvasWidth = ctx.canvas?.width ?? 0;
   const canvasHeight = ctx.canvas?.height ?? 0;
   const region = strokeBounds ? normalizeRectForCanvas(strokeBounds, canvasWidth, canvasHeight) : null;
   const rawCtx = rawCanvas ? (pick2DRead(rawCanvas) as CanvasRenderingContext2D | null) : null;
   const ditherCtx = ditherCanvas ? (pick2D(ditherCanvas) as CanvasRenderingContext2D | null) : null;
 
-  return { strokeBounds, region, rawCanvas, ditherCanvas, rawCtx, ditherCtx };
+  return { strokeBounds, region, rawCanvas, ditherCanvas, baseCanvas, rawCtx, ditherCtx };
 };
 
 export const finalizeStrokeEngineBuffers = ({
@@ -77,6 +81,7 @@ export const finalizeStrokeAfterEngine = ({
   strokeBounds,
   region,
   rawCanvas,
+  baseCanvas,
   ditherCanvas,
   rawCtx,
   ditherCtx,
@@ -89,7 +94,6 @@ export const finalizeStrokeAfterEngine = ({
   getStrokeDitherPixelSize,
   ditherRegionWithCurrentPressure,
   applyStrokeDither,
-  isPixelDitherNoBg,
   applyStrokeRisographOverlay,
   isDitherStrokeBrush,
   warnIfDitherStrokePath,
@@ -99,6 +103,7 @@ export const finalizeStrokeAfterEngine = ({
   strokeBounds: Rect | null;
   region: Rect | null;
   rawCanvas: HTMLCanvasElement | OffscreenCanvas | null;
+  baseCanvas: HTMLCanvasElement | OffscreenCanvas | null;
   ditherCanvas: HTMLCanvasElement | OffscreenCanvas | null;
   rawCtx: CanvasRenderingContext2D | null;
   ditherCtx: CanvasRenderingContext2D | null;
@@ -143,7 +148,6 @@ export const finalizeStrokeAfterEngine = ({
       settingsOverride?: BrushSettings;
     }
   ) => void;
-  isPixelDitherNoBg: boolean;
   applyStrokeRisographOverlay: (
     ctx: CanvasRenderingContext2D,
     bounds: Rect | null,
@@ -187,13 +191,13 @@ export const finalizeStrokeAfterEngine = ({
       strokeBounds,
       region,
       rawCanvas: rawCanvas ?? null,
+      baseCanvas,
       ditherCanvas,
       committedPixelSizeRef,
       lastPressureDitherPixelSizeRef,
       getStrokeDitherPixelSize,
       ditherBackgroundFill: settings.ditherBackgroundFill,
       ditherRegionWithCurrentPressure,
-      isPixelDitherNoBg,
       withAlphaLock,
       applyStrokeRisographOverlay,
       isDitherStrokeBrush,
@@ -217,13 +221,13 @@ export const finalizeStrokeAfterEngine = ({
       strokeBounds,
       region,
       rawCanvas: rawCanvas ?? null,
+      baseCanvas,
       ditherCanvas,
       rawCtx,
       ditherCtx,
       ditherBackgroundFill: settings.ditherBackgroundFill,
       ditherRegionWithCurrentPressure,
       applyStrokeDither,
-      isPixelDitherNoBg,
       withAlphaLock,
       applyStrokeRisographOverlay,
       isDitherStrokeBrush,

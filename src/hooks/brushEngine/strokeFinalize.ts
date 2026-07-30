@@ -34,13 +34,13 @@ export const commitFinalizePressureLinkedDither = ({
   strokeBounds,
   region,
   rawCanvas,
+  baseCanvas,
   ditherCanvas,
   committedPixelSizeRef,
   lastPressureDitherPixelSizeRef,
   getStrokeDitherPixelSize,
   ditherBackgroundFill,
   ditherRegionWithCurrentPressure,
-  isPixelDitherNoBg,
   withAlphaLock,
   applyStrokeRisographOverlay,
   isDitherStrokeBrush,
@@ -50,13 +50,13 @@ export const commitFinalizePressureLinkedDither = ({
   strokeBounds: Rect;
   region: Rect;
   rawCanvas: HTMLCanvasElement | OffscreenCanvas | null;
+  baseCanvas: HTMLCanvasElement | OffscreenCanvas | null;
   ditherCanvas: HTMLCanvasElement | OffscreenCanvas;
   committedPixelSizeRef: { current: number | null };
   lastPressureDitherPixelSizeRef: { current: number | null };
   getStrokeDitherPixelSize: () => number;
   ditherBackgroundFill: boolean | undefined;
   ditherRegionWithCurrentPressure: DitherRegionFn;
-  isPixelDitherNoBg: boolean;
   withAlphaLock: AlphaLockFn;
   applyStrokeRisographOverlay: OverlayFn;
   isDitherStrokeBrush: boolean;
@@ -85,9 +85,9 @@ export const commitFinalizePressureLinkedDither = ({
     ctx,
     ditherCanvas,
     rawCanvas,
+    baseCanvas,
     strokeBounds,
     region,
-    isPixelDitherNoBg,
     withAlphaLock,
     applyStrokeRisographOverlay,
     bgOff,
@@ -104,13 +104,13 @@ export const commitFinalizeNonPressureDither = ({
   strokeBounds,
   region,
   rawCanvas,
+  baseCanvas,
   ditherCanvas,
   rawCtx,
   ditherCtx,
   ditherBackgroundFill,
   ditherRegionWithCurrentPressure,
   applyStrokeDither,
-  isPixelDitherNoBg,
   withAlphaLock,
   applyStrokeRisographOverlay,
   isDitherStrokeBrush,
@@ -120,6 +120,7 @@ export const commitFinalizeNonPressureDither = ({
   strokeBounds: Rect;
   region: Rect;
   rawCanvas: HTMLCanvasElement | OffscreenCanvas | null;
+  baseCanvas: HTMLCanvasElement | OffscreenCanvas | null;
   ditherCanvas: HTMLCanvasElement | OffscreenCanvas;
   rawCtx: CanvasRenderingContext2D;
   ditherCtx: CanvasRenderingContext2D;
@@ -138,7 +139,6 @@ export const commitFinalizeNonPressureDither = ({
       settingsOverride?: BrushSettings;
     }
   ) => void;
-  isPixelDitherNoBg: boolean;
   withAlphaLock: AlphaLockFn;
   applyStrokeRisographOverlay: OverlayFn;
   isDitherStrokeBrush: boolean;
@@ -154,13 +154,13 @@ export const commitFinalizeNonPressureDither = ({
       ctx,
       ditherCanvas,
       rawCanvas,
+      baseCanvas,
       strokeBounds,
       region,
-      isPixelDitherNoBg,
       withAlphaLock,
       applyStrokeRisographOverlay,
       bgOff: true,
-      clearBgOffOnTarget: false,
+      clearBgOffOnTarget: true,
       isDitherStrokeBrush,
       warnIfDitherStrokePath,
       warnContext: 'finalize-bg-off',
@@ -184,9 +184,9 @@ export const commitFinalizeNonPressureDither = ({
     ctx,
     ditherCanvas,
     rawCanvas,
+    baseCanvas,
     strokeBounds,
     region,
-    isPixelDitherNoBg,
     withAlphaLock,
     applyStrokeRisographOverlay,
     bgOff: false,

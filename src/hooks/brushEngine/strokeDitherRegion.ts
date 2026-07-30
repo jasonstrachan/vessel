@@ -94,6 +94,7 @@ export const ditherRegionWithCurrentPressure = ({
   ensureBgOffHole,
   bgOffMaskImageRef,
   strokePhaseOriginRef,
+  imageTileThresholdResolver,
   DD,
 }: {
   ctx: CanvasRenderingContext2D;
@@ -117,6 +118,7 @@ export const ditherRegionWithCurrentPressure = ({
   ensureBgOffHole: (width: number, height: number) => ReusableCanvas2D | null;
   bgOffMaskImageRef: { current: ImageData | null };
   strokePhaseOriginRef: { current: { x: number; y: number } | null };
+  imageTileThresholdResolver?: (x: number, y: number) => number | null;
   DD: (step: string, obj: Record<string, unknown>) => void;
 }): void => {
   const overridePressure = options?.overridePressure;
@@ -242,7 +244,8 @@ export const ditherRegionWithCurrentPressure = ({
         algorithm,
         patternStyle,
         palette,
-        ditherPhaseOffset
+        ditherPhaseOffset,
+        imageTileThresholdResolver
       )
     : applyDitheringImport(
         sourceForDither,
@@ -250,7 +253,8 @@ export const ditherRegionWithCurrentPressure = ({
         algorithm,
         patternStyle,
         palette,
-        ditherPhaseOffset
+        ditherPhaseOffset,
+        imageTileThresholdResolver
       );
 
   const data = dithered.data;

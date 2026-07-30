@@ -236,24 +236,6 @@ export const DitherControls: React.FC<Props> = ({
             />
           </div>
 
-          <div className="flex items-center gap-2 mt-2">
-            <label className={labelWidth} style={labelStyle} title="Dephase tiles between stamps">
-              Dephase
-            </label>
-            <ProgressSlider
-              value={settings.ditherPhaseJitter ?? 0}
-              min={0}
-              max={100}
-              step={1}
-              onChange={(value) =>
-                onChange({
-                  ditherPhaseJitter: Math.max(0, Math.min(100, Math.round(value)))
-                })
-              }
-              aria-label="Dither Dephase"
-              className="flex-1"
-            />
-          </div>
         </>
       )}
     </div>

@@ -396,6 +396,39 @@ describe('Dithering Algorithms', () => {
         expect(paletteValues.has(result.data[i])).toBe(true);
       }
     });
+
+    it.each([
+      'floyd-steinberg',
+      'jarvis-judice-ninke',
+      'stucki',
+      'burkes',
+      'sierra-3',
+      'sierra-2',
+      'sierra-lite',
+      'atkinson',
+    ] as const)('%s ignores transparent padding during diffusion', (algorithm) => {
+      const input = new ImageData(
+        new Uint8ClampedArray([
+          0, 0, 0, 0,
+          170, 170, 170, 255,
+        ]),
+        2,
+        1
+      );
+      const result = applyPressureDither(input, {
+        algorithm,
+        pressure: 0.5,
+        intensity: 1,
+        bayerMatrixSize: 8,
+        palette: [
+          [100, 100, 100],
+          [200, 200, 200],
+        ],
+      });
+
+      expect(Array.from(result.data.slice(0, 4))).toEqual([0, 0, 0, 0]);
+      expect(Array.from(result.data.slice(4, 8))).toEqual([200, 200, 200, 255]);
+    });
   });
   
   describe('applySierraLitePressureDither', () => {

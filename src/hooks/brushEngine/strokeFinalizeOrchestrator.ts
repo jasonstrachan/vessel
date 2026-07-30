@@ -15,6 +15,7 @@ export const finalizeStrokeOrchestrated = ({
   liveStrokeBoundsRef,
   liveStrokeRawRef,
   liveStrokeDitherRef,
+  liveStrokeBaseRef,
   clearLiveStrokeBuffers,
   clearCoverageMaps,
   finalizeStroke,
@@ -29,7 +30,6 @@ export const finalizeStrokeOrchestrated = ({
   getStrokeDitherPixelSize,
   ditherRegionWithCurrentPressure,
   applyStrokeDither,
-  isPixelDitherNoBg,
   applyStrokeRisographOverlay,
   isDitherStrokeBrush,
   warnIfDitherStrokePath,
@@ -39,6 +39,7 @@ export const finalizeStrokeOrchestrated = ({
   liveStrokeBoundsRef: MutableRef<Rect | null>;
   liveStrokeRawRef: MutableRef<HTMLCanvasElement | OffscreenCanvas | null>;
   liveStrokeDitherRef: MutableRef<HTMLCanvasElement | OffscreenCanvas | null>;
+  liveStrokeBaseRef: MutableRef<HTMLCanvasElement | OffscreenCanvas | null>;
   clearLiveStrokeBuffers: () => void;
   clearCoverageMaps: () => void;
   finalizeStroke: (ctx: CanvasRenderingContext2D) => void;
@@ -85,7 +86,6 @@ export const finalizeStrokeOrchestrated = ({
       settingsOverride?: BrushSettings;
     }
   ) => void;
-  isPixelDitherNoBg: boolean;
   applyStrokeRisographOverlay: (
     ctx: CanvasRenderingContext2D,
     bounds: Rect | null,
@@ -99,6 +99,7 @@ export const finalizeStrokeOrchestrated = ({
     region,
     rawCanvas,
     ditherCanvas,
+    baseCanvas,
     rawCtx,
     ditherCtx,
   } = buildStrokeFinalizeContext({
@@ -107,6 +108,7 @@ export const finalizeStrokeOrchestrated = ({
     liveStrokeBoundsRef,
     liveStrokeRawRef,
     liveStrokeDitherRef,
+    liveStrokeBaseRef,
   });
 
   const finalizeAndReset = (clearCoverage: boolean) => {
@@ -125,6 +127,7 @@ export const finalizeStrokeOrchestrated = ({
     strokeBounds,
     region,
     rawCanvas: rawCanvas ?? null,
+    baseCanvas,
     ditherCanvas: ditherCanvas ?? null,
     rawCtx,
     ditherCtx,
@@ -141,7 +144,6 @@ export const finalizeStrokeOrchestrated = ({
     getStrokeDitherPixelSize,
     ditherRegionWithCurrentPressure,
     applyStrokeDither,
-    isPixelDitherNoBg,
     applyStrokeRisographOverlay,
     isDitherStrokeBrush,
     warnIfDitherStrokePath,

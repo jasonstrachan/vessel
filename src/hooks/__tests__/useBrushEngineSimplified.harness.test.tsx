@@ -131,7 +131,7 @@ describe('useBrushEngineSimplified harness', () => {
     expect(typeof engineRef.drawBrush).toBe('function');
   });
 
-  it('clears preview region for Dither Stroke when BG fill is off (legacy path)', async () => {
+  it('restores the preview region without clearing artwork when Dither Stroke BG fill is off', async () => {
     const state = (jest.requireMock('@/stores/useAppStore') as { useAppStore: { getState: () => any } }).useAppStore.getState();
     state.tools.brushSettings.brushShape = 'pixel_dither';
     state.tools.brushSettings.ditherEnabled = true;
@@ -198,7 +198,8 @@ describe('useBrushEngineSimplified harness', () => {
       engineRef.drawBrush?.(targetCtx, { x: 0, y: 0 }, { x: 4, y: 4 }, { pressure: 0.8 });
     });
 
-    expect((targetCtx.clearRect as jest.Mock).mock.calls.length).toBeGreaterThan(0);
+    expect(targetCtx.clearRect).not.toHaveBeenCalled();
+    expect((targetCtx.drawImage as jest.Mock).mock.calls.length).toBeGreaterThan(0);
 
     getContextSpy.mockRestore();
     global.requestAnimationFrame = originalRaf;

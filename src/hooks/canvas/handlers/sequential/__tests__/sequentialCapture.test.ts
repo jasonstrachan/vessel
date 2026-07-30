@@ -379,6 +379,36 @@ describe('sequentialCapture', () => {
     expect(events[0].brush.tipShape).toBe('square');
   });
 
+  it('captures diamond tips and the pressure-linked maximum for replay', () => {
+    setFeatureFlag('enableSequentialRecordMode', true);
+    useAppStore.setState((state) => ({
+      tools: {
+        ...state.tools,
+        brushSettings: {
+          ...state.tools.brushSettings,
+          brushShape: BrushShape.PIXEL_DITHER,
+          ditherEnabled: true,
+          ditherStrokeTipShape: 'diamond',
+          pressureLinkedFillResolution: true,
+          pressureLinkedFillMaxResolution: 28,
+        },
+      },
+    }));
+
+    captureSequentialStampsForActiveLayer({
+      state: useAppStore.getState(),
+      nowMs: 1250,
+      stamps: [{ x: 10, y: 12, pressure: 0.5, rotation: 0, size: 8, alpha: 1 }],
+    });
+    flushBufferedSequentialEvents({ state: useAppStore.getState() });
+
+    const event = useAppStore
+      .getState()
+      .layers.find((entry) => entry.id === 'layer-seq')?.sequentialData?.events[0];
+    expect(event?.brush.tipShape).toBe('diamond');
+    expect(event?.brush.pressureLinkedFillMaxResolution).toBe(28);
+  });
+
   it('exposes buffered frame events before flush and clears them after flush', () => {
     setFeatureFlag('enableSequentialRecordMode', true);
     const runtime = createSequentialEventBufferRuntime();

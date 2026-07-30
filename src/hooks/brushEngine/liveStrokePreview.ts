@@ -7,12 +7,12 @@ export const renderLiveStrokePreview = ({
   liveRenderScheduledRef,
   liveStrokeRawRef,
   liveStrokeDitherRef,
+  liveStrokeBaseRef,
   liveStrokeBoundsRef,
   strokeBoundsRef,
   liveDirtyRectRef,
   shouldApplyStrokeDither,
   brushSettings,
-  isDitherStrokeBrush,
   isPixelDitherNoBg,
   warnIfDitherStrokePath,
   withAlphaLock,
@@ -23,12 +23,12 @@ export const renderLiveStrokePreview = ({
   liveRenderScheduledRef: { current: boolean };
   liveStrokeRawRef: { current: HTMLCanvasElement | OffscreenCanvas | null };
   liveStrokeDitherRef: { current: HTMLCanvasElement | OffscreenCanvas | null };
+  liveStrokeBaseRef: { current: HTMLCanvasElement | OffscreenCanvas | null };
   liveStrokeBoundsRef: { current: Rect | null };
   strokeBoundsRef: { current: Rect | null };
   liveDirtyRectRef: { current: Rect | null };
   shouldApplyStrokeDither: boolean;
   brushSettings: BrushSettings;
-  isDitherStrokeBrush: boolean;
   isPixelDitherNoBg: boolean;
   warnIfDitherStrokePath: (context: string) => void;
   withAlphaLock: (
@@ -77,6 +77,22 @@ export const renderLiveStrokePreview = ({
   if (!rawCtx) {
     return;
   }
+  const restoreBaseRegion = (bounds: Rect): void => {
+    const baseCanvas = liveStrokeBaseRef.current;
+    if (!baseCanvas) {
+      warnIfDitherStrokePath('missing-base-snapshot');
+      return;
+    }
+    const restored = normalizeRectForCanvas(bounds, canvasWidth, canvasHeight);
+    visibleCtx.save();
+    visibleCtx.globalCompositeOperation = 'copy';
+    visibleCtx.drawImage(
+      baseCanvas as CanvasImageSource,
+      restored.x, restored.y, restored.width, restored.height,
+      restored.x, restored.y, restored.width, restored.height
+    );
+    visibleCtx.restore();
+  };
 
   if (
     shouldApplyStrokeDither &&
@@ -93,23 +109,13 @@ export const renderLiveStrokePreview = ({
           dCtx.canvas?.width ?? 0,
           dCtx.canvas?.height ?? 0
         );
-        if (isDitherStrokeBrush && brushSettings.ditherBackgroundFill === false) {
-          visibleCtx.clearRect(bx, by, bw, bh);
-        } else if (brushSettings.ditherBackgroundFill === false) {
-          warnIfDitherStrokePath('preview-clear');
+        if (isPixelDitherNoBg) {
+          restoreBaseRegion({ x: bx, y: by, width: bw, height: bh });
         }
         const ditherSource = ditherCanvas instanceof HTMLCanvasElement ? ditherCanvas : null;
-        if (isPixelDitherNoBg) {
-          visibleCtx.drawImage(
-            ditherCanvas as CanvasImageSource,
-            bx, by, bw, bh,
-            bx, by, bw, bh
-          );
-        } else {
-          withAlphaLock(visibleCtx, (targetCtx) => {
-            targetCtx.drawImage(ditherCanvas as CanvasImageSource, bx, by, bw, bh, bx, by, bw, bh);
-          }, strokeBounds);
-        }
+        withAlphaLock(visibleCtx, (targetCtx) => {
+          targetCtx.drawImage(ditherCanvas as CanvasImageSource, bx, by, bw, bh, bx, by, bw, bh);
+        }, strokeBounds);
         applyStrokeRisographOverlay(visibleCtx, strokeBounds, ditherSource);
       }
     }
@@ -145,20 +151,15 @@ export const renderLiveStrokePreview = ({
 
       const ditherSource = ditherCanvas instanceof HTMLCanvasElement ? ditherCanvas : null;
       if (isPixelDitherNoBg) {
-        visibleCtx.drawImage(
+        restoreBaseRegion(blitRect);
+      }
+      withAlphaLock(visibleCtx, (targetCtx) => {
+        targetCtx.drawImage(
           ditherCanvas as CanvasImageSource,
           blitRect.x, blitRect.y, blitRect.width, blitRect.height,
           blitRect.x, blitRect.y, blitRect.width, blitRect.height
         );
-      } else {
-        withAlphaLock(visibleCtx, (targetCtx) => {
-          targetCtx.drawImage(
-            ditherCanvas as CanvasImageSource,
-            blitRect.x, blitRect.y, blitRect.width, blitRect.height,
-            blitRect.x, blitRect.y, blitRect.width, blitRect.height
-          );
-        }, fullDirty);
-      }
+      }, fullDirty);
       applyStrokeRisographOverlay(visibleCtx, fullDirty, ditherSource ?? (rawCanvas instanceof HTMLCanvasElement ? rawCanvas : null));
       return;
     }
@@ -166,11 +167,10 @@ export const renderLiveStrokePreview = ({
 
   const rawSource = rawCanvas instanceof HTMLCanvasElement ? rawCanvas : null;
   if (isPixelDitherNoBg) {
-    visibleCtx.drawImage(rawCanvas as CanvasImageSource, x, y, width, height, x, y, width, height);
-  } else {
-    withAlphaLock(visibleCtx, (targetCtx) => {
-      targetCtx.drawImage(rawCanvas as CanvasImageSource, x, y, width, height, x, y, width, height);
-    }, strokeBounds);
+    restoreBaseRegion(region);
   }
+  withAlphaLock(visibleCtx, (targetCtx) => {
+    targetCtx.drawImage(rawCanvas as CanvasImageSource, x, y, width, height, x, y, width, height);
+  }, strokeBounds);
   applyStrokeRisographOverlay(visibleCtx, strokeBounds, rawSource);
 };

@@ -26,6 +26,7 @@ import { applyDithering as applyDitheringImport, applyDitheringWithFillResolutio
 import { canvasPool } from '../utils/canvasPool';
 import { resolveBrushPressureRange } from '@/utils/pressureSettings';
 import { isCcGradientPreset } from '@/presets/brushPresets';
+import { createCcCustomTileThresholdResolver } from '@/utils/colorCycle/ccCustomTilePattern';
 import {
   computePressureResolution,
   createPressureResolutionState,
@@ -309,6 +310,7 @@ export const useBrushEngineSimplified = () => {
   const strokeBoundsRef = useRef<Rect | null>(null);
   const liveStrokeRawRef = useRef<HTMLCanvasElement | OffscreenCanvas | null>(null);
   const liveStrokeDitherRef = useRef<HTMLCanvasElement | OffscreenCanvas | null>(null);
+  const liveStrokeBaseRef = useRef<HTMLCanvasElement | OffscreenCanvas | null>(null);
   const bgOffTempCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const bgOffTempCtxRef = useRef<CanvasRenderingContext2D | null>(null);
   const bgOffHoleCanvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -347,11 +349,23 @@ export const useBrushEngineSimplified = () => {
   }, []);
 
   const ensureLiveStrokeBuffers = useCallback((ctx: CanvasRenderingContext2D): boolean => {
-    return ensureLiveStrokeBuffersForContext(ctx, liveStrokeRawRef, liveStrokeDitherRef);
-  }, []);
+    return ensureLiveStrokeBuffersForContext(
+      ctx,
+      liveStrokeRawRef,
+      liveStrokeDitherRef,
+      liveStrokeBaseRef,
+      tools.brushSettings.brushShape === BrushShape.PIXEL_DITHER &&
+        tools.brushSettings.ditherBackgroundFill === false &&
+        strokeBoundsRef.current === null &&
+        liveStrokeBoundsRef.current === null,
+    );
+  }, [
+    tools.brushSettings.brushShape,
+    tools.brushSettings.ditherBackgroundFill,
+  ]);
 
   const clearLiveStrokeBuffers = useCallback(() => {
-    clearLiveStrokeBufferCanvases(liveStrokeRawRef, liveStrokeDitherRef);
+    clearLiveStrokeBufferCanvases(liveStrokeRawRef, liveStrokeDitherRef, liveStrokeBaseRef);
     liveStrokeBoundsRef.current = null;
     lastSegmentBoundsRef.current = null;
     liveRenderScheduledRef.current = false;
@@ -691,16 +705,29 @@ export const useBrushEngineSimplified = () => {
   const transparentInk = useMemo(() => {
     return pickTransparentInk(strokeDitherPalette);
   }, [strokeDitherPalette]);
+  const strokeImageTileThresholdResolver = useMemo(() => (
+    createCcCustomTileThresholdResolver(project?.ccCustomTilePatterns, {
+      patternTileId: tools.brushSettings.patternTileId,
+      patternTileScale: tools.brushSettings.patternTileScale,
+      patternTileInvert: tools.brushSettings.patternTileInvert,
+      patternTileThreshold: tools.brushSettings.patternTileThreshold,
+      patternTileOffsetX: tools.brushSettings.patternTileOffsetX,
+      patternTileOffsetY: tools.brushSettings.patternTileOffsetY,
+    })
+  ), [
+    project?.ccCustomTilePatterns,
+    tools.brushSettings.patternTileId,
+    tools.brushSettings.patternTileInvert,
+    tools.brushSettings.patternTileOffsetX,
+    tools.brushSettings.patternTileOffsetY,
+    tools.brushSettings.patternTileScale,
+    tools.brushSettings.patternTileThreshold,
+  ]);
 
   const currentBrushPreset = useAppStore((state) => state.currentBrushPreset);
   const activeLayer = useMemo(() => {
     return layers.find((layer) => layer.id === activeLayerId) ?? null;
   }, [layers, activeLayerId]);
-  const isDitherPreset = useMemo(() => {
-    const id = currentBrushPreset?.id;
-    if (!id) return false;
-    return id === 'dither-stroke' || id === 'dither-shape';
-  }, [currentBrushPreset]);
   const isCCGradient = isCcGradientPreset(currentBrushPreset?.id);
   const isCCStrokePreset = currentBrushPreset?.id === 'color-cycle-stroke';
   const isCCGradientActiveLayer = isCCGradient && activeLayer?.layerType === 'color-cycle';
@@ -724,11 +751,11 @@ export const useBrushEngineSimplified = () => {
 
   const isPixelDitherNoBg = useMemo(() => {
     return (
-      isDitherPreset &&
+      isDitherStrokeBrush &&
       shouldApplyStrokeDither &&
       tools.brushSettings.ditherBackgroundFill === false
     );
-  }, [isDitherPreset, shouldApplyStrokeDither, tools.brushSettings.ditherBackgroundFill]);
+  }, [isDitherStrokeBrush, shouldApplyStrokeDither, tools.brushSettings.ditherBackgroundFill]);
 
   const computePressureScaledResolution = useCallback((pressure: number) => {
     const baseResolution = tools.brushSettings.fillResolution || 1;
@@ -811,6 +838,7 @@ export const useBrushEngineSimplified = () => {
       ensureBgOffHole,
       bgOffMaskImageRef,
       strokePhaseOriginRef,
+      imageTileThresholdResolver: strokeImageTileThresholdResolver ?? undefined,
       DD,
     });
   }, [
@@ -820,6 +848,7 @@ export const useBrushEngineSimplified = () => {
     tools.brushSettings,
     transparentInk,
     strokeDitherPalette,
+    strokeImageTileThresholdResolver,
     ensureBgOffHole,
     ensureBgOffTemp
   ]);
@@ -866,12 +895,12 @@ export const useBrushEngineSimplified = () => {
       liveRenderScheduledRef,
       liveStrokeRawRef,
       liveStrokeDitherRef,
+      liveStrokeBaseRef,
       liveStrokeBoundsRef,
       strokeBoundsRef,
       liveDirtyRectRef,
       shouldApplyStrokeDither,
       brushSettings: tools.brushSettings,
-      isDitherStrokeBrush,
       isPixelDitherNoBg,
       warnIfDitherStrokePath,
       withAlphaLock,
@@ -883,7 +912,6 @@ export const useBrushEngineSimplified = () => {
     applyStrokeDither,
     applyStrokeRisographOverlay,
     isPixelDitherNoBg,
-    isDitherStrokeBrush,
     shouldApplyStrokeDither,
     tools.brushSettings,
     warnIfDitherStrokePath,
@@ -930,6 +958,7 @@ export const useBrushEngineSimplified = () => {
       liveStrokeDitherRef,
       strokeBoundsRef,
       ditherBackgroundFill: livePressureDitherSettings.ditherBackgroundFill,
+      pressureDitherSmoosh: tools.brushSettings.pressureDitherSmoosh === true,
       pick2D,
       runPressureLinkedLiveDitherPass,
       getStrokeDitherPixelSize,
@@ -948,6 +977,7 @@ export const useBrushEngineSimplified = () => {
     livePressureDitherSettings,
     getStrokeDitherPixelSize,
     ditherRegionWithCurrentPressure,
+    tools.brushSettings.pressureDitherSmoosh,
   ]);
 
   const resetPressureDitherState = useCallback(() => {
@@ -1111,6 +1141,7 @@ export const useBrushEngineSimplified = () => {
       liveStrokeBoundsRef,
       liveStrokeRawRef,
       liveStrokeDitherRef,
+      liveStrokeBaseRef,
       clearLiveStrokeBuffers,
       clearCoverageMaps,
       finalizeStroke: (targetCtx) => brushEngine.finalizeStroke(targetCtx),
@@ -1123,7 +1154,6 @@ export const useBrushEngineSimplified = () => {
       getStrokeDitherPixelSize,
       ditherRegionWithCurrentPressure,
       applyStrokeDither,
-      isPixelDitherNoBg,
       applyStrokeRisographOverlay,
       isDitherStrokeBrush,
       warnIfDitherStrokePath,
@@ -1138,7 +1168,6 @@ export const useBrushEngineSimplified = () => {
     ditherRegionWithCurrentPressure,
     getStrokeDitherPixelSize,
     isDitherStrokeBrush,
-    isPixelDitherNoBg,
     shouldApplyStrokeDither,
     finalizeStrokeSettings,
     warnIfDitherStrokePath,

@@ -4,9 +4,9 @@ export const blitDitheredRegionWithOverlay = ({
   ctx,
   ditherCanvas,
   rawCanvas,
+  baseCanvas,
   strokeBounds,
   region,
-  isPixelDitherNoBg,
   withAlphaLock,
   applyStrokeRisographOverlay,
   bgOff,
@@ -19,9 +19,9 @@ export const blitDitheredRegionWithOverlay = ({
   ctx: CanvasRenderingContext2D;
   ditherCanvas: HTMLCanvasElement | OffscreenCanvas | null;
   rawCanvas: HTMLCanvasElement | OffscreenCanvas | null;
+  baseCanvas: HTMLCanvasElement | OffscreenCanvas | null;
   strokeBounds: Rect;
   region: Rect;
-  isPixelDitherNoBg: boolean;
   withAlphaLock: (
     ctx: CanvasRenderingContext2D,
     draw: (targetCtx: CanvasRenderingContext2D) => void,
@@ -46,20 +46,23 @@ export const blitDitheredRegionWithOverlay = ({
   const ditherSource = ditherCanvas instanceof HTMLCanvasElement ? ditherCanvas : null;
 
   if (bgOff && clearBgOffOnTarget) {
-    if (isDitherStrokeBrush) {
-      ctx.clearRect(x, y, width, height);
+    if (isDitherStrokeBrush && baseCanvas) {
+      ctx.save();
+      ctx.globalCompositeOperation = 'copy';
+      ctx.drawImage(
+        baseCanvas as CanvasImageSource,
+        x, y, width, height,
+        x, y, width, height
+      );
+      ctx.restore();
     } else {
       warnIfDitherStrokePath(warnContext);
     }
   }
 
-  if (isPixelDitherNoBg) {
-    ctx.drawImage(ditherCanvas as CanvasImageSource, x, y, width, height, x, y, width, height);
-  } else {
-    withAlphaLock(ctx, (targetCtx) => {
-      targetCtx.drawImage(ditherCanvas as CanvasImageSource, x, y, width, height, x, y, width, height);
-    }, strokeBounds);
-  }
+  withAlphaLock(ctx, (targetCtx) => {
+    targetCtx.drawImage(ditherCanvas as CanvasImageSource, x, y, width, height, x, y, width, height);
+  }, strokeBounds);
 
   const rawSource = rawCanvas instanceof HTMLCanvasElement ? rawCanvas : null;
   applyStrokeRisographOverlay(

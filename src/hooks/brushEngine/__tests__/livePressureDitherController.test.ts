@@ -11,6 +11,7 @@ describe('livePressureDitherController', () => {
       liveStrokeDitherRef: { current: null },
       strokeBoundsRef: { current: null },
       ditherBackgroundFill: false,
+      pressureDitherSmoosh: false,
       pick2D: jest.fn(() => null),
       runPressureLinkedLiveDitherPass,
       getStrokeDitherPixelSize: jest.fn(() => 2),
@@ -41,6 +42,7 @@ describe('livePressureDitherController', () => {
       liveStrokeDitherRef: { current: document.createElement('canvas') },
       strokeBoundsRef: { current: { x: 1, y: 2, width: 50, height: 60 } },
       ditherBackgroundFill: false,
+      pressureDitherSmoosh: true,
       pick2D: jest.fn(() => ditherCtx),
       runPressureLinkedLiveDitherPass,
       getStrokeDitherPixelSize: jest.fn(() => 3),
@@ -63,7 +65,7 @@ describe('livePressureDitherController', () => {
       segmentBounds: { x: 5, y: 6, width: 20, height: 24 },
       bgOff: true,
       enableLargeRegionFallback: true,
+      pressureDitherSmoosh: true,
     }));
   });
 });
-

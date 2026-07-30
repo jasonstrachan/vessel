@@ -337,4 +337,26 @@ describe('BrushControls dither stroke tip shapes', () => {
     });
   });
 
+  it('shows stroke tip controls from active settings for a saved dither variant', () => {
+    useAppStore.setState((state) => ({
+      currentBrushPreset: {
+        id: 'saved-dither-variant',
+        name: 'Saved Dither Variant',
+      } as AppState['currentBrushPreset'],
+      tools: {
+        ...state.tools,
+        brushSettings: {
+          ...state.tools.brushSettings,
+          brushShape: BrushShape.PIXEL_DITHER,
+          shapeEnabled: false,
+        },
+      },
+    }));
+
+    render(<BrushControls />);
+
+    expect(screen.getByRole('button', { name: 'Diamond' })).toBeInTheDocument();
+    expect(screen.queryByLabelText('Dither Dephase')).not.toBeInTheDocument();
+  });
+
 });

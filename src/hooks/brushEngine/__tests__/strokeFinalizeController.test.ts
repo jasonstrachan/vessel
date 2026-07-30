@@ -12,6 +12,7 @@ describe('strokeFinalizeController', () => {
 
     const rawCanvas = document.createElement('canvas');
     const ditherCanvas = document.createElement('canvas');
+    const baseCanvas = document.createElement('canvas');
 
     const result = buildStrokeFinalizeContext({
       ctx,
@@ -19,12 +20,14 @@ describe('strokeFinalizeController', () => {
       liveStrokeBoundsRef: { current: { x: 1, y: 2, width: 3, height: 4 } },
       liveStrokeRawRef: { current: rawCanvas },
       liveStrokeDitherRef: { current: ditherCanvas },
+      liveStrokeBaseRef: { current: baseCanvas },
     });
 
     expect(result.strokeBounds).toEqual({ x: -5, y: 10, width: 30, height: 200 });
     expect(result.region).toEqual({ x: 0, y: 10, width: 25, height: 70 });
     expect(result.rawCanvas).toBe(rawCanvas);
     expect(result.ditherCanvas).toBe(ditherCanvas);
+    expect(result.baseCanvas).toBe(baseCanvas);
     expect(result.rawCtx).toBe(rawCanvas.getContext('2d'));
     expect(result.ditherCtx).toBe(ditherCanvas.getContext('2d'));
   });
@@ -38,6 +41,7 @@ describe('strokeFinalizeController', () => {
       liveStrokeBoundsRef: { current: { x: 2, y: 3, width: 4, height: 5 } },
       liveStrokeRawRef: { current: null },
       liveStrokeDitherRef: { current: null },
+      liveStrokeBaseRef: { current: null },
     });
 
     expect(result.strokeBounds).toEqual({ x: 2, y: 3, width: 4, height: 5 });

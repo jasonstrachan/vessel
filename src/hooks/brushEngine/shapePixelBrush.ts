@@ -1,7 +1,11 @@
 import { BrushShape, type BrushSettings } from '@/types';
 import { canvasPool } from '@/utils/canvasPool';
 
-import { getRotatedPixelStamp, type RotatedStampCache } from './shapeRotatedStamp';
+import {
+  buildRotatedStampCacheKey,
+  getRotatedPixelStamp,
+  type RotatedStampCache,
+} from './shapeRotatedStamp';
 
 export interface PixelBrushDependencies {
   createPixelCircleStamp?: (size: number) => HTMLCanvasElement | null;
@@ -112,6 +116,33 @@ const drawSquareOrDiamondTip = (
   isDiamond: boolean,
   deps: PixelBrushDependencies | undefined,
 ) => {
+  if (!isDiamond && Math.abs(quantizedRotation) < 0.01) {
+    drawingCtx.fillRect(
+      Math.round(drawX - stampSize / 2),
+      Math.round(drawY - stampSize / 2),
+      stampSize,
+      stampSize,
+    );
+    return;
+  }
+
+  const colorKey = drawingCtx.fillStyle.toString();
+  const rotation = isDiamond ? Math.PI / 4 + quantizedRotation : quantizedRotation;
+  const cacheKey = isDiamond
+    ? `pixel_diamond_${stampSize}_${colorKey}`
+    : `pixel_square_${stampSize}_${colorKey}`;
+  const cached = deps?.rotatedStampCache?.get(
+    buildRotatedStampCacheKey(cacheKey, rotation)
+  );
+  if (cached) {
+    drawingCtx.drawImage(
+      cached,
+      Math.round(drawX - cached.width / 2),
+      Math.round(drawY - cached.height / 2),
+    );
+    return;
+  }
+
   const squareStamp = document.createElement('canvas');
   squareStamp.width = stampSize;
   squareStamp.height = stampSize;
@@ -119,13 +150,8 @@ const drawSquareOrDiamondTip = (
   if (!sqCtx) return;
 
   sqCtx.imageSmoothingEnabled = false;
-  const colorKey = drawingCtx.fillStyle.toString();
   sqCtx.fillStyle = colorKey || '#000000';
   sqCtx.fillRect(0, 0, stampSize, stampSize);
-  const rotation = isDiamond ? Math.PI / 4 + quantizedRotation : quantizedRotation;
-  const cacheKey = isDiamond
-    ? `pixel_diamond_${stampSize}_${colorKey}`
-    : `pixel_square_${stampSize}_${colorKey}`;
   const rotatedSquare = getRotatedPixelStamp(deps?.rotatedStampCache, squareStamp, rotation, cacheKey);
   drawingCtx.drawImage(
     rotatedSquare,

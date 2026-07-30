@@ -332,7 +332,7 @@ export type SequentialPluginConfigValue = string | number | boolean | null | und
 export interface SequentialBrushSnapshot {
   tool: string;
   brushShape: BrushShape;
-  tipShape?: 'round' | 'square' | 'triangle' | 'diamond5' | 'diamond7' | 'diamond9' | 'checkered';
+  tipShape?: 'round' | 'square' | 'triangle' | 'diamond' | 'diamond5' | 'diamond7' | 'diamond9' | 'checkered';
   size: number;
   opacity: number;
   blendMode: BlendMode;

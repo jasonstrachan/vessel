@@ -32,7 +32,9 @@ export const ensureReusableCanvas2D = (
 export const ensureLiveStrokeBuffersForContext = (
   ctx: CanvasRenderingContext2D,
   rawRef: CanvasRef,
-  ditherRef: CanvasRef
+  ditherRef: CanvasRef,
+  baseRef: CanvasRef,
+  captureBase: boolean
 ): boolean => {
   if (typeof document === 'undefined') {
     return false;
@@ -61,7 +63,23 @@ export const ensureLiveStrokeBuffersForContext = (
 
   ensureCanvas(rawRef);
   ensureCanvas(ditherRef);
-  return Boolean(rawRef.current && ditherRef.current);
+
+  if (captureBase) {
+    ensureCanvas(baseRef);
+  }
+
+  if (captureBase && baseRef.current) {
+    const baseCtx = pick2D(baseRef.current);
+    if (!baseCtx) {
+      return false;
+    }
+    baseCtx.save();
+    baseCtx.globalCompositeOperation = 'copy';
+    baseCtx.drawImage(ctx.canvas, 0, 0);
+    baseCtx.restore();
+  }
+
+  return Boolean(rawRef.current && ditherRef.current && (!captureBase || baseRef.current));
 };
 
 export const clearCanvasSurface = (
@@ -77,8 +95,10 @@ export const clearCanvasSurface = (
 
 export const clearLiveStrokeBufferCanvases = (
   rawRef: CanvasRef,
-  ditherRef: CanvasRef
+  ditherRef: CanvasRef,
+  baseRef: CanvasRef
 ): void => {
   clearCanvasSurface(rawRef.current);
   clearCanvasSurface(ditherRef.current);
+  clearCanvasSurface(baseRef.current);
 };

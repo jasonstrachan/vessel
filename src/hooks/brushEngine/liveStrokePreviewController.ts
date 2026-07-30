@@ -39,12 +39,12 @@ export const renderLiveStrokePreview = ({
   liveRenderScheduledRef,
   liveStrokeRawRef,
   liveStrokeDitherRef,
+  liveStrokeBaseRef,
   liveStrokeBoundsRef,
   strokeBoundsRef,
   liveDirtyRectRef,
   shouldApplyStrokeDither,
   brushSettings,
-  isDitherStrokeBrush,
   isPixelDitherNoBg,
   warnIfDitherStrokePath,
   withAlphaLock,
@@ -56,12 +56,12 @@ export const renderLiveStrokePreview = ({
   liveRenderScheduledRef: { current: boolean };
   liveStrokeRawRef: { current: HTMLCanvasElement | OffscreenCanvas | null };
   liveStrokeDitherRef: { current: HTMLCanvasElement | OffscreenCanvas | null };
+  liveStrokeBaseRef: { current: HTMLCanvasElement | OffscreenCanvas | null };
   liveStrokeBoundsRef: { current: Rect | null };
   strokeBoundsRef: { current: Rect | null };
   liveDirtyRectRef: { current: Rect | null };
   shouldApplyStrokeDither: boolean;
   brushSettings: BrushSettings;
-  isDitherStrokeBrush: boolean;
   isPixelDitherNoBg: boolean;
   warnIfDitherStrokePath: (context: string) => void;
   withAlphaLock: (
@@ -92,12 +92,12 @@ export const renderLiveStrokePreview = ({
     liveRenderScheduledRef: { current: boolean };
     liveStrokeRawRef: { current: HTMLCanvasElement | OffscreenCanvas | null };
     liveStrokeDitherRef: { current: HTMLCanvasElement | OffscreenCanvas | null };
+    liveStrokeBaseRef: { current: HTMLCanvasElement | OffscreenCanvas | null };
     liveStrokeBoundsRef: { current: Rect | null };
     strokeBoundsRef: { current: Rect | null };
     liveDirtyRectRef: { current: Rect | null };
     shouldApplyStrokeDither: boolean;
     brushSettings: BrushSettings;
-    isDitherStrokeBrush: boolean;
     isPixelDitherNoBg: boolean;
     warnIfDitherStrokePath: (context: string) => void;
     withAlphaLock: (
@@ -130,12 +130,12 @@ export const renderLiveStrokePreview = ({
     liveRenderScheduledRef,
     liveStrokeRawRef,
     liveStrokeDitherRef,
+    liveStrokeBaseRef,
     liveStrokeBoundsRef,
     strokeBoundsRef,
     liveDirtyRectRef,
     shouldApplyStrokeDither,
     brushSettings,
-    isDitherStrokeBrush,
     isPixelDitherNoBg,
     warnIfDitherStrokePath,
     withAlphaLock,

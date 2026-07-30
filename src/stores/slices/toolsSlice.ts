@@ -68,7 +68,7 @@ const initialBrushPreset = mosaicBrushPreset;
 const { settings: defaultPresetSettings } = applyBrushPreset(initialBrushPreset);
 const DITHER_BRUSH_IDS = ['dither-stroke', 'dither-shape'];
 const DITHER_ALWAYS_ON_BRUSH_IDS = [...DITHER_BRUSH_IDS, 'dither-grad', 'color-cycle-flat-dither'];
-const BRUSH_SPECIFIC_DITHER_PATTERN_IDS = ['dither-grad'];
+const BRUSH_SPECIFIC_DITHER_PATTERN_IDS = ['dither-stroke', 'dither-shape', 'dither-grad'];
 
 const clampColorCycleLayerSpeedScale = (scale: unknown): number | null => {
   if (typeof scale !== 'number' || !Number.isFinite(scale)) {

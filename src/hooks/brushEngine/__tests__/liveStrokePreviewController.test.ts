@@ -35,12 +35,12 @@ describe('liveStrokePreviewController', () => {
       liveRenderScheduledRef: { current: false },
       liveStrokeRawRef: { current: null },
       liveStrokeDitherRef: { current: null },
+      liveStrokeBaseRef: { current: null },
       liveStrokeBoundsRef: { current: null },
       strokeBoundsRef: { current: null },
       liveDirtyRectRef: { current: null },
       shouldApplyStrokeDither: true,
       brushSettings: {} as BrushSettings,
-      isDitherStrokeBrush: false,
       isPixelDitherNoBg: false,
       warnIfDitherStrokePath: jest.fn(),
       withAlphaLock: jest.fn(),
@@ -71,4 +71,3 @@ describe('liveStrokePreviewController', () => {
     expect(liveRenderScheduledRef.current).toBe(true);
   });
 });
-

@@ -32,6 +32,7 @@ type DitherRegionWithCurrentPressureArgs = {
     ensureBgOffHole: (width: number, height: number) => ReusableCanvas2D | null;
     bgOffMaskImageRef: { current: ImageData | null };
     strokePhaseOriginRef: { current: { x: number; y: number } | null };
+    imageTileThresholdResolver?: (x: number, y: number) => number | null;
     DD: (step: string, obj: Record<string, unknown>) => void;
   }) => void;
   toolsBrushSettings: BrushSettings;
@@ -51,6 +52,7 @@ type DitherRegionWithCurrentPressureArgs = {
   ensureBgOffHole: (width: number, height: number) => ReusableCanvas2D | null;
   bgOffMaskImageRef: { current: ImageData | null };
   strokePhaseOriginRef: { current: { x: number; y: number } | null };
+  imageTileThresholdResolver?: (x: number, y: number) => number | null;
   DD: (step: string, obj: Record<string, unknown>) => void;
 };
 
@@ -72,6 +74,7 @@ export const ditherRegionWithCurrentPressure = ({
   ensureBgOffHole,
   bgOffMaskImageRef,
   strokePhaseOriginRef,
+  imageTileThresholdResolver,
   DD,
 }: DitherRegionWithCurrentPressureArgs): void => {
   ditherRegionWithCurrentPressureUtil({
@@ -91,6 +94,7 @@ export const ditherRegionWithCurrentPressure = ({
     ensureBgOffHole,
     bgOffMaskImageRef,
     strokePhaseOriginRef,
+    imageTileThresholdResolver,
     DD,
   });
 };

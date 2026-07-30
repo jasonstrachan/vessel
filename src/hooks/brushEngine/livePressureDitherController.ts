@@ -10,6 +10,7 @@ type RunLivePressureDitherForCurrentStrokeArgs = {
   liveStrokeDitherRef: MutableRef<HTMLCanvasElement | OffscreenCanvas | null>;
   strokeBoundsRef: MutableRef<Rect | null>;
   ditherBackgroundFill: boolean | undefined;
+  pressureDitherSmoosh: boolean;
   pick2D: (canvas: HTMLCanvasElement | OffscreenCanvas | null) => unknown;
   runPressureLinkedLiveDitherPass: (args: {
     ditherCtx: CanvasRenderingContext2D;
@@ -34,6 +35,7 @@ type RunLivePressureDitherForCurrentStrokeArgs = {
     liveStrokeBoundsRef: MutableRef<Rect | null>;
     liveDirtyRectRef: MutableRef<Rect | null>;
     enableLargeRegionFallback: boolean;
+    pressureDitherSmoosh: boolean;
   }) => void;
   getStrokeDitherPixelSize: () => number;
   committedPixelSizeRef: MutableRef<number | null>;
@@ -60,6 +62,7 @@ export const runLivePressureDitherForCurrentStroke = ({
   liveStrokeDitherRef,
   strokeBoundsRef,
   ditherBackgroundFill,
+  pressureDitherSmoosh,
   pick2D,
   runPressureLinkedLiveDitherPass,
   getStrokeDitherPixelSize,
@@ -99,5 +102,6 @@ export const runLivePressureDitherForCurrentStroke = ({
     liveStrokeBoundsRef,
     liveDirtyRectRef,
     enableLargeRegionFallback,
+    pressureDitherSmoosh,
   });
 };

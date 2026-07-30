@@ -21,6 +21,7 @@ export const runPressureLinkedLiveDitherPass = ({
   liveStrokeBoundsRef,
   liveDirtyRectRef,
   enableLargeRegionFallback,
+  pressureDitherSmoosh,
 }: {
   ditherCtx: CanvasRenderingContext2D;
   rawCtx: CanvasRenderingContext2D;
@@ -51,6 +52,7 @@ export const runPressureLinkedLiveDitherPass = ({
   liveStrokeBoundsRef: { current: Rect | null };
   liveDirtyRectRef: { current: Rect | null };
   enableLargeRegionFallback: boolean;
+  pressureDitherSmoosh: boolean;
 }): void => {
   const canvasW = ditherCtx.canvas?.width ?? 0;
   const canvasH = ditherCtx.canvas?.height ?? 0;
@@ -120,7 +122,7 @@ export const runPressureLinkedLiveDitherPass = ({
 
   const dirtyRegion = liveDirtyRectRef.current ?? region;
   const dirtySafe = normalizeRectForCanvas(dirtyRegion, canvasW, canvasH);
-  const targetRegion = pass.pixelSizeChanged ? region : dirtySafe;
+  const targetRegion = pass.pixelSizeChanged && pressureDitherSmoosh ? region : dirtySafe;
   if (!bgOff) {
     ditherCtx.clearRect(targetRegion.x, targetRegion.y, targetRegion.width, targetRegion.height);
   }

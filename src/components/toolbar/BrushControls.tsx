@@ -357,11 +357,6 @@ const BrushControls = () => {
   const setShapeMode = useAppStore(state => state.setShapeMode);
   const setBrushPreset = useAppStore(state => state.setBrushPreset);
   const brushPresets = useAppStore((state) => state.brushPresets);
-  const isDitherPreset =
-    currentBrushPresetId === 'dither-stroke' ||
-    currentBrushPresetId === 'dither-shape';
-  const isDitherStrokePreset = currentBrushPresetId === 'dither-stroke';
-  const isDitherShapePreset = currentBrushPresetId === 'dither-shape';
   const isCheckeredPreset = currentBrushPresetId === 'checkered';
   const isMosaicPreset = currentBrushPresetId === 'mosaic';
   // For per-layer CC brush speed
@@ -402,6 +397,13 @@ const BrushControls = () => {
   // Determine if current brush is custom (uses percentage) or default (uses pixels)
   const activeSettings =
     currentTool === 'eraser' ? eraserSettings : brushSettings;
+  const isDitherPreset =
+    currentTool === 'brush' &&
+    activeSettings.brushShape === BrushShape.PIXEL_DITHER;
+  const isDitherShapePreset =
+    isDitherPreset && shapeMode;
+  const isDitherStrokePreset =
+    isDitherPreset && !isDitherShapePreset;
   const isCcGradientShapePreset =
     isColorCycleGradientPreset && activeSettings.brushShape === BrushShape.COLOR_CYCLE_SHAPE;
   const showColorCycleGridSnap = isColorCycleStrokePreset || isColorCycleGradientPreset;

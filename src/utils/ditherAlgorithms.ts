@@ -108,6 +108,29 @@ export const VOID_CLUSTER_8x8 = [
 
 type ErrorDiffusionTap = { dx: number; dy: number; weight: number };
 
+const diffuseErrorToOpaquePixel = (
+  data: Uint8ClampedArray,
+  width: number,
+  height: number,
+  x: number,
+  y: number,
+  errorR: number,
+  errorG: number,
+  errorB: number,
+  weight: number
+): void => {
+  if (x < 0 || x >= width || y < 0 || y >= height) {
+    return;
+  }
+  const idx = (y * width + x) * 4;
+  if (data[idx + 3] === 0) {
+    return;
+  }
+  data[idx] = Math.max(0, Math.min(255, data[idx] + errorR * weight));
+  data[idx + 1] = Math.max(0, Math.min(255, data[idx + 1] + errorG * weight));
+  data[idx + 2] = Math.max(0, Math.min(255, data[idx + 2] + errorB * weight));
+};
+
 const applyErrorDiffusionDither = (
   imageData: ImageData,
   settings: DitherSettings,
@@ -129,6 +152,9 @@ const applyErrorDiffusionDither = (
 
     for (let x = xStart; x !== xEnd; x += xStep) {
       const idx = (y * width + x) * 4;
+      if (data[idx + 3] === 0) {
+        continue;
+      }
       const oldR = data[idx];
       const oldG = data[idx + 1];
       const oldB = data[idx + 2];
@@ -148,6 +174,7 @@ const applyErrorDiffusionDither = (
         const ny = y + tap.dy;
         if (nx < 0 || nx >= width || ny < 0 || ny >= height) continue;
         const nIdx = (ny * width + nx) * 4;
+        if (data[nIdx + 3] === 0) continue;
         const factor = tap.weight / divisor;
         data[nIdx] = Math.max(0, Math.min(255, data[nIdx] + errR * factor));
         data[nIdx + 1] = Math.max(0, Math.min(255, data[nIdx + 1] + errG * factor));
@@ -432,6 +459,9 @@ export const applyFloydSteinbergDither = (
   for (let y = 0; y < height; y++) {
     for (let x = 0; x < width; x++) {
       const idx = (y * width + x) * 4;
+      if (data[idx + 3] === 0) {
+        continue;
+      }
 
       const oldR = data[idx];
       const oldG = data[idx + 1];
@@ -452,7 +482,7 @@ export const applyFloydSteinbergDither = (
 
       // Distribute error using Floyd-Steinberg weights
       // Right pixel (7/16)
-      if (x < width - 1) {
+      if (x < width - 1 && data[idx + 7] !== 0) {
         const rightIdx = (y * width + (x + 1)) * 4;
         data[rightIdx] = Math.max(0, Math.min(255, data[rightIdx] + errorR * 7 / 16));
         data[rightIdx + 1] = Math.max(0, Math.min(255, data[rightIdx + 1] + errorG * 7 / 16));
@@ -462,25 +492,31 @@ export const applyFloydSteinbergDither = (
       // Bottom-left pixel (3/16)
       if (y < height - 1 && x > 0) {
         const bottomLeftIdx = ((y + 1) * width + (x - 1)) * 4;
-        data[bottomLeftIdx] = Math.max(0, Math.min(255, data[bottomLeftIdx] + errorR * 3 / 16));
-        data[bottomLeftIdx + 1] = Math.max(0, Math.min(255, data[bottomLeftIdx + 1] + errorG * 3 / 16));
-        data[bottomLeftIdx + 2] = Math.max(0, Math.min(255, data[bottomLeftIdx + 2] + errorB * 3 / 16));
+        if (data[bottomLeftIdx + 3] !== 0) {
+          data[bottomLeftIdx] = Math.max(0, Math.min(255, data[bottomLeftIdx] + errorR * 3 / 16));
+          data[bottomLeftIdx + 1] = Math.max(0, Math.min(255, data[bottomLeftIdx + 1] + errorG * 3 / 16));
+          data[bottomLeftIdx + 2] = Math.max(0, Math.min(255, data[bottomLeftIdx + 2] + errorB * 3 / 16));
+        }
       }
 
       // Bottom pixel (5/16)
       if (y < height - 1) {
         const bottomIdx = ((y + 1) * width + x) * 4;
-        data[bottomIdx] = Math.max(0, Math.min(255, data[bottomIdx] + errorR * 5 / 16));
-        data[bottomIdx + 1] = Math.max(0, Math.min(255, data[bottomIdx + 1] + errorG * 5 / 16));
-        data[bottomIdx + 2] = Math.max(0, Math.min(255, data[bottomIdx + 2] + errorB * 5 / 16));
+        if (data[bottomIdx + 3] !== 0) {
+          data[bottomIdx] = Math.max(0, Math.min(255, data[bottomIdx] + errorR * 5 / 16));
+          data[bottomIdx + 1] = Math.max(0, Math.min(255, data[bottomIdx + 1] + errorG * 5 / 16));
+          data[bottomIdx + 2] = Math.max(0, Math.min(255, data[bottomIdx + 2] + errorB * 5 / 16));
+        }
       }
 
       // Bottom-right pixel (1/16)
       if (y < height - 1 && x < width - 1) {
         const bottomRightIdx = ((y + 1) * width + (x + 1)) * 4;
-        data[bottomRightIdx] = Math.max(0, Math.min(255, data[bottomRightIdx] + errorR * 1 / 16));
-        data[bottomRightIdx + 1] = Math.max(0, Math.min(255, data[bottomRightIdx + 1] + errorG * 1 / 16));
-        data[bottomRightIdx + 2] = Math.max(0, Math.min(255, data[bottomRightIdx + 2] + errorB * 1 / 16));
+        if (data[bottomRightIdx + 3] !== 0) {
+          data[bottomRightIdx] = Math.max(0, Math.min(255, data[bottomRightIdx] + errorR * 1 / 16));
+          data[bottomRightIdx + 1] = Math.max(0, Math.min(255, data[bottomRightIdx + 1] + errorG * 1 / 16));
+          data[bottomRightIdx + 2] = Math.max(0, Math.min(255, data[bottomRightIdx + 2] + errorB * 1 / 16));
+        }
       }
     }
   }
@@ -593,7 +629,6 @@ export const applyBayerDither = (
 
     for (let x = xStart; x !== xEnd; x += xStep) {
       const idx = (y * width + x) * 4;
-
       // Get Bayer threshold for this position
       const bayerValue = matrix[mod(y + offsetY, matrixSize)][mod(x + offsetX, matrixSize)];
       const threshold = (bayerValue - 0.5) * thresholdMultiplier * 128; // Scale to ±64
@@ -643,6 +678,9 @@ export const applyAtkinsonDither = (
 
     for (let x = xStart; x !== xEnd; x += xStep) {
       const idx = (y * width + x) * 4;
+      if (data[idx + 3] === 0) {
+        continue;
+      }
 
       const oldR = data[idx];
       const oldG = data[idx + 1];
@@ -663,54 +701,13 @@ export const applyAtkinsonDither = (
 
       // Distribute error using Atkinson weights (1/8 each to 6 pixels)
       const weight = 1 / 8;
-
-      // Right pixel
-      if (x < width - 1) {
-        const rightIdx = (y * width + (x + 1)) * 4;
-        data[rightIdx] = Math.max(0, Math.min(255, data[rightIdx] + errorR * weight));
-        data[rightIdx + 1] = Math.max(0, Math.min(255, data[rightIdx + 1] + errorG * weight));
-        data[rightIdx + 2] = Math.max(0, Math.min(255, data[rightIdx + 2] + errorB * weight));
-      }
-
-      // Right+1 pixel
-      if (x < width - 2) {
-        const right2Idx = (y * width + (x + 2)) * 4;
-        data[right2Idx] = Math.max(0, Math.min(255, data[right2Idx] + errorR * weight));
-        data[right2Idx + 1] = Math.max(0, Math.min(255, data[right2Idx + 1] + errorG * weight));
-        data[right2Idx + 2] = Math.max(0, Math.min(255, data[right2Idx + 2] + errorB * weight));
-      }
-
-      // Bottom-left pixel
-      if (y < height - 1 && x > 0) {
-        const bottomLeftIdx = ((y + 1) * width + (x - 1)) * 4;
-        data[bottomLeftIdx] = Math.max(0, Math.min(255, data[bottomLeftIdx] + errorR * weight));
-        data[bottomLeftIdx + 1] = Math.max(0, Math.min(255, data[bottomLeftIdx + 1] + errorG * weight));
-        data[bottomLeftIdx + 2] = Math.max(0, Math.min(255, data[bottomLeftIdx + 2] + errorB * weight));
-      }
-
-      // Bottom pixel
-      if (y < height - 1) {
-        const bottomIdx = ((y + 1) * width + x) * 4;
-        data[bottomIdx] = Math.max(0, Math.min(255, data[bottomIdx] + errorR * weight));
-        data[bottomIdx + 1] = Math.max(0, Math.min(255, data[bottomIdx + 1] + errorG * weight));
-        data[bottomIdx + 2] = Math.max(0, Math.min(255, data[bottomIdx + 2] + errorB * weight));
-      }
-
-      // Bottom-right pixel
-      if (y < height - 1 && x < width - 1) {
-        const bottomRightIdx = ((y + 1) * width + (x + 1)) * 4;
-        data[bottomRightIdx] = Math.max(0, Math.min(255, data[bottomRightIdx] + errorR * weight));
-        data[bottomRightIdx + 1] = Math.max(0, Math.min(255, data[bottomRightIdx + 1] + errorG * weight));
-        data[bottomRightIdx + 2] = Math.max(0, Math.min(255, data[bottomRightIdx + 2] + errorB * weight));
-      }
-
-      // Bottom+1 pixel (2 rows down)
-      if (y < height - 2) {
-        const bottom2Idx = ((y + 2) * width + x) * 4;
-        data[bottom2Idx] = Math.max(0, Math.min(255, data[bottom2Idx] + errorR * weight));
-        data[bottom2Idx + 1] = Math.max(0, Math.min(255, data[bottom2Idx + 1] + errorG * weight));
-        data[bottom2Idx + 2] = Math.max(0, Math.min(255, data[bottom2Idx + 2] + errorB * weight));
-      }
+      const direction = leftToRight ? 1 : -1;
+      diffuseErrorToOpaquePixel(data, width, height, x + direction, y, errorR, errorG, errorB, weight);
+      diffuseErrorToOpaquePixel(data, width, height, x + direction * 2, y, errorR, errorG, errorB, weight);
+      diffuseErrorToOpaquePixel(data, width, height, x - direction, y + 1, errorR, errorG, errorB, weight);
+      diffuseErrorToOpaquePixel(data, width, height, x, y + 1, errorR, errorG, errorB, weight);
+      diffuseErrorToOpaquePixel(data, width, height, x + direction, y + 1, errorR, errorG, errorB, weight);
+      diffuseErrorToOpaquePixel(data, width, height, x, y + 2, errorR, errorG, errorB, weight);
     }
   }
 

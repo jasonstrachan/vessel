@@ -8,6 +8,7 @@ export const finalizeStrokeCurrent = ({
   liveStrokeBoundsRef,
   liveStrokeRawRef,
   liveStrokeDitherRef,
+  liveStrokeBaseRef,
   clearLiveStrokeBuffers,
   clearCoverageMaps,
   finalizeStroke,
@@ -20,7 +21,6 @@ export const finalizeStrokeCurrent = ({
   getStrokeDitherPixelSize,
   ditherRegionWithCurrentPressure,
   applyStrokeDither,
-  isPixelDitherNoBg,
   applyStrokeRisographOverlay,
   isDitherStrokeBrush,
   warnIfDitherStrokePath,
@@ -30,6 +30,7 @@ export const finalizeStrokeCurrent = ({
   liveStrokeBoundsRef: { current: Rect | null };
   liveStrokeRawRef: { current: HTMLCanvasElement | OffscreenCanvas | null };
   liveStrokeDitherRef: { current: HTMLCanvasElement | OffscreenCanvas | null };
+  liveStrokeBaseRef: { current: HTMLCanvasElement | OffscreenCanvas | null };
   clearLiveStrokeBuffers: () => void;
   clearCoverageMaps: () => void;
   finalizeStroke: (ctx: CanvasRenderingContext2D) => void;
@@ -76,7 +77,6 @@ export const finalizeStrokeCurrent = ({
       bgOffComposite?: 'copy' | 'source-over';
     }
   ) => void;
-  isPixelDitherNoBg: boolean;
   applyStrokeRisographOverlay: (
     ctx: CanvasRenderingContext2D,
     bounds: Rect | null,
@@ -91,6 +91,7 @@ export const finalizeStrokeCurrent = ({
     liveStrokeBoundsRef,
     liveStrokeRawRef,
     liveStrokeDitherRef,
+    liveStrokeBaseRef,
     clearLiveStrokeBuffers,
     clearCoverageMaps,
     finalizeStroke,
@@ -105,7 +106,6 @@ export const finalizeStrokeCurrent = ({
     getStrokeDitherPixelSize,
     ditherRegionWithCurrentPressure,
     applyStrokeDither,
-    isPixelDitherNoBg,
     applyStrokeRisographOverlay,
     isDitherStrokeBrush,
     warnIfDitherStrokePath,

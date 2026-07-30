@@ -268,6 +268,25 @@ describe('tools slice', () => {
     );
   });
 
+  it('persists algorithm and built-in pattern choices for dither stroke brushes', () => {
+    const store = useAppStore.getState();
+    const preset = brushPresets.find((candidate) => candidate.id === 'dither-stroke');
+    expect(preset).toBeTruthy();
+    store.setBrushPreset(preset!, true);
+
+    store.setBrushSettings({
+      ditherAlgorithm: 'pattern',
+      patternStyle: 'crosshatch',
+    });
+
+    expect(useAppStore.getState().brushSpecificSettings['dither-stroke']).toEqual(
+      expect.objectContaining({
+        ditherAlgorithm: 'pattern',
+        patternStyle: 'crosshatch',
+      })
+    );
+  });
+
   it('defaults Dither Shape to fill-only edges', () => {
     const ditherShapePreset = brushPresets.find((candidate) => candidate.id === 'dither-shape');
 
