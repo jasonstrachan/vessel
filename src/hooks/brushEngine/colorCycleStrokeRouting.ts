@@ -1,4 +1,5 @@
 import { type BrushSettings } from '@/types';
+import { drawPixelPerfectLine } from '@/brushes/shapes';
 import { debugLog } from '@/utils/debug';
 import {
   applyColorCycleBrushLayerSnapshotToRuntime,
@@ -221,10 +222,12 @@ type FreehandStrokeOptions = StrokePreviewRefs & {
   y: number;
   speedSamplePxPerMs?: number;
   brushSize: number;
+  usePixelPerfectLine: boolean;
   ctx: CanvasRenderingContext2D;
   renderColorCycle: StrokePreviewRender;
   paintStrokePoint: (x: number, y: number) => void;
   healPaintedEraseMask: () => void;
+  strokePointRef: { current: GridSnapPoint | null };
 };
 
 export const handleFreehandColorCycleStroke = ({
@@ -232,18 +235,22 @@ export const handleFreehandColorCycleStroke = ({
   y,
   speedSamplePxPerMs,
   brushSize,
+  usePixelPerfectLine,
   ctx,
   renderColorCycle,
   paintStrokePoint,
   healPaintedEraseMask,
+  strokePointRef,
   firstStampImmediateRef,
   mirrorScheduledRef,
 }: FreehandStrokeOptions): void => {
-  const win = window as Window & { __ccLastFreehandRef?: { x: number | null; y: number | null } };
-  const lastFreehandRef = win.__ccLastFreehandRef ??= { x: null, y: null };
-  const lx = lastFreehandRef.x;
-  const ly = lastFreehandRef.y;
-  const segDist = lx == null || ly == null ? 0 : Math.hypot(x - lx, y - ly);
+  const currentPoint = usePixelPerfectLine
+    ? { x: Math.round(x), y: Math.round(y) }
+    : { x, y };
+  const previousPoint = strokePointRef.current;
+  const segDist = previousPoint
+    ? Math.hypot(currentPoint.x - previousPoint.x, currentPoint.y - previousPoint.y)
+    : 0;
 
   if (
     process.env.NODE_ENV !== 'production' &&
@@ -260,9 +267,26 @@ export const handleFreehandColorCycleStroke = ({
     });
   }
 
-  lastFreehandRef.x = x;
-  lastFreehandRef.y = y;
-  paintStrokePoint(x, y);
+  if (usePixelPerfectLine && previousPoint) {
+    let isSegmentStart = true;
+    drawPixelPerfectLine(
+      ctx,
+      previousPoint.x,
+      previousPoint.y,
+      currentPoint.x,
+      currentPoint.y,
+      (pixelX, pixelY) => {
+        if (isSegmentStart) {
+          isSegmentStart = false;
+          return;
+        }
+        paintStrokePoint(pixelX, pixelY);
+      },
+    );
+  } else {
+    paintStrokePoint(x, y);
+  }
+  strokePointRef.current = currentPoint;
   healPaintedEraseMask();
   scheduleColorCycleStrokePreview({
     ctx,

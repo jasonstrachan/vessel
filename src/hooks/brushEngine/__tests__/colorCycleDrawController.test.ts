@@ -190,6 +190,80 @@ describe('colorCycleDrawController', () => {
     expect(firstStampImmediateRef.current).toBe(false);
   });
 
+  it('rasterizes sparse 1px freehand input through the pixel-perfect line path', () => {
+    const ctx = createCtx();
+    const brush = createBrush();
+    const strokePointRef = { current: null as { x: number; y: number } | null };
+    const baseArgs = {
+      ctx,
+      pressure: 1,
+      rotation: 0,
+      brushSettings: {
+        size: 1,
+        brushShape: BrushShape.COLOR_CYCLE,
+        colorCycleStampShape: 'square' as const,
+        color: '#ff0000',
+        colorCycleGradient: previewGradient,
+        gridSnapEnabled: false,
+        gridSnapSize: 8,
+        pressureEnabled: false,
+        minPressure: 0,
+        maxPressure: 100,
+      },
+      activeLayerId: 'layer-1',
+      activeLayerTransparencyLock: false,
+      getActiveLayerColorCycleBrush: () => brush as unknown as ColorCycleDrawBrush,
+      getActiveLayerBitmapCanvas: () => null,
+      maskHasAlphaNear: jest.fn(() => true),
+      resolveBrushPressureRange: () => ({ enabled: false, minPercent: 100, maxPercent: 100 }),
+      requestGradientApply: jest.fn(),
+      flushGradientApply: jest.fn(),
+      renderColorCycle: jest.fn(),
+      firstStampImmediateRef: { current: true },
+      mirrorScheduledRef: { current: false },
+      gridSnapStrokePointRef: strokePointRef,
+      roundedCornerAnchorsRef: { current: [] },
+      roundedCornerBaselineSnapshotRef: { current: null },
+    };
+
+    drawColorCycleStroke({ ...baseArgs, x: 2, y: 2 });
+    drawColorCycleStroke({ ...baseArgs, x: 6, y: 4 });
+
+    expect((brush.paint as jest.Mock).mock.calls.map((call) => [call[0], call[1]])).toEqual([
+      [2, 2],
+      [3, 2],
+      [4, 3],
+      [5, 3],
+      [6, 4],
+    ]);
+
+    strokePointRef.current = null;
+    (brush.paintCustomStamp as jest.Mock).mockClear();
+    const customStamp = {
+      imageData: new ImageData(1, 1),
+      width: 1,
+      height: 1,
+    };
+
+    drawColorCycleStroke({
+      ...baseArgs,
+      x: 2,
+      y: 2,
+      options: { customStamp },
+    });
+    drawColorCycleStroke({
+      ...baseArgs,
+      x: 6,
+      y: 4,
+      options: { customStamp },
+    });
+
+    expect((brush.paintCustomStamp as jest.Mock).mock.calls.map((call) => [call[1], call[2]])).toEqual([
+      [2, 2],
+      [6, 4],
+    ]);
+  });
+
   it('heals the erase mask from changed CC paint before rendering live stroke preview', () => {
     const ctx = createCtx();
     const brush = createBrush();

@@ -458,10 +458,10 @@ export const applyStampDitherMask = (
   }
 
   const halfSize = brushSize / 2;
-  const minX = Math.max(0, Math.floor(x - halfSize));
-  const maxX = Math.min(width - 1, Math.floor(x + halfSize));
-  const minY = Math.max(0, Math.floor(y - halfSize));
-  const maxY = Math.min(height - 1, Math.floor(y + halfSize));
+  const minX = Math.max(0, Math.ceil(x - halfSize));
+  const maxX = Math.min(width - 1, Math.ceil(x + halfSize) - 1);
+  const minY = Math.max(0, Math.ceil(y - halfSize));
+  const maxY = Math.min(height - 1, Math.ceil(y + halfSize) - 1);
   if (writer) {
     for (let py = minY; py <= maxY; py++) {
       writeStampDitherBgFillSpan(

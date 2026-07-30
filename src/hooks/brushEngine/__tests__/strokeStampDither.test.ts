@@ -46,6 +46,47 @@ describe('strokeStampDither', () => {
     expect(getImageTileResolverCacheKey(runtime, resolver)).toBe('1');
   });
 
+  it('keeps a 1px dithered square stamp to one pixel', () => {
+    const width = 8;
+    const height = 8;
+    const animator = buildAnimator(width, height);
+    const state = {
+      paint: new Uint8Array(width * height),
+      gradientIdBuffer: new Uint8Array(width * height),
+      speedBuffer: new Uint8Array(width * height),
+      stampDitherStrokeEpoch: 1,
+      stampDitherStampSeq: 0,
+    };
+
+    const result = stampDither.applyStampDitherStamp({
+      animator: animator as unknown as Parameters<typeof stampDither.applyStampDitherStamp>[0]['animator'],
+      state,
+      config: {
+        algorithm: 'sierra-lite',
+        pixelSize: 1,
+        patternStyle: 'dots',
+        bgFill: true,
+        pressureLinked: false,
+        seed: 1,
+      },
+      runtime: stampDither.createStampDitherRuntime(),
+      stampShape: 'square',
+      x: 4,
+      y: 4,
+      pressure: 1,
+      pressureSize: 1,
+      primaryIndex: 5,
+      flowSlot: 1,
+      cycleSpeed: 1,
+      width,
+      height,
+      isAnimating: false,
+    });
+
+    expect(result.bounds).toEqual({ minX: 4, minY: 4, maxX: 4, maxY: 4 });
+    expect(animator.handle.data.filter((value) => value !== 0)).toHaveLength(1);
+  });
+
   it('no cross-stroke leakage when stampSeq repeats', () => {
     const width = 8;
     const height = 8;

@@ -369,10 +369,15 @@ export const drawColorCycleStroke = ({
       y,
       speedSamplePxPerMs: options?.speedSamplePxPerMs,
       brushSize: brushSizeSetting,
+      usePixelPerfectLine:
+        !options?.customStamp &&
+        brushSizeSetting === 1 &&
+        stampShape === 'square',
       ctx,
       renderColorCycle,
       paintStrokePoint,
       healPaintedEraseMask,
+      strokePointRef: gridSnapStrokePointRef,
       firstStampImmediateRef,
       mirrorScheduledRef,
     });
