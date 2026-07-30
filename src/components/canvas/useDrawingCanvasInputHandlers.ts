@@ -3,6 +3,7 @@ import { useCanvasEventHandlers } from '@/hooks/canvas/useCanvasEventHandlers';
 import { useDrawingCanvasPointerHandlers } from './useDrawingCanvasPointerHandlers';
 import { useDrawingCanvasEventBindings } from './useDrawingCanvasEventBindings';
 import { BrushShape } from '@/types';
+import { isDitherShapeMode } from '@/utils/brushCategories';
 
 type UseCanvasEventHandlersArgs = Parameters<typeof useCanvasEventHandlers>[0];
 type PointerHandlersArgs = Parameters<typeof useDrawingCanvasPointerHandlers>[0];
@@ -61,9 +62,10 @@ export const useDrawingCanvasInputHandlers = ({
   ...eventHandlerArgs
 }: UseDrawingCanvasInputHandlersOptions) => {
   const { project } = eventHandlerArgs;
+  const activeBrushShape = eventHandlerArgs.tools.brushSettings.brushShape ?? brushShape;
   const isShapePresetAllowingOutsideStart =
     eventHandlerArgs.tools.shapeMode === true &&
-    (eventHandlerArgs.currentBrushPresetId === 'dither-shape' ||
+    (isDitherShapeMode(activeBrushShape, eventHandlerArgs.tools.shapeMode) ||
       eventHandlerArgs.currentBrushPresetId === 'dither-grad' ||
       isCcGradientPreset(eventHandlerArgs.currentBrushPresetId));
   const allowPointerDownOutsideCanvasShape =

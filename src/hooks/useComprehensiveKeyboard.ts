@@ -13,6 +13,7 @@ import {
   resolveScopedShortcutAction,
 } from '@/hooks/keyboard/shortcutRegistry';
 import { logCCMutation, summarizeColorCycleLayer } from '@/utils/colorCycle/ccMutationAudit';
+import { isDitherShapeMode } from '@/utils/brushCategories';
 
 const MIN_BRUSH_SIZE = 1;
 const MAX_BRUSH_SIZE = 500;
@@ -197,7 +198,8 @@ const clampShapeResolution = (value: number, max: number): number => {
 
 const resolveBracketShortcutTarget = (
   currentTool: Tool,
-  brushSettings: Pick<BrushSettings, 'brushShape' | 'colorCycleFillMode' | 'shapeEnabled'>
+  brushSettings: Pick<BrushSettings, 'brushShape' | 'colorCycleFillMode'>,
+  shapeMode: boolean,
 ): BracketShortcutTarget => {
   if (currentTool !== 'brush') {
     return 'brush-size';
@@ -206,9 +208,7 @@ const resolveBracketShortcutTarget = (
   const isCcShape =
     brushSettings.brushShape === BrushShape.COLOR_CYCLE_SHAPE &&
     brushSettings.colorCycleFillMode !== 'stroke';
-  const isDitherShape =
-    brushSettings.brushShape === BrushShape.PIXEL_DITHER &&
-    brushSettings.shapeEnabled === true;
+  const isDitherShape = isDitherShapeMode(brushSettings.brushShape, shapeMode);
   const isDitherGradient =
     brushSettings.brushShape === BrushShape.DITHER_GRADIENT;
 
@@ -635,7 +635,8 @@ export function useComprehensiveKeyboard({
     if (isBracketShortcut) {
       const bracketTarget = resolveBracketShortcutTarget(
         tools.currentTool,
-        tools.brushSettings
+        tools.brushSettings,
+        tools.shapeMode,
       );
       const direction: -1 | 1 = isBracketLeftEvent(event) ? -1 : 1;
       if (bracketTarget !== 'brush-size') {

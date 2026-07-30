@@ -104,3 +104,14 @@ export function supportsDither(brushShape: BrushShape | string): boolean {
     shape === BrushShape.DITHER_GRADIENT
   );
 }
+
+/**
+ * Dither Shape is an active tool mode, not a preset identity. Saved and
+ * duplicated presets can carry the same brush settings under a different id.
+ */
+export function isDitherShapeMode(
+  brushShape: BrushShape | string | undefined,
+  shapeMode: boolean,
+): boolean {
+  return brushShape === BrushShape.PIXEL_DITHER && shapeMode;
+}

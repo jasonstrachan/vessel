@@ -23,6 +23,7 @@ type Props = {
   hideLostEdge?: boolean; // suppress the Lostedge slider (useful when shown elsewhere)
   hideResolution?: boolean; // hide the resolution slider (for shape-specific UIs)
   showPxlEdgeToggle?: boolean;
+  showStrokeOnlyControls?: boolean;
 };
 
 export { PATTERN_STYLES };
@@ -58,7 +59,8 @@ export const DitherControls: React.FC<Props> = ({
   afterResolution,
   hideLostEdge = false,
   hideResolution = false,
-  showPxlEdgeToggle = false
+  showPxlEdgeToggle = false,
+  showStrokeOnlyControls = true,
 }) => {
   void _isDitherPreset;
   const ditherEnabled = forceOn ? true : Boolean(settings.ditherEnabled);
@@ -224,17 +226,19 @@ export const DitherControls: React.FC<Props> = ({
             </div>
           )}
 
-          <div className="flex items-center gap-2 mt-1">
-            <label className={labelWidth} style={labelStyle} title="Re-dither whole stroke with latest pressure (legacy behavior)">
-              Smoosh
-            </label>
-            <CustomSwitch
-              checked={Boolean(settings.pressureDitherSmoosh)}
-              onChange={(checked) => onChange({ pressureDitherSmoosh: checked })}
-              aria-label="Pressure dither Smoosh"
-              disabled={!settings.pressureLinkedFillResolution}
-            />
-          </div>
+          {showStrokeOnlyControls && (
+            <div className="flex items-center gap-2 mt-1">
+              <label className={labelWidth} style={labelStyle} title="Re-dither whole stroke with latest pressure (legacy behavior)">
+                Smoosh
+              </label>
+              <CustomSwitch
+                checked={Boolean(settings.pressureDitherSmoosh)}
+                onChange={(checked) => onChange({ pressureDitherSmoosh: checked })}
+                aria-label="Pressure dither Smoosh"
+                disabled={!settings.pressureLinkedFillResolution}
+              />
+            </div>
+          )}
 
         </>
       )}

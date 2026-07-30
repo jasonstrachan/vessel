@@ -1,7 +1,10 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import React from 'react';
 import { createPointerHandlers } from '../pointerHandlers';
-import { resolveShapePreviewOpacity } from '../pointerHandlersRuntime';
+import {
+  resolveDitherShapePreviewMaskOptions,
+  resolveShapePreviewOpacity,
+} from '../pointerHandlersRuntime';
 import { useAppStore } from '@/stores/useAppStore';
 import { BrushShape, type Project } from '@/types';
 import { RecolorManager } from '@/lib/colorCycle/RecolorManager';
@@ -335,15 +338,37 @@ describe('pointerHandlers main flows', () => {
     global.requestAnimationFrame = originalRaf;
   });
 
-  it('keeps regular dither-shape preview opaque to match finalize alpha', () => {
+  it('uses brush opacity for dither-shape preview', () => {
     expect(resolveShapePreviewOpacity({
       isColorCycleGradientPreview: false,
       isDitherShapePreview: true,
-    })).toBe(1);
+      brushOpacity: 0.35,
+    })).toBe(0.35);
     expect(resolveShapePreviewOpacity({
       isColorCycleGradientPreview: true,
       isDitherShapePreview: false,
     })).toBe(0.8);
+  });
+
+  it('promotes dither-shape preview masks to whole cells only for Pxl Edge', () => {
+    expect(resolveDitherShapePreviewMaskOptions({
+      isDitherShapePreview: true,
+      pixelSize: 7,
+      pxlEdge: true,
+    })).toEqual({
+      hardEdges: true,
+      pixelSize: 7,
+      wholeCells: true,
+    });
+    expect(resolveDitherShapePreviewMaskOptions({
+      isDitherShapePreview: true,
+      pixelSize: 7,
+      pxlEdge: false,
+    })).toEqual({
+      hardEdges: true,
+      pixelSize: undefined,
+      wholeCells: false,
+    });
   });
 
   it('skips pointer down when busy and not adjusting', () => {

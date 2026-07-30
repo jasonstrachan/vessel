@@ -228,7 +228,7 @@ describe('useComprehensiveKeyboard – brush size shortcuts', () => {
 
   it.each([
     {
-      presetId: 'dither-shape',
+      presetId: 'saved-dither-variant',
       presetName: 'Dither Shape',
       brushShape: BrushShape.PIXEL_DITHER,
       shapeEnabled: true,
@@ -274,6 +274,7 @@ describe('useComprehensiveKeyboard – brush size shortcuts', () => {
           tools: {
             ...state.tools,
             currentTool: 'brush',
+            shapeMode: shapeEnabled,
             brushSettings: {
               ...state.tools.brushSettings,
               brushShape,
@@ -321,6 +322,7 @@ describe('useComprehensiveKeyboard – brush size shortcuts', () => {
         tools: {
           ...state.tools,
           currentTool: 'brush',
+          shapeMode: false,
           brushSettings: {
             ...state.tools.brushSettings,
             brushShape: BrushShape.PIXEL_DITHER,

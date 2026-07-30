@@ -9,10 +9,18 @@ import { BrushShape } from '@/types';
 
 jest.mock('@/components/ui/ProgressSlider', () => ({
   __esModule: true,
-  default: ({ value, onChange }: { value: number; onChange: (v: number) => void }) => (
+  default: ({
+    value,
+    onChange,
+    'aria-label': ariaLabel,
+  }: {
+    value: number;
+    onChange: (v: number) => void;
+    'aria-label'?: string;
+  }) => (
     <input
       type="range"
-      aria-label="slider"
+      aria-label={ariaLabel ?? 'slider'}
       value={value}
       onChange={(e) => onChange(Number(e.target.value))}
     />
@@ -337,6 +345,30 @@ describe('BrushControls dither stroke tip shapes', () => {
     });
   });
 
+  it('shows Variety for an active saved dither shape variant', () => {
+    useAppStore.setState((state) => ({
+      currentBrushPreset: {
+        id: 'saved-dither-variant',
+        name: 'Saved Dither Variant',
+      } as AppState['currentBrushPreset'],
+      tools: {
+        ...state.tools,
+        shapeMode: true,
+        brushSettings: {
+          ...state.tools.brushSettings,
+          brushShape: BrushShape.PIXEL_DITHER,
+          shapeEnabled: false,
+          ditherPatternDiversity: 42,
+        },
+      },
+    }));
+
+    render(<BrushControls />);
+
+    expect(screen.getByLabelText('Dither Pattern Diversity')).toHaveValue('42');
+    expect(screen.queryByLabelText('Pressure dither Smoosh')).toBeNull();
+  });
+
   it('shows stroke tip controls from active settings for a saved dither variant', () => {
     useAppStore.setState((state) => ({
       currentBrushPreset: {
@@ -345,6 +377,7 @@ describe('BrushControls dither stroke tip shapes', () => {
       } as AppState['currentBrushPreset'],
       tools: {
         ...state.tools,
+        shapeMode: false,
         brushSettings: {
           ...state.tools.brushSettings,
           brushShape: BrushShape.PIXEL_DITHER,

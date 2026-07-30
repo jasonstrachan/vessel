@@ -3,6 +3,7 @@ import type { AppState } from '@/stores/useAppStore';
 import type { BrushSettings, ShapePoint } from '@/types';
 import { BrushShape } from '@/types';
 import {
+  applyRasterShapeOpacity,
   applyTransparencyLockMaskToContext,
   finalizeRasterShapeFill,
   resolveDitherGradientFinalizeBrushSettings,
@@ -10,6 +11,30 @@ import {
 import { boundingBoxToCaptureRegion } from '@/hooks/canvas/utils/captureRegions';
 
 describe('ShapeFinalizeHandler', () => {
+  it('applies brush opacity to finalized raster alpha without filling holes', () => {
+    const image = {
+      data: new Uint8ClampedArray([
+        10, 20, 30, 255,
+        40, 50, 60, 128,
+        70, 80, 90, 0,
+      ]),
+    } as ImageData;
+    const ctx = {
+      getImageData: jest.fn(() => image),
+      putImageData: jest.fn(),
+    } as unknown as CanvasRenderingContext2D;
+    const region = { x: 2, y: 3, width: 3, height: 1 };
+
+    applyRasterShapeOpacity(ctx, region, 0.25);
+
+    expect(Array.from(image.data)).toEqual([
+      10, 20, 30, 64,
+      40, 50, 60, 32,
+      70, 80, 90, 0,
+    ]);
+    expect(ctx.putImageData).toHaveBeenCalledWith(image, 2, 3);
+  });
+
   it('uses current dither gradient settings over stale session settings on finalize', () => {
     const sessionBrushSettings = {
       brushShape: BrushShape.DITHER_GRADIENT,
@@ -67,7 +92,11 @@ describe('ShapeFinalizeHandler', () => {
     const latestStoreBrushSettings = {
       ...liveBrushSettings,
       color: '#FF00AA',
+      opacity: 0.5,
     } as BrushSettings;
+    const opacityImage = {
+      data: new Uint8ClampedArray([255, 0, 170, 255]),
+    } as ImageData;
 
     const storeRef = {
       current: {
@@ -97,6 +126,8 @@ describe('ShapeFinalizeHandler', () => {
       clearRect: jest.fn(),
       createPattern: jest.fn(() => null),
       fillRect: jest.fn(),
+      getImageData: jest.fn(() => opacityImage),
+      putImageData: jest.fn(),
     } as unknown as CanvasRenderingContext2D;
 
     const shapePoints: ShapePoint[] = [
@@ -138,6 +169,8 @@ describe('ShapeFinalizeHandler', () => {
     expect(ditherArgs.quantizeSourceAlpha).toBe(true);
     expect(ditherArgs.regularDitherVariety).toBe(true);
     expect(ditherArgs).not.toHaveProperty('regularDitherVarietySeed');
+    expect(opacityImage.data[3]).toBe(128);
+    expect(drawCtx.putImageData).toHaveBeenCalled();
   });
 
   it('does not persist temporary pressure-linked dither overrides back to the store on finalize', () => {

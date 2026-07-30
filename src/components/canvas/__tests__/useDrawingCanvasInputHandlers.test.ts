@@ -113,8 +113,13 @@ describe('useDrawingCanvasInputHandlers', () => {
     renderHook(() =>
       useDrawingCanvasInputHandlers(
         buildOptions({
-          tools: buildTools({ shapeMode: true }),
-          currentBrushPresetId: 'dither-shape',
+          tools: buildTools({
+            shapeMode: true,
+            brushSettings: {
+              brushShape: BrushShape.PIXEL_DITHER,
+            } as InputHandlerOptions['tools']['brushSettings'],
+          }),
+          currentBrushPresetId: 'saved-dither-variant',
         })
       )
     );

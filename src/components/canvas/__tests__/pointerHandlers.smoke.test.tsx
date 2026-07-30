@@ -221,13 +221,13 @@ describe('pointerHandlers smoke', () => {
     expect(true).toBe(true);
   });
 
-  it('allows out-of-bounds starts for dither-shape preset in shape mode', () => {
+  it('allows out-of-bounds starts for a saved dither-shape variant', () => {
     const deps = createDeps();
     deps.dynamicDepsRef.current.tools.shapeMode = true;
     deps.dynamicDepsRef.current.tools.brushSettings.brushShape = BrushShape.PIXEL_DITHER;
 
     expect(
-      shouldAllowOutOfBoundsPointerDown(deps.dynamicDepsRef.current.tools, 'dither-shape')
+      shouldAllowOutOfBoundsPointerDown(deps.dynamicDepsRef.current.tools, 'saved-dither-variant')
     ).toBe(true);
   });
 

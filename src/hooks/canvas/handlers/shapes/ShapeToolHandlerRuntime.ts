@@ -46,6 +46,7 @@ import { logLivePreview } from '@/hooks/canvas/utils/livePreviewDebug';
 import { recordSampledCcShapeBreadcrumb } from '@/hooks/canvas/utils/sampledCcShapeBreadcrumbs';
 import { hashStops, type StoredStop } from '@/utils/colorCycleGradientDefs';
 import { simplifyToVertexLimit } from '@/utils/polygonSimplify';
+import { isDitherShapeMode } from '@/utils/brushCategories';
 import { isDragDefinedCcGradientShape } from '@/hooks/canvas/handlers/shapes/ccGradientDrawingGeometry';
 import {
   appendCcGradientClickLinePoint,
@@ -3078,7 +3079,10 @@ export const createShapeToolHandler = (
         const isCCLinear = brushNow.colorCycleFillMode === 'linear';
         const isColorCycleGradientPreset = isCcGradientPreset(presetId);
         const isColorCycleGradientPreview = isCCShape && isCCLinear;
-        const isDitherShapePreview = presetId === 'dither-shape' && tools.shapeMode;
+        const isDitherShapePreview = isDitherShapeMode(
+          brushNow.brushShape,
+          tools.shapeMode,
+        );
         const shouldDitherPreview =
           isCCShape && (isCCLinear || isColorCycleGradientPreset) && Boolean(brushNow.ditherEnabled);
 
@@ -3434,7 +3438,10 @@ export const createShapeToolHandler = (
           overlayCtx.globalAlpha = 0.35;
         } else if (isDitherShapePreview) {
           overlayCtx.fillStyle = tools.brushSettings.color;
-          overlayCtx.globalAlpha = SHAPE_PREVIEW_OPACITY;
+          overlayCtx.globalAlpha = Math.max(
+            0,
+            Math.min(1, brushNow.opacity ?? 1),
+          );
         } else if (tools.shapeMode && !isPolygonGradient && !isShapeFill) {
           overlayCtx.fillStyle = tools.brushSettings.color;
           overlayCtx.globalAlpha = 0.4;

@@ -613,6 +613,31 @@ describe('tools slice', () => {
     expect(useAppStore.getState().tools.shapeMode).toBe(true);
   });
 
+  it('derives dither shape mode from saved preset settings instead of preset id', () => {
+    const basePreset = brushPresets.find((preset) => preset.id === 'dither-shape');
+    expect(basePreset).toBeTruthy();
+    if (!basePreset) {
+      return;
+    }
+
+    const savedVariant = {
+      ...basePreset,
+      id: 'saved-dither-variant',
+      name: 'Saved Dither Variant',
+      preferredSettings: {
+        ...basePreset.preferredSettings,
+        brushShape: BrushShape.PIXEL_DITHER,
+        shapeEnabled: true,
+      },
+    };
+
+    const store = useAppStore.getState();
+    store.setShapeMode(false);
+    store.setBrushPreset(savedVariant);
+
+    expect(useAppStore.getState().tools.shapeMode).toBe(true);
+  });
+
   it('uses 0.03 as the default color cycle speed for the gradient preset', () => {
     const store = useAppStore.getState();
     const gradientPreset = brushPresets.find((preset) => preset.id === 'color-cycle-gradient');

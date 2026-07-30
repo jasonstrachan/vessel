@@ -78,6 +78,32 @@ export const resolveDitherGradientFinalizeBrushSettings = (
   brushShape: BrushShape.DITHER_GRADIENT,
 });
 
+export const applyRasterShapeOpacity = (
+  ctx: CanvasRenderingContext2D,
+  region: CaptureRegion,
+  opacity: number,
+): void => {
+  const clampedOpacity = Math.max(0, Math.min(1, opacity));
+  if (
+    clampedOpacity >= 1 ||
+    region.width <= 0 ||
+    region.height <= 0
+  ) {
+    return;
+  }
+
+  const image = ctx.getImageData(
+    region.x,
+    region.y,
+    region.width,
+    region.height,
+  );
+  for (let index = 3; index < image.data.length; index += 4) {
+    image.data[index] = Math.round(image.data[index] * clampedOpacity);
+  }
+  ctx.putImageData(image, region.x, region.y);
+};
+
 const summarizeRegionPixels = (
   ctx: CanvasRenderingContext2D,
   region: CaptureRegion
@@ -1190,5 +1216,23 @@ export const finalizeRasterShapeFill = ({
       layer: activeLayer,
       fallbackMaskImage: activeLayer.imageData ?? null,
     });
+  }
+
+  if (latestBrushSettings.brushShape === BrushShape.PIXEL_DITHER) {
+    const opacityRegion = unionCaptureRegions(
+      boundingBoxToCaptureRegion(strokeBoundingBox, roiPadding, project),
+      captureRegionFromPoints(shapePoints, roiPadding + 8, project),
+    );
+    if (opacityRegion) {
+      try {
+        applyRasterShapeOpacity(
+          drawCtx,
+          opacityRegion,
+          latestBrushSettings.opacity ?? liveBrushSettings.opacity ?? 1,
+        );
+      } catch (error) {
+        logError('Shape opacity application failed', error);
+      }
+    }
   }
 };

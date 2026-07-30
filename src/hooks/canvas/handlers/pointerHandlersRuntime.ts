@@ -35,18 +35,38 @@ const CC_GRADIENT_DIRECTION_MIN_DISTANCE = 0.5;
 export const resolveShapePreviewOpacity = ({
   isColorCycleGradientPreview,
   isDitherShapePreview,
+  brushOpacity,
 }: {
   isColorCycleGradientPreview: boolean;
   isDitherShapePreview: boolean;
+  brushOpacity?: number;
 }): number => {
   if (isColorCycleGradientPreview) {
     return SHAPE_PREVIEW_OPACITY;
   }
   if (isDitherShapePreview) {
-    return 1;
+    return Math.max(0, Math.min(1, brushOpacity ?? 1));
   }
   return 1;
 };
+
+export const resolveDitherShapePreviewMaskOptions = ({
+  isDitherShapePreview,
+  pixelSize,
+  pxlEdge,
+}: {
+  isDitherShapePreview: boolean;
+  pixelSize?: number;
+  pxlEdge?: boolean;
+}): {
+  hardEdges: boolean;
+  pixelSize?: number;
+  wholeCells: boolean;
+} => ({
+  hardEdges: isDitherShapePreview,
+  pixelSize: isDitherShapePreview && pxlEdge ? pixelSize : undefined,
+  wholeCells: isDitherShapePreview && pxlEdge === true,
+});
 
 export const resolvePreviewDitherPixelSize = ({
   worldPixelSize,
@@ -251,7 +271,11 @@ const cl = {
 };
 // -----------------------------------------------------------
 import { flushAndSetCurrentTool } from '@/utils/toolSwitch';
-import { isStrokeBrush, isShapeFillBrush } from '@/utils/brushCategories';
+import {
+  isDitherShapeMode,
+  isStrokeBrush,
+  isShapeFillBrush,
+} from '@/utils/brushCategories';
 import { isColorCycleBrush } from '@/utils/colorCycleGradients';
 import {
   handleRecolorSamplingPointerDown,
@@ -443,7 +467,8 @@ export const shouldAllowOutOfBoundsPointerDown = (
 ): boolean =>
   tools.brushSettings.brushShape === BrushShape.DITHER_GRADIENT ||
   (tools.shapeMode &&
-    (brushPresetId === 'dither-shape' || isCcGradientPreset(brushPresetId))) ||
+    (isDitherShapeMode(tools.brushSettings.brushShape, tools.shapeMode) ||
+      isCcGradientPreset(brushPresetId))) ||
   (tools.currentTool === 'selection' && (tools.selectionMode ?? 'marquee') === 'marquee');
 
 const shouldUseMagicWandSelectionMode = (tools: EventHandlerDynamicDeps['tools']): boolean =>
@@ -1360,7 +1385,7 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
       ? rawPoints
       : rawPoints.filter((_, idx) => idx % decimationStep === 0 || idx === rawPoints.length - 1);
 
-    const { tools, layers, activeLayerId, currentBrushPresetId } = getDynamicDeps();
+    const { tools, layers, activeLayerId } = getDynamicDeps();
     const brushSettings = tools.brushSettings;
     const isPixelBrush =
       brushSettings.brushShape === BrushShape.PIXEL_ROUND ||
@@ -1376,11 +1401,16 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
     const isColorCycleGradientPreview =
       isColorCycleShapePreview &&
       (brushSettings.colorCycleFillMode === 'linear' || brushSettings.colorCycleFillMode === 'stroke');
-    const isDitherShapePreview = currentBrushPresetId === 'dither-shape';
+    const isDitherShapePreview = isDitherShapeMode(
+      activeBrushShape,
+      tools.shapeMode,
+    );
     const previewOpacity = resolveShapePreviewOpacity({
       isColorCycleGradientPreview,
       isDitherShapePreview,
+      brushOpacity: brushSettings.opacity,
     });
+    const previewContentOpacity = isDitherShapePreview ? 1 : previewOpacity;
     const skipOutline =
       isColorCycleShapePreview ||
       isShapeFillBrush(activeBrushShape) ||
@@ -1447,6 +1477,8 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
       height: worldHeight,
     };
 
+    let previewPixelSize: number | undefined;
+    let previewPxlEdge = false;
     const clipPreviewBufferToShape = () => {
       const localVertices = points.map((point) => ({
         x: (point.x - worldMinX) * scaleX,
@@ -1454,9 +1486,15 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
       }));
       bufferCtx.save();
       bufferCtx.setTransform(1, 0, 0, 1, 0, 0);
-      applyPolygonMaskToCanvasContext(bufferCtx, localVertices, {
-        hardEdges: isDitherShapePreview,
-      });
+      applyPolygonMaskToCanvasContext(
+        bufferCtx,
+        localVertices,
+        resolveDitherShapePreviewMaskOptions({
+          isDitherShapePreview,
+          pixelSize: previewPixelSize,
+          pxlEdge: previewPxlEdge,
+        }),
+      );
       bufferCtx.restore();
     };
 
@@ -1516,7 +1554,7 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
     if (!skipOutline) {
       bufferCtx.strokeStyle = strokeColor;
       bufferCtx.lineWidth = strokeWidth;
-      bufferCtx.globalAlpha = previewOpacity;
+      bufferCtx.globalAlpha = previewContentOpacity;
       bufferCtx.stroke();
     }
 
@@ -1585,7 +1623,7 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
       bufferCtx.fillStyle = strokeColor;
     }
 
-    bufferCtx.globalAlpha = previewOpacity;
+    bufferCtx.globalAlpha = previewContentOpacity;
     bufferCtx.fill();
     bufferCtx.restore();
 
@@ -1606,11 +1644,12 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
       const effectivePixelSize = hadValidShapePressureRef?.current
         ? latestShapePixelSizeRef?.current ?? undefined
         : undefined;
-      const previewPixelSize = resolvePreviewDitherPixelSize({
+      previewPixelSize = resolvePreviewDitherPixelSize({
         worldPixelSize: effectivePixelSize ?? liveBrushSettings.fillResolution,
         scaleX,
         scaleY,
       });
+      previewPxlEdge = liveBrushSettings.pxlEdge === true;
 
       // Skip heavy dither preview for extremely large overlays to reduce lag.
       const overlayArea = overlayRegion.width * overlayRegion.height;

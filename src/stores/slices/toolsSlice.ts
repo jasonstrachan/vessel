@@ -2178,9 +2178,13 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
                     newBrushSettings.brushShape === BrushShape.COLOR_CYCLE_SHAPE;
     const wasShapeFillBrush = state.tools.brushSettings.brushShape === BrushShape.SHAPE_FILL;
     const isShapeFillBrush = newBrushSettings.brushShape === BrushShape.SHAPE_FILL;
-    const forceShapeModePreset = preset.id === 'dither-shape';
+    const isDitherBrush = newBrushSettings.brushShape === BrushShape.PIXEL_DITHER;
+    const forceShapeModePreset =
+      preset.id === 'dither-shape' ||
+      (isDitherBrush && newBrushSettings.shapeEnabled === true);
     const forceShapeOffPreset =
       preset.id === 'dither-stroke' ||
+      (isDitherBrush && newBrushSettings.shapeEnabled !== true) ||
       preset.id === 'checkered' ||
       isRegularPixelPresetId(preset.id);
 

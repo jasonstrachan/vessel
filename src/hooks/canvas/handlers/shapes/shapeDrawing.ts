@@ -59,6 +59,7 @@ import {
 } from '@/hooks/canvas/handlers/colorCycle/colorCycleGradientSourceContract';
 import { startColorCycleRuntimeWarmupForEdit } from '@/hooks/canvas/handlers/colorCycle/colorCycleRuntimeWarmup';
 import { resolveCcPatternPackBrushSettings } from '@/utils/colorCycle/ccCustomTilePattern';
+import { isDitherShapeMode } from '@/utils/brushCategories';
 import {
   type CcStrokeSample,
 } from '@/hooks/canvas/handlers/shapes/ccStrokeShapeGeometry';
@@ -692,8 +693,7 @@ const shouldSnapShapePreviewToGrid = (state: AppState): boolean => {
     return false;
   }
 
-  const isDitherPreset = presetId === 'dither-stroke' || presetId === 'dither-shape';
-  if (isDitherPreset) {
+  if (isDitherShapeMode(brushSettings.brushShape, state.tools.shapeMode)) {
     return true;
   }
 

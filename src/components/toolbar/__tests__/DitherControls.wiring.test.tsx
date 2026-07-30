@@ -224,4 +224,27 @@ describe('DitherControls wiring', () => {
     fireEvent.click(toggle);
     expect(onChange).toHaveBeenCalledWith({ pxlEdge: true });
   });
+
+  it('keeps the wired stroke-only Smoosh control available for dither strokes', () => {
+    const onChange = jest.fn();
+    render(
+      <DitherControls
+        settings={{
+          ...baseSettings,
+          brushShape: BrushShape.PIXEL_DITHER,
+          pressureLinkedFillResolution: true,
+          pressureDitherSmoosh: false,
+        }}
+        onChange={onChange}
+        forceOn
+        hideToggle
+      />
+    );
+
+    const smoosh = screen.getByLabelText('Pressure dither Smoosh');
+    expect(screen.queryByLabelText('Dither Dephase')).toBeNull();
+
+    fireEvent.click(smoosh);
+    expect(onChange).toHaveBeenCalledWith({ pressureDitherSmoosh: true });
+  });
 });
