@@ -137,6 +137,13 @@ const resolveDiffBase = ({ explicitBase, eventPath }) => {
     return explicitBase;
   }
 
+  if (eventPath) {
+    const explicitPushBeforeSha = resolvePushBeforeSha(eventPath);
+    if (explicitPushBeforeSha) {
+      return explicitPushBeforeSha;
+    }
+  }
+
   if (process.env.PLAYBACK_GUARD_BASE_SHA) {
     return process.env.PLAYBACK_GUARD_BASE_SHA;
   }
@@ -151,7 +158,7 @@ const resolveDiffBase = ({ explicitBase, eventPath }) => {
     }
   }
 
-  const pushBeforeSha = resolvePushBeforeSha(eventPath);
+  const pushBeforeSha = resolvePushBeforeSha(null);
   if (pushBeforeSha) {
     return pushBeforeSha;
   }

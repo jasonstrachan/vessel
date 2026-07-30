@@ -29,7 +29,10 @@ const runGate = (files: string[], extraArgs: string[] = []) => {
   }
 };
 
-const runGateFromGitDiff = (extraArgs: string[]) => {
+const runGateFromGitDiff = (
+  extraArgs: string[],
+  envOverrides: NodeJS.ProcessEnv = {},
+) => {
   try {
     const output = execFileSync(
       'node',
@@ -38,6 +41,10 @@ const runGateFromGitDiff = (extraArgs: string[]) => {
         cwd: process.cwd(),
         encoding: 'utf8',
         stdio: ['ignore', 'pipe', 'pipe'],
+        env: {
+          ...process.env,
+          ...envOverrides,
+        },
       },
     );
     return { status: 0, output };
@@ -283,7 +290,10 @@ describe('playback change gate', () => {
     }).trim();
     fs.writeFileSync(eventPath, JSON.stringify({ before: headSha }));
 
-    const result = runGateFromGitDiff(['--event-path', eventPath]);
+    const result = runGateFromGitDiff(
+      ['--event-path', eventPath],
+      { PLAYBACK_GUARD_BASE_SHA: 'invalid-environment-base' },
+    );
 
     expect(result.status).toBe(0);
     expect(result.output).not.toContain('No diff base available');
