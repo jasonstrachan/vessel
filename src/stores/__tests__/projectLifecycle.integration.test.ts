@@ -659,6 +659,13 @@ describe('project slice lifecycle flows', () => {
   });
 
   it('restores persisted display filters when loading a project', async () => {
+    useAppStore.getState().setPendingColorCycleGradientHandoff({
+      presetId: 'color-cycle-stroke',
+      stops: [
+        { position: 0, color: '#ff0000' },
+        { position: 1, color: '#0000ff' },
+      ],
+    });
     const displayFilters: DisplayFilterConfig[] = [
       { id: 'pixelate', enabled: true, settings: { cellSize: 6 } },
       { id: 'round-pixels', enabled: true, settings: { blurRadius: 2.5, threshold: 0.44, crush: 0.52, preserveColor: 0.84 } },
@@ -726,6 +733,7 @@ describe('project slice lifecycle flows', () => {
 
     expect(useAppStore.getState().canvas.zoom).toBe(2);
     expect(useAppStore.getState().canvas.displayFilters).toEqual(displayFilters);
+    expect(useAppStore.getState().pendingColorCycleGradientHandoff).toBeNull();
   });
 
   it('falls back to locally remembered filter settings with all filters disabled when a project has none', async () => {
@@ -1634,6 +1642,13 @@ describe('project slice lifecycle flows', () => {
   });
 
   it('starts a new project with only the default regular and color-cycle layers', async () => {
+    useAppStore.getState().setPendingColorCycleGradientHandoff({
+      presetId: 'color-cycle-stroke',
+      stops: [
+        { position: 0, color: '#ff0000' },
+        { position: 1, color: '#0000ff' },
+      ],
+    });
     useAppStore.getState().markAutosaveDirty('manual');
     const previousRevision = useAppStore.getState().autosave.dirtyRevision;
     useAppStore.getState().newProject(256, 128, 'New Project');
@@ -1645,6 +1660,7 @@ describe('project slice lifecycle flows', () => {
     expect(nextState.layers).toHaveLength(2);
     expect(nextState.layers.map((layer) => layer.name)).toEqual(['Layer 1', 'CC Layer 1']);
     expect(nextState.layers.map((layer) => layer.layerType)).toEqual(['normal', 'color-cycle']);
+    expect(nextState.pendingColorCycleGradientHandoff).toBeNull();
     expect(nextState.autosave.hasUnsavedChanges).toBe(false);
     expect(nextState.autosave.dirtyRevision).toBe(nextState.autosave.savedRevision);
     expect(nextState.autosave.dirtyRevision).toBeGreaterThan(previousRevision);

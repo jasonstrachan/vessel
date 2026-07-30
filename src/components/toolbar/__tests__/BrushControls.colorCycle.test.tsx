@@ -1,5 +1,5 @@
 import React from 'react';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { create } from 'zustand';
 import userEvent from '@testing-library/user-event';
 
@@ -151,8 +151,34 @@ jest.mock('@/components/ui/ButtonGroup', () => ({
 
 jest.mock('@/components/ui/GradientEditor', () => ({
   __esModule: true,
-  GradientEditor: ({ stops }: { stops: Array<{ position: number; color: string }> }) => (
-    <div data-testid="gradient-editor">{stops.length}</div>
+  GradientEditor: ({
+    stops,
+    onChange,
+    onEditStart,
+    onEditEnd,
+  }: {
+    stops: Array<{ position: number; color: string }>;
+    onChange?: (stops: Array<{ position: number; color: string }>) => void;
+    onEditStart?: () => void;
+    onEditEnd?: () => void;
+  }) => (
+    <div data-testid="gradient-editor">
+      {stops.length}
+      <button
+        type="button"
+        aria-label="Edit manual gradient"
+        onClick={() => {
+          onEditStart?.();
+          onChange?.([
+            { position: 0, color: '#ff0000' },
+            { position: 1, color: '#0000ff' },
+          ]);
+          onEditEnd?.();
+        }}
+      >
+        Edit
+      </button>
+    </div>
   ),
 }));
 
@@ -364,6 +390,12 @@ jest.mock('@/stores/useAppStore', () => {
     playColorCycle: () => {},
     pauseColorCycle: () => {},
     colorCycleRuntimeHandlers: {},
+    pendingColorCycleGradientHandoff: null,
+    setPendingColorCycleGradientHandoff: jest.fn((pending) =>
+      store.setState(() => ({
+        pendingColorCycleGradientHandoff: pending,
+      }))
+    ),
     setLayersNeedRecomposition: () => {},
     setLayers: () => {},
     addLayer: () => 'layer-2',
@@ -422,6 +454,63 @@ describe('BrushControls – Color Cycle stroke essentials', () => {
     expect(screen.getByRole('checkbox', { name: 'Grid Snap' })).toBeInTheDocument();
     expect(screen.getByLabelText('Speed')).toBeInTheDocument();
     expect(screen.getByLabelText('Gradient Bands')).toBeInTheDocument();
+  });
+
+  it('carries an off-layer manual gradient edit into the next active CC layer', async () => {
+    const user = userEvent.setup();
+    const regularLayer = {
+      id: 'layer-regular',
+      name: 'Regular',
+      layerType: 'normal',
+    } as unknown as AppState['layers'][number];
+    const colorCycleLayer = {
+      id: 'layer-cc',
+      name: 'CC',
+      layerType: 'color-cycle',
+    } as unknown as AppState['layers'][number];
+    useAppStore.setState((state) => ({
+      ...state,
+      activeLayerId: regularLayer.id,
+      layers: [regularLayer, colorCycleLayer],
+    }));
+
+    const setSharedSpy = jest.spyOn(colorCycleGradients, 'setSharedColorCycleGradient');
+    render(<BrushControls />);
+
+    await user.click(screen.getByRole('button', { name: 'Edit manual gradient' }));
+    const editedStops = [
+      { position: 0, color: '#ff0000' },
+      { position: 1, color: '#0000ff' },
+    ];
+    expect(setSharedSpy).toHaveBeenLastCalledWith(editedStops, { fork: true });
+    expect(useAppStore.getState().pendingColorCycleGradientHandoff).toEqual({
+      stops: editedStops,
+      presetId: 'color-cycle-stroke',
+    });
+
+    act(() => {
+      useAppStore.setState((state) => ({
+        ...state,
+        activeLayerId: colorCycleLayer.id,
+        layers: [regularLayer, colorCycleLayer],
+        tools: {
+          ...state.tools,
+          brushSettings: {
+            ...state.tools.brushSettings,
+            colorCycleGradient: [
+              { position: 0, color: '#000000' },
+              { position: 1, color: '#ffffff' },
+            ],
+          },
+        },
+      }));
+    });
+
+    await waitFor(() => {
+      expect(setSharedSpy).toHaveBeenCalledTimes(2);
+    });
+    expect(setSharedSpy).toHaveBeenLastCalledWith(editedStops, { fork: true });
+    expect(useAppStore.getState().pendingColorCycleGradientHandoff).toBeNull();
   });
 
   it('toggles grid snap for color cycle stroke', async () => {

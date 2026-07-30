@@ -376,6 +376,12 @@ const BrushControls = () => {
   const playColorCycle = useAppStore(state => state.playColorCycle);
   const pauseColorCycle = useAppStore(state => state.pauseColorCycle);
   const colorCycleRuntimeHandlers = useAppStore(state => state.colorCycleRuntimeHandlers);
+  const pendingColorCycleGradientHandoff = useAppStore(
+    state => state.pendingColorCycleGradientHandoff
+  );
+  const setPendingColorCycleGradientHandoff = useAppStore(
+    state => state.setPendingColorCycleGradientHandoff
+  );
   const activeLayer = React.useMemo(
     () => layers.find((layer) => layer.id === activeLayerId) ?? null,
     [layers, activeLayerId]
@@ -1119,6 +1125,14 @@ const BrushControls = () => {
     persistEditedSavedGradient(clonedStops);
     commitColorCycleGradientDraft(clonedStops, { fork: gradientForkRef.current });
     setSharedColorCycleGradient(clonedStops, { fork: gradientForkRef.current });
+    if (isColorCycleStrokePreset && activeLayer?.layerType !== 'color-cycle') {
+      setPendingColorCycleGradientHandoff({
+        stops: clonedStops.map(stop => ({ ...stop })),
+        presetId: currentBrushPresetId,
+      });
+    } else {
+      setPendingColorCycleGradientHandoff(null);
+    }
     gradientForkRef.current = false;
 
     colorCycleRuntimeHandlers?.updateGradient?.(clonedStops);
@@ -1127,7 +1141,11 @@ const BrushControls = () => {
   }, [
     colorCycleRuntimeHandlers,
     commitColorCycleGradientDraft,
+    activeLayer?.layerType,
+    currentBrushPresetId,
+    isColorCycleStrokePreset,
     persistEditedSavedGradient,
+    setPendingColorCycleGradientHandoff,
   ]);
 
   const flushGradientEditorDraft = React.useCallback(() => {
@@ -1191,6 +1209,33 @@ const BrushControls = () => {
     pendingGradientRef.current = currentStops.map(stop => ({ ...stop }));
     gradientDirtyRef.current = false;
   }, [activeSettings.colorCycleGradient]);
+
+  React.useEffect(() => {
+    const pending = pendingColorCycleGradientHandoff;
+    if (!pending || activeLayer?.layerType !== 'color-cycle') {
+      return;
+    }
+    setPendingColorCycleGradientHandoff(null);
+    if (
+      currentBrushPresetId !== pending.presetId ||
+      resolvedGradientSource !== 'manual'
+    ) {
+      return;
+    }
+
+    const stops = pending.stops.map(stop => ({ ...stop }));
+    pendingGradientRef.current = stops;
+    gradientDirtyRef.current = false;
+    gradientForkRef.current = false;
+    setSharedColorCycleGradient(stops, { fork: true });
+  }, [
+    activeLayer?.id,
+    activeLayer?.layerType,
+    currentBrushPresetId,
+    pendingColorCycleGradientHandoff,
+    resolvedGradientSource,
+    setPendingColorCycleGradientHandoff,
+  ]);
 
   React.useEffect(() => {
     const currentStops = activeSettings.colorCycleGradient || DEFAULT_GRADIENT_STOPS;

@@ -217,7 +217,12 @@ import {
   normalizePersistedBrushSettings,
 } from '@/stores/helpers/toolsState';
 import { createColorCycleSlice } from '@/stores/slices/colorCycleSlice';
-import type { CCReason, ColorCycleRuntimeHandlers, ColorCycleUIState } from '@/stores/slices/colorCycleSlice';
+import type {
+  CCReason,
+  ColorCycleRuntimeHandlers,
+  ColorCycleUIState,
+  PendingColorCycleGradientHandoff,
+} from '@/stores/slices/colorCycleSlice';
 import { createSequentialRecordSlice } from '@/stores/slices/sequentialRecordSlice';
 import type { SequentialRecordSlice, SequentialRecordState } from '@/stores/slices/sequentialRecordSlice';
 import { createHistorySlice } from '@/stores/slices/historySlice';
@@ -287,7 +292,12 @@ export {
   selectPlaybackToggleUi,
 } from '@/runtime/playback/playbackSelectors';
 
-export type { CCReason, ColorCycleRuntimeHandlers, ColorCycleUIState } from '@/stores/slices/colorCycleSlice';
+export type {
+  CCReason,
+  ColorCycleRuntimeHandlers,
+  ColorCycleUIState,
+  PendingColorCycleGradientHandoff,
+} from '@/stores/slices/colorCycleSlice';
 export type { SequentialRecordSlice, SequentialRecordState } from '@/stores/slices/sequentialRecordSlice';
 
 
@@ -315,6 +325,10 @@ export interface AppState {
   withColorCycleSuspended: <T>(reason: CCReason, fn: () => T | Promise<T>) => Promise<T>;
   colorCycleRuntimeHandlers: ColorCycleRuntimeHandlers;
   setColorCycleRuntimeHandlers: (handlers: ColorCycleRuntimeHandlers | null) => void;
+  pendingColorCycleGradientHandoff: PendingColorCycleGradientHandoff | null;
+  setPendingColorCycleGradientHandoff: (
+    pending: PendingColorCycleGradientHandoff | null
+  ) => void;
 
   // Sequential record state
   sequentialRecord: SequentialRecordState;

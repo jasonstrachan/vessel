@@ -111,6 +111,7 @@ export const createProjectLifecycle = ({
   let latestProjectReplacementRequest = 0;
   const resetColorCycleRuntimeForProjectReplacement = (reason: string): void => {
     const currentState = get();
+    set({ pendingColorCycleGradientHandoff: null });
     try {
       currentState.colorCycleRuntimeHandlers?.stop?.(reason);
     } catch (error) {

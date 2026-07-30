@@ -44,6 +44,11 @@ export interface ColorCycleRuntimeHandlers {
   setFlowDirection?: (direction: 'forward' | 'backward') => void;
 }
 
+export type PendingColorCycleGradientHandoff = {
+  stops: Array<{ position: number; color: string; opacity?: number }>;
+  presetId: string;
+};
+
 export interface ColorCycleSlice {
   colorCyclePlayback: ColorCycleUIState;
   playColorCycle: (reason: CCReason) => void;
@@ -55,6 +60,10 @@ export interface ColorCycleSlice {
   withColorCycleSuspended: <T>(reason: CCReason, fn: () => T | Promise<T>) => Promise<T>;
   colorCycleRuntimeHandlers: ColorCycleRuntimeHandlers;
   setColorCycleRuntimeHandlers: (handlers: ColorCycleRuntimeHandlers | null) => void;
+  pendingColorCycleGradientHandoff: PendingColorCycleGradientHandoff | null;
+  setPendingColorCycleGradientHandoff: (
+    pending: PendingColorCycleGradientHandoff | null
+  ) => void;
 }
 
 const SHOULD_TRACK_COLOR_CYCLE_REASONS = process.env.NODE_ENV !== 'production';
@@ -216,6 +225,16 @@ export const createColorCycleSlice: StateCreator<AppState, [], [], ColorCycleSli
     setColorCycleRuntimeHandlers: (handlers) =>
       set(() => ({
         colorCycleRuntimeHandlers: handlers ?? {},
+      })),
+    pendingColorCycleGradientHandoff: null,
+    setPendingColorCycleGradientHandoff: (pending) =>
+      set(() => ({
+        pendingColorCycleGradientHandoff: pending
+          ? {
+              ...pending,
+              stops: pending.stops.map((stop) => ({ ...stop })),
+            }
+          : null,
       })),
   };
 };
