@@ -98,6 +98,33 @@ describe('global brush persistence', () => {
     });
   });
 
+  it('migrates the legacy soft square preset into the combined soft brush', async () => {
+    loadMock.mockReturnValue({
+      brushSpecificSettings: {
+        'soft-round': { spacing: 3 },
+        'soft-square': { spacing: 8, dashedEnabled: true },
+      },
+      lastBrushId: 'soft-square',
+    });
+
+    const { BrushShape } = await import('@/types');
+    const { useAppStore } = await import('@/stores/useAppStore');
+    const state = useAppStore.getState();
+
+    expect(state.currentBrushPreset?.id).toBe('soft-round');
+    expect(state.tools.brushSettings.brushShape).toBe(BrushShape.SQUARE);
+    expect(state.tools.brushSettings.spacing).toBe(8);
+    expect(state.tools.brushSettings.dashedEnabled).toBe(true);
+    expect(state.brushSpecificSettings['soft-square']).toBeUndefined();
+    expect(state.brushSpecificSettings['soft-round']).toEqual(
+      expect.objectContaining({
+        brushShape: BrushShape.SQUARE,
+        spacing: 8,
+        dashedEnabled: true,
+      })
+    );
+  });
+
   it('restores dashed brush settings on startup and persists later changes', async () => {
     loadMock.mockReturnValue({
       brushSpecificSettings: {
@@ -676,15 +703,15 @@ describe('global brush persistence', () => {
   it('persists last used brush id', async () => {
     loadMock.mockReturnValue(null);
 
-    const { pixelBrushPreset, roundSquare6Preset } = await import('@/presets/brushPresets');
+    const { defaultBrushPreset, pixelBrushPreset } = await import('@/presets/brushPresets');
     const { useAppStore } = await import('@/stores/useAppStore');
     const store = useAppStore.getState();
 
     // initial set to pixel brush (already default) then switch
-    store.setBrushPreset(roundSquare6Preset);
+    store.setBrushPreset(defaultBrushPreset);
     jest.advanceTimersByTime(300);
     const payload = saveMock.mock.calls.at(-1)?.[0];
-    expect(payload?.lastBrushId).toBe(roundSquare6Preset.id);
+    expect(payload?.lastBrushId).toBe(defaultBrushPreset.id);
 
     // switching back should update
     store.setBrushPreset(pixelBrushPreset);

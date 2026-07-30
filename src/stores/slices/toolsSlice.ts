@@ -958,11 +958,22 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
       if (settings.shapeEnabled !== undefined) settingsToSave.shapeEnabled = newSettings.shapeEnabled;
       if (settings.antialiasing !== undefined) settingsToSave.antialiasing = newSettings.antialiasing;
       if (
-        currentBrushId === 'pixel-square' &&
         settings.brushShape !== undefined &&
         (
-          newSettings.brushShape === BrushShape.SQUARE ||
-          newSettings.brushShape === BrushShape.PIXEL_ROUND
+          (
+            currentBrushId === 'pixel-square' &&
+            (
+              newSettings.brushShape === BrushShape.SQUARE ||
+              newSettings.brushShape === BrushShape.PIXEL_ROUND
+            )
+          ) ||
+          (
+            currentBrushId === 'soft-round' &&
+            (
+              newSettings.brushShape === BrushShape.SQUARE ||
+              newSettings.brushShape === BrushShape.ROUND
+            )
+          )
         )
       ) {
         settingsToSave.brushShape = newSettings.brushShape;

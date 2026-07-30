@@ -961,38 +961,46 @@ const clampColorCycleLayerSpeedScale = (scale: unknown): number | null => {
   return Math.max(MIN_CC_LAYER_SPEED_SCALE, Math.min(MAX_CC_LAYER_SPEED_SCALE, scale));
 };
 
-const migrateLegacyPixelBrushSettings = (
-  payload: GlobalBrushSettingsPayload
+type ConsolidatedBrushMigration = {
+  canonicalId: string;
+  legacyId: string;
+  canonicalShape: BrushShape;
+  legacyShape: BrushShape;
+};
+
+const migrateConsolidatedBrushSettings = (
+  payload: GlobalBrushSettingsPayload,
+  migration: ConsolidatedBrushMigration
 ): GlobalBrushSettingsPayload => {
   const storedMap = payload.brushSpecificSettings;
-  const legacyRoundSettings = storedMap?.['pixel-round'];
-  const wasLegacyRoundActive = payload.lastBrushId === 'pixel-round';
+  const legacySettings = storedMap?.[migration.legacyId];
+  const wasLegacyActive = payload.lastBrushId === migration.legacyId;
 
-  if (!legacyRoundSettings && !wasLegacyRoundActive) {
+  if (!legacySettings && !wasLegacyActive) {
     return payload;
   }
 
-  const canonicalSettings = storedMap?.['pixel-square'];
-  const shouldRestoreRound = wasLegacyRoundActive || !canonicalSettings;
+  const canonicalSettings = storedMap?.[migration.canonicalId];
+  const shouldRestoreLegacy = wasLegacyActive || !canonicalSettings;
   const remainingSettings = { ...storedMap };
-  delete remainingSettings['pixel-round'];
-  const selectedSettings = shouldRestoreRound
-    ? legacyRoundSettings ?? canonicalSettings
+  delete remainingSettings[migration.legacyId];
+  const selectedSettings = shouldRestoreLegacy
+    ? legacySettings ?? canonicalSettings
     : canonicalSettings;
   const mergedSettings = {
     ...selectedSettings,
-    brushShape: shouldRestoreRound
-      ? BrushShape.PIXEL_ROUND
-      : canonicalSettings?.brushShape ?? BrushShape.SQUARE,
+    brushShape: shouldRestoreLegacy
+      ? migration.legacyShape
+      : canonicalSettings?.brushShape ?? migration.canonicalShape,
   };
 
   return {
     ...payload,
     brushSpecificSettings: {
       ...remainingSettings,
-      'pixel-square': mergedSettings,
+      [migration.canonicalId]: mergedSettings,
     },
-    lastBrushId: wasLegacyRoundActive ? 'pixel-square' : payload.lastBrushId,
+    lastBrushId: wasLegacyActive ? migration.canonicalId : payload.lastBrushId,
   };
 };
 
@@ -1001,7 +1009,18 @@ const hydrateGlobalBrushSettings = (): void => {
   if (!storedPayload) {
     return;
   }
-  const payload = migrateLegacyPixelBrushSettings(storedPayload);
+  const pixelMigratedPayload = migrateConsolidatedBrushSettings(storedPayload, {
+    canonicalId: 'pixel-square',
+    legacyId: 'pixel-round',
+    canonicalShape: BrushShape.SQUARE,
+    legacyShape: BrushShape.PIXEL_ROUND,
+  });
+  const payload = migrateConsolidatedBrushSettings(pixelMigratedPayload, {
+    canonicalId: 'soft-round',
+    legacyId: 'soft-square',
+    canonicalShape: BrushShape.ROUND,
+    legacyShape: BrushShape.SQUARE,
+  });
 
   useAppStore.setState((state) => {
     let nextTools = state.tools;

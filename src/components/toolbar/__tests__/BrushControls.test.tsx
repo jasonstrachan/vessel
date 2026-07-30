@@ -89,6 +89,39 @@ describe('BrushControls', () => {
     });
   });
 
+  it('shows the combined soft tip selector first and selects the square tip', () => {
+    mockStore.currentBrushPreset = { id: 'soft-round', name: 'Soft' };
+    mockStore.tools.brushSettings = {
+      ...baseBrushSettings,
+      brushShape: BrushShape.ROUND,
+    };
+
+    render(<BrushControls />);
+
+    const squareButton = screen.getByRole('button', { name: 'Square' });
+    const roundButton = screen.getByRole('button', { name: 'Round' });
+    const sizeSlider = screen.getAllByLabelText(/Brush Size/i)[0];
+
+    expect(roundButton).toHaveClass('font-semibold');
+    expect(
+      roundButton.compareDocumentPosition(sizeSlider) &
+        Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
+
+    fireEvent.click(squareButton);
+
+    expect(mockStore.setBrushSettings).toHaveBeenCalledWith({
+      brushShape: BrushShape.SQUARE,
+    });
+
+    mockStore.setBrushSettings.mockClear();
+    fireEvent.click(roundButton);
+
+    expect(mockStore.setBrushSettings).toHaveBeenCalledWith({
+      brushShape: BrushShape.ROUND,
+    });
+  });
+
   it('renders and updates brush size slider', () => {
     render(<BrushControls />);
     const sizeSlider = screen.getAllByLabelText(/Brush Size/i)[0];

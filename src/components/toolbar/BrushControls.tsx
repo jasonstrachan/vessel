@@ -342,6 +342,9 @@ const BrushControls = () => {
   const currentTool = useAppStore(selectCurrentTool);
   const isPixelPreset =
     currentTool === 'brush' && currentBrushPresetId === 'pixel-square';
+  const isSoftPreset =
+    currentTool === 'brush' && currentBrushPresetId === 'soft-round';
+  const hasSquareRoundTipSelector = isPixelPreset || isSoftPreset;
   const globalBrushSize = useAppStore(selectGlobalBrushSize);
   const ccGradientSource = useAppStore(selectCcGradientSource);
   const ccGradientSampleCount = useAppStore((state) => state.ccGradientSampleCount);
@@ -3888,7 +3891,7 @@ const BrushControls = () => {
 
   return (
     <div className="p-4">
-      {isPixelPreset && (
+      {hasSquareRoundTipSelector && (
         <div className="mb-3">
           <ButtonGroup
             options={[
@@ -3896,7 +3899,8 @@ const BrushControls = () => {
               { label: 'Round', value: 'round' },
             ]}
             value={
-              activeSettings.brushShape === BrushShape.PIXEL_ROUND
+              activeSettings.brushShape === BrushShape.PIXEL_ROUND ||
+              activeSettings.brushShape === BrushShape.ROUND
                 ? 'round'
                 : 'square'
             }
@@ -3904,7 +3908,9 @@ const BrushControls = () => {
               setActiveSettings({
                 brushShape:
                   value === 'round'
-                    ? BrushShape.PIXEL_ROUND
+                    ? isPixelPreset
+                      ? BrushShape.PIXEL_ROUND
+                      : BrushShape.ROUND
                     : BrushShape.SQUARE,
               })
             }

@@ -739,6 +739,31 @@ describe('tools slice', () => {
     );
   });
 
+  it('persists the selected tip shape for the combined soft preset', () => {
+    const store = useAppStore.getState();
+    const softPreset = brushPresets.find((preset) => preset.id === 'soft-round');
+    const mosaicPreset = brushPresets.find((preset) => preset.id === 'mosaic');
+
+    expect(brushPresets.find((preset) => preset.id === 'soft-square')).toBeUndefined();
+    expect(softPreset?.name).toBe('Soft');
+    expect(mosaicPreset).toBeTruthy();
+    if (!softPreset || !mosaicPreset) {
+      return;
+    }
+
+    store.setBrushPreset(softPreset);
+    store.setBrushSettings({ brushShape: BrushShape.SQUARE });
+    expect(
+      useAppStore.getState().brushSpecificSettings['soft-round']?.brushShape
+    ).toBe(BrushShape.SQUARE);
+
+    store.setBrushPreset(mosaicPreset);
+    store.setBrushPreset(softPreset);
+    expect(useAppStore.getState().tools.brushSettings.brushShape).toBe(
+      BrushShape.SQUARE
+    );
+  });
+
   it('manages recolor sampling lifecycle', () => {
     const store = useAppStore.getState();
     store.startRecolorSampling(10, 'brush');

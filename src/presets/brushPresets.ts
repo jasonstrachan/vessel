@@ -394,11 +394,11 @@ export const defaultBrushComponents: BrushComponent[] = [
 // Default brush preset
 export const defaultBrushPreset: BrushPreset = {
   id: 'soft-round',
-  name: 'Soft Round',
+  name: 'Soft',
   category: 'Digital Painting',
   components: defaultBrushComponents,
   thumbnail: '/assets/images/Brush.png',
-  tags: ['default', 'smooth', 'digital-painting'],
+  tags: ['default', 'smooth', 'square', 'round', 'digital-painting'],
   isDefault: true,
   createdAt: new Date(),
   modifiedAt: new Date(),
@@ -495,61 +495,6 @@ export const mosaicBrushPreset: BrushPreset = {
   }
 };
 
-
-// 6px Round Square Brush Components
-export const roundSquare6Components: BrushComponent[] = [
-  {
-    id: 'soft-square-size',
-    type: ComponentType.SIZE_MODIFIER,
-    parameters: {
-      minSize: 1,
-      maxSize: 1000,
-      pressureInfluence: 0.2
-    },
-    priority: 10,
-    enabled: true
-  },
-  {
-    id: 'soft-square-opacity',
-    type: ComponentType.OPACITY_MODIFIER,
-    parameters: {
-      pressureInfluence: 0.3
-    },
-    priority: 20,
-    enabled: true
-  },
-  {
-    id: 'soft-square-antialiasing',
-    type: ComponentType.ANTI_ALIASING,
-    parameters: {
-      mode: 'antialiased'
-    },
-    priority: 30,
-    enabled: true
-  },
-  {
-    id: 'soft-square-shape',
-    type: ComponentType.SHAPE_RENDERER,
-    parameters: {
-      shape: BrushShape.SQUARE
-    },
-    priority: 40,
-    enabled: true
-  }
-];
-
-// 6px Round Square Brush Preset
-export const roundSquare6Preset: BrushPreset = {
-  id: 'soft-square',
-  name: 'Soft Square',
-  category: 'Digital Painting',
-  components: roundSquare6Components,
-  thumbnail: '/assets/images/Brush.png',
-  tags: ['rounded', 'square', '6px', 'smooth'],
-  isDefault: false,
-  createdAt: new Date(),
-  modifiedAt: new Date()
-};
 
 // Color Cycle Stroke Brush Components (shape mode OFF)
 export const colorCycleStrokeBrushComponents: BrushComponent[] = [
@@ -1289,7 +1234,6 @@ export const checkeredBrushPreset: BrushPreset = {
 // Available brush presets
 export const brushPresets: BrushPreset[] = [
   pixelBrushPreset,
-  roundSquare6Preset,
   defaultBrushPreset,
   mosaicBrushPreset,
   pixelDitherPreset,
@@ -1326,9 +1270,6 @@ export const applyBrushPreset = (preset: BrushPreset, userSavedSettings?: Partia
     settings.antialiasing = false;
   } else if (preset.id === 'soft-round') {
     settings.size = 5; // 5px default for default brush
-    settings.antialiasing = true;
-  } else if (preset.id === 'soft-square') {
-    settings.size = 6; // 6px default as per name
     settings.antialiasing = true;
   } else if (preset.id === 'mosaic') {
     settings.size = 60; // 60px default for mosaic brush
