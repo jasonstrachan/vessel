@@ -340,6 +340,8 @@ const BrushControls = () => {
   const brushSettings = useAppStore(selectBrushSettings);
   const eraserSettings = useAppStore(selectEraserSettings);
   const currentTool = useAppStore(selectCurrentTool);
+  const isPixelPreset =
+    currentTool === 'brush' && currentBrushPresetId === 'pixel-square';
   const globalBrushSize = useAppStore(selectGlobalBrushSize);
   const ccGradientSource = useAppStore(selectCcGradientSource);
   const ccGradientSampleCount = useAppStore((state) => state.ccGradientSampleCount);
@@ -3886,6 +3888,32 @@ const BrushControls = () => {
 
   return (
     <div className="p-4">
+      {isPixelPreset && (
+        <div className="mb-3">
+          <ButtonGroup
+            options={[
+              { label: 'Square', value: 'square' },
+              { label: 'Round', value: 'round' },
+            ]}
+            value={
+              activeSettings.brushShape === BrushShape.PIXEL_ROUND
+                ? 'round'
+                : 'square'
+            }
+            onChange={(value) =>
+              setActiveSettings({
+                brushShape:
+                  value === 'round'
+                    ? BrushShape.PIXEL_ROUND
+                    : BrushShape.SQUARE,
+              })
+            }
+            size="sm"
+            className="w-full"
+          />
+        </div>
+      )}
+
       {isActiveCustomBrush && (
         <div className="mb-3">
           <div className="flex items-center gap-2">

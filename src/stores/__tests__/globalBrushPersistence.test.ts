@@ -51,6 +51,53 @@ describe('global brush persistence', () => {
     expect(state.tools.brushSettings.maxPressure).toBe(300);
   });
 
+  it('migrates the legacy pixel round preset into the combined pixel brush', async () => {
+    loadMock.mockReturnValue({
+      brushSpecificSettings: {
+        'pixel-square': { spacing: 2 },
+        'pixel-round': { spacing: 7, dashedEnabled: true },
+      },
+      lastBrushId: 'pixel-round',
+    });
+
+    const { BrushShape } = await import('@/types');
+    const { useAppStore } = await import('@/stores/useAppStore');
+    const state = useAppStore.getState();
+
+    expect(state.currentBrushPreset?.id).toBe('pixel-square');
+    expect(state.tools.brushSettings.brushShape).toBe(BrushShape.PIXEL_ROUND);
+    expect(state.tools.brushSettings.spacing).toBe(7);
+    expect(state.tools.brushSettings.dashedEnabled).toBe(true);
+    expect(state.brushSpecificSettings['pixel-round']).toBeUndefined();
+    expect(state.brushSpecificSettings['pixel-square']).toEqual(
+      expect.objectContaining({
+        brushShape: BrushShape.PIXEL_ROUND,
+        spacing: 7,
+        dashedEnabled: true,
+      })
+    );
+  });
+
+  it('does not blend an inactive legacy round profile into pixel square settings', async () => {
+    loadMock.mockReturnValue({
+      brushSpecificSettings: {
+        'pixel-square': { spacing: 2 },
+        'pixel-round': { dashedEnabled: true },
+      },
+      lastBrushId: 'soft-round',
+    });
+
+    const { BrushShape } = await import('@/types');
+    const { useAppStore } = await import('@/stores/useAppStore');
+    const state = useAppStore.getState();
+
+    expect(state.brushSpecificSettings['pixel-round']).toBeUndefined();
+    expect(state.brushSpecificSettings['pixel-square']).toEqual({
+      spacing: 2,
+      brushShape: BrushShape.SQUARE,
+    });
+  });
+
   it('restores dashed brush settings on startup and persists later changes', async () => {
     loadMock.mockReturnValue({
       brushSpecificSettings: {

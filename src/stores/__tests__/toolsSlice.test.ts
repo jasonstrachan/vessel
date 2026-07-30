@@ -703,15 +703,40 @@ describe('tools slice', () => {
 
   it('ignores setShapeMode(true) while a regular pixel preset is active', () => {
     const store = useAppStore.getState();
-    const pixelRoundPreset = brushPresets.find((preset) => preset.id === 'pixel-round');
-    expect(pixelRoundPreset).toBeTruthy();
-    if (!pixelRoundPreset) {
+    const pixelPreset = brushPresets.find((preset) => preset.id === 'pixel-square');
+    expect(pixelPreset).toBeTruthy();
+    if (!pixelPreset) {
       return;
     }
 
-    store.setBrushPreset(pixelRoundPreset);
+    store.setBrushPreset(pixelPreset);
     store.setShapeMode(true);
     expect(useAppStore.getState().tools.shapeMode).toBe(false);
+  });
+
+  it('persists the selected tip shape for the combined pixel preset', () => {
+    const store = useAppStore.getState();
+    const pixelPreset = brushPresets.find((preset) => preset.id === 'pixel-square');
+    const mosaicPreset = brushPresets.find((preset) => preset.id === 'mosaic');
+
+    expect(brushPresets.find((preset) => preset.id === 'pixel-round')).toBeUndefined();
+    expect(pixelPreset?.name).toBe('Pixel');
+    expect(mosaicPreset).toBeTruthy();
+    if (!pixelPreset || !mosaicPreset) {
+      return;
+    }
+
+    store.setBrushPreset(pixelPreset);
+    store.setBrushSettings({ brushShape: BrushShape.PIXEL_ROUND });
+    expect(
+      useAppStore.getState().brushSpecificSettings['pixel-square']?.brushShape
+    ).toBe(BrushShape.PIXEL_ROUND);
+
+    store.setBrushPreset(mosaicPreset);
+    store.setBrushPreset(pixelPreset);
+    expect(useAppStore.getState().tools.brushSettings.brushShape).toBe(
+      BrushShape.PIXEL_ROUND
+    );
   });
 
   it('manages recolor sampling lifecycle', () => {
@@ -802,12 +827,12 @@ describe('tools slice', () => {
 
     const checkeredPreset = brushPresets.find((candidate) => candidate.id === 'checkered');
     const mosaicPreset = brushPresets.find((candidate) => candidate.id === 'mosaic');
-    const pixelRoundPreset = brushPresets.find((candidate) => candidate.id === 'pixel-round');
+    const pixelPreset = brushPresets.find((candidate) => candidate.id === 'pixel-square');
 
     expect(checkeredPreset).toBeTruthy();
     expect(mosaicPreset).toBeTruthy();
-    expect(pixelRoundPreset).toBeTruthy();
-    if (!checkeredPreset || !mosaicPreset || !pixelRoundPreset) {
+    expect(pixelPreset).toBeTruthy();
+    if (!checkeredPreset || !mosaicPreset || !pixelPreset) {
       return;
     }
 
@@ -819,7 +844,7 @@ describe('tools slice', () => {
     expect(useAppStore.getState().globalBrushSize).toBe(12);
     expect(useAppStore.getState().tools.brushSettings.size).toBe(12);
 
-    store.setBrushPreset(pixelRoundPreset);
+    store.setBrushPreset(pixelPreset);
     expect(useAppStore.getState().globalBrushSize).toBe(12);
     expect(useAppStore.getState().tools.brushSettings.size).toBe(12);
   });

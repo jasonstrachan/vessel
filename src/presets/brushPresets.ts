@@ -318,11 +318,11 @@ export const pixelBrushComponents: BrushComponent[] = [
 // Pixel brush preset
 export const pixelBrushPreset: BrushPreset = {
   id: 'pixel-square',
-  name: 'Pixel Square',
+  name: 'Pixel',
   category: 'Pixel Art',
   components: pixelBrushComponents,
   thumbnail: '/assets/images/Brush.png',
-  tags: ['pixel', 'hard', '1px', 'pixel-art'],
+  tags: ['pixel', 'square', 'round', 'hard', '1px', 'pixel-art'],
   isDefault: true,
   createdAt: new Date(),
   modifiedAt: new Date(),
@@ -495,72 +495,6 @@ export const mosaicBrushPreset: BrushPreset = {
   }
 };
 
-
-// Pixel Round Brush Components
-export const roundPixel4Components: BrushComponent[] = [
-  {
-    id: 'pixel-round-size',
-    type: ComponentType.SIZE_MODIFIER,
-    parameters: {
-      minSize: 1,
-      maxSize: 1000,
-      pressureInfluence: 0
-    },
-    priority: 10,
-    enabled: true
-  },
-  {
-    id: 'pixel-round-opacity',
-    type: ComponentType.OPACITY_MODIFIER,
-    parameters: {
-      pressureInfluence: 0
-    },
-    priority: 20,
-    enabled: true
-  },
-  {
-    id: 'pixel-round-antialiasing',
-    type: ComponentType.ANTI_ALIASING,
-    parameters: {
-      mode: 'pixel'
-    },
-    priority: 30,
-    enabled: true
-  },
-  {
-    id: 'pixel-round-shape',
-    type: ComponentType.SHAPE_RENDERER,
-    parameters: {
-      shape: BrushShape.PIXEL_ROUND
-    },
-    priority: 40,
-    enabled: true
-  }
-];
-
-// Pixel Round Brush Preset
-export const roundPixel4Preset: BrushPreset = {
-  id: 'pixel-round',
-  name: 'Pixel Round',
-  category: 'Pixel Art',
-  components: roundPixel4Components,
-  thumbnail: '/assets/images/Brush.png',
-  tags: ['pixel', 'round', '4px', 'hard'],
-  isDefault: false,
-  createdAt: new Date(),
-  modifiedAt: new Date(),
-  preferredSettings: {
-    size: 4,
-    antialiasing: false,
-    pressureEnabled: false,
-    minPressure: 0,
-    maxPressure: 200,
-    rotationEnabled: false,
-    dashedEnabled: false,
-    gridSnapEnabled: false,
-    shapeEnabled: false
-  }
-};
 
 // 6px Round Square Brush Components
 export const roundSquare6Components: BrushComponent[] = [
@@ -1356,7 +1290,6 @@ export const checkeredBrushPreset: BrushPreset = {
 export const brushPresets: BrushPreset[] = [
   pixelBrushPreset,
   roundSquare6Preset,
-  roundPixel4Preset,
   defaultBrushPreset,
   mosaicBrushPreset,
   pixelDitherPreset,
@@ -1394,9 +1327,6 @@ export const applyBrushPreset = (preset: BrushPreset, userSavedSettings?: Partia
   } else if (preset.id === 'soft-round') {
     settings.size = 5; // 5px default for default brush
     settings.antialiasing = true;
-  } else if (preset.id === 'pixel-round') {
-    settings.size = 4; // 4px default as per name
-    settings.antialiasing = false;
   } else if (preset.id === 'soft-square') {
     settings.size = 6; // 6px default as per name
     settings.antialiasing = true;

@@ -2,17 +2,20 @@
 import React from 'react';
 import { render, screen, fireEvent } from '@testing-library/react';
 import BrushControls from '@/components/toolbar/BrushControls';
+import { BrushShape } from '@/types';
 
+const baseBrushSettings = {
+  brushShape: BrushShape.SQUARE,
+  customBrushSizePercent: 100,
+  opacity: 1,
+  size: 12,
+  spacing: 2,
+  color: '#000000',
+};
 const mockStore = {
+  currentBrushPreset: { id: 'pixel-square', name: 'Pixel' },
   tools: {
-    brushSettings: {
-      brushShape: 'round',
-      customBrushSizePercent: 100,
-      opacity: 1,
-      size: 12,
-      spacing: 2,
-      color: '#000000',
-    },
+    brushSettings: { ...baseBrushSettings },
     eraserSettings: {
       brushShape: 'round',
       size: 8,
@@ -61,6 +64,29 @@ jest.mock('@/stores/useAppStore', () => {
 describe('BrushControls', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    mockStore.currentBrushPreset = { id: 'pixel-square', name: 'Pixel' };
+    mockStore.tools.brushSettings = { ...baseBrushSettings };
+    mockStore.tools.currentTool = 'brush';
+  });
+
+  it('shows the combined pixel tip selector first and selects the round tip', () => {
+    render(<BrushControls />);
+
+    const squareButton = screen.getByRole('button', { name: 'Square' });
+    const roundButton = screen.getByRole('button', { name: 'Round' });
+    const sizeSlider = screen.getAllByLabelText(/Brush Size/i)[0];
+
+    expect(squareButton).toHaveClass('font-semibold');
+    expect(
+      squareButton.compareDocumentPosition(sizeSlider) &
+        Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
+
+    fireEvent.click(roundButton);
+
+    expect(mockStore.setBrushSettings).toHaveBeenCalledWith({
+      brushShape: BrushShape.PIXEL_ROUND,
+    });
   });
 
   it('renders and updates brush size slider', () => {

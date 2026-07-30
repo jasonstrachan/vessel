@@ -961,11 +961,47 @@ const clampColorCycleLayerSpeedScale = (scale: unknown): number | null => {
   return Math.max(MIN_CC_LAYER_SPEED_SCALE, Math.min(MAX_CC_LAYER_SPEED_SCALE, scale));
 };
 
+const migrateLegacyPixelBrushSettings = (
+  payload: GlobalBrushSettingsPayload
+): GlobalBrushSettingsPayload => {
+  const storedMap = payload.brushSpecificSettings;
+  const legacyRoundSettings = storedMap?.['pixel-round'];
+  const wasLegacyRoundActive = payload.lastBrushId === 'pixel-round';
+
+  if (!legacyRoundSettings && !wasLegacyRoundActive) {
+    return payload;
+  }
+
+  const canonicalSettings = storedMap?.['pixel-square'];
+  const shouldRestoreRound = wasLegacyRoundActive || !canonicalSettings;
+  const remainingSettings = { ...storedMap };
+  delete remainingSettings['pixel-round'];
+  const selectedSettings = shouldRestoreRound
+    ? legacyRoundSettings ?? canonicalSettings
+    : canonicalSettings;
+  const mergedSettings = {
+    ...selectedSettings,
+    brushShape: shouldRestoreRound
+      ? BrushShape.PIXEL_ROUND
+      : canonicalSettings?.brushShape ?? BrushShape.SQUARE,
+  };
+
+  return {
+    ...payload,
+    brushSpecificSettings: {
+      ...remainingSettings,
+      'pixel-square': mergedSettings,
+    },
+    lastBrushId: wasLegacyRoundActive ? 'pixel-square' : payload.lastBrushId,
+  };
+};
+
 const hydrateGlobalBrushSettings = (): void => {
-  const payload = loadGlobalBrushSettings();
-  if (!payload) {
+  const storedPayload = loadGlobalBrushSettings();
+  if (!storedPayload) {
     return;
   }
+  const payload = migrateLegacyPixelBrushSettings(storedPayload);
 
   useAppStore.setState((state) => {
     let nextTools = state.tools;
