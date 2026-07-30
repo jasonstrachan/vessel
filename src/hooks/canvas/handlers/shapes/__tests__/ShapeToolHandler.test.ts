@@ -84,6 +84,38 @@ describe('ShapeToolHandler – shape fill tool detection', () => {
     expect(overlayCtx.restore).toHaveBeenCalled();
   });
 
+  it('expands pixel-edge masks to world-aligned whole dither cells', () => {
+    const overlayCtx = {
+      canvas: { width: 8, height: 8 },
+      save: jest.fn(),
+      restore: jest.fn(),
+      beginPath: jest.fn(),
+      rect: jest.fn(),
+      fill: jest.fn(),
+      globalCompositeOperation: 'source-over',
+      fillStyle: '#000000',
+    } as unknown as CanvasRenderingContext2D;
+
+    __shapeToolTestUtils.applyPolygonMaskToCanvasContext(
+      overlayCtx,
+      [
+        { x: 2, y: 1 },
+        { x: 6, y: 1 },
+        { x: 2, y: 5 },
+      ],
+      {
+        origin: { x: 1, y: 1 },
+        pixelSize: 4,
+        wholeCells: true,
+      }
+    );
+
+    expect(overlayCtx.rect).toHaveBeenCalledWith(0, 0, 3, 3);
+    expect(overlayCtx.rect).toHaveBeenCalledWith(3, 0, 4, 3);
+    expect(overlayCtx.rect).toHaveBeenCalledWith(0, 3, 3, 4);
+    expect(overlayCtx.fill).toHaveBeenCalledTimes(1);
+  });
+
   it('keeps cached cc preview visible only for the current replay key', () => {
     expect(
       __shapeToolTestUtils.shouldKeepCachedCcPreviewVisible({

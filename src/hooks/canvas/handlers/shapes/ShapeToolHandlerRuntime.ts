@@ -2883,15 +2883,19 @@ export const createShapeToolHandler = (
     const penDown = event.pointerType === 'pen' && (event.pressure ?? 0) > 0;
     const isActivelyDrawing = mouseDown || penDown;
 
-    const isSelectingCcGradientDirection =
-      isCCShape && drawingHandlers.isSelectingDirectionRef?.current === true;
+    const isSelectingGradientDirection =
+      drawingHandlers.isSelectingDirectionRef?.current === true &&
+      (
+        isCCShape ||
+        tools.brushSettings.brushShape === BrushShape.DITHER_GRADIENT
+      );
 
     // CC shapes should not update shape geometry on hover after mouse up.
-    if (isCCShape && !isActivelyDrawing && !isSelectingCcGradientDirection) {
+    if (isCCShape && !isActivelyDrawing && !isSelectingGradientDirection) {
       return true;
     }
 
-    if (isSelectingCcGradientDirection && !isActivelyDrawing) {
+    if (isSelectingGradientDirection && !isActivelyDrawing) {
       ccDirectionDebug('shape-handler-hover-pass-through', {
         pointCount: drawingHandlers.shapePointsRef.current.length,
         isDrawing: interaction.state.isDrawing,
@@ -3571,7 +3575,11 @@ export const createShapeToolHandler = (
               });
               tempCtx.clearRect(0, 0, w, h);
               tempCtx.putImageData(imageData, 0, 0);
-              applyPolygonMaskToCanvasContext(tempCtx, localVertices);
+              applyPolygonMaskToCanvasContext(tempCtx, localVertices, {
+                origin,
+                pixelSize,
+                wholeCells: Boolean(tools.brushSettings.pxlEdge),
+              });
 
               overlayCtx.save();
               overlayCtx.globalAlpha = SHAPE_PREVIEW_OPACITY;
@@ -3785,7 +3793,9 @@ export const createShapeToolHandler = (
     const isCCShape = isColorCycleShapeBrush();
     const isShapeFill = isShapeFillBrush();
     const liveBrushForUp = getAppStoreState().tools.brushSettings;
-    if (liveBrushForUp.brushShape === BrushShape.DITHER_GRADIENT) {
+    const isDitherGradient = liveBrushForUp.brushShape === BrushShape.DITHER_GRADIENT;
+    if (isDitherGradient) {
+      appendPolygonGradientPoint(computeWorldPointer(event));
       const nowTs =
         typeof performance !== 'undefined' && typeof performance.now === 'function'
           ? performance.now()
@@ -3864,11 +3874,45 @@ export const createShapeToolHandler = (
     }
 
     if (points.length < 3) {
+      if (isDitherGradient) {
+        latestPolygonPreviewPoint = null;
+        clearCurrentPreview();
+        clearOverlayCanvas();
+        resetPolygonAdjustmentState();
+        interaction.dispatch({ type: 'DRAWING_END' });
+      }
       return true;
     }
 
     const vertices = points.map((p: { x: number; y: number }) => ({ x: p.x, y: p.y }));
     const pointerWorld = computeWorldPointer(event);
+    if (isDitherGradient && !drawingHandlers.isSelectingDirectionRef?.current) {
+      drawingHandlers.shapePointsRef.current = vertices;
+      drawingHandlers.isDrawingShapeRef.current = true;
+      drawingHandlers.isSelectingDirectionRef.current = true;
+      drawingHandlers.directionPreviewRef.current = null;
+      latestPolygonPreviewPoint = null;
+      if (previewAnimationFrameRef?.current) {
+        cancelAnimationFrame(previewAnimationFrameRef.current);
+        previewAnimationFrameRef.current = null;
+      }
+      clearCurrentPreview();
+      clearOverlayCanvas();
+      interaction.dispatch({ type: 'DRAWING_END' });
+      stateMachine.finalizationComplete();
+
+      const directionPressure = computePointerPressure(event);
+      drawingHandlers.continueShapeDrawing(
+        pointerWorld,
+        directionPressure,
+        event.timeStamp,
+        event.pressure,
+        { renderPreview: false }
+      );
+      setNeedsRedraw(prev => prev + 1);
+      return true;
+    }
+
     const resolvedColors = resolveShapeFillColors(points);
     const fillColor = getPrimaryColor(resolvedColors);
     drawingHandlers.initDrawingCanvas();

@@ -2140,6 +2140,45 @@ describe('pointerHandlers main flows', () => {
     expect(deps.draw).toHaveBeenCalled();
   });
 
+  it('previews Dither Gradient direction on hover after shape mouse up', () => {
+    const { deps } = createDeps({
+      tools: {
+        ...baseDynamic.tools,
+        currentTool: 'brush',
+        shapeMode: false,
+        brushSettings: {
+          ...baseDynamic.tools.brushSettings,
+          brushShape: BrushShape.DITHER_GRADIENT,
+        } as any,
+      },
+    });
+
+    deps.interaction.state = { isDrawing: false, isSelecting: false, mode: 'idle' } as any;
+    deps.drawingHandlers.isSelectingDirectionRef.current = true;
+    deps.drawingHandlers.isDrawingShapeRef.current = true;
+    deps.drawingHandlers.shapePointsRef.current = [
+      { x: 0, y: 0 },
+      { x: 20, y: 0 },
+      { x: 20, y: 20 },
+    ];
+    const handlers = createPointerHandlers(deps);
+    handlers.handlePointerMove(makePointerEvent({
+      clientX: 40,
+      clientY: 10,
+      buttons: 0,
+      timeStamp: 123,
+    }));
+
+    expect(deps.drawingHandlers.continueShapeDrawing).toHaveBeenCalledWith(
+      { x: 40, y: 10 },
+      expect.any(Number),
+      123,
+      expect.any(Number),
+      { renderPreview: false }
+    );
+    expect(deps.drawingHandlers.drawingCanvasHasContent.current).toBe(true);
+  });
+
   it('commits Shift-snapped direction for linear CC Gradient direction selection', async () => {
     const { deps } = createDeps({
       currentBrushPresetId: 'color-cycle-gradient',
@@ -2184,6 +2223,43 @@ describe('pointerHandlers main flows', () => {
     expect(deps.stateMachine.finalizationComplete).toHaveBeenCalled();
     expect(deps.setNeedsRedraw).toHaveBeenCalled();
     expect(deps.restartColorCycleAnimation).toHaveBeenCalled();
+  });
+
+  it('commits the selected Dither Gradient direction on left click', async () => {
+    const { deps } = createDeps({
+      tools: {
+        ...baseDynamic.tools,
+        currentTool: 'brush',
+        shapeMode: false,
+        brushSettings: {
+          ...baseDynamic.tools.brushSettings,
+          brushShape: BrushShape.DITHER_GRADIENT,
+        } as any,
+      },
+    });
+
+    deps.drawingHandlers.isSelectingDirectionRef.current = true;
+    deps.drawingHandlers.shapePointsRef.current = [
+      { x: 0, y: 0 },
+      { x: 20, y: 0 },
+      { x: 20, y: 20 },
+    ];
+    const finalizationDone = new Promise<void>((resolve) => {
+      (deps.stateMachine.finalizationComplete as jest.Mock).mockImplementation(() => {
+        resolve();
+      });
+    });
+
+    const handlers = createPointerHandlers(deps);
+    handlers.handlePointerDown(makePointerEvent({ clientX: 40, clientY: 10 }));
+
+    expect(deps.drawingHandlers.startShapeDrawing).toHaveBeenCalledWith(
+      { x: 40, y: 10 },
+      expect.any(Number)
+    );
+    expect(deps.drawingHandlers.finalizeShapeDrawing).toHaveBeenCalledTimes(1);
+    await finalizationDone;
+    expect(deps.stateMachine.finalizationComplete).toHaveBeenCalled();
   });
 
   it('keeps linear CC Gradient direction selection active for centroid clicks', () => {
@@ -2357,6 +2433,111 @@ describe('pointerHandlers main flows', () => {
     expect(setSequentialPointerDown).toHaveBeenCalledWith(false);
     expect(deps.setNeedsRedraw).toHaveBeenCalled();
     expect(deps.stateMachine.finalizationComplete).toHaveBeenCalled();
+  });
+
+  it('cancels pending Dither Gradient direction selection and resets its polygon', () => {
+    const stateSnapshot = useAppStore.getState();
+    jest
+      .spyOn(useAppStore, 'getState')
+      .mockReturnValue({
+        ...stateSnapshot,
+        polygonGradientState: {
+          ...stateSnapshot.polygonGradientState,
+          drawingState: 'drawing',
+          points: [
+            { x: 0, y: 0 },
+            { x: 20, y: 0 },
+            { x: 20, y: 20 },
+          ],
+        },
+        tools: {
+          ...stateSnapshot.tools,
+          brushSettings: {
+            ...stateSnapshot.tools.brushSettings,
+            brushShape: BrushShape.DITHER_GRADIENT,
+          },
+        },
+      } as unknown as ReturnType<typeof useAppStore.getState>);
+
+    const { deps } = createDeps({
+      tools: {
+        ...baseDynamic.tools,
+        currentTool: 'brush',
+        shapeMode: false,
+        brushSettings: {
+          ...baseDynamic.tools.brushSettings,
+          brushShape: BrushShape.DITHER_GRADIENT,
+        } as any,
+      },
+    });
+
+    deps.drawingHandlers.isSelectingDirectionRef.current = true;
+    deps.drawingHandlers.isDrawingShapeRef.current = true;
+    deps.drawingHandlers.shapePointsRef.current = [
+      { x: 0, y: 0 },
+      { x: 20, y: 0 },
+      { x: 20, y: 20 },
+    ];
+
+    const handlers = createPointerHandlers(deps);
+    handlers.handlePointerDown(makePointerEvent({ clientX: 30, clientY: 30, button: 2 }));
+
+    expect(deps.toolStateMachine.resetPolygonGradient).toHaveBeenCalledTimes(1);
+    expect(deps.drawingHandlers.isSelectingDirectionRef.current).toBe(false);
+    expect(deps.drawingHandlers.shapePointsRef.current).toEqual([]);
+    expect(deps.drawingHandlers.clearDrawingCanvas).toHaveBeenCalled();
+    expect(deps.stateMachine.finalizationComplete).toHaveBeenCalled();
+  });
+
+  it('discards a pending gradient direction stage after switching brushes', () => {
+    const stateSnapshot = useAppStore.getState();
+    jest
+      .spyOn(useAppStore, 'getState')
+      .mockReturnValue({
+        ...stateSnapshot,
+        polygonGradientState: {
+          ...stateSnapshot.polygonGradientState,
+          drawingState: 'drawing',
+          points: [
+            { x: 0, y: 0 },
+            { x: 20, y: 0 },
+            { x: 20, y: 20 },
+          ],
+        },
+      } as unknown as ReturnType<typeof useAppStore.getState>);
+
+    const { deps } = createDeps({
+      tools: {
+        ...baseDynamic.tools,
+        currentTool: 'brush',
+        shapeMode: false,
+        brushSettings: {
+          ...baseDynamic.tools.brushSettings,
+          brushShape: BrushShape.ROUND,
+        } as any,
+      },
+    });
+
+    deps.drawingHandlers.isSelectingDirectionRef.current = true;
+    deps.drawingHandlers.isDrawingShapeRef.current = true;
+    deps.drawingHandlers.shapePointsRef.current = [
+      { x: 0, y: 0 },
+      { x: 20, y: 0 },
+      { x: 20, y: 20 },
+    ];
+    deps.stateMachine.state = { mode: 'DRAWING' } as any;
+    deps.stateMachine.finalizationComplete = jest.fn(() => {
+      deps.stateMachine.state = { mode: 'IDLE' } as any;
+    });
+
+    const handlers = createPointerHandlers(deps);
+    handlers.handlePointerDown(makePointerEvent({ clientX: 30, clientY: 30 }));
+
+    expect(deps.toolStateMachine.resetPolygonGradient).toHaveBeenCalledTimes(1);
+    expect(deps.drawingHandlers.isSelectingDirectionRef.current).toBe(false);
+    expect(deps.drawingHandlers.shapePointsRef.current).toEqual([]);
+    expect(deps.drawingHandlers.finalizeShapeDrawing).not.toHaveBeenCalled();
+    expect(deps.drawingHandlers.startDrawing).toHaveBeenCalled();
   });
 
   it('commits the live pointer-up vertex before finalizing a color-cycle shape', async () => {

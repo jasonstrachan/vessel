@@ -229,6 +229,7 @@ describe('finalizeShapeDrawing CC dither resolution', () => {
     __resetSampledTempSlotOwnershipForTests();
     (storeState as unknown as { currentBrushPreset: { id: string } | null }).currentBrushPreset = null;
     storeState.tools.ccGradientSource = 'fg';
+    storeState.tools.brushSettings.brushShape = BrushShape.COLOR_CYCLE_SHAPE;
     storeState.tools.brushSettings.colorCycleFillMode = 'linear';
     storeState.tools.brushSettings.ditherEnabled = true;
     storeState.tools.brushSettings.gradientBands = 8;
@@ -405,6 +406,121 @@ describe('finalizeShapeDrawing CC dither resolution', () => {
     expect(gradient.addColorStop).toHaveBeenNthCalledWith(2, 1, 'rgba(0, 0, 255, 1)');
     expect(ctx.clip).toHaveBeenCalled();
     expect(ctx.fillRect).toHaveBeenCalledWith(0, 0, 20, 20);
+  });
+
+  it('renders Dither Gradient stage-2 preview from the selected direction', () => {
+    storeState.tools.brushSettings.brushShape = BrushShape.DITHER_GRADIENT;
+    storeState.layers = [
+      { id: 'layer-1', layerType: 'normal', visible: true },
+    ] as unknown as AppState['layers'];
+    const refs = makeShapeRefs();
+    refs.isDrawingShapeRef.current = true;
+    refs.isSelectingDirectionRef.current = true;
+    refs.shapeInteractionPhaseRef.current = 'idle';
+    refs.shapePointsRef.current = [
+      { x: 0, y: 0 },
+      { x: 20, y: 0 },
+      { x: 20, y: 20 },
+    ];
+    const canvas = document.createElement('canvas');
+    canvas.width = 64;
+    canvas.height = 64;
+    const drawCtx = {
+      clearRect: jest.fn(),
+      save: jest.fn(),
+      restore: jest.fn(),
+      beginPath: jest.fn(),
+      moveTo: jest.fn(),
+      lineTo: jest.fn(),
+      stroke: jest.fn(),
+      globalCompositeOperation: 'source-over',
+      strokeStyle: '#000000',
+      lineWidth: 1,
+    } as unknown as CanvasRenderingContext2D;
+    const deps = makeShapeDeps() as Parameters<typeof continueShapeDrawing>[1];
+    deps.drawingCanvasRef.current = canvas;
+    deps.drawingCtxRef.current = drawCtx;
+    const finalizeDitherGradientShape = jest
+      .fn(() => refs.shapePointsRef.current);
+    deps.finalizeDitherGradientShape = finalizeDitherGradientShape;
+
+    continueShapeDrawing(
+      {
+        worldPos: { x: 40, y: 10 },
+        pressure: 0.5,
+        timestamp: 1,
+        rawPressure: 0.5,
+        shapeMode: false,
+        refs: refs as unknown as Parameters<typeof continueShapeDrawing>[0]['refs'],
+        renderPreview: false,
+      },
+      deps
+    );
+
+    expect(finalizeDitherGradientShape).toHaveBeenCalledWith(
+      expect.objectContaining({
+        shapePoints: refs.shapePointsRef.current,
+        direction: {
+          x: 40 - (0 + 20 + 20) / 3,
+          y: 10 - (0 + 0 + 20) / 3,
+        },
+      })
+    );
+    expect(drawCtx.stroke).toHaveBeenCalled();
+  });
+
+  it('passes the committed Dither Gradient direction into raster finalization', async () => {
+    storeState.tools.brushSettings.brushShape = BrushShape.DITHER_GRADIENT;
+    storeState.layers = [
+      { id: 'layer-1', layerType: 'normal', visible: true },
+    ] as unknown as AppState['layers'];
+    const points = [
+      { x: 0, y: 0 },
+      { x: 20, y: 0 },
+      { x: 20, y: 20 },
+    ];
+    const refs = makeShapeRefs();
+    refs.isDrawingShapeRef.current = true;
+    refs.isSelectingDirectionRef.current = true;
+    refs.directionPreviewRef.current = { x: 40, y: 10 };
+    refs.shapeInteractionPhaseRef.current = 'drawing';
+    refs.shapePointsRef.current = points;
+    refs.finalizeQueueRef.current = {
+      isBusy: jest.fn(() => false),
+      enqueue: jest.fn(async (task: () => Promise<void>) => task()),
+    };
+    const canvas = document.createElement('canvas');
+    canvas.width = 64;
+    canvas.height = 64;
+    const drawCtx = makeContext();
+    const deps = makeShapeDeps() as Parameters<typeof finalizeShapeDrawing>[1];
+    deps.drawingCanvasRef.current = canvas;
+    deps.drawingCtxRef.current = drawCtx;
+    const finalizeDitherGradientShape = jest.fn(() => points);
+    deps.finalizeDitherGradientShape = finalizeDitherGradientShape;
+    deps.commitRasterShapeFill = jest.fn(async () => true);
+
+    await finalizeShapeDrawing(
+      {
+        shapeMode: false,
+        refs: refs as unknown as Parameters<typeof finalizeShapeDrawing>[0]['refs'],
+        toolsRef: ref(storeState.tools),
+      },
+      deps
+    );
+
+    expect(finalizeDitherGradientShape).toHaveBeenCalledWith(
+      expect.objectContaining({
+        direction: {
+          x: 40 - (0 + 20 + 20) / 3,
+          y: 10 - (0 + 0 + 20) / 3,
+        },
+      })
+    );
+    expect(deps.finalizeRasterShapeFill).toHaveBeenCalled();
+    expect(deps.commitRasterShapeFill).toHaveBeenCalled();
+    expect(refs.isSelectingDirectionRef.current).toBe(false);
+    expect(refs.isDrawingShapeRef.current).toBe(false);
   });
 
   it('uses dither-expanded runtime stops for stage-2 linear direction preview when dither is enabled', () => {

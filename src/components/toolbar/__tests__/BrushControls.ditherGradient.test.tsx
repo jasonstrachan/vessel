@@ -33,12 +33,26 @@ jest.mock('../DitherControls', () => ({
   default: ({
     beforeResolution,
     afterResolution,
+    settings,
+    onChange,
+    showPxlEdgeToggle,
   }: {
     beforeResolution?: React.ReactNode;
     afterResolution?: React.ReactNode;
+    settings: BrushSettings;
+    onChange: (updates: Partial<BrushSettings>) => void;
+    showPxlEdgeToggle?: boolean;
   }) => (
     <div>
       {beforeResolution}
+      {showPxlEdgeToggle && (
+        <input
+          type="checkbox"
+          aria-label="Pixel Edge"
+          checked={Boolean(settings.pxlEdge)}
+          onChange={(event) => onChange({ pxlEdge: event.target.checked })}
+        />
+      )}
       {afterResolution}
     </div>
   ),
@@ -215,6 +229,17 @@ describe('BrushControls – Dither Gradient', () => {
 
     const store = useAppStore.getState();
     expect(store.setBrushSettings).toHaveBeenCalledWith({ ditherGradSampleEnabled: true });
+  });
+
+  it('toggles whole-cell pixel edges', () => {
+    render(<BrushControls />);
+    const pixelEdgeToggle = screen.getByLabelText('Pixel Edge') as HTMLInputElement;
+
+    expect(pixelEdgeToggle.checked).toBe(false);
+    fireEvent.click(pixelEdgeToggle);
+
+    const store = useAppStore.getState();
+    expect(store.setBrushSettings).toHaveBeenCalledWith({ pxlEdge: true });
   });
 
   it('updates stop count via colors slider', () => {

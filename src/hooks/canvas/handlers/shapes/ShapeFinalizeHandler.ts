@@ -9,6 +9,7 @@ import { parseCssColorToRgba } from '@/hooks/canvas/utils/colorCycleHelpers';
 import type { ColorCycleSerializedState } from '@/history/helpers/colorCycle';
 import { commitLayerHistory } from '@/history/helpers/layerHistory';
 import {
+  computeGradientAxisFromDirection,
   scaleOrderedAxis,
   renderDitherGradientToImageData,
   resolveDitherGradPalette,
@@ -23,6 +24,7 @@ import {
   createDevDebugOverlayLogger,
   isDevDebugOverlayEnabled,
 } from '@/utils/dev/debugOverlayStore';
+import { applyPolygonMaskToCanvasContext } from '@/hooks/canvas/handlers/shapes/shapePreviewMask';
 
 export type ShapePoint = { x: number; y: number };
 
@@ -479,6 +481,7 @@ const renderDitherGradientPolygon = ({
   lastStablePressure,
   latestShapePixelSizeRef,
   computeShapePixelSize,
+  direction,
 }: {
   canvas: HTMLCanvasElement;
   ctx: CanvasRenderingContext2D;
@@ -493,6 +496,7 @@ const renderDitherGradientPolygon = ({
   lastStablePressure: number;
   latestShapePixelSizeRef: React.MutableRefObject<number | null>;
   computeShapePixelSize: (pressure: number) => number;
+  direction?: ShapePoint;
 }): boolean => {
   if (!project || points.length < 3) {
     return false;
@@ -597,7 +601,9 @@ const renderDitherGradientPolygon = ({
     };
   };
 
-  let axis = computeAxisOpposingEnds(localVertices);
+  let axis = direction
+    ? computeGradientAxisFromDirection(localVertices, direction)
+    : computeAxisOpposingEnds(localVertices);
   const lengthFactor = Math.max(
     0.05,
     Math.min(2, ((liveBrushSettings.gradientLength ?? 100) / 100) * 1.3)
@@ -636,17 +642,11 @@ const renderDitherGradientPolygon = ({
 
   tempCtx.clearRect(0, 0, width, height);
   tempCtx.putImageData(imageData, 0, 0);
-  tempCtx.globalCompositeOperation = 'destination-in';
-  tempCtx.beginPath();
-  tempCtx.moveTo(localVertices[0].x, localVertices[0].y);
-  for (let i = 1; i < localVertices.length; i += 1) {
-    const pt = localVertices[i];
-    tempCtx.lineTo(pt.x, pt.y);
-  }
-  tempCtx.closePath();
-  tempCtx.fillStyle = 'white';
-  tempCtx.fill();
-  tempCtx.globalCompositeOperation = 'source-over';
+  applyPolygonMaskToCanvasContext(tempCtx, localVertices, {
+    origin: { x: minX, y: minY },
+    pixelSize,
+    wholeCells: Boolean(liveBrushSettings.pxlEdge),
+  });
 
   ctx.save();
   ctx.imageSmoothingEnabled = false;
@@ -674,6 +674,7 @@ export const finalizeDitherGradientShape = ({
   lastStablePressure,
   latestShapePixelSizeRef,
   computeShapePixelSize,
+  direction,
 }: {
   drawCtx: CanvasRenderingContext2D;
   canvas: HTMLCanvasElement;
@@ -689,6 +690,7 @@ export const finalizeDitherGradientShape = ({
   lastStablePressure: number;
   latestShapePixelSizeRef: React.MutableRefObject<number | null>;
   computeShapePixelSize: (pressure: number) => number;
+  direction?: ShapePoint;
 }): ShapePoint[] | null => {
   const points =
     polygonState.vertices && polygonState.vertices.length >= 3
@@ -715,6 +717,7 @@ export const finalizeDitherGradientShape = ({
     lastStablePressure,
     latestShapePixelSizeRef,
     computeShapePixelSize,
+    direction,
   });
 
   const lostEdge = Math.max(0, Math.min(100, liveBrushSettings.lostEdge ?? 0));

@@ -177,6 +177,43 @@ export function computeGradientAxisFromPolygon(vertices: Vec2[]): OrderedDitherA
   return { start, end: farthest, dir, length };
 }
 
+export function computeGradientAxisFromDirection(
+  vertices: Vec2[],
+  direction: Vec2
+): OrderedDitherAxis {
+  const directionLength = Math.hypot(direction.x, direction.y);
+  if (vertices.length < 2 || directionLength < 1e-6) {
+    return computeGradientAxisFromPolygon(vertices);
+  }
+
+  const dir = {
+    x: direction.x / directionLength,
+    y: direction.y / directionLength,
+  };
+  let minProjection = Infinity;
+  let maxProjection = -Infinity;
+
+  for (const vertex of vertices) {
+    const projection = vertex.x * dir.x + vertex.y * dir.y;
+    minProjection = Math.min(minProjection, projection);
+    maxProjection = Math.max(maxProjection, projection);
+  }
+
+  const length = Math.max(1e-6, maxProjection - minProjection);
+  return {
+    start: {
+      x: dir.x * minProjection,
+      y: dir.y * minProjection,
+    },
+    end: {
+      x: dir.x * maxProjection,
+      y: dir.y * maxProjection,
+    },
+    dir,
+    length,
+  };
+}
+
 const bayerCache: Map<number, Float32Array> = new Map();
 
 /**

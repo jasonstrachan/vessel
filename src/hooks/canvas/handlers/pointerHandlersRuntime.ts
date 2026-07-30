@@ -651,12 +651,48 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
     }
   };
 
+  const cancelPendingGradientDirectionStage = () => {
+    const directionStageStore = getAppStoreState();
+    const directionStageLayerId = getDynamicDeps().activeLayerId;
+    if (directionStageLayerId) {
+      cancelMarkGradientSession(directionStageLayerId);
+    }
+    if (directionStageStore.polygonGradientState.drawingState !== 'idle') {
+      toolStateMachine.resetPolygonGradient();
+    }
+    drawingHandlers.isSelectingDirectionRef.current = false;
+    drawingHandlers.isDrawingShapeRef.current = false;
+    drawingHandlers.shapePointsRef.current = [];
+    drawingHandlers.ccStrokeSamplesRef.current = [];
+    drawingHandlers.ccStrokeDirectionRef.current = null;
+    drawingHandlers.directionPreviewRef.current = null;
+    drawingHandlers.ccGradientDrawingGeometryRef.current = null;
+    clearPendingCcGradientDirectionPreview();
+    clearOverlayCanvas();
+    directionStageStore.setShapeDrawing(false);
+    interaction.dispatch({ type: 'DRAWING_END' });
+    directionStageStore.setSequentialPointerDown?.(false);
+    flushBufferedSequentialEvents({ state: directionStageStore });
+    setNeedsRedraw(prev => prev + 1);
+    resumeCcGradientDirectionPlayback();
+    stateMachine.finalizationComplete();
+  };
+
   const finalizePendingCcGradientDirectionStage = (
     worldPos: Point,
     event: React.PointerEvent,
     pressure: number,
   ): boolean => {
     if (!drawingHandlers.isSelectingDirectionRef?.current) {
+      return false;
+    }
+
+    const directionBrushShape = getDynamicDeps().tools.brushSettings.brushShape;
+    if (
+      directionBrushShape !== BrushShape.COLOR_CYCLE_SHAPE &&
+      directionBrushShape !== BrushShape.DITHER_GRADIENT
+    ) {
+      cancelPendingGradientDirectionStage();
       return false;
     }
 
@@ -2456,27 +2492,7 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
     // Middle or right click cancels a pending linear direction stage.
     if (event.button === 1 || event.button === 2) {
       if (drawingHandlers.isSelectingDirectionRef?.current) {
-        const directionStageStore = getAppStoreState();
-        const directionStageLayerId = getDynamicDeps().activeLayerId;
-        if (directionStageLayerId) {
-          cancelMarkGradientSession(directionStageLayerId);
-        }
-        drawingHandlers.isSelectingDirectionRef.current = false;
-        drawingHandlers.isDrawingShapeRef.current = false;
-        drawingHandlers.shapePointsRef.current = [];
-        drawingHandlers.ccStrokeSamplesRef.current = [];
-        drawingHandlers.ccStrokeDirectionRef.current = null;
-        drawingHandlers.directionPreviewRef.current = null;
-        drawingHandlers.ccGradientDrawingGeometryRef.current = null;
-        clearPendingCcGradientDirectionPreview();
-        clearOverlayCanvas();
-        directionStageStore.setShapeDrawing(false);
-        interaction.dispatch({ type: 'DRAWING_END' });
-        directionStageStore.setSequentialPointerDown?.(false);
-        flushBufferedSequentialEvents({ state: directionStageStore });
-        setNeedsRedraw(prev => prev + 1);
-        resumeCcGradientDirectionPlayback();
-        stateMachine.finalizationComplete();
+        cancelPendingGradientDirectionStage();
       }
       return;
     }
@@ -2747,12 +2763,13 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
       }
     }
 
-    // Check the state BEFORE dispatching - this is critical!
-    const currentMode = stateMachine.state.mode;
-
     if (event.button === 0 && finalizePendingCcGradientDirectionStage(worldPos, event, pressure)) {
       return;
     }
+
+    // Check the state BEFORE dispatching - this is critical. A stale gradient
+    // direction stage may reset the machine immediately above.
+    const currentMode = stateMachine.state.mode;
 
     // Only allow shape handlers when using brush/eraser/custom tools
     // This prevents shape mode from intercepting other tools like fill, eyedropper, etc.
@@ -3685,13 +3702,16 @@ function resampleStopsToColors(stops: Stop[], count: number): string[] {
       return;
     }
 
-    const isSelectingCcGradientDirection =
+    const isSelectingGradientDirection =
       drawingHandlers.isSelectingDirectionRef?.current === true &&
       tools.currentTool === 'brush' &&
-      tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE_SHAPE;
+      (
+        tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE_SHAPE ||
+        tools.brushSettings.brushShape === BrushShape.DITHER_GRADIENT
+      );
 
     // Handle direction selection for linear gradient fill (after shape completion)
-    if (isSelectingCcGradientDirection && !interaction.state.isDrawing) {
+    if (isSelectingGradientDirection && !interaction.state.isDrawing) {
       const directionWorld = resolveDirectionSelectionPoint(
         worldPos,
         event.shiftKey,

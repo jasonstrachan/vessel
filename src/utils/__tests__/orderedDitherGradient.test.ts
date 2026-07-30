@@ -1,5 +1,6 @@
 import {
   buildFgBgPalette,
+  computeGradientAxisFromDirection,
   computeGradientAxisFromPolygon,
   getBayerTile,
   pixelateImageData,
@@ -12,6 +13,24 @@ describe('orderedDitherGradient', () => {
   const fg: [number, number, number, number] = [255, 0, 0, 255];
   const bg: [number, number, number, number] = [0, 0, 255, 255];
   const palette = buildFgBgPalette(fg, bg);
+
+  it('projects the gradient axis across the polygon in the chosen direction', () => {
+    const axis = computeGradientAxisFromDirection(
+      [
+        { x: 2, y: 3 },
+        { x: 12, y: 3 },
+        { x: 12, y: 23 },
+        { x: 2, y: 23 },
+      ],
+      { x: 0, y: 5 }
+    );
+
+    expect(axis.dir.x).toBeCloseTo(0);
+    expect(axis.dir.y).toBeCloseTo(1);
+    expect(axis.start).toEqual({ x: 0, y: 3 });
+    expect(axis.end).toEqual({ x: 0, y: 23 });
+    expect(axis.length).toBe(20);
+  });
 
   it('produces deterministic output with the same inputs', () => {
     const axis = computeGradientAxisFromPolygon([

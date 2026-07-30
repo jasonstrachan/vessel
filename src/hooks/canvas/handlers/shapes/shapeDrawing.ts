@@ -838,7 +838,8 @@ type ShapeDrawingDeps = {
     lastStablePressure: number;
     latestShapePixelSizeRef: React.MutableRefObject<number | null>;
     computeShapePixelSize: ShapeDrawingDeps['computeShapePixelSize'];
-  }) => void;
+    direction?: { x: number; y: number };
+  }) => Array<{ x: number; y: number }> | null;
   finalizeRasterShapeFill: (args: {
     drawCtx: CanvasRenderingContext2D;
     brushRuntime: ShapeFinalizeBrushRuntime;
@@ -1327,7 +1328,10 @@ export const continueShapeDrawing = (
   },
   deps: ShapeDrawingDeps
 ): void => {
-  if (!canContinueShapeDrawing(args.refs.shapeInteractionPhaseRef)) {
+  if (
+    !canContinueShapeDrawing(args.refs.shapeInteractionPhaseRef) &&
+    !args.refs.isSelectingDirectionRef.current
+  ) {
     return;
   }
 
@@ -1369,20 +1373,42 @@ export const continueShapeDrawing = (
     const drawCtx = deps.drawingCtxRef.current;
     if (drawCtx && deps.drawingCanvasRef.current) {
       drawCtx.clearRect(0, 0, deps.drawingCanvasRef.current.width, deps.drawingCanvasRef.current.height);
-      const didRenderGradientPreview = renderCcLinearDirectionPreview({
-        ctx: drawCtx,
-        points: refs.shapePointsRef.current,
-        directionPoint: drawPos,
-        state: currentState,
-      });
+      const center = getShapeCentroid(refs.shapePointsRef.current);
+      const isDitherGradient =
+        currentState.tools.brushSettings.brushShape === BrushShape.DITHER_GRADIENT;
+      const didRenderGradientPreview = isDitherGradient
+        ? Boolean(deps.finalizeDitherGradientShape({
+            drawCtx,
+            canvas: deps.drawingCanvasRef.current,
+            drawingCanvasHasContent: deps.drawingCanvasHasContent,
+            liveBrushSettings: currentState.tools.brushSettings,
+            polygonState: currentState.polygonGradientState,
+            shapePoints: refs.shapePointsRef.current,
+            palette: currentState.palette,
+            project: currentState.project,
+            strokeBoundingBoxRef: deps.strokeBoundingBoxRef,
+            strokeCapturePaddingRef: deps.strokeCapturePaddingRef,
+            roiPadding: deps.ROI_PADDING_PX,
+            lastStablePressure: refs.lastStablePressureRef.current ?? 0.5,
+            latestShapePixelSizeRef: deps.latestShapePixelSizeRef,
+            computeShapePixelSize: deps.computeShapePixelSize,
+            direction: {
+              x: drawPos.x - center.x,
+              y: drawPos.y - center.y,
+            },
+          }))
+        : renderCcLinearDirectionPreview({
+            ctx: drawCtx,
+            points: refs.shapePointsRef.current,
+            directionPoint: drawPos,
+            state: currentState,
+          });
       if (!didRenderGradientPreview) {
         drawCtx.fillStyle = 'rgba(0, 0, 0, 0.3)';
         tracePolygonPath(drawCtx, refs.shapePointsRef.current);
         drawCtx.fill();
       }
       deps.drawingCanvasHasContent.current = true;
-
-      const center = getShapeCentroid(refs.shapePointsRef.current);
 
       drawCtx.save();
       drawCtx.globalCompositeOperation = 'difference';
@@ -1632,6 +1658,18 @@ export const finalizeShapeDrawing = async (
           { ...deps.storeRef.current.tools.brushSettings }
         )
       : null;
+  const ditherGradientDirection =
+    ditherGradientFinalizeBrushSettings &&
+    args.refs.isSelectingDirectionRef.current &&
+    args.refs.directionPreviewRef.current
+      ? (() => {
+          const center = getShapeCentroid(args.refs.shapePointsRef.current);
+          return {
+            x: args.refs.directionPreviewRef.current!.x - center.x,
+            y: args.refs.directionPreviewRef.current!.y - center.y,
+          };
+        })()
+      : undefined;
 
   await args.refs.finalizeQueueRef.current.enqueue(async () => {
     let finalizeTriggered = false;
@@ -1669,6 +1707,7 @@ export const finalizeShapeDrawing = async (
             lastStablePressure: deps.lastStablePressureRef.current ?? 0.5,
             latestShapePixelSizeRef: deps.latestShapePixelSizeRef,
             computeShapePixelSize: deps.computeShapePixelSize,
+            direction: ditherGradientDirection,
           });
         }
       }
@@ -1676,6 +1715,12 @@ export const finalizeShapeDrawing = async (
 
     const handleLinearDirectionSelection = async (): Promise<boolean> => {
       if (!args.refs.isSelectingDirectionRef.current || !args.refs.directionPreviewRef.current) {
+        return false;
+      }
+
+      if (ditherGradientFinalizeBrushSettings) {
+        args.refs.isSelectingDirectionRef.current = false;
+        args.refs.directionPreviewRef.current = null;
         return false;
       }
 
