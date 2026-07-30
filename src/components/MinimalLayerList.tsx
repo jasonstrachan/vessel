@@ -18,6 +18,7 @@ import { recordBreadcrumb } from '../utils/debug';
 import { useStoreSelectorRef } from '@/hooks/useStoreSelectorRef';
 import { selectBrushSettings } from '@/stores/selectors/toolsSelectors';
 import { selectProjectDimensions } from '@/stores/selectors/projectSelectors';
+import { getStoreDestinationForDisplayBoundary } from '@/stores/layers/layerCrudService';
 // Removed floating color cycle panel integration; panel now lives in Brush Settings
 
 export const LAYER_TAG_CLASS = 'px-1 rounded text-[9px] leading-4 bg-[#3A3A3A] text-[#D9D9D9] border border-[#545454]';
@@ -308,6 +309,7 @@ const DropSlot: React.FC<{
 
   return (
     <div
+      data-testid={`layer-drop-slot-${index}`}
       className="relative min-h-[16px] overflow-visible"
       onDragEnter={handleDragOver}
       onDragOver={handleDragOver}
@@ -399,17 +401,11 @@ const MinimalLayerList = () => {
       return null;
     }
 
-    if (displayIndex >= displayedLayerIds.length) {
-      return 0;
-    }
-
-    const targetLayerId = displayedLayerIds[displayIndex];
-    if (!targetLayerId) {
-      return null;
-    }
-
-    const layers = layersRef.current;
-    return layers.findIndex((layer) => layer.id === targetLayerId);
+    return getStoreDestinationForDisplayBoundary(
+      layersRef.current,
+      displayedLayerIds,
+      displayIndex,
+    );
   }, [displayedLayerIds, layersRef]);
 
   const handleAddCCLayer = () => {

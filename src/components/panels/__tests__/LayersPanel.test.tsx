@@ -1,5 +1,5 @@
 import React from 'react';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { createEvent, fireEvent, render, screen } from '@testing-library/react';
 
 import { BrushShape, type BrushPreset, type Layer } from '@/types';
 
@@ -321,6 +321,20 @@ const getLayerRows = () => {
   return Array.from(rows);
 };
 
+const mockRowBounds = (row: Element, top: number = 0, height: number = 40) => {
+  jest.spyOn(row, 'getBoundingClientRect').mockReturnValue({
+    bottom: top + height,
+    height,
+    left: 0,
+    right: 260,
+    top,
+    width: 260,
+    x: 0,
+    y: top,
+    toJSON: () => ({}),
+  } as DOMRect);
+};
+
 const openMenuForLayerB = () => {
   const showButton = screen.getAllByTitle('Show Layer')[0];
   const row = showButton?.closest('[draggable="true"]');
@@ -350,7 +364,16 @@ describe('LayersPanel interactions', () => {
     expect(screen.queryByText('Toggle selected')).toBeNull();
   });
 
-  it('shows compact one-line layer names with fixed-size type and id tags', () => {
+  it('keeps deletion in the layer menu instead of a row hover control', () => {
+    render(<LayersPanel />);
+
+    expect(screen.queryByTitle('Delete Layer')).not.toBeInTheDocument();
+
+    openMenuForLayerC();
+    expect(screen.getByTitle('Delete this layer')).toBeInTheDocument();
+  });
+
+  it('shows compact one-line layer names with a narrow type tag and the full id in the tooltip', () => {
     state.layers = [
       createLayer({
         id: 'layer-1777941667172-0.6293618476877367',
@@ -371,9 +394,12 @@ describe('LayersPanel interactions', () => {
 
     render(<LayersPanel />);
 
-    expect(screen.getByText('CC Layer 2')).toBeInTheDocument();
-    expect(screen.getAllByText('CC').length).toBeGreaterThan(0);
-    expect(screen.getByText('#667172')).toBeInTheDocument();
+    expect(screen.getByText('CC Layer 2')).toHaveAttribute(
+      'title',
+      'CC Layer 2\nLayer ID: layer-1777941667172-0.6293618476877367',
+    );
+    expect(screen.getByTitle('Color-cycle brush layer')).toHaveClass('w-8');
+    expect(screen.queryByText('#667172')).not.toBeInTheDocument();
     expect(screen.queryByText('Type')).not.toBeInTheDocument();
   });
 
@@ -383,6 +409,7 @@ describe('LayersPanel interactions', () => {
     const firstLayerRow = getLayerRows()[0];
     const groupedHideButton = firstLayerRow?.querySelector('button[title=\"Hide Layer\"]');
     expect(groupedHideButton).not.toBeNull();
+    expect(groupedHideButton).toHaveClass('h-6', 'w-6', '-mx-1', '-mb-1', '-mt-0.5');
     fireEvent.click(groupedHideButton as Element);
 
     expect(state.setLayersVisibility).toHaveBeenCalledWith(['layer-c'], false);
@@ -564,11 +591,54 @@ describe('LayersPanel interactions', () => {
     };
 
     fireEvent.dragStart(sourceRow as Element, { dataTransfer });
-    fireEvent.drop(targetRow as Element, { dataTransfer });
+    const currentTargetRow = getLayerRows()[0];
+    expect(currentTargetRow).not.toBeUndefined();
+    mockRowBounds(currentTargetRow as Element);
+    const dragOverEvent = createEvent.dragOver(currentTargetRow as Element, { dataTransfer });
+    Object.defineProperty(dragOverEvent, 'clientY', { value: 30 });
+    fireEvent(currentTargetRow as Element, dragOverEvent);
+    expect(screen.getByTestId('layer-drop-indicator')).toHaveClass('-bottom-px');
+    const dropEvent = createEvent.drop(currentTargetRow as Element, { dataTransfer });
+    Object.defineProperty(dropEvent, 'clientY', { value: 30 });
+    fireEvent(currentTargetRow as Element, dropEvent);
 
     expect(state.updateLayer).toHaveBeenCalledWith('layer-b', { groupId: 'group-1' });
-    expect(state.reorderLayerBlock).toHaveBeenCalledWith(['layer-b'], 2);
+    expect(state.reorderLayerBlock).not.toHaveBeenCalled();
     expect(state.layers.find((layer) => layer.id === 'layer-b')?.groupId).toBe('group-1');
+  });
+
+  it('treats dropping a grouped layer onto its own row as a no-op', () => {
+    state.layers = [
+      { ...createLayer({ id: 'layer-a', order: 0, visible: true }), groupId: 'group-1' },
+      createLayer({ id: 'layer-b', order: 1, visible: true }),
+      { ...createLayer({ id: 'layer-c', order: 2, visible: true }), groupId: 'group-1' },
+    ];
+    state.layerGroups = [{ id: 'group-1', name: 'Foreground' }];
+    render(<LayersPanel />);
+
+    const sourceRow = getLayerRows()[0];
+    expect(sourceRow).not.toBeUndefined();
+
+    const dataTransfer = {
+      effectAllowed: 'move',
+      dropEffect: 'move',
+      setData: jest.fn(),
+      getData: jest.fn(() => 'layer-c'),
+    };
+
+    fireEvent.dragStart(sourceRow as Element, { dataTransfer });
+    const currentSourceRow = getLayerRows()[0];
+    expect(currentSourceRow).not.toBeUndefined();
+    mockRowBounds(currentSourceRow as Element);
+    fireEvent.dragOver(currentSourceRow as Element, { clientY: 5, dataTransfer });
+
+    expect(screen.queryByTestId('layer-drop-indicator')).not.toBeInTheDocument();
+
+    fireEvent.drop(currentSourceRow as Element, { clientY: 5, dataTransfer });
+
+    expect(state.updateLayer).not.toHaveBeenCalled();
+    expect(state.reorderLayerBlock).not.toHaveBeenCalled();
+    expect(state.layers.find((layer) => layer.id === 'layer-c')?.groupId).toBe('group-1');
   });
 
   it('duplicates the full selection from the layer menu when the clicked row is selected', () => {
@@ -642,7 +712,71 @@ describe('LayersPanel interactions', () => {
     }));
   });
 
-  it('reorders the full selected block when dragging a selected row onto another row', () => {
+  it('moves a lower layer above the current top layer and previews the insertion boundary', () => {
+    state.selectedLayerIds = ['layer-a'];
+    state.activeLayerId = 'layer-a';
+    render(<LayersPanel />);
+
+    const rows = getLayerRows();
+    const targetRow = rows[0];
+    const sourceRow = rows[2];
+    expect(sourceRow).not.toBeUndefined();
+    expect(targetRow).not.toBeUndefined();
+    mockRowBounds(targetRow as Element);
+
+    const dataTransfer = {
+      effectAllowed: 'move',
+      dropEffect: 'move',
+      setData: jest.fn(),
+      getData: jest.fn(() => 'layer-a'),
+    };
+
+    fireEvent.dragStart(sourceRow as Element, { dataTransfer });
+    fireEvent.dragOver(targetRow as Element, { clientY: 5, dataTransfer });
+
+    expect(screen.getByTestId('layer-drop-indicator')).toBeInTheDocument();
+
+    fireEvent.drop(targetRow as Element, { clientY: 5, dataTransfer });
+
+    expect(state.reorderLayerBlock).toHaveBeenCalledWith(['layer-a'], 3);
+    expect(state.layers.slice().reverse().map((layer) => layer.id)).toEqual([
+      'layer-a',
+      'layer-c',
+      'layer-b',
+    ]);
+    expect(screen.queryByTestId('layer-drop-indicator')).not.toBeInTheDocument();
+  });
+
+  it('moves the top layer to the bottom boundary', () => {
+    render(<LayersPanel />);
+
+    const sourceRow = getLayerRows()[0];
+    expect(sourceRow).not.toBeUndefined();
+
+    const dataTransfer = {
+      effectAllowed: 'move',
+      dropEffect: 'move',
+      setData: jest.fn(),
+      getData: jest.fn(() => 'layer-c'),
+    };
+
+    fireEvent.dragStart(sourceRow as Element, { dataTransfer });
+    const bottomDropTarget = screen.getByTestId('layer-drop-bottom');
+    fireEvent.dragOver(bottomDropTarget, { dataTransfer });
+
+    expect(screen.getByTestId('layer-drop-indicator')).toHaveClass('-bottom-px');
+
+    fireEvent.drop(bottomDropTarget, { dataTransfer });
+
+    expect(state.reorderLayerBlock).toHaveBeenCalledWith(['layer-c'], 0);
+    expect(state.layers.slice().reverse().map((layer) => layer.id)).toEqual([
+      'layer-b',
+      'layer-a',
+      'layer-c',
+    ]);
+  });
+
+  it('reorders the full selected block when dropping above another row', () => {
     state.selectedLayerIds = ['layer-a', 'layer-b'];
     state.activeLayerId = 'layer-b';
     render(<LayersPanel />);
@@ -652,6 +786,7 @@ describe('LayersPanel interactions', () => {
     const targetRow = rows[0];
     expect(sourceRow).not.toBeUndefined();
     expect(targetRow).not.toBeUndefined();
+    mockRowBounds(targetRow as Element);
 
     const dataTransfer = {
       effectAllowed: 'move',
@@ -661,9 +796,14 @@ describe('LayersPanel interactions', () => {
     };
 
     fireEvent.dragStart(sourceRow as Element, { dataTransfer });
-    fireEvent.drop(targetRow as Element, { dataTransfer });
+    fireEvent.drop(targetRow as Element, { clientY: 5, dataTransfer });
 
-    expect(state.reorderLayerBlock).toHaveBeenCalledWith(['layer-a', 'layer-b'], 2);
+    expect(state.reorderLayerBlock).toHaveBeenCalledWith(['layer-a', 'layer-b'], 3);
+    expect(state.layers.slice().reverse().map((layer) => layer.id)).toEqual([
+      'layer-b',
+      'layer-a',
+      'layer-c',
+    ]);
   });
 
   it('collapses and expands grouped layers from the group header', () => {

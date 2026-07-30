@@ -64,6 +64,32 @@ export type LayerBlockReorderResult<TLayer> = {
   layers: TLayer[];
 };
 
+export const getStoreDestinationForDisplayBoundary = (
+  layers: IdentifiedLayer[],
+  displayedLayerIds: string[],
+  displayBoundaryIndex: number,
+): number | null => {
+  if (
+    !Number.isInteger(displayBoundaryIndex)
+    || displayBoundaryIndex < 0
+    || displayBoundaryIndex > displayedLayerIds.length
+  ) {
+    return null;
+  }
+
+  if (displayBoundaryIndex === displayedLayerIds.length) {
+    return 0;
+  }
+
+  const lowerLayerId = displayedLayerIds[displayBoundaryIndex];
+  if (!lowerLayerId) {
+    return null;
+  }
+
+  const lowerLayerStoreIndex = layers.findIndex((layer) => layer.id === lowerLayerId);
+  return lowerLayerStoreIndex === -1 ? null : lowerLayerStoreIndex + 1;
+};
+
 export const reorderLayerBlock = <TLayer extends IdentifiedLayer>(
   layers: TLayer[],
   layerIds: string[],

@@ -1,6 +1,7 @@
 import {
   generateDuplicateLayerName,
   getInsertionIndexAboveActiveLayer,
+  getStoreDestinationForDisplayBoundary,
   insertLayerAtIndex,
   normalizeLayerOrder,
   reorderLayerAtIndex,
@@ -56,6 +57,24 @@ describe('layerCrudService', () => {
     const next = reorderLayerAtIndex([layer('a'), layer('b'), layer('c')], 0, 2);
 
     expect(next.map((entry) => entry.id)).toEqual(['b', 'c', 'a']);
+  });
+
+  it('maps every descending display boundary to its store insertion index', () => {
+    const layers = [layer('bottom'), layer('middle'), layer('top')];
+    const displayedLayerIds = ['top', 'middle', 'bottom'];
+
+    expect(getStoreDestinationForDisplayBoundary(layers, displayedLayerIds, 0)).toBe(3);
+    expect(getStoreDestinationForDisplayBoundary(layers, displayedLayerIds, 1)).toBe(2);
+    expect(getStoreDestinationForDisplayBoundary(layers, displayedLayerIds, 2)).toBe(1);
+    expect(getStoreDestinationForDisplayBoundary(layers, displayedLayerIds, 3)).toBe(0);
+  });
+
+  it('rejects invalid or stale display boundaries', () => {
+    const layers = [layer('bottom'), layer('top')];
+
+    expect(getStoreDestinationForDisplayBoundary(layers, ['top', 'bottom'], -1)).toBeNull();
+    expect(getStoreDestinationForDisplayBoundary(layers, ['top', 'bottom'], 3)).toBeNull();
+    expect(getStoreDestinationForDisplayBoundary(layers, ['missing', 'bottom'], 0)).toBeNull();
   });
 
   it('reorders a block using requested id order and adjusted destination', () => {

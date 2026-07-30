@@ -10,6 +10,7 @@ import {
   selectLayerGroups,
   selectSelectedLayerIds,
 } from '@/stores/selectors/layersSelectors';
+import { getStoreDestinationForDisplayBoundary } from '@/stores/layers/layerCrudService';
 import { BrushShape, Layer } from '@/types';
 import { createDefaultLayerAlignment } from '@/utils/layoutDefaults';
 import { LayerColorSwatches } from '@/components/MinimalLayerList';
@@ -17,6 +18,12 @@ import ProgressSlider from '@/components/ui/ProgressSlider';
 
 const LAYER_GROUPS_COLLAPSED_STORAGE_KEY = 'vessel-layer-groups-collapsed';
 const GROUP_DRAG_PAYLOAD_PREFIX = 'group:';
+
+type LayerDropTarget = {
+  boundaryIndex: number;
+  edge: 'above' | 'below';
+  layerId: string;
+};
 
 const encodeGroupDragPayload = (groupId: string): string => `${GROUP_DRAG_PAYLOAD_PREFIX}${groupId}`;
 
@@ -26,13 +33,14 @@ const decodeGroupDragPayload = (payload: string): string | null => (
     : null
 );
 
-const formatLayerPanelDebugToken = (layerId: string): string => {
-  const timestampMatch = layerId.match(/^layer-(\d+)/);
-  if (timestampMatch) {
-    return timestampMatch[1].slice(-6);
-  }
-  return layerId.slice(-6);
-};
+const LayerDropIndicator: React.FC<{ position: 'top' | 'bottom' }> = ({ position }) => (
+  <div
+    data-testid="layer-drop-indicator"
+    className={`pointer-events-none absolute left-1 right-1 z-40 h-0.5 bg-[#5EC7FF] shadow-[0_0_6px_rgba(94,199,255,0.85)] ${
+      position === 'top' ? '-top-px' : '-bottom-px'
+    }`}
+  />
+);
 
 const loadCollapsedLayerGroups = (): Set<string> => {
   if (typeof window === 'undefined') {
@@ -77,8 +85,8 @@ const LayersPanel: React.FC = () => {
   } | null>(null);
   const [draggedLayerId, setDraggedLayerId] = React.useState<string | null>(null);
   const [draggedGroupId, setDraggedGroupId] = React.useState<string | null>(null);
+  const [layerDropTarget, setLayerDropTarget] = React.useState<LayerDropTarget | null>(null);
   const opacityPopoverRef = React.useRef<HTMLDivElement | null>(null);
-  const [dragOverBottom, setDragOverBottom] = React.useState(false);
   const [collapsedGroupIds, setCollapsedGroupIds] = React.useState<Set<string>>(
     loadCollapsedLayerGroups,
   );
@@ -122,6 +130,10 @@ const LayersPanel: React.FC = () => {
     [layerGroups],
   );
   const visibleLayers = React.useMemo(() => layers.slice().reverse(), [layers]);
+  const displayedLayerIds = React.useMemo(
+    () => visibleLayers.map((layer) => layer.id),
+    [visibleLayers],
+  );
   const hiddenLayerGroupIdSet = React.useMemo(
     () => new Set(hiddenLayerGroupIds),
     [hiddenLayerGroupIds],
@@ -433,6 +445,7 @@ const LayersPanel: React.FC = () => {
   const handleDragStart = React.useCallback((event: React.DragEvent<HTMLDivElement>, layerId: string) => {
     setDraggedLayerId(layerId);
     setDraggedGroupId(null);
+    setLayerDropTarget(null);
     event.dataTransfer.setData('text/plain', layerId);
     event.dataTransfer.effectAllowed = 'move';
   }, []);
@@ -440,17 +453,155 @@ const LayersPanel: React.FC = () => {
   const handleGroupDragStart = React.useCallback((event: React.DragEvent<HTMLDivElement>, groupId: string) => {
     setDraggedGroupId(groupId);
     setDraggedLayerId(null);
+    setLayerDropTarget(null);
     event.dataTransfer.setData('text/plain', encodeGroupDragPayload(groupId));
     event.dataTransfer.effectAllowed = 'move';
   }, []);
 
-  const handleDragOver = React.useCallback((event: React.DragEvent<HTMLDivElement>) => {
+  const resolveLayerDropTarget = React.useCallback((
+    event: React.DragEvent<HTMLDivElement>,
+    layerId: string,
+  ): LayerDropTarget | null => {
+    const displayIndex = displayedLayerIds.indexOf(layerId);
+    if (displayIndex === -1) {
+      return null;
+    }
+
+    const rect = event.currentTarget.getBoundingClientRect();
+    const clientY = typeof event.clientY === 'number' ? event.clientY : rect.top;
+    const edge = clientY <= rect.top + rect.height / 2 ? 'above' : 'below';
+    return {
+      boundaryIndex: displayIndex + (edge === 'below' ? 1 : 0),
+      edge,
+      layerId,
+    };
+  }, [displayedLayerIds]);
+
+  const resolveBoundaryGroupId = React.useCallback((
+    boundaryIndex: number,
+    excludedLayerIds: string[],
+  ): string | undefined => {
+    const excludedLayerIdSet = new Set(excludedLayerIds);
+    const removedBeforeBoundary = visibleLayers
+      .slice(0, boundaryIndex)
+      .filter((layer) => excludedLayerIdSet.has(layer.id))
+      .length;
+    const remainingVisibleLayers = visibleLayers.filter(
+      (layer) => !excludedLayerIdSet.has(layer.id),
+    );
+    const adjustedBoundaryIndex = boundaryIndex - removedBeforeBoundary;
+    const upperLayer = remainingVisibleLayers[adjustedBoundaryIndex - 1];
+    const lowerLayer = remainingVisibleLayers[adjustedBoundaryIndex];
+    const upperGroupId = upperLayer?.groupId;
+    if (
+      upperGroupId
+      && lowerLayer?.groupId === upperGroupId
+      && layerGroupsById.has(upperGroupId)
+    ) {
+      return upperGroupId;
+    }
+    return undefined;
+  }, [layerGroupsById, visibleLayers]);
+
+  const isBoundaryAtCurrentBlock = React.useCallback((
+    layerIds: string[],
+    boundaryIndex: number,
+  ): boolean => {
+    const displayIndices = layerIds
+      .map((layerId) => displayedLayerIds.indexOf(layerId))
+      .filter((index) => index !== -1)
+      .sort((a, b) => a - b);
+    if (displayIndices.length !== layerIds.length || displayIndices.length === 0) {
+      return false;
+    }
+
+    const isContiguous = displayIndices.every(
+      (index, position) => position === 0 || index === displayIndices[position - 1] + 1,
+    );
+    return isContiguous
+      && boundaryIndex >= displayIndices[0]
+      && boundaryIndex <= displayIndices[displayIndices.length - 1] + 1;
+  }, [displayedLayerIds]);
+
+  const commitLayerDrop = React.useCallback((
+    draggedId: string,
+    dropTarget: LayerDropTarget,
+  ) => {
+    if (decodeGroupDragPayload(draggedId)) {
+      return;
+    }
+
+    const sourceLayerIds = resolveActionLayerIds(draggedId);
+    if (sourceLayerIds.length === 0) {
+      return;
+    }
+    if (sourceLayerIds.includes(dropTarget.layerId)) {
+      return;
+    }
+
+    const isCurrentBlockBoundary = isBoundaryAtCurrentBlock(
+      sourceLayerIds,
+      dropTarget.boundaryIndex,
+    );
+    const destinationIndex = getStoreDestinationForDisplayBoundary(
+      layers,
+      displayedLayerIds,
+      dropTarget.boundaryIndex,
+    );
+    if (destinationIndex == null) {
+      return;
+    }
+
+    const nextGroupId = resolveBoundaryGroupId(dropTarget.boundaryIndex, sourceLayerIds);
+    sourceLayerIds.forEach((sourceLayerId) => {
+      const sourceLayer = layers.find((layer) => layer.id === sourceLayerId);
+      if (sourceLayer && sourceLayer.groupId !== nextGroupId) {
+        updateLayer(sourceLayerId, { groupId: nextGroupId });
+      }
+    });
+    if (!isCurrentBlockBoundary) {
+      reorderLayerBlock(sourceLayerIds, destinationIndex);
+    }
+  }, [
+    displayedLayerIds,
+    isBoundaryAtCurrentBlock,
+    layers,
+    reorderLayerBlock,
+    resolveActionLayerIds,
+    resolveBoundaryGroupId,
+    updateLayer,
+  ]);
+
+  const handleDragOver = React.useCallback((
+    event: React.DragEvent<HTMLDivElement>,
+    targetLayerId: string,
+  ) => {
     event.preventDefault();
     event.dataTransfer.dropEffect = 'move';
-    if (dragOverBottom) {
-      setDragOverBottom(false);
+    if (draggedGroupId) {
+      setLayerDropTarget(null);
+      return;
     }
-  }, [dragOverBottom]);
+    if (
+      draggedLayerId
+      && resolveActionLayerIds(draggedLayerId).includes(targetLayerId)
+    ) {
+      setLayerDropTarget(null);
+      return;
+    }
+
+    const nextTarget = resolveLayerDropTarget(event, targetLayerId);
+    if (!nextTarget) {
+      return;
+    }
+    setLayerDropTarget((previous) => (
+      previous?.boundaryIndex === nextTarget.boundaryIndex
+      && previous.layerId === nextTarget.layerId
+      && previous.edge === nextTarget.edge
+        ? previous
+        : nextTarget
+    ));
+  }, [draggedGroupId, draggedLayerId, resolveActionLayerIds, resolveLayerDropTarget]);
 
   const handleGroupDrop = React.useCallback((event: React.DragEvent<HTMLDivElement>, groupId: string) => {
     event.preventDefault();
@@ -488,7 +639,7 @@ const LayersPanel: React.FC = () => {
       const targetTopIndex = Math.max(...targetIndices);
       reorderLayerBlock(sourceLayerIds, targetTopIndex + 1);
       setDraggedGroupId(null);
-      setDragOverBottom(false);
+      setLayerDropTarget(null);
       return;
     }
 
@@ -519,84 +670,59 @@ const LayersPanel: React.FC = () => {
 
     setDraggedLayerId(null);
     setDraggedGroupId(null);
-    setDragOverBottom(false);
+    setLayerDropTarget(null);
   }, [layers, reorderLayerBlock, resolveActionLayerIds, updateLayer]);
 
   const handleDrop = React.useCallback((event: React.DragEvent<HTMLDivElement>, targetLayerId: string) => {
     event.preventDefault();
+    event.stopPropagation();
     const draggedId = event.dataTransfer.getData('text/plain');
-
-    if (draggedId) {
-      const sourceLayerIds = resolveActionLayerIds(draggedId);
-      if (sourceLayerIds.includes(targetLayerId)) {
-        setDraggedLayerId(null);
-        setDraggedGroupId(null);
-        setDragOverBottom(false);
-        return;
-      }
-
-      const targetLayer = layers.find((layer) => layer.id === targetLayerId) ?? null;
-      if (targetLayer) {
-        const nextGroupId = targetLayer.groupId && layerGroupsById.has(targetLayer.groupId)
-          ? targetLayer.groupId
-          : undefined;
-        const draggedLayer = layers.find((layer) => layer.id === draggedId) ?? null;
-        if (draggedLayer && draggedLayer.groupId !== nextGroupId) {
-          sourceLayerIds.forEach((sourceLayerId) => {
-            updateLayer(sourceLayerId, { groupId: nextGroupId });
-          });
-        }
-      }
-
-      const targetIndex = layers.findIndex((layer) => layer.id === targetLayerId);
-
-      if (targetIndex !== -1) {
-        reorderLayerBlock(sourceLayerIds, targetIndex);
-      }
+    const dropTarget = resolveLayerDropTarget(event, targetLayerId);
+    if (draggedId && dropTarget) {
+      commitLayerDrop(draggedId, dropTarget);
     }
 
     setDraggedLayerId(null);
     setDraggedGroupId(null);
-    setDragOverBottom(false);
-  }, [layerGroupsById, layers, reorderLayerBlock, resolveActionLayerIds, updateLayer]);
+    setLayerDropTarget(null);
+  }, [commitLayerDrop, resolveLayerDropTarget]);
 
   const handleDragOverBottom = React.useCallback((event: React.DragEvent<HTMLDivElement>) => {
     event.preventDefault();
     event.dataTransfer.dropEffect = 'move';
-    if (!dragOverBottom) {
-      setDragOverBottom(true);
+    const bottomLayer = visibleLayers[visibleLayers.length - 1];
+    if (!bottomLayer || draggedGroupId) {
+      setLayerDropTarget(null);
+      return;
     }
-    if (draggedLayerId) {
-      setDraggedLayerId(null);
-    }
-    if (draggedGroupId) {
-      setDraggedGroupId(null);
-    }
-  }, [dragOverBottom, draggedGroupId, draggedLayerId]);
+    setLayerDropTarget({
+      boundaryIndex: displayedLayerIds.length,
+      edge: 'below',
+      layerId: bottomLayer.id,
+    });
+  }, [displayedLayerIds.length, draggedGroupId, visibleLayers]);
 
   const handleDropBottom = React.useCallback((event: React.DragEvent<HTMLDivElement>) => {
     event.preventDefault();
+    event.stopPropagation();
     const draggedId = event.dataTransfer.getData('text/plain');
-    if (draggedId) {
-      if (decodeGroupDragPayload(draggedId)) {
-        setDragOverBottom(false);
-        setDraggedGroupId(null);
-        return;
-      }
-      const sourceLayerIds = resolveActionLayerIds(draggedId);
-      if (sourceLayerIds.length > 0) {
-        reorderLayerBlock(sourceLayerIds, 0);
-      }
+    const bottomLayer = visibleLayers[visibleLayers.length - 1];
+    if (draggedId && bottomLayer) {
+      commitLayerDrop(draggedId, {
+        boundaryIndex: displayedLayerIds.length,
+        edge: 'below',
+        layerId: bottomLayer.id,
+      });
     }
-    setDragOverBottom(false);
     setDraggedLayerId(null);
     setDraggedGroupId(null);
-  }, [reorderLayerBlock, resolveActionLayerIds]);
+    setLayerDropTarget(null);
+  }, [commitLayerDrop, displayedLayerIds.length, visibleLayers]);
 
   const handleDragEnd = React.useCallback(() => {
     setDraggedLayerId(null);
     setDraggedGroupId(null);
-    setDragOverBottom(false);
+    setLayerDropTarget(null);
   }, []);
 
   const handleRowClick = React.useCallback((event: React.MouseEvent, layerId: string) => {
@@ -710,16 +836,8 @@ const LayersPanel: React.FC = () => {
           const visibleIconClass = layer.visible
             ? (isHighlighted ? 'text-[#1A1A1A]' : 'text-[#D9D9D9]')
             : (isHighlighted ? 'text-[#5A5A5A]' : 'text-[#666]');
-          const deleteButtonColor = isHighlighted
-            ? 'text-[#5A5A5A]'
-            : 'text-[#666]';
-          const hoverDeleteColor = isHighlighted
-            ? 'hover:text-red-600'
-            : 'hover:text-red-500';
-          const layerDebugToken = formatLayerPanelDebugToken(layer.id);
           const layerTitle = `${layer.name}\nLayer ID: ${layer.id}`;
-          const debugTagClass = 'inline-flex h-4 w-10 shrink-0 items-center justify-center rounded border text-[8px] font-semibold leading-none';
-          const labelClass = `${debugTagClass} ${
+          const labelClass = `inline-flex h-4 w-8 shrink-0 items-center justify-center rounded border text-[8px] font-semibold leading-none ${
             isHighlighted
               ? 'bg-[#D7E7F7] text-[#23425C] border-[#9BC7E8]'
               : 'bg-[#2E2E34] text-[#AEB6C2] border-[#4B4B55]'
@@ -730,9 +848,18 @@ const LayersPanel: React.FC = () => {
             : isSequential
               ? `Sequence layer, ${Math.max(1, Math.round(layer.sequentialData?.frameCount ?? sequentialRecord.frameCount))} frames`
               : 'Regular layer';
+          const isDropAbove = layerDropTarget?.layerId === layer.id
+            && layerDropTarget.edge === 'above';
+          const isDropBelow = layerDropTarget?.layerId === layer.id
+            && layerDropTarget.edge === 'below';
 
           return (
             <React.Fragment key={`${layer.id}-${layer.order}-${index}`}>
+              {shouldRenderGroupHeader && isDropAbove && (
+                <div className="relative h-0">
+                  <LayerDropIndicator position="top" />
+                </div>
+              )}
               {shouldRenderGroupHeader && groupId && (
                 <div
                   draggable
@@ -834,17 +961,19 @@ const LayersPanel: React.FC = () => {
                 } cursor-pointer transition-colors`}
                 onClick={(event) => handleRowClick(event, layer.id)}
                 onDragStart={event => handleDragStart(event, layer.id)}
-                onDragOver={handleDragOver}
+                onDragOver={event => handleDragOver(event, layer.id)}
                 onDrop={event => handleDrop(event, layer.id)}
                 onDragEnd={handleDragEnd}
               >
+                {!shouldRenderGroupHeader && isDropAbove && <LayerDropIndicator position="top" />}
+                {isDropBelow && <LayerDropIndicator position="bottom" />}
                 <div className={`flex items-start gap-2 px-2 py-1.5 ${groupId ? 'pl-4' : ''}`}>
                 <button
                   onClick={event => {
                     event.stopPropagation();
                     handleToggleVisibility(layer.id);
                   }}
-                  className={`mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center ${
+                  className={`-mx-1 -mb-1 -mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center ${
                     visibleIconClass
                   } ${isActive ? 'hover:text-[#000]' : 'hover:text-white'}`}
                   title={layer.visible ? 'Hide Layer' : 'Show Layer'}
@@ -872,28 +1001,11 @@ const LayersPanel: React.FC = () => {
                   >
                     {layer.name}
                   </span>
-                    <span className={labelClass} title={layerKindTitle}>
-                      {layerKindLabel}
-                    </span>
-                    <span className={labelClass} title={layerTitle}>
-                      #{layerDebugToken}
-                    </span>
+                  <span className={labelClass} title={layerKindTitle}>
+                    {layerKindLabel}
+                  </span>
                 </div>
 
-                <div className="ml-1 flex shrink-0 items-center gap-1">
-                  {layers.length > 1 && (
-                    <button
-                      onClick={event => {
-                        event.stopPropagation();
-                        handleDeleteLayer(layer.id);
-                      }}
-                      className={`flex h-4 w-4 items-center justify-center transition-opacity ${deleteButtonColor} ${hoverDeleteColor} group-hover:opacity-100 opacity-0`}
-                      title="Delete Layer"
-                    >
-                      ×
-                    </button>
-                  )}
-                </div>
                 {isMenuOpen && (
                   <div
                     ref={opacityPopoverRef}
@@ -1094,9 +1206,15 @@ const LayersPanel: React.FC = () => {
         });
         })()}
         <div
-          className={`h-3 ${dragOverBottom ? 'border-t-2 border-blue-400' : ''}`}
+          data-testid="layer-drop-bottom"
+          className="h-3"
           onDragOver={handleDragOverBottom}
-          onDragLeave={() => setDragOverBottom(false)}
+          onDragLeave={() => {
+            const bottomLayerId = visibleLayers[visibleLayers.length - 1]?.id;
+            if (bottomLayerId && layerDropTarget?.layerId === bottomLayerId) {
+              setLayerDropTarget(null);
+            }
+          }}
           onDrop={handleDropBottom}
         />
       </div>

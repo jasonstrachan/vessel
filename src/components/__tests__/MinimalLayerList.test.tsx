@@ -315,3 +315,54 @@ describe('MinimalLayerList visibility toggling', () => {
   });
 
 });
+
+describe('MinimalLayerList drag ordering', () => {
+  afterEach(() => {
+    act(() => {
+      useAppStore.setState({ layers: [], project: null, activeLayerId: null, selectedLayerIds: [] });
+    });
+  });
+
+  it('moves the bottom layer to the top display boundary', () => {
+    const layers = [
+      createLayer('layer-bottom', 0),
+      createLayer('layer-top', 1),
+    ];
+    const project = createProject(layers);
+
+    act(() => {
+      useAppStore.setState((state) => ({
+        ...state,
+        project,
+        layers,
+        activeLayerId: 'layer-bottom',
+        selectedLayerIds: ['layer-bottom'],
+      }));
+    });
+
+    render(<MinimalLayerList />);
+
+    const sourceRow = screen.getByText('layer-bottom').closest('div[draggable="true"]');
+    expect(sourceRow).not.toBeNull();
+
+    const dataTransfer = {
+      effectAllowed: 'move',
+      dropEffect: 'move',
+      setData: jest.fn(),
+      getData: jest.fn(() => 'layer-bottom'),
+    };
+
+    fireEvent.dragStart(sourceRow as Element, { dataTransfer });
+    const topDropSlot = screen.getByTestId('layer-drop-slot-0');
+    fireEvent.dragOver(topDropSlot, { dataTransfer });
+
+    expect(topDropSlot).toHaveTextContent('Drop Preview');
+
+    fireEvent.drop(topDropSlot, { dataTransfer });
+
+    expect(useAppStore.getState().layers.slice().reverse().map((layer) => layer.id)).toEqual([
+      'layer-bottom',
+      'layer-top',
+    ]);
+  });
+});
