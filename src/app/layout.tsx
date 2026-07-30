@@ -6,6 +6,9 @@ import GlobalErrorHooks from '../components/GlobalErrorHooks';
 export const metadata: Metadata = {
   title: 'Vessel',
   description: 'Browser drawing workspace for layered artwork, custom brushes, color-cycle animation, and Goblet exports.',
+  icons: {
+    icon: `${process.env.VESSEL_BASE_PATH ?? ''}/favicon.ico`,
+  },
 };
 
 export default function RootLayout({

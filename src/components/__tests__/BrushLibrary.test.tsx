@@ -5,6 +5,7 @@ import BrushLibrary from '@/components/BrushLibrary';
 import { BrushShape } from '@/types';
 
 const mockSwitchTool = jest.fn().mockResolvedValue(undefined);
+const originalVesselBasePath = process.env.VESSEL_BASE_PATH;
 
 jest.mock('@/utils/toolSwitch', () => ({
   useToolSwitcher: () => mockSwitchTool,
@@ -238,6 +239,11 @@ describe('BrushLibrary', () => {
   afterEach(() => {
     useAppStore.setState({ project: null, brushPresets: [], currentBrushPreset: null });
     (globalThis as any).__NEXT_DATA__ = undefined;
+    if (originalVesselBasePath === undefined) {
+      delete process.env.VESSEL_BASE_PATH;
+    } else {
+      process.env.VESSEL_BASE_PATH = originalVesselBasePath;
+    }
   });
 
   it('renders presets and selects a brush on click', () => {
@@ -385,6 +391,21 @@ describe('BrushLibrary', () => {
     (globalThis as any).__NEXT_DATA__ = {
       assetPrefix: '/vessel/',
     };
+
+    useAppStore.setState({
+      ...useAppStore.getState(),
+      currentBrushPreset: checkeredStaticPreset as any,
+      brushPresets: [checkeredStaticPreset as any],
+    });
+
+    render(<BrushLibrary />);
+
+    const image = screen.getByAltText('Checkered thumbnail');
+    expect(image).toHaveAttribute('src', '/vessel/assets/images/checkered-brush.svg');
+  });
+
+  it('prefixes dedicated preset thumbnails with the static-export base path', () => {
+    process.env.VESSEL_BASE_PATH = '/vessel';
 
     useAppStore.setState({
       ...useAppStore.getState(),

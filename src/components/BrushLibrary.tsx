@@ -29,6 +29,12 @@ const resolveBrushThumbnailUrl = (src: string): string => {
   if (!src.startsWith('/')) {
     return src;
   }
+
+  const buildBasePath = process.env.VESSEL_BASE_PATH?.trim();
+  if (buildBasePath) {
+    return `${buildBasePath.replace(/\/$/, '')}${src}`;
+  }
+
   if (typeof window === 'undefined') {
     return src;
   }

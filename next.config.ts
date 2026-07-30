@@ -109,6 +109,7 @@ export const buildVesselNextConfig = (
     // Inject build timestamp into environment
     env: {
       BUILD_TIMESTAMP: new Date().toISOString(),
+      VESSEL_BASE_PATH: isStaticExport ? '/vessel' : '',
     },
 
     // Allow cross-origin requests in development

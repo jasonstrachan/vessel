@@ -39,9 +39,20 @@ describe('Next static export build mode', () => {
     expect(nextConfig.trailingSlash).toBe(true);
     expect(nextConfig.basePath).toBe('/vessel');
     expect(nextConfig.assetPrefix).toBe('/vessel/');
+    expect(nextConfig.env).toMatchObject({
+      VESSEL_BASE_PATH: '/vessel',
+    });
     expect(nextConfig.experimental).toMatchObject({
       cpus: 1,
       workerThreads: false,
+    });
+  });
+
+  it('keeps development favicon assets rooted at the local origin', () => {
+    const nextConfig = buildVesselNextConfig({});
+
+    expect(nextConfig.env).toMatchObject({
+      VESSEL_BASE_PATH: '',
     });
   });
 
