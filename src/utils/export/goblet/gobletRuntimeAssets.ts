@@ -16,6 +16,11 @@ export type GobletAssetRoot = 'goblet' | 'goblet2';
 const gobletAssetCache = new Map<string, Promise<string>>();
 
 const getDefaultAssetPrefix = (): string => {
+  const buildBasePath = process.env.VESSEL_BASE_PATH?.trim();
+  if (buildBasePath) {
+    return buildBasePath;
+  }
+
   if (typeof window === 'undefined') {
     return '';
   }
