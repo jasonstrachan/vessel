@@ -23,6 +23,29 @@ const PLAYBACK_SENSITIVE_PATTERNS = [
   /^src\/utils\/export\/goblet\//,
 ];
 
+const AUTHORING_BUFFER_POLICIES = [
+  {
+    label: 'color-cycle stroke rasterization',
+    sensitivePatterns: [
+      /^src\/hooks\/brushEngine\/colorCycleDrawController\.ts$/,
+      /^src\/hooks\/brushEngine\/colorCycleStrokeRouting\.ts$/,
+    ],
+    companionPatterns: [
+      /^src\/hooks\/brushEngine\/__tests__\/colorCycleDrawController\.test\.ts$/,
+    ],
+  },
+  {
+    label: 'color-cycle shape-fill buffers',
+    sensitivePatterns: [
+      /^src\/hooks\/brushEngine\/colorCycleShapeFillApiRuntime\.ts$/,
+      /^src\/hooks\/brushEngine\/colorCycleShapeFillBuffers\.ts$/,
+    ],
+    companionPatterns: [
+      /^src\/hooks\/brushEngine\/__tests__\/ColorCycleBrushCanvas2D\.regression\.test\.ts$/,
+    ],
+  },
+];
+
 const SHARED_RUNTIME_COMPANION_PATTERNS = [
   /^src\/lib\/displayFilterPipeline\.js$/,
   /^src\/lib\/colorCycle\/document\/colorCycleDocumentContract\.ts$/,
@@ -43,6 +66,11 @@ const GUARD_ONLY_TESTS = new Set([
 const normalizePath = (filePath) => filePath.replace(/\\/g, '/').replace(/^\.\//, '');
 
 const matchesAny = (filePath, patterns) => patterns.some((pattern) => pattern.test(filePath));
+
+const isTestFile = (filePath) => (
+  filePath.includes('/__tests__/') ||
+  /\.(?:test|spec)\.[cm]?[jt]sx?$/.test(filePath)
+);
 
 const loadNamedParityCommands = () => {
   const packageJsonPath = 'package.json';
@@ -150,25 +178,62 @@ const listChangedFiles = ({ mode, files, base, eventPath }) => {
 const changedFiles = listChangedFiles(parseArgs());
 const namedParityCommands = loadNamedParityCommands();
 const playbackSensitiveFiles = changedFiles.filter((filePath) => (
-  matchesAny(filePath, PLAYBACK_SENSITIVE_PATTERNS)
+  matchesAny(filePath, PLAYBACK_SENSITIVE_PATTERNS) &&
+  !isTestFile(filePath) &&
+  !AUTHORING_BUFFER_POLICIES.some((policy) => (
+    matchesAny(filePath, policy.sensitivePatterns)
+  ))
 ));
 const companionFiles = changedFiles.filter((filePath) => (
   isCompanionFile(filePath, namedParityCommands)
 ));
+const authoringPolicyResults = AUTHORING_BUFFER_POLICIES.map((policy) => ({
+  ...policy,
+  sensitiveFiles: changedFiles.filter((filePath) => (
+    matchesAny(filePath, policy.sensitivePatterns)
+  )),
+  companionFiles: changedFiles.filter((filePath) => (
+    matchesAny(filePath, policy.companionPatterns)
+  )),
+})).filter((policy) => policy.sensitiveFiles.length > 0);
 
-if (playbackSensitiveFiles.length === 0) {
+if (playbackSensitiveFiles.length === 0 && authoringPolicyResults.length === 0) {
   console.log('[playback-change-gate] No playback-sensitive files changed.');
   process.exit(0);
 }
 
-if (companionFiles.length > 0) {
+const missingPlaybackCompanion = (
+  playbackSensitiveFiles.length > 0 &&
+  companionFiles.length === 0
+);
+const missingAuthoringCompanions = authoringPolicyResults.filter((policy) => (
+  policy.companionFiles.length === 0
+));
+
+if (!missingPlaybackCompanion && missingAuthoringCompanions.length === 0) {
   console.log('[playback-change-gate] Playback-sensitive change has parity/shared companion coverage.');
-  console.log(`Playback-sensitive files:\n${playbackSensitiveFiles.map((filePath) => `  - ${filePath}`).join('\n')}`);
-  console.log(`Companion files:\n${companionFiles.map((filePath) => `  - ${filePath}`).join('\n')}`);
+  if (playbackSensitiveFiles.length > 0) {
+    console.log(`Playback-sensitive files:\n${playbackSensitiveFiles.map((filePath) => `  - ${filePath}`).join('\n')}`);
+    console.log(`Parity/shared companion files:\n${companionFiles.map((filePath) => `  - ${filePath}`).join('\n')}`);
+  }
+  for (const policy of authoringPolicyResults) {
+    console.log(`Authoring-buffer policy: ${policy.label}`);
+    console.log(`Authoring-buffer files:\n${policy.sensitiveFiles.map((filePath) => `  - ${filePath}`).join('\n')}`);
+    console.log(`Contract test files:\n${policy.companionFiles.map((filePath) => `  - ${filePath}`).join('\n')}`);
+  }
   process.exit(0);
 }
 
-console.error('[playback-change-gate] Playback-sensitive files changed without a shared-runtime or parity-matrix companion.');
-console.error('Add/update a shared runtime source or parity fixture/test before landing this change.');
-console.error(`Playback-sensitive files:\n${playbackSensitiveFiles.map((filePath) => `  - ${filePath}`).join('\n')}`);
+if (missingPlaybackCompanion) {
+  console.error('[playback-change-gate] Playback-sensitive files changed without a shared-runtime or parity-matrix companion.');
+  console.error('Add/update a shared runtime source or parity fixture/test before landing this change.');
+  console.error(`Playback-sensitive files:\n${playbackSensitiveFiles.map((filePath) => `  - ${filePath}`).join('\n')}`);
+}
+
+for (const policy of missingAuthoringCompanions) {
+  console.error(`[playback-change-gate] ${policy.label} changed without its canonical-buffer contract test.`);
+  console.error(`Authoring-buffer files:\n${policy.sensitiveFiles.map((filePath) => `  - ${filePath}`).join('\n')}`);
+  console.error(`Expected one of:\n${policy.companionPatterns.map((pattern) => `  - ${pattern}`).join('\n')}`);
+}
+
 process.exit(1);

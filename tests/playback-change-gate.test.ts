@@ -219,6 +219,44 @@ describe('playback change gate', () => {
     expect(result.output).toContain('parity/shared companion coverage');
   });
 
+  it('allows authoring-buffer changes with their canonical-buffer contract tests', () => {
+    const result = runGate([
+      'src/hooks/brushEngine/colorCycleDrawController.ts',
+      'src/hooks/brushEngine/colorCycleStrokeRouting.ts',
+      'src/hooks/brushEngine/__tests__/colorCycleDrawController.test.ts',
+      'src/hooks/brushEngine/colorCycleShapeFillApiRuntime.ts',
+      'src/hooks/brushEngine/colorCycleShapeFillBuffers.ts',
+      'src/hooks/brushEngine/__tests__/ColorCycleBrushCanvas2D.regression.test.ts',
+    ]);
+
+    expect(result.status).toBe(0);
+    expect(result.output).toContain('Authoring-buffer policy: color-cycle stroke rasterization');
+    expect(result.output).toContain('Authoring-buffer policy: color-cycle shape-fill buffers');
+  });
+
+  it('requires each authoring-buffer policy to have its own contract test', () => {
+    const result = runGate([
+      'src/hooks/brushEngine/colorCycleDrawController.ts',
+      'src/hooks/brushEngine/__tests__/colorCycleDrawController.test.ts',
+      'src/hooks/brushEngine/colorCycleShapeFillBuffers.ts',
+    ]);
+
+    expect(result.status).toBe(1);
+    expect(result.output).toContain(
+      'color-cycle shape-fill buffers changed without its canonical-buffer contract test',
+    );
+  });
+
+  it('does not treat test files as playback-sensitive implementation changes', () => {
+    const result = runGate([
+      'src/hooks/brushEngine/__tests__/colorCycleDrawController.test.ts',
+      'src/hooks/brushEngine/__tests__/ColorCycleBrushCanvas2D.regression.test.ts',
+    ]);
+
+    expect(result.status).toBe(0);
+    expect(result.output).toContain('No playback-sensitive files changed');
+  });
+
   it('does not treat docs as sufficient companion coverage for playback changes', () => {
     const result = runGate([
       'src/lib/colorCycle/rendering/WebGLColorCycleRenderer.ts',

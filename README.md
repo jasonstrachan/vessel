@@ -121,6 +121,15 @@ website workflow rebuilds this repo at the exact pushed SHA, runs the website
 repo's `npm run vessel:sync`, verifies the website build, and commits only
 `public/vessel`.
 
+The playback guard compares `main` against the last successful Vessel export,
+so changes from a failed deployment remain in scope on the next push. Install
+the repository pre-push guard once per checkout to run the same contract check
+against the remote branch before GitHub accepts the push:
+
+```bash
+npm run hooks:install
+```
+
 Required repository secret:
 
 - `WEBSITE_DEPLOY_TOKEN` - token available to this repo's Actions workflow that
