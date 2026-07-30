@@ -2,6 +2,10 @@ import {
   drawColorCycleStroke,
   renderColorCycleToContext,
 } from '../colorCycleDrawController';
+import {
+  createColorCyclePixelPerfectStrokeState,
+  flushColorCyclePixelPerfectStroke,
+} from '../colorCycleStrokeRouting';
 import { registerColorCycleBrushLayerSnapshotRuntime } from '@/lib/colorCycle/document';
 import { BrushShape } from '@/types';
 import type { ColorCycleDrawBrush } from '../colorCycleDrawController';
@@ -181,6 +185,9 @@ describe('colorCycleDrawController', () => {
       firstStampImmediateRef,
       mirrorScheduledRef,
       gridSnapStrokePointRef: { current: null },
+      pixelPerfectStrokeStateRef: {
+        current: createColorCyclePixelPerfectStrokeState(),
+      },
       roundedCornerAnchorsRef: { current: [] },
       roundedCornerBaselineSnapshotRef: { current: null },
     });
@@ -190,10 +197,14 @@ describe('colorCycleDrawController', () => {
     expect(firstStampImmediateRef.current).toBe(false);
   });
 
-  it('rasterizes sparse 1px freehand input through the pixel-perfect line path', () => {
+  it('keeps sparse 1px input continuous and removes slow-input pixel doubles', () => {
     const ctx = createCtx();
     const brush = createBrush();
     const strokePointRef = { current: null as { x: number; y: number } | null };
+    const pixelPerfectStrokeStateRef = {
+      current: createColorCyclePixelPerfectStrokeState(),
+    };
+    const pixelPerfectStrokeState = pixelPerfectStrokeStateRef.current;
     const baseArgs = {
       ctx,
       pressure: 1,
@@ -222,19 +233,37 @@ describe('colorCycleDrawController', () => {
       firstStampImmediateRef: { current: true },
       mirrorScheduledRef: { current: false },
       gridSnapStrokePointRef: strokePointRef,
+      pixelPerfectStrokeStateRef,
       roundedCornerAnchorsRef: { current: [] },
       roundedCornerBaselineSnapshotRef: { current: null },
     };
 
     drawColorCycleStroke({ ...baseArgs, x: 2, y: 2 });
     drawColorCycleStroke({ ...baseArgs, x: 6, y: 4 });
+    flushColorCyclePixelPerfectStroke(pixelPerfectStrokeStateRef);
 
+    expect(pixelPerfectStrokeStateRef.current).toBe(pixelPerfectStrokeState);
     expect((brush.paint as jest.Mock).mock.calls.map((call) => [call[0], call[1]])).toEqual([
       [2, 2],
       [3, 2],
       [4, 3],
       [5, 3],
       [6, 4],
+    ]);
+
+    strokePointRef.current = null;
+    (brush.paint as jest.Mock).mockClear();
+
+    drawColorCycleStroke({ ...baseArgs, x: 0, y: 0 });
+    drawColorCycleStroke({ ...baseArgs, x: 1, y: 0 });
+    drawColorCycleStroke({ ...baseArgs, x: 1, y: 1 });
+    drawColorCycleStroke({ ...baseArgs, x: 2, y: 1 });
+    flushColorCyclePixelPerfectStroke(pixelPerfectStrokeStateRef);
+
+    expect((brush.paint as jest.Mock).mock.calls.map((call) => [call[0], call[1]])).toEqual([
+      [0, 0],
+      [1, 1],
+      [2, 1],
     ]);
 
     strokePointRef.current = null;
@@ -301,6 +330,9 @@ describe('colorCycleDrawController', () => {
       firstStampImmediateRef: { current: true },
       mirrorScheduledRef: { current: false },
       gridSnapStrokePointRef: { current: null },
+      pixelPerfectStrokeStateRef: {
+        current: createColorCyclePixelPerfectStrokeState(),
+      },
       roundedCornerAnchorsRef: { current: [] },
       roundedCornerBaselineSnapshotRef: { current: null },
     });
@@ -354,6 +386,9 @@ describe('colorCycleDrawController', () => {
       firstStampImmediateRef: { current: true },
       mirrorScheduledRef: { current: false },
       gridSnapStrokePointRef: { current: null },
+      pixelPerfectStrokeStateRef: {
+        current: createColorCyclePixelPerfectStrokeState(),
+      },
       roundedCornerAnchorsRef: { current: [] },
       roundedCornerBaselineSnapshotRef: { current: null },
       options: {
@@ -404,6 +439,9 @@ describe('colorCycleDrawController', () => {
       firstStampImmediateRef: { current: false },
       mirrorScheduledRef: { current: false },
       gridSnapStrokePointRef: { current: null },
+      pixelPerfectStrokeStateRef: {
+        current: createColorCyclePixelPerfectStrokeState(),
+      },
       roundedCornerAnchorsRef: { current: [] },
       roundedCornerBaselineSnapshotRef: { current: null },
     });
@@ -440,6 +478,9 @@ describe('colorCycleDrawController', () => {
       firstStampImmediateRef: { current: false },
       mirrorScheduledRef: { current: false },
       gridSnapStrokePointRef: { current: null },
+      pixelPerfectStrokeStateRef: {
+        current: createColorCyclePixelPerfectStrokeState(),
+      },
       roundedCornerAnchorsRef: { current: [] },
       roundedCornerBaselineSnapshotRef: { current: null },
     });
@@ -476,6 +517,9 @@ describe('colorCycleDrawController', () => {
       firstStampImmediateRef: { current: true },
       mirrorScheduledRef: { current: false },
       gridSnapStrokePointRef,
+      pixelPerfectStrokeStateRef: {
+        current: createColorCyclePixelPerfectStrokeState(),
+      },
       roundedCornerAnchorsRef,
       roundedCornerBaselineSnapshotRef,
       brushSettings: {
@@ -533,6 +577,9 @@ describe('colorCycleDrawController', () => {
       firstStampImmediateRef: { current: true },
       mirrorScheduledRef: { current: false },
       gridSnapStrokePointRef,
+      pixelPerfectStrokeStateRef: {
+        current: createColorCyclePixelPerfectStrokeState(),
+      },
       roundedCornerAnchorsRef: { current: [] as Array<{ x: number; y: number }> },
       roundedCornerBaselineSnapshotRef: { current: null },
       brushSettings: {
@@ -606,6 +653,9 @@ describe('colorCycleDrawController', () => {
       firstStampImmediateRef: { current: false },
       mirrorScheduledRef: { current: false },
       gridSnapStrokePointRef,
+      pixelPerfectStrokeStateRef: {
+        current: createColorCyclePixelPerfectStrokeState(),
+      },
       roundedCornerAnchorsRef,
       roundedCornerBaselineSnapshotRef,
       brushSettings: {
@@ -694,6 +744,9 @@ describe('colorCycleDrawController', () => {
       firstStampImmediateRef: { current: false },
       mirrorScheduledRef: { current: false },
       gridSnapStrokePointRef,
+      pixelPerfectStrokeStateRef: {
+        current: createColorCyclePixelPerfectStrokeState(),
+      },
       roundedCornerAnchorsRef,
       roundedCornerBaselineSnapshotRef,
     });
@@ -750,6 +803,9 @@ describe('colorCycleDrawController', () => {
       firstStampImmediateRef: { current: false },
       mirrorScheduledRef: { current: false },
       gridSnapStrokePointRef,
+      pixelPerfectStrokeStateRef: {
+        current: createColorCyclePixelPerfectStrokeState(),
+      },
       roundedCornerAnchorsRef,
       roundedCornerBaselineSnapshotRef,
     });
@@ -797,6 +853,9 @@ describe('colorCycleDrawController', () => {
       firstStampImmediateRef: { current: false },
       mirrorScheduledRef: { current: false },
       gridSnapStrokePointRef,
+      pixelPerfectStrokeStateRef: {
+        current: createColorCyclePixelPerfectStrokeState(),
+      },
       roundedCornerAnchorsRef,
       roundedCornerBaselineSnapshotRef: { current: null },
     });
@@ -835,6 +894,9 @@ describe('colorCycleDrawController', () => {
       firstStampImmediateRef: { current: false },
       mirrorScheduledRef: { current: false },
       gridSnapStrokePointRef,
+      pixelPerfectStrokeStateRef: {
+        current: createColorCyclePixelPerfectStrokeState(),
+      },
       roundedCornerAnchorsRef,
       roundedCornerBaselineSnapshotRef,
       brushSettings: {
@@ -933,6 +995,9 @@ describe('colorCycleDrawController', () => {
       firstStampImmediateRef: { current: false },
       mirrorScheduledRef: { current: false },
       gridSnapStrokePointRef,
+      pixelPerfectStrokeStateRef: {
+        current: createColorCyclePixelPerfectStrokeState(),
+      },
       roundedCornerAnchorsRef,
       roundedCornerBaselineSnapshotRef,
     });

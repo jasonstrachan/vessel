@@ -131,6 +131,10 @@ import {
   type ColorCycleDrawBrush,
   renderColorCycleToContext,
 } from './brushEngine/colorCycleDrawController';
+import {
+  createColorCyclePixelPerfectStrokeState,
+  flushColorCyclePixelPerfectStroke,
+} from './brushEngine/colorCycleStrokeRouting';
 import type { ColorCycleRenderBrush } from './brushEngine/colorCycleRenderController';
 import { getMaskManager } from '@/layers/MaskManager';
 import type { ColorCyclePaintMask } from '@/lib/colorCycle/document';
@@ -251,6 +255,9 @@ export const useBrushEngineSimplified = () => {
   const mirrorScheduledRef = useRef(false);
   const firstStampImmediateRef = useRef(true);
   const colorCycleGridSnapStrokePointRef = useRef<{ x: number; y: number } | null>(null);
+  const colorCyclePixelPerfectStrokeStateRef = useRef(
+    createColorCyclePixelPerfectStrokeState(),
+  );
   const colorCycleRoundedCornerAnchorsRef = useRef<Array<{ x: number; y: number }>>([]);
   const colorCycleRoundedCornerBaselineSnapshotRef = useRef<ColorCycleBrushLayerSnapshot | null>(null);
 
@@ -1657,6 +1664,7 @@ export const useBrushEngineSimplified = () => {
       firstStampImmediateRef,
       mirrorScheduledRef,
       gridSnapStrokePointRef: colorCycleGridSnapStrokePointRef,
+      pixelPerfectStrokeStateRef: colorCyclePixelPerfectStrokeStateRef,
       roundedCornerAnchorsRef: colorCycleRoundedCornerAnchorsRef,
       roundedCornerBaselineSnapshotRef: colorCycleRoundedCornerBaselineSnapshotRef,
     });
@@ -1675,6 +1683,7 @@ export const useBrushEngineSimplified = () => {
    * Reset Color Cycle - starts a new stroke with the existing brush
    */
   const resetColorCycle = useCallback((clearBuffer: boolean = false, options?: { skipGradientReinit?: boolean }) => {
+    flushColorCyclePixelPerfectStroke(colorCyclePixelPerfectStrokeStateRef);
     colorCycleGridSnapStrokePointRef.current = null;
     colorCycleRoundedCornerAnchorsRef.current = [];
     colorCycleRoundedCornerBaselineSnapshotRef.current = null;
@@ -1701,6 +1710,7 @@ export const useBrushEngineSimplified = () => {
    * End color cycle stroke
    */
   const endColorCycleStroke = useCallback(() => {
+    flushColorCyclePixelPerfectStroke(colorCyclePixelPerfectStrokeStateRef);
     colorCycleGridSnapStrokePointRef.current = null;
     colorCycleRoundedCornerAnchorsRef.current = [];
     colorCycleRoundedCornerBaselineSnapshotRef.current = null;

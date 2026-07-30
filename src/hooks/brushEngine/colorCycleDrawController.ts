@@ -17,6 +17,7 @@ import {
   resolveColorCycleStampTargetSize,
 } from './colorCycleDrawStampGeometry';
 import {
+  type ColorCyclePixelPerfectStrokeState,
   handleCustomSnapColorCycleStroke,
   handleFreehandColorCycleStroke,
   handleGridSnapColorCycleStroke,
@@ -100,6 +101,7 @@ type DrawColorCycleArgs = {
   firstStampImmediateRef: { current: boolean };
   mirrorScheduledRef: { current: boolean };
   gridSnapStrokePointRef: { current: { x: number; y: number } | null };
+  pixelPerfectStrokeStateRef: { current: ColorCyclePixelPerfectStrokeState };
   roundedCornerAnchorsRef: { current: GridSnapPoint[] };
   roundedCornerBaselineSnapshotRef: { current: ColorCycleBrushLayerSnapshot | null };
 };
@@ -125,6 +127,7 @@ export const drawColorCycleStroke = ({
   firstStampImmediateRef,
   mirrorScheduledRef,
   gridSnapStrokePointRef,
+  pixelPerfectStrokeStateRef,
   roundedCornerAnchorsRef,
   roundedCornerBaselineSnapshotRef,
 }: DrawColorCycleArgs): void => {
@@ -378,6 +381,7 @@ export const drawColorCycleStroke = ({
       paintStrokePoint,
       healPaintedEraseMask,
       strokePointRef: gridSnapStrokePointRef,
+      pixelPerfectStrokeStateRef,
       firstStampImmediateRef,
       mirrorScheduledRef,
     });

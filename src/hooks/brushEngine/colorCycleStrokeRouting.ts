@@ -1,5 +1,5 @@
-import { type BrushSettings } from '@/types';
 import { drawPixelPerfectLine } from '@/brushes/shapes';
+import { type BrushSettings } from '@/types';
 import { debugLog } from '@/utils/debug';
 import {
   applyColorCycleBrushLayerSnapshotToRuntime,
@@ -228,6 +228,57 @@ type FreehandStrokeOptions = StrokePreviewRefs & {
   paintStrokePoint: (x: number, y: number) => void;
   healPaintedEraseMask: () => void;
   strokePointRef: { current: GridSnapPoint | null };
+  pixelPerfectStrokeStateRef: { current: ColorCyclePixelPerfectStrokeState };
+};
+
+export type ColorCyclePixelPerfectStrokeState = {
+  lastDrawnPoint: GridSnapPoint | null;
+  waitingPoint: GridSnapPoint | null;
+  ctx: CanvasRenderingContext2D | null;
+  paintStrokePoint: ((x: number, y: number) => void) | null;
+  healPaintedEraseMask: (() => void) | null;
+};
+
+export const createColorCyclePixelPerfectStrokeState =
+  (): ColorCyclePixelPerfectStrokeState => ({
+    lastDrawnPoint: null,
+    waitingPoint: null,
+    ctx: null,
+    paintStrokePoint: null,
+    healPaintedEraseMask: null,
+  });
+
+export const resetColorCyclePixelPerfectStroke = (
+  stateRef: { current: ColorCyclePixelPerfectStrokeState },
+): void => {
+  const state = stateRef.current;
+  state.lastDrawnPoint = null;
+  state.waitingPoint = null;
+  state.ctx = null;
+  state.paintStrokePoint = null;
+  state.healPaintedEraseMask = null;
+};
+
+export const flushColorCyclePixelPerfectStroke = (
+  stateRef: { current: ColorCyclePixelPerfectStrokeState },
+): void => {
+  const state = stateRef.current;
+  const didPaint = state.lastDrawnPoint &&
+    state.waitingPoint &&
+    state.ctx &&
+    state.paintStrokePoint
+    ? paintPixelPerfectSegment(
+      state.ctx,
+      state.lastDrawnPoint,
+      state.waitingPoint,
+      state.paintStrokePoint,
+    )
+    : false;
+
+  if (didPaint) {
+    state.healPaintedEraseMask?.();
+  }
+  resetColorCyclePixelPerfectStroke(stateRef);
 };
 
 export const handleFreehandColorCycleStroke = ({
@@ -241,6 +292,7 @@ export const handleFreehandColorCycleStroke = ({
   paintStrokePoint,
   healPaintedEraseMask,
   strokePointRef,
+  pixelPerfectStrokeStateRef,
   firstStampImmediateRef,
   mirrorScheduledRef,
 }: FreehandStrokeOptions): void => {
@@ -267,23 +319,35 @@ export const handleFreehandColorCycleStroke = ({
     });
   }
 
-  if (usePixelPerfectLine && previousPoint) {
-    let isSegmentStart = true;
-    drawPixelPerfectLine(
-      ctx,
-      previousPoint.x,
-      previousPoint.y,
-      currentPoint.x,
-      currentPoint.y,
-      (pixelX, pixelY) => {
-        if (isSegmentStart) {
-          isSegmentStart = false;
-          return;
-        }
-        paintStrokePoint(pixelX, pixelY);
-      },
-    );
+  if (usePixelPerfectLine) {
+    const pixelPerfectState = pixelPerfectStrokeStateRef.current;
+    pixelPerfectState.ctx = ctx;
+    pixelPerfectState.paintStrokePoint = paintStrokePoint;
+    pixelPerfectState.healPaintedEraseMask = healPaintedEraseMask;
+
+    if (!pixelPerfectState.lastDrawnPoint) {
+      paintStrokePoint(currentPoint.x, currentPoint.y);
+      pixelPerfectState.lastDrawnPoint = currentPoint;
+      pixelPerfectState.waitingPoint = currentPoint;
+    } else {
+      // Hold one adjacent sample until the next point reveals whether it is a corner double.
+      const hasAdvancedPastWaitingPixel =
+        Math.abs(currentPoint.x - pixelPerfectState.lastDrawnPoint.x) > 1 ||
+        Math.abs(currentPoint.y - pixelPerfectState.lastDrawnPoint.y) > 1;
+
+      if (hasAdvancedPastWaitingPixel && pixelPerfectState.waitingPoint) {
+        paintPixelPerfectSegment(
+          ctx,
+          pixelPerfectState.lastDrawnPoint,
+          pixelPerfectState.waitingPoint,
+          paintStrokePoint,
+        );
+        pixelPerfectState.lastDrawnPoint = pixelPerfectState.waitingPoint;
+      }
+      pixelPerfectState.waitingPoint = currentPoint;
+    }
   } else {
+    resetColorCyclePixelPerfectStroke(pixelPerfectStrokeStateRef);
     paintStrokePoint(x, y);
   }
   strokePointRef.current = currentPoint;
@@ -296,6 +360,32 @@ export const handleFreehandColorCycleStroke = ({
     immediateWithOverlay: false,
     scheduledWithOverlay: true,
   });
+};
+
+const paintPixelPerfectSegment = (
+  ctx: CanvasRenderingContext2D,
+  start: GridSnapPoint,
+  end: GridSnapPoint,
+  paintStrokePoint: (x: number, y: number) => void,
+): boolean => {
+  let isSegmentStart = true;
+  let didPaint = false;
+  drawPixelPerfectLine(
+    ctx,
+    start.x,
+    start.y,
+    end.x,
+    end.y,
+    (pixelX, pixelY) => {
+      if (isSegmentStart) {
+        isSegmentStart = false;
+        return;
+      }
+      paintStrokePoint(pixelX, pixelY);
+      didPaint = true;
+    },
+  );
+  return didPaint;
 };
 
 const resolveRoundedGridPath = ({
