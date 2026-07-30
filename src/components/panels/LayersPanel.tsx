@@ -477,6 +477,70 @@ const LayersPanel: React.FC = () => {
     };
   }, [displayedLayerIds]);
 
+  const resolveGroupBoundaryTarget = React.useCallback((
+    groupId: string,
+    edge: 'above' | 'below',
+  ): LayerDropTarget | null => {
+    const groupDisplayIndices = visibleLayers
+      .map((layer, displayIndex) => ({ displayIndex, layerId: layer.id, groupId: layer.groupId }))
+      .filter((entry) => entry.groupId === groupId);
+    const firstGroupEntry = groupDisplayIndices[0];
+    const lastGroupEntry = groupDisplayIndices[groupDisplayIndices.length - 1];
+    if (!firstGroupEntry || !lastGroupEntry) {
+      return null;
+    }
+
+    return edge === 'above'
+      ? {
+        boundaryIndex: firstGroupEntry.displayIndex,
+        edge,
+        layerId: firstGroupEntry.layerId,
+      }
+      : {
+        boundaryIndex: lastGroupEntry.displayIndex + 1,
+        edge,
+        layerId: lastGroupEntry.layerId,
+      };
+  }, [visibleLayers]);
+
+  const resolveGroupRowDropTarget = React.useCallback((
+    event: React.DragEvent<HTMLDivElement>,
+    targetLayerId: string,
+    sourceGroupId: string,
+  ): LayerDropTarget | null => {
+    const targetLayer = layers.find((layer) => layer.id === targetLayerId);
+    if (!targetLayer || targetLayer.groupId === sourceGroupId) {
+      return null;
+    }
+
+    const rowTarget = resolveLayerDropTarget(event, targetLayerId);
+    if (!rowTarget) {
+      return null;
+    }
+
+    const targetGroupId = targetLayer.groupId;
+    if (targetGroupId && layerGroupsById.has(targetGroupId)) {
+      return resolveGroupBoundaryTarget(targetGroupId, rowTarget.edge);
+    }
+
+    return rowTarget;
+  }, [layerGroupsById, layers, resolveGroupBoundaryTarget, resolveLayerDropTarget]);
+
+  const resolveGroupHeaderDropTarget = React.useCallback((
+    event: React.DragEvent<HTMLDivElement>,
+    targetGroupId: string,
+    sourceGroupId: string,
+  ): LayerDropTarget | null => {
+    if (targetGroupId === sourceGroupId) {
+      return null;
+    }
+
+    const rect = event.currentTarget.getBoundingClientRect();
+    const clientY = typeof event.clientY === 'number' ? event.clientY : rect.top;
+    const edge = clientY <= rect.top + rect.height / 2 ? 'above' : 'below';
+    return resolveGroupBoundaryTarget(targetGroupId, edge);
+  }, [resolveGroupBoundaryTarget]);
+
   const resolveBoundaryGroupId = React.useCallback((
     boundaryIndex: number,
     excludedLayerIds: string[],
@@ -522,6 +586,12 @@ const LayersPanel: React.FC = () => {
       && boundaryIndex >= displayIndices[0]
       && boundaryIndex <= displayIndices[displayIndices.length - 1] + 1;
   }, [displayedLayerIds]);
+
+  const getGroupLayerIds = React.useCallback((groupId: string): string[] => (
+    layers
+      .filter((layer) => layer.groupId === groupId)
+      .map((layer) => layer.id)
+  ), [layers]);
 
   const commitLayerDrop = React.useCallback((
     draggedId: string,
@@ -572,6 +642,37 @@ const LayersPanel: React.FC = () => {
     updateLayer,
   ]);
 
+  const commitGroupDrop = React.useCallback((
+    sourceGroupId: string,
+    dropTarget: LayerDropTarget,
+  ) => {
+    const sourceLayerIds = getGroupLayerIds(sourceGroupId);
+    if (
+      sourceLayerIds.length === 0
+      || sourceLayerIds.includes(dropTarget.layerId)
+      || isBoundaryAtCurrentBlock(sourceLayerIds, dropTarget.boundaryIndex)
+    ) {
+      return;
+    }
+
+    const destinationIndex = getStoreDestinationForDisplayBoundary(
+      layers,
+      displayedLayerIds,
+      dropTarget.boundaryIndex,
+    );
+    if (destinationIndex == null) {
+      return;
+    }
+
+    reorderLayerBlock(sourceLayerIds, destinationIndex);
+  }, [
+    displayedLayerIds,
+    getGroupLayerIds,
+    isBoundaryAtCurrentBlock,
+    layers,
+    reorderLayerBlock,
+  ]);
+
   const handleDragOver = React.useCallback((
     event: React.DragEvent<HTMLDivElement>,
     targetLayerId: string,
@@ -579,7 +680,14 @@ const LayersPanel: React.FC = () => {
     event.preventDefault();
     event.dataTransfer.dropEffect = 'move';
     if (draggedGroupId) {
-      setLayerDropTarget(null);
+      const nextTarget = resolveGroupRowDropTarget(event, targetLayerId, draggedGroupId);
+      const sourceLayerIds = getGroupLayerIds(draggedGroupId);
+      setLayerDropTarget(
+        nextTarget
+        && !isBoundaryAtCurrentBlock(sourceLayerIds, nextTarget.boundaryIndex)
+          ? nextTarget
+          : null,
+      );
       return;
     }
     if (
@@ -601,7 +709,41 @@ const LayersPanel: React.FC = () => {
         ? previous
         : nextTarget
     ));
-  }, [draggedGroupId, draggedLayerId, resolveActionLayerIds, resolveLayerDropTarget]);
+  }, [
+    draggedGroupId,
+    draggedLayerId,
+    getGroupLayerIds,
+    isBoundaryAtCurrentBlock,
+    resolveActionLayerIds,
+    resolveGroupRowDropTarget,
+    resolveLayerDropTarget,
+  ]);
+
+  const handleGroupHeaderDragOver = React.useCallback((
+    event: React.DragEvent<HTMLDivElement>,
+    targetGroupId: string,
+  ) => {
+    event.preventDefault();
+    event.dataTransfer.dropEffect = 'move';
+    if (!draggedGroupId) {
+      setLayerDropTarget(null);
+      return;
+    }
+
+    const nextTarget = resolveGroupHeaderDropTarget(event, targetGroupId, draggedGroupId);
+    const sourceLayerIds = getGroupLayerIds(draggedGroupId);
+    setLayerDropTarget(
+      nextTarget
+      && !isBoundaryAtCurrentBlock(sourceLayerIds, nextTarget.boundaryIndex)
+        ? nextTarget
+        : null,
+    );
+  }, [
+    draggedGroupId,
+    getGroupLayerIds,
+    isBoundaryAtCurrentBlock,
+    resolveGroupHeaderDropTarget,
+  ]);
 
   const handleGroupDrop = React.useCallback((event: React.DragEvent<HTMLDivElement>, groupId: string) => {
     event.preventDefault();
@@ -613,31 +755,10 @@ const LayersPanel: React.FC = () => {
 
     const sourceGroupId = decodeGroupDragPayload(transferData);
     if (sourceGroupId) {
-      if (!sourceGroupId || sourceGroupId === groupId) {
-        setDraggedGroupId(null);
-        return;
+      const dropTarget = resolveGroupHeaderDropTarget(event, groupId, sourceGroupId);
+      if (dropTarget) {
+        commitGroupDrop(sourceGroupId, dropTarget);
       }
-
-      const sourceLayerIds = layers
-        .filter((layer) => layer.groupId === sourceGroupId)
-        .map((layer) => layer.id);
-      if (sourceLayerIds.length === 0) {
-        setDraggedGroupId(null);
-        return;
-      }
-
-      const targetIndices = layers
-        .map((layer, index) => ({ layer, index }))
-        .filter(({ layer }) => layer.groupId === groupId)
-        .map(({ index }) => index);
-      if (targetIndices.length === 0) {
-        setDraggedGroupId(null);
-        return;
-      }
-
-      // In the panel (top -> bottom), dropping on a group header inserts the dragged group above it.
-      const targetTopIndex = Math.max(...targetIndices);
-      reorderLayerBlock(sourceLayerIds, targetTopIndex + 1);
       setDraggedGroupId(null);
       setLayerDropTarget(null);
       return;
@@ -671,27 +792,61 @@ const LayersPanel: React.FC = () => {
     setDraggedLayerId(null);
     setDraggedGroupId(null);
     setLayerDropTarget(null);
-  }, [layers, reorderLayerBlock, resolveActionLayerIds, updateLayer]);
+  }, [
+    commitGroupDrop,
+    layers,
+    reorderLayerBlock,
+    resolveActionLayerIds,
+    resolveGroupHeaderDropTarget,
+    updateLayer,
+  ]);
 
   const handleDrop = React.useCallback((event: React.DragEvent<HTMLDivElement>, targetLayerId: string) => {
     event.preventDefault();
     event.stopPropagation();
     const draggedId = event.dataTransfer.getData('text/plain');
-    const dropTarget = resolveLayerDropTarget(event, targetLayerId);
-    if (draggedId && dropTarget) {
-      commitLayerDrop(draggedId, dropTarget);
+    const sourceGroupId = decodeGroupDragPayload(draggedId);
+    if (sourceGroupId) {
+      const dropTarget = resolveGroupRowDropTarget(event, targetLayerId, sourceGroupId);
+      if (dropTarget) {
+        commitGroupDrop(sourceGroupId, dropTarget);
+      }
+    } else {
+      const dropTarget = resolveLayerDropTarget(event, targetLayerId);
+      if (draggedId && dropTarget) {
+        commitLayerDrop(draggedId, dropTarget);
+      }
     }
 
     setDraggedLayerId(null);
     setDraggedGroupId(null);
     setLayerDropTarget(null);
-  }, [commitLayerDrop, resolveLayerDropTarget]);
+  }, [
+    commitGroupDrop,
+    commitLayerDrop,
+    resolveGroupRowDropTarget,
+    resolveLayerDropTarget,
+  ]);
 
   const handleDragOverBottom = React.useCallback((event: React.DragEvent<HTMLDivElement>) => {
     event.preventDefault();
     event.dataTransfer.dropEffect = 'move';
     const bottomLayer = visibleLayers[visibleLayers.length - 1];
-    if (!bottomLayer || draggedGroupId) {
+    if (!bottomLayer) {
+      setLayerDropTarget(null);
+      return;
+    }
+    if (
+      draggedGroupId
+      && layers.some((layer) => layer.id === bottomLayer.id && layer.groupId === draggedGroupId)
+    ) {
+      setLayerDropTarget(null);
+      return;
+    }
+    if (
+      draggedLayerId
+      && resolveActionLayerIds(draggedLayerId).includes(bottomLayer.id)
+    ) {
       setLayerDropTarget(null);
       return;
     }
@@ -700,7 +855,14 @@ const LayersPanel: React.FC = () => {
       edge: 'below',
       layerId: bottomLayer.id,
     });
-  }, [displayedLayerIds.length, draggedGroupId, visibleLayers]);
+  }, [
+    displayedLayerIds.length,
+    draggedGroupId,
+    draggedLayerId,
+    layers,
+    resolveActionLayerIds,
+    visibleLayers,
+  ]);
 
   const handleDropBottom = React.useCallback((event: React.DragEvent<HTMLDivElement>) => {
     event.preventDefault();
@@ -708,16 +870,22 @@ const LayersPanel: React.FC = () => {
     const draggedId = event.dataTransfer.getData('text/plain');
     const bottomLayer = visibleLayers[visibleLayers.length - 1];
     if (draggedId && bottomLayer) {
-      commitLayerDrop(draggedId, {
+      const dropTarget: LayerDropTarget = {
         boundaryIndex: displayedLayerIds.length,
         edge: 'below',
         layerId: bottomLayer.id,
-      });
+      };
+      const sourceGroupId = decodeGroupDragPayload(draggedId);
+      if (sourceGroupId) {
+        commitGroupDrop(sourceGroupId, dropTarget);
+      } else {
+        commitLayerDrop(draggedId, dropTarget);
+      }
     }
     setDraggedLayerId(null);
     setDraggedGroupId(null);
     setLayerDropTarget(null);
-  }, [commitLayerDrop, displayedLayerIds.length, visibleLayers]);
+  }, [commitGroupDrop, commitLayerDrop, displayedLayerIds.length, visibleLayers]);
 
   const handleDragEnd = React.useCallback(() => {
     setDraggedLayerId(null);
@@ -852,6 +1020,14 @@ const LayersPanel: React.FC = () => {
             && layerDropTarget.edge === 'above';
           const isDropBelow = layerDropTarget?.layerId === layer.id
             && layerDropTarget.edge === 'below';
+          const shouldRenderCollapsedGroupDropBelow = Boolean(
+            shouldRenderGroupHeader
+            && isGroupCollapsed
+            && isDropBelow
+            && layerDropTarget?.boundaryIndex !== displayedLayerIds.length,
+          );
+          const shouldRenderRowDropBelow = isDropBelow
+            && layerDropTarget?.boundaryIndex !== displayedLayerIds.length;
 
           return (
             <React.Fragment key={`${layer.id}-${layer.order}-${index}`}>
@@ -863,17 +1039,14 @@ const LayersPanel: React.FC = () => {
               {shouldRenderGroupHeader && groupId && (
                 <div
                   draggable
-                  className={`flex items-center gap-2 border-b border-[#3F3F3F] px-2 py-1 text-[10px] uppercase tracking-wide ${
+                  className={`relative flex items-center gap-2 border-b border-[#3F3F3F] px-2 py-1 text-[10px] uppercase tracking-wide ${
                     isGroupSelected ? 'bg-[#E8F2FF] text-[#0F172A]' : 'bg-[#25252A] text-[#B8C0CC]'
                   } ${draggedGroupId === groupId ? 'opacity-60' : ''}`}
                   onDragStart={(event) => {
                     handleGroupDragStart(event, groupId);
                   }}
                   onDragEnd={handleDragEnd}
-                  onDragOver={(event) => {
-                    event.preventDefault();
-                    event.dataTransfer.dropEffect = 'move';
-                  }}
+                  onDragOver={(event) => handleGroupHeaderDragOver(event, groupId)}
                   onDrop={(event) => {
                     handleGroupDrop(event, groupId);
                   }}
@@ -909,6 +1082,7 @@ const LayersPanel: React.FC = () => {
                     });
                   }}
                 >
+                  {shouldRenderCollapsedGroupDropBelow && <LayerDropIndicator position="bottom" />}
                   <button
                     onClick={(event) => {
                       event.stopPropagation();
@@ -966,7 +1140,7 @@ const LayersPanel: React.FC = () => {
                 onDragEnd={handleDragEnd}
               >
                 {!shouldRenderGroupHeader && isDropAbove && <LayerDropIndicator position="top" />}
-                {isDropBelow && <LayerDropIndicator position="bottom" />}
+                {shouldRenderRowDropBelow && <LayerDropIndicator position="bottom" />}
                 <div className={`flex items-start gap-2 px-2 py-1.5 ${groupId ? 'pl-4' : ''}`}>
                 <button
                   onClick={event => {
@@ -1207,7 +1381,7 @@ const LayersPanel: React.FC = () => {
         })()}
         <div
           data-testid="layer-drop-bottom"
-          className="h-3"
+          className="relative h-3"
           onDragOver={handleDragOverBottom}
           onDragLeave={() => {
             const bottomLayerId = visibleLayers[visibleLayers.length - 1]?.id;
@@ -1216,7 +1390,11 @@ const LayersPanel: React.FC = () => {
             }
           }}
           onDrop={handleDropBottom}
-        />
+        >
+          {layerDropTarget?.boundaryIndex === displayedLayerIds.length && (
+            <LayerDropIndicator position="top" />
+          )}
+        </div>
       </div>
     </div>
   );
