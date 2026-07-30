@@ -91,6 +91,7 @@ const createDeps = () => {
 describe('ShapeToolHandler dither gradient sampling', () => {
   beforeEach(() => {
     storeState.tools.brushSettings.brushShape = BrushShape.DITHER_GRADIENT;
+    storeState.tools.shapeMode = false;
     storeState.polygonGradientState = { drawingState: 'idle', points: [] };
     storeState.setPolygonGradientState.mockClear();
   });
@@ -330,5 +331,198 @@ describe('ShapeToolHandler dither gradient sampling', () => {
 
     expect(deps.drawingHandlers.startShapeDrawing).toHaveBeenCalled();
     expect(deps.interaction.dispatch).not.toHaveBeenCalledWith({ type: 'DRAWING_START' });
+  });
+
+  it('clears polygon gradient previews in device space before drawing the next frame', async () => {
+    storeState.tools.brushSettings.brushShape = BrushShape.POLYGON_GRADIENT;
+    storeState.tools.shapeMode = false;
+
+    const deps = createDeps();
+    const overlayCanvas = makeCanvas();
+    overlayCanvas.width = 100;
+    overlayCanvas.height = 100;
+    deps.overlayCanvasRef.current = overlayCanvas;
+    deps.viewTransformRef.current = { scale: 2, offsetX: 24, offsetY: 16 };
+
+    const overlayCtx = overlayCanvas.getContext('2d') as CanvasRenderingContext2D;
+    const setTransformSpy = jest.spyOn(overlayCtx, 'setTransform');
+    const clearRectSpy = jest.spyOn(overlayCtx, 'clearRect');
+    const translateSpy = jest.spyOn(overlayCtx, 'translate');
+    const strokeSpy = jest.spyOn(overlayCtx, 'stroke');
+    const previewFrames: FrameRequestCallback[] = [];
+    const requestFrameSpy = jest
+      .spyOn(globalThis, 'requestAnimationFrame')
+      .mockImplementation((callback) => {
+        previewFrames.push(callback);
+        return 41;
+      });
+
+    try {
+      const handler = createShapeToolHandler(
+        {
+          deps,
+          overlayPreviewFrameMs: 16,
+          getLastOverlayPreviewTs: () => -1000,
+          setLastOverlayPreviewTs: jest.fn(),
+        },
+        {}
+      );
+
+      handler.handlePointerDown({
+        button: 0,
+        clientX: 10,
+        clientY: 10,
+        pointerType: 'mouse',
+        pressure: 0.5,
+        shiftKey: false,
+        ctrlKey: false,
+        preventDefault: jest.fn(),
+        stopPropagation: jest.fn(),
+        target: deps.canvasRef.current,
+      } as any);
+
+      handler.handlePointerMove({
+        clientX: 12,
+        clientY: 12,
+        buttons: 1,
+        pointerType: 'mouse',
+        pressure: 0.5,
+        shiftKey: false,
+        ctrlKey: false,
+        target: deps.canvasRef.current,
+      } as any);
+
+      expect(previewFrames).toHaveLength(1);
+      previewFrames[0](0);
+      await Promise.resolve();
+
+      expect(setTransformSpy).toHaveBeenCalledWith(1, 0, 0, 1, 0, 0);
+      expect(clearRectSpy).toHaveBeenCalledWith(0, 0, 100, 100);
+      expect(setTransformSpy.mock.invocationCallOrder[0]).toBeLessThan(
+        clearRectSpy.mock.invocationCallOrder[0]
+      );
+      expect(clearRectSpy.mock.invocationCallOrder[0]).toBeLessThan(
+        translateSpy.mock.invocationCallOrder[0]
+      );
+      expect(strokeSpy).toHaveBeenCalled();
+    } finally {
+      requestFrameSpy.mockRestore();
+      setTransformSpy.mockRestore();
+      clearRectSpy.mockRestore();
+      translateSpy.mockRestore();
+      strokeSpy.mockRestore();
+    }
+  });
+
+  it('cancels and clears the pending polygon preview before finalization', () => {
+    storeState.tools.brushSettings.brushShape = BrushShape.POLYGON_GRADIENT;
+    storeState.tools.shapeMode = true;
+
+    const deps = createDeps();
+    const overlayCanvas = makeCanvas();
+    overlayCanvas.width = 100;
+    overlayCanvas.height = 100;
+    const overlayCtx = overlayCanvas.getContext('2d') as CanvasRenderingContext2D;
+    const clearRectSpy = jest.spyOn(overlayCtx, 'clearRect');
+    deps.overlayCanvasRef.current = overlayCanvas;
+
+    const drawingCanvas = makeCanvas();
+    drawingCanvas.width = 100;
+    drawingCanvas.height = 100;
+    deps.drawingHandlers.drawingCanvasRef.current = drawingCanvas;
+    deps.drawingHandlers.finalizeShapeDrawing.mockImplementation(
+      () => new Promise<void>(() => {})
+    );
+    deps.shapeBrushRuntime = {
+      drawPolygonGradient: jest.fn(),
+    };
+    deps.layers = [{ id: 'layer-1', layerType: 'normal' }];
+    deps.activeLayerId = 'layer-1';
+
+    const requestFrameSpy = jest
+      .spyOn(globalThis, 'requestAnimationFrame')
+      .mockImplementation(() => 57);
+    const cancelFrameSpy = jest
+      .spyOn(globalThis, 'cancelAnimationFrame')
+      .mockImplementation(() => undefined);
+
+    try {
+      const handler = createShapeToolHandler(
+        {
+          deps,
+          overlayPreviewFrameMs: 16,
+          getLastOverlayPreviewTs: () => -1000,
+          setLastOverlayPreviewTs: jest.fn(),
+        },
+        {}
+      );
+
+      handler.handlePointerDown({
+        button: 0,
+        clientX: 10,
+        clientY: 10,
+        pointerType: 'mouse',
+        pressure: 0.5,
+        shiftKey: false,
+        ctrlKey: false,
+        preventDefault: jest.fn(),
+        stopPropagation: jest.fn(),
+        target: deps.canvasRef.current,
+      } as any);
+      handler.handlePointerMove({
+        clientX: 20,
+        clientY: 10,
+        buttons: 1,
+        pointerType: 'mouse',
+        pressure: 0.5,
+        shiftKey: false,
+        ctrlKey: false,
+        target: deps.canvasRef.current,
+      } as any);
+      handler.handlePointerMove({
+        clientX: 20,
+        clientY: 20,
+        buttons: 1,
+        pointerType: 'mouse',
+        pressure: 0.5,
+        shiftKey: false,
+        ctrlKey: false,
+        target: deps.canvasRef.current,
+      } as any);
+
+      expect(deps.previewAnimationFrameRef.current).toBe(57);
+
+      handler.handlePointerUp({
+        clientX: 30,
+        clientY: 30,
+        buttons: 0,
+        pointerType: 'mouse',
+        pressure: 0,
+        shiftKey: false,
+        ctrlKey: false,
+        target: deps.canvasRef.current,
+      } as any);
+
+      expect(cancelFrameSpy).toHaveBeenCalledWith(57);
+      expect(deps.previewAnimationFrameRef.current).toBeNull();
+      expect(clearRectSpy).toHaveBeenCalledWith(0, 0, 100, 100);
+      expect(deps.drawingHandlers.finalizeShapeDrawing).toHaveBeenCalledTimes(1);
+      expect(clearRectSpy.mock.invocationCallOrder[0]).toBeLessThan(
+        deps.drawingHandlers.finalizeShapeDrawing.mock.invocationCallOrder[0]
+      );
+      expect(deps.shapeBrushRuntime.drawPolygonGradient).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({
+          vertices: expect.arrayContaining([
+            expect.objectContaining({ x: 30, y: 30 }),
+          ]),
+        }),
+        false
+      );
+    } finally {
+      requestFrameSpy.mockRestore();
+      cancelFrameSpy.mockRestore();
+      clearRectSpy.mockRestore();
+    }
   });
 });

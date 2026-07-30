@@ -166,6 +166,16 @@ const getPolygonPreviewAnchors = (previewModel: PolygonPreviewModel): PreviewPoi
   return previewModel.committedPolygon;
 };
 
+const clearCanvasInDeviceSpace = (
+  ctx: CanvasRenderingContext2D,
+  canvas: HTMLCanvasElement
+): void => {
+  ctx.save();
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  ctx.restore();
+};
+
 const isSampledCcShapePreview = (brushSettings: BrushSettings): boolean =>
   brushSettings.brushShape === BrushShape.COLOR_CYCLE_SHAPE &&
   resolveColorCycleGradientSource({
@@ -2991,10 +3001,29 @@ export const createShapeToolHandler = (
         return;
       }
 
-      if (tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE_SHAPE) {
+      const storeNow = getAppStoreState();
+      const brushNow = storeNow.tools.brushSettings;
+      const dynamicPresetId = context.deps.dynamicDepsRef.current.currentBrushPresetId;
+      const presetId = dynamicPresetId ?? context.deps.currentBrushPresetId;
+      const isCCShape = brushNow.brushShape === BrushShape.COLOR_CYCLE_SHAPE;
+      const isCCLinear = brushNow.colorCycleFillMode === 'linear';
+      const isColorCycleGradientPreset = isCcGradientPreset(presetId);
+      const shouldDitherPreview =
+        isCCShape &&
+        (isCCLinear || isColorCycleGradientPreset) &&
+        Boolean(brushNow.ditherEnabled);
+
+      if (!shouldDitherPreview) {
+        if (drawingHandlers.ccShapePreviewCacheRef) {
+          drawingHandlers.ccShapePreviewCacheRef.current = null;
+        }
+        clearCanvasInDeviceSpace(overlayCtx, overlayCanvas);
+      }
+
+      if (isCCShape) {
         ccLog('shape: preview frame', {
           pointCount: points.length,
-          source: tools.brushSettings.ccGradientSource ?? null,
+          source: brushNow.ccGradientSource ?? null,
         });
       }
 
@@ -3004,6 +3033,12 @@ export const createShapeToolHandler = (
       overlayCtx.scale(viewTransformRef.current.scale, viewTransformRef.current.scale);
 
       const pts = points as Array<{ x: number; y: number }>;
+      const isPolygonGestureActive =
+        (isPolygonGradient || isContourPolygon) &&
+        polygonStateForPreview.drawingState === 'drawing';
+      const shouldRenderPreviewChrome =
+        isPolygonGestureActive ||
+        (tools.shapeMode && drawingHandlers.isDrawingShapeRef.current);
       let didCustomFill = false;
       let suppressLivePreviewChrome = false;
       let skipFallbackFill = false;
@@ -3013,27 +3048,11 @@ export const createShapeToolHandler = (
         const committedPolygon = getClosedCommittedPolygon(previewModel.committedPolygon);
         const anchorPoints = getPolygonPreviewAnchors(previewModel);
         const previewStrokePalette = getPreviewStrokePalette(tools.brushSettings.color);
-        const storeNow = getAppStoreState();
-        const brushNow = storeNow.tools.brushSettings;
-        const dynamicPresetId = context.deps.dynamicDepsRef.current.currentBrushPresetId;
-        const presetId = dynamicPresetId ?? context.deps.currentBrushPresetId;
-        const isCCShape = brushNow.brushShape === BrushShape.COLOR_CYCLE_SHAPE;
-        const isCCLinear = brushNow.colorCycleFillMode === 'linear';
-        const isColorCycleGradientPreset = isCcGradientPreset(presetId);
         const isColorCycleGradientPreview = isCCShape && isCCLinear;
         const isDitherShapePreview = isDitherShapeMode(
           brushNow.brushShape,
           tools.shapeMode,
         );
-        const shouldDitherPreview =
-          isCCShape && (isCCLinear || isColorCycleGradientPreset) && Boolean(brushNow.ditherEnabled);
-
-        if (!shouldDitherPreview) {
-          if (drawingHandlers.ccShapePreviewCacheRef) {
-            drawingHandlers.ccShapePreviewCacheRef.current = null;
-          }
-          overlayCtx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
-        }
         const strokePreviewOutline = () => {
           drawHighContrastStroke(
             overlayCtx,
@@ -3621,7 +3640,7 @@ export const createShapeToolHandler = (
             0.95
           );
         }
-      } else if (pts.length === 2 && tools.shapeMode && drawingHandlers.isDrawingShapeRef.current) {
+      } else if (pts.length === 2 && shouldRenderPreviewChrome) {
         const previewModel = buildPolygonPreviewModel(pts, previewPoint);
         const palette = getPreviewStrokePalette(tools.brushSettings.color);
         drawHighContrastStroke(
@@ -3656,7 +3675,7 @@ export const createShapeToolHandler = (
           palette,
           0.95
         );
-      } else if (pts.length === 1 && tools.shapeMode && drawingHandlers.isDrawingShapeRef.current) {
+      } else if (pts.length === 1 && shouldRenderPreviewChrome) {
         const palette = getPreviewStrokePalette(tools.brushSettings.color);
         drawHighContrastStroke(
           overlayCtx,
@@ -3676,7 +3695,7 @@ export const createShapeToolHandler = (
           palette,
           0.95
         );
-      } else if (pts.length === 0 && tools.shapeMode && drawingHandlers.isDrawingShapeRef.current) {
+      } else if (pts.length === 0 && shouldRenderPreviewChrome) {
         const palette = getPreviewStrokePalette(tools.brushSettings.color);
         drawHighContrastDot(
           overlayCtx,
@@ -3771,6 +3790,8 @@ export const createShapeToolHandler = (
           : Date.now();
       drawingHandlers.updateShapePressure?.(0, nowTs, event.pressure);
       resetDitherGradOrigin();
+    } else if (isPolygonGradient || isContourPolygon) {
+      appendPolygonGradientPoint(computeWorldPointer(event));
     }
 
     if (isCCShape) {
@@ -4121,6 +4142,14 @@ export const createShapeToolHandler = (
 
     compositeCanvasDirtyRef.current = true;
 
+    latestPolygonPreviewPoint = null;
+    if (previewAnimationFrameRef?.current) {
+      cancelAnimationFrame(previewAnimationFrameRef.current);
+      previewAnimationFrameRef.current = null;
+    }
+    clearCurrentPreview();
+    clearOverlayCanvas();
+
     logShapeModeGuard('polygon-complete');
     const finalizePromise = drawingHandlers.finalizeShapeDrawing();
     logShapeFillEvent('shape-fill-finalize-request', {
@@ -4132,12 +4161,6 @@ export const createShapeToolHandler = (
       Boolean(tools.brushSettings.ditherEnabled);
     if (isCCPreview) {
       resetDitherGradOrigin();
-      if (previewAnimationFrameRef?.current) {
-        cancelAnimationFrame(previewAnimationFrameRef.current);
-        previewAnimationFrameRef.current = null;
-      }
-      clearCurrentPreview();
-      clearOverlayCanvas();
     }
     finalizePromise.then(() => {
       logShapeFillEvent('shape-fill-finalize-success', {
@@ -4166,10 +4189,6 @@ export const createShapeToolHandler = (
       throw error;
     }).finally(() => {
       stateMachine.finalizationComplete();
-      if (!isCCPreview) {
-        clearCurrentPreview();
-        clearOverlayCanvas();
-      }
     });
 
     resetPolygonAdjustmentState();
