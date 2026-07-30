@@ -203,8 +203,10 @@ const sanitizeBrushSpecificDitherPatternSettings = (
   if (!shouldPersistBrushSpecificDitherPattern(brushId)) {
     delete settings.ditherAlgorithm;
     delete settings.patternStyle;
-  } else if (settings.patternStyle === 'image-tile') {
-    delete settings.patternStyle;
+  }
+
+  if (brushId === 'dither-grad') {
+    return;
   }
 
   delete settings.patternTileId;
@@ -237,6 +239,14 @@ const getSerializableBrushSettings = (settings: BrushSettings): Partial<BrushSet
   ccFlatCycleBands: settings.ccFlatCycleBands,
   ditherAlgorithm: settings.ditherAlgorithm,
   patternStyle: settings.patternStyle,
+  patternTileId: settings.patternTileId,
+  patternTilePackId: settings.patternTilePackId,
+  patternTileSelectionMode: settings.patternTileSelectionMode,
+  patternTileScale: settings.patternTileScale,
+  patternTileInvert: settings.patternTileInvert,
+  patternTileThreshold: settings.patternTileThreshold,
+  patternTileOffsetX: settings.patternTileOffsetX,
+  patternTileOffsetY: settings.patternTileOffsetY,
   ditherStrokeTipShape: settings.ditherStrokeTipShape,
   ditherBackgroundFill: settings.ditherBackgroundFill,
   ditherGradBgFill: settings.ditherGradBgFill,
@@ -858,6 +868,32 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
         }
         if (settings.patternStyle !== undefined) {
           settingsToSave.patternStyle = newSettings.patternStyle;
+        }
+      }
+      if (currentBrushId === 'dither-grad') {
+        if (settings.patternTileId !== undefined) {
+          settingsToSave.patternTileId = newSettings.patternTileId;
+        }
+        if (settings.patternTilePackId !== undefined) {
+          settingsToSave.patternTilePackId = newSettings.patternTilePackId;
+        }
+        if (settings.patternTileSelectionMode !== undefined) {
+          settingsToSave.patternTileSelectionMode = newSettings.patternTileSelectionMode;
+        }
+        if (settings.patternTileScale !== undefined) {
+          settingsToSave.patternTileScale = newSettings.patternTileScale;
+        }
+        if (settings.patternTileInvert !== undefined) {
+          settingsToSave.patternTileInvert = newSettings.patternTileInvert;
+        }
+        if (settings.patternTileThreshold !== undefined) {
+          settingsToSave.patternTileThreshold = newSettings.patternTileThreshold;
+        }
+        if (settings.patternTileOffsetX !== undefined) {
+          settingsToSave.patternTileOffsetX = newSettings.patternTileOffsetX;
+        }
+        if (settings.patternTileOffsetY !== undefined) {
+          settingsToSave.patternTileOffsetY = newSettings.patternTileOffsetY;
         }
       }
       if (settings.ccSampledSoftSeamEnabled !== undefined) {

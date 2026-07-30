@@ -64,10 +64,14 @@ export const useDrawingCanvasInputHandlers = ({
   const { project } = eventHandlerArgs;
   const activeBrushShape = eventHandlerArgs.tools.brushSettings.brushShape ?? brushShape;
   const isShapePresetAllowingOutsideStart =
-    eventHandlerArgs.tools.shapeMode === true &&
-    (isDitherShapeMode(activeBrushShape, eventHandlerArgs.tools.shapeMode) ||
-      eventHandlerArgs.currentBrushPresetId === 'dither-grad' ||
-      isCcGradientPreset(eventHandlerArgs.currentBrushPresetId));
+    activeBrushShape === BrushShape.DITHER_GRADIENT ||
+    (
+      eventHandlerArgs.tools.shapeMode === true &&
+      (
+        isDitherShapeMode(activeBrushShape, eventHandlerArgs.tools.shapeMode) ||
+        isCcGradientPreset(eventHandlerArgs.currentBrushPresetId)
+      )
+    );
   const allowPointerDownOutsideCanvasShape =
     (eventHandlerArgs.tools.currentTool === 'selection' &&
       (eventHandlerArgs.tools.selectionMode ?? 'marquee') === 'marquee') ||

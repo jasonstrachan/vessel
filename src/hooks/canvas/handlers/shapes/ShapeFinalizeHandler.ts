@@ -9,11 +9,14 @@ import { parseCssColorToRgba } from '@/hooks/canvas/utils/colorCycleHelpers';
 import type { ColorCycleSerializedState } from '@/history/helpers/colorCycle';
 import { commitLayerHistory } from '@/history/helpers/layerHistory';
 import {
+  computeGradientAxisFromOpposingEnds,
   computeGradientAxisFromDirection,
+  resolveDitherGradientLengthFactor,
   scaleOrderedAxis,
   renderDitherGradientToImageData,
   resolveDitherGradPalette,
 } from '@/utils/orderedDitherGradient';
+import { createCcCustomTileThresholdResolver } from '@/utils/colorCycle/ccCustomTilePattern';
 import { canvasPool } from '@/utils/canvasPool';
 import {
   captureRegionFromPoints,
@@ -560,80 +563,41 @@ const renderDitherGradientPolygon = ({
   }
 
   const localVertices = points.map((pt) => ({ x: pt.x - minX, y: pt.y - minY }));
-  const computeAxisOpposingEnds = (verts: ShapePoint[]) => {
-    if (verts.length < 2) {
-      return {
-        start: { x: 0, y: 0 },
-        end: { x: 1, y: 0 },
-        dir: { x: 1, y: 0 },
-        length: 1,
-      };
-    }
-
-    let maxDist = -Infinity;
-    let endA = verts[0];
-    let endB = verts[0];
-    for (let i = 0; i < verts.length; i += 1) {
-      for (let j = i + 1; j < verts.length; j += 1) {
-        const a = verts[i];
-        const b = verts[j];
-        const d = Math.hypot(b.x - a.x, b.y - a.y);
-        if (d > maxDist) {
-          maxDist = d;
-          endA = a;
-          endB = b;
-        }
-      }
-    }
-
-    let dx = endB.x - endA.x;
-    let dy = endB.y - endA.y;
-    let len = Math.hypot(dx, dy);
-    if (len < 1e-6) {
-      dx = 1;
-      dy = 0;
-      len = 1;
-    }
-    dx /= len;
-    dy /= len;
-
-    let minT = Infinity;
-    let maxT = -Infinity;
+  const axisBase = direction
+    ? computeGradientAxisFromDirection(localVertices, direction)
+    : computeGradientAxisFromOpposingEnds(localVertices);
+  let resolvedAxis = axisBase;
+  if (!direction) {
+    let minProjection = Infinity;
+    let maxProjection = -Infinity;
     const corners = [
       { x: 0, y: 0 },
       { x: width, y: 0 },
       { x: 0, y: height },
       { x: width, y: height },
     ];
-
-    for (const v of verts) {
-      const t = v.x * dx + v.y * dy;
-      if (t < minT) minT = t;
-      if (t > maxT) maxT = t;
+    for (const point of [...localVertices, ...corners]) {
+      const projection = point.x * axisBase.dir.x + point.y * axisBase.dir.y;
+      minProjection = Math.min(minProjection, projection);
+      maxProjection = Math.max(maxProjection, projection);
     }
-    for (const c of corners) {
-      const t = c.x * dx + c.y * dy;
-      if (t < minT) minT = t;
-      if (t > maxT) maxT = t;
-    }
-
-    const length = Math.max(1e-6, maxT - minT);
-    return {
-      start: { x: dx * minT, y: dy * minT },
-      end: { x: dx * maxT, y: dy * maxT },
-      dir: { x: dx, y: dy },
-      length,
+    resolvedAxis = {
+      start: {
+        x: axisBase.dir.x * minProjection,
+        y: axisBase.dir.y * minProjection,
+      },
+      end: {
+        x: axisBase.dir.x * maxProjection,
+        y: axisBase.dir.y * maxProjection,
+      },
+      dir: axisBase.dir,
+      length: Math.max(1e-6, maxProjection - minProjection),
     };
-  };
-
-  let axis = direction
-    ? computeGradientAxisFromDirection(localVertices, direction)
-    : computeAxisOpposingEnds(localVertices);
-  const lengthFactor = Math.max(
-    0.05,
-    Math.min(2, ((liveBrushSettings.gradientLength ?? 100) / 100) * 1.3)
+  }
+  const axis = scaleOrderedAxis(
+    resolvedAxis,
+    resolveDitherGradientLengthFactor(liveBrushSettings.gradientLength)
   );
-  axis = scaleOrderedAxis(axis, lengthFactor);
   const fg = parseCssColorToRgba(palette?.foregroundColor || liveBrushSettings.color || '#000');
   const bg = parseCssColorToRgba(palette?.backgroundColor || '#fff');
   const paletteRGBA = resolveDitherGradPalette(
@@ -645,6 +609,18 @@ const renderDitherGradientPolygon = ({
   );
   const pixelSize = computeShapePixelSize(lastStablePressure);
   latestShapePixelSizeRef.current = pixelSize;
+  const imageTileThresholdResolver =
+    liveBrushSettings.ditherAlgorithm === 'pattern' &&
+    liveBrushSettings.patternStyle === 'image-tile'
+      ? createCcCustomTileThresholdResolver(project.ccCustomTilePatterns, {
+          patternTileId: liveBrushSettings.patternTileId,
+          patternTileScale: liveBrushSettings.patternTileScale,
+          patternTileInvert: liveBrushSettings.patternTileInvert,
+          patternTileThreshold: liveBrushSettings.patternTileThreshold,
+          patternTileOffsetX: liveBrushSettings.patternTileOffsetX,
+          patternTileOffsetY: liveBrushSettings.patternTileOffsetY,
+        }) ?? undefined
+      : undefined;
 
   const imageData = renderDitherGradientToImageData({
     width,
@@ -656,32 +632,35 @@ const renderDitherGradientPolygon = ({
     origin: { x: minX, y: minY },
     algorithm: liveBrushSettings.ditherAlgorithm,
     patternStyle: liveBrushSettings.patternStyle,
+    imageTileThresholdResolver,
   });
 
   const tempCanvas = canvasPool.acquire(width, height);
-  const tempCtx = tempCanvas.getContext('2d', { willReadFrequently: true } as CanvasRenderingContext2DSettings);
-  if (!tempCtx) {
+  try {
+    const tempCtx = tempCanvas.getContext('2d', { willReadFrequently: true } as CanvasRenderingContext2DSettings);
+    if (!tempCtx) {
+      return false;
+    }
+
+    tempCtx.clearRect(0, 0, width, height);
+    tempCtx.putImageData(imageData, 0, 0);
+    applyPolygonMaskToCanvasContext(tempCtx, localVertices, {
+      origin: { x: minX, y: minY },
+      pixelSize,
+      wholeCells: Boolean(liveBrushSettings.pxlEdge),
+    });
+
+    ctx.save();
+    ctx.imageSmoothingEnabled = false;
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.globalAlpha = Math.max(0, Math.min(1, liveBrushSettings.opacity ?? 1));
+    ctx.drawImage(tempCanvas, minX, minY);
+    ctx.restore();
+    drawingCanvasHasContent.current = true;
+    return true;
+  } finally {
     canvasPool.release(tempCanvas);
-    return false;
   }
-
-  tempCtx.clearRect(0, 0, width, height);
-  tempCtx.putImageData(imageData, 0, 0);
-  applyPolygonMaskToCanvasContext(tempCtx, localVertices, {
-    origin: { x: minX, y: minY },
-    pixelSize,
-    wholeCells: Boolean(liveBrushSettings.pxlEdge),
-  });
-
-  ctx.save();
-  ctx.imageSmoothingEnabled = false;
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
-  ctx.drawImage(tempCanvas, minX, minY);
-  ctx.restore();
-  drawingCanvasHasContent.current = true;
-
-  canvasPool.release(tempCanvas);
-  return true;
 };
 
 export const finalizeDitherGradientShape = ({
@@ -728,7 +707,7 @@ export const finalizeDitherGradientShape = ({
     return null;
   }
 
-  renderDitherGradientPolygon({
+  const didRender = renderDitherGradientPolygon({
     canvas,
     ctx: drawCtx,
     points,
@@ -744,6 +723,9 @@ export const finalizeDitherGradientShape = ({
     computeShapePixelSize,
     direction,
   });
+  if (!didRender) {
+    return null;
+  }
 
   const lostEdge = Math.max(0, Math.min(100, liveBrushSettings.lostEdge ?? 0));
   if (lostEdge > 0) {
@@ -780,7 +762,6 @@ export const finalizeRasterShapeFill = ({
   storeRef,
   liveBrushSettings,
   shapePoints,
-  ditherGradPoints,
   strokeBoundingBox,
   project,
   roiPadding,
@@ -991,21 +972,16 @@ export const finalizeRasterShapeFill = ({
     drawCtx.fill();
   }
 
-  if (
-    liveBrushSettings.brushShape === BrushShape.POLYGON_GRADIENT ||
-    liveBrushSettings.brushShape === BrushShape.DITHER_GRADIENT
-  ) {
+  if (liveBrushSettings.brushShape === BrushShape.POLYGON_GRADIENT) {
     const polyState = storeRef.current.polygonGradientState;
     const rawPts =
-      liveBrushSettings.brushShape === BrushShape.DITHER_GRADIENT && ditherGradPoints
-        ? ditherGradPoints
-        : polyState.vertices && polyState.vertices.length >= 3
-          ? polyState.vertices
-          : polyState.points && polyState.points.length >= 3
-            ? polyState.points
-            : shapePoints.length >= 2
-              ? [...shapePoints]
-              : [];
+      polyState.vertices && polyState.vertices.length >= 3
+        ? polyState.vertices
+        : polyState.points && polyState.points.length >= 3
+          ? polyState.points
+          : shapePoints.length >= 2
+            ? [...shapePoints]
+            : [];
     const lostEdge = Math.max(0, Math.min(100, liveBrushSettings.lostEdge ?? 0));
 
     if (lostEdge > 0 && rawPts.length >= 2) {

@@ -160,6 +160,20 @@ describe('DitherControls wiring', () => {
     expect(onChange).toHaveBeenCalledWith({ fillResolution: 6 });
   });
 
+  it('hides stroke-only controls for dither gradient', () => {
+    render(
+      <DitherControls
+        settings={baseSettings}
+        onChange={() => {}}
+        forceOn
+        hideToggle
+      />
+    );
+
+    expect(screen.queryByLabelText('Pressure dither Smoosh')).toBeNull();
+    expect(screen.queryByLabelText('Dither Dephase')).toBeNull();
+  });
+
   it('shows max pixel size control when pressure-linked and wires updates', () => {
     const onChange = jest.fn();
     render(

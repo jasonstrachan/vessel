@@ -202,7 +202,7 @@ describe('tools slice', () => {
     expect(saved?.ditherGradStops).toEqual(['#111111', '#222222']);
   });
 
-  it('clears project-local dither gradient tile settings from brush persistence', () => {
+  it('retains project-local dither gradient tile settings in project brush state', () => {
     const store = useAppStore.getState();
     const preset = brushPresets.find((candidate) => candidate.id === 'dither-grad');
     expect(preset).toBeTruthy();
@@ -220,20 +220,37 @@ describe('tools slice', () => {
       patternTileId: 'new-tile',
       patternTilePackId: 'new-pack',
       patternTileSelectionMode: 'single',
+      patternTileScale: 3,
+      patternTileInvert: true,
+      patternTileThreshold: 0.4,
+      patternTileOffsetX: 2,
+      patternTileOffsetY: -1,
     });
 
     const saved = useAppStore.getState().brushSpecificSettings[preset!.id];
     expect(saved?.ditherAlgorithm).toBe('pattern');
-    expect(saved?.patternStyle).toBeUndefined();
-    expect(saved?.patternTileId).toBeUndefined();
-    expect(saved?.patternTilePackId).toBeUndefined();
-    expect(saved?.patternTileSelectionMode).toBeUndefined();
+    expect(saved?.patternStyle).toBe('image-tile');
+    expect(saved?.patternTileId).toBe('new-tile');
+    expect(saved?.patternTilePackId).toBe('new-pack');
+    expect(saved?.patternTileSelectionMode).toBe('single');
+    expect(saved?.patternTileScale).toBe(3);
+    expect(saved?.patternTileInvert).toBe(true);
+    expect(saved?.patternTileThreshold).toBe(0.4);
+    expect(saved?.patternTileOffsetX).toBe(2);
+    expect(saved?.patternTileOffsetY).toBe(-1);
 
     const loaded = useAppStore.getState().loadBrushSettings(preset!.id);
-    expect(loaded.patternStyle).toBeUndefined();
-    expect(loaded.patternTileId).toBeUndefined();
-    expect(loaded.patternTilePackId).toBeUndefined();
-    expect(loaded.patternTileSelectionMode).toBeUndefined();
+    expect(loaded).toEqual(expect.objectContaining({
+      patternStyle: 'image-tile',
+      patternTileId: 'new-tile',
+      patternTilePackId: 'new-pack',
+      patternTileSelectionMode: 'single',
+      patternTileScale: 3,
+      patternTileInvert: true,
+      patternTileThreshold: 0.4,
+      patternTileOffsetX: 2,
+      patternTileOffsetY: -1,
+    }));
   });
 
   it('keeps pressure-linked dither resolution settings in sync across dither stroke and shape presets', () => {

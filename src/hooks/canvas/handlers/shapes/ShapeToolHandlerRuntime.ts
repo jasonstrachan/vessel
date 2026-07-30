@@ -20,6 +20,8 @@ import { FillStage, type FillParams, type ShapeFillSession, type ShapeFillParamK
 import { registerToolFlush } from '@/utils/toolFlushRegistry';
 import { canvasPool } from '@/utils/canvasPool';
 import {
+  computeGradientAxisFromOpposingEnds,
+  resolveDitherGradientLengthFactor,
   scaleOrderedAxis,
   renderDitherGradientToImageData,
   resolveDitherGradPalette,
@@ -79,6 +81,7 @@ import {
   type ShapeFillPreviewRect,
 } from '@/hooks/canvas/handlers/shapes/shapeFill/shapeFillPreview';
 import { markDerivedSurfaceBuiltFromVersion } from '@/lib/colorCycle/document';
+import { createCcCustomTileThresholdResolver } from '@/utils/colorCycle/ccCustomTilePattern';
 
 const SHAPE_PREVIEW_OPACITY = 0.8;
 
@@ -394,67 +397,6 @@ const normalizePreparedPreviewStops = (
   }
 
   return sortedStops;
-};
-
-const computeAxisOpposingEnds = (verts: Array<{ x: number; y: number }>): {
-  start: { x: number; y: number };
-  end: { x: number; y: number };
-  dir: { x: number; y: number };
-  length: number;
-} => {
-  const n = verts.length;
-  if (n === 0) {
-    return { start: { x: 0, y: 0 }, end: { x: 1, y: 0 }, dir: { x: 1, y: 0 }, length: 1 };
-  }
-  if (n === 1) {
-    return { start: verts[0], end: { x: verts[0].x + 1, y: verts[0].y }, dir: { x: 1, y: 0 }, length: 1 };
-  }
-
-  let a = verts[0];
-  let b = verts[1];
-  let bestD2 = -1;
-  for (let i = 0; i < n; i += 1) {
-    for (let j = i + 1; j < n; j += 1) {
-      const dx = verts[j].x - verts[i].x;
-      const dy = verts[j].y - verts[i].y;
-      const d2 = dx * dx + dy * dy;
-      if (d2 > bestD2) {
-        bestD2 = d2;
-        a = verts[i];
-        b = verts[j];
-      }
-    }
-  }
-
-  let dx = b.x - a.x;
-  let dy = b.y - a.y;
-  let len = Math.hypot(dx, dy);
-  if (len < 1e-6) {
-    dx = 1;
-    dy = 0;
-    len = 1;
-  }
-  dx /= len;
-  dy /= len;
-
-  let minT = Infinity;
-  let maxT = -Infinity;
-  let minP = verts[0];
-  let maxP = verts[0];
-  for (const v of verts) {
-    const t = v.x * dx + v.y * dy;
-    if (t < minT) {
-      minT = t;
-      minP = v;
-    }
-    if (t > maxT) {
-      maxT = t;
-      maxP = v;
-    }
-  }
-
-  const length = Math.max(1e-6, maxT - minT);
-  return { start: minP, end: maxP, dir: { x: dx, y: dy }, length };
 };
 
 const buildCcShapePreviewGradientCacheKey = ({
@@ -3415,7 +3357,7 @@ export const createShapeToolHandler = (
                 });
               }
             } else {
-              const axis = computeAxisOpposingEnds(committedPolygon);
+              const axis = computeGradientAxisFromOpposingEnds(committedPolygon);
               const gradient = overlayCtx.createLinearGradient(
                 axis.start.x,
                 axis.start.y,
@@ -3494,7 +3436,7 @@ export const createShapeToolHandler = (
               x: pt.x - origin.x,
               y: pt.y - origin.y,
             }));
-            const axisBase = computeAxisOpposingEnds(localVertices);
+            const axisBase = computeGradientAxisFromOpposingEnds(localVertices);
             const w = Math.max(1, Math.ceil(baseMaxX - origin.x));
             const h = Math.max(1, Math.ceil(baseMaxY - origin.y));
             const corners = [
@@ -3543,11 +3485,10 @@ export const createShapeToolHandler = (
               start: { x: axis.start.x + axis.dir.x * shift, y: axis.start.y + axis.dir.y * shift },
               length: Math.max(1e-6, maxProj - minProj),
             };
-            const lengthFactor = Math.max(
-              0.05,
-              Math.min(2, ((tools.brushSettings.gradientLength ?? 100) / 100) * 1.3)
+            const axisScaled = scaleOrderedAxis(
+              axisNorm,
+              resolveDitherGradientLengthFactor(tools.brushSettings.gradientLength)
             );
-            const axisScaled = scaleOrderedAxis(axisNorm, lengthFactor);
 
             const palette = getAppStoreState().palette;
             const fg = parseCssColorToRgba(
@@ -3561,40 +3502,61 @@ export const createShapeToolHandler = (
               tools.brushSettings.ditherGradStops,
               tools.brushSettings.trans
             );
+            const imageTileThresholdResolver =
+              tools.brushSettings.ditherAlgorithm === 'pattern' &&
+              tools.brushSettings.patternStyle === 'image-tile'
+                ? createCcCustomTileThresholdResolver(
+                    getAppStoreState().project?.ccCustomTilePatterns,
+                    {
+                      patternTileId: tools.brushSettings.patternTileId,
+                      patternTileScale: tools.brushSettings.patternTileScale,
+                      patternTileInvert: tools.brushSettings.patternTileInvert,
+                      patternTileThreshold: tools.brushSettings.patternTileThreshold,
+                      patternTileOffsetX: tools.brushSettings.patternTileOffsetX,
+                      patternTileOffsetY: tools.brushSettings.patternTileOffsetY,
+                    }
+                  ) ?? undefined
+                : undefined;
             const tempCanvas = canvasPool.acquire(w, h);
-            const tempCtx = tempCanvas.getContext('2d', { willReadFrequently: true } as CanvasRenderingContext2DSettings);
-            if (tempCtx) {
-              tempCtx.setTransform(1, 0, 0, 1, 0, 0);
-              tempCtx.globalCompositeOperation = 'source-over';
-              tempCtx.globalAlpha = 1;
-              tempCtx.imageSmoothingEnabled = false;
-              tempCtx.clearRect(0, 0, w, h);
-              const imageData = renderDitherGradientToImageData({
-                width: w,
-                height: h,
-                axis: axisScaled,
-                paletteRGBA,
-                tileSize: 8,
-                pixelSize,
-                origin,
-                algorithm: tools.brushSettings.ditherAlgorithm,
-                patternStyle: tools.brushSettings.patternStyle,
-              });
-              tempCtx.clearRect(0, 0, w, h);
-              tempCtx.putImageData(imageData, 0, 0);
-              applyPolygonMaskToCanvasContext(tempCtx, localVertices, {
-                origin,
-                pixelSize,
-                wholeCells: Boolean(tools.brushSettings.pxlEdge),
-              });
+            try {
+              const tempCtx = tempCanvas.getContext('2d', { willReadFrequently: true } as CanvasRenderingContext2DSettings);
+              if (tempCtx) {
+                tempCtx.setTransform(1, 0, 0, 1, 0, 0);
+                tempCtx.globalCompositeOperation = 'source-over';
+                tempCtx.globalAlpha = 1;
+                tempCtx.imageSmoothingEnabled = false;
+                tempCtx.clearRect(0, 0, w, h);
+                const imageData = renderDitherGradientToImageData({
+                  width: w,
+                  height: h,
+                  axis: axisScaled,
+                  paletteRGBA,
+                  tileSize: 8,
+                  pixelSize,
+                  origin,
+                  algorithm: tools.brushSettings.ditherAlgorithm,
+                  patternStyle: tools.brushSettings.patternStyle,
+                  imageTileThresholdResolver,
+                });
+                tempCtx.clearRect(0, 0, w, h);
+                tempCtx.putImageData(imageData, 0, 0);
+                applyPolygonMaskToCanvasContext(tempCtx, localVertices, {
+                  origin,
+                  pixelSize,
+                  wholeCells: Boolean(tools.brushSettings.pxlEdge),
+                });
 
-              overlayCtx.save();
-              overlayCtx.globalAlpha = SHAPE_PREVIEW_OPACITY;
-              overlayCtx.drawImage(tempCanvas, origin.x, origin.y);
-              overlayCtx.restore();
+                overlayCtx.save();
+                overlayCtx.globalAlpha =
+                  SHAPE_PREVIEW_OPACITY *
+                  Math.max(0, Math.min(1, tools.brushSettings.opacity ?? 1));
+                overlayCtx.drawImage(tempCanvas, origin.x, origin.y);
+                overlayCtx.restore();
+                didCustomFill = true;
+              }
+            } finally {
+              canvasPool.release(tempCanvas);
             }
-            canvasPool.release(tempCanvas);
-            didCustomFill = true;
           } else {
             let gradient: CanvasGradient;
             if (width > height) {

@@ -1,5 +1,5 @@
 import { applyPressureDither, createGrayscalePalette } from '@/utils/ditherAlgorithms';
-import type { DitherAlgorithm, PatternStyle } from '@/utils/ditherAlgorithms';
+import type { DitherAlgorithm, DitherSettings, PatternStyle } from '@/utils/ditherAlgorithms';
 
 export type Vec2 = { x: number; y: number };
 export type RGBA = [number, number, number, number];
@@ -32,6 +32,85 @@ export function scaleOrderedAxis(axis: OrderedDitherAxis, factor: number): Order
   };
 }
 
+export const resolveDitherGradientLengthFactor = (gradientLength?: number): number => {
+  const percent = Number.isFinite(gradientLength) ? Number(gradientLength) : 100;
+  return Math.max(0.05, Math.min(2, percent / 100));
+};
+
+/**
+ * Find a stable long axis in linear time. Two farthest-point sweeps avoid the
+ * quadratic all-pairs scan while preserving vertex-order direction.
+ */
+export function computeGradientAxisFromOpposingEnds(vertices: readonly Vec2[]): OrderedDitherAxis {
+  if (vertices.length === 0) {
+    return {
+      start: { x: 0, y: 0 },
+      end: { x: 1, y: 0 },
+      dir: { x: 1, y: 0 },
+      length: 1,
+    };
+  }
+  if (vertices.length === 1) {
+    const start = { ...vertices[0] };
+    return {
+      start,
+      end: { x: start.x + 1, y: start.y },
+      dir: { x: 1, y: 0 },
+      length: 1,
+    };
+  }
+
+  const findFarthestIndex = (anchorIndex: number): number => {
+    const anchor = vertices[anchorIndex];
+    let farthestIndex = anchorIndex;
+    let farthestDistanceSq = -1;
+    for (let index = 0; index < vertices.length; index += 1) {
+      const dx = vertices[index].x - anchor.x;
+      const dy = vertices[index].y - anchor.y;
+      const distanceSq = dx * dx + dy * dy;
+      if (distanceSq > farthestDistanceSq) {
+        farthestDistanceSq = distanceSq;
+        farthestIndex = index;
+      }
+    }
+    return farthestIndex;
+  };
+
+  const firstEndIndex = findFarthestIndex(0);
+  const secondEndIndex = findFarthestIndex(firstEndIndex);
+  const startIndex = Math.min(firstEndIndex, secondEndIndex);
+  const endIndex = Math.max(firstEndIndex, secondEndIndex);
+  const start = vertices[startIndex];
+  const end = vertices[endIndex];
+  const dx = end.x - start.x;
+  const dy = end.y - start.y;
+  const rawLength = Math.hypot(dx, dy);
+  if (rawLength < 1e-6) {
+    return {
+      start: { ...start },
+      end: { x: start.x + 1, y: start.y },
+      dir: { x: 1, y: 0 },
+      length: 1,
+    };
+  }
+
+  const dir = { x: dx / rawLength, y: dy / rawLength };
+  let minProjection = Infinity;
+  let maxProjection = -Infinity;
+  for (const vertex of vertices) {
+    const projection = vertex.x * dir.x + vertex.y * dir.y;
+    minProjection = Math.min(minProjection, projection);
+    maxProjection = Math.max(maxProjection, projection);
+  }
+
+  return {
+    start: { x: dir.x * minProjection, y: dir.y * minProjection },
+    end: { x: dir.x * maxProjection, y: dir.y * maxProjection },
+    dir,
+    length: Math.max(1e-6, maxProjection - minProjection),
+  };
+}
+
 export type OrderedDitherGradientParams = {
   width: number;
   height: number;
@@ -50,6 +129,7 @@ export type OrderedDitherGradientParams = {
 export type DitherGradientRenderParams = OrderedDitherGradientParams & {
   algorithm?: DitherAlgorithm;
   patternStyle?: PatternStyle;
+  imageTileThresholdResolver?: DitherSettings['imageTileThresholdResolver'];
 };
 
 const clamp01 = (value: number): number => (value < 0 ? 0 : value > 1 ? 1 : value);
@@ -437,6 +517,7 @@ export function renderDitherGradientToImageData(params: DitherGradientRenderPara
     palette: grayscalePalette,
     patternStyle: params.patternStyle,
     phaseOffset: { x: coverageGrid.minCellX, y: coverageGrid.minCellY },
+    imageTileThresholdResolver: params.imageTileThresholdResolver,
   });
 
   const lut = buildValueToIndexLut(levelCount);

@@ -367,8 +367,9 @@ export const updateDitherGradSamples = ({
 
   const rawTrans = settings.trans;
   const parsedTrans = Number(rawTrans);
+  const maxTransparent = Math.max(0, Math.min(6, stops.length - 1));
   const clampedTrans = Number.isFinite(parsedTrans)
-    ? Math.max(0, Math.min(1, parsedTrans))
+    ? Math.max(0, Math.min(maxTransparent, parsedTrans))
     : undefined;
   const shouldUpdateTrans = clampedTrans !== undefined && clampedTrans !== rawTrans;
 

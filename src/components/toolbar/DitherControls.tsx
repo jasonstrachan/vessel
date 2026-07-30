@@ -60,7 +60,7 @@ export const DitherControls: React.FC<Props> = ({
   hideLostEdge = false,
   hideResolution = false,
   showPxlEdgeToggle = false,
-  showStrokeOnlyControls = true,
+  showStrokeOnlyControls = settings.brushShape !== BrushShape.DITHER_GRADIENT,
 }) => {
   void _isDitherPreset;
   const ditherEnabled = forceOn ? true : Boolean(settings.ditherEnabled);

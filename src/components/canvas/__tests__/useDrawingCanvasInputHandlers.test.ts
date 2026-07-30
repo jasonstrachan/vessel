@@ -133,8 +133,13 @@ describe('useDrawingCanvasInputHandlers', () => {
     renderHook(() =>
       useDrawingCanvasInputHandlers(
         buildOptions({
-          tools: buildTools({ shapeMode: true }),
-          currentBrushPresetId: 'dither-grad',
+          tools: buildTools({
+            shapeMode: false,
+            brushSettings: {
+              brushShape: BrushShape.DITHER_GRADIENT,
+            } as InputHandlerOptions['tools']['brushSettings'],
+          }),
+          currentBrushPresetId: 'saved-dither-gradient',
         })
       )
     );
@@ -142,6 +147,22 @@ describe('useDrawingCanvasInputHandlers', () => {
     expect(
       mockUseDrawingCanvasPointerHandlers.mock.calls.at(-1)?.[0]?.allowPointerDownOutsideCanvasShape
     ).toBe(true);
+  });
+
+  it('does not trust a stale dither gradient preset id when the active brush is regular', () => {
+    renderHook(() =>
+      useDrawingCanvasInputHandlers(
+        buildOptions({
+          tools: buildTools({ shapeMode: false }),
+          brushShape: BrushShape.ROUND,
+          currentBrushPresetId: 'dither-grad',
+        })
+      )
+    );
+
+    expect(
+      mockUseDrawingCanvasPointerHandlers.mock.calls.at(-1)?.[0]?.allowPointerDownOutsideCanvasShape
+    ).toBe(false);
   });
 
   it('allows pointer down outside canvas shape for color-cycle-gradient shape mode', () => {
