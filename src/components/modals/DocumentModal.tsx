@@ -2,10 +2,7 @@ import React, { useState, useEffect } from 'react';
 
 import { useKeyboardScope } from '@/hooks/useKeyboardScope';
 import { useAppStore } from '@/stores/useAppStore';
-import {
-  describeDocumentMemoryEstimateAssumptions,
-  estimateDocumentMemoryUsage,
-} from '@/utils/documentMemoryEstimate';
+import { estimateDocumentMemoryUsage } from '@/utils/documentMemoryEstimate';
 
 import { XIcon } from '../icons/XIcon';
 import Input from '../ui/Input';
@@ -16,85 +13,179 @@ interface DocumentModalProps {
   onClose: () => void;
 }
 
-// Canvas size presets
-const CANVAS_PRESETS = [
+interface CanvasPresetSize {
+  width: number;
+  height: number;
+}
+
+interface CanvasPresetGroup {
+  ratio: string;
+  name: string;
+  description: string;
+  sizes: CanvasPresetSize[];
+}
+
+// Canvas presets grouped by aspect ratio, from smallest to largest.
+const CANVAS_PRESET_GROUPS: CanvasPresetGroup[] = [
   {
-    name: '1:1 Square (2048×2048)',
-    width: 2048,
-    height: 2048,
+    ratio: '1:1',
+    name: 'Square',
     description: 'Standard for Procreate "Square" preset.',
+    sizes: [
+      { width: 256, height: 256 },
+      { width: 512, height: 512 },
+      { width: 1024, height: 1024 },
+      { width: 2048, height: 2048 },
+      { width: 4096, height: 4096 },
+    ],
   },
   {
-    name: '3:4 Tablet/Portrait (1920×2560)',
-    width: 1920,
-    height: 2560,
+    ratio: '3:4',
+    name: 'Tablet / Portrait',
     description: 'Slightly lower 3:4 tablet portrait preset.',
+    sizes: [
+      { width: 384, height: 512 },
+      { width: 768, height: 1024 },
+      { width: 1536, height: 2048 },
+      { width: 1920, height: 2560 },
+      { width: 3072, height: 4096 },
+    ],
   },
   {
-    name: '4:5 Portrait (2048×2560)',
-    width: 2048,
-    height: 2560,
+    ratio: '4:5',
+    name: 'Portrait',
     description: 'Portrait document preset with a 4:5 aspect ratio.',
+    sizes: [
+      { width: 256, height: 320 },
+      { width: 512, height: 640 },
+      { width: 1024, height: 1280 },
+      { width: 2048, height: 2560 },
+      { width: 3072, height: 3840 },
+    ],
   },
   {
-    name: '4:3 Landscape (2560×1920)',
-    width: 2560,
-    height: 1920,
-    description: 'Landscape document preset with a 4:3 aspect ratio.',
-  },
-  {
-    name: '5:4 Landscape (2560×2048)',
-    width: 2560,
-    height: 2048,
-    description: 'Landscape document preset with a 5:4 aspect ratio.',
-  },
-  {
-    name: '3:2 Landscape (3000×2000)',
-    width: 3000,
-    height: 2000,
-    description: 'Classic landscape art and print ratio.',
-  },
-  {
-    name: '2:3 Vertical Art (2000×3000)',
-    width: 2000,
-    height: 3000,
+    ratio: '2:3',
+    name: 'Vertical Art',
     description: 'Great for high-res mobile wallpapers.',
+    sizes: [
+      { width: 256, height: 384 },
+      { width: 512, height: 768 },
+      { width: 1000, height: 1500 },
+      { width: 2000, height: 3000 },
+      { width: 3000, height: 4500 },
+    ],
   },
   {
-    name: '2:1 Wide Landscape (3000×1500)',
-    width: 3000,
-    height: 1500,
+    ratio: '9:16',
+    name: 'Mobile',
+    description: 'Portrait display and social video format.',
+    sizes: [
+      { width: 180, height: 320 },
+      { width: 360, height: 640 },
+      { width: 720, height: 1280 },
+      { width: 1080, height: 1920 },
+      { width: 2160, height: 3840 },
+    ],
+  },
+  {
+    ratio: '1:√2',
+    name: 'Print Portrait',
+    description: 'ISO A-series paper proportion in portrait orientation.',
+    sizes: [
+      { width: 256, height: 362 },
+      { width: 512, height: 724 },
+      { width: 1240, height: 1754 },
+      { width: 2000, height: 2828 },
+      { width: 2480, height: 3508 },
+    ],
+  },
+  {
+    ratio: '4:3',
+    name: 'Landscape',
+    description: 'Landscape document preset with a 4:3 aspect ratio.',
+    sizes: [
+      { width: 512, height: 384 },
+      { width: 1024, height: 768 },
+      { width: 1920, height: 1440 },
+      { width: 2560, height: 1920 },
+      { width: 3840, height: 2880 },
+    ],
+  },
+  {
+    ratio: '5:4',
+    name: 'Landscape',
+    description: 'Landscape document preset with a 5:4 aspect ratio.',
+    sizes: [
+      { width: 320, height: 256 },
+      { width: 640, height: 512 },
+      { width: 1280, height: 1024 },
+      { width: 2560, height: 2048 },
+      { width: 3840, height: 3072 },
+    ],
+  },
+  {
+    ratio: '3:2',
+    name: 'Landscape',
+    description: 'Classic landscape art and print ratio.',
+    sizes: [
+      { width: 384, height: 256 },
+      { width: 768, height: 512 },
+      { width: 1500, height: 1000 },
+      { width: 3000, height: 2000 },
+      { width: 4500, height: 3000 },
+    ],
+  },
+  {
+    ratio: '2:1',
+    name: 'Wide Landscape',
     description: 'Wide landscape canvas for panoramic compositions.',
+    sizes: [
+      { width: 512, height: 256 },
+      { width: 1024, height: 512 },
+      { width: 1500, height: 750 },
+      { width: 3000, height: 1500 },
+      { width: 4000, height: 2000 },
+    ],
   },
   {
-    name: '16:9 Cinematic (2560×1440)',
-    width: 2560,
-    height: 1440,
-    description: 'QHD / 2K resolution; very crisp for monitors.',
+    ratio: '16:9',
+    name: 'Cinematic',
+    description: 'Standard 16:9 display resolutions from low-res to 4K.',
+    sizes: [
+      { width: 320, height: 180 },
+      { width: 640, height: 360 },
+      { width: 1920, height: 1080 },
+      { width: 2560, height: 1440 },
+      { width: 3840, height: 2160 },
+    ],
   },
   {
-    name: '1:√2 A2 Preview (2000×2828)',
-    width: 2000,
-    height: 2828,
-    description: 'Perfect for checking composition on your A2 project.',
+    ratio: '16:10',
+    name: 'Display',
+    description: 'Common widescreen computer display proportion.',
+    sizes: [
+      { width: 320, height: 200 },
+      { width: 640, height: 400 },
+      { width: 1280, height: 800 },
+      { width: 1920, height: 1200 },
+      { width: 2560, height: 1600 },
+    ],
   },
-  { name: 'HD (1920×1080)', width: 1920, height: 1080 },
-  { name: 'Full HD (1920×1200)', width: 1920, height: 1200 },
-  { name: '4K (3840×2160)', width: 3840, height: 2160 },
-  { name: 'Square (1024×1024)', width: 1024, height: 1024 },
-  { name: 'Square (2048×2048)', width: 2048, height: 2048 },
-  { name: 'A4 Portrait (2480×3508)', width: 2480, height: 3508 },
-  { name: 'A4 Landscape (3508×2480)', width: 3508, height: 2480 },
-  { name: 'Mobile (1080×1920)', width: 1080, height: 1920 },
-  { name: 'Tablet (1536×2048)', width: 1536, height: 2048 },
+  {
+    ratio: '√2:1',
+    name: 'Print Landscape',
+    description: 'ISO A-series paper proportion in landscape orientation.',
+    sizes: [
+      { width: 362, height: 256 },
+      { width: 724, height: 512 },
+      { width: 1754, height: 1240 },
+      { width: 2828, height: 2000 },
+      { width: 3508, height: 2480 },
+    ],
+  },
 ];
 
 const DOCUMENT_MEMORY_WARNING_MIB = 400;
-
-const getDocumentMemoryEstimateTitle = (width: number, height: number): string => {
-  const estimate = estimateDocumentMemoryUsage(width, height);
-  return `${estimate.width}×${estimate.height} (~${estimate.totalMiB} MiB peak). ${describeDocumentMemoryEstimateAssumptions(estimate)}`;
-};
 
 const DocumentMemoryWarning: React.FC<{ width: number; height: number }> = ({ width, height }) => {
   const estimate = estimateDocumentMemoryUsage(width, height);
@@ -105,11 +196,10 @@ const DocumentMemoryWarning: React.FC<{ width: number; height: number }> = ({ wi
   return (
     <div
       className="mb-3 p-2 bg-yellow-900/20 border border-yellow-600/30 rounded text-yellow-500 text-sm"
-      title={describeDocumentMemoryEstimateAssumptions(estimate)}
     >
-      <div>⚠️ Large editing footprint (~{estimate.totalMiB} MiB peak)</div>
+      <div>⚠️ Large document (~{estimate.totalMiB} MiB estimated memory)</div>
       <div className="mt-1 text-[11px] text-yellow-500/80">
-        Includes bitmap surfaces, one resident color-cycle layer, masks, history, and publication headroom.
+        Editing may slow down or exceed the browser&apos;s memory limit.
       </div>
     </div>
   );
@@ -134,9 +224,9 @@ export const DocumentModal: React.FC<DocumentModalProps> = ({ isOpen, onClose })
   useEffect(() => {
     if (isOpen) {
       setShouldRender(true);
-      const modalWidth = 384; // w-96
+      const modalWidth = Math.min(768, window.innerWidth - 32);
       const x = Math.max(16, Math.round((window.innerWidth - modalWidth) / 2));
-      const y = Math.max(24, Math.round(window.innerHeight * 0.12));
+      const y = 24;
       setPos({ x, y });
       setTimeout(() => setIsVisible(true), 10);
     } else {
@@ -224,7 +314,7 @@ export const DocumentModal: React.FC<DocumentModalProps> = ({ isOpen, onClose })
       onClick={onClose}
     >
       <div 
-        className="bg-[#2C2C2C] rounded-lg w-96 max-w-full mx-4 shadow-xl"
+        className="bg-[#2C2C2C] rounded-lg w-[48rem] max-w-[calc(100vw-2rem)] max-h-[calc(100vh-3rem)] flex flex-col shadow-xl"
         style={{ position: 'fixed', left: pos.x, top: pos.y }}
         onClick={(e) => e.stopPropagation()}
       >
@@ -238,7 +328,130 @@ export const DocumentModal: React.FC<DocumentModalProps> = ({ isOpen, onClose })
           </button>
         </div>
 
-        <div className="space-y-6 p-6 pt-4">
+        <div className="space-y-6 p-6 pt-4 overflow-y-auto">
+          {/* New Document Section */}
+          <div>
+            <h3 className="text-[#D9D9D9] text-base font-medium mb-3">New Document</h3>
+            
+            {/* Preset buttons */}
+            <div className="mb-3 overflow-x-auto">
+              <div className="w-fit min-w-[38.5rem] space-y-1">
+                <div className="grid grid-cols-[11rem_repeat(5,5.25rem)] gap-1 px-1 text-[10px] uppercase tracking-wide text-[#888]">
+                  <span>Format</span>
+                  <span className="text-center">Tiny</span>
+                  <span className="text-center">Small</span>
+                  <span className="text-center">Medium</span>
+                  <span className="text-center">Large</span>
+                  <span className="text-center">Max</span>
+                </div>
+                {CANVAS_PRESET_GROUPS.map((group) => (
+                  <div
+                    key={`${group.ratio}-${group.name}`}
+                    className="grid grid-cols-[11rem_repeat(5,5.25rem)] gap-1"
+                  >
+                    <div
+                      className="flex min-w-0 items-center px-2 text-xs text-[#D9D9D9]"
+                      title={group.description}
+                    >
+                      <span className="mr-2 shrink-0 text-[#AFAFAF]">{group.ratio}</span>
+                      <span className="truncate">{group.name}</span>
+                    </div>
+                    {group.sizes.map((preset) => {
+                      const isSelected = newWidth === preset.width && newHeight === preset.height;
+                      const dimensions = `${preset.width}×${preset.height}`;
+                      return (
+                        <button
+                          key={dimensions}
+                          type="button"
+                          onClick={() => {
+                            setNewWidth(preset.width);
+                            setNewHeight(preset.height);
+                          }}
+                          className={`min-w-0 px-1 py-1 text-[11px] transition-colors ${
+                            isSelected
+                              ? 'bg-[#D9D9D9] text-[#2C2C2C]'
+                              : 'bg-[#444] text-[#D9D9D9] hover:bg-[#555]'
+                          }`}
+                          aria-label={`Set ${group.ratio} ${group.name} to ${dimensions}`}
+                          aria-pressed={isSelected}
+                        >
+                          {dimensions}
+                        </button>
+                      );
+                    })}
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Memory warning for new document */}
+            <DocumentMemoryWarning width={newWidth} height={newHeight} />
+
+            <div className="flex gap-3">
+              <div className="w-20">
+                <label className="block text-base text-[#888] mb-1">Width</label>
+                <Input
+                  type="number"
+                  value={newWidth}
+                  onChange={(e) => {
+                    const value = e.target.value;
+                    if (value === '') {
+                      return; // Don't update state for empty values
+                    }
+                    const num = parseInt(value);
+                    setNewWidth(isNaN(num) ? 1 : Math.max(1, num));
+                  }}
+                  onBlur={(e) => {
+                    const value = e.target.value;
+                    if (value === '') {
+                      setNewWidth(1);
+                    }
+                  }}
+                  className="w-full px-3 py-2 bg-transparent text-base"
+                  min="1"
+                  fullWidth
+                />
+              </div>
+              <div className="w-20">
+                <label className="block text-base text-[#888] mb-1">Height</label>
+                <Input
+                  type="number"
+                  value={newHeight}
+                  onChange={(e) => {
+                    const value = e.target.value;
+                    if (value === '') {
+                      return; // Don't update state for empty values
+                    }
+                    const num = parseInt(value);
+                    setNewHeight(isNaN(num) ? 1 : Math.max(1, num));
+                  }}
+                  onBlur={(e) => {
+                    const value = e.target.value;
+                    if (value === '') {
+                      setNewHeight(1);
+                    }
+                  }}
+                  className="w-full px-3 py-2 bg-transparent text-base"
+                  min="1"
+                  fullWidth
+                />
+              </div>
+              <div className="flex items-end">
+                <Button
+                  onClick={handleNewDocument}
+                  variant="primary"
+                  size="md"
+                  className="w-36"
+                >
+                  New Document
+                </Button>
+              </div>
+            </div>
+          </div>
+
+          {/* Divider */}
+          <div className="border-t border-[#555]"></div>
+
           {/* Resize Section */}
           <div>
             <h3 className="text-[#D9D9D9] text-base font-medium mb-3">Resize Canvas</h3>
@@ -349,98 +562,6 @@ export const DocumentModal: React.FC<DocumentModalProps> = ({ isOpen, onClose })
             <p className="text-[11px] text-[#8B8B8B] mt-2">
               Press Enter to confirm, Esc to cancel.
             </p>
-          </div>
-
-          {/* Divider */}
-          <div className="border-t border-[#555]"></div>
-
-          {/* New Document Section */}
-          <div>
-            <h3 className="text-[#D9D9D9] text-base font-medium mb-3">New Document</h3>
-            
-            {/* Preset buttons */}
-            <div className="mb-3 flex flex-wrap gap-2">
-              {CANVAS_PRESETS.map((preset) => (
-                <button
-                  key={preset.name}
-                  onClick={() => {
-                    setNewWidth(preset.width);
-                    setNewHeight(preset.height);
-                  }}
-                  className="px-2 py-1 text-xs bg-[#444] hover:bg-[#555] text-[#D9D9D9] rounded transition-colors"
-                  title={[
-                    getDocumentMemoryEstimateTitle(preset.width, preset.height),
-                    preset.description,
-                  ].filter(Boolean).join(' ')}
-                >
-                  {preset.name}
-                </button>
-              ))}
-            </div>
-            
-            {/* Memory warning for new document */}
-            <DocumentMemoryWarning width={newWidth} height={newHeight} />
-            
-            <div className="flex gap-3">
-              <div className="w-20">
-                <label className="block text-base text-[#888] mb-1">Width</label>
-                <Input
-                  type="number"
-                  value={newWidth}
-                  onChange={(e) => {
-                    const value = e.target.value;
-                    if (value === '') {
-                      return; // Don't update state for empty values
-                    }
-                    const num = parseInt(value);
-                    setNewWidth(isNaN(num) ? 1 : Math.max(1, num));
-                  }}
-                  onBlur={(e) => {
-                    const value = e.target.value;
-                    if (value === '') {
-                      setNewWidth(1);
-                    }
-                  }}
-                  className="w-full px-3 py-2 bg-transparent text-base"
-                  min="1"
-                  fullWidth
-                />
-              </div>
-              <div className="w-20">
-                <label className="block text-base text-[#888] mb-1">Height</label>
-                <Input
-                  type="number"
-                  value={newHeight}
-                  onChange={(e) => {
-                    const value = e.target.value;
-                    if (value === '') {
-                      return; // Don't update state for empty values
-                    }
-                    const num = parseInt(value);
-                    setNewHeight(isNaN(num) ? 1 : Math.max(1, num));
-                  }}
-                  onBlur={(e) => {
-                    const value = e.target.value;
-                    if (value === '') {
-                      setNewHeight(1);
-                    }
-                  }}
-                  className="w-full px-3 py-2 bg-transparent text-base"
-                  min="1"
-                  fullWidth
-                />
-              </div>
-              <div className="flex items-end">
-                <Button
-                  onClick={handleNewDocument}
-                  variant="primary"
-                  size="md"
-                  className="w-36"
-                >
-                  New Document
-                </Button>
-              </div>
-            </div>
           </div>
         </div>
       </div>

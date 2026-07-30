@@ -1,5 +1,5 @@
 import type React from 'react';
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 
 interface UseDrawingCanvasResizeCenterOptions {
   canvasRef: React.RefObject<HTMLCanvasElement | null>;
@@ -16,7 +16,7 @@ interface UseDrawingCanvasResizeCenterOptions {
   >;
   viewTransformRef: React.MutableRefObject<{ scale: number; offsetX: number; offsetY: number }>;
   hasCenteredRef: React.MutableRefObject<boolean>;
-  project: { width: number; height: number } | null;
+  project: { id: string; width: number; height: number } | null;
   setCanvasDimensions: (width: number, height: number) => void;
   setPan: (offsetX: number, offsetY: number) => void;
 }
@@ -33,6 +33,8 @@ export const useDrawingCanvasResizeCenter = ({
   setCanvasDimensions,
   setPan,
 }: UseDrawingCanvasResizeCenterOptions) => {
+  const centeredProjectIdRef = useRef<string | null>(null);
+
   useEffect(() => {
     const canvas = canvasRef.current;
     const wrapper = wrapperRef.current;
@@ -84,7 +86,7 @@ export const useDrawingCanvasResizeCenter = ({
           drawFunc(ctx, viewTransform);
         }
 
-        if (!hasCenteredRef.current && project) {
+        if (project && centeredProjectIdRef.current !== project.id) {
           const scale = viewTransform.scale || 1;
           const contentWidth = project.width * scale;
           const contentHeight = project.height * scale;
@@ -99,6 +101,7 @@ export const useDrawingCanvasResizeCenter = ({
             drawFunc(ctx, viewTransformRef.current);
           }
 
+          centeredProjectIdRef.current = project.id;
           hasCenteredRef.current = true;
         }
       }
@@ -130,7 +133,7 @@ export const useDrawingCanvasResizeCenter = ({
     const canvasEl = canvasRef.current;
     const wrapper = wrapperRef.current;
     if (!canvasEl || !wrapper) return;
-    if (hasCenteredRef.current) return;
+    if (centeredProjectIdRef.current === project.id) return;
 
     const { width, height } = wrapper.getBoundingClientRect();
     const scale = viewTransformRef.current?.scale || 1;
@@ -148,6 +151,7 @@ export const useDrawingCanvasResizeCenter = ({
       drawRef.current(ctx, viewTransformRef.current);
     }
 
+    centeredProjectIdRef.current = project.id;
     hasCenteredRef.current = true;
   }, [project, setPan, canvasRef, wrapperRef, hasCenteredRef, viewTransformRef, drawRef]);
 };

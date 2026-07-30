@@ -69,6 +69,7 @@ Runtime flow: input hooks → store/engine → renderer. Keep heavy gradient com
 - Pass narrow props; stabilize callbacks or derived values when it prevents meaningful downstream work.
 - Effects must have complete dependency arrays; document deliberate stability.
 - Prefer Tailwind for layout and utilities, CSS for complex editors, and inline styles only for dynamic or performance-critical values.
+- Keep Vessel buttons square by default. Do not add border-radius styles or `rounded*` utilities to buttons unless the user explicitly requests an exception.
 - Use `debugLog`/`devLog` and keep console noise low. Prefer visible in-app diagnostics for signals needed during interactive testing.
 - Surface user-facing errors non-blockingly; fail fast on programmer errors.
 
