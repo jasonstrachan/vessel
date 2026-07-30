@@ -112,7 +112,8 @@ export const ditherRegionWithCurrentPressure = ({
     data: Uint8ClampedArray,
     width: number,
     height: number,
-    lostEdgePercent?: number
+    lostEdgePercent?: number,
+    tileSize?: number,
   ) => void;
   ensureBgOffTemp: (width: number, height: number) => ReusableCanvas2D | null;
   ensureBgOffHole: (width: number, height: number) => ReusableCanvas2D | null;
@@ -205,7 +206,8 @@ export const ditherRegionWithCurrentPressure = ({
       src.data,
       width,
       height,
-      settings.lostEdge
+      settings.lostEdge,
+      pixelSize,
     );
   }
 

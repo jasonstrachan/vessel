@@ -26,7 +26,8 @@ type DitherRegionWithCurrentPressureArgs = {
       data: Uint8ClampedArray,
       width: number,
       height: number,
-      lostEdgePercent?: number
+      lostEdgePercent?: number,
+      tileSize?: number,
     ) => void;
     ensureBgOffTemp: (width: number, height: number) => ReusableCanvas2D | null;
     ensureBgOffHole: (width: number, height: number) => ReusableCanvas2D | null;
@@ -46,7 +47,8 @@ type DitherRegionWithCurrentPressureArgs = {
     data: Uint8ClampedArray,
     width: number,
     height: number,
-    lostEdgePercent?: number
+    lostEdgePercent?: number,
+    tileSize?: number,
   ) => void;
   ensureBgOffTemp: (width: number, height: number) => ReusableCanvas2D | null;
   ensureBgOffHole: (width: number, height: number) => ReusableCanvas2D | null;

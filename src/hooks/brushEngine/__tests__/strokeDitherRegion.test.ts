@@ -142,4 +142,50 @@ describe('strokeDitherRegion', () => {
     expect(resolver).toHaveBeenCalled();
     expect(putImageData).toHaveBeenCalled();
   });
+
+  it('uses the effective fill resolution for Lostedge', () => {
+    const source = new ImageData(24, 16);
+    const ctx = {
+      canvas: { width: 64, height: 64 },
+      getImageData: jest.fn(() => source),
+      putImageData: jest.fn(),
+      imageSmoothingEnabled: true,
+    } as unknown as CanvasRenderingContext2D;
+    const applyLostEdgeToStrokeAlpha = jest.fn();
+    const settings = {
+      brushShape: BrushShape.PIXEL_DITHER,
+      color: '#ffffff',
+      ditherEnabled: true,
+      ditherAlgorithm: 'sierra-lite',
+      ditherBackgroundFill: true,
+      fillResolution: 12,
+      lostEdge: 40,
+    } as BrushSettings;
+
+    ditherRegionWithCurrentPressure({
+      ctx,
+      region: { x: 5, y: 7, width: 24, height: 16 },
+      toolsBrushSettings: settings,
+      strokeDitherPalette: ['#ffffff', '#000000'],
+      transparentInk: [0, 0, 0],
+      computeStrokeDitherPaletteForSettings: () => ['#ffffff', '#000000'],
+      pickTransparentInk: () => [0, 0, 0],
+      computePressureScaledResolution: () => 12,
+      getStrokeDitherPixelSize: () => 12,
+      applyLostEdgeToStrokeAlpha,
+      ensureBgOffTemp: jest.fn(),
+      ensureBgOffHole: jest.fn(),
+      bgOffMaskImageRef: { current: null },
+      strokePhaseOriginRef: { current: null },
+      DD: jest.fn(),
+    });
+
+    expect(applyLostEdgeToStrokeAlpha).toHaveBeenCalledWith(
+      source.data,
+      24,
+      16,
+      40,
+      12,
+    );
+  });
 });

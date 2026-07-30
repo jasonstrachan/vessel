@@ -1,7 +1,7 @@
 import type { ColorCycleAnimator } from '@/lib/ColorCycleAnimator';
 import type { GradientStop } from '@/lib/GradientPalette';
 import { FLOW_SLOT_MASK } from '@/lib/colorCycle/flowEncoding';
-import { LOST_EDGE_TILE_MAX, LOST_EDGE_TILE_MIN } from '@/utils/ditherConstants';
+import { resolveLostEdgeTileSize } from '@/utils/ditherConstants';
 
 import type { FillMode, FillOptions, Vec2 } from './colorCycleCanvas2DTypes';
 import type { ColorCycleBrushCanvas2DOptions } from './colorCycleBrushContracts';
@@ -243,15 +243,8 @@ export class ColorCycleShapeFillApiRuntime {
       ),
       logSetIndexSample: () => undefined,
       markStrokeStateContentWritten: (strokeData) => markColorCycleStrokeStateContentWritten(strokeData),
-      resolveLostEdgeTileSize: () => {
-        if (!this.isPxlEdgeEnabled()) {
-          return undefined;
-        }
-        return Math.max(
-          LOST_EDGE_TILE_MIN,
-          Math.min(LOST_EDGE_TILE_MAX, Math.floor(this.getDitherPixelSize())),
-        );
-      },
+      resolveLostEdgeTileSize: () =>
+        resolveLostEdgeTileSize(this.getDitherPixelSize()),
     };
   }
 }

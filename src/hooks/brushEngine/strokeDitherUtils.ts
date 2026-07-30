@@ -27,7 +27,8 @@ export const applyLostEdgeToStrokeAlphaData = (
   data: Uint8ClampedArray,
   width: number,
   height: number,
-  lostEdgePercent?: number
+  lostEdgePercent?: number,
+  tileSize?: number,
 ): void => {
   const percent = lostEdgePercent ?? 0;
   if (!percent || percent <= 0) return;
@@ -43,7 +44,13 @@ export const applyLostEdgeToStrokeAlphaData = (
 
   let mask: Uint8ClampedArray;
   try {
-    mask = applySierraLiteLostEdgeMask(coverage, width, height, clamped);
+    mask = applySierraLiteLostEdgeMask(
+      coverage,
+      width,
+      height,
+      clamped,
+      tileSize,
+    );
   } catch (error) {
     debugWarn('raw-console', '[Dither] Lost-edge mask failed (pre-dither):', error);
     return;
@@ -63,8 +70,10 @@ export const applyLostEdgeMaskInRegion = (
     data: Uint8ClampedArray,
     width: number,
     height: number,
-    lostEdgePercent?: number
-  ) => void
+    lostEdgePercent?: number,
+    tileSize?: number,
+  ) => void,
+  tileSize?: number,
 ): void => {
   const percent = lostEdgePercent ?? 0;
   if (!ctx || !region || percent <= 0) return;
@@ -84,7 +93,13 @@ export const applyLostEdgeMaskInRegion = (
     return;
   }
 
-  applyLostEdgeToStrokeAlpha(image.data, width, height, percent);
+  applyLostEdgeToStrokeAlpha(
+    image.data,
+    width,
+    height,
+    percent,
+    tileSize,
+  );
 
   try {
     ctx.putImageData(image, x, y);

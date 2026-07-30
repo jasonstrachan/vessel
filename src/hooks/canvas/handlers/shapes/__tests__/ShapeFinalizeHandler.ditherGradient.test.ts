@@ -45,7 +45,7 @@ describe('Dither Gradient finalization', () => {
       ditherAlgorithm: 'bayer',
       ditherGradStops: ['#000000', '#ffffff'],
       ditherGradBgFill: true,
-      fillResolution: 1,
+      fillResolution: 6,
       lostEdge: 30,
     } as unknown as BrushSettings;
     const latestShapePixelSizeRef = { current: null };
@@ -74,12 +74,13 @@ describe('Dither Gradient finalization', () => {
       roiPadding: 2,
       lastStablePressure: 0.5,
       latestShapePixelSizeRef,
-      computeShapePixelSize: () => 1,
+      computeShapePixelSize: () => 6,
     });
 
     expect(result).toEqual(points);
     expect(alphaAtDraw).toBe(0.25);
     expect(mockApplyLostEdgeErosionToContext).toHaveBeenCalledTimes(1);
+    expect(mockApplyLostEdgeErosionToContext.mock.calls[0]?.[5]).toBe(6);
 
     finalizeRasterShapeFill({
       drawCtx,

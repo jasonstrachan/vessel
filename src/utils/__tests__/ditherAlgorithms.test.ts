@@ -17,6 +17,7 @@ import {
   BAYER_2x2_MATRIX,
   DitherSettings
 } from '../ditherAlgorithms';
+import { resolveLostEdgeTileSize } from '../ditherConstants';
 
 // Mock ImageData for Node.js environment
 type ImageDataConstructor = typeof globalThis extends { ImageData: infer T }
@@ -343,8 +344,8 @@ describe('Dithering Algorithms', () => {
 
     it('uses pxl-edge sized cells for max lostEdge when a larger tile is supplied', () => {
       const size = 96;
-      const tileSize = 4;
-      const coverage = makeInsetCoverage(size, 8);
+      const tileSize = 12;
+      const coverage = makeInsetCoverage(size, tileSize);
       const mask = applySierraLiteLostEdgeMask(coverage, size, size, 100, tileSize);
       const keepRatio = outerEdgeKeepRatio(mask, coverage, size);
 
@@ -361,6 +362,41 @@ describe('Dithering Algorithms', () => {
           }
         }
       }
+    });
+
+    it('aligns Lostedge cells to the fill grid for off-grid regions', () => {
+      const size = 96;
+      const tileSize = 8;
+      const origin = { x: 3, y: 5 };
+      const coverage = makeInsetCoverage(size, 8);
+      const mask = applySierraLiteLostEdgeMask(
+        coverage,
+        size,
+        size,
+        100,
+        tileSize,
+        origin,
+      );
+      const valuesByWorldCell = new Map<string, number>();
+
+      for (let y = 0; y < size; y += 1) {
+        for (let x = 0; x < size; x += 1) {
+          const cellKey = `${Math.floor((origin.x + x) / tileSize)}:${Math.floor((origin.y + y) / tileSize)}`;
+          const value = mask[y * size + x];
+          const existing = valuesByWorldCell.get(cellKey);
+          if (existing === undefined) {
+            valuesByWorldCell.set(cellKey, value);
+          } else {
+            expect(value).toBe(existing);
+          }
+        }
+      }
+    });
+
+    it('preserves the full Res range for Lostedge cells', () => {
+      expect(resolveLostEdgeTileSize(1)).toBe(1);
+      expect(resolveLostEdgeTileSize(28)).toBe(28);
+      expect(resolveLostEdgeTileSize(999)).toBe(999);
     });
   });
   

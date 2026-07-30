@@ -1,4 +1,5 @@
 import { debugLog, debugWarn } from '@/utils/debug';
+import { resolveLostEdgeTileSize } from '@/utils/ditherConstants';
 import type React from 'react';
 import type { AppState } from '@/stores/useAppStore';
 import type { BrushSettings } from '@/types';
@@ -214,6 +215,7 @@ export const applyPolygonLostEdgeErosion = ({
   canvas,
   brushShape,
   lostEdge,
+  fillResolution,
   thickness,
   spacing,
   polygonVertices,
@@ -225,6 +227,7 @@ export const applyPolygonLostEdgeErosion = ({
   canvas: HTMLCanvasElement;
   brushShape: BrushSettings['brushShape'];
   lostEdge: number | null | undefined;
+  fillResolution: number | null | undefined;
   thickness: number | null | undefined;
   spacing: number | null | undefined;
   polygonVertices?: ShapePoint[] | null;
@@ -273,7 +276,14 @@ export const applyPolygonLostEdgeErosion = ({
     }
   }
 
-  applyLostEdgeErosionToContext(ctx, points, bounds, padding, clampedLostEdge);
+  applyLostEdgeErosionToContext(
+    ctx,
+    points,
+    bounds,
+    padding,
+    clampedLostEdge,
+    resolveLostEdgeTileSize(fillResolution ?? 1),
+  );
 
   if (logDevStats) {
     let postAlpha = 0;
@@ -749,7 +759,8 @@ export const finalizeDitherGradientShape = ({
       points,
       { minX, maxX, minY, maxY },
       padding,
-      lostEdge
+      lostEdge,
+      px,
     );
   }
 
@@ -1011,7 +1022,14 @@ export const finalizeRasterShapeFill = ({
           Math.ceil((liveBrushSettings.thickness ?? 1) * 2 + (liveBrushSettings.spacing ?? 0))
         );
 
-        applyLostEdgeErosionToContext(drawCtx, pts, bounds, padding, lostEdge);
+        applyLostEdgeErosionToContext(
+          drawCtx,
+          pts,
+          bounds,
+          padding,
+          lostEdge,
+          resolveLostEdgeTileSize(liveBrushSettings.fillResolution ?? 1),
+        );
       }
     }
   }

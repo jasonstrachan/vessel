@@ -30,6 +30,7 @@ export const applyFinalizePolygonLostEdge = ({
     canvas: drawingCanvasRef.current,
     brushShape: activeSettings.brushShape,
     lostEdge: activeSettings.lostEdge,
+    fillResolution: activeSettings.fillResolution,
     thickness: activeSettings.thickness,
     spacing: activeSettings.spacing,
     polygonVertices: polyState.vertices,

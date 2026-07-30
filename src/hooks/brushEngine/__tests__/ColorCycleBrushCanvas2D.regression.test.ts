@@ -2096,7 +2096,7 @@ describe('ColorCycleBrushCanvas2D regression tests', () => {
     expect(violations).toBe(0);
   });
 
-  it('keeps max lost-edge sparse on every high-resolution pxl-edge side for off-grid bounds', async () => {
+  it('applies max lost-edge at high-resolution Res for off-grid bounds', async () => {
     const canvas = makeCanvas(64, 64);
     const brush = new ColorCycleBrushCanvas2D(canvas, { forceCanvas2D: true });
     const layerId = 'layer-lost-edge-pxl-edge';
@@ -2131,33 +2131,17 @@ describe('ColorCycleBrushCanvas2D regression tests', () => {
     }
 
     const data = animator.getIndexBuffers().data;
-    const sideBandCount = (side: 'top' | 'bottom' | 'left' | 'right') => {
-      let count = 0;
-      for (let y = 5; y <= 38; y += 1) {
-        for (let x = 5; x <= 38; x += 1) {
-          const inBand =
-            (side === 'top' && y < 13) ||
-            (side === 'bottom' && y > 30) ||
-            (side === 'left' && x < 13) ||
-            (side === 'right' && x > 30);
-          if (inBand && data[y * canvas.width + x] > 0) {
-            count += 1;
-          }
+    let retained = 0;
+    for (let y = 5; y <= 38; y += 1) {
+      for (let x = 5; x <= 38; x += 1) {
+        if (data[y * canvas.width + x] > 0) {
+          retained += 1;
         }
       }
-      return count;
-    };
-    const sideBandArea = 34 * 8;
-
-    for (const count of [
-      sideBandCount('top'),
-      sideBandCount('bottom'),
-      sideBandCount('left'),
-      sideBandCount('right'),
-    ]) {
-      expect(count).toBeGreaterThan(0);
-      expect(count).toBeLessThan(sideBandArea);
     }
+
+    expect(retained).toBeGreaterThan(0);
+    expect(retained).toBeLessThan(34 * 34);
   });
 
   it('restores overlapped gradient def ids when lost-edge drops current-fill pixels', async () => {

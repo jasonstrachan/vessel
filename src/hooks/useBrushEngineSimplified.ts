@@ -801,9 +801,16 @@ export const useBrushEngineSimplified = () => {
     data: Uint8ClampedArray,
     width: number,
     height: number,
-    lostEdgePercent?: number
+    lostEdgePercent?: number,
+    tileSize?: number,
   ) => {
-    applyLostEdgeToStrokeAlphaData(data, width, height, lostEdgePercent);
+    applyLostEdgeToStrokeAlphaData(
+      data,
+      width,
+      height,
+      lostEdgePercent,
+      tileSize,
+    );
   }, []);
 
   const applyLostEdgeMaskInRegion = useCallback((

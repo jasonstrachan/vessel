@@ -6,8 +6,6 @@
 import { debugWarn } from '@/utils/debug';
 import { isCumulativeThresholdResolver } from '@/utils/ditherPatterns/cumulativeThresholdPattern';
 import {
-  LOST_EDGE_TILE_MIN,
-  LOST_EDGE_TILE_MAX,
   LOST_EDGE_TILE_DEFAULT,
   LOST_EDGE_BAND_MIN_PX,
   LOST_EDGE_BAND_MAX_PX,
@@ -17,6 +15,7 @@ import {
   LOST_EDGE_FADE_FRACTION,
   LOST_EDGE_MIN_DIM_TILE_MULTIPLIER,
   LOST_EDGE_SOLID_SKIP_BAND_PX,
+  resolveLostEdgeTileSize,
 } from './ditherConstants';
 
 // 8x8 Bayer matrix (normalized to 0-1)
@@ -921,14 +920,19 @@ export const applySierraLiteLostEdgeMask = (
   width: number,
   height: number,
   lostEdge: number,
-  tileSize: number = LOST_EDGE_TILE_DEFAULT
+  tileSize: number = LOST_EDGE_TILE_DEFAULT,
+  origin?: { x: number; y: number },
 ): Uint8ClampedArray => {
   const intensity = Math.max(0, Math.min(1, lostEdge / 100));
   const pixelCount = width * height;
 
-  const tile = Math.max(LOST_EDGE_TILE_MIN, Math.min(LOST_EDGE_TILE_MAX, Math.round(tileSize || LOST_EDGE_TILE_DEFAULT)));
-  const coarseW = Math.max(1, Math.ceil(width / tile));
-  const coarseH = Math.max(1, Math.ceil(height / tile));
+  const tile = resolveLostEdgeTileSize(tileSize);
+  const originX = Number.isFinite(origin?.x) ? Math.floor(origin?.x ?? 0) : 0;
+  const originY = Number.isFinite(origin?.y) ? Math.floor(origin?.y ?? 0) : 0;
+  const phaseX = ((originX % tile) + tile) % tile;
+  const phaseY = ((originY % tile) + tile) % tile;
+  const coarseW = Math.max(1, Math.ceil((phaseX + width) / tile));
+  const coarseH = Math.max(1, Math.ceil((phaseY + height) / tile));
   const coarsePixelCount = coarseW * coarseH;
 
   const keepMask = new Uint8ClampedArray(pixelCount);
@@ -951,10 +955,10 @@ export const applySierraLiteLostEdgeMask = (
   for (let cy = 0; cy < coarseH; cy++) {
     for (let cx = 0; cx < coarseW; cx++) {
       let maxAlpha = 0;
-      const startY = cy * tile;
-      const startX = cx * tile;
-      const endY = Math.min(height, startY + tile);
-      const endX = Math.min(width, startX + tile);
+      const startY = Math.max(0, cy * tile - phaseY);
+      const startX = Math.max(0, cx * tile - phaseX);
+      const endY = Math.min(height, (cy + 1) * tile - phaseY);
+      const endX = Math.min(width, (cx + 1) * tile - phaseX);
       for (let y = startY; y < endY; y++) {
         const rowOffset = y * width;
         for (let x = startX; x < endX; x++) {
@@ -1090,10 +1094,10 @@ export const applySierraLiteLostEdgeMask = (
 
   // Upsample coarse mask back to source resolution using nearest-neighbor.
   for (let y = 0; y < height; y++) {
-    const cy = Math.min(coarseH - 1, Math.floor(y / tile));
+    const cy = Math.min(coarseH - 1, Math.floor((phaseY + y) / tile));
     const rowOffset = y * width;
     for (let x = 0; x < width; x++) {
-      const cx = Math.min(coarseW - 1, Math.floor(x / tile));
+      const cx = Math.min(coarseW - 1, Math.floor((phaseX + x) / tile));
       const coarseIndex = cy * coarseW + cx;
       keepMask[rowOffset + x] = keepMaskCoarse[coarseIndex];
     }

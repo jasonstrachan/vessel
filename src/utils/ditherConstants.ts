@@ -1,6 +1,13 @@
-export const LOST_EDGE_TILE_MIN = 2;
-export const LOST_EDGE_TILE_MAX = 8;
+export const LOST_EDGE_TILE_MIN = 1;
+export const LOST_EDGE_TILE_MAX = 999;
 export const LOST_EDGE_TILE_DEFAULT = 2;
+
+export const resolveLostEdgeTileSize = (resolution?: number): number => {
+  const candidate = typeof resolution === 'number' && Number.isFinite(resolution)
+    ? Math.round(resolution)
+    : LOST_EDGE_TILE_DEFAULT;
+  return Math.max(LOST_EDGE_TILE_MIN, Math.min(LOST_EDGE_TILE_MAX, candidate));
+};
 
 export const LOST_EDGE_BAND_MIN_PX = 2;
 // Allow a wider fade when users crank the falloff slider; larger strokes were clipping at ~100px.

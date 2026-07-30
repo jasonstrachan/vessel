@@ -1,5 +1,6 @@
 import { debugWarn } from '@/utils/debug';
 import { applySierraLiteLostEdgeMask } from '@/utils/ditherAlgorithms';
+import { resolveLostEdgeTileSize } from '@/utils/ditherConstants';
 
 type RegionBox = { minX: number; minY: number; width: number; height: number };
 
@@ -69,8 +70,8 @@ export const applyLostEdgeFromWrittenMask = (options: {
     lostEdge,
     tileSize,
   } = options;
-  const lostEdgeTile = Number.isFinite(tileSize) && (tileSize as number) > 1
-    ? Math.max(2, Math.floor(tileSize as number))
+  const lostEdgeTile = typeof tileSize === 'number' && Number.isFinite(tileSize)
+    ? resolveLostEdgeTileSize(tileSize)
     : null;
   let keep: Uint8ClampedArray;
   let keepWidth = bbox.width;

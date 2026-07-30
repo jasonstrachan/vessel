@@ -58,7 +58,14 @@ export function applyLostEdgeErosionToContext(
     maskAlpha[i] = maskImage.data[j];
   }
 
-  const keep = applySierraLiteLostEdgeMask(maskAlpha, sw, sh, lostEdge, tileSize);
+  const keep = applySierraLiteLostEdgeMask(
+    maskAlpha,
+    sw,
+    sh,
+    lostEdge,
+    tileSize,
+    { x: sx, y: sy },
+  );
 
   const region = ctx.getImageData(sx, sy, sw, sh);
   const data = region.data;
