@@ -834,6 +834,11 @@ export const applySierraLitePressureDither = (
     for (let x = xStart; x !== xEnd; x += xStep) {
       const idx = (y * width + x) * 4;
 
+      // Transparent padding is outside the shape and must not seed diffusion.
+      if (data[idx + 3] === 0) {
+        continue;
+      }
+
       const oldR = data[idx];
       const oldG = data[idx + 1];
       const oldB = data[idx + 2];
@@ -856,42 +861,52 @@ export const applySierraLitePressureDither = (
         // Right pixel (2/4)
         if (x < width - 1) {
           const rightIdx = (y * width + (x + 1)) * 4;
-          data[rightIdx] = Math.max(0, Math.min(255, data[rightIdx] + (errorR * 2) / 4));
-          data[rightIdx + 1] = Math.max(0, Math.min(255, data[rightIdx + 1] + (errorG * 2) / 4));
-          data[rightIdx + 2] = Math.max(0, Math.min(255, data[rightIdx + 2] + (errorB * 2) / 4));
+          if (data[rightIdx + 3] !== 0) {
+            data[rightIdx] = Math.max(0, Math.min(255, data[rightIdx] + (errorR * 2) / 4));
+            data[rightIdx + 1] = Math.max(0, Math.min(255, data[rightIdx + 1] + (errorG * 2) / 4));
+            data[rightIdx + 2] = Math.max(0, Math.min(255, data[rightIdx + 2] + (errorB * 2) / 4));
+          }
         }
 
         // Bottom-left pixel (1/4)
         if (y < height - 1 && x > 0) {
           const bottomLeftIdx = ((y + 1) * width + (x - 1)) * 4;
-          data[bottomLeftIdx] = Math.max(0, Math.min(255, data[bottomLeftIdx] + errorR / 4));
-          data[bottomLeftIdx + 1] = Math.max(0, Math.min(255, data[bottomLeftIdx + 1] + errorG / 4));
-          data[bottomLeftIdx + 2] = Math.max(0, Math.min(255, data[bottomLeftIdx + 2] + errorB / 4));
+          if (data[bottomLeftIdx + 3] !== 0) {
+            data[bottomLeftIdx] = Math.max(0, Math.min(255, data[bottomLeftIdx] + errorR / 4));
+            data[bottomLeftIdx + 1] = Math.max(0, Math.min(255, data[bottomLeftIdx + 1] + errorG / 4));
+            data[bottomLeftIdx + 2] = Math.max(0, Math.min(255, data[bottomLeftIdx + 2] + errorB / 4));
+          }
         }
       } else {
         // Left pixel (2/4) when scanning right-to-left
         if (x > 0) {
           const leftIdx = (y * width + (x - 1)) * 4;
-          data[leftIdx] = Math.max(0, Math.min(255, data[leftIdx] + (errorR * 2) / 4));
-          data[leftIdx + 1] = Math.max(0, Math.min(255, data[leftIdx + 1] + (errorG * 2) / 4));
-          data[leftIdx + 2] = Math.max(0, Math.min(255, data[leftIdx + 2] + (errorB * 2) / 4));
+          if (data[leftIdx + 3] !== 0) {
+            data[leftIdx] = Math.max(0, Math.min(255, data[leftIdx] + (errorR * 2) / 4));
+            data[leftIdx + 1] = Math.max(0, Math.min(255, data[leftIdx + 1] + (errorG * 2) / 4));
+            data[leftIdx + 2] = Math.max(0, Math.min(255, data[leftIdx + 2] + (errorB * 2) / 4));
+          }
         }
 
         // Bottom-right pixel (1/4)
         if (y < height - 1 && x < width - 1) {
           const bottomRightIdx = ((y + 1) * width + (x + 1)) * 4;
-          data[bottomRightIdx] = Math.max(0, Math.min(255, data[bottomRightIdx] + errorR / 4));
-          data[bottomRightIdx + 1] = Math.max(0, Math.min(255, data[bottomRightIdx + 1] + errorG / 4));
-          data[bottomRightIdx + 2] = Math.max(0, Math.min(255, data[bottomRightIdx + 2] + errorB / 4));
+          if (data[bottomRightIdx + 3] !== 0) {
+            data[bottomRightIdx] = Math.max(0, Math.min(255, data[bottomRightIdx] + errorR / 4));
+            data[bottomRightIdx + 1] = Math.max(0, Math.min(255, data[bottomRightIdx + 1] + errorG / 4));
+            data[bottomRightIdx + 2] = Math.max(0, Math.min(255, data[bottomRightIdx + 2] + errorB / 4));
+          }
         }
       }
 
       // Bottom pixel (1/4) – direction independent
       if (y < height - 1) {
         const bottomIdx = ((y + 1) * width + x) * 4;
-        data[bottomIdx] = Math.max(0, Math.min(255, data[bottomIdx] + errorR / 4));
-        data[bottomIdx + 1] = Math.max(0, Math.min(255, data[bottomIdx + 1] + errorG / 4));
-        data[bottomIdx + 2] = Math.max(0, Math.min(255, data[bottomIdx + 2] + errorB / 4));
+        if (data[bottomIdx + 3] !== 0) {
+          data[bottomIdx] = Math.max(0, Math.min(255, data[bottomIdx] + errorR / 4));
+          data[bottomIdx + 1] = Math.max(0, Math.min(255, data[bottomIdx + 1] + errorG / 4));
+          data[bottomIdx + 2] = Math.max(0, Math.min(255, data[bottomIdx + 2] + errorB / 4));
+        }
       }
     }
   }

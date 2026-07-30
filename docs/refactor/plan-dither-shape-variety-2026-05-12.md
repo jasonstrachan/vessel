@@ -2,6 +2,10 @@
 
 Date: 2026-05-12
 
+Status: Revised 2026-07-30. Regular Dither Shape variety is derived only from
+visible brush settings. Polygon geometry no longer changes tone or phase, so
+translated shapes with the same settings and pressure remain identical.
+
 ## Goal
 
 Make `Dither Shape` respond to the same kind of visible variety control that `CC Gradient` gets from the `Variety` / `ditherPatternDiversity` slider, without changing CC Gradient behavior.

@@ -225,6 +225,7 @@ class MockCanvasRenderingContext2D {
   closePath() {}
   moveTo() {}
   lineTo() {}
+  rect() {}
   bezierCurveTo() {}
   quadraticCurveTo() {}
   arc() {}

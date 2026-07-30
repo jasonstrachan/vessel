@@ -1,11 +1,10 @@
 import { BrushShape } from '@/types';
 import {
   applyRegularDitherVarietyToImageData,
-  computeRegularDitherShapeSeed,
   resolveRegularDitherVariety,
 } from '../regularDitherVariety';
 import { computeStrokeDitherPaletteForSettings } from '../engineShared';
-import { applyDithering, applyDitheringWithFillResolution } from '../dithering';
+import { applyDitheringWithFillResolution } from '../dithering';
 
 import type { BrushSettings } from '@/types';
 
@@ -24,121 +23,71 @@ const makeSolidImage = (
   return imageData;
 };
 
-const renderDither = ({
+const makeSettings = (
+  color: string,
+  ditherPatternDiversity = 100
+): BrushSettings => ({
+  brushShape: BrushShape.PIXEL_DITHER,
   color,
-  rgb,
-  diversity,
-  seed,
-}: {
-  color: string;
-  rgb: [number, number, number];
-  diversity: number;
-  seed: number;
-}): Uint8ClampedArray => {
-  const settings = {
-    brushShape: BrushShape.PIXEL_DITHER,
-    color,
-    ditherAlgorithm: 'bayer',
-    patternStyle: 'dots',
-    ditherPaletteSpread: 85,
-    ditherPatternDiversity: diversity,
-  } as BrushSettings;
-  const palette = computeStrokeDitherPaletteForSettings(settings);
-  const variety = resolveRegularDitherVariety({ settings, palette, seed });
-  const varied = applyRegularDitherVarietyToImageData(makeSolidImage(rgb), variety);
-  return applyDithering(
-    varied,
-    palette.length,
-    settings.ditherAlgorithm,
-    settings.patternStyle,
-    palette,
-    variety.phaseOffset
-  ).data;
-};
+  ditherAlgorithm: 'sierra-lite',
+  patternStyle: 'dots',
+  ditherPaletteSpread: 3,
+  ditherPatternDiversity,
+  fillResolution: 7,
+} as BrushSettings);
 
 describe('regularDitherVariety', () => {
-  it('derives a deterministic seed from the same shape geometry', () => {
-    const points = [
-      { x: 10, y: 10 },
-      { x: 40, y: 10 },
-      { x: 40, y: 40 },
-      { x: 10, y: 40 },
-    ];
+  it('produces one stable variety from visible settings alone', () => {
+    const settings = makeSettings('#b34a22');
+    const palette = computeStrokeDitherPaletteForSettings(settings);
 
-    expect(computeRegularDitherShapeSeed(points)).toBe(computeRegularDitherShapeSeed(points));
+    expect(resolveRegularDitherVariety({ settings, palette })).toEqual(
+      resolveRegularDitherVariety({ settings, palette })
+    );
   });
 
-  it('produces deterministic output for the same color and seed', () => {
-    const seed = 12345;
-    const first = renderDither({ color: '#b34a22', rgb: [179, 74, 34], diversity: 100, seed });
-    const second = renderDither({ color: '#b34a22', rgb: [179, 74, 34], diversity: 100, seed });
+  it('allows visible color changes to alter the stable dither mix', () => {
+    const warmSettings = makeSettings('#b34a22');
+    const coolSettings = makeSettings('#226db3');
+    const warmPalette = computeStrokeDitherPaletteForSettings(warmSettings);
+    const coolPalette = computeStrokeDitherPaletteForSettings(coolSettings);
 
-    expect(Array.from(first)).toEqual(Array.from(second));
-  });
-
-  it('lets selected color change the high-variety dither output', () => {
-    const seed = 12345;
-    const warm = renderDither({ color: '#b34a22', rgb: [179, 74, 34], diversity: 100, seed });
-    const cool = renderDither({ color: '#226db3', rgb: [34, 109, 179], diversity: 100, seed });
-
-    expect(Array.from(warm)).not.toEqual(Array.from(cool));
+    expect(resolveRegularDitherVariety({
+      settings: warmSettings,
+      palette: warmPalette,
+    })).not.toEqual(resolveRegularDitherVariety({
+      settings: coolSettings,
+      palette: coolPalette,
+    }));
   });
 
   it('neutralizes variety when ditherPatternDiversity is zero', () => {
-    const settings = {
-      brushShape: BrushShape.PIXEL_DITHER,
-      color: '#b34a22',
-      ditherAlgorithm: 'bayer',
-      patternStyle: 'dots',
-      ditherPaletteSpread: 85,
-      ditherPatternDiversity: 0,
-    } as BrushSettings;
+    const settings = makeSettings('#b34a22', 0);
     const palette = computeStrokeDitherPaletteForSettings(settings);
     const source = makeSolidImage([179, 74, 34]);
-    const variety = resolveRegularDitherVariety({ settings, palette, seed: 12345 });
+    const variety = resolveRegularDitherVariety({ settings, palette });
     const varied = applyRegularDitherVarietyToImageData(source, variety);
 
-    expect(variety.phaseOffset).toBeUndefined();
-    expect(variety.toneBias).toBe(0);
+    expect(variety).toEqual({ toneBias: 0 });
     expect(Array.from(varied.data)).toEqual(Array.from(source.data));
   });
 
-  it('does not darken already-dark regular dither colors into black', () => {
-    const settings = {
-      brushShape: BrushShape.PIXEL_DITHER,
-      color: '#0e0f14',
-      ditherAlgorithm: 'sierra-lite',
-      patternStyle: 'dots',
-      ditherPaletteSpread: 3,
-      ditherPatternDiversity: 100,
-    } as BrushSettings;
+  it('keeps dark endpoint colors inside a ditherable range', () => {
+    const settings = makeSettings('#0e0f14');
     const palette = computeStrokeDitherPaletteForSettings(settings);
-    const variety = resolveRegularDitherVariety({
-      settings,
-      palette,
-      seed: 448128265,
-    });
+    const variety = resolveRegularDitherVariety({ settings, palette });
 
-    expect(variety.toneBias).toBeGreaterThanOrEqual(0);
+    expect(variety.toneBias).toBeGreaterThanOrEqual(18);
   });
 
-  it('pulls white endpoint fills inward so the interior receives dither texture', () => {
-    const settings = {
-      brushShape: BrushShape.PIXEL_DITHER,
-      color: '#ffffff',
-      ditherAlgorithm: 'sierra-lite',
-      patternStyle: 'dots',
-      ditherPaletteSpread: 3,
-      ditherPatternDiversity: 100,
-      fillResolution: 7,
-    } as BrushSettings;
+  it('keeps white endpoint fills textured', () => {
+    const settings = makeSettings('#ffffff');
     const palette = computeStrokeDitherPaletteForSettings(settings);
-    const variety = resolveRegularDitherVariety({
-      settings,
-      palette,
-      seed: 2859782508,
-    });
-    const varied = applyRegularDitherVarietyToImageData(makeSolidImage([255, 255, 255], 70, 70), variety);
+    const variety = resolveRegularDitherVariety({ settings, palette });
+    const varied = applyRegularDitherVarietyToImageData(
+      makeSolidImage([255, 255, 255], 70, 70),
+      variety
+    );
     const dithered = applyDitheringWithFillResolution(
       varied,
       palette.length,
@@ -155,13 +104,17 @@ describe('regularDitherVariety', () => {
       for (let x = 14; x < 56; x += 1) {
         const idx = (y * dithered.width + x) * 4;
         interiorPixels += 1;
-        if (dithered.data[idx] < 250 || dithered.data[idx + 1] < 250 || dithered.data[idx + 2] < 250) {
+        if (
+          dithered.data[idx] < 250 ||
+          dithered.data[idx + 1] < 250 ||
+          dithered.data[idx + 2] < 250
+        ) {
           texturedPixels += 1;
         }
       }
     }
 
-    expect(variety.toneBias).toBeLessThanOrEqual(-20);
+    expect(variety.toneBias).toBeLessThanOrEqual(-28);
     expect(texturedPixels / interiorPixels).toBeGreaterThan(0.1);
   });
 });

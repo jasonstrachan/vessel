@@ -136,7 +136,8 @@ describe('ShapeFinalizeHandler', () => {
     expect(ditherArgs.settingsOverride.ditherPaletteSpread).toBe(55);
     expect(ditherArgs.settingsOverride.ditherPatternDiversity).toBe(72);
     expect(ditherArgs.quantizeSourceAlpha).toBe(true);
-    expect(typeof ditherArgs.regularDitherVarietySeed).toBe('number');
+    expect(ditherArgs.regularDitherVariety).toBe(true);
+    expect(ditherArgs).not.toHaveProperty('regularDitherVarietySeed');
   });
 
   it('does not persist temporary pressure-linked dither overrides back to the store on finalize', () => {

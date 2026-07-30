@@ -15,7 +15,6 @@ import {
   resolveDitherGradPalette,
 } from '@/utils/orderedDitherGradient';
 import { canvasPool } from '@/utils/canvasPool';
-import { computeRegularDitherShapeSeed } from '@/hooks/brushEngine/regularDitherVariety';
 import {
   captureRegionFromPoints,
   unionCaptureRegions,
@@ -50,7 +49,7 @@ export type ShapeFinalizeBrushRuntime = {
       overridePressure?: number;
       overridePixelSize?: number;
       settingsOverride?: BrushSettings;
-      regularDitherVarietySeed?: number;
+      regularDitherVariety?: boolean;
       quantizeSourceAlpha?: boolean;
     },
   ) => void;
@@ -1070,7 +1069,6 @@ export const finalizeRasterShapeFill = ({
             strokeDitherRegion,
             shapePointDitherRegion,
             pointCount: shapePoints.length,
-            shapeSeed: computeRegularDitherShapeSeed(shapePoints),
             settings: {
               color: settingsForDither.color,
               ditherEnabled: settingsForDither.ditherEnabled,
@@ -1078,7 +1076,6 @@ export const finalizeRasterShapeFill = ({
               patternStyle: settingsForDither.patternStyle,
               fillResolution: settingsForDither.fillResolution,
               ditherPaletteSpread: settingsForDither.ditherPaletteSpread,
-              ditherPatternDiversity: settingsForDither.ditherPatternDiversity,
               ditherBackgroundFill: settingsForDither.ditherBackgroundFill,
               pxlEdge: settingsForDither.pxlEdge,
               lostEdge: settingsForDither.lostEdge,
@@ -1087,7 +1084,6 @@ export const finalizeRasterShapeFill = ({
           });
         }
 
-        const regularDitherVarietySeed = computeRegularDitherShapeSeed(shapePoints);
         brushRuntime.applyStrokeDither(
           drawCtx,
           {
@@ -1102,7 +1098,7 @@ export const finalizeRasterShapeFill = ({
             overridePressure: effectivePressure,
             overridePixelSize: forcedPixelSize,
             settingsOverride: settingsForDither,
-            regularDitherVarietySeed,
+            regularDitherVariety: true,
             quantizeSourceAlpha: isPixelBrush,
           }
         );
@@ -1112,7 +1108,6 @@ export const finalizeRasterShapeFill = ({
           const logPayload = {
             region: ditherRegion,
             pointCount: shapePoints.length,
-            shapeSeed: regularDitherVarietySeed,
             before: beforeDitherSummary,
             after: afterDitherSummary,
           };

@@ -440,6 +440,28 @@ describe('Dithering Algorithms', () => {
         expect(g).toBe(b);
       }
     });
+
+    it('does not diffuse transparent padding into opaque shape pixels', () => {
+      const data = new Uint8ClampedArray([
+        0, 0, 0, 0,
+        170, 170, 170, 255,
+      ]);
+      const result = applySierraLitePressureDither(
+        new ImageData(data, 2, 1),
+        {
+          ...testSettings,
+          palette: [
+            [100, 100, 100],
+            [200, 200, 200],
+          ],
+          pressure: 0.5,
+          intensity: 1,
+        }
+      );
+
+      expect(Array.from(result.data.slice(0, 4))).toEqual([0, 0, 0, 0]);
+      expect(Array.from(result.data.slice(4, 8))).toEqual([200, 200, 200, 255]);
+    });
     
     it('should respect pressure settings', () => {
       const imageData = createTestImageData(4, 4);

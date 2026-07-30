@@ -18,7 +18,6 @@ import {
 import { applyPolygonMaskToCanvasContext } from '@/hooks/canvas/handlers/shapes/shapePreviewMask';
 import { logLivePreview } from '@/hooks/canvas/utils/livePreviewDebug';
 import { ensurePresResDebugBridge, isPresResDebugEnabled } from '@/hooks/canvas/utils/presResDebug';
-import { computeRegularDitherShapeSeed } from '@/hooks/brushEngine/regularDitherVariety';
 import { isDragDefinedCcGradientShape } from '@/hooks/canvas/handlers/shapes/ccGradientDrawingGeometry';
 import { completeCcGradientClickLine } from '@/hooks/canvas/handlers/shapes/ccGradientClickLineCompletion';
 import {
@@ -1455,7 +1454,9 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
       }));
       bufferCtx.save();
       bufferCtx.setTransform(1, 0, 0, 1, 0, 0);
-      applyPolygonMaskToCanvasContext(bufferCtx, localVertices);
+      applyPolygonMaskToCanvasContext(bufferCtx, localVertices, {
+        hardEdges: isDitherShapePreview,
+      });
       bufferCtx.restore();
     };
 
@@ -1628,7 +1629,7 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
           mergeExisting: liveBgFillOn,
           overridePressure: effectivePressure,
           overridePixelSize: previewPixelSize,
-          regularDitherVarietySeed: computeRegularDitherShapeSeed(rawPoints),
+          regularDitherVariety: true,
         });
         } catch (error) {
         if (process.env.NODE_ENV !== 'production') {

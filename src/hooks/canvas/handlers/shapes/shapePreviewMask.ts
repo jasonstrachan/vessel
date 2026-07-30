@@ -1,6 +1,7 @@
 import { buildNonZeroWindingRowSpans } from '@/utils/colorCycle/ccGradientDither';
 
 type PolygonMaskOptions = {
+  hardEdges?: boolean;
   origin?: { x: number; y: number };
   pixelSize?: number;
   wholeCells?: boolean;
@@ -17,6 +18,7 @@ export const applyPolygonMaskToCanvasContext = (
 
   const cellSize = Math.max(1, Math.floor(options.pixelSize ?? 1));
   const useWholeCells = options.wholeCells === true && cellSize > 1;
+  const useHardEdges = options.hardEdges === true;
 
   targetCtx.save();
   targetCtx.globalCompositeOperation = 'destination-in';
@@ -70,6 +72,23 @@ export const applyPolygonMaskToCanvasContext = (
           Math.min(width, rawCellX + cellSize) - rectX,
           rowEnd - rowStart
         );
+      }
+    }
+  } else if (useHardEdges) {
+    const width = targetCtx.canvas.width;
+    const height = targetCtx.canvas.height;
+    const rowSpans = buildNonZeroWindingRowSpans({
+      vertices,
+      minX: 0,
+      minY: 0,
+      maxX: Math.max(0, width - 1),
+      maxY: Math.max(0, height - 1),
+      useWholeEdgeCells: true,
+    });
+
+    for (let y = 0; y < rowSpans.length; y += 1) {
+      for (const [startX, endX] of rowSpans[y]) {
+        targetCtx.rect(startX, y, endX - startX + 1, 1);
       }
     }
   } else {

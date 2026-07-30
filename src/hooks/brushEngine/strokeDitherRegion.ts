@@ -15,7 +15,7 @@ export type StrokeDitherRegionOptions = {
   bgOffMode?: 'direct' | 'accumulate';
   bgOffComposite?: 'copy' | 'source-over';
   settingsOverride?: BrushSettings;
-  regularDitherVarietySeed?: number;
+  regularDitherVariety?: boolean;
   quantizeSourceAlpha?: boolean;
 };
 
@@ -218,11 +218,10 @@ export const ditherRegionWithCurrentPressure = ({
   const phaseOffset = !fillBackground
     ? (strokePhaseOriginRef.current ?? { x: 0, y: 0 })
     : undefined;
-  const variety = options?.regularDitherVarietySeed != null
+  const variety = options?.regularDitherVariety === true
     ? resolveRegularDitherVariety({
         settings,
         palette,
-        seed: options.regularDitherVarietySeed,
       })
     : null;
   const sourceForDither = variety

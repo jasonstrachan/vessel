@@ -5,7 +5,6 @@ import { resolveShapePreviewOpacity } from '../pointerHandlersRuntime';
 import { useAppStore } from '@/stores/useAppStore';
 import { BrushShape, type Project } from '@/types';
 import { RecolorManager } from '@/lib/colorCycle/RecolorManager';
-import { computeRegularDitherShapeSeed } from '@/hooks/brushEngine/regularDitherVariety';
 import type { EventHandlerDynamicDeps, EventHandlerDependencies } from '../../utils/types';
 
 type PartialDeps = Partial<EventHandlerDependencies>;
@@ -25,6 +24,7 @@ const createCanvas = () => {
     scale: jest.fn(),
     beginPath: jest.fn(),
     arc: jest.fn(),
+    rect: jest.fn(),
     moveTo: jest.fn(),
     lineTo: jest.fn(),
     closePath: jest.fn(),
@@ -3103,7 +3103,7 @@ describe('pointerHandlers main flows', () => {
     ]);
   });
 
-  it('uses raw shape geometry for dither-shape preview variety seed when preview points are decimated', () => {
+  it('does not derive hidden dither variation from raw shape geometry', () => {
     const rawPoints = Array.from({ length: 501 }, (_, index) => ({
       x: 20 + Math.cos(index / 11) * 12 + index * 0.03,
       y: 20 + Math.sin(index / 13) * 12,
@@ -3144,7 +3144,8 @@ describe('pointerHandlers main flows', () => {
 
     expect(applyStrokeDither).toHaveBeenCalled();
     const options = applyStrokeDither.mock.calls[0]?.[3];
-    expect(options.regularDitherVarietySeed).toBe(computeRegularDitherShapeSeed(rawPoints));
+    expect(options.regularDitherVariety).toBe(true);
+    expect(options).not.toHaveProperty('regularDitherVarietySeed');
   });
 
   it('finalizes shape drawing on pointer up', async () => {
