@@ -6,7 +6,7 @@ import {
   pixelateImageData,
   renderDitherGradientToImageData,
   renderOrderedDitherGradientToImageData,
-  resolveDitherGradPalette
+  resolveDitherGradPalette,
 } from '../orderedDitherGradient';
 
 describe('orderedDitherGradient', () => {
@@ -14,7 +14,7 @@ describe('orderedDitherGradient', () => {
   const bg: [number, number, number, number] = [0, 0, 255, 255];
   const palette = buildFgBgPalette(fg, bg);
 
-  it('projects the gradient axis across the polygon in the chosen direction', () => {
+  it('uses cursor distance to set a centered gradient axis in the chosen direction', () => {
     const axis = computeGradientAxisFromDirection(
       [
         { x: 2, y: 3 },
@@ -27,9 +27,28 @@ describe('orderedDitherGradient', () => {
 
     expect(axis.dir.x).toBeCloseTo(0);
     expect(axis.dir.y).toBeCloseTo(1);
-    expect(axis.start).toEqual({ x: 0, y: 3 });
-    expect(axis.end).toEqual({ x: 0, y: 23 });
-    expect(axis.length).toBe(20);
+    expect(axis.start).toEqual({ x: 7, y: 8 });
+    expect(axis.end).toEqual({ x: 7, y: 18 });
+    expect(axis.length).toBe(10);
+  });
+
+  it('stretches the centered gradient endpoints as cursor distance increases', () => {
+    const vertices = [
+      { x: 0, y: 0 },
+      { x: 20, y: 0 },
+      { x: 20, y: 20 },
+      { x: 0, y: 20 },
+    ];
+
+    const nearAxis = computeGradientAxisFromDirection(vertices, { x: 4, y: 0 });
+    const farAxis = computeGradientAxisFromDirection(vertices, { x: 9, y: 0 });
+
+    expect(nearAxis.start).toEqual({ x: 6, y: 10 });
+    expect(nearAxis.end).toEqual({ x: 14, y: 10 });
+    expect(nearAxis.length).toBe(8);
+    expect(farAxis.start).toEqual({ x: 1, y: 10 });
+    expect(farAxis.end).toEqual({ x: 19, y: 10 });
+    expect(farAxis.length).toBe(18);
   });
 
   it('produces deterministic output with the same inputs', () => {

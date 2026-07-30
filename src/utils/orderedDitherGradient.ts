@@ -257,6 +257,11 @@ export function computeGradientAxisFromPolygon(vertices: Vec2[]): OrderedDitherA
   return { start, end: farthest, dir, length };
 }
 
+/**
+ * Build a centered axis from the Stage 2 direction gesture.
+ * The direction vector is center-to-cursor, so its magnitude controls half the
+ * gradient span and its mirrored endpoints remain centered on the shape.
+ */
 export function computeGradientAxisFromDirection(
   vertices: Vec2[],
   direction: Vec2
@@ -270,27 +275,25 @@ export function computeGradientAxisFromDirection(
     x: direction.x / directionLength,
     y: direction.y / directionLength,
   };
-  let minProjection = Infinity;
-  let maxProjection = -Infinity;
-
+  const center = { x: 0, y: 0 };
   for (const vertex of vertices) {
-    const projection = vertex.x * dir.x + vertex.y * dir.y;
-    minProjection = Math.min(minProjection, projection);
-    maxProjection = Math.max(maxProjection, projection);
+    center.x += vertex.x;
+    center.y += vertex.y;
   }
+  center.x /= vertices.length;
+  center.y /= vertices.length;
 
-  const length = Math.max(1e-6, maxProjection - minProjection);
   return {
     start: {
-      x: dir.x * minProjection,
-      y: dir.y * minProjection,
+      x: center.x - direction.x,
+      y: center.y - direction.y,
     },
     end: {
-      x: dir.x * maxProjection,
-      y: dir.y * maxProjection,
+      x: center.x + direction.x,
+      y: center.y + direction.y,
     },
     dir,
-    length,
+    length: directionLength * 2,
   };
 }
 
