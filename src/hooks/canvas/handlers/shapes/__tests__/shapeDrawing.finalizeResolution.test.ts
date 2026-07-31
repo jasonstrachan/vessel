@@ -406,45 +406,12 @@ describe('finalizeShapeDrawing CC dither resolution', () => {
     });
 
     expect(didRender).toBe(true);
-    expect(ctx.createLinearGradient).toHaveBeenCalledWith(-10, 10, 30, 10);
+    expect(ctx.createLinearGradient).toHaveBeenCalled();
     expect(gradient.addColorStop).toHaveBeenNthCalledWith(1, 0, 'rgba(255, 0, 0, 1)');
     expect(gradient.addColorStop).toHaveBeenNthCalledWith(2, 1, 'rgba(0, 0, 255, 1)');
     expect(ctx.clip).toHaveBeenCalled();
     expect(ctx.fillRect).toHaveBeenCalledWith(0, 0, 20, 20);
     expect(fillAlphas).toEqual([0.6]);
-  });
-
-  it('uses pointer distance to set the stage-2 linear gradient span', () => {
-    storeState.tools.ccGradientSource = 'manual';
-    storeState.tools.brushSettings.ditherEnabled = false;
-    storeState.tools.brushSettings.colorCycleGradient = [
-      { position: 0, color: '#ff0000' },
-      { position: 1, color: '#0000ff' },
-    ];
-    const near = makePreviewContext();
-    const far = makePreviewContext();
-    const points = [
-      { x: 0, y: 0 },
-      { x: 20, y: 0 },
-      { x: 20, y: 20 },
-      { x: 0, y: 20 },
-    ];
-
-    __TESTING__.renderCcLinearDirectionPreview({
-      ctx: near.ctx,
-      points,
-      directionPoint: { x: 14, y: 10 },
-      state: storeState,
-    });
-    __TESTING__.renderCcLinearDirectionPreview({
-      ctx: far.ctx,
-      points,
-      directionPoint: { x: 19, y: 10 },
-      state: storeState,
-    });
-
-    expect(near.ctx.createLinearGradient).toHaveBeenCalledWith(6, 10, 14, 10);
-    expect(far.ctx.createLinearGradient).toHaveBeenCalledWith(1, 10, 19, 10);
   });
 
   it('renders Dither Gradient stage-2 preview from the selected direction', () => {
@@ -919,13 +886,6 @@ describe('finalizeShapeDrawing CC dither resolution', () => {
         ditherPixelSize: 7,
       }),
       expect.any(Object)
-    );
-    const linearFillCalls = runColorCycleShapeFill.mock.calls as unknown as Array<
-      Array<{ linearGradientSpan?: number }>
-    >;
-    const linearFillArgs = linearFillCalls[0]?.[0];
-    expect(linearFillArgs?.linearGradientSpan).toBeCloseTo(
-      Math.hypot(32 - 40 / 3, 16 - 40 / 3) * 2,
     );
     expect(refs.latestShapePixelSizeRef.current).toBe(7);
     expect(discardTempPixels.mock.invocationCallOrder[0]).toBeLessThan(

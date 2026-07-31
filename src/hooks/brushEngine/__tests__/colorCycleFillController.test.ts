@@ -24,7 +24,7 @@ describe('colorCycleFillController', () => {
     await fillColorCycleLinear({
       vertices: [{ x: 0, y: 0 }, { x: 1, y: 0 }, { x: 1, y: 1 }],
       direction: { x: 1, y: 0 },
-      options: { ditherPixelSize: 2, linearGradientSpan: 80 },
+      options: { ditherPixelSize: 2 },
       initializeColorCycleBrush: () => brush as unknown as ColorCycleFillBrush,
       activeLayerId: 'layer-1',
       isCCGradientActiveLayer: true,
@@ -47,13 +47,7 @@ describe('colorCycleFillController', () => {
       renderBrushToLayerCanvas,
     });
 
-    expect(brush.fillShapeDispatch).toHaveBeenCalledWith(expect.objectContaining({
-      mode: 'linear',
-      layerId: 'layer-1',
-      options: expect.objectContaining({
-        linearGradientSpan: 80,
-      }),
-    }));
+    expect(brush.fillShapeDispatch).toHaveBeenCalledWith(expect.objectContaining({ mode: 'linear', layerId: 'layer-1' }));
     expect(brush.endStroke).toHaveBeenCalledWith('layer-1');
     expect(renderBrushToLayerCanvas).toHaveBeenCalledWith(brush, 'layer-1');
   });

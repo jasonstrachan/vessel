@@ -41,7 +41,6 @@ export type FillOptions = {
   paintDefIdOverride?: number;
   shapePhaseSeedMarkId?: string | null;
   roi?: { x: number; y: number; width: number; height: number };
-  linearGradientSpan?: number;
   spacing?: number;
   lostEdge?: number;
 };

@@ -1736,7 +1736,6 @@ export const useBrushEngineSimplified = () => {
       paintDefIdOverride?: number;
       shapePhaseSeedMarkId?: string | null;
       roi?: { x: number; y: number; width: number; height: number };
-      linearGradientSpan?: number;
       skipPostRender?: boolean;
     }
   ) => {

@@ -393,14 +393,37 @@ const resolveDirectionGradientEndpoints = (
 ): { start: ShapePoint; end: ShapePoint; center: ShapePoint; bounds: ShapeBounds } => {
   const center = getShapeCentroid(points);
   const bounds = getShapeBounds(points);
-  const direction = {
-    x: directionPoint.x - center.x,
-    y: directionPoint.y - center.y,
-  };
+  let dx = directionPoint.x - center.x;
+  let dy = directionPoint.y - center.y;
+  const length = Math.hypot(dx, dy);
+  if (length > 0.0001) {
+    dx /= length;
+    dy /= length;
+  } else {
+    dx = 1;
+    dy = 0;
+  }
+
+  let minProjection = Number.POSITIVE_INFINITY;
+  let maxProjection = Number.NEGATIVE_INFINITY;
+  for (const point of points) {
+    const projection = (point.x - center.x) * dx + (point.y - center.y) * dy;
+    minProjection = Math.min(minProjection, projection);
+    maxProjection = Math.max(maxProjection, projection);
+  }
+
+  if (!Number.isFinite(minProjection) || !Number.isFinite(maxProjection) || maxProjection - minProjection < 0.0001) {
+    const fallbackRadius = Math.max(
+      1,
+      Math.hypot(bounds.maxX - bounds.minX, bounds.maxY - bounds.minY) / 2
+    );
+    minProjection = -fallbackRadius;
+    maxProjection = fallbackRadius;
+  }
 
   return {
-    start: { x: center.x - direction.x, y: center.y - direction.y },
-    end: { x: center.x + direction.x, y: center.y + direction.y },
+    start: { x: center.x + dx * minProjection, y: center.y + dy * minProjection },
+    end: { x: center.x + dx * maxProjection, y: center.y + dy * maxProjection },
     center,
     bounds,
   };
@@ -855,7 +878,6 @@ type ShapeDrawingDeps = {
     session: import('@/hooks/canvas/utils/colorCycleMarkSession').MarkGradientSession | null;
     shapePoints: Array<{ x: number; y: number }>;
     direction?: { x: number; y: number };
-    linearGradientSpan?: number;
     activeLayerId: string;
     activeLayerCanvas: HTMLCanvasElement;
     overlayCanvas: HTMLCanvasElement | null;
@@ -1748,9 +1770,8 @@ export const finalizeShapeDrawing = async (
 
           const direction = {
             x: args.refs.directionPreviewRef.current.x - centerX,
-            y: args.refs.directionPreviewRef.current.y - centerY,
+            y: args.refs.directionPreviewRef.current.y - centerY
           };
-          const directionSpan = Math.hypot(direction.x, direction.y) * 2;
 
           drawCtx.clearRect(0, 0, deps.drawingCanvasRef.current?.width || 0, deps.drawingCanvasRef.current?.height || 0);
           deps.drawingCanvasHasContent.current = false;
@@ -1842,7 +1863,6 @@ export const finalizeShapeDrawing = async (
               session,
               shapePoints: shapePointsSnapshot,
               direction: directionSnapshot,
-              linearGradientSpan: directionSpan,
               activeLayerId,
               activeLayerCanvas: targetLayerCanvas,
               overlayCanvas: deps.drawingCanvasRef.current,
