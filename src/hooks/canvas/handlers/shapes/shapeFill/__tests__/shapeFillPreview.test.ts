@@ -6,7 +6,10 @@ describe('shapeFillPreview', () => {
     overlayCanvas.width = 64;
     overlayCanvas.height = 64;
     const ctx = overlayCanvas.getContext('2d', { willReadFrequently: true })!;
-    const fillSpy = jest.spyOn(ctx, 'fill');
+    const fillAlphas: number[] = [];
+    const fillSpy = jest.spyOn(ctx, 'fill').mockImplementation(() => {
+      fillAlphas.push(ctx.globalAlpha);
+    });
     const strokeSpy = jest.spyOn(ctx, 'stroke');
     const lineToSpy = jest.spyOn(ctx, 'lineTo');
 
@@ -25,6 +28,7 @@ describe('shapeFillPreview', () => {
 
     expect(rect).toEqual({ x: 0, y: 0, width: 46, height: 46 });
     expect(fillSpy).toHaveBeenCalled();
+    expect(fillAlphas).toContain(0.6);
     expect(strokeSpy).toHaveBeenCalled();
     expect(lineToSpy).toHaveBeenCalledWith(10, 30);
   });

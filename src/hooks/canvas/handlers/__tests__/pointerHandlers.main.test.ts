@@ -338,16 +338,8 @@ describe('pointerHandlers main flows', () => {
     global.requestAnimationFrame = originalRaf;
   });
 
-  it('uses brush opacity for dither-shape preview', () => {
-    expect(resolveShapePreviewOpacity({
-      isColorCycleGradientPreview: false,
-      isDitherShapePreview: true,
-      brushOpacity: 0.35,
-    })).toBe(0.35);
-    expect(resolveShapePreviewOpacity({
-      isColorCycleGradientPreview: true,
-      isDitherShapePreview: false,
-    })).toBe(0.8);
+  it('uses the standardized opacity for every shape preview', () => {
+    expect(resolveShapePreviewOpacity()).toBe(0.6);
   });
 
   it('promotes dither-shape preview masks to whole cells only for Pxl Edge', () => {

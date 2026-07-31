@@ -78,6 +78,7 @@ import {
   rebuildCcStrokeShapeFromSamples,
   resolveFinalSampledShapeSourcePoints,
 } from '@/hooks/canvas/handlers/shapes/ccGradientDrawingRuntime';
+import { SHAPE_PREVIEW_OPACITY } from '@/hooks/canvas/handlers/shapes/shapePreviewOpacity';
 import {
   buildCcDitherRuntimePalette,
   resolveCcDitherBandMode,
@@ -467,6 +468,7 @@ const renderCcLinearDirectionPreview = ({
   }
 
   ctx.save();
+  ctx.globalAlpha = SHAPE_PREVIEW_OPACITY;
   tracePolygonPath(ctx, points);
   ctx.clip();
   ctx.fillStyle = gradient;
@@ -1392,7 +1394,10 @@ export const continueShapeDrawing = (
             drawCtx,
             canvas: deps.drawingCanvasRef.current,
             drawingCanvasHasContent: deps.drawingCanvasHasContent,
-            liveBrushSettings: currentState.tools.brushSettings,
+            liveBrushSettings: {
+              ...currentState.tools.brushSettings,
+              opacity: SHAPE_PREVIEW_OPACITY,
+            },
             polygonState: currentState.polygonGradientState,
             shapePoints: refs.shapePointsRef.current,
             palette: currentState.palette,
@@ -1415,9 +1420,12 @@ export const continueShapeDrawing = (
             state: currentState,
           });
       if (!didRenderGradientPreview) {
-        drawCtx.fillStyle = 'rgba(0, 0, 0, 0.3)';
+        drawCtx.save();
+        drawCtx.globalAlpha = SHAPE_PREVIEW_OPACITY;
+        drawCtx.fillStyle = '#000000';
         tracePolygonPath(drawCtx, refs.shapePointsRef.current);
         drawCtx.fill();
+        drawCtx.restore();
       }
       deps.drawingCanvasHasContent.current = true;
 

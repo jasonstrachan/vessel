@@ -1,4 +1,5 @@
 import type { ShapeFillPoint } from './shapeFillGeometry';
+import { SHAPE_PREVIEW_OPACITY } from '../shapePreviewOpacity';
 
 export type ShapeFillPreviewRect = {
   x: number;
@@ -115,7 +116,7 @@ export const renderShapeFillDraftPreview = ({
 
   if (points.length >= 3) {
     overlayCtx.globalCompositeOperation = 'source-over';
-    overlayCtx.globalAlpha = 0.28;
+    overlayCtx.globalAlpha = SHAPE_PREVIEW_OPACITY;
     overlayCtx.fillStyle = fillStyle;
     overlayCtx.beginPath();
     overlayCtx.moveTo(points[0].x, points[0].y);

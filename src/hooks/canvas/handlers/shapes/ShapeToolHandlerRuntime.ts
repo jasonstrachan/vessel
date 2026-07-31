@@ -82,8 +82,7 @@ import {
 } from '@/hooks/canvas/handlers/shapes/shapeFill/shapeFillPreview';
 import { markDerivedSurfaceBuiltFromVersion } from '@/lib/colorCycle/document';
 import { createCcCustomTileThresholdResolver } from '@/utils/colorCycle/ccCustomTilePattern';
-
-const SHAPE_PREVIEW_OPACITY = 0.8;
+import { SHAPE_PREVIEW_OPACITY } from '@/hooks/canvas/handlers/shapes/shapePreviewOpacity';
 
 type PreviewPoint = { x: number; y: number };
 
@@ -866,7 +865,7 @@ export const createShapeToolHandler = (
     overlayCtx.save();
     overlayCtx.translate(offsetX, offsetY);
     overlayCtx.scale(scale, scale);
-    overlayCtx.globalAlpha = 0.35;
+    overlayCtx.globalAlpha = SHAPE_PREVIEW_OPACITY;
     overlayCtx.fillStyle = previewPrimary;
     overlayCtx.beginPath();
     overlayCtx.moveTo(session.shape.points[0].x, session.shape.points[0].y);
@@ -3095,7 +3094,7 @@ export const createShapeToolHandler = (
         if (isContourPolygon) {
           overlayCtx.strokeStyle = tools.brushSettings.color;
           overlayCtx.lineWidth = 2 / viewTransformRef.current.scale;
-          overlayCtx.globalAlpha = 0.8;
+          overlayCtx.globalAlpha = SHAPE_PREVIEW_OPACITY;
         } else if (tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE_SHAPE) {
           if (isColorCycleGradientPreset || isColorCycleGradientPreview) {
             const previewGradientSource = resolveColorCycleGradientSource({
@@ -3406,21 +3405,18 @@ export const createShapeToolHandler = (
               overlayCtx.globalAlpha = SHAPE_PREVIEW_OPACITY;
             }
           } else {
-            overlayCtx.fillStyle = 'rgba(0, 0, 0, 0.3)';
+            overlayCtx.fillStyle = '#000000';
             overlayCtx.globalAlpha = SHAPE_PREVIEW_OPACITY;
           }
         } else if (isShapeFill) {
           overlayCtx.fillStyle = tools.brushSettings.color ?? 'rgba(255,255,255,1)';
-          overlayCtx.globalAlpha = 0.35;
+          overlayCtx.globalAlpha = SHAPE_PREVIEW_OPACITY;
         } else if (isDitherShapePreview) {
           overlayCtx.fillStyle = tools.brushSettings.color;
-          overlayCtx.globalAlpha = Math.max(
-            0,
-            Math.min(1, brushNow.opacity ?? 1),
-          );
+          overlayCtx.globalAlpha = SHAPE_PREVIEW_OPACITY;
         } else if (tools.shapeMode && !isPolygonGradient && !isShapeFill) {
           overlayCtx.fillStyle = tools.brushSettings.color;
-          overlayCtx.globalAlpha = 0.4;
+          overlayCtx.globalAlpha = SHAPE_PREVIEW_OPACITY;
         } else {
           let minX = committedPolygon[0].x;
           let minY = committedPolygon[0].y;
@@ -3581,9 +3577,7 @@ export const createShapeToolHandler = (
                 });
 
                 overlayCtx.save();
-                overlayCtx.globalAlpha =
-                  SHAPE_PREVIEW_OPACITY *
-                  Math.max(0, Math.min(1, tools.brushSettings.opacity ?? 1));
+                overlayCtx.globalAlpha = SHAPE_PREVIEW_OPACITY;
                 overlayCtx.drawImage(tempCanvas, origin.x, origin.y);
                 overlayCtx.restore();
                 didCustomFill = true;

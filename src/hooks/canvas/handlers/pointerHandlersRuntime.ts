@@ -28,27 +28,11 @@ import {
   strokeFinalizeProbeMark,
   strokeFinalizeProbePoint,
 } from '@/utils/strokeFinalizeProbe';
+import { SHAPE_PREVIEW_OPACITY } from '@/hooks/canvas/handlers/shapes/shapePreviewOpacity';
 
-const SHAPE_PREVIEW_OPACITY = 0.8;
 const CC_GRADIENT_DIRECTION_MIN_DISTANCE = 0.5;
 
-export const resolveShapePreviewOpacity = ({
-  isColorCycleGradientPreview,
-  isDitherShapePreview,
-  brushOpacity,
-}: {
-  isColorCycleGradientPreview: boolean;
-  isDitherShapePreview: boolean;
-  brushOpacity?: number;
-}): number => {
-  if (isColorCycleGradientPreview) {
-    return SHAPE_PREVIEW_OPACITY;
-  }
-  if (isDitherShapePreview) {
-    return Math.max(0, Math.min(1, brushOpacity ?? 1));
-  }
-  return 1;
-};
+export const resolveShapePreviewOpacity = (): number => SHAPE_PREVIEW_OPACITY;
 
 export const resolveDitherShapePreviewMaskOptions = ({
   isDitherShapePreview,
@@ -1398,19 +1382,14 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
     const strokeWidth = Math.max(1, brushSettings.size ?? 1);
     const activeBrushShape = brushSettings.brushShape ?? BrushShape.ROUND;
     const isColorCycleShapePreview = activeBrushShape === BrushShape.COLOR_CYCLE_SHAPE;
-    const isColorCycleGradientPreview =
-      isColorCycleShapePreview &&
-      (brushSettings.colorCycleFillMode === 'linear' || brushSettings.colorCycleFillMode === 'stroke');
     const isDitherShapePreview = isDitherShapeMode(
       activeBrushShape,
       tools.shapeMode,
     );
-    const previewOpacity = resolveShapePreviewOpacity({
-      isColorCycleGradientPreview,
-      isDitherShapePreview,
-      brushOpacity: brushSettings.opacity,
-    });
-    const previewContentOpacity = isDitherShapePreview ? 1 : previewOpacity;
+    const previewOpacity = resolveShapePreviewOpacity();
+    // Keep buffered content opaque so preview opacity is applied exactly once
+    // when the buffer is composited onto the overlay.
+    const previewContentOpacity = 1;
     const skipOutline =
       isColorCycleShapePreview ||
       isShapeFillBrush(activeBrushShape) ||

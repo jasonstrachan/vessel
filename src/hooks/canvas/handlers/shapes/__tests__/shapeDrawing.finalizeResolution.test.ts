@@ -61,6 +61,7 @@ const makePreviewContext = () => {
   const gradient = {
     addColorStop: jest.fn(),
   };
+  const fillAlphas: number[] = [];
   const ctx = {
     beginPath: jest.fn(),
     moveTo: jest.fn(),
@@ -72,8 +73,12 @@ const makePreviewContext = () => {
     restore: jest.fn(),
     createLinearGradient: jest.fn(() => gradient),
     fillStyle: null as CanvasGradient | string | null,
+    globalAlpha: 1,
   };
-  return { ctx: ctx as unknown as CanvasRenderingContext2D, gradient };
+  ctx.fillRect.mockImplementation(() => {
+    fillAlphas.push(ctx.globalAlpha);
+  });
+  return { ctx: ctx as unknown as CanvasRenderingContext2D, gradient, fillAlphas };
 };
 
 const makeShapeBrushRuntime = () => ({
@@ -386,7 +391,7 @@ describe('finalizeShapeDrawing CC dither resolution', () => {
         },
       },
     ] as unknown as AppState['layers'];
-    const { ctx, gradient } = makePreviewContext();
+    const { ctx, gradient, fillAlphas } = makePreviewContext();
 
     const didRender = __TESTING__.renderCcLinearDirectionPreview({
       ctx,
@@ -406,6 +411,7 @@ describe('finalizeShapeDrawing CC dither resolution', () => {
     expect(gradient.addColorStop).toHaveBeenNthCalledWith(2, 1, 'rgba(0, 0, 255, 1)');
     expect(ctx.clip).toHaveBeenCalled();
     expect(ctx.fillRect).toHaveBeenCalledWith(0, 0, 20, 20);
+    expect(fillAlphas).toEqual([0.6]);
   });
 
   it('renders Dither Gradient stage-2 preview from the selected direction', () => {
@@ -460,6 +466,9 @@ describe('finalizeShapeDrawing CC dither resolution', () => {
     expect(finalizeDitherGradientShape).toHaveBeenCalledWith(
       expect.objectContaining({
         shapePoints: refs.shapePointsRef.current,
+        liveBrushSettings: expect.objectContaining({
+          opacity: 0.6,
+        }),
         direction: {
           x: 40 - (0 + 20 + 20) / 3,
           y: 10 - (0 + 0 + 20) / 3,
