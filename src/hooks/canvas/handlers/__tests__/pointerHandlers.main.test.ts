@@ -2096,7 +2096,7 @@ describe('pointerHandlers main flows', () => {
     expect(getStateSpy).toHaveBeenCalled();
   });
 
-  it('previews linear CC Gradient direction on hover after shape mouse up', () => {
+  it('previews linear CC Gradient direction while the drawing state snapshot is stale after mouse up', () => {
     const stateSnapshot = useAppStore.getState();
     jest
       .spyOn(useAppStore, 'getState')
@@ -2128,7 +2128,7 @@ describe('pointerHandlers main flows', () => {
       },
     });
 
-    deps.interaction.state = { isDrawing: false, isSelecting: false, mode: 'idle' } as any;
+    deps.interaction.state = { isDrawing: true, isSelecting: false, mode: 'drawing' } as any;
     deps.drawingHandlers.isSelectingDirectionRef.current = true;
     deps.drawingHandlers.isDrawingShapeRef.current = true;
     deps.drawingHandlers.shapePointsRef.current = [

@@ -27,6 +27,7 @@ export type GradientDitherOptions = {
   paintDefIdOverride?: number;
   shapePhaseSeedMarkId?: string | null;
   roi?: RoiRect;
+  linearGradientSpan?: number;
 };
 
 export type RectangleGradientSettings = Pick<

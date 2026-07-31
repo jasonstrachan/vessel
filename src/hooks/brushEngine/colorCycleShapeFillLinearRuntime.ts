@@ -114,8 +114,25 @@ export async function runColorCycleLinearShapeFill(
     }
   }
 
-  const centerX = (fullMinX + fullMaxX) / 2;
-  const centerY = (fullMinY + fullMaxY) / 2;
+  const requestedGradientSpan = options?.linearGradientSpan;
+  const authoredGradientSpan =
+    typeof requestedGradientSpan === 'number' &&
+    Number.isFinite(requestedGradientSpan) &&
+    requestedGradientSpan > 1e-6
+      ? requestedGradientSpan
+      : null;
+  let centerX = (fullMinX + fullMaxX) / 2;
+  let centerY = (fullMinY + fullMaxY) / 2;
+  if (authoredGradientSpan !== null) {
+    centerX = 0;
+    centerY = 0;
+    for (const vertex of vertices) {
+      centerX += vertex.x;
+      centerY += vertex.y;
+    }
+    centerX /= vertices.length;
+    centerY /= vertices.length;
+  }
 
   // Normalize direction vector
   const dirLength = Math.sqrt(direction.x * direction.x + direction.y * direction.y);
@@ -123,19 +140,28 @@ export async function runColorCycleLinearShapeFill(
   const dirY = direction.y / dirLength;
 
   // Calculate projection range for normalization
-  let minProjection = Infinity;
-  let maxProjection = -Infinity;
+  let minProjection = authoredGradientSpan !== null
+    ? -authoredGradientSpan / 2
+    : Infinity;
+  let maxProjection = authoredGradientSpan !== null
+    ? authoredGradientSpan / 2
+    : -Infinity;
 
-  // Find min/max projections for all vertices
-  for (const v of vertices) {
-    const dx = v.x - centerX;
-    const dy = v.y - centerY;
-    const projection = dx * dirX + dy * dirY;
-    minProjection = Math.min(minProjection, projection);
-    maxProjection = Math.max(maxProjection, projection);
+  if (authoredGradientSpan === null) {
+    // Direction-only callers retain the legacy behavior that fits the
+    // gradient to the full shape projection.
+    for (const vertex of vertices) {
+      const dx = vertex.x - centerX;
+      const dy = vertex.y - centerY;
+      const projection = dx * dirX + dy * dirY;
+      minProjection = Math.min(minProjection, projection);
+      maxProjection = Math.max(maxProjection, projection);
+    }
   }
 
-  const projectionPadding = 0.5 * (Math.abs(dirX) + Math.abs(dirY));
+  const projectionPadding = authoredGradientSpan === null
+    ? 0.5 * (Math.abs(dirX) + Math.abs(dirY))
+    : 0;
   const paddedMinProjection = minProjection - projectionPadding;
   const paddedMaxProjection = maxProjection + projectionPadding;
   const projectionRange = paddedMaxProjection - paddedMinProjection;
@@ -576,7 +602,14 @@ export async function runColorCycleLinearShapeFill(
       animator,
       strokeData,
       vertices,
-      direction,
+      gradientProjection: {
+        centerX,
+        centerY,
+        dirX,
+        dirY,
+        min: paddedMinProjection,
+        range: safeProjectionRange,
+      },
       layerId: id,
       minX,
       minY,

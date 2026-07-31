@@ -55,7 +55,14 @@ export type LinearPerceptualFillParams = {
   animator: ColorCycleAnimator;
   strokeData: LayerStrokeState | null | undefined;
   vertices: Array<{ x: number; y: number }>;
-  direction: { x: number; y: number };
+  gradientProjection: {
+    centerX: number;
+    centerY: number;
+    dirX: number;
+    dirY: number;
+    min: number;
+    range: number;
+  };
   layerId: string;
   minX: number;
   minY: number;
@@ -83,7 +90,7 @@ export async function tryRunLinearPerceptualFill({
   animator,
   strokeData,
   vertices,
-  direction,
+  gradientProjection,
   layerId,
   minX,
   minY,
@@ -129,24 +136,14 @@ export async function tryRunLinearPerceptualFill({
       useWholeEdgeCells: context.isPxlEdgeEnabled(),
     });
 
-    const dirLength = Math.sqrt(direction.x * direction.x + direction.y * direction.y) || 1;
-    const dirX = direction.x / dirLength;
-    const dirY = direction.y / dirLength;
-    const centerX = (minX + maxX) / 2;
-    const centerY = (minY + maxY) / 2;
-    let minProj = Infinity;
-    let maxProj = -Infinity;
-    for (const v of vertices) {
-      const dx = v.x - centerX;
-      const dy = v.y - centerY;
-      const p = dx * dirX + dy * dirY;
-      if (p < minProj) minProj = p;
-      if (p > maxProj) maxProj = p;
-    }
-    const projPadding = 0.5 * (Math.abs(dirX) + Math.abs(dirY));
-    const paddedMinProj = minProj - projPadding;
-    const paddedMaxProj = maxProj + projPadding;
-    const projRange = Math.max(1e-6, paddedMaxProj - paddedMinProj);
+    const {
+      centerX,
+      centerY,
+      dirX,
+      dirY,
+      min: paddedMinProj,
+      range: projRange,
+    } = gradientProjection;
 
     const useBlockQuantization =
       context.isDitherEnabled() &&

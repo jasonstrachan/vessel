@@ -3730,7 +3730,9 @@ function resampleStopsToColors(stops: Stop[], count: number): string[] {
       );
 
     // Handle direction selection for linear gradient fill (after shape completion)
-    if (isSelectingGradientDirection && !interaction.state.isDrawing) {
+    // The direction-stage ref is synchronous; the React interaction snapshot
+    // can still report Stage 1 as drawing until the next render after pointer-up.
+    if (isSelectingGradientDirection) {
       const directionWorld = resolveDirectionSelectionPoint(
         worldPos,
         event.shiftKey,
