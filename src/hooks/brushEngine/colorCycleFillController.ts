@@ -35,6 +35,7 @@ export type ColorCycleFillBrush = ColorCycleSettingsPatchBrush & {
       paintDefIdOverride?: GradientDitherOptions['paintDefIdOverride'];
       shapePhaseSeedMarkId?: string | null;
       roi?: GradientDitherOptions['roi'];
+      linearGradientSpan?: number;
       lostEdge?: number;
     };
   }) => unknown;
@@ -211,6 +212,7 @@ export const fillColorCycleLinear = async <TBrush extends ColorCycleFillBrush>({
           paintSlotOverride: options?.paintSlotOverride,
           paintDefIdOverride: options?.paintDefIdOverride,
           shapePhaseSeedMarkId: options?.shapePhaseSeedMarkId,
+          linearGradientSpan: options?.linearGradientSpan,
           ditherBackgroundFill,
           ditherFlatCycle,
           ditherFlatCycleBands,

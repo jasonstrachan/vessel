@@ -55,6 +55,7 @@ type ColorCycleShapeFillRuntimeOptions = {
   paintDefIdOverride?: number;
   shapePhaseSeedMarkId?: string | null;
   roi?: { x: number; y: number; width: number; height: number };
+  linearGradientSpan?: number;
   skipPostRender?: boolean;
 };
 
@@ -439,6 +440,7 @@ export type ColorCycleShapeLinearArgs = {
   session: MarkGradientSession | null;
   shapePoints: Array<{ x: number; y: number }>;
   direction: { x: number; y: number };
+  linearGradientSpan?: number;
   activeLayerId: string;
   activeLayerCanvas: HTMLCanvasElement;
   overlayCanvas: HTMLCanvasElement | null;
@@ -539,6 +541,7 @@ export const finalizeColorCycleShapeFillLinear = async (
           session,
           renderSession: resolvedRenderSession,
         }),
+        linearGradientSpan: args.linearGradientSpan,
       });
       return resolvedRenderSession;
     });
@@ -1045,6 +1048,7 @@ export type RunColorCycleShapeFillArgs = {
   session: MarkGradientSession | null;
   shapePoints: Array<{ x: number; y: number }>;
   direction?: { x: number; y: number };
+  linearGradientSpan?: number;
   activeLayerId: string;
   activeLayerCanvas: HTMLCanvasElement;
   overlayCanvas: HTMLCanvasElement | null;
@@ -1083,6 +1087,7 @@ export const runColorCycleShapeFill = async (
       session: args.session,
       shapePoints: args.shapePoints,
       direction,
+      linearGradientSpan: args.linearGradientSpan,
       activeLayerId: args.activeLayerId,
       activeLayerCanvas: args.activeLayerCanvas,
       overlayCanvas: args.overlayCanvas,
