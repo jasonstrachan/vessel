@@ -2851,18 +2851,20 @@ export const createShapeToolHandler = (
         tools.brushSettings.brushShape === BrushShape.DITHER_GRADIENT
       );
 
-    // CC shapes should not update shape geometry on hover after mouse up.
-    if (isCCShape && !isActivelyDrawing && !isSelectingGradientDirection) {
-      return true;
-    }
-
-    if (isSelectingGradientDirection && !isActivelyDrawing) {
-      ccDirectionDebug('shape-handler-hover-pass-through', {
+    if (isSelectingGradientDirection) {
+      ccDirectionDebug('shape-handler-direction-pass-through', {
         pointCount: drawingHandlers.shapePointsRef.current.length,
         isDrawing: interaction.state.isDrawing,
         brushShape: tools.brushSettings.brushShape,
+        buttons: event.buttons,
+        pressure: event.pressure,
       });
       return false;
+    }
+
+    // CC shapes should not update shape geometry on hover after mouse up.
+    if (isCCShape && !isActivelyDrawing) {
+      return true;
     }
 
     const worldPos = computeWorldPointer(event);

@@ -2096,7 +2096,7 @@ describe('pointerHandlers main flows', () => {
     expect(getStateSpy).toHaveBeenCalled();
   });
 
-  it('previews linear CC Gradient direction while the drawing state snapshot is stale after mouse up', () => {
+  it('previews linear CC Gradient direction while mouse buttons state is stale after mouse up', () => {
     const stateSnapshot = useAppStore.getState();
     jest
       .spyOn(useAppStore, 'getState')
@@ -2142,7 +2142,7 @@ describe('pointerHandlers main flows', () => {
     handlers.handlePointerMove(makePointerEvent({
       clientX: 40,
       clientY: 10,
-      buttons: 0,
+      buttons: 1,
       timeStamp: 123,
     }));
 
@@ -2157,7 +2157,7 @@ describe('pointerHandlers main flows', () => {
     expect(deps.draw).toHaveBeenCalled();
   });
 
-  it('previews Dither Gradient direction on hover after shape mouse up', () => {
+  it('previews Dither Gradient direction while pen pressure is stale after shape pointer up', () => {
     const { deps } = createDeps({
       tools: {
         ...baseDynamic.tools,
@@ -2183,6 +2183,8 @@ describe('pointerHandlers main flows', () => {
       clientX: 40,
       clientY: 10,
       buttons: 0,
+      pointerType: 'pen',
+      pressure: 0.5,
       timeStamp: 123,
     }));
 
