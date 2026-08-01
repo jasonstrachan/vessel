@@ -29,6 +29,13 @@ export interface FloatingPasteRasterResult {
   rotatedBounds: FloatingPasteFloatRect;
 }
 
+export interface FloatingPasteScalarRasterResult<T extends Uint8Array | Uint16Array> {
+  data: T;
+  roi: Rectangle;
+  destinationRect: FloatingPasteFloatRect;
+  rotatedBounds: FloatingPasteFloatRect;
+}
+
 export const getFloatingPasteDestinationRect = (
   source: FloatingPasteRasterSource
 ): FloatingPasteFloatRect => ({
@@ -96,31 +103,35 @@ const getSourcePixel = (
   ];
 };
 
-export const rasterizeFloatingPasteBitmap = (
-  source: FloatingPasteRasterSource,
-  project: FloatingPasteRasterProject
-): FloatingPasteRasterResult | null => {
-  if (!source.imageData) {
-    return null;
-  }
-  const rasterSource = { ...source, imageData: source.imageData };
+interface FloatingPasteProjection {
+  destinationRect: FloatingPasteFloatRect;
+  rotatedBounds: FloatingPasteFloatRect;
+  roi: Rectangle;
+}
 
-  const destinationRect = getFloatingPasteDestinationRect(rasterSource);
-  const rotation = rasterSource.rotation ?? 0;
+const projectFloatingPastePixels = (
+  source: FloatingPasteRasterSource,
+  project: FloatingPasteRasterProject,
+  prepare: (projection: FloatingPasteProjection) => void,
+  visit: (outputX: number, outputY: number, sourceX: number, sourceY: number) => void,
+): FloatingPasteProjection | null => {
+  const destinationRect = getFloatingPasteDestinationRect(source);
+  const rotation = source.rotation ?? 0;
   const rotatedBounds = getFloatingPasteRotatedBounds(destinationRect, rotation);
   const roi = intersectFloatingPasteBoundsWithProject(rotatedBounds, project);
   if (!roi) {
     return null;
   }
 
-  const output = new ImageData(roi.width, roi.height);
   const radians = (rotation * Math.PI) / 180;
   const cos = Math.cos(-radians);
   const sin = Math.sin(-radians);
   const centerX = destinationRect.x + destinationRect.width / 2;
   const centerY = destinationRect.y + destinationRect.height / 2;
-  const safeSourceWidth = Math.max(1, rasterSource.width);
-  const safeSourceHeight = Math.max(1, rasterSource.height);
+  const safeSourceWidth = Math.max(1, source.width);
+  const safeSourceHeight = Math.max(1, source.height);
+  const projection = { destinationRect, rotatedBounds, roi };
+  prepare(projection);
 
   for (let y = 0; y < roi.height; y += 1) {
     const worldY = roi.y + y + 0.5;
@@ -142,26 +153,102 @@ export const rasterizeFloatingPasteBitmap = (
         continue;
       }
 
-      const sourceX = Math.min(
-        safeSourceWidth - 1,
-        Math.floor((localX * safeSourceWidth) / destinationRect.width)
+      visit(
+        x,
+        y,
+        Math.min(
+          safeSourceWidth - 1,
+          Math.floor((localX * safeSourceWidth) / destinationRect.width),
+        ),
+        Math.min(
+          safeSourceHeight - 1,
+          Math.floor((localY * safeSourceHeight) / destinationRect.height),
+        ),
       );
-      const sourceY = Math.min(
-        safeSourceHeight - 1,
-        Math.floor((localY * safeSourceHeight) / destinationRect.height)
-      );
+    }
+  }
+
+  return projection;
+};
+
+export function rasterizeFloatingPasteScalar(
+  source: FloatingPasteRasterSource,
+  values: Uint8Array,
+  project: FloatingPasteRasterProject,
+): FloatingPasteScalarRasterResult<Uint8Array> | null;
+export function rasterizeFloatingPasteScalar(
+  source: FloatingPasteRasterSource,
+  values: Uint16Array,
+  project: FloatingPasteRasterProject,
+): FloatingPasteScalarRasterResult<Uint16Array> | null;
+export function rasterizeFloatingPasteScalar(
+  source: FloatingPasteRasterSource,
+  values: Uint8Array | Uint16Array,
+  project: FloatingPasteRasterProject,
+): FloatingPasteScalarRasterResult<Uint8Array | Uint16Array> | null {
+  let output: Uint8Array | Uint16Array | null = null;
+  let outputWidth = 0;
+  const projection = projectFloatingPastePixels(
+    source,
+    project,
+    ({ roi }) => {
+      outputWidth = roi.width;
+      output = values instanceof Uint16Array
+        ? new Uint16Array(roi.width * roi.height)
+        : new Uint8Array(roi.width * roi.height);
+    },
+    (outputX, outputY, sourceX, sourceY) => {
+      if (!output) {
+        return;
+      }
+      output[outputY * outputWidth + outputX] =
+        values[sourceY * Math.max(1, source.width) + sourceX] ?? 0;
+    },
+  );
+  if (!projection || !output) {
+    return null;
+  }
+
+  return {
+    data: output,
+    ...projection,
+  };
+}
+
+export const rasterizeFloatingPasteBitmap = (
+  source: FloatingPasteRasterSource,
+  project: FloatingPasteRasterProject
+): FloatingPasteRasterResult | null => {
+  if (!source.imageData) {
+    return null;
+  }
+  const rasterSource = { ...source, imageData: source.imageData };
+  let output: ImageData | null = null;
+  const projection = projectFloatingPastePixels(
+    rasterSource,
+    project,
+    ({ roi }) => {
+      output = new ImageData(roi.width, roi.height);
+    },
+    (x, y, sourceX, sourceY) => {
+      if (!output) {
+        return;
+      }
       const [r, g, b, a] = getSourcePixel(rasterSource, sourceX, sourceY);
-      const index = (y * roi.width + x) * 4;
+      const index = (y * output.width + x) * 4;
       output.data[index] = r;
       output.data[index + 1] = g;
       output.data[index + 2] = b;
       output.data[index + 3] = a;
-    }
+    },
+  );
+  if (!projection || !output) {
+    return null;
   }
 
   const canvas = document.createElement('canvas');
-  canvas.width = roi.width;
-  canvas.height = roi.height;
+  canvas.width = projection.roi.width;
+  canvas.height = projection.roi.height;
   const ctx = canvas.getContext('2d', { willReadFrequently: true });
   if (!ctx) {
     return null;
@@ -170,8 +257,6 @@ export const rasterizeFloatingPasteBitmap = (
 
   return {
     canvas,
-    roi,
-    destinationRect,
-    rotatedBounds,
+    ...projection,
   };
 };

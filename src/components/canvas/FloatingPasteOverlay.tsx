@@ -9,7 +9,7 @@ import {
   handleCursor,
   handleDefinitions,
   moveRect,
-  resizeRect,
+  resizeRectFromDrag,
   applyCornerAspectLock,
   isCornerHandle,
   MIN_RECT_SIZE,
@@ -210,6 +210,11 @@ const FloatingPasteOverlay: React.FC<FloatingPasteOverlayProps> = ({
           y: interactionRef.current.initialRect.y + interactionRef.current.initialRect.height / 2,
         };
         const localPointer = toLocalPoint(worldPoint, center, rotation);
+        const localStartPointer = toLocalPoint(
+          interactionRef.current.start,
+          center,
+          rotation,
+        );
         const localStartRect: Rectangle = {
           x: -interactionRef.current.initialRect.width / 2,
           y: -interactionRef.current.initialRect.height / 2,
@@ -217,9 +222,10 @@ const FloatingPasteOverlay: React.FC<FloatingPasteOverlayProps> = ({
           height: interactionRef.current.initialRect.height,
         };
 
-        let nextLocal = resizeRect(
+        let nextLocal = resizeRectFromDrag(
           localStartRect,
           interactionRef.current.handle,
+          localStartPointer,
           localPointer,
           Number.POSITIVE_INFINITY,
           Number.POSITIVE_INFINITY,
@@ -318,6 +324,7 @@ const FloatingPasteOverlay: React.FC<FloatingPasteOverlayProps> = ({
       onPointerMove={handlePointerMove}
       onPointerUp={handlePointerUp}
       onPointerCancel={handlePointerCancel}
+      onLostPointerCapture={handlePointerCancel}
     >
       <div
         className="absolute"

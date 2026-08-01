@@ -9,7 +9,7 @@ import {
   HANDLE_SIZE,
   handleDefinitions,
   handleCursor,
-  resizeRect,
+  resizeRectFromDrag,
   type RectHandle,
   type Point,
   rectEquals,
@@ -25,7 +25,7 @@ interface SelectionMarqueeHandlesProps {
 
 type InteractionState =
   | { type: 'idle' }
-  | { type: 'resizing'; handle: RectHandle; initialRect: Rectangle };
+  | { type: 'resizing'; handle: RectHandle; start: Point; initialRect: Rectangle };
 
 const SelectionMarqueeHandles: React.FC<SelectionMarqueeHandlesProps> = ({
   zoom,
@@ -186,9 +186,10 @@ const SelectionMarqueeHandles: React.FC<SelectionMarqueeHandlesProps> = ({
         return;
       }
 
-      const nextRect = resizeRect(
+      const nextRect = resizeRectFromDrag(
         interaction.initialRect,
         interaction.handle,
+        interaction.start,
         worldPoint,
         projectWidth,
         projectHeight,
@@ -258,6 +259,7 @@ const SelectionMarqueeHandles: React.FC<SelectionMarqueeHandlesProps> = ({
       interactionRef.current = {
         type: 'resizing',
         handle,
+        start: worldPoint,
         initialRect: selectionRect,
       };
 
@@ -337,6 +339,7 @@ const SelectionMarqueeHandles: React.FC<SelectionMarqueeHandlesProps> = ({
       onPointerMove={handlePointerMove}
       onPointerUp={handlePointerUp}
       onPointerCancel={handlePointerCancel}
+      onLostPointerCapture={handlePointerCancel}
     >
       {handleDefinitions.map(({ handle, offsetX: ox, offsetY: oy }) => {
         const positionX = handle.includes('left')

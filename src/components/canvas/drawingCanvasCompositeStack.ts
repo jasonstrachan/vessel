@@ -516,6 +516,7 @@ interface DrawOverCompositeLayerOptions {
   overCompositeHasContent: boolean;
   overCompositeCanvas: HTMLCanvasElement | null;
   visibleRect: VisibleRect | null;
+  targetRect?: TargetRect;
 }
 
 export const drawOverCompositeLayer = ({
@@ -524,6 +525,7 @@ export const drawOverCompositeLayer = ({
   overCompositeHasContent,
   overCompositeCanvas,
   visibleRect,
+  targetRect,
 }: DrawOverCompositeLayerOptions): void => {
   if (!useSplitOverlay || !overCompositeHasContent || !overCompositeCanvas || !visibleRect) {
     return;
@@ -534,5 +536,16 @@ export const drawOverCompositeLayer = ({
     return;
   }
 
-  ctx.drawImage(overCompositeCanvas, x, y, width, height, x, y, width, height);
+  const destination = targetRect ?? visibleRect;
+  ctx.drawImage(
+    overCompositeCanvas,
+    x,
+    y,
+    width,
+    height,
+    destination.x,
+    destination.y,
+    destination.width,
+    destination.height,
+  );
 };

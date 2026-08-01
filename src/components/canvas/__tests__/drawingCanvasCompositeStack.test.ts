@@ -1,4 +1,7 @@
-import { drawVisibleCompositeStack } from '@/components/canvas/drawingCanvasCompositeStack';
+import {
+  drawOverCompositeLayer,
+  drawVisibleCompositeStack,
+} from '@/components/canvas/drawingCanvasCompositeStack';
 import { setSequentialFrameCursor } from '@/runtime/playback/sequentialFrameCursor';
 import type { CompositeSegment } from '@/stores/slices/layersSlice';
 import type { Layer } from '@/types';
@@ -708,5 +711,33 @@ describe('drawVisibleCompositeStack', () => {
       alpha: 0.6,
       blend: 'multiply',
     });
+  });
+});
+
+describe('drawOverCompositeLayer', () => {
+  it('maps higher layers into the display-filter target surface', () => {
+    const overCompositeCanvas = document.createElement('canvas');
+    const { ctx } = createRecordingContext();
+
+    drawOverCompositeLayer({
+      ctx,
+      useSplitOverlay: true,
+      overCompositeHasContent: true,
+      overCompositeCanvas,
+      visibleRect: { x: 10, y: 20, width: 30, height: 40 },
+      targetRect: { x: 0, y: 0, width: 60, height: 80 },
+    });
+
+    expect(ctx.drawImage).toHaveBeenCalledWith(
+      overCompositeCanvas,
+      10,
+      20,
+      30,
+      40,
+      0,
+      0,
+      60,
+      80,
+    );
   });
 });

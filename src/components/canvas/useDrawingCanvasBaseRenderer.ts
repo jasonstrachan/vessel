@@ -19,7 +19,10 @@ import {
   drawVisibleCompositeStack,
 } from './drawingCanvasCompositeStack';
 import { drawCanvasOutlineLayer } from './drawingCanvasOutline';
-import { drawFloatingPasteLayer } from './drawingCanvasFloatingPaste';
+import {
+  drawFloatingPasteMarquee,
+  drawFloatingPastePixels,
+} from './drawingCanvasFloatingPaste';
 import { drawCanvasOverlayLayer } from './drawingCanvasOverlay';
 import { drawSelectionLayer } from './drawingCanvasSelection';
 import { applyCanvasShapeClip, strokeCanvasShapeOutline } from '@/utils/canvasShape';
@@ -411,13 +414,14 @@ export const useDrawingCanvasBaseRenderer = ({
         ? clearDisplayFilterCanvas(filterCanvas)
         : null;
       const compositeTargetCtx = filterCtx ?? ctx;
+      const filterTargetRect = filterCtx
+        ? { x: 0, y: 0, width: filterCanvas?.width ?? 1, height: filterCanvas?.height ?? 1 }
+        : undefined;
       strokeFinalizeProbeMark('baseRenderer:drawVisibleCompositeStack', 'start', probeMeta);
       const { invalidCompositeBitmap } = drawVisibleCompositeStack({
         ctx: compositeTargetCtx ?? ctx,
         visibleRect,
-        targetRect: filterCtx
-          ? { x: 0, y: 0, width: filterCanvas?.width ?? 1, height: filterCanvas?.height ?? 1 }
-          : undefined,
+        targetRect: filterTargetRect,
         useSplitOverlay,
         underCompositeCanvas: underCompositeCanvasRef.current,
         isActivelyErasing,
@@ -456,6 +460,35 @@ export const useDrawingCanvasBaseRenderer = ({
           }
         }
       }
+      if (floatingPaste && floatingPaste.imageData) {
+        drawFloatingPastePixels({
+          ctx: compositeTargetCtx ?? ctx,
+          floatingPaste,
+          project,
+          layerOpacity: activeLayer?.opacity ?? 1,
+          layerBlendMode: (activeLayer?.blendMode ?? 'source-over') as GlobalCompositeOperation,
+          contextIsWorldTransformed: !filterCtx,
+          visibleRect: filterCtx ? visibleRect ?? undefined : undefined,
+          targetRect: filterTargetRect,
+          scale,
+          offsetX,
+          offsetY,
+          pasteCanvasRef,
+          lastPasteInfoRef,
+          activeCanvasShape,
+          applyCanvasShapeClip,
+        });
+      }
+
+      drawOverCompositeLayer({
+        ctx: compositeTargetCtx ?? ctx,
+        useSplitOverlay,
+        overCompositeHasContent: overCompositeHasContentRef.current,
+        overCompositeCanvas: overCompositeCanvasRef.current,
+        visibleRect,
+        targetRect: filterTargetRect,
+      });
+
       if (filterCtx && filterCanvas && visibleRect) {
         const finalFilteredCanvas = applyDisplayFilterStack(
           filterCanvas,
@@ -500,31 +533,16 @@ export const useDrawingCanvasBaseRenderer = ({
       });
 
       if (floatingPaste && floatingPaste.imageData) {
-        drawFloatingPasteLayer({
+        drawFloatingPasteMarquee({
           ctx,
           floatingPaste,
-          project,
-          layerOpacity: activeLayer?.opacity ?? 1,
-          layerBlendMode: (activeLayer?.blendMode ?? 'source-over') as GlobalCompositeOperation,
           contextIsWorldTransformed: true,
           scale,
           offsetX,
           offsetY,
           marchingAntsOffset,
-          pasteCanvasRef,
-          lastPasteInfoRef,
-          activeCanvasShape,
-          applyCanvasShapeClip,
         });
       }
-
-      drawOverCompositeLayer({
-        ctx,
-        useSplitOverlay,
-        overCompositeHasContent: overCompositeHasContentRef.current,
-        overCompositeCanvas: overCompositeCanvasRef.current,
-        visibleRect,
-      });
 
       if (hasCanvasShape) {
         ctx.restore();

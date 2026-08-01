@@ -2617,7 +2617,7 @@ export const createSelectionSlice = ({
       }
 
       set({ selectionClipboard: clipboardPayload });
-      void writeImageDataToClipboard(clipboardPayload.imageData);
+      await writeImageDataToClipboard(clipboardPayload.imageData);
       return true;
     },
     clearSelectionClipboard: () => set({ selectionClipboard: null }),

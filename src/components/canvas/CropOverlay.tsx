@@ -11,7 +11,7 @@ import {
   moveRect,
   normalizeRect,
   rectEquals,
-  resizeRect,
+  resizeRectFromDrag,
   snapRectToBounds,
   deriveHandleFromDrag,
   type Point,
@@ -242,9 +242,10 @@ const CropOverlay: React.FC<CropOverlayProps> = ({
         const handle = deriveHandleFromDrag(interaction.start, worldPoint);
         applyRectUpdate(nextRect, 'creating', handle);
       } else if (interaction.type === 'resizing') {
-        const nextRect = resizeRect(
+        const nextRect = resizeRectFromDrag(
           interaction.initialRect,
           interaction.handle,
+          interaction.start,
           worldPoint,
           projectWidth,
           projectHeight,
@@ -354,6 +355,7 @@ const CropOverlay: React.FC<CropOverlayProps> = ({
       onPointerMove={handlePointerMove}
       onPointerUp={handlePointerUp}
       onPointerCancel={handlePointerCancel}
+      onLostPointerCapture={handlePointerCancel}
     >
       {crop.marquee && marqueeScreenRect && (
         <>

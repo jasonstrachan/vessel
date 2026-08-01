@@ -1,4 +1,9 @@
-import { applyCornerAspectLock, moveRect, resizeRect } from '../RectHandles';
+import {
+  applyCornerAspectLock,
+  moveRect,
+  resizeRect,
+  resizeRectFromDrag,
+} from '../RectHandles';
 import type { CropHandle, Rectangle } from '@/types';
 
 describe('applyCornerAspectLock', () => {
@@ -63,5 +68,37 @@ describe('resizeRect clamp options', () => {
     });
     expect(result.width).toBe(490);
     expect(result.x).toBe(10);
+  });
+
+  it('does not jump when a visual handle is grabbed outside its mathematical edge', () => {
+    const initial: Rectangle = { x: 10, y: 20, width: 40, height: 30 };
+
+    expect(
+      resizeRectFromDrag(
+        initial,
+        'right',
+        { x: 55, y: 35 },
+        { x: 55, y: 35 },
+        200,
+        200,
+        { clampToBounds: false },
+      ),
+    ).toEqual(initial);
+  });
+
+  it('applies only the pointer delta after preserving the handle grab offset', () => {
+    const initial: Rectangle = { x: 10, y: 20, width: 40, height: 30 };
+
+    expect(
+      resizeRectFromDrag(
+        initial,
+        'bottom-right',
+        { x: 55, y: 55 },
+        { x: 65, y: 61 },
+        200,
+        200,
+        { clampToBounds: false },
+      ),
+    ).toEqual({ x: 10, y: 20, width: 50, height: 36 });
   });
 });

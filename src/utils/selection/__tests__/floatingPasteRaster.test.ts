@@ -2,6 +2,7 @@ import {
   getFloatingPasteDestinationRect,
   intersectFloatingPasteBoundsWithProject,
   rasterizeFloatingPasteBitmap,
+  rasterizeFloatingPasteScalar,
 } from '@/utils/selection/floatingPasteRaster';
 
 const makeImageData = (width: number, height: number): ImageData => {
@@ -69,6 +70,32 @@ describe('floatingPasteRaster', () => {
 
     expect(raster?.roi).toEqual({ x: 0, y: 0, width: 2, height: 1 });
     expect(raster ? redChannel(raster.canvas) : []).toEqual([1, 3]);
+  });
+
+  it('projects CC scalar planes with the same pixel-centre samples as bitmap preview', () => {
+    const source = {
+      imageData: makeImageData(4, 1),
+      width: 4,
+      height: 1,
+      displayWidth: 2,
+      displayHeight: 1,
+      position: { x: 0, y: 0 },
+    };
+    const bitmap = rasterizeFloatingPasteBitmap(source, { width: 8, height: 8 });
+    const scalar8 = rasterizeFloatingPasteScalar(
+      source,
+      new Uint8Array([0, 1, 2, 3]),
+      { width: 8, height: 8 },
+    );
+    const scalar16 = rasterizeFloatingPasteScalar(
+      source,
+      new Uint16Array([100, 101, 102, 103]),
+      { width: 8, height: 8 },
+    );
+
+    expect(scalar8?.roi).toEqual(bitmap?.roi);
+    expect(Array.from(scalar8?.data ?? [])).toEqual([1, 3]);
+    expect(Array.from(scalar16?.data ?? [])).toEqual([101, 103]);
   });
 
   it('bakes scale-up output with nearest-neighbor chunky pixels', () => {

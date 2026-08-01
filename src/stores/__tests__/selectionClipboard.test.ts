@@ -92,7 +92,63 @@ const resetStore = () => {
 
 describe('selection clipboard helpers', () => {
   afterEach(() => {
+    jest.restoreAllMocks();
     resetStore();
+  });
+
+  it('waits for the system clipboard write before reporting copy completion', async () => {
+    setupSelectionState();
+    const clipboardDescriptor = Object.getOwnPropertyDescriptor(navigator, 'clipboard');
+    const clipboardItemDescriptor = Object.getOwnPropertyDescriptor(globalThis, 'ClipboardItem');
+    let resolveWrite: (() => void) | undefined;
+    const write = jest.fn(
+      () => new Promise<void>((resolve) => {
+        resolveWrite = resolve;
+      }),
+    );
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: { write },
+    });
+    Object.defineProperty(globalThis, 'ClipboardItem', {
+      configurable: true,
+      value: class ClipboardItemMock {
+        constructor() {}
+      },
+    });
+    jest.spyOn(HTMLCanvasElement.prototype, 'toBlob').mockImplementation((callback) => {
+      callback(new Blob(['pixel'], { type: 'image/png' }));
+    });
+
+    try {
+      let settled = false;
+      const copyPromise = useAppStore.getState()
+        .copySelectionToClipboard({ mode: 'copy' })
+        .then((handled) => {
+          settled = true;
+          return handled;
+        });
+      await new Promise<void>((resolve) => {
+        setTimeout(resolve, 0);
+      });
+
+      expect(write).toHaveBeenCalledTimes(1);
+      expect(settled).toBe(false);
+
+      resolveWrite?.();
+      await expect(copyPromise).resolves.toBe(true);
+    } finally {
+      if (clipboardDescriptor) {
+        Object.defineProperty(navigator, 'clipboard', clipboardDescriptor);
+      } else {
+        delete (navigator as { clipboard?: Clipboard })['clipboard'];
+      }
+      if (clipboardItemDescriptor) {
+        Object.defineProperty(globalThis, 'ClipboardItem', clipboardItemDescriptor);
+      } else {
+        delete (globalThis as { ClipboardItem?: typeof ClipboardItem })['ClipboardItem'];
+      }
+    }
   });
 
   it('copies marquee pixels into the internal clipboard without mutating the layer', async () => {

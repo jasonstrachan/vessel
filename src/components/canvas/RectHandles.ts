@@ -141,6 +141,44 @@ export const resizeRect = (
   return clampToBounds ? snapRectToBounds(rect, maxWidth, maxHeight) : rect;
 };
 
+const getHandlePoint = (rect: Rectangle, handle: RectHandle): Point => ({
+  x: handle.includes('left')
+    ? rect.x
+    : handle.includes('right')
+      ? rect.x + rect.width
+      : rect.x + rect.width / 2,
+  y: handle.includes('top')
+    ? rect.y
+    : handle.includes('bottom')
+      ? rect.y + rect.height
+      : rect.y + rect.height / 2,
+});
+
+/** Preserve the initial grab offset inside a handle's larger visual hit target. */
+export const resizeRectFromDrag = (
+  initialRect: Rectangle,
+  handle: RectHandle,
+  start: Point,
+  current: Point,
+  maxWidth: number,
+  maxHeight: number,
+  options?: ClampOptions,
+): Rectangle => {
+  const handlePoint = getHandlePoint(initialRect, handle);
+
+  return resizeRect(
+    initialRect,
+    handle,
+    {
+      x: handlePoint.x + current.x - start.x,
+      y: handlePoint.y + current.y - start.y,
+    },
+    maxWidth,
+    maxHeight,
+    options,
+  );
+};
+
 export const moveRect = (
   initialRect: Rectangle,
   start: Point,

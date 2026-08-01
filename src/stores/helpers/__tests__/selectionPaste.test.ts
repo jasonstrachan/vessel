@@ -5,7 +5,10 @@ import type { AppState } from '@/stores/useAppStore';
 import type { Layer } from '@/types';
 import { DEFAULT_BRUSH_COLOR_CYCLE_SPEED } from '@/constants/colorCycle';
 import { encodeColorCycleSpeedByte } from '@/utils/colorCycleSpeed';
-import { rasterizeFloatingPasteBitmap } from '@/utils/selection/floatingPasteRaster';
+import {
+  rasterizeFloatingPasteBitmap,
+  rasterizeFloatingPasteScalar,
+} from '@/utils/selection/floatingPasteRaster';
 
 jest.mock('@/stores/helpers/colorCycleSelection', () => ({
   writeColorCycleRegion: jest.fn(() => false),
@@ -369,11 +372,13 @@ describe('selection paste commit', () => {
 
     expect(expected).not.toBeNull();
     expect(captureCanvasToActiveLayer).toHaveBeenCalledTimes(1);
-    const [committedCanvas, roi] = captureCanvasToActiveLayer.mock.calls[0] as [
+    const [committedCanvas, roi, captureOptions] = captureCanvasToActiveLayer.mock.calls[0] as [
       HTMLCanvasElement,
       { x: number; y: number; width: number; height: number },
+      { mode: string },
     ];
     expect(roi).toEqual(expected?.roi);
+    expect(captureOptions).toEqual({ mode: 'replace' });
 
     const committedCtx = committedCanvas.getContext('2d', { willReadFrequently: true });
     const expectedCtx = expected?.canvas.getContext('2d', { willReadFrequently: true });
@@ -652,25 +657,42 @@ describe('selection paste commit', () => {
       state,
       layer,
       state.project,
-      { x: 4, y: 7, width: 3, height: 1 },
-      new Uint8Array([1, 128, 0]),
-      3,
-      1,
+      { x: 4, y: 6, width: 4, height: 2 },
+      new Uint8Array([
+        0, 0, 0, 0,
+        1, 128, 0, 0,
+      ]),
+      4,
+      2,
       expect.objectContaining({
-        alphaData: new Uint8Array([255, 255, 0]),
+        alphaData: new Uint8Array([
+          0, 0, 0, 0,
+          255, 255, 0, 0,
+        ]),
         alphaStride: 1,
         alphaChannelOffset: 0,
         alphaThreshold: 0,
         gradientSlot: 7,
         sourceGradientIds: null,
-        sourceGradientDefIds: new Uint16Array([42, 42, 0]),
+        sourceGradientDefIds: new Uint16Array([
+          0, 0, 0, 0,
+          42, 42, 0, 0,
+        ]),
         sourceSpeed: new Uint8Array([
+          0,
+          0,
+          0,
+          0,
           encodeColorCycleSpeedByte(DEFAULT_BRUSH_COLOR_CYCLE_SPEED),
           encodeColorCycleSpeedByte(DEFAULT_BRUSH_COLOR_CYCLE_SPEED),
           0,
+          0,
         ]),
-        sourceFlow: new Uint8Array([2, 2, 0]),
-        sourcePhase: new Uint8Array([0, 0, 0]),
+        sourceFlow: new Uint8Array([
+          0, 0, 0, 0,
+          2, 2, 0, 0,
+        ]),
+        sourcePhase: new Uint8Array(8),
         clearTransparentPixels: true,
       })
     );
@@ -841,22 +863,50 @@ describe('selection paste commit', () => {
       state,
       layer,
       state.project,
-      { x: 5, y: 8, width: 2, height: 2 },
-      colorCycleIndices,
-      2,
-      2,
+      { x: 5, y: 7, width: 3, height: 3 },
+      new Uint8Array([
+        0, 0, 0,
+        1, 2, 0,
+        3, 4, 0,
+      ]),
+      3,
+      3,
       expect.objectContaining({
         offsetX: 0,
         offsetY: 0,
-        alphaData: new Uint8Array([255, 255, 255, 255]),
+        alphaData: new Uint8Array([
+          0, 0, 0,
+          255, 255, 0,
+          255, 255, 0,
+        ]),
         alphaStride: 1,
         alphaChannelOffset: 0,
         alphaThreshold: 0,
-        sourceGradientIds: colorCycleGradientIds,
-        sourceGradientDefIds: colorCycleGradientDefIds,
-        sourceSpeed: colorCycleSpeed,
-        sourceFlow: colorCycleFlow,
-        sourcePhase: colorCyclePhase,
+        sourceGradientIds: new Uint8Array([
+          0, 0, 0,
+          11, 12, 0,
+          13, 14, 0,
+        ]),
+        sourceGradientDefIds: new Uint16Array([
+          0, 0, 0,
+          101, 102, 0,
+          103, 104, 0,
+        ]),
+        sourceSpeed: new Uint8Array([
+          0, 0, 0,
+          21, 22, 0,
+          23, 24, 0,
+        ]),
+        sourceFlow: new Uint8Array([
+          0, 0, 0,
+          31, 32, 0,
+          33, 34, 0,
+        ]),
+        sourcePhase: new Uint8Array([
+          0, 0, 0,
+          41, 42, 0,
+          43, 44, 0,
+        ]),
       })
     );
 
@@ -1428,64 +1478,60 @@ describe('selection paste commit', () => {
     );
 
     mockWriteColorCycleRegion.mockReturnValueOnce(true);
+    const floatingPaste = state.floatingPaste as NonNullable<AppState['floatingPaste']>;
+    const expectedIndices = rasterizeFloatingPasteScalar(
+      floatingPaste,
+      colorCycleIndices,
+      state.project!,
+    );
+    const expectedGradientIds = rasterizeFloatingPasteScalar(
+      floatingPaste,
+      colorCycleGradientIds,
+      state.project!,
+    );
+    const expectedGradientDefIds = rasterizeFloatingPasteScalar(
+      floatingPaste,
+      colorCycleGradientDefIds,
+      state.project!,
+    );
+    const expectedSpeed = rasterizeFloatingPasteScalar(
+      floatingPaste,
+      colorCycleSpeed,
+      state.project!,
+    );
+    const expectedFlow = rasterizeFloatingPasteScalar(
+      floatingPaste,
+      colorCycleFlow,
+      state.project!,
+    );
+    const expectedPhase = rasterizeFloatingPasteScalar(
+      floatingPaste,
+      colorCyclePhase,
+      state.project!,
+    );
 
     await helpers.commitFloatingPaste();
 
+    expect(expectedIndices).not.toBeNull();
     expect(mockWriteColorCycleRegion).toHaveBeenCalledWith(
       state,
       layer,
       state.project,
-      { x: 3, y: 10, width: 6, height: 5 },
-      new Uint8Array([
-        9, 9, 9, 8, 8, 8,
-        9, 9, 9, 8, 8, 8,
-        9, 9, 9, 8, 8, 8,
-        7, 7, 7, 6, 6, 6,
-        7, 7, 7, 6, 6, 6,
-      ]),
-      6,
-      5,
+      expectedIndices?.roi,
+      expectedIndices?.data,
+      expectedIndices?.roi.width,
+      expectedIndices?.roi.height,
       expect.objectContaining({
         offsetX: 0,
         offsetY: 0,
         alphaStride: 1,
         alphaChannelOffset: 0,
         alphaThreshold: 0,
-        sourceGradientIds: new Uint8Array([
-          1, 1, 1, 2, 2, 2,
-          1, 1, 1, 2, 2, 2,
-          1, 1, 1, 2, 2, 2,
-          3, 3, 3, 4, 4, 4,
-          3, 3, 3, 4, 4, 4,
-        ]),
-        sourceGradientDefIds: new Uint16Array([
-          101, 101, 101, 102, 102, 102,
-          101, 101, 101, 102, 102, 102,
-          101, 101, 101, 102, 102, 102,
-          103, 103, 103, 104, 104, 104,
-          103, 103, 103, 104, 104, 104,
-        ]),
-        sourceSpeed: new Uint8Array([
-          11, 11, 11, 12, 12, 12,
-          11, 11, 11, 12, 12, 12,
-          11, 11, 11, 12, 12, 12,
-          13, 13, 13, 14, 14, 14,
-          13, 13, 13, 14, 14, 14,
-        ]),
-        sourceFlow: new Uint8Array([
-          21, 21, 21, 22, 22, 22,
-          21, 21, 21, 22, 22, 22,
-          21, 21, 21, 22, 22, 22,
-          23, 23, 23, 24, 24, 24,
-          23, 23, 23, 24, 24, 24,
-        ]),
-        sourcePhase: new Uint8Array([
-          31, 31, 31, 32, 32, 32,
-          31, 31, 31, 32, 32, 32,
-          31, 31, 31, 32, 32, 32,
-          33, 33, 33, 34, 34, 34,
-          33, 33, 33, 34, 34, 34,
-        ]),
+        sourceGradientIds: expectedGradientIds?.data,
+        sourceGradientDefIds: expectedGradientDefIds?.data,
+        sourceSpeed: expectedSpeed?.data,
+        sourceFlow: expectedFlow?.data,
+        sourcePhase: expectedPhase?.data,
       })
     );
   });
