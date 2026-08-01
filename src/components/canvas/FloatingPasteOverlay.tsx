@@ -9,13 +9,13 @@ import {
   handleCursor,
   handleDefinitions,
   moveRect,
-  resizeRectFromDrag,
-  applyCornerAspectLock,
-  isCornerHandle,
   MIN_RECT_SIZE,
   type Point,
 } from './RectHandles';
-import { computeHandleAnchoredRect } from './floatingPasteTransform';
+import {
+  computeFloatingPasteResize,
+  computeFloatingPasteRotation,
+} from './floatingPasteTransform';
 
 interface FloatingPasteOverlayProps {
   projectWidth: number;
@@ -29,7 +29,7 @@ type InteractionState =
   | { type: 'idle' }
   | { type: 'resizing'; start: Point; initialRect: Rectangle; handle: CropHandle }
   | { type: 'moving'; start: Point; initialRect: Rectangle }
-  | { type: 'rotating'; startAngle: number; initialRotation: number };
+  | { type: 'rotating'; start: Point; initialRect: Rectangle; initialRotation: number };
 
 const FloatingPasteOverlay: React.FC<FloatingPasteOverlayProps> = ({
   projectWidth,
@@ -90,11 +90,6 @@ const FloatingPasteOverlay: React.FC<FloatingPasteOverlayProps> = ({
     },
     [updateFloatingPasteRect]
   );
-
-  const normalizeRotation = useCallback((rotation: number) => {
-    const normalized = rotation % 360;
-    return normalized < 0 ? normalized + 360 : normalized;
-  }, []);
 
   const handleMovePointerDown = useCallback(
     (event: React.PointerEvent<HTMLDivElement>) => {
@@ -163,24 +158,6 @@ const FloatingPasteOverlay: React.FC<FloatingPasteOverlayProps> = ({
     interactionRef.current = { type: 'idle' };
   }, []);
 
-  const toLocalPoint = useCallback(
-    (world: Point, center: Point, rotation: number): Point => {
-      if (!rotation) {
-        return { x: world.x - center.x, y: world.y - center.y };
-      }
-      const radians = (-rotation * Math.PI) / 180;
-      const cos = Math.cos(radians);
-      const sin = Math.sin(radians);
-      const dx = world.x - center.x;
-      const dy = world.y - center.y;
-      return {
-        x: dx * cos - dy * sin,
-        y: dx * sin + dy * cos,
-      };
-    },
-    []
-  );
-
   const handlePointerMove = useCallback(
     (event: React.PointerEvent<HTMLDivElement>) => {
       if (interactionRef.current.type === 'idle' || !rect) {
@@ -205,62 +182,22 @@ const FloatingPasteOverlay: React.FC<FloatingPasteOverlayProps> = ({
         );
         applyRectUpdate(next);
       } else if (interactionRef.current.type === 'resizing') {
-        const center = {
-          x: interactionRef.current.initialRect.x + interactionRef.current.initialRect.width / 2,
-          y: interactionRef.current.initialRect.y + interactionRef.current.initialRect.height / 2,
-        };
-        const localPointer = toLocalPoint(worldPoint, center, rotation);
-        const localStartPointer = toLocalPoint(
-          interactionRef.current.start,
-          center,
-          rotation,
-        );
-        const localStartRect: Rectangle = {
-          x: -interactionRef.current.initialRect.width / 2,
-          y: -interactionRef.current.initialRect.height / 2,
-          width: interactionRef.current.initialRect.width,
-          height: interactionRef.current.initialRect.height,
-        };
-
-        let nextLocal = resizeRectFromDrag(
-          localStartRect,
-          interactionRef.current.handle,
-          localStartPointer,
-          localPointer,
-          Number.POSITIVE_INFINITY,
-          Number.POSITIVE_INFINITY,
-          { clampToBounds: false }
-        );
-        if (isCornerHandle(interactionRef.current.handle)) {
-          nextLocal = applyCornerAspectLock({
-            handle: interactionRef.current.handle,
-            initialRect: localStartRect,
-            currentRect: nextLocal,
-            boundsWidth: Number.POSITIVE_INFINITY,
-            boundsHeight: Number.POSITIVE_INFINITY,
-          });
-        }
-
-        const nextRect = computeHandleAnchoredRect({
+        const nextRect = computeFloatingPasteResize({
           initialRect: interactionRef.current.initialRect,
           handle: interactionRef.current.handle,
-          nextWidth: nextLocal.width,
-          nextHeight: nextLocal.height,
+          start: interactionRef.current.start,
+          current: worldPoint,
           rotation,
         });
         applyRectUpdate(nextRect);
       } else if (interactionRef.current.type === 'rotating') {
-        const centerX = rect.x + rect.width / 2;
-        const centerY = rect.y + rect.height / 2;
-        const angle = Math.atan2(worldPoint.y - centerY, worldPoint.x - centerX);
-        const startAngle = interactionRef.current.startAngle;
-        const delta = ((angle - startAngle) * 180) / Math.PI;
-        let nextRotation = interactionRef.current.initialRotation + delta;
-        if (event.shiftKey) {
-          const snap = 15;
-          nextRotation = Math.round(nextRotation / snap) * snap;
-        }
-        updateFloatingPasteRotation(normalizeRotation(nextRotation));
+        updateFloatingPasteRotation(computeFloatingPasteRotation({
+          rect: interactionRef.current.initialRect,
+          start: interactionRef.current.start,
+          current: worldPoint,
+          initialRotation: interactionRef.current.initialRotation,
+          snapIncrement: event.shiftKey ? 15 : undefined,
+        }));
       }
 
       event.preventDefault();
@@ -269,11 +206,9 @@ const FloatingPasteOverlay: React.FC<FloatingPasteOverlayProps> = ({
       applyRectUpdate,
       floatingPaste?.rotation,
       getWorldPoint,
-      normalizeRotation,
       projectHeight,
       projectWidth,
       rect,
-      toLocalPoint,
       updateFloatingPasteRotation,
     ]
   );
@@ -397,12 +332,10 @@ const FloatingPasteOverlay: React.FC<FloatingPasteOverlayProps> = ({
                   return;
                 }
                 overlayEl.setPointerCapture(event.pointerId);
-                const centerWorldX = rect.x + rect.width / 2;
-                const centerWorldY = rect.y + rect.height / 2;
-                const startAngle = Math.atan2(worldPoint.y - centerWorldY, worldPoint.x - centerWorldX);
                 interactionRef.current = {
                   type: 'rotating',
-                  startAngle,
+                  start: worldPoint,
+                  initialRect: rect,
                   initialRotation: floatingPaste.rotation ?? 0,
                 };
                 event.preventDefault();

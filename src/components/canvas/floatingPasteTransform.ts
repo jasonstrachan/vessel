@@ -1,6 +1,11 @@
 import type { CropHandle, Rectangle } from '@/types';
 
-type Point = { x: number; y: number };
+import {
+  applyCornerAspectLock,
+  isCornerHandle,
+  resizeRectFromDrag,
+  type Point,
+} from './RectHandles';
 
 const rotatePoint = (point: Point, rotationDeg: number): Point => {
   if (!rotationDeg) {
@@ -65,4 +70,91 @@ export const computeHandleAnchoredRect = ({
     width: nextWidth,
     height: nextHeight,
   };
+};
+
+const toLocalPoint = (world: Point, center: Point, rotation: number): Point => {
+  const translated = {
+    x: world.x - center.x,
+    y: world.y - center.y,
+  };
+  return rotatePoint(translated, -rotation);
+};
+
+export const computeFloatingPasteResize = ({
+  initialRect,
+  handle,
+  start,
+  current,
+  rotation,
+}: {
+  initialRect: Rectangle;
+  handle: CropHandle;
+  start: Point;
+  current: Point;
+  rotation: number;
+}): Rectangle => {
+  const center = {
+    x: initialRect.x + initialRect.width / 2,
+    y: initialRect.y + initialRect.height / 2,
+  };
+  const localStartRect: Rectangle = {
+    x: -initialRect.width / 2,
+    y: -initialRect.height / 2,
+    width: initialRect.width,
+    height: initialRect.height,
+  };
+  let nextLocalRect = resizeRectFromDrag(
+    localStartRect,
+    handle,
+    toLocalPoint(start, center, rotation),
+    toLocalPoint(current, center, rotation),
+    Number.POSITIVE_INFINITY,
+    Number.POSITIVE_INFINITY,
+    { clampToBounds: false },
+  );
+  if (isCornerHandle(handle)) {
+    nextLocalRect = applyCornerAspectLock({
+      handle,
+      initialRect: localStartRect,
+      currentRect: nextLocalRect,
+      boundsWidth: Number.POSITIVE_INFINITY,
+      boundsHeight: Number.POSITIVE_INFINITY,
+    });
+  }
+
+  return computeHandleAnchoredRect({
+    initialRect,
+    handle,
+    nextWidth: nextLocalRect.width,
+    nextHeight: nextLocalRect.height,
+    rotation,
+  });
+};
+
+export const computeFloatingPasteRotation = ({
+  rect,
+  start,
+  current,
+  initialRotation,
+  snapIncrement,
+}: {
+  rect: Rectangle;
+  start: Point;
+  current: Point;
+  initialRotation: number;
+  snapIncrement?: number;
+}): number => {
+  const center = {
+    x: rect.x + rect.width / 2,
+    y: rect.y + rect.height / 2,
+  };
+  const startAngle = Math.atan2(start.y - center.y, start.x - center.x);
+  const currentAngle = Math.atan2(current.y - center.y, current.x - center.x);
+  let rotation = initialRotation + ((currentAngle - startAngle) * 180) / Math.PI;
+  if (snapIncrement && snapIncrement > 0) {
+    rotation = Math.round(rotation / snapIncrement) * snapIncrement;
+  }
+
+  const normalized = rotation % 360;
+  return normalized < 0 ? normalized + 360 : normalized;
 };

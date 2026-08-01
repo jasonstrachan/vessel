@@ -1,10 +1,14 @@
 'use client';
 
-import React, { useCallback, useEffect, useMemo, useRef } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useAppStore } from '@/stores/useAppStore';
 import { selectFloatingPaste, selectSelectionRects } from '@/stores/selectors/pasteSelectors';
 import { captureSelectionSnapshot, commitSelectionHistory } from '@/history/helpers/selectionHistory';
 import type { Rectangle } from '@/types';
+import {
+  computeFloatingPasteResize,
+  computeFloatingPasteRotation,
+} from './floatingPasteTransform';
 import {
   HANDLE_SIZE,
   handleDefinitions,
@@ -25,7 +29,9 @@ interface SelectionMarqueeHandlesProps {
 
 type InteractionState =
   | { type: 'idle' }
-  | { type: 'resizing'; handle: RectHandle; start: Point; initialRect: Rectangle };
+  | { type: 'resizing'; handle: RectHandle; start: Point; initialRect: Rectangle }
+  | { type: 'floating-resize'; handle: RectHandle; start: Point; initialRect: Rectangle }
+  | { type: 'floating-rotate'; start: Point; initialRect: Rectangle; initialRotation: number };
 
 const SelectionMarqueeHandles: React.FC<SelectionMarqueeHandlesProps> = ({
   zoom,
@@ -38,8 +44,15 @@ const SelectionMarqueeHandles: React.FC<SelectionMarqueeHandlesProps> = ({
   const selectionMask = useAppStore((state) => state.selectionMask);
   const selectionMaskBounds = useAppStore((state) => state.selectionMaskBounds);
   const floatingPaste = useAppStore(selectFloatingPaste);
+  const canRotateSelection = useAppStore((state) => {
+    const activeLayer = state.layers.find((layer) => layer.id === state.activeLayerId);
+    return activeLayer?.layerType !== 'color-cycle';
+  });
   const setSelectionBounds = useAppStore((state) => state.setSelectionBounds);
   const extractSelectionToFloatingPaste = useAppStore((state) => state.extractSelectionToFloatingPaste);
+  const updateFloatingPasteRect = useAppStore((state) => state.updateFloatingPasteRect);
+  const updateFloatingPasteRotation = useAppStore((state) => state.updateFloatingPasteRotation);
+  const [isFloatingHandoffActive, setIsFloatingHandoffActive] = useState(false);
 
   const selectionRect = useMemo(() => {
     if (selectionMask && selectionMaskBounds) {
@@ -99,11 +112,12 @@ const SelectionMarqueeHandles: React.FC<SelectionMarqueeHandlesProps> = ({
     Boolean(selectionRect) &&
     projectWidth > 0 &&
     projectHeight > 0;
+  const canTrackPointer = canInteract || isFloatingHandoffActive;
 
   const getWorldPoint = useCallback(
     (event: PointerEvent | React.PointerEvent<Element>): Point | null => {
       const overlayEl = overlayRef.current;
-      if (!overlayEl || !canInteract) {
+      if (!overlayEl || !canTrackPointer) {
         return null;
       }
 
@@ -117,7 +131,7 @@ const SelectionMarqueeHandles: React.FC<SelectionMarqueeHandlesProps> = ({
 
       return { x: worldX, y: worldY };
     },
-    [canInteract, offsetX, offsetY, zoom],
+    [canTrackPointer, offsetX, offsetY, zoom],
   );
 
   const applyRectUpdate = useCallback(
@@ -133,6 +147,8 @@ const SelectionMarqueeHandles: React.FC<SelectionMarqueeHandlesProps> = ({
 
   const finalizeInteraction = useCallback((pointerId: number) => {
     const overlayEl = overlayRef.current;
+    const interaction = interactionRef.current;
+    interactionRef.current = { type: 'idle' };
     if (overlayEl && overlayEl.hasPointerCapture?.(pointerId)) {
       overlayEl.releasePointerCapture(pointerId);
     }
@@ -146,38 +162,36 @@ const SelectionMarqueeHandles: React.FC<SelectionMarqueeHandlesProps> = ({
       beforeSelectionRef.current = null;
     }
 
-    interactionRef.current = { type: 'idle' };
+    if (interaction.type === 'floating-resize' || interaction.type === 'floating-rotate') {
+      setIsFloatingHandoffActive(false);
+    }
   }, []);
 
   const handlePointerUp = useCallback(
     (event: React.PointerEvent<HTMLDivElement>) => {
-      if (!canInteract) {
+      if (interactionRef.current.type === 'idle') {
         return;
       }
       finalizeInteraction(event.pointerId);
       event.preventDefault();
     },
-    [canInteract, finalizeInteraction],
+    [finalizeInteraction],
   );
 
   const handlePointerCancel = useCallback(
     (event: React.PointerEvent<HTMLDivElement>) => {
-      if (!canInteract) {
+      if (interactionRef.current.type === 'idle') {
         return;
       }
       finalizeInteraction(event.pointerId);
     },
-    [canInteract, finalizeInteraction],
+    [finalizeInteraction],
   );
 
   const handlePointerMove = useCallback(
     (event: React.PointerEvent<HTMLDivElement>) => {
-      if (!canInteract) {
-        return;
-      }
-
       const interaction = interactionRef.current;
-      if (interaction.type !== 'resizing') {
+      if (interaction.type === 'idle') {
         return;
       }
 
@@ -186,25 +200,53 @@ const SelectionMarqueeHandles: React.FC<SelectionMarqueeHandlesProps> = ({
         return;
       }
 
-      const nextRect = resizeRectFromDrag(
-        interaction.initialRect,
-        interaction.handle,
-        interaction.start,
-        worldPoint,
-        projectWidth,
-        projectHeight,
-        { clampToBounds: false },
-      );
-
-      const currentRect = selectionRectRef.current;
-      if (currentRect && rectEquals(currentRect, nextRect)) {
-        return;
+      if (interaction.type === 'resizing') {
+        if (!canInteract) {
+          return;
+        }
+        const nextRect = resizeRectFromDrag(
+          interaction.initialRect,
+          interaction.handle,
+          interaction.start,
+          worldPoint,
+          projectWidth,
+          projectHeight,
+          { clampToBounds: false },
+        );
+        const currentRect = selectionRectRef.current;
+        if (currentRect && rectEquals(currentRect, nextRect)) {
+          return;
+        }
+        applyRectUpdate(nextRect);
+      } else if (interaction.type === 'floating-resize') {
+        const nextRect = computeFloatingPasteResize({
+          initialRect: interaction.initialRect,
+          handle: interaction.handle,
+          start: interaction.start,
+          current: worldPoint,
+          rotation: 0,
+        });
+        updateFloatingPasteRect(nextRect);
+      } else {
+        updateFloatingPasteRotation(computeFloatingPasteRotation({
+          rect: interaction.initialRect,
+          start: interaction.start,
+          current: worldPoint,
+          initialRotation: interaction.initialRotation,
+          snapIncrement: event.shiftKey ? 15 : undefined,
+        }));
       }
-
-      applyRectUpdate(nextRect);
       event.preventDefault();
     },
-    [applyRectUpdate, canInteract, getWorldPoint, projectHeight, projectWidth],
+    [
+      applyRectUpdate,
+      canInteract,
+      getWorldPoint,
+      projectHeight,
+      projectWidth,
+      updateFloatingPasteRect,
+      updateFloatingPasteRotation,
+    ],
   );
 
   const handleResizePointerDown = useCallback(
@@ -223,38 +265,22 @@ const SelectionMarqueeHandles: React.FC<SelectionMarqueeHandlesProps> = ({
         return;
       }
 
+      overlayEl.setPointerCapture?.(event.pointerId);
+      setIsFloatingHandoffActive(true);
       const extracted = extractSelectionToFloatingPaste();
       if (extracted) {
-        requestAnimationFrame(() => {
-          const rootEl = overlayRef.current?.parentElement ?? overlayRef.current;
-          const handleEl = rootEl?.querySelector<HTMLElement>(`[data-floating-handle="${handle}"]`) ?? null;
-          if (!handleEl) {
-            return;
-          }
-
-          const pointerCtor = window.PointerEvent ?? window.MouseEvent;
-          handleEl.dispatchEvent(
-            new pointerCtor('pointerdown', {
-              bubbles: true,
-              cancelable: true,
-              pointerId: event.pointerId,
-              clientX: event.clientX,
-              clientY: event.clientY,
-              button: event.button,
-              buttons: event.buttons,
-              altKey: event.altKey,
-              ctrlKey: event.ctrlKey,
-              metaKey: event.metaKey,
-              shiftKey: event.shiftKey,
-            }),
-          );
-        });
-
+        interactionRef.current = {
+          type: 'floating-resize',
+          handle,
+          start: worldPoint,
+          initialRect: selectionRect,
+        };
         event.preventDefault();
         event.stopPropagation();
         return;
       }
 
+      setIsFloatingHandoffActive(false);
       beforeSelectionRef.current = beforeSelectionRef.current ?? captureSelectionSnapshot();
       interactionRef.current = {
         type: 'resizing',
@@ -262,8 +288,6 @@ const SelectionMarqueeHandles: React.FC<SelectionMarqueeHandlesProps> = ({
         start: worldPoint,
         initialRect: selectionRect,
       };
-
-      overlayEl.setPointerCapture?.(event.pointerId);
       event.preventDefault();
       event.stopPropagation();
     },
@@ -286,39 +310,43 @@ const SelectionMarqueeHandles: React.FC<SelectionMarqueeHandlesProps> = ({
         return;
       }
 
+      overlayEl.setPointerCapture?.(event.pointerId);
+      setIsFloatingHandoffActive(true);
       const extracted = extractSelectionToFloatingPaste();
       if (extracted) {
-        requestAnimationFrame(() => {
-          const rootEl = overlayRef.current?.parentElement ?? overlayRef.current;
-          const rotateHandleEl = rootEl?.querySelector<HTMLElement>('[data-floating-rotate-handle]') ?? null;
-          if (!rotateHandleEl) {
-            return;
-          }
-
-          const pointerCtor = window.PointerEvent ?? window.MouseEvent;
-          rotateHandleEl.dispatchEvent(
-            new pointerCtor('pointerdown', {
-              bubbles: true,
-              cancelable: true,
-              pointerId: event.pointerId,
-              clientX: event.clientX,
-              clientY: event.clientY,
-              button: event.button,
-              buttons: event.buttons,
-              altKey: event.altKey,
-              ctrlKey: event.ctrlKey,
-              metaKey: event.metaKey,
-              shiftKey: event.shiftKey,
-            }),
-          );
-        });
-
+        interactionRef.current = {
+          type: 'floating-rotate',
+          start: worldPoint,
+          initialRect: selectionRect,
+          initialRotation: 0,
+        };
         event.preventDefault();
         event.stopPropagation();
+        return;
+      }
+
+      setIsFloatingHandoffActive(false);
+      if (overlayEl.hasPointerCapture?.(event.pointerId)) {
+        overlayEl.releasePointerCapture(event.pointerId);
       }
     },
     [canInteract, extractSelectionToFloatingPaste, getWorldPoint, selectionRect],
   );
+
+  if (isFloatingHandoffActive) {
+    return (
+      <div
+        ref={overlayRef}
+        data-testid="selection-marquee-overlay"
+        className="absolute inset-0 pointer-events-none"
+        style={{ zIndex: 5 }}
+        onPointerMove={handlePointerMove}
+        onPointerUp={handlePointerUp}
+        onPointerCancel={handlePointerCancel}
+        onLostPointerCapture={handlePointerCancel}
+      />
+    );
+  }
 
   if (floatingPaste || !selectionRect || !marqueeScreenRect) {
     return null;
@@ -390,37 +418,41 @@ const SelectionMarqueeHandles: React.FC<SelectionMarqueeHandlesProps> = ({
           />
         );
       })}
-      <div
-        style={{
-          position: 'absolute' as const,
-          left: centerX,
-          top: top - rotateHandleOffset + rotateHandleSize / 2,
-          width: 2,
-          height: rotateHandleOffset - rotateHandleSize / 2,
-          transform: 'translateX(-50%)',
-          backgroundColor: '#FFFFFF',
-          opacity: 0.7,
-          pointerEvents: 'none',
-        }}
-      />
-      <div
-        role="presentation"
-        data-handle="rotate"
-        style={{
-          position: 'absolute' as const,
-          width: rotateHandleSize,
-          height: rotateHandleSize,
-          left: centerX - rotateHandleSize / 2,
-          top: top - rotateHandleOffset,
-          backgroundColor: '#FFFFFF',
-          border: '1px solid #0F172A',
-          borderRadius: '999px',
-          boxShadow: '0 1px 2px rgba(15, 23, 42, 0.35)',
-          cursor: 'grab',
-          pointerEvents: canInteract ? ('auto' as const) : ('none' as const),
-        }}
-        onPointerDown={canInteract ? handleRotatePointerDown : undefined}
-      />
+      {canRotateSelection ? (
+        <>
+          <div
+            style={{
+              position: 'absolute' as const,
+              left: centerX,
+              top: top - rotateHandleOffset + rotateHandleSize / 2,
+              width: 2,
+              height: rotateHandleOffset - rotateHandleSize / 2,
+              transform: 'translateX(-50%)',
+              backgroundColor: '#FFFFFF',
+              opacity: 0.7,
+              pointerEvents: 'none',
+            }}
+          />
+          <div
+            role="presentation"
+            data-handle="rotate"
+            style={{
+              position: 'absolute' as const,
+              width: rotateHandleSize,
+              height: rotateHandleSize,
+              left: centerX - rotateHandleSize / 2,
+              top: top - rotateHandleOffset,
+              backgroundColor: '#FFFFFF',
+              border: '1px solid #0F172A',
+              borderRadius: '999px',
+              boxShadow: '0 1px 2px rgba(15, 23, 42, 0.35)',
+              cursor: 'grab',
+              pointerEvents: canInteract ? ('auto' as const) : ('none' as const),
+            }}
+            onPointerDown={canInteract ? handleRotatePointerDown : undefined}
+          />
+        </>
+      ) : null}
     </div>
   );
 };

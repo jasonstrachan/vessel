@@ -231,14 +231,14 @@ export const handleCursor = (handle: RectHandle): React.CSSProperties['cursor'] 
 export const HANDLE_SIZE = 10;
 
 export const handleDefinitions: Array<{ handle: RectHandle; offsetX: number; offsetY: number }> = [
-  { handle: 'top-left', offsetX: -0.5, offsetY: -0.5 },
-  { handle: 'top', offsetX: 0, offsetY: -0.5 },
-  { handle: 'top-right', offsetX: 0.5, offsetY: -0.5 },
-  { handle: 'right', offsetX: 0.5, offsetY: 0 },
-  { handle: 'bottom-right', offsetX: 0.5, offsetY: 0.5 },
-  { handle: 'bottom', offsetX: 0, offsetY: 0.5 },
-  { handle: 'bottom-left', offsetX: -0.5, offsetY: 0.5 },
-  { handle: 'left', offsetX: -0.5, offsetY: 0 },
+  { handle: 'top-left', offsetX: 0, offsetY: 0 },
+  { handle: 'top', offsetX: 0, offsetY: 0 },
+  { handle: 'top-right', offsetX: 0, offsetY: 0 },
+  { handle: 'right', offsetX: 0, offsetY: 0 },
+  { handle: 'bottom-right', offsetX: 0, offsetY: 0 },
+  { handle: 'bottom', offsetX: 0, offsetY: 0 },
+  { handle: 'bottom-left', offsetX: 0, offsetY: 0 },
+  { handle: 'left', offsetX: 0, offsetY: 0 },
 ];
 
 const deltaFromUnity = (value: number): number => Math.abs(value - 1);

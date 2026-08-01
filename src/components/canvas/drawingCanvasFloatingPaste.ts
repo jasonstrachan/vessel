@@ -49,17 +49,19 @@ interface DrawFloatingPasteMarqueeOptions {
   marchingAntsOffset: number;
 }
 
-const buildLocalVectorPath = (
-  vectorPath: NonNullable<FloatingPasteStateLike['vectorPath']>
+const buildRenderedVectorPath = (
+  vectorPath: NonNullable<FloatingPasteStateLike['vectorPath']>,
+  scaleX: number,
+  scaleY: number,
 ): Path2D | null => {
   if (vectorPath.points.length < 2) {
     return null;
   }
 
   const path = new Path2D();
-  path.moveTo(vectorPath.points[0].x, vectorPath.points[0].y);
+  path.moveTo(vectorPath.points[0].x * scaleX, vectorPath.points[0].y * scaleY);
   for (let i = 1; i < vectorPath.points.length; i += 1) {
-    path.lineTo(vectorPath.points[i].x, vectorPath.points[i].y);
+    path.lineTo(vectorPath.points[i].x * scaleX, vectorPath.points[i].y * scaleY);
   }
   if (vectorPath.points.length > 2) {
     path.closePath();
@@ -155,11 +157,11 @@ export const drawFloatingPasteMarquee = ({
   const renderWidth = floatingPaste.displayWidth ?? floatingPaste.width;
   const renderHeight = floatingPaste.displayHeight ?? floatingPaste.height;
   const rotation = floatingPaste.rotation ?? 0;
-  const localVectorPath = floatingPaste.vectorPath
-    ? buildLocalVectorPath(floatingPaste.vectorPath)
-    : null;
   const scaleX = renderWidth / Math.max(1, floatingPaste.width);
   const scaleY = renderHeight / Math.max(1, floatingPaste.height);
+  const renderedVectorPath = floatingPaste.vectorPath
+    ? buildRenderedVectorPath(floatingPaste.vectorPath, scaleX, scaleY)
+    : null;
 
   ctx.translate(
     floatingPaste.position.x + renderWidth / 2,
@@ -167,15 +169,14 @@ export const drawFloatingPasteMarquee = ({
   );
   ctx.rotate((rotation * Math.PI) / 180);
   ctx.translate(-renderWidth / 2, -renderHeight / 2);
-  ctx.scale(scaleX, scaleY);
-  if (localVectorPath) {
-    strokeMarqueePath(ctx, localVectorPath, {
+  if (renderedVectorPath) {
+    strokeMarqueePath(ctx, renderedVectorPath, {
       scale,
       marchingAntsOffset,
       animated: false,
     });
   } else {
-    strokeMarqueeRect(ctx, 0, 0, floatingPaste.width, floatingPaste.height, {
+    strokeMarqueeRect(ctx, 0, 0, renderWidth, renderHeight, {
       scale,
       marchingAntsOffset,
       animated: false,

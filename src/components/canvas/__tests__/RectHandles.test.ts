@@ -1,5 +1,6 @@
 import {
   applyCornerAspectLock,
+  handleDefinitions,
   moveRect,
   resizeRect,
   resizeRectFromDrag,
@@ -100,5 +101,13 @@ describe('resizeRect clamp options', () => {
         { clampToBounds: false },
       ),
     ).toEqual({ x: 10, y: 20, width: 50, height: 36 });
+  });
+});
+
+describe('handleDefinitions', () => {
+  it('centres every resize handle on its mathematical edge', () => {
+    expect(handleDefinitions).toHaveLength(8);
+    expect(handleDefinitions.every(({ offsetX, offsetY }) => offsetX === 0 && offsetY === 0))
+      .toBe(true);
   });
 });

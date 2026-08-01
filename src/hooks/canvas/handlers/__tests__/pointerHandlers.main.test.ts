@@ -1115,6 +1115,13 @@ describe('pointerHandlers main flows', () => {
     expect(deps.setIsDraggingFloatingPaste).toHaveBeenCalledWith(true);
     expect(deps.floatingPasteOriginalPos.current).toMatchObject({ x: 4, y: 4 });
 
+    handlers.handlePointerMove(makePointerEvent({
+      clientX: 8,
+      clientY: 9,
+      buttons: 1,
+    }));
+    expect(deps.updateFloatingPastePosition).toHaveBeenCalledWith(7, 8);
+
     useAppStore.setState({ floatingPaste: null });
   });
 

@@ -1,4 +1,8 @@
-import { computeHandleAnchoredRect } from '@/components/canvas/floatingPasteTransform';
+import {
+  computeFloatingPasteResize,
+  computeFloatingPasteRotation,
+  computeHandleAnchoredRect,
+} from '@/components/canvas/floatingPasteTransform';
 import type { CropHandle } from '@/types';
 
 const rotatePoint = (x: number, y: number, rotationDeg: number) => {
@@ -103,5 +107,49 @@ describe('computeHandleAnchoredRect', () => {
     const nextTopRight = getTopRightWorld(nextRect, 0);
     expect(nextTopRight.x).toBeCloseTo(initialTopRight.x, 6);
     expect(nextTopRight.y).toBeCloseTo(initialTopRight.y, 6);
+  });
+});
+
+describe('computeFloatingPasteResize', () => {
+  it('preserves the visual-handle grab offset and applies only pointer delta', () => {
+    const initialRect = { x: 10, y: 20, width: 40, height: 30 };
+
+    expect(computeFloatingPasteResize({
+      initialRect,
+      handle: 'right',
+      start: { x: 55, y: 35 },
+      current: { x: 65, y: 35 },
+      rotation: 0,
+    })).toEqual({ x: 10, y: 20, width: 50, height: 30 });
+  });
+
+  it('keeps the opposite world anchor fixed for rotated corner resizing', () => {
+    const initialRect = { x: 10, y: 20, width: 40, height: 30 };
+    const rotation = 30;
+    const initialAnchor = getOppositeAnchorWorld(initialRect, 'bottom-right', rotation);
+    const nextRect = computeFloatingPasteResize({
+      initialRect,
+      handle: 'bottom-right',
+      start: { x: 45, y: 55 },
+      current: { x: 60, y: 70 },
+      rotation,
+    });
+
+    const nextAnchor = getOppositeAnchorWorld(nextRect, 'bottom-right', rotation);
+    expect(nextAnchor.x).toBeCloseTo(initialAnchor.x, 6);
+    expect(nextAnchor.y).toBeCloseTo(initialAnchor.y, 6);
+    expect(nextRect.width / nextRect.height).toBeCloseTo(initialRect.width / initialRect.height, 5);
+  });
+});
+
+describe('computeFloatingPasteRotation', () => {
+  it('continues rotation from the initial pointer and supports shift snapping', () => {
+    expect(computeFloatingPasteRotation({
+      rect: { x: 10, y: 10, width: 20, height: 20 },
+      start: { x: 20, y: 0 },
+      current: { x: 40, y: 20 },
+      initialRotation: 0,
+      snapIncrement: 15,
+    })).toBe(90);
   });
 });

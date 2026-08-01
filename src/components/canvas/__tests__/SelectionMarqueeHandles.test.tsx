@@ -3,6 +3,7 @@ import React from 'react';
 
 import SelectionMarqueeHandles from '@/components/canvas/SelectionMarqueeHandles';
 import { useAppStore } from '@/stores/useAppStore';
+import type { Layer } from '@/types';
 
 const ensurePointerEventPolyfill = (): void => {
   if (typeof window.PointerEvent === 'undefined') {
@@ -71,6 +72,58 @@ describe('SelectionMarqueeHandles', () => {
     const overlay = screen.getByTestId('selection-marquee-overlay');
     expect(overlay.querySelector('[data-handle="right"]')).toBeTruthy();
     expect(overlay.querySelector('[data-handle="rotate"]')).toBeTruthy();
+  });
+
+  it('does not offer rotation for a color-cycle selection', () => {
+    const previousLayers = useAppStore.getState().layers;
+    const previousActiveLayerId = useAppStore.getState().activeLayerId;
+    const colorCycleLayer = {
+      id: 'cc-layer',
+      name: 'CC Layer',
+      visible: true,
+      opacity: 1,
+      blendMode: 'source-over',
+      locked: false,
+      order: 0,
+      imageData: null,
+      framebuffer: null,
+      alignment: {
+        positioning: 'anchor',
+        horizontal: 'left',
+        vertical: 'top',
+        offsetPx: { x: 0, y: 0 },
+      },
+      layerType: 'color-cycle',
+      colorCycleData: {},
+    } as unknown as Layer;
+
+    act(() => {
+      useAppStore.setState({
+        layers: [colorCycleLayer],
+        activeLayerId: colorCycleLayer.id,
+      });
+    });
+    try {
+      render(
+        <SelectionMarqueeHandles
+          zoom={1}
+          offsetX={0}
+          offsetY={0}
+          projectWidth={100}
+          projectHeight={100}
+        />,
+      );
+
+      const overlay = screen.getByTestId('selection-marquee-overlay');
+      expect(overlay.querySelector('[data-handle="rotate"]')).toBeNull();
+    } finally {
+      act(() => {
+        useAppStore.setState({
+          layers: previousLayers,
+          activeLayerId: previousActiveLayerId,
+        });
+      });
+    }
   });
 
   it('updates the selection bounds when dragging a resize handle', () => {
@@ -275,35 +328,40 @@ describe('SelectionMarqueeHandles', () => {
     expect(state.selectionEnd?.x).toBe(45);
   });
 
-  it('forwards rotate handle interaction into floating paste rotate control', () => {
+  it('continues a resize on the original pointer gesture after extracting a floating paste', () => {
     const originalExtract = useAppStore.getState().extractSelectionToFloatingPaste;
-    const extractSelectionToFloatingPaste = jest.fn(() => true);
-    const forwardedRotatePointerDown = jest.fn();
-    const requestAnimationFrameSpy = jest
-      .spyOn(window, 'requestAnimationFrame')
-      .mockImplementation((cb: FrameRequestCallback) => {
-        cb(0);
-        return 1;
+    const extractSelectionToFloatingPaste = jest.fn(() => {
+      useAppStore.setState({
+        selectionStart: null,
+        selectionEnd: null,
+        floatingPaste: {
+          active: true,
+          imageData: new ImageData(20, 20),
+          position: { x: 10, y: 10 },
+          originalPosition: { x: 10, y: 10 },
+          width: 20,
+          height: 20,
+          displayWidth: 20,
+          displayHeight: 20,
+          rotation: 0,
+          sourceLayerId: 'layer-1',
+        },
       });
+      return true;
+    });
 
     act(() => {
       useAppStore.setState({ extractSelectionToFloatingPaste });
     });
     try {
       render(
-        <div>
-          <SelectionMarqueeHandles
-            zoom={1}
-            offsetX={0}
-            offsetY={0}
-            projectWidth={100}
-            projectHeight={100}
-          />
-          <div
-            data-floating-rotate-handle
-            onPointerDown={forwardedRotatePointerDown}
-          />
-        </div>,
+        <SelectionMarqueeHandles
+          zoom={1}
+          offsetX={0}
+          offsetY={0}
+          projectWidth={100}
+          projectHeight={100}
+        />,
       );
 
       const overlay = screen.getByTestId('selection-marquee-overlay');
@@ -322,6 +380,101 @@ describe('SelectionMarqueeHandles', () => {
         }),
       });
 
+      const rightHandle = overlay.querySelector('[data-handle="right"]');
+      expect(rightHandle).toBeTruthy();
+      if (!rightHandle) {
+        throw new Error('Right handle not found');
+      }
+
+      act(() => {
+        fireEvent.pointerDown(rightHandle, {
+          pointerId: 41,
+          clientX: 30,
+          clientY: 20,
+          button: 0,
+        });
+      });
+      act(() => {
+        fireEvent.pointerMove(overlay, {
+          pointerId: 41,
+          clientX: 40,
+          clientY: 20,
+          buttons: 1,
+        });
+      });
+
+      expect(extractSelectionToFloatingPaste).toHaveBeenCalledTimes(1);
+      expect(useAppStore.getState().floatingPaste).toMatchObject({
+        position: { x: 10, y: 10 },
+        displayWidth: 30,
+        displayHeight: 20,
+      });
+
+      act(() => {
+        fireEvent.pointerUp(overlay, {
+          pointerId: 41,
+          clientX: 40,
+          clientY: 20,
+        });
+      });
+      expect(screen.queryByTestId('selection-marquee-overlay')).toBeNull();
+    } finally {
+      act(() => {
+        useAppStore.setState({ extractSelectionToFloatingPaste: originalExtract });
+      });
+    }
+  });
+
+  it('continues rotation on the original pointer gesture after extraction', () => {
+    const originalExtract = useAppStore.getState().extractSelectionToFloatingPaste;
+    const extractSelectionToFloatingPaste = jest.fn(() => {
+      useAppStore.setState({
+        selectionStart: null,
+        selectionEnd: null,
+        floatingPaste: {
+          active: true,
+          imageData: new ImageData(20, 20),
+          position: { x: 10, y: 10 },
+          originalPosition: { x: 10, y: 10 },
+          width: 20,
+          height: 20,
+          displayWidth: 20,
+          displayHeight: 20,
+          rotation: 0,
+          sourceLayerId: 'layer-1',
+        },
+      });
+      return true;
+    });
+
+    act(() => {
+      useAppStore.setState({ extractSelectionToFloatingPaste });
+    });
+    try {
+      render(
+        <SelectionMarqueeHandles
+          zoom={1}
+          offsetX={0}
+          offsetY={0}
+          projectWidth={100}
+          projectHeight={100}
+        />,
+      );
+      const overlay = screen.getByTestId('selection-marquee-overlay');
+      Object.defineProperty(overlay, 'getBoundingClientRect', {
+        configurable: true,
+        value: () => ({
+          x: 0,
+          y: 0,
+          top: 0,
+          left: 0,
+          right: 100,
+          bottom: 100,
+          width: 100,
+          height: 100,
+          toJSON: () => ({}),
+        }),
+      });
       const rotateHandle = overlay.querySelector('[data-handle="rotate"]');
       expect(rotateHandle).toBeTruthy();
       if (!rotateHandle) {
@@ -330,17 +483,23 @@ describe('SelectionMarqueeHandles', () => {
 
       act(() => {
         fireEvent.pointerDown(rotateHandle, {
-          pointerId: 41,
+          pointerId: 42,
           clientX: 20,
-          clientY: 10,
+          clientY: -10,
           button: 0,
         });
       });
+      act(() => {
+        fireEvent.pointerMove(overlay, {
+          pointerId: 42,
+          clientX: 50,
+          clientY: 20,
+          buttons: 1,
+        });
+      });
 
-      expect(extractSelectionToFloatingPaste).toHaveBeenCalledTimes(1);
-      expect(forwardedRotatePointerDown).toHaveBeenCalledTimes(1);
+      expect(useAppStore.getState().floatingPaste?.rotation).toBeCloseTo(90, 5);
     } finally {
-      requestAnimationFrameSpy.mockRestore();
       act(() => {
         useAppStore.setState({ extractSelectionToFloatingPaste: originalExtract });
       });
