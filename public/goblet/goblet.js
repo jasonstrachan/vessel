@@ -538,12 +538,23 @@ const fitScaleFor = (fit, painted, frame, uniformK = 1, design) => {
   const sy = fh / sh;
   const uContain = Math.min(sx, sy);
   const uCover = Math.max(sx, sy);
+  let normalizedContain = uContain;
+  if (design) {
+    const dw = fitPositive(design.width);
+    const dh = fitPositive(design.height);
+    if (dw > 0 && dh > 0) {
+      const baseContain = Math.min(dw / sw, dh / sh) || 1;
+      if (baseContain > 0) {
+        normalizedContain = uContain / baseContain;
+      }
+    }
+  }
 
   switch (fit) {
     case 'fill':
       return { sx, sy };
     case 'contain':
-      return { sx: uContain, sy: uContain };
+      return { sx: normalizedContain, sy: normalizedContain };
     case 'cover':
       return { sx: uCover, sy: uCover };
     case 'uniform':

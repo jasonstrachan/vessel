@@ -11,6 +11,8 @@ const read = (relativePath: string): string => fs.readFileSync(path.join(rootDir
 const VIEWPORT = { width: 12, height: 10 };
 const DOCUMENT = { width: 4, height: 2 };
 const PAINTED_BOUNDS = { x: 0, y: 0, width: 4, height: 2 };
+const AUTO_CONTAIN_BOUNDS = { x: 0, y: 0, width: 2, height: 1 };
+const AUTO_CONTAIN_OFFSET = { x: 50, y: 50 };
 const PIXEL_MODE_CASES = ['static', 'animated', 'mixed'] as const;
 const FIT_MODES = ['none', 'contain', 'cover', 'fill', 'tile'] as const;
 const SLOT_CASES = ['palette-fallback', 'slot-clamp'] as const;
@@ -205,8 +207,8 @@ const createFitModeMetadata = (
   },
   viewport: {
     mode: 'fill',
-    designWidth: VIEWPORT.width,
-    designHeight: VIEWPORT.height,
+    designWidth: DOCUMENT.width,
+    designHeight: DOCUMENT.height,
   },
   colorCycle: {
     schemaVersion: 2,
@@ -266,6 +268,36 @@ const createFitModeMetadata = (
           }),
         ]
       : []),
+  ],
+});
+
+const createAutoContainOffsetMetadata = () => ({
+  ...createFitModeMetadata('static', 'contain'),
+  layers: [
+    {
+      id: 'auto-contain-offset',
+      name: 'Auto Contain Offset',
+      type: 'normal',
+      visible: true,
+      opacity: 1,
+      blendMode: 'source-over',
+      source: { ...DOCUMENT },
+      documentBoundsPx: { x: 1, y: 0.5, width: 2, height: 1 },
+      documentBoundsPercent: { x: 25, y: 25, width: 50, height: 50 },
+      contentBounds: AUTO_CONTAIN_BOUNDS,
+      alignment: {
+        fit: 'contain',
+        horizontal: 'left',
+        vertical: 'top',
+        positioning: 'auto',
+        offsetPercent: AUTO_CONTAIN_OFFSET,
+      },
+      assets: {
+        texture: `data:image/svg+xml;charset=utf-8,${encodeURIComponent(
+          '<svg xmlns="http://www.w3.org/2000/svg" width="4" height="2"><rect width="2" height="1" fill="#ff0000"/></svg>',
+        )}`,
+      },
+    },
   ],
 });
 
@@ -336,16 +368,19 @@ const expectedMaskedBounds = (fit: FitMode, maskCase: MaskCase): AlphaBounds => 
 
 const buildFitModeHtml = (): string => {
   const runtime = read('public/goblet2/goblet2-inline.js');
-  const metadataByCase = Object.fromEntries(
-    PIXEL_MODE_CASES.flatMap((pixelMode) => FIT_MODES.flatMap((fit) => SLOT_CASES.flatMap((slotCase) => (
-      HIDDEN_CASES.flatMap((hiddenCase) => MASK_CASES.flatMap((maskCase) => (
-        DISPLAY_FILTER_CASES.map((displayFilterCase) => [
-          `${pixelMode}:${fit}:${slotCase}:${hiddenCase}:${maskCase}:${displayFilterCase}`,
-          createFitModeMetadata(pixelMode, fit, slotCase, hiddenCase, maskCase, displayFilterCase),
-        ])
-      )))
-    )))),
-  );
+  const metadataByCase = {
+    ...Object.fromEntries(
+      PIXEL_MODE_CASES.flatMap((pixelMode) => FIT_MODES.flatMap((fit) => SLOT_CASES.flatMap((slotCase) => (
+        HIDDEN_CASES.flatMap((hiddenCase) => MASK_CASES.flatMap((maskCase) => (
+          DISPLAY_FILTER_CASES.map((displayFilterCase) => [
+            `${pixelMode}:${fit}:${slotCase}:${hiddenCase}:${maskCase}:${displayFilterCase}`,
+            createFitModeMetadata(pixelMode, fit, slotCase, hiddenCase, maskCase, displayFilterCase),
+          ])
+        )))
+      )))),
+    ),
+    'auto-contain-offset': createAutoContainOffsetMetadata(),
+  };
 
   return [
     '<!DOCTYPE html>',
@@ -524,6 +559,15 @@ try {
       }
     }
   }
+  const autoContainCanvas = document.createElement('canvas');
+  autoContainCanvas.width = ${VIEWPORT.width};
+  autoContainCanvas.height = ${VIEWPORT.height};
+  document.body.appendChild(autoContainCanvas);
+  await renderVesselWebGL(metadataByCase['auto-contain-offset'], autoContainCanvas, {});
+  window.__gobletFitModeParity.results['auto-contain-offset'] = {
+    canvas: { width: autoContainCanvas.width, height: autoContainCanvas.height },
+    bounds: readRedBounds(autoContainCanvas),
+  };
   window.__gobletFitModeParity.ready = true;
 } catch (error) {
   window.__gobletFitModeParity = { ready: true, error: error instanceof Error ? error.message : String(error), results: {} };
@@ -702,6 +746,17 @@ test.describe('Goblet 2 rendered fit-mode parity', () => {
         }
       }
     }
+    expect(result?.results?.['auto-contain-offset']).toEqual({
+      canvas: VIEWPORT,
+      bounds: {
+        x: 3,
+        y: 4,
+        width: 6,
+        height: 3,
+        colorPixels: 18,
+        maxRed: 255,
+      },
+    });
   });
 
   test('rejects malformed schema-2 brush payload lengths before playback', async ({ page }) => {
