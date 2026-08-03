@@ -584,9 +584,7 @@ export const exportProjectAsWebGL = async (
     const offsetPercent: LayerAlignmentSettings['offsetPercent'] | undefined =
       positioning === 'anchor'
         ? undefined
-        : normalizedAlignment.offsetPercent
-            ? { x: normalizedAlignment.offsetPercent.x, y: normalizedAlignment.offsetPercent.y }
-            : undefined;
+        : { x: autoOffsetPercent.x, y: autoOffsetPercent.y };
 
     const alignmentPayload: AlignmentExportPayload = useIdentityPixelPerfectStack
       ? {

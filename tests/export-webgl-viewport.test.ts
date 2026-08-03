@@ -57,6 +57,62 @@ const layout: ExportContainerLayout = {
 };
 
 describe('exportProjectAsWebGL viewport smoke test', () => {
+  it('derives auto offsets from current painted bounds instead of stale layer metadata', async () => {
+    const project = {
+      ...createProject(),
+      width: 80,
+      height: 60,
+    };
+    const imageData = new ImageData(project.width, project.height);
+    for (let y = 9; y < 24; y += 1) {
+      for (let x = 12; x < 32; x += 1) {
+        imageData.data[(y * project.width + x) * 4 + 3] = 255;
+      }
+    }
+
+    const layer: Layer = {
+      id: 'auto-bounds-layer',
+      name: 'Auto Bounds Layer',
+      visible: true,
+      opacity: 1,
+      blendMode: 'source-over',
+      locked: false,
+      order: 0,
+      imageData,
+      alignment: {
+        ...createDefaultLayerAlignment(),
+        offsetPercent: { x: 50, y: 50 },
+      },
+      layerType: 'normal',
+    };
+    project.layers = [layer];
+
+    const metadata = await exportProjectAsWebGL({
+      project,
+      layers: [layer],
+      layout: { ...layout, width: project.width, height: project.height },
+      viewport: { designWidth: project.width, designHeight: project.height, mode: 'fit' },
+      fps: 24,
+      totalFrames: 1,
+      durationSeconds: 1,
+      perfectLoop: false,
+      includeHiddenLayers: true,
+      embedCanvasFallback: false,
+      minify: false,
+      filenameBase: 'auto-bounds-alignment',
+      bundleFormat: 'json',
+    });
+
+    expect(metadata.layers[0]).toMatchObject({
+      documentBoundsPx: { x: 12, y: 9, width: 20, height: 15 },
+      alignment: {
+        fit: 'contain',
+        positioning: 'auto',
+        offsetPercent: { x: 20, y: 20 },
+      },
+    });
+  });
+
   it('preserves fit viewport mode in metadata for default exports', async () => {
     const project = createProject();
     const metadata = await exportProjectAsWebGL({

@@ -176,7 +176,9 @@ export function computePlacement(input: BasisInput, uniformK = 1): Placement {
   }
 
   let origin: { ox: number; oy: number };
-  if (input.align.positioning === 'anchor') {
+  if (input.align.fit === 'fill') {
+    origin = { ox: frameRect.x, oy: frameRect.y };
+  } else if (input.align.positioning === 'anchor') {
     origin = originAnchor(
       frameRect,
       destWidth,
@@ -185,6 +187,13 @@ export function computePlacement(input: BasisInput, uniformK = 1): Placement {
       input.align.horizontal,
       input.align.vertical
     );
+  } else if (input.align.fit === 'contain') {
+    const percentX = clamp01((input.align.offsetPercent?.x ?? 0) / 100);
+    const percentY = clamp01((input.align.offsetPercent?.y ?? 0) / 100);
+    origin = {
+      ox: frameRect.x + (frameRect.width - destWidth) * percentX,
+      oy: frameRect.y + (frameRect.height - destHeight) * percentY
+    };
   } else {
     origin = originPercent(frameRect, input.align.offsetPercent);
   }
