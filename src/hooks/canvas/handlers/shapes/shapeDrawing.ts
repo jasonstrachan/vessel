@@ -84,6 +84,7 @@ import {
   resolveCcDitherBandMode,
 } from '@/utils/colorCycle/ccDitherRenderPalette';
 import { discardAbandonedSampledShapeTempPixels } from '@/hooks/canvas/handlers/shapes/sampledShapeTempSlotOwnership';
+import { sampleShapeGradientFromCanvases } from '@/workers/colorCycleFillClient';
 
 let lastCcDirectionDebugAt = 0;
 const ccDirectionDebug = (label: string, payload?: Record<string, unknown>) => {
@@ -534,14 +535,15 @@ const applyFinalSampledShapeStops = ({
   session.previewHash = finalPreviewStops ? hashStops(finalPreviewStops, gradientKind) : '';
 };
 
-const prepareFinalSampledShapeSession = (params: {
+const prepareFinalSampledShapeSession = async (params: {
   layer: Layer;
   state: AppState;
   shapePoints: Array<{ x: number; y: number }>;
   samplePoints?: Array<{ x: number; y: number }>;
+  direction?: { x: number; y: number } | null;
   deps: Pick<ShapeDrawingDeps, 'sampleColorAt' | 'sampleHexAt' | 'ccLog'>
     & Partial<Pick<ShapeDrawingDeps, 'getColorCycleBrushManager'>>;
-}): MarkGradientSession | null => {
+}): Promise<MarkGradientSession | null> => {
   if (params.layer.layerType !== 'color-cycle') {
     return null;
   }
@@ -561,29 +563,68 @@ const prepareFinalSampledShapeSession = (params: {
     params.state.palette.foregroundColor ??
     params.state.tools.brushSettings.color ??
     '#000000';
-  const sampledPreview = buildSampledStops({
-    sourcePts: params.samplePoints ?? params.shapePoints,
-    sampleColor: resolveShapeSampleColor(params.deps, fallbackColor),
-    allowTiny: true,
-  });
-  const resolvedPreviewStops = resolveSampledStopsWithFallback({
-    sampledStops: sampledPreview?.stops,
-    sampleCount: sampledPreview?.sampleCount ?? 0,
-    fallbackStops,
-  });
-  const previewStops: StoredStop[] | null = resolvedPreviewStops.stops.length >= 2
-    ? resolvedPreviewStops.stops
+  const referenceLayer = params.state.colorPickerPreferReferenceLayer && params.state.referenceLayerId
+    ? params.state.layers.find((candidate) => candidate.id === params.state.referenceLayerId)
     : null;
+  let footprintStops: StoredStop[] | null = null;
+  if (params.state.currentOffscreenCanvas) {
+    try {
+      const footprintResult = await sampleShapeGradientFromCanvases({
+        compositeCanvas: params.state.currentOffscreenCanvas,
+        referenceCanvas: referenceLayer?.framebuffer ?? null,
+        shapePoints: params.shapePoints,
+        direction: params.direction,
+        maxColors: params.state.tools.brushSettings.gradientBands ?? 16,
+        mode: gradientKind,
+      });
+      footprintStops = footprintResult?.stops ?? null;
+      params.deps.ccLog('shape: footprint sample ready', {
+        layerId: params.layer.id,
+        sampledPixels: footprintResult?.stats.sampledPixels ?? 0,
+        uniqueColorBins: footprintResult?.stats.uniqueColorBins ?? 0,
+        outputColors: footprintResult?.stats.outputColors ?? 0,
+        referenceLayerId: referenceLayer?.id ?? null,
+      });
+    } catch (error) {
+      params.deps.ccLog('shape: footprint sample fallback', {
+        layerId: params.layer.id,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+  const sampledPreview = footprintStops
+    ? null
+    : buildSampledStops({
+        sourcePts: params.samplePoints ?? params.shapePoints,
+        sampleColor: resolveShapeSampleColor(params.deps, fallbackColor),
+        allowTiny: true,
+      });
+  const resolvedPreviewStops = footprintStops
+    ? null
+    : resolveSampledStopsWithFallback({
+        sampledStops: sampledPreview?.stops,
+        sampleCount: sampledPreview?.sampleCount ?? 0,
+        fallbackStops,
+      });
+  const previewStops: StoredStop[] | null = footprintStops
+    ?? (resolvedPreviewStops && resolvedPreviewStops.stops.length >= 2
+      ? resolvedPreviewStops.stops
+      : null);
   const previewShapeKey = buildSampledCcShapePreviewShapeKey(params.shapePoints);
   const previewStopsFromLivePreview = consumeSampledCcShapePreviewStops({
     layerId: params.layer.id,
     shapeKey: previewShapeKey,
     rawPointCount: params.shapePoints.length,
   });
-  const finalPreviewStops =
-    previewStopsFromLivePreview?.stops && previewStopsFromLivePreview.stops.length > (previewStops?.length ?? 0)
+  const finalPreviewStops = footprintStops
+    ?? (previewStopsFromLivePreview?.stops && previewStopsFromLivePreview.stops.length > (previewStops?.length ?? 0)
       ? previewStopsFromLivePreview.stops
-      : previewStops;
+      : previewStops);
+  const sampledUniqueColors = new Set((previewStops ?? []).map((stop) => stop.color)).size;
+  const fallbackUniqueColors = new Set(fallbackStops.map((stop) => stop.color)).size;
+  const usedFallbackStops = footprintStops
+    ? false
+    : (resolvedPreviewStops?.usedFallbackStops ?? true);
   let session = getActiveMarkGradientSession(params.layer.id);
   if (session && session.source !== 'sampled') {
     debugWarn('raw-console', '[CC] Active mark session was not sampled during sampled shape finalize', {
@@ -628,9 +669,9 @@ const prepareFinalSampledShapeSession = (params: {
     livePreviewStopCount: previewStopsFromLivePreview?.stops.length ?? 0,
     finalStopCount: finalPreviewStops?.length ?? 0,
     usedLivePreviewStops: finalPreviewStops === previewStopsFromLivePreview?.stops,
-    usedFallbackStops: resolvedPreviewStops.usedFallbackStops,
-    sampledUniqueColors: resolvedPreviewStops.sampledUniqueColors,
-    fallbackUniqueColors: resolvedPreviewStops.fallbackUniqueColors,
+    usedFallbackStops,
+    sampledUniqueColors,
+    fallbackUniqueColors,
     replayKey: previewStopsFromLivePreview?.replayKey ?? null,
     previewSeq: previewStopsFromLivePreview?.seq ?? null,
     previewPointCount: previewStopsFromLivePreview?.pointCount ?? null,
@@ -664,9 +705,9 @@ const prepareFinalSampledShapeSession = (params: {
     livePreviewStopCount: previewStopsFromLivePreview?.stops.length ?? 0,
     finalStopCount: finalPreviewStops?.length ?? 0,
     usedLivePreviewStops: finalPreviewStops === previewStopsFromLivePreview?.stops,
-    usedFallbackStops: resolvedPreviewStops.usedFallbackStops,
-    sampledUniqueColors: resolvedPreviewStops.sampledUniqueColors,
-    fallbackUniqueColors: resolvedPreviewStops.fallbackUniqueColors,
+    usedFallbackStops,
+    sampledUniqueColors,
+    fallbackUniqueColors,
     replayKey: previewStopsFromLivePreview?.replayKey ?? null,
     previewSeq: previewStopsFromLivePreview?.seq ?? null,
     previewPointCount: previewStopsFromLivePreview?.pointCount ?? null,
@@ -1809,7 +1850,7 @@ export const finalizeShapeDrawing = async (
                 layerId: targetLayer.id,
                 pointCount: shapePointsSnapshot.length,
               });
-              prepareFinalSampledShapeSession({
+              await prepareFinalSampledShapeSession({
                 layer: targetLayer,
                 state: currentFinalizeState,
                 shapePoints: shapePointsSnapshot,
@@ -1818,6 +1859,7 @@ export const finalizeShapeDrawing = async (
                   args.refs,
                   shapePointsSnapshot
                 ),
+                direction: directionSnapshot,
                 deps,
               });
               deps.ccLog('shape: sampled session end', {
@@ -2022,7 +2064,9 @@ export const finalizeShapeDrawing = async (
                     layerId: targetLayer.id,
                     pointCount: shapePointsSnapshot.length,
                   });
-                  prepareFinalSampledShapeSession({
+                  const sampledDirection = args.refs.ccStrokeDirectionRef.current
+                    ?? deps.computeFallbackLinearDirection(shapePointsSnapshot);
+                  await prepareFinalSampledShapeSession({
                     layer: targetLayer,
                     state: currentFinalizeState,
                     shapePoints: shapePointsSnapshot,
@@ -2031,6 +2075,7 @@ export const finalizeShapeDrawing = async (
                       args.refs,
                       shapePointsSnapshot
                     ),
+                    direction: sampledDirection,
                     deps,
                   });
                   deps.ccLog('shape: sampled session end', {

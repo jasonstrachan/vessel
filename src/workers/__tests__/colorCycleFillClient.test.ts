@@ -1,5 +1,13 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { runPerceptualDitherJob, runConcentricFillJob } from '../colorCycleFillClient';
+jest.mock('../colorCycleFillWorkerFactory', () => ({
+  createColorCycleFillWorker: () => new Worker('color-cycle-fill-worker-test'),
+}));
+
+import {
+  runPerceptualDitherJob,
+  runConcentricFillJob,
+  runShapeGradientSampleJob,
+} from '../colorCycleFillClient';
 
 class FakeWorker implements Worker {
   static shouldRespond = true;
@@ -47,6 +55,15 @@ class FakeWorker implements Worker {
       this.emit('message', { data: response } as any);
     } else if (job.type === 'concentric-fill') {
       const response = { ...base, result: { width: 1, height: 1, indices: new ArrayBuffer(3) } };
+      this.emit('message', { data: response } as any);
+    } else if (job.type === 'shape-gradient-sample') {
+      const response = {
+        ...base,
+        result: {
+          stops: [{ position: 0, color: '#ff0000' }, { position: 1, color: '#0000ff' }],
+          stats: { sampledPixels: 2, uniqueColorBins: 2, outputColors: 2, alphaWeight: 2 },
+        },
+      };
       this.emit('message', { data: response } as any);
     }
   }
@@ -96,6 +113,30 @@ describe('colorCycleFillClient', () => {
       noiseSeed: 1,
     });
     expect(result.width).toBe(1);
+  });
+
+  it('resolves a shape-gradient sample job', async () => {
+    const result = await runShapeGradientSampleJob({
+      type: 'shape-gradient-sample',
+      width: 2,
+      height: 1,
+      originX: 0,
+      originY: 0,
+      sampleScaleX: 1,
+      sampleScaleY: 1,
+      vertices: new Float32Array([0, 0, 2, 0, 2, 1, 0, 1]),
+      compositePixels: new ArrayBuffer(8),
+      maxColors: 2,
+      mode: 'linear',
+      directionX: 1,
+      directionY: 0,
+    });
+
+    expect(result.stops).toEqual([
+      { position: 0, color: '#ff0000' },
+      { position: 1, color: '#0000ff' },
+    ]);
+    expect(result.stats.outputColors).toBe(2);
   });
 
   it('rejects a concentric fill job when the worker never responds', async () => {

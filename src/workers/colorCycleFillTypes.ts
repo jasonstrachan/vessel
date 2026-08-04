@@ -40,8 +40,36 @@ export interface ConcentricFillResult {
   height: number;
   indices: ArrayBuffer;
 }
-export type ColorCycleFillJob = PerceptualDitherJob | ConcentricFillJob;
-export type ColorCycleFillResult = PerceptualDitherResult | ConcentricFillResult;
+
+export interface ShapeGradientSampleJob {
+  type: 'shape-gradient-sample';
+  width: number;
+  height: number;
+  originX: number;
+  originY: number;
+  sampleScaleX: number;
+  sampleScaleY: number;
+  vertices: Float32Array;
+  compositePixels: ArrayBuffer;
+  referencePixels?: ArrayBuffer;
+  maxColors: number;
+  mode: 'linear' | 'concentric';
+  directionX?: number;
+  directionY?: number;
+}
+
+export interface ShapeGradientSampleResult {
+  stops: Array<{ position: number; color: string }>;
+  stats: {
+    sampledPixels: number;
+    uniqueColorBins: number;
+    outputColors: number;
+    alphaWeight: number;
+  };
+}
+
+export type ColorCycleFillJob = PerceptualDitherJob | ConcentricFillJob | ShapeGradientSampleJob;
+export type ColorCycleFillResult = PerceptualDitherResult | ConcentricFillResult | ShapeGradientSampleResult;
 
 export type ColorCycleFillWorkerMessage = {
   id: number;

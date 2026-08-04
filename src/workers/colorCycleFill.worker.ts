@@ -2,10 +2,12 @@
 
 import { applyDitheringWithFillResolution } from '@/hooks/brushEngine/dithering';
 import { fillConcentricToBuffer } from '@/utils/colorCycle/concentricFillCore';
+import { sampleShapeFootprintGradient } from '@/utils/colorCycle/ccShapeFootprintSamplingCore';
 import type {
   ColorCycleFillWorkerResponse,
   ConcentricFillJob,
   PaletteMapEntry,
+  ShapeGradientSampleJob,
 } from './colorCycleFillTypes';
 
 type WorkerMessage = {
@@ -75,6 +77,24 @@ const handleConcentricFill = async (job: ConcentricFillJob) => {
   return { width: job.bbox.width, height: job.bbox.height, indices: buffer.buffer };
 };
 
+const handleShapeGradientSample = (job: ShapeGradientSampleJob) => sampleShapeFootprintGradient({
+  width: job.width,
+  height: job.height,
+  originX: job.originX,
+  originY: job.originY,
+  sampleScaleX: job.sampleScaleX,
+  sampleScaleY: job.sampleScaleY,
+  vertices: job.vertices,
+  compositePixels: new Uint8ClampedArray(job.compositePixels),
+  referencePixels: job.referencePixels
+    ? new Uint8ClampedArray(job.referencePixels)
+    : undefined,
+  maxColors: job.maxColors,
+  mode: job.mode,
+  directionX: job.directionX,
+  directionY: job.directionY,
+});
+
 ctx.onmessage = (event: MessageEvent<WorkerMessage>) => {
   const { id, job } = event.data;
   const response: ColorCycleFillWorkerResponse = { id, ok: false, type: job.type };
@@ -95,6 +115,16 @@ ctx.onmessage = (event: MessageEvent<WorkerMessage>) => {
           ctx.postMessage(response);
         });
         return;
+      case 'shape-gradient-sample': {
+        const result = handleShapeGradientSample(job);
+        if (!result) {
+          throw new Error('No visible source pixels inside the sampled shape');
+        }
+        response.result = result;
+        response.ok = true;
+        ctx.postMessage(response);
+        return;
+      }
       default:
         throw new Error(`Unknown colorCycle fill job: ${(job as { type?: string }).type ?? 'unknown'}`);
     }

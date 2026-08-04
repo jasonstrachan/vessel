@@ -326,7 +326,7 @@ describe('finalizeShapeDrawing CC dither resolution', () => {
     expect(options).toEqual({ layerId: 'layer-1', markKind: 'shape' });
   });
 
-  it('reuses an active sampled mark session when preparing sampled shape finalize stops', () => {
+  it('reuses an active sampled mark session when preparing sampled shape finalize stops', async () => {
     storeState.tools.ccGradientSource = 'sampled';
     const layer = storeState.layers[0];
     const fallbackStops = [
@@ -342,7 +342,7 @@ describe('finalizeShapeDrawing CC dither resolution', () => {
       speedCps: 1,
     });
 
-    const prepared = __TESTING__.prepareFinalSampledShapeSession({
+    const prepared = await __TESTING__.prepareFinalSampledShapeSession({
       layer,
       state: storeState,
       shapePoints: [
@@ -618,7 +618,7 @@ describe('finalizeShapeDrawing CC dither resolution', () => {
     ]);
   });
 
-  it('replaces an active non-sampled mark session when preparing sampled shape finalize stops', () => {
+  it('replaces an active non-sampled mark session when preparing sampled shape finalize stops', async () => {
     storeState.tools.ccGradientSource = 'sampled';
     const layer = storeState.layers[0];
     const staleSession = beginMarkGradientSession({
@@ -633,7 +633,7 @@ describe('finalizeShapeDrawing CC dither resolution', () => {
       speedCps: 1,
     });
 
-    const prepared = __TESTING__.prepareFinalSampledShapeSession({
+    const prepared = await __TESTING__.prepareFinalSampledShapeSession({
       layer,
       state: storeState,
       shapePoints: [
@@ -658,7 +658,7 @@ describe('finalizeShapeDrawing CC dither resolution', () => {
     expect(prepared?.previewHash).toBeTruthy();
   });
 
-  it('replaces an active sampled stroke session when preparing sampled shape finalize stops', () => {
+  it('replaces an active sampled stroke session when preparing sampled shape finalize stops', async () => {
     storeState.tools.ccGradientSource = 'sampled';
     const layer = storeState.layers[0];
     const discardTempPixels = jest
@@ -677,7 +677,7 @@ describe('finalizeShapeDrawing CC dither resolution', () => {
       speedCps: 1,
     });
 
-    const prepared = __TESTING__.prepareFinalSampledShapeSession({
+    const prepared = await __TESTING__.prepareFinalSampledShapeSession({
       layer,
       state: storeState,
       shapePoints: [
@@ -709,7 +709,7 @@ describe('finalizeShapeDrawing CC dither resolution', () => {
     discardTempPixels.mockRestore();
   });
 
-  it('does not rescan a reconciled temp slot for a valid sampled shape session', () => {
+  it('does not rescan a reconciled temp slot for a valid sampled shape session', async () => {
     storeState.tools.ccGradientSource = 'sampled';
     const layer = storeState.layers[0];
     markSampledTempSlotReconciled('layer-1');
@@ -726,7 +726,7 @@ describe('finalizeShapeDrawing CC dither resolution', () => {
       'discardAbandonedSampledShapeTempPixels',
     );
 
-    const prepared = __TESTING__.prepareFinalSampledShapeSession({
+    const prepared = await __TESTING__.prepareFinalSampledShapeSession({
       layer,
       state: storeState,
       shapePoints: [{ x: 0, y: 0 }, { x: 10, y: 0 }],
@@ -742,7 +742,7 @@ describe('finalizeShapeDrawing CC dither resolution', () => {
     expect(discardTempPixels).not.toHaveBeenCalled();
   });
 
-  it('replaces an active sampled mark session when the finalize fill mode changes', () => {
+  it('replaces an active sampled mark session when the finalize fill mode changes', async () => {
     storeState.tools.ccGradientSource = 'sampled';
     const layer = storeState.layers[0];
     const activeSession = beginMarkGradientSession({
@@ -758,7 +758,7 @@ describe('finalizeShapeDrawing CC dither resolution', () => {
     });
     storeState.tools.brushSettings.colorCycleFillMode = 'concentric';
 
-    const prepared = __TESTING__.prepareFinalSampledShapeSession({
+    const prepared = await __TESTING__.prepareFinalSampledShapeSession({
       layer,
       state: storeState,
       shapePoints: [

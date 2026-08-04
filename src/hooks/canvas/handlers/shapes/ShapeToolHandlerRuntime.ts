@@ -3279,6 +3279,9 @@ export const createShapeToolHandler = (
                     previewRenderSettings,
                     sampleColor: sampleColorAtPosition,
                     fallbackStops: effectiveStops,
+                    sampleDirection: drawingHandlers.ccStrokeDirectionRef?.current
+                      ?? drawingHandlers.ccGradientDrawingGeometryRef?.current?.direction
+                      ?? null,
                     sampleSourcePoints: drawingHandlers.ccGradientDrawingGeometryRef?.current?.sampleSourcePoints
                       ? drawingHandlers.ccGradientDrawingGeometryRef.current.sampleSourcePoints.map(({ x, y }) => ({ x, y }))
                       : brushNow.colorCycleFillMode === 'stroke'

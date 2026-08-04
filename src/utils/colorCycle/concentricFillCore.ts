@@ -167,7 +167,7 @@ const edt1d = (
   }
 };
 
-const computeDistanceField = (mask: Uint8Array, width: number, height: number) => {
+export const computeDistanceField = (mask: Uint8Array, width: number, height: number) => {
   const total = width * height;
   const source = new Float32Array(total);
   const distances = new Float32Array(total);

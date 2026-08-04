@@ -39,6 +39,7 @@ import {
   getDerivedSurfaceBuiltFromVersion,
   markDerivedSurfaceBuiltFromVersion,
 } from '@/lib/colorCycle/document';
+import { sampleShapeGradientFromCanvases } from '@/workers/colorCycleFillClient';
 
 export type PreparedPreviewGradient = {
   renderStops: StoredStop[];
@@ -815,6 +816,7 @@ type SampledCcPreviewRequest = {
   previewRenderSettings: CcPreviewRenderSettings;
   fallbackStops: StoredStop[];
   sampleColor: (x: number, y: number) => string;
+  sampleDirection?: { x: number; y: number } | null;
 };
 
 type DrawingHandlersSubset = {
@@ -826,6 +828,7 @@ type DrawingHandlersSubset = {
   isDrawingShapeRef: React.MutableRefObject<boolean>;
   shapePointsRef: React.MutableRefObject<Array<{ x: number; y: number }>>;
   ccStrokeSamplesRef?: React.MutableRefObject<Array<{ x: number; y: number; pressure?: number }>>;
+  ccStrokeDirectionRef?: React.MutableRefObject<{ x: number; y: number } | null>;
 };
 
 export const runCcDitherPreviewRuntime = (args: {
@@ -1331,6 +1334,7 @@ export const runSampledCcDitherPreviewRuntime = (args: {
   sampleColor: (x: number, y: number) => string;
   fallbackStops: StoredStop[];
   sampleSourcePoints?: Array<{ x: number; y: number }>;
+  sampleDirection?: { x: number; y: number } | null;
   schedulePolygonShapePreviewFrame: (
     resolvePreviewPoint: () => { x: number; y: number } | null
   ) => void;
@@ -1352,6 +1356,7 @@ export const runSampledCcDitherPreviewRuntime = (args: {
     sampleColor,
     fallbackStops,
     sampleSourcePoints,
+    sampleDirection,
     schedulePolygonShapePreviewFrame,
     getLatestPolygonPreviewPoint,
     documentVersion = null,
@@ -1368,7 +1373,9 @@ export const runSampledCcDitherPreviewRuntime = (args: {
     fallbackStops,
   }) + `|sample:${(sampleSourcePoints ?? previewGeometry.previewPolygon)
     .map(point => `${Math.round(point.x * 10) / 10},${Math.round(point.y * 10) / 10}`)
-    .join(';')}`;
+    .join(';')}|direction:${sampleDirection
+      ? `${Math.round(sampleDirection.x * 1000) / 1000},${Math.round(sampleDirection.y * 1000) / 1000}`
+      : 'auto'}`;
   const cachedPreview = drawCachedCcPreview({
     overlayCtx,
     overlayCanvas,
@@ -1423,6 +1430,7 @@ export const runSampledCcDitherPreviewRuntime = (args: {
     previewRenderSettings,
     fallbackStops: fallbackStops.map(stop => ({ ...stop })),
     sampleColor,
+    sampleDirection: sampleDirection ? { ...sampleDirection } : null,
   };
 
   const hasCachedPreview =
@@ -1503,6 +1511,7 @@ export const runSampledCcDitherPreviewRuntime = (args: {
           previewRenderSettings: sampledPreviewRenderSettings,
           sampleColor: sampledColorFn,
           sampleSourcePoints: sampledSourcePoints,
+          sampleDirection: sampledDirection,
         } = request;
         ccLog('shape: sampled preview worker begin', {
           pointCount: sampledGeometry.previewPolygon.length,
@@ -1520,16 +1529,51 @@ export const runSampledCcDitherPreviewRuntime = (args: {
           roiHeight: sampledGeometry.height,
         });
 
-        const sampledPreview = buildSampledStops({
-          sourcePts: sampledSourcePoints,
-          sampleColor: sampledColorFn,
-          allowTiny: true,
-        });
-        const resolvedSampledStops = resolveSampledStopsWithFallback({
-          sampledStops: sampledPreview?.stops,
-          sampleCount: sampledPreview?.sampleCount ?? 0,
-          fallbackStops: request.fallbackStops,
-        });
+        const currentState = getAppStoreState();
+        const referenceLayer = currentState.colorPickerPreferReferenceLayer && currentState.referenceLayerId
+          ? currentState.layers.find((candidate) => candidate.id === currentState.referenceLayerId)
+          : null;
+        let footprintResult = null;
+        if (currentState.currentOffscreenCanvas) {
+          try {
+            footprintResult = await sampleShapeGradientFromCanvases({
+              compositeCanvas: currentState.currentOffscreenCanvas,
+              referenceCanvas: referenceLayer?.framebuffer ?? null,
+              shapePoints: sampledGeometry.previewPolygon,
+              direction: sampledDirection,
+              maxColors: sampledBrushSettings.gradientBands ?? 16,
+              mode:
+                sampledBrushSettings.colorCycleFillMode === 'concentric'
+                || sampledBrushSettings.colorCycleFillMode === 'circular'
+                  ? 'concentric'
+                  : 'linear',
+              sampleScale: sampledGeometry.scale,
+            });
+          } catch (error) {
+            ccLog('shape: sampled footprint preview fallback', {
+              error: error instanceof Error ? error.message : String(error),
+            });
+          }
+        }
+        const sampledPreview = footprintResult
+          ? null
+          : buildSampledStops({
+              sourcePts: sampledSourcePoints,
+              sampleColor: sampledColorFn,
+              allowTiny: true,
+            });
+        const resolvedSampledStops = footprintResult
+          ? {
+              stops: footprintResult.stops,
+              usedFallbackStops: false,
+              sampledUniqueColors: footprintResult.stats.outputColors,
+              fallbackUniqueColors: new Set(request.fallbackStops.map((stop) => stop.color)).size,
+            }
+          : resolveSampledStopsWithFallback({
+              sampledStops: sampledPreview?.stops,
+              sampleCount: sampledPreview?.sampleCount ?? 0,
+              fallbackStops: request.fallbackStops,
+            });
         ccLog('shape: sampled preview stops ready', {
           stopCount: resolvedSampledStops.stops.length,
           usedFallbackStops: resolvedSampledStops.usedFallbackStops,
