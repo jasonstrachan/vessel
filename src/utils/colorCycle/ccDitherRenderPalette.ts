@@ -669,7 +669,9 @@ export const buildCcDitherRuntimePalette = ({
       spread,
     });
   }
-  return fillBackground
+  // Flat Cycle already uses fillBackground to decide whether to write the low
+  // weave index. Its base gradient alpha must remain available for playback.
+  return fillBackground && useDitherRenderPalette
     ? {
         ...result,
         renderStops: makeStopsOpaque(result.renderStops),

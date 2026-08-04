@@ -89,7 +89,7 @@ describe('colorCycleMarkSession rebuild', () => {
     expect(captureFrozenCcDitherRenderConfig().fillBackground).toBe(true);
   });
 
-  it('keeps Flat Cycle on base colors while applying its frozen background-fill policy', () => {
+  it('keeps Flat Cycle manual alpha while applying its frozen background-fill policy', () => {
     useAppStore.setState((state) => ({
       tools: {
         ...state.tools,
@@ -117,8 +117,8 @@ describe('colorCycleMarkSession rebuild', () => {
     expect(config.enabled).toBe(true);
     expect(config.useDitherRenderPalette).toBe(false);
     expect(runtimeStops).toEqual([
-      { position: 0, color: 'rgb(0, 255, 0)', opacity: 1 },
-      { position: 1, color: '#0000ff', opacity: 1 },
+      { position: 0, color: 'rgba(0, 255, 0, 0.5)' },
+      { position: 1, color: '#0000ff', opacity: 0 },
     ]);
   });
 

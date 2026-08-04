@@ -674,7 +674,7 @@ describe('Color cycle runtime parity (Vessel reference vs Goblet2 CPU)', () => {
     });
   });
 
-  it('keeps Flat Cycle base colors while applying background-fill opacity', () => {
+  it('animates Flat Cycle base colors and manual alpha with background fill enabled', () => {
     const baseStops = [
       { position: 0, color: '#00ff00', opacity: 1 },
       { position: 1, color: '#0000ff', opacity: 0 },
@@ -688,9 +688,15 @@ describe('Color cycle runtime parity (Vessel reference vs Goblet2 CPU)', () => {
       fillBackground: true,
     }).renderStops;
 
-    expect(filledStops).toHaveLength(baseStops.length);
-    expect(filledStops.map((stop) => stop.color)).toEqual(['#00ff00', '#0000ff']);
-    expect(new GradientPalette(filledStops).getColor(255).a).toBe(255);
+    const palette = new GradientPalette(filledStops);
+
+    expect(filledStops).toEqual(baseStops);
+    expect(palette.getColor(0).a).toBe(255);
+    expect(palette.getColor(255).a).toBe(0);
+
+    const shiftedHalfCycle = palette.shift(0.5);
+    expect(shiftedHalfCycle[3]).toBe(palette.getColor(128).a);
+    expect(shiftedHalfCycle[3]).toBeLessThan(palette.getColor(0).a);
   });
 
   it('keeps history replay rebases aligned with derived surface versions', () => {

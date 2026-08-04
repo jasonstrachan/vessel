@@ -296,7 +296,7 @@ describe('buildCcDitherRuntimePalette', () => {
     expect(filledRuntime.renderStops.every((stop) => !stop.color.startsWith('rgba'))).toBe(true);
   });
 
-  it('applies background-fill opacity without remapping Flat Cycle colors', () => {
+  it('preserves Flat Cycle source colors and alpha when background fill is enabled', () => {
     const baseStops = [
       { position: 0, color: 'rgba(17, 34, 51, 0.25)', opacity: 0.5 },
       { position: 1, color: '#778899', opacity: 0 },
@@ -311,10 +311,7 @@ describe('buildCcDitherRuntimePalette', () => {
     });
 
     expect(runtime.bandCount).toBe(0);
-    expect(runtime.renderStops).toEqual([
-      { position: 0, color: 'rgb(17, 34, 51)', opacity: 1 },
-      { position: 1, color: '#778899', opacity: 1 },
-    ]);
+    expect(runtime.renderStops).toEqual(baseStops);
   });
 
   it('preserves neighboring chroma for legacy transparent keyword stops', () => {
