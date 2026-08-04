@@ -132,6 +132,59 @@ describe('runtimeRehydration', () => {
     expect(putImageDataSpy).not.toHaveBeenCalled();
   });
 
+  it('does not overwrite a replayed color-cycle shape patch with compatibility pixels', async () => {
+    const canvas = document.createElement('canvas');
+    canvas.width = 2;
+    canvas.height = 2;
+    const ctx = canvas.getContext('2d')!;
+    const putImageDataSpy = jest.spyOn(ctx, 'putImageData');
+    const staleCompatibilityImageData = new ImageData(2, 2);
+    staleCompatibilityImageData.data[3] = 255;
+    const layer = makeLayer(canvas, staleCompatibilityImageData);
+    mockStoreState.layers = [layer];
+    mockBrushManager.validateColorCycleBrush.mockReturnValue(true);
+
+    const targets = createRehydrationTargets();
+    targets.layerIds.add(layer.id);
+    targets.colorCycleLayerIds.add(layer.id);
+    await rehydrateEntryResources(
+      { id: 'entry', action: 'fill', label: 'test', ts: 1, docId: 'doc', deltas: [] },
+      'backward',
+      targets,
+    );
+
+    expect(putImageDataSpy).not.toHaveBeenCalled();
+    expect(mockStoreState.setLayersNeedRecomposition).toHaveBeenCalled();
+  });
+
+  it('restores compatibility pixels for a static layer-structure snapshot', async () => {
+    const canvas = document.createElement('canvas');
+    canvas.width = 2;
+    canvas.height = 2;
+    const ctx = canvas.getContext('2d')!;
+    const putImageDataSpy = jest.spyOn(ctx, 'putImageData');
+    const compatibilityImageData = new ImageData(2, 2);
+    compatibilityImageData.data[3] = 255;
+    const layer = makeLayer(canvas, compatibilityImageData);
+    layer.colorCycleData = {
+      ...layer.colorCycleData!,
+      brushState: null,
+    };
+    mockStoreState.layers = [layer];
+    mockBrushManager.validateColorCycleBrush.mockReturnValue(true);
+
+    const targets = createRehydrationTargets();
+    targets.layerIds.add(layer.id);
+    targets.colorCycleLayerIds.add(layer.id);
+    await rehydrateEntryResources(
+      { id: 'entry', action: 'layer-structure', label: 'test', ts: 1, docId: 'doc', deltas: [] },
+      'backward',
+      targets,
+    );
+
+    expect(putImageDataSpy).toHaveBeenCalledWith(compatibilityImageData, 0, 0);
+  });
+
   it('does not overwrite a valid live brush with an all-zero serialized brush state', async () => {
     const canvas = document.createElement('canvas');
     canvas.width = 2;

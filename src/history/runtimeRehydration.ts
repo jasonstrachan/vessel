@@ -106,7 +106,7 @@ const runtimeRehydrationError = (
 
 const rehydrateColorCycleRuntime = async (
   layerIds: Iterable<string> | null,
-  options?: { restoreBrushState?: boolean },
+  options?: { restoreLayerSnapshot?: boolean },
 ): Promise<void> => {
   if (!isClient) {
     return;
@@ -179,7 +179,7 @@ const rehydrateColorCycleRuntime = async (
       }
     }
 
-    if (options?.restoreBrushState) {
+    if (options?.restoreLayerSnapshot) {
       const latestStore = useAppStore.getState();
       const latestLayer = latestStore.layers.find((candidate) => candidate.id === layer.id);
       const latestColorState = latestLayer?.layerType === 'color-cycle'
@@ -280,7 +280,12 @@ const rehydrateColorCycleRuntime = async (
       }
     }
 
-    if (!restoredCanonicalSurface && colorState.canvas && colorState.canvasImageData) {
+    if (
+      options?.restoreLayerSnapshot &&
+      !restoredCanonicalSurface &&
+      colorState.canvas &&
+      colorState.canvasImageData
+    ) {
       try {
         const ctx = colorState.canvas.getContext('2d', {
           willReadFrequently: true,
@@ -342,7 +347,7 @@ export const rehydrateEntryResources = async (
 ): Promise<void> => {
   if (targets.colorCycleLayerIds.size > 0) {
     await rehydrateColorCycleRuntime(targets.colorCycleLayerIds, {
-      restoreBrushState: entry.action === 'layer-structure',
+      restoreLayerSnapshot: entry.action === 'layer-structure',
     });
   }
 
