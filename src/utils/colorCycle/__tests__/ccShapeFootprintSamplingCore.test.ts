@@ -143,11 +143,39 @@ describe('sampleShapeFootprintGradient', () => {
 
     const result = sample({ width, height, pixels, maxColors: 1 });
 
-    expect(result?.stops).toHaveLength(2);
-    expect(result?.stops[0].color).toBe(result?.stops[1].color);
-    expect(result?.stops[0].color).not.toBe('#ff0000');
-    expect(result?.stops[0].color).not.toBe('#0000ff');
+    expect(result?.stops.map((stop) => stop.color)).toEqual(['#800080', '#800080']);
     expect(result?.stats.outputColors).toBe(1);
+  });
+
+  it('returns weighted RGB cluster centroids instead of saturated source-bin representatives', () => {
+    const width = 4;
+    const height = 1;
+    const pixels = makePixels(width, height, (x) => ([
+      [255, 0, 0, 255],
+      [255, 128, 128, 255],
+      [128, 128, 255, 255],
+      [0, 0, 255, 255],
+    ][x] as [number, number, number, number]));
+
+    const result = sample({ width, height, pixels, maxColors: 2 });
+
+    expect(result?.stops.map((stop) => stop.color)).toEqual(['#ff4040', '#4040ff']);
+  });
+
+  it('merges a low-coverage accent into its nearest dominant cluster', () => {
+    const width = 100;
+    const height = 1;
+    const pixels = makePixels(width, height, (x) => {
+      if (x < 55) return [70, 90, 120, 255];
+      if (x < 95) return [120, 135, 145, 255];
+      return [255, 128, 0, 255];
+    });
+
+    const result = sample({ width, height, pixels, maxColors: 3 });
+
+    expect(result?.stats.outputColors).toBe(2);
+    expect(result?.stops.every((stop) => stop.color !== '#ff8000')).toBe(true);
+    expect(result?.dominantColor).toBe('#465a78');
   });
 
   it('alpha-weights partial pixels and ignores fully transparent pixels', () => {

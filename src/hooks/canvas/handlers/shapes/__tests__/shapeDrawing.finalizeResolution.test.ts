@@ -16,6 +16,11 @@ import {
   markSampledTempSlotReconciled,
 } from '@/hooks/canvas/utils/colorCycleMarkSession';
 import * as sampledShapeTempSlotOwnership from '@/hooks/canvas/handlers/shapes/sampledShapeTempSlotOwnership';
+import {
+  buildSampledCcShapePreviewShapeKey,
+  clearSampledCcShapePreviewStops,
+  rememberSampledCcShapePreviewStops,
+} from '@/hooks/canvas/utils/sampledCcShapePreviewStops';
 
 const storeState = {
   activeLayerId: 'layer-1',
@@ -231,6 +236,7 @@ describe('finalizeShapeDrawing CC dither resolution', () => {
     jest.restoreAllMocks();
     jest.clearAllMocks();
     cancelMarkGradientSession('layer-1');
+    clearSampledCcShapePreviewStops();
     __resetSampledTempSlotOwnershipForTests();
     (storeState as unknown as { currentBrushPreset: { id: string } | null }).currentBrushPreset = null;
     storeState.tools.ccGradientSource = 'fg';
@@ -656,6 +662,45 @@ describe('finalizeShapeDrawing CC dither resolution', () => {
     expect(prepared?.previewStopsStored?.map((stop) => stop.color)).toContain('#ff0000');
     expect(prepared?.previewStopsStored?.map((stop) => stop.color)).toContain('#0000ff');
     expect(prepared?.previewHash).toBeTruthy();
+  });
+
+  it('preserves the live footprint representative when finalize falls back to cached preview stops', async () => {
+    storeState.tools.ccGradientSource = 'sampled';
+    const layer = storeState.layers[0];
+    const shapePoints = [
+      { x: 0, y: 0 },
+      { x: 10, y: 0 },
+      { x: 10, y: 10 },
+    ];
+    const cachedStops = [
+      { position: 0, color: '#112233' },
+      { position: 0.5, color: '#667788' },
+      { position: 1, color: '#ddeeff' },
+    ];
+    rememberSampledCcShapePreviewStops({
+      layerId: layer.id,
+      stops: cachedStops,
+      dominantColor: '#112233',
+      replayKey: 'preview-representative',
+      shapeKey: buildSampledCcShapePreviewShapeKey(shapePoints),
+      rawPointCount: shapePoints.length,
+      seq: 1,
+      pointCount: shapePoints.length,
+    });
+
+    const prepared = await __TESTING__.prepareFinalSampledShapeSession({
+      layer,
+      state: storeState,
+      shapePoints,
+      deps: {
+        sampleColorAt: jest.fn(),
+        sampleHexAt: jest.fn((x: number) => (x < 5 ? '#ff0000' : '#0000ff')),
+        ccLog: jest.fn(),
+      },
+    });
+
+    expect(prepared?.previewStopsStored).toEqual(cachedStops);
+    expect(prepared?.sampledRepresentativeColor).toBe('#112233');
   });
 
   it('replaces an active sampled stroke session when preparing sampled shape finalize stops', async () => {

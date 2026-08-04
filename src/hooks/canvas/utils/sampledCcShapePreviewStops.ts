@@ -4,6 +4,7 @@ import type { StoredStop } from '@/utils/colorCycleGradientDefs';
 type SampledCcShapePreviewStopsEntry = {
   layerId: string;
   stops: StoredStop[];
+  dominantColor?: string;
   replayKey: string;
   shapeKey: string;
   rawPointCount: number;
@@ -25,6 +26,7 @@ export const buildSampledCcShapePreviewShapeKey = (
 export const rememberSampledCcShapePreviewStops = ({
   layerId,
   stops,
+  dominantColor,
   replayKey,
   shapeKey,
   rawPointCount,
@@ -33,6 +35,7 @@ export const rememberSampledCcShapePreviewStops = ({
 }: {
   layerId: string | null | undefined;
   stops: StoredStop[];
+  dominantColor?: string;
   replayKey: string;
   shapeKey: string;
   rawPointCount: number;
@@ -45,6 +48,7 @@ export const rememberSampledCcShapePreviewStops = ({
   previewStopsByLayer.set(layerId, {
     layerId,
     stops: cloneStops(stops),
+    dominantColor,
     replayKey,
     shapeKey,
     rawPointCount,

@@ -567,6 +567,7 @@ const prepareFinalSampledShapeSession = async (params: {
     ? params.state.layers.find((candidate) => candidate.id === params.state.referenceLayerId)
     : null;
   let footprintStops: StoredStop[] | null = null;
+  let footprintDominantColor: string | null = null;
   if (params.state.currentOffscreenCanvas) {
     try {
       const footprintResult = await sampleShapeGradientFromCanvases({
@@ -578,6 +579,7 @@ const prepareFinalSampledShapeSession = async (params: {
         mode: gradientKind,
       });
       footprintStops = footprintResult?.stops ?? null;
+      footprintDominantColor = footprintResult?.dominantColor ?? null;
       params.deps.ccLog('shape: footprint sample ready', {
         layerId: params.layer.id,
         sampledPixels: footprintResult?.stats.sampledPixels ?? 0,
@@ -620,6 +622,10 @@ const prepareFinalSampledShapeSession = async (params: {
     ?? (previewStopsFromLivePreview?.stops && previewStopsFromLivePreview.stops.length > (previewStops?.length ?? 0)
       ? previewStopsFromLivePreview.stops
       : previewStops);
+  const finalRepresentativeColor = footprintDominantColor
+    ?? (finalPreviewStops === previewStopsFromLivePreview?.stops
+      ? previewStopsFromLivePreview.dominantColor
+      : undefined);
   const sampledUniqueColors = new Set((previewStops ?? []).map((stop) => stop.color)).size;
   const fallbackUniqueColors = new Set(fallbackStops.map((stop) => stop.color)).size;
   const usedFallbackStops = footprintStops
@@ -691,6 +697,7 @@ const prepareFinalSampledShapeSession = async (params: {
   if (!session) {
     return null;
   }
+  session.sampledRepresentativeColor = finalRepresentativeColor;
 
   applyFinalSampledShapeStops({
     session,

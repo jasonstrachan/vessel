@@ -61,6 +61,7 @@ class FakeWorker implements Worker {
         ...base,
         result: {
           stops: [{ position: 0, color: '#ff0000' }, { position: 1, color: '#0000ff' }],
+          dominantColor: '#ff0000',
           stats: { sampledPixels: 2, uniqueColorBins: 2, outputColors: 2, alphaWeight: 2 },
         },
       };
@@ -137,6 +138,7 @@ describe('colorCycleFillClient', () => {
       { position: 1, color: '#0000ff' },
     ]);
     expect(result.stats.outputColors).toBe(2);
+    expect(result.dominantColor).toBe('#ff0000');
   });
 
   it('rejects a concentric fill job when the worker never responds', async () => {

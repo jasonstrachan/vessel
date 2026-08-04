@@ -217,8 +217,8 @@ describe('colorCycleGradientSourceContract', () => {
       { position: 1, color: '#ffffff' },
     ];
     const contrastedStops = [
-      { position: 0, color: 'rgb(78, 78, 78)' },
-      { position: 1, color: 'rgb(178, 178, 178)' },
+      { position: 0, color: 'rgb(47, 47, 47)' },
+      { position: 1, color: 'rgb(209, 209, 209)' },
     ];
     const session = makeMarkSession({
       source: 'sampled',
@@ -256,8 +256,8 @@ describe('colorCycleGradientSourceContract', () => {
       { position: 1, color: '#ffffff' },
     ];
     const contrastedStops = [
-      { position: 0, color: 'rgb(78, 78, 78)' },
-      { position: 1, color: 'rgb(178, 178, 178)' },
+      { position: 0, color: 'rgb(47, 47, 47)' },
+      { position: 1, color: 'rgb(209, 209, 209)' },
     ];
     const pairBandCount = resolveCcDitherBandMode(16).pairBandCount;
     const runtimeStops = buildCcDitherRenderPalette({
@@ -353,7 +353,7 @@ describe('colorCycleGradientSourceContract', () => {
       session,
       brushSettings: makeBrushSettings({
         ditherEnabled: false,
-        ccGradientRangeContrast: 100,
+        ccGradientRangeContrast: 70,
       }),
     });
 

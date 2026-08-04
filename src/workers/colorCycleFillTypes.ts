@@ -60,6 +60,7 @@ export interface ShapeGradientSampleJob {
 
 export interface ShapeGradientSampleResult {
   stops: Array<{ position: number; color: string }>;
+  dominantColor: string;
   stats: {
     sampledPixels: number;
     uniqueColorBins: number;

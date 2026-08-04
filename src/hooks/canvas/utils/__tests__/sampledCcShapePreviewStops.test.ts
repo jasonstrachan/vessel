@@ -27,6 +27,7 @@ describe('sampledCcShapePreviewStops', () => {
     rememberSampledCcShapePreviewStops({
       layerId: 'layer-1',
       stops,
+      dominantColor: '#112233',
       replayKey: 'preview-a',
       shapeKey,
       rawPointCount: points.length,
@@ -49,6 +50,7 @@ describe('sampledCcShapePreviewStops', () => {
     rememberSampledCcShapePreviewStops({
       layerId: 'layer-1',
       stops,
+      dominantColor: '#112233',
       replayKey: 'preview-b',
       shapeKey,
       rawPointCount: points.length,
@@ -63,6 +65,7 @@ describe('sampledCcShapePreviewStops', () => {
     });
 
     expect(consumed?.stops).toEqual(stops);
+    expect(consumed?.dominantColor).toBe('#112233');
     expect(consumed?.replayKey).toBe('preview-b');
   });
 });

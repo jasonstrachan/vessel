@@ -1602,10 +1602,12 @@ export const runSampledCcDitherPreviewRuntime = (args: {
         const effectiveStops = applyCcGradientContrast(
           resolvedSampledStops.stops,
           sampledBrushSettings.ccGradientRangeContrast,
+          footprintResult?.dominantColor,
         );
         rememberSampledCcShapePreviewStops({
           layerId: getAppStoreState().activeLayerId,
           stops: resolvedSampledStops.stops,
+          dominantColor: footprintResult?.dominantColor,
           replayKey: request.replayKey,
           shapeKey: buildSampledCcShapePreviewShapeKey(committedPolygon),
           rawPointCount: committedPolygon.length,

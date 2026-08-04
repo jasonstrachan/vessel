@@ -245,7 +245,7 @@ describe('ccGradientRuntime', () => {
     const layer = makeLayer();
     const brushSettings = makeBrushSettings({
       ditherEnabled: false,
-      ccGradientRangeContrast: 100,
+      ccGradientRangeContrast: 70,
     });
     const session: MarkGradientSession = {
       markId: 'session-range',

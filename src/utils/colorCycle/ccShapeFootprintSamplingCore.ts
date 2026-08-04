@@ -4,6 +4,7 @@ import { computeDistanceField } from '@/utils/colorCycle/concentricFillCore';
 const COLOR_BIN_LEVELS = 32;
 const COLOR_BIN_COUNT = COLOR_BIN_LEVELS ** 3;
 const K_MEANS_ITERATIONS = 4;
+const MIN_CLUSTER_WEIGHT_VS_EQUAL_SHARE = 0.35;
 
 type Oklab = { l: number; a: number; b: number };
 
@@ -33,6 +34,7 @@ export type ShapeFootprintSamplingInput = {
 
 export type ShapeFootprintSamplingResult = {
   stops: StoredStop[];
+  dominantColor: string;
   stats: {
     sampledPixels: number;
     uniqueColorBins: number;
@@ -46,14 +48,6 @@ const srgbChannelToLinear = (value: number): number => {
   return normalized <= 0.04045
     ? normalized / 12.92
     : ((normalized + 0.055) / 1.055) ** 2.4;
-};
-
-const linearChannelToSrgb = (value: number): number => {
-  const clamped = Math.max(0, Math.min(1, value));
-  const normalized = clamped <= 0.0031308
-    ? clamped * 12.92
-    : 1.055 * clamped ** (1 / 2.4) - 0.055;
-  return Math.round(normalized * 255);
 };
 
 const rgbToOklab = (r: number, g: number, b: number): Oklab => {
@@ -70,25 +64,24 @@ const rgbToOklab = (r: number, g: number, b: number): Oklab => {
   };
 };
 
-const oklabToRgb = ({ l, a, b }: Oklab): [number, number, number] => {
-  const lRoot = l + 0.3963377774 * a + 0.2158037573 * b;
-  const mRoot = l - 0.1055613458 * a - 0.0638541728 * b;
-  const sRoot = l - 0.0894841775 * a - 1.291485548 * b;
-  const linearL = lRoot ** 3;
-  const linearM = mRoot ** 3;
-  const linearS = sRoot ** 3;
-  return [
-    linearChannelToSrgb(4.0767416621 * linearL - 3.3077115913 * linearM + 0.2309699292 * linearS),
-    linearChannelToSrgb(-1.2684380046 * linearL + 2.6097574011 * linearM - 0.3413193965 * linearS),
-    linearChannelToSrgb(-0.0041960863 * linearL - 0.7034186147 * linearM + 1.707614701 * linearS),
-  ];
-};
-
 const colorDistanceSquared = (a: Oklab, b: Oklab): number => {
   const dl = a.l - b.l;
   const da = a.a - b.a;
   const db = a.b - b.b;
   return dl * dl + da * da + db * db;
+};
+
+const findNearestCenterIndex = (entry: Oklab, centers: Oklab[]): number => {
+  let nearestIndex = 0;
+  let nearestDistance = Infinity;
+  for (let centerIndex = 0; centerIndex < centers.length; centerIndex += 1) {
+    const distance = colorDistanceSquared(entry, centers[centerIndex]);
+    if (distance < nearestDistance) {
+      nearestDistance = distance;
+      nearestIndex = centerIndex;
+    }
+  }
+  return nearestIndex;
 };
 
 const toHex = (r: number, g: number, b: number): string => {
@@ -213,32 +206,35 @@ const buildColorEntries = (input: ShapeFootprintSamplingInput): {
 const buildRepresentativeColors = (
   entries: ColorEntry[],
   requestedColors: number,
-): Array<{ color: string; projection: number; luminance: number }> => {
+): {
+  representatives: Array<{ color: string; projection: number; luminance: number }>;
+  dominantColor: string | null;
+} => {
   if (entries.length === 0) {
-    return [];
+    return { representatives: [], dominantColor: null };
   }
 
   const colorCount = Math.min(Math.max(1, requestedColors), entries.length);
   if (colorCount === 1) {
     let weight = 0;
-    let l = 0;
-    let a = 0;
-    let b = 0;
+    let r = 0;
+    let g = 0;
+    let blue = 0;
     let projection = 0;
     for (const entry of entries) {
       weight += entry.weight;
-      l += entry.l * entry.weight;
-      a += entry.a * entry.weight;
-      b += entry.b * entry.weight;
+      r += entry.r * entry.weight;
+      g += entry.g * entry.weight;
+      blue += entry.blue * entry.weight;
       projection += entry.projection * entry.weight;
     }
-    const mean = { l: l / weight, a: a / weight, b: b / weight };
-    const [r, g, blue] = oklabToRgb(mean);
-    return [{
-      color: toHex(r, g, blue),
+    const meanRgb: [number, number, number] = [r / weight, g / weight, blue / weight];
+    const representative = {
+      color: toHex(...meanRgb),
       projection: projection / weight,
-      luminance: mean.l,
-    }];
+      luminance: rgbToOklab(...meanRgb).l,
+    };
+    return { representatives: [representative], dominantColor: representative.color };
   }
 
   const centers: Oklab[] = [];
@@ -270,7 +266,6 @@ const buildRepresentativeColors = (
     centers.push({ l: bestEntry.l, a: bestEntry.a, b: bestEntry.b });
   }
 
-  const assignments = new Int16Array(entries.length);
   for (let iteration = 0; iteration < K_MEANS_ITERATIONS; iteration += 1) {
     const clusterWeights = new Float64Array(centers.length);
     const lSums = new Float64Array(centers.length);
@@ -278,16 +273,7 @@ const buildRepresentativeColors = (
     const bSums = new Float64Array(centers.length);
     for (let entryIndex = 0; entryIndex < entries.length; entryIndex += 1) {
       const entry = entries[entryIndex];
-      let nearestIndex = 0;
-      let nearestDistance = Infinity;
-      for (let centerIndex = 0; centerIndex < centers.length; centerIndex += 1) {
-        const distance = colorDistanceSquared(entry, centers[centerIndex]);
-        if (distance < nearestDistance) {
-          nearestDistance = distance;
-          nearestIndex = centerIndex;
-        }
-      }
-      assignments[entryIndex] = nearestIndex;
+      const nearestIndex = findNearestCenterIndex(entry, centers);
       clusterWeights[nearestIndex] += entry.weight;
       lSums[nearestIndex] += entry.l * entry.weight;
       aSums[nearestIndex] += entry.a * entry.weight;
@@ -305,43 +291,44 @@ const buildRepresentativeColors = (
     }
   }
 
-  const clusterWeights = new Float64Array(centers.length);
-  const projectionSums = new Float64Array(centers.length);
-  const nearestEntries: Array<ColorEntry | null> = Array.from({ length: centers.length }, () => null);
-  const nearestDistances = new Float64Array(centers.length).fill(Infinity);
-  for (let entryIndex = 0; entryIndex < entries.length; entryIndex += 1) {
-    const entry = entries[entryIndex];
-    let nearestIndex = 0;
-    let nearestDistance = Infinity;
-    for (let centerIndex = 0; centerIndex < centers.length; centerIndex += 1) {
-      const distance = colorDistanceSquared(entry, centers[centerIndex]);
-      if (distance < nearestDistance) {
-        nearestDistance = distance;
-        nearestIndex = centerIndex;
-      }
-    }
-    assignments[entryIndex] = nearestIndex;
+  const initialWeights = new Float64Array(centers.length);
+  for (const entry of entries) {
+    initialWeights[findNearestCenterIndex(entry, centers)] += entry.weight;
+  }
+  const totalWeight = initialWeights.reduce((sum, weight) => sum + weight, 0);
+  let dominantInitialIndex = 0;
+  for (let index = 1; index < initialWeights.length; index += 1) {
+    if (initialWeights[index] > initialWeights[dominantInitialIndex]) dominantInitialIndex = index;
+  }
+  const minimumWeight = (totalWeight / centers.length) * MIN_CLUSTER_WEIGHT_VS_EQUAL_SHARE;
+  const retainedCenters = centers.filter((_, index) => (
+    index === dominantInitialIndex || initialWeights[index] >= minimumWeight
+  ));
+
+  const clusterWeights = new Float64Array(retainedCenters.length);
+  const redSums = new Float64Array(retainedCenters.length);
+  const greenSums = new Float64Array(retainedCenters.length);
+  const blueSums = new Float64Array(retainedCenters.length);
+  const projectionSums = new Float64Array(retainedCenters.length);
+  for (const entry of entries) {
+    const nearestIndex = findNearestCenterIndex(entry, retainedCenters);
     clusterWeights[nearestIndex] += entry.weight;
+    redSums[nearestIndex] += entry.r * entry.weight;
+    greenSums[nearestIndex] += entry.g * entry.weight;
+    blueSums[nearestIndex] += entry.blue * entry.weight;
     projectionSums[nearestIndex] += entry.projection * entry.weight;
-    if (
-      nearestDistance < nearestDistances[nearestIndex]
-      || (nearestDistance === nearestDistances[nearestIndex]
-        && entry.weight > (nearestEntries[nearestIndex]?.weight ?? 0))
-    ) {
-      nearestDistances[nearestIndex] = nearestDistance;
-      nearestEntries[nearestIndex] = entry;
-    }
   }
 
-  const representatives = centers.flatMap((center, index) => {
-    const representative = nearestEntries[index];
-    if (!representative || clusterWeights[index] <= 0) {
+  const representatives = retainedCenters.flatMap((center, index) => {
+    const weight = clusterWeights[index];
+    if (weight <= 0) {
       return [];
     }
     return [{
-      color: toHex(representative.r, representative.g, representative.blue),
-      projection: projectionSums[index] / clusterWeights[index],
+      color: toHex(redSums[index] / weight, greenSums[index] / weight, blueSums[index] / weight),
+      projection: projectionSums[index] / weight,
       luminance: center.l,
+      weight,
     }];
   });
   const distinct = new Map<string, (typeof representatives)[number]>();
@@ -351,7 +338,14 @@ const buildRepresentativeColors = (
       distinct.set(representative.color, representative);
     }
   }
-  return Array.from(distinct.values());
+  let dominant = representatives[0];
+  for (const representative of representatives) {
+    if (representative.weight > dominant.weight) dominant = representative;
+  }
+  return {
+    representatives: Array.from(distinct.values()),
+    dominantColor: dominant.color,
+  };
 };
 
 export const sampleShapeFootprintGradient = (
@@ -367,10 +361,12 @@ export const sampleShapeFootprintGradient = (
   }
 
   const { entries, sampledPixels, alphaWeight } = buildColorEntries(input);
-  const representatives = buildRepresentativeColors(
+  const palette = buildRepresentativeColors(
     entries,
     Math.max(1, Math.min(16, Math.round(input.maxColors))),
-  ).sort((left, right) => left.projection - right.projection || left.luminance - right.luminance);
+  );
+  const representatives = palette.representatives
+    .sort((left, right) => left.projection - right.projection || left.luminance - right.luminance);
   if (representatives.length === 0) {
     return null;
   }
@@ -387,6 +383,7 @@ export const sampleShapeFootprintGradient = (
 
   return {
     stops,
+    dominantColor: palette.dominantColor ?? representatives[0].color,
     stats: {
       sampledPixels,
       uniqueColorBins: entries.length,

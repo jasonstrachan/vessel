@@ -38,6 +38,7 @@ export type MarkGradientSession = {
   previewHash?: string;
   fallbackStopsStored?: StoredStop[];
   samples?: Array<{ t01: number; rgba: [number, number, number, number] }>;
+  sampledRepresentativeColor?: string;
   ditherRenderConfig?: FrozenCcDitherRenderConfig;
 };
 
@@ -142,7 +143,7 @@ export const captureFrozenCcDitherRenderConfig = (): FrozenCcDitherRenderConfig 
 };
 
 export const resolveMarkSessionRuntimeStops = (
-  session: Pick<MarkGradientSession, 'ditherRenderConfig' | 'source'> | null | undefined,
+  session: Pick<MarkGradientSession, 'ditherRenderConfig' | 'source' | 'sampledRepresentativeColor'> | null | undefined,
   stops: StoredStop[],
   liveOverrides?: {
     enabled?: boolean;
@@ -160,6 +161,7 @@ export const resolveMarkSessionRuntimeStops = (
   const contrastStops = applyCcGradientContrast(
     clonedStops,
     liveOverrides?.rangeContrast ?? config?.rangeContrast,
+    session?.sampledRepresentativeColor,
   );
   if (!enabled) {
     return contrastStops;
@@ -329,6 +331,7 @@ export const getPreviewGradientForActiveMark = (layerId: string): PreviewGradien
           sampledStops,
           getAppStoreState().tools.brushSettings.ccGradientRangeContrast ??
             session.ditherRenderConfig?.rangeContrast,
+          session.sampledRepresentativeColor,
         ),
         defIdPlanned: session.binding?.defId,
       };

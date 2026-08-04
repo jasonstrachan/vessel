@@ -55,7 +55,7 @@ describe('colorCycleMarkSession rebuild', () => {
           ...state.tools.brushSettings,
           ditherEnabled: false,
           ditherPaletteSpread: 0,
-          ccGradientRangeContrast: 100,
+          ccGradientRangeContrast: 70,
           ccFlatCycleDither: false,
         },
       },
@@ -454,7 +454,7 @@ describe('colorCycleMarkSession rebuild', () => {
         ...state.tools,
         brushSettings: {
           ...state.tools.brushSettings,
-          ccGradientRangeContrast: 100,
+          ccGradientRangeContrast: 70,
         },
       },
     }));
@@ -594,8 +594,8 @@ describe('colorCycleMarkSession rebuild', () => {
     session.previewStopsStored = stops;
 
     expect(getPreviewGradientForActiveMark(layer.id)?.stopsStored).toEqual([
-      { position: 0, color: 'rgb(78, 78, 78)' },
-      { position: 1, color: 'rgb(178, 178, 178)' },
+      { position: 0, color: 'rgb(47, 47, 47)' },
+      { position: 1, color: 'rgb(209, 209, 209)' },
     ]);
 
     const finalized = finalizeMarkGradientSession(layer.id);
@@ -603,8 +603,8 @@ describe('colorCycleMarkSession rebuild', () => {
 
     expect(finalized?.rawStopsStored).toEqual(stops);
     expect(finalized?.frozenStopsStored).toEqual([
-      { position: 0, color: 'rgb(78, 78, 78)' },
-      { position: 1, color: 'rgb(178, 178, 178)' },
+      { position: 0, color: 'rgb(47, 47, 47)' },
+      { position: 1, color: 'rgb(209, 209, 209)' },
     ]);
     expect(finalizedStops).toEqual(finalized?.frozenStopsStored);
   });
