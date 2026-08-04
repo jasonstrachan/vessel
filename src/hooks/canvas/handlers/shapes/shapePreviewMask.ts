@@ -7,6 +7,46 @@ type PolygonMaskOptions = {
   wholeCells?: boolean;
 };
 
+const appendRowSpanMask = (
+  targetCtx: CanvasRenderingContext2D,
+  vertices: Array<{ x: number; y: number }>,
+  useWholeEdgeCells: boolean,
+): void => {
+  const width = targetCtx.canvas.width;
+  const height = targetCtx.canvas.height;
+  const rowSpans = buildNonZeroWindingRowSpans({
+    vertices,
+    minX: 0,
+    minY: 0,
+    maxX: Math.max(0, width - 1),
+    maxY: Math.max(0, height - 1),
+    useWholeEdgeCells,
+  });
+
+  for (let y = 0; y < rowSpans.length; y += 1) {
+    for (const [startX, endX] of rowSpans[y]) {
+      targetCtx.rect(startX, y, endX - startX + 1, 1);
+    }
+  }
+};
+
+export const applyColorCycleRasterFootprintMaskToCanvasContext = (
+  targetCtx: CanvasRenderingContext2D,
+  vertices: Array<{ x: number; y: number }>,
+): void => {
+  if (vertices.length < 3) {
+    return;
+  }
+
+  targetCtx.save();
+  targetCtx.globalCompositeOperation = 'destination-in';
+  targetCtx.beginPath();
+  appendRowSpanMask(targetCtx, vertices, false);
+  targetCtx.fillStyle = '#ffffff';
+  targetCtx.fill();
+  targetCtx.restore();
+};
+
 export const applyPolygonMaskToCanvasContext = (
   targetCtx: CanvasRenderingContext2D,
   vertices: Array<{ x: number; y: number }>,
@@ -75,22 +115,7 @@ export const applyPolygonMaskToCanvasContext = (
       }
     }
   } else if (useHardEdges) {
-    const width = targetCtx.canvas.width;
-    const height = targetCtx.canvas.height;
-    const rowSpans = buildNonZeroWindingRowSpans({
-      vertices,
-      minX: 0,
-      minY: 0,
-      maxX: Math.max(0, width - 1),
-      maxY: Math.max(0, height - 1),
-      useWholeEdgeCells: true,
-    });
-
-    for (let y = 0; y < rowSpans.length; y += 1) {
-      for (const [startX, endX] of rowSpans[y]) {
-        targetCtx.rect(startX, y, endX - startX + 1, 1);
-      }
-    }
+    appendRowSpanMask(targetCtx, vertices, true);
   } else {
     targetCtx.moveTo(vertices[0].x, vertices[0].y);
     for (let i = 1; i < vertices.length; i += 1) {

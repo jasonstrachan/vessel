@@ -15,6 +15,7 @@ import {
 const fillCcGradientDither = jest.fn<Promise<void>, [unknown]>();
 const buildSampledStops = jest.fn();
 const recordSampledCcShapeBreadcrumb = jest.fn();
+const applyColorCycleRasterFootprintMaskToCanvasContext = jest.fn();
 
 jest.mock('@/utils/colorCycle/ccGradientDither', () => ({
   fillCcGradientDither: (...args: unknown[]) => fillCcGradientDither(...(args as [unknown])),
@@ -49,6 +50,11 @@ jest.mock('@/hooks/canvas/handlers/colorCycle/ccSampling', () => ({
 
 jest.mock('@/hooks/canvas/utils/sampledCcShapeBreadcrumbs', () => ({
   recordSampledCcShapeBreadcrumb: (...args: unknown[]) => recordSampledCcShapeBreadcrumb(...args),
+}));
+
+jest.mock('@/hooks/canvas/handlers/shapes/shapePreviewMask', () => ({
+  applyColorCycleRasterFootprintMaskToCanvasContext: (...args: unknown[]) =>
+    applyColorCycleRasterFootprintMaskToCanvasContext(...args),
 }));
 
 const makeMockContext = () => {
@@ -139,6 +145,7 @@ describe('ShapeToolHandler CC dither preview replay', () => {
     fillCcGradientDither.mockReset();
     buildSampledStops.mockReset();
     recordSampledCcShapeBreadcrumb.mockReset();
+    applyColorCycleRasterFootprintMaskToCanvasContext.mockReset();
     buildSampledStops.mockReturnValue({
       stops: [
         { position: 0, color: '#000000' },
@@ -271,6 +278,10 @@ describe('ShapeToolHandler CC dither preview replay', () => {
     await Promise.resolve();
 
     expect(fillCcGradientDither).toHaveBeenCalledTimes(2);
+    expect(applyColorCycleRasterFootprintMaskToCanvasContext).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.any(Array)
+    );
   });
 
   it('does not draw a smooth fallback while dither preview is pending and publishes the dither result with the preview transform', async () => {
@@ -368,6 +379,69 @@ describe('ShapeToolHandler CC dither preview replay', () => {
     expect(fillCcGradientDither).toHaveBeenCalledTimes(1);
   });
 
+  it('marks a matching cached raster as current so vector chrome can stay separate', async () => {
+    fillCcGradientDither.mockResolvedValueOnce();
+
+    const overlayCtx = makeMockContext();
+    const overlayCanvas = document.createElement('canvas');
+    overlayCanvas.width = 256;
+    overlayCanvas.height = 256;
+    (overlayCanvas as any).getContext = jest.fn(() => overlayCtx);
+    const ditherGradPreviewState: DitherGradPreviewState = {
+      origin: null,
+      lastPx: -1,
+      resState: {} as any,
+      ccJobInFlight: false,
+      ccJobDirty: false,
+      ccJobSeq: 0,
+    };
+    const schedulePolygonShapePreviewFrame = jest.fn();
+    const args = {
+      overlayCtx,
+      overlayCanvas,
+      committedPolygon: [{ x: 20, y: 20 }, { x: 60, y: 20 }, { x: 60, y: 60 }],
+      brushSettings: storeState.tools.brushSettings,
+      preparedGradientKey: 'gradient',
+      preparedGradient: {
+        renderStops: [
+          { position: 0, color: '#000000' },
+          { position: 1, color: '#ffffff' },
+        ],
+        sortedStops: [
+          { position: 0, rgba: [0, 0, 0, 255] as [number, number, number, number] },
+          { position: 1, rgba: [255, 255, 255, 255] as [number, number, number, number] },
+        ],
+      },
+      ditherGradPreviewState,
+      drawingHandlers: {
+        isDrawingShapeRef: { current: true },
+        shapePointsRef: { current: [{ x: 20, y: 20 }, { x: 60, y: 20 }, { x: 60, y: 60 }] },
+        ccShapePreviewCacheRef: { current: null },
+      },
+      shouldKeepCachedCcPreviewVisible: () => false,
+      previewOpacity: 0.8,
+      schedulePolygonShapePreviewFrame,
+      getLatestPolygonPreviewPoint: () => ({ x: 60, y: 60 }),
+      previewRenderSettings: {
+        pixelSize: 4,
+        levels: 8,
+        algorithm: 'sierra-lite' as const,
+        patternStyle: 'dots' as const,
+        isFastPreview: false,
+      },
+    };
+
+    expect(runCcDitherPreviewRuntime(args).hasCurrentPixelPreview).toBe(false);
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(schedulePolygonShapePreviewFrame).toHaveBeenCalledTimes(1);
+    expect(runCcDitherPreviewRuntime(args)).toMatchObject({
+      didCustomFill: true,
+      hasCurrentPixelPreview: true,
+    });
+  });
+
   it('clears stale cached cc preview while replacement is pending', async () => {
     let resolveFirst!: () => void;
     fillCcGradientDither.mockImplementationOnce(
@@ -460,12 +534,14 @@ describe('ShapeToolHandler CC dither preview replay', () => {
     (overlayCtx.drawImage as jest.Mock).mockClear();
     (overlayCtx.beginPath as jest.Mock).mockClear();
     (overlayCtx.fill as jest.Mock).mockClear();
+    (overlayCtx.createLinearGradient as jest.Mock).mockClear();
 
     handler.handlePointerMove(moveEvent(30, 30));
     rafQueue.shift()?.(0);
 
     expect(overlayCtx.clearRect as jest.Mock).toHaveBeenCalled();
-    expect(overlayCtx.fill as jest.Mock).not.toHaveBeenCalled();
+    expect(overlayCtx.createLinearGradient as jest.Mock).not.toHaveBeenCalled();
+    expect(overlayCtx.fill as jest.Mock).toHaveBeenCalledTimes(6);
   });
 
   it('clears the CC preview immediately on pointer up', () => {
@@ -599,7 +675,7 @@ describe('ShapeToolHandler CC dither preview replay', () => {
 
     expect(buildSampledStops).not.toHaveBeenCalled();
     expect(fillCcGradientDither).not.toHaveBeenCalled();
-    expect(result.suppressLivePreviewChrome).toBe(false);
+    expect(result.hasCurrentPixelPreview).toBe(false);
 
     jest.runOnlyPendingTimers();
     await Promise.resolve();
@@ -612,8 +688,8 @@ describe('ShapeToolHandler CC dither preview replay', () => {
         flatSeed: expect.any(Number),
         flatCycle: true,
         flatCycleBands: 7,
-        patternPhaseOriginX: -1,
-        patternPhaseOriginY: -1,
+        patternPhaseOriginX: 0,
+        patternPhaseOriginY: 0,
       })
     );
     expect(recordSampledCcShapeBreadcrumb).toHaveBeenCalledWith(
@@ -853,7 +929,6 @@ describe('ShapeToolHandler CC dither preview replay', () => {
       },
       shouldKeepCachedCcPreviewVisible: () => false,
       retainStalePreviewOnCacheMiss: true,
-      suppressChromeForCachedPreview: false,
       previewOpacity: 0.8,
       schedulePolygonShapePreviewFrame: jest.fn(),
       getLatestPolygonPreviewPoint: () => ({ x: 60, y: 60 }),
@@ -868,7 +943,7 @@ describe('ShapeToolHandler CC dither preview replay', () => {
 
     expect(result).toEqual({
       didCustomFill: true,
-      suppressLivePreviewChrome: false,
+      hasCurrentPixelPreview: false,
     });
     expect(overlayCtx.drawImage).toHaveBeenCalledWith(cachedCanvas, 0, 0);
     expect(fillCcGradientDither).not.toHaveBeenCalled();
@@ -933,7 +1008,7 @@ describe('ShapeToolHandler CC dither preview replay', () => {
 
     expect(result).toEqual({
       didCustomFill: false,
-      suppressLivePreviewChrome: false,
+      hasCurrentPixelPreview: false,
     });
     expect(overlayCtx.drawImage).not.toHaveBeenCalled();
     expect(fillCcGradientDither).not.toHaveBeenCalled();
@@ -984,7 +1059,6 @@ describe('ShapeToolHandler CC dither preview replay', () => {
       },
       shouldKeepCachedCcPreviewVisible: () => true,
       retainStalePreviewOnCacheMiss: true,
-      suppressChromeForCachedPreview: false,
       previewOpacity: 0.8,
       schedulePolygonShapePreviewFrame: jest.fn(),
       getLatestPolygonPreviewPoint: () => ({ x: 60, y: 60 }),
@@ -1000,7 +1074,7 @@ describe('ShapeToolHandler CC dither preview replay', () => {
 
     expect(result).toEqual({
       didCustomFill: false,
-      suppressLivePreviewChrome: false,
+      hasCurrentPixelPreview: false,
     });
     expect(overlayCtx.drawImage).not.toHaveBeenCalledWith(cachedCanvas, 0, 0);
     expect(fillCcGradientDither).not.toHaveBeenCalled();
@@ -1109,7 +1183,6 @@ describe('ShapeToolHandler CC dither preview replay', () => {
       },
       shouldKeepCachedCcPreviewVisible: () => false,
       retainStalePreviewOnCacheMiss: true,
-      suppressChromeForCachedPreview: false,
       previewOpacity: 0.8,
       schedulePolygonShapePreviewFrame: jest.fn(),
       getLatestPolygonPreviewPoint: () => ({ x: 60, y: 60 }),
@@ -1124,7 +1197,7 @@ describe('ShapeToolHandler CC dither preview replay', () => {
 
     expect(result).toEqual({
       didCustomFill: false,
-      suppressLivePreviewChrome: false,
+      hasCurrentPixelPreview: false,
     });
     expect(ditherGradPreviewState.ccJobDirty).toBe(true);
     expect(overlayCtx.clearRect).toHaveBeenCalledWith(0, 0, 256, 256);
@@ -1184,7 +1257,7 @@ describe('ShapeToolHandler CC dither preview replay', () => {
 
     expect(result).toEqual({
       didCustomFill: false,
-      suppressLivePreviewChrome: false,
+      hasCurrentPixelPreview: false,
     });
     expect(ditherGradPreviewState.ccJobDirty).toBe(true);
     expect(ditherGradPreviewState.ccJobSeq).toBe(8);
@@ -1267,7 +1340,7 @@ describe('ShapeToolHandler CC dither preview replay', () => {
     });
 
     expect(result.didCustomFill).toBe(true);
-    expect(result.suppressLivePreviewChrome).toBe(false);
+    expect(result.hasCurrentPixelPreview).toBe(false);
     expect(ditherGradPreviewState.ccPendingSampledRequest).toBeDefined();
     expect(ditherGradPreviewState.ccJobInFlight).toBe(false);
     expect(fillCcGradientDither).not.toHaveBeenCalled();
@@ -1613,8 +1686,8 @@ describe('ShapeToolHandler CC dither preview replay', () => {
     expect(fillCcGradientDither.mock.calls[0][0]).toMatchObject({
       minX: 0,
       minY: 0,
-      maxX: 242,
-      maxY: 242,
+      maxX: 240,
+      maxY: 240,
       pixelSize: 8,
       pxlEdge: true,
     });

@@ -35,6 +35,7 @@ import {
   rememberSampledCcShapePreviewStops,
 } from '@/hooks/canvas/utils/sampledCcShapePreviewStops';
 import { ccLog } from '@/debug/ccDebug';
+import { applyColorCycleRasterFootprintMaskToCanvasContext } from '@/hooks/canvas/handlers/shapes/shapePreviewMask';
 import {
   getDerivedSurfaceBuiltFromVersion,
   markDerivedSurfaceBuiltFromVersion,
@@ -197,7 +198,7 @@ const prepareCcPreviewGeometry = ({
   pixelSize: number;
 }): PreparedCcPreviewGeometry => {
   const previewPolygon = simplifyPreviewPolygon(committedPolygon);
-  const roi = computeCcPreviewRoi(previewPolygon);
+  const roi = computeCcPreviewRoi(committedPolygon, 0);
   let scale = Math.max(1, pixelSize);
   const width = roi.size.width;
   const height = roi.size.height;
@@ -229,6 +230,22 @@ const prepareCcPreviewGeometry = ({
     localVertices,
     scaledVertices,
   };
+};
+
+const maskScaledPreviewToFinalRasterFootprint = ({
+  displayCtx,
+  localVertices,
+  useWholeEdgeCells,
+}: {
+  displayCtx: CanvasRenderingContext2D;
+  localVertices: Array<{ x: number; y: number }>;
+  useWholeEdgeCells: boolean;
+}): void => {
+  if (useWholeEdgeCells) {
+    return;
+  }
+
+  applyColorCycleRasterFootprintMaskToCanvasContext(displayCtx, localVertices);
 };
 
 export type DitherGradPreviewState = {
@@ -845,7 +862,6 @@ export const runCcDitherPreviewRuntime = (args: {
     canReplayCurrentPreview: boolean;
   }) => boolean;
   retainStalePreviewOnCacheMiss?: boolean;
-  suppressChromeForCachedPreview?: boolean;
   previewOpacity: number;
   schedulePolygonShapePreviewFrame: (
     resolvePreviewPoint: () => { x: number; y: number } | null
@@ -853,7 +869,7 @@ export const runCcDitherPreviewRuntime = (args: {
   getLatestPolygonPreviewPoint: () => { x: number; y: number } | null;
   previewRenderSettings: CcPreviewRenderSettings;
   documentVersion?: number | null;
-}): { didCustomFill: boolean; suppressLivePreviewChrome: boolean } => {
+}): { didCustomFill: boolean; hasCurrentPixelPreview: boolean } => {
   const {
     overlayCtx,
     overlayCanvas,
@@ -865,7 +881,6 @@ export const runCcDitherPreviewRuntime = (args: {
     drawingHandlers,
     shouldKeepCachedCcPreviewVisible,
     retainStalePreviewOnCacheMiss = false,
-    suppressChromeForCachedPreview = true,
     previewOpacity,
     schedulePolygonShapePreviewFrame,
     getLatestPolygonPreviewPoint,
@@ -930,7 +945,7 @@ export const runCcDitherPreviewRuntime = (args: {
       canReplayCurrentPreview: Boolean(canReplayCurrentPreview),
       shouldDrawCachedPreview: Boolean(shouldDrawCachedPreview),
     });
-  const suppressLivePreviewChrome = suppressChromeForCachedPreview && shouldUseCustomFill;
+  const hasCurrentPixelPreview = Boolean(canReplayCurrentPreview);
   const previewTransform =
     typeof overlayCtx.getTransform === 'function'
       ? overlayCtx.getTransform()
@@ -960,7 +975,7 @@ export const runCcDitherPreviewRuntime = (args: {
   if (canReplayCurrentPreview) {
     return {
       didCustomFill: shouldUseCustomFill,
-      suppressLivePreviewChrome,
+      hasCurrentPixelPreview,
     };
   }
 
@@ -988,6 +1003,12 @@ export const runCcDitherPreviewRuntime = (args: {
     const renderH = useFinalCellGrid ? h : scaledH;
     const renderVertices = useFinalCellGrid ? localVertices : scaledVertices;
     const renderPixelSize = useFinalCellGrid ? previewRenderSettings.pixelSize : 1;
+    const patternPhaseOrigin = useFinalCellGrid
+      ? origin
+      : {
+          x: origin.x / previewGeometry.scale,
+          y: origin.y / previewGeometry.scale,
+        };
     const sampleNormalized = createCcShapePreviewSampleNormalized({
       colorCycleFillMode: brushSettings.colorCycleFillMode,
       localVertices: renderVertices,
@@ -1119,6 +1140,8 @@ export const runCcDitherPreviewRuntime = (args: {
             flatPairSpread: brushSettings.ditherPaletteSpread,
             ditherPatternDiversity: brushSettings.ditherPatternDiversity,
             flatSeed,
+            patternPhaseOriginX: patternPhaseOrigin.x,
+            patternPhaseOriginY: patternPhaseOrigin.y,
             algorithm: previewRenderSettings.algorithm,
             patternStyle: previewRenderSettings.patternStyle,
             imageTileThresholdResolver: getPreviewImageTileThresholdResolver(previewRenderSettings),
@@ -1253,6 +1276,11 @@ export const runCcDitherPreviewRuntime = (args: {
             seq: mySeq,
           });
           displayCtx.drawImage(tempCanvas, 0, 0, renderW, renderH, 0, 0, w, h);
+          maskScaledPreviewToFinalRasterFootprint({
+            displayCtx,
+            localVertices,
+            useWholeEdgeCells: useFinalCellGrid,
+          });
           stampCcHangProbe({
             phase: 'cc-runtime-after-display-blit',
             canvas: overlayCanvas,
@@ -1296,6 +1324,9 @@ export const runCcDitherPreviewRuntime = (args: {
           overlayCtx.imageSmoothingEnabled = false;
           overlayCtx.drawImage(displayCanvas, origin.x, origin.y);
           overlayCtx.restore();
+          schedulePolygonShapePreviewFrame(() =>
+            getLatestPolygonPreviewPoint()
+          );
         } catch {
           // Keep scratch buffers for reuse on the next preview job.
         } finally {
@@ -1312,7 +1343,7 @@ export const runCcDitherPreviewRuntime = (args: {
   }
   return {
     didCustomFill: shouldUseCustomFill,
-    suppressLivePreviewChrome,
+    hasCurrentPixelPreview,
   };
 };
 
@@ -1328,7 +1359,6 @@ export const runSampledCcDitherPreviewRuntime = (args: {
     canReplayCurrentPreview: boolean;
   }) => boolean;
   retainStalePreviewOnCacheMiss?: boolean;
-  suppressChromeForCachedPreview?: boolean;
   previewOpacity: number;
   previewRenderSettings: CcPreviewRenderSettings;
   sampleColor: (x: number, y: number) => string;
@@ -1340,7 +1370,7 @@ export const runSampledCcDitherPreviewRuntime = (args: {
   ) => void;
   getLatestPolygonPreviewPoint: () => { x: number; y: number } | null;
   documentVersion?: number | null;
-}): { didCustomFill: boolean; suppressLivePreviewChrome: boolean } => {
+}): { didCustomFill: boolean; hasCurrentPixelPreview: boolean } => {
   const {
     overlayCtx,
     overlayCanvas,
@@ -1350,7 +1380,6 @@ export const runSampledCcDitherPreviewRuntime = (args: {
     drawingHandlers,
     shouldKeepCachedCcPreviewVisible,
     retainStalePreviewOnCacheMiss = false,
-    suppressChromeForCachedPreview = true,
     previewOpacity,
     previewRenderSettings,
     sampleColor,
@@ -1413,12 +1442,12 @@ export const runSampledCcDitherPreviewRuntime = (args: {
       activeLayerId: getAppStoreState().activeLayerId ?? null,
       seq: ditherGradPreviewState.ccJobSeq,
       didCustomFill: cachedPreview.shouldUseCustomFill,
-      suppressLivePreviewChrome: suppressChromeForCachedPreview && cachedPreview.shouldUseCustomFill,
+      hasCurrentPixelPreview: true,
       replayKey,
     });
     return {
       didCustomFill: cachedPreview.shouldUseCustomFill,
-      suppressLivePreviewChrome: suppressChromeForCachedPreview && cachedPreview.shouldUseCustomFill,
+      hasCurrentPixelPreview: true,
     };
   }
 
@@ -1466,7 +1495,7 @@ export const runSampledCcDitherPreviewRuntime = (args: {
     });
     return {
       didCustomFill: cachedPreview.shouldUseCustomFill,
-      suppressLivePreviewChrome: false,
+      hasCurrentPixelPreview: cachedPreview.canReplayCurrentPreview,
     };
   }
 
@@ -1481,7 +1510,7 @@ export const runSampledCcDitherPreviewRuntime = (args: {
     });
     return {
       didCustomFill: cachedPreview.shouldUseCustomFill,
-      suppressLivePreviewChrome: suppressChromeForCachedPreview && cachedPreview.shouldUseCustomFill,
+      hasCurrentPixelPreview: cachedPreview.canReplayCurrentPreview,
     };
   }
 
@@ -1880,6 +1909,11 @@ export const runSampledCcDitherPreviewRuntime = (args: {
         displayCtx.imageSmoothingEnabled = false;
         displayCtx.clearRect(0, 0, w, h);
         displayCtx.drawImage(tempCanvas, 0, 0, renderW, renderH, 0, 0, w, h);
+        maskScaledPreviewToFinalRasterFootprint({
+          displayCtx,
+          localVertices,
+          useWholeEdgeCells: useFinalCellGrid,
+        });
         if (mySeq !== ditherGradPreviewState.ccJobSeq) {
           continue;
         }
@@ -1935,6 +1969,6 @@ export const runSampledCcDitherPreviewRuntime = (args: {
 
   return {
     didCustomFill: cachedPreview.shouldUseCustomFill,
-    suppressLivePreviewChrome: suppressChromeForCachedPreview && cachedPreview.shouldUseCustomFill,
+    hasCurrentPixelPreview: cachedPreview.canReplayCurrentPreview,
   };
 };

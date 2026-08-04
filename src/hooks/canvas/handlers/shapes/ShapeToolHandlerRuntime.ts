@@ -3048,7 +3048,7 @@ export const createShapeToolHandler = (
         isPolygonGestureActive ||
         (tools.shapeMode && drawingHandlers.isDrawingShapeRef.current);
       let didCustomFill = false;
-      let suppressLivePreviewChrome = false;
+      let hasCurrentPixelPreview = false;
       let skipFallbackFill = false;
 
       if (pts.length >= 3) {
@@ -3076,6 +3076,8 @@ export const createShapeToolHandler = (
             previewStrokePalette,
             0.95
           );
+        };
+        const strokePreviewGuide = () => {
           if (previewModel.guideSegment) {
             drawHighContrastStroke(
               overlayCtx,
@@ -3274,7 +3276,6 @@ export const createShapeToolHandler = (
                     drawingHandlers,
                     shouldKeepCachedCcPreviewVisible,
                     retainStalePreviewOnCacheMiss: true,
-                    suppressChromeForCachedPreview: false,
                     previewOpacity: SHAPE_PREVIEW_OPACITY,
                     previewRenderSettings,
                     sampleColor: sampleColorAtPosition,
@@ -3346,7 +3347,6 @@ export const createShapeToolHandler = (
                       drawingHandlers,
                       shouldKeepCachedCcPreviewVisible,
                       retainStalePreviewOnCacheMiss: isClickLinePreview,
-                      suppressChromeForCachedPreview: !isClickLinePreview,
                       previewOpacity: SHAPE_PREVIEW_OPACITY,
                       schedulePolygonShapePreviewFrame,
                       getLatestPolygonPreviewPoint: () =>
@@ -3375,14 +3375,14 @@ export const createShapeToolHandler = (
                 seq: ditherGradPreviewState.ccJobSeq,
               });
               didCustomFill = runtimeResult.didCustomFill;
-              suppressLivePreviewChrome = runtimeResult.suppressLivePreviewChrome;
+              hasCurrentPixelPreview = runtimeResult.hasCurrentPixelPreview;
               skipFallbackFill = !isClickLinePreview;
               if (isSampledPreviewMode) {
                 recordSampledCcShapeBreadcrumb({
                   event: 'sampled-runtime-result',
                   activeLayerId: getAppStoreState().activeLayerId ?? null,
                   didCustomFill,
-                  suppressLivePreviewChrome,
+                  hasCurrentPixelPreview,
                   skipFallbackFill,
                   isClickLinePreview,
                   inFlight: ditherGradPreviewState.ccJobInFlight,
@@ -3621,29 +3621,34 @@ export const createShapeToolHandler = (
           }
         }
 
-        if (!suppressLivePreviewChrome) {
-          overlayCtx.globalCompositeOperation = 'source-over';
-          overlayCtx.beginPath();
-          overlayCtx.moveTo(committedPolygon[0].x, committedPolygon[0].y);
-          for (let i = 1; i < committedPolygon.length; i++) {
-            overlayCtx.lineTo(committedPolygon[i].x, committedPolygon[i].y);
-          }
-          overlayCtx.closePath();
+        overlayCtx.globalCompositeOperation = 'source-over';
+        overlayCtx.beginPath();
+        overlayCtx.moveTo(committedPolygon[0].x, committedPolygon[0].y);
+        for (let i = 1; i < committedPolygon.length; i++) {
+          overlayCtx.lineTo(committedPolygon[i].x, committedPolygon[i].y);
+        }
+        overlayCtx.closePath();
 
-          if (isContourPolygon) {
-            overlayCtx.stroke();
-            strokePreviewOutline();
-          } else if (isShapeFill) {
-            if (!didCustomFill && !skipFallbackFill) {
-              overlayCtx.fill();
-            }
-          } else {
-            if (!didCustomFill && !skipFallbackFill) {
-              overlayCtx.fill();
-            }
+        if (isContourPolygon) {
+          overlayCtx.stroke();
+          strokePreviewOutline();
+        } else if (isShapeFill) {
+          if (!didCustomFill && !skipFallbackFill) {
+            overlayCtx.fill();
+          }
+        } else {
+          if (!didCustomFill && !skipFallbackFill) {
+            overlayCtx.fill();
+          }
+          if (!hasCurrentPixelPreview) {
             strokePreviewOutline();
           }
+        }
 
+        if (shouldRenderPreviewChrome) {
+          if (!isShapeFill) {
+            strokePreviewGuide();
+          }
           drawHighContrastAnchors(
             overlayCtx,
             anchorPoints,
