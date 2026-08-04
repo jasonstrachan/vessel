@@ -316,4 +316,34 @@ describe('buildCcDitherRuntimePalette', () => {
       { position: 1, color: '#778899', opacity: 1 },
     ]);
   });
+
+  it('preserves neighboring chroma for legacy transparent keyword stops', () => {
+    const baseStops = [
+      { position: 0, color: '#ffffff' },
+      { position: 1, color: 'transparent' },
+    ];
+    const transparentRuntime = buildCcDitherRuntimePalette({
+      baseStops,
+      bands: 2,
+      spread: 0,
+      algorithm: 'bayer',
+      fillBackground: false,
+    });
+    const filledRuntime = buildCcDitherRuntimePalette({
+      baseStops,
+      bands: 2,
+      spread: 0,
+      algorithm: 'bayer',
+      fillBackground: true,
+    });
+
+    expect(transparentRuntime.renderStops.at(-1)).toMatchObject({
+      color: 'rgb(255, 255, 255)',
+      opacity: 0,
+    });
+    expect(filledRuntime.renderStops.at(-1)).toMatchObject({
+      color: 'rgb(255, 255, 255)',
+      opacity: 1,
+    });
+  });
 });

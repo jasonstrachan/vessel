@@ -44,6 +44,31 @@ const resolveStopOpacity = (stop: StoredStop): number => {
   return cssAlpha * opacity;
 };
 
+const preserveTransparentKeywordChroma = (stops: StoredStop[]): StoredStop[] => {
+  const chromaStops = stops.filter(
+    (stop) => stop.color.trim().toLowerCase() !== 'transparent',
+  );
+  if (chromaStops.length === 0) {
+    return stops.map((stop) => ({ ...stop, opacity: 0 }));
+  }
+
+  return stops.map((stop) => {
+    if (stop.color.trim().toLowerCase() !== 'transparent') {
+      return stop;
+    }
+    const nearest = chromaStops.reduce((best, candidate) => (
+      Math.abs(candidate.position - stop.position) < Math.abs(best.position - stop.position)
+        ? candidate
+        : best
+    ));
+    return {
+      ...stop,
+      color: nearest.color,
+      opacity: 0,
+    };
+  });
+};
+
 const sampleGradientOpacity = (stops: StoredStop[], position: number): number => {
   const sorted = [...stops].sort((a, b) => a.position - b.position);
   if (sorted.length === 0) {
@@ -623,22 +648,23 @@ export const buildCcDitherRuntimePalette = ({
   debugContext?: string;
 }): CcDitherRenderPalette => {
   void debugContext;
+  const sourceStops = preserveTransparentKeywordChroma(baseStops);
   const normalizedBandCount = Math.max(0, Math.floor(bands || 0));
   const resolvedAlgorithm = algorithm ?? 'sierra-lite';
   let result: CcDitherRenderPalette;
   if (!useDitherRenderPalette || (normalizedBandCount <= 0 && preserveSourceStops)) {
     result = {
       bandCount: 0,
-      renderStops: baseStops.slice(),
+      renderStops: sourceStops,
     };
   } else if (normalizedBandCount <= 0 && resolvedAlgorithm === 'sierra-lite') {
     result = buildCcFlatSierraContrastRenderPalette({
-      baseStops,
+      baseStops: sourceStops,
       spread,
     });
   } else {
     result = buildCcDitherRenderPalette({
-      baseStops,
+      baseStops: sourceStops,
       bands: normalizedBandCount,
       spread,
     });

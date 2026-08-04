@@ -451,7 +451,7 @@ export const GradientEditor = forwardRef<GradientEditorHandle, GradientEditorPro
       return;
     }
 
-    const normalized = isTransparentSelection ? 'transparent' : raw.toUpperCase();
+    const normalized = raw.toUpperCase();
 
     setStops(prevStops => {
       const index = activeColorPickerIndex;
@@ -459,8 +459,13 @@ export const GradientEditor = forwardRef<GradientEditorHandle, GradientEditorPro
         return prevStops;
       }
 
-      const currentColor = prevStops[index].color;
-      if (currentColor === normalized) {
+      const currentStop = prevStops[index];
+      const currentColor = currentStop.color;
+      const isAlreadyTransparent = (currentStop.opacity ?? 1) === 0;
+      if (
+        (isTransparentSelection && isAlreadyTransparent) ||
+        (!isTransparentSelection && currentColor === normalized && !isAlreadyTransparent)
+      ) {
         return prevStops;
       }
 
@@ -475,7 +480,7 @@ export const GradientEditor = forwardRef<GradientEditorHandle, GradientEditorPro
         }
 
         if (isTransparentSelection) {
-          return { ...stop, color: 'transparent', opacity: 0 };
+          return { ...stop, opacity: 0 };
         }
 
         const shouldRestoreOpacity =
@@ -693,7 +698,9 @@ export const GradientEditor = forwardRef<GradientEditorHandle, GradientEditorPro
             </button>
           </div>
           <ColorPicker
-            color={stops[activeColorPickerIndex].color}
+            color={(stops[activeColorPickerIndex].opacity ?? 1) === 0
+              ? 'transparent'
+              : stops[activeColorPickerIndex].color}
             onChange={handleColorPickerChange}
             onCommit={requestDitherWarmup}
             showHexInput

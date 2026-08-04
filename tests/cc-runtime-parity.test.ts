@@ -638,6 +638,42 @@ describe('Color cycle runtime parity (Vessel reference vs Goblet2 CPU)', () => {
     expect(new GradientPalette(filledStops).getColor(255).a).toBe(255);
   });
 
+  it('keeps legacy transparent stops from exposing black RGB during playback', () => {
+    const transparentStops = buildCcDitherRuntimePalette({
+      baseStops: [
+        { position: 0, color: '#ffffff' },
+        { position: 1, color: 'transparent' },
+      ],
+      bands: 2,
+      spread: 0,
+      algorithm: 'bayer',
+      fillBackground: false,
+    }).renderStops;
+    const filledStops = buildCcDitherRuntimePalette({
+      baseStops: [
+        { position: 0, color: '#ffffff' },
+        { position: 1, color: 'transparent' },
+      ],
+      bands: 2,
+      spread: 0,
+      algorithm: 'bayer',
+      fillBackground: true,
+    }).renderStops;
+
+    expect(new GradientPalette(transparentStops).getColor(255)).toEqual({
+      r: 255,
+      g: 255,
+      b: 255,
+      a: 0,
+    });
+    expect(new GradientPalette(filledStops).getColor(255)).toEqual({
+      r: 255,
+      g: 255,
+      b: 255,
+      a: 255,
+    });
+  });
+
   it('keeps Flat Cycle base colors while applying background-fill opacity', () => {
     const baseStops = [
       { position: 0, color: '#00ff00', opacity: 1 },

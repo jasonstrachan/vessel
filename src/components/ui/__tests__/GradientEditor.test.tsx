@@ -97,7 +97,7 @@ describe('GradientEditor', () => {
     expect(window.localStorage.setItem).not.toHaveBeenCalled();
   });
 
-  it('keeps stop frame visible when stop color is set to transparent', () => {
+  it('makes a stop transparent without replacing its stored RGB with black', () => {
     const onChange = jest.fn();
     const { container } = render(
       <GradientEditor
@@ -115,7 +115,11 @@ describe('GradientEditor', () => {
     fireEvent.doubleClick(stopHandle!);
     fireEvent.click(screen.getByTestId('color-transparent'));
 
-    const transparentHandle = container.querySelector('.gradient-editor div[style*="background-color: transparent"]') as HTMLDivElement | null;
+    expect(onChange).toHaveBeenLastCalledWith(expect.arrayContaining([
+      expect.objectContaining({ color: '#FF0000', opacity: 0 }),
+    ]));
+
+    const transparentHandle = container.querySelector('.gradient-editor div[style*="background-color: rgba(255, 0, 0, 0)"]') as HTMLDivElement | null;
     expect(transparentHandle).toBeTruthy();
     expect(transparentHandle?.style.opacity).toBe('');
   });
