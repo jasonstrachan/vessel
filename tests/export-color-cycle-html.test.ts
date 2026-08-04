@@ -1225,6 +1225,17 @@ describe('exportProjectAsWebGL color cycle integration', () => {
           },
         },
         {
+          id: 'ntse-crt',
+          enabled: true,
+          settings: {
+            signalSmear: 0.8,
+            signalNoise: 0.2,
+            scanlineSize: 1.5,
+            scanlineStrength: 0.6,
+            glowStrength: 0.3,
+          },
+        },
+        {
           id: 'crt-grid',
           enabled: true,
           settings: { lineOpacity: 0.16, lineSpacing: 5, phosphorOpacity: 0.12, scanlineOpacity: 0.18 },

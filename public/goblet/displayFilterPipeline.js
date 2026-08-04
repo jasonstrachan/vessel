@@ -30,6 +30,10 @@ const FILM_GRAIN_FIELD_FEATHER = 0.07;
 const FILM_GRAIN_DENSITY_LATTICE_CELLS = 8;
 const FILM_GRAIN_MIN_DISPLAY_SCALE = 0.2;
 const FILM_GRAIN_DEFAULT_SIZE = 1.5;
+const CRT_REFERENCE_SIGNAL_WIDTH = 320;
+const CRT_REFERENCE_CELL_SIZE = 12;
+const CRT_BLOOM_DOWNSAMPLE = 4;
+const CRT_STATIC_SIGNAL_SEED = 41.73;
 const TWO_PI = Math.PI * 2;
 
 export const resolveDisplayFilterPixelSize = (value, fallback = 1, minimum = 1) => (
@@ -48,6 +52,21 @@ export const resolveDownsampledDisplayFilterRadius = (
 ) => {
   const normalizedDownsampleFactor = Math.max(1, getNumeric(downsampleFactor, 1));
   return Math.max(minimum, getNumeric(value, fallback) / normalizedDownsampleFactor);
+};
+
+export const resolveCrtSignalSize = (width, height, cellSize = CRT_REFERENCE_CELL_SIZE) => {
+  const safeWidth = Math.max(1, Math.floor(getNumeric(width, 1)));
+  const safeHeight = Math.max(1, Math.floor(getNumeric(height, 1)));
+  const resolvedCellSize = resolveDisplayFilterPixelSize(
+    cellSize,
+    CRT_REFERENCE_CELL_SIZE,
+  );
+  const signalWidth = Math.max(1, Math.min(
+    safeWidth,
+    Math.round(CRT_REFERENCE_SIGNAL_WIDTH * CRT_REFERENCE_CELL_SIZE / resolvedCellSize),
+  ));
+  const signalHeight = Math.max(1, Math.round(signalWidth * safeHeight / safeWidth));
+  return { width: signalWidth, height: signalHeight };
 };
 
 const hashNoise = (x, y, seed) => {
@@ -106,6 +125,12 @@ export const createDisplayFilterPipelineState = () => ({
   filmGrainOverlayKey: '',
   filmGrainDarkOverlayCanvas: null,
   filmGrainLightOverlayCanvas: null,
+  crtWebGLState: null,
+  crtWebGLUnavailable: false,
+  crtWebGLLastError: null,
+  ntseCrtWebGLState: null,
+  ntseCrtWebGLUnavailable: false,
+  ntseCrtWebGLLastError: null,
 });
 
 export const getNextFilterWorkCanvas = (currentCanvas, workCanvasA, workCanvasB) => (
@@ -1012,6 +1037,1249 @@ export const applyFilmGrainOverlay = ({
   return true;
 };
 
+const CRT_VERTEX_SHADER = `#version 300 es
+precision highp float;
+layout(location = 0) in vec2 a_position;
+out vec2 v_uv;
+
+void main() {
+  v_uv = a_position * 0.5 + 0.5;
+  gl_Position = vec4(a_position, 0.0, 1.0);
+}
+`;
+
+const CRT_ANALOG_FRAGMENT_SHADER = `#version 300 es
+precision highp float;
+in vec2 v_uv;
+out vec4 outColor;
+
+uniform sampler2D u_source;
+uniform vec2 u_texel;
+uniform vec2 u_sourceSize;
+uniform float u_artifacts;
+uniform float u_seed;
+
+float hash21(vec2 point) {
+  point = fract(point * vec2(123.34, 345.45));
+  point += dot(point, point + 34.345 + u_seed);
+  return fract(point.x * point.y);
+}
+
+vec3 rgbToYiq(vec3 color) {
+  return vec3(
+    dot(color, vec3(0.299, 0.587, 0.114)),
+    dot(color, vec3(0.596, -0.274, -0.322)),
+    dot(color, vec3(0.211, -0.523, 0.312))
+  );
+}
+
+vec3 yiqToRgb(vec3 signal) {
+  return vec3(
+    signal.x + 0.956 * signal.y + 0.621 * signal.z,
+    signal.x - 0.272 * signal.y - 0.647 * signal.z,
+    signal.x - 1.106 * signal.y + 1.703 * signal.z
+  );
+}
+
+vec2 clampUv(vec2 uv) {
+  return clamp(uv, u_texel * 0.5, vec2(1.0) - u_texel * 0.5);
+}
+
+vec3 sampleYiq(vec2 uv) {
+  return rgbToYiq(texture(u_source, clampUv(uv)).rgb);
+}
+
+void main() {
+  float line = floor(v_uv.y * u_sourceSize.y);
+  float lineNoise = hash21(vec2(line, 7.0));
+  float slowLineNoise = hash21(vec2(floor(line * 0.125), 19.0));
+  float lineShift = ((lineNoise - 0.5) * 2.2 + (slowLineNoise - 0.5) * 1.4)
+    * u_artifacts;
+  vec2 shiftedUv = clampUv(v_uv + vec2(lineShift * u_texel.x, 0.0));
+
+  vec4 centerRgba = texture(u_source, shiftedUv);
+  vec3 center = rgbToYiq(centerRgba.rgb);
+  vec3 minusOne = sampleYiq(shiftedUv - vec2(u_texel.x * 1.5, 0.0));
+  vec3 plusOne = sampleYiq(shiftedUv + vec2(u_texel.x * 1.5, 0.0));
+  vec3 minusTwo = sampleYiq(shiftedUv - vec2(u_texel.x * 3.5, 0.0));
+  vec3 plusTwo = sampleYiq(shiftedUv + vec2(u_texel.x * 3.5, 0.0));
+  vec3 minusThree = sampleYiq(shiftedUv - vec2(u_texel.x * 7.0, 0.0));
+  vec3 plusThree = sampleYiq(shiftedUv + vec2(u_texel.x * 7.0, 0.0));
+
+  float lumaBlur = center.x * 0.5 + (minusOne.x + plusOne.x) * 0.25;
+  float lumaRing = center.x - (minusTwo.x + plusTwo.x) * 0.5;
+  float luma = center.x
+    + (center.x - lumaBlur) * u_artifacts * 0.52
+    + lumaRing * u_artifacts * 0.12;
+
+  vec2 chromaBlur = center.yz * 0.24
+    + (minusOne.yz + plusOne.yz) * 0.18
+    + (minusTwo.yz + plusTwo.yz) * 0.11
+    + (minusThree.yz + plusThree.yz) * 0.09;
+  vec2 chroma = mix(center.yz, chromaBlur, u_artifacts * 0.92);
+
+  float phaseError = (lineNoise - 0.5) * u_artifacts * 0.22;
+  float phaseCos = cos(phaseError);
+  float phaseSin = sin(phaseError);
+  chroma = mat2(phaseCos, -phaseSin, phaseSin, phaseCos) * chroma;
+
+  vec3 ghost = sampleYiq(shiftedUv - vec2(u_texel.x * (9.0 + u_artifacts * 11.0), 0.0));
+  luma += (ghost.x - center.x) * u_artifacts * 0.055;
+  chroma += (ghost.yz - center.yz) * u_artifacts * 0.035;
+
+  float pixelNoise = hash21(floor(gl_FragCoord.xy) + vec2(31.0, 53.0)) - 0.5;
+  float lineHum = sin((line + u_seed) * 0.071) * 0.5;
+  luma += (pixelNoise * 0.024 + lineHum * 0.008) * u_artifacts;
+  chroma.x += pixelNoise * u_artifacts * 0.008;
+  chroma.y -= pixelNoise * u_artifacts * 0.006;
+
+  vec3 processed = clamp(yiqToRgb(vec3(luma, chroma)), 0.0, 1.0);
+  outColor = vec4(mix(centerRgba.rgb, processed, u_artifacts), centerRgba.a);
+}
+`;
+
+const CRT_BASE_FRAGMENT_SHADER = `#version 300 es
+precision highp float;
+in vec2 v_uv;
+out vec4 outColor;
+
+uniform sampler2D u_source;
+uniform vec2 u_sourceSize;
+uniform vec2 u_signalSize;
+uniform float u_cellSize;
+uniform float u_scanlineIntensity;
+uniform float u_maskIntensity;
+uniform float u_barrelDistortion;
+uniform float u_chromaticAberration;
+uniform float u_beamFocus;
+uniform float u_brightness;
+uniform float u_shadowLift;
+uniform float u_vignetteIntensity;
+uniform float u_flickerIntensity;
+
+vec2 quantizeSignalUv(vec2 uv) {
+  vec2 signalPixel = floor(uv * u_signalSize) + 0.5;
+  return clamp(signalPixel / u_signalSize, vec2(0.0), vec2(1.0));
+}
+
+void main() {
+  vec2 centered = v_uv * 2.0 - 1.0;
+  float radiusSquared = dot(centered, centered);
+  float warp = 1.0 + u_barrelDistortion * radiusSquared * 2.8;
+  vec2 warpedUv = centered / warp * 0.5 + 0.5;
+  if (warpedUv.x <= 0.0 || warpedUv.x >= 1.0 || warpedUv.y <= 0.0 || warpedUv.y >= 1.0) {
+    outColor = vec4(0.0);
+    return;
+  }
+
+  vec2 signalUv = quantizeSignalUv(warpedUv);
+  float radialLength = length(centered);
+  vec2 radialDirection = radialLength > 0.0001 ? centered / radialLength : vec2(0.0);
+  vec2 aberrationUv = radialDirection
+    * u_chromaticAberration
+    * (0.45 + radialLength * 1.4)
+    / u_sourceSize;
+
+  float red = texture(u_source, quantizeSignalUv(warpedUv - aberrationUv)).r;
+  float green = texture(u_source, signalUv).g;
+  float blue = texture(u_source, quantizeSignalUv(warpedUv + aberrationUv)).b;
+  float alpha = texture(u_source, signalUv).a;
+  vec3 linearColor = pow(max(vec3(red, green, blue), vec3(0.0)), vec3(2.4));
+  float luma = dot(linearColor, vec3(0.2126, 0.7152, 0.0722));
+
+  float signalLine = warpedUv.y * u_signalSize.y;
+  float lineDistance = abs(fract(signalLine) - 0.5) * 2.0;
+  float beamWidth = mix(0.18, 0.56, u_beamFocus) + luma * mix(0.09, 0.28, u_beamFocus);
+  float beam = exp(-pow(lineDistance / max(0.08, beamWidth), 2.0));
+  float scanline = mix(1.0, 0.24 + beam * 0.76, u_scanlineIntensity);
+
+  float maskCell = max(1.0, u_cellSize / 6.0);
+  float maskIndex = mod(floor(gl_FragCoord.x / maskCell), 3.0);
+  vec3 phosphor = maskIndex < 0.5
+    ? vec3(1.38, 0.58, 0.58)
+    : maskIndex < 1.5
+      ? vec3(0.58, 1.38, 0.58)
+      : vec3(0.58, 0.58, 1.38);
+  vec3 mask = mix(vec3(1.0), phosphor, u_maskIntensity);
+
+  float brightnessGain = 0.72 + u_brightness * 0.56;
+  float frozenFlicker = (fract(sin(41.73) * 43758.5453123) - 0.5)
+    * u_flickerIntensity
+    * 0.22;
+  vec3 lifted = linearColor * brightnessGain + vec3(u_shadowLift * (1.0 - luma) * 0.22);
+  float vignette = 1.0 - u_vignetteIntensity * smoothstep(0.35, 1.05, radialLength);
+  outColor = vec4(
+    max(vec3(0.0), lifted * (1.0 + frozenFlicker) * scanline * mask * vignette),
+    alpha
+  );
+}
+`;
+
+const CRT_BLOOM_HORIZONTAL_FRAGMENT_SHADER = `#version 300 es
+precision highp float;
+in vec2 v_uv;
+out vec4 outColor;
+
+uniform sampler2D u_source;
+uniform vec2 u_texel;
+uniform float u_radius;
+
+vec3 highlight(vec2 uv) {
+  vec3 color = texture(u_source, clamp(uv, vec2(0.0), vec2(1.0))).rgb;
+  float luma = dot(color, vec3(0.2126, 0.7152, 0.0722));
+  return color * mix(0.12, 1.0, smoothstep(0.08, 0.8, luma));
+}
+
+void main() {
+  float spread = max(0.35, u_radius * 0.25);
+  vec2 stepUv = vec2(u_texel.x * spread, 0.0);
+  vec3 color = highlight(v_uv) * 0.227027;
+  color += highlight(v_uv + stepUv * 1.384615) * 0.316216;
+  color += highlight(v_uv - stepUv * 1.384615) * 0.316216;
+  color += highlight(v_uv + stepUv * 3.230769) * 0.070270;
+  color += highlight(v_uv - stepUv * 3.230769) * 0.070270;
+  outColor = vec4(color, 1.0);
+}
+`;
+
+const CRT_RESOLVE_FRAGMENT_SHADER = `#version 300 es
+precision highp float;
+in vec2 v_uv;
+out vec4 outColor;
+
+uniform sampler2D u_base;
+uniform sampler2D u_bloom;
+uniform vec2 u_bloomTexel;
+uniform float u_radius;
+uniform float u_intensity;
+
+vec3 sampleBloom(vec2 uv) {
+  return texture(u_bloom, clamp(uv, vec2(0.0), vec2(1.0))).rgb;
+}
+
+void main() {
+  vec4 base = texture(u_base, v_uv);
+  float spread = max(0.35, u_radius * 0.25);
+  vec2 stepUv = vec2(0.0, u_bloomTexel.y * spread);
+  vec3 bloom = sampleBloom(v_uv) * 0.227027;
+  bloom += sampleBloom(v_uv + stepUv * 1.384615) * 0.316216;
+  bloom += sampleBloom(v_uv - stepUv * 1.384615) * 0.316216;
+  bloom += sampleBloom(v_uv + stepUv * 3.230769) * 0.070270;
+  bloom += sampleBloom(v_uv - stepUv * 3.230769) * 0.070270;
+  vec3 resolved = max(vec3(0.0), base.rgb + bloom * u_intensity * 0.16);
+  outColor = vec4(pow(clamp(resolved, 0.0, 1.0), vec3(1.0 / 2.2)), base.a);
+}
+`;
+
+const NTSE_CRT_STATIC_SIGNAL_SEED = 73.19;
+
+const NTSE_CRT_ANALOG_FRAGMENT_SHADER = `#version 300 es
+precision highp float;
+in vec2 v_uv;
+out vec4 outColor;
+
+uniform sampler2D u_source;
+uniform vec2 u_texel;
+uniform vec2 u_sourceSize;
+uniform float u_smear;
+uniform float u_noise;
+uniform float u_seed;
+
+float hash21(vec2 point) {
+  point = fract(point * vec2(123.34, 456.21));
+  point += dot(point, point + 45.32 + u_seed);
+  return fract(point.x * point.y);
+}
+
+vec3 rgbToYiq(vec3 color) {
+  return vec3(
+    dot(color, vec3(0.299, 0.587, 0.114)),
+    dot(color, vec3(0.596, -0.274, -0.322)),
+    dot(color, vec3(0.211, -0.523, 0.312))
+  );
+}
+
+vec3 yiqToRgb(vec3 signal) {
+  return vec3(
+    signal.x + 0.956 * signal.y + 0.621 * signal.z,
+    signal.x - 0.272 * signal.y - 0.647 * signal.z,
+    signal.x - 1.106 * signal.y + 1.703 * signal.z
+  );
+}
+
+vec2 safeUv(vec2 uv) {
+  return clamp(uv, u_texel * 0.5, vec2(1.0) - u_texel * 0.5);
+}
+
+vec3 sampleYiq(vec2 uv) {
+  return rgbToYiq(texture(u_source, safeUv(uv)).rgb);
+}
+
+void main() {
+  float line = floor(v_uv.y * u_sourceSize.y);
+  float lineNoise = hash21(vec2(line, 11.0));
+  float groupNoise = hash21(vec2(floor(line / 5.0), 29.0));
+  float slowWave = sin(line * 0.031 + u_seed) * 0.5;
+  float lineShiftPixels = (
+    (lineNoise - 0.5) * 3.4
+    + (groupNoise - 0.5) * 5.2
+    + slowWave * 1.4
+  ) * u_smear;
+  float lowerBand = smoothstep(0.91, 0.985, v_uv.y) * (groupNoise - 0.5) * 10.0 * u_smear;
+  vec2 uv = safeUv(v_uv + vec2((lineShiftPixels + lowerBand) * u_texel.x, 0.0));
+
+  vec4 source = texture(u_source, uv);
+  vec3 center = rgbToYiq(source.rgb);
+  vec3 left1 = sampleYiq(uv - vec2(u_texel.x * 1.5, 0.0));
+  vec3 right1 = sampleYiq(uv + vec2(u_texel.x * 1.5, 0.0));
+  vec3 left2 = sampleYiq(uv - vec2(u_texel.x * 3.5, 0.0));
+  vec3 right2 = sampleYiq(uv + vec2(u_texel.x * 3.5, 0.0));
+  vec3 left3 = sampleYiq(uv - vec2(u_texel.x * 7.5, 0.0));
+  vec3 right3 = sampleYiq(uv + vec2(u_texel.x * 7.5, 0.0));
+  vec3 left4 = sampleYiq(uv - vec2(u_texel.x * 15.5, 0.0));
+  vec3 right4 = sampleYiq(uv + vec2(u_texel.x * 15.5, 0.0));
+
+  float lowLuma = center.x * 0.48 + (left1.x + right1.x) * 0.2
+    + (left2.x + right2.x) * 0.06;
+  float luma = mix(center.x, lowLuma, u_smear * 0.28);
+  luma += (center.x - lowLuma) * u_smear * 0.72;
+  luma += (center.x - (left3.x + right3.x) * 0.5) * u_smear * 0.09;
+
+  vec2 chromaWide = center.yz * 0.14
+    + left1.yz * 0.14 + right1.yz * 0.12
+    + left2.yz * 0.12 + right2.yz * 0.1
+    + left3.yz * 0.1 + right3.yz * 0.08
+    + left4.yz * 0.06 + right4.yz * 0.04;
+  vec2 chromaTrail = sampleYiq(uv - vec2(u_texel.x * (18.0 + 18.0 * u_smear), 0.0)).yz;
+  vec2 chroma = mix(center.yz, chromaWide, u_smear * 0.96);
+  chroma = mix(chroma, chromaTrail, u_smear * 0.12);
+
+  float phase = (lineNoise - 0.5) * 0.34 * u_smear;
+  chroma = mat2(cos(phase), -sin(phase), sin(phase), cos(phase)) * chroma;
+
+  vec3 ghost = sampleYiq(uv - vec2(u_texel.x * (26.0 + u_smear * 34.0), 0.0));
+  luma += (ghost.x - center.x) * u_smear * 0.08;
+  chroma += (ghost.yz - center.yz) * u_smear * 0.055;
+
+  float grain = hash21(floor(gl_FragCoord.xy) + vec2(17.0, 61.0)) - 0.5;
+  float signalNoise = grain * u_noise;
+  luma += signalNoise * 0.11;
+  chroma += vec2(signalNoise * 0.035, -signalNoise * 0.025);
+
+  outColor = vec4(clamp(yiqToRgb(vec3(luma, chroma)), 0.0, 1.0), source.a);
+}
+`;
+
+const NTSE_CRT_DOWNSCALE_FRAGMENT_SHADER = `#version 300 es
+precision highp float;
+in vec2 v_uv;
+out vec4 outColor;
+
+uniform sampler2D u_source;
+uniform vec2 u_sourceSize;
+
+void main() {
+  vec2 sourcePixel = floor(v_uv * u_sourceSize) + 0.5;
+  outColor = texture(u_source, sourcePixel / u_sourceSize);
+}
+`;
+
+const NTSE_CRT_BEAM_FRAGMENT_SHADER = `#version 300 es
+precision highp float;
+in vec2 v_uv;
+out vec4 outColor;
+
+uniform sampler2D u_source;
+uniform vec2 u_signalSize;
+uniform float u_scanlineSize;
+uniform float u_scanlineStrength;
+
+vec3 sampleLinear(vec2 pixel) {
+  vec3 color = texture(u_source, (pixel + 0.5) / u_signalSize).rgb;
+  return pow(max(color, vec3(0.0)), vec3(2.4));
+}
+
+float sampleAlpha(vec2 pixel) {
+  return texture(u_source, (pixel + 0.5) / u_signalSize).a;
+}
+
+vec3 beam(vec3 color, float distanceToLine) {
+  vec3 width = 2.0 + 2.0 * pow(color, vec3(4.0));
+  vec3 distance = vec3(abs(distanceToLine) * 3.333333333);
+  return 2.0 * color * exp(-pow(distance * inversesqrt(0.5 * width), width))
+    / (0.6 + 0.2 * width);
+}
+
+void main() {
+  float scanlineSize = clamp(u_scanlineSize, 0.5, 3.0);
+  float scanlinePosition = v_uv.y * u_signalSize.y / scanlineSize - 0.5;
+  float scanlineIndex = floor(scanlinePosition);
+  float scanlinePhase = fract(scanlinePosition);
+  float sourceTopY = floor((scanlineIndex + 0.5) * scanlineSize);
+  float sourceBottomY = floor((scanlineIndex + 1.5) * scanlineSize);
+  vec2 sourceX = vec2(floor(v_uv.x * u_signalSize.x), 0.0);
+  vec2 topPixel = clamp(sourceX + vec2(0.0, sourceTopY), vec2(0.0), u_signalSize - 1.0);
+  vec2 bottomPixel = clamp(sourceX + vec2(0.0, sourceBottomY), vec2(0.0), u_signalSize - 1.0);
+  vec3 top = sampleLinear(topPixel);
+  vec3 bottom = sampleLinear(bottomPixel);
+  float topAlpha = sampleAlpha(topPixel);
+  float bottomAlpha = sampleAlpha(bottomPixel);
+  vec3 scanline = beam(top, scanlinePhase) + beam(bottom, 1.0 - scanlinePhase);
+  vec3 reconstructed = scanline * 0.956521739;
+  vec3 unshaped = mix(top, bottom, scanlinePhase);
+  vec3 resolved = mix(unshaped, reconstructed, u_scanlineStrength);
+  outColor = vec4(max(resolved * 1.1, vec3(0.0)), mix(topAlpha, bottomAlpha, scanlinePhase));
+}
+`;
+
+const NTSE_CRT_BLOOM_FRAGMENT_SHADER = `#version 300 es
+precision highp float;
+in vec2 v_uv;
+out vec4 outColor;
+
+uniform sampler2D u_source;
+uniform vec2 u_texel;
+
+vec3 threshold(vec2 uv) {
+  vec3 color = texture(u_source, clamp(uv, vec2(0.0), vec2(1.0))).rgb * 1.15;
+  return pow(clamp(color, 0.0, 1.0), vec3(2.4));
+}
+
+void main() {
+  vec2 stepUv = vec2(u_texel.x * 7.0, 0.0);
+  vec3 color = threshold(v_uv) * 0.227027;
+  color += threshold(v_uv + stepUv * 1.384615) * 0.316216;
+  color += threshold(v_uv - stepUv * 1.384615) * 0.316216;
+  color += threshold(v_uv + stepUv * 3.230769) * 0.070270;
+  color += threshold(v_uv - stepUv * 3.230769) * 0.070270;
+  outColor = vec4(color, 1.0);
+}
+`;
+
+const NTSE_CRT_RESOLVE_FRAGMENT_SHADER = `#version 300 es
+precision highp float;
+in vec2 v_uv;
+out vec4 outColor;
+
+uniform sampler2D u_base;
+uniform sampler2D u_bloom;
+uniform vec2 u_bloomTexel;
+uniform float u_glowStrength;
+
+vec3 sampleBloom(vec2 uv) {
+  return texture(u_bloom, clamp(uv, vec2(0.0), vec2(1.0))).rgb;
+}
+
+void main() {
+  vec4 base = texture(u_base, v_uv);
+  vec2 stepUv = vec2(0.0, u_bloomTexel.y * 7.0);
+  vec3 glow = sampleBloom(v_uv) * 0.227027;
+  glow += sampleBloom(v_uv + stepUv * 1.384615) * 0.316216;
+  glow += sampleBloom(v_uv - stepUv * 1.384615) * 0.316216;
+  glow += sampleBloom(v_uv + stepUv * 3.230769) * 0.070270;
+  glow += sampleBloom(v_uv - stepUv * 3.230769) * 0.070270;
+  vec3 resolved = clamp(base.rgb + glow * u_glowStrength, 0.0, 1.0);
+  outColor = vec4(pow(resolved, vec3(1.0 / 2.2)), base.a);
+}
+`;
+
+const CRT_WEBGL_CONTEXT_ATTRIBUTES = {
+  alpha: true,
+  antialias: false,
+  depth: false,
+  desynchronized: true,
+  failIfMajorPerformanceCaveat: false,
+  premultipliedAlpha: false,
+  preserveDrawingBuffer: false,
+  stencil: false,
+};
+
+const numberShaderSource = (source) => source
+  .split('\n')
+  .map((line, index) => `${String(index + 1).padStart(3, ' ')} | ${line}`)
+  .join('\n');
+
+const createCrtShader = (gl, type, source, label, parallelCompile) => {
+  const shader = gl.createShader(type);
+  if (!shader) {
+    throw new Error(`${label}: unable to create shader`);
+  }
+  gl.shaderSource(shader, source);
+  gl.compileShader(shader);
+  if (!parallelCompile && !gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
+    const info = gl.getShaderInfoLog(shader) || 'unknown compile error';
+    gl.deleteShader(shader);
+    throw new Error(`${label}: ${info}\n${numberShaderSource(source)}`);
+  }
+  return shader;
+};
+
+const createCrtProgram = (gl, fragmentSource, label, parallelCompile) => {
+  const vertexShader = createCrtShader(
+    gl,
+    gl.VERTEX_SHADER,
+    CRT_VERTEX_SHADER,
+    `${label} vertex shader`,
+    parallelCompile,
+  );
+  const fragmentShader = createCrtShader(
+    gl,
+    gl.FRAGMENT_SHADER,
+    fragmentSource,
+    `${label} fragment shader`,
+    parallelCompile,
+  );
+  const program = gl.createProgram();
+  if (!program) {
+    gl.deleteShader(vertexShader);
+    gl.deleteShader(fragmentShader);
+    throw new Error(`${label}: unable to create program`);
+  }
+  gl.attachShader(program, vertexShader);
+  gl.attachShader(program, fragmentShader);
+  gl.linkProgram(program);
+  gl.deleteShader(vertexShader);
+  gl.deleteShader(fragmentShader);
+  if (!parallelCompile && !gl.getProgramParameter(program, gl.LINK_STATUS)) {
+    const info = gl.getProgramInfoLog(program) || 'unknown link error';
+    gl.deleteProgram(program);
+    throw new Error(`${label}: ${info}`);
+  }
+  return { label, program, validated: !parallelCompile };
+};
+
+const getCrtUniforms = (gl, program, names) => Object.fromEntries(
+  names.map((name) => [name, gl.getUniformLocation(program, name)]),
+);
+
+const prepareCrtProgram = (gl, entry, uniformNames, shouldDeferUniforms) => ({
+  ...entry,
+  uniformNames,
+  uniforms: shouldDeferUniforms
+    ? null
+    : getCrtUniforms(gl, entry.program, uniformNames),
+});
+
+const configureCrtTexture = (gl, texture, linear = false) => {
+  gl.bindTexture(gl.TEXTURE_2D, texture);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, linear ? gl.LINEAR : gl.NEAREST);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, linear ? gl.LINEAR : gl.NEAREST);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+};
+
+const createCrtTexture = (gl, linear = false) => {
+  const texture = gl.createTexture();
+  if (!texture) {
+    throw new Error('CRT WebGL: unable to create texture');
+  }
+  configureCrtTexture(gl, texture, linear);
+  return texture;
+};
+
+const createCrtFramebuffer = (gl) => {
+  const framebuffer = gl.createFramebuffer();
+  if (!framebuffer) {
+    throw new Error('CRT WebGL: unable to create framebuffer');
+  }
+  return framebuffer;
+};
+
+const getCrtContextDiagnostics = (gl) => {
+  const info = gl.getExtension('WEBGL_debug_renderer_info');
+  if (!info) {
+    return { vendor: null, renderer: null };
+  }
+  return {
+    vendor: gl.getParameter(info.UNMASKED_VENDOR_WEBGL) || null,
+    renderer: gl.getParameter(info.UNMASKED_RENDERER_WEBGL) || null,
+  };
+};
+
+const initializeCrtWebGLState = (filterState) => {
+  if (typeof document === 'undefined' || filterState.crtWebGLUnavailable) {
+    return null;
+  }
+
+  const canvas = document.createElement('canvas');
+  const gl = canvas.getContext('webgl2', CRT_WEBGL_CONTEXT_ATTRIBUTES);
+  if (!gl) {
+    filterState.crtWebGLUnavailable = true;
+    filterState.crtWebGLLastError = 'WebGL2 is unavailable';
+    return null;
+  }
+
+  try {
+    const parallelCompile = gl.getExtension('KHR_parallel_shader_compile');
+    const analogEntry = createCrtProgram(
+      gl,
+      CRT_ANALOG_FRAGMENT_SHADER,
+      'CRT analog signal pass',
+      parallelCompile,
+    );
+    const baseEntry = createCrtProgram(
+      gl,
+      CRT_BASE_FRAGMENT_SHADER,
+      'CRT base pass',
+      parallelCompile,
+    );
+    const bloomEntry = createCrtProgram(
+      gl,
+      CRT_BLOOM_HORIZONTAL_FRAGMENT_SHADER,
+      'CRT bloom horizontal pass',
+      parallelCompile,
+    );
+    const resolveEntry = createCrtProgram(
+      gl,
+      CRT_RESOLVE_FRAGMENT_SHADER,
+      'CRT resolve pass',
+      parallelCompile,
+    );
+    const programs = {
+      analog: prepareCrtProgram(gl, analogEntry, [
+        'u_source',
+        'u_texel',
+        'u_sourceSize',
+        'u_artifacts',
+        'u_seed',
+      ], Boolean(parallelCompile)),
+      base: prepareCrtProgram(gl, baseEntry, [
+        'u_source',
+        'u_sourceSize',
+        'u_signalSize',
+        'u_cellSize',
+        'u_scanlineIntensity',
+        'u_maskIntensity',
+        'u_barrelDistortion',
+        'u_chromaticAberration',
+        'u_beamFocus',
+        'u_brightness',
+        'u_shadowLift',
+        'u_vignetteIntensity',
+        'u_flickerIntensity',
+      ], Boolean(parallelCompile)),
+      bloom: prepareCrtProgram(gl, bloomEntry, [
+        'u_source',
+        'u_texel',
+        'u_radius',
+      ], Boolean(parallelCompile)),
+      resolve: prepareCrtProgram(gl, resolveEntry, [
+        'u_base',
+        'u_bloom',
+        'u_bloomTexel',
+        'u_radius',
+        'u_intensity',
+      ], Boolean(parallelCompile)),
+    };
+    const programEntries = Object.values(programs);
+
+    const vao = gl.createVertexArray();
+    const vertexBuffer = gl.createBuffer();
+    if (!vao || !vertexBuffer) {
+      throw new Error('CRT WebGL: unable to create fullscreen geometry');
+    }
+    gl.bindVertexArray(vao);
+    gl.bindBuffer(gl.ARRAY_BUFFER, vertexBuffer);
+    gl.bufferData(
+      gl.ARRAY_BUFFER,
+      new Float32Array([-1, -1, 3, -1, -1, 3]),
+      gl.STATIC_DRAW,
+    );
+    gl.enableVertexAttribArray(0);
+    gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+
+    const state = {
+      canvas,
+      gl,
+      parallelCompile,
+      ready: !parallelCompile,
+      contextLost: false,
+      width: 0,
+      height: 0,
+      bloomWidth: 0,
+      bloomHeight: 0,
+      vao,
+      vertexBuffer,
+      programs,
+      programEntries,
+      textures: {
+        source: createCrtTexture(gl),
+        analog: createCrtTexture(gl),
+        base: createCrtTexture(gl),
+        bloom: createCrtTexture(gl, true),
+      },
+      framebuffers: {
+        analog: createCrtFramebuffer(gl),
+        base: createCrtFramebuffer(gl),
+        bloom: createCrtFramebuffer(gl),
+      },
+      programCompileCount: programEntries.length,
+      allocationCount: 0,
+      renderCount: 0,
+      drawCallCount: 0,
+      ...getCrtContextDiagnostics(gl),
+    };
+
+    canvas.addEventListener('webglcontextlost', (event) => {
+      event.preventDefault();
+      state.contextLost = true;
+      filterState.crtWebGLUnavailable = true;
+      if (filterState.crtWebGLState === state) {
+        filterState.crtWebGLState = null;
+      }
+      filterState.crtWebGLLastError = 'WebGL context lost';
+    });
+    canvas.addEventListener('webglcontextrestored', () => {
+      filterState.crtWebGLUnavailable = false;
+      filterState.crtWebGLLastError = null;
+    });
+
+    gl.bindVertexArray(null);
+    gl.bindBuffer(gl.ARRAY_BUFFER, null);
+    filterState.crtWebGLState = state;
+    filterState.crtWebGLLastError = null;
+    return state;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    filterState.crtWebGLUnavailable = true;
+    filterState.crtWebGLLastError = message;
+    gl.getExtension('WEBGL_lose_context')?.loseContext();
+    return null;
+  }
+};
+
+const validateCrtPrograms = (state) => {
+  if (state.ready) {
+    return true;
+  }
+  const { gl, parallelCompile, programEntries } = state;
+  if (!parallelCompile) {
+    state.ready = true;
+    return true;
+  }
+  if (programEntries.some(({ program }) => (
+    !gl.getProgramParameter(program, parallelCompile.COMPLETION_STATUS_KHR)
+  ))) {
+    return false;
+  }
+  for (const entry of programEntries) {
+    if (!gl.getProgramParameter(entry.program, gl.LINK_STATUS)) {
+      throw new Error(`${entry.label}: ${gl.getProgramInfoLog(entry.program) || 'unknown link error'}`);
+    }
+    entry.validated = true;
+    entry.uniforms = getCrtUniforms(gl, entry.program, entry.uniformNames);
+  }
+  state.ready = true;
+  return true;
+};
+
+const allocateCrtRenderTarget = (gl, texture, framebuffer, width, height) => {
+  gl.bindTexture(gl.TEXTURE_2D, texture);
+  gl.texImage2D(
+    gl.TEXTURE_2D,
+    0,
+    gl.RGBA8,
+    width,
+    height,
+    0,
+    gl.RGBA,
+    gl.UNSIGNED_BYTE,
+    null,
+  );
+  gl.bindFramebuffer(gl.FRAMEBUFFER, framebuffer);
+  gl.framebufferTexture2D(
+    gl.FRAMEBUFFER,
+    gl.COLOR_ATTACHMENT0,
+    gl.TEXTURE_2D,
+    texture,
+    0,
+  );
+  if (gl.checkFramebufferStatus(gl.FRAMEBUFFER) !== gl.FRAMEBUFFER_COMPLETE) {
+    throw new Error('CRT WebGL: incomplete framebuffer');
+  }
+};
+
+const ensureCrtWebGLSize = (state, width, height) => {
+  if (state.width === width && state.height === height) {
+    return;
+  }
+  const { gl, canvas, textures, framebuffers } = state;
+  const bloomWidth = Math.max(1, Math.round(width / CRT_BLOOM_DOWNSAMPLE));
+  const bloomHeight = Math.max(1, Math.round(height / CRT_BLOOM_DOWNSAMPLE));
+  canvas.width = width;
+  canvas.height = height;
+
+  gl.bindTexture(gl.TEXTURE_2D, textures.source);
+  gl.texImage2D(
+    gl.TEXTURE_2D,
+    0,
+    gl.RGBA8,
+    width,
+    height,
+    0,
+    gl.RGBA,
+    gl.UNSIGNED_BYTE,
+    null,
+  );
+  allocateCrtRenderTarget(gl, textures.analog, framebuffers.analog, width, height);
+  allocateCrtRenderTarget(gl, textures.base, framebuffers.base, width, height);
+  allocateCrtRenderTarget(
+    gl,
+    textures.bloom,
+    framebuffers.bloom,
+    bloomWidth,
+    bloomHeight,
+  );
+
+  state.width = width;
+  state.height = height;
+  state.bloomWidth = bloomWidth;
+  state.bloomHeight = bloomHeight;
+  state.allocationCount += 1;
+};
+
+const bindCrtTexture = (gl, texture, unit, uniform) => {
+  gl.activeTexture(gl.TEXTURE0 + unit);
+  gl.bindTexture(gl.TEXTURE_2D, texture);
+  gl.uniform1i(uniform, unit);
+};
+
+const beginCrtPass = (state, entry, framebuffer, width, height) => {
+  const { gl } = state;
+  gl.bindFramebuffer(gl.FRAMEBUFFER, framebuffer);
+  gl.viewport(0, 0, width, height);
+  gl.enable(gl.SCISSOR_TEST);
+  gl.scissor(0, 0, width, height);
+  gl.disable(gl.BLEND);
+  gl.disable(gl.DEPTH_TEST);
+  gl.disable(gl.CULL_FACE);
+  gl.useProgram(entry.program);
+  gl.bindVertexArray(state.vao);
+  gl.clearColor(0, 0, 0, 0);
+  gl.clear(gl.COLOR_BUFFER_BIT);
+};
+
+const finishCrtPass = (state) => {
+  state.gl.drawArrays(state.gl.TRIANGLES, 0, 3);
+  state.drawCallCount += 1;
+};
+
+const assertCrtWebGLClean = (gl) => {
+  const isDevelopment = typeof process !== 'undefined'
+    && process?.env?.NODE_ENV !== 'production';
+  if (!isDevelopment) {
+    return;
+  }
+  const error = gl.getError();
+  if (error !== gl.NO_ERROR) {
+    throw new Error(`CRT WebGL error: ${error}`);
+  }
+};
+
+export const applyCrtWebGLFilter = ({
+  currentCanvas,
+  filterState,
+  filter,
+}) => {
+  if (!currentCanvas || !filterState || filterState.crtWebGLUnavailable) {
+    return null;
+  }
+
+  const state = filterState.crtWebGLState ?? initializeCrtWebGLState(filterState);
+  if (!state || state.contextLost) {
+    return null;
+  }
+
+  try {
+    if (!validateCrtPrograms(state)) {
+      return null;
+    }
+    const width = Math.max(1, currentCanvas.width);
+    const height = Math.max(1, currentCanvas.height);
+    ensureCrtWebGLSize(state, width, height);
+    const { gl, textures, framebuffers, programs } = state;
+    const settings = filter?.settings ?? {};
+    const cellSize = resolveDisplayFilterPixelSize(settings.cellSize, CRT_REFERENCE_CELL_SIZE);
+    const signalSize = resolveCrtSignalSize(width, height, cellSize);
+    const signalArtifacts = clamp01(settings.signalArtifacts);
+    const bloomRadius = Math.max(0, getNumeric(settings.bloomRadius, 0));
+    const bloomIntensity = Math.max(0, getNumeric(settings.bloomIntensity, 0));
+
+    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
+    gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
+    gl.bindTexture(gl.TEXTURE_2D, textures.source);
+    gl.texSubImage2D(
+      gl.TEXTURE_2D,
+      0,
+      0,
+      0,
+      gl.RGBA,
+      gl.UNSIGNED_BYTE,
+      currentCanvas,
+    );
+
+    beginCrtPass(state, programs.analog, framebuffers.analog, width, height);
+    bindCrtTexture(gl, textures.source, 0, programs.analog.uniforms.u_source);
+    gl.uniform2f(programs.analog.uniforms.u_texel, 1 / width, 1 / height);
+    gl.uniform2f(programs.analog.uniforms.u_sourceSize, width, height);
+    gl.uniform1f(programs.analog.uniforms.u_artifacts, signalArtifacts);
+    gl.uniform1f(programs.analog.uniforms.u_seed, CRT_STATIC_SIGNAL_SEED);
+    finishCrtPass(state);
+
+    beginCrtPass(state, programs.base, framebuffers.base, width, height);
+    bindCrtTexture(gl, textures.analog, 0, programs.base.uniforms.u_source);
+    gl.uniform2f(programs.base.uniforms.u_sourceSize, width, height);
+    gl.uniform2f(programs.base.uniforms.u_signalSize, signalSize.width, signalSize.height);
+    gl.uniform1f(programs.base.uniforms.u_cellSize, cellSize);
+    gl.uniform1f(programs.base.uniforms.u_scanlineIntensity, clamp01(settings.scanlineIntensity));
+    gl.uniform1f(programs.base.uniforms.u_maskIntensity, clamp01(settings.maskIntensity));
+    gl.uniform1f(
+      programs.base.uniforms.u_barrelDistortion,
+      Math.max(0, getNumeric(settings.barrelDistortion, 0.15)),
+    );
+    gl.uniform1f(
+      programs.base.uniforms.u_chromaticAberration,
+      resolveDisplayFilterRadius(settings.chromaticAberration, 2),
+    );
+    gl.uniform1f(programs.base.uniforms.u_beamFocus, clamp01(settings.beamFocus));
+    gl.uniform1f(
+      programs.base.uniforms.u_brightness,
+      Math.max(0, getNumeric(settings.brightness, 0.5)),
+    );
+    gl.uniform1f(
+      programs.base.uniforms.u_shadowLift,
+      Math.max(0, getNumeric(settings.shadowLift, 0.16)),
+    );
+    gl.uniform1f(
+      programs.base.uniforms.u_vignetteIntensity,
+      clamp01(settings.vignetteIntensity),
+    );
+    gl.uniform1f(
+      programs.base.uniforms.u_flickerIntensity,
+      clamp01(settings.flickerIntensity),
+    );
+    finishCrtPass(state);
+
+    beginCrtPass(
+      state,
+      programs.bloom,
+      framebuffers.bloom,
+      state.bloomWidth,
+      state.bloomHeight,
+    );
+    bindCrtTexture(gl, textures.base, 0, programs.bloom.uniforms.u_source);
+    gl.uniform2f(programs.bloom.uniforms.u_texel, 1 / width, 1 / height);
+    gl.uniform1f(programs.bloom.uniforms.u_radius, bloomRadius);
+    finishCrtPass(state);
+
+    beginCrtPass(state, programs.resolve, null, width, height);
+    bindCrtTexture(gl, textures.base, 0, programs.resolve.uniforms.u_base);
+    bindCrtTexture(gl, textures.bloom, 1, programs.resolve.uniforms.u_bloom);
+    gl.uniform2f(
+      programs.resolve.uniforms.u_bloomTexel,
+      1 / state.bloomWidth,
+      1 / state.bloomHeight,
+    );
+    gl.uniform1f(programs.resolve.uniforms.u_radius, bloomRadius);
+    gl.uniform1f(programs.resolve.uniforms.u_intensity, bloomIntensity);
+    finishCrtPass(state);
+
+    assertCrtWebGLClean(gl);
+    state.renderCount += 1;
+    return state.canvas;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    filterState.crtWebGLLastError = message;
+    filterState.crtWebGLUnavailable = true;
+    state.gl.getExtension('WEBGL_lose_context')?.loseContext();
+    filterState.crtWebGLState = null;
+    return null;
+  }
+};
+
+const getNtseCrtSignalSize = (width, height) => {
+  const signalWidth = Math.max(1, Math.min(CRT_REFERENCE_SIGNAL_WIDTH, width));
+  const proportionalHeight = Math.max(1, signalWidth * height / Math.max(1, width));
+  const signalHeight = Math.min(height, Math.max(1, Math.round(proportionalHeight / 2) * 2));
+  return { width: signalWidth, height: signalHeight };
+};
+
+const initializeNtseCrtWebGLState = (filterState) => {
+  if (typeof document === 'undefined' || filterState.ntseCrtWebGLUnavailable) {
+    return null;
+  }
+
+  const canvas = document.createElement('canvas');
+  const gl = canvas.getContext('webgl2', CRT_WEBGL_CONTEXT_ATTRIBUTES);
+  if (!gl) {
+    filterState.ntseCrtWebGLUnavailable = true;
+    filterState.ntseCrtWebGLLastError = 'WebGL2 is unavailable';
+    return null;
+  }
+
+  try {
+    const parallelCompile = gl.getExtension('KHR_parallel_shader_compile');
+    const definitions = [
+      ['analog', NTSE_CRT_ANALOG_FRAGMENT_SHADER, 'NTSE CRT analog signal pass', [
+        'u_source',
+        'u_texel',
+        'u_sourceSize',
+        'u_smear',
+        'u_noise',
+        'u_seed',
+      ]],
+      ['downscale', NTSE_CRT_DOWNSCALE_FRAGMENT_SHADER, 'NTSE CRT 320px signal downscale pass', [
+        'u_source',
+        'u_sourceSize',
+      ]],
+      ['beam', NTSE_CRT_BEAM_FRAGMENT_SHADER, 'NTSE CRT scanline beam pass', [
+        'u_source',
+        'u_signalSize',
+        'u_scanlineSize',
+        'u_scanlineStrength',
+      ]],
+      ['bloom', NTSE_CRT_BLOOM_FRAGMENT_SHADER, 'NTSE CRT glow horizontal pass', [
+        'u_source',
+        'u_texel',
+      ]],
+      ['resolve', NTSE_CRT_RESOLVE_FRAGMENT_SHADER, 'NTSE CRT glow resolve pass', [
+        'u_base',
+        'u_bloom',
+        'u_bloomTexel',
+        'u_glowStrength',
+      ]],
+    ];
+    const programs = Object.fromEntries(definitions.map(([key, source, label, uniforms]) => {
+      const entry = createCrtProgram(gl, source, label, parallelCompile);
+      return [key, prepareCrtProgram(gl, entry, uniforms, Boolean(parallelCompile))];
+    }));
+    const programEntries = Object.values(programs);
+
+    const vao = gl.createVertexArray();
+    const vertexBuffer = gl.createBuffer();
+    if (!vao || !vertexBuffer) {
+      throw new Error('NTSE CRT WebGL: unable to create fullscreen geometry');
+    }
+    gl.bindVertexArray(vao);
+    gl.bindBuffer(gl.ARRAY_BUFFER, vertexBuffer);
+    gl.bufferData(
+      gl.ARRAY_BUFFER,
+      new Float32Array([-1, -1, 3, -1, -1, 3]),
+      gl.STATIC_DRAW,
+    );
+    gl.enableVertexAttribArray(0);
+    gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+
+    const state = {
+      canvas,
+      gl,
+      parallelCompile,
+      ready: !parallelCompile,
+      contextLost: false,
+      width: 0,
+      height: 0,
+      signalWidth: 0,
+      signalHeight: 0,
+      bloomWidth: 0,
+      bloomHeight: 0,
+      vao,
+      vertexBuffer,
+      programs,
+      programEntries,
+      textures: {
+        source: createCrtTexture(gl),
+        analog: createCrtTexture(gl),
+        signal: createCrtTexture(gl),
+        base: createCrtTexture(gl),
+        bloom: createCrtTexture(gl, true),
+      },
+      framebuffers: {
+        analog: createCrtFramebuffer(gl),
+        signal: createCrtFramebuffer(gl),
+        base: createCrtFramebuffer(gl),
+        bloom: createCrtFramebuffer(gl),
+      },
+      programCompileCount: programEntries.length,
+      allocationCount: 0,
+      renderCount: 0,
+      drawCallCount: 0,
+      ...getCrtContextDiagnostics(gl),
+    };
+
+    canvas.addEventListener('webglcontextlost', (event) => {
+      event.preventDefault();
+      state.contextLost = true;
+      filterState.ntseCrtWebGLUnavailable = true;
+      if (filterState.ntseCrtWebGLState === state) {
+        filterState.ntseCrtWebGLState = null;
+      }
+      filterState.ntseCrtWebGLLastError = 'WebGL context lost';
+    });
+    canvas.addEventListener('webglcontextrestored', () => {
+      filterState.ntseCrtWebGLUnavailable = false;
+      filterState.ntseCrtWebGLLastError = null;
+    });
+
+    gl.bindVertexArray(null);
+    gl.bindBuffer(gl.ARRAY_BUFFER, null);
+    filterState.ntseCrtWebGLState = state;
+    filterState.ntseCrtWebGLLastError = null;
+    return state;
+  } catch (error) {
+    filterState.ntseCrtWebGLUnavailable = true;
+    filterState.ntseCrtWebGLLastError = error instanceof Error ? error.message : String(error);
+    gl.getExtension('WEBGL_lose_context')?.loseContext();
+    return null;
+  }
+};
+
+const ensureNtseCrtWebGLSize = (state, width, height) => {
+  if (state.width === width && state.height === height) {
+    return;
+  }
+  const { gl, canvas, textures, framebuffers } = state;
+  const signalSize = getNtseCrtSignalSize(width, height);
+  const bloomWidth = Math.max(1, Math.round(width / CRT_BLOOM_DOWNSAMPLE));
+  const bloomHeight = Math.max(1, Math.round(height / CRT_BLOOM_DOWNSAMPLE));
+  canvas.width = width;
+  canvas.height = height;
+
+  gl.bindTexture(gl.TEXTURE_2D, textures.source);
+  gl.texImage2D(
+    gl.TEXTURE_2D,
+    0,
+    gl.RGBA8,
+    width,
+    height,
+    0,
+    gl.RGBA,
+    gl.UNSIGNED_BYTE,
+    null,
+  );
+  allocateCrtRenderTarget(gl, textures.analog, framebuffers.analog, width, height);
+  allocateCrtRenderTarget(
+    gl,
+    textures.signal,
+    framebuffers.signal,
+    signalSize.width,
+    signalSize.height,
+  );
+  allocateCrtRenderTarget(gl, textures.base, framebuffers.base, width, height);
+  allocateCrtRenderTarget(gl, textures.bloom, framebuffers.bloom, bloomWidth, bloomHeight);
+
+  state.width = width;
+  state.height = height;
+  state.signalWidth = signalSize.width;
+  state.signalHeight = signalSize.height;
+  state.bloomWidth = bloomWidth;
+  state.bloomHeight = bloomHeight;
+  state.allocationCount += 1;
+};
+
+export const applyNtseCrtWebGLFilter = ({
+  currentCanvas,
+  filterState,
+  filter,
+}) => {
+  if (!currentCanvas || !filterState || filterState.ntseCrtWebGLUnavailable) {
+    return null;
+  }
+
+  const state = filterState.ntseCrtWebGLState ?? initializeNtseCrtWebGLState(filterState);
+  if (!state || state.contextLost) {
+    return null;
+  }
+
+  try {
+    if (!validateCrtPrograms(state)) {
+      return null;
+    }
+    const width = Math.max(1, currentCanvas.width);
+    const height = Math.max(1, currentCanvas.height);
+    ensureNtseCrtWebGLSize(state, width, height);
+    const { gl, textures, framebuffers, programs } = state;
+    const settings = filter?.settings ?? {};
+
+    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
+    gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
+    gl.bindTexture(gl.TEXTURE_2D, textures.source);
+    gl.texSubImage2D(
+      gl.TEXTURE_2D,
+      0,
+      0,
+      0,
+      gl.RGBA,
+      gl.UNSIGNED_BYTE,
+      currentCanvas,
+    );
+
+    beginCrtPass(state, programs.analog, framebuffers.analog, width, height);
+    bindCrtTexture(gl, textures.source, 0, programs.analog.uniforms.u_source);
+    gl.uniform2f(programs.analog.uniforms.u_texel, 1 / width, 1 / height);
+    gl.uniform2f(programs.analog.uniforms.u_sourceSize, width, height);
+    gl.uniform1f(programs.analog.uniforms.u_smear, clamp01(settings.signalSmear));
+    gl.uniform1f(programs.analog.uniforms.u_noise, clamp01(settings.signalNoise));
+    gl.uniform1f(programs.analog.uniforms.u_seed, NTSE_CRT_STATIC_SIGNAL_SEED);
+    finishCrtPass(state);
+
+    beginCrtPass(
+      state,
+      programs.downscale,
+      framebuffers.signal,
+      state.signalWidth,
+      state.signalHeight,
+    );
+    bindCrtTexture(gl, textures.analog, 0, programs.downscale.uniforms.u_source);
+    gl.uniform2f(programs.downscale.uniforms.u_sourceSize, width, height);
+    finishCrtPass(state);
+
+    beginCrtPass(state, programs.beam, framebuffers.base, width, height);
+    bindCrtTexture(gl, textures.signal, 0, programs.beam.uniforms.u_source);
+    gl.uniform2f(programs.beam.uniforms.u_signalSize, state.signalWidth, state.signalHeight);
+    gl.uniform1f(
+      programs.beam.uniforms.u_scanlineSize,
+      Math.min(3, Math.max(0.5, getNumeric(settings.scanlineSize, 1))),
+    );
+    gl.uniform1f(
+      programs.beam.uniforms.u_scanlineStrength,
+      clamp01(settings.scanlineStrength),
+    );
+    finishCrtPass(state);
+
+    beginCrtPass(
+      state,
+      programs.bloom,
+      framebuffers.bloom,
+      state.bloomWidth,
+      state.bloomHeight,
+    );
+    bindCrtTexture(gl, textures.base, 0, programs.bloom.uniforms.u_source);
+    gl.uniform2f(programs.bloom.uniforms.u_texel, 1 / width, 1 / height);
+    finishCrtPass(state);
+
+    beginCrtPass(state, programs.resolve, null, width, height);
+    bindCrtTexture(gl, textures.base, 0, programs.resolve.uniforms.u_base);
+    bindCrtTexture(gl, textures.bloom, 1, programs.resolve.uniforms.u_bloom);
+    gl.uniform2f(
+      programs.resolve.uniforms.u_bloomTexel,
+      1 / state.bloomWidth,
+      1 / state.bloomHeight,
+    );
+    gl.uniform1f(programs.resolve.uniforms.u_glowStrength, clamp01(settings.glowStrength));
+    finishCrtPass(state);
+
+    assertCrtWebGLClean(gl);
+    state.renderCount += 1;
+    return state.canvas;
+  } catch (error) {
+    filterState.ntseCrtWebGLLastError = error instanceof Error ? error.message : String(error);
+    filterState.ntseCrtWebGLUnavailable = true;
+    state.gl.getExtension('WEBGL_lose_context')?.loseContext();
+    filterState.ntseCrtWebGLState = null;
+    return null;
+  }
+};
+
 const sampleChannelNearest = (data, width, height, x, y, channel) => {
   const ix = Math.round(x);
   const iy = Math.round(y);
@@ -1151,7 +2419,6 @@ const applyCrtWholeImage = ({
   bloomCanvas,
   workCanvas,
   filter,
-  timeSeconds,
 }) => {
   const nextCtx = clearDisplayFilterCanvas(nextCanvas);
   const sourceCtx = currentCanvas?.getContext('2d', { willReadFrequently: true });
@@ -1167,6 +2434,10 @@ const applyCrtWholeImage = ({
   const height = currentCanvas.height;
 
   const cellSize = resolveDisplayFilterPixelSize(filter?.settings?.cellSize, 12);
+  const scanlineSize = Math.min(
+    3,
+    Math.max(0.5, getNumeric(filter?.settings?.scanlineSize, 1)),
+  );
   const scanlineIntensity = clamp01(filter?.settings?.scanlineIntensity);
   const maskIntensity = clamp01(filter?.settings?.maskIntensity);
   const barrelDistortion = Math.max(0, getNumeric(filter?.settings?.barrelDistortion, 0.15));
@@ -1177,15 +2448,20 @@ const applyCrtWholeImage = ({
   const vignetteIntensity = clamp01(filter?.settings?.vignetteIntensity);
   const flickerIntensity = clamp01(filter?.settings?.flickerIntensity);
   const signalArtifacts = clamp01(filter?.settings?.signalArtifacts);
+  const signalNoise = clamp01(filter?.settings?.signalNoise);
   const bloomIntensity = Math.max(0, getNumeric(filter?.settings?.bloomIntensity, 0));
   const bloomRadius = Math.max(0, getNumeric(filter?.settings?.bloomRadius, 0));
   const beamExponent = mix(3.4, 0.55, beamFocus);
   const brightnessGain = 0.72 + brightness * 0.56;
-  const flickerSeed = Math.floor(timeSeconds * 60);
-  const flicker = 1 + (hashNoise(flickerSeed, 0, 0.173) - 0.5) * flickerIntensity * 0.22;
+  const flickerSeed = CRT_STATIC_SIGNAL_SEED;
+  const frozenFlicker = 1
+    + (hashNoise(flickerSeed, 0, 0.173) - 0.5) * flickerIntensity * 0.22;
   const cellHeight = Math.max(3, Math.round(cellSize * 0.92));
   const triadWidth = Math.max(1, cellSize / 3);
-  const scanlinePeriod = Math.max(2, Math.round(Math.max(2, cellSize * 0.5)));
+  const scanlinePeriod = Math.max(
+    2,
+    Math.round(Math.max(2, cellSize * 0.5) * scanlineSize),
+  );
   const scanlineSoftness = Math.max(0.5, scanlinePeriod * 0.22);
   const bloomOverlay = buildCrtBloomOverlay({
     currentCanvas,
@@ -1253,12 +2529,13 @@ const applyCrtWholeImage = ({
       const vignette = 1 - vignetteIntensity * smoothstep(0.35, 1.05, radius);
       const luma = 0.2126 * r + 0.7152 * g + 0.0722 * b;
       const lift = shadowLift * (1 - luma);
-      const artifactNoise = (hashNoise(x + flickerSeed * 13, y, 0.277) - 0.5) * signalArtifacts * 0.09;
-      const gain = scanline * vignette * flicker * maskAlpha;
+      const artifactNoise = (hashNoise(x + flickerSeed * 13, y, 0.277) - 0.5)
+        * (signalArtifacts * 0.09 + signalNoise * 0.11);
+      const gain = scanline * vignette * maskAlpha;
 
-      output[index] = Math.round(clamp01((r * brightnessGain + lift + artifactNoise) * gain * maskWeights[0]) * 255);
-      output[index + 1] = Math.round(clamp01((g * brightnessGain + lift + artifactNoise * 0.7) * gain * maskWeights[1]) * 255);
-      output[index + 2] = Math.round(clamp01((b * brightnessGain + lift + artifactNoise * 0.45) * gain * maskWeights[2]) * 255);
+      output[index] = Math.round(clamp01((r * brightnessGain + lift + artifactNoise) * frozenFlicker * gain * maskWeights[0]) * 255);
+      output[index + 1] = Math.round(clamp01((g * brightnessGain + lift + artifactNoise * 0.7) * frozenFlicker * gain * maskWeights[1]) * 255);
+      output[index + 2] = Math.round(clamp01((b * brightnessGain + lift + artifactNoise * 0.45) * frozenFlicker * gain * maskWeights[2]) * 255);
       output[index + 3] = Math.round(alpha * maskAlpha * scanline * vignette * 255);
     }
   }
@@ -1353,12 +2630,11 @@ export const applyDisplayFilterStack = ({
   const colorGradeFilter = getDisplayFilterByIdFromList(displayFilters, 'color-grade');
   const lcdMaskFilter = getDisplayFilterByIdFromList(displayFilters, 'lcd-mask');
   const crtFilter = getDisplayFilterByIdFromList(displayFilters, 'crt');
+  const ntseCrtFilter = getDisplayFilterByIdFromList(displayFilters, 'ntse-crt');
   const crtGridFilter = getDisplayFilterByIdFromList(displayFilters, 'crt-grid');
   const chromaticAberrationFilter = getDisplayFilterByIdFromList(displayFilters, 'chromatic-aberration');
   const noiseFilter = getDisplayFilterByIdFromList(displayFilters, 'noise');
   const filmNoiseFilter = getDisplayFilterByIdFromList(displayFilters, 'film-noise');
-  const timeSeconds = Date.now() / 1000;
-
   const swap = (canvas) => {
     currentCanvas = canvas;
     nextCanvas = getNextFilterWorkCanvas(currentCanvas, workCanvasA, workCanvasB);
@@ -1511,15 +2787,63 @@ export const applyDisplayFilterStack = ({
     }
   }
 
-  if (crtFilter?.enabled && applyCrtWholeImage({
-    currentCanvas,
-    nextCanvas,
-    bloomCanvas,
-    workCanvas: auxCanvas,
-    filter: crtFilter,
-    timeSeconds,
-  })) {
-    swap(nextCanvas);
+  if (crtFilter?.enabled) {
+    const crtCanvas = applyCrtWebGLFilter({
+      currentCanvas,
+      filterState,
+      filter: crtFilter,
+    });
+    if (crtCanvas) {
+      swap(crtCanvas);
+    } else if (applyCrtWholeImage({
+      currentCanvas,
+      nextCanvas,
+      bloomCanvas,
+      workCanvas: auxCanvas,
+      filter: crtFilter,
+    })) {
+      swap(nextCanvas);
+    }
+  }
+
+  if (ntseCrtFilter?.enabled) {
+    const ntseCrtCanvas = applyNtseCrtWebGLFilter({
+      currentCanvas,
+      filterState,
+      filter: ntseCrtFilter,
+    });
+    if (ntseCrtCanvas) {
+      swap(ntseCrtCanvas);
+    } else {
+      const settings = ntseCrtFilter.settings ?? {};
+      const fallbackFilter = {
+        settings: {
+          cellSize: CRT_REFERENCE_CELL_SIZE,
+          scanlineSize: Math.min(3, Math.max(0.5, getNumeric(settings.scanlineSize, 1))),
+          scanlineIntensity: clamp01(settings.scanlineStrength),
+          maskIntensity: 0,
+          barrelDistortion: 0,
+          chromaticAberration: clamp01(settings.signalSmear) * 2.5,
+          beamFocus: 0.7,
+          brightness: 0.75,
+          shadowLift: 0.08,
+          vignetteIntensity: 0,
+          signalArtifacts: clamp01(settings.signalSmear),
+          signalNoise: clamp01(settings.signalNoise),
+          bloomIntensity: clamp01(settings.glowStrength) * 2,
+          bloomRadius: 18,
+        },
+      };
+      if (applyCrtWholeImage({
+        currentCanvas,
+        nextCanvas,
+        bloomCanvas,
+        workCanvas: auxCanvas,
+        filter: fallbackFilter,
+      })) {
+        swap(nextCanvas);
+      }
+    }
   }
 
   if (crtGridFilter?.enabled && getNumeric(crtGridFilter?.settings?.lineOpacity, 0) > 0) {

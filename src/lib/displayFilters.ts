@@ -9,6 +9,7 @@ const FILTER_ORDER: DisplayFilterId[] = [
   'color-grade',
   'lcd-mask',
   'crt',
+  'ntse-crt',
   'crt-grid',
   'chromatic-aberration',
   'noise',
@@ -225,6 +226,45 @@ const sanitizeCrt = (filter?: Partial<DisplayFilterForId<'crt'>>): DisplayFilter
   },
 });
 
+const sanitizeNtseCrt = (
+  filter?: Partial<DisplayFilterForId<'ntse-crt'>>,
+): DisplayFilterConfig => ({
+  id: 'ntse-crt',
+  enabled: filter?.enabled === true,
+  settings: {
+    signalSmear: roundToStep(clamp(
+      filter?.settings?.signalSmear,
+      0,
+      1,
+      0.8,
+    ), 0.01),
+    signalNoise: roundToStep(clamp(
+      filter?.settings?.signalNoise,
+      0,
+      1,
+      0.18,
+    ), 0.01),
+    scanlineSize: roundToStep(clamp(
+      filter?.settings?.scanlineSize,
+      0.5,
+      3,
+      1,
+    ), 0.05),
+    scanlineStrength: roundToStep(clamp(
+      filter?.settings?.scanlineStrength,
+      0,
+      1,
+      0.64,
+    ), 0.01),
+    glowStrength: roundToStep(clamp(
+      filter?.settings?.glowStrength,
+      0,
+      1,
+      0.32,
+    ), 0.01),
+  },
+});
+
 const sanitizeNoise = (filter?: Partial<DisplayFilterForId<'noise'>>): DisplayFilterConfig => ({
   id: 'noise',
   enabled: filter?.enabled === true,
@@ -337,6 +377,7 @@ export const createDefaultDisplayFilters = (): DisplayFilterConfig[] => ([
   sanitizeColorGrade(),
   sanitizeLcdMask(),
   sanitizeCrt(),
+  sanitizeNtseCrt(),
   sanitizeCrtGrid(),
   sanitizeChromaticAberration(),
   sanitizeNoise(),
@@ -357,6 +398,8 @@ const sanitizeDisplayFilter = (filter?: Partial<DisplayFilterConfig>): DisplayFi
       return sanitizeLcdMask(filter);
     case 'crt':
       return sanitizeCrt(filter);
+    case 'ntse-crt':
+      return sanitizeNtseCrt(filter);
     case 'crt-grid':
       return sanitizeCrtGrid(filter);
     case 'chromatic-aberration':

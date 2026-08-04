@@ -1,4 +1,6 @@
 import React from 'react';
+import { ChevronRight } from 'lucide-react';
+
 import { Switch } from '@/components/retroui/Switch';
 import Dropdown from '@/components/ui/Dropdown';
 import ProgressSlider from '@/components/ui/ProgressSlider';
@@ -35,6 +37,9 @@ const FILTER_COPY: Record<
   crt: {
     title: 'CRT',
   },
+  'ntse-crt': {
+    title: 'NTSE CRT',
+  },
   'crt-grid': {
     title: 'CRT Grid',
   },
@@ -66,19 +71,37 @@ interface FilterCardProps {
 const FilterCard = ({ filter }: FilterCardProps) => {
   const setDisplayFilterEnabled = useAppStore((state) => state.setDisplayFilterEnabled);
   const updateDisplayFilter = useAppStore((state) => state.updateDisplayFilter);
+  const [isExpanded, setIsExpanded] = React.useState(filter.enabled);
   const copy = FILTER_COPY[filter.id];
+  const controlsId = `display-filter-controls-${filter.id}`;
 
   return (
     <section
       className="py-3"
       aria-labelledby={`display-filter-${filter.id}`}
     >
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <h4 id={`display-filter-${filter.id}`} className="text-sm font-medium text-[#E5E5E5]">
+      <div className="flex items-stretch justify-between gap-3">
+        <button
+          type="button"
+          className="group flex min-w-0 flex-1 items-center justify-between gap-2 bg-transparent py-1 text-left transition-colors hover:text-white focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-2 focus-visible:outline-[#8F8F8F]"
+          onClick={() => setIsExpanded((expanded) => !expanded)}
+          aria-expanded={isExpanded}
+          aria-controls={controlsId}
+          aria-label={`${copy.title} settings`}
+        >
+          <span
+            id={`display-filter-${filter.id}`}
+            role="heading"
+            aria-level={4}
+            className="text-sm font-medium text-[#E5E5E5] group-hover:text-white"
+          >
             {copy.title}
-          </h4>
-        </div>
+          </span>
+          <ChevronRight
+            className={`h-4 w-4 shrink-0 text-[#8F8F8F] transition-transform ${isExpanded ? 'rotate-90' : ''}`}
+            aria-hidden
+          />
+        </button>
         <Switch
           id={`display-filter-toggle-${filter.id}`}
           checked={filter.enabled}
@@ -87,8 +110,8 @@ const FilterCard = ({ filter }: FilterCardProps) => {
         />
       </div>
 
-      {filter.enabled && (
-        <div className="mt-3 space-y-3">
+      {isExpanded && (
+        <div id={controlsId} className="mt-3 space-y-3">
         {filter.id === 'pixelate' && (
           <div>
             <label className="mb-1 block text-[11px] uppercase tracking-[0.08em] text-[#8F8F8F]">
@@ -461,6 +484,84 @@ const FilterCard = ({ filter }: FilterCardProps) => {
           </>
         )}
 
+        {filter.id === 'ntse-crt' && (
+          <>
+            <p className="text-[11px] leading-4 text-[#8F8F8F]">
+              Static 320px-wide analog signal, scanline beam, and glow preset.
+            </p>
+            <div>
+              <label className="mb-1 block text-[11px] uppercase tracking-[0.08em] text-[#8F8F8F]">
+                Signal Smear
+              </label>
+              <ProgressSlider
+                value={filter.settings.signalSmear}
+                min={0}
+                max={1}
+                step={0.01}
+                onChange={(value) => updateDisplayFilter('ntse-crt', { signalSmear: value })}
+                aria-label="NTSE CRT signal smear"
+                formatValue={(value) => `${Math.round(value * 100)}%`}
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-[11px] uppercase tracking-[0.08em] text-[#8F8F8F]">
+                Signal Noise
+              </label>
+              <ProgressSlider
+                value={filter.settings.signalNoise}
+                min={0}
+                max={1}
+                step={0.01}
+                onChange={(value) => updateDisplayFilter('ntse-crt', { signalNoise: value })}
+                aria-label="NTSE CRT signal noise"
+                formatValue={(value) => `${Math.round(value * 100)}%`}
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-[11px] uppercase tracking-[0.08em] text-[#8F8F8F]">
+                Scanline Size
+              </label>
+              <ProgressSlider
+                value={filter.settings.scanlineSize}
+                min={0.5}
+                max={3}
+                step={0.05}
+                onChange={(value) => updateDisplayFilter('ntse-crt', { scanlineSize: value })}
+                aria-label="NTSE CRT scanline size"
+                formatValue={(value) => `${value.toFixed(2)}×`}
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-[11px] uppercase tracking-[0.08em] text-[#8F8F8F]">
+                Scanline Strength
+              </label>
+              <ProgressSlider
+                value={filter.settings.scanlineStrength}
+                min={0}
+                max={1}
+                step={0.01}
+                onChange={(value) => updateDisplayFilter('ntse-crt', { scanlineStrength: value })}
+                aria-label="NTSE CRT scanline strength"
+                formatValue={(value) => `${Math.round(value * 100)}%`}
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-[11px] uppercase tracking-[0.08em] text-[#8F8F8F]">
+                Glow Strength
+              </label>
+              <ProgressSlider
+                value={filter.settings.glowStrength}
+                min={0}
+                max={1}
+                step={0.01}
+                onChange={(value) => updateDisplayFilter('ntse-crt', { glowStrength: value })}
+                aria-label="NTSE CRT glow strength"
+                formatValue={(value) => `${Math.round(value * 100)}%`}
+              />
+            </div>
+          </>
+        )}
+
         {filter.id === 'noise' && (
           <>
             <div>
@@ -656,10 +757,12 @@ const ColorCycleSoftEdgeMaskControls = () => {
   );
   const ditherAlgorithmRef = React.useRef<ColorCycleSoftEdgeDitherAlgorithm>(ditherAlgorithm);
   const [isApplying, setIsApplying] = React.useState(false);
+  const [isExpanded, setIsExpanded] = React.useState(true);
   const isColorCycleLayer = activeLayer?.layerType === 'color-cycle';
   const hasMask = Boolean(activeLayer?.colorCycleData?.softEdgeMaskImageData || activeLayer?.colorCycleData?.softEdgeMask);
   const isEnabled = hasMask && activeLayer?.colorCycleData?.softEdgeMaskEnabled !== false;
   const canEdit = Boolean(activeLayerId && isColorCycleLayer && !isApplying);
+  const controlsId = 'cc-soft-edge-mask-settings';
 
   if (!isColorCycleLayer && !hasMask) {
     return null;
@@ -731,10 +834,28 @@ const ColorCycleSoftEdgeMaskControls = () => {
   return (
     <>
       <section className="py-3" aria-labelledby="cc-soft-edge-mask-controls">
-        <div className="flex items-start justify-between gap-3">
-          <h4 id="cc-soft-edge-mask-controls" className="text-sm font-medium text-[#E5E5E5]">
-            CC Edge Mask
-          </h4>
+        <div className="flex items-stretch justify-between gap-3">
+          <button
+            type="button"
+            className="group flex min-w-0 flex-1 items-center justify-between gap-2 bg-transparent py-1 text-left transition-colors hover:text-white focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-2 focus-visible:outline-[#8F8F8F]"
+            onClick={() => setIsExpanded((expanded) => !expanded)}
+            aria-expanded={isExpanded}
+            aria-controls={controlsId}
+            aria-label="CC Edge Mask settings"
+          >
+            <span
+              id="cc-soft-edge-mask-controls"
+              role="heading"
+              aria-level={4}
+              className="text-sm font-medium text-[#E5E5E5] group-hover:text-white"
+            >
+              CC Edge Mask
+            </span>
+            <ChevronRight
+              className={`h-4 w-4 shrink-0 text-[#8F8F8F] transition-transform ${isExpanded ? 'rotate-90' : ''}`}
+              aria-hidden
+            />
+          </button>
           <Switch
             id="cc-soft-edge-mask-toggle"
             checked={isEnabled}
@@ -742,8 +863,8 @@ const ColorCycleSoftEdgeMaskControls = () => {
             aria-label="CC soft edge enabled"
           />
         </div>
-        {(isColorCycleLayer || hasMask) && (
-          <div className="mt-3 space-y-3">
+        {isExpanded && (isColorCycleLayer || hasMask) && (
+          <div id={controlsId} className="mt-3 space-y-3">
             <div>
               <label className="mb-1 block text-[11px] uppercase tracking-[0.08em] text-[#8F8F8F]">
                 Edge Width

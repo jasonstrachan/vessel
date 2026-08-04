@@ -180,6 +180,22 @@ describe('canvas slice invariants', () => {
       bloomRadius: 32,
     });
 
+    useAppStore.getState().updateDisplayFilter('ntse-crt', {
+      signalSmear: 4,
+      signalNoise: -2,
+      scanlineSize: 9,
+      scanlineStrength: 7,
+      glowStrength: 3,
+    });
+    const ntseCrt = useAppStore.getState().canvas.displayFilters.find((filter) => filter.id === 'ntse-crt');
+    expect(ntseCrt?.settings).toEqual({
+      signalSmear: 1,
+      signalNoise: 0,
+      scanlineSize: 3,
+      scanlineStrength: 1,
+      glowStrength: 1,
+    });
+
     useAppStore.getState().updateDisplayFilter('crt-grid', {
       lineOpacity: 9,
       lineSpacing: 1,

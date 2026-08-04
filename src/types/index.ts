@@ -98,6 +98,7 @@ export type DisplayFilterId =
   | 'color-grade'
   | 'lcd-mask'
   | 'crt'
+  | 'ntse-crt'
   | 'crt-grid'
   | 'chromatic-aberration'
   | 'noise'
@@ -190,6 +191,18 @@ export interface CrtDisplayFilter {
   };
 }
 
+export interface NtseCrtDisplayFilter {
+  id: 'ntse-crt';
+  enabled: boolean;
+  settings: {
+    signalSmear: number;
+    signalNoise: number;
+    scanlineSize: number;
+    scanlineStrength: number;
+    glowStrength: number;
+  };
+}
+
 export interface CrtGridDisplayFilter {
   id: 'crt-grid';
   enabled: boolean;
@@ -217,6 +230,7 @@ export type DisplayFilterConfig =
   | ColorGradeDisplayFilter
   | LcdMaskDisplayFilter
   | CrtDisplayFilter
+  | NtseCrtDisplayFilter
   | CrtGridDisplayFilter
   | ChromaticAberrationDisplayFilter
   | NoiseDisplayFilter

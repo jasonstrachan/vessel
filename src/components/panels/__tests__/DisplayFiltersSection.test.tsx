@@ -34,6 +34,17 @@ const mockStore = {
         },
       },
       {
+        id: 'ntse-crt',
+        enabled: true,
+        settings: {
+          signalSmear: 0.82,
+          signalNoise: 0.18,
+          scanlineSize: 1,
+          scanlineStrength: 0.64,
+          glowStrength: 0.32,
+        },
+      },
+      {
         id: 'crt-grid',
         enabled: true,
         settings: { lineOpacity: 0.14, lineSpacing: 4, phosphorOpacity: 0.12, scanlineOpacity: 0.18 },
@@ -80,6 +91,7 @@ describe('DisplayFiltersSection', () => {
     expect(screen.getByText('Color Grade')).toBeInTheDocument();
     expect(screen.getByText('LCD Mask')).toBeInTheDocument();
     expect(screen.getByText('CRT')).toBeInTheDocument();
+    expect(screen.getByText('NTSE CRT')).toBeInTheDocument();
     expect(screen.getByText('CRT Grid')).toBeInTheDocument();
     expect(screen.getByText('Chromatic Aberration')).toBeInTheDocument();
     expect(screen.getByText('Noise')).toBeInTheDocument();
@@ -107,6 +119,53 @@ describe('DisplayFiltersSection', () => {
     expect(mockStore.setDisplayFilterEnabled).toHaveBeenCalledWith('pixelate', true);
   });
 
+  it('expands and collapses settings from the header without toggling the filter', () => {
+    render(<DisplayFiltersSection />);
+
+    const pixelateHeader = screen.getByRole('button', { name: 'Pixelate settings' });
+    const roundPixelsHeader = screen.getByRole('button', { name: 'Round Pixels settings' });
+
+    expect(pixelateHeader).toHaveAttribute('aria-expanded', 'false');
+    expect(roundPixelsHeader).toHaveAttribute('aria-expanded', 'true');
+
+    fireEvent.click(pixelateHeader);
+    expect(pixelateHeader).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getByLabelText('Pixelate cell size')).toBeInTheDocument();
+
+    fireEvent.click(roundPixelsHeader);
+    expect(roundPixelsHeader).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.queryByLabelText('Round pixels threshold')).not.toBeInTheDocument();
+
+    expect(mockStore.setDisplayFilterEnabled).not.toHaveBeenCalled();
+    expect(screen.getByLabelText('Pixelate enabled')).not.toBeChecked();
+    expect(screen.getByLabelText('Round Pixels enabled')).toBeChecked();
+  });
+
+  it('expands and collapses CC Edge Mask settings from its header', () => {
+    mockStore.activeLayerId = 'cc-layer';
+    mockStore.layers = [{
+      id: 'cc-layer',
+      layerType: 'color-cycle',
+      colorCycleData: {
+        softEdgeMaskImageData: new ImageData(1, 1),
+        softEdgeMaskEnabled: true,
+      },
+    }];
+    render(<DisplayFiltersSection />);
+
+    const header = screen.getByRole('button', { name: 'CC Edge Mask settings' });
+
+    expect(header).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getByLabelText('Color cycle dither edge mask width')).toBeInTheDocument();
+
+    fireEvent.click(header);
+
+    expect(header).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.queryByLabelText('Color cycle dither edge mask width')).not.toBeInTheDocument();
+    expect(screen.getByLabelText('CC soft edge enabled')).toBeChecked();
+    expect(mockStore.setColorCycleSoftEdgeMaskEnabled).not.toHaveBeenCalled();
+  });
+
   it('keeps disabled filter controls collapsed', () => {
     render(<DisplayFiltersSection />);
 
@@ -125,6 +184,8 @@ describe('DisplayFiltersSection', () => {
     fireEvent.change(screen.getByLabelText('Bloom blur radius'), { target: { value: '4.5' } });
     fireEvent.change(screen.getByLabelText('CRT distortion'), { target: { value: '0.22' } });
     fireEvent.change(screen.getByLabelText('CRT bloom radius'), { target: { value: '18' } });
+    fireEvent.change(screen.getByLabelText('NTSE CRT signal smear'), { target: { value: '0.91' } });
+    fireEvent.change(screen.getByLabelText('NTSE CRT scanline size'), { target: { value: '1.75' } });
     fireEvent.change(screen.getByLabelText('CRT grid line spacing'), { target: { value: '6' } });
     fireEvent.change(screen.getByLabelText('CRT grid phosphor glow'), { target: { value: '0.24' } });
     fireEvent.change(screen.getByLabelText('Chromatic aberration offset'), { target: { value: '1.5' } });
@@ -148,6 +209,8 @@ describe('DisplayFiltersSection', () => {
     expect(mockStore.updateDisplayFilter).toHaveBeenCalledWith('bloom', { blurRadius: 4.5 });
     expect(mockStore.updateDisplayFilter).toHaveBeenCalledWith('crt', { barrelDistortion: 0.22 });
     expect(mockStore.updateDisplayFilter).toHaveBeenCalledWith('crt', { bloomRadius: 18 });
+    expect(mockStore.updateDisplayFilter).toHaveBeenCalledWith('ntse-crt', { signalSmear: 0.91 });
+    expect(mockStore.updateDisplayFilter).toHaveBeenCalledWith('ntse-crt', { scanlineSize: 1.75 });
     expect(mockStore.updateDisplayFilter).toHaveBeenCalledWith('crt-grid', { lineSpacing: 6 });
     expect(mockStore.updateDisplayFilter).toHaveBeenCalledWith('crt-grid', { phosphorOpacity: 0.24 });
     expect(mockStore.updateDisplayFilter).toHaveBeenCalledWith('chromatic-aberration', { offset: 1.5 });

@@ -123,6 +123,44 @@ describe('Goblet 2 runtime export regression guard', () => {
     expect(inlineRuntime).toContain('applyDisplayNoiseOverlay:applyDisplayNoiseOverlay');
   });
 
+  it('keeps the deterministic four-pass CRT renderer in both Goblet pipelines', () => {
+    const sourcePipeline = read('src/lib/displayFilterPipeline.js');
+    const gobletPipeline = read('public/goblet2/displayFilterPipeline.js');
+    const legacyPipeline = read('public/goblet/displayFilterPipeline.js');
+    const inlineRuntime = read('public/goblet2/goblet2-inline.js');
+
+    expect(gobletPipeline).toBe(sourcePipeline);
+    expect(legacyPipeline).toBe(sourcePipeline);
+    expect(sourcePipeline).toContain('const CRT_ANALOG_FRAGMENT_SHADER =');
+    expect(sourcePipeline).toContain('export const applyCrtWebGLFilter = ({');
+    expect(sourcePipeline).toContain('const CRT_STATIC_SIGNAL_SEED = 41.73;');
+    expect(sourcePipeline).not.toContain('Date.now()');
+    expect(sourcePipeline).not.toContain('uniform float u_time');
+    expect(inlineRuntime).toContain('CRT analog signal pass');
+    expect(inlineRuntime).toContain('41.73');
+  });
+
+  it('keeps the separate deterministic five-pass NTSE CRT renderer in both Goblet pipelines', () => {
+    const sourcePipeline = read('src/lib/displayFilterPipeline.js');
+    const gobletPipeline = read('public/goblet2/displayFilterPipeline.js');
+    const legacyPipeline = read('public/goblet/displayFilterPipeline.js');
+    const inlineRuntime = read('public/goblet2/goblet2-inline.js');
+
+    expect(gobletPipeline).toBe(sourcePipeline);
+    expect(legacyPipeline).toBe(sourcePipeline);
+    expect(sourcePipeline).toContain('const NTSE_CRT_ANALOG_FRAGMENT_SHADER =');
+    expect(sourcePipeline).toContain('const NTSE_CRT_DOWNSCALE_FRAGMENT_SHADER =');
+    expect(sourcePipeline).toContain('export const applyNtseCrtWebGLFilter = ({');
+    expect(sourcePipeline).toContain('const NTSE_CRT_STATIC_SIGNAL_SEED = 73.19;');
+    expect(sourcePipeline).toContain("getDisplayFilterByIdFromList(displayFilters, 'ntse-crt')");
+    expect(sourcePipeline).toContain('float sourceTopY = floor((scanlineIndex + 0.5) * scanlineSize);');
+    expect(sourcePipeline).toContain('float sourceBottomY = floor((scanlineIndex + 1.5) * scanlineSize);');
+    expect(sourcePipeline).not.toContain('float phase = signalPosition.y - signalPixel.y;');
+    expect(inlineRuntime).toContain('NTSE CRT analog signal pass');
+    expect(inlineRuntime).toContain('NTSE CRT 320px signal downscale pass');
+    expect(inlineRuntime).toContain('73.19');
+  });
+
   it('does not duplicate the colliding clamp01 helper at top level in the inline runtime', () => {
     const runtime = read('public/goblet2/goblet2-inline.js');
 

@@ -1,7 +1,9 @@
 import fs from 'node:fs';
 
 import {
+  applyCrtWebGLFilter,
   applyDisplayFilterStack,
+  applyNtseCrtWebGLFilter,
   buildFilmGrainFields,
   createFilmGrainPlateModel,
   createDisplayFilterPipelineState,
@@ -16,6 +18,7 @@ import {
   getNextFilterWorkCanvas,
   getSeamlessNoisePatternSize,
   rasterizeFilmGrainFields,
+  resolveCrtSignalSize,
   type FilmGrainPlateModel,
 } from '@/lib/displayFilterPipeline';
 import type { DisplayFilterConfig } from '@/types';
@@ -778,5 +781,367 @@ describe('Direct-overlay display filter fast path', () => {
     expect(noiseAt).toBeGreaterThan(compositeAt);
     expect(overlaysAt).toBeGreaterThan(noiseAt);
     expect(rendererSource).not.toContain("ctx.globalCompositeOperation = 'destination-over';");
+  });
+});
+
+const createCrtFilter = (): Extract<DisplayFilterConfig, { id: 'crt' }> => ({
+  id: 'crt',
+  enabled: true,
+  settings: {
+    cellSize: 12,
+    scanlineIntensity: 0.65,
+    maskIntensity: 0.72,
+    barrelDistortion: 0.15,
+    chromaticAberration: 2,
+    beamFocus: 0.6,
+    brightness: 0.5,
+    shadowLift: 0.16,
+    vignetteIntensity: 0.32,
+    flickerIntensity: 1,
+    signalArtifacts: 0.55,
+    bloomIntensity: 0.45,
+    bloomRadius: 5,
+  },
+});
+
+const createNtseCrtFilter = (): Extract<DisplayFilterConfig, { id: 'ntse-crt' }> => ({
+  id: 'ntse-crt',
+  enabled: true,
+  settings: {
+    signalSmear: 0.82,
+    signalNoise: 0.18,
+    scanlineSize: 1,
+    scanlineStrength: 0.64,
+    glowStrength: 0.32,
+  },
+});
+
+const createFakeWebGL2Context = () => {
+  let nextObjectId = 0;
+  const createObject = () => ({ id: nextObjectId += 1 });
+  const gl = {
+    NO_ERROR: 0,
+    VERTEX_SHADER: 0x8b31,
+    FRAGMENT_SHADER: 0x8b30,
+    COMPILE_STATUS: 0x8b81,
+    LINK_STATUS: 0x8b82,
+    ARRAY_BUFFER: 0x8892,
+    STATIC_DRAW: 0x88e4,
+    FLOAT: 0x1406,
+    TEXTURE_2D: 0x0de1,
+    TEXTURE_MIN_FILTER: 0x2801,
+    TEXTURE_MAG_FILTER: 0x2800,
+    TEXTURE_WRAP_S: 0x2802,
+    TEXTURE_WRAP_T: 0x2803,
+    LINEAR: 0x2601,
+    NEAREST: 0x2600,
+    CLAMP_TO_EDGE: 0x812f,
+    FRAMEBUFFER: 0x8d40,
+    COLOR_ATTACHMENT0: 0x8ce0,
+    FRAMEBUFFER_COMPLETE: 0x8cd5,
+    RGBA8: 0x8058,
+    RGBA: 0x1908,
+    UNSIGNED_BYTE: 0x1401,
+    TEXTURE0: 0x84c0,
+    SCISSOR_TEST: 0x0c11,
+    BLEND: 0x0be2,
+    DEPTH_TEST: 0x0b71,
+    CULL_FACE: 0x0b44,
+    COLOR_BUFFER_BIT: 0x4000,
+    TRIANGLES: 0x0004,
+    UNPACK_FLIP_Y_WEBGL: 0x9240,
+    UNPACK_PREMULTIPLY_ALPHA_WEBGL: 0x9241,
+    createShader: jest.fn(createObject),
+    shaderSource: jest.fn(),
+    compileShader: jest.fn(),
+    getShaderParameter: jest.fn(() => true),
+    getShaderInfoLog: jest.fn(() => ''),
+    deleteShader: jest.fn(),
+    createProgram: jest.fn(createObject),
+    attachShader: jest.fn(),
+    linkProgram: jest.fn(),
+    getProgramParameter: jest.fn(() => true),
+    getProgramInfoLog: jest.fn(() => ''),
+    deleteProgram: jest.fn(),
+    getUniformLocation: jest.fn(createObject),
+    createVertexArray: jest.fn(createObject),
+    createBuffer: jest.fn(createObject),
+    bindVertexArray: jest.fn(),
+    bindBuffer: jest.fn(),
+    bufferData: jest.fn(),
+    enableVertexAttribArray: jest.fn(),
+    vertexAttribPointer: jest.fn(),
+    createTexture: jest.fn(createObject),
+    bindTexture: jest.fn(),
+    texParameteri: jest.fn(),
+    createFramebuffer: jest.fn(createObject),
+    getExtension: jest.fn(() => null),
+    getParameter: jest.fn(() => null),
+    texImage2D: jest.fn(),
+    bindFramebuffer: jest.fn(),
+    framebufferTexture2D: jest.fn(),
+    checkFramebufferStatus: jest.fn(() => 0x8cd5),
+    activeTexture: jest.fn(),
+    uniform1i: jest.fn(),
+    viewport: jest.fn(),
+    enable: jest.fn(),
+    scissor: jest.fn(),
+    disable: jest.fn(),
+    useProgram: jest.fn(),
+    clearColor: jest.fn(),
+    clear: jest.fn(),
+    drawArrays: jest.fn(),
+    pixelStorei: jest.fn(),
+    texSubImage2D: jest.fn(),
+    uniform2f: jest.fn(),
+    uniform1f: jest.fn(),
+    getError: jest.fn(() => 0),
+  };
+  return gl as unknown as WebGL2RenderingContext & {
+    drawArrays: jest.Mock;
+    getUniformLocation: jest.Mock;
+    texImage2D: jest.Mock;
+    texSubImage2D: jest.Mock;
+    uniform1f: jest.Mock;
+  };
+};
+
+describe('deterministic WebGL2 CRT display filter', () => {
+  const originalGetContext = HTMLCanvasElement.prototype.getContext;
+
+  const mockWebGL2Context = (webglContext: WebGL2RenderingContext | null) => (
+    jest.spyOn(HTMLCanvasElement.prototype, 'getContext').mockImplementation(function getContext(
+      this: HTMLCanvasElement,
+      contextId: string,
+      options?: unknown,
+    ) {
+      if (contextId === 'webgl2') {
+        return webglContext;
+      }
+      return (originalGetContext as unknown as (
+        this: HTMLCanvasElement,
+        contextId: string,
+        options?: unknown,
+      ) => RenderingContext | null).call(
+        this,
+        contextId,
+        options,
+      );
+    } as HTMLCanvasElement['getContext'])
+  );
+
+  it('maps the default CRT cell size to a 320px-wide aspect-preserving signal', () => {
+    expect(resolveCrtSignalSize(960, 540)).toEqual({ width: 320, height: 180 });
+    expect(resolveCrtSignalSize(960, 540, 24)).toEqual({ width: 160, height: 90 });
+    expect(resolveCrtSignalSize(200, 100)).toEqual({ width: 200, height: 100 });
+  });
+
+  it('initializes lazily, renders four passes, and reuses resources until resize', () => {
+    const fakeGl = createFakeWebGL2Context();
+    const getContextSpy = mockWebGL2Context(fakeGl);
+    try {
+      const sourceCanvas = document.createElement('canvas');
+      sourceCanvas.width = 16;
+      sourceCanvas.height = 12;
+      const filterState = createDisplayFilterPipelineState();
+
+      expect(filterState.crtWebGLState).toBeNull();
+      const firstResult = applyCrtWebGLFilter({
+        currentCanvas: sourceCanvas,
+        filterState,
+        filter: createCrtFilter(),
+      });
+      const firstState = filterState.crtWebGLState;
+
+      expect(firstResult).toBe(firstState?.canvas);
+      expect(firstState).toMatchObject({
+        programCompileCount: 4,
+        allocationCount: 1,
+        renderCount: 1,
+        drawCallCount: 4,
+      });
+      expect(fakeGl.drawArrays).toHaveBeenCalledTimes(4);
+      expect(fakeGl.texSubImage2D).toHaveBeenCalledTimes(1);
+      const flickerUniformIndex = fakeGl.getUniformLocation.mock.calls
+        .findIndex(([, name]) => name === 'u_flickerIntensity');
+      const flickerUniform = fakeGl.getUniformLocation.mock.results[flickerUniformIndex]?.value;
+      expect(fakeGl.uniform1f).toHaveBeenCalledWith(flickerUniform, 1);
+
+      applyCrtWebGLFilter({
+        currentCanvas: sourceCanvas,
+        filterState,
+        filter: createCrtFilter(),
+      });
+      expect(filterState.crtWebGLState).toBe(firstState);
+      expect(firstState).toMatchObject({
+        programCompileCount: 4,
+        allocationCount: 1,
+        renderCount: 2,
+        drawCallCount: 8,
+      });
+
+      sourceCanvas.width = 20;
+      applyCrtWebGLFilter({
+        currentCanvas: sourceCanvas,
+        filterState,
+        filter: createCrtFilter(),
+      });
+      expect(firstState).toMatchObject({
+        programCompileCount: 4,
+        allocationCount: 2,
+        renderCount: 3,
+        drawCallCount: 12,
+      });
+    } finally {
+      getContextSpy.mockRestore();
+    }
+  });
+
+  it('keeps NTSE CRT separate and renders its deterministic five-pass reference chain', () => {
+    const fakeGl = createFakeWebGL2Context();
+    const getContextSpy = mockWebGL2Context(fakeGl);
+    try {
+      const sourceCanvas = document.createElement('canvas');
+      sourceCanvas.width = 960;
+      sourceCanvas.height = 540;
+      const filterState = createDisplayFilterPipelineState();
+      const filter = createNtseCrtFilter();
+      filter.settings.scanlineSize = 2.5;
+
+      const result = applyNtseCrtWebGLFilter({
+        currentCanvas: sourceCanvas,
+        filterState,
+        filter,
+      });
+
+      expect(filterState.crtWebGLState).toBeNull();
+      expect(result).toBe(filterState.ntseCrtWebGLState?.canvas);
+      expect(filterState.ntseCrtWebGLState).toMatchObject({
+        signalWidth: 320,
+        signalHeight: 180,
+        programCompileCount: 5,
+        allocationCount: 1,
+        renderCount: 1,
+        drawCallCount: 5,
+      });
+      expect(fakeGl.drawArrays).toHaveBeenCalledTimes(5);
+      expect(fakeGl.texSubImage2D).toHaveBeenCalledTimes(1);
+      const scanlineUniformIndex = fakeGl.getUniformLocation.mock.calls
+        .findIndex(([, name]) => name === 'u_scanlineSize');
+      const scanlineUniform = fakeGl.getUniformLocation.mock.results[scanlineUniformIndex]?.value;
+      expect(fakeGl.uniform1f).toHaveBeenCalledWith(scanlineUniform, 2.5);
+    } finally {
+      getContextSpy.mockRestore();
+    }
+  });
+
+  it('does not request WebGL2 while CRT is disabled', () => {
+    const fakeGl = createFakeWebGL2Context();
+    const getContextSpy = mockWebGL2Context(fakeGl);
+    try {
+      const sourceCanvas = document.createElement('canvas');
+      sourceCanvas.width = 4;
+      sourceCanvas.height = 3;
+      const filterState = createDisplayFilterPipelineState();
+
+      applyDisplayFilterStack({
+        sourceCanvas,
+        displayFilters: [{ ...createCrtFilter(), enabled: false }],
+        filterState,
+      });
+
+      expect(filterState.crtWebGLState).toBeNull();
+      const contextCalls = getContextSpy.mock.calls as unknown as Array<[string, ...unknown[]]>;
+      expect(contextCalls.some(([contextId]) => contextId === 'webgl2')).toBe(false);
+    } finally {
+      getContextSpy.mockRestore();
+    }
+  });
+
+  it('uses the static CPU fallback when WebGL2 is unavailable', () => {
+    const getContextSpy = mockWebGL2Context(null);
+    try {
+      const sourceCanvas = document.createElement('canvas');
+      sourceCanvas.width = 4;
+      sourceCanvas.height = 3;
+      const sourceCtx = sourceCanvas.getContext('2d') as CanvasRenderingContext2D;
+      sourceCtx.fillStyle = '#c24a84';
+      sourceCtx.fillRect(0, 0, sourceCanvas.width, sourceCanvas.height);
+      const filterState = createDisplayFilterPipelineState();
+
+      const result = applyDisplayFilterStack({
+        sourceCanvas,
+        displayFilters: [createCrtFilter()],
+        filterState,
+      });
+
+      expect(result).not.toBe(sourceCanvas);
+      expect(filterState.crtWebGLUnavailable).toBe(true);
+      expect(filterState.crtWebGLLastError).toBe('WebGL2 is unavailable');
+      expect(filterState.crtWebGLState).toBeNull();
+    } finally {
+      getContextSpy.mockRestore();
+    }
+  });
+
+  it('keeps NTSE signal noise effective in the CPU fallback', () => {
+    const getContextSpy = mockWebGL2Context(null);
+    try {
+      const sourceCanvas = document.createElement('canvas');
+      sourceCanvas.width = 16;
+      sourceCanvas.height = 12;
+      const sourceCtx = sourceCanvas.getContext('2d') as CanvasRenderingContext2D;
+      sourceCtx.fillStyle = '#808080';
+      sourceCtx.fillRect(0, 0, sourceCanvas.width, sourceCanvas.height);
+      const withoutNoise = createNtseCrtFilter();
+      withoutNoise.settings.signalSmear = 0;
+      withoutNoise.settings.signalNoise = 0;
+      withoutNoise.settings.scanlineStrength = 0;
+      withoutNoise.settings.glowStrength = 0;
+      const withNoise = {
+        ...withoutNoise,
+        settings: { ...withoutNoise.settings, signalNoise: 1 },
+      };
+
+      const cleanResult = applyDisplayFilterStack({
+        sourceCanvas,
+        displayFilters: [withoutNoise],
+        filterState: createDisplayFilterPipelineState(),
+      });
+      const noisyResult = applyDisplayFilterStack({
+        sourceCanvas,
+        displayFilters: [withNoise],
+        filterState: createDisplayFilterPipelineState(),
+      });
+      const cleanPixels = cleanResult.getContext('2d')?.getImageData(
+        0,
+        0,
+        sourceCanvas.width,
+        sourceCanvas.height,
+      ).data;
+      const noisyPixels = noisyResult.getContext('2d')?.getImageData(
+        0,
+        0,
+        sourceCanvas.width,
+        sourceCanvas.height,
+      ).data;
+
+      expect(cleanPixels).toBeDefined();
+      expect(noisyPixels).toBeDefined();
+      expect(Array.from(noisyPixels ?? [])).not.toEqual(Array.from(cleanPixels ?? []));
+    } finally {
+      getContextSpy.mockRestore();
+    }
+  });
+
+  it('contains no filter-owned wall-clock or animation uniform', () => {
+    const pipelineSource = fs.readFileSync(
+      `${process.cwd()}/src/lib/displayFilterPipeline.js`,
+      'utf8',
+    );
+
+    expect(pipelineSource).not.toContain('Date.now()');
+    expect(pipelineSource).not.toContain('uniform float u_time');
+    expect(pipelineSource).not.toContain('requestAnimationFrame');
   });
 });

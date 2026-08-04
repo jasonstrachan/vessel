@@ -1,5 +1,26 @@
 import type { DisplayFilterConfig } from '@/types';
 
+export interface CrtWebGLPipelineState {
+  canvas: HTMLCanvasElement;
+  ready: boolean;
+  contextLost: boolean;
+  width: number;
+  height: number;
+  bloomWidth: number;
+  bloomHeight: number;
+  programCompileCount: number;
+  allocationCount: number;
+  renderCount: number;
+  drawCallCount: number;
+  vendor: string | null;
+  renderer: string | null;
+}
+
+export interface NtseCrtWebGLPipelineState extends CrtWebGLPipelineState {
+  signalWidth: number;
+  signalHeight: number;
+}
+
 export interface DisplayFilterPipelineState {
   filterSurfaceCanvas: HTMLCanvasElement | null;
   workCanvasA: HTMLCanvasElement | null;
@@ -25,6 +46,12 @@ export interface DisplayFilterPipelineState {
   filmGrainOverlayKey: string;
   filmGrainDarkOverlayCanvas: HTMLCanvasElement | null;
   filmGrainLightOverlayCanvas: HTMLCanvasElement | null;
+  crtWebGLState: CrtWebGLPipelineState | null;
+  crtWebGLUnavailable: boolean;
+  crtWebGLLastError: string | null;
+  ntseCrtWebGLState: NtseCrtWebGLPipelineState | null;
+  ntseCrtWebGLUnavailable: boolean;
+  ntseCrtWebGLLastError: string | null;
 }
 
 export interface FilmGrainLobe {
@@ -101,6 +128,11 @@ export function resolveDownsampledDisplayFilterRadius(
   downsampleFactor?: number,
   minimum?: number,
 ): number;
+export function resolveCrtSignalSize(
+  width: number,
+  height: number,
+  cellSize?: number,
+): { width: number; height: number };
 export function createTileableNoiseGrid(columns: number, rows: number, seed?: number): number[][];
 export function createFilmGrainPlateModel(options?: {
   plateSize?: number;
@@ -157,6 +189,16 @@ export function applyFilmGrainOverlay(args: {
   targetRect: { x: number; y: number; width: number; height: number };
   documentOrigin?: { x: number; y: number };
 }): boolean;
+export function applyCrtWebGLFilter(args: {
+  currentCanvas: HTMLCanvasElement;
+  filterState: DisplayFilterPipelineState;
+  filter: Extract<DisplayFilterConfig, { id: 'crt' }>;
+}): HTMLCanvasElement | null;
+export function applyNtseCrtWebGLFilter(args: {
+  currentCanvas: HTMLCanvasElement;
+  filterState: DisplayFilterPipelineState;
+  filter: Extract<DisplayFilterConfig, { id: 'ntse-crt' }>;
+}): HTMLCanvasElement | null;
 export function applyDisplayFilterStack(args: {
   sourceCanvas: HTMLCanvasElement;
   displayFilters: DisplayFilterConfig[];
