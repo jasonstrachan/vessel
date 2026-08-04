@@ -9,14 +9,16 @@ import {
   selectSequentialRecordState,
 } from '@/stores/useAppStore';
 import {
-  CC_LAYER_SPEED_SCALE_STEP,
-  MAX_BRUSH_COLOR_CYCLE_SPEED,
+  DEFAULT_CC_LAYER_SPEED_MULTIPLIER,
   MAX_CC_LAYER_SPEED_SCALE,
   MIN_CC_LAYER_SPEED_SCALE,
 } from '@/constants/colorCycle';
-import { sanitizeBrushColorCycleSpeed } from '@/utils/colorCycleSpeed';
-import { resolveExplicitLayerColorCycleBaseSpeed } from '@/utils/colorCycleLayerSpeed';
+import PlaybackSpeedControlsModule from '@/components/panels/PlaybackSpeedControlsModule';
 import SequentialControlsModule from '@/components/panels/SequentialControlsModule';
+import {
+  resolveExplicitLayerColorCycleBaseSpeed,
+  sanitizeColorCycleLayerSpeedMultiplier,
+} from '@/utils/colorCycleLayerSpeed';
 import { toggleToolbarColorCyclePlayback } from '@/utils/colorCyclePlayback';
 
 const AnimationControlsPanel: React.FC = () => {
@@ -89,9 +91,10 @@ const AnimationControlsPanel: React.FC = () => {
       if (!activeColorCycleLayer) {
         return;
       }
-      const next = sanitizeBrushColorCycleSpeed(
+      const next = sanitizeColorCycleLayerSpeedMultiplier(
         Number(event.target.value),
-        resolveExplicitLayerColorCycleBaseSpeed(activeColorCycleLayer.colorCycleData) ?? 1
+        resolveExplicitLayerColorCycleBaseSpeed(activeColorCycleLayer.colorCycleData)
+          ?? DEFAULT_CC_LAYER_SPEED_MULTIPLIER,
       );
       updateLayer(activeColorCycleLayer.id, {
         colorCycleData: {
@@ -106,12 +109,9 @@ const AnimationControlsPanel: React.FC = () => {
     ? `${playbackSpeedScale.toFixed(3)}x`
     : `${playbackSpeedScale.toFixed(2)}x`;
   const activeCcBaseSpeed = activeColorCycleLayer
-    ? Math.max(
-        CC_LAYER_SPEED_SCALE_STEP,
-        Math.min(
-          MAX_BRUSH_COLOR_CYCLE_SPEED,
-          resolveExplicitLayerColorCycleBaseSpeed(activeColorCycleLayer.colorCycleData) ?? 1
-        )
+    ? sanitizeColorCycleLayerSpeedMultiplier(
+        resolveExplicitLayerColorCycleBaseSpeed(activeColorCycleLayer.colorCycleData),
+        DEFAULT_CC_LAYER_SPEED_MULTIPLIER,
       )
     : null;
 
@@ -126,22 +126,27 @@ const AnimationControlsPanel: React.FC = () => {
       <div className="px-4 py-3 space-y-3">
         <SequentialControlsModule
           controlsDisabled={controlsDisabled}
-          activeCcBaseSpeed={activeCcBaseSpeed}
           currentFrameDisplay={currentFrameDisplay}
           frameCount={sequentialRecord.frameCount}
           fps={sequentialRecord.fps}
           isCaptureActive={sequentialCaptureActive}
-          playbackSpeedScale={playbackSpeedScale}
-          playbackScaleLabel={playbackScaleLabel}
           timeSmear={sequentialRecord.timeSmear}
-          onCcBaseSpeedChange={handleCcBaseSpeedChange}
           onFpsChange={handleFpsChange}
           onFramesChange={handleFramesChange}
-          onPlaybackSpeedScaleChange={handlePlaybackSpeedScaleChange}
           onTimeSmearChange={handleTimeSmearChange}
         />
 
+        <PlaybackSpeedControlsModule
+          activeCcBaseSpeed={activeCcBaseSpeed}
+          controlsDisabled={controlsDisabled}
+          playbackSpeedScale={playbackSpeedScale}
+          playbackScaleLabel={playbackScaleLabel}
+          onCcBaseSpeedChange={handleCcBaseSpeedChange}
+          onPlaybackSpeedScaleChange={handlePlaybackSpeedScaleChange}
+        />
+
         <button
+          type="button"
           onClick={handleTogglePlayback}
           className="w-full h-11 bg-[#D9D9D9] text-[#31313A] hover:bg-[#C4C4C4] transition-colors text-xs outline-none focus:outline-none flex items-center justify-center"
         >

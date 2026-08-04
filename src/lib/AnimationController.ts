@@ -8,6 +8,7 @@ import { debugLog } from '@/utils/debug';
 export interface AnimationConfig {
   fps?: number;
   speed?: number;
+  maxSpeed?: number;
   autoStart?: boolean;
   onFrame?: (deltaTime: number, totalTime: number) => void;
   onStart?: () => void;
@@ -15,6 +16,7 @@ export interface AnimationConfig {
 }
 
 export class AnimationController {
+  private readonly maxSpeed: number;
   private fps: number = 60;
   private speed: number = 1.0;
   private offset: number = 0;
@@ -44,15 +46,17 @@ export class AnimationController {
   private autoAdjustQuality: boolean = true;
   
   constructor(config?: AnimationConfig) {
+    this.maxSpeed = Number.isFinite(config?.maxSpeed)
+      ? Math.max(0, config?.maxSpeed as number)
+      : 10;
+
     if (config?.fps) {
       this.setFPS(config.fps);
     } else {
       this.targetFrameTime = 1000 / this.fps;
     }
     
-    if (config?.speed !== undefined) {
-      this.speed = config.speed;
-    }
+    this.setSpeed(config?.speed ?? this.speed);
     
     if (config?.onFrame) {
       this.onFrame = config.onFrame;
@@ -83,7 +87,10 @@ export class AnimationController {
    * Set animation speed multiplier
    */
   setSpeed(speed: number) {
-    this.speed = Math.max(0, Math.min(10, speed));
+    if (!Number.isFinite(speed)) {
+      return;
+    }
+    this.speed = Math.max(0, Math.min(this.maxSpeed, speed));
   }
   
   /**

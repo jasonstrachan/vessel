@@ -1,5 +1,6 @@
 import { applyPressureCurve } from '@/utils/pressureCurve';
 import { sanitizeBrushColorCycleSpeed } from '@/utils/colorCycleSpeed';
+import { sanitizeColorCycleLayerSpeedMultiplier } from '@/utils/colorCycleLayerSpeed';
 
 import type { StampShape } from './colorCycleBrushContracts';
 
@@ -68,12 +69,8 @@ export class ColorCycleCoreBrushSettingsState {
       return null;
     }
 
-    const nextBaseSpeed = speed === 0
-      ? 0
-      : sanitizeBrushColorCycleSpeed(speed);
-    const previousBaseSpeed = this.layerBaseSpeed === 0
-      ? 0
-      : sanitizeBrushColorCycleSpeed(this.layerBaseSpeed, 1);
+    const nextBaseSpeed = sanitizeColorCycleLayerSpeedMultiplier(speed);
+    const previousBaseSpeed = sanitizeColorCycleLayerSpeedMultiplier(this.layerBaseSpeed);
     this.layerBaseSpeed = nextBaseSpeed;
 
     return {

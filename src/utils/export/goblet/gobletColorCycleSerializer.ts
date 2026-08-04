@@ -3,7 +3,10 @@ import { FLOW_SLOT_MASK } from '@/lib/colorCycle/flowEncoding';
 import { normalizeGradientSeamProfile, type GradientSeamProfile } from '@/lib/colorCycle/gradientSeamProfile';
 import { MAX_BRUSH_COLOR_CYCLE_SPEED, MAX_CC_LAYER_SPEED_SCALE, MIN_BRUSH_COLOR_CYCLE_SPEED, MIN_CC_LAYER_SPEED_SCALE } from '@/constants/colorCycle';
 import { decodeColorCycleSpeedByte, encodeColorCycleSpeedByte } from '@/utils/colorCycleSpeed';
-import { resolveLayerColorCycleFallbackSpeedCps } from '@/utils/colorCycleLayerSpeed';
+import {
+  composeColorCyclePlaybackSpeedScale,
+  resolveLayerColorCycleFallbackPlaybackSpeedCps,
+} from '@/utils/colorCycleLayerSpeed';
 import { packArrayToB64Z, unpackB64ZToUint8Array } from '@/utils/export/b64z';
 import { ccLog, ccSample } from '@/utils/colorCycle/ccDebug';
 import { deriveForegroundGradientStops } from '@/utils/colorCycleGradients';
@@ -1073,7 +1076,7 @@ const persistenceDocumentStateToBrushState = (
     ? targetFPSSource
     : undefined;
   const animationSpeedSource = metadata?.exportCycleSpeed ?? metadata?.cycleSpeed;
-  const animationSpeed = resolveLayerColorCycleFallbackSpeedCps(
+  const animationSpeed = resolveLayerColorCycleFallbackPlaybackSpeedCps(
     layer.colorCycleData,
     typeof animationSpeedSource === 'number' ? animationSpeedSource : undefined,
   );
@@ -1355,7 +1358,7 @@ const resolveExportControllerSpeed = (
   const layerBaseSpeed = toFiniteNumberOrNull(data.layerBaseSpeedCps);
   if (layerBaseSpeed !== null) {
     return applyExportPlaybackScale(
-      resolveLayerColorCycleFallbackSpeedCps(data, fallbackToolSpeed ?? undefined),
+      resolveLayerColorCycleFallbackPlaybackSpeedCps(data, fallbackToolSpeed ?? undefined),
       layerSpeedScale,
     );
   }
@@ -1396,7 +1399,7 @@ const resolveExportToolSpeed = (
     return null;
   }
   return applyExportPlaybackScale(
-    resolveLayerColorCycleFallbackSpeedCps(data, toolSpeed ?? undefined),
+    resolveLayerColorCycleFallbackPlaybackSpeedCps(data, toolSpeed ?? undefined),
     layerSpeedScale,
   );
 };
@@ -1550,7 +1553,7 @@ export const prepareBrushSpeedExport = (params: {
     params.layer.colorCycleData?.layerBaseSpeedCps,
   );
   const sourceSpeedScale = params.speedSourceVersion === AUTHORED_SPEED_SOURCE_VERSION
-    ? Math.max(0, Math.abs(layerMultiplier ?? 1)) * params.layerSpeedScale
+    ? composeColorCyclePlaybackSpeedScale(layerMultiplier, params.layerSpeedScale)
     : params.layerSpeedScale;
   const rawSpeedBySlot = resolveSlotSpeedMap(params.layer.colorCycleData);
   const speedBySlot = new Map<number, number>();
@@ -2569,7 +2572,7 @@ const extractBrushStateFromDocumentState = (layer: Layer): WebGLSerializedBrushS
 
   return mapDocumentSnapshotToGobletBrushState(state, {
     gradientStops,
-    animationSpeed: resolveLayerColorCycleFallbackSpeedCps(layer.colorCycleData),
+    animationSpeed: resolveLayerColorCycleFallbackPlaybackSpeedCps(layer.colorCycleData),
     stampDitherEnabled: typeof brushStateMetadata?.stampDitherEnabled === 'boolean'
       ? brushStateMetadata.stampDitherEnabled
       : undefined,

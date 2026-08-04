@@ -5,6 +5,7 @@ import { bakePaletteTable, renderBrushFrame, type Goblet2GradientStop } from '@/
 import { applyGradientSeamProfile, type GradientSeamProfile } from '@/lib/colorCycle/gradientSeamProfile';
 import { ColorCycleAnimator } from '@/lib/ColorCycleAnimator';
 import { GradientPalette } from '@/lib/GradientPalette';
+import { MAX_BRUSH_COLOR_CYCLE_SPEED } from '@/constants/colorCycle';
 import {
   ColorCycleLayerDocument,
   type ColorCycleLayerDocumentState,
@@ -14,6 +15,10 @@ import {
   buildCcDitherRenderPalette,
   buildCcDitherRuntimePalette,
 } from '@/utils/colorCycle/ccDitherRenderPalette';
+import { encodeColorCycleSpeedByte } from '@/utils/colorCycleSpeed';
+import { prepareBrushSpeedExport } from '@/utils/export/goblet/gobletColorCycleSerializer';
+import type { WebGLSerializedBrushState } from '@/utils/export/goblet/gobletTypes';
+import type { Layer } from '@/types';
 
 type FixtureThresholds = {
   maxChannelDelta: number;
@@ -734,6 +739,44 @@ describe('Color cycle runtime parity (Vessel reference vs Goblet2 CPU)', () => {
     renderedParitySemantics.forEach((semantic) => {
       expect(fixtureCoverage.has(semantic)).toBe(true);
     });
+  });
+
+  it('keeps the maximum layer and global playback composition aligned with Goblet export', () => {
+    const animator = new ColorCycleAnimator({
+      width: 1,
+      height: 1,
+      gradientStops: [],
+      speed: 3,
+      forceCanvas2D: true,
+    });
+    animator.setLayerSpeedMultiplier(4);
+
+    const speedByte = encodeColorCycleSpeedByte(0.5);
+    const speedPlan = prepareBrushSpeedExport({
+      layer: {
+        id: 'max-speed-parity-layer',
+        layerType: 'color-cycle',
+        colorCycleData: { mode: 'brush', layerBaseSpeedCps: 4 },
+      } as Layer,
+      brushState: {
+        width: 1,
+        height: 1,
+        indexBuffer: [1],
+        gradientIdBuffer: [0],
+        speedBuffer: [speedByte],
+      } as WebGLSerializedBrushState,
+      warnOnce: jest.fn(),
+      forceBuffer: true,
+      layerSpeedScale: 3,
+      speedSourceVersion: 2,
+    });
+
+    expect(animator.getEffectivePlaybackSpeed()).toBe(12);
+    expect(speedPlan?.speedBufferOverride).toEqual([speedByte]);
+    expect(speedPlan?.speedMax).toBeCloseTo(
+      MAX_BRUSH_COLOR_CYCLE_SPEED * animator.getEffectivePlaybackSpeed(),
+      8,
+    );
   });
 
   it('pins the Vessel reference side to the editor ColorCycleAnimator playback path', () => {

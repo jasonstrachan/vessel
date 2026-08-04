@@ -142,6 +142,7 @@ import AnimationControlsPanel from '@/components/panels/AnimationControlsPanel';
 import { useAppStore } from '@/stores/useAppStore';
 
 const SEQUENTIAL_PANEL_EXPANDED_STORAGE_KEY = 'vessel-sequential-panel-expanded';
+const PLAYBACK_SPEED_PANEL_EXPANDED_STORAGE_KEY = 'vessel-playback-speed-panel-expanded';
 
 type PanelMockState = {
   colorCyclePlayback: { desiredPlaying: boolean; suspendDepth: number; playbackSpeedScale: number };
@@ -175,6 +176,7 @@ const appStore = useAppStore as unknown as {
 describe('AnimationControlsPanel', () => {
   beforeEach(() => {
     window.localStorage.removeItem(SEQUENTIAL_PANEL_EXPANDED_STORAGE_KEY);
+    window.localStorage.removeItem(PLAYBACK_SPEED_PANEL_EXPANDED_STORAGE_KEY);
     toggleToolbarColorCyclePlayback.mockClear();
     const store = appStore.getState();
     store.playColorCycle.mockClear();
@@ -241,6 +243,8 @@ describe('AnimationControlsPanel', () => {
 
     expect(screen.getByRole('spinbutton', { name: /fps/i })).toBeDisabled();
     expect(screen.getByRole('spinbutton', { name: /frames/i })).toBeDisabled();
+    expect(screen.getByRole('slider', { name: /time-smear/i })).toBeDisabled();
+    expect(screen.getByRole('slider', { name: /global cc playback rate/i })).toBeDisabled();
     expect(screen.queryByText(/capture active\. changes apply next take\./i)).not.toBeInTheDocument();
   });
 
@@ -248,8 +252,23 @@ describe('AnimationControlsPanel', () => {
     render(<AnimationControlsPanel />);
 
     expect(screen.getByText('Sequence')).toBeInTheDocument();
+    expect(screen.getByText('Speed')).toBeInTheDocument();
     expect(screen.getByRole('spinbutton', { name: /fps/i })).toBeInTheDocument();
     expect(screen.getByRole('spinbutton', { name: /frames/i })).toBeInTheDocument();
+  });
+
+  it('groups sequence and playback speed controls into separate sections', () => {
+    render(<AnimationControlsPanel />);
+
+    const sequenceSection = screen.getByRole('region', { name: /sequence/i });
+    const speedSection = screen.getByRole('region', { name: /speed/i });
+
+    expect(sequenceSection).toContainElement(screen.getByRole('spinbutton', { name: /fps/i }));
+    expect(sequenceSection).toContainElement(screen.getByRole('spinbutton', { name: /frames/i }));
+    expect(sequenceSection).toContainElement(screen.getByRole('slider', { name: /time-smear/i }));
+    expect(sequenceSection).not.toContainElement(screen.getByRole('slider', { name: /global cc playback rate/i }));
+    expect(speedSection).toContainElement(screen.getByRole('slider', { name: /global cc playback rate/i }));
+    expect(speedSection).not.toContainElement(screen.getByRole('slider', { name: /time-smear/i }));
   });
 
   it('shows pause while sequential capture is active and returns to play on pointer up', () => {
@@ -362,21 +381,25 @@ describe('AnimationControlsPanel', () => {
 
     render(<AnimationControlsPanel />);
 
-    fireEvent.change(screen.getByRole('slider', { name: /layer speed multiplier/i }), {
-      target: { value: '0.8' },
+    const layerSpeedSlider = screen.getByRole('slider', { name: /layer speed multiplier/i });
+    expect(layerSpeedSlider).toHaveAttribute('min', '0');
+    expect(layerSpeedSlider).toHaveAttribute('max', '4');
+
+    fireEvent.change(layerSpeedSlider, {
+      target: { value: '4' },
     });
 
     const store = appStore.getState();
     expect(store.updateLayer).toHaveBeenCalledWith('layer-cc', {
       colorCycleData: {
-        layerBaseSpeedCps: 0.8,
+        layerBaseSpeedCps: 4,
         mode: 'brush',
       },
     });
     expect(screen.queryByText(/active color-cycle layer only/i)).not.toBeInTheDocument();
   });
 
-  it('renders play pause button below sequential controls', () => {
+  it('renders play pause button below sequence and speed controls', () => {
     appStore.setState({
       layers: [{ id: 'layer-seq', layerType: 'sequential' }],
       activeLayerId: 'layer-seq',
@@ -391,11 +414,15 @@ describe('AnimationControlsPanel', () => {
 
     const { container } = render(<AnimationControlsPanel />);
     const sequentialHeader = screen.getByText('Sequence');
+    const speedHeader = screen.getByText('Speed');
     const playbackButton = screen.getByRole('button', { name: /play/i });
-    const relation = sequentialHeader.compareDocumentPosition(playbackButton);
+    const sequenceRelation = sequentialHeader.compareDocumentPosition(playbackButton);
+    const speedRelation = speedHeader.compareDocumentPosition(playbackButton);
 
-    expect(relation & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(sequenceRelation & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(speedRelation & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(container.textContent).toContain('Sequence');
+    expect(container.textContent).toContain('Speed');
   });
 
   it('allows minimizing sequential controls', () => {
@@ -440,5 +467,28 @@ describe('AnimationControlsPanel', () => {
 
     expect(screen.queryByRole('spinbutton', { name: /fps/i })).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Sequence/i })).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.getByRole('slider', { name: /global cc playback rate/i })).toBeInTheDocument();
+  });
+
+  it('allows minimizing speed controls without hiding sequence controls', () => {
+    render(<AnimationControlsPanel />);
+
+    const toggleButton = screen.getByRole('button', { name: /Speed/i });
+    expect(screen.getByRole('slider', { name: /global cc playback rate/i })).toBeInTheDocument();
+    fireEvent.click(toggleButton);
+    expect(screen.queryByRole('slider', { name: /global cc playback rate/i })).not.toBeInTheDocument();
+    expect(screen.getByRole('spinbutton', { name: /fps/i })).toBeInTheDocument();
+    fireEvent.click(toggleButton);
+    expect(screen.getByRole('slider', { name: /global cc playback rate/i })).toBeInTheDocument();
+  });
+
+  it('restores speed panel collapsed state from storage', () => {
+    window.localStorage.setItem(PLAYBACK_SPEED_PANEL_EXPANDED_STORAGE_KEY, '0');
+
+    render(<AnimationControlsPanel />);
+
+    expect(screen.queryByRole('slider', { name: /global cc playback rate/i })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Speed/i })).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.getByRole('spinbutton', { name: /fps/i })).toBeInTheDocument();
   });
 });

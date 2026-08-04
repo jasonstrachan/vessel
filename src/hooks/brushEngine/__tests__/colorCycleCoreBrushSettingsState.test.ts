@@ -27,15 +27,20 @@ describe('ColorCycleCoreBrushSettingsState', () => {
     expect(state.setCycleSpeed(-1)).toBeNull();
     expect(state.setCycleSpeed(0.25)).toBe(0.25);
 
-    const change = state.setLayerBaseSpeed(2);
+    const change = state.setLayerBaseSpeed(4);
     expect(change).toEqual({
       previousBaseSpeed: 1,
-      nextBaseSpeed: 2,
+      nextBaseSpeed: 4,
     });
     expect(state.getResolvedWriteCycleSpeed()).toBe(0.25);
 
+    expect(state.setLayerBaseSpeed(8)).toEqual({
+      previousBaseSpeed: 4,
+      nextBaseSpeed: 4,
+    });
+
     expect(state.setLayerBaseSpeed(0)).toEqual({
-      previousBaseSpeed: 2,
+      previousBaseSpeed: 4,
       nextBaseSpeed: 0,
     });
     expect(state.getLayerBaseSpeed()).toBe(0);

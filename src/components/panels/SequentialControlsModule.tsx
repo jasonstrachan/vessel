@@ -3,28 +3,15 @@
 import React from 'react';
 import { ChevronRight } from 'lucide-react';
 
-import {
-  CC_LAYER_SPEED_SCALE_STEP,
-  DEFAULT_BRUSH_COLOR_CYCLE_SPEED,
-  MAX_BRUSH_COLOR_CYCLE_SPEED,
-  MAX_CC_LAYER_SPEED_SCALE,
-  MIN_CC_LAYER_SPEED_SCALE,
-} from '@/constants/colorCycle';
-
 interface SequentialControlsModuleProps {
   controlsDisabled: boolean;
-  activeCcBaseSpeed: number | null;
   currentFrameDisplay: number;
   frameCount: number;
   fps: number;
   isCaptureActive: boolean;
-  playbackSpeedScale: number;
-  playbackScaleLabel: string;
   timeSmear: number;
-  onCcBaseSpeedChange: (event: React.ChangeEvent<HTMLInputElement>) => void;
   onFpsChange: (event: React.ChangeEvent<HTMLInputElement>) => void;
   onFramesChange: (event: React.ChangeEvent<HTMLInputElement>) => void;
-  onPlaybackSpeedScaleChange: (event: React.ChangeEvent<HTMLInputElement>) => void;
   onTimeSmearChange: (event: React.ChangeEvent<HTMLInputElement>) => void;
 }
 
@@ -59,18 +46,13 @@ const persistExpandedState = (isExpanded: boolean): void => {
 
 const SequentialControlsModule: React.FC<SequentialControlsModuleProps> = ({
   controlsDisabled,
-  activeCcBaseSpeed,
   currentFrameDisplay,
   frameCount,
   fps,
   isCaptureActive,
-  playbackSpeedScale,
-  playbackScaleLabel,
   timeSmear,
-  onCcBaseSpeedChange,
   onFpsChange,
   onFramesChange,
-  onPlaybackSpeedScaleChange,
   onTimeSmearChange,
 }) => {
   const [isExpanded, setIsExpanded] = React.useState<boolean>(loadInitialExpandedState);
@@ -139,48 +121,6 @@ const SequentialControlsModule: React.FC<SequentialControlsModuleProps> = ({
               />
             </label>
           </div>
-
-          <label className="block text-[10px] text-[#BDBDBD]">
-            Global CC playback rate
-            <div className="mt-1 flex items-center gap-2">
-              <input
-                type="range"
-                min={MIN_CC_LAYER_SPEED_SCALE}
-                max={MAX_CC_LAYER_SPEED_SCALE}
-                step={CC_LAYER_SPEED_SCALE_STEP}
-                value={playbackSpeedScale}
-                onChange={onPlaybackSpeedScaleChange}
-                disabled={controlsDisabled}
-                className="w-full accent-[#D9D9D9] disabled:opacity-50"
-                aria-label="Global CC playback rate"
-              />
-              <span className="w-10 text-right text-[10px] text-[#D6D6D6]">
-                {playbackScaleLabel}
-              </span>
-            </div>
-          </label>
-
-          {activeCcBaseSpeed !== null && (
-            <label className="block text-[10px] text-[#BDBDBD]">
-              Layer speed multiplier
-              <div className="mt-1 flex items-center gap-2">
-                <input
-                  type="range"
-                  min={CC_LAYER_SPEED_SCALE_STEP}
-                  max={MAX_BRUSH_COLOR_CYCLE_SPEED}
-                  step={CC_LAYER_SPEED_SCALE_STEP}
-                  value={activeCcBaseSpeed}
-                  onChange={onCcBaseSpeedChange}
-                  disabled={controlsDisabled}
-                  className="w-full accent-[#D9D9D9] disabled:opacity-50"
-                  aria-label="Layer speed multiplier"
-                />
-                <span className="w-10 text-right text-[10px] text-[#D6D6D6]">
-                  {(activeCcBaseSpeed ?? DEFAULT_BRUSH_COLOR_CYCLE_SPEED).toFixed(2)}x
-                </span>
-              </div>
-            </label>
-          )}
 
           <label className="block text-[10px] text-[#BDBDBD]">
             Time-smear

@@ -198,6 +198,17 @@ describe('Goblet slot speed export', () => {
     expect(getSlotSpeed(plan, 0)).toBeCloseTo(0.2, 5);
   });
 
+  it('exports the maximum composed layer and global speed without clamping', () => {
+    const plan = createSpeedPlan(
+      createLayer({ layerBaseSpeedCps: 4 }),
+      createBrushState({ speedBuffer: undefined }),
+      { fallbackToolSpeed: 1, layerSpeedScale: 3 },
+    );
+
+    expect(plan?.speedMode).toBe('slot');
+    expect(getSlotSpeed(plan, 0)).toBe(12);
+  });
+
   it('preserves explicit static tool speed when applying a layer multiplier fallback', () => {
     const plan = createSpeedPlan(
       createLayer({ layerBaseSpeedCps: 2 }),
@@ -223,7 +234,7 @@ describe('Goblet slot speed export', () => {
   it('preserves authored buffer bytes and exports the composed playback range', () => {
     const speedBuffer = [encodeColorCycleSpeedByte(0.3), encodeColorCycleSpeedByte(0.6), 0, 0];
     const plan = createSpeedPlan(
-      createLayer({ layerBaseSpeedCps: 2 }),
+      createLayer({ layerBaseSpeedCps: 4 }),
       createBrushState({ speedBuffer }),
       {
         forceBuffer: true,
@@ -234,8 +245,8 @@ describe('Goblet slot speed export', () => {
 
     expect(plan?.speedMode).toBe('buffer');
     expect(plan?.speedBufferOverride).toEqual(speedBuffer);
-    expect(plan?.speedMin).toBeCloseTo(MIN_BRUSH_COLOR_CYCLE_SPEED * 6, 8);
-    expect(plan?.speedMax).toBeCloseTo(MAX_BRUSH_COLOR_CYCLE_SPEED * 6, 8);
+    expect(plan?.speedMin).toBeCloseTo(MIN_BRUSH_COLOR_CYCLE_SPEED * 12, 8);
+    expect(plan?.speedMax).toBeCloseTo(MAX_BRUSH_COLOR_CYCLE_SPEED * 12, 8);
   });
 
   it('keeps authored bytes nonzero while a zero layer multiplier exports static playback', () => {

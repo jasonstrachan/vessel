@@ -53,6 +53,27 @@ describe('ColorCycleAnimator speed scaling', () => {
     expect(animator.getEffectivePlaybackSpeed()).toBe(1);
   });
 
+  it('applies the maximum layer and global multipliers without clock clamping', () => {
+    const animator = new ColorCycleAnimator({
+      width: 1,
+      height: 1,
+      gradientStops: [],
+      speed: 3,
+      forceCanvas2D: true,
+    });
+
+    animator.setLayerSpeedMultiplier(4);
+
+    expect(animator.getEffectivePlaybackSpeed()).toBe(12);
+    expect((animator as unknown as {
+      animationController: { getSpeed(): number };
+    }).animationController.getSpeed()).toBe(12);
+
+    animator.setLayerSpeedMultiplier(8);
+    animator.setSpeed(6);
+    expect(animator.getEffectivePlaybackSpeed()).toBe(12);
+  });
+
   it('keeps per-pixel animated colors static when playback speed is zero', () => {
     const animator = new ColorCycleAnimator({
       width: 1,

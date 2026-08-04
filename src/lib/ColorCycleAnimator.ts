@@ -14,7 +14,16 @@ import { Renderer2D } from '@/lib/colorCycle/Renderer2D';
 import { RendererWebGL, type PaletteRGBA } from '@/lib/colorCycle/rendering/RendererWebGL';
 import { FlowMode, StrokeOrderTracker } from '@/lib/colorCycle/StrokeOrderTracker';
 import type { CCIndexSurface, CCIndexSurfaceRect } from '@/lib/colorCycle/CCIndexSurface';
-import { MAX_BRUSH_COLOR_CYCLE_SPEED, MIN_BRUSH_COLOR_CYCLE_SPEED } from '@/constants/colorCycle';
+import {
+  MAX_BRUSH_COLOR_CYCLE_SPEED,
+  MAX_CC_EFFECTIVE_PLAYBACK_SPEED_SCALE,
+  MIN_BRUSH_COLOR_CYCLE_SPEED,
+} from '@/constants/colorCycle';
+import {
+  composeColorCyclePlaybackSpeedScale,
+  sanitizeColorCycleGlobalPlaybackSpeedScale,
+  sanitizeColorCycleLayerSpeedMultiplier,
+} from '@/utils/colorCycleLayerSpeed';
 import type { GradientSeamProfile } from '@/lib/colorCycle/gradientSeamProfile';
 import type { ColorCycleLayerDocumentSnapshot, DerivedSurface } from '@/lib/colorCycle/document';
 import { recordColorCycleRuntimePerf } from '@/utils/perf/ccPerfProbe';
@@ -168,12 +177,11 @@ export class ColorCycleAnimator implements CCIndexSurface, DerivedSurface {
       isLazy ? 0 : config.height
     );
 
-    this.globalPlaybackSpeed = Number.isFinite(config.speed)
-      ? Math.max(0, Math.abs(config.speed ?? 0))
-      : 0.1;
+    this.globalPlaybackSpeed = sanitizeColorCycleGlobalPlaybackSpeedScale(config.speed, 0.1);
     this.animationController = new AnimationController({
       fps: config.fps || 30,
       speed: this.globalPlaybackSpeed,
+      maxSpeed: MAX_CC_EFFECTIVE_PLAYBACK_SPEED_SCALE,
       autoStart: isLazy ? false : config.autoStart || false,
       onFrame: this.handleAnimationFrame.bind(this),
     });
@@ -209,9 +217,7 @@ export class ColorCycleAnimator implements CCIndexSurface, DerivedSurface {
 
   rebuild(snapshot: ColorCycleLayerDocumentSnapshot, version: number): void {
     const layerBaseSpeedCps = snapshot.layerBaseSpeedCps;
-    this.layerSpeedMultiplier = typeof layerBaseSpeedCps === 'number' && Number.isFinite(layerBaseSpeedCps)
-      ? Math.max(0, Math.abs(layerBaseSpeedCps))
-      : 1;
+    this.layerSpeedMultiplier = sanitizeColorCycleLayerSpeedMultiplier(layerBaseSpeedCps);
     this.applyComposedSpeed();
     this.pendingDerivedSurfaceVersion = version;
     this.setIndexBufferFromArray(
@@ -1658,7 +1664,7 @@ export class ColorCycleAnimator implements CCIndexSurface, DerivedSurface {
       return;
     }
 
-    this.globalPlaybackSpeed = Math.max(0, Math.abs(speed));
+    this.globalPlaybackSpeed = sanitizeColorCycleGlobalPlaybackSpeedScale(speed);
     this.applyComposedSpeed();
   }
 
@@ -1667,12 +1673,15 @@ export class ColorCycleAnimator implements CCIndexSurface, DerivedSurface {
       return;
     }
 
-    this.layerSpeedMultiplier = Math.max(0, Math.abs(speed));
+    this.layerSpeedMultiplier = sanitizeColorCycleLayerSpeedMultiplier(speed);
     this.applyComposedSpeed();
   }
 
   getEffectivePlaybackSpeed(): number {
-    return this.globalPlaybackSpeed * this.layerSpeedMultiplier;
+    return composeColorCyclePlaybackSpeedScale(
+      this.layerSpeedMultiplier,
+      this.globalPlaybackSpeed,
+    );
   }
 
   private applyComposedSpeed(): void {
