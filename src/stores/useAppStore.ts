@@ -666,6 +666,11 @@ export interface AppState {
   setLayersVisibility: (layerIds: string[], visible: boolean) => void;
   toggleLayersVisibility: (layerIds: string[]) => void;
   createLayerGroupFromSelection: (layerIds: string[]) => string | null;
+  moveLayersToGroup: (
+    layerIds: string[],
+    groupId: string | undefined,
+    destinationIndex: number,
+  ) => void;
   removeLayerGroup: (groupId: string) => void;
   renameLayerGroup: (groupId: string, name: string) => void;
   setLayerGroupVisibility: (groupId: string, visible: boolean) => void;

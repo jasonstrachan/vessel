@@ -8,8 +8,13 @@ import type {
 } from '@/stores/helpers/layerStructureHistory';
 import {
   generateLayerGroupName,
+  sanitizeHiddenLayerGroupIds,
   sanitizeLayerGroups,
 } from '@/stores/layers/layerGroupService';
+import {
+  normalizeLayerOrder,
+  reorderLayerBlock,
+} from '@/stores/layers/layerCrudService';
 import type { AppState } from '../useAppStore';
 
 type StoreSet = Parameters<StateCreator<AppState, [], [], AppState>>[0];
@@ -205,6 +210,141 @@ export const renameLayerGroupAction = (
       groupId,
     },
   });
+};
+
+export const moveLayersToGroupAction = (
+  layerIds: string[],
+  groupId: string | undefined,
+  destinationIndex: number,
+  deps: LayerGroupActionDeps,
+): void => {
+  const {
+    set,
+    get,
+    captureLayerStructureSnapshot,
+    commitLayerStructureHistory,
+    getGroupVisibilitySnapshot,
+    setGroupVisibilitySnapshot,
+    pruneGroupVisibilitySnapshots,
+  } = deps;
+  const stateBeforeChange = get();
+  if (
+    !Number.isInteger(destinationIndex)
+    || destinationIndex < 0
+    || destinationIndex > stateBeforeChange.layers.length
+    || (groupId !== undefined && !stateBeforeChange.layerGroups.some((group) => group.id === groupId))
+  ) {
+    return;
+  }
+
+  const targetLayerIds = Array.from(new Set(layerIds)).filter((layerId) => (
+    stateBeforeChange.layers.some((layer) => layer.id === layerId)
+  ));
+  if (targetLayerIds.length === 0) {
+    return;
+  }
+
+  const hiddenGroupIdSet = new Set(stateBeforeChange.hiddenLayerGroupIds);
+  const visibilityBeforeGroupHideByLayerId = new Map<string, boolean>();
+  const nextVisibilitySnapshots = new Map<string, Map<string, boolean>>();
+  const getNextVisibilitySnapshot = (targetGroupId: string): Map<string, boolean> => {
+    const existing = nextVisibilitySnapshots.get(targetGroupId);
+    if (existing) {
+      return existing;
+    }
+    const next = new Map(getGroupVisibilitySnapshot(targetGroupId));
+    nextVisibilitySnapshots.set(targetGroupId, next);
+    return next;
+  };
+
+  targetLayerIds.forEach((layerId) => {
+    const layer = stateBeforeChange.layers.find((candidate) => candidate.id === layerId);
+    if (!layer || layer.groupId === groupId) {
+      return;
+    }
+    const sourceGroupId = layer.groupId;
+    const sourceVisibilitySnapshot = sourceGroupId && hiddenGroupIdSet.has(sourceGroupId)
+      ? getGroupVisibilitySnapshot(sourceGroupId)
+      : undefined;
+    const visibilityBeforeGroupHide = sourceVisibilitySnapshot?.has(layer.id)
+      ? Boolean(sourceVisibilitySnapshot.get(layer.id))
+      : layer.visible;
+    visibilityBeforeGroupHideByLayerId.set(layer.id, visibilityBeforeGroupHide);
+
+    if (groupId && hiddenGroupIdSet.has(groupId)) {
+      getNextVisibilitySnapshot(groupId).set(layer.id, visibilityBeforeGroupHide);
+    }
+  });
+
+  const beforeSnapshot = captureLayerStructureSnapshot(stateBeforeChange, {
+    actionType: 'layer-reorder',
+    description: groupId ? 'Move layers into group' : 'Move layers out of group',
+  });
+  let didChange = false;
+
+  set((state) => {
+    const reorderResult = reorderLayerBlock(state.layers, targetLayerIds, destinationIndex);
+    const targetLayerIdSet = new Set(targetLayerIds);
+    const nextLayers = normalizeLayerOrder(reorderResult.layers.map((layer) => {
+      if (!targetLayerIdSet.has(layer.id) || layer.groupId === groupId) {
+        return layer;
+      }
+      didChange = true;
+      return {
+        ...layer,
+        groupId,
+        visible: groupId && hiddenGroupIdSet.has(groupId)
+          ? false
+          : (visibilityBeforeGroupHideByLayerId.get(layer.id) ?? layer.visible),
+      };
+    }));
+
+    if (!didChange && !reorderResult.didReorder) {
+      return state;
+    }
+    didChange = true;
+    const nextLayerGroups = sanitizeLayerGroups(nextLayers, state.layerGroups);
+
+    return {
+      layers: nextLayers,
+      layerGroups: nextLayerGroups,
+      hiddenLayerGroupIds: sanitizeHiddenLayerGroupIds(
+        state.hiddenLayerGroupIds,
+        nextLayerGroups,
+      ),
+      layersNeedRecomposition: true,
+    };
+  });
+
+  if (!didChange) {
+    return;
+  }
+
+  const stateAfterChange = get();
+  const validGroupIds = new Set(stateAfterChange.layerGroups.map((group) => group.id));
+  nextVisibilitySnapshots.forEach((snapshot, snapshotGroupId) => {
+    if (validGroupIds.has(snapshotGroupId)) {
+      setGroupVisibilitySnapshot(snapshotGroupId, snapshot);
+    }
+  });
+  const afterSnapshot = captureLayerStructureSnapshot(stateAfterChange, {
+    actionType: 'layer-reorder',
+    description: groupId ? 'Move layers into group' : 'Move layers out of group',
+    previousSnapshot: beforeSnapshot,
+  });
+  commitLayerStructureHistory({
+    set,
+    beforeSnapshot,
+    afterSnapshot,
+    label: groupId ? 'Move layers into group' : 'Move layers out of group',
+    metadata: {
+      operation: 'move-layers-to-group',
+      groupId: groupId ?? null,
+      layerIds: targetLayerIds,
+    },
+  });
+  pruneGroupVisibilitySnapshots(validGroupIds);
+  get().markAllCompositeSegmentsDirty();
 };
 
 export const setLayerGroupVisibilityAction = (

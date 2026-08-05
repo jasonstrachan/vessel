@@ -119,6 +119,7 @@ const LayersPanel: React.FC = () => {
     (state) => state.convertColorCycleLayerToNormal,
   );
   const createLayerGroupFromSelection = useAppStore((state) => state.createLayerGroupFromSelection);
+  const moveLayersToGroup = useAppStore((state) => state.moveLayersToGroup);
   const removeLayerGroup = useAppStore((state) => state.removeLayerGroup);
   const setLayerGroupVisibility = useAppStore((state) => state.setLayerGroupVisibility);
   const setLayersVisibility = useAppStore((state) => state.setLayersVisibility);
@@ -634,10 +635,6 @@ const LayersPanel: React.FC = () => {
     if (sourceLayerIds.length === 0) {
       return;
     }
-    if (sourceLayerIds.includes(dropTarget.layerId)) {
-      return;
-    }
-
     const isCurrentBlockBoundary = isBoundaryAtCurrentBlock(
       sourceLayerIds,
       dropTarget.boundaryIndex,
@@ -652,23 +649,19 @@ const LayersPanel: React.FC = () => {
     }
 
     const nextGroupId = resolveBoundaryGroupId(dropTarget.boundaryIndex, sourceLayerIds);
-    sourceLayerIds.forEach((sourceLayerId) => {
-      const sourceLayer = layers.find((layer) => layer.id === sourceLayerId);
-      if (sourceLayer && sourceLayer.groupId !== nextGroupId) {
-        updateLayer(sourceLayerId, { groupId: nextGroupId });
-      }
-    });
-    if (!isCurrentBlockBoundary) {
-      reorderLayerBlock(sourceLayerIds, destinationIndex);
+    const doesGroupChange = sourceLayerIds.some((sourceLayerId) => (
+      layers.find((layer) => layer.id === sourceLayerId)?.groupId !== nextGroupId
+    ));
+    if (doesGroupChange || !isCurrentBlockBoundary) {
+      moveLayersToGroup(sourceLayerIds, nextGroupId, destinationIndex);
     }
   }, [
     displayedLayerIds,
     isBoundaryAtCurrentBlock,
     layers,
-    reorderLayerBlock,
+    moveLayersToGroup,
     resolveActionLayerIds,
     resolveBoundaryGroupId,
-    updateLayer,
   ]);
 
   const commitGroupDrop = React.useCallback((
@@ -719,16 +712,21 @@ const LayersPanel: React.FC = () => {
       );
       return;
     }
-    if (
-      draggedLayerId
-      && resolveActionLayerIds(draggedLayerId).includes(targetLayerId)
-    ) {
-      setLayerDropTarget(null);
-      return;
-    }
-
     const nextTarget = resolveLayerDropTarget(event, targetLayerId);
     if (!nextTarget) {
+      return;
+    }
+    const sourceLayerIds = draggedLayerId ? resolveActionLayerIds(draggedLayerId) : [];
+    const nextGroupId = resolveBoundaryGroupId(nextTarget.boundaryIndex, sourceLayerIds);
+    const doesGroupChange = sourceLayerIds.some((sourceLayerId) => (
+      layers.find((layer) => layer.id === sourceLayerId)?.groupId !== nextGroupId
+    ));
+    if (
+      sourceLayerIds.length > 0
+      && !doesGroupChange
+      && isBoundaryAtCurrentBlock(sourceLayerIds, nextTarget.boundaryIndex)
+    ) {
+      setLayerDropTarget(null);
       return;
     }
     setLayerDropTarget((previous) => (
@@ -743,7 +741,9 @@ const LayersPanel: React.FC = () => {
     draggedLayerId,
     getGroupLayerIds,
     isBoundaryAtCurrentBlock,
+    layers,
     resolveActionLayerIds,
+    resolveBoundaryGroupId,
     resolveGroupRowDropTarget,
     resolveLayerDropTarget,
   ]);
@@ -754,6 +754,20 @@ const LayersPanel: React.FC = () => {
   ) => {
     event.preventDefault();
     event.dataTransfer.dropEffect = 'move';
+    if (draggedLayerId) {
+      const nextTarget = resolveGroupBoundaryTarget(targetGroupId, 'above');
+      const sourceLayerIds = resolveActionLayerIds(draggedLayerId);
+      const doesGroupChange = sourceLayerIds.some((sourceLayerId) => (
+        layers.find((layer) => layer.id === sourceLayerId)?.groupId !== targetGroupId
+      ));
+      setLayerDropTarget(
+        nextTarget
+        && (doesGroupChange || !isBoundaryAtCurrentBlock(sourceLayerIds, nextTarget.boundaryIndex))
+          ? nextTarget
+          : null,
+      );
+      return;
+    }
     if (!draggedGroupId) {
       setLayerDropTarget(null);
       return;
@@ -769,8 +783,12 @@ const LayersPanel: React.FC = () => {
     );
   }, [
     draggedGroupId,
+    draggedLayerId,
     getGroupLayerIds,
     isBoundaryAtCurrentBlock,
+    layers,
+    resolveActionLayerIds,
+    resolveGroupBoundaryTarget,
     resolveGroupHeaderDropTarget,
   ]);
 
@@ -796,26 +814,20 @@ const LayersPanel: React.FC = () => {
     const draggedId = transferData;
 
     const sourceLayerIds = resolveActionLayerIds(draggedId);
-    const draggedLayer = layers.find((layer) => layer.id === draggedId);
-    if (!draggedLayer || sourceLayerIds.length === 0) {
+    if (!layers.some((layer) => layer.id === draggedId) || sourceLayerIds.length === 0) {
       return;
     }
 
-    const groupMembersInPanelOrder = layers
-      .slice()
-      .reverse()
-      .filter((layer) => layer.groupId === groupId && layer.id !== draggedId);
-    const targetLayerId = groupMembersInPanelOrder[0]?.id;
-
-    sourceLayerIds.forEach((sourceLayerId) => {
-      updateLayer(sourceLayerId, { groupId });
-    });
-
-    if (targetLayerId && targetLayerId !== draggedId) {
-      const originalTargetIndex = layers.findIndex((layer) => layer.id === targetLayerId);
-      if (originalTargetIndex !== -1) {
-        reorderLayerBlock(sourceLayerIds, originalTargetIndex);
-      }
+    const topGroupBoundary = resolveGroupBoundaryTarget(groupId, 'above');
+    const destinationIndex = topGroupBoundary
+      ? getStoreDestinationForDisplayBoundary(
+        layers,
+        displayedLayerIds,
+        topGroupBoundary.boundaryIndex,
+      )
+      : null;
+    if (destinationIndex != null) {
+      moveLayersToGroup(sourceLayerIds, groupId, destinationIndex);
     }
 
     setDraggedLayerId(null);
@@ -823,11 +835,12 @@ const LayersPanel: React.FC = () => {
     setLayerDropTarget(null);
   }, [
     commitGroupDrop,
+    displayedLayerIds,
     layers,
-    reorderLayerBlock,
+    moveLayersToGroup,
     resolveActionLayerIds,
+    resolveGroupBoundaryTarget,
     resolveGroupHeaderDropTarget,
-    updateLayer,
   ]);
 
   const handleDrop = React.useCallback((event: React.DragEvent<HTMLDivElement>, targetLayerId: string) => {
@@ -872,22 +885,27 @@ const LayersPanel: React.FC = () => {
       setLayerDropTarget(null);
       return;
     }
-    if (
-      draggedLayerId
-      && resolveActionLayerIds(draggedLayerId).includes(bottomLayer.id)
-    ) {
-      setLayerDropTarget(null);
-      return;
-    }
-    setLayerDropTarget({
+    const nextTarget: LayerDropTarget = {
       boundaryIndex: displayedLayerIds.length,
       edge: 'below',
       layerId: bottomLayer.id,
-    });
+    };
+    const sourceLayerIds = draggedLayerId ? resolveActionLayerIds(draggedLayerId) : [];
+    const doesGroupChange = sourceLayerIds.some((sourceLayerId) => (
+      layers.find((layer) => layer.id === sourceLayerId)?.groupId !== undefined
+    ));
+    setLayerDropTarget(
+      sourceLayerIds.length > 0
+      && !doesGroupChange
+      && isBoundaryAtCurrentBlock(sourceLayerIds, nextTarget.boundaryIndex)
+        ? null
+        : nextTarget,
+    );
   }, [
     displayedLayerIds.length,
     draggedGroupId,
     draggedLayerId,
+    isBoundaryAtCurrentBlock,
     layers,
     resolveActionLayerIds,
     visibleLayers,

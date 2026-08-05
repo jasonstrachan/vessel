@@ -1174,6 +1174,101 @@ describe('layers slice integration', () => {
     expect(nextState.layers.find((layer) => layer.id === layerB)?.groupId).toBeUndefined();
   });
 
+  it('moves layer order and group membership in one history entry', () => {
+    const store = useAppStore.getState();
+    const layerA = store.addLayer(createNormalLayerInput('Layer A'));
+    const layerB = store.addLayer(createNormalLayerInput('Layer B'));
+    const layerC = store.addLayer(createNormalLayerInput('Layer C'));
+    const groupId = useAppStore.getState().createLayerGroupFromSelection([layerA, layerB]);
+    expect(groupId).toBeTruthy();
+
+    historyManager.clear();
+    useAppStore.getState().moveLayersToGroup([layerC], groupId as string, 2);
+
+    let nextState = useAppStore.getState();
+    expect(nextState.layers.map((layer) => layer.id)).toEqual([layerA, layerB, layerC]);
+    expect(nextState.layers.find((layer) => layer.id === layerC)?.groupId).toBe(groupId);
+    expect(historyManager.entries()).toHaveLength(1);
+    expect(historyManager.entries()[0]).toMatchObject({
+      action: 'layer-structure',
+      label: 'Move layers into group',
+      meta: {
+        operation: 'move-layers-to-group',
+        groupId,
+        layerIds: [layerC],
+      },
+    });
+
+    useAppStore.getState().moveLayersToGroup([layerC], undefined, 3);
+
+    nextState = useAppStore.getState();
+    expect(nextState.layers.map((layer) => layer.id)).toEqual([layerA, layerB, layerC]);
+    expect(nextState.layers.find((layer) => layer.id === layerC)?.groupId).toBeUndefined();
+    expect(historyManager.entries()).toHaveLength(2);
+    expect(historyManager.entries()[1]?.label).toBe('Move layers out of group');
+  });
+
+  it('prunes an empty group when its final layer is dragged out', () => {
+    const store = useAppStore.getState();
+    const layerA = store.addLayer(createNormalLayerInput('Layer A'));
+    store.addLayer(createNormalLayerInput('Layer B'));
+    const groupId = useAppStore.getState().createLayerGroupFromSelection([layerA]);
+    expect(groupId).toBeTruthy();
+    useAppStore.getState().setLayerGroupVisibility(groupId as string, false);
+    expect(useAppStore.getState().hiddenLayerGroupIds).toContain(groupId);
+
+    useAppStore.getState().moveLayersToGroup([layerA], undefined, 1);
+
+    const nextState = useAppStore.getState();
+    expect(nextState.layers.find((layer) => layer.id === layerA)?.groupId).toBeUndefined();
+    expect(nextState.layerGroups).toEqual([]);
+    expect(nextState.hiddenLayerGroupIds).toEqual([]);
+  });
+
+  it('preserves individual visibility when layers move into and out of a hidden group', () => {
+    const store = useAppStore.getState();
+    const layerA = store.addLayer(createNormalLayerInput('Layer A'));
+    const layerB = store.addLayer(createNormalLayerInput('Layer B'));
+    const groupId = useAppStore.getState().createLayerGroupFromSelection([layerA]);
+    expect(groupId).toBeTruthy();
+    useAppStore.getState().setLayerGroupVisibility(groupId as string, false);
+
+    useAppStore.getState().moveLayersToGroup([layerB], groupId as string, 1);
+    let nextState = useAppStore.getState();
+    expect(nextState.layers.find((layer) => layer.id === layerB)?.visible).toBe(false);
+
+    useAppStore.getState().moveLayersToGroup([layerA], undefined, 1);
+    nextState = useAppStore.getState();
+    expect(nextState.layers.find((layer) => layer.id === layerA)?.visible).toBe(true);
+    expect(nextState.layers.find((layer) => layer.id === layerB)?.visible).toBe(false);
+
+    useAppStore.getState().setLayerGroupVisibility(groupId as string, true);
+    nextState = useAppStore.getState();
+    expect(nextState.layers.find((layer) => layer.id === layerA)?.visible).toBe(true);
+    expect(nextState.layers.find((layer) => layer.id === layerB)?.visible).toBe(true);
+  });
+
+  it('restores hidden-group visibility after undoing a layer drag out', async () => {
+    const store = useAppStore.getState();
+    const layerA = store.addLayer(createNormalLayerInput('Layer A'));
+    const layerB = store.addLayer(createNormalLayerInput('Layer B'));
+    const groupId = useAppStore.getState().createLayerGroupFromSelection([layerA, layerB]);
+    expect(groupId).toBeTruthy();
+    useAppStore.getState().setLayerGroupVisibility(groupId as string, false);
+
+    historyManager.clear();
+    useAppStore.getState().moveLayersToGroup([layerA], undefined, 1);
+    expect(useAppStore.getState().layers.find((layer) => layer.id === layerA)?.visible).toBe(true);
+
+    await historyManager.undo();
+    useAppStore.getState().setLayerGroupVisibility(groupId as string, true);
+
+    const nextState = useAppStore.getState();
+    expect(nextState.layers.find((layer) => layer.id === layerA)?.groupId).toBe(groupId);
+    expect(nextState.layers.find((layer) => layer.id === layerA)?.visible).toBe(true);
+    expect(nextState.layers.find((layer) => layer.id === layerB)?.visible).toBe(true);
+  });
+
   it('restores previous per-layer visibility when showing a hidden group', () => {
     const store = useAppStore.getState();
     const layerA = store.addLayer(createNormalLayerInput('Layer A'));
