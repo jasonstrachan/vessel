@@ -899,6 +899,203 @@ describe('useAppStore commitCrop', () => {
     ]);
   });
 
+  it('resizes a resident color-cycle document after its runtime is retired', async () => {
+    const manager = getColorCycleBrushManager();
+    const layer = createColorCycleLayer(2, 2);
+    layer.id = 'resize-cold-document-layer';
+    layer.colorCycleData = {
+      ...layer.colorCycleData,
+      hasContent: true,
+    };
+    manager.deleteBrush(layer.id);
+    primeStoreForResize(layer, 2, 2);
+
+    useAppStore.getState().initColorCycleForLayer(layer.id, 2, 2);
+    const brush = manager.getBrush(layer.id);
+    if (brush) applyColorCycleBrushLayerSnapshotToRuntime(brush, layer.id, {
+      paintBuffer: Uint8Array.from([1, 2, 3, 4]).buffer,
+      gradientIdBuffer: Uint8Array.from([11, 12, 13, 14]).buffer,
+      gradientDefIdBuffer: Uint16Array.from([101, 102, 103, 104]).buffer,
+      speedBuffer: Uint8Array.from([21, 22, 23, 24]).buffer,
+      flowBuffer: Uint8Array.from([31, 32, 33, 34]).buffer,
+      phaseBuffer: Uint8Array.from([41, 42, 43, 44]).buffer,
+      hasContent: true,
+      strokeCounter: 7,
+    });
+    const documentBeforeResize = manager.getDocument(layer.id);
+    manager.discardRuntimeRetainingDocument(layer.id);
+
+    expect(manager.getBrush(layer.id)).toBeUndefined();
+    expect(manager.getDocument(layer.id)).toBe(documentBeforeResize);
+
+    await useAppStore.getState().resizeCanvas(4, 4);
+
+    const documentAfterResize = manager.getDocument(layer.id)?.read().snapshot;
+    expect(documentAfterResize?.width).toBe(4);
+    expect(documentAfterResize?.height).toBe(4);
+    expect(Array.from(new Uint8Array(documentAfterResize?.paintBuffer ?? new ArrayBuffer(0)))).toEqual([
+      1, 1, 2, 2,
+      1, 1, 2, 2,
+      3, 3, 4, 4,
+      3, 3, 4, 4,
+    ]);
+    expect(Array.from(new Uint8Array(documentAfterResize?.phaseBuffer ?? new ArrayBuffer(0)))).toEqual([
+      41, 41, 42, 42,
+      41, 41, 42, 42,
+      43, 43, 44, 44,
+      43, 43, 44, 44,
+    ]);
+    expect(manager.getBrush(layer.id)).toBeUndefined();
+    manager.deleteBrush(layer.id);
+  });
+
+  it('rolls back the color-cycle document when runtime resize rendering fails', async () => {
+    const manager = getColorCycleBrushManager();
+    const layer = createColorCycleLayer(2, 2);
+    layer.id = 'resize-runtime-rollback-layer';
+    manager.deleteBrush(layer.id);
+    primeStoreForResize(layer, 2, 2);
+
+    useAppStore.getState().initColorCycleForLayer(layer.id, 2, 2);
+    const brush = manager.getBrush(layer.id);
+    if (brush) applyColorCycleBrushLayerSnapshotToRuntime(brush, layer.id, {
+      paintBuffer: Uint8Array.from([1, 2, 3, 4]).buffer,
+      gradientIdBuffer: Uint8Array.from([11, 12, 13, 14]).buffer,
+      gradientDefIdBuffer: Uint16Array.from([101, 102, 103, 104]).buffer,
+      speedBuffer: Uint8Array.from([21, 22, 23, 24]).buffer,
+      flowBuffer: Uint8Array.from([31, 32, 33, 34]).buffer,
+      phaseBuffer: Uint8Array.from([41, 42, 43, 44]).buffer,
+      hasContent: true,
+      strokeCounter: 7,
+    });
+    if (!brush) {
+      throw new Error('Expected color-cycle brush runtime');
+    }
+    jest.spyOn(brush, 'renderDirectToCanvas').mockImplementation(() => {
+      throw new Error('forced resize render failure');
+    });
+
+    await expect(useAppStore.getState().resizeCanvas(4, 4)).rejects.toThrow(
+      'forced resize render failure',
+    );
+
+    const restoredDocument = manager.getDocument(layer.id)?.read().snapshot;
+    const restoredLayer = useAppStore.getState().layers[0];
+    expect(useAppStore.getState().project?.width).toBe(2);
+    expect(useAppStore.getState().project?.height).toBe(2);
+    expect(restoredDocument?.width).toBe(2);
+    expect(restoredDocument?.height).toBe(2);
+    expect(Array.from(new Uint8Array(restoredDocument?.paintBuffer ?? new ArrayBuffer(0)))).toEqual([
+      1, 2, 3, 4,
+    ]);
+    expect(restoredLayer.colorCycleData?.canvas?.width).toBe(2);
+    expect(restoredLayer.colorCycleData?.canvas?.height).toBe(2);
+    manager.deleteBrush(layer.id);
+  });
+
+  it('keeps static-preview color-cycle resize history raster-only', async () => {
+    const manager = getColorCycleBrushManager();
+    const layer = createColorCycleLayer(2, 2);
+    layer.id = 'resize-static-preview-layer';
+    layer.colorCycleData = {
+      ...layer.colorCycleData,
+      runtimeHydrationState: 'cold',
+      repairStatus: {
+        ok: false,
+        reason: 'missing-paint-buffer',
+        notes: ['static-preview-only'],
+      },
+    };
+    manager.deleteBrush(layer.id);
+    primeStoreForResize(layer, 2, 2);
+
+    await useAppStore.getState().resizeCanvas(4, 4);
+    expect(historyManager.peekUndo()?.deltas.map((delta) => delta._tag)).not.toContain(
+      'color-cycle-stroke',
+    );
+
+    await useAppStore.getState().undo();
+
+    const restoredLayer = useAppStore.getState().layers[0];
+    expect(useAppStore.getState().project?.width).toBe(2);
+    expect(restoredLayer.imageData?.width).toBe(2);
+    expect(restoredLayer.imageData?.height).toBe(2);
+    expect(restoredLayer.framebuffer?.width).toBe(2);
+    expect(restoredLayer.framebuffer?.height).toBe(2);
+    expect(Array.from(restoredLayer.imageData?.data ?? [])).toEqual(
+      Array.from(layer.imageData?.data ?? []),
+    );
+    expect(manager.getDocument(layer.id)).toBeUndefined();
+  });
+
+  it('undoes and redoes color-cycle resize dimensions and canonical buffers', async () => {
+    const manager = getColorCycleBrushManager();
+    const layer = {
+      ...createColorCycleLayer(2, 2),
+      id: 'resize-history-cc-layer',
+    };
+    manager.deleteBrush(layer.id);
+    primeStoreForResize(layer, 2, 2);
+
+    useAppStore.getState().initColorCycleForLayer(layer.id, 2, 2);
+    const brush = manager.getBrush(layer.id);
+    if (brush) applyColorCycleBrushLayerSnapshotToRuntime(brush, layer.id, {
+      paintBuffer: Uint8Array.from([1, 2, 3, 4]).buffer,
+      gradientIdBuffer: Uint8Array.from([11, 12, 13, 14]).buffer,
+      gradientDefIdBuffer: Uint16Array.from([101, 102, 103, 104]).buffer,
+      speedBuffer: Uint8Array.from([21, 22, 23, 24]).buffer,
+      flowBuffer: Uint8Array.from([31, 32, 33, 34]).buffer,
+      phaseBuffer: Uint8Array.from([41, 42, 43, 44]).buffer,
+      hasContent: true,
+      strokeCounter: 7,
+    });
+    const beforeResizeRead = manager.getDocument(layer.id)?.read();
+
+    await useAppStore.getState().resizeCanvas(4, 4);
+    const afterResizeRead = manager.getDocument(layer.id)?.read();
+    expect(historyManager.peekUndo()?.deltas.map((delta) => delta._tag)).toContain(
+      'color-cycle-stroke',
+    );
+    await useAppStore.getState().undo();
+
+    let documentRead = manager.getDocument(layer.id)?.read();
+    let snapshot = documentRead?.snapshot;
+    let updatedLayer = useAppStore.getState().layers[0];
+    expect(useAppStore.getState().project?.width).toBe(2);
+    expect({
+      document: [snapshot?.width, snapshot?.height],
+      canvas: [
+        updatedLayer.colorCycleData?.canvas?.width,
+        updatedLayer.colorCycleData?.canvas?.height,
+      ],
+    }).toEqual({
+      document: [2, 2],
+      canvas: [2, 2],
+    });
+    expect(Array.from(new Uint8Array(snapshot?.paintBuffer ?? new ArrayBuffer(0)))).toEqual([1, 2, 3, 4]);
+    expect(Array.from(new Uint8Array(snapshot?.phaseBuffer ?? new ArrayBuffer(0)))).toEqual([41, 42, 43, 44]);
+    expect(documentRead?.pixelVersion).toBe(beforeResizeRead?.pixelVersion);
+
+    await useAppStore.getState().redo();
+
+    documentRead = manager.getDocument(layer.id)?.read();
+    snapshot = documentRead?.snapshot;
+    updatedLayer = useAppStore.getState().layers[0];
+    expect(useAppStore.getState().project?.width).toBe(4);
+    expect(snapshot?.width).toBe(4);
+    expect(snapshot?.height).toBe(4);
+    expect(updatedLayer.colorCycleData?.canvas?.width).toBe(4);
+    expect(updatedLayer.colorCycleData?.canvas?.height).toBe(4);
+    expect(Array.from(new Uint8Array(snapshot?.paintBuffer ?? new ArrayBuffer(0)))).toEqual([
+      1, 1, 2, 2,
+      1, 1, 2, 2,
+      3, 3, 4, 4,
+      3, 3, 4, 4,
+    ]);
+    expect(documentRead?.pixelVersion).toBe(afterResizeRead?.pixelVersion);
+    manager.deleteBrush(layer.id);
+  });
+
   it('records canvas resize in history so undo and redo restore dimensions and pixels', async () => {
     const layer = createLayer(2, 2);
     primeStoreForResize(layer, 2, 2);

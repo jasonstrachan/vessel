@@ -1,6 +1,6 @@
 import { debugWarn } from '@/utils/debug';
 import historyManager from '@/history/historyService';
-import { createColorCycleStrokePatchDelta } from '@/history/deltas/colorCycleStrokePatchDelta';
+import { createColorCycleStrokeDelta } from '@/history/deltas/colorCycleStrokeDelta';
 import { createProjectDimensionsDelta } from '@/history/deltas/projectDimensionsDelta';
 import {
   captureColorCycleBrushState,
@@ -33,6 +33,7 @@ class ResizeLayerDelta implements HistoryDelta {
     private readonly layerId: string,
     private readonly beforeImage: ImageData | null,
     private readonly afterImage: ImageData | null,
+    private readonly preserveColorCycleFramebuffer: boolean,
   ) {
     this.approxBytes =
       (beforeImage?.data.byteLength ?? 0) + (afterImage?.data.byteLength ?? 0);
@@ -88,7 +89,11 @@ class ResizeLayerDelta implements HistoryDelta {
         }
 
         const framebuffer = layer.framebuffer;
-        if (framebuffer && targetImage) {
+        if (
+          framebuffer &&
+          targetImage &&
+          !(layer.layerType === 'color-cycle' && this.preserveColorCycleFramebuffer)
+        ) {
           framebuffer.width = targetImage.width;
           framebuffer.height = targetImage.height;
           const ctx = framebuffer.getContext(
@@ -174,38 +179,35 @@ export const recordResizeHistory = async ({
         image: null,
         colorState: null,
       };
-      const afterImage = cloneLayerImageData(layer.imageData);
-      if (baseline.image || afterImage) {
-        txn.push(new ResizeLayerDelta(layer.id, baseline.image, afterImage));
-        deltaCount += 1;
+      let colorDelta: HistoryDelta | null = null;
+      if (baseline.colorState) {
+        const afterColor = captureColorCycleBrushState(layer.id);
+        colorDelta = await createColorCycleStrokeDelta({
+          layerId: layer.id,
+          forwardState: afterColor,
+          backwardState: baseline.colorState,
+          beforeVersion: baseline.colorState?.documentVersion,
+          afterVersion: afterColor?.documentVersion,
+          beforePixelVersion: baseline.colorState?.pixelVersion,
+          afterPixelVersion: afterColor?.pixelVersion,
+          beforeDimensions: beforeProject ?? undefined,
+          afterDimensions: afterProject ?? undefined,
+        });
       }
 
-      if (layer.layerType === 'color-cycle' || baseline.colorState) {
-        const afterColor = captureColorCycleBrushState(layer.id);
-        const width = afterProject?.width ?? layer.imageData?.width ?? 0;
-        const height = afterProject?.height ?? layer.imageData?.height ?? 0;
-        const roi =
-          width > 0 && height > 0
-            ? { x: 0, y: 0, width, height }
-            : null;
-        if (roi) {
-          const patchDelta = await createColorCycleStrokePatchDelta({
-            layerId: layer.id,
-            forwardState: afterColor,
-            backwardState: baseline.colorState ?? null,
-            roi,
-            width,
-            height,
-            beforeDocumentVersion: baseline.colorState?.documentVersion,
-            afterDocumentVersion: afterColor?.documentVersion,
-            beforeVersion: baseline.colorState?.pixelVersion,
-            afterVersion: afterColor?.pixelVersion,
-          });
-          if (patchDelta) {
-            txn.push(patchDelta);
-            deltaCount += 1;
-          }
-        }
+      const afterImage = cloneLayerImageData(layer.imageData);
+      if (baseline.image || afterImage) {
+        txn.push(new ResizeLayerDelta(
+          layer.id,
+          baseline.image,
+          afterImage,
+          Boolean(colorDelta),
+        ));
+        deltaCount += 1;
+      }
+      if (colorDelta) {
+        txn.push(colorDelta);
+        deltaCount += 1;
       }
     }
 

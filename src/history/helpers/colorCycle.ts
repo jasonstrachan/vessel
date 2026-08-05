@@ -344,7 +344,9 @@ export const captureColorCycleBrushState = (layerId: string): ColorCycleSerializ
     }
     const manager = getColorCycleBrushManager();
     const brush = manager.getHistoryBrush(layerId);
-    const document = brush?.getColorCycleLayerDocument?.(layerId) ?? null;
+    const document = brush?.getColorCycleLayerDocument?.(layerId)
+      ?? manager.getDocument?.(layerId)
+      ?? null;
     const rawRuntimeSnapshot = brush && !document
       ? readColorCycleBrushSerializedStateFromRuntime(brush) as BaseColorCycleSerializedState | undefined
       : undefined;

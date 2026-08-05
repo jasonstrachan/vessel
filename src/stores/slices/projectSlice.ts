@@ -20,10 +20,14 @@ import { createProjectLifecycle, type SaveProjectRequest } from '@/stores/helper
 import type { ColorCycleBrushManager } from '@/stores/colorCycleBrushManager';
 import {
   applyColorCycleBrushLayerSnapshotToRuntime,
-  cloneColorCycleBrushLayerSnapshot,
-  readColorCycleBrushLayerSnapshotFromRuntime,
+  hasRecoverableColorCycleRuntimeSource,
+  mapDocumentSnapshotToArchiveState,
+  readColorCycleBrushLayerSnapshotFromDocumentRead,
   readColorCycleBrushSerializedStateFromRuntime,
-  scaleColorCyclePaintSnapshotNearest,
+  type ColorCycleLayerDocument,
+  type ColorCycleLayerDocumentRead,
+  type ColorCycleLayerDocumentSnapshot,
+  type ColorCycleLayerDocumentState,
   type ColorCycleBrushSerializedStateRuntimeReader,
   type ColorCyclePaintSnapshot,
 } from '@/lib/colorCycle/document';
@@ -32,6 +36,7 @@ import {
   recordResizeHistory,
 } from '@/stores/helpers/resizeHistory';
 import { flushPendingToolWork } from '@/utils/toolFlushRegistry';
+import { scaleColorCycleDocumentStateNearest } from '@/stores/helpers/colorCycleResize';
 import { DEFAULT_CANVAS_WIDTH, DEFAULT_CANVAS_HEIGHT } from '../../constants/canvas';
 import { adjustHueLightnessSaturation } from '@/utils/imageProcessing';
 import { createCustomBrushPreset } from '@/utils/customBrushPreset';
@@ -46,6 +51,22 @@ type CustomBrushSnapshot = {
   brushes: CustomBrush[];
   defaultCustomBrushId: string | null;
 } | null;
+
+type PreparedColorCycleResize = {
+  layerId: string;
+  document: ColorCycleLayerDocument;
+  beforeRead: ColorCycleLayerDocumentRead;
+  beforeSnapshot: ColorCycleLayerDocumentSnapshot;
+  beforeResidency: ColorCycleLayerDocument['residency'];
+  beforeArchiveRefs: ColorCycleLayerDocument['archiveRefs'];
+  beforeAuditEntries: ReturnType<ColorCycleLayerDocument['getAuditLog']>;
+  beforeDirtyBatch: ReturnType<ColorCycleLayerDocument['peekDirtyBatch']>;
+  nextState: ColorCycleLayerDocumentState;
+  nextSnapshot: ColorCyclePaintSnapshot | null;
+  beforeRuntimeSnapshot: ColorCyclePaintSnapshot | null;
+  brush: ReturnType<ColorCycleBrushManager['getHistoryBrush']>;
+  originalCanvas: HTMLCanvasElement | null;
+};
 
 const objectReferencesCcTilePattern = (
   value: unknown,
@@ -426,7 +447,7 @@ export const createProjectSlice =
     const resizeProjectCanvas = async (width: number, height: number) => {
       await flushPendingToolWork();
 
-      const state = get();
+      let state = get();
       if (!state.project) {
         return;
       }
@@ -434,25 +455,75 @@ export const createProjectSlice =
         return;
       }
 
+      if (colorCycleBrushManager) {
+        for (const layer of state.layers) {
+          if (layer.layerType !== 'color-cycle' || layer.colorCycleData?.mode === 'recolor') {
+            continue;
+          }
+          const document = colorCycleBrushManager.getDocument(layer.id);
+          const needsWarmup = document?.residency === 'cold-archive-ref'
+            || (!document && hasRecoverableColorCycleRuntimeSource(layer));
+          if (!needsWarmup) {
+            continue;
+          }
+          const warmed = await get().ensureColorCycleLayerRuntime(layer.id, { target: 'warm' });
+          if (!warmed) {
+            throw new Error(`Unable to hydrate color-cycle layer "${layer.name}" before resizing.`);
+          }
+        }
+        state = get();
+      }
+
       const historyBaseline = captureResizeHistoryBaseline({
         project: state.project,
         layers: state.layers,
       });
-      const colorCycleSnapshots = new Map<string, ColorCyclePaintSnapshot>();
+      const preparedColorCycleResizes: PreparedColorCycleResize[] = [];
       if (colorCycleBrushManager) {
         state.layers.forEach((layer) => {
           if (layer.layerType !== 'color-cycle' || layer.colorCycleData?.mode === 'recolor') {
             return;
           }
 
-          const brush = colorCycleBrushManager.getSerializedStateBrush(layer.id);
-          const snapshot = readColorCycleBrushLayerSnapshotFromRuntime(brush, layer.id);
-          const clonedSnapshot = cloneColorCycleBrushLayerSnapshot(snapshot);
-          if (!clonedSnapshot) {
+          const document = colorCycleBrushManager.getDocument(layer.id);
+          if (!document) {
             return;
           }
+          const beforeRead = document.read();
+          if (beforeRead.snapshot.hasContent && !beforeRead.snapshot.paintBuffer) {
+            throw new Error(`Color-cycle layer "${layer.name}" has no materialized paint buffer to resize.`);
+          }
+          const nextState = scaleColorCycleDocumentStateNearest({
+            snapshot: beforeRead.snapshot,
+            width,
+            height,
+          });
+          const nextSnapshot = readColorCycleBrushLayerSnapshotFromDocumentRead({
+            snapshot: nextState,
+            version: beforeRead.version,
+            pixelVersion: beforeRead.pixelVersion,
+          });
+          const beforeRuntimeSnapshot = readColorCycleBrushLayerSnapshotFromDocumentRead(beforeRead);
+          const brush = colorCycleBrushManager.getHistoryBrush(layer.id);
+          if (brush && !nextSnapshot) {
+            throw new Error(`Color-cycle layer "${layer.name}" has no canonical runtime snapshot to resize.`);
+          }
 
-          colorCycleSnapshots.set(layer.id, clonedSnapshot);
+          preparedColorCycleResizes.push({
+            layerId: layer.id,
+            document,
+            beforeRead,
+            beforeSnapshot: beforeRead.snapshot,
+            beforeResidency: document.residency,
+            beforeArchiveRefs: document.archiveRefs,
+            beforeAuditEntries: document.getAuditLog(),
+            beforeDirtyBatch: document.peekDirtyBatch(),
+            nextState,
+            nextSnapshot,
+            beforeRuntimeSnapshot,
+            brush,
+            originalCanvas: layer.colorCycleData?.canvas ?? null,
+          });
         });
       }
 
@@ -546,6 +617,120 @@ export const createProjectSlice =
         };
       });
 
+      const migratedColorCycleLayers = new Map<string, Layer>();
+      try {
+        for (const prepared of preparedColorCycleResizes) {
+          const resizedLayer = resizedLayers.find((layer) => layer.id === prepared.layerId);
+          if (!resizedLayer?.colorCycleData) {
+            throw new Error(`Color-cycle layer ${prepared.layerId} disappeared during resize preparation.`);
+          }
+
+          const layerCanvas = resizedLayer.colorCycleData.canvas;
+          if (prepared.brush) {
+            if (
+              !layerCanvas ||
+              typeof prepared.brush.setTargetCanvas !== 'function' ||
+              typeof prepared.brush.renderDirectToCanvas !== 'function' ||
+              !prepared.nextSnapshot
+            ) {
+              throw new Error(`Color-cycle runtime ${prepared.layerId} cannot migrate to the resized canvas.`);
+            }
+
+            prepared.brush.setTargetCanvas(layerCanvas);
+            const applied = applyColorCycleBrushLayerSnapshotToRuntime(
+              prepared.brush,
+              prepared.layerId,
+              prepared.nextSnapshot,
+              undefined,
+              'project-resize',
+            );
+            if (!applied) {
+              throw new Error(`Color-cycle runtime ${prepared.layerId} rejected the resized snapshot.`);
+            }
+            prepared.brush.renderDirectToCanvas(layerCanvas, prepared.layerId);
+
+            const layerCtx = layerCanvas.getContext(
+              '2d',
+              { willReadFrequently: true } as CanvasRenderingContext2DSettings,
+            );
+            if (!layerCtx) {
+              throw new Error(`Color-cycle canvas ${prepared.layerId} has no readable 2D context.`);
+            }
+            const renderedImageData = layerCtx.getImageData(
+              0,
+              0,
+              layerCanvas.width,
+              layerCanvas.height,
+            );
+            migratedColorCycleLayers.set(prepared.layerId, {
+              ...resizedLayer,
+              imageData: renderedImageData,
+              framebuffer: layerCanvas,
+              colorCycleData: {
+                ...resizedLayer.colorCycleData,
+                canvas: layerCanvas,
+                canvasImageData: renderedImageData,
+                canvasWidth: width,
+                canvasHeight: height,
+                hasContent: prepared.nextState.hasContent,
+              },
+            });
+          } else {
+            prepared.document.replaceState(prepared.nextState, 'project-resize', {
+              pixelsChanged: true,
+            });
+          }
+
+          const migratedDocument = prepared.document.read().snapshot;
+          if (migratedDocument.width !== width || migratedDocument.height !== height) {
+            throw new Error(`Color-cycle document ${prepared.layerId} retained stale dimensions after resize.`);
+          }
+        }
+      } catch (error) {
+        for (const prepared of [...preparedColorCycleResizes].reverse()) {
+          if (
+            prepared.brush &&
+            prepared.originalCanvas &&
+            prepared.beforeRuntimeSnapshot &&
+            typeof prepared.brush.setTargetCanvas === 'function'
+          ) {
+            try {
+              prepared.brush.setTargetCanvas(prepared.originalCanvas);
+              applyColorCycleBrushLayerSnapshotToRuntime(
+                prepared.brush,
+                prepared.layerId,
+                prepared.beforeRuntimeSnapshot,
+                undefined,
+                'project-resize-rollback',
+                { suppressClearAudit: true },
+              );
+              prepared.brush.renderDirectToCanvas?.(
+                prepared.originalCanvas,
+                prepared.layerId,
+              );
+            } catch {
+              // The document baseline below remains the canonical recovery source.
+            }
+          }
+          prepared.document.replaceBaseline(
+            mapDocumentSnapshotToArchiveState(prepared.beforeSnapshot),
+            {
+              version: prepared.beforeRead.version,
+              pixelVersion: prepared.beforeRead.pixelVersion,
+              residency: prepared.beforeResidency,
+              archiveRefs: prepared.beforeArchiveRefs,
+              auditEntries: prepared.beforeAuditEntries,
+              dirtyBatch: prepared.beforeDirtyBatch,
+            },
+          );
+        }
+        throw error;
+      }
+
+      resizedLayers = resizedLayers.map((layer) => (
+        migratedColorCycleLayers.get(layer.id) ?? layer
+      ));
+
       set((current) => {
         if (!current.project) {
           return current;
@@ -579,62 +764,11 @@ export const createProjectSlice =
 
       get().setLayersNeedRecomposition(true);
 
-      if (colorCycleBrushManager) {
-        resizedLayers.forEach((layer) => {
-          if (layer.layerType !== 'color-cycle' || layer.colorCycleData?.mode === 'recolor') {
-            return;
-          }
-
-          const scaledSnapshot = colorCycleSnapshots.get(layer.id);
-          const layerCanvas = layer.colorCycleData?.canvas;
-          const brush = colorCycleBrushManager.getHistoryBrush(layer.id);
-          if (!scaledSnapshot || !layerCanvas || !brush) {
-            return;
-          }
-
-          const nextSnapshot = scaleColorCyclePaintSnapshotNearest({
-            snapshot: scaledSnapshot,
-            sourceWidth: Math.max(1, state.project?.width ?? layerCanvas.width),
-            sourceHeight: Math.max(1, state.project?.height ?? layerCanvas.height),
-            width,
-            height,
-          });
-
-          try {
-            brush.setTargetCanvas?.(layerCanvas);
-            applyColorCycleBrushLayerSnapshotToRuntime(brush, layer.id, nextSnapshot);
-            brush.renderDirectToCanvas?.(layerCanvas, layer.id);
-
-            const layerCtx = layerCanvas.getContext(
-              '2d',
-              { willReadFrequently: true } as CanvasRenderingContext2DSettings
-            );
-            const renderedImageData = layerCtx?.getImageData(0, 0, layerCanvas.width, layerCanvas.height);
-            if (renderedImageData) {
-              get().updateLayer(
-                layer.id,
-                {
-                  imageData: renderedImageData,
-                  colorCycleData: {
-                    ...(layer.colorCycleData ?? {}),
-                    canvas: layerCanvas,
-                    canvasImageData: renderedImageData,
-                  },
-                },
-                { skipColorCycleSync: true }
-              );
-            }
-          } catch {
-            // Best effort: the scaled layer canvas still preserves visible pixels.
-          }
-        });
-      }
-
       await recordResizeHistory({
         beforeProject: historyBaseline.projectSize,
         afterProject: { width, height },
         beforeLayers: historyBaseline.layerSnapshots,
-        afterLayers: resizedLayers,
+        afterLayers: get().layers,
         description: `Resize canvas to ${width}×${height}`,
       });
     };

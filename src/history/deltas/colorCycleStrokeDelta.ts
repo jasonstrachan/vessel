@@ -28,6 +28,7 @@ import { captureColdColorCycleRuntimeCompensation } from '../colorCycleRuntimeCo
 
 type ColorCycleBrushState = ColorCycleBrushSerializedState & {
   documentVersion?: number;
+  pixelVersion?: number;
 };
 type ColorCycleSerializedLayer = NonNullable<ColorCycleBrushState['layers']>[number];
 type HistoryBufferRef = {
@@ -47,6 +48,10 @@ export interface ColorCycleStrokeDeltaOptions {
   backwardState: ColorCycleBrushState | null;
   beforeVersion?: number;
   afterVersion?: number;
+  beforePixelVersion?: number;
+  afterPixelVersion?: number;
+  beforeDimensions?: { width: number; height: number };
+  afterDimensions?: { width: number; height: number };
 }
 
 const structuredCloneFn: (<T>(value: T) => T) | undefined =
@@ -121,6 +126,7 @@ const cloneState = (
   }
   return {
     documentVersion: state.documentVersion,
+    pixelVersion: state.pixelVersion,
     cycleSpeed: state.cycleSpeed,
     fps: state.fps,
     brushSize: state.brushSize,
@@ -394,6 +400,10 @@ class ColorCycleStrokeDelta implements HistoryDelta {
   private readonly backwardState: ColorCycleBrushState | null;
   private readonly beforeVersion?: number;
   private readonly afterVersion?: number;
+  private readonly beforePixelVersion?: number;
+  private readonly afterPixelVersion?: number;
+  private readonly beforeDimensions?: { width: number; height: number };
+  private readonly afterDimensions?: { width: number; height: number };
 
   constructor(options: ColorCycleStrokeDeltaOptions) {
     this.layerId = options.layerId;
@@ -401,6 +411,10 @@ class ColorCycleStrokeDelta implements HistoryDelta {
     this.backwardState = options.backwardState;
     this.beforeVersion = options.beforeVersion ?? options.backwardState?.documentVersion;
     this.afterVersion = options.afterVersion ?? options.forwardState?.documentVersion;
+    this.beforePixelVersion = options.beforePixelVersion ?? options.backwardState?.pixelVersion;
+    this.afterPixelVersion = options.afterPixelVersion ?? options.forwardState?.pixelVersion;
+    this.beforeDimensions = options.beforeDimensions;
+    this.afterDimensions = options.afterDimensions;
     const sizeOf = (state: ColorCycleBrushState | null) =>
       state?.layers?.reduce((sum: number, layer: ColorCycleSerializedLayer) => {
         return sum
@@ -496,6 +510,9 @@ class ColorCycleStrokeDelta implements HistoryDelta {
     const manager = getColorCycleBrushManager();
     const initialState = useAppStore.getState();
     const initialLayer = initialState.layers.find((candidate) => candidate.id === this.layerId);
+    const targetDimensions = direction === 'forward'
+      ? this.afterDimensions
+      : this.beforeDimensions;
     if (!initialLayer || initialLayer.layerType !== 'color-cycle' || !initialLayer.colorCycleData) {
       throw new Error(`Color-cycle layer ${this.layerId} is unavailable for history replay.`);
     }
@@ -503,8 +520,14 @@ class ColorCycleStrokeDelta implements HistoryDelta {
       if (manager.hasBrush?.(this.layerId)) {
         throw new Error(`Color-cycle runtime for ${this.layerId} cannot restore history state.`);
       }
-      const width = initialLayer.colorCycleData.canvas?.width ?? initialState.project?.width ?? 0;
-      const height = initialLayer.colorCycleData.canvas?.height ?? initialState.project?.height ?? 0;
+      const width = targetDimensions?.width
+        ?? initialLayer.colorCycleData.canvas?.width
+        ?? initialState.project?.width
+        ?? 0;
+      const height = targetDimensions?.height
+        ?? initialLayer.colorCycleData.canvas?.height
+        ?? initialState.project?.height
+        ?? 0;
       if (!width || !height) {
         throw new Error(`Color-cycle runtime for ${this.layerId} has no drawable size.`);
       }
@@ -514,12 +537,44 @@ class ColorCycleStrokeDelta implements HistoryDelta {
     const brush = manager.getHistoryBrush(this.layerId) as ManagedColorCycleBrush | undefined;
     const liveState = useAppStore.getState();
     const layer = liveState.layers.find((candidate) => candidate.id === this.layerId);
-    const targetCanvas = layer?.colorCycleData?.canvas;
+    let targetCanvas = layer?.colorCycleData?.canvas;
     if (!brush || !layer || layer.layerType !== 'color-cycle' || !targetCanvas) {
       throw new Error(`Color-cycle runtime for ${this.layerId} is unavailable for history replay.`);
     }
 
     mutation?.markMutated();
+
+    if (targetDimensions) {
+      const targetWidth = Math.max(1, Math.floor(targetDimensions.width));
+      const targetHeight = Math.max(1, Math.floor(targetDimensions.height));
+      if (targetCanvas.width !== targetWidth || targetCanvas.height !== targetHeight) {
+        const ownerDocument = targetCanvas.ownerDocument
+          ?? (typeof document !== 'undefined' ? document : null);
+        if (!ownerDocument) {
+          throw new Error(`Color-cycle runtime for ${this.layerId} cannot create a resized canvas.`);
+        }
+        const replacementCanvas = ownerDocument.createElement('canvas');
+        replacementCanvas.width = targetWidth;
+        replacementCanvas.height = targetHeight;
+        targetCanvas = replacementCanvas;
+        useAppStore.setState((current) => ({
+          layers: current.layers.map((candidate) => (
+            candidate.id === this.layerId && candidate.layerType === 'color-cycle'
+              ? {
+                  ...candidate,
+                  framebuffer: replacementCanvas,
+                  colorCycleData: {
+                    ...candidate.colorCycleData,
+                    canvas: replacementCanvas,
+                    canvasWidth: targetWidth,
+                    canvasHeight: targetHeight,
+                  },
+                }
+              : candidate
+          )),
+        }));
+      }
+    }
 
     const setTargetCanvas = brush.setTargetCanvas;
     if (
@@ -625,6 +680,22 @@ class ColorCycleStrokeDelta implements HistoryDelta {
           };
         })
       }, { mode: 'history' });
+      const targetDocumentVersion = direction === 'forward'
+        ? this.afterVersion
+        : this.beforeVersion;
+      const targetPixelVersion = direction === 'forward'
+        ? this.afterPixelVersion
+        : this.beforePixelVersion;
+      const restoredDocument = manager.getDocument(this.layerId);
+      if (
+        (typeof targetDocumentVersion === 'number' || typeof targetPixelVersion === 'number') &&
+        typeof restoredDocument?.rebaseVersionAnchors === 'function'
+      ) {
+        restoredDocument.rebaseVersionAnchors({
+          version: targetDocumentVersion,
+          pixelVersion: targetPixelVersion,
+        });
+      }
       try {
         brush.updateColorCycleTexture?.();
       } catch {
@@ -702,6 +773,9 @@ class ColorCycleStrokeDelta implements HistoryDelta {
         const latestState = useAppStore.getState();
         const latestLayer = latestState.layers.find((candidate) => candidate.id === this.layerId);
         const restoredLayerSnapshot = layerSnapshots.find((snapshot) => snapshot.layerId === this.layerId);
+        const restoredImageData = targetDimensions
+          ? tctx.getImageData(0, 0, targetCanvas.width, targetCanvas.height)
+          : null;
         if (latestLayer?.colorCycleData) {
           const hasRestoredSnapshot = Boolean(restoredLayerSnapshot);
           const restoredSlotPalettes = restoredLayerSnapshot?.slotPalettes
@@ -738,9 +812,18 @@ class ColorCycleStrokeDelta implements HistoryDelta {
               candidate.id === this.layerId && candidate.layerType === 'color-cycle'
                 ? {
                     ...candidate,
+                    imageData: restoredImageData ?? candidate.imageData,
+                    framebuffer: targetDimensions ? targetCanvas : candidate.framebuffer,
                     colorCycleData: {
                       ...candidate.colorCycleData,
                       ...nextColorCycleData,
+                      canvas: targetCanvas,
+                      canvasImageData:
+                        restoredImageData ?? candidate.colorCycleData?.canvasImageData,
+                      canvasWidth: targetDimensions?.width
+                        ?? candidate.colorCycleData?.canvasWidth,
+                      canvasHeight: targetDimensions?.height
+                        ?? candidate.colorCycleData?.canvasHeight,
                     },
                   }
                 : candidate
@@ -835,6 +918,10 @@ export const createColorCycleStrokeDelta = async (
     backwardState,
     beforeVersion: options.beforeVersion ?? options.backwardState?.documentVersion,
     afterVersion: options.afterVersion ?? options.forwardState?.documentVersion,
+    beforePixelVersion: options.beforePixelVersion ?? options.backwardState?.pixelVersion,
+    afterPixelVersion: options.afterPixelVersion ?? options.forwardState?.pixelVersion,
+    beforeDimensions: options.beforeDimensions,
+    afterDimensions: options.afterDimensions,
   });
 };
 const toArrayBuffer = (
