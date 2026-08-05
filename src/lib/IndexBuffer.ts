@@ -267,6 +267,7 @@ export class IndexBuffer {
       return rgba;
     }
     
+    ctx.clearRect(0, 0, 1, 1);
     ctx.fillStyle = color;
     ctx.fillRect(0, 0, 1, 1);
     const data = ctx.getImageData(0, 0, 1, 1).data;

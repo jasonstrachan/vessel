@@ -273,7 +273,26 @@ describe('GradientPalette', () => {
       const colorStr = palette.getColorString(0);
       expect(colorStr).toMatch(/^rgba\(\d+,\d+,\d+,[\d.]+\)$/);
     });
-    
+
+    it('should preserve fully transparent alpha in color strings', () => {
+      palette.updateFromGradient([
+        { position: 0, color: '#ff0000' },
+        { position: 1, color: '#0000ff', opacity: 0 },
+      ]);
+
+      expect(palette.getColor(255).a).toBe(0);
+      expect(palette.getColorString(255)).toBe('rgba(0,0,255,0)');
+    });
+
+    it('should parse CSS alpha without compositing over the previous color', () => {
+      palette.updateFromGradient([
+        { position: 0, color: '#ff0000' },
+        { position: 1, color: 'rgba(0, 0, 255, 0)' },
+      ]);
+
+      expect(palette.getColor(255).a).toBe(0);
+    });
+
     it('should get palette as string array', () => {
       const strings = palette.getPaletteStrings();
       expect(strings).toHaveLength(256);

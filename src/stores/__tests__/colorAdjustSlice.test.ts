@@ -674,15 +674,16 @@ describe('colorAdjustSlice preview performance path', () => {
     store.previewColorAdjust();
 
     const updatedLayer = useAppStore.getState().layers[0];
-    expect(parseCssColor(
-      updatedLayer?.colorCycleData?.gradientDefStore?.[0]?.stops[1]?.color ?? '#ffffff'
-    ).a).toBe(0);
-    expect(parseCssColor(
-      updatedLayer?.colorCycleData?.slotPalettes?.[0]?.stops[1]?.color ?? '#ffffff'
-    ).a).toBe(0);
-    expect(parseCssColor(
-      updatedLayer?.colorCycleData?.recolorSettings?.gradient[1]?.color ?? '#ffffff'
-    ).a).toBe(0);
+    const adjustedTransparentStops = [
+      updatedLayer?.colorCycleData?.gradientDefStore?.[0]?.stops[1],
+      updatedLayer?.colorCycleData?.slotPalettes?.[0]?.stops[1],
+      updatedLayer?.colorCycleData?.recolorSettings?.gradient[1],
+    ];
+
+    adjustedTransparentStops.forEach((stop) => {
+      expect(stop?.opacity).toBe(0);
+      expect(parseCssColor(stop?.color ?? '#ffffff').a).toBe(255);
+    });
   });
 
   it('refreshes gradient-def runtime for brush-mode color-cycle previews', () => {

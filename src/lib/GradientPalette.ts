@@ -79,6 +79,7 @@ export class GradientPalette {
       return rgba;
     }
 
+    ctx.clearRect(0, 0, 1, 1);
     ctx.fillStyle = color;
     ctx.fillRect(0, 0, 1, 1);
     const data = ctx.getImageData(0, 0, 1, 1).data;
@@ -284,7 +285,7 @@ export class GradientPalette {
     const r = Math.max(0, Math.min(255, color.r || 0));
     const g = Math.max(0, Math.min(255, color.g || 0));
     const b = Math.max(0, Math.min(255, color.b || 0));
-    const a = Math.max(0, Math.min(255, color.a || 255)) / 255;
+    const a = Math.max(0, Math.min(255, color.a ?? 255)) / 255;
     return `rgba(${r},${g},${b},${a})`;
   }
 

@@ -128,6 +128,16 @@ describe('IndexBuffer', () => {
       expect(buffer.needsRedraw()).toBe(true);
     });
 
+    it('preserves transparent CSS palette entries after opaque entries', () => {
+      buffer.setPalette(['#ff0000', 'rgba(0, 0, 255, 0)']);
+      buffer.setPixel(0, 0, 1);
+      buffer.setPixel(1, 0, 2);
+
+      const imageData = buffer.getImageData();
+      expect(imageData.data[3]).toBe(255);
+      expect(imageData.data[7]).toBe(0);
+    });
+
     it('should keep high-index colors addressable without wrapping to transparent', () => {
       const colors = Array.from({ length: 256 }, (_, i) => `rgba(${i % 256}, ${(255 - i) % 256}, ${(i * 13) % 256}, 1)`);
       buffer.setPalette(colors);

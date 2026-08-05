@@ -614,6 +614,15 @@ describe('Color cycle runtime parity (Vessel reference vs Goblet2 CPU)', () => {
     expect(palette.getColor(255).a).toBe(0);
   });
 
+  it('keeps fully transparent entries transparent in the editor Canvas2D palette', () => {
+    const palette = new GradientPalette([
+      { position: 0, color: '#00ff00' },
+      { position: 1, color: '#0000ff', opacity: 0 },
+    ]);
+
+    expect(palette.getColorString(255)).toBe('rgba(0,0,255,0)');
+  });
+
   it('keeps CC background-fill opacity policy in the playback palette', () => {
     const baseStops = [
       { position: 0, color: '#00ff00', opacity: 1 },

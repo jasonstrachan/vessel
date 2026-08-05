@@ -279,18 +279,14 @@ const colorToCss = (r: number, g: number, b: number, a: number): string => {
 
 const applyColorAdjustmentsToColor = (
   color: string,
-  params: ColorAdjustParams,
-  opacity: number = 1
+  params: ColorAdjustParams
 ): string => {
   const parsed = parseCssColor(color, { r: 255, g: 255, b: 255, a: 255 });
-  const effectiveOpacity = Number.isFinite(opacity)
-    ? Math.max(0, Math.min(1, opacity))
-    : 1;
   const pixel = new ImageData(1, 1);
   pixel.data[0] = parsed.r;
   pixel.data[1] = parsed.g;
   pixel.data[2] = parsed.b;
-  pixel.data[3] = Math.round(parsed.a * effectiveOpacity);
+  pixel.data[3] = parsed.a;
   const adjusted = applyColorAdjustments(pixel, params);
   return colorToCss(
     adjusted.data[0] ?? parsed.r,
@@ -303,10 +299,10 @@ const applyColorAdjustmentsToColor = (
 const applyColorAdjustmentsToGradient = (
   stops: ColorCycleGradientStop[],
   params: ColorAdjustParams
-): Array<{ position: number; color: string }> =>
+): ColorCycleGradientStop[] =>
   stops.map((stop) => ({
-    position: stop.position,
-    color: applyColorAdjustmentsToColor(stop.color, params, stop.opacity),
+    ...stop,
+    color: applyColorAdjustmentsToColor(stop.color, params),
   }));
 
 const buildAdjustedColorCycleData = (
