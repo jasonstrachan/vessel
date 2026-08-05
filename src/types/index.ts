@@ -466,14 +466,14 @@ export interface ColorCycleGradientDef {
 
 export interface ColorCycleSlotPalette {
   slot: number;
-  stops: Array<{ position: number; color: string }>;
+  stops: Array<{ position: number; color: string; opacity?: number }>;
   seamProfile?: GradientSeamProfile;
 }
 
 export interface ColorCycleGradientDefStoreEntry {
   id: number;
   kind: 'linear' | 'concentric';
-  stops: Array<{ position: number; color: string }>;
+  stops: Array<{ position: number; color: string; opacity?: number }>;
   hash: string;
   source: 'manual' | 'fg' | 'sampled';
   seamProfile?: GradientSeamProfile;
@@ -497,7 +497,7 @@ export interface ColorCycleRecolorSettings {
     flowDirection: 'forward' | 'reverse' | 'pingpong' | 'bounce';
   };
   cycleColors: number;
-  gradient: Array<{ position: number; color: string }>;
+  gradient: Array<{ position: number; color: string; opacity?: number }>;
   mappingMode?: 'banded' | 'continuous';
   flowMapping?: 'palette' | 'directional' | 'luminance';
   indexPhaseMap?: Uint8Array;

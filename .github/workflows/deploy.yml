@@ -57,9 +57,6 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Run production dependency audit
-        run: npm run audit:prod
-
       - name: Run full dependency audit (report only)
         run: npm run audit:full || true
 
@@ -81,44 +78,14 @@ jobs:
             audit-full-summary.md
           if-no-files-found: ignore
 
-      - name: Verify Goblet runtime assets are up to date
-        run: npm run verify:goblet-runtime
-
       - name: Check playback-sensitive change gates
         run: npm run verify:cc-render-gate
-
-      - name: Run lint
-        run: npm run lint
-
-      - name: Run architecture guardrails
-        run: npm run architecture:check
-
-      - name: Run type check
-        run: npm run type-check
-
-      - name: Run worker type check
-        run: npm run type-check:workers
-
-      - name: Run test type check
-        run: npm run type-check:tests
-
-      - name: Run load-project guardrail tests
-        run: npm run test:load-project-modal:guardrails
-
-      - name: Run color-cycle runtime parity matrix
-        run: npm run test:cc-runtime-parity
 
       - name: Install Playwright Chromium
         run: npx playwright install --with-deps chromium
 
-      - name: Run color-cycle GPU rendered parity
-        run: npm run test:cc-runtime-gpu-parity
-
-      - name: Run tests
-        run: npm test
-
-      - name: Build application
-        run: npm run build:github
+      - name: Run shared deployment verification
+        run: npm run verify:deploy
         
       - name: Upload static export artifact
         uses: actions/upload-artifact@v7

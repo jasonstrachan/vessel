@@ -7,9 +7,7 @@ import type {
   SequentialStrokeEvent,
 } from '@/types';
 import {
-  ColorCycleLayerDocument,
   type ColorCycleDirtyRect,
-  type ColorCycleLayerDocumentRead,
   type ColorCycleLayerDirtyBatch,
 } from '@/lib/colorCycle/document/ColorCycleLayerDocument';
 import { cloneLayerAlignment, dedupeLayerIds, normalizeLayers } from '@/utils/layoutDefaults';
@@ -87,11 +85,10 @@ import {
   buildDefaultReservedSlots,
 } from '@/utils/colorCycleSlotGC';
 import {
-  createColorCycleBrushManager,
   getColorCycleBrushManager,
   type ColorCycleBrushManager,
-  type ColorCycleBrushRuntimeHost,
 } from '@/stores/colorCycleBrushManager';
+import { createDeferredColorCycleRuntimeRestoreScheduler } from '@/stores/layers/deferredColorCycleRuntimeRestore';
 import {
   hasColorCycleWarmableRuntimeSource,
 } from '@/lib/colorCycle/runtimeSourcePolicy';
@@ -196,31 +193,6 @@ const summarizeLayerForActivationDebug = (
   };
 };
 
-const preserveDeferredColorCycleRestoreSurface = (
-  latestLayer: Layer,
-  restoredLayer: Layer,
-): Layer => {
-  if (
-    latestLayer.layerType !== 'color-cycle' ||
-    restoredLayer.layerType !== 'color-cycle' ||
-    !latestLayer.colorCycleData ||
-    !restoredLayer.colorCycleData
-  ) {
-    return restoredLayer;
-  }
-
-  const fallbackSnapshot =
-    restoredLayer.colorCycleData.canvasImageData ??
-    latestLayer.colorCycleData.canvasImageData;
-  return {
-    ...restoredLayer,
-    colorCycleData: {
-      ...restoredLayer.colorCycleData,
-      canvasImageData: fallbackSnapshot,
-    },
-  };
-};
-
 const omitUndefinedEntries = <T extends Record<string, unknown>>(value: T): Partial<T> => {
   const entries = Object.entries(value).filter(([, entryValue]) => entryValue !== undefined);
   return Object.fromEntries(entries) as Partial<T>;
@@ -236,8 +208,6 @@ type ColorCycleSnapshotBrush = ColorCycleBrushLayerSnapshotRuntimeReader
   render?: (forceFullOpacity?: boolean) => void;
 };
 type LegacyColorCycleBrushField = NonNullable<NonNullable<Layer['colorCycleData']>['colorCycleBrush']>;
-type ColorCycleManagerRegistrationBrush = ColorCycleBrushRuntimeHost;
-
 const cloneBuffer = (buffer: ArrayBuffer | undefined): ArrayBuffer | undefined => (
   buffer ? buffer.slice(0) : undefined
 );
@@ -476,23 +446,6 @@ export const createLayersSlice = (
 
     let slotRebuildTimer: ReturnType<typeof setTimeout> | null = null;
     const SLOT_REBUILD_DEBOUNCE_MS = 250;
-    const deferredColorCycleRestoreByLayerId = new Map<
-      string,
-      { project: Project | null; promise: Promise<void> }
-    >();
-    const setColorCycleRuntimeWarming = (layerId: string, isWarming: boolean): void => {
-      set((state) => {
-        const alreadyWarming = state.warmingColorCycleLayerIds.includes(layerId);
-        if (alreadyWarming === isWarming) {
-          return state;
-        }
-        return {
-          warmingColorCycleLayerIds: isWarming
-            ? [...state.warmingColorCycleLayerIds, layerId]
-            : state.warmingColorCycleLayerIds.filter((candidate) => candidate !== layerId),
-        };
-      });
-    };
     const getManagedColorCycleDocument = (layerId: string) => (
       (colorCycleBrushManager as Partial<Pick<ColorCycleBrushManager, 'getDocument'>>).getDocument?.(layerId)
     );
@@ -508,162 +461,19 @@ export const createLayersSlice = (
       )
     );
 
-    const scheduleDeferredColorCycleRestore = (
-      layerId: string,
-      target: EnsureColorCycleLayerRuntimeTarget,
-    ): Promise<void> => {
-      const sourceProject = get().project;
-      const existingRestore = deferredColorCycleRestoreByLayerId.get(layerId);
-      if (existingRestore?.project === sourceProject) {
-        return existingRestore.promise;
-      }
-      const markActive = target === 'active';
-      setColorCycleRuntimeWarming(layerId, true);
-      const restorePromise = import('@/utils/projectIO')
-        .then(async ({ restoreColorCycleBrushes }) => {
-          const latestState = get();
-          if (latestState.project !== sourceProject) {
-            return;
-          }
-          const latestLayer = latestState.layers.find((candidate) => candidate.id === layerId);
-          if (
-            !latestLayer ||
-            latestLayer.layerType !== 'color-cycle' ||
-            !latestLayer.colorCycleData ||
-            (
-              !latestLayer.colorCycleData.deferredRuntimeRestore &&
-              !hasWarmableColorCycleRuntimeSource(latestLayer)
-            )
-          ) {
-            return;
-          }
-          const restoreManager = createColorCycleBrushManager();
-          const sourceDocument = getManagedColorCycleDocument(layerId);
-          if (sourceDocument) {
-            const sourceRead: ColorCycleLayerDocumentRead = sourceDocument.read();
-            restoreManager.registerDocument(layerId, new ColorCycleLayerDocument(
-              sourceRead.snapshot,
-              {
-                initialVersion: sourceRead.version,
-                initialPixelVersion: sourceRead.pixelVersion,
-                residency: sourceDocument.residency,
-                archiveRefs: sourceDocument.archiveRefs ?? undefined,
-              },
-            ));
-          }
-          let restoredLayer: Layer | undefined;
-          try {
-            [restoredLayer] = await restoreColorCycleBrushes([latestLayer], {
-              lazy: false,
-              activeLayerId: layerId,
-              colorCycleBrushManager: restoreManager,
-            });
-          } catch (error) {
-            restoreManager.cleanupAll();
-            throw error;
-          }
-          if (!restoredLayer) {
-            restoreManager.cleanupAll();
-            throw new Error(`Deferred color-cycle restore returned no layer for ${layerId}`);
-          }
-          const stateAtRestoreCompletion = get();
-          const currentLayer = stateAtRestoreCompletion.layers.find(
-            (candidate) => candidate.id === layerId,
-          );
-          if (
-            stateAtRestoreCompletion.project !== sourceProject ||
-            !currentLayer ||
-            currentLayer.layerType !== 'color-cycle' ||
-            !currentLayer.colorCycleData
-          ) {
-            restoreManager.cleanupAll();
-            return;
-          }
-          const publishLayer = preserveDeferredColorCycleRestoreSurface(currentLayer, restoredLayer);
-          const restoredBrush = publishLayer.colorCycleData?.colorCycleBrush;
-          const shouldPublishActive = stateAtRestoreCompletion.activeLayerId === layerId;
-          const restoredHydration = restoredBrush
-            ? (shouldPublishActive ? 'active' : 'warm')
-            : 'cold';
-          recordLayerActivationProbe('deferred-restore-complete', {
-            before: summarizeLayerForActivationDebug(latestLayer),
-            after: summarizeLayerForActivationDebug(publishLayer),
-            markActive,
-            shouldPublishActive,
-            restored: Boolean(restoredBrush),
-            restoredHydration,
-          });
-          set((current) => ({
-            layers: current.layers.map((candidate) => {
-              if (candidate.id !== layerId) {
-                return candidate;
-              }
-              const hydrationForCurrentSelection = restoredBrush
-                ? (current.activeLayerId === layerId ? 'active' : 'warm')
-                : 'cold';
-              const nextLayer = updateLayerColorCycleHydrationState(publishLayer, hydrationForCurrentSelection);
-              if (!restoredBrush && nextLayer.colorCycleData) {
-                const hasRetryableSource = Boolean(
-                  nextLayer.colorCycleData.deferredRuntimeRestore ||
-                  hasWarmableColorCycleRuntimeSource(nextLayer)
-                );
-                return {
-                  ...nextLayer,
-                  colorCycleData: {
-                    ...nextLayer.colorCycleData,
-                    deferredRuntimeRestore: hasRetryableSource,
-                  },
-                };
-              }
-              return nextLayer;
-            }),
-          }));
-          const brush = restoredBrush as LegacyColorCycleBrushField & ColorCycleManagerRegistrationBrush & {
-            setLayerId?: (nextLayerId: string) => void;
-            isUsingWebGL?: () => boolean;
-          } | undefined;
-          if (brush) {
-            const shouldRegisterActive = get().activeLayerId === layerId;
-            colorCycleBrushManager.registerRestoredBrush(layerId, brush, {
-              width: publishLayer.colorCycleData?.canvas?.width ?? latestState.project?.width ?? 0,
-              height: publishLayer.colorCycleData?.canvas?.height ?? latestState.project?.height ?? 0,
-              isActive: shouldRegisterActive,
-            });
-            try {
-              brush.setLayerId?.(layerId);
-            } catch {
-              // quiet
-            }
-            try {
-              colorCycleBrushManager.setActiveState(layerId, shouldRegisterActive);
-            } catch {
-              // quiet
-            }
-          } else {
-            restoreManager.cleanupAll();
-          }
-          try {
-            syncPlaybackColorCycleLayers([publishLayer], 'deferred-restore');
-          } catch (error) {
-            logError('[layers] Failed to sync CC runtime after deferred restore', error);
-          }
-        })
-        .catch((error) => {
-          layerActivationDebug.warn('deferred-restore-failed', { layerId, error });
-          logError('[layers] Deferred color-cycle restore failed', { layerId, error });
-        })
-        .finally(() => {
-          if (deferredColorCycleRestoreByLayerId.get(layerId)?.promise === restorePromise) {
-            deferredColorCycleRestoreByLayerId.delete(layerId);
-            setColorCycleRuntimeWarming(layerId, false);
-          }
-        });
-      deferredColorCycleRestoreByLayerId.set(layerId, {
-        project: sourceProject,
-        promise: restorePromise,
-      });
-      return restorePromise;
-    };
+    const scheduleDeferredColorCycleRestore = createDeferredColorCycleRuntimeRestoreScheduler({
+      getState: get,
+      setState: set,
+      colorCycleBrushManager,
+      summarizeLayer: summarizeLayerForActivationDebug,
+      recordRestoreComplete: (details) => {
+        recordLayerActivationProbe('deferred-restore-complete', details);
+      },
+      recordRestoreFailure: (layerId, error) => {
+        layerActivationDebug.warn('deferred-restore-failed', { layerId, error });
+        logError('[layers] Deferred color-cycle restore failed', { layerId, error });
+      },
+    });
 
     const runSlotRebuild = (reason: string) => {
       const state = get();

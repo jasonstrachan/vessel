@@ -66,6 +66,21 @@ describe('Next static export build mode', () => {
     expect(packageJson.scripts['build:clean']).toContain('npm run build:next');
   });
 
+  it('keeps local pushes and CI on the same deployment verification commands', () => {
+    const packageJson = JSON.parse(readFileSync(path.resolve('package.json'), 'utf8')) as {
+      scripts: Record<string, string>;
+    };
+    const workflow = readFileSync(path.resolve('.github/workflows/deploy.yml'), 'utf8');
+    const prePushHook = readFileSync(path.resolve('.githooks/pre-push'), 'utf8');
+
+    expect(packageJson.scripts['verify:deploy:preflight']).toContain('npm run architecture:check');
+    expect(packageJson.scripts['verify:deploy:preflight']).toContain('npm run type-check:tests');
+    expect(packageJson.scripts['verify:deploy']).toContain('npm run verify:deploy:preflight');
+    expect(packageJson.scripts['verify:deploy']).toContain('npm run build:github');
+    expect(workflow).toContain('run: npm run verify:deploy');
+    expect(prePushHook).toContain('npm run verify:deploy:preflight');
+  });
+
   it('keeps the GitHub Pages build isolated from local Next dev state', () => {
     const source = readFileSync(path.resolve('scripts/github-pages-build.mjs'), 'utf8');
 

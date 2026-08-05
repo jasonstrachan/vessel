@@ -9,6 +9,7 @@ import { debugWarn } from '@/utils/debug';
 import {
   assertDerivedSurfaceFreshForRender,
   clearColorCycleLayerDocumentsForOwner,
+  cloneColorCycleLayerDocumentBaseline,
   ColorCycleLayerDocument,
   deleteColorCycleLayerDocumentForOwner,
   getColorCycleLayerDocumentForOwner,
@@ -420,6 +421,22 @@ describe('ColorCycleLayerDocument', () => {
     expect(document.archiveRefs).toEqual({ paintRef: 'paint-ref' });
     expect(document.getAuditLog()).toEqual(capturedAudit);
     expect(document.peekDirtyBatch()).toEqual(capturedDirtyBatch);
+  });
+
+  it('clones the baseline, versions, and archive residency for isolated restore work', () => {
+    const source = new ColorCycleLayerDocument(makeState(), {
+      initialVersion: 4,
+      initialPixelVersion: 3,
+      residency: 'cold-archive-ref',
+      archiveRefs: { paintRef: 'paint-ref', flowRef: 'flow-ref' },
+    });
+
+    const clone = cloneColorCycleLayerDocumentBaseline(source);
+
+    expect(clone).not.toBe(source);
+    expect(clone.read()).toEqual(source.read());
+    expect(clone.residency).toBe('cold-archive-ref');
+    expect(clone.archiveRefs).toEqual({ paintRef: 'paint-ref', flowRef: 'flow-ref' });
   });
 
   it('rejects missing transaction reasons and closed transaction reuse', () => {

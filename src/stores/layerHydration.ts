@@ -54,3 +54,17 @@ export const isColdColorCycleLayer = (
     getColorCycleHydrationState(layer.colorCycleData, document) === 'cold'
   )
 );
+
+export const updateWarmingColorCycleLayerIds = (
+  warmingLayerIds: string[],
+  layerId: string,
+  isWarming: boolean,
+): string[] => {
+  const alreadyWarming = warmingLayerIds.includes(layerId);
+  if (alreadyWarming === isWarming) {
+    return warmingLayerIds;
+  }
+  return isWarming
+    ? [...warmingLayerIds, layerId]
+    : warmingLayerIds.filter((candidate) => candidate !== layerId);
+};

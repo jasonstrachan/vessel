@@ -936,3 +936,15 @@ export class ColorCycleLayerDocument {
     );
   }
 }
+
+export const cloneColorCycleLayerDocumentBaseline = (
+  source: ColorCycleLayerDocument,
+): ColorCycleLayerDocument => {
+  const sourceRead = source.read();
+  return new ColorCycleLayerDocument(sourceRead.snapshot, {
+    initialVersion: sourceRead.version,
+    initialPixelVersion: sourceRead.pixelVersion,
+    residency: source.residency,
+    archiveRefs: source.archiveRefs ?? undefined,
+  });
+};
