@@ -11,4 +11,4 @@ export type {
   RenderStaticCompositeOptions,
   SetActiveLayerOptions,
   UpdateLayerOptions,
-} from '@/stores/layers/createLayersSlice';
+} from '@/stores/layers/layersSliceTypes';

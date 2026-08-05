@@ -41,6 +41,7 @@ This document tracks the planned decomposition of `useAppStore`. Every slice ent
 
 ## 3. Layers & Composition Slice  [✅]
 - **Current Status**: `src/stores/slices/layersSlice.ts` now owns the full layer lifecycle: CRUD, selection, alignment, color-cycle initialization, plus the composition/capture path (`compositeLayersToCanvas`, `captureCanvasToActiveLayer`, `captureCanvasToLayer`). ROI normalization helpers moved from `projectLifecycle`, `MinimalLayerList`/`AlignmentPanel` consume the exported selectors exclusively, and `layersSlice.integration.test.ts` covers alignment auto-sync + ROI capture regressions.
+- **2026-08-06 boundary update**: `src/stores/layers/createLayersSlice.ts` is now the thin Zustand composition root. Public contracts live in `layersSliceTypes.ts`; collection, duplication, update, ordering, activation, color-cycle lifecycle/edit/slot, and composite workflows are owned by focused action coordinators. Pure composite drawing and canonical CC snapshot helpers remain separate from store wiring. The public slice state and action API are unchanged.
 - **State**: `layers`, `activeLayerId`, `selectedLayerIds`, `referenceLayerId`, `layersNeedRecomposition`, `layerAlignmentPreview`, `pendingAlignmentOps`.
 - **Actions**: CRUD + selection helpers, alignment updates, CC lifecycle hooks, recomposition toggles, and layer composition/capture services.
 - **Remaining Gaps**:
