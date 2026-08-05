@@ -25,6 +25,25 @@ const HUE_WIDTH = 28;
 
 const clamp = (value: number, min: number, max: number): number => Math.max(min, Math.min(max, value));
 
+const getCanvasPoint = (
+  canvas: HTMLCanvasElement,
+  clientX: number,
+  clientY: number,
+): { x: number; y: number } => {
+  const rect = canvas.getBoundingClientRect();
+  const left = Number.isFinite(rect.left) ? rect.left : 0;
+  const top = Number.isFinite(rect.top) ? rect.top : 0;
+  const safeClientX = Number.isFinite(clientX) ? clientX : left;
+  const safeClientY = Number.isFinite(clientY) ? clientY : top;
+  const scaleX = rect.width > 0 ? canvas.width / rect.width : 1;
+  const scaleY = rect.height > 0 ? canvas.height / rect.height : 1;
+
+  return {
+    x: clamp((safeClientX - left) * scaleX, 0, canvas.width - 1),
+    y: clamp((safeClientY - top) * scaleY, 0, canvas.height - 1),
+  };
+};
+
 function hexToHsv(hex: string): HSV {
   const r = parseInt(hex.slice(1, 3), 16) / 255;
   const g = parseInt(hex.slice(3, 5), 16) / 255;
@@ -430,13 +449,7 @@ export default function ColorPicker({
       setIsPointerDown(true);
       onInteractionStart?.();
 
-      const rect = canvas.getBoundingClientRect();
-      const left = Number.isFinite(rect.left) ? rect.left : 0;
-      const top = Number.isFinite(rect.top) ? rect.top : 0;
-      const clientX = Number.isFinite(e.clientX) ? e.clientX : left;
-      const clientY = Number.isFinite(e.clientY) ? e.clientY : top;
-      const x = clamp(clientX - left, 0, canvas.width - 1);
-      const y = clamp(clientY - top, 0, canvas.height - 1);
+      const { x, y } = getCanvasPoint(canvas, e.clientX, e.clientY);
 
       const cellWidth = canvas.width / GRID_COLS;
       const cellHeight = canvas.height / GRID_ROWS;
@@ -448,10 +461,10 @@ export default function ColorPicker({
       // Check for special cells
       if (clampedCol === 0 && clampedRow === 0) {
         // Top-left: pure white
-        applyHsvUpdate({ h: 0, s: 0, v: 100 });
+        applyHsvUpdate({ ...currentHsv, s: 0, v: 100 });
       } else if (clampedCol === GRID_COLS - 1 && clampedRow === GRID_ROWS - 1) {
         // Bottom-right: pure black
-        applyHsvUpdate({ h: 0, s: 0, v: 0 });
+        applyHsvUpdate({ ...currentHsv, s: 0, v: 0 });
       } else {
         // Normal color selection
         const gridX = clampedCol * cellWidth;
@@ -471,13 +484,7 @@ export default function ColorPicker({
       const canvas = svCanvasRef.current;
       if (!canvas) return;
 
-      const rect = canvas.getBoundingClientRect();
-      const left = Number.isFinite(rect.left) ? rect.left : 0;
-      const top = Number.isFinite(rect.top) ? rect.top : 0;
-      const clientX = Number.isFinite(e.clientX) ? e.clientX : left;
-      const clientY = Number.isFinite(e.clientY) ? e.clientY : top;
-      const x = clamp(clientX - left, 0, canvas.width - 1);
-      const y = clamp(clientY - top, 0, canvas.height - 1);
+      const { x, y } = getCanvasPoint(canvas, e.clientX, e.clientY);
 
       const cellWidth = canvas.width / GRID_COLS;
       const cellHeight = canvas.height / GRID_ROWS;
@@ -489,10 +496,10 @@ export default function ColorPicker({
       // Check for special cells
       if (clampedCol === 0 && clampedRow === 0) {
         // Top-left: pure white
-        scheduleHsvUpdate({ h: 0, s: 0, v: 100 });
+        scheduleHsvUpdate({ ...currentHsv, s: 0, v: 100 });
       } else if (clampedCol === GRID_COLS - 1 && clampedRow === GRID_ROWS - 1) {
         // Bottom-right: pure black
-        scheduleHsvUpdate({ h: 0, s: 0, v: 0 });
+        scheduleHsvUpdate({ ...currentHsv, s: 0, v: 0 });
       } else {
         // Normal color selection
         const gridX = clampedCol * cellWidth;
@@ -525,10 +532,7 @@ export default function ColorPicker({
       setIsDraggingHue(true);
       onInteractionStart?.();
 
-      const rect = canvas.getBoundingClientRect();
-      const top = Number.isFinite(rect.top) ? rect.top : 0;
-      const clientY = Number.isFinite(e.clientY) ? e.clientY : top;
-      const y = clamp(clientY - top, 0, canvas.height - 1);
+      const { y } = getCanvasPoint(canvas, e.clientX, e.clientY);
       const h = (y / canvas.height) * 360;
 
       applyHsvUpdate({ ...currentHsv, h });
@@ -543,10 +547,7 @@ export default function ColorPicker({
       const canvas = hueCanvasRef.current;
       if (!canvas) return;
 
-      const rect = canvas.getBoundingClientRect();
-      const top = Number.isFinite(rect.top) ? rect.top : 0;
-      const clientY = Number.isFinite(e.clientY) ? e.clientY : top;
-      const y = clamp(clientY - top, 0, canvas.height - 1);
+      const { y } = getCanvasPoint(canvas, e.clientX, e.clientY);
       const h = (y / canvas.height) * 360;
 
       scheduleHsvUpdate({ ...currentHsv, h });
