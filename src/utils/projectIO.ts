@@ -2936,8 +2936,11 @@ const getLazyColorCycleArchiveRuntimeByLayerId = (
 ): LazyColorCycleArchiveRuntime | undefined => lazyColorCycleArchiveRuntimesById.get(layerId);
 
 const deleteLazyColorCycleArchiveRuntime = (layer: Layer): void => {
+  const runtime = lazyColorCycleArchiveRuntimes.get(layer);
   lazyColorCycleArchiveRuntimes.delete(layer);
-  lazyColorCycleArchiveRuntimesById.delete(layer.id);
+  if (!runtime || lazyColorCycleArchiveRuntimesById.get(layer.id) === runtime) {
+    lazyColorCycleArchiveRuntimesById.delete(layer.id);
+  }
 };
 
 const readLazyColorCycleArchiveLayerState = async (
@@ -3187,14 +3190,22 @@ const hydrateLazyColorCycleArchiveRuntime = async (layer: Layer): Promise<void> 
   }
 
   await applyLazyColorCycleArchiveStateMetadata(layer, runtime);
-  const hydratedBrushState = await hydratePersistedBrushStateArchiveRefs(runtime.brushState, runtime, layer.id);
+  const hydratedBrushState = await hydratePersistedBrushStateArchiveRefs(
+    getSavedColorCycleBrushState(layer) ?? runtime.brushState,
+    runtime,
+    layer.id,
+  );
 
   if (hydratedBrushState) {
     layer.colorCycleData.brushState = hydratedBrushState;
     setSavedColorCycleBrushState(layer, hydratedBrushState);
   }
-  layer.colorCycleData.runtimeHydrationState = 'warm';
-  layer.colorCycleData.deferredRuntimeRestore = false;
+};
+
+const commitLazyColorCycleArchiveRuntimeHydration = (layer: Layer): void => {
+  if (layer.colorCycleData) {
+    layer.colorCycleData.deferredRuntimeRestore = false;
+  }
   deleteLazyColorCycleArchiveRuntime(layer);
 };
 
@@ -3232,15 +3243,6 @@ const isPrimaryColorCyclePayloadFailure = (reason: string): boolean => (
   reason === 'missing-motion-buffers' ||
   reason === 'missing-archive-ref'
 );
-
-type ColorCycleRepairStatusReason = NonNullable<NonNullable<Layer['colorCycleData']>['repairStatus']>['reason'];
-
-const toRepairStatusReasonForPrimaryPayloadFailure = (reason: string): ColorCycleRepairStatusReason => {
-  if (reason === 'missing-gradient-bindings' || reason === 'missing-motion-buffers') {
-    return reason;
-  }
-  return 'missing-paint-buffer';
-};
 
 const applyLegacyColorCycleBrushSettingsFallback = (
   layers: Layer[],
@@ -6042,7 +6044,9 @@ const restoreColorCycleLayerRuntimeForMaterialization = async (
       if (!colorCycleData) {
         return { brush: null, materialized: false, reason: 'missing-color-cycle-data' };
       }
-      const savedBrushState = getSavedColorCycleBrushState(layer);
+      const savedBrushState = (
+        getSavedColorCycleBrushState(layer) ?? colorCycleData.brushState
+      ) as PersistedColorCycleBrushState | undefined;
       if (savedBrushState) {
         ccWarmRestoreDebug.log('brush-state-found', {
           layerId: layer.id,
@@ -6611,6 +6615,7 @@ export async function restoreColorCycleBrushes(
     shouldDeferColorCycleRuntimeRestore,
     getLazyColorCycleArchiveRuntime,
     hydrateLazyColorCycleArchiveRuntime,
+    commitLazyColorCycleArchiveRuntimeHydration,
     getSavedColorCycleBrushState: (layer) => (
       getSavedColorCycleBrushState(layer) as PersistenceBrushState | undefined
     ),
@@ -6620,7 +6625,6 @@ export async function restoreColorCycleBrushes(
     restoreLayerRuntimeForMaterialization: restoreColorCycleLayerRuntimeForMaterialization,
     describeBufferForDebug,
     isPrimaryColorCyclePayloadFailure,
-    toRepairStatusReasonForPrimaryPayloadFailure,
     withColorCycleDiagnosticNotes: (notes, diagnostics = []) => (
       withColorCycleDiagnosticNotes(notes, diagnostics as ColorCycleDiagnosticStatus[])
     ),

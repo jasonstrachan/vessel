@@ -38,6 +38,7 @@ type StoreState = {
   hiddenLayerGroupIds: string[];
   activeLayerId: string | null;
   selectedLayerIds: string[];
+  warmingColorCycleLayerIds: string[];
   referenceLayerId: string | null;
   sequentialRecord: {
     frameCount: number;
@@ -93,6 +94,7 @@ const state: StoreState = {
   hiddenLayerGroupIds: [],
   activeLayerId: null,
   selectedLayerIds: [],
+  warmingColorCycleLayerIds: [],
   referenceLayerId: null,
   sequentialRecord: {
     frameCount: 24,
@@ -300,6 +302,7 @@ const setupLayers = () => {
   state.hiddenLayerGroupIds = [];
   state.activeLayerId = 'layer-c';
   state.selectedLayerIds = ['layer-c'];
+  state.warmingColorCycleLayerIds = [];
   state.referenceLayerId = null;
   state.brushPresets = [
     { id: 'color-cycle-gradient', name: 'CC Gradient' } as BrushPreset,
@@ -375,6 +378,29 @@ describe('LayersPanel interactions', () => {
   beforeEach(() => {
     window.localStorage.clear();
     setupLayers();
+  });
+
+  it('shows an in-button loading animation while color-cycle payloads warm', () => {
+    state.layers = state.layers.map((layer) => (
+      layer.id === 'layer-c'
+        ? {
+            ...layer,
+            layerType: 'color-cycle',
+            colorCycleData: {
+              isAnimating: false,
+              deferredRuntimeRestore: true,
+              runtimeHydrationState: 'cold',
+            },
+          }
+        : layer
+    ));
+    state.warmingColorCycleLayerIds = ['layer-c'];
+
+    render(<LayersPanel />);
+
+    const warmingBadge = screen.getByLabelText('layer-c color-cycle payloads warming');
+    expect(warmingBadge).toHaveAttribute('title', 'Warming color-cycle payloads');
+    expect(warmingBadge.querySelector('svg')).toHaveClass('animate-spin');
   });
 
   it('does not render bulk selected visibility actions in layer menu', () => {

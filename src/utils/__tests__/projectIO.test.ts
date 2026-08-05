@@ -4134,6 +4134,29 @@ describe('projectIO serialize/deserialize layering', () => {
     const snapshot = readTestColorCycleBrushLayerSnapshot(restoredBrush, restoredLayer.id);
     expect(Array.from(new Uint8Array(snapshot?.flowBuffer ?? new ArrayBuffer(0)))).toEqual([5, 6, 7, 8]);
     expect(Array.from(new Uint8Array(snapshot?.phaseBuffer ?? new ArrayBuffer(0)))).toEqual([64, 96, 128, 192]);
+
+    const persistedBrushState = restoredLayer.colorCycleData?.brushState;
+    getColorCycleBrushManager().discardRuntimeRetainingDocument(restoredLayer.id);
+    delete restoredLayer.colorCycleData?.colorCycleBrush;
+    if (restoredLayer.colorCycleData) {
+      restoredLayer.colorCycleData.runtimeHydrationState = 'cold';
+      restoredLayer.colorCycleData.deferredRuntimeRestore = true;
+    }
+
+    const [rewarmedLayer] = await restoreColorCycleBrushes([restoredLayer], {
+      activeLayerId: restoredLayer.id,
+    });
+    const rewarmedSnapshot = readTestColorCycleBrushLayerSnapshot(
+      rewarmedLayer.colorCycleData?.colorCycleBrush,
+      rewarmedLayer.id,
+    );
+    expect(rewarmedLayer.colorCycleData?.repairStatus).toBeUndefined();
+    expect(rewarmedLayer.colorCycleData?.runtimeHydrationState).toBe('active');
+    expect(rewarmedLayer.colorCycleData?.brushState).toBe(persistedBrushState);
+    expect(Array.from(new Uint8Array(rewarmedSnapshot?.flowBuffer ?? new ArrayBuffer(0))))
+      .toEqual([5, 6, 7, 8]);
+    expect(Array.from(new Uint8Array(rewarmedSnapshot?.phaseBuffer ?? new ArrayBuffer(0))))
+      .toEqual([64, 96, 128, 192]);
   });
 
   it('prefers saved brushState snapshots over fallback gradient buffer seeding during restore', async () => {

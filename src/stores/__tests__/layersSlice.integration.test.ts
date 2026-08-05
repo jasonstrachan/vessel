@@ -147,6 +147,7 @@ const mockManager = {
   cleanupOrphanedBrushes: jest.fn(),
   setCanvasImplementation: jest.fn(),
   getDocument: jest.fn((layerId: string) => documentRegistry.get(layerId)),
+  registerDocument: jest.fn(),
   ensureDocument: jest.fn((layerId: string, width: number, height: number) => {
     const existing = documentRegistry.get(layerId);
     if (existing) {
@@ -162,8 +163,15 @@ const mockManager = {
   activeResources: new Set<string>(),
 };
 
+const mockCreateColorCycleBrushManager = jest.fn(() => ({
+  ...mockManager,
+  registerDocument: jest.fn(),
+  cleanupAll: jest.fn(),
+}));
+
 jest.mock('../colorCycleBrushManager', () => ({
   __esModule: true as const,
+  createColorCycleBrushManager: () => mockCreateColorCycleBrushManager(),
   getColorCycleBrushManager: () => mockManager,
   getColorCycleStoreState: () => null,
   setLayerIdGetter: jest.fn(),
@@ -273,6 +281,7 @@ beforeEach(() => {
   });
 
   brushRegistry.clear();
+  mockCreateColorCycleBrushManager.mockClear();
   documentRegistry.clear();
   mockManager.brushMetadata.clear();
   mockManager.activeResources.clear();
@@ -321,6 +330,7 @@ beforeEach(() => {
     hiddenLayerGroupIds: [],
     activeLayerId: null,
     selectedLayerIds: [],
+    warmingColorCycleLayerIds: [],
     referenceLayerId: null,
     layersNeedRecomposition: false,
     project: state.project
@@ -489,7 +499,11 @@ describe('layers slice integration', () => {
 
     expect(restoreColorCycleBrushes).toHaveBeenCalledWith(
       [expect.objectContaining({ id: layerId })],
-      { lazy: false, activeLayerId: layerId },
+      expect.objectContaining({
+        lazy: false,
+        activeLayerId: layerId,
+        colorCycleBrushManager: expect.any(Object),
+      }),
     );
     expect(warmedLayer?.colorCycleData?.deferredRuntimeRestore).toBe(false);
     expect(warmedLayer?.colorCycleData?.runtimeHydrationState).toBe('active');
@@ -560,7 +574,11 @@ describe('layers slice integration', () => {
     expect(mockManager.initColorCycleForLayer).not.toHaveBeenCalled();
     expect(restoreColorCycleBrushes).toHaveBeenCalledWith(
       [expect.objectContaining({ id: layerId })],
-      { lazy: false, activeLayerId: layerId },
+      expect.objectContaining({
+        lazy: false,
+        activeLayerId: layerId,
+        colorCycleBrushManager: expect.any(Object),
+      }),
     );
     expect(warmedLayer?.colorCycleData?.deferredRuntimeRestore).toBe(false);
     expect(warmedLayer?.colorCycleData?.runtimeHydrationState).toBe('active');
@@ -635,37 +653,132 @@ describe('layers slice integration', () => {
     });
 
     brushRegistry.delete(layerId);
-    (restoreColorCycleBrushes as jest.Mock).mockImplementationOnce(async (layers: Layer[]) => {
-      brushRegistry.set(layerId, mockBrush);
-      return layers.map((layer) =>
-        layer.id === layerId
-          ? {
-              ...layer,
-              colorCycleData: {
-                ...(layer.colorCycleData as NonNullable<Layer['colorCycleData']>),
-                deferredRuntimeRestore: false,
-                runtimeHydrationState: 'active',
-                colorCycleBrush: mockBrush,
-                canvas: makeCanvas(),
-              },
-            }
-          : layer,
-      );
+    const sourceLayer = useAppStore.getState().layers.find((layer) => layer.id === layerId)!;
+    let resolveRestore!: (layers: Layer[]) => void;
+    const restoreResult = new Promise<Layer[]>((resolve) => {
+      resolveRestore = resolve;
     });
+    (restoreColorCycleBrushes as jest.Mock).mockReturnValueOnce(restoreResult);
 
-    const ensured = await useAppStore.getState().ensureColorCycleLayerRuntime(layerId, {
+    const ensurePromise = useAppStore.getState().ensureColorCycleLayerRuntime(layerId, {
       target: 'active',
     });
+    expect(useAppStore.getState().warmingColorCycleLayerIds).toContain(layerId);
+
+    brushRegistry.set(layerId, mockBrush);
+    resolveRestore([{
+      ...sourceLayer,
+      colorCycleData: {
+        ...(sourceLayer.colorCycleData as NonNullable<Layer['colorCycleData']>),
+        deferredRuntimeRestore: false,
+        runtimeHydrationState: 'active',
+        colorCycleBrush: mockBrush,
+        canvas: makeCanvas(),
+      },
+    }]);
+    const ensured = await ensurePromise;
 
     const warmedLayer = useAppStore.getState().layers.find((candidate) => candidate.id === layerId);
     expect(ensured).toBe(true);
     expect(restoreColorCycleBrushes).toHaveBeenCalledWith(
       [expect.objectContaining({ id: layerId })],
-      { lazy: false, activeLayerId: layerId },
+      expect.objectContaining({
+        lazy: false,
+        activeLayerId: layerId,
+        colorCycleBrushManager: expect.any(Object),
+      }),
     );
     expect(warmedLayer?.colorCycleData?.deferredRuntimeRestore).toBe(false);
     expect(warmedLayer?.colorCycleData?.runtimeHydrationState).toBe('active');
     expect(mockManager.getBrush(layerId)).toBe(mockBrush);
+    expect(useAppStore.getState().warmingColorCycleLayerIds).not.toContain(layerId);
+  });
+
+  it('does not publish or clear warming state from an older project restore with the same layer id', async () => {
+    const store = useAppStore.getState();
+    const layerId = store.addLayer({
+      ...createColorCycleLayerInput('Old Project CC Layer'),
+      colorCycleData: {
+        ...createColorCycleLayerInput('Old Project CC Layer').colorCycleData,
+        deferredRuntimeRestore: true,
+        runtimeHydrationState: 'cold',
+        colorCycleBrush: undefined,
+        canvas: makeCanvas(),
+      },
+    });
+
+    brushRegistry.delete(layerId);
+    const oldLayer = useAppStore.getState().layers.find((layer) => layer.id === layerId)!;
+    let resolveOldRestore!: (layers: Layer[]) => void;
+    let resolveNewRestore!: (layers: Layer[]) => void;
+    (restoreColorCycleBrushes as jest.Mock)
+      .mockReturnValueOnce(new Promise<Layer[]>((resolve) => {
+        resolveOldRestore = resolve;
+      }))
+      .mockReturnValueOnce(new Promise<Layer[]>((resolve) => {
+        resolveNewRestore = resolve;
+      }));
+
+    const oldEnsure = useAppStore.getState().ensureColorCycleLayerRuntime(layerId, {
+      target: 'active',
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const newLayer: Layer = {
+      ...oldLayer,
+      name: 'New Project CC Layer',
+      colorCycleData: {
+        ...(oldLayer.colorCycleData as NonNullable<Layer['colorCycleData']>),
+        deferredRuntimeRestore: true,
+        runtimeHydrationState: 'cold',
+        colorCycleBrush: undefined,
+        canvas: makeCanvas(),
+      },
+    };
+    useAppStore.setState((state) => ({
+      project: state.project ? { ...state.project, name: 'Replacement project' } : state.project,
+      layers: [newLayer],
+      activeLayerId: layerId,
+      selectedLayerIds: [layerId],
+    }));
+
+    const newEnsure = useAppStore.getState().ensureColorCycleLayerRuntime(layerId, {
+      target: 'active',
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(restoreColorCycleBrushes).toHaveBeenCalledTimes(2);
+
+    resolveOldRestore([{
+      ...oldLayer,
+      name: 'Stale restored layer',
+      colorCycleData: {
+        ...(oldLayer.colorCycleData as NonNullable<Layer['colorCycleData']>),
+        deferredRuntimeRestore: false,
+        runtimeHydrationState: 'active',
+        colorCycleBrush: mockBrush,
+        canvas: makeCanvas(),
+      },
+    }]);
+    expect(await oldEnsure).toBe(false);
+    expect(useAppStore.getState().warmingColorCycleLayerIds).toContain(layerId);
+    expect(useAppStore.getState().layers[0].name).toBe('New Project CC Layer');
+    expect(mockManager.registerRestoredBrush).not.toHaveBeenCalled();
+
+    brushRegistry.set(layerId, mockBrush);
+    resolveNewRestore([{
+      ...newLayer,
+      colorCycleData: {
+        ...(newLayer.colorCycleData as NonNullable<Layer['colorCycleData']>),
+        deferredRuntimeRestore: false,
+        runtimeHydrationState: 'active',
+        colorCycleBrush: mockBrush,
+        canvas: makeCanvas(),
+      },
+    }]);
+    expect(await newEnsure).toBe(true);
+    expect(useAppStore.getState().layers[0].name).toBe('New Project CC Layer');
+    expect(useAppStore.getState().warmingColorCycleLayerIds).not.toContain(layerId);
+    expect(mockManager.registerRestoredBrush).toHaveBeenCalledTimes(1);
   });
 
   it('keeps a deferred color-cycle layer cold when explicit runtime ensure fails', async () => {
@@ -698,14 +811,18 @@ describe('layers slice integration', () => {
     expect(ensured).toBe(false);
     expect(restoreColorCycleBrushes).toHaveBeenCalledWith(
       [expect.objectContaining({ id: layerId })],
-      { lazy: false, activeLayerId: layerId },
+      expect.objectContaining({
+        lazy: false,
+        activeLayerId: layerId,
+        colorCycleBrushManager: expect.any(Object),
+      }),
     );
     expect(layer?.colorCycleData?.deferredRuntimeRestore).toBe(true);
     expect(layer?.colorCycleData?.runtimeHydrationState).toBe('cold');
     expect(brushRegistry.has(layerId)).toBe(false);
   });
 
-  it('keeps a deferred color-cycle layer cold when restore returns no runtime brush', async () => {
+  it('keeps a recoverable color-cycle layer cold and retryable when restore returns no runtime brush', async () => {
     const store = useAppStore.getState();
     const layerId = store.addLayer({
       ...createColorCycleLayerInput('Deferred No Brush Ensure CC Layer'),
@@ -719,6 +836,7 @@ describe('layers slice integration', () => {
     });
 
     brushRegistry.delete(layerId);
+    documentRegistry.set(layerId, new ColorCycleLayerDocument(makeDocumentState(layerId)));
     (restoreColorCycleBrushes as jest.Mock).mockImplementationOnce(async (layers: Layer[]) =>
       layers.map((layer) =>
         layer.id === layerId
@@ -735,6 +853,23 @@ describe('layers slice integration', () => {
           : layer,
       ),
     );
+    (restoreColorCycleBrushes as jest.Mock).mockImplementationOnce(async (layers: Layer[]) => {
+      brushRegistry.set(layerId, mockBrush);
+      return layers.map((layer) =>
+        layer.id === layerId
+          ? {
+              ...layer,
+              colorCycleData: {
+                ...(layer.colorCycleData as NonNullable<Layer['colorCycleData']>),
+                deferredRuntimeRestore: false,
+                runtimeHydrationState: 'active',
+                colorCycleBrush: mockBrush,
+                canvas: makeCanvas(),
+              },
+            }
+          : layer,
+      );
+    });
 
     const ensured = await useAppStore.getState().ensureColorCycleLayerRuntime(layerId, {
       target: 'active',
@@ -744,31 +879,28 @@ describe('layers slice integration', () => {
     expect(ensured).toBe(false);
     expect(restoreColorCycleBrushes).toHaveBeenCalledWith(
       [expect.objectContaining({ id: layerId })],
-      { lazy: false, activeLayerId: layerId },
+      expect.objectContaining({
+        lazy: false,
+        activeLayerId: layerId,
+        colorCycleBrushManager: expect.any(Object),
+      }),
     );
-    expect(layer?.colorCycleData?.deferredRuntimeRestore).toBe(false);
+    expect(layer?.colorCycleData?.deferredRuntimeRestore).toBe(true);
     expect(layer?.colorCycleData?.runtimeHydrationState).toBe('cold');
     expect(layer?.colorCycleData?.colorCycleBrush).toBeUndefined();
     expect(brushRegistry.has(layerId)).toBe(false);
 
-    (restoreColorCycleBrushes as jest.Mock).mockClear();
     expect(mockManager.getBrush(layerId)).toBeNull();
-    expect(restoreColorCycleBrushes).not.toHaveBeenCalled();
 
     const retriedEnsure = await useAppStore.getState().ensureColorCycleLayerRuntime(layerId, {
       target: 'active',
     });
     const afterRetryLayer = useAppStore.getState().layers.find((candidate) => candidate.id === layerId);
-    expect(retriedEnsure).toBe(false);
-    expect(afterRetryLayer?.colorCycleData?.runtimeHydrationState).toBe('cold');
+    expect(retriedEnsure).toBe(true);
+    expect(afterRetryLayer?.colorCycleData?.runtimeHydrationState).toBe('active');
     expect(afterRetryLayer?.colorCycleData?.deferredRuntimeRestore).toBe(false);
-    expect(restoreColorCycleBrushes).not.toHaveBeenCalled();
-
-    useAppStore.getState().setActiveLayer(layerId);
-    const afterActivationLayer = useAppStore.getState().layers.find((candidate) => candidate.id === layerId);
-    expect(afterActivationLayer?.colorCycleData?.runtimeHydrationState).toBe('cold');
-    expect(afterActivationLayer?.colorCycleData?.deferredRuntimeRestore).toBe(false);
-    expect(restoreColorCycleBrushes).not.toHaveBeenCalled();
+    expect(restoreColorCycleBrushes).toHaveBeenCalledTimes(2);
+    expect(brushRegistry.has(layerId)).toBe(true);
   });
 
   it('restores a missing runtime brush for warm archive-backed color-cycle layers', async () => {
@@ -814,7 +946,11 @@ describe('layers slice integration', () => {
     expect(ensured).toBe(true);
     expect(restoreColorCycleBrushes).toHaveBeenCalledWith(
       [expect.objectContaining({ id: layerId })],
-      { lazy: false, activeLayerId: layerId },
+      expect.objectContaining({
+        lazy: false,
+        activeLayerId: layerId,
+        colorCycleBrushManager: expect.any(Object),
+      }),
     );
     expect(mockManager.getBrush(layerId)).toBe(mockBrush);
     expect(mockManager.initColorCycleForLayer).not.toHaveBeenCalled();

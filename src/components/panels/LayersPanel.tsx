@@ -2,7 +2,7 @@
 
 import { getAppStoreState } from '@/stores/appStoreAccess';
 import React from 'react';
-import { ChevronRight, Eye, EyeOff, Plus } from 'lucide-react';
+import { ChevronRight, Eye, EyeOff, LoaderCircle, Plus } from 'lucide-react';
 import { useAppStore } from '@/stores/useAppStore';
 import {
   selectLayers,
@@ -96,6 +96,7 @@ const LayersPanel: React.FC = () => {
   const layers = useAppStore(selectLayers);
   const activeLayerId = useAppStore(selectActiveLayerId);
   const selectedLayerIds = useAppStore(selectSelectedLayerIds);
+  const warmingColorCycleLayerIds = useAppStore((state) => state.warmingColorCycleLayerIds);
   const layerGroups = useAppStore(selectLayerGroups);
   const hiddenLayerGroupIds = useAppStore((state) => state.hiddenLayerGroupIds);
   const addLayer = useAppStore((state) => state.addLayer);
@@ -1027,6 +1028,7 @@ const LayersPanel: React.FC = () => {
           const isSelected = selectedLayerIds.includes(layer.id);
           const isHighlighted = isActive || isSelected;
           const isColorCycle = layer.layerType === 'color-cycle';
+          const isColorCycleRuntimeWarming = warmingColorCycleLayerIds.includes(layer.id);
           const isSequential = layer.layerType === 'sequential';
           const gradient = layer.colorCycleData?.gradient || layer.colorCycleData?.recolorSettings?.gradient;
           const isMenuOpen = layerMenuState?.layerId === layer.id;
@@ -1059,7 +1061,9 @@ const LayersPanel: React.FC = () => {
           }`;
           const layerKindLabel = isColorCycle ? 'CC' : isSequential ? 'Seq' : 'Reg';
           const layerKindTitle = isColorCycle
-            ? `Color-cycle ${layer.colorCycleData?.mode === 'recolor' ? 'recolor' : 'brush'} layer${layer.colorCycleData?.deferredRuntimeRestore ? ' (cold runtime)' : ''}`
+            ? isColorCycleRuntimeWarming
+              ? 'Warming color-cycle payloads'
+              : `Color-cycle ${layer.colorCycleData?.mode === 'recolor' ? 'recolor' : 'brush'} layer${layer.colorCycleData?.deferredRuntimeRestore ? ' (cold runtime)' : ''}`
             : isSequential
               ? `Sequence layer, ${Math.max(1, Math.round(layer.sequentialData?.frameCount ?? sequentialRecord.frameCount))} frames`
               : 'Regular layer';
@@ -1259,8 +1263,14 @@ const LayersPanel: React.FC = () => {
                       {layer.name}
                     </span>
                   )}
-                  <span className={labelClass} title={layerKindTitle}>
-                    {layerKindLabel}
+                  <span
+                    aria-label={isColorCycleRuntimeWarming ? `${layer.name} color-cycle payloads warming` : undefined}
+                    className={labelClass}
+                    title={layerKindTitle}
+                  >
+                    {isColorCycleRuntimeWarming ? (
+                      <LoaderCircle aria-hidden="true" className="animate-spin" size={10} />
+                    ) : layerKindLabel}
                   </span>
                 </div>
 

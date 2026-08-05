@@ -6,9 +6,11 @@ import type {
   Project,
   SequentialStrokeEvent,
 } from '@/types';
-import type {
-  ColorCycleDirtyRect,
-  ColorCycleLayerDirtyBatch,
+import {
+  ColorCycleLayerDocument,
+  type ColorCycleDirtyRect,
+  type ColorCycleLayerDocumentRead,
+  type ColorCycleLayerDirtyBatch,
 } from '@/lib/colorCycle/document/ColorCycleLayerDocument';
 import { cloneLayerAlignment, dedupeLayerIds, normalizeLayers } from '@/utils/layoutDefaults';
 import { computeLayerPercentOffset } from '@/utils/layerMetrics';
@@ -85,6 +87,7 @@ import {
   buildDefaultReservedSlots,
 } from '@/utils/colorCycleSlotGC';
 import {
+  createColorCycleBrushManager,
   getColorCycleBrushManager,
   type ColorCycleBrushManager,
   type ColorCycleBrushRuntimeHost,
@@ -357,6 +360,7 @@ export interface LayersSlice {
   currentCompositeBitmap: ImageBitmap | null;
   activeLayerId: string | null;
   selectedLayerIds: string[];
+  warmingColorCycleLayerIds: string[];
   referenceLayerId: string | null;
   currentLayer: number;
   setLayersNeedRecomposition: (needed: boolean) => void;
@@ -472,7 +476,23 @@ export const createLayersSlice = (
 
     let slotRebuildTimer: ReturnType<typeof setTimeout> | null = null;
     const SLOT_REBUILD_DEBOUNCE_MS = 250;
-    const deferredColorCycleRestoreByLayerId = new Map<string, Promise<void>>();
+    const deferredColorCycleRestoreByLayerId = new Map<
+      string,
+      { project: Project | null; promise: Promise<void> }
+    >();
+    const setColorCycleRuntimeWarming = (layerId: string, isWarming: boolean): void => {
+      set((state) => {
+        const alreadyWarming = state.warmingColorCycleLayerIds.includes(layerId);
+        if (alreadyWarming === isWarming) {
+          return state;
+        }
+        return {
+          warmingColorCycleLayerIds: isWarming
+            ? [...state.warmingColorCycleLayerIds, layerId]
+            : state.warmingColorCycleLayerIds.filter((candidate) => candidate !== layerId),
+        };
+      });
+    };
     const getManagedColorCycleDocument = (layerId: string) => (
       (colorCycleBrushManager as Partial<Pick<ColorCycleBrushManager, 'getDocument'>>).getDocument?.(layerId)
     );
@@ -492,14 +512,19 @@ export const createLayersSlice = (
       layerId: string,
       target: EnsureColorCycleLayerRuntimeTarget,
     ): Promise<void> => {
-      const existingPromise = deferredColorCycleRestoreByLayerId.get(layerId);
-      if (existingPromise) {
-        return existingPromise;
+      const sourceProject = get().project;
+      const existingRestore = deferredColorCycleRestoreByLayerId.get(layerId);
+      if (existingRestore?.project === sourceProject) {
+        return existingRestore.promise;
       }
       const markActive = target === 'active';
+      setColorCycleRuntimeWarming(layerId, true);
       const restorePromise = import('@/utils/projectIO')
         .then(async ({ restoreColorCycleBrushes }) => {
           const latestState = get();
+          if (latestState.project !== sourceProject) {
+            return;
+          }
           const latestLayer = latestState.layers.find((candidate) => candidate.id === layerId);
           if (
             !latestLayer ||
@@ -512,13 +537,50 @@ export const createLayersSlice = (
           ) {
             return;
           }
-          const [restoredLayer] = await restoreColorCycleBrushes([latestLayer], {
-            lazy: false,
-            activeLayerId: layerId,
-          });
-          const publishLayer = preserveDeferredColorCycleRestoreSurface(latestLayer, restoredLayer);
-          const restoredBrush = publishLayer.colorCycleData?.colorCycleBrush;
+          const restoreManager = createColorCycleBrushManager();
+          const sourceDocument = getManagedColorCycleDocument(layerId);
+          if (sourceDocument) {
+            const sourceRead: ColorCycleLayerDocumentRead = sourceDocument.read();
+            restoreManager.registerDocument(layerId, new ColorCycleLayerDocument(
+              sourceRead.snapshot,
+              {
+                initialVersion: sourceRead.version,
+                initialPixelVersion: sourceRead.pixelVersion,
+                residency: sourceDocument.residency,
+                archiveRefs: sourceDocument.archiveRefs ?? undefined,
+              },
+            ));
+          }
+          let restoredLayer: Layer | undefined;
+          try {
+            [restoredLayer] = await restoreColorCycleBrushes([latestLayer], {
+              lazy: false,
+              activeLayerId: layerId,
+              colorCycleBrushManager: restoreManager,
+            });
+          } catch (error) {
+            restoreManager.cleanupAll();
+            throw error;
+          }
+          if (!restoredLayer) {
+            restoreManager.cleanupAll();
+            throw new Error(`Deferred color-cycle restore returned no layer for ${layerId}`);
+          }
           const stateAtRestoreCompletion = get();
+          const currentLayer = stateAtRestoreCompletion.layers.find(
+            (candidate) => candidate.id === layerId,
+          );
+          if (
+            stateAtRestoreCompletion.project !== sourceProject ||
+            !currentLayer ||
+            currentLayer.layerType !== 'color-cycle' ||
+            !currentLayer.colorCycleData
+          ) {
+            restoreManager.cleanupAll();
+            return;
+          }
+          const publishLayer = preserveDeferredColorCycleRestoreSurface(currentLayer, restoredLayer);
+          const restoredBrush = publishLayer.colorCycleData?.colorCycleBrush;
           const shouldPublishActive = stateAtRestoreCompletion.activeLayerId === layerId;
           const restoredHydration = restoredBrush
             ? (shouldPublishActive ? 'active' : 'warm')
@@ -541,11 +603,15 @@ export const createLayersSlice = (
                 : 'cold';
               const nextLayer = updateLayerColorCycleHydrationState(publishLayer, hydrationForCurrentSelection);
               if (!restoredBrush && nextLayer.colorCycleData) {
+                const hasRetryableSource = Boolean(
+                  nextLayer.colorCycleData.deferredRuntimeRestore ||
+                  hasWarmableColorCycleRuntimeSource(nextLayer)
+                );
                 return {
                   ...nextLayer,
                   colorCycleData: {
                     ...nextLayer.colorCycleData,
-                    deferredRuntimeRestore: false,
+                    deferredRuntimeRestore: hasRetryableSource,
                   },
                 };
               }
@@ -573,6 +639,8 @@ export const createLayersSlice = (
             } catch {
               // quiet
             }
+          } else {
+            restoreManager.cleanupAll();
           }
           try {
             syncPlaybackColorCycleLayers([publishLayer], 'deferred-restore');
@@ -585,9 +653,15 @@ export const createLayersSlice = (
           logError('[layers] Deferred color-cycle restore failed', { layerId, error });
         })
         .finally(() => {
-          deferredColorCycleRestoreByLayerId.delete(layerId);
+          if (deferredColorCycleRestoreByLayerId.get(layerId)?.promise === restorePromise) {
+            deferredColorCycleRestoreByLayerId.delete(layerId);
+            setColorCycleRuntimeWarming(layerId, false);
+          }
         });
-      deferredColorCycleRestoreByLayerId.set(layerId, restorePromise);
+      deferredColorCycleRestoreByLayerId.set(layerId, {
+        project: sourceProject,
+        promise: restorePromise,
+      });
       return restorePromise;
     };
 
@@ -1209,6 +1283,7 @@ export const createLayersSlice = (
   // Layer Management - Start empty for SSR compatibility
   activeLayerId: null,
   selectedLayerIds: [],
+  warmingColorCycleLayerIds: [],
   referenceLayerId: null,
   currentLayer: 0,
   addLayer: (layer) => {

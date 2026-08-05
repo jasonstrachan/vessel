@@ -643,6 +643,7 @@ export interface AppState {
   hiddenLayerGroupIds: string[];
   activeLayerId: string | null;
   selectedLayerIds: string[];
+  warmingColorCycleLayerIds: string[];
   referenceLayerId: string | null;
   currentLayer: number;
   addLayer: (layer: Omit<Layer, 'id' | 'order'>) => string;

@@ -79,6 +79,7 @@ export type RestoreColorCycleBrushesHydrationDependencies = {
   ) => boolean;
   getLazyColorCycleArchiveRuntime: (layer: Layer) => LazyColorCycleArchiveRuntimeLike | undefined;
   hydrateLazyColorCycleArchiveRuntime: (layer: Layer) => Promise<void>;
+  commitLazyColorCycleArchiveRuntimeHydration: (layer: Layer) => void;
   getSavedColorCycleBrushState: (layer: Layer) => PersistenceBrushState | undefined;
   serializeRuntimeBrushState: (state: unknown, layerId: string) => PersistenceBrushState | undefined;
   restoreLayerRuntimeForMaterialization: (
@@ -96,9 +97,6 @@ export type RestoreColorCycleBrushesHydrationDependencies = {
   ) => Promise<ColorCycleRestoreMaterializationResult>;
   describeBufferForDebug: (buffer: unknown) => { bytes: number; nonZeroSample: number } | null;
   isPrimaryColorCyclePayloadFailure: (reason: string) => boolean;
-  toRepairStatusReasonForPrimaryPayloadFailure: (
-    reason: string,
-  ) => NonNullable<NonNullable<Layer['colorCycleData']>['repairStatus']>['reason'];
   withColorCycleDiagnosticNotes: (notes: string[], extra?: string[]) => string[];
   debug: ColorCycleWarmRestoreDebug;
 };
@@ -109,6 +107,20 @@ export const restoreColorCycleBrushesWithDocumentHydration = async (
   dependencies: RestoreColorCycleBrushesHydrationDependencies,
 ): Promise<Layer[]> => {
   const manager = options?.colorCycleBrushManager ?? getColorCycleBrushManager();
+  const clearRepairStatus = (
+    colorCycleData: NonNullable<Layer['colorCycleData']>,
+  ): NonNullable<Layer['colorCycleData']> => {
+    const nextColorCycleData = { ...colorCycleData };
+    delete nextColorCycleData.repairStatus;
+    return nextColorCycleData;
+  };
+  const toRepairStatusReason = (
+    reason: string,
+  ): NonNullable<NonNullable<Layer['colorCycleData']>['repairStatus']>['reason'] => (
+    reason === 'missing-gradient-bindings' || reason === 'missing-motion-buffers'
+      ? reason
+      : 'missing-paint-buffer'
+  );
   const ensureLayerDocumentResidency = (
     layer: Layer,
     residency: 'cold-archive-ref' | 'resident' | 'static-preview-only',
@@ -243,16 +255,25 @@ export const restoreColorCycleBrushesWithDocumentHydration = async (
     if (savedBrushStateForWarmup && !layer.colorCycleData.brushState) {
       layer.colorCycleData.brushState = savedBrushStateForWarmup;
     }
+    const shouldDecodeSerializedWarmupBuffers = Boolean(
+      shouldValidateWarmupPrimaryPayload || savedBrushStateForWarmup,
+    );
     const warmupWidth = layer.colorCycleData.canvasWidth ?? layer.imageData?.width ?? layer.framebuffer.width ?? 1;
     const warmupHeight = layer.colorCycleData.canvasHeight ?? layer.imageData?.height ?? layer.framebuffer.height ?? 1;
     const warmupDocumentState = normalizeColorCycleLayerDocumentState(layer, {
       fallbackWidth: warmupWidth,
       fallbackHeight: warmupHeight,
-      decodeSerializedBrushStateBuffers: shouldValidateWarmupPrimaryPayload,
+      decodeSerializedBrushStateBuffers: shouldDecodeSerializedWarmupBuffers,
     });
     const existingWarmupDocument = manager.getDocument(layer.id);
     const existingWarmupDocumentRead = typeof existingWarmupDocument?.read === 'function'
       ? existingWarmupDocument.read()
+      : null;
+    const existingWarmupDocumentContent = existingWarmupDocumentRead
+      ? classifyColorCycleCanonicalContent(existingWarmupDocumentRead.snapshot)
+      : null;
+    const persistedWarmupContent = warmupDocumentState.ok
+      ? classifyColorCycleCanonicalContent(warmupDocumentState.state)
       : null;
     if (existingWarmupDocumentRead) {
       dependencies.debug.log('canonical-warmup-existing-document-read', {
@@ -262,7 +283,15 @@ export const restoreColorCycleBrushesWithDocumentHydration = async (
       });
     }
     const authoritativeWarmupState = (
-      existingWarmupDocument?.residency === 'resident' && existingWarmupDocumentRead
+      existingWarmupDocument?.residency === 'resident' &&
+      existingWarmupDocumentRead &&
+      (
+        existingWarmupDocumentContent?.kind === 'populated' ||
+        (
+          existingWarmupDocumentContent?.kind === 'empty' &&
+          persistedWarmupContent?.kind !== 'populated'
+        )
+      )
     )
       ? existingWarmupDocumentRead.snapshot
       : warmupDocumentState.ok
@@ -313,19 +342,28 @@ export const restoreColorCycleBrushesWithDocumentHydration = async (
       dependencies.isPrimaryColorCyclePayloadFailure(warmupSnapshot.reason)
     ) {
       const before = summarizeColorCycleLayer(layer);
-      layer.colorCycleData = {
-        ...setColorCycleHydrationState(layer.colorCycleData, 'cold'),
-        deferredRuntimeRestore: false,
-        repairStatus: layer.colorCycleData.repairStatus ?? {
-          ok: false,
-          reason: dependencies.toRepairStatusReasonForPrimaryPayloadFailure(warmupSnapshot.reason),
-          notes: dependencies.withColorCycleDiagnosticNotes(
-            ['color-cycle-runtime-restore-primary-payload-drop-blocked'],
-            ['static-preview-only', 'repair-failed'],
-          ),
-        },
-      };
-      ensureLayerDocumentResidency(layer, 'static-preview-only');
+      if (hadLazyArchiveRuntime) {
+        const recoverableColorCycleData = clearRepairStatus(layer.colorCycleData);
+        layer.colorCycleData = {
+          ...setColorCycleHydrationState(recoverableColorCycleData, 'cold'),
+          deferredRuntimeRestore: true,
+        };
+        ensureLayerDocumentResidency(layer, 'cold-archive-ref');
+      } else {
+        layer.colorCycleData = {
+          ...setColorCycleHydrationState(layer.colorCycleData, 'cold'),
+          deferredRuntimeRestore: false,
+          repairStatus: layer.colorCycleData.repairStatus ?? {
+            ok: false,
+            reason: toRepairStatusReason(warmupSnapshot.reason),
+            notes: dependencies.withColorCycleDiagnosticNotes(
+              ['color-cycle-runtime-restore-primary-payload-drop-blocked'],
+              ['static-preview-only', 'repair-failed'],
+            ),
+          },
+        };
+        ensureLayerDocumentResidency(layer, 'static-preview-only');
+      }
       dependencies.debug.warn('cc-warmup-canonical-payload-drop-blocked', {
         layerId: layer.id,
         reason: warmupSnapshot.reason,
@@ -377,11 +415,7 @@ export const restoreColorCycleBrushesWithDocumentHydration = async (
       expectedContent,
     );
     if (!restored.brush) {
-      if (
-        restored.reason === 'materialization-failed' &&
-        canonicalDocument &&
-        authoritativeWarmupState
-      ) {
+      if (canonicalDocument && authoritativeWarmupState) {
         canonicalDocument.replaceBaseline(authoritativeWarmupState, {
           version: existingWarmupDocumentRead?.version ?? 0,
           pixelVersion: existingWarmupDocumentRead?.pixelVersion ?? 0,
@@ -391,23 +425,41 @@ export const restoreColorCycleBrushesWithDocumentHydration = async (
         });
       }
       manager.discardRuntimeRetainingDocument(layer.id);
+      const hasRetryableCanonicalSource = Boolean(
+        expectedContent.kind !== 'invalid' && (
+          hasRecoverableColorCycleRuntimeSource(layer) ||
+          existingWarmupDocument?.runtimePolicy.hasRuntimeRestoreSource
+        ) && (
+          restored.reason !== 'missing-paint-buffer' ||
+          hadLazyArchiveRuntime
+        ),
+      );
+      const recoverableColorCycleData = clearRepairStatus(layer.colorCycleData);
       layer.colorCycleData = {
-        ...setColorCycleHydrationState(layer.colorCycleData, 'cold'),
-        deferredRuntimeRestore: false,
+        ...setColorCycleHydrationState(
+          hasRetryableCanonicalSource ? recoverableColorCycleData : layer.colorCycleData,
+          'cold',
+        ),
+        deferredRuntimeRestore: hasRetryableCanonicalSource,
       };
-      const isRetryableMaterializationFailure = restored.reason === 'materialization-failed';
       ensureLayerDocumentResidency(
         layer,
-        isRetryableMaterializationFailure ? 'resident' : 'static-preview-only',
+        hasRetryableCanonicalSource
+          ? (hadLazyArchiveRuntime ? 'cold-archive-ref' : 'resident')
+          : 'static-preview-only',
       );
       if (
-        restored.reason === 'missing-paint-buffer' &&
+        !hasRetryableCanonicalSource &&
         layer.colorCycleData &&
         !layer.colorCycleData.repairStatus
       ) {
         layer.colorCycleData.repairStatus = {
           ok: false,
-          reason: 'missing-paint-buffer',
+          reason: toRepairStatusReason(
+            expectedContent.kind === 'invalid'
+              ? expectedContent.reason
+              : restored.reason ?? 'missing-paint-buffer',
+          ),
           notes: dependencies.withColorCycleDiagnosticNotes(
             ['color-cycle-runtime-restore-missing-canonical-paint'],
             ['static-preview-only', 'repair-failed'],
@@ -421,6 +473,14 @@ export const restoreColorCycleBrushesWithDocumentHydration = async (
         documentVersion: restored.documentVersion ?? null,
       });
     } else {
+      if (hadLazyArchiveRuntime) {
+        dependencies.commitLazyColorCycleArchiveRuntimeHydration(layer);
+      }
+      const restoredColorCycleData = clearRepairStatus(layer.colorCycleData);
+      layer.colorCycleData = {
+        ...restoredColorCycleData,
+        deferredRuntimeRestore: false,
+      };
       dependencies.debug.log('runtime-restore-complete', {
         layerId: layer.id,
         targetRuntimeState,
