@@ -22,6 +22,7 @@ export type ColorCycleStrokeCommitArgs = {
   strokeCapturePadding: number;
   roiPadding: number;
   enableCaptureRoi: boolean;
+  transparencyLockPaintMask?: Uint8Array | null;
 };
 
 export type ColorCycleStrokeCommitDeps = {
@@ -347,6 +348,7 @@ export const commitColorCycleStrokeIfNeeded = async (
     roiPadding: args.roiPadding,
     enableCaptureRoi: args.enableCaptureRoi,
     shouldBuildEraseMask: shouldHealEraseMask,
+    transparencyLockPaintMask: args.transparencyLockPaintMask,
   }, {
     getBrushForLayer: deps.getBrushForLayer,
     bindBrushToCanvas: deps.bindBrushToCanvas,

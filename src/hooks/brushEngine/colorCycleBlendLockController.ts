@@ -16,6 +16,7 @@ type RenderColorCycleWithBlendAndLockArgs = {
   sourceCanvas: HTMLCanvasElement | OffscreenCanvas;
   blendMode: GlobalCompositeOperation;
   activeLayerTransparencyLock: boolean;
+  transparencyLockMaskCanvas?: HTMLCanvasElement | OffscreenCanvas | null;
   getActiveLayerBitmapCanvas: () => HTMLCanvasElement | OffscreenCanvas | null;
   layerHasAnyAlpha: () => boolean;
   alphaPresenceCacheRef: AlphaPresenceCacheRef;
@@ -35,6 +36,7 @@ export const renderColorCycleWithBlendAndLock = ({
   sourceCanvas,
   blendMode,
   activeLayerTransparencyLock,
+  transparencyLockMaskCanvas,
   getActiveLayerBitmapCanvas,
   layerHasAnyAlpha,
   alphaPresenceCacheRef,
@@ -52,10 +54,10 @@ export const renderColorCycleWithBlendAndLock = ({
   const sample = (typeof window !== 'undefined' && window.__AL_sample) || sampleDefault;
   AL('CC_ENTER', { lock: activeLayerTransparencyLock, dst: `${width}x${height}` });
 
-  const mask = getActiveLayerBitmapCanvas();
+  const mask = transparencyLockMaskCanvas ?? getActiveLayerBitmapCanvas();
   const maskWidth = (mask as { width?: number })?.width ?? 0;
   const maskHeight = (mask as { height?: number })?.height ?? 0;
-  const hasMaskAlpha = layerHasAnyAlpha();
+  const hasMaskAlpha = transparencyLockMaskCanvas ? true : layerHasAnyAlpha();
   const maskSrc = (typeof window !== 'undefined' && window.__AL_maskSrc) || 'unknown';
   const maskA = sampleMaskA(mask, width, height, sample.x, sample.y);
   AL('CC_SETUP', {
@@ -125,4 +127,41 @@ export const renderColorCycleWithBlendAndLock = ({
   } finally {
     canvasPool.release(tempCanvas);
   }
+};
+
+export const createColorCycleTransparencyLockMaskCanvas = ({
+  paintMask,
+  width,
+  height,
+}: {
+  paintMask: Uint8Array | null | undefined;
+  width: number;
+  height: number;
+}): HTMLCanvasElement | null => {
+  if (
+    typeof document === 'undefined' ||
+    width <= 0 ||
+    height <= 0 ||
+    paintMask?.length !== width * height
+  ) {
+    return null;
+  }
+
+  const maskCanvas = document.createElement('canvas');
+  maskCanvas.width = width;
+  maskCanvas.height = height;
+  const maskCtx = maskCanvas.getContext('2d', { willReadFrequently: true });
+  if (!maskCtx) {
+    return null;
+  }
+
+  const maskImage = maskCtx.createImageData(width, height);
+  const maskPixels = new Uint32Array(maskImage.data.buffer);
+  for (let sourceIndex = 0; sourceIndex < paintMask.length; sourceIndex += 1) {
+    if (paintMask[sourceIndex] !== 0) {
+      maskPixels[sourceIndex] = 0xff000000;
+    }
+  }
+  maskCtx.putImageData(maskImage, 0, 0);
+  return maskCanvas;
 };

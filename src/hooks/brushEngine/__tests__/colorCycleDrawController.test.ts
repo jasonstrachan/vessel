@@ -197,6 +197,64 @@ describe('colorCycleDrawController', () => {
     expect(firstStampImmediateRef.current).toBe(false);
   });
 
+  it('uses frozen canonical occupancy to admit transparency-locked CC paint', () => {
+    const ctx = createCtx();
+    const brush = createBrush();
+    const mutableLayerCanvas = document.createElement('canvas');
+    mutableLayerCanvas.width = 64;
+    mutableLayerCanvas.height = 64;
+    const frozenPaintMaskCanvas = document.createElement('canvas');
+    frozenPaintMaskCanvas.width = 64;
+    frozenPaintMaskCanvas.height = 64;
+    const maskHasAlphaNear = jest.fn((canvas) => canvas === frozenPaintMaskCanvas);
+
+    drawColorCycleStroke({
+      ctx,
+      x: 10,
+      y: 12,
+      pressure: 0.8,
+      rotation: 0,
+      brushSettings: {
+        size: 8,
+        brushShape: BrushShape.COLOR_CYCLE,
+        colorCycleStampShape: 'square',
+        color: '#ff0000',
+        colorCycleGradient: previewGradient,
+        gridSnapEnabled: false,
+        gridSnapSize: 8,
+        pressureEnabled: false,
+        minPressure: 0,
+        maxPressure: 100,
+      },
+      activeLayerId: 'layer-1',
+      activeLayerTransparencyLock: true,
+      getActiveLayerColorCycleBrush: () => brush as unknown as ColorCycleDrawBrush,
+      getActiveLayerBitmapCanvas: () => mutableLayerCanvas,
+      getTransparencyLockMaskCanvas: () => frozenPaintMaskCanvas,
+      maskHasAlphaNear,
+      resolveBrushPressureRange: () => ({ enabled: false, minPercent: 100, maxPercent: 100 }),
+      requestGradientApply: jest.fn(),
+      flushGradientApply: jest.fn(),
+      renderColorCycle: jest.fn(),
+      firstStampImmediateRef: { current: true },
+      mirrorScheduledRef: { current: false },
+      gridSnapStrokePointRef: { current: null },
+      pixelPerfectStrokeStateRef: {
+        current: createColorCyclePixelPerfectStrokeState(),
+      },
+      roundedCornerAnchorsRef: { current: [] },
+      roundedCornerBaselineSnapshotRef: { current: null },
+    });
+
+    expect(maskHasAlphaNear).toHaveBeenCalledWith(
+      frozenPaintMaskCanvas,
+      expect.any(Number),
+      expect.any(Number),
+      expect.any(Number),
+    );
+    expect(brush.paint).toHaveBeenCalled();
+  });
+
   it('keeps sparse 1px input continuous and removes slow-input pixel doubles', () => {
     const ctx = createCtx();
     const brush = createBrush();

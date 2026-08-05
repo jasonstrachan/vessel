@@ -63,6 +63,22 @@ export const runFinalizeColorCycleCommitBranch = async ({
 }> => {
   applyFinalizePolygonLostEdge();
 
+  const beforeStrokeData = layerBeforeColorState?.layers.find(
+    (entry) => entry.layerId === activeLayer.id
+  )?.strokeData ?? layerBeforeColorState?.layers[0]?.strokeData;
+  const beforePaintBuffer = beforeStrokeData?.paintBuffer;
+  const expectedPaintLength = Math.max(0, Math.floor(
+    (project?.width ?? activeLayer.colorCycleData?.canvas?.width ?? 0) *
+    (project?.height ?? activeLayer.colorCycleData?.canvas?.height ?? 0)
+  ));
+  const transparencyLockPaintMask = activeLayer.transparencyLocked !== true
+    ? null
+    : beforePaintBuffer?.byteLength === expectedPaintLength
+      ? new Uint8Array(beforePaintBuffer).slice()
+      : beforeStrokeData?.hasContent === false && expectedPaintLength > 0
+        ? new Uint8Array(expectedPaintLength)
+        : null;
+
   const colorCycleCommitResult = await commitColorCycleStrokeIfNeeded({
     isColorCycleLayer,
     isColorCycleBrush: isAnyColorCycleBrush,
@@ -75,6 +91,7 @@ export const runFinalizeColorCycleCommitBranch = async ({
     strokeCapturePadding,
     roiPadding,
     enableCaptureRoi,
+    transparencyLockPaintMask,
   }, colorCycleCommitDeps);
 
   if (colorCycleCommitResult.handled) {

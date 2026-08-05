@@ -1,6 +1,23 @@
-import { renderColorCycleWithBlendAndLock } from '../colorCycleBlendLockController';
+import {
+  createColorCycleTransparencyLockMaskCanvas,
+  renderColorCycleWithBlendAndLock,
+} from '../colorCycleBlendLockController';
 
 describe('colorCycleBlendLockController', () => {
+  it('builds a stable alpha mask from canonical CC paint occupancy', () => {
+    const maskCanvas = createColorCycleTransparencyLockMaskCanvas({
+      paintMask: new Uint8Array([0, 3, 0, 8]),
+      width: 2,
+      height: 2,
+    });
+    const maskCtx = maskCanvas?.getContext('2d', { willReadFrequently: true });
+
+    expect(maskCtx).not.toBeNull();
+    expect(Array.from(maskCtx!.getImageData(0, 0, 2, 2).data).filter(
+      (_, index) => index % 4 === 3
+    )).toEqual([0, 255, 0, 255]);
+  });
+
   it('returns early when destination canvas has no size', () => {
     const targetCtx = {
       canvas: { width: 0, height: 0 },
@@ -34,6 +51,9 @@ describe('colorCycleBlendLockController', () => {
     const maskCanvas = document.createElement('canvas');
     maskCanvas.width = 64;
     maskCanvas.height = 64;
+    const frozenMaskCanvas = document.createElement('canvas');
+    frozenMaskCanvas.width = 64;
+    frozenMaskCanvas.height = 64;
 
     const tempCtx = {
       clearRect: jest.fn(),
@@ -67,6 +87,7 @@ describe('colorCycleBlendLockController', () => {
       sourceCanvas: document.createElement('canvas'),
       blendMode: 'multiply',
       activeLayerTransparencyLock: true,
+      transparencyLockMaskCanvas: frozenMaskCanvas,
       getActiveLayerBitmapCanvas: () => maskCanvas,
       layerHasAnyAlpha: () => true,
       alphaPresenceCacheRef,
@@ -79,6 +100,18 @@ describe('colorCycleBlendLockController', () => {
     });
 
     expect(tempCtx.drawImage).toHaveBeenCalledTimes(2);
+    expect(tempCtx.drawImage).toHaveBeenNthCalledWith(
+      2,
+      frozenMaskCanvas,
+      0,
+      0,
+      64,
+      64,
+      0,
+      0,
+      64,
+      64
+    );
     expect(targetCtx.save).toHaveBeenCalled();
     expect(targetCtx.drawImage).toHaveBeenCalledWith(tempCanvas, 0, 0);
     expect(targetCtx.restore).toHaveBeenCalled();
@@ -88,4 +121,3 @@ describe('colorCycleBlendLockController', () => {
     }));
   });
 });
-

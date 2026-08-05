@@ -138,7 +138,10 @@ import {
 import type { ColorCycleRenderBrush } from './brushEngine/colorCycleRenderController';
 import { getMaskManager } from '@/layers/MaskManager';
 import type { ColorCyclePaintMask } from '@/lib/colorCycle/document';
-import { renderColorCycleWithBlendAndLock } from './brushEngine/colorCycleBlendLockController';
+import {
+  createColorCycleTransparencyLockMaskCanvas,
+  renderColorCycleWithBlendAndLock,
+} from './brushEngine/colorCycleBlendLockController';
 import { applyColorCycleRisographOverlay as applyColorCycleRisographOverlayController } from './brushEngine/colorCycleRisographOverlayController';
 import {
   endColorCycleStrokeForLayer,
@@ -260,6 +263,26 @@ export const useBrushEngineSimplified = () => {
   );
   const colorCycleRoundedCornerAnchorsRef = useRef<Array<{ x: number; y: number }>>([]);
   const colorCycleRoundedCornerBaselineSnapshotRef = useRef<ColorCycleBrushLayerSnapshot | null>(null);
+  const colorCycleTransparencyLockMaskCanvasRef = useRef<HTMLCanvasElement | null>(null);
+
+  const captureColorCycleTransparencyLockMask = useCallback((): void => {
+    const documentSnapshot = activeLayerId
+      ? getColorCycleBrushManager().getDocument?.(activeLayerId)?.read().snapshot
+      : null;
+    colorCycleTransparencyLockMaskCanvasRef.current = activeLayerTransparencyLock && documentSnapshot
+      ? createColorCycleTransparencyLockMaskCanvas({
+          paintMask: documentSnapshot.paintBuffer
+            ? new Uint8Array(documentSnapshot.paintBuffer)
+            : null,
+          width: documentSnapshot.width,
+          height: documentSnapshot.height,
+        })
+      : null;
+  }, [activeLayerId, activeLayerTransparencyLock]);
+
+  useEffect(() => {
+    captureColorCycleTransparencyLockMask();
+  }, [captureColorCycleTransparencyLockMask]);
 
   const getActiveLayerBitmapCanvas = useCallback((): HTMLCanvasElement | OffscreenCanvas | null => {
     return getActiveLayerBitmapCanvasController({
@@ -465,6 +488,7 @@ export const useBrushEngineSimplified = () => {
       sourceCanvas,
       blendMode,
       activeLayerTransparencyLock,
+      transparencyLockMaskCanvas: colorCycleTransparencyLockMaskCanvasRef.current,
       getActiveLayerBitmapCanvas,
       layerHasAnyAlpha,
       alphaPresenceCacheRef,
@@ -1655,6 +1679,7 @@ export const useBrushEngineSimplified = () => {
           : null
       ),
       getActiveLayerBitmapCanvas,
+      getTransparencyLockMaskCanvas: () => colorCycleTransparencyLockMaskCanvasRef.current,
       maskHasAlphaNear,
       resolveBrushPressureRange,
       requestGradientApply,
@@ -1687,14 +1712,14 @@ export const useBrushEngineSimplified = () => {
     colorCycleGridSnapStrokePointRef.current = null;
     colorCycleRoundedCornerAnchorsRef.current = [];
     colorCycleRoundedCornerBaselineSnapshotRef.current = null;
+    const strokeBrush = ensureColorCycleBrushInitialized(options)
+      ? getActiveLayerStrokeLifecycleBrush()
+      : null;
+    captureColorCycleTransparencyLockMask();
     resetColorCycleStroke({
       clearBuffer,
       options,
-      initializeColorCycleBrush: (resetOptions) => (
-        ensureColorCycleBrushInitialized(resetOptions)
-          ? getActiveLayerStrokeLifecycleBrush()
-          : null
-      ),
+      initializeColorCycleBrush: () => strokeBrush,
       activeLayerId,
       getLayers: () => getAppStoreState().layers,
       bindBrushToCanvas,
@@ -1704,6 +1729,7 @@ export const useBrushEngineSimplified = () => {
     ensureColorCycleBrushInitialized,
     getActiveLayerStrokeLifecycleBrush,
     activeLayerId,
+    captureColorCycleTransparencyLockMask,
   ]);
 
   /**

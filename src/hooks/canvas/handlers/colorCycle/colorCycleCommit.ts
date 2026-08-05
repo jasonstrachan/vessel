@@ -2,6 +2,8 @@ import { getAppStoreState } from '@/stores/appStoreAccess';
 import { commitLayerHistory } from '@/history/helpers/layerHistory';
 import type { ColorCycleSerializedState } from '@/history/helpers/colorCycle';
 import {
+  applyColorCycleBrushLayerSnapshotToRuntime,
+  applyColorCycleTransparencyMaskToPaintSnapshot,
   commitColorCycleCommittedLayerStateToRuntime,
   buildColorCyclePaintDeltaMask,
   getColorCycleSerializedStatePaintByteLength,
@@ -154,6 +156,7 @@ export type CommitColorCycleLayerStrokeArgs = {
   roiPadding: number;
   enableCaptureRoi: boolean;
   shouldBuildEraseMask?: boolean;
+  transparencyLockPaintMask?: Uint8Array | null;
 };
 
 export type CommitColorCycleLayerStrokeDeps = {
@@ -675,6 +678,48 @@ export const commitColorCycleLayerStroke = async (
         );
       }
 
+      let snapshotAfterTransparencyLock: ColorCyclePaintSnapshot | null = null;
+      if (args.transparencyLockPaintMask) {
+        const currentSnapshot = strokeFinalizeProbeTimeSync(
+          'commitColorCycleLayerStroke:readTransparencyLockSnapshot',
+          () => readColorCycleBrushLayerSnapshotFromRuntime(brush, targetLayerId),
+          {
+            layerId: targetLayerId,
+            layerType: args.layer.layerType,
+          }
+        );
+        if (
+          currentSnapshot &&
+          args.transparencyLockPaintMask.length === currentSnapshot.paintBuffer.byteLength
+        ) {
+          const maskedSnapshot = applyColorCycleTransparencyMaskToPaintSnapshot(
+            currentSnapshot,
+            { paintMask: args.transparencyLockPaintMask }
+          );
+          if (maskedSnapshot) {
+            const didApplyTransparencyLock = strokeFinalizeProbeTimeSync(
+              'commitColorCycleLayerStroke:applyTransparencyLockSnapshot',
+              () => applyColorCycleBrushLayerSnapshotToRuntime(
+                brush,
+                targetLayerId,
+                maskedSnapshot,
+                undefined,
+                'transparency-lock-erase'
+              ),
+              {
+                layerId: targetLayerId,
+                layerType: args.layer.layerType,
+              }
+            );
+            snapshotAfterTransparencyLock = didApplyTransparencyLock
+              ? maskedSnapshot
+              : currentSnapshot;
+          } else {
+            snapshotAfterTransparencyLock = currentSnapshot;
+          }
+        }
+      }
+
       try {
         committedSession = strokeFinalizeProbeTimeSync(
           'commitColorCycleLayerStroke:finalizeMarkGradientSession',
@@ -860,14 +905,16 @@ export const commitColorCycleLayerStroke = async (
         );
       }
 
-      strokeFinalizeProbeTimeSync(
-        'commitColorCycleLayerStroke:markLayerHasContent',
-        () => deps.markLayerHasContent(targetLayerId),
-        {
-          layerId: targetLayerId,
-          layerType: args.layer.layerType,
-        }
-      );
+      if (snapshotAfterTransparencyLock?.hasContent !== false) {
+        strokeFinalizeProbeTimeSync(
+          'commitColorCycleLayerStroke:markLayerHasContent',
+          () => deps.markLayerHasContent(targetLayerId),
+          {
+            layerId: targetLayerId,
+            layerType: args.layer.layerType,
+          }
+        );
+      }
       brushForCleanup = brush;
       if (shouldBuildEraseMask) {
         const afterStrokeSnapshot = strokeFinalizeProbeTimeSync(

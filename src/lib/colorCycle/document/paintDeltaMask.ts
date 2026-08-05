@@ -771,6 +771,7 @@ export const applyColorCycleTransparencyMaskToPaintSnapshot = (
   }
 
   return {
+    ...snapshot,
     paintBuffer: paint.buffer,
     gradientIdBuffer: gid?.buffer,
     gradientDefIdBuffer: gdef?.buffer,

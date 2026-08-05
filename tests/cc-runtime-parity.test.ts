@@ -7,6 +7,7 @@ import { ColorCycleAnimator } from '@/lib/ColorCycleAnimator';
 import { GradientPalette } from '@/lib/GradientPalette';
 import { MAX_BRUSH_COLOR_CYCLE_SPEED } from '@/constants/colorCycle';
 import {
+  applyColorCycleTransparencyMaskToPaintSnapshot,
   ColorCycleLayerDocument,
   type ColorCycleLayerDocumentState,
   type DerivedSurface,
@@ -593,6 +594,58 @@ describe('Color cycle runtime parity (Vessel reference vs Goblet2 CPU)', () => {
 
   it('loads at least one CC fixture', () => {
     expect(fixtures.length).toBeGreaterThan(0);
+  });
+
+  it('keeps transparency-locked CC pixels absent from editor and Goblet playback', () => {
+    const maskedSnapshot = applyColorCycleTransparencyMaskToPaintSnapshot({
+      paintBuffer: new Uint8Array([32, 192]).buffer,
+      gradientIdBuffer: new Uint8Array([0, 0]).buffer,
+      speedBuffer: new Uint8Array([0, 0]).buffer,
+      hasContent: true,
+      strokeCounter: 1,
+      width: 2,
+      height: 1,
+    }, {
+      paintMask: new Uint8Array([1, 0]),
+    });
+    expect(maskedSnapshot).not.toBeNull();
+
+    const indexBuffer = new Uint8Array(maskedSnapshot!.paintBuffer);
+    const gradientIdBuffer = new Uint8Array(maskedSnapshot!.gradientIdBuffer!);
+    const speedBuffer = new Uint8Array(maskedSnapshot!.speedBuffer!);
+    const gradientStops: Goblet2GradientStop[] = [
+      { position: 0, color: '#ff0000', opacity: 1 },
+      { position: 1, color: '#0000ff', opacity: 1 },
+    ];
+    const gobletFrame = renderBrushFrame({
+      indexBuffer,
+      gradientIdBuffer,
+      speedBuffer,
+      paletteTable: bakePaletteTable(null, gradientStops, 256, 1),
+      speedMin: 0,
+      speedMax: 0,
+      timeSeconds: 0,
+      legacyOffset01: 0,
+    });
+    const editorFrame = renderVesselEditorFrame({
+      width: 2,
+      height: 1,
+      indexBuffer,
+      gradientIdBuffer,
+      speedBuffer,
+      fallbackGradient: gradientStops,
+      slotPalettes: null,
+      timeSeconds: 0,
+      legacyOffset01: 0,
+    });
+
+    expect(Array.from(indexBuffer)).toEqual([32, 0]);
+    expect([editorFrame[3], editorFrame[7]]).toEqual([255, 0]);
+    expect(diffFrames(editorFrame, gobletFrame)).toEqual({
+      maxChannelDelta: 0,
+      maxAlphaDelta: 0,
+      mismatchedPixels: 0,
+    });
   });
 
   it('keeps generated dither alpha through the editor playback palette', () => {

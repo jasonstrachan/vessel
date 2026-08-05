@@ -7,6 +7,7 @@ import type { AppState } from '@/stores/useAppStore';
 import type { ManagedColorCycleBrush } from '@/hooks/canvas/handlers/colorCycle/colorCycleCommit';
 import type { BrushSettings, Layer } from '@/types';
 import { createDefaultLayerAlignment } from '@/utils/layoutDefaults';
+import { registerColorCycleBrushLayerSnapshotRuntime } from '@/lib/colorCycle/document';
 
 describe('colorCycleStrokeCommit finalize mask clear', () => {
   const getAlpha = (canvas: HTMLCanvasElement, x: number, y: number): number => {
@@ -341,5 +342,94 @@ describe('colorCycleStrokeCommit finalize mask clear', () => {
 
     expect(readDocumentSnapshot).not.toHaveBeenCalled();
     expect(clearEraseMaskInRegion).not.toHaveBeenCalled();
+  });
+
+  it('removes locked-out CC stroke data from every canonical buffer before commit', async () => {
+    const canvas = document.createElement('canvas');
+    canvas.width = 2;
+    canvas.height = 1;
+    const layer: Layer = {
+      id: 'layer-locked',
+      name: 'CC locked',
+      visible: true,
+      opacity: 1,
+      blendMode: 'source-over',
+      locked: false,
+      transparencyLocked: true,
+      order: 0,
+      imageData: null,
+      framebuffer: canvas,
+      alignment: createDefaultLayerAlignment(),
+      layerType: 'color-cycle',
+      colorCycleData: {
+        canvas,
+        hasContent: true,
+        gradient: [],
+      },
+    };
+    const snapshot = {
+      paintBuffer: new Uint8Array([4, 9]).buffer,
+      gradientIdBuffer: new Uint8Array([1, 2]).buffer,
+      gradientDefIdBuffer: new Uint16Array([11, 12]).buffer,
+      speedBuffer: new Uint8Array([21, 22]).buffer,
+      flowBuffer: new Uint8Array([31, 32]).buffer,
+      phaseBuffer: new Uint8Array([41, 42]).buffer,
+      hasContent: true,
+      strokeCounter: 3,
+      width: 2,
+      height: 1,
+      sources: {
+        brushStateSnapshot: true,
+        topLevelBuffers: false,
+        legacyStateRefs: false,
+      },
+    };
+    const applySnapshot = jest.fn();
+    const brush = {
+      commitCurrentStroke: jest.fn(),
+      updateColorCycleTexture: jest.fn(),
+      commitToLayer: jest.fn(),
+      getColorCycleLayerDocument: jest.fn(() => ({
+        read: () => ({ snapshot, version: 1, pixelVersion: 1 }),
+      })),
+    };
+    registerColorCycleBrushLayerSnapshotRuntime(brush, { apply: applySnapshot });
+
+    await commitColorCycleStrokeIfNeeded({
+      isColorCycleLayer: true,
+      isColorCycleBrush: true,
+      activeLayer: layer,
+      brushSettings: {
+        opacity: 1,
+        blendMode: 'source-over',
+      } as BrushSettings,
+      project: { width: 2, height: 1 },
+      drawingCanvas: canvas,
+      strokeBoundingBox: null,
+      captureRoi: { x: 0, y: 0, width: 2, height: 1 },
+      strokeCapturePadding: 0,
+      roiPadding: 0,
+      enableCaptureRoi: true,
+      transparencyLockPaintMask: new Uint8Array([1, 0]),
+    }, {
+      getBrushForLayer: () => brush as unknown as ManagedColorCycleBrush,
+      bindBrushToCanvas: jest.fn(),
+      markLayerHasContent: jest.fn(),
+      clearEraseMaskInRegion: jest.fn(),
+      perfMark: jest.fn(),
+      perfMeasure: jest.fn(),
+      startFinalizeVisibleTimer: jest.fn(),
+      endFinalizeVisibleTimer: jest.fn(),
+      dispatchFrameUpdate: jest.fn(),
+    });
+
+    expect(applySnapshot).toHaveBeenCalledTimes(1);
+    const applied = applySnapshot.mock.calls[0][1];
+    expect(Array.from(new Uint8Array(applied.paintBuffer))).toEqual([4, 0]);
+    expect(Array.from(new Uint8Array(applied.gradientIdBuffer))).toEqual([1, 0]);
+    expect(Array.from(new Uint16Array(applied.gradientDefIdBuffer))).toEqual([11, 0]);
+    expect(Array.from(new Uint8Array(applied.speedBuffer))).toEqual([21, 0]);
+    expect(Array.from(new Uint8Array(applied.flowBuffer))).toEqual([31, 0]);
+    expect(Array.from(new Uint8Array(applied.phaseBuffer))).toEqual([41, 0]);
   });
 });

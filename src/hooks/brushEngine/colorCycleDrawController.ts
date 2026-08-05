@@ -83,6 +83,7 @@ type DrawColorCycleArgs = {
   activeLayerTransparencyLock: boolean;
   getActiveLayerColorCycleBrush: () => ColorCycleDrawBrush | null;
   getActiveLayerBitmapCanvas: () => HTMLCanvasElement | OffscreenCanvas | null;
+  getTransparencyLockMaskCanvas?: () => HTMLCanvasElement | OffscreenCanvas | null;
   maskHasAlphaNear: (
     canvas: HTMLCanvasElement | OffscreenCanvas,
     x: number,
@@ -118,6 +119,7 @@ export const drawColorCycleStroke = ({
   activeLayerTransparencyLock,
   getActiveLayerColorCycleBrush,
   getActiveLayerBitmapCanvas,
+  getTransparencyLockMaskCanvas,
   maskHasAlphaNear,
   resolveBrushPressureRange,
   requestGradientApply,
@@ -220,7 +222,7 @@ export const drawColorCycleStroke = ({
     const rasterAnchor = resolveColorCycleRasterAnchor(brushSettings);
 
     if (activeLayerTransparencyLock) {
-      const mask = getActiveLayerBitmapCanvas();
+      const mask = getTransparencyLockMaskCanvas?.() ?? getActiveLayerBitmapCanvas();
       if (mask) {
         const canvasWidth = ctx.canvas.width || 1;
         const canvasHeight = ctx.canvas.height || 1;
