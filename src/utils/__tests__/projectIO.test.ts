@@ -8080,6 +8080,68 @@ describe('projectIO serialize/deserialize layering', () => {
     expect(Array.from(cc.indexMap ?? [])).toEqual([1, 2, 3, 4]);
     expect(Array.from(cc.alphaMask ?? [])).toEqual([255, 128, 64, 0]);
   });
+
+  it('round-trips schema v3 indexed-tip custom brushes through serialize/deserialize', async () => {
+    const imageData = createSolidImageData(2, 2, [12, 34, 56, 255]);
+    const layer: Layer = {
+      id: 'layer-basic-v3',
+      name: 'Layer',
+      visible: true,
+      opacity: 1,
+      blendMode: 'source-over',
+      locked: false,
+      transparencyLocked: false,
+      order: 0,
+      imageData,
+      framebuffer: createCanvasFromImageData(imageData),
+      alignment: createDefaultLayerAlignment(),
+      layerType: 'normal',
+      version: 1,
+    };
+    const project: Project = {
+      id: 'project-custom-cc-v3',
+      name: 'Custom Brush CC V3',
+      width: 2,
+      height: 2,
+      backgroundColor: '#000000',
+      layers: [layer],
+      customBrushes: [{
+        id: 'brush-cc-v3',
+        name: 'CC Brush V3',
+        imageData,
+        thumbnail: '',
+        width: 2,
+        height: 2,
+        createdAt: 1700000000000,
+        colorCycle: {
+          schemaVersion: 3,
+          payloadKind: 'indexed-tip',
+          source: 'color-cycle-layer',
+          gradient: [
+            { position: 0, color: '#000000' },
+            { position: 1, color: '#ffffff' },
+          ],
+          sourceCycleLength: 256,
+          mapWidth: 2,
+          mapHeight: 2,
+          paintIndexMap: new Uint16Array([0, 64, 128, 255]),
+          alphaMask: new Uint8Array([255, 128, 64, 0]),
+        },
+      }],
+      createdAt: new Date('2025-01-01T00:00:00.000Z'),
+      updatedAt: new Date('2025-01-01T00:00:00.000Z'),
+    };
+
+    const restored = await deserializeProject(await serializeProject(project));
+    const cc = restored.customBrushes[0]?.colorCycle;
+
+    expect(cc?.schemaVersion).toBe(3);
+    if (!cc || cc.schemaVersion !== 3) {
+      throw new Error('Expected schema v3 color cycle payload');
+    }
+    expect(Array.from(cc.paintIndexMap)).toEqual([0, 64, 128, 255]);
+    expect(Array.from(cc.alphaMask ?? [])).toEqual([255, 128, 64, 0]);
+  });
 });
 
 describe('projectIO saveProjectToFile', () => {

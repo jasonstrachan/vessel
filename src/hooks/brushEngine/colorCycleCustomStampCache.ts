@@ -1,11 +1,18 @@
 import { canvasPool } from '@/utils/canvasPool';
-import type { CustomBrushColorCycleData } from '@/types';
+import type {
+  CustomBrushColorCycleData,
+  CustomBrushColorCycleMode,
+} from '@/types';
 
 import {
   buildStampMaskCacheKey,
   quantizeStampMaskRotation,
   STAMP_MASK_CACHE_LIMIT,
 } from './colorCycleStampMask';
+
+const MAX_SCALED_CANVAS_CACHE_ENTRIES = 40;
+const MAX_SCALED_CANVAS_CACHE_BYTES = 32 * 1024 * 1024;
+const MAX_STAMP_MASK_CACHE_BYTES = 16 * 1024 * 1024;
 
 type CcCustomStampPerfStats = {
   sourceHit: number;
@@ -33,6 +40,8 @@ export interface CustomStampInput {
   cacheKey?: string;
   isResampler?: boolean;
   colorCycle?: CustomBrushColorCycleData;
+  colorCycleMode?: CustomBrushColorCycleMode;
+  useCapturedAlphaMask?: boolean;
 }
 
 export interface StampMaskCacheEntry {
@@ -78,6 +87,8 @@ export class ColorCycleCustomStampCache {
   private sourceCache: WeakMap<ImageData, HTMLCanvasElement> = new WeakMap();
   private scaledCanvasCache: Map<string, HTMLCanvasElement> = new Map();
   private maskCache: Map<string, StampMaskCacheEntry> = new Map();
+  private scaledCanvasCacheBytes = 0;
+  private maskCacheBytes = 0;
   private cacheVersion = 0;
 
   get version(): number {
@@ -96,6 +107,8 @@ export class ColorCycleCustomStampCache {
     this.sourceCache = new WeakMap();
     this.scaledCanvasCache.clear();
     this.maskCache.clear();
+    this.scaledCanvasCacheBytes = 0;
+    this.maskCacheBytes = 0;
     this.cacheVersion += 1;
   }
 
@@ -119,14 +132,12 @@ export class ColorCycleCustomStampCache {
       ctx.drawImage(source, 0, 0, source.width, source.height, 0, 0, width, height);
       cached = canvas;
       this.scaledCanvasCache.set(key, canvas);
-      if (this.scaledCanvasCache.size > 40) {
-        const firstKey = this.scaledCanvasCache.keys().next().value;
-        if (firstKey) {
-          this.scaledCanvasCache.delete(firstKey);
-        }
-      }
-    } else if (profile) {
-      profile.scaledHit += 1;
+      this.scaledCanvasCacheBytes += width * height * 4;
+      this.trimScaledCanvasCache();
+    } else {
+      if (profile) profile.scaledHit += 1;
+      this.scaledCanvasCache.delete(key);
+      this.scaledCanvasCache.set(key, cached);
     }
     return cached;
   }
@@ -152,6 +163,8 @@ export class ColorCycleCustomStampCache {
     const cached = this.maskCache.get(cacheKey);
     if (cached) {
       if (profile) profile.maskHit += 1;
+      this.maskCache.delete(cacheKey);
+      this.maskCache.set(cacheKey, cached);
       return cached;
     }
     if (profile) profile.maskMiss += 1;
@@ -199,12 +212,8 @@ export class ColorCycleCustomStampCache {
     };
 
     this.maskCache.set(cacheKey, entry);
-    if (this.maskCache.size > STAMP_MASK_CACHE_LIMIT) {
-      const firstKey = this.maskCache.keys().next().value;
-      if (firstKey) {
-        this.maskCache.delete(firstKey);
-      }
-    }
+    this.maskCacheBytes += entry.alpha.byteLength;
+    this.trimMaskCache();
 
     return entry;
   }
@@ -226,5 +235,41 @@ export class ColorCycleCustomStampCache {
       profile.sourceHit += 1;
     }
     return source;
+  }
+
+  private trimScaledCanvasCache(): void {
+    while (
+      this.scaledCanvasCache.size > MAX_SCALED_CANVAS_CACHE_ENTRIES ||
+      this.scaledCanvasCacheBytes > MAX_SCALED_CANVAS_CACHE_BYTES
+    ) {
+      const oldestKey = this.scaledCanvasCache.keys().next().value;
+      if (typeof oldestKey !== 'string') {
+        break;
+      }
+      const oldest = this.scaledCanvasCache.get(oldestKey);
+      this.scaledCanvasCache.delete(oldestKey);
+      this.scaledCanvasCacheBytes = Math.max(
+        0,
+        this.scaledCanvasCacheBytes - ((oldest?.width ?? 0) * (oldest?.height ?? 0) * 4),
+      );
+    }
+  }
+
+  private trimMaskCache(): void {
+    while (
+      this.maskCache.size > STAMP_MASK_CACHE_LIMIT ||
+      this.maskCacheBytes > MAX_STAMP_MASK_CACHE_BYTES
+    ) {
+      const oldestKey = this.maskCache.keys().next().value;
+      if (typeof oldestKey !== 'string') {
+        break;
+      }
+      const oldest = this.maskCache.get(oldestKey);
+      this.maskCache.delete(oldestKey);
+      this.maskCacheBytes = Math.max(
+        0,
+        this.maskCacheBytes - (oldest?.alpha.byteLength ?? 0),
+      );
+    }
   }
 }

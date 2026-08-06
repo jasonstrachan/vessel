@@ -1,7 +1,10 @@
 import type { ColorCycleAnimator } from '@/lib/ColorCycleAnimator';
 import type { GradientStop } from '@/lib/GradientPalette';
 import type { GradientSeamProfile } from '@/lib/colorCycle/gradientSeamProfile';
-import type { CustomBrushColorCycleData } from '@/types';
+import type {
+  CustomBrushColorCycleData,
+  CustomBrushColorCycleMode,
+} from '@/types';
 import { ensureGradientDefForStops } from '@/utils/colorCycleGradientDefs';
 
 import type { LayerStrokeState, SerializedLayerColorCycleMeta } from './colorCycleCanvas2DTypes';
@@ -48,10 +51,11 @@ export function resolveColorCycleCapturedStampGradientBinding(
   context: ColorCycleCapturedStampGradientContext,
   layerId: string,
   colorCycle: CustomBrushColorCycleData | undefined,
+  mode: CustomBrushColorCycleMode | undefined,
 ): CapturedStampGradientBinding | null {
   if (
-    colorCycle?.schemaVersion !== 2 ||
-    colorCycle.mode !== 'captured-data' ||
+    mode !== 'captured-data' ||
+    !colorCycle ||
     !Array.isArray(colorCycle.gradient) ||
     colorCycle.gradient.length === 0
   ) {

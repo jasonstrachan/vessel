@@ -239,8 +239,8 @@ export class ColorCycleBrushCanvas2D {
     resolveActiveStrokeSlot: (layerId, strokeData) =>
       this.strokeCoordinatorApi.resolveActiveStrokeSlot(layerId, strokeData),
     resolveFlowSlot: (strokeData, activeSlot) => this.strokeCoordinatorApi.resolveFlowSlot(strokeData, activeSlot),
-    resolveCapturedStampGradientBinding: (layerId, colorCycle) =>
-      this.gradientApi.resolveCapturedStampGradientBinding(layerId, colorCycle),
+    resolveCapturedStampGradientBinding: (layerId, colorCycle, mode) =>
+      this.gradientApi.resolveCapturedStampGradientBinding(layerId, colorCycle, mode),
     resolveGradientDefIdForSlot: (layerId, slot) => this.gradientApi.resolveGradientDefIdForSlot(layerId, slot),
     isStampDitherEnabled: () => this.settingsApi.isStampDitherEnabled(),
     getStampShape: () => this.settingsApi.getStampShapeValue(),

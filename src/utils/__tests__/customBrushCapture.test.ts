@@ -1,6 +1,8 @@
 import {
   buildCapturedColorCycleDataFromImage,
+  captureBrushFromCanvas,
   captureColorCycleDataFromLayer,
+  MAX_CUSTOM_BRUSH_CAPTURE_PIXELS,
   selectionToCaptureBounds,
 } from '@/utils/customBrushCapture';
 import type { Layer } from '@/types';
@@ -50,6 +52,7 @@ const createLayer = (): Layer => {
 };
 
 const createDocumentWithPaint = (paintBuffer: ArrayBuffer) => ({
+  residency: 'resident',
   read: () => ({
     snapshot: {
       paintBuffer,
@@ -64,7 +67,7 @@ describe('captureColorCycleDataFromLayer', () => {
     getDocument.mockReset();
   });
 
-  it('uses document paintBuffer as captured phaseMap', () => {
+  it('uses the resident document paintBuffer as the indexed tip map', () => {
     getDocument.mockReturnValue(
       createDocumentWithPaint(new Uint8Array([1, 2, 3, 4]).buffer)
     );
@@ -92,13 +95,12 @@ describe('captureColorCycleDataFromLayer', () => {
       },
     });
 
-    expect(capture?.schemaVersion).toBe(2);
-    expect(capture?.mode).toBe('captured-data');
-    expect(Array.from(capture?.phaseMap ?? [])).toEqual([1, 2, 3, 4]);
-    expect(Array.from(capture?.indexMap ?? [])).toEqual([0, 0, 0, 0]);
+    expect(capture?.schemaVersion).toBe(3);
+    expect(capture?.payloadKind).toBe('indexed-tip');
+    expect(Array.from(capture?.paintIndexMap ?? [])).toEqual([1, 2, 3, 4]);
   });
 
-  it('falls back to persisted gradientIdBuffer when the document paintBuffer is missing', () => {
+  it('fails closed when the resident document paintBuffer is missing', () => {
     getDocument.mockReturnValue(createDocumentWithPaint(new ArrayBuffer(0)));
 
     const capture = captureColorCycleDataFromLayer({
@@ -124,10 +126,30 @@ describe('captureColorCycleDataFromLayer', () => {
       },
     });
 
-    expect(capture?.schemaVersion).toBe(2);
-    expect(capture?.mode).toBe('captured-data');
-    expect(Array.from(capture?.phaseMap ?? [])).toEqual([9, 9, 9, 9]);
-    expect(Array.from(capture?.indexMap ?? [])).toEqual([0, 0, 0, 0]);
+    expect(capture).toBeUndefined();
+  });
+
+  it('fails closed when the color-cycle document is cold', () => {
+    getDocument.mockReturnValue({
+      ...createDocumentWithPaint(new Uint8Array([1, 2, 3, 4]).buffer),
+      residency: 'cold',
+    });
+
+    const capture = captureColorCycleDataFromLayer({
+      activeLayer: createLayer(),
+      sampleAllLayers: false,
+      bounds: { x: 0, y: 0, width: 2, height: 2 },
+      captureResult: {
+        imageData: new ImageData(new Uint8ClampedArray(16), 2, 2),
+        width: 2,
+        height: 2,
+        naturalWidth: 2,
+        naturalHeight: 2,
+        maxDimension: 2,
+      },
+    });
+
+    expect(capture).toBeUndefined();
   });
 
   it('captures gradient from active slot palette when defs are present', () => {
@@ -218,5 +240,19 @@ describe('selectionToCaptureBounds', () => {
       width: 5,
       height: 6,
     });
+  });
+});
+
+describe('captureBrushFromCanvas size guard', () => {
+  it('rejects capture areas above the allocation ceiling', () => {
+    const edge = Math.floor(Math.sqrt(MAX_CUSTOM_BRUSH_CAPTURE_PIXELS)) + 1;
+    const sourceCanvas = { width: edge, height: edge } as HTMLCanvasElement;
+
+    expect(captureBrushFromCanvas(sourceCanvas, {
+      x: 0,
+      y: 0,
+      width: edge,
+      height: edge,
+    })).toBeNull();
   });
 });

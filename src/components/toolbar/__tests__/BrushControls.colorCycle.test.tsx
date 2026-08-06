@@ -871,6 +871,57 @@ describe('BrushControls – Custom brush captured data mode', () => {
     expect(velocityToggle).toBeTruthy();
   });
 
+  it('reads captured metadata from the saved brush when the raster tip omits it', () => {
+    const colorCycle = {
+      schemaVersion: 3 as const,
+      payloadKind: 'indexed-tip' as const,
+      sourceCycleLength: 256,
+      mapWidth: 2,
+      mapHeight: 2,
+      paintIndexMap: new Uint16Array([1, 2, 3, 4]),
+    };
+    const savedBrush = {
+      id: 'saved-v3',
+      name: 'Saved V3',
+      imageData: new ImageData(2, 2),
+      thumbnail: '',
+      width: 2,
+      height: 2,
+      createdAt: 1,
+      colorCycle,
+    };
+    useAppStore.setState((state) => ({
+      ...state,
+      tools: {
+        ...state.tools,
+        brushSettings: {
+          ...state.tools.brushSettings,
+          brushShape: 'custom' as BrushSettings['brushShape'],
+          selectedCustomBrush: 'saved-v3',
+          customBrushColorCycle: true,
+          customBrushColorCycleMode: 'captured-data',
+          currentBrushTip: {
+            brushId: 'saved-v3',
+            imageData: savedBrush.imageData,
+            isColorizable: false,
+            width: 2,
+            height: 2,
+          },
+        },
+      },
+      project: {
+        ...state.project,
+        customBrushes: [savedBrush],
+      } as AppState['project'],
+      getCustomBrushByIdUnsafe: (id: string) => id === 'saved-v3' ? savedBrush : null,
+    }));
+
+    render(<BrushControls />);
+
+    expect(screen.getByRole('button', { name: 'Captured CC Data' })).toBeEnabled();
+    expect(screen.getByText('Map 2x2')).toBeInTheDocument();
+  });
+
   it('promotes valid captured-data custom brushes out of tip mode', async () => {
     useAppStore.setState((state) => ({
       ...state,

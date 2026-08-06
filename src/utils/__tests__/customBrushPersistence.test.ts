@@ -180,6 +180,45 @@ describe('customBrushPersistence', () => {
     expect(cc.capturedColors).toEqual(['#ff0000', '#00ff00']);
   });
 
+  it('round-trips schema v3 indexed-tip payload through local storage', async () => {
+    const brush: CustomBrush = {
+      id: 'cc-brush-v3',
+      name: 'CC Brush V3',
+      imageData: createImageData(2, 2),
+      thumbnail: '',
+      width: 2,
+      height: 2,
+      createdAt: 789,
+      colorCycle: {
+        schemaVersion: 3,
+        payloadKind: 'indexed-tip',
+        source: 'color-cycle-layer',
+        gradient: [
+          { position: 0, color: '#123456' },
+          { position: 1, color: '#abcdef' },
+        ],
+        speed: 0.4,
+        sourceCycleLength: 256,
+        mapWidth: 2,
+        mapHeight: 2,
+        paintIndexMap: new Uint16Array([0, 64, 128, 255]),
+        alphaMask: new Uint8Array([255, 192, 128, 0]),
+      },
+    };
+
+    saveCustomBrushesToStorage([brush], brush.id);
+    const loaded = await loadCustomBrushesFromStorage();
+    const cc = loaded?.brushes[0].colorCycle;
+
+    expect(cc?.schemaVersion).toBe(3);
+    if (!cc || cc.schemaVersion !== 3) {
+      throw new Error('Expected schema v3 color cycle payload');
+    }
+    expect(cc.payloadKind).toBe('indexed-tip');
+    expect(Array.from(cc.paintIndexMap)).toEqual([0, 64, 128, 255]);
+    expect(Array.from(cc.alphaMask ?? [])).toEqual([255, 192, 128, 0]);
+  });
+
   it('falls back malformed schema v2 payloads to tip mode', async () => {
     const payload = {
       version: 1,

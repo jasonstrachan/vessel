@@ -17,6 +17,8 @@ import {
   buildCcDitherRuntimePalette,
 } from '@/utils/colorCycle/ccDitherRenderPalette';
 import { encodeColorCycleSpeedByte } from '@/utils/colorCycleSpeed';
+import { resolveCustomStampIndex } from '@/hooks/brushEngine/colorCycleCustomStampRuntime';
+import { resolveCapturedCustomBrushPaletteIndex } from '@/utils/customBrushColorCycle';
 import { prepareBrushSpeedExport } from '@/utils/export/goblet/gobletColorCycleSerializer';
 import type { WebGLSerializedBrushState } from '@/utils/export/goblet/gobletTypes';
 import type { Layer } from '@/types';
@@ -594,6 +596,41 @@ describe('Color cycle runtime parity (Vessel reference vs Goblet2 CPU)', () => {
 
   it('loads at least one CC fixture', () => {
     expect(fixtures.length).toBeGreaterThan(0);
+  });
+
+  it('keeps canonical and raster custom-brush indexed-tip sampling aligned', () => {
+    const encodedIndices = [1, 64, 255];
+    const phaseOffsets = [0, 13, 254];
+
+    encodedIndices.forEach((encodedIndex) => {
+      phaseOffsets.forEach((phaseOffset) => {
+        const rasterPaletteIndex = resolveCapturedCustomBrushPaletteIndex({
+          encodedIndex,
+          indexEncoding: 'paint-buffer-1-based',
+          phaseOffset,
+          cycleSpan: 255,
+        });
+        const canonicalPaintIndex = resolveCustomStampIndex({
+          isCapturedDataStamp: true,
+          capturedPhaseMap: new Uint16Array([encodedIndex]),
+          capturedMapWidth: 1,
+          capturedMapHeight: 1,
+          capturedIndexEncoding: 'paint-buffer-1-based',
+          px: 0,
+          py: 0,
+          maskWidth: 1,
+          maskHeight: 1,
+          scaledWidth: 1,
+          scaledHeight: 1,
+          rotation: 0,
+          fallbackColorIndex: 1,
+          phaseOffset,
+          cycleSpan: 255,
+        });
+
+        expect(canonicalPaintIndex).toBe(rasterPaletteIndex + 1);
+      });
+    });
   });
 
   it('keeps transparency-locked CC pixels absent from editor and Goblet playback', () => {

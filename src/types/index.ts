@@ -782,7 +782,25 @@ export interface CustomBrushColorCycleV2 {
   useAlphaMask?: boolean;
 }
 
-export type CustomBrushColorCycleData = CustomBrushColorCycleV1 | CustomBrushColorCycleV2;
+export interface CustomBrushColorCycleV3 {
+  schemaVersion: 3;
+  payloadKind: 'indexed-tip';
+  source?: CustomBrushColorCycleSource;
+  gradient?: Array<{ position: number; color: string }>;
+  speed?: number;
+  phaseMode?: CustomBrushCcPhaseMode;
+  phaseJitter?: number;
+  sourceCycleLength: number;
+  mapWidth: number;
+  mapHeight: number;
+  paintIndexMap: Uint16Array;
+  alphaMask?: Uint8Array;
+}
+
+export type CustomBrushColorCycleData =
+  | CustomBrushColorCycleV1
+  | CustomBrushColorCycleV2
+  | CustomBrushColorCycleV3;
 
 
 export interface CanvasState {

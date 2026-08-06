@@ -6,7 +6,14 @@ export const mergeCustomBrushCollections = (
 ): CustomBrush[] => {
   const merged = new Map<string, CustomBrush>();
   (storedBrushes ?? []).forEach((brush) => merged.set(brush.id, brush));
-  (projectBrushes ?? []).forEach((brush) => merged.set(brush.id, brush));
+  (projectBrushes ?? []).forEach((brush) => {
+    const storedBrush = merged.get(brush.id);
+    merged.set(brush.id, {
+      ...storedBrush,
+      ...brush,
+      colorCycle: brush.colorCycle ?? storedBrush?.colorCycle,
+    });
+  });
   return Array.from(merged.values());
 };
 

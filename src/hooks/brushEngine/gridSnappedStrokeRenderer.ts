@@ -1,5 +1,6 @@
 import { BrushShape, type BrushSettings } from '@/types';
 import { DEFAULT_COLOR_CYCLE_GRADIENT } from '@/utils/colorCycleGradients';
+import { getCustomBrushColorCycleDefaultMode } from '@/utils/customBrushColorCycle';
 
 import { rasterizeGridPath, snapPointToGrid, type GridSpacing } from './gridStroke';
 import type { createShapeDrawer } from './shapes';
@@ -43,8 +44,8 @@ const resolveGridStamp = ({
 } => {
   const hasCapturedDataCustomBrush =
     settings.shape === BrushShape.CUSTOM &&
-    customBrushData?.colorCycle?.schemaVersion === 2 &&
-    customBrushData.colorCycle.mode === 'captured-data';
+    (customBrushData?.colorCycleMode ??
+      getCustomBrushColorCycleDefaultMode(customBrushData?.colorCycle)) === 'captured-data';
   const shouldReplayCustomColorCycle =
     settings.shape === BrushShape.CUSTOM &&
     (brushSettings.customBrushColorCycle === true || hasCapturedDataCustomBrush);

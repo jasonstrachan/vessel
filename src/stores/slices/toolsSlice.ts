@@ -57,6 +57,10 @@ import { debugLog } from '@/utils/debug';
 import { appendCCDebugOverlayEntry } from '@/utils/colorCycle/ccDebugOverlayStore';
 import { sanitizeAuthoredBrushColorCycleSpeed } from '@/utils/colorCycleSpeed';
 import { createDefaultColorAdjustState } from '@/stores/slices/colorAdjustSlice';
+import {
+  getCustomBrushColorCycleDefaultAlphaMaskEnabled,
+  getCustomBrushColorCycleDefaultMode,
+} from '@/utils/customBrushColorCycle';
 
 const DEBUG_LOSTEDGE =
   typeof process !== 'undefined' &&
@@ -2123,16 +2127,12 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
         nextGlobalBrushSize = previousRegularSize;
 
         const customBrushColorCycle = customBrush.colorCycle;
-        if (customBrushColorCycle?.schemaVersion === 1 || customBrushColorCycle?.schemaVersion === 2) {
+        if (customBrushColorCycle) {
           newBrushSettings.customBrushColorCycle = true;
           newBrushSettings.customBrushColorCycleMode =
-            customBrushColorCycle.schemaVersion === 2
-              ? customBrushColorCycle.mode
-              : 'tip';
+            getCustomBrushColorCycleDefaultMode(customBrushColorCycle);
           newBrushSettings.customBrushUseCapturedAlphaMask =
-            customBrushColorCycle.schemaVersion === 2
-              ? customBrushColorCycle.useAlphaMask !== false
-              : true;
+            getCustomBrushColorCycleDefaultAlphaMaskEnabled(customBrushColorCycle);
 
           if (
             Array.isArray(customBrushColorCycle.gradient) &&

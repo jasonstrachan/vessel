@@ -78,6 +78,11 @@ import {
   sanitizeBrushColorCycleSpeed,
   sliderPositionToBrushColorCycleSpeed,
 } from '@/utils/colorCycleSpeed';
+import {
+  getCustomBrushColorCycleDefaultAlphaMaskEnabled,
+  getCustomBrushColorCycleDefaultMode,
+  resolveCapturedCustomBrushTip,
+} from '@/utils/customBrushColorCycle';
 import ShapeFillControls from "./ShapeFillControls";
 import DitherControls, { DITHER_OPTIONS } from './DitherControls';
 import CcPatternDropdown from './CcPatternDropdown';
@@ -423,15 +428,21 @@ const BrushControls = () => {
     if (!isActiveCustomBrush || !selectedCustomBrushId) {
       return activeSettings.currentBrushTip?.colorCycle;
     }
-    if (activeSettings.currentBrushTip?.brushId === selectedCustomBrushId) {
-      return activeSettings.currentBrushTip.colorCycle;
-    }
-    if (temporaryCustomBrush?.id === selectedCustomBrushId) {
+    if (
+      temporaryCustomBrush?.id === selectedCustomBrushId &&
+      temporaryCustomBrush.colorCycle
+    ) {
       return temporaryCustomBrush.colorCycle;
     }
-    return typeof getCustomBrushByIdUnsafe === 'function'
+    const savedColorCycle = typeof getCustomBrushByIdUnsafe === 'function'
       ? getCustomBrushByIdUnsafe(selectedCustomBrushId)?.colorCycle
-      : activeSettings.currentBrushTip?.colorCycle;
+      : undefined;
+    if (savedColorCycle) {
+      return savedColorCycle;
+    }
+    return activeSettings.currentBrushTip?.brushId === selectedCustomBrushId
+      ? activeSettings.currentBrushTip.colorCycle
+      : undefined;
   }, [
     activeSettings.currentBrushTip,
     getCustomBrushByIdUnsafe,
@@ -439,16 +450,9 @@ const BrushControls = () => {
     selectedCustomBrushId,
     temporaryCustomBrush
   ]);
-  const capturedColorCycleCandidate =
-    activeSettings.currentBrushTip?.colorCycle ?? activeCustomBrushColorCycle;
-  const hasCapturedColorCyclePayload = Boolean(
-    capturedColorCycleCandidate?.schemaVersion === 2 &&
-    capturedColorCycleCandidate.mode === 'captured-data' &&
-    capturedColorCycleCandidate.mapWidth > 0 &&
-    capturedColorCycleCandidate.mapHeight > 0 &&
-    capturedColorCycleCandidate.phaseMap?.length ===
-      capturedColorCycleCandidate.mapWidth * capturedColorCycleCandidate.mapHeight
-  );
+  const capturedColorCycleCandidate = activeCustomBrushColorCycle;
+  const capturedColorCycleTip = resolveCapturedCustomBrushTip(capturedColorCycleCandidate);
+  const hasCapturedColorCyclePayload = Boolean(capturedColorCycleTip);
   const customColorCycleMode = activeSettings.customBrushColorCycleMode ?? 'tip';
   const sizeUnit = 'px';
   const sizeLabel = `Size ${sizeUnit}`;
@@ -699,13 +703,13 @@ const BrushControls = () => {
     }
     if (
       hasCapturedColorCyclePayload &&
-      activeCustomBrushColorCycle?.schemaVersion === 2 &&
-      activeCustomBrushColorCycle.mode === 'captured-data' &&
+      getCustomBrushColorCycleDefaultMode(activeCustomBrushColorCycle) === 'captured-data' &&
       customColorCycleMode !== 'captured-data'
     ) {
       setActiveSettings({
         customBrushColorCycleMode: 'captured-data',
-        customBrushUseCapturedAlphaMask: activeCustomBrushColorCycle.useAlphaMask !== false,
+        customBrushUseCapturedAlphaMask:
+          getCustomBrushColorCycleDefaultAlphaMaskEnabled(activeCustomBrushColorCycle),
       });
     }
   }, [
@@ -1548,13 +1552,11 @@ const BrushControls = () => {
 
     if (checked) {
       updates.customBrushColorCycleMode =
-        hasCapturedColorCyclePayload && activeCustomBrushColorCycle?.schemaVersion === 2
-          ? (activeCustomBrushColorCycle.mode ?? 'captured-data')
+        hasCapturedColorCyclePayload
+          ? getCustomBrushColorCycleDefaultMode(activeCustomBrushColorCycle)
           : 'tip';
       updates.customBrushUseCapturedAlphaMask =
-        activeCustomBrushColorCycle?.schemaVersion === 2
-          ? activeCustomBrushColorCycle.useAlphaMask !== false
-          : true;
+        getCustomBrushColorCycleDefaultAlphaMaskEnabled(activeCustomBrushColorCycle);
       if (!activeSettings.colorCycleGradient || activeSettings.colorCycleGradient.length === 0) {
         updates.colorCycleGradient = DEFAULT_GRADIENT_STOPS.map(stop => ({ ...stop }));
       }
@@ -4109,10 +4111,10 @@ const BrushControls = () => {
                     {hasCapturedColorCyclePayload ? 'Captured' : 'Not captured'}
                   </p>
                   <p className="text-xs text-gray-500">
-                    Map {activeCustomBrushColorCycle?.schemaVersion === 2 ? `${activeCustomBrushColorCycle.mapWidth}x${activeCustomBrushColorCycle.mapHeight}` : 'n/a'}
+                    Map {capturedColorCycleTip ? `${capturedColorCycleTip.mapWidth}x${capturedColorCycleTip.mapHeight}` : 'n/a'}
                   </p>
                   <p className="text-xs text-gray-500">
-                    Cycle Length {activeCustomBrushColorCycle?.schemaVersion === 2 ? activeCustomBrushColorCycle.sourceCycleLength : 'n/a'}
+                    Cycle Length {capturedColorCycleTip?.sourceCycleLength ?? 'n/a'}
                   </p>
                   <p className="text-xs text-gray-500">Alpha Mask captured</p>
                   {!hasCapturedColorCyclePayload && (

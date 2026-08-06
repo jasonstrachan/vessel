@@ -1072,6 +1072,56 @@ describe('tools slice', () => {
       expect(nextState.tools.brushSettings.currentBrushTip?.brushId).toBe(brushId);
     });
 
+    it('restores captured mode after saving and reselecting a schema v3 brush', () => {
+      const store = useAppStore.getState();
+      const brushId = 'temp_brush_v3_reselect';
+      const imageData = new ImageData(2, 2);
+      const colorCycle = {
+        schemaVersion: 3 as const,
+        payloadKind: 'indexed-tip' as const,
+        source: 'color-cycle-layer' as const,
+        sourceCycleLength: 256,
+        mapWidth: 2,
+        mapHeight: 2,
+        paintIndexMap: new Uint16Array([1, 64, 128, 255]),
+      };
+      store.setTemporaryCustomBrush({
+        id: brushId,
+        name: 'Temp Brush',
+        imageData,
+        width: 2,
+        height: 2,
+        thumbnail: '',
+        createdAt: Date.now(),
+        colorCycle,
+      });
+      store.setBrushSettings({
+        brushShape: BrushShape.CUSTOM,
+        selectedCustomBrush: brushId,
+        currentBrushTip: {
+          imageData,
+          brushId,
+          isColorizable: false,
+          width: 2,
+          height: 2,
+          colorCycle,
+        },
+      });
+
+      store.saveCustomBrushAsPreset(brushId);
+      const savedBrush = useAppStore.getState().project?.customBrushes[0];
+      if (!savedBrush) {
+        throw new Error('Expected saved schema v3 brush');
+      }
+      store.setBrushPreset(brushPresets[0]);
+      store.setBrushPreset(createCustomBrushPreset(savedBrush));
+
+      const settings = useAppStore.getState().tools.brushSettings;
+      expect(settings.currentBrushTip?.colorCycle).toEqual(colorCycle);
+      expect(settings.customBrushColorCycle).toBe(true);
+      expect(settings.customBrushColorCycleMode).toBe('captured-data');
+    });
+
     it('applies persisted custom-brush color cycle metadata within the authored speed cap', () => {
       const store = useAppStore.getState();
       const ccBrush: CustomBrush = {

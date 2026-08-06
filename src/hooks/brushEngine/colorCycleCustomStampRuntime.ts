@@ -1,7 +1,15 @@
 import type { GradientStop } from '@/lib/GradientPalette';
 import type { ColorCycleAnimator } from '@/lib/ColorCycleAnimator';
 import type { FlowMode } from '@/lib/colorCycle/flowEncoding';
-import type { CustomBrushColorCycleData } from '@/types';
+import type {
+  CustomBrushColorCycleData,
+  CustomBrushColorCycleMode,
+} from '@/types';
+import {
+  getCustomBrushColorCycleDefaultMode,
+  resolveCapturedCustomBrushTip,
+  resolveCapturedCustomBrushPaletteIndex,
+} from '@/utils/customBrushColorCycle';
 
 import {
   ColorCycleCustomStampCache,
@@ -28,6 +36,7 @@ export type ResolveCustomStampIndexFn = (args: {
   capturedPhaseMap?: Uint16Array;
   capturedMapWidth: number;
   capturedMapHeight: number;
+  capturedIndexEncoding?: 'paint-buffer-1-based' | 'legacy-0-based';
   px: number;
   py: number;
   maskWidth: number;
@@ -45,6 +54,7 @@ export const resolveCustomStampIndex: ResolveCustomStampIndexFn = ({
   capturedPhaseMap,
   capturedMapWidth,
   capturedMapHeight,
+  capturedIndexEncoding = 'legacy-0-based',
   px,
   py,
   maskWidth,
@@ -94,10 +104,12 @@ export const resolveCustomStampIndex: ResolveCustomStampIndexFn = ({
       Math.floor((unrotatedY * capturedMapHeight) / Math.max(1, scaledHeight))
     )
   );
-  const sourceIndex = capturedPhaseMap[srcY * capturedMapWidth + srcX] ?? 0;
-  const normalizedSource = Math.max(0, sourceIndex);
-  const span = Math.max(1, cycleSpan);
-  const mapped = (normalizedSource + phaseOffset) % span;
+  const mapped = resolveCapturedCustomBrushPaletteIndex({
+    encodedIndex: capturedPhaseMap[srcY * capturedMapWidth + srcX] ?? 0,
+    indexEncoding: capturedIndexEncoding,
+    phaseOffset,
+    cycleSpan,
+  });
   return mapped + 1;
 };
 
@@ -121,7 +133,8 @@ export interface ColorCycleCustomStampRuntimeDeps {
   getNonDitherStrokeColorIndex: (strokeData: LayerStrokeState) => number;
   resolveCapturedStampGradientBinding: (
     layerId: string,
-    colorCycle: CustomBrushColorCycleData | undefined
+    colorCycle: CustomBrushColorCycleData | undefined,
+    mode: CustomBrushColorCycleMode | undefined,
   ) => CapturedStampGradientBinding | null;
   resolveActiveStrokeSlot: (layerId: string, strokeData: LayerStrokeState) => number;
   resolveFlowSlot: (strokeData: LayerStrokeState, activeSlot: number) => number;
@@ -225,27 +238,19 @@ export class ColorCycleCustomStampRuntime {
     }
 
     const colorCycle = stamp.colorCycle;
-    const isCapturedDataStamp =
-      colorCycle?.schemaVersion === 2 &&
-      colorCycle.mode === 'captured-data';
+    const capturedTip = resolveCapturedCustomBrushTip(colorCycle);
+    const colorCycleMode =
+      stamp.colorCycleMode ?? getCustomBrushColorCycleDefaultMode(colorCycle);
+    const isCapturedDataStamp = colorCycleMode === 'captured-data';
     if (useStampDither || isCapturedDataStamp) {
       deps.advanceStrokePhase(strokeData);
     }
     const fallbackColorIndex = useStampDither
       ? deps.computeColorBandIndexPerStamp(strokeData)
       : deps.getNonDitherStrokeColorIndex(strokeData);
-    const capturedPhaseMap =
-      colorCycle?.schemaVersion === 2 && colorCycle.mode === 'captured-data'
-        ? (
-            colorCycle.phaseMap && colorCycle.phaseMap.length === colorCycle.mapWidth * colorCycle.mapHeight
-              ? colorCycle.phaseMap
-              : colorCycle.indexMap && colorCycle.indexMap.length === colorCycle.mapWidth * colorCycle.mapHeight
-                ? colorCycle.indexMap
-                : undefined
-          )
-        : undefined;
-    const capturedMapWidth = colorCycle?.schemaVersion === 2 ? colorCycle.mapWidth : 0;
-    const capturedMapHeight = colorCycle?.schemaVersion === 2 ? colorCycle.mapHeight : 0;
+    const capturedPhaseMap = capturedTip?.paintIndexMap;
+    const capturedMapWidth = capturedTip?.mapWidth ?? 0;
+    const capturedMapHeight = capturedTip?.mapHeight ?? 0;
     const capturedDataAvailable =
       Boolean(capturedPhaseMap) &&
       capturedMapWidth > 0 &&
@@ -253,14 +258,18 @@ export class ColorCycleCustomStampRuntime {
     if (isCapturedDataStamp && !capturedDataAvailable) {
       return;
     }
-    const capturedGradientBinding = deps.resolveCapturedStampGradientBinding(id, colorCycle);
+    const capturedGradientBinding = deps.resolveCapturedStampGradientBinding(
+      id,
+      colorCycle,
+      colorCycleMode,
+    );
     const activeSlot = capturedGradientBinding?.slot ?? deps.resolveActiveStrokeSlot(id, strokeData);
     strokeData.flow.activeSlot = activeSlot;
     const flowSlot = deps.resolveFlowSlot(strokeData, activeSlot);
     const activeDefId = capturedGradientBinding?.defId ?? deps.resolveGradientDefIdForSlot(id, activeSlot);
     const cycleSpan =
-      colorCycle?.schemaVersion === 2
-        ? Math.max(1, Math.min(255, Math.round(colorCycle.sourceCycleLength || 256) - 1))
+      capturedTip
+        ? capturedTip.cycleSpan
         : 255;
     const phaseOffset = cycleSpan > 0
       ? Math.floor(((strokeData.strokePhaseUnits % cycleSpan) + cycleSpan) % cycleSpan)
@@ -279,6 +288,7 @@ export class ColorCycleCustomStampRuntime {
           capturedPhaseMap,
           capturedMapWidth,
           capturedMapHeight,
+          capturedIndexEncoding: capturedTip?.indexEncoding,
           px,
           py,
           maskWidth: maskEntry.width,

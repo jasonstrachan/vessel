@@ -13,7 +13,7 @@ import {
 import { selectSelectionRects } from '@/stores/selectors/pasteSelectors';
 import { selectActiveLayer } from '@/stores/selectors/layersSelectors';
 import { CustomBrush, BrushShape } from '@/types';
-import { useEffect, useCallback, useMemo, useState } from 'react';
+import { useEffect, useCallback, useMemo, useRef, useState } from 'react';
 import { brushCache } from '@/utils/brushCache';
 import { scaledBrushCache } from '@/utils/scaledBrushCache';
 import {
@@ -21,9 +21,13 @@ import {
   captureBrushFromPath,
   selectionToCaptureBounds,
   captureColorCycleDataFromLayer,
-  buildCapturedColorCycleDataFromImage,
+  MAX_CUSTOM_BRUSH_CAPTURE_PIXELS,
 } from '@/utils/customBrushCapture';
 import type { BrushCaptureResult } from '@/utils/customBrushCapture';
+import {
+  getCustomBrushColorCycleDefaultAlphaMaskEnabled,
+  getCustomBrushColorCycleDefaultMode,
+} from '@/utils/customBrushColorCycle';
 import { DEFAULT_GRADIENT_STOPS } from '@/utils/gradientPresets';
 
 export const CustomBrushPanel = () => {
@@ -46,7 +50,12 @@ export const CustomBrushPanel = () => {
   const setCustomBrushFreehandPath = useAppStore((state) => state.setCustomBrushFreehandPath);
   const setCurrentTool = useAppStore((state) => state.setCurrentTool);
   const saveCustomBrushAsPreset = useAppStore((state) => state.saveCustomBrushAsPreset);
+  const ensureColorCycleLayerRuntime = useAppStore(
+    (state) => state.ensureColorCycleLayerRuntime,
+  );
+  const addNotification = useAppStore((state) => state.addNotification);
   const [ccImportedHint, setCcImportedHint] = useState(false);
+  const captureInFlightRef = useRef(false);
 
   const cancelCapture = useCallback(() => {
     const hasTemporaryBrush = Boolean(temporaryCustomBrush);
@@ -73,15 +82,42 @@ export const CustomBrushPanel = () => {
     setBrushSettings,
   ]);
 
-  const resolveCaptureCanvas = useCallback(() => {
-    if (!sampleAllLayers && activeLayer) {
-      if (activeLayer.layerType === 'color-cycle') {
-        return activeLayer.colorCycleData?.canvas ?? activeLayer.framebuffer;
-      }
-      return activeLayer.framebuffer;
+  const resolveCaptureSource = useCallback(async () => {
+    if (sampleAllLayers || !activeLayer) {
+      return {
+        sourceCanvas: currentOffscreenCanvas,
+        sourceLayer: activeLayer,
+        expectsColorCycle: false,
+      };
     }
-    return currentOffscreenCanvas;
-  }, [sampleAllLayers, activeLayer, currentOffscreenCanvas]);
+
+    if (activeLayer.layerType !== 'color-cycle') {
+      return {
+        sourceCanvas: activeLayer.framebuffer,
+        sourceLayer: activeLayer,
+        expectsColorCycle: false,
+      };
+    }
+
+    try {
+      await ensureColorCycleLayerRuntime(activeLayer.id, {
+        target: 'active',
+      });
+    } catch {
+      // Continue with the raster source. Canonical capture below will fail
+      // closed and surface the explicit raster-fallback notification.
+    }
+    return {
+      sourceCanvas: activeLayer.colorCycleData?.canvas ?? activeLayer.framebuffer,
+      sourceLayer: activeLayer,
+      expectsColorCycle: true,
+    };
+  }, [
+    activeLayer,
+    currentOffscreenCanvas,
+    ensureColorCycleLayerRuntime,
+    sampleAllLayers,
+  ]);
 
   const applyCaptureResult = useCallback((
     captureResult: BrushCaptureResult,
@@ -129,12 +165,9 @@ export const CustomBrushPanel = () => {
       minPressure: 99,
       maxPressure: undefined,
       customBrushColorCycle: hasColorCycle,
-      customBrushColorCycleMode:
-        options?.colorCycleData?.schemaVersion === 2 ? options.colorCycleData.mode : 'tip',
+      customBrushColorCycleMode: getCustomBrushColorCycleDefaultMode(options?.colorCycleData),
       customBrushUseCapturedAlphaMask:
-        options?.colorCycleData?.schemaVersion === 2
-          ? options.colorCycleData.useAlphaMask !== false
-          : true,
+        getCustomBrushColorCycleDefaultAlphaMaskEnabled(options?.colorCycleData),
       colorCycleGradient: hasColorCycle
         ? (options?.colorCycleData?.gradient?.map((stop) => ({ ...stop })) ??
           DEFAULT_GRADIENT_STOPS.map((stop) => ({ ...stop })))
@@ -164,7 +197,25 @@ export const CustomBrushPanel = () => {
     setCustomBrushSizePercent
   ]);
 
-  const createBrushFromSelection = useCallback(() => {
+  const notifyRasterFallback = useCallback(() => {
+    addNotification({
+      type: 'warning',
+      title: 'Captured as raster brush',
+      message: 'The color-cycle layer data was unavailable, so no synthetic CC payload was created.',
+      timestamp: new Date(),
+    });
+  }, [addNotification]);
+
+  const notifyCaptureTooLarge = useCallback(() => {
+    addNotification({
+      type: 'warning',
+      title: 'Brush capture is too large',
+      message: 'Choose a region no larger than 4,194,304 pixels.',
+      timestamp: new Date(),
+    });
+  }, [addNotification]);
+
+  const createBrushFromSelection = useCallback(async () => {
     if (captureMode !== 'rectangle') {
       return;
     }
@@ -175,59 +226,60 @@ export const CustomBrushPanel = () => {
     if (!bounds) {
       return;
     }
-
-    const sourceCanvas = resolveCaptureCanvas();
-    if (!sourceCanvas) {
+    if (bounds.width * bounds.height > MAX_CUSTOM_BRUSH_CAPTURE_PIXELS) {
+      notifyCaptureTooLarge();
       return;
     }
 
-    const captureResult = captureBrushFromCanvas(sourceCanvas, bounds);
-    if (!captureResult) {
+    if (captureInFlightRef.current) {
       return;
     }
+    captureInFlightRef.current = true;
 
-    const sourceIsColorCycleLayer =
-      !sampleAllLayers &&
-      activeLayer?.layerType === 'color-cycle';
-    const sourceGradient =
-      activeLayer?.colorCycleData?.gradient?.map((stop) => ({ ...stop })) ?? undefined;
-    const sourceSpeed =
-      activeLayer?.colorCycleData?.brushSpeed ?? undefined;
-    const capturedColorCycle = sourceIsColorCycleLayer
-      ? (
-          captureColorCycleDataFromLayer({
-            activeLayer,
+    try {
+      const { sourceCanvas, sourceLayer, expectsColorCycle } = await resolveCaptureSource();
+      if (!sourceCanvas) {
+        return;
+      }
+
+      const captureResult = captureBrushFromCanvas(sourceCanvas, bounds);
+      if (!captureResult) {
+        return;
+      }
+
+      const capturedColorCycle = expectsColorCycle && sourceLayer?.layerType === 'color-cycle'
+        ? captureColorCycleDataFromLayer({
+            activeLayer: sourceLayer,
             sampleAllLayers,
             bounds,
             captureResult,
-          }) ??
-          buildCapturedColorCycleDataFromImage(captureResult, {
-            gradient: sourceGradient,
-            speed: sourceSpeed,
           })
-        )
-      : undefined;
+        : undefined;
 
-    const enableColorCycle = sourceIsColorCycleLayer;
-    setCcImportedHint(enableColorCycle);
-    applyCaptureResult(captureResult, {
-      colorCycleData: capturedColorCycle,
-    });
-    clearSelection();
-    setCurrentTool('brush');
+      if (expectsColorCycle && !capturedColorCycle) {
+        notifyRasterFallback();
+      }
+      setCcImportedHint(Boolean(capturedColorCycle));
+      applyCaptureResult(captureResult, { colorCycleData: capturedColorCycle });
+      clearSelection();
+      setCurrentTool('brush');
+    } finally {
+      captureInFlightRef.current = false;
+    }
   }, [
     captureMode,
     selectionStart,
     selectionEnd,
-    activeLayer,
     sampleAllLayers,
-    resolveCaptureCanvas,
+    resolveCaptureSource,
+    notifyRasterFallback,
+    notifyCaptureTooLarge,
     applyCaptureResult,
     clearSelection,
     setCurrentTool,
   ]);
 
-  const createBrushFromFreehandPath = useCallback(() => {
+  const createBrushFromFreehandPath = useCallback(async () => {
     if (captureMode !== 'freehand' || !freehandPath) {
       return;
     }
@@ -235,56 +287,60 @@ export const CustomBrushPanel = () => {
     if (!freehandPath.bounds || freehandPath.points.length < 3) {
       return;
     }
-
-    const sourceCanvas = resolveCaptureCanvas();
-    if (!sourceCanvas) {
+    if (
+      freehandPath.bounds.width * freehandPath.bounds.height >
+      MAX_CUSTOM_BRUSH_CAPTURE_PIXELS
+    ) {
+      notifyCaptureTooLarge();
       return;
     }
 
-    const captureResult = captureBrushFromPath(sourceCanvas, {
-      points: freehandPath.points,
-      bounds: freehandPath.bounds,
-    });
-
-    if (!captureResult) {
+    if (captureInFlightRef.current) {
       return;
     }
+    captureInFlightRef.current = true;
 
-    const sourceIsColorCycleLayer =
-      !sampleAllLayers &&
-      activeLayer?.layerType === 'color-cycle';
-    const sourceGradient =
-      activeLayer?.colorCycleData?.gradient?.map((stop) => ({ ...stop })) ?? undefined;
-    const sourceSpeed =
-      activeLayer?.colorCycleData?.brushSpeed ?? undefined;
-    const capturedColorCycle = sourceIsColorCycleLayer
-      ? (
-          captureColorCycleDataFromLayer({
-            activeLayer,
+    try {
+      const { sourceCanvas, sourceLayer, expectsColorCycle } = await resolveCaptureSource();
+      if (!sourceCanvas) {
+        return;
+      }
+
+      const captureResult = captureBrushFromPath(sourceCanvas, {
+        points: freehandPath.points,
+        bounds: freehandPath.bounds,
+      });
+
+      if (!captureResult) {
+        return;
+      }
+
+      const capturedColorCycle = expectsColorCycle && sourceLayer?.layerType === 'color-cycle'
+        ? captureColorCycleDataFromLayer({
+            activeLayer: sourceLayer,
             sampleAllLayers,
             bounds: freehandPath.bounds,
             captureResult,
-          }) ??
-          buildCapturedColorCycleDataFromImage(captureResult, {
-            gradient: sourceGradient,
-            speed: sourceSpeed,
           })
-        )
-      : undefined;
+        : undefined;
 
-    const enableColorCycle = sourceIsColorCycleLayer;
-    setCcImportedHint(enableColorCycle);
-    applyCaptureResult(captureResult, {
-      colorCycleData: capturedColorCycle,
-    });
-    setCustomBrushFreehandPath(null);
-    setCurrentTool('brush');
+      if (expectsColorCycle && !capturedColorCycle) {
+        notifyRasterFallback();
+      }
+      setCcImportedHint(Boolean(capturedColorCycle));
+      applyCaptureResult(captureResult, { colorCycleData: capturedColorCycle });
+      setCustomBrushFreehandPath(null);
+      setCurrentTool('brush');
+    } finally {
+      captureInFlightRef.current = false;
+    }
   }, [
     captureMode,
     freehandPath,
-    activeLayer,
     sampleAllLayers,
-    resolveCaptureCanvas,
+    resolveCaptureSource,
+    notifyRasterFallback,
+    notifyCaptureTooLarge,
     applyCaptureResult,
     setCustomBrushFreehandPath,
     setCurrentTool,
@@ -296,23 +352,21 @@ export const CustomBrushPanel = () => {
       captureMode === 'rectangle' &&
       selectionSource === 'custom-selection-final' &&
       selectionStart &&
-      selectionEnd &&
-      resolveCaptureCanvas()
+      selectionEnd
     ) {
-      createBrushFromSelection();
+      void createBrushFromSelection();
     }
   }, [
     captureMode,
     selectionSource,
     selectionStart,
     selectionEnd,
-    resolveCaptureCanvas,
     createBrushFromSelection,
   ]);
 
   useEffect(() => {
     if (captureMode === 'freehand' && freehandPath) {
-      createBrushFromFreehandPath();
+      void createBrushFromFreehandPath();
     }
   }, [captureMode, createBrushFromFreehandPath, freehandPath]);
 

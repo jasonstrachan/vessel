@@ -224,3 +224,27 @@ When selecting custom brush:
 - `npm run type-check` passed
 - `npm run lint` passed
 - `npm test` passed
+
+## Canonical Indexed-Tip Contract (2026-08-06)
+
+New captures from a color-cycle layer use `schemaVersion: 3` with
+`payloadKind: 'indexed-tip'`. The payload owns immutable capture data only:
+`paintIndexMap`, dimensions, cycle length, captured gradient metadata, and the
+optional alpha mask. Tip/captured mode and alpha-mask enablement are live brush
+settings carried separately into the stroke runtime.
+
+- Capture warms a restored/cold CC document before reading its canonical paint
+  buffer. If that buffer is unavailable, the UI explicitly creates a raster
+  brush and warns; it does not synthesize CC indices from rendered RGB.
+- V1/V2 payloads remain readable. V2 `phaseMap`/`indexMap` are normalized at the
+  replay boundary as legacy indexed tips.
+- Both raster replay and canonical CC stamping resolve the same indexed-tip
+  data. Dense overlapping stamps intentionally retain last-stamp-wins behavior.
+- Derived replay frames use a 64 MiB LRU byte budget; scaled stamp canvases and
+  masks also have byte budgets in addition to entry limits.
+- New captures larger than 4,194,304 pixels fail
+  before allocating capture buffers.
+
+This is the single-gradient indexed-tip contract. Preserving multiple source
+gradient definitions per captured region remains a separate scope in
+`custom-cc-true-stroke-data-plan.md`.

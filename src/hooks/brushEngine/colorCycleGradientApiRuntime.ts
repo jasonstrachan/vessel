@@ -28,7 +28,10 @@ import {
   type ColorCycleActiveGradientSlotContext,
 } from './colorCycleActiveGradientSlotRuntime';
 import { ColorCycleGradientSlotState } from './colorCycleGradientSlotState';
-import type { CustomBrushColorCycleData } from '@/types';
+import type {
+  CustomBrushColorCycleData,
+  CustomBrushColorCycleMode,
+} from '@/types';
 
 export type ColorCycleGradientApiRuntimeDeps = {
   getActiveLayerId(): string | null;
@@ -236,11 +239,13 @@ export class ColorCycleGradientApiRuntime {
   readonly resolveCapturedStampGradientBinding = (
     layerId: string,
     colorCycle: CustomBrushColorCycleData | undefined,
+    mode: CustomBrushColorCycleMode | undefined,
   ): CapturedStampGradientBinding | null => (
     resolveColorCycleCapturedStampGradientBinding(
       this.getCapturedStampGradientContext(),
       layerId,
       colorCycle,
+      mode,
     )
   );
 

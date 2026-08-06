@@ -5,6 +5,7 @@ import type {
   CustomBrushColorCycleSource,
   CustomBrushColorCycleV1,
   CustomBrushColorCycleV2,
+  CustomBrushColorCycleV3,
 } from '@/types';
 
 const MAX_MAP_PIXELS = 4096 * 4096;
@@ -161,11 +162,53 @@ const createV2 = (input: Partial<CustomBrushColorCycleV2>): CustomBrushColorCycl
   };
 };
 
+const createV3 = (
+  input: Partial<CustomBrushColorCycleV3>
+): CustomBrushColorCycleV3 | CustomBrushColorCycleV1 => {
+  const dims = sanitizeMapDimensions(input.mapWidth, input.mapHeight);
+  const paintIndexMap = dims
+    ? ensureUint16ArrayLength(input.paintIndexMap, dims.area)
+    : undefined;
+  if (!dims || !paintIndexMap || input.payloadKind !== 'indexed-tip') {
+    return createV1({
+      source: input.source,
+      gradient: input.gradient,
+      speed: input.speed,
+      phaseMode: input.phaseMode,
+      phaseJitter: input.phaseJitter,
+    });
+  }
+
+  return {
+    schemaVersion: 3,
+    payloadKind: 'indexed-tip',
+    source: sanitizeSource(input.source),
+    gradient: sanitizeGradient(input.gradient),
+    speed: toFiniteNumber(input.speed),
+    phaseMode: sanitizePhaseMode(input.phaseMode),
+    phaseJitter:
+      toFiniteNumber(input.phaseJitter) !== undefined
+        ? clamp01(Number(input.phaseJitter))
+        : undefined,
+    sourceCycleLength: Math.max(
+      1,
+      Math.round(toFiniteNumber(input.sourceCycleLength) ?? 256)
+    ),
+    mapWidth: dims.width,
+    mapHeight: dims.height,
+    paintIndexMap,
+    alphaMask: ensureUint8ArrayLength(input.alphaMask, dims.area),
+  };
+};
+
 export const normalizeCustomBrushColorCycle = (
   input: CustomBrushColorCycleData | null | undefined
 ): CustomBrushColorCycleData | undefined => {
   if (!input) {
     return undefined;
+  }
+  if (input.schemaVersion === 3) {
+    return createV3(input);
   }
   if (input.schemaVersion === 2) {
     return createV2(input);
@@ -175,6 +218,90 @@ export const normalizeCustomBrushColorCycle = (
   }
   return undefined;
 };
+
+export type CapturedCustomBrushTip = {
+  paintIndexMap: Uint16Array;
+  mapWidth: number;
+  mapHeight: number;
+  sourceCycleLength: number;
+  cycleSpan: number;
+  indexEncoding: 'paint-buffer-1-based' | 'legacy-0-based';
+  alphaMask?: Uint8Array;
+};
+
+export const resolveCapturedCustomBrushPaletteIndex = (options: {
+  encodedIndex: number;
+  indexEncoding: CapturedCustomBrushTip['indexEncoding'];
+  phaseOffset: number;
+  cycleSpan: number;
+}): number => {
+  const sourceIndex = Math.max(0, options.encodedIndex);
+  const normalizedSource =
+    options.indexEncoding === 'paint-buffer-1-based' && sourceIndex > 0
+      ? sourceIndex - 1
+      : sourceIndex;
+  const span = Math.max(1, options.cycleSpan);
+  return (normalizedSource + options.phaseOffset) % span;
+};
+
+export const resolveCapturedCustomBrushTip = (
+  input: CustomBrushColorCycleData | null | undefined
+): CapturedCustomBrushTip | null => {
+  if (!input) {
+    return null;
+  }
+  if (input.schemaVersion === 3 && input.payloadKind === 'indexed-tip') {
+    const pixelCount = input.mapWidth * input.mapHeight;
+    if (input.paintIndexMap.length !== pixelCount) {
+      return null;
+    }
+    return {
+      paintIndexMap: input.paintIndexMap,
+      mapWidth: input.mapWidth,
+      mapHeight: input.mapHeight,
+      sourceCycleLength: input.sourceCycleLength,
+      cycleSpan: Math.max(1, Math.min(255, input.sourceCycleLength - 1)),
+      indexEncoding: 'paint-buffer-1-based',
+      alphaMask:
+        input.alphaMask?.length === pixelCount ? input.alphaMask : undefined,
+    };
+  }
+  if (input.schemaVersion !== 2) {
+    return null;
+  }
+  const pixelCount = input.mapWidth * input.mapHeight;
+  const legacyPaintIndexMap =
+    input.phaseMap?.length === pixelCount
+      ? input.phaseMap
+      : input.indexMap?.length === pixelCount
+        ? input.indexMap
+        : undefined;
+  if (!legacyPaintIndexMap) {
+    return null;
+  }
+  return {
+    paintIndexMap: legacyPaintIndexMap,
+    mapWidth: input.mapWidth,
+    mapHeight: input.mapHeight,
+    sourceCycleLength: input.sourceCycleLength,
+    cycleSpan: Math.max(1, Math.min(255, input.sourceCycleLength - 1)),
+    indexEncoding: 'legacy-0-based',
+    alphaMask: input.alphaMask?.length === pixelCount ? input.alphaMask : undefined,
+  };
+};
+
+export const getCustomBrushColorCycleDefaultMode = (
+  input: CustomBrushColorCycleData | null | undefined
+): CustomBrushColorCycleMode => {
+  if (input?.schemaVersion === 2) {
+    return input.mode;
+  }
+  return input?.schemaVersion === 3 ? 'captured-data' : 'tip';
+};
+
+export const getCustomBrushColorCycleDefaultAlphaMaskEnabled = (
+  input: CustomBrushColorCycleData | null | undefined
+): boolean => input?.schemaVersion === 2 ? input.useAlphaMask !== false : true;
 
 const encodeBytesToBase64 = (bytes: Uint8Array): string => {
   let binary = '';
@@ -255,6 +382,20 @@ export type SerializedCustomBrushColorCycle =
       alphaMaskBase64?: string;
       capturedColors?: string[];
       useAlphaMask?: boolean;
+    }
+  | {
+      schemaVersion: 3;
+      payloadKind: 'indexed-tip';
+      source?: CustomBrushColorCycleSource;
+      gradient?: Array<{ position: number; color: string }>;
+      speed?: number;
+      phaseMode?: CustomBrushCcPhaseMode;
+      phaseJitter?: number;
+      sourceCycleLength: number;
+      mapWidth: number;
+      mapHeight: number;
+      paintIndexMapBase64: string;
+      alphaMaskBase64?: string;
     };
 
 export const serializeCustomBrushColorCycle = (
@@ -273,6 +414,25 @@ export const serializeCustomBrushColorCycle = (
       speed: normalized.speed,
       phaseMode: normalized.phaseMode,
       phaseJitter: normalized.phaseJitter,
+    };
+  }
+
+  if (normalized.schemaVersion === 3) {
+    return {
+      schemaVersion: 3,
+      payloadKind: 'indexed-tip',
+      source: normalized.source,
+      gradient: normalized.gradient,
+      speed: normalized.speed,
+      phaseMode: normalized.phaseMode,
+      phaseJitter: normalized.phaseJitter,
+      sourceCycleLength: normalized.sourceCycleLength,
+      mapWidth: normalized.mapWidth,
+      mapHeight: normalized.mapHeight,
+      paintIndexMapBase64: encodeUint16Array(normalized.paintIndexMap),
+      alphaMaskBase64: normalized.alphaMask
+        ? encodeUint8Array(normalized.alphaMask)
+        : undefined,
     };
   }
 
@@ -304,6 +464,37 @@ export const deserializeCustomBrushColorCycle = (
 
   if (input.schemaVersion === 1) {
     return normalizeCustomBrushColorCycle(input);
+  }
+
+  if (input.schemaVersion === 3) {
+    try {
+      return normalizeCustomBrushColorCycle({
+        schemaVersion: 3,
+        payloadKind: input.payloadKind,
+        source: input.source,
+        gradient: input.gradient,
+        speed: input.speed,
+        phaseMode: input.phaseMode,
+        phaseJitter: input.phaseJitter,
+        sourceCycleLength: input.sourceCycleLength,
+        mapWidth: input.mapWidth,
+        mapHeight: input.mapHeight,
+        paintIndexMap: decodeUint16Array(input.paintIndexMapBase64),
+        alphaMask:
+          typeof input.alphaMaskBase64 === 'string'
+            ? decodeUint8Array(input.alphaMaskBase64)
+            : undefined,
+      });
+    } catch {
+      return normalizeCustomBrushColorCycle({
+        schemaVersion: 1,
+        source: input.source,
+        gradient: input.gradient,
+        speed: input.speed,
+        phaseMode: input.phaseMode,
+        phaseJitter: input.phaseJitter,
+      });
+    }
   }
 
   if (input.schemaVersion === 2) {

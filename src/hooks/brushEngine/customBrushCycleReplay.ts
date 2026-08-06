@@ -1,6 +1,16 @@
 import { MAX_BRUSH_COLOR_CYCLE_SPEED } from '@/constants/colorCycle';
-import type { BrushSettings, CustomBrushColorCycleData } from '@/types';
+import type {
+  BrushSettings,
+  CustomBrushColorCycleData,
+  CustomBrushColorCycleMode,
+} from '@/types';
 import { DEFAULT_COLOR_CYCLE_GRADIENT } from '@/utils/colorCycleGradients';
+import {
+  getCustomBrushColorCycleDefaultAlphaMaskEnabled,
+  getCustomBrushColorCycleDefaultMode,
+  resolveCapturedCustomBrushTip,
+  resolveCapturedCustomBrushPaletteIndex,
+} from '@/utils/customBrushColorCycle';
 
 import {
   getCapturedColorPalette,
@@ -24,6 +34,8 @@ export interface CustomBrushCycleStrokeData {
   isResampler?: boolean;
   cacheKey?: string;
   colorCycle?: CustomBrushColorCycleData;
+  colorCycleMode?: CustomBrushColorCycleMode;
+  useCapturedAlphaMask?: boolean;
 }
 
 interface StrokeCycleParams {
@@ -50,7 +62,8 @@ type BrushPerfWindow = Window & {
   __vesselBrushProfileDump?: () => void;
 };
 
-const MAX_CAPTURED_PATTERN_CACHE = 512;
+const MAX_CAPTURED_PATTERN_CACHE_ENTRIES = 512;
+const MAX_CAPTURED_PATTERN_CACHE_BYTES = 64 * 1024 * 1024;
 const MAX_CAPTURED_PALETTE_CACHE = 64;
 
 const getNow = (): number =>
@@ -100,16 +113,6 @@ const getCapturedPatternProfile = (): CapturedPatternPerfStats | null => {
   return win.__vesselBrushProfile.capturedPattern;
 };
 
-const trimImageDataCache = (cache: Map<string, ImageData>, limit: number): void => {
-  if (cache.size <= limit) {
-    return;
-  }
-  const oldestKey = cache.keys().next().value;
-  if (typeof oldestKey === 'string') {
-    cache.delete(oldestKey);
-  }
-};
-
 export class CustomBrushCycleReplayService {
   private customColorCyclePhase = 0;
   private customStrokeCyclePhaseBase = 0;
@@ -119,10 +122,14 @@ export class CustomBrushCycleReplayService {
   private lastCustomColorCycleEnabled = false;
   private lastCustomGradientHash = '';
   private customCapturedPatternCache = new Map<string, ImageData>();
+  private customCapturedPatternCacheBytes = 0;
   private customCyclePaletteCache = new Map<string, Uint8ClampedArray>();
   private cacheVersion = 0;
 
-  constructor(private brushSettings: BrushSettings) {
+  constructor(
+    private brushSettings: BrushSettings,
+    private readonly maxCapturedPatternCacheBytes = MAX_CAPTURED_PATTERN_CACHE_BYTES,
+  ) {
     this.lastCustomColorCycleEnabled = !!brushSettings.customBrushColorCycle;
     this.lastCustomGradientHash = hashGradientStops(brushSettings.colorCycleGradient);
   }
@@ -135,12 +142,17 @@ export class CustomBrushCycleReplayService {
     return this.customCapturedPatternCache.size;
   }
 
+  get capturedPatternCacheBytes(): number {
+    return this.customCapturedPatternCacheBytes;
+  }
+
   get paletteCacheSize(): number {
     return this.customCyclePaletteCache.size;
   }
 
   clearCaches(): void {
     this.customCapturedPatternCache.clear();
+    this.customCapturedPatternCacheBytes = 0;
     this.customCyclePaletteCache.clear();
     this.cacheVersion += 1;
   }
@@ -253,17 +265,16 @@ export class CustomBrushCycleReplayService {
     };
 
     const colorCycle = customBrushData.colorCycle;
-    if (
-      !colorCycle ||
-      colorCycle.schemaVersion !== 2 ||
-      colorCycle.mode !== 'captured-data'
-    ) {
+    const capturedTip = resolveCapturedCustomBrushTip(colorCycle);
+    const runtimeMode =
+      customBrushData.colorCycleMode ?? getCustomBrushColorCycleDefaultMode(colorCycle);
+    if (!colorCycle || runtimeMode !== 'captured-data' || !capturedTip) {
       finishProfile(false);
       return null;
     }
 
-    const width = colorCycle.mapWidth;
-    const height = colorCycle.mapHeight;
+    const width = capturedTip.mapWidth;
+    const height = capturedTip.mapHeight;
     const pixelCount = width * height;
     if (width <= 0 || height <= 0 || pixelCount <= 0) {
       finishProfile(false);
@@ -275,27 +286,26 @@ export class CustomBrushCycleReplayService {
       return null;
     }
 
-    const hasMaps =
-      (colorCycle.indexMap && colorCycle.indexMap.length === pixelCount) ||
-      (colorCycle.phaseMap && colorCycle.phaseMap.length === pixelCount);
-    if (!hasMaps) {
-      finishProfile(false);
-      return null;
-    }
-
-    const cycleLength = Math.max(1, Math.min(1024, Math.round(colorCycle.sourceCycleLength || 256)));
+    const cycleLength =
+      capturedTip.indexEncoding === 'paint-buffer-1-based'
+        ? capturedTip.cycleSpan
+        : Math.max(1, Math.min(1024, capturedTip.sourceCycleLength));
     const phaseBucket = ((Math.round(phase * cycleLength) % cycleLength) + cycleLength) % cycleLength;
 
-    const indexMap = colorCycle.indexMap;
-    const phaseMap = colorCycle.phaseMap;
-    const capturedColors = colorCycle.capturedColors?.length ? colorCycle.capturedColors : undefined;
-    const capturedPalette = capturedColors && indexMap && indexMap.length === pixelCount
+    const paintIndexMap = capturedTip.paintIndexMap;
+    const capturedColors =
+      colorCycle.schemaVersion === 2 && colorCycle.capturedColors?.length
+        ? colorCycle.capturedColors
+        : undefined;
+    const legacyColorIndexMap = colorCycle.schemaVersion === 2 ? colorCycle.indexMap : undefined;
+    const capturedPalette =
+      capturedColors && legacyColorIndexMap?.length === pixelCount
       ? getCapturedColorPalette(capturedColors, this.customCyclePaletteCache, MAX_CAPTURED_PALETTE_CACHE)
       : undefined;
     const capturedPaletteLength = capturedPalette ? capturedPalette.length / 4 : 0;
     const canReplayCapturedColors = Boolean(
       capturedPalette &&
-      indexMap &&
+      legacyColorIndexMap &&
       capturedPaletteLength > 0,
     );
     if (capturedColors && !canReplayCapturedColors) {
@@ -314,10 +324,14 @@ export class CustomBrushCycleReplayService {
       ? `captured:${capturedColorsHash}`
       : `gradient:${gradientHash}`;
     const sourceKey = customBrushData.cacheKey ?? `anon:${width}x${height}`;
-    const useAlphaMask = colorCycle.useAlphaMask !== false;
+    const useAlphaMask =
+      customBrushData.useCapturedAlphaMask ??
+      getCustomBrushColorCycleDefaultAlphaMaskEnabled(colorCycle);
     const key = `${sourceKey}:ccd:${paletteIdentity}:${cycleLength}:${phaseBucket}:${useAlphaMask ? 1 : 0}`;
     const cached = this.customCapturedPatternCache.get(key);
     if (cached) {
+      this.customCapturedPatternCache.delete(key);
+      this.customCapturedPatternCache.set(key, cached);
       finishProfile(true);
       return cached;
     }
@@ -331,20 +345,19 @@ export class CustomBrushCycleReplayService {
     const src = customBrushData.imageData.data;
     const output = new Uint8ClampedArray(src.length);
     const alphaMask =
-      useAlphaMask && colorCycle.alphaMask && colorCycle.alphaMask.length === pixelCount
-        ? colorCycle.alphaMask
+      useAlphaMask && capturedTip.alphaMask?.length === pixelCount
+        ? capturedTip.alphaMask
         : undefined;
 
     for (let i = 0, p = 0; i < pixelCount; i += 1, p += 4) {
       const baseAlpha = src[p + 3];
-      const maskAlpha = alphaMask ? alphaMask[i] : 255;
-      const alpha = Math.round((baseAlpha * maskAlpha) / 255);
+      const alpha = alphaMask ? alphaMask[i] : baseAlpha;
       if (alpha <= 0) {
         continue;
       }
 
-      if (canReplayCapturedColors && capturedPalette && indexMap) {
-        const colorIndex = indexMap[i] % capturedPaletteLength;
+      if (canReplayCapturedColors && capturedPalette && legacyColorIndexMap) {
+        const colorIndex = legacyColorIndexMap[i] % capturedPaletteLength;
         const resolved = (colorIndex + capturedColorShift) % capturedPaletteLength;
         const paletteOffset = resolved * 4;
         output[p] = capturedPalette[paletteOffset];
@@ -354,14 +367,14 @@ export class CustomBrushCycleReplayService {
         continue;
       }
 
-      if (!capturedColors && palette && (phaseMap || indexMap)) {
-        const base =
-          phaseMap && phaseMap.length === pixelCount
-            ? phaseMap[i]
-            : indexMap && indexMap.length === pixelCount
-              ? indexMap[i]
-              : 0;
-        const resolved = (base + phaseBucket) % cycleLength;
+      if (!capturedColors && palette) {
+        const encodedIndex = paintIndexMap[i];
+        const resolved = resolveCapturedCustomBrushPaletteIndex({
+          encodedIndex,
+          indexEncoding: capturedTip.indexEncoding,
+          phaseOffset: phaseBucket,
+          cycleSpan: cycleLength,
+        });
         const paletteOffset = resolved * 4;
         output[p] = palette[paletteOffset];
         output[p + 1] = palette[paletteOffset + 1];
@@ -373,7 +386,8 @@ export class CustomBrushCycleReplayService {
     const imageData = new ImageData(output, width, height);
     (imageData as ImageData & { __vesselCacheKey?: string }).__vesselCacheKey = key;
     this.customCapturedPatternCache.set(key, imageData);
-    trimImageDataCache(this.customCapturedPatternCache, MAX_CAPTURED_PATTERN_CACHE);
+    this.customCapturedPatternCacheBytes += imageData.data.byteLength;
+    this.trimCapturedPatternCache();
     finishProfile(false);
     return imageData;
   }
@@ -388,6 +402,24 @@ export class CustomBrushCycleReplayService {
   private resetCycleState(): void {
     this.customColorCyclePhase = 0;
     this.resetStroke();
+  }
+
+  private trimCapturedPatternCache(): void {
+    while (
+      this.customCapturedPatternCache.size > MAX_CAPTURED_PATTERN_CACHE_ENTRIES ||
+      this.customCapturedPatternCacheBytes > this.maxCapturedPatternCacheBytes
+    ) {
+      const oldestKey = this.customCapturedPatternCache.keys().next().value;
+      if (typeof oldestKey !== 'string') {
+        break;
+      }
+      const oldest = this.customCapturedPatternCache.get(oldestKey);
+      this.customCapturedPatternCache.delete(oldestKey);
+      this.customCapturedPatternCacheBytes = Math.max(
+        0,
+        this.customCapturedPatternCacheBytes - (oldest?.data.byteLength ?? 0),
+      );
+    }
   }
 
 }

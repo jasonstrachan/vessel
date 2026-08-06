@@ -292,8 +292,8 @@ export class ColorCycleStrokeApiRuntime {
       advanceStrokePhase: (strokeData) => this.context.advanceStrokePhase(strokeData),
       computeColorBandIndexPerStamp: (strokeData) => this.context.computeColorBandIndex(strokeData),
       getNonDitherStrokeColorIndex: (strokeData) => this.context.getNonDitherStrokeColorIndex(strokeData),
-      resolveCapturedStampGradientBinding: (layerId, colorCycle) =>
-        this.context.resolveCapturedStampGradientBinding(layerId, colorCycle),
+      resolveCapturedStampGradientBinding: (layerId, colorCycle, mode) =>
+        this.context.resolveCapturedStampGradientBinding(layerId, colorCycle, mode),
       resolveActiveStrokeSlot: (layerId, strokeData) => this.context.resolveActiveStrokeSlot(layerId, strokeData),
       resolveFlowSlot: (strokeData, activeSlot) => this.context.resolveFlowSlot(strokeData, activeSlot),
       resolveGradientDefIdForSlot: (layerId, slot) => this.context.resolveGradientDefIdForSlot(layerId, slot),

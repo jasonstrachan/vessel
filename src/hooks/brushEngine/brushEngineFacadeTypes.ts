@@ -2,6 +2,7 @@ import type {
   BrushSettings,
   CustomBrush,
   CustomBrushColorCycleData,
+  CustomBrushColorCycleMode,
 } from '@/types';
 
 /**
@@ -29,6 +30,8 @@ export interface CustomBrushStrokeData {
   isResampler?: boolean;
   cacheKey?: string;
   colorCycle?: CustomBrushColorCycleData;
+  colorCycleMode?: CustomBrushColorCycleMode;
+  useCapturedAlphaMask?: boolean;
 }
 
 export interface BrushStrokeParams {

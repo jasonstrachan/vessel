@@ -150,8 +150,10 @@ describe('useDrawingHandlers custom brush resolution', () => {
     if (!result?.colorCycle || result.colorCycle.schemaVersion !== 2) {
       throw new Error('Expected schema v2 color cycle payload');
     }
-    expect(result.colorCycle.mode).toBe('tip');
-    expect(result.colorCycle.useAlphaMask).toBe(false);
+    expect(result.colorCycle.mode).toBe('captured-data');
+    expect(result.colorCycle.useAlphaMask).toBe(true);
+    expect(result.colorCycleMode).toBe('tip');
+    expect(result.useCapturedAlphaMask).toBe(false);
   });
 
   it('applies custom brush color-cycle mode override to saved brush data', () => {
@@ -191,8 +193,53 @@ describe('useDrawingHandlers custom brush resolution', () => {
     if (!result?.colorCycle || result.colorCycle.schemaVersion !== 2) {
       throw new Error('Expected schema v2 color cycle payload');
     }
-    expect(result.colorCycle.mode).toBe('captured-data');
-    expect(result.colorCycle.useAlphaMask).toBe(true);
+    expect(result.colorCycle.mode).toBe('tip');
+    expect(result.colorCycle.useAlphaMask).toBe(false);
+    expect(result.colorCycleMode).toBe('captured-data');
+    expect(result.useCapturedAlphaMask).toBe(true);
+  });
+
+  it('uses selected brush CC data when the matching raster tip omits metadata', () => {
+    const colorCycle = {
+      schemaVersion: 3 as const,
+      payloadKind: 'indexed-tip' as const,
+      sourceCycleLength: 256,
+      mapWidth: 2,
+      mapHeight: 2,
+      paintIndexMap: new Uint16Array([1, 2, 3, 4]),
+    };
+    const savedBrush = {
+      id: 'saved-v3',
+      imageData: new ImageData(2, 2),
+      width: 2,
+      height: 2,
+      colorCycle,
+    };
+    const currentBrushTip = {
+      brushId: 'saved-v3',
+      imageData: new ImageData(2, 2),
+      width: 2,
+      height: 2,
+    };
+    const state = {
+      tools: {
+        ...baseSettings,
+        brushSettings: {
+          ...baseSettings.brushSettings,
+          selectedCustomBrush: 'saved-v3',
+          currentBrushTip,
+          customBrushColorCycle: true,
+          customBrushColorCycleMode: 'captured-data',
+        },
+      },
+      getCustomBrushByIdUnsafe: (id: string) => (id === 'saved-v3' ? savedBrush : null),
+    } as any;
+
+    const result = resolveActiveCustomBrushData(state);
+
+    expect(result?.imageData).toBe(currentBrushTip.imageData);
+    expect(result?.colorCycle).toBe(colorCycle);
+    expect(result?.colorCycleMode).toBe('captured-data');
   });
 
   it('returns undefined when no matching brush exists', () => {

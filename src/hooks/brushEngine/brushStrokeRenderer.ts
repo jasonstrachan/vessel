@@ -1,5 +1,6 @@
 import { BrushShape } from '@/types';
 import { isStrokeBrush } from '@/utils/brushCategories';
+import { getCustomBrushColorCycleDefaultMode } from '@/utils/customBrushColorCycle';
 
 import { type DirectionState, type RotationInput, calculateRotation } from './rotation';
 import type { GridSnapSession } from './gridSnapSession';
@@ -200,8 +201,8 @@ export const renderBrushStrokeWithServices = (
   renderContext.initializeCustomStrokeCycleStateIfNeeded(params, shape);
   const hasCapturedDataCustomBrush =
     settings.shape === BrushShape.CUSTOM &&
-    customBrushData?.colorCycle?.schemaVersion === 2 &&
-    customBrushData.colorCycle.mode === 'captured-data';
+    (customBrushData?.colorCycleMode ??
+      getCustomBrushColorCycleDefaultMode(customBrushData?.colorCycle)) === 'captured-data';
 
   ctx.fillStyle = settings.color;
   ctx.globalAlpha = settings.opacity;

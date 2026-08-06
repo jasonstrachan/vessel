@@ -16,6 +16,10 @@ import { hashStops, type StoredStop } from '@/utils/colorCycleGradientDefs';
 import { useAppStore } from '@/stores/useAppStore';
 import { getPersistedCCMutationLog } from '@/utils/colorCycle/ccMutationAudit';
 import {
+  deserializeCustomBrushColorCycle,
+  serializeCustomBrushColorCycle,
+} from '@/utils/customBrushColorCycle';
+import {
   applyColorCycleBrushLayerSnapshotToRuntime,
   applyColorCycleBrushPaintPatchToRuntime,
   commitColorCycleCommittedLayerStateToRuntime,
@@ -3142,6 +3146,74 @@ describe('ColorCycleBrushCanvas2D regression tests', () => {
     expect(data[8 + y]).toBeGreaterThan(0);
     expect(data[9 + y]).toBeGreaterThan(0);
     expect(new Set([data[7 + y], data[8 + y], data[9 + y]])).toEqual(new Set([2, 3, 4]));
+  });
+
+  it('preserves a saved v3 indexed tip through isolated and overlapping canonical stamps', () => {
+    const payload = {
+      schemaVersion: 3 as const,
+      payloadKind: 'indexed-tip' as const,
+      source: 'color-cycle-layer' as const,
+      gradient: [
+        { position: 0, color: '#000000' },
+        { position: 1, color: '#ffffff' },
+      ],
+      sourceCycleLength: 256,
+      mapWidth: 3,
+      mapHeight: 1,
+      paintIndexMap: new Uint16Array([0, 64, 128]),
+      alphaMask: new Uint8Array([255, 255, 255]),
+    };
+    const restored = deserializeCustomBrushColorCycle(
+      serializeCustomBrushColorCycle(payload),
+    );
+    if (!restored || restored.schemaVersion !== 3) {
+      throw new Error('Expected restored schema v3 indexed tip');
+    }
+
+    const canvas = makeCanvas(20, 12);
+    const brush = new ColorCycleBrushCanvas2D(canvas, { forceCanvas2D: true });
+    const layerId = 'layer-custom-v3-persisted-tip';
+    const stamp = {
+      imageData: new ImageData(new Uint8ClampedArray([
+        255, 255, 255, 255,
+        255, 255, 255, 255,
+        255, 255, 255, 255,
+      ]), 3, 1),
+      width: 3,
+      height: 1,
+      colorCycle: restored,
+      colorCycleMode: 'captured-data' as const,
+      useCapturedAlphaMask: true,
+    };
+
+    brush.setBrushSize(3);
+    brush.startStroke(layerId);
+    brush.paintCustomStamp(stamp, 4, 4, layerId, 1);
+    brush.paintCustomStamp(stamp, 12, 4, layerId, 1);
+    brush.paintCustomStamp(stamp, 8, 8, layerId, 1);
+    brush.paintCustomStamp(stamp, 8, 8, layerId, 1);
+    brush.endStroke(layerId);
+
+    const animator = (brush as unknown as {
+      animators: Map<string, { getIndexBuffers: () => { data: Uint8Array } }>;
+    }).animators.get(layerId);
+    const strokeState = readBrushStrokeState<ColorCycleBrushPersistenceStrokeState>(brush, layerId);
+    if (!animator || !strokeState) {
+      throw new Error('Missing persisted v3 custom stamp state');
+    }
+
+    const data = animator.getIndexBuffers().data;
+    const isolatedA = [data[3 + 4 * canvas.width], data[4 + 4 * canvas.width], data[5 + 4 * canvas.width]];
+    const isolatedB = [data[11 + 4 * canvas.width], data[12 + 4 * canvas.width], data[13 + 4 * canvas.width]];
+    const overlapped = [data[7 + 8 * canvas.width], data[8 + 8 * canvas.width], data[9 + 8 * canvas.width]];
+
+    expect(new Set(isolatedA).size).toBe(3);
+    expect(new Set(isolatedB).size).toBe(3);
+    expect(new Set(overlapped).size).toBe(3);
+    expect(overlapped).not.toEqual(isolatedA);
+    expect(overlapped).not.toEqual(isolatedB);
+    expect(overlapped.every((value) => value > 0)).toBe(true);
+    expect(Array.from(strokeState.buffers.paint).filter((value) => value > 0).length).toBeGreaterThan(0);
   });
 
   it('writes boosted speed bytes while keeping phase progression stamp-based', () => {
