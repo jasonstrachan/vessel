@@ -3,8 +3,13 @@ import {
   decodeColorCycleSpeedByte,
   encodeColorCycleSpeedByte,
   formatBrushColorCycleSpeedLabel,
+  sanitizeAuthoredBrushColorCycleSpeed,
   sliderPositionToBrushColorCycleSpeed,
 } from '@/utils/colorCycleSpeed';
+import {
+  MAX_AUTHORED_BRUSH_COLOR_CYCLE_SPEED,
+  MAX_BRUSH_COLOR_CYCLE_SPEED,
+} from '@/constants/colorCycle';
 
 describe('colorCycleSpeed encoding', () => {
   it('maps zero and invalid inputs to speed byte 0', () => {
@@ -48,6 +53,17 @@ describe('colorCycleSpeed encoding', () => {
       const roundTrip = brushColorCycleSpeedToSliderPosition(speed);
       expect(roundTrip).toBeCloseTo(position, 3);
     });
+  });
+
+  it('caps authored slider speeds without narrowing legacy speed decoding', () => {
+    expect(sliderPositionToBrushColorCycleSpeed(1)).toBe(
+      MAX_AUTHORED_BRUSH_COLOR_CYCLE_SPEED,
+    );
+    expect(brushColorCycleSpeedToSliderPosition(MAX_BRUSH_COLOR_CYCLE_SPEED)).toBe(1);
+    expect(sanitizeAuthoredBrushColorCycleSpeed(MAX_BRUSH_COLOR_CYCLE_SPEED)).toBe(
+      MAX_AUTHORED_BRUSH_COLOR_CYCLE_SPEED,
+    );
+    expect(decodeColorCycleSpeedByte(255)).toBe(MAX_BRUSH_COLOR_CYCLE_SPEED);
   });
 
   it('biases slider resolution toward the low end of brush color cycle speeds', () => {

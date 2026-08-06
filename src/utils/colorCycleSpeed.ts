@@ -1,5 +1,6 @@
 import {
   DEFAULT_BRUSH_COLOR_CYCLE_SPEED,
+  MAX_AUTHORED_BRUSH_COLOR_CYCLE_SPEED,
   MAX_BRUSH_COLOR_CYCLE_SPEED,
   MIN_ANIMATED_BRUSH_COLOR_CYCLE_SPEED,
   MIN_BRUSH_COLOR_CYCLE_SPEED,
@@ -20,7 +21,7 @@ const clampBrushColorCycleSliderPosition = (position?: number | null): number =>
 };
 
 const getAnimatedBrushColorCycleRange = (): number =>
-  Math.max(0, MAX_BRUSH_COLOR_CYCLE_SPEED - MIN_ANIMATED_BRUSH_COLOR_CYCLE_SPEED);
+  Math.max(0, MAX_AUTHORED_BRUSH_COLOR_CYCLE_SPEED - MIN_ANIMATED_BRUSH_COLOR_CYCLE_SPEED);
 
 export const quantizeColorCycleSpeed = (speed?: number | null): number | null => {
   if (!Number.isFinite(speed)) {
@@ -47,8 +48,16 @@ export const sanitizeBrushColorCycleSpeed = (
   return Number.isFinite(clamped) ? clamped : DEFAULT_BRUSH_COLOR_CYCLE_SPEED;
 };
 
+export const sanitizeAuthoredBrushColorCycleSpeed = (
+  speed?: number | null,
+  fallback: number = DEFAULT_BRUSH_COLOR_CYCLE_SPEED,
+): number => Math.min(
+  MAX_AUTHORED_BRUSH_COLOR_CYCLE_SPEED,
+  sanitizeBrushColorCycleSpeed(speed, fallback),
+);
+
 export const brushColorCycleSpeedToSliderPosition = (speed?: number | null): number => {
-  const sanitized = sanitizeBrushColorCycleSpeed(speed);
+  const sanitized = sanitizeAuthoredBrushColorCycleSpeed(speed);
   const range = getAnimatedBrushColorCycleRange();
   if (range <= 0) {
     return 0;
@@ -67,7 +76,9 @@ export const sliderPositionToBrushColorCycleSpeed = (position?: number | null): 
     return MIN_ANIMATED_BRUSH_COLOR_CYCLE_SPEED;
   }
   const curved = Math.pow(normalized, BRUSH_COLOR_CYCLE_SLIDER_CURVE);
-  return sanitizeBrushColorCycleSpeed(MIN_ANIMATED_BRUSH_COLOR_CYCLE_SPEED + curved * range);
+  return sanitizeAuthoredBrushColorCycleSpeed(
+    MIN_ANIMATED_BRUSH_COLOR_CYCLE_SPEED + curved * range,
+  );
 };
 
 export const formatBrushColorCycleSpeedLabel = (speed?: number | null): string => {

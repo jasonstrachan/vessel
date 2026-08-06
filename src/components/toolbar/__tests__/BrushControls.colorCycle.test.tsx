@@ -57,6 +57,7 @@ import BrushControls from '../BrushControls';
 import { useAppStore } from '@/stores/useAppStore';
 import type { AppState } from '@/stores/useAppStore';
 import type { BrushSettings } from '@/types';
+import { DEFAULT_BRUSH_COLOR_CYCLE_SPEED } from '@/constants/colorCycle';
 import * as colorCycleGradients from '@/utils/colorCycleGradients';
 import { sliderPositionToBrushColorCycleSpeed } from '@/utils/colorCycleSpeed';
 
@@ -752,6 +753,39 @@ describe('BrushControls – Color Cycle stroke essentials', () => {
 });
 
 describe('BrushControls – Custom brush captured data mode', () => {
+  it('uses the authored default when enabling color cycling without a remembered speed', async () => {
+    const user = userEvent.setup();
+    useAppStore.setState((state) => ({
+      ...state,
+      tools: {
+        ...state.tools,
+        brushSettings: {
+          ...state.tools.brushSettings,
+          brushShape: 'custom' as BrushSettings['brushShape'],
+          selectedCustomBrush: 'brush-v2',
+          customBrushColorCycle: false,
+          colorCycleSpeed: undefined,
+        },
+      },
+      temporaryCustomBrush: {
+        id: 'brush-v2',
+        name: 'Brush V2',
+        imageData: new ImageData(2, 2),
+        thumbnail: '',
+        width: 2,
+        height: 2,
+        createdAt: 1,
+      } as unknown as AppState['temporaryCustomBrush'],
+    }));
+
+    render(<BrushControls />);
+    await user.click(screen.getByRole('checkbox', { name: 'Color Cycle' }));
+
+    expect(useAppStore.getState().tools.brushSettings.colorCycleSpeed).toBe(
+      DEFAULT_BRUSH_COLOR_CYCLE_SPEED,
+    );
+  });
+
   it('places custom CC speed controls below spacing and above mode selector', () => {
     useAppStore.setState((state) => ({
       ...state,

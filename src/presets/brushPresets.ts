@@ -1,4 +1,5 @@
 import { BrushPreset, BrushComponent, ComponentType, BrushSettings, BrushShape } from '../types';
+import { DEFAULT_BRUSH_COLOR_CYCLE_SPEED } from '@/constants/colorCycle';
 import { DEFAULT_GRADIENT_STOPS } from '@/utils/gradientPresets';
 
 export type BrushCapabilities = {
@@ -543,7 +544,7 @@ export const colorCycleStrokeBrushPreset: BrushPreset = {
     size: 20,
     opacity: 1,
     spacing: 8,
-    colorCycleSpeed: 0.1,
+    colorCycleSpeed: DEFAULT_BRUSH_COLOR_CYCLE_SPEED,
     colorCycleFPS: 30,
     gradientBands: 12, // Number of distinct color bands in strokes
     colorCycleUseForegroundGradient: false,
@@ -605,7 +606,7 @@ export const colorCycleTriangleBrushPreset: BrushPreset = {
     size: 20,
     opacity: 1,
     spacing: 8,
-    colorCycleSpeed: 0.1,
+    colorCycleSpeed: DEFAULT_BRUSH_COLOR_CYCLE_SPEED,
     colorCycleFPS: 30,
     gradientBands: 12,
     colorCycleUseForegroundGradient: false,
@@ -667,7 +668,7 @@ export const colorCycleShapeBrushPreset: BrushPreset = {
     size: 20,
     opacity: 1,
     spacing: 4,
-    colorCycleSpeed: 0.1,
+    colorCycleSpeed: DEFAULT_BRUSH_COLOR_CYCLE_SPEED,
     colorCycleFPS: 30,
     gradientBands: 26,
     colorCycleUseForegroundGradient: false,
@@ -728,7 +729,7 @@ export const colorCycleGradientBrushPreset: BrushPreset = {
     size: 20,
     opacity: 1,
     spacing: 4,
-    colorCycleSpeed: 0.03,
+    colorCycleSpeed: DEFAULT_BRUSH_COLOR_CYCLE_SPEED,
     colorCycleFPS: 30,
     gradientBands: 64,
     colorCycleUseForegroundGradient: false,
@@ -798,7 +799,7 @@ export const colorCycleFlatDitherBrushPreset: BrushPreset = {
     size: 20,
     opacity: 1,
     spacing: 4,
-    colorCycleSpeed: 0.03,
+    colorCycleSpeed: DEFAULT_BRUSH_COLOR_CYCLE_SPEED,
     colorCycleFPS: 30,
     gradientBands: 64,
     colorCycleUseForegroundGradient: false,
@@ -1217,7 +1218,7 @@ export const checkeredBrushPreset: BrushPreset = {
     minPressure: 0,
     maxPressure: 200,
     colorCycleFPS: 10,
-    colorCycleSpeed: 0.1,
+    colorCycleSpeed: DEFAULT_BRUSH_COLOR_CYCLE_SPEED,
     gradientBands: 12,
     colorCycleStampShape: 'checkered',
     colorCycleStampDitherEnabled: true,

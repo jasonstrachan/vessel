@@ -78,6 +78,18 @@ describe('custom brush size conversions', () => {
 });
 
 describe('normalizePersistedBrushSettings', () => {
+  it('caps remembered authored color-cycle speed at the current control maximum', () => {
+    expect(
+      normalizePersistedBrushSettings({
+        colorCycleSpeed: 2.2,
+      })
+    ).toEqual(
+      expect.objectContaining({
+        colorCycleSpeed: 1.5,
+      })
+    );
+  });
+
   it('restores pressure-linked max resolution from persisted dither settings', () => {
     expect(
       normalizePersistedBrushSettings({

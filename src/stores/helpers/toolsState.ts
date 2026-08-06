@@ -3,6 +3,7 @@ type AppState = import('../useAppStore').AppState;
 type RectangleBrushState = AppState['rectangleBrushState'];
 import { BrushShape } from '@/types';
 import { MAX_CANVAS_ZOOM } from '@/constants/canvas';
+import { sanitizeAuthoredBrushColorCycleSpeed } from '@/utils/colorCycleSpeed';
 
 type GradientStops = BrushSettings['colorCycleGradient'];
 
@@ -55,6 +56,11 @@ export const normalizePersistedBrushSettings = (
   settings: Partial<BrushSettings>
 ): Partial<BrushSettings> => {
   const normalized = { ...settings };
+  if (normalized.colorCycleSpeed !== undefined) {
+    normalized.colorCycleSpeed = sanitizeAuthoredBrushColorCycleSpeed(
+      normalized.colorCycleSpeed,
+    );
+  }
   const fillResolution = toPositiveIntegerOrUndefined(normalized.fillResolution);
   if (fillResolution !== undefined) {
     normalized.fillResolution = fillResolution;

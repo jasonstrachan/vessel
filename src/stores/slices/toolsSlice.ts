@@ -55,6 +55,7 @@ import { scaledBrushCache } from '@/utils/scaledBrushCache';
 import { adjustHueLightnessSaturation } from '@/utils/imageProcessing';
 import { debugLog } from '@/utils/debug';
 import { appendCCDebugOverlayEntry } from '@/utils/colorCycle/ccDebugOverlayStore';
+import { sanitizeAuthoredBrushColorCycleSpeed } from '@/utils/colorCycleSpeed';
 import { createDefaultColorAdjustState } from '@/stores/slices/colorAdjustSlice';
 
 const DEBUG_LOSTEDGE =
@@ -615,6 +616,10 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
     const settings = {
       ...incomingSettings,
     } as Partial<BrushSettings> & { colorCycleFlowForward?: boolean };
+
+    if (settings.colorCycleSpeed !== undefined) {
+      settings.colorCycleSpeed = sanitizeAuthoredBrushColorCycleSpeed(settings.colorCycleSpeed);
+    }
 
     let incomingCustomPercent: number | undefined;
     if (Object.prototype.hasOwnProperty.call(settings, 'customBrushSizePercent')) {
@@ -2147,7 +2152,9 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
             typeof customBrushColorCycle.speed === 'number' &&
             Number.isFinite(customBrushColorCycle.speed)
           ) {
-            newBrushSettings.colorCycleSpeed = customBrushColorCycle.speed;
+            newBrushSettings.colorCycleSpeed = sanitizeAuthoredBrushColorCycleSpeed(
+              customBrushColorCycle.speed,
+            );
           }
 
           newBrushSettings.customBrushCcPhaseMode =

@@ -1559,7 +1559,7 @@ const BrushControls = () => {
         updates.colorCycleGradient = DEFAULT_GRADIENT_STOPS.map(stop => ({ ...stop }));
       }
       if (activeSettings.colorCycleSpeed === undefined || activeSettings.colorCycleSpeed === null) {
-        updates.colorCycleSpeed = 0.1;
+        updates.colorCycleSpeed = DEFAULT_BRUSH_COLOR_CYCLE_SPEED;
       }
       if (!activeSettings.customBrushCcPhaseMode) {
         updates.customBrushCcPhaseMode = 'global';
@@ -1619,7 +1619,7 @@ const BrushControls = () => {
         pauseColorCycle('toolbar');
       }
       // Reset Color Cycle speed to default when leaving CC mode
-      setActiveSettings({ colorCycleSpeed: 0.1 });
+      setActiveSettings({ colorCycleSpeed: DEFAULT_BRUSH_COLOR_CYCLE_SPEED });
     }
 
     if (isCurrentColorCycle) {
@@ -3980,6 +3980,7 @@ const BrushControls = () => {
             <CustomSwitch
               checked={isCustomColorCycleEnabled}
               onChange={handleToggleCustomColorCycle}
+              aria-label="Color Cycle"
             />
           </div>
 
