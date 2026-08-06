@@ -23,6 +23,8 @@ describe('shortcutRegistry', () => {
   });
 
   it('resolves scoped shortcuts including U for color adjust', () => {
+    expect(resolveScopedShortcutAction(keydown({ key: 'c' }))).toBe('tool-custom');
+    expect(resolveScopedShortcutAction(keydown({ key: 'c', ctrlKey: true }))).toBeNull();
     expect(resolveScopedShortcutAction(keydown({ key: 'u' }))).toBe('tool-color-adjust');
     expect(resolveScopedShortcutAction(keydown({ key: 'u', ctrlKey: true }))).toBeNull();
     expect(resolveScopedShortcutAction(keydown({ key: 'a', metaKey: true }))).toBe('select-all');

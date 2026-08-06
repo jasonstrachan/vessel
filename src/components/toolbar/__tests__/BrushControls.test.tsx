@@ -151,4 +151,29 @@ describe('BrushControls', () => {
 
     expect(screen.getByLabelText('Custom Brush Snap')).toBeChecked();
   });
+
+  it('sets custom brush size in pixels down to one pixel', () => {
+    (mockStore.tools as any).brushSettings = {
+      ...mockStore.tools.brushSettings,
+      brushShape: 'custom',
+      selectedCustomBrush: 'custom-1',
+      size: 16,
+      currentBrushTip: {
+        imageData: new ImageData(64, 64),
+        brushId: 'custom-1',
+        width: 64,
+        height: 64,
+        isColorizable: false,
+      },
+    };
+
+    render(<BrushControls />);
+    const sizeSlider = screen.getByLabelText('Custom Brush Size (px)');
+
+    fireEvent.change(sizeSlider, { target: { value: '1' } });
+    fireEvent.blur(sizeSlider);
+
+    expect(mockStore.setGlobalBrushSize).toHaveBeenCalledWith(1);
+    expect(mockStore.setCustomBrushSizePercent).not.toHaveBeenCalled();
+  });
 });

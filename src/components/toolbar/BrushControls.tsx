@@ -450,8 +450,8 @@ const BrushControls = () => {
       capturedColorCycleCandidate.mapWidth * capturedColorCycleCandidate.mapHeight
   );
   const customColorCycleMode = activeSettings.customBrushColorCycleMode ?? 'tip';
-  const sizeUnit = isActiveCustomBrush ? '%' : 'px';
-  const sizeLabel = isActiveCustomBrush ? 'Tip Scale %' : `Size ${sizeUnit}`;
+  const sizeUnit = 'px';
+  const sizeLabel = `Size ${sizeUnit}`;
   const hideShapeToggle =
     ((isDitherStrokePreset || isDitherShapePreset || isCheckeredPreset) && !isActiveCustomBrush) ||
     Boolean(currentBrushPresetId && isRegularPixelPresetId(currentBrushPresetId)) ||
@@ -3986,22 +3986,21 @@ const BrushControls = () => {
           <div className="mt-2">
             <div className="flex items-center gap-2">
               <label className="text-[#D9D9D9] w-16" style={{ fontSize: '14px' }}>
-                Scale %
+                Size px
               </label>
               <NonCcSlider
-                value={customBrushPercent}
-                min={5}
-                max={1000}
-                step={5}
+                value={activeSettings.size ?? globalBrushSize}
+                min={1}
+                max={500}
+                step={1}
                 onChange={(value) => {
-                  setCustomBrushSizePercent(value);
+                  const nextSize = Math.min(500, Math.max(1, Math.round(value)));
+                  setGlobalBrushSize(nextSize);
                   if (currentTool === 'eraser' && eraserSettings.linkSizeToBrush === false) {
-                    const updatedSize =
-                      getAppStoreState().tools.brushSettings.size ?? globalBrushSize;
-                    setEraserSettings({ size: updatedSize });
+                    setEraserSettings({ size: nextSize });
                   }
                 }}
-                aria-label="Custom Brush Tip Scale (%)"
+                aria-label="Custom Brush Size (px)"
                 className="flex-1"
               />
             </div>

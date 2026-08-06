@@ -17,12 +17,12 @@ const PlusButton: React.FC<PlusButtonProps> = ({
     medium: 'w-6 h-6'
   };
 
-  const baseClasses = `${sizeClasses[size]} flex items-center justify-center transition-colors`;
+  const baseClasses = `${sizeClasses[size]} flex items-center justify-center transition-colors disabled:cursor-not-allowed disabled:opacity-40`;
 
   if (variant === 'icon') {
     return (
       <button
-        className={`${baseClasses} text-[#5A5A61] hover:text-[#888888] ${className}`}
+        className={`${baseClasses} text-[#5A5A61] hover:text-[#888888] disabled:hover:text-[#5A5A61] ${className}`}
         {...props}
       >
         <Plus size={16} />
@@ -33,7 +33,7 @@ const PlusButton: React.FC<PlusButtonProps> = ({
   // text variant (default)
   return (
     <button
-      className={`${baseClasses} border border-white text-[#D9D9D9] hover:bg-white hover:text-[#31313A] ${className}`}
+      className={`${baseClasses} border border-white text-[#D9D9D9] hover:bg-white hover:text-[#31313A] disabled:hover:bg-transparent disabled:hover:text-[#D9D9D9] ${className}`}
       style={{ fontSize: '14px' }}
       {...props}
     >

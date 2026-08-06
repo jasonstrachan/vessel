@@ -300,7 +300,9 @@ const BrushLibrary = () => {
   // REFACTOR: Removed the redundant useEffect for saving settings.
   // This is now handled reliably by the store before any tool/preset switch.
 
-  const canSaveCustomBrush = true; // Always show the + button
+  const canSaveCustomBrush = Boolean(
+    temporaryCustomBrush && activeCustomBrush?.id === temporaryCustomBrush.id
+  );
 
   const handleSaveCustomBrushAsPreset = () => {
     if (!activeCustomBrush) return;
@@ -358,12 +360,16 @@ const BrushLibrary = () => {
       <div className="flex items-center justify-between px-3 py-2 bg-[#1A1A1A] border-b border-[#4a4a4a]">
         <span className="font-medium text-[#D9D9D9]" style={{ fontSize: '14px' }}>Brush Library</span>
         <div className="flex items-center space-x-2">
-          {canSaveCustomBrush && (
-            <PlusButton
-              onClick={handleSaveCustomBrushAsPreset}
-              title="Save current custom brush to library"
-            />
-          )}
+          <PlusButton
+            onClick={handleSaveCustomBrushAsPreset}
+            disabled={!canSaveCustomBrush}
+            aria-label="Save captured custom brush to library"
+            title={
+              canSaveCustomBrush
+                ? 'Save captured custom brush to library'
+                : 'Capture a custom brush before saving'
+            }
+          />
         </div>
       </div>
       

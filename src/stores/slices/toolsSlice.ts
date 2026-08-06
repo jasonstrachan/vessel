@@ -1785,6 +1785,14 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
 
         return {
           tools: nextTools,
+          ...(tool === 'custom'
+            ? {
+                ui: {
+                  ...state.ui,
+                  brushPanelSection: 'tool' as const,
+                },
+              }
+            : {}),
           ...(typeof nextGlobalBrushSize === 'number'
             ? { globalBrushSize: nextGlobalBrushSize }
             : {}),

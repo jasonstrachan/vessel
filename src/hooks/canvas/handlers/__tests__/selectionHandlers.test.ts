@@ -118,8 +118,6 @@ describe('selectionHandlers marquee auto-pan', () => {
       },
       setPan,
       draw,
-      updateBrushCursorVisibility: jest.fn(),
-      flushAndSetCurrentTool: jest.fn(),
       selectionRuntimeRef: {
         current: {
           pendingSelectionHistory: null,
@@ -186,8 +184,6 @@ describe('selectionHandlers append selection', () => {
         screenToWorld: (x, y) => ({ x, y }),
       },
       draw: jest.fn(),
-      updateBrushCursorVisibility: jest.fn(),
-      flushAndSetCurrentTool: jest.fn(),
       selectionRuntimeRef: {
         current: {
           pendingSelectionHistory: null,
@@ -289,8 +285,6 @@ describe('selectionHandlers append selection', () => {
         screenToWorld: (x, y) => ({ x, y }),
       },
       draw: jest.fn(),
-      updateBrushCursorVisibility: jest.fn(),
-      flushAndSetCurrentTool: jest.fn(),
       selectionRuntimeRef: {
         current: {
           pendingSelectionHistory: null,

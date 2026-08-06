@@ -987,7 +987,7 @@ export interface BrushSettings {
   antialiasing: boolean;
   brushShape?: BrushShape;
   selectedCustomBrush?: string | null;
-  customBrushSizePercent?: number; // Percent scale for custom brush tips (5-1000)
+  customBrushSizePercent?: number; // Derived percent scale for custom brush tips (0.001-1000)
   customBrushSnapEnabled?: boolean;
   lastRegularBrushSize?: number;
   // Pressure sensitivity settings

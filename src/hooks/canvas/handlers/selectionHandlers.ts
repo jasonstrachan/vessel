@@ -3,7 +3,7 @@ import type React from 'react';
 import { captureSelectionSnapshot, commitSelectionHistory, cloneSelectionSnapshot } from '@/history/helpers/selectionHistory';
 import { strokeCurrentMarqueePath } from '@/utils/marqueeStroke';
 import type { InteractionAction, InteractionState } from '@/hooks/useCanvasInteraction';
-import type { SelectionMode, Tool } from '@/types';
+import type { SelectionMode } from '@/types';
 import type {
   EventHandlerDynamicDeps,
   SelectionRuntimeState,
@@ -36,8 +36,6 @@ export type SelectionHandlerDeps = {
   };
   setPan?: (offsetX: number, offsetY: number, options?: { silent?: boolean }) => void;
   draw: (ctx: CanvasRenderingContext2D, transform: { scale: number; offsetX: number; offsetY: number }) => void;
-  updateBrushCursorVisibility: () => void;
-  flushAndSetCurrentTool: (tool: Tool) => Promise<void> | void;
   selectionRuntimeRef: React.MutableRefObject<SelectionRuntimeState>;
 };
 
@@ -719,11 +717,6 @@ export const createSelectionHandlers = (
           worldPos,
           dynamic.tools.currentTool === 'custom' ? 'custom-selection-final' : 'selection-marquee-final'
         );
-      }
-      if (dynamic.tools.currentTool === 'custom') {
-        void deps.flushAndSetCurrentTool('brush');
-        deps.clearSelection();
-        deps.updateBrushCursorVisibility();
       }
     }
 

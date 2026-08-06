@@ -1199,6 +1199,10 @@ export const createProjectSlice =
 
         const savedBrush: CustomBrush = {
           ...tempBrush,
+          name:
+            tempBrush.name === 'Temp Brush'
+              ? `Custom ${state.project.customBrushes.length + 1}`
+              : tempBrush.name,
           imageData: finalImageData,
           thumbnail: finalThumbnail,
         };

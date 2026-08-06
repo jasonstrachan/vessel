@@ -125,8 +125,21 @@ jest.mock('@/stores/useAppStore', () => {
 import { useAppStore } from '@/stores/useAppStore';
 
 jest.mock('@/components/ui/PlusButton', () => {
-  const MockPlusButton = ({ onClick }: { onClick: () => void }) => (
-    <button data-testid="plus-button" onClick={onClick}>+</button>
+  const MockPlusButton = ({
+    onClick,
+    disabled,
+    title,
+    'aria-label': ariaLabel,
+  }: React.ButtonHTMLAttributes<HTMLButtonElement>) => (
+    <button
+      data-testid="plus-button"
+      onClick={onClick}
+      disabled={disabled}
+      title={title}
+      aria-label={ariaLabel}
+    >
+      +
+    </button>
   );
   MockPlusButton.displayName = 'MockPlusButton';
   return { __esModule: true, default: MockPlusButton };
@@ -300,6 +313,13 @@ describe('BrushLibrary', () => {
   it('does not render an image tag when document is present but thumbnail fetch is mocked', () => {
     render(<BrushLibrary />);
     expect(screen.getAllByRole('button').length).toBeGreaterThan(0);
+  });
+
+  it('disables custom-brush saving until a captured brush is ready', () => {
+    render(<BrushLibrary />);
+
+    expect(screen.getByRole('button', { name: 'Save captured custom brush to library' }))
+      .toBeDisabled();
   });
 
   it('filters retired duplicate presets out of the brush library', () => {

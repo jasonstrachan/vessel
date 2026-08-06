@@ -1048,6 +1048,7 @@ describe('tools slice', () => {
       expect(nextState.project?.customBrushes).toHaveLength(1);
       const savedBrush = nextState.project?.customBrushes[0];
       expect(savedBrush?.id).toBe(brushId);
+      expect(savedBrush?.name).toBe('Custom 1');
       expect(savedBrush?.imageData.width).toBe(4);
       expect(savedBrush?.thumbnail).toMatch(/^data:image\/png;base64,/);
       expect(savedBrush?.colorCycle).toEqual(colorCycle);
@@ -1289,6 +1290,10 @@ describe('tools slice', () => {
           },
         },
       },
+      ui: {
+        ...state.ui,
+        brushPanelSection: 'filters',
+      },
     }));
 
     useAppStore.getState().setCurrentTool('custom');
@@ -1297,6 +1302,50 @@ describe('tools slice', () => {
     expect(nextState.tools.currentTool).toBe('custom');
     expect(nextState.tools.brushSettings.selectedCustomBrush).toBeNull();
     expect(nextState.tools.brushSettings.currentBrushTip).toBeUndefined();
+    expect(nextState.ui.brushPanelSection).toBe('tool');
+  });
+
+  it('supports one-pixel custom brushes while keeping percent state in sync', () => {
+    const imageData = new ImageData(64, 64);
+    useAppStore.setState((state) => ({
+      ...state,
+      temporaryCustomBrush: {
+        id: 'temp_brush_64',
+        name: 'Temp Brush',
+        imageData,
+        thumbnail: '',
+        width: 64,
+        height: 64,
+        naturalWidth: 64,
+        naturalHeight: 64,
+        maxDimension: 64,
+        createdAt: Date.now(),
+      },
+      tools: {
+        ...state.tools,
+        brushSettings: {
+          ...state.tools.brushSettings,
+          brushShape: BrushShape.CUSTOM,
+          selectedCustomBrush: 'temp_brush_64',
+          currentBrushTip: {
+            imageData,
+            brushId: 'temp_brush_64',
+            width: 64,
+            height: 64,
+            naturalWidth: 64,
+            naturalHeight: 64,
+            maxDimension: 64,
+            isColorizable: false,
+          },
+        },
+      },
+    }));
+
+    useAppStore.getState().setGlobalBrushSize(1);
+
+    const nextState = useAppStore.getState();
+    expect(nextState.tools.brushSettings.size).toBe(1);
+    expect(nextState.tools.brushSettings.customBrushSizePercent).toBeCloseTo(1.563, 3);
   });
 
   it('preserves marquee selection when switching away from the selection tool', () => {

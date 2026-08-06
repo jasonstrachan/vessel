@@ -26,6 +26,7 @@ const BrushSettingsPanel: React.FC = () => {
   const currentTool = useAppStore(selectCurrentTool);
   const brushEditorStatus = useAppStore(selectBrushEditor).status;
   const brushSettings = useAppStore(selectBrushSettings);
+  const temporaryCustomBrush = useAppStore((state) => state.temporaryCustomBrush);
   const brushPanelSection = useAppStore((state) => state.ui.brushPanelSection);
   const setBrushSettings = useAppStore(state => state.setBrushSettings);
 
@@ -93,7 +94,7 @@ const BrushSettingsPanel: React.FC = () => {
             {currentTool === 'selection' && <SelectionOptionsPanel />}
             {(currentTool === 'brush' || currentTool === 'eraser') && <BrushControls />}
             {currentTool === 'fill' && <FillControls />}
-            {currentTool === 'custom' && <CustomBrushPanel />}
+            {(currentTool === 'custom' || temporaryCustomBrush) && <CustomBrushPanel />}
             {brushSettings.brushShape === BrushShape.CUSTOM && (
               <div className="px-4 pb-0">
                 <ColorSlidersPanel

@@ -47,6 +47,7 @@ type MockState = {
   activeLayerId: string | null;
   selectionStart: { x: number; y: number } | null;
   selectionEnd: { x: number; y: number } | null;
+  selectionLastAction: { source: string } | null;
   currentOffscreenCanvas: HTMLCanvasElement | null;
   temporaryCustomBrush: unknown | null;
   tools: {
@@ -71,6 +72,7 @@ type MockState = {
   setCustomBrushCaptureMode: jest.Mock;
   setCustomBrushFreehandPath: jest.Mock;
   setCurrentTool: jest.Mock;
+  saveCustomBrushAsPreset: jest.Mock;
 };
 
 function makeColorCycleLayer(): Layer {
@@ -115,6 +117,7 @@ function makeBaseState(): MockState {
     activeLayerId: 'layer-cc',
     selectionStart: { x: 0, y: 0 },
     selectionEnd: { x: 4, y: 4 },
+    selectionLastAction: { source: 'custom-selection-final' },
     currentOffscreenCanvas: canvas,
     temporaryCustomBrush: null,
     tools: {
@@ -138,6 +141,7 @@ function makeBaseState(): MockState {
     setCustomBrushCaptureMode: jest.fn(),
     setCustomBrushFreehandPath: jest.fn(),
     setCurrentTool: jest.fn(),
+    saveCustomBrushAsPreset: jest.fn(),
   };
 }
 
@@ -256,7 +260,22 @@ describe('CustomBrushPanel CC capture hint', () => {
     expect(tempBrushArg.colorCycle).toBeUndefined();
   });
 
+  it('does not capture while the rectangle marquee is only a preview', () => {
+    (useAppStore as unknown as { setState: (partial: unknown) => void }).setState({
+      selectionLastAction: { source: 'selection-marquee-preview' },
+    });
+
+    render(<CustomBrushPanel />);
+
+    expect(mockCaptureBrushFromCanvas).not.toHaveBeenCalled();
+    expect(screen.getByText('Selection')).toBeInTheDocument();
+  });
+
   it('shows selection dimensions for rectangle capture', () => {
+    (useAppStore as unknown as { setState: (partial: unknown) => void }).setState({
+      selectionLastAction: { source: 'selection-marquee-preview' },
+    });
+
     render(<CustomBrushPanel />);
 
     expect(screen.getByText('Selection')).toBeInTheDocument();
@@ -308,6 +327,8 @@ describe('CustomBrushPanel CC capture hint', () => {
     (useAppStore as unknown as { setState: (partial: unknown) => void }).setState((state: MockState) => ({
       ...state,
       currentOffscreenCanvas: null,
+      layers: [],
+      activeLayerId: null,
       selectionStart: null,
       selectionEnd: null,
       tools: {
@@ -387,6 +408,30 @@ describe('CustomBrushPanel CC capture hint', () => {
       selectedCustomBrush: null,
       currentBrushTip: undefined,
     });
+  });
+
+  it('keeps a captured brush actionable and saves it through the project action', () => {
+    const temporaryCustomBrush = {
+      id: 'temp_brush_ready',
+      imageData: new ImageData(2, 2),
+      width: 2,
+      height: 2,
+      thumbnail: 'data:image/png;base64,aaaa',
+    };
+    (useAppStore as unknown as { setState: (partial: unknown) => void }).setState({
+      selectionStart: null,
+      selectionEnd: null,
+      selectionLastAction: null,
+      temporaryCustomBrush,
+    });
+
+    render(<CustomBrushPanel />);
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+
+    const saveCustomBrushAsPreset =
+      (useAppStore as unknown as { getState: () => MockState }).getState().saveCustomBrushAsPreset;
+    expect(saveCustomBrushAsPreset).toHaveBeenCalledWith('temp_brush_ready');
+    expect(screen.getByText('Ready to paint')).toBeInTheDocument();
   });
 
   it('cancels freehand capture path on Escape', async () => {

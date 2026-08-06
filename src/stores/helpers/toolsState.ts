@@ -70,9 +70,9 @@ export const normalizePersistedBrushSettings = (
   return normalized;
 };
 
-const CUSTOM_BRUSH_PERCENT_MIN = 5;
+const CUSTOM_BRUSH_PERCENT_MIN = 0.001;
 const CUSTOM_BRUSH_PERCENT_MAX = 1000;
-const CUSTOM_BRUSH_PERCENT_STEP = 5;
+const CUSTOM_BRUSH_PERCENT_STEP = 0.001;
 
 export const clampPressurePercent = (value: number): number => {
   const clamped = Math.max(0, Math.min(MAX_CANVAS_ZOOM * 100, value));

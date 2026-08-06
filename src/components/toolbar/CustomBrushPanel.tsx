@@ -3,7 +3,6 @@
 import CustomSwitch from '@/components/ui/CustomSwitch';
 import DimensionsBox from '@/components/ui/DimensionsBox';
 import { useAppStore } from '@/stores/useAppStore';
-import { selectCustomBrushes } from '@/stores/selectors/projectSelectors';
 import {
   selectTemporaryCustomBrush,
   selectCustomBrushCaptureAllLayers,
@@ -28,11 +27,10 @@ import type { BrushCaptureResult } from '@/utils/customBrushCapture';
 import { DEFAULT_GRADIENT_STOPS } from '@/utils/gradientPresets';
 
 export const CustomBrushPanel = () => {
-  const addCustomBrush = useAppStore((state) => state.addCustomBrush);
-  const customBrushes = useAppStore(selectCustomBrushes);
   const temporaryCustomBrush = useAppStore(selectTemporaryCustomBrush);
   const activeLayer = useAppStore(selectActiveLayer);
   const { selectionStart, selectionEnd } = useAppStore(selectSelectionRects);
+  const selectionSource = useAppStore((state) => state.selectionLastAction?.source ?? null);
   const clearSelection = useAppStore((state) => state.clearSelection);
   const currentOffscreenCanvas = useAppStore((state) => state.currentOffscreenCanvas);
   const setTemporaryCustomBrush = useAppStore((state) => state.setTemporaryCustomBrush);
@@ -47,6 +45,7 @@ export const CustomBrushPanel = () => {
   const setCustomBrushCaptureMode = useAppStore((state) => state.setCustomBrushCaptureMode);
   const setCustomBrushFreehandPath = useAppStore((state) => state.setCustomBrushFreehandPath);
   const setCurrentTool = useAppStore((state) => state.setCurrentTool);
+  const saveCustomBrushAsPreset = useAppStore((state) => state.saveCustomBrushAsPreset);
   const [ccImportedHint, setCcImportedHint] = useState(false);
 
   const cancelCapture = useCallback(() => {
@@ -83,14 +82,6 @@ export const CustomBrushPanel = () => {
     }
     return currentOffscreenCanvas;
   }, [sampleAllLayers, activeLayer, currentOffscreenCanvas]);
-
-  // Clear temporary brush when there's no selection (i.e., when custom tool is deactivated)
-  useEffect(() => {
-    if (!selectionStart && !selectionEnd) {
-      setTemporaryCustomBrush(null);
-      setCcImportedHint(false);
-    }
-  }, [selectionStart, selectionEnd, setTemporaryCustomBrush]);
 
   const applyCaptureResult = useCallback((
     captureResult: BrushCaptureResult,
@@ -222,6 +213,8 @@ export const CustomBrushPanel = () => {
     applyCaptureResult(captureResult, {
       colorCycleData: capturedColorCycle,
     });
+    clearSelection();
+    setCurrentTool('brush');
   }, [
     captureMode,
     selectionStart,
@@ -229,7 +222,9 @@ export const CustomBrushPanel = () => {
     activeLayer,
     sampleAllLayers,
     resolveCaptureCanvas,
-    applyCaptureResult
+    applyCaptureResult,
+    clearSelection,
+    setCurrentTool,
   ]);
 
   const createBrushFromFreehandPath = useCallback(() => {
@@ -295,13 +290,25 @@ export const CustomBrushPanel = () => {
     setCurrentTool,
   ]);
 
-  // Create brush immediately when selection changes
+  // Preview bounds update continuously; capture only the completed marquee.
   useEffect(() => {
-    // Create brush immediately if we have a valid selection
-    if (captureMode === 'rectangle' && selectionStart && selectionEnd && resolveCaptureCanvas()) {
+    if (
+      captureMode === 'rectangle' &&
+      selectionSource === 'custom-selection-final' &&
+      selectionStart &&
+      selectionEnd &&
+      resolveCaptureCanvas()
+    ) {
       createBrushFromSelection();
     }
-  }, [captureMode, selectionStart, selectionEnd, resolveCaptureCanvas, createBrushFromSelection]);
+  }, [
+    captureMode,
+    selectionSource,
+    selectionStart,
+    selectionEnd,
+    resolveCaptureCanvas,
+    createBrushFromSelection,
+  ]);
 
   useEffect(() => {
     if (captureMode === 'freehand' && freehandPath) {
@@ -323,68 +330,8 @@ export const CustomBrushPanel = () => {
 
   const handleSaveCustomBrush = () => {
     if (!temporaryCustomBrush) return;
-    
-    // Deep clone the ImageData to avoid reference issues
-    const clonedImageData = new ImageData(
-      new Uint8ClampedArray(temporaryCustomBrush.imageData.data),
-      temporaryCustomBrush.imageData.width,
-      temporaryCustomBrush.imageData.height
-    );
-    
-    // Create a permanent brush from the temporary one
-    const baseNaturalWidth = temporaryCustomBrush.naturalWidth ?? temporaryCustomBrush.width;
-    const baseNaturalHeight = temporaryCustomBrush.naturalHeight ?? temporaryCustomBrush.height;
-    const baseMaxDimension = temporaryCustomBrush.maxDimension ?? Math.max(baseNaturalWidth, baseNaturalHeight);
-
-    const permanentBrush: CustomBrush = {
-      ...temporaryCustomBrush,
-      id: `brush_${Date.now()}`,
-      name: `Custom ${customBrushes.length + 1}`,
-      imageData: clonedImageData,
-      naturalWidth: baseNaturalWidth,
-      naturalHeight: baseNaturalHeight,
-      maxDimension: baseMaxDimension,
-    };
-    
-    
-    // Add the brush to the project
-    addCustomBrush(permanentBrush);
-
-    // Update brush settings to use the new permanent brush at 100% size
-    const normalizedSize = Math.max(
-      1,
-      Math.round(permanentBrush.maxDimension ?? Math.max(permanentBrush.width, permanentBrush.height))
-    );
-    setGlobalBrushSize(normalizedSize);
-    setBrushSettings({
-      brushShape: BrushShape.CUSTOM,
-      selectedCustomBrush: permanentBrush.id,
-      size: normalizedSize,
-      customBrushSizePercent: 100,
-      pressureEnabled: false,
-      minPressure: 99,
-      maxPressure: undefined,
-      currentBrushTip: {
-        imageData: permanentBrush.imageData,
-        brushId: permanentBrush.id,
-        width: permanentBrush.width,
-        height: permanentBrush.height,
-        naturalWidth: permanentBrush.naturalWidth ?? permanentBrush.width,
-        naturalHeight: permanentBrush.naturalHeight ?? permanentBrush.height,
-        maxDimension: permanentBrush.maxDimension ?? Math.max(permanentBrush.width, permanentBrush.height),
-        colorCycle: permanentBrush.colorCycle,
-        isColorizable: false
-      }
-    });
-    setCustomBrushSizePercent(100);
-    
-    
-    // Clear temporary brush and selection after a small delay
-    setTimeout(() => {
-      setTemporaryCustomBrush(null);
-      clearSelection();
-      setCcImportedHint(false);
-    }, 50);
+    saveCustomBrushAsPreset(temporaryCustomBrush.id);
+    setCcImportedHint(false);
   };
 
 
@@ -404,22 +351,24 @@ export const CustomBrushPanel = () => {
     <div className="p-4 bg-[#2a2a2a] border-t border-[#404040]">
       {/* Header */}
       <div className="flex items-center justify-between mb-4">
-        <h3 className="text-[#D9D9D9] text-base font-light">Custom brush</h3>
+        <h3 className="text-[#D9D9D9] text-base font-light">
+          {hasTemporaryBrush ? 'Brush ready' : 'Custom brush'}
+        </h3>
         {hasTemporaryBrush ? (
           <div className="flex gap-2">
             <button
               onClick={handleSaveCustomBrush}
-              className="px-3 py-1 bg-green-500 hover:bg-green-600 text-white text-sm rounded transition-colors"
+              className="px-3 py-1 bg-green-500 hover:bg-green-600 text-white text-sm transition-colors"
               title="Save brush to library"
             >
               Save
             </button>
             <button
               onClick={cancelCapture}
-              className="px-3 py-1 bg-red-500 hover:bg-red-600 text-white text-sm rounded transition-colors"
-              title="Cancel"
+              className="px-3 py-1 bg-red-500 hover:bg-red-600 text-white text-sm transition-colors"
+              title="Discard captured brush"
             >
-              Cancel
+              Discard
             </button>
           </div>
         ) : (
@@ -429,7 +378,7 @@ export const CustomBrushPanel = () => {
         )}
       </div>
 
-      <div className="mb-3">
+      {!hasTemporaryBrush && <div className="mb-3">
         <p className="text-sm text-gray-300 mb-2">Capture shape</p>
         <div className="flex gap-2" role="group" aria-label="Custom brush capture mode">
           {(
@@ -444,26 +393,27 @@ export const CustomBrushPanel = () => {
                 key={option.value}
                 type="button"
                 onClick={() => setCustomBrushCaptureMode(option.value)}
+                aria-pressed={isActive}
                 className={`${
                   isActive ? 'bg-white text-black' : 'bg-[#1f1f1f] text-gray-300'
-                } px-3 py-1 text-sm rounded border border-[#3a3a3a] transition-colors`}
+                } px-3 py-1 text-sm border border-[#3a3a3a] transition-colors`}
               >
                 {option.label}
               </button>
             );
           })}
         </div>
-      </div>
+      </div>}
 
-      <div className="mt-2 flex items-center justify-between">
+      {!hasTemporaryBrush && <div className="mt-2 flex items-center justify-between">
         <span className="text-sm text-gray-300">All layers</span>
         <CustomSwitch
           aria-label="All layers"
           checked={sampleAllLayers}
           onChange={setCustomBrushSampleAllLayers}
         />
-      </div>
-      {captureBounds ? (
+      </div>}
+      {!hasTemporaryBrush && captureBounds ? (
         <DimensionsBox
           label={captureMode === 'rectangle' ? 'Selection' : 'Capture bounds'}
           width={captureBounds.width}
@@ -473,7 +423,7 @@ export const CustomBrushPanel = () => {
       ) : null}
       {/* Show temporary brush preview if available */}
       {hasTemporaryBrush && (
-        <div className="mt-4 p-3 bg-[#1a1a1a] rounded">
+        <div className="mt-4 p-3 bg-[#1a1a1a]">
           <div className="flex items-center gap-3">
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img 
@@ -483,7 +433,7 @@ export const CustomBrushPanel = () => {
               style={{ imageRendering: 'pixelated' }}
             />
             <div className="flex-1">
-              <p className="text-sm text-gray-300">Testing temporary brush</p>
+              <p className="text-sm text-gray-300">Ready to paint</p>
               <p className="text-xs text-gray-500">
                 Size: {temporaryCustomBrush.width}×{temporaryCustomBrush.height}
               </p>
@@ -494,6 +444,13 @@ export const CustomBrushPanel = () => {
               )}
             </div>
           </div>
+          <button
+            type="button"
+            onClick={() => setCurrentTool('custom')}
+            className="mt-3 w-full border border-[#4a4a4a] px-3 py-1 text-sm text-gray-300 hover:bg-[#2a2a2a]"
+          >
+            Recapture
+          </button>
         </div>
       )}
 

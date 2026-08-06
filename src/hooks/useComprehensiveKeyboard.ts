@@ -286,7 +286,6 @@ export function useComprehensiveKeyboard({
 
   const setCurrentTool = useAppStore((state) => state.setCurrentTool);
   const bumpGlobalBrushSize = useAppStore((state) => state.bumpGlobalBrushSize);
-  const setCustomBrushSizePercent = useAppStore((state) => state.setCustomBrushSizePercent);
   const setEraserSettings = useAppStore((state) => state.setEraserSettings);
   const deleteSelectedPixels = useAppStore((state) => state.deleteSelectedPixels);
   const selectAllActiveLayerPixels = useAppStore((state) => state.selectAllActiveLayerPixels);
@@ -352,16 +351,12 @@ export function useComprehensiveKeyboard({
     }
 
     if (brushSettings.brushShape === BrushShape.CUSTOM) {
-      const currentPercent = brushSettings.customBrushSizePercent ?? 100;
-      const nextPercent = Math.max(5, Math.min(1000, currentPercent + delta * 5));
-      if (nextPercent !== currentPercent) {
-        setCustomBrushSizePercent(nextPercent);
-      }
+      applyBrushSizeDeltaImmediate(delta);
       return;
     }
 
     applyBrushSizeDeltaImmediate(delta);
-  }, [applyBrushSizeDeltaImmediate, setCustomBrushSizePercent, setEraserSettings, toolsRef]);
+  }, [applyBrushSizeDeltaImmediate, setEraserSettings, toolsRef]);
 
   const applyBracketShortcutStep = useCallback((target: BracketShortcutTarget, delta: -1 | 1) => {
     if (target === 'shape-resolution') {

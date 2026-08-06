@@ -254,7 +254,6 @@ const cl = {
   },
 };
 // -----------------------------------------------------------
-import { flushAndSetCurrentTool } from '@/utils/toolSwitch';
 import {
   isDitherShapeMode,
   isStrokeBrush,
@@ -2368,8 +2367,6 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
       pan,
       setPan: deps.setPan,
       draw: deps.draw,
-      updateBrushCursorVisibility,
-      flushAndSetCurrentTool,
       selectionRuntimeRef: deps.selectionRuntimeRef,
     },
     getDynamicDeps
