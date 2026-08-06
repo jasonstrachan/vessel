@@ -658,6 +658,43 @@ describe('LayersPanel interactions', () => {
     ]);
   });
 
+  it('drags one group member to the top when the full group is selected', () => {
+    state.layers = [
+      { ...createLayer({ id: 'layer-a', order: 0, visible: true }), groupId: 'group-1' },
+      { ...createLayer({ id: 'layer-b', order: 1, visible: true }), groupId: 'group-1' },
+      { ...createLayer({ id: 'layer-c', order: 2, visible: true }), groupId: 'group-1' },
+    ];
+    state.layerGroups = [{ id: 'group-1', name: 'Foreground' }];
+    state.selectedLayerIds = ['layer-a', 'layer-b', 'layer-c'];
+    render(<LayersPanel />);
+
+    const sourceRow = getLayerRows()[2];
+    const groupHeader = screen.getByText('Foreground').closest('div');
+    expect(sourceRow).not.toBeUndefined();
+    expect(groupHeader).not.toBeNull();
+
+    const dataTransfer = {
+      effectAllowed: 'move',
+      dropEffect: 'move',
+      setData: jest.fn(),
+      getData: jest.fn(() => 'layer-a'),
+    };
+
+    fireEvent.dragStart(sourceRow as Element, { dataTransfer });
+    expect(state.setSelectedLayerIds).toHaveBeenCalledWith(['layer-a']);
+    mockRowBounds(groupHeader as Element);
+    fireEvent.dragOver(groupHeader as Element, { clientY: 20, dataTransfer });
+    expect(screen.getByTestId('layer-drop-indicator')).toHaveClass('-top-px');
+    fireEvent.drop(groupHeader as Element, { dataTransfer });
+
+    expect(state.moveLayersToGroup).toHaveBeenCalledWith(['layer-a'], 'group-1', 3);
+    expect(state.layers.slice().reverse().map((layer) => layer.id)).toEqual([
+      'layer-a',
+      'layer-c',
+      'layer-b',
+    ]);
+  });
+
   it('reorders dragged group above target group when dropped on another group header', () => {
     state.layers = [
       { ...createLayer({ id: 'layer-a', order: 0, visible: true }), groupId: 'group-1' },
@@ -988,6 +1025,82 @@ describe('LayersPanel interactions', () => {
 
     expect(state.moveLayersToGroup).not.toHaveBeenCalled();
     expect(state.layers.find((layer) => layer.id === 'layer-b')?.groupId).toBe('group-1');
+  });
+
+  it('moves an interior group member to the top without dragging it out', () => {
+    state.layers = [
+      { ...createLayer({ id: 'layer-a', order: 0, visible: true }), groupId: 'group-1' },
+      { ...createLayer({ id: 'layer-b', order: 1, visible: true }), groupId: 'group-1' },
+      { ...createLayer({ id: 'layer-c', order: 2, visible: true }), groupId: 'group-1' },
+    ];
+    state.layerGroups = [{ id: 'group-1', name: 'Foreground' }];
+    state.selectedLayerIds = ['layer-a'];
+    render(<LayersPanel />);
+
+    const targetRow = getLayerRows()[0];
+    const sourceRow = getLayerRows()[2];
+    expect(targetRow).not.toBeUndefined();
+    expect(sourceRow).not.toBeUndefined();
+    mockRowBounds(targetRow as Element);
+
+    const dataTransfer = {
+      effectAllowed: 'move',
+      dropEffect: 'move',
+      setData: jest.fn(),
+      getData: jest.fn(() => 'layer-a'),
+    };
+
+    fireEvent.dragStart(sourceRow as Element, { dataTransfer });
+    fireEvent.dragOver(targetRow as Element, { clientY: 5, dataTransfer });
+    expect(screen.getByTestId('layer-drop-indicator')).toHaveClass('-top-px');
+    fireEvent.drop(targetRow as Element, { clientY: 5, dataTransfer });
+
+    expect(state.moveLayersToGroup).toHaveBeenCalledWith(['layer-a'], 'group-1', 3);
+    expect(state.layers.find((layer) => layer.id === 'layer-a')?.groupId).toBe('group-1');
+    expect(state.layers.slice().reverse().map((layer) => layer.id)).toEqual([
+      'layer-a',
+      'layer-c',
+      'layer-b',
+    ]);
+  });
+
+  it('moves an interior group member to the bottom without dragging it out', () => {
+    state.layers = [
+      { ...createLayer({ id: 'layer-a', order: 0, visible: true }), groupId: 'group-1' },
+      { ...createLayer({ id: 'layer-b', order: 1, visible: true }), groupId: 'group-1' },
+      { ...createLayer({ id: 'layer-c', order: 2, visible: true }), groupId: 'group-1' },
+    ];
+    state.layerGroups = [{ id: 'group-1', name: 'Foreground' }];
+    state.selectedLayerIds = ['layer-c'];
+    render(<LayersPanel />);
+
+    const sourceRow = getLayerRows()[0];
+    const targetRow = getLayerRows()[2];
+    expect(sourceRow).not.toBeUndefined();
+    expect(targetRow).not.toBeUndefined();
+    mockRowBounds(targetRow as Element);
+
+    const dataTransfer = {
+      effectAllowed: 'move',
+      dropEffect: 'move',
+      setData: jest.fn(),
+      getData: jest.fn(() => 'layer-c'),
+    };
+
+    fireEvent.dragStart(sourceRow as Element, { dataTransfer });
+    fireEvent.dragOver(targetRow as Element, { clientY: 30, dataTransfer });
+    expect(screen.getByTestId('layer-drop-indicator')).toHaveClass('-top-px');
+    const dropEvent = createEvent.drop(targetRow as Element, { dataTransfer });
+    Object.defineProperty(dropEvent, 'clientY', { value: 30 });
+    fireEvent(targetRow as Element, dropEvent);
+
+    expect(state.moveLayersToGroup).toHaveBeenCalledWith(['layer-c'], 'group-1', 0);
+    expect(state.layers.find((layer) => layer.id === 'layer-c')?.groupId).toBe('group-1');
+    expect(state.layers.slice().reverse().map((layer) => layer.id)).toEqual([
+      'layer-b',
+      'layer-a',
+      'layer-c',
+    ]);
   });
 
   it('drags the top member out above its own group boundary', () => {
