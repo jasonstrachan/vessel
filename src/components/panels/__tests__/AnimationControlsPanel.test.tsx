@@ -1,5 +1,5 @@
 import React from 'react';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 
 const toggleToolbarColorCyclePlayback = jest.fn<Promise<void>, []>(() => Promise.resolve());
 
@@ -31,6 +31,7 @@ jest.mock('@/stores/useAppStore', () => {
   };
   type MockState = {
     colorCyclePlayback: ColorCyclePlayback;
+    warmingColorCycleLayerIds: string[];
     layers: Layer[];
     activeLayerId: string | null;
     sequentialRecord: SequentialRecord;
@@ -53,6 +54,7 @@ jest.mock('@/stores/useAppStore', () => {
   const listeners = new Set<(state: MockState) => void>();
   const state: MockState = {
     colorCyclePlayback: { desiredPlaying: false, suspendDepth: 0, playbackSpeedScale: 1 },
+    warmingColorCycleLayerIds: [],
     layers: [{ id: 'layer-regular', layerType: 'normal' }],
     activeLayerId: 'layer-regular',
     sequentialRecord: {
@@ -146,6 +148,7 @@ const PLAYBACK_SPEED_PANEL_EXPANDED_STORAGE_KEY = 'vessel-playback-speed-panel-e
 
 type PanelMockState = {
   colorCyclePlayback: { desiredPlaying: boolean; suspendDepth: number; playbackSpeedScale: number };
+  warmingColorCycleLayerIds: string[];
   layers: Array<{
     id: string;
     layerType: 'normal' | 'color-cycle' | 'sequential';
@@ -188,6 +191,7 @@ describe('AnimationControlsPanel', () => {
     store.updateLayer.mockClear();
     appStore.setState({
       colorCyclePlayback: { desiredPlaying: false, suspendDepth: 0, playbackSpeedScale: 1 },
+      warmingColorCycleLayerIds: [],
       layers: [{ id: 'layer-regular', layerType: 'normal' }],
       activeLayerId: 'layer-regular',
       sequentialRecord: {
@@ -214,15 +218,122 @@ describe('AnimationControlsPanel', () => {
     expect(store.playColorCycle).not.toHaveBeenCalled();
   });
 
-  it('shows resume when playback is suspended', () => {
+  it('shows resume when playback is suspended', async () => {
     appStore.setState({
       colorCyclePlayback: { desiredPlaying: true, suspendDepth: 2, playbackSpeedScale: 1 },
     });
 
     render(<AnimationControlsPanel />);
-    fireEvent.click(screen.getByRole('button', { name: /resume/i }));
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /resume/i }));
+    });
 
     expect(toggleToolbarColorCyclePlayback).toHaveBeenCalledTimes(1);
+  });
+
+  it('shows a spinner while color-cycle payloads warm without disabling pause', () => {
+    appStore.setState({
+      colorCyclePlayback: { desiredPlaying: true, suspendDepth: 0, playbackSpeedScale: 1 },
+      warmingColorCycleLayerIds: ['layer-cc-a', 'layer-cc-b'],
+    });
+
+    render(<AnimationControlsPanel />);
+
+    const playbackButton = screen.getByRole('button', {
+      name: /pause playback; preparing 2 color-cycle layers/i,
+    });
+    expect(playbackButton).toHaveAttribute('aria-busy', 'true');
+    expect(playbackButton).toHaveAttribute('title', 'Preparing 2 color-cycle layers');
+    expect(playbackButton.querySelector('svg')).toHaveClass('animate-spin');
+    expect(playbackButton).toBeEnabled();
+
+    fireEvent.click(playbackButton);
+    expect(toggleToolbarColorCyclePlayback).toHaveBeenCalledTimes(1);
+  });
+
+  it('shows a spinner from the play request until asynchronous startup completes', async () => {
+    let resolvePlaybackStart: (() => void) | undefined;
+    toggleToolbarColorCyclePlayback.mockReturnValueOnce(new Promise<void>((resolve) => {
+      resolvePlaybackStart = resolve;
+    }));
+
+    render(<AnimationControlsPanel />);
+    fireEvent.click(screen.getByRole('button', { name: /play/i }));
+
+    const pendingButton = screen.getByRole('button', {
+      name: /play playback; starting animation/i,
+    });
+    expect(pendingButton).toHaveAttribute('aria-busy', 'true');
+    expect(pendingButton).toHaveAttribute('title', 'Starting animation');
+    expect(pendingButton.querySelector('svg')).toHaveClass('animate-spin');
+
+    await act(async () => {
+      resolvePlaybackStart?.();
+    });
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Play' })).toHaveAttribute('aria-busy', 'false');
+    });
+  });
+
+  it('keeps the spinner visible until the first color-cycle frame is ready', async () => {
+    appStore.setState({
+      layers: [{
+        id: 'layer-cc',
+        layerType: 'color-cycle',
+        colorCycleData: { mode: 'brush' },
+      }],
+      activeLayerId: 'layer-cc',
+    });
+
+    render(<AnimationControlsPanel />);
+    fireEvent.click(screen.getByRole('button', { name: /play/i }));
+
+    const pendingButton = screen.getByRole('button', {
+      name: /play playback; starting animation/i,
+    });
+    expect(pendingButton).toHaveAttribute('aria-busy', 'true');
+    expect(pendingButton.querySelector('svg')).toHaveClass('animate-spin');
+
+    await act(async () => {
+      window.dispatchEvent(new CustomEvent('colorCycleFrameReady', {
+        detail: { sourceLayerId: 'layer-cc' },
+      }));
+    });
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Play' })).toHaveAttribute('aria-busy', 'false');
+    });
+  });
+
+  it('clears a pending startup spinner immediately when playback is paused', async () => {
+    appStore.setState({
+      layers: [{
+        id: 'layer-cc',
+        layerType: 'color-cycle',
+        colorCycleData: { mode: 'brush' },
+      }],
+      activeLayerId: 'layer-cc',
+    });
+    toggleToolbarColorCyclePlayback.mockImplementationOnce(() => {
+      appStore.setState({
+        colorCyclePlayback: { desiredPlaying: true, suspendDepth: 0, playbackSpeedScale: 1 },
+      });
+      return Promise.resolve();
+    });
+
+    render(<AnimationControlsPanel />);
+    fireEvent.click(screen.getByRole('button', { name: /play/i }));
+    const pendingPauseButton = screen.getByRole('button', {
+      name: /pause playback; starting animation/i,
+    });
+    expect(pendingPauseButton).toHaveAttribute('aria-busy', 'true');
+    fireEvent.click(pendingPauseButton);
+
+    expect(screen.getByRole('button', { name: 'Pause' })).toHaveAttribute('aria-busy', 'false');
+    await act(async () => {
+      window.dispatchEvent(new CustomEvent('colorCycleFrameReady', {
+        detail: { sourceLayerId: 'layer-cc' },
+      }));
+    });
   });
 
   it('disables sequential controls while capturing', () => {
@@ -300,7 +411,7 @@ describe('AnimationControlsPanel', () => {
     expect(screen.getByRole('button', { name: /play/i })).toBeInTheDocument();
   });
 
-  it('shows play and force-resumes when sequential playback is suspended', () => {
+  it('shows play and force-resumes when sequential playback is suspended', async () => {
     appStore.setState({
       colorCyclePlayback: { desiredPlaying: true, suspendDepth: 2, playbackSpeedScale: 1 },
       layers: [{ id: 'layer-seq', layerType: 'sequential' }],
@@ -315,7 +426,9 @@ describe('AnimationControlsPanel', () => {
     });
 
     render(<AnimationControlsPanel />);
-    fireEvent.click(screen.getByRole('button', { name: /resume/i }));
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /resume/i }));
+    });
 
     const store = appStore.getState();
     expect(toggleToolbarColorCyclePlayback).toHaveBeenCalledTimes(1);
