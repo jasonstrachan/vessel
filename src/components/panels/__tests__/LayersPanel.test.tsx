@@ -658,6 +658,44 @@ describe('LayersPanel interactions', () => {
     ]);
   });
 
+  it('treats the group header and top-layer seam as entry into the group', () => {
+    state.layers = [
+      { ...createLayer({ id: 'layer-a', order: 0, visible: true }), groupId: 'group-1' },
+      { ...createLayer({ id: 'layer-b', order: 1, visible: true }), groupId: 'group-1' },
+      createLayer({ id: 'layer-outside', order: 2, visible: true }),
+    ];
+    state.layerGroups = [{ id: 'group-1', name: 'Foreground' }];
+    state.selectedLayerIds = ['layer-outside'];
+    render(<LayersPanel />);
+
+    const sourceRow = getLayerRows()[0];
+    const topGroupRow = getLayerRows()[1];
+    expect(sourceRow).not.toBeUndefined();
+    expect(topGroupRow).not.toBeUndefined();
+    mockRowBounds(topGroupRow as Element, 25);
+
+    const dataTransfer = {
+      effectAllowed: 'move',
+      dropEffect: 'move',
+      setData: jest.fn(),
+      getData: jest.fn(() => 'layer-outside'),
+    };
+
+    fireEvent.dragStart(sourceRow as Element, { dataTransfer });
+    fireEvent.dragOver(topGroupRow as Element, { clientY: 25, dataTransfer });
+    expect(screen.getByTestId('layer-drop-indicator')).toHaveClass('-top-px');
+    const dropEvent = createEvent.drop(topGroupRow as Element, { dataTransfer });
+    Object.defineProperty(dropEvent, 'clientY', { value: 25 });
+    fireEvent(topGroupRow as Element, dropEvent);
+
+    expect(state.moveLayersToGroup).toHaveBeenCalledWith(
+      ['layer-outside'],
+      'group-1',
+      2,
+    );
+    expect(state.layers.find((layer) => layer.id === 'layer-outside')?.groupId).toBe('group-1');
+  });
+
   it('drags one group member to the top when the full group is selected', () => {
     state.layers = [
       { ...createLayer({ id: 'layer-a', order: 0, visible: true }), groupId: 'group-1' },
@@ -672,7 +710,6 @@ describe('LayersPanel interactions', () => {
     const groupHeader = screen.getByText('Foreground').closest('div');
     expect(sourceRow).not.toBeUndefined();
     expect(groupHeader).not.toBeNull();
-    expect(groupHeader).toHaveClass('sticky', 'top-0');
 
     const dataTransfer = {
       effectAllowed: 'move',
@@ -685,9 +722,7 @@ describe('LayersPanel interactions', () => {
     expect(state.setSelectedLayerIds).toHaveBeenCalledWith(['layer-a']);
     mockRowBounds(groupHeader as Element);
     fireEvent.dragOver(groupHeader as Element, { clientY: 20, dataTransfer });
-    const dropIndicator = screen.getByTestId('layer-drop-indicator');
-    expect(dropIndicator).toHaveClass('-top-px');
-    expect(groupHeader).toContainElement(dropIndicator);
+    expect(screen.getByTestId('layer-drop-indicator')).toHaveClass('-top-px');
     fireEvent.drop(groupHeader as Element, { dataTransfer });
 
     expect(state.moveLayersToGroup).toHaveBeenCalledWith(['layer-a'], 'group-1', 3);
