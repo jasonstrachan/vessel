@@ -672,6 +672,7 @@ describe('LayersPanel interactions', () => {
     const groupHeader = screen.getByText('Foreground').closest('div');
     expect(sourceRow).not.toBeUndefined();
     expect(groupHeader).not.toBeNull();
+    expect(groupHeader).toHaveClass('sticky', 'top-0');
 
     const dataTransfer = {
       effectAllowed: 'move',
@@ -684,7 +685,9 @@ describe('LayersPanel interactions', () => {
     expect(state.setSelectedLayerIds).toHaveBeenCalledWith(['layer-a']);
     mockRowBounds(groupHeader as Element);
     fireEvent.dragOver(groupHeader as Element, { clientY: 20, dataTransfer });
-    expect(screen.getByTestId('layer-drop-indicator')).toHaveClass('-top-px');
+    const dropIndicator = screen.getByTestId('layer-drop-indicator');
+    expect(dropIndicator).toHaveClass('-top-px');
+    expect(groupHeader).toContainElement(dropIndicator);
     fireEvent.drop(groupHeader as Element, { dataTransfer });
 
     expect(state.moveLayersToGroup).toHaveBeenCalledWith(['layer-a'], 'group-1', 3);

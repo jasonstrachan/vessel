@@ -1145,15 +1145,10 @@ const LayersPanel: React.FC = () => {
 
           return (
             <React.Fragment key={`${layer.id}-${layer.order}-${index}`}>
-              {shouldRenderGroupHeader && isDropAbove && (
-                <div className="relative h-0">
-                  <LayerDropIndicator position="top" />
-                </div>
-              )}
               {shouldRenderGroupHeader && groupId && (
                 <div
                   draggable
-                  className={`relative flex items-center gap-2 border-b border-[#3F3F3F] px-2 py-1 text-[10px] uppercase tracking-wide ${
+                  className={`sticky top-0 z-20 flex items-center gap-2 border-b border-[#3F3F3F] px-2 py-1 text-[10px] uppercase tracking-wide ${
                     isGroupSelected ? 'bg-[#E8F2FF] text-[#0F172A]' : 'bg-[#25252A] text-[#B8C0CC]'
                   } ${draggedGroupId === groupId ? 'opacity-60' : ''}`}
                   onDragStart={(event) => {
@@ -1196,6 +1191,7 @@ const LayersPanel: React.FC = () => {
                     });
                   }}
                 >
+                  {isDropAbove && <LayerDropIndicator position="top" />}
                   {shouldRenderCollapsedGroupDropBelow && <LayerDropIndicator position="bottom" />}
                   <button
                     onClick={(event) => {
