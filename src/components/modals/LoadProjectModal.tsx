@@ -1,6 +1,6 @@
 'use client';
 
-import { debugWarn, logError } from '@/utils/debug';
+import { debugWarn } from '@/utils/debug';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 
 import { LoadProjectModalBody } from '@/components/modals/LoadProjectModalBody';
@@ -62,6 +62,7 @@ export function LoadProjectModal({ isOpen, onClose }: LoadProjectModalProps) {
 
   const {
     isProcessing,
+    isInspecting,
     applyInFlight,
     repairExportInFlight,
     error,
@@ -69,8 +70,8 @@ export function LoadProjectModal({ isOpen, onClose }: LoadProjectModalProps) {
     preview,
     projectData,
     requiresRepair,
+    processingStatus,
     processProjectFile,
-    setError,
     confirmLoad,
     confirmRepairExport,
     reset,
@@ -85,7 +86,6 @@ export function LoadProjectModal({ isOpen, onClose }: LoadProjectModalProps) {
     previewScale,
     isPreviewPanning,
     previewWrapperRef,
-    resetPreviewViewport,
     handlePreviewPointerDown,
     handlePreviewPointerMove,
     handlePreviewPointerUp,
@@ -98,17 +98,12 @@ export function LoadProjectModal({ isOpen, onClose }: LoadProjectModalProps) {
 
   const handleDirectoryEntryOpen = useCallback(async (
     entry: DirectoryProjectEntry,
+    file: File,
     options?: { autoImport?: boolean },
   ) => {
-    try {
-      const file = await entry.handle.getFile();
-      ensureModalOpenForDrop();
-      await processProjectFile(file, { ...options, fileHandle: entry.handle });
-    } catch (openError) {
-      logError('[LoadProjectModal] Failed to open file from directory', openError);
-      setError(openError instanceof Error ? openError.message : 'Failed to open file from folder');
-    }
-  }, [ensureModalOpenForDrop, processProjectFile, setError]);
+    ensureModalOpenForDrop();
+    await processProjectFile(file, { ...options, fileHandle: entry.handle });
+  }, [ensureModalOpenForDrop, processProjectFile]);
 
   const {
     directoryHandle,
@@ -141,12 +136,6 @@ export function LoadProjectModal({ isOpen, onClose }: LoadProjectModalProps) {
   const { dragActive, resetDragState, dropOverlay } = useGlobalProjectDrop({
     onDropProject: handleDropProject,
   });
-
-  useEffect(() => {
-    if (preview) {
-      resetPreviewViewport();
-    }
-  }, [preview, resetPreviewViewport]);
 
   useEffect(() => {
     if (isOpen) {
@@ -312,6 +301,8 @@ export function LoadProjectModal({ isOpen, onClose }: LoadProjectModalProps) {
               <div className="flex-1 min-h-0 flex">
                 <LoadProjectModalBody
                   isProcessing={isProcessing}
+                  isInspecting={isInspecting}
+                  processingStatus={processingStatus}
                   error={error}
                   warning={warning}
                   preview={preview}
@@ -340,11 +331,11 @@ export function LoadProjectModal({ isOpen, onClose }: LoadProjectModalProps) {
               <Button
                 variant="secondary"
                 onClick={confirmRepairExport}
-                disabled={!projectData || !preview?.healthReport?.warnings.length || isProcessing || applyInFlight || repairExportInFlight}
+                disabled={!projectData || !preview?.healthReport?.warnings.length || isProcessing || isInspecting || applyInFlight || repairExportInFlight}
               >
                 {repairExportInFlight ? 'Repairing…' : 'Repair & Save Copy'}
               </Button>
-              <Button onClick={confirmLoad} disabled={!projectData || requiresRepair || isProcessing || applyInFlight}>
+              <Button onClick={confirmLoad} disabled={!projectData || requiresRepair || isProcessing || isInspecting || applyInFlight}>
                 {applyInFlight ? 'Loading…' : 'Load Project'}
               </Button>
             </div>

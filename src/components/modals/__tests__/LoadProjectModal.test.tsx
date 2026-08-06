@@ -3,12 +3,10 @@ import React from 'react';
 import { render, screen, fireEvent, act, waitFor } from '@testing-library/react';
 import LoadProjectModal from '../LoadProjectModal';
 import {
-  analyzeProjectArchiveRefs,
+  createProjectArchiveInspectionSession,
   deserializeProject,
   generateProjectThumbnail,
   getProjectHealthWarning,
-  readProjectHealthReport,
-  readProjectPreviewManifest,
 } from '@/utils/projectIO';
 import { repairAndExportProject } from '@/utils/projectRepairExport';
 
@@ -17,12 +15,10 @@ jest.mock('@/hooks/useKeyboardScope', () => ({
 }));
 
 jest.mock('@/utils/projectIO', () => ({
-  analyzeProjectArchiveRefs: jest.fn(),
+  createProjectArchiveInspectionSession: jest.fn(),
   deserializeProject: jest.fn(),
   generateProjectThumbnail: jest.fn(),
   getProjectHealthWarning: jest.fn((report) => report?.primaryWarning ?? null),
-  readProjectHealthReport: jest.fn(),
-  readProjectPreviewManifest: jest.fn(),
 }));
 
 jest.mock('@/utils/projectRepairExport', () => ({
@@ -52,9 +48,11 @@ const createDeferred = <T,>(): Deferred<T> => {
   return { promise, resolve };
 };
 
-const mockReadProjectPreviewManifest = readProjectPreviewManifest as jest.MockedFunction<typeof readProjectPreviewManifest>;
-const mockReadProjectHealthReport = readProjectHealthReport as jest.MockedFunction<typeof readProjectHealthReport>;
-const mockAnalyzeProjectArchiveRefs = analyzeProjectArchiveRefs as jest.MockedFunction<typeof analyzeProjectArchiveRefs>;
+const mockCreateProjectArchiveInspectionSession = createProjectArchiveInspectionSession as jest.MockedFunction<
+  typeof createProjectArchiveInspectionSession
+>;
+const mockSessionAnalyzeArchiveRefs = jest.fn();
+const mockSessionReadHealthReport = jest.fn();
 const mockDeserializeProject = deserializeProject as jest.MockedFunction<typeof deserializeProject>;
 const mockGenerateProjectThumbnail = generateProjectThumbnail as jest.MockedFunction<typeof generateProjectThumbnail>;
 const mockGetProjectHealthWarning = getProjectHealthWarning as jest.MockedFunction<typeof getProjectHealthWarning>;
@@ -124,7 +122,7 @@ describe('LoadProjectModal', () => {
       // Preserve unexpected errors in test output.
       console.warn(...args);
     });
-    mockReadProjectPreviewManifest.mockResolvedValue({
+    const preview = {
       version: '1.0.0',
       metadata: {
         name: 'demo',
@@ -139,7 +137,7 @@ describe('LoadProjectModal', () => {
         height: 16,
         thumbnail: 'data:image/png;base64,thumb',
       },
-    } as any);
+    } as any;
     mockDeserializeProject.mockResolvedValue({
       id: 'p1',
       name: 'demo',
@@ -151,7 +149,7 @@ describe('LoadProjectModal', () => {
       createdAt: new Date('2025-01-01T00:00:00.000Z'),
       updatedAt: new Date('2025-01-01T00:00:00.000Z'),
     } as any);
-    mockReadProjectHealthReport.mockResolvedValue({
+    mockSessionReadHealthReport.mockResolvedValue({
       projectManifestBytes: 10,
       previewManifestBytes: 10,
       combinedManifestBytes: 20,
@@ -166,11 +164,16 @@ describe('LoadProjectModal', () => {
       warnings: [],
       primaryWarning: null,
     });
-    mockAnalyzeProjectArchiveRefs.mockResolvedValue({
+    mockSessionAnalyzeArchiveRefs.mockResolvedValue({
       issues: [],
       missingCanonicalColorCycleRefs: [],
       missingOptionalColorCycleRefs: [],
       canRepairDanglingColorCycleRefs: false,
+    });
+    mockCreateProjectArchiveInspectionSession.mockResolvedValue({
+      preview,
+      analyzeArchiveRefs: mockSessionAnalyzeArchiveRefs,
+      readHealthReport: mockSessionReadHealthReport,
     });
     mockGenerateProjectThumbnail.mockReturnValue('data:image/png;base64,generated');
     mockGetProjectHealthWarning.mockImplementation((report) => report?.primaryWarning ?? null);
@@ -261,6 +264,97 @@ describe('LoadProjectModal', () => {
     expect(onClose).toHaveBeenCalled();
   });
 
+  it('paints the manifest preview before archive health inspection finishes', async () => {
+    const archiveAnalysis = createDeferred<Awaited<ReturnType<typeof mockSessionAnalyzeArchiveRefs>>>();
+    mockSessionAnalyzeArchiveRefs.mockReturnValueOnce(archiveAnalysis.promise);
+    const { container } = render(<LoadProjectModal isOpen onClose={jest.fn()} />);
+    act(() => {
+      jest.runAllTimers();
+    });
+
+    const input = container.querySelector('input[type="file"]');
+    if (!(input instanceof HTMLInputElement)) {
+      throw new Error('Missing project file input');
+    }
+    fireEvent.change(input, {
+      target: { files: [createProjectFile('staged-preview.vs')] },
+    });
+
+    expect(await screen.findByRole('img', { name: 'demo preview' })).toBeInTheDocument();
+    expect(screen.getByText('Checking project health…')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Load Project' })).toBeDisabled();
+
+    archiveAnalysis.resolve({
+      issues: [],
+      missingCanonicalColorCycleRefs: [],
+      missingOptionalColorCycleRefs: [],
+      canRepairDanglingColorCycleRefs: false,
+    });
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Load Project' })).toBeEnabled();
+    });
+  });
+
+  it('aborts superseded inspection work and labels the incoming file', async () => {
+    const firstSignal = createDeferred<AbortSignal>();
+    const firstAnalyze = jest.fn(({ signal }: { signal?: AbortSignal } = {}) => {
+      if (!signal) {
+        throw new Error('Missing inspection signal');
+      }
+      firstSignal.resolve(signal);
+      return new Promise<never>((_resolve, reject) => {
+        signal.addEventListener('abort', () => reject(signal.reason), { once: true });
+      });
+    });
+    const secondPreview = {
+      version: '1.0.0',
+      metadata: {
+        name: 'second',
+        created: '2025-01-01T00:00:00.000Z',
+        modified: '2025-01-01T00:00:00.000Z',
+        appVersion: '1.0.0',
+      },
+      project: {
+        id: 'second',
+        name: 'second',
+        width: 16,
+        height: 16,
+        thumbnail: 'data:image/png;base64,second',
+      },
+    } as any;
+    mockCreateProjectArchiveInspectionSession
+      .mockResolvedValueOnce({
+        preview: {
+          ...secondPreview,
+          project: { ...secondPreview.project, id: 'first', name: 'first' },
+        },
+        analyzeArchiveRefs: firstAnalyze,
+        readHealthReport: mockSessionReadHealthReport,
+      })
+      .mockResolvedValueOnce({
+        preview: secondPreview,
+        analyzeArchiveRefs: mockSessionAnalyzeArchiveRefs,
+        readHealthReport: mockSessionReadHealthReport,
+      });
+    const { container } = render(<LoadProjectModal isOpen onClose={jest.fn()} />);
+    act(() => {
+      jest.runAllTimers();
+    });
+    const input = container.querySelector('input[type="file"]');
+    if (!(input instanceof HTMLInputElement)) {
+      throw new Error('Missing project file input');
+    }
+
+    fireEvent.change(input, { target: { files: [createProjectFile('first.vs')] } });
+    expect(await screen.findByRole('img', { name: 'first preview' })).toBeInTheDocument();
+    const supersededSignal = await firstSignal.promise;
+
+    fireEvent.change(input, { target: { files: [createProjectFile('second.vs')] } });
+    expect(screen.getByText('Opening second.vs…')).toBeInTheDocument();
+    expect(await screen.findByRole('img', { name: 'second preview' })).toBeInTheDocument();
+    expect(supersededSignal.aborted).toBe(true);
+  });
+
   it('shows folder entries before timestamp getFile() resolves (lazy timestamp hydration)', async () => {
     const deferredA = createDeferred<File>();
     const deferredB = createDeferred<File>();
@@ -304,7 +398,7 @@ describe('LoadProjectModal', () => {
 
     fireEvent.keyDown(window, { key: 'ArrowDown' });
     await waitFor(() => {
-      expect(mockReadProjectPreviewManifest).toHaveBeenCalledTimes(1);
+      expect(mockCreateProjectArchiveInspectionSession).toHaveBeenCalledTimes(1);
     });
   });
 
@@ -394,7 +488,7 @@ describe('LoadProjectModal', () => {
     });
 
     await waitFor(() => {
-      expect(mockReadProjectPreviewManifest).toHaveBeenCalledTimes(1);
+      expect(mockCreateProjectArchiveInspectionSession).toHaveBeenCalledTimes(1);
     });
     expect(handle.getFile).toHaveBeenCalledTimes(2);
     expect(screen.queryByText('File is empty or incomplete. Autosave may have failed to write the file.')).not.toBeInTheDocument();
@@ -436,7 +530,7 @@ describe('LoadProjectModal', () => {
     });
 
     await waitFor(() => {
-      expect(mockReadProjectPreviewManifest).toHaveBeenCalledTimes(1);
+      expect(mockCreateProjectArchiveInspectionSession).toHaveBeenCalledTimes(1);
     });
     expect(screen.queryByText('Select or drop a Vessel project')).not.toBeInTheDocument();
   });
@@ -491,7 +585,7 @@ describe('LoadProjectModal', () => {
     (window as any).showDirectoryPicker = jest.fn(async () => createDirectoryHandle([
       ['risky.vs', riskyHandle],
     ]));
-    mockReadProjectHealthReport.mockResolvedValue({
+    mockSessionReadHealthReport.mockResolvedValue({
       projectManifestBytes: 10,
       previewManifestBytes: 10,
       combinedManifestBytes: 20,
@@ -546,7 +640,7 @@ describe('LoadProjectModal', () => {
     (window as any).showDirectoryPicker = jest.fn(async () => createDirectoryHandle([
       ['damaged.vs', damagedHandle],
     ]));
-    mockAnalyzeProjectArchiveRefs.mockResolvedValue({
+    mockSessionAnalyzeArchiveRefs.mockResolvedValue({
       issues: [{
         path: 'buffers/color-cycle/layer-cc/paint.bin',
         kind: 'canonical-color-cycle',
@@ -586,7 +680,7 @@ describe('LoadProjectModal', () => {
     });
     expect(screen.getAllByText('This project has damaged color-cycle archive refs. Use Repair & Save Copy to open a preview-only repaired copy.').length)
       .toBeGreaterThan(0);
-    expect(mockReadProjectHealthReport).not.toHaveBeenCalled();
+    expect(mockSessionReadHealthReport).not.toHaveBeenCalled();
     expect(mockStore.importProject).not.toHaveBeenCalled();
   });
 
@@ -595,7 +689,7 @@ describe('LoadProjectModal', () => {
     (window as any).showDirectoryPicker = jest.fn(async () => createDirectoryHandle([
       ['risky.vs', riskyHandle],
     ]));
-    mockReadProjectHealthReport.mockResolvedValue({
+    mockSessionReadHealthReport.mockResolvedValue({
       projectManifestBytes: 10,
       previewManifestBytes: 10,
       combinedManifestBytes: 20,

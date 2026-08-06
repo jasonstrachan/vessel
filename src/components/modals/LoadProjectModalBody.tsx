@@ -6,6 +6,8 @@ import Button from '../ui/Button';
 
 type LoadProjectModalBodyProps = {
   isProcessing: boolean;
+  isInspecting: boolean;
+  processingStatus: string | null;
   error: string | null;
   warning: string | null;
   preview: ProjectPreview | null;
@@ -42,9 +44,14 @@ const formatFileSize = (bytes: number) => {
 };
 
 const getUniqueMessages = (messages: string[]) => Array.from(new Set(messages.filter(Boolean)));
+const DIRECTORY_ROW_HEIGHT = 48;
+const DIRECTORY_LIST_OVERSCAN = 4;
+const DEFAULT_DIRECTORY_VIEWPORT_HEIGHT = 360;
 
 export function LoadProjectModalBody({
   isProcessing,
+  isInspecting,
+  processingStatus,
   error,
   warning,
   preview,
@@ -64,6 +71,64 @@ export function LoadProjectModalBody({
   onRefreshDirectory,
   onSelectEntryAtIndex,
 }: LoadProjectModalBodyProps) {
+  const directoryListRef = React.useRef<HTMLDivElement | null>(null);
+  const [directoryScrollTop, setDirectoryScrollTop] = React.useState(0);
+  const [directoryViewportHeight, setDirectoryViewportHeight] = React.useState(
+    DEFAULT_DIRECTORY_VIEWPORT_HEIGHT,
+  );
+
+  React.useLayoutEffect(() => {
+    const list = directoryListRef.current;
+    if (!list) {
+      return;
+    }
+    const updateViewportHeight = () => {
+      if (list.clientHeight > 0) {
+        setDirectoryViewportHeight(list.clientHeight);
+      }
+    };
+    updateViewportHeight();
+    if (typeof ResizeObserver === 'undefined') {
+      return;
+    }
+    const observer = new ResizeObserver(updateViewportHeight);
+    observer.observe(list);
+    return () => observer.disconnect();
+  }, []);
+
+  React.useEffect(() => {
+    const list = directoryListRef.current;
+    if (!list || selectedEntryIndex === null) {
+      return;
+    }
+    const rowTop = selectedEntryIndex * DIRECTORY_ROW_HEIGHT;
+    const rowBottom = rowTop + DIRECTORY_ROW_HEIGHT;
+    const viewportTop = list.scrollTop;
+    const viewportBottom = viewportTop + list.clientHeight;
+    if (rowTop < viewportTop) {
+      list.scrollTop = rowTop;
+      setDirectoryScrollTop(rowTop);
+    } else if (rowBottom > viewportBottom) {
+      const nextScrollTop = Math.max(0, rowBottom - list.clientHeight);
+      list.scrollTop = nextScrollTop;
+      setDirectoryScrollTop(nextScrollTop);
+    }
+  }, [directoryEntries.length, selectedEntryIndex]);
+
+  const visibleDirectoryStart = Math.max(
+    0,
+    Math.floor(directoryScrollTop / DIRECTORY_ROW_HEIGHT) - DIRECTORY_LIST_OVERSCAN,
+  );
+  const visibleDirectoryEnd = Math.min(
+    directoryEntries.length,
+    Math.ceil((directoryScrollTop + directoryViewportHeight) / DIRECTORY_ROW_HEIGHT)
+      + DIRECTORY_LIST_OVERSCAN,
+  );
+  const visibleDirectoryEntries = directoryEntries.slice(
+    visibleDirectoryStart,
+    visibleDirectoryEnd,
+  );
+
   let previewPanel: React.ReactNode;
   if (isProcessing && !preview) {
     previewPanel = (
@@ -98,6 +163,7 @@ export function LoadProjectModalBody({
     previewPanel = (
       <div
         ref={previewWrapperRef}
+        aria-busy={isProcessing || isInspecting}
         className={`flex-1 min-h-0 rounded-lg border border-[#3A3A3A] bg-[#101110] overflow-hidden relative ${preview.thumbnail ? (isPreviewPanning ? 'cursor-grabbing' : 'cursor-grab') : ''}`}
         style={{
           ...(preview?.thumbnail ? { touchAction: 'none' } : undefined),
@@ -113,7 +179,11 @@ export function LoadProjectModalBody({
         {preview.thumbnail ? (
           <div
             className='will-change-transform'
-            style={{ transform: `translate3d(${previewOffset.x}px, ${previewOffset.y}px, 0)` }}
+            style={{
+              opacity: isProcessing ? 0.35 : 1,
+              transform: `translate3d(${previewOffset.x}px, ${previewOffset.y}px, 0)`,
+              transition: isProcessing ? 'opacity 120ms ease' : undefined,
+            }}
           >
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
@@ -130,6 +200,14 @@ export function LoadProjectModalBody({
         ) : (
           <div className='absolute inset-0 flex items-center justify-center text-[#8C8C8C] text-sm'>
             No thumbnail available
+          </div>
+        )}
+        {(isProcessing || isInspecting) && (
+          <div
+            aria-live='polite'
+            className='absolute right-3 top-3 border border-[#4A4A4A] bg-[#161716]/95 px-3 py-2 text-xs text-[#D9D9D9] shadow-lg'
+          >
+            {processingStatus ?? 'Processing project…'}
           </div>
         )}
       </div>
@@ -246,7 +324,11 @@ export function LoadProjectModalBody({
           </Button>
         </div>
         {directoryError && <div className='text-red-400 text-xs mb-2'>{directoryError}</div>}
-        <div className='flex-1 flex flex-col gap-1 overflow-y-auto pr-1'>
+        <div
+          ref={directoryListRef}
+          className='flex-1 overflow-y-auto pr-1'
+          onScroll={(event) => setDirectoryScrollTop(event.currentTarget.scrollTop)}
+        >
           {isScanningDirectory ? (
             <div className='text-[#8C8C8C] text-sm'>Scanning folder...</div>
           ) : directoryEntries.length === 0 ? (
@@ -254,37 +336,46 @@ export function LoadProjectModalBody({
               {directoryHandle ? 'No project files in this folder.' : 'Pick a folder to browse project files.'}
             </div>
           ) : (
-            directoryEntries.map((entry, index) => {
-              const isSelected = selectedEntryIndex === index;
-              const buttonClass = `text-left px-2 py-1 rounded border transition-colors ${
-                isSelected
-                  ? 'border-[#0A1A1F] bg-[#F2F2F2] text-[#0A1A1F]'
-                  : 'border-transparent hover:bg-[#242424] text-[#D9D9D9]'
-              }`;
-              const timestampClass = isSelected ? 'text-[#3A3A3A] text-[11px]' : 'text-[#8C8C8C] text-[11px]';
+            <div
+              className='relative'
+              style={{ height: `${directoryEntries.length * DIRECTORY_ROW_HEIGHT}px` }}
+            >
+              {visibleDirectoryEntries.map((entry, visibleIndex) => {
+                const index = visibleDirectoryStart + visibleIndex;
+                const isSelected = selectedEntryIndex === index;
+                const buttonClass = `text-left px-2 py-1 rounded border transition-colors ${
+                  isSelected
+                    ? 'border-[#0A1A1F] bg-[#F2F2F2] text-[#0A1A1F]'
+                    : 'border-transparent hover:bg-[#242424] text-[#D9D9D9]'
+                }`;
+                const timestampClass = isSelected ? 'text-[#3A3A3A] text-[11px]' : 'text-[#8C8C8C] text-[11px]';
 
-              return (
-                <button
-                  key={entry.name}
-                  onClick={() => onSelectEntryAtIndex(index, true)}
-                  onDoubleClick={() => onSelectEntryAtIndex(index, true, true)}
-                  className={buttonClass}
-                >
-                  <div
-                    className='text-sm truncate'
-                    onDoubleClick={(event) => {
-                      event.stopPropagation();
-                      onSelectEntryAtIndex(index, true, true);
-                    }}
+                return (
+                  <button
+                    key={entry.name}
+                    onClick={() => onSelectEntryAtIndex(index, true)}
+                    onDoubleClick={() => onSelectEntryAtIndex(index, true, true)}
+                    className={`${buttonClass} absolute left-0 right-0 h-12`}
+                    style={{ top: `${index * DIRECTORY_ROW_HEIGHT}px` }}
                   >
-                    {entry.name}
-                  </div>
-                  {entry.lastModified && (
-                    <div className={timestampClass}>{new Date(entry.lastModified).toLocaleString()}</div>
-                  )}
-                </button>
-              );
-            })
+                    <div
+                      className='text-sm truncate'
+                      onDoubleClick={(event) => {
+                        event.stopPropagation();
+                        onSelectEntryAtIndex(index, true, true);
+                      }}
+                    >
+                      {entry.name}
+                    </div>
+                    <div className={timestampClass}>
+                      {entry.lastModified
+                        ? new Date(entry.lastModified).toLocaleString()
+                        : <span aria-hidden='true'>&nbsp;</span>}
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
           )}
         </div>
       </div>

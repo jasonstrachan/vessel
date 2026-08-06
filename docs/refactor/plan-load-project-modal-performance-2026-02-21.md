@@ -4,14 +4,15 @@
 
 Deliver a measurable performance improvement for Load Project flows (single file + folder browse), while reducing architecture risk in `LoadProjectModal` and preserving backward compatibility for `.vessel` archives.
 
-## Implementation Status (2026-02-21)
+## Implementation Status (updated 2026-08-06)
 
 - Phase 0 complete: characterization/perf harness coverage added for modal+projectIO paths.
 - Phase 1 complete: modal responsibilities split into dedicated hooks/components (`useProjectDirectoryBrowser`, `useProjectPreviewLoader`, `usePreviewViewportPanZoom`, `useGlobalProjectDrop`, `useDraggableModal`).
 - Phase 2 complete: folder scan now lazy-loads timestamps with chunked hydration and cancellation/version guards.
-- Phase 3 complete: latest-wins preview selection flow enforced with cancellable/versioned async path.
+- Phase 3 complete: latest-wins preview selection aborts superseded retries and archive-inspection stages.
 - Phase 4 complete: preview manifest v2 (`manifestVersion: 2`) with compact preview payload and backward-compatible read normalization.
-- Phase 5 complete: modal + `projectIO` guardrail tests in place, including 500/1000-file perf smoke thresholds and browser-flow E2E spec.
+- Phase 5 complete: modal + `projectIO` guardrail tests enforce the compact-preview and 500/1000-file paths; the browser E2E loads a real Vessel archive and verifies automatic fit/centering.
+- Follow-up complete: archive preview, ref analysis, and health reporting share one lazy ZIP session. The manifest thumbnail commits before health inspection, and loading remains safety-gated until inspection completes.
 
 ## Execution Summary
 
@@ -27,17 +28,16 @@ CI enforcement:
 
 ## Why This Plan Exists
 
-Current improvements already landed:
+Current improvements landed:
 - fast preview manifest path (`manifest.json`) for initial modal preview
 - alphanumeric folder ordering
 - removal of expensive blank-thumbnail scan
-
-Remaining high-impact issues:
-1. `src/components/modals/LoadProjectModal.tsx` is oversized and mixes concerns.
-2. Folder scan still performs `getFile()` across many entries just for timestamps.
-3. Missing-thumbnail fallback can hydrate full project on the main thread.
-4. Save payload duplicates preview image data (`project.json` + `manifest.json`).
-5. No enforceable perf budgets in CI for the modal path.
+- automatic fit/centering owned by the preview viewport hook
+- one lazy archive-inspection session per selection
+- cancellable, visibly staged preview/health processing
+- virtualized folder rows with batched metadata for only the first 40 priority entries
+- compact preview payload without duplicate project thumbnail data
+- enforceable component and archive-preview performance smoke tests
 
 ## Scope
 
@@ -57,20 +57,20 @@ Remaining high-impact issues:
 
 All budgets are measured on local dev/CI test fixtures and enforced by automated tests with generous thresholds.
 
-1. Preview first paint from file selection (`manifest.json` path):
-- P50 <= 80 ms
-- P95 <= 200 ms
+1. Preview first read from file selection (`manifest.json` path):
+- synthetic 5 MB archive smoke <= 200 ms in CI
+- real 1.4 MB legacy archive first image <= 1000 ms in browser E2E
 
 2. Folder initial list render for 500 files:
 - first visible list paint <= 250 ms
-- no single long task > 50 ms during initial scan (test harness check via perf observer mock/instrumentation)
+- rendered DOM stays windowed rather than mounting all 500 rows
 
 3. Folder initial list render for 1000 files:
 - first visible list paint <= 450 ms
-- timestamps may continue streaming after list paint
+- rendered DOM stays windowed; only 40 priority timestamps hydrate initially
 
 4. Rapid selection stability:
-- switching selection 20 times in <= 2 seconds results in exactly one final preview commit (latest selection only)
+- a new selection aborts the superseded request signal and only the latest preview can commit
 
 5. Payload size for new saves:
 - preview-related bytes in archive reduced by >= 30% vs current dual-thumbnail baseline fixture

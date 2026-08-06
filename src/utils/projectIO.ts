@@ -2293,28 +2293,8 @@ const analyzeVesselProjectArchiveRefs = (
 export const analyzeProjectArchiveRefs = async (
   projectData: ProjectFileData,
 ): Promise<ProjectArchiveRefAnalysis> => {
-  const projectBytes = await toProjectDataBytes(projectData);
-  let archiveZip: JSZip | null = null;
-  let projectJson: string;
-
-  if (projectBytes && isZipBytes(projectBytes)) {
-    archiveZip = await JSZip.loadAsync(projectBytes);
-    const projectEntry = archiveZip.file(PROJECT_ARCHIVE_ENTRY);
-    const normalizedProjectEntry = Array.isArray(projectEntry) ? projectEntry[0] ?? null : projectEntry;
-    if (!normalizedProjectEntry) {
-      throw new Error('Project archive is missing project.json');
-    }
-    projectJson = utf8Decoder.decode(await normalizedProjectEntry.async('uint8array'));
-  } else {
-    projectJson = await decodeProjectData(projectData);
-  }
-
-  const vesselProject = parseVesselProjectJsonRaw(projectJson);
-  const binaryPaths = new Set((vesselProject.binaries?.entries ?? []).map((entry) => entry.path));
-  const payloadPaths = archiveZip
-    ? new Set(Object.keys(archiveZip.files).filter((path) => !archiveZip!.files[path]?.dir))
-    : undefined;
-  return analyzeVesselProjectArchiveRefs(vesselProject, { binaryPaths, payloadPaths });
+  const session = await createProjectArchiveInspectionSession(projectData);
+  return session.analyzeArchiveRefs();
 };
 
 const summarizeSerializedLayerArchiveRefState = (
@@ -5254,88 +5234,143 @@ function parseVesselProjectPreviewJson(json: string): VesselProjectPreview {
   return normalizeVesselProjectPreview(previewManifest);
 }
 
-export async function readProjectPreviewManifest(projectData: ProjectFileData): Promise<VesselProjectPreview> {
-  if (typeof projectData !== 'string') {
-    let bytes: Uint8Array;
-    if (typeof ArrayBuffer !== 'undefined' && projectData instanceof ArrayBuffer) {
-      bytes = new Uint8Array(projectData);
-    } else if (typeof Uint8Array !== 'undefined' && projectData instanceof Uint8Array) {
-      bytes = projectData;
-    } else if (typeof Blob !== 'undefined' && projectData instanceof Blob) {
-      const buffer = await projectData.arrayBuffer();
-      bytes = new Uint8Array(buffer);
-    } else {
-      throw new Error('Unsupported project data input');
-    }
+type ProjectArchiveInspectionCallOptions = {
+  signal?: AbortSignal;
+};
 
-    if (isZipBytes(bytes)) {
-      const zip = await JSZip.loadAsync(bytes);
-      const previewEntry = zip.file(PROJECT_PREVIEW_ARCHIVE_ENTRY);
-      const normalizedPreviewEntry = Array.isArray(previewEntry) ? previewEntry[0] ?? null : previewEntry;
-      if (normalizedPreviewEntry) {
-        try {
-          const previewJson = await normalizedPreviewEntry.async('string');
-          return parseVesselProjectPreviewJson(previewJson);
-        } catch (error) {
-          debugWarn('raw-console', '[projectIO] Failed to read project preview archive entry; falling back to project manifest', error);
-        }
-      }
-
-      const projectEntry = zip.file(PROJECT_ARCHIVE_ENTRY);
-      const normalizedProjectEntry = Array.isArray(projectEntry) ? projectEntry[0] ?? null : projectEntry;
-      if (!normalizedProjectEntry) {
-        throw new Error('Project archive is missing project.json');
-      }
-      const projectJson = utf8Decoder.decode(await normalizedProjectEntry.async('uint8array'));
-      const vesselProject = parseVesselProjectJsonRaw(projectJson);
-      validateProjectDimensions(
-        vesselProject.project.width,
-        vesselProject.project.height,
-        'project preview dimensions'
-      );
-      return toProjectPreview(vesselProject);
-    }
-  }
-
-  return toProjectPreview(await readProjectManifest(projectData));
+export interface ProjectArchiveInspectionSession {
+  preview: VesselProjectPreview;
+  analyzeArchiveRefs: (
+    options?: ProjectArchiveInspectionCallOptions,
+  ) => Promise<ProjectArchiveRefAnalysis>;
+  readHealthReport: (
+    options?: ProjectArchiveInspectionCallOptions,
+  ) => Promise<ProjectHealthReport>;
 }
 
-export async function readProjectHealthReport(projectData: ProjectFileData): Promise<ProjectHealthReport> {
+const throwIfProjectInspectionAborted = (signal?: AbortSignal): void => {
+  signal?.throwIfAborted();
+};
+
+export async function createProjectArchiveInspectionSession(
+  projectData: ProjectFileData,
+  options?: ProjectArchiveInspectionCallOptions,
+): Promise<ProjectArchiveInspectionSession> {
+  throwIfProjectInspectionAborted(options?.signal);
   const projectBytes = await toProjectDataBytes(projectData);
   let archiveBytes = 0;
   let archiveZip: JSZip | null = null;
-  let projectJson: string;
+  let readProjectJson: () => Promise<string>;
   let previewJson: string | null = null;
 
   if (projectBytes && isZipBytes(projectBytes)) {
     archiveBytes = projectBytes.byteLength;
     archiveZip = await JSZip.loadAsync(projectBytes);
+    throwIfProjectInspectionAborted(options?.signal);
     const projectEntry = archiveZip.file(PROJECT_ARCHIVE_ENTRY);
     const normalizedProjectEntry = Array.isArray(projectEntry) ? projectEntry[0] ?? null : projectEntry;
-    if (!normalizedProjectEntry) {
-      throw new Error('Project archive is missing project.json');
-    }
-    projectJson = utf8Decoder.decode(await normalizedProjectEntry.async('uint8array'));
+    let projectJsonPromise: Promise<string> | null = null;
+    readProjectJson = () => {
+      if (!normalizedProjectEntry) {
+        return Promise.reject(new Error('Project archive is missing project.json'));
+      }
+      if (projectJsonPromise) {
+        return projectJsonPromise;
+      }
+      const nextProjectJson = normalizedProjectEntry
+        .async('uint8array')
+        .then((bytes: Uint8Array) => utf8Decoder.decode(bytes));
+      projectJsonPromise = nextProjectJson;
+      return nextProjectJson;
+    };
     const previewEntry = archiveZip.file(PROJECT_PREVIEW_ARCHIVE_ENTRY);
     const normalizedPreviewEntry = Array.isArray(previewEntry) ? previewEntry[0] ?? null : previewEntry;
-    previewJson = normalizedPreviewEntry ? await normalizedPreviewEntry.async('string') : null;
+    if (normalizedPreviewEntry) {
+      try {
+        previewJson = await normalizedPreviewEntry.async('string');
+      } catch (error) {
+        debugWarn('raw-console', '[projectIO] Failed to read project preview archive entry; falling back to project manifest', error);
+      }
+    }
   } else {
-    projectJson = await decodeProjectData(projectData);
-    archiveBytes = projectBytes?.byteLength ?? byteCountForString(projectJson);
+    let projectJsonPromise: Promise<string> | null = null;
+    readProjectJson = () => {
+      if (projectJsonPromise) {
+        return projectJsonPromise;
+      }
+      const nextProjectJson = decodeProjectData(projectData);
+      projectJsonPromise = nextProjectJson;
+      return nextProjectJson;
+    };
+    archiveBytes = projectBytes?.byteLength ?? 0;
   }
 
-  const vesselProject = await parseVesselProjectJson(projectJson, { archiveZip });
-  const previewManifest = previewJson
-    ? parseVesselProjectPreviewJson(previewJson)
-    : toProjectPreview(vesselProject);
-
-  return buildProjectSaveSizeReport(
-    vesselProject,
-    previewManifest,
-    projectJson,
-    previewJson ?? JSON.stringify(previewManifest),
-    archiveBytes,
+  throwIfProjectInspectionAborted(options?.signal);
+  let previewManifest: VesselProjectPreview;
+  if (previewJson) {
+    try {
+      previewManifest = parseVesselProjectPreviewJson(previewJson);
+    } catch (error) {
+      debugWarn('raw-console', '[projectIO] Failed to parse project preview archive entry; falling back to project manifest', error);
+      previewJson = null;
+      const projectJson = await readProjectJson();
+      previewManifest = toProjectPreview(parseVesselProjectJsonRaw(projectJson));
+    }
+  } else {
+    const projectJson = await readProjectJson();
+    previewManifest = toProjectPreview(parseVesselProjectJsonRaw(projectJson));
+  }
+  validateProjectDimensions(
+    previewManifest.project.width,
+    previewManifest.project.height,
+    'project dimensions',
   );
+  throwIfProjectInspectionAborted(options?.signal);
+
+  let rawProjectPromise: Promise<VesselProject> | null = null;
+  const readRawProject = (): Promise<VesselProject> => {
+    rawProjectPromise ??= readProjectJson().then((projectJson) => parseVesselProjectJsonRaw(projectJson));
+    return rawProjectPromise;
+  };
+
+  return {
+    preview: previewManifest,
+    analyzeArchiveRefs: async (callOptions) => {
+      throwIfProjectInspectionAborted(callOptions?.signal);
+      const vesselProject = await readRawProject();
+      throwIfProjectInspectionAborted(callOptions?.signal);
+      const binaryPaths = new Set((vesselProject.binaries?.entries ?? []).map((entry) => entry.path));
+      const payloadPaths = archiveZip
+        ? new Set(Object.keys(archiveZip.files).filter((path) => !archiveZip!.files[path]?.dir))
+        : undefined;
+      return analyzeVesselProjectArchiveRefs(vesselProject, { binaryPaths, payloadPaths });
+    },
+    readHealthReport: async (callOptions) => {
+      throwIfProjectInspectionAborted(callOptions?.signal);
+      const projectJson = await readProjectJson();
+      throwIfProjectInspectionAborted(callOptions?.signal);
+      const vesselProject = await parseVesselProjectJson(projectJson, { archiveZip });
+      throwIfProjectInspectionAborted(callOptions?.signal);
+      const normalizedArchiveBytes = archiveBytes || byteCountForString(projectJson);
+      return buildProjectSaveSizeReport(
+        vesselProject,
+        previewManifest,
+        projectJson,
+        previewJson ?? JSON.stringify(previewManifest),
+        normalizedArchiveBytes,
+      );
+    },
+  };
+}
+
+export async function readProjectPreviewManifest(projectData: ProjectFileData): Promise<VesselProjectPreview> {
+  const session = await createProjectArchiveInspectionSession(projectData);
+  return session.preview;
+}
+
+export async function readProjectHealthReport(projectData: ProjectFileData): Promise<ProjectHealthReport> {
+  const session = await createProjectArchiveInspectionSession(projectData);
+  return session.readHealthReport();
 }
 
 export async function readProjectManifest(projectData: ProjectFileData): Promise<VesselProject> {

@@ -1,3 +1,5 @@
+import path from 'node:path';
+
 import { expect, test } from 'playwright/test';
 
 const BASE_URL = process.env.PLAYWRIGHT_BASE_URL ?? 'http://127.0.0.1:3000';
@@ -59,5 +61,44 @@ test.describe('Load Project Modal', () => {
     await expect(first).toBeVisible();
     await expect(second).toBeVisible();
     await expect(third).toBeVisible();
+  });
+
+  test('shows a real artwork fitted and centered before health inspection completes', async ({ page }) => {
+    const fixturePath = path.resolve(
+      'tests/fixtures/goblet2/legacy-corpus/pre-schema-2-susan-kare-2.vs',
+    );
+    await page.getByRole('button', { name: /Load File/i }).click();
+    const startedAt = Date.now();
+    await page.locator('input[type="file"]').setInputFiles(fixturePath);
+    const preview = page.getByRole('img', { name: 'Untitled preview' });
+    await expect(preview).toBeVisible();
+    const firstPreviewMs = Date.now() - startedAt;
+    const geometry = await preview.evaluate((image) => {
+      const imageRect = image.getBoundingClientRect();
+      const viewportRect = image.parentElement?.parentElement?.getBoundingClientRect();
+      if (!viewportRect) {
+        throw new Error('Missing preview viewport');
+      }
+      return {
+        imageWidth: imageRect.width,
+        imageHeight: imageRect.height,
+        viewportWidth: viewportRect.width,
+        viewportHeight: viewportRect.height,
+        centerDeltaX: Math.abs(
+          (imageRect.left + imageRect.width / 2)
+          - (viewportRect.left + viewportRect.width / 2),
+        ),
+        centerDeltaY: Math.abs(
+          (imageRect.top + imageRect.height / 2)
+          - (viewportRect.top + viewportRect.height / 2),
+        ),
+      };
+    });
+
+    expect(firstPreviewMs).toBeLessThan(1000);
+    expect(geometry.imageWidth).toBeLessThanOrEqual(geometry.viewportWidth + 1);
+    expect(geometry.imageHeight).toBeLessThanOrEqual(geometry.viewportHeight + 1);
+    expect(geometry.centerDeltaX).toBeLessThan(2);
+    expect(geometry.centerDeltaY).toBeLessThan(2);
   });
 });

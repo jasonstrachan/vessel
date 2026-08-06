@@ -1,15 +1,13 @@
 import { debugWarn, logError } from '@/utils/debug';
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 import type { ProjectPreview } from '@/components/modals/types';
 import type { Project } from '@/types';
 import {
-  analyzeProjectArchiveRefs,
+  createProjectArchiveInspectionSession,
   deserializeProject,
   generateProjectThumbnail,
   getProjectHealthWarning,
-  readProjectHealthReport,
-  readProjectPreviewManifest,
   type ProjectHealthReport,
 } from '@/utils/projectIO';
 import { repairAndExportProject } from '@/utils/projectRepairExport';
@@ -38,8 +36,17 @@ type UseProjectPreviewLoaderOptions = {
 const EMPTY_FILE_RETRY_ATTEMPTS = 8;
 const EMPTY_FILE_INITIAL_RETRY_DELAY_MS = 120;
 const EMPTY_FILE_MAX_RETRY_DELAY_MS = 1200;
-const waitFor = (ms: number) => new Promise<void>((resolve) => {
-  setTimeout(resolve, ms);
+const waitFor = (ms: number, signal?: AbortSignal) => new Promise<void>((resolve, reject) => {
+  signal?.throwIfAborted();
+  const timeout = setTimeout(() => {
+    signal?.removeEventListener('abort', handleAbort);
+    resolve();
+  }, ms);
+  const handleAbort = () => {
+    clearTimeout(timeout);
+    reject(signal?.reason ?? new DOMException('The operation was aborted.', 'AbortError'));
+  };
+  signal?.addEventListener('abort', handleAbort, { once: true });
 });
 
 const buildRepairOnlyHealthReport = (warning: string): ProjectHealthReport => ({
@@ -62,6 +69,7 @@ const buildRepairOnlyHealthReport = (warning: string): ProjectHealthReport => ({
 const refreshPossiblyIncompleteFile = async (
   file: File,
   fileHandle?: FileSystemFileHandle | null,
+  signal?: AbortSignal,
 ): Promise<File> => {
   if (file.size > 0 || !fileHandle) {
     return file;
@@ -70,7 +78,8 @@ const refreshPossiblyIncompleteFile = async (
   let latest = file;
   let retryDelayMs = EMPTY_FILE_INITIAL_RETRY_DELAY_MS;
   for (let attempt = 0; attempt < EMPTY_FILE_RETRY_ATTEMPTS; attempt += 1) {
-    await waitFor(retryDelayMs);
+    await waitFor(retryDelayMs, signal);
+    signal?.throwIfAborted();
     latest = await fileHandle.getFile();
     if (latest.size > 0) {
       return latest;
@@ -87,6 +96,7 @@ export function useProjectPreviewLoader({
   notify,
 }: UseProjectPreviewLoaderOptions) {
   const [isProcessing, setIsProcessing] = useState(false);
+  const [isInspecting, setIsInspecting] = useState(false);
   const [applyInFlight, setApplyInFlight] = useState(false);
   const [repairExportInFlight, setRepairExportInFlight] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -96,11 +106,16 @@ export function useProjectPreviewLoader({
   const [preview, setPreview] = useState<ProjectPreview | null>(null);
   const [selectedFileHandle, setSelectedFileHandle] = useState<FileSystemFileHandle | null>(null);
   const [requiresRepair, setRequiresRepair] = useState(false);
+  const [processingStatus, setProcessingStatus] = useState<string | null>(null);
 
   const previewRequestVersionRef = useRef(0);
+  const previewAbortRef = useRef<AbortController | null>(null);
 
   const reset = useCallback(() => {
+    previewAbortRef.current?.abort();
+    previewAbortRef.current = null;
     setIsProcessing(false);
+    setIsInspecting(false);
     setApplyInFlight(false);
     setRepairExportInFlight(false);
     setError(null);
@@ -110,28 +125,37 @@ export function useProjectPreviewLoader({
     setPreview(null);
     setSelectedFileHandle(null);
     setRequiresRepair(false);
+    setProcessingStatus(null);
     previewRequestVersionRef.current += 1;
+  }, []);
+
+  useEffect(() => {
+    return () => previewAbortRef.current?.abort();
   }, []);
 
   const processProjectFile = useCallback(async (
     file: File,
     options?: ProcessProjectFileOptions,
   ) => {
+    previewAbortRef.current?.abort();
+    const abortController = new AbortController();
+    previewAbortRef.current = abortController;
+    const { signal } = abortController;
     const autoImport = options?.autoImport ?? false;
     const requestVersion = previewRequestVersionRef.current + 1;
     previewRequestVersionRef.current = requestVersion;
 
     setIsProcessing(true);
+    setIsInspecting(false);
     setError(null);
     setWarning(null);
-    if (autoImport) {
-      setApplyInFlight(true);
-    }
+    setProcessingStatus(`Opening ${file.name}…`);
+    setApplyInFlight(autoImport);
 
     const isStale = () => requestVersion !== previewRequestVersionRef.current;
 
     try {
-      const resolvedFile = await refreshPossiblyIncompleteFile(file, options?.fileHandle);
+      const resolvedFile = await refreshPossiblyIncompleteFile(file, options?.fileHandle, signal);
       if (isStale()) {
         return;
       }
@@ -150,46 +174,12 @@ export function useProjectPreviewLoader({
       }
       setRequiresRepair(false);
 
-      const vesselProject = await readProjectPreviewManifest(buffer);
+      const inspectionSession = await createProjectArchiveInspectionSession(buffer, { signal });
       if (isStale()) {
         return;
       }
 
-      const archiveAnalysis = await analyzeProjectArchiveRefs(buffer);
-      if (isStale()) {
-        return;
-      }
-      if (archiveAnalysis.canRepairDanglingColorCycleRefs) {
-        const warning = 'This project has damaged color-cycle archive refs. Use Repair & Save Copy to open a preview-only repaired copy.';
-        const { project, metadata } = vesselProject;
-        setProjectData(buffer);
-        setSelectedFileHandle(options?.fileHandle ?? null);
-        setRequiresRepair(true);
-        setWarning(warning);
-        setError(null);
-        setCachedProject(null);
-        setPreview({
-          projectName: project.name,
-          width: project.width,
-          height: project.height,
-          createdAt: metadata?.created,
-          modifiedAt: metadata?.modified,
-          thumbnail: project.thumbnail,
-          hasEmbeddedThumbnail: Boolean(project.thumbnail),
-          fileName: resolvedFile.name,
-          fileSize: resolvedFile.size,
-          healthReport: buildRepairOnlyHealthReport(warning),
-          healthWarning: warning,
-        });
-        return;
-      }
-
-      const healthReport = await readProjectHealthReport(buffer);
-      if (isStale()) {
-        return;
-      }
-
-      const { project, metadata } = vesselProject;
+      const { project, metadata } = inspectionSession.preview;
       const previewDetails: ProjectPreview = {
         projectName: project.name,
         width: project.width,
@@ -200,14 +190,44 @@ export function useProjectPreviewLoader({
         hasEmbeddedThumbnail: Boolean(project.thumbnail),
         fileName: resolvedFile.name,
         fileSize: resolvedFile.size,
-        healthReport,
-        healthWarning: getProjectHealthWarning(healthReport),
+        healthReport: null,
+        healthWarning: null,
       };
 
       setProjectData(buffer);
       setPreview(previewDetails);
       setCachedProject(null);
       setSelectedFileHandle(options?.fileHandle ?? null);
+      setIsProcessing(false);
+      setIsInspecting(true);
+      setProcessingStatus('Checking project health…');
+
+      const archiveAnalysis = await inspectionSession.analyzeArchiveRefs({ signal });
+      if (isStale()) {
+        return;
+      }
+      if (archiveAnalysis.canRepairDanglingColorCycleRefs) {
+        const warning = 'This project has damaged color-cycle archive refs. Use Repair & Save Copy to open a preview-only repaired copy.';
+        setRequiresRepair(true);
+        setWarning(warning);
+        setPreview({
+          ...previewDetails,
+          healthReport: buildRepairOnlyHealthReport(warning),
+          healthWarning: warning,
+        });
+        return;
+      }
+
+      const healthReport = await inspectionSession.readHealthReport({ signal });
+      if (isStale()) {
+        return;
+      }
+      const inspectedPreview: ProjectPreview = {
+        ...previewDetails,
+        healthReport,
+        healthWarning: getProjectHealthWarning(healthReport),
+      };
+      setPreview(inspectedPreview);
 
       let hydratedProject: Project | null = null;
       const ensureHydratedProject = async (): Promise<Project> => {
@@ -220,33 +240,32 @@ export function useProjectPreviewLoader({
       };
 
       if (!project.thumbnail && !autoImport) {
-        void (async () => {
-          try {
-            const hydrated = await ensureHydratedProject();
-            if (isStale()) {
-              return;
-            }
-            const thumbnail = generateProjectThumbnail(hydrated, hydrated.layers ?? [], 512);
-            if (isStale()) {
-              return;
-            }
-            setCachedProject(hydrated);
-            setPreview((prev) => (prev
-              ? {
-                ...prev,
-                thumbnail,
-                hasEmbeddedThumbnail: false,
-              }
-              : prev));
-          } catch (thumbnailError) {
+        try {
+          setProcessingStatus('Generating preview…');
+          const hydrated = await ensureHydratedProject();
+          if (isStale()) {
+            return;
+          }
+          const thumbnail = generateProjectThumbnail(hydrated, hydrated.layers ?? [], 512);
+          if (isStale()) {
+            return;
+          }
+          setCachedProject(hydrated);
+          setPreview({
+            ...inspectedPreview,
+            thumbnail,
+            hasEmbeddedThumbnail: false,
+          });
+        } catch (thumbnailError) {
+          if (!signal.aborted) {
             debugWarn('raw-console', '[LoadProjectModal] Failed to generate thumbnail', thumbnailError);
           }
-        })();
+        }
       }
 
       if (autoImport) {
-        if (previewDetails.healthWarning) {
-          setWarning(previewDetails.healthWarning);
+        if (inspectedPreview.healthWarning) {
+          setWarning(inspectedPreview.healthWarning);
           return;
         }
         const hydrated = await ensureHydratedProject();
@@ -261,41 +280,10 @@ export function useProjectPreviewLoader({
         closeModal();
       }
     } catch (processError) {
-      if (isStale()) {
+      if (isStale() || signal.aborted) {
         return;
       }
       logError('[LoadProjectModal] Failed to process project file', processError);
-      try {
-        const resolvedFile = await refreshPossiblyIncompleteFile(file, options?.fileHandle);
-        const buffer = await resolvedFile.arrayBuffer();
-        const analysis = await analyzeProjectArchiveRefs(buffer);
-        if (analysis.canRepairDanglingColorCycleRefs) {
-          const vesselProject = await readProjectPreviewManifest(buffer);
-          const warning = 'This project has damaged color-cycle archive refs. Use Repair & Save Copy to open a preview-only repaired copy.';
-          setProjectData(buffer);
-          setSelectedFileHandle(options?.fileHandle ?? null);
-          setRequiresRepair(true);
-          setWarning(warning);
-          setError(null);
-          setCachedProject(null);
-          setPreview({
-            projectName: vesselProject.project.name,
-            width: vesselProject.project.width,
-            height: vesselProject.project.height,
-            createdAt: vesselProject.metadata?.created,
-            modifiedAt: vesselProject.metadata?.modified,
-            thumbnail: vesselProject.project.thumbnail,
-            hasEmbeddedThumbnail: Boolean(vesselProject.project.thumbnail),
-            fileName: resolvedFile.name,
-            fileSize: resolvedFile.size,
-            healthReport: buildRepairOnlyHealthReport(warning),
-            healthWarning: warning,
-          });
-          return;
-        }
-      } catch (repairCheckError) {
-        debugWarn('raw-console', '[LoadProjectModal] Failed to analyze repairability', repairCheckError);
-      }
       setProjectData(null);
       setPreview(null);
       setCachedProject(null);
@@ -304,6 +292,8 @@ export function useProjectPreviewLoader({
     } finally {
       if (!isStale()) {
         setIsProcessing(false);
+        setIsInspecting(false);
+        setProcessingStatus(null);
         if (autoImport) {
           setApplyInFlight(false);
         }
@@ -312,7 +302,7 @@ export function useProjectPreviewLoader({
   }, [closeModal, importProject]);
 
   const confirmLoad = useCallback(async () => {
-    if (!projectData || applyInFlight) {
+    if (!projectData || applyInFlight || isInspecting) {
       return;
     }
     setApplyInFlight(true);
@@ -334,10 +324,10 @@ export function useProjectPreviewLoader({
     } finally {
       setApplyInFlight(false);
     }
-  }, [applyInFlight, cachedProject, closeModal, importProject, preview?.fileName, projectData, selectedFileHandle]);
+  }, [applyInFlight, cachedProject, closeModal, importProject, isInspecting, preview?.fileName, projectData, selectedFileHandle]);
 
   const confirmRepairExport = useCallback(async () => {
-    if (!projectData || repairExportInFlight) {
+    if (!projectData || repairExportInFlight || isInspecting) {
       return;
     }
 
@@ -373,10 +363,11 @@ export function useProjectPreviewLoader({
     } finally {
       setRepairExportInFlight(false);
     }
-  }, [notify, preview?.fileName, projectData, repairExportInFlight]);
+  }, [isInspecting, notify, preview?.fileName, projectData, repairExportInFlight]);
 
   return {
     isProcessing,
+    isInspecting,
     applyInFlight,
     repairExportInFlight,
     error,
@@ -385,8 +376,8 @@ export function useProjectPreviewLoader({
     projectData,
     selectedFileHandle,
     requiresRepair,
+    processingStatus,
     processProjectFile,
-    setError,
     confirmLoad,
     confirmRepairExport,
     reset,

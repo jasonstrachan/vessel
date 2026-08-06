@@ -16,6 +16,10 @@ export function usePreviewViewportPanZoom({
   modalWidth,
   modalHeight,
 }: UsePreviewViewportPanZoomOptions) {
+  const previewFileName = preview?.fileName;
+  const previewHeight = preview?.height;
+  const previewThumbnail = preview?.thumbnail;
+  const previewWidth = preview?.width;
   const [previewOffset, setPreviewOffset] = useState({ x: 0, y: 0 });
   const [previewScale, setPreviewScale] = useState(1);
   const [isPreviewPanning, setIsPreviewPanning] = useState(false);
@@ -57,7 +61,7 @@ export function usePreviewViewportPanZoom({
   }, []);
 
   const centerPreview = useCallback(() => {
-    if (!preview?.thumbnail || !previewWrapperRef.current) {
+    if (!previewThumbnail || !previewWidth || !previewHeight || !previewWrapperRef.current) {
       return;
     }
     const rect = previewWrapperRef.current.getBoundingClientRect();
@@ -66,13 +70,13 @@ export function usePreviewViewportPanZoom({
     }
     const fitScale = Math.min(
       PREVIEW_MAX_SCALE,
-      rect.width / preview.width,
-      rect.height / preview.height,
+      rect.width / previewWidth,
+      rect.height / previewHeight,
     );
     const safeScale = Number.isFinite(fitScale) && fitScale > 0 ? fitScale : PREVIEW_MAX_SCALE;
     setPreviewScale(safeScale);
-    const scaledWidth = preview.width * safeScale;
-    const scaledHeight = preview.height * safeScale;
+    const scaledWidth = previewWidth * safeScale;
+    const scaledHeight = previewHeight * safeScale;
     const nextX = clampOffset(
       computeCenteredOffset(rect.width, scaledWidth),
       rect.width,
@@ -83,26 +87,29 @@ export function usePreviewViewportPanZoom({
       rect.height,
       scaledHeight,
     );
-    setPreviewOffset({ x: nextX, y: nextY });
-  }, [clampOffset, computeCenteredOffset, preview]);
-
-  const resetPreviewViewport = useCallback(() => {
-    stopPreviewPan();
-    setPreviewOffset({ x: 0, y: 0 });
-    setPreviewScale(1);
-  }, [stopPreviewPan]);
+    const nextOffset = { x: nextX, y: nextY };
+    previewOffsetRef.current = nextOffset;
+    setPreviewOffset(nextOffset);
+  }, [
+    clampOffset,
+    computeCenteredOffset,
+    previewHeight,
+    previewThumbnail,
+    previewWidth,
+  ]);
 
   useEffect(() => {
     previewOffsetRef.current = previewOffset;
   }, [previewOffset]);
 
   useLayoutEffect(() => {
-    if (!preview) {
+    if (!previewThumbnail) {
       return;
     }
     let cancelled = false;
+    let pendingFrame: number | null = null;
     const attemptCenter = () => {
-      if (cancelled || isPreviewPanning) {
+      if (cancelled) {
         return;
       }
       const wrapper = previewWrapperRef.current;
@@ -111,17 +118,31 @@ export function usePreviewViewportPanZoom({
       }
       const rect = wrapper.getBoundingClientRect();
       if (rect.width <= 0 || rect.height <= 0) {
-        requestAnimationFrame(attemptCenter);
+        pendingFrame = requestAnimationFrame(attemptCenter);
         return;
       }
       centerPreview();
     };
-    const frame = requestAnimationFrame(attemptCenter);
+    pendingFrame = requestAnimationFrame(attemptCenter);
+    const observer = typeof ResizeObserver === 'undefined'
+      ? null
+      : new ResizeObserver(() => {
+          if (pendingFrame !== null) {
+            cancelAnimationFrame(pendingFrame);
+          }
+          pendingFrame = requestAnimationFrame(attemptCenter);
+        });
+    if (previewWrapperRef.current) {
+      observer?.observe(previewWrapperRef.current);
+    }
     return () => {
       cancelled = true;
-      cancelAnimationFrame(frame);
+      if (pendingFrame !== null) {
+        cancelAnimationFrame(pendingFrame);
+      }
+      observer?.disconnect();
     };
-  }, [preview, modalWidth, modalHeight, centerPreview, isPreviewPanning]);
+  }, [previewFileName, previewHeight, previewThumbnail, previewWidth, modalWidth, modalHeight, centerPreview]);
 
   const handlePreviewPointerDown = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
     if (!preview?.thumbnail) {
@@ -161,10 +182,12 @@ export function usePreviewViewportPanZoom({
     const rect = wrapper.getBoundingClientRect();
     const scaledWidth = preview.width * previewScale;
     const scaledHeight = preview.height * previewScale;
-    setPreviewOffset({
+    const nextOffset = {
       x: clampOffset(panStateRef.current.baseX + dx, rect.width, scaledWidth),
       y: clampOffset(panStateRef.current.baseY + dy, rect.height, scaledHeight),
-    });
+    };
+    previewOffsetRef.current = nextOffset;
+    setPreviewOffset(nextOffset);
   }, [clampOffset, preview, previewScale]);
 
   const handlePreviewPointerUp = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
@@ -184,11 +207,9 @@ export function usePreviewViewportPanZoom({
     isPreviewPanning,
     previewWrapperRef,
     centerPreview,
-    resetPreviewViewport,
     handlePreviewPointerDown,
     handlePreviewPointerMove,
     handlePreviewPointerUp,
     handlePreviewDoubleClick,
   };
 }
-

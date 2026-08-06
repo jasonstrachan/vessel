@@ -23,7 +23,11 @@ type DirectoryHandleWithPermissions = FileSystemDirectoryHandle & {
 type UseProjectDirectoryBrowserOptions = {
   isOpen: boolean;
   ensureModalOpen: () => void;
-  onEntryOpen: (entry: DirectoryProjectEntry, options?: { autoImport?: boolean }) => Promise<void>;
+  onEntryOpen: (
+    entry: DirectoryProjectEntry,
+    file: File,
+    options?: { autoImport?: boolean },
+  ) => Promise<void>;
 };
 
 type UseProjectDirectoryBrowserResult = {
@@ -50,6 +54,7 @@ const LAST_DIRECTORY_KEY = 'last-directory-handle';
 const LAST_DIRECTORY_ENTRY_KEY = 'vessel:last-directory-entry';
 const TIMESTAMP_HYDRATION_BATCH_SIZE = 20;
 const TIMESTAMP_HYDRATION_PRIORITY_COUNT = 40;
+const ENTRY_OPEN_DEBOUNCE_MS = 75;
 
 let lastDirectoryHandle: FileSystemDirectoryHandle | null = null;
 let lastDirectoryEntries: DirectoryProjectEntry[] = [];
@@ -202,13 +207,29 @@ export function useProjectDirectoryBrowser({
   });
 
   const directoryEntriesRef = useRef(directoryEntries);
+  const entryFileReadsRef = useRef(new Map<string, Promise<File>>());
   const scanVersionRef = useRef(0);
   const timestampAbortRef = useRef<AbortController | null>(null);
+  const entryOpenTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const wasOpenRef = useRef(isOpen);
 
   useEffect(() => {
     directoryEntriesRef.current = directoryEntries;
   }, [directoryEntries]);
+
+  const readEntryFile = useCallback((entry: DirectoryProjectEntry): Promise<File> => {
+    const existingRead = entryFileReadsRef.current.get(entry.name);
+    if (existingRead) {
+      return existingRead;
+    }
+    const nextRead = entry.handle.getFile().finally(() => {
+      if (entryFileReadsRef.current.get(entry.name) === nextRead) {
+        entryFileReadsRef.current.delete(entry.name);
+      }
+    });
+    entryFileReadsRef.current.set(entry.name, nextRead);
+    return nextRead;
+  }, []);
 
   const setSelectedEntryIndexByName = useCallback((entryName: string | null) => {
     if (!entryName) {
@@ -231,6 +252,20 @@ export function useProjectDirectoryBrowser({
     storeLastDirectoryEntryName(null);
   }, []);
 
+  const recordEntryTimestamp = useCallback((entryName: string, lastModified: number) => {
+    setDirectoryEntries((prev) => {
+      const index = prev.findIndex((entry) => entry.name === entryName);
+      if (index < 0 || prev[index]?.lastModified === lastModified) {
+        return prev;
+      }
+      const next = [...prev];
+      next[index] = { ...next[index], lastModified };
+      directoryEntriesRef.current = next;
+      lastDirectoryEntries = next;
+      return next;
+    });
+  }, []);
+
   const hydrateEntryTimestamps = useCallback(async (
     scanVersion: number,
     entriesSnapshot: DirectoryProjectEntry[],
@@ -244,14 +279,40 @@ export function useProjectDirectoryBrowser({
         preferredIndexes.add(selectedIdx);
       }
     }
-    for (let idx = 0; idx < Math.min(TIMESTAMP_HYDRATION_PRIORITY_COUNT, entriesSnapshot.length); idx += 1) {
+    for (
+      let idx = 0;
+      idx < entriesSnapshot.length && preferredIndexes.size < TIMESTAMP_HYDRATION_PRIORITY_COUNT;
+      idx += 1
+    ) {
       preferredIndexes.add(idx);
     }
 
-    const orderedIndexes = [
-      ...Array.from(preferredIndexes),
-      ...entriesSnapshot.map((_, idx) => idx).filter((idx) => !preferredIndexes.has(idx)),
-    ];
+    const orderedIndexes = Array.from(preferredIndexes);
+    const timestampUpdates = new Map<string, number>();
+    const flushTimestampUpdates = () => {
+      if (timestampUpdates.size === 0) {
+        return;
+      }
+      const updates = new Map(timestampUpdates);
+      timestampUpdates.clear();
+      setDirectoryEntries((prev) => {
+        let didChange = false;
+        const next = prev.map((entry) => {
+          const lastModified = updates.get(entry.name);
+          if (lastModified === undefined || lastModified === entry.lastModified) {
+            return entry;
+          }
+          didChange = true;
+          return { ...entry, lastModified };
+        });
+        if (!didChange) {
+          return prev;
+        }
+        directoryEntriesRef.current = next;
+        lastDirectoryEntries = next;
+        return next;
+      });
+    };
 
     for (let orderIndex = 0; orderIndex < orderedIndexes.length; orderIndex += 1) {
       if (signal.aborted || scanVersion !== scanVersionRef.current) {
@@ -265,48 +326,15 @@ export function useProjectDirectoryBrowser({
       }
 
       try {
-        const file = await entry.handle.getFile();
+        const file = await readEntryFile(entry);
         if (signal.aborted || scanVersion !== scanVersionRef.current) {
           return;
         }
 
         if (file.size === 0) {
-          setDirectoryEntries((prev) => {
-            if (scanVersion !== scanVersionRef.current) {
-              return prev;
-            }
-            const existingIndex = prev.findIndex((candidate) => candidate.name === entry.name);
-            if (existingIndex < 0) {
-              return prev;
-            }
-            const next = [...prev];
-            next.splice(existingIndex, 1);
-            directoryEntriesRef.current = next;
-            lastDirectoryEntries = next;
-            return next;
-          });
           continue;
         }
-
-        setDirectoryEntries((prev) => {
-          if (scanVersion !== scanVersionRef.current) {
-            return prev;
-          }
-          const existingIndex = prev.findIndex((candidate) => candidate.name === entry.name);
-          if (existingIndex < 0) {
-            return prev;
-          }
-          const existing = prev[existingIndex];
-          if (!existing || existing.lastModified === file.lastModified) {
-            return prev;
-          }
-          const next = [...prev];
-          next[existingIndex] = { ...existing, lastModified: file.lastModified };
-          const sorted = sortDirectoryProjectEntries(next);
-          directoryEntriesRef.current = sorted;
-          lastDirectoryEntries = sorted;
-          return sorted;
-        });
+        timestampUpdates.set(entry.name, file.lastModified);
       } catch (error) {
         if (error instanceof DOMException && error.name === 'AbortError') {
           return;
@@ -315,15 +343,18 @@ export function useProjectDirectoryBrowser({
       }
 
       if ((orderIndex + 1) % TIMESTAMP_HYDRATION_BATCH_SIZE === 0) {
+        flushTimestampUpdates();
         await yieldToBrowser();
       }
     }
-  }, []);
+    flushTimestampUpdates();
+  }, [readEntryFile]);
 
   const scanDirectoryForProjects = useCallback(async (handle: FileSystemDirectoryHandle) => {
     const scanVersion = scanVersionRef.current + 1;
     scanVersionRef.current = scanVersion;
     timestampAbortRef.current?.abort();
+    entryFileReadsRef.current.clear();
 
     setDirectoryError(null);
     setIsScanningDirectory(true);
@@ -527,8 +558,25 @@ export function useProjectDirectoryBrowser({
   useEffect(() => {
     return () => {
       timestampAbortRef.current?.abort();
+      if (entryOpenTimerRef.current) {
+        clearTimeout(entryOpenTimerRef.current);
+      }
     };
   }, []);
+
+  const openEntry = useCallback(async (
+    entry: DirectoryProjectEntry,
+    options?: { autoImport?: boolean },
+  ) => {
+    try {
+      const file = await readEntryFile(entry);
+      recordEntryTimestamp(entry.name, file.lastModified);
+      await onEntryOpen(entry, file, options);
+    } catch (error) {
+      logError('[LoadProjectModal] Failed to open file from directory', error);
+      setDirectoryError(error instanceof Error ? error.message : 'Failed to open file from folder');
+    }
+  }, [onEntryOpen, readEntryFile, recordEntryTimestamp]);
 
   const selectEntryAtIndex = useCallback((index: number, loadProject: boolean = true, autoImport: boolean = false) => {
     const entries = directoryEntriesRef.current;
@@ -537,10 +585,22 @@ export function useProjectDirectoryBrowser({
     }
     const entry = entries[index];
     setSelectedEntryIndexByName(entry.name);
-    if (loadProject) {
-      void onEntryOpen(entry, { autoImport });
+    if (!loadProject) {
+      return;
     }
-  }, [onEntryOpen, setSelectedEntryIndexByName]);
+    if (entryOpenTimerRef.current) {
+      clearTimeout(entryOpenTimerRef.current);
+      entryOpenTimerRef.current = null;
+    }
+    if (autoImport) {
+      void openEntry(entry, { autoImport: true });
+      return;
+    }
+    entryOpenTimerRef.current = setTimeout(() => {
+      entryOpenTimerRef.current = null;
+      void openEntry(entry);
+    }, ENTRY_OPEN_DEBOUNCE_MS);
+  }, [openEntry, setSelectedEntryIndexByName]);
 
   return {
     directoryHandle,

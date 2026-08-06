@@ -17,6 +17,7 @@ import { materializeRestoredColorCycleSurface } from '@/lib/colorCycle/materiali
 import { ColorCycleBrushCanvas2D } from '@/hooks/brushEngine/ColorCycleBrushCanvas2D';
 import {
   analyzeProjectArchiveRefs,
+  createProjectArchiveInspectionSession,
   deserializeProject,
   deserializeProjectWithReport,
   getProjectSaveSizeReport,
@@ -1348,6 +1349,32 @@ describe('projectIO readProjectManifest', () => {
 });
 
 describe('projectIO readProjectPreviewManifest', () => {
+  it('reuses one ZIP parse across preview, archive-ref, and health inspection', async () => {
+    const zip = new JSZip();
+    zip.file('project.json', asJson);
+    zip.file('manifest.json', JSON.stringify({
+      version: '1.1.0',
+      metadata: minimalVesselProject.metadata,
+      project: {
+        id: minimalVesselProject.project.id,
+        name: minimalVesselProject.project.name,
+        width: minimalVesselProject.project.width,
+        height: minimalVesselProject.project.height,
+        thumbnail: 'data:image/png;base64,preview',
+      },
+    }));
+    const payload = await zip.generateAsync({ type: 'uint8array' });
+    const loadAsyncSpy = jest.spyOn(JSZip, 'loadAsync');
+
+    const session = await createProjectArchiveInspectionSession(payload);
+    expect(session.preview.project.thumbnail).toBe('data:image/png;base64,preview');
+    await session.analyzeArchiveRefs();
+    await session.readHealthReport();
+
+    expect(loadAsyncSpy).toHaveBeenCalledTimes(1);
+    loadAsyncSpy.mockRestore();
+  });
+
   it('prefers archive manifest.json when present', async () => {
     const payload = await zipWithPreviewManifestOnly();
     const manifest = await readProjectPreviewManifest(payload);
