@@ -15,6 +15,7 @@ jest.mock('@/utils/projectIO', () => ({
 
 const mockedGetAppStoreState = getAppStoreState as jest.MockedFunction<typeof getAppStoreState>;
 const mockedDeserializeProject = deserializeProject as jest.MockedFunction<typeof deserializeProject>;
+const originalCreateImageBitmap = globalThis.createImageBitmap;
 
 describe('createVesselCollaborationExecutor', () => {
   beforeEach(() => {
@@ -23,6 +24,252 @@ describe('createVesselCollaborationExecutor', () => {
       callback(0);
       return 1;
     }) as typeof requestAnimationFrame;
+  });
+
+  afterEach(() => {
+    jest.restoreAllMocks();
+    globalThis.createImageBitmap = originalCreateImageBitmap;
+  });
+
+  it('creates a new project through the canonical project lifecycle', async () => {
+    const state = {
+      project: { id: 'project-old', name: 'Old', width: 1024, height: 512 },
+      activeLayerId: 'layer-old',
+      currentBrushPreset: null,
+      layers: [],
+      tools: {
+        currentTool: 'brush',
+        brushSettings: { size: 20, opacity: 1, color: '#112233', spacing: 1 },
+      },
+      autosave: { dirtyRevision: 10 },
+      newProject: jest.fn(),
+    } as unknown as ReturnType<typeof getAppStoreState>;
+    (state.newProject as jest.Mock).mockImplementation((width, height, name) => {
+      state.project = { ...state.project!, id: 'project-new', name, width, height };
+      state.activeLayerId = 'layer-new-cc';
+      state.autosave.dirtyRevision = 11;
+    });
+    mockedGetAppStoreState.mockImplementation(() => state);
+    const rebuildStaticComposite = jest.fn(async () => true);
+    const execute = createVesselCollaborationExecutor(() => ({
+      canvasRef: { current: null },
+      compositeCanvasDirtyRef: { current: false },
+      dispatchStroke: jest.fn(),
+      rebuildStaticComposite,
+      requestRedraw: jest.fn(),
+    }));
+
+    const result = await execute({
+      id: 'command-new-project',
+      action: 'new-project',
+      width: 512,
+      height: 640,
+      name: 'Sea Light Study',
+      capture: 'none',
+    });
+
+    expect(state.newProject).toHaveBeenCalledWith(512, 640, 'Sea Light Study');
+    expect(rebuildStaticComposite).toHaveBeenCalledTimes(1);
+    expect(result).toMatchObject({
+      ok: true,
+      action: 'new-project',
+      revision: 1,
+      state: {
+        project: { id: 'project-new', name: 'Sea Light Study', width: 512, height: 640 },
+        activeLayerId: 'layer-new-cc',
+      },
+    });
+  });
+
+  it('imports, bottoms, and marks a reference image through canonical layer actions', async () => {
+    const imageData = { width: 512, height: 640 } as ImageData;
+    const context = {
+      clearRect: jest.fn(),
+      drawImage: jest.fn(),
+      getImageData: jest.fn(() => imageData),
+      imageSmoothingEnabled: false,
+    } as unknown as CanvasRenderingContext2D;
+    const framebuffer = {
+      width: 0,
+      height: 0,
+      getContext: jest.fn(() => context),
+    } as unknown as HTMLCanvasElement;
+    jest.spyOn(document, 'createElement').mockReturnValueOnce(framebuffer);
+    const bitmap = { width: 1077, height: 1350, close: jest.fn() } as unknown as ImageBitmap;
+    globalThis.createImageBitmap = jest.fn(async () => bitmap) as typeof createImageBitmap;
+
+    const state = {
+      project: { id: 'project-1', name: 'Study', width: 512, height: 640 },
+      activeLayerId: 'layer-cc',
+      referenceLayerId: null,
+      colorPickerPreferReferenceLayer: false,
+      currentBrushPreset: null,
+      layers: [
+        { id: 'layer-normal', name: 'Layer 1', layerType: 'normal', visible: true, locked: false, opacity: 1 },
+        { id: 'layer-cc', name: 'CC Layer 1', layerType: 'color-cycle', visible: true, locked: false, opacity: 1 },
+      ],
+      tools: {
+        currentTool: 'brush',
+        brushSettings: { size: 8, opacity: 1, color: '#000000', spacing: 1 },
+      },
+      autosave: { dirtyRevision: 0 },
+      addLayer: jest.fn(),
+      reorderLayers: jest.fn(),
+      setReferenceLayer: jest.fn(),
+      setColorPickerPreferReferenceLayer: jest.fn(),
+    } as unknown as ReturnType<typeof getAppStoreState>;
+    (state.addLayer as jest.Mock).mockImplementation((layer) => {
+      state.layers.push({ ...layer, id: 'layer-reference', order: state.layers.length });
+      state.activeLayerId = 'layer-reference';
+      return 'layer-reference';
+    });
+    (state.reorderLayers as jest.Mock).mockImplementation((sourceIndex, destinationIndex) => {
+      const [layer] = state.layers.splice(sourceIndex, 1);
+      state.layers.splice(destinationIndex, 0, layer);
+    });
+    (state.setReferenceLayer as jest.Mock).mockImplementation((layerId) => {
+      state.referenceLayerId = layerId;
+    });
+    (state.setColorPickerPreferReferenceLayer as jest.Mock).mockImplementation((prefer) => {
+      state.colorPickerPreferReferenceLayer = prefer;
+    });
+    mockedGetAppStoreState.mockImplementation(() => state);
+    const execute = createVesselCollaborationExecutor(() => ({
+      canvasRef: { current: null },
+      compositeCanvasDirtyRef: { current: false },
+      dispatchStroke: jest.fn(),
+      rebuildStaticComposite: jest.fn(async () => true),
+      requestRedraw: jest.fn(),
+    }));
+
+    const result = await execute({
+      id: 'command-reference-image',
+      action: 'import-reference-image',
+      fileName: 'reference.png',
+      mimeType: 'image/png',
+      dataBase64: 'iVBORw==',
+      fit: 'cover',
+      capture: 'none',
+    });
+
+    expect(state.addLayer).toHaveBeenCalledWith(expect.objectContaining({
+      name: 'reference.png',
+      layerType: 'normal',
+      imageData,
+      framebuffer,
+    }));
+    expect(state.reorderLayers).toHaveBeenCalledWith(2, 0);
+    expect(state.setReferenceLayer).toHaveBeenCalledWith('layer-reference');
+    expect(state.setColorPickerPreferReferenceLayer).toHaveBeenCalledWith(true);
+    expect(context.drawImage).toHaveBeenCalledWith(
+      bitmap,
+      expect.any(Number),
+      expect.any(Number),
+      expect.any(Number),
+      expect.any(Number),
+    );
+    expect(bitmap.close).toHaveBeenCalledTimes(1);
+    expect(result).toMatchObject({
+      ok: true,
+      state: {
+        activeLayerId: 'layer-reference',
+        referenceLayerId: 'layer-reference',
+        preferReferenceSampling: true,
+      },
+    });
+  });
+
+  it('changes layer visibility through the canonical multi-layer action', async () => {
+    const setLayersVisibility = jest.fn();
+    mockedGetAppStoreState.mockReturnValue({
+      project: { id: 'project-1', name: 'Study', width: 512, height: 640 },
+      activeLayerId: 'layer-reference',
+      referenceLayerId: 'layer-reference',
+      colorPickerPreferReferenceLayer: true,
+      currentBrushPreset: null,
+      layers: [{
+        id: 'layer-reference',
+        name: 'reference.png',
+        layerType: 'normal',
+        visible: true,
+        locked: false,
+        opacity: 1,
+      }],
+      tools: {
+        currentTool: 'brush',
+        brushSettings: { size: 8, opacity: 1, color: '#000000', spacing: 1 },
+      },
+      autosave: { dirtyRevision: 0 },
+      setLayersVisibility,
+    } as unknown as ReturnType<typeof getAppStoreState>);
+    const execute = createVesselCollaborationExecutor(() => ({
+      canvasRef: { current: null },
+      compositeCanvasDirtyRef: { current: false },
+      dispatchStroke: jest.fn(),
+      rebuildStaticComposite: jest.fn(async () => true),
+      requestRedraw: jest.fn(),
+    }));
+
+    const result = await execute({
+      id: 'command-hide-reference',
+      action: 'set-layer-visibility',
+      layerId: 'layer-reference',
+      visible: false,
+      capture: 'none',
+    });
+
+    expect(setLayersVisibility).toHaveBeenCalledWith(['layer-reference'], false);
+    expect(result.ok).toBe(true);
+  });
+
+  it('captures the complete document composite instead of the viewport canvas', async () => {
+    const compositeLayersToCanvasSync = jest.fn(() => true);
+    mockedGetAppStoreState.mockReturnValue({
+      project: { id: 'project-1', name: 'Portrait', width: 512, height: 640 },
+      activeLayerId: null,
+      currentBrushPreset: null,
+      layers: [],
+      tools: {
+        currentTool: 'brush',
+        brushSettings: { size: 20, opacity: 1, color: '#112233', spacing: 1 },
+      },
+      autosave: { dirtyRevision: 0 },
+      compositeLayersToCanvasSync,
+    } as unknown as ReturnType<typeof getAppStoreState>);
+    const documentCanvas = {
+      width: 0,
+      height: 0,
+      toDataURL: jest.fn(() => 'data:image/png;base64,document-frame'),
+    } as unknown as HTMLCanvasElement;
+    jest.spyOn(document, 'createElement').mockReturnValueOnce(documentCanvas);
+    const viewportCanvas = {
+      width: 1351,
+      height: 1080,
+      toDataURL: jest.fn(() => 'data:image/png;base64,viewport-frame'),
+    } as unknown as HTMLCanvasElement;
+    const execute = createVesselCollaborationExecutor(() => ({
+      canvasRef: { current: viewportCanvas },
+      compositeCanvasDirtyRef: { current: false },
+      dispatchStroke: jest.fn(),
+      rebuildStaticComposite: jest.fn(async () => true),
+      requestRedraw: jest.fn(),
+    }));
+
+    const result = await execute({
+      id: 'command-observe-document',
+      action: 'observe',
+      capture: 'final-thumbnail',
+    });
+
+    expect(compositeLayersToCanvasSync).toHaveBeenCalledWith(documentCanvas);
+    expect(viewportCanvas.toDataURL).not.toHaveBeenCalled();
+    expect(result.frame).toMatchObject({
+      width: 512,
+      height: 640,
+      sourceWidth: 512,
+      sourceHeight: 640,
+      dataUrl: 'data:image/png;base64,document-frame',
+    });
   });
 
   it('routes strokes through the canonical lifecycle and returns the rendered frame', async () => {
@@ -379,6 +626,7 @@ describe('createVesselCollaborationExecutor', () => {
       },
       autosave: { dirtyRevision: 0 },
       addLayer: jest.fn(),
+      ensureColorCycleLayerRuntime: jest.fn(async () => true),
     } as unknown as ReturnType<typeof getAppStoreState>;
     (state.addLayer as jest.Mock).mockImplementation((layer) => {
       const id = 'layer-created';
@@ -415,6 +663,9 @@ describe('createVesselCollaborationExecutor', () => {
         flowMode: 'reverse',
       },
     }));
+    expect(state.ensureColorCycleLayerRuntime).toHaveBeenCalledWith('layer-created', {
+      target: 'active',
+    });
     expect(result).toMatchObject({
       ok: true,
       revision: 1,

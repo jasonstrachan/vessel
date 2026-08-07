@@ -11,6 +11,7 @@ import readline from 'node:readline';
 const DEFAULT_PORT = 4317;
 const MAX_BODY_BYTES = 32 * 1024 * 1024;
 const MAX_PROJECT_FILE_BYTES = 18 * 1024 * 1024;
+const MAX_REFERENCE_IMAGE_BYTES = 12 * 1024 * 1024;
 const MAX_RETAINED_COMMANDS = 32;
 const COMMAND_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const REQUEST_ID_PATTERN = /^[a-z0-9][a-z0-9._:-]{0,127}$/i;
@@ -421,6 +422,8 @@ const materializeFrames = async (result, { session, framePath, frameDir }) => {
 const compactResultState = (state) => state ? {
   project: state.project,
   activeLayerId: state.activeLayerId,
+  referenceLayerId: state.referenceLayerId,
+  preferReferenceSampling: state.preferReferenceSampling,
   currentTool: state.currentTool,
   currentBrushPresetId: state.currentBrushPresetId,
   currentBrushCapabilities: state.currentBrushCapabilities,
@@ -441,8 +444,11 @@ const compactCollaborationResult = (result, { resultPath } = {}) => ({
   completedOperations: result.completedOperations,
   timedOut: result.timedOut,
   state: result.action === 'observe' ||
+    result.action === 'new-project' ||
     result.action === 'open-project' ||
+    result.action === 'import-reference-image' ||
     result.action === 'create-layer' ||
+    result.action === 'set-layer-visibility' ||
     result.action === 'batch'
     ? compactResultState(result.state)
     : undefined,
@@ -514,6 +520,39 @@ const applyCaptureFlags = (command, flags) => {
   return command;
 };
 
+const referenceImageMimeType = (filePath) => {
+  switch (path.extname(filePath).toLowerCase()) {
+    case '.png':
+      return 'image/png';
+    case '.jpg':
+    case '.jpeg':
+      return 'image/jpeg';
+    case '.webp':
+      return 'image/webp';
+    default:
+      throw new Error('Reference image must be a PNG, JPEG, or WebP file');
+  }
+};
+
+const expandLocalReferenceImage = async (command) => {
+  if (command.action !== 'import-reference-image' || command.filePath === undefined) {
+    return command;
+  }
+  const filePath = path.resolve(String(command.filePath));
+  const fileBytes = await fs.readFile(filePath);
+  if (fileBytes.byteLength > MAX_REFERENCE_IMAGE_BYTES) {
+    throw new Error('Reference image exceeds the current 12 MB bridge file limit');
+  }
+  const expanded = {
+    ...command,
+    fileName: command.fileName ?? path.basename(filePath),
+    mimeType: command.mimeType ?? referenceImageMimeType(filePath),
+    dataBase64: fileBytes.toString('base64'),
+  };
+  delete expanded.filePath;
+  return expanded;
+};
+
 const buildCommand = async ({ positional, flags }) => {
   const action = positional[1];
   let command;
@@ -535,6 +574,16 @@ const buildCommand = async ({ positional, flags }) => {
       fileName: path.basename(filePath),
       dataBase64: fileBytes.toString('base64'),
     };
+  } else if (action === 'import-reference-image') {
+    const fileFlag = flags.get('file');
+    if (typeof fileFlag !== 'string' || fileFlag.trim().length === 0) {
+      throw new Error('import-reference-image requires --file /path/to/image');
+    }
+    command = await expandLocalReferenceImage({
+      action,
+      filePath: fileFlag,
+      fit: flags.has('fit') ? String(flags.get('fit')) : undefined,
+    });
   } else if (flags.has('json')) {
     command = JSON.parse(String(flags.get('json')));
   } else if (action) {
@@ -585,10 +634,11 @@ const persistentClient = async ({ flags }) => {
       if (line.trim().length === 0) continue;
       let requestId;
       try {
-        const command = JSON.parse(line);
+        let command = JSON.parse(line);
         if (!command || typeof command !== 'object' || Array.isArray(command)) {
           throw new Error('Client input must be one JSON command per line');
         }
+        command = await expandLocalReferenceImage(command);
         if (command.action === 'get-result') {
           const commandId = String(command.commandId ?? '');
           if (!COMMAND_ID_PATTERN.test(commandId)) {

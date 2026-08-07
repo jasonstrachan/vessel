@@ -158,6 +158,12 @@ interface VesselCollaborationCreateLayerOperation {
   name?: string;
 }
 
+interface VesselCollaborationSetLayerVisibilityOperation {
+  action: 'set-layer-visibility';
+  layerId: string;
+  visible: boolean;
+}
+
 export type VesselCollaborationBatchOperation =
   | VesselCollaborationStrokeOperation
   | VesselCollaborationShapeOperation
@@ -170,13 +176,29 @@ export type VesselCollaborationBatchOperation =
   | VesselCollaborationSetGradientSourceOperation
   | VesselCollaborationSetGradientOperation
   | VesselCollaborationSetEraserOperation
+  | VesselCollaborationSetLayerVisibilityOperation
   | { action: 'set-active-layer'; layerId: string };
 
 type WithCaptureOptions<T> = T & VesselCollaborationCaptureOptions;
 
 export type VesselCollaborationCommand =
   | WithCaptureOptions<{ id: string; action: 'observe' }>
+  | WithCaptureOptions<{
+      id: string;
+      action: 'new-project';
+      width: number;
+      height: number;
+      name?: string;
+    }>
   | WithCaptureOptions<{ id: string; action: 'open-project'; fileName: string; dataBase64: string }>
+  | WithCaptureOptions<{
+      id: string;
+      action: 'import-reference-image';
+      fileName: string;
+      mimeType: 'image/png' | 'image/jpeg' | 'image/webp';
+      dataBase64: string;
+      fit?: 'contain' | 'cover' | 'stretch';
+    }>
   | WithCaptureOptions<{ id: string } & VesselCollaborationStrokeOperation>
   | WithCaptureOptions<{ id: string } & VesselCollaborationShapeOperation>
   | WithCaptureOptions<{ id: string; action: 'set-tool'; tool: 'brush' | 'eraser' }>
@@ -187,6 +209,7 @@ export type VesselCollaborationCommand =
   | WithCaptureOptions<{ id: string } & VesselCollaborationSetGradientOperation>
   | WithCaptureOptions<{ id: string } & VesselCollaborationSetEraserOperation>
   | WithCaptureOptions<{ id: string } & VesselCollaborationCreateLayerOperation>
+  | WithCaptureOptions<{ id: string } & VesselCollaborationSetLayerVisibilityOperation>
   | {
       id: string;
       action: 'batch';
@@ -235,6 +258,8 @@ export interface VesselCollaborationResult {
   state?: {
     project: { id: string; name: string; width: number; height: number } | null;
     activeLayerId: string | null;
+    referenceLayerId: string | null;
+    preferReferenceSampling: boolean;
     currentTool: string;
     currentBrushPresetId: string | null;
     currentBrushCapabilities: {
@@ -444,6 +469,7 @@ const ERASER_TIPS = new Set<VesselCollaborationEraserTip>([
 ]);
 
 const MAX_PROJECT_BASE64_CHARS = 24 * 1024 * 1024;
+const MAX_IMAGE_BASE64_CHARS = 16 * 1024 * 1024;
 const MAX_BATCH_OPERATIONS = 100;
 const MAX_BATCH_POINTS = 50000;
 const MAX_COALESCED_STROKE_POINTS = 16;
@@ -458,6 +484,32 @@ const readProjectBase64 = (value: unknown): string => {
     throw new Error('dataBase64 must be valid base64');
   }
   return dataBase64;
+};
+
+const readImageBase64 = (value: unknown): string => {
+  const dataBase64 = requireString(value, 'dataBase64');
+  if (dataBase64.length > MAX_IMAGE_BASE64_CHARS) {
+    throw new Error('dataBase64 exceeds the 16 MB image bridge limit');
+  }
+  if (dataBase64.length % 4 !== 0 || !/^[a-z0-9+/]*={0,2}$/i.test(dataBase64)) {
+    throw new Error('dataBase64 must be valid base64');
+  }
+  return dataBase64;
+};
+
+const readImageMimeType = (value: unknown) => {
+  if (value !== 'image/png' && value !== 'image/jpeg' && value !== 'image/webp') {
+    throw new Error('mimeType must be image/png, image/jpeg, or image/webp');
+  }
+  return value;
+};
+
+const readImageFit = (value: unknown): 'contain' | 'cover' | 'stretch' | undefined => {
+  if (value === undefined) return undefined;
+  if (value !== 'contain' && value !== 'cover' && value !== 'stretch') {
+    throw new Error('fit must be contain, cover, or stretch');
+  }
+  return value;
 };
 
 const readTool = (value: unknown): 'brush' | 'eraser' => {
@@ -1019,6 +1071,12 @@ const readBatchOperation = (value: unknown, index: number): VesselCollaborationB
         action,
         layerId: requireString(value.layerId, `operations[${index}].layerId`),
       };
+    case 'set-layer-visibility':
+      return {
+        action,
+        layerId: requireString(value.layerId, `operations[${index}].layerId`),
+        visible: requireBoolean(value.visible, `operations[${index}].visible`),
+      };
     case 'create-layer':
       return {
         action,
@@ -1048,12 +1106,37 @@ export const parseVesselCollaborationCommand = (value: unknown): VesselCollabora
     case 'undo':
     case 'redo':
       return { id, action, ...captureOptions };
+    case 'new-project': {
+      const width = requireInteger(value.width, 'width');
+      const height = requireInteger(value.height, 'height');
+      if (width < 1 || width > 16384 || height < 1 || height > 16384) {
+        throw new Error('width and height must be between 1 and 16384');
+      }
+      return {
+        id,
+        action,
+        width,
+        height,
+        name: readLayerName(value.name, 'name'),
+        ...captureOptions,
+      };
+    }
     case 'open-project':
       return {
         id,
         action,
         fileName: requireString(value.fileName, 'fileName'),
         dataBase64: readProjectBase64(value.dataBase64),
+        ...captureOptions,
+      };
+    case 'import-reference-image':
+      return {
+        id,
+        action,
+        fileName: requireString(value.fileName, 'fileName'),
+        mimeType: readImageMimeType(value.mimeType),
+        dataBase64: readImageBase64(value.dataBase64),
+        fit: readImageFit(value.fit),
         ...captureOptions,
       };
     case 'stroke': {
@@ -1117,6 +1200,14 @@ export const parseVesselCollaborationCommand = (value: unknown): VesselCollabora
         action,
         layerType: readLayerType(value.layerType, 'layerType'),
         name: readLayerName(value.name, 'name'),
+        ...captureOptions,
+      };
+    case 'set-layer-visibility':
+      return {
+        id,
+        action,
+        layerId: requireString(value.layerId, 'layerId'),
+        visible: requireBoolean(value.visible, 'visible'),
         ...captureOptions,
       };
     case 'batch': {

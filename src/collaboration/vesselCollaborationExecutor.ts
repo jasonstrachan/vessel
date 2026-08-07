@@ -37,6 +37,10 @@ type CreateLayerOperation = Extract<
   VesselCollaborationBatchOperation,
   { action: 'create-layer' }
 >;
+type ImportReferenceImageCommand = Extract<
+  VesselCollaborationCommand,
+  { action: 'import-reference-image' }
+>;
 type SimpleCommand = Exclude<
   VesselCollaborationCommand,
   { action: 'batch' | 'wait-for-frame' }
@@ -112,6 +116,26 @@ const captureFrame = (
   };
 };
 
+const resolveDocumentCaptureCanvas = (
+  fallbackCanvas: HTMLCanvasElement | null,
+): HTMLCanvasElement | null => {
+  const state = getAppStoreState();
+  if (
+    !state.project ||
+    typeof document === 'undefined' ||
+    typeof state.compositeLayersToCanvasSync !== 'function'
+  ) {
+    return fallbackCanvas;
+  }
+
+  const documentCanvas = document.createElement('canvas');
+  documentCanvas.width = state.project.width;
+  documentCanvas.height = state.project.height;
+  return state.compositeLayersToCanvasSync(documentCanvas)
+    ? documentCanvas
+    : fallbackCanvas;
+};
+
 const readState = () => {
   const state = getAppStoreState();
   const brush = state.tools.brushSettings;
@@ -137,6 +161,8 @@ const readState = () => {
         }
       : null,
     activeLayerId: state.activeLayerId,
+    referenceLayerId: state.referenceLayerId ?? null,
+    preferReferenceSampling: state.colorPickerPreferReferenceLayer !== false,
     currentTool: state.tools.currentTool,
     currentBrushPresetId: state.currentBrushPreset?.id ?? null,
     currentBrushCapabilities: {
@@ -247,7 +273,7 @@ const nextLayerName = (layers: Layer[], layerType: CreateLayerOperation['layerTy
   return `${prefix} ${highestSuffix + 1}`;
 };
 
-const executeCreateLayer = (operation: CreateLayerOperation) => {
+const executeCreateLayer = async (operation: CreateLayerOperation) => {
   const state = getAppStoreState();
   if (!state.project) {
     throw new Error('No Vessel project is loaded');
@@ -288,6 +314,14 @@ const executeCreateLayer = (operation: CreateLayerOperation) => {
   if (!layerId) {
     throw new Error(`Failed to create ${operation.layerType} layer`);
   }
+  if (operation.layerType === 'color-cycle') {
+    const ready = await getAppStoreState().ensureColorCycleLayerRuntime(layerId, {
+      target: 'active',
+    });
+    if (!ready) {
+      throw new Error(`Color-cycle layer is not editable: ${commonLayer.name}`);
+    }
+  }
 };
 
 const isCurrentColorCycleBrush = (state: ReturnType<typeof getAppStoreState>) => {
@@ -308,6 +342,78 @@ const decodeProjectBase64 = (dataBase64: string): ArrayBuffer => {
     bytes[index] = binary.charCodeAt(index);
   }
   return bytes.buffer;
+};
+
+const executeImportReferenceImage = async (operation: ImportReferenceImageCommand) => {
+  const state = getAppStoreState();
+  if (!state.project) {
+    throw new Error('No Vessel project is loaded');
+  }
+  if (typeof createImageBitmap !== 'function') {
+    throw new Error('Reference image decoding is unavailable');
+  }
+
+  const source = decodeProjectBase64(operation.dataBase64);
+  const bitmap = await createImageBitmap(new Blob([source], { type: operation.mimeType }));
+  try {
+    if (bitmap.width < 1 || bitmap.height < 1) {
+      throw new Error('Reference image has invalid dimensions');
+    }
+    const framebuffer = document.createElement('canvas');
+    framebuffer.width = state.project.width;
+    framebuffer.height = state.project.height;
+    const context = framebuffer.getContext('2d', { willReadFrequently: true });
+    if (!context) {
+      throw new Error('Reference image canvas is unavailable');
+    }
+    context.clearRect(0, 0, framebuffer.width, framebuffer.height);
+    context.imageSmoothingEnabled = true;
+
+    const fit = operation.fit ?? 'contain';
+    if (fit === 'stretch') {
+      context.drawImage(bitmap, 0, 0, framebuffer.width, framebuffer.height);
+    } else {
+      const scale = fit === 'cover'
+        ? Math.max(framebuffer.width / bitmap.width, framebuffer.height / bitmap.height)
+        : Math.min(framebuffer.width / bitmap.width, framebuffer.height / bitmap.height);
+      const width = bitmap.width * scale;
+      const height = bitmap.height * scale;
+      context.drawImage(
+        bitmap,
+        (framebuffer.width - width) / 2,
+        (framebuffer.height - height) / 2,
+        width,
+        height,
+      );
+    }
+
+    const imageData = context.getImageData(0, 0, framebuffer.width, framebuffer.height);
+    const layerId = state.addLayer({
+      name: operation.fileName,
+      visible: true,
+      opacity: 1,
+      blendMode: 'source-over',
+      locked: false,
+      transparencyLocked: false,
+      imageData,
+      framebuffer,
+      alignment: createDefaultLayerAlignment(),
+      layerType: 'normal',
+    });
+    if (!layerId) {
+      throw new Error('Failed to create reference image layer');
+    }
+
+    const nextState = getAppStoreState();
+    const sourceIndex = nextState.layers.findIndex((layer) => layer.id === layerId);
+    if (sourceIndex > 0) {
+      nextState.reorderLayers(sourceIndex, 0);
+    }
+    getAppStoreState().setReferenceLayer(layerId);
+    getAppStoreState().setColorPickerPreferReferenceLayer(true);
+  } finally {
+    bitmap.close();
+  }
 };
 
 const executeStroke = async (
@@ -445,6 +551,9 @@ const executeMutation = async (
   switch (operation.action) {
     case 'observe':
       return;
+    case 'new-project':
+      state.newProject(operation.width, operation.height, operation.name);
+      return;
     case 'open-project': {
       const project = await deserializeProject(decodeProjectBase64(operation.dataBase64), {
         lazyColorCycleRuntime: true,
@@ -452,6 +561,9 @@ const executeMutation = async (
       await state.importProject(project, { fileName: operation.fileName, fileHandle: null });
       return;
     }
+    case 'import-reference-image':
+      await executeImportReferenceImage(operation);
+      return;
     case 'stroke':
       await executeStroke(operation, runtime);
       return;
@@ -492,8 +604,16 @@ const executeMutation = async (
       state.setActiveLayer(layer.id);
       return;
     }
+    case 'set-layer-visibility': {
+      const layer = state.layers.find((candidate) => candidate.id === operation.layerId);
+      if (!layer) {
+        throw new Error(`Layer not found: ${operation.layerId}`);
+      }
+      state.setLayersVisibility([layer.id], operation.visible);
+      return;
+    }
     case 'create-layer':
-      executeCreateLayer(operation);
+      await executeCreateLayer(operation);
       return;
     case 'undo':
       await state.undo();
@@ -526,6 +646,7 @@ const defaultCapturePolicy = (
     case 'set-eraser':
     case 'set-active-layer':
     case 'create-layer':
+    case 'set-layer-visibility':
     case 'save':
       return 'none';
     default:
@@ -534,7 +655,10 @@ const defaultCapturePolicy = (
 };
 
 const needsPresentation = (action: MutationOperation['action']) =>
+  action === 'new-project' ||
   action === 'open-project' ||
+  action === 'import-reference-image' ||
+  action === 'set-layer-visibility' ||
   action === 'stroke' ||
   action === 'shape' ||
   action === 'undo' ||
@@ -558,7 +682,7 @@ const presentAndCapture = async (
 
   const captureStartedAt = performance.now();
   const frame = captureFrame(
-    runtime.canvasRef.current,
+    resolveDocumentCaptureCanvas(runtime.canvasRef.current),
     capturePolicy === 'full' ? 'full' : 'final-thumbnail',
     thumbnailMaxSize,
   );
@@ -570,6 +694,7 @@ const presentAndCapture = async (
 };
 
 const isGestureAction = (action: MutationOperation['action']) =>
+  action === 'new-project' ||
   action === 'stroke' ||
   action === 'shape' ||
   action === 'open-project' ||

@@ -1,6 +1,29 @@
 import { parseVesselCollaborationCommand } from '../vesselCollaborationProtocol';
 
 describe('parseVesselCollaborationCommand', () => {
+  it('accepts bounded new-project dimensions and an optional name', () => {
+    expect(parseVesselCollaborationCommand({
+      id: 'command-new-project',
+      action: 'new-project',
+      width: 512,
+      height: 640,
+      name: 'Sea Light Study',
+    })).toEqual({
+      id: 'command-new-project',
+      action: 'new-project',
+      width: 512,
+      height: 640,
+      name: 'Sea Light Study',
+    });
+
+    expect(() => parseVesselCollaborationCommand({
+      id: 'command-new-project-invalid',
+      action: 'new-project',
+      width: 0,
+      height: 640,
+    })).toThrow('width and height must be between 1 and 16384');
+  });
+
   it('accepts a bounded pressure-aware stroke', () => {
     expect(parseVesselCollaborationCommand({
       id: 'command-1',
@@ -149,6 +172,32 @@ describe('parseVesselCollaborationCommand', () => {
     })).toThrow('dataBase64 must be valid base64');
   });
 
+  it('accepts a bounded reference-image transfer and fit mode', () => {
+    expect(parseVesselCollaborationCommand({
+      id: 'command-reference-image',
+      action: 'import-reference-image',
+      fileName: 'reference.png',
+      mimeType: 'image/png',
+      dataBase64: 'iVBORw==',
+      fit: 'cover',
+    })).toEqual({
+      id: 'command-reference-image',
+      action: 'import-reference-image',
+      fileName: 'reference.png',
+      mimeType: 'image/png',
+      dataBase64: 'iVBORw==',
+      fit: 'cover',
+    });
+
+    expect(() => parseVesselCollaborationCommand({
+      id: 'command-reference-image-invalid',
+      action: 'import-reference-image',
+      fileName: 'reference.gif',
+      mimeType: 'image/gif',
+      dataBase64: 'R0lGODlh',
+    })).toThrow('mimeType must be image/png, image/jpeg, or image/webp');
+  });
+
   it('accepts canonical brush-preset selection', () => {
     expect(parseVesselCollaborationCommand({
       id: 'command-preset',
@@ -190,6 +239,36 @@ describe('parseVesselCollaborationCommand', () => {
       action: 'create-layer',
       layerType: 'sequential',
     })).toThrow('layerType must be normal or color-cycle');
+  });
+
+  it('accepts layer visibility changes directly and in batches', () => {
+    expect(parseVesselCollaborationCommand({
+      id: 'command-hide-layer',
+      action: 'set-layer-visibility',
+      layerId: 'reference-layer',
+      visible: false,
+    })).toEqual({
+      id: 'command-hide-layer',
+      action: 'set-layer-visibility',
+      layerId: 'reference-layer',
+      visible: false,
+    });
+
+    expect(parseVesselCollaborationCommand({
+      id: 'command-hide-layer-batch',
+      action: 'batch',
+      operations: [{
+        action: 'set-layer-visibility',
+        layerId: 'reference-layer',
+        visible: false,
+      }],
+    })).toMatchObject({
+      operations: [{
+        action: 'set-layer-visibility',
+        layerId: 'reference-layer',
+        visible: false,
+      }],
+    });
   });
 
   it('accepts palette, gradient-source, gradient, and eraser controls', () => {

@@ -76,6 +76,9 @@ test('persistent client accepts large batches, emits compact results, and recove
   const port = await reservePort();
   const statePath = path.join(os.tmpdir(), `vessel-collab-${session}.json`);
   const resultDir = await fs.mkdtemp(path.join(os.tmpdir(), 'vessel-collab-results-'));
+  const referencePath = path.join(resultDir, 'reference.png');
+  const referenceBytes = Buffer.from('reference-image-bytes');
+  await fs.writeFile(referencePath, referenceBytes);
   const server = spawn(process.execPath, [
     SCRIPT_PATH,
     'serve',
@@ -266,6 +269,34 @@ test('persistent client accepts large batches, emits compact results, and recove
   assert.equal(observed.value.state.gradient.source, 'fg');
   assert.equal(observed.value.state.eraser.tip, 'square');
   assert.equal(observed.value.state.availableBrushPresets[0].id, 'color-cycle-flat-dither');
+
+  client.stdin.write(`${JSON.stringify({
+    requestId: 'local-reference-image',
+    action: 'import-reference-image',
+    filePath: referencePath,
+    fit: 'contain',
+  })}\n`);
+  const referenceAccepted = await output.next();
+  const referenceDelivered = await fetchJson(`${state.url}/v1/commands/next?wait=0`, { headers });
+  assert.equal(referenceDelivered.value.id, referenceAccepted.value.commandId);
+  assert.equal(referenceDelivered.value.filePath, undefined);
+  assert.equal(referenceDelivered.value.fileName, 'reference.png');
+  assert.equal(referenceDelivered.value.mimeType, 'image/png');
+  assert.equal(referenceDelivered.value.dataBase64, referenceBytes.toString('base64'));
+  assert.equal(referenceDelivered.value.fit, 'contain');
+  await fetchJson(`${state.url}/v1/commands/${referenceAccepted.value.commandId}/result`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({
+      ok: true,
+      commandId: referenceAccepted.value.commandId,
+      action: 'import-reference-image',
+      revision: 43,
+    }),
+  });
+  const referenceCompleted = await output.next();
+  assert.equal(referenceCompleted.value.action, 'import-reference-image');
+  assert.equal(referenceCompleted.value.revision, 43);
 
   client.stdin.write(encodedCommand);
   const retryAccepted = await output.next();
